@@ -506,6 +506,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawSelectionOverlay(d, scene)
 	e.drawComponentShapes2D(d, scene)
 	e.drawViewportOverlays(d, scene)
+	e.drawProblemOverlays2D(d, scene)
 	e.drawGizmo2D(d)
 	e.drawComponentShapeHandles2D(d)
 	e.drawMarqueeOverlay(d)

@@ -2,6 +2,7 @@ package editor
 
 import (
 	"slices"
+	"strconv"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base"
@@ -701,11 +702,55 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 	locked := func() bool { return ed.ObjectLocked(id) }
 
 	content := core.View{
-		TestID:    "scene-tree-row-" + id,
-		Style:     core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2},
-		StyleFunc: func() core.Style { return dropStyle(cx, hint, k) },
+		TestID: "scene-tree-row-" + id,
+		Style:  core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2, CornerRadius: 6},
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			st := dropStyle(cx, hint, k)
+			if ed.ObjectProblemCount(id) > 0 && st.Background == 0 {
+				st.Background = ed.SpecPalette(cx).Problem().Fill
+			}
+			return st
+		},
 		Children: []core.Node{
 			label,
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.ObjectProblemCount(id) > 0
+				},
+				Then: func(cx *core.Scope) core.Node {
+					spec := ed.SpecPalette(cx)
+					return core.View{
+						TestID: "scene-tree-problem-" + id,
+						Style: core.Style{
+							Direction:    core.Row,
+							AlignItems:   core.AlignCenter,
+							Gap:          3,
+							Padding:      core.Symmetric(1, 5),
+							CornerRadius: 6,
+							Background:   spec.Problem().Fill,
+							BorderWidth:  1,
+							BorderColor:  spec.Problem().Edge,
+							FlexShrink:   0,
+						},
+						Children: []core.Node{
+							problemAlertIcon(spec.Problem().Fg, 11),
+							core.Text{
+								ContentFunc: func() string {
+									_ = rev.Get()
+									return strconv.Itoa(ed.ObjectProblemCount(id))
+								},
+								Style: core.Style{
+									FontSize:   10.5,
+									FontWeight: 600,
+									Color:      spec.Problem().Fg,
+								},
+							},
+						},
+					}
+				},
+			},
 			toggle("scene-tree-eye-"+id, hidden, func(on bool) error { return ed.SetObjectHidden(id, on) }, lucide.EyeOff, lucide.Eye, ed.T("sceneTree.showNamed", l10n.Param("id", id)), ed.T("sceneTree.hideNamed", l10n.Param("id", id))),
 			toggle("scene-tree-lock-"+id, locked, func(on bool) error { return ed.SetObjectLocked(id, on) }, lucide.Lock, lucide.LockOpen, ed.T("sceneTree.unlockNamed", l10n.Param("id", id)), ed.T("sceneTree.lockNamed", l10n.Param("id", id))),
 		},

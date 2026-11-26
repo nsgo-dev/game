@@ -39,7 +39,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_copy_yaml", "object_duplicate", "object_find_usages", "object_group", "object_locate_yaml", "object_move_under", "object_paste_yaml", "object_select_same_prefab", "object_set_field", "object_visibility", "playtest_define", "playtest_report", "refactor_rename", "refs_find", "release_notes_draft", "release_review_uploads", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}
+	want := []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_copy_yaml", "object_duplicate", "object_find_usages", "object_group", "object_locate_yaml", "object_move_under", "object_paste_yaml", "object_select_same_prefab", "object_set_field", "object_visibility", "playtest_define", "playtest_report", "problem_propose_fix", "refactor_rename", "refs_find", "release_notes_draft", "release_review_uploads", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -406,7 +406,7 @@ func TestGameCheckMatchesTheProblemsPanel(t *testing.T) {
 		t.Fatalf("game_check found %+v, the Problems panel %+v", got.Problems, panel)
 	}
 	for i, p := range panel {
-		if g := got.Problems[i]; g.File != p.File || g.Line != p.Line || g.Message != p.Message || !strings.Contains(out, p.String()) {
+		if g := got.Problems[i]; g.File != p.File || g.Line != p.Line || g.Column != p.Column || g.Message != p.Message || !strings.Contains(out, p.Location()+": "+p.Message) {
 			t.Errorf("problem %d: %+v, panel %+v", i, g, p)
 		}
 	}

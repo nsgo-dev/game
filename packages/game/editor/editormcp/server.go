@@ -26,7 +26,7 @@ const ServerName = "nsgo-game-editor"
 // instructions is what the server tells clients when they connect.
 const instructions = `Reads and edits the game project open in the NSGo Game Editor, as the person using the editor does: through the same editor commands as its inspector, scene tree and viewport, so every edit is one undo step the person can see and take back.
 
-Start with selection_get for what the person has selected and the scene open in the editor, and scene_read for any scene, prefab, data or project file, with line numbers. Change the open scene with scene_edit: add, move, set and remove objects, components and properties, all of one call kept as one undo step or, when the editor refuses any of them, none at all. Edits stay unsaved in the editor until the person saves. viewport_image is a PNG of the viewport, and game_check runs the checks of the Problems panel over the project's files on disk.
+Start with selection_get for what the person has selected and the scene open in the editor, and scene_read for any scene, prefab, data or project file, with line numbers. Change the open scene with scene_edit: add, move, set and remove objects, components and properties, all of one call kept as one undo step or, when the editor refuses any of them, none at all. Edits stay unsaved in the editor until the person saves. viewport_image is a PNG of the viewport, game_check runs the checks of the Problems panel over the project including unsaved open documents, and problem_propose_fix proposes a fix for a problem without applying it.
 
 Resources editor://scene and editor://selection hold the open scene and the selection; subscribe to them to hear of each change, whose _meta says whether the person or the agent made it.`
 

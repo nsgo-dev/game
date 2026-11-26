@@ -985,11 +985,16 @@ func main() {
 - **缺失翻译高亮**：译文为空（或复数键缺少 `other` 回退形式）的单元格会以警告边框和 `Missing` 标记高亮；可通过 `LocalizationMissing`、`LocalizationMissingCount` 和 `LocalizationIsMissing` 查询。未翻译的键在保存时会被省略，以便运行时 `l10n.Catalog` 沿 BCP-47 链自动回退。
 - **撤销、保存与面板状态**：所有本地化编辑都接入 `Editor.History`（撤销/重做）。点击 **Save Strings**（`SaveLocalizations` / `SaveLocalizationsTo`）通过 `l10n.EncodeYAML` 将每种语言以确定性规范 YAML 写入 `<dir>/<locale>.yaml`，并清理已从工作区移除的语言文件。面板错误会以可关闭横幅展示（`LocalizationError` / `ClearLocalizationError`），异步加载流程可通过 `LocalizationLoading` / `SetLocalizationLoading` 切换加载状态卡片。
 
-## 问题面板（#913）
+## 问题面板与智能体修复建议（#913、#1036）
 
-打开项目后，视口下方的问题面板（`ProblemsView`）会在 UI 协程之外对项目目录运行 `assetcheck.CheckWith`（使用编辑器的组件注册表）和 `project.Check`，并在状态栏实时显示问题总数（`Problems: N`）。打开项目（`OpenProject`）、保存场景（`SaveFile`）、保存项目（`SaveProject`）、保存动画片段（`SaveClipFile`）、移动文件（`MoveFile`，包括撤销与重做）以及更换组件注册表（`SetComponentRegistry`）后都会自动重新检查。在编辑器之外修改了文件后，可点击面板上的 Check 按钮（`CheckProblems`）手动触发检查。
+打开项目后，视口下方的问题面板（`ProblemsView`）会在 UI 协程之外对项目目录叠加所有已打开且未保存的编辑器文档运行 `assetcheck.CheckWith`（使用编辑器的组件注册表）和 `project.Check`，并在状态栏实时显示问题总数（`Problems: N`）。无论是用户还是智能体在编辑器中完成编辑，都会自动防抖重检（`ProblemCheckDebounce`，默认 80 毫秒），无需先保存即可立即发现问题；打开项目（`OpenProject`）、保存文件（`SaveFile`、`SaveProject`、`SaveClipFile`）、移动文件（`MoveFile`，包括撤销与重做）以及更换组件注册表（`SetComponentRegistry`）后也会自动重检。在编辑器之外修改了文件后，可点击面板上的 Check 按钮（`CheckProblems`）手动触发检查。
 
-每行显示一条问题的文件路径、从 1 开始的行号（有行号时）和错误信息，与在同一项目上运行 `nsgo game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则直接打开该场景；若是其他项目文件或无法解析的场景，则在文件浏览器中选中该文件（`SelectedFile`、`SelectFile`）。问题位于已打开的场景时只选中该文件，不会重新加载场景；有未保存的修改时打开另一个场景，会像文件浏览器那样先询问保存、丢弃还是取消。在 Go 代码中，可从任意协程安全调用 `Problems`、`ProblemCount`、`ProblemErr`、`CheckingProblems` 和 `WaitForProblems` 读取或等待后台检查结果。
+每行显示一条问题的 `file:line:column` 位置（`assetcheck.Problem.Location`，场景或 YAML 格式能定位时附带从 1 开始的列号）、Spec 告警图标和错误信息，与在同一项目上运行 `nsgo game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，会在新标签页中打开对应场景而不会丢失其他标签页的未保存修改，或在文件浏览器中选中非场景文件（`SelectedFile`、`SelectFile`）。归属于当前打开场景对象的活动问题还会直接通过 Spec Problem 叠加层绘制在 2D 视口的活动对象上（2 px 实线问题外框加带告警图标和消息的实心胶囊，可通过 `SetProblemOverlayVisible` 切换），并在场景树对应行显示问题计数徽章（`ObjectProblems`、`ObjectProblemCount`）。
+
+- **智能体修复建议（`ProposeProblemFix`、`ApplyProposedFix`、`ProblemAgentPanelView`）**：通过 MCP（`game_check`）看到实时问题的智能体，可以调用 `problem_propose_fix` 提交问题、说明与经校验的结构化编辑。提议修复时仅在克隆的场景文档上模拟校验并计算精确的 `-`/`+` YAML 差异，随后在右侧打开 **Agent** 面板展示问题卡片（`file:line:col`）、说明、差异、**Apply fix**、**Show me**、**Ignore** 与 **"Ask about this problem…"**，**绝不自动应用修改或改写任何文件**。只有用户点击 **Apply fix**（`ApplyProposedFix`）时，编辑器才会把修复作为单个可撤销的 `History` 步骤应用，并弹出带 **Undo** 按钮的 Spec Toast；执行一次撤销即可恢复原有 YAML 并让问题重新出现。
+- **定位查看、忽略与追问（`ShowProblem`、`IgnoreProblem`、`AskAboutProblem`）**：**Show me** 会打开问题所在场景、选中并框选对应对象，同时高亮精确的 YAML 代码行。**Ignore** 会从问题面板、状态栏、场景树徽章和视口叠加层中隐藏该问题，直到对应文件再次被修改（基于实时内容哈希追踪）；一旦对该文件进行新编辑且问题仍成立，该问题会自动重新显现。提交 **"Ask about this problem…"** 会将问题、归属对象及已提议的修复一并附带交给回调（`OnAskAboutProblem`）。
+
+在 Go 代码中，可安全使用 `Problems`、`ProblemCount`、`ProblemErr`、`CheckingProblems`、`WaitForProblems`、`IgnoreProblem`、`IsProblemIgnored`、`ProposeProblemFix`、`ProposedFixes`、`ApplyProposedFix`、`ShowProblem` 与 `AskAboutProblem` 管理实时问题与修复建议。
 
 ## 导出与发布构建（#916、#1060）
 

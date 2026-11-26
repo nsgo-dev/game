@@ -538,12 +538,23 @@ strings:
   palette.pluginToolDesc: 插件工具（{plugin}）
   palette.projectFile: 项目文件
   palette.searchLabel: 搜索命令
+  problems.agentHeader: 智能体
+  problems.agentNote: 文件一有改动就会立即发现问题，无论来自你还是智能体；智能体只提出修复方案，绝不会未经你同意自动应用。
+  problems.applyFix: 应用修复
+  problems.askPlaceholder: 询问这个问题…
+  problems.askSend: 提问
   problems.check: 检查
   problems.checkLabel: 重新运行项目与资源检查
   problems.checking: 正在检查项目…
+  problems.closeAgentPanel: 关闭智能体面板
   problems.empty: 没有问题
   problems.error: 错误
+  problems.fixProposed: 已有修复建议
+  problems.foundBanner: game check 发现一个问题
+  problems.ignore: 忽略
+  problems.openPanelLabel: 切换智能体问题面板
   problems.retry: 重试
+  problems.showMe: 定位查看
   problems.statusChecking: 问题：检查中…
   problems.statusCount: 问题：{count}
   problems.statusError: 问题：错误

@@ -504,6 +504,10 @@ type Editor struct {
 	AgentScheduleAfter func(d time.Duration, fn func()) (cancel func())
 	// OnFocusAgentRequest, when set, is called when the user clicks the "Waiting for you" status chip to focus the open request.
 	OnFocusAgentRequest func(req AgentOpenRequest)
+	// ProblemCheckDebounce controls the debounce delay before live problem checks run after edits (defaults to 80ms when <= 0).
+	ProblemCheckDebounce time.Duration
+	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.
+	OnAskAboutProblem func(ProblemQuestionRequest)
 
 	playing            bool
 	playSnapshot       []byte
@@ -1022,6 +1026,7 @@ func (e *Editor) afterMutate() {
 		e.syncActiveTab()
 	}
 	e.refreshOpenSceneSearch()
+	e.scheduleLiveProblemCheck()
 	e.notify()
 }
 
@@ -1042,9 +1047,23 @@ func (e *Editor) Rebuild() {
 		return
 	}
 	e.syncProjectAssets()
-	built, err := sceneformat.Build(e.Doc, e.liveResolver())
+	resolver := e.liveResolver()
+	built, err := sceneformat.Build(e.Doc, resolver)
 	if err != nil {
 		e.BuildErr = err
+		// When a scene fails to build solely because of a broken connection (for example an
+		// object renamed in an unsaved base/instanced scene), keep rendering the live scene
+		// objects so the viewport draws the Spec Problem overlay directly on them.
+		if len(e.Doc.Connections) > 0 {
+			noConns := e.Doc.Clone()
+			noConns.Connections = nil
+			if fallback, ferr := sceneformat.Build(noConns, resolver); ferr == nil {
+				fallback.DrawAllTiles = true
+				e.Built = fallback
+				e.syncSceneEmitterLoop()
+				e.recomputeNavPath2D()
+			}
+		}
 		return
 	}
 	// The 2D view pans and zooms past the scene camera's frame, so the edit scene draws every tile of its maps.

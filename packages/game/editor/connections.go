@@ -352,7 +352,7 @@ func (e *Editor) validateConnections(candidate []sceneformat.ConnectionDoc) erro
 	if !check.RefersToScenes() {
 		return sceneformat.ValidateConnections(&check, e.components)
 	}
-	scenes, ok := e.Resolver.(sceneformat.SceneResolver)
+	scenes, ok := e.liveResolver().(sceneformat.SceneResolver)
 	if !ok {
 		return nil
 	}

@@ -102,6 +102,7 @@ func ExampleServer_AddTool() {
 	// object_visibility edit
 	// playtest_define edit
 	// playtest_report edit
+	// problem_propose_fix read
 	// refactor_rename edit
 	// refs_find read
 	// release_notes_draft edit

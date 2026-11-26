@@ -289,11 +289,20 @@ func TestBrokenReferencesNameFileAndLine(t *testing.T) {
 }
 
 func TestProblemString(t *testing.T) {
-	if got := (assetcheck.Problem{File: "a/b.tmj", Line: 3, Message: "bad"}).String(); got != "a/b.tmj:3: bad" {
+	if got := (assetcheck.Problem{File: "a/b.tmj", Line: 3, Column: 7, Message: "bad"}).String(); got != "a/b.tmj:3: bad" {
 		t.Fatalf("String() = %q", got)
 	}
 	if got := (assetcheck.Problem{File: "a/b.tmj", Message: "bad"}).String(); got != "a/b.tmj: bad" {
 		t.Fatalf("String() without a line = %q", got)
+	}
+	if got := (assetcheck.Problem{File: "a/b.scene.yaml", Line: 42, Column: 7, Message: "bad"}).Location(); got != "a/b.scene.yaml:42:7" {
+		t.Fatalf("Location() with column = %q", got)
+	}
+	if got := (assetcheck.Problem{File: "a/b.scene.yaml", Line: 42, Message: "bad"}).Location(); got != "a/b.scene.yaml:42" {
+		t.Fatalf("Location() without column = %q", got)
+	}
+	if got := (assetcheck.Problem{File: "a/b.scene.yaml", Message: "bad"}).Location(); got != "a/b.scene.yaml" {
+		t.Fatalf("Location() without line = %q", got)
 	}
 }
 

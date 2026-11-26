@@ -439,7 +439,7 @@ func (e *Editor) SelectTab(index int) error {
 	e.baseLayers = baseLayerCache{}
 	e.baseScenes = baseSceneCache{}
 	e.s3d.stale = true
-	if e.syncProjectAssets() || e.Built == nil {
+	if e.syncProjectAssets() || e.Built == nil || (e.Doc != nil && e.Doc.RefersToScenes() && e.hasDirtySceneTab()) {
 		e.Rebuild()
 	} else {
 		e.refreshClipPreview()
@@ -654,7 +654,7 @@ func (e *Editor) CloseTab(index int) error {
 	e.baseLayers = baseLayerCache{}
 	e.baseScenes = baseSceneCache{}
 	e.s3d.stale = true
-	if e.syncProjectAssets() || e.Built == nil {
+	if e.syncProjectAssets() || e.Built == nil || (e.Doc != nil && e.Doc.RefersToScenes() && e.hasDirtySceneTab()) {
 		e.Rebuild()
 	} else {
 		e.refreshClipPreview()

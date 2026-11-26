@@ -1604,15 +1604,19 @@ func (e *Editor) liveTilesetYAML(p string) ([]byte, bool, error) {
 	return data, true, err
 }
 
-// liveResolver wraps e.Resolver so sceneformat.Build sees live unsaved edits made in the Tileset Editor immediately,
-// while forwarding every optional sceneformat resolver interface and preserving FileResolver fallbacks.
+// liveResolver wraps e.Resolver so sceneformat.Build and connection validation see live unsaved edits
+// made in the Tileset Editor or in open scene tabs immediately, while forwarding every optional
+// sceneformat resolver interface and preserving FileResolver fallbacks.
 func (e *Editor) liveResolver() sceneformat.AssetResolver {
-	if e == nil || e.Resolver == nil {
+	if e == nil {
+		return nil
+	}
+	if e.Resolver == nil && !e.TilesetOpen() && !e.hasDirtySceneTab() {
 		return nil
 	}
 	_, hasFile := e.Resolver.(sceneformat.FileResolver)
 	_, hasImage := e.Resolver.(sceneformat.ImageResolver)
-	if !e.TilesetOpen() && (!hasFile || hasImage) {
+	if !e.TilesetOpen() && !e.hasDirtySceneTab() && (!hasFile || hasImage) {
 		return e.Resolver
 	}
 	base := &liveTilesetResolver{ed: e, inner: e.Resolver}
@@ -1657,6 +1661,9 @@ func (r *liveTilesetResolver) Image(p string) (core.ImageSource, error) {
 }
 
 func (r *liveTilesetResolver) Scene(p string) (*sceneformat.SceneDoc, error) {
+	if doc := r.ed.liveOpenSceneDoc(p); doc != nil {
+		return doc, nil
+	}
 	if sr, ok := r.inner.(sceneformat.SceneResolver); ok {
 		return sr.Scene(p)
 	}

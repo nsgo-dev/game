@@ -105,6 +105,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopExportBuild()
 		ed.stopReleaseBuild()
 		ed.stopAssetsBuild()
+		ed.stopProblemCheckTimer()
 		ed.stopDiskWatcher()
 		ed.CloseObjectContextMenu()
 		ed.stopAgentTimers()
@@ -603,13 +604,24 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 								core.Show{
 									When: func() bool {
 										_ = rev.Get()
-										return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
+										return !ed.Playing() && ed.ProblemAgentPanelOpen()
 									},
 									Then: func(cx *core.Scope) core.Node {
-										return TileReviewPanelView(cx, ed, rev)
+										return ProblemAgentPanelView(cx, ed, rev)
 									},
 									Else: func(cx *core.Scope) core.Node {
-										return RightRailView(cx, ed, rev)
+										return core.Show{
+											When: func() bool {
+												_ = rev.Get()
+												return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
+											},
+											Then: func(cx *core.Scope) core.Node {
+												return TileReviewPanelView(cx, ed, rev)
+											},
+											Else: func(cx *core.Scope) core.Node {
+												return RightRailView(cx, ed, rev)
+											},
+										}
 									},
 								},
 								pluginDockView(cx, ed, rev, DockRight),
@@ -1585,15 +1597,69 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							return ed.Project != nil && ed.ProjectPath != ""
 						},
 						Then: func(cx *core.Scope) core.Node {
-							return core.Text{
-								TestID: "status-problems",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return ed.problemsStatusText()
-								},
+							spec := ed.SpecPalette(cx)
+							return core.View{
+								TestID:    "status-problems-pill",
+								Role:      core.RoleButton,
+								Label:     ed.T("problems.openPanelLabel"),
+								Focusable: func() bool { return true },
 								Style: core.Style{
-									FontSize: 11,
-									Color:    colors.Muted(),
+									Direction:    core.Row,
+									AlignItems:   core.AlignCenter,
+									Gap:          5,
+									Height:       core.Pt(22),
+									Padding:      core.Symmetric(0, 8),
+									CornerRadius: 11,
+									FocusVisible: spec.FocusRing(2),
+								},
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									if ed.ProblemCount() > 0 {
+										p := ed.SpecPalette(cx)
+										return core.Style{
+											Background:  p.Problem().Fill,
+											BorderWidth: 1,
+											BorderColor: p.Problem().Edge,
+										}
+									}
+									return core.Style{}
+								},
+								OnPress: func(core.PressEvent) {
+									ed.SetProblemAgentPanelOpen(!ed.ProblemAgentPanelOpen())
+								},
+								Children: []core.Node{
+									core.Show{
+										When: func() bool {
+											_ = rev.Get()
+											return ed.ProblemCount() > 0
+										},
+										Then: func(cx *core.Scope) core.Node {
+											return problemAlertIcon(ed.SpecPalette(cx).Problem().Fg, 12)
+										},
+									},
+									core.Text{
+										TestID: "status-problems",
+										ContentFunc: func() string {
+											_ = rev.Get()
+											return ed.problemsStatusText()
+										},
+										Style: core.Style{
+											FontSize: 11,
+											Color:    colors.Muted(),
+										},
+										StyleFunc: func() core.Style {
+											_ = rev.Get()
+											if ed.ProblemCount() > 0 {
+												return core.Style{
+													FontWeight: 600,
+													Color:      ed.SpecPalette(cx).Problem().Fg,
+												}
+											}
+											return core.Style{
+												Color: ed.SpecPalette(cx).TextFaint,
+											}
+										},
+									},
 								},
 							}
 						},

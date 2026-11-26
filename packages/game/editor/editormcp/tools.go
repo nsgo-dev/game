@@ -87,7 +87,7 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolGameCheck,
 			Title:       "Check the project",
-			Description: "Run game check over the open project, as the Problems panel does (assetcheck with the editor's component registry, and project.Check), and return the problems it lists, each with its file, line and message. It reads the files on disk, so save the open scene first for its unsaved edits to count; the reply says when it has some.",
+			Description: "Run game check over the open project, as the Problems panel does (assetcheck with the editor's component registry, and project.Check, including open unsaved documents in the editor), and return the visible problems with file, line, column and message.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionRun,
 			Handler:     gameCheck,
@@ -140,7 +140,7 @@ func builtinTools() []Tool {
 			Action:      ActionEdit,
 			Handler:     tilesetEdit,
 		},
-	}, append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...)...)
+	}, append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), problemTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.
@@ -697,15 +697,17 @@ type Problem struct {
 	File string `json:"file"`
 	// Line is the 1-based line of the problem, or 0 when it is about the whole file.
 	Line int `json:"line,omitempty"`
+	// Column is the 1-based column on Line where the scene format knows it, or 0 when unknown.
+	Column int `json:"column,omitempty"`
 	// Message says what is wrong.
 	Message string `json:"message"`
 }
 
 // Check is what game_check reports.
 type Check struct {
-	// Problems are the problems the Problems panel lists, sorted by file, line and message.
+	// Problems are the visible problems the Problems panel lists, sorted by file, line, column and message.
 	Problems []Problem `json:"problems"`
-	// Unsaved names the open scene when the editor holds edits to it not saved, which the check, reading the files on disk, did not see.
+	// Unsaved names the open scene when the editor holds edits to it not yet saved on disk (which game_check checked live).
 	Unsaved string `json:"unsaved,omitempty"`
 }
 
@@ -749,7 +751,7 @@ func gameCheck(ctx context.Context, c *Call) (*Result, error) {
 	found := ed.Problems()
 	res := Check{Problems: make([]Problem, 0, len(found))}
 	for _, p := range found {
-		res.Problems = append(res.Problems, Problem{File: p.File, Line: p.Line, Message: p.Message})
+		res.Problems = append(res.Problems, Problem{File: p.File, Line: p.Line, Column: p.Column, Message: p.Message})
 	}
 	if file != "" && unsaved(scene, file, reg) {
 		res.Unsaved = name
@@ -764,11 +766,13 @@ func gameCheck(ctx context.Context, c *Call) (*Result, error) {
 		fmt.Fprintf(&b, "%d problems:\n", len(res.Problems))
 	}
 	for _, p := range found {
-		b.WriteString(p.String())
+		b.WriteString(p.Location())
+		b.WriteString(": ")
+		b.WriteString(p.Message)
 		b.WriteByte('\n')
 	}
 	if res.Unsaved != "" {
-		fmt.Fprintf(&b, "%s has edits that are not saved, which the check did not see.\n", res.Unsaved)
+		fmt.Fprintf(&b, "%s has edits that are not saved (checked live from the editor).\n", res.Unsaved)
 	}
 	return &Result{Text: b.String(), Structured: res}, nil
 }

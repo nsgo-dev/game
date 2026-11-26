@@ -47,8 +47,22 @@ type Problem struct {
 	File string
 	// Line is the 1-based line of the file that holds the problem, or 0 when the problem is about the whole file, such as a loader error that names no place in it.
 	Line int
+	// Column is the 1-based column on Line where the scene or YAML format knows it, or 0 when unknown.
+	Column int
 	// Message says what is wrong.
 	Message string
+}
+
+// Location formats p's source position as "file:line:column" when both Line and Column are known,
+// "file:line" when only Line is known, or "file" otherwise.
+func (p Problem) Location() string {
+	if p.Line > 0 {
+		if p.Column > 0 {
+			return p.File + ":" + strconv.Itoa(p.Line) + ":" + strconv.Itoa(p.Column)
+		}
+		return p.File + ":" + strconv.Itoa(p.Line)
+	}
+	return p.File
 }
 
 // String formats p as "file:line: message", or "file: message" when it has no line, as compilers and go vet print theirs.
@@ -268,15 +282,23 @@ type checker struct {
 
 // problem records a problem in file at line (0 for none).
 func (c *checker) problem(file string, line int, format string, args ...any) {
+	c.problemAt(file, line, 0, format, args...)
+}
+
+// problemAt records a problem in file at 1-based line and column (0 for unknown).
+func (c *checker) problemAt(file string, line, col int, format string, args ...any) {
 	c.broken[file] = true
-	c.report.Problems = append(c.report.Problems, Problem{File: file, Line: line, Message: fmt.Sprintf(format, args...)})
+	if line <= 0 {
+		col = 0
+	}
+	c.report.Problems = append(c.report.Problems, Problem{File: file, Line: line, Column: col, Message: fmt.Sprintf(format, args...)})
 }
 
 // finish sorts the problems, drops repeats and returns the report.
 func (c *checker) finish() *Report {
 	r := &c.report
 	slices.SortFunc(r.Problems, func(a, b Problem) int {
-		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Message, b.Message))
+		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column), cmp.Compare(a.Message, b.Message))
 	})
 	r.Problems = slices.Compact(r.Problems)
 	return r
