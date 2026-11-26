@@ -31,7 +31,7 @@ const (
 	IBLUniformSize = 9*16 + 16
 )
 
-// SkyboxWGSL renders a cubemap as an infinitely distant background using a single fullscreen triangle driven by @builtin(vertex_index) (zero vertex buffers). It emits depth z = 0.99999994 (1 - 2^-24, the largest float32 below 1.0), so a pipeline with [gpu.CompareLessEqual] and DepthWrite disabled draws the skybox after opaque geometry without shading occluded pixels: only geometry whose depth is within 2^-24 of the far plane, below the precision of a 24-bit depth buffer, is painted over. Emitting exactly 1.0 would be the textbook choice, but NSGo's software rasterizer rejects fragments whose interpolated depth rounds above 1.0, which leaves clear-color holes in the sky (nsgo-dev/nsgo#2344).
+// SkyboxWGSL renders a cubemap as an infinitely distant background using a single fullscreen triangle driven by @builtin(vertex_index) (zero vertex buffers). It emits depth z = 1.0, the far plane, so a pipeline with [gpu.CompareLessEqual] and DepthWrite disabled draws the skybox after opaque geometry without shading occluded pixels: it passes only where the depth buffer still holds its clear value of 1.0, and paints over no geometry nearer than the far plane.
 const SkyboxWGSL = `struct SkyboxParams {
 	inv_view_proj: mat4x4<f32>,
 	exposure: f32,
@@ -59,7 +59,7 @@ fn vs_skybox(@builtin(vertex_index) vid: u32) -> SkyboxVertexOut {
 	}
 	let world = skybox.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
 	var out: SkyboxVertexOut;
-	out.pos = vec4<f32>(ndc, 0.99999994, 1.0);
+	out.pos = vec4<f32>(ndc, 1.0, 1.0);
 	out.dir = world.xyz;
 	return out;
 }
@@ -719,7 +719,7 @@ type SkyboxPipelineDesc struct {
 	Label string
 	// ColorFormat is the render target color format; defaults to dev.SurfaceFormat() when [gpu.FormatUndefined].
 	ColorFormat gpu.TextureFormat
-	// DepthFormat is the depth attachment format (for example [gpu.FormatDepth24Plus]). Leave [gpu.FormatUndefined] for color-only passes. When set, the pipeline uses [gpu.CompareLessEqual] with DepthWrite disabled and [SkyboxWGSL] emits depth 1 - 2^-24, so the skybox drawn after opaque geometry stays behind everything nearer than the far plane.
+	// DepthFormat is the depth attachment format (for example [gpu.FormatDepth24Plus]). Leave [gpu.FormatUndefined] for color-only passes. When set, the pipeline uses [gpu.CompareLessEqual] with DepthWrite disabled and [SkyboxWGSL] emits depth 1.0, so the skybox drawn after opaque geometry stays behind everything nearer than the far plane.
 	DepthFormat gpu.TextureFormat
 	// SampleCount is the MSAA sample count (0 or 1 for non-MSAA, 4 for 4x MSAA).
 	SampleCount int
