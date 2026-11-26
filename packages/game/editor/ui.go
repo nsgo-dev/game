@@ -63,7 +63,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	})
 	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes.
-		if ed.shortcutCaptureActive || ed.PermissionsDraftOpen() || ed.StartScreenOpen() || ed.FirstRunFullScreenOpen() || ed.ReviewOpen() || ed.MergeConflictOpen() || ed.UsagesScreenOpen() {
+		if ed.shortcutCaptureActive || ed.PermissionsDraftOpen() || ed.StartScreenOpen() || ed.FirstRunFullScreenOpen() || ed.ReviewOpen() || ed.MergeConflictOpen() || ed.DataTableReviewOpen() || ed.UsagesScreenOpen() {
 			return
 		}
 		if ed.AgentReviewOpen() && !ed.Playing() {

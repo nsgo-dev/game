@@ -364,6 +364,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.shortcutsSheetOpen = false
 	e.stopReleaseBuild()
 	e.closeBuildReleaseScreenSilent()
+	e.pauseDataTableReviewSilent()
 	e.contextMenu.open = false
 	e.contextMenu.targetID = ""
 	e.contextMenu.renameReqID = ""

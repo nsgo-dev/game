@@ -2,7 +2,9 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -627,4 +629,205 @@ func TestDataTableReviewUIAndScreenshots(t *testing.T) {
 	if raw, _ := os.ReadFile(itemsPath); !bytes.Equal(raw, origBytes) {
 		t.Fatal("Undo after UI Keep did not restore data/items.yaml byte for byte")
 	}
+}
+
+func TestDataTableReviewHardeningEdgeCases(t *testing.T) {
+	// 1. Removed records, reverted added records (lossless fast path), negative/zero/NaN/Inf Δ%, and History integration.
+	dir := t.TempDir()
+	scenesDir := filepath.Join(dir, "scenes")
+	dataDir := filepath.Join(dir, "data")
+	if err := os.MkdirAll(scenesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scenesDir, "level_01.scene.yaml"), []byte("version: 2\nname: level_01\nvirtualWidth: 320\nvirtualHeight: 180\nlayers:\n  - name: main\n    objects: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "game.yaml"), []byte("version: 1\nname: edge-test\nid: dev.nsgo.edgetest\nappVersion: 0.1.0\nwindow:\n  width: 320\n  height: 180\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origYAML := `# keep this comment intact
+version: 1
+rows:
+  - id: neg_item
+    name: Neg item
+    delta: -10
+    zero_base: 0
+  - id: removed_item
+    name: Removed item
+    delta: 20
+    zero_base: 5
+`
+	propYAML := `version: 1
+rows:
+  - id: added_first
+    name: Added first
+    delta: 99
+    zero_base: 1
+  - id: neg_item
+    name: Neg item
+    delta: -5
+    zero_base: 50
+`
+	tblPath := filepath.Join(dataDir, "edge.yaml")
+	if err := os.WriteFile(tblPath, []byte(origYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(dir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Security guards: refuse You-only, .git, game.yaml, and path traversal.
+	emptyDoc := datatable.NewDocument()
+	for _, bad := range []editor.DataTableReviewFileSpec{
+		{Path: filepath.Join(dir, "permissions.yaml"), RelPath: "permissions.yaml", Proposed: emptyDoc, IsNew: true},
+		{Path: filepath.Join(dir, ".git", "config"), RelPath: ".git/config", Proposed: emptyDoc, IsNew: true},
+		{Path: filepath.Join(dir, "game.yaml"), RelPath: "game.yaml", Proposed: emptyDoc},
+		{Path: filepath.Join(dir, "..", "escape.yaml"), RelPath: "../escape.yaml", Proposed: emptyDoc, IsNew: true},
+	} {
+		if err := ed.OpenDataTableReview(editor.DataTableReviewRequest{Files: []editor.DataTableReviewFileSpec{bad}}); err == nil {
+			t.Fatalf("expected OpenDataTableReview to refuse %q", bad.RelPath)
+		}
+	}
+
+	baseDoc, err := datatable.ParseDocument("data/edge.yaml", []byte(origYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	propDoc, err := datatable.ParseDocument("data/edge.yaml", []byte(propYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenDataTableReview(editor.DataTableReviewRequest{
+		Prompt: "Edge balance check",
+		Files: []editor.DataTableReviewFileSpec{
+			{Path: tblPath, RelPath: "data/edge.yaml", Base: baseDoc, Proposed: propDoc},
+		},
+	}); err != nil {
+		t.Fatalf("OpenDataTableReview: %v", err)
+	}
+
+	// Verify Δ% for negative base (-10 -> -5 = +50%), zero base (no delta), and removed row cells.
+	allRecs := ed.DataTableReviewAllRecords()
+	byKey := map[string]editor.DataTableReviewRecord{}
+	for _, r := range allRecs {
+		byKey[r.Key] = r
+	}
+	negRec := byKey["neg_item"]
+	if !negRec.Cells["delta"].HasDeltaPct || negRec.Cells["delta"].DeltaPct != 50 {
+		t.Fatalf("neg_item delta = (%v, %d), want (true, +50)", negRec.Cells["delta"].HasDeltaPct, negRec.Cells["delta"].DeltaPct)
+	}
+	if negRec.Cells["zero_base"].HasDeltaPct {
+		t.Fatalf("zero_base should not have HasDeltaPct when base is 0")
+	}
+	remRec := byKey["removed_item"]
+	if !remRec.Removed || remRec.DisplayName != "Removed item" {
+		t.Fatalf("removed_item view = %+v", remRec)
+	}
+	if !remRec.Cells["delta"].Changed || remRec.Cells["delta"].HasCurrent {
+		t.Fatalf("removed_item delta cell = %+v, want Changed=true and HasCurrent=false", remRec.Cells["delta"])
+	}
+
+	// FormatReviewDeltaPct must never overflow on math.MinInt.
+	if s := editor.FormatReviewDeltaPct(math.MinInt); !strings.HasPrefix(s, "−") || !strings.HasSuffix(s, "%") {
+		t.Fatalf("FormatReviewDeltaPct(MinInt) = %q", s)
+	}
+
+	// StepDataTableReviewCellNumber rejects NaN/Inf and removed records.
+	if err := ed.StepDataTableReviewCellNumber("neg_item", "delta", math.NaN()); err == nil {
+		t.Fatal("expected error for NaN step")
+	}
+	if err := ed.StepDataTableReviewCellNumber("neg_item", "delta", math.Inf(1)); err == nil {
+		t.Fatal("expected error for +Inf step")
+	}
+	if err := ed.StepDataTableReviewCellNumber("removed_item", "delta", 1); err == nil {
+		t.Fatal("expected error stepping removed record")
+	}
+
+	// Inline edit draft is preserved when validation fails.
+	ed.StartDataTableReviewCellEdit("neg_item", "delta")
+	if err := ed.SetDataTableReviewCellText("neg_item", "delta", "not_a_number"); err == nil {
+		t.Fatal("expected parse error for non-numeric cell text")
+	}
+	if got := ed.DataTableReviewEditDraft(); got != "not_a_number" {
+		t.Fatalf("DataTableReviewEditDraft() = %q, want 'not_a_number'", got)
+	}
+	ed.FinishDataTableReviewCellEdit()
+
+	// Revert the leading added row AND revert the removed row -> lossless fast path preserves comment byte-for-byte!
+	if err := ed.RevertDataTableReviewRecord("added_first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RevertDataTableReviewRecord("removed_item"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Play pauses an open review silently and Resume refuses while playing.
+	var playScope *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		playScope = cx
+		return core.View{}
+	}, nsgotest.Size(320, 180))
+	var playErr error
+	var pausedDuringPlay, reopenedDuringPlay bool
+	app.Post(func() {
+		playErr = ed.PlayIn(playScope)
+		if playErr == nil {
+			pausedDuringPlay = !ed.DataTableReviewOpen() && ed.DataTableReviewPaused()
+			ed.ResumeDataTableReview()
+			reopenedDuringPlay = ed.DataTableReviewOpen()
+			playErr = ed.Stop()
+		}
+	})
+	app.Settle()
+	if playErr != nil {
+		t.Fatalf("PlayIn/Stop: %v", playErr)
+	}
+	if !pausedDuringPlay {
+		t.Fatal("PlayIn should pause open Data Table review")
+	}
+	if reopenedDuringPlay {
+		t.Fatal("ResumeDataTableReview must not reopen while playing")
+	}
+	ed.ResumeDataTableReview()
+	if !ed.DataTableReviewOpen() {
+		t.Fatal("ResumeDataTableReview should reopen after Stop")
+	}
+
+	// Keep writes only neg_item's changed lines while keeping the header comment intact, and records a History entry.
+	if err := ed.KeepDataTableReview(); err != nil {
+		t.Fatalf("KeepDataTableReview: %v", err)
+	}
+	keptBytes, err := os.ReadFile(tblPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(keptBytes), "# keep this comment intact\n") {
+		t.Fatalf("expected header comment preserved via lossless fast path, got:\n%s", string(keptBytes))
+	}
+	if !strings.Contains(string(keptBytes), "    delta: -5\n") || !strings.Contains(string(keptBytes), "    zero_base: 50\n") {
+		t.Fatalf("expected kept edits in file, got:\n%s", string(keptBytes))
+	}
+	entries := ed.HistoryEntries()
+	if len(entries) == 0 || entries[0].Author != editor.HistoryAuthorAgent || entries[0].Summary != "Edge balance check" {
+		t.Fatalf("expected Agent History timeline entry, got %+v", entries)
+	}
+
+	// HistoryPreviewActive blocks opening a new Data Table review.
+	if err := ed.PreviewHistoryEntry(entries[0].ID); err != nil {
+		t.Fatalf("PreviewHistoryEntry: %v", err)
+	}
+	if err := ed.OpenDataTableReview(editor.DataTableReviewRequest{
+		Files: []editor.DataTableReviewFileSpec{{Path: tblPath, RelPath: "data/edge.yaml", Base: baseDoc, Proposed: propDoc}},
+	}); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("OpenDataTableReview during history preview = %v, want ErrHistoryPreview", err)
+	}
+	ed.ExitHistoryPreview()
 }

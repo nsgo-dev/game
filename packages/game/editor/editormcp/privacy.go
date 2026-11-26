@@ -297,8 +297,25 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		if !policy.SceneAndData {
 			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolGameDeleteFile)
 		}
+	case ToolDataTableReviewPropose:
+		var a struct {
+			Files []struct {
+				File string `json:"file"`
+			} `json:"files"`
+		}
+		_ = json.Unmarshal(args, &a)
+		for _, f := range a.Files {
+			if err := checkPathPrivacy(policy, root, f.File); err != nil {
+				return err
+			}
+		}
+		if !policy.SceneAndData {
+			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolDataTableReviewPropose)
+		}
 	case ToolSelectionGet,
 		ToolSceneEdit,
+		ToolDataTableReviewChecks,
+		ToolDataTableReviewStatus,
 		ToolObjectCopyYAML,
 		ToolObjectPasteYAML,
 		ToolObjectDuplicate,

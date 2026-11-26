@@ -319,6 +319,7 @@ strings:
   dtReview.resumeReview: Resume review
   dtReview.revert: Revert
   dtReview.revertAll: Revert all
+  dtReview.reviewWaiting: Review waiting
   dtReview.showRows: Show rows
   dtReview.title: Review
   dtReview.toastKept: Kept {kept} · reverted {reverted}

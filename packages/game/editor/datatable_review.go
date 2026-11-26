@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -201,6 +202,7 @@ type dtReviewFile struct {
 	sortOrder   SortOrder
 	editKey     string
 	editCol     string
+	editDraft   string
 	lastErr     error
 }
 
@@ -261,6 +263,9 @@ func (e *Editor) OpenDataTableReview(req DataTableReviewRequest) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if len(req.Files) == 0 {
 		return errors.New("editor: data table review requires at least one file")
 	}
@@ -283,6 +288,9 @@ func (e *Editor) OpenDataTableReview(req DataTableReviewRequest) error {
 			rel = fmt.Sprintf("table_%d.yaml", i+1)
 		}
 		rel = filepath.ToSlash(rel)
+		if err := e.checkDataTableReviewRelPath(rel); err != nil {
+			return err
+		}
 		rt := e.DataTableRowTypeFor(spec.Path)
 		if rt == nil {
 			rt = e.DataTableRowTypeFor(rel)
@@ -325,8 +333,34 @@ func (e *Editor) OpenDataTableReview(req DataTableReviewRequest) error {
 	return nil
 }
 
+func (e *Editor) checkDataTableReviewRelPath(rel string) error {
+	clean := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(rel)), "./")
+	if clean == "" {
+		return nil
+	}
+	if e != nil {
+		if dom, ok := e.CheckYouOnlyTarget(clean); ok {
+			return fmt.Errorf("editor: data table review refuses You-only file %q (%s)", clean, dom.DisplayName())
+		}
+	}
+	lower := strings.ToLower(clean)
+	if lower == ".git" || strings.HasPrefix(lower, ".git/") {
+		return fmt.Errorf("editor: data table review refuses path inside .git (%q)", clean)
+	}
+	if lower == strings.ToLower(project.FileName) {
+		return fmt.Errorf("editor: data table review refuses project manifest %q", clean)
+	}
+	return nil
+}
+
 func (e *Editor) checkDataTableReviewPath(filePath string) error {
-	if e == nil || e.ProjectPath == "" || filePath == "" {
+	if e == nil || filePath == "" {
+		return nil
+	}
+	if dom, ok := e.CheckYouOnlyTarget(filePath); ok {
+		return fmt.Errorf("editor: data table review refuses You-only file %q (%s)", filePath, dom.DisplayName())
+	}
+	if e.ProjectPath == "" {
 		return nil
 	}
 	root := filepath.Dir(e.ProjectPath)
@@ -336,8 +370,11 @@ func (e *Editor) checkDataTableReviewPath(filePath string) error {
 	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
 		root = realRoot
 	}
-	_, _, err := resolvePathWithinRoot(root, filePath)
-	return err
+	_, rel, err := resolvePathWithinRoot(root, filePath)
+	if err != nil {
+		return err
+	}
+	return e.checkDataTableReviewRelPath(rel)
 }
 
 func buildDataTableReviewFile(spec DataTableReviewFileSpec, rel string, rt *datatable.RowType) *dtReviewFile {
@@ -636,6 +673,7 @@ func (e *Editor) PauseDataTableReview() {
 	if f := e.activeDataTableReviewFile(); f != nil {
 		f.editKey = ""
 		f.editCol = ""
+		f.editDraft = ""
 	}
 	e.tableReview.paused = true
 	e.tableReview.rev++
@@ -652,9 +690,24 @@ func (e *Editor) PauseDataTableReview() {
 	e.notify()
 }
 
+// pauseDataTableReviewSilent pauses an open Data Table review without showing a toast
+// (used when entering Play mode so Play is never hidden behind the review screen).
+func (e *Editor) pauseDataTableReviewSilent() {
+	if e == nil || e.tableReview == nil || e.tableReview.paused {
+		return
+	}
+	if f := e.activeDataTableReviewFile(); f != nil {
+		f.editKey = ""
+		f.editCol = ""
+		f.editDraft = ""
+	}
+	e.tableReview.paused = true
+	e.tableReview.rev++
+}
+
 // ResumeDataTableReview reopens a paused Data Table review at the exact file, focus, filter, and sort state.
 func (e *Editor) ResumeDataTableReview() {
-	if e == nil || e.tableReview == nil {
+	if e == nil || e.tableReview == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	if !e.tableReview.paused {
@@ -742,6 +795,7 @@ func (e *Editor) SelectDataTableReviewFile(index int) error {
 	if cur := e.activeDataTableReviewFile(); cur != nil {
 		cur.editKey = ""
 		cur.editCol = ""
+		cur.editDraft = ""
 	}
 	e.tableReview.activeFile = index
 	e.tableReview.rev++
@@ -827,6 +881,7 @@ func (e *Editor) SetDataTableReviewFilter(filter DataTableReviewFilter) {
 	f.filter = filter
 	f.editKey = ""
 	f.editCol = ""
+	f.editDraft = ""
 	e.tableReview.rev++
 	e.notify()
 }
@@ -990,11 +1045,14 @@ func (f *dtReviewFile) cellDiff(rec *dtReviewRecord, col string) DataTableReview
 	if rec.reverted {
 		curVal, hasCur = baseVal, hasBase
 		userEdited = false
+	} else if rec.removed {
+		curVal, hasCur = datatable.Value{}, false
+		userEdited = false
 	} else if userEdited {
 		curVal, hasCur = userVal, true
 	} else if hasProp {
 		curVal, hasCur = propVal, true
-	} else if hasBase {
+	} else if hasBase && !rec.added {
 		curVal, hasCur = baseVal, true
 	}
 
@@ -1018,10 +1076,13 @@ func (f *dtReviewFile) cellDiff(rec *dtReviewRecord, col string) DataTableReview
 	deltaPct := 0
 	hasDelta := false
 	if changed && hasBase && hasCur && baseVal.Kind == datatable.KindNumber && curVal.Kind == datatable.KindNumber {
-		if bf, okB := baseVal.Float64(); okB && bf != 0 {
-			if cf, okC := curVal.Float64(); okC {
-				deltaPct = int(math.Round((cf - bf) / bf * 100))
-				hasDelta = true
+		if bf, okB := baseVal.Float64(); okB && bf != 0 && !math.IsNaN(bf) && !math.IsInf(bf, 0) {
+			if cf, okC := curVal.Float64(); okC && !math.IsNaN(cf) && !math.IsInf(cf, 0) {
+				rawPct := (cf - bf) / math.Abs(bf) * 100
+				if !math.IsNaN(rawPct) && !math.IsInf(rawPct, 0) && math.Abs(rawPct) <= 1e15 {
+					deltaPct = int(math.Round(rawPct))
+					hasDelta = true
+				}
 			}
 		}
 	}
@@ -1049,16 +1110,26 @@ func (f *dtReviewFile) buildRecordView(rec *dtReviewRecord, fileOrder int) DataT
 	}
 	displayName := rec.key
 	if f.nameCol != "" {
-		if d, ok := cells[f.nameCol]; ok && d.HasCurrent {
-			if s := d.Current.Display(); s != "" {
-				displayName = s
+		if d, ok := cells[f.nameCol]; ok {
+			if d.HasCurrent {
+				if s := d.Current.Display(); s != "" {
+					displayName = s
+				}
+			} else if d.HasBase {
+				if s := d.Base.Display(); s != "" {
+					displayName = s
+				}
 			}
 		}
 	}
 	kindTag := ""
 	if f.kindCol != "" {
-		if d, ok := cells[f.kindCol]; ok && d.HasCurrent {
-			kindTag = d.Current.Display()
+		if d, ok := cells[f.kindCol]; ok {
+			if d.HasCurrent {
+				kindTag = d.Current.Display()
+			} else if d.HasBase {
+				kindTag = d.Base.Display()
+			}
 		}
 	}
 	return DataTableReviewRecord{
@@ -1076,6 +1147,20 @@ func (f *dtReviewFile) buildRecordView(rec *dtReviewRecord, fileOrder int) DataT
 		UserReordered: rec.userReordered,
 		Cells:         cells,
 	}
+}
+
+// DataTableReviewAllRecords returns all records in the active review file in current file order,
+// ignoring the UI filter chip, search query, and sort order.
+func (e *Editor) DataTableReviewAllRecords() []DataTableReviewRecord {
+	f := e.activeDataTableReviewFile()
+	if f == nil {
+		return nil
+	}
+	out := make([]DataTableReviewRecord, len(f.records))
+	for i, rec := range f.records {
+		out[i] = f.buildRecordView(rec, i)
+	}
+	return out
 }
 
 // DataTableReviewVisibleRecords returns the records visible in the active file after applying
@@ -1157,10 +1242,14 @@ func deltaSortKey(d DataTableReviewCellDiff) float64 {
 	}
 	bf, okB := d.Base.Float64()
 	cf, okC := d.Current.Float64()
-	if !okB || !okC || bf == 0 {
+	if !okB || !okC || bf == 0 || math.IsNaN(bf) || math.IsInf(bf, 0) || math.IsNaN(cf) || math.IsInf(cf, 0) {
 		return 0
 	}
-	return math.Round((cf - bf) / bf * 100)
+	rawPct := (cf - bf) / math.Abs(bf) * 100
+	if math.IsNaN(rawPct) || math.IsInf(rawPct, 0) {
+		return 0
+	}
+	return math.Round(rawPct)
 }
 
 func reviewRecordMatchesQuery(r DataTableReviewRecord, lowerQ string) bool {
@@ -1200,7 +1289,8 @@ func FormatReviewDeltaPct(pct int) string {
 		return fmt.Sprintf("+%d%%", pct)
 	}
 	if pct < 0 {
-		return fmt.Sprintf("−%d%%", -pct)
+		// Convert via uint64 to avoid signed overflow if pct == math.MinInt.
+		return fmt.Sprintf("−%d%%", uint64(-int64(pct+1))+1)
 	}
 	return ""
 }
@@ -1273,6 +1363,9 @@ func (e *Editor) ToggleDataTableReviewRecord(key string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	f := e.activeDataTableReviewFile()
 	if f == nil {
 		return ErrNoDataTableReview
@@ -1288,6 +1381,7 @@ func (e *Editor) ToggleDataTableReviewRecord(key string) error {
 	if f.editKey == key {
 		f.editKey = ""
 		f.editCol = ""
+		f.editDraft = ""
 	}
 	f.lastErr = nil
 	e.tableReview.checksOutOfDate = true
@@ -1336,6 +1430,9 @@ func (e *Editor) RestoreDataTableReviewRecord(key string) error {
 
 // StartDataTableReviewCellEdit opens the inline value editor for (key, col) in the active file.
 func (e *Editor) StartDataTableReviewCellEdit(key, col string) {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
+		return
+	}
 	f := e.activeDataTableReviewFile()
 	if f == nil {
 		return
@@ -1347,6 +1444,12 @@ func (e *Editor) StartDataTableReviewCellEdit(key, col string) {
 	f.focusKey = key
 	f.editKey = key
 	f.editCol = col
+	diff := f.cellDiff(rec, col)
+	if diff.HasCurrent {
+		f.editDraft = diff.Current.Display()
+	} else {
+		f.editDraft = ""
+	}
 	f.lastErr = nil
 	e.tableReview.rev++
 	e.notify()
@@ -1360,6 +1463,7 @@ func (e *Editor) FinishDataTableReviewCellEdit() {
 	}
 	f.editKey = ""
 	f.editCol = ""
+	f.editDraft = ""
 	e.tableReview.rev++
 	e.notify()
 }
@@ -1371,6 +1475,24 @@ func (e *Editor) EditingDataTableReviewCell() (key, col string, ok bool) {
 		return "", "", false
 	}
 	return f.editKey, f.editCol, true
+}
+
+// DataTableReviewEditDraft returns the in-progress text in the active inline cell editor.
+func (e *Editor) DataTableReviewEditDraft() string {
+	f := e.activeDataTableReviewFile()
+	if f == nil {
+		return ""
+	}
+	return f.editDraft
+}
+
+// SetDataTableReviewEditDraft updates the in-progress text in the active inline cell editor without triggering a table remount.
+func (e *Editor) SetDataTableReviewEditDraft(text string) {
+	f := e.activeDataTableReviewFile()
+	if f == nil {
+		return
+	}
+	f.editDraft = text
 }
 
 // DataTableReviewError returns the most recent inline validation error in the active review file, if any.
@@ -1392,6 +1514,9 @@ func (e *Editor) SetDataTableReviewCellText(key, col, text string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	f := e.activeDataTableReviewFile()
 	if f == nil {
 		return ErrNoDataTableReview
@@ -1399,6 +1524,9 @@ func (e *Editor) SetDataTableReviewCellText(key, col, text string) error {
 	rec, ok := f.recordByKey[key]
 	if !ok {
 		return fmt.Errorf("editor: data table review record %q not found", key)
+	}
+	if f.editKey == key && f.editCol == col {
+		f.editDraft = text
 	}
 	if rec.reverted {
 		err := fmt.Errorf("editor: restore %q before editing its values", key)
@@ -1462,6 +1590,15 @@ func (e *Editor) StepDataTableReviewCellNumber(key, col string, delta float64) e
 	if e == nil || e.tableReview == nil {
 		return ErrNoDataTableReview
 	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
+	if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		return errors.New("editor: numeric step delta must be finite")
+	}
 	f := e.activeDataTableReviewFile()
 	if f == nil {
 		return ErrNoDataTableReview
@@ -1470,26 +1607,54 @@ func (e *Editor) StepDataTableReviewCellNumber(key, col string, delta float64) e
 	if !ok {
 		return fmt.Errorf("editor: data table review record %q not found", key)
 	}
+	if rec.reverted {
+		err := fmt.Errorf("editor: restore %q before editing its values", key)
+		f.lastErr = err
+		e.notify()
+		return err
+	}
+	if rec.removed {
+		err := fmt.Errorf("editor: cannot edit removed record %q", key)
+		f.lastErr = err
+		e.notify()
+		return err
+	}
 	diff := f.cellDiff(rec, col)
 	if !diff.HasCurrent || diff.Current.Kind != datatable.KindNumber {
 		return fmt.Errorf("editor: cell %s.%s is not numeric", key, col)
 	}
-	if iv, okI := diff.Current.Int64(); okI && math.Trunc(delta) == delta {
-		next := iv + int64(delta)
+	var nextVal datatable.Value
+	if iv, okI := diff.Current.Int64(); okI && math.Trunc(delta) == delta && math.Abs(delta) <= float64(math.MaxInt64/2) {
+		dInt := int64(delta)
+		if (dInt > 0 && iv > math.MaxInt64-dInt) || (dInt < 0 && iv < math.MinInt64-dInt) {
+			return fmt.Errorf("editor: cell %s.%s value overflows int64", key, col)
+		}
+		next := iv + dInt
 		if iv >= 0 && next < 0 {
 			next = 0
 		}
-		return e.applyDataTableReviewCellValue(f, rec, col, datatable.IntValue(next))
+		nextVal = datatable.IntValue(next)
+	} else {
+		fv, okF := diff.Current.Float64()
+		if !okF || math.IsNaN(fv) || math.IsInf(fv, 0) {
+			return fmt.Errorf("editor: cell %s.%s is not a valid number", key, col)
+		}
+		next := math.Round((fv+delta)*1000) / 1000
+		if math.IsNaN(next) || math.IsInf(next, 0) {
+			return fmt.Errorf("editor: cell %s.%s value is out of range", key, col)
+		}
+		if fv >= 0 && next < 0 {
+			next = 0
+		}
+		nextVal = datatable.FloatValue(next)
 	}
-	fv, okF := diff.Current.Float64()
-	if !okF {
-		return fmt.Errorf("editor: cell %s.%s is not a valid number", key, col)
+	if err := e.applyDataTableReviewCellValue(f, rec, col, nextVal); err != nil {
+		return err
 	}
-	next := math.Round((fv+delta)*1000) / 1000
-	if fv >= 0 && next < 0 {
-		next = 0
+	if f.editKey == key && f.editCol == col {
+		f.editDraft = nextVal.Display()
 	}
-	return e.applyDataTableReviewCellValue(f, rec, col, datatable.FloatValue(next))
+	return nil
 }
 
 func (e *Editor) applyDataTableReviewCellValue(f *dtReviewFile, rec *dtReviewRecord, col string, val datatable.Value) error {
@@ -1554,7 +1719,13 @@ func (r *dtReviewRecord) effectiveRow() datatable.Row {
 		row = r.baseRow.Clone()
 	}
 	if !r.reverted && len(r.userEdits) > 0 {
-		for col, val := range r.userEdits {
+		editCols := make([]string, 0, len(r.userEdits))
+		for col := range r.userEdits {
+			editCols = append(editCols, col)
+		}
+		slices.Sort(editCols)
+		for _, col := range editCols {
+			val := r.userEdits[col]
 			if idx := row.Index(col); idx >= 0 {
 				row.Cells[idx].Value = val.Clone()
 			} else {
@@ -1574,6 +1745,9 @@ func (e *Editor) ReorderDataTableReviewRecord(key string, toIndex int) error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
 	}
 	f := e.activeDataTableReviewFile()
 	if f == nil {
@@ -1704,10 +1878,17 @@ func (e *Editor) DataTableReviewFocusedYAML() (string, []DataTableReviewYAMLLine
 	if rec.hasProposed {
 		addRowKeys(rec.proposedRow)
 	}
-	for k := range rec.userEdits {
-		if _, ok := seen[k]; !ok {
-			seen[k] = struct{}{}
-			keys = append(keys, k)
+	if len(rec.userEdits) > 0 {
+		extraKeys := make([]string, 0, len(rec.userEdits))
+		for k := range rec.userEdits {
+			extraKeys = append(extraKeys, k)
+		}
+		slices.Sort(extraKeys)
+		for _, k := range extraKeys {
+			if _, ok := seen[k]; !ok {
+				seen[k] = struct{}{}
+				keys = append(keys, k)
+			}
 		}
 	}
 
@@ -1909,14 +2090,16 @@ func composeDataTableReviewFile(f *dtReviewFile) (*datatable.Document, []byte, e
 		if len(activeKeys) != f.base.RowCount() {
 			structural = true
 		} else {
-			for i, rec := range f.records {
+			expectedBaseIdx := 0
+			for _, rec := range f.records {
 				if rec.added && rec.reverted {
 					continue
 				}
-				if rec.baseIndex != i {
+				if rec.baseIndex != expectedBaseIdx {
 					structural = true
 					break
 				}
+				expectedBaseIdx++
 			}
 		}
 	}
@@ -2078,6 +2261,9 @@ func (e *Editor) KeepDataTableReview() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 
 	review := e.tableReview
 	keptCount, totalChanged := e.DataTableReviewKeptCount()
@@ -2123,12 +2309,15 @@ func (e *Editor) KeepDataTableReview() error {
 		})
 	}
 
-	// Pre-write check: validate paths stay inside project root.
+	// Pre-write check: validate paths stay inside project root and obey You-only boundaries.
 	for _, ch := range changes {
 		if ch.path != "" {
 			if err := e.checkDataTableReviewPath(ch.path); err != nil {
 				return err
 			}
+		}
+		if err := e.checkDataTableReviewRelPath(ch.relPath); err != nil {
+			return err
 		}
 	}
 
@@ -2144,7 +2333,50 @@ func (e *Editor) KeepDataTableReview() error {
 	}
 	cmd.appliedOnce = true
 	e.tableReview = nil
+
+	// Record rich metadata for the unified History timeline (agent turn, touched files, before/after snapshots).
+	touchedFiles := make([]string, 0, len(changes))
+	var beforeFiles, afterFiles map[string]historyFileSnapshot
+	if len(changes) > 0 {
+		beforeFiles = make(map[string]historyFileSnapshot, len(changes))
+		afterFiles = make(map[string]historyFileSnapshot, len(changes))
+		for _, ch := range changes {
+			rel := filepath.ToSlash(strings.TrimSpace(ch.relPath))
+			if rel == "" && ch.path != "" {
+				rel = e.displayHistoryPath(ch.path)
+			}
+			if rel != "" {
+				touchedFiles = append(touchedFiles, rel)
+				beforeFiles[rel] = historyFileSnapshot{
+					exists: ch.existedBefore,
+					data:   bytes.Clone(ch.beforeBytes),
+				}
+				afterFiles[rel] = historyFileSnapshot{
+					exists: true,
+					data:   bytes.Clone(ch.afterBytes),
+				}
+			}
+		}
+	}
+	summary := strings.TrimSpace(review.prompt)
+	if summary == "" {
+		summary = cmd.label
+	}
+	prevMeta := e.historyPanel.pendingMeta
+	e.historyPanel.pendingMeta = &HistoryMeta{
+		Author:      HistoryAuthorAgent,
+		Summary:     summary,
+		Detail:      formatAgentTurnDetail("", totalChanged, keptCount),
+		Files:       touchedFiles,
+		ChangeCount: totalChanged,
+		KeptCount:   keptCount,
+		BeforeFiles: beforeFiles,
+		AfterFiles:  afterFiles,
+	}
 	e.History.Execute(cmd)
+	if e.historyPanel.pendingMeta != nil {
+		e.historyPanel.pendingMeta = prevMeta
+	}
 	e.scheduleAutoSaveIfNeeded()
 
 	msg := e.T("dtReview.toastKept",
@@ -2179,6 +2411,9 @@ func (e *Editor) RevertAllDataTableReview() error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
 	}
 	_, totalChanged := e.DataTableReviewKeptCount()
 	snap := e.tableReview.clone()
@@ -2234,15 +2469,34 @@ func (c *dataTableReviewKeepCmd) Undo() {
 func (c *dataTableReviewKeepCmd) apply(forward bool) error {
 	e := c.ed
 	if forward {
-		for _, ch := range c.changes {
+		written := 0
+		rollback := func() {
+			for i := written - 1; i >= 0; i-- {
+				ch := c.changes[i]
+				if ch.path == "" {
+					continue
+				}
+				if ch.existedBefore {
+					_ = writeFileAtomic(ch.path, ch.beforeBytes)
+				} else {
+					_ = os.Remove(ch.path)
+				}
+			}
+			e.table = c.beforeTable.clone()
+			e.tableSaved = bytes.Clone(c.beforeSaved)
+		}
+		for i, ch := range c.changes {
 			if ch.path != "" {
 				if err := os.MkdirAll(filepath.Dir(ch.path), 0o755); err != nil {
+					rollback()
 					return err
 				}
 				if err := writeFileAtomic(ch.path, ch.afterBytes); err != nil {
+					rollback()
 					return err
 				}
 			}
+			written = i + 1
 			if e.table != nil && pathsMatchReview(e, e.table.path, ch.path, ch.relPath) {
 				e.table.doc = ch.afterDoc.Clone()
 				e.table.lastErr = nil
@@ -2267,6 +2521,7 @@ func (c *dataTableReviewKeepCmd) apply(forward bool) error {
 	}
 	e.filesRev++
 	e.invalidateProjectIndex()
+	e.snapshotProjectTree()
 	return nil
 }
 

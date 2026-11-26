@@ -135,7 +135,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 				Then: func(*core.Scope) core.Node {
 					return core.View{
 						TestID: "right-tab-agent-review-dot",
-						Label:  "review waiting",
+						Label:  ed.T("dtReview.reviewWaiting"),
 						Style: core.Style{
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
