@@ -170,7 +170,7 @@ func (e *Editor) ComposerDraft() string {
 
 // SetComposerDraft updates the agent composer draft text, refreshes @-mention trigger detection, and notifies listeners.
 func (e *Editor) SetComposerDraft(text string) {
-	if e == nil || e.composerDraft == text {
+	if e == nil || (e.composerDraft == text && !e.agent.composerHighlighted) {
 		return
 	}
 	e.updateComposerDraftFromInput(text)
@@ -196,6 +196,8 @@ func (e *Editor) AskToAddComponent(objectID string) string {
 	}
 	prompt := fmt.Sprintf("Add a component to %s that ", target)
 	e.composerDraft = prompt
+	e.agent.composerText = prompt
+	e.agent.composerHighlighted = false
 	e.Status = prompt
 	if e.OnComposerPrompt != nil {
 		e.OnComposerPrompt(prompt)

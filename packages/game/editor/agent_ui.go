@@ -1221,6 +1221,10 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	})
 
 	osKind := cx.Env().OS()
+	bannerThemeKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		return fmt.Sprintf("%v|%s", ed.SpecPalette(cx).Dark, ed.ResolvedLanguage())
+	})
 	tabBar := core.Dynamic(func(cx *core.Scope) core.Node {
 		p := SpecPaletteFor(darkMemo.Get())
 		return rightRailTabBar(cx, ed, rev, p, true)
@@ -1376,6 +1380,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = bannerThemeKey.Get()
 				p := SpecPaletteFor(darkMemo.Get())
 				return agentRewindBannerView(ed, rev, p)
 			}),

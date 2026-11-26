@@ -986,11 +986,17 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
 			p := ed.SpecPalette(cx)
+			bw := core.Points(1)
+			bc := p.LineRaised
+			if ed.AgentComposerRewound() {
+				bw = 1.5
+				bc = p.Accent.Edge
+			}
 			return core.Style{
 				CornerRadius: specRadiusCard,
 				Background:   p.Raised,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
+				BorderWidth:  bw,
+				BorderColor:  bc,
 				Padding:      core.Symmetric(specSpace8, specSpace12),
 				Gap:          specSpace8,
 				FocusWithin:  p.FocusRing(2),
