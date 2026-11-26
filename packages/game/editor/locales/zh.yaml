@@ -42,10 +42,15 @@ strings:
   agent.notify.waitingTitle: 智能体需要权限
   agent.playDot.hoverFormat: '{summary} · 停止播放以打开'
   agent.ref.always: 始终附带
+  agent.ref.alwaysIncluded: 始终附带：{label}
   agent.ref.attachLabel: 附加参考图
   agent.ref.attachTooltip: 附加参考图 · 粘贴或拖放
+  agent.ref.briefCountMany: brief.yaml · {count} 张参考图
+  agent.ref.briefCountOne: brief.yaml · 1 张参考图
   agent.ref.briefEmpty: 尚未固定参考图。固定已附加的图片即可在每次请求中附带。
   agent.ref.briefPreviewTitle: 已固定的参考图
+  agent.ref.dismissError: 关闭错误提示
+  agent.ref.dismissNotice: 关闭固定提示
   agent.ref.dropSubtitle: PNG、JPEG 或 WebP · 仅随本次请求发送
   agent.ref.dropTitle: 拖放到此处以附加
   agent.ref.pinToBrief: 固定到简报
@@ -53,6 +58,8 @@ strings:
   agent.ref.pinned: 已固定
   agent.ref.pinnedCaption: 已复制到 {path}。后续每次请求都会通过 brief.yaml 读取它。
   agent.ref.pinnedTooltip: 已保存到 art/reference/ 并记录在 brief.yaml 中
+  agent.ref.previewImage: 预览 {name}
+  agent.ref.removeImage: 从本次请求移除 {name}
   agent.ref.sentOnce: 仅随本次请求发送
   agent.ref.undo: 撤销
   agent.revert: 还原

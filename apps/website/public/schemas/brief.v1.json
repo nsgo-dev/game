@@ -39,6 +39,14 @@
       "description": "ArtDirection describes visual style, resolution, palette, and silhouette rules.",
       "type": "string"
     },
+    "art": {
+      "description": "Art holds structured visual direction notes and pinned reference images read by the agent before every request.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BriefArt"
+        }
+      ]
+    },
     "toneAndAudio": {
       "description": "ToneAndAudio describes mood, music, and sound direction.",
       "type": "string"
@@ -57,6 +65,43 @@
   ],
   "additionalProperties": false,
   "definitions": {
+    "BriefArt": {
+      "description": "BriefArt holds structured art direction notes and pinned project-relative reference images.",
+      "type": "object",
+      "properties": {
+        "direction": {
+          "description": "Direction optionally describes visual direction inline under art.direction.",
+          "type": "string"
+        },
+        "references": {
+          "description": "References lists pinned project-relative reference images included with every agent request.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefArtReference"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "BriefArtReference": {
+      "description": "BriefArtReference names one pinned reference image listed under art.references in brief.yaml.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path is the project-relative slash path to the reference image (for example \"art/reference/spikes_ref.png\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "description": "Note is an optional short description of what the reference illustrates.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
     "BriefFeel": {
       "description": "BriefFeel describes game feel, difficulty expectations, and machine-readable playtest targets.",
       "type": "object",

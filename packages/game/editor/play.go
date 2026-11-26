@@ -431,6 +431,8 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 		e.playTimeScale = 1
 	}
 	e.playing = true
+	e.agent.composerDragOver = false
+	e.agent.previewImageID = ""
 	e.refreshClipPreview()
 	if startPaused {
 		e.Status = "Paused · frame 0"

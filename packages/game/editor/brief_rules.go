@@ -232,6 +232,46 @@ func (e *Editor) loadAgentDocsForProject(projectDir string) {
 	e.agentDocs.rev++
 }
 
+// reloadBriefFromDisk reloads only brief.yaml into e.agentDocs without resetting rules, pending reviews, or outcomes.
+func (e *Editor) reloadBriefFromDisk() {
+	if e == nil {
+		return
+	}
+	projectDir := e.agentDocs.rootDir
+	if projectDir == "" {
+		projectDir = e.agentProjectRoot()
+	}
+	if projectDir == "" {
+		return
+	}
+	briefPath := filepath.Join(projectDir, project.BriefFileName)
+	e.agentDocs.rootDir = projectDir
+	e.agentDocs.briefPath = briefPath
+	e.agentDocs.brief = nil
+	e.agentDocs.briefExists = false
+	e.agentDocs.briefSaved = nil
+	e.agentDocs.briefLoadErr = nil
+
+	if raw, err := readConfinedAgentDoc(projectDir, briefPath, project.BriefFileName); err == nil {
+		if b, perr := project.ParseBrief(raw); perr == nil {
+			e.agentDocs.brief = b
+			e.agentDocs.briefExists = true
+			if enc, eerr := project.EncodeBrief(b); eerr == nil {
+				e.agentDocs.briefSaved = enc
+			} else {
+				e.agentDocs.briefSaved = bytes.Clone(raw)
+			}
+		} else {
+			e.agentDocs.briefLoadErr = perr
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		e.agentDocs.briefLoadErr = err
+	}
+	e.agentDocs.briefContentRev++
+	e.agentDocs.rev++
+	e.syncAssetStyleBriefFromAgentDocs()
+}
+
 // Brief returns a deep copy of the project's brief.yaml document, or nil when no brief exists yet.
 func (e *Editor) Brief() *project.Brief {
 	if e == nil || !e.agentDocs.briefExists || e.agentDocs.brief == nil {
@@ -342,6 +382,7 @@ func (c *briefCmd) do() error {
 	}
 	ed.agentDocs.briefContentRev++
 	ed.agentDocs.rev++
+	ed.invalidateBriefReferenceCaches()
 	ed.syncAssetStyleBriefFromAgentDocs()
 	ed.notify()
 	return nil
@@ -391,6 +432,7 @@ func (c *briefCmd) undo() error {
 	}
 	ed.agentDocs.briefContentRev++
 	ed.agentDocs.rev++
+	ed.invalidateBriefReferenceCaches()
 	ed.syncAssetStyleBriefFromAgentDocs()
 	ed.notify()
 	return nil

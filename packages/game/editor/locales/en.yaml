@@ -42,10 +42,15 @@ strings:
   agent.notify.waitingTitle: Agent needs permission
   agent.playDot.hoverFormat: '{summary} · stop Play to open'
   agent.ref.always: Always
+  agent.ref.alwaysIncluded: 'Always included: {label}'
   agent.ref.attachLabel: Attach an image
   agent.ref.attachTooltip: Attach an image · paste or drop
+  agent.ref.briefCountMany: brief.yaml · {count} refs
+  agent.ref.briefCountOne: brief.yaml · 1 ref
   agent.ref.briefEmpty: No reference images pinned yet. Pin an attached image to keep it for every request.
   agent.ref.briefPreviewTitle: Pinned references
+  agent.ref.dismissError: Dismiss error
+  agent.ref.dismissNotice: Dismiss pinned notice
   agent.ref.dropSubtitle: PNG, JPEG or WebP · sent with this request only
   agent.ref.dropTitle: Drop to attach
   agent.ref.pinToBrief: Pin to brief
@@ -53,6 +58,8 @@ strings:
   agent.ref.pinned: Pinned
   agent.ref.pinnedCaption: Copied to {path}. Every later request reads it through brief.yaml.
   agent.ref.pinnedTooltip: Saved to art/reference/ and listed in brief.yaml
+  agent.ref.previewImage: Preview {name}
+  agent.ref.removeImage: Remove {name} from the request
   agent.ref.sentOnce: Sent with this request only
   agent.ref.undo: Undo
   agent.revert: Revert

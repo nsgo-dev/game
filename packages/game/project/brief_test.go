@@ -222,3 +222,53 @@ func TestBriefLoadRejectsOversizedFile(t *testing.T) {
 		t.Fatal("ReadBriefFS accepted file > 1 MiB")
 	}
 }
+
+func TestBriefArtReferencesRoundTripAndValidation(t *testing.T) {
+	b := &project.Brief{
+		Version: project.BriefVersion,
+		Pitch:   "Dungeon run",
+		Art: &project.BriefArt{
+			Direction: "chunky pixel art, 16 px tiles",
+			References: []project.BriefArtReference{
+				{Path: "art/reference/torch_ref.png"},
+				{Path: "art/reference/spikes_ref.png", Note: "rusty iron spikes, three per tile"},
+			},
+		},
+	}
+	raw, err := project.EncodeBrief(b)
+	if err != nil {
+		t.Fatalf("EncodeBrief: %v", err)
+	}
+	parsed, err := project.ParseBrief(raw)
+	if err != nil {
+		t.Fatalf("ParseBrief: %v", err)
+	}
+	again, err := project.EncodeBrief(parsed)
+	if err != nil {
+		t.Fatalf("re-EncodeBrief: %v", err)
+	}
+	if !bytes.Equal(raw, again) {
+		t.Fatalf("round-trip mismatch:\n%s\nvs\n%s", again, raw)
+	}
+	if slices.Contains(parsed.MissingSections(), project.BriefSectionArtDirection) {
+		t.Fatalf("artDirection reported missing despite art.direction/references: %v", parsed.MissingSections())
+	}
+
+	invalid := []struct {
+		name string
+		yaml string
+	}{
+		{"traversal", "version: 1\nart:\n  references:\n    - path: ../escape.png\n"},
+		{"leading slash", "version: 1\nart:\n  references:\n    - path: /etc/passwd\n"},
+		{"backslash", "version: 1\nart:\n  references:\n    - path: art\\reference\\a.png\n"},
+		{"duplicate", "version: 1\nart:\n  references:\n    - path: art/reference/a.png\n    - path: art/reference/a.png\n"},
+		{"note newline", "version: 1\nart:\n  references:\n    - path: art/reference/a.png\n      note: \"line1\\nline2\"\n"},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := project.ParseBrief([]byte(tc.yaml)); err == nil {
+				t.Fatalf("ParseBrief accepted invalid %s", tc.name)
+			}
+		})
+	}
+}

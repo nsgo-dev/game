@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -66,10 +67,28 @@ type Brief struct {
 	Platforms []string `yaml:"platforms,omitempty,flow"`
 	// ArtDirection describes visual style, resolution, palette, and silhouette rules.
 	ArtDirection string `yaml:"artDirection,omitempty"`
+	// Art holds structured visual direction notes and pinned reference images read by the agent before every request.
+	Art *BriefArt `yaml:"art,omitempty"`
 	// ToneAndAudio describes mood, music, and sound direction.
 	ToneAndAudio string `yaml:"toneAndAudio,omitempty"`
 	// Feel describes game feel, difficulty pacing, and structured playtest targets.
 	Feel *BriefFeel `yaml:"feel,omitempty"`
+}
+
+// BriefArt holds structured art direction notes and pinned project-relative reference images.
+type BriefArt struct {
+	// Direction optionally describes visual direction inline under art.direction.
+	Direction string `yaml:"direction,omitempty"`
+	// References lists pinned project-relative reference images included with every agent request.
+	References []BriefArtReference `yaml:"references,omitempty"`
+}
+
+// BriefArtReference names one pinned reference image listed under art.references in brief.yaml.
+type BriefArtReference struct {
+	// Path is the project-relative slash path to the reference image (for example "art/reference/spikes_ref.png").
+	Path string `yaml:"path" schema:"required,minLength=1"`
+	// Note is an optional short description of what the reference illustrates.
+	Note string `yaml:"note,omitempty"`
 }
 
 // BriefFeel describes game feel, difficulty expectations, and machine-readable playtest targets.
@@ -102,7 +121,7 @@ type BriefPlaytestTarget struct {
 func Float64(v float64) *float64 { return &v }
 
 const (
-	fixBrief        = "write brief.yaml as version: 1 with pitch, genre, tags, platforms, artDirection, toneAndAudio, and feel"
+	fixBrief        = "write brief.yaml as version: 1 with pitch, genre, tags, platforms, artDirection, art, toneAndAudio, and feel"
 	fixBriefVersion = "set version: 1"
 	fixBriefYAMLRef = "write values directly without YAML anchors, aliases, or merge keys"
 )
@@ -304,6 +323,22 @@ func ValidateBrief(b *Brief) error {
 	if err := validateBriefMultiline("artDirection", b.ArtDirection); err != nil {
 		return err
 	}
+	if b.Art != nil {
+		if err := validateBriefMultiline("art.direction", b.Art.Direction); err != nil {
+			return err
+		}
+		seenRefs := make(map[string]struct{}, len(b.Art.References))
+		for i, ref := range b.Art.References {
+			at := loaderr.Path("art", "references", i)
+			if err := validateBriefArtReference(at, ref); err != nil {
+				return err
+			}
+			if _, dup := seenRefs[ref.Path]; dup {
+				return loaderr.Errorf(loaderr.Join(at, "path"), "remove duplicate reference paths from art.references", "project: duplicate brief art reference %q", ref.Path)
+			}
+			seenRefs[ref.Path] = struct{}{}
+		}
+	}
 	if err := validateBriefMultiline("toneAndAudio", b.ToneAndAudio); err != nil {
 		return err
 	}
@@ -354,6 +389,24 @@ func validateBriefLabels(field string, items []string) error {
 			return loaderr.Errorf(at, "remove duplicate entries from "+field, "project: duplicate brief %s entry %q", field, item)
 		}
 		seen[norm] = struct{}{}
+	}
+	return nil
+}
+
+func validateBriefArtReference(at string, ref BriefArtReference) error {
+	p := ref.Path
+	if p == "" || strings.TrimSpace(p) != p || strings.IndexFunc(p, unicode.IsControl) >= 0 {
+		return loaderr.Errorf(loaderr.Join(at, "path"), "set path to a clean project-relative slash path such as art/reference/spikes_ref.png", "project: brief art reference path %q is invalid", p)
+	}
+	if strings.Contains(p, "\\") || strings.HasPrefix(p, "/") {
+		return loaderr.Errorf(loaderr.Join(at, "path"), "use a slash-separated project-relative path without a leading slash", "project: brief art reference path %q must be project-relative with forward slashes", p)
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != p {
+		return loaderr.Errorf(loaderr.Join(at, "path"), "use a normalized project-relative path without . or .. segments", "project: brief art reference path %q must be a clean project-relative path", p)
+	}
+	if ref.Note != "" && (strings.TrimSpace(ref.Note) != ref.Note || strings.IndexFunc(ref.Note, unicode.IsControl) >= 0) {
+		return loaderr.Errorf(loaderr.Join(at, "note"), "use a single-line note without surrounding spaces or control characters", "project: brief art reference note %q is invalid", ref.Note)
 	}
 	return nil
 }
@@ -414,6 +467,15 @@ func normalizeBrief(b *Brief) {
 	}
 	if len(b.Platforms) == 0 {
 		b.Platforms = nil
+	}
+	if b.Art != nil {
+		b.Art.Direction = strings.TrimSpace(strings.ReplaceAll(b.Art.Direction, "\r\n", "\n"))
+		if len(b.Art.References) == 0 {
+			b.Art.References = nil
+		}
+		if b.Art.Direction == "" && len(b.Art.References) == 0 {
+			b.Art = nil
+		}
 	}
 	if b.Feel != nil {
 		b.Feel.Summary = strings.TrimSpace(strings.ReplaceAll(b.Feel.Summary, "\r\n", "\n"))
@@ -541,6 +603,13 @@ func (b *Brief) Clone() *Brief {
 	cp.Genre = slices.Clone(b.Genre)
 	cp.Tags = slices.Clone(b.Tags)
 	cp.Platforms = slices.Clone(b.Platforms)
+	if b.Art != nil {
+		artCopy := BriefArt{
+			Direction:  b.Art.Direction,
+			References: slices.Clone(b.Art.References),
+		}
+		cp.Art = &artCopy
+	}
 	if b.Feel != nil {
 		f := BriefFeel{
 			Summary: b.Feel.Summary,
@@ -574,7 +643,7 @@ func (b *Brief) MissingSections() []BriefSection {
 	if len(b.Platforms) == 0 {
 		gaps = append(gaps, BriefSectionPlatforms)
 	}
-	if strings.TrimSpace(b.ArtDirection) == "" {
+	if strings.TrimSpace(b.ArtDirection) == "" && (b.Art == nil || (strings.TrimSpace(b.Art.Direction) == "" && len(b.Art.References) == 0)) {
 		gaps = append(gaps, BriefSectionArtDirection)
 	}
 	if b.Feel == nil || (strings.TrimSpace(b.Feel.Summary) == "" && len(b.Feel.Targets) == 0) {

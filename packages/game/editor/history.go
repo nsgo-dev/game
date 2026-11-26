@@ -612,6 +612,13 @@ func (h *History) CanUndo() bool {
 	return h != nil && h.cursor > 0
 }
 
+func (h *History) topUndoCmd() Command {
+	if !h.CanUndo() {
+		return nil
+	}
+	return h.commands[h.cursor-1]
+}
+
 // CanRedo reports whether Redo has a command to re-apply.
 func (h *History) CanRedo() bool {
 	return h != nil && h.cursor < len(h.commands)

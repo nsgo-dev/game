@@ -19,7 +19,9 @@ type agentComposerRefKey struct {
 	previewID    string
 	attachErr    string
 	pinNoticeSig string
+	canUndoPin   bool
 	working      bool
+	lang         Language
 }
 
 func buildAgentComposerRefKey(ed *Editor) agentComposerRefKey {
@@ -31,7 +33,7 @@ func buildAgentComposerRefKey(ed *Editor) agentComposerRefKey {
 	for _, img := range ed.agent.attachedImages {
 		fmt.Fprintf(&ab, "%s:%s:%v:%d|", img.ID, img.Path, img.Pinned, img.ImageVersion)
 	}
-	briefRefs := ed.BriefReferences()
+	briefExists, briefRefs := ed.readBriefMeta()
 	var bb strings.Builder
 	for _, r := range briefRefs {
 		fmt.Fprintf(&bb, "%s:%s|", r.Path, r.Note)
@@ -44,13 +46,15 @@ func buildAgentComposerRefKey(ed *Editor) agentComposerRefKey {
 		sel:          ed.SelectedID,
 		scene:        sceneName,
 		attachedSig:  ab.String(),
-		briefExists:  ed.BriefFileExists(),
+		briefExists:  briefExists,
 		briefSig:     bb.String(),
 		dragOver:     ed.agent.composerDragOver,
 		previewID:    ed.agent.previewImageID,
 		attachErr:    ed.agent.attachErr,
 		pinNoticeSig: pinSig,
+		canUndoPin:   ed.CanUndoLastBriefPin(),
 		working:      ed.AgentWorking(),
+		lang:         ed.Language(),
 	}
 }
 
@@ -79,7 +83,7 @@ func agentImagePreviewPopover(ed *Editor, p SpecPalette) core.Node {
 	scopeText := ed.T("agent.ref.sentOnce")
 	scopeCol := p.TextFaint
 	if target.Pinned && target.Path != "" {
-		scopeText = fmt.Sprintf("Pinned · %s", target.Path)
+		scopeText = fmt.Sprintf("%s · %s", ed.T("agent.ref.pinned"), target.Path)
 		scopeCol = p.Added.Fg
 	}
 	dimsText := fmt.Sprintf("%s · %d × %d", target.Format.Label(), target.Width, target.Height)
@@ -342,6 +346,83 @@ func agentPinNoticeCardView(ed *Editor, p SpecPalette) core.Node {
 		})
 	}
 
+	headerChildren := []core.Node{
+		core.SVGView{
+			SVG: lucide.Check(),
+			Style: core.Style{
+				Width:      core.Pt(14),
+				Height:     core.Pt(14),
+				Color:      p.Added.Fg,
+				FlexShrink: 0,
+			},
+		},
+		core.Text{
+			TestID:  "agent-pin-notice-title",
+			Content: fmt.Sprintf("%s %s", ed.T("agent.ref.pinned"), notice.Name),
+			Style: core.Style{
+				FlexGrow:   1,
+				FlexShrink: 1,
+				MinWidth:   core.Pt(0),
+				FontSize:   12.5,
+				FontWeight: 500,
+				Color:      p.TextPrimary,
+			},
+		},
+	}
+	if ed.CanUndoLastBriefPin() {
+		headerChildren = append(headerChildren, core.View{
+			TestID: "agent-pin-notice-undo",
+			Role:   core.RoleButton,
+			Label:  ed.T("agent.ref.undo"),
+			Style: core.Style{
+				Height:         core.Pt(28),
+				Padding:        core.Symmetric(0, 8),
+				CornerRadius:   6,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FocusVisible:   p.FocusRing(2),
+			},
+			OnPress: func(core.PressEvent) {
+				ed.UndoLastBriefPin()
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: ed.T("agent.ref.undo"),
+					Style: core.Style{
+						FontSize: 11.5,
+						Color:    p.TextMuted,
+					},
+				},
+			},
+		})
+	}
+	headerChildren = append(headerChildren, core.View{
+		TestID: "agent-pin-notice-dismiss",
+		Role:   core.RoleButton,
+		Label:  ed.T("agent.ref.dismissNotice"),
+		Style: core.Style{
+			Width:          core.Pt(24),
+			Height:         core.Pt(24),
+			CornerRadius:   6,
+			AlignItems:     core.AlignCenter,
+			JustifyContent: core.JustifyCenter,
+			FocusVisible:   p.FocusRing(2),
+		},
+		OnPress: func(core.PressEvent) {
+			ed.DismissAgentPinNotice()
+		},
+		Children: []core.Node{
+			core.SVGView{
+				SVG: lucide.X(),
+				Style: core.Style{
+					Width:  core.Pt(11),
+					Height: core.Pt(11),
+					Color:  p.TextFaint,
+				},
+			},
+		},
+	})
+
 	children := []core.Node{
 		core.View{
 			Style: core.Style{
@@ -349,80 +430,7 @@ func agentPinNoticeCardView(ed *Editor, p SpecPalette) core.Node {
 				AlignItems: core.AlignCenter,
 				Gap:        8,
 			},
-			Children: []core.Node{
-				core.SVGView{
-					SVG: lucide.Check(),
-					Style: core.Style{
-						Width:      core.Pt(14),
-						Height:     core.Pt(14),
-						Color:      p.Added.Fg,
-						FlexShrink: 0,
-					},
-				},
-				core.Text{
-					TestID:  "agent-pin-notice-title",
-					Content: fmt.Sprintf("%s %s", ed.T("agent.ref.pinned"), notice.Name),
-					Style: core.Style{
-						FlexGrow:   1,
-						FlexShrink: 1,
-						MinWidth:   core.Pt(0),
-						FontSize:   12.5,
-						FontWeight: 500,
-						Color:      p.TextPrimary,
-					},
-				},
-				core.View{
-					TestID: "agent-pin-notice-undo",
-					Role:   core.RoleButton,
-					Label:  ed.T("agent.ref.undo"),
-					Style: core.Style{
-						Height:         core.Pt(28),
-						Padding:        core.Symmetric(0, 8),
-						CornerRadius:   6,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-						FocusVisible:   p.FocusRing(2),
-					},
-					OnPress: func(core.PressEvent) {
-						ed.UndoLastBriefPin()
-					},
-					Children: []core.Node{
-						core.Text{
-							Content: ed.T("agent.ref.undo"),
-							Style: core.Style{
-								FontSize: 11.5,
-								Color:    p.TextMuted,
-							},
-						},
-					},
-				},
-				core.View{
-					TestID: "agent-pin-notice-dismiss",
-					Role:   core.RoleButton,
-					Label:  "Dismiss pinned notice",
-					Style: core.Style{
-						Width:          core.Pt(24),
-						Height:         core.Pt(24),
-						CornerRadius:   6,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-						FocusVisible:   p.FocusRing(2),
-					},
-					OnPress: func(core.PressEvent) {
-						ed.DismissAgentPinNotice()
-					},
-					Children: []core.Node{
-						core.SVGView{
-							SVG: lucide.X(),
-							Style: core.Style{
-								Width:  core.Pt(11),
-								Height: core.Pt(11),
-								Color:  p.TextFaint,
-							},
-						},
-					},
-				},
-			},
+			Children: headerChildren,
 		},
 	}
 
@@ -556,7 +564,7 @@ func agentAttachErrorBannerView(ed *Editor, p SpecPalette) core.Node {
 			core.View{
 				TestID: "agent-attach-error-dismiss",
 				Role:   core.RoleButton,
-				Label:  "Dismiss error",
+				Label:  ed.T("agent.ref.dismissError"),
 				Style: core.Style{
 					Width:          core.Pt(24),
 					Height:         core.Pt(24),
@@ -682,7 +690,7 @@ func agentAttachedImageChipsView(ed *Editor, p SpecPalette) []core.Node {
 				core.View{
 					TestID: fmt.Sprintf("agent-image-preview-btn-%d", idx),
 					Role:   core.RoleButton,
-					Label:  fmt.Sprintf("Preview %s", item.Name),
+					Label:  strings.ReplaceAll(ed.T("agent.ref.previewImage"), "{name}", item.Name),
 					Style: core.Style{
 						Direction:    core.Row,
 						AlignItems:   core.AlignCenter,
@@ -746,7 +754,7 @@ func agentAttachedImageChipsView(ed *Editor, p SpecPalette) []core.Node {
 				core.View{
 					TestID: fmt.Sprintf("agent-image-remove-%d", idx),
 					Role:   core.RoleButton,
-					Label:  fmt.Sprintf("Remove %s from the request", item.Name),
+					Label:  strings.ReplaceAll(ed.T("agent.ref.removeImage"), "{name}", item.Name),
 					Style: core.Style{
 						Width:          core.Pt(24),
 						Height:         core.Pt(24),
@@ -779,15 +787,15 @@ func agentAttachedImageChipsView(ed *Editor, p SpecPalette) []core.Node {
 // agentAlwaysBriefRowView renders the "Always" context row with the brief.yaml chip (and pinned reference count)
 // matching Threads.dc.html and Sketch.dc.html. Hovering or pressing previews the pinned reference images.
 func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
-	refs := ed.BriefReferences()
-	if !ed.BriefFileExists() && len(refs) == 0 {
+	exists, refs := ed.readBriefMeta()
+	if !exists && len(refs) == 0 {
 		return nil
 	}
 	label := "brief.yaml"
 	if len(refs) == 1 {
-		label = "brief.yaml · 1 ref"
+		label = ed.T("agent.ref.briefCountOne")
 	} else if len(refs) > 1 {
-		label = fmt.Sprintf("brief.yaml · %d refs", len(refs))
+		label = strings.ReplaceAll(ed.T("agent.ref.briefCountMany"), "{count}", fmt.Sprintf("%d", len(refs)))
 	}
 
 	previewing := ed.AgentImagePreviewID() == AgentBriefPreviewID
@@ -824,7 +832,7 @@ func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
 	briefChip := core.View{
 		TestID: "agent-always-brief",
 		Role:   core.RoleButton,
-		Label:  fmt.Sprintf("Always included: %s", label),
+		Label:  strings.ReplaceAll(ed.T("agent.ref.alwaysIncluded"), "{label}", label),
 		Style: core.Style{
 			Direction:    core.Row,
 			AlignItems:   core.AlignCenter,

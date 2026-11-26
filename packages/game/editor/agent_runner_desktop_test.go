@@ -4,6 +4,8 @@ package editor
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -79,5 +81,84 @@ func TestCappedBufferTruncatesAtLimit(t *testing.T) {
 	}
 	if len(got) != maxCLISstderrBytes+len(suffix) {
 		t.Fatalf("len(got) = %d, want %d", len(got), maxCLISstderrBytes+len(suffix))
+	}
+}
+
+func TestBuildCLIArgsReferenceImageContainmentAndSanitization(t *testing.T) {
+	proj := t.TempDir()
+	outside := t.TempDir()
+	outsideImg := filepath.Join(outside, "secret.png")
+	if err := os.WriteFile(outsideImg, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(proj, "art", "reference"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkAttempt := filepath.Join(proj, "art", "reference", "sym.png")
+	_ = os.Symlink(outsideImg, symlinkAttempt)
+
+	req := AgentRequest{
+		Prompt:      "Match this look",
+		ProjectRoot: proj,
+		Images: []AgentReferenceImage{
+			{Path: "../secret.png"},
+			{Path: "-flag.png"},
+			{Path: "art/reference/sym.png"},
+			{Path: "art/reference/spikes_ref.png", Note: "rusty spikes\n- injected"},
+		},
+	}
+
+	codexArgs, err := buildCLIArgs(ExternalAgentCodex, req)
+	if err != nil {
+		t.Fatalf("buildCLIArgs(codex): %v", err)
+	}
+	joinedCodex := strings.Join(codexArgs, "\x00")
+	if strings.Contains(joinedCodex, "secret.png") || strings.Contains(joinedCodex, "-flag.png") || strings.Contains(joinedCodex, "sym.png") {
+		t.Fatalf("unsafe image path leaked into codex args: %q", codexArgs)
+	}
+	wantAbs := filepath.Join(proj, "art", "reference", "spikes_ref.png")
+	if !strings.Contains(joinedCodex, "-i\x00"+wantAbs) {
+		t.Fatalf("valid pinned image missing from codex args: %q", codexArgs)
+	}
+
+	claudeArgs, err := buildCLIArgs(ExternalAgentClaudeCode, req)
+	if err != nil {
+		t.Fatalf("buildCLIArgs(claude): %v", err)
+	}
+	claudePrompt := claudeArgs[len(claudeArgs)-1]
+	if strings.Contains(claudePrompt, "secret.png") || strings.Contains(claudePrompt, "sym.png") {
+		t.Fatalf("unsafe image path leaked into claude prompt: %q", claudePrompt)
+	}
+	if !strings.Contains(claudePrompt, "- art/reference/spikes_ref.png (rusty spikes- injected)") {
+		t.Fatalf("expected sanitized note in claude prompt, got: %q", claudePrompt)
+	}
+
+	// Resumed Codex session includes reference image paths in prompt.
+	req.SessionID = "sess-42"
+	resumeArgs, err := buildCLIArgs(ExternalAgentCodex, req)
+	if err != nil {
+		t.Fatalf("buildCLIArgs(codex resume): %v", err)
+	}
+	if !strings.Contains(resumeArgs[len(resumeArgs)-1], "art/reference/spikes_ref.png") {
+		t.Fatalf("codex resume dropped reference image from prompt: %q", resumeArgs)
+	}
+
+	// Ephemeral in-memory images materialize into a private temp dir and clean up cleanly.
+	eph, cleanup, err := materializeEphemeralCLIImages([]AgentReferenceImage{
+		{Name: "pasted.png", Format: AgentImagePNG, Data: []byte("pngbytes")},
+	})
+	if err != nil {
+		t.Fatalf("materializeEphemeralCLIImages: %v", err)
+	}
+	if len(eph) != 1 {
+		t.Fatalf("ephemeral count = %d, want 1", len(eph))
+	}
+	if _, err := os.Stat(eph[0].absPath); err != nil {
+		t.Fatalf("ephemeral temp file missing: %v", err)
+	}
+	tmpDir := filepath.Dir(eph[0].absPath)
+	cleanup()
+	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral temp dir not cleaned up (err=%v)", err)
 	}
 }

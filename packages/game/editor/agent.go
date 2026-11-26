@@ -413,6 +413,7 @@ type agentState struct {
 	lastPinNotice      *BriefPinNotice
 	lastPinCmd         *pinReferenceImageCmd
 	briefRefCache      map[string]cachedBriefRefImage
+	briefMeta          cachedBriefMeta
 	workingStep        int
 	workingTotal       int
 	activeRunCancel    context.CancelFunc
@@ -585,6 +586,7 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.lastPinNotice = nil
 	e.agent.lastPinCmd = nil
 	e.agent.briefRefCache = nil
+	e.agent.briefMeta = cachedBriefMeta{}
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
 	e.agent.openRequest = nil

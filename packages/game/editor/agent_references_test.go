@@ -627,3 +627,221 @@ func TestAgentReferenceImagesSpecLightDarkTokens(t *testing.T) {
 		t.Fatalf("dark chip bg = %#x, want %#x", uint32(got), uint32(dark.LineRaised))
 	}
 }
+
+func TestAgentPinBriefInteropWithSettingsBrief(t *testing.T) {
+	ed, projDir := newRefProjectEditor(t, false, "")
+	pngBytes := makeSpikesPNG(t, 24, 24)
+	img, err := ed.AttachAgentReferenceBytes("spikes_ref.png", pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PinAgentReferenceImage(img.ID, "rusty iron spikes\ninjection"); err != nil {
+		t.Fatalf("PinAgentReferenceImage: %v", err)
+	}
+
+	// Fresh brief.yaml must be valid versioned YAML parseable by project.ParseBrief.
+	briefPath := filepath.Join(projDir, project.BriefFileName)
+	raw, err := os.ReadFile(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := project.ParseBrief(raw)
+	if err != nil {
+		t.Fatalf("project.ParseBrief failed on pinned brief.yaml:\n%s\nerr: %v", raw, err)
+	}
+	if parsed.Art == nil || len(parsed.Art.References) != 1 || parsed.Art.References[0].Path != "art/reference/spikes_ref.png" {
+		t.Fatalf("unexpected parsed brief art: %+v", parsed.Art)
+	}
+	if strings.Contains(parsed.Art.References[0].Note, "\n") {
+		t.Fatalf("control char/newline leaked into brief note: %q", parsed.Art.References[0].Note)
+	}
+
+	// Editor's Settings > Game brief state must have reloaded automatically.
+	if !ed.BriefExists() || ed.BriefLoadErr() != nil {
+		t.Fatalf("BriefExists=%v BriefLoadErr=%v after pin", ed.BriefExists(), ed.BriefLoadErr())
+	}
+	// Editing pitch in Settings > Game brief must preserve pinned art.references.
+	if err := ed.EditBrief("Set pitch", func(b *project.Brief) {
+		b.Pitch = "A tight dungeon platformer."
+	}); err != nil {
+		t.Fatalf("EditBrief after pin: %v", err)
+	}
+	refs := ed.BriefReferences()
+	if len(refs) != 1 || refs[0].Path != "art/reference/spikes_ref.png" {
+		t.Fatalf("pinned reference lost after Settings EditBrief: %+v", refs)
+	}
+}
+
+func TestAgentReferenceSymlinkAndTOCTOUGuards(t *testing.T) {
+	outside := t.TempDir()
+	outsidePNG := filepath.Join(outside, "secret.png")
+	outsideBrief := filepath.Join(outside, "outside_brief.yaml")
+	if err := os.WriteFile(outsidePNG, makeSpikesPNG(t, 16, 16), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsideBrief, []byte("version: 1\nart:\n  references:\n    - path: art/reference/escape.png\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Symlinked brief.yaml pointing outside project must be ignored & refused for writes.
+	ed1, projDir1 := newRefProjectEditor(t, false, "")
+	if err := os.Symlink(outsideBrief, filepath.Join(projDir1, "brief.yaml")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if ed1.BriefFileExists() {
+		t.Fatal("BriefFileExists returned true for symlinked brief.yaml")
+	}
+	if refs := ed1.BriefReferences(); len(refs) != 0 {
+		t.Fatalf("BriefReferences read symlinked brief.yaml: %+v", refs)
+	}
+	img1, err := ed1.AttachAgentReferenceBytes("test.png", makeSpikesPNG(t, 16, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed1.PinAgentReferenceImage(img1.ID, ""); err == nil {
+		t.Fatal("PinAgentReferenceImage succeeded against symlinked brief.yaml")
+	}
+
+	// 2. Symlinked art/reference directory or image inside brief.yaml must be refused.
+	ed2, projDir2 := newRefProjectEditor(t, false, "version: 1\nart:\n  references:\n    - path: art/reference/escape.png\n")
+	if err := os.MkdirAll(filepath.Join(projDir2, "art", "reference"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePNG, filepath.Join(projDir2, "art", "reference", "escape.png")); err != nil {
+		t.Fatal(err)
+	}
+	if imgs := ed2.BriefReferenceImages(); len(imgs) != 0 {
+		t.Fatalf("BriefReferenceImages loaded symlinked image: %+v", imgs)
+	}
+
+	// 3. TOCTOU symlink swap before Undo must refuse to delete outside file.
+	ed3, projDir3 := newRefProjectEditor(t, false, "")
+	img3, err := ed3.AttachAgentReferenceBytes("safe.png", makeSpikesPNG(t, 16, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed3.PinAgentReferenceImage(img3.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	pinnedPath := filepath.Join(projDir3, "art", "reference", "safe.png")
+	if err := os.Remove(pinnedPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePNG, pinnedPath); err != nil {
+		t.Fatal(err)
+	}
+	if ed3.Undo() {
+		t.Fatal("Undo succeeded despite symlink swap on pinned image")
+	}
+	if _, err := os.Stat(outsidePNG); err != nil {
+		t.Fatalf("outside target was touched by Undo: %v", err)
+	}
+}
+
+func TestAgentReferenceCapsAndInputSafety(t *testing.T) {
+	ed, _ := newRefProjectEditor(t, false, "")
+	pngBytes := makeSpikesPNG(t, 16, 16)
+
+	// Remote URI schemes and non-localhost file:// URIs must be refused.
+	for _, bad := range []string{
+		"https://example.com/ref.png",
+		"file://evil.example.com/share/ref.png",
+		t.TempDir(), // directory, not regular file
+	} {
+		if _, err := ed.AttachAgentReferenceFile(bad); err == nil {
+			t.Fatalf("AttachAgentReferenceFile(%q) unexpectedly succeeded", bad)
+		}
+	}
+
+	// Enforce per-request attachment cap (8).
+	for i := range 8 {
+		if _, err := ed.AttachAgentReferenceBytes("ref.png", pngBytes); err != nil {
+			t.Fatalf("attach #%d failed: %v", i+1, err)
+		}
+	}
+	if _, err := ed.AttachAgentReferenceBytes("ninth.png", pngBytes); err == nil {
+		t.Fatal("expected 9th attachment to be refused by per-request cap")
+	}
+}
+
+func TestAgentUndoLastBriefPinOnlyUndoesPinAtTopOfHistory(t *testing.T) {
+	ed, projDir := newRefProjectEditor(t, false, "version: 1\npitch: Initial\n")
+	img, err := ed.AttachAgentReferenceBytes("spikes_ref.png", makeSpikesPNG(t, 24, 24))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PinAgentReferenceImage(img.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.CanUndoLastBriefPin() {
+		t.Fatal("CanUndoLastBriefPin should be true right after pinning")
+	}
+
+	// Perform an unrelated edit on top of the pin.
+	if err := ed.EditBrief("Update pitch", func(b *project.Brief) {
+		b.Pitch = "Updated pitch"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ed.CanUndoLastBriefPin() {
+		t.Fatal("CanUndoLastBriefPin should be false after another command pushed onto History")
+	}
+	if ed.UndoLastBriefPin() {
+		t.Fatal("UndoLastBriefPin must not undo an unrelated later command")
+	}
+	if got := ed.Brief().Pitch; got != "Updated pitch" {
+		t.Fatalf("unrelated edit was reverted: pitch = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(projDir, "art", "reference", "spikes_ref.png")); err != nil {
+		t.Fatalf("pinned file unexpectedly removed: %v", err)
+	}
+}
+
+func TestAgentComposerFocusPreservedAcrossImageAttachAndPin(t *testing.T) {
+	ed, _ := newRefProjectEditor(t, false, "version: 1\npitch: Dungeon\n")
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	app.Focus("id:agent-composer-input")
+	app.Settle()
+
+	var img editor.AgentReferenceImage
+	var attachErr error
+	app.Post(func() {
+		img, attachErr = ed.AttachAgentReferenceBytes("spikes_ref.png", makeSpikesPNG(t, 24, 24))
+	})
+	app.Settle()
+	if attachErr != nil {
+		t.Fatal(attachErr)
+	}
+	app.Key("a")
+	app.Settle()
+	if !strings.Contains(ed.AgentComposerText(), "a") {
+		t.Fatalf("attaching image stole focus from agent-composer-input (text=%q)", ed.AgentComposerText())
+	}
+
+	app.Post(func() {
+		ed.SetAgentImagePreviewID(img.ID)
+	})
+	app.Settle()
+	app.Key("b")
+	app.Settle()
+	if !strings.Contains(ed.AgentComposerText(), "b") {
+		t.Fatalf("opening image preview stole focus from agent-composer-input (text=%q)", ed.AgentComposerText())
+	}
+
+	var pinErr error
+	app.Post(func() {
+		_, pinErr = ed.PinAgentReferenceImage(img.ID, "spikes")
+	})
+	app.Settle()
+	if pinErr != nil {
+		t.Fatal(pinErr)
+	}
+	app.Key("c")
+	app.Settle()
+	if !strings.Contains(ed.AgentComposerText(), "c") {
+		t.Fatalf("pinning image stole focus from agent-composer-input (text=%q)", ed.AgentComposerText())
+	}
+}

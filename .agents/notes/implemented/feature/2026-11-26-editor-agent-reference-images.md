@@ -13,37 +13,38 @@ Issue #1027 implements the *Paste or drop an image* and *Pin to brief* workflows
 
 ### Strict in-memory decoding for PNG, JPEG, and WebP
 
-- `DecodeAgentReferenceImage` validates magic bytes (`\x89PNG\r\n\x1a\n`, `\xff\xd8\xff`, and `RIFF....WEBP`) and decodes the image in memory (`image/png`, `image/jpeg`, `golang.org/x/image/webp`) under strict size and pixel caps (`16 MiB`, `4096×4096`, `16M` pixels).
-- Non-matching formats (GIF, SVG, BMP, PDF, text, or malformed image files) are refused before creating a chip, surfacing an explicit reason in `AgentAttachError` and the composer's accessible `RoleAlert` banner.
-- Decoded `*image.RGBA` pixels are attached to `AgentReferenceImage` so thumbnails, turn bubbles, and hover preview cards render consistently across all three formats—including WebP—via `core.Image{Source: core.ImageSource{Pixels: ..., Version: ...}}`.
+- `DecodeAgentReferenceImage` validates magic bytes (`\x89PNG\r\n\x1a\n`, `\xff\xd8\xff`, and `RIFF....WEBP`) and decodes the image in memory (`image/png`, `image/jpeg`, `golang.org/x/image/webp`) under strict size, dimension, and count caps (`16 MiB`, `4096×4096`, `16M` pixels, max `8` one-shot attachments per request and `16` pinned brief references).
+- Non-matching formats (GIF, SVG, BMP, PDF, text, non-regular files, remote non-`file://` URIs, or malformed image files) are refused before creating a chip, surfacing an explicit reason in `AgentAttachError` and the composer's accessible `RoleAlert` banner.
+- Decoded `*image.RGBA` pixels are attached to `AgentReferenceImage` so thumbnails, turn bubbles, and hover preview cards render consistently across all three formats—including WebP—via `core.Image{Source: core.ImageSource{Pixels: ..., Version: ...}}`. Historical `AgentTurn.Images` retain thumbnail pixels without retaining raw encoded byte buffers in RAM.
 
 ### Composer drop, paste, hover preview, and one-shot clearing
 
 - `agent-composer` wires `core.View.OnFileDragEnter`, `OnFileDragLeave`, and `OnFileDrop` to show the Spec-styled **"Drop to attach"** overlay and call `DropAgentReferenceFiles`.
-- `agent-composer-input` wires `core.Input.OnPaste` (`HandleAgentComposerPaste`), which handles pasted image bytes (`PasteEvent.Files`) and copied file URLs (`PasteEvent.URIs`) without interfering with normal plain-text pastes (`PasteInsert`). Injectable `Editor.ReadClipboardImage`, `Editor.ReadClipboardFiles`, and `Editor.PickAgentReferenceFiles` hooks keep clipboard and picker flows deterministic in tests.
+- `agent-composer-input` wires `core.Input.OnPaste` (`HandleAgentComposerPaste`), which handles pasted image bytes (`PasteEvent.Files`) and copied file URLs (`PasteEvent.URIs`) without interfering with normal plain-text pastes (`PasteInsert`). Injectable `Editor.ReadClipboardImage`, `Editor.ReadClipboardFiles`, and `Editor.PickAgentReferenceFiles` hooks keep clipboard and picker flows deterministic in tests, and async picker/clipboard callbacks verify editor lifecycle and project identity before mutating state.
 - `SubmitAgentPrompt` snapshots one-shot attachments (`AgentRequest.AttachedImages`) and pinned brief references (`AgentRequest.BriefImages`) into a deduplicated `AgentRequest.Images` slice and `AgentTurn.Images`, then clears `attachedImages` immediately so the next request never carries one-shot attachments.
 
-### YAML AST pinning and atomic `fallibleCommand` Undo
+### Schema-compatible YAML AST pinning and atomic `fallibleCommand` Undo
 
-- `PinAgentReferenceImage` executes a `pinReferenceImageCmd` (`fallibleCommand`) on `Editor.History`.
-- `appendBriefReferenceYAML` edits `brief.yaml` through `yaml.Node` rather than re-marshaling into a fixed struct. This preserves existing keys, comments, and formatting across both `asset_gen.go`'s style fields and future `brief.yaml` schema additions (#1026), adding a single `- path: art/reference/<name>` line (plus `note:` when supplied).
-- If `art/reference/<name>` already exists with different bytes, `resolvePinImageTarget` picks a unique suffixed filename (`<stem>_2<ext>`) so pinning never overwrites unrelated artwork. If `brief.yaml` did not exist beforehand, `undo()` removes both `brief.yaml` and `art/reference/<name>` (plus empty `art/reference` / `art` directories created by the command); otherwise it restores the exact prior `brief.yaml` bytes and removes the copied image.
-- `BriefReferenceImages` caches decoded pinned images by `(path, modTime, size)` so UI redraws and hover previews of the `brief.yaml` Always chip avoid repeated disk decoding while staying synchronized with disk edits and Undo/Redo.
+- `project.Brief` (`packages/game/project/brief.go` and `apps/website/public/schemas/brief.v1.json`) declares `Art *BriefArt` (`art.direction` and `art.references: [{path, note}]`) with strict validation (clean slash-separated project-relative paths, no duplicates, no control characters) so `brief.yaml` round-trips cleanly between **Pin to brief** and **Settings › Game brief** (#1026).
+- `PinAgentReferenceImage` executes a `pinReferenceImageCmd` (`fallibleCommand`) on `Editor.History`, guarded against Play mode, merge conflicts, and read-only History preview.
+- `appendBriefReferenceYAML` edits existing `brief.yaml` files through `yaml.Node` to preserve existing keys, comments, and formatting while adding a single `- path: art/reference/<name>` line (plus `note:` when supplied), and creates fresh `brief.yaml` files with `project.BriefSchemaComment` and `version: 1`.
+- Every read, write, and Undo/Redo step enforces component-by-component `os.Lstat` symlink containment under the project root (protecting against TOCTOU symlink swaps), avoids unbounded `os.ReadFile` calls during filename disambiguation (`resolvePinImageTarget`), synchronizes `Editor.Brief()` (`reloadBriefFromDisk`), and keeps the pin card's **Undo** button (`CanUndoLastBriefPin` / `UndoLastBriefPin`) bound strictly to the top of `Editor.History` so it never undoes unrelated subsequent edits.
+- `BriefFileExists`, `BriefReferences`, and `BriefReferenceImages` cache parsed metadata and decoded pinned images by `(path, modTime, size)` (pruning stale keys) so composer keystrokes and UI redraws avoid redundant disk reads and YAML parsing while staying synchronized with disk edits and Undo/Redo.
 
 ## Alternatives considered
 
 ### Copy dropped or pasted images into a temporary project folder immediately on attach
 
-Writing one-shot attachments to `.nsgo/tmp/` or `art/reference/` on drop would let CLI runners reference a file path immediately. This was rejected because an unpinned image is explicitly ephemeral ("sent with this request only" and never dirties the project or git working tree); keeping one-shot bytes strictly in memory until the user clicks **Pin to brief** ensures nothing touches disk unless explicitly pinned.
+Writing one-shot attachments to `.nsgo/tmp/` or `art/reference/` on drop would let CLI runners reference a file path immediately. This was rejected because an unpinned image is explicitly ephemeral ("sent with this request only" and never dirties the project or git working tree); keeping one-shot bytes strictly in memory until the user clicks **Pin to brief** (and materializing ephemeral files only in a private OS temp directory cleaned up on exit inside `CLIAgentRunner.Run`) ensures nothing touches the project directory unless explicitly pinned.
 
-### Decode and re-encode `brief.yaml` through a fixed Go struct
+### Re-marshal `brief.yaml` through `project.EncodeBrief` on every Pin to brief
 
-A typed Go struct for `brief.yaml` would provide compile-time field names, but `brief.yaml`'s full schema is owned by #1026 (in flight) while `asset_gen.go` already reads `art:` style properties. Using `yaml.Node` AST updates guarantees byte-preserving edits to existing `brief.yaml` files and adds exactly one YAML line for `art.references` without clashing with unrelated sections.
+Always re-encoding through `project.Brief` would strip author comments and rewrite unrelated sections of `brief.yaml`, producing noisy diffs on the Pin to brief confirmation card. Supporting `Art *BriefArt` in `project.Brief` for schema/Settings interop while using `yaml.Node` AST updates in `PinAgentReferenceImage` gives both strict schema compatibility and minimal single-line diffs.
 
 ## Consequences
 
-- **Benefits**: One-shot image attachments never leak across requests or dirty the working tree; PNG, JPEG, and WebP work identically across drop, paste, and picker; Pin to brief produces clean, reviewable diffs in Changes/Git and reverts atomically with one Undo; all UI surfaces use `SpecPalette` tokens in both Dark and Light appearances.
-- **Costs**: `CLIAgentRunner` currently forwards project-backed (pinned) reference paths to external CLIs (`-i` for Codex, reference list for Claude) while in-memory one-shot image bytes are delivered directly via `AgentRequest.AttachedImages` / `AgentRequest.Images` for scripted, in-process, or multimodal API runners.
+- **Benefits**: One-shot image attachments never leak across requests or dirty the working tree; PNG, JPEG, and WebP work identically across drop, paste, and picker; Pin to brief produces clean, reviewable, schema-valid diffs in Changes/Git, stays in sync with Settings › Game brief, and reverts atomically with one Undo; all UI surfaces use `SpecPalette` tokens in both Dark and Light appearances and full EN/ZH localization.
+- **Costs**: `CLIAgentRunner` writes temporary OS files for ephemeral one-shot images during subprocess execution (cleaned up immediately on exit) and validates every project-backed reference path against root containment before passing `-i` (Codex) or prompt references (Claude / resumed Codex).
 
 ## Testing
 
