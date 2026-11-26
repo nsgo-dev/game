@@ -132,7 +132,7 @@ type ViewportLiveOverlay struct {
 	ReadOnly bool              `json:"readOnly,omitempty"`
 }
 
-type agentTurnState struct {
+type agentLiveTurnState struct {
 	label          string
 	baseDoc        *sceneformat.SceneDoc
 	baseBuilt      *sceneformat.BuiltScene
@@ -144,7 +144,7 @@ type agentTurnState struct {
 }
 
 type agentLiveState struct {
-	turn              *agentTurnState
+	turn              *agentLiveTurnState
 	state             AgentState
 	stateDetail       string
 	workingIDs        []string
@@ -205,7 +205,7 @@ func (e *Editor) BeginAgentTurn(label string) {
 	if e.History != nil {
 		histStart = e.History.Index()
 	}
-	e.agentLive.turn = &agentTurnState{
+	e.agentLive.turn = &agentLiveTurnState{
 		label:        strings.TrimSpace(label),
 		baseDoc:      baseDoc,
 		baseBuilt:    baseBuilt,
@@ -282,9 +282,9 @@ func (e *Editor) DiscardEmptyAgentTurn() {
 	e.notify()
 }
 
-// KeepAgentTurn accepts all pending changes in the open agent turn as a single undo step,
+// keepLiveAgentTurn accepts all pending changes in the open live agent turn as a single undo step,
 // clearing the live viewport overlays, scene tree markers, inspector review hints, and agent working state.
-func (e *Editor) KeepAgentTurn() error {
+func (e *Editor) keepLiveAgentTurn() error {
 	if e == nil || e.agentLive.turn == nil {
 		return ErrNoAgentTurn
 	}
@@ -349,9 +349,9 @@ func (e *Editor) KeepAgentTurn() error {
 	return nil
 }
 
-// RevertAgentTurn reverts the open scene back to its exact state before the pending agent turn,
+// revertLiveAgentTurn reverts the open scene back to its exact state before the pending live agent turn,
 // clearing the live viewport overlays, scene tree markers, inspector review hints, and agent working state.
-func (e *Editor) RevertAgentTurn() error {
+func (e *Editor) revertLiveAgentTurn() error {
 	if e == nil || e.agentLive.turn == nil {
 		return ErrNoAgentTurn
 	}

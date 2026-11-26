@@ -18,15 +18,6 @@ import (
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 )
 
-// AgentChangeKind classifies one derived change inside an agent turn.
-type AgentChangeKind string
-
-const (
-	AgentChangeAdded   AgentChangeKind = "added"
-	AgentChangeChanged AgentChangeKind = "changed"
-	AgentChangeRemoved AgentChangeKind = "removed"
-)
-
 // AgentTurnFileKind identifies the structured format of a file touched by an agent turn.
 type AgentTurnFileKind string
 
@@ -79,7 +70,8 @@ func classifyTurnFileKind(rel string, proj *project.File) AgentTurnFileKind {
 	case strings.HasSuffix(lower, ".anim.yaml") || strings.HasSuffix(lower, ".anim.yml") ||
 		strings.HasSuffix(lower, ".clip.yaml") || strings.HasSuffix(lower, ".clip.yml"):
 		return TurnFileClip
-	case strings.HasPrefix(lower, "data/") && (strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")):
+	case strings.HasSuffix(lower, ".table.yaml") || strings.HasSuffix(lower, ".table.yml") ||
+		(strings.HasPrefix(lower, "data/") && (strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml"))):
 		return TurnFileDataTable
 	case proj != nil && isProjectScene(proj, rel):
 		return TurnFileScene
@@ -355,6 +347,12 @@ func diffTurnSceneDocs(file string, beforeDoc, afterDoc *sceneformat.SceneDoc, b
 		if b.Model != a.Model {
 			addField("model", fmt.Sprintf("model %s → %s", formatAnyScalar(b.Model), formatAnyScalar(a.Model)))
 		}
+		if b.ModelNode != a.ModelNode {
+			addField("modelNode", fmt.Sprintf("modelNode %s → %s", formatAnyScalar(b.ModelNode), formatAnyScalar(a.ModelNode)))
+		}
+		if b.ModelMesh != a.ModelMesh {
+			addField("modelMesh", fmt.Sprintf("modelMesh %s → %s", formatAnyScalar(b.ModelMesh), formatAnyScalar(a.ModelMesh)))
+		}
 		if b.GridMap != a.GridMap {
 			addField("gridMap", fmt.Sprintf("gridMap %s → %s", formatAnyScalar(b.GridMap), formatAnyScalar(a.GridMap)))
 		}
@@ -369,6 +367,15 @@ func diffTurnSceneDocs(file string, beforeDoc, afterDoc *sceneformat.SceneDoc, b
 		}
 		if !reflect.DeepEqual(b.Camera, a.Camera) {
 			addField("camera", "camera updated")
+		}
+		if !reflect.DeepEqual(b.ReflectionProbe, a.ReflectionProbe) {
+			addField("reflectionProbe", "reflectionProbe updated")
+		}
+		if !reflect.DeepEqual(b.LightProbeGrid, a.LightProbeGrid) {
+			addField("lightProbeGrid", "lightProbeGrid updated")
+		}
+		if !reflect.DeepEqual(b.Overrides, a.Overrides) {
+			addField("overrides", "overrides updated")
 		}
 		if bo.layer != ao.layer {
 			addField("layer", fmt.Sprintf("layer %s → %s", bo.layer, ao.layer))
@@ -703,6 +710,12 @@ func synthesizeSceneDoc(file string, beforeDoc, agentDoc *sceneformat.SceneDoc, 
 		if isRev("model") {
 			target.Model = b.Model
 		}
+		if isRev("modelNode") {
+			target.ModelNode = b.ModelNode
+		}
+		if isRev("modelMesh") {
+			target.ModelMesh = b.ModelMesh
+		}
 		if isRev("gridMap") {
 			target.GridMap = b.GridMap
 		}
@@ -722,6 +735,15 @@ func synthesizeSceneDoc(file string, beforeDoc, agentDoc *sceneformat.SceneDoc, 
 		}
 		if isRev("camera") {
 			target.Camera = b.Clone().Camera
+		}
+		if isRev("reflectionProbe") {
+			target.ReflectionProbe = b.Clone().ReflectionProbe
+		}
+		if isRev("lightProbeGrid") {
+			target.LightProbeGrid = b.Clone().LightProbeGrid
+		}
+		if isRev("overrides") {
+			target.Overrides = b.Clone().Overrides
 		}
 
 		// Revert component / component-field changes.
@@ -962,6 +984,10 @@ func applySingleObjectField(doc *sceneformat.SceneDoc, target *sceneformat.Objec
 		target.Mesh = s.Mesh
 	case field == "model":
 		target.Model = s.Model
+	case field == "modelNode":
+		target.ModelNode = s.ModelNode
+	case field == "modelMesh":
+		target.ModelMesh = s.ModelMesh
 	case field == "gridMap":
 		target.GridMap = s.GridMap
 	case field == "particles":
@@ -977,6 +1003,12 @@ func applySingleObjectField(doc *sceneformat.SceneDoc, target *sceneformat.Objec
 		target.Light = s.Clone().Light
 	case field == "camera":
 		target.Camera = s.Clone().Camera
+	case field == "reflectionProbe":
+		target.ReflectionProbe = s.Clone().ReflectionProbe
+	case field == "lightProbeGrid":
+		target.LightProbeGrid = s.Clone().LightProbeGrid
+	case field == "overrides":
+		target.Overrides = s.Clone().Overrides
 	case field == "layer" || field == "parent":
 		moved := target.Clone()
 		removeObjectFromSceneDoc(doc, moved.ID)
@@ -1132,25 +1164,29 @@ func rowChangeID(file, key string) string {
 	return file + "::row:" + key
 }
 
+func indexDataTableRows(doc *datatable.Document) (map[string]datatable.Row, []string) {
+	rows := make(map[string]datatable.Row)
+	var order []string
+	if doc == nil {
+		return rows, order
+	}
+	seen := make(map[string]int)
+	for i, r := range doc.Rows() {
+		base := rowRecordKey(r, i)
+		seen[base]++
+		k := base
+		if seen[base] > 1 {
+			k = fmt.Sprintf("%s#%d", base, seen[base])
+		}
+		rows[k] = r
+		order = append(order, k)
+	}
+	return rows, order
+}
+
 func diffDataTableDocs(file string, beforeDoc, afterDoc *datatable.Document, beforeYAML, afterYAML []byte, reasons map[string]string, reverted map[string]bool) []AgentTurnChange {
-	bRows := make(map[string]datatable.Row)
-	var bOrder []string
-	if beforeDoc != nil {
-		for i, r := range beforeDoc.Rows() {
-			k := rowRecordKey(r, i)
-			bRows[k] = r
-			bOrder = append(bOrder, k)
-		}
-	}
-	aRows := make(map[string]datatable.Row)
-	var aOrder []string
-	if afterDoc != nil {
-		for i, r := range afterDoc.Rows() {
-			k := rowRecordKey(r, i)
-			aRows[k] = r
-			aOrder = append(aOrder, k)
-		}
-	}
+	bRows, bOrder := indexDataTableRows(beforeDoc)
+	aRows, aOrder := indexDataTableRows(afterDoc)
 	var changes []AgentTurnChange
 	for _, k := range aOrder {
 		if _, existed := bRows[k]; existed {
@@ -1228,24 +1264,8 @@ func synthesizeDataTableDoc(file string, beforeDoc, agentDoc *datatable.Document
 	if len(reverted) == 0 {
 		return agentDoc.Clone()
 	}
-	bRows := make(map[string]datatable.Row)
-	var bOrder []string
-	if beforeDoc != nil {
-		for i, r := range beforeDoc.Rows() {
-			k := rowRecordKey(r, i)
-			bRows[k] = r
-			bOrder = append(bOrder, k)
-		}
-	}
-	aRows := make(map[string]datatable.Row)
-	var aOrder []string
-	if agentDoc != nil {
-		for i, r := range agentDoc.Rows() {
-			k := rowRecordKey(r, i)
-			aRows[k] = r
-			aOrder = append(aOrder, k)
-		}
-	}
+	bRows, bOrder := indexDataTableRows(beforeDoc)
+	aRows, aOrder := indexDataTableRows(agentDoc)
 
 	out := datatable.NewDocument()
 	addedKeys := make(map[string]bool)
@@ -1282,23 +1302,34 @@ func synthesizeDataTableDoc(file string, beforeDoc, agentDoc *datatable.Document
 
 // --- Project (game.yaml) / Generic YAML key diff and synthesis ---
 
-func flattenYAMLMap(data []byte) (map[string]string, map[string]int, []string) {
+func formatYAMLValSummary(s string) string {
+	s = strings.TrimSpace(s)
+	collapsed := strings.Join(strings.Fields(s), " ")
+	runes := []rune(collapsed)
+	if len(runes) > 64 {
+		return string(runes[:61]) + "..."
+	}
+	return collapsed
+}
+
+func flattenYAMLMap(data []byte) (map[string]string, map[string]int, map[string][]string, []string) {
 	vals := make(map[string]string)
 	lines := make(map[string]int)
+	paths := make(map[string][]string)
 	var order []string
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || len(root.Content) == 0 {
-		return vals, lines, order
+		return vals, lines, paths, order
 	}
-	var walk func(prefix string, n *yaml.Node)
-	walk = func(prefix string, n *yaml.Node) {
+	var walk func(prefix string, segs []string, n *yaml.Node)
+	walk = func(prefix string, segs []string, n *yaml.Node) {
 		if n == nil {
 			return
 		}
 		switch n.Kind {
 		case yaml.DocumentNode:
 			if len(n.Content) > 0 {
-				walk(prefix, n.Content[0])
+				walk(prefix, segs, n.Content[0])
 			}
 		case yaml.MappingNode:
 			for i := 0; i+1 < len(n.Content); i += 2 {
@@ -1308,26 +1339,22 @@ func flattenYAMLMap(data []byte) (map[string]string, map[string]int, []string) {
 				if prefix != "" {
 					key = prefix + "." + key
 				}
+				nextSegs := append(slices.Clone(segs), kNode.Value)
 				if vNode.Kind == yaml.MappingNode && len(vNode.Content) > 0 {
-					walk(key, vNode)
+					walk(key, nextSegs, vNode)
 				} else {
 					enc, _ := yaml.Marshal(vNode)
-					s := strings.TrimSpace(string(enc))
-					if len(s) > 64 {
-						s = strings.Join(strings.Fields(s), " ")
-						if len(s) > 64 {
-							s = s[:61] + "..."
-						}
-					}
-					vals[key] = s
+					// Store the full canonical YAML for exact equality detection (never truncate before diffing).
+					vals[key] = strings.TrimSpace(string(enc))
 					lines[key] = kNode.Line
+					paths[key] = nextSegs
 					order = append(order, key)
 				}
 			}
 		}
 	}
-	walk("", &root)
-	return vals, lines, order
+	walk("", nil, &root)
+	return vals, lines, paths, order
 }
 
 func yamlKeyChangeID(file, key string) string {
@@ -1335,8 +1362,8 @@ func yamlKeyChangeID(file, key string) string {
 }
 
 func diffYAMLKeys(file string, beforeYAML, afterYAML []byte, reasons map[string]string, reverted map[string]bool) []AgentTurnChange {
-	bVals, bLines, bOrder := flattenYAMLMap(beforeYAML)
-	aVals, aLines, aOrder := flattenYAMLMap(afterYAML)
+	bVals, bLines, _, bOrder := flattenYAMLMap(beforeYAML)
+	aVals, aLines, _, aOrder := flattenYAMLMap(afterYAML)
 	var changes []AgentTurnChange
 	for _, k := range aOrder {
 		if _, existed := bVals[k]; existed {
@@ -1347,7 +1374,7 @@ func diffYAMLKeys(file string, beforeYAML, afterYAML []byte, reasons map[string]
 			ID:       cid,
 			Kind:     AgentChangeAdded,
 			Title:    k,
-			Detail:   fmt.Sprintf("%s = %s", k, aVals[k]),
+			Detail:   fmt.Sprintf("%s = %s", k, formatYAMLValSummary(aVals[k])),
 			File:     file,
 			Line:     aLines[k],
 			Reason:   lookupReason(reasons, cid, "key:"+k, "*"),
@@ -1365,7 +1392,7 @@ func diffYAMLKeys(file string, beforeYAML, afterYAML []byte, reasons map[string]
 			ID:       cid,
 			Kind:     AgentChangeChanged,
 			Title:    k,
-			Detail:   fmt.Sprintf("%s %s → %s", k, bv, aVals[k]),
+			Detail:   fmt.Sprintf("%s %s → %s", k, formatYAMLValSummary(bv), formatYAMLValSummary(aVals[k])),
 			File:     file,
 			Line:     aLines[k],
 			Reason:   lookupReason(reasons, cid, "key:"+k, "*"),
@@ -1407,17 +1434,27 @@ func synthesizeYAMLByKeys(file string, beforeYAML, agentYAML []byte, reverted ma
 		aMap = map[string]any{}
 	}
 	out := cloneAnyMap(aMap)
-	bVals, _, bOrder := flattenYAMLMap(beforeYAML)
-	aVals, _, aOrder := flattenYAMLMap(agentYAML)
+	bVals, _, bPaths, bOrder := flattenYAMLMap(beforeYAML)
+	aVals, _, aPaths, aOrder := flattenYAMLMap(agentYAML)
 
 	for _, k := range aOrder {
 		if !reverted[yamlKeyChangeID(file, k)] {
 			continue
 		}
+		segs := aPaths[k]
+		if len(segs) == 0 {
+			segs = strings.Split(k, ".")
+		}
 		if _, existed := bVals[k]; !existed {
-			deleteNestedKey(out, strings.Split(k, "."))
-		} else if val, ok := getNestedKey(bMap, strings.Split(k, ".")); ok {
-			setNestedKey(out, strings.Split(k, "."), cloneAny(val))
+			deleteNestedKey(out, segs)
+		} else {
+			bSegs := bPaths[k]
+			if len(bSegs) == 0 {
+				bSegs = segs
+			}
+			if val, ok := getNestedKey(bMap, bSegs); ok {
+				setNestedKey(out, segs, cloneAny(val))
+			}
 		}
 	}
 	for _, k := range bOrder {
@@ -1425,8 +1462,12 @@ func synthesizeYAMLByKeys(file string, beforeYAML, agentYAML []byte, reverted ma
 			continue
 		}
 		if reverted[yamlKeyChangeID(file, k)] {
-			if val, ok := getNestedKey(bMap, strings.Split(k, ".")); ok {
-				setNestedKey(out, strings.Split(k, "."), cloneAny(val))
+			segs := bPaths[k]
+			if len(segs) == 0 {
+				segs = strings.Split(k, ".")
+			}
+			if val, ok := getNestedKey(bMap, segs); ok {
+				setNestedKey(out, segs, cloneAny(val))
 			}
 		}
 	}
@@ -1440,6 +1481,9 @@ func synthesizeProjectFile(file string, beforeYAML, agentYAML []byte, reverted m
 	}
 	pf, err := project.Parse(raw)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := project.Validate(pf); err != nil {
 		return nil, nil, err
 	}
 	enc, err := project.Encode(pf)

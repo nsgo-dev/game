@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +20,61 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 )
+
+const (
+	maxAgentTurnFileBytes    = 2 << 20 // 2 MiB max per file read or staged in a turn
+	maxAgentTurnSteps        = 200
+	maxAgentTurnPromptRunes  = 1024
+	maxAgentTurnSummaryRunes = 4096
+	maxAgentTurnStepRunes    = 512
+	maxAgentTurnReasonRunes  = 512
+)
+
+func clampTurnRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
+}
+
+func isGitInternalTurnPath(rel string) bool {
+	lower := strings.ToLower(path.Clean(strings.ReplaceAll(rel, `\`, "/")))
+	return lower == ".git" || strings.HasPrefix(lower, ".git/") || strings.Contains(lower, "/.git/")
+}
+
+// readBoundedProjectFile reads a regular (non-symlink) project file up to maxBytes.
+func readBoundedProjectFile(abs string, maxBytes int64) ([]byte, error) {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("editor: refusing to read symbolic link %q", abs)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("editor: %q is not a regular file", abs)
+	}
+	if maxBytes > 0 && info.Size() > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds %d bytes limit", abs, maxBytes)
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds %d bytes limit", abs, maxBytes)
+	}
+	return data, nil
+}
 
 // AgentTurnStatus describes the lifecycle state of an agent request turn.
 type AgentTurnStatus string
@@ -102,6 +159,7 @@ type stagedFileEntry struct {
 	fromPending  bool
 	existedDisk  bool
 	exactRestore bool
+	shouldDelete bool
 }
 
 func (s *stagedFileEntry) clone() *stagedFileEntry {
@@ -357,6 +415,30 @@ func (e *Editor) AgentTurnReviewOpen() bool {
 		(e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped)
 }
 
+func (e *Editor) bumpAgentTurnRev() {
+	if e != nil {
+		e.agentTurnRev++
+	}
+}
+
+// isTurnFileActiveScene reports dynamically whether (rel, abs) is the currently active scene tab.
+// Always checked at apply time rather than relying on a cached boolean so tab switches never mutate the wrong document.
+func (e *Editor) isTurnFileActiveScene(rel, abs string) bool {
+	if e == nil {
+		return false
+	}
+	if rel != "" {
+		if e.ScenePath != "" && e.ScenePath == rel {
+			return true
+		}
+		if abs != "" && e.FilePath != "" && sameHostFilePath(e.FilePath, abs) {
+			return true
+		}
+		return false
+	}
+	return e.ScenePath == "" && (abs == "" || e.FilePath == abs)
+}
+
 // SetAgentTurnReviewOpen opens or closes the turn review state for the current pending turn.
 func (e *Editor) SetAgentTurnReviewOpen(open bool) {
 	if e == nil || e.agentTurn == nil {
@@ -373,6 +455,7 @@ func (e *Editor) SetAgentTurnReviewOpen(open bool) {
 		e.agentTurn.reviewHistoryBase = e.History.Index()
 		e.SetRightRailTab(RightTabAgent)
 	}
+	e.bumpAgentTurnRev()
 	e.notify()
 }
 
@@ -442,6 +525,9 @@ func (e *Editor) StartAgentTurn(prompt string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if e.agentTurn != nil {
 		switch e.agentTurn.status {
 		case AgentTurnWorking:
@@ -455,7 +541,7 @@ func (e *Editor) StartAgentTurn(prompt string) error {
 	if e.Now != nil {
 		now = e.Now()
 	}
-	p := strings.TrimSpace(prompt)
+	p := clampTurnRunes(strings.TrimSpace(prompt), maxAgentTurnPromptRunes)
 	if p == "" {
 		p = "Agent request"
 	}
@@ -468,6 +554,7 @@ func (e *Editor) StartAgentTurn(prompt string) error {
 	}
 	e.lastRevertedTurn = nil
 	e.Status = "Agent working…"
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -477,10 +564,14 @@ func (e *Editor) RecordAgentTurnStep(label string) {
 	if e == nil || e.agentTurn == nil || strings.TrimSpace(label) == "" {
 		return
 	}
+	if len(e.agentTurn.steps) >= maxAgentTurnSteps {
+		return
+	}
 	e.agentTurn.steps = append(e.agentTurn.steps, AgentTurnStep{
-		Label: strings.TrimSpace(label),
+		Label: clampTurnRunes(strings.TrimSpace(label), maxAgentTurnStepRunes),
 		Done:  true,
 	})
+	e.bumpAgentTurnRev()
 	e.notify()
 }
 
@@ -491,8 +582,8 @@ func (e *Editor) EndAgentTurn(summary string) error {
 		return errors.New("editor: no agent turn is currently working")
 	}
 	e.agentTurn.status = AgentTurnPending
-	if strings.TrimSpace(summary) != "" {
-		e.agentTurn.summary = strings.TrimSpace(summary)
+	if s := clampTurnRunes(strings.TrimSpace(summary), maxAgentTurnSummaryRunes); s != "" {
+		e.agentTurn.summary = s
 	}
 	e.agentTurn.reviewHistoryBase = e.History.Index()
 	snap, _ := e.CurrentAgentTurn()
@@ -501,6 +592,7 @@ func (e *Editor) EndAgentTurn(summary string) error {
 	} else {
 		e.Status = "Agent finished · no changes"
 	}
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -519,11 +611,12 @@ func (e *Editor) StopAgentTurn() error {
 		msg = fmt.Sprintf("Agent stopped · %d %s pending", snap.TotalChanges, turnPlural(snap.TotalChanges, "change", "changes"))
 	}
 	e.Status = msg
+	e.bumpAgentTurnRev()
 	e.ShowToast(Toast{
 		ID:          "agent-turn",
 		Kind:        ToastInfo,
 		Message:     msg,
-		ActionLabel: "Review",
+		ActionLabel: e.T("agentTurn.review"),
 		OnAction: func() {
 			e.SetRightPanelTab(RightPanelAgent)
 			e.SetAgentTurnReviewOpen(true)
@@ -541,10 +634,19 @@ func turnPlural(n int, singular, plural string) string {
 }
 
 // canonicalTurnFileKey resolves a file path to its canonical key in turn.files and returns
-// (key, absPath, kind, isActiveScene).
+// (key, absPath, kind, isActiveScene). It refuses paths outside the project root, symlink escapes,
+// .git internal files, and You-only configuration files.
 func (e *Editor) canonicalTurnFileKey(rel string) (key, abs string, kind AgentTurnFileKind, isActive bool, err error) {
 	cleaned := strings.TrimSpace(strings.ReplaceAll(rel, `\`, "/"))
-	if cleaned == "" || (e.ScenePath != "" && path.Clean(cleaned) == e.ScenePath) {
+	if cleaned == "" {
+		if e.ScenePath != "" {
+			if dom, blocked := e.CheckYouOnlyTarget(e.ScenePath); blocked {
+				return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is protected under You-only %s", e.ScenePath, dom.DisplayName())
+			}
+			if isGitInternalTurnPath(e.ScenePath) {
+				return "", "", TurnFileOther, false, fmt.Errorf("editor: refusing to edit %q", e.ScenePath)
+			}
+		}
 		key = e.ScenePath
 		abs = e.FilePath
 		kind = TurnFileScene
@@ -553,19 +655,64 @@ func (e *Editor) canonicalTurnFileKey(rel string) (key, abs string, kind AgentTu
 		}
 		return key, abs, kind, true, nil
 	}
+	if strings.ContainsRune(rel, '\\') {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is not a slash-separated path inside the project", rel)
+	}
 	cleaned = path.Clean(cleaned)
 	if !validScenePath(cleaned) {
 		return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is not a slash-separated path inside the project", rel)
 	}
+	if isGitInternalTurnPath(cleaned) {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: refusing to edit %q inside .git", cleaned)
+	}
+	if dom, blocked := e.CheckYouOnlyTarget(cleaned); blocked {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is protected under You-only %s", cleaned, dom.DisplayName())
+	}
+	if e.ScenePath != "" && cleaned == e.ScenePath {
+		if e.ProjectPath != "" {
+			if resolved, rErr := ResolvePermissionFileTarget(filepath.Dir(e.ProjectPath), cleaned); rErr != nil {
+				return "", "", TurnFileOther, false, rErr
+			} else if resolved != "" {
+				if isGitInternalTurnPath(resolved) {
+					return "", "", TurnFileOther, false, fmt.Errorf("editor: refusing to edit %q inside .git", resolved)
+				}
+				if dom, blocked := e.CheckYouOnlyTarget(resolved); blocked {
+					return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is protected under You-only %s", resolved, dom.DisplayName())
+				}
+				cleaned = resolved
+			}
+		}
+		return cleaned, e.FilePath, classifyTurnFileKind(cleaned, e.Project), true, nil
+	}
 	if e.Project == nil || e.ProjectPath == "" {
 		return "", "", TurnFileOther, false, ErrNoProject
+	}
+	projectRoot := filepath.Dir(e.ProjectPath)
+	resolved, rErr := ResolvePermissionFileTarget(projectRoot, cleaned)
+	if rErr != nil {
+		return "", "", TurnFileOther, false, rErr
+	}
+	if resolved != "" {
+		cleaned = resolved
+	}
+	if !validScenePath(cleaned) {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is not a slash-separated path inside the project", rel)
+	}
+	if isGitInternalTurnPath(cleaned) {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: refusing to edit %q inside .git", cleaned)
+	}
+	if dom, blocked := e.CheckYouOnlyTarget(cleaned); blocked {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: %q is protected under You-only %s", cleaned, dom.DisplayName())
 	}
 	abs, err = e.projectFile(cleaned)
 	if err != nil {
 		return "", "", TurnFileOther, false, err
 	}
+	if info, lErr := os.Lstat(abs); lErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", "", TurnFileOther, false, fmt.Errorf("editor: refusing to edit symbolic link %q", cleaned)
+	}
 	kind = classifyTurnFileKind(cleaned, e.Project)
-	isActive = e.ScenePath != "" && cleaned == e.ScenePath
+	isActive = e.isTurnFileActiveScene(cleaned, abs)
 	return cleaned, abs, kind, isActive, nil
 }
 
@@ -638,7 +785,7 @@ func (e *Editor) ensureTurnFile(rel string) (*turnFile, error) {
 			raw = append([]byte(nil), staged.data...)
 			existed = staged.existedDisk
 		} else {
-			diskBytes, rErr := os.ReadFile(abs)
+			diskBytes, rErr := readBoundedProjectFile(abs, maxAgentTurnFileBytes)
 			if rErr != nil {
 				if !errors.Is(rErr, os.ErrNotExist) {
 					return nil, rErr
@@ -733,7 +880,7 @@ func (e *Editor) ensureTurnFile(rel string) (*turnFile, error) {
 			raw = append([]byte(nil), staged.data...)
 			existed = staged.existedDisk
 		} else {
-			diskBytes, rErr := os.ReadFile(abs)
+			diskBytes, rErr := readBoundedProjectFile(abs, maxAgentTurnFileBytes)
 			if rErr != nil {
 				if !errors.Is(rErr, os.ErrNotExist) {
 					return nil, rErr
@@ -799,7 +946,7 @@ func (e *Editor) ensureTurnFile(rel string) (*turnFile, error) {
 				raw = append([]byte(nil), staged.data...)
 				existed = staged.existedDisk
 			} else {
-				diskBytes, rErr := os.ReadFile(abs)
+				diskBytes, rErr := readBoundedProjectFile(abs, maxAgentTurnFileBytes)
 				if rErr != nil {
 					if !errors.Is(rErr, os.ErrNotExist) {
 						return nil, rErr
@@ -840,7 +987,7 @@ func (e *Editor) ensureTurnFile(rel string) (*turnFile, error) {
 		if staged, ok := e.stagedFiles[key]; ok {
 			raw = append([]byte(nil), staged.data...)
 			existed = staged.existedDisk
-		} else if diskBytes, rErr := os.ReadFile(abs); rErr == nil {
+		} else if diskBytes, rErr := readBoundedProjectFile(abs, maxAgentTurnFileBytes); rErr == nil {
 			raw = diskBytes
 			existed = true
 		} else if !errors.Is(rErr, os.ErrNotExist) {
@@ -869,6 +1016,9 @@ func (e *Editor) RunAgentSceneEdit(file string, reasons map[string]string, fn fu
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if !e.AgentTurnWorking() {
 		return errors.New("editor: no working agent turn")
 	}
@@ -880,7 +1030,7 @@ func (e *Editor) RunAgentSceneEdit(file string, reasons map[string]string, fn fu
 		return fmt.Errorf("editor: %q is not a scene or prefab file", file)
 	}
 
-	if tf.isActiveScene {
+	if e.isTurnFileActiveScene(tf.rel, tf.abs) {
 		preEdit := e.Doc.Clone()
 		prev := e.History.beginPreview("agent-turn")
 		err = func() (runErr error) {
@@ -900,14 +1050,18 @@ func (e *Editor) RunAgentSceneEdit(file string, reasons map[string]string, fn fu
 			return err
 		}
 		postEdit := e.Doc.Clone()
-		tf.agentScene = applySceneDelta(tf.agentScene, preEdit, postEdit)
-		tf.lastAppliedScene = postEdit.Clone()
-		enc, encErr := sceneformat.Encode(tf.agentScene)
+		nextAgent := applySceneDelta(tf.agentScene, preEdit, postEdit)
+		enc, encErr := sceneformat.Encode(nextAgent)
 		if encErr != nil {
+			(&groupCmd{cmds: cmds}).rollback(len(cmds))
+			e.afterMutate()
 			return encErr
 		}
+		tf.agentScene = nextAgent
+		tf.lastAppliedScene = postEdit.Clone()
 		tf.agentYAML = enc
 		recordReasonsForDelta(tf, preEdit, postEdit, reasons)
+		e.bumpAgentTurnRev()
 		e.afterMutate()
 		return nil
 	}
@@ -929,15 +1083,17 @@ func (e *Editor) RunAgentSceneEdit(file string, reasons map[string]string, fn fu
 		return err
 	}
 	postEdit := sub.Doc.Clone()
-	tf.agentScene = applySceneDelta(tf.agentScene, preEdit, postEdit)
-	tf.lastAppliedScene = postEdit.Clone()
-	enc, encErr := sceneformat.Encode(tf.agentScene)
+	nextAgent := applySceneDelta(tf.agentScene, preEdit, postEdit)
+	enc, encErr := sceneformat.Encode(nextAgent)
 	if encErr != nil {
 		return encErr
 	}
+	tf.agentScene = nextAgent
+	tf.lastAppliedScene = postEdit.Clone()
 	tf.agentYAML = enc
 	recordReasonsForDelta(tf, preEdit, postEdit, reasons)
 	e.applyTurnFileLive(tf, postEdit, enc, nil, nil, nil, true)
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -947,13 +1103,13 @@ func recordReasonsForDelta(tf *turnFile, preEdit, postEdit *sceneformat.SceneDoc
 		return
 	}
 	for k, v := range reasons {
-		v = strings.TrimSpace(v)
+		v = clampTurnRunes(strings.TrimSpace(v), maxAgentTurnReasonRunes)
 		if v == "" || k == "*" {
 			continue
 		}
 		tf.reasons[k] = v
 	}
-	if globalWhy := strings.TrimSpace(reasons["*"]); globalWhy != "" {
+	if globalWhy := clampTurnRunes(strings.TrimSpace(reasons["*"]), maxAgentTurnReasonRunes); globalWhy != "" {
 		delta := diffTurnSceneDocs(tf.displayPath(), preEdit, postEdit, nil, nil, nil, nil)
 		for _, ch := range delta {
 			if lookupReason(tf.reasons, ch.ID, "obj:"+ch.ObjectID+"::"+ch.Field, "obj:"+ch.ObjectID) == "" {
@@ -964,7 +1120,7 @@ func recordReasonsForDelta(tf *turnFile, preEdit, postEdit *sceneformat.SceneDoc
 }
 
 func (e *Editor) currentSceneDocForTurnFile(tf *turnFile) *sceneformat.SceneDoc {
-	if tf.isActiveScene {
+	if e.isTurnFileActiveScene(tf.rel, tf.abs) {
 		return e.Doc
 	}
 	if idx := e.findTabByPath(tf.rel, tf.abs); idx >= 0 && e.tabs[idx].doc != nil {
@@ -988,14 +1144,20 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if !e.AgentTurnWorking() {
 		return errors.New("editor: no working agent turn")
+	}
+	if len(yamlData) > maxAgentTurnFileBytes {
+		return fmt.Errorf("editor: YAML payload exceeds %d bytes limit", maxAgentTurnFileBytes)
 	}
 	tf, err := e.ensureTurnFile(file)
 	if err != nil {
 		return err
 	}
-	why = strings.TrimSpace(why)
+	why = clampTurnRunes(strings.TrimSpace(why), maxAgentTurnReasonRunes)
 
 	switch tf.kind {
 	case TurnFileScene, TurnFilePrefab:
@@ -1019,6 +1181,7 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 			recordReasonsForDelta(tf, pre, doc, map[string]string{"*": why})
 		}
 		e.applyTurnFileLive(tf, doc, enc, nil, nil, nil, true)
+		e.bumpAgentTurnRev()
 		e.notify()
 		return nil
 
@@ -1044,6 +1207,7 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 			tf.reasons["*"] = why
 		}
 		e.applyTurnFileLive(tf, nil, enc, pf, nil, nil, true)
+		e.bumpAgentTurnRev()
 		e.notify()
 		return nil
 
@@ -1071,6 +1235,7 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 			tf.reasons["*"] = why
 		}
 		e.applyTurnFileLive(tf, nil, enc, nil, doc, nil, true)
+		e.bumpAgentTurnRev()
 		e.notify()
 		return nil
 
@@ -1093,6 +1258,7 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 			tf.reasons["*"] = why
 		}
 		e.applyTurnFileLive(tf, nil, enc, nil, nil, clip, true)
+		e.bumpAgentTurnRev()
 		e.notify()
 		return nil
 
@@ -1110,6 +1276,7 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 			tf.reasons["*"] = why
 		}
 		e.applyTurnFileLive(tf, nil, yamlData, nil, nil, nil, true)
+		e.bumpAgentTurnRev()
 		e.notify()
 		return nil
 	}
@@ -1120,7 +1287,7 @@ func (e *Editor) RecordAgentFileEdit(file string, yamlData []byte, why string) e
 func (e *Editor) applyTurnFileLive(tf *turnFile, sceneDoc *sceneformat.SceneDoc, yamlData []byte, proj *project.File, tbl *datatable.Document, clip *resource.Animation, fromPending bool) {
 	switch tf.kind {
 	case TurnFileScene, TurnFilePrefab:
-		if tf.isActiveScene && sceneDoc != nil {
+		if e.isTurnFileActiveScene(tf.rel, tf.abs) && sceneDoc != nil {
 			e.setDoc(sceneDoc.Clone())
 			e.Rebuild()
 			e.syncActiveTab()
@@ -1141,11 +1308,16 @@ func (e *Editor) applyTurnFileLive(tf *turnFile, sceneDoc *sceneformat.SceneDoc,
 			}
 			return
 		}
-		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, sceneDoc, nil, nil, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false)
+		if !fromPending && !tf.beforeExisted && bytes.Equal(yamlData, tf.beforeRaw) {
+			delete(e.stagedFiles, tf.rel)
+			return
+		}
+		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, sceneDoc, nil, nil, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false, false)
 
 	case TurnFileProject:
 		if proj != nil {
 			e.Project = proj.Clone()
+			e.invalidateProjectIndex()
 		}
 
 	case TurnFileDataTable:
@@ -1154,7 +1326,11 @@ func (e *Editor) applyTurnFileLive(tf *turnFile, sceneDoc *sceneformat.SceneDoc,
 			e.table.lastErr = nil
 			return
 		}
-		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, nil, tbl, nil, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false)
+		if !fromPending && !tf.beforeExisted && bytes.Equal(yamlData, tf.beforeRaw) {
+			delete(e.stagedFiles, tf.rel)
+			return
+		}
+		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, nil, tbl, nil, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false, false)
 
 	case TurnFileClip:
 		if e.clip != nil && e.clipMeta.path != "" {
@@ -1164,24 +1340,38 @@ func (e *Editor) applyTurnFileLive(tf *turnFile, sceneDoc *sceneformat.SceneDoc,
 				return
 			}
 		}
-		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, nil, nil, clip, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false)
+		if !fromPending && !tf.beforeExisted && bytes.Equal(yamlData, tf.beforeRaw) {
+			delete(e.stagedFiles, tf.rel)
+			return
+		}
+		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, nil, nil, clip, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false, false)
 
 	default:
-		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, nil, nil, nil, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false)
+		if !fromPending && !tf.beforeExisted && bytes.Equal(yamlData, tf.beforeRaw) {
+			delete(e.stagedFiles, tf.rel)
+			return
+		}
+		e.setStagedFile(tf.rel, tf.abs, tf.kind, yamlData, tf.beforeRaw, nil, nil, nil, !bytes.Equal(yamlData, tf.beforeYAML), fromPending, tf.beforeExisted, false, false)
 	}
 }
 
-func (e *Editor) setStagedFile(rel, abs string, kind AgentTurnFileKind, data, savedData []byte, sceneDoc *sceneformat.SceneDoc, tableDoc *datatable.Document, clipDoc *resource.Animation, dirty, fromPending, existedDisk, exactRestore bool) {
+func (e *Editor) setStagedFile(rel, abs string, kind AgentTurnFileKind, data, savedData []byte, sceneDoc *sceneformat.SceneDoc, tableDoc *datatable.Document, clipDoc *resource.Animation, dirty, fromPending, existedDisk, exactRestore, shouldDelete bool) {
 	if rel == "" {
 		return
 	}
 	if e.stagedFiles == nil {
 		e.stagedFiles = make(map[string]*stagedFileEntry)
 	}
-	if !dirty && !fromPending {
+	if shouldDelete && !fromPending {
+		if abs == "" || !fileExists(abs) {
+			delete(e.stagedFiles, rel)
+			return
+		}
+	}
+	if !dirty && !fromPending && !shouldDelete {
 		// If memory matches disk bytes, no need to retain a staged override.
 		if existedDisk && abs != "" {
-			if disk, err := os.ReadFile(abs); err == nil && bytes.Equal(disk, data) {
+			if disk, err := readBoundedProjectFile(abs, maxAgentTurnFileBytes); err == nil && bytes.Equal(disk, data) {
 				delete(e.stagedFiles, rel)
 				return
 			}
@@ -1197,6 +1387,7 @@ func (e *Editor) setStagedFile(rel, abs string, kind AgentTurnFileKind, data, sa
 		fromPending:  fromPending,
 		existedDisk:  existedDisk,
 		exactRestore: exactRestore,
+		shouldDelete: shouldDelete,
 	}
 	if sceneDoc != nil {
 		entry.sceneDoc = sceneDoc.Clone()
@@ -1249,6 +1440,9 @@ func (e *Editor) StagedFileYAML(rel string) ([]byte, bool) {
 	}
 	// Staged non-open files
 	if s, ok := e.stagedFiles[clean]; ok {
+		if s.shouldDelete {
+			return nil, false
+		}
 		return append([]byte(nil), s.data...), true
 	}
 	return nil, false
@@ -1260,21 +1454,43 @@ func (e *Editor) hasDirtyKeptStagedFiles() bool {
 		return false
 	}
 	for _, s := range e.stagedFiles {
-		if s.dirty && !s.fromPending {
+		if (s.dirty || s.shouldDelete) && !s.fromPending {
 			return true
 		}
 	}
 	return false
 }
 
-// saveKeptStagedFiles writes every kept (non-pending) dirty staged file atomically to disk.
+func (e *Editor) isStagedFileOwnedByOpenDoc(k string, s *stagedFileEntry) bool {
+	if e == nil || s == nil {
+		return false
+	}
+	if s.kind == TurnFileScene || s.kind == TurnFilePrefab {
+		if e.isTurnFileActiveScene(k, s.abs) || e.findTabByPath(k, s.abs) >= 0 {
+			return true
+		}
+	}
+	if s.kind == TurnFileDataTable && e.table != nil && e.table.doc != nil && e.dataTableMatchPath(e.table.path) == k {
+		return true
+	}
+	if s.kind == TurnFileClip && e.clip != nil && e.clipMeta.path != "" {
+		if clipRel, ok := e.projectRel(e.clipMeta.path); ok && clipRel == k {
+			return true
+		}
+	}
+	return false
+}
+
+// saveKeptStagedFiles writes every kept (non-pending) dirty staged file atomically to disk
+// (or removes newly created files whose creation was undone), re-verifying project containment and
+// refusing symbolic links right before touching disk.
 func (e *Editor) saveKeptStagedFiles() (bool, error) {
 	if e == nil || len(e.stagedFiles) == 0 {
 		return false, nil
 	}
 	keys := make([]string, 0, len(e.stagedFiles))
 	for k, s := range e.stagedFiles {
-		if s.dirty && !s.fromPending {
+		if (s.dirty || s.shouldDelete) && !s.fromPending {
 			keys = append(keys, k)
 		}
 	}
@@ -1282,20 +1498,66 @@ func (e *Editor) saveKeptStagedFiles() (bool, error) {
 		return false, nil
 	}
 	slices.Sort(keys)
+	projectRoot := ""
+	if e.ProjectPath != "" {
+		projectRoot = filepath.Dir(e.ProjectPath)
+	}
+	savedAny := false
 	for _, k := range keys {
 		s := e.stagedFiles[k]
-		if s.abs == "" {
+		if s == nil || s.abs == "" {
+			continue
+		}
+		if e.isStagedFileOwnedByOpenDoc(k, s) {
+			delete(e.stagedFiles, k)
+			continue
+		}
+		if isGitInternalTurnPath(k) {
+			return savedAny, fmt.Errorf("editor: refusing to save %q inside .git", k)
+		}
+		if dom, blocked := e.CheckYouOnlyTarget(k); blocked {
+			return savedAny, fmt.Errorf("editor: refusing to save You-only file %q (%s)", k, dom.DisplayName())
+		}
+		if projectRoot != "" {
+			resolved, rErr := ResolvePermissionFileTarget(projectRoot, k)
+			if rErr != nil {
+				return savedAny, rErr
+			}
+			if resolved != "" {
+				if isGitInternalTurnPath(resolved) {
+					return savedAny, fmt.Errorf("editor: refusing to save %q inside .git", resolved)
+				}
+				if dom, blocked := e.CheckYouOnlyTarget(resolved); blocked {
+					return savedAny, fmt.Errorf("editor: refusing to save You-only file %q (%s)", resolved, dom.DisplayName())
+				}
+			}
+		}
+		if info, lErr := os.Lstat(s.abs); lErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return savedAny, fmt.Errorf("editor: refusing to write through symbolic link %q", k)
+		}
+		if s.shouldDelete {
+			if err := os.Remove(s.abs); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return savedAny, err
+			}
+			delete(e.stagedFiles, k)
+			e.noteSavedHistoryFile(k)
+			savedAny = true
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(s.abs), 0o755); err != nil {
-			return false, err
+			return savedAny, err
 		}
 		if err := writeFileAtomic(s.abs, s.data); err != nil {
-			return false, err
+			return savedAny, err
 		}
 		s.savedData = append([]byte(nil), s.data...)
 		s.dirty = false
 		s.existedDisk = true
+		e.noteSavedHistoryFile(k)
+		savedAny = true
+	}
+	if !savedAny {
+		return false, nil
 	}
 	e.filesRev++
 	e.invalidateProjectIndex()
@@ -1324,7 +1586,7 @@ func (e *Editor) recomputeAndApplyTurnFile(tf *turnFile) error {
 		return err
 	}
 	if tf.kind == TurnFileScene || tf.kind == TurnFilePrefab {
-		if tf.isActiveScene {
+		if e.isTurnFileActiveScene(tf.rel, tf.abs) {
 			// Merge delta relative to lastAppliedScene so concurrent person edits on untouched objects stay intact.
 			next := applySceneDelta(e.Doc, tf.lastAppliedScene, sceneDoc)
 			tf.lastAppliedScene = sceneDoc.Clone()
@@ -1367,6 +1629,7 @@ func (e *Editor) RevertAgentTurnChange(changeID string) error {
 		delete(tf.reverted, changeID)
 		return err
 	}
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -1389,6 +1652,7 @@ func (e *Editor) RestoreAgentTurnChange(changeID string) error {
 		tf.reverted[changeID] = true
 		return err
 	}
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -1417,12 +1681,15 @@ func (e *Editor) RevertAgentTurnFile(file string) error {
 	if tf == nil {
 		return fmt.Errorf("editor: file %q is not in the pending turn", file)
 	}
+	prevReverted := maps.Clone(tf.reverted)
 	for _, ch := range tf.changes() {
 		tf.reverted[ch.ID] = true
 	}
 	if err := e.recomputeAndApplyTurnFile(tf); err != nil {
+		tf.reverted = prevReverted
 		return err
 	}
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -1436,10 +1703,13 @@ func (e *Editor) RestoreAgentTurnFile(file string) error {
 	if tf == nil {
 		return fmt.Errorf("editor: file %q is not in the pending turn", file)
 	}
+	prevReverted := maps.Clone(tf.reverted)
 	clear(tf.reverted)
 	if err := e.recomputeAndApplyTurnFile(tf); err != nil {
+		tf.reverted = prevReverted
 		return err
 	}
+	e.bumpAgentTurnRev()
 	e.notify()
 	return nil
 }
@@ -1544,6 +1814,24 @@ func (c *agentTurnCmd) apply(redo bool) {
 	if ed == nil {
 		return
 	}
+	stageNonOpen := func(f *turnCmdFile, targetYAML []byte, sceneDoc *sceneformat.SceneDoc, tbl *datatable.Document, clip *resource.Animation) {
+		if !redo && !f.beforeExisted {
+			// Undoing a newly created file: mark for deletion on Save if it landed on disk, else drop staged entry.
+			if f.abs != "" && fileExists(f.abs) {
+				ed.setStagedFile(f.rel, f.abs, f.kind, nil, nil, nil, nil, nil, true, false, false, true, true)
+			} else {
+				delete(ed.stagedFiles, f.rel)
+			}
+			return
+		}
+		dirty := true
+		if !redo && f.beforeExisted && f.abs != "" {
+			if disk, err := readBoundedProjectFile(f.abs, maxAgentTurnFileBytes); err == nil && bytes.Equal(disk, targetYAML) {
+				dirty = false
+			}
+		}
+		ed.setStagedFile(f.rel, f.abs, f.kind, targetYAML, f.beforeRaw, sceneDoc, tbl, clip, dirty, false, f.beforeExisted, !redo, false)
+	}
 	for i := range c.files {
 		f := &c.files[i]
 		targetYAML := f.beforeRaw
@@ -1556,7 +1844,7 @@ func (c *agentTurnCmd) apply(redo bool) {
 			if redo {
 				fromDoc, toDoc = f.beforeScene, f.afterScene
 			}
-			if f.isActiveScene {
+			if ed.isTurnFileActiveScene(f.rel, f.abs) {
 				next := applySceneDelta(ed.Doc, fromDoc, toDoc)
 				ed.setDoc(next)
 				ed.Rebuild()
@@ -1575,13 +1863,7 @@ func (c *agentTurnCmd) apply(redo bool) {
 					ed.loadActiveTab()
 				}
 			} else {
-				dirty := true
-				if !redo && f.beforeExisted && f.abs != "" {
-					if disk, err := os.ReadFile(f.abs); err == nil && bytes.Equal(disk, targetYAML) {
-						dirty = false
-					}
-				}
-				ed.setStagedFile(f.rel, f.abs, f.kind, targetYAML, f.beforeRaw, toDoc, nil, nil, dirty, false, f.beforeExisted, !redo)
+				stageNonOpen(f, targetYAML, toDoc, nil, nil)
 			}
 
 		case TurnFileProject:
@@ -1590,6 +1872,7 @@ func (c *agentTurnCmd) apply(redo bool) {
 			} else {
 				ed.Project = f.beforeProj.Clone()
 			}
+			ed.invalidateProjectIndex()
 
 		case TurnFileDataTable:
 			toTbl := f.beforeTable
@@ -1600,13 +1883,7 @@ func (c *agentTurnCmd) apply(redo bool) {
 				ed.table.doc = toTbl.Clone()
 				ed.table.lastErr = nil
 			} else {
-				dirty := true
-				if !redo && f.beforeExisted && f.abs != "" {
-					if disk, err := os.ReadFile(f.abs); err == nil && bytes.Equal(disk, targetYAML) {
-						dirty = false
-					}
-				}
-				ed.setStagedFile(f.rel, f.abs, f.kind, targetYAML, f.beforeRaw, nil, toTbl, nil, dirty, false, f.beforeExisted, !redo)
+				stageNonOpen(f, targetYAML, nil, toTbl, nil)
 			}
 
 		case TurnFileClip:
@@ -1621,22 +1898,10 @@ func (c *agentTurnCmd) apply(redo bool) {
 					continue
 				}
 			}
-			dirty := true
-			if !redo && f.beforeExisted && f.abs != "" {
-				if disk, err := os.ReadFile(f.abs); err == nil && bytes.Equal(disk, targetYAML) {
-					dirty = false
-				}
-			}
-			ed.setStagedFile(f.rel, f.abs, f.kind, targetYAML, f.beforeRaw, nil, nil, toClip, dirty, false, f.beforeExisted, !redo)
+			stageNonOpen(f, targetYAML, nil, nil, toClip)
 
 		default:
-			dirty := true
-			if !redo && f.beforeExisted && f.abs != "" {
-				if disk, err := os.ReadFile(f.abs); err == nil && bytes.Equal(disk, targetYAML) {
-					dirty = false
-				}
-			}
-			ed.setStagedFile(f.rel, f.abs, f.kind, targetYAML, f.beforeRaw, nil, nil, nil, dirty, false, f.beforeExisted, !redo)
+			stageNonOpen(f, targetYAML, nil, nil, nil)
 		}
 	}
 	ed.notify()
@@ -1644,10 +1909,39 @@ func (c *agentTurnCmd) apply(redo bool) {
 
 // KeepAgentTurn commits all non-reverted changes in the pending (or working/stopped) agent turn as ONE
 // History command labelled with the request, marks the turn Kept, and displays a Spec toast with Undo.
-// Edits remain in memory until the person saves.
+// Edits remain in memory until the person saves. When no multi-file agent turn is open, it falls back
+// to keeping an active single-scene live agent turn (BeginAgentTurn).
 func (e *Editor) KeepAgentTurn() error {
+	if e == nil {
+		return ErrNoAgentTurn
+	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
+	}
+	if e.agentTurn != nil && (e.agentTurn.status == AgentTurnWorking || e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped) {
+		if err := e.keepMultiFileAgentTurn(); err != nil {
+			return err
+		}
+		if e.agentLive.turn != nil || len(e.agentLive.workingIDs) > 0 || e.agentLive.state != AgentStateIdle {
+			e.clearAgentLiveForSceneReset()
+		}
+		return nil
+	}
+	if e.agentLive.turn != nil {
+		return e.keepLiveAgentTurn()
+	}
+	if e.agentTurn != nil {
+		return errors.New("editor: agent turn is not open")
+	}
+	return ErrNoAgentTurn
+}
+
+func (e *Editor) keepMultiFileAgentTurn() error {
 	if e == nil || e.agentTurn == nil {
 		return errors.New("editor: no pending agent turn to keep")
+	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
 	}
 	if e.playing {
 		return ErrPlaying
@@ -1659,9 +1953,19 @@ func (e *Editor) KeepAgentTurn() error {
 	e.ExitHistoryPreview()
 
 	turn := e.agentTurn
-	var cmdFiles []turnCmdFile
+	type preparedFile struct {
+		tf          *turnFile
+		effYAML     []byte
+		sceneDoc    *sceneformat.SceneDoc
+		proj        *project.File
+		tbl         *datatable.Document
+		clip        *resource.Animation
+		allReverted bool
+	}
+	prepared := make([]preparedFile, 0, len(turn.fileOrder))
 	totalCount := 0
 	activeCount := 0
+	// Phase 1: compute and validate every file's effective state before mutating anything (atomic on error).
 	for _, key := range turn.fileOrder {
 		tf := turn.files[key]
 		if tf == nil {
@@ -1677,27 +1981,42 @@ func (e *Editor) KeepAgentTurn() error {
 		if err != nil {
 			return err
 		}
-		if allReverted || bytes.Equal(effYAML, tf.beforeYAML) {
-			// Clear any pending staged entry for this file.
+		prepared = append(prepared, preparedFile{
+			tf:          tf,
+			effYAML:     effYAML,
+			sceneDoc:    sceneDoc,
+			proj:        proj,
+			tbl:         tbl,
+			clip:        clip,
+			allReverted: allReverted || bytes.Equal(effYAML, tf.beforeYAML),
+		})
+	}
+
+	// Phase 2: promote staged files and build the single History command.
+	var cmdFiles []turnCmdFile
+	for _, pf := range prepared {
+		tf := pf.tf
+		if pf.allReverted {
 			if tf.rel != "" {
 				delete(e.stagedFiles, tf.rel)
 			}
 			continue
 		}
-		// Ensure staged non-open files are promoted from pending -> kept-unsaved so Save/SaveAll persists them.
-		if !tf.isActiveScene {
+		isActive := e.isTurnFileActiveScene(tf.rel, tf.abs)
+		if !isActive {
 			if st, ok := e.stagedFiles[tf.rel]; ok {
 				st.fromPending = false
 				st.dirty = true
-				st.data = append([]byte(nil), effYAML...)
-				if sceneDoc != nil {
-					st.sceneDoc = sceneDoc.Clone()
+				st.shouldDelete = false
+				st.data = append([]byte(nil), pf.effYAML...)
+				if pf.sceneDoc != nil {
+					st.sceneDoc = pf.sceneDoc.Clone()
 				}
-				if tbl != nil {
-					st.tableDoc = tbl.Clone()
+				if pf.tbl != nil {
+					st.tableDoc = pf.tbl.Clone()
 				}
-				if clip != nil {
-					st.clipDoc = cloneClip(clip)
+				if pf.clip != nil {
+					st.clipDoc = cloneClip(pf.clip)
 				}
 			}
 		}
@@ -1705,25 +2024,26 @@ func (e *Editor) KeepAgentTurn() error {
 			rel:           tf.rel,
 			abs:           tf.abs,
 			kind:          tf.kind,
-			isActiveScene: tf.isActiveScene,
+			isActiveScene: isActive,
 			beforeExisted: tf.beforeExisted,
 			beforeRaw:     append([]byte(nil), tf.beforeRaw...),
 			beforeYAML:    append([]byte(nil), tf.beforeYAML...),
-			afterYAML:     append([]byte(nil), effYAML...),
+			afterYAML:     append([]byte(nil), pf.effYAML...),
 			beforeScene:   tf.beforeScene.Clone(),
-			afterScene:    sceneDoc.Clone(),
+			afterScene:    pf.sceneDoc.Clone(),
 			beforeProj:    tf.beforeProj.Clone(),
-			afterProj:     proj.Clone(),
+			afterProj:     pf.proj.Clone(),
 			beforeTable:   tf.beforeTable.Clone(),
-			afterTable:    tbl.Clone(),
+			afterTable:    pf.tbl.Clone(),
 			beforeClip:    cloneClip(tf.beforeClip),
-			afterClip:     cloneClip(clip),
+			afterClip:     cloneClip(pf.clip),
 		})
 	}
 
 	turn.status = AgentTurnKept
 	turn.reviewOpen = false
 	e.lastRevertedTurn = nil
+	e.bumpAgentTurnRev()
 
 	if len(cmdFiles) > 0 {
 		label := turn.prompt
@@ -1740,6 +2060,19 @@ func (e *Editor) KeepAgentTurn() error {
 		e.History.pushCommitted(cmd)
 	}
 	e.scheduleAutoSaveIfNeeded()
+	if activeCount > 0 {
+		e.RecordAgentReviewOutcome(true, activeCount)
+	}
+	if revertedCount := totalCount - activeCount; revertedCount > 0 {
+		e.RecordAgentReviewOutcome(false, revertedCount)
+	}
+	if len(cmdFiles) > 0 {
+		target := e.ScenePath
+		if cmdFiles[0].rel != "" {
+			target = cmdFiles[0].rel
+		}
+		e.NotifyAutomationReviewKept(target)
+	}
 
 	fileCount := len(cmdFiles)
 	msg := fmt.Sprintf("Kept %d %s across %d %s", activeCount, turnPlural(activeCount, "change", "changes"), fileCount, turnPlural(fileCount, "file", "files"))
@@ -1753,8 +2086,8 @@ func (e *Editor) KeepAgentTurn() error {
 		ID:             "agent-turn",
 		Kind:           ToastSuccess,
 		Message:        msg,
-		ActionLabel:    "Undo",
-		ActionShortcut: "⌘Z",
+		ActionLabel:    e.T("agentTurn.undo"),
+		ActionShortcut: FormatShortcut("mod+z", e.defaultShortcutOS()),
 		OnAction: func() {
 			e.Undo()
 			e.DismissToast()
@@ -1764,10 +2097,40 @@ func (e *Editor) KeepAgentTurn() error {
 }
 
 // RevertAgentTurn restores every touched file back to its exact pre-request state, marks the turn
-// Reverted, and displays a Spec toast whose Undo action brings the turn back as pending.
+// Reverted, and displays a Spec toast whose Undo action brings the turn back as pending. When no
+// multi-file agent turn is open, it falls back to reverting an active single-scene live agent turn
+// (BeginAgentTurn).
 func (e *Editor) RevertAgentTurn() error {
+	if e == nil {
+		return ErrNoAgentTurn
+	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
+	}
+	if e.agentTurn != nil && (e.agentTurn.status == AgentTurnWorking || e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped) {
+		if err := e.revertMultiFileAgentTurn(); err != nil {
+			return err
+		}
+		if e.agentLive.turn != nil || len(e.agentLive.workingIDs) > 0 || e.agentLive.state != AgentStateIdle {
+			e.clearAgentLiveForSceneReset()
+		}
+		return nil
+	}
+	if e.agentLive.turn != nil {
+		return e.revertLiveAgentTurn()
+	}
+	if e.agentTurn != nil {
+		return errors.New("editor: agent turn is not open")
+	}
+	return ErrNoAgentTurn
+}
+
+func (e *Editor) revertMultiFileAgentTurn() error {
 	if e == nil || e.agentTurn == nil {
 		return errors.New("editor: no pending agent turn to revert")
+	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
 	}
 	if e.playing {
 		return ErrPlaying
@@ -1775,6 +2138,8 @@ func (e *Editor) RevertAgentTurn() error {
 	if e.agentTurn.status != AgentTurnWorking && e.agentTurn.status != AgentTurnPending && e.agentTurn.status != AgentTurnStopped {
 		return errors.New("editor: agent turn is not open")
 	}
+
+	e.ExitHistoryPreview()
 
 	turn := e.agentTurn
 	snap, _ := e.CurrentAgentTurn()
@@ -1792,7 +2157,7 @@ func (e *Editor) RevertAgentTurn() error {
 		}
 		switch tf.kind {
 		case TurnFileScene, TurnFilePrefab:
-			if tf.isActiveScene {
+			if e.isTurnFileActiveScene(tf.rel, tf.abs) {
 				next := applySceneDelta(e.Doc, tf.lastAppliedScene, tf.beforeScene)
 				tf.lastAppliedScene = tf.beforeScene.Clone()
 				e.setDoc(next)
@@ -1818,6 +2183,7 @@ func (e *Editor) RevertAgentTurn() error {
 		case TurnFileProject:
 			if tf.beforeProj != nil {
 				e.Project = tf.beforeProj.Clone()
+				e.invalidateProjectIndex()
 			}
 		case TurnFileDataTable:
 			if e.table != nil && e.dataTableMatchPath(e.table.path) == tf.rel && tf.beforeTable != nil {
@@ -1843,6 +2209,10 @@ func (e *Editor) RevertAgentTurn() error {
 	e.lastRevertedTurn = savedForUndo
 	turn.status = AgentTurnReverted
 	turn.reviewOpen = false
+	e.bumpAgentTurnRev()
+	if snap.TotalChanges > 0 {
+		e.RecordAgentReviewOutcome(false, snap.TotalChanges)
+	}
 
 	msg := fmt.Sprintf("Reverted %d %s", snap.TotalChanges, turnPlural(snap.TotalChanges, "change", "changes"))
 	if snap.TotalChanges == 0 {
@@ -1850,11 +2220,10 @@ func (e *Editor) RevertAgentTurn() error {
 	}
 	e.Status = msg
 	e.ShowToast(Toast{
-		ID:             "agent-turn",
-		Kind:           ToastInfo,
-		Message:        msg,
-		ActionLabel:    "Undo",
-		ActionShortcut: "⌘Z",
+		ID:          "agent-turn",
+		Kind:        ToastInfo,
+		Message:     msg,
+		ActionLabel: e.T("agentTurn.undo"),
 		OnAction: func() {
 			e.UndoRevertAgentTurn()
 		},
@@ -1868,9 +2237,11 @@ func (e *Editor) UndoRevertAgentTurn() bool {
 	if e == nil || e.playing || e.lastRevertedTurn == nil {
 		return false
 	}
+	e.ExitHistoryPreview()
 	restored := e.lastRevertedTurn.clone()
 	e.lastRevertedTurn = nil
 	e.agentTurn = restored
+	e.bumpAgentTurnRev()
 
 	for _, key := range restored.fileOrder {
 		tf := restored.files[key]
@@ -1885,7 +2256,7 @@ func (e *Editor) UndoRevertAgentTurn() bool {
 			continue
 		}
 		if tf.kind == TurnFileScene || tf.kind == TurnFilePrefab {
-			if tf.isActiveScene {
+			if e.isTurnFileActiveScene(tf.rel, tf.abs) {
 				next := applySceneDelta(e.Doc, tf.beforeScene, sceneDoc)
 				tf.lastAppliedScene = sceneDoc.Clone()
 				e.setDoc(next)
@@ -1975,6 +2346,25 @@ func (e *Editor) RequestOpenScene(rel string) error {
 	return nil
 }
 
+// RequestSelectTab switches to open scene tab index, prompting Keep / Revert / Cancel first when
+// switching away from the active tab while an agent turn is pending.
+func (e *Editor) RequestSelectTab(index int) error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if index == e.activeTab || !e.HasPendingAgentTurn() {
+		return e.SelectTab(index)
+	}
+	label := e.tabPromptLabel(index)
+	e.askPendingTurn("Switch to "+label, func() {
+		e.report(e.SelectTab(index))
+	}, nil)
+	return nil
+}
+
 // ConfirmKeepPendingTurnPrompt keeps the pending agent turn and runs the waiting action.
 func (e *Editor) ConfirmKeepPendingTurnPrompt() error {
 	if e == nil || !e.pendingTurnPrompt.open {
@@ -2029,4 +2419,5 @@ func (e *Editor) resetAgentTurnForProject() {
 	e.lastRevertedTurn = nil
 	e.stagedFiles = nil
 	e.pendingTurnPrompt = pendingTurnPromptState{}
+	e.bumpAgentTurnRev()
 }

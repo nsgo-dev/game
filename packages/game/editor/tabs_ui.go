@@ -132,7 +132,7 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										},
 										OnPress: func(core.PressEvent) {
 											if !ed.Playing() {
-												ed.report(ed.SelectTab(idx))
+												ed.report(ed.RequestSelectTab(idx))
 											}
 										},
 										Children: labelChildren,

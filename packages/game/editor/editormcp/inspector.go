@@ -114,7 +114,10 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			}()
 		}
 	}
-	var res ObjectFieldResult
+	var (
+		res    ObjectFieldResult
+		inTurn bool
+	)
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
@@ -180,6 +183,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		}
 
 		if ed.AgentTurnWorking() {
+			inTurn = true
 			var reasons map[string]string
 			if w := strings.TrimSpace(args.Why); w != "" {
 				reasons = map[string]string{"obj:" + targetID: w}
@@ -225,7 +229,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		c.s.recordTaskObjectFieldEdit(c.taskID, res.File, res.Object, res.Field)
 	}
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
-		res.Undo = ed.History.UndoLabel()
+		if !inTurn {
+			res.Undo = ed.History.UndoLabel()
+		}
 		res.Revision = ed.Revision()
 		return nil
 	}); err != nil {
@@ -237,8 +243,12 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	} else if res.Property {
 		target = res.Object + ".properties." + res.Field
 	}
+	text := fmt.Sprintf("Updated %s in %s (undo %q).", target, res.File, res.Undo)
+	if inTurn {
+		text = fmt.Sprintf("Recorded update to %s in %s in the active agent turn; it stays unsaved until kept.", target, res.File)
+	}
 	return &Result{
-		Text:       fmt.Sprintf("Updated %s in %s (undo %q).", target, res.File, res.Undo),
+		Text:       text,
 		Structured: res,
 	}, nil
 }

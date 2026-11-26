@@ -386,7 +386,8 @@ func (e *Editor) sketchBlockedByScreen() bool {
 		e.UsagesScreenOpen() ||
 		e.PlaytestReportOpen() ||
 		e.AssetGeneratorOpen() ||
-		e.HUDLayoutOpen()
+		e.HUDLayoutOpen() ||
+		e.PendingTurnPromptOpen()
 }
 
 var (

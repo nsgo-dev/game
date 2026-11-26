@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -488,5 +489,119 @@ func TestWorkingTurnUndoOnlyPersonEditAndStoppedTurnPending(t *testing.T) {
 	}
 	if f.ed.History.UndoAuthor() != editor.AuthorAgent {
 		t.Fatalf("kept stopped turn UndoAuthor = %q, want agent", f.ed.History.UndoAuthor())
+	}
+}
+
+// TestTurnMCPSecurityAutoIDWhyAndObjectSetField verifies:
+// - auto-ID add with per-edit why and no top-level why does not panic and records the why
+// - object_set_field inside a working turn joins the turn without growing History or leaking stale Undo
+// - creating a new scene inside a turn via scene_edit enforces PermissionActionCreate rules
+// - file_edit refuses symlinks escaping project root, .git/**, You-only files, and >2 MiB payloads.
+func TestTurnMCPSecurityAutoIDWhyAndObjectSetField(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// Record one prior person edit so History.UndoLabel() is non-empty.
+	if err := f.ed.MoveObject("hero", 72, 40); err != nil {
+		t.Fatal(err)
+	}
+	histBefore := f.ed.History.Index()
+
+	mustOK(t, call(t, cs, editormcp.ToolTurnStart, map[string]any{"prompt": "Auto-ID and object_set_field"}))
+
+	// Add with per-edit why and NO top-level why.
+	addRes := call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{
+			map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "marker_01", "x": 40, "y": 40}, "why": "Per-edit marker reason"},
+		},
+	})
+	mustOK(t, addRes)
+
+	// object_set_field inside active turn must join the turn, record why, not grow History, and leave Undo empty.
+	fieldRes := call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"id":    "hero",
+		"field": "z",
+		"value": 9,
+		"why":   "Lift hero layer",
+	})
+	fieldText := mustOK(t, fieldRes)
+	if !strings.Contains(fieldText, "active agent turn") {
+		t.Fatalf("object_set_field in turn text = %q, want active agent turn notice", fieldText)
+	}
+	var fieldOut editormcp.ObjectFieldResult
+	structured(t, fieldRes, &fieldOut)
+	if fieldOut.Undo != "" {
+		t.Fatalf("object_set_field in turn leaked stale Undo = %q", fieldOut.Undo)
+	}
+	if f.ed.History.Index() != histBefore {
+		t.Fatalf("History index grew inside turn: got %d, want %d", f.ed.History.Index(), histBefore)
+	}
+
+	// Verify both reasons appear in turn_status.
+	var st editormcp.TurnStatus
+	structured(t, call(t, cs, editormcp.ToolTurnStatus, map[string]any{}), &st)
+	var sawAutoWhy, sawHeroWhy bool
+	for _, ch := range st.Turn.Changes {
+		if ch.ObjectID == "marker_01" && ch.Reason == "Per-edit marker reason" {
+			sawAutoWhy = true
+		}
+		if ch.ObjectID == "hero" && ch.Field == "z" && ch.Reason == "Lift hero layer" {
+			sawHeroWhy = true
+		}
+	}
+	if !sawAutoWhy || !sawHeroWhy {
+		t.Fatalf("expected auto-ID why and object_set_field why in changes: %+v", st.Turn.Changes)
+	}
+
+	// Enforce PermissionActionCreate on scene_edit targeting a non-existent scene inside a turn.
+	perms := f.ed.Permissions()
+	perms.Rules = append([]editor.PermissionRule{{
+		Action:   editor.PermissionActionCreate,
+		Patterns: []string{"scenes/**"},
+		Decision: editor.PermissionDeny,
+	}}, perms.Rules...)
+	if err := f.ed.SetPermissions(perms); err != nil {
+		t.Fatal(err)
+	}
+	createRes := call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"file": "scenes/brand_new.scene.yaml",
+		"edits": []any{
+			map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "x", "x": 1, "y": 2}},
+		},
+	})
+	if !createRes.IsError {
+		t.Fatalf("expected scene_edit creating a new scene to be denied by create rule")
+	}
+
+	// file_edit security checks: You-only, .git/**, >2 MiB, symlink escape.
+	for _, tc := range []struct {
+		name string
+		file string
+		yaml string
+	}{
+		{"you-only", "permissions.yaml", "version: 1\nprofile: autonomous\n"},
+		{"git-internal", ".git/config", "core:\n  bare: false\n"},
+		{"oversized", "data/items.yaml", strings.Repeat("a", 2<<20+8)},
+	} {
+		r := call(t, cs, editormcp.ToolFileEdit, map[string]any{"file": tc.file, "yaml": tc.yaml})
+		if !r.IsError {
+			t.Fatalf("file_edit(%s) should have been refused", tc.name)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		outside := t.TempDir()
+		ext := filepath.Join(outside, "ext.yaml")
+		if err := os.WriteFile(ext, []byte("version: 1\nrows: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(f.dir, "data", "ext_link.yaml")
+		if err := os.Symlink(ext, link); err != nil {
+			t.Fatal(err)
+		}
+		if r := call(t, cs, editormcp.ToolFileEdit, map[string]any{"file": "data/ext_link.yaml", "yaml": "version: 1\nrows: []\n"}); !r.IsError {
+			t.Fatal("file_edit through escaping symlink should have been refused")
+		}
 	}
 }

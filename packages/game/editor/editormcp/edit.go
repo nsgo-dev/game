@@ -327,9 +327,6 @@ func buildEditReasons(topWhy string, edits []editArgs) map[string]string {
 			reasons["obj:"+id+"::component:"+e.Component] = w
 		}
 	}
-	if len(reasons) == 0 {
-		return nil
-	}
 	return reasons
 }
 

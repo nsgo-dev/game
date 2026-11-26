@@ -2,7 +2,9 @@ package editor
 
 import (
 	"fmt"
+	"strconv"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -125,7 +127,7 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 								},
 							},
 							core.Text{
-								Content: "Agent working…",
+								Content: ed.T("agentTurn.working"),
 								Style: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
@@ -137,7 +139,7 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 					core.View{
 						TestID:    "agent-turn-stop",
 						Role:      core.RoleButton,
-						Label:     "Stop agent",
+						Label:     ed.T("agentTurn.stopLabel"),
 						Focusable: func() bool { return true },
 						Style: core.Style{
 							Direction:      core.Row,
@@ -157,7 +159,7 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Stop",
+								Content: ed.T("agentTurn.stop"),
 								Style: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
@@ -205,7 +207,7 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 		undoKey := FormatShortcut("mod+z", cx.Env().OS())
 		thread = append(thread, core.Text{
 			TestID:  "agent-turn-kept",
-			Content: fmt.Sprintf("Kept · one undo step (%s)", undoKey),
+			Content: ed.T("agentTurn.keptNote", l10n.Param("undoKey", undoKey)),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -215,7 +217,7 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 	if snap.Status == AgentTurnReverted {
 		thread = append(thread, core.Text{
 			TestID:  "agent-turn-reverted",
-			Content: "Reverted · the scene is as it was before this request",
+			Content: ed.T("agentTurn.revertedNote"),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -232,13 +234,28 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 
 func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnSnapshot) core.Node {
 	fileCount := len(snap.Files)
-	headerTitle := fmt.Sprintf("%d %s · %d %s",
-		snap.TotalChanges, turnPlural(snap.TotalChanges, "change", "changes"),
-		fileCount, turnPlural(fileCount, "file", "files"))
+	changeWord := ed.T("agentTurn.changesWord")
+	if snap.TotalChanges == 1 {
+		changeWord = ed.T("agentTurn.changeWord")
+	}
+	fileWord := ed.T("agentTurn.filesWord")
+	if fileCount == 1 {
+		fileWord = ed.T("agentTurn.fileWord")
+	}
+	headerTitle := ed.T("agentTurn.headerSummary",
+		l10n.Param("total", strconv.Itoa(snap.TotalChanges)),
+		l10n.Param("changes", changeWord),
+		l10n.Param("files", strconv.Itoa(fileCount)),
+		l10n.Param("fileWord", fileWord),
+	)
 	if snap.RevertedCount > 0 {
-		headerTitle = fmt.Sprintf("%d of %d %s · %d %s",
-			snap.ActiveChanges, snap.TotalChanges, turnPlural(snap.TotalChanges, "change", "changes"),
-			fileCount, turnPlural(fileCount, "file", "files"))
+		headerTitle = ed.T("agentTurn.headerPartialSummary",
+			l10n.Param("active", strconv.Itoa(snap.ActiveChanges)),
+			l10n.Param("total", strconv.Itoa(snap.TotalChanges)),
+			l10n.Param("changes", changeWord),
+			l10n.Param("files", strconv.Itoa(fileCount)),
+			l10n.Param("fileWord", fileWord),
+		)
 	}
 
 	removedColor := p.TextFaint
@@ -295,7 +312,7 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Stopped",
+					Content: ed.T("agentTurn.stopped"),
 					Style: core.Style{
 						FontSize:   11,
 						FontWeight: 600,
@@ -316,9 +333,9 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 		for fi, fs := range snap.Files {
 			filePath := fs.File
 			allReverted := fs.ActiveCount == 0
-			fileActionLabel := "Revert file"
+			fileActionLabel := ed.T("agentTurn.revertFile")
 			if allReverted {
-				fileActionLabel = "Restore file"
+				fileActionLabel = ed.T("agentTurn.restoreFile")
 			}
 			changeRows = append(changeRows, core.View{
 				TestID: fmt.Sprintf("agent-turn-file-%d", fi),
@@ -400,7 +417,7 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 
 	if len(changeRows) == 0 {
 		changeRows = append(changeRows, core.Text{
-			Content: "No file changes in this turn.",
+			Content: ed.T("agentTurn.noChanges"),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -408,14 +425,18 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 		})
 	}
 
-	keepLabel := "Keep"
+	keepLabel := ed.T("agentTurn.keep")
 	if snap.RevertedCount > 0 && snap.TotalChanges > 0 {
-		keepLabel = fmt.Sprintf("Keep %d of %d", snap.ActiveChanges, snap.TotalChanges)
+		keepLabel = ed.T("agentTurn.keepPartial",
+			l10n.Param("active", strconv.Itoa(snap.ActiveChanges)),
+			l10n.Param("total", strconv.Itoa(snap.TotalChanges)),
+		)
 	}
-	reviewLabel := "Review"
+	reviewLabel := ed.T("agentTurn.review")
 	if snap.ReviewOpen {
-		reviewLabel = "Compact"
+		reviewLabel = ed.T("agentTurn.compact")
 	}
+	revertLabel := ed.T("agentTurn.revert")
 
 	return core.View{
 		TestID: "agent-turn-card",
@@ -537,7 +558,7 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 					core.View{
 						TestID:    "agent-turn-revert",
 						Role:      core.RoleButton,
-						Label:     "Revert",
+						Label:     revertLabel,
 						Focusable: func() bool { return true },
 						Style: core.Style{
 							Height:         core.Pt(30),
@@ -553,7 +574,7 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Revert",
+								Content: revertLabel,
 								Style: core.Style{
 									FontSize:   12.5,
 									FontWeight: 500,
@@ -591,9 +612,9 @@ func agentTurnChangeRow(ed *Editor, p SpecPalette, idx int, ch AgentTurnChange) 
 		label = ch.Title + " · " + ch.Detail
 	}
 
-	toggleText := "Revert"
+	toggleText := ed.T("agentTurn.revert")
 	if ch.Reverted {
-		toggleText = "Restore"
+		toggleText = ed.T("agentTurn.restore")
 	}
 	changeID := ch.ID
 
@@ -672,7 +693,7 @@ func agentTurnChangeRow(ed *Editor, p SpecPalette, idx int, ch AgentTurnChange) 
 		Children: []core.Node{
 			mainRow,
 			core.Text{
-				Content: "Why: " + ch.Reason,
+				Content: ed.T("agentTurn.whyPrefix") + ch.Reason,
 				Style: core.Style{
 					FontSize: 11,
 					Color:    p.TextFaint,
@@ -702,22 +723,31 @@ func pendingTurnDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			}
 		},
 		OnClose: onClose,
-		Title:   "Pending agent turn",
+		Title:   ed.T("agentTurn.promptTitle"),
 		DescriptionFunc: func() string {
 			_ = rev.Get()
 			snap, _ := ed.CurrentAgentTurn()
+			changeWord := ed.T("agentTurn.changesWord")
+			if snap.ActiveChanges == 1 {
+				changeWord = ed.T("agentTurn.changeWord")
+			}
 			summary := ed.PendingTurnPromptSummary()
 			if summary != "" {
-				return fmt.Sprintf("You have a pending agent turn (%d %s). Keep or revert it before proceeding (%s)?",
-					snap.ActiveChanges, turnPlural(snap.ActiveChanges, "change", "changes"), summary)
+				return ed.T("agentTurn.promptDescAction",
+					l10n.Param("count", strconv.Itoa(snap.ActiveChanges)),
+					l10n.Param("changes", changeWord),
+					l10n.Param("action", summary),
+				)
 			}
-			return fmt.Sprintf("You have a pending agent turn (%d %s). Keep or revert it before proceeding?",
-				snap.ActiveChanges, turnPlural(snap.ActiveChanges, "change", "changes"))
+			return ed.T("agentTurn.promptDesc",
+				l10n.Param("count", strconv.Itoa(snap.ActiveChanges)),
+				l10n.Param("changes", changeWord),
+			)
 		},
 		Actions: []ui.AlertAction{
 			{
 				TestID:  "pending-turn-cancel",
-				Text:    "Cancel",
+				Text:    ed.T("agentTurn.cancel"),
 				Variant: ui.ButtonSecondary,
 				Role:    core.AlertCancel,
 				OnPress: func() {
@@ -726,7 +756,7 @@ func pendingTurnDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			},
 			{
 				TestID:  "pending-turn-revert",
-				Text:    "Revert",
+				Text:    ed.T("agentTurn.revert"),
 				Variant: ui.ButtonSecondary,
 				Role:    core.AlertDestructive,
 				OnPress: func() {
@@ -735,7 +765,7 @@ func pendingTurnDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			},
 			{
 				TestID:  "pending-turn-keep",
-				Text:    "Keep",
+				Text:    ed.T("agentTurn.keep"),
 				Variant: ui.ButtonPrimary,
 				Default: true,
 				OnPress: func() {
