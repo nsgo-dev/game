@@ -669,14 +669,24 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 | 轴向视图 | | 点按右上角方向控件上的轴向按钮（`X`、`Y`、`Z` 或负轴端） | `1` 前视、`ctrl+1` 后视、`3` 右视、`ctrl+3` 左视、`7` 顶视、`ctrl+7` 底视，或在方向控件上通过 Tab/Enter 激活 |
 | 透视或正交 | | | `5`，或左上角视图栏中的 Persp 与 Ortho |
 | 着色模式 | | | 左上角视图栏中的着色菜单（`Lit`、`Unlit`、`Wireframe`） |
-| 变换空间（局部 / 全局） | | | 底部视图栏中的 Local / Global 切换，或命令 `gizmo.3d.space` |
+| 变换空间（局部 / 全局） | | | `t`、底部视图栏中的 Local / Global 切换，或命令 `gizmo.3d.space` |
 | 回到默认视图 | | | 左上角视图栏的 Reset view 按钮 |
 
 - **视口叠加栏与状态栏**采用编辑器设计规范色板：左上角视图栏包含 Persp/Ortho 分段切换、着色菜单（`Lit`、`Unlit`、`Wireframe`）、当前视图名称（`ViewName3D`：轴向视图名或 `Perspective`，正交时附加 ` · ortho`，偏离坐标轴的正交视图为 `User · ortho`）、Reset view 以及 Camera/Env 切换，正下方显示带键帽的操作提示条（`Drag orbit · Middle pan · Right WASD fly · F focus`）。右上角圆形方向控件在“向左/向右环绕 15°”按钮上方提供全部六个轴向端点的可点击、可键盘聚焦按钮。底部栏提供 `Local` / `Global` 变换空间切换（`GizmoSpace3D`、`SetGizmoSpace3D`）、吸附设置弹出框与 `Focus F` 按钮。状态栏同时显示以度为单位的偏航角与俯仰角（` · yaw N° · pitch M°`）以及当前操纵杆空间（` · Local` / ` · Global`，中文界面显示 ` · 局部` / ` · 全局`）。
 - **正交**（`SetOrthographic3D`、`OrbitCamera3D.Orthographic`）以平行投影显示。视图高度为 `OrthoHeight`，即透视视图在注视点处显示的高度，因此切换时位于注视点的物体大小不变，缩放会改变这个高度。`Project`、`ScreenRay`、`SceneCamera`、拾取和变换控件在两种投影下行为一致：正交时每个像素的射线都沿视线方向，因此按下会选中其下方的物体，拖动变换控件时对象沿轴移动的距离等于指针沿该轴移动的距离。正交下的轴向视图就是真正的平面图或立面图。
-- **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、A、S、D、Q、E（无论是否按住 Shift）移动相机，而不执行它们平时的快捷键（变换控件的 W 和 S、擦除瓦片的 E）；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视；既没有转动也没有移动相机的一次右键点击会保持正交。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
+- **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、A、S、D、Q、E（无论是否按住 Shift）移动相机，而不执行它们平时的快捷键（变换控件的 W 和 E、擦除瓦片的 E）；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视；既没有转动也没有移动相机的一次右键点击会保持正交。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
 - **轴向视图**（`SetView3D`，命令 `view.3d.front`、`view.3d.back`、`view.3d.right`、`view.3d.left`、`view.3d.top`、`view.3d.bottom`，以及切换投影的 `view.3d.orthographic`）保持注视点和距离不变。前视沿 -Z 方向看，右视沿 -X 方向看，顶视垂直向下看，视图上方为 -Z。
 - **按场景保存**：项目中的每个场景都会以上次离开时的相机打开。编辑器在打开另一个场景、保存场景和关闭窗口时把视图写入项目中的 `.game/editor.yaml`（`ViewStateFile`，见[文件格式](formats.md)）；以其他方式结束编辑器的应用需先调用 `SaveViewState`。没有保存过视图的场景以 `DefaultOrbitCamera3D` 打开。编辑器创建 `.game` 文件夹时会在其中写入一个忽略整个文件夹的 `.gitignore`，使视图不进入版本控制。较新版本编辑器写出的文件（`version` 更高）既不会被读取，也不会被覆盖。
+
+### 3D 变换操纵杆（#892）
+
+3D 视口的变换操纵杆复用 `render3d.Gizmo` 完成**全局**（世界）或**局部**坐标空间下的绘制、拾取与约束拖拽：
+
+- **模式与快捷键**：在 3D 视口下按 `w`（平移，`Gizmo3DTranslate`）、`e`（旋转，`Gizmo3DRotate`）与 `r`（缩放，`Gizmo3DScale`）（属于 `ScopeViewport3D` 作用域，不与 2D 瓦片工具的 `e` 冲突），也可在 3D 工具栏或 `View > 3D Gizmo` 中切换。
+- **全局 / 局部空间切换**：通过 3D 底部视图栏中的 **Local** / **Global** 切换（`view3d-space-local` / `view3d-space-global`）、快捷键 `t`（`CmdGizmoSpace3D`）、`View > 3D Gizmo > 3D 操纵杆：局部 / 全局空间` 或 `SetGizmoSpace3D` / `ToggleGizmoSpace3D` 在 `GizmoSpaceGlobal` 与 `GizmoSpaceLocal` 间切换（`Editor.GizmoSpace3D`）。局部模式下手柄对齐选中对象经 Gram-Schmidt 正交归一化后的世界朝向——对嵌套子对象包含其所有祖先的旋转（`GizmoOrientation3D`）。
+- **绕所绘轴的精确旋转**：拖拽任意旋转圆环（X、Y 或 Z）时，按所绘圆环对应的精确世界轴复合旋转，再把子级局部结果（`RParentᵀ · RDeltaWorld · RWorldStart`）转换回场景欧拉角 XYZ（`Rz·Ry·Rx`），因此即使对象已绕多个轴旋转或嵌套在已旋转、缩放的父级下，每个圆环也严格绕所绘轴旋转。
+- **平面手柄、屏幕空间中心手柄与等比缩放**：平移提供 `Axis3DXY`、`Axis3DXZ`、`Axis3DYZ` 平面方块（严格在对应的双轴平面内移动，并带掠射角保护）与中心 `Axis3DAll` 手柄（在相机视平面内平移）；缩放提供中心 `Axis3DAll` 立方体手柄，按比例同时缩放三个轴。
+- **吸附与状态栏实时增量**：3D 平移、旋转和缩放共享编辑器吸附设置（`SnapSettings`、`EffectiveGridSize`、`EffectiveRotationSnapDeg`、`EffectiveScaleSnapStep`）及 `Ctrl`/`Cmd` 临时反转（`SetSnapInvert`）。拖拽期间状态栏实时显示变换增量（`GizmoDragDelta3D`：`dx`/`dy`/`dz`、角度 `°` 或缩放倍率 `x`）及当前坐标空间（全局/局部），每次完成的拖拽提交为**单个撤销步骤**并可无损往返场景 YAML（按 `Escape` 取消并恢复拖拽前变换）。
 
 ### 在 3D 中放置模型（#893）
 
@@ -1018,7 +1028,7 @@ func main() {
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+c`（拷贝对象或当前瓦片区域）、`mod+x`（剪切对象或当前瓦片区域）、`mod+v`（粘贴对象或瓦片区域）、`mod+shift+v`（粘贴为子级）、`mod+d`（复制选中对象）、`mod+g`（编组）、`mod+shift+g`（取消编组）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
-  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）、`5`（3D 透视或正交）以及 `0`（透过场景相机观看），这些只在 3D 视图中生效、`View > Scene Environment`（开关场景环境面板）、`mod+k`（命令面板）。
+  - 3D 变换控件与视图：`w`（平移）、`e`（旋转）、`r`（缩放）、`t`（局部 / 全局空间）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）、`5`（3D 透视或正交）以及 `0`（透过场景相机观看），这些只在 3D 视图中生效、`View > Scene Environment`（开关场景环境面板）、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布面板）、`mod+shift+r`（构建与发布界面）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。

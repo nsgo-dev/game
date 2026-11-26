@@ -8,8 +8,10 @@ import (
 	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -18,7 +20,6 @@ const (
 	minOrbitDistance float32 = 0.5
 	maxOrbitDistance float32 = 50000
 	gizmoHitRadius   float32 = 12
-	gizmoRingSteps           = 32
 )
 
 // OrbitCamera3D is a pure-Go right-handed (Y-up) orbit camera for the 3D scene view: it looks at Target from Distance away, turned by Yaw about the vertical axis and tilted by Pitch, through a perspective projection or, with Orthographic, a parallel one.
@@ -727,16 +728,7 @@ func (e *Editor) GizmoLength3D(pos [3]float32) float32 {
 	if e == nil {
 		return 32
 	}
-	// In orthographic a gizmo's size on screen does not change with its distance from the eye, so it is sized by the view's zoom instead, as large as a perspective view shows it at Target.
-	dist, _, _, _ := e.Camera3D.effectiveParams()
-	if !e.Camera3D.Orthographic {
-		dist = len64(sub64(vec64(pos), e.Camera3D.eye64()))
-	}
-	l := float32(dist * 0.18)
-	if l < 2 {
-		l = 2
-	}
-	return l
+	return e.Projection3D(0, 0).GizmoLength(math3d.Vec3{X: pos[0], Y: pos[1], Z: pos[2]})
 }
 
 func (e *Editor) gizmo3DBlocked() bool {
@@ -820,7 +812,13 @@ func eulerXYZFromMat3(r mat3) (rx, ry, rz float64) {
 		rx = math.Atan2(-r[1][2], r[1][1])
 		rz = 0
 	}
-	return rx, ry, rz
+	clean := func(v float64) float64 {
+		if math.Abs(v) < 1e-7 {
+			return 0
+		}
+		return v
+	}
+	return clean(rx), clean(ry), clean(rz)
 }
 
 func mat3FromAxisAngle(axis [3]float64, angle float64) mat3 {
@@ -874,15 +872,37 @@ func mat3IsIdentity(a mat3) bool {
 	return true
 }
 
-func parentRotation3D(parent aff3) mat3 {
+func parentRotationMat3(parent aff3) (mat3, bool) {
 	bx := [3]float64{parent[0][0], parent[1][0], parent[2][0]}
 	by := [3]float64{parent[0][1], parent[1][1], parent[2][1]}
 	bz := [3]float64{parent[0][2], parent[1][2], parent[2][2]}
 	ox, oy, oz, ok := orthonormalizeBasis3(bx, by, bz)
 	if !ok {
+		return identMat3, false
+	}
+	return mat3FromBasis(ox, oy, oz), true
+}
+
+// parentRotation3D returns the right-handed orthonormal parent world rotation for id.
+// It uses Gram-Schmidt on parentWorld so non-uniform and mirrored parents are handled cleanly,
+// and falls back to composing only finite ancestor Euler rotations if an ancestor has non-finite rotation.
+func (e *Editor) parentRotation3D(id string, parentWorld aff3) mat3 {
+	if r, ok := parentRotationMat3(parentWorld); ok {
+		return r
+	}
+	path := e.objectChain3D(id)
+	if len(path) < 2 {
 		return identMat3
 	}
-	return mat3FromBasis(ox, oy, oz)
+	r := identMat3
+	for _, o := range path[:len(path)-1] {
+		rx, ry, rz := float64(o.RotX), float64(o.RotY), float64(o.RotZ)
+		if !isFinite3F64([3]float64{rx, ry, rz}) {
+			continue
+		}
+		r = mat3Mul(r, mat3FromEulerXYZ(rx, ry, rz))
+	}
+	return r
 }
 
 // composeEulerRotation3D rotates an object with start Euler angles (rx0, ry0, rz0) under parent
@@ -890,6 +910,13 @@ func parentRotation3D(parent aff3) mat3 {
 func composeEulerRotation3D(rx0, ry0, rz0 float64, parentRot mat3, axisDir [3]float64, angle float64) (float32, float32, float32, bool) {
 	if !isFinite3F64(axisDir) || math.IsNaN(angle) || math.IsInf(angle, 0) {
 		return 0, 0, 0, false
+	}
+	if angle == 0 {
+		fx, fy, fz := float32(rx0), float32(ry0), float32(rz0)
+		if !isFiniteFloat32(fx) || !isFiniteFloat32(fy) || !isFiniteFloat32(fz) {
+			return 0, 0, 0, false
+		}
+		return fx, fy, fz, true
 	}
 	// Preserve exact unwrapped single-axis rotation when parent is unrotated and the drag axis
 	// coincides with the sole active Euler axis.
@@ -939,6 +966,7 @@ func (e *Editor) gizmo3DAxes() (ax, ay, az [3]float64) {
 	if obj == nil {
 		return ax, ay, az
 	}
+	obj = e.posed3D(obj)
 	rx, ry, rz := float64(obj.RotX), float64(obj.RotY), float64(obj.RotZ)
 	if !isFinite3F64([3]float64{rx, ry, rz}) {
 		return ax, ay, az
@@ -947,39 +975,32 @@ func (e *Editor) gizmo3DAxes() (ax, ay, az [3]float64) {
 	bx := parent.vector(rotateEulerXYZ64(ax, rx, ry, rz))
 	by := parent.vector(rotateEulerXYZ64(ay, rx, ry, rz))
 	bz := parent.vector(rotateEulerXYZ64(az, rx, ry, rz))
-	lx, ly, lz, ok := orthonormalizeBasis3(bx, by, bz)
-	if !ok {
-		return ax, ay, az
+	if lx, ly, lz, ok := orthonormalizeBasis3(bx, by, bz); ok {
+		return lx, ly, lz
 	}
-	return lx, ly, lz
+	// If an ancestor had a non-finite rotation (while the selected object itself is finite),
+	// fall back to composing finite ancestor rotations + self rotation.
+	if !isFinite3F64(bx) || !isFinite3F64(by) || !isFinite3F64(bz) {
+		rWorld := mat3Mul(e.parentRotation3D(obj.ID, parent), mat3FromEulerXYZ(rx, ry, rz))
+		cx := [3]float64{rWorld[0][0], rWorld[1][0], rWorld[2][0]}
+		cy := [3]float64{rWorld[0][1], rWorld[1][1], rWorld[2][1]}
+		cz := [3]float64{rWorld[0][2], rWorld[1][2], rWorld[2][2]}
+		if lx, ly, lz, ok := orthonormalizeBasis3(cx, cy, cz); ok {
+			return lx, ly, lz
+		}
+	}
+	return ax, ay, az
 }
 
-func (e *Editor) gizmo3DAxisDir(axis GizmoAxis3D) [3]float64 {
-	ax, ay, az := e.gizmo3DAxes()
-	switch axis {
-	case Axis3DX:
-		return ax
-	case Axis3DY:
-		return ay
-	case Axis3DZ:
-		return az
-	default:
-		return [3]float64{}
-	}
+// GizmoOrientation3D returns the active 3D transform gizmo's world-space orientation quaternion:
+// identity in Global space, or the primary draggable selected object's orthonormalized world
+// orientation (including its ancestors) in Local space.
+func (e *Editor) GizmoOrientation3D() math3d.Quat {
+	return e.gizmo3DOrientation().toMath3D()
 }
 
-func (e *Editor) gizmo3DMatrix(origin [3]float32) math3d.Mat4 {
-	ax, ay, az := e.gizmo3DAxes()
-	return math3d.Mat4{
-		float32(ax[0]), float32(ax[1]), float32(ax[2]), 0,
-		float32(ay[0]), float32(ay[1]), float32(ay[2]), 0,
-		float32(az[0]), float32(az[1]), float32(az[2]), 0,
-		origin[0], origin[1], origin[2], 1,
-	}
-}
-
-// PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object(s) in screen space
-// through the shared 3D gizmo handle picking engine.
+// PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object(s)
+// using render3d.Gizmo in the active Global or Local coordinate frame.
 func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	if e.gizmo3DBlocked() || w <= 0 || h <= 0 {
 		return Axis3DNone
@@ -1001,15 +1022,15 @@ func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	if !ok {
 		return Axis3DNone
 	}
-	gizmoLen := e.GizmoLength3D(origin)
-	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, true)
-	originMat := e.gizmo3DMatrix(origin)
+	origV := math3d.Vec3{X: origin[0], Y: origin[1], Z: origin[2]}
 	proj := e.Projection3D(w, h)
-	idx, _, hit := pickGizmoHandles3D(proj, originMat, handles, sx, sy, float64(gizmoHitRadius))
-	if !hit {
-		return Axis3DNone
-	}
-	return gizmoAxisFromHandleID(handles[idx].ID)
+	gizmoLen := proj.GizmoLength(origV)
+	orient := e.gizmo3DOrientation()
+	worldRay := proj.ScreenRay(sx, sy)
+	localRay := toGizmoRay3D(origV, orient, worldRay)
+	var g render3d.Gizmo
+	r3Axis, _ := g.PickAxis(localRay, math3d.Vec3Zero(), gizmoLen, render3DGizmoMode(e.GizmoMode))
+	return gizmoAxisFromRender3D(r3Axis)
 }
 
 type drag3DKind int
@@ -1044,9 +1065,10 @@ type drag3DState struct {
 	objectID             string
 	targets              []drag3DTarget // non-empty when dragging >1 selected objects
 	mode                 GizmoMode3D
+	space                GizmoSpace3D
 	axis                 GizmoAxis3D
-	axisDir              [3]float64
-	localSpace           bool
+	orient               quat64
+	startRay             math3d.Ray
 	startSX              float32
 	startSY              float32
 	lastSX               float32
@@ -1068,6 +1090,7 @@ type drag3DState struct {
 	prevRingVec        [3]float64
 	hasRingVec         bool
 	accumAngle         float64
+	deltaText          string
 	handleAxis         [3]float64
 	handleRight        [3]float64
 	handleUp           [3]float64
@@ -1116,6 +1139,14 @@ func (e *Editor) ActiveGizmoAxis3D() GizmoAxis3D {
 // DraggingGizmo3D reports whether a 3D gizmo drag is currently in progress.
 func (e *Editor) DraggingGizmo3D() bool {
 	return e != nil && e.drag3D.kind == drag3DGizmo
+}
+
+// GizmoDragDelta3D returns the formatted live drag delta shown in the status bar while a 3D transform gizmo drag is active, or empty when idle.
+func (e *Editor) GizmoDragDelta3D() string {
+	if e == nil || e.drag3D.kind != drag3DGizmo {
+		return ""
+	}
+	return e.drag3D.deltaText
 }
 
 // BeginGizmoDrag3D attempts to pick a 3D gizmo handle on the selected object at (sx, sy) and start dragging it.
@@ -1168,6 +1199,9 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 		}
 		return false
 	}
+	if !validGizmoAxisForMode3D(e.GizmoMode, axis) {
+		return false
+	}
 	draggable := e.draggableSelectedIDs()
 	if len(draggable) == 0 {
 		return false
@@ -1176,7 +1210,11 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	if !ok {
 		return false
 	}
-	gizmoLen := e.GizmoLength3D(pos)
+	origV := math3d.Vec3{X: pos[0], Y: pos[1], Z: pos[2]}
+	proj := e.Projection3D(w, h)
+	gizmoLen := proj.GizmoLength(origV)
+	orient := e.gizmo3DOrientation()
+	startRay := proj.ScreenRay(sx, sy)
 	var st drag3DState
 	if len(draggable) == 1 {
 		obj, _ := e.FindResolvedObject(draggable[0])
@@ -1208,11 +1246,16 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			// A parent scaled to zero leaves no space to drag the object in.
 			return false
 		}
+		startTr := captureTransform3D(obj)
+		parentRot := e.parentRotation3D(obj.ID, parentWorld)
 		st = drag3DState{
 			kind:            drag3DGizmo,
 			objectID:        obj.ID,
 			mode:            e.GizmoMode,
+			space:           e.GizmoSpace3D,
 			axis:            axis,
+			orient:          orient,
+			startRay:        startRay,
 			startSX:         sx,
 			startSY:         sy,
 			lastSX:          sx,
@@ -1220,10 +1263,10 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			vpW:             w,
 			vpH:             h,
 			gizmoLen:        gizmoLen,
-			startTransform:  captureTransform3D(obj),
+			startTransform:  startTr,
 			startPos:        vec64(pos),
 			parentInv:       parentInv,
-			parentRot:       parentRotation3D(parentWorld),
+			parentRot:       parentRot,
 			overrideInfo:    info,
 			overrideOld:     oldOv,
 			overrideHadOld:  hadOld,
@@ -1261,12 +1304,14 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			if !ok {
 				continue
 			}
+			startTr := captureTransform3D(obj)
+			parentRot := e.parentRotation3D(id, parentWorld)
 			targets = append(targets, drag3DTarget{
 				id:              id,
-				startTransform:  captureTransform3D(obj),
+				startTransform:  startTr,
 				startPos:        vec64(e.worldPosition3D(obj)),
 				parentInv:       parentInv,
-				parentRot:       parentRotation3D(parentWorld),
+				parentRot:       parentRot,
 				overrideInfo:    info,
 				overrideOld:     oldOv,
 				overrideHadOld:  hadOld,
@@ -1282,7 +1327,10 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			objectID: e.SelectedID,
 			targets:  targets,
 			mode:     e.GizmoMode,
+			space:    e.GizmoSpace3D,
 			axis:     axis,
+			orient:   orient,
+			startRay: startRay,
 			startSX:  sx,
 			startSY:  sy,
 			lastSX:   sx,
@@ -1294,28 +1342,21 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 		}
 	}
 
-	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
-	orig := vec64(orig32)
-	dir := vec64(dir32)
-	axisDir := e.gizmo3DAxisDir(axis)
-	st.axisDir = axisDir
-	st.localSpace = e.GizmoSpace3D == GizmoSpaceLocal
-	pos64 := vec64(pos)
-
+	r0 := toGizmoRay3D(origV, orient, startRay)
 	switch e.GizmoMode {
 	case Gizmo3DRotate:
-		if hit, ok := intersectRayPlane64(orig, dir, pos64, axisDir); ok {
-			rv := sub64(hit, pos64)
-			if len64(rv) > 1e-4 {
-				st.prevRingVec = normalize64(rv)
+		axisDir := axisVector64(axis)
+		if hit, ok := intersectRayPlaneEps64(vec3To64(r0.Origin), vec3To64(r0.Dir), [3]float64{}, axisDir, 1e-3); ok {
+			if len64(hit) > 1e-4 {
+				st.prevRingVec = normalize64(hit)
 				st.hasRingVec = true
 			}
 		}
+		st.deltaText = formatRotateDelta3D(st.axis, st.space, 0)
+	case Gizmo3DScale:
+		st.deltaText = formatScaleDelta3D(st.axis, st.space, 1)
 	default:
-		if t, ok := closestParamOnAxisLine64(pos64, axisDir, orig, dir); ok {
-			st.startAxisT = t
-			st.hasAxisT = true
-		}
+		st.deltaText = formatTranslateDelta3D(st.axis, st.space, [3]float64{})
 	}
 
 	e.drag3D = st
@@ -1346,58 +1387,36 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 		return
 	}
 	w, h := st.vpW, st.vpH
-	startPos := st.startPos
-	axisDir := st.axisDir
-	if len64(axisDir) < 1e-6 {
-		axisDir = axisVector64(st.axis)
-	}
-	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
-	orig := vec64(orig32)
-	dir := vec64(dir32)
+	origV := math3d.Vec3{X: float32(st.startPos[0]), Y: float32(st.startPos[1]), Z: float32(st.startPos[2])}
+	proj := e.Projection3D(w, h)
+	curRay := proj.ScreenRay(sx, sy)
+	r0 := toGizmoRay3D(origV, st.orient, st.startRay)
+	r1 := toGizmoRay3D(origV, st.orient, curRay)
 
 	next := st.startTransform
 	switch st.mode {
 	case Gizmo3DTranslate:
-		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
-		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		worldDelta, displayDelta, ok := e.computeTranslateDelta3D(st, st.startPos, r0, r1)
+		if !ok {
 			return
 		}
-		if grid, pixel := e.positionSnapMode(); grid || pixel {
-			if st.localSpace {
-				if snapped := e.SnapValue(delta); !math.IsNaN(snapped) && !math.IsInf(snapped, 0) {
-					delta = snapped
-				}
-			} else {
-				axisIdx := 0
-				switch st.axis {
-				case Axis3DY:
-					axisIdx = 1
-				case Axis3DZ:
-					axisIdx = 2
-				}
-				snappedCoord := e.SnapValue(startPos[axisIdx] + delta)
-				if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
-					delta = snappedCoord - startPos[axisIdx]
-				}
-			}
-		}
-		worldDelta := scale64(axisDir, delta)
-		// The drag runs along a world axis; a nested child's position is in its parent's space.
 		local := st.parentInv.vector(worldDelta)
 		nx, ny, nz := st.startTransform.X+float32(local[0]), st.startTransform.Y+float32(local[1]), st.startTransform.PosZ+float32(local[2])
 		if !isFiniteFloat32(nx) || !isFiniteFloat32(ny) || !isFiniteFloat32(nz) {
 			return
 		}
 		next.X, next.Y, next.PosZ = nx, ny, nz
+		st.deltaText = formatTranslateDelta3D(st.axis, st.space, displayDelta)
 
 	case Gizmo3DRotate:
-		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
+		uLocal := axisVector64(st.axis)
+		angle := e.computeGizmoRotationAngle3D(st, uLocal, r1, sx)
 		if math.IsNaN(angle) || math.IsInf(angle, 0) {
 			return
 		}
 		rx0, ry0, rz0 := float64(st.startTransform.RotX), float64(st.startTransform.RotY), float64(st.startTransform.RotZ)
-		if e.SnapRotation {
-			if mat3IsIdentity(st.parentRot) && !st.localSpace {
+		if e.rotationSnapActive() {
+			if mat3IsIdentity(st.parentRot) && st.space == GizmoSpaceGlobal {
 				switch {
 				case st.axis == Axis3DX && ry0 == 0 && rz0 == 0:
 					angle = e.SnapRotationRadians(rx0+angle) - rx0
@@ -1415,56 +1434,69 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 				return
 			}
 		}
-		rx, ry, rz, ok := composeEulerRotation3D(rx0, ry0, rz0, st.parentRot, axisDir, angle)
+		uWorld := st.orient.rotate(uLocal)
+		rx, ry, rz, ok := composeEulerRotation3D(rx0, ry0, rz0, st.parentRot, uWorld, angle)
 		if !ok {
 			return
 		}
 		next.RotX, next.RotY, next.RotZ = rx, ry, rz
+		st.deltaText = formatRotateDelta3D(st.axis, st.space, angle)
 
 	case Gizmo3DScale:
-		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
-		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		factor, ok := e.computeScaleFactor3D(st, proj, r0, r1)
+		if !ok {
 			return
 		}
-		denom := float64(st.gizmoLen)
-		if denom <= 1e-4 {
-			denom = 1
-		}
-		factor := 1.0 + delta/denom
-		if !math.IsNaN(factor) && !math.IsInf(factor, 0) {
+		if st.axis == Axis3DAll {
+			if e.scaleSnapActive() {
+				factor = e.SnapScaleFactor(factor)
+			}
+			factor = clampMinScale3D(factor)
+			if math.IsNaN(factor) || math.IsInf(factor, 0) {
+				return
+			}
+			bx := effectiveScaleValue3D(st.startTransform.ScaleX)
+			by := effectiveScaleValue3D(st.startTransform.ScaleY)
+			bz := effectiveScaleValue3D(st.startTransform.ScaleZ)
+			sxv := float32(clampMinScale3D(bx * factor))
+			syv := float32(clampMinScale3D(by * factor))
+			szv := float32(clampMinScale3D(bz * factor))
+			if !isFiniteFloat32(sxv) || !isFiniteFloat32(syv) || !isFiniteFloat32(szv) {
+				return
+			}
+			next.ScaleX = sceneformat.Float32(sxv)
+			next.ScaleY = sceneformat.Float32(syv)
+			next.ScaleZ = sceneformat.Float32(szv)
+			st.deltaText = formatScaleDelta3D(st.axis, st.space, factor)
+		} else {
+			applyAxis := func(startPtr *float32) (*float32, float64, bool) {
+				base := effectiveScaleValue3D(startPtr)
+				target := base * factor
+				if e.scaleSnapActive() {
+					target = e.SnapScaleFactor(target)
+				}
+				target = clampMinScale3D(target)
+				v := float32(target)
+				if !isFiniteFloat32(v) {
+					return nil, factor, false
+				}
+				return sceneformat.Float32(v), target / base, true
+			}
 			switch st.axis {
 			case Axis3DX:
-				base := float64(1)
-				if st.startTransform.ScaleX != nil {
-					base = float64(*st.startTransform.ScaleX)
-				}
-				if base == 0 {
-					base = 1
-				}
-				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
-					next.ScaleX = sceneformat.Float32(v)
+				if p, ratio, ok := applyAxis(st.startTransform.ScaleX); ok {
+					next.ScaleX = p
+					st.deltaText = formatScaleDelta3D(st.axis, st.space, ratio)
 				}
 			case Axis3DY:
-				base := float64(1)
-				if st.startTransform.ScaleY != nil {
-					base = float64(*st.startTransform.ScaleY)
-				}
-				if base == 0 {
-					base = 1
-				}
-				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
-					next.ScaleY = sceneformat.Float32(v)
+				if p, ratio, ok := applyAxis(st.startTransform.ScaleY); ok {
+					next.ScaleY = p
+					st.deltaText = formatScaleDelta3D(st.axis, st.space, ratio)
 				}
 			case Axis3DZ:
-				base := float64(1)
-				if st.startTransform.ScaleZ != nil {
-					base = float64(*st.startTransform.ScaleZ)
-				}
-				if base == 0 {
-					base = 1
-				}
-				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
-					next.ScaleZ = sceneformat.Float32(v)
+				if p, ratio, ok := applyAxis(st.startTransform.ScaleZ); ok {
+					next.ScaleZ = p
+					st.deltaText = formatScaleDelta3D(st.axis, st.space, ratio)
 				}
 			}
 		}
@@ -1525,6 +1557,16 @@ func applyTransform3DOverride(base sceneformat.ObjectOverride, mode GizmoMode3D,
 			if !equalFloat32Ptr(next.ScaleZ, start.ScaleZ) {
 				nextOv.ScaleZ = cloneFloat32Ptr(next.ScaleZ)
 			}
+		case Axis3DAll:
+			if !equalFloat32Ptr(next.ScaleX, start.ScaleX) {
+				nextOv.ScaleX = cloneFloat32Ptr(next.ScaleX)
+			}
+			if !equalFloat32Ptr(next.ScaleY, start.ScaleY) {
+				nextOv.ScaleY = cloneFloat32Ptr(next.ScaleY)
+			}
+			if !equalFloat32Ptr(next.ScaleZ, start.ScaleZ) {
+				nextOv.ScaleZ = cloneFloat32Ptr(next.ScaleZ)
+			}
 		}
 	}
 	return nextOv
@@ -1537,13 +1579,11 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 	st := &e.drag3D
 	w, h := st.vpW, st.vpH
 	startPos := st.startPos
-	axisDir := st.axisDir
-	if len64(axisDir) < 1e-6 {
-		axisDir = axisVector64(st.axis)
-	}
-	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
-	orig := vec64(orig32)
-	dir := vec64(dir32)
+	origV := math3d.Vec3{X: float32(startPos[0]), Y: float32(startPos[1]), Z: float32(startPos[2])}
+	proj := e.Projection3D(w, h)
+	curRay := proj.ScreenRay(sx, sy)
+	r0 := toGizmoRay3D(origV, st.orient, st.startRay)
+	r1 := toGizmoRay3D(origV, st.orient, curRay)
 
 	objs := make([]*sceneformat.ObjectDoc, len(st.targets))
 	nexts := make([]Transform3D, len(st.targets))
@@ -1559,45 +1599,27 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 
 	switch st.mode {
 	case Gizmo3DTranslate:
-		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
-		if math.IsNaN(delta) || math.IsInf(delta, 0) {
-			return
-		}
-		if grid, pixel := e.positionSnapMode(); grid || pixel {
-			if st.localSpace {
-				if snapped := e.SnapValue(delta); !math.IsNaN(snapped) && !math.IsInf(snapped, 0) {
-					delta = snapped
-				}
-			} else {
-				axisIdx := 0
-				switch st.axis {
-				case Axis3DY:
-					axisIdx = 1
-				case Axis3DZ:
-					axisIdx = 2
-				}
-				anchorPos := st.targets[0].startPos
-				for _, t := range st.targets {
-					if t.id == st.objectID {
-						anchorPos = t.startPos
-						break
-					}
-				}
-				snappedCoord := e.SnapValue(anchorPos[axisIdx] + delta)
-				if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
-					delta = snappedCoord - anchorPos[axisIdx]
-				}
+		anchorPos := st.targets[0].startPos
+		for _, t := range st.targets {
+			if t.id == st.objectID {
+				anchorPos = t.startPos
+				break
 			}
 		}
-		worldDelta := scale64(axisDir, delta)
+		worldDelta, displayDelta, ok := e.computeTranslateDelta3D(st, anchorPos, r0, r1)
+		if !ok {
+			return
+		}
 		for i, t := range st.targets {
 			local := t.parentInv.vector(worldDelta)
 			nexts[i].X = t.startTransform.X + float32(local[0])
 			nexts[i].Y = t.startTransform.Y + float32(local[1])
 			nexts[i].PosZ = t.startTransform.PosZ + float32(local[2])
 		}
+		st.deltaText = formatTranslateDelta3D(st.axis, st.space, displayDelta)
 	case Gizmo3DRotate:
-		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
+		uLocal := axisVector64(st.axis)
+		angle := e.computeGizmoRotationAngle3D(st, uLocal, r1, sx)
 		if math.IsNaN(angle) || math.IsInf(angle, 0) {
 			return
 		}
@@ -1605,15 +1627,11 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 		if math.IsNaN(angle) || math.IsInf(angle, 0) {
 			return
 		}
-		cosA, sinA := math.Cos(angle), math.Sin(angle)
+		uWorld := st.orient.rotate(uLocal)
+		qDeltaWorld := quat64FromAxisAngle(uWorld, angle)
 		for i, t := range st.targets {
 			rel := sub64(t.startPos, startPos)
-			kDotR := dot64(axisDir, rel)
-			kCrossR := cross64(axisDir, rel)
-			rotRel := add64(
-				add64(scale64(rel, cosA), scale64(kCrossR, sinA)),
-				scale64(axisDir, kDotR*(1-cosA)),
-			)
+			rotRel := qDeltaWorld.rotate(rel)
 			worldDelta := sub64(rotRel, rel)
 			local := t.parentInv.vector(worldDelta)
 			nexts[i].X = t.startTransform.X + float32(local[0])
@@ -1624,7 +1642,7 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 				float64(t.startTransform.RotY),
 				float64(t.startTransform.RotZ),
 				t.parentRot,
-				axisDir,
+				uWorld,
 				angle,
 			)
 			if !ok {
@@ -1634,72 +1652,71 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 			nexts[i].RotY = ry
 			nexts[i].RotZ = rz
 		}
+		st.deltaText = formatRotateDelta3D(st.axis, st.space, angle)
 	case Gizmo3DScale:
-		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
-		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		factor, ok := e.computeScaleFactor3D(st, proj, r0, r1)
+		if !ok {
 			return
 		}
-		denom := float64(st.gizmoLen)
-		if denom <= 1e-4 {
-			denom = 1
-		}
-		factor := 1.0 + delta/denom
 		if e.scaleSnapActive() {
 			factor = e.SnapScaleFactor(factor)
 		}
-		if math.IsNaN(factor) || math.IsInf(factor, 0) || math.Abs(factor) < minScale2D {
+		factor = clampMinScale3D(factor)
+		if math.IsNaN(factor) || math.IsInf(factor, 0) {
 			return
 		}
 		for i, t := range st.targets {
 			rel := sub64(t.startPos, startPos)
-			proj := dot64(rel, axisDir)
-			worldDelta := scale64(axisDir, proj*(factor-1))
+			var worldDelta [3]float64
+			if st.axis == Axis3DAll {
+				worldDelta = scale64(rel, factor-1)
+			} else {
+				uWorld := st.orient.rotate(axisVector64(st.axis))
+				projLen := dot64(rel, uWorld)
+				worldDelta = scale64(uWorld, projLen*(factor-1))
+			}
 			local := t.parentInv.vector(worldDelta)
 			nexts[i].X = t.startTransform.X + float32(local[0])
 			nexts[i].Y = t.startTransform.Y + float32(local[1])
 			nexts[i].PosZ = t.startTransform.PosZ + float32(local[2])
+			scaleAxis := func(startPtr *float32) (*float32, bool) {
+				base := effectiveScaleValue3D(startPtr)
+				sv := float32(clampMinScale3D(base * factor))
+				if !isFiniteFloat32(sv) {
+					return nil, false
+				}
+				return sceneformat.Float32(sv), true
+			}
 			switch st.axis {
 			case Axis3DX:
-				base := 1.0
-				if t.startTransform.ScaleX != nil {
-					base = float64(*t.startTransform.ScaleX)
-				}
-				if base == 0 {
-					base = 1
-				}
-				sv := float32(base * factor)
-				if !isFiniteFloat32(sv) || math.Abs(float64(sv)) < minScale2D {
+				p, ok := scaleAxis(t.startTransform.ScaleX)
+				if !ok {
 					return
 				}
-				nexts[i].ScaleX = sceneformat.Float32(sv)
+				nexts[i].ScaleX = p
 			case Axis3DY:
-				base := 1.0
-				if t.startTransform.ScaleY != nil {
-					base = float64(*t.startTransform.ScaleY)
-				}
-				if base == 0 {
-					base = 1
-				}
-				sv := float32(base * factor)
-				if !isFiniteFloat32(sv) || math.Abs(float64(sv)) < minScale2D {
+				p, ok := scaleAxis(t.startTransform.ScaleY)
+				if !ok {
 					return
 				}
-				nexts[i].ScaleY = sceneformat.Float32(sv)
+				nexts[i].ScaleY = p
 			case Axis3DZ:
-				base := 1.0
-				if t.startTransform.ScaleZ != nil {
-					base = float64(*t.startTransform.ScaleZ)
-				}
-				if base == 0 {
-					base = 1
-				}
-				sv := float32(base * factor)
-				if !isFiniteFloat32(sv) || math.Abs(float64(sv)) < minScale2D {
+				p, ok := scaleAxis(t.startTransform.ScaleZ)
+				if !ok {
 					return
 				}
-				nexts[i].ScaleZ = sceneformat.Float32(sv)
+				nexts[i].ScaleZ = p
+			case Axis3DAll:
+				px, okX := scaleAxis(t.startTransform.ScaleX)
+				py, okY := scaleAxis(t.startTransform.ScaleY)
+				pz, okZ := scaleAxis(t.startTransform.ScaleZ)
+				if !okX || !okY || !okZ {
+					return
+				}
+				nexts[i].ScaleX, nexts[i].ScaleY, nexts[i].ScaleZ = px, py, pz
 			}
 		}
+		st.deltaText = formatScaleDelta3D(st.axis, st.space, factor)
 	}
 
 	for _, tr := range nexts {
@@ -1748,25 +1765,6 @@ func (e *Editor) computeAxisDelta(st *drag3DState, startPos, axisDir, rayOrig, r
 	dsx, dsy := float64(sx-st.startSX), float64(sy-st.startSY)
 	projPx := (dsx*ax + dsy*ay) / pixLen
 	return projPx * (float64(st.gizmoLen) / pixLen)
-}
-
-func (e *Editor) computeRotationAngle(st *drag3DState, startPos, axisDir, rayOrig, rayDir [3]float64, sx, sy float32) float64 {
-	if st.hasRingVec {
-		if hit, ok := intersectRayPlane64(rayOrig, rayDir, startPos, axisDir); ok {
-			rv := sub64(hit, startPos)
-			if len64(rv) > 1e-4 {
-				cur := normalize64(rv)
-				sinA := dot64(cross64(st.prevRingVec, cur), axisDir)
-				cosA := dot64(st.prevRingVec, cur)
-				step := math.Atan2(sinA, cosA)
-				st.accumAngle += step
-				st.prevRingVec = cur
-				return st.accumAngle
-			}
-		}
-	}
-	// Edge-on fallback: map horizontal screen delta to radians.
-	return float64(sx-st.startSX) * 0.01
 }
 
 // EndGizmoDrag3D finishes an active 3D gizmo drag and commits a single undoable command to History.
@@ -2533,10 +2531,130 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	if !ok {
 		return
 	}
-	gizmoLen := e.GizmoLength3D(origin)
-	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, false)
-	originMat := e.gizmo3DMatrix(origin)
-	drawGizmoHandles3D(d, e.Projection3D(w, h), originMat, handles, gizmoHandleIDFromAxis(e.ActiveGizmoAxis3D()))
+	origV := math3d.Vec3{X: origin[0], Y: origin[1], Z: origin[2]}
+	proj := e.Projection3D(w, h)
+	gizmoLen := proj.GizmoLength(origV)
+	orient := e.gizmo3DOrientation()
+	gizmoMat := math3d.TRS(origV, orient.toMath3D(), math3d.Vec3One())
+	activeAxis := e.ActiveGizmoAxis3D()
+	activeR3 := render3DGizmoAxis(activeAxis)
+	spec := e.SpecPalette(nil)
+	centerRingCol := ui.Alpha(spec.TextPrimary, 0.9)
+	activeCol := spec.Warning.Fg
+
+	var g render3d.Gizmo
+	var buf [128]render3d.GizmoSegment
+	segs := g.AppendSegments(buf[:0], math3d.Vec3Zero(), gizmoLen, render3DGizmoMode(e.GizmoMode))
+
+	if e.GizmoMode == Gizmo3DTranslate {
+		drawTranslatePlaneFills3D(d, proj, gizmoMat, gizmoLen, activeAxis, spec)
+	}
+
+	d.Save()
+	d.SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
+	drawPass := func(wantActive bool) {
+		var (
+			open     bool
+			curColor core.Color
+			curWidth float32
+		)
+		flush := func() {
+			if open {
+				d.Stroke()
+				open = false
+			}
+		}
+		for _, seg := range segs {
+			isActive := activeR3 != render3d.AxisNone && (seg.Axis == activeR3 || (e.GizmoMode == Gizmo3DScale && activeR3 == render3d.AxisAll))
+			if isActive != wantActive {
+				continue
+			}
+			wa := gizmoMat.TransformPoint(seg.A)
+			wb := gizmoMat.TransformPoint(seg.B)
+			x0, y0, x1, y1, vis := proj.ProjectSegment(wa, wb)
+			if !vis {
+				continue
+			}
+			col := seg.Color
+			lw := float32(2.0)
+			if isActive {
+				col = activeCol
+				lw = 3.25
+			}
+			if !open || col != curColor || lw != curWidth {
+				flush()
+				curColor = col
+				curWidth = lw
+				d.SetStrokeColor(curColor).SetLineWidth(curWidth).BeginPath()
+				open = true
+			}
+			d.MoveTo(x0, y0).LineTo(x1, y1)
+		}
+		flush()
+	}
+	drawPass(false)
+	drawPass(true)
+	d.Restore()
+
+	if e.GizmoMode == Gizmo3DTranslate {
+		if cx, cy, _, vis := proj.Project(origV); vis {
+			col := centerRingCol
+			lw := float32(1.75)
+			r := float32(6)
+			if activeAxis == Axis3DAll {
+				col = activeCol
+				lw = 2.5
+				r = 7
+			}
+			d.Save().SetStrokeColor(col).SetLineWidth(lw).BeginPath().Arc(cx, cy, r, 0, float32(2*math.Pi), false).Stroke().Restore()
+		}
+	}
+}
+
+func drawTranslatePlaneFills3D(d *core.Drawing, proj Projection3D, gizmoMat math3d.Mat4, gizmoLen float32, activeAxis GizmoAxis3D, spec SpecPalette) {
+	const loFrac, hiFrac float32 = 0.05, 0.32
+	lo, hi := loFrac*gizmoLen, hiFrac*gizmoLen
+	fillAlpha := float32(0.22)
+	activeAlpha := float32(0.42)
+	if !spec.Dark {
+		fillAlpha = 0.32
+		activeAlpha = 0.45
+	}
+	planes := [3]struct {
+		axis  GizmoAxis3D
+		u, v  math3d.Vec3
+		color core.Color
+	}{
+		{Axis3DXY, math3d.Vec3UnitX(), math3d.Vec3UnitY(), core.RGBA(0xB45309, fillAlpha)},
+		{Axis3DXZ, math3d.Vec3UnitX(), math3d.Vec3UnitZ(), core.RGBA(0xA21CAF, fillAlpha)},
+		{Axis3DYZ, math3d.Vec3UnitY(), math3d.Vec3UnitZ(), core.RGBA(0x0E7490, fillAlpha)},
+	}
+	if spec.Dark {
+		planes[0].color = core.RGBA(0xEAB308, fillAlpha)
+		planes[1].color = core.RGBA(0xD946EF, fillAlpha)
+		planes[2].color = core.RGBA(0x06B6D4, fillAlpha)
+	}
+	for _, pl := range planes {
+		corner := func(a, b float32) (float32, float32, bool) {
+			wp := gizmoMat.TransformPoint(pl.u.Scale(a).Add(pl.v.Scale(b)))
+			x, y, _, vis := proj.Project(wp)
+			return x, y, vis
+		}
+		x0, y0, v0 := corner(lo, lo)
+		x1, y1, v1 := corner(hi, lo)
+		x2, y2, v2 := corner(hi, hi)
+		x3, y3, v3 := corner(lo, hi)
+		if !v0 || !v1 || !v2 || !v3 {
+			continue
+		}
+		col := pl.color
+		if activeAxis == pl.axis {
+			col = ui.Alpha(spec.Warning.Fg, activeAlpha)
+		}
+		d.Save().SetFillColor(col).BeginPath().
+			MoveTo(x0, y0).LineTo(x1, y1).LineTo(x2, y2).LineTo(x3, y3).
+			ClosePath().Fill().Restore()
+	}
 }
 
 func drawArrowHead2D(d *core.Drawing, x0, y0, x1, y1 float32, color core.Color) {
@@ -2609,19 +2727,6 @@ func axisVector32(axis GizmoAxis3D) [3]float32 {
 func axisVector64(axis GizmoAxis3D) [3]float64 {
 	v := axisVector32(axis)
 	return vec64(v)
-}
-
-func ringBasis64(axis GizmoAxis3D) (u, v [3]float64) {
-	switch axis {
-	case Axis3DX:
-		return [3]float64{0, 1, 0}, [3]float64{0, 0, 1}
-	case Axis3DY:
-		return [3]float64{1, 0, 0}, [3]float64{0, 0, -1}
-	case Axis3DZ:
-		return [3]float64{1, 0, 0}, [3]float64{0, 1, 0}
-	default:
-		return [3]float64{1, 0, 0}, [3]float64{0, 1, 0}
-	}
 }
 
 func vec64(v [3]float32) [3]float64 {
@@ -2747,8 +2852,12 @@ func closestParamOnAxisLine64(lineOrigin, lineDir, rayOrig, rayDir [3]float64) (
 }
 
 func intersectRayPlane64(rayOrig, rayDir, planePoint, planeNormal [3]float64) ([3]float64, bool) {
+	return intersectRayPlaneEps64(rayOrig, rayDir, planePoint, planeNormal, 0.12)
+}
+
+func intersectRayPlaneEps64(rayOrig, rayDir, planePoint, planeNormal [3]float64, minDenom float64) ([3]float64, bool) {
 	denom := dot64(rayDir, planeNormal)
-	if math.Abs(denom) < 0.12 {
+	if math.Abs(denom) < minDenom {
 		return [3]float64{}, false
 	}
 	s := dot64(sub64(planePoint, rayOrig), planeNormal) / denom
@@ -2769,4 +2878,432 @@ func pointToSegmentDist64(px, py, x0, y0, x1, y1 float64) float64 {
 	projX := x0 + t*dx
 	projY := y0 + t*dy
 	return math.Hypot(px-projX, py-projY)
+}
+
+// --- 3D transform gizmo quaternion, orientation, and render3d.Gizmo helpers (#892) ---
+
+type quat64 struct {
+	x, y, z, w float64
+}
+
+var quat64Identity = quat64{w: 1}
+
+func (q quat64) norm() quat64 {
+	l := math.Sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+	if l < 1e-12 || math.IsNaN(l) || math.IsInf(l, 0) {
+		return quat64Identity
+	}
+	inv := 1 / l
+	return quat64{q.x * inv, q.y * inv, q.z * inv, q.w * inv}
+}
+
+func (q quat64) conj() quat64 {
+	return quat64{-q.x, -q.y, -q.z, q.w}
+}
+
+func (q quat64) mul(b quat64) quat64 {
+	return quat64{
+		x: q.w*b.x + q.x*b.w + q.y*b.z - q.z*b.y,
+		y: q.w*b.y - q.x*b.z + q.y*b.w + q.z*b.x,
+		z: q.w*b.z + q.x*b.y - q.y*b.x + q.z*b.w,
+		w: q.w*b.w - q.x*b.x - q.y*b.y - q.z*b.z,
+	}
+}
+
+func (q quat64) rotate(v [3]float64) [3]float64 {
+	n := q.norm()
+	u := [3]float64{n.x, n.y, n.z}
+	t := scale64(cross64(u, v), 2)
+	return add64(add64(v, scale64(t, n.w)), cross64(u, t))
+}
+
+func (q quat64) toMath3D() math3d.Quat {
+	n := q.norm()
+	return math3d.Quat{X: float32(n.x), Y: float32(n.y), Z: float32(n.z), W: float32(n.w)}
+}
+
+func quat64FromAxisAngle(axis [3]float64, rad float64) quat64 {
+	a := normalize64(axis)
+	if len64(a) < 1e-12 {
+		return quat64Identity
+	}
+	s, c := math.Sincos(rad * 0.5)
+	return quat64{x: a[0] * s, y: a[1] * s, z: a[2] * s, w: c}
+}
+
+// quat64FromMat3 converts a right-handed orthonormal 3x3 rotation matrix to a unit quaternion.
+func quat64FromMat3(r mat3) quat64 {
+	tr := r[0][0] + r[1][1] + r[2][2]
+	var q quat64
+	switch {
+	case tr > 0:
+		s := math.Sqrt(tr+1.0) * 2
+		q = quat64{
+			x: (r[2][1] - r[1][2]) / s,
+			y: (r[0][2] - r[2][0]) / s,
+			z: (r[1][0] - r[0][1]) / s,
+			w: 0.25 * s,
+		}
+	case r[0][0] > r[1][1] && r[0][0] > r[2][2]:
+		s := math.Sqrt(1.0+r[0][0]-r[1][1]-r[2][2]) * 2
+		q = quat64{
+			x: 0.25 * s,
+			y: (r[0][1] + r[1][0]) / s,
+			z: (r[0][2] + r[2][0]) / s,
+			w: (r[2][1] - r[1][2]) / s,
+		}
+	case r[1][1] > r[2][2]:
+		s := math.Sqrt(1.0+r[1][1]-r[0][0]-r[2][2]) * 2
+		q = quat64{
+			x: (r[0][1] + r[1][0]) / s,
+			y: 0.25 * s,
+			z: (r[1][2] + r[2][1]) / s,
+			w: (r[0][2] - r[2][0]) / s,
+		}
+	default:
+		s := math.Sqrt(1.0+r[2][2]-r[0][0]-r[1][1]) * 2
+		q = quat64{
+			x: (r[0][2] + r[2][0]) / s,
+			y: (r[1][2] + r[2][1]) / s,
+			z: 0.25 * s,
+			w: (r[1][0] - r[0][1]) / s,
+		}
+	}
+	return q.norm()
+}
+
+func (e *Editor) objectChain3D(id string) []*sceneformat.ObjectDoc {
+	if e.clipScene != nil {
+		if bo := e.clipScene.Object(id); bo != nil {
+			var path []*sceneformat.ObjectDoc
+			for p := bo; p != nil; p = p.Parent {
+				if p.Doc != nil {
+					path = append(path, p.Doc)
+				}
+			}
+			slices.Reverse(path)
+			return path
+		}
+	}
+	return e.resolvedObjectPath(id)
+}
+
+func (e *Editor) gizmo3DOrientation() quat64 {
+	if e == nil || e.GizmoSpace3D != GizmoSpaceLocal {
+		return quat64Identity
+	}
+	ax, ay, az := e.gizmo3DAxes()
+	return quat64FromMat3(mat3FromBasis(ax, ay, az))
+}
+
+func render3DGizmoMode(m GizmoMode3D) render3d.GizmoMode {
+	switch m {
+	case Gizmo3DRotate:
+		return render3d.GizmoRotate
+	case Gizmo3DScale:
+		return render3d.GizmoScale
+	default:
+		return render3d.GizmoTranslate
+	}
+}
+
+func gizmoAxisFromRender3D(a render3d.GizmoAxis) GizmoAxis3D {
+	switch a {
+	case render3d.AxisX:
+		return Axis3DX
+	case render3d.AxisY:
+		return Axis3DY
+	case render3d.AxisZ:
+		return Axis3DZ
+	case render3d.AxisXY:
+		return Axis3DXY
+	case render3d.AxisXZ:
+		return Axis3DXZ
+	case render3d.AxisYZ:
+		return Axis3DYZ
+	case render3d.AxisAll:
+		return Axis3DAll
+	default:
+		return Axis3DNone
+	}
+}
+
+func render3DGizmoAxis(a GizmoAxis3D) render3d.GizmoAxis {
+	switch a {
+	case Axis3DX:
+		return render3d.AxisX
+	case Axis3DY:
+		return render3d.AxisY
+	case Axis3DZ:
+		return render3d.AxisZ
+	case Axis3DXY:
+		return render3d.AxisXY
+	case Axis3DXZ:
+		return render3d.AxisXZ
+	case Axis3DYZ:
+		return render3d.AxisYZ
+	case Axis3DAll:
+		return render3d.AxisAll
+	default:
+		return render3d.AxisNone
+	}
+}
+
+func validGizmoAxisForMode3D(mode GizmoMode3D, axis GizmoAxis3D) bool {
+	switch mode {
+	case Gizmo3DRotate:
+		return axis == Axis3DX || axis == Axis3DY || axis == Axis3DZ
+	case Gizmo3DScale:
+		return axis == Axis3DX || axis == Axis3DY || axis == Axis3DZ || axis == Axis3DAll
+	case Gizmo3DTranslate:
+		return axis >= Axis3DX && axis <= Axis3DAll
+	default:
+		return false
+	}
+}
+
+func toGizmoRay3D(origin math3d.Vec3, orient quat64, ray math3d.Ray) math3d.Ray {
+	inv := orient.conj()
+	relOrig := [3]float64{
+		float64(ray.Origin.X - origin.X),
+		float64(ray.Origin.Y - origin.Y),
+		float64(ray.Origin.Z - origin.Z),
+	}
+	rotOrig := inv.rotate(relOrig)
+	rotDir := inv.rotate([3]float64{float64(ray.Dir.X), float64(ray.Dir.Y), float64(ray.Dir.Z)})
+	return math3d.Ray{
+		Origin: math3d.Vec3{X: float32(rotOrig[0]), Y: float32(rotOrig[1]), Z: float32(rotOrig[2])},
+		Dir:    math3d.Vec3{X: float32(rotDir[0]), Y: float32(rotDir[1]), Z: float32(rotDir[2])},
+	}
+}
+
+const minGizmoPlaneCos3D = 0.02
+
+func gizmoPlaneNormal3D(axis GizmoAxis3D) ([3]float64, bool) {
+	switch axis {
+	case Axis3DXY:
+		return [3]float64{0, 0, 1}, true
+	case Axis3DXZ:
+		return [3]float64{0, 1, 0}, true
+	case Axis3DYZ:
+		return [3]float64{1, 0, 0}, true
+	default:
+		return [3]float64{}, false
+	}
+}
+
+func maxGizmoJump3D(gizmoLen float32) float64 {
+	return math.Max(1000, 200*float64(gizmoLen))
+}
+
+func clampMinScale3D(v float64) float64 {
+	if math.Abs(v) < minScale2D {
+		if v < 0 {
+			return -minScale2D
+		}
+		return minScale2D
+	}
+	return v
+}
+
+func (e *Editor) computeTranslateDelta3D(st *drag3DState, anchorPos [3]float64, r0, r1 math3d.Ray) (worldDelta, displayDelta [3]float64, ok bool) {
+	o0 := vec3To64(r0.Origin)
+	d0 := normalize64(vec3To64(r0.Dir))
+	o1 := vec3To64(r1.Origin)
+	d1 := normalize64(vec3To64(r1.Dir))
+	if !isFinite3F64(o0) || !isFinite3F64(o1) || len64(d0) < 1e-9 || len64(d1) < 1e-9 {
+		return [3]float64{}, [3]float64{}, false
+	}
+
+	var gizmoDelta [3]float64
+	switch st.axis {
+	case Axis3DX, Axis3DY, Axis3DZ:
+		u := axisVector64(st.axis)
+		s0, ok0 := closestParamOnAxisLine64([3]float64{}, u, o0, d0)
+		s1, ok1 := closestParamOnAxisLine64([3]float64{}, u, o1, d1)
+		if !ok0 || !ok1 {
+			return [3]float64{}, [3]float64{}, false
+		}
+		gizmoDelta = scale64(u, s1-s0)
+	case Axis3DXY, Axis3DXZ, Axis3DYZ:
+		n, _ := gizmoPlaneNormal3D(st.axis)
+		p0, ok0 := intersectRayPlaneEps64(o0, d0, [3]float64{}, n, minGizmoPlaneCos3D)
+		p1, ok1 := intersectRayPlaneEps64(o1, d1, [3]float64{}, n, minGizmoPlaneCos3D)
+		if !ok0 || !ok1 {
+			return [3]float64{}, [3]float64{}, false
+		}
+		diff := sub64(p1, p0)
+		gizmoDelta = sub64(diff, scale64(n, dot64(diff, n)))
+	case Axis3DAll:
+		n := scale64(d0, -1)
+		p0, ok0 := intersectRayPlaneEps64(o0, d0, [3]float64{}, n, minGizmoPlaneCos3D)
+		p1, ok1 := intersectRayPlaneEps64(o1, d1, [3]float64{}, n, minGizmoPlaneCos3D)
+		if !ok0 || !ok1 {
+			return [3]float64{}, [3]float64{}, false
+		}
+		gizmoDelta = sub64(p1, p0)
+	default:
+		return [3]float64{}, [3]float64{}, false
+	}
+
+	if !isFinite3F64(gizmoDelta) || len64(gizmoDelta) > maxGizmoJump3D(st.gizmoLen) {
+		return [3]float64{}, [3]float64{}, false
+	}
+
+	grid, pixel := e.positionSnapMode()
+	if !grid && !pixel {
+		worldDelta = st.orient.rotate(gizmoDelta)
+		return worldDelta, gizmoDelta, true
+	}
+	// In Local mode on constrained axis/plane handles, snap displacements along the active local axes
+	// so the object moves strictly along the drawn local handle in exact step increments.
+	if st.space == GizmoSpaceLocal && st.axis != Axis3DAll {
+		var step float64 = 1
+		if grid {
+			step = float64(e.EffectiveGridSize())
+		}
+		active := gizmoActiveComponents3D(st.axis)
+		for c := range 3 {
+			if active[c] {
+				gizmoDelta[c] = snapStep64(gizmoDelta[c], step)
+			} else {
+				gizmoDelta[c] = 0
+			}
+		}
+		worldDelta = st.orient.rotate(gizmoDelta)
+		return worldDelta, gizmoDelta, true
+	}
+	// In Global mode (or screen-space center handle), snap active world coordinates to the grid.
+	worldDelta = st.orient.rotate(gizmoDelta)
+	active := gizmoActiveComponents3D(st.axis)
+	for c := range 3 {
+		if !active[c] {
+			continue
+		}
+		snapped := e.SnapValue(anchorPos[c] + worldDelta[c])
+		if math.IsNaN(snapped) || math.IsInf(snapped, 0) {
+			return [3]float64{}, [3]float64{}, false
+		}
+		worldDelta[c] = snapped - anchorPos[c]
+	}
+	displayDelta = st.orient.conj().rotate(worldDelta)
+	return worldDelta, displayDelta, true
+}
+
+func gizmoActiveComponents3D(axis GizmoAxis3D) [3]bool {
+	switch axis {
+	case Axis3DX:
+		return [3]bool{true, false, false}
+	case Axis3DY:
+		return [3]bool{false, true, false}
+	case Axis3DZ:
+		return [3]bool{false, false, true}
+	case Axis3DXY:
+		return [3]bool{true, true, false}
+	case Axis3DXZ:
+		return [3]bool{true, false, true}
+	case Axis3DYZ:
+		return [3]bool{false, true, true}
+	case Axis3DAll:
+		return [3]bool{true, true, true}
+	default:
+		return [3]bool{}
+	}
+}
+
+func (e *Editor) computeGizmoRotationAngle3D(st *drag3DState, uLocal [3]float64, curGizmoRay math3d.Ray, sx float32) float64 {
+	if st.hasRingVec {
+		if hit, ok := intersectRayPlaneEps64(vec3To64(curGizmoRay.Origin), vec3To64(curGizmoRay.Dir), [3]float64{}, uLocal, 1e-3); ok {
+			if len64(hit) > 1e-4 {
+				cur := normalize64(hit)
+				sinA := dot64(cross64(st.prevRingVec, cur), uLocal)
+				cosA := dot64(st.prevRingVec, cur)
+				st.accumAngle += math.Atan2(sinA, cosA)
+				st.prevRingVec = cur
+				return st.accumAngle
+			}
+		}
+		return st.accumAngle
+	}
+	return float64(sx-st.startSX) * 0.01
+}
+
+func (e *Editor) computeScaleFactor3D(st *drag3DState, proj Projection3D, r0, r1 math3d.Ray) (float64, bool) {
+	denom := float64(st.gizmoLen)
+	if denom <= 1e-4 {
+		denom = 1
+	}
+	o0 := vec3To64(r0.Origin)
+	d0 := normalize64(vec3To64(r0.Dir))
+	o1 := vec3To64(r1.Origin)
+	d1 := normalize64(vec3To64(r1.Dir))
+	if !isFinite3F64(o0) || !isFinite3F64(o1) || len64(d0) < 1e-9 || len64(d1) < 1e-9 {
+		return 1, false
+	}
+	maxJump := maxGizmoJump3D(st.gizmoLen)
+	var delta float64
+	if st.axis == Axis3DAll {
+		n := scale64(d0, -1)
+		p0, ok0 := intersectRayPlaneEps64(o0, d0, [3]float64{}, n, minGizmoPlaneCos3D)
+		p1, ok1 := intersectRayPlaneEps64(o1, d1, [3]float64{}, n, minGizmoPlaneCos3D)
+		if !ok0 || !ok1 {
+			return 1, false
+		}
+		gizmoDelta := sub64(p1, p0)
+		if !isFinite3F64(gizmoDelta) || len64(gizmoDelta) > maxJump {
+			return 1, false
+		}
+		worldDelta := st.orient.rotate(gizmoDelta)
+		var right, up [3]float64
+		if proj.hasView {
+			right, up = proj.view.right, proj.view.up
+		} else {
+			right, up, _ = proj.Camera.basis64()
+		}
+		delta = dot64(worldDelta, right) + dot64(worldDelta, up)
+	} else {
+		u := axisVector64(st.axis)
+		s0, ok0 := closestParamOnAxisLine64([3]float64{}, u, o0, d0)
+		s1, ok1 := closestParamOnAxisLine64([3]float64{}, u, o1, d1)
+		if !ok0 || !ok1 {
+			return 1, false
+		}
+		delta = s1 - s0
+		if math.IsNaN(delta) || math.IsInf(delta, 0) || math.Abs(delta) > maxJump {
+			return 1, false
+		}
+	}
+	factor := 1.0 + delta/denom
+	if math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return 1, false
+	}
+	return factor, true
+}
+
+func effectiveScaleValue3D(ptr *float32) float64 {
+	if ptr == nil || *ptr == 0 {
+		return 1
+	}
+	return float64(*ptr)
+}
+
+func cleanZero64(v float64) float64 {
+	if math.Abs(v) < 1e-6 {
+		return 0
+	}
+	return v
+}
+
+func formatTranslateDelta3D(axis GizmoAxis3D, space GizmoSpace3D, d [3]float64) string {
+	return fmt.Sprintf("Translate %s (%s): dx %+.2f, dy %+.2f, dz %+.2f",
+		axis.String(), space.String(), cleanZero64(d[0]), cleanZero64(d[1]), cleanZero64(d[2]))
+}
+
+func formatRotateDelta3D(axis GizmoAxis3D, space GizmoSpace3D, rad float64) string {
+	deg := cleanZero64(rad * 180.0 / math.Pi)
+	return fmt.Sprintf("Rotate %s (%s): %+.1f°", axis.String(), space.String(), deg)
+}
+
+func formatScaleDelta3D(axis GizmoAxis3D, space GizmoSpace3D, factor float64) string {
+	return fmt.Sprintf("Scale %s (%s): %.2fx", axis.String(), space.String(), cleanZero64(factor))
 }

@@ -176,7 +176,7 @@ func (s Shading3D) String() string {
 	}
 }
 
-// GizmoAxis3D identifies an axis handle on a 3D transform gizmo.
+// GizmoAxis3D identifies an axis, plane, or center handle on a 3D transform gizmo.
 type GizmoAxis3D int
 
 const (
@@ -184,6 +184,10 @@ const (
 	Axis3DX
 	Axis3DY
 	Axis3DZ
+	Axis3DXY
+	Axis3DXZ
+	Axis3DYZ
+	Axis3DAll
 )
 
 // String returns a human-readable label for the gizmo axis.
@@ -195,6 +199,14 @@ func (a GizmoAxis3D) String() string {
 		return "Y"
 	case Axis3DZ:
 		return "Z"
+	case Axis3DXY:
+		return "XY"
+	case Axis3DXZ:
+		return "XZ"
+	case Axis3DYZ:
+		return "YZ"
+	case Axis3DAll:
+		return "All"
 	default:
 		return "None"
 	}
@@ -1132,6 +1144,19 @@ func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
 	e.GizmoMode = mode
 	e.Status = "Gizmo: " + mode.String()
 	e.notify()
+}
+
+// ToggleGizmoSpace3D switches the 3D transform gizmo between Global (world) and Local (object) axes and returns the active space.
+func (e *Editor) ToggleGizmoSpace3D() GizmoSpace3D {
+	if e == nil {
+		return GizmoSpaceGlobal
+	}
+	if e.GizmoSpace3D == GizmoSpaceLocal {
+		e.SetGizmoSpace3D(GizmoSpaceGlobal)
+	} else {
+		e.SetGizmoSpace3D(GizmoSpaceLocal)
+	}
+	return e.GizmoSpace3D
 }
 
 // SetActiveLayer selects the layer targeted by object placement and tile painting. When the layer's tileset (TilePalette) has no tile with ActiveTileID, its first tile becomes the active tile.

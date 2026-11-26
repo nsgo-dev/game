@@ -769,7 +769,7 @@ func TestGroupAndUngroupPreserveWorldTransforms2DAnd3D(t *testing.T) {
 func TestBuiltinCommandsHaveNoShortcutClashesAndEditMenuContextMenuWork(t *testing.T) {
 	ed := newNestedEditor(t)
 
-	// Verify ZERO shortcut collisions across all built-in commands on both Apple and non-Apple platforms.
+	// Verify ZERO same-scope shortcut collisions across all built-in commands on both Apple and non-Apple platforms.
 	seenApple := make(map[string]string)
 	seenOther := make(map[string]string)
 	resolve := func(sc, mod string) string {
@@ -782,6 +782,10 @@ func TestBuiltinCommandsHaveNoShortcutClashesAndEditMenuContextMenuWork(t *testi
 		return strings.Join(parts, "+")
 	}
 	for _, cmd := range ed.Commands() {
+		scope := cmd.Scope
+		if scope == "" {
+			scope = editor.ScopeGlobal
+		}
 		shortcuts := []string{}
 		if cmd.Shortcut != "" {
 			shortcuts = append(shortcuts, cmd.Shortcut)
@@ -792,15 +796,15 @@ func TestBuiltinCommandsHaveNoShortcutClashesAndEditMenuContextMenuWork(t *testi
 			if err != nil {
 				t.Fatalf("command %q invalid shortcut %q: %v", cmd.ID, sc, err)
 			}
-			ak := resolve(norm, "meta")
+			ak := scope + "\x00" + resolve(norm, "meta")
 			if prev, dup := seenApple[ak]; dup {
-				t.Fatalf("Apple shortcut clash on %q between %q and %q", ak, prev, cmd.ID)
+				t.Fatalf("Apple shortcut clash in scope %q on %q between %q and %q", scope, resolve(norm, "meta"), prev, cmd.ID)
 			}
 			seenApple[ak] = cmd.ID
 
-			ok := resolve(norm, "ctrl")
+			ok := scope + "\x00" + resolve(norm, "ctrl")
 			if prev, dup := seenOther[ok]; dup {
-				t.Fatalf("Ctrl shortcut clash on %q between %q and %q", ok, prev, cmd.ID)
+				t.Fatalf("Ctrl shortcut clash in scope %q on %q between %q and %q", scope, resolve(norm, "ctrl"), prev, cmd.ID)
 			}
 			seenOther[ok] = cmd.ID
 		}

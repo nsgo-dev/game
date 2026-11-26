@@ -253,8 +253,8 @@ func TestKeyboardShortcutsToolsGizmosPlayRunAndFrame(t *testing.T) {
 		key  string
 		want editor.GizmoMode3D
 	}{
-		{"r", editor.Gizmo3DRotate},
-		{"s", editor.Gizmo3DScale},
+		{"e", editor.Gizmo3DRotate},
+		{"r", editor.Gizmo3DScale},
 		{"w", editor.Gizmo3DTranslate},
 	}
 	for _, tc := range gizmoKeys {
@@ -371,7 +371,10 @@ func TestDesktopMenuBarMatchesRegistryAndExecutesActions(t *testing.T) {
 		{[]string{"View", "Command Palette..."}, "mod+k"},
 		{[]string{"View", "Frame Selection"}, "f"},
 		{[]string{"View", "Tools", "Move"}, "m"},
-		{[]string{"View", "3D Gizmo", "Rotate"}, "r"},
+		{[]string{"View", "3D Gizmo", "Translate"}, "w"},
+		{[]string{"View", "3D Gizmo", "Rotate"}, "e"},
+		{[]string{"View", "3D Gizmo", "Scale"}, "r"},
+		{[]string{"View", "3D Gizmo", "3D Gizmo: Local / Global Space"}, "t"},
 		{[]string{"Project", "Play"}, "f5"},
 		{[]string{"Project", "Run Game"}, "mod+r"},
 		{[]string{"Project", "Plugins", "Ping Plugin"}, "mod+shift+p"},

@@ -1728,6 +1728,9 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				TestID: "editor-status-message",
 				ContentFunc: func() string {
 					_ = rev.Get()
+					if delta := ed.GizmoDragDelta3D(); delta != "" {
+						return delta
+					}
 					if ed.BuildErr != nil {
 						return ed.T("status.buildError", l10n.Param("error", ed.BuildErr.Error()))
 					}

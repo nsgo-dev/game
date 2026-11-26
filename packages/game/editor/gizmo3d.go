@@ -225,14 +225,6 @@ func (k GizmoHandleKind3D) String() string {
 	}
 }
 
-type gizmoLineCap3D int
-
-const (
-	gizmoCapNone gizmoLineCap3D = iota
-	gizmoCapArrow
-	gizmoCapCube
-)
-
 // GizmoHandle3D describes one visual or interactive 3D gizmo handle in object space.
 type GizmoHandle3D struct {
 	// ID identifies the handle within its ComponentGizmo3D and is passed to ComponentGizmo3D.Drag.
@@ -259,9 +251,6 @@ type GizmoHandle3D struct {
 	Axis math3d.Vec3
 	// Label is an optional short label drawn beside the handle while active.
 	Label string
-
-	// cap controls optional end-cap drawing for line handles (used by the built-in 3D transform gizmo).
-	cap gizmoLineCap3D
 }
 
 func (h GizmoHandle3D) referencePoint() math3d.Vec3 {
@@ -610,12 +599,6 @@ func drawGizmoHandle3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, h Gi
 			lw += 1.0
 		}
 		d.Save().SetStrokeColor(col).SetLineWidth(lw).BeginPath().MoveTo(x0, y0).LineTo(x1, y1).Stroke().Restore()
-		switch h.cap {
-		case gizmoCapArrow:
-			drawArrowHead2D(d, x0, y0, x1, y1, col)
-		case gizmoCapCube:
-			d.Save().SetFillColor(col).FillRect(x1-4, y1-4, 8, 8).Restore()
-		}
 
 	case GizmoHandleBox3D:
 		lw := h.LineWidth
@@ -640,100 +623,6 @@ func drawGizmoHandles3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, han
 		if h.Kind == GizmoHandlePoint3D {
 			drawGizmoHandle3D(d, proj, mat, h, activeID != "" && h.ID == activeID)
 		}
-	}
-}
-
-// transformGizmoHandles3D builds the editor's built-in 3D transform gizmo (Translate, Rotate, Scale)
-// as shared GizmoHandle3D primitives in a world-aligned frame centered at the selected object's origin.
-func transformGizmoHandles3D(mode GizmoMode3D, gizmoLen float32, forPick bool) []GizmoHandle3D {
-	axes := [3]struct {
-		id    string
-		axis  GizmoAxis3D
-		color core.Color
-	}{
-		{"x", Axis3DX, core.RGBA(0xEF4444, 1)},
-		{"y", Axis3DY, core.RGBA(0x22C55E, 1)},
-		{"z", Axis3DZ, core.RGBA(0x3B82F6, 1)},
-	}
-	if mode == Gizmo3DRotate {
-		out := make([]GizmoHandle3D, 0, 3*gizmoRingSteps)
-		r := float64(gizmoLen)
-		for _, ax := range axes {
-			u, v := ringBasis64(ax.axis)
-			ringPt := func(i int) math3d.Vec3 {
-				a := (2 * math.Pi * float64(i)) / float64(gizmoRingSteps)
-				ca, sa := math.Cos(a)*r, math.Sin(a)*r
-				p := add64(scale64(u, ca), scale64(v, sa))
-				return math3d.Vec3{X: float32(p[0]), Y: float32(p[1]), Z: float32(p[2])}
-			}
-			prev := ringPt(0)
-			for i := 1; i <= gizmoRingSteps; i++ {
-				cur := ringPt(i % gizmoRingSteps)
-				out = append(out, GizmoHandle3D{
-					ID:        ax.id,
-					Kind:      GizmoHandleLine3D,
-					Start:     prev,
-					End:       cur,
-					Color:     ax.color,
-					LineWidth: 2.0,
-				})
-				prev = cur
-			}
-		}
-		return out
-	}
-
-	out := make([]GizmoHandle3D, 0, 3)
-	capKind := gizmoCapArrow
-	if mode == Gizmo3DScale {
-		capKind = gizmoCapCube
-	}
-	for _, ax := range axes {
-		dir := axisVector32(ax.axis)
-		dvec := math3d.Vec3{X: dir[0], Y: dir[1], Z: dir[2]}
-		startScale := float32(0)
-		endScale := float32(1)
-		if forPick {
-			startScale = 0.08
-			endScale = 1.12
-		}
-		out = append(out, GizmoHandle3D{
-			ID:        ax.id,
-			Kind:      GizmoHandleLine3D,
-			Start:     dvec.Scale(gizmoLen * startScale),
-			End:       dvec.Scale(gizmoLen * endScale),
-			Color:     ax.color,
-			LineWidth: 2.5,
-			Axis:      dvec,
-			cap:       capKind,
-		})
-	}
-	return out
-}
-
-func gizmoAxisFromHandleID(id string) GizmoAxis3D {
-	switch id {
-	case "x":
-		return Axis3DX
-	case "y":
-		return Axis3DY
-	case "z":
-		return Axis3DZ
-	default:
-		return Axis3DNone
-	}
-}
-
-func gizmoHandleIDFromAxis(axis GizmoAxis3D) string {
-	switch axis {
-	case Axis3DX:
-		return "x"
-	case Axis3DY:
-		return "y"
-	case Axis3DZ:
-		return "z"
-	default:
-		return ""
 	}
 }
 

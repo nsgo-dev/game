@@ -783,11 +783,15 @@ func TestOrthographicGizmoRotateScaleAndElevations(t *testing.T) {
 	})
 
 	t.Run("Y arm in Top", func(t *testing.T) {
-		// From the top the Y arm points at the eye and shows as a dot at the gizmo's center; dragging it has no direction on screen to follow, so it moves nothing.
+		// From the top, clicking the gizmo center picks the screen-space center handle (Axis3DAll),
+		// while dragging the Y arm edge-on (pointing at the eye) has no direction on screen to follow, so it moves nothing.
 		ed := newEd(t, editor.View3DTop, editor.Gizmo3DTranslate)
 		cx, cy, _, _ := ed.Camera3D.Project([3]float32{}, w, h)
-		if axis := ed.BeginGizmoDrag3D(cx, cy, w, h); axis != editor.Axis3DY {
-			t.Fatalf("a press at the gizmo's center from the top picked %v, want Y", axis)
+		if axis := ed.PickGizmo3D(cx, cy, w, h); axis != editor.Axis3DAll {
+			t.Fatalf("a press at the gizmo's center from the top picked %v, want Axis3DAll", axis)
+		}
+		if !ed.BeginGizmoDragAxis3D(editor.Axis3DY, cx, cy, w, h) {
+			t.Fatal("BeginGizmoDragAxis3D(Axis3DY) returned false")
 		}
 		ed.UpdateGizmoDrag3D(cx+30, cy+20)
 		ed.UpdateGizmoDrag3D(cx+60, cy+40)

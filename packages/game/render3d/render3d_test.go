@@ -537,6 +537,12 @@ func TestGizmoSegmentsPickingAndDragging(t *testing.T) {
 			want: render3d.AxisXY,
 		},
 		{
+			name: "translate center AxisAll",
+			mode: render3d.GizmoTranslate,
+			ray:  math3d.Ray{Origin: origin.Add(math3d.Vec3{Z: 5}), Dir: math3d.Vec3{Z: -1}},
+			want: render3d.AxisAll,
+		},
+		{
 			name: "translate miss",
 			mode: render3d.GizmoTranslate,
 			ray:  math3d.Ray{Origin: origin.Add(math3d.Vec3{X: 10, Y: 10, Z: 5}), Dir: math3d.Vec3{Z: -1}},
@@ -699,9 +705,9 @@ func TestDrawGizmoAndDebugDrawEmitCanvasOps(t *testing.T) {
 			lastStrokeWidth = op.W
 		}
 	}
-	// 3 shafts x 5 (shaft + 4 head lines) + 3 planar squares x 4 edges.
-	if lineTos != 27 {
-		t.Fatalf("gizmo DrawLineTo count = %d, want 27", lineTos)
+	// 3 shafts x 5 (shaft + 4 head lines) + 3 planar squares x 4 edges + center cube x 12 edges.
+	if lineTos != 39 {
+		t.Fatalf("gizmo DrawLineTo count = %d, want 39", lineTos)
 	}
 	if strokes == 0 {
 		t.Fatal("gizmo emitted no DrawStroke ops")
@@ -792,5 +798,32 @@ func TestFrameProfiler(t *testing.T) {
 	p.Reset()
 	if p.Count() != 0 || p.PeakDrawCalls() != 0 || p.PeakTriangles() != 0 {
 		t.Fatal("Reset did not clear profiler")
+	}
+}
+
+func TestGizmoDragTranslateGuardsGrazingPlaneRays(t *testing.T) {
+	var g render3d.Gizmo
+	origin := math3d.Vec3Zero()
+
+	// Ray grazing the XZ plane (normal = +Y, |dir.Y| = 0.005 < 0.08) must return zero rather than exploding.
+	r0 := math3d.Ray{
+		Origin: math3d.Vec3{X: 0, Y: 1, Z: 200},
+		Dir:    math3d.Vec3{X: 0, Y: -0.005, Z: -1}.Norm(),
+	}
+	r1 := math3d.Ray{
+		Origin: math3d.Vec3{X: 0, Y: 1, Z: 200},
+		Dir:    math3d.Vec3{X: 0.05, Y: -0.001, Z: -1}.Norm(),
+	}
+	delta := g.DragTranslate(origin, render3d.AxisXZ, r0, r1, 0)
+	if delta != math3d.Vec3Zero() {
+		t.Fatalf("grazing XZ plane DragTranslate = %v, want zero", delta)
+	}
+
+	// AxisAll with currentRay nearly perpendicular to view plane normal must also return zero.
+	v0 := math3d.Ray{Origin: math3d.Vec3{Z: 10}, Dir: math3d.Vec3{Z: -1}}
+	v1 := math3d.Ray{Origin: math3d.Vec3{Z: 10}, Dir: math3d.Vec3{X: 1, Z: -0.01}.Norm()}
+	deltaAll := g.DragTranslate(origin, render3d.AxisAll, v0, v1, 0)
+	if deltaAll != math3d.Vec3Zero() {
+		t.Fatalf("grazing AxisAll DragTranslate = %v, want zero", deltaAll)
 	}
 }

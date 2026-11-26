@@ -867,7 +867,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "rotate", "turn", "3d"},
 			Scope:       ScopeViewport3D,
-			Shortcut:    "r",
+			Shortcut:    "e",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DRotate },
 			Run: func() error {
@@ -882,7 +882,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "scale", "resize", "3d"},
 			Scope:       ScopeViewport3D,
-			Shortcut:    "s",
+			Shortcut:    "r",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DScale },
 			Run: func() error {
@@ -1068,16 +1068,13 @@ func (e *Editor) initBuiltinCommands() {
 			Label:       "3D Gizmo: Local / Global Space",
 			Description: "Toggle the 3D transform gizmo between local object axes and global world axes",
 			Category:    "3D Gizmo",
-			Keywords:    []string{"local", "global", "world", "space", "gizmo", "3d"},
+			Keywords:    []string{"local", "global", "world", "space", "gizmo", "axes", "orientation", "3d"},
 			Scope:       ScopeViewport3D,
+			Shortcut:    "t",
 			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode3D },
 			Checked:     func() bool { return e.GizmoSpace3D == GizmoSpaceLocal },
 			Run: func() error {
-				if e.GizmoSpace3D == GizmoSpaceLocal {
-					e.SetGizmoSpace3D(GizmoSpaceGlobal)
-				} else {
-					e.SetGizmoSpace3D(GizmoSpaceLocal)
-				}
+				e.ToggleGizmoSpace3D()
 				return nil
 			},
 		},
