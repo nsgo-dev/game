@@ -376,6 +376,9 @@ func (e *Editor) sketchBlockedByScreen() bool {
 		e.HistoryPreviewActive() ||
 		e.PermissionsDraftOpen() ||
 		e.StartScreenOpen() ||
+		e.FirstRunFullScreenOpen() ||
+		e.ReviewOpen() ||
+		e.DataTableReviewOpen() ||
 		e.SettingsOpen() ||
 		e.MergeConflictOpen() ||
 		e.ChangesOpen() ||

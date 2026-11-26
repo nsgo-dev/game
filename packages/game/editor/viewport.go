@@ -1605,7 +1605,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() || ed.AskInPlaceOpen() || ed.HistoryPreviewActive() {
+					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() || ed.AskInPlaceOpen() || ed.HistoryPreviewActive() || ed.SettingsOpen() || ed.ReviewOpen() || ed.DataTableReviewOpen() {
 						return false
 					}
 					_, gmActive := ed.GridMapStrokeActive()

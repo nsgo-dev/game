@@ -15,7 +15,7 @@ import (
 func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	active := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SketchActive()
+		return ed.SketchActive() && !ed.sketchBlockedByScreen()
 	})
 	type overlayThemeKey struct {
 		dark bool

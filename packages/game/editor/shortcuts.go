@@ -503,7 +503,7 @@ func (e *Editor) shortcutScopePriority(scope string) int {
 		}
 		return 0
 	case ScopeSketch:
-		if e.ViewMode == ViewMode2D && !e.Playing() && e.SketchActive() && !e.ReviewOpen() && !e.SettingsOpen() {
+		if e.ViewMode == ViewMode2D && !e.sketchBlockedByScreen() && e.SketchActive() {
 			return 5
 		}
 		return 0
