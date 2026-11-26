@@ -125,8 +125,13 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.stopSceneEmitterLoop()
 	e.closeModelPreview()
 	e.stopExportBuild()
+	e.resetExportPanelCache()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()
+	if e.ProjectPath != "" && e.ProjectPath != path {
+		e.settingsOpen = false
+	}
+	e.shortcutCaptureActive = false
 	_ = e.DisconnectRemote()
 	_ = e.StopGame()
 	e.clip = nil
@@ -325,6 +330,7 @@ func (e *Editor) SaveProject() error {
 	e.projectSaved = data
 	e.projectSavedOnce = true
 	e.recordProjectDiskSnapshot(e.ProjectPath, data)
+	e.refreshAppleTeamIDCache()
 	e.invalidateProjectIndex()
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()

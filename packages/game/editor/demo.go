@@ -166,8 +166,11 @@ func (e *Editor) OpenDemo() error {
 	e.stopSceneEmitterLoop()
 	e.closeModelPreview()
 	e.stopExportBuild()
+	e.resetExportPanelCache()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()
+	e.settingsOpen = false
+	e.shortcutCaptureActive = false
 	_ = e.StopGame()
 
 	e.Project = nil

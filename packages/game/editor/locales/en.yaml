@@ -549,12 +549,18 @@ strings:
   settings.done: Done
   settings.general: General
   settings.generalHelp: Language and appearance.
+  settings.goGeneral: Open General Settings
   settings.langChinese: 简体中文
   settings.langEnglish: English
   settings.language: Language
   settings.languageHelp: Editor text; the agent answers in it too.
   settings.light: Light
+  settings.metaReady: Ready
+  settings.metaSetUp: Set up
+  settings.metaUnsaved: Unsaved
   settings.navTitle: Settings
+  settings.noProjectBody: Open a game.yaml project to configure Project, Input map, Audio buses, and Export settings.
+  settings.noProjectTitle: No project open
   settings.page.audio: Audio buses
   settings.page.audioSubtitle: Levels and routing for music, effects and voice.
   settings.page.export: Export
@@ -565,7 +571,15 @@ strings:
   settings.page.inputSubtitle: Actions and what triggers them on keyboard, gamepad and touch.
   settings.page.project: Project
   settings.page.projectSubtitle: Name, ID, window and main scene.
+  settings.policyAgent: Agent may change
+  settings.policyYouOnly: You only
+  settings.scopeComputer: This computer
+  settings.scopeProject: Project · game.yaml
+  settings.searchClear: Clear
+  settings.searchLabel: Search settings
+  settings.searchPlaceholder: Search settings — project, input, audio, export, shortcuts, language…
   settings.sectionEditor: EDITOR · THIS COMPUTER
+  settings.sectionProject: PROJECT · game.yaml
   settings.shortcuts: Shortcuts
   settings.shortcutsCaptureCancel: Cancel
   settings.shortcutsCapturePrompt: Press a key…

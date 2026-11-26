@@ -8,15 +8,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints strictly from docs/design/editor/Spec.dc.html color tokens.
-var (
-	specSettingsAccentTint = core.RGBA(0x3B7BFF, 0.14)
-	specSettingsAccentEdge = core.RGBA(0x3B7BFF, 0.45)
-	specSettingsActiveNav  = core.RGBA(0x3B7BFF, 0.16)
-	specSettingsHoverNav   = core.RGBA(0xFFFFFF, 0.04)
-	specSettingsProblemBg  = core.RGBA(0xFF6B6B, 0.08)
-)
-
 type settingsAgentPolicy uint8
 
 const (
@@ -25,28 +16,43 @@ const (
 )
 
 // SettingsView renders the unified Settings screen matching docs/design/editor/Settings.dc.html
-// and strictly using docs/design/editor/Spec.dc.html color, spacing, radius, type, and contrast tokens.
-// It hosts the "PROJECT · game.yaml" pages (Project, Input map, Audio buses, Export) alongside
-// "EDITOR · THIS COMPUTER" (General), keeping every control reachable with Tab and focus rings.
+// and strictly using SpecPalette color, spacing, radius, type, and contrast tokens in both Dark
+// and Light appearances. It hosts the "PROJECT · game.yaml" pages (Project, Input map, Audio buses,
+// Export) alongside "EDITOR · THIS COMPUTER" (General, Shortcuts), keeping every control reachable
+// with Tab and focus rings.
 func SettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	return core.Show{
-		When: func() bool {
-			_ = rev.Get()
-			return ed.SettingsOpen()
-		},
-		Then: func(cx *core.Scope) core.Node {
-			return settingsShellView(cx, ed, rev)
-		},
+	type settingsViewKey struct {
+		open bool
+		dark bool
 	}
+	key := core.NewMemo(cx, func() settingsViewKey {
+		_ = rev.Get()
+		return settingsViewKey{
+			open: ed.SettingsOpen() && !ed.Playing(),
+			dark: cx.Dark(),
+		}
+	})
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		if !key.Get().open {
+			return nil
+		}
+		return settingsShellView(cx, ed, rev)
+	})
 }
 
 // EditorSettingsDialogView renders the per-user Editor Settings view when mounted standalone.
-// EditorView mounts SettingsView instead, which hosts the General page alongside the Project pages.
+// EditorView mounts SettingsView instead, which hosts the General and Shortcuts pages alongside the Project pages.
 func EditorSettingsDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return SettingsView(cx, ed, rev)
 }
 
 func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
+	accentTint := ui.Alpha(p.Accent.Fg, 0.14)
+	accentEdge := ui.Alpha(p.Accent.Fg, 0.45)
+	activeNav := ui.Alpha(p.Accent.Fg, 0.16)
+	focusRing := p.FocusRing(2)
+
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.shortcutCaptureActive {
 			return
@@ -64,6 +70,19 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	shortcutsQuery := core.NewSignal(cx, "")
 	shortcutsCapturing := core.NewSignal(cx, "")
 	shortcutsConflict := core.NewSignal[*shortcutConflictState](cx, nil)
+
+	// Clear transient shortcut capture/conflict state when closing Settings, leaving Shortcuts, or entering Play mode.
+	cx.Effect(func() {
+		_ = rev.Get()
+		if !ed.SettingsOpen() || ed.SettingsPage() != SettingsPageShortcuts || ed.Playing() {
+			if shortcutsCapturing.Get() != "" {
+				shortcutsCapturing.Set("")
+			}
+			if shortcutsConflict.Get() != nil {
+				shortcutsConflict.Set(nil)
+			}
+		}
+	})
 
 	activePage := core.NewMemo(cx, func() SettingsPage {
 		_ = rev.Get()
@@ -83,9 +102,9 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			TestID: "settings-nav-row-" + string(page),
 			StyleFunc: func() core.Style {
 				active := activePage.Get() == page
-				bg := specPanel
+				bg := p.Panel
 				if active {
-					bg = specSettingsActiveNav
+					bg = activeNav
 				}
 				return core.Style{
 					Direction:    core.Row,
@@ -125,14 +144,14 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 					Color: func() core.Color {
 						if activePage.Get() == page {
-							return specSettingsActiveNav
+							return activeNav
 						}
-						return specPanel
+						return p.Panel
 					},
 					TextStyle: core.Style{
 						FontSize:   12.5,
 						FontWeight: 500,
-						Color:      specText,
+						Color:      p.TextSecondary,
 						FlexGrow:   1,
 						TextAlign:  core.TextAlignLeft,
 					},
@@ -140,7 +159,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Height:       core.Pt(32),
 						CornerRadius: 8,
 						Padding:      core.Symmetric(0, 8),
-						FocusVisible: specFocusRingStyle,
+						FocusVisible: focusRing,
 					},
 					OnPress: func() {
 						ed.OpenSettingsPage(page)
@@ -163,9 +182,9 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							StyleFunc: func() core.Style {
 								_, warn := metaFunc()
-								c := specTextMuted
+								c := p.TextFaint
 								if warn {
-									c = specChanged
+									c = p.Changed.Fg
 								}
 								return core.Style{
 									FontSize:   11,
@@ -192,9 +211,9 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		Style: core.Style{
 			Width:       core.Pt(248),
 			FlexShrink:  0,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Padding:     core.Symmetric(16, 12),
 			Gap:         4,
 			Overflow:    core.Hidden,
@@ -214,7 +233,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							Width:        core.Pt(20),
 							Height:       core.Pt(20),
 							CornerRadius: 6,
-							Background:   specAccent,
+							Background:   p.Accent.Fg,
 							FlexShrink:   0,
 						},
 					},
@@ -226,7 +245,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Style: core.Style{
 							FontSize:   13,
 							FontWeight: 600,
-							Color:      specTextStrong,
+							Color:      p.TextPrimary,
 						},
 					},
 					core.Show{
@@ -243,7 +262,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								},
 								Style: core.Style{
 									FontSize:   12,
-									Color:      specTextMuted,
+									Color:      p.TextFaint,
 									FlexShrink: 1,
 								},
 							}
@@ -261,11 +280,15 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						TestID: "settings-nav-group-project",
 						Style:  core.Style{Gap: 4},
 						Children: []core.Node{
-							settingsSectionLabel("PROJECT · game.yaml"),
+							settingsSectionLabelDynamic(p, func() string {
+								_ = langMemo.Get()
+								return ed.T("settings.sectionProject")
+							}),
 							navRow(SettingsPageProject, "settings.page.project", "Project", func() (string, bool) {
 								_ = rev.Get()
+								_ = langMemo.Get()
 								if ed.ProjectDirty() {
-									return "Unsaved", true
+									return ed.T("settings.metaUnsaved"), true
 								}
 								return "", false
 							}, noProject),
@@ -285,11 +308,12 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							}, noProject),
 							navRow(SettingsPageExport, "settings.page.export", "Export", func() (string, bool) {
 								_ = rev.Get()
+								_ = langMemo.Get()
 								if warn := ed.ExportNavWarningMeta(); warn != "" {
 									return warn, true
 								}
 								if n := len(ed.ExportPresets()); n > 0 {
-									return "Ready", false
+									return ed.T("settings.metaReady"), false
 								}
 								return "", false
 							}, noProject),
@@ -302,15 +326,18 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				TestID: "settings-nav-group-editor",
 				Style:  core.Style{Gap: 4, Padding: core.Edges{Top: 12}},
 				Children: []core.Node{
-					settingsSectionLabel("EDITOR · THIS COMPUTER"),
+					settingsSectionLabelDynamic(p, func() string {
+						_ = langMemo.Get()
+						return ed.T("settings.sectionEditor")
+					}),
 					navRow(SettingsPageGeneral, "settings.page.general", "General", nil, nil),
 					core.View{
 						TestID: "settings-nav-row-shortcuts",
 						StyleFunc: func() core.Style {
 							active := activePage.Get() == SettingsPageShortcuts
-							bg := specPanel
+							bg := p.Panel
 							if active {
-								bg = specSettingsActiveNav
+								bg = activeNav
 							}
 							return core.Style{
 								Direction:    core.Row,
@@ -336,17 +363,24 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									}
 									return label
 								},
+								Color: func() core.Color {
+									if activePage.Get() == SettingsPageShortcuts {
+										return activeNav
+									}
+									return p.Panel
+								},
 								TextStyle: core.Style{
 									FontSize:   12.5,
 									FontWeight: 500,
-									Color:      specText,
+									Color:      p.TextSecondary,
+									FlexGrow:   1,
+									TextAlign:  core.TextAlignLeft,
 								},
 								Style: core.Style{
-									Height:         core.Pt(32),
-									CornerRadius:   8,
-									Padding:        core.Symmetric(0, 10),
-									JustifyContent: core.JustifyStart,
-									FocusVisible:   specFocusRingStyle,
+									Height:       core.Pt(32),
+									CornerRadius: 8,
+									Padding:      core.Symmetric(0, 8),
+									FocusVisible: focusRing,
 								},
 								OnPress: func() {
 									ed.OpenSettingsPage(SettingsPageShortcuts)
@@ -365,19 +399,19 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					_ = langMemo.Get()
 					return ed.T("settings.done")
 				},
-				Color: func() core.Color { return specRaised },
+				Color: func() core.Color { return p.Raised },
 				TextStyle: core.Style{
 					FontSize:   12.5,
 					FontWeight: 500,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 				Style: core.Style{
 					Width:        core.Pct(100),
 					Height:       core.Pt(32),
 					CornerRadius: 8,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: focusRing,
 				},
 				OnPress: func() {
 					ed.CloseSettings()
@@ -386,20 +420,20 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 	}
 
-	pageMeta := func(p SettingsPage) (title, subtitle, scope string, isProject bool) {
-		switch p {
+	pageMeta := func(page SettingsPage) (title, subtitle, scope string, isProject bool) {
+		switch page {
 		case SettingsPageProject:
-			return ed.T("settings.page.project"), ed.T("settings.page.projectSubtitle"), "Project · game.yaml", true
+			return ed.T("settings.page.project"), ed.T("settings.page.projectSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPageInput:
-			return ed.T("settings.page.input"), ed.T("settings.page.inputSubtitle"), "Project · game.yaml", true
+			return ed.T("settings.page.input"), ed.T("settings.page.inputSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPageAudio:
-			return ed.T("settings.page.audio"), ed.T("settings.page.audioSubtitle"), "Project · game.yaml", true
+			return ed.T("settings.page.audio"), ed.T("settings.page.audioSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPageExport:
-			return ed.T("settings.page.export"), ed.T("settings.page.exportSubtitle"), "Project · game.yaml", true
+			return ed.T("settings.page.export"), ed.T("settings.page.exportSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPageShortcuts:
-			return ed.T("settings.shortcuts"), ed.T("settings.shortcutsHeaderHint"), "This computer", false
+			return ed.T("settings.shortcuts"), ed.T("settings.shortcutsHelp"), ed.T("settings.scopeComputer"), false
 		default:
-			return ed.T("settings.page.general"), ed.T("settings.page.generalSubtitle"), "This computer", false
+			return ed.T("settings.page.general"), ed.T("settings.page.generalSubtitle"), ed.T("settings.scopeComputer"), false
 		}
 	}
 
@@ -412,8 +446,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			Padding:     core.Symmetric(12, 24),
 			Gap:         12,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
-			Background:  specBg,
+			BorderColor: p.Line,
+			Background:  p.Bg,
 		},
 		Children: []core.Node{
 			core.View{
@@ -421,8 +455,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				Children: []core.Node{
 					ui.Input{
 						TestID:      "settings-search",
-						Label:       "Search settings",
-						Placeholder: "Search settings — project, input, audio, export, language…",
+						Label:       ed.T("settings.searchLabel"),
+						Placeholder: ed.T("settings.searchPlaceholder"),
 						Value:       searchQuery.Get,
 						OnChange:    searchQuery.Set,
 						OnSubmit: func(q string) {
@@ -438,7 +472,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return strings.TrimSpace(searchQuery.Get()) != ""
 				},
 				Then: func(cx *core.Scope) core.Node {
-					return settingsSpecButton("settings-search-clear", "Clear", "Clear settings search", false, nil, func() {
+					return settingsSpecButton(p, "settings-search-clear", ed.T("settings.searchClear"), ed.T("settings.searchClear"), false, nil, func() {
 						searchQuery.Set("")
 					})
 				},
@@ -469,7 +503,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Style: core.Style{
 							FontSize:   18,
 							FontWeight: 600,
-							Color:      specTextStrong,
+							Color:      p.TextPrimary,
 						},
 					},
 					core.Text{
@@ -481,7 +515,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						},
 						Style: core.Style{
 							FontSize: 12.5,
-							Color:    specTextMuted,
+							Color:    p.TextFaint,
 						},
 					},
 				},
@@ -490,11 +524,11 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				TestID: "settings-page-scope",
 				StyleFunc: func() core.Style {
 					_, _, _, isProj := pageMeta(activePage.Get())
-					bg := specRaised
-					border := specLineRaised
+					bg := p.Raised
+					border := p.LineRaised
 					if isProj {
-						bg = specSettingsAccentTint
-						border = specSettingsAccentEdge
+						bg = accentTint
+						border = accentEdge
 					}
 					return core.Style{
 						Height:         core.Pt(24),
@@ -517,9 +551,9 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						},
 						StyleFunc: func() core.Style {
 							_, _, _, isProj := pageMeta(activePage.Get())
-							fg := specTextMuted
+							fg := p.TextFaint
 							if isProj {
-								fg = specTextStrong
+								fg = p.TextPrimary
 							}
 							return core.Style{
 								FontSize:   11.5,
@@ -531,6 +565,41 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 			},
 		},
+	}
+
+	editorSettingsDoneFooter := func() core.Node {
+		return core.View{
+			Style: core.Style{
+				Direction:      core.Row,
+				JustifyContent: core.JustifyEnd,
+				Padding:        core.Edges{Top: 12},
+			},
+			Children: []core.Node{
+				ui.Button{
+					TestID:  "editor-settings-close",
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					TextFunc: func() string {
+						_ = langMemo.Get()
+						return ed.T("settings.done")
+					},
+					Color: func() core.Color { return p.Accent.Fg },
+					TextStyle: core.Style{
+						FontSize:   12.5,
+						FontWeight: 600,
+						Color:      p.Accent.OnFill,
+					},
+					Style: core.Style{
+						Height:       core.Pt(32),
+						CornerRadius: 8,
+						FocusVisible: focusRing,
+					},
+					OnPress: func() {
+						ed.SetEditorSettingsOpen(false)
+					},
+				},
+			},
+		}
 	}
 
 	pageBody := core.View{
@@ -546,7 +615,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				page := activePage.Get()
 				projOpen := hasProject.Get()
 				if page.IsProjectPage() && !projOpen {
-					return settingsNoProjectView(ed)
+					return settingsNoProjectView(p, ed)
 				}
 				switch page {
 				case SettingsPageProject:
@@ -558,9 +627,16 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				case SettingsPageExport:
 					return exportPanel(cx, ed, rev)
 				case SettingsPageShortcuts:
-					return shortcutsSettingsPageView(cx, ed, rev, shortcutsQuery, shortcutsCapturing, shortcutsConflict)
+					return core.View{
+						TestID: "editor-settings-shortcuts-wrap",
+						Style:  core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Overflow: core.Hidden},
+						Children: []core.Node{
+							shortcutsSettingsPageView(cx, ed, rev, shortcutsQuery, shortcutsCapturing, shortcutsConflict),
+							editorSettingsDoneFooter(),
+						},
+					}
 				default:
-					return editorSettingsGeneralPage(cx, ed, rev)
+					return editorSettingsGeneralPage(cx, ed, rev, p, editorSettingsDoneFooter())
 				}
 			}),
 		},
@@ -577,7 +653,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			Bottom:     core.Pt(0),
 			Left:       core.Pt(0),
 			Direction:  core.Row,
-			Background: specBg,
+			Background: p.Bg,
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
@@ -586,7 +662,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				Style: core.Style{
 					FlexGrow:   1,
 					FlexBasis:  core.Pt(0),
-					Background: specBg,
+					Background: p.Bg,
 					Overflow:   core.Hidden,
 				},
 				Children: []core.Node{
@@ -604,28 +680,28 @@ func matchSettingsPageQuery(q string, hasProject bool) (SettingsPage, bool) {
 	if q == "" {
 		return "", false
 	}
+	if strings.Contains(q, "shortcut") || strings.Contains(q, "keymap") || strings.Contains(q, "hotkey") || strings.Contains(q, "rebind") || strings.Contains(q, "快捷键") {
+		return SettingsPageShortcuts, true
+	}
 	if hasProject {
 		switch {
-		case strings.Contains(q, "input") || strings.Contains(q, "key") || strings.Contains(q, "gamepad") || strings.Contains(q, "touch") || strings.Contains(q, "action"):
+		case strings.Contains(q, "input") || strings.Contains(q, "key") || strings.Contains(q, "gamepad") || strings.Contains(q, "touch") || strings.Contains(q, "action") || strings.Contains(q, "输入") || strings.Contains(q, "手柄"):
 			return SettingsPageInput, true
-		case strings.Contains(q, "audio") || strings.Contains(q, "bus") || strings.Contains(q, "mixer") || strings.Contains(q, "sound") || strings.Contains(q, "music"):
+		case strings.Contains(q, "audio") || strings.Contains(q, "bus") || strings.Contains(q, "mixer") || strings.Contains(q, "sound") || strings.Contains(q, "music") || strings.Contains(q, "音频") || strings.Contains(q, "总线") || strings.Contains(q, "混音"):
 			return SettingsPageAudio, true
-		case strings.Contains(q, "export") || strings.Contains(q, "build") || strings.Contains(q, "release") || strings.Contains(q, "ios") || strings.Contains(q, "macos") || strings.Contains(q, "web"):
+		case strings.Contains(q, "export") || strings.Contains(q, "build") || strings.Contains(q, "release") || strings.Contains(q, "ios") || strings.Contains(q, "macos") || strings.Contains(q, "web") || strings.Contains(q, "导出") || strings.Contains(q, "构建") || strings.Contains(q, "发布"):
 			return SettingsPageExport, true
-		case strings.Contains(q, "project") || strings.Contains(q, "name") || strings.Contains(q, "window") || strings.Contains(q, "scene") || strings.Contains(q, "plugin") || strings.Contains(q, "physics"):
+		case strings.Contains(q, "project") || strings.Contains(q, "name") || strings.Contains(q, "window") || strings.Contains(q, "scene") || strings.Contains(q, "plugin") || strings.Contains(q, "physics") || strings.Contains(q, "项目") || strings.Contains(q, "窗口") || strings.Contains(q, "场景") || strings.Contains(q, "物理") || strings.Contains(q, "插件"):
 			return SettingsPageProject, true
 		}
 	}
-	if strings.Contains(q, "shortcut") || strings.Contains(q, "hotkey") || strings.Contains(q, "rebind") {
-		return SettingsPageShortcuts, true
-	}
-	if strings.Contains(q, "lang") || strings.Contains(q, "appear") || strings.Contains(q, "dark") || strings.Contains(q, "light") || strings.Contains(q, "general") {
+	if strings.Contains(q, "lang") || strings.Contains(q, "appear") || strings.Contains(q, "dark") || strings.Contains(q, "light") || strings.Contains(q, "general") || strings.Contains(q, "语言") || strings.Contains(q, "外观") || strings.Contains(q, "深色") || strings.Contains(q, "浅色") || strings.Contains(q, "通用") {
 		return SettingsPageGeneral, true
 	}
 	return "", false
 }
 
-func settingsNoProjectView(ed *Editor) core.Node {
+func settingsNoProjectView(p SpecPalette, ed *Editor) core.Node {
 	return core.View{
 		TestID: "settings-no-project",
 		Style: core.Style{
@@ -637,21 +713,21 @@ func settingsNoProjectView(ed *Editor) core.Node {
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "No project open",
-				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+				Content: ed.T("settings.noProjectTitle"),
+				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
-				Content: "Open a game.yaml project to configure Project, Input map, Audio buses, and Export settings.",
-				Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+				Content: ed.T("settings.noProjectBody"),
+				Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 			},
-			settingsSpecButton("settings-go-general", "Open General Settings", "Switch to General editor settings", false, nil, func() {
+			settingsSpecButton(p, "settings-go-general", ed.T("settings.goGeneral"), ed.T("settings.goGeneral"), false, nil, func() {
 				ed.OpenSettingsPage(SettingsPageGeneral)
 			}),
 		},
 	}
 }
 
-func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, footer core.Node) core.Node {
 	langMemo := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return ed.ResolvedLanguage()
@@ -663,6 +739,7 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = langMemo.Get()
+				curPal := ed.SpecPalette(cx)
 
 				langToggle := func(testID, text string, lang Language) core.Node {
 					return ui.ToggleButton{
@@ -700,6 +777,8 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					Style: core.Style{Gap: 4},
 					Children: []core.Node{
 						settingsRow(
+							curPal,
+							ed,
 							"editor-settings-language",
 							ed.T("settings.language"),
 							ed.T("settings.languageHelp"),
@@ -716,6 +795,8 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							nil,
 						),
 						settingsRow(
+							curPal,
+							ed,
 							"editor-settings-appearance",
 							ed.T("settings.appearance"),
 							ed.T("settings.appearanceHelp"),
@@ -734,61 +815,37 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					},
 				}
 			}),
-			core.View{
-				Style: core.Style{
-					Direction:      core.Row,
-					JustifyContent: core.JustifyEnd,
-					Padding:        core.Edges{Top: 12},
-				},
-				Children: []core.Node{
-					ui.Button{
-						TestID:  "editor-settings-close",
-						Variant: ui.ButtonGhost,
-						Size:    ui.SizeSmall,
-						TextFunc: func() string {
-							_ = langMemo.Get()
-							return ed.T("settings.done")
-						},
-						Color: func() core.Color { return specAccent },
-						TextStyle: core.Style{
-							FontSize:   12.5,
-							FontWeight: 600,
-							Color:      specBg, // Spec.dc.html contrast table: #101216 on #3B7BFF (4.88:1 AA).
-						},
-						Style: core.Style{
-							Height:       core.Pt(32),
-							CornerRadius: 8,
-							FocusVisible: specFocusRingStyle,
-						},
-						OnPress: func() {
-							ed.SetEditorSettingsOpen(false)
-						},
-					},
-				},
-			},
+			footer,
 		},
 	}
 }
 
-func settingsSectionLabel(text string) core.Node {
+func settingsSectionLabelDynamic(p SpecPalette, textFunc func() string) core.Node {
 	return core.Text{
-		Content: text,
+		ContentFunc: textFunc,
 		Style: core.Style{
 			FontSize:      11,
 			FontWeight:    600,
 			LetterSpacing: 0.66,
-			Color:         specTextMuted,
+			Color:         p.TextFaint,
 			Padding:       core.Edges{Top: 4, Right: 8, Bottom: 4, Left: 8},
 		},
 	}
 }
 
-func settingsPolicyBadge(policy settingsAgentPolicy) core.Node {
+func settingsPolicyBadge(p SpecPalette, ed *Editor, policy settingsAgentPolicy) core.Node {
 	text := "You only"
-	color := specTextMuted
+	color := p.TextFaint
 	if policy == policyAgentMayChange {
 		text = "Agent may change"
-		color = specAgent
+		color = p.Agent.Fg
+	}
+	if ed != nil {
+		if policy == policyAgentMayChange {
+			text = ed.T("settings.policyAgent")
+		} else {
+			text = ed.T("settings.policyYouOnly")
+		}
 	}
 	return core.Text{
 		Content: text,
@@ -805,7 +862,7 @@ func settingsPolicyBadge(policy settingsAgentPolicy) core.Node {
 
 // settingsRow renders one Settings row in the docs/design/editor/Settings.dc.html layout:
 // label + help on the left, value control in the middle/right, "Agent may change" or "You only" policy column on the right, and optional inline error text underneath.
-func settingsRow(testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
+func settingsRow(p SpecPalette, ed *Editor, testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
 	children := []core.Node{
 		core.View{
 			Style: core.Style{
@@ -819,11 +876,11 @@ func settingsRow(testID, label, help string, control core.Node, policy settingsA
 					Children: []core.Node{
 						core.Text{
 							Content: label,
-							Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+							Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary},
 						},
 						core.Text{
 							Content: help,
-							Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 					},
 				},
@@ -831,7 +888,7 @@ func settingsRow(testID, label, help string, control core.Node, policy settingsA
 					Style:    core.Style{FlexShrink: 0},
 					Children: []core.Node{control},
 				},
-				settingsPolicyBadge(policy),
+				settingsPolicyBadge(p, ed, policy),
 			},
 		},
 	}
@@ -844,21 +901,21 @@ func settingsRow(testID, label, help string, control core.Node, policy settingsA
 			Padding:     core.Symmetric(12, 0),
 			Gap:         4,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: children,
 	}
 }
 
-// settingsSpecButton builds a real accessible ui.Button styled strictly with Spec.dc.html tokens and focus ring.
-func settingsSpecButton(testID, text, label string, primary bool, disabled func() bool, onPress func()) core.Node {
-	bg := specRaised
-	fg := specText
+// settingsSpecButton builds a real accessible ui.Button styled strictly with SpecPalette tokens and focus ring.
+func settingsSpecButton(p SpecPalette, testID, text, label string, primary bool, disabled func() bool, onPress func()) core.Node {
+	bg := p.Raised
+	fg := p.TextSecondary
 	var borderW core.Points = 1
-	borderColor := specLineRaised
+	borderColor := p.LineRaised
 	if primary {
-		bg = specAccent
-		fg = specBg // Spec.dc.html contrast table: #101216 on #3B7BFF (4.88:1 AA), never #FFFFFF on accent.
+		bg = p.Accent.Fg
+		fg = p.Accent.OnFill
 		borderW = 0
 		borderColor = 0
 	}
@@ -881,7 +938,7 @@ func settingsSpecButton(testID, text, label string, primary bool, disabled func(
 			BorderWidth:  borderW,
 			BorderColor:  borderColor,
 			FlexShrink:   0,
-			FocusVisible: specFocusRingStyle,
+			FocusVisible: p.FocusRing(2),
 		},
 		OnPress: onPress,
 	}

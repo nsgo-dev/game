@@ -600,6 +600,9 @@ func (e *Editor) OpenSettingsPage(page SettingsPage) {
 	if prevOpen && prevPage == SettingsPageInput && page != SettingsPageInput {
 		e.resetInputMapTransient()
 	}
+	if prevOpen && prevPage == SettingsPageAudio && page != SettingsPageAudio {
+		e.stopAudioAudition()
+	}
 	if page != SettingsPageShortcuts {
 		e.shortcutCaptureActive = false
 	}

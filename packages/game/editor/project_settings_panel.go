@@ -542,6 +542,7 @@ func ProjectSettingsPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 }
 
 func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	pal := ed.SpecPalette(cx)
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing() || ed.Project == nil
@@ -575,7 +576,7 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			Gap:         8,
 			Padding:     core.Edges{Bottom: 12},
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: pal.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -602,9 +603,9 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							Height:         core.Pt(24),
 							Padding:        core.Symmetric(0, 8),
 							CornerRadius:   6,
-							Background:     specWarningFill,
+							Background:     pal.Warning.Fill,
 							BorderWidth:    1,
-							BorderColor:    specWarningEdge,
+							BorderColor:    pal.Warning.Edge,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 						},
@@ -612,13 +613,13 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							core.Text{
 								TestID:  "project-settings-dirty",
 								Content: "Unsaved changes",
-								Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specWarning},
+								Style:   core.Style{FontSize: 11, FontWeight: 600, Color: pal.Warning.Fg},
 							},
 						},
 					}
 				},
 			},
-			settingsSpecButton("project-settings-close", "Close", "Close Project Settings", false, nil, func() {
+			settingsSpecButton(pal, "project-settings-close", "Close", "Close Project Settings", false, nil, func() {
 				ed.SetProjectSettingsOpen(false)
 			}),
 		},
@@ -636,14 +637,14 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				Style: core.Style{
 					Padding:      core.Symmetric(8, 12),
 					CornerRadius: 8,
-					Background:   specWarningFill,
+					Background:   pal.Warning.Fill,
 					Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 2},
-					BorderColor:  specWarningEdge,
+					BorderColor:  pal.Warning.Edge,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "Saving writes game.yaml in canonical YAML form, which does not preserve comments.",
-						Style:   core.Style{FontSize: 11.5, Color: specWarning},
+						Style:   core.Style{FontSize: 11.5, Color: pal.Warning.Fg},
 					},
 				},
 			}
@@ -699,34 +700,36 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 }
 
-func psSectionHeading(title string) core.Node {
+func psSectionHeading(pal SpecPalette, title string) core.Node {
 	return core.Text{
 		Content: title,
 		Style: core.Style{
 			FontSize:      11,
 			FontWeight:    600,
 			LetterSpacing: 0.66,
-			Color:         specTextMuted,
+			Color:         pal.TextFaint,
 			Padding:       core.Edges{Top: 8, Bottom: 4},
 		},
 	}
 }
 
-func psErrorText(testID string, errMsg *core.Signal[string]) core.Node {
+func psErrorText(pal SpecPalette, testID string, errMsg *core.Signal[string]) core.Node {
 	return core.Show{
 		When: func() bool { return errMsg.Get() != "" },
 		Then: func(cx *core.Scope) core.Node {
 			return core.Text{
 				TestID:      testID,
 				ContentFunc: errMsg.Get,
-				Style:       core.Style{FontSize: 11.5, Color: specProblem},
+				Style:       core.Style{FontSize: 11.5, Color: pal.Problem().Fg},
 			}
 		},
 	}
 }
 
-func psFieldLayout(caption, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
+func psFieldLayout(pal SpecPalette, ed *Editor, caption, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
 	return settingsRow(
+		pal,
+		ed,
 		"",
 		caption,
 		help,
@@ -800,7 +803,8 @@ func psTextField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID, c
 		},
 	}
 
-	return psFieldLayout(caption, help, input, policy, psErrorText(testID+"-error", errMsg))
+	pal := ed.SpecPalette(cx)
+	return psFieldLayout(pal, ed, caption, help, input, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
 func psNumberField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID, caption, help, label string, step float64, policy settingsAgentPolicy, disabled func() bool, read func() float64, apply func(float64) error) core.Node {
@@ -835,7 +839,8 @@ func psNumberField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		},
 	}
 
-	return psFieldLayout(caption, help, num, policy, psErrorText(testID+"-error", errMsg))
+	pal := ed.SpecPalette(cx)
+	return psFieldLayout(pal, ed, caption, help, num, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
 func psSwitchField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID, caption, help, label string, policy settingsAgentPolicy, disabled func() bool, read func() bool, apply func(bool) error) core.Node {
@@ -869,7 +874,8 @@ func psSwitchField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		},
 	}
 
-	return settingsRow("", caption, help, sw, policy, psErrorText(testID+"-error", errMsg))
+	pal := ed.SpecPalette(cx)
+	return settingsRow(pal, ed, "", caption, help, sw, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
 func psSelectField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID, caption, help, label string, options []ui.Option[string], optionsFunc func() []ui.Option[string], policy settingsAgentPolicy, disabled func() bool, read func() string, apply func(string) error) core.Node {
@@ -905,10 +911,12 @@ func psSelectField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		},
 	}
 
-	return psFieldLayout(caption, help, sel, policy, psErrorText(testID+"-error", errMsg))
+	pal := ed.SpecPalette(cx)
+	return psFieldLayout(pal, ed, caption, help, sel, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
 func psGeneralSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	winErr := core.NewSignal(cx, "")
 	mainErr := core.NewSignal(cx, "")
 	winSync := core.NewMemo(cx, func() string {
@@ -986,7 +994,7 @@ func psGeneralSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 			},
 			core.Text{
 				Content: "×",
-				Style:   core.Style{FontSize: 12, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12, Color: pal.TextFaint},
 			},
 			core.View{
 				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
@@ -1075,20 +1083,24 @@ func psGeneralSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				ed.SetProjectID,
 			),
 			settingsRow(
+				pal,
+				ed,
 				"project-settings-overview-window",
 				"Window",
 				"Logical size, scaled by whole pixels",
 				windowControl,
 				policyAgentMayChange,
-				psErrorText("project-settings-overview-window-error", winErr),
+				psErrorText(pal, "project-settings-overview-window-error", winErr),
 			),
 			settingsRow(
+				pal,
+				ed,
 				"project-settings-overview-main-scene-row",
 				"Main scene",
 				"Opened when the game starts",
 				mainSceneControl,
 				policyAgentMayChange,
-				psErrorText("project-settings-overview-main-scene-error", mainErr),
+				psErrorText(pal, "project-settings-overview-main-scene-error", mainErr),
 			),
 			psTextField(cx, ed, rev,
 				"project-settings-app-version", "App version", "Release version synced to game.yaml and nsgo.yaml", "App Version", "0.1.0", policyAgentMayChange, disabled,
@@ -1105,6 +1117,7 @@ func psGeneralSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 }
 
 func psWindowSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	appearanceOpts := []ui.Option[string]{
 		{Value: "", Label: "System (default)"},
 		{Value: "light", Label: "Light"},
@@ -1115,7 +1128,7 @@ func psWindowSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disab
 		TestID: "project-settings-section-window",
 		Style:  core.Style{Gap: 0},
 		Children: []core.Node{
-			psSectionHeading("WINDOW"),
+			psSectionHeading(pal, "WINDOW"),
 			psTextField(cx, ed, rev,
 				"project-settings-window-title", "Title", "Window title bar text (defaults to project name)", "Window Title", "Defaults to project name", policyAgentMayChange, disabled,
 				func() string {
@@ -1245,6 +1258,7 @@ func psWindowSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disab
 }
 
 func psDisplaySection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	displayDisabled := func() bool {
 		_ = rev.Get()
 		return disabled() || ed.Project == nil || ed.Project.Display == nil
@@ -1261,7 +1275,7 @@ func psDisplaySection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 		TestID: "project-settings-section-display",
 		Style:  core.Style{Gap: 0},
 		Children: []core.Node{
-			psSectionHeading("DISPLAY"),
+			psSectionHeading(pal, "DISPLAY"),
 			psSwitchField(cx, ed, rev,
 				"project-settings-display-enabled", "Virtual display", "Render into a fixed logical resolution scaled to the window", "Enable Virtual Display", policyAgentMayChange, disabled,
 				func() bool {
@@ -1346,6 +1360,7 @@ func psDisplaySection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 }
 
 func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	refreshFiles := core.NewSignal(cx, 0)
 
 	filesKey := core.NewMemo(cx, func() string {
@@ -1424,9 +1439,9 @@ func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dis
 			ui.HStack{
 				Gap: 8,
 				Children: []core.Node{
-					psSectionHeading("AUTOLOAD"),
+					psSectionHeading(pal, "AUTOLOAD"),
 					core.View{Style: core.Style{FlexGrow: 1}},
-					settingsSpecButton("project-settings-refresh-files", "Refresh Files", "Refresh project files", false, nil, func() {
+					settingsSpecButton(pal, "project-settings-refresh-files", "Refresh Files", "Refresh project files", false, nil, func() {
 						refreshFiles.Set(refreshFiles.Get() + 1)
 					}),
 				},
@@ -1441,14 +1456,14 @@ func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dis
 				},
 				ed.SetProjectMainScene,
 			),
-			psSectionHeading("SCENES"),
+			psSectionHeading(pal, "SCENES"),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = scenesKey.Get()
 				if ed.Project == nil || ed.Project.Autoload == nil || len(ed.Project.Autoload.Scenes) == 0 {
 					return core.Text{
 						TestID:  "project-settings-scenes-empty",
 						Content: "No autoload scenes configured.",
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 					}
 				}
 				n := len(ed.Project.Autoload.Scenes)
@@ -1511,7 +1526,7 @@ func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dis
 									},
 								},
 							},
-							settingsSpecButton("project-settings-add-scene", "Add Scene", "Add autoload scene", false, disabled, func() {
+							settingsSpecButton(pal, "project-settings-add-scene", "Add Scene", "Add autoload scene", false, disabled, func() {
 								if err := ed.AddProjectAutoloadScene(newSceneName.Get(), newScenePath.Get()); err != nil {
 									addSceneErr.Set(err.Error())
 									ed.report(err)
@@ -1523,17 +1538,17 @@ func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dis
 							}),
 						},
 					},
-					psErrorText("project-settings-add-scene-error", addSceneErr),
+					psErrorText(pal, "project-settings-add-scene-error", addSceneErr),
 				},
 			},
-			psSectionHeading("RESOURCES"),
+			psSectionHeading(pal, "RESOURCES"),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = resourcesKey.Get()
 				if ed.Project == nil || ed.Project.Autoload == nil || len(ed.Project.Autoload.Resources) == 0 {
 					return core.Text{
 						TestID:  "project-settings-resources-empty",
 						Content: "No autoload resources configured.",
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 					}
 				}
 				n := len(ed.Project.Autoload.Resources)
@@ -1596,7 +1611,7 @@ func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dis
 									},
 								},
 							},
-							settingsSpecButton("project-settings-add-resource", "Add Resource", "Add autoload resource", false, disabled, func() {
+							settingsSpecButton(pal, "project-settings-add-resource", "Add Resource", "Add autoload resource", false, disabled, func() {
 								if err := ed.AddProjectAutoloadResource(newResName.Get(), newResPath.Get()); err != nil {
 									addResErr.Set(err.Error())
 									ed.report(err)
@@ -1608,7 +1623,7 @@ func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dis
 							}),
 						},
 					},
-					psErrorText("project-settings-add-resource-error", addResErr),
+					psErrorText(pal, "project-settings-add-resource-error", addResErr),
 				},
 			},
 		},
@@ -1741,7 +1756,7 @@ func psAutoloadEntryRow(
 							},
 						},
 					},
-					settingsSpecButton(prefix+"-remove", "Remove", fmt.Sprintf("Remove Autoload %s %d", kind, idx), false, disabled, func() {
+					settingsSpecButton(ed.SpecPalette(cx), prefix+"-remove", "Remove", fmt.Sprintf("Remove Autoload %s %d", kind, idx), false, disabled, func() {
 						if err := remove(idx); err != nil {
 							rowErr.Set(err.Error())
 							ed.report(err)
@@ -1751,12 +1766,13 @@ func psAutoloadEntryRow(
 					}),
 				},
 			},
-			psErrorText(prefix+"-error", rowErr),
+			psErrorText(ed.SpecPalette(cx), prefix+"-error", rowErr),
 		},
 	}
 }
 
 func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	registeredKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return ed.ProjectPath + "\x00" + strings.Join(ed.RegisteredPlugins(), "\x00")
@@ -1770,7 +1786,7 @@ func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 		TestID: "project-settings-section-plugins",
 		Style:  core.Style{Gap: 8},
 		Children: []core.Node{
-			psSectionHeading("REGISTERED PLUGINS"),
+			psSectionHeading(pal, "REGISTERED PLUGINS"),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = registeredKey.Get()
 				names := ed.RegisteredPlugins()
@@ -1778,7 +1794,7 @@ func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 					return core.Text{
 						TestID:  "project-settings-plugins-empty",
 						Content: "No editor plugins are registered in this binary.",
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 					}
 				}
 				rows := make([]core.Node, 0, len(names))
@@ -1794,7 +1810,7 @@ func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 					return nil
 				}
 				rows := make([]core.Node, 0, len(missing)+1)
-				rows = append(rows, psSectionHeading("MISSING PLUGINS"))
+				rows = append(rows, psSectionHeading(pal, "MISSING PLUGINS"))
 				for _, name := range missing {
 					rows = append(rows, psMissingPluginRow(cx, ed, name, disabled))
 				}
@@ -1809,6 +1825,7 @@ func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 }
 
 func psRegisteredPluginRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], name string, disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	errMsg := core.NewSignal(cx, "")
 	summary := pluginSummary(ed.plugin(name))
 
@@ -1822,6 +1839,8 @@ func psRegisteredPluginRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 	})
 
 	return settingsRow(
+		pal,
+		ed,
 		"project-settings-plugin-"+name,
 		name,
 		summary,
@@ -1844,11 +1863,12 @@ func psRegisteredPluginRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 			},
 		},
 		policyYouOnly,
-		psErrorText("project-settings-plugin-switch-"+name+"-error", errMsg),
+		psErrorText(pal, "project-settings-plugin-switch-"+name+"-error", errMsg),
 	)
 }
 
 func psMissingPluginRow(cx *core.Scope, ed *Editor, name string, disabled func() bool) core.Node {
+	pal := ed.SpecPalette(cx)
 	errMsg := core.NewSignal(cx, "")
 	return core.View{
 		TestID: "project-settings-missing-plugin-" + name,
@@ -1856,9 +1876,9 @@ func psMissingPluginRow(cx *core.Scope, ed *Editor, name string, disabled func()
 			Padding:      core.Symmetric(8, 12),
 			Gap:          4,
 			CornerRadius: 8,
-			Background:   specWarningFill,
+			Background:   pal.Warning.Fill,
 			Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 2},
-			BorderColor:  specWarningEdge,
+			BorderColor:  pal.Warning.Edge,
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -1869,15 +1889,15 @@ func psMissingPluginRow(cx *core.Scope, ed *Editor, name string, disabled func()
 						Children: []core.Node{
 							core.Text{
 								Content: name,
-								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: pal.TextPrimary},
 							},
 							core.Text{
 								Content: "Listed in game.yaml, not built into this editor binary",
-								Style:   core.Style{FontSize: 11.5, Color: specWarning},
+								Style:   core.Style{FontSize: 11.5, Color: pal.Warning.Fg},
 							},
 						},
 					},
-					settingsSpecButton("project-settings-missing-plugin-remove-"+name, "Remove", "Remove missing plugin "+name, false, disabled, func() {
+					settingsSpecButton(pal, "project-settings-missing-plugin-remove-"+name, "Remove", "Remove missing plugin "+name, false, disabled, func() {
 						if err := ed.SetPluginEnabled(name, false); err != nil {
 							errMsg.Set(err.Error())
 							ed.report(err)
@@ -1887,7 +1907,7 @@ func psMissingPluginRow(cx *core.Scope, ed *Editor, name string, disabled func()
 					}),
 				},
 			},
-			psErrorText("project-settings-missing-plugin-"+name+"-error", errMsg),
+			psErrorText(pal, "project-settings-missing-plugin-"+name+"-error", errMsg),
 		},
 	}
 }
