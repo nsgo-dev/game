@@ -235,7 +235,7 @@ skyPipe.WriteCamera(cam)
 skyPipe.Draw(pass, skyGroup)
 ```
 
-- **深度与平移无关**：`NewSkyboxUniform` 去除相机平移分量，使天空盒随观察者移动始终处于无限远。`SkyboxWGSL` 使用 `@builtin(vertex_index)` 绘制单个全屏三角形（不需要顶点缓冲），深度为 `1 - 2^-24`（小于 1 的最大 float32），配合 `CompareLessEqual` 与 `DepthWrite: false`：在不透明几何之后绘制时只着色未被覆盖的像素，且只会覆盖位于远平面最后一个 24 位深度级内的几何。之所以不输出恰好 `1.0`，是因为 NSGo 的软件光栅器会丢弃插值深度舍入后大于 1 的片元。
+- **深度与平移无关**：`NewSkyboxUniform` 去除相机平移分量，使天空盒随观察者移动始终处于无限远。`SkyboxWGSL` 使用 `@builtin(vertex_index)` 绘制单个全屏三角形（不需要顶点缓冲），深度为 `1.0`，即远平面，配合 `CompareLessEqual` 与 `DepthWrite: false`：在不透明几何之后绘制时只着色未被覆盖的像素，不会覆盖比远平面更近的任何几何。
 - **带环境光照的受光 PBR**：`LitPBRIBLWGSL` 是在 `LitPBRWGSL` 基础上加入 `evaluate_ibl`：在编码为 sRGB 之前，把球谐漫反射辐照度与预过滤镜面反射加到直接光照上。环境提供环境光项时，请把 `LightRig` 的环境光设为零。IBL 与雾都使用第 3 组（`IBLGroup` 与 `FogGroup`），这是所有后端都保证的四个绑定组中的最后一个，因此一条受光管线只能二选一。
 - **自定义着色器**：在着色器前拼接 `IBLWGSL`（第 3 组）或 `IBLWGSLForGroup(group)`，并调用 `evaluate_ibl(normal, view_dir, base_color, metallic, roughness, ao)`。漫反射项计算 9 个预卷积 L2 球谐系数（`evaluate_irradiance_sh`），镜面项按 `roughness * ibl.max_lod` 采样预过滤立方体贴图并乘以 Karis 解析拟合 `env_brdf_approx`（`EnvBRDFApprox`）。需要 2D 查找表的着色器可以用 `GenerateBRDFLUT` 或 `GenerateBRDFLUTWithSamples` 烘焙分离求和 GGX 表。
 - **缓冲、校验与内存**：`GPUIBLBuffer` 与 `GPULightBuffer`、`GPUFogBuffer` 一致：`Update(dev, u)` 写入新参数，`Bind` 绑定到 `IBLGroup`，`ByteSize` 报告其 uniform 缓冲供 `RenderStats` 统计，各立方体贴图则由 `GPUCubemap.ByteSize` 报告。`IBLUniform.Validate` 拒绝非有限的球谐系数，以及非有限或为负的强度与最大 LOD，返回 `ErrInvalidIBL`。

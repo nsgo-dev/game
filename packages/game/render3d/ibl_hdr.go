@@ -46,7 +46,7 @@ fn vs_skybox(@builtin(vertex_index) vid: u32) -> SkyboxVertexOut {
 	}
 	let world = skybox.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
 	var out: SkyboxVertexOut;
-	out.pos = vec4<f32>(ndc, 0.99999994, 1.0);
+	out.pos = vec4<f32>(ndc, 1.0, 1.0);
 	out.dir = world.xyz;
 	return out;
 }
