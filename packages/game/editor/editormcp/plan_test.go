@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -324,5 +325,57 @@ layers:
 	}
 	if !app.Exists("id:agent-turn-plan-review-0") {
 		t.Fatal("agent-turn-plan-review-0 did not render in Agent panel")
+	}
+}
+
+// Security & phase guards: plan_propose refuses You-only files and path traversal,
+// and plan_step_update refuses advancing or completing an unapproved draft plan.
+func TestPlanProposeYouOnlyAndDraftStepUpdateGuardsOverMCP(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// 1. Refuse You-only target in plan_propose.
+	res := call(t, cs, editormcp.ToolPlanPropose, map[string]any{
+		"title": "Loosen permissions",
+		"wait":  false,
+		"steps": []map[string]any{
+			{"title": "Edit permissions", "files": []string{"permissions.yaml"}},
+		},
+	})
+	if !res.IsError || !strings.Contains(text(res), "You only") {
+		t.Fatalf("plan_propose targeting permissions.yaml: isError=%v text=%q, want You only refusal", res.IsError, text(res))
+	}
+
+	// 2. Refuse path traversal in plan_propose.
+	res = call(t, cs, editormcp.ToolPlanPropose, map[string]any{
+		"title": "Escape project",
+		"wait":  false,
+		"steps": []map[string]any{
+			{"title": "Touch outside", "files": []string{"../secret.yaml"}},
+		},
+	})
+	if !res.IsError || !strings.Contains(text(res), "leaves the project") {
+		t.Fatalf("plan_propose targeting ../secret.yaml: isError=%v text=%q, want project root refusal", res.IsError, text(res))
+	}
+
+	// 3. Propose valid plan with wait=false -> plan_step_update must refuse while still in Draft.
+	res = call(t, cs, editormcp.ToolPlanPropose, map[string]any{
+		"title": "Valid room plan",
+		"wait":  false,
+		"steps": []map[string]any{
+			{"title": "Add hero prop", "files": []string{"scenes/room.scene.yaml"}},
+		},
+	})
+	mustOK(t, res)
+
+	res = call(t, cs, editormcp.ToolPlanStepUpdate, map[string]any{
+		"step":     1,
+		"status":   "done",
+		"complete": true,
+	})
+	if !res.IsError || !strings.Contains(text(res), "not been approved") {
+		t.Fatalf("plan_step_update while draft: isError=%v text=%q, want draft refusal", res.IsError, text(res))
 	}
 }

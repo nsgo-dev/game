@@ -26,6 +26,9 @@ func (e *Editor) SetProperty(objectID, key string, value any) error {
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	if key == "" {
 		return fmt.Errorf("editor: property key must not be empty")
 	}
@@ -71,6 +74,9 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
@@ -107,6 +113,9 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 		return ErrPlaying
 	}
 	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
 		return err
 	}
 	if componentName == "" || field == "" {

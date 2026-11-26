@@ -125,7 +125,7 @@ func planViewportLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	}
 	keyMemo := core.NewMemo(cx, func() legendKey {
 		_ = rev.Get()
-		if ed.Playing() || ed.ViewMode != ViewMode2D {
+		if ed.Playing() || ed.HistoryPreviewActive() || ed.ViewMode != ViewMode2D {
 			return legendKey{}
 		}
 		pl := ed.ActivePlan()
@@ -1717,6 +1717,13 @@ func planCardFooterView(ed *Editor, pl *AgentPlan, p SpecPalette, draft, running
 				l10n.Param("done", strconv.Itoa(pl.WrittenSteps)),
 				l10n.Param("total", strconv.Itoa(max(1, livePlanStepCount(pl)))))
 		}
+		canRun, _ := canApprovePlan(pl)
+		runBg := p.Accent.Fg
+		runFg := p.Accent.OnFill
+		if !canRun {
+			runBg = p.LineRaised
+			runFg = p.TextFaint
+		}
 		children = append(children,
 			core.View{
 				Style: core.Style{
@@ -1767,20 +1774,24 @@ func planCardFooterView(ed *Editor, pl *AgentPlan, p SpecPalette, draft, running
 						},
 					},
 					core.View{
-						TestID: "plan-run-again",
-						Role:   core.RoleButton,
-						Label:  ed.T("plan.action.runAgain"),
+						TestID:   "plan-run-again",
+						Role:     core.RoleButton,
+						Label:    ed.T("plan.action.runAgain"),
+						Disabled: func() bool { return !canRun },
 						Style: core.Style{
 							Height:         core.Pt(30),
 							Padding:        core.Symmetric(0, 12),
 							CornerRadius:   8,
-							Background:     p.Accent.Fg,
+							Background:     runBg,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 							FlexShrink:     0,
 							FocusVisible:   p.FocusRing(2),
 						},
 						OnPress: func(core.PressEvent) {
+							if !canRun {
+								return
+							}
 							if _, err := ed.RunStoppedPlanAgain(); err != nil {
 								ed.report(err)
 							}
@@ -1791,7 +1802,7 @@ func planCardFooterView(ed *Editor, pl *AgentPlan, p SpecPalette, draft, running
 								Style: core.Style{
 									FontSize:   12,
 									FontWeight: 600,
-									Color:      p.Accent.OnFill,
+									Color:      runFg,
 								},
 							},
 						},

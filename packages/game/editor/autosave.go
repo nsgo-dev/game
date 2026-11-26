@@ -231,6 +231,9 @@ func (e *Editor) HasOpenReview() bool {
 	if e.AgentReviewOpen() || e.PermissionsDraftOpen() || e.AgentTurnPending() || e.HasPendingAgentTurn() || e.HasUnkeptAgentTurnReview() || e.HasPendingAgentTurnReview() || e.CodeReviewOpen() {
 		return true
 	}
+	if e.IsPlanRunning() {
+		return true
+	}
 	if e.CutsceneReviewOpen() {
 		return true
 	}

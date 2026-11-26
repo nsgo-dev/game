@@ -1391,6 +1391,61 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							return agentThreadSwitcherPopover(cx, ed, rev)
 						},
 					},
+					// Bind ⌘↵ only while a draft plan is active so it never shadows CmdKeepAgentTurn
+					// or permission card / review mod+enter shortcuts under NSGo's newest-wins key dispatch.
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							pl := ed.ActivePlan()
+							return pl != nil && pl.Phase == PlanPhaseDraft && ed.PendingAgentPermissionAsk() == nil && !ed.MentionPickerOpen() && !ed.ContextBreakdownOpen()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
+								if ed.IsTyping() || cardRef.HoldsFocus() || ed.PendingAgentPermissionAsk() != nil ||
+									ed.AgentSwitcherOpen() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() ||
+									ed.AskInPlaceOpen() || ed.askInPlaceKeyBlocked() ||
+									ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.AgentReviewOpen() ||
+									ed.PendingTurnPromptOpen() || ed.SketchActive() || ed.SketchReading() != nil {
+									return
+								}
+								pl := ed.ActivePlan()
+								if pl == nil || pl.Phase != PlanPhaseDraft {
+									return
+								}
+								if ok, _ := ed.CanApprovePlan(); ok {
+									if _, err := ed.ApproveAgentPlan(); err != nil {
+										ed.report(err)
+									}
+								}
+							})
+							return core.View{Style: core.Style{Position: core.Absolute, Width: core.Pt(0), Height: core.Pt(0)}}
+						},
+					},
+					// Bind Esc only while a plan is running and no permission card / switcher / viewport pointing / composer popover
+					// is active so Esc stops a running plan ("Running step 1 of N · Esc stops") without shadowing Esc elsewhere.
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.IsPlanRunning() && ed.PendingAgentPermissionAsk() == nil && !ed.AgentSwitcherOpen() && !ed.AgentPointingActive() && !ed.MentionPickerOpen() && !ed.ContextBreakdownOpen()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
+								if cardRef.HoldsFocus() || ed.PendingAgentPermissionAsk() != nil ||
+									ed.AgentSwitcherOpen() || ed.AgentPointingActive() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() ||
+									ed.AskInPlaceOpen() || ed.askInPlaceKeyBlocked() || ed.ObjectContextMenuOpen() ||
+									ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.AgentReviewOpen() ||
+									ed.PendingTurnPromptOpen() || ed.SketchActive() {
+									return
+								}
+								if ed.IsPlanRunning() {
+									if _, err := ed.StopAgentPlan(); err != nil {
+										ed.report(err)
+									}
+								}
+							})
+							return core.View{Style: core.Style{Position: core.Absolute, Width: core.Pt(0), Height: core.Pt(0)}}
+						},
+					},
 				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {

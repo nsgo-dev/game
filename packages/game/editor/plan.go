@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +13,22 @@ import (
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
+)
+
+const (
+	maxPlanSteps              = 64
+	maxPlanQuestions          = 16
+	maxPlanOptionsPerQuestion = 12
+	maxPlanFieldsPerStep      = 16
+	maxPlanGhostsPerStep      = 64
+	maxResolvedPlanGhosts     = 256
+	maxPlanNodesPerStep       = 64
+	maxPlanFiles              = 128
+	maxPlanRepeatCount        = 64
+	maxPlanGhostOverrides     = 64
+	maxPlanPreviewSegments    = 32
+	maxPlanTextLen            = 4096
+	maxPlanNoteLen            = 2048
 )
 
 // PlanPhase is the lifecycle state of an agent-proposed plan.
@@ -521,7 +538,34 @@ func (e *Editor) IsObjectPausedByPlan(id string) bool {
 			}
 		}
 	}
+	for _, q := range p.Questions {
+		opt, ok := q.SelectedOption()
+		if !ok {
+			opt, ok = q.SuggestedOption()
+		}
+		if !ok {
+			continue
+		}
+		for _, ov := range opt.GhostOverrides {
+			st := findPlanStepPtr(p, ov.Step)
+			if st == nil || st.Removed {
+				continue
+			}
+			for _, g := range ov.ReplaceWith {
+				if g.ObjectID == id {
+					return true
+				}
+			}
+		}
+	}
 	return false
+}
+
+func (e *Editor) checkObjectNotPausedByPlan(id string) error {
+	if e.IsObjectPausedByPlan(id) {
+		return fmt.Errorf("editor: manual edits to %q are paused while the agent runs its plan", id)
+	}
+	return nil
 }
 
 // PlanNeededForEdit evaluates files and actions against the project's active permissions.yaml rules
@@ -655,7 +699,8 @@ func (e *Editor) ProposeAgentPlan(proposal AgentPlan) (*AgentPlan, <-chan AgentP
 	if e == nil {
 		return nil, nil, errors.New("editor: nil editor")
 	}
-	if err := normalizeAndValidatePlan(&proposal, e); err != nil {
+	staged := proposal.Clone()
+	if err := normalizeAndValidatePlan(staged, e); err != nil {
 		return nil, nil, err
 	}
 
@@ -664,20 +709,20 @@ func (e *Editor) ProposeAgentPlan(proposal AgentPlan) (*AgentPlan, <-chan AgentP
 	prev := e.plan.active
 	prevWaiters := e.plan.waiters
 	e.plan.planSeq++
-	if proposal.ID == "" {
-		proposal.ID = fmt.Sprintf("plan-%d", e.plan.planSeq)
+	if staged.ID == "" {
+		staged.ID = fmt.Sprintf("plan-%d", e.plan.planSeq)
 	}
-	proposal.Phase = PlanPhaseDraft
-	proposal.GhostsVisible = true
-	proposal.NothingWritten = true
-	proposal.WrittenSteps = 0
-	proposal.ActiveStep = 0
-	proposal.EditingStep = 0
-	proposal.ReopenedQuestion = ""
-	proposal.PickedForYou = false
+	staged.Phase = PlanPhaseDraft
+	staged.GhostsVisible = true
+	staged.NothingWritten = true
+	staged.WrittenSteps = 0
+	staged.ActiveStep = 0
+	staged.EditingStep = 0
+	staged.ReopenedQuestion = ""
+	staged.PickedForYou = false
 
 	ch := make(chan AgentPlanDecision, 1)
-	stored := proposal.Clone()
+	stored := staged.Clone()
 	e.plan.active = stored
 	e.plan.waiters = []chan AgentPlanDecision{ch}
 	e.plan.decided = false
@@ -748,13 +793,79 @@ func (e *Editor) ProposeAgentPlan(proposal AgentPlan) (*AgentPlan, <-chan AgentP
 	return stored.Clone(), ch, nil
 }
 
+func cleanPlanFilePath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", errors.New("editor: plan file path cannot be empty")
+	}
+	if len(trimmed) > maxPlanTextLen || strings.ContainsRune(trimmed, 0) {
+		return "", fmt.Errorf("editor: invalid plan file path %q", raw)
+	}
+	slashed := strings.ReplaceAll(trimmed, `\`, "/")
+	if path.IsAbs(slashed) || filepath.IsAbs(trimmed) || filepath.VolumeName(trimmed) != "" {
+		return "", fmt.Errorf("editor: plan file path %q must be relative to the project root", raw)
+	}
+	clean := path.Clean(slashed)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("editor: plan file path %q leaves the project root", raw)
+	}
+	if clean == ".git" || strings.HasPrefix(clean, ".git/") {
+		return "", fmt.Errorf("editor: plan file path %q cannot target .git metadata", raw)
+	}
+	return clean, nil
+}
+
+func validPlanStepStatus(s PlanStepStatus) bool {
+	switch s {
+	case PlanStepPending, PlanStepRunning, PlanStepDone, PlanStepFailed, PlanStepSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+func validatePlanGhost(g *PlanGhost, stepNum int) error {
+	if !isFiniteFloat32(g.X) || !isFiniteFloat32(g.Y) || !isFiniteFloat32(g.Width) || !isFiniteFloat32(g.Height) ||
+		!isFiniteFloat32(g.Radius) || !isFiniteFloat32(g.SpanWidth) || !isFiniteFloat32(g.StepX) || !isFiniteFloat32(g.StaggerY) {
+		return fmt.Errorf("editor: plan step %d ghost has non-finite geometry", stepNum)
+	}
+	if g.Width < 0 || g.Height < 0 || g.Radius < 0 {
+		return fmt.Errorf("editor: plan step %d ghost has negative size", stepNum)
+	}
+	if g.LabelX != nil && !isFiniteFloat32(*g.LabelX) {
+		return fmt.Errorf("editor: plan step %d ghost labelX must be finite", stepNum)
+	}
+	if g.LabelY != nil && !isFiniteFloat32(*g.LabelY) {
+		return fmt.Errorf("editor: plan step %d ghost labelY must be finite", stepNum)
+	}
+	if len(g.Label) > maxPlanTextLen || len(g.ActiveLabel) > maxPlanTextLen {
+		return fmt.Errorf("editor: plan step %d ghost label exceeds %d bytes", stepNum, maxPlanTextLen)
+	}
+	if g.Step <= 0 {
+		g.Step = stepNum
+	}
+	return nil
+}
+
 func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 	p.Title = strings.TrimSpace(p.Title)
 	if p.Title == "" {
 		return errors.New("editor: plan title is required")
 	}
+	if len(p.Title) > maxPlanTextLen || len(p.Prompt) > maxPlanTextLen || len(p.Summary) > maxPlanTextLen || len(p.Reason) > maxPlanTextLen {
+		return fmt.Errorf("editor: plan text field exceeds %d bytes", maxPlanTextLen)
+	}
 	if len(p.Steps) == 0 {
 		return errors.New("editor: plan must contain at least one step")
+	}
+	if len(p.Steps) > maxPlanSteps {
+		return fmt.Errorf("editor: plan has %d steps (max %d)", len(p.Steps), maxPlanSteps)
+	}
+	if len(p.Questions) > maxPlanQuestions {
+		return fmt.Errorf("editor: plan has %d questions (max %d)", len(p.Questions), maxPlanQuestions)
+	}
+	if len(p.Files) > maxPlanFiles {
+		return fmt.Errorf("editor: plan has %d files (max %d)", len(p.Files), maxPlanFiles)
 	}
 	seenQ := map[string]bool{}
 	for i := range p.Questions {
@@ -762,6 +873,9 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 		q.ID = strings.TrimSpace(q.ID)
 		if q.ID == "" {
 			q.ID = fmt.Sprintf("q%d", i+1)
+		}
+		if len(q.ID) > 128 {
+			return fmt.Errorf("editor: plan question id %q is too long", q.ID)
 		}
 		if seenQ[q.ID] {
 			return fmt.Errorf("editor: duplicate plan question id %q", q.ID)
@@ -771,8 +885,14 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 		if q.Prompt == "" {
 			return fmt.Errorf("editor: plan question %q is missing prompt", q.ID)
 		}
+		if len(q.Prompt) > maxPlanTextLen || len(q.Label) > maxPlanTextLen {
+			return fmt.Errorf("editor: plan question %q text exceeds %d bytes", q.ID, maxPlanTextLen)
+		}
 		if len(q.Options) == 0 {
 			return fmt.Errorf("editor: plan question %q must have at least one option", q.ID)
+		}
+		if len(q.Options) > maxPlanOptionsPerQuestion {
+			return fmt.Errorf("editor: plan question %q has %d options (max %d)", q.ID, len(q.Options), maxPlanOptionsPerQuestion)
 		}
 		seenOpt := map[string]bool{}
 		for j := range q.Options {
@@ -781,6 +901,9 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 			if opt.ID == "" {
 				opt.ID = fmt.Sprintf("opt%d", j+1)
 			}
+			if len(opt.ID) > 128 {
+				return fmt.Errorf("editor: plan question %q option id %q is too long", q.ID, opt.ID)
+			}
 			if seenOpt[opt.ID] {
 				return fmt.Errorf("editor: plan question %q has duplicate option id %q", q.ID, opt.ID)
 			}
@@ -788,6 +911,45 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 			opt.Label = strings.TrimSpace(opt.Label)
 			if opt.Label == "" {
 				return fmt.Errorf("editor: plan question %q option %q is missing label", q.ID, opt.ID)
+			}
+			if len(opt.Label) > maxPlanTextLen || len(opt.Note) > maxPlanTextLen {
+				return fmt.Errorf("editor: plan question %q option %q text exceeds %d bytes", q.ID, opt.ID, maxPlanTextLen)
+			}
+			if opt.Preview != nil {
+				if opt.Preview.Kind != "" && opt.Preview.Kind != "room" && opt.Preview.Kind != "strip" {
+					return fmt.Errorf("editor: plan question %q option %q has invalid preview kind %q", q.ID, opt.ID, opt.Preview.Kind)
+				}
+				if !isFiniteFloat32(opt.Preview.RoomSplitPercent) || !isFiniteFloat32(opt.Preview.GatePercent) || !isFiniteFloat32(opt.Preview.LeverPercent) {
+					return fmt.Errorf("editor: plan question %q option %q preview coordinates must be finite", q.ID, opt.ID)
+				}
+				if len(opt.Preview.Segments) > maxPlanPreviewSegments {
+					return fmt.Errorf("editor: plan question %q option %q has too many preview segments (max %d)", q.ID, opt.ID, maxPlanPreviewSegments)
+				}
+				for _, seg := range opt.Preview.Segments {
+					if !isFiniteFloat32(seg.From) || !isFiniteFloat32(seg.To) {
+						return fmt.Errorf("editor: plan question %q option %q preview segment must be finite", q.ID, opt.ID)
+					}
+				}
+			}
+			if len(opt.GhostOverrides) > maxPlanGhostOverrides {
+				return fmt.Errorf("editor: plan question %q option %q has too many ghost overrides (max %d)", q.ID, opt.ID, maxPlanGhostOverrides)
+			}
+			for oi := range opt.GhostOverrides {
+				ov := &opt.GhostOverrides[oi]
+				if (ov.X != nil && !isFiniteFloat32(*ov.X)) || (ov.Y != nil && !isFiniteFloat32(*ov.Y)) ||
+					(ov.Width != nil && (!isFiniteFloat32(*ov.Width) || *ov.Width < 0)) ||
+					(ov.Height != nil && (!isFiniteFloat32(*ov.Height) || *ov.Height < 0)) ||
+					(ov.LabelX != nil && !isFiniteFloat32(*ov.LabelX)) || (ov.LabelY != nil && !isFiniteFloat32(*ov.LabelY)) {
+					return fmt.Errorf("editor: plan question %q option %q ghost override has invalid geometry", q.ID, opt.ID)
+				}
+				if len(ov.ReplaceWith) > maxPlanGhostsPerStep {
+					return fmt.Errorf("editor: plan question %q option %q ghost override has too many replacement ghosts (max %d)", q.ID, opt.ID, maxPlanGhostsPerStep)
+				}
+				for ri := range ov.ReplaceWith {
+					if err := validatePlanGhost(&ov.ReplaceWith[ri], ov.Step); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		if q.SelectedID != "" && !seenOpt[q.SelectedID] {
@@ -812,8 +974,34 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 		if st.Title == "" {
 			return fmt.Errorf("editor: plan step %d is missing title", st.Number)
 		}
+		if len(st.Title) > maxPlanTextLen || len(st.Adds) > maxPlanTextLen || len(st.FilesLabel) > maxPlanTextLen || len(st.Note) > maxPlanNoteLen {
+			return fmt.Errorf("editor: plan step %d text exceeds limit", st.Number)
+		}
 		if st.Status == "" {
 			st.Status = PlanStepPending
+		} else if !validPlanStepStatus(st.Status) {
+			return fmt.Errorf("editor: plan step %d has invalid status %q", st.Number, st.Status)
+		}
+		if st.PermissionAction != "" && !st.PermissionAction.Valid() {
+			return fmt.Errorf("editor: plan step %d has invalid permissionAction %q", st.Number, st.PermissionAction)
+		}
+		if len(st.Files) > maxPlanFiles {
+			return fmt.Errorf("editor: plan step %d has %d files (max %d)", st.Number, len(st.Files), maxPlanFiles)
+		}
+		for fi := range st.Files {
+			clean, err := cleanPlanFilePath(st.Files[fi])
+			if err != nil {
+				return err
+			}
+			if e != nil {
+				if dom, ok := e.CheckYouOnlyTarget(clean); ok {
+					return fmt.Errorf("editor: plan step %d cannot target You-only %s file %q", st.Number, dom.DisplayName(), clean)
+				}
+			}
+			st.Files[fi] = clean
+		}
+		if len(st.Fields) > maxPlanFieldsPerStep {
+			return fmt.Errorf("editor: plan step %d has %d fields (max %d)", st.Number, len(st.Fields), maxPlanFieldsPerStep)
 		}
 		for j := range st.Fields {
 			f := &st.Fields[j]
@@ -840,12 +1028,21 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 				f.Hint = fmt.Sprintf("%d to %d", f.Min, f.Max)
 			}
 		}
+		if len(st.Ghosts) > maxPlanGhostsPerStep {
+			return fmt.Errorf("editor: plan step %d has %d ghosts (max %d)", st.Number, len(st.Ghosts), maxPlanGhostsPerStep)
+		}
 		for j := range st.Ghosts {
-			if st.Ghosts[j].Step <= 0 {
-				st.Ghosts[j].Step = st.Number
+			if err := validatePlanGhost(&st.Ghosts[j], st.Number); err != nil {
+				return err
 			}
 		}
+		if len(st.Nodes) > maxPlanNodesPerStep {
+			return fmt.Errorf("editor: plan step %d has %d nodes (max %d)", st.Number, len(st.Nodes), maxPlanNodesPerStep)
+		}
 		for j := range st.Nodes {
+			if len(st.Nodes[j].Name) > maxPlanTextLen {
+				return fmt.Errorf("editor: plan step %d node name exceeds %d bytes", st.Number, maxPlanTextLen)
+			}
 			if st.Nodes[j].Step <= 0 {
 				st.Nodes[j].Step = st.Number
 			}
@@ -870,23 +1067,41 @@ func normalizeAndValidatePlan(p *AgentPlan, e *Editor) error {
 
 	// Build complete file list from explicit Files plus any files referenced by steps.
 	seenFiles := map[string]bool{}
+	validFiles := make([]PlanFile, 0, len(p.Files))
 	for i := range p.Files {
-		p.Files[i].Path = strings.TrimSpace(p.Files[i].Path)
-		if p.Files[i].Tag == "" {
-			p.Files[i].Tag = PlanFileEdit
+		clean, err := cleanPlanFilePath(p.Files[i].Path)
+		if err != nil {
+			return err
 		}
-		if p.Files[i].Path != "" {
-			seenFiles[p.Files[i].Path] = true
+		if e != nil {
+			if dom, ok := e.CheckYouOnlyTarget(clean); ok {
+				return fmt.Errorf("editor: plan cannot target You-only %s file %q", dom.DisplayName(), clean)
+			}
 		}
+		tag := p.Files[i].Tag
+		if tag == "" {
+			tag = PlanFileEdit
+		}
+		if tag != PlanFileEdit && tag != PlanFileNew && tag != PlanFileDelete {
+			return fmt.Errorf("editor: plan file %q has invalid tag %q", clean, tag)
+		}
+		if seenFiles[clean] {
+			continue
+		}
+		seenFiles[clean] = true
+		validFiles = append(validFiles, PlanFile{Path: clean, Tag: tag})
 	}
+	p.Files = validFiles
 	for _, st := range p.Steps {
 		for _, f := range st.Files {
-			clean := strings.TrimSpace(f)
-			if clean == "" || seenFiles[clean] {
+			if seenFiles[f] {
 				continue
 			}
-			seenFiles[clean] = true
-			p.Files = append(p.Files, PlanFile{Path: clean, Tag: PlanFileEdit})
+			if len(p.Files) >= maxPlanFiles {
+				return fmt.Errorf("editor: plan touches more than %d files", maxPlanFiles)
+			}
+			seenFiles[f] = true
+			p.Files = append(p.Files, PlanFile{Path: f, Tag: PlanFileEdit})
 		}
 	}
 	return nil
@@ -1082,6 +1297,9 @@ func (e *Editor) SetPlanStepNote(stepNumber int, note string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
+	if len(note) > maxPlanNoteLen {
+		return fmt.Errorf("editor: plan step note exceeds %d bytes", maxPlanNoteLen)
+	}
 	e.plan.mu.Lock()
 	p := e.plan.active
 	if p == nil || p.Phase != PlanPhaseDraft {
@@ -1255,6 +1473,12 @@ func (e *Editor) ApproveAgentPlan() (AgentPlanDecision, error) {
 	if e == nil {
 		return AgentPlanDecision{}, errors.New("editor: nil editor")
 	}
+	if e.playing {
+		return AgentPlanDecision{}, ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		e.ExitHistoryPreview()
+	}
 	e.plan.mu.Lock()
 	p := e.plan.active
 	ok, reason := canApprovePlan(p)
@@ -1263,9 +1487,10 @@ func (e *Editor) ApproveAgentPlan() (AgentPlanDecision, error) {
 		return AgentPlanDecision{}, fmt.Errorf("editor: cannot approve plan: %s", reason)
 	}
 	dec, waiters := e.startPlanLocked(p, false)
+	cp := p.Clone()
 	e.plan.mu.Unlock()
 
-	e.onPlanStartedUI(p, dec, waiters)
+	e.onPlanStartedUI(cp, dec, waiters)
 	return dec, nil
 }
 
@@ -1274,6 +1499,12 @@ func (e *Editor) ApproveAgentPlan() (AgentPlanDecision, error) {
 func (e *Editor) JustDoItAgentPlan() (AgentPlanDecision, error) {
 	if e == nil {
 		return AgentPlanDecision{}, errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return AgentPlanDecision{}, ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		e.ExitHistoryPreview()
 	}
 	e.plan.mu.Lock()
 	p := e.plan.active
@@ -1295,9 +1526,10 @@ func (e *Editor) JustDoItAgentPlan() (AgentPlanDecision, error) {
 		}
 	}
 	dec, waiters := e.startPlanLocked(p, pickedAny)
+	cp := p.Clone()
 	e.plan.mu.Unlock()
 
-	e.onPlanStartedUI(p, dec, waiters)
+	e.onPlanStartedUI(cp, dec, waiters)
 	return dec, nil
 }
 
@@ -1441,6 +1673,9 @@ func (e *Editor) UpdateAgentPlanStep(stepNumber int, status PlanStepStatus) erro
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
+	if !validPlanStepStatus(status) {
+		return fmt.Errorf("editor: invalid plan step status %q", status)
+	}
 	e.plan.mu.Lock()
 	p := e.plan.active
 	if p == nil {
@@ -1451,20 +1686,37 @@ func (e *Editor) UpdateAgentPlanStep(stepNumber int, status PlanStepStatus) erro
 		e.plan.mu.Unlock()
 		return errors.New("editor: plan was stopped")
 	}
+	if p.Phase != PlanPhaseRunning {
+		e.plan.mu.Unlock()
+		return fmt.Errorf("editor: plan is not running (phase: %s)", p.Phase)
+	}
 	st := findPlanStepPtr(p, stepNumber)
 	if st == nil {
 		e.plan.mu.Unlock()
 		return fmt.Errorf("editor: unknown plan step %d", stepNumber)
 	}
-	st.Status = status
-	if status == PlanStepDone {
-		p.NothingWritten = false
-		p.WrittenSteps++
+	if st.Removed && status != PlanStepSkipped {
+		e.plan.mu.Unlock()
+		return fmt.Errorf("editor: plan step %d was removed and cannot be marked %s", stepNumber, status)
 	}
-	// Advance ActiveStep to the first non-removed running or pending step.
+	st.Status = status
+	// Recompute WrittenSteps accurately (idempotent across repeated updates).
+	doneSteps := 0
+	for i := range p.Steps {
+		if !p.Steps[i].Removed && p.Steps[i].Status == PlanStepDone {
+			doneSteps++
+		}
+	}
+	p.WrittenSteps = doneSteps
+	if doneSteps > 0 {
+		p.NothingWritten = false
+	}
+	// Advance ActiveStep, preferring an explicitly-started running step if one was just set.
 	nextActive := 0
-	liveIdx := 0
 	liveTotal := 0
+	if status == PlanStepRunning && !st.Removed {
+		nextActive = st.Number
+	}
 	for i := range p.Steps {
 		if p.Steps[i].Removed {
 			continue
@@ -1472,7 +1724,6 @@ func (e *Editor) UpdateAgentPlanStep(stepNumber int, status PlanStepStatus) erro
 		liveTotal++
 		if p.Steps[i].Status == PlanStepRunning && nextActive == 0 {
 			nextActive = p.Steps[i].Number
-			liveIdx = liveTotal
 		}
 	}
 	if nextActive == 0 {
@@ -1488,6 +1739,7 @@ func (e *Editor) UpdateAgentPlanStep(stepNumber int, status PlanStepStatus) erro
 		}
 	}
 	p.ActiveStep = nextActive
+	liveIdx := 0
 	if nextActive > 0 {
 		liveIdx = liveStepPosition(p, nextActive)
 	}
@@ -1518,16 +1770,28 @@ func (e *Editor) CompleteAgentPlan() error {
 		e.plan.mu.Unlock()
 		return errors.New("editor: no active plan")
 	}
+	if p.Phase != PlanPhaseRunning {
+		e.plan.mu.Unlock()
+		return fmt.Errorf("editor: cannot complete plan in phase %q", p.Phase)
+	}
 	p.Phase = PlanPhaseDone
 	p.ActiveStep = 0
+	doneSteps := 0
 	for i := range p.Steps {
 		if p.Steps[i].Removed {
 			p.Steps[i].Status = PlanStepSkipped
-		} else if p.Steps[i].Status == PlanStepRunning {
-			p.Steps[i].Status = PlanStepDone
-			p.NothingWritten = false
-			p.WrittenSteps++
+			continue
 		}
+		if p.Steps[i].Status == PlanStepRunning {
+			p.Steps[i].Status = PlanStepDone
+		}
+		if p.Steps[i].Status == PlanStepDone {
+			doneSteps++
+		}
+	}
+	p.WrittenSteps = doneSteps
+	if doneSteps > 0 {
+		p.NothingWritten = false
 	}
 	cp := p.Clone()
 	e.plan.active = nil
@@ -1550,6 +1814,10 @@ func (e *Editor) DismissAgentPlan() {
 	e.plan.mu.Lock()
 	p := e.plan.active
 	waiters := e.plan.waiters
+	var dec AgentPlanDecision
+	if p != nil && len(waiters) > 0 {
+		dec = buildPlanDecisionLocked(p, "stopped")
+	}
 	e.plan.active = nil
 	e.plan.waiters = nil
 	e.plan.seq++
@@ -1557,7 +1825,7 @@ func (e *Editor) DismissAgentPlan() {
 	e.plan.mu.Unlock()
 
 	if p != nil && len(waiters) > 0 {
-		deliverPlanDecision(waiters, buildPlanDecisionLocked(p, "stopped"))
+		deliverPlanDecision(waiters, dec)
 	}
 	e.agent.openRequest = nil
 	e.restoreIdleAgentStatus()
@@ -1580,15 +1848,25 @@ func (e *Editor) syncPlanToTurn(p *AgentPlan) {
 		now := e.nowTime()
 		e.agent.turnSeq++
 		id := fmt.Sprintf("turn-%d", e.agent.turnSeq)
+		prompt := strings.TrimSpace(p.Prompt)
+		if prompt == "" {
+			prompt = p.Title
+		}
 		e.agent.turns = append(e.agent.turns, AgentTurn{
 			ID:        id,
-			Prompt:    p.Prompt,
+			Prompt:    prompt,
 			Source:    "panel",
 			Status:    string(p.Phase),
+			Done:      p.Phase == PlanPhaseDone,
 			CreatedAt: now,
 			StartedAt: now,
 			Plan:      review,
 		})
+		e.plan.mu.Lock()
+		if e.plan.active != nil && e.plan.active.ID == p.ID && e.plan.active.TurnID == "" {
+			e.plan.active.TurnID = id
+		}
+		e.plan.mu.Unlock()
 		e.agent.turnChangeSeq++
 		return
 	}
@@ -1934,7 +2212,15 @@ func (e *Editor) PlanStatusBarLine() string {
 			objects += resolvedPlanStepObjects(st)
 		}
 	}
-	return fmt.Sprintf("Plan · %d steps · %d objects", live, objects)
+	stepWord := "steps"
+	if live == 1 {
+		stepWord = "step"
+	}
+	objWord := "objects"
+	if objects == 1 {
+		objWord = "object"
+	}
+	return fmt.Sprintf("Plan · %d %s · %d %s", live, stepWord, objects, objWord)
 }
 
 // PlanHeaderPillText returns the top header pill label for the active plan phase.
@@ -2059,6 +2345,20 @@ func (e *Editor) ResolvedPlanTreeNodes() []ResolvedPlanTreeNode {
 	return out
 }
 
+// PlannedNewTreeNodeCount returns how many non-existing planned nodes are scheduled in the active plan.
+func (e *Editor) PlannedNewTreeNodeCount() int {
+	if e == nil {
+		return 0
+	}
+	n := 0
+	for _, node := range e.ResolvedPlanTreeNodes() {
+		if !node.Existing {
+			n++
+		}
+	}
+	return n
+}
+
 // PlanStepBadgeForNode returns the 1-based plan step number badge for an existing Scene Tree layer or object, or 0 if none.
 func (e *Editor) PlanStepBadgeForNode(name string) int {
 	if e == nil || name == "" {
@@ -2164,7 +2464,10 @@ func resolvePlanGhostsLocked(p *AgentPlan) []ResolvedPlanGhost {
 						break
 					}
 				}
-				for idx := 0; idx < count; idx++ {
+				if count > maxPlanRepeatCount {
+					count = maxPlanRepeatCount
+				}
+				for idx := 0; idx < count && len(out) < maxResolvedPlanGhosts; idx++ {
 					gx := g.X
 					gy := g.Y
 					if g.SpanWidth > 0 && count > 0 {
@@ -2203,6 +2506,9 @@ func resolvePlanGhostsLocked(p *AgentPlan) []ResolvedPlanGhost {
 				continue
 			}
 
+			if len(out) >= maxResolvedPlanGhosts {
+				return out
+			}
 			rg := ResolvedPlanGhost{
 				ID:       g.ID,
 				Step:     st.Number,
@@ -2235,7 +2541,7 @@ func resolvePlanGhostsLocked(p *AgentPlan) []ResolvedPlanGhost {
 // drawPlanGhostsOverlay draws the active plan's agent-violet ghosts onto the 2D viewport canvas:
 // dashed outlines while planned/queued, solid outline on the actively running step, plus step-numbered pill labels.
 func (e *Editor) drawPlanGhostsOverlay(d *core.Drawing) {
-	if e == nil || d == nil || e.playing {
+	if e == nil || d == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	ghosts := e.ResolvedPlanGhosts()
@@ -2247,6 +2553,9 @@ func (e *Editor) drawPlanGhostsOverlay(d *core.Drawing) {
 
 	// Pass 1: draw ghost boxes.
 	for _, g := range ghosts {
+		if g.Width <= 0 || g.Height <= 0 {
+			continue
+		}
 		pts := worldRectCanvasCorners(e, g.X, g.Y, g.Width, g.Height)
 		if len(pts) != 4 {
 			continue
@@ -2287,11 +2596,18 @@ func (e *Editor) drawPlanGhostsOverlay(d *core.Drawing) {
 			continue
 		}
 		lx, ly := e.WorldToCanvas(g.LabelX, g.LabelY)
-		if math.IsNaN(float64(lx)) || math.IsNaN(float64(ly)) {
+		if math.IsNaN(float64(lx)) || math.IsNaN(float64(ly)) || math.IsInf(float64(lx), 0) || math.IsInf(float64(ly), 0) {
 			continue
 		}
 		stepStr := strconv.Itoa(g.Step)
-		textW := float32(len([]rune(g.Label))) * 6.4
+		var textW float32
+		for _, r := range g.Label {
+			if r > 0x7F {
+				textW += 11.2
+			} else {
+				textW += 6.4
+			}
+		}
 		const pillH float32 = 20
 		const badgeD float32 = 16
 		pillW := badgeD + textW + 14
@@ -2309,7 +2625,7 @@ func (e *Editor) drawPlanGhostsOverlay(d *core.Drawing) {
 		cy := ly + pillH*0.5
 		d.SetFillColor(spec.Agent.Fg)
 		d.BeginPath().Arc(cx, cy, badgeD*0.5, 0, float32(2*math.Pi), false).Fill()
-		d.SetFillColor(spec.Agent.OnFill).FillText(stepStr, cx-3.2, cy+3.5, badgeFont)
+		d.SetFillColor(spec.Agent.OnFill).FillText(stepStr, cx-float32(len(stepStr))*3.0, cy+3.5, badgeFont)
 
 		// Pill label text.
 		d.SetFillColor(spec.Agent.Fg).FillText(g.Label, lx+badgeD+7, ly+14, labelFont)

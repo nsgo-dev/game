@@ -1864,18 +1864,24 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							return ed.ActivePlan() != nil
 						},
 						Then: func(cx *core.Scope) core.Node {
-							spec := ed.SpecPalette(cx)
-							return core.Text{
-								TestID: "status-plan-summary",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return ed.PlanStatusBarLine()
-								},
-								Style: core.Style{
-									FontSize: 11,
-									Color:    spec.Agent.Fg,
-								},
-							}
+							darkMemo := core.NewMemo(cx, func() bool {
+								_ = rev.Get()
+								return ed.SpecPalette(cx).Dark
+							})
+							return core.Dynamic(func(cx *core.Scope) core.Node {
+								spec := SpecPaletteFor(darkMemo.Get())
+								return core.Text{
+									TestID: "status-plan-summary",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										return ed.PlanStatusBarLine()
+									},
+									Style: core.Style{
+										FontSize: 11,
+										Color:    spec.Agent.Fg,
+									},
+								}
+							})
 						},
 					},
 					core.Text{

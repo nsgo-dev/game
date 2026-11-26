@@ -240,6 +240,9 @@ func (e *Editor) ReparentObject(id, parentID string, index int) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkObjectNotPausedByPlan(id); err != nil {
+		return err
+	}
 	loc := locateObject(e.Doc, id)
 	if loc.obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)
@@ -258,6 +261,9 @@ func (e *Editor) ReparentObject(id, parentID string, index int) error {
 func (e *Editor) MoveObjectToLayer(id, layer string, index int) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkObjectNotPausedByPlan(id); err != nil {
+		return err
 	}
 	if e.layerIndex(layer) < 0 {
 		return fmt.Errorf("editor: layer %q not found", layer)
@@ -647,6 +653,9 @@ func (e *Editor) SetObjectID(oldID, newID string) error {
 	if err := e.checkAgentTouchLock(oldID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(oldID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(oldID)
 	if obj == nil {
 		return fmt.Errorf("editor: object %q not found", oldID)
@@ -841,8 +850,11 @@ func viewFlagged(flags map[string]bool, bo *sceneformat.BuiltObject) bool {
 	return false
 }
 
-// viewportFrozen reports whether the object id, or one of its ancestors, is hidden or locked in the editor, or its layer is locked (SetLayerLocked) or not drawn (SetLayerVisible), so the viewports neither pick nor manipulate it: no gizmo handle, no Move-tool drag. The scene tree and the inspector still edit it.
+// viewportFrozen reports whether the object id, or one of its ancestors, is hidden or locked in the editor, or its layer is locked (SetLayerLocked) or not drawn (SetLayerVisible), or manual edits to it are paused while an agent plan runs, so the viewports neither pick nor manipulate it: no gizmo handle, no Move-tool drag.
 func (e *Editor) viewportFrozen(id string) bool {
+	if e.IsObjectPausedByPlan(id) {
+		return true
+	}
 	if len(e.hidden) == 0 && len(e.locked) == 0 && len(e.layerLocked) == 0 && !e.anyLayerHidden() {
 		return false
 	}
