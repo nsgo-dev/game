@@ -965,6 +965,22 @@ func TestViewportOverlayLifecyclePlayHistoryAndFocus(t *testing.T) {
 		t.Fatal("legend did not restore after ExitHistoryPreview()")
 	}
 
+	// 3b. Active 2D Sketch mode hides the top-left legend so it never collides with the floating Sketch toolbar,
+	// and finishing Sketch mode restores the legend immediately.
+	app.Post(func() { ed.SetSketchActive(true) })
+	app.Settle()
+	if !app.Exists("id:viewport-sketch-toolbar") {
+		t.Fatal("expected viewport-sketch-toolbar while Sketch mode is active")
+	}
+	if app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("viewport-overlay-legend overlapped active viewport-sketch-toolbar")
+	}
+	app.Post(func() { ed.FinishSketch() })
+	app.Settle()
+	if !app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("viewport-overlay-legend did not restore after FinishSketch()")
+	}
+
 	// 4. Tab/scene lifecycle: new scene starts with clean SceneOverlays; switching back preserves tab 0;
 	// OpenDemo clears all scene overlays.
 	if _, err := ed.NewScene("scenes/second.scene.yaml"); err != nil {
