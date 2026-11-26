@@ -505,6 +505,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawTileReviewOverlay(d)
+	e.drawPendingReviewOverlay(d, scene)
 	e.drawTileHoverOverlay(d)
 	e.drawParticleEmitterOverlays(d, scene)
 	e.drawSelectionOverlay(d, scene)

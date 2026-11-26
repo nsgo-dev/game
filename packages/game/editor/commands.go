@@ -121,6 +121,12 @@ const (
 	CmdAddLightProbeGrid  = "scene.addLightProbeGrid"
 	CmdBakeProbes3D       = "project.bakeProbes3D"
 	CmdReplayTips         = "help.replayTips"
+	CmdReviewNext         = "review.next"
+	CmdReviewPrev         = "review.prev"
+	CmdReviewToggleRevert = "review.toggleRevert"
+	CmdReviewPeekBefore   = "review.peekBefore"
+	CmdReviewKeep         = "review.keep"
+	CmdReviewRevertAll    = "review.revertAll"
 )
 
 var (
@@ -302,16 +308,16 @@ func (e *Editor) initBuiltinCommands() {
 		return
 	}
 	notPlaying := func() bool {
-		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
 	}
 	canEdit := func() bool {
 		return notPlaying() && !e.HistoryPreviewActive()
 	}
 	inEditor := func() bool {
-		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
 	}
 	hasProject := func() bool {
-		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
 	}
 
 	e.commands = []EditorCommand{
@@ -1721,7 +1727,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"agent", "chat", "composer", "mcp", "inspector"},
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
 			},
 			Checked: func() bool { return e.AgentPanelOpen() },
 			Run: func() error {
@@ -1786,6 +1792,94 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeGlobal,
 			Run: func() error {
 				return e.ReplayTips()
+			},
+		},
+		{
+			ID:          CmdReviewNext,
+			Label:       "Review: Next Change",
+			Description: "Move to the next change in the open agent review and frame it",
+			Category:    "Review",
+			Keywords:    []string{"review", "next", "change", "agent"},
+			Scope:       ScopeReview,
+			Shortcut:    "j",
+			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Run: func() error {
+				e.StepReviewChange(+1)
+				return nil
+			},
+		},
+		{
+			ID:          CmdReviewPrev,
+			Label:       "Review: Previous Change",
+			Description: "Move to the previous change in the open agent review and frame it",
+			Category:    "Review",
+			Keywords:    []string{"review", "previous", "prev", "change", "agent"},
+			Scope:       ScopeReview,
+			Shortcut:    "k",
+			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Run: func() error {
+				e.StepReviewChange(-1)
+				return nil
+			},
+		},
+		{
+			ID:          CmdReviewToggleRevert,
+			Label:       "Review: Revert or Restore",
+			Description: "Revert or restore the focused change or file group in Review",
+			Category:    "Review",
+			Keywords:    []string{"review", "revert", "restore", "toggle", "agent"},
+			Scope:       ScopeReview,
+			Shortcut:    "x",
+			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Run: func() error {
+				e.ToggleFocusedReviewRevert()
+				return nil
+			},
+		},
+		{
+			ID:          CmdReviewPeekBefore,
+			Label:       "Review: Peek Before Request",
+			Description: "Hold B to peek at the scene as it was before the agent request",
+			Category:    "Review",
+			Keywords:    []string{"review", "before", "peek", "compare", "agent"},
+			Scope:       ScopeReview,
+			Shortcut:    "b",
+			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Run: func() error {
+				// Holding B is driven live by core.KeyHeld in ReviewScreenView; invoking the command directly toggles peek.
+				e.ToggleReviewPeekBefore()
+				return nil
+			},
+		},
+		{
+			ID:          CmdReviewKeep,
+			Label:       "Review: Keep Changes",
+			Description: "Keep all non-reverted changes in the open review as one undo step",
+			Category:    "Review",
+			Keywords:    []string{"review", "keep", "apply", "accept", "agent"},
+			Scope:       ScopeReview,
+			Shortcut:    "mod+enter",
+			Enabled:     func() bool { return e.HasPendingReview() && !e.ReviewRevertAllDialogOpen() },
+			Run: func() error {
+				if err := e.KeepTurnReview(); err != nil && !errors.Is(err, ErrReviewBlocked) {
+					return err
+				}
+				return nil
+			},
+		},
+		{
+			ID:                 CmdReviewRevertAll,
+			Label:              "Review: Revert All",
+			Description:        "Open confirmation to revert all changes in the open review",
+			Category:           "Review",
+			Keywords:           []string{"review", "revert", "discard", "all", "agent"},
+			Scope:              ScopeReview,
+			Shortcut:           "mod+backspace",
+			AlternateShortcuts: []string{"mod+delete"},
+			Enabled:            func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Run: func() error {
+				e.OpenReviewRevertAllDialog()
+				return nil
 			},
 		},
 	}
@@ -2342,7 +2436,12 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 					if !ok {
 						return
 					}
-					if active.ID == CmdToolPaintTile && key == "b" && e.TileReviewOpen() && e.ViewMode == ViewMode2D && !e.Playing() {
+					if active.ID == CmdToolPaintTile && key == "b" && (e.TileReviewOpen() || e.ReviewOpen()) && e.ViewMode == ViewMode2D && !e.Playing() {
+						return
+					}
+					if active.ID == CmdReviewPeekBefore && key == "b" && e.ReviewOpen() {
+						// Holding B in ReviewScreenView is tracked continuously by core.KeyHeld(cx, "b");
+						// do not flip peek on initial keydown so KeyDown/KeyUp works cleanly as a hold.
 						return
 					}
 					if active.ID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {

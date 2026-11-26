@@ -116,6 +116,7 @@ func ExampleServer_AddTool() {
 	// refs_find read
 	// release_notes_draft edit
 	// release_review_uploads run
+	// review_status read
 	// rules_edit edit
 	// scene_edit edit
 	// scene_name read

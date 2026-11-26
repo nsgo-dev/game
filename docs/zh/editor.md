@@ -1426,3 +1426,19 @@ func main() {
   - `daily`（24 小时制 `HH:MM` 的 `time`）：编辑器打开期间每天到达或超过指定时间后最多触发一次（由 UI 调度器定期检查，也可通过 `Editor.StepAutomations` 确定性驱动）。
 - **运行前检查点、权限、后台任务与待审查机制**：每次自动化运行开始前，编辑器都会先将受追踪的项目文本/YAML/Go 文件快照（跳过符号链接、内部状态与仅限用户文件，并受文件数与总字节上限约束）写入 `.nsgo/checkpoints/<id>/`（已被 git 忽略，可通过 `AutomationCheckpoints` 查看、通过 `RestoreAutomationCheckpoint` 在路径与符号链接隔离校验下恢复）。任务在有界并发与超时保护下运行于 `WithAgentActor` 与项目权限规则（`Editor.Permissions` / `CheckAutomationActionPermission`）约束内，同步登记到共享后台任务列表（`TaskSourceAutomation`）并以 `AgentTurn` 落入智能体面板的 **待审查**（`AgentReviewReady`），提供 **保留**、**忽略** 与 **恢复检查点** 按钮。`automations.yaml` 与 `.nsgo/automations-state.yaml` 受“仅限用户”边界（`YouOnlyAutomations`）保护，自动化永远无法直接应用“仅限用户”草案（`PermissionsDraft`、`AutomationDraft`）、确认暂挂的权限放宽或提议删除，或自行保留审查（返回 `ErrAutomationYouOnly`）。
 - **设置 › 自动化页面（`SettingsPageAutomations`）**：以 `WHEN → THE AGENT` 卡片展示每项自动化、本周运行次数（`AutomationWeeklyRuns`，保存在被 git 忽略的 `.nsgo/automations-state.yaml` 中）及 `SpecSwitch`（`core.RoleSwitch`）开关，支持 **+ 用一句话新建自动化**（`DraftAutomationFromWords` 生成草稿卡片并由用户点击 `KeepAutomationDraft` 保留）、**今天暂停全部自动化**（`PauseAutomationsForToday` / `ResumeAutomations`，暂停所有触发直至次日自动恢复）以及 **本页智能体** 卡片，深浅色外观均严格使用 `SpecPalette` 令牌。
+
+## 逐项审核智能体回合改动（#1014）
+
+当智能体完成一轮编辑（`Editor.StartTurnReview`）后，全窗口的**审核**界面（`ReviewScreenView`，对应 `docs/design/editor/Review.dc.html`，严格遵循 `Spec.dc.html` 深浅双主题令牌）允许作者按文件和改动类型逐条检查场景、预制体、数据表与 Go 文件的改动，最后一步保留或整体撤回：
+
+- **顶栏与阻塞项**：展示 **← Editor**（`Esc`）、引用的用户请求、阻塞提示胶囊（当存在冲突、YAML 错误等阻塞项时）、**Revert all**（`⌘⌫` / `Ctrl+Backspace`）与 **Keep N of M**（`⌘↵` / `Ctrl+Enter`）。存在阻塞项时，点击 **Keep** 不会提交，而是直接跳转聚焦到首个阻塞改动（`JumpToReviewBlocker`）。
+- **左侧分组列表与筛选**：包含按名称、字段或文件路径实时过滤的搜索框（`SetReviewSearch`）、带进度条的 `"N of M seen"` 计数及上/下一项按钮，以及 6 个带计数的过滤标签（**All**、**Added**、**Changed**、**Removed**、**Unseen**、**Notes**，`SetReviewFilter`）。改动先按**文件**分组（路径、`+n ~n −n` 计数、折叠、**Revert file** / **Restore file**），再按**类型**分组（**ADDED**、**CHANGED**、**REMOVED**，支持折叠及 **Revert n** / **Restore n**），每条改动卡片显示已读标记、语义类型徽章、标题、详情与 **Revert** / **Restore**（`X`）；聚焦某条改动即自动标为已读。
+- **审核键盘作用域（`ScopeReview`）与无障碍导航**：在 `ScopeReview` 中注册 `J`（`CmdReviewNext`）、`K`（`CmdReviewPrev`）、`X`（`CmdReviewToggleRevert`，切换当前聚焦改动、类型分组或文件分组的撤回/恢复）、`B`（`CmdReviewPeekBefore`，按住 `B` 预览请求前的场景）、`⌘↵`（`CmdReviewKeep`）与 `⌘⌫`（`CmdReviewRevertAll`）。所有控件均显示 2 px 规范焦点环并可通过 `Tab`、`F6` / `Shift-F6`（在顶栏 → 列表 → 中央预览 → 原因与 YAML 间循环）或方向键访问；在筛选输入框中输入不会误触单字母快捷键。
+- **自适应中央预览区**：
+  - **场景文件**：渲染当前聚焦改动所属场景（`BuiltScene`），左上角提供可点击开关的叠加层图例（`ToggleReviewOverlayLegend`）；未聚焦改动以 `1.5 px` 绘制，当前聚焦改动以其**自身**语义颜色和虚实线型以 `2.5 px` 加粗绘制并附描边胶囊（绝不使用留给选中态的强调色），已撤回的改动按请求前的原样绘制；按 `J`/`K` 自动将视口聚焦到对应对象，按住 `B` 显示请求前场景与 `"Before this request"` 提示胶囊。
+  - **预制体文件**：展示旧值 → 新值及数值变化百分比 `Δ%`，并结合本次审核中的场景与 `Editor.FindUsages` 项目引用，说明受影响的全部实例（如本次审核中的场景实例以及项目中其它关卡已有实例）。
+  - **小型数据表**：以表格形式渲染（`ReviewDataTablePreviewFor`），高亮改动行并在修改单元格中展示 `旧值 → 新值 Δ%`。
+- **右侧面板（Why 与 YAML）**：在顶部显示智能体给出该改动的原因（**WHY**），下方展示带行号与 `+` / `−` 符号的精确 YAML 差异行。
+- **按 `Esc` 挂起与恢复审核**：按 `Esc`（`PauseReview`）回到编辑器并保持审核挂起——主视口继续绘制待审核改动叠加层（`drawPendingReviewOverlay`），右侧 **Agent** 标签页（`AgentPanelView`）展示 `"Review waiting · N changes, F files"`、已读计数、阻塞数与 **Resume review** 按钮（`ResumeReview`），点击后精确回到离开时的聚焦改动与已读状态。
+- **保留、全部撤回与单步撤销**：**Revert all** 弹出带焦点限制的确认对话框，列出将还原的文件并提示 `⌘Z` / `Ctrl+Z` 可全部恢复。**Keep**（`KeepTurnReview`）与 **Revert all**（`ConfirmReviewRevertAll`）均记录为 `Editor.History` 中的**单个步骤**，更新磁盘 YAML 文件与当前打开场景、弹出带 **Undo** 的规范 Toast，并在 Agent 面板显示 `"Kept K · reverted R · one undo step"`；执行一次 `Editor.Undo()` 即可按字节完整还原全部改动文件。
+- **MCP 只读接口（`editormcp`）**：新增只读工具 `review_status`（`ToolReviewStatus`、`ActionRead`），供智能体读取哪些改动已被查看或撤回、当前阻塞项以及保留/撤回结果，但保持保留与撤回决定权始终属于用户。

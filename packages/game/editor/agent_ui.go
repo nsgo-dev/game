@@ -92,6 +92,42 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 // rightRailTabBar renders the 44 pt Agent / Inspector header bar matching docs/design/editor/Main.dc.html and AgentStates.dc.html.
 func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, showFullChip bool) core.Node {
 	tabBtn := func(testID, label string, tab RightRailTab) core.Node {
+		children := []core.Node{
+			core.Text{
+				Content: label,
+				StyleFunc: func() core.Style {
+					_ = rev.Get()
+					col := p.TextFaint
+					if ed.RightRailTab() == tab {
+						col = p.TextPrimary
+					}
+					return core.Style{
+						FontSize:   12.5,
+						FontWeight: 500,
+						Color:      col,
+					}
+				},
+			},
+		}
+		if tab == RightTabAgent {
+			children = append(children, core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.HasPendingReview()
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return core.View{
+						TestID: "agent-tab-pending-dot",
+						Style: core.Style{
+							Width:        core.Pt(6),
+							Height:       core.Pt(6),
+							CornerRadius: 3,
+							Background:   p.Accent.Fg,
+						},
+					}
+				},
+			})
+		}
 		return core.View{
 			TestID: testID,
 			Role:   core.RoleButton,
@@ -106,6 +142,8 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 				return core.Style{
 					Height:         core.Pt(30),
 					Padding:        core.Symmetric(0, 12),
+					Direction:      core.Row,
+					Gap:            6,
 					CornerRadius:   8,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
@@ -116,23 +154,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 			OnPress: func(core.PressEvent) {
 				ed.SetRightRailTab(tab)
 			},
-			Children: []core.Node{
-				core.Text{
-					Content: label,
-					StyleFunc: func() core.Style {
-						_ = rev.Get()
-						col := p.TextFaint
-						if ed.RightRailTab() == tab {
-							col = p.TextPrimary
-						}
-						return core.Style{
-							FontSize:   12.5,
-							FontWeight: 500,
-							Color:      col,
-						}
-					},
-				},
-			},
+			Children: children,
 		}
 	}
 
@@ -719,7 +741,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|%d|%d|", ed.ResolvedLanguage(), ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq())
+		fmt.Fprintf(&b, "%s|%s|%d|%d|%s|%d|", ed.ResolvedLanguage(), ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq(), ed.review.outcome, ed.review.uiRev)
 		for _, t := range ed.agent.turns {
 			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
 			for _, st := range t.Steps {
@@ -743,6 +765,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			_ = threadKey.Get()
 			turns := ed.AgentTurns()
 			openReq := ed.AgentOpenRequest()
+			hasReviewCard := ed.HasAgentPanelCard()
 
 			var items []core.Node
 			if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
@@ -780,11 +803,14 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 				})
 			}
-			if len(turns) == 0 && openReq == nil {
+			if len(turns) == 0 && openReq == nil && !hasReviewCard {
 				items = append(items, agentEmptyStateCard(ed, p))
 			}
 			for ti, turn := range turns {
 				items = append(items, agentTurnView(ed, ti, turn, p))
+			}
+			if hasReviewCard {
+				items = append(items, agentReviewPanelCards(ed, p, turns)...)
 			}
 			if openReq != nil {
 				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))

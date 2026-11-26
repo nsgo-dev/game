@@ -921,6 +921,8 @@ type Editor struct {
 	historyPanel historyPanelState
 	// agentReview holds the Review changes panel state including proposed file deletions that Keep all never applies.
 	agentReview agentReviewState
+	// review holds the change-by-change agent turn review state, pending overlays, and right-rail Agent card state.
+	review turnReviewState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

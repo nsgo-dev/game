@@ -787,7 +787,7 @@ func (e *Editor) LastAgentPrompt() AgentPromptRequest {
 func (e *Editor) contextMenuBlocked() bool {
 	return e == nil || e.Doc == nil || e.playing || e.HistoryPreviewActive() ||
 		e.AskInPlaceOpen() ||
-		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
+		e.StartScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
 		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
 		e.ConnectDialogOpen() || e.AssetGeneratorOpen()

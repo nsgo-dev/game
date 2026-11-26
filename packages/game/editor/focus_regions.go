@@ -464,6 +464,7 @@ func (e *Editor) regionCyclingBlocked() bool {
 	return e.shortcutCaptureActive ||
 		e.AskInPlaceOpen() ||
 		e.StartScreenOpen() ||
+		e.ReviewOpen() ||
 		e.MergeConflictOpen() ||
 		e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() ||
