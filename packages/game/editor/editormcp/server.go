@@ -193,10 +193,11 @@ type Server struct {
 	wg sync.WaitGroup
 
 	// The rest belong to the editor's goroutine.
-	agent        int
-	explicitStep bool
-	unsub        func()
-	opened       bool
+	agent           int
+	explicitStep    bool
+	activeWorkCount int
+	unsub           func()
+	opened          bool
 	// projectPath is the editor's ProjectPath when follow last looked, so a change elsewhere does not search for the project again.
 	projectPath string
 	stream      changeStream
@@ -419,6 +420,26 @@ func (s *Server) EndStep(ctx context.Context) error {
 		ed.EndAgentStep()
 		return nil
 	})
+}
+
+// beginBackgroundWork increments the editor-goroutine refcount for long-running read/check/playtest
+// MCP tools so concurrent tools show working state without clobbering each other on completion.
+func (s *Server) beginBackgroundWork(ed *editor.Editor, activity string) {
+	s.activeWorkCount++
+	if !s.explicitStep {
+		ed.SetAgentState(editor.AgentStateWorking, activity)
+	}
+}
+
+// endBackgroundWork decrements the refcount started by beginBackgroundWork and clears the working
+// header pill only when no other background tool or explicit step remains active.
+func (s *Server) endBackgroundWork(ed *editor.Editor) {
+	if s.activeWorkCount > 0 {
+		s.activeWorkCount--
+	}
+	if s.activeWorkCount == 0 && !s.explicitStep {
+		ed.EndAgentStep()
+	}
 }
 
 // Connect serves one MCP session on t until the client disconnects or the server closes, as Open does for each client of the endpoint and as a test or an in-process agent does with mcp.NewInMemoryTransports.

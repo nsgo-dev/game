@@ -780,9 +780,7 @@ func gameCheck(ctx context.Context, c *Call) (*Result, error) {
 		if e.Project == nil {
 			return errors.New("game_check: no project is open in the editor; open one with go tool game editor <project-dir>")
 		}
-		if !c.s.explicitStep {
-			e.SetAgentState(editor.AgentStateWorking, "checking project")
-		}
+		c.s.beginBackgroundWork(e, "checking project")
 		e.CheckProblems()
 		ed, file, name, reg = e, e.FilePath, sceneName(e, projectRoot(e)), e.ComponentRegistry()
 		scene, _ = sceneYAML(e)
@@ -792,9 +790,7 @@ func gameCheck(ctx context.Context, c *Call) (*Result, error) {
 	}
 	defer func() {
 		_ = c.Editor(context.Background(), func(e *editor.Editor) error {
-			if !c.s.explicitStep {
-				e.EndAgentStep()
-			}
+			c.s.endBackgroundWork(e)
 			return nil
 		})
 	}()

@@ -30,6 +30,9 @@ func (e *Editor) SetObjectReflectionProbe(id string, probe *sceneformat.Reflecti
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if e.Doc == nil {
 		return errors.New("editor: nil scene document")
 	}
@@ -104,6 +107,9 @@ func (e *Editor) SetObjectLightProbeGrid(id string, grid *sceneformat.LightProbe
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
 	}
 	if e.Doc == nil {
 		return errors.New("editor: nil scene document")

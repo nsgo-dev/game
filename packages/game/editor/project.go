@@ -150,6 +150,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.stopTileAnimLoop()
 	e.tileset = nil
 	e.tileReview = nil
+	e.clearAgentLiveForSceneReset()
 	e.paletteImgCache = paletteFileImageCache{}
 	e.ActiveTerrain = ""
 	e.particles = nil

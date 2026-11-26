@@ -240,6 +240,7 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn("Agent: paste object")
+			defer ed.DiscardEmptyAgentTurn()
 		}
 		autoStep := !c.s.explicitStep
 		if autoStep {
@@ -256,9 +257,6 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 			id, err = ed.PasteObject()
 		}
 		if err != nil {
-			if openedTurn {
-				ed.DiscardEmptyAgentTurn()
-			}
 			return err
 		}
 		out = ObjectPasteYAMLResult{ID: id, Revision: ed.Revision()}
@@ -326,6 +324,7 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn("Agent: duplicate " + src)
+			defer ed.DiscardEmptyAgentTurn()
 		}
 		autoStep := !c.s.explicitStep
 		if autoStep {
@@ -334,9 +333,6 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 		}
 		id, err := ed.DuplicateObject(src)
 		if err != nil {
-			if openedTurn {
-				ed.DiscardEmptyAgentTurn()
-			}
 			return err
 		}
 		out = ObjectDuplicateResult{SourceID: src, ID: id, Revision: ed.Revision()}
@@ -405,6 +401,7 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn("Agent: group objects")
+			defer ed.DiscardEmptyAgentTurn()
 		}
 		autoStep := !c.s.explicitStep
 		if autoStep {
@@ -428,9 +425,6 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 			gid, err = ed.GroupObjects(ids...)
 		}
 		if err != nil {
-			if openedTurn {
-				ed.DiscardEmptyAgentTurn()
-			}
 			return err
 		}
 		out = ObjectGroupResult{GroupID: gid, Children: ids, Revision: ed.Revision()}
@@ -517,6 +511,7 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn("Agent: move " + id)
+			defer ed.DiscardEmptyAgentTurn()
 		}
 		autoStep := !c.s.explicitStep
 		if autoStep {
@@ -524,9 +519,6 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 			defer ed.EndAgentStep()
 		}
 		if err := ed.MoveObjectUnder(id, args.Parent); err != nil {
-			if openedTurn {
-				ed.DiscardEmptyAgentTurn()
-			}
 			return err
 		}
 		out = ObjectMoveUnderResult{

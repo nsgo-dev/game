@@ -1094,6 +1094,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.syncSceneEmitterLoop()
 		e.syncTileAnimLoop()
 		e.startAutomationScheduler()
+		e.syncAgentPulseLoop()
 		cx.SetAppearance(e.Appearance().CoreAppearance())
 	} else {
 		e.stopAllTaskRunners()
@@ -1102,6 +1103,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.stopModelPreviewLoop()
 		e.stopTileAnimLoop()
 		e.stopAutomationRunsAndScheduler()
+		e.stopAgentPulseLoop()
 	}
 }
 

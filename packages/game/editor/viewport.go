@@ -854,7 +854,7 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 // with clock glyph and "waiting on <object>" pill) for active background agent tasks on the open scene,
 // following docs/design/editor/Tasks.dc.html and Spec.dc.html.
 func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if !e.ShowAgentChanges() {
+	if !e.ShowAgentChanges() || !e.OverlayLegendKindEnabled(OverlayLegendAgent) || e.HistoryPreviewActive() {
 		return
 	}
 	ovs := e.SceneTaskOverlays()
@@ -1330,6 +1330,11 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		tileAnimRev.Set(ed.TileAnimRevision())
 	})
 	cx.Cleanup(unsubTileAnim)
+	agentPulseRev := core.NewSignal(cx, ed.AgentPulseRevision())
+	unsubAgentPulse := ed.SubscribeAgentPulse(func() {
+		agentPulseRev.Set(ed.AgentPulseRevision())
+	})
+	cx.Cleanup(unsubAgentPulse)
 	var g viewportGestures
 	var g3 viewport3DGestures
 	// frame is the view the 3D viewport's flight locks the pointer to.
@@ -1489,6 +1494,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		Draw: func(d *core.Drawing, size core.Size) {
 			_ = rev.Get()
 			_ = tileAnimRev.Get()
+			_ = agentPulseRev.Get()
 			ed.DrawViewport(d, size)
 		},
 	}

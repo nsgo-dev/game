@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -38,34 +39,36 @@ type SceneTab struct {
 
 // sceneTab holds the per-scene state preserved when switching between open tabs.
 type sceneTab struct {
-	id                  uint64
-	doc                 *sceneformat.SceneDoc
-	built               *sceneformat.BuiltScene
-	buildErr            error
-	history             *History
-	filePath            string
-	scenePath           string
-	onSave              func([]byte) error
-	sceneSaved          []byte
-	sceneDisk           diskSnapshot
-	selectedID          string
-	selectedIDs         []string
-	activeLayer         string
-	activeTileID        int
-	activeTileLayer     string
-	activeTileFlip      uint32
-	tileSel             TileRect
-	hasTileSel          bool
-	tileReview          *tileReviewState
-	agentTurn           *agentTurnState
-	view2D              View2D
-	view2DFree          bool
-	camera3D            OrbitCamera3D
-	lookThroughCamera3D bool
-	hidden              map[string]bool
-	locked              map[string]bool
-	layerLocked         map[string]bool
-	inspectLayer        bool
+	id                   uint64
+	doc                  *sceneformat.SceneDoc
+	built                *sceneformat.BuiltScene
+	buildErr             error
+	history              *History
+	filePath             string
+	scenePath            string
+	onSave               func([]byte) error
+	sceneSaved           []byte
+	sceneDisk            diskSnapshot
+	selectedID           string
+	selectedIDs          []string
+	activeLayer          string
+	activeTileID         int
+	activeTileLayer      string
+	activeTileFlip       uint32
+	tileSel              TileRect
+	hasTileSel           bool
+	tileReview           *tileReviewState
+	agentTurn            *agentTurnState
+	agentWorkingIDs      []string
+	agentWorkingActivity string
+	view2D               View2D
+	view2DFree           bool
+	camera3D             OrbitCamera3D
+	lookThroughCamera3D  bool
+	hidden               map[string]bool
+	locked               map[string]bool
+	layerLocked          map[string]bool
+	inspectLayer         bool
 	// placeholder is true only for a pristine untitled tab created automatically by New(nil, ...) or by closing the last open tab.
 	placeholder bool
 
@@ -161,6 +164,8 @@ func (e *Editor) syncActiveTab() {
 	t.hasTileSel = e.hasTileSel
 	t.tileReview = e.tileReview
 	t.agentTurn = e.agentLive.turn
+	t.agentWorkingIDs = slices.Clone(e.agentLive.workingIDs)
+	t.agentWorkingActivity = e.agentLive.workingActivity
 	t.view2D = e.view2D
 	t.view2DFree = e.view2DFree
 	t.camera3D = e.Camera3D
@@ -200,9 +205,38 @@ func (e *Editor) loadActiveTab() {
 	e.ActiveTileFlip = t.activeTileFlip
 	e.tileSel = t.tileSel
 	e.hasTileSel = t.hasTileSel
+	hadWorking := len(e.agentLive.workingIDs) > 0
 	e.tileReview = t.tileReview
 	e.agentLive.turn = t.agentTurn
-	e.refreshAgentTurnDiff()
+	e.agentLive.workingIDs = slices.Clone(t.agentWorkingIDs)
+	if len(e.agentLive.workingIDs) > 0 {
+		set := make(map[string]bool, len(e.agentLive.workingIDs))
+		for _, id := range e.agentLive.workingIDs {
+			set[id] = true
+		}
+		e.agentLive.workingSet = set
+	} else {
+		e.agentLive.workingSet = nil
+	}
+	e.agentLive.workingActivity = t.agentWorkingActivity
+	if e.agentLive.turn != nil {
+		e.refreshAgentTurnDiff()
+	} else {
+		e.inspectorReviewChanges = nil
+	}
+	if len(e.agentLive.workingIDs) > 0 {
+		e.agentLive.state = AgentStateWorking
+		e.agentLive.stateDetail = e.agentLive.workingActivity
+	} else if e.agentLive.turn != nil && len(e.agentLive.turn.changes) > 0 {
+		if e.agentLive.state != AgentStateWaiting {
+			e.agentLive.state = AgentStatePendingReview
+			e.agentLive.stateDetail = ""
+		}
+	} else if e.agentLive.state == AgentStatePendingReview || (hadWorking && e.agentLive.state == AgentStateWorking) {
+		e.agentLive.state = AgentStateIdle
+		e.agentLive.stateDetail = ""
+	}
+	e.syncAgentPulseLoop()
 	e.view2D = t.view2D
 	e.view2DFree = t.view2DFree
 	e.Camera3D = t.camera3D

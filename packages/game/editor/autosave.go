@@ -228,7 +228,7 @@ func (e *Editor) HasOpenReview() bool {
 	if e.HasOpenTaskReview() {
 		return true
 	}
-	if e.AgentReviewOpen() || e.PermissionsDraftOpen() {
+	if e.AgentReviewOpen() || e.PermissionsDraftOpen() || e.AgentTurnPending() {
 		return true
 	}
 	if e.CutsceneReviewOpen() {

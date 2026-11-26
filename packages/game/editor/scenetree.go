@@ -984,7 +984,6 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 }
 
 func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeKey) core.Node {
-	p := ed.SpecPalette(cx)
 	id := k.id
 	return core.View{
 		TestID: "scene-tree-row-removed-" + id,
@@ -1008,19 +1007,23 @@ func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sc
 				},
 				Style: core.Style{
 					FontSize:       12,
-					Color:          p.Removed.Fg,
 					TextDecoration: core.TextDecorationLineThrough,
 					FlexGrow:       1,
 					FlexShrink:     1,
 					MinWidth:       core.Pt(0),
+				},
+				StyleFunc: func() core.Style {
+					return core.Style{Color: ed.SpecPalette(cx).Removed.Fg}
 				},
 			},
 			core.View{
 				Style: core.Style{
 					Padding:      core.Symmetric(1, 5),
 					CornerRadius: 4,
-					Background:   p.Removed.Fill,
 					FlexShrink:   0,
+				},
+				StyleFunc: func() core.Style {
+					return core.Style{Background: ed.SpecPalette(cx).Removed.Fill}
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1032,7 +1035,9 @@ func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sc
 						Style: core.Style{
 							FontSize:   10,
 							FontWeight: 600,
-							Color:      p.Removed.Fg,
+						},
+						StyleFunc: func() core.Style {
+							return core.Style{Color: ed.SpecPalette(cx).Removed.Fg}
 						},
 					},
 				},

@@ -313,20 +313,17 @@ func gamePlaytest(ctx context.Context, c *Call) (*Result, error) {
 		runner = defaultRunPlaytest
 	}
 	playActivity := "playing " + sceneTitle + " headless"
-	_ = c.Editor(ctx, func(ed *editor.Editor) error {
-		if !c.s.explicitStep {
-			ed.SetAgentState(editor.AgentStateWorking, playActivity)
-		}
+	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		c.s.beginBackgroundWork(ed, playActivity)
 		return nil
-	})
-	defer func() {
-		_ = c.Editor(context.Background(), func(ed *editor.Editor) error {
-			if !c.s.explicitStep {
-				ed.EndAgentStep()
-			}
-			return nil
-		})
-	}()
+	}); err == nil {
+		defer func() {
+			_ = c.Editor(context.Background(), func(ed *editor.Editor) error {
+				c.s.endBackgroundWork(ed)
+				return nil
+			})
+		}()
+	}
 	rep, err := runner(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("game_playtest: %w", err)

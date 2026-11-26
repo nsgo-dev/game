@@ -1217,7 +1217,7 @@ func shortProblemLabel(p assetcheck.Problem) string {
 // triangle icon and message in Problem.OnFill) for every live visible object in
 // the open scene that has a non-ignored problem.
 func (e *Editor) drawProblemOverlays2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if e == nil || d == nil || scene == nil || e.playing || !e.ProblemOverlayVisible() {
+	if e == nil || d == nil || scene == nil || e.playing || e.HistoryPreviewActive() || !e.ProblemOverlayVisible() || !e.OverlayLegendKindEnabled(OverlayLegendProblem) {
 		return
 	}
 	objProbs := e.openSceneObjectProblems()
