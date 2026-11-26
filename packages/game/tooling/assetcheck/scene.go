@@ -69,18 +69,18 @@ func (c *checker) checkScene(p string) {
 	}
 }
 
-// located records err, a *sceneformat.ComponentError or *sceneformat.ConnectionError that names its line in the scene, at that line.
+// located records err, a *sceneformat.ComponentError or *sceneformat.ConnectionError that names its line and column in the scene, at that position.
 func (s *sceneCheck) located(err error) {
 	if ce, ok := errors.AsType[*sceneformat.ComponentError](err); ok {
 		e := *ce
 		e.File, e.Line, e.Column = "", 0, 0
-		s.problem(s.path, min(ce.Line, s.lines), "%v", &e)
+		s.problemAt(s.path, min(ce.Line, s.lines), ce.Column, "%v", &e)
 		return
 	}
 	if ce, ok := errors.AsType[*sceneformat.ConnectionError](err); ok {
 		e := *ce
 		e.File, e.Line, e.Column = "", 0, 0
-		s.problem(s.path, min(ce.Line, s.lines), "%v", &e)
+		s.problemAt(s.path, min(ce.Line, s.lines), ce.Column, "%v", &e)
 		return
 	}
 	s.problem(s.path, 0, "%v", err)
@@ -136,7 +136,8 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 		for _, end := range []struct{ field, id string }{{"from", c.From}, {"to", c.To}} {
 			if byID[end.id] == nil {
 				missing = true
-				s.problem(s.path, s.line("connections", strconv.Itoa(i), end.field), "sceneformat: connection %d (%q %s -> %q %s): the scene has no object %q, counting those of the scenes it instances and inherits", i, c.From, c.Event, c.To, c.Handler, end.id)
+				line, col := s.pos("connections", strconv.Itoa(i), end.field)
+				s.problemAt(s.path, line, col, "sceneformat: connection %d (%q %s -> %q %s): the scene has no object %q, counting those of the scenes it instances and inherits", i, c.From, c.Event, c.To, c.Handler, end.id)
 			}
 		}
 	}
@@ -155,12 +156,14 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 			}
 			ce, ok := errors.AsType[*sceneformat.ComponentError](err)
 			if !ok {
-				s.problem(s.path, s.line(append(slices.Clip(ov.steps), "components", name)...), "sceneformat: object %q component %q: %v", ov.id, name, err)
+				line, col := s.pos(append(slices.Clip(ov.steps), "components", name)...)
+				s.problemAt(s.path, line, col, "sceneformat: object %q component %q: %v", ov.id, name, err)
 				continue
 			}
 			e := *ce
 			e.File, e.Line, e.Column, e.Object = "", 0, 0, ov.id
-			s.problem(s.path, s.line(append(slices.Clip(ov.steps), "components", name, ce.Field)...), "%v", &e)
+			line, col := s.pos(append(slices.Clip(ov.steps), "components", name, ce.Field)...)
+			s.problemAt(s.path, line, col, "%v", &e)
 		}
 	}
 	s.resolvedConnections(resolved, len(resolved.Connections), conns, overrides, reg)
@@ -203,7 +206,8 @@ func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged 
 			if e.Arg != "" {
 				steps = append(steps, e.Arg)
 			}
-			s.problem(s.path, s.line(steps...), "%v", &e)
+			line, col := s.pos(steps...)
+			s.problemAt(s.path, line, col, "%v", &e)
 		} else {
 			at := e.To
 			if e.Field == "from" || e.Field == "event" {
@@ -214,7 +218,8 @@ func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged 
 				if e.Arg != "" {
 					arg = fmt.Sprintf(" argument %q", e.Arg)
 				}
-				s.problem(s.path, s.line(overrides[i].steps...), "sceneformat: the override of object %q breaks connection (%q %s -> %q %s)%s, which a scene it instances or inherits brings: %s", at, e.From, e.Event, e.To, e.Handler, arg, e.Msg)
+				line, col := s.pos(overrides[i].steps...)
+				s.problemAt(s.path, line, col, "sceneformat: the override of object %q breaks connection (%q %s -> %q %s)%s, which a scene it instances or inherits brings: %s", at, e.From, e.Event, e.To, e.Handler, arg, e.Msg)
 			}
 		}
 		resolved.Connections = slices.Delete(resolved.Connections, ce.Index, ce.Index+1)
@@ -467,6 +472,15 @@ type sceneCheck struct {
 // line returns the line of the field at steps in the scene.
 func (s *sceneCheck) line(steps ...string) int { return min(yamlLine(s.root, steps), s.lines) }
 
+// pos returns the 1-based line and column of the field at steps in the scene.
+func (s *sceneCheck) pos(steps ...string) (int, int) {
+	line, col := yamlPos(s.root, steps)
+	if line > s.lines {
+		line = s.lines
+	}
+	return line, col
+}
+
 // tilemap checks a tilemap definition at steps: an external source must be a Tiled map or LDtk project that checks, with the level it names, an inline grid's tileset atlas must have a frame for every tile ID it uses, and a layered grid's YAML tileset must check and hold every tile its cells place.
 func (s *sceneCheck) tilemap(tm *sceneformat.TilemapDoc, steps ...string) {
 	switch {
@@ -602,7 +616,8 @@ func (s *sceneCheck) sprite(ref *sceneformat.SpriteRef, steps ...string) {
 		return
 	}
 	if !atlas.frames[ref.Frame] {
-		s.problem(s.path, s.line(append(steps, "frame")...), "frame %q is not in atlas %q (%s)", ref.Frame, ref.Atlas, atlas.path)
+		line, col := s.pos(append(steps, "frame")...)
+		s.problemAt(s.path, line, col, "frame %q is not in atlas %q (%s)", ref.Frame, ref.Atlas, atlas.path)
 	}
 }
 
@@ -735,15 +750,16 @@ func (c *checker) loadParticles(p string) *particles.Config {
 // yamlLineRE finds the "line N: " that yaml's errors carry.
 var yamlLineRE = regexp.MustCompile(`line (\d+): `)
 
-// yamlError records err, from parsing the YAML file at p, at the line it is about: the field a sceneformat.FieldError names, each line a yaml.TypeError lists, the line a syntax error states, or the line a *loaderr.Error gives.
+// yamlError records err, from parsing the YAML file at p, at the line and column it is about: the field a sceneformat.FieldError names, each line a yaml.TypeError lists, the line a syntax error states, or the line and column a *loaderr.Error gives.
 func (c *checker) yamlError(p string, data []byte, err error) {
 	if fe, ok := errors.AsType[*sceneformat.FieldError](err); ok {
 		var root yaml.Node
-		line := 0
+		line, col := 0, 0
 		if yaml.Unmarshal(data, &root) == nil {
-			line = min(yamlLine(&root, fe.Path), yamlLineCount(data))
+			line, col = yamlPos(&root, fe.Path)
+			line = min(line, yamlLineCount(data))
 		}
-		c.problem(p, line, "%v", fe)
+		c.problemAt(p, line, col, "%v", fe)
 		return
 	}
 	if te, ok := errors.AsType[*yaml.TypeError](err); ok {
@@ -754,11 +770,17 @@ func (c *checker) yamlError(p string, data []byte, err error) {
 		return
 	}
 	line, rest := splitYAMLLine(err.Error())
-	if e, ok := loaderr.As(err); ok && line == 0 && e.Line > 0 {
-		// A loader that reports a *loaderr.Error has already found the line; its message without the location is the problem.
-		line, rest = e.Line, (&loaderr.Error{Field: e.Field, Problem: e.Problem, Expected: e.Expected, Err: e.Err}).Error()
+	col := 0
+	if e, ok := loaderr.As(err); ok {
+		if line == 0 && e.Line > 0 {
+			// A loader that reports a *loaderr.Error has already found the line; its message without the location is the problem.
+			line, rest = e.Line, (&loaderr.Error{Field: e.Field, Problem: e.Problem, Expected: e.Expected, Err: e.Err}).Error()
+		}
+		if e.Column > 0 {
+			col = e.Column
+		}
 	}
-	c.problem(p, min(line, yamlLineCount(data)), "%s", rest)
+	c.problemAt(p, min(line, yamlLineCount(data)), col, "%s", rest)
 }
 
 // yamlLineCount returns how many lines YAML counts in data, breaking them at LF, CR, CRLF, NEL and the Unicode line and paragraph separators. YAML numbers the end of a document that stops without a final line break as the line after it, which a problem must not point past.
@@ -782,12 +804,18 @@ func splitYAMLLine(msg string) (int, string) {
 
 // yamlLine returns the line of the field that steps lead to from root, one mapping key or decimal sequence index per step: the line of a mapping key, or of a sequence item. When a step is not in the document, such as a required field left out, it returns the line of the nearest field above it.
 func yamlLine(root *yaml.Node, steps []string) int {
+	line, _ := yamlPos(root, steps)
+	return line
+}
+
+// yamlPos returns the 1-based line and column of the field that steps lead to from root, one mapping key or decimal sequence index per step. When a step is not in the document, it returns the position of the nearest field above it.
+func yamlPos(root *yaml.Node, steps []string) (int, int) {
 	n := root
 	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
 		n = n.Content[0]
 	}
-	line := n.Line
-	for _, step := range steps {
+	line, col := n.Line, n.Column
+	for si, step := range steps {
 		for n.Kind == yaml.AliasNode && n.Alias != nil {
 			n = n.Alias
 		}
@@ -796,23 +824,27 @@ func yamlLine(root *yaml.Node, steps []string) int {
 			var next *yaml.Node
 			for i := 0; i+1 < len(n.Content); i += 2 {
 				if n.Content[i].Value == step {
-					line, next = n.Content[i].Line, n.Content[i+1]
+					key, val := n.Content[i], n.Content[i+1]
+					line, col, next = key.Line, key.Column, val
+					if si == len(steps)-1 && val != nil && val.Line == key.Line && val.Column > 0 {
+						col = val.Column
+					}
 				}
 			}
 			if next == nil {
-				return line
+				return line, col
 			}
 			n = next
 		case yaml.SequenceNode:
 			i, err := strconv.Atoi(step)
 			if err != nil || i < 0 || i >= len(n.Content) {
-				return line
+				return line, col
 			}
 			n = n.Content[i]
-			line = n.Line
+			line, col = n.Line, n.Column
 		default:
-			return line
+			return line, col
 		}
 	}
-	return line
+	return line, col
 }

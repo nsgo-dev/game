@@ -117,8 +117,8 @@ func TestCheckReportsConnectionsToMissingObjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []assetcheck.Problem{
-		{File: "scenes/derived.scene.yaml", Line: lineOf(t, badDerived, "from: crank"), Message: `sceneformat: connection 0 ("crank" pressed -> "door" open): the scene has no object "crank", counting those of the scenes it instances and inherits`},
-		{File: "scenes/level.scene.yaml", Line: lineOf(t, badLevel, "to: west/ghost"), Message: `sceneformat: connection 0 ("lever" pressed -> "west/ghost" open): the scene has no object "west/ghost", counting those of the scenes it instances and inherits`},
+		{File: "scenes/derived.scene.yaml", Line: lineOf(t, badDerived, "from: crank"), Column: 11, Message: `sceneformat: connection 0 ("crank" pressed -> "door" open): the scene has no object "crank", counting those of the scenes it instances and inherits`},
+		{File: "scenes/level.scene.yaml", Line: lineOf(t, badLevel, "to: west/ghost"), Column: 9, Message: `sceneformat: connection 0 ("lever" pressed -> "west/ghost" open): the scene has no object "west/ghost", counting those of the scenes it instances and inherits`},
 	}
 	if got := r.Problems; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("problems:\n%s\nwant:\n%v\n%v", problems(r), want[0], want[1])
@@ -292,8 +292,8 @@ func TestCheckWithComponentsReportsOverriddenComponents(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []assetcheck.Problem{
-		{File: "scenes/derived.scene.yaml", Line: lineOf(t, derived, "nope: 3"), Message: `sceneformat: object "door" component "door" field "nope": unknown field (the type has no fields)`},
-		{File: "scenes/level.scene.yaml", Line: lineOf(t, level, "door: {nope: 3}"), Message: `sceneformat: object "west/door" component "door" field "nope": unknown field (the type has no fields)`},
+		{File: "scenes/derived.scene.yaml", Line: lineOf(t, derived, "nope: 3"), Column: 15, Message: `sceneformat: object "door" component "door" field "nope": unknown field (the type has no fields)`},
+		{File: "scenes/level.scene.yaml", Line: lineOf(t, level, "door: {nope: 3}"), Column: 28, Message: `sceneformat: object "west/door" component "door" field "nope": unknown field (the type has no fields)`},
 	}
 	if got := r.Problems; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("problems:\n%s\nwant:\n%v\n%v", problems(r), want[0], want[1])
@@ -309,7 +309,7 @@ func TestCheckWithComponentsReportsConnectionsRepeatingBroughtOnes(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := assetcheck.Problem{File: "scenes/level.scene.yaml", Line: lineOf(t, level, "handler: open"), Message: `sceneformat: connection 0 ("west/button" pressed -> "west/door" open): connects the same event and handler as a connection that a scene it instances or inherits brings`}
+	want := assetcheck.Problem{File: "scenes/level.scene.yaml", Line: lineOf(t, level, "handler: open"), Column: 14, Message: `sceneformat: connection 0 ("west/button" pressed -> "west/door" open): connects the same event and handler as a connection that a scene it instances or inherits brings`}
 	if len(r.Problems) != 1 || r.Problems[0] != want {
 		t.Fatalf("problems:\n%s\nwant:\n%v", problems(r), want)
 	}

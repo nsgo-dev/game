@@ -538,12 +538,23 @@ strings:
   palette.pluginToolDesc: Plugin tool ({plugin})
   palette.projectFile: Project file
   palette.searchLabel: Search commands
+  problems.agentHeader: Agent
+  problems.agentNote: Problems are found the moment a file changes, by you or the agent; the agent only offers a fix, it never applies one without you.
+  problems.applyFix: Apply fix
+  problems.askPlaceholder: Ask about this problem…
+  problems.askSend: Ask
   problems.check: Check
   problems.checkLabel: Re-run project and asset checks
   problems.checking: Checking project…
+  problems.closeAgentPanel: Close Agent panel
   problems.empty: No problems
   problems.error: Error
+  problems.fixProposed: Fix proposed
+  problems.foundBanner: game check found a problem
+  problems.ignore: Ignore
+  problems.openPanelLabel: Toggle Agent problem panel
   problems.retry: Retry
+  problems.showMe: Show me
   problems.statusChecking: 'Problems: checking…'
   problems.statusCount: 'Problems: {count}'
   problems.statusError: 'Problems: error'

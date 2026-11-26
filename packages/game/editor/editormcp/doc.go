@@ -8,7 +8,8 @@
 //   - scene_edit adds, moves, changes and removes objects, components and properties of the open scene through the editor's methods, the edits of one call as one undo step, or none when the editor refuses one; the refusal (EditError) names the file, the edit, the object, the field and the fix.
 //   - selection_get reports what the person has selected.
 //   - viewport_image returns a PNG of the viewport.
-//   - game_check runs the Problems panel's checks and returns its problems.
+//   - game_check runs the Problems panel's checks (including open unsaved documents) and returns its problems with file, line, column and message.
+//   - problem_propose_fix proposes a validated fix for a live problem with an explanation and diff in the editor's Agent panel without ever applying it.
 //   - game_playtest runs headless bot playtests configured by playtest.yaml with replay recordings and returns the evaluated YAML report.
 //   - playtest_define proposes a new or updated metric in playtest.yaml as a pending review with a diff.
 //

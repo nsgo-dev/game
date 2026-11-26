@@ -103,7 +103,7 @@ func (c *moveFileCmd) do() error {
 		return err
 	}
 	c.made, c.written, c.untouched = made, written, untouched
-	c.ed.followMove(c.root, c.from, c.to, plan.Writes)
+	c.ed.followMove(c.root, c.from, c.to, plan.Writes, nil)
 	return nil
 }
 
@@ -118,9 +118,15 @@ func (c *moveFileCmd) undo() error {
 		writes[w.Path] = w.Data
 	}
 	back := movedPath(c.to, c.from)
+	var skipDocs map[string]bool
 	for after, data := range c.untouched {
 		if cur, err := fs.ReadFile(fsys, after); err == nil && bytes.Equal(cur, data) {
-			delete(writes, back(after))
+			orig := back(after)
+			delete(writes, orig)
+			if skipDocs == nil {
+				skipDocs = make(map[string]bool)
+			}
+			skipDocs[orig] = true
 		}
 	}
 	// A file still as the move wrote it gets back what it held; one changed since keeps the rewrite back that the reverse plan made.
@@ -149,7 +155,7 @@ func (c *moveFileCmd) undo() error {
 		}
 	}
 	c.removeEmpty(c.made)
-	c.ed.followMove(c.root, c.to, c.from, plan.Writes)
+	c.ed.followMove(c.root, c.to, c.from, plan.Writes, skipDocs)
 	return nil
 }
 
@@ -175,8 +181,8 @@ func movedPath(from, to string) func(string) string {
 	}
 }
 
-// followMove moves the paths the editor holds as the files moved from from to to in the project at root, where the move wrote the files written, at their paths after it.
-func (e *Editor) followMove(root, from, to string, written []refs.Write) {
+// followMove moves the paths the editor holds as the files moved from from to to in the project at root, where the move wrote the files written, at their paths after it. Any project-relative path in skipDocs was left untouched on disk during undo and must keep its existing in-memory references.
+func (e *Editor) followMove(root, from, to string, written []refs.Write, skipDocs map[string]bool) {
 	forth := movedPath(from, to)
 	movePath := func(p *string) { *p = forth(*p) }
 	// An OS path inside the project follows the move too.
@@ -202,10 +208,13 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	}
 	e.syncActiveTab()
 	for _, t := range e.tabs {
-		moveScenePaths(t.doc, movePath)
 		moveFile(&t.filePath)
+		rel, hasRel := e.projectRel(t.filePath)
+		if !hasRel || !skipDocs[rel] {
+			moveScenePaths(t.doc, movePath)
+		}
 		// When the move rewrote an open scene's file, the saved scene changed on disk as the open one did, so the move leaves it as clean or dirty as it was. A file the move did not write, such as one refs does not read as a scene, or a scene kept through OnSave or outside the project, still holds the old paths, so the scene is left dirty for the author to save.
-		if rel, ok := e.projectRel(t.filePath); ok && slices.ContainsFunc(written, func(w refs.Write) bool { return w.Path == rel }) {
+		if hasRel && slices.ContainsFunc(written, func(w refs.Write) bool { return w.Path == rel }) {
 			if saved, err := sceneformat.Parse(t.sceneSaved); err == nil {
 				moveScenePaths(saved, movePath)
 				if data, err := sceneformat.Encode(saved); err == nil {
