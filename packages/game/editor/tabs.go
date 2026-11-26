@@ -61,6 +61,7 @@ type sceneTab struct {
 	agentTurn            *agentTurnState
 	agentWorkingIDs      []string
 	agentWorkingActivity string
+	sketch               sketchState
 	view2D               View2D
 	view2DFree           bool
 	camera3D             OrbitCamera3D
@@ -166,6 +167,7 @@ func (e *Editor) syncActiveTab() {
 	t.agentTurn = e.agentLive.turn
 	t.agentWorkingIDs = slices.Clone(e.agentLive.workingIDs)
 	t.agentWorkingActivity = e.agentLive.workingActivity
+	t.sketch = cloneSketchState(e.sketch)
 	t.view2D = e.view2D
 	t.view2DFree = e.view2DFree
 	t.camera3D = e.Camera3D
@@ -237,6 +239,7 @@ func (e *Editor) loadActiveTab() {
 		e.agentLive.stateDetail = ""
 	}
 	e.syncAgentPulseLoop()
+	e.sketch = cloneSketchState(t.sketch)
 	e.view2D = t.view2D
 	e.view2DFree = t.view2DFree
 	e.Camera3D = t.camera3D
@@ -287,6 +290,7 @@ func (e *Editor) cancelTransientInteraction() {
 	e.CancelRoomDrag()
 	e.CancelRigDrag()
 	e.CancelHUDTouchDrag()
+	e.CancelSketchDrag()
 	e.cancelBackgroundPreview()
 	e.CancelGizmoDrag3D()
 	e.CancelHandleDrag3D()

@@ -120,6 +120,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		if ed.Playing() {
 			return &EditError{File: name, Problem: "the scene is playing in the editor, which refuses edits", Fix: "stop playing first"}
 		}
+		if holdErr := sketchHoldEditError(ed, name); holdErr != nil {
+			return holdErr
+		}
 		targetID := args.ID
 		if targetID == "" {
 			targetID = ed.SelectedID

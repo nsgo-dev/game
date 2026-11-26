@@ -129,6 +129,23 @@ const (
 	CmdReviewKeep         = "review.keep"
 	CmdReviewRevertAll    = "review.revertAll"
 	CmdNewAgentThread     = "agent.newThread"
+	// Viewport sketch layer commands (issue #1025).
+	CmdSketchToggle              = "sketch.toggle"
+	CmdSketchToolPen             = "sketch.tool.pen"
+	CmdSketchToolArrow           = "sketch.tool.arrow"
+	CmdSketchToolBox             = "sketch.tool.box"
+	CmdSketchToolText            = "sketch.tool.text"
+	CmdSketchAddMarkAtCursor     = "sketch.addMarkAtCursor"
+	CmdSketchUndoMark            = "sketch.undoMark"
+	CmdSketchToggleMarks         = "sketch.toggleMarks"
+	CmdSketchClear               = "sketch.clear"
+	CmdSketchDone                = "sketch.done"
+	CmdSketchSend                = "sketch.send"
+	CmdSketchApproveReading      = "sketch.approveReading"
+	CmdSketchCorrectMark         = "sketch.correctMark"
+	CmdSketchToggleReviewOverlay = "sketch.toggleReviewOverlay"
+	CmdSketchKeepReview          = "sketch.keepReview"
+	CmdSketchRevertReview        = "sketch.revertReview"
 )
 
 var (
@@ -1921,6 +1938,243 @@ func (e *Editor) initBuiltinCommands() {
 				return nil
 			},
 		},
+		{
+			ID:          CmdSketchToggle,
+			Label:       "Sketch on Viewport",
+			Description: "Toggle the session-only viewport sketch layer for the agent",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "draw", "annotate", "agent", "viewport", "marks"},
+			Scope:       ScopeViewport2D,
+			Shortcut:    "d",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D },
+			Checked:     func() bool { return e.SketchActive() },
+			Run: func() error {
+				e.ToggleSketch()
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchToolPen,
+			Label:       "Sketch Tool: Pen",
+			Description: "Draw a freehand polyline mark on the viewport sketch layer",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "pen", "freehand", "line", "polyline"},
+			Scope:       ScopeSketch,
+			Shortcut:    "p",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolPen },
+			Run: func() error {
+				e.SetSketchTool(SketchToolPen)
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchToolArrow,
+			Label:       "Sketch Tool: Arrow",
+			Description: "Draw a directed arrow mark on the viewport sketch layer",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "arrow", "pointer", "direction"},
+			Scope:       ScopeSketch,
+			Shortcut:    "a",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolArrow },
+			Run: func() error {
+				e.SetSketchTool(SketchToolArrow)
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchToolBox,
+			Label:       "Sketch Tool: Box",
+			Description: "Draw a rectangular area mark on the viewport sketch layer",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "box", "rect", "rectangle", "area"},
+			Scope:       ScopeSketch,
+			Shortcut:    "b",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolBox },
+			Run: func() error {
+				e.SetSketchTool(SketchToolBox)
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchToolText,
+			Label:       "Sketch Tool: Text",
+			Description: "Place a labelled text mark on the viewport sketch layer",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "text", "label", "note", "callout"},
+			Scope:       ScopeSketch,
+			Shortcut:    "t",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolText },
+			Run: func() error {
+				e.SetSketchTool(SketchToolText)
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchAddMarkAtCursor,
+			Label:       "Sketch: Add Mark at Cursor",
+			Description: "Place a numbered sketch mark at the current cursor or viewport center",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "add", "insert", "mark", "keyboard"},
+			Scope:       ScopeSketch,
+			Shortcut:    "i",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Run: func() error {
+				e.AddSketchMarkAtCursor("")
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchUndoMark,
+			Label:       "Sketch: Undo Last Mark",
+			Description: "Undo the most recent change to the viewport sketch layer",
+			Category:    "Edit",
+			Keywords:    []string{"sketch", "undo", "mark", "remove"},
+			Scope:       ScopeSketch,
+			Shortcut:    "mod+z",
+			Enabled: func() bool {
+				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() && e.CanUndoSketchMark()
+			},
+			Run: func() error {
+				e.UndoLastSketchMark()
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchToggleMarks,
+			Label:       "Sketch: Hide / Show Marks",
+			Description: "Temporarily hide or show sketch marks on the viewport without clearing them",
+			Category:    "View",
+			Keywords:    []string{"sketch", "hide", "show", "visibility", "marks"},
+			Scope:       ScopeSketch,
+			Shortcut:    "h",
+			Enabled: func() bool {
+				return notPlaying() && e.ViewMode == ViewMode2D && (e.SketchActive() || e.SketchMarkCount() > 0)
+			},
+			Checked: func() bool { return e.SketchMarksHidden() },
+			Run: func() error {
+				e.ToggleSketchMarksHidden()
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchClear,
+			Label:       "Sketch: Clear Marks",
+			Description: "Clear all sketch marks from the viewport sketch layer",
+			Category:    "Edit",
+			Keywords:    []string{"sketch", "clear", "delete", "marks"},
+			Scope:       ScopeSketch,
+			Shortcut:    "mod+shift+backspace",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchMarkCount() > 0 },
+			Run: func() error {
+				e.ClearSketch()
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchDone,
+			Label:       "Sketch: Finish Sketch Mode",
+			Description: "Leave sketch drawing mode while keeping drawn marks until sent or cleared",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "done", "finish", "exit"},
+			Scope:       ScopeSketch,
+			Shortcut:    "shift+d",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Run: func() error {
+				e.FinishSketch()
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchSend,
+			Label:       "Sketch: Send to Agent",
+			Description: "Send the viewport sketch marks in scene coordinates and rendered PNG to the agent",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "send", "agent", "request", "prompt"},
+			Scope:       ScopeSketch,
+			Shortcut:    "mod+enter",
+			Enabled: func() bool {
+				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchMarkCount() > 0 && !e.SketchHoldActive()
+			},
+			Run: func() error {
+				_, err := e.SendSketch(e.SketchPromptDraft())
+				return err
+			},
+		},
+		{
+			ID:          CmdSketchApproveReading,
+			Label:       "Sketch: Go Ahead",
+			Description: "Approve the agent's sketch reading and release the scene_edit confirmation hold",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "approve", "go ahead", "confirm", "agent", "reading"},
+			Scope:       ScopeViewport2D,
+			Shortcut:    "mod+enter",
+			Enabled: func() bool {
+				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchHoldActive() && e.SketchReading() != nil
+			},
+			Run: func() error { return e.ApproveSketchReading() },
+		},
+		{
+			ID:          CmdSketchCorrectMark,
+			Label:       "Sketch: Correct a Mark",
+			Description: "Reopen sketch mode with the targeted mark selected to correct it",
+			Category:    "Tools",
+			Keywords:    []string{"sketch", "correct", "mark", "edit", "reading"},
+			Scope:       ScopeViewport2D,
+			Shortcut:    "shift+m",
+			Enabled: func() bool {
+				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchReading() != nil && e.SketchMarkCount() > 0
+			},
+			Run: func() error {
+				target := e.SelectedSketchMark()
+				if target <= 0 {
+					target = 1
+				}
+				return e.CorrectSketchMark(target)
+			},
+		},
+		{
+			ID:          CmdSketchToggleReviewOverlay,
+			Label:       "Review: Toggle Sketch Overlay",
+			Description: "Lay the sent sketch faintly over the reviewed result in the 2D viewport",
+			Category:    "View",
+			Keywords:    []string{"sketch", "review", "overlay", "compare", "toggle"},
+			Scope:       ScopeViewport2D,
+			Shortcut:    "o",
+			Enabled: func() bool {
+				return notPlaying() && e.ViewMode == ViewMode2D && (e.SketchReviewOpen() || e.TileReviewOpen()) && e.SketchMarkCount() > 0
+			},
+			Checked: func() bool { return e.SketchReviewOverlayVisible() },
+			Run: func() error {
+				e.ToggleSketchReviewOverlay()
+				return nil
+			},
+		},
+		{
+			ID:          CmdSketchKeepReview,
+			Label:       "Review: Keep Changes and Clear Sketch",
+			Description: "Keep the agent's post-sketch scene edits and clear the viewport sketch layer",
+			Category:    "Edit",
+			Keywords:    []string{"sketch", "review", "keep", "accept", "clear"},
+			Scope:       ScopeViewport2D,
+			Shortcut:    "mod+shift+enter",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
+			Run:         func() error { return e.KeepSketchReview() },
+		},
+		{
+			ID:          CmdSketchRevertReview,
+			Label:       "Review: Revert Changes and Keep Sketch",
+			Description: "Revert the agent's post-sketch scene edits while keeping the sketch marks to send again",
+			Category:    "Edit",
+			Keywords:    []string{"sketch", "review", "revert", "undo", "keep marks"},
+			Scope:       ScopeViewport2D,
+			Shortcut:    "mod+backspace",
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
+			Run:         func() error { return e.RevertSketchReview() },
+		},
 	}
 }
 
@@ -2062,72 +2316,88 @@ func pluginCommandID(pluginName, cmdID string) string {
 
 // builtinCommandKeys maps built-in command IDs to their localization keys for label, description and category.
 var builtinCommandKeys = map[string][3]string{
-	CmdNewProject:            {"cmd.newProject.label", "cmd.newProject.desc", "cmd.category.file"},
-	CmdOpenProject:           {"cmd.openProject.label", "cmd.openProject.desc", "cmd.category.file"},
-	CmdStartScreen:           {"cmd.startScreen.label", "cmd.startScreen.desc", "cmd.category.file"},
-	CmdSave:                  {"cmd.save.label", "cmd.save.desc", "cmd.category.file"},
-	CmdUndo:                  {"cmd.undo.label", "cmd.undo.desc", "cmd.category.edit"},
-	CmdRedo:                  {"cmd.redo.label", "cmd.redo.desc", "cmd.category.edit"},
-	CmdCopy:                  {"cmd.copy.label", "cmd.copy.desc", "cmd.category.edit"},
-	CmdCut:                   {"cmd.cut.label", "cmd.cut.desc", "cmd.category.edit"},
-	CmdPaste:                 {"cmd.paste.label", "cmd.paste.desc", "cmd.category.edit"},
-	CmdPasteInto:             {"cmd.pasteInto.label", "cmd.pasteInto.desc", "cmd.category.edit"},
-	CmdDelete:                {"cmd.delete.label", "cmd.delete.desc", "cmd.category.edit"},
-	CmdDuplicate:             {"cmd.duplicate.label", "cmd.duplicate.desc", "cmd.category.edit"},
-	CmdGroup:                 {"cmd.group.label", "cmd.group.desc", "cmd.category.edit"},
-	CmdUngroup:               {"cmd.ungroup.label", "cmd.ungroup.desc", "cmd.category.edit"},
-	CmdToolSelect:            {"cmd.toolSelect.label", "cmd.toolSelect.desc", "cmd.category.tools"},
-	CmdToolMove:              {"cmd.toolMove.label", "cmd.toolMove.desc", "cmd.category.tools"},
-	CmdToolPlace:             {"cmd.toolPlace.label", "cmd.toolPlace.desc", "cmd.category.tools"},
-	CmdToolPaintTile:         {"cmd.toolPaintTile.label", "cmd.toolPaintTile.desc", "cmd.category.tools"},
-	CmdToolEraseTile:         {"cmd.toolEraseTile.label", "cmd.toolEraseTile.desc", "cmd.category.tools"},
-	CmdToolFillTile:          {"cmd.toolFillTile.label", "cmd.toolFillTile.desc", "cmd.category.tools"},
-	CmdToolNavTestPath:       {"cmd.toolNavTestPath.label", "cmd.toolNavTestPath.desc", "cmd.category.tools"},
-	CmdGizmoTranslate:        {"cmd.gizmoTranslate.label", "cmd.gizmoTranslate.desc", "cmd.category.gizmo3d"},
-	CmdGizmoRotate:           {"cmd.gizmoRotate.label", "cmd.gizmoRotate.desc", "cmd.category.gizmo3d"},
-	CmdGizmoScale:            {"cmd.gizmoScale.label", "cmd.gizmoScale.desc", "cmd.category.gizmo3d"},
-	CmdGizmoSpace3D:          {"cmd.gizmoSpace3d.label", "cmd.gizmoSpace3d.desc", "cmd.category.gizmo3d"},
-	CmdView2D:                {"cmd.view2d.label", "cmd.view2d.desc", "cmd.category.view"},
-	CmdView3D:                {"cmd.view3d.label", "cmd.view3d.desc", "cmd.category.view"},
-	CmdShadingLit:            {"cmd.shadingLit.label", "cmd.shadingLit.desc", "cmd.category.view"},
-	CmdShadingUnlit:          {"cmd.shadingUnlit.label", "cmd.shadingUnlit.desc", "cmd.category.view"},
-	CmdShadingWire:           {"cmd.shadingWire.label", "cmd.shadingWire.desc", "cmd.category.view"},
-	CmdNavMeshPanel:          {"cmd.navMeshPanel.label", "cmd.navMeshPanel.desc", "cmd.category.view"},
-	CmdNavMeshOverlay:        {"cmd.navMeshOverlay.label", "cmd.navMeshOverlay.desc", "cmd.category.view"},
-	CmdBakeNavMesh3D:         {"cmd.bakeNavMesh3d.label", "cmd.bakeNavMesh3d.desc", "cmd.category.project"},
-	CmdFrameSelection:        {"cmd.frameSelection.label", "cmd.frameSelection.desc", "cmd.category.view"},
-	CmdView3DOrthographic:    {"cmd.view3dOrtho.label", "cmd.view3dOrtho.desc", "cmd.category.view"},
-	CmdToggleLightingPreview: {"cmd.lightingPreview.label", "cmd.lightingPreview.desc", "cmd.category.view"},
-	CmdToggleNavMesh2D:       {"cmd.navMesh2dOverlay.label", "cmd.navMesh2dOverlay.desc", "cmd.category.view"},
-	CmdAskAgent:              {"cmd.askAgent.label", "cmd.askAgent.desc", "cmd.category.view"},
-	CmdAgentTab:              {"cmd.agentTab.label", "cmd.agentTab.desc", "cmd.category.view"},
-	CmdInspectorTab:          {"cmd.inspectorTab.label", "cmd.inspectorTab.desc", "cmd.category.view"},
-	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
-	CmdShortcutsSheet:        {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
-	CmdToggleTasks:           {"cmd.tasks.label", "cmd.tasks.desc", "cmd.category.view"},
-	CmdHistoryPanel:          {"cmd.historyPanel.label", "cmd.historyPanel.desc", "cmd.category.view"},
-	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
-	CmdPlayMark:              {"cmd.playMark.label", "cmd.playMark.desc", "cmd.category.project"},
-	CmdAskFrozenFrame:        {"cmd.askFrozenFrame.label", "cmd.askFrozenFrame.desc", "cmd.category.project"},
-	CmdRunGame:               {"cmd.runGame.label", "cmd.runGame.desc", "cmd.category.project"},
-	CmdProjectSettings:       {"cmd.projectSettings.label", "cmd.projectSettings.desc", "cmd.category.project"},
-	CmdAudioMixer:            {"cmd.audioMixer.label", "cmd.audioMixer.desc", "cmd.category.project"},
-	CmdLocalization:          {"cmd.localization.label", "cmd.localization.desc", "cmd.category.project"},
-	CmdMaterialEditor:        {"cmd.materialEditor.label", "cmd.materialEditor.desc", "cmd.category.project"},
-	CmdExport:                {"cmd.export.label", "cmd.export.desc", "cmd.category.project"},
-	CmdBuildRelease:          {"cmd.buildRelease.label", "cmd.buildRelease.desc", "cmd.category.project"},
-	CmdProfiler:              {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
-	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
-	CmdFindUsages:            {"cmd.findUsages.label", "cmd.findUsages.desc", "cmd.category.project"},
-	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
-	CmdShortcutsSettings:     {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
-	CmdConnectAgent:          {"cmd.connectAgent.label", "cmd.connectAgent.desc", "cmd.category.project"},
-	CmdAgentPanel:            {"cmd.agentPanel.label", "cmd.agentPanel.desc", "cmd.category.view"},
-	CmdPermissionsSettings:   {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
-	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
-	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
-	CmdReplayTips:            {"cmd.replayTips.label", "cmd.replayTips.desc", "cmd.category.help"},
-	CmdNewAgentThread:        {"cmd.newAgentThread.label", "cmd.newAgentThread.desc", "cmd.category.agent"},
+	CmdNewProject:                {"cmd.newProject.label", "cmd.newProject.desc", "cmd.category.file"},
+	CmdOpenProject:               {"cmd.openProject.label", "cmd.openProject.desc", "cmd.category.file"},
+	CmdStartScreen:               {"cmd.startScreen.label", "cmd.startScreen.desc", "cmd.category.file"},
+	CmdSave:                      {"cmd.save.label", "cmd.save.desc", "cmd.category.file"},
+	CmdUndo:                      {"cmd.undo.label", "cmd.undo.desc", "cmd.category.edit"},
+	CmdRedo:                      {"cmd.redo.label", "cmd.redo.desc", "cmd.category.edit"},
+	CmdCopy:                      {"cmd.copy.label", "cmd.copy.desc", "cmd.category.edit"},
+	CmdCut:                       {"cmd.cut.label", "cmd.cut.desc", "cmd.category.edit"},
+	CmdPaste:                     {"cmd.paste.label", "cmd.paste.desc", "cmd.category.edit"},
+	CmdPasteInto:                 {"cmd.pasteInto.label", "cmd.pasteInto.desc", "cmd.category.edit"},
+	CmdDelete:                    {"cmd.delete.label", "cmd.delete.desc", "cmd.category.edit"},
+	CmdDuplicate:                 {"cmd.duplicate.label", "cmd.duplicate.desc", "cmd.category.edit"},
+	CmdGroup:                     {"cmd.group.label", "cmd.group.desc", "cmd.category.edit"},
+	CmdUngroup:                   {"cmd.ungroup.label", "cmd.ungroup.desc", "cmd.category.edit"},
+	CmdToolSelect:                {"cmd.toolSelect.label", "cmd.toolSelect.desc", "cmd.category.tools"},
+	CmdToolMove:                  {"cmd.toolMove.label", "cmd.toolMove.desc", "cmd.category.tools"},
+	CmdToolPlace:                 {"cmd.toolPlace.label", "cmd.toolPlace.desc", "cmd.category.tools"},
+	CmdToolPaintTile:             {"cmd.toolPaintTile.label", "cmd.toolPaintTile.desc", "cmd.category.tools"},
+	CmdToolEraseTile:             {"cmd.toolEraseTile.label", "cmd.toolEraseTile.desc", "cmd.category.tools"},
+	CmdToolFillTile:              {"cmd.toolFillTile.label", "cmd.toolFillTile.desc", "cmd.category.tools"},
+	CmdToolNavTestPath:           {"cmd.toolNavTestPath.label", "cmd.toolNavTestPath.desc", "cmd.category.tools"},
+	CmdGizmoTranslate:            {"cmd.gizmoTranslate.label", "cmd.gizmoTranslate.desc", "cmd.category.gizmo3d"},
+	CmdGizmoRotate:               {"cmd.gizmoRotate.label", "cmd.gizmoRotate.desc", "cmd.category.gizmo3d"},
+	CmdGizmoScale:                {"cmd.gizmoScale.label", "cmd.gizmoScale.desc", "cmd.category.gizmo3d"},
+	CmdGizmoSpace3D:              {"cmd.gizmoSpace3d.label", "cmd.gizmoSpace3d.desc", "cmd.category.gizmo3d"},
+	CmdView2D:                    {"cmd.view2d.label", "cmd.view2d.desc", "cmd.category.view"},
+	CmdView3D:                    {"cmd.view3d.label", "cmd.view3d.desc", "cmd.category.view"},
+	CmdShadingLit:                {"cmd.shadingLit.label", "cmd.shadingLit.desc", "cmd.category.view"},
+	CmdShadingUnlit:              {"cmd.shadingUnlit.label", "cmd.shadingUnlit.desc", "cmd.category.view"},
+	CmdShadingWire:               {"cmd.shadingWire.label", "cmd.shadingWire.desc", "cmd.category.view"},
+	CmdNavMeshPanel:              {"cmd.navMeshPanel.label", "cmd.navMeshPanel.desc", "cmd.category.view"},
+	CmdNavMeshOverlay:            {"cmd.navMeshOverlay.label", "cmd.navMeshOverlay.desc", "cmd.category.view"},
+	CmdBakeNavMesh3D:             {"cmd.bakeNavMesh3d.label", "cmd.bakeNavMesh3d.desc", "cmd.category.project"},
+	CmdFrameSelection:            {"cmd.frameSelection.label", "cmd.frameSelection.desc", "cmd.category.view"},
+	CmdView3DOrthographic:        {"cmd.view3dOrtho.label", "cmd.view3dOrtho.desc", "cmd.category.view"},
+	CmdToggleLightingPreview:     {"cmd.lightingPreview.label", "cmd.lightingPreview.desc", "cmd.category.view"},
+	CmdToggleNavMesh2D:           {"cmd.navMesh2dOverlay.label", "cmd.navMesh2dOverlay.desc", "cmd.category.view"},
+	CmdAskAgent:                  {"cmd.askAgent.label", "cmd.askAgent.desc", "cmd.category.view"},
+	CmdAgentTab:                  {"cmd.agentTab.label", "cmd.agentTab.desc", "cmd.category.view"},
+	CmdInspectorTab:              {"cmd.inspectorTab.label", "cmd.inspectorTab.desc", "cmd.category.view"},
+	CmdCommandPalette:            {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
+	CmdShortcutsSheet:            {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
+	CmdToggleTasks:               {"cmd.tasks.label", "cmd.tasks.desc", "cmd.category.view"},
+	CmdHistoryPanel:              {"cmd.historyPanel.label", "cmd.historyPanel.desc", "cmd.category.view"},
+	CmdPlayStop:                  {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
+	CmdPlayMark:                  {"cmd.playMark.label", "cmd.playMark.desc", "cmd.category.project"},
+	CmdAskFrozenFrame:            {"cmd.askFrozenFrame.label", "cmd.askFrozenFrame.desc", "cmd.category.project"},
+	CmdRunGame:                   {"cmd.runGame.label", "cmd.runGame.desc", "cmd.category.project"},
+	CmdProjectSettings:           {"cmd.projectSettings.label", "cmd.projectSettings.desc", "cmd.category.project"},
+	CmdAudioMixer:                {"cmd.audioMixer.label", "cmd.audioMixer.desc", "cmd.category.project"},
+	CmdLocalization:              {"cmd.localization.label", "cmd.localization.desc", "cmd.category.project"},
+	CmdMaterialEditor:            {"cmd.materialEditor.label", "cmd.materialEditor.desc", "cmd.category.project"},
+	CmdExport:                    {"cmd.export.label", "cmd.export.desc", "cmd.category.project"},
+	CmdBuildRelease:              {"cmd.buildRelease.label", "cmd.buildRelease.desc", "cmd.category.project"},
+	CmdProfiler:                  {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
+	CmdCheckProblems:             {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
+	CmdFindUsages:                {"cmd.findUsages.label", "cmd.findUsages.desc", "cmd.category.project"},
+	CmdEditorSettings:            {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
+	CmdShortcutsSettings:         {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
+	CmdConnectAgent:              {"cmd.connectAgent.label", "cmd.connectAgent.desc", "cmd.category.project"},
+	CmdAgentPanel:                {"cmd.agentPanel.label", "cmd.agentPanel.desc", "cmd.category.view"},
+	CmdPermissionsSettings:       {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
+	CmdMergeConflicts:            {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
+	CmdToggleAssetsMode:          {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
+	CmdReplayTips:                {"cmd.replayTips.label", "cmd.replayTips.desc", "cmd.category.help"},
+	CmdNewAgentThread:            {"cmd.newAgentThread.label", "cmd.newAgentThread.desc", "cmd.category.agent"},
+	CmdSketchToggle:              {"cmd.sketchToggle.label", "cmd.sketchToggle.desc", "cmd.category.tools"},
+	CmdSketchToolPen:             {"cmd.sketchToolPen.label", "cmd.sketchToolPen.desc", "cmd.category.tools"},
+	CmdSketchToolArrow:           {"cmd.sketchToolArrow.label", "cmd.sketchToolArrow.desc", "cmd.category.tools"},
+	CmdSketchToolBox:             {"cmd.sketchToolBox.label", "cmd.sketchToolBox.desc", "cmd.category.tools"},
+	CmdSketchToolText:            {"cmd.sketchToolText.label", "cmd.sketchToolText.desc", "cmd.category.tools"},
+	CmdSketchAddMarkAtCursor:     {"cmd.sketchAddMark.label", "cmd.sketchAddMark.desc", "cmd.category.tools"},
+	CmdSketchUndoMark:            {"cmd.sketchUndoMark.label", "cmd.sketchUndoMark.desc", "cmd.category.edit"},
+	CmdSketchToggleMarks:         {"cmd.sketchToggleMarks.label", "cmd.sketchToggleMarks.desc", "cmd.category.view"},
+	CmdSketchClear:               {"cmd.sketchClear.label", "cmd.sketchClear.desc", "cmd.category.edit"},
+	CmdSketchDone:                {"cmd.sketchDone.label", "cmd.sketchDone.desc", "cmd.category.tools"},
+	CmdSketchSend:                {"cmd.sketchSend.label", "cmd.sketchSend.desc", "cmd.category.tools"},
+	CmdSketchApproveReading:      {"cmd.sketchApproveReading.label", "cmd.sketchApproveReading.desc", "cmd.category.tools"},
+	CmdSketchCorrectMark:         {"cmd.sketchCorrectMark.label", "cmd.sketchCorrectMark.desc", "cmd.category.tools"},
+	CmdSketchToggleReviewOverlay: {"cmd.sketchReviewOverlay.label", "cmd.sketchReviewOverlay.desc", "cmd.category.view"},
+	CmdSketchKeepReview:          {"cmd.sketchKeepReview.label", "cmd.sketchKeepReview.desc", "cmd.category.edit"},
+	CmdSketchRevertReview:        {"cmd.sketchRevertReview.label", "cmd.sketchRevertReview.desc", "cmd.category.edit"},
 }
 
 // Commands returns all currently active commands in deterministic order:

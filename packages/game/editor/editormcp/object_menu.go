@@ -234,6 +234,9 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		sceneFile = sceneName(ed, projectRoot(ed))
+		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
+			return holdErr
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
@@ -314,6 +317,9 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		sceneFile = sceneName(ed, projectRoot(ed))
+		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
+			return holdErr
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
@@ -391,6 +397,9 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		sceneFile = sceneName(ed, projectRoot(ed))
+		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
+			return holdErr
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
@@ -505,6 +514,9 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 			return nil
 		}
 		sceneFile = sceneName(ed, projectRoot(ed))
+		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
+			return holdErr
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}

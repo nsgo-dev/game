@@ -1522,3 +1522,13 @@ func main() {
 - **折叠较早请求、跳转历史记录与跳到最新**：已审查的较早请求折叠为单行（`N 条较早请求`），点击展开显示完整提示词、变更明细、步骤列表以及**在历史记录中打开此步骤**（`OpenHistoryStep`）链接，点击后在统一历史时间线中高亮该步骤；展开较早请求时底部浮现**跳到最新**按钮（`JumpToLatestAgentRequest`）。
 - **空白线程视图（`AgentAlwaysReadItems`、`AgentBriefSuggestions`）**：空白线程会列出智能体每次请求必读的上下文（`<场景> · 整个场景`、`brief.yaml`、`AGENTS.md`、`视口图像`），并安全读取项目 `brief.yaml` 中的建议提示（`来自项目简报`）。
 - **检查器页脚来源链接（`LastAgentChangeForObject`、`OpenAgentRequest`）**：当选中对象曾被未还原的智能体请求修改（无论是通过 `SendAgentRequestWith`、`RecordAgentStep` 还是 `editormcp` 的 `scene_edit`），检查器页脚会显示“修改自“<请求标题>” · <时间>”，点击即可打开对应线程并定位/展开该请求。
+
+## 面向智能体的视口草图层（#1025）
+
+在 2D 视口上直接绘制会话级编号草图，指向关卡中尚不存在对象的区域再交给智能体构建（对应 `docs/design/editor/Sketch.dc.html`，严格使用 `docs/design/editor/Spec.dc.html` 令牌）：
+
+- **场景坐标下的四种草图工具**：按 `D`（`CmdSketchToggle` 或 `视图 > 草图`）开启/关闭草图模式，不向紧凑的 2D `editor-toolbar` 额外增加按钮。在 `ScopeSketch` 作用域下可切换 **画笔（Pen，`P`，自由折线）**、**箭头（Arrow，`A`，起点 → 终点）**、**方框（Box，`B`，矩形区域）** 与 **文本（Text，`T`，锚点 + 标签）**，也可按 `I`（`CmdSketchAddMarkAtCursor`）在光标处用键盘放置标记。每个标记自动分配连续编号徽章（`1`、`2`、`3`…）和可选标签（例如 `"3 spikes"`、`"platform, back and forth"`、`"locked until the lever"`）。所有几何坐标均通过 `CanvasToWorld` 严格保存在场景坐标中，跨缩放与平移保持精准，且**绝不**写入 `SceneDoc`、`*.scene.yaml` 或场景撤销 `History`。
+- **悬浮草图栏、场景树行与状态栏**：顶部悬浮草图栏提供四种工具、**撤销上一个标记**（`ScopeSketch` 下的 `⌘Z`）、**隐藏 / 显示标记**（`H`）、`"N marks not saved"` 计数、**Clear** 与 **Done**。按 `Esc` 结束草图绘制模式并保留已绘标记，直到发送、清空或审查保留。场景树底部展示紧凑的 `SKETCH LAYER` 行（`N marks · not saved`），状态栏实时显示场景坐标与当前草图工具。
+- **将草图发送给智能体（`SendSketch` / `Editor.OnSendSketch`）**：输入框附带 `"Sketch · N marks"` 上下文芯片（点击可展开 `"Sent with this request"` 场景坐标预览）。发送时通过 `SketchAgentRequest` 传递结构化标记（编号、类型、场景坐标几何、标签）以及叠加了编号标记的视口渲染 PNG（`RenderSketchViewportPNG`）。
+- **智能体解读卡片与 `scene_edit` 确认闸门**：发送草图后立即启用确认闸门（`SketchHoldActive() == true`），在用户确认前 `scene_edit` 等变更场景的 MCP 工具会被拒绝。智能体通过 `sketch_read` 读取草图，并通过 `sketch_reading`（`PostSketchReading`）提交复述卡片（`"I read your sketch as: …"` 与待确认假设）。点击 **Go ahead**（`ApproveSketchReading`、`⌘↵`）放行修改；点击 **Correct a mark**（`CorrectSketchMark`、`⇧M` 或点击任意编号条目）会重新进入草图模式并精确选中该标记，同时保持确认闸门生效；直接输入文字回复（`ReplyToSketchReading`）同样有效。
+- **审查叠加层与保留 / 撤销行为**：确认后智能体的场景修改会打开审查卡片（`SketchReviewOpen`），内置 **Sketch overlay** 开关（`O`、`ToggleSketchReviewOverlay`，瓦片审查 `TileReview` 中同样支持）将草图以半透明点线叠加在结果之上。**Keep**（`KeepSketchReview` / `KeepTileReview`）保留修改并清空草图层；**Revert**（`RevertSketchReview` / `RevertAllTileReview`）撤销修改但保留草图标记以便再次发送。

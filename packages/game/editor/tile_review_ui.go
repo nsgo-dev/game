@@ -417,13 +417,63 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								},
 								Style: core.Style{FontSize: 12.5, FontWeight: 500, Color: specTextStrong},
 							},
-							core.Text{
-								TestID: "tile-review-file",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return sceneFileLabel()
+							core.View{
+								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+								Children: []core.Node{
+									core.Show{
+										When: func() bool {
+											_ = rev.Get()
+											return ed.SketchMarkCount() > 0
+										},
+										Then: func(cx *core.Scope) core.Node {
+											return core.View{
+												TestID: "tile-review-sketch-overlay",
+												Role:   core.RoleButton,
+												Label:  "Toggle sketch overlay",
+												OnPress: func(core.PressEvent) {
+													ed.ToggleSketchReviewOverlay()
+												},
+												StyleFunc: func() core.Style {
+													_ = rev.Get()
+													bg := core.Transparent
+													if ed.SketchReviewOverlayVisible() {
+														bg = specLineRaised
+													}
+													return core.Style{
+														Height:         core.Pt(24),
+														Padding:        core.Symmetric(0, 8),
+														CornerRadius:   6,
+														Background:     bg,
+														AlignItems:     core.AlignCenter,
+														JustifyContent: core.JustifyCenter,
+														FocusVisible:   specFocusRingStyle,
+													}
+												},
+												Children: []core.Node{
+													core.Text{
+														Content: "Sketch overlay",
+														StyleFunc: func() core.Style {
+															_ = rev.Get()
+															col := specTextSecondary
+															if ed.SketchReviewOverlayVisible() {
+																col = specTextStrong
+															}
+															return core.Style{FontSize: 11, FontWeight: 500, Color: col}
+														},
+													},
+												},
+											}
+										},
+									},
+									core.Text{
+										TestID: "tile-review-file",
+										ContentFunc: func() string {
+											_ = rev.Get()
+											return sceneFileLabel()
+										},
+										Style: core.Style{FontSize: 11, Color: specTextMuted},
+									},
 								},
-								Style: core.Style{FontSize: 11, Color: specTextMuted},
 							},
 						},
 					},

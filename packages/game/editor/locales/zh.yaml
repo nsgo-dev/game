@@ -233,6 +233,38 @@ strings:
   cmd.shortcutsSettings.label: 设置：键盘快捷键
   cmd.shortcutsSheet.desc: 显示按作用域分组的键盘快捷键速查表
   cmd.shortcutsSheet.label: 键盘快捷键
+  cmd.sketchAddMark.desc: 在当前光标或视口中心放置一个编号草图标记
+  cmd.sketchAddMark.label: 草图：在光标处添加标记
+  cmd.sketchApproveReading.desc: 确认智能体的草图解读并解除 scene_edit 确认等待
+  cmd.sketchApproveReading.label: 草图：继续执行
+  cmd.sketchClear.desc: 清空视口草图层中的所有标记
+  cmd.sketchClear.label: 草图：清空标记
+  cmd.sketchCorrectMark.desc: 重新打开草图模式并选中目标标记以便修改
+  cmd.sketchCorrectMark.label: 草图：修正标记
+  cmd.sketchDone.desc: 退出草图绘制模式并保留已绘标记直到发送或清空
+  cmd.sketchDone.label: 草图：完成草图模式
+  cmd.sketchKeepReview.desc: 保留智能体基于草图的场景修改并清空视口草图层
+  cmd.sketchKeepReview.label: 审查：保留修改并清空草图
+  cmd.sketchRevertReview.desc: 撤销智能体基于草图的场景修改并保留草图标记以便再次发送
+  cmd.sketchRevertReview.label: 审查：撤销修改并保留草图
+  cmd.sketchReviewOverlay.desc: 在 2D 视口中将已发送的草图半透明叠加到审查结果上
+  cmd.sketchReviewOverlay.label: 审查：切换草图叠加层
+  cmd.sketchSend.desc: 将场景坐标中的视口草图标记与渲染 PNG 一并发送给智能体
+  cmd.sketchSend.label: 草图：发送给智能体
+  cmd.sketchToggle.desc: 切换面向智能体的会话级视口草图层
+  cmd.sketchToggle.label: 在视口上绘制草图
+  cmd.sketchToggleMarks.desc: 暂时隐藏或显示视口上的草图标记而不清空
+  cmd.sketchToggleMarks.label: 草图：隐藏 / 显示标记
+  cmd.sketchToolArrow.desc: 在视口草图层上绘制带方向的箭头标记
+  cmd.sketchToolArrow.label: 草图工具：箭头
+  cmd.sketchToolBox.desc: 在视口草图层上绘制矩形区域标记
+  cmd.sketchToolBox.label: 草图工具：方框
+  cmd.sketchToolPen.desc: 在视口草图层上绘制自由手绘折线标记
+  cmd.sketchToolPen.label: 草图工具：画笔
+  cmd.sketchToolText.desc: 在视口草图层上放置带标签的文本标记
+  cmd.sketchToolText.label: 草图工具：文本
+  cmd.sketchUndoMark.desc: 撤销视口草图层的上一次标记变更
+  cmd.sketchUndoMark.label: 草图：撤销上一个标记
   cmd.startScreen.desc: 显示包含最近项目、模板与演示的开始界面
   cmd.startScreen.label: 开始界面
   cmd.tasks.desc: 切换智能体后台任务列表面板
@@ -629,6 +661,7 @@ strings:
   menu.shadingWireframe: 线框
   menu.shortcutsSettings: 键盘快捷键…
   menu.shortcutsSheet: 键盘快捷键
+  menu.sketch: 草图
   menu.startScreen: 开始界面
   menu.stop: 停止
   menu.tasks: 后台任务
@@ -857,6 +890,7 @@ strings:
   scope.play: 运行
   scope.review: 审核
   scope.sceneTree: 场景树
+  scope.sketch: 草图
   scope.tile: 瓦片
   scope.viewport: 视口
   scope.viewport2d: 2D 视口
@@ -1136,6 +1170,17 @@ strings:
   shortcutsSheet.subtitleMac: macOS 按键。可在“设置 › 快捷键”中重新绑定任意命令。
   shortcutsSheet.subtitleOther: Windows 与 Linux 按键。可在“设置 › 快捷键”中重新绑定任意命令。
   shortcutsSheet.title: 键盘快捷键
+  sketch.clear: 清空
+  sketch.done: 完成
+  sketch.hideMarks: 隐藏标记
+  sketch.showMarks: 显示标记
+  sketch.statusHint: Esc 结束草图 · 标记会保留直到发送或清空
+  sketch.tool.arrow: 箭头
+  sketch.tool.box: 方框
+  sketch.tool.pen: 画笔
+  sketch.tool.text: 文本
+  sketch.toolbarLabel: 草图工具
+  sketch.undoMark: 撤销上一个标记
   snap.auto: 自动
   snap.autoLabel: 跟随当前图层的瓦片尺寸
   snap.grid: 网格

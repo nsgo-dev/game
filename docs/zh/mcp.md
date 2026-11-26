@@ -346,6 +346,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `datatable_review_propose` | edit | `files`（必填）、`prompt`、`checks`（可选） | 使用 `datatable.ParseDocument`（及已注册的 Go 行类型）校验一个或多个版本 1 YAML 数据表文件，并打开带旧值 → 新值、`Δ%`、单行 Revert/Restore 与可选智能体核验指标的逐行数据表审查界面，在用户点击 Keep 前不修改磁盘。 |
 | `datatable_review_checks` | edit | `checks`（必填） | 在当前数据表审查中附上或刷新智能体的具名核验指标（`label`、`value`、`before`、`basis`），并在作者还原、编辑或重排记录后清除 `checksOutOfDate` 标记。 |
 | `datatable_review_status` | read | `file`（可选） | 返回当前数据表审查的文件列表、保留/还原/用户编辑计数、当前文件改动记录状态、已附带的核验指标以及 `checksOutOfDate` 是否为真。 |
+| `sketch_read` | read | `includeImage`、`scale` | 读取当前或已发送的视口草图标记（画笔、箭头、方框、文本），返回连续编号、精确场景坐标、标签、提示词、确认闸门状态，以及可选的叠加编号标记的视口渲染 PNG。 |
+| `sketch_reading` | edit | `summary`、`items`、`assumptions` | 向编辑器提交智能体对已发送草图的复述卡片（`"I read your sketch as: …"`）与假设说明；在草图等待确认期间，`scene_edit` 及其他变更场景的工具会被拦住，直到用户点击 **Go ahead**、**Correct a mark** 或以文字回复。 |
 
 编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`。
 

@@ -443,6 +443,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 								},
 							}}},
+							sceneTreeSketchSectionView(cx, ed, rev),
 							core.Text{
 								TestID:  "scene-tree-hint",
 								Content: ed.T("sceneTree.hint"),

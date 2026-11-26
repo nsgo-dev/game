@@ -2050,6 +2050,7 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 	historyOwned := rev.historyOwned
 	historyStart := rev.historyStart
 	e.tileReview = nil
+	e.clearSketchOnReviewKeep()
 
 	if historyOwned && e.History != nil && historyStart >= 0 && historyStart <= e.History.cursor {
 		// Collapse all intermediate agent review steps back to historyStart so Keep records exactly ONE undo step.
@@ -2188,6 +2189,7 @@ func (e *Editor) RevertAllTileReview() error {
 	historyOwned := rev.historyOwned
 	historyStart := rev.historyStart
 	e.tileReview = nil
+	e.keepSketchOnReviewRevert()
 
 	if historyOwned && e.History != nil && historyStart >= 0 && historyStart <= e.History.cursor {
 		var toBase []tileChange

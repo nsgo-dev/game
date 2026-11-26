@@ -157,6 +157,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if ed.Playing() {
 			return &EditError{File: name, Problem: "the scene is playing in the editor, which refuses edits", Fix: "ask the person to stop playing, then edit"}
 		}
+		if holdErr := sketchHoldEditError(ed, name); holdErr != nil {
+			return holdErr
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
@@ -183,7 +186,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if title == "" {
 			title = label
 		}
-		var editedIDs []string
+		var editedIDs, changedIDs, removedIDs []string
 		err := ed.RecordAgentTurn(editor.AgentTurnOptions{
 			Title:       title,
 			UndoLabel:   label,
@@ -198,8 +201,12 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 				if id != "" {
 					res.Objects = append(res.Objects, id)
 					editedIDs = append(editedIDs, id)
+				} else if e.Op == "remove" && e.ID != "" {
+					editedIDs = append(editedIDs, e.ID)
+					removedIDs = append(removedIDs, e.ID)
 				} else if e.ID != "" {
 					editedIDs = append(editedIDs, e.ID)
+					changedIDs = append(changedIDs, e.ID)
 				}
 			}
 			return nil
@@ -209,6 +216,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if len(editedIDs) > 0 {
 			ed.NoteAgentEditedObjects(editedIDs, []string{scenePath(ed, root)}, label)
+		}
+		if ed.SketchApproved() {
+			ed.RecordSketchReviewEdits(label, res.Objects, changedIDs, removedIDs)
 		}
 		return nil
 	})

@@ -746,7 +746,18 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 														return TileReviewPanelView(cx, ed, rev)
 													},
 													Else: func(cx *core.Scope) core.Node {
-														return RightRailView(cx, ed, rev)
+														return core.Show{
+															When: func() bool {
+																_ = rev.Get()
+																return ed.SketchPanelOpen()
+															},
+															Then: func(cx *core.Scope) core.Node {
+																return SketchPanelView(cx, ed, rev)
+															},
+															Else: func(cx *core.Scope) core.Node {
+																return RightRailView(cx, ed, rev)
+															},
+														}
 													},
 												}
 											},
@@ -1711,6 +1722,14 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								}
 								return status
 							}
+							if !ed.Playing() && ed.SketchActive() {
+								sx, sy := ed.SketchStatusSceneCoords()
+								return fmt.Sprintf("Sketch layer · scene %d, %d · Sketch · %s",
+									int(math.Round(float64(sx))),
+									int(math.Round(float64(sy))),
+									ed.SketchTool().String(),
+								)
+							}
 							zoom := int(math.Round(float64(ed.View2D().Zoom * 100)))
 							status := ed.T("status.mode2d",
 								l10n.Param("mode", mode),
@@ -1978,6 +1997,9 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 							if ed.BuildErr != nil {
 								return ed.T("status.buildError", l10n.Param("error", ed.BuildErr.Error()))
+							}
+							if !ed.Playing() && ed.ViewMode == ViewMode2D && ed.SketchActive() {
+								return ed.T("sketch.statusHint")
 							}
 							if ed.Status == "Ready" {
 								return ed.T("status.ready")
