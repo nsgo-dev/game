@@ -972,17 +972,24 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 // AgentPanelView renders the Agent tab panel: 44 pt header with tabs and status chip,
 // scene-grouped thread header and switcher popover, scrollable thread of persisted requests /
-// live user turns / streamed steps / open requests or empty-thread orientation, and AgentComposerView
-// (@-mentions, context chips, hover preview, and context meter).
+// live user turns / streamed steps / permission cards / review summaries or empty-thread orientation,
+// and AgentComposerView (@-mentions, context chips, hover preview, and context meter) or the
+// working "Add to this request" + Stop footer.
 func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	addDraft := core.NewSignal(cx, "")
 	openReqRef := new(core.Ref)
 	panelRef := new(core.Ref)
 	switcherBtnRef := new(core.Ref)
+	cardRef := new(core.Ref)
+	allowOnceRef := new(core.Ref)
+	allowAlwaysRef := new(core.Ref)
+	denyRef := new(core.Ref)
 	ed.SetAgentPanelRef(panelRef)
 	cx.Cleanup(func() {
 		if ed.focus.ctrl != nil && ed.focus.ctrl.agentPanelRef == panelRef {
 			ed.SetAgentPanelRef(nil)
 		}
+		ed.setLivePermissionCardFocused(false)
 	})
 	if ed.focus.ctrl != nil {
 		ed.focus.ctrl.registerCandidate(cx, RegionInspector, switcherBtnRef, func() bool {
@@ -990,23 +997,91 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		})
 	}
 
+	pendingAskMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.PendingAgentPermissionAsk() != nil
+	})
+	// Permission card keyboard shortcuts (Spec.dc.html "CARD · PERMISSION OR QUESTION FOCUSED"):
+	// Mod+Enter allows once, Alt+Enter adds Always rule, Mod+Backspace/Delete denies,
+	// Up/Down cycle choices. Mounted only while a permission ask is pending so it never
+	// shadows Scene Tree, Sketch, Review, or Composer shortcuts at rest.
+	permissionCardKeyScope := core.Show{
+		When: pendingAskMemo.Get,
+		Then: func(cx *core.Scope) core.Node {
+			cardKeyOpts := core.KeyOptions{When: core.KeyNotEditing}
+			cx.OnKeyWith("mod+enter", cardKeyOpts, func() {
+				if ed.shortcutCaptureActive || ed.CapturingKey() {
+					return
+				}
+				if cardRef.HoldsFocus() {
+					ed.AllowPermissionOnce()
+					return
+				}
+				ed.dispatchBoundShortcut("mod+enter")
+			})
+			cx.OnKeyWith("alt+enter", cardKeyOpts, func() {
+				if ed.shortcutCaptureActive || ed.CapturingKey() || !cardRef.HoldsFocus() {
+					return
+				}
+				ed.AllowPermissionAlways()
+			})
+			cx.OnKeyWith("mod+backspace", cardKeyOpts, func() {
+				if ed.shortcutCaptureActive || ed.CapturingKey() {
+					return
+				}
+				if cardRef.HoldsFocus() {
+					ed.DenyPermission()
+					return
+				}
+				ed.dispatchBoundShortcut("mod+backspace")
+			})
+			cx.OnKeyWith("mod+delete", cardKeyOpts, func() {
+				if ed.shortcutCaptureActive || ed.CapturingKey() || !cardRef.HoldsFocus() {
+					return
+				}
+				ed.DenyPermission()
+			})
+			cx.OnKeyWith("down", cardKeyOpts, func() {
+				if ed.shortcutCaptureActive || ed.CapturingKey() || !cardRef.HoldsFocus() {
+					return
+				}
+				moveAgentCardFocus([]*core.Ref{allowOnceRef, allowAlwaysRef, denyRef}, +1)
+			})
+			cx.OnKeyWith("up", cardKeyOpts, func() {
+				if ed.shortcutCaptureActive || ed.CapturingKey() || !cardRef.HoldsFocus() {
+					return
+				}
+				moveAgentCardFocus([]*core.Ref{allowOnceRef, allowAlwaysRef, denyRef}, -1)
+			})
+			return nil
+		},
+	}
+
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+		if ed.shortcutCaptureActive || ed.CapturingKey() {
+			return
+		}
+		if cardRef.HoldsFocus() {
+			// Spec rule 02 & CARD scope: Esc leaves the permission card unanswered;
+			// the agent keeps waiting and NEVER denies or stops.
+			if refMounted(panelRef) {
+				panelRef.Focus()
+			}
+			return
+		}
 		if ed.AgentSwitcherOpen() {
 			ed.SetAgentSwitcherOpen(false)
+			return
 		}
-	})
-
-	// Esc cancels "Let me point" viewport picking, or stops an active agent run when not editing text or in a modal.
-	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.CommandPaletteOpen() || ed.ConnectDialogOpen() || ed.SettingsOpen() || ed.AskInPlaceOpen() || ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.AgentSwitcherOpen() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() {
+		if ed.CommandPaletteOpen() || ed.ConnectDialogOpen() || ed.SettingsOpen() || ed.AskInPlaceOpen() || ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() {
 			return
 		}
 		if ed.AgentPointingActive() {
 			ed.CancelAgentPointing()
 			return
 		}
-		if ed.AgentWorking() && !ed.IsTyping() {
-			ed.StopAgentRun()
+		if ed.SketchActive() {
+			ed.FinishSketch()
 		}
 	})
 	focusSeqMemo := core.NewMemo(cx, func() uint64 {
@@ -1017,6 +1092,24 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		if focusSeqMemo.Get() > 0 {
 			openReqRef.Focus()
 		}
+	})
+
+	focusCardSeqMemo := core.NewMemo(cx, func() uint64 {
+		_ = rev.Get()
+		return ed.agent.liveFocusCardSeq
+	})
+	lastFocusedCardSeq := uint64(0)
+	cx.Effect(func() {
+		seq := focusCardSeqMemo.Get()
+		if seq == 0 || seq == lastFocusedCardSeq {
+			return
+		}
+		lastFocusedCardSeq = seq
+		cx.Post(func() {
+			if refMounted(allowOnceRef) {
+				allowOnceRef.Focus()
+			}
+		})
 	})
 
 	threadKey := core.NewMemo(cx, func() string {
@@ -1045,7 +1138,11 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.AgentThreadID(),
 		)
 		for _, t := range ed.agent.turns {
-			fmt.Fprintf(&b, "%s:%s:%d:%d:%v:%v:%v:%s:%s:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
+			kept, revd, notChk := false, false, 0
+			if t.PendingReview != nil {
+				kept, revd, notChk = t.PendingReview.Kept, t.PendingReview.Reverted, len(t.PendingReview.NotChecked)
+			}
+			fmt.Fprintf(&b, "%s:%s:%d:%d:%d:%v:%v:%v:%s:%s:%v:%v:%d:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), len(t.FollowUps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, kept, revd, notChk, len(t.Summary), len(t.Reply), len(t.Error))
 			if t.Partial != nil {
 				fmt.Fprintf(&b, ":P(%v,%v,%v,%v)", t.Partial.Pointing, t.Partial.Kept, t.Partial.TryingAnother, t.Partial.HasPoint)
 			}
@@ -1066,7 +1163,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			b.WriteByte('|')
 			for _, st := range t.Steps {
-				fmt.Fprintf(&b, "%s=%s;", st.ID, st.Status)
+				fmt.Fprintf(&b, "%s=%s:%v;", st.ID, st.Status, st.CanAllowNow)
 			}
 			if t.ModelError != nil {
 				fmt.Fprintf(&b, "me=%d:%d:%d:%v:%s:%s;", t.ModelError.StatusCode, t.ModelError.RetryAttempt, t.ModelError.RetryTotal, t.ModelError.Retrying, t.ModelError.Headline, t.ModelError.AlternativeAgent)
@@ -1075,7 +1172,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		for _, q := range ed.agent.queued {
 			fmt.Fprintf(&b, "q=%s:%v;", q.ID, q.Offline)
 		}
-		if ed.agent.openRequest != nil {
+		if ask := ed.PendingAgentPermissionAsk(); ask != nil {
+			fmt.Fprintf(&b, "ask:%s|", ask.ID)
+		} else if ed.agent.openRequest != nil {
 			fmt.Fprintf(&b, "req:%s|", ed.agent.openRequest.ID)
 		}
 		if ed.DataTableReviewPending() {
@@ -1084,11 +1183,17 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return b.String()
 	})
 
+	workingMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.AgentWorking()
+	})
+
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
 		return ed.SpecPalette(cx).Dark
 	})
 
+	osKind := cx.Env().OS()
 	tabBar := core.Dynamic(func(cx *core.Scope) core.Node {
 		p := SpecPaletteFor(darkMemo.Get())
 		return rightRailTabBar(cx, ed, rev, p, true)
@@ -1100,6 +1205,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		turns := ed.AgentTurns()
 		composerTurns := ed.AgentThreadTurns()
 		summary := ed.AgentThreadSummary()
+		pendingAsk := ed.PendingAgentPermissionAsk()
 		openReq := ed.AgentOpenRequest()
 		hasReviewCard := ed.HasAgentPanelCard()
 		dtPending := ed.DataTableReviewPending()
@@ -1117,10 +1223,10 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		offlineNodes := agentOfflineAndQueueSection(ed, p)
 
 		if active != nil && len(active.Requests) > 0 {
-			return agentThreadConversationBody(cx, ed, rev, p, active, turns, openReq, openReqRef)
+			return agentThreadConversationBody(cx, ed, rev, p, osKind, active, turns, pendingAsk, openReq, openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef)
 		}
 		ready := ed.ReadyToReviewTurns()
-		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
+		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || pendingAsk != nil || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
 			var items []core.Node
 			if len(ready) > 0 {
 				items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
@@ -1135,7 +1241,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				items = append(items, agentComposerSummaryCard(ed, p, summary))
 			}
 			for ti, turn := range turns {
-				items = append(items, agentTurnView(ed, rev, ti, turn, p))
+				items = append(items, agentTurnView(ed, rev, ti, turn, p, osKind))
 			}
 			if len(composerTurns) > 0 {
 				items = append(items, agentComposerThreadNodes(ed, p, composerTurns)...)
@@ -1155,7 +1261,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			if activeRev != nil {
 				items = append(items, agentTurnReviewDrawer(ed, activeRev, p))
 			}
-			if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
+			if pendingAsk != nil {
+				items = append(items, agentPermissionCardView(p, ed, *pendingAsk, osKind, cardRef, allowOnceRef, allowAlwaysRef, denyRef))
+			} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
 				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
 			}
 			if !limitReached && len(limitQueued) > 0 {
@@ -1182,11 +1290,25 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return agentEmptyThreadBody(cx, ed, p)
 	})
 
+	footer := core.Show{
+		When: workingMemo.Get,
+		Then: func(cx *core.Scope) core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				p := SpecPaletteFor(darkMemo.Get())
+				return agentWorkingFooterView(cx, ed, p, addDraft)
+			})
+		},
+		Else: func(cx *core.Scope) core.Node {
+			return AgentComposerView(cx, ed, rev)
+		},
+	}
+
 	return core.View{
-		TestID: "agent-panel",
-		Ref:    panelRef,
-		Role:   core.RoleRegion,
-		Label:  "Agent panel",
+		TestID:    "agent-panel",
+		Ref:       panelRef,
+		Role:      core.RoleRegion,
+		Label:     "Agent panel",
+		Focusable: func() bool { return true },
 		StyleFunc: func() core.Style {
 			p := SpecPaletteFor(darkMemo.Get())
 			return core.Style{
@@ -1199,6 +1321,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 		},
 		Children: []core.Node{
+			permissionCardKeyScope,
 			tabBar,
 			agentThreadHeaderBar(cx, ed, rev, switcherBtnRef),
 			core.View{
@@ -1221,7 +1344,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 				},
 			},
-			AgentComposerView(cx, ed, rev),
+			footer,
 		},
 	}
 }
@@ -1331,7 +1454,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette) core.Node {
+func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette, osKind core.OS) core.Node {
 	var children []core.Node
 	if turn.Automation {
 		stateLabel, stateFg, stateBg, stateEdge := automationReviewBadgeStyle(ed, turn.ReviewState, p)
@@ -1454,7 +1577,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 	if len(turn.Steps) > 0 && turn.StoppedState == nil {
 		stepNodes := make([]core.Node, 0, len(turn.Steps))
 		for si, step := range turn.Steps {
-			stepNodes = append(stepNodes, agentStepRow(turnIdx, si, step, p))
+			stepNodes = append(stepNodes, agentLiveStepRow(ed, turnIdx, si, step, p))
 		}
 		stepStyle := core.Style{
 			Gap: 8,
@@ -1469,11 +1592,15 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 		})
 	}
 
+	for fi, fu := range turn.FollowUps {
+		children = append(children, agentFollowUpBubble(p, fmt.Sprintf("agent-followup-%d-%d", turnIdx, fi), fu.Text))
+	}
+
 	replyText := turn.Summary
 	if replyText == "" {
 		replyText = turn.Reply
 	}
-	if replyText != "" {
+	if replyText != "" && (turn.PendingReview == nil || turn.PendingReview.Summary != replyText) {
 		children = append(children, core.View{
 			TestID: "agent-turn-reply-" + turn.ID,
 			Children: []core.Node{
@@ -1531,6 +1658,8 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 	}
 	if turn.StoppedState != nil {
 		children = append(children, agentStoppedSection(ed, turnIdx, turn, p)...)
+	} else if turn.PendingReview != nil && (turn.Done || turn.Stopped) {
+		children = append(children, agentTurnReviewCardView(p, ed, *turn.PendingReview, osKind))
 	} else if turn.Stopped {
 		children = append(children, core.Text{
 			TestID:  fmt.Sprintf("agent-turn-stopped-%d", turnIdx),

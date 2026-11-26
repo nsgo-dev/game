@@ -1647,7 +1647,7 @@ func PermissionsWorkspaceOverlayView(cx *core.Scope, ed *Editor, rev *core.Signa
 				}
 				p := ed.SpecPalette(cx)
 				items := make([]core.Node, 0, 2)
-				if pending := ed.PendingPermissionRequests(); len(pending) > 0 {
+				if pending := ed.PendingPermissionRequests(); len(pending) > 0 && ed.PendingAgentPermissionAsk() == nil {
 					items = append(items, permissionsAskCardNode(p, ed, pending[0], "workspace-perm-ask"))
 				}
 				if blocked := ed.BlockedPermissions(); len(blocked) > 0 {

@@ -854,8 +854,8 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 				ed.PrepareExternalAgentBaseline()
 			})
 		}
-		res, err := s.callWithSession(ctx, t, rawArgs, false, sess)
-		if !isTaskSession {
+		res, managed, err := s.callWithSessionManaged(ctx, t, rawArgs, false, sess)
+		if !isTaskSession && !managed {
 			clientName := ""
 			if sess != nil {
 				s.mu.Lock()
@@ -873,6 +873,25 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 			s.notifyEditor(func(ed *editor.Editor) {
 				ed.RecordAgentToolCall(editor.AgentToolCallRecord{
 					ClientName:  clientName,
+					ToolName:    t.Name,
+					StepTitle:   stepTitle,
+					CallSummary: callSummary,
+					ErrorText:   errText,
+					IsError:     err != nil,
+				})
+			})
+		} else if !isTaskSession && managed && t.Name != ToolAgentReportStep {
+			stepTitle := t.Title
+			if stepTitle == "" {
+				stepTitle = t.Name
+			}
+			callSummary := formatMCPCallSummary(t.Name, rawArgs, stepTitle)
+			errText := formatMCPErrorSummary(err)
+			s.notifyEditor(func(ed *editor.Editor) {
+				if ed.AgentStopped() || !ed.HasActiveLiveAgentRequest() {
+					return
+				}
+				ed.RecordAgentToolCall(editor.AgentToolCallRecord{
 					ToolName:    t.Name,
 					StepTitle:   stepTitle,
 					CallSummary: callSummary,
@@ -962,10 +981,11 @@ func formatMCPErrorSummary(err error) string {
 
 // call runs t with args after checking the editor's permission rules, recovering a panic as an error; onEditor says the caller is on the editor's goroutine.
 func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage, onEditor bool) (res *Result, err error) {
-	return s.callWithSession(ctx, t, args, onEditor, nil)
+	res, _, err = s.callWithSessionManaged(ctx, t, args, onEditor, nil)
+	return res, err
 }
 
-func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessage, onEditor bool, session *mcp.ServerSession) (res *Result, err error) {
+func (s *Server) callWithSessionManaged(ctx context.Context, t Tool, args json.RawMessage, onEditor bool, session *mcp.ServerSession) (res *Result, managed bool, err error) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage(`{}`)
 	}
@@ -975,67 +995,9 @@ func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessa
 		}
 	}()
 	if !s.isToolEnabled(t.Name) {
-		return nil, toolDisabledError(t.Name)
+		return nil, false, toolDisabledError(t.Name)
 	}
-	if err := s.checkPermission(ctx, t, args, onEditor); err != nil {
-		return nil, err
-	}
-	if err = s.checkPrivacyPre(ctx, t, args, onEditor); err != nil {
-		return nil, err
-	}
-	c := &Call{
-		Args:     args,
-		s:        s,
-		onEditor: onEditor,
-		session:  session,
-		taskID:   s.sessionTaskID(session),
-	}
-	startedTurn := false
-	if t.Action == ActionEdit &&
-		t.Name != ToolCheckpointRestore &&
-		t.Name != ToolAgentTurnReply &&
-		t.Name != ToolTasksSubmit &&
-		t.Name != ToolTasksControl &&
-		t.Name != ToolPermissionsDraft &&
-		t.Name != ToolGameDeleteFile {
-		kind := editor.CheckpointKindTurn
-		if onEditor {
-			kind = editor.CheckpointKindAutomation
-		}
-		_ = c.Editor(ctx, func(ed *editor.Editor) error {
-			if ed.Project != nil && ed.ProjectPath != "" && ed.ActiveTurnID() == "" {
-				if _, berr := ed.BeginCheckpointTurnWith(editor.CheckpointOptions{
-					Who:   editor.HistoryAuthorAgent,
-					Kind:  kind,
-					Title: checkpointTitleForTool(t),
-				}); berr == nil {
-					startedTurn = true
-				}
-			}
-			return nil
-		})
-	}
-	finished := false
-	if startedTurn {
-		defer func() {
-			cleanupCtx := context.WithoutCancel(ctx)
-			_ = c.Editor(cleanupCtx, func(ed *editor.Editor) error {
-				if !finished || err != nil {
-					_, _ = ed.FinishCheckpointTurnOnError("interrupted")
-				} else {
-					_, _ = ed.EndCheckpointTurn("")
-				}
-				return nil
-			})
-		}()
-	}
-	res, err = t.Handler(ctx, c)
-	finished = true
-	if err == nil {
-		if perr := s.checkPrivacyPost(ctx, t, res, onEditor); perr != nil {
-			res, err = nil, perr
-		}
-	}
+	res, managed, err = s.runManagedToolCall(ctx, t, args, onEditor, session)
 	if warn := s.saveFailureWarning(ctx, onEditor); warn != nil {
 		if err != nil {
 			err = &saveWarningError{err: err, warning: warn}
@@ -1054,7 +1016,7 @@ func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessa
 			}
 		}
 	}
-	return res, err
+	return res, managed, err
 }
 
 func (s *Server) saveFailureWarning(ctx context.Context, onEditor bool) *SaveWarning {

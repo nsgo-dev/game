@@ -2,6 +2,9 @@
 version: 1
 locale: en
 strings:
+  agent.addPlaceholder: Add to this request…
+  agent.allowNow: Allow now
+  agent.alwaysAddsRule: Always adds a rule
   agent.automationBadge: Automation
   agent.automationCheckpoint: Checkpoint taken before start · {id}
   agent.automationDismiss: Dismiss
@@ -18,6 +21,7 @@ strings:
   agent.composerLabel: Ask the agent
   agent.composerPlaceholder: Describe a change… e.g. make the knight jump higher
   agent.connectShort: Connect
+  agent.footerHint: stops the agent from anywhere · Esc never stops the agent
   agent.headerPendingReview: Agent · {count} pending changes
   agent.headerWaiting: Waiting for you
   agent.headerWaitingDetail: Waiting for you · {detail}
@@ -63,6 +67,7 @@ strings:
   agent.ref.sentOnce: Sent with this request only
   agent.ref.undo: Undo
   agent.revert: Revert
+  agent.review: Review
   agent.status.disconnected: Disconnected
   agent.status.limitShort: Limit
   agent.status.offline: Offline
@@ -71,6 +76,8 @@ strings:
   agent.status.workingShort: Working
   agent.statusKept: Kept agent turn
   agent.statusReverted: Reverted agent turn
+  agent.stop: Stop
+  agent.stoppedToast: Agent stopped
   agent.tab: Agent
   agent.treeChanged: MOD
   agent.treeNew: NEW

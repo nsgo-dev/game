@@ -12,6 +12,9 @@ import (
 
 // Agent turn tool names exposed by editormcp alongside scene_read, scene_edit, selection_get, and viewport_image.
 const (
+	// ToolAgentReportStep lets a connected agent report a live progress step in its own plain words
+	// along with the scene object IDs the step touches, and receive queued "Add to this request" follow-ups.
+	ToolAgentReportStep = "agent_report_step"
 	// ToolAgentTurnGet returns the latest (or named) agent turn started from the ⌘L in-place composer or Agent panel,
 	// with the user's prompt, skipPlan flag, selection object IDs, open scene path and YAML, and viewport PNG image.
 	ToolAgentTurnGet = "agent_turn_get"
@@ -20,6 +23,11 @@ const (
 )
 
 const (
+	agentReportStepSchema = `{"type":"object","additionalProperties":false,"required":["text"],"properties":{` +
+		`"text":{"type":"string","minLength":1,"description":"Plain-words description of what the agent did or is doing, such as \"Placed 3 coins toward the door\""},` +
+		`"objects":{"type":"array","items":{"type":"string"},"description":"Optional scene object IDs this step touches"},` +
+		`"status":{"type":"string","enum":["running","done"],"description":"Whether this step is still running (spinner) or finished (check); defaults to done"}}}`
+
 	agentTurnGetSchema = `{"type":"object","additionalProperties":false,"properties":{` +
 		`"turnId":{"type":"string","description":"Optional turn ID to read; defaults to the latest agent turn"},` +
 		`"includeScene":{"type":"boolean","description":"Include the open scene YAML snapshot in structured output (defaults to true)"},` +
@@ -33,6 +41,14 @@ const (
 
 func agentTools() []Tool {
 	return []Tool{
+		{
+			Name:        ToolAgentReportStep,
+			Title:       "Report an agent step",
+			Description: "Report a live progress step in the Agent panel in plain words, optionally naming the scene object IDs it touches, and receive any follow-up instructions the person added to the running request.",
+			InputSchema: []byte(agentReportStepSchema),
+			Action:      ActionRead,
+			Handler:     agentReportStep,
+		},
 		{
 			Name:        ToolAgentTurnGet,
 			Title:       "Get the latest agent turn",

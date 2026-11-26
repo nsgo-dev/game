@@ -493,7 +493,18 @@ func agentEmptyThreadBody(cx *core.Scope, ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentThreadConversationBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, t *AgentThread, turns []AgentTurn, openReq *AgentOpenRequest, openReqRef *core.Ref) core.Node {
+func agentThreadConversationBody(
+	cx *core.Scope,
+	ed *Editor,
+	rev *core.Signal[uint64],
+	p SpecPalette,
+	osKind core.OS,
+	t *AgentThread,
+	turns []AgentTurn,
+	pendingAsk *AgentPermissionPrompt,
+	openReq *AgentOpenRequest,
+	openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef *core.Ref,
+) core.Node {
 	expandedID := ed.ExpandedAgentRequestID()
 	var nodes []core.Node
 	if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
@@ -920,7 +931,7 @@ func agentThreadConversationBody(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 		Children: latestNodes,
 	})
 	for ti, turn := range turns {
-		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, p))
+		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, p, osKind))
 	}
 	if ed.HasAgentPanelCard() {
 		nodes = append(nodes, agentReviewPanelCards(ed, p, turns)...)
@@ -937,7 +948,9 @@ func agentThreadConversationBody(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 	if activeRev := ed.ActiveAgentReview(); activeRev != nil {
 		nodes = append(nodes, agentTurnReviewDrawer(ed, activeRev, p))
 	}
-	if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
+	if pendingAsk != nil {
+		nodes = append(nodes, agentPermissionCardView(p, ed, *pendingAsk, osKind, cardRef, allowOnceRef, allowAlwaysRef, denyRef))
+	} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
 		nodes = append(nodes, agentOpenRequestCard(ed, openReq, openReqRef, p))
 	}
 	if !limitReached && len(limitQueued) > 0 {
