@@ -266,9 +266,9 @@ func TestCommandModeWithMockAgent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// The mock agent gets no path into the repository: it checks the prompt and the staged docs, copies in the reference solution (whose path only the test knows), and builds it itself, which needs the go.work the runner sets up before the agent runs.
+	// The mock agent gets no path into the repository: it checks the prompt, the staged docs, the staged Agent Skill, and the MCP config, copies in the reference solution (whose path only the test knows), and builds it itself, which needs the go.work the runner sets up before the agent runs.
 	ref := filepath.Join(root, "tools", "agenteval", "testdata", "fixtures", "add-menu", "reference")
-	mockCmd := `test -z "$AGENTEVAL_REPO_ROOT" && test -s "$AGENTEVAL_PROMPT_FILE" && test -s "$AGENTEVAL_CONTEXT_DIR/docs/en/mcp.md" && test -n "$GOWORK" && cp -R '` + ref + `/.' . && go tool nsgo check`
+	mockCmd := `test -z "$AGENTEVAL_REPO_ROOT" && test -s "$AGENTEVAL_PROMPT_FILE" && test -s "$AGENTEVAL_CONTEXT_DIR/docs/en/mcp.md" && test -s "$AGENTEVAL_SKILL_FILE" && test -s "$AGENTEVAL_SKILL_DIR/references/mcp-tools.md" && test -s "$AGENTEVAL_MCP_CONFIG" && test -n "$GOWORK" && cp -R '` + ref + `/.' . && go tool nsgo check`
 	report, err := RunSuite(ctx, RunOptions{
 		RepoRoot:         root,
 		TasksDir:         tasksDir,

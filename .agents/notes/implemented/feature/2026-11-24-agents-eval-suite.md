@@ -42,7 +42,7 @@ Rejected because static AST checks miss runtime regressions in `game/mcp`, `nsgo
 
 ## Consequences
 
-- **Benefits**: Daily scheduled CI verifies the reference solutions' YAML round-trips, `assetcheck`, builds, and live MCP behavior across three representative game-development tasks (`platformer-level`, `add-enemy-type`, `add-menu`) with clear per-task 0–100 scores and criterion breakdowns; maintainers can also benchmark any external coding agent via `-mode=command`. Running an agent in scheduled CI is left to #506.
+- **Benefits**: Daily scheduled CI verifies the reference solutions' YAML round-trips, `assetcheck`, builds, and live MCP behavior across three representative game-development tasks (`platformer-level`, `add-enemy-type`, `add-menu`) with clear per-task 0–100 scores and criterion breakdowns; maintainers can also benchmark any external coding agent via `-mode=command`. Scheduled live coding-agent execution (`-mode=agent`, skill/MCP staging, and the `eval-agent` CI job) is covered in [agenteval-ci-agent-runner](2026-11-26-agenteval-ci-agent-runner.md).
 - **Costs**: Adds one workspace module (`tools/agenteval`) and three fixture pairs under `tools/agenteval/testdata/fixtures/` that must be updated if breaking changes are intentionally made to the referenced docs or Experimental `game/mcp` APIs.
 
 ## Verification
