@@ -219,6 +219,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetPlayMarksForProject()
 	e.resetUsagesForProject()
 	e.resetContextMenuForProject()
+	e.resetAgentComposerForProject()
 	e.resetAssetGenForProject()
 	e.loadAgentDocsForProject("")
 	e.resetViewport3DAgentPrompt(true)

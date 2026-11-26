@@ -352,6 +352,60 @@ strings:
   cmd.view3d.label: 切换至 3D 视图
   cmd.view3dOrtho.desc: 在透视投影与正交投影之间切换 3D 视口
   cmd.view3dOrtho.label: 3D 视图：正交投影
+  composer.addSuggested: 将 {name} 加入请求
+  composer.always: 始终附加
+  composer.alwaysTooltip: 每次请求都会读取
+  composer.attachedSceneStatus: 已将整个场景附加到智能体输入框
+  composer.compactCaption: 压缩会将之前的 {count} 条请求折叠为摘要，并完整保留最后一条请求。使用摘要新开会话会以该摘要启动新线程。
+  composer.compactNow: 立即压缩
+  composer.compactThread: 压缩线程
+  composer.compactedStatus: 已将较早请求压缩为摘要
+  composer.contextRingLabel: 上下文已使用 {pct}%。显示明细
+  composer.contextRingTip: 上下文 · 已使用 {pct}%
+  composer.contextTokensOf: '{used} / {limit}'
+  composer.contextUsedTitle: 上下文 · 已使用 {pct}%
+  composer.earlierRequests: 较早的 {count} 条请求
+  composer.emptyContextHint: 智能体每次请求都会读取以下内容：
+  composer.group.all: 全部
+  composer.group.assets: 资源
+  composer.group.files: 文件
+  composer.group.history: 历史
+  composer.group.objects: 对象
+  composer.group.playtests: 试玩
+  composer.group.prefabs: 预制体
+  composer.group.problems: 问题
+  composer.group.rules: 规则
+  composer.hintAdd: 添加
+  composer.hintClose: 关闭
+  composer.hintMove: 移动
+  composer.hintNextGroup: 下一分组
+  composer.inputLabel: 向智能体提问
+  composer.matchCount: '{count} 项匹配'
+  composer.matchCountOne: 1 项匹配
+  composer.mentionLabel: 提及文件、对象或资源
+  composer.mentionPickerLabel: 提及
+  composer.mentionTip: 提及 · @
+  composer.newThread: 新线程
+  composer.noMatches: 无匹配项
+  composer.placeholder: 描述改动 · 输入 @ 提及
+  composer.removeChip: 从请求中移除 {name}
+  composer.section.assets: 资源
+  composer.section.files: 文件
+  composer.section.history: 历史步骤
+  composer.section.objects: 对象
+  composer.section.playtests: 试玩运行
+  composer.section.prefabs: 预制体
+  composer.section.problems: 问题
+  composer.section.rules: 规则
+  composer.selected: 已选中
+  composer.send: 发送
+  composer.sentStatus: 已向智能体发送请求
+  composer.startFresh: 使用摘要新开
+  composer.startedFreshStatus: 已使用摘要开启新线程
+  composer.summaryHeading: 线程摘要
+  composer.viewportImage: 视口图像
+  composer.viewportImageToggle: 在请求中包含视口图像
+  composer.wholeScene: 整个场景
   contextMenu.askAgent: 向智能体询问此项
   contextMenu.back: 返回
   contextMenu.copiedYAML: 已复制 {name} 为 YAML · {lines} 行

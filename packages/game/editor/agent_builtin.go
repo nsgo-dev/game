@@ -558,7 +558,10 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	fromComposer := strings.TrimSpace(prompt) == ""
 	text := strings.TrimSpace(prompt)
 	if fromComposer {
-		text = strings.TrimSpace(e.agent.composerText)
+		text = strings.TrimSpace(e.composerDraft)
+		if text == "" {
+			text = strings.TrimSpace(e.agent.composerText)
+		}
 	}
 	if text == "" {
 		return nil
@@ -576,8 +579,14 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		if len(e.agent.queued) >= maxQueuedAgentRequests {
 			return fmt.Errorf("editor: request queue is full (%d queued requests)", maxQueuedAgentRequests)
 		}
-		if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
+		if fromComposer || text == strings.TrimSpace(e.composerDraft) || text == strings.TrimSpace(e.agent.composerText) {
+			e.composerDraft = ""
 			e.agent.composerText = ""
+			e.agentComposer.pickerOpen = false
+			e.agentComposer.pickerOpenedByAt = false
+			e.agentComposer.pickerQuery = ""
+			e.agentComposer.pickerActiveIndex = 0
+			e.agentComposer.hoveredChipID = ""
 		}
 		e.agent.queueSeq++
 		e.agent.queued = append(e.agent.queued, AgentQueuedRequest{
@@ -598,12 +607,45 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	}
 
 	attachedImgs, briefImgs, allImgs := e.collectRequestReferenceImages()
-	if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
+	req := e.AssembleAgentRequest(text)
+	threadID := req.ThreadID
+	if threadID == "" {
+		threadID = e.agent.threadID
+	}
+	sessionID := e.agent.sessionID
+	if active := e.ActiveAgentThread(); active != nil {
+		if active.ID != "" {
+			threadID = active.ID
+		}
+		if sessionID == "" && active.SessionID != "" {
+			sessionID = active.SessionID
+		}
+	}
+	req.ThreadID = threadID
+	req.SessionID = sessionID
+	req.ProjectRoot = e.agentProjectRoot()
+	req.ScenePath = e.ScenePath
+	req.SelectedID = e.SelectedID
+	req.Permissions = e.agent.permissions
+	req.Task = task
+	req.Route = route
+	req.Model = model
+	req.AttachedImages = attachedImgs
+	req.BriefImages = briefImgs
+	req.Images = allImgs
+
+	if fromComposer || text == strings.TrimSpace(e.composerDraft) || text == strings.TrimSpace(e.agent.composerText) {
+		e.composerDraft = ""
 		e.agent.composerText = ""
 	}
 	e.agent.attachedImages = nil
 	e.agent.attachErr = ""
 	e.agent.previewImageID = ""
+	e.agentComposer.pickerOpen = false
+	e.agentComposer.pickerOpenedByAt = false
+	e.agentComposer.pickerQuery = ""
+	e.agentComposer.pickerActiveIndex = 0
+	e.agentComposer.hoveredChipID = ""
 	e.agent.turnSeq++
 	e.agent.turnChangeSeq++
 	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
@@ -613,6 +655,9 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 			agentKind = DetectExternalAgentKind(c.Name)
 		}
 	}
+	req.AgentKind = agentKind
+	reqCopy := req
+	e.agentComposer.lastRequest = &reqCopy
 	now := e.nowTime()
 	turnImages := make([]AgentReferenceImage, len(allImgs))
 	for i, img := range allImgs {
@@ -661,33 +706,6 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		State:     TaskRunning,
 		ScenePath: e.ScenePath,
 	}, e.FilePath, time.Time{})
-
-	threadID := e.agent.threadID
-	sessionID := e.agent.sessionID
-	if active := e.ActiveAgentThread(); active != nil {
-		if active.ID != "" {
-			threadID = active.ID
-		}
-		if sessionID == "" && active.SessionID != "" {
-			sessionID = active.SessionID
-		}
-	}
-	req := AgentRequest{
-		ThreadID:       threadID,
-		SessionID:      sessionID,
-		Prompt:         text,
-		ProjectRoot:    e.agentProjectRoot(),
-		ScenePath:      e.ScenePath,
-		SelectedID:     e.SelectedID,
-		AgentKind:      agentKind,
-		Permissions:    e.agent.permissions,
-		Task:           task,
-		Route:          route,
-		Model:          model,
-		AttachedImages: attachedImgs,
-		BriefImages:    briefImgs,
-		Images:         allImgs,
-	}
 
 	if builtIn, ok := runner.(*builtInAgentRunner); ok {
 		builtIn.runID = runID

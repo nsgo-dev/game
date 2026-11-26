@@ -322,34 +322,43 @@ type AgentOpenRequest struct {
 	OpenedAt time.Time
 }
 
-// AgentRequest is passed to an AgentRunner when the user submits text from the composer or an automation triggers.
+// AgentRequest is passed to an AgentRunner or Editor.OnSendAgentComposerRequest when the user submits
+// text from the composer or an automation triggers, carrying both runner/automation metadata
+// and the exact context assembled from the active composer chips (and nothing else).
 type AgentRequest struct {
-	ThreadID       string
-	SessionID      string
-	Prompt         string
-	ProjectRoot    string
-	ScenePath      string
-	SelectedID     string
-	AgentKind      ExternalAgentKind
-	Permissions    AgentPermissions
-	Task           AgentTaskKind
-	Route          AgentModelRoute
-	Model          string
-	AutomationID   string
-	AutomationName string
-	TriggerKind    AutomationTriggerKind
-	TriggerDetail  string
-	CheckpointID   string
-	AttachedImages []AgentReferenceImage // one-shot reference images dropped or pasted for this request only
-	BriefImages    []AgentReferenceImage // project-wide reference images joined through brief.yaml's Always chip
-	Images         []AgentReferenceImage // deduplicated union of AttachedImages and BriefImages sent with this request
-	ResumeFromStep int
-	CompletedSteps []string
-	RemainingSteps []string
-	Hint           string
-	PointedWorld   *[2]float32
-	PointedTarget  string
-	TryAnotherWay  bool
+	ThreadID         string
+	SessionID        string
+	Prompt           string
+	ProjectRoot      string
+	ScenePath        string
+	SelectedID       string
+	AgentKind        ExternalAgentKind
+	Permissions      AgentPermissions
+	Task             AgentTaskKind
+	Route            AgentModelRoute
+	Model            string
+	AutomationID     string
+	AutomationName   string
+	TriggerKind      AutomationTriggerKind
+	TriggerDetail    string
+	CheckpointID     string
+	AttachedImages   []AgentReferenceImage // one-shot reference images dropped or pasted for this request only
+	BriefImages      []AgentReferenceImage // project-wide reference images joined through brief.yaml's Always chip
+	Images           []AgentReferenceImage // deduplicated union of AttachedImages and BriefImages sent with this request
+	ResumeFromStep   int
+	CompletedSteps   []string
+	RemainingSteps   []string
+	Hint             string
+	PointedWorld     *[2]float32
+	PointedTarget    string
+	TryAnotherWay    bool
+	SummarySeed      string
+	Attachments      []AgentChipPayload
+	ViewportImage    []byte
+	ViewportWidth    int
+	ViewportHeight   int
+	HasViewportImg   bool
+	AssembledContext string
 }
 
 // AgentEventKind classifies one streamed event from an AgentRunner.
@@ -624,6 +633,7 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.turns = nil
 	e.agent.queued = nil
 	e.agent.composerText = ""
+	e.composerDraft = ""
 	e.agent.attachedImages = nil
 	e.agent.attachErr = ""
 	e.agent.composerDragOver = false
@@ -684,6 +694,9 @@ func (e *Editor) SetRightRailTab(tab RightRailTab) {
 	e.agent.rightTab = tab
 	if tab != RightTabAgent {
 		e.agentThreads.switcherOpen = false
+		e.agentComposer.pickerOpen = false
+		e.agentComposer.breakdownOpen = false
+		e.agentComposer.hoveredChipID = ""
 	}
 	e.agentThreads.rev++
 	e.notify()
@@ -1466,16 +1479,15 @@ func (e *Editor) AgentComposerText() string {
 	if e == nil {
 		return ""
 	}
-	return e.agent.composerText
+	return e.composerDraft
 }
 
 // SetAgentComposerText updates the multi-line draft in the Agent composer.
 func (e *Editor) SetAgentComposerText(text string) {
-	if e == nil || e.agent.composerText == text {
+	if e == nil || e.composerDraft == text {
 		return
 	}
-	e.agent.composerText = text
-	e.notify()
+	e.updateComposerDraftFromInput(text)
 }
 
 // InsertAgentComposerNewline appends a newline to the composer draft (used by Shift+Enter).
@@ -1483,8 +1495,7 @@ func (e *Editor) InsertAgentComposerNewline() {
 	if e == nil {
 		return
 	}
-	e.agent.composerText += "\n"
-	e.notify()
+	e.updateComposerDraftFromInput(e.composerDraft + "\n")
 }
 
 func cloneAgentTurn(t AgentTurn) AgentTurn {

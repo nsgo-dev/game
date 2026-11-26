@@ -1541,7 +1541,6 @@ func main() {
 - **将草图发送给智能体（`SendSketch` / `Editor.OnSendSketch`）**：输入框附带 `"Sketch · N marks"` 上下文芯片（点击可展开 `"Sent with this request"` 场景坐标预览）。发送时通过 `SketchAgentRequest` 传递结构化标记（编号、类型、场景坐标几何、标签）以及叠加了编号标记的视口渲染 PNG（`RenderSketchViewportPNG`）。
 - **智能体解读卡片与 `scene_edit` 确认闸门**：发送草图后立即启用确认闸门（`SketchHoldActive() == true`），在用户确认前 `scene_edit` 等变更场景的 MCP 工具会被拒绝。智能体通过 `sketch_read` 读取草图，并通过 `sketch_reading`（`PostSketchReading`）提交复述卡片（`"I read your sketch as: …"` 与待确认假设）。点击 **Go ahead**（`ApproveSketchReading`、`⌘↵`）放行修改；点击 **Correct a mark**（`CorrectSketchMark`、`⇧M` 或点击任意编号条目）会重新进入草图模式并精确选中该标记，同时保持确认闸门生效；直接输入文字回复（`ReplyToSketchReading`）同样有效。
 - **审查叠加层与保留 / 撤销行为**：确认后智能体的场景修改会打开审查卡片（`SketchReviewOpen`），内置 **Sketch overlay** 开关（`O`、`ToggleSketchReviewOverlay`，瓦片审查 `TileReview` 中同样支持）将草图以半透明点线叠加在结果之上。**Keep**（`KeepSketchReview` / `KeepTileReview`）保留修改并清空草图层；**Revert**（`RevertSketchReview` / `RevertAllTileReview`）撤销修改但保留草图标记以便再次发送。
-
 ## 智能体输入框中的参考图与固定到简报（#1027）
 
 在智能体输入框中为单次请求附加 PNG、JPEG 或 WebP 参考图，或将其固定到项目的游戏简报，界面严格遵循 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `docs/design/editor/Sketch.dc.html`（*Paste or drop an image*、*Pin to brief*）：
@@ -1594,3 +1593,12 @@ func main() {
 - **左上角可切换图例（`viewport-overlay-legend`）**：所有编辑态视口（2D 与 3D）在左上角挂载同一张图例卡片（`viewportOverlayLegendView`），提供 6 行无障碍 `role="switch"` 开关（**选中**、**智能体处理中**、**已添加**、**已修改**、**已移除**、**问题**），每行都绘出对应线型与第二线索。切换任一行（`Editor.ToggleOverlayKind`、`Editor.SetOverlayKindVisible`、`Editor.SetOverlayLegendKinds`）会立即在所有视口隐藏或显示该类叠加层，并将 `overlayLegend` 持久化到项目之外的用户级 `EditorSettings` YAML 文件（`Editor.SettingsPath`，绝不修改项目或场景文件）。
 - **实时场景叠加层接口与问题对象关联**：实时智能体编辑、审查与计划通过 `Editor.SetSceneOverlays`、`AddSceneOverlay`、`RemoveSceneOverlay` 和 `ClearSceneOverlays`（`SceneOverlayEntry`）将叠加层附加到场景对象或已移除幽灵边界上。`assetcheck.Problem` 现包含 `Object` 字段（同时通过 `editormcp` 的 `game_check` 返回），覆盖场景对象、组件、覆写与连接诊断，使问题面板中指向当前打开场景对象的诊断会自动在 2D 与 3D 视口中绘制 Spec **问题**叠加层。
 - **中性视口参考线**：相机取景框、相机边界、相机连线、瓦片网格与对齐网格统一迁移到中性 `SpecPalette` 令牌（`TextMuted` / `TextFaint` 1 px 细线与 `2, 4` 点线），与所有语义图例线型完全区分。
+
+## 智能体输入框：@-提及、上下文标签与上下文计量环（#1020）
+
+在统一右侧栏的 **智能体** 标签页（`RightRailView` / `AgentPanelView`，可通过 `⌘1` / `⌘2` 经 `CmdAgentTab` / `CmdInspectorTab` 切换）中，`AgentComposerView`（对应 `docs/design/editor/Threads.dc.html`，严格遵循 `Spec.dc.html` 令牌）提供 `@`-提及、显式上下文标签、精确悬停预览与实时上下文计量环：
+
+- **基于项目搜索索引的 `@`-提及选择器**：在输入框中输入 `@` 会打开实时选择器，底层复用 `search.go`（`ensureProjectIndex`）、`Editor.Problems`、`PlaytestSession` / `AddComposerPlaytestRun` 与 `Editor.History`，显示匹配数量与 8 个分组（**对象**、**文件**、**预制体**、**资源**、**问题**、**试玩运行**、**历史步骤**、**规则**）及 9 个标签页（**全部**及各分组）。支持 `↑` / `↓` 移动（`MoveMentionSelection`）、`↵` 添加（`AcceptActiveMention`）、`Tab` / `Shift+Tab` 切换分组（`CycleMentionPickerGroup`）以及 `Esc` 关闭（`CloseMentionPicker`），已附加的项目会自动从候选列表中排除。
+- **上下文标签与精确悬停预览**：输入框上方依次展示已附加标签（点击 `×` 通过 `RemoveComposerChip` 移除，或在空输入框中按 `⌫` 通过 `RemoveLastComposerChip` 移除）、**始终附加**标签（项目根目录中的 `brief.yaml` 与 `AGENTS.md`）以及可开关的 **视口图像** 标签（`SetViewportImageIncluded` / `ToggleViewportImage`）。在视口或场景树中选中对象只会显示虚线建议标签 `+ <名称> · 已选中`（`SuggestedChip`），除非主动添加（`AcceptSuggestedChip`），否则绝不会随请求发送；`TriggerAskAgentShortcut` 会在选中对象时附加该对象，未选中任何对象时附加整个打开的场景（`AttachWholeSceneChip`）并聚焦输入框。悬停任意标签（`SetHoveredChip` / `HoveredChipPayload`）都会通过 `ResolveChipPayload` 显示实际发送的精确头部（如 `# level_01.scene.yaml · lines 72–78`）及对应的 YAML 文本或图像。
+- **单一数据源的请求组装**：`AssembleAgentRequest` 仅从当前生效的标签组装 `AgentRequest`（调用与悬停预览完全相同的 `ResolveChipPayload`），并统一供 `SendComposerPrompt`（`Editor.OnSendAgentComposerRequest`）与 `SubmitAgentPrompt`（`Editor.AgentRunner`）使用。
+- **上下文计量环、明细、压缩与新开线程**：20×20 环形进度指示器根据智能体回报的 token 用量（`SetAgentTokenUsage` 或 `AgentResponse.Usage`）呈现三种规范状态（正常 `≤ 70%`、超过 70% 警告 `71–89%`、以及 `≥ 90%` 的“立即压缩”状态）。点击计量环可展开 6 项明细（**Conversation**、**Open scene**、**Attached**、**Always**、**Tools and instructions**、**Viewport image**），并提供 **压缩线程**（`CompactAgentThread`，将较早请求折叠为摘要并完整保留最后一条请求，同时降低计量环占比）与 **使用摘要新开**（`StartFreshAgentThread`，以该摘要启动新线程）。

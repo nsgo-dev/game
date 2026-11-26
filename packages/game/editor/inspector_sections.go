@@ -168,13 +168,12 @@ func (e *Editor) ComposerDraft() string {
 	return e.composerDraft
 }
 
-// SetComposerDraft updates the agent composer draft text and notifies listeners.
+// SetComposerDraft updates the agent composer draft text, refreshes @-mention trigger detection, and notifies listeners.
 func (e *Editor) SetComposerDraft(text string) {
 	if e == nil || e.composerDraft == text {
 		return
 	}
-	e.composerDraft = text
-	e.notify()
+	e.updateComposerDraftFromInput(text)
 }
 
 // AskToAddComponent populates the agent composer draft with "Add a component to <object> that "

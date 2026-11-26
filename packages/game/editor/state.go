@@ -566,6 +566,12 @@ type Editor struct {
 	OnAgentPointPicked func(turnID, target string, worldX, worldY float32)
 	// OnOpenAgentReview, when set, is called when the user opens a turn's Review from Partial, Lost, Stopped, or Mismatch cards.
 	OnOpenAgentReview func(review AgentTurnReview)
+	// OnSendAgentComposerRequest, when set, receives each request assembled from the agent composer's active chips (and nothing else) and returns the agent's reply and optional reported token usage.
+	OnSendAgentComposerRequest func(AgentRequest) (AgentResponse, error)
+	// OnCompactAgentThread, when set, overrides how CompactAgentThread summarizes earlier turns and updates token usage.
+	OnCompactAgentThread func(earlier, kept []AgentThreadTurn) (summary string, usage *AgentTokenUsage, err error)
+	// OnStartFreshAgentThread, when set, is called when StartFreshAgentThread starts a new thread seeded with summary.
+	OnStartFreshAgentThread func(summary string) error
 	// ProblemCheckDebounce controls the debounce delay before live problem checks run after edits (defaults to 80ms when <= 0).
 	ProblemCheckDebounce time.Duration
 	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.
@@ -957,6 +963,8 @@ type Editor struct {
 	agent agentState
 	// automations holds the project's automations.yaml rules, pre-run checkpoints, weekly run counters, pause-for-today state, and background automation runs.
 	automations automationRuntimeState
+	// agentComposer holds the @-mention picker, context chips, hover preview, and context meter state.
+	agentComposer agentComposerState
 	// autosave tracks debounced automatic saving of kept changes, the 300 ms Saving… threshold, and persistent status-bar save errors.
 	autosave autoSaveState
 	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, Always saved toast, You-only draft state, tool toggles, and held external loosenings.
@@ -1067,6 +1075,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 	ed.sceneSaved, _ = sceneformat.Encode(doc)
 	ed.initBuiltinOverlays()
 	ed.initBuiltinCommands()
+	ed.initAgentComposer()
 	ed.Rebuild()
 	ed.resetTabsToActive(isPlaceholder)
 	return ed, nil
