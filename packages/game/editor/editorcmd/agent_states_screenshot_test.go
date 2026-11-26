@@ -11,13 +11,16 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-func postOnUI(ed *editor.Editor, fn func()) {
+func postOnUI(ctx context.Context, ed *editor.Editor, fn func()) {
 	done := make(chan struct{})
 	ed.Post(func() {
 		fn()
 		close(done)
 	})
-	<-done
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // TestAgentFailureStatesMacOSScreenshots renders each of the six Agent failure states from
@@ -46,8 +49,8 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 	// 1. Partial (ask + "Let me point" active)
 	t.Run("partial", func(t *testing.T) {
 		ed := newSceneEditor(t)
-		ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
-			postOnUI(ed, func() {
+		ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
+			postOnUI(ctx, ed, func() {
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_01", X: 220, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_02", X: 300, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_01", X: 360, Y: 160})
@@ -74,7 +77,7 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed)
 		}, nsgotest.Size(1440, 900))
-		postOnUI(ed, func() {
+		app.Post(func() {
 			if err := ed.SubmitAgentPrompt("Put three slimes patrolling the lower floor and a short coin trail toward the door."); err != nil {
 				t.Errorf("SubmitAgentPrompt: %v", err)
 			}
@@ -100,13 +103,13 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed)
 		}, nsgotest.Size(1440, 900))
-		postOnUI(ed, func() {
+		app.Post(func() {
 			if err := ed.SubmitAgentPrompt("Make the door open only after lever_01 is pulled."); err != nil {
 				t.Errorf("SubmitAgentPrompt: %v", err)
 			}
 		})
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists("id:agent-stuck-card-0") })
-		postOnUI(ed, func() {
+		app.Post(func() {
 			ed.SetAgentStuckHint("", "The lever is lever_door, under Actors")
 		})
 		app.Settle()
@@ -117,7 +120,7 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 	t.Run("lost", func(t *testing.T) {
 		ed := newSceneEditor(t)
 		ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
-			postOnUI(ed, func() {
+			postOnUI(ctx, ed, func() {
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_04", X: 200, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_05", X: 230, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_06", X: 260, Y: 180})
@@ -132,13 +135,13 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed)
 		}, nsgotest.Size(1440, 900))
-		postOnUI(ed, func() {
+		app.Post(func() {
 			if err := ed.SubmitAgentPrompt("Add a coin trail from the lever to the door."); err != nil {
 				t.Errorf("SubmitAgentPrompt: %v", err)
 			}
 		})
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists("id:agent-step-0-2") })
-		postOnUI(ed, func() {
+		app.Post(func() {
 			ed.NotifyAgentMCPDisconnected("c1", "")
 		})
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists("id:agent-lost-card-0") })
@@ -149,7 +152,7 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 	t.Run("stopped", func(t *testing.T) {
 		ed := newSceneEditor(t)
 		ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
-			postOnUI(ed, func() {
+			postOnUI(ctx, ed, func() {
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_01", X: 220, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_02", X: 280, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_03", X: 340, Y: 180})
@@ -167,7 +170,7 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed)
 		}, nsgotest.Size(1440, 900))
-		postOnUI(ed, func() {
+		app.Post(func() {
 			if err := ed.SubmitAgentPrompt("Put three slimes patrolling the lower floor and a short coin trail toward the door."); err != nil {
 				t.Errorf("SubmitAgentPrompt: %v", err)
 			}
@@ -183,23 +186,23 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 	// 5. Mismatch
 	t.Run("mismatch", func(t *testing.T) {
 		ed := newSceneEditor(t)
-		ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
-			postOnUI(ed, func() {
+		ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
+			postOnUI(ctx, ed, func() {
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_01", X: 220, Y: 180})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_02", X: 280, Y: 180})
 			})
 			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "1", StepTitle: "Placed slime_01 and slime_02", StepStatus: editor.AgentStepDone, StepIndex: 1})
-			postOnUI(ed, func() {
+			postOnUI(ctx, ed, func() {
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_03", X: 340, Y: 180})
 			})
 			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "3", StepTitle: "Placed slime_03", StepStatus: editor.AgentStepDone, StepIndex: 3})
-			postOnUI(ed, func() {
+			postOnUI(ctx, ed, func() {
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_01", X: 360, Y: 160})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_02", X: 390, Y: 160})
 				_, _ = ed.PlaceObject("", sceneformat.ObjectDoc{ID: "coin_03", X: 420, Y: 160})
 			})
 			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "4", StepTitle: "Placed 3 coins", StepStatus: editor.AgentStepDone, StepIndex: 4})
-			postOnUI(ed, func() {
+			postOnUI(ctx, ed, func() {
 				_ = ed.DeleteObject("slime_03")
 			})
 			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "5", StepTitle: "Retried placement", StepStatus: editor.AgentStepDone, StepIndex: 5})
@@ -210,7 +213,7 @@ func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed)
 		}, nsgotest.Size(1440, 900))
-		postOnUI(ed, func() {
+		app.Post(func() {
 			if err := ed.SubmitAgentPrompt("Put three slimes patrolling the lower floor and a short coin trail toward the door."); err != nil {
 				t.Errorf("SubmitAgentPrompt: %v", err)
 			}

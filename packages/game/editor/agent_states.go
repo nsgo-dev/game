@@ -10,12 +10,51 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
 // AgentStuckFailureThreshold is the number of consecutive failures of the same tool that pauses a request.
 const AgentStuckFailureThreshold = 3
+
+const (
+	maxAgentQueuedRequests    = 100
+	maxTurnMutations          = 2048
+	maxFailedCallSummaryRunes = 200
+	maxFailedCallErrorRunes   = 512
+)
+
+func lowerFirstRune(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[size:]
+}
+
+func upperFirstRune(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[size:]
+}
+
+func truncateRunes(s string, maxRunes int) string {
+	if maxRunes <= 0 || len(s) <= maxRunes {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == maxRunes {
+			return s[:i] + "…"
+		}
+		count++
+	}
+	return s
+}
 
 // AgentPartialState holds the panel state when only part of a request could be completed.
 type AgentPartialState struct {
@@ -176,7 +215,7 @@ type AgentStoppedState struct {
 func (s AgentStoppedState) EffectiveTitle() string {
 	if s.Resumed {
 		if s.ResumedAtTitle != "" {
-			return fmt.Sprintf("Resumed at %s", strings.ToLower(s.ResumedAtTitle[:1])+s.ResumedAtTitle[1:])
+			return fmt.Sprintf("Resumed at %s", lowerFirstRune(s.ResumedAtTitle))
 		}
 		return "Resumed"
 	}
@@ -332,12 +371,15 @@ func (e *Editor) observeTurnSceneMutations(turn *AgentTurn, stepIndex int) {
 		e.initTurnBaseline(turn)
 		return
 	}
+	if turn.baselineFile != "" && e.agentOpenSceneName() != turn.baselineFile {
+		return
+	}
 	nowObjs, nowOrder := collectFlatSceneObjects(e.Doc)
 	if turn.lastSeenIDs == nil {
 		turn.lastSeenIDs = map[string]struct{}{}
 	}
 	for _, id := range nowOrder {
-		if _, existed := turn.lastSeenIDs[id]; !existed {
+		if _, existed := turn.lastSeenIDs[id]; !existed && len(turn.mutations) < maxTurnMutations {
 			turn.mutations = append(turn.mutations, agentObjectMutation{
 				ObjectID:  id,
 				Op:        "add",
@@ -345,14 +387,22 @@ func (e *Editor) observeTurnSceneMutations(turn *AgentTurn, stepIndex int) {
 			})
 		}
 	}
+	var removedIDs []string
 	for id := range turn.lastSeenIDs {
 		if _, still := nowObjs[id]; !still {
-			turn.mutations = append(turn.mutations, agentObjectMutation{
-				ObjectID:  id,
-				Op:        "remove",
-				StepIndex: stepIndex,
-			})
+			removedIDs = append(removedIDs, id)
 		}
+	}
+	slices.Sort(removedIDs)
+	for _, id := range removedIDs {
+		if len(turn.mutations) >= maxTurnMutations {
+			break
+		}
+		turn.mutations = append(turn.mutations, agentObjectMutation{
+			ObjectID:  id,
+			Op:        "remove",
+			StepIndex: stepIndex,
+		})
 	}
 	next := make(map[string]struct{}, len(nowObjs))
 	for _, id := range nowOrder {
@@ -366,6 +416,9 @@ func (e *Editor) refreshTurnReview(turn *AgentTurn) *AgentTurnReview {
 		return nil
 	}
 	if turn.baselineDoc == nil || e.Doc == nil {
+		return turn.Review
+	}
+	if turn.baselineFile != "" && e.agentOpenSceneName() != turn.baselineFile {
 		return turn.Review
 	}
 	comp := &SceneComparison{
@@ -458,6 +511,27 @@ func computeYAMLLineDelta(before, after string) (plus, minus int) {
 	return plus, minus
 }
 
+// HasUnkeptAgentTurnReview reports whether an active agent run, an open inline turn review drawer,
+// or an unkept review from a partial, lost, stopped, or mismatched turn should pause automatic saving.
+func (e *Editor) HasUnkeptAgentTurnReview() bool {
+	if e == nil {
+		return false
+	}
+	if e.agent.openReviewTurnID != "" || e.agent.activeRunCancel != nil {
+		return true
+	}
+	for i := range e.agent.turns {
+		t := &e.agent.turns[i]
+		if t.Review == nil || t.Review.Kept || t.Review.Discarded || t.Review.Count() == 0 {
+			continue
+		}
+		if (t.Partial != nil && !t.Partial.Kept) || t.Lost != nil || t.StoppedState != nil || t.Mismatch != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // RecordAgentToolCall records one MCP tool call into the Agent panel, tracking consecutive failures
 // of the same tool and pausing the request automatically after AgentStuckFailureThreshold (3)
 // consecutive failures.
@@ -471,16 +545,18 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 	if title == "" {
 		title = formatAgentToolStep(toolName)
 	}
-	callSummary := strings.TrimSpace(rec.CallSummary)
+	callSummary := truncateRunes(strings.TrimSpace(rec.CallSummary), maxFailedCallSummaryRunes)
 	if callSummary == "" {
-		callSummary = title
+		callSummary = truncateRunes(title, maxFailedCallSummaryRunes)
 	}
-	errText := strings.TrimSpace(rec.ErrorText)
+	errText := truncateRunes(strings.TrimSpace(rec.ErrorText), maxFailedCallErrorRunes)
 
 	var turn *AgentTurn
+	activeComposer := false
 	if e.agent.activeRunCancel != nil && len(e.agent.turns) > 0 && !e.agent.turns[len(e.agent.turns)-1].Done {
 		// Active composer run owns the latest turn.
 		turn = &e.agent.turns[len(e.agent.turns)-1]
+		activeComposer = true
 	} else {
 		// Terminal / scripted MCP session.
 		if n := len(e.agent.turns); n > 0 && e.agent.turns[n-1].External &&
@@ -494,10 +570,14 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 			name := FriendlyAgentName(rec.ClientName)
 			e.agent.turns = append(e.agent.turns, AgentTurn{
 				ID:        id,
+				Source:    "external",
+				Status:    "done",
 				External:  true,
 				AgentName: name,
+				CreatedAt: now,
 				StartedAt: now,
 			})
+			e.trimAgentTurnAttachments()
 			turn = &e.agent.turns[len(e.agent.turns)-1]
 			// Note: because the tool call already ran before RecordAgentToolCall when the turn is brand new,
 			// baselineDoc is initialized lazily on first call if not already prepared via PrepareAgentTurnBaseline.
@@ -524,6 +604,7 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 			ToolName: toolName,
 			Status:   stepStatus,
 		})
+		turn.Status = "done"
 		turn.FinishedAt = now
 		turn.Done = true
 	}
@@ -533,11 +614,17 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 	e.refreshTurnReview(turn)
 
 	if rec.IsError && toolName != "" {
+		if activeComposer {
+			turn.lastMCPFailTool = toolName
+			turn.lastMCPFailAt = now
+		}
 		e.recordConsecutiveToolFailure(turn, toolName, callSummary, errText)
 	} else if !rec.IsError {
 		turn.consecutiveFailTool = ""
 		turn.consecutiveFails = nil
+		turn.lastMCPFailTool = ""
 	}
+	e.agent.turnChangeSeq++
 	e.notify()
 }
 
@@ -599,8 +686,8 @@ func (e *Editor) recordConsecutiveToolFailure(turn *AgentTurn, toolName, callSum
 	}
 	turn.consecutiveFails = append(turn.consecutiveFails, AgentFailedCall{
 		ToolName: toolName,
-		Call:     callSummary,
-		Error:    errText,
+		Call:     truncateRunes(callSummary, maxFailedCallSummaryRunes),
+		Error:    truncateRunes(errText, maxFailedCallErrorRunes),
 	})
 	if len(turn.consecutiveFails) < AgentStuckFailureThreshold {
 		return false
@@ -631,8 +718,10 @@ func (e *Editor) recordConsecutiveToolFailure(turn *AgentTurn, toolName, callSum
 		NothingChanged: nothingChanged,
 	}
 	turn.Done = true
+	turn.Status = "done"
 	turn.Stopped = false
 	turn.FinishedAt = e.nowTime()
+	e.agent.turnChangeSeq++
 
 	// Cancel any active composer runner so the agent stops guessing immediately.
 	if e.agent.activeRunCancel != nil {
@@ -674,6 +763,10 @@ func (e *Editor) MarkAgentTurnPartial(turnID string, partial AgentPartialState) 
 	cp := partial
 	turn.Partial = &cp
 	e.refreshTurnReview(turn)
+	if e.HasUnkeptAgentTurnReview() {
+		e.cancelAutoSaveTimer()
+	}
+	e.agent.turnChangeSeq++
 	e.notify()
 }
 
@@ -695,6 +788,8 @@ func (e *Editor) KeepAgentPartial(turnID string) {
 		turn.Review.Kept = true
 		turn.Review.Discarded = false
 	}
+	e.agent.turnChangeSeq++
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 }
 
@@ -794,10 +889,29 @@ func (e *Editor) PickAgentPointWorld(wx, wy float32) bool {
 	return true
 }
 
-// TryAnotherWayAgentTurn asks the agent to try an alternative placement/strategy for a partial turn.
-func (e *Editor) TryAnotherWayAgentTurn(turnID string) error {
+func (e *Editor) validateAgentContinuationPreconditions() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.agent.mode == AgentModeNone {
+		return errors.New("editor: agent is disabled")
+	}
+	if e.AgentOffline() {
+		return errors.New("editor: offline")
+	}
+	if e.agent.activeRunCancel != nil {
+		return errors.New("editor: an agent request is already running")
+	}
+	return nil
+}
+
+// TryAnotherWayAgentTurn asks the agent to try an alternative placement/strategy for a partial turn.
+func (e *Editor) TryAnotherWayAgentTurn(turnID string) error {
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Partial == nil {
@@ -822,6 +936,7 @@ func (e *Editor) TryAnotherWayAgentTurn(turnID string) error {
 		e.agent.status = AgentStatusWorking
 		e.agent.workingStep = len(turn.Steps)
 		e.agent.workingTotal = 0
+		e.agent.turnChangeSeq++
 		e.updateAgentAnnouncement()
 		e.notify()
 		return nil
@@ -851,8 +966,8 @@ func (e *Editor) SetAgentStuckHint(turnID, hint string) {
 
 // ContinueAgentWithHint resumes a paused Stuck turn with the user's hint.
 func (e *Editor) ContinueAgentWithHint(turnID string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Stuck == nil {
@@ -863,6 +978,7 @@ func (e *Editor) ContinueAgentWithHint(turnID string) error {
 	turn.Stuck.Resolution = AgentStuckContinued
 	turn.consecutiveFailTool = ""
 	turn.consecutiveFails = nil
+	turn.lastMCPFailTool = ""
 	if e.agent.openRequest != nil && e.agent.openRequest.ID == turn.ID+"-stuck" {
 		e.agent.openRequest = nil
 	}
@@ -889,6 +1005,7 @@ func (e *Editor) ContinueAgentWithHint(turnID string) error {
 		e.agent.status = AgentStatusWorking
 		e.agent.workingStep = len(turn.Steps)
 		e.agent.workingTotal = 0
+		e.agent.turnChangeSeq++
 		e.updateAgentAnnouncement()
 		e.notify()
 		return nil
@@ -910,8 +1027,11 @@ func (e *Editor) StopStuckAgentTurn(turnID string) {
 	turn.Stuck.Resolution = AgentStuckStopped
 	turn.consecutiveFailTool = ""
 	turn.consecutiveFails = nil
+	turn.lastMCPFailTool = ""
 	turn.Done = true
+	turn.Status = "done"
 	turn.FinishedAt = e.nowTime()
+	e.agent.turnChangeSeq++
 	if e.agent.openRequest != nil && e.agent.openRequest.ID == turn.ID+"-stuck" {
 		e.agent.openRequest = nil
 	}
@@ -986,8 +1106,11 @@ func (e *Editor) markActiveTurnLost(reason string) {
 		turn.Lost.Detail = reason
 	}
 	turn.Done = true
+	turn.Status = "done"
 	turn.FinishedAt = now
 	e.refreshTurnReview(turn)
+	e.cancelAutoSaveTimer()
+	e.agent.turnChangeSeq++
 }
 
 func (e *Editor) markLostTurnReconnected() {
@@ -995,11 +1118,12 @@ func (e *Editor) markLostTurnReconnected() {
 		return
 	}
 	turn := &e.agent.turns[len(e.agent.turns)-1]
-	if turn.Lost == nil || turn.Lost.Kind != AgentLostConnection || turn.Lost.Resumed {
+	if turn.Lost == nil || turn.Lost.Kind != AgentLostConnection || turn.Lost.Resumed || turn.Lost.Reconnected {
 		return
 	}
 	turn.Lost.Reconnected = true
 	turn.Lost.AskResumePending = true
+	e.agent.turnChangeSeq++
 	nextStep := turn.Lost.DuringStep
 	if nextStep <= 0 {
 		nextStep = turn.Lost.AfterStep + 1
@@ -1013,8 +1137,8 @@ func (e *Editor) markLostTurnReconnected() {
 
 // ConfirmResumeLostAgentTurn resumes a reconnected Lost turn starting at its interrupted/next step.
 func (e *Editor) ConfirmResumeLostAgentTurn(turnID string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Lost == nil {
@@ -1038,6 +1162,7 @@ func (e *Editor) DismissResumeLostAgentTurn(turnID string) {
 		return
 	}
 	turn.Lost.AskResumePending = false
+	e.agent.turnChangeSeq++
 	if e.agent.openRequest != nil && e.agent.openRequest.ID == turn.ID+"-reconnect-ask" {
 		e.agent.openRequest = nil
 	}
@@ -1061,15 +1186,18 @@ func (e *Editor) ReportAgentModelError(turnID string, state AgentLostState) {
 	cp := state
 	turn.Lost = &cp
 	turn.Done = true
+	turn.Status = "done"
 	turn.FinishedAt = e.nowTime()
 	e.refreshTurnReview(turn)
+	e.cancelAutoSaveTimer()
+	e.agent.turnChangeSeq++
 	e.notify()
 }
 
 // RetryAgentModelErrorNow immediately retries a turn that failed with a model error.
 func (e *Editor) RetryAgentModelErrorNow(turnID string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Lost == nil {
@@ -1082,8 +1210,8 @@ func (e *Editor) RetryAgentModelErrorNow(turnID string) error {
 
 // SwitchAgentFallback switches a model-error turn to its fallback agent (e.g. Claude Code) and retries.
 func (e *Editor) SwitchAgentFallback(turnID string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Lost == nil {
@@ -1145,19 +1273,15 @@ func (e *Editor) populateStoppedTurnState(turn *AgentTurn) {
 		Resumed:    false,
 	}
 	e.refreshTurnReview(turn)
+	e.cancelAutoSaveTimer()
+	e.agent.turnChangeSeq++
 }
 
 // ResumeAgentTurn resumes a stopped turn starting strictly at the first step not done.
 // Steps already marked AgentStepDone are skipped and never redone.
 func (e *Editor) ResumeAgentTurn(turnID string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
-	}
-	if e.playing {
-		return ErrPlaying
-	}
-	if e.AgentOffline() {
-		return errors.New("editor: offline")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil {
@@ -1167,8 +1291,8 @@ func (e *Editor) ResumeAgentTurn(turnID string) error {
 }
 
 func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
-	if e.agent.activeRunCancel != nil {
-		return errors.New("editor: an agent request is already running")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	var completed []string
 	var remaining []string
@@ -1188,6 +1312,10 @@ func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
 		}
 		remaining = append(remaining, turn.Steps[i].Title)
 	}
+	if firstNotDoneIdx < 0 && turn.Lost == nil {
+		// All steps are already done; nothing left to redo.
+		return nil
+	}
 	resumeFrom := len(completed) + 1
 	resumedTitle := ""
 	if firstNotDoneIdx >= 0 {
@@ -1199,6 +1327,8 @@ func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
 	}
 	turn.Done = false
 	turn.Stopped = false
+	turn.Status = "running"
+	e.agent.turnChangeSeq++
 
 	total := len(turn.Steps)
 	if turn.StoppedState != nil && turn.StoppedState.TotalSteps > total {
@@ -1224,6 +1354,7 @@ func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.agent.activeRunCancel = cancel
 	e.agent.status = AgentStatusWorking
+	e.cancelAutoSaveTimer()
 	e.updateAgentAnnouncement()
 	e.notify()
 
@@ -1266,11 +1397,8 @@ func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
 }
 
 func (e *Editor) continueExistingTurn(turn *AgentTurn, prompt, stepTitle string, configure func(*AgentRequest)) error {
-	if e.playing {
-		return ErrPlaying
-	}
-	if e.agent.activeRunCancel != nil {
-		return errors.New("editor: an agent request is already running")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	runner := e.AgentRunner
 	if runner == nil {
@@ -1278,11 +1406,13 @@ func (e *Editor) continueExistingTurn(turn *AgentTurn, prompt, stepTitle string,
 	}
 	turn.Done = false
 	turn.Stopped = false
+	turn.Status = "running"
 	turn.Steps = append(turn.Steps, AgentStep{
 		ID:     fmt.Sprintf("%s-cont-%d", turn.ID, len(turn.Steps)+1),
 		Title:  stepTitle,
 		Status: AgentStepRunning,
 	})
+	e.agent.turnChangeSeq++
 
 	e.agent.activeRunID++
 	runID := e.agent.activeRunID
@@ -1291,6 +1421,7 @@ func (e *Editor) continueExistingTurn(turn *AgentTurn, prompt, stepTitle string,
 	e.agent.status = AgentStatusWorking
 	e.agent.workingStep = len(turn.Steps)
 	e.agent.workingTotal = 0
+	e.cancelAutoSaveTimer()
 	e.updateAgentAnnouncement()
 	e.notify()
 
@@ -1327,7 +1458,7 @@ func (e *Editor) continueExistingTurn(turn *AgentTurn, prompt, stepTitle string,
 
 // --- Mismatch verification (summary vs actual diff) ---
 
-var summaryCountClaimRe = regexp.MustCompile(`(?i)\b(zero|no|none|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:new\s+|added\s+|placed\s+|patrolling\s+)?([a-z][a-z0-9_-]{1,30})\b`)
+var summaryCountClaimRe = regexp.MustCompile(`(?i)\b(zero|no|none|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:new|added|placed|patrolling)\s+)*([a-z][a-z0-9_-]{1,30})\b`)
 var summaryUntouchedRe = regexp.MustCompile(`(?i)\b(?:left|kept|leave|keep)\s+(?:the\s+)?([a-z][a-z0-9_-]{1,30})\s+untouched\b|\b([a-z][a-z0-9_-]{1,30})\s+(?:is|was|remains|stayed)\s+untouched\b`)
 
 var numberWords = map[string]int{
@@ -1373,10 +1504,7 @@ func singularStem(word string) string {
 }
 
 func titleCaseWord(w string) string {
-	if w == "" {
-		return ""
-	}
-	return strings.ToUpper(w[:1]) + w[1:]
+	return upperFirstRune(w)
 }
 
 func objectMatchesStem(obj SceneObjectChange, stem string) bool {
@@ -1396,8 +1524,11 @@ func objectMatchesStem(obj SceneObjectChange, stem string) bool {
 // (including the known reason when an object was added and later removed during the turn).
 func CheckAgentSummaryAgainstDiff(summary string, review *AgentTurnReview, mutations []agentObjectMutation) *AgentMismatchReport {
 	trimmed := strings.TrimSpace(summary)
-	if trimmed == "" || review == nil {
+	if trimmed == "" || (review == nil && len(mutations) == 0) {
 		return nil
+	}
+	if review == nil {
+		review = &AgentTurnReview{}
 	}
 
 	var rows []AgentMismatchRow
@@ -1568,6 +1699,7 @@ func CheckAgentSummaryAgainstDiff(summary string, review *AgentTurnReview, mutat
 
 func extractClause(s string, start, end int) string {
 	// Expand forward to the end of the clause (comma, period, " and ", semicolon) for clean underline display.
+	lower := strings.ToLower(s)
 	stop := len(s)
 	for i := end; i < len(s); i++ {
 		switch s[i] {
@@ -1575,7 +1707,7 @@ func extractClause(s string, start, end int) string {
 			stop = i
 			goto done
 		}
-		if strings.HasPrefix(strings.ToLower(s[i:]), " and ") {
+		if strings.HasPrefix(lower[i:], " and ") {
 			stop = i
 			goto done
 		}
@@ -1656,20 +1788,23 @@ func (e *Editor) RecordAgentTurnSummary(turnID, summary string) *AgentMismatchRe
 	turn.Summary = summary
 	e.refreshTurnReview(turn)
 	turn.Mismatch = CheckAgentSummaryAgainstDiff(turn.Summary, turn.Review, turn.mutations)
+	if turn.Mismatch != nil {
+		e.cancelAutoSaveTimer()
+	}
+	e.agent.turnChangeSeq++
 	e.notify()
 	return turn.Mismatch
 }
 
 // AskAgentWhyMismatch sends a follow-up question asking why the summary disagrees with the actual review diff.
 func (e *Editor) AskAgentWhyMismatch(turnID string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
+	if err := e.validateAgentContinuationPreconditions(); err != nil {
+		return err
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Mismatch == nil {
 		return errors.New("editor: no mismatch on turn")
 	}
-	turn.Mismatch.AskedWhy = true
 	var details []string
 	for _, r := range turn.Mismatch.Rows {
 		if r.Disagrees {
@@ -1678,10 +1813,21 @@ func (e *Editor) AskAgentWhyMismatch(turnID string) error {
 	}
 	prompt := fmt.Sprintf("Why does your summary disagree with the review diff (%s)?", strings.Join(details, "; "))
 	if e.AgentRunner == nil && len(e.agent.clients) == 0 && e.agent.mode != AgentModeLocal {
+		turn.Mismatch.AskedWhy = true
+		e.agent.turnChangeSeq++
 		e.notify()
 		return nil
 	}
-	return e.SubmitAgentPrompt(prompt)
+	if err := e.SubmitAgentPrompt(prompt); err != nil {
+		return err
+	}
+	// Re-fetch turn because SubmitAgentPrompt appended a new turn (may reallocate e.agent.turns).
+	if orig := e.findAgentTurn(turn.ID); orig != nil && orig.Mismatch != nil {
+		orig.Mismatch.AskedWhy = true
+		e.agent.turnChangeSeq++
+		e.notify()
+	}
+	return nil
 }
 
 // --- Turn Review (Open / Close / Keep / Discard) ---
@@ -1701,6 +1847,7 @@ func (e *Editor) OpenAgentTurnReview(turnID string) *AgentTurnReview {
 		return nil
 	}
 	e.agent.openReviewTurnID = turn.ID
+	e.cancelAutoSaveTimer()
 	if e.OnOpenAgentReview != nil {
 		e.OnOpenAgentReview(*rev.Clone())
 	}
@@ -1744,23 +1891,32 @@ func (e *Editor) KeepAgentTurnDiffReview(turnID string) bool {
 		turn.Partial.Kept = true
 		turn.Partial.Pointing = false
 	}
+	if e.agent.pointingTurnID == turn.ID {
+		e.agent.pointingTurnID = ""
+	}
 	if e.agent.openReviewTurnID == turn.ID {
 		e.agent.openReviewTurnID = ""
 	}
+	e.agent.turnChangeSeq++
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return true
 }
 
 // DiscardAgentTurnReview reverts all unkept undo steps recorded since the turn began and marks the review discarded.
 func (e *Editor) DiscardAgentTurnReview(turnID string) bool {
-	if e == nil {
+	if e == nil || e.playing {
 		return false
 	}
 	turn := e.findOrLatestAgentTurn(turnID)
 	if turn == nil || turn.Review == nil || turn.Review.Kept || turn.Review.Discarded {
 		return false
 	}
-	if e.History != nil {
+	// Never unwind undo history of a different scene tab than the one the turn modified.
+	if turn.Review.File != "" && e.agentOpenSceneName() != turn.Review.File {
+		return false
+	}
+	if e.History != nil && e.History.Index() >= turn.Review.HistoryStart {
 		for e.History.Index() > turn.Review.HistoryStart {
 			if !e.Undo() {
 				break
@@ -1773,9 +1929,17 @@ func (e *Editor) DiscardAgentTurnReview(turnID string) bool {
 	turn.Review.Removed = nil
 	turn.Review.PlusLines = 0
 	turn.Review.MinusLines = 0
+	turn.baselineDoc = nil
+	turn.baselineYAML = ""
+	turn.lastSeenIDs = nil
+	turn.mutations = nil
+	if e.agent.pointingTurnID == turn.ID {
+		e.agent.pointingTurnID = ""
+	}
 	if e.agent.openReviewTurnID == turn.ID {
 		e.agent.openReviewTurnID = ""
 	}
+	e.agent.turnChangeSeq++
 	e.notify()
 	return true
 }
@@ -1797,15 +1961,12 @@ func (e *Editor) SetAgentOffline(offline bool) {
 	e.agent.offline = offline
 	if offline {
 		e.cancelAgentReconnect()
+		if e.agent.activeRunCancel != nil {
+			e.markActiveTurnLost("Offline")
+		}
 		e.agent.status = AgentStatusOffline
 	} else {
-		if len(e.agent.clients) > 0 {
-			e.agent.status = AgentStatusConnected
-		} else if e.agent.hadClient {
-			e.agent.status = AgentStatusDisconnected
-		} else {
-			e.agent.status = AgentStatusNotConnected
-		}
+		e.restoreIdleAgentStatus()
 	}
 	e.updateAgentAnnouncement()
 	e.notify()
@@ -1824,14 +1985,20 @@ func (e *Editor) QueueAgentRequest(prompt string) AgentQueuedRequest {
 	if e == nil {
 		return AgentQueuedRequest{}
 	}
+	fromComposer := strings.TrimSpace(prompt) == ""
 	text := strings.TrimSpace(prompt)
-	if text == "" {
+	if fromComposer {
 		text = strings.TrimSpace(e.agent.composerText)
 	}
 	if text == "" {
 		return AgentQueuedRequest{}
 	}
-	e.agent.composerText = ""
+	if len(e.agent.queue) >= maxAgentQueuedRequests {
+		return AgentQueuedRequest{}
+	}
+	if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
+		e.agent.composerText = ""
+	}
 	e.agent.queueSeq++
 	item := AgentQueuedRequest{
 		ID:       fmt.Sprintf("queue-%d", e.agent.queueSeq),
@@ -1859,6 +2026,7 @@ func (e *Editor) RemoveQueuedAgentRequest(id string) bool {
 }
 
 // SendQueuedAgentRequest explicitly sends one queued request once back online.
+// If submitting fails (for example while playing or while another request is running), the item remains in the queue.
 func (e *Editor) SendQueuedAgentRequest(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -1869,8 +2037,15 @@ func (e *Editor) SendQueuedAgentRequest(id string) error {
 	for i, q := range e.agent.queue {
 		if q.ID == id {
 			e.agent.queue = append(e.agent.queue[:i], e.agent.queue[i+1:]...)
+			if err := e.SubmitAgentPrompt(q.Prompt); err != nil {
+				// Restore the queued request at its original position so it is never lost on failure.
+				idx := min(i, len(e.agent.queue))
+				e.agent.queue = slices.Insert(e.agent.queue, idx, q)
+				e.notify()
+				return err
+			}
 			e.notify()
-			return e.SubmitAgentPrompt(q.Prompt)
+			return nil
 		}
 	}
 	return fmt.Errorf("editor: queued request %q not found", id)

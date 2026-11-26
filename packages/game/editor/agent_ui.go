@@ -949,8 +949,11 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.InsertAgentComposerNewline()
 		}
 	})
-	// Esc cancels "Let me point" viewport picking, or stops an active agent run when not editing text.
-	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+	// Esc cancels "Let me point" viewport picking, or stops an active agent run when not editing text or in a modal.
+	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
+		if ed.CommandPaletteOpen() || ed.ConnectDialogOpen() || ed.SettingsOpen() || ed.AskInPlaceOpen() || ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() {
+			return
+		}
 		if ed.AgentPointingActive() {
 			ed.CancelAgentPointing()
 			return

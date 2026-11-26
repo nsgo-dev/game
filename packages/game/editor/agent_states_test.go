@@ -2,9 +2,11 @@ package editor_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -675,5 +677,215 @@ func TestAgentFailureStatesUseOnlySpecTokensInLightAndDark(t *testing.T) {
 	}
 	if got := app.Find("id:agent-status-chip").Style.Background; got != dark.Removed.Fill {
 		t.Fatalf("dark offline chip bg = %#x, want %#x", uint32(got), uint32(dark.Removed.Fill))
+	}
+}
+
+func TestAgentStatesHardeningDraftQueuePreconditionsAutosaveLifecycleUTF8AndEsc(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SetRightRailTab(editor.RightTabAgent)
+	ed.NotifyAgentMCPConnected(editor.AgentClientInfo{
+		ID:        "c1",
+		Name:      "claude-code",
+		Transport: "stdio",
+	})
+
+	blockRun := make(chan struct{})
+	runStarted := make(chan struct{}, 2)
+	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		runStarted <- struct{}{}
+		emit(editor.AgentEvent{
+			Kind:         editor.AgentEventStep,
+			StepID:       "s1",
+			StepTitle:    "放置史莱姆",
+			StepStatus:   editor.AgentStepRunning,
+			PlannedSteps: []string{"放置史莱姆", "检查场景"},
+		})
+		select {
+		case <-blockRun:
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	// 1. Offline queueing with explicit prompt preserves unrelated unsent composer draft.
+	ed.SetAgentComposerText("unsent draft")
+	ed.SetAgentOffline(true)
+	q1 := ed.QueueAgentRequest("queued prompt 1")
+	q2 := ed.QueueAgentRequest("queued prompt 2")
+	if ed.AgentComposerText() != "unsent draft" {
+		t.Fatalf("composer draft wiped by explicit QueueAgentRequest: %q", ed.AgentComposerText())
+	}
+	ed.SetAgentOffline(false)
+
+	// 2. SendQueuedAgentRequest preserves the item in-place if SubmitAgentPrompt fails (ErrPlaying).
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	if err := ed.SendQueuedAgentRequest(q1.ID); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("SendQueuedAgentRequest during Play = %v, want ErrPlaying", err)
+	}
+	gotQueue := ed.AgentQueuedRequests()
+	if len(gotQueue) != 2 || gotQueue[0].ID != q1.ID || gotQueue[1].ID != q2.ID {
+		t.Fatalf("queue corrupted after failed SendQueuedAgentRequest: %+v", gotQueue)
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// 3. Esc while a modal (CommandPalette) is open MUST NOT stop a running agent turn!
+	if err := ed.SendQueuedAgentRequest(q1.ID); err != nil {
+		t.Fatalf("SendQueuedAgentRequest: %v", err)
+	}
+	<-runStarted
+	app.Settle()
+	if !ed.AgentWorking() {
+		t.Fatal("expected active agent run")
+	}
+	if !ed.HasOpenReview() {
+		t.Fatal("HasOpenReview should be true while an agent run is active")
+	}
+	ed.OpenCommandPalette()
+	app.Settle()
+	app.Key("escape")
+	app.Settle()
+	if !ed.AgentWorking() {
+		t.Fatal("Esc while CommandPalette was open unexpectedly stopped the running agent turn")
+	}
+
+	// 4. Going offline mid-run cleanly interrupts the active run into Lost (no leaked goroutine).
+	ed.SetAgentOffline(true)
+	app.Settle()
+	if ed.AgentWorking() {
+		t.Fatal("SetAgentOffline(true) left active agent run working")
+	}
+	turns := ed.AgentTurns()
+	if len(turns) == 0 || turns[len(turns)-1].Lost == nil {
+		t.Fatalf("expected Lost state after going offline mid-run, got %+v", turns)
+	}
+
+	// 5. Reconnecting once prompts AskResumePending; dismissing it is NOT resurrected by duplicate connect notifications.
+	ed.NotifyAgentMCPConnected(editor.AgentClientInfo{ID: "c2", Name: "claude-code", Transport: "stdio"})
+	app.Settle()
+	if !ed.AgentTurns()[len(ed.AgentTurns())-1].Lost.AskResumePending {
+		t.Fatal("first reconnect should prompt AskResumePending")
+	}
+	ed.DismissResumeLostAgentTurn("")
+	app.Settle()
+	ed.NotifyAgentMCPConnected(editor.AgentClientInfo{ID: "c2", Name: "claude-code", Transport: "stdio"})
+	app.Settle()
+	if ed.AgentTurns()[len(ed.AgentTurns())-1].Lost.AskResumePending {
+		t.Fatal("duplicate NotifyAgentMCPConnected resurrected dismissed AskResumePending")
+	}
+
+	// 6. UTF-8 multi-byte step title in StoppedState must remain valid UTF-8.
+	st := editor.AgentStoppedState{Resumed: true, ResumedAtTitle: "放置史莱姆"}
+	if title := st.EffectiveTitle(); !utf8.ValidString(title) || !strings.Contains(title, "放置史莱姆") {
+		t.Fatalf("UTF-8 EffectiveTitle corrupted: %q", title)
+	}
+
+	// 7. Partial state: preconditions guard TryAnotherWay while offline; Play() cancels pointing;
+	//    pointing pill reacts live to Spec Light/Dark switch; unkept review pauses autosave.
+	if _, err := ed.PlaceObject("", sceneformat.ObjectDoc{ID: "slime_guard", X: 100, Y: 100}); err != nil {
+		t.Fatal(err)
+	}
+	ed.MarkAgentTurnPartial("", editor.AgentPartialState{
+		DoneCount:  1,
+		TotalCount: 2,
+		Target:     "slime_02",
+		Reason:     "blocked",
+	})
+	ed.SetAgentOffline(true)
+	if err := ed.TryAnotherWayAgentTurn(""); err == nil {
+		t.Fatal("TryAnotherWayAgentTurn should fail while offline")
+	}
+	if ed.AgentTurns()[len(ed.AgentTurns())-1].Partial.TryingAnother {
+		t.Fatal("failed TryAnotherWayAgentTurn mutated TryingAnother=true")
+	}
+	ed.SetAgentOffline(false)
+	if !ed.HasOpenReview() {
+		t.Fatal("HasOpenReview should be true while Partial turn has an unkept review")
+	}
+
+	// Pointing overlay updates colors live on Light -> Dark switch and is canceled by Play().
+	ed.ToggleAgentPointing("")
+	app.Settle()
+	pill := app.Find("id:viewport-agent-pointing-pill")
+	if pill == nil || len(pill.Children) == 0 {
+		t.Fatal("viewport pointing pill missing")
+	}
+	if got := pill.Children[0].Style.Background; got != editor.LightSpecPalette().PillBg {
+		t.Fatalf("light pointing pill bg = %#x, want %#x", uint32(got), uint32(editor.LightSpecPalette().PillBg))
+	}
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	pill = app.Find("id:viewport-agent-pointing-pill")
+	if got := pill.Children[0].Style.Background; got != editor.DarkSpecPalette().PillBg {
+		t.Fatalf("dark pointing pill bg = %#x, want %#x", uint32(got), uint32(editor.DarkSpecPalette().PillBg))
+	}
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play while pointing: %v", err)
+	}
+	if ed.AgentPointingActive() {
+		t.Fatal("Play() did not cancel active viewport pointing")
+	}
+	if ed.DiscardAgentTurnReview("") {
+		t.Fatal("DiscardAgentTurnReview should be refused during Play()")
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// Keeping the review clears HasOpenReview().
+	if !ed.KeepAgentTurnDiffReview("") {
+		t.Fatal("KeepAgentTurnDiffReview should return true")
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("HasOpenReview should be false after keeping the agent turn review")
+	}
+
+	// 8. Transient add+remove leaving 0 objects (review == nil, mutations > 0) still catches summary mismatch!
+	ed.RecordAgentToolCall(editor.AgentToolCallRecord{
+		ClientName: "Claude Code",
+		ToolName:   "scene_read",
+		StepTitle:  "Read scene",
+	})
+	ed.PrepareExternalAgentBaseline()
+	if _, err := ed.PlaceObject("", sceneformat.ObjectDoc{ID: "temp_slime_01", X: 50, Y: 50}); err != nil {
+		t.Fatal(err)
+	}
+	ed.RecordAgentToolCall(editor.AgentToolCallRecord{
+		ClientName: "Claude Code",
+		ToolName:   "scene_edit",
+		StepTitle:  "Added temp_slime_01",
+	})
+	if err := ed.DeleteObject("temp_slime_01"); err != nil {
+		t.Fatal(err)
+	}
+	ed.RecordAgentToolCall(editor.AgentToolCallRecord{
+		ClientName: "Claude Code",
+		ToolName:   "scene_edit",
+		StepTitle:  "Removed temp_slime_01",
+	})
+	mm := ed.RecordAgentTurnSummary("", "Added 1 new patrolling temp_slime.")
+	if mm == nil {
+		t.Fatal("expected mismatch report when added object was later removed leaving empty diff")
+	}
+	if !strings.Contains(mm.Reason, "temp_slime_01") {
+		t.Fatalf("mismatch reason = %q, want temp_slime_01 explanation", mm.Reason)
 	}
 }

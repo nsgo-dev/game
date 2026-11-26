@@ -305,6 +305,12 @@ func (e *Editor) cancelTransientInteraction() {
 	e.endTerrainStrokeForChange()
 	e.exitTileReviewBeforePreview()
 	e.ExitHistoryPreview()
+	e.CancelAgentPointing()
+	e.agent.externalBaselineDoc = nil
+	e.agent.externalBaselineYAML = ""
+	e.agent.externalBaselineFile = ""
+	e.agent.externalHistoryStart = 0
+	e.agent.externalBaselineIDs = nil
 	e.CloseObjectContextMenu()
 	e.resetViewport3DAgentPrompt(false)
 	e.resetTextInputFocus()
