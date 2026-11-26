@@ -1468,7 +1468,7 @@ func main() {
 - **右侧面板（Why 与 YAML）**：在顶部显示智能体给出该改动的原因（**WHY**），下方展示带行号与 `+` / `−` 符号的精确 YAML 差异行。
 - **按 `Esc` 挂起与恢复审核**：按 `Esc`（`PauseReview`）回到编辑器并保持审核挂起——主视口继续绘制待审核改动叠加层（`drawPendingReviewOverlay`），右侧 **Agent** 标签页（`AgentPanelView`）展示 `"Review waiting · N changes, F files"`、已读计数、阻塞数与 **Resume review** 按钮（`ResumeReview`），点击后精确回到离开时的聚焦改动与已读状态。
 - **保留、全部撤回与单步撤销**：**Revert all** 弹出带焦点限制的确认对话框，列出将还原的文件并提示 `⌘Z` / `Ctrl+Z` 可全部恢复。**Keep**（`KeepTurnReview`）与 **Revert all**（`ConfirmReviewRevertAll`）均记录为 `Editor.History` 中的**单个步骤**，更新磁盘 YAML 文件与当前打开场景、弹出带 **Undo** 的规范 Toast，并在 Agent 面板显示 `"Kept K · reverted R · one undo step"`；执行一次 `Editor.Undo()` 即可按字节完整还原全部改动文件。
-- **MCP 只读接口（`editormcp`）**：新增只读工具 `review_status`（`ToolReviewStatus`、`ActionRead`），供智能体读取哪些改动已被查看或撤回、当前阻塞项以及保留/撤回结果，但保持保留与撤回决定权始终属于用户（绝不暴露未发送的草稿批注，并强制执行 `SceneAndData` / `GoSource` 隐私规则）。
+- **MCP 只读接口（`editormcp`）**：只读工具 `review_status`（`ToolReviewStatus`、`ActionRead`）供智能体读取每项改动的已读/撤回状态、冲突合并选择（`mine`、`agent`、`both`）、标注为 `"you"` 的就地手改 YAML 字段与代码行、当前阻塞项以及保留/撤回结果（保留后仍可在第二轮读取），但保留与撤回决定权始终属于开发者（绝不暴露未发送的草稿批注，并强制执行 `SceneAndData` / `GoSource` 隐私规则）。
 
 ### 审核批注与第二轮局部重做（#1031）
 
@@ -1477,6 +1477,15 @@ func main() {
 - **行内批注编辑器（`C` / `CmdReviewNote`）与视口图钉**：在聚焦改动上按 `C`（或点击批注图标按钮）会在卡片下方展开行内批注框（`"Note for the agent · not sent"`），提供 **Add note**（`CommitReviewNote`）、**Revert and redo with this note**（`RevertAndRedoReviewChange`）与 **Cancel**（`CancelReviewNoteComposer` 或 `Esc`）。已保存的批注会显示在卡片上（支持 **Edit** 与 **Remove** / `RemoveReviewNote`），并在审核视口与挂起后的 2D 主视口中以规范配色图钉标注在对应对象旁（`ReviewViewportPins`）。批注仅保存在当前回合的内存状态中（且限制长度与数量），绝不写入任何场景、预制体或数据文件；发送前被移除的批注绝不会到达智能体。
 - **发送批注与仅重做批注项（`SendReviewNotes`、`ApplyReviewRedo`、`editormcp`）**：点击顶栏的 **Send N notes**（存在未发送批注时切换为主强调色按钮）会通过 MCP（`review_notes_get`）将所有未发送批注连同每项改动的 `change_id`、`file`、`object`、`field`、`kind` 与 `note` 发给智能体。智能体在同一回合内调用 `review_redo` 仅重做带有批注的改动（未加批注的改动以及同一文件中被夹带修改的未批注对象均会被原子拒绝，同时强制执行 You-only、权限规则与隐私边界）；重做后的改动在 Round 2+ 中重新标为未读，并在 **WHY** 中显示 `"Redone from your note: …"`、在卡片下方显示 `"Revised in round N. Your note: …"`。
 - **轮次标签页、横幅、过滤、挂起卡片与单步撤销**：进入 Round 2 后，顶栏展示 **Round 1 | Round 2** 切换标签（`SetReviewViewRound`），过滤标签下方展示轮次横幅（`"Round 2 · the agent redid only the N changes you left notes on. Both rounds keep and undo as one step."`）。**Round 1** 以只读方式保留智能体最初版本供对照（编辑、撤回或批注操作返回 `ErrReviewReadOnlyRound`）；**Keep**（`⌘↵`）始终将**最新一轮**合并为 `Editor.History` 中的**单个步骤**，按一次 **Undo**（`⌘Z`）即可将全部受影响文件按字节还原至请求前状态。**Notes** 标签用于筛选带批注的改动，挂起时的 **Agent** 面板卡片会显示未发送批注数（`"N notes not sent"`），**Revert all** 对话框也会提示将丢弃未发送批注。
+
+### 审核冲突合并与就地手改 YAML（#1032）
+
+在逐项审核界面中，以下两种情况会清晰阻止 **Keep** 而不会丢失开发者或智能体任何一方的工作：
+
+- **三方冲突检测与合并（`syncReviewAfterMutate`、`SyncReviewPersonEdits`、`ResolveReviewConflict`）**：当审核回合挂起期间开发者通过编辑器命令（如 `MoveObject`、`SetProperty`、`SetComponentField` 等）手动编辑场景时，编辑器会自动通过 `sceneformat.Merge` 对基线、开发者修改与智能体提案做三方合并。对同一对象**不同字段**的修改会自动无感合并；对**同一字段或列表**的重叠修改（例如同时向 `door_1` 的 `on_open` 列表追加条目）会在改动卡片内展示双方行并标明作者（`you`、`agent`），提供 **Mine / Agent's / Both** 三选一控件（`ReviewConflictMine`、`ReviewConflictAgent`、`ReviewConflictBoth`），其中 **Both** 会保留双方条目且**你的条目在前**。在所有冲突未作出选择前，**Keep** 处于禁用状态（返回包装 `ErrReviewBlocked` 的 `*ReviewBlockedError`）并在顶栏提示 `"Choose how <对象> merges"`，点击 **Keep** 或顶栏阻塞胶囊会直接跳转到该冲突卡片。
+- **右侧 YAML 面板就地编辑与视口实时更新（`BeginReviewYAMLEdit`、`SetReviewYAMLDraft`、`FinishReviewYAMLEdit`）**：对任意未撤回的新增或修改场景对象点击 **Edit** 即可在右侧面板就地编辑 YAML，输入过程中保持输入框焦点稳定且绝不误触单字母审核快捷键。草稿受大小上限（256 KiB）保护，严格使用 `KnownFields(true)` 解码并拒绝未知字段、重复键与仅限用户文件，同时通过 `sceneformat.Validate` 与组件注册表校验。合法修改会实时刷新审核视口（`ReviewEffectiveSceneDoc`）并将手改行标为 `you`。
+- **YAML 解析错误、一键修复与撤销输入（`ApplyReviewYAMLFix`、`UndoReviewYAMLTyping`）**：输入无效 YAML（例如漏写冒号 `x 444`）会高亮标记出错的场景行，在顶栏显示 `"Fix YAML on line N"`、在告警卡片显示 `"Line N isn't valid YAML"`，禁用 **Done**（返回 `ErrReviewYAMLInvalid`）与 **Keep**，在解析器明确指出缺失项时提供经过校验的一键修复按钮（**Add the colon**、**Close the quote**、**Add the closing brace**、**Add the closing bracket**、**Replace tabs with spaces**），并始终提供 **Undo my typing** 回退本次输入。
+- **单步撤销与第二轮 MCP 可见性**：冲突合并选择与合法手改 YAML 都属于该回合的一部分——点击 **Keep**（`KeepTurnReview`）时合并为 `Editor.History` 中的**单个撤销步骤**，按一次 `Undo` 即可整体撤销智能体改动、合并选择与手改内容（同时保留开发者在审核外的手动编辑），并通过 `editormcp` 的 `review_status` 工具（`Editor.ReviewStatus`）以 `"you"` 标签供智能体在第二轮读取。
 
 ## 智能体任务的系统通知、Dock 角标与播放模式提示点（#1023）
 

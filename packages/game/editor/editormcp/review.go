@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	// ToolReviewStatus reads the active or most recent agent turn review's seen and reverted change state.
+	// ToolReviewStatus reads the active or most recent agent turn review's seen, reverted, conflict, and hand-edited YAML state.
 	ToolReviewStatus = "review_status"
 	// ToolReviewNotesGet reads the active review's round state, changes, and sent notes waiting for the agent.
 	ToolReviewNotesGet = "review_notes_get"
@@ -26,6 +26,8 @@ const (
 	maxReviewStatusTextChanges = 200
 	// maxReviewStatusYAMLLines caps YAML diff lines per change in the MCP structured snapshot.
 	maxReviewStatusYAMLLines = 60
+	// maxReviewStatusYAMLBytes caps HandEditYAML per change in the MCP structured snapshot.
+	maxReviewStatusYAMLBytes = 16 << 10
 	// maxReviewRedoItems caps how many change entries one review_redo call may submit.
 	maxReviewRedoItems = 256
 )
@@ -85,7 +87,7 @@ func reviewTools() []Tool {
 		{
 			Name:        ToolReviewStatus,
 			Title:       "Read agent turn review status",
-			Description: "Return the current agent turn review state: whether it is open or pending, the request, round state, file summaries, every change's seen and reverted flags, active blockers, and the last keep/revert outcome. Unsent draft notes are never exposed. Read-only: keeping or reverting remains the person's decision.",
+			Description: "Return the current or most recent agent turn review state: whether it is open or pending, the request, round state, file summaries, every change's seen and reverted flags, overlapping edit conflicts and the person's merge choice (mine, agent, both), in-review YAML hand edits tagged \"you\" with edited fields and lines, active blockers (including YAML parse errors), and the last keep/revert outcome. Unsent draft notes are never exposed, and privacy policies are enforced. Read-only: keeping or reverting remains the person's decision.",
 			InputSchema: []byte(reviewStatusSchema),
 			Action:      ActionRead,
 			Handler:     reviewStatus,
@@ -164,11 +166,14 @@ func reviewStatus(ctx context.Context, c *Call) (*Result, error) {
 		return nil, err
 	}
 
-	// Never leak unsent draft notes over MCP; also redact diff lines for files blocked by privacy (e.g. GoSource off).
+	// Never leak unsent draft notes over MCP; also redact diff/hand-edit lines for files blocked by privacy (e.g. GoSource off).
 	for i := range snap.Changes {
 		snap.Changes[i].Note = ""
 		if checkPathPrivacy(policy, root, snap.Changes[i].File) != nil {
 			snap.Changes[i].YAMLLines = nil
+			snap.Changes[i].HandEditLines = nil
+			snap.Changes[i].HandEditYAML = ""
+			snap.Changes[i].Conflicts = nil
 			for j := range snap.Changes[i].Versions {
 				snap.Changes[i].Versions[j].YAMLLines = nil
 			}
@@ -181,6 +186,50 @@ func reviewStatus(ctx context.Context, c *Call) (*Result, error) {
 			if len(snap.Changes[i].Versions[j].YAMLLines) > maxReviewStatusYAMLLines {
 				snap.Changes[i].Versions[j].YAMLLines = snap.Changes[i].Versions[j].YAMLLines[:maxReviewStatusYAMLLines]
 			}
+		}
+		if len(snap.Changes[i].HandEditLines) > maxReviewStatusYAMLLines {
+			snap.Changes[i].HandEditLines = snap.Changes[i].HandEditLines[:maxReviewStatusYAMLLines]
+		}
+		if len(snap.Changes[i].HandEditYAML) > maxReviewStatusYAMLBytes {
+			snap.Changes[i].HandEditYAML = snap.Changes[i].HandEditYAML[:maxReviewStatusYAMLBytes]
+		}
+	}
+
+	writeChangeSummary := func(b *strings.Builder, changes []editor.ReviewChange) {
+		limit := min(len(changes), maxReviewStatusTextChanges)
+		for _, ch := range changes[:limit] {
+			seenTag := "unseen"
+			if ch.Seen {
+				seenTag = "seen"
+			}
+			revTag := "kept"
+			if ch.Reverted {
+				revTag = "reverted"
+			}
+			fmt.Fprintf(b, "\n- [%s] %s (%s) %s · %s, %s", ch.Kind, ch.Title, ch.File, ch.Detail, seenTag, revTag)
+			if len(ch.Conflicts) > 0 {
+				choice := string(ch.ConflictChoice)
+				if choice == "" {
+					choice = "unresolved"
+				}
+				fmt.Fprintf(b, ", conflict=%s", choice)
+			}
+			if ch.HandEdited {
+				by := ch.HandEditBy
+				if by == "" {
+					by = editor.ReviewAuthorYou
+				}
+				fmt.Fprintf(b, ", hand-edited by %s", by)
+				if len(ch.HandEditFields) > 0 {
+					fmt.Fprintf(b, " [%s]", strings.Join(ch.HandEditFields, ", "))
+				}
+			}
+			if ch.YAMLError != nil {
+				fmt.Fprintf(b, ", yaml error on line %d", ch.YAMLError.Line)
+			}
+		}
+		if len(changes) > limit {
+			fmt.Fprintf(b, "\n... and %d more changes", len(changes)-limit)
 		}
 	}
 
@@ -205,22 +254,11 @@ func reviewStatus(ctx context.Context, c *Call) (*Result, error) {
 				fmt.Fprintf(&b, "\n  - %s: %s", bl.ChangeID, bl.Reason)
 			}
 		}
-		limit := min(len(snap.Changes), maxReviewStatusTextChanges)
-		for _, ch := range snap.Changes[:limit] {
-			seenTag := "unseen"
-			if ch.Seen {
-				seenTag = "seen"
-			}
-			revTag := "kept"
-			if ch.Reverted {
-				revTag = "reverted"
-			}
-			fmt.Fprintf(&b, "\n- [%s] %s (%s) %s · %s, %s", ch.Kind, ch.Title, ch.File, ch.Detail, seenTag, revTag)
-		}
-		if len(snap.Changes) > limit {
-			fmt.Fprintf(&b, "\n... and %d more changes", len(snap.Changes)-limit)
-		}
-	case editor.ReviewOutcomeKept, editor.ReviewOutcomeReverted:
+		writeChangeSummary(&b, snap.Changes)
+	case editor.ReviewOutcomeKept:
+		fmt.Fprintf(&b, "Review %s: %s", snap.Outcome, snap.LastOutcomeMsg)
+		writeChangeSummary(&b, snap.Changes)
+	case editor.ReviewOutcomeReverted:
 		fmt.Fprintf(&b, "Review %s: %s", snap.Outcome, snap.LastOutcomeMsg)
 	default:
 		b.WriteString("No agent turn review is active.")

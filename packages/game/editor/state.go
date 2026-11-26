@@ -1152,6 +1152,7 @@ func (e *Editor) afterMutate() {
 	e.syncHUDAfterMutate()
 	e.syncTileReviewAfterMutate()
 	e.syncAgentTurnAfterMutate()
+	e.syncReviewAfterMutate()
 	e.Rebuild()
 	// Ensure SelectedID and selectedIDs still point to existing local, instanced, or inherited objects.
 	e.pruneSelection()
