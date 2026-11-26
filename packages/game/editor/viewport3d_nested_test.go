@@ -778,4 +778,131 @@ autoload:
 	if ed.HasObjectOverride("turret_1/antenna", "y") {
 		t.Fatal("expected antenna y override to be cleared after single Undo of multi-select drag")
 	}
+
+	// 6. Multi-object 3D Rotate and Scale on instanced children preserve BOTH orientation/scale
+	//    AND orbital/radial centroid position overrides (not dropped by applyTransform3DOverride).
+	if !ed.SelectObjects([]string{"turret_1/cannon", "turret_1/antenna"}) {
+		t.Fatal("SelectObjects for multi-rotate failed")
+	}
+	ed.SetGizmoMode3D(editor.Gizmo3DRotate)
+	ed.Camera3D = editor.OrbitCamera3D{
+		Target:   midOrigin,
+		Yaw:      0,
+		Pitch:    float32(math.Pi/2 - 0.05),
+		Distance: 200,
+		FOV:      float32(math.Pi / 3),
+		Near:     0.5,
+		Far:      5000,
+	}
+	gLenRot := ed.GizmoLength3D(midOrigin)
+	rs0, ry0, _, rvis0 := ed.Camera3D.Project([3]float32{midOrigin[0] + gLenRot, midOrigin[1], midOrigin[2]}, w, h)
+	rs1, ry1, _, rvis1 := ed.Camera3D.Project([3]float32{midOrigin[0], midOrigin[1], midOrigin[2] - gLenRot}, w, h)
+	if !rvis0 || !rvis1 {
+		t.Fatal("multi-rotate ring points not visible")
+	}
+	if !ed.BeginGizmoDragAxis3D(editor.Axis3DY, rs0, ry0, w, h) {
+		t.Fatal("BeginGizmoDragAxis3D(Axis3DY) multi-rotate failed")
+	}
+	ed.UpdateGizmoDrag3D(rs1, ry1)
+	if !ed.EndGizmoDrag3D() {
+		t.Fatal("EndGizmoDrag3D multi-rotate returned false")
+	}
+	if !ed.HasObjectOverride("turret_1/cannon", "rotY") || !ed.HasObjectOverride("turret_1/antenna", "rotY") {
+		t.Fatalf("expected rotY override on both instanced children: cannon=%v antenna=%v",
+			ed.ObjectOverrideFields("turret_1/cannon"), ed.ObjectOverrideFields("turret_1/antenna"))
+	}
+	if !ed.HasObjectOverride("turret_1/cannon", "x") && !ed.HasObjectOverride("turret_1/cannon", "posZ") {
+		t.Fatalf("expected multi-rotate orbital position override on cannon, got %v", ed.ObjectOverrideFields("turret_1/cannon"))
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo multi-rotate failed")
+	}
+
+	// Multi-object uniform scale around centroid preserves both scale and radial position overrides.
+	ed.SetGizmoMode3D(editor.Gizmo3DScale)
+	ed.Camera3D = editor.OrbitCamera3D{
+		Target:   midOrigin,
+		Yaw:      0,
+		Pitch:    0,
+		Distance: 200,
+		FOV:      float32(math.Pi / 3),
+		Near:     0.5,
+		Far:      5000,
+	}
+	gLenScale := ed.GizmoLength3D(midOrigin)
+	ss0, sy0, _, _ := ed.Camera3D.Project(midOrigin, w, h)
+	ss1, sy1, _, _ := ed.Camera3D.Project([3]float32{midOrigin[0] + gLenScale*0.5, midOrigin[1], midOrigin[2]}, w, h)
+	if !ed.BeginGizmoDragAxis3D(editor.Axis3DAll, ss0, sy0, w, h) {
+		t.Fatal("BeginGizmoDragAxis3D(Axis3DAll) multi-scale failed")
+	}
+	ed.UpdateGizmoDrag3D(ss1, sy1)
+	if !ed.EndGizmoDrag3D() {
+		t.Fatal("EndGizmoDrag3D multi-scale returned false")
+	}
+	if !ed.HasObjectOverride("turret_1/antenna", "scaleX") || !ed.HasObjectOverride("turret_1/antenna", "scaleY") || !ed.HasObjectOverride("turret_1/antenna", "scaleZ") {
+		t.Fatalf("expected scaleX/Y/Z overrides on antenna after multi-scale, got %v", ed.ObjectOverrideFields("turret_1/antenna"))
+	}
+	if !ed.HasObjectOverride("turret_1/antenna", "y") && !ed.HasObjectOverride("turret_1/antenna", "x") && !ed.HasObjectOverride("turret_1/antenna", "posZ") {
+		t.Fatalf("expected radial position override on antenna after multi-scale, got %v", ed.ObjectOverrideFields("turret_1/antenna"))
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo multi-scale failed")
+	}
+}
+
+// Regression test: Pick3D tracks tree ancestry by flat object index and strictly
+// increases depth when descending ancestor-descendant chains, so duplicate or
+// empty nested IDs in an unvalidated in-memory document can never infinite-loop.
+func TestPick3DDuplicateOrEmptyNestedIDsTerminates(t *testing.T) {
+	const w, h float32 = 640, 360
+	for _, tc := range []struct {
+		name string
+		id   string
+	}{
+		{"duplicate_id", "dup"},
+		{"empty_id", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ed := newTest3DEditor(t, sceneformat.ObjectDoc{
+				ID:    "parent",
+				Name:  "Parent",
+				Depth: 24,
+				Children: []sceneformat.ObjectDoc{{
+					ID:    "child",
+					Name:  "Child",
+					Depth: 12,
+				}},
+			})
+			corruptIDs := func(doc *sceneformat.SceneDoc) {
+				if doc == nil || len(doc.Layers) == 0 || len(doc.Layers[0].Objects) == 0 {
+					return
+				}
+				doc.Layers[0].Objects[0].ID = tc.id
+				if len(doc.Layers[0].Objects[0].Children) > 0 {
+					doc.Layers[0].Objects[0].Children[0].ID = tc.id
+				}
+			}
+			corruptIDs(ed.Doc)
+			if ed.Built != nil {
+				corruptIDs(ed.Built.Doc)
+			}
+			ed.Camera3D = editor.OrbitCamera3D{
+				Target:   [3]float32{0, 0, 0},
+				Yaw:      0,
+				Pitch:    0,
+				Distance: 120,
+				FOV:      float32(math.Pi / 3),
+				Near:     0.5,
+				Far:      5000,
+			}
+			sx, sy, _, vis := ed.Camera3D.Project([3]float32{0, 0, 0}, w, h)
+			if !vis {
+				t.Fatal("origin not visible")
+			}
+			idx, ok := ed.Pick3D(sx, sy, w, h)
+			if !ok || idx != 1 {
+				t.Fatalf("Pick3D(%s) = (%d, %v), want (1, true)", tc.name, idx, ok)
+			}
+		})
+	}
 }

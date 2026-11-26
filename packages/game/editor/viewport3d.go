@@ -474,15 +474,14 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	}
 	type boxHit3D struct {
 		idx       int
-		id        string
 		depth     int
 		t         float64
-		ancestors []string
+		ancestors []int
 	}
 	meshIdx := -1
 	var boxHits []boxHit3D
 	idx := 0
-	var ancStack []string
+	var ancStack []int
 	for li := range doc.Layers {
 		layer := &doc.Layers[li]
 		// Screen-space layers hold HUD and menu objects at canvas coordinates,
@@ -497,15 +496,15 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 				posed := e.posed3D(o)
 				// A hidden or locked object takes its descendants with it.
 				skipped := skip || e.hidden[o.ID] || e.locked[o.ID]
+				curIdx := idx
 				if meshHit && o.ID == meshID {
-					meshIdx = idx
+					meshIdx = curIdx
 				}
 				if _, geometry := e.geometryBounds3D(o.ID); !meshHit && visible && !skipped && !geometry {
 					bmin, bmax := aabbOfCorners3D(e.objectCorners3DUnder(posed, parent))
 					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit {
 						boxHits = append(boxHits, boxHit3D{
-							idx:       idx,
-							id:        o.ID,
+							idx:       curIdx,
 							depth:     len(ancStack),
 							t:         t,
 							ancestors: slices.Clone(ancStack),
@@ -513,7 +512,7 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 					}
 				}
 				idx++
-				ancStack = append(ancStack, o.ID)
+				ancStack = append(ancStack, curIdx)
 				walk(o.Children, parent.mul(local3(posed)), skipped)
 				ancStack = ancStack[:len(ancStack)-1]
 			}
@@ -539,7 +538,7 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	for {
 		minUnrelatedT := math.Inf(1)
 		for _, h := range boxHits {
-			if h.idx == best.idx || slices.Contains(h.ancestors, best.id) || slices.Contains(best.ancestors, h.id) {
+			if h.idx == best.idx || slices.Contains(h.ancestors, best.idx) || slices.Contains(best.ancestors, h.idx) {
 				continue
 			}
 			if h.t < minUnrelatedT {
@@ -548,7 +547,7 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 		}
 		nextIdx := -1
 		for i, h := range boxHits {
-			if !slices.Contains(h.ancestors, best.id) || h.t > minUnrelatedT+tieEps {
+			if h.depth <= best.depth || !slices.Contains(h.ancestors, best.idx) || h.t > minUnrelatedT+tieEps {
 				continue
 			}
 			if nextIdx < 0 ||
@@ -1519,20 +1518,21 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 }
 
 // applyTransform3DOverride merges the fields changed by a 3D gizmo drag from start to next into
-// base without spuriously overriding unchanged coordinates.
+// base without spuriously overriding unchanged coordinates. Position changes are checked across
+// all modes so multi-object Rotate and Scale drags preserve orbital/radial centroid movement on
+// instanced or inherited objects.
 func applyTransform3DOverride(base sceneformat.ObjectOverride, mode GizmoMode3D, axis GizmoAxis3D, start, next Transform3D) sceneformat.ObjectOverride {
 	nextOv := cloneResolvedObjectOverride(base)
+	if next.X != start.X {
+		nextOv.X = sceneformat.Float32(next.X)
+	}
+	if next.Y != start.Y {
+		nextOv.Y = sceneformat.Float32(next.Y)
+	}
+	if next.PosZ != start.PosZ {
+		nextOv.PosZ = sceneformat.Float32(next.PosZ)
+	}
 	switch mode {
-	case Gizmo3DTranslate:
-		if next.X != start.X {
-			nextOv.X = sceneformat.Float32(next.X)
-		}
-		if next.Y != start.Y {
-			nextOv.Y = sceneformat.Float32(next.Y)
-		}
-		if next.PosZ != start.PosZ {
-			nextOv.PosZ = sceneformat.Float32(next.PosZ)
-		}
 	case Gizmo3DRotate:
 		if next.RotX != start.RotX {
 			nextOv.RotX = sceneformat.Float32(next.RotX)
