@@ -11,18 +11,8 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints using exclusively Spec.dc.html color tokens (#9B7BFF, #FF6B6B, #4FD38A).
-var (
-	specAgentChipFill   = core.RGBA(0x9B7BFF, 0.10)
-	specAgentChipEdge   = core.RGBA(0x9B7BFF, 0.50)
-	specAgentPulseHalo  = core.RGBA(0x9B7BFF, 0.25)
-	specProblemChipFill = core.RGBA(0xFF6B6B, 0.10)
-	specAddedStepFill   = core.RGBA(0x4FD38A, 0.14)
-	specProblemStepFill = core.RGBA(0xFF6B6B, 0.14)
-)
-
 // RightRailView renders the editor's right sidebar: the Agent / Inspector tab bar when an agent is not disabled,
-// keeping InspectorView active by default at 272 pt and showing AgentPanelView (360 pt) when the Agent tab is selected.
+// keeping InspectorView active by default at 272 pt and showing AgentPanelView (380 pt) when the Agent tab is selected.
 // When AgentModeNone is chosen, the Agent panel stays closed and only InspectorView renders.
 func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	modeMemo := core.NewMemo(cx, func() AgentMode {
@@ -32,6 +22,10 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	tabMemo := core.NewMemo(cx, func() RightRailTab {
 		_ = rev.Get()
 		return ed.RightRailTab()
+	})
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
 	})
 
 	return core.Show{
@@ -50,27 +44,30 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					return AgentPanelView(cx, ed, rev)
 				},
 				Else: func(cx *core.Scope) core.Node {
-					return core.View{
-						TestID: "right-rail-inspector-wrap",
-						Style: core.Style{
-							Width:       core.Pt(272),
-							FlexShrink:  0,
-							Background:  specPanel,
-							Borders:     core.Edges{Left: 1},
-							BorderColor: specLine,
-						},
-						Children: []core.Node{
-							rightRailTabBar(cx, ed, rev, false),
-							core.View{
-								Style: core.Style{
-									FlexGrow:  1,
-									FlexBasis: core.Pt(0),
-									Overflow:  core.Hidden,
-								},
-								Children: []core.Node{InspectorView(cx, ed, rev)},
+					return core.Dynamic(func(cx *core.Scope) core.Node {
+						p := SpecPaletteFor(darkMemo.Get())
+						return core.View{
+							TestID: "right-rail-inspector-wrap",
+							Style: core.Style{
+								Width:       core.Pt(272),
+								FlexShrink:  0,
+								Background:  p.Panel,
+								Borders:     core.Edges{Left: 1},
+								BorderColor: p.Line,
 							},
-						},
-					}
+							Children: []core.Node{
+								rightRailTabBar(cx, ed, rev, p, false),
+								core.View{
+									Style: core.Style{
+										FlexGrow:  1,
+										FlexBasis: core.Pt(0),
+										Overflow:  core.Hidden,
+									},
+									Children: []core.Node{InspectorView(cx, ed, rev)},
+								},
+							},
+						}
+					})
 				},
 			}
 		},
@@ -78,7 +75,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 }
 
 // rightRailTabBar renders the 44 pt Agent / Inspector header bar matching docs/design/editor/Main.dc.html and AgentStates.dc.html.
-func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showFullChip bool) core.Node {
+func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, showFullChip bool) core.Node {
 	tabBtn := func(testID, label string, tab RightRailTab) core.Node {
 		return core.View{
 			TestID: testID,
@@ -89,7 +86,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showF
 				active := ed.RightRailTab() == tab
 				var bg core.Color
 				if active {
-					bg = specRaised
+					bg = p.Raised
 				}
 				return core.Style{
 					Height:         core.Pt(30),
@@ -98,7 +95,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showF
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					Background:     bg,
-					FocusVisible:   specFocusRingStyle,
+					FocusVisible:   p.FocusRing(2),
 				}
 			},
 			OnPress: func(core.PressEvent) {
@@ -109,9 +106,9 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showF
 					Content: label,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						col := specTextMuted
+						col := p.TextFaint
 						if ed.RightRailTab() == tab {
-							col = specTextStrong
+							col = p.TextPrimary
 						}
 						return core.Style{
 							FontSize:   12.5,
@@ -128,7 +125,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showF
 	if showFullChip {
 		trailing = AgentStatusChipView(cx, ed, rev)
 	} else {
-		trailing = compactAgentChip(cx, ed, rev)
+		trailing = compactAgentChip(ed, rev, p)
 	}
 
 	return core.View{
@@ -141,9 +138,9 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showF
 			AlignItems:  core.AlignCenter,
 			Gap:         6,
 			Padding:     core.Symmetric(7, 10),
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -165,7 +162,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], showF
 }
 
 // compactAgentChip renders a compact status dot/button in the Inspector tab header so the author can jump to Agent or Connect.
-func compactAgentChip(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
 	return core.View{
 		TestID: "right-rail-agent-pill",
 		Role:   core.RoleButton,
@@ -181,8 +178,8 @@ func compactAgentChip(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			Gap:          6,
 			CornerRadius: 12,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
-			FocusVisible: specFocusRingStyle,
+			BorderColor:  p.LineRaised,
+			FocusVisible: p.FocusRing(2),
 		},
 		OnPress: func(core.PressEvent) {
 			if ed.AgentStatus() == AgentStatusNotConnected {
@@ -195,18 +192,18 @@ func compactAgentChip(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			core.View{
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
-					col := specChanged
+					col := p.Changed.Fg
 					switch ed.AgentStatus() {
 					case AgentStatusConnected:
-						col = specAdded
+						col = p.Added.Fg
 					case AgentStatusWorking:
-						col = specAgent
+						col = p.Agent.Fg
 					case AgentStatusWaitingForYou:
-						col = specWarning
+						col = p.Warning.Fg
 					case AgentStatusDisconnected:
-						col = specProblem
+						col = p.Removed.Fg
 					case AgentStatusReconnecting:
-						col = specTextMuted
+						col = p.TextFaint
 					}
 					return core.Style{
 						Width:        core.Pt(6),
@@ -236,7 +233,7 @@ func compactAgentChip(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				},
 				Style: core.Style{
 					FontSize: 11,
-					Color:    specTextSecondary,
+					Color:    p.TextMuted,
 				},
 			},
 		},
@@ -256,6 +253,10 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	})
 	reduceMotion := core.NewMemo(cx, func() bool {
 		return cx.Env().ReduceMotion()
+	})
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
 	})
 
 	cx.Effect(func() {
@@ -305,6 +306,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 	chipContent := core.Dynamic(func(cx *core.Scope) core.Node {
 		st := statusMemo.Get()
+		p := SpecPaletteFor(darkMemo.Get())
 		switch st {
 		case AgentStatusConnected:
 			pill := core.View{
@@ -322,8 +324,8 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Gap:          6,
 					CornerRadius: 12,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.OpenConnectDialog()
@@ -335,7 +337,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 3,
-							Background:   specAdded,
+							Background:   p.Added.Fg,
 							FlexShrink:   0,
 						},
 					},
@@ -344,7 +346,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Content: "Connected · MCP",
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextSecondary,
+							Color:    p.TextMuted,
 						},
 					},
 				},
@@ -359,6 +361,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			}
 
 		case AgentStatusWorking:
+			pulseHalo := ui.Alpha(p.Agent.Fg, 0.25)
 			return core.View{
 				TestID: "agent-status-chip",
 				Style: core.Style{
@@ -368,15 +371,15 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Padding:      core.Symmetric(0, 10),
 					Gap:          6,
 					CornerRadius: 12,
-					Background:   specAgentChipFill,
+					Background:   p.Agent.Fill,
 					BorderWidth:  1,
-					BorderColor:  specAgentChipEdge,
+					BorderColor:  p.Agent.Edge,
 				},
 				Children: []core.Node{
 					core.View{
 						TestID: "agent-status-dot",
 						StyleFunc: func() core.Style {
-							halo := specAgentPulseHalo
+							halo := pulseHalo
 							op := float32(1)
 							if !reduceMotion.Get() && !pulseOn.Get() {
 								op = 0.45
@@ -399,7 +402,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									Width:        core.Pt(6),
 									Height:       core.Pt(6),
 									CornerRadius: 3,
-									Background:   specAgent,
+									Background:   p.Agent.Fg,
 								},
 							},
 						},
@@ -419,7 +422,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 					},
 				},
@@ -441,10 +444,10 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Padding:      core.Symmetric(0, 10),
 					Gap:          6,
 					CornerRadius: 12,
-					Background:   specWarningFill,
+					Background:   p.Warning.Fill,
 					BorderWidth:  1,
-					BorderColor:  specWarningEdge,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.Warning.Edge,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.FocusOpenAgentRequest()
@@ -455,7 +458,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Style: core.Style{
 							Width:      core.Pt(13),
 							Height:     core.Pt(13),
-							Color:      specWarning,
+							Color:      p.Warning.Fg,
 							FlexShrink: 0,
 						},
 					},
@@ -468,7 +471,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specWarning,
+							Color:    p.Warning.Fg,
 						},
 					},
 				},
@@ -485,7 +488,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Gap:          6,
 					CornerRadius: 12,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					core.SVGView{
@@ -493,7 +496,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Style: core.Style{
 							Width:      core.Pt(13),
 							Height:     core.Pt(13),
-							Color:      specTextSecondary,
+							Color:      p.TextMuted,
 							FlexShrink: 0,
 						},
 					},
@@ -506,7 +509,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextSecondary,
+							Color:    p.TextMuted,
 						},
 					},
 				},
@@ -529,9 +532,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							Padding:      core.Symmetric(0, 10),
 							Gap:          6,
 							CornerRadius: 12,
-							Background:   specProblemChipFill,
+							Background:   p.Removed.Fill,
 							BorderWidth:  1,
-							BorderColor:  specProblemEdge,
+							BorderColor:  p.Removed.Edge,
 						},
 						Children: []core.Node{
 							core.SVGView{
@@ -539,7 +542,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Style: core.Style{
 									Width:      core.Pt(13),
 									Height:     core.Pt(13),
-									Color:      specProblem,
+									Color:      p.Removed.Fg,
 									FlexShrink: 0,
 								},
 							},
@@ -548,7 +551,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Content: "Disconnected",
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specProblem,
+									Color:    p.Removed.Fg,
 								},
 							},
 						},
@@ -563,10 +566,10 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							CornerRadius:   6,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							Background:     specRaised,
+							Background:     p.Raised,
 							BorderWidth:    1,
-							BorderColor:    specLineRaised,
-							FocusVisible:   specFocusRingStyle,
+							BorderColor:    p.LineRaised,
+							FocusVisible:   p.FocusRing(2),
 						},
 						OnPress: func(core.PressEvent) {
 							ed.ReconnectAgent()
@@ -576,7 +579,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Content: "Reconnect",
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specText,
+									Color:    p.TextSecondary,
 								},
 							},
 						},
@@ -591,7 +594,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							CornerRadius:   6,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
+							FocusVisible:   p.FocusRing(2),
 						},
 						OnPress: func(core.PressEvent) {
 							ed.TroubleshootAgentConnection()
@@ -601,7 +604,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Content: "Troubleshoot",
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specTextSecondary,
+									Color:    p.TextMuted,
 								},
 							},
 						},
@@ -621,10 +624,10 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Padding:      core.Symmetric(0, 10),
 					Gap:          6,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.OpenConnectDialog()
@@ -636,7 +639,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 3,
-							Background:   specChanged,
+							Background:   p.Changed.Fg,
 							FlexShrink:   0,
 						},
 					},
@@ -645,7 +648,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Content: "Connect agent",
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 					},
 				},
@@ -709,59 +712,67 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return b.String()
 	})
 
-	threadBody := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = threadKey.Get()
-		turns := ed.AgentTurns()
-		openReq := ed.AgentOpenRequest()
-
-		var items []core.Node
-		if len(turns) == 0 && openReq == nil {
-			items = append(items, agentEmptyStateCard(ed))
-		}
-		for ti, turn := range turns {
-			items = append(items, agentTurnView(ed, ti, turn))
-		}
-		if openReq != nil {
-			items = append(items, agentOpenRequestCard(ed, openReq, openReqRef))
-		}
-		return core.View{
-			TestID: "agent-thread-list",
-			Style: core.Style{
-				Gap:     14,
-				Padding: core.All(16),
-			},
-			Children: items,
-		}
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
 	})
 
-	return core.View{
-		TestID: "agent-panel",
-		Role:   core.RoleRegion,
-		Label:  "Agent panel",
-		Style: core.Style{
-			Width:       core.Pt(380),
-			FlexShrink:  0,
-			Background:  specPanel,
-			Borders:     core.Edges{Left: 1},
-			BorderColor: specLine,
-			Overflow:    core.Hidden,
-		},
-		Children: []core.Node{
-			rightRailTabBar(cx, ed, rev, true),
-			ui.ScrollView{
-				TestID: "agent-thread-scroll",
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := SpecPaletteFor(darkMemo.Get())
+		threadBody := core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = threadKey.Get()
+			turns := ed.AgentTurns()
+			openReq := ed.AgentOpenRequest()
+
+			var items []core.Node
+			if len(turns) == 0 && openReq == nil {
+				items = append(items, agentEmptyStateCard(ed, p))
+			}
+			for ti, turn := range turns {
+				items = append(items, agentTurnView(ed, ti, turn, p))
+			}
+			if openReq != nil {
+				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
+			}
+			return core.View{
+				TestID: "agent-thread-list",
 				Style: core.Style{
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
+					Gap:     14,
+					Padding: core.All(16),
 				},
-				Children: []core.Node{threadBody},
+				Children: items,
+			}
+		})
+
+		return core.View{
+			TestID: "agent-panel",
+			Role:   core.RoleRegion,
+			Label:  "Agent panel",
+			Style: core.Style{
+				Width:       core.Pt(380),
+				FlexShrink:  0,
+				Background:  p.Panel,
+				Borders:     core.Edges{Left: 1},
+				BorderColor: p.Line,
+				Overflow:    core.Hidden,
 			},
-			agentComposerView(cx, ed, rev, composerFocused),
-		},
-	}
+			Children: []core.Node{
+				rightRailTabBar(cx, ed, rev, p, true),
+				ui.ScrollView{
+					TestID: "agent-thread-scroll",
+					Style: core.Style{
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+					},
+					Children: []core.Node{threadBody},
+				},
+				agentComposerView(cx, ed, rev, p, composerFocused),
+			},
+		}
+	})
 }
 
-func agentEmptyStateCard(ed *Editor) core.Node {
+func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	connected := ed.AgentStatus() == AgentStatusConnected
 	heading := "Ask the agent to edit this scene"
 	body := "Describe what you want to change. Every edit runs through the editor's MCP server so you can see it live and undo it in one step."
@@ -775,14 +786,14 @@ func agentEmptyStateCard(ed *Editor) core.Node {
 			Style: core.Style{
 				FontSize:   13,
 				FontWeight: 600,
-				Color:      specTextStrong,
+				Color:      p.TextPrimary,
 			},
 		},
 		core.Text{
 			Content: body,
 			Style: core.Style{
 				FontSize: 12.5,
-				Color:    specTextSecondary,
+				Color:    p.TextMuted,
 			},
 		},
 	}
@@ -798,8 +809,8 @@ func agentEmptyStateCard(ed *Editor) core.Node {
 				CornerRadius:   8,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
-				Background:     specTextStrong,
-				FocusVisible:   specFocusRingStyle,
+				Background:     p.TextPrimary,
+				FocusVisible:   p.FocusRing(2),
 			},
 			OnPress: func(core.PressEvent) {
 				ed.OpenConnectDialog()
@@ -810,7 +821,7 @@ func agentEmptyStateCard(ed *Editor) core.Node {
 					Style: core.Style{
 						FontSize:   12.5,
 						FontWeight: 600,
-						Color:      specBg,
+						Color:      p.OnTextPrimary,
 					},
 				},
 			},
@@ -820,9 +831,9 @@ func agentEmptyStateCard(ed *Editor) core.Node {
 		TestID: "agent-empty-card",
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 			Padding:      core.All(14),
 			Gap:          8,
 		},
@@ -830,7 +841,7 @@ func agentEmptyStateCard(ed *Editor) core.Node {
 	}
 }
 
-func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
+func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.Node {
 	var children []core.Node
 	if turn.External {
 		label := "Terminal MCP session"
@@ -843,7 +854,7 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 			Style: core.Style{
 				FontSize:   11,
 				FontWeight: 600,
-				Color:      specTextMuted,
+				Color:      p.TextFaint,
 			},
 		})
 	} else if turn.Prompt != "" {
@@ -854,16 +865,16 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 				MaxWidth:     core.Pt(296),
 				Padding:      core.Symmetric(8, 12),
 				CornerRadius: 12,
-				Background:   specRaised,
+				Background:   p.Raised,
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: turn.Prompt,
 					Style: core.Style{
 						FontSize: 12.5,
-						Color:    specText,
+						Color:    p.TextSecondary,
 					},
 				},
 			},
@@ -873,7 +884,7 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 	if len(turn.Steps) > 0 {
 		stepNodes := make([]core.Node, 0, len(turn.Steps))
 		for si, step := range turn.Steps {
-			stepNodes = append(stepNodes, agentStepRow(turnIdx, si, step))
+			stepNodes = append(stepNodes, agentStepRow(turnIdx, si, step, p))
 		}
 		children = append(children, core.View{
 			TestID: fmt.Sprintf("agent-turn-steps-%d", turnIdx),
@@ -890,7 +901,7 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 			Content: turn.Summary,
 			Style: core.Style{
 				FontSize: 12.5,
-				Color:    specText,
+				Color:    p.TextSecondary,
 			},
 		})
 	}
@@ -901,7 +912,7 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 			Content: "Stopped · edits already made stay undoable.",
 			Style: core.Style{
 				FontSize: 12,
-				Color:    specTextMuted,
+				Color:    p.TextFaint,
 			},
 		})
 	}
@@ -911,9 +922,9 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 			TestID: fmt.Sprintf("agent-turn-error-%d", turnIdx),
 			Style: core.Style{
 				CornerRadius: 12,
-				Background:   specProblemChipFill,
+				Background:   p.Removed.Fill,
 				BorderWidth:  1,
-				BorderColor:  specProblemEdge,
+				BorderColor:  p.Removed.Edge,
 				Padding:      core.All(12),
 				Gap:          8,
 			},
@@ -922,7 +933,7 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 					Content: turn.Error,
 					Style: core.Style{
 						FontSize: 12.5,
-						Color:    specProblem,
+						Color:    p.Removed.Fg,
 					},
 				},
 				core.View{
@@ -940,10 +951,10 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 								CornerRadius:   8,
 								AlignItems:     core.AlignCenter,
 								JustifyContent: core.JustifyCenter,
-								Background:     specRaised,
+								Background:     p.Raised,
 								BorderWidth:    1,
-								BorderColor:    specLineRaised,
-								FocusVisible:   specFocusRingStyle,
+								BorderColor:    p.LineRaised,
+								FocusVisible:   p.FocusRing(2),
 							},
 							OnPress: func(core.PressEvent) {
 								ed.TroubleshootAgentConnection()
@@ -953,7 +964,7 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 									Content: "Troubleshoot",
 									Style: core.Style{
 										FontSize: 12,
-										Color:    specText,
+										Color:    p.TextSecondary,
 									},
 								},
 							},
@@ -973,9 +984,9 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn) core.Node {
 	}
 }
 
-func agentStepRow(turnIdx, stepIdx int, step AgentStep) core.Node {
+func agentStepRow(turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node {
 	var badge core.Node
-	textCol := specTextSecondary
+	textCol := p.TextMuted
 	switch step.Status {
 	case AgentStepDone:
 		badge = core.View{
@@ -983,7 +994,7 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep) core.Node {
 				Width:          core.Pt(16),
 				Height:         core.Pt(16),
 				CornerRadius:   8,
-				Background:     specAddedStepFill,
+				Background:     p.Added.Fill,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 				FlexShrink:     0,
@@ -994,31 +1005,31 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep) core.Node {
 					Style: core.Style{
 						Width:  core.Pt(10),
 						Height: core.Pt(10),
-						Color:  specAdded,
+						Color:  p.Added.Fg,
 					},
 				},
 			},
 		}
 	case AgentStepRunning:
-		textCol = specTextStrong
+		textCol = p.TextPrimary
 		badge = core.View{
 			Style: core.Style{
 				Width:        core.Pt(16),
 				Height:       core.Pt(16),
 				CornerRadius: 8,
 				BorderWidth:  2,
-				BorderColor:  specAgent,
+				BorderColor:  p.Agent.Fg,
 				FlexShrink:   0,
 			},
 		}
 	case AgentStepWaiting:
-		textCol = specTextStrong
+		textCol = p.TextPrimary
 		badge = core.View{
 			Style: core.Style{
 				Width:          core.Pt(16),
 				Height:         core.Pt(16),
 				CornerRadius:   8,
-				Background:     specWarningFill,
+				Background:     p.Warning.Fill,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 				FlexShrink:     0,
@@ -1029,19 +1040,19 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep) core.Node {
 					Style: core.Style{
 						Width:  core.Pt(10),
 						Height: core.Pt(10),
-						Color:  specWarning,
+						Color:  p.Warning.Fg,
 					},
 				},
 			},
 		}
 	case AgentStepFailed:
-		textCol = specText
+		textCol = p.TextSecondary
 		badge = core.View{
 			Style: core.Style{
 				Width:          core.Pt(16),
 				Height:         core.Pt(16),
 				CornerRadius:   8,
-				Background:     specProblemStepFill,
+				Background:     p.Removed.Fill,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 				FlexShrink:     0,
@@ -1052,20 +1063,20 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep) core.Node {
 					Style: core.Style{
 						Width:  core.Pt(10),
 						Height: core.Pt(10),
-						Color:  specProblem,
+						Color:  p.Removed.Fg,
 					},
 				},
 			},
 		}
 	default:
-		textCol = specTextMuted
+		textCol = p.TextFaint
 		badge = core.View{
 			Style: core.Style{
 				Width:        core.Pt(16),
 				Height:       core.Pt(16),
 				CornerRadius: 8,
 				BorderWidth:  1.5,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 				FlexShrink:   0,
 			},
 		}
@@ -1101,7 +1112,7 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep) core.Node {
 	}
 }
 
-func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref) core.Node {
+func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p SpecPalette) core.Node {
 	return core.View{
 		TestID:    "agent-open-request",
 		Ref:       ref,
@@ -1110,12 +1121,12 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref) core
 		Focusable: func() bool { return true },
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specWarningFill,
+			Background:   p.Warning.Fill,
 			BorderWidth:  1,
-			BorderColor:  specWarningEdge,
+			BorderColor:  p.Warning.Edge,
 			Padding:      core.All(12),
 			Gap:          8,
-			FocusVisible: specFocusRingStyle,
+			FocusVisible: p.FocusRing(2),
 		},
 		Children: []core.Node{
 			core.View{
@@ -1130,7 +1141,7 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref) core
 						Style: core.Style{
 							Width:  core.Pt(14),
 							Height: core.Pt(14),
-							Color:  specWarning,
+							Color:  p.Warning.Fg,
 						},
 					},
 					core.Text{
@@ -1138,7 +1149,7 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref) core
 						Style: core.Style{
 							FontSize:   13,
 							FontWeight: 600,
-							Color:      specWarning,
+							Color:      p.Warning.Fg,
 						},
 					},
 				},
@@ -1147,18 +1158,30 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref) core
 				Content: req.Body,
 				Style: core.Style{
 					FontSize: 12.5,
-					Color:    specText,
+					Color:    p.TextSecondary,
 				},
 			},
 		},
 	}
 }
 
-func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], composerFocused *core.Signal[bool]) core.Node {
-	contextChips := core.Dynamic(func(cx *core.Scope) core.Node {
+func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, composerFocused *core.Signal[bool]) core.Node {
+	type composerContextKey struct {
+		sel   string
+		scene string
+	}
+	contextMemo := core.NewMemo(cx, func() composerContextKey {
 		_ = rev.Get()
+		var sceneName string
+		if ed.Doc != nil {
+			sceneName = ed.Doc.Name
+		}
+		return composerContextKey{sel: ed.SelectedID, scene: sceneName}
+	})
+	contextChips := core.Dynamic(func(cx *core.Scope) core.Node {
+		ctxKey := contextMemo.Get()
 		var chips []core.Node
-		if ed.SelectedID != "" {
+		if ctxKey.sel != "" {
 			chips = append(chips, core.View{
 				TestID: "agent-context-selection",
 				Style: core.Style{
@@ -1168,7 +1191,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 					Padding:      core.Symmetric(0, 8),
 					Gap:          5,
 					CornerRadius: 6,
-					Background:   specLineRaised,
+					Background:   p.LineRaised,
 				},
 				Children: []core.Node{
 					core.View{
@@ -1176,20 +1199,20 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 2,
-							Background:   specChanged,
+							Background:   p.Changed.Fg,
 						},
 					},
 					core.Text{
-						Content: ed.SelectedID,
+						Content: ctxKey.sel,
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextSecondary,
+							Color:    p.TextMuted,
 						},
 					},
 				},
 			})
 		}
-		if ed.Doc != nil && ed.Doc.Name != "" {
+		if ctxKey.scene != "" {
 			chips = append(chips, core.View{
 				TestID: "agent-context-scene",
 				Style: core.Style{
@@ -1198,14 +1221,14 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 					Height:       core.Pt(22),
 					Padding:      core.Symmetric(0, 8),
 					CornerRadius: 6,
-					Background:   specLineRaised,
+					Background:   p.LineRaised,
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: ed.Doc.Name,
+						Content: ctxKey.scene,
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextSecondary,
+							Color:    p.TextMuted,
 						},
 					},
 				},
@@ -1229,17 +1252,17 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 		Style: core.Style{
 			Padding:     core.All(12),
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
-			Background:  specPanel,
+			BorderColor: p.Line,
+			Background:  p.Panel,
 			FlexShrink:  0,
 		},
 		Children: []core.Node{
 			core.View{
 				Style: core.Style{
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					Padding:      core.Symmetric(10, 12),
 					Gap:          8,
 				},
@@ -1250,7 +1273,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 						Style: core.Style{
 							FontSize:   11,
 							FontWeight: 600,
-							Color:      specTextMuted,
+							Color:      p.TextFaint,
 						},
 					},
 					ui.Input{
@@ -1279,15 +1302,15 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 						Style: core.Style{
 							MinHeight:        core.Pt(48),
 							MaxHeight:        core.Pt(120),
-							Background:       specBg,
+							Background:       p.Bg,
 							BorderWidth:      1,
-							BorderColor:      specLineRaised,
+							BorderColor:      p.LineRaised,
 							CornerRadius:     8,
 							Padding:          core.Symmetric(8, 10),
 							FontSize:         12.5,
-							Color:            specText,
-							PlaceholderColor: specTextMuted,
-							FocusVisible:     specFocusRingStyle,
+							Color:            p.TextSecondary,
+							PlaceholderColor: p.TextFaint,
+							FocusVisible:     p.FocusRing(2),
 						},
 					},
 					core.View{
@@ -1302,7 +1325,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 								Style: core.Style{
 									FlexGrow: 1,
 									FontSize: 11,
-									Color:    specTextMuted,
+									Color:    p.TextFaint,
 								},
 							},
 							core.Show{
@@ -1323,8 +1346,8 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 											Padding:        core.Symmetric(0, 12),
 											Gap:            6,
 											CornerRadius:   8,
-											Background:     specLineRaised,
-											FocusVisible:   specFocusRingStyle,
+											Background:     p.LineRaised,
+											FocusVisible:   p.FocusRing(2),
 										},
 										OnPress: func(core.PressEvent) {
 											ed.StopAgentRun()
@@ -1335,7 +1358,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 													Width:        core.Pt(9),
 													Height:       core.Pt(9),
 													CornerRadius: 2,
-													Background:   specTextStrong,
+													Background:   p.TextPrimary,
 												},
 											},
 											core.Text{
@@ -1343,7 +1366,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 												Style: core.Style{
 													FontSize:   12,
 													FontWeight: 500,
-													Color:      specTextStrong,
+													Color:      p.TextPrimary,
 												},
 											},
 										},
@@ -1360,8 +1383,8 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 											CornerRadius:   8,
 											AlignItems:     core.AlignCenter,
 											JustifyContent: core.JustifyCenter,
-											Background:     specTextStrong,
-											FocusVisible:   specFocusRingStyle,
+											Background:     p.TextPrimary,
+											FocusVisible:   p.FocusRing(2),
 										},
 										OnPress: func(core.PressEvent) {
 											ed.report(ed.SubmitAgentPrompt(""))
@@ -1372,7 +1395,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 												Style: core.Style{
 													Width:  core.Pt(14),
 													Height: core.Pt(14),
-													Color:  specBg,
+													Color:  p.OnTextPrimary,
 												},
 											},
 										},
@@ -1392,604 +1415,611 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], com
 // a live waiting state that turns to connected when the first MCP client attaches, four starting permission checkboxes,
 // Later, Done, and targeted step troubleshooting when reopened from Disconnected.
 func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	choiceCard := func(testID string, mode AgentMode, name, desc, badge string) core.Node {
-		return core.View{
-			TestID: testID,
-			Role:   core.RoleRadio,
-			Label:  name,
-			StyleFunc: func() core.Style {
-				_ = rev.Get()
-				selected := ed.ConnectDialogChoice() == mode
-				bg := specRaised
-				borderCol := specLineRaised
-				borderW := core.Points(1)
-				if selected {
-					bg = specSelectedRowFill
-					borderCol = specAccent
-					borderW = 1.5
-				}
-				return core.Style{
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Gap:          14,
-					Padding:      core.Symmetric(14, 16),
-					CornerRadius: 12,
-					Background:   bg,
-					BorderWidth:  borderW,
-					BorderColor:  borderCol,
-					FocusVisible: specFocusRingStyle,
-				}
-			},
-			OnPress: func(core.PressEvent) {
-				ed.SetConnectChoice(mode)
-			},
-			Children: []core.Node{
-				// Radio dot indicator
-				core.View{
-					StyleFunc: func() core.Style {
-						_ = rev.Get()
-						selected := ed.ConnectDialogChoice() == mode
-						if selected {
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := SpecPaletteFor(darkMemo.Get())
+		choiceCard := func(testID string, mode AgentMode, name, desc, badge string) core.Node {
+			return core.View{
+				TestID: testID,
+				Role:   core.RoleRadio,
+				Label:  name,
+				StyleFunc: func() core.Style {
+					_ = rev.Get()
+					selected := ed.ConnectDialogChoice() == mode
+					bg := p.Raised
+					borderCol := p.LineRaised
+					borderW := core.Points(1)
+					if selected {
+						bg = p.Accent.Fill
+						borderCol = p.Accent.Fg
+						borderW = 1.5
+					}
+					return core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          14,
+						Padding:      core.Symmetric(14, 16),
+						CornerRadius: 12,
+						Background:   bg,
+						BorderWidth:  borderW,
+						BorderColor:  borderCol,
+						FocusVisible: p.FocusRing(2),
+					}
+				},
+				OnPress: func(core.PressEvent) {
+					ed.SetConnectChoice(mode)
+				},
+				Children: []core.Node{
+					// Radio dot indicator
+					core.View{
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							selected := ed.ConnectDialogChoice() == mode
+							if selected {
+								return core.Style{
+									Width:        core.Pt(16),
+									Height:       core.Pt(16),
+									CornerRadius: 8,
+									BorderWidth:  5,
+									BorderColor:  p.Accent.Fg,
+									Background:   p.Panel,
+									FlexShrink:   0,
+								}
+							}
 							return core.Style{
 								Width:        core.Pt(16),
 								Height:       core.Pt(16),
 								CornerRadius: 8,
-								BorderWidth:  5,
-								BorderColor:  specAccent,
-								Background:   specTextStrong,
+								BorderWidth:  1.5,
+								BorderColor:  p.TextFaint,
 								FlexShrink:   0,
 							}
-						}
-						return core.Style{
-							Width:        core.Pt(16),
-							Height:       core.Pt(16),
-							CornerRadius: 8,
-							BorderWidth:  1.5,
-							BorderColor:  specTextMuted,
-							FlexShrink:   0,
-						}
-					},
-				},
-				core.View{
-					Style: core.Style{
-						FlexGrow:   1,
-						FlexShrink: 1,
-						MinWidth:   core.Pt(0),
-						Gap:        3,
-					},
-					Children: []core.Node{
-						core.Text{
-							Content: name,
-							Style: core.Style{
-								FontSize:   13,
-								FontWeight: 500,
-								Color:      specTextStrong,
-							},
-						},
-						core.Text{
-							Content: desc,
-							Style: core.Style{
-								FontSize: 12,
-								Color:    specTextMuted,
-							},
 						},
 					},
-				},
-				core.Show{
-					When: func() bool { return badge != "" },
-					Then: func(cx *core.Scope) core.Node {
-						return core.View{
-							Style: core.Style{
-								Height:         core.Pt(22),
-								Padding:        core.Symmetric(0, 8),
-								CornerRadius:   11,
-								Background:     specAddedFill,
-								BorderWidth:    1,
-								BorderColor:    specAddedEdge,
-								AlignItems:     core.AlignCenter,
-								JustifyContent: core.JustifyCenter,
-								FlexShrink:     0,
-							},
-							Children: []core.Node{
-								core.Text{
-									Content: badge,
-									Style: core.Style{
-										FontSize:   11,
-										FontWeight: 500,
-										Color:      specAdded,
-									},
-								},
-							},
-						}
-					},
-				},
-			},
-		}
-	}
-
-	permCheckbox := func(testID, label string, get func(AgentPermissions) bool, set func(*AgentPermissions, bool)) core.Node {
-		return core.View{
-			Style: core.Style{
-				FlexGrow:   1,
-				FlexBasis:  core.Pt(0),
-				MinWidth:   core.Pt(0),
-				AlignItems: core.AlignStart,
-			},
-			Children: []core.Node{
-				ui.Checkbox{
-					TestID: testID,
-					Text:   label,
-					Checked: func() bool {
-						_ = rev.Get()
-						return get(ed.ConnectDialogPermissions())
-					},
-					OnChange: func(checked bool) {
-						p := ed.ConnectDialogPermissions()
-						set(&p, checked)
-						ed.SetConnectPermissions(p)
-					},
-				},
-			},
-		}
-	}
-
-	body := core.View{
-		TestID: "connect-dialog-body",
-		Style: core.Style{
-			Padding:    core.All(28),
-			Gap:        20,
-			Background: specPanel,
-		},
-		Children: []core.Node{
-			// Title and intro
-			core.View{
-				Style: core.Style{Gap: 6},
-				Children: []core.Node{
-					core.Text{
-						TestID:  "connect-dialog-title",
-						Content: "Connect an agent",
+					core.View{
 						Style: core.Style{
-							FontSize:   20,
-							FontWeight: 600,
-							Color:      specTextStrong,
-						},
-					},
-					core.Text{
-						Content: "The editor serves this project over MCP: the agent reads and edits the scene, sees the viewport, runs checks and playtests. Pick how it reaches the agent; you can change this any time.",
-						Style: core.Style{
-							FontSize: 13,
-							Color:    specTextMuted,
-						},
-					},
-				},
-			},
-			// Troubleshoot banner when reopened from Disconnected at a failed step
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.ConnectDialogTroubleshooting()
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return core.View{
-						TestID: "connect-troubleshoot-banner",
-						Style: core.Style{
-							CornerRadius: 12,
-							Background:   specWarningFill,
-							BorderWidth:  1,
-							BorderColor:  specWarningEdge,
-							Padding:      core.Symmetric(10, 14),
-							Gap:          4,
+							FlexGrow:   1,
+							FlexShrink: 1,
+							MinWidth:   core.Pt(0),
+							Gap:        3,
 						},
 						Children: []core.Node{
 							core.Text{
-								TestID: "connect-troubleshoot-step",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									switch ed.ConnectDialogStep() {
-									case ConnectStepInstall:
-										return "Troubleshooting · Step 1: Project MCP configuration"
-									case ConnectStepAPIKey:
-										return "Troubleshooting · API key configuration"
-									default:
-										return "Troubleshooting · Waiting for MCP connection"
-									}
-								},
+								Content: name,
 								Style: core.Style{
-									FontSize:   12,
-									FontWeight: 600,
-									Color:      specWarning,
+									FontSize:   13,
+									FontWeight: 500,
+									Color:      p.TextPrimary,
 								},
 							},
 							core.Text{
-								ContentFunc: func() string {
-									_ = rev.Get()
-									if cause := ed.AgentFailedCause(); cause != "" {
-										return cause
-									}
-									return "The MCP connection stopped answering. Confirm the project configuration and reconnect your agent."
-								},
+								Content: desc,
 								Style: core.Style{
 									FontSize: 12,
-									Color:    specText,
+									Color:    p.TextFaint,
 								},
 							},
 						},
-					}
-				},
-			},
-			// Three choices (radio group)
-			core.View{
-				TestID: "connect-choices",
-				Role:   core.RoleRadioGroup,
-				Label:  "How the editor reaches the agent",
-				Style:  core.Style{Gap: 8},
-				Children: []core.Node{
-					choiceCard("connect-choice-local", AgentModeLocal, "An agent on this computer", "Claude Code, Codex or any MCP client you already use", "Recommended"),
-					choiceCard("connect-choice-key", AgentModeAPIKey, "Built in, with your API key", "The editor talks to the model itself", ""),
-					choiceCard("connect-choice-none", AgentModeNone, "No agent", "Edit by hand; the Agent panel stays closed", ""),
-				},
-			},
-			// Local MCP detail card
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.ConnectDialogChoice() == AgentModeLocal
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return core.View{
-						TestID: "connect-local-panel",
-						StyleFunc: func() core.Style {
-							_ = rev.Get()
-							borderCol := specLineRaised
-							if ed.ConnectDialogTroubleshooting() && (ed.ConnectDialogStep() == ConnectStepInstall || ed.ConnectDialogStep() == ConnectStepWaiting) {
-								borderCol = specAccent
-							}
-							return core.Style{
-								CornerRadius: 12,
-								Background:   specBg,
-								BorderWidth:  1,
-								BorderColor:  borderCol,
-								Padding:      core.All(14),
-								Gap:          10,
-							}
-						},
-						Children: []core.Node{
-							core.Text{
-								Content: "Run this once in the project folder; the agent then finds the editor by itself:",
+					},
+					core.Show{
+						When: func() bool { return badge != "" },
+						Then: func(cx *core.Scope) core.Node {
+							return core.View{
 								Style: core.Style{
-									FontSize: 12.5,
-									Color:    specTextSecondary,
-								},
-							},
-							core.View{
-								TestID: "connect-install-box",
-								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									borderCol := specLineRaised
-									if ed.ConnectDialogTroubleshooting() && ed.ConnectDialogStep() == ConnectStepInstall {
-										borderCol = specWarning
-									}
-									return core.Style{
-										Direction:    core.Row,
-										AlignItems:   core.AlignCenter,
-										Height:       core.Pt(36),
-										Padding:      core.Symmetric(0, 12),
-										Gap:          10,
-										CornerRadius: 8,
-										Background:   specRaised,
-										BorderWidth:  1,
-										BorderColor:  borderCol,
-									}
+									Height:         core.Pt(22),
+									Padding:        core.Symmetric(0, 8),
+									CornerRadius:   11,
+									Background:     p.Added.Fill,
+									BorderWidth:    1,
+									BorderColor:    p.Added.Edge,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+									FlexShrink:     0,
 								},
 								Children: []core.Node{
 									core.Text{
-										TestID:  "connect-install-command",
-										Content: AgentInstallCommand,
+										Content: badge,
 										Style: core.Style{
-											FlexGrow:   1,
-											FontFamily: core.FontMonospace,
-											FontSize:   12,
-											Color:      specText,
+											FontSize:   11,
+											FontWeight: 500,
+											Color:      p.Added.Fg,
 										},
 									},
-									core.View{
-										TestID: "connect-copy-command",
-										Role:   core.RoleButton,
-										Label:  "Copy install command",
-										Style: core.Style{
-											Height:         core.Pt(24),
-											Padding:        core.Symmetric(0, 10),
-											CornerRadius:   6,
-											AlignItems:     core.AlignCenter,
-											JustifyContent: core.JustifyCenter,
-											Background:     specLineRaised,
-											FocusVisible:   specFocusRingStyle,
+								},
+							}
+						},
+					},
+				},
+			}
+		}
+
+		permCheckbox := func(testID, label string, get func(AgentPermissions) bool, set func(*AgentPermissions, bool)) core.Node {
+			return core.View{
+				Style: core.Style{
+					FlexGrow:   1,
+					FlexBasis:  core.Pt(0),
+					MinWidth:   core.Pt(0),
+					AlignItems: core.AlignStart,
+				},
+				Children: []core.Node{
+					ui.Checkbox{
+						TestID: testID,
+						Text:   label,
+						Checked: func() bool {
+							_ = rev.Get()
+							return get(ed.ConnectDialogPermissions())
+						},
+						OnChange: func(checked bool) {
+							perms := ed.ConnectDialogPermissions()
+							set(&perms, checked)
+							ed.SetConnectPermissions(perms)
+						},
+					},
+				},
+			}
+		}
+
+		body := core.View{
+			TestID: "connect-dialog-body",
+			Style: core.Style{
+				Padding:    core.All(28),
+				Gap:        20,
+				Background: p.Panel,
+			},
+			Children: []core.Node{
+				// Title and intro
+				core.View{
+					Style: core.Style{Gap: 6},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "connect-dialog-title",
+							Content: "Connect an agent",
+							Style: core.Style{
+								FontSize:   20,
+								FontWeight: 600,
+								Color:      p.TextPrimary,
+							},
+						},
+						core.Text{
+							Content: "The editor serves this project over MCP: the agent reads and edits the scene, sees the viewport, runs checks and playtests. Pick how it reaches the agent; you can change this any time.",
+							Style: core.Style{
+								FontSize: 13,
+								Color:    p.TextFaint,
+							},
+						},
+					},
+				},
+				// Troubleshoot banner when reopened from Disconnected at a failed step
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.ConnectDialogTroubleshooting()
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return core.View{
+							TestID: "connect-troubleshoot-banner",
+							Style: core.Style{
+								CornerRadius: 12,
+								Background:   p.Warning.Fill,
+								BorderWidth:  1,
+								BorderColor:  p.Warning.Edge,
+								Padding:      core.Symmetric(10, 14),
+								Gap:          4,
+							},
+							Children: []core.Node{
+								core.Text{
+									TestID: "connect-troubleshoot-step",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										switch ed.ConnectDialogStep() {
+										case ConnectStepInstall:
+											return "Troubleshooting · Step 1: Project MCP configuration"
+										case ConnectStepAPIKey:
+											return "Troubleshooting · API key configuration"
+										default:
+											return "Troubleshooting · Waiting for MCP connection"
+										}
+									},
+									Style: core.Style{
+										FontSize:   12,
+										FontWeight: 600,
+										Color:      p.Warning.Fg,
+									},
+								},
+								core.Text{
+									ContentFunc: func() string {
+										_ = rev.Get()
+										if cause := ed.AgentFailedCause(); cause != "" {
+											return cause
+										}
+										return "The MCP connection stopped answering. Confirm the project configuration and reconnect your agent."
+									},
+									Style: core.Style{
+										FontSize: 12,
+										Color:    p.TextSecondary,
+									},
+								},
+							},
+						}
+					},
+				},
+				// Three choices (radio group)
+				core.View{
+					TestID: "connect-choices",
+					Role:   core.RoleRadioGroup,
+					Label:  "How the editor reaches the agent",
+					Style:  core.Style{Gap: 8},
+					Children: []core.Node{
+						choiceCard("connect-choice-local", AgentModeLocal, "An agent on this computer", "Claude Code, Codex or any MCP client you already use", "Recommended"),
+						choiceCard("connect-choice-key", AgentModeAPIKey, "Built in, with your API key", "The editor talks to the model itself", ""),
+						choiceCard("connect-choice-none", AgentModeNone, "No agent", "Edit by hand; the Agent panel stays closed", ""),
+					},
+				},
+				// Local MCP detail card
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.ConnectDialogChoice() == AgentModeLocal
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return core.View{
+							TestID: "connect-local-panel",
+							StyleFunc: func() core.Style {
+								_ = rev.Get()
+								borderCol := p.LineRaised
+								if ed.ConnectDialogTroubleshooting() && (ed.ConnectDialogStep() == ConnectStepInstall || ed.ConnectDialogStep() == ConnectStepWaiting) {
+									borderCol = p.Accent.Fg
+								}
+								return core.Style{
+									CornerRadius: 12,
+									Background:   p.Bg,
+									BorderWidth:  1,
+									BorderColor:  borderCol,
+									Padding:      core.All(14),
+									Gap:          10,
+								}
+							},
+							Children: []core.Node{
+								core.Text{
+									Content: "Run this once in the project folder; the agent then finds the editor by itself:",
+									Style: core.Style{
+										FontSize: 12.5,
+										Color:    p.TextMuted,
+									},
+								},
+								core.View{
+									TestID: "connect-install-box",
+									StyleFunc: func() core.Style {
+										_ = rev.Get()
+										borderCol := p.LineRaised
+										if ed.ConnectDialogTroubleshooting() && ed.ConnectDialogStep() == ConnectStepInstall {
+											borderCol = p.Warning.Fg
+										}
+										return core.Style{
+											Direction:    core.Row,
+											AlignItems:   core.AlignCenter,
+											Height:       core.Pt(36),
+											Padding:      core.Symmetric(0, 12),
+											Gap:          10,
+											CornerRadius: 8,
+											Background:   p.Raised,
+											BorderWidth:  1,
+											BorderColor:  borderCol,
+										}
+									},
+									Children: []core.Node{
+										core.Text{
+											TestID:  "connect-install-command",
+											Content: AgentInstallCommand,
+											Style: core.Style{
+												FlexGrow:   1,
+												FontFamily: core.FontMonospace,
+												FontSize:   12,
+												Color:      p.TextSecondary,
+											},
 										},
-										OnPress: func(core.PressEvent) {
-											ed.CopyConnectInstallCommand()
-										},
-										Children: []core.Node{
-											core.Text{
-												ContentFunc: func() string {
-													_ = rev.Get()
-													if ed.ConnectDialogCopied() {
-														return "Copied"
-													}
-													return "Copy"
-												},
-												Style: core.Style{
-													FontSize: 12,
-													Color:    specText,
+										core.View{
+											TestID: "connect-copy-command",
+											Role:   core.RoleButton,
+											Label:  "Copy install command",
+											Style: core.Style{
+												Height:         core.Pt(24),
+												Padding:        core.Symmetric(0, 10),
+												CornerRadius:   6,
+												AlignItems:     core.AlignCenter,
+												JustifyContent: core.JustifyCenter,
+												Background:     p.LineRaised,
+												FocusVisible:   p.FocusRing(2),
+											},
+											OnPress: func(core.PressEvent) {
+												ed.CopyConnectInstallCommand()
+											},
+											Children: []core.Node{
+												core.Text{
+													ContentFunc: func() string {
+														_ = rev.Get()
+														if ed.ConnectDialogCopied() {
+															return "Copied"
+														}
+														return "Copy"
+													},
+													Style: core.Style{
+														FontSize: 12,
+														Color:    p.TextSecondary,
+													},
 												},
 											},
 										},
 									},
 								},
-							},
-							core.View{
-								TestID:     "connect-waiting-status",
-								Role:       core.RoleStatus,
-								LiveRegion: core.LiveRegionPolite,
-								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									var bg, border core.Color
-									var bw core.Points
-									var pad core.Edges
-									if ed.ConnectDialogTroubleshooting() && ed.ConnectDialogStep() == ConnectStepWaiting && len(ed.AgentClients()) == 0 {
-										bg = specWarningFill
-										border = specWarningEdge
-										bw = 1
-										pad = core.Symmetric(6, 10)
-									}
-									return core.Style{
-										Direction:    core.Row,
-										AlignItems:   core.AlignCenter,
-										Gap:          8,
-										CornerRadius: 8,
-										Background:   bg,
-										BorderWidth:  bw,
-										BorderColor:  border,
-										Padding:      pad,
-									}
-								},
-								Children: []core.Node{
-									core.View{
-										TestID: "connect-waiting-dot",
-										StyleFunc: func() core.Style {
-											_ = rev.Get()
-											col := specChanged
-											if len(ed.AgentClients()) > 0 {
-												col = specAdded
-											}
-											return core.Style{
-												Width:        core.Pt(7),
-												Height:       core.Pt(7),
-												CornerRadius: 4,
-												Background:   col,
-												FlexShrink:   0,
-											}
+								core.View{
+									TestID:     "connect-waiting-status",
+									Role:       core.RoleStatus,
+									LiveRegion: core.LiveRegionPolite,
+									StyleFunc: func() core.Style {
+										_ = rev.Get()
+										var bg, border core.Color
+										var bw core.Points
+										var pad core.Edges
+										if ed.ConnectDialogTroubleshooting() && ed.ConnectDialogStep() == ConnectStepWaiting && len(ed.AgentClients()) == 0 {
+											bg = p.Warning.Fill
+											border = p.Warning.Edge
+											bw = 1
+											pad = core.Symmetric(6, 10)
+										}
+										return core.Style{
+											Direction:    core.Row,
+											AlignItems:   core.AlignCenter,
+											Gap:          8,
+											CornerRadius: 8,
+											Background:   bg,
+											BorderWidth:  bw,
+											BorderColor:  border,
+											Padding:      pad,
+										}
+									},
+									Children: []core.Node{
+										core.View{
+											TestID: "connect-waiting-dot",
+											StyleFunc: func() core.Style {
+												_ = rev.Get()
+												col := p.Changed.Fg
+												if len(ed.AgentClients()) > 0 {
+													col = p.Added.Fg
+												}
+												return core.Style{
+													Width:        core.Pt(7),
+													Height:       core.Pt(7),
+													CornerRadius: 4,
+													Background:   col,
+													FlexShrink:   0,
+												}
+											},
+										},
+										core.Text{
+											TestID: "connect-waiting-text",
+											ContentFunc: func() string {
+												_ = rev.Get()
+												if clients := ed.AgentClients(); len(clients) > 0 {
+													return fmt.Sprintf("Connected · %s", clients[0].HoverLabel())
+												}
+												return "Waiting for an agent to connect…"
+											},
+											StyleFunc: func() core.Style {
+												_ = rev.Get()
+												col := p.TextFaint
+												if len(ed.AgentClients()) > 0 {
+													col = p.Added.Fg
+												}
+												return core.Style{
+													FontSize: 12.5,
+													Color:    col,
+												}
+											},
 										},
 									},
-									core.Text{
-										TestID: "connect-waiting-text",
-										ContentFunc: func() string {
-											_ = rev.Get()
-											if clients := ed.AgentClients(); len(clients) > 0 {
-												return fmt.Sprintf("Connected · %s", clients[0].HoverLabel())
-											}
-											return "Waiting for an agent to connect…"
-										},
-										StyleFunc: func() core.Style {
-											_ = rev.Get()
-											col := specTextMuted
-											if len(ed.AgentClients()) > 0 {
-												col = specAdded
-											}
-											return core.Style{
-												FontSize: 12.5,
-												Color:    col,
-											}
-										},
+								},
+							},
+						}
+					},
+				},
+				// Built-in API key detail card
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.ConnectDialogChoice() == AgentModeAPIKey
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return core.View{
+							TestID: "connect-key-panel",
+							Style: core.Style{
+								CornerRadius: 12,
+								Background:   p.Bg,
+								BorderWidth:  1,
+								BorderColor:  p.LineRaised,
+								Padding:      core.All(14),
+								Gap:          10,
+							},
+							Children: []core.Node{
+								core.Text{
+									Content: "API key",
+									Style: core.Style{
+										FontSize: 12.5,
+										Color:    p.TextMuted,
+									},
+								},
+								ui.Input{
+									TestID:      "connect-api-key-input",
+									Label:       "API key",
+									Placeholder: "Paste a key",
+									Masked:      true,
+									Value: func() string {
+										_ = rev.Get()
+										return ed.ConnectDialogAPIKey()
+									},
+									OnChange: func(text string) {
+										ed.SetConnectAPIKey(text)
+									},
+									Style: core.Style{
+										Height:           core.Pt(36),
+										CornerRadius:     8,
+										Background:       p.Raised,
+										BorderWidth:      1,
+										BorderColor:      p.LineRaised,
+										Padding:          core.Symmetric(0, 12),
+										FontSize:         12.5,
+										Color:            p.TextSecondary,
+										PlaceholderColor: p.TextFaint,
+										FocusVisible:     p.FocusRing(2),
+									},
+								},
+								core.Text{
+									Content: "Kept in the system keychain, never in the project files.",
+									Style: core.Style{
+										FontSize: 12,
+										Color:    p.TextFaint,
+									},
+								},
+							},
+						}
+					},
+				},
+				// Four starting permission checkboxes
+				core.View{
+					TestID: "connect-permissions",
+					Style:  core.Style{Gap: 8},
+					Children: []core.Node{
+						core.Text{
+							Content: "THE AGENT MAY, WITHOUT ASKING",
+							Style: core.Style{
+								FontSize:      11,
+								FontWeight:    600,
+								LetterSpacing: 0.7,
+								Color:         p.TextFaint,
+							},
+						},
+						core.View{
+							Style: core.Style{Direction: core.Row, Gap: 12},
+							Children: []core.Node{
+								permCheckbox("connect-perm-scenes", "Edit scenes and data (always reviewable)",
+									func(p AgentPermissions) bool { return p.EditScenesAndData },
+									func(p *AgentPermissions, v bool) { p.EditScenesAndData = v }),
+								permCheckbox("connect-perm-check", "Run game check",
+									func(p AgentPermissions) bool { return p.RunGameCheck },
+									func(p *AgentPermissions, v bool) { p.RunGameCheck = v }),
+							},
+						},
+						core.View{
+							Style: core.Style{Direction: core.Row, Gap: 12},
+							Children: []core.Node{
+								permCheckbox("connect-perm-playtest", "Run headless playtests",
+									func(p AgentPermissions) bool { return p.RunHeadlessPlaytests },
+									func(p *AgentPermissions, v bool) { p.RunHeadlessPlaytests = v }),
+								permCheckbox("connect-perm-go", "Edit Go code",
+									func(p AgentPermissions) bool { return p.EditGoCode },
+									func(p *AgentPermissions, v bool) { p.EditGoCode = v }),
+							},
+						},
+					},
+				},
+				// Footer
+				core.View{
+					Style: core.Style{
+						Direction:  core.Row,
+						AlignItems: core.AlignCenter,
+						Gap:        10,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: "Anything not ticked asks first.",
+							Style: core.Style{
+								FontSize: 12,
+								Color:    p.TextFaint,
+							},
+						},
+						core.View{Style: core.Style{FlexGrow: 1}},
+						core.View{
+							TestID: "connect-later",
+							Role:   core.RoleButton,
+							Label:  "Later",
+							Style: core.Style{
+								Height:         core.Pt(36),
+								Padding:        core.Symmetric(0, 16),
+								CornerRadius:   8,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+								FocusVisible:   p.FocusRing(2),
+							},
+							OnPress: func(core.PressEvent) {
+								ed.CloseConnectDialog()
+							},
+							Children: []core.Node{
+								core.Text{
+									Content: "Later",
+									Style: core.Style{
+										FontSize: 13,
+										Color:    p.TextMuted,
 									},
 								},
 							},
 						},
-					}
-				},
-			},
-			// Built-in API key detail card
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.ConnectDialogChoice() == AgentModeAPIKey
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return core.View{
-						TestID: "connect-key-panel",
-						Style: core.Style{
-							CornerRadius: 12,
-							Background:   specBg,
-							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-							Padding:      core.All(14),
-							Gap:          10,
-						},
-						Children: []core.Node{
-							core.Text{
-								Content: "API key",
-								Style: core.Style{
-									FontSize: 12.5,
-									Color:    specTextSecondary,
-								},
+						core.View{
+							TestID: "connect-done",
+							Role:   core.RoleButton,
+							Label:  "Done",
+							Style: core.Style{
+								Height:         core.Pt(36),
+								Padding:        core.Symmetric(0, 18),
+								CornerRadius:   8,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+								Background:     p.TextPrimary,
+								FocusVisible:   p.FocusRing(2),
 							},
-							ui.Input{
-								TestID:      "connect-api-key-input",
-								Label:       "API key",
-								Placeholder: "Paste a key",
-								Masked:      true,
-								Value: func() string {
-									_ = rev.Get()
-									return ed.ConnectDialogAPIKey()
-								},
-								OnChange: func(text string) {
-									ed.SetConnectAPIKey(text)
-								},
-								Style: core.Style{
-									Height:           core.Pt(36),
-									CornerRadius:     8,
-									Background:       specRaised,
-									BorderWidth:      1,
-									BorderColor:      specLineRaised,
-									Padding:          core.Symmetric(0, 12),
-									FontSize:         12.5,
-									Color:            specText,
-									PlaceholderColor: specTextMuted,
-									FocusVisible:     specFocusRingStyle,
-								},
+							OnPress: func(core.PressEvent) {
+								ed.CompleteConnectDialog()
 							},
-							core.Text{
-								Content: "Kept in the system keychain, never in the project files.",
-								Style: core.Style{
-									FontSize: 12,
-									Color:    specTextMuted,
-								},
-							},
-						},
-					}
-				},
-			},
-			// Four starting permission checkboxes
-			core.View{
-				TestID: "connect-permissions",
-				Style:  core.Style{Gap: 8},
-				Children: []core.Node{
-					core.Text{
-						Content: "THE AGENT MAY, WITHOUT ASKING",
-						Style: core.Style{
-							FontSize:      11,
-							FontWeight:    600,
-							LetterSpacing: 0.7,
-							Color:         specTextMuted,
-						},
-					},
-					core.View{
-						Style: core.Style{Direction: core.Row, Gap: 12},
-						Children: []core.Node{
-							permCheckbox("connect-perm-scenes", "Edit scenes and data (always reviewable)",
-								func(p AgentPermissions) bool { return p.EditScenesAndData },
-								func(p *AgentPermissions, v bool) { p.EditScenesAndData = v }),
-							permCheckbox("connect-perm-check", "Run game check",
-								func(p AgentPermissions) bool { return p.RunGameCheck },
-								func(p *AgentPermissions, v bool) { p.RunGameCheck = v }),
-						},
-					},
-					core.View{
-						Style: core.Style{Direction: core.Row, Gap: 12},
-						Children: []core.Node{
-							permCheckbox("connect-perm-playtest", "Run headless playtests",
-								func(p AgentPermissions) bool { return p.RunHeadlessPlaytests },
-								func(p *AgentPermissions, v bool) { p.RunHeadlessPlaytests = v }),
-							permCheckbox("connect-perm-go", "Edit Go code",
-								func(p AgentPermissions) bool { return p.EditGoCode },
-								func(p *AgentPermissions, v bool) { p.EditGoCode = v }),
-						},
-					},
-				},
-			},
-			// Footer
-			core.View{
-				Style: core.Style{
-					Direction:  core.Row,
-					AlignItems: core.AlignCenter,
-					Gap:        10,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: "Anything not ticked asks first.",
-						Style: core.Style{
-							FontSize: 12,
-							Color:    specTextMuted,
-						},
-					},
-					core.View{Style: core.Style{FlexGrow: 1}},
-					core.View{
-						TestID: "connect-later",
-						Role:   core.RoleButton,
-						Label:  "Later",
-						Style: core.Style{
-							Height:         core.Pt(36),
-							Padding:        core.Symmetric(0, 16),
-							CornerRadius:   8,
-							AlignItems:     core.AlignCenter,
-							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
-						},
-						OnPress: func(core.PressEvent) {
-							ed.CloseConnectDialog()
-						},
-						Children: []core.Node{
-							core.Text{
-								Content: "Later",
-								Style: core.Style{
-									FontSize: 13,
-									Color:    specTextSecondary,
-								},
-							},
-						},
-					},
-					core.View{
-						TestID: "connect-done",
-						Role:   core.RoleButton,
-						Label:  "Done",
-						Style: core.Style{
-							Height:         core.Pt(36),
-							Padding:        core.Symmetric(0, 18),
-							CornerRadius:   8,
-							AlignItems:     core.AlignCenter,
-							JustifyContent: core.JustifyCenter,
-							Background:     specTextStrong,
-							FocusVisible:   specFocusRingStyle,
-						},
-						OnPress: func(core.PressEvent) {
-							ed.CompleteConnectDialog()
-						},
-						Children: []core.Node{
-							core.Text{
-								Content: "Done",
-								Style: core.Style{
-									FontSize:   13,
-									FontWeight: 600,
-									Color:      specBg,
+							Children: []core.Node{
+								core.Text{
+									Content: "Done",
+									Style: core.Style{
+										FontSize:   13,
+										FontWeight: 600,
+										Color:      p.OnTextPrimary,
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	return ui.Dialog{
-		TestID: "connect-agent-dialog",
-		Label:  "Connect an agent",
-		Bare:   true,
-		Open: func() bool {
-			_ = rev.Get()
-			return ed.ConnectDialogOpen()
-		},
-		OnOpenChange: func(open bool, _ base.Reason) {
-			if !open {
-				ed.CloseConnectDialog()
-			}
-		},
-		Style: core.Style{
-			Width:        core.Pt(640),
-			MaxWidth:     core.Pct(95),
-			CornerRadius: 18,
-			Background:   specPanel,
-			BorderWidth:  1,
-			BorderColor:  specLineRaised,
-		},
-		Children: []core.Node{body},
-	}
+		return ui.Dialog{
+			TestID: "connect-agent-dialog",
+			Label:  "Connect an agent",
+			Bare:   true,
+			Open: func() bool {
+				_ = rev.Get()
+				return ed.ConnectDialogOpen()
+			},
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if !open {
+					ed.CloseConnectDialog()
+				}
+			},
+			Style: core.Style{
+				Width:        core.Pt(640),
+				MaxWidth:     core.Pct(95),
+				CornerRadius: 18,
+				Background:   p.Panel,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+			},
+			Children: []core.Node{body},
+		}
+	})
 }

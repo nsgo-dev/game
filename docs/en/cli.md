@@ -99,10 +99,11 @@ Opens the NSGo Scene Editor in a window on the scene file named, or on the start
 ### mcp
 
 ```sh
+go tool game mcp install
 claude mcp add game-editor -- nsgo game mcp
 ```
 
-An MCP server on standard input and output, which an agent such as Claude Code or Codex starts in the project's directory, or in a directory inside it, or with `-project` naming it. It finds the editor that has the project open and forwards to it the editor's tools, `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest`, `playtest_define`, `states_write`, `states_test`, `tileset_read` and `tileset_edit`, and its change stream; while no editor has the project open, each call answers with how to open it. [mcp](mcp.md#editor-tools) describes the tools.
+An MCP server on standard input and output, which an agent such as Claude Code or Codex starts in the project's directory, or in a directory inside it, or with `-project` naming it. It finds the editor that has the project open and forwards to it the editor's tools, `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest`, `playtest_define`, `states_write`, `states_test`, `tileset_read` and `tileset_edit`, and its change stream; while no editor has the project open, each call answers with how to open it. Running `go tool game mcp install` (or `nsgo game mcp install`, optionally with `-project`) once in a project writes or updates `.mcp.json` (for Claude Code) and `.codex/config.toml` (for Codex) in the project root with the `nsgo-game-editor` entry, preserving existing entries and file permissions. [mcp](mcp.md#editor-tools) describes the tools and setup flow.
 
 ### release
 

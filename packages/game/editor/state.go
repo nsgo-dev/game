@@ -854,8 +854,8 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		hud: hudLayoutState{
 			overlays: DefaultHUDOverlays(),
 		},
-		agent: defaultAgentState(),
 	}
+	ed.agent.initDefaults()
 	ed.History = ed.newTabHistory()
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
@@ -936,6 +936,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	}
 	e.startScreen.setScope(cx)
 	e.remote.setScope(cx)
+	e.agent.setScope(cx)
 	e.setDiskWatcherScope(cx)
 	if cx != nil {
 		e.startParticlePreviewLoop()

@@ -189,13 +189,29 @@ func TestServerTracksProxyClientInfoAndDisconnect(t *testing.T) {
 	// Make a call so the proxy is guaranteed to have connected to the editor's socket.
 	mustOK(t, call(t, cs, editormcp.ToolSelectionGet, nil))
 
-	if ed.AgentStatus() != editor.AgentStatusConnected {
-		t.Fatalf("AgentStatus = %q, want connected", ed.AgentStatus())
+	readStatus := func() (editor.AgentStatus, string, []editor.AgentTurn) {
+		var status editor.AgentStatus
+		var tip string
+		var turns []editor.AgentTurn
+		if err := s.Editor(context.Background(), func(ed *editor.Editor) error {
+			status = ed.AgentStatus()
+			tip = ed.AgentStatusTooltip()
+			turns = ed.AgentTurns()
+			return nil
+		}); err != nil {
+			t.Fatalf("s.Editor: %v", err)
+		}
+		return status, tip, turns
 	}
-	if tip := ed.AgentStatusTooltip(); tip != "Claude Code over stdio" {
+
+	status, tip, turns := readStatus()
+	if status != editor.AgentStatusConnected {
+		t.Fatalf("AgentStatus = %q, want connected", status)
+	}
+	if tip != "Claude Code over stdio" {
 		t.Fatalf("AgentStatusTooltip = %q, want %q", tip, "Claude Code over stdio")
 	}
-	if turns := ed.AgentTurns(); len(turns) == 0 || !turns[0].External {
+	if len(turns) == 0 || !turns[0].External {
 		t.Fatalf("expected external terminal turn recorded, got %+v", turns)
 	}
 
@@ -206,10 +222,145 @@ func TestServerTracksProxyClientInfoAndDisconnect(t *testing.T) {
 
 	// Wait briefly for server's serveConn goroutine to observe EOF and notify the editor.
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && ed.AgentStatus() == editor.AgentStatusConnected {
+	for time.Now().Before(deadline) {
+		status, _, _ = readStatus()
+		if status != editor.AgentStatusConnected {
+			break
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if ed.AgentStatus() != editor.AgentStatusReconnecting && ed.AgentStatus() != editor.AgentStatusDisconnected {
-		t.Fatalf("after drop AgentStatus = %q, want reconnecting or disconnected", ed.AgentStatus())
+	if status != editor.AgentStatusReconnecting && status != editor.AgentStatusDisconnected {
+		t.Fatalf("after drop AgentStatus = %q, want reconnecting or disconnected", status)
 	}
+}
+
+func TestInstallPreservesModeRefusesSymlinksAndHandlesMultilineTOML(t *testing.T) {
+	t.Run("default 0o600 and preserves existing 0o600 permissions", func(t *testing.T) {
+		dir := t.TempDir()
+		writeProject(t, dir)
+
+		if _, err := editormcp.Install(dir); err != nil {
+			t.Fatalf("Install: %v", err)
+		}
+		claudePath := filepath.Join(dir, ".mcp.json")
+		codexPath := filepath.Join(dir, ".codex", "config.toml")
+		for _, path := range []string{claudePath, codexPath} {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("stat %s: %v", path, err)
+			}
+			if info.Mode().Perm()&0o077 != 0 {
+				t.Errorf("%s mode = %04o, want owner-only (no group/other bits)", path, info.Mode().Perm())
+			}
+		}
+
+		// Tightly permissioned pre-existing file with secrets must stay 0o600 after update.
+		preClaude := `{"mcpServers":{"secret":{"command":"env","env":{"API_KEY":"top-secret"}}}}` + "\n"
+		if err := os.WriteFile(claudePath, []byte(preClaude), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(claudePath, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := editormcp.Install(dir); err != nil {
+			t.Fatalf("Install over 0o600 .mcp.json: %v", err)
+		}
+		info, err := os.Stat(claudePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf(".mcp.json mode widened to %04o, want 0600", info.Mode().Perm())
+		}
+	})
+
+	t.Run("refuses symlink escaping project root", func(t *testing.T) {
+		dir := t.TempDir()
+		writeProject(t, dir)
+		outside := filepath.Join(t.TempDir(), "victim.json")
+		orig := []byte(`{"untouched":true}`)
+		if err := os.WriteFile(outside, orig, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(dir, ".mcp.json")); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+		if _, err := editormcp.Install(dir); err == nil {
+			t.Fatal("Install succeeded through symlink outside project root, want error")
+		}
+		got, _ := os.ReadFile(outside)
+		if !bytes.Equal(got, orig) {
+			t.Fatalf("outside symlink target was modified: %q", got)
+		}
+	})
+
+	t.Run("refuses .codex symlink escaping project root", func(t *testing.T) {
+		dir := t.TempDir()
+		writeProject(t, dir)
+		outsideDir := t.TempDir()
+		if err := os.Symlink(outsideDir, filepath.Join(dir, ".codex")); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+		if _, err := editormcp.Install(dir); err == nil {
+			t.Fatal("Install succeeded through .codex symlink outside project root, want error")
+		}
+		if _, err := os.Stat(filepath.Join(outsideDir, "config.toml")); !os.IsNotExist(err) {
+			t.Fatalf("config.toml was written outside project root via .codex symlink")
+		}
+	})
+
+	t.Run("handles multi-line TOML arrays and refuses malformed headers", func(t *testing.T) {
+		dir := t.TempDir()
+		writeProject(t, dir)
+		codexDir := filepath.Join(dir, ".codex")
+		if err := os.MkdirAll(codexDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		codexPath := filepath.Join(codexDir, "config.toml")
+		pre := `model = "o4-mini"
+
+[mcp_servers.` + editormcp.ServerName + `]
+command = "old"
+args = [
+  "old-arg",
+  "[not-a-section]",
+]
+
+[mcp_servers.other]
+command = "npx"
+args = [
+  "other-arg"
+]
+`
+		if err := os.WriteFile(codexPath, []byte(pre), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := editormcp.Install(dir); err != nil {
+			t.Fatalf("Install with multi-line TOML arrays: %v", err)
+		}
+		after, err := os.ReadFile(codexPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(after)
+		if strings.Contains(s, "old-arg") || strings.Contains(s, "[not-a-section]") {
+			t.Fatalf("stale multi-line array elements survived section replacement:\n%s", s)
+		}
+		if !strings.Contains(s, "[mcp_servers.other]") || !strings.Contains(s, `"other-arg"`) {
+			t.Fatalf("unrelated [mcp_servers.other] section was lost:\n%s", s)
+		}
+
+		// Malformed TOML header must be refused without overwriting.
+		bad := []byte("[unclosed_header\ncommand = \"go\"\n")
+		if err := os.WriteFile(codexPath, bad, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := editormcp.Install(dir); err == nil {
+			t.Fatal("Install succeeded on malformed .codex/config.toml, want error")
+		}
+		got, _ := os.ReadFile(codexPath)
+		if !bytes.Equal(got, bad) {
+			t.Fatalf("malformed .codex/config.toml was overwritten: %q", got)
+		}
+	})
 }

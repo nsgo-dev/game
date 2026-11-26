@@ -330,6 +330,7 @@ func (e *Editor) Close() error {
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.stopDiskWatcher()
+	e.stopAgentTimers()
 	e.cancelCreateProject()
 	var playErr error
 	if e.Playing() {

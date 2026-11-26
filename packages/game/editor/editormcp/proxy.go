@@ -20,6 +20,9 @@ type Proxy struct {
 	mu         sync.Mutex
 	session    *mcp.ClientSession
 	clientInfo *mcp.Implementation
+	runCtx     context.Context
+	// wg tracks background dial/refresh goroutines started while Run is active.
+	wg sync.WaitGroup
 	// tools are the tools listed to the client, as the editor last listed them, or the built-in ones before it has.
 	tools map[string]*mcp.Tool
 	// subs are the resource URIs the client subscribes to, which a new connection to the editor subscribes to again.
@@ -58,11 +61,11 @@ func NewProxy(root string) *Proxy {
 						p.mu.Unlock()
 					}
 				}
-				go func() {
-					if cs, dialErr := p.editor(context.Background()); dialErr == nil {
-						p.refresh(context.Background(), cs)
+				p.spawnBackground(func(bgCtx context.Context) {
+					if cs, dialErr := p.editor(bgCtx); dialErr == nil {
+						p.refresh(bgCtx, cs)
 					}
-				}()
+				})
 			}
 			return res, err
 		}
@@ -76,16 +79,42 @@ func NewProxy(root string) *Proxy {
 	return p
 }
 
+// spawnBackground runs fn in a goroutine bound to the active Run context and tracked by p.wg
+// so Proxy.Run never leaks goroutines after returning.
+func (p *Proxy) spawnBackground(fn func(context.Context)) {
+	p.mu.Lock()
+	bgCtx := p.runCtx
+	if bgCtx == nil || bgCtx.Err() != nil {
+		p.mu.Unlock()
+		return
+	}
+	p.wg.Add(1)
+	p.mu.Unlock()
+	go func() {
+		defer p.wg.Done()
+		fn(bgCtx)
+	}()
+}
+
 // Run serves one client on t until the client disconnects or ctx ends; then it closes its connection to the editor.
 func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
-	err := p.sdk.Run(ctx, t)
+	runCtx, cancel := context.WithCancel(ctx)
 	p.mu.Lock()
+	p.runCtx = runCtx
+	p.mu.Unlock()
+
+	err := p.sdk.Run(runCtx, t)
+
+	cancel()
+	p.mu.Lock()
+	p.runCtx = nil
 	cs := p.session
 	p.session = nil
 	p.mu.Unlock()
 	if cs != nil {
 		_ = cs.Close()
 	}
+	p.wg.Wait()
 	return err
 }
 

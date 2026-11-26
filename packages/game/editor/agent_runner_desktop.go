@@ -4,6 +4,7 @@ package editor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,7 +13,48 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+const maxCLISstderrBytes = 256 * 1024
+
+// cappedBuffer captures up to limit bytes so a noisy subprocess stderr cannot cause unbounded RAM growth.
+type cappedBuffer struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit <= 0 {
+		return len(p), nil
+	}
+	remain := b.limit - b.buf.Len()
+	if remain > 0 {
+		if len(p) <= remain {
+			_, _ = b.buf.Write(p)
+		} else {
+			_, _ = b.buf.Write(p[:remain])
+			b.truncated = true
+		}
+	} else if len(p) > 0 {
+		b.truncated = true
+	}
+	return len(p), nil
+}
+
+func (b *cappedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.buf.String()
+	if b.truncated {
+		return s + "\n... (stderr truncated)"
+	}
+	return s
+}
 
 // CLIAgentRunner runs an external agent CLI (Claude Code or Codex) non-interactively per composer request with streamed JSON output and the project's MCP config.
 type CLIAgentRunner struct {
@@ -32,8 +74,12 @@ func (r *CLIAgentRunner) Run(ctx context.Context, req AgentRequest, emit func(Ag
 	if err != nil {
 		return err
 	}
-	args := buildCLIArgs(kind, req)
+	args, err := buildCLIArgs(kind, req)
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Stdin = nil
 	if req.ProjectRoot != "" {
 		cmd.Dir = req.ProjectRoot
 	}
@@ -41,8 +87,8 @@ func (r *CLIAgentRunner) Run(ctx context.Context, req AgentRequest, emit func(Ag
 	if err != nil {
 		return fmt.Errorf("agent runner: stdout pipe: %w", err)
 	}
-	var stderrBuf strings.Builder
-	cmd.Stderr = &stderrBuf
+	stderrBuf := &cappedBuffer{limit: maxCLISstderrBytes}
+	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("agent runner: start %s: %w", bin, err)
@@ -116,16 +162,34 @@ func (r *CLIAgentRunner) resolveCLI(kind ExternalAgentKind) (ExternalAgentKind, 
 	}
 }
 
-func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) []string {
+func validateCLISessionID(id string) error {
+	if id == "" {
+		return nil
+	}
+	if strings.HasPrefix(id, "-") {
+		return fmt.Errorf("agent runner: invalid session id %q: must not start with '-'", id)
+	}
+	for _, r := range id {
+		if r <= 0x20 || r == 0x7f {
+			return fmt.Errorf("agent runner: invalid session id %q: contains whitespace or control character", id)
+		}
+	}
+	return nil
+}
+
+func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) ([]string, error) {
+	if err := validateCLISessionID(req.SessionID); err != nil {
+		return nil, err
+	}
 	if kind == ExternalAgentCodex {
 		if req.SessionID != "" {
-			return []string{"exec", "resume", req.SessionID, "--json", req.Prompt}
+			return []string{"exec", "resume", "--json", "--", req.SessionID, req.Prompt}, nil
 		}
 		args := []string{"exec", "--json"}
 		if req.ProjectRoot != "" {
 			args = append(args, "-C", req.ProjectRoot)
 		}
-		return append(args, req.Prompt)
+		return append(args, "--", req.Prompt), nil
 	}
 	args := []string{"--print", "--output-format=stream-json", "--verbose"}
 	if req.ProjectRoot != "" {
@@ -137,5 +201,5 @@ func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) []string {
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
 	}
-	return append(args, req.Prompt)
+	return append(args, "--", req.Prompt), nil
 }

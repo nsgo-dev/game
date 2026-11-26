@@ -9,8 +9,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/nsgo-dev/nsgo/core"
 )
+
+const agentReconnectProbeTimeout = 2 * time.Second
 
 // RightRailTab selects which panel is shown in the right sidebar.
 type RightRailTab string
@@ -299,6 +304,10 @@ func (f AgentRunnerFunc) Run(ctx context.Context, req AgentRequest, emit func(Ag
 }
 
 type agentState struct {
+	scopeMu  sync.RWMutex
+	scope    *core.Scope
+	inlineMu sync.Mutex
+
 	rightTab RightRailTab
 	mode     AgentMode
 	status   AgentStatus
@@ -314,6 +323,7 @@ type agentState struct {
 	reconnectAttempt int
 	reconnectTotal   int
 	reconnectCancel  func()
+	probeCancel      context.CancelFunc
 	reconnectGen     uint64
 
 	// Connect dialog state.
@@ -343,20 +353,31 @@ type agentState struct {
 	turnSeq            int
 }
 
-func defaultAgentState() agentState {
+func (a *agentState) setScope(cx *core.Scope) {
+	a.scopeMu.Lock()
+	a.scope = cx
+	a.scopeMu.Unlock()
+}
+
+func (a *agentState) getScope() *core.Scope {
+	a.scopeMu.RLock()
+	cx := a.scope
+	a.scopeMu.RUnlock()
+	return cx
+}
+
+func (a *agentState) initDefaults() {
 	perms := DefaultAgentPermissions()
-	return agentState{
-		rightTab:          RightTabInspector,
-		mode:              AgentModeUnconfigured,
-		status:            AgentStatusNotConnected,
-		failedStep:        ConnectStepChoice,
-		connectChoice:     AgentModeLocal,
-		connectStep:       ConnectStepChoice,
-		permissions:       perms,
-		connectPermsDraft: perms,
-		threadID:          "thread-1",
-		reconnectTotal:    len(AgentReconnectDelays),
-	}
+	a.rightTab = RightTabInspector
+	a.mode = AgentModeUnconfigured
+	a.status = AgentStatusNotConnected
+	a.failedStep = ConnectStepChoice
+	a.connectChoice = AgentModeLocal
+	a.connectStep = ConnectStepChoice
+	a.permissions = perms
+	a.connectPermsDraft = perms
+	a.threadID = "thread-1"
+	a.reconnectTotal = len(AgentReconnectDelays)
 }
 
 func (e *Editor) nowTime() time.Time {
@@ -368,7 +389,11 @@ func (e *Editor) nowTime() time.Time {
 
 // HasScope reports whether a UI core.Scope is currently attached to the editor.
 func (e *Editor) HasScope() bool {
-	return e != nil && e.scope != nil
+	if e == nil {
+		return false
+	}
+	cx := e.agent.getScope()
+	return cx != nil && !cx.Disposed()
 }
 
 // Post schedules fn onto the editor's UI scope when attached, or invokes fn inline otherwise.
@@ -388,9 +413,13 @@ func (e *Editor) postOrRun(fn func()) {
 	if fn == nil {
 		return
 	}
-	if e != nil && e.scope != nil {
-		e.scope.Post(fn)
-		return
+	if e != nil {
+		if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+			cx.Post(fn)
+			return
+		}
+		e.agent.inlineMu.Lock()
+		defer e.agent.inlineMu.Unlock()
 	}
 	fn()
 }
@@ -412,6 +441,10 @@ func (e *Editor) cancelAgentReconnect() {
 		e.agent.reconnectCancel()
 		e.agent.reconnectCancel = nil
 	}
+	if e.agent.probeCancel != nil {
+		e.agent.probeCancel()
+		e.agent.probeCancel = nil
+	}
 	e.agent.reconnectGen++
 }
 
@@ -425,6 +458,35 @@ func (e *Editor) stopAgentTimers() {
 		e.agent.activeRunCancel()
 		e.agent.activeRunCancel = nil
 	}
+	e.agent.connectAPIKey = ""
+}
+
+// resetAgentForProject stops active agent runs/timers and clears per-project agent conversation,
+// client sessions, open requests, composer draft, and draft API key when switching projects or demos.
+func (e *Editor) resetAgentForProject() {
+	if e == nil {
+		return
+	}
+	e.stopAgentTimers()
+	e.agent.activeRunID++
+	e.agent.clients = nil
+	e.agent.lastClient = AgentClientInfo{}
+	e.agent.hadClient = false
+	e.agent.failedStep = ConnectStepChoice
+	e.agent.failedCause = ""
+	e.agent.reconnectAttempt = 0
+	e.agent.connectOpen = false
+	e.agent.connectTroubled = false
+	e.agent.connectCopied = false
+	e.agent.connectAPIKey = ""
+	e.agent.sessionID = ""
+	e.agent.turns = nil
+	e.agent.composerText = ""
+	e.agent.workingStep = 0
+	e.agent.workingTotal = 0
+	e.agent.openRequest = nil
+	e.agent.status = AgentStatusNotConnected
+	e.updateAgentAnnouncement()
 }
 
 // RightRailTab returns the active tab in the right sidebar (RightTabInspector or RightTabAgent).
@@ -712,6 +774,7 @@ func (e *Editor) CloseConnectDialog() {
 	}
 	e.agent.connectOpen = false
 	e.agent.connectTroubled = false
+	e.agent.connectAPIKey = ""
 	e.notify()
 }
 
@@ -791,6 +854,7 @@ func (e *Editor) CompleteConnectDialog() {
 	e.agent.permissions = e.agent.connectPermsDraft
 	e.agent.connectOpen = false
 	e.agent.connectTroubled = false
+	e.agent.connectAPIKey = ""
 
 	switch choice {
 	case AgentModeNone:
@@ -927,12 +991,46 @@ func (e *Editor) ReconnectAgent() {
 		e.notify()
 		return
 	}
-	// Try an immediate probe first; if still unavailable, enter the 5-attempt backoff schedule.
-	if e.AgentReconnectProbe != nil {
-		if info, err := e.AgentReconnectProbe(context.Background()); err == nil {
-			e.NotifyAgentMCPConnected(info)
+	// Run an immediate bounded probe off the UI thread (or synchronously when a fake test scheduler
+	// is installed) so a stalled MCP client can never freeze the UI goroutine.
+	probe := e.AgentReconnectProbe
+	if probe != nil {
+		if e.AgentScheduleAfter != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), agentReconnectProbeTimeout)
+			info, err := probe(ctx)
+			cancel()
+			if err == nil {
+				e.NotifyAgentMCPConnected(info)
+				return
+			}
+			e.startAgentReconnect()
 			return
 		}
+		e.cancelAgentReconnect()
+		e.agent.status = AgentStatusReconnecting
+		e.agent.reconnectAttempt = 1
+		e.agent.reconnectTotal = len(AgentReconnectDelays)
+		gen := e.agent.reconnectGen
+		ctx, cancel := context.WithTimeout(context.Background(), agentReconnectProbeTimeout)
+		e.agent.probeCancel = cancel
+		e.updateAgentAnnouncement()
+		e.notify()
+		go func() {
+			info, err := probe(ctx)
+			cancel()
+			e.postOrRun(func() {
+				if e.agent.reconnectGen != gen || e.agent.status != AgentStatusReconnecting {
+					return
+				}
+				e.agent.probeCancel = nil
+				if err == nil {
+					e.NotifyAgentMCPConnected(info)
+					return
+				}
+				e.scheduleReconnectAttempt(gen, 1)
+			})
+		}()
+		return
 	}
 	e.startAgentReconnect()
 }
@@ -947,6 +1045,27 @@ func (e *Editor) startAgentReconnect() {
 	e.notify()
 
 	e.scheduleReconnectAttempt(gen, 1)
+}
+
+func (e *Editor) advanceReconnectAfterFailure(gen uint64, attempt int) {
+	if e.agent.reconnectGen != gen || e.agent.status != AgentStatusReconnecting {
+		return
+	}
+	if attempt < len(AgentReconnectDelays) {
+		e.agent.reconnectAttempt = attempt + 1
+		e.updateAgentAnnouncement()
+		e.notify()
+		e.scheduleReconnectAttempt(gen, attempt+1)
+		return
+	}
+	// All 5 retries failed -> Disconnected.
+	e.agent.status = AgentStatusDisconnected
+	e.agent.reconnectAttempt = len(AgentReconnectDelays)
+	if e.agent.failedStep == "" || e.agent.failedStep == ConnectStepChoice {
+		e.agent.failedStep = e.diagnoseFailedConnectStep()
+	}
+	e.updateAgentAnnouncement()
+	e.notify()
 }
 
 func (e *Editor) scheduleReconnectAttempt(gen uint64, attempt int) {
@@ -966,27 +1085,39 @@ func (e *Editor) scheduleReconnectAttempt(gen uint64, attempt int) {
 			e.notify()
 			return
 		}
-		if e.AgentReconnectProbe != nil {
-			if info, err := e.AgentReconnectProbe(context.Background()); err == nil {
-				e.NotifyAgentMCPConnected(info)
+		probe := e.AgentReconnectProbe
+		if probe != nil {
+			if e.AgentScheduleAfter != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), agentReconnectProbeTimeout)
+				info, err := probe(ctx)
+				cancel()
+				if err == nil {
+					e.NotifyAgentMCPConnected(info)
+					return
+				}
+				e.advanceReconnectAfterFailure(gen, attempt)
 				return
 			}
-		}
-		if attempt < len(AgentReconnectDelays) {
-			e.agent.reconnectAttempt = attempt + 1
-			e.updateAgentAnnouncement()
-			e.notify()
-			e.scheduleReconnectAttempt(gen, attempt+1)
+			ctx, cancel := context.WithTimeout(context.Background(), agentReconnectProbeTimeout)
+			e.agent.probeCancel = cancel
+			go func() {
+				info, err := probe(ctx)
+				cancel()
+				e.postOrRun(func() {
+					if e.agent.reconnectGen != gen || e.agent.status != AgentStatusReconnecting {
+						return
+					}
+					e.agent.probeCancel = nil
+					if err == nil {
+						e.NotifyAgentMCPConnected(info)
+						return
+					}
+					e.advanceReconnectAfterFailure(gen, attempt)
+				})
+			}()
 			return
 		}
-		// All 5 retries failed -> Disconnected.
-		e.agent.status = AgentStatusDisconnected
-		e.agent.reconnectAttempt = len(AgentReconnectDelays)
-		if e.agent.failedStep == "" || e.agent.failedStep == ConnectStepChoice {
-			e.agent.failedStep = e.diagnoseFailedConnectStep()
-		}
-		e.updateAgentAnnouncement()
-		e.notify()
+		e.advanceReconnectAfterFailure(gen, attempt)
 	})
 }
 
@@ -1179,6 +1310,9 @@ func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary strin
 func (e *Editor) SubmitAgentPrompt(prompt string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
 	}
 	if e.agent.mode == AgentModeNone {
 		return errors.New("editor: agent is disabled")

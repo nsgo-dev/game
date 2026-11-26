@@ -121,8 +121,9 @@ type Server struct {
 	openErr  error
 	conns    map[net.Conn]struct{}
 	// sessions tracks active MCP client sessions for Connect dialog & status chip reporting.
-	sessions      map[*mcp.ServerSession]editor.AgentClientInfo
+	sessions      map[*mcp.ServerSession]trackedSession
 	nextSessionID int
+	projectGen    uint64
 	closed        bool
 	done          chan struct{}
 	// wg tracks the goroutines serving connections and sending notifications.
@@ -142,6 +143,12 @@ type Server struct {
 	wake      chan struct{}
 }
 
+type trackedSession struct {
+	info         editor.AgentClientInfo
+	fromEndpoint bool
+	gen          uint64
+}
+
 // New returns a server for ed with the built-in tools. Call it on the editor's goroutine, which is the one Options.Run hands functions to.
 func New(ed *editor.Editor, opts Options) *Server {
 	s := &Server{
@@ -151,7 +158,7 @@ func New(ed *editor.Editor, opts Options) *Server {
 		tools:       map[string]Tool{},
 		subs:        map[*mcp.ServerSession]map[string]bool{},
 		conns:       map[net.Conn]struct{}{},
-		sessions:    map[*mcp.ServerSession]editor.AgentClientInfo{},
+		sessions:    map[*mcp.ServerSession]trackedSession{},
 		done:        make(chan struct{}),
 		pending:     map[string]mcp.Meta{},
 		wake:        make(chan struct{}, 1),
@@ -297,8 +304,8 @@ func (s *Server) Clients() []editor.AgentClientInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]editor.AgentClientInfo, 0, len(s.sessions))
-	for _, info := range s.sessions {
-		out = append(out, info)
+	for _, ts := range s.sessions {
+		out = append(out, ts.info)
 	}
 	return out
 }
@@ -307,7 +314,7 @@ func (s *Server) initialized(_ context.Context, req *mcp.InitializedRequest) {
 	if req == nil || req.Session == nil {
 		return
 	}
-	info := s.registerOrUpdateSession(req.Session, "")
+	info := s.registerOrUpdateSession(req.Session, "", false)
 	s.notifyEditor(func(ed *editor.Editor) {
 		ed.NotifyAgentMCPConnected(info)
 	})
@@ -317,7 +324,7 @@ func (s *Server) trackSession(ss *mcp.ServerSession, defaultTransport string) {
 	if ss == nil {
 		return
 	}
-	info := s.registerOrUpdateSession(ss, defaultTransport)
+	info := s.registerOrUpdateSession(ss, defaultTransport, false)
 	s.notifyEditor(func(ed *editor.Editor) {
 		ed.NotifyAgentMCPConnected(info)
 	})
@@ -329,7 +336,7 @@ func (s *Server) trackSession(ss *mcp.ServerSession, defaultTransport string) {
 	}()
 }
 
-func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport string) editor.AgentClientInfo {
+func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport string, fromEndpoint bool) editor.AgentClientInfo {
 	name, title, version := "", "", ""
 	if p := ss.InitializeParams(); p != nil && p.ClientInfo != nil {
 		name = p.ClientInfo.Name
@@ -354,17 +361,20 @@ func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport
 	defer s.mu.Unlock()
 	if existing, ok := s.sessions[ss]; ok {
 		if name != "" {
-			existing.Name = name
-			existing.DisplayName = display
+			existing.info.Name = name
+			existing.info.DisplayName = display
 		}
-		if defaultTransport != "" && existing.Transport == "" {
-			existing.Transport = defaultTransport
+		if defaultTransport != "" && existing.info.Transport == "" {
+			existing.info.Transport = defaultTransport
 		}
 		if title == "" && (version == proxyStdioMarker) {
-			existing.Transport = "stdio"
+			existing.info.Transport = "stdio"
+		}
+		if fromEndpoint {
+			existing.fromEndpoint = true
 		}
 		s.sessions[ss] = existing
-		return existing
+		return existing.info
 	}
 	s.nextSessionID++
 	id := ss.ID()
@@ -377,21 +387,26 @@ func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport
 		DisplayName: display,
 		Transport:   transport,
 	}
-	s.sessions[ss] = info
+	s.sessions[ss] = trackedSession{
+		info:         info,
+		fromEndpoint: fromEndpoint,
+		gen:          s.projectGen,
+	}
 	return info
 }
 
 func (s *Server) dropSession(ss *mcp.ServerSession) {
 	s.mu.Lock()
-	info, ok := s.sessions[ss]
+	ts, ok := s.sessions[ss]
 	delete(s.sessions, ss)
 	closed := s.closed
+	staleProject := ts.fromEndpoint && ts.gen != s.projectGen
 	s.mu.Unlock()
-	if !ok || closed {
+	if !ok || closed || staleProject {
 		return
 	}
 	s.notifyEditor(func(ed *editor.Editor) {
-		ed.NotifyAgentMCPDisconnected(info.ID, "")
+		ed.NotifyAgentMCPDisconnected(ts.info.ID, "")
 	})
 }
 
@@ -399,8 +414,8 @@ func (s *Server) probeClient(ctx context.Context) (editor.AgentClientInfo, error
 	s.mu.Lock()
 	var target *mcp.ServerSession
 	var info editor.AgentClientInfo
-	for ss, ci := range s.sessions {
-		target, info = ss, ci
+	for ss, ts := range s.sessions {
+		target, info = ss, ts.info
 		break
 	}
 	s.mu.Unlock()
@@ -413,24 +428,40 @@ func (s *Server) probeClient(ctx context.Context) (editor.AgentClientInfo, error
 	return info, nil
 }
 
+func (s *Server) isClosed() bool {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	return closed
+}
+
 func (s *Server) notifyEditor(fn func(ed *editor.Editor)) {
-	if s.ed == nil || fn == nil {
+	if s.ed == nil || fn == nil || s.isClosed() {
 		return
 	}
 	if s.run != nil {
 		s.run(func() {
+			if s.isClosed() {
+				return
+			}
 			fn(s.ed)
 		})
 		return
 	}
 	if s.ed.HasScope() {
 		s.ed.Post(func() {
+			if s.isClosed() {
+				return
+			}
 			fn(s.ed)
 		})
 		return
 	}
 	s.inline.Lock()
 	defer s.inline.Unlock()
+	if s.isClosed() {
+		return
+	}
 	fn(s.ed)
 }
 
@@ -472,6 +503,12 @@ func (s *Server) follow() {
 	old := s.listener
 	s.listener, s.root, s.openErr = nil, root, nil
 	// Every client of the endpoint came for the project the editor no longer has open, and must not edit the next one.
+	s.projectGen++
+	for ss, ts := range s.sessions {
+		if ts.fromEndpoint {
+			delete(s.sessions, ss)
+		}
+	}
 	stale := slices.Collect(maps.Keys(s.conns))
 	s.mu.Unlock()
 	if old != nil {
@@ -544,7 +581,7 @@ func (s *Server) serveConn(conn net.Conn) {
 	if err != nil {
 		return
 	}
-	info := s.registerOrUpdateSession(ss, "unix")
+	info := s.registerOrUpdateSession(ss, "unix", true)
 	s.notifyEditor(func(ed *editor.Editor) {
 		ed.NotifyAgentMCPConnected(info)
 	})
@@ -565,13 +602,6 @@ func (s *Server) Close() error {
 	conns := slices.Collect(maps.Keys(s.conns))
 	close(s.done)
 	s.mu.Unlock()
-	if s.unsub != nil {
-		s.unsub()
-		s.unsub = nil
-	}
-	if s.ed != nil {
-		s.ed.CancelAgentReconnect()
-	}
 	if l != nil {
 		closeListener(l)
 	}
@@ -582,6 +612,14 @@ func (s *Server) Close() error {
 		_ = ss.Close()
 	}
 	s.wg.Wait()
+	if s.unsub != nil {
+		s.unsub()
+		s.unsub = nil
+	}
+	if s.ed != nil {
+		s.ed.CancelAgentReconnect()
+		s.ed.AgentReconnectProbe = nil
+	}
 	return nil
 }
 
@@ -592,8 +630,8 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 		clientName := ""
 		if req != nil && req.Session != nil {
 			s.mu.Lock()
-			if info, ok := s.sessions[req.Session]; ok {
-				clientName = info.DisplayName
+			if ts, ok := s.sessions[req.Session]; ok {
+				clientName = ts.info.DisplayName
 			}
 			s.mu.Unlock()
 		}

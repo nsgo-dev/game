@@ -92,10 +92,10 @@ nsgo game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.
 
 ## game mcp
 
-Serve the editor's MCP tools on standard input and output for an agent, forwarding each call to the editor that has the project open.
+Serve the editor's MCP tools on stdio, or run \`mcp install\` to configure Claude Code and Codex for this project.
 
 ```sh
-nsgo game mcp [flags]
+nsgo game mcp [flags] [install]
 ```
 
 | 参数 | 默认值 | 说明 |

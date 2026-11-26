@@ -560,3 +560,148 @@ func TestAgentConnectAndStatesScreenshots(t *testing.T) {
 	app.Settle()
 	app.Screenshot("agent/panel-disconnected")
 }
+
+func TestAgentReconnectAsyncNonBlockingWithStalledProbe(t *testing.T) {
+	ed := newTestEditor(t)
+	probeStarted := make(chan struct{})
+	probeCancelled := make(chan struct{})
+	ed.AgentReconnectProbe = func(ctx context.Context) (editor.AgentClientInfo, error) {
+		close(probeStarted)
+		<-ctx.Done()
+		close(probeCancelled)
+		return editor.AgentClientInfo{}, ctx.Err()
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 760))
+	_ = app
+
+	start := time.Now()
+	ed.ReconnectAgent()
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("ReconnectAgent blocked UI goroutine for %v", elapsed)
+	}
+	select {
+	case <-probeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("async reconnect probe did not start")
+	}
+	if ed.AgentStatus() != editor.AgentStatusReconnecting {
+		t.Fatalf("AgentStatus = %q, want reconnecting", ed.AgentStatus())
+	}
+
+	// Cancelling reconnect (or closing editor) cancels the in-flight probe context.
+	ed.CancelAgentReconnect()
+	select {
+	case <-probeCancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CancelAgentReconnect did not cancel in-flight probe context")
+	}
+}
+
+func TestAgentLifecycleResetAPIKeyClearingAndPlayGuard(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.AgentScheduleAfter = func(_ time.Duration, _ func()) func() { return func() {} }
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 760))
+	_ = app
+
+	// Closing or completing the connect dialog must zero the transient API key buffer.
+	ed.OpenConnectDialog()
+	ed.SetConnectChoice(editor.AgentModeAPIKey)
+	ed.SetConnectAPIKey("sk-test-secret-1")
+	ed.CloseConnectDialog()
+	if got := ed.ConnectDialogAPIKey(); got != "" {
+		t.Fatalf("after CloseConnectDialog API key = %q, want empty", got)
+	}
+
+	ed.OpenConnectDialog()
+	ed.SetConnectChoice(editor.AgentModeAPIKey)
+	ed.SetConnectAPIKey("sk-test-secret-2")
+	ed.CompleteConnectDialog()
+	if got := ed.ConnectDialogAPIKey(); got != "" {
+		t.Fatalf("after CompleteConnectDialog API key = %q, want empty", got)
+	}
+
+	// Submitting a prompt during Play mode must be refused with ErrPlaying.
+	ed.SetConnectChoice(editor.AgentModeLocal)
+	ed.CompleteConnectDialog()
+	ed.NotifyAgentMCPConnected(editor.AgentClientInfo{ID: "c1", Name: "claude-code", Transport: "stdio"})
+	ed.RecordExternalAgentToolCall("Claude Code", "scene_edit", "Edit scene", false)
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	if err := ed.SubmitAgentPrompt("move player"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("SubmitAgentPrompt during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// Switching projects (OpenDemo) resets connected clients, turns, and status cleanly.
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.AgentStatus() != editor.AgentStatusNotConnected {
+		t.Fatalf("after OpenDemo AgentStatus = %q, want not_connected", ed.AgentStatus())
+	}
+	if clients := ed.AgentClients(); len(clients) != 0 {
+		t.Fatalf("after OpenDemo AgentClients = %+v, want empty", clients)
+	}
+	if turns := ed.AgentTurns(); len(turns) != 0 {
+		t.Fatalf("after OpenDemo AgentTurns len = %d, want 0", len(turns))
+	}
+	ed.Close()
+}
+
+func TestAgentSpecLightAppearanceSwitchesColors(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SetAgentPanelOpen(true)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	light := editor.LightSpecPalette()
+	dark := editor.DarkSpecPalette()
+
+	if got := app.Find("id:agent-panel").Style.Background; got != light.Panel {
+		t.Fatalf("light mode agent-panel bg = %#x, want %#x", uint32(got), uint32(light.Panel))
+	}
+	ed.OpenConnectDialog()
+	app.Settle()
+	if got := app.Find("id:connect-dialog-body").Style.Background; got != light.Panel {
+		t.Fatalf("light mode connect-dialog-body bg = %#x, want %#x", uint32(got), uint32(light.Panel))
+	}
+	ed.CloseConnectDialog()
+	ed.OpenSettingsPage(editor.SettingsPageGeneral)
+	app.Settle()
+	if got := app.Find("id:editor-settings-connected-agent").Style.Background; got != light.Raised {
+		t.Fatalf("light mode editor-settings-connected-agent bg = %#x, want %#x", uint32(got), uint32(light.Raised))
+	}
+
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	if got := app.Find("id:editor-settings-connected-agent").Style.Background; got != dark.Raised {
+		t.Fatalf("dark mode editor-settings-connected-agent bg = %#x, want %#x", uint32(got), uint32(dark.Raised))
+	}
+	ed.CloseSettings()
+	ed.OpenConnectDialog()
+	app.Settle()
+	if got := app.Find("id:agent-panel").Style.Background; got != dark.Panel {
+		t.Fatalf("dark mode agent-panel bg = %#x, want %#x", uint32(got), uint32(dark.Panel))
+	}
+	if got := app.Find("id:connect-dialog-body").Style.Background; got != dark.Panel {
+		t.Fatalf("dark mode connect-dialog-body bg = %#x, want %#x", uint32(got), uint32(dark.Panel))
+	}
+}
