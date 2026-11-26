@@ -88,6 +88,7 @@ func ExampleServer_AddTool() {
 	// cutscene_scrub read
 	// cutscene_write edit
 	// game_check run
+	// game_delete_file delete
 	// game_playtest run
 	// history_list read
 	// merge_abort run
@@ -104,6 +105,7 @@ func ExampleServer_AddTool() {
 	// object_select_same_prefab read
 	// object_set_field edit
 	// object_visibility edit
+	// permissions_draft read
 	// play_frozen_context read
 	// play_replay_step run
 	// playtest_define edit

@@ -41,7 +41,7 @@ func TestMCPPermissionsProfilesAndDenyNeverCallsTool(t *testing.T) {
 		}
 	}
 	mustAdd(editormcp.Tool{
-		Name:   "game_delete_file",
+		Name:   "direct_delete_file",
 		Action: editormcp.ActionDelete,
 		Handler: func(ctx context.Context, c *editormcp.Call) (*editormcp.Result, error) {
 			deleteCalls.Add(1)
@@ -114,7 +114,7 @@ func TestMCPPermissionsProfilesAndDenyNeverCallsTool(t *testing.T) {
 	}
 
 	// Delete and shell commands are Denied; handlers NEVER run, error names rule & profile, and blocked step is recorded.
-	delRes := call(t, cs, "game_delete_file", map[string]any{"file": "prefabs/slime_old.prefab.yaml"})
+	delRes := call(t, cs, "direct_delete_file", map[string]any{"file": "prefabs/slime_old.prefab.yaml"})
 	if !delRes.IsError || !strings.Contains(text(delRes), "permission denied") || !strings.Contains(text(delRes), "rule 6 of 7") || !strings.Contains(text(delRes), "Balanced") {
 		t.Fatalf("balanced delete = err:%v text:%q", delRes.IsError, text(delRes))
 	}

@@ -1,0 +1,31 @@
+# Agent Note: Editor You-only trust boundary and proposed deletions
+
+Status: implemented
+
+## Problem
+
+In an AI-first game editor (`packages/game/editor/editormcp`, see [The editor's MCP server on a per-project local endpoint](../../implemented/architecture/2026-11-25-editor-mcp-server.md) and [MCP permission profiles, rules, and Settings UI](./2026-11-26-editor-mcp-permissions.md)), two failure modes break human control over the project:
+
+1. **Privilege escalation by the agent or by pulled repository state**: if an agent can edit `permissions.yaml`, the tool list, model routing, or usage limits through any MCP tool (including bare-stem renames, symlinks, or open-document edits) — or if a cloned/pulled `permissions.yaml` silently loosens the profile (`Balanced → Autonomous`) or turns `Deny` into `Allow` — the trust boundary collapses. Equally, if a bulk shortcut (`⌘↵`, Keep all, an automation, or the `Autonomous` profile) can approve a permissions draft, the person can accidentally grant permissions while reviewing ordinary scene changes.
+2. **Accidental file deletion during bulk review**: if file deletions ride along inside Keep all, a person reviewing a batch of scene updates can delete a prefab or asset without noticing, and without a checkpoint to restore it via `⌘Z`.
+
+## Decision
+
+Layer a non-bypassable **You-only trust boundary**, **asymmetric external disk reconciliation**, and **explicit-confirmation proposed deletions** directly onto the editor's hardened permission engine (`permissions.go`, `you_only.go`, `agent_review.go`, `editormcp/you_only.go`), matching `docs/design/editor/Permissions.dc.html` and `docs/design/editor/Settings.dc.html`:
+
+- **You-only hard refusal in `editormcp` and editor move/rename (`checkYouOnlyTargets`, `Editor.CheckYouOnlyTarget`)**: Every non-read tool call — built-in or custom via `Server.AddTool` — is inspected before its handler runs across explicit argument paths, derived targets (including bare-stem `refactor_rename` and `release_notes_draft`), and open document paths unconditionally. Any target resolving (including through existing symlinked ancestor directories, macOS `/var -> /private/var`, and host case-insensitivity) to `permissions.yaml`, `.nsgo/permissions.yaml`, `tools.yaml`, `mcp.yaml`, `models.yaml`, `usage.yaml`, or `Editor.SettingsPath` is refused with `*editormcp.YouOnlyError`, regardless of active profile (`Autonomous` included). `MoveFile` and `PreviewSafeRename` also refuse You-only targets under `WithAgentActor`.
+- **Permissions draft card (`permissions_draft` / `PermissionsDraftCardView`)**: The agent can only submit a draft (`Editor.SubmitPermissionsDraft`). The card renders inside a real `ui.Dialog` with `bindDialogFocusRestore` focus trapping. Every rule opens **unticked by default** (`Ticked: false`). `⌘↵` (`mod+enter`), `Editor.KeepAllReviewChanges()`, automations, and every profile never apply a draft. Only explicit per-rule ticks followed by **Apply n rules** (`Editor.ApplyPermissionsDraft`) persist the ticked rules to `permissions.yaml`, recording the undoable command in `History` with `HistoryActorPerson` so History attributes the change to the person and `⌘Z` reverts it byte-for-byte.
+- **Asymmetric external disk reconciliation (`ReconcileExternalPermissions`)**: `Editor.PollDiskChanges()` and the background disk watcher monitor `permissions.yaml`, and `OpenProject` reconciles loaded project rules against the `Balanced` baseline. Tightened profiles and rules apply **at once**. Loosened profiles (`Balanced → Autonomous`), loosened rules (`Deny → Ask/Allow`, `Ask → Allow`), and removed stricter rules are **held** in `Editor.HeldPermissionLoosenings()` while effective evaluation continues enforcing the stricter decision (routing held `Ask → Allow` through the real `Ask` approval flow) until the person explicitly confirms (`ConfirmHeldPermissionLoosening`) or rejects (`RejectHeldPermissionLoosening`) each entry in **Settings › Permissions**.
+- **Proposed deletions outside Keep all (`game_delete_file` / `AgentReviewPanelView`)**: `game_delete_file` defaults to off (`Editor.ToolEnabled("game_delete_file") == false`), refuses You-only paths, symlinks (`os.Lstat`), `.git/**`, `game.yaml`, open scene tabs, and >1 MiB files, and proposes a deletion in the Review changes panel (`Editor.ProposeFileDeletion`) with line count (or binary summary), preview, and scene usage check (`Editor.FindUsages`) without deleting on disk. `Editor.KeepAllReviewChanges()` keeps non-deletion changes and **never deletes pending files**. Confirming in place (**Delete this file** / `Editor.ConfirmProposedDeletion`) re-validates on disk and executes `deleteFileCmd`, snapshotting the file's exact bytes and file mode before `os.Remove` so `⌘Z` (`Editor.Undo`) restores the file byte-for-byte (refusing to overwrite if recreated externally or replaced by a symlink). `HasOpenReview()` pauses autosave while an agent review or permissions draft is open.
+
+## Alternatives considered
+
+- **Allowing `Autonomous` to bypass the You-only rule or apply permission drafts**: Rejected because `Autonomous` is a preset for project content and builds, never for self-escalation over the rules that constrain the agent.
+- **Holding all external `permissions.yaml` edits (including tightenings)**: Rejected because pulling a stricter security rule (`Allow → Deny` or `Ask`) from a teammate should protect the developer immediately rather than remaining looser until clicked.
+- **Deleting files during Keep all with an Undo toast only**: Rejected because bulk review shortcuts make accidental deletions easy to miss; keeping deletions unapplied until explicitly confirmed in place plus providing a `⌘Z` checkpoint protects against both oversight and regret.
+
+## Consequences
+
+- Agents can never escalate their own permissions, tools, models, or usage settings through any MCP tool (including bare-stem renames, symlinks, or custom tools).
+- Cloned or pulled repositories cannot silently loosen `permissions.yaml` profiles or rules without explicit per-entry confirmation in **Settings › Permissions**.
+- Bulk **Keep all** / `⌘↵` never deletes files or approves permission drafts; confirmed deletions remain reversible via `⌘Z`, and `OpenDemo()` clears pending review state so project files cannot leak across sessions.

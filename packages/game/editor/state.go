@@ -898,7 +898,7 @@ type Editor struct {
 	agent agentState
 	// autosave tracks debounced automatic saving of kept changes, the 300 ms Saving… threshold, and persistent status-bar save errors.
 	autosave autoSaveState
-	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, and the Always saved toast.
+	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, Always saved toast, You-only draft state, tool toggles, and held external loosenings.
 	perms permissionsState
 	// askInPlace holds the anchored ⌘L in-place composer state, contextual suggestions, and return focus.
 	askInPlace askInPlaceState
@@ -908,6 +908,8 @@ type Editor struct {
 	agentDocs agentDocsState
 	// historyPanel holds the unified History timeline panel, point-in-time read-only preview, and agent-turn recording state.
 	historyPanel historyPanelState
+	// agentReview holds the Review changes panel state including proposed file deletions that Keep all never applies.
+	agentReview agentReviewState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

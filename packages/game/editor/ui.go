@@ -59,6 +59,16 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.OnStopAgent()
 		}
 	})
+	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
+		// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes.
+		if ed.PermissionsDraftOpen() || ed.StartScreenOpen() || ed.MergeConflictOpen() || ed.UsagesScreenOpen() {
+			return
+		}
+		if ed.AgentReviewOpen() && !ed.Playing() {
+			_, err := ed.KeepAllReviewChanges()
+			ed.report(err)
+		}
+	})
 	cx.OnKeyWith("shift+f5", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.GameRunning() {
 			ed.report(ed.StopGame())
@@ -434,6 +444,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			},
 			PermissionsWorkspaceOverlayView(cx, ed, rev),
 			PermissionsToastView(cx, ed, rev),
+			AgentReviewPanelView(cx, ed, rev),
+			PermissionsDraftCardView(cx, ed, rev),
 			ShortcutsSheetView(cx, ed, rev),
 			ConnectAgentDialogView(cx, ed, rev),
 			dialogFocusTrapView(ed),

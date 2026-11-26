@@ -398,3 +398,11 @@ _ = s.Open()
 ### Why its own server
 
 NSGo's `automation` registers app tools only in `nsgo dev -automation` and test builds, and `nsgo mcp` reaches only the app that `nsgo dev -automation` runs; an editor is an ordinary build. An app tool's handler also runs synchronously on the graph goroutine (nsgo-dev/nsgo#2342), which cannot wait for a project check without holding the editor, and returns JSON only, so a screenshot reaches the agent as base64 text rather than an image (nsgo-dev/nsgo#2343). The editor's server uses the official MCP Go SDK, which NSGo's own `nsgo mcp` is built on, so its tools wait off the editor's goroutine and `viewport_image` returns a real image. `Server.RegisterAutomation` still offers the same tools to `nsgo mcp` for an editor run under `go tool nsgo dev -automation`, each running on the graph goroutine from start to end and returning an `AutomationResult` with the PNG in base64.
+
+## Editor MCP You-only rule and proposed deletions (#1015)
+
+In `packages/game/editor/editormcp`, the editor's MCP server enforces two non-bypassable trust boundaries regardless of the active permission profile (`Cautious`, `Balanced`, or `Autonomous`):
+
+- **You-only refusal (`*editormcp.YouOnlyError`)**: Every non-read tool call (built-in or registered via `Server.AddTool`) is checked before its handler runs across explicit argument paths, derived targets (including bare-stem `refactor_rename` and `release_notes_draft`), and open document paths, and refused if any target resolves to `permissions.yaml`, `.nsgo/permissions.yaml`, `tools.yaml`, `mcp.yaml`, `models.yaml`, `usage.yaml`, or `Editor.SettingsPath`.
+- **`permissions_draft`**: Submits a You-only draft card (`Editor.SubmitPermissionsDraft`) with zero rules ticked by default. It never modifies `permissions.yaml` directly; only explicit person ticks + **Apply** can persist changes.
+- **`game_delete_file`**: Refuses You-only files, symlinks, `.git/**`, `game.yaml`, open scene tabs, and >1 MiB files; for ordinary project files it proposes a deletion in the Review changes panel with line count and scene usages (`Editor.ProposeFileDeletion`) without deleting the file on disk. **Keep all** never deletes pending files; confirming deletes via a checkpoint command that `⌘Z` restores byte-for-byte.

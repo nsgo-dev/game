@@ -1332,6 +1332,7 @@ func main() {
 - **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
 - **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
+
 ## 后台任务列表：排队与并行智能体请求（#1022）
 
 请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `docs/design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
@@ -1363,3 +1364,12 @@ func main() {
 - **只读时间点预览（`PreviewHistoryEntry`、`ExitHistoryPreview`）**：点击任意历史条目会在 2D/3D 视口中只读预览该时刻的场景快照，并显示 `"Previewing <相对时间> · editing is off"` 横幅，不修改当前打开的 `Editor.Doc`，也不移动 `History` 撤销游标。按 `Esc`、**Back** 或 **Now** 即可退出预览并返回实时编辑。
 - **非破坏性恢复（`RestoreHistoryEntry`）**：点击 **Restore** 会将当前场景、项目以及期间改动的全部额外文件作为**一个新的可撤销步骤**回滚到该时间点；后续历史步骤全部保留且仍可预览或恢复，执行一次 `Undo` 即可立即回到恢复前的最新状态。
 - **智能体读取接口（`editormcp`）**：只读工具 `history_list`（`ActionRead`）向已连接的智能体暴露同一份按最新优先排列的历史列表，支持 `author`（`all`、`you`、`agent`）与 `limit` 筛选以及未保存和当前预览状态。
+
+## 仅限用户信任边界与提议删除（#1015）
+
+控制 AI 智能体行为边界的四项设置——**权限**（`permissions.yaml`）、**工具**（`tools.yaml` / `mcp.yaml`）、**模型**（`models.yaml`）与**用量**（`usage.yaml`）——严格遵循**仅限用户（You only）规则**（对应 `docs/design/editor/Permissions.dc.html`、`Settings.dc.html`）：
+
+- **MCP 服务器硬拒绝（`editormcp`）**：编辑器 MCP 服务器上的所有非只读工具都会拒绝任何写入、重命名（含无扩展名短名称的 `refactor_rename`）或删除仅限用户文件（`permissions.yaml`、`.nsgo/permissions.yaml`、`tools.yaml`、`models.yaml`、`usage.yaml` 及用户级 `editor.yaml`，含符号链接与大小写不敏感路径别名）的调用，并返回结构化的 `*editormcp.YouOnlyError`；即使处于 `Autonomous` 配置档也不例外。
+- **权限草案卡片（`permissions_draft` / `PermissionsDraftCardView`）**：智能体只能通过 `permissions_draft`（`Editor.SubmitPermissionsDraft`）提交草案。草案以带焦点限制与关闭恢复的独立模态 `ui.Dialog` 打开，展示每条规则的 `NOW → DRAFT` 决策、实时 `permissions.yaml · if applied` YAML 差异预览、**默认全部不勾选**的逐条复选框、**丢弃草案**与**应用 n 条规则**按钮。`⌘↵`、**全部保留**、自动化流程及任意配置档（含 `Autonomous`）都无法应用该草案；已应用的规则在历史记录（`History`）中归属于用户本人（`HistoryActorPerson`），且可用 `⌘Z` 逐字节撤销。
+- **外部磁盘变更的收紧生效与放宽暂挂（`ReconcileExternalPermissions`）**：当 `permissions.yaml` 在编辑器外部被修改（如克隆仓库、`git pull` 或其他工具编辑）时，**收紧的配置档与规则会立即生效**；而**放宽的配置档或规则**（例如将 `Balanced` 改为 `Autonomous`、将 `Deny` 改为 `Allow`，或删掉一条 `Deny` 规则）会被暂挂且不会启用，直到用户在 **设置 › 权限** 中逐条确认（`ConfirmHeldPermissionLoosening`）或保持更严格规则（`RejectHeldPermissionLoosening`）。
+- **“全部保留”永不自动执行的提议删除（`game_delete_file` / `AgentReviewPanelView`）**：`game_delete_file` 默认关闭（`Editor.ToolEnabled("game_delete_file") == false`），调用后始终只在**审查更改**面板中提议删除（`Editor.ProposeFileDeletion`），展示文件精确行数（或二进制摘要）、红色差异预览以及是否有场景引用该文件（基于 `Editor.FindUsages`），并拒绝符号链接、`.git/**`、`game.yaml`、已打开的场景标签页及大于 1 MiB 的文件。执行**全部保留**（`Editor.KeepAllReviewChanges` / `⌘↵`）会保留其他改动并将待确认删除的文件原样留在磁盘上；用户就地点击**删除此文件**（`Editor.ConfirmProposedDeletion`）后会通过带检查点的可逆命令（`deleteFileCmd`）删除文件，按 **`⌘Z`（`Editor.Undo`）** 可从检查点逐字节恢复原文件。

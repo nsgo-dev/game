@@ -824,6 +824,8 @@ func sdkResult(res *Result, err error) *mcp.CallToolResult {
 		r := &mcp.CallToolResult{}
 		if d, ok := errors.AsType[*EditError](err); ok {
 			r.StructuredContent = map[string]any{"error": d}
+		} else if y, ok := errors.AsType[*YouOnlyError](err); ok {
+			r.StructuredContent = map[string]any{"error": y}
 		} else if p, ok := errors.AsType[*PermissionError](err); ok {
 			r.StructuredContent = map[string]any{"error": p}
 		}

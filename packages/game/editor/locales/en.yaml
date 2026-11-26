@@ -643,8 +643,20 @@ strings:
   permissions.colDecision: DECISION
   permissions.colFiles: FILES / TARGET
   permissions.colOrder: ORDER
+  permissions.confirmRule: Confirm
+  permissions.deleteToolOff: 'Tools (You only): game_delete_file is off; the agent can only propose file deletions.'
+  permissions.deleteToolOn: 'Tools (You only): game_delete_file still requires confirming each deletion in review.'
   permissions.deny: Deny
+  permissions.draft.apply: Apply
+  permissions.draft.descNoRequest: Tick each rule you agree with. ⌘↵, Keep all and automations can't apply this, and no profile lets it through on its own.
+  permissions.draft.discard: Discard draft
+  permissions.draft.historyHint: Applied rules are recorded in History as yours.
+  permissions.draft.noChangesTicked: No changes ticked
+  permissions.draft.title: The agent drafted a change to its own permissions
   permissions.emptyRules: No custom rules; the selected profile default decides.
+  permissions.heldDesc: Rules tightened on disk applied immediately; loosened rules are held until you confirm each one.
+  permissions.heldTitle: Loosened permission rules from disk are held
+  permissions.keepStricter: Keep stricter
   permissions.mcpOnlyNote: Rules govern the editor's MCP server only. External agent file edits show via the disk watcher.
   permissions.moveDown: Move rule down
   permissions.moveUp: Move rule up
@@ -676,6 +688,7 @@ strings:
   permissions.toastSaved: Always permission rule saved
   permissions.toastShow: Show
   permissions.toastUndo: Undo
+  permissions.youOnlyDomains: Permissions, Tools, Models and Usage are You only — the agent can draft, never write.
   problems.agentHeader: Agent
   problems.agentNote: Problems are found the moment a file changes, by you or the agent; the agent only offers a fix, it never applies one without you.
   problems.applyFix: Apply fix
@@ -705,6 +718,10 @@ strings:
   region.statusBar: Status bar
   region.toast: Notification
   region.viewport: Viewport
+  review.deleteThisFile: Delete this file
+  review.keepTheFile: Keep the file
+  review.revertAll: Revert all
+  review.title: Review changes
   saveStatus.errDiskFull: 'Couldn''t save: disk is full'
   saveStatus.errDiskFullFree: 'Couldn''t save: disk is full · {free} free'
   saveStatus.errOther: 'Couldn''t save: {reason}'

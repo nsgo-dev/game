@@ -54,6 +54,8 @@ type PermissionError struct {
 	Reason string `json:"reason"`
 	// Link is the Settings › Permissions location of the matching rule, such as "Settings › Permissions · rule 7 of 7".
 	Link string `json:"link"`
+	// HeldByDisk reports that an external permissions.yaml loosening was held until confirmed in Settings › Permissions.
+	HeldByDisk bool `json:"heldByDisk,omitempty"`
 	// RequestID identifies the pending Ask request queued on the editor, when Decision == editor.PermissionAsk.
 	RequestID string `json:"requestId,omitempty"`
 }
@@ -137,10 +139,12 @@ func (s *Server) checkPermission(ctx context.Context, t Tool, args json.RawMessa
 	}
 
 	var (
-		eval    editor.PermissionEvaluation
-		summary string
-		reqID   string
-		askOnly bool
+		eval       editor.PermissionEvaluation
+		summary    string
+		reqID      string
+		askOnly    bool
+		youOnlyErr *YouOnlyError
+		skipEval   bool
 	)
 	runOnEditor := func(fn func(ed *editor.Editor) error) error {
 		if onEditor {
@@ -149,9 +153,19 @@ func (s *Server) checkPermission(ctx context.Context, t Tool, args json.RawMessa
 		return s.Editor(ctx, fn)
 	}
 
-	// Evaluate all targets and atomically record Deny or non-blocking Ask in a single editor-goroutine step.
+	// Enforce You-only trust boundary first, then evaluate all targets and atomically record Deny or non-blocking Ask in a single editor-goroutine step.
 	if err := runOnEditor(func(ed *editor.Editor) error {
 		reqs := permissionRequestsForTool(t, args, ed)
+		if yerr := checkYouOnlyTargets(t, args, reqs, ed); yerr != nil {
+			youOnlyErr = yerr
+			return nil
+		}
+		// game_delete_file only proposes deletions in Review changes (never deletes directly on disk),
+		// so once You-only paths are refused, allow proposing even when Delete ** is Deny / tool is off.
+		if t.Name == ToolGameDeleteFile {
+			skipEval = true
+			return nil
+		}
 		eval, summary = evaluateAllPermissionRequests(ed, reqs)
 		switch eval.Decision {
 		case editor.PermissionDeny:
@@ -167,6 +181,12 @@ func (s *Server) checkPermission(ctx context.Context, t Tool, args json.RawMessa
 		return nil
 	}); err != nil {
 		return err
+	}
+	if youOnlyErr != nil {
+		return youOnlyErr
+	}
+	if skipEval {
+		return nil
 	}
 
 	s.recordPermissionDecision(eval)
@@ -293,6 +313,7 @@ func permissionErrorFromEval(eval editor.PermissionEvaluation, reqID string) *Pe
 		Rule:       eval.Rule,
 		Reason:     eval.Reason,
 		Link:       eval.Link,
+		HeldByDisk: eval.HeldByDisk,
 		RequestID:  reqID,
 	}
 }
