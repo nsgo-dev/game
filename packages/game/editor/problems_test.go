@@ -604,7 +604,14 @@ func TestProblemRowOpensAnotherSceneInATab(t *testing.T) {
 		ed.OnSave = func([]byte) error { return nil }
 	})
 	app.Settle()
+	rowID := app.Find("id:problems-row-0").ID
 	edit("slime", 33)
+	// A debounced live CheckProblems finishing with the same problem must not remount the row mid-press.
+	ed.WaitForProblems()
+	app.Settle()
+	if gotID := app.Find("id:problems-row-0").ID; gotID != rowID {
+		t.Fatalf("problems-row-0 remounted on background CheckProblems: id %v -> %v", rowID, gotID)
+	}
 
 	app.Press("id:problems-row-0")
 	app.Settle()

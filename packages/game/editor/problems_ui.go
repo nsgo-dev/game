@@ -81,10 +81,42 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		return true
 	})
 
+	// listState omits background checking transitions while problems are already displayed
+	// so live-edit CheckProblems completions never remount problem rows mid-press.
+	type listSnapshot struct {
+		problems  []assetcheck.Problem
+		proposals []ProposedProblemFix
+		loading   bool
+		errMsg    string
+		dark      bool
+		lang      string
+	}
+	listState := core.NewMemoFunc(cx, func() listSnapshot {
+		s := state.Get()
+		return listSnapshot{
+			problems:  s.problems,
+			proposals: s.proposals,
+			loading:   s.checking && len(s.problems) == 0,
+			errMsg:    s.errMsg,
+			dark:      s.dark,
+			lang:      s.lang,
+		}
+	}, func(a, b listSnapshot) bool {
+		if a.loading != b.loading || a.errMsg != b.errMsg || a.dark != b.dark || a.lang != b.lang || !slices.Equal(a.problems, b.problems) || len(a.proposals) != len(b.proposals) {
+			return false
+		}
+		for i := range a.proposals {
+			if a.proposals[i].ID != b.proposals[i].ID || a.proposals[i].Problem != b.proposals[i].Problem {
+				return false
+			}
+		}
+		return true
+	})
+
 	checkShortcut := FormatShortcut(ed.EffectiveShortcut(CmdCheckProblems), cx.Env().OS())
 
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
-		s := state.Get()
+		s := listState.Get()
 		p := ed.SpecPalette(cx)
 		if s.errMsg != "" {
 			retryBtn := specPanelButton(p, specPanelButtonSpec{
@@ -100,7 +132,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			})
 			return specStatusBanner(p, "problems-error", false, s.errMsg, nil, retryBtn)
 		}
-		if s.checking && len(s.problems) == 0 {
+		if s.loading {
 			return specLoadingState(p, "problems-loading", ed.T("problems.checking"))
 		}
 		if len(s.problems) == 0 {
@@ -248,7 +280,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			})
 
 			headerCounts := core.Dynamic(func(cx *core.Scope) core.Node {
-				s := state.Get()
+				s := listState.Get()
 				p := ed.SpecPalette(cx)
 				var errs, warns int
 				for _, item := range s.problems {
