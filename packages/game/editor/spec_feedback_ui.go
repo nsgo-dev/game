@@ -783,6 +783,9 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		if ed == nil || ed.Playing() || ed.HistoryPreviewActive() || !ed.OverlayLegendOpen() {
 			return legendStateKey{}
 		}
+		if ed.ViewMode == ViewMode2D && ed.SketchActive() && !ed.sketchBlockedByScreen() {
+			return legendStateKey{}
+		}
 		return legendStateKey{
 			visible:  true,
 			dark:     ed.SpecPalette(cx).Dark,
