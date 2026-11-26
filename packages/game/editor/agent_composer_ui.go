@@ -371,9 +371,9 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		lang := ed.ResolvedLanguage()
 		hasDraft := strings.TrimSpace(ed.ComposerDraft()) != ""
 		meter := ed.ContextMeter()
-		return fmt.Sprintf("%v|%s|%v|%v|%v|%v|%d|%d",
+		return fmt.Sprintf("%v|%s|%v|%v|%v|%v|%v|%d|%d",
 			dark, lang, ed.MentionPickerOpen(), ed.ContextBreakdownOpen(),
-			hasDraft, ed.AgentWorking(), meter.Percent, meter.Level)
+			hasDraft, ed.AgentWorking(), ed.AgentOffline(), meter.Percent, meter.Level)
 	})
 
 	// Popovers above the composer card (rebuilt only when popoverKey changes).
@@ -773,6 +773,34 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 				},
 			}
+		} else if ed.AgentOffline() {
+			actionBtn = base.Button{
+				TestID: "agent-composer-queue",
+				Label:  "Queue",
+				Style: core.Style{
+					Height:         core.Pt(specButtonHeight),
+					Padding:        core.Symmetric(0, specSpace12),
+					CornerRadius:   specRadiusButton,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					Background:     p.LineRaised,
+					Cursor:         core.CursorPointer,
+					FocusVisible:   p.FocusRing(2),
+				},
+				OnPress: func(core.PressEvent) {
+					ed.QueueAgentRequest("")
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: "Queue",
+						Style: core.Style{
+							FontSize:   12.5,
+							FontWeight: core.FontWeightMedium,
+							Color:      p.TextPrimary,
+						},
+					},
+				},
+			}
 		} else {
 			actionBtn = base.Button{
 				TestID:  "agent-composer-send",
@@ -874,11 +902,20 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	// Stably mounted composer input so typing never remounts the field or drops focus.
 	composerInput := core.Input{
-		Ref:       inputRef,
-		TestID:    "agent-composer-input",
-		LabelFunc: func() string { _ = rev.Get(); return ed.T("composer.inputLabel") },
+		Ref:    inputRef,
+		TestID: "agent-composer-input",
+		LabelFunc: func() string {
+			_ = rev.Get()
+			if ed.AgentOffline() {
+				return "Queue a request"
+			}
+			return ed.T("composer.inputLabel")
+		},
 		PlaceholderFunc: func() string {
 			_ = rev.Get()
+			if ed.AgentOffline() {
+				return "Queue a request…"
+			}
 			return ed.T("composer.placeholder")
 		},
 		Multiline:      true,

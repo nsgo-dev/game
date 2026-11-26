@@ -1967,7 +1967,10 @@ func (e *Editor) queueAgentTaskRequest(task AgentTaskKind, prompt string, offlin
 	fromComposer := strings.TrimSpace(prompt) == ""
 	text := strings.TrimSpace(prompt)
 	if fromComposer {
-		text = strings.TrimSpace(e.agent.composerText)
+		text = strings.TrimSpace(e.composerDraft)
+		if text == "" {
+			text = strings.TrimSpace(e.agent.composerText)
+		}
 	}
 	if text == "" {
 		return AgentQueuedRequest{}
@@ -1975,8 +1978,14 @@ func (e *Editor) queueAgentTaskRequest(task AgentTaskKind, prompt string, offlin
 	if len(e.agent.queued) >= maxQueuedAgentRequests {
 		return AgentQueuedRequest{}
 	}
-	if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
+	if fromComposer || text == strings.TrimSpace(e.composerDraft) || text == strings.TrimSpace(e.agent.composerText) {
+		e.composerDraft = ""
 		e.agent.composerText = ""
+		e.agentComposer.pickerOpen = false
+		e.agentComposer.pickerOpenedByAt = false
+		e.agentComposer.pickerQuery = ""
+		e.agentComposer.pickerActiveIndex = 0
+		e.agentComposer.hoveredChipID = ""
 	}
 	e.agent.queueSeq++
 	item := AgentQueuedRequest{
