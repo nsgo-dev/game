@@ -135,25 +135,25 @@ func (e *Editor) SetOverlayLegendOpen(open bool) {
 // SpecPalette tokens (matching docs/design/editor/Toasts.dc.html) in both Dark and Light appearances.
 func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type toastViewKey struct {
-		dark           bool
-		viewMode2DEdit bool
-		seq            uint64
-		active         bool
+		dark       bool
+		editingBar bool
+		seq        uint64
+		active     bool
 	}
 	toastKey := core.NewMemo(cx, func() toastViewKey {
 		_ = rev.Get()
 		_, ok := ed.ActiveToast()
 		var seq uint64
-		var viewMode2DEdit bool
+		var editingBar bool
 		if ed != nil {
 			seq = ed.toastSeq
-			viewMode2DEdit = ed.ViewMode == ViewMode2D && !ed.Playing()
+			editingBar = !ed.Playing()
 		}
 		return toastViewKey{
-			dark:           cx.Dark(),
-			viewMode2DEdit: viewMode2DEdit,
-			seq:            seq,
-			active:         ok,
+			dark:       cx.Dark(),
+			editingBar: editingBar,
+			seq:        seq,
+			active:     ok,
 		}
 	})
 	return core.Show{
@@ -170,8 +170,8 @@ func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				p := SpecPaletteFor(k.dark)
 				waiting := ed.QueuedToastCount()
 				bottom := core.Pt(16)
-				if k.viewMode2DEdit {
-					// Sit cleanly above the bottom-center 2D viewport overlays bar (Bottom: 12, height ~36).
+				if k.editingBar {
+					// Sit cleanly above the bottom-center 2D overlay bar and 3D navigation bar (Bottom: 12–16, height ~36).
 					bottom = core.Pt(60)
 				}
 				return core.View{

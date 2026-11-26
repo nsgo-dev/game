@@ -864,3 +864,210 @@ func TestViewport3DLocalGizmoSpaceOnRotatedObject(t *testing.T) {
 	assertNear32(t, "global X drag world X", obj.X, 20, 0.5)
 	assertNear32(t, "global X drag world PosZ", obj.PosZ, -25, 0.5)
 }
+
+// Local rotation composes rotation matrices properly on an already-rotated object,
+// multi-object local translate snaps along the local axis, and sheared/singular/NaN parents
+// never produce skewed or non-finite gizmo axes.
+func TestViewport3DLocalRotateEulerMultiSnapAndOrthonormalParent(t *testing.T) {
+	const w, h float32 = 640, 360
+
+	// 1. Local Z rotation on an object rotated +90° around Y:
+	//    Local +Z points along world +X, so rotating +90° around Local Z must carry
+	//    Local +Y (initially world +Y) to world +Z (not world -X as naive obj.RotZ += angle would!).
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{
+		ID:    "pillar",
+		Name:  "Pillar",
+		RotY:  float32(math.Pi / 2),
+		Depth: 16,
+	})
+	ed.Camera3D = editor.OrbitCamera3D{Distance: 200, FOV: float32(math.Pi / 3), Near: 0.5, Far: 5000, Orthographic: true}
+	ed.Camera3D.SetView(editor.View3DRight) // look down +X (which is Local +Z)
+	ed.SelectObject("pillar")
+	ed.SetGizmoMode3D(editor.Gizmo3DRotate)
+	ed.SetGizmoSpace3D(editor.GizmoSpaceLocal)
+
+	r := float64(ed.GizmoLength3D([3]float32{}))
+	// Local Z ring lies in the YZ world plane (around world +X = Local +Z).
+	ringPt := func(a float64) [3]float32 {
+		return [3]float32{0, float32(math.Cos(a) * r), float32(math.Sin(a) * r)}
+	}
+	p0 := ringPt(0)
+	p1 := ringPt(math.Pi / 4)
+	p2 := ringPt(math.Pi / 2)
+	sx0, sy0, _, _ := ed.Camera3D.Project(p0, w, h)
+	sx1, sy1, _, _ := ed.Camera3D.Project(p1, w, h)
+	sx2, sy2, _, _ := ed.Camera3D.Project(p2, w, h)
+	if !ed.BeginGizmoDragAxis3D(editor.Axis3DZ, sx0, sy0, w, h) {
+		t.Fatal("BeginGizmoDragAxis3D(Axis3DZ) failed")
+	}
+	ed.UpdateGizmoDrag3D(sx1, sy1)
+	ed.UpdateGizmoDrag3D(sx2, sy2)
+	if !ed.EndGizmoDrag3D() {
+		t.Fatal("local Z rotate did not commit")
+	}
+	obj, _, _ := ed.FindObject("pillar")
+	// Apply Rz*Ry*Rx to local +Y = (0,1,0) and local +Z = (0,0,1).
+	applyEuler := func(v [3]float64, rx, ry, rz float64) [3]float64 {
+		x, y, z := v[0], v[1], v[2]
+		sx, cx := math.Sincos(rx)
+		y, z = y*cx-z*sx, y*sx+z*cx
+		sy, cy := math.Sincos(ry)
+		x, z = x*cy+z*sy, -x*sy+z*cy
+		sz, cz := math.Sincos(rz)
+		x, y = x*cz-y*sz, x*sz+y*cz
+		return [3]float64{x, y, z}
+	}
+	localZAfter := applyEuler([3]float64{0, 0, 1}, float64(obj.RotX), float64(obj.RotY), float64(obj.RotZ))
+	localYAfter := applyEuler([3]float64{0, 1, 0}, float64(obj.RotX), float64(obj.RotY), float64(obj.RotZ))
+	// Local +Z must remain aligned with world +X (invariant rotation axis).
+	assertNear32(t, "localZ.x", float32(localZAfter[0]), 1, 0.05)
+	assertNear32(t, "localZ.y", float32(localZAfter[1]), 0, 0.05)
+	assertNear32(t, "localZ.z", float32(localZAfter[2]), 0, 0.05)
+	// Local +Y rotated +90° around world +X -> world +Z = (0, 0, 1).
+	assertNear32(t, "localY.x", float32(localYAfter[0]), 0, 0.05)
+	assertNear32(t, "localY.y", float32(localYAfter[1]), 0, 0.05)
+	assertNear32(t, "localY.z", float32(localYAfter[2]), 1, 0.05)
+
+	// 2. Multi-object Local translate with SnapToGrid snaps along the rotated local axis.
+	edMulti := newTest3DEditor(t,
+		sceneformat.ObjectDoc{ID: "a", Name: "A", X: 5, PosZ: 3, RotY: float32(math.Pi / 4), Depth: 16},
+		sceneformat.ObjectDoc{ID: "b", Name: "B", X: 25, PosZ: 3, RotY: float32(math.Pi / 4), Depth: 16},
+	)
+	edMulti.Camera3D = editor.OrbitCamera3D{Distance: 200, FOV: float32(math.Pi / 3), Near: 0.5, Far: 5000, Orthographic: true}
+	edMulti.Camera3D.SetView(editor.View3DTop)
+	edMulti.SelectObjects([]string{"a", "b"})
+	edMulti.SetGizmoMode3D(editor.Gizmo3DTranslate)
+	edMulti.SetGizmoSpace3D(editor.GizmoSpaceLocal)
+	edMulti.SetSnapToGrid(true)
+	edMulti.GridSize = 16
+
+	// Local +X for RotY = +45° is (cos45, 0, -sin45). Move ~18 units -> snaps to 16 units along local +X.
+	invSqrt2 := float32(1 / math.Sqrt2)
+	start := [3]float32{15, 0, 3}
+	end := [3]float32{start[0] + 18*invSqrt2, 0, start[2] - 18*invSqrt2}
+	msx0, msy0, _, _ := edMulti.Camera3D.Project(start, w, h)
+	msx1, msy1, _, _ := edMulti.Camera3D.Project(end, w, h)
+	if !edMulti.BeginGizmoDragAxis3D(editor.Axis3DX, msx0, msy0, w, h) {
+		t.Fatal("multi BeginGizmoDragAxis3D failed")
+	}
+	edMulti.UpdateGizmoDrag3D(msx1, msy1)
+	if !edMulti.EndGizmoDrag3D() {
+		t.Fatal("multi local translate did not commit")
+	}
+	objA, _, _ := edMulti.FindObject("a")
+	objB, _, _ := edMulti.FindObject("b")
+	wantDX := 16 * invSqrt2
+	wantDZ := -16 * invSqrt2
+	assertNear32(t, "multi local snap A.X", objA.X-5, wantDX, 0.5)
+	assertNear32(t, "multi local snap A.PosZ", objA.PosZ-3, wantDZ, 0.5)
+	assertNear32(t, "multi local snap B.X", objB.X-25, wantDX, 0.5)
+	assertNear32(t, "multi local snap B.PosZ", objB.PosZ-3, wantDZ, 0.5)
+
+	// 3. Sheared/negative-scale parent + NaN rotation never produces NaN/Inf drag results.
+	edParent := newTest3DEditor(t, sceneformat.ObjectDoc{
+		ID:     "parent",
+		Name:   "Parent",
+		ScaleX: sceneformat.Float32(2),
+		ScaleY: sceneformat.Float32(1),
+		ScaleZ: sceneformat.Float32(-1),
+		Children: []sceneformat.ObjectDoc{{
+			ID:    "child",
+			Name:  "Child",
+			RotZ:  float32(math.Pi / 4),
+			Depth: 16,
+		}},
+	})
+	edParent.Camera3D = editor.OrbitCamera3D{Distance: 200, FOV: float32(math.Pi / 3), Near: 0.5, Far: 5000, Orthographic: true}
+	edParent.Camera3D.SetView(editor.View3DFront)
+	edParent.SelectObject("child")
+	edParent.SetGizmoSpace3D(editor.GizmoSpaceLocal)
+	edParent.SetGizmoMode3D(editor.Gizmo3DTranslate)
+	child, _, _ := edParent.FindObject("child")
+	child.RotX = float32(math.NaN())
+	// Must fall back cleanly to finite world axes without panicking or writing NaN.
+	if axis := edParent.PickGizmo3D(w/2+30, h/2, w, h); axis != editor.Axis3DNone && axis != editor.Axis3DX {
+		t.Fatalf("PickGizmo3D with NaN RotX = %v", axis)
+	}
+}
+
+// Spec Light theme, 60 Hz axis-button memoization, dynamic EffectiveShortcut keycaps,
+// ScopeViewport3D on CmdGizmoSpace3D, menubar parity, and Play-mode guard all work together.
+func TestViewport3DSpecLightThemeMemoizedAxesDynamicShortcutsAndPlayGuard(t *testing.T) {
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{ID: "cube", Name: "Cube", Depth: 16})
+	ed.SetAppearance(editor.AppearanceLight)
+
+	// CmdGizmoSpace3D has ScopeViewport3D and is exposed in View > 3D Gizmo.
+	var foundSpaceCmd bool
+	for _, c := range ed.Commands() {
+		if c.ID == editor.CmdGizmoSpace3D {
+			foundSpaceCmd = true
+			if c.Scope != editor.ScopeViewport3D {
+				t.Fatalf("CmdGizmoSpace3D scope = %v, want ScopeViewport3D", c.Scope)
+			}
+		}
+	}
+	if !foundSpaceCmd {
+		t.Fatal("CmdGizmoSpace3D missing from registry")
+	}
+
+	app := start3DViewport(t, ed, nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	// 1. Light Spec theme: 3D HUD bars use LightSpecPalette().PillBg (not hardcoded dark #171A21).
+	wantPillBg := editor.LightSpecPalette().PillBg
+	if got := app.Find("id:view3d-bar").Style.Background; got != wantPillBg {
+		t.Fatalf("Light theme view3d-bar background = 0x%08x, want LightSpecPalette().PillBg 0x%08x", uint32(got), uint32(wantPillBg))
+	}
+	if got := app.Find("id:view3d-bottom-bar").Style.Background; got != wantPillBg {
+		t.Fatalf("Light theme view3d-bottom-bar background = 0x%08x, want LightSpecPalette().PillBg 0x%08x", uint32(got), uint32(wantPillBg))
+	}
+
+	// 2. Unrelated rev ticks must NOT remount view3d-axis-right (60 Hz focus stability).
+	axisBefore := app.Find("id:view3d-axis-right")
+	app.Post(func() {
+		ed.SetSnapToGrid(!ed.SnapToGrid)
+		ed.SetSnapToGrid(!ed.SnapToGrid)
+	})
+	app.Settle()
+	axisAfter := app.Find("id:view3d-axis-right")
+	if axisBefore.ID != axisAfter.ID {
+		t.Fatalf("unrelated rev bump remounted view3d-axis-right: %v -> %v", axisBefore.ID, axisAfter.ID)
+	}
+
+	// 3. Rebinding CmdFrameSelection updates view3d-focus and view3d-help keycaps dynamically.
+	app.Post(func() {
+		if err := ed.RebindShortcut(editor.CmdFrameSelection, "g"); err != nil {
+			t.Errorf("RebindShortcut(CmdFrameSelection, g): %v", err)
+		}
+	})
+	app.Settle()
+	helpLabel := app.Find("id:view3d-help").Props.Label
+	focusLabel := app.Find("id:view3d-focus").Props.Label
+	if !strings.Contains(helpLabel, "G focus") {
+		t.Fatalf("view3d-help label after rebinding Frame to g = %q, want 'G focus'", helpLabel)
+	}
+	if !strings.Contains(focusLabel, "(G)") {
+		t.Fatalf("view3d-focus label after rebinding Frame to g = %q, want '(G)'", focusLabel)
+	}
+
+	// 4. SetGizmoSpace3D is ignored during Play mode.
+	ed.SetGizmoSpace3D(editor.GizmoSpaceGlobal)
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+		ed.SetGizmoSpace3D(editor.GizmoSpaceLocal)
+	})
+	app.Settle()
+	if ed.GizmoSpace3D != editor.GizmoSpaceGlobal {
+		t.Fatalf("SetGizmoSpace3D mutated space during Play mode: got %v", ed.GizmoSpace3D)
+	}
+	app.Post(func() {
+		_ = ed.Stop()
+	})
+	app.Settle()
+}

@@ -622,7 +622,182 @@ func (e *Editor) gizmo3DBlocked() bool {
 	return e == nil || e.playing || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
 }
 
-// gizmo3DAxes returns the world-space orthonormal X, Y, Z axes for the 3D transform gizmo:
+type mat3 [3][3]float64
+
+var identMat3 = mat3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}
+
+func isFinite3F64(v [3]float64) bool {
+	return !math.IsNaN(v[0]) && !math.IsInf(v[0], 0) &&
+		!math.IsNaN(v[1]) && !math.IsInf(v[1], 0) &&
+		!math.IsNaN(v[2]) && !math.IsInf(v[2], 0)
+}
+
+// orthonormalizeBasis3 applies Gram-Schmidt to produce a right-handed orthonormal basis.
+// Returns ok=false if any input is non-finite or the axes are degenerate/collinear.
+func orthonormalizeBasis3(bx, by, bz [3]float64) (ox, oy, oz [3]float64, ok bool) {
+	if !isFinite3F64(bx) || !isFinite3F64(by) || !isFinite3F64(bz) {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
+	lxLen := len64(bx)
+	if !(lxLen >= 1e-6) {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
+	ox = scale64(bx, 1.0/lxLen)
+
+	byProj := sub64(by, scale64(ox, dot64(by, ox)))
+	lyLen := len64(byProj)
+	if !(lyLen >= 1e-6) {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
+	oy = scale64(byProj, 1.0/lyLen)
+
+	// Right-handed Z axis; ensure input bz was not degenerate (zero-scale along Z).
+	if !(len64(bz) >= 1e-6) {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
+	cz := cross64(ox, oy)
+	lzLen := len64(cz)
+	if !(lzLen >= 1e-6) {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
+	oz = scale64(cz, 1.0/lzLen)
+	if !isFinite3F64(ox) || !isFinite3F64(oy) || !isFinite3F64(oz) {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
+	return ox, oy, oz, true
+}
+
+func mat3FromBasis(ax, ay, az [3]float64) mat3 {
+	return mat3{
+		{ax[0], ay[0], az[0]},
+		{ax[1], ay[1], az[1]},
+		{ax[2], ay[2], az[2]},
+	}
+}
+
+func mat3FromEulerXYZ(rx, ry, rz float64) mat3 {
+	return mat3FromBasis(
+		rotateEulerXYZ64([3]float64{1, 0, 0}, rx, ry, rz),
+		rotateEulerXYZ64([3]float64{0, 1, 0}, rx, ry, rz),
+		rotateEulerXYZ64([3]float64{0, 0, 1}, rx, ry, rz),
+	)
+}
+
+// eulerXYZFromMat3 decomposes a rotation matrix matching Rz * Ry * Rx (rotateEulerXYZ64) back to (rx, ry, rz).
+func eulerXYZFromMat3(r mat3) (rx, ry, rz float64) {
+	s := -r[2][0]
+	if s > 1 {
+		s = 1
+	} else if s < -1 {
+		s = -1
+	}
+	ry = math.Asin(s)
+	if math.Abs(math.Cos(ry)) > 1e-6 {
+		rx = math.Atan2(r[2][1], r[2][2])
+		rz = math.Atan2(r[1][0], r[0][0])
+	} else {
+		rx = math.Atan2(-r[1][2], r[1][1])
+		rz = 0
+	}
+	return rx, ry, rz
+}
+
+func mat3FromAxisAngle(axis [3]float64, angle float64) mat3 {
+	if !isFinite3F64(axis) || math.IsNaN(angle) || math.IsInf(angle, 0) {
+		return identMat3
+	}
+	al := len64(axis)
+	if !(al >= 1e-9) {
+		return identMat3
+	}
+	kx, ky, kz := axis[0]/al, axis[1]/al, axis[2]/al
+	s, c := math.Sincos(angle)
+	t := 1 - c
+	return mat3{
+		{t*kx*kx + c, t*kx*ky - s*kz, t*kx*kz + s*ky},
+		{t*kx*ky + s*kz, t*ky*ky + c, t*ky*kz - s*kx},
+		{t*kx*kz - s*ky, t*ky*kz + s*kx, t*kz*kz + c},
+	}
+}
+
+func mat3Mul(a, b mat3) mat3 {
+	var out mat3
+	for r := range 3 {
+		for c := range 3 {
+			out[r][c] = a[r][0]*b[0][c] + a[r][1]*b[1][c] + a[r][2]*b[2][c]
+		}
+	}
+	return out
+}
+
+func mat3Transpose(a mat3) mat3 {
+	return mat3{
+		{a[0][0], a[1][0], a[2][0]},
+		{a[0][1], a[1][1], a[2][1]},
+		{a[0][2], a[1][2], a[2][2]},
+	}
+}
+
+func mat3IsIdentity(a mat3) bool {
+	for r := range 3 {
+		for c := range 3 {
+			want := 0.0
+			if r == c {
+				want = 1.0
+			}
+			if math.Abs(a[r][c]-want) > 1e-6 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func parentRotation3D(parent aff3) mat3 {
+	bx := [3]float64{parent[0][0], parent[1][0], parent[2][0]}
+	by := [3]float64{parent[0][1], parent[1][1], parent[2][1]}
+	bz := [3]float64{parent[0][2], parent[1][2], parent[2][2]}
+	ox, oy, oz, ok := orthonormalizeBasis3(bx, by, bz)
+	if !ok {
+		return identMat3
+	}
+	return mat3FromBasis(ox, oy, oz)
+}
+
+// composeEulerRotation3D rotates an object with start Euler angles (rx0, ry0, rz0) under parent
+// rotation parentRot around a world-space unit axisDir by angle radians, returning updated XYZ Euler angles.
+func composeEulerRotation3D(rx0, ry0, rz0 float64, parentRot mat3, axisDir [3]float64, angle float64) (float32, float32, float32, bool) {
+	if !isFinite3F64(axisDir) || math.IsNaN(angle) || math.IsInf(angle, 0) {
+		return 0, 0, 0, false
+	}
+	// Preserve exact unwrapped single-axis rotation when parent is unrotated and the drag axis
+	// coincides with the sole active Euler axis.
+	if mat3IsIdentity(parentRot) {
+		switch {
+		case math.Abs(axisDir[0]-1) < 1e-6 && math.Abs(axisDir[1]) < 1e-6 && math.Abs(axisDir[2]) < 1e-6 && ry0 == 0 && rz0 == 0:
+			rx := float32(rx0 + angle)
+			return rx, 0, 0, isFiniteFloat32(rx)
+		case math.Abs(axisDir[1]-1) < 1e-6 && math.Abs(axisDir[0]) < 1e-6 && math.Abs(axisDir[2]) < 1e-6 && rx0 == 0 && rz0 == 0:
+			ry := float32(ry0 + angle)
+			return 0, ry, 0, isFiniteFloat32(ry)
+		case math.Abs(axisDir[2]-1) < 1e-6 && math.Abs(axisDir[0]) < 1e-6 && math.Abs(axisDir[1]) < 1e-6 && rx0 == 0 && ry0 == 0:
+			rz := float32(rz0 + angle)
+			return 0, 0, rz, isFiniteFloat32(rz)
+		}
+	}
+	rStart := mat3FromEulerXYZ(rx0, ry0, rz0)
+	rDelta := mat3FromAxisAngle(axisDir, angle)
+	rWorld := mat3Mul(rDelta, mat3Mul(parentRot, rStart))
+	rLocal := mat3Mul(mat3Transpose(parentRot), rWorld)
+	rx, ry, rz := eulerXYZFromMat3(rLocal)
+	fx, fy, fz := float32(rx), float32(ry), float32(rz)
+	if !isFiniteFloat32(fx) || !isFiniteFloat32(fy) || !isFiniteFloat32(fz) {
+		return 0, 0, 0, false
+	}
+	return fx, fy, fz, true
+}
+
+// gizmo3DAxes returns the world-space right-handed orthonormal X, Y, Z axes for the 3D transform gizmo:
 // world axes in GizmoSpaceGlobal, or the primary selected object's world orientation in GizmoSpaceLocal.
 func (e *Editor) gizmo3DAxes() (ax, ay, az [3]float64) {
 	ax = [3]float64{1, 0, 0}
@@ -639,16 +814,20 @@ func (e *Editor) gizmo3DAxes() (ax, ay, az [3]float64) {
 	if slices.Contains(draggable, e.SelectedID) {
 		id = e.SelectedID
 	}
-	obj, _, _ := e.FindObject(id)
+	obj, _ := e.FindResolvedObject(id)
 	if obj == nil {
 		return ax, ay, az
 	}
-	parent := e.parentWorld3D(obj.ID)
 	rx, ry, rz := float64(obj.RotX), float64(obj.RotY), float64(obj.RotZ)
-	lx := normalize64(parent.vector(rotateEulerXYZ64(ax, rx, ry, rz)))
-	ly := normalize64(parent.vector(rotateEulerXYZ64(ay, rx, ry, rz)))
-	lz := normalize64(parent.vector(rotateEulerXYZ64(az, rx, ry, rz)))
-	if len64(lx) < 1e-6 || len64(ly) < 1e-6 || len64(lz) < 1e-6 {
+	if !isFinite3F64([3]float64{rx, ry, rz}) {
+		return ax, ay, az
+	}
+	parent := e.parentWorld3D(obj.ID)
+	bx := parent.vector(rotateEulerXYZ64(ax, rx, ry, rz))
+	by := parent.vector(rotateEulerXYZ64(ay, rx, ry, rz))
+	bz := parent.vector(rotateEulerXYZ64(az, rx, ry, rz))
+	lx, ly, lz, ok := orthonormalizeBasis3(bx, by, bz)
+	if !ok {
 		return ax, ay, az
 	}
 	return lx, ly, lz
@@ -730,6 +909,7 @@ type drag3DTarget struct {
 	startTransform Transform3D
 	startPos       [3]float64
 	parentInv      aff3
+	parentRot      mat3
 }
 
 type drag3DState struct {
@@ -756,6 +936,7 @@ type drag3DState struct {
 	// startPos is where the object's origin sat in world space as the drag began, and parentInv maps world space to its parent's space, the identity for a top-level object.
 	startPos           [3]float64
 	parentInv          aff3
+	parentRot          mat3
 	startAxisT         float64
 	hasAxisT           bool
 	prevRingVec        [3]float64
@@ -895,7 +1076,8 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			}
 			prevVer = e.Doc.Version
 		}
-		parentInv, ok := e.parentWorld3D(obj.ID).invert()
+		parentWorld := e.parentWorld3D(obj.ID)
+		parentInv, ok := parentWorld.invert()
 		if !ok {
 			// A parent scaled to zero leaves no space to drag the object in.
 			return false
@@ -915,6 +1097,7 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			startTransform:  captureTransform3D(obj),
 			startPos:        vec64(pos),
 			parentInv:       parentInv,
+			parentRot:       parentRotation3D(parentWorld),
 			overrideInfo:    info,
 			overrideOld:     oldOv,
 			overrideHadOld:  hadOld,
@@ -928,7 +1111,8 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			if obj == nil || e.viewportFrozen(id) {
 				continue
 			}
-			parentInv, ok := e.parentWorld3D(id).invert()
+			parentWorld := e.parentWorld3D(id)
+			parentInv, ok := parentWorld.invert()
 			if !ok {
 				continue
 			}
@@ -937,6 +1121,7 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 				startTransform: captureTransform3D(obj),
 				startPos:       vec64(e.worldPosition3D(obj)),
 				parentInv:      parentInv,
+				parentRot:      parentRotation3D(parentWorld),
 			})
 		}
 		if len(targets) == 0 {
@@ -1060,32 +1245,31 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 		if math.IsNaN(angle) || math.IsInf(angle, 0) {
 			return
 		}
-		switch st.axis {
-		case Axis3DX:
-			rx := float32(e.SnapRotationRadians(float64(st.startTransform.RotX) + angle))
-			if !isFiniteFloat32(rx) {
+		rx0, ry0, rz0 := float64(st.startTransform.RotX), float64(st.startTransform.RotY), float64(st.startTransform.RotZ)
+		if e.SnapRotation {
+			if mat3IsIdentity(st.parentRot) && !st.localSpace {
+				switch {
+				case st.axis == Axis3DX && ry0 == 0 && rz0 == 0:
+					angle = e.SnapRotationRadians(rx0+angle) - rx0
+				case st.axis == Axis3DY && rx0 == 0 && rz0 == 0:
+					angle = e.SnapRotationRadians(ry0+angle) - ry0
+				case st.axis == Axis3DZ && rx0 == 0 && ry0 == 0:
+					angle = e.SnapRotationRadians(rz0+angle) - rz0
+				default:
+					angle = e.SnapRotationRadians(angle)
+				}
+			} else {
+				angle = e.SnapRotationRadians(angle)
+			}
+			if math.IsNaN(angle) || math.IsInf(angle, 0) {
 				return
 			}
-			next.RotX = rx
-			next.RotY = st.startTransform.RotY
-			next.RotZ = st.startTransform.RotZ
-		case Axis3DY:
-			ry := float32(e.SnapRotationRadians(float64(st.startTransform.RotY) + angle))
-			if !isFiniteFloat32(ry) {
-				return
-			}
-			next.RotX = st.startTransform.RotX
-			next.RotY = ry
-			next.RotZ = st.startTransform.RotZ
-		case Axis3DZ:
-			rz := float32(e.SnapRotationRadians(float64(st.startTransform.RotZ) + angle))
-			if !isFiniteFloat32(rz) {
-				return
-			}
-			next.RotX = st.startTransform.RotX
-			next.RotY = st.startTransform.RotY
-			next.RotZ = rz
 		}
+		rx, ry, rz, ok := composeEulerRotation3D(rx0, ry0, rz0, st.parentRot, axisDir, angle)
+		if !ok {
+			return
+		}
+		next.RotX, next.RotY, next.RotZ = rx, ry, rz
 
 	case Gizmo3DScale:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
@@ -1205,23 +1389,29 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 			return
 		}
 		if grid, pixel := e.positionSnapMode(); grid || pixel {
-			axisIdx := 0
-			switch st.axis {
-			case Axis3DY:
-				axisIdx = 1
-			case Axis3DZ:
-				axisIdx = 2
-			}
-			anchorPos := st.targets[0].startPos
-			for _, t := range st.targets {
-				if t.id == st.objectID {
-					anchorPos = t.startPos
-					break
+			if st.localSpace {
+				if snapped := e.SnapValue(delta); !math.IsNaN(snapped) && !math.IsInf(snapped, 0) {
+					delta = snapped
 				}
-			}
-			snappedCoord := e.SnapValue(anchorPos[axisIdx] + delta)
-			if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
-				delta = snappedCoord - anchorPos[axisIdx]
+			} else {
+				axisIdx := 0
+				switch st.axis {
+				case Axis3DY:
+					axisIdx = 1
+				case Axis3DZ:
+					axisIdx = 2
+				}
+				anchorPos := st.targets[0].startPos
+				for _, t := range st.targets {
+					if t.id == st.objectID {
+						anchorPos = t.startPos
+						break
+					}
+				}
+				snappedCoord := e.SnapValue(anchorPos[axisIdx] + delta)
+				if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
+					delta = snappedCoord - anchorPos[axisIdx]
+				}
 			}
 		}
 		worldDelta := scale64(axisDir, delta)
@@ -1254,9 +1444,20 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 			nexts[i].X = t.startTransform.X + float32(local[0])
 			nexts[i].Y = t.startTransform.Y + float32(local[1])
 			nexts[i].PosZ = t.startTransform.PosZ + float32(local[2])
-			nexts[i].RotX = t.startTransform.RotX + float32(axisDir[0]*angle)
-			nexts[i].RotY = t.startTransform.RotY + float32(axisDir[1]*angle)
-			nexts[i].RotZ = t.startTransform.RotZ + float32(axisDir[2]*angle)
+			rx, ry, rz, ok := composeEulerRotation3D(
+				float64(t.startTransform.RotX),
+				float64(t.startTransform.RotY),
+				float64(t.startTransform.RotZ),
+				t.parentRot,
+				axisDir,
+				angle,
+			)
+			if !ok {
+				return
+			}
+			nexts[i].RotX = rx
+			nexts[i].RotY = ry
+			nexts[i].RotZ = rz
 		}
 	case Gizmo3DScale:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)

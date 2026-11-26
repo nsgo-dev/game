@@ -1083,7 +1083,7 @@ func (e *Editor) SetShading3D(mode Shading3D) {
 // SetGizmoSpace3D switches the 3D transform gizmo between Global (world) and Local (object) axes.
 // It cancels any active 3D gizmo drag so no drag mixes spaces, is not undoable, and ignores unknown values.
 func (e *Editor) SetGizmoSpace3D(space GizmoSpace3D) {
-	if e == nil || e.GizmoSpace3D == space || (space != GizmoSpaceGlobal && space != GizmoSpaceLocal) {
+	if e == nil || e.playing || e.GizmoSpace3D == space || (space != GizmoSpaceGlobal && space != GizmoSpaceLocal) {
 		return
 	}
 	e.CancelGizmoDrag3D()

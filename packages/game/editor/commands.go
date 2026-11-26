@@ -1068,7 +1068,8 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle the 3D transform gizmo between local object axes and global world axes",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"local", "global", "world", "space", "gizmo", "3d"},
-			Enabled:     func() bool { return e.ViewMode == ViewMode3D },
+			Scope:       ScopeViewport3D,
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode3D },
 			Checked:     func() bool { return e.GizmoSpace3D == GizmoSpaceLocal },
 			Run: func() error {
 				if e.GizmoSpace3D == GizmoSpaceLocal {

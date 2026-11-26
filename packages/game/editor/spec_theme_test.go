@@ -430,17 +430,21 @@ func TestToastViewAvoids2DOverlayBarAndMemoizesRevisions(t *testing.T) {
 		t.Fatalf("toast message after unrelated rev bumps = %q, want %q", got, "Saved scene")
 	}
 
-	// In 3D mode the 2D overlay bar is hidden, so toast drops from Bottom: 60 to Bottom: 16 (+44pt lower).
+	// In 3D edit mode the bottom-center 3D navigation bar sits at Bottom: 16, so toast stays at Bottom: 60 above it.
 	app.Post(func() {
 		ed.SetViewMode(editor.ViewMode3D)
 	})
 	app.Settle()
 	toast3DRect := app.Find("id:editor-toast").Bounds()
-	if toast3DRect.Origin.Y <= toastRect.Origin.Y+40 {
-		t.Fatalf("3D mode toast Y = %v, want > %v (44pt lower than 2D edit mode)", toast3DRect.Origin.Y, toastRect.Origin.Y+40)
+	bar3DRect := app.Find("id:view3d-bottom-bar").Bounds()
+	if toast3DRect.Origin.Y+toast3DRect.Size.Height > bar3DRect.Origin.Y {
+		t.Fatalf("3D mode toast rect %+v overlaps 3D bottom bar %+v", toast3DRect, bar3DRect)
+	}
+	if math.Abs(float64(toast3DRect.Origin.Y-toastRect.Origin.Y)) > 1 {
+		t.Fatalf("3D edit mode toast Y = %v, want %v (same 60pt clearance as 2D)", toast3DRect.Origin.Y, toastRect.Origin.Y)
 	}
 
-	// Switching back to 2D restores the 60pt clearance.
+	// Switching back to 2D keeps the 60pt clearance.
 	app.Post(func() {
 		ed.SetViewMode(editor.ViewMode2D)
 	})
@@ -449,6 +453,29 @@ func TestToastViewAvoids2DOverlayBarAndMemoizesRevisions(t *testing.T) {
 	if math.Abs(float64(toastBackRect.Origin.Y-toastRect.Origin.Y)) > 1 {
 		t.Fatalf("restored 2D mode toast Y = %v, want %v", toastBackRect.Origin.Y, toastRect.Origin.Y)
 	}
+
+	// During Play mode the bottom bars are hidden/inactive, so toast drops from Bottom: 60 to Bottom: 16.
+	bottomGap := func() core.Points {
+		host := app.Find("id:editor-toast-host")
+		hb := host.Bounds()
+		pb := host.Parent.Bounds()
+		return (pb.Origin.Y + pb.Size.Height) - (hb.Origin.Y + hb.Size.Height)
+	}
+	editGap := bottomGap()
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	playGap := bottomGap()
+	if math.Abs(float64(editGap-60)) > 1 || math.Abs(float64(playGap-16)) > 1 {
+		t.Fatalf("toast bottom clearance: edit=%v play=%v, want 60pt and 16pt", editGap, playGap)
+	}
+	app.Post(func() {
+		_ = ed.Stop()
+	})
+	app.Settle()
 }
 
 func TestSpecToastCardClampsNonFiniteProgress(t *testing.T) {
