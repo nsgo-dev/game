@@ -1713,6 +1713,7 @@ func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	return core.Show{
 		When: func() bool { return message() != "" },
 		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
 			return core.Text{
 				TestID:      "editor-viewport-3d-error",
 				ContentFunc: message,
@@ -1724,10 +1725,10 @@ func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Padding:      core.Symmetric(4, 8),
 					CornerRadius: 6,
 					FontSize:     12,
-					Color:        specProblem,
-					Background:   specViewportBarBg,
+					Color:        p.Problem().Fg,
+					Background:   p.PillBg,
 					BorderWidth:  1,
-					BorderColor:  specProblemEdge,
+					BorderColor:  p.Problem().Edge,
 				},
 			}
 		},

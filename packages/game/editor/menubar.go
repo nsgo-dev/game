@@ -153,6 +153,8 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdGizmoRotate, e.T("menu.rotate"), true),
 		cmdItem(CmdGizmoScale, e.T("menu.scale"), true),
 		cmdItem(CmdGizmoCollider, "Collider", true),
+		sep,
+		cmdItem(CmdGizmoSpace3D, e.T("cmd.gizmoSpace3d.label"), false),
 	}
 
 	// View > 3D Shading submenu
@@ -273,7 +275,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v",
+		fmt.Fprintf(&b, "%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.EditorSettingsTab(),
@@ -295,6 +297,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ViewMode,
 			e.Tool,
 			e.GizmoMode,
+			e.GizmoSpace3D,
 			e.Shading3D,
 			e.pluginTool.plugin,
 			e.pluginTool.id,

@@ -619,6 +619,7 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 			return ed.ViewMode == ViewMode3D && ed.ShowRenderStats
 		},
 		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
 			return core.View{
 				TestID: "viewport3d-render-stats-panel",
 				Style: core.Style{
@@ -627,9 +628,9 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 					Right:         core.Pt(16),
 					ZIndex:        10,
 					PointerEvents: core.PointerEventsNone,
-					Background:    specViewportHUDSoftBg,
+					Background:    p.PillBg,
 					Borders:       core.All(1),
-					BorderColor:   specLineRaised,
+					BorderColor:   p.LineRaised,
 					CornerRadius:  8,
 					Padding:       core.Symmetric(5, 8),
 				},
@@ -642,7 +643,7 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 						},
 						Style: core.Style{
 							FontSize: 11,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 					},
 				},
