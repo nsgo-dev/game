@@ -305,7 +305,7 @@ func TestEditorParallaxAlignsGizmoTileHoverAndPhysicsDebug(t *testing.T) {
 		defer ed.SetShowPhysicsDebug(false)
 		d := &core.Drawing{}
 		ed.DrawViewport(d, size)
-		x, y, ok := findStrokedRectCanvasPos(d.Ops, ui.Alpha(editor.DarkSpecPalette().Accent.Fg, 0.9), 16, 16)
+		x, y, ok := findStrokedRectCanvasPos(d.Ops, ui.Alpha(ed.SpecPalette(nil).Accent.Fg, 0.9), 16, 16)
 		if !ok {
 			t.Fatal("physics debug StrokeRect not found")
 		}
