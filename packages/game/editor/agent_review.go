@@ -512,6 +512,9 @@ func (e *Editor) ConfirmProposedDeletion(relPath string) error {
 	if e == nil || !e.agentReview.open {
 		return errors.New("editor: no review is open")
 	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
+	}
 	if e.playing {
 		return ErrPlaying
 	}
@@ -671,6 +674,9 @@ func (e *Editor) KeepAllReviewChanges() (KeepAllResult, error) {
 	}
 	e.agentReview.rev++
 	e.notify()
+	if res.KeptChanges > 0 || len(res.DeletedFiles) > 0 {
+		e.NotifyAutomationReviewKept(e.ScenePath)
+	}
 	return res, nil
 }
 

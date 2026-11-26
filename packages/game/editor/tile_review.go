@@ -2103,6 +2103,7 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 			changes:   netChanges,
 		})
 		e.historyPanel.pendingMeta = prevMeta
+		e.NotifyAutomationReviewKept(e.ScenePath)
 		return AgentTileEditResult{
 			Layer:        layerName,
 			TileLayer:    tileLayer,
@@ -2155,6 +2156,7 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 			e.RecordAgentReviewOutcome(false, reverted)
 		}
 	}
+	e.NotifyAutomationReviewKept(e.ScenePath)
 	return AgentTileEditResult{
 		Layer:        layerName,
 		TileLayer:    tileLayer,

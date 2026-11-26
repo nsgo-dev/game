@@ -224,6 +224,7 @@ func (e *Editor) OpenDemo() error {
 	e.syncDiskWatchTargets()
 	e.resetTextInputFocus()
 	e.resetAgentForProject()
+	e.resetAutomationsForProject()
 	e.resetProblemsForProject()
 	e.resetTasksForProject()
 	e.resetHistoryPanelForProject()

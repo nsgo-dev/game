@@ -1436,7 +1436,11 @@ func (e *Editor) KeepCutsceneReview() error {
 	}
 	err = e.History.execute(cmd)
 	e.historyPanel.pendingMeta = prevMeta
-	return err
+	if err != nil {
+		return err
+	}
+	e.NotifyAutomationReviewKept(filePath)
+	return nil
 }
 
 // CutsceneHandleKeyEvent handles cutscene timeline keyboard shortcuts:

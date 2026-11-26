@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/automations.v1.json",
+  "title": "NSGo game editor agent automations (version 1)",
+  "description": "AutomationsFile holds a project's shared agent automations in versioned YAML (automations.yaml beside game.yaml). A file looks like this:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/automations.v1.json version: 1 automations: - id: level-check name: A level file changes enabled: true trigger: event: file_changed glob: scenes/level_*.scene.yaml instruction: runs game check and 5 playtests, reports only problems\n\nParseAutomations decodes it strictly and EncodeAutomations writes it back in canonical form, so a file EncodeAutomations wrote survives a load and save byte for byte.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal AutomationsVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "automations": {
+      "description": "Automations lists the project's configured automations in display order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/AutomationRule"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "AutomationRule": {
+      "description": "AutomationRule defines one WHEN -> THE AGENT automation entry in automations.yaml.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely identifies the automation inside automations.yaml (lowercase letters, digits, hyphens, or underscores).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the short human-readable WHEN summary shown in Settings › Automations. When omitted, the editor derives one from Trigger.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Enabled controls whether the automation is active.",
+          "type": "boolean"
+        },
+        "trigger": {
+          "description": "Trigger defines the event that starts the automation.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AutomationTrigger"
+            }
+          ]
+        },
+        "instruction": {
+          "description": "Instruction is the work the agent performs when Trigger fires; its result always lands in Ready to review.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "trigger",
+        "instruction"
+      ],
+      "additionalProperties": false
+    },
+    "AutomationTrigger": {
+      "description": "AutomationTrigger describes when an automation starts.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "description": "Event selects the trigger event (\"file_changed\", \"review_kept\", \"file_added\", \"before_export\", or \"daily\").",
+          "type": "string",
+          "enum": [
+            "file_changed",
+            "review_kept",
+            "file_added",
+            "before_export",
+            "daily"
+          ]
+        },
+        "glob": {
+          "description": "Glob matches slash-separated project-relative file paths using *, **, and ?. Required for file_changed and optional for review_kept and file_added.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind selects the kind of added file for file_added triggers (\"prefab\", \"scene\", \"tileset\", \"cutscene\", \"material\", \"particles\", \"rig\", \"screen\", \"datatable\", \"script\", \"asset\", or \"any\").",
+          "type": "string",
+          "enum": [
+            "prefab",
+            "scene",
+            "tileset",
+            "cutscene",
+            "material",
+            "particles",
+            "rig",
+            "screen",
+            "datatable",
+            "script",
+            "asset",
+            "any"
+          ]
+        },
+        "platform": {
+          "description": "Platform optionally restricts before_export triggers to a target platform such as \"ios\", \"android\", \"web\", \"macos\", \"windows\", or \"linux\".",
+          "type": "string"
+        },
+        "time": {
+          "description": "Time is the 24-hour local clock time (\"HH:MM\") when a daily trigger runs while the editor is open.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

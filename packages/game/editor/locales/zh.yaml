@@ -2,6 +2,18 @@
 version: 1
 locale: zh
 strings:
+  agent.automationBadge: 自动化
+  agent.automationCheckpoint: 开始前已创建检查点 · {id}
+  agent.automationDismiss: 忽略
+  agent.automationKeep: 保留
+  agent.automationReadyBanner: 待审查 · {count}
+  agent.automationRestoreCheckpoint: 恢复检查点
+  agent.automationState.dismissed: 已忽略
+  agent.automationState.failed: 失败
+  agent.automationState.kept: 已保留
+  agent.automationState.needsYou: 等待你
+  agent.automationState.ready: 待审查
+  agent.automationState.running: 运行中
   agent.composerHint: Enter 发送 · Shift+Enter 换行
   agent.composerLabel: 向智能体提问
   agent.composerPlaceholder: 描述你想做的修改… 例如让骑士跳得更高
@@ -799,6 +811,31 @@ strings:
   settings.appearanceHelp: 深色、浅色或跟随系统。
   settings.autoSave: 自动保存
   settings.autoSaveHelp: 仅自动保存已保留的更改，延迟 2 秒。
+  settings.automations.agentLabel: 智能体执行
+  settings.automations.agentNoteDefault: 每项自动化都会在开始前创建检查点，结果会落入智能体面板的“待审查”，绝不会未经审查直接生效。
+  settings.automations.agentNotePaused: 今天已暂停全部自动化，明天将自动恢复。
+  settings.automations.agentNoteRuns: “{name}”本周已运行 {count} 次。每次运行开始前都会自动创建检查点。
+  settings.automations.agentNoteRunsOne: “{name}”本周已运行 1 次。每次运行开始前都会自动创建检查点。
+  settings.automations.askLabel: 询问自动化设置
+  settings.automations.askPlaceholder: 询问关于自动化的问题…
+  settings.automations.draftAction: 生成草稿
+  settings.automations.draftEmptyError: 请描述自动化何时触发以及智能体应执行什么工作。
+  settings.automations.draftHeading: 用一句话描述自动化
+  settings.automations.draftInputLabel: 用自然语言新建自动化
+  settings.automations.draftPlaceholder: 例如：导出前，在低端手机配置下检查帧耗时与内存
+  settings.automations.keepDraft: 保留
+  settings.automations.loadErrorTitle: 无法加载 automations.yaml（已使用默认配置）
+  settings.automations.metaOn: '{count} 项开启'
+  settings.automations.metaPaused: 已暂停
+  settings.automations.newInWords: + 用一句话新建自动化
+  settings.automations.pauseToday: 今天暂停全部自动化
+  settings.automations.pausedHelp: 在明天之前（或你手动恢复之前）不会触发任何自动化任务。
+  settings.automations.pausedTitle: 今天已暂停全部自动化
+  settings.automations.resume: 恢复自动化
+  settings.automations.runThisWeekOne: 本周运行 1 次
+  settings.automations.runsThisWeek: 本周运行 {count} 次
+  settings.automations.suggestAdd: 添加：导出前，在低端手机配置下检查帧耗时
+  settings.automations.whenLabel: 当
   settings.brief: 游戏简报
   settings.briefAddTarget: 添加目标
   settings.briefAgentCompleteNote: 简报已填写完整。智能体在每次请求前都会阅读 brief.yaml 并对照检查自己的修改。
@@ -891,6 +928,8 @@ strings:
   settings.noProjectTitle: 未打开项目
   settings.page.audio: 音频总线
   settings.page.audioSubtitle: 音乐、音效与语音的电平与路由。
+  settings.page.automations: 自动化
+  settings.page.automationsSubtitle: 在你或智能体修改内容后由智能体自动完成的工作。结果会落入智能体面板，绝不会未经审查生效。
   settings.page.export: 导出
   settings.page.exportSubtitle: 各平台的构建预设与就绪状态。
   settings.page.general: 通用
@@ -930,6 +969,7 @@ strings:
   settings.rulesMarkdownHint: 纯 Markdown · 与 Claude Code 和 Codex 共享
   settings.rulesPlaceholder: '# AGENTS.md · 本项目协作规则'
   settings.rulesSave: 保存规则
+  settings.scopeAutomations: 项目 · automations.yaml
   settings.scopeBrief: 项目 · brief.yaml
   settings.scopeComputer: 此计算机
   settings.scopeProject: 项目 · game.yaml

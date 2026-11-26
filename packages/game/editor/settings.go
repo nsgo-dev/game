@@ -673,6 +673,8 @@ const (
 	SettingsPageTools SettingsPage = "tools"
 	// SettingsPageUsage tracks weekly agent requests against a limit, kept review share, local playtest runs, and outbound privacy switches (This computer, You only).
 	SettingsPageUsage SettingsPage = "usage"
+	// SettingsPageAutomations edits the project's shared automations.yaml rules, pause-for-today state, and natural-language drafts.
+	SettingsPageAutomations SettingsPage = "automations"
 	// SettingsPageProject edits game.yaml's project metadata, window, display, physics, autoload, and plugins.
 	SettingsPageProject SettingsPage = "project"
 	// SettingsPageInput edits game.yaml's input actions, bindings, touch/mouse regions, and axes.
@@ -696,7 +698,7 @@ const (
 // Valid reports whether p is a recognized Settings page.
 func (p SettingsPage) Valid() bool {
 	switch p {
-	case SettingsPageModels, SettingsPageTools, SettingsPageUsage, SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
+	case SettingsPageModels, SettingsPageTools, SettingsPageUsage, SettingsPageAutomations, SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
 		return true
 	default:
 		return false

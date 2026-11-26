@@ -304,6 +304,11 @@ func (e *Editor) Save() error {
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()
+		if e.ScenePath != "" {
+			e.NotifyAutomationFileChanged(e.ScenePath)
+		} else if e.FilePath != "" {
+			e.NotifyAutomationFileChanged(e.FilePath)
+		}
 		if e.RoomsDirty() {
 			return ErrNoRoomsFile
 		}
@@ -380,6 +385,7 @@ func (e *Editor) NewScene(rel string) (string, error) {
 	}
 	e.Status = "New scene " + rel
 	e.notify()
+	e.NotifyAutomationFileAdded(rel)
 	return rel, nil
 }
 

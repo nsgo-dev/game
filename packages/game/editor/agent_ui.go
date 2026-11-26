@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -718,9 +719,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%d|%d|", ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq())
+		fmt.Fprintf(&b, "%s|%s|%d|%d|", ed.ResolvedLanguage(), ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq())
 		for _, t := range ed.agent.turns {
-			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, len(t.Summary), len(t.Reply), len(t.Error))
+			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
 			for _, st := range t.Steps {
 				fmt.Fprintf(&b, "%s=%s;", st.ID, st.Status)
 			}
@@ -744,6 +745,41 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			openReq := ed.AgentOpenRequest()
 
 			var items []core.Node
+			if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
+				items = append(items, core.View{
+					TestID: "agent-ready-to-review-banner",
+					Role:   core.RoleStatus,
+					Style: core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          8,
+						CornerRadius: 10,
+						Background:   p.Accent.Fill,
+						BorderWidth:  1,
+						BorderColor:  p.Accent.Edge,
+						Padding:      core.Symmetric(8, 12),
+					},
+					Children: []core.Node{
+						core.View{
+							Style: core.Style{
+								Width:        core.Pt(8),
+								Height:       core.Pt(8),
+								CornerRadius: 4,
+								Background:   p.Accent.Fg,
+								FlexShrink:   0,
+							},
+						},
+						core.Text{
+							Content: ed.T("agent.automationReadyBanner", l10n.Param("count", fmt.Sprintf("%d", len(ready)))),
+							Style: core.Style{
+								FontSize:   12,
+								FontWeight: 600,
+								Color:      p.TextPrimary,
+							},
+						},
+					},
+				})
+			}
 			if len(turns) == 0 && openReq == nil {
 				items = append(items, agentEmptyStateCard(ed, p))
 			}
@@ -863,6 +899,68 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 
 func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.Node {
 	var children []core.Node
+	if turn.Automation {
+		stateLabel, stateFg, stateBg, stateEdge := automationReviewBadgeStyle(ed, turn.ReviewState, p)
+		headerMeta := ed.T("agent.automationBadge")
+		if turn.TriggerSummary != "" {
+			headerMeta += " · " + turn.TriggerSummary
+		}
+		children = append(children, core.View{
+			TestID: fmt.Sprintf("agent-turn-automation-%d", turnIdx),
+			Style: core.Style{
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifySpaceBetween,
+				Gap:            8,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: headerMeta,
+					Style: core.Style{
+						FontSize:   11,
+						FontWeight: 600,
+						Color:      p.Agent.Fg,
+						FlexGrow:   1,
+						FlexShrink: 1,
+					},
+				},
+				core.View{
+					TestID: fmt.Sprintf("agent-turn-review-state-%d", turnIdx),
+					Style: core.Style{
+						Height:         core.Pt(20),
+						Padding:        core.Symmetric(0, 8),
+						CornerRadius:   10,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						Background:     stateBg,
+						BorderWidth:    1,
+						BorderColor:    stateEdge,
+						FlexShrink:     0,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: stateLabel,
+							Style: core.Style{
+								FontSize:   10.5,
+								FontWeight: 600,
+								Color:      stateFg,
+							},
+						},
+					},
+				},
+			},
+		})
+		if turn.CheckpointID != "" {
+			children = append(children, core.Text{
+				TestID:  fmt.Sprintf("agent-turn-checkpoint-%d", turnIdx),
+				Content: ed.T("agent.automationCheckpoint", l10n.Param("id", turn.CheckpointID)),
+				Style: core.Style{
+					FontSize: 11,
+					Color:    p.TextFaint,
+				},
+			})
+		}
+	}
 	if turn.External {
 		label := "Terminal MCP session"
 		if turn.AgentName != "" {
@@ -1049,6 +1147,33 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 		})
 	}
 
+	if turn.Automation && turn.ReviewState == AgentReviewReady {
+		tid := turn.ID
+		cpID := turn.CheckpointID
+		reviewBtns := []core.Node{
+			settingsSpecButton(p, fmt.Sprintf("agent-turn-keep-%d", turnIdx), ed.T("agent.automationKeep"), ed.T("agent.automationKeep"), true, nil, func() {
+				ed.report(ed.KeepAgentTurnReview(tid))
+			}),
+			settingsSpecButton(p, fmt.Sprintf("agent-turn-dismiss-%d", turnIdx), ed.T("agent.automationDismiss"), ed.T("agent.automationDismiss"), false, nil, func() {
+				ed.report(ed.DismissAgentTurnReview(tid))
+			}),
+		}
+		if cpID != "" {
+			reviewBtns = append(reviewBtns, settingsSpecButton(p, fmt.Sprintf("agent-turn-restore-%d", turnIdx), ed.T("agent.automationRestoreCheckpoint"), ed.T("agent.automationRestoreCheckpoint"), false, nil, func() {
+				ed.report(ed.RestoreAutomationCheckpoint(cpID))
+			}))
+		}
+		children = append(children, core.View{
+			TestID: fmt.Sprintf("agent-turn-review-actions-%d", turnIdx),
+			Style: core.Style{
+				Direction: core.Row,
+				Wrap:      core.Wrap,
+				Gap:       8,
+			},
+			Children: reviewBtns,
+		})
+	}
+
 	return core.View{
 		TestID: fmt.Sprintf("agent-turn-%d", turnIdx),
 		Style: core.Style{
@@ -1149,6 +1274,24 @@ func agentContextChip(p SpecPalette, testID string, dotColor core.Color, label s
 	}
 }
 
+func automationReviewBadgeStyle(ed *Editor, state AgentReviewState, p SpecPalette) (label string, fg, bg, edge core.Color) {
+	switch state {
+	case AgentReviewRunning:
+		return ed.T("agent.automationState.running"), p.Agent.Fg, p.Agent.Fill, p.Agent.Edge
+	case AgentReviewNeedsYou:
+		return ed.T("agent.automationState.needsYou"), p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
+	case AgentReviewReady:
+		return ed.T("agent.automationState.ready"), p.Accent.Fg, p.Accent.Fill, p.Accent.Edge
+	case AgentReviewKept:
+		return ed.T("agent.automationState.kept"), p.Added.Fg, p.Added.Fill, p.Added.Edge
+	case AgentReviewDismissed:
+		return ed.T("agent.automationState.dismissed"), p.TextFaint, p.Raised, p.LineRaised
+	case AgentReviewFailed:
+		return ed.T("agent.automationState.failed"), p.Removed.Fg, p.Removed.Fill, p.Removed.Edge
+	default:
+		return ed.T("agent.automationState.ready"), p.Accent.Fg, p.Accent.Fill, p.Accent.Edge
+	}
+}
 func agentStepRow(turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node {
 	var badge core.Node
 	textCol := p.TextMuted

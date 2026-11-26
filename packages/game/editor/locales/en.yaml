@@ -2,6 +2,18 @@
 version: 1
 locale: en
 strings:
+  agent.automationBadge: Automation
+  agent.automationCheckpoint: Checkpoint taken before start · {id}
+  agent.automationDismiss: Dismiss
+  agent.automationKeep: Keep
+  agent.automationReadyBanner: Ready to review · {count}
+  agent.automationRestoreCheckpoint: Restore checkpoint
+  agent.automationState.dismissed: Dismissed
+  agent.automationState.failed: Failed
+  agent.automationState.kept: Kept
+  agent.automationState.needsYou: Needs you
+  agent.automationState.ready: Ready to review
+  agent.automationState.running: Running
   agent.composerHint: Enter sends · Shift+Enter adds a line
   agent.composerLabel: Ask the agent
   agent.composerPlaceholder: Describe a change… e.g. make the knight jump higher
@@ -799,6 +811,31 @@ strings:
   settings.appearanceHelp: Dark, light, or follow the system.
   settings.autoSave: Save automatically
   settings.autoSaveHelp: Kept changes only, after 2 s.
+  settings.automations.agentLabel: THE AGENT
+  settings.automations.agentNoteDefault: Every automation takes a checkpoint before it starts and lands in Ready to review in the Agent panel.
+  settings.automations.agentNotePaused: Automations are paused for today and will resume automatically tomorrow.
+  settings.automations.agentNoteRuns: “{name}” has run {count} times this week. Every run takes a checkpoint before it starts.
+  settings.automations.agentNoteRunsOne: “{name}” has run once this week. Every run takes a checkpoint before it starts.
+  settings.automations.askLabel: Ask about Automations
+  settings.automations.askPlaceholder: Ask about Automations…
+  settings.automations.draftAction: Draft
+  settings.automations.draftEmptyError: Describe when the automation should run and what the agent should do.
+  settings.automations.draftHeading: Describe an automation in words
+  settings.automations.draftInputLabel: New automation in words
+  settings.automations.draftPlaceholder: e.g. Before export, check frame time on a phone profile
+  settings.automations.keepDraft: Keep
+  settings.automations.loadErrorTitle: Couldn't load automations.yaml (using defaults)
+  settings.automations.metaOn: '{count} on'
+  settings.automations.metaPaused: Paused
+  settings.automations.newInWords: + New automation, in words
+  settings.automations.pauseToday: Pause all automations for today
+  settings.automations.pausedHelp: No trigger will start a task until tomorrow, or until you resume.
+  settings.automations.pausedTitle: All automations paused for today
+  settings.automations.resume: Resume automations
+  settings.automations.runThisWeekOne: 1 run this week
+  settings.automations.runsThisWeek: '{count} runs this week'
+  settings.automations.suggestAdd: 'Add: before export, check frame time on a phone profile'
+  settings.automations.whenLabel: WHEN
   settings.brief: Game brief
   settings.briefAddTarget: Add target
   settings.briefAgentCompleteNote: Your brief is complete. The agent reads brief.yaml before every request and checks its work against it.
@@ -891,6 +928,8 @@ strings:
   settings.noProjectTitle: No project open
   settings.page.audio: Audio buses
   settings.page.audioSubtitle: Levels and routing for music, effects and voice.
+  settings.page.automations: Automations
+  settings.page.automationsSubtitle: Work the agent does by itself after you or it change something. Results land in the Agent panel, never unreviewed.
   settings.page.export: Export
   settings.page.exportSubtitle: Build presets for each platform.
   settings.page.general: General
@@ -930,6 +969,7 @@ strings:
   settings.rulesMarkdownHint: Plain Markdown · shared with Claude Code & Codex
   settings.rulesPlaceholder: '# AGENTS.md · how to work on this project'
   settings.rulesSave: Save rules
+  settings.scopeAutomations: Project · automations.yaml
   settings.scopeBrief: Project · brief.yaml
   settings.scopeComputer: This computer
   settings.scopeProject: Project · game.yaml

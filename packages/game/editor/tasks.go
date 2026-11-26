@@ -1950,6 +1950,10 @@ func (e *Editor) KeepTask(id string) error {
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
+	if t.Source == TaskSourceAutomation && e.AgentActorActive() {
+		e.tasks.mu.Unlock()
+		return ErrAutomationYouOnly
+	}
 	if t.State != TaskReadyToReview {
 		st := t.State
 		e.tasks.mu.Unlock()
