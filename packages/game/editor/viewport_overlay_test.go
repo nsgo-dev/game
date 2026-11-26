@@ -414,6 +414,11 @@ func TestViewportOverlayMotionAndReduceMotion(t *testing.T) {
 	// 3. Live Editor DrawViewport with deterministic clock and ReduceMotion toggle.
 	ed := newOverlaysTestEditor(t)
 	_ = ed.SetAppearance(editor.AppearanceDark)
+	// Turn off unrelated scene inspection overlays (such as Navigation, which uses Spec Added.Fg
+	// for walkable navregion2d polygons) so stroke assertions measure only the Spec scene overlays.
+	if err := ed.SetViewportOverlays(nil); err != nil {
+		t.Fatalf("SetViewportOverlays(nil): %v", err)
+	}
 	baseTime := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
 	now := baseTime
 	ed.SetOverlayClock(func() time.Time { return now })
