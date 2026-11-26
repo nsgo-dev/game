@@ -95,8 +95,10 @@ type focusRegionController struct {
 
 	// Pending opener recorded on pointer press before a modal/dialog or Settings view opens,
 	// and active open-modal counter driving the modal Tab/Shift-Tab focus trap.
-	pendingOpener   *core.Ref
-	openDialogCount *core.Signal[int]
+	pendingOpener        *core.Ref
+	settingsOpener       *core.Ref
+	settingsOpenerRegion EditorRegion
+	openDialogCount      *core.Signal[int]
 
 	// Text input focus tracking for focus-stability checks (IsTyping).
 	// textFocusRef is verified mounted + HoldsFocus inside IsTyping so unmounting a focused
@@ -594,36 +596,64 @@ func bindDialogFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) (onC
 	}
 }
 
+func (c *focusRegionController) captureSettingsOpener() {
+	if c == nil {
+		return
+	}
+	opener := core.FocusedRef(c.cx)
+	if opener == nil && refMounted(c.pendingOpener) {
+		opener = c.pendingOpener
+	}
+	c.pendingOpener = nil
+	c.settingsOpener = opener
+	c.settingsOpenerRegion = c.currentFocusedRegion()
+	c.activeRegionRing.Set(RegionNone)
+}
+
+func (c *focusRegionController) restoreSettingsOpener(cx *core.Scope, ed *Editor) {
+	if c == nil {
+		return
+	}
+	target := c.settingsOpener
+	fallbackRegion := c.settingsOpenerRegion
+	c.settingsOpener = nil
+	c.settingsOpenerRegion = RegionNone
+	if target == nil && fallbackRegion == RegionNone {
+		return
+	}
+	cx.Post(func() {
+		if refMounted(target) {
+			target.Focus()
+			return
+		}
+		if fallbackRegion != RegionNone {
+			c.focusRegion(ed, fallbackRegion)
+		}
+	})
+}
+
 // bindViewFocusRestore tracks opener focus for a non-modal full-window view (such as SettingsView)
 // that opens over the workspace without core.Modal, restoring focus to the opener after the view unmounts.
 func bindViewFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) {
 	var wasOpen bool
-	var opener *core.Ref
 	cx.Effect(func() {
 		open := isOpen()
 		cx.Untrack(func() {
 			if open && !wasOpen {
 				wasOpen = true
-				if ed.focus.ctrl != nil {
-					opener = ed.focus.ctrl.captureDialogOpener()
+				if ed.focus.ctrl != nil && ed.focus.ctrl.settingsOpener == nil {
+					ed.focus.ctrl.captureSettingsOpener()
 				}
 			} else if !open && wasOpen {
 				wasOpen = false
-				target := opener
-				opener = nil
-				if target != nil {
-					cx.Post(func() {
-						if refMounted(target) {
-							target.Focus()
-						}
-					})
+				if ed.focus.ctrl != nil {
+					ed.focus.ctrl.restoreSettingsOpener(cx, ed)
 				}
 			}
 		})
 	})
 	cx.Cleanup(func() {
 		wasOpen = false
-		opener = nil
 	})
 }
 

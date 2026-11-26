@@ -273,14 +273,18 @@ func (e *Editor) restoreViewState() {
 }
 
 // restoreProjectSnapState loads the open project's snap preferences from ViewStateFile,
-// resetting to DefaultSnapSettings when the file is missing, has no snap section, or cannot be parsed.
+// falling back to the user's EditorSettings.Snap (or DefaultSnapSettings when unset) when the file is missing, has no snap section, or cannot be parsed.
 func (e *Editor) restoreProjectSnapState() {
 	if _, ok := e.viewStatePath(); !ok {
 		return
 	}
 	v, err := e.loadViewState()
 	if err != nil {
-		e.applyViewStateSnap(nil)
+		e.applyViewStateSnap(e.settings.Snap)
+		return
+	}
+	if v.Snap == nil {
+		e.applyViewStateSnap(e.settings.Snap)
 		return
 	}
 	e.applyViewStateSnap(v.Snap)

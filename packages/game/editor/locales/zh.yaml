@@ -881,6 +881,11 @@ strings:
   settings.general: 通用
   settings.generalHelp: 语言、外观与保存。
   settings.goGeneral: 打开通用设置
+  settings.interfaceSize: 界面尺寸
+  settings.interfaceSizeCompact: 紧凑
+  settings.interfaceSizeDefault: 默认
+  settings.interfaceSizeHelp: 文本与控件同步缩放。
+  settings.interfaceSizeLarge: 较大
   settings.langChinese: 简体中文
   settings.langEnglish: English
   settings.language: 语言
@@ -923,6 +928,10 @@ strings:
   settings.models.routeSceneEditsNote: 大多数请求
   settings.models.whoDoesWhat: 任务分工
   settings.modelsTitle: 模型与连接
+  settings.nav3dBlender: Blender
+  settings.nav3dDefault: 默认
+  settings.nav3dMaya: Maya
+  settings.navEmpty: 没有匹配的设置
   settings.navTitle: 设置
   settings.noProjectBody: 打开一个 game.yaml 项目以配置项目、输入映射、音频总线与导出设置。
   settings.noProjectTitle: 未打开项目
@@ -933,7 +942,7 @@ strings:
   settings.page.export: 导出
   settings.page.exportSubtitle: 各平台的构建预设与就绪状态。
   settings.page.general: 通用
-  settings.page.generalSubtitle: 此计算机的语言与外观设置。
+  settings.page.generalSubtitle: 此计算机的语言、外观与保存设置。
   settings.page.input: 输入映射
   settings.page.inputSubtitle: 动作及其在键盘、手柄与触屏上的触发方式。
   settings.page.models: 模型与连接
@@ -944,6 +953,8 @@ strings:
   settings.page.toolsSubtitle: 智能体可通过 MCP 访问的工具：编辑器本身、运行中的游戏以及你添加的其他服务器。
   settings.page.usage: 用量与隐私
   settings.page.usageSubtitle: 智能体本周的工作量、审查保留率以及允许离开此计算机的内容。
+  settings.page.viewport: 视口
+  settings.page.viewportSubtitle: 吸附、网格、叠加层与导航。
   settings.policyAgent: 智能体可修改
   settings.policyYouOnly: 仅限用户
   settings.privacy.artAndAudio: 美术与音频文件
@@ -974,10 +985,15 @@ strings:
   settings.scopeComputer: 此计算机
   settings.scopeProject: 项目 · game.yaml
   settings.scopeRules: 项目 · AGENTS.md
+  settings.scopeShared: 项目 · 共享
   settings.searchAskAgent: 询问智能体：{query}
   settings.searchClear: 清除
   settings.searchLabel: 搜索设置或向智能体提问
+  settings.searchNoMatchBody: 没有与“{query}”匹配的设置。
+  settings.searchNoMatchHint: 尝试其他关键词，或清除搜索以查看所有页面。
+  settings.searchNoMatchTitle: 未找到匹配的设置
   settings.searchPlaceholder: 搜索设置，或告诉智能体你想做什么——“让游戏手感更有挑战性”、“配置 iOS 导出”
+  settings.searchSendToAgent: 发送给智能体：{query}
   settings.sectionAgent: 智能体
   settings.sectionEditor: 编辑器 · 此计算机
   settings.sectionProject: 项目 · game.yaml
@@ -1030,6 +1046,19 @@ strings:
   settings.usage.playtestsValue: '{n} 次运行'
   settings.usage.thisWeekLabel: 本周请求
   settings.usage.thisWeekValue: '{n} 次请求'
+  settings.viewportAgentChanges: 显示智能体更改
+  settings.viewportAgentChangesHelp: 审阅打开时在视口中显示轮廓。
+  settings.viewportGrid: 网格
+  settings.viewportGridHelp: 按吸附步长显示参考点。
+  settings.viewportNav3D: 3D 导航
+  settings.viewportNav3DHelp: 鼠标操作映射。
+  settings.viewportOverlaysHelp: 显示在视口叠加层图例中，按此计算机保存。
+  settings.viewportOverlaysTitle: 叠加层图例
+  settings.viewportSnap: 吸附
+  settings.viewportSnapAngleLabel: 旋转吸附角度（度）
+  settings.viewportSnapError: 请输入大于 0 的吸附步长和角度。
+  settings.viewportSnapHelp: 按住 ⌘ 键临时忽略。
+  settings.viewportSnapStepLabel: 网格吸附步长（像素）
   shortcutsSheet.customize: 自定义快捷键…
   shortcutsSheet.subtitleMac: macOS 按键。可在“设置 › 快捷键”中重新绑定任意命令。
   shortcutsSheet.subtitleOther: Windows 与 Linux 按键。可在“设置 › 快捷键”中重新绑定任意命令。

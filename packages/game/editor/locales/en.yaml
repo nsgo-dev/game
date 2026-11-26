@@ -881,6 +881,11 @@ strings:
   settings.general: General
   settings.generalHelp: Language, appearance, and saving.
   settings.goGeneral: Open General Settings
+  settings.interfaceSize: Interface size
+  settings.interfaceSizeCompact: Compact
+  settings.interfaceSizeDefault: Default
+  settings.interfaceSizeHelp: Text and controls together.
+  settings.interfaceSizeLarge: Large
   settings.langChinese: 简体中文
   settings.langEnglish: English
   settings.language: Language
@@ -923,6 +928,10 @@ strings:
   settings.models.routeSceneEditsNote: most requests
   settings.models.whoDoesWhat: WHO DOES WHAT
   settings.modelsTitle: Models and connections
+  settings.nav3dBlender: Blender
+  settings.nav3dDefault: Default
+  settings.nav3dMaya: Maya
+  settings.navEmpty: No matching settings
   settings.navTitle: Settings
   settings.noProjectBody: Open a game.yaml project to configure Project, Input map, Audio buses, and Export settings.
   settings.noProjectTitle: No project open
@@ -933,7 +942,7 @@ strings:
   settings.page.export: Export
   settings.page.exportSubtitle: Build presets for each platform.
   settings.page.general: General
-  settings.page.generalSubtitle: Language and appearance for this computer.
+  settings.page.generalSubtitle: Language, appearance, and saving.
   settings.page.input: Input map
   settings.page.inputSubtitle: Actions and what triggers them on keyboard, gamepad and touch.
   settings.page.models: Models and connections
@@ -944,6 +953,8 @@ strings:
   settings.page.toolsSubtitle: 'What the agent can reach through MCP: the editor itself, the running game and any servers you add.'
   settings.page.usage: Usage and privacy
   settings.page.usageSubtitle: What the agent has done, what it costs, and what may leave this computer.
+  settings.page.viewport: Viewport
+  settings.page.viewportSubtitle: Snapping, grid, overlays, and navigation.
   settings.policyAgent: Agent may change
   settings.policyYouOnly: You only
   settings.privacy.artAndAudio: Art and audio files
@@ -974,10 +985,15 @@ strings:
   settings.scopeComputer: This computer
   settings.scopeProject: Project · game.yaml
   settings.scopeRules: Project · AGENTS.md
+  settings.scopeShared: Project · shared
   settings.searchAskAgent: 'Ask agent: {query}'
   settings.searchClear: Clear
   settings.searchLabel: Search settings or ask the agent
+  settings.searchNoMatchBody: No setting matches "{query}".
+  settings.searchNoMatchHint: Try another word, or clear the search to see every page.
+  settings.searchNoMatchTitle: No matching settings
   settings.searchPlaceholder: Search settings, or tell the agent what you want — "make the game feel harder", "set up iOS export"
+  settings.searchSendToAgent: 'Send to agent: {query}'
   settings.sectionAgent: AGENT
   settings.sectionEditor: EDITOR · THIS COMPUTER
   settings.sectionProject: PROJECT · game.yaml
@@ -1030,6 +1046,19 @@ strings:
   settings.usage.playtestsValue: '{n} runs'
   settings.usage.thisWeekLabel: This week
   settings.usage.thisWeekValue: '{n} requests'
+  settings.viewportAgentChanges: Show agent changes
+  settings.viewportAgentChangesHelp: Outlines while a review is open.
+  settings.viewportGrid: Grid
+  settings.viewportGridHelp: Dots every snap step.
+  settings.viewportNav3D: 3D navigation
+  settings.viewportNav3DHelp: Mouse mapping.
+  settings.viewportOverlaysHelp: Shown in the viewport overlay legend; saved per computer.
+  settings.viewportOverlaysTitle: OVERLAY LEGEND
+  settings.viewportSnap: Snap
+  settings.viewportSnapAngleLabel: Rotation snap angle in degrees
+  settings.viewportSnapError: Enter positive numbers for snap step and angle.
+  settings.viewportSnapHelp: Hold ⌘ to ignore.
+  settings.viewportSnapStepLabel: Grid snap step in pixels
   shortcutsSheet.customize: Customize Shortcuts…
   shortcutsSheet.subtitleMac: macOS keys. Rebind any command in Settings › Shortcuts.
   shortcutsSheet.subtitleOther: Windows and Linux keys. Rebind any command in Settings › Shortcuts.

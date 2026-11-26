@@ -85,6 +85,62 @@ func (a Appearance) CoreAppearance() core.Appearance {
 	}
 }
 
+// InterfaceSize scales the editor's typography and controls together.
+type InterfaceSize string
+
+const (
+	// InterfaceSizeCompact uses a slightly denser 90% scale for text and controls.
+	InterfaceSizeCompact InterfaceSize = "compact"
+	// InterfaceSizeDefault uses the standard 100% Spec scale.
+	InterfaceSizeDefault InterfaceSize = "default"
+	// InterfaceSizeLarge uses a roomier 115% scale for text and controls.
+	InterfaceSizeLarge InterfaceSize = "large"
+)
+
+// Valid reports whether s is a recognized interface size choice.
+func (s InterfaceSize) Valid() bool {
+	switch s {
+	case InterfaceSizeCompact, InterfaceSizeDefault, InterfaceSizeLarge:
+		return true
+	default:
+		return false
+	}
+}
+
+// Scale returns the multiplier applied to editor typography and control sizes.
+func (s InterfaceSize) Scale() float32 {
+	switch s {
+	case InterfaceSizeCompact:
+		return 0.9
+	case InterfaceSizeLarge:
+		return 1.15
+	default:
+		return 1.0
+	}
+}
+
+// Navigation3D selects the 3D viewport's mouse navigation mapping.
+type Navigation3D string
+
+const (
+	// Navigation3DDefault orbits on left-drag, pans on Shift+left-drag or middle-drag, and flies on right-drag.
+	Navigation3DDefault Navigation3D = "default"
+	// Navigation3DBlender orbits on middle-drag, pans on Shift+middle-drag, and flies on right-drag.
+	Navigation3DBlender Navigation3D = "blender"
+	// Navigation3DMaya orbits on Alt+left-drag, pans on middle-drag (or Alt+middle-drag), and flies on right-drag.
+	Navigation3DMaya Navigation3D = "maya"
+)
+
+// Valid reports whether n is a recognized 3D mouse navigation mapping.
+func (n Navigation3D) Valid() bool {
+	switch n {
+	case Navigation3DDefault, Navigation3DBlender, Navigation3DMaya:
+		return true
+	default:
+		return false
+	}
+}
+
 // EditorSettings holds per-user editor preferences saved outside any game project as versioned YAML.
 // A file looks like this:
 //
@@ -104,6 +160,17 @@ type EditorSettings struct {
 	// AutoSave controls whether kept edits save automatically after 2 seconds.
 	// When omitted, autosave is enabled by default.
 	AutoSave *bool `yaml:"autoSave,omitempty"`
+	// InterfaceSize scales editor text and controls together ("compact", "default", or "large").
+	// When omitted, "default" is used.
+	InterfaceSize InterfaceSize `yaml:"interfaceSize,omitempty" schema:"enum=compact|default|large"`
+	// Snap holds per-user viewport snapping and 2D snap grid preferences (step in px, rotation step in degrees, grid overlay).
+	Snap *SnapSettings `yaml:"snap,omitempty"`
+	// ShowAgentChanges controls whether viewport outlines highlight agent changes while a review is open.
+	// When omitted, outlines are shown by default.
+	ShowAgentChanges *bool `yaml:"showAgentChanges,omitempty"`
+	// Navigation3D selects the 3D viewport's mouse navigation mapping ("default", "blender", or "maya").
+	// When omitted, "default" is used.
+	Navigation3D Navigation3D `yaml:"navigation3D,omitempty" schema:"enum=default|blender|maya"`
 	// ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order.
 	// When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.
 	ViewportOverlays *[]string `yaml:"viewportOverlays,omitempty"`
@@ -121,12 +188,35 @@ func (s EditorSettings) AutoSaveEnabled() bool {
 	return s.AutoSave == nil || *s.AutoSave
 }
 
+// EffectiveInterfaceSize returns the active interface size, defaulting to InterfaceSizeDefault when unset.
+func (s EditorSettings) EffectiveInterfaceSize() InterfaceSize {
+	if s.InterfaceSize.Valid() {
+		return s.InterfaceSize
+	}
+	return InterfaceSizeDefault
+}
+
+// ShowAgentChangesEnabled reports whether agent change outlines are drawn in the viewport while a review is open (true when ShowAgentChanges is nil).
+func (s EditorSettings) ShowAgentChangesEnabled() bool {
+	return s.ShowAgentChanges == nil || *s.ShowAgentChanges
+}
+
+// EffectiveNavigation3D returns the active 3D mouse navigation mapping, defaulting to Navigation3DDefault when unset.
+func (s EditorSettings) EffectiveNavigation3D() Navigation3D {
+	if s.Navigation3D.Valid() {
+		return s.Navigation3D
+	}
+	return Navigation3DDefault
+}
+
 // EditorSettingsTab selects which page is active in EditorSettingsDialogView.
 type EditorSettingsTab int
 
 const (
-	// EditorSettingsTabGeneral shows language and appearance settings.
+	// EditorSettingsTabGeneral shows language, appearance, saving, and interface size settings.
 	EditorSettingsTabGeneral EditorSettingsTab = iota
+	// EditorSettingsTabViewport shows snapping, grid, agent change outlines, 3D navigation, and overlay legend choices.
+	EditorSettingsTabViewport
 	// EditorSettingsTabShortcuts shows searchable, scope-aware shortcut rebinding.
 	EditorSettingsTabShortcuts
 	// EditorSettingsTabBrief shows the Agent › Game brief (brief.yaml) page.
@@ -145,11 +235,14 @@ func DefaultEditorSettings() EditorSettings {
 }
 
 const (
-	fixEditorSettings   = "write editor settings as version: 1 with language (system, en, or zh) and appearance (system, light, or dark)"
-	fixSettingsVersion  = "set version: 1"
-	fixSettingsYAMLRef  = "write values directly without YAML anchors, aliases or merge keys"
-	fixSettingsLanguage = "set language to system, en, or zh"
-	fixSettingsAppear   = "set appearance to system, light, or dark"
+	fixEditorSettings      = "write editor settings as version: 1 with language (system, en, or zh) and appearance (system, light, or dark)"
+	fixSettingsVersion     = "set version: 1"
+	fixSettingsYAMLRef     = "write values directly without YAML anchors, aliases or merge keys"
+	fixSettingsLanguage    = "set language to system, en, or zh"
+	fixSettingsAppear      = "set appearance to system, light, or dark"
+	fixSettingsUISize      = "set interfaceSize to compact, default, or large"
+	fixSettingsNav3D       = "set navigation3D to default, blender, or maya"
+	fixSettingsSnapNumeric = "use finite non-negative numbers for snap steps"
 )
 
 // ParseEditorSettings decodes and validates a versioned YAML editor settings document.
@@ -260,6 +353,23 @@ func ValidateEditorSettings(s *EditorSettings) error {
 	if !s.Appearance.Valid() {
 		return loaderr.Errorf("appearance", fixSettingsAppear, "editor: invalid settings appearance %q (want system, light, or dark)", s.Appearance)
 	}
+	if s.InterfaceSize != "" && !s.InterfaceSize.Valid() {
+		return loaderr.Errorf("interfaceSize", fixSettingsUISize, "editor: invalid settings interfaceSize %q (want compact, default, or large)", s.InterfaceSize)
+	}
+	if s.Snap != nil {
+		if !isFiniteFloat32(s.Snap.GridSize) || s.Snap.GridSize < 0 {
+			return loaderr.Errorf("snap.gridSize", fixSettingsSnapNumeric, "editor: invalid settings snap.gridSize %v (must be finite and non-negative)", s.Snap.GridSize)
+		}
+		if !isFiniteFloat32(s.Snap.RotationStepDeg) || s.Snap.RotationStepDeg < 0 {
+			return loaderr.Errorf("snap.rotationStepDeg", fixSettingsSnapNumeric, "editor: invalid settings snap.rotationStepDeg %v (must be finite and non-negative)", s.Snap.RotationStepDeg)
+		}
+		if !isFiniteFloat32(s.Snap.ScaleStep) || s.Snap.ScaleStep < 0 {
+			return loaderr.Errorf("snap.scaleStep", fixSettingsSnapNumeric, "editor: invalid settings snap.scaleStep %v (must be finite and non-negative)", s.Snap.ScaleStep)
+		}
+	}
+	if s.Navigation3D != "" && !s.Navigation3D.Valid() {
+		return loaderr.Errorf("navigation3D", fixSettingsNav3D, "editor: invalid settings navigation3D %q (want default, blender, or maya)", s.Navigation3D)
+	}
 	if s.ViewportOverlays != nil {
 		seen := make(map[string]struct{}, len(*s.ViewportOverlays))
 		for i, id := range *s.ViewportOverlays {
@@ -332,15 +442,25 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 		}
 	}
 	out := EditorSettings{
-		Version:    s.Version,
-		Language:   s.Language,
-		Appearance: s.Appearance,
-		Shortcuts:  shortcuts,
-		Agent:      cloneAgentSettings(s.Agent),
+		Version:       s.Version,
+		Language:      s.Language,
+		Appearance:    s.Appearance,
+		InterfaceSize: s.InterfaceSize,
+		Navigation3D:  s.Navigation3D,
+		Shortcuts:     shortcuts,
+		Agent:         cloneAgentSettings(s.Agent),
 	}
 	if s.AutoSave != nil {
 		v := *s.AutoSave
 		out.AutoSave = &v
+	}
+	if s.Snap != nil {
+		cp := *s.Snap
+		out.Snap = &cp
+	}
+	if s.ShowAgentChanges != nil {
+		v := *s.ShowAgentChanges
+		out.ShowAgentChanges = &v
 	}
 	if len(s.SeenTips) > 0 {
 		sorted := slices.Clone(s.SeenTips)
@@ -426,6 +546,14 @@ func (e *Editor) Settings() EditorSettings {
 		v := *s.AutoSave
 		s.AutoSave = &v
 	}
+	if s.Snap != nil {
+		cp := *s.Snap
+		s.Snap = &cp
+	}
+	if s.ShowAgentChanges != nil {
+		v := *s.ShowAgentChanges
+		s.ShowAgentChanges = &v
+	}
 	if s.ViewportOverlays != nil {
 		cp := slices.Clone(*s.ViewportOverlays)
 		if cp == nil {
@@ -462,6 +590,118 @@ func (e *Editor) Appearance() Appearance {
 // AutoSave reports whether kept edits save automatically after AutoSaveDelay (default 2 s).
 func (e *Editor) AutoSave() bool {
 	return e.Settings().AutoSaveEnabled()
+}
+
+// InterfaceSize returns the configured editor interface size ("compact", "default", or "large").
+func (e *Editor) InterfaceSize() InterfaceSize {
+	return e.Settings().EffectiveInterfaceSize()
+}
+
+// InterfaceScale returns the active typography and control scale multiplier (0.9, 1.0, or 1.15).
+func (e *Editor) InterfaceScale() float32 {
+	return e.InterfaceSize().Scale()
+}
+
+// SetInterfaceSize updates the per-user editor interface size live. When SettingsPath is non-empty, the updated settings are persisted to SettingsPath.
+func (e *Editor) SetInterfaceSize(size InterfaceSize) error {
+	if e == nil {
+		return nil
+	}
+	if !size.Valid() {
+		return loaderr.Errorf("interfaceSize", fixSettingsUISize, "editor: invalid settings interfaceSize %q (want compact, default, or large)", size)
+	}
+	cur := e.Settings()
+	if cur.EffectiveInterfaceSize() == size && cur.InterfaceSize == size {
+		return nil
+	}
+	cur.InterfaceSize = size
+	e.settingsMu.Lock()
+	e.settings = cur
+	e.settingsMu.Unlock()
+	if e.SettingsPath != "" {
+		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
+			e.notify()
+			return err
+		}
+	}
+	e.notify()
+	return nil
+}
+
+// ShowAgentChanges reports whether viewport outlines highlight agent changes while a review is open.
+func (e *Editor) ShowAgentChanges() bool {
+	return e.Settings().ShowAgentChangesEnabled()
+}
+
+// SetShowAgentChanges updates whether viewport outlines highlight agent changes while a review is open. When SettingsPath is non-empty, the updated settings are persisted to SettingsPath.
+func (e *Editor) SetShowAgentChanges(show bool) error {
+	if e == nil {
+		return nil
+	}
+	cur := e.Settings()
+	changed := cur.ShowAgentChanges == nil || *cur.ShowAgentChanges != show
+	v := show
+	cur.ShowAgentChanges = &v
+	e.settingsMu.Lock()
+	e.settings = cur
+	e.settingsMu.Unlock()
+	if !changed {
+		return nil
+	}
+	if e.SettingsPath != "" {
+		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
+			e.notify()
+			return err
+		}
+	}
+	e.notify()
+	return nil
+}
+
+// Navigation3D returns the configured 3D viewport mouse navigation mapping ("default", "blender", or "maya").
+func (e *Editor) Navigation3D() Navigation3D {
+	return e.Settings().EffectiveNavigation3D()
+}
+
+// SetNavigation3D updates the 3D viewport mouse navigation mapping live. When SettingsPath is non-empty, the updated settings are persisted to SettingsPath.
+func (e *Editor) SetNavigation3D(mode Navigation3D) error {
+	if e == nil {
+		return nil
+	}
+	if !mode.Valid() {
+		return loaderr.Errorf("navigation3D", fixSettingsNav3D, "editor: invalid settings navigation3D %q (want default, blender, or maya)", mode)
+	}
+	cur := e.Settings()
+	if cur.EffectiveNavigation3D() == mode && cur.Navigation3D == mode {
+		return nil
+	}
+	cur.Navigation3D = mode
+	e.settingsMu.Lock()
+	e.settings = cur
+	e.settingsMu.Unlock()
+	if e.SettingsPath != "" {
+		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
+			e.notify()
+			return err
+		}
+	}
+	e.notify()
+	return nil
+}
+
+// persistSnapToSettings updates EditorSettings.Snap from the live snap/grid fields and saves to SettingsPath when configured.
+func (e *Editor) persistSnapToSettings() {
+	if e == nil || e.SettingsPath == "" {
+		return
+	}
+	cur := e.Settings()
+	cur.Snap = e.SnapSettings().normalizedForViewState()
+	e.settingsMu.Lock()
+	e.settings = cur
+	e.settingsMu.Unlock()
+	if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
+		e.report(err)
+	}
 }
 
 // SetAutoSave updates the per-user automatic saving preference live. When SettingsPath is non-empty, the updated settings are persisted to SettingsPath.
@@ -573,6 +813,14 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 		v := *s.AutoSave
 		s.AutoSave = &v
 	}
+	if s.Snap != nil {
+		cp := *s.Snap
+		s.Snap = &cp
+	}
+	if s.ShowAgentChanges != nil {
+		v := *s.ShowAgentChanges
+		s.ShowAgentChanges = &v
+	}
 	if s.ViewportOverlays != nil {
 		cp := slices.Clone(*s.ViewportOverlays)
 		if cp == nil {
@@ -606,6 +854,7 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	e.settings = s
 	e.settingsMu.Unlock()
 	e.agent.builtInKeyChecked = false
+	e.applyViewStateSnap(s.Snap)
 	e.syncOverlaysFromSettings()
 	if s.AutoSaveEnabled() {
 		e.scheduleAutoSaveIfNeeded()
@@ -685,8 +934,10 @@ const (
 	SettingsPageExport SettingsPage = "export"
 	// SettingsPagePermissions edits permissions.yaml's MCP agent permission profile and first-match-wins rules.
 	SettingsPagePermissions SettingsPage = "permissions"
-	// SettingsPageGeneral edits per-computer editor language and appearance preferences.
+	// SettingsPageGeneral edits per-computer editor language, appearance, saving, and interface size preferences.
 	SettingsPageGeneral SettingsPage = "general"
+	// SettingsPageViewport edits per-computer snapping, grid, agent change outlines, 3D navigation, and overlay legend choices.
+	SettingsPageViewport SettingsPage = "viewport"
 	// SettingsPageShortcuts edits per-computer command keyboard shortcuts within a scope.
 	SettingsPageShortcuts SettingsPage = "shortcuts"
 	// SettingsPageBrief edits the project's brief.yaml game brief read by the agent.
@@ -698,7 +949,7 @@ const (
 // Valid reports whether p is a recognized Settings page.
 func (p SettingsPage) Valid() bool {
 	switch p {
-	case SettingsPageModels, SettingsPageTools, SettingsPageUsage, SettingsPageAutomations, SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
+	case SettingsPageModels, SettingsPageTools, SettingsPageUsage, SettingsPageAutomations, SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageViewport, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
 		return true
 	default:
 		return false
@@ -758,12 +1009,17 @@ func (e *Editor) OpenSettingsPage(page SettingsPage) {
 	if page != SettingsPageShortcuts {
 		e.shortcutCaptureActive = false
 	}
+	if !prevOpen && e.focus.ctrl != nil {
+		e.focus.ctrl.captureSettingsOpener()
+	}
 	e.shortcutsSheetOpen = false
 	e.settingsOpen = true
 	e.settingsPage = page
 	switch page {
 	case SettingsPageShortcuts:
 		e.editorSettingsTab = EditorSettingsTabShortcuts
+	case SettingsPageViewport:
+		e.editorSettingsTab = EditorSettingsTabViewport
 	case SettingsPageGeneral:
 		e.editorSettingsTab = EditorSettingsTabGeneral
 	case SettingsPageBrief:
@@ -825,9 +1081,9 @@ func (e *Editor) SetSettingsOpen(open bool) {
 	e.OpenSettingsPage(page)
 }
 
-// EditorSettingsOpen reports whether the Settings view is currently open on an Editor or Agent page (General, Shortcuts, Game brief, or Project rules).
+// EditorSettingsOpen reports whether the Settings view is currently open on an Editor or Agent page (General, Viewport, Shortcuts, Game brief, or Project rules).
 func (e *Editor) EditorSettingsOpen() bool {
-	return e != nil && e.settingsOpen && (e.settingsPage == SettingsPageGeneral || e.settingsPage == SettingsPageShortcuts || e.settingsPage == SettingsPageBrief || e.settingsPage == SettingsPageRules)
+	return e != nil && e.settingsOpen && (e.settingsPage == SettingsPageGeneral || e.settingsPage == SettingsPageViewport || e.settingsPage == SettingsPageShortcuts || e.settingsPage == SettingsPageBrief || e.settingsPage == SettingsPageRules)
 }
 
 // SetEditorSettingsOpen opens the Settings view on the General page, or closes Settings when open is false and an editor preferences page is active.
@@ -871,6 +1127,8 @@ func (e *Editor) SetEditorSettingsTab(tab EditorSettingsTab) {
 	}
 	var target SettingsPage
 	switch tab {
+	case EditorSettingsTabViewport:
+		target = SettingsPageViewport
 	case EditorSettingsTabShortcuts:
 		target = SettingsPageShortcuts
 	case EditorSettingsTabBrief:
@@ -893,6 +1151,14 @@ func (e *Editor) SetEditorSettingsTab(tab EditorSettingsTab) {
 	if changed {
 		e.notify()
 	}
+}
+
+// OpenViewportSettings opens the Settings view directly to the Viewport page.
+func (e *Editor) OpenViewportSettings() {
+	if e == nil {
+		return
+	}
+	e.OpenSettingsPage(SettingsPageViewport)
 }
 
 // OpenShortcutsSettings opens the Settings view directly to the Shortcuts page.

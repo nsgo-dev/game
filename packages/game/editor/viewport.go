@@ -849,6 +849,9 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 // with clock glyph and "waiting on <object>" pill) for active background agent tasks on the open scene,
 // following docs/design/editor/Tasks.dc.html and Spec.dc.html.
 func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	if !e.ShowAgentChanges() {
+		return
+	}
 	ovs := e.SceneTaskOverlays()
 	if len(ovs) == 0 || scene == nil {
 		return

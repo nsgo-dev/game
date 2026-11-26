@@ -1489,11 +1489,13 @@ func (e *Editor) SettingsPageContext() (pageID, title, scope, file string) {
 	case SettingsPageExport:
 		return "export", e.T("settings.page.export"), e.T("settings.scopeProject"), project.FileName
 	case SettingsPagePermissions:
-		return "permissions", e.T("permissions.title"), PermissionsFileName, PermissionsFileName
+		return "permissions", e.T("permissions.title"), e.T("settings.scopeShared"), PermissionsFileName
 	case SettingsPageBrief:
 		return "brief", e.T("settings.brief"), e.T("settings.scopeBrief"), project.BriefFileName
 	case SettingsPageRules:
 		return "rules", e.T("settings.rules"), e.T("settings.scopeRules"), ProjectRulesFileName
+	case SettingsPageViewport:
+		return "viewport", e.T("settings.page.viewport"), e.T("settings.scopeComputer"), ""
 	case SettingsPageShortcuts:
 		return "shortcuts", e.T("settings.shortcuts"), e.T("settings.scopeComputer"), ""
 	default:
