@@ -110,6 +110,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	}
 	e.cancelTransientInteraction()
 	e.resetInspectorSessionState()
+	e.resetAgentForProject()
 	e.clearTileBrushTransient()
 	e.inspectAssetFile = false
 	e.inspectLayer = false

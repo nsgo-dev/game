@@ -1563,6 +1563,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Connect Claude Code, Codex, or another MCP client to this project",
 			Category:    "Project",
 			Keywords:    []string{"agent", "mcp", "claude", "codex", "connect", "install"},
+			Scope:       ScopeGlobal,
 			Checked:     func() bool { return e.ConnectDialogOpen() },
 			Run: func() error {
 				if e.ConnectDialogOpen() {
@@ -1579,8 +1580,11 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle the right sidebar between the Agent panel and the Inspector",
 			Category:    "View",
 			Keywords:    []string{"agent", "chat", "composer", "mcp", "inspector"},
-			Enabled:     func() bool { return e.AgentMode() != AgentModeNone },
-			Checked:     func() bool { return e.AgentPanelOpen() },
+			Scope:       ScopeGlobal,
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
+			},
+			Checked: func() bool { return e.AgentPanelOpen() },
 			Run: func() error {
 				e.SetAgentPanelOpen(!e.AgentPanelOpen())
 				return nil

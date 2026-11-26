@@ -698,7 +698,7 @@ func matchSettingsPageQuery(q string, hasProject bool) (SettingsPage, bool) {
 			return SettingsPageProject, true
 		}
 	}
-	if strings.Contains(q, "lang") || strings.Contains(q, "appear") || strings.Contains(q, "dark") || strings.Contains(q, "light") || strings.Contains(q, "general") || strings.Contains(q, "语言") || strings.Contains(q, "外观") || strings.Contains(q, "深色") || strings.Contains(q, "浅色") || strings.Contains(q, "通用") {
+	if strings.Contains(q, "lang") || strings.Contains(q, "appear") || strings.Contains(q, "dark") || strings.Contains(q, "light") || strings.Contains(q, "general") || strings.Contains(q, "agent") || strings.Contains(q, "model") || strings.Contains(q, "mcp") || strings.Contains(q, "connect") || strings.Contains(q, "语言") || strings.Contains(q, "外观") || strings.Contains(q, "深色") || strings.Contains(q, "浅色") || strings.Contains(q, "通用") || strings.Contains(q, "智能体") || strings.Contains(q, "模型") || strings.Contains(q, "连接") {
 		return SettingsPageGeneral, true
 	}
 	return "", false
@@ -976,132 +976,138 @@ func settingsSpecButton(p SpecPalette, testID, text, label string, primary bool,
 // editorSettingsModelsSection renders the "Models and connections" summary inside EditorSettingsDialogView
 // matching docs/design/editor/Settings.dc.html, listing connected agents and "+ Connect another agent or model".
 func editorSettingsModelsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.View{
-		TestID: "editor-settings-models",
-		Style: core.Style{
-			Padding: core.Edges{Top: 12},
-			Gap:     8,
-		},
-		Children: []core.Node{
-			core.Text{
-				Content: ed.T("settings.modelsTitle"),
-				Style: core.Style{
-					FontSize:   13,
-					FontWeight: 600,
-					Color:      colors.Text(),
-				},
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := SpecPaletteFor(darkMemo.Get())
+		return core.View{
+			TestID: "editor-settings-models",
+			Style: core.Style{
+				Padding: core.Edges{Top: 12},
+				Gap:     8,
 			},
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					Gap:       10,
+			Children: []core.Node{
+				core.Text{
+					Content: ed.T("settings.modelsTitle"),
+					Style: core.Style{
+						FontSize:   13,
+						FontWeight: 600,
+						Color:      p.TextPrimary,
+					},
 				},
-				Children: []core.Node{
-					core.View{
-						TestID: "editor-settings-connected-agent",
-						Style: core.Style{
-							FlexGrow:     1,
-							FlexBasis:    core.Pt(0),
-							CornerRadius: 10,
-							Padding:      core.All(12),
-							Gap:          4,
-							Background:   specRaised,
-							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-						},
-						Children: []core.Node{
-							core.View{
-								Style: core.Style{
-									Direction:  core.Row,
-									AlignItems: core.AlignCenter,
-									Gap:        8,
-								},
-								Children: []core.Node{
-									core.View{
-										StyleFunc: func() core.Style {
-											_ = rev.Get()
-											col := specTextMuted
-											if ed.AgentStatus() == AgentStatusConnected || ed.AgentStatus() == AgentStatusWorking {
-												col = specAdded
-											} else if ed.AgentStatus() == AgentStatusDisconnected {
-												col = specProblem
-											}
-											return core.Style{
-												Width:        core.Pt(8),
-												Height:       core.Pt(8),
-												CornerRadius: 4,
-												Background:   col,
-											}
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						Gap:       10,
+					},
+					Children: []core.Node{
+						core.View{
+							TestID: "editor-settings-connected-agent",
+							Style: core.Style{
+								FlexGrow:     1,
+								FlexBasis:    core.Pt(0),
+								CornerRadius: 10,
+								Padding:      core.All(12),
+								Gap:          4,
+								Background:   p.Raised,
+								BorderWidth:  1,
+								BorderColor:  p.LineRaised,
+							},
+							Children: []core.Node{
+								core.View{
+									Style: core.Style{
+										Direction:  core.Row,
+										AlignItems: core.AlignCenter,
+										Gap:        8,
+									},
+									Children: []core.Node{
+										core.View{
+											StyleFunc: func() core.Style {
+												_ = rev.Get()
+												col := p.TextFaint
+												if ed.AgentStatus() == AgentStatusConnected || ed.AgentStatus() == AgentStatusWorking {
+													col = p.Added.Fg
+												} else if ed.AgentStatus() == AgentStatusDisconnected {
+													col = p.Removed.Fg
+												}
+												return core.Style{
+													Width:        core.Pt(8),
+													Height:       core.Pt(8),
+													CornerRadius: 4,
+													Background:   col,
+												}
+											},
+										},
+										core.Text{
+											ContentFunc: func() string {
+												_ = rev.Get()
+												if ed.AgentMode() == AgentModeNone {
+													return "No agent"
+												}
+												if c, ok := ed.AgentPrimaryClient(); ok {
+													return c.DisplayName
+												}
+												return "Local MCP agent"
+											},
+											Style: core.Style{
+												FontSize:   12.5,
+												FontWeight: 500,
+												Color:      p.TextPrimary,
+											},
 										},
 									},
-									core.Text{
-										ContentFunc: func() string {
-											_ = rev.Get()
-											if ed.AgentMode() == AgentModeNone {
-												return "No agent"
-											}
-											if c, ok := ed.AgentPrimaryClient(); ok {
-												return c.DisplayName
-											}
-											return "Local MCP agent"
-										},
-										Style: core.Style{
-											FontSize:   12.5,
-											FontWeight: 500,
-											Color:      specTextStrong,
-										},
+								},
+								core.Text{
+									ContentFunc: func() string {
+										_ = rev.Get()
+										if ed.AgentMode() == AgentModeNone {
+											return "Agent panel stays closed"
+										}
+										if len(ed.AgentClients()) > 0 {
+											return "On this computer · MCP · default"
+										}
+										return "Not connected yet"
+									},
+									Style: core.Style{
+										FontSize: 11.5,
+										Color:    p.TextFaint,
 									},
 								},
 							},
-							core.Text{
-								ContentFunc: func() string {
-									_ = rev.Get()
-									if ed.AgentMode() == AgentModeNone {
-										return "Agent panel stays closed"
-									}
-									if len(ed.AgentClients()) > 0 {
-										return "On this computer · MCP · default"
-									}
-									return "Not connected yet"
-								},
-								Style: core.Style{
-									FontSize: 11.5,
-									Color:    specTextMuted,
+						},
+						core.View{
+							TestID: "editor-settings-connect-agent",
+							Role:   core.RoleButton,
+							Label:  ed.T("settings.connectAnother"),
+							Style: core.Style{
+								FlexGrow:       1,
+								FlexBasis:      core.Pt(0),
+								CornerRadius:   10,
+								Padding:        core.All(12),
+								BorderWidth:    1,
+								BorderColor:    p.LineRaised,
+								JustifyContent: core.JustifyCenter,
+								FocusVisible:   p.FocusRing(2),
+							},
+							OnPress: func(core.PressEvent) {
+								ed.CloseSettings()
+								ed.OpenConnectDialog()
+							},
+							Children: []core.Node{
+								core.Text{
+									Content: ed.T("settings.connectAnother"),
+									Style: core.Style{
+										FontSize: 12,
+										Color:    p.TextMuted,
+									},
 								},
 							},
 						},
 					},
-					core.View{
-						TestID: "editor-settings-connect-agent",
-						Role:   core.RoleButton,
-						Label:  ed.T("settings.connectAnother"),
-						Style: core.Style{
-							FlexGrow:       1,
-							FlexBasis:      core.Pt(0),
-							CornerRadius:   10,
-							Padding:        core.All(12),
-							BorderWidth:    1,
-							BorderColor:    specLineRaised,
-							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
-						},
-						OnPress: func(core.PressEvent) {
-							ed.SetEditorSettingsOpen(false)
-							ed.OpenConnectDialog()
-						},
-						Children: []core.Node{
-							core.Text{
-								Content: ed.T("settings.connectAnother"),
-								Style: core.Style{
-									FontSize: 12,
-									Color:    specTextSecondary,
-								},
-							},
-						},
-					},
 				},
 			},
-		},
-	}
+		}
+	})
 }

@@ -216,6 +216,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetAssetGenForProject()
 	e.resetViewport3DAgentPrompt(true)
 	e.resetTextInputFocus()
+	e.resetAgentForProject()
 	e.applyViewStateSnap(nil)
 
 	e.Doc = DemoSceneDoc()
