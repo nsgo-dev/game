@@ -1637,6 +1637,9 @@ func cloneAgentTurn(t AgentTurn) AgentTurn {
 	if t.Review != nil {
 		t.Review = t.Review.Clone()
 	}
+	if t.Plan != nil {
+		t.Plan = t.Plan.Clone()
+	}
 	t.baselineDoc = nil
 	t.baselineYAML = ""
 	t.baselineFile = ""
@@ -2111,11 +2114,11 @@ func (e *Editor) restoreIdleAgentStatus() {
 		e.agent.status = AgentStatusLimitReached
 		e.updateAgentAnnouncement()
 		return
-	} else if e.agent.openRequest != nil {
+	} else if e.agent.openRequest != nil || e.PendingAgentPermissionAsk() != nil {
 		e.agent.status = AgentStatusWaitingForYou
 	} else if len(e.agent.clients) > 0 || (e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
 		e.agent.status = AgentStatusConnected
-	} else if e.agent.status == AgentStatusWorking || e.agent.status == AgentStatusLimitReached {
+	} else if e.agent.status == AgentStatusWorking || e.agent.status == AgentStatusWaitingForYou || e.agent.status == AgentStatusLimitReached {
 		if e.agent.hadClient {
 			e.agent.status = AgentStatusDisconnected
 		} else {

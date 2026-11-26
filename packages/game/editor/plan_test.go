@@ -730,3 +730,157 @@ func TestPlanHardeningValidationPhasePauseAndConcurrency(t *testing.T) {
 		t.Fatal("HasOpenReview should be false after CompleteAgentPlan")
 	}
 }
+
+func TestAgentRewindClearsActivePlanOnDroppedTurn(t *testing.T) {
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Turn 1: propose and complete a plan.
+	p1 := sampleRoom2Plan()
+	p1.Prompt = "First room plan"
+	if _, _, err := ed.ProposeAgentPlan(p1); err != nil {
+		t.Fatalf("ProposeAgentPlan 1: %v", err)
+	}
+	if _, err := ed.JustDoItAgentPlan(); err != nil {
+		t.Fatalf("JustDoItAgentPlan 1: %v", err)
+	}
+	// While plan 1 is running, rewind popover and RewindAgentTurn must be refused.
+	turns := ed.AgentTurns()
+	if len(turns) != 1 {
+		t.Fatalf("len(turns) = %d, want 1", len(turns))
+	}
+	if ed.OpenAgentRewindPopover(turns[0].ID) {
+		t.Fatal("OpenAgentRewindPopover should be refused while a plan is running")
+	}
+	if err := ed.RewindAgentTurn(turns[0].ID, editor.AgentRewindBoth); err == nil {
+		t.Fatal("RewindAgentTurn should be refused while a plan is running")
+	}
+	if err := ed.CompleteAgentPlan(); err != nil {
+		t.Fatalf("CompleteAgentPlan 1: %v", err)
+	}
+
+	// Turn 2: propose a second plan, approve it, and stop before step 1 so ActivePlan stays in PlanPhaseStopped.
+	p2 := sampleRoom2Plan()
+	p2.Prompt = "Second room plan"
+	if _, _, err := ed.ProposeAgentPlan(p2); err != nil {
+		t.Fatalf("ProposeAgentPlan 2: %v", err)
+	}
+	if _, err := ed.JustDoItAgentPlan(); err != nil {
+		t.Fatalf("JustDoItAgentPlan 2: %v", err)
+	}
+	if _, err := ed.StopAgentPlan(); err != nil {
+		t.Fatalf("StopAgentPlan 2: %v", err)
+	}
+	if ed.ActivePlan() == nil || ed.ActivePlan().Phase != editor.PlanPhaseStopped {
+		t.Fatalf("expected stopped active plan on turn 2, got %+v", ed.ActivePlan())
+	}
+	turns = ed.AgentTurns()
+	if len(turns) != 2 {
+		t.Fatalf("len(turns) = %d, want 2", len(turns))
+	}
+	turn2ID := turns[1].ID
+
+	// Rewinding turn 2 drops it and must clear the stale stopped ActivePlan and its ghosts.
+	if err := ed.RewindAgentTurn(turn2ID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("RewindAgentTurn(turn2): %v", err)
+	}
+	if ed.ActivePlan() != nil {
+		t.Fatalf("expected ActivePlan nil after rewinding turn 2, got %+v", ed.ActivePlan())
+	}
+	if ghosts := ed.ResolvedPlanGhosts(); len(ghosts) != 0 {
+		t.Fatalf("expected 0 plan ghosts after rewinding turn 2, got %d", len(ghosts))
+	}
+	// Turn 1's completed plan review stays intact.
+	keptTurns := ed.AgentTurns()
+	if len(keptTurns) != 1 || keptTurns[0].Plan == nil {
+		t.Fatalf("expected turn 1 with completed Plan review intact, got %+v", keptTurns)
+	}
+
+	// Redo restores turn 2 with its deep-cloned Plan review.
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind: %v", err)
+	}
+	restored := ed.AgentTurns()
+	if len(restored) != 2 || restored[1].Plan == nil {
+		t.Fatalf("expected turn 2 Plan review restored on Redo, got %+v", restored)
+	}
+	// Mutating the cloned snapshot returned by AgentTurns must not affect editor state.
+	restored[1].Plan.Title = "mutated"
+	if ed.AgentTurns()[1].Plan.Title == "mutated" {
+		t.Fatal("AgentTurns did not deep-clone AgentTurn.Plan")
+	}
+}
+
+func TestPlanShortcutsGuardedWhenRewindPopoverOpen(t *testing.T) {
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create turn 1 with a completed plan so there is a turn to open the rewind popover on.
+	p1 := sampleRoom2Plan()
+	p1.Prompt = "Turn one"
+	if _, _, err := ed.ProposeAgentPlan(p1); err != nil {
+		t.Fatalf("ProposeAgentPlan 1: %v", err)
+	}
+	if _, err := ed.JustDoItAgentPlan(); err != nil {
+		t.Fatalf("JustDoItAgentPlan 1: %v", err)
+	}
+	if err := ed.CompleteAgentPlan(); err != nil {
+		t.Fatalf("CompleteAgentPlan 1: %v", err)
+	}
+	turn1ID := ed.AgentTurns()[0].ID
+
+	// Propose a second plan in Draft phase with all questions answered (so Approve would succeed if unguarded),
+	// then restore idle status to simulate opening the rewind popover while a draft plan is visible.
+	p2 := sampleRoom2Plan()
+	p2.Prompt = "Turn two draft"
+	if _, _, err := ed.ProposeAgentPlan(p2); err != nil {
+		t.Fatalf("ProposeAgentPlan 2: %v", err)
+	}
+	if err := ed.AnswerPlanQuestion("q1", "door"); err != nil {
+		t.Fatalf("AnswerPlanQuestion q1: %v", err)
+	}
+	if err := ed.AnswerPlanQuestion("q2", "open"); err != nil {
+		t.Fatalf("AnswerPlanQuestion q2: %v", err)
+	}
+	// Stop and EditStoppedPlan -> Draft, verify CanApprovePlan is true.
+	if ok, reason := ed.CanApprovePlan(); !ok {
+		t.Fatalf("expected draft plan approvable, got reason %q", reason)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820))
+	app.Settle()
+
+	// While a draft plan is in AgentStatusWaitingForYou, OpenAgentRewindPopover is blocked by AgentWorking;
+	// verify that ProposeAgentPlan also clears any previously open rewind popover.
+	if ed.OpenAgentRewindPopover(turn1ID) {
+		t.Fatal("expected OpenAgentRewindPopover refused while AgentStatusWaitingForYou")
+	}
+	if _, err := ed.StopAgentPlan(); err != nil {
+		t.Fatalf("StopAgentPlan: %v", err)
+	}
+	if !ed.OpenAgentRewindPopover(turn1ID) {
+		t.Fatal("expected OpenAgentRewindPopover to succeed after plan stopped")
+	}
+	app.Settle()
+
+	// Editing the stopped plan back to Draft must clear the open rewind popover.
+	if err := ed.EditStoppedPlan(); err != nil {
+		t.Fatalf("EditStoppedPlan: %v", err)
+	}
+	if ed.AgentRewindOpenTurnID() != "" {
+		t.Fatalf("expected EditStoppedPlan to clear rewind popover, still %q", ed.AgentRewindOpenTurnID())
+	}
+	// And pressing mod+enter when no rewind popover is open approves the draft plan.
+	app.Settle()
+	app.Key("mod+enter")
+	app.Settle()
+	if !ed.IsPlanRunning() {
+		t.Fatalf("expected mod+enter to approve draft plan when rewind popover is closed, got %+v", ed.ActivePlan())
+	}
+}
