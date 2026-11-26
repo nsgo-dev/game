@@ -1570,8 +1570,13 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Configure agent MCP permission profiles and first-match-wins rules",
 			Category:    "Project",
 			Keywords:    []string{"permissions", "rules", "profile", "cautious", "balanced", "autonomous", "mcp", "agent", "settings"},
+			Scope:       ScopeGlobal,
+			Enabled:     func() bool { return !e.Playing() },
 			Checked:     func() bool { return e.PermissionsSettingsOpen() },
 			Run: func() error {
+				if e.Playing() {
+					return ErrPlaying
+				}
 				e.SetPermissionsSettingsOpen(!e.PermissionsSettingsOpen())
 				return nil
 			},

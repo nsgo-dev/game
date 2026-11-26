@@ -2,6 +2,7 @@ package editormcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -55,7 +56,10 @@ func playFrozenTools() []Tool {
 			Description: "Step Play mode across a frame range (from_frame..to_frame or steps) using the saved/rolling replay while keeping the game paused, showing the viewport agent pill ('agent stepping frames A–B') and recording the step log.",
 			InputSchema: []byte(playReplayStepSchema),
 			Action:      ActionRun,
-			Handler:     playReplayStep,
+			Target: func(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {
+				return editor.PermissionActionRun, editor.PermissionRunPlaytests
+			},
+			Handler: playReplayStep,
 		},
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -71,34 +72,75 @@ func (e *PermissionError) Error() string {
 	return fmt.Sprintf("%s: %s", prefix, e.Reason)
 }
 
-// LastPermissionDecision returns the most recent permission evaluation recorded by the server for a mutating or running tool call.
+func clonePermissionEval(eval editor.PermissionEvaluation) editor.PermissionEvaluation {
+	if eval.Rule != nil {
+		cp := eval.Rule.Clone()
+		eval.Rule = &cp
+	}
+	return eval
+}
+
+// LastPermissionDecision returns a copy of the most recent permission evaluation recorded by the server for a mutating or running tool call.
 func (s *Server) LastPermissionDecision() (editor.PermissionEvaluation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lastPermEval, s.hasLastPermEval
+	if !s.hasLastPermEval {
+		return editor.PermissionEvaluation{}, false
+	}
+	return clonePermissionEval(s.lastPermEval), true
 }
 
 func (s *Server) recordPermissionDecision(eval editor.PermissionEvaluation) {
+	stored := clonePermissionEval(eval)
 	s.mu.Lock()
-	s.lastPermEval = eval
+	s.lastPermEval = stored
 	s.hasLastPermEval = true
 	cb := s.onPermDecision
 	s.mu.Unlock()
 	if cb != nil {
-		cb(eval)
+		cb(clonePermissionEval(stored))
+	}
+}
+
+func permissionDecisionSeverity(d editor.PermissionDecision) int {
+	switch d {
+	case editor.PermissionAllow:
+		return 0
+	case editor.PermissionAsk:
+		return 1
+	case editor.PermissionDeny:
+		return 2
+	default:
+		return 3
 	}
 }
 
 // checkPermission evaluates t against the editor's permission rules before t.Handler runs.
-// Read-only tools (ActionRead or empty Action) are always allowed without consulting the rule table.
+// Only read-only tools (ActionRead) skip the rule table; empty or unrecognized actions fail closed (PermissionDeny).
 func (s *Server) checkPermission(ctx context.Context, t Tool, args json.RawMessage, onEditor bool) error {
-	if t.Action == "" || t.Action == ActionRead {
+	if t.Action == ActionRead {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !t.Action.Valid() {
+		eval := editor.PermissionEvaluation{
+			Decision:  editor.PermissionDeny,
+			RuleIndex: -1,
+			Reason:    fmt.Sprintf("Denied: tool %q has invalid action %q.", t.Name, t.Action),
+			Link:      "Settings › Permissions",
+			Tool:      t.Name,
+		}
+		s.recordPermissionDecision(eval)
+		return permissionErrorFromEval(eval, "")
 	}
 
 	var (
 		eval    editor.PermissionEvaluation
 		summary string
+		reqID   string
+		askOnly bool
 	)
 	runOnEditor := func(fn func(ed *editor.Editor) error) error {
 		if onEditor {
@@ -107,10 +149,21 @@ func (s *Server) checkPermission(ctx context.Context, t Tool, args json.RawMessa
 		return s.Editor(ctx, fn)
 	}
 
+	// Evaluate all targets and atomically record Deny or non-blocking Ask in a single editor-goroutine step.
 	if err := runOnEditor(func(ed *editor.Editor) error {
-		req := permissionRequestForTool(t, args, ed)
-		summary = req.Summary
-		eval = ed.EvaluatePermission(req)
+		reqs := permissionRequestsForTool(t, args, ed)
+		eval, summary = evaluateAllPermissionRequests(ed, reqs)
+		switch eval.Decision {
+		case editor.PermissionDeny:
+			ed.RecordBlockedPermission(eval, summary)
+		case editor.PermissionAsk:
+			// Never invoke a potentially blocking OnPermissionAsk callback synchronously on the UI goroutine (onEditor == true).
+			if onEditor || s.onPermAsk == nil {
+				req := ed.EnqueuePermissionRequest(eval, summary, nil)
+				reqID = req.ID
+				askOnly = true
+			}
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -123,50 +176,110 @@ func (s *Server) checkPermission(ctx context.Context, t Tool, args json.RawMessa
 		return nil
 
 	case editor.PermissionDeny:
-		_ = runOnEditor(func(ed *editor.Editor) error {
-			ed.RecordBlockedPermission(eval, summary)
-			return nil
-		})
 		return permissionErrorFromEval(eval, "")
 
 	case editor.PermissionAsk:
-		if s.onPermAsk != nil {
-			ans, err := s.onPermAsk(ctx, eval)
-			if err != nil {
+		if askOnly {
+			return permissionErrorFromEval(eval, reqID)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ans, err := s.onPermAsk(ctx, clonePermissionEval(eval))
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		switch ans {
+		case PermissionAnswerAllowOnce:
+			return nil
+		case PermissionAnswerAllowAlways:
+			if err := runOnEditor(func(ed *editor.Editor) error {
+				_, err := ed.ApproveAlwaysPermission(eval)
+				return err
+			}); err != nil {
 				return err
 			}
-			switch ans {
-			case PermissionAnswerAllowOnce:
-				return nil
-			case PermissionAnswerAllowAlways:
-				if err := runOnEditor(func(ed *editor.Editor) error {
-					_, err := ed.ApproveAlwaysPermission(eval)
-					return err
-				}); err != nil {
-					return err
-				}
-				return nil
-			case PermissionAnswerDeny:
-				deniedEval := eval
-				deniedEval.Decision = editor.PermissionDeny
-				deniedEval.Reason = "Denied by you: " + eval.Reason
-				return permissionErrorFromEval(deniedEval, "")
-			}
-		}
-		var reqID string
-		_ = runOnEditor(func(ed *editor.Editor) error {
-			req := ed.EnqueuePermissionRequest(eval, summary, nil)
-			reqID = req.ID
 			return nil
-		})
-		return permissionErrorFromEval(eval, reqID)
+		case PermissionAnswerDeny:
+			deniedEval := clonePermissionEval(eval)
+			deniedEval.Decision = editor.PermissionDeny
+			deniedEval.Reason = "Denied by you: " + eval.Reason
+			return permissionErrorFromEval(deniedEval, "")
+		default:
+			var pendingID string
+			if err := runOnEditor(func(ed *editor.Editor) error {
+				req := ed.EnqueuePermissionRequest(eval, summary, nil)
+				pendingID = req.ID
+				return nil
+			}); err != nil {
+				return err
+			}
+			return permissionErrorFromEval(eval, pendingID)
+		}
 
 	default:
 		return permissionErrorFromEval(eval, "")
 	}
 }
 
+func evaluateAllPermissionRequests(ed *editor.Editor, reqs []editor.PermissionRequest) (editor.PermissionEvaluation, string) {
+	root := ""
+	if ed != nil {
+		root = projectRoot(ed)
+	}
+	var (
+		strictest        editor.PermissionEvaluation
+		strictestSummary string
+		hasStrictest     bool
+	)
+	for _, req := range reqs {
+		eval := evaluateSinglePermissionRequest(ed, root, req)
+		if !hasStrictest || permissionDecisionSeverity(eval.Decision) > permissionDecisionSeverity(strictest.Decision) {
+			strictest = eval
+			strictestSummary = req.Summary
+			hasStrictest = true
+		}
+		if eval.Decision == editor.PermissionDeny {
+			return eval, req.Summary
+		}
+	}
+	return strictest, strictestSummary
+}
+
+func evaluateSinglePermissionRequest(ed *editor.Editor, root string, req editor.PermissionRequest) editor.PermissionEvaluation {
+	if req.Action != editor.PermissionActionRun && strings.TrimSpace(req.Target) != "" {
+		resolved, err := editor.ResolvePermissionFileTarget(root, req.Target)
+		if err != nil {
+			perms := editor.DefaultPermissions()
+			if ed != nil {
+				perms = ed.Permissions()
+			}
+			return editor.PermissionEvaluation{
+				Decision:  editor.PermissionDeny,
+				Profile:   perms.Profile,
+				Modified:  perms.IsModified(),
+				RuleIndex: -1,
+				RuleTotal: len(perms.Rules),
+				Reason:    fmt.Sprintf("Denied: %v", err),
+				Link:      "Settings › Permissions",
+				Tool:      req.Tool,
+				Action:    req.Action,
+				Target:    strings.TrimSpace(req.Target),
+			}
+		}
+		req.Target = resolved
+	}
+	if ed == nil {
+		return editor.DefaultPermissions().Evaluate(req)
+	}
+	return ed.EvaluatePermission(req)
+}
+
 func permissionErrorFromEval(eval editor.PermissionEvaluation, reqID string) *PermissionError {
+	eval = clonePermissionEval(eval)
 	return &PermissionError{
 		Tool:       eval.Tool,
 		Action:     eval.Action,
@@ -184,16 +297,35 @@ func permissionErrorFromEval(eval editor.PermissionEvaluation, reqID string) *Pe
 	}
 }
 
+func permissionRequestsForTool(t Tool, args json.RawMessage, ed *editor.Editor) []editor.PermissionRequest {
+	if t.targets != nil {
+		reqs := t.targets(args, ed)
+		if len(reqs) > 0 {
+			for i := range reqs {
+				if reqs[i].Tool == "" {
+					reqs[i].Tool = t.Name
+				}
+				if reqs[i].Summary == "" {
+					reqs[i].Summary = formatToolCallSummary(reqs[i].Action, t.Name, reqs[i].Target)
+				}
+			}
+			return reqs
+		}
+	}
+	return []editor.PermissionRequest{permissionRequestForTool(t, args, ed)}
+}
+
 func permissionRequestForTool(t Tool, args json.RawMessage, ed *editor.Editor) editor.PermissionRequest {
-	action := mapToolAction(t.Action)
+	action, ok := mapToolAction(t.Action)
 	target := ""
 	if t.Target != nil {
 		a, tgt := t.Target(args, ed)
 		if a.Valid() {
 			action = a
+			ok = true
 		}
 		target = tgt
-	} else {
+	} else if ok {
 		target = inferToolTarget(action, t.Name, args, ed)
 	}
 	summary := formatToolCallSummary(action, t.Name, target)
@@ -205,20 +337,20 @@ func permissionRequestForTool(t Tool, args json.RawMessage, ed *editor.Editor) e
 	}
 }
 
-func mapToolAction(a Action) editor.PermissionAction {
+func mapToolAction(a Action) (editor.PermissionAction, bool) {
 	switch a {
 	case ActionEdit:
-		return editor.PermissionActionEdit
+		return editor.PermissionActionEdit, true
 	case ActionCreate:
-		return editor.PermissionActionCreate
+		return editor.PermissionActionCreate, true
 	case ActionDelete:
-		return editor.PermissionActionDelete
+		return editor.PermissionActionDelete, true
 	case ActionRun:
-		return editor.PermissionActionRun
+		return editor.PermissionActionRun, true
 	case ActionCode:
-		return editor.PermissionActionCode
+		return editor.PermissionActionCode, true
 	default:
-		return editor.PermissionActionEdit
+		return "", false
 	}
 }
 
@@ -242,8 +374,8 @@ func inferToolTarget(action editor.PermissionAction, toolName string, args json.
 		}
 		return toolName
 	}
-	if f := strField("file", "path", "from", "target"); f != "" {
-		return strings.TrimPrefix(strings.ReplaceAll(f, `\`, "/"), "./")
+	if f := strField("file", "path", "from"); f != "" {
+		return f
 	}
 	if action == editor.PermissionActionEdit && ed != nil {
 		return openSceneTarget(ed)
@@ -301,15 +433,18 @@ func statesWriteTarget(args json.RawMessage, ed *editor.Editor) (editor.Permissi
 		File string `json:"file"`
 	}
 	_ = json.Unmarshal(args, &in)
-	target := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(in.File), `\`, "/"), "./")
-	if target != "" && ed != nil {
+	raw := strings.TrimSpace(in.File)
+	if raw != "" && ed != nil {
 		if root := projectRoot(ed); root != "" {
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); os.IsNotExist(err) {
-				return editor.PermissionActionCreate, target
+			if resolved, err := editor.ResolvePermissionFileTarget(root, raw); err == nil && resolved != "" {
+				if _, serr := os.Stat(filepath.Join(root, filepath.FromSlash(resolved))); os.IsNotExist(serr) {
+					return editor.PermissionActionCreate, resolved
+				}
+				return editor.PermissionActionEdit, resolved
 			}
 		}
 	}
-	return editor.PermissionActionEdit, target
+	return editor.PermissionActionEdit, raw
 }
 
 func statesTestTarget(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {
@@ -322,15 +457,20 @@ func cutsceneWriteTarget(args json.RawMessage, ed *editor.Editor) (editor.Permis
 		Review *bool  `json:"review"`
 	}
 	_ = json.Unmarshal(args, &in)
-	target := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(in.File), `\`, "/"), "./")
-	if target != "" && ed != nil && in.Review != nil && !*in.Review {
+	raw := strings.TrimSpace(in.File)
+	if raw != "" && ed != nil {
 		if root := projectRoot(ed); root != "" {
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); os.IsNotExist(err) {
-				return editor.PermissionActionCreate, target
+			if resolved, err := editor.ResolvePermissionFileTarget(root, raw); err == nil && resolved != "" {
+				if in.Review != nil && !*in.Review {
+					if _, serr := os.Stat(filepath.Join(root, filepath.FromSlash(resolved))); os.IsNotExist(serr) {
+						return editor.PermissionActionCreate, resolved
+					}
+				}
+				return editor.PermissionActionEdit, resolved
 			}
 		}
 	}
-	return editor.PermissionActionEdit, target
+	return editor.PermissionActionEdit, raw
 }
 
 func tilesetEditTarget(args json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string) {
@@ -338,9 +478,13 @@ func tilesetEditTarget(args json.RawMessage, ed *editor.Editor) (editor.Permissi
 		File string `json:"file"`
 	}
 	_ = json.Unmarshal(args, &in)
-	target := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(in.File), `\`, "/"), "./")
-	if target == "" && ed != nil && ed.TilesetOpen() {
-		target = ed.TilesetPath()
+	target := strings.TrimSpace(in.File)
+	if target == "" && ed != nil {
+		if ed.TilesetOpen() {
+			target = ed.TilesetPath()
+		} else {
+			target = ed.ActiveLayerTilesetPath()
+		}
 	}
 	return editor.PermissionActionEdit, target
 }
@@ -350,7 +494,7 @@ func playtestDefineTarget(args json.RawMessage, _ *editor.Editor) (editor.Permis
 		File string `json:"file"`
 	}
 	_ = json.Unmarshal(args, &in)
-	target := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(in.File), `\`, "/"), "./")
+	target := strings.TrimSpace(in.File)
 	if target == "" {
 		target = playtest.FileName
 	}
@@ -362,20 +506,100 @@ func playtestReportTarget(args json.RawMessage, _ *editor.Editor) (editor.Permis
 		File string `json:"file"`
 	}
 	_ = json.Unmarshal(args, &in)
-	target := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(in.File), `\`, "/"), "./")
+	target := strings.TrimSpace(in.File)
 	if target == "" {
 		target = playtest.ReportFileName
 	}
 	return editor.PermissionActionEdit, target
 }
 
-func refactorRenameTarget(args json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {
+func splitRenamePathParts(rel string) (folder, suffix string) {
+	idx := strings.LastIndexByte(rel, '/')
+	base := rel
+	if idx >= 0 {
+		folder = rel[:idx+1]
+		base = rel[idx+1:]
+	}
+	if dot := strings.IndexByte(base, '.'); dot >= 0 {
+		suffix = base[dot:]
+	}
+	return folder, suffix
+}
+
+func resolveRenameDestTarget(fromResolved, toRaw string) string {
+	raw := strings.TrimSpace(toRaw)
+	if raw == "" {
+		return ""
+	}
+	if strings.ContainsAny(raw, `/\:`) || strings.Contains(raw, "..") {
+		return raw
+	}
+	folder, suffix := splitRenamePathParts(fromResolved)
+	if suffix != "" && strings.HasSuffix(strings.ToLower(raw), strings.ToLower(suffix)) {
+		return path.Clean(raw)
+	}
+	// If the caller supplied an explicit filename with extension (for example "game.yaml") on a different extension, evaluate it directly too.
+	if strings.ContainsRune(raw, '.') {
+		return path.Clean(raw)
+	}
+	if fromResolved != "" {
+		return path.Clean(folder + raw + suffix)
+	}
+	return raw
+}
+
+func refactorRenameTargets(args json.RawMessage, ed *editor.Editor) []editor.PermissionRequest {
 	var in struct {
-		From string `json:"from"`
+		From  string `json:"from"`
+		To    string `json:"to"`
+		Apply bool   `json:"apply"`
 	}
 	_ = json.Unmarshal(args, &in)
-	target := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(in.From), `\`, "/"), "./")
-	return editor.PermissionActionEdit, target
+	fromRaw := strings.TrimSpace(in.From)
+	toRaw := strings.TrimSpace(in.To)
+	var reqs []editor.PermissionRequest
+	reqs = append(reqs, editor.PermissionRequest{
+		Tool:   ToolRefactorRename,
+		Action: editor.PermissionActionEdit,
+		Target: fromRaw,
+	})
+	fromResolved := fromRaw
+	if ed != nil && fromRaw != "" {
+		if r, err := editor.ResolvePermissionFileTarget(projectRoot(ed), fromRaw); err == nil && r != "" {
+			fromResolved = r
+		}
+	}
+	if toRaw != "" {
+		dest := resolveRenameDestTarget(fromResolved, toRaw)
+		reqs = append(reqs, editor.PermissionRequest{
+			Tool:   ToolRefactorRename,
+			Action: editor.PermissionActionEdit,
+			Target: dest,
+		})
+	}
+	if in.Apply && ed != nil && fromResolved != "" {
+		if rep, err := ed.FindUsages(fromResolved); err == nil && rep != nil {
+			seen := map[string]bool{fromResolved: true}
+			addFiles := func(groups []editor.UsageFileGroup) {
+				for _, g := range groups {
+					if g.File == "" || seen[g.File] {
+						continue
+					}
+					seen[g.File] = true
+					reqs = append(reqs, editor.PermissionRequest{
+						Tool:   ToolRefactorRename,
+						Action: editor.PermissionActionEdit,
+						Target: g.File,
+					})
+				}
+			}
+			addFiles(rep.Scenes)
+			addFiles(rep.Variants)
+			addFiles(rep.DataTables)
+			addFiles(rep.Other)
+		}
+	}
+	return reqs
 }
 
 func mergeResolveTarget(_ json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string) {
@@ -387,8 +611,25 @@ func mergeResolveTarget(_ json.RawMessage, ed *editor.Editor) (editor.Permission
 	return editor.PermissionActionEdit, openSceneTarget(ed)
 }
 
-func mergeFinishTarget(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {
-	return editor.PermissionActionRun, editor.PermissionRunGameCheck
+func mergeFinishTargets(_ json.RawMessage, ed *editor.Editor) []editor.PermissionRequest {
+	sceneTarget := openSceneTarget(ed)
+	if ed != nil {
+		if sess := ed.MergeSession(); sess != nil && sess.ScenePath != "" {
+			sceneTarget = sess.ScenePath
+		}
+	}
+	return []editor.PermissionRequest{
+		{
+			Tool:   ToolMergeFinish,
+			Action: editor.PermissionActionEdit,
+			Target: sceneTarget,
+		},
+		{
+			Tool:   ToolMergeFinish,
+			Action: editor.PermissionActionRun,
+			Target: "git merge",
+		},
+	}
 }
 
 func mergeAbortTarget(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {

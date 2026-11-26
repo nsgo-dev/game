@@ -76,6 +76,7 @@ func objectMenuTools() []Tool {
 			Description: "Parse canonical sceneformat object YAML (or the editor's current object clipboard) and place a copy with fresh unique IDs as one undo step.",
 			InputSchema: []byte(objectPasteYAMLSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     objectPasteYAML,
 		},
 		{
@@ -84,6 +85,7 @@ func objectMenuTools() []Tool {
 			Description: "Clone an object (and its children) on the same layer with fresh unique IDs as one undo step.",
 			InputSchema: []byte(objectDuplicateSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     objectDuplicate,
 		},
 		{
@@ -92,6 +94,7 @@ func objectMenuTools() []Tool {
 			Description: "Create a new parent group object and reparent the given objects (or current selection) under it in one undo step, preserving world transforms.",
 			InputSchema: []byte(objectGroupSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     objectGroup,
 		},
 		{
@@ -100,6 +103,7 @@ func objectMenuTools() []Tool {
 			Description: "Reparent an object under another object (or to the top level of its layer when parent is empty) in one undo step while preserving world transform, or list valid candidate parents when listCandidates is true.",
 			InputSchema: []byte(objectMoveUnderSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     objectMoveUnder,
 		},
 		{
@@ -116,6 +120,7 @@ func objectMenuTools() []Tool {
 			Description: "Set an object's session-only hidden and/or locked state in the editor viewports without modifying the scene file.",
 			InputSchema: []byte(objectVisibilitySchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     objectVisibility,
 		},
 		{

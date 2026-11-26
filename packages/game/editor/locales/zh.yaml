@@ -585,6 +585,10 @@ strings:
   permissions.profile.cautiousDesc: 每次修改、检查和试玩前都会先询问。
   permissions.removeRule: 删除规则
   permissions.resetPreset: 恢复预设
+  permissions.ruleActionLabel: 规则 {num} 操作：{action}
+  permissions.ruleDecisionLabel: 规则 {num} 决策
+  permissions.ruleDecisionOption: 规则 {num} {decision}
+  permissions.rulePatternsLabel: 规则 {num} 匹配模式
   permissions.rulesHeader: 规则 · 首条匹配生效
   permissions.scopeShared: 项目 · permissions.yaml
   permissions.searchHint: 设置 › 权限 · 编辑器 MCP 服务器强制执行的项目规则

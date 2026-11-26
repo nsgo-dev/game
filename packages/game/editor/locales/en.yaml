@@ -585,6 +585,10 @@ strings:
   permissions.profile.cautiousDesc: Asks before every change, check and playtest.
   permissions.removeRule: Remove rule
   permissions.resetPreset: Reset to preset
+  permissions.ruleActionLabel: 'Rule {num} action: {action}'
+  permissions.ruleDecisionLabel: Rule {num} decision
+  permissions.ruleDecisionOption: Rule {num} {decision}
+  permissions.rulePatternsLabel: Rule {num} patterns
   permissions.rulesHeader: RULES · FIRST MATCH WINS
   permissions.scopeShared: Project · permissions.yaml
   permissions.searchHint: Settings › Permissions · project rules enforced by the editor's MCP server

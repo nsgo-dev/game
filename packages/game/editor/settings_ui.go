@@ -324,6 +324,27 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					}
 				},
 			},
+			// AGENT · permissions.yaml group (always available; persists to permissions.yaml when a project is open)
+			core.View{
+				TestID: "settings-nav-group-permissions",
+				Style:  core.Style{Gap: 4, Padding: core.Edges{Top: 12}},
+				Children: []core.Node{
+					settingsSectionLabelDynamic(p, func() string {
+						_ = langMemo.Get()
+						return ed.T("permissions.sectionAgent")
+					}),
+					navRow(SettingsPagePermissions, "permissions.title", "Permissions", func() (string, bool) {
+						_ = rev.Get()
+						_ = langMemo.Get()
+						perms := ed.Permissions()
+						meta := ed.localizedProfileName(perms.Profile)
+						if perms.IsModified() {
+							return meta + " · " + ed.T("permissions.changed"), true
+						}
+						return meta, false
+					}, nil),
+				},
+			},
 			// EDITOR · THIS COMPUTER group
 			core.View{
 				TestID: "settings-nav-group-editor",
@@ -433,6 +454,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			return ed.T("settings.page.audio"), ed.T("settings.page.audioSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPageExport:
 			return ed.T("settings.page.export"), ed.T("settings.page.exportSubtitle"), ed.T("settings.scopeProject"), true
+		case SettingsPagePermissions:
+			return ed.T("permissions.title"), ed.T("permissions.subtitle"), PermissionsFileName, true
 		case SettingsPageShortcuts:
 			return ed.T("settings.shortcuts"), ed.T("settings.shortcutsHelp"), ed.T("settings.scopeComputer"), false
 		default:
@@ -629,6 +652,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return audioMixerPanel(cx, ed, rev)
 				case SettingsPageExport:
 					return exportPanel(cx, ed, rev)
+				case SettingsPagePermissions:
+					return permissionsSettingsPageBody(cx, ed, rev)
 				case SettingsPageShortcuts:
 					return core.View{
 						TestID: "editor-settings-shortcuts-wrap",
@@ -685,6 +710,9 @@ func matchSettingsPageQuery(q string, hasProject bool) (SettingsPage, bool) {
 	}
 	if strings.Contains(q, "shortcut") || strings.Contains(q, "keymap") || strings.Contains(q, "hotkey") || strings.Contains(q, "rebind") || strings.Contains(q, "快捷键") {
 		return SettingsPageShortcuts, true
+	}
+	if strings.Contains(q, "permission") || strings.Contains(q, "mcp") || strings.Contains(q, "agent") || strings.Contains(q, "rule") || strings.Contains(q, "cautious") || strings.Contains(q, "balanced") || strings.Contains(q, "autonomous") || strings.Contains(q, "权限") {
+		return SettingsPagePermissions, true
 	}
 	if hasProject {
 		switch {

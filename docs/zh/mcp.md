@@ -366,6 +366,8 @@ claude mcp add game-editor -- nsgo game mcp
 - **`ask`（询问）**：若配置了 `Options.OnPermissionAsk` 则调用回调，否则在 `Editor` 上记录待处理请求（`PendingPermissionRequests`）并直接返回带 `decision: "ask"` 的结构化 `*editormcp.PermissionError`，不会执行工具。选择**始终允许**（`PermissionAnswerAllowAlways` / `Editor.ApproveAlwaysPermission`）会在匹配规则之前插入一条 `allow` 规则、保存到 `permissions.yaml`，并显示带 **查看（Show）** 和 **撤销（Undo）** 按钮的 `"Always permission rule saved"` 提示条。
 - **`deny`（拒绝）**：在 `Editor` 上记录已拦截步骤（`BlockedPermissions`），返回写明具体规则序号、规则摘要、方案名称及设置跳转路径（如 `"Settings › Permissions · rule 7 of 7"`）的结构化 `*editormcp.PermissionError`，绝不调用底层工具处理函数。
 
+权限强制执行采用默认安全拒绝（fail-closed）原则：`Server.AddTool` 拒绝空白或未识别的 `Action`；当 `permissions.yaml` 解析失败时拒绝所有修改类与运行类调用直至修复；文件路径目标在规则匹配前会相对项目根规范化并解析符号链接（拒绝绝对路径、`..` 越界与符号链接逃逸，并在 macOS/Windows 上按大小写不敏感匹配）；多目标工具（`refactor_rename` 同时校验 `from`、目标路径 `to` 及 `apply: true` 时被改写的引用文件；`merge_finish` 同时校验场景编辑与 `git merge` 运行）按最严格结论（`deny > ask > allow`）生效。
+
 权限规则仅约束编辑器的 MCP 服务器工具；外部智能体直接修改磁盘文件仍会通过编辑器的磁盘监视器提示。
 
 ```go

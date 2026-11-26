@@ -59,6 +59,7 @@ func inspectorTools() []Tool {
 			Description: "Set one inspector field, component field, or custom property on an object (defaulting to the selected object) through the exact same Editor methods as the inspector, recorded as one undo step.",
 			InputSchema: []byte(objectSetFieldSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     objectSetField,
 		},
 		{
