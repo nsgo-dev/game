@@ -669,6 +669,8 @@ func (e *Editor) loadAgentThreadUnlocked(filePath string) error {
 	for _, id := range oldIDs {
 		e.fireHoldRelease(id)
 	}
+	e.resetTaskNotificationTrackingForTasks()
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	return nil
 }
@@ -696,11 +698,13 @@ func (e *Editor) resetTasksForProject() {
 	for _, id := range oldIDs {
 		e.fireHoldRelease(id)
 	}
+	e.resetTaskNotificationTrackingForTasks()
 	if threadPath := e.AgentThreadFilePath(); threadPath != "" {
 		if _, err := os.Stat(threadPath); err == nil {
 			_ = e.loadAgentThreadUnlocked(threadPath)
 		}
 	}
+	e.syncDockBadgeIfAttached()
 }
 
 func (e *Editor) stopAllTaskRunners() []string {
@@ -1309,6 +1313,10 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	e.tasks.mu.Unlock()
 
 	_ = e.SaveAgentThread()
+	if ret.State.IsNotifiable() {
+		e.onAgentTaskStateUpdated(ret, "", now)
+	}
+	e.syncDockBadgeIfAttached()
 	e.notify()
 
 	if shouldLaunch {
@@ -1677,14 +1685,18 @@ func (e *Editor) RequestTaskPermission(id, prompt, detail string) error {
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
+	prevState := t.State
 	t.State = TaskNeedsYou
 	t.PermissionPrompt = prompt
 	t.PermissionDetail = detail
 	if prompt != "" {
 		t.StepSummary = prompt
 	}
+	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, e.nowTime())
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	return nil
 }
@@ -1710,6 +1722,7 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 		unlock()
 		return fmt.Errorf("editor: task %q is not waiting for permission (state=%s)", id, st)
 	}
+	prevState := t.State
 	t.State = TaskRunning
 	t.PermissionPrompt = ""
 	t.PermissionDetail = ""
@@ -1718,8 +1731,11 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	} else {
 		t.Steps = append(t.Steps, TaskStep{Summary: "Permission denied", Done: true})
 	}
+	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	cb := e.OnTaskPermissionDecision
 	unlock()
@@ -1746,6 +1762,7 @@ func (e *Editor) CompleteTaskTurn(id string, review TaskReview) error {
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
+	prevState := t.State
 	t.State = TaskReadyToReview
 	t.EditingObjects = nil
 	t.HoldingObjects = nil
@@ -1780,12 +1797,15 @@ func (e *Editor) CompleteTaskTurn(id string, review TaskReview) error {
 	cp := review
 	cp.Changes = slices.Clone(review.Changes)
 	t.Review = &cp
+	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 
 	if !cp.Kept {
 		e.cancelAutoSaveTimer()
 	}
 	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	unlock()
 	e.fireHoldRelease(id)
@@ -1825,6 +1845,7 @@ func (e *Editor) FailTask(id, errMsg string) error {
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
+	prevState := t.State
 	t.State = TaskFailed
 	t.Error = errMsg
 	t.EditingObjects = nil
@@ -1833,8 +1854,11 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	t.BlockedByTaskID = ""
 	t.BlockedByTaskNumber = 0
 	t.FinishedAt = now.UTC().Format(time.RFC3339)
+	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	unlock()
 	e.fireHoldRelease(id)
@@ -1858,6 +1882,7 @@ func (e *Editor) StopTask(id string) error {
 	cancel := e.tasks.cancels[id]
 	delete(e.tasks.cancels, id)
 	t := &e.tasks.tasks[idx]
+	prevState := t.State
 	t.State = TaskStopped
 	t.EditingObjects = nil
 	t.HoldingObjects = nil
@@ -1867,12 +1892,15 @@ func (e *Editor) StopTask(id string) error {
 	t.FinishedAt = now.UTC().Format(time.RFC3339)
 	delete(e.tasks.selectedDismiss, id)
 	e.ensureFocusedTaskLocked()
+	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
 	}
 	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	e.fireHoldRelease(id)
 	e.advanceTaskQueue(id)
@@ -1904,6 +1932,7 @@ func (e *Editor) RetryTask(id string) error {
 		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: at most %d parallel tasks can run at once; wait for one to finish before retrying", maxParallelTasks)
 	}
+	prevState := t.State
 	t.Error = ""
 	t.Dismissed = false
 	t.FinishedAt = ""
@@ -1925,9 +1954,12 @@ func (e *Editor) RetryTask(id string) error {
 		t.StartsAfterTaskID = e.findQueueBlockerIDLocked()
 	}
 	e.tasks.focusedID = t.ID
+	taskCopy := t.clone()
 	taskID := t.ID
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	if shouldLaunch {
 		e.launchTaskRunner(taskID)
@@ -1959,6 +1991,7 @@ func (e *Editor) KeepTask(id string) error {
 		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q is not ready to review (state=%s)", id, st)
 	}
+	prevState := t.State
 	if t.Review == nil {
 		t.Review = &TaskReview{ID: "review-" + id, TaskID: id, ScenePath: t.ScenePath}
 	}
@@ -1972,9 +2005,12 @@ func (e *Editor) KeepTask(id string) error {
 	t.State = TaskDone
 	delete(e.tasks.selectedDismiss, id)
 	e.ensureFocusedTaskLocked()
+	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.scheduleAutoSaveIfNeeded()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	e.advanceTaskQueue(id)
 	return nil
@@ -2010,6 +2046,8 @@ func (e *Editor) RevertTask(id string) error {
 		}
 	}
 
+	var updatedTask AgentTask
+	hasUpdated := false
 	e.tasks.mu.Lock()
 	if curIdx := e.findTaskIndexLocked(id); curIdx >= 0 {
 		t := &e.tasks.tasks[curIdx]
@@ -2024,10 +2062,16 @@ func (e *Editor) RevertTask(id string) error {
 		t.State = TaskStopped
 		delete(e.tasks.selectedDismiss, id)
 		e.ensureFocusedTaskLocked()
+		updatedTask = t.clone()
+		hasUpdated = true
 	}
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.scheduleAutoSaveIfNeeded()
+	if hasUpdated {
+		e.onAgentTaskStateUpdated(updatedTask, tCopy.State, time.Time{})
+	}
+	e.syncDockBadgeIfAttached()
 	e.notify()
 	e.advanceTaskQueue(id)
 	return nil
@@ -2359,6 +2403,10 @@ func (e *Editor) DismissTasks(ids []string) int {
 	e.tasks.mu.Unlock()
 	if dismissed > 0 {
 		_ = e.SaveAgentThread()
+		for _, id := range resolved {
+			e.clearTaskNotificationForID(id)
+		}
+		e.syncDockBadgeIfAttached()
 		e.notify()
 		for _, id := range resolved {
 			e.advanceTaskQueue(id)

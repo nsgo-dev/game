@@ -579,6 +579,10 @@ type Editor struct {
 	FirstRunBuilder func(ctx context.Context, req FirstRunBuildRequest, emit func(FirstRunBuildEvent)) (*FirstRunBuildResult, error)
 	// FirstRunConnectTimeout bounds the Start with AI agent handshake before showing the no-answer checklist (defaults to 30s when <= 0).
 	FirstRunConnectTimeout time.Duration
+	// OnFocusWindow, when set, is called when clicking a system notification brings the editor window to the front.
+	OnFocusWindow func()
+	// OnOpenAgentTask, when set, is called after OpenAgentTask opens a task's scene and switches to the Tasks or Agent panel.
+	OnOpenAgentTask func(task AgentTask)
 
 	playing            bool
 	playPaused         bool

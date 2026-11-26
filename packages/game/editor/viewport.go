@@ -2013,6 +2013,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			AskInPlaceComposerView(cx, ed, rev),
 			viewportTaskLegendOverlay(cx, ed, rev),
 			viewportHistoryPreviewBannerView(cx, ed, rev),
+			PlayTaskDotView(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

@@ -18,6 +18,15 @@ strings:
   agent.composerLabel: 向智能体提问
   agent.composerPlaceholder: 描述你想做的修改… 例如让骑士跳得更高
   agent.connectShort: 连接
+  agent.notify.actionAllowOnce: 允许一次
+  agent.notify.actionLater: 稍后
+  agent.notify.actionOpen: 打开
+  agent.notify.actionRetry: 重试
+  agent.notify.actionReview: 审查
+  agent.notify.failedTitle: 任务失败
+  agent.notify.reviewTitle: 待审查
+  agent.notify.waitingTitle: 智能体需要权限
+  agent.playDot.hoverFormat: '{summary} · 停止播放以打开'
   agent.status.disconnected: 已断开
   agent.status.reconnectingShort: 重连中
   agent.status.waitingShort: 等待你
@@ -1200,6 +1209,12 @@ strings:
   toolbar.unsavedFailedLabel: 未保存的更改 · 保存失败
   toolbar.unsavedLabel: 未保存的更改
 plurals:
+  agent.playDot.failed:
+    other: '{count} 个任务失败'
+  agent.playDot.review:
+    other: '{count} 个任务待审查'
+  agent.playDot.waiting:
+    other: '{count} 个任务需要你处理'
   output.errorCount:
     other: ' · {count} 个错误'
   overlays.count.regions:

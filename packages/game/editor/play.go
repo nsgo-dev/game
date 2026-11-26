@@ -626,6 +626,7 @@ func (e *Editor) stopInternal(sendMarks bool) error {
 	e.clearDiskWatchNotified()
 	e.scheduleAutoSaveIfNeeded()
 	e.Status = "Stopped"
+	e.flushHeldNotificationsAfterPlay()
 	e.notify()
 	return nil
 }
