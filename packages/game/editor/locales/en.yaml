@@ -124,16 +124,30 @@ strings:
   cmd.view3dOrtho.label: '3D View: Orthographic'
   contextMenu.askAgent: Ask the agent about this
   contextMenu.back: Back
+  contextMenu.copiedYAML: Copied {name} as YAML · {lines} lines
   contextMenu.copyYAML: Copy as YAML
   contextMenu.currentParent: current
   contextMenu.duplicate: Duplicate
   contextMenu.findUsages: Find usages
   contextMenu.group: Group
   contextMenu.hide: Hide
+  contextMenu.kind.camera: Camera
+  contextMenu.kind.gridMap: GridMap
+  contextMenu.kind.group: Group
+  contextMenu.kind.light: Light
+  contextMenu.kind.mesh3d: 3D Mesh
+  contextMenu.kind.model3d: 3D Model
+  contextMenu.kind.object: Object
+  contextMenu.kind.particles: Particles
+  contextMenu.kind.prefabInstance: Prefab instance
+  contextMenu.kind.sceneInstance: Scene instance
+  contextMenu.kind.sprite: Sprite
   contextMenu.layerNote: layer {layer}
   contextMenu.lock: Lock
   contextMenu.lockedNote: locked
+  contextMenu.manyChildrenNote: '{layer} · {count} children'
   contextMenu.moveUnder: Move under
+  contextMenu.oneChildNote: '{layer} · 1 child'
   contextMenu.paste: Paste
   contextMenu.rename: Rename
   contextMenu.selectSamePrefab: Select same prefab

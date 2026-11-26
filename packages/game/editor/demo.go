@@ -208,6 +208,7 @@ func (e *Editor) OpenDemo() error {
 	e.hud.open = false
 	e.resetPlaytestForProject()
 	e.resetUsagesForProject()
+	e.resetContextMenuForProject()
 	e.applyViewStateSnap(nil)
 
 	e.Doc = DemoSceneDoc()

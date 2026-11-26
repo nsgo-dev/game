@@ -1176,8 +1176,12 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	var lastPointerMode ViewMode
 	var hasPointer bool
 	var rightConsumed bool
+	isFiniteCoord := func(x, y float32) bool {
+		return !math.IsNaN(float64(x)) && !math.IsInf(float64(x), 0) &&
+			!math.IsNaN(float64(y)) && !math.IsInf(float64(y), 0)
+	}
 	hitViewportObject := func(x, y float32) string {
-		if ed.Playing() {
+		if ed.Playing() || !isFiniteCoord(x, y) {
 			return ""
 		}
 		if ed.ViewMode == ViewMode3D {
@@ -1188,7 +1192,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		return ed.HitTest(x, y)
 	}
 	openViewportContextMenu := func(x, y float32) bool {
-		if ed.Playing() || ed.PickingConnectionTarget() {
+		if ed.contextMenuBlocked() || ed.PickingConnectionTarget() || !isFiniteCoord(x, y) {
 			return false
 		}
 		hit := hitViewportObject(x, y)
@@ -1200,6 +1204,13 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		}
 		return ed.OpenObjectContextMenu(hit)
 	}
+	viewportMenuKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		if !ed.ObjectContextMenuOpen() {
+			return ""
+		}
+		return ed.objectContextMenuDigest(ed.ObjectContextMenuTarget(), cx.Dark())
+	})
 	beginStroke := func(at core.Point, secondary, alt bool) {
 		strokeTookPress = false
 		// A press with Space held navigates rather than edits, and connection target pick mode intercepts clicks instead of painting tiles.
@@ -1504,6 +1515,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					},
 					OnPointerDelta: func(dx, dy float64) { g3.pointerDelta(ed, dx, dy) },
 					OnMouseDown: func(ev core.MouseButtonEvent) {
+						if !isFiniteCoord(float32(ev.Position.X), float32(ev.Position.Y)) {
+							return
+						}
 						lastPointer, lastPointerMode, hasPointer = ev.Position, ed.ViewMode, true
 						rightConsumed = false
 						if ev.Button == core.MouseButtonLeft && ev.Modifiers.Control && !spaceHeld() && !ed.PickingConnectionTarget() {
@@ -1778,7 +1792,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				}),
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
+						if viewportMenuKey.Get() == "" {
+							return core.Group{}
+						}
 						id := ed.ObjectContextMenuTarget()
 						if id == "" {
 							return core.Group{}
@@ -1787,7 +1803,6 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}),
 				},
 			},
-			viewportToastView(cx, ed, rev),
 			assetDragViewportOverlay(cx, ed, rev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),

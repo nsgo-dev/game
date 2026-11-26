@@ -140,7 +140,7 @@ layers:
 
 	// 3. Copy as YAML and capture the floating Spec toast.
 	app.Press("id:context-menu-copy-yaml")
-	if !app.Exists("id:editor-viewport-toast") {
+	if !app.Exists("id:editor-toast") {
 		t.Fatal("Copy as YAML toast not shown")
 	}
 	app.Screenshot("object-context-menu-copy-toast")

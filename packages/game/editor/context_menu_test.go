@@ -120,7 +120,7 @@ func TestObjectContextMenuCopyAsYAMLRoundTripAndToast(t *testing.T) {
 	// Verify exact toast and status message format: "Copied <name> as YAML · N lines".
 	lines := strings.Count(strings.TrimSuffix(clip, "\n"), "\n") + 1
 	wantToast := fmt.Sprintf("Copied ship as YAML · %d lines", lines)
-	if got := app.Find("id:editor-viewport-toast-text").Text; got != wantToast {
+	if got := app.Find("id:editor-toast-message").Text; got != wantToast {
 		t.Fatalf("viewport toast = %q, want %q", got, wantToast)
 	}
 	if got := app.Find("id:editor-status-message").Text; got != wantToast {
@@ -128,8 +128,8 @@ func TestObjectContextMenuCopyAsYAMLRoundTripAndToast(t *testing.T) {
 	}
 
 	// Dismissing the toast clears it cleanly.
-	app.Press("id:editor-viewport-toast-dismiss")
-	if app.Exists("id:editor-viewport-toast") {
+	app.Press("id:editor-toast-dismiss")
+	if app.Exists("id:editor-toast") {
 		t.Fatal("viewport toast stayed visible after Dismiss")
 	}
 
@@ -550,8 +550,203 @@ layers:
 
 	// 3. Copy as YAML and capture the floating Spec toast.
 	app.Press("id:context-menu-copy-yaml")
-	if !app.Exists("id:editor-viewport-toast") {
+	if !app.Exists("id:editor-toast") {
 		t.Fatal("Copy as YAML toast not shown")
 	}
 	app.Screenshot("object-context-menu-copy-toast")
+}
+
+func TestObjectContextMenuForeignOverridesDynamicShortcutsModalAndLifecycleGuards(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"game.yaml": `version: 1
+name: Override Menu
+id: dev.example.overridemenu
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+autoload:
+  mainScene: main
+  scenes:
+    - name: main
+      path: scenes/main.scene.yaml
+`,
+		"scenes/base.scene.yaml": `version: 2
+name: Base
+virtualWidth: 640
+virtualHeight: 360
+layers:
+  - name: actors
+    objects:
+      - id: inherited_hero
+        name: Inherited Hero
+        x: 100
+        y: 120
+`,
+		"scenes/enemy.scene.yaml": `version: 2
+name: Enemy
+virtualWidth: 640
+virtualHeight: 360
+layers:
+  - name: actors
+    objects:
+      - id: body
+        name: Enemy Body
+        x: 0
+        y: 0
+`,
+		"scenes/main.scene.yaml": `version: 2
+name: Main
+inherits: scenes/base.scene.yaml
+virtualWidth: 640
+virtualHeight: 360
+layers:
+  - name: actors
+    objects:
+      - id: slime_inst
+        name: Slime Instance
+        scene: scenes/enemy.scene.yaml
+        x: 200
+        y: 140
+`,
+	}
+	for rel, content := range files {
+		abs := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ProjectAssets = true
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	// Rebind Duplicate shortcut to verify dynamic shortcut hints reflect #1191 customizations.
+	if err := ed.RebindShortcut(editor.CmdDuplicate, "mod+shift+d"); err != nil {
+		t.Fatalf("RebindShortcut(Duplicate): %v", err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}))
+
+	// 1. Foreign (inherited) object opens context menu with Open Source Scene & Revert Overrides, omitting local-only edits.
+	app.Post(func() {
+		ed.SelectObject("inherited_hero")
+		if !ed.OpenObjectContextMenu("inherited_hero") {
+			t.Error("OpenObjectContextMenu(inherited_hero) returned false")
+		}
+	})
+	app.Settle()
+	if !app.Exists("id:context-menu-open-source") || !app.Exists("id:context-menu-revert-overrides") {
+		t.Fatal("foreign object context menu missing Open Source Scene / Revert Overrides")
+	}
+	if app.Exists("id:context-menu-duplicate") || app.Exists("id:context-menu-move-under") || app.Exists("id:context-menu-group") {
+		t.Fatal("foreign object viewport context menu should omit local-only Duplicate / Group / Move under")
+	}
+	if got := app.Find("id:context-menu-title").Text; got != "Inherited Hero" {
+		t.Fatalf("foreign context-menu-title = %q, want Inherited Hero", got)
+	}
+	app.Post(func() { ed.CloseObjectContextMenu() })
+	app.Settle()
+
+	// 2. Scene Tree context menu on scene instance exposes #1184 Make Local / Apply / Revert / Open Instanced Scene and #1187 Find Usages.
+	app.RightClick("id:scene-tree-row-slime_inst")
+	for _, wantID := range []string{
+		"id:scene-tree-open-scene-slime_inst",
+		"id:scene-tree-make-local-slime_inst",
+		"id:scene-tree-apply-overrides-slime_inst",
+		"id:scene-tree-revert-overrides-slime_inst",
+		"id:scene-tree-find-usages-slime_inst",
+	} {
+		if !app.Exists(wantID) {
+			t.Fatalf("scene tree context menu on scene instance missing %s", wantID)
+		}
+	}
+	// Verify dynamic shortcut from #1191 appears on Duplicate and Lock has no misleading "L" shortcut.
+	if got := allText(app.Find("id:scene-tree-duplicate-slime_inst")); !strings.Contains(got, "⇧⌘D") {
+		t.Fatalf("scene-tree-duplicate text = %q, want rebound shortcut ⇧⌘D", got)
+	}
+	app.Key("escape")
+
+	// 3. Unrelated 60 Hz frame ticks do not remount an open viewport context menu.
+	app.Post(func() {
+		ed.SelectObject("slime_inst")
+		ed.OpenObjectContextMenu("slime_inst")
+	})
+	app.Settle()
+	titleBefore := app.Find("id:context-menu-title")
+	app.Post(func() {
+		ed.SetShowGrid(true)
+		ed.SetShowGrid(false)
+	})
+	app.Settle()
+	titleAfter := app.Find("id:context-menu-title")
+	if titleAfter.ID != titleBefore.ID {
+		t.Fatalf("unrelated rev ticks remounted open viewport context menu: ID %d -> %d", titleBefore.ID, titleAfter.ID)
+	}
+
+	// 4. Play closes open context menu and blocks reopening; modal screens also block opening and 'h' key.
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.ObjectContextMenuOpen() {
+		t.Fatal("Play should close open object context menu")
+	}
+	app.Post(func() {
+		if err := ed.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+		ed.SetPlaytestReportOpen(true)
+	})
+	app.Settle()
+	if ed.OpenObjectContextMenu("slime_inst") {
+		t.Fatal("OpenObjectContextMenu should be blocked while PlaytestReport is open")
+	}
+	app.Key("h")
+	if ed.ObjectHidden("slime_inst") {
+		t.Fatal("pressing 'h' while PlaytestReport is open should not toggle object visibility")
+	}
+	app.Post(func() { ed.SetPlaytestReportOpen(false) })
+	app.Settle()
+
+	// 5. PasteObjectYAML enforces size cap and sanitizes bare-object names with spaces.
+	huge := strings.Repeat("a", (4<<20)+64)
+	if _, err := ed.PasteObjectYAML(huge, ""); err == nil {
+		t.Fatal("PasteObjectYAML should refuse payloads larger than 4 MiB")
+	}
+	bare := "name: My Spaced Hero\nx: 10\ny: 20\n"
+	pastedID, err := ed.PasteObjectYAML(bare, "")
+	if err != nil {
+		t.Fatalf("PasteObjectYAML(bare with spaces): %v", err)
+	}
+	if strings.ContainsRune(pastedID, ' ') {
+		t.Fatalf("pasted bare object ID %q must not contain spaces", pastedID)
+	}
+
+	// 6. OpenDemo resets context menu & toasts cleanly.
+	app.Post(func() {
+		_, _, _ = ed.CopyObjectYAML("slime_inst")
+		ed.OpenObjectContextMenu("slime_inst")
+		if err := ed.OpenDemo(); err != nil {
+			t.Errorf("OpenDemo: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.ObjectContextMenuOpen() || ed.ToastMessage() != "" {
+		t.Fatalf("OpenDemo should close context menu and clear toasts, got open=%v toast=%q", ed.ObjectContextMenuOpen(), ed.ToastMessage())
+	}
 }

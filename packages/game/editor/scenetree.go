@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -704,10 +705,37 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 
 	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
 	structOff := func() bool { return editsOff() || isForeign() }
+	menuOpen := core.NewSignal(cx, false)
+	cx.Effect(func() {
+		if !menuOpen.Get() {
+			return
+		}
+		_ = rev.Get()
+		if ed.ObjectContextMenuOpen() || ed.contextMenuBlocked() {
+			menuOpen.Set(false)
+		}
+	})
+	menuKey := core.NewMemo(cx, func() string {
+		if !menuOpen.Get() {
+			return ""
+		}
+		_ = rev.Get()
+		return ed.objectContextMenuDigest(id, cx.Dark())
+	})
 
 	return ui.ContextMenu{
 		TestID: "scene-tree-menu-" + id,
 		Style:  core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+		Open:   menuOpen.Get,
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if open {
+				if ed.contextMenuBlocked() {
+					return
+				}
+				ed.CloseObjectContextMenu()
+			}
+			menuOpen.Set(open)
+		},
 		Trigger: dragdrop.Target{
 			View: core.View{
 				Ref:   rowRef,
@@ -750,7 +778,9 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = rev.Get()
+				if menuKey.Get() == "" {
+					return core.Group{}
+				}
 				return core.Group(objectContextMenuItems(cx, ed, rev, id, objectContextMenuOpts{
 					includeTreeActions: true,
 					treeKey:            k,

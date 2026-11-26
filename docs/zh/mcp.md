@@ -286,7 +286,7 @@ claude mcp add game-editor -- nsgo game mcp
 | --- | --- | --- | --- |
 | `scene_read` | read | `file`、`offset`、`limit`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑时，该文件按编辑器当前持有的内容读取，回复会注明这一点，并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。 |
 | `scene_edit` | edit | `edits`（必填）、`file`、`label`（可选） | 按顺序把这些编辑应用到编辑器中打开的场景，作为一个撤销步骤，标签为 `label`（或由编辑内容生成）。这些编辑在用户保存前一直未保存。 |
-| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、文件浏览器中选中的文件、当前工具和视图模式。 |
+| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、多选时的全部选中对象列表 `selectedIds`、文件浏览器中选中的文件、当前工具和视图模式。 |
 | `viewport_image` | read | `scale`（可选，0.25 到 4）、`viewport_overlays`（可选字符串数组） | 视口当前样子的 PNG：通过编辑器视图看到的场景，以及相机框、瓦片网格、选择框与视口叠加层，尺寸为视口的点尺寸乘以 `scale`。省略 `viewport_overlays` 时使用编辑器当前启用的叠加层集合；传入叠加层 ID（`collision_shapes`、`triggers`、`connections`、`patrol_paths`、`navigation`、`camera_bounds`、`labels` 或已启用的插件叠加层 ID）时仅覆盖本次截图，传 `[]` 则不绘制任何叠加层。叠加层文字（如连接箭头上的 `"pulled → open"`）会渲染到 PNG 中；不在内存中的图片会被略去并给出数量。 |
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`），返回其中的问题，每条带文件、行号和消息。它读取磁盘上的文件；打开的场景有检查未看到的未保存编辑时，回复会写出该场景。 |
 | `game_playtest` | run | `file`、`run`、`count`、`seeds`、`out`、`recordings`（均可选） | 校验 `playtest.yaml`，无头运行配置好的机器人试玩并按种子录制 `.replay.yaml` 回放，写出 YAML 报告并返回每项指标的值、目标状态（`met` 或 `missed`）以及热力图坐标数据。 |
@@ -309,6 +309,14 @@ claude mcp add game-editor -- nsgo game mcp
 | `tile_review_restore_region` | edit | `id` 或 `index` | 恢复当前瓦片审查中已还原的单个区域，并立即更新 2D 视口。 |
 | `tile_review_keep` | edit | 无 | 将当前瓦片审查中所有保留区域合并提交为 `History` 中的单个可撤销步骤，并关闭审查。 |
 | `tile_review_revert_all` | edit | 无 | 丢弃当前瓦片审查中的所有待确认改动，还原到审查前的瓦片地图并关闭审查。 |
+| `object_copy_yaml` | read | `id`（可选） | 将当前场景中的对象（本地或解析后的继承/实例对象）序列化为规范 `sceneformat` YAML，复制到编辑器剪贴板并显示复制提示。 |
+| `object_paste_yaml` | edit | `yaml`、`layer`（可选） | 解析规范 `sceneformat` 对象 YAML（省略 `yaml` 时读取编辑器当前剪贴板，最大 4 MiB），分配全新的唯一 ID 并作为一个撤销步骤放置到 `layer`。 |
+| `object_duplicate` | edit | `id`（可选） | 在同一图层中克隆对象（及其子项）并分配全新的唯一 ID，作为单个撤销步骤。 |
+| `object_group` | edit | `ids`、`name`（可选） | 新建父分组对象并将给定对象 ID（或当前选中对象）移入其下，保持世界变换不变，作为单个撤销步骤。 |
+| `object_move_under` | edit | `id`、`parent`、`listCandidates`（可选） | 将对象重新挂到 `parent` 下（`parent` 为空时移至图层顶层）并保持世界变换不变，作为单个撤销步骤；当 `listCandidates: true` 时仅列出合法候选父级而不修改场景。 |
+| `object_select_same_prefab` | read | `id`（可选） | 选中当前场景中与目标对象共享同一 `prefab` 或实例化 `scene` 引用的全部对象，并返回 `selectedIds`。 |
+| `object_visibility` | edit | `id`、`hidden`、`locked`（可选） | 设置本地或解析对象的会话级隐藏与/或锁定状态，不修改场景文件。 |
+| `object_find_usages` | read | `id`（可选） | 在打开的项目中查找对象的实例化场景、预制体或 ID 的引用与搜索匹配（对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板）。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

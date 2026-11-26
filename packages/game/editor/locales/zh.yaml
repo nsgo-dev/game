@@ -124,16 +124,30 @@ strings:
   cmd.view3dOrtho.label: 3D 视图：正交投影
   contextMenu.askAgent: 向智能体询问此项
   contextMenu.back: 返回
+  contextMenu.copiedYAML: 已复制 {name} 为 YAML · {lines} 行
   contextMenu.copyYAML: 复制为 YAML
   contextMenu.currentParent: 当前
   contextMenu.duplicate: 复制副本
   contextMenu.findUsages: 查找用法
   contextMenu.group: 编组
   contextMenu.hide: 隐藏
+  contextMenu.kind.camera: 相机
+  contextMenu.kind.gridMap: 网格地图
+  contextMenu.kind.group: 分组
+  contextMenu.kind.light: 灯光
+  contextMenu.kind.mesh3d: 3D 网格
+  contextMenu.kind.model3d: 3D 模型
+  contextMenu.kind.object: 对象
+  contextMenu.kind.particles: 粒子
+  contextMenu.kind.prefabInstance: 预制体实例
+  contextMenu.kind.sceneInstance: 场景实例
+  contextMenu.kind.sprite: 精灵
   contextMenu.layerNote: 图层 {layer}
   contextMenu.lock: 锁定
   contextMenu.lockedNote: 已锁定
+  contextMenu.manyChildrenNote: '{layer} · {count} 个子项'
   contextMenu.moveUnder: 移至子级
+  contextMenu.oneChildNote: '{layer} · 1 个子项'
   contextMenu.paste: 粘贴
   contextMenu.rename: 重命名
   contextMenu.selectSamePrefab: 选择相同预制体

@@ -83,6 +83,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopReleaseBuild()
 		ed.stopAssetsBuild()
 		ed.stopDiskWatcher()
+		ed.CloseObjectContextMenu()
 		_ = ed.DisconnectProfiler()
 		ed.cancelCreateProject()
 		_ = ed.DisconnectRemote()

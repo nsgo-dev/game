@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"path"
 	"strings"
-	"time"
+	"unicode"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"go.yaml.in/yaml/v3"
 )
+
+// maxObjectYAMLBytes caps object YAML payloads pasted from the clipboard or MCP to prevent unbounded allocations.
+const maxObjectYAMLBytes = 4 << 20
 
 // AgentPromptRequest describes a prompt draft sent from the editor to an attached agent composer
 // (for example "Ask the agent about this" in the object context menu).
@@ -65,10 +68,31 @@ type objectContextMenuState struct {
 	targetID        string
 	renameReqSeq    uint64
 	renameReqID     string
-	toastMsg        string
-	toastSeq        uint64
-	toastStop       func() bool
 	lastAgentPrompt AgentPromptRequest
+}
+
+// resolveContextObject returns the object document, its layer name, layer space, and whether it is
+// foreign (inherited or from an instanced scene rather than local to e.Doc).
+func (e *Editor) resolveContextObject(id string) (obj *sceneformat.ObjectDoc, layerName string, layerSpace sceneformat.Space, isForeign bool) {
+	if e == nil || e.Doc == nil || id == "" {
+		return nil, "", "", false
+	}
+	if local, li, _ := e.FindObject(id); local != nil && li >= 0 && li < len(e.Doc.Layers) {
+		return local, e.Doc.Layers[li].Name, e.Doc.Layers[li].Space, false
+	}
+	if resolved, lname := e.FindResolvedObject(id); resolved != nil {
+		space := sceneformat.SpaceWorld
+		if e.Built != nil && e.Built.Doc != nil {
+			for li := range e.Built.Doc.Layers {
+				if e.Built.Doc.Layers[li].Name == lname {
+					space = e.Built.Doc.Layers[li].Space
+					break
+				}
+			}
+		}
+		return resolved, lname, space, true
+	}
+	return nil, "", "", false
 }
 
 // contextObjectDisplayName returns the human-readable display name of obj (Name if set, else ID).
@@ -88,40 +112,40 @@ func (e *Editor) ObjectKindLabel(id string) string {
 	if e == nil || e.Doc == nil || id == "" {
 		return ""
 	}
-	obj, _, _ := e.FindObject(id)
+	obj, _, _, _ := e.resolveContextObject(id)
 	if obj == nil {
 		return ""
 	}
-	return contextObjectKindLabel(obj)
+	return e.contextObjectKindLabel(obj)
 }
 
-func contextObjectKindLabel(obj *sceneformat.ObjectDoc) string {
+func (e *Editor) contextObjectKindLabel(obj *sceneformat.ObjectDoc) string {
 	if obj == nil {
 		return ""
 	}
 	switch {
 	case obj.Prefab != "":
-		return "Prefab instance"
+		return e.T("contextMenu.kind.prefabInstance")
 	case obj.Scene != "":
-		return "Scene instance"
+		return e.T("contextMenu.kind.sceneInstance")
 	case obj.Camera != nil:
-		return "Camera"
+		return e.T("contextMenu.kind.camera")
 	case obj.Light != nil:
-		return "Light"
+		return e.T("contextMenu.kind.light")
 	case obj.Particles != nil:
-		return "Particles"
+		return e.T("contextMenu.kind.particles")
 	case obj.Model != "":
-		return "3D Model"
+		return e.T("contextMenu.kind.model3d")
 	case obj.Mesh != "":
-		return "3D Mesh"
+		return e.T("contextMenu.kind.mesh3d")
 	case obj.GridMap != "":
-		return "GridMap"
+		return e.T("contextMenu.kind.gridMap")
 	case obj.Sprite != nil:
-		return "Sprite"
+		return e.T("contextMenu.kind.sprite")
 	case len(obj.Children) > 0:
-		return "Group"
+		return e.T("contextMenu.kind.group")
 	default:
-		return "Object"
+		return e.T("contextMenu.kind.object")
 	}
 }
 
@@ -131,13 +155,13 @@ func (e *Editor) ObjectContextSubtitle(id string) string {
 	if e == nil || e.Doc == nil || id == "" {
 		return ""
 	}
-	obj, li, _ := e.FindObject(id)
-	if obj == nil || li < 0 || li >= len(e.Doc.Layers) {
+	obj, layerName, _, _ := e.resolveContextObject(id)
+	if obj == nil || layerName == "" {
 		return ""
 	}
 	return e.T("contextMenu.subtitle",
-		l10n.Param("kind", contextObjectKindLabel(obj)),
-		l10n.Param("layer", e.Doc.Layers[li].Name),
+		l10n.Param("kind", e.contextObjectKindLabel(obj)),
+		l10n.Param("layer", layerName),
 	)
 }
 
@@ -153,8 +177,8 @@ func (e *Editor) ObjectYAML(id string) (string, int, error) {
 	if id == "" {
 		return "", 0, errors.New("editor: no object selected")
 	}
-	obj, li, _ := e.FindObject(id)
-	if obj == nil || li < 0 || li >= len(e.Doc.Layers) {
+	obj, layerName, layerSpace, _ := e.resolveContextObject(id)
+	if obj == nil || layerName == "" {
 		return "", 0, fmt.Errorf("editor: object %q not found", id)
 	}
 	ver := e.Doc.Version
@@ -165,8 +189,8 @@ func (e *Editor) ObjectYAML(id string) (string, int, error) {
 		Version: ver,
 		Layers: []sceneformat.LayerDoc{
 			{
-				Name:    e.Doc.Layers[li].Name,
-				Space:   e.Doc.Layers[li].Space,
+				Name:    layerName,
+				Space:   layerSpace,
 				Objects: []sceneformat.ObjectDoc{cloneObjectDoc(*obj)},
 			},
 		},
@@ -195,12 +219,19 @@ func (e *Editor) CopyObjectYAML(id string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	obj, _, _ := e.FindObject(id)
+	obj, _, _, _ := e.resolveContextObject(id)
 	name := contextObjectDisplayName(obj)
 	e.writeClipboard(text)
-	msg := fmt.Sprintf("Copied %s as YAML · %d lines", name, lines)
+	msg := e.T("contextMenu.copiedYAML",
+		l10n.Param("name", name),
+		l10n.Param("lines", lines),
+	)
 	e.Status = msg
-	e.ShowToast(msg)
+	e.ShowToast(Toast{
+		ID:      "object-copy-yaml",
+		Kind:    ToastSuccess,
+		Message: msg,
+	})
 	return text, lines, nil
 }
 
@@ -241,6 +272,9 @@ func (e *Editor) PasteObjectYAML(yamlText, layerName string) (string, error) {
 	raw := bytes.TrimSpace([]byte(yamlText))
 	if len(raw) == 0 {
 		return "", errors.New("editor: clipboard has no object YAML to paste")
+	}
+	if len(raw) > maxObjectYAMLBytes {
+		return "", fmt.Errorf("editor: pasted object YAML exceeds maximum size (%d bytes)", maxObjectYAMLBytes)
 	}
 
 	obj, srcLayer, err := e.parseObjectYAML(raw)
@@ -317,6 +351,29 @@ func (e *Editor) parseObjectYAML(raw []byte) (sceneformat.ObjectDoc, string, err
 		if item.Kind != yaml.MappingNode {
 			return sceneformat.ObjectDoc{}, "", err
 		}
+		hasID := false
+		var bareName string
+		for i := 0; i+1 < len(item.Content); i += 2 {
+			switch item.Content[i].Value {
+			case "id":
+				if strings.TrimSpace(item.Content[i+1].Value) != "" {
+					hasID = true
+				}
+			case "name":
+				if item.Content[i+1].Kind == yaml.ScalarNode {
+					bareName = item.Content[i+1].Value
+				}
+			}
+		}
+		if !hasID {
+			itemCopy := *item
+			itemCopy.Content = append([]*yaml.Node(nil), item.Content...)
+			itemCopy.Content = append(itemCopy.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "id"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: sanitizeObjectIDBase(bareName)},
+			)
+			item = &itemCopy
+		}
 		wrapped := &yaml.Node{
 			Kind: yaml.MappingNode,
 			Content: []*yaml.Node{
@@ -358,22 +415,46 @@ func (e *Editor) parseObjectYAML(raw []byte) (sceneformat.ObjectDoc, string, err
 	}
 }
 
+func sanitizeObjectIDBase(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(raw) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-':
+			b.WriteRune(r)
+		case unicode.IsSpace(r):
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_-")
+	if out == "" {
+		return "obj"
+	}
+	return out
+}
+
 func (e *Editor) assignFreshSubtreeIDs(root *sceneformat.ObjectDoc) {
 	allocated := make(map[string]struct{})
 	var assign func(o *sceneformat.ObjectDoc)
 	assign = func(o *sceneformat.ObjectDoc) {
-		base := o.ID
-		if base == "" {
-			base = o.Name
+		rawBase := o.ID
+		if rawBase == "" {
+			rawBase = o.Name
 		}
-		for {
-			candidate := e.generateObjectID(base)
-			if _, taken := allocated[candidate]; !taken {
-				o.ID = candidate
-				allocated[candidate] = struct{}{}
-				break
+		base := sanitizeObjectIDBase(rawBase)
+		candidate := e.generateObjectID(base)
+		if _, taken := allocated[candidate]; taken {
+			for n := 2; ; n++ {
+				try := fmt.Sprintf("%s_%d", base, n)
+				if _, used := allocated[try]; !used {
+					if obj, _, _ := e.FindObject(try); obj == nil {
+						candidate = try
+						break
+					}
+				}
 			}
 		}
+		o.ID = candidate
+		allocated[candidate] = struct{}{}
 		for i := range o.Children {
 			assign(&o.Children[i])
 		}
@@ -393,7 +474,7 @@ func (e *Editor) SelectSamePrefab(id string) ([]string, error) {
 	if id == "" {
 		return nil, errors.New("editor: no object selected")
 	}
-	obj, _, _ := e.FindObject(id)
+	obj, _, _, _ := e.resolveContextObject(id)
 	if obj == nil {
 		return nil, fmt.Errorf("editor: object %q not found", id)
 	}
@@ -406,9 +487,13 @@ func (e *Editor) SelectSamePrefab(id string) ([]string, error) {
 	if ref == "" {
 		return nil, fmt.Errorf("editor: object %q has no prefab or instanced scene", id)
 	}
+	searchDoc := e.Doc
+	if e.Built != nil && e.Built.Doc != nil {
+		searchDoc = e.Built.Doc
+	}
 	var matched []string
-	for li := range e.Doc.Layers {
-		sceneformat.WalkObjects(e.Doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+	for li := range searchDoc.Layers {
+		sceneformat.WalkObjects(searchDoc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
 			if (!byScene && o.Prefab == ref) || (byScene && o.Scene == ref) {
 				matched = append(matched, o.ID)
 			}
@@ -497,9 +582,9 @@ func (e *Editor) moveUnderNote(layer string, childCount int, current, locked boo
 	case locked:
 		return e.T("contextMenu.lockedNote")
 	case childCount == 1:
-		return fmt.Sprintf("%s · 1 child", layer)
+		return e.T("contextMenu.oneChildNote", l10n.Param("layer", layer))
 	case childCount > 1:
-		return fmt.Sprintf("%s · %d children", layer, childCount)
+		return e.T("contextMenu.manyChildrenNote", l10n.Param("layer", layer), l10n.Param("count", childCount))
 	default:
 		return e.T("contextMenu.layerNote", l10n.Param("layer", layer))
 	}
@@ -566,7 +651,7 @@ func (e *Editor) FindObjectUsages(id string) (ObjectUsagesResult, error) {
 	if id == "" {
 		return ObjectUsagesResult{}, errors.New("editor: no object selected")
 	}
-	obj, _, _ := e.FindObject(id)
+	obj, _, _, _ := e.resolveContextObject(id)
 	if obj == nil {
 		return ObjectUsagesResult{}, fmt.Errorf("editor: object %q not found", id)
 	}
@@ -606,13 +691,19 @@ func (e *Editor) FindObjectUsages(id string) (ObjectUsagesResult, error) {
 	}, nil
 }
 
-// ShowObjectUsages runs FindObjectUsages for id and opens the Project Search & References panel with the results.
+// ShowObjectUsages runs FindObjectUsages for id and opens the Find Usages review screen (for scene or
+// path-valued prefab targets) or the Project Search & References panel with the results.
 func (e *Editor) ShowObjectUsages(id string) (ObjectUsagesResult, error) {
 	res, err := e.FindObjectUsages(id)
 	if err != nil {
 		return ObjectUsagesResult{}, err
 	}
 	if res.Kind == "references" {
+		if !e.Playing() {
+			if err := e.OpenUsagesScreen(res.Target); err == nil {
+				return res, nil
+			}
+		}
 		_, err = e.ShowReferences(res.Target)
 		return res, err
 	}
@@ -653,15 +744,15 @@ func (e *Editor) AskAgentAboutObject(id string) (AgentPromptRequest, error) {
 	if id == "" {
 		return AgentPromptRequest{}, errors.New("editor: no object selected")
 	}
-	obj, li, _ := e.FindObject(id)
-	if obj == nil || li < 0 || li >= len(e.Doc.Layers) {
+	obj, layerName, _, _ := e.resolveContextObject(id)
+	if obj == nil || layerName == "" {
 		return AgentPromptRequest{}, fmt.Errorf("editor: object %q not found", id)
 	}
 	name := contextObjectDisplayName(obj)
 	req := AgentPromptRequest{
 		ObjectID:   obj.ID,
 		ObjectName: name,
-		Layer:      e.Doc.Layers[li].Name,
+		Layer:      layerName,
 		ScenePath:  e.ScenePath,
 		Draft:      fmt.Sprintf("About %s: ", name),
 	}
@@ -682,10 +773,18 @@ func (e *Editor) LastAgentPrompt() AgentPromptRequest {
 	return e.contextMenu.lastAgentPrompt
 }
 
+func (e *Editor) contextMenuBlocked() bool {
+	return e == nil || e.Doc == nil || e.playing ||
+		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
+		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
+		e.EditorSettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen()
+}
+
 // OpenObjectContextMenu opens the viewport/keyboard object context menu targeting object id
-// (defaulting to SelectedID). Returns false when playing or when id does not name an existing object.
+// (defaulting to SelectedID). Returns false when playing, blocked by a modal screen, or when id does
+// not name an existing local or resolved scene object.
 func (e *Editor) OpenObjectContextMenu(id string) bool {
-	if e == nil || e.Doc == nil || e.playing {
+	if e.contextMenuBlocked() {
 		return false
 	}
 	if id == "" {
@@ -694,7 +793,7 @@ func (e *Editor) OpenObjectContextMenu(id string) bool {
 	if id == "" {
 		return false
 	}
-	if obj, _, _ := e.FindObject(id); obj == nil {
+	if obj, _, _, _ := e.resolveContextObject(id); obj == nil {
 		return false
 	}
 	if e.contextMenu.open && e.contextMenu.targetID == id {
@@ -716,6 +815,15 @@ func (e *Editor) CloseObjectContextMenu() {
 	e.notify()
 }
 
+// resetContextMenuForProject clears context menu state, pending rename requests, agent prompt draft, and toasts on project/demo switches.
+func (e *Editor) resetContextMenuForProject() {
+	if e == nil {
+		return
+	}
+	e.contextMenu = objectContextMenuState{}
+	e.ClearToasts()
+}
+
 // ObjectContextMenuOpen reports whether the viewport/keyboard object context menu is currently open.
 func (e *Editor) ObjectContextMenuOpen() bool {
 	return e != nil && e.contextMenu.open && e.contextMenu.targetID != ""
@@ -731,46 +839,41 @@ func (e *Editor) ObjectContextMenuTarget() string {
 
 // ToastMessage returns the currently displayed viewport toast message, or "" when hidden.
 func (e *Editor) ToastMessage() string {
-	if e == nil {
+	if t, ok := e.ActiveToast(); ok {
+		return t.Message
+	}
+	return ""
+}
+
+// objectContextMenuDigest returns a narrow deterministic key for memoizing an open object context menu
+// so unrelated 60 Hz frame/animation rev ticks do not rebuild menu items or collapse submenus.
+func (e *Editor) objectContextMenuDigest(id string, dark bool) string {
+	if e == nil || e.Doc == nil || id == "" {
 		return ""
 	}
-	return e.contextMenu.toastMsg
-}
-
-// ShowToast displays msg in the viewport toast overlay (auto-dismissing after a short delay when a UI scope is attached).
-func (e *Editor) ShowToast(msg string) {
-	if e == nil {
-		return
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s|%v|%s|%s|%v|%v|%v|%v|%d|%v|%d|%v|%d|%d|%d|%d",
+		id,
+		dark,
+		e.ResolvedLanguage(),
+		e.shortcutsDigest(),
+		e.playing,
+		e.Project != nil && e.ProjectPath != "",
+		e.ObjectHidden(id),
+		e.ObjectLocked(id),
+		e.ObjectOrigin(id),
+		e.ObjectHasAnyOverride(id),
+		e.InstanceOverrideCount(id),
+		e.IsObjectSelected(id),
+		e.SelectionCount(),
+		e.scenesRev,
+		e.History.Index(),
+		e.History.Len(),
+	)
+	for li := range e.Doc.Layers {
+		b.WriteByte('|')
+		b.WriteString(e.Doc.Layers[li].Name)
+		fmt.Fprintf(&b, ":%d", len(e.Doc.Layers[li].Objects))
 	}
-	if e.contextMenu.toastStop != nil {
-		e.contextMenu.toastStop()
-		e.contextMenu.toastStop = nil
-	}
-	e.contextMenu.toastMsg = msg
-	e.contextMenu.toastSeq++
-	seq := e.contextMenu.toastSeq
-	if msg != "" && e.scope != nil {
-		e.contextMenu.toastStop = e.scope.AfterFunc(5*time.Second, func() {
-			if e.contextMenu.toastSeq == seq {
-				e.DismissToast()
-			}
-		})
-	}
-	e.notify()
-}
-
-// DismissToast hides the currently displayed viewport toast message.
-func (e *Editor) DismissToast() {
-	if e == nil {
-		return
-	}
-	if e.contextMenu.toastStop != nil {
-		e.contextMenu.toastStop()
-		e.contextMenu.toastStop = nil
-	}
-	if e.contextMenu.toastMsg == "" {
-		return
-	}
-	e.contextMenu.toastMsg = ""
-	e.notify()
+	return b.String()
 }
