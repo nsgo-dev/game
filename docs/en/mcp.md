@@ -323,6 +323,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `object_select_same_prefab` | read | `id` (optional) | Selects every object in the open scene sharing the same `prefab` or instanced `scene` reference as the target object and returns `selectedIds`. |
 | `object_visibility` | edit | `id`, `hidden`, `locked` (optional) | Sets a local or resolved object's session-only hidden and/or locked state in the editor viewports without modifying the scene file. |
 | `object_find_usages` | read | `id` (optional) | Finds project-wide references or search matches for an object's instanced scene, prefab, or ID in the open project (opening the Find Usages screen for scene/prefab targets or the Search panel for plain IDs). |
+| `release_notes_draft` | edit | `markdown`, `kept_reviews` (optional) | Drafts player-facing Markdown release notes from git commits since the last release tag (or initial commit), kept review summaries, and `changelog.d` fragments (or saves validated `markdown`, capped at 256 KiB), writing atomically and exclusively to the file read by `game release -release-notes`. |
+| `release_review_uploads` | run | none | Opens the Build and Release screen's **Review uploads** confirmation dialog listing every artifact, size, store destination (`itch.io`, `Google Play · internal testing`, `TestFlight`), and version. Never starts an upload: store uploads always require the person's explicit confirmation, whatever the permission profile. |
 
 The edits `scene_edit` takes, each an object with `op`:
 

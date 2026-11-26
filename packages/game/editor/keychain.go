@@ -5,7 +5,48 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
+
+const (
+	// maxKeychainSecretBytes bounds the size of any credential secret stored via Keychain.
+	maxKeychainSecretBytes = 64 << 10
+	// keychainCommandTimeout bounds external desktop keychain CLI invocations so a locked
+	// keychain prompt cannot freeze the editor indefinitely.
+	keychainCommandTimeout = 5 * time.Second
+)
+
+func validateKeychainKey(service, account string) (string, string, error) {
+	for _, raw := range []string{service, account} {
+		for _, r := range raw {
+			if r < 0x20 || r == 0x7f || r == '"' || r == '\'' || r == '\\' {
+				return "", "", errors.New("editor: invalid characters in keychain service or account")
+			}
+		}
+	}
+	service = strings.TrimSpace(service)
+	account = strings.TrimSpace(account)
+	if service == "" || account == "" {
+		return "", "", errors.New("editor: keychain service and account must be non-empty")
+	}
+	if strings.HasPrefix(service, "-") || strings.HasPrefix(account, "-") {
+		return "", "", errors.New("editor: keychain service and account must not start with '-'")
+	}
+	return service, account, nil
+}
+
+func validateKeychainSecret(secret string) error {
+	if secret == "" {
+		return errors.New("editor: keychain secret must be non-empty")
+	}
+	if strings.IndexByte(secret, 0) >= 0 {
+		return errors.New("editor: keychain secret must not contain NUL bytes")
+	}
+	if len(secret) > maxKeychainSecretBytes {
+		return fmt.Errorf("editor: keychain secret exceeds maximum size (%d bytes)", maxKeychainSecretBytes)
+	}
+	return nil
+}
 
 // KeychainServiceName is the system keychain service identifier used to store release upload credentials
 // outside any game project directory.
@@ -72,13 +113,13 @@ func (m *MemoryKeychain) Set(service, account, secret string) error {
 	if m == nil {
 		return ErrKeychainUnavailable
 	}
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
-		return errors.New("editor: keychain service and account must be non-empty")
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
+		return err
 	}
-	if secret == "" {
-		return errors.New("editor: keychain secret must be non-empty")
+	if err := validateKeychainSecret(secret); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -94,9 +135,13 @@ func (m *MemoryKeychain) Get(service, account string) (string, error) {
 	if m == nil {
 		return "", ErrKeychainUnavailable
 	}
+	service, account, err := validateKeychainKey(service, account)
+	if err != nil {
+		return "", ErrCredentialNotFound
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	v, ok := m.entries[memoryKeychainKey(strings.TrimSpace(service), strings.TrimSpace(account))]
+	v, ok := m.entries[memoryKeychainKey(service, account)]
 	if !ok {
 		return "", ErrCredentialNotFound
 	}
@@ -108,9 +153,13 @@ func (m *MemoryKeychain) Delete(service, account string) error {
 	if m == nil {
 		return ErrKeychainUnavailable
 	}
+	service, account, err := validateKeychainKey(service, account)
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.entries, memoryKeychainKey(strings.TrimSpace(service), strings.TrimSpace(account)))
+	delete(m.entries, memoryKeychainKey(service, account))
 	return nil
 }
 

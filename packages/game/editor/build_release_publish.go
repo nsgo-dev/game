@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,6 +21,56 @@ import (
 // DefaultReleaseNotesFile is the project-relative Markdown file written by the Build and Release screen's
 // RELEASE NOTES editor when no explicit -release-notes path has been configured in the Export panel.
 const DefaultReleaseNotesFile = "release-notes.md"
+
+const (
+	// maxReleaseNotesBytes caps release notes Markdown reads and writes (256 KiB).
+	maxReleaseNotesBytes = 256 << 10
+	// maxChangelogFragmentBytes caps each changelog.d fragment read when drafting release notes.
+	maxChangelogFragmentBytes = 64 << 10
+)
+
+func validateReleaseNotesContent(notes string) error {
+	if strings.IndexByte(notes, 0) >= 0 {
+		return errors.New("editor: release notes must not contain NUL bytes")
+	}
+	if len(notes) > maxReleaseNotesBytes {
+		return fmt.Errorf("editor: release notes exceed maximum size (%d bytes)", maxReleaseNotesBytes)
+	}
+	return nil
+}
+
+// ValidateReleaseNotes reports whether notes is safe and within the size budget for release notes Markdown.
+func ValidateReleaseNotes(notes string) error {
+	return validateReleaseNotesContent(notes)
+}
+
+func readBoundedTextFile(absPath string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds maximum size (%d bytes)", filepath.Base(absPath), maxBytes)
+	}
+	return data, nil
+}
+
+func isSafeGitRef(ref string) bool {
+	if ref == "" || strings.HasPrefix(ref, "-") || strings.Contains(ref, "..") {
+		return false
+	}
+	for _, r := range ref {
+		if r <= 0x20 || r == 0x7f || strings.ContainsRune("~^:?*[\\", r) {
+			return false
+		}
+	}
+	return true
+}
 
 // ErrUploadRequiresConfirmation is returned whenever code attempts to start a store upload without an
 // active, user-confirmed Review uploads session.
@@ -375,7 +427,7 @@ func (e *Editor) SetReleaseNotesFile(relPath string) error {
 		if err != nil {
 			return err
 		}
-		if data, rerr := os.ReadFile(abs); rerr == nil && strings.TrimSpace(string(data)) != "" {
+		if data, rerr := readBoundedTextFile(abs, maxReleaseNotesBytes); rerr == nil && strings.TrimSpace(string(data)) != "" {
 			loadedText = string(data)
 			loadedFromDisk = true
 		}
@@ -442,6 +494,9 @@ func (e *Editor) SaveReleaseNotes() error {
 }
 
 func (e *Editor) writeReleaseNotesFile(notes string) error {
+	if err := validateReleaseNotesContent(notes); err != nil {
+		return err
+	}
 	if e == nil || e.ProjectPath == "" {
 		return nil
 	}
@@ -559,7 +614,7 @@ func (e *Editor) readReleaseGitHistory(dir string) (lastTag, sinceRef string, co
 		return "", "", 0, nil
 	}
 	if out, err := e.runBuildGit(dir, "describe", "--tags", "--abbrev=0"); err == nil {
-		if rawTag := strings.TrimSpace(out); rawTag != "" {
+		if rawTag := strings.TrimSpace(out); isSafeGitRef(rawTag) {
 			lastTag = strings.TrimPrefix(rawTag, "v")
 			sinceRef = lastTag
 			if cnt, cerr := e.runBuildGit(dir, "rev-list", "--count", rawTag+"..HEAD"); cerr == nil {
@@ -821,7 +876,7 @@ func readProjectChangelogFragments(dir string) []string {
 		if perr != nil {
 			continue
 		}
-		data, rerr := os.ReadFile(p)
+		data, rerr := readBoundedTextFile(p, maxChangelogFragmentBytes)
 		if rerr != nil {
 			continue
 		}
@@ -1142,7 +1197,30 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 	for i, p := range e.buildRelease.presets {
 		presets[i] = cloneBuildPresetEntry(p)
 	}
+	cachedAccounts := make(map[PublishDestination]string, len(e.buildRelease.keychainAccounts))
+	for k, v := range e.buildRelease.keychainAccounts {
+		cachedAccounts[k] = v
+	}
 	e.buildRelease.mu.Unlock()
+
+	type credLookup struct {
+		hasCred bool
+		account string
+	}
+	credCache := make(map[PublishDestination]credLookup, 3)
+	lookupCred := func(dest PublishDestination) credLookup {
+		if c, ok := credCache[dest]; ok {
+			return c
+		}
+		has := e.HasPublishCredential(dest)
+		acc := cachedAccounts[dest]
+		if acc == "" && has {
+			acc = "stored in system keychain"
+		}
+		c := credLookup{hasCred: has, account: acc}
+		credCache[dest] = c
+		return c
+	}
 
 	var items []ReleaseUploadItem
 	for _, p := range presets {
@@ -1171,8 +1249,7 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 				relPath = filepath.ToSlash(rel)
 			}
 		}
-		hasCred := e.HasPublishCredential(dest)
-		acc := e.PublishCredentialAccount(dest)
+		cred := lookupCred(dest)
 		items = append(items, ReleaseUploadItem{
 			Platform:          p.Platform,
 			PlatformName:      p.Name,
@@ -1185,8 +1262,8 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 			ArtifactRelPath:   relPath,
 			SizeBytes:         sizeBytes,
 			Included:          p.Status == BuildPresetDone || p.Result != nil,
-			HasCredential:     hasCred,
-			CredentialAccount: acc,
+			HasCredential:     cred.hasCred,
+			CredentialAccount: cred.account,
 			Status:            UploadStatusPending,
 		})
 	}
@@ -1206,10 +1283,17 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 	return items
 }
 
+type confirmedUploadJob struct {
+	item      ReleaseUploadItem
+	kcAccount string
+}
+
 // ConfirmReleaseUploads starts uploading the selected artifacts from the open Review uploads dialog.
 // Strict trust boundary:
 //   - Always refuses when called by an agent actor (AgentActorActive() == true), whatever the permission profile.
+//   - Always refuses while playing or while Start Screen / Merge Conflict screens are active.
 //   - Always refuses unless Review uploads is currently open and sessionID matches the active review session.
+//   - Validates every selected artifact path stays within the open project directory.
 //   - Consumes sessionID immediately so confirmation can never be replayed.
 func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	if e == nil || e.Project == nil {
@@ -1220,6 +1304,14 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.StartScreenOpen() || e.MergeConflictOpen() {
+		return ErrUploadRequiresConfirmation
+	}
+
+	baseDir := ""
+	if e.ProjectPath != "" {
+		baseDir = filepath.Dir(e.ProjectPath)
 	}
 
 	e.buildRelease.mu.Lock()
@@ -1236,16 +1328,44 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	var selected []ReleaseUploadItem
 	for i := range rev.items {
 		if rev.items[i].Included {
-			rev.items[i].Status = UploadStatusPending
-			rev.items[i].Progress = 0
-			rev.items[i].Err = ""
-			rev.items[i].StatusMessage = "Queued"
 			selected = append(selected, rev.items[i])
 		}
 	}
 	if len(selected) == 0 {
 		e.buildRelease.mu.Unlock()
 		return ErrNoUploadsSelected
+	}
+
+	// Validate every selected artifact path stays within the project directory before consuming the session.
+	if baseDir != "" {
+		for i := range selected {
+			if strings.TrimSpace(selected[i].ArtifactPath) != "" {
+				resolved, err := resolveBuildReleasePath(baseDir, selected[i].ArtifactPath, false)
+				if err != nil {
+					e.buildRelease.mu.Unlock()
+					return err
+				}
+				selected[i].ArtifactPath = resolved
+			}
+		}
+	}
+
+	// Precompute keychain accounts on the UI goroutine so the background upload worker never reads e.Project.
+	jobs := make([]confirmedUploadJob, len(selected))
+	for i, it := range selected {
+		jobs[i] = confirmedUploadJob{
+			item:      it,
+			kcAccount: e.publishKeychainAccount(it.Destination),
+		}
+	}
+
+	for i := range rev.items {
+		if rev.items[i].Included {
+			rev.items[i].Status = UploadStatusPending
+			rev.items[i].Progress = 0
+			rev.items[i].Err = ""
+			rev.items[i].StatusMessage = "Queued"
+		}
 	}
 
 	// Consume the confirmation session immediately so it cannot be replayed.
@@ -1269,10 +1389,10 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	kc := e.activeKeychain()
 	scope := e.scope
 
-	e.Status = fmt.Sprintf("Uploading %d release artifact(s)…", len(selected))
+	e.Status = fmt.Sprintf("Uploading %d release artifact(s)…", len(jobs))
 	e.notify()
 
-	go e.executeConfirmedReleaseUploads(ctx, scope, run, selected, notesAbs, kc, uploader)
+	go e.executeConfirmedReleaseUploads(ctx, scope, run, jobs, notesAbs, kc, uploader)
 	return nil
 }
 
@@ -1280,7 +1400,7 @@ func (e *Editor) executeConfirmedReleaseUploads(
 	ctx context.Context,
 	scope *core.Scope,
 	run *releaseUploadRun,
-	items []ReleaseUploadItem,
+	jobs []confirmedUploadJob,
 	notesAbs string,
 	kc Keychain,
 	uploader ReleaseUploader,
@@ -1301,7 +1421,8 @@ func (e *Editor) executeConfirmedReleaseUploads(
 	var firstErr error
 	uploadedCount := 0
 
-	for _, item := range items {
+	for _, job := range jobs {
+		item := job.item
 		if ctx.Err() != nil {
 			e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
 				it.Status = UploadStatusCancelled
@@ -1319,8 +1440,7 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		})
 		notifyUI()
 
-		kcAccount := e.publishKeychainAccount(item.Destination)
-		secret, kerr := kc.Get(KeychainServiceName, kcAccount)
+		secret, kerr := kc.Get(KeychainServiceName, job.kcAccount)
 		if kerr != nil {
 			errMsg := fmt.Sprintf("missing %s credential in system keychain", item.DestinationLabel)
 			if !errors.Is(kerr, ErrCredentialNotFound) {
@@ -1357,13 +1477,7 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		}
 
 		res, uerr := uploader.Upload(ctx, req, func(p ReleaseUploadProgress) {
-			frac := p.Fraction
-			if frac < 0 {
-				frac = 0
-			}
-			if frac > 1 {
-				frac = 1
-			}
+			frac := clampUploadFraction(p.Fraction)
 			e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
 				it.Progress = frac
 				if p.Message != "" {
@@ -1417,7 +1531,7 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		case ctx.Err() != nil:
 			e.buildRelease.pendingStatus = "Store upload cancelled"
 		case firstErr != nil:
-			e.buildRelease.pendingStatus = fmt.Sprintf("Uploaded %d of %d artifacts (with errors)", uploadedCount, len(items))
+			e.buildRelease.pendingStatus = fmt.Sprintf("Uploaded %d of %d artifacts (with errors)", uploadedCount, len(jobs))
 		default:
 			e.buildRelease.pendingStatus = fmt.Sprintf("Uploaded %d release artifact(s)", uploadedCount)
 		}
@@ -1426,6 +1540,22 @@ func (e *Editor) executeConfirmedReleaseUploads(
 	}
 	e.buildRelease.mu.Unlock()
 	notifyUI()
+}
+
+func clampUploadFraction(frac float64) float64 {
+	if math.IsNaN(frac) {
+		return 0
+	}
+	if math.IsInf(frac, 1) {
+		return 1
+	}
+	if math.IsInf(frac, -1) || frac < 0 {
+		return 0
+	}
+	if frac > 1 {
+		return 1
+	}
+	return frac
 }
 
 func (e *Editor) updateUploadItemLocked(run *releaseUploadRun, platform string, fn func(*ReleaseUploadItem)) {

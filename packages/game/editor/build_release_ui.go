@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -847,6 +848,7 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
+				p := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				notesFile := snap.ReleaseNotesFile
 				if notesFile == "" {
@@ -858,7 +860,7 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 						core.Text{
 							TestID:  "build-release-notes-file",
 							Content: fmt.Sprintf("Saved to %s · game release -release-notes", notesFile),
-							Style:   core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 11, Color: specTextMuted},
+							Style:   core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 11, Color: p.TextFaint},
 						},
 						core.View{
 							TestID: "build-release-notes-redraft",
@@ -872,11 +874,11 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 								Gap:          5,
 								Padding:      core.Symmetric(0, 8),
 								CornerRadius: 6,
-								Background:   specRaised,
+								Background:   p.Raised,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
-								Hover:        &core.Style{Background: specLineRaised},
-								FocusVisible: specFocusRingStyle,
+								BorderColor:  p.LineRaised,
+								Hover:        &core.Style{Background: p.LineRaised},
+								FocusVisible: p.FocusRing(2),
 							},
 							OnPress: func(core.PressEvent) {
 								if _, err := ed.RedraftReleaseNotes(); err != nil {
@@ -884,10 +886,10 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 								}
 							},
 							Children: []core.Node{
-								buildSpecIcon(lucide.RefreshCw(), 11, specTextSecondary),
+								buildSpecIcon(lucide.RefreshCw(), 11, p.TextMuted),
 								core.Text{
 									Content: "Redraft",
-									Style:   core.Style{FontSize: 11, Color: specTextSecondary},
+									Style:   core.Style{FontSize: 11, Color: p.TextMuted},
 								},
 							},
 						},
@@ -899,6 +901,7 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 }
 
 func buildReleasePublishFooter(ed *Editor) core.Node {
+	reviewBtnRef := &core.Ref{}
 	return core.View{
 		TestID: "build-release-publish-footer",
 		Style: core.Style{
@@ -919,9 +922,35 @@ func buildReleasePublishFooter(ed *Editor) core.Node {
 					core.Text{Content: "Each upload asks first, whatever the permission profile", Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
 				},
 			},
-			buildReleaseSecondaryButton("build-release-review-uploads", "Review uploads…", func() {
-				ed.report(ed.ReviewReleaseUploads())
-			}),
+			core.View{
+				Ref:    reviewBtnRef,
+				TestID: "build-release-review-uploads",
+				Role:   core.RoleButton,
+				Label:  "Review uploads…",
+				Style: core.Style{
+					Height:         core.Pt(30),
+					FlexShrink:     0,
+					Padding:        core.Symmetric(0, 12),
+					CornerRadius:   8,
+					Background:     specLineRaised,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					Hover:          &core.Style{Background: specLine},
+					FocusVisible:   specFocusRingStyle,
+				},
+				OnPress: func(core.PressEvent) {
+					if ed.focus.ctrl != nil {
+						ed.focus.ctrl.recordDialogOpener(reviewBtnRef)
+					}
+					ed.report(ed.ReviewReleaseUploads())
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: "Review uploads…",
+						Style:   core.Style{FontSize: 12, Color: specText},
+					},
+				},
+			},
 		},
 	}
 }
@@ -2096,6 +2125,34 @@ func buildReleaseSecondaryButton(testID, label string, onPress func()) core.Node
 	}
 }
 
+func buildReleaseSecondaryButtonSpec(p SpecPalette, testID, label string, onPress func()) core.Node {
+	return core.View{
+		TestID: testID,
+		Role:   core.RoleButton,
+		Label:  label,
+		Style: core.Style{
+			Height:         core.Pt(30),
+			FlexShrink:     0,
+			Padding:        core.Symmetric(0, 12),
+			CornerRadius:   8,
+			Background:     p.LineRaised,
+			AlignItems:     core.AlignCenter,
+			JustifyContent: core.JustifyCenter,
+			Hover:          &core.Style{Background: p.Line},
+			FocusVisible:   p.FocusRing(2),
+		},
+		OnPress: func(core.PressEvent) {
+			onPress()
+		},
+		Children: []core.Node{
+			core.Text{
+				Content: label,
+				Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
+			},
+		},
+	}
+}
+
 func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]) core.Node {
 	kcAccount := core.NewSignal(cx, "")
 	kcSecret := core.NewSignal(cx, "")
@@ -2104,429 +2161,487 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 		_ = brRev.Get()
 		return ed.BuildReleaseSnapshot().UploadReview.Open
 	})
+	keychainOpen := core.NewMemo(cx, func() bool {
+		_ = brRev.Get()
+		rev := ed.BuildReleaseSnapshot().UploadReview
+		return rev.Open && rev.KeychainEditorOpen
+	})
 
-	return core.Show{
-		When: reviewOpen.Get,
-		Then: func(cx *core.Scope) core.Node {
-			return core.View{
-				TestID: "build-review-uploads-backdrop",
+	// Scrub typed secret/account state whenever the keychain drawer or Review uploads closes
+	// (including programmatic CloseReviewUploads or Play/project switch).
+	cx.Effect(func() {
+		open := reviewOpen.Get()
+		kcOpen := keychainOpen.Get()
+		cx.Untrack(func() {
+			if !open {
+				if kcSecret.GetUntracked() != "" {
+					kcSecret.Set("")
+				}
+				if kcAccount.GetUntracked() != "" {
+					kcAccount.Set("")
+				}
+			} else if !kcOpen {
+				if kcSecret.GetUntracked() != "" {
+					kcSecret.Set("")
+				}
+			}
+		})
+	})
+
+	onDialogClose := bindDialogFocusRestore(cx, ed, reviewOpen.Get)
+
+	p := ed.SpecPalette(cx)
+
+	headerNode := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = brRev.Get()
+		cur := ed.SpecPalette(cx)
+		rev := ed.BuildReleaseSnapshot().UploadReview
+		return core.View{
+			Style: core.Style{
+				Padding:     core.Edges{Top: 20, Left: 24, Right: 24, Bottom: 14},
+				Gap:         6,
+				Borders:     core.Edges{Bottom: 1},
+				BorderColor: cur.Line,
+			},
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "build-review-uploads-title",
+							Content: "Review uploads",
+							Style:   core.Style{FlexGrow: 1, FontSize: 14, FontWeight: core.FontWeightSemibold, Color: cur.TextPrimary},
+						},
+						core.View{
+							TestID: "build-review-uploads-guard-badge",
+							Style: core.Style{
+								Height:       core.Pt(24),
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          6,
+								Padding:      core.Symmetric(0, 10),
+								CornerRadius: 12,
+								Background:   cur.Warning.Fill,
+								BorderWidth:  1,
+								BorderColor:  cur.Warning.Edge,
+							},
+							Children: []core.Node{
+								buildSpecIcon(lucide.Lock(), 12, cur.Warning.Fg),
+								core.Text{
+									Content: "Always asks first",
+									Style:   core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: cur.Warning.Fg},
+								},
+							},
+						},
+					},
+				},
+				core.Text{
+					Content: "Check each artifact, store destination, and version before anything is sent.",
+					Style:   core.Style{FontSize: 12, Color: cur.TextMuted},
+				},
+				core.Text{
+					TestID:  "build-review-uploads-policy",
+					Content: fmt.Sprintf("Permission profile: %s · Each upload asks first, whatever the permission profile.", rev.PermissionProfile.DisplayName()),
+					Style:   core.Style{FontSize: 11.5, Color: cur.TextFaint},
+				},
+			},
+		}
+	})
+
+	itemsAndSummaryNode := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = brRev.Get()
+		cur := ed.SpecPalette(cx)
+		rev := ed.BuildReleaseSnapshot().UploadReview
+
+		var rows []core.Node
+		for i, it := range rev.Items {
+			rows = append(rows, buildReviewUploadItemRow(cur, ed, it, rev.Running, i == len(rev.Items)-1))
+		}
+		if len(rows) == 0 {
+			rows = append(rows, core.View{
+				Style: core.Style{Padding: core.All(16), AlignItems: core.AlignCenter},
+				Children: []core.Node{
+					core.Text{
+						Content: "No export presets are ready to upload yet. Build at least one preset first.",
+						Style:   core.Style{FontSize: 12, Color: cur.TextFaint},
+					},
+				},
+			})
+		}
+
+		tableNode := core.View{
+			TestID: "build-review-uploads-list",
+			Style: core.Style{
+				CornerRadius: 12,
+				Background:   cur.Bg,
+				BorderWidth:  1,
+				BorderColor:  cur.Line,
+				Overflow:     core.Hidden,
+			},
+			Children: append([]core.Node{
+				core.View{
+					Style: core.Style{
+						Direction:   core.Row,
+						AlignItems:  core.AlignCenter,
+						Gap:         10,
+						Padding:     core.Symmetric(8, 12),
+						Borders:     core.Edges{Bottom: 1},
+						BorderColor: cur.Line,
+					},
+					Children: []core.Node{
+						core.View{Style: core.Style{Width: core.Pt(20), FlexShrink: 0}},
+						core.Text{Content: "ARTIFACT", Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: "DESTINATION", Style: core.Style{Width: core.Pt(184), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: "VERSION", Style: core.Style{Width: core.Pt(62), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: "SIZE", Style: core.Style{Width: core.Pt(68), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: "KEYCHAIN", Style: core.Style{Width: core.Pt(122), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+					},
+				},
+			}, rows...),
+		}
+
+		notesPreview := rev.ReleaseNotesPreview
+		if notesPreview == "" {
+			notesPreview = "(empty)"
+		}
+		children := []core.Node{
+			tableNode,
+			core.View{
+				TestID: "build-review-uploads-notes",
 				Style: core.Style{
-					Position:       core.Absolute,
-					Top:            core.Pt(0),
-					Left:           core.Pt(0),
-					Right:          core.Pt(0),
-					Bottom:         core.Pt(0),
-					Background:     core.RGBA(0x101216, 0.72),
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-					Padding:        core.All(24),
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          8,
+					Padding:      core.Symmetric(8, 12),
+					CornerRadius: 8,
+					Background:   cur.Bg,
+					BorderWidth:  1,
+					BorderColor:  cur.Line,
 				},
 				Children: []core.Node{
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = brRev.Get()
-						snap := ed.BuildReleaseSnapshot()
-						return buildReleaseReviewUploadsDialog(ed, snap, kcAccount, kcSecret)
-					}),
+					core.Text{Content: "Release notes:", Style: core.Style{FontSize: 11.5, Color: cur.TextFaint}},
+					core.Text{Content: rev.ReleaseNotesFile, Style: core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: cur.TextSecondary}},
+					core.Text{Content: "·", Style: core.Style{FontSize: 11.5, Color: cur.TextFaint}},
+					core.Text{Content: notesPreview, Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 11.5, Color: cur.TextMuted}},
+				},
+			},
+		}
+
+		if rev.LastErr != "" {
+			children = append(children, core.View{
+				TestID: "build-review-uploads-error",
+				Style: core.Style{
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          8,
+					Padding:      core.Symmetric(8, 12),
+					CornerRadius: 8,
+					Background:   cur.Removed.Fill,
+					BorderWidth:  1,
+					BorderColor:  cur.Removed.Edge,
+				},
+				Children: []core.Node{
+					buildSpecIcon(lucide.CircleAlert(), 14, cur.Removed.Fg),
+					core.Text{Content: rev.LastErr, Style: core.Style{FontSize: 11.5, Color: cur.TextSecondary, FlexGrow: 1}},
+				},
+			})
+		}
+
+		return core.View{
+			Style:    core.Style{Gap: 12},
+			Children: children,
+		}
+	})
+
+	// Keep keychain text inputs outside brRev-driven core.Dynamic so background build/upload
+	// ticks never remount build-keychain-account or build-keychain-secret while typing.
+	keychainDrawerNode := core.Show{
+		When: keychainOpen.Get,
+		Then: func(cx *core.Scope) core.Node {
+			cur := ed.SpecPalette(cx)
+			destMemo := core.NewMemo(cx, func() PublishDestination {
+				_ = brRev.Get()
+				d := ed.BuildReleaseSnapshot().UploadReview.KeychainDest
+				if !d.Valid() {
+					return PublishDestItchIO
+				}
+				return d
+			})
+			return core.View{
+				TestID: "build-keychain-drawer",
+				Style: core.Style{
+					CornerRadius: 12,
+					Background:   cur.Bg,
+					BorderWidth:  1,
+					BorderColor:  cur.LineRaised,
+					Padding:      core.All(12),
+					Gap:          8,
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+						Children: []core.Node{
+							buildSpecIcon(lucide.Lock(), 13, cur.Warning.Fg),
+							core.Text{
+								ContentFunc: func() string {
+									return fmt.Sprintf("Store %s credential in system keychain", destMemo.Get().DisplayName())
+								},
+								Style: core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: cur.TextPrimary, FlexGrow: 1},
+							},
+							core.Text{
+								Content: "Never written to project files",
+								Style:   core.Style{FontSize: 11, Color: cur.TextFaint},
+							},
+						},
+					},
+					core.View{
+						Style: core.Style{Direction: core.Row, Gap: 8},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+								Children: []core.Node{
+									specInputField(cx, ed, ui.Input{
+										TestID:      "build-keychain-account",
+										Label:       "Store account",
+										Placeholder: "Account or publisher name",
+										Value:       kcAccount.Get,
+										OnChange:    kcAccount.Set,
+										Style: core.Style{
+											Width:        core.Pct(100),
+											Height:       core.Pt(28),
+											Background:   cur.Raised,
+											BorderWidth:  1,
+											BorderColor:  cur.LineRaised,
+											CornerRadius: 6,
+											Color:        cur.TextSecondary,
+											FontSize:     12,
+										},
+									}),
+								},
+							},
+							core.View{
+								Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+								Children: []core.Node{
+									specInputField(cx, ed, ui.Input{
+										TestID:      "build-keychain-secret",
+										Label:       "API key or token",
+										Placeholder: "API key / token",
+										Masked:      true,
+										Value:       kcSecret.Get,
+										OnChange:    kcSecret.Set,
+										Style: core.Style{
+											Width:        core.Pct(100),
+											Height:       core.Pt(28),
+											Background:   cur.Raised,
+											BorderWidth:  1,
+											BorderColor:  cur.LineRaised,
+											CornerRadius: 6,
+											Color:        cur.TextSecondary,
+											FontSize:     12,
+										},
+									}),
+								},
+							},
+						},
+					},
+					core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyEnd, Gap: 8},
+						Children: []core.Node{
+							buildReleaseSecondaryButtonSpec(cur, "build-keychain-cancel", "Cancel", func() {
+								kcSecret.Set("")
+								ed.CloseKeychainCredentialEditor()
+							}),
+							core.View{
+								TestID: "build-keychain-save",
+								Role:   core.RoleButton,
+								Label:  "Save to keychain",
+								Style: core.Style{
+									Height:         core.Pt(30),
+									Padding:        core.Symmetric(0, 12),
+									CornerRadius:   8,
+									Background:     cur.Accent.Fg,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+									FocusVisible:   cur.FocusRing(2),
+								},
+								OnPress: func(core.PressEvent) {
+									dest := destMemo.Get()
+									acc := kcAccount.Get()
+									sec := kcSecret.Get()
+									kcSecret.Set("")
+									ed.report(ed.StorePublishCredential(dest, acc, sec))
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: "Save to keychain",
+										Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightSemibold, Color: cur.Accent.OnFill},
+									},
+								},
+							},
+						},
+					},
 				},
 			}
 		},
 	}
-}
 
-func buildReleaseReviewUploadsDialog(
-	ed *Editor,
-	snap BuildReleaseSnapshot,
-	kcAccount *core.Signal[string],
-	kcSecret *core.Signal[string],
-) core.Node {
-	rev := snap.UploadReview
-	selectedCount := 0
-	for _, it := range rev.Items {
-		if it.Included {
-			selectedCount++
+	footerNode := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = brRev.Get()
+		cur := ed.SpecPalette(cx)
+		rev := ed.BuildReleaseSnapshot().UploadReview
+		selectedCount := 0
+		for _, it := range rev.Items {
+			if it.Included {
+				selectedCount++
+			}
 		}
-	}
+		cancelLabel := "Cancel"
+		if rev.Completed {
+			cancelLabel = "Close"
+		}
+		confirmLabel := fmt.Sprintf("Confirm and upload %d", selectedCount)
+		if selectedCount == 1 {
+			confirmLabel = "Confirm and upload 1"
+		}
+		if rev.Running {
+			confirmLabel = "Uploading…"
+		}
+		canConfirm := !rev.Running && rev.SessionID != 0 && selectedCount > 0
+		confirmBg := cur.Accent.Fg
+		confirmFg := cur.Accent.OnFill
+		if !canConfirm {
+			confirmBg = cur.LineRaised
+			confirmFg = cur.TextFaint
+		}
+		sessionID := rev.SessionID
 
-	var rows []core.Node
-	for i, it := range rev.Items {
-		rows = append(rows, buildReviewUploadItemRow(ed, it, rev.Running, i == len(rev.Items)-1))
-	}
-	if len(rows) == 0 {
-		rows = append(rows, core.View{
-			Style: core.Style{Padding: core.All(16), AlignItems: core.AlignCenter},
+		return core.View{
+			Style: core.Style{
+				Direction:   core.Row,
+				AlignItems:  core.AlignCenter,
+				Gap:         8,
+				Padding:     core.Edges{Top: 14, Left: 24, Right: 24, Bottom: 18},
+				Borders:     core.Edges{Top: 1},
+				BorderColor: cur.Line,
+			},
 			Children: []core.Node{
 				core.Text{
-					Content: "No export presets are ready to upload yet. Build at least one preset first.",
-					Style:   core.Style{FontSize: 12, Color: specTextMuted},
+					Content: "Credentials stay in the system keychain · never in project files.",
+					Style:   core.Style{FlexGrow: 1, FontSize: 11.5, Color: cur.TextFaint},
+				},
+				buildReleaseSecondaryButtonSpec(cur, "build-review-uploads-cancel", cancelLabel, func() {
+					if rev.Running {
+						ed.CancelReleaseUpload()
+					} else {
+						kcSecret.Set("")
+						ed.CloseReviewUploads()
+					}
+				}),
+				core.View{
+					TestID: "build-review-uploads-confirm",
+					Role:   core.RoleButton,
+					Label:  confirmLabel,
+					Style: core.Style{
+						Height:       core.Pt(32),
+						FlexShrink:   0,
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          6,
+						Padding:      core.Symmetric(0, 14),
+						CornerRadius: 8,
+						Background:   confirmBg,
+						FocusVisible: cur.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						if canConfirm {
+							ed.report(ed.ConfirmReleaseUploads(sessionID))
+						}
+					},
+					Children: []core.Node{
+						buildSpecIcon(lucide.Upload(), 13, confirmFg),
+						core.Text{
+							Content: confirmLabel,
+							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: confirmFg},
+						},
+					},
 				},
 			},
-		})
-	}
-
-	tableNode := core.View{
-		TestID: "build-review-uploads-list",
-		Style: core.Style{
-			CornerRadius: 12,
-			Background:   specBg,
-			BorderWidth:  1,
-			BorderColor:  specLine,
-			Overflow:     core.Hidden,
-		},
-		Children: append([]core.Node{
-			core.View{
-				Style: core.Style{
-					Direction:   core.Row,
-					AlignItems:  core.AlignCenter,
-					Gap:         10,
-					Padding:     core.Symmetric(8, 12),
-					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
-				},
-				Children: []core.Node{
-					core.View{Style: core.Style{Width: core.Pt(20), FlexShrink: 0}},
-					core.Text{Content: "ARTIFACT", Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted}},
-					core.Text{Content: "DESTINATION", Style: core.Style{Width: core.Pt(184), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted}},
-					core.Text{Content: "VERSION", Style: core.Style{Width: core.Pt(62), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted}},
-					core.Text{Content: "SIZE", Style: core.Style{Width: core.Pt(68), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted}},
-					core.Text{Content: "KEYCHAIN", Style: core.Style{Width: core.Pt(122), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted}},
-				},
-			},
-		}, rows...),
-	}
-
-	bodyChildren := []core.Node{tableNode}
-
-	// Release notes summary strip inside the dialog.
-	notesPreview := rev.ReleaseNotesPreview
-	if notesPreview == "" {
-		notesPreview = "(empty)"
-	}
-	bodyChildren = append(bodyChildren, core.View{
-		TestID: "build-review-uploads-notes",
-		Style: core.Style{
-			Direction:    core.Row,
-			AlignItems:   core.AlignCenter,
-			Gap:          8,
-			Padding:      core.Symmetric(8, 12),
-			CornerRadius: 8,
-			Background:   specBg,
-			BorderWidth:  1,
-			BorderColor:  specLine,
-		},
-		Children: []core.Node{
-			core.Text{Content: "Release notes:", Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
-			core.Text{Content: rev.ReleaseNotesFile, Style: core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: specText}},
-			core.Text{Content: "·", Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
-			core.Text{Content: notesPreview, Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 11.5, Color: specTextSecondary}},
-		},
+		}
 	})
 
-	// Optional inline system keychain credential entry drawer.
-	if rev.KeychainEditorOpen {
-		dest := rev.KeychainDest
-		if !dest.Valid() {
-			dest = PublishDestItchIO
-		}
-		bodyChildren = append(bodyChildren, core.View{
-			TestID: "build-keychain-drawer",
-			Style: core.Style{
-				CornerRadius: 12,
-				Background:   specBg,
-				BorderWidth:  1,
-				BorderColor:  specLineRaised,
-				Padding:      core.All(12),
-				Gap:          8,
-			},
-			Children: []core.Node{
-				core.View{
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
-					Children: []core.Node{
-						buildSpecIcon(lucide.Lock(), 13, specWarning),
-						core.Text{
-							Content: fmt.Sprintf("Store %s credential in system keychain", dest.DisplayName()),
-							Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: specTextStrong, FlexGrow: 1},
-						},
-						core.Text{
-							Content: "Never written to project files",
-							Style:   core.Style{FontSize: 11, Color: specTextMuted},
-						},
-					},
-				},
-				core.View{
-					Style: core.Style{Direction: core.Row, Gap: 8},
-					Children: []core.Node{
-						core.View{
-							Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-							Children: []core.Node{
-								ui.Input{
-									TestID:      "build-keychain-account",
-									Label:       "Store account",
-									Placeholder: "Account or publisher name",
-									Value:       kcAccount.Get,
-									OnChange:    kcAccount.Set,
-									Style: core.Style{
-										Width:        core.Pct(100),
-										Height:       core.Pt(28),
-										Background:   specRaised,
-										BorderWidth:  1,
-										BorderColor:  specLineRaised,
-										CornerRadius: 6,
-										Color:        specText,
-										FontSize:     12,
-									},
-								},
-							},
-						},
-						core.View{
-							Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-							Children: []core.Node{
-								ui.Input{
-									TestID:      "build-keychain-secret",
-									Label:       "API key or token",
-									Placeholder: "API key / token",
-									Masked:      true,
-									Value:       kcSecret.Get,
-									OnChange:    kcSecret.Set,
-									Style: core.Style{
-										Width:        core.Pct(100),
-										Height:       core.Pt(28),
-										Background:   specRaised,
-										BorderWidth:  1,
-										BorderColor:  specLineRaised,
-										CornerRadius: 6,
-										Color:        specText,
-										FontSize:     12,
-									},
-								},
-							},
-						},
-					},
-				},
-				core.View{
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyEnd, Gap: 8},
-					Children: []core.Node{
-						buildReleaseSecondaryButton("build-keychain-cancel", "Cancel", func() {
-							kcSecret.Set("")
-							ed.CloseKeychainCredentialEditor()
-						}),
-						core.View{
-							TestID: "build-keychain-save",
-							Role:   core.RoleButton,
-							Label:  "Save to keychain",
-							Style: core.Style{
-								Height:         core.Pt(30),
-								Padding:        core.Symmetric(0, 12),
-								CornerRadius:   8,
-								Background:     specAccent,
-								AlignItems:     core.AlignCenter,
-								JustifyContent: core.JustifyCenter,
-								FocusVisible:   specFocusRingStyle,
-							},
-							OnPress: func(core.PressEvent) {
-								acc := kcAccount.Get()
-								sec := kcSecret.Get()
-								kcSecret.Set("")
-								ed.report(ed.StorePublishCredential(dest, acc, sec))
-							},
-							Children: []core.Node{
-								core.Text{
-									Content: "Save to keychain",
-									Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightSemibold, Color: specBg},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
-	}
-
-	if rev.LastErr != "" {
-		bodyChildren = append(bodyChildren, core.View{
-			TestID: "build-review-uploads-error",
-			Style: core.Style{
-				Direction:    core.Row,
-				AlignItems:   core.AlignCenter,
-				Gap:          8,
-				Padding:      core.Symmetric(8, 12),
-				CornerRadius: 8,
-				Background:   specProblemTint,
-				BorderWidth:  1,
-				BorderColor:  specProblemEdge,
-			},
-			Children: []core.Node{
-				buildSpecIcon(lucide.CircleAlert(), 14, specProblem),
-				core.Text{Content: rev.LastErr, Style: core.Style{FontSize: 11.5, Color: specText, FlexGrow: 1}},
-			},
-		})
-	}
-
-	cancelLabel := "Cancel"
-	if rev.Completed {
-		cancelLabel = "Close"
-	}
-	confirmLabel := fmt.Sprintf("Confirm and upload %d", selectedCount)
-	if selectedCount == 1 {
-		confirmLabel = "Confirm and upload 1"
-	}
-	if rev.Running {
-		confirmLabel = "Uploading…"
-	}
-	canConfirm := !rev.Running && rev.SessionID != 0 && selectedCount > 0
-	confirmBg := specAccent
-	confirmFg := specBg
-	if !canConfirm {
-		confirmBg = specLineRaised
-		confirmFg = specTextMuted
-	}
-	sessionID := rev.SessionID
-
-	return core.View{
+	dialogCard := core.View{
 		TestID: "build-review-uploads-dialog",
 		Role:   core.RoleDialog,
 		Label:  "Review uploads",
-		Style: core.Style{
-			Width:        core.Pt(800),
-			MaxHeight:    core.Pt(760),
-			CornerRadius: 18,
-			Background:   specRaised,
-			BorderWidth:  1,
-			BorderColor:  specLineRaised,
-			Overflow:     core.Hidden,
+		StyleFunc: func() core.Style {
+			cur := ed.SpecPalette(cx)
+			return core.Style{
+				Width:        core.Pt(800),
+				MaxHeight:    core.Pt(760),
+				CornerRadius: 18,
+				Background:   cur.Raised,
+				BorderWidth:  1,
+				BorderColor:  cur.LineRaised,
+				Overflow:     core.Hidden,
+			}
 		},
 		Children: []core.Node{
-			// Dialog header.
-			core.View{
-				Style: core.Style{
-					Padding:     core.Edges{Top: 20, Left: 24, Right: 24, Bottom: 14},
-					Gap:         6,
-					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
-				},
-				Children: []core.Node{
-					core.View{
-						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12},
-						Children: []core.Node{
-							core.Text{
-								TestID:  "build-review-uploads-title",
-								Content: "Review uploads",
-								Style:   core.Style{FlexGrow: 1, FontSize: 14, FontWeight: core.FontWeightSemibold, Color: specTextStrong},
-							},
-							core.View{
-								TestID: "build-review-uploads-guard-badge",
-								Style: core.Style{
-									Height:       core.Pt(24),
-									Direction:    core.Row,
-									AlignItems:   core.AlignCenter,
-									Gap:          6,
-									Padding:      core.Symmetric(0, 10),
-									CornerRadius: 12,
-									Background:   specWarningFill,
-									BorderWidth:  1,
-									BorderColor:  specWarningEdge,
-								},
-								Children: []core.Node{
-									buildSpecIcon(lucide.Lock(), 12, specWarning),
-									core.Text{
-										Content: "Always asks first",
-										Style:   core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: specWarning},
-									},
-								},
-							},
-						},
-					},
-					core.Text{
-						Content: "Check each artifact, store destination, and version before anything is sent.",
-						Style:   core.Style{FontSize: 12, Color: specTextSecondary},
-					},
-					core.Text{
-						TestID:  "build-review-uploads-policy",
-						Content: fmt.Sprintf("Permission profile: %s · Each upload asks first, whatever the permission profile.", rev.PermissionProfile.DisplayName()),
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
-					},
-				},
-			},
-			// Scrollable body.
+			headerNode,
 			ui.ScrollView{
 				Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MaxHeight: core.Pt(500), Padding: core.Symmetric(16, 24)},
 				ContentStyle: core.Style{Gap: 12},
-				EdgeColor:    func() core.Color { return specRaised },
-				Children:     bodyChildren,
-			},
-			// Dialog footer.
-			core.View{
-				Style: core.Style{
-					Direction:   core.Row,
-					AlignItems:  core.AlignCenter,
-					Gap:         8,
-					Padding:     core.Edges{Top: 14, Left: 24, Right: 24, Bottom: 18},
-					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
-				},
+				EdgeColor:    func() core.Color { return ed.SpecPalette(cx).Raised },
 				Children: []core.Node{
-					core.Text{
-						Content: "Credentials stay in the system keychain · never in project files.",
-						Style:   core.Style{FlexGrow: 1, FontSize: 11.5, Color: specTextMuted},
-					},
-					buildReleaseSecondaryButton("build-review-uploads-cancel", cancelLabel, func() {
-						if rev.Running {
-							ed.CancelReleaseUpload()
-						} else {
-							ed.CloseReviewUploads()
-						}
-					}),
-					core.View{
-						TestID: "build-review-uploads-confirm",
-						Role:   core.RoleButton,
-						Label:  confirmLabel,
-						Style: core.Style{
-							Height:       core.Pt(32),
-							FlexShrink:   0,
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          6,
-							Padding:      core.Symmetric(0, 14),
-							CornerRadius: 8,
-							Background:   confirmBg,
-							FocusVisible: specFocusRingStyle,
-						},
-						OnPress: func(core.PressEvent) {
-							if canConfirm {
-								ed.report(ed.ConfirmReleaseUploads(sessionID))
-							}
-						},
-						Children: []core.Node{
-							buildSpecIcon(lucide.Upload(), 13, confirmFg),
-							core.Text{
-								Content: confirmLabel,
-								Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: confirmFg},
-							},
-						},
-					},
+					itemsAndSummaryNode,
+					keychainDrawerNode,
 				},
 			},
+			footerNode,
 		},
+	}
+
+	return ui.Dialog{
+		TestID: "build-review-uploads-backdrop",
+		Bare:   true,
+		Label:  "Review uploads",
+		Open:   reviewOpen.Get,
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				kcSecret.Set("")
+				if ed.ReleaseUploadRunning() {
+					ed.CancelReleaseUpload()
+				}
+				ed.CloseReviewUploads()
+			}
+		},
+		OnClose: onDialogClose,
+		Style: core.Style{
+			CornerRadius: 18,
+			Background:   p.Raised,
+		},
+		Children: []core.Node{dialogCard},
 	}
 }
 
-func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast bool) core.Node {
+func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, running, isLast bool) core.Node {
 	plat := it.Platform
 	dest := it.Destination
 
 	var boxBg core.Color
-	boxBorder := specTextMuted
+	boxBorder := p.TextFaint
 	var boxBorderW core.Points = 1.5
 	var checkChildren []core.Node
 	if it.Included {
-		boxBg = specAccent
-		boxBorder = specAccent
+		boxBg = p.Accent.Fg
+		boxBorder = p.Accent.Fg
 		boxBorderW = 0
-		checkChildren = []core.Node{buildSpecIcon(lucide.Check(), 10, specTextStrong)}
+		checkChildren = []core.Node{buildSpecIcon(lucide.Check(), 10, p.Accent.OnFill)}
 	}
 
 	var statusNode core.Node
 	switch it.Status {
 	case UploadStatusUploading:
+		pct := int(math.Round(clampUploadFraction(it.Progress) * 100))
 		statusNode = core.View{
 			Style: core.Style{
 				Height:       core.Pt(22),
@@ -2535,12 +2650,12 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 				Gap:          5,
 				Padding:      core.Symmetric(0, 8),
 				CornerRadius: 11,
-				Background:   specAgentTint,
+				Background:   p.Agent.Fill,
 				BorderWidth:  1,
-				BorderColor:  specAgentEdge,
+				BorderColor:  p.Agent.Edge,
 			},
 			Children: []core.Node{
-				core.Text{Content: fmt.Sprintf("Uploading %d%%", int(math.Round(it.Progress*100))), Style: core.Style{FontSize: 11, Color: specText}},
+				core.Text{Content: fmt.Sprintf("Uploading %d%%", pct), Style: core.Style{FontSize: 11, Color: p.TextSecondary}},
 			},
 		}
 	case UploadStatusDone:
@@ -2552,13 +2667,13 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 				Gap:          5,
 				Padding:      core.Symmetric(0, 8),
 				CornerRadius: 11,
-				Background:   specAddedFill,
+				Background:   p.Added.Fill,
 				BorderWidth:  1,
-				BorderColor:  specAddedEdge,
+				BorderColor:  p.Added.Edge,
 			},
 			Children: []core.Node{
-				buildSpecIcon(lucide.Check(), 10, specAdded),
-				core.Text{Content: "Uploaded", Style: core.Style{FontSize: 11, Color: specAdded}},
+				buildSpecIcon(lucide.Check(), 10, p.Added.Fg),
+				core.Text{Content: "Uploaded", Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
 			},
 		}
 	case UploadStatusFailed:
@@ -2570,13 +2685,13 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 				Gap:          5,
 				Padding:      core.Symmetric(0, 8),
 				CornerRadius: 11,
-				Background:   specProblemTint,
+				Background:   p.Removed.Fill,
 				BorderWidth:  1,
-				BorderColor:  specProblemEdge,
+				BorderColor:  p.Removed.Edge,
 			},
 			Children: []core.Node{
-				buildSpecIcon(lucide.X(), 10, specProblem),
-				core.Text{Content: "Failed", Style: core.Style{FontSize: 11, Color: specProblem}},
+				buildSpecIcon(lucide.X(), 10, p.Removed.Fg),
+				core.Text{Content: "Failed", Style: core.Style{FontSize: 11, Color: p.Removed.Fg}},
 			},
 		}
 	default:
@@ -2590,13 +2705,13 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 					Gap:          5,
 					Padding:      core.Symmetric(0, 8),
 					CornerRadius: 11,
-					Background:   specAddedFill,
+					Background:   p.Added.Fill,
 					BorderWidth:  1,
-					BorderColor:  specAddedEdge,
+					BorderColor:  p.Added.Edge,
 				},
 				Children: []core.Node{
-					buildSpecIcon(lucide.Lock(), 10, specAdded),
-					core.Text{Content: "Key in keychain", Style: core.Style{FontSize: 11, Color: specAdded}},
+					buildSpecIcon(lucide.Lock(), 10, p.Added.Fg),
+					core.Text{Content: "Key in keychain", Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
 				},
 			}
 		} else {
@@ -2611,10 +2726,10 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 					Gap:          5,
 					Padding:      core.Symmetric(0, 8),
 					CornerRadius: 8,
-					Background:   specWarningFill,
+					Background:   p.Warning.Fill,
 					BorderWidth:  1,
-					BorderColor:  specWarningEdge,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.Warning.Edge,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					if !running {
@@ -2622,8 +2737,8 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 					}
 				},
 				Children: []core.Node{
-					buildSpecIcon(lucide.Lock(), 10, specWarning),
-					core.Text{Content: "Add key…", Style: core.Style{FontSize: 11, Color: specWarning}},
+					buildSpecIcon(lucide.Lock(), 10, p.Warning.Fg),
+					core.Text{Content: "Add key…", Style: core.Style{FontSize: 11, Color: p.Warning.Fg}},
 				},
 			}
 		}
@@ -2657,7 +2772,7 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 						BorderColor:    boxBorder,
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifyCenter,
-						FocusVisible:   specFocusRingStyle,
+						FocusVisible:   p.FocusRing(2),
 					},
 					OnPress: func(core.PressEvent) {
 						if !running {
@@ -2669,24 +2784,24 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 				core.View{
 					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2, Overflow: core.Hidden},
 					Children: []core.Node{
-						core.Text{Content: it.ArtifactName, Style: core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: specTextStrong}},
-						core.Text{Content: it.ArtifactRelPath, Style: core.Style{FontSize: 11, Color: specTextMuted}},
+						core.Text{Content: it.ArtifactName, Style: core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: p.TextPrimary}},
+						core.Text{Content: it.ArtifactRelPath, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 					},
 				},
 				core.View{
 					Style: core.Style{Width: core.Pt(184), FlexShrink: 0, Gap: 2},
 					Children: []core.Node{
-						core.Text{Content: it.DestinationLabel, Style: core.Style{FontSize: 12, Color: specText}},
-						core.Text{Content: it.Track, Style: core.Style{FontSize: 11, Color: specTextMuted}},
+						core.Text{Content: it.DestinationLabel, Style: core.Style{FontSize: 12, Color: p.TextSecondary}},
+						core.Text{Content: it.Track, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 					},
 				},
 				core.Text{
 					Content: it.Version,
-					Style:   core.Style{Width: core.Pt(62), FlexShrink: 0, FontSize: 12, Color: specText, FontVariant: core.FontTabularNums},
+					Style:   core.Style{Width: core.Pt(62), FlexShrink: 0, FontSize: 12, Color: p.TextSecondary, FontVariant: core.FontTabularNums},
 				},
 				core.Text{
 					Content: sizeText,
-					Style:   core.Style{Width: core.Pt(68), FlexShrink: 0, FontSize: 12, Color: specText, FontVariant: core.FontTabularNums},
+					Style:   core.Style{Width: core.Pt(68), FlexShrink: 0, FontSize: 12, Color: p.TextSecondary, FontVariant: core.FontTabularNums},
 				},
 				core.View{
 					Style:    core.Style{Width: core.Pt(122), FlexShrink: 0, AlignItems: core.AlignEnd},
@@ -2699,12 +2814,12 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 	if it.Err != "" {
 		rowChildren = append(rowChildren, core.Text{
 			Content: "Error: " + it.Err,
-			Style:   core.Style{FontSize: 11, Color: specProblem, Padding: core.Edges{Left: 28}},
+			Style:   core.Style{FontSize: 11, Color: p.Removed.Fg, Padding: core.Edges{Left: 28}},
 		})
 	} else if it.ResultURL != "" {
 		rowChildren = append(rowChildren, core.Text{
 			Content: it.ResultURL,
-			Style:   core.Style{FontSize: 11, Color: specTextMuted, Padding: core.Edges{Left: 28}},
+			Style:   core.Style{FontSize: 11, Color: p.TextFaint, Padding: core.Edges{Left: 28}},
 		})
 	}
 
@@ -2714,7 +2829,7 @@ func buildReviewUploadItemRow(ed *Editor, it ReleaseUploadItem, running, isLast 
 			Padding:     core.Symmetric(10, 12),
 			Gap:         4,
 			Borders:     core.Edges{Bottom: borderBottom},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: rowChildren,
 	}

@@ -59,6 +59,9 @@ func releaseNotesDraftTool(ctx context.Context, c *Call) (*Result, error) {
 			ed.SetReleaseKeptReviews(args.KeptReviews)
 		}
 		if strings.TrimSpace(args.Markdown) != "" {
+			if err := editor.ValidateReleaseNotes(args.Markdown); err != nil {
+				return err
+			}
 			ed.SetReleaseNotesText(args.Markdown)
 			snap := ed.BuildReleaseSnapshot()
 			notesFile = snap.ReleaseNotesFile

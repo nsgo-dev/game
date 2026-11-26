@@ -328,6 +328,8 @@ func (e *Editor) Close() error {
 	e.stopChangedAudioPlayback()
 	e.cancelChangesOps()
 	e.stopExportBuild()
+	e.stopReleaseBuild()
+	e.CancelReleaseUpload()
 	e.stopAssetsBuild()
 	e.stopDiskWatcher()
 	e.stopAgentTimers()
