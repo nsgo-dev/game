@@ -14,6 +14,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.yaml.in/yaml/v3"
@@ -36,10 +38,19 @@ import (
 )
 
 const (
-	maxGeneratedImageBytes = 16 << 20 // 16 MiB
-	maxGeneratedAudioBytes = 32 << 20 // 32 MiB
-	maxGeneratedImageDim   = 4096
+	maxGeneratedImageBytes        = 16 << 20 // 16 MiB
+	maxGeneratedAudioBytes        = 32 << 20 // 32 MiB
+	maxGeneratedImageDim          = 4096
+	maxGeneratedCandidates        = 16
+	maxGeneratedTotalDecodedBytes = 64 << 20 // 64 MiB total decoded pixels/audio per request
+	maxGeneratedBriefBytes        = 1 << 20  // 1 MiB
+	maxGeneratedSourceBytes       = 1 << 20  // 1 MiB
+	defaultAssetGenConnectTimeout = 30 * time.Second
+	defaultAssetGenCallTimeout    = 60 * time.Second
+	maxGeneratedElapsed           = 24 * time.Hour
 )
+
+var errAssetGenMergeConflict = errors.New("editor: resolve merge conflicts before using generated assets")
 
 // AssetGeneratorKind classifies the media type an MCP generator server produces.
 type AssetGeneratorKind string
@@ -147,28 +158,29 @@ const (
 
 // GeneratedCandidate holds one untrusted candidate decoded strictly in memory (never written to disk before Pick).
 type GeneratedCandidate struct {
-	ID              string
-	Seed            *int64
-	MimeType        string
-	CleanBytes      []byte
-	Width           int
-	Height          int
-	Pixels          *image.RGBA
-	Image           core.ImageSource
-	ColorCount      int
-	HasAntiAliasing bool
-	ContrastRatio   float64
-	Duration        time.Duration
-	SampleRate      int
-	Channels        int
-	LoudnessDBFS    float64
-	PeakDBFS        float64
-	Waveform        []float32
-	AudioCheckPass  bool
-	AudioCheckText  string
-	Checks          []AssetStyleCheck
-	License         string
-	CommercialUse   bool
+	ID                    string
+	Seed                  *int64
+	MimeType              string
+	CleanBytes            []byte
+	Width                 int
+	Height                int
+	Pixels                *image.RGBA
+	Image                 core.ImageSource
+	ColorCount            int
+	HasAntiAliasing       bool
+	ContrastRatio         float64
+	Duration              time.Duration
+	SampleRate            int
+	Channels              int
+	LoudnessDBFS          float64
+	PeakDBFS              float64
+	AudioLoudnessMeasured bool
+	Waveform              []float32
+	AudioCheckPass        bool
+	AudioCheckText        string
+	Checks                []AssetStyleCheck
+	License               string
+	CommercialUse         bool
 }
 
 // AssetGenerationRequest holds one image or sound generation request and its in-memory candidates.
@@ -237,22 +249,30 @@ type assetGenState struct {
 	mu               sync.Mutex
 	open             bool
 	rev              uint64
+	epoch            uint64
+	inFlightCancel   context.CancelFunc
+	inFlightSeq      uint64
+	busy             bool
+	busyLabel        string
 	servers          map[string]*assetGenServerConn
 	serverOrder      []string
 	configured       []GeneratorServerConfig
 	requests         []*AssetGenerationRequest
+	lastPickByReq    map[string]*pickGeneratedAssetCmd
 	activeRequestID  string
 	activeSoundReqID string
 	previewBGID      string
 	brief            AssetStyleBrief
 	briefLoaded      bool
 	licenses         []credits.GeneratedAssetLicense
+	licenseScanErr   string
 	approvalAuthor   string
 	playingReqID     string
 	playingCandID    string
 	refineDraft      string
 	licenseDraft     string
 	licenseEditPath  string
+	licenseEditComm  bool
 	nextSeq          int
 }
 
@@ -260,12 +280,86 @@ func (e *Editor) ensureAssetGenLocked() {
 	if e.assetGen.servers == nil {
 		e.assetGen.servers = make(map[string]*assetGenServerConn)
 	}
+	if e.assetGen.lastPickByReq == nil {
+		e.assetGen.lastPickByReq = make(map[string]*pickGeneratedAssetCmd)
+	}
 	if !e.assetGen.briefLoaded {
 		e.assetGen.brief = DefaultAssetStyleBrief()
 	}
 	if e.assetGen.previewBGID == "" && len(e.assetGen.brief.Backgrounds) > 0 {
 		e.assetGen.previewBGID = e.assetGen.brief.Backgrounds[0].ID
 	}
+}
+
+func (e *Editor) cancelAssetGenOps() {
+	if e == nil {
+		return
+	}
+	e.assetGen.mu.Lock()
+	cancel := e.assetGen.inFlightCancel
+	e.assetGen.inFlightCancel = nil
+	e.assetGen.inFlightSeq++
+	wasBusy := e.assetGen.busy
+	e.assetGen.busy = false
+	e.assetGen.busyLabel = ""
+	if wasBusy {
+		e.assetGen.rev++
+	}
+	e.assetGen.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// resetAssetGenForProject cancels in-flight generation, disconnects project-scoped generator sessions,
+// stops audio audition, and clears all generated-asset requests, brief rules, license scans, and drafts
+// so switching projects or demos never leaks stale state or writes across projects.
+func (e *Editor) resetAssetGenForProject() {
+	if e == nil {
+		return
+	}
+	e.assetGen.mu.Lock()
+	cancel := e.assetGen.inFlightCancel
+	e.assetGen.inFlightCancel = nil
+	e.assetGen.inFlightSeq++
+	e.assetGen.epoch++
+	e.assetGen.busy = false
+	e.assetGen.busyLabel = ""
+	e.assetGen.open = false
+	e.assetGen.requests = nil
+	e.assetGen.lastPickByReq = nil
+	e.assetGen.activeRequestID = ""
+	e.assetGen.activeSoundReqID = ""
+	e.assetGen.previewBGID = ""
+	e.assetGen.brief = DefaultAssetStyleBrief()
+	e.assetGen.briefLoaded = false
+	e.assetGen.licenses = nil
+	e.assetGen.licenseScanErr = ""
+	e.assetGen.playingReqID = ""
+	e.assetGen.playingCandID = ""
+	e.assetGen.refineDraft = ""
+	e.assetGen.licenseDraft = ""
+	e.assetGen.licenseEditPath = ""
+	e.assetGen.licenseEditComm = false
+	var sessions []*sdkmcp.ClientSession
+	for _, conn := range e.assetGen.servers {
+		if conn != nil && conn.session != nil {
+			sessions = append(sessions, conn.session)
+			conn.session = nil
+		}
+	}
+	e.assetGen.servers = nil
+	e.assetGen.serverOrder = nil
+	e.assetGen.rev++
+	e.assetGen.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	for _, s := range sessions {
+		_ = s.Close()
+	}
+	e.stopAudioAudition()
 }
 
 func (e *Editor) assetGenRev() uint64 {
@@ -292,6 +386,9 @@ func (e *Editor) SetAssetGeneratorOpen(open bool) {
 	if e == nil {
 		return
 	}
+	if open && (e.playing || e.MergeConflictOpen()) {
+		return
+	}
 	e.assetGen.mu.Lock()
 	e.ensureAssetGenLocked()
 	changed := e.assetGen.open != open
@@ -304,6 +401,7 @@ func (e *Editor) SetAssetGeneratorOpen(open bool) {
 		e.LoadAssetStyleBrief()
 		e.RefreshGeneratedAssetLicenses()
 	} else {
+		e.cancelAssetGenOps()
 		e.StopGeneratedSoundCandidate()
 	}
 	if changed {
@@ -399,8 +497,13 @@ func (e *Editor) LoadAssetStyleBrief() AssetStyleBrief {
 	if e == nil || e.ProjectPath == "" {
 		return e.AssetStyleBrief()
 	}
-	briefPath := filepath.Join(filepath.Dir(e.ProjectPath), "brief.yaml")
-	data, err := os.ReadFile(briefPath)
+	root := filepath.Dir(e.ProjectPath)
+	briefPath := filepath.Join(root, "brief.yaml")
+	var data []byte
+	var err error
+	if err = verifyAssetGenReadPath(root, briefPath, "brief.yaml"); err == nil {
+		data, err = readBoundedAssetFile(briefPath, maxGeneratedBriefBytes)
+	}
 	if err != nil {
 		e.assetGen.mu.Lock()
 		e.ensureAssetGenLocked()
@@ -582,7 +685,9 @@ func (e *Editor) ConnectAssetGenerator(ctx context.Context, cfg GeneratorServerC
 		return errors.New("editor: nil MCP generator transport")
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), defaultAssetGenConnectTimeout)
+		defer cancel()
 	}
 
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{
@@ -826,10 +931,131 @@ func cleanAssetTargetPath(rel string) (string, error) {
 	return clean, nil
 }
 
-// GenerateAsset invokes a connected MCP generator server, strictly decodes untrusted candidate payloads as pixels or audio in memory ONLY (writing NOTHING to disk), runs style and audio checks against brief.yaml and references, and adds or updates the request in the Generated Assets view.
-func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) (*AssetGenerationRequest, error) {
+// verifyAssetGenWritePath verifies that absPath (and every existing ancestor directory down to rootDir)
+// contains no symlink segments and resolves strictly inside rootDir.
+func verifyAssetGenWritePath(rootDir, absPath, relLabel string) error {
+	if strings.TrimSpace(rootDir) == "" {
+		return ErrNoProject
+	}
+	rootAbs, err := filepath.Abs(rootDir)
+	if err != nil {
+		return err
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		rootReal = rootAbs
+	}
+	targetAbs, err := filepath.Abs(absPath)
+	if err != nil {
+		return err
+	}
+	relClean, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil || relClean == ".." || strings.HasPrefix(relClean, ".."+string(filepath.Separator)) || filepath.IsAbs(relClean) {
+		return fmt.Errorf("editor: asset path %q resolves outside the project root", relLabel)
+	}
+
+	// Walk every existing path component from rootAbs down to targetAbs and refuse any symlink.
+	cur := rootAbs
+	for _, seg := range strings.Split(filepath.ToSlash(relClean), "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		fi, lerr := os.Lstat(cur)
+		if lerr != nil {
+			if errors.Is(lerr, fs.ErrNotExist) {
+				break
+			}
+			return lerr
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("editor: asset path %q traverses symlink outside containment", relLabel)
+		}
+	}
+
+	// Resolve nearest existing ancestor (or target itself if present) via EvalSymlinks.
+	probe := targetAbs
+	for {
+		realPath, rerr := filepath.EvalSymlinks(probe)
+		if rerr == nil {
+			relReal, err := filepath.Rel(rootReal, realPath)
+			if err != nil || relReal == ".." || strings.HasPrefix(relReal, ".."+string(filepath.Separator)) || filepath.IsAbs(relReal) {
+				return fmt.Errorf("editor: asset path %q resolves outside the project root", relLabel)
+			}
+			return nil
+		}
+		if !errors.Is(rerr, fs.ErrNotExist) {
+			return rerr
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return fmt.Errorf("editor: asset path %q resolves outside the project root", relLabel)
+		}
+		probe = parent
+	}
+}
+
+// verifyAssetGenReadPath verifies that an existing file at absPath is not a symlink escaping rootDir.
+func verifyAssetGenReadPath(rootDir, absPath, relLabel string) error {
+	if fi, err := os.Lstat(absPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("editor: asset path %q refuses symlink file", relLabel)
+	}
+	return verifyFileWithinRoot(rootDir, absPath, relLabel)
+}
+
+func readBoundedAssetFile(absPath string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("file exceeds maximum size of %d bytes", maxBytes)
+	}
+	return data, nil
+}
+
+// sanitizeSingleLineMeta cleans untrusted server-reported single-line metadata (model, license)
+// so control characters or leading/trailing whitespace cannot break .source.yaml encoding later.
+func sanitizeSingleLineMeta(s string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(s) {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+type preparedAssetGenCall struct {
+	params     GenerateAssetParams
+	target     string
+	prompt     string
+	kind       AssetGeneratorKind
+	session    *sdkmcp.ClientSession
+	toolName   string
+	genName    string
+	brief      AssetStyleBrief
+	bg         AssetPreviewBackground
+	projectDir string
+	epoch      uint64
+	args       map[string]any
+}
+
+func (e *Editor) prepareAssetGenCall(params GenerateAssetParams) (*preparedAssetGenCall, error) {
 	if e == nil {
 		return nil, errors.New("editor: nil editor")
+	}
+	if e.Playing() {
+		return nil, ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return nil, errAssetGenMergeConflict
 	}
 	target, err := cleanAssetTargetPath(params.TargetPath)
 	if err != nil {
@@ -839,11 +1065,16 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 	if prompt == "" {
 		return nil, errors.New("editor: generation prompt is required")
 	}
-	if ctx == nil {
-		ctx = context.Background()
+	if strings.IndexFunc(prompt, func(r rune) bool { return r != '\n' && r != '\t' && unicode.IsControl(r) }) >= 0 {
+		return nil, errors.New("editor: generation prompt contains invalid control characters")
 	}
 
 	kind := inferAssetGenKind(target, params.Kind)
+	projectDir := ""
+	if e.ProjectPath != "" {
+		projectDir = filepath.Dir(e.ProjectPath)
+	}
+
 	e.assetGen.mu.Lock()
 	e.ensureAssetGenLocked()
 	var conn *assetGenServerConn
@@ -869,6 +1100,7 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 	}
 	brief := e.assetGen.brief
 	bg := currentPreviewBGLocked(&e.assetGen)
+	epoch := e.assetGen.epoch
 	e.assetGen.mu.Unlock()
 
 	count := params.Count
@@ -879,6 +1111,9 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 			count = 4
 		}
 	}
+	if count > maxGeneratedCandidates {
+		count = maxGeneratedCandidates
+	}
 
 	args := map[string]any{
 		"target": target,
@@ -886,7 +1121,7 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 		"count":  count,
 		"kind":   string(kind),
 	}
-	if m := strings.TrimSpace(params.Model); m != "" {
+	if m := sanitizeSingleLineMeta(params.Model); m != "" {
 		args["model"] = m
 	}
 	if len(params.References) > 0 {
@@ -902,50 +1137,76 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 		args["refine"] = r
 	}
 
+	return &preparedAssetGenCall{
+		params:     params,
+		target:     target,
+		prompt:     prompt,
+		kind:       kind,
+		session:    session,
+		toolName:   toolName,
+		genName:    genName,
+		brief:      brief,
+		bg:         bg,
+		projectDir: projectDir,
+		epoch:      epoch,
+		args:       args,
+	}, nil
+}
+
+// executeAssetGenCall performs the MCP RPC and untrusted in-memory decoding without accessing any non-thread-safe Editor fields.
+func executeAssetGenCall(ctx context.Context, prep *preparedAssetGenCall) (*AssetGenerationRequest, error) {
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), defaultAssetGenCallTimeout)
+		defer cancel()
+	}
+
 	start := time.Now()
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      toolName,
-		Arguments: args,
+	res, err := prep.session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      prep.toolName,
+		Arguments: prep.args,
 	})
 	elapsed := time.Since(start)
 	if err != nil {
-		return nil, fmt.Errorf("editor: MCP generator %q tool %q: %w", genName, toolName, err)
+		return nil, fmt.Errorf("editor: MCP generator %q tool %q: %w", prep.genName, prep.toolName, err)
 	}
 	if res == nil {
-		return nil, fmt.Errorf("editor: MCP generator %q returned nil result", genName)
+		return nil, fmt.Errorf("editor: MCP generator %q returned nil result", prep.genName)
 	}
 	if res.IsError {
-		return nil, fmt.Errorf("editor: MCP generator %q error: %s", genName, extractAssetGenMCPText(res.Content))
+		return nil, fmt.Errorf("editor: MCP generator %q error: %s", prep.genName, extractAssetGenMCPText(res.Content))
 	}
 
-	payload, err := parseUntrustedMCPGeneratorResult(res, kind)
+	payload, err := parseUntrustedMCPGeneratorResult(res, prep.kind)
 	if err != nil {
-		return nil, fmt.Errorf("editor: untrusted output from %q rejected: %w", genName, err)
+		return nil, fmt.Errorf("editor: untrusted output from %q rejected: %w", prep.genName, err)
 	}
 	if payload.Elapsed > 0 {
 		elapsed = payload.Elapsed
 	}
 
+	// Keep the user's requested prompt authoritative so an untrusted server cannot rewrite .source.yaml prompts.
 	req := &AssetGenerationRequest{
-		TargetPath:    target,
-		Kind:          kind,
-		Generator:     genName,
-		Model:         firstNonEmpty(payload.Model, strings.TrimSpace(params.Model)),
-		Prompt:        firstNonEmpty(payload.Prompt, prompt),
-		UserPrompt:    firstNonEmpty(strings.TrimSpace(params.UserPrompt), prompt),
-		References:    slices.Clone(params.References),
+		TargetPath:    prep.target,
+		Kind:          prep.kind,
+		Generator:     prep.genName,
+		Model:         firstNonEmpty(sanitizeSingleLineMeta(payload.Model), sanitizeSingleLineMeta(prep.params.Model)),
+		Prompt:        prep.prompt,
+		UserPrompt:    firstNonEmpty(strings.TrimSpace(prep.params.UserPrompt), prep.prompt),
+		References:    slices.Clone(prep.params.References),
 		Count:         len(payload.Candidates),
 		Elapsed:       elapsed,
-		License:       strings.TrimSpace(payload.License),
+		License:       sanitizeSingleLineMeta(payload.License),
 		CommercialUse: payload.CommercialUse,
 		Status:        AssetGenPending,
 	}
-	e.loadRequestReference(req)
+	loadRequestReferenceFromDir(prep.projectDir, req)
 
 	req.Candidates = make([]GeneratedCandidate, 0, len(payload.Candidates))
+	var totalDecodedBytes int64
 	for i, rawCand := range payload.Candidates {
 		cid := candidateLetter(i)
-		lic := firstNonEmpty(strings.TrimSpace(rawCand.License), req.License)
+		lic := firstNonEmpty(sanitizeSingleLineMeta(rawCand.License), req.License)
 		comm := req.CommercialUse
 		if rawCand.CommercialUse != nil {
 			comm = *rawCand.CommercialUse
@@ -957,11 +1218,16 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 			License:       lic,
 			CommercialUse: comm,
 		}
-		switch kind {
+		switch prep.kind {
 		case AssetGenImages:
 			imgRes, decErr := decodeUntrustedImage(rawCand.Data)
 			if decErr != nil {
 				return nil, fmt.Errorf("editor: candidate %s rejected (untrusted non-image payload): %w", cid, decErr)
+			}
+			candBytes := int64(imgRes.width)*int64(imgRes.height)*4 + int64(len(imgRes.cleanPNG))
+			totalDecodedBytes += candBytes
+			if totalDecodedBytes > maxGeneratedTotalDecodedBytes {
+				return nil, fmt.Errorf("editor: untrusted output from %q rejected: total decoded image memory exceeds %d bytes", prep.genName, maxGeneratedTotalDecodedBytes)
 			}
 			cand.MimeType = "image/png"
 			cand.CleanBytes = imgRes.cleanPNG
@@ -976,6 +1242,10 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 			if decErr != nil {
 				return nil, fmt.Errorf("editor: candidate %s rejected (untrusted non-audio payload): %w", cid, decErr)
 			}
+			totalDecodedBytes += int64(len(audRes.cleanBytes))
+			if totalDecodedBytes > maxGeneratedTotalDecodedBytes {
+				return nil, fmt.Errorf("editor: untrusted output from %q rejected: total decoded audio memory exceeds %d bytes", prep.genName, maxGeneratedTotalDecodedBytes)
+			}
 			cand.MimeType = audRes.mimeType
 			cand.CleanBytes = audRes.cleanBytes
 			cand.Duration = audRes.duration
@@ -983,6 +1253,7 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 			cand.Channels = audRes.channels
 			cand.LoudnessDBFS = audRes.rmsDBFS
 			cand.PeakDBFS = audRes.peakDBFS
+			cand.AudioLoudnessMeasured = audRes.loudnessMeasured
 			cand.Waveform = audRes.waveform
 		}
 		req.Candidates = append(req.Candidates, cand)
@@ -990,13 +1261,20 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 	if len(req.Candidates) > 0 {
 		req.SelectedCandidateID = req.Candidates[0].ID
 	}
-	recheckRequestLocked(req, brief, bg)
+	recheckRequestLocked(req, prep.brief, prep.bg)
+	return req, nil
+}
 
+func (e *Editor) commitAssetGenResult(prep *preparedAssetGenCall, req *AssetGenerationRequest, note string, updateUI bool) (*AssetGenerationRequest, error) {
 	e.assetGen.mu.Lock()
+	if e.assetGen.epoch != prep.epoch {
+		e.assetGen.mu.Unlock()
+		return nil, context.Canceled
+	}
 	e.ensureAssetGenLocked()
 	var existing *AssetGenerationRequest
 	for _, r := range e.assetGen.requests {
-		if r.TargetPath == target {
+		if r.TargetPath == prep.target {
 			existing = r
 			break
 		}
@@ -1010,7 +1288,10 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 		req.ID = fmt.Sprintf("gen-%d", e.assetGen.nextSeq)
 		e.assetGen.requests = append(e.assetGen.requests, req)
 	}
-	if kind == AssetGenImages {
+	if note != "" {
+		req.LastNote = note
+	}
+	if prep.kind == AssetGenImages {
 		e.assetGen.activeRequestID = req.ID
 	} else {
 		e.assetGen.activeSoundReqID = req.ID
@@ -1022,9 +1303,183 @@ func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) 
 	out := cloneAssetGenRequest(req)
 	e.assetGen.mu.Unlock()
 
-	e.Status = fmt.Sprintf("%s returned %d candidates for %s · waiting for your pick", genName, len(out.Candidates), path.Base(target))
-	e.notify()
+	if updateUI {
+		e.Status = fmt.Sprintf("%s returned %d candidates for %s · waiting for your pick", prep.genName, len(out.Candidates), path.Base(prep.target))
+		e.notify()
+	}
 	return &out, nil
+}
+
+// GenerateAsset invokes a connected MCP generator server, strictly decodes untrusted candidate payloads as pixels or audio in memory ONLY (writing NOTHING to disk), runs style and audio checks against brief.yaml and references, and adds or updates the request in the Generated Assets view.
+func (e *Editor) GenerateAsset(ctx context.Context, params GenerateAssetParams) (*AssetGenerationRequest, error) {
+	prep, err := e.prepareAssetGenCall(params)
+	if err != nil {
+		return nil, err
+	}
+	req, err := executeAssetGenCall(ctx, prep)
+	if err != nil {
+		return nil, err
+	}
+	return e.commitAssetGenResult(prep, req, "", true)
+}
+
+// startAsyncAssetGen dispatches an MCP generation call on a background goroutine with a bounded timeout,
+// cancelling any previous in-flight UI request and marshaling completion back onto the UI thread cleanly.
+func (e *Editor) startAsyncAssetGen(label string, params GenerateAssetParams, noteFn func(*AssetGenerationRequest) string) error {
+	prep, err := e.prepareAssetGenCall(params)
+	if err != nil {
+		return err
+	}
+	scope := e.scope
+	ctx, cancel := context.WithTimeout(context.Background(), defaultAssetGenCallTimeout)
+
+	e.assetGen.mu.Lock()
+	prevCancel := e.assetGen.inFlightCancel
+	e.assetGen.inFlightCancel = cancel
+	e.assetGen.inFlightSeq++
+	seq := e.assetGen.inFlightSeq
+	e.assetGen.busy = true
+	e.assetGen.busyLabel = label
+	e.assetGen.rev++
+	e.assetGen.mu.Unlock()
+	if prevCancel != nil {
+		prevCancel()
+	}
+	e.notify()
+
+	finish := func(req *AssetGenerationRequest, callErr error, onUIThread bool) {
+		cancel()
+		e.assetGen.mu.Lock()
+		stale := e.assetGen.inFlightSeq != seq || e.assetGen.epoch != prep.epoch
+		if !stale {
+			e.assetGen.inFlightCancel = nil
+			e.assetGen.busy = false
+			e.assetGen.busyLabel = ""
+			e.assetGen.rev++
+		}
+		e.assetGen.mu.Unlock()
+		if stale {
+			return
+		}
+		if callErr != nil {
+			if onUIThread {
+				if !errors.Is(callErr, context.Canceled) {
+					e.report(callErr)
+				}
+				e.notify()
+			}
+			return
+		}
+		note := ""
+		if noteFn != nil {
+			note = noteFn(req)
+		}
+		if _, err := e.commitAssetGenResult(prep, req, note, onUIThread); err != nil && onUIThread && !errors.Is(err, context.Canceled) {
+			e.report(err)
+		}
+	}
+
+	if scope == nil {
+		go func() {
+			req, callErr := executeAssetGenCall(ctx, prep)
+			finish(req, callErr, false)
+		}()
+		return nil
+	}
+
+	go func() {
+		req, callErr := executeAssetGenCall(ctx, prep)
+		scope.Post(func() {
+			finish(req, callErr, true)
+		})
+	}()
+	return nil
+}
+
+// AssetGenBusy reports whether an asynchronous UI generation request is currently in flight and its status label.
+func (e *Editor) AssetGenBusy() (bool, string) {
+	if e == nil {
+		return false, ""
+	}
+	e.assetGen.mu.Lock()
+	defer e.assetGen.mu.Unlock()
+	return e.assetGen.busy, e.assetGen.busyLabel
+}
+
+func (e *Editor) startVaryGeneratedCandidateAsync(requestID, candidateID string) error {
+	req, cand, err := e.lookupRequestCandidate(requestID, candidateID)
+	if err != nil {
+		return err
+	}
+	seedNote := ""
+	if cand.Seed != nil {
+		seedNote = fmt.Sprintf(" · seed %d kept, references unchanged", *cand.Seed)
+	}
+	params := GenerateAssetParams{
+		TargetPath:   req.TargetPath,
+		Generator:    req.Generator,
+		Kind:         req.Kind,
+		Model:        req.Model,
+		Prompt:       req.Prompt,
+		UserPrompt:   req.UserPrompt,
+		References:   req.References,
+		Count:        max(req.Count, len(req.Candidates)),
+		VaryFromSeed: cloneInt64Ptr(cand.Seed),
+	}
+	return e.startAsyncAssetGen("Varying "+candidateID+"…", params, func(updated *AssetGenerationRequest) string {
+		return fmt.Sprintf("Asked %s for %d variations of %s%s", req.Generator, len(updated.Candidates), candidateID, seedNote)
+	})
+}
+
+func (e *Editor) startRefineGeneratedAssetAsync(requestID, words string) error {
+	words = strings.TrimSpace(words)
+	if words == "" {
+		return errors.New("editor: refinement instructions are required")
+	}
+	req, err := e.lookupRequest(requestID)
+	if err != nil {
+		return err
+	}
+	params := GenerateAssetParams{
+		TargetPath: req.TargetPath,
+		Generator:  req.Generator,
+		Kind:       req.Kind,
+		Model:      req.Model,
+		Prompt:     req.Prompt + ", " + words,
+		UserPrompt: req.UserPrompt,
+		References: req.References,
+		Count:      max(req.Count, len(req.Candidates)),
+		Refine:     words,
+	}
+	return e.startAsyncAssetGen("Refining "+path.Base(req.TargetPath)+"…", params, func(*AssetGenerationRequest) string {
+		return fmt.Sprintf("Refined %s with %q · references unchanged", path.Base(req.TargetPath), words)
+	})
+}
+
+func (e *Editor) startRegenerateAssetAsync(requestID string) error {
+	req, err := e.lookupRequest(requestID)
+	if err != nil {
+		return err
+	}
+	var nextSeed *int64
+	if len(req.Candidates) > 0 && req.Candidates[len(req.Candidates)-1].Seed != nil {
+		v := *req.Candidates[len(req.Candidates)-1].Seed + 1
+		nextSeed = &v
+	}
+	params := GenerateAssetParams{
+		TargetPath: req.TargetPath,
+		Generator:  req.Generator,
+		Kind:       req.Kind,
+		Model:      req.Model,
+		Prompt:     req.Prompt,
+		UserPrompt: req.UserPrompt,
+		References: req.References,
+		Count:      max(req.Count, len(req.Candidates)),
+		BaseSeed:   nextSeed,
+	}
+	return e.startAsyncAssetGen("Regenerating "+path.Base(req.TargetPath)+"…", params, func(updated *AssetGenerationRequest) string {
+		return fmt.Sprintf("Asked %s for %d new candidates · same prompt and references", req.Generator, len(updated.Candidates))
+	})
 }
 
 // VaryGeneratedCandidate asks the generator for new variations of candidateID while preserving the request's references and seed context. Nothing is written to disk.
@@ -1141,6 +1596,9 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.MergeConflictOpen() {
+		return errAssetGenMergeConflict
+	}
 	if e.ProjectPath == "" {
 		return ErrNoProject
 	}
@@ -1152,11 +1610,20 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 		return fmt.Errorf("editor: candidate %s has no decoded media bytes", candidateID)
 	}
 
+	assetRel, err := cleanAssetTargetPath(req.TargetPath)
+	if err != nil {
+		return err
+	}
 	root := filepath.Dir(e.ProjectPath)
-	assetRel := req.TargetPath
 	sourceRel := importsettings.AssetSourcePath(assetRel)
 	assetAbs := filepath.Join(root, filepath.FromSlash(assetRel))
 	sourceAbs := filepath.Join(root, filepath.FromSlash(sourceRel))
+	if err := verifyAssetGenWritePath(root, assetAbs, assetRel); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(root, sourceAbs, sourceRel); err != nil {
+		return err
+	}
 
 	srcDoc := &importsettings.AssetSource{
 		Version:       importsettings.AssetSourceVersion,
@@ -1174,11 +1641,11 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 		return err
 	}
 
-	beforeAssetExists, beforeAssetBytes, err := readOptionalFile(assetAbs)
+	beforeAssetExists, beforeAssetBytes, err := readOptionalBoundedFile(assetAbs, maxGeneratedAudioBytes)
 	if err != nil {
 		return err
 	}
-	beforeSourceExists, beforeSourceBytes, err := readOptionalFile(sourceAbs)
+	beforeSourceExists, beforeSourceBytes, err := readOptionalBoundedFile(sourceAbs, maxGeneratedSourceBytes)
 	if err != nil {
 		return err
 	}
@@ -1191,6 +1658,7 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 	cmd := &pickGeneratedAssetCmd{
 		ed:                 e,
 		label:              fmt.Sprintf("Pick %s for %s", candidateID, path.Base(assetRel)),
+		rootDir:            root,
 		requestID:          req.ID,
 		candidateID:        candidateID,
 		assetRel:           assetRel,
@@ -1210,8 +1678,109 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 	return e.History.execute(cmd)
 }
 
-func readOptionalFile(absPath string) (bool, []byte, error) {
-	data, err := os.ReadFile(absPath)
+// UndoPickedCandidate reverts a previously picked generated asset cleanly.
+// When the pick is still the most recent command in History, it invokes Editor.Undo() directly;
+// otherwise it executes a targeted undoable revert of ONLY that picked asset and its .source.yaml
+// without touching unrelated edits on History.
+func (e *Editor) UndoPickedCandidate(requestID, candidateID string) error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return errAssetGenMergeConflict
+	}
+	if e.ProjectPath == "" {
+		return ErrNoProject
+	}
+	req, err := e.lookupRequest(requestID)
+	if err != nil {
+		return err
+	}
+	if candidateID == "" {
+		candidateID = req.PickedCandidateID
+	}
+	if req.PickedCandidateID == "" || req.PickedCandidateID != candidateID {
+		return fmt.Errorf("editor: candidate %q is not currently picked for %s", candidateID, req.TargetPath)
+	}
+	if top, ok := e.History.topUndoCommand().(*pickGeneratedAssetCmd); ok && top.requestID == req.ID && top.candidateID == candidateID {
+		e.Undo()
+		return nil
+	}
+
+	assetRel, err := cleanAssetTargetPath(req.TargetPath)
+	if err != nil {
+		return err
+	}
+	root := filepath.Dir(e.ProjectPath)
+	sourceRel := importsettings.AssetSourcePath(assetRel)
+	assetAbs := filepath.Join(root, filepath.FromSlash(assetRel))
+	sourceAbs := filepath.Join(root, filepath.FromSlash(sourceRel))
+	if err := verifyAssetGenWritePath(root, assetAbs, assetRel); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(root, sourceAbs, sourceRel); err != nil {
+		return err
+	}
+
+	curAssetExists, curAssetBytes, err := readOptionalBoundedFile(assetAbs, maxGeneratedAudioBytes)
+	if err != nil {
+		return err
+	}
+	curSourceExists, curSourceBytes, err := readOptionalBoundedFile(sourceAbs, maxGeneratedSourceBytes)
+	if err != nil {
+		return err
+	}
+
+	var (
+		restoreAssetExists  bool
+		restoreAssetBytes   []byte
+		restoreSourceExists bool
+		restoreSourceBytes  []byte
+		restorePickedID     string
+		restoreStatus       = AssetGenPending
+	)
+	e.assetGen.mu.Lock()
+	if prev := e.assetGen.lastPickByReq[req.ID]; prev != nil && prev.candidateID == candidateID {
+		restoreAssetExists = prev.beforeAssetExists
+		restoreAssetBytes = slices.Clone(prev.beforeAssetBytes)
+		restoreSourceExists = prev.beforeSourceExists
+		restoreSourceBytes = slices.Clone(prev.beforeSourceBytes)
+		restorePickedID = prev.beforePickedID
+		restoreStatus = prev.beforeStatus
+	}
+	e.assetGen.mu.Unlock()
+
+	cmd := &unpickGeneratedAssetCmd{
+		ed:                  e,
+		label:               fmt.Sprintf("Undo pick %s for %s", candidateID, path.Base(assetRel)),
+		rootDir:             root,
+		requestID:           req.ID,
+		candidateID:         candidateID,
+		assetRel:            assetRel,
+		sourceRel:           sourceRel,
+		assetAbs:            assetAbs,
+		sourceAbs:           sourceAbs,
+		curAssetExists:      curAssetExists,
+		curAssetBytes:       curAssetBytes,
+		curSourceExists:     curSourceExists,
+		curSourceBytes:      curSourceBytes,
+		restoreAssetExists:  restoreAssetExists,
+		restoreAssetBytes:   restoreAssetBytes,
+		restoreSourceExists: restoreSourceExists,
+		restoreSourceBytes:  restoreSourceBytes,
+		curPickedID:         req.PickedCandidateID,
+		curStatus:           req.Status,
+		restorePickedID:     restorePickedID,
+		restoreStatus:       restoreStatus,
+	}
+	return e.History.execute(cmd)
+}
+
+func readOptionalBoundedFile(absPath string, limit int64) (bool, []byte, error) {
+	data, err := readBoundedAssetFile(absPath, limit)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil, nil
@@ -1224,6 +1793,7 @@ func readOptionalFile(absPath string) (bool, []byte, error) {
 type pickGeneratedAssetCmd struct {
 	ed                 *Editor
 	label              string
+	rootDir            string
 	requestID          string
 	candidateID        string
 	assetRel           string
@@ -1246,6 +1816,12 @@ func (c *pickGeneratedAssetCmd) Do()           { c.ed.report(c.do()) }
 func (c *pickGeneratedAssetCmd) Undo()         { c.ed.report(c.undo()) }
 
 func (c *pickGeneratedAssetCmd) do() error {
+	if err := verifyAssetGenWritePath(c.rootDir, c.assetAbs, c.assetRel); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(c.rootDir, c.sourceAbs, c.sourceRel); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(c.assetAbs), 0o755); err != nil {
 		return err
 	}
@@ -1257,24 +1833,123 @@ func (c *pickGeneratedAssetCmd) do() error {
 		_ = restoreOptionalFile(c.assetAbs, c.beforeAssetExists, c.beforeAssetBytes)
 		return err
 	}
-	c.setReqState(c.candidateID, c.afterStatus)
+	c.setReqState(c.candidateID, c.afterStatus, true)
 	c.ed.Status = fmt.Sprintf("Picked %s · %s and %s written", c.candidateID, path.Base(c.assetRel), path.Base(c.sourceRel))
 	return nil
 }
 
 func (c *pickGeneratedAssetCmd) undo() error {
+	if err := verifyAssetGenWritePath(c.rootDir, c.sourceAbs, c.sourceRel); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(c.rootDir, c.assetAbs, c.assetRel); err != nil {
+		return err
+	}
 	if err := restoreOptionalFile(c.sourceAbs, c.beforeSourceExists, c.beforeSourceBytes); err != nil {
 		return err
 	}
 	if err := restoreOptionalFile(c.assetAbs, c.beforeAssetExists, c.beforeAssetBytes); err != nil {
 		return err
 	}
-	c.setReqState(c.beforePickedID, c.beforeStatus)
+	c.setReqState(c.beforePickedID, c.beforeStatus, false)
 	c.ed.Status = fmt.Sprintf("Undid pick for %s", path.Base(c.assetRel))
 	return nil
 }
 
-func (c *pickGeneratedAssetCmd) setReqState(pickedID string, status AssetGenerationStatus) {
+func (c *pickGeneratedAssetCmd) setReqState(pickedID string, status AssetGenerationStatus, recordPick bool) {
+	c.ed.assetGen.mu.Lock()
+	c.ed.ensureAssetGenLocked()
+	for _, r := range c.ed.assetGen.requests {
+		if r.ID == c.requestID {
+			r.PickedCandidateID = pickedID
+			r.Status = status
+			if pickedID != "" {
+				r.SelectedCandidateID = pickedID
+			}
+			break
+		}
+	}
+	if recordPick {
+		c.ed.assetGen.lastPickByReq[c.requestID] = c
+	} else if c.ed.assetGen.lastPickByReq[c.requestID] == c {
+		delete(c.ed.assetGen.lastPickByReq, c.requestID)
+	}
+	c.ed.assetGen.rev++
+	c.ed.assetGen.mu.Unlock()
+	c.ed.filesRev++
+	c.ed.invalidateProjectIndex()
+	c.ed.RefreshGeneratedAssetLicenses()
+	if c.ed.ExportPanelOpen() {
+		c.ed.CheckExportCredits()
+	}
+	c.ed.notify()
+}
+
+type unpickGeneratedAssetCmd struct {
+	ed                  *Editor
+	label               string
+	rootDir             string
+	requestID           string
+	candidateID         string
+	assetRel            string
+	sourceRel           string
+	assetAbs            string
+	sourceAbs           string
+	curAssetExists      bool
+	curAssetBytes       []byte
+	curSourceExists     bool
+	curSourceBytes      []byte
+	restoreAssetExists  bool
+	restoreAssetBytes   []byte
+	restoreSourceExists bool
+	restoreSourceBytes  []byte
+	curPickedID         string
+	curStatus           AssetGenerationStatus
+	restorePickedID     string
+	restoreStatus       AssetGenerationStatus
+}
+
+func (c *unpickGeneratedAssetCmd) Label() string { return c.label }
+func (c *unpickGeneratedAssetCmd) Do()           { c.ed.report(c.do()) }
+func (c *unpickGeneratedAssetCmd) Undo()         { c.ed.report(c.undo()) }
+
+func (c *unpickGeneratedAssetCmd) do() error {
+	if err := verifyAssetGenWritePath(c.rootDir, c.sourceAbs, c.sourceRel); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(c.rootDir, c.assetAbs, c.assetRel); err != nil {
+		return err
+	}
+	if err := restoreOptionalFile(c.sourceAbs, c.restoreSourceExists, c.restoreSourceBytes); err != nil {
+		return err
+	}
+	if err := restoreOptionalFile(c.assetAbs, c.restoreAssetExists, c.restoreAssetBytes); err != nil {
+		return err
+	}
+	c.setReqState(c.restorePickedID, c.restoreStatus)
+	c.ed.Status = fmt.Sprintf("Undid pick for %s", path.Base(c.assetRel))
+	return nil
+}
+
+func (c *unpickGeneratedAssetCmd) undo() error {
+	if err := verifyAssetGenWritePath(c.rootDir, c.assetAbs, c.assetRel); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(c.rootDir, c.sourceAbs, c.sourceRel); err != nil {
+		return err
+	}
+	if err := restoreOptionalFile(c.assetAbs, c.curAssetExists, c.curAssetBytes); err != nil {
+		return err
+	}
+	if err := restoreOptionalFile(c.sourceAbs, c.curSourceExists, c.curSourceBytes); err != nil {
+		return err
+	}
+	c.setReqState(c.curPickedID, c.curStatus)
+	c.ed.Status = fmt.Sprintf("Restored pick %s for %s", c.candidateID, path.Base(c.assetRel))
+	return nil
+}
+
+func (c *unpickGeneratedAssetCmd) setReqState(pickedID string, status AssetGenerationStatus) {
 	c.ed.assetGen.mu.Lock()
 	for _, r := range c.ed.assetGen.requests {
 		if r.ID == c.requestID {
@@ -1318,6 +1993,9 @@ func (e *Editor) SetGeneratedAssetLicense(relPath, license string, commercialUse
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.MergeConflictOpen() {
+		return errAssetGenMergeConflict
+	}
 	if e.ProjectPath == "" {
 		return ErrNoProject
 	}
@@ -1326,16 +2004,20 @@ func (e *Editor) SetGeneratedAssetLicense(relPath, license string, commercialUse
 		return err
 	}
 	root := filepath.Dir(e.ProjectPath)
-	sourceAbs := filepath.Join(root, filepath.FromSlash(importsettings.AssetSourcePath(clean)))
-	beforeBytes, err := os.ReadFile(sourceAbs)
+	sourceRel := importsettings.AssetSourcePath(clean)
+	sourceAbs := filepath.Join(root, filepath.FromSlash(sourceRel))
+	if err := verifyAssetGenWritePath(root, sourceAbs, sourceRel); err != nil {
+		return err
+	}
+	beforeBytes, err := readBoundedAssetFile(sourceAbs, maxGeneratedSourceBytes)
 	if err != nil {
-		return fmt.Errorf("editor: read %s: %w", importsettings.AssetSourcePath(clean), err)
+		return fmt.Errorf("editor: read %s: %w", sourceRel, err)
 	}
 	src, err := importsettings.ParseAssetSource(beforeBytes)
 	if err != nil {
 		return err
 	}
-	src.License = strings.TrimSpace(license)
+	src.License = sanitizeSingleLineMeta(license)
 	src.CommercialUse = commercialUse
 	afterBytes, err := importsettings.EncodeAssetSource(src)
 	if err != nil {
@@ -1344,7 +2026,9 @@ func (e *Editor) SetGeneratedAssetLicense(relPath, license string, commercialUse
 	cmd := &setSourceLicenseCmd{
 		ed:          e,
 		label:       fmt.Sprintf("Set license for %s", path.Base(clean)),
+		rootDir:     root,
 		assetRel:    clean,
+		sourceRel:   sourceRel,
 		sourceAbs:   sourceAbs,
 		beforeBytes: beforeBytes,
 		afterBytes:  afterBytes,
@@ -1354,10 +2038,110 @@ func (e *Editor) SetGeneratedAssetLicense(relPath, license string, commercialUse
 	return e.History.execute(cmd)
 }
 
+// BeginEditGeneratedLicense opens the inline license editor for assetPath without fabricating a license value.
+func (e *Editor) BeginEditGeneratedLicense(assetPath string) {
+	if e == nil {
+		return
+	}
+	clean, err := cleanAssetTargetPath(assetPath)
+	if err != nil {
+		e.report(err)
+		return
+	}
+	draft := ""
+	comm := false
+	e.assetGen.mu.Lock()
+	for _, entry := range e.assetGen.licenses {
+		if entry.Asset == clean {
+			if !importsettings.IsUnknownLicense(entry.License) {
+				draft = entry.License
+			}
+			comm = entry.CommercialUse
+			break
+		}
+	}
+	e.assetGen.licenseEditPath = clean
+	e.assetGen.licenseDraft = draft
+	e.assetGen.licenseEditComm = comm
+	e.assetGen.rev++
+	e.assetGen.mu.Unlock()
+	e.notify()
+}
+
+// CancelEditGeneratedLicense closes the inline license editor without writing anything.
+func (e *Editor) CancelEditGeneratedLicense() {
+	if e == nil {
+		return
+	}
+	e.assetGen.mu.Lock()
+	changed := e.assetGen.licenseEditPath != "" || e.assetGen.licenseDraft != ""
+	e.assetGen.licenseEditPath = ""
+	e.assetGen.licenseDraft = ""
+	e.assetGen.licenseEditComm = false
+	if changed {
+		e.assetGen.rev++
+	}
+	e.assetGen.mu.Unlock()
+	if changed {
+		e.notify()
+	}
+}
+
+// SetGeneratedLicenseDraft updates the in-memory license text being typed in the inline editor
+// without bumping assetGen.rev so the active text input never remounts or loses focus.
+func (e *Editor) SetGeneratedLicenseDraft(val string) {
+	if e == nil {
+		return
+	}
+	e.assetGen.mu.Lock()
+	e.assetGen.licenseDraft = val
+	e.assetGen.mu.Unlock()
+}
+
+// SetGeneratedLicenseCommercial toggles the commercialUse flag in the inline license editor.
+func (e *Editor) SetGeneratedLicenseCommercial(on bool) {
+	if e == nil {
+		return
+	}
+	e.assetGen.mu.Lock()
+	e.assetGen.licenseEditComm = on
+	e.assetGen.mu.Unlock()
+}
+
+// SaveEditedGeneratedLicense commits the user-entered license string and commercialUse flag to <asset>.source.yaml.
+func (e *Editor) SaveEditedGeneratedLicense() error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	e.assetGen.mu.Lock()
+	editPath := e.assetGen.licenseEditPath
+	draft := strings.TrimSpace(e.assetGen.licenseDraft)
+	comm := e.assetGen.licenseEditComm
+	e.assetGen.mu.Unlock()
+	if editPath == "" {
+		return errors.New("editor: no generated asset selected for license edit")
+	}
+	if draft == "" {
+		return errors.New("editor: enter a license identifier (for example CC0-1.0, CC-BY-4.0, or Commercial)")
+	}
+	return e.SetGeneratedAssetLicense(editPath, draft, comm)
+}
+
+func (e *Editor) assetGenLicenseEditState() (editPath, draft string, comm bool) {
+	if e == nil {
+		return "", "", false
+	}
+	e.assetGen.mu.Lock()
+	defer e.assetGen.mu.Unlock()
+	return e.assetGen.licenseEditPath, e.assetGen.licenseDraft, e.assetGen.licenseEditComm
+}
+
 type setSourceLicenseCmd struct {
 	ed          *Editor
 	label       string
+	rootDir     string
 	assetRel    string
+	sourceRel   string
 	sourceAbs   string
 	beforeBytes []byte
 	afterBytes  []byte
@@ -1370,6 +2154,9 @@ func (c *setSourceLicenseCmd) Do()           { c.ed.report(c.do()) }
 func (c *setSourceLicenseCmd) Undo()         { c.ed.report(c.undo()) }
 
 func (c *setSourceLicenseCmd) do() error {
+	if err := verifyAssetGenWritePath(c.rootDir, c.sourceAbs, c.sourceRel); err != nil {
+		return err
+	}
 	if err := writeFileAtomic(c.sourceAbs, c.afterBytes); err != nil {
 		return err
 	}
@@ -1378,6 +2165,9 @@ func (c *setSourceLicenseCmd) do() error {
 }
 
 func (c *setSourceLicenseCmd) undo() error {
+	if err := verifyAssetGenWritePath(c.rootDir, c.sourceAbs, c.sourceRel); err != nil {
+		return err
+	}
 	if err := writeFileAtomic(c.sourceAbs, c.beforeBytes); err != nil {
 		return err
 	}
@@ -1404,6 +2194,8 @@ func (c *setSourceLicenseCmd) sync(lic string, comm bool) {
 		}
 	}
 	c.ed.assetGen.licenseEditPath = ""
+	c.ed.assetGen.licenseDraft = ""
+	c.ed.assetGen.licenseEditComm = false
 	c.ed.assetGen.rev++
 	c.ed.assetGen.mu.Unlock()
 	c.ed.RefreshGeneratedAssetLicenses()
@@ -1419,15 +2211,30 @@ func (e *Editor) RefreshGeneratedAssetLicenses() []credits.GeneratedAssetLicense
 		return nil
 	}
 	items, err := credits.ScanGeneratedLicenses(filepath.Dir(e.ProjectPath))
-	if err != nil {
-		return nil
-	}
 	e.assetGen.mu.Lock()
 	e.ensureAssetGenLocked()
+	if err != nil {
+		e.assetGen.licenseScanErr = err.Error()
+		e.assetGen.licenses = nil
+		e.assetGen.rev++
+		e.assetGen.mu.Unlock()
+		return nil
+	}
+	e.assetGen.licenseScanErr = ""
 	e.assetGen.licenses = items
 	e.assetGen.rev++
 	e.assetGen.mu.Unlock()
 	return slices.Clone(items)
+}
+
+// GeneratedAssetLicenseError returns the last scan/parse error from RefreshGeneratedAssetLicenses, if any.
+func (e *Editor) GeneratedAssetLicenseError() string {
+	if e == nil {
+		return ""
+	}
+	e.assetGen.mu.Lock()
+	defer e.assetGen.mu.Unlock()
+	return e.assetGen.licenseScanErr
 }
 
 // GeneratedAssetLicenses returns the last scanned *.source.yaml license entries for the open project.
@@ -1501,6 +2308,12 @@ func (e *Editor) SelectGeneratedCandidate(requestID, candidateID string) {
 func (e *Editor) PlayGeneratedSoundCandidate(requestID, candidateID string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return errAssetGenMergeConflict
 	}
 	req, cand, err := e.lookupRequestCandidate(requestID, candidateID)
 	if err != nil {
@@ -1712,9 +2525,9 @@ func parseUntrustedMCPGeneratorResult(res *sdkmcp.CallToolResult, kind AssetGene
 	}
 
 	out := &mcpGeneratorWireResponse{
-		Model:   meta.Model,
+		Model:   sanitizeSingleLineMeta(meta.Model),
 		Prompt:  meta.Prompt,
-		License: meta.License,
+		License: sanitizeSingleLineMeta(meta.License),
 	}
 	if meta.CommercialUse != nil {
 		out.CommercialUse = *meta.CommercialUse
@@ -1722,20 +2535,48 @@ func parseUntrustedMCPGeneratorResult(res *sdkmcp.CallToolResult, kind AssetGene
 		out.CommercialUse = *meta.CommercialUseAlt
 	}
 	if meta.ElapsedMs > 0 {
-		out.Elapsed = time.Duration(meta.ElapsedMs) * time.Millisecond
-	} else if meta.ElapsedSeconds > 0 {
-		out.Elapsed = time.Duration(meta.ElapsedSeconds * float64(time.Second))
+		ms := meta.ElapsedMs
+		if maxMs := maxGeneratedElapsed.Milliseconds(); ms > maxMs {
+			ms = maxMs
+		}
+		out.Elapsed = time.Duration(ms) * time.Millisecond
+	} else if meta.ElapsedSeconds > 0 && !math.IsNaN(meta.ElapsedSeconds) && !math.IsInf(meta.ElapsedSeconds, 0) {
+		sec := meta.ElapsedSeconds
+		if maxSec := maxGeneratedElapsed.Seconds(); sec > maxSec {
+			sec = maxSec
+		}
+		out.Elapsed = time.Duration(sec * float64(time.Second))
 	}
 
+	maxRaw := maxGeneratedImageBytes
+	if kind == AssetGenSound {
+		maxRaw = maxGeneratedAudioBytes
+	}
+	maxB64Len := base64.StdEncoding.EncodedLen(maxRaw)
+
 	// 1. Decode inline JSON candidates when present.
+	if len(meta.Candidates) > maxGeneratedCandidates {
+		return nil, fmt.Errorf("generator returned %d candidates, exceeding limit %d", len(meta.Candidates), maxGeneratedCandidates)
+	}
+	var totalRaw int64
 	for i, jc := range meta.Candidates {
-		b64 := firstNonEmpty(jc.Data, jc.Base64)
+		b64 := strings.TrimSpace(firstNonEmpty(jc.Data, jc.Base64))
 		if b64 == "" {
 			continue
 		}
-		raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
+		if len(b64) > maxB64Len {
+			return nil, fmt.Errorf("candidate %d base64 payload (%d chars) exceeds limit for %d raw bytes", i+1, len(b64), maxRaw)
+		}
+		raw, err := base64.StdEncoding.DecodeString(b64)
 		if err != nil {
 			return nil, fmt.Errorf("candidate %d invalid base64: %w", i+1, err)
+		}
+		if len(raw) > maxRaw {
+			return nil, fmt.Errorf("candidate %d payload (%d bytes) exceeds limit %d", i+1, len(raw), maxRaw)
+		}
+		totalRaw += int64(len(raw))
+		if totalRaw > maxGeneratedTotalDecodedBytes {
+			return nil, fmt.Errorf("generator total payload (%d bytes) exceeds limit %d", totalRaw, maxGeneratedTotalDecodedBytes)
 		}
 		comm := jc.CommercialUse
 		if comm == nil {
@@ -1750,7 +2591,7 @@ func parseUntrustedMCPGeneratorResult(res *sdkmcp.CallToolResult, kind AssetGene
 			Seed:          seed,
 			MimeType:      firstNonEmpty(jc.MimeType, jc.MimeTypeAlt),
 			Data:          raw,
-			License:       jc.License,
+			License:       sanitizeSingleLineMeta(jc.License),
 			CommercialUse: comm,
 		})
 	}
@@ -1763,6 +2604,16 @@ func parseUntrustedMCPGeneratorResult(res *sdkmcp.CallToolResult, kind AssetGene
 			case *sdkmcp.ImageContent:
 				if kind != AssetGenImages {
 					continue
+				}
+				if len(out.Candidates) >= maxGeneratedCandidates {
+					return nil, fmt.Errorf("generator returned more than %d image candidates", maxGeneratedCandidates)
+				}
+				if len(block.Data) > maxRaw {
+					return nil, fmt.Errorf("candidate %d image payload (%d bytes) exceeds limit %d", mediaIdx+1, len(block.Data), maxRaw)
+				}
+				totalRaw += int64(len(block.Data))
+				if totalRaw > maxGeneratedTotalDecodedBytes {
+					return nil, fmt.Errorf("generator total payload (%d bytes) exceeds limit %d", totalRaw, maxGeneratedTotalDecodedBytes)
 				}
 				var seed *int64
 				if mediaIdx < len(meta.Seeds) {
@@ -1778,6 +2629,16 @@ func parseUntrustedMCPGeneratorResult(res *sdkmcp.CallToolResult, kind AssetGene
 			case *sdkmcp.AudioContent:
 				if kind != AssetGenSound {
 					continue
+				}
+				if len(out.Candidates) >= maxGeneratedCandidates {
+					return nil, fmt.Errorf("generator returned more than %d sound candidates", maxGeneratedCandidates)
+				}
+				if len(block.Data) > maxRaw {
+					return nil, fmt.Errorf("candidate %d audio payload (%d bytes) exceeds limit %d", mediaIdx+1, len(block.Data), maxRaw)
+				}
+				totalRaw += int64(len(block.Data))
+				if totalRaw > maxGeneratedTotalDecodedBytes {
+					return nil, fmt.Errorf("generator total payload (%d bytes) exceeds limit %d", totalRaw, maxGeneratedTotalDecodedBytes)
 				}
 				var seed *int64
 				if mediaIdx < len(meta.Seeds) {
@@ -1864,14 +2725,15 @@ func decodeUntrustedImage(raw []byte) (*decodedImageInfo, error) {
 }
 
 type decodedAudioInfo struct {
-	mimeType   string
-	cleanBytes []byte
-	duration   time.Duration
-	sampleRate int
-	channels   int
-	rmsDBFS    float64
-	peakDBFS   float64
-	waveform   []float32
+	mimeType         string
+	cleanBytes       []byte
+	duration         time.Duration
+	sampleRate       int
+	channels         int
+	rmsDBFS          float64
+	peakDBFS         float64
+	loudnessMeasured bool
+	waveform         []float32
 }
 
 // decodeUntrustedAudio strictly validates WAV or OGG audio bytes in memory only.
@@ -1895,14 +2757,15 @@ func decodeUntrustedAudio(raw []byte) (*decodedAudioInfo, error) {
 			return nil, fmt.Errorf("re-encode clean WAV: %w", err)
 		}
 		return &decodedAudioInfo{
-			mimeType:   "audio/wav",
-			cleanBytes: clean.Bytes(),
-			duration:   buf.Duration(),
-			sampleRate: buf.SampleRate,
-			channels:   buf.Channels,
-			rmsDBFS:    buf.RMSDBFS(),
-			peakDBFS:   buf.PeakDBFS(),
-			waveform:   computeWaveformBars(buf, 64),
+			mimeType:         "audio/wav",
+			cleanBytes:       clean.Bytes(),
+			duration:         buf.Duration(),
+			sampleRate:       buf.SampleRate,
+			channels:         buf.Channels,
+			rmsDBFS:          buf.RMSDBFS(),
+			peakDBFS:         buf.PeakDBFS(),
+			loudnessMeasured: true,
+			waveform:         computeAssetGenWaveformBars(buf, 64),
 		}, nil
 	}
 	if len(raw) >= 28 && string(raw[0:4]) == "OggS" {
@@ -1911,14 +2774,15 @@ func decodeUntrustedAudio(raw []byte) (*decodedAudioInfo, error) {
 			return nil, err
 		}
 		return &decodedAudioInfo{
-			mimeType:   "audio/ogg",
-			cleanBytes: slices.Clone(raw),
-			duration:   dur,
-			sampleRate: sr,
-			channels:   ch,
-			rmsDBFS:    -14.0,
-			peakDBFS:   -1.0,
-			waveform:   syntheticOggWaveform(raw, 64),
+			mimeType:         "audio/ogg",
+			cleanBytes:       slices.Clone(raw),
+			duration:         dur,
+			sampleRate:       sr,
+			channels:         ch,
+			rmsDBFS:          math.NaN(),
+			peakDBFS:         math.NaN(),
+			loudnessMeasured: false,
+			waveform:         nil,
 		}, nil
 	}
 	return nil, errors.New("unsupported or non-audio payload (want WAV or OGG)")
@@ -1983,7 +2847,7 @@ func validateUntrustedOGG(raw []byte) (time.Duration, int, int, error) {
 	return dur, sampleRate, channels, nil
 }
 
-func computeWaveformBars(buf *audioconv.Buffer, bars int) []float32 {
+func computeAssetGenWaveformBars(buf *audioconv.Buffer, bars int) []float32 {
 	if buf == nil || buf.Frames() == 0 || bars <= 0 {
 		return nil
 	}
@@ -2009,41 +2873,38 @@ func computeWaveformBars(buf *audioconv.Buffer, bars int) []float32 {
 	return out
 }
 
-func syntheticOggWaveform(raw []byte, bars int) []float32 {
-	out := make([]float32, bars)
-	if len(raw) == 0 {
-		return out
-	}
-	for i := 0; i < bars; i++ {
-		idx := i * len(raw) / bars
-		v := float32(raw[idx]) / 255.0
-		out[i] = min(1.0, max(0.08, v*0.85))
-	}
-	return out
-}
-
 // --- Reference loading & style/audio checking ---
 
-func (e *Editor) loadRequestReference(req *AssetGenerationRequest) {
-	if e == nil || e.ProjectPath == "" {
+func loadRequestReferenceFromDir(root string, req *AssetGenerationRequest) {
+	if root == "" || req == nil {
 		return
 	}
-	root := filepath.Dir(e.ProjectPath)
 	for _, ref := range req.References {
 		refPath, _, _ := strings.Cut(ref, "#")
 		refPath = strings.TrimSpace(filepath.ToSlash(refPath))
 		if refPath == "" || strings.HasSuffix(refPath, ".yaml") {
 			continue
 		}
-		abs := filepath.Join(root, filepath.FromSlash(refPath))
-		data, err := os.ReadFile(abs)
+		cleanRef, err := cleanAssetTargetPath(refPath)
+		if err != nil {
+			continue
+		}
+		abs := filepath.Join(root, filepath.FromSlash(cleanRef))
+		if err := verifyAssetGenReadPath(root, abs, cleanRef); err != nil {
+			continue
+		}
+		limit := int64(maxGeneratedImageBytes)
+		if req.Kind == AssetGenSound {
+			limit = int64(maxGeneratedAudioBytes)
+		}
+		data, err := readBoundedAssetFile(abs, limit)
 		if err != nil {
 			continue
 		}
 		switch req.Kind {
 		case AssetGenImages:
 			if info, decErr := decodeUntrustedImage(data); decErr == nil {
-				req.ReferenceAsset = refPath
+				req.ReferenceAsset = cleanRef
 				req.RefWidth = info.width
 				req.RefHeight = info.height
 				req.RefPixels = info.rgba
@@ -2052,10 +2913,12 @@ func (e *Editor) loadRequestReference(req *AssetGenerationRequest) {
 			}
 		case AssetGenSound:
 			if info, decErr := decodeUntrustedAudio(data); decErr == nil {
-				req.ReferenceAsset = refPath
-				req.RefSoundName = path.Base(refPath)
-				v := info.rmsDBFS
-				req.RefLoudDB = &v
+				req.ReferenceAsset = cleanRef
+				req.RefSoundName = path.Base(cleanRef)
+				if info.loudnessMeasured && !math.IsNaN(info.rmsDBFS) && !math.IsInf(info.rmsDBFS, 0) {
+					v := info.rmsDBFS
+					req.RefLoudDB = &v
+				}
 				return
 			}
 		}
@@ -2180,6 +3043,19 @@ func evaluateImageCandidate(cand *GeneratedCandidate, req *AssetGenerationReques
 }
 
 func evaluateSoundCandidate(cand *GeneratedCandidate, req *AssetGenerationRequest, brief AssetStyleBrief) {
+	if !cand.AudioLoudnessMeasured || math.IsNaN(cand.LoudnessDBFS) || math.IsNaN(cand.PeakDBFS) {
+		cand.AudioCheckPass = true
+		cand.AudioCheckText = "OGG loudness unmeasured"
+		cand.Checks = []AssetStyleCheck{
+			{
+				Pass:    true,
+				Title:   "Loudness",
+				Summary: cand.AudioCheckText,
+				Detail:  "OGG header verified · loudness check requires WAV",
+			},
+		}
+		return
+	}
 	targetDB := brief.TargetLoudDB
 	refLabel := "target"
 	if req.RefLoudDB != nil && !math.IsInf(*req.RefLoudDB, 0) && !math.IsNaN(*req.RefLoudDB) {

@@ -3,6 +3,29 @@ version: 1
 locale: zh
 strings:
   app.defaultName: NSGo 场景编辑器
+  assetGen.back: 返回场景编辑器
+  assetGen.cancel: 取消
+  assetGen.commercialUse: 允许商业使用
+  assetGen.emptyBody: 在“设置 › 工具”中连接 MCP 生成服务器，无需写入磁盘即可预览图像或音频候选。
+  assetGen.emptyTitle: 暂无生成资源请求
+  assetGen.licenseEditTitle: 编辑许可证
+  assetGen.licensePlaceholder: 许可证（例如 CC0-1.0、CC-BY-4.0、Commercial）
+  assetGen.licensesHeader: 许可证 · 导出时检查
+  assetGen.noLicenses: 尚未写入任何 .source.yaml 生成来源文件。
+  assetGen.noServers: 未连接 MCP 服务器
+  assetGen.pick: 选用
+  assetGen.picked: 已选用
+  assetGen.play: 运行
+  assetGen.previewOn: 预览背景
+  assetGen.refine: 微调
+  assetGen.refinePlaceholder: 用文字微调……例如 仅顶部结霜，保持与 slime.png 相同的眼睛
+  assetGen.saveLicense: 保存许可证
+  assetGen.setLicense: 设置许可证
+  assetGen.settingsTools: 设置 › 工具
+  assetGen.title: 生成资源
+  assetGen.undoPick: 撤销选用
+  assetGen.untrustedNotice: 生成输出不受信任：仅作像素预览，选用前不会写入磁盘
+  assetGen.varyThis: 生成变体
   assets.empty: 未加载图集资源
   assets.placePrefab: 放置预制体
   assets.prefab: 预制体

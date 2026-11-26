@@ -16,12 +16,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/audioconv"
 	"github.com/nsgo-dev/game/packages/game/tooling/credits"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
@@ -641,5 +643,538 @@ func TestAssetGeneratorScreenUIInteraction(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "art/characters/slime_frost.png.source.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("UI Undo pick did not remove source sidecar: %v", err)
+	}
+}
+
+func makeMinimalValidOGG() []byte {
+	// Minimal OggS page carrying a valid Vorbis identification packet (1 ch, 48000 Hz).
+	pkt := make([]byte, 30)
+	pkt[0] = 1
+	copy(pkt[1:7], "vorbis")
+	pkt[11] = 1 // channels
+	// sampleRate = 48000 (0x0000BB80) little-endian at bytes 12..15
+	pkt[12] = 0x80
+	pkt[13] = 0xBB
+	pkt[14] = 0x00
+	pkt[15] = 0x00
+
+	page := make([]byte, 27+1+len(pkt))
+	copy(page[0:4], "OggS")
+	page[4] = 0 // version
+	// granule = 24000 (0.5s at 48000 Hz) at bytes 6..13
+	page[6] = 0xC0
+	page[7] = 0x5D
+	page[26] = 1 // 1 segment
+	page[27] = byte(len(pkt))
+	copy(page[28:], pkt)
+	return page
+}
+
+func TestAssetGeneratorPathTraversalAndSymlinkContainment(t *testing.T) {
+	ed, dir := newAssetGenTestProject(t)
+	defer ed.DisconnectAllAssetGenerators()
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.png")
+	if err := os.WriteFile(outsideFile, []byte("DO_NOT_OVERWRITE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideRefPNG := filepath.Join(outsideDir, "outside_ref.png")
+	if err := os.WriteFile(outsideRefPNG, makePixelSpritePNG(t, 16, 12, []color.RGBA{{R: 255, G: 0, B: 0, A: 255}}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideSource := filepath.Join(outsideDir, "outside.source.yaml")
+	if err := os.WriteFile(outsideSource, []byte("version: 1\ngenerator: x\nprompt: p\nlicense: unknown\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideBrief := filepath.Join(outsideDir, "outside_brief.yaml")
+	if err := os.WriteFile(outsideBrief, []byte("art:\n  summary: ESCAPED_BRIEF\n  pixelGrid: 8\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Symlinked brief.yaml pointing outside project root must be ignored.
+	if err := os.Remove(filepath.Join(dir, "brief.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideBrief, filepath.Join(dir, "brief.yaml")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	brief := ed.LoadAssetStyleBrief()
+	if strings.Contains(brief.Summary, "ESCAPED_BRIEF") {
+		t.Fatalf("LoadAssetStyleBrief followed symlink outside project root: %+v", brief)
+	}
+
+	// 2. Reference path traversal and symlinked reference must be refused cleanly.
+	if err := os.Symlink(outsideRefPNG, filepath.Join(dir, "art", "characters", "escaped_ref.png")); err != nil {
+		t.Fatal(err)
+	}
+	imgT, _, _ := startFixtureImageGenerator(t, "CC0-1.0", true, nil)
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "pixel-gen", Kind: editor.AssetGenImages}, imgT); err != nil {
+		t.Fatal(err)
+	}
+	reqRef, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/slime_refcheck.png",
+		Generator:  "pixel-gen",
+		Prompt:     "slime",
+		References: []string{"../../" + filepath.Base(outsideDir) + "/outside_ref.png", "art/characters/escaped_ref.png"},
+		Count:      2,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAsset: %v", err)
+	}
+	if reqRef.ReferenceAsset != "" || reqRef.RefWidth != 0 {
+		t.Fatalf("loadRequestReference read outside reference: asset=%q width=%d", reqRef.ReferenceAsset, reqRef.RefWidth)
+	}
+
+	// 3. PickGeneratedCandidate must refuse symlinked target file and symlinked parent dir.
+	if err := os.Symlink(outsideFile, filepath.Join(dir, "art", "characters", "symlink_target.png")); err != nil {
+		t.Fatal(err)
+	}
+	reqFileLink, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/symlink_target.png",
+		Generator:  "pixel-gen",
+		Prompt:     "slime",
+		Count:      1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.PickGeneratedCandidate(reqFileLink.ID, "A"); err == nil {
+		t.Fatal("PickGeneratedCandidate succeeded through symlink target file, want error")
+	}
+	gotOutside, _ := os.ReadFile(outsideFile)
+	if string(gotOutside) != "DO_NOT_OVERWRITE" {
+		t.Fatalf("outside file was modified through target symlink: %q", string(gotOutside))
+	}
+
+	if err := os.Symlink(outsideDir, filepath.Join(dir, "art", "escaped_dir")); err != nil {
+		t.Fatal(err)
+	}
+	reqDirLink, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/escaped_dir/new_sprite.png",
+		Generator:  "pixel-gen",
+		Prompt:     "slime",
+		Count:      1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.PickGeneratedCandidate(reqDirLink.ID, "A"); err == nil {
+		t.Fatal("PickGeneratedCandidate succeeded through symlink parent dir, want error")
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "new_sprite.png")); !os.IsNotExist(err) {
+		t.Fatalf("PickGeneratedCandidate wrote outside project through symlink dir: %v", err)
+	}
+
+	// 4. SetGeneratedAssetLicense must refuse symlinked .source.yaml.
+	if err := os.Symlink(outsideSource, filepath.Join(dir, "art", "characters", "lic_escape.png.source.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetGeneratedAssetLicense("art/characters/lic_escape.png", "CC0-1.0", true); err == nil {
+		t.Fatal("SetGeneratedAssetLicense succeeded through symlink sidecar, want error")
+	}
+	gotSrc, _ := os.ReadFile(outsideSource)
+	if strings.Contains(string(gotSrc), "CC0-1.0") {
+		t.Fatalf("outside source file was modified through symlink: %q", string(gotSrc))
+	}
+}
+
+func TestAssetGeneratorUntrustedPayloadCapsAndOGG(t *testing.T) {
+	ed, _ := newAssetGenTestProject(t)
+	defer ed.DisconnectAllAssetGenerators()
+
+	validPNG := makePixelSpritePNG(t, 16, 12, []color.RGBA{{R: 0x7C, G: 0xC4, B: 0xE8, A: 0xFF}})
+	validB64 := base64.StdEncoding.EncodeToString(validPNG)
+
+	// 1. > 16 candidates rejected before decoding.
+	srvMany := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "many-gen", Version: "1.0.0"}, nil)
+	srvMany.AddTool(&sdkmcp.Tool{
+		Name:        "generate_image",
+		Description: "Too many candidates",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		cands := make([]map[string]any, 17)
+		for i := range cands {
+			cands[i] = map[string]any{"seed": i + 1, "mimeType": "image/png", "data": validB64}
+		}
+		raw, _ := json.Marshal(map[string]any{"model": "m", "candidates": cands})
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(raw)}}}, nil
+	})
+	st1, ct1 := sdkmcp.NewInMemoryTransports()
+	if _, err := srvMany.Connect(context.Background(), st1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "many-gen", Kind: editor.AssetGenImages}, ct1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/too_many.png",
+		Generator:  "many-gen",
+		Prompt:     "slime",
+	}); err == nil || !strings.Contains(err.Error(), "exceeding limit") {
+		t.Fatalf("GenerateAsset with 17 candidates err = %v, want limit error", err)
+	}
+
+	// 2. Oversized base64 string rejected BEFORE decoding.
+	srvHuge := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "huge-gen", Version: "1.0.0"}, nil)
+	srvHuge.AddTool(&sdkmcp.Tool{
+		Name:        "generate_image",
+		Description: "Oversized base64",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		hugeB64 := strings.Repeat("A", base64.StdEncoding.EncodedLen(16<<20)+16)
+		raw, _ := json.Marshal(map[string]any{
+			"model":      "m",
+			"candidates": []map[string]any{{"seed": 1, "mimeType": "image/png", "data": hugeB64}},
+		})
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(raw)}}}, nil
+	})
+	st2, ct2 := sdkmcp.NewInMemoryTransports()
+	if _, err := srvHuge.Connect(context.Background(), st2, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "huge-gen", Kind: editor.AssetGenImages}, ct2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/too_big.png",
+		Generator:  "huge-gen",
+		Prompt:     "slime",
+	}); err == nil || !strings.Contains(err.Error(), "exceed") {
+		t.Fatalf("GenerateAsset with oversized base64 err = %v, want size limit error", err)
+	}
+
+	// 3. Server-attempted prompt rewrite is ignored, huge ElapsedSeconds is clamped, and OGG loudness is marked unmeasured (not fabricated -14.0 dBFS).
+	srvOGG := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "ogg-gen", Version: "1.0.0"}, nil)
+	srvOGG.AddTool(&sdkmcp.Tool{
+		Name:        "generate_sound",
+		Description: "Generate OGG with spoofed prompt and extreme elapsed",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		raw, _ := json.Marshal(map[string]any{
+			"model":          "ogg-v1\ninjected",
+			"prompt":         "SPOOFED PROMPT BY SERVER",
+			"license":        "CC0-1.0\r\nforged: true",
+			"commercialUse":  true,
+			"elapsedSeconds": 1e15,
+			"candidates": []map[string]any{
+				{"seed": 42, "mimeType": "audio/ogg", "data": base64.StdEncoding.EncodeToString(makeMinimalValidOGG())},
+			},
+		})
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(raw)}}}, nil
+	})
+	st3, ct3 := sdkmcp.NewInMemoryTransports()
+	if _, err := srvOGG.Connect(context.Background(), st3, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "ogg-gen", Kind: editor.AssetGenSound}, ct3); err != nil {
+		t.Fatal(err)
+	}
+	oggReq, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "audio/sfx/chime.ogg",
+		Generator:  "ogg-gen",
+		Kind:       editor.AssetGenSound,
+		Prompt:     "crisp crystal chime",
+	})
+	if err != nil {
+		t.Fatalf("GenerateAsset OGG: %v", err)
+	}
+	if oggReq.Prompt != "crisp crystal chime" {
+		t.Fatalf("server overwrote prompt: got %q, want %q", oggReq.Prompt, "crisp crystal chime")
+	}
+	if oggReq.Elapsed > 24*time.Hour || oggReq.Elapsed <= 0 {
+		t.Fatalf("Elapsed not clamped cleanly: %v", oggReq.Elapsed)
+	}
+	if strings.ContainsAny(oggReq.Model+oggReq.License, "\r\n") {
+		t.Fatalf("control chars not stripped from metadata: model=%q license=%q", oggReq.Model, oggReq.License)
+	}
+	if len(oggReq.Candidates) != 1 {
+		t.Fatalf("got %d OGG candidates, want 1", len(oggReq.Candidates))
+	}
+	cand := oggReq.Candidates[0]
+	if cand.AudioLoudnessMeasured {
+		t.Fatal("OGG candidate reported AudioLoudnessMeasured=true, want false")
+	}
+	if !math.IsNaN(cand.LoudnessDBFS) {
+		t.Fatalf("OGG candidate fabricated LoudnessDBFS=%v, want NaN", cand.LoudnessDBFS)
+	}
+	if !strings.Contains(strings.ToLower(cand.AudioCheckText), "unmeasured") {
+		t.Fatalf("OGG AudioCheckText = %q, want unmeasured notice", cand.AudioCheckText)
+	}
+}
+
+func TestAssetGeneratorProjectSwitchResetAndAsyncCancel(t *testing.T) {
+	ed, _ := newAssetGenTestProject(t)
+	defer ed.DisconnectAllAssetGenerators()
+
+	// Create a second valid project directory to switch to.
+	ed2, dir2 := newAssetGenTestProject(t)
+	ed2.DisconnectAllAssetGenerators()
+
+	// Slow MCP server that blocks until cancelled.
+	started := make(chan struct{}, 1)
+	canceled := make(chan struct{}, 1)
+	srvSlow := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "slow-gen", Version: "1.0.0"}, nil)
+	srvSlow.AddTool(&sdkmcp.Tool{
+		Name:        "generate_image",
+		Description: "Slow generator",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		select {
+		case canceled <- struct{}{}:
+		default:
+		}
+		return nil, ctx.Err()
+	})
+	st, ct := sdkmcp.NewInMemoryTransports()
+	if _, err := srvSlow.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	imgT, _, _ := startFixtureImageGenerator(t, "CC0-1.0", true, nil)
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "pixel-gen", Kind: editor.AssetGenImages}, imgT); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "slow-gen", Kind: editor.AssetGenImages}, ct); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/slime_frost.png",
+		Generator:  "pixel-gen",
+		Prompt:     "frost slime",
+		Count:      2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetAssetGeneratorOpen(true)
+
+	// Launch a concurrent blocking call on slow-gen to verify OpenProject cancels/invalidates cleanly under -race.
+	errCh := make(chan error, 1)
+	callCtx, callCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer callCancel()
+	go func() {
+		_, err := ed.GenerateAsset(callCtx, editor.GenerateAssetParams{
+			TargetPath: "art/characters/stale.png",
+			Generator:  "slow-gen",
+			Prompt:     "stale",
+		})
+		errCh <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("slow generator never started")
+	}
+
+	// Switch project: must close Generated Assets screen, clear requests, disconnect servers, and invalidate stale calls!
+	if err := ed.OpenProject(dir2); err != nil {
+		t.Fatalf("OpenProject(dir2): %v", err)
+	}
+	if ed.AssetGeneratorOpen() {
+		t.Fatal("AssetGeneratorOpen still true after OpenProject")
+	}
+	if reqs := ed.GeneratedAssetRequests(); len(reqs) != 0 {
+		t.Fatalf("GeneratedAssetRequests not cleared after OpenProject: got %d", len(reqs))
+	}
+	if srvs := ed.AssetGenerators(); len(srvs) != 0 {
+		t.Fatalf("AssetGenerators not disconnected after OpenProject: got %d", len(srvs))
+	}
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("stale GenerateAsset across OpenProject succeeded, want error")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("stale GenerateAsset did not unblock after OpenProject")
+	}
+
+	// Also verify OpenDemo resets cleanly.
+	ed.SetAssetGeneratorOpen(true)
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.AssetGeneratorOpen() {
+		t.Fatal("AssetGeneratorOpen still true after OpenDemo")
+	}
+}
+
+func TestAssetGeneratorInlineLicenseEditorNoHardcodedCC0(t *testing.T) {
+	ed, dir := newAssetGenTestProject(t)
+	defer ed.DisconnectAllAssetGenerators()
+
+	sndT := startFixtureSoundGenerator(t, "unknown", false)
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "sfx-gen", Kind: editor.AssetGenSound}, sndT); err != nil {
+		t.Fatal(err)
+	}
+	req, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "audio/sfx/torch_flicker.wav",
+		Generator:  "sfx-gen",
+		Kind:       editor.AssetGenSound,
+		Prompt:     "torch crackle",
+		Count:      1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.PickGeneratedCandidate(req.ID, "A"); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetAssetGeneratorOpen(true)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+	// Clicking "Set license" MUST open the inline license editor and NOT silently write "CC0-1.0"!
+	app.Press("id:asset-gen-set-license-0")
+	if app.Find("id:asset-gen-license-editor") == nil {
+		t.Fatal("clicking Set license did not open inline license editor")
+	}
+	srcPath := filepath.Join(dir, "audio/sfx/torch_flicker.wav.source.yaml")
+	rawBefore, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rawBefore), "CC0-1.0") {
+		t.Fatalf("clicking Set license fabricated CC0-1.0 without user input:\n%s", string(rawBefore))
+	}
+
+	// User enters explicit license + enables commercial use + presses Save.
+	app.Type("id:asset-gen-license-input", "Apache-2.0")
+	app.Press("id:asset-gen-license-commercial")
+	app.Press("id:asset-gen-license-save")
+
+	rawAfter, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := importsettings.ParseAssetSource(rawAfter)
+	if err != nil {
+		t.Fatalf("ParseAssetSource after Save: %v", err)
+	}
+	if src.License != "Apache-2.0" || !src.CommercialUse {
+		t.Fatalf("saved license = (%q, commercial=%v), want (Apache-2.0, true)", src.License, src.CommercialUse)
+	}
+}
+
+func TestAssetGeneratorSafeUndoPickAfterUnrelatedEdit(t *testing.T) {
+	ed, dir := newAssetGenTestProject(t)
+	defer ed.DisconnectAllAssetGenerators()
+
+	imgT, _, _ := startFixtureImageGenerator(t, "CC0-1.0", true, nil)
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "pixel-gen", Kind: editor.AssetGenImages}, imgT); err != nil {
+		t.Fatal(err)
+	}
+	req, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/slime_frost.png",
+		Generator:  "pixel-gen",
+		Prompt:     "frost slime",
+		Count:      2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.PickGeneratedCandidate(req.ID, "B"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Perform an unrelated edit on Editor.History AFTER picking candidate B!
+	placedID, err := ed.PlaceObject("main", sceneformat.ObjectDoc{
+		ID:   "hero_after_pick",
+		Name: "hero_renamed_after_pick",
+	})
+	if err != nil {
+		t.Fatalf("PlaceObject: %v", err)
+	}
+
+	// Now undo ONLY the picked asset via UndoPickedCandidate (the exact handler wired to the "Undo pick" button).
+	if err := ed.UndoPickedCandidate(req.ID, "B"); err != nil {
+		t.Fatalf("UndoPickedCandidate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "art/characters/slime_frost.png")); !os.IsNotExist(err) {
+		t.Fatalf("UndoPickedCandidate did not remove picked image: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "art/characters/slime_frost.png.source.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("UndoPickedCandidate did not remove picked source sidecar: %v", err)
+	}
+
+	// The unrelated scene edit MUST still be intact!
+	obj, _, _ := ed.FindObject(placedID)
+	if obj == nil || obj.Name != "hero_renamed_after_pick" {
+		t.Fatalf("UndoPickedCandidate clobbered unrelated History edit: obj=%+v", obj)
+	}
+
+	// And Cmd+Z on the unpick restores the picked files cleanly!
+	ed.Undo()
+	if _, err := os.Stat(filepath.Join(dir, "art/characters/slime_frost.png")); err != nil {
+		t.Fatalf("Undo after UndoPickedCandidate did not restore image: %v", err)
+	}
+}
+
+func TestAssetGeneratorGuardsAndLicenseParseError(t *testing.T) {
+	ed, dir := newAssetGenTestProject(t)
+	defer ed.DisconnectAllAssetGenerators()
+
+	imgT, _, _ := startFixtureImageGenerator(t, "CC0-1.0", true, nil)
+	if err := ed.ConnectAssetGenerator(context.Background(), editor.GeneratorServerConfig{Name: "pixel-gen", Kind: editor.AssetGenImages}, imgT); err != nil {
+		t.Fatal(err)
+	}
+	req, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/slime_frost.png",
+		Generator:  "pixel-gen",
+		Prompt:     "frost slime",
+		Count:      2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Malformed .source.yaml surfaces scan error in GeneratedAssetLicenseError() and UI.
+	badSidecar := filepath.Join(dir, "art/characters/broken.png.source.yaml")
+	if err := os.WriteFile(badSidecar, []byte("version: 99\nunknownField: bad\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed.RefreshGeneratedAssetLicenses()
+	if errMsg := ed.GeneratedAssetLicenseError(); errMsg == "" {
+		t.Fatal("GeneratedAssetLicenseError() empty for malformed .source.yaml")
+	}
+	ed.SetAssetGeneratorOpen(true)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+	if app.Find("id:asset-gen-license-error") == nil {
+		t.Fatal("asset-gen-license-error not rendered for malformed .source.yaml")
+	}
+	_ = os.Remove(badSidecar)
+	ed.RefreshGeneratedAssetLicenses()
+	if errMsg := ed.GeneratedAssetLicenseError(); errMsg != "" {
+		t.Fatalf("GeneratedAssetLicenseError() not cleared after fixing file: %q", errMsg)
+	}
+	ed.CloseAssetGenerator()
+
+	// 2. Play mode blocks generation, picking, unpicking, and license editing.
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	defer ed.Stop()
+	if _, err := ed.GenerateAsset(context.Background(), editor.GenerateAssetParams{
+		TargetPath: "art/characters/while_playing.png",
+		Generator:  "pixel-gen",
+		Prompt:     "slime",
+	}); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("GenerateAsset while playing = %v, want ErrPlaying", err)
+	}
+	if err := ed.PickGeneratedCandidate(req.ID, "A"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("PickGeneratedCandidate while playing = %v, want ErrPlaying", err)
+	}
+	if err := ed.UndoPickedCandidate(req.ID, "A"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("UndoPickedCandidate while playing = %v, want ErrPlaying", err)
+	}
+	if err := ed.SetGeneratedAssetLicense("art/characters/slime_frost.png", "CC0-1.0", true); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("SetGeneratedAssetLicense while playing = %v, want ErrPlaying", err)
 	}
 }

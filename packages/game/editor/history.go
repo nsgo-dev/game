@@ -189,6 +189,14 @@ func (h *History) Index() int {
 	return h.cursor
 }
 
+// topUndoCommand returns the most recently applied command that Undo would revert, or nil.
+func (h *History) topUndoCommand() Command {
+	if !h.CanUndo() {
+		return nil
+	}
+	return h.commands[h.cursor-1]
+}
+
 // UndoLabel returns the label of the next command Undo would revert, or "".
 func (h *History) UndoLabel() string {
 	if !h.CanUndo() {
