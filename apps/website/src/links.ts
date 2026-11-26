@@ -5,7 +5,6 @@ export const NSGO_URL = 'https://nsgo.dev'
 export const NSGO_GITHUB_URL = 'https://github.com/nsgo-dev/nsgo'
 // NSGO_LLMS_URL is nsgo.dev's index of its docs for language models.
 export const NSGO_LLMS_URL = `${NSGO_URL}/llms.txt`
-export const PLAN_URL = 'https://github.com/nsgo-dev/nsgo/issues/1047'
 // The NSGo community's places, as the header of every NSGo site links them.
 export const AWESOME_URL = 'https://awesomensgo.dev/'
 export const TELEGRAM_URL = 'https://t.me/nsgo_dev'

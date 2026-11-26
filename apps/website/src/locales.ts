@@ -51,7 +51,7 @@ export function isNonDefaultLang(value: string): value is NonDefaultLang {
   return NON_DEFAULT_SET.has(value)
 }
 
-// splitLocalePath parts a pathname, such as /ja/docs/packages/ or /game/zh-tw/roadmap/, into its language and the path below it.
+// splitLocalePath parts a pathname, such as /ja/docs/packages/ or /game/zh-tw/showcase/, into its language and the path below it.
 export function splitLocalePath(pathname: string, base: string): { lang: Lang; path: string } {
   const rest = pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\/+/, '')
   const slash = rest.indexOf('/')

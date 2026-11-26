@@ -1,15 +1,15 @@
 # 概览
 
-game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏绘制在一个 NSGo 视图中，可以是 `Canvas`、像素缓冲区或着色器，HUD 和菜单仍然是叠在上面的普通原生 NSGo 视图。它只使用 NSGo 的公开 API（`core`、`audio`，之后还有 `gamepad`），所以没有导入它的应用不会链接其中任何代码。
+game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏层。游戏绘制在一个 NSGo 视图中——可以是 `Canvas`、像素缓冲区、着色器或 GPU 视图——HUD 和菜单仍然是叠在上面的普通原生 NSGo 视图。它只使用 NSGo 的公开 API（`core`、`audio`、`gamepad` 与 GPU 视图），所以没有导入它的应用不会链接其中任何代码。
 
-> 项目还处在早期：下面的包已经可用并有测试，[API 稳定性](stability.md)说明了哪些包的 API 是稳定的、哪些还会变化。从[快速开始](getting-started.md)入手创建并运行一个游戏，再跟着[教程](tutorial.md)做出一款完整的游戏。
+> NSGo Game `v0.1.0` 需要 Go 1.27+ 与 NSGo `v0.3.4+`。可以在[API 稳定性](stability.md)中查看哪些包已稳定、哪些仍属实验性。从[快速开始](getting-started.md)创建并运行你的第一个游戏，选择一套[入门模板](templates.md)，或跟着[教程](tutorial.md)完成一款完整游戏。
 
-## 阶段
+## 2D 与 3D
 
-1. **2D**：固定步长循环、输入动作、精灵、瓦片地图、场景和声音，以 60 fps 或显示器的刷新率绘制。
-2. **3D**：在 NSGo 为此新增的 GPU 视图上，带深度地绘制网格、相机、光照和 glTF 模型（[nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)）。坐标系约定、Blender 4.x 导出清单、FBX/OBJ 转换与示例 glTF 资产见[从 Blender 导入 3D 模型](3d-models-blender.md)；包含轨道相机、动态光照、原生 HUD 以及共享输入与音频的 2D ↔ 3D 场景切换示例见 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)。
+1. **2D**：固定步长循环、输入动作、精灵、瓦片地图、场景、物理、光照、粒子、UI 和声音，以 60 fps 或显示器的刷新率绘制。
+2. **3D**：在 NSGo GPU 视图上带深度地绘制网格、相机、PBR 光照、骨骼动画、3D 物理、地形、体素和 glTF 模型。坐标系约定、Blender 4.x 导出清单、FBX/OBJ 转换与示例 glTF 资产见[从 Blender 导入 3D 模型](3d-models-blender.md)；包含轨道相机、动态光照、原生 HUD 以及共享输入与音频的 2D ↔ 3D 场景切换示例见 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)。
 
-循环、输入动作、声音和场景切换由两个阶段共用，所以 3D 只是增加绘制，不会替换它们。开发计划是 [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047)，其中的任务就是本仓库的 issue，以及 NSGo 为它新增的引擎基础能力。
+循环、输入动作、声音、资源和场景切换由 2D 与 3D 共用，可以在同一款游戏里自由混用 2D 与 3D 场景而无需重写架构。每个面向作者的文件——场景、预制体、材质、动画、数据表与项目配置——都是带版本的纯文本 YAML（[文件格式](formats.md)），既适合手工与编程智能体直接读写，也可以在可视化[场景编辑器](editor.md)中编辑。
 
 ## 包
 
@@ -127,7 +127,7 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 
 ### VR 与 AR
 
-游戏层目前不支持 VR 和 AR（[#495](https://github.com/nsgo-dev/game/issues/495)）。所有包都绘制到一个平面的 NSGo 视图中，即 `Canvas` 或 [nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059) 的 GPU 视图，并读取触摸、鼠标、键盘、手柄和设备运动传感器的输入。NSGo v0.2 在任何目标平台上都没有 XR 运行时，而本仓库只使用 NSGo 的公开 API、不包含平台代码，因此无法自行添加。
+游戏层目前不支持 VR 和 AR（[#495](https://github.com/nsgo-dev/game/issues/495)）。所有包都绘制到一个平面的 NSGo 视图中（`Canvas` 或 GPU 视图），并读取触摸、鼠标、键盘、手柄和设备运动传感器的输入。NSGo 目前在任何目标平台上都没有 XR 运行时，而本仓库只使用 NSGo 的公开 API、不包含平台代码，因此无法自行添加。
 
 等 NSGo 在至少一个运行时（桌面与 Android 头显上的 OpenXR、visionOS、ARKit、ARCore 或 WebXR）上提供以下能力后，这里才能开始 XR 的工作：
 

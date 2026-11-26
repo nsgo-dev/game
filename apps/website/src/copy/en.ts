@@ -8,7 +8,6 @@ export const en = {
     docs: 'Docs',
     playground: 'Playground',
     showcase: 'Showcase',
-    roadmap: 'Roadmap',
     nsgo: 'NSGo',
     github: 'GitHub',
     menu: 'Menu',
@@ -18,7 +17,7 @@ export const en = {
   },
   site: {
     title: 'NSGo Game: a Go game layer for NSGo',
-    description: 'A game layer for NSGo apps, written in Go: a fixed-step loop, sprites and sound, then 3D.',
+    description: 'A pure-Go 2D and 3D game layer for NSGo apps: fixed-step loop, sprites, glTF rendering, visual scene editor and plain-text YAML across six platforms.',
   },
   docs: {
     titleSuffix: 'NSGo Game Docs',
@@ -63,33 +62,6 @@ export const en = {
     // Above a package's page in a language other than English; empty in English.
     notice: '',
     unavailable: ['This build could not read the Go packages (', ').'],
-  },
-  roadmap: {
-    title: 'Roadmap — NSGo Game',
-    description: 'The plan for games on NSGo in five stages: every open and closed issue under it in nsgo-dev/game and NSGo, by area.',
-    heading: 'Roadmap',
-    // Around the links to the repository's issues and to the plan.
-    intro: ['The issues of ', ' and NSGo under its plan, ', ', by stage and area.'],
-    // Around the date the issues were read.
-    asOf: [' As of ', '.'],
-    // Around the reason and the link to the plan.
-    unavailable: ['This build could not read the issues from GitHub (', '). See them on ', '.'],
-    stage: (n: number) => `Stage ${n}`,
-    // A stage's name by its number, in place of its issue's English title; empty where the title is shown as it is.
-    stageNames: [] as string[],
-    // A stage's description by its number, in place of the first paragraph of its issue's Context; empty where that English paragraph is shown as it is.
-    stageDescriptions: [] as string[],
-    closed: (closed: number, total: number) => `${closed} of ${total} closed`,
-    // The short label before a stage's closed and total issues, as a game shows experience.
-    xp: 'XP',
-    quest: 'Area',
-    open: 'Open',
-    closedState: 'Closed',
-    // The group of a stage's sub-issues that have none of their own.
-    single: 'Single issues',
-    unplanned: 'Unplanned',
-    unplannedCount: (n: number) => `${n} ${n === 1 ? 'issue' : 'issues'} of nsgo-dev/game in no stage of the plan.`,
-    dateLocale: 'en',
   },
   playground: {
     title: 'Playground — NSGo Game',

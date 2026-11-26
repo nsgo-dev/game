@@ -9,12 +9,12 @@ export const zhPages: PagesCopy = {
     "search": "搜索"
   },
   "home": {
-    "eyebrow": "早期阶段：API 还会变化",
+    "eyebrow": "v0.1.0 · 纯 Go",
     "title": [
       "用 Go 写游戏，",
       "一份代码跑遍六个平台"
     ],
-    "lead": "game 是 NSGo 的游戏层：固定步长循环、输入动作、精灵、瓦片地图、场景与声音。游戏画在一个 Canvas 里，HUD 和菜单仍是原生 NSGo 视图。",
+    "lead": "game 是 NSGo 的 2D 与 3D 游戏层：固定步长循环、输入动作、精灵、glTF 渲染、可视化场景编辑器与纯文本 YAML 格式。游戏画在一个 NSGo 视图里，HUD 和菜单仍是原生视图。",
     "start": "快速开始",
     "playground": "在 Playground 试玩",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const zhPages: PagesCopy = {
     ],
     "hudNote": "HUD · 原生 NSGo 视图",
     "canvasNote": "游戏画面 · core.Canvas",
-    "stagesTitle": "两个阶段，共用一套底座",
-    "stagesLead": "循环、输入动作、声音和场景切换由两个阶段共用，所以 3D 只是增加绘制，不会替换它们。",
+    "stagesTitle": "2D 与 3D，共用一套底座",
+    "stagesLead": "循环、输入动作、声音和场景切换由 2D 与 3D 共用，可以自由组合和切换场景，无需重写游戏架构。",
     "stages": [
       {
         "status": "可用",
-        "body": "固定步长循环、输入动作、精灵、瓦片地图、场景和声音，以 60 fps 或显示器的刷新率绘制。"
+        "body": "固定步长循环、输入动作、精灵、瓦片地图、场景、物理、光照与声音，以 60 fps 或显示器的刷新率绘制。"
       },
       {
-        "status": "进行中",
-        "body": "在 NSGo 为此新增的 GPU 视图上，带深度地绘制网格、相机、光照和 glTF 模型，可从 Blender 导入。"
+        "status": "可用",
+        "body": "在 NSGo GPU 视图上绘制网格、相机、PBR 光照、骨骼动画、3D 物理与 glTF 模型，支持从 Blender 直接导入。"
       }
     ],
     "codeTitle": "一个组件，就是一个游戏",
@@ -60,6 +60,28 @@ export const zhPages: PagesCopy = {
       "固定步长更新，绘制帧之间插值",
       "键盘与手柄绑定到同一个动作",
       "保存即热重载：go tool nsgo dev"
+    ],
+    "workflowTitle": "纯文本项目，可视化编辑器，面向 AI 智能体",
+    "workflowLead": "场景、预制体、材质、动画与数据表都是带版本的 YAML，人与编程智能体都能直接阅读、对比与修改。",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "可视化 2D 与 3D 场景编辑器",
+        "body": "运行 game editor 启动实时视口、层级树、属性检查器、变换手柄与资源浏览器，还可用 Go 插件扩展。",
+        "link": "了解场景编辑器"
+      },
+      {
+        "tag": "YAML",
+        "title": "纯文本、带 Schema 校验的格式",
+        "body": "没有黑盒二进制场景文件。每种格式都有版本号，拒绝未知字段，附带 JSON Schema，在 Git 中可清晰审阅与往返保存。",
+        "link": "浏览文件格式"
+      },
+      {
+        "tag": "TEMPLATES & AI",
+        "title": "16 套入门模板与 MCP 工具",
+        "body": "用 game new -template 一键生成平台跳跃、RPG、肉鸽、3D 动作、FPS 或赛车项目，并通过 MCP 与 Agent Skills 检查运行中的场景。",
+        "link": "查看全部 16 套模板"
+      }
     ],
     "packagesTitle": "{n} 个包，按需导入",
     "packagesLead": "从精灵到专用服务器，每个包都有指南，并标明稳定或实验状态。",
@@ -77,10 +99,10 @@ export const zhPages: PagesCopy = {
     ],
     "requirements": "需要 Go 1.27+ 与 NSGo v0.3.4+；构建 iOS 需要 macOS 与 Xcode。",
     "migrate": "从其他引擎迁移：",
-    "finalTitle": "还在早期，但已经能做完一整款游戏",
-    "finalLead": "项目尚未发布。API 稳定性策略说明了哪些包已经稳定、哪些仍会变化。",
+    "finalTitle": "v0.1.0 现已发布，用纯 Go 构建并发布你的游戏",
+    "finalLead": "每个包都配有指南，并在 API 稳定性策略中标明稳定或实验状态。从模板开始，或看看大家用 NSGo Game 做出的作品。",
     "finalStart": "阅读快速开始",
-    "finalRoadmap": "查看路线图"
+    "finalShowcase": "浏览作品展示"
   },
   "categories": [
     "核心",
@@ -130,7 +152,7 @@ export const zhPages: PagesCopy = {
     "run": "在本仓库运行各章"
   },
   "footer": {
-    "tagline": "用 Go 编写的 NSGo 游戏层。2D 现已可用，3D 正在路上。",
+    "tagline": "纯 Go 编写的 NSGo 游戏层：2D、3D、可视化场景编辑器与纯文本 YAML，覆盖六个平台。",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const zhPages: PagesCopy = {
     "stability": "API 稳定性",
     "playground": "Playground",
     "examples": "示例",
-    "roadmap": "路线图",
+    "editor": "场景编辑器",
+    "templates": "入门模板",
     "changelog": "更新日志",
     "github": "GitHub",
     "nsgo": "NSGo",

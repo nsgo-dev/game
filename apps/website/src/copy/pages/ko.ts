@@ -9,12 +9,12 @@ export const koPages: PagesCopy = {
     "search": "검색"
   },
   "home": {
-    "eyebrow": "초기 단계: API는 변경될 수 있습니다",
+    "eyebrow": "v0.1.0 · 순수 Go",
     "title": [
       "Go로 게임을 만드세요.",
       "코드 하나로 여섯 플랫폼에."
     ],
-    "lead": "game은 NSGo의 게임 레이어입니다. 고정 스텝 루프, 입력 액션, 스프라이트, 타일맵, 씬, 사운드. 게임은 하나의 Canvas에 그려지고, HUD와 메뉴는 네이티브 NSGo 뷰 그대로입니다.",
+    "lead": "game은 NSGo의 2D·3D 게임 레이어입니다. 고정 스텝 루프, 입력 액션, 스프라이트, glTF 렌더링, 비주얼 씬 에디터와 일반 텍스트 YAML. 게임은 하나의 NSGo 뷰에 그려지고 HUD와 메뉴는 네이티브로 유지됩니다.",
     "start": "시작하기",
     "playground": "Playground에서 플레이",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const koPages: PagesCopy = {
     ],
     "hudNote": "HUD · 네이티브 NSGo 뷰",
     "canvasNote": "게임 화면 · core.Canvas",
-    "stagesTitle": "두 단계, 하나의 공통 기반.",
-    "stagesLead": "루프, 입력 액션, 사운드, 씬 전환은 두 단계가 공유합니다. 3D는 그리기를 더할 뿐, 이를 대체하지 않습니다.",
+    "stagesTitle": "2D와 3D, 하나의 공통 기반.",
+    "stagesLead": "루프, 입력 액션, 사운드, 씬 전환을 2D와 3D가 공유하므로 게임을 다시 쓰지 않고 씬을 자유롭게 조합할 수 있습니다.",
     "stages": [
       {
         "status": "사용 가능",
-        "body": "고정 스텝 루프, 입력 액션, 스프라이트, 타일맵, 씬, 사운드를 60 fps 또는 디스플레이 주사율로 그립니다."
+        "body": "고정 스텝 루프, 입력 액션, 스프라이트, 타일맵, 씬, 물리, 조명, 사운드를 60 fps 또는 디스플레이 주사율로 그립니다."
       },
       {
-        "status": "진행 중",
-        "body": "NSGo가 새로 추가하는 GPU 뷰에서 메시, 카메라, 조명, glTF 모델을 깊이와 함께 그리며, Blender에서 가져올 수 있습니다."
+        "status": "사용 가능",
+        "body": "NSGo의 GPU 뷰에서 메시, 카메라, PBR 조명, 스켈레탈 애니메이션, 3D 물리, glTF 모델을 그리며 Blender에서 바로 가져올 수 있습니다."
       }
     ],
     "codeTitle": "컴포넌트 하나가 게임 하나.",
@@ -60,6 +60,28 @@ export const koPages: PagesCopy = {
       "고정 스텝 업데이트, 그리기 프레임 보간",
       "키보드와 게임패드를 같은 액션에",
       "저장하면 핫 리로드: go tool nsgo dev"
+    ],
+    "workflowTitle": "일반 텍스트 프로젝트. 비주얼 에디터. AI 에이전트 친화적.",
+    "workflowLead": "모든 씬, 프리팹, 머티리얼, 애니메이션, 데이터 테이블이 버전이 명시된 YAML이라 사람과 코딩 에이전트 모두 깔끔하게 읽고 diff하고 편집할 수 있습니다.",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "비주얼 2D & 3D 씬 에디터",
+        "body": "game editor를 실행해 실시간 뷰포트, 계층 구조, 인스펙터, 변환 기즈모, 에셋 브라우저를 사용하고 Go 플러그인으로 확장하세요.",
+        "link": "에디터 살펴보기"
+      },
+      {
+        "tag": "YAML",
+        "title": "스키마로 검증되는 일반 텍스트 파일",
+        "body": "불투명한 바이너리 씬 파일이 없습니다. 모든 형식은 버전을 갖고, 알 수 없는 필드를 거부하며, JSON Schema와 Git 친화적 왕복 저장을 지원합니다.",
+        "link": "파일 형식 보기"
+      },
+      {
+        "tag": "TEMPLATES & AI",
+        "title": "16개 스타터 템플릿과 MCP 도구",
+        "body": "game new -template로 플랫포머, RPG, 로그라이크, 3D 액션, FPS, 레이싱 프로젝트를 만들고 MCP와 Agent Skills로 실행 중인 씬을 검사하세요.",
+        "link": "16개 템플릿 모두 보기"
+      }
     ],
     "packagesTitle": "{n}개 패키지, 필요한 것만.",
     "packagesLead": "스프라이트부터 전용 서버까지, 모든 패키지에 가이드가 있고 안정 또는 실험 상태가 표시됩니다.",
@@ -77,10 +99,10 @@ export const koPages: PagesCopy = {
     ],
     "requirements": "Go 1.27+와 NSGo v0.3.4+가 필요합니다. iOS 빌드에는 macOS와 Xcode가 필요합니다.",
     "migrate": "다른 엔진에서 옮겨오기:",
-    "finalTitle": "아직 초기지만, 게임 한 편을 끝까지 만들 수 있습니다.",
-    "finalLead": "아직 출시 전입니다. API 안정성 정책에서 어떤 패키지가 안정적이고 어떤 패키지가 바뀔 수 있는지 확인하세요.",
+    "finalTitle": "v0.1.0 출시. 순수 Go로 게임을 만들고 출시하세요.",
+    "finalLead": "모든 패키지에 가이드가 있으며 API 안정성 정책에 안정·실험 상태가 명시되어 있습니다. 템플릿으로 시작하거나 쇼케이스를 둘러보세요.",
     "finalStart": "시작 가이드 읽기",
-    "finalRoadmap": "로드맵 보기"
+    "finalShowcase": "쇼케이스 보기"
   },
   "categories": [
     "코어",
@@ -130,7 +152,7 @@ export const koPages: PagesCopy = {
     "run": "저장소에서 각 챕터 실행"
   },
   "footer": {
-    "tagline": "Go로 작성된 NSGo 게임 레이어. 2D는 지금, 3D는 곧.",
+    "tagline": "순수 Go로 작성된 NSGo 게임 레이어: 2D, 3D, 비주얼 에디터와 일반 텍스트 YAML로 여섯 플랫폼 지원.",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const koPages: PagesCopy = {
     "stability": "API 안정성",
     "playground": "Playground",
     "examples": "예제",
-    "roadmap": "로드맵",
+    "editor": "씬 에디터",
+    "templates": "스타터 템플릿",
     "changelog": "변경 로그",
     "github": "GitHub",
     "nsgo": "NSGo",

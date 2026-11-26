@@ -9,12 +9,12 @@ export const zhTwPages: PagesCopy = {
     "search": "搜尋"
   },
   "home": {
-    "eyebrow": "早期階段：API 仍會變動",
+    "eyebrow": "v0.1.0 · 純 Go",
     "title": [
       "用 Go 寫遊戲，",
       "一份程式碼跑遍六個平台"
     ],
-    "lead": "game 是 NSGo 的遊戲層：固定步長迴圈、輸入動作、精靈圖、圖塊地圖、場景與音效。遊戲畫在一個 Canvas 裡，HUD 和選單仍是原生 NSGo 視圖。",
+    "lead": "game 是 NSGo 的 2D 與 3D 遊戲層：固定步長迴圈、輸入動作、精靈圖、glTF 繪製、視覺化場景編輯器與純文字 YAML 格式。遊戲畫在一個 NSGo 視圖裡，HUD 和選單仍是原生視圖。",
     "start": "快速開始",
     "playground": "在 Playground 試玩",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const zhTwPages: PagesCopy = {
     ],
     "hudNote": "HUD · 原生 NSGo 視圖",
     "canvasNote": "遊戲畫面 · core.Canvas",
-    "stagesTitle": "兩個階段，共用一套基礎",
-    "stagesLead": "迴圈、輸入動作、音效和場景切換由兩個階段共用，所以 3D 只是增加繪製，不會取代它們。",
+    "stagesTitle": "2D 與 3D，共用一套基礎",
+    "stagesLead": "迴圈、輸入動作、音效和場景切換由 2D 與 3D 共用，可自由混用與切換場景，無須重寫遊戲架構。",
     "stages": [
       {
         "status": "可用",
-        "body": "固定步長迴圈、輸入動作、精靈圖、圖塊地圖、場景和音效，以 60 fps 或螢幕的更新率繪製。"
+        "body": "固定步長迴圈、輸入動作、精靈圖、圖塊地圖、場景、物理、光照與音效，以 60 fps 或螢幕的更新率繪製。"
       },
       {
-        "status": "進行中",
-        "body": "在 NSGo 為此新增的 GPU 視圖上，帶深度地繪製網格、攝影機、光源和 glTF 模型，可從 Blender 匯入。"
+        "status": "可用",
+        "body": "在 NSGo GPU 視圖上繪製網格、攝影機、PBR 光照、骨骼動畫、3D 物理與 glTF 模型，支援從 Blender 直接匯入。"
       }
     ],
     "codeTitle": "一個元件，就是一款遊戲",
@@ -60,6 +60,28 @@ export const zhTwPages: PagesCopy = {
       "固定步長更新，繪製影格之間插值",
       "鍵盤與手把綁定到同一個動作",
       "存檔即熱重載：go tool nsgo dev"
+    ],
+    "workflowTitle": "純文字專案，視覺化編輯器，專為 AI 代理打造",
+    "workflowLead": "場景、預製體、材質、動畫與資料表皆為帶版本的 YAML，人與程式開發代理都能直接閱讀、比對與編輯。",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "視覺化 2D 與 3D 場景編輯器",
+        "body": "執行 game editor 開啟即時視口、層級樹、屬性檢查器、變換控制柄與資源瀏覽器，並可使用 Go 外掛擴充。",
+        "link": "探索場景編輯器"
+      },
+      {
+        "tag": "YAML",
+        "title": "純文字、附 Schema 驗證的格式",
+        "body": "沒有不透明的二進位場景檔。每種格式皆含版本號、拒絕未知欄位、提供 JSON Schema，在 Git 中能乾淨審閱與往返儲存。",
+        "link": "瀏覽檔案格式"
+      },
+      {
+        "tag": "TEMPLATES & AI",
+        "title": "16 套入門範本與 MCP 工具",
+        "body": "使用 game new -template 一鍵建立平台跳躍、RPG、Roguelike、3D 動作、FPS 或賽車專案，並透過 MCP 與 Agent Skills 檢查執行中的場景。",
+        "link": "查看全部 16 套範本"
+      }
     ],
     "packagesTitle": "{n} 個套件，按需匯入",
     "packagesLead": "從精靈圖到專用伺服器，每個套件都有指南，並標明穩定或實驗狀態。",
@@ -77,10 +99,10 @@ export const zhTwPages: PagesCopy = {
     ],
     "requirements": "需要 Go 1.27+ 與 NSGo v0.3.4+；建置 iOS 需要 macOS 與 Xcode。",
     "migrate": "從其他引擎遷移：",
-    "finalTitle": "還在早期，但已經能做完一整款遊戲",
-    "finalLead": "專案尚未發布。API 穩定性政策說明了哪些套件已經穩定、哪些仍會變動。",
+    "finalTitle": "v0.1.0 現已發布，用純 Go 打造並發布你的遊戲",
+    "finalLead": "每個套件都有完整指南，並在 API 穩定性政策中標明穩定或實驗狀態。從範本開始，或瀏覽以 NSGo Game 打造的作品展示。",
     "finalStart": "閱讀快速開始",
-    "finalRoadmap": "查看路線圖"
+    "finalShowcase": "瀏覽作品展示"
   },
   "categories": [
     "核心",
@@ -130,7 +152,7 @@ export const zhTwPages: PagesCopy = {
     "run": "在本儲存庫執行各章"
   },
   "footer": {
-    "tagline": "用 Go 撰寫的 NSGo 遊戲層。2D 現已可用，3D 即將到來。",
+    "tagline": "以純 Go 撰寫的 NSGo 遊戲層：2D、3D、視覺化場景編輯器與純文字 YAML，涵蓋六個平台。",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const zhTwPages: PagesCopy = {
     "stability": "API 穩定性",
     "playground": "Playground",
     "examples": "範例",
-    "roadmap": "路線圖",
+    "editor": "場景編輯器",
+    "templates": "入門範本",
     "changelog": "更新日誌",
     "github": "GitHub",
     "nsgo": "NSGo",

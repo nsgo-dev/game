@@ -2,8 +2,6 @@ import type { Copy } from './en'
 
 // Simplified Chinese copy; headings, titles and labels omit the trailing 。, body sentences keep it.
 
-const STAGE_NAMES = ['NSGo 底层能力', '2D 游戏层', '3D', '工具、编辑器与项目格式', '发布、运营与社区']
-
 export const zh: Copy = {
   nav: {
     skip: '跳到正文',
@@ -12,7 +10,6 @@ export const zh: Copy = {
     docs: '文档',
     playground: '在线试玩',
     showcase: '作品展示',
-    roadmap: '路线图',
     nsgo: 'NSGo',
     github: 'GitHub',
     menu: '打开菜单',
@@ -22,7 +19,7 @@ export const zh: Copy = {
   },
   site: {
     title: 'NSGo Game：用 Go 为 NSGo 写游戏',
-    description: '用 Go 编写的 NSGo 应用游戏层：先是固定步长循环、精灵和声音，然后是 3D。',
+    description: '纯 Go 编写的 NSGo 2D 与 3D 游戏层：固定步长循环、精灵、glTF 渲染、可视化场景编辑器与纯文本 YAML 格式，覆盖六个平台。',
   },
   docs: {
     titleSuffix: 'NSGo Game 文档',
@@ -64,32 +61,6 @@ export const zh: Copy = {
     source: '源码',
     notice: 'API 参考取自源码中的 Go 文档注释，以英文书写。',
     unavailable: ['本次构建未能读取 Go 包（', '）。'],
-  },
-  roadmap: {
-    title: '路线图 — NSGo Game',
-    description: 'NSGo 游戏开发计划的五个阶段：按领域列出计划之下 nsgo-dev/game 和 NSGo 的全部 issue，包括未关闭和已关闭的。',
-    heading: '路线图',
-    intro: ['按阶段和领域列出 ', ' 和 NSGo 在开发计划 ', ' 之下的 issue。'],
-    asOf: ['数据截至 ', '。'],
-    unavailable: ['这次构建没能从 GitHub 读取 issue（', '）。请到 ', ' 查看。'],
-    stage: (n: number) => `阶段 ${n}`,
-    stageNames: STAGE_NAMES,
-    stageDescriptions: [
-      '游戏层需要 NSGo 本身提供的能力：输入（按键、手柄、指针和触摸）、帧计时与显示器、画布和图像功能、音频、触觉反馈与传感器，以及手机平台功能。其中大部分对所有 NSGo 应用都有用，不只是游戏。',
-      'nsgo-dev/game 的 2D 包：循环、输入动作、精灵、瓦片地图、场景、相机、物理、光照、骨骼动画、粒子、文本、游戏 UI、特效、声音、存档、资源、本地化、无障碍、AI，以及构成 2D 游戏的其余部分。',
-      'NSGo 上的 3D：NSGo 新增的 GPU 视图（nsgo#1059）、nsgo-dev/game 的 3D 包（game#9）、3D 物理，以及关于 XR 的决定。',
-      '游戏是怎样做出来的：命令行工具、面向智能体的 MCP、编辑器、资源工具、调试、回放与质量检查、由 AI 能一次读完的文本文件组成的项目，以及 NSGo 自身的工具支持。',
-      '把游戏交到玩家手中并保持运行：发布、应用商店打包与上传、线上运营、平台服务、真机检查、示例、文档与社区，以及围绕支持平台的范围决定。',
-    ],
-    closed: (closed: number, total: number) => `已关闭 ${closed} / ${total}`,
-    xp: '进度',
-    quest: '领域',
-    open: '未关闭',
-    closedState: '已关闭',
-    single: '单独的 issue',
-    unplanned: '未规划',
-    unplannedCount: (n: number) => `nsgo-dev/game 中有 ${n} 个 issue 不在计划的任何阶段中。`,
-    dateLocale: 'zh-CN',
   },
   playground: {
     title: '在线试玩 — NSGo Game',

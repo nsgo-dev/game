@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions are welcome: bug fixes, new packages from the [roadmap](https://game.nsgo.dev/roadmap/), examples, documentation, and website improvements.
+Contributions are welcome: bug fixes, new packages, examples, documentation, and website improvements.
 
 ## Repository layout
 
@@ -74,7 +74,7 @@ The site is [TanStack Start](https://tanstack.com/start) and React, every page p
 
 ## Pull requests
 
-1. **Keep PRs focused.** One issue or cohesive change per pull request. Before starting a large feature, open an issue or comment on the existing roadmap issue to align on the API.
+1. **Keep PRs focused.** One issue or cohesive change per pull request. Before starting a large feature, open an issue to align on the API.
 2. **Verify locally before opening.** Ensure `gofmt -l` outputs nothing, `go tool nsgo test ./...` passes, and `go tool nsgo check` passes for your targets. For `docs/` or `apps/website/` changes, ensure `bun run build` exits `0`.
 3. **Link the issue.** Include `Fixes #<number>` (or `Refs #<number>` for partial work) in the pull request description.
 4. **Add a changelog fragment.** A change to `packages/`, `examples/` or `template/` adds a file to `changelog.d/` instead of editing `CHANGELOG.md`, as [changelog.d/README.md](changelog.d/README.md) describes. An internal change takes the `skip-changelog` label instead.

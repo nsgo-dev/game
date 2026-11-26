@@ -1,7 +1,5 @@
 import type { Copy } from './en'
 
-const STAGE_NAMES = ['게임에 필요한 NSGo 기본 기능', '2D 게임 레이어', '3D', '도구, 에디터 및 프로젝트 형식', '출시, 운영 및 커뮤니티']
-
 export const ko: Copy = {
   nav: {
     skip: '본문으로 건너뛰기',
@@ -10,7 +8,6 @@ export const ko: Copy = {
     docs: '문서',
     playground: '플레이그라운드',
     showcase: '쇼케이스',
-    roadmap: '로드맵',
     nsgo: 'NSGo',
     github: 'GitHub',
     menu: '메뉴 열기',
@@ -20,7 +17,7 @@ export const ko: Copy = {
   },
   site: {
     title: 'NSGo Game: NSGo를 위한 Go 게임 레이어',
-    description: 'Go로 작성된 NSGo 앱용 게임 레이어: 고정 스텝 루프, 스프라이트, 사운드에 이어 3D까지.',
+    description: '순수 Go로 작성된 NSGo 앱용 2D·3D 게임 레이어: 고정 스텝 루프, 스프라이트, glTF 렌더링, 비주얼 씬 에디터와 일반 텍스트 YAML로 여섯 플랫폼을 지원합니다.',
   },
   docs: {
     titleSuffix: 'NSGo Game 문서',
@@ -62,32 +59,6 @@ export const ko: Copy = {
     source: '소스',
     notice: 'API 레퍼런스는 소스 코드의 Go 문서 주석에서 추출되며 영어로 작성되어 있습니다.',
     unavailable: ['이 빌드에서는 Go 패키지를 읽을 수 없었습니다(', ').'],
-  },
-  roadmap: {
-    title: '로드맵 — NSGo Game',
-    description: '다섯 단계로 구성된 NSGo 게임 개발 계획: nsgo-dev/game과 NSGo의 모든 열림·닫힘 이슈를 영역별로 보여줍니다.',
-    heading: '로드맵',
-    intro: ['', ' 및 NSGo의 개발 계획 ', ' 아래에 속한 이슈를 단계와 영역별로 정리했습니다.'],
-    asOf: [' 기준일: ', '.'],
-    unavailable: ['이 빌드에서는 GitHub에서 이슈를 불러오지 못했습니다(', '). ', '에서 확인하세요.'],
-    stage: (n: number) => `${n}단계`,
-    stageNames: STAGE_NAMES,
-    stageDescriptions: [
-      '게임 레이어가 NSGo 자체에서 필요로 하는 기능: 입력(키, 게임패드, 포인터, 터치), 프레임 타이밍과 디스플레이, 캔버스 및 이미지 기능, 오디오, 햅틱과 센서, 모바일 플랫폼 기능. 대부분은 게임뿐만 아니라 모든 NSGo 앱에 유용합니다.',
-      'nsgo-dev/game의 2D 패키지: 루프, 입력 액션, 스프라이트, 타일맵, 씬, 카메라, 물리, 라이팅, 스켈레탈 애니메이션, 파티클, 텍스트, 게임 UI, 이펙트, 사운드, 세이브, 에셋, 로컬라이제이션, 접근성, AI 등 2D 게임을 구성하는 기능들.',
-      'NSGo 위의 3D: NSGo에 추가되는 GPU 뷰(nsgo#1059), nsgo-dev/game의 3D 패키지(game#9), 3D 물리, 그리고 XR에 대한 결정.',
-      '게임을 제작하는 도구: CLI, 에이전트용 MCP, 에디터, 에셋 도구, 디버깅·리플레이·품질 검사, AI가 한 번에 읽을 수 있는 텍스트 파일 기반 프로젝트, 그리고 NSGo 자체의 도구 지원.',
-      '게임을 플레이어에게 전달하고 운영하는 과정: 릴리스, 스토어 패키징 및 업로드, 라이브 운영, 플랫폼 서비스, 실기기 검증, 예제, 문서와 커뮤니티, 지원 플랫폼 범위 결정.',
-    ],
-    closed: (closed: number, total: number) => `${total}개 중 ${closed}개 완료`,
-    xp: '진행률',
-    quest: '영역',
-    open: '열림',
-    closedState: '완료',
-    single: '개별 이슈',
-    unplanned: '미계획',
-    unplannedCount: (n: number) => `nsgo-dev/game에 계획의 어떤 단계에도 속하지 않은 이슈가 ${n}개 있습니다.`,
-    dateLocale: 'ko-KR',
   },
   playground: {
     title: '플레이그라운드 — NSGo Game',

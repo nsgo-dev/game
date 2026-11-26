@@ -9,12 +9,12 @@ export const esPages: PagesCopy = {
     "search": "Buscar"
   },
   "home": {
-    "eyebrow": "Fase inicial: las API cambiarán",
+    "eyebrow": "v0.1.0 · Go puro",
     "title": [
       "Crea juegos en Go.",
       "Un solo código, seis plataformas."
     ],
-    "lead": "game es la capa de juego de NSGo: bucle de paso fijo, acciones de entrada, sprites, mapas de tiles, escenas y sonido. El juego se dibuja en un Canvas; su HUD y sus menús siguen siendo vistas nativas de NSGo.",
+    "lead": "game es la capa de juegos 2D y 3D de NSGo: bucle de paso fijo, acciones de entrada, sprites, renderizado glTF, editor visual de escenas y formatos YAML en texto plano. El juego se dibuja en una vista NSGo; su HUD y menús siguen siendo nativos.",
     "start": "Empezar",
     "playground": "Probar el Playground",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const esPages: PagesCopy = {
     ],
     "hudNote": "HUD · vistas nativas de NSGo",
     "canvasNote": "Juego · core.Canvas",
-    "stagesTitle": "Dos etapas, una base común.",
-    "stagesLead": "El bucle, las acciones de entrada, el sonido y el cambio de escena son comunes a ambas etapas, así que el 3D añade dibujo sin reemplazarlos.",
+    "stagesTitle": "2D y 3D sobre una misma base.",
+    "stagesLead": "El bucle, las acciones de entrada, el sonido y el cambio de escena se comparten entre 2D y 3D para combinar escenas libremente sin reescribir el juego.",
     "stages": [
       {
         "status": "Disponible",
-        "body": "Bucle de paso fijo, acciones de entrada, sprites, mapas de tiles, escenas y sonido, a 60 fps o a la frecuencia de la pantalla."
+        "body": "Bucle de paso fijo, acciones de entrada, sprites, mapas de tiles, escenas, física, iluminación y sonido a 60 fps o a la frecuencia de la pantalla."
       },
       {
-        "status": "En desarrollo",
-        "body": "Mallas, cámaras, luces y modelos glTF dibujados con profundidad en la vista GPU que NSGo añade para ello, con modelos importados de Blender."
+        "status": "Disponible",
+        "body": "Mallas, cámaras, iluminación PBR, animación esquelética, física 3D y modelos glTF sobre la vista GPU de NSGo, con importación desde Blender."
       }
     ],
     "codeTitle": "Un componente es un juego.",
@@ -60,6 +60,28 @@ export const esPages: PagesCopy = {
       "Actualizaciones de paso fijo, fotogramas interpolados",
       "Teclado y mando vinculados a la misma acción",
       "Recarga en caliente al guardar: go tool nsgo dev"
+    ],
+    "workflowTitle": "Proyectos en texto plano. Editor visual. Listo para agentes de IA.",
+    "workflowLead": "Cada escena, prefab, material, animación y tabla de datos es YAML versionado que tanto personas como agentes de código pueden leer, comparar y editar con claridad.",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "Editor visual de escenas 2D y 3D",
+        "body": "Ejecuta game editor para abrir un viewport en vivo, jerarquía, inspector, gizmos de transformación y explorador de recursos, extensible con plugins en Go.",
+        "link": "Explorar el editor"
+      },
+      {
+        "tag": "YAML",
+        "title": "Archivos en texto plano con esquema",
+        "body": "Sin escenas binarias opacas. Cada formato incluye versión, rechaza campos desconocidos, trae JSON Schema y conserva diffs limpios en Git.",
+        "link": "Ver formatos de archivo"
+      },
+      {
+        "tag": "PLANTILLAS E IA",
+        "title": "16 plantillas iniciales y herramientas MCP",
+        "body": "Genera plataformas, RPG, roguelikes, acción 3D, FPS o carreras con game new -template e inspecciona escenas en vivo con MCP y Agent Skills.",
+        "link": "Ver las 16 plantillas"
+      }
     ],
     "packagesTitle": "{n} paquetes. Importa solo lo que necesites.",
     "packagesLead": "De los sprites a los servidores dedicados, cada paquete tiene su guía y se marca como estable o experimental.",
@@ -77,10 +99,10 @@ export const esPages: PagesCopy = {
     ],
     "requirements": "Requiere Go 1.27+ y NSGo v0.3.4+. Compilar para iOS requiere macOS y Xcode.",
     "migrate": "¿Vienes de otro motor?",
-    "finalTitle": "Temprano, y ya da para publicar un juego entero.",
-    "finalLead": "Aún no hay versión publicada. La política de estabilidad de la API indica qué paquetes son estables y cuáles pueden cambiar.",
+    "finalTitle": "v0.1.0 ya está aquí. Crea y publica tu juego en Go puro.",
+    "finalLead": "Cada paquete tiene su guía y está marcado como estable o experimental en la política de estabilidad de la API. Empieza desde una plantilla o explora la galería.",
     "finalStart": "Leer la guía de inicio",
-    "finalRoadmap": "Ver la hoja de ruta"
+    "finalShowcase": "Explorar la galería"
   },
   "categories": [
     "Núcleo",
@@ -130,7 +152,7 @@ export const esPages: PagesCopy = {
     "run": "Ejecuta los capítulos desde el repositorio"
   },
   "footer": {
-    "tagline": "La capa de juego de NSGo, escrita en Go. 2D hoy, 3D en camino.",
+    "tagline": "La capa de juegos en Go puro para NSGo: 2D, 3D, editor visual de escenas y YAML en texto plano para seis plataformas.",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const esPages: PagesCopy = {
     "stability": "Estabilidad de la API",
     "playground": "Playground",
     "examples": "Ejemplos",
-    "roadmap": "Hoja de ruta",
+    "editor": "Editor de escenas",
+    "templates": "Plantillas iniciales",
     "changelog": "Registro de cambios",
     "github": "GitHub",
     "nsgo": "NSGo",

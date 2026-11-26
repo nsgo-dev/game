@@ -1,6 +1,6 @@
 import { copies } from '../copy'
 import { type Lang, useLang } from '../i18n'
-import { AWESOME_URL, CHANGELOG_URL, CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, LLMS_FULL, LLMS_INDEX, nsgoUrl, PLAN_URL, TELEGRAM_URL, X_URL } from '../links'
+import { AWESOME_URL, CHANGELOG_URL, CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, LLMS_FULL, LLMS_INDEX, nsgoUrl, TELEGRAM_URL, X_URL } from '../links'
 import { Logo } from './Brand'
 import { LocaleLink, type LocaleTarget } from './LocaleLink'
 
@@ -27,8 +27,8 @@ function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
         { label: words.playground, to: { page: 'playground' } },
         { label: words.examples, to: { page: 'examples' } },
         { label: words.showcase, to: { page: 'showcase' } },
-        { label: words.roadmap, to: { page: 'roadmap' } },
-        { label: 'nsgo#1047', href: PLAN_URL },
+        { label: words.editor, to: { page: 'doc', slug: 'editor' } },
+        { label: words.templates, to: { page: 'doc', slug: 'templates' } },
         { label: words.changelog, href: CHANGELOG_URL },
       ],
     },
