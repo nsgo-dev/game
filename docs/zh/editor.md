@@ -1451,7 +1451,6 @@ func main() {
 | 智能体完成请求（Agent finished a request） | Review opens | 绝不使用 Toast |
 | 检查失败或损坏引用（Check failed, broken reference） | Problems | 绝不使用 Toast |
 | 编辑器在后台时智能体提问、完成或停止 | + System notification | 与编辑器内通道配合 |
-
 ## 智能体自动化（#1029）
 
 项目自动化（位于 `game.yaml` 旁的 `automations.yaml`，JSON Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json`）允许智能体在更改发生后自动执行后续检查与任务，同时确保每项结果均经过人工审查（对应 `docs/design/editor/Settings.dc.html`、`Tasks.dc.html`、`Checkpoints.dc.html`）：
@@ -1613,7 +1612,6 @@ func main() {
 - **32 px 状态栏（`mainStatusBarView`）**：在 `bg` 表面以弱化文本呈现左侧的活动图层按钮（可切换图层面板）、实时 2D 指针坐标与当前工具，以及右侧的问题数胶囊（打开问题面板）、输出（Output）与调试器（Debugger）。原工具栏中的其余面板（设置、混音器、输入映射、多语言、导出、资源库、数据表、项目搜索、文件、资源、动画、粒子、材质、HUD 布局、地形、导航网格）全部保留，可通过命令面板（`⌘K`）、菜单栏、设置窗口与状态栏访问。
 - **空状态、加载状态与错误状态（`WorkspaceState`、`SceneOpenError`）**：各区域均为 `WorkspaceNoProject`、`WorkspaceNoScene`、`WorkspaceLoading`（`SetProjectLoading`）和 `WorkspaceSceneError`（`SceneOpenError`、`RetryOpenScene`、`ClearSceneOpenError`）提供专门的界面状态。打开缺失或 YAML 格式错误的场景文件时，视口会展示带有路径、行/列号、错误描述、修复建议、**重试**和**关闭**按钮的告警卡片，而非空白视口。
 - **规范控件与键盘可达性**：遵循 Spec 尺寸（行与工具按钮 `28 px`、按钮 `30–32 px`、顶部栏 `44 px`、状态栏 `32 px`，无小于 `28 × 28` 的交互热区）、间距（`4 / 8 / 12 / 16 / 24`）、圆角（`6 / 8`）、`base.RadioGroup` / `base.Radio` 与 `base.Switch` 语义、2 px Spec 焦点环、完整无障碍名称，以及覆盖全部五个区域的 `F6` 循环导航（顶部栏、场景树、视口、智能体/检视器、状态栏）。
-
 ## 智能体面板实时步骤、权限确认卡与停止（#1012）
 
 **智能体**面板（`RightRailView` 中的 `AgentPanelView`，`⌘1` / `⌘2` 切换）基于项目的 `permissions.yaml` 规则与“仅限你操作”边界，使用 `docs/design/editor/Spec.dc.html` 令牌（`Working.dc.html`、`Permissions.dc.html`、`Main.dc.html`、`AgentStates.dc.html`）实时展示步骤进度、交互式权限确认卡、补充指令与全局停止控制：
@@ -1623,7 +1621,6 @@ func main() {
 - **焦点纪律与键盘规则（规范规则 02、04、05）**：除非焦点已在智能体面板内部（`Editor.ShouldFocusAgentPrompt`），否则权限确认卡绝不抢夺焦点；点击顶部**等待你确认**状态条可按需聚焦到卡片。卡片获得焦点时，`⌘↵` 仅允许一次，`⌥↵` 通过 `Editor.ApproveAlwaysPermission` 将**始终允许**规则持久化写入 `permissions.yaml`（并弹出带**查看**与**撤销**按钮的提示条），后续同类调用不再弹窗，`⌘⌫` 拒绝，`↑`/`↓` 切换按钮，`Esc` 保持卡片未回答状态而智能体继续等待。
 - **拒绝后永不自动重试**：拒绝权限确认卡会在当前请求中记录对应的 `(action, target)` 键，将该步骤显示为 *“你拒绝了 … · 已跳过继续”* 并提供显式的**立即允许**操作，在回合审查摘要中标明未检查项（例如 *“Not playtested”*），并对同一请求中重复发起的相同调用立即返回非致命的结构化 `denied` 结果而不再次弹出卡片。发起新请求时才会清除单次请求的拒绝记录。
 - **补充到此请求、停止（`⌘.`）与并发手动编辑**：智能体工作或等待期间，手动编辑始终可用，底部状态栏会实时显示智能体当前动作（*“manual edits stay available”*）。工作态页脚的「补充到此请求」输入框（`Editor.AddToAgentRequest`）在步骤流式更新时保持焦点稳定。从任何位置（包括模态对话框内）点击**停止**或按下 `⌘.` 都会立即取消运行中的请求与等待中的权限确认（`Editor.StopAgent`），保留已完成步骤与场景编辑等待审查（期间暂停自动保存，直到保留或还原），并弹出带**审查**操作的**代理已停止**提示条；`Esc` 绝不会停止智能体。
-
 ## 可停靠面板与布局（#919）
 
 `EditorView` 基于 NSGo 的 `ui.DockArea` 构建编辑器工作区，将场景树、图层、资源浏览器、文件、资源库、检查器（含右侧栏智能体、草图、任务、历史、问题修复与瓦片审查视图）、问题、输出、性能分析器、动画、状态机、瓦片集、3D 地形、2D 骨骼、粒子发射器、材质编辑器、场景环境、数据表、搜索、3D 导航网格、本地化以及所有已启用的插件面板统一为围绕视口（视口画布上方保留 `SceneTabsView` 场景标签栏）的可停靠、可调整大小的面板：
@@ -1632,3 +1629,13 @@ func main() {
 - **菜单显示、隐藏与重置**：通过 **View > Panels** 菜单勾选或取消显示任意内置面板与已启用插件面板（`PanelVisible`、`SetPanelVisible`、`TogglePanel`、`Panels`），或选择 **View > Reset Layout** / **View > Panels > Reset Layout**（`CmdResetLayout`、`ResetLayout`）恢复默认布局。
 - **按用户保存布局（`LayoutFile`、`ParseLayout`、`EncodeLayout`）**：布局改动会自动以严格版本化 YAML 保存在所有项目之外的用户配置目录 `<UserConfigDir>/nsgo-game/layout.yaml`（`DefaultLayoutPath`，通过 `Editor.LayoutPath` / `Editor.SetLayoutPath` 配置，并由 `game editor` 与 `editorcmd` 自动接入）。下次启动时恢复已保存的分割、标签组、当前活动标签页、尺寸与隐藏面板；不再存在的面板（例如已卸载插件的面板）会在恢复时自动丢弃。
 - **插件面板位置**：插件面板（`Plugin.Panels`）首次使用时出现在其声明的默认 `Dock`（`DockLeft`、`DockRight` 或 `DockBottom`）；一旦用户将其移动或合并到其他位置，之后每次启动都会恢复到用户移动后的位置。
+
+## 逐文件审查智能体的 Go 代码更改（#1034）
+
+当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `docs/design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `SpecPalette` 令牌）：
+
+- **待确认 Go 代码隔离与 Go 构建覆盖层检查**：回合中提交的 Go 文件（`ProposeCodeReviewFiles` 或 `editormcp` 的 `code_review_propose`）在确认并保留之前仅暂存于内存中，磁盘上的项目文件与运行模式（Play）仍继续执行旧代码。`RunCodeReviewChecks` / `RunCodeReviewChecksAsync` 会生成临时 Go 构建覆盖层 JSON（`BuildGoOverlay`，同时映射规范路径与符号链接解析后的路径，兼容 macOS `/var` → `/private/var`），并通过 `GOFLAGS=-overlay=<overlay.json>` 在不触碰磁盘项目文件的前提下执行 `go tool nsgo check <pkg>` 与 `go tool nsgo test -json <pkg> -count=1`（可通过 `Editor.CodeReviewCheckRunner` 注入替换）。
+- **分组文件列表与统一 / 分栏差异视图**：左侧栏拆分为 **PREFABS · IN KEEP**（随保留一同应用的 YAML/预制体文件）和 **GO · CONFIRM EACH FILE**（每个 Go 文件显示 `+n −n` 行数变化与 **Needs OK** / **OK** 徽章），底部附带说明卡片（*“为什么 Go 代码需要单独确认”*）。Go 差异支持 **Unified（统一）**（`u`）与 **Split（分栏）**（`s`）切换，展示旧/新行号、右侧行标签（`fails test`、`failed here`、`agent edited`、`round 2`）以及在外部 IDE 打开按钮（`Editor.ExternalEditorName`、`OpenCodeReviewInExternalEditor`，依次调用 `Editor.OnOpenSourceFile`、`Editor.OnOpenFileAtLine` 或系统默认打开器）。
+- **检查状态条、失败测试卡片与同回合第 2 轮修复**：状态条（`RoleStatus` + `LiveRegionPolite`）展示 `nsgo check`、`nsgo test` 通过/失败计数、耗时与包路径、**Run again**（`r`）以及运行中的实时进度（`"nsgo test running · M of N"` / `"Agent is fixing · nsgo test running · M of N"` 及 `"Agent edited <file>:<line>"` 徽章）。失败测试卡片会展示测试名、`file:line` 错误输出和智能体的原因说明，并提供 **Ask the agent to fix**（`AskAgentToFixCodeReview`、`Editor.OnAskCodeReviewFix`，在同一回合内作为 Round 2 修复并重新运行检查）与 **Open the test**（`OpenCodeReviewTestFile`）。
+- **逐文件确认、保留、等待卡片与单步撤销**：在最新待定代码通过 `nsgo check` 和 `nsgo test` 之前，**Confirm `<file>`**（`ConfirmCodeReviewFile`）保持禁用并返回 `ErrCodeReviewChecksNotPassed`；检查通过后解锁，确认后切换为 **Confirmed · undo**。**Keep**（`KeepCodeReview` / `⌘↵`）会将保留的 YAML 文件与**已确认**的 Go 文件作为 `Editor.History` 中的**单个撤销步骤**原子写入磁盘，一次 `Editor.Undo()` 即可还原旧 YAML/Go 文件并移除新建的 Go 文件。若保留时仍有未确认的 Go 文件，则仅写入 YAML 更改并在 **Agent** 面板保留一张等待卡片（说明哪些文件等待确认及其在运行模式中的影响，并附带 **Review** 按钮直接回到未确认的 Go 文件）。按 `Esc`（`CloseCodeReview`）可暂停审查而不丢弃更改，**Revert all**（`RevertCodeReview` / `⌘⌫`）则直接丢弃待定更改且不触碰磁盘。
+- **命令与 MCP 工具**：命令 `CmdReviewCode`（`agent.reviewCode`）用于打开或恢复进行中的 Go 审查。`editormcp` 提供 `code_review_propose`、`code_review_status` 与 `code_review_run_checks`，使智能体可在不阻塞 UI goroutine 的情况下提交待审 Go 代码、读取失败详情、在同一回合提交 Round 2 修复并重新运行覆盖层检查。

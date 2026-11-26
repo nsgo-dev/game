@@ -285,6 +285,8 @@ strings:
   cmd.resetLayout.label: Reset Layout
   cmd.revertAgentTurn.desc: Revert all files touched by the open agent turn to their pre-request state
   cmd.revertAgentTurn.label: Revert Agent Turn
+  cmd.reviewCode.desc: Open the file-by-file Go code review with nsgo check and nsgo test
+  cmd.reviewCode.label: Review Agent Go Changes
   cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
   cmd.runGame.label: Run Game
   cmd.save.desc: Save the open scene and project changes
@@ -361,6 +363,41 @@ strings:
   cmd.view3d.label: Switch to 3D View
   cmd.view3dOrtho.desc: Switch the 3D viewport between perspective and orthographic projection
   cmd.view3dOrtho.label: '3D View: Orthographic'
+  codeReview.allGoConfirmed: All {count} Go files confirmed
+  codeReview.askFix: Ask the agent to fix
+  codeReview.backLabel: Back to the editor, review stays open (Esc)
+  codeReview.badgeNeedsOK: Needs OK
+  codeReview.badgeOK: OK
+  codeReview.bothGoConfirmed: Both Go files confirmed
+  codeReview.checksNotRun: Checks have not run yet
+  codeReview.confirmedUndo: Confirmed · undo
+  codeReview.diffLayout: Diff layout
+  codeReview.editor: Editor
+  codeReview.empty: No pending files to review.
+  codeReview.hintCheckFailed: Confirm unlocks when nsgo check passes.
+  codeReview.hintChecksPass: Checks pass. Read the diff, then confirm this file.
+  codeReview.hintConfirmed: Confirmed. It ships with this review; ⌘Z undoes it with the rest.
+  codeReview.hintTestFailed: Confirm unlocks when nsgo test passes.
+  codeReview.hintWaiting: Waiting for nsgo test.
+  codeReview.manyGoNeedOK: '{count} Go files need your OK'
+  codeReview.oneGoConfirmed: Go file confirmed
+  codeReview.oneGoNeedsOK: 1 Go file needs your OK
+  codeReview.openExternalDefault: Open in external editor
+  codeReview.openTest: Open the test
+  codeReview.resumeReview: Resume review
+  codeReview.revertAll: Revert all
+  codeReview.reviewCode: Review code
+  codeReview.runAgain: Run again
+  codeReview.sectionGo: GO · CONFIRM EACH FILE
+  codeReview.sectionPrefabs: PREFABS · IN KEEP
+  codeReview.split: Split
+  codeReview.title: Review
+  codeReview.unified: Unified
+  codeReview.waitingDefaultImpact: Until you confirm it, Play still runs the old code.
+  codeReview.waitingGoPrefix: Go changes aren't kept with the rest.
+  codeReview.whyGoBody: Code changes behavior everywhere, not only in this scene. Keep and Keep all never include it; each file needs passing checks and your OK.
+  codeReview.whyGoTitle: Why Go confirms on its own
+  codeReview.yamlPartOfKeep: Part of Keep.
   composer.addSuggested: Add {name} to the request
   composer.always: Always
   composer.alwaysTooltip: Read with every request

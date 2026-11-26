@@ -182,6 +182,26 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 						},
 					}
 				},
+				Else: func(cx *core.Scope) core.Node {
+					return core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.CodeReviewHasWaitingCard()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.View{
+								TestID: "agent-tab-review-dot",
+								Label:  "review waiting",
+								Style: core.Style{
+									Width:        core.Pt(6),
+									Height:       core.Pt(6),
+									CornerRadius: 3,
+									Background:   p.Accent.Fg,
+								},
+							}
+						},
+					}
+				},
 			})
 			children = append(children, core.Show{
 				When: func() bool {
@@ -1180,6 +1200,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		if ed.DataTableReviewPending() {
 			fmt.Fprintf(&b, "dtrev:%d:%v", ed.dataTableReviewRev(), ed.DataTableReviewPaused())
 		}
+		fmt.Fprintf(&b, "|cr:%d:%v", ed.codeReviewStateRev(), ed.CodeReviewHasWaitingCard())
 		return b.String()
 	})
 
@@ -1221,12 +1242,13 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		turnSnap, hasPendingTurn := ed.CurrentAgentTurn()
 		activeRev := ed.ActiveAgentReview()
 		offlineNodes := agentOfflineAndQueueSection(ed, p)
+		waitingCard := agentCodeReviewWaitingCard(ed, p)
 
 		if active != nil && len(active.Requests) > 0 {
 			return agentThreadConversationBody(cx, ed, rev, p, osKind, active, turns, pendingAsk, openReq, openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef)
 		}
 		ready := ed.ReadyToReviewTurns()
-		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || pendingAsk != nil || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
+		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || pendingAsk != nil || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil || waitingCard != nil {
 			var items []core.Node
 			if len(ready) > 0 {
 				items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
@@ -1260,6 +1282,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			if activeRev != nil {
 				items = append(items, agentTurnReviewDrawer(ed, activeRev, p))
+			}
+			if waitingCard != nil {
+				items = append(items, waitingCard)
 			}
 			if pendingAsk != nil {
 				items = append(items, agentPermissionCardView(p, ed, *pendingAsk, osKind, cardRef, allowOnceRef, allowAlwaysRef, denyRef))

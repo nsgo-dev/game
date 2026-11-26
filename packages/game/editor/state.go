@@ -542,6 +542,12 @@ type Editor struct {
 	OnAskAgent3D func(req Viewport3DAgentRequest)
 	// ChangesCheckRunner overrides `nsgo check` and `nsgo test` in the Changes panel; when nil, the editor invokes `go tool nsgo check` and `go tool nsgo test`.
 	ChangesCheckRunner func(dir string) (ChangesCheckStatus, error)
+	// CodeReviewCheckRunner overrides `nsgo check` and `nsgo test` for pending Go code review (receiving the built Go overlay path and reporting live test progress); when nil, the editor runs `go tool nsgo check` and `go tool nsgo test -json` with GOFLAGS=-overlay=... on desktop.
+	CodeReviewCheckRunner func(ctx context.Context, req CodeReviewCheckRequest, onProgress func(CodeReviewCheckProgress)) (CodeReviewCheckResult, error)
+	// OnAskCodeReviewFix, when set, is called when the author clicks "Ask the agent to fix" on a failed test card in Go code review.
+	OnAskCodeReviewFix func(CodeReviewFixRequest)
+	// ExternalEditorName optionally names the external IDE shown in Go code review (for example "GoLand"); when empty, a localized default label is shown.
+	ExternalEditorName string
 	// CommitMessageDrafter generates the commit summary and description for the Changes panel; when nil, DefaultCommitDraft is used.
 	CommitMessageDrafter func(ctx context.Context, req CommitDraftRequest) (CommitDraft, error)
 	// GHRunner invokes the GitHub CLI (`gh`) with args in dir for OpenPullRequest; when nil, os/exec runs `gh` when installed on PATH.
@@ -985,6 +991,8 @@ type Editor struct {
 	automations automationRuntimeState
 	// agentComposer holds the @-mention picker, context chips, hover preview, and context meter state.
 	agentComposer agentComposerState
+	// codeReview holds pending Go code changes, companion YAML changes, build-overlay check results, and per-file confirmation state.
+	codeReview codeReviewState
 	// autosave tracks debounced automatic saving of kept changes, the 300 ms Saving… threshold, and persistent status-bar save errors.
 	autosave autoSaveState
 	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, Always saved toast, You-only draft state, tool toggles, and held external loosenings.

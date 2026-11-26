@@ -117,6 +117,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.cleanupChangedAudioScope(cx)
 		ed.cancelChangesOps()
 		ed.stopAllTaskRunners()
+		ed.cancelCodeReviewChecks()
 		ed.stopExportBuild()
 		ed.stopReleaseBuild()
 		ed.StopAndroidDeviceRun()
@@ -215,6 +216,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.MergeConflictOpen() ||
 			ed.DataTableReviewOpen() ||
 			ed.ChangesOpen() ||
+			ed.CodeReviewOpen() ||
 			ed.BuildReleaseScreenOpen() ||
 			ed.UsagesScreenOpen() ||
 			ed.PlaytestReportOpen() ||
@@ -298,126 +300,137 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 														return core.Show{
 															When: func() bool {
 																_ = rev.Get()
-																return ed.ChangesOpen()
+																return ed.CodeReviewOpen()
 															},
 															Then: func(cx *core.Scope) core.Node {
-																return ChangesPanelView(cx, ed, rev)
+																return CodeReviewView(cx, ed, rev)
 															},
 															Else: func(cx *core.Scope) core.Node {
 																return core.Show{
 																	When: func() bool {
 																		_ = rev.Get()
-																		return ed.BuildReleaseScreenOpen()
+																		return ed.ChangesOpen()
 																	},
 																	Then: func(cx *core.Scope) core.Node {
-																		return BuildReleaseScreenView(cx, ed, rev)
+																		return ChangesPanelView(cx, ed, rev)
 																	},
 																	Else: func(cx *core.Scope) core.Node {
 																		return core.Show{
 																			When: func() bool {
 																				_ = rev.Get()
-																				return ed.UsagesScreenOpen()
+																				return ed.BuildReleaseScreenOpen()
 																			},
 																			Then: func(cx *core.Scope) core.Node {
-																				return ReferencesScreenView(cx, ed, rev)
+																				return BuildReleaseScreenView(cx, ed, rev)
 																			},
 																			Else: func(cx *core.Scope) core.Node {
 																				return core.Show{
 																					When: func() bool {
 																						_ = rev.Get()
-																						return ed.PlaytestReportOpen()
+																						return ed.UsagesScreenOpen()
 																					},
 																					Then: func(cx *core.Scope) core.Node {
-																						return PlaytestReportView(cx, ed, rev)
+																						return ReferencesScreenView(cx, ed, rev)
 																					},
 																					Else: func(cx *core.Scope) core.Node {
 																						return core.Show{
 																							When: func() bool {
 																								_ = rev.Get()
-																								return ed.AssetGeneratorOpen()
+																								return ed.PlaytestReportOpen()
 																							},
 																							Then: func(cx *core.Scope) core.Node {
-																								return AssetGeneratorView(cx, ed, rev)
+																								return PlaytestReportView(cx, ed, rev)
 																							},
 																							Else: func(cx *core.Scope) core.Node {
 																								return core.Show{
 																									When: func() bool {
 																										_ = rev.Get()
-																										return ed.HUDLayoutOpen()
+																										return ed.AssetGeneratorOpen()
 																									},
 																									Then: func(cx *core.Scope) core.Node {
-																										return HUDLayoutView(cx, ed, rev)
+																										return AssetGeneratorView(cx, ed, rev)
 																									},
 																									Else: func(cx *core.Scope) core.Node {
-																										return core.View{
-																											Style: core.Style{
-																												Width:  core.Pct(100),
-																												Height: core.Pct(100),
+																										return core.Show{
+																											When: func() bool {
+																												_ = rev.Get()
+																												return ed.HUDLayoutOpen()
 																											},
-																											Children: []core.Node{
-																												mainHeaderView(cx, ed, rev, dirty, pathMode, pathTarget),
-																												remotePlayBarView(cx, ed, rev),
-																												playModeBarView(cx, ed, rev),
-																												diskWatchBannerView(cx, ed, rev),
-																												core.Show{
-																													When: func() bool {
-																														_ = rev.Get()
-																														return ed.CutsceneOpen() && !ed.Playing()
+																											Then: func(cx *core.Scope) core.Node {
+																												return HUDLayoutView(cx, ed, rev)
+																											},
+																											Else: func(cx *core.Scope) core.Node {
+																												return core.View{
+																													Style: core.Style{
+																														Width:  core.Pct(100),
+																														Height: core.Pct(100),
 																													},
-																													Then: func(cx *core.Scope) core.Node {
-																														return CutscenePanelView(cx, ed, rev)
-																													},
-																													Else: func(cx *core.Scope) core.Node {
-																														return core.View{
-																															Style: core.Style{
-																																FlexGrow:  1,
-																																FlexBasis: core.Pt(0),
-																																Overflow:  core.Hidden,
+																													Children: []core.Node{
+																														mainHeaderView(cx, ed, rev, dirty, pathMode, pathTarget),
+																														remotePlayBarView(cx, ed, rev),
+																														playModeBarView(cx, ed, rev),
+																														diskWatchBannerView(cx, ed, rev),
+																														core.Show{
+																															When: func() bool {
+																																_ = rev.Get()
+																																return ed.CutsceneOpen() && !ed.Playing()
 																															},
-																															Children: []core.Node{
-																																core.View{
-																																	Disabled:                    settingsOpen,
-																																	AccessibilityElementsHidden: settingsOpen,
+																															Then: func(cx *core.Scope) core.Node {
+																																return CutscenePanelView(cx, ed, rev)
+																															},
+																															Else: func(cx *core.Scope) core.Node {
+																																return core.View{
 																																	Style: core.Style{
 																																		FlexGrow:  1,
 																																		FlexBasis: core.Pt(0),
 																																		Overflow:  core.Hidden,
 																																	},
-																																	StyleFunc: func() core.Style {
-																																		if settingsOpen() {
-																																			return core.Style{PointerEvents: core.PointerEventsNone}
-																																		}
-																																		return core.Style{}
-																																	},
 																																	Children: []core.Node{
-																																		core.Show{
-																																			When: func() bool {
-																																				_ = rev.Get()
-																																				return ed.LeftRailMode() == LeftRailAssets
+																																		core.View{
+																																			Disabled:                    settingsOpen,
+																																			AccessibilityElementsHidden: settingsOpen,
+																																			Style: core.Style{
+																																				FlexGrow:  1,
+																																				FlexBasis: core.Pt(0),
+																																				Overflow:  core.Hidden,
 																																			},
-																																			Then: func(cx *core.Scope) core.Node {
-																																				return core.View{
-																																					Style: core.Style{
-																																						Direction: core.Row,
-																																						FlexGrow:  1,
-																																						FlexBasis: core.Pt(0),
-																																						Overflow:  core.Hidden,
-																																					},
-																																					Children: []core.Node{dragdrop.Area{Children: assetsWorkspaceRow(cx, ed, rev)}},
+																																			StyleFunc: func() core.Style {
+																																				if settingsOpen() {
+																																					return core.Style{PointerEvents: core.PointerEventsNone}
 																																				}
+																																				return core.Style{}
 																																			},
-																																			Else: func(cx *core.Scope) core.Node {
-																																				return editorDockView(cx, ed, rev)
+																																			Children: []core.Node{
+																																				core.Show{
+																																					When: func() bool {
+																																						_ = rev.Get()
+																																						return ed.LeftRailMode() == LeftRailAssets
+																																					},
+																																					Then: func(cx *core.Scope) core.Node {
+																																						return core.View{
+																																							Style: core.Style{
+																																								Direction: core.Row,
+																																								FlexGrow:  1,
+																																								FlexBasis: core.Pt(0),
+																																								Overflow:  core.Hidden,
+																																							},
+																																							Children: []core.Node{dragdrop.Area{Children: assetsWorkspaceRow(cx, ed, rev)}},
+																																						}
+																																					},
+																																					Else: func(cx *core.Scope) core.Node {
+																																						return editorDockView(cx, ed, rev)
+																																					},
+																																				},
 																																			},
 																																		},
+																																		SettingsView(cx, ed, rev),
 																																	},
-																																},
-																																SettingsView(cx, ed, rev),
+																																}
 																															},
-																														}
+																														},
+																														mainStatusBarView(cx, ed, rev),
 																													},
-																												},
-																												mainStatusBarView(cx, ed, rev),
+																												}
 																											},
 																										}
 																									},

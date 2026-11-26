@@ -285,6 +285,8 @@ strings:
   cmd.resetLayout.label: 重置布局
   cmd.revertAgentTurn.desc: 将当前待确认智能体回合触及的所有文件还原到请求前状态
   cmd.revertAgentTurn.label: 还原智能体回合
+  cmd.reviewCode.desc: 打开逐文件确认的 Go 代码审查（含 nsgo check 与 nsgo test）
+  cmd.reviewCode.label: 审查智能体 Go 更改
   cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
   cmd.runGame.label: 运行游戏
   cmd.save.desc: 保存当前打开的场景与项目更改
@@ -361,6 +363,41 @@ strings:
   cmd.view3d.label: 切换至 3D 视图
   cmd.view3dOrtho.desc: 在透视投影与正交投影之间切换 3D 视口
   cmd.view3dOrtho.label: 3D 视图：正交投影
+  codeReview.allGoConfirmed: 全部 {count} 个 Go 文件已确认
+  codeReview.askFix: 让智能体修复
+  codeReview.backLabel: 返回编辑器，审查保持打开 (Esc)
+  codeReview.badgeNeedsOK: 待确认
+  codeReview.badgeOK: 已确认
+  codeReview.bothGoConfirmed: 两个 Go 文件均已确认
+  codeReview.checksNotRun: 检查尚未运行
+  codeReview.confirmedUndo: 已确认 · 撤销
+  codeReview.diffLayout: 差异布局
+  codeReview.editor: 编辑器
+  codeReview.empty: 没有待审查的文件。
+  codeReview.hintCheckFailed: 通过 nsgo check 后解锁确认。
+  codeReview.hintChecksPass: 检查已通过。阅读差异后即可确认此文件。
+  codeReview.hintConfirmed: 已确认。它会随本次审查一同应用；⌘Z 可一并撤销。
+  codeReview.hintTestFailed: 通过 nsgo test 后解锁确认。
+  codeReview.hintWaiting: 正在等待 nsgo test。
+  codeReview.manyGoNeedOK: '{count} 个 Go 文件需要你确认'
+  codeReview.oneGoConfirmed: Go 文件已确认
+  codeReview.oneGoNeedsOK: 1 个 Go 文件需要你确认
+  codeReview.openExternalDefault: 在外部编辑器中打开
+  codeReview.openTest: 打开测试
+  codeReview.resumeReview: 继续审查
+  codeReview.revertAll: 全部还原
+  codeReview.reviewCode: 审查代码
+  codeReview.runAgain: 重新运行
+  codeReview.sectionGo: GO · 逐文件确认
+  codeReview.sectionPrefabs: 预制体 · 随保留应用
+  codeReview.split: 分栏
+  codeReview.title: 审查
+  codeReview.unified: 统一
+  codeReview.waitingDefaultImpact: 在你确认之前，运行模式仍使用旧代码。
+  codeReview.waitingGoPrefix: Go 更改不会随其他更改一并保留。
+  codeReview.whyGoBody: 代码会影响全局行为，而不仅限于当前场景。保留与全部保留永远不包含代码；每个文件都需要通过检查并经你确认。
+  codeReview.whyGoTitle: 为什么 Go 代码需要单独确认
+  codeReview.yamlPartOfKeep: 随保留一同应用。
   composer.addSuggested: 将 {name} 加入请求
   composer.always: 始终附加
   composer.alwaysTooltip: 每次请求都会读取

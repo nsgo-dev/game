@@ -658,6 +658,7 @@ func (e *Editor) resetAgentForProject() {
 	if e == nil {
 		return
 	}
+	e.resetCodeReviewForProject()
 	e.stopAgentTimers()
 	e.CloseAskInPlace()
 	e.resetTurnReviewForProject()
