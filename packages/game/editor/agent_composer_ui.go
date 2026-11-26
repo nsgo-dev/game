@@ -248,42 +248,63 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 	}
 
-	// Composer keys while picker is closed: Backspace removes last attached chip in empty composer,
-	// Mod+Enter sends, Up recalls last prompt when empty.
-	cx.OnKeyWith("backspace", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.composerKeysBlocked() || ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
-			return
-		}
-		if inputRef.HoldsFocus() || composerFocused.Get() {
-			ed.RemoveLastComposerChip()
-		}
-	})
-	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.composerKeysBlocked() {
-			return
-		}
-		if !inputRef.HoldsFocus() && !composerFocused.Get() {
-			return
-		}
-		if ed.MentionPickerOpen() {
-			suppressSubmit = true
-			ed.AcceptActiveMention()
-			inputRef.Focus()
-			cx.Post(func() {
-				suppressSubmit = false
+	// Composer keys are mounted only while the composer input actually holds focus (and for
+	// Backspace/Up only when the draft is empty and the picker is closed) so newest-wins key
+	// dispatch never shadows parent shortcuts like Mod+Enter (Keep turn/review) or Backspace
+	// (Delete object) while focus is elsewhere.
+	composerFocusedKeyScope := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return (composerFocused.Get() || inputRef.HoldsFocus()) && !ed.composerKeysBlocked()
+		},
+		Then: func(cx *core.Scope) core.Node {
+			cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
+				if !inputRef.HoldsFocus() && !composerFocused.Get() {
+					return
+				}
+				if ed.MentionPickerOpen() {
+					suppressSubmit = true
+					ed.AcceptActiveMention()
+					inputRef.Focus()
+					cx.Post(func() {
+						suppressSubmit = false
+					})
+					return
+				}
+				ed.submitComposerFromUI()
 			})
-			return
-		}
-		ed.submitComposerFromUI()
-	})
-	cx.OnKeyWith("up", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.composerKeysBlocked() || ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
-			return
-		}
-		if inputRef.HoldsFocus() || composerFocused.Get() {
-			ed.RecallLastComposerPrompt()
-		}
-	})
+			return nil
+		},
+	}
+	composerEmptyKeyScope := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return (composerFocused.Get() || inputRef.HoldsFocus()) &&
+				!ed.composerKeysBlocked() && !ed.MentionPickerOpen() && ed.ComposerDraft() == ""
+		},
+		Then: func(cx *core.Scope) core.Node {
+			cx.OnKeyWith("backspace", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.composerKeysBlocked() || ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
+					return
+				}
+				if inputRef.HoldsFocus() || composerFocused.Get() {
+					ed.RemoveLastComposerChip()
+				}
+			})
+			cx.OnKeyWith("up", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.composerKeysBlocked() || ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
+					return
+				}
+				if inputRef.HoldsFocus() || composerFocused.Get() {
+					ed.RecallLastComposerPrompt()
+				}
+			})
+			return nil
+		},
+	}
 
 	// Fine-grained memo keys so normal typing in composerInput never triggers disk I/O or rebuilds
 	// chip rows, action buttons, or popovers on every keystroke.
@@ -942,6 +963,26 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 	}
 
+	composerHint := core.Text{
+		TestID: "agent-composer-hint",
+		ContentFunc: func() string {
+			_ = rev.Get()
+			if ed.HasPendingAgentTurn() {
+				return ed.T("agentTurn.composerHintPending")
+			}
+			return ed.T("agent.composerHint")
+		},
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			p := ed.SpecPalette(cx)
+			return core.Style{
+				FontSize: 11,
+				Color:    p.TextFaint,
+				Padding:  core.Symmetric(0, 2),
+			}
+		},
+	}
+
 	return core.View{
 		TestID: "agent-composer",
 		OnFileDragEnter: func() {
@@ -969,8 +1010,11 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		Children: []core.Node{
 			pickerKeyScope,
 			breakdownKeyScope,
+			composerFocusedKeyScope,
+			composerEmptyKeyScope,
 			popoversView,
 			composerCard,
+			composerHint,
 		},
 	}
 }

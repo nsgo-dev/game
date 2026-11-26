@@ -371,7 +371,8 @@ func (e *Editor) composerKeysBlocked() bool {
 		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
 		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
-		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CommandPaletteOpen()
+		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CommandPaletteOpen() ||
+		e.PendingTurnPromptOpen()
 }
 
 // RightRailMode returns which panel currently occupies the right rail.
