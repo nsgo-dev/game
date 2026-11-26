@@ -30,6 +30,22 @@ import (
 
 const defaultProblemCheckDebounce = 80 * time.Millisecond
 
+// problemCheckRun tracks one scheduled or in-flight project check and ensures
+// its completion channel is closed at most once across concurrent cancellations
+// and timer callbacks.
+type problemCheckRun struct {
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func (r *problemCheckRun) finish() {
+	if r != nil {
+		r.closeOnce.Do(func() {
+			close(r.done)
+		})
+	}
+}
+
 // problemState holds the asynchronous project-check, live-edit debounce, ignore,
 // and agent-proposed-fix state for an Editor. Its fields are guarded by mu so
 // background check goroutines and callers on any goroutine can read or publish
@@ -45,7 +61,7 @@ type problemState struct {
 	rawProblems []assetcheck.Problem
 	problems    []assetcheck.Problem
 	checkErr    error
-	done        chan struct{}
+	run         *problemCheckRun
 	timer       *time.Timer
 	scope       *core.Scope
 
@@ -90,7 +106,8 @@ func (e *Editor) problemDebounce() time.Duration {
 	return defaultProblemCheckDebounce
 }
 
-// stopProblemCheckTimer cancels any pending debounced check timer (used on EditorView cleanup).
+// stopProblemCheckTimer cancels any pending debounced or in-flight check and
+// detaches the UI scope (used on EditorView cleanup and Editor.Close).
 func (e *Editor) stopProblemCheckTimer() {
 	if e == nil {
 		return
@@ -100,15 +117,55 @@ func (e *Editor) stopProblemCheckTimer() {
 		e.problems.timer.Stop()
 		e.problems.timer = nil
 	}
-	if e.problems.pending {
-		e.problems.pending = false
-		e.problems.running = false
-		if e.problems.done != nil {
-			close(e.problems.done)
-			e.problems.done = nil
-		}
-	}
+	e.problems.gen++
+	e.problems.pending = false
+	e.problems.running = false
+	oldRun := e.problems.run
+	e.problems.run = nil
+	e.problems.scope = nil
 	e.problems.mu.Unlock()
+	oldRun.finish()
+}
+
+// resetProblemsForProject cancels any pending or in-flight check and clears all
+// project-scoped problems, ignores, proposed fixes, questions, and caches while
+// keeping any attached UI scope intact. Called on OpenProject (including same-project
+// reopen) and OpenDemo.
+func (e *Editor) resetProblemsForProject() {
+	if e == nil {
+		return
+	}
+	e.problems.mu.Lock()
+	if e.problems.timer != nil {
+		e.problems.timer.Stop()
+		e.problems.timer = nil
+	}
+	oldRun := e.problems.run
+	e.problems.gen++
+	e.problems.version++
+	e.problems.running = false
+	e.problems.pending = false
+	e.problems.hasRun = false
+	e.problems.projectPath = ""
+	e.problems.rawProblems = nil
+	e.problems.problems = nil
+	e.problems.checkErr = nil
+	e.problems.run = nil
+	e.problems.ignored = nil
+	e.problems.proposals = nil
+	e.problems.activeProblem = nil
+	e.problems.highlightedLine = ""
+	e.problems.highlightedSnippet = ""
+	e.problems.agentPanelOpen = false
+	e.problems.questions = nil
+	e.problems.mu.Unlock()
+
+	e.problems.objCache = nil
+	e.problems.objCacheRev = 0
+	e.problems.objCacheProbVer = 0
+	e.problems.objCacheScenePath = ""
+
+	oldRun.finish()
 }
 
 // CheckProblems runs assetcheck.CheckWith (using the editor's component registry
@@ -131,31 +188,7 @@ func (e *Editor) scheduleLiveProblemCheck() {
 
 func (e *Editor) startProblemCheck(delay time.Duration) {
 	if e == nil || e.Project == nil || e.ProjectPath == "" {
-		e.problems.mu.Lock()
-		if e.problems.timer != nil {
-			e.problems.timer.Stop()
-			e.problems.timer = nil
-		}
-		if e.problems.pending && e.problems.done != nil {
-			close(e.problems.done)
-		}
-		e.problems.gen++
-		e.problems.version++
-		e.problems.running = false
-		e.problems.pending = false
-		e.problems.hasRun = false
-		e.problems.projectPath = ""
-		e.problems.rawProblems = nil
-		e.problems.problems = nil
-		e.problems.checkErr = nil
-		e.problems.done = nil
-		e.problems.ignored = nil
-		e.problems.proposals = nil
-		e.problems.activeProblem = nil
-		e.problems.highlightedLine = ""
-		e.problems.highlightedSnippet = ""
-		e.problems.agentPanelOpen = false
-		e.problems.mu.Unlock()
+		e.resetProblemsForProject()
 		return
 	}
 
@@ -164,14 +197,16 @@ func (e *Editor) startProblemCheck(delay time.Duration) {
 	reg := e.components
 	overrides := e.unsavedProjectFiles()
 
-	myDone := make(chan struct{})
+	myRun := &problemCheckRun{done: make(chan struct{})}
+	var oldPendingRun *problemCheckRun
+
 	e.problems.mu.Lock()
 	if e.problems.timer != nil {
 		e.problems.timer.Stop()
 		e.problems.timer = nil
 	}
-	if e.problems.pending && e.problems.done != nil {
-		close(e.problems.done)
+	if e.problems.pending && e.problems.run != nil {
+		oldPendingRun = e.problems.run
 	}
 	e.problems.gen++
 	gen := e.problems.gen
@@ -187,36 +222,35 @@ func (e *Editor) startProblemCheck(delay time.Duration) {
 		e.problems.highlightedLine = ""
 		e.problems.highlightedSnippet = ""
 		e.problems.agentPanelOpen = false
-		e.problems.version++
-	}
-	// Evict any ignored entries whose file content has changed so they reappear immediately.
-	if e.evictChangedIgnoresLocked(dir, overrides) {
-		e.recomputeVisibleProblemsLocked()
+		e.problems.questions = nil
 		e.problems.version++
 	}
 	e.problems.running = true
 	e.problems.pending = delay > 0
-	e.problems.done = myDone
+	e.problems.run = myRun
 	fn := e.problems.checkFn
 	if delay > 0 {
 		e.problems.timer = time.AfterFunc(delay, func() {
 			e.problems.mu.Lock()
 			if e.problems.gen != gen {
 				e.problems.mu.Unlock()
+				myRun.finish()
 				return
 			}
 			e.problems.timer = nil
 			e.problems.pending = false
 			e.problems.mu.Unlock()
-			e.runProblemCheckAsync(gen, dir, reg, overrides, fn, myDone)
+			e.runProblemCheckAsync(gen, dir, reg, overrides, fn, myRun)
 		})
 		e.problems.mu.Unlock()
+		oldPendingRun.finish()
 		return
 	}
 	e.problems.mu.Unlock()
+	oldPendingRun.finish()
 	e.notify()
 
-	go e.runProblemCheckAsync(gen, dir, reg, overrides, fn, myDone)
+	go e.runProblemCheckAsync(gen, dir, reg, overrides, fn, myRun)
 }
 
 func (e *Editor) runProblemCheckAsync(
@@ -225,8 +259,10 @@ func (e *Editor) runProblemCheckAsync(
 	reg *sceneformat.ComponentRegistry,
 	overrides map[string][]byte,
 	fn func(dir string, reg *sceneformat.ComponentRegistry) ([]assetcheck.Problem, error),
-	myDone chan struct{},
+	myRun *problemCheckRun,
 ) {
+	defer myRun.finish()
+
 	var probs []assetcheck.Problem
 	var err error
 	if fn != nil {
@@ -235,13 +271,39 @@ func (e *Editor) runProblemCheckAsync(
 		probs, err = runProjectCheckWithOverrides(dir, reg, overrides)
 	}
 
+	// Collect ignored file paths under mu, then compute their content hashes off the
+	// UI thread and outside mu so disk I/O never blocks lock holders or UI frames.
 	e.problems.mu.Lock()
 	if e.problems.gen != gen {
 		e.problems.mu.Unlock()
-		close(myDone)
 		return
 	}
-	e.evictChangedIgnoresLocked(dir, overrides)
+	var ignoredFiles []string
+	if len(e.problems.ignored) > 0 {
+		seen := make(map[string]struct{}, len(e.problems.ignored))
+		for p := range e.problems.ignored {
+			if _, ok := seen[p.File]; !ok {
+				seen[p.File] = struct{}{}
+				ignoredFiles = append(ignoredFiles, p.File)
+			}
+		}
+	}
+	e.problems.mu.Unlock()
+
+	var fileHashes map[string]string
+	if len(ignoredFiles) > 0 {
+		fileHashes = make(map[string]string, len(ignoredFiles))
+		for _, f := range ignoredFiles {
+			fileHashes[f] = fileContentHash(dir, f, overrides)
+		}
+	}
+
+	e.problems.mu.Lock()
+	if e.problems.gen != gen {
+		e.problems.mu.Unlock()
+		return
+	}
+	e.evictChangedIgnoresWithHashesLocked(fileHashes)
 	e.problems.rawProblems = probs
 	e.problems.checkErr = err
 	e.recomputeVisibleProblemsLocked()
@@ -258,20 +320,17 @@ func (e *Editor) runProblemCheckAsync(
 			e.notify()
 		})
 	}
-	close(myDone)
 }
 
-func (e *Editor) evictChangedIgnoresLocked(dir string, overrides map[string][]byte) bool {
-	if len(e.problems.ignored) == 0 {
+func (e *Editor) evictChangedIgnoresWithHashesLocked(fileHashes map[string]string) bool {
+	if len(e.problems.ignored) == 0 || len(fileHashes) == 0 {
 		return false
 	}
-	hashCache := make(map[string]string, len(e.problems.ignored))
 	changed := false
 	for p, savedHash := range e.problems.ignored {
-		curHash, ok := hashCache[p.File]
+		curHash, ok := fileHashes[p.File]
 		if !ok {
-			curHash = fileContentHash(dir, p.File, overrides)
-			hashCache[p.File] = curHash
+			continue
 		}
 		if curHash != savedHash {
 			delete(e.problems.ignored, p)
@@ -319,22 +378,71 @@ func (e *Editor) pruneStaleProposalsLocked() {
 	}
 }
 
-func fileContentHash(dir, relPath string, overrides map[string][]byte) string {
-	if overrides != nil {
-		if data, ok := overrides[relPath]; ok {
-			sum := sha256.Sum256(data)
-			return hex.EncodeToString(sum[:])
-		}
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// readProjectFileBounded validates rel against root (rejecting traversal,
+// backslashes, colons, control chars, absolute paths, and symlink escapes via
+// resolveProjectFileWithinRoot) and reads up to maxBytes.
+func readProjectFileBounded(root, rel string, maxBytes int64) ([]byte, error) {
+	_, abs, err := resolveProjectFileWithinRoot(root, rel, false)
+	if err != nil {
+		return nil, err
 	}
-	if dir == "" || relPath == "" {
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("editor: %q is a directory", rel)
+	}
+	if maxBytes > 0 && info.Size() > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds maximum size (%d bytes)", rel, maxBytes)
+	}
+	if maxBytes > 0 {
+		data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(data)) > maxBytes {
+			return nil, fmt.Errorf("editor: file %q exceeds maximum size (%d bytes)", rel, maxBytes)
+		}
+		return data, nil
+	}
+	return io.ReadAll(f)
+}
+
+func fileContentHash(dir, relPath string, overrides map[string][]byte) string {
+	if relPath == "" {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(relPath)))
+	if dir != "" {
+		cleanRel, _, err := resolveProjectFileWithinRoot(dir, relPath, true)
+		if err != nil {
+			return "invalid:" + err.Error()
+		}
+		relPath = cleanRel
+	}
+	if overrides != nil {
+		if data, ok := overrides[relPath]; ok {
+			return sha256Hex(data)
+		}
+	}
+	if dir == "" {
+		return ""
+	}
+	data, err := readProjectFileBounded(dir, relPath, maxInspectorYAMLBytes)
 	if err != nil {
 		return "missing:" + err.Error()
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return sha256Hex(data)
 }
 
 // Problems returns a copy of the visible (non-ignored) problems found by the
@@ -379,15 +487,18 @@ func (e *Editor) CheckingProblems() bool {
 // (including newer checks started while waiting) finishes. It returns
 // immediately when idle.
 func (e *Editor) WaitForProblems() {
+	if e == nil {
+		return
+	}
 	for {
 		e.problems.mu.Lock()
 		running := e.problems.running || e.problems.pending
-		done := e.problems.done
+		run := e.problems.run
 		e.problems.mu.Unlock()
-		if !running || done == nil {
+		if !running || run == nil {
 			return
 		}
-		<-done
+		<-run.done
 	}
 }
 
@@ -395,12 +506,17 @@ func (e *Editor) WaitForProblems() {
 // badges, and viewport problem overlay until p.File changes again (in the editor
 // or on disk). If p still holds after a subsequent edit to p.File, it reappears.
 func (e *Editor) IgnoreProblem(p assetcheck.Problem) {
-	if e == nil || p.File == "" {
+	if e == nil || p.File == "" || e.Playing() || e.StartScreenOpen() || e.MergeConflictOpen() {
 		return
 	}
 	dir := ""
 	if e.ProjectPath != "" {
 		dir = filepath.Dir(e.ProjectPath)
+		cleanRel, _, err := resolveProjectFileWithinRoot(dir, p.File, true)
+		if err != nil {
+			return
+		}
+		p.File = cleanRel
 	}
 	overrides := e.unsavedProjectFiles()
 	hash := fileContentHash(dir, p.File, overrides)
@@ -482,12 +598,20 @@ func (e *Editor) selectFile(relPath string) {
 
 // OpenProblem navigates to problem p in the open project: if p.File names a scene file (*.scene.yaml, *.scene.yml, or a scene listed under Project.Autoload.Scenes), it opens that scene with OpenScene (and updates ScenePath and SelectedFile, and clears OnSave), unless it is the scene already open (ScenePath), which keeps its edits and undo history and is only selected; if opening the scene fails (for example because the YAML does not parse), it still selects p.File in the file browser and returns the error. For any non-scene file, it selects p.File in the file browser. It returns ErrNoProject when no project is open. Opening another scene opens it in a tab without losing unsaved edits in other tabs.
 func (e *Editor) OpenProblem(p assetcheck.Problem) error {
+	if err := e.problemActionBlockedErr("opening a problem"); err != nil {
+		return err
+	}
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
 	}
 	if p.File == "" {
 		return nil
 	}
+	cleanRel, _, err := resolveProjectFileWithinRoot(filepath.Dir(e.ProjectPath), p.File, true)
+	if err != nil {
+		return err
+	}
+	p.File = cleanRel
 	loc := p.Location()
 	if isScreenFile(p.File) {
 		e.selectFile(p.File)
@@ -563,12 +687,57 @@ func (e *Editor) projectRelPathForFile(absPath string) string {
 	return filepath.ToSlash(rel)
 }
 
+// hasOpenProjectSceneTab reports in O(len(tabs)) without encoding any YAML
+// whether the editor currently has an open project scene tab. Used by
+// liveResolver() on 60 Hz Rebuild() paths to avoid per-frame YAML serialization.
+func (e *Editor) hasOpenProjectSceneTab() bool {
+	if e == nil {
+		return false
+	}
+	if e.Doc != nil && (e.ScenePath != "" || e.projectRelPathForFile(e.FilePath) != "") {
+		return true
+	}
+	for i, tab := range e.tabs {
+		if i == e.activeTab || tab == nil || tab.doc == nil {
+			continue
+		}
+		if tab.scenePath != "" || e.projectRelPathForFile(tab.filePath) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// inactiveTabLiveYAML returns the cached (yamlBytes, dirty) state for an inactive
+// tab, encoding its SceneDoc at most once until the tab is synced, moved, or saved.
+func (e *Editor) inactiveTabLiveYAML(tab *sceneTab) ([]byte, bool) {
+	if tab == nil || tab.doc == nil {
+		return nil, false
+	}
+	if tab.liveYAMLValid &&
+		tab.liveYAMLDoc == tab.doc &&
+		tab.liveYAMLFilesRev == e.filesRev &&
+		bytes.Equal(tab.liveYAMLSaved, tab.sceneSaved) {
+		return tab.liveYAML, tab.liveYAMLDirty
+	}
+	data, dirty := tabDirtyLiveYAML(tab.doc, tab.sceneSaved)
+	tab.liveYAMLValid = true
+	tab.liveYAMLDirty = dirty
+	tab.liveYAML = data
+	tab.liveYAMLDoc = tab.doc
+	tab.liveYAMLSaved = tab.sceneSaved
+	tab.liveYAMLFilesRev = e.filesRev
+	return data, dirty
+}
+
 func (e *Editor) hasDirtySceneTab() bool {
 	if e == nil {
 		return false
 	}
-	if e.SceneDirty() && e.ScenePath != "" {
-		return true
+	if e.ScenePath != "" && e.Doc != nil {
+		if _, dirty := tabDirtyLiveYAML(e.Doc, e.sceneSaved); dirty {
+			return true
+		}
 	}
 	for i, tab := range e.tabs {
 		if i == e.activeTab || tab == nil || tab.doc == nil {
@@ -581,7 +750,7 @@ func (e *Editor) hasDirtySceneTab() bool {
 		if rel == "" {
 			continue
 		}
-		if tabDocDirty(tab.doc, tab.sceneSaved) {
+		if _, dirty := e.inactiveTabLiveYAML(tab); dirty {
 			return true
 		}
 	}
@@ -597,8 +766,11 @@ func (e *Editor) liveOpenSceneDoc(relPath string) *sceneformat.SceneDoc {
 	if activeRel == "" {
 		activeRel = e.projectRelPathForFile(e.FilePath)
 	}
-	if clean == activeRel && e.Doc != nil && tabDocDirty(e.Doc, e.sceneSaved) {
-		return e.Doc.Clone()
+	if clean == activeRel && e.Doc != nil {
+		if _, dirty := tabDirtyLiveYAML(e.Doc, e.sceneSaved); dirty {
+			return e.Doc.Clone()
+		}
+		return nil
 	}
 	for i, tab := range e.tabs {
 		if i == e.activeTab || tab == nil || tab.doc == nil {
@@ -608,22 +780,34 @@ func (e *Editor) liveOpenSceneDoc(relPath string) *sceneformat.SceneDoc {
 		if rel == "" {
 			rel = e.projectRelPathForFile(tab.filePath)
 		}
-		if rel == clean && tabDocDirty(tab.doc, tab.sceneSaved) {
-			return tab.doc.Clone()
+		if rel == clean {
+			if _, dirty := e.inactiveTabLiveYAML(tab); dirty {
+				return tab.doc.Clone()
+			}
+			return nil
 		}
 	}
 	return nil
 }
 
-func tabDocDirty(doc *sceneformat.SceneDoc, saved []byte) bool {
+// tabDirtyLiveYAML encodes doc once and reports whether it differs from saved,
+// returning the encoded live bytes (falling back to lenient YAML when doc
+// currently violates sceneformat.Validate) without encoding a second time.
+func tabDirtyLiveYAML(doc *sceneformat.SceneDoc, saved []byte) ([]byte, bool) {
 	if doc == nil {
-		return false
+		return nil, false
 	}
-	data, err := sceneformat.Encode(doc)
+	if data, err := sceneformat.Encode(doc); err == nil {
+		if bytes.Equal(data, saved) {
+			return nil, false
+		}
+		return data, true
+	}
+	data, err := encodeSceneDocLenient(doc)
 	if err != nil {
-		return true
+		return nil, true
 	}
-	return !bytes.Equal(data, saved)
+	return data, true
 }
 
 func encodeSceneDocLive(doc *sceneformat.SceneDoc) ([]byte, error) {
@@ -633,8 +817,16 @@ func encodeSceneDocLive(doc *sceneformat.SceneDoc) ([]byte, error) {
 	if data, err := sceneformat.Encode(doc); err == nil {
 		return data, nil
 	}
-	// Lenient YAML encoding when doc currently violates Validate (for example a broken
-	// connection target in a single scene) so assetcheck can parse and report exact line & column.
+	return encodeSceneDocLenient(doc)
+}
+
+// encodeSceneDocLenient encodes doc when it currently violates Validate (for example
+// a broken connection target in a single scene) so assetcheck can parse and report
+// exact line and column positions.
+func encodeSceneDocLenient(doc *sceneformat.SceneDoc) ([]byte, error) {
+	if doc == nil {
+		return nil, errors.New("editor: nil scene document")
+	}
 	var buf bytes.Buffer
 	buf.WriteString(sceneformat.SchemaCommentFor(doc.Version) + "\n")
 	enc := yaml.NewEncoder(&buf)
@@ -652,14 +844,18 @@ func encodeSceneDocLive(doc *sceneformat.SceneDoc) ([]byte, error) {
 // unsavedProjectFiles captures immutable YAML snapshots of every open dirty
 // project document (open scene tabs, game.yaml, tileset) on the editor goroutine
 // so background checks inspect live unsaved edits without touching Editor state.
+// Active scenes are encoded at most once; untouched inactive tabs reuse their cache.
 func (e *Editor) unsavedProjectFiles() map[string][]byte {
 	if e == nil || e.Project == nil || e.ProjectPath == "" {
 		return nil
 	}
 	var overrides map[string][]byte
 	put := func(rel string, data []byte) {
+		if len(data) == 0 {
+			return
+		}
 		clean := path.Clean(strings.ReplaceAll(rel, `\`, "/"))
-		if clean == "" || clean == "." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
+		if clean == "" || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
 			return
 		}
 		if overrides == nil {
@@ -672,8 +868,8 @@ func (e *Editor) unsavedProjectFiles() map[string][]byte {
 	if activeRel == "" {
 		activeRel = e.projectRelPathForFile(e.FilePath)
 	}
-	if activeRel != "" && e.Doc != nil && tabDocDirty(e.Doc, e.sceneSaved) {
-		if data, err := encodeSceneDocLive(e.Doc); err == nil {
+	if activeRel != "" && e.Doc != nil {
+		if data, dirty := tabDirtyLiveYAML(e.Doc, e.sceneSaved); dirty {
 			put(activeRel, data)
 		}
 	}
@@ -688,14 +884,12 @@ func (e *Editor) unsavedProjectFiles() map[string][]byte {
 		if rel == "" {
 			continue
 		}
-		if tabDocDirty(tab.doc, tab.sceneSaved) {
-			if data, err := encodeSceneDocLive(tab.doc); err == nil {
-				put(rel, data)
-			}
+		if data, dirty := e.inactiveTabLiveYAML(tab); dirty {
+			put(rel, data)
 		}
 	}
-	if e.ProjectDirty() {
-		if data, err := project.Encode(e.Project); err == nil {
+	if e.Project != nil {
+		if data, err := project.Encode(e.Project); err == nil && !bytes.Equal(data, e.projectSaved) {
 			put(project.FileName, data)
 		}
 	}
@@ -1107,6 +1301,7 @@ func hasProblemMentioning(problems []assetcheck.Problem, file, path string) bool
 		return p.File == file && strings.Contains(p.Message, quoted)
 	})
 }
+
 // problemIsWarning reports whether p should be rendered with the Spec warning
 // token (warning fill, edge, and alert icon) rather than the problem/error token.
 func problemIsWarning(p assetcheck.Problem) bool {

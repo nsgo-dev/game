@@ -1611,12 +1611,13 @@ func (e *Editor) liveResolver() sceneformat.AssetResolver {
 	if e == nil {
 		return nil
 	}
-	if e.Resolver == nil && !e.TilesetOpen() && !e.hasDirtySceneTab() {
+	hasOpenScene := e.hasOpenProjectSceneTab()
+	if e.Resolver == nil && !e.TilesetOpen() && !hasOpenScene {
 		return nil
 	}
 	_, hasFile := e.Resolver.(sceneformat.FileResolver)
 	_, hasImage := e.Resolver.(sceneformat.ImageResolver)
-	if !e.TilesetOpen() && !e.hasDirtySceneTab() && (!hasFile || hasImage) {
+	if !e.TilesetOpen() && !hasOpenScene && (!hasFile || hasImage) {
 		return e.Resolver
 	}
 	base := &liveTilesetResolver{ed: e, inner: e.Resolver}

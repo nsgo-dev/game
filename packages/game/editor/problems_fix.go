@@ -3,8 +3,8 @@ package editor
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -82,6 +82,25 @@ type ProposedProblemFix struct {
 	Diff        []ProblemDiffLine  `json:"diff"`
 	ObjectID    string             `json:"objectId,omitempty"`
 	Summary     string             `json:"summary,omitempty"`
+
+	// Internal cross-project and staleness guards (never serialized to JSON).
+	projectPath string
+	baseHash    string
+}
+
+func (e *Editor) problemActionBlockedErr(action string) error {
+	switch {
+	case e == nil:
+		return errors.New("editor: nil editor")
+	case e.Playing():
+		return ErrPlaying
+	case e.StartScreenOpen():
+		return fmt.Errorf("editor: close the Start Screen before %s", action)
+	case e.MergeConflictOpen():
+		return fmt.Errorf("editor: resolve the active merge conflict before %s", action)
+	default:
+		return nil
+	}
 }
 
 // ProblemQuestionRequest is delivered to Editor.OnAskAboutProblem when the
@@ -114,6 +133,9 @@ func (e *Editor) ProblemAgentPanelOpen() bool {
 // SetProblemAgentPanelOpen shows or hides the right-hand Agent problem panel.
 func (e *Editor) SetProblemAgentPanelOpen(open bool) {
 	if e == nil {
+		return
+	}
+	if open && (e.Playing() || e.StartScreenOpen() || e.MergeConflictOpen()) {
 		return
 	}
 	e.problems.mu.Lock()
@@ -281,7 +303,10 @@ func (e *Editor) DismissProposedFix(fixID string) {
 // verify validity and compute the exact before/after YAML diff, then opens the
 // Agent problem card. It NEVER modifies any open document, history, or file.
 func (e *Editor) ProposeProblemFix(prob assetcheck.Problem, explanation string, edit ProblemFixEdit) (ProposedProblemFix, error) {
-	if e == nil || e.Project == nil || e.ProjectPath == "" {
+	if err := e.problemActionBlockedErr("proposing a problem fix"); err != nil {
+		return ProposedProblemFix{}, err
+	}
+	if e.Project == nil || e.ProjectPath == "" {
 		return ProposedProblemFix{}, ErrNoProject
 	}
 	explanation = strings.TrimSpace(explanation)
@@ -301,16 +326,19 @@ func (e *Editor) ProposeProblemFix(prob assetcheck.Problem, explanation string, 
 	if targetFile == "" {
 		targetFile = matched.File
 	}
-	targetFile = path.Clean(strings.ReplaceAll(targetFile, `\`, "/"))
-	if targetFile == "" || targetFile == "." || strings.HasPrefix(targetFile, "../") || path.IsAbs(targetFile) {
-		return ProposedProblemFix{}, fmt.Errorf("editor: invalid fix target file %q", edit.File)
+	root := filepath.Dir(e.ProjectPath)
+	cleanTarget, _, err := resolveProjectFileWithinRoot(root, targetFile, true)
+	if err != nil {
+		return ProposedProblemFix{}, fmt.Errorf("editor: invalid fix target file %q: %w", targetFile, err)
 	}
+	targetFile = cleanTarget
 	edit.File = targetFile
 
 	beforeBytes, targetDoc, err := e.loadLiveSceneForFix(targetFile)
 	if err != nil {
 		return ProposedProblemFix{}, err
 	}
+	baseHash := sha256Hex(beforeBytes)
 
 	afterDoc, summary, err := e.simulateFixEdit(targetDoc, beforeBytes, edit)
 	if err != nil {
@@ -352,6 +380,8 @@ func (e *Editor) ProposeProblemFix(prob assetcheck.Problem, explanation string, 
 		Diff:        diff,
 		ObjectID:    objID,
 		Summary:     summary,
+		projectPath: e.ProjectPath,
+		baseHash:    baseHash,
 	}
 	// Replace any existing proposal for the same problem.
 	replaced := false
@@ -380,11 +410,11 @@ func (e *Editor) ProposeProblemFix(prob assetcheck.Problem, explanation string, 
 // displays a Spec toast with an Undo action, and re-runs the project check.
 // This method is called only by user actions in the editor UI — never by MCP.
 func (e *Editor) ApplyProposedFix(fixID string) error {
-	if e == nil || e.Project == nil || e.ProjectPath == "" {
-		return ErrNoProject
+	if err := e.problemActionBlockedErr("applying a proposed fix"); err != nil {
+		return err
 	}
-	if e.playing {
-		return ErrPlaying
+	if e.Project == nil || e.ProjectPath == "" {
+		return ErrNoProject
 	}
 
 	e.problems.mu.Lock()
@@ -408,10 +438,30 @@ func (e *Editor) ApplyProposedFix(fixID string) error {
 	fix := e.problems.proposals[idx]
 	e.problems.mu.Unlock()
 
+	if fix.projectPath != "" && fix.projectPath != e.ProjectPath {
+		return fmt.Errorf("editor: proposed fix %q belongs to another project", fix.ID)
+	}
+
 	targetFile := fix.Edit.File
 	if targetFile == "" {
 		targetFile = fix.Problem.File
 	}
+	cleanTarget, _, err := resolveProjectFileWithinRoot(filepath.Dir(e.ProjectPath), targetFile, true)
+	if err != nil {
+		return fmt.Errorf("editor: invalid fix target file %q: %w", targetFile, err)
+	}
+	targetFile = cleanTarget
+
+	if fix.baseHash != "" {
+		curBytes, _, err := e.loadLiveSceneForFix(targetFile)
+		if err != nil {
+			return fmt.Errorf("editor: load %s to verify proposed fix: %w", targetFile, err)
+		}
+		if sha256Hex(curBytes) != fix.baseHash {
+			return fmt.Errorf("editor: proposed fix %q is stale because %s changed since the fix was proposed", fix.ID, targetFile)
+		}
+	}
+
 	if targetFile != e.ScenePath {
 		if err := e.OpenScene(targetFile); err != nil {
 			return fmt.Errorf("editor: open %s to apply fix: %w", targetFile, err)
@@ -423,6 +473,14 @@ func (e *Editor) ApplyProposedFix(fixID string) error {
 
 	if err := e.applyFixEditUndoable(fix); err != nil {
 		return err
+	}
+
+	toastProject := e.ProjectPath
+	toastScene := e.ScenePath
+	toastTabID := e.activeTabID()
+	toastHistoryLen := 0
+	if e.History != nil {
+		toastHistoryLen = e.History.Len()
 	}
 
 	e.problems.mu.Lock()
@@ -447,8 +505,18 @@ func (e *Editor) ApplyProposedFix(fixID string) error {
 		ActionLabel:    "Undo",
 		ActionShortcut: "⌘Z",
 		OnAction: func() {
-			e.Undo()
-			e.CheckProblems()
+			if e.Playing() || e.StartScreenOpen() || e.MergeConflictOpen() {
+				return
+			}
+			if e.ProjectPath != toastProject || e.activeTabID() != toastTabID || e.ScenePath != toastScene {
+				return
+			}
+			if e.History == nil || e.History.Len() != toastHistoryLen {
+				return
+			}
+			if e.Undo() {
+				e.CheckProblems()
+			}
 		},
 	})
 	e.CheckProblems()
@@ -460,7 +528,10 @@ func (e *Editor) ApplyProposedFix(fixID string) error {
 // edits intact), selects and frames the offending object in the viewport when
 // known, and highlights the exact file:line:col and YAML line in the Agent card.
 func (e *Editor) ShowProblem(p assetcheck.Problem) error {
-	if e == nil || e.Project == nil || e.ProjectPath == "" {
+	if err := e.problemActionBlockedErr("showing a problem"); err != nil {
+		return err
+	}
+	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
 	}
 	if err := e.OpenProblem(p); err != nil {
@@ -509,8 +580,8 @@ func (e *Editor) ShowProblem(p assetcheck.Problem) error {
 // AskAboutProblem submits a question from "Ask about this problem…" with the
 // problem (and any attributed object / proposed fix) attached.
 func (e *Editor) AskAboutProblem(p assetcheck.Problem, question string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
+	if err := e.problemActionBlockedErr("asking about a problem"); err != nil {
+		return err
 	}
 	question = strings.TrimSpace(question)
 	if question == "" {
@@ -604,17 +675,27 @@ func (e *Editor) liveFileBytes(relPath string) ([]byte, error) {
 	if e == nil || e.ProjectPath == "" {
 		return nil, ErrNoProject
 	}
-	clean := path.Clean(strings.ReplaceAll(relPath, `\`, "/"))
+	root := filepath.Dir(e.ProjectPath)
+	clean, _, err := resolveProjectFileWithinRoot(root, relPath, true)
+	if err != nil {
+		return nil, err
+	}
 	if overrides := e.unsavedProjectFiles(); overrides != nil {
 		if data, ok := overrides[clean]; ok {
 			return data, nil
 		}
 	}
-	return os.ReadFile(filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(clean)))
+	return readProjectFileBounded(root, clean, maxInspectorYAMLBytes)
 }
 
 func (e *Editor) loadLiveSceneForFix(relPath string) ([]byte, *sceneformat.SceneDoc, error) {
-	clean := path.Clean(strings.ReplaceAll(relPath, `\`, "/"))
+	if e == nil || e.ProjectPath == "" {
+		return nil, nil, ErrNoProject
+	}
+	clean, _, err := resolveProjectFileWithinRoot(filepath.Dir(e.ProjectPath), relPath, true)
+	if err != nil {
+		return nil, nil, err
+	}
 	activeRel := e.ScenePath
 	if activeRel == "" {
 		activeRel = e.projectRelPathForFile(e.FilePath)
@@ -638,9 +719,12 @@ func (e *Editor) loadLiveSceneForFix(relPath string) ([]byte, *sceneformat.Scene
 			rel = e.projectRelPathForFile(tab.filePath)
 		}
 		if rel == clean {
-			data, err := encodeSceneDocLive(tab.doc)
+			data, err := e.liveFileBytes(clean)
 			if err != nil {
-				return nil, nil, err
+				data, err = encodeSceneDocLive(tab.doc)
+				if err != nil {
+					return nil, nil, err
+				}
 			}
 			return data, tab.doc.Clone(), nil
 		}
@@ -751,7 +835,36 @@ func (e *Editor) simulateFixEdit(doc *sceneformat.SceneDoc, rawYAML []byte, edit
 		if loc.obj == nil {
 			return nil, "", fmt.Errorf("editor: object %q not found", edit.ObjectID)
 		}
-		loc.obj.ID = edit.NewID
+		if edit.NewID == edit.ObjectID {
+			return next, fmt.Sprintf("Rename %s to %s", edit.ObjectID, edit.NewID), nil
+		}
+		if e.simulatedObjectIDInUse(next, edit.NewID) {
+			return nil, "", fmt.Errorf("editor: duplicate object id %q", edit.NewID)
+		}
+		cmd := &objectIDCmd{
+			oldID:      edit.ObjectID,
+			newID:      edit.NewID,
+			instancing: loc.obj.Scene != "",
+		}
+		for i, conn := range next.Connections {
+			from, fromOK := renameRef(conn.From, edit.ObjectID, edit.NewID, cmd.instancing)
+			to, toOK := renameRef(conn.To, edit.ObjectID, edit.NewID, cmd.instancing)
+			if fromOK || toOK {
+				cmd.conns = append(cmd.conns, connRename{
+					index:   i,
+					oldFrom: conn.From,
+					oldTo:   conn.To,
+					newFrom: from,
+					newTo:   to,
+				})
+			}
+		}
+		for _, key := range slices.Sorted(maps.Keys(next.Overrides)) {
+			if renamed, ok := renameRef(key, edit.ObjectID, edit.NewID, cmd.instancing); ok {
+				cmd.overrides = append(cmd.overrides, [2]string{key, renamed})
+			}
+		}
+		cmd.apply(next, false)
 		if err := e.validateSimulatedScene(next); err != nil {
 			return nil, "", err
 		}
@@ -822,6 +935,25 @@ func (e *Editor) simulateFixEdit(doc *sceneformat.SceneDoc, rawYAML []byte, edit
 	default:
 		return nil, "", fmt.Errorf("editor: unknown fix edit kind %q", edit.Kind)
 	}
+}
+
+func (e *Editor) simulatedObjectIDInUse(doc *sceneformat.SceneDoc, id string) bool {
+	if doc == nil || id == "" {
+		return false
+	}
+	if locateObject(doc, id).obj != nil {
+		return true
+	}
+	if doc.RefersToScenes() {
+		if scenes, ok := e.liveResolver().(sceneformat.SceneResolver); ok {
+			if resolved, err := sceneformat.Resolve(doc, scenes); err == nil {
+				if locateObject(resolved, id).obj != nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (e *Editor) validateSimulatedScene(doc *sceneformat.SceneDoc) error {
@@ -1147,6 +1279,14 @@ func (e *Editor) drawProblemOverlays2D(d *core.Drawing, scene *sceneformat.Built
 						py := minY - pad - pillH - 6
 						if py < 6 {
 							py = maxY + pad + 6
+						}
+						if e.canvasH > 0 {
+							if py+pillH > e.canvasH-6 {
+								py = e.canvasH - pillH - 6
+							}
+							if py < 6 {
+								py = 6
+							}
 						}
 						d.SetFillColor(probRole.Fg)
 						d.BeginPath().Rect(px, py, pillW, pillH).Fill()
