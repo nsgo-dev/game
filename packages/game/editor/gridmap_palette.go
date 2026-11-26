@@ -77,6 +77,7 @@ func (e *Editor) GridMapPalette() GridMapPalette {
 		p.Message = fmt.Sprintf("Mesh library %q has no items", e.gridMap.meshLibrary)
 		return p
 	}
+	pal := e.activeSpecPalette()
 	p.Items = make([]GridMapPaletteItem, 0, len(defs))
 	for _, def := range defs {
 		name := def.Name
@@ -88,7 +89,7 @@ func (e *Editor) GridMapPalette() GridMapPalette {
 			Name:        name,
 			MeshID:      def.MeshID,
 			LocalBounds: def.LocalBounds,
-			Thumbnail:   buildGridMapThumbnail(e.gridMap.gltfDoc, def),
+			Thumbnail:   buildGridMapThumbnail(pal, e.gridMap.gltfDoc, def),
 		})
 	}
 	return p
@@ -100,13 +101,13 @@ type gridMapThumbTri struct {
 	color   core.Color
 }
 
-func buildGridMapThumbnail(doc *gltf.Document, def world3d.MeshTileDef) []gridMapThumbTri {
+func buildGridMapThumbnail(pal SpecPalette, doc *gltf.Document, def world3d.MeshTileDef) []gridMapThumbTri {
 	if doc != nil && int(def.MeshID) < len(doc.Meshes) {
-		if tris := extractGLTFThumbTris(doc, int(def.MeshID), def.ID); len(tris) > 0 {
+		if tris := extractGLTFThumbTris(pal, doc, int(def.MeshID), def.ID); len(tris) > 0 {
 			return tris
 		}
 	}
-	return boxThumbTris(def.LocalBounds, def.ID)
+	return boxThumbTris(pal, def.LocalBounds, def.ID)
 }
 
 func rgbColor(r, g, b float64) core.Color {
@@ -122,7 +123,7 @@ func rgbColor(r, g, b float64) core.Color {
 	return colorFromRGBA8(clamp(r), clamp(g), clamp(b), 255)
 }
 
-func extractGLTFThumbTris(doc *gltf.Document, meshIdx int, tileID uint16) []gridMapThumbTri {
+func extractGLTFThumbTris(pal SpecPalette, doc *gltf.Document, meshIdx int, tileID uint16) []gridMapThumbTri {
 	mesh := &doc.Meshes[meshIdx]
 	bounds := math3d.AABBEmpty()
 	var raw [][3]math3d.Vec3
@@ -134,7 +135,7 @@ func extractGLTFThumbTris(doc *gltf.Document, meshIdx int, tileID uint16) []grid
 		if len(prim.Positions) < 3 {
 			continue
 		}
-		baseCol := gridMapTileColor(tileID, 1)
+		baseCol := gridMapTileColor(pal, tileID, 1)
 		if prim.Material >= 0 && prim.Material < len(doc.Materials) {
 			bc := doc.Materials[prim.Material].BaseColorFactor
 			if bc.X+bc.Y+bc.Z > 0.05 {
@@ -190,7 +191,7 @@ func extractGLTFThumbTris(doc *gltf.Document, meshIdx int, tileID uint16) []grid
 	return out
 }
 
-func boxThumbTris(bounds math3d.AABB, tileID uint16) []gridMapThumbTri {
+func boxThumbTris(pal SpecPalette, bounds math3d.AABB, tileID uint16) []gridMapThumbTri {
 	hx, hy, hz := float32(0.65), float32(0.65), float32(0.65)
 	if !bounds.Empty() {
 		s := bounds.Size()
@@ -202,7 +203,7 @@ func boxThumbTris(bounds math3d.AABB, tileID uint16) []gridMapThumbTri {
 			hz = max(s.Z*0.5*scale, 0.14)
 		}
 	}
-	col := gridMapTileColor(tileID, 1)
+	col := gridMapTileColor(pal, tileID, 1)
 	v := [8]math3d.Vec3{
 		{X: -hx, Y: -hy, Z: -hz},
 		{X: +hx, Y: -hy, Z: -hz},
@@ -232,7 +233,7 @@ func boxThumbTris(bounds math3d.AABB, tileID uint16) []gridMapThumbTri {
 }
 
 // drawGridMapThumbnail renders an isometric 3D shaded thumbnail of item rotated by orient onto d.
-func drawGridMapThumbnail(d *core.Drawing, item GridMapPaletteItem, orient uint8, w, h float32) {
+func drawGridMapThumbnail(d *core.Drawing, pal SpecPalette, item GridMapPaletteItem, orient uint8, w, h float32) {
 	if d == nil || w <= 0 || h <= 0 || len(item.Thumbnail) == 0 {
 		return
 	}
@@ -301,7 +302,7 @@ func drawGridMapThumbnail(d *core.Drawing, item GridMapPaletteItem, orient uint8
 			ClosePath().Fill()
 	}
 	// Subtle wireframe accent on top of shaded thumbnail for crisp legibility at small sizes.
-	d.SetStrokeColor(specAlpha(darkSpecPalette.Bg, 0.35)).SetLineWidth(0.75)
+	d.SetStrokeColor(specAlpha(pal.Bg, 0.35)).SetLineWidth(0.75)
 	for _, pt := range projected {
 		d.BeginPath().MoveTo(pt.x0, pt.y0).LineTo(pt.x1, pt.y1).LineTo(pt.x2, pt.y2).ClosePath().Stroke()
 	}
@@ -406,7 +407,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Draw: func(d *core.Drawing, size core.Size) {
 							o := orient.Get()
-							drawGridMapThumbnail(d, item, o, float32(size.Width), float32(size.Height))
+							drawGridMapThumbnail(d, ed.SpecPalette(cx), item, o, float32(size.Width), float32(size.Height))
 						},
 					},
 					core.Text{

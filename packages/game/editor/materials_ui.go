@@ -183,7 +183,8 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	}
 
 	// Base color and emissive color controls: ColorWell + ColorPicker + text Input + Clear button.
-	colorControl := func(testPrefix, label, placeholder string, emissive bool, fallback core.Color, getStr func() string, setStr func(string) error) core.Node {
+	colorControl := func(testPrefix, label, placeholder string, emissive bool, getStr func() string, setStr func(string) error) core.Node {
+		fallback, _ := core.ParseColor(placeholder)
 		pickerOpen := core.NewSignal(cx, false)
 		cx.Effect(func() {
 			if disabled() {
@@ -430,7 +431,6 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				ed.T("material.field.baseColor"),
 				"#ffffff",
 				false,
-				colorFromRGBA8(255, 255, 255, 255),
 				func() string { return currentMat().BaseColor },
 				ed.SetMaterialBaseColor,
 			)),
@@ -439,7 +439,6 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				ed.T("material.field.emissiveLabel"),
 				"#000000",
 				true,
-				colorFromRGBA8(0, 0, 0, 255),
 				func() string { return currentMat().Emissive },
 				ed.SetMaterialEmissive,
 			)),

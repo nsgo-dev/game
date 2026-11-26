@@ -1337,15 +1337,6 @@ func (c *transform2DCmd) Undo() {
 	}
 }
 
-// Spec token gizmo colors shared with 2D lighting and nav-region handle overlays.
-var (
-	gizmoColorX      = darkSpecPalette.AxisX
-	gizmoColorY      = darkSpecPalette.AxisY
-	gizmoColorRing   = specAlpha(darkSpecPalette.Accent.Edge, 0.8)
-	gizmoColorCenter = darkSpecPalette.TextPrimary
-	gizmoColorActive = darkSpecPalette.Warning.Fg
-)
-
 // drawGizmo2D draws the selected object's transform gizmo: the rotation ring, the X and Y arrows, the move square and, on an outline large enough, the scale handles. The handle a drag holds is drawn highlighted.
 func (e *Editor) drawGizmo2D(d *core.Drawing) {
 	if !e.Gizmo2DShown() || !e.OverlayKindVisible(OverlayKindSelection) {

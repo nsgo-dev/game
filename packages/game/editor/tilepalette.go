@@ -568,7 +568,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			},
 			tileBrushBar(ed, rev),
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				return tileLayerControls(ed, rev, palette.Get())
+				return tileLayerControls(cx, ed, rev, palette.Get())
 			}),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				switch brushMode.Get() {
@@ -584,7 +584,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Style:    core.Style{FlexGrow: 1},
 				Children: []core.Node{grid},
 			},
-			tilePaletteSelectedCard(cx, palette, active),
+			tilePaletteSelectedCard(cx, ed, palette, active),
 		},
 	}
 }
@@ -840,10 +840,11 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 }
 
 // tileLayerControls returns the controls a YAML-tileset grid's palette shows above its tiles: a toggle per tile layer (for layered grids), the flips tile brushes place tiles with, the terrain selector for ToolTerrain, an Edit Tileset button, and the palette note from Tiles.dc.html. A legacy atlas single grid has none, and gets an empty view.
-func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core.Node {
+func tileLayerControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p TilePalette) core.Node {
 	if len(p.TileLayers) == 0 && !isTilesetFile(p.Tileset) {
 		return core.View{}
 	}
+	spec := ed.SpecPalette(cx)
 	var children []core.Node
 	if len(p.TileLayers) > 0 {
 		layers := make([]core.Node, 0, len(p.TileLayers))
@@ -940,13 +941,13 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 		children = append(children, core.Text{
 			TestID:  "tile-terrain-empty",
 			Content: "No terrain sets defined. Press Edit Tileset to add one.",
-			Style:   core.Style{FontSize: 11, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11, Color: spec.TextFaint},
 		})
 	}
 	children = append(children, core.Text{
 		TestID:  "tile-palette-rules-note",
 		Content: "Rules for collision, terrain and variants live in the tileset file.",
-		Style:   core.Style{FontSize: 11, Color: specTextMuted},
+		Style:   core.Style{FontSize: 11, Color: spec.TextFaint},
 	})
 	return core.View{
 		TestID:   "tile-layer-controls",
@@ -956,13 +957,14 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 }
 
 // tilePaletteSelectedCard renders the picked tile's swatch, name, atlas cell coordinates, and rules at the bottom of the tile palette.
-func tilePaletteSelectedCard(cx *core.Scope, palette *core.Memo[TilePalette], active *core.Memo[int]) core.Node {
+func tilePaletteSelectedCard(cx *core.Scope, ed *Editor, palette *core.Memo[TilePalette], active *core.Memo[int]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		p := palette.Get()
 		tile, ok := p.Tile(active.Get())
 		if !ok {
 			return core.View{}
 		}
+		spec := ed.SpecPalette(cx)
 		name := tile.Name
 		if name == "" {
 			name = fmt.Sprintf("Tile %d", tile.Number)
@@ -985,9 +987,9 @@ func tilePaletteSelectedCard(cx *core.Scope, palette *core.Memo[TilePalette], ac
 				Gap:          10,
 				Padding:      core.All(8),
 				CornerRadius: 10,
-				Background:   specRaised,
+				Background:   spec.Raised,
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
+				BorderColor:  spec.LineRaised,
 			},
 			Children: []core.Node{
 				core.Canvas{
@@ -997,7 +999,7 @@ func tilePaletteSelectedCard(cx *core.Scope, palette *core.Memo[TilePalette], ac
 						Height:       core.Pt(28),
 						FlexShrink:   0,
 						CornerRadius: 6,
-						Background:   specPanel,
+						Background:   spec.Panel,
 					},
 					Draw: func(d *core.Drawing, size core.Size) {
 						drawPaletteTile(d, tile, float32(size.Width), float32(size.Height))
@@ -1009,12 +1011,12 @@ func tilePaletteSelectedCard(cx *core.Scope, palette *core.Memo[TilePalette], ac
 						core.Text{
 							TestID:  "tile-palette-selected-name",
 							Content: name,
-							Style:   core.Style{FontSize: 11.5, FontWeight: 500, Color: specTextStrong},
+							Style:   core.Style{FontSize: 11.5, FontWeight: 500, Color: spec.TextPrimary},
 						},
 						core.Text{
 							TestID:  "tile-palette-selected-meta",
 							Content: meta,
-							Style:   core.Style{FontSize: 11, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11, Color: spec.TextFaint},
 						},
 					},
 				},

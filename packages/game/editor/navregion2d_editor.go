@@ -558,22 +558,6 @@ func (e *Editor) updateNavRegionDrag2D(x, y float32) {
 	e.notify()
 }
 
-var (
-	navMesh2DFillColor        = specAlpha(darkSpecPalette.Accent.Fg, 0.2)
-	navMesh2DEdgeColor        = specAlpha(darkSpecPalette.Accent.Edge, 0.78)
-	navMesh2DPortalColor      = specAlpha(darkSpecPalette.Agent.Fg, 0.45)
-	navRegionWalkableColor    = specAlpha(darkSpecPalette.Added.Fg, 0.92)
-	navRegionWalkableSubtle   = specAlpha(darkSpecPalette.Added.Fg, 0.5)
-	navRegionObstacleColor    = specAlpha(darkSpecPalette.Removed.Fg, 0.92)
-	navRegionObstacleSubtle   = specAlpha(darkSpecPalette.Removed.Fg, 0.5)
-	navRegionEdgeMidFillColor = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.6), darkSpecPalette.Added.Fg)
-	navRegionObstacleMidFill  = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.6), darkSpecPalette.Removed.Fg)
-	navPathLineColor          = specAlpha(darkSpecPalette.Warning.Fg, 0.95)
-	navPathBlockedColor       = specAlpha(darkSpecPalette.Removed.Fg, 0.85)
-	navPathStartColor         = darkSpecPalette.Added.Fg
-	navPathEndColor           = darkSpecPalette.Changed.Fg
-)
-
 // drawNavMesh2DOverlay draws the baked 2D navigation mesh polygons and portals, authored navregion2d outlines, and the active test-path preview in the 2D edit viewport.
 func (e *Editor) drawNavMesh2DOverlay(d *core.Drawing, scene *sceneformat.BuiltScene) {
 	if d == nil || scene == nil || e.playing {
@@ -584,6 +568,14 @@ func (e *Editor) drawNavMesh2DOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if !showMesh && !showTool {
 		return
 	}
+	pal := e.activeSpecPalette()
+	navMesh2DFillColor := specAlpha(pal.Accent.Fg, 0.2)
+	navMesh2DEdgeColor := specAlpha(pal.Accent.Edge, 0.78)
+	navMesh2DPortalColor := specAlpha(pal.Agent.Fg, 0.45)
+	navRegionWalkableColor := specAlpha(pal.Added.Fg, 0.92)
+	navRegionWalkableSubtle := specAlpha(pal.Added.Fg, 0.5)
+	navRegionObstacleColor := specAlpha(pal.Removed.Fg, 0.92)
+	navRegionObstacleSubtle := specAlpha(pal.Removed.Fg, 0.5)
 
 	// 1. Built convex navigation mesh overlay (filled polygons, outer edges, shared portals).
 	if showMesh && scene.NavBake2D != nil && len(scene.NavBake2D.Polygons) > 0 {
@@ -658,6 +650,12 @@ func (e *Editor) drawNavPathPreview2D(d *core.Drawing) {
 	if !p.HasStart && !p.HasEnd {
 		return
 	}
+	pal := e.activeSpecPalette()
+	navPathLineColor := specAlpha(pal.Warning.Fg, 0.95)
+	navPathBlockedColor := specAlpha(pal.Removed.Fg, 0.85)
+	navPathStartColor := pal.Added.Fg
+	navPathEndColor := pal.Changed.Fg
+	gizmoColorCenter := pal.TextPrimary
 	d.Save()
 	if p.HasStart && p.HasEnd {
 		if p.Found && len(p.Path) >= 2 {
@@ -701,12 +699,15 @@ func (e *Editor) drawSelectedNavRegionHandles2D(d *core.Drawing) {
 	if !ok {
 		return
 	}
+	pal := e.activeSpecPalette()
+	gizmoColorCenter := pal.TextPrimary
+	gizmoColorActive := pal.Warning.Fg
 	active := e.drag2D.handle
-	stroke := navRegionWalkableColor
-	midFill := navRegionEdgeMidFillColor
+	stroke := specAlpha(pal.Added.Fg, 0.92)
+	midFill := CompositeOver(specAlpha(pal.TextPrimary, 0.6), pal.Added.Fg)
 	if ng.dbg.Mode == "obstacle" {
-		stroke = navRegionObstacleColor
-		midFill = navRegionObstacleMidFill
+		stroke = specAlpha(pal.Removed.Fg, 0.92)
+		midFill = CompositeOver(specAlpha(pal.TextPrimary, 0.6), pal.Removed.Fg)
 	}
 	d.Save()
 	for i, mid := range ng.edgeMids {

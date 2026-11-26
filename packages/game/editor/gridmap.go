@@ -1413,11 +1413,12 @@ func (e *Editor) drawGridMap3D(d *core.Drawing, w, h float32) {
 			cmp.Compare(a.coord.X, b.coord.X),
 		)
 	})
+	spec := e.activeSpecPalette()
 	for _, item := range cells {
-		col := gridMapTileColor(item.cell.TileID, 0.9)
+		col := gridMapTileColor(spec, item.cell.TileID, 0.9)
 		lw := float32(1.4)
 		if e.gridMap.tool != GridMapToolNone && item.coord.Y != e.gridMap.floor {
-			col = gridMapTileColor(item.cell.TileID, 0.45)
+			col = gridMapTileColor(spec, item.cell.TileID, 0.45)
 			lw = 1.0
 		}
 		e.drawGridMapCellBox3D(d, gm, item.coord, item.cell.TileID, item.cell.Orientation, toWorld, col, lw, w, h)
@@ -1427,7 +1428,6 @@ func (e *Editor) drawGridMap3D(d *core.Drawing, w, h float32) {
 		return
 	}
 
-	spec := e.activeSpecPalette()
 	// 3. Box Fill drag preview, or hovered cell preview under the pointer.
 	if minC, maxC, ok := e.GridMapBoxPreview(); ok {
 		bmin := gm.CellBounds(minC).Min
@@ -1597,22 +1597,21 @@ func (e *Editor) fillCellFloorQuad3D(d *core.Drawing, bmin, bmax math3d.Vec3, to
 		ClosePath().Fill().Restore()
 }
 
-var gridMapPaletteSwatches = []core.Color{
-	darkSpecPalette.Accent.Fg,
-	darkSpecPalette.Added.Fg,
-	darkSpecPalette.Warning.Fg,
-	darkSpecPalette.Removed.Fg,
-	darkSpecPalette.Agent.Fg,
-	darkSpecPalette.Changed.Fg,
-	darkSpecPalette.TextMuted,
-	darkSpecPalette.TextSecondary,
-}
-
-func gridMapTileColor(tileID uint16, alpha float32) core.Color {
+func gridMapTileColor(pal SpecPalette, tileID uint16, alpha float32) core.Color {
 	if tileID == 0 {
-		return specAlpha(darkSpecPalette.TextFaint, alpha)
+		return specAlpha(pal.TextFaint, alpha)
 	}
-	base := gridMapPaletteSwatches[int(tileID-1)%len(gridMapPaletteSwatches)]
+	swatches := [8]core.Color{
+		pal.Accent.Fg,
+		pal.Added.Fg,
+		pal.Warning.Fg,
+		pal.Removed.Fg,
+		pal.Agent.Fg,
+		pal.Changed.Fg,
+		pal.TextMuted,
+		pal.TextSecondary,
+	}
+	base := swatches[int(tileID-1)%len(swatches)]
 	return specAlpha(base, alpha)
 }
 

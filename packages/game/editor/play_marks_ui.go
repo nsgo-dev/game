@@ -5,20 +5,32 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // Spec-derived composite tints for Play mode header and panic card (all derived strictly from spec_theme.yaml tokens).
-var (
-	specPlayRunBg      = CompositeOver(specAlpha(darkSpecPalette.Added.Fg, 0.06), darkSpecPalette.Bg)
-	specPlayRunBorder  = specAlpha(darkSpecPalette.Added.Fg, 0.35)
-	specPlayPauseBg    = CompositeOver(specAlpha(darkSpecPalette.Warning.Fg, 0.05), darkSpecPalette.Bg)
-	specPanicCardBg    = CompositeOver(specAlpha(darkSpecPalette.Removed.Fg, 0.06), darkSpecPalette.Raised)
-	specAgentBubbleBg  = CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.08), darkSpecPalette.Raised)
-	specAgentStepDoneB = darkSpecPalette.Added.Fill
-)
+func playRunBg(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.Added.Fg, 0.06), p.Bg)
+}
+
+func playRunBorder(p SpecPalette) core.Color {
+	return specAlpha(p.Added.Fg, 0.35)
+}
+
+func playPauseBg(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.Warning.Fg, 0.05), p.Bg)
+}
+
+func playPanicCardBg(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.Removed.Fg, 0.06), p.Raised)
+}
+
+func playAgentBubbleBg(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.Accent.Fg, 0.08), p.Raised)
+}
 
 // playModeBarView renders the Play Mode control bar below the main toolbar while local Play mode is active
 // (and not already showing the Remote Play bar), styled strictly with Spec.dc.html tokens matching PlayMode.dc.html.
@@ -29,33 +41,43 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			return ed.Playing() && !ed.RemoteConnected() && !ed.RemoteConnecting()
 		},
 		Then: func(cx *core.Scope) core.Node {
+			pal := ed.SpecPalette(cx)
 			scaleBtn := func(scale float64, label string) core.Node {
 				id := fmt.Sprintf("play-timescale-%g", scale)
-				return ui.Button{
-					TestID:  id,
-					Text:    label,
-					Label:   fmt.Sprintf("Set play time scale to %s", label),
-					Size:    ui.SizeSmall,
-					Variant: ui.ButtonGhost,
-					Color: func() core.Color {
+				return base.Button{
+					TestID: id,
+					Label:  fmt.Sprintf("Set play time scale to %s", label),
+					StyleFunc: func() core.Style {
 						_ = rev.Get()
+						bg := core.Color(0)
 						if math.Abs(ed.PlayTimeScale()-scale) < 1e-6 {
-							return specLineRaised
+							bg = pal.LineRaised
 						}
-						return core.Color(0)
+						return core.Style{
+							Height:         core.Pt(26),
+							Padding:        core.Symmetric(0, 8),
+							CornerRadius:   6,
+							Direction:      core.Row,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							Background:     bg,
+							Cursor:         core.CursorPointer,
+							Hover:          &core.Style{Background: pal.LineRaised},
+							FocusVisible:   pal.FocusRing(-2),
+						}
 					},
-					TextStyle: core.Style{
-						FontSize:   11,
-						FontWeight: 500,
-						Color:      specText,
-					},
-					Style: core.Style{
-						Height:       core.Pt(26),
-						Padding:      core.Symmetric(0, 8),
-						CornerRadius: 6,
-					},
-					OnPress: func() {
+					OnPress: func(core.PressEvent) {
 						ed.SetPlayTimeScale(scale)
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: label,
+							Style: core.Style{
+								FontSize:   11,
+								FontWeight: 500,
+								Color:      pal.TextSecondary,
+							},
+						},
 					},
 				}
 			}
@@ -77,13 +99,13 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					_ = rev.Get()
 					if ed.PlayPaused() {
 						return core.Style{
-							Background:  specPlayPauseBg,
-							BorderColor: specWarningEdge,
+							Background:  playPauseBg(pal),
+							BorderColor: pal.Warning.Edge,
 						}
 					}
 					return core.Style{
-						Background:  specPlayRunBg,
-						BorderColor: specPlayRunBorder,
+						Background:  playRunBg(pal),
+						BorderColor: playRunBorder(pal),
 					}
 				},
 				Children: []core.Node{
@@ -103,13 +125,13 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							_ = rev.Get()
 							if ed.PlayPaused() {
 								return core.Style{
-									Background:  specWarningFill,
-									BorderColor: specWarningEdge,
+									Background:  pal.Warning.Fill,
+									BorderColor: pal.Warning.Edge,
 								}
 							}
 							return core.Style{
-								Background:  specAddedFill,
-								BorderColor: specAddedEdge,
+								Background:  pal.Added.Fill,
+								BorderColor: specAlpha(pal.Added.Edge, 0.45),
 							}
 						},
 						Children: []core.Node{
@@ -118,9 +140,9 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
 									if ed.PlayPaused() {
-										return core.Style{Background: specWarning}
+										return core.Style{Background: pal.Warning.Fg}
 									}
-									return core.Style{Background: specAdded}
+									return core.Style{Background: pal.Added.Fg}
 								},
 							},
 							core.Text{
@@ -144,9 +166,9 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
 									if ed.PlayPaused() {
-										return core.Style{Color: specWarning}
+										return core.Style{Color: pal.Warning.Fg}
 									}
-									return core.Style{Color: specText}
+									return core.Style{Color: pal.TextSecondary}
 								},
 							},
 						},
@@ -160,9 +182,9 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							Gap:          2,
 							Padding:      core.All(3),
 							CornerRadius: 8,
-							Background:   specRaised,
+							Background:   pal.Raised,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  pal.LineRaised,
 						},
 						Children: []core.Node{
 							ui.Button{
@@ -183,7 +205,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								},
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
-								Tint:    func() core.Color { return specTextStrong },
+								Tint:    func() core.Color { return pal.TextPrimary },
 								Style:   core.Style{Width: core.Pt(30), Height: core.Pt(26), CornerRadius: 6},
 								OnPress: func() { ed.SetPlayPaused(!ed.PlayPaused()) },
 							},
@@ -197,7 +219,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									_ = rev.Get()
 									return !ed.PlayPaused()
 								},
-								Tint:  func() core.Color { return specTextStrong },
+								Tint:  func() core.Color { return pal.TextPrimary },
 								Style: core.Style{Width: core.Pt(30), Height: core.Pt(26), CornerRadius: 6},
 								OnPress: func() {
 									ed.StepPlay(1)
@@ -207,7 +229,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								Style: core.Style{
 									Width:      core.Pt(1),
 									Height:     core.Pt(16),
-									Background: specLineRaised,
+									Background: pal.LineRaised,
 									Margin:     core.Symmetric(0, 4),
 								},
 							},
@@ -236,17 +258,21 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									}
 									return fmt.Sprintf("Mark %s", key)
 								},
-								Color: func() core.Color { return specRaised },
-								Tint:  func() core.Color { return specText },
+								Color: func() core.Color { return pal.Raised },
+								Tint:  func() core.Color { return pal.TextSecondary },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specText,
+									Color:      pal.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(30),
 									Padding:      core.Symmetric(0, 10),
 									CornerRadius: 8,
+									Background:   pal.Raised,
+									BorderWidth:  1,
+									BorderColor:  pal.LineRaised,
+									Hover:        &core.Style{Background: pal.LineRaised},
 								},
 								OnPress: func() {
 									_, err := ed.AddPlayMark()
@@ -260,17 +286,21 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								Label:   "Pause and ask the agent about this frame (" + cx.KeyLabel("mod+l") + ")",
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
-								Color:   func() core.Color { return specRaised },
-								Tint:    func() core.Color { return specAgent },
+								Color:   func() core.Color { return pal.Raised },
+								Tint:    func() core.Color { return pal.Agent.Fg },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specText,
+									Color:      pal.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(30),
 									Padding:      core.Symmetric(0, 10),
 									CornerRadius: 8,
+									Background:   pal.Raised,
+									BorderWidth:  1,
+									BorderColor:  pal.LineRaised,
+									Hover:        &core.Style{Background: pal.LineRaised},
 								},
 								OnPress: func() {
 									ed.report(ed.OpenAskFrozenFrame())
@@ -283,17 +313,19 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								Label:   "Stop Play mode",
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
-								Color:   func() core.Color { return specTextStrong },
-								Tint:    func() core.Color { return specBg },
+								Color:   func() core.Color { return pal.TextPrimary },
+								Tint:    func() core.Color { return pal.OnTextPrimary },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 600,
-									Color:      specBg,
+									Color:      pal.OnTextPrimary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(30),
 									Padding:      core.Symmetric(0, 12),
 									CornerRadius: 8,
+									Background:   pal.TextPrimary,
+									Hover:        &core.Style{Background: pal.PrimaryHover},
 								},
 								OnPress: func() {
 									ed.report(ed.Stop())
@@ -316,15 +348,16 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			return ed.Playing() || ed.RemoteConnected()
 		},
 		Then: func(cx *core.Scope) core.Node {
+			pal := ed.SpecPalette(cx)
 			return core.View{
 				TestID: "play-replay-footer",
 				Style: core.Style{
 					FlexShrink:  0,
 					Padding:     core.Symmetric(10, 8),
 					Gap:         4,
-					Background:  specBg,
+					Background:  pal.Bg,
 					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
+					BorderColor: pal.Line,
 				},
 				Children: []core.Node{
 					core.Text{
@@ -332,7 +365,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						Style: core.Style{
 							FontSize:   11,
 							FontWeight: core.FontWeightSemibold,
-							Color:      specTextMuted,
+							Color:      pal.TextFaint,
 						},
 					},
 					core.Text{
@@ -344,14 +377,14 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						Style: core.Style{
 							FontSize:    12,
 							FontVariant: core.FontTabularNums,
-							Color:       specText,
+							Color:       pal.TextSecondary,
 						},
 					},
 					core.Text{
 						Content: "Saved as an input recording when you mark or ask",
 						Style: core.Style{
 							FontSize: 11,
-							Color:    specTextMuted,
+							Color:    pal.TextFaint,
 						},
 					},
 					core.Show{
@@ -360,6 +393,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							return ed.PlayLastReplayPath() != ""
 						},
 						Then: func(cx *core.Scope) core.Node {
+							p := ed.SpecPalette(cx)
 							return core.Text{
 								TestID: "play-replay-last-path",
 								ContentFunc: func() string {
@@ -368,7 +402,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								},
 								Style: core.Style{
 									FontSize: 10.5,
-									Color:    specTextSecondary,
+									Color:    p.TextMuted,
 								},
 							}
 						},
@@ -406,6 +440,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							return ed.PlayAgentPill() != ""
 						},
 						Then: func(cx *core.Scope) core.Node {
+							pal := ed.SpecPalette(cx)
 							return core.View{
 								TestID:        "play-agent-pill",
 								PointerEvents: core.PointerEventsNone,
@@ -419,9 +454,9 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 									Gap:          6,
 									Padding:      core.Symmetric(0, 10),
 									CornerRadius: 12,
-									Background:   specBgOverlay,
+									Background:   specAlpha(pal.PillBg, 0.92),
 									BorderWidth:  1,
-									BorderColor:  specAgentEdge,
+									BorderColor:  pal.Agent.Edge,
 								},
 								Children: []core.Node{
 									core.View{
@@ -429,7 +464,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 											Width:        core.Pt(6),
 											Height:       core.Pt(6),
 											CornerRadius: 3,
-											Background:   specAgent,
+											Background:   pal.Agent.Fg,
 										},
 									},
 									core.Text{
@@ -441,7 +476,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 										Style: core.Style{
 											FontSize:    11.5,
 											FontVariant: core.FontTabularNums,
-											Color:       specText,
+											Color:       pal.TextSecondary,
 										},
 									},
 								},
@@ -455,6 +490,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							return ed.Playing() && ed.PlayPaused()
 						},
 						Then: func(cx *core.Scope) core.Node {
+							pal := ed.SpecPalette(cx)
 							return core.View{
 								TestID:        "play-paused-hint",
 								PointerEvents: core.PointerEventsNone,
@@ -467,9 +503,9 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 									AlignItems:   core.AlignCenter,
 									Padding:      core.Symmetric(0, 12),
 									CornerRadius: 13,
-									Background:   specWarningFill,
+									Background:   pal.Warning.Fill,
 									BorderWidth:  1,
-									BorderColor:  specWarningEdge,
+									BorderColor:  pal.Warning.Edge,
 								},
 								Children: []core.Node{
 									core.Text{
@@ -480,7 +516,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 										Style: core.Style{
 											FontSize:    11.5,
 											FontVariant: core.FontTabularNums,
-											Color:       specWarning,
+											Color:       pal.Warning.Fg,
 										},
 									},
 								},
@@ -500,13 +536,14 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			return ed.AskFrozenFrameOpen()
 		},
 		Then: func(cx *core.Scope) core.Node {
+			pal := ed.SpecPalette(cx)
 			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
 				if ed.AskFrozenFrameOpen() {
 					ed.CloseAskFrozenFrame()
 				}
 			})
 
-			chip := func(text string, dot core.Color) core.Node {
+			chip := func(p SpecPalette, text string, dot core.Color) core.Node {
 				return core.View{
 					Style: core.Style{
 						Direction:    core.Row,
@@ -515,9 +552,9 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Height:       core.Pt(22),
 						Padding:      core.Symmetric(0, 8),
 						CornerRadius: 6,
-						Background:   specPanel,
+						Background:   p.Panel,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
 						core.View{
@@ -532,7 +569,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							Content: text,
 							Style: core.Style{
 								FontSize: 11,
-								Color:    specTextSecondary,
+								Color:    p.TextMuted,
 							},
 						},
 					},
@@ -556,9 +593,9 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 					Padding:      core.All(12),
 					Gap:          10,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   pal.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  pal.LineRaised,
 				},
 				Children: []core.Node{
 					// Header: "Ask about frame N" + "game frozen"
@@ -579,14 +616,14 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								Style: core.Style{
 									FontSize:   14,
 									FontWeight: core.FontWeightSemibold,
-									Color:      specTextStrong,
+									Color:      pal.TextPrimary,
 								},
 							},
 							core.Text{
 								Content: "game frozen",
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specTextMuted,
+									Color:    pal.TextFaint,
 								},
 							},
 						},
@@ -598,9 +635,9 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							Height:       core.Pt(110),
 							CornerRadius: 8,
 							Overflow:     core.Hidden,
-							Background:   specBg,
+							Background:   pal.Bg,
 							BorderWidth:  1,
-							BorderColor:  specWarningEdge,
+							BorderColor:  pal.Warning.Edge,
 						},
 						Children: []core.Node{
 							core.Canvas{
@@ -610,7 +647,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								Draw: func(d *core.Drawing, size core.Size) {
 									_ = rev.Get()
 									d.Save()
-									d.SetFillColor(specBg).FillRect(0, 0, float32(size.Width), float32(size.Height))
+									d.SetFillColor(ed.activeSpecPalette().Bg).FillRect(0, 0, float32(size.Width), float32(size.Height))
 									// Preserve the main viewport's canvas size so drawing the thumbnail
 									// does not overwrite Editor.canvasW/canvasH.
 									prevW, prevH := ed.canvasW, ed.canvasH
@@ -641,6 +678,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							}
 						})
 						return core.Dynamic(func(cx *core.Scope) core.Node {
+							p := ed.SpecPalette(cx)
 							k := chipsMemo.Get()
 							sec := float64(k.rollingFrames) / float64(k.rate)
 							replayLabel := fmt.Sprintf("Replay · %s frames", formatPlayFrameNumber(k.rollingFrames))
@@ -648,20 +686,20 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								replayLabel = fmt.Sprintf("Replay · last %.0f s", math.Round(sec))
 							}
 							chips := []core.Node{
-								chip("Frame "+formatPlayFrameNumber(k.frame), specTextSecondary),
-								chip(replayLabel, specTextSecondary),
+								chip(p, "Frame "+formatPlayFrameNumber(k.frame), p.TextMuted),
+								chip(p, replayLabel, p.TextMuted),
 							}
 							if k.selectedID != "" {
-								chips = append(chips, chip(k.selectedID+" · live state", specChanged))
+								chips = append(chips, chip(p, k.selectedID+" · live state", p.Changed.Fg))
 							} else {
-								chips = append(chips, chip("Live state", specAdded))
+								chips = append(chips, chip(p, "Live state", p.Added.Fg))
 							}
 							if k.liveChanges > 0 {
 								unit := "live changes"
 								if k.liveChanges == 1 {
 									unit = "live change"
 								}
-								chips = append(chips, chip(fmt.Sprintf("%d %s", k.liveChanges, unit), specChanged))
+								chips = append(chips, chip(p, fmt.Sprintf("%d %s", k.liveChanges, unit), p.Changed.Fg))
 							}
 							return core.View{
 								Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
@@ -688,11 +726,11 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						},
 						Style: core.Style{
 							MinHeight:    core.Pt(56),
-							Background:   specPanel,
-							Color:        specTextStrong,
+							Background:   pal.Panel,
+							Color:        pal.TextPrimary,
 							CornerRadius: 8,
 							BorderWidth:  1,
-							BorderColor:  specAccent,
+							BorderColor:  pal.Accent.Edge,
 						},
 					},
 					// Footer: "A fix comes back as a review", Cancel, Ask
@@ -708,7 +746,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								Content: "A fix comes back as a review",
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specTextMuted,
+									Color:    pal.TextFaint,
 									FlexGrow: 1,
 								},
 							},
@@ -719,7 +757,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								Variant: ui.ButtonGhost,
 								TextStyle: core.Style{
 									FontSize: 12,
-									Color:    specTextSecondary,
+									Color:    pal.TextMuted,
 								},
 								Style: core.Style{
 									Height:       core.Pt(30),
@@ -735,16 +773,19 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								Text:    "Ask",
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
-								Color:   func() core.Color { return specAccent },
+								Color:   func() core.Color { return pal.Accent.Fg },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: core.FontWeightSemibold,
-									Color:      specBg, // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA)
+									Color:      pal.Accent.OnFill,
 								},
 								Style: core.Style{
 									Height:       core.Pt(30),
 									Padding:      core.Symmetric(0, 14),
 									CornerRadius: 8,
+									Background:   pal.Accent.Fg,
+									Hover:        &core.Style{Background: pal.AccentHover},
+									Active:       &core.Style{Background: pal.AccentPressed},
 								},
 								OnPress: submit,
 							},
@@ -766,31 +807,42 @@ func shouldShowPlayInspectorTabs(ed *Editor) bool {
 
 // playInspectorTabBarView renders the Play-mode Inspector | Agent tab strip + MCP status chip at the top of InspectorView.
 func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	pal := ed.SpecPalette(cx)
 	tabBtn := func(testID, label string, target PlayInspectorTab) core.Node {
-		return ui.Button{
-			TestID:  testID,
-			Text:    label,
-			Size:    ui.SizeSmall,
-			Variant: ui.ButtonGhost,
-			Color: func() core.Color {
+		return base.Button{
+			TestID: testID,
+			Label:  label,
+			StyleFunc: func() core.Style {
 				_ = rev.Get()
+				bg := core.Color(0)
 				if ed.PlayInspectorTab() == target {
-					return specAgentBubbleBg
+					bg = playAgentBubbleBg(pal)
 				}
-				return core.Color(0)
+				return core.Style{
+					Height:         core.Pt(26),
+					Padding:        core.Symmetric(0, 8),
+					CornerRadius:   6,
+					Direction:      core.Row,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					Background:     bg,
+					Cursor:         core.CursorPointer,
+					Hover:          &core.Style{Background: pal.LineRaised},
+					FocusVisible:   pal.FocusRing(-2),
+				}
 			},
-			TextStyle: core.Style{
-				FontSize:   12,
-				FontWeight: 500,
-				Color:      specTextStrong,
-			},
-			Style: core.Style{
-				Height:       core.Pt(26),
-				Padding:      core.Symmetric(0, 8),
-				CornerRadius: 6,
-			},
-			OnPress: func() {
+			OnPress: func(core.PressEvent) {
 				ed.SetPlayInspectorTab(target)
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: label,
+					Style: core.Style{
+						FontSize:   12,
+						FontWeight: 500,
+						Color:      pal.TextPrimary,
+					},
+				},
 			},
 		}
 	}
@@ -804,9 +856,9 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 			Gap:            4,
 			Padding:        core.All(4),
 			CornerRadius:   8,
-			Background:     specPanel,
+			Background:     pal.Panel,
 			BorderWidth:    1,
-			BorderColor:    specLine,
+			BorderColor:    pal.Line,
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -832,13 +884,13 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					_ = rev.Get()
 					if ed.PlayAgentActive() {
 						return core.Style{
-							Background:  specAgentTint,
-							BorderColor: specAgentEdge,
+							Background:  pal.Agent.Fill,
+							BorderColor: pal.Agent.Edge,
 						}
 					}
 					return core.Style{
-						Background:  specRaised,
-						BorderColor: specLineRaised,
+						Background:  pal.Raised,
+						BorderColor: pal.LineRaised,
 					}
 				},
 				Children: []core.Node{
@@ -847,9 +899,9 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
 							if ed.PlayAgentActive() {
-								return core.Style{Background: specAgent}
+								return core.Style{Background: pal.Agent.Fg}
 							}
-							return core.Style{Background: specAdded}
+							return core.Style{Background: pal.Added.Fg}
 						},
 					},
 					core.Text{
@@ -866,7 +918,7 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							}
 							return "MCP"
 						},
-						Style: core.Style{FontSize: 10.5, Color: specTextSecondary},
+						Style: core.Style{FontSize: 10.5, Color: pal.TextMuted},
 					},
 				},
 			},
@@ -898,6 +950,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = panelKey.Get()
+		pal := ed.SpecPalette(cx)
 		marks := ed.PlayMarks()
 		unsentCount := len(ed.UnsentPlayMarks())
 		steps := ed.PlayAgentSteps()
@@ -915,35 +968,35 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Padding:      core.Symmetric(8, 10),
 						Gap:          4,
 						CornerRadius: 10,
-						Background:   specAgentBubbleBg,
+						Background:   playAgentBubbleBg(pal),
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  pal.LineRaised,
 					},
 					Children: []core.Node{
 						core.Text{
 							Content: question,
-							Style:   core.Style{FontSize: 12, Color: specTextStrong},
+							Style:   core.Style{FontSize: 12, Color: pal.TextPrimary},
 						},
 						core.Text{
 							Content: questionMeta,
-							Style:   core.Style{FontSize: 11, Color: specTextSecondary},
+							Style:   core.Style{FontSize: 11, Color: pal.TextMuted},
 						},
 					},
 				})
 			}
 			for i, st := range steps {
 				dotFill := core.Color(0)
-				dotBorder := specLineRaised
-				textColor := specTextMuted
+				dotBorder := pal.LineRaised
+				textColor := pal.TextFaint
 				switch st.Status {
 				case "done":
-					dotFill = specAgentStepDoneB
-					dotBorder = specAdded
-					textColor = specTextSecondary
+					dotFill = pal.Added.Fill
+					dotBorder = pal.Added.Fg
+					textColor = pal.TextMuted
 				case "active":
-					dotFill = specAgentTint
-					dotBorder = specAgent
-					textColor = specTextStrong
+					dotFill = pal.Agent.Fill
+					dotBorder = pal.Agent.Fg
+					textColor = pal.TextPrimary
 				}
 				children = append(children, core.View{
 					TestID: fmt.Sprintf("play-agent-step-%d", i),
@@ -980,12 +1033,12 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			children = append(children, core.Text{
 				TestID:  "play-agent-pause-note",
 				Content: "The game stays paused while the agent steps through the replay. Resume whenever you like; its fix comes back as a review.",
-				Style:   core.Style{FontSize: 11, Color: specTextMuted},
+				Style:   core.Style{FontSize: 11, Color: pal.TextFaint},
 			})
 		} else {
 			children = append(children, core.Text{
 				Content: "The agent sees the running game through the editor's MCP server: live entities, the last 60 s of replay and your marks. Ask with " + cx.KeyLabel("mod+l") + " to freeze the frame first.",
-				Style:   core.Style{FontSize: 11.5, Color: specTextSecondary},
+				Style:   core.Style{FontSize: 11.5, Color: pal.TextMuted},
 			})
 		}
 
@@ -996,7 +1049,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Style: core.Style{
 				FontSize:   11,
 				FontWeight: core.FontWeightSemibold,
-				Color:      specTextMuted,
+				Color:      pal.TextFaint,
 				Padding:    core.Edges{Top: 6},
 			},
 		})
@@ -1014,21 +1067,21 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Height:       core.Pt(32),
 					Padding:      core.Symmetric(0, 10),
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   pal.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  pal.LineRaised,
 				},
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.Flag(),
-						Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: specTextSecondary},
+						Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: pal.TextMuted},
 					},
 					core.Text{
 						Content: m.TimeLabel,
 						Style: core.Style{
 							FontSize:    11,
 							FontVariant: core.FontTabularNums,
-							Color:       specTextStrong,
+							Color:       pal.TextPrimary,
 						},
 					},
 					core.Text{
@@ -1036,7 +1089,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Style: core.Style{
 							FontSize:    11,
 							FontVariant: core.FontTabularNums,
-							Color:       specTextMuted,
+							Color:       pal.TextFaint,
 							FlexGrow:    1,
 						},
 					},
@@ -1044,7 +1097,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Content: statusText,
 						Style: core.Style{
 							FontSize: 10.5,
-							Color:    specTextMuted,
+							Color:    pal.TextFaint,
 						},
 					},
 				},
@@ -1053,7 +1106,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		children = append(children,
 			core.Text{
 				Content: "When you stop, all marks go to the agent as one thread.",
-				Style:   core.Style{FontSize: 11, Color: specTextMuted},
+				Style:   core.Style{FontSize: 11, Color: pal.TextFaint},
 			},
 			ui.Button{
 				TestID:  "play-send-marks-btn",
@@ -1063,15 +1116,19 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				Disabled: func() bool {
 					return unsentCount == 0
 				},
-				Color: func() core.Color { return specRaised },
+				Color: func() core.Color { return pal.Raised },
 				TextStyle: core.Style{
 					FontSize: 12,
-					Color:    specText,
+					Color:    pal.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(30),
 					Padding:      core.Symmetric(0, 12),
 					CornerRadius: 8,
+					Background:   pal.Raised,
+					BorderWidth:  1,
+					BorderColor:  pal.LineRaised,
+					Hover:        &core.Style{Background: pal.LineRaised},
 				},
 				OnPress: func() {
 					ed.SendPlayMarks()
@@ -1094,6 +1151,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 	if p == nil {
 		return nil
 	}
+	pal := ed.SpecPalette(cx)
 	gameFrames := p.GameFrames()
 	rtFrames := p.RuntimeFrames()
 
@@ -1120,7 +1178,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 					Content: frame.Function,
 					Style: core.Style{
 						FontSize: 11.5,
-						Color:    specText,
+						Color:    pal.TextSecondary,
 						FlexGrow: 1,
 					},
 				},
@@ -1132,7 +1190,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 					Variant: ui.ButtonGhost,
 					TextStyle: core.Style{
 						FontSize: 11.5,
-						Color:    specAccent,
+						Color:    pal.Accent.Fg,
 					},
 					Style: core.Style{
 						Height:  core.Pt(20),
@@ -1173,7 +1231,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 					Content: foldText,
 					Style: core.Style{
 						FontSize: 11.5,
-						Color:    specTextMuted,
+						Color:    pal.TextFaint,
 						FlexGrow: 1,
 					},
 				},
@@ -1185,7 +1243,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 					Variant: ui.ButtonGhost,
 					TextStyle: core.Style{
 						FontSize: 11.5,
-						Color:    specAccent,
+						Color:    pal.Accent.Fg,
 					},
 					Style: core.Style{
 						Height:  core.Pt(20),
@@ -1212,11 +1270,11 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 					Children: []core.Node{
 						core.Text{
 							Content: f.Function,
-							Style:   core.Style{FontSize: 11, Color: specTextMuted, FlexGrow: 1},
+							Style:   core.Style{FontSize: 11, Color: pal.TextFaint, FlexGrow: 1},
 						},
 						core.Text{
 							Content: loc,
-							Style:   core.Style{FontSize: 11, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11, Color: pal.TextFaint},
 						},
 					},
 				})
@@ -1234,9 +1292,9 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 			Padding:      core.All(10),
 			Gap:          6,
 			CornerRadius: 10,
-			Background:   specPanicCardBg,
+			Background:   playPanicCardBg(pal),
 			BorderWidth:  1,
-			BorderColor:  specProblemEdge,
+			BorderColor:  specAlpha(pal.Removed.Edge, 0.50),
 		},
 		Children: []core.Node{
 			// Title row
@@ -1249,17 +1307,17 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.TriangleAlert(),
-						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: specProblem},
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: pal.Removed.Fg},
 					},
 					core.Text{
 						TestID:  "output-panic-title",
 						Content: runLabel,
-						Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: specTextStrong},
+						Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: pal.TextPrimary},
 					},
 					core.Text{
 						TestID:  "output-panic-meta",
 						Content: headerMeta,
-						Style:   core.Style{FontSize: 11.5, FontVariant: core.FontTabularNums, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, FontVariant: core.FontTabularNums, Color: pal.TextFaint},
 					},
 				},
 			},
@@ -1269,7 +1327,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 				Content: strings.TrimSpace(p.Message),
 				Style: core.Style{
 					FontSize: 11.5,
-					Color:    specProblem,
+					Color:    pal.Removed.Fg,
 				},
 			},
 			// Stack frames
@@ -1291,16 +1349,19 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 						Text:    "Ask the agent to fix",
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
-						Color:   func() core.Color { return specAccent },
+						Color:   func() core.Color { return pal.Accent.Fg },
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: core.FontWeightSemibold,
-							Color:      specBg,
+							Color:      pal.Accent.OnFill,
 						},
 						Style: core.Style{
 							Height:       core.Pt(28),
 							Padding:      core.Symmetric(0, 12),
 							CornerRadius: 8,
+							Background:   pal.Accent.Fg,
+							Hover:        &core.Style{Background: pal.AccentHover},
+							Active:       &core.Style{Background: pal.AccentPressed},
 						},
 						OnPress: func() {
 							ed.report(ed.AskAgentToFixPanic())
@@ -1314,15 +1375,19 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 						Disabled: func() bool {
 							return !canReplay
 						},
-						Color: func() core.Color { return specRaised },
+						Color: func() core.Color { return pal.Raised },
 						TextStyle: core.Style{
 							FontSize: 12,
-							Color:    specText,
+							Color:    pal.TextSecondary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(28),
 							Padding:      core.Symmetric(0, 12),
 							CornerRadius: 8,
+							Background:   pal.Raised,
+							BorderWidth:  1,
+							BorderColor:  pal.LineRaised,
+							Hover:        &core.Style{Background: pal.LineRaised},
 						},
 						OnPress: func() {
 							ed.report(ed.ReplayUpToPanic())

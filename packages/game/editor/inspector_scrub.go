@@ -583,6 +583,7 @@ func inspectorTitledSection(
 // inspectorFieldRow wraps one inspector row with Spec label styling, optional review amber bar
 // ("was <old> · in review"), and optional problem pill beneath the control.
 func inspectorFieldRow(
+	cx *core.Scope,
 	ed *Editor,
 	rev *core.Signal[uint64],
 	objID, component, fieldKey, fieldTestID string,
@@ -593,12 +594,13 @@ func inspectorFieldRow(
 	if fieldKey != "" {
 		keys = []string{fieldKey}
 	}
-	return inspectorFieldRowKeys(ed, rev, objID, component, keys, fieldTestID, labelNode, control)
+	return inspectorFieldRowKeys(cx, ed, rev, objID, component, keys, fieldTestID, labelNode, control)
 }
 
 // inspectorFieldRowKeys wraps an inspector row whose controls edit one or more field keys
 // (such as compact X/Y/Z rows), surfacing review changes and field problems for every key.
 func inspectorFieldRowKeys(
+	cx *core.Scope,
 	ed *Editor,
 	rev *core.Signal[uint64],
 	objID, component string,
@@ -658,7 +660,7 @@ func inspectorFieldRowKeys(
 			if _, ok := reviewsText(); ok {
 				return core.Style{
 					Borders:     core.Edges{Left: 2},
-					BorderColor: ed.activeSpecPalette().Changed.Fg,
+					BorderColor: ed.SpecPalette(cx).Changed.Fg,
 					Padding:     core.Edges{Left: 6},
 				}
 			}

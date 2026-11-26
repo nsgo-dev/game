@@ -262,15 +262,15 @@ func (h GizmoHandle3D) referencePoint() math3d.Vec3 {
 	}
 }
 
-func (h GizmoHandle3D) effectiveColor(active bool) core.Color {
+func (h GizmoHandle3D) effectiveColor(pal SpecPalette, active bool) core.Color {
 	if active {
-		return darkSpecPalette.Warning.Fg
+		return pal.Warning.Fg
 	}
 	var zero core.Color
 	if h.Color != zero {
 		return h.Color
 	}
-	return darkSpecPalette.Accent.Fg
+	return pal.Accent.Fg
 }
 
 // ComponentGizmo3D registers 3D viewport handles and drag editing for one component type.
@@ -557,11 +557,11 @@ func pickGizmoHandles3D(proj Projection3D, mat math3d.Mat4, handles []GizmoHandl
 }
 
 // drawGizmoHandle3D renders a single 3D gizmo handle transformed by mat onto d through proj.
-func drawGizmoHandle3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, h GizmoHandle3D, active bool) {
+func drawGizmoHandle3D(d *core.Drawing, pal SpecPalette, proj Projection3D, mat math3d.Mat4, h GizmoHandle3D, active bool) {
 	if d == nil {
 		return
 	}
-	col := h.effectiveColor(active)
+	col := h.effectiveColor(pal, active)
 	switch h.Kind {
 	case GizmoHandlePoint3D:
 		wp := mat.TransformPoint(h.Position)
@@ -578,7 +578,7 @@ func drawGizmoHandle3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, h Gi
 		}
 		d.Save()
 		d.SetFillColor(col).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Fill()
-		d.SetStrokeColor(specAlpha(darkSpecPalette.Bg, 0.9)).SetLineWidth(1.25).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Stroke()
+		d.SetStrokeColor(specAlpha(pal.Bg, 0.9)).SetLineWidth(1.25).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Stroke()
 		if active && h.Label != "" {
 			d.SetFillColor(col).FillText(h.Label, sx+r+4, sy+3, core.Font{Size: 10})
 		}
@@ -613,15 +613,15 @@ func drawGizmoHandle3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, h Gi
 }
 
 // drawGizmoHandles3D draws visual primitives (boxes and lines) first and point handles on top.
-func drawGizmoHandles3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, handles []GizmoHandle3D, activeID string) {
+func drawGizmoHandles3D(d *core.Drawing, pal SpecPalette, proj Projection3D, mat math3d.Mat4, handles []GizmoHandle3D, activeID string) {
 	for _, h := range handles {
 		if h.Kind != GizmoHandlePoint3D {
-			drawGizmoHandle3D(d, proj, mat, h, activeID != "" && h.ID == activeID)
+			drawGizmoHandle3D(d, pal, proj, mat, h, activeID != "" && h.ID == activeID)
 		}
 	}
 	for _, h := range handles {
 		if h.Kind == GizmoHandlePoint3D {
-			drawGizmoHandle3D(d, proj, mat, h, activeID != "" && h.ID == activeID)
+			drawGizmoHandle3D(d, pal, proj, mat, h, activeID != "" && h.ID == activeID)
 		}
 	}
 }
@@ -1186,7 +1186,7 @@ func (e *Editor) drawComponentGizmos3D(d *core.Drawing, proj Projection3D) {
 			if selected && e.compGizmoDrag.active && e.compGizmoDrag.objectID == obj.ID && e.compGizmoDrag.component == compName {
 				activeID = e.compGizmoDrag.handle.ID
 			}
-			drawGizmoHandles3D(d, proj, worldMat, handles, activeID)
+			drawGizmoHandles3D(d, e.activeSpecPalette(), proj, worldMat, handles, activeID)
 		}
 	}
 

@@ -892,14 +892,6 @@ func (e *Editor) toolStrokeMode(secondary, alt bool) (TileStrokeMode, bool) {
 	return 0, false
 }
 
-// The hover outline's colors from spec_theme.yaml: accent for painting and filling, added for terrain, removed for erasing, warning for picking.
-var (
-	hoverPaintColor   = darkSpecPalette.Accent.Fg
-	hoverTerrainColor = darkSpecPalette.Added.Fg
-	hoverEraseColor   = darkSpecPalette.Removed.Fg
-	hoverPickColor    = darkSpecPalette.Warning.Fg
-)
-
 // drawTileHoverOverlay draws the active tile selection marquee, any live brush preview under way,
 // or the hover outline for the cell under the mouse (HoveredTile) on the active layer.
 func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {

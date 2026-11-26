@@ -2351,8 +2351,36 @@ func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 	step, half := e.gridStep3D()
 	extent := step * float32(half)
 	vc := e.activeView3DCam(w, h)
+	spec := e.activeSpecPalette()
 
-	d.Save().SetStrokeColor(specAlpha(e.activeSpecPalette().TextFaint, 0.25)).SetLineWidth(1).BeginPath()
+	if !e.gpu3D {
+		corners := [4][3]float32{
+			{-extent, 0, -extent},
+			{extent, 0, -extent},
+			{extent, 0, extent},
+			{-extent, 0, extent},
+		}
+		var sx, sy [4]float32
+		allVis := true
+		for i, c := range corners {
+			px, py, _, vis := vc.project(c, w, h)
+			if !vis {
+				allVis = false
+				break
+			}
+			sx[i], sy[i] = px, py
+		}
+		if allVis {
+			d.Save().SetFillColor(specAlpha(spec.Viewport3DGround, 0.55)).BeginPath().
+				MoveTo(sx[0], sy[0]).
+				LineTo(sx[1], sy[1]).
+				LineTo(sx[2], sy[2]).
+				LineTo(sx[3], sy[3]).
+				ClosePath().Fill().Restore()
+		}
+	}
+
+	d.Save().SetStrokeColor(spec.Viewport3DGrid).SetLineWidth(1).BeginPath()
 	hasSegments := false
 	for i := -half; i <= half; i++ {
 		coord := float32(i) * step
