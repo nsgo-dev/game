@@ -1,0 +1,28 @@
+# Agent Note: Editor agent threads per line of work, grouped by scene
+
+Status: implemented
+
+## Problem
+
+AI-first scene editing in the NSGo Game Editor (`docs/design/editor/Threads.dc.html`, issue #1019) requires separating lines of work into persistent threads scoped by scene, keeping each external agent's session ID per thread, folding reviewed requests so long threads stay scannable, linking folded steps into History, showing an empty-thread orientation seeded from `brief.yaml`, and attributing each scene object in the Inspector footer to the request that last changed it. Previously the right rail rendered only `InspectorView` with no thread persistence, scene-bound thread switching, folded request history, or object-to-request attribution.
+
+## Decision
+
+We implement scene-grouped agent threads inside `packages/game/editor` (`agent_threads.go`, `agent_threads_ui.go`) and connect them to scene switching, the Inspector footer, shortcuts, and `editormcp`:
+
+- **Strict versioned YAML per thread under `.nsgo/threads/<id>.yaml`**: `AgentThread` (`AgentThreadFileVersion = 1`, `AgentThreadSchemaURL = "https://game.nsgo.dev/schemas/agent-thread.v1.json"`) stores `version`, `id`, `title`, `scenePath`, external agent `sessionId`, RFC3339 timestamps, and chronological `requests` with `steps`, review `outcome` (`pending`, `kept`, `reverted`), change counts, changed `objects`, `files`, and `historyStep` links. `ParseAgentThreadYAML` rejects unknown fields, duplicate keys, YAML anchors/aliases/merge keys, trailing documents, path traversal, and invalid counts; `EncodeAgentThreadYAML` writes canonical 2-space YAML that round-trips byte-for-byte. Creating `.nsgo/threads/` writes `.nsgo/.gitignore` (`*\n`) if absent, skips `*.thread.yaml` task-queue files owned by #1022, and validates symlink containment inside the project root.
+- **Scene-bound thread lifecycle without carrying threads across scenes**: `openProject` loads valid threads from `.nsgo/threads/` and enters the open scene's most recent thread (or an unsaved empty draft thread). `SelectTab`, `activateNewTab`, `CloseTab`, `openYAMLWithLayers`, and `SaveFile` (when `ScenePath` changes) call `syncAgentThreadForOpenScene()`, which enters the newly active scene's latest thread or a fresh scene draft and never carries the previous scene's thread along. Selecting another scene's thread from the switcher opens that scene tab before activating the chosen thread.
+- **Unified right rail with `Inspector` default tab, `Agent` panel with threads, and `History` view**: `RightRailView` integrates `InspectorView` (default `RightTabInspector`, preserving all existing Inspector tests and 272 pt layout), `AgentPanelView` (380 pt matching `Threads.dc.html`, hosting the thread switcher header, popover, folded/expanded requests, empty-thread orientation, live turns, status chip, and composer), `TasksPanelView` (#1022), and `AgentHistoryView` (`RightTabHistory`). Every surface uses `ed.SpecPalette(cx)` tokens across Spec Dark and Spec Light themes.
+- **Scoped `⌘N` (`ScopeAgent`)**: `CmdNewAgentThread` binds `mod+n` in a dedicated `ScopeAgent` prioritized above `ScopeGlobal` only while the Agent panel is active (`RightRailAgent`), focused, or its switcher is open, leaving `CmdNewProject` (`mod+n` in `ScopeGlobal`) intact elsewhere without shortcut conflict.
+- **Inspector footer attribution and `editormcp` hook**: `LastAgentChangeForObject` scans the open scene's and project-level threads for the most recent non-reverted request touching `objectID` (including edits automatically noted by `editormcp`'s `scene_edit` via `Editor.NoteAgentEditedObjects`), rendering `inspector-thread-footer` above the existing static `inspector-footer` hint and opening/expanding that request on press.
+
+## Alternatives considered
+
+- **Storing all threads in one `.nsgo/threads.yaml` index file**: Rejected because concurrent or frequent per-request writes would rewrite unrelated threads, make manual inspection/deletion of one line of work harder, and diverge from issue #1019's requirement of one file per thread under `.nsgo/threads/`.
+- **Making `RightRailAgent` the default right-rail tab on `EditorView` mount**: Rejected because existing editor regression tests and workflows expect `InspectorView` controls (`editor-inspector`, `inspector-footer`, field inputs) to be mounted immediately when `EditorView` starts without an extra tab switch; defaulting to `RightRailInspector` keeps every existing test intact while exposing one-click switching to `Agent` and `History`.
+- **Rebinding `mod+n` globally from `CmdNewProject` to `CmdNewAgentThread`**: Rejected because `TestDesktopMenuBarMatchesRegistryAndExecutesActions` and desktop File > New Project expect `CmdNewProject` to own `mod+n` in `ScopeGlobal`; placing `CmdNewAgentThread` in `ScopeAgent` follows the editor's scope-aware shortcut architecture (`shortcuts.go`) and resolves `⌘N` cleanly inside the Agent panel.
+
+## Consequences
+
+- **Benefits**: Each line of work persists cleanly in readable, schema-validated YAML under `.nsgo/threads/` (ignored by git), scene switching cleanly isolates threads per scene, external agent `sessionId` survives project reloads, folded requests link directly into History, empty threads surface `brief.yaml` suggestions safely, and the Inspector links any agent-modified object back to the exact request that changed it.
+- **Costs**: `RightRailView` adds a 38 pt tab header above `InspectorView` and widens the right rail to 380 pt when `Agent` or `History` is active. Full external agent CLI execution and streaming remain owned by #1009 (`Editor.OnSendAgentRequest` provides the clean hook for #1009 to attach without changing the thread storage or UI contract).

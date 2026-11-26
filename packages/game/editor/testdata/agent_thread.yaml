@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/agent-thread.v1.json
+version: 1
+id: door-lever-pulls
+title: Door opens after two lever pulls
+scenePath: scenes/level_01.scene.yaml
+sessionId: sess_claude_01
+createdAt: "2026-11-26T13:40:00Z"
+updatedAt: "2026-11-26T14:18:00Z"
+requests:
+  - id: req-001
+    title: Door opens after two lever pulls
+    prompt: Keep the door shut until the lever is pulled twice, then let it open.
+    createdAt: "2026-11-26T13:40:00Z"
+    updatedAt: "2026-11-26T13:41:00Z"
+    outcome: kept
+    changesTotal: 3
+    changesKept: 3
+    files:
+      - prefabs/door.prefab.yaml
+      - scenes/level_01.scene.yaml
+    objects:
+      - Door
+      - lever_01
+    detail: Door.locked, Door.opens_after_pulls, lever_01.pulls
+    historyStep: 'Agent: Door opens after two lever pulls'
+    historyIndex: 1
+    steps:
+      - id: step-001
+        label: Read level_01.scene.yaml and door.prefab.yaml
+        status: done
+        files:
+          - prefabs/door.prefab.yaml
+          - scenes/level_01.scene.yaml
+      - id: step-002
+        label: Set Door.opens_after_pulls to 2 and wired lever_01
+        status: done
+        historyStep: 'Agent: Door opens after two lever pulls'
+        historyIndex: 1
+        objects:
+          - Door
+          - lever_01
+  - id: req-002
+    title: Open the door with a short rumble and camera shake
+    prompt: Open the door with a short rumble and a small camera shake.
+    createdAt: "2026-11-26T14:18:00Z"
+    updatedAt: "2026-11-26T14:18:00Z"
+    outcome: pending
+    changesTotal: 3
+    files:
+      - prefabs/door.prefab.yaml
+      - scenes/level_01.scene.yaml
+    objects:
+      - Door
+    steps:
+      - id: step-003
+        label: Added door_rumble.wav and a 0.3 s shake on open
+        status: done
+        objects:
+          - Door

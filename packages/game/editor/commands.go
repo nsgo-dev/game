@@ -128,6 +128,7 @@ const (
 	CmdReviewPeekBefore   = "review.peekBefore"
 	CmdReviewKeep         = "review.keep"
 	CmdReviewRevertAll    = "review.revertAll"
+	CmdNewAgentThread     = "agent.newThread"
 )
 
 var (
@@ -331,6 +332,22 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:    "mod+n",
 			Run: func() error {
 				e.SetStartScreenOpen(true)
+				return nil
+			},
+		},
+		{
+			ID:          CmdNewAgentThread,
+			Label:       "New Agent Thread",
+			Description: "Start a new empty agent thread for the open scene",
+			Category:    "Agent",
+			Keywords:    []string{"new", "thread", "agent", "chat", "session"},
+			Scope:       ScopeAgent,
+			Shortcut:    "mod+n",
+			Enabled: func() bool {
+				return !e.Playing() && e.RightRailTab() == RightRailAgent
+			},
+			Run: func() error {
+				e.NewAgentThread()
 				return nil
 			},
 		},
@@ -2110,6 +2127,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
 	CmdReplayTips:            {"cmd.replayTips.label", "cmd.replayTips.desc", "cmd.category.help"},
+	CmdNewAgentThread:        {"cmd.newAgentThread.label", "cmd.newAgentThread.desc", "cmd.category.agent"},
 }
 
 // Commands returns all currently active commands in deterministic order:

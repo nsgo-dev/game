@@ -12,9 +12,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// RightRailView renders the editor's right sidebar: the Agent / Inspector tab bar when an agent is not disabled,
-// keeping InspectorView active by default at 272 pt and showing AgentPanelView (380 pt) when the Agent tab is selected.
-// When AgentModeNone is chosen, the Agent panel stays closed and only InspectorView renders.
+// RightRailView renders the editor's right sidebar: TasksPanelView when Background Tasks are open,
+// InspectorView alone when AgentModeNone is chosen, or the Agent / Inspector / History tab bar
+// keeping InspectorView active by default at 272 pt and showing AgentPanelView or AgentHistoryView
+// (380 pt) when selected.
 func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	tasksOpenMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
@@ -55,32 +56,59 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							return AgentPanelView(cx, ed, rev)
 						},
 						Else: func(cx *core.Scope) core.Node {
-							return core.Dynamic(func(cx *core.Scope) core.Node {
-								p := SpecPaletteFor(darkMemo.Get())
-								return core.View{
-									TestID: "right-rail-inspector-wrap",
-									Style: core.Style{
-										Width:       core.Pt(272),
-										FlexShrink:  0,
-										Background:  p.Panel,
-										Borders:     core.Edges{Left: 1},
-										BorderColor: p.Line,
-									},
-									Children: []core.Node{
-										rightRailTabBar(cx, ed, rev, p, false),
-										core.View{
+							return core.Show{
+								When: func() bool {
+									return tabMemo.Get() == RightTabHistory
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return core.Dynamic(func(cx *core.Scope) core.Node {
+										p := SpecPaletteFor(darkMemo.Get())
+										return core.View{
+											TestID: "right-rail-history-wrap",
 											Style: core.Style{
-												Direction: core.Row,
-												FlexGrow:  1,
-												FlexBasis: core.Pt(0),
-												MinHeight: core.Pt(0),
-												Overflow:  core.Hidden,
+												Width:       core.Pt(380),
+												FlexShrink:  0,
+												Background:  p.Panel,
+												Borders:     core.Edges{Left: 1},
+												BorderColor: p.Line,
+												Overflow:    core.Hidden,
 											},
-											Children: []core.Node{InspectorView(cx, ed, rev)},
-										},
-									},
-								}
-							})
+											Children: []core.Node{
+												rightRailTabBar(cx, ed, rev, p, true),
+												AgentHistoryView(cx, ed, rev),
+											},
+										}
+									})
+								},
+								Else: func(cx *core.Scope) core.Node {
+									return core.Dynamic(func(cx *core.Scope) core.Node {
+										p := SpecPaletteFor(darkMemo.Get())
+										return core.View{
+											TestID: "right-rail-inspector-wrap",
+											Style: core.Style{
+												Width:       core.Pt(272),
+												FlexShrink:  0,
+												Background:  p.Panel,
+												Borders:     core.Edges{Left: 1},
+												BorderColor: p.Line,
+											},
+											Children: []core.Node{
+												rightRailTabBar(cx, ed, rev, p, false),
+												core.View{
+													Style: core.Style{
+														Direction: core.Row,
+														FlexGrow:  1,
+														FlexBasis: core.Pt(0),
+														MinHeight: core.Pt(0),
+														Overflow:  core.Hidden,
+													},
+													Children: []core.Node{InspectorView(cx, ed, rev)},
+												},
+											},
+										}
+									})
+								},
+							}
 						},
 					}
 				},
@@ -183,6 +211,45 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 		trailing = compactAgentChip(ed, rev, p)
 	}
 
+	historyBtn := core.View{
+		TestID: "right-rail-tab-history",
+		Role:   core.RoleButton,
+		Label:  ed.T("threads.history.title"),
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			var bg core.Color
+			if ed.RightRailTab() == RightTabHistory {
+				bg = p.Raised
+			}
+			return core.Style{
+				Width:          core.Pt(26),
+				Height:         core.Pt(26),
+				FlexShrink:     0,
+				CornerRadius:   6,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				Background:     bg,
+				FocusVisible:   p.FocusRing(2),
+			}
+		},
+		OnPress: func(core.PressEvent) {
+			if ed.RightRailTab() == RightTabHistory {
+				ed.SetRightRailTab(RightTabAgent)
+			} else {
+				ed.SetRightRailTab(RightTabHistory)
+			}
+		},
+		Children: []core.Node{
+			specDynamicIcon(func() *core.SVG { return lucide.Clock() }, 14, func() core.Color {
+				_ = rev.Get()
+				if ed.RightRailTab() == RightTabHistory {
+					return p.TextPrimary
+				}
+				return p.TextMuted
+			}),
+		},
+	}
+
 	return core.View{
 		TestID: "right-rail-header",
 		Style: core.Style{
@@ -211,6 +278,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
+			historyBtn,
 			trailing,
 		},
 	}
@@ -813,14 +881,29 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 }
 
 // AgentPanelView renders the Agent tab panel: 44 pt header with tabs and status chip,
-// scrollable thread of user requests / streamed steps / open requests, and the labelled multiline composer.
+// scene-grouped thread header and switcher popover, scrollable thread of persisted requests /
+// live user turns / streamed steps / open requests or empty-thread orientation, and the labelled multiline composer.
 func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	composerFocused := core.NewSignal(cx, false)
 	openReqRef := new(core.Ref)
 	panelRef := new(core.Ref)
+	switcherBtnRef := new(core.Ref)
 	ed.SetAgentPanelRef(panelRef)
 	cx.Cleanup(func() {
-		ed.SetAgentPanelRef(nil)
+		if ed.focus.ctrl != nil && ed.focus.ctrl.agentPanelRef == panelRef {
+			ed.SetAgentPanelRef(nil)
+		}
+	})
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(cx, RegionInspector, switcherBtnRef, func() bool {
+			return ed.RightRailTab() == RightTabAgent
+		})
+	}
+
+	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+		if ed.AgentSwitcherOpen() {
+			ed.SetAgentSwitcherOpen(false)
+		}
 	})
 
 	// Shift+Enter inserts a newline while the composer is focused; plain Enter submits via SubmitBehaviorSubmit.
@@ -843,7 +926,18 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|%d|%d|%s|%d|%d|", ed.ResolvedLanguage(), ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq(), ed.review.outcome, ed.review.uiRev, len(ed.agent.queued))
+		fmt.Fprintf(&b, "%s|%s|%d|%d|%s|%d|%d|%d|%s|%s|",
+			ed.ResolvedLanguage(),
+			ed.AgentStatus(),
+			len(ed.agent.turns),
+			ed.AgentTurnSeq(),
+			ed.review.outcome,
+			ed.review.uiRev,
+			len(ed.agent.queued),
+			ed.agentThreads.rev,
+			ed.agentThreads.activeThreadID,
+			ed.agentThreads.expandedRequestID,
+		)
 		for _, t := range ed.agent.turns {
 			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
 			for _, st := range t.Steps {
@@ -872,7 +966,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		p := SpecPaletteFor(darkMemo.Get())
-		threadBody := core.Dynamic(func(cx *core.Scope) core.Node {
+		bodyArea := core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = threadKey.Get()
 			turns := ed.AgentTurns()
 			openReq := ed.AgentOpenRequest()
@@ -880,75 +974,57 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			dtPending := ed.DataTableReviewPending()
 			queued := ed.AgentQueuedRequests()
 			limitReached := ed.AgentWeeklyLimitReached()
+			active := ed.ActiveAgentThread()
 
-			var items []core.Node
-			if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
-				items = append(items, core.View{
-					TestID: "agent-ready-to-review-banner",
-					Role:   core.RoleStatus,
+			if active != nil && len(active.Requests) > 0 {
+				return agentThreadConversationBody(cx, ed, p, active, turns, openReq, openReqRef)
+			}
+			ready := ed.ReadyToReviewTurns()
+			if len(turns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached {
+				var items []core.Node
+				if len(ready) > 0 {
+					items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
+				}
+				if limitReached {
+					items = append(items, agentLimitReachedCard(ed, p))
+					if len(queued) > 0 {
+						items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
+					}
+				}
+				for ti, turn := range turns {
+					items = append(items, agentTurnView(ed, ti, turn, p))
+				}
+				if hasReviewCard {
+					items = append(items, agentReviewPanelCards(ed, p, turns)...)
+				}
+				if dtPending {
+					items = append(items, agentPendingDataTableReviewCard(ed, p))
+				}
+				if openReq != nil {
+					items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
+				}
+				if !limitReached && len(queued) > 0 {
+					items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
+				}
+				return ui.ScrollView{
+					TestID: "agent-thread-scroll",
 					Style: core.Style{
-						Direction:    core.Row,
-						AlignItems:   core.AlignCenter,
-						Gap:          8,
-						CornerRadius: 10,
-						Background:   p.Accent.Fill,
-						BorderWidth:  1,
-						BorderColor:  p.Accent.Edge,
-						Padding:      core.Symmetric(8, 12),
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
 					},
 					Children: []core.Node{
 						core.View{
+							TestID: "agent-thread-list",
 							Style: core.Style{
-								Width:        core.Pt(8),
-								Height:       core.Pt(8),
-								CornerRadius: 4,
-								Background:   p.Accent.Fg,
-								FlexShrink:   0,
+								Gap:     14,
+								Padding: core.All(16),
 							},
-						},
-						core.Text{
-							Content: ed.T("agent.automationReadyBanner", l10n.Param("count", fmt.Sprintf("%d", len(ready)))),
-							Style: core.Style{
-								FontSize:   12,
-								FontWeight: 600,
-								Color:      p.TextPrimary,
-							},
+							Children: items,
 						},
 					},
-				})
-			}
-			if limitReached {
-				items = append(items, agentLimitReachedCard(ed, p))
-				if len(queued) > 0 {
-					items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
 				}
 			}
-			if len(turns) == 0 && openReq == nil && !hasReviewCard && !dtPending && len(queued) == 0 && !limitReached {
-				items = append(items, agentEmptyStateCard(ed, p))
-			}
-			for ti, turn := range turns {
-				items = append(items, agentTurnView(ed, ti, turn, p))
-			}
-			if hasReviewCard {
-				items = append(items, agentReviewPanelCards(ed, p, turns)...)
-			}
-			if dtPending {
-				items = append(items, agentPendingDataTableReviewCard(ed, p))
-			}
-			if openReq != nil {
-				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
-			}
-			if !limitReached && len(queued) > 0 {
-				items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
-			}
-			return core.View{
-				TestID: "agent-thread-list",
-				Style: core.Style{
-					Gap:     14,
-					Padding: core.All(16),
-				},
-				Children: items,
-			}
+			return agentEmptyThreadBody(cx, ed, p)
 		})
 
 		return core.View{
@@ -966,18 +1042,66 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			Children: []core.Node{
 				rightRailTabBar(cx, ed, rev, p, true),
-				ui.ScrollView{
-					TestID: "agent-thread-scroll",
+				agentThreadHeaderBar(cx, ed, rev, switcherBtnRef),
+				core.View{
 					Style: core.Style{
 						FlexGrow:  1,
 						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
 					},
-					Children: []core.Node{threadBody},
+					Children: []core.Node{
+						bodyArea,
+						core.Show{
+							When: func() bool {
+								_ = rev.Get()
+								return ed.AgentSwitcherOpen()
+							},
+							Then: func(cx *core.Scope) core.Node {
+								return agentThreadSwitcherPopover(cx, ed, rev)
+							},
+						},
+					},
 				},
 				agentComposerView(cx, ed, rev, p, composerFocused),
 			},
 		}
 	})
+}
+
+func agentReadyToReviewBanner(ed *Editor, p SpecPalette, count int) core.Node {
+	return core.View{
+		TestID: "agent-ready-to-review-banner",
+		Role:   core.RoleStatus,
+		Style: core.Style{
+			Direction:    core.Row,
+			AlignItems:   core.AlignCenter,
+			Gap:          8,
+			CornerRadius: 10,
+			Background:   p.Accent.Fill,
+			BorderWidth:  1,
+			BorderColor:  p.Accent.Edge,
+			Padding:      core.Symmetric(8, 12),
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					Width:        core.Pt(8),
+					Height:       core.Pt(8),
+					CornerRadius: 4,
+					Background:   p.Accent.Fg,
+					FlexShrink:   0,
+				},
+			},
+			core.Text{
+				Content: ed.T("agent.automationReadyBanner", l10n.Param("count", fmt.Sprintf("%d", count))),
+				Style: core.Style{
+					FontSize:   12,
+					FontWeight: 600,
+					Color:      p.TextPrimary,
+				},
+			},
+		},
+	}
 }
 
 func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {

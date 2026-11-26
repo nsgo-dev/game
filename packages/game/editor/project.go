@@ -263,6 +263,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.resetAgentReviewForProject()
 	e.resetPermissionsForProject()
 	e.syncDiskWatchTargets()
+	e.loadAgentThreadsForProject()
 	e.resetTextInputFocus()
 	e.resetProblemsForProject()
 	e.loadAgentDocsForProject(filepath.Dir(path))

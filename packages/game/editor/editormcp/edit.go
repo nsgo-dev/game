@@ -183,7 +183,8 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if title == "" {
 			title = label
 		}
-		return ed.RecordAgentTurn(editor.AgentTurnOptions{
+		var editedIDs []string
+		err := ed.RecordAgentTurn(editor.AgentTurnOptions{
 			Title:       title,
 			UndoLabel:   label,
 			ChangeCount: len(args.Edits),
@@ -196,10 +197,20 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 				}
 				if id != "" {
 					res.Objects = append(res.Objects, id)
+					editedIDs = append(editedIDs, id)
+				} else if e.ID != "" {
+					editedIDs = append(editedIDs, e.ID)
 				}
 			}
 			return nil
 		})
+		if err != nil {
+			return err
+		}
+		if len(editedIDs) > 0 {
+			ed.NoteAgentEditedObjects(editedIDs, []string{scenePath(ed, root)}, label)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

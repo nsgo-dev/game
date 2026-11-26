@@ -303,6 +303,13 @@ var formats = []format{
 		pkg:     "editor",
 		version: editor.AutomationsVersion,
 	},
+	{
+		url:     editor.AgentThreadSchemaURL,
+		title:   "NSGo game editor agent thread (version 1)",
+		typ:     reflect.TypeFor[editor.AgentThread](),
+		pkg:     "editor",
+		version: editor.AgentThreadFileVersion,
+	},
 }
 
 // durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".

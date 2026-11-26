@@ -179,6 +179,7 @@ func (e *Editor) OpenDemo() error {
 	e.ProjectPath = ""
 	e.projectSaved = nil
 	e.projectSavedOnce = false
+	e.resetAgentThreadsForDemo()
 	e.clip = nil
 	e.clipMeta = clipMeta{}
 	e.clipScene = nil

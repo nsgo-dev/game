@@ -623,6 +623,8 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		TestID: "editor-inspector",
 		Style: core.Style{
 			Width:       core.Pt(272),
+			FlexGrow:    1,
+			FlexBasis:   core.Pt(0),
 			Background:  specPanel,
 			Borders:     core.Edges{Left: 1},
 			BorderColor: specLine,
@@ -752,6 +754,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 				},
 			},
+			inspectorThreadFooterView(cx, ed, rev),
 		},
 	}
 }

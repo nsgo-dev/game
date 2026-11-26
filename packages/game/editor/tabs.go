@@ -518,6 +518,7 @@ func (e *Editor) SelectTab(index int) error {
 	e.resetNavMeshForScene()
 	e.tryAutoloadNavMesh3D()
 	e.refreshOpenSceneSearch()
+	e.syncAgentThreadForOpenScene()
 	e.Status = "Switched to " + e.SceneLabel()
 	e.notify()
 	return nil
@@ -698,6 +699,7 @@ func (e *Editor) CloseTab(index int) error {
 		e.resetNavMeshForScene()
 		e.refreshOpenSceneSearch()
 		e.clearSaveFailureForTab(closedID)
+		e.syncAgentThreadForOpenScene()
 		e.Status = "Closed " + closedLabel
 		e.notify()
 		return nil
@@ -742,6 +744,7 @@ func (e *Editor) CloseTab(index int) error {
 	e.tryAutoloadNavMesh3D()
 	e.clearSaveFailureForTab(closedID)
 	e.refreshOpenSceneSearch()
+	e.syncAgentThreadForOpenScene()
 	e.Status = "Closed " + closedLabel
 	e.notify()
 	return nil
@@ -946,6 +949,7 @@ func (e *Editor) activateNewTab(doc *sceneformat.SceneDoc, saved []byte, filePat
 	e.restoreViewState()
 	e.syncActiveTab()
 	e.refreshOpenSceneSearch()
+	e.syncAgentThreadForOpenScene()
 }
 
 // selectedObjectInstancesScene reports whether the active scene's selected object is a scene instance or an instanced child of one.

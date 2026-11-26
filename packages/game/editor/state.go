@@ -552,6 +552,10 @@ type Editor struct {
 	OnFocusAgentRequest func(req AgentOpenRequest)
 	// OnAgentTurn, when set, is called whenever the author sends a request from the ⌘L in-place composer or Agent panel.
 	OnAgentTurn func(AgentTurn)
+	// OnSendAgentRequest, when set, is called after SendAgentRequest / SendAgentRequestWith appends and persists a request on the active agent thread.
+	OnSendAgentRequest func(thread *AgentThread, req AgentThreadRequest)
+	// OnOpenHistoryStep, when set, is called when the author clicks "Open this step in History" on a folded request or step.
+	OnOpenHistoryStep func(sel AgentHistorySelection)
 	// ProblemCheckDebounce controls the debounce delay before live problem checks run after edits (defaults to 80ms when <= 0).
 	ProblemCheckDebounce time.Duration
 	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.
@@ -911,6 +915,8 @@ type Editor struct {
 	inspectorFilter string
 	// inspectorCollapsed tracks which titled inspector sections are collapsed by section ID.
 	inspectorCollapsed map[string]bool
+	// agentThreads holds per-line-of-work agent threads grouped by scene, thread switcher UI state, and History step selection.
+	agentThreads agentThreadsState
 	// inspectorScrub tracks an active live label-drag scrub in the inspector.
 	inspectorScrub inspectorScrubState
 	// composerDraft holds the current prompt text staged for the agent composer (e.g. via Ask to add).
@@ -1593,6 +1599,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
 	e.syncActiveTab()
+	e.syncAgentThreadForOpenScene()
 	return nil
 }
 
@@ -1686,9 +1693,13 @@ func (e *Editor) SaveFile(path string) error {
 		e.tabs[e.activeTab].placeholder = false
 	}
 	e.recordSceneDiskSnapshot(path, data)
+	prevScenePath := e.ScenePath
 	e.syncScenePath()
 	e.syncActiveTab()
 	e.noteSavedHistoryFile(path)
+	if e.ScenePath != prevScenePath {
+		e.syncAgentThreadForOpenScene()
+	}
 	e.saveViewStateQuietly()
 	e.filesRev++
 	e.snapshotProjectTree()

@@ -2089,6 +2089,48 @@ projects:
     lastOpened: "2026-11-24T12:30:00Z"
 ```
 
+<!-- format: editor#agent-thread -->
+### Editor agent threads
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `.nsgo/threads/<id>.yaml` (`editor.AgentThreadsDir`, ignored by `.nsgo/.gitignore`) | `version: 1` | `editor.ParseAgentThreadYAML`, `editor.EncodeAgentThreadYAML` | [Editor](editor.md#agent-threads-per-line-of-work-grouped-by-scene-1019); schema `https://game.nsgo.dev/schemas/agent-thread.v1.json` |
+
+Each line of work is one strict versioned YAML file storing its `id`, `title` (named from its first request), `scenePath` (empty for `Project · no scene` threads), `sessionId` (so follow-up requests continue the external agent's session), RFC3339 timestamps, and chronological `requests` with `steps`, review `outcome` (`pending`, `kept`, `reverted`), change counts, changed `objects` (driving the Inspector footer link), and `historyStep` references.
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/agent-thread.v1.json
+version: 1
+id: door-lever-pulls
+title: Door opens after two lever pulls
+scenePath: scenes/level_01.scene.yaml
+sessionId: sess_claude_01
+createdAt: "2026-11-26T13:40:00Z"
+updatedAt: "2026-11-26T14:18:00Z"
+requests:
+  - id: req-001
+    title: Door opens after two lever pulls
+    prompt: Keep the door shut until the lever is pulled twice, then let it open.
+    createdAt: "2026-11-26T13:40:00Z"
+    updatedAt: "2026-11-26T13:41:00Z"
+    outcome: kept
+    changesTotal: 3
+    changesKept: 3
+    files:
+      - prefabs/door.prefab.yaml
+      - scenes/level_01.scene.yaml
+    objects:
+      - Door
+      - lever_01
+    detail: Door.locked, Door.opens_after_pulls, lever_01.pulls
+    historyStep: 'Agent: Door opens after two lever pulls'
+    historyIndex: 1
+    steps:
+      - id: step-001
+        label: Read level_01.scene.yaml and door.prefab.yaml
+        status: done
+```
+
 <!-- format: tooling/assetbuild -->
 ### Asset build cache
 

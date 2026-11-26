@@ -22,6 +22,7 @@ const (
 	ScopeAnimation  = "animation"
 	ScopePlay       = "play"
 	ScopeReview     = "review"
+	ScopeAgent      = "agent"
 )
 
 // scopeDisplayOrder lists built-in scopes in presentation order for Settings › Shortcuts and the ⌘/ sheet.
@@ -35,6 +36,7 @@ var scopeDisplayOrder = []string{
 	ScopeReview,
 	ScopeAnimation,
 	ScopePlay,
+	ScopeAgent,
 }
 
 // ShortcutConflictError is returned by RebindShortcut when another command in the same scope
@@ -81,6 +83,8 @@ func (e *Editor) CommandScopeLabel(scope string) string {
 		return e.T("scope.play")
 	case ScopeReview:
 		return e.T("scope.review")
+	case ScopeAgent:
+		return e.T("scope.agent")
 	default:
 		return normalizeCommandScope(scope)
 	}
@@ -109,6 +113,8 @@ func (e *Editor) commandScopeSearchTerms(scope string) []string {
 		terms = append(terms, "play", "run")
 	case ScopeReview:
 		terms = append(terms, "review", "agent", "diff", "keep", "revert", "notes", "round")
+	case ScopeAgent:
+		terms = append(terms, "agent", "thread", "threads")
 	}
 	return terms
 }
@@ -505,6 +511,11 @@ func (e *Editor) shortcutScopePriority(scope string) int {
 			return 4
 		}
 		return 2
+	case ScopeAgent:
+		if e.RightRailTab() == RightRailAgent || e.FocusInAgentPanel() || e.AgentSwitcherOpen() {
+			return 4
+		}
+		return 0
 	case ScopeViewport2D:
 		if e.ViewMode == ViewMode2D {
 			return 3

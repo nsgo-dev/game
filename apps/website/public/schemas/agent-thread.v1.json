@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/agent-thread.v1.json",
+  "title": "NSGo game editor agent thread (version 1)",
+  "description": "AgentThread is the strict versioned YAML document stored per line of work under .nsgo/threads/<id>.yaml. A file looks like this:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/agent-thread.v1.json version: 1 id: door-lever-pulls title: Door opens after two lever pulls scenePath: scenes/level_01.scene.yaml sessionId: sess_claude_01 createdAt: \"2026-11-26T13:40:00Z\" updatedAt: \"2026-11-26T14:18:00Z\"\n\nParseAgentThreadYAML decodes it strictly and EncodeAgentThreadYAML writes it back in canonical form so loading and saving a thread file changes nothing.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal AgentThreadFileVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "description": "ID is the stable filename-safe identifier for this thread (stored as .nsgo/threads/<id>.yaml).",
+      "type": "string"
+    },
+    "title": {
+      "description": "Title is the thread's display name, automatically set from its first request.",
+      "type": "string"
+    },
+    "scenePath": {
+      "description": "ScenePath is the slash-separated project-relative scene path this thread belongs to, or empty for Project · no scene.",
+      "type": "string"
+    },
+    "sessionId": {
+      "description": "SessionID is the external agent's session identifier so follow-up requests continue the same agent session.",
+      "type": "string"
+    },
+    "createdAt": {
+      "description": "CreatedAt is the RFC3339 UTC timestamp when the thread was created.",
+      "type": "string"
+    },
+    "updatedAt": {
+      "description": "UpdatedAt is the RFC3339 UTC timestamp of the thread's latest activity.",
+      "type": "string"
+    },
+    "requests": {
+      "description": "Requests lists the thread's requests in chronological order (oldest first, latest last).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/AgentThreadRequest"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "id",
+    "createdAt",
+    "updatedAt"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "AgentThreadRequest": {
+      "description": "AgentThreadRequest is one author request and its streamed steps, changed objects/files, and review outcome.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely identifies this request within its thread.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Title is the short single-line summary shown when the request is folded or referenced in the Inspector footer.",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Prompt is the full request text sent to the agent.",
+          "type": "string"
+        },
+        "createdAt": {
+          "description": "CreatedAt is the RFC3339 UTC timestamp when the request was sent.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "UpdatedAt is the RFC3339 UTC timestamp when the request last changed state.",
+          "type": "string"
+        },
+        "reply": {
+          "description": "Reply is the agent's short completion message shown under the steps.",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "Outcome records whether the request is \"pending\", \"kept\", or \"reverted\".",
+          "type": "string",
+          "enum": [
+            "pending",
+            "kept",
+            "reverted"
+          ]
+        },
+        "changesTotal": {
+          "description": "ChangesTotal is the total number of proposed changes in this request.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "changesKept": {
+          "description": "ChangesKept is the number of proposed changes kept during review (0..ChangesTotal).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "files": {
+          "description": "Files lists project-relative slash paths of files changed by this request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "objects": {
+          "description": "Objects lists scene object IDs changed by this request (used for Inspector footer attribution).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "detail": {
+          "description": "Detail is a compact human-readable summary of changed fields/assets shown when expanded.",
+          "type": "string"
+        },
+        "historyStep": {
+          "description": "HistoryStep names the undo step label in History linked to this request.",
+          "type": "string"
+        },
+        "historyIndex": {
+          "description": "HistoryIndex records the 1-based undo stack index in History linked to this request, when known.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "steps": {
+          "description": "Steps lists the recorded agent steps for this request in execution order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentThreadStep"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "prompt",
+        "createdAt",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "AgentThreadStep": {
+      "description": "AgentThreadStep is one recorded action taken by the agent while handling a request.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely identifies this step within its request.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Label is the short human-readable description shown in the thread and History.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status is the step's state (\"pending\", \"running\", \"done\", or \"failed\").",
+          "type": "string",
+          "enum": [
+            "pending",
+            "running",
+            "done",
+            "failed"
+          ]
+        },
+        "detail": {
+          "description": "Detail holds optional extra context for the step (for example changed fields or files).",
+          "type": "string"
+        },
+        "historyStep": {
+          "description": "HistoryStep names the corresponding editor History label, when this step edited the scene.",
+          "type": "string"
+        },
+        "historyIndex": {
+          "description": "HistoryIndex records the 1-based History stack index created by this step, when known.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "objects": {
+          "description": "Objects lists the IDs of scene objects modified by this step.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "description": "Files lists project-relative slash paths of files touched by this step.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "status"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -121,6 +121,7 @@ var formatVersions = map[string]string{
 	"cloudsave/sqlstore.SchemaVersion":          "",
 	"cutscene.CurrentVersion":                   "cutscene",
 	"cutscene.MinVersion":                       "cutscene",
+	"editor.AgentThreadFileVersion":             "editor#agent-thread",
 	"editor.AgentThreadVersion":                 "editor#thread",
 	"editor.AutomationsVersion":                 "editor#automations",
 	"editor.PermissionsVersion":                 "editor#permissions",

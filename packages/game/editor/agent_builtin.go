@@ -632,9 +632,19 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		ScenePath: e.ScenePath,
 	}, e.FilePath, time.Time{})
 
+	threadID := e.agent.threadID
+	sessionID := e.agent.sessionID
+	if active := e.ActiveAgentThread(); active != nil {
+		if active.ID != "" {
+			threadID = active.ID
+		}
+		if sessionID == "" && active.SessionID != "" {
+			sessionID = active.SessionID
+		}
+	}
 	req := AgentRequest{
-		ThreadID:    e.agent.threadID,
-		SessionID:   e.agent.sessionID,
+		ThreadID:    threadID,
+		SessionID:   sessionID,
 		Prompt:      text,
 		ProjectRoot: e.agentProjectRoot(),
 		ScenePath:   e.ScenePath,
