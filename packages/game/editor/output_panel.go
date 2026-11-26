@@ -89,6 +89,8 @@ type outputPanelState struct {
 	runLines         []string
 	panicReport      *PanicReport
 	panicRuntimeOpen bool
+	lastReplayPath   string
+	lastReplayAbs    string
 }
 
 // OutputPanelOpen reports whether the Output panel is visible below the viewport.
@@ -259,6 +261,10 @@ func (e *Editor) OpenOutputEntry(entry OutputEntry) error {
 }
 
 func (e *Editor) appendOutputEntry(source OutputSource, level OutputLevel, text, projectDir string) {
+	e.appendOutputEntryWithPanicDetect(source, level, text, projectDir, true)
+}
+
+func (e *Editor) appendOutputEntryWithPanicDetect(source OutputSource, level OutputLevel, text, projectDir string, detectPanic bool) {
 	if e == nil {
 		return
 	}
@@ -277,7 +283,7 @@ func (e *Editor) appendOutputEntry(source OutputSource, level OutputLevel, text,
 		drop := len(e.output.entries) - maxOutputEntries
 		e.output.entries = slices.Clone(e.output.entries[drop:])
 	}
-	if source == OutputStdout || source == OutputStderr {
+	if detectPanic && (source == OutputStdout || source == OutputStderr) {
 		e.output.runLines = append(e.output.runLines, text)
 		if len(e.output.runLines) > 512 {
 			e.output.runLines = slices.Clone(e.output.runLines[len(e.output.runLines)-512:])

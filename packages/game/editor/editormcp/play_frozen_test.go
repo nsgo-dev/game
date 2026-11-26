@@ -1,6 +1,8 @@
 package editormcp_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -144,5 +146,42 @@ func TestPlayFrozenContextAndReplayStepMCP(t *testing.T) {
 	}
 	if !foundLog {
 		t.Fatalf("expected step log entry, got %+v", sr.AgentSteps)
+	}
+
+	// 3) Security & bounds: huge to_frame, non-.replay.yaml path, and symlink escape must be refused.
+	hugeRes := callWithApp(t, app, cs, editormcp.ToolPlayReplayStep, map[string]any{
+		"from_frame": 0,
+		"to_frame":   100_000_000,
+	})
+	if !hugeRes.IsError {
+		t.Fatal("expected huge to_frame to return a tool error")
+	}
+
+	badExtRes := callWithApp(t, app, cs, editormcp.ToolPlayReplayStep, map[string]any{
+		"replay_file": "game.yaml",
+		"steps":       1,
+	})
+	if !badExtRes.IsError {
+		t.Fatal("expected non-.replay.yaml replay_file to return a tool error")
+	}
+
+	outsideDir := t.TempDir()
+	outsideReplay := filepath.Join(outsideDir, "outside.replay.yaml")
+	if err := os.WriteFile(outsideReplay, []byte("version: 2\nrate: 60\ntotalSteps: 1\n"), 0o644); err != nil {
+		t.Fatalf("write outside replay: %v", err)
+	}
+	replaysDir := filepath.Join(f.dir, "replays")
+	if err := os.MkdirAll(replaysDir, 0o755); err != nil {
+		t.Fatalf("mkdir replays: %v", err)
+	}
+	if err := os.Symlink(outsideReplay, filepath.Join(replaysDir, "escape.replay.yaml")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	symRes := callWithApp(t, app, cs, editormcp.ToolPlayReplayStep, map[string]any{
+		"replay_file": "replays/escape.replay.yaml",
+		"steps":       1,
+	})
+	if !symRes.IsError {
+		t.Fatal("expected symlink replay_file escaping project root to return a tool error")
 	}
 }

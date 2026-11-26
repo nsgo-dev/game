@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
@@ -15,6 +14,8 @@ const (
 	ToolPlayFrozenContext = "play_frozen_context"
 	// ToolPlayReplayStep steps the Play mode replay across frames A..B while keeping the game paused and updating the viewport agent pill and step log.
 	ToolPlayReplayStep = "play_replay_step"
+
+	maxPlayReplaySteps = 3600
 )
 
 const playFrozenContextSchema = `{
@@ -61,23 +62,24 @@ func playFrozenTools() []Tool {
 
 // PlayFrozenContextResult is the structured payload returned by play_frozen_context.
 type PlayFrozenContextResult struct {
-	Playing         bool                         `json:"playing"`
-	Paused          bool                         `json:"paused"`
-	Frame           int                          `json:"frame"`
-	Seconds         float64                      `json:"seconds"`
-	Scene           string                       `json:"scene,omitempty"`
-	Prompt          string                       `json:"prompt,omitempty"`
-	ReplayPath      string                       `json:"replayPath,omitempty"`
-	ReplayFrames    int                          `json:"replayFrames"`
-	ReplayYAML      string                       `json:"replayYaml,omitempty"`
-	SelectedID      string                       `json:"selectedId,omitempty"`
-	LiveEntities    []editor.PlayLiveEntityState `json:"liveEntities,omitempty"`
-	LiveChanges     []editor.RemoteLiveChange    `json:"liveChanges,omitempty"`
-	Marks           []editor.PlayMark            `json:"marks,omitempty"`
-	LastMarksThread *editor.PlayMarksThread      `json:"lastMarksThread,omitempty"`
-	Panic           *editor.PanicReport          `json:"panic,omitempty"`
-	AgentPill       string                       `json:"agentPill,omitempty"`
-	AgentSteps      []editor.PlayAgentStep       `json:"agentSteps,omitempty"`
+	Playing          bool                         `json:"playing"`
+	Paused           bool                         `json:"paused"`
+	Frame            int                          `json:"frame"`
+	Seconds          float64                      `json:"seconds"`
+	Scene            string                       `json:"scene,omitempty"`
+	Prompt           string                       `json:"prompt,omitempty"`
+	ReplayPath       string                       `json:"replayPath,omitempty"`
+	ReplayFrames     int                          `json:"replayFrames"`
+	WindowStartFrame int                          `json:"windowStartFrame,omitempty"`
+	ReplayYAML       string                       `json:"replayYaml,omitempty"`
+	SelectedID       string                       `json:"selectedId,omitempty"`
+	LiveEntities     []editor.PlayLiveEntityState `json:"liveEntities,omitempty"`
+	LiveChanges      []editor.RemoteLiveChange    `json:"liveChanges,omitempty"`
+	Marks            []editor.PlayMark            `json:"marks,omitempty"`
+	LastMarksThread  *editor.PlayMarksThread      `json:"lastMarksThread,omitempty"`
+	Panic            *editor.PanicReport          `json:"panic,omitempty"`
+	AgentPill        string                       `json:"agentPill,omitempty"`
+	AgentSteps       []editor.PlayAgentStep       `json:"agentSteps,omitempty"`
 }
 
 // PlayReplayStepResult is the structured payload returned by play_replay_step.
@@ -137,6 +139,7 @@ func playFrozenContext(ctx context.Context, c *Call) (*Result, error) {
 			out.ReplayFrames = ed.PlayRollingFrameCount()
 		}
 
+		out.WindowStartFrame = ed.PlayRollingWindowStart()
 		if rec := ed.PlayRollingRecording(); rec != nil {
 			if data, err := rec.Encode(); err == nil {
 				out.ReplayYAML = string(data)
@@ -194,8 +197,8 @@ func playReplayStep(ctx context.Context, c *Call) (*Result, error) {
 	if args.ToFrame != nil && args.Steps > 0 {
 		return nil, errors.New("play_replay_step: pass either to_frame or steps, not both")
 	}
-	if args.Steps < 0 || args.Steps > 3600 {
-		return nil, errors.New("play_replay_step: steps must be between 1 and 3600")
+	if args.Steps < 0 || args.Steps > maxPlayReplaySteps {
+		return nil, fmt.Errorf("play_replay_step: steps must be between 1 and %d", maxPlayReplaySteps)
 	}
 
 	var (
@@ -209,6 +212,10 @@ func playReplayStep(ctx context.Context, c *Call) (*Result, error) {
 			if err != nil {
 				return err
 			}
+			lower := strings.ToLower(clean)
+			if !strings.HasSuffix(lower, ".replay.yaml") && !strings.HasSuffix(lower, ".replay.yml") {
+				return fmt.Errorf("%s: replay_file must end in .replay.yaml or .replay.yml", clean)
+			}
 			root := projectRoot(ed)
 			if root == "" {
 				root = ed.ReplayDir
@@ -216,7 +223,18 @@ func playReplayStep(ctx context.Context, c *Call) (*Result, error) {
 			if root == "" {
 				return errors.New("no project is open to resolve replay_file")
 			}
-			absReplay = filepath.Join(root, filepath.FromSlash(clean))
+			resolved, exists, err := resolveProjectTargetPath(root, clean)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return fmt.Errorf("%s: replay file does not exist", clean)
+			}
+			resolvedLower := strings.ToLower(resolved)
+			if !strings.HasSuffix(resolvedLower, ".replay.yaml") && !strings.HasSuffix(resolvedLower, ".replay.yml") {
+				return fmt.Errorf("%s: resolved replay_file must end in .replay.yaml or .replay.yml", clean)
+			}
+			absReplay = resolved
 		}
 
 		fromFrame := ed.PlaySteps()
@@ -231,6 +249,15 @@ func playReplayStep(ctx context.Context, c *Call) (*Result, error) {
 			toFrame = fromFrame + args.Steps
 		default:
 			toFrame = fromFrame + 1
+		}
+		if fromFrame < 0 || toFrame < 0 {
+			return errors.New("from_frame and to_frame must be non-negative")
+		}
+		if toFrame < fromFrame {
+			return fmt.Errorf("to_frame (%d) must be >= from_frame (%d)", toFrame, fromFrame)
+		}
+		if toFrame-fromFrame > maxPlayReplaySteps {
+			return fmt.Errorf("frame span %d exceeds maximum %d steps", toFrame-fromFrame, maxPlayReplaySteps)
 		}
 
 		cur, err := ed.AgentStepPlayReplayFile(absReplay, fromFrame, toFrame, args.Note)

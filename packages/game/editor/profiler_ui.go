@@ -208,58 +208,82 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									},
 								}
 							}),
-							core.Dynamic(func(cx *core.Scope) core.Node {
-								_ = rev.Get()
-								marks := ed.PlayMarks()
-								if len(marks) == 0 {
-									return nil
+							func() core.Node {
+								type markPin struct {
+									idx int
+									pct int
 								}
-								curFrame, rate := ed.currentPlayFrameAndRate()
-								window := float64(rollingReplayWindowSeconds * max(1, rate))
-								var pins []core.Node
-								for i, m := range marks {
-									age := float64(curFrame - m.Frame)
-									if age < 0 || age >= window {
-										continue
+								pinsMemo := core.NewMemoFunc(cx, func() []markPin {
+									_ = rev.Get()
+									marks := ed.PlayMarks()
+									if len(marks) == 0 {
+										return nil
 									}
-									pct := float32(math.Max(1, math.Min(98, 100-(age/window)*100)))
-									pins = append(pins, core.View{
-										TestID:        fmt.Sprintf("profiler-strip-mark-pin-%d", i),
+									curFrame, rate := ed.currentPlayFrameAndRate()
+									window := float64(rollingReplayWindowSeconds * max(1, rate))
+									var out []markPin
+									for i, m := range marks {
+										age := float64(curFrame - m.Frame)
+										if age < 0 || age >= window {
+											continue
+										}
+										pct := int(math.Round(math.Max(1, math.Min(98, 100-(age/window)*100))))
+										out = append(out, markPin{idx: i, pct: pct})
+									}
+									return out
+								}, func(a, b []markPin) bool {
+									if len(a) != len(b) {
+										return false
+									}
+									for i := range a {
+										if a[i] != b[i] {
+											return false
+										}
+									}
+									return true
+								})
+								return core.Dynamic(func(cx *core.Scope) core.Node {
+									pinData := pinsMemo.Get()
+									if len(pinData) == 0 {
+										return nil
+									}
+									pins := make([]core.Node, 0, len(pinData))
+									for _, p := range pinData {
+										pins = append(pins, core.View{
+											TestID:        fmt.Sprintf("profiler-strip-mark-pin-%d", p.idx),
+											PointerEvents: core.PointerEventsNone,
+											Style: core.Style{
+												Position:       core.Absolute,
+												Left:           core.Pct(float32(p.pct)),
+												Top:            core.Pt(0),
+												Width:          core.Pt(16),
+												Height:         core.Pt(16),
+												AlignItems:     core.AlignCenter,
+												JustifyContent: core.JustifyCenter,
+												CornerRadius:   4,
+												Background:     specLineRaised,
+											},
+											Children: []core.Node{
+												core.Icon{
+													SVG:   lucide.Flag(),
+													Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specTextStrong},
+												},
+											},
+										})
+									}
+									return core.View{
 										PointerEvents: core.PointerEventsNone,
 										Style: core.Style{
-											Position:       core.Absolute,
-											Left:           core.Pct(pct),
-											Top:            core.Pt(0),
-											Width:          core.Pt(16),
-											Height:         core.Pt(16),
-											AlignItems:     core.AlignCenter,
-											JustifyContent: core.JustifyCenter,
-											CornerRadius:   4,
-											Background:     specLineRaised,
+											Position: core.Absolute,
+											Left:     core.Pt(0),
+											Top:      core.Pt(0),
+											Right:    core.Pt(0),
+											Bottom:   core.Pt(0),
 										},
-										Children: []core.Node{
-											core.Icon{
-												SVG:   lucide.Flag(),
-												Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specTextStrong},
-											},
-										},
-									})
-								}
-								if len(pins) == 0 {
-									return nil
-								}
-								return core.View{
-									PointerEvents: core.PointerEventsNone,
-									Style: core.Style{
-										Position: core.Absolute,
-										Left:     core.Pt(0),
-										Top:      core.Pt(0),
-										Right:    core.Pt(0),
-										Bottom:   core.Pt(0),
-									},
-									Children: pins,
-								}
-							}),
+										Children: pins,
+									}
+								})
+							}(),
 						},
 					},
 					// Axis row: −60 s, −30 s, now (or paused).

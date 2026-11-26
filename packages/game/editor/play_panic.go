@@ -329,6 +329,51 @@ func (e *Editor) AskAgentToFixPanic() error {
 	return nil
 }
 
+const maxReplayUpToFrameHardLimit = 36000
+
+// resolveContainedReplayFile resolves a replay path inside root, refusing path traversal,
+// symlink escapes outside root, and non-.replay.yaml/.replay.yml files.
+func resolveContainedReplayFile(root, relOrAbs string) (string, error) {
+	if root == "" {
+		return "", errors.New("editor: replay root directory is not configured")
+	}
+	realRoot, err := evalPlaytestPathSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("editor: resolve replay root: %w", err)
+	}
+	var candidate string
+	if filepath.IsAbs(relOrAbs) {
+		candidate = filepath.Clean(relOrAbs)
+	} else {
+		slashed := strings.ReplaceAll(strings.TrimSpace(relOrAbs), "\\", "/")
+		if slashed == "" || strings.HasPrefix(slashed, "/") || filepath.VolumeName(relOrAbs) != "" {
+			return "", fmt.Errorf("editor: invalid replay path %q", relOrAbs)
+		}
+		clean := filepath.Clean(filepath.FromSlash(slashed))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("editor: replay path %q escapes project root", relOrAbs)
+		}
+		candidate = filepath.Join(realRoot, clean)
+	}
+	lower := strings.ToLower(candidate)
+	if !strings.HasSuffix(lower, ".replay.yaml") && !strings.HasSuffix(lower, ".replay.yml") {
+		return "", fmt.Errorf("editor: replay path %q must end in .replay.yaml or .replay.yml", relOrAbs)
+	}
+	realTarget, err := evalPlaytestPathSymlinks(candidate)
+	if err != nil {
+		return "", fmt.Errorf("editor: resolve replay path: %w", err)
+	}
+	realLower := strings.ToLower(realTarget)
+	if !strings.HasSuffix(realLower, ".replay.yaml") && !strings.HasSuffix(realLower, ".replay.yml") {
+		return "", fmt.Errorf("editor: resolved replay path %q must end in .replay.yaml or .replay.yml", relOrAbs)
+	}
+	rel, err := filepath.Rel(realRoot, realTarget)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("editor: replay path %q resolves outside root %q", relOrAbs, root)
+	}
+	return realTarget, nil
+}
+
 // ReplayUpToPanic replays the saved input recording for the latest panic in Play mode and stops and pauses
 // one frame before the panic frame (panicFrame - 1) so the panic is not triggered.
 func (e *Editor) ReplayUpToPanic() error {
@@ -344,20 +389,24 @@ func (e *Editor) ReplayUpToPanic() error {
 	}
 
 	var rec *replay.Recording
-	if p.ReplayAbs != "" {
-		loaded, err := replay.LoadFile(p.ReplayAbs)
+	if p.ReplayPath != "" || p.ReplayAbs != "" {
+		root, rerr := e.replayRootDir()
+		if rerr != nil {
+			return fmt.Errorf("editor: load panic replay: %w", rerr)
+		}
+		target := p.ReplayPath
+		if target == "" {
+			target = p.ReplayAbs
+		}
+		safeAbs, err := resolveContainedReplayFile(root, target)
+		if err != nil {
+			return fmt.Errorf("editor: load panic replay: %w", err)
+		}
+		loaded, err := replay.LoadFile(safeAbs)
 		if err != nil {
 			return fmt.Errorf("editor: load panic replay: %w", err)
 		}
 		rec = loaded
-	} else if p.ReplayPath != "" {
-		if root, rerr := e.replayRootDir(); rerr == nil {
-			loaded, err := replay.LoadFile(filepath.Join(root, filepath.FromSlash(p.ReplayPath)))
-			if err != nil {
-				return fmt.Errorf("editor: load panic replay: %w", err)
-			}
-			rec = loaded
-		}
 	}
 	if rec == nil && e.playMarks.lastPanicRec != nil {
 		rec = e.playMarks.lastPanicRec.Clone()
@@ -393,6 +442,14 @@ func (e *Editor) ReplayUpToFrame(rec *replay.Recording, stopFrame int) error {
 	if stopFrame < 0 {
 		return fmt.Errorf("editor: stop frame %d must be non-negative", stopFrame)
 	}
+	rate := rec.Rate
+	if rate <= 0 {
+		rate = e.PlayRateHz()
+	}
+	maxStop := min(maxReplayUpToFrameHardLimit, max(rec.TotalSteps, rollingReplayWindowSeconds*rate))
+	if stopFrame > maxStop {
+		return fmt.Errorf("editor: stop frame %d exceeds maximum allowed replay length %d", stopFrame, maxStop)
+	}
 	if e.Doc == nil {
 		return errors.New("editor: cannot replay nil scene document")
 	}
@@ -409,6 +466,9 @@ func (e *Editor) ReplayUpToFrame(rec *replay.Recording, stopFrame int) error {
 	}
 	if stopFrame > 0 {
 		e.StepPlay(stopFrame)
+	}
+	if !e.playing {
+		return fmt.Errorf("editor: replay stopped before reaching frame %d (stopped at frame %d)", stopFrame, e.playSteps)
 	}
 	e.playPaused = true
 	if e.playLoop != nil {
@@ -428,9 +488,9 @@ func (e *Editor) detectPanicFromOutputLocked(projectDir string) {
 	}
 	rep.RunNumber = max(1, e.output.runCount)
 	rep.Time = e.now()
-	if rep.ReplayPath == "" && e.playMarks.lastReplayPath != "" {
-		rep.ReplayPath = e.playMarks.lastReplayPath
-		rep.ReplayAbs = e.playMarks.lastReplayAbs
+	if rep.ReplayPath == "" && e.output.lastReplayPath != "" {
+		rep.ReplayPath = e.output.lastReplayPath
+		rep.ReplayAbs = e.output.lastReplayAbs
 	}
 	e.output.panicReport = rep
 	e.output.open = true
@@ -474,9 +534,11 @@ func (e *Editor) recordPlayPanic(recovered any, stack []byte) {
 	e.output.open = true
 	e.output.mu.Unlock()
 
-	e.appendOutputEntry(OutputStderr, OutputError, fmt.Sprintf("%s (frame %d)", msg, panicFrame), projectDir)
+	// Log summary rows without re-running detectPanicFromOutputLocked, which would overwrite
+	// rep with a 1-line report lacking parsed stack frames.
+	e.appendOutputEntryWithPanicDetect(OutputStderr, OutputError, fmt.Sprintf("%s (frame %d)", msg, panicFrame), projectDir, false)
 	for _, f := range rep.GameFrames() {
-		e.appendOutputEntry(OutputStderr, OutputError, fmt.Sprintf("%s %s:%d", f.Function, f.File, f.Line), projectDir)
+		e.appendOutputEntryWithPanicDetect(OutputStderr, OutputError, fmt.Sprintf("%s %s:%d", f.Function, f.File, f.Line), projectDir, false)
 	}
 
 	// Stop Play cleanly and restore the pre-play snapshot so ReplayUpToPanic starts cleanly from frame 0.

@@ -479,9 +479,21 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 			tStart := time.Now()
 			e.playFrames++
 			if e.OnPlayDraw != nil {
-				tok := playProf.Begin("draw")
-				e.OnPlayDraw(e.playScene, alpha)
-				playProf.End(tok)
+				panicked := false
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							panicked = true
+							e.recordPlayPanic(r, debug.Stack())
+						}
+					}()
+					tok := playProf.Begin("draw")
+					e.OnPlayDraw(e.playScene, alpha)
+					playProf.End(tok)
+				}()
+				if panicked || !e.playing {
+					return
+				}
 			}
 			playProf.EndFrame()
 			playProf.BeginFrame()
@@ -524,15 +536,16 @@ func (e *Editor) runPlayStep(dt time.Duration, playProf *gamedebug.Profiler) {
 	} else if e.playReplayPlayer != nil {
 		e.playReplayPlayer.Step()
 	}
-	if e.playReplayPlayer != nil && e.OnPlayReplayStep != nil {
-		e.OnPlayReplayStep(e.playReplayPlayer, e.playScene, dt)
-	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			e.recordPlayPanic(r, debug.Stack())
 		}
 	}()
+
+	if e.playReplayPlayer != nil && e.OnPlayReplayStep != nil {
+		e.OnPlayReplayStep(e.playReplayPlayer, e.playScene, dt)
+	}
 
 	if e.playPhysics != nil && e.playPhysics.HasPhysics() {
 		if playProf != nil {

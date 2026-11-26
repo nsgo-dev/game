@@ -128,8 +128,9 @@ type playRollingRecorder struct {
 	// baseAction and baseAxis hold the input state entering windowStart.
 	baseAction []bool
 	baseAxis   []float64
-	// events holds delta events in absolute step coordinates [windowStart, totalSteps).
-	events []replay.StepEvent
+	// events[eventHead:] holds delta events in absolute step coordinates [windowStart, totalSteps).
+	events    []replay.StepEvent
+	eventHead int
 }
 
 func newPlayRollingRecorder(src replay.ActionSource, seed uint64, rate int, actions, axes []string) *playRollingRecorder {
@@ -231,9 +232,8 @@ func (r *playRollingRecorder) trimBefore(newStart int) {
 	if newStart <= r.windowStart {
 		return
 	}
-	drop := 0
-	for drop < len(r.events) && r.events[drop].Step < newStart {
-		ev := r.events[drop]
+	for r.eventHead < len(r.events) && r.events[r.eventHead].Step < newStart {
+		ev := r.events[r.eventHead]
 		for _, idx := range ev.Press {
 			if idx >= 0 && idx < len(r.baseAction) {
 				r.baseAction[idx] = true
@@ -249,12 +249,27 @@ func (r *playRollingRecorder) trimBefore(newStart int) {
 				r.baseAxis[ch.Index] = ch.Value
 			}
 		}
-		drop++
+		r.events[r.eventHead] = replay.StepEvent{}
+		r.eventHead++
 	}
-	if drop > 0 {
-		r.events = slices.Clone(r.events[drop:])
+	if r.eventHead == len(r.events) {
+		r.events = r.events[:0]
+		r.eventHead = 0
+	} else if r.eventHead >= 256 && r.eventHead*2 >= len(r.events) {
+		rem := len(r.events) - r.eventHead
+		copy(r.events[:rem], r.events[r.eventHead:])
+		clear(r.events[rem:])
+		r.events = r.events[:rem]
+		r.eventHead = 0
 	}
 	r.windowStart = newStart
+}
+
+func (r *playRollingRecorder) WindowStart() int {
+	if r == nil {
+		return 0
+	}
+	return r.windowStart
 }
 
 func (r *playRollingRecorder) Pressed(name string) bool {
@@ -347,7 +362,7 @@ func (r *playRollingRecorder) Recording() *replay.Recording {
 		}
 	}
 
-	for _, ev := range r.events {
+	for _, ev := range r.events[r.eventHead:] {
 		relStep := ev.Step - r.windowStart
 		if relStep < 0 || relStep >= frames {
 			continue
@@ -421,6 +436,14 @@ func mergeStep0Events(base, delta replay.StepEvent, nActions, nAxes int) replay.
 		Press: press,
 		Axes:  axes,
 	}
+}
+
+// PlayRollingWindowStart returns the first absolute Play frame retained in the rolling 60-second window.
+func (e *Editor) PlayRollingWindowStart() int {
+	if e == nil || e.playRolling == nil {
+		return 0
+	}
+	return e.playRolling.WindowStart()
 }
 
 // PlayRollingFrameCount returns how many input frames are currently kept in Play mode's rolling 60-second buffer.
@@ -615,10 +638,31 @@ func (e *Editor) SavePlayRollingReplay() (relPath, absPath string, rec *replay.R
 	relPath = "replays/" + baseName
 	e.playMarks.lastReplayPath = relPath
 	e.playMarks.lastReplayAbs = absPath
+	e.output.mu.Lock()
+	e.output.lastReplayPath = relPath
+	e.output.lastReplayAbs = absPath
+	e.output.mu.Unlock()
 	if e.ProjectPath != "" {
 		e.filesRev++
 	}
 	return relPath, absPath, rec, nil
+}
+
+// resetPlayMarksForProject clears all Play marks, frozen-frame ask state, rolling replay buffer,
+// and panic output state when switching projects or opening the Demo Room.
+func (e *Editor) resetPlayMarksForProject() {
+	if e == nil {
+		return
+	}
+	e.playMarks = playMarksState{}
+	e.playRolling = nil
+	e.output.mu.Lock()
+	e.output.panicReport = nil
+	e.output.panicRuntimeOpen = false
+	e.output.runLines = nil
+	e.output.lastReplayPath = ""
+	e.output.lastReplayAbs = ""
+	e.output.mu.Unlock()
 }
 
 // AddPlayMark adds a mark at the current Play frame without stopping or pausing Play,
@@ -988,6 +1032,8 @@ func (e *Editor) ActiveFrozenFrameContext() *AskFrozenFrameRequest {
 	}
 }
 
+const maxAgentPlayReplaySteps = 3600
+
 // AgentStepPlayReplay steps Play mode across frames [fromFrame, toFrame] on behalf of the agent (via MCP),
 // updates the viewport agent pill ("agent stepping frames A–B") and Agent tab step log ("Stepped frames A–B with game_loop_step…"),
 // and keeps the game paused until the person explicitly resumes.
@@ -1001,6 +1047,9 @@ func (e *Editor) AgentStepPlayReplay(fromFrame, toFrame int, note string) (int, 
 	if toFrame < fromFrame {
 		return 0, fmt.Errorf("editor: to_frame (%d) must be >= from_frame (%d)", toFrame, fromFrame)
 	}
+	if toFrame-fromFrame > maxAgentPlayReplaySteps {
+		return 0, fmt.Errorf("editor: frame span %d exceeds maximum %d steps", toFrame-fromFrame, maxAgentPlayReplaySteps)
+	}
 	if !e.Playing() {
 		return 0, errors.New("editor: Play mode is not active")
 	}
@@ -1009,24 +1058,42 @@ func (e *Editor) AgentStepPlayReplay(fromFrame, toFrame int, note string) (int, 
 	}
 
 	// If a replay recording is loaded and the requested target frame is earlier than the current frame,
-	// replay deterministically from step 0 up to toFrame while staying paused.
+	// replay deterministically from step 0 up to toFrame (rebased against the rolling 60 s window when needed) while staying paused.
 	if toFrame < e.playSteps {
 		rec := e.playMarks.activeReplay
+		fromRolling := false
 		if rec == nil && e.playMarks.activeAsk != nil && e.playMarks.activeAsk.ReplayAbs != "" {
 			if loaded, err := replay.LoadFile(e.playMarks.activeAsk.ReplayAbs); err == nil {
 				rec = loaded
+				fromRolling = true
 			}
 		}
 		if rec == nil {
 			rec = e.PlayRollingRecording()
+			fromRolling = true
 		}
-		if err := e.ReplayUpToFrame(rec, toFrame); err != nil {
+		target := toFrame
+		if fromRolling {
+			if windowStart := e.PlayRollingWindowStart(); windowStart > 0 {
+				if toFrame < windowStart {
+					return e.playSteps, fmt.Errorf("editor: frame %d is outside the 60 s rolling replay window (starts at frame %d)", toFrame, windowStart)
+				}
+				target = toFrame - windowStart
+			}
+		}
+		if err := e.ReplayUpToFrame(rec, target); err != nil {
 			return e.playSteps, err
 		}
 	} else {
 		steps := toFrame - e.playSteps
+		if steps > maxAgentPlayReplaySteps {
+			return e.playSteps, fmt.Errorf("editor: advancing %d steps to frame %d exceeds maximum %d steps", steps, toFrame, maxAgentPlayReplaySteps)
+		}
 		if steps > 0 {
 			e.StepPlay(steps)
+			if !e.playing {
+				return e.playSteps, fmt.Errorf("editor: replay stopped before reaching frame %d (stopped at frame %d)", toFrame, e.playSteps)
+			}
 		}
 	}
 
@@ -1055,6 +1122,18 @@ func (e *Editor) AgentStepPlayReplay(fromFrame, toFrame int, note string) (int, 
 
 // AgentStepPlayReplayFile loads a replay file from absPath (optional) and runs AgentStepPlayReplay on it.
 func (e *Editor) AgentStepPlayReplayFile(absPath string, fromFrame, toFrame int, note string) (int, error) {
+	if e == nil {
+		return 0, errors.New("editor: nil editor")
+	}
+	if fromFrame < 0 || toFrame < 0 {
+		return 0, errors.New("editor: frame numbers must be non-negative")
+	}
+	if toFrame < fromFrame {
+		return 0, fmt.Errorf("editor: to_frame (%d) must be >= from_frame (%d)", toFrame, fromFrame)
+	}
+	if toFrame-fromFrame > maxAgentPlayReplaySteps {
+		return 0, fmt.Errorf("editor: frame span %d exceeds maximum %d steps", toFrame-fromFrame, maxAgentPlayReplaySteps)
+	}
 	if absPath != "" {
 		rec, err := replay.LoadFile(absPath)
 		if err != nil {

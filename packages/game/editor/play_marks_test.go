@@ -3,6 +3,7 @@ package editor_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -644,6 +645,12 @@ func TestReplayUpToPanicStopsOneFrameBeforePanic(t *testing.T) {
 	if rep.ReplayPath == "" {
 		t.Fatal("expected OutputPanic().ReplayPath to be saved under replays/")
 	}
+	if len(rep.Frames) == 0 {
+		t.Fatal("expected OutputPanic().Frames to preserve parsed debug.Stack() frames after recovered Play panic")
+	}
+	if strings.Contains(rep.Message, "(frame ") {
+		t.Fatalf("OutputPanic().Message = %q, must not be clobbered by 1-line output log", rep.Message)
+	}
 
 	// Click "Replay up to the panic" in the Output panel panic card!
 	app.Press("id:output-panic-replay-btn")
@@ -732,4 +739,173 @@ func TestPlayModeSpecScreenshots(t *testing.T) {
 	app.Find("id:play-agent-pill")
 	app.Find("id:output-panic-card")
 	app.Screenshot("playmode-agent-and-panic")
+}
+
+func TestPlayMarksHardeningCanvasSizeResetBoundsAndPanicAbort(t *testing.T) {
+	dir, ed := writePlayMarksProject(t)
+
+	// 1) Blocker 4: Drawing the "Ask about frame N" thumbnail must not overwrite main viewport CanvasSize().
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760))
+	t.Cleanup(func() { _ = ed.Close() })
+
+	var mainW, mainH float32
+	app.Post(func() {
+		_ = ed.Play()
+		ed.SetPlayPaused(true)
+		ed.StepPlay(10)
+	})
+	app.Settle()
+	app.Post(func() {
+		mainW, mainH = ed.CanvasSize()
+		if err := ed.OpenAskFrozenFrame(); err != nil {
+			t.Errorf("OpenAskFrozenFrame: %v", err)
+		}
+	})
+	app.Settle()
+	var afterW, afterH float32
+	app.Post(func() {
+		afterW, afterH = ed.CanvasSize()
+	})
+	app.Settle()
+	if mainW <= 350 || mainH <= 120 {
+		t.Fatalf("unexpected initial main viewport CanvasSize = (%v, %v)", mainW, mainH)
+	}
+	if afterW != mainW || afterH != mainH {
+		t.Fatalf("Ask thumbnail corrupted main viewport CanvasSize: got (%v, %v), want (%v, %v)", afterW, afterH, mainW, mainH)
+	}
+
+	// 2) Blocker 3: Bounded stopFrame, panic-abort error return, and symlink containment in ReplayUpToPanic.
+	app.Post(func() {
+		_, _ = ed.AddPlayMark()
+		_, _ = ed.SubmitAskFrozenFrame("Check bounds")
+	})
+	app.Settle()
+
+	rec := ed.PlayRollingRecording()
+	if err := ed.ReplayUpToFrame(rec, 100_000_000); err == nil {
+		t.Fatal("expected ReplayUpToFrame to refuse huge stopFrame=100000000")
+	}
+	if _, err := ed.AgentStepPlayReplay(0, 100_000, "huge"); err == nil {
+		t.Fatal("expected AgentStepPlayReplay to refuse span > 3600")
+	}
+
+	// Symlink escape in OutputPanic().ReplayPath must be refused by ReplayUpToPanic.
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.replay.yaml")
+	data, err := rec.Encode()
+	if err != nil {
+		t.Fatalf("encode replay: %v", err)
+	}
+	if err := os.WriteFile(outsideFile, data, 0o644); err != nil {
+		t.Fatalf("write outside replay: %v", err)
+	}
+	replaysDir := filepath.Join(dir, "replays")
+	if err := os.MkdirAll(replaysDir, 0o755); err != nil {
+		t.Fatalf("mkdir replays: %v", err)
+	}
+	linkPath := filepath.Join(replaysDir, "escape.replay.yaml")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	app.Post(func() {
+		ed.SetOutputPanic(&editor.PanicReport{
+			Frame:      5,
+			Message:    "panic: test",
+			ReplayPath: "replays/escape.replay.yaml",
+		})
+		if rerr := ed.ReplayUpToPanic(); rerr == nil {
+			t.Errorf("expected ReplayUpToPanic to refuse symlink replay escaping project root")
+		}
+	})
+	app.Settle()
+
+	// Mid-replay panic must return an error from ReplayUpToFrame instead of nil with Playing()==false.
+	app.Post(func() {
+		ed.OnPlayUpdate = func(_ *sceneformat.BuiltScene, _ time.Duration) {
+			if ed.PlaySteps() == 3 {
+				panic("mid-replay boom")
+			}
+		}
+		if rerr := ed.ReplayUpToFrame(rec, 5); rerr == nil {
+			t.Errorf("expected ReplayUpToFrame to return an error when replay panics before stopFrame")
+		}
+		if ed.Playing() || ed.PlayPaused() {
+			t.Errorf("expected Playing()=false PlayPaused()=false after mid-replay panic, got playing=%v paused=%v", ed.Playing(), ed.PlayPaused())
+		}
+		ed.OnPlayUpdate = nil
+	})
+	app.Settle()
+
+	// 3) Blocker 6: Opening Demo Room clears Play marks, panic card, frozen ask context, and last replay path.
+	app.Post(func() {
+		if derr := ed.OpenDemo(); derr != nil {
+			t.Errorf("OpenDemo: %v", derr)
+		}
+	})
+	app.Settle()
+	if len(ed.PlayMarks()) != 0 {
+		t.Fatalf("PlayMarks leaked into Demo Room: %+v", ed.PlayMarks())
+	}
+	if ed.OutputPanic() != nil {
+		t.Fatalf("OutputPanic leaked into Demo Room: %+v", ed.OutputPanic())
+	}
+	if ed.ActiveFrozenFrameContext() != nil {
+		t.Fatalf("ActiveFrozenFrameContext leaked into Demo Room: %+v", ed.ActiveFrozenFrameContext())
+	}
+	if ed.PlayLastReplayPath() != "" {
+		t.Fatalf("PlayLastReplayPath leaked into Demo Room: %q", ed.PlayLastReplayPath())
+	}
+
+	// 4) Blocker 5: Long rolling session (>60s with per-frame axis changes) stays bounded and valid across compactions.
+	// Attach a minimal scope without mounting EditorView so stepping 4,500 frames completes in milliseconds.
+	rollingEd, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	t.Cleanup(func() { _ = rollingEd.Close() })
+	rollingEd.PlayInputActions = []string{"jump"}
+	rollingEd.PlayInputAxes = []string{"move_x"}
+	rollingEd.PlayInputSource = &scriptedAxisSource{}
+	rollingEd.PlayRate = 60
+	rollingApp := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rollingEd.AttachScope(cx)
+		return core.View{}
+	}, nsgotest.Size(320, 180))
+	rollingApp.Post(func() {
+		if perr := rollingEd.Play(); perr != nil {
+			t.Errorf("Play: %v", perr)
+		}
+		rollingEd.SetPlayPaused(true)
+		rollingEd.StepPlay(4500)
+	})
+	rollingApp.Settle()
+	if got := rollingEd.PlayRollingFrameCount(); got != 3600 {
+		t.Fatalf("PlayRollingFrameCount after 4500 steps = %d, want 3600", got)
+	}
+	if got := rollingEd.PlayRollingWindowStart(); got != 900 {
+		t.Fatalf("PlayRollingWindowStart after 4500 steps = %d, want 900", got)
+	}
+	rolled := rollingEd.PlayRollingRecording()
+	if err := rolled.Validate(); err != nil {
+		t.Fatalf("rolled recording invalid after compaction: %v", err)
+	}
+	if _, err := rollingEd.AgentStepPlayReplay(100, 110, "too old"); err == nil {
+		t.Fatal("expected AgentStepPlayReplay to refuse frames older than the 60 s rolling window")
+	}
+}
+
+type scriptedAxisSource struct {
+	step int
+}
+
+func (s *scriptedAxisSource) Step()                   { s.step++ }
+func (s *scriptedAxisSource) Pressed(string) bool     { return s.step%2 == 0 }
+func (s *scriptedAxisSource) JustPressed(string) bool { return false }
+func (s *scriptedAxisSource) JustReleased(string) bool {
+	return false
+}
+func (s *scriptedAxisSource) Axis(string) float64 {
+	return float64(s.step%100) / 100.0
 }
