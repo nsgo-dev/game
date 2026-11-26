@@ -17,15 +17,22 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		_ = rev.Get()
 		return ed.SketchActive()
 	})
-	darkMemo := core.NewMemo(cx, func() bool {
+	type overlayThemeKey struct {
+		dark bool
+		lang string
+	}
+	themeMemo := core.NewMemo(cx, func() overlayThemeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return overlayThemeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 	return core.Show{
 		When: active.Get,
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := SpecPaletteFor(darkMemo.Get())
+				p := SpecPaletteFor(themeMemo.Get().dark)
 				divider := func() core.Node {
 					return core.View{
 						Style: core.Style{
@@ -455,6 +462,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type panelKey struct {
 		dark          bool
+		lang          string
 		markCount     int
 		selectedMark  int
 		hold          SketchHoldState
@@ -489,7 +497,8 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			}
 		}
 		return panelKey{
-			dark:          cx.Dark(),
+			dark:          ed.SpecPalette(cx).Dark,
+			lang:          ed.ResolvedLanguage(),
 			markCount:     ed.SketchMarkCount(),
 			selectedMark:  ed.SelectedSketchMark(),
 			hold:          ed.SketchHoldState(),
@@ -505,13 +514,20 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		}
 	})
 
-	darkMemo := core.NewMemo(cx, func() bool {
+	type panelThemeKey struct {
+		dark bool
+		lang string
+	}
+	darkMemo := core.NewMemo(cx, func() panelThemeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return panelThemeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get())
+		p := SpecPaletteFor(darkMemo.Get().dark)
 		return core.View{
 			TestID: "sketch-agent-panel",
 			Role:   core.RoleRegion,

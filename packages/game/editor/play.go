@@ -284,6 +284,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelSketchDrag()
 	e.CancelAssetDrag()
 	e.stopAssetPreviewLoop()
 	e.assetDrawer.previewPlaying = false

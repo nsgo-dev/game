@@ -741,3 +741,144 @@ func TestSketchPanelCloseSpecLightTypingAndRevertSelection(t *testing.T) {
 		t.Fatalf("SelectedID = %q after RevertSketchReview removed object, want empty", ed.SelectedID)
 	}
 }
+
+func TestSketchAutoSavePauseHistorySyncPreviewGuardsAndLabelSpaces(t *testing.T) {
+	ed := newSketchTestEditor(t)
+	ed.SetCanvasSize(640, 360)
+
+	// 1. Typing spaces into SetSketchMarkLabel must preserve spaces interactively; SendSketch trims cleanly.
+	mk := ed.AddSketchBox(100, 120, 80, 32, "")
+	if !ed.SetSketchMarkLabel(mk.Number, "3 ") {
+		t.Fatal("SetSketchMarkLabel(\"3 \") failed")
+	}
+	got, ok := ed.SketchMarkByNumber(mk.Number)
+	if !ok || got.Label != "3 " {
+		t.Fatalf("label after typing trailing space = %q, want %q", got.Label, "3 ")
+	}
+	if !ed.SetSketchMarkLabel(mk.Number, "3 spikes ") {
+		t.Fatal("SetSketchMarkLabel(\"3 spikes \") failed")
+	}
+	req, err := ed.SendSketch("build spikes")
+	if err != nil {
+		t.Fatalf("SendSketch: %v", err)
+	}
+	if len(req.Marks) != 1 || req.Marks[0].Label != "3 spikes" {
+		t.Fatalf("sent mark label = %q, want trimmed %q", req.Marks[0].Label, "3 spikes")
+	}
+
+	// 2. EndSketchDrag must not panic if marks are deleted mid-drag, and SetViewMode(3D) cancels drag.
+	ed.StartSketch()
+	ed.SetSketchTool(editor.SketchToolArrow)
+	bx, by := ed.WorldToCanvas(100, 120)
+	if !ed.BeginSketchDrag(bx-10, by-12) {
+		t.Fatal("BeginSketchDrag on badge returned false")
+	}
+	if !ed.SketchDragging() {
+		t.Fatal("expected SketchDragging() == true")
+	}
+	ed.DeleteSketchMark(1)
+	ed.EndSketchDrag() // must not panic even though hitMark was 1
+	ed.AddSketchBox(100, 120, 80, 32, "spikes")
+	ed.StartSketch()
+	ed.BeginSketchDrag(200, 200)
+	ed.SetViewMode(editor.ViewMode3D)
+	if ed.SketchDragging() {
+		t.Fatal("SetViewMode(ViewMode3D) did not cancel active sketch drag")
+	}
+	ed.SetViewMode(editor.ViewMode2D)
+
+	// 3. HasOpenReview pauses autosave during SketchReviewOpen, and RevertSketchReview trims History entries.
+	if err := ed.MoveObject("floor", 325, 320); err != nil {
+		t.Fatalf("MoveObject baseline: %v", err)
+	}
+	baseEntries := len(ed.HistoryEntries())
+	if baseEntries == 0 {
+		t.Fatal("expected at least 1 baseline history entry")
+	}
+	if _, err := ed.SendSketch("add spikes"); err != nil {
+		t.Fatalf("SendSketch 2: %v", err)
+	}
+	if err := ed.ApproveSketchReading(); err != nil {
+		t.Fatalf("ApproveSketchReading: %v", err)
+	}
+	addedID, err := ed.PlaceObject("Actors", sceneformat.ObjectDoc{ID: "ghost_spikes", Name: "ghost_spikes", X: 140, Y: 136})
+	if err != nil {
+		t.Fatalf("PlaceObject: %v", err)
+	}
+	ed.RecordSketchReviewEdits("Agent: add ghost_spikes", []string{addedID}, nil, nil)
+	if !ed.HasOpenReview() {
+		t.Fatal("HasOpenReview() = false while SketchReviewOpen() is true; autosave would persist unkept agent edits")
+	}
+	if len(ed.HistoryEntries()) <= baseEntries {
+		t.Fatalf("expected agent edit to append history entry: got %d, base %d", len(ed.HistoryEntries()), baseEntries)
+	}
+	if err := ed.RevertSketchReview(); err != nil {
+		t.Fatalf("RevertSketchReview: %v", err)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("HasOpenReview() remained true after RevertSketchReview")
+	}
+	if gotEntries := len(ed.HistoryEntries()); gotEntries != baseEntries {
+		t.Fatalf("RevertSketchReview left ghost history entries: got %d, want %d", gotEntries, baseEntries)
+	}
+
+	// 4. Read-only History preview guards SketchActive and all sketch mutators.
+	firstEntryID := ed.HistoryEntries()[0].ID
+	if err := ed.PreviewHistoryEntry(firstEntryID); err != nil {
+		t.Fatalf("PreviewHistoryEntry: %v", err)
+	}
+	if !ed.HistoryPreviewActive() {
+		t.Fatal("expected HistoryPreviewActive() == true")
+	}
+	ed.SetSketchActive(true)
+	if ed.SketchActive() {
+		t.Fatal("SketchActive() must be false while HistoryPreviewActive() is true")
+	}
+	if m := ed.AddSketchBox(10, 10, 20, 20, "blocked"); m.Number != 0 {
+		t.Fatalf("AddSketchBox succeeded during HistoryPreviewActive: %+v", m)
+	}
+	if _, err := ed.SendSketch("blocked"); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("SendSketch during HistoryPreview = %v, want ErrHistoryPreview", err)
+	}
+	if err := ed.ApproveSketchReading(); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("ApproveSketchReading during HistoryPreview = %v, want ErrHistoryPreview", err)
+	}
+	if err := ed.CorrectSketchMark(1); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("CorrectSketchMark during HistoryPreview = %v, want ErrHistoryPreview", err)
+	}
+	if err := ed.ReplyToSketchReading("ok"); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("ReplyToSketchReading during HistoryPreview = %v, want ErrHistoryPreview", err)
+	}
+	ed.ExitHistoryPreview()
+
+	// 5. You-only PermissionsDraftOpen blocks sketch shortcut commands (including mod+enter).
+	if _, err := ed.SendSketch("build spikes"); err != nil {
+		t.Fatalf("SendSketch 3: %v", err)
+	}
+	if err := ed.PostSketchReading(editor.SketchReading{
+		Items: []editor.SketchReadingItem{{Number: 1, Text: "Add spikes"}},
+	}); err != nil {
+		t.Fatalf("PostSketchReading: %v", err)
+	}
+	if _, err := ed.SubmitPermissionsDraft(editor.PermissionsDraftRequest{
+		Request: "allow scenes",
+		Rules: []editor.PermissionsDraftRuleSpec{
+			{Action: editor.PermissionActionEdit, Patterns: []string{"scenes/**"}, Decision: editor.PermissionAllow},
+		},
+	}); err != nil {
+		t.Fatalf("SubmitPermissionsDraft: %v", err)
+	}
+	if !ed.PermissionsDraftOpen() {
+		t.Fatal("expected PermissionsDraftOpen() == true")
+	}
+	for _, cmdID := range []string{editor.CmdSketchToggle, editor.CmdSketchApproveReading, editor.CmdSketchSend} {
+		cmd, ok := ed.Command(cmdID)
+		if !ok {
+			t.Fatalf("command %s not found", cmdID)
+		}
+		if cmd.Enabled == nil || cmd.Enabled() {
+			t.Fatalf("command %s enabled while PermissionsDraftOpen() == true, want disabled", cmdID)
+		}
+	}
+	ed.DiscardPermissionsDraft()
+}

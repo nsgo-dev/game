@@ -344,6 +344,23 @@ func clampSketchRunes(s string, maxRunes int) string {
 	return s
 }
 
+// clampSketchLabelInput preserves leading/trailing spaces while the user is actively typing in the
+// controlled mark-label input (stripping only newlines and clamping total runes).
+func clampSketchLabelInput(s string, maxRunes int) string {
+	s = strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
+	if maxRunes <= 0 || len(s) <= maxRunes {
+		return s
+	}
+	n := 0
+	for i := range s {
+		if n == maxRunes {
+			return s[:i]
+		}
+		n++
+	}
+	return s
+}
+
 func (e *Editor) resetSketchForProject() {
 	if e == nil {
 		return
@@ -356,6 +373,8 @@ func (e *Editor) sketchBlockedByScreen() bool {
 		return true
 	}
 	return e.playing ||
+		e.HistoryPreviewActive() ||
+		e.PermissionsDraftOpen() ||
 		e.StartScreenOpen() ||
 		e.SettingsOpen() ||
 		e.MergeConflictOpen() ||
@@ -445,7 +464,7 @@ func (e *Editor) renumberSketchMarks() {
 
 // SketchActive reports whether viewport sketch drawing mode is currently active.
 func (e *Editor) SketchActive() bool {
-	return e != nil && e.sketch.active && e.ViewMode == ViewMode2D && !e.playing
+	return e != nil && e.sketch.active && e.ViewMode == ViewMode2D && !e.playing && !e.HistoryPreviewActive()
 }
 
 // SetSketchActive turns viewport sketch drawing mode on or off.
@@ -537,7 +556,7 @@ func (e *Editor) SketchTool() SketchTool {
 
 // SetSketchTool switches the active sketch tool and ensures sketch mode is active.
 func (e *Editor) SetSketchTool(tool SketchTool) {
-	if e == nil || !tool.Valid() || e.playing {
+	if e == nil || !tool.Valid() || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	e.sketch.tool = tool
@@ -755,7 +774,7 @@ func (e *Editor) appendSketchMark(m SketchMark) SketchMark {
 
 // AddSketchBox adds a numbered Box mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchBox(x, y, width, height float32, label string) SketchMark {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return SketchMark{}
 	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(width) || !isFiniteFloat32(height) {
@@ -782,7 +801,7 @@ func (e *Editor) AddSketchBox(x, y, width, height float32, label string) SketchM
 
 // AddSketchArrow adds a numbered Arrow mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchArrow(x0, y0, x1, y1 float32, label string) SketchMark {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return SketchMark{}
 	}
 	if !isFiniteFloat32(x0) || !isFiniteFloat32(y0) || !isFiniteFloat32(x1) || !isFiniteFloat32(y1) {
@@ -800,7 +819,7 @@ func (e *Editor) AddSketchArrow(x0, y0, x1, y1 float32, label string) SketchMark
 
 // AddSketchPen adds a numbered Pen polyline mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchPen(points []SketchPoint, label string) SketchMark {
-	if e == nil || e.playing || len(points) == 0 {
+	if e == nil || e.playing || e.HistoryPreviewActive() || len(points) == 0 {
 		return SketchMark{}
 	}
 	clean := make([]SketchPoint, 0, min(len(points), maxSketchPenPoints))
@@ -824,7 +843,7 @@ func (e *Editor) AddSketchPen(points []SketchPoint, label string) SketchMark {
 
 // AddSketchText adds a numbered Text mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchText(x, y float32, label string) SketchMark {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return SketchMark{}
 	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
@@ -841,7 +860,7 @@ func (e *Editor) AddSketchText(x, y float32, label string) SketchMark {
 // AddSketchMarkAtCursor places a new mark using the active sketch tool at the current pointer or view center
 // in scene coordinates, providing a full keyboard path for creating marks without pointer dragging.
 func (e *Editor) AddSketchMarkAtCursor(label string) SketchMark {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return SketchMark{}
 	}
 	tool := e.ensureSketchTool()
@@ -866,10 +885,10 @@ func (e *Editor) AddSketchMarkAtCursor(label string) SketchMark {
 
 // SetSketchMarkLabel updates the optional text label on the 1-based sketch mark.
 func (e *Editor) SetSketchMarkLabel(number int, label string) bool {
-	if e == nil || e.playing || number < 1 || number > len(e.sketch.marks) {
+	if e == nil || e.playing || e.HistoryPreviewActive() || number < 1 || number > len(e.sketch.marks) {
 		return false
 	}
-	clean := clampSketchRunes(label, maxSketchLabelRunes)
+	clean := clampSketchLabelInput(label, maxSketchLabelRunes)
 	if e.sketch.marks[number-1].Label == clean {
 		return true
 	}
@@ -880,7 +899,7 @@ func (e *Editor) SetSketchMarkLabel(number int, label string) bool {
 
 // NudgeSelectedSketchMark translates the selected sketch mark by (dx, dy) in scene coordinates.
 func (e *Editor) NudgeSelectedSketchMark(dx, dy float32) bool {
-	if e == nil || e.playing || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
+	if e == nil || e.playing || e.HistoryPreviewActive() || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
 		return false
 	}
 	sel := e.SelectedSketchMark()
@@ -920,10 +939,11 @@ func (e *Editor) NudgeSelectedSketchMark(dx, dy float32) bool {
 
 // DeleteSketchMark removes the 1-based mark and renumbers remaining marks sequentially.
 func (e *Editor) DeleteSketchMark(number int) bool {
-	if e == nil || e.playing || number < 1 || number > len(e.sketch.marks) {
+	if e == nil || e.playing || e.HistoryPreviewActive() || number < 1 || number > len(e.sketch.marks) {
 		return false
 	}
 	e.pushSketchUndo()
+	e.sketch.draft = nil
 	e.sketch.marks = slices.Delete(e.sketch.marks, number-1, number)
 	e.renumberSketchMarks()
 	e.notify()
@@ -937,11 +957,12 @@ func (e *Editor) CanUndoSketchMark() bool {
 
 // UndoLastSketchMark restores the previous sketch mark list without touching SceneDoc or Editor.History.
 func (e *Editor) UndoLastSketchMark() bool {
-	if e == nil || e.playing || len(e.sketch.undoStack) == 0 {
+	if e == nil || e.playing || e.HistoryPreviewActive() || len(e.sketch.undoStack) == 0 {
 		return false
 	}
 	prev := e.sketch.undoStack[len(e.sketch.undoStack)-1]
 	e.sketch.undoStack = e.sketch.undoStack[:len(e.sketch.undoStack)-1]
+	e.sketch.draft = nil
 	e.sketch.marks = prev
 	e.renumberSketchMarks()
 	e.notify()
@@ -951,7 +972,7 @@ func (e *Editor) UndoLastSketchMark() bool {
 // ClearSketch clears all sketch marks, any pending reading card, and any active confirmation hold.
 // It never modifies SceneDoc or Editor.History.
 func (e *Editor) ClearSketch() {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	if len(e.sketch.marks) > 0 {
@@ -1065,7 +1086,7 @@ func (e *Editor) EndSketchDrag() (SketchMark, bool) {
 	dr := e.sketch.draft
 	e.sketch.draft = nil
 
-	if !dr.moved && dr.hitMark > 0 {
+	if !dr.moved && dr.hitMark > 0 && dr.hitMark <= len(e.sketch.marks) {
 		e.sketch.selectedMark = dr.hitMark
 		e.notify()
 		return e.sketch.marks[dr.hitMark-1].Clone(), false
@@ -1177,8 +1198,14 @@ func (e *Editor) SendSketch(prompt string) (SketchAgentRequest, error) {
 	if e.playing {
 		return SketchAgentRequest{}, ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return SketchAgentRequest{}, ErrHistoryPreview
+	}
 	if len(e.sketch.marks) == 0 || !e.sketch.attached {
 		return SketchAgentRequest{}, ErrSketchEmpty
+	}
+	for i := range e.sketch.marks {
+		e.sketch.marks[i].Label = clampSketchRunes(e.sketch.marks[i].Label, maxSketchLabelRunes)
 	}
 	if strings.TrimSpace(prompt) == "" {
 		prompt = strings.TrimSpace(e.sketch.promptDraft)
@@ -1277,6 +1304,9 @@ func (e *Editor) PostSketchReading(reading SketchReading) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if len(e.sketch.marks) == 0 {
 		return ErrSketchEmpty
 	}
@@ -1341,6 +1371,9 @@ func (e *Editor) ApproveSketchReading() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if len(e.sketch.marks) == 0 {
 		return ErrSketchEmpty
 	}
@@ -1381,6 +1414,9 @@ func (e *Editor) CorrectSketchMark(number int) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if len(e.sketch.marks) == 0 {
 		return ErrSketchEmpty
 	}
@@ -1415,6 +1451,9 @@ func (e *Editor) ReplyToSketchReading(message string) error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
 	}
 	msg := strings.TrimSpace(message)
 	if msg == "" {
@@ -1543,6 +1582,7 @@ func (e *Editor) RecordSketchReviewEdits(label string, addedIDs, changedIDs, rem
 	}
 	e.sketch.panelOpen = true
 	e.sketch.panelDismissed = false
+	e.cancelAutoSaveTimer()
 	e.notify()
 }
 
@@ -1555,6 +1595,9 @@ func (e *Editor) KeepSketchReview() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if !e.SketchReviewOpen() {
 		return ErrNoSketchReview
 	}
@@ -1562,6 +1605,7 @@ func (e *Editor) KeepSketchReview() error {
 	e.sketch.review = nil
 	e.clearSketchOnReviewKeep()
 	e.Status = fmt.Sprintf("Kept %d agent changes · sketch cleared", count)
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
@@ -1575,17 +1619,24 @@ func (e *Editor) RevertSketchReview() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	if !e.SketchReviewOpen() {
 		return ErrNoSketchReview
 	}
 	rv := e.sketch.review
-	e.sketch.review = nil
 
 	if len(rv.baseYAML) > 0 {
-		doc, err := sceneformat.ParseWith(rv.baseYAML, sceneformat.ParseOptions{Components: e.ComponentRegistry()})
+		doc, err := sceneformat.ParseWith(rv.baseYAML, sceneformat.ParseOptions{
+			File:          e.FilePath,
+			Components:    e.ComponentRegistry(),
+			PhysicsLayers: e.PhysicsLayers(),
+		})
 		if err != nil {
 			return fmt.Errorf("editor: revert sketch review: %w", err)
 		}
+		e.sketch.review = nil
 		e.Doc = doc
 		if e.History != nil && rv.historyStart >= 0 {
 			cut := min(rv.historyStart, len(e.History.commands))
@@ -1594,6 +1645,8 @@ func (e *Editor) RevertSketchReview() error {
 			if e.History.cursor > cut {
 				e.History.cursor = cut
 			}
+			e.History.truncateRecordsAfterCommand(cut)
+			e.History.syncUndoFlags()
 		}
 		e.Rebuild()
 		// Drop any selection IDs that pointed at agent-added objects removed by Revert.
@@ -1614,9 +1667,12 @@ func (e *Editor) RevertSketchReview() error {
 				e.SelectedID = kept[len(kept)-1]
 			}
 		}
+	} else {
+		e.sketch.review = nil
 	}
 	e.keepSketchOnReviewRevert()
 	e.Status = "Reverted agent changes · sketch kept to send again"
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
@@ -1660,7 +1716,7 @@ func (e *Editor) keepSketchOnReviewRevert() {
 // drawSketchOverlay renders the viewport sketch layer (strokes, numbered badges, labels, in-progress drag preview,
 // and review comparison outlines) in canvas coordinates projected from scene coordinates via WorldToCanvas.
 func (e *Editor) drawSketchOverlay(d *core.Drawing) {
-	if e == nil || d == nil || e.playing || e.ViewMode != ViewMode2D {
+	if e == nil || d == nil || e.playing || e.ViewMode != ViewMode2D || e.HistoryPreviewActive() {
 		return
 	}
 	spec := e.SpecPalette(nil)

@@ -240,6 +240,9 @@ func (e *Editor) HasOpenReview() bool {
 	if e.DataTableReviewPending() {
 		return true
 	}
+	if e.SketchReviewOpen() {
+		return true
+	}
 	if e.playtest.session != nil && e.playtest.session.ReviewProposalID != "" {
 		return true
 	}
