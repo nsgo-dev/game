@@ -152,6 +152,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
 	e.exitTileReviewBeforePreview()
+	e.resetViewport3DAgentPrompt(false)
 
 	// A 2D drag or particle curve drag in progress is put back, so Play and the scene Stop restores start from the last recorded state.
 	e.CancelDrag2D()

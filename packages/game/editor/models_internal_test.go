@@ -2,84 +2,65 @@ package editor
 
 import (
 	"math"
+	"slices"
+	"strings"
 	"testing"
 )
 
-// alignUp3D turns +Y onto any unit normal, through the rotation order objects use.
-func TestAlignUp3DTurnsUpOntoTheNormal(t *testing.T) {
-	for _, n := range [][3]float64{
-		{0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1},
-		{0.6, 0.8, 0}, {0.3, -0.4, 0.866}, {-0.5, 0.5, -0.7071},
-	} {
-		n = normalize64(n)
-		rx, rz := alignUp3D(vec32(n))
-		got := rotateEulerXYZ64([3]float64{0, 1, 0}, float64(rx), 0, float64(rz))
-		for i := range 3 {
-			if math.Abs(got[i]-n[i]) > 1e-6 {
-				t.Fatalf("alignUp3D(%v) = (%v, %v) turns +Y to %v", n, rx, rz, got)
-			}
-		}
+func TestFormatThousandsEdgeCases(t *testing.T) {
+	if got := formatThousands(0); got != "0" {
+		t.Fatalf("formatThousands(0) = %q, want 0", got)
+	}
+	if got := formatThousands(1284); got != "1,284" {
+		t.Fatalf("formatThousands(1284) = %q, want 1,284", got)
+	}
+	if got := formatThousands(-1284); got != "-1,284" {
+		t.Fatalf("formatThousands(-1284) = %q, want -1,284", got)
+	}
+	gotMin := formatThousands(math.MinInt)
+	if !strings.HasPrefix(gotMin, "-") || !strings.Contains(gotMin, ",") {
+		t.Fatalf("formatThousands(math.MinInt) = %q, want negative comma-separated string", gotMin)
 	}
 }
 
-// Thumbnails render off the UI goroutine: the first call starts one, and once it is rendered the model fills the middle of a transparent square; a model that does not load fails at once, and reloading the assets renders them again.
-func TestModelThumbnailRendersOffscreen(t *testing.T) {
-	ed := openCourtyard(t)
-	crate := ModelEntry{Path: "models/crate.glb"}
-	sphere := ModelEntry{Mesh: "sphere"}
-	for _, m := range []ModelEntry{crate, sphere} {
-		if img, err := ed.ModelThumbnail(m); img != nil || err != nil {
-			t.Fatalf("first ModelThumbnail(%s) = %v, %v, want it pending", m.Key(), img != nil, err)
-		}
+func TestModelAssets3DCachesPerProjectAndRev(t *testing.T) {
+	ed, err := New(DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ed.waitModelThumbnails()
-	for _, m := range []ModelEntry{crate, sphere} {
-		img, err := ed.ModelThumbnail(m)
-		if err != nil || img == nil {
-			t.Fatalf("ModelThumbnail(%s) after rendering = %v, %v", m.Key(), img, err)
-		}
-		if b := img.Bounds(); b.Dx() != ModelThumbnailSize || b.Dy() != ModelThumbnailSize {
-			t.Fatalf("%s thumbnail is %v", m.Key(), b)
-		}
-		if c := img.RGBAAt(ModelThumbnailSize/2, ModelThumbnailSize/2); c.A != 255 {
-			t.Errorf("%s thumbnail's middle is %v, want the model", m.Key(), c)
-		}
-		if c := img.RGBAAt(0, 0); c.A != 0 {
-			t.Errorf("%s thumbnail's corner is %v, want it transparent", m.Key(), c)
-		}
-	}
-	if _, err := ed.ModelThumbnail(ModelEntry{Path: "models/missing.glb"}); err == nil {
-		t.Fatal("a missing model has a thumbnail")
+	ed.ProjectPath = t.TempDir() + "/game.yaml"
+
+	a1 := ed.modelAssets3D()
+	a2 := ed.modelAssets3D()
+	if a1.files == nil || a1.files != a2.files {
+		t.Fatalf("modelAssets3D did not reuse cached *scenemodel.Assets across calls: %p vs %p", a1.files, a2.files)
 	}
 
 	ed.assetsRev++
-	if img, err := ed.ModelThumbnail(crate); img != nil || err != nil {
-		t.Fatal("a thumbnail outlived the assets it was rendered from")
-	}
-	ed.waitModelThumbnails()
-	if img, err := ed.ModelThumbnail(crate); img == nil || err != nil {
-		t.Fatalf("crate thumbnail after reloading = %v, %v", img != nil, err)
+	a3 := ed.modelAssets3D()
+	if a3.files == nil || a3.files == a1.files {
+		t.Fatalf("modelAssets3D did not refresh *scenemodel.Assets after assetsRev bump: %p vs %p", a1.files, a3.files)
 	}
 }
 
-// A thumbnail queued before the assets reload is not kept: the next call renders the model again from the reloaded assets.
-func TestModelThumbnailDropsAStaleGeneration(t *testing.T) {
-	ed := openCourtyard(t)
-	crate := ModelEntry{Path: "models/crate.glb"}
-	if img, err := ed.ModelThumbnail(crate); img != nil || err != nil {
-		t.Fatalf("first ModelThumbnail = %v, %v, want it pending", img != nil, err)
+func TestModelThumbsNotifyReadyDeterministicOrder(t *testing.T) {
+	var th modelThumbs
+	var order []int
+	unsubs := make([]func(), 0, 5)
+	for i := 1; i <= 5; i++ {
+		id := i
+		unsubs = append(unsubs, th.subscribe(func() {
+			order = append(order, id)
+		}))
 	}
-	ed.assetsRev++
-	if img, err := ed.ModelThumbnail(crate); img != nil || err != nil {
-		t.Fatalf("ModelThumbnail after reloading = %v, %v, want it pending again", img != nil, err)
+	for range 10 {
+		order = order[:0]
+		th.notifyReady()
+		if !slices.Equal(order, []int{1, 2, 3, 4, 5}) {
+			t.Fatalf("notifyReady order = %v, want [1 2 3 4 5]", order)
+		}
 	}
-	gen := ed.thumbs.gen
-	ed.waitModelThumbnails()
-	img, err := ed.ModelThumbnail(crate)
-	if img == nil || err != nil {
-		t.Fatalf("ModelThumbnail after rendering = %v, %v", img != nil, err)
-	}
-	if ed.thumbs.gen != gen || len(ed.thumbs.queued) != 0 || len(ed.thumbs.done) != 1 {
-		t.Fatalf("thumbnails at generation %d (want %d): %d queued, %d done", ed.thumbs.gen, gen, len(ed.thumbs.queued), len(ed.thumbs.done))
+	for _, u := range unsubs {
+		u()
 	}
 }

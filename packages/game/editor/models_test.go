@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"net/url"
 	"os"
@@ -665,5 +666,221 @@ func TestViewport3DModelsStripAndInspectorDetails(t *testing.T) {
 	app.Settle()
 	if app.Exists("id:viewport3d-models-strip") {
 		t.Fatal("viewport3d-models-strip is visible in 2D mode")
+	}
+}
+
+func TestViewport3DAgentPromptFocusStabilityAndEscape(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	var asked []editor.Viewport3DAgentRequest
+	ed.OnAskAgent3D = func(req editor.Viewport3DAgentRequest) {
+		asked = append(asked, req)
+	}
+	ed.SelectObject("crate")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1440, 900), nsgotest.NoGPU())
+	ed.WaitModelThumbnails()
+	app.Settle()
+
+	// Open "Or ask for one" and type part of a prompt, then fire unrelated rev bumps (simulating 60 Hz ticks / status updates).
+	app.Press("id:viewport3d-ask-for-model")
+	inputBefore := app.Find("id:viewport3d-agent-prompt-input")
+	app.Type("id:viewport3d-agent-prompt-input", "stone ")
+	app.Post(func() {
+		_ = ed.SetPlaceOptions3D(1.5, !ed.PlaceSnap3D, ed.PlaceAlign3D)
+		_ = ed.SetPlaceOptions3D(0, !ed.PlaceSnap3D, ed.PlaceAlign3D)
+	})
+	app.Settle()
+
+	// Input must NOT have remounted or lost its text or focus!
+	inputAfter := app.Find("id:viewport3d-agent-prompt-input")
+	if inputAfter.ID != inputBefore.ID {
+		t.Fatalf("unrelated rev bumps remounted viewport3d-agent-prompt-input: node ID %d -> %d", inputBefore.ID, inputAfter.ID)
+	}
+	if got := inputAfter.Text; got != "stone " {
+		t.Fatalf("prompt draft after unrelated rev bumps = %q, want %q", got, "stone ")
+	}
+	app.Press("id:viewport3d-agent-prompt-send")
+	if len(asked) != 1 || asked[0].Prompt != "stone" {
+		t.Fatalf("submitted prompt = %+v, want stone", asked)
+	}
+
+	// Switching from model prompt to component prompt clears stale draft, and Escape dismisses the prompt bar.
+	app.Press("id:viewport3d-ask-for-model")
+	app.Type("id:viewport3d-agent-prompt-input", "stale draft")
+	app.Press("id:inspector-ask-add-component")
+	if got := app.Find("id:viewport3d-agent-prompt-input").Text; got != "" {
+		t.Fatalf("switching prompt kind kept stale draft = %q, want empty", got)
+	}
+	app.Key("escape")
+	if ed.Viewport3DAgentPromptOpen() {
+		t.Fatal("Escape did not dismiss viewport3d-agent-prompt-bar")
+	}
+	if app.Exists("id:viewport3d-agent-prompt-bar") {
+		t.Fatal("viewport3d-agent-prompt-bar still mounted after Escape")
+	}
+}
+
+func TestModels3DSymlinkEscapeRefused(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	root := filepath.Dir(ed.ProjectPath)
+	outside := t.TempDir()
+
+	crateData, err := os.ReadFile(filepath.Join(root, "models", "crate.glb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsideGLB := filepath.Join(outside, "secret.glb")
+	if err := os.WriteFile(outsideGLB, crateData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideMat := filepath.Join(outside, "secret.material.yaml")
+	if err := os.WriteFile(outsideMat, []byte("version: 1\nroughness: 0.25\nmetallic: 0.75\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkGLB := filepath.Join(root, "models", "escaped.glb")
+	if err := os.Symlink(outsideGLB, symlinkGLB); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	symlinkMat := filepath.Join(root, "materials", "escaped.material.yaml")
+	if err := os.Symlink(outsideMat, symlinkMat); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	// 1. ModelThumbnail must refuse loading a symlink escaping project root.
+	if _, err := ed.ModelThumbnail(editor.ModelEntry{Path: "models/escaped.glb"}); err == nil {
+		ed.WaitModelThumbnails()
+		if _, err2 := ed.ModelThumbnail(editor.ModelEntry{Path: "models/escaped.glb"}); err2 == nil {
+			t.Fatal("ModelThumbnail loaded symlinked .glb outside project root, want error")
+		}
+	}
+
+	// 2. ObjectModelSummary3D & ObjectMaterialSummary3D must refuse reading through symlinked files outside root.
+	if _, err := ed.PlaceObject("level", sceneformat.ObjectDoc{
+		ID:       "escaped_obj",
+		Model:    "models/escaped.glb",
+		Material: "materials/escaped.material.yaml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ms, ok := ed.ObjectModelSummary3D("escaped_obj")
+	if !ok {
+		t.Fatal("ObjectModelSummary3D(escaped_obj) returned ok=false")
+	}
+	if ms.Triangles != 0 || ms.MaterialCount != 0 {
+		t.Fatalf("ObjectModelSummary3D followed symlink outside project root: %+v", ms)
+	}
+	mats, ok := ed.ObjectMaterialSummary3D("escaped_obj")
+	if !ok {
+		t.Fatal("ObjectMaterialSummary3D(escaped_obj) returned ok=false")
+	}
+	if mats.HasValues {
+		t.Fatalf("ObjectMaterialSummary3D followed symlink outside project root: %+v", mats)
+	}
+}
+
+func TestModels3DLifecycleResetsPlayGuardAndFieldFilter(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	if err := ed.SetComponentRegistry(sceneformat.PhysicsComponentRegistry()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetObjectMaterial("crate", "materials/stone.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.AddComponent("crate", sceneformat.Collider3DComponentName); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetComponentField("crate", sceneformat.Collider3DComponentName, "shape", "convex"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PlaceObject("level", sceneformat.ObjectDoc{
+		ID:   "gate",
+		Name: "Gate",
+		Children: []sceneformat.ObjectDoc{
+			{ID: "pillar_l", Mesh: "box"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ed.SelectObject("crate")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1440, 900), nsgotest.NoGPU())
+	ed.WaitModelThumbnails()
+	app.Settle()
+
+	// 1. Inspector field filter gates all 5 3D inspector sections.
+	app.Post(func() { ed.SetInspectorFilter("zzznomatch") })
+	app.Settle()
+	for _, id := range []string{
+		"id:inspector-children-section",
+		"id:inspector-model-section",
+		"id:inspector-material3d-card",
+		"id:inspector-collider3d-card",
+		"id:inspector-ask-add-component",
+	} {
+		if app.Exists(id) {
+			t.Fatalf("%s stayed visible when InspectorFilter=%q", id, "zzznomatch")
+		}
+	}
+	app.Post(func() { ed.SetInspectorFilter("roughness") })
+	app.Settle()
+	if !app.Exists("id:inspector-material3d-card") {
+		t.Fatal("inspector-material3d-card hidden when filtering for roughness")
+	}
+	if app.Exists("id:inspector-model-section") || app.Exists("id:inspector-collider3d-card") {
+		t.Fatal("non-matching 3D sections stayed visible when filtering for roughness")
+	}
+	app.Post(func() { ed.SetInspectorFilter("") })
+	app.Settle()
+
+	// 2. Play mode closes open prompt, hides bottom MODELS strip, and rejects SubmitViewport3DAgentPrompt with ErrPlaying.
+	app.Post(func() { ed.OpenModelAgentPrompt() })
+	app.Settle()
+	if !ed.Viewport3DAgentPromptOpen() {
+		t.Fatal("expected prompt open before Play")
+	}
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.Viewport3DAgentPromptOpen() {
+		t.Fatal("Play did not close open 3D agent prompt")
+	}
+	if app.Exists("id:viewport3d-models-strip") {
+		t.Fatal("viewport3d-models-strip stayed visible during Play mode")
+	}
+	if _, err := ed.SubmitViewport3DAgentPrompt("should fail"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("SubmitViewport3DAgentPrompt while playing = %v, want ErrPlaying", err)
+	}
+	app.Post(func() { _ = ed.Stop() })
+	app.Settle()
+
+	// 3. Switching to 2D closes an open prompt.
+	app.Post(func() { ed.OpenComponentAgentPrompt("crate") })
+	app.Settle()
+	app.Post(func() { ed.SetViewMode(editor.ViewMode2D) })
+	app.Settle()
+	if ed.Viewport3DAgentPromptOpen() {
+		t.Fatal("SetViewMode(ViewMode2D) did not close open 3D agent prompt")
+	}
+
+	// 4. OpenDemo resets both agentPrompt3D and lastAgentReq3D.
+	app.Post(func() {
+		ed.SetViewMode(editor.ViewMode3D)
+		ed.OpenModelAgentPrompt()
+		_, _ = ed.SubmitViewport3DAgentPrompt("stone arch")
+		ed.OpenModelAgentPrompt()
+		if err := ed.OpenDemo(); err != nil {
+			t.Errorf("OpenDemo: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.Viewport3DAgentPromptOpen() {
+		t.Fatal("OpenDemo did not close open 3D agent prompt")
+	}
+	if _, ok := ed.LastViewport3DAgentRequest(); ok {
+		t.Fatal("OpenDemo did not clear LastViewport3DAgentRequest")
 	}
 }
