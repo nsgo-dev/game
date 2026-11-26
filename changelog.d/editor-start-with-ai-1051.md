@@ -1,0 +1,3 @@
+### Added
+
+- `editor`: add the Start with AI first-run flow (`FirstRun.dc.html`), from **WHAT HAPPENS NEXT** and **Connect in place** on the Start Screen (preserving idea and name with no folder created until Approve) through the read-only template preview with planned ghosts, 5-stage **Building** view with object counts, Esc/Cancel confirmation (**Stop and delete the folder** scoped strictly to the folder created by the flow), check-failure fix proposals, and **The first review** with amber plan deviations, Before/After + hold-`B` peek, and three one-time tips persisted under `seenTips` in `editor.yaml` and resettable via **Help › Replay tips** (#1051).

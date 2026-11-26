@@ -294,7 +294,7 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Mode: Edit") || !strings.Contains(got, "Tool: Select") {
 		t.Fatalf("initial English status bar = %q", got)
 	}
-	if len(app.Menu) != 4 || app.Menu[0].Label != "File" || app.Menu[1].Label != "Edit" {
+	if len(app.Menu) != 5 || app.Menu[0].Label != "File" || app.Menu[1].Label != "Edit" || app.Menu[4].Label != "Help" {
 		t.Fatalf("initial English menu = %v", app.Menu)
 	}
 
@@ -333,8 +333,8 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if got := app.Find("id:status-problems").Text; !strings.Contains(got, "问题：") {
 		t.Fatalf("Chinese status bar problems = %q", got)
 	}
-	if len(app.Menu) != 4 || app.Menu[0].Label != "文件" || app.Menu[1].Label != "编辑" || app.Menu[2].Label != "视图" || app.Menu[3].Label != "项目" {
-		t.Fatalf("Chinese desktop menu bar = [%s, %s, %s, %s]", app.Menu[0].Label, app.Menu[1].Label, app.Menu[2].Label, app.Menu[3].Label)
+	if len(app.Menu) != 5 || app.Menu[0].Label != "文件" || app.Menu[1].Label != "编辑" || app.Menu[2].Label != "视图" || app.Menu[3].Label != "项目" || app.Menu[4].Label != "帮助" {
+		t.Fatalf("Chinese desktop menu bar = [%s, %s, %s, %s, %s]", app.Menu[0].Label, app.Menu[1].Label, app.Menu[2].Label, app.Menu[3].Label, app.Menu[4].Label)
 	}
 
 	// Switch back to English live without restart!

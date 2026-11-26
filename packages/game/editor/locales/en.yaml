@@ -97,6 +97,7 @@ strings:
   cmd.category.edit: Edit
   cmd.category.file: File
   cmd.category.gizmo3d: 3D Gizmo
+  cmd.category.help: Help
   cmd.category.project: Project
   cmd.category.tools: Tools
   cmd.category.view: View
@@ -168,6 +169,8 @@ strings:
   cmd.projectSettings.label: Project Settings
   cmd.redo.desc: Re-apply the last undone edit
   cmd.redo.label: Redo
+  cmd.replayTips.desc: Reset dismissed first-run review tips so they show again
+  cmd.replayTips.label: Replay tips
   cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
   cmd.runGame.label: Run Game
   cmd.save.desc: Save the open scene and project changes
@@ -479,6 +482,7 @@ strings:
   menu.generatedAssets: Generated Assets
   menu.gizmo3d: 3D Gizmo
   menu.group: Group
+  menu.help: Help
   menu.inspectorPanel: Inspector Panel
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
@@ -509,6 +513,7 @@ strings:
   menu.project: Project
   menu.projectSettings: Project Settings
   menu.redo: Redo
+  menu.replayTips: Replay tips
   menu.revertOverrides: Revert All Overrides
   menu.rotate: Rotate
   menu.runGame: Run Game

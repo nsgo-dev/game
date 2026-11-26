@@ -341,6 +341,7 @@ func (e *Editor) Close() error {
 	e.stopAutoSave()
 	e.stopAllTaskRunners()
 	e.cancelCreateProject()
+	e.cancelFirstRunOps()
 	var playErr error
 	if e.Playing() {
 		playErr = e.Stop()

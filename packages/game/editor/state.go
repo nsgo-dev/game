@@ -562,6 +562,16 @@ type Editor struct {
 	OnSaveBrief func(data []byte) error
 	// OnSaveProjectRules, when set, overrides writing AGENTS.md on disk when project rules are edited or saved.
 	OnSaveProjectRules func(data []byte) error
+	// FirstRunDetectAgents overrides local agent discovery (claude, codex, API key) for the Start with AI Connect step.
+	FirstRunDetectAgents func() []FirstRunAgentOption
+	// FirstRunConnectAgent overrides the agent handshake during Start with AI Connect (returning connected tool count or an error/timeout).
+	FirstRunConnectAgent func(ctx context.Context, kind string, projectDisplayPath string) (tools int, err error)
+	// FirstRunValidateAPIKey overrides immediate validation of a pasted API key in Start with AI Connect.
+	FirstRunValidateAPIKey func(ctx context.Context, key string) FirstRunAPIKeyStatus
+	// FirstRunPlanner overrides generating the first plan from the author's idea and selected project name.
+	FirstRunPlanner func(ctx context.Context, req FirstRunPlanRequest) (*FirstRunPlan, error)
+	// FirstRunBuilder overrides executing the approved first-run plan after the project folder is created.
+	FirstRunBuilder func(ctx context.Context, req FirstRunBuildRequest, emit func(FirstRunBuildEvent)) (*FirstRunBuildResult, error)
 
 	playing            bool
 	playPaused         bool
@@ -803,6 +813,8 @@ type Editor struct {
 	recentProjects []RecentProject
 	// startScreen holds the Start Screen UI, template list, new-project form, and creation output state.
 	startScreen startScreenState
+	// firstRun holds the Start with AI first-run flow state (Connect in place, First Plan, Building, First Review, and tips).
+	firstRun firstRunState
 	// unsavedPrompt tracks a pending project switch waiting for user confirmation of unsaved edits.
 	unsavedPrompt unsavedPromptState
 	// navMesh3D holds the 3D navigation mesh bake settings, panel visibility, and cached preview mesh.

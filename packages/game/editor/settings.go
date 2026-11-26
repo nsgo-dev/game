@@ -109,6 +109,9 @@ type EditorSettings struct {
 	ViewportOverlays *[]string `yaml:"viewportOverlays,omitempty"`
 	// Shortcuts overrides default command shortcuts keyed by command ID (for example "view.frame": "g"). An empty string explicitly unbinds a command.
 	Shortcuts map[string]string `yaml:"shortcuts,omitempty"`
+	// SeenTips lists the onboarding tip IDs already seen or skipped by this user in canonical sorted order.
+	// Help › Replay tips clears the first-run review tip IDs so each tip shows again.
+	SeenTips []string `yaml:"seenTips,omitempty"`
 }
 
 // AutoSaveEnabled reports whether automatic saving of kept changes is enabled (true when AutoSave is nil).
@@ -280,6 +283,30 @@ func ValidateEditorSettings(s *EditorSettings) error {
 			return loaderr.Errorf("shortcuts."+cmdID, "choose a non-reserved shortcut (escape, tab, and OS system keys cannot be bound)", "%v", err)
 		}
 	}
+	if len(s.SeenTips) > 0 {
+		seen := make(map[string]struct{}, len(s.SeenTips))
+		for i, id := range s.SeenTips {
+			if err := validateTipID(id); err != nil {
+				return loaderr.Errorf(fmt.Sprintf("seenTips[%d]", i), "use non-empty tip IDs without spaces or control characters", "%v", err)
+			}
+			if _, dup := seen[id]; dup {
+				return loaderr.Errorf(fmt.Sprintf("seenTips[%d]", i), "remove duplicate tip IDs", "editor: duplicate seen tip %q", id)
+			}
+			seen[id] = struct{}{}
+		}
+	}
+	return nil
+}
+
+func validateTipID(id string) error {
+	if id == "" {
+		return errors.New("editor: tip ID is empty")
+	}
+	for _, r := range id {
+		if r <= 0x20 || r == 0x7f {
+			return fmt.Errorf("editor: tip ID %q contains whitespace or control characters", id)
+		}
+	}
 	return nil
 }
 
@@ -308,6 +335,11 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 	if s.AutoSave != nil {
 		v := *s.AutoSave
 		out.AutoSave = &v
+	}
+	if len(s.SeenTips) > 0 {
+		sorted := slices.Clone(s.SeenTips)
+		slices.Sort(sorted)
+		out.SeenTips = sorted
 	}
 	if s.ViewportOverlays != nil {
 		sorted := slices.Clone(*s.ViewportOverlays)
@@ -398,6 +430,12 @@ func (e *Editor) Settings() EditorSettings {
 		s.Shortcuts = maps.Clone(s.Shortcuts)
 	} else {
 		s.Shortcuts = nil
+	}
+	if len(s.SeenTips) > 0 {
+		s.SeenTips = slices.Clone(s.SeenTips)
+		slices.Sort(s.SeenTips)
+	} else {
+		s.SeenTips = nil
 	}
 	return s
 }
@@ -541,6 +579,13 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	} else {
 		s.Shortcuts = nil
 	}
+	if len(s.SeenTips) > 0 {
+		cp := slices.Clone(s.SeenTips)
+		slices.Sort(cp)
+		s.SeenTips = cp
+	} else {
+		s.SeenTips = nil
+	}
 	e.settings = s
 	e.syncOverlaysFromSettings()
 	if s.AutoSaveEnabled() {
@@ -548,6 +593,7 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	} else {
 		e.cancelAutoSaveTimer()
 	}
+	e.syncFirstRunTipsFromSettings()
 	if e.scope != nil {
 		e.scope.SetAppearance(s.Appearance.CoreAppearance())
 	}
