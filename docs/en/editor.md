@@ -1373,3 +1373,34 @@ Settings that govern what an AI agent is allowed to touch — **Permissions** (`
 - **Permissions draft card (`permissions_draft` / `PermissionsDraftCardView`)**: The agent can only submit a draft via `permissions_draft` (`Editor.SubmitPermissionsDraft`). The draft opens as its own modal `ui.Dialog` with focus trapping and opener focus restoration, showing each rule's `NOW → DRAFT` decision, a live `permissions.yaml · if applied` YAML diff preview, per-rule checkboxes with **nothing ticked by default**, **Discard draft**, and **Apply n rules**. `⌘↵`, **Keep all**, automations, and every profile (`Autonomous` included) cannot apply the draft. Applied rules are recorded in `History` as the person's (`HistoryActorPerson`) and can be undone byte-for-byte with `⌘Z`.
 - **External disk changes to `permissions.yaml` (`ReconcileExternalPermissions`)**: When `permissions.yaml` changes on disk outside the editor (a clone, `git pull`, or another tool), **tightened profiles and rules apply at once**, while **loosened profiles or rules** (such as changing `Balanced` to `Autonomous`, turning `Deny` into `Allow`, or removing a `Deny` rule) are **held** and not enforced until the person explicitly confirms each entry in **Settings › Permissions** (`ConfirmHeldPermissionLoosening` / `RejectHeldPermissionLoosening`).
 - **Proposed deletions that Keep all never applies (`game_delete_file` / `AgentReviewPanelView`)**: `game_delete_file` is off by default (`Editor.ToolEnabled("game_delete_file") == false`) and always proposes a deletion in the **Review changes** panel (`Editor.ProposeFileDeletion`) showing the file's exact line count (or binary summary), a red-tinted preview, and whether any scene uses it (via `Editor.FindUsages`), while refusing symlinks, `.git/**`, `game.yaml`, open scene tabs, and files above 1 MiB. **Keep all** (`Editor.KeepAllReviewChanges` / `⌘↵`) keeps the other changes and leaves pending deletion files untouched on disk; confirming in place (**Delete this file** / `Editor.ConfirmProposedDeletion`) deletes the file through a reversible checkpoint command (`deleteFileCmd`), and **`⌘Z` (`Editor.Undo`)** restores the file byte-for-byte.
+
+## Toasts and feedback channels (#1004)
+
+Passing feedback in the editor uses one Spec-styled toast component (`ToastView`, `WindowToastView`, and `SpecToastCard`, matching `docs/design/editor/Toasts.dc.html` and `Spec.dc.html` using exclusively `SpecPalette` tokens). Decisions never go in a toast: permission asks and questions stay in Agent panel cards, check failures go to Problems, and finished agent turns open Review.
+
+- **Five kinds on one 40 px, radius 12, single-line pill**:
+  - `ToastSuccess` (check-in-circle icon, `Added.Fg`), `ToastInfo` (`i`-in-circle icon, `TextMuted`), `ToastWarning` (triangle icon, `Warning.Fg`, on `Warning.Fill` and `Warning.Edge`), `ToastError` (circle-with-bar icon, `Removed.Fg`), and `ToastProgress` (progress ring + bottom 2 px bar + live percent).
+  - At most one verb action button (with its shortcut hint, such as `Undo ⌘Z`) and a dismiss button on every kind except `ToastProgress`.
+- **Canonical Spec event API (`Editor.EmitToastEvent`, `ToastHandle`, `SpecFeedbackChannels`)**: screens emit typed `ToastEvent` values (`ToastEventReviewKept`, `ToastEventReviewReverted`, `ToastEventFixApplied`, `ToastEventAgentStopped`, `ToastEventPermissionSaved`, `ToastEventCopied`, `ToastEventDiskChanged`, `ToastEventSaveFailed`, `ToastEventExportRunning`, `ToastEventExportFailed`) instead of inventing ad-hoc tones, durations, or queue keys. `EmitToastEvent` returns a `*ToastHandle` so long-running work such as `export_panel.go` exports can update completion (`SetProgress`), transition in place into a success toast (`Complete`, e.g. `"Exported <path>"` with **Show in Finder**) or persistent error toast (`Fail` with **Retry**), or cancel the running work (`Cancel`).
+- **Placement**: bottom center of the viewport, 8 px above the viewport bar (never over the scene tree, inspector, or agent panel). When no viewport is on screen (Start screen, Settings, Export, or other full-window views), `WindowToastView` anchors at the bottom center of the window, 24 px up.
+- **Queue, waiting badge, merging, and ordering**: one toast is shown at a time; others wait in FIFO order and the visible toast displays a `+N` waiting count badge. Repeating the same event merges into the existing queued entry in place without changing order, and nothing jumps ahead of an active error or running progress toast.
+- **Timing, pause, motion, and accessibility**:
+  - `ToastDuration` enforces Spec lifetimes: success and info stay for 4 s (6 s with an action), warning stays for 8 s, and error and progress stay until retried, dismissed, canceled, or completed. Hover, touch, keyboard focus inside `RegionToast`, or the window leaving `core.LifecycleActive` (going to the background) pauses the countdown (`Editor.ToastTimerPaused`, `Editor.ToastRemaining`).
+  - Enter motion fades in and rises 8 px over 180 ms; exit fades out over 120 ms. With `ReduceMotion` enabled, toasts appear and leave immediately with no fade or movement.
+  - Both toast hosts are polite live regions (`core.RoleStatus`, `core.LiveRegionPolite`). Showing a toast never steals focus; `F6` / `Shift-F6` reaches `RegionToast`, `Tab` moves between its action and dismiss buttons, and `Esc` while focused dismisses the toast and restores focus to the control focused before entering the toast.
+- **Spec Feedback channels table (`SpecFeedbackChannels`)**:
+
+| Event | Channel | Action / Notes |
+| --- | --- | --- |
+| Review kept or reverted | Toast | `Undo ⌘Z` |
+| Fix applied from Problems | Toast | `Undo ⌘Z` |
+| Agent stopped with `⌘.` | Toast | `Review` |
+| “Always” permission rule saved | Toast | `Show` |
+| Copied a config, path or snippet | Toast | Info (routed from Connect, copy YAML, copy objects, web URL, PR description, diagnostics) |
+| A file changed on disk outside the editor | Toast | Warning · `Show` (routed from disk watcher reload) |
+| Save or export failed | Toast | Error · `Retry`, stays (explicit `⌘S` / Save and export failures only; failed autosaves stay in the status bar per `Checkpoints.dc.html` and never toast) |
+| Export running | Progress toast | `Cancel`, stays until done then turns into `"Exported <path>"` with `Show in Finder` |
+| Agent asks permission or a question | Agent panel card | Never a toast |
+| Agent finished a request | Review opens | Never a toast |
+| Check failed, broken reference | Problems | Never a toast |
+| Agent asks, finishes or stops while the editor is in the background | + System notification | Paired with its in-editor channel |

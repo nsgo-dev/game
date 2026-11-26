@@ -103,6 +103,15 @@ type focusRegionController struct {
 	// input without OnBlur can never leave IsTyping permanently stuck true.
 	textFocusDepth int
 	textFocusRef   *core.Ref
+
+	// Toast region focus tracking: remembers where keyboard focus was before entering
+	// RegionToast so Esc dismisses the focused toast and restores focus cleanly, and
+	// drives reactive timer pausing + focused-toast Esc binding.
+	toastFocused       *core.Signal[bool]
+	lastNonToastFocus  *core.Ref
+	lastNonToastRegion EditorRegion
+	toastReturnFocus   *core.Ref
+	toastReturnRegion  EditorRegion
 }
 
 type focusRegionState struct {
@@ -119,6 +128,7 @@ func newFocusRegionController(cx *core.Scope) *focusRegionController {
 		focusedRegion:    core.NewSignal(cx, RegionNone),
 		fallbackRegion:   core.NewSignal(cx, RegionNone),
 		openDialogCount:  core.NewSignal(cx, 0),
+		toastFocused:     core.NewSignal(cx, false),
 	}
 }
 
@@ -227,6 +237,25 @@ func (c *focusRegionController) onRegionFocusIn(r EditorRegion) {
 	c.focusedRegion.Set(r)
 	if ref := core.FocusedRef(c.cx); ref != nil {
 		c.lastFocused[r] = ref
+		if r != RegionToast {
+			c.lastNonToastFocus = ref
+			c.lastNonToastRegion = r
+		}
+	}
+	if r == RegionToast {
+		if c.toastReturnFocus == nil && refMounted(c.lastNonToastFocus) {
+			c.toastReturnFocus = c.lastNonToastFocus
+			c.toastReturnRegion = c.lastNonToastRegion
+		}
+		if c.toastFocused != nil {
+			c.toastFocused.Set(true)
+		}
+	} else {
+		c.toastReturnFocus = nil
+		c.toastReturnRegion = RegionNone
+		if c.toastFocused != nil {
+			c.toastFocused.Set(false)
+		}
 	}
 	// If keyboard focus entered a different region without F6 (for example via Tab),
 	// clear any stale F6 region ring on the previous region.
@@ -238,6 +267,13 @@ func (c *focusRegionController) onRegionFocusIn(r EditorRegion) {
 func (c *focusRegionController) onRegionFocusOut(r EditorRegion) {
 	if c == nil {
 		return
+	}
+	if r == RegionToast {
+		if root := c.roots[RegionToast]; root == nil || !root.HoldsFocus() {
+			if c.toastFocused != nil {
+				c.toastFocused.Set(false)
+			}
+		}
 	}
 	if c.focusedRegion.GetUntracked() == r {
 		if root := c.roots[r]; root == nil || !root.HoldsFocus() {
@@ -252,6 +288,42 @@ func (c *focusRegionController) onRegionFocusOut(r EditorRegion) {
 	if c.fallbackRegion.GetUntracked() == r {
 		if root := c.roots[r]; root == nil || !root.HoldsFocus() {
 			c.fallbackRegion.Set(RegionNone)
+		}
+	}
+}
+
+func (c *focusRegionController) restoreFocusFromToast() {
+	if c == nil {
+		return
+	}
+	target := c.toastReturnFocus
+	targetRegion := c.toastReturnRegion
+	c.toastReturnFocus = nil
+	c.toastReturnRegion = RegionNone
+	if c.toastFocused != nil {
+		c.toastFocused.Set(false)
+	}
+	if c.activeRegionRing.GetUntracked() == RegionToast {
+		c.activeRegionRing.Set(RegionNone)
+	}
+	if c.fallbackRegion.GetUntracked() == RegionToast {
+		c.fallbackRegion.Set(RegionNone)
+	}
+	if !refMounted(target) {
+		target = c.lastNonToastFocus
+		targetRegion = c.lastNonToastRegion
+	}
+	if refMounted(target) {
+		target.Focus()
+		if targetRegion != RegionNone {
+			c.focusedRegion.Set(targetRegion)
+		}
+		return
+	}
+	if targetRegion != RegionNone {
+		if root := c.roots[targetRegion]; refMounted(root) {
+			root.Focus()
+			c.focusedRegion.Set(targetRegion)
 		}
 	}
 }
@@ -342,6 +414,9 @@ func (c *focusRegionController) focusRegion(ed *Editor, target EditorRegion) boo
 	}
 	c.activeRegionRing.Set(target)
 	c.focusedRegion.Set(target)
+	if c.toastFocused != nil {
+		c.toastFocused.Set(target == RegionToast)
+	}
 
 	// 1. Restore the last focused control inside this region when still mounted.
 	if saved := c.lastFocused[target]; refMounted(saved) && saved != root {
@@ -428,6 +503,15 @@ func (c *focusRegionController) cycleRegion(ed *Editor, delta int) EditorRegion 
 		nextIdx = (idx + delta%len(visible) + len(visible)) % len(visible)
 	}
 	target := visible[nextIdx]
+	if target == RegionToast && cur != RegionToast {
+		if prev := core.FocusedRef(c.cx); refMounted(prev) {
+			c.toastReturnFocus = prev
+			c.toastReturnRegion = cur
+		} else if refMounted(c.lastNonToastFocus) {
+			c.toastReturnFocus = c.lastNonToastFocus
+			c.toastReturnRegion = c.lastNonToastRegion
+		}
+	}
 	c.focusRegion(ed, target)
 	return target
 }

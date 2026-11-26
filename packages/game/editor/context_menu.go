@@ -227,9 +227,9 @@ func (e *Editor) CopyObjectYAML(id string) (string, int, error) {
 		l10n.Param("lines", lines),
 	)
 	e.Status = msg
-	e.ShowToast(Toast{
+	e.EmitToastEvent(ToastEvent{
+		Kind:    ToastEventCopied,
 		ID:      "object-copy-yaml",
-		Kind:    ToastSuccess,
 		Message: msg,
 	})
 	return text, lines, nil
