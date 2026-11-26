@@ -261,6 +261,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.resetTextInputFocus()
 	e.resetProblemsForProject()
 	e.loadAgentDocsForProject(filepath.Dir(path))
+	e.resetHistoryPanelForProject()
 	e.Status = "Opened project " + path
 	if missing := e.MissingPlugins(); len(missing) > 0 {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
@@ -285,6 +286,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 func (e *Editor) EditProject(label string, edit func(f *project.File)) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
 	}
 	if e.Project == nil {
 		return ErrNoProject

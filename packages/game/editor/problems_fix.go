@@ -138,6 +138,9 @@ func (e *Editor) SetProblemAgentPanelOpen(open bool) {
 	if open && (e.Playing() || e.StartScreenOpen() || e.MergeConflictOpen()) {
 		return
 	}
+	if open && e.HistoryPanelOpen() {
+		e.SetHistoryPanelOpen(false)
+	}
 	e.problems.mu.Lock()
 	if e.problems.agentPanelOpen == open {
 		e.problems.mu.Unlock()

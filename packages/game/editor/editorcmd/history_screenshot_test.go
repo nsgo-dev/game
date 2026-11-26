@@ -59,6 +59,7 @@ func TestHistoryPanelMacOSScreenshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	ed.WaitForProblems()
+	_ = ed.SetAutoSave(false)
 
 	now := time.Date(2026, 11, 25, 18, 12, 0, 0, time.UTC)
 	ed.SetHistoryClock(func() time.Time { return now })

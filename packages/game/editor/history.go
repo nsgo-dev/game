@@ -1,9 +1,20 @@
 package editor
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"time"
+)
+
+// ErrHistoryPreview is returned when an edit is attempted while read-only History point-in-time preview is active.
+var ErrHistoryPreview = errors.New("editor: cannot edit while previewing history")
+
+const (
+	// maxHistoryRecords bounds the number of timeline entries retained per History instance.
+	maxHistoryRecords = 256
+	// maxHistorySnapshotBytes bounds the total YAML and extra-file snapshot bytes retained per History instance.
+	maxHistorySnapshotBytes = 32 << 20
 )
 
 // HistoryAuthor identifies who produced a timeline entry in History.
@@ -165,6 +176,8 @@ type History struct {
 	commands []Command
 	cursor   int
 	onChange func()
+	// beforeExecute optionally rejects mutations (for example while read-only History preview is active).
+	beforeExecute func() error
 	// onRecord enriches a newly recorded timeline entry with scene/file snapshots and editor context.
 	onRecord func(cmd Command, rec *historyRecord)
 	// onClear runs when Clear empties the stack.
@@ -172,10 +185,12 @@ type History struct {
 	// clock returns the timestamp for newly recorded entries; defaults to time.Now when nil.
 	clock func() time.Time
 	// group collects the commands executed while Group runs, or is nil outside one.
-	group       *groupCmd
-	records     []historyRecord
-	nextEntryID uint64
-	milestones  []CommitMilestone
+	group            *groupCmd
+	records          []historyRecord
+	nextEntryID      uint64
+	maxRecords       int
+	maxSnapshotBytes int
+	milestones       []CommitMilestone
 }
 
 // SetClock sets the time source used to timestamp newly recorded history entries. Passing nil restores time.Now.
@@ -264,7 +279,93 @@ func (h *History) RecordSaved(files []string, detail string, snap historySnapsho
 		entry:    entry,
 		snapshot: snap.clone(),
 	})
+	h.trimRecords()
 	return entry.Clone()
+}
+
+func historyRecordBytes(r *historyRecord) int {
+	if r == nil {
+		return 0
+	}
+	n := len(r.snapshot.sceneYAML) + len(r.snapshot.projectYAML)
+	for _, f := range r.snapshot.files {
+		n += len(f.data)
+	}
+	for _, f := range r.beforeFiles {
+		n += len(f.data)
+	}
+	return n
+}
+
+func (h *History) recordLimits() (int, int) {
+	maxRecs := h.maxRecords
+	if maxRecs <= 0 {
+		maxRecs = maxHistoryRecords
+	}
+	maxBytes := h.maxSnapshotBytes
+	if maxBytes <= 0 {
+		maxBytes = maxHistorySnapshotBytes
+	}
+	return maxRecs, maxBytes
+}
+
+func (h *History) totalRecordBytes() int {
+	total := 0
+	for i := range h.records {
+		total += historyRecordBytes(&h.records[i])
+	}
+	return total
+}
+
+// trimRecords enforces bounded entry count and snapshot byte budget on h.records so long sessions
+// cannot grow without bound. When over the byte budget it prunes superseded (undone/branched)
+// snapshots first before evicting the oldest active records from the front, always keeping the
+// newest entry.
+func (h *History) trimRecords() {
+	if h == nil || len(h.records) <= 1 {
+		return
+	}
+	maxRecs, maxBytes := h.recordLimits()
+
+	// 1. Enforce max entry count by dropping oldest entries from the front.
+	if len(h.records) > maxRecs {
+		drop := len(h.records) - maxRecs
+		copy(h.records, h.records[drop:])
+		clear(h.records[len(h.records)-drop:])
+		h.records = h.records[:len(h.records)-drop]
+	}
+
+	// 2. Enforce total snapshot byte budget.
+	total := h.totalRecordBytes()
+	if total <= maxBytes {
+		return
+	}
+
+	// Pass A: compact/prune superseded records (oldest first, never touching the newest entry).
+	kept := h.records[:0]
+	lastIdx := len(h.records) - 1
+	for i := range h.records {
+		r := h.records[i]
+		if total > maxBytes && i < lastIdx && r.superseded {
+			total -= historyRecordBytes(&r)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	clear(h.records[len(kept):])
+	h.records = kept
+
+	// Pass B: drop oldest remaining entries from the front until within budget (keeping at least 1).
+	drop := 0
+	for total > maxBytes && len(h.records)-drop > 1 {
+		total -= historyRecordBytes(&h.records[drop])
+		drop++
+	}
+	if drop > 0 {
+		copy(h.records, h.records[drop:])
+		clear(h.records[len(h.records)-drop:])
+		h.records = h.records[:len(h.records)-drop]
+	}
 }
 
 func (h *History) markSupersededAfterCursor() {
@@ -353,6 +454,7 @@ func (h *History) recordCommand(cmd Command, commandIndex int) {
 		rec.entry.Summary = "Edit"
 	}
 	h.records = append(h.records, rec)
+	h.trimRecords()
 	h.syncUndoFlags()
 }
 
@@ -400,6 +502,11 @@ func (h *History) Execute(cmd Command) {
 func (h *History) execute(cmd Command) error {
 	if h == nil || cmd == nil {
 		return nil
+	}
+	if h.beforeExecute != nil {
+		if err := h.beforeExecute(); err != nil {
+			return err
+		}
 	}
 	if f, ok := cmd.(fallibleCommand); ok {
 		if err := f.do(); err != nil {
@@ -558,6 +665,11 @@ func (h *History) Group(label string, fn func() error) error {
 	if h == nil {
 		return fn()
 	}
+	if h.beforeExecute != nil {
+		if err := h.beforeExecute(); err != nil {
+			return err
+		}
+	}
 	if h.group != nil {
 		return fn()
 	}
@@ -695,6 +807,11 @@ func (h *History) endPreview(p previewGroup) []Command {
 func (h *History) commitPreview(label string, cmds []Command) bool {
 	if h == nil || len(cmds) == 0 {
 		return false
+	}
+	if h.beforeExecute != nil {
+		if err := h.beforeExecute(); err != nil {
+			return false
+		}
 	}
 	var cmd Command
 	if len(cmds) == 1 && label == "" {

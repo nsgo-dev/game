@@ -88,6 +88,7 @@ func (e *Editor) SaveAll() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	e.ExitHistoryPreview()
 	if err := e.checkSaveAllConflicts(); err != nil {
 		return err
 	}
@@ -227,6 +228,7 @@ func (e *Editor) Save() error {
 	}
 	e.endTileStrokeForChange()
 	e.exitTileReviewBeforePreview()
+	e.ExitHistoryPreview()
 	// The view is kept beside the project rather than in the scene, so saving records it whether or not the scene has edits.
 	e.saveViewStateQuietly()
 	e.endGridMapStrokeForChange()
@@ -350,6 +352,7 @@ func (e *Editor) OpenScene(rel string) error {
 
 // NewScene writes a new, minimal valid scene to rel, a slash-separated path from the root of the open project, and opens it as OpenScene does. A path without a .yaml or .yml extension gets ".scene.yaml" (one ending in ".scene" gets ".yaml"), the name `game check` and `game index` find scenes by, and NewScene returns the path it wrote. The scene is named after the file and is as large as the project's display, or its window without one, with one world layer, "main". It refuses the names of the project's own files, game.yaml and nsgo.yaml, makes the directories the path needs, never overwrites a file (ErrFileExists), and returns ErrNoProject without a project. Like OpenScene, it loses the open scene's unsaved edits.
 func (e *Editor) NewScene(rel string) (string, error) {
+	e.ExitHistoryPreview()
 	rel = withSceneExt(rel)
 	abs, err := e.sceneTarget(rel)
 	if err != nil {
@@ -398,6 +401,7 @@ func (e *Editor) SaveSceneAs(rel string) (string, error) {
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	e.ExitHistoryPreview()
 	rel = withSceneExt(rel)
 	abs, err := e.sceneTarget(rel)
 	if err != nil {

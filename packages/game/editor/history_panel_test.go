@@ -65,6 +65,7 @@ func TestHistoryPanelAcceptancePreviewAndNonDestructiveRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	ed.WaitForProblems()
+	_ = ed.SetAutoSave(false)
 
 	now := time.Date(2026, 11, 26, 14, 15, 0, 0, time.UTC)
 	ed.SetHistoryClock(func() time.Time { return now })
@@ -335,6 +336,7 @@ func TestHistoryPanelScreenshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	ed.WaitForProblems()
+	_ = ed.SetAutoSave(false)
 
 	now := time.Date(2026, 11, 25, 18, 12, 0, 0, time.UTC)
 	ed.SetHistoryClock(func() time.Time { return now })
@@ -406,4 +408,98 @@ func TestHistoryPanelScreenshots(t *testing.T) {
 	})
 	app.Settle()
 	app.Screenshot("history-panel-preview-light")
+}
+
+// Blocker 7: Unrelated rev bumps (hover, status updates, pan/zoom) must NOT remount the History
+// panel, its core.Scroll ("history-panel-list"), filter controls, or preview banner, and live
+// Dark <-> Light and EN <-> ZH switches must update cleanly in place.
+func TestHistoryPanelZeroRemountFocusAndLiveThemeSwitch(t *testing.T) {
+	dir := t.TempDir()
+	projYAML := "version: 1\nname: remount-check\nid: dev.example.remount\nappVersion: 1.0.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
+	if err := os.WriteFile(filepath.Join(dir, "game.yaml"), []byte(projYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rawScene, err := sceneformat.Encode(buildHistoryAcceptanceScene())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenes", "level_01.scene.yaml"), rawScene, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+	_ = ed.SetAutoSave(false)
+
+	now := time.Date(2026, 11, 26, 14, 30, 0, 0, time.UTC)
+	ed.SetHistoryClock(func() time.Time { return now })
+	if err := ed.MoveObject("knight", 460, 220); err != nil {
+		t.Fatal(err)
+	}
+	entryID := ed.HistoryEntries()[0].ID
+	now = now.Add(3 * time.Minute)
+	ed.SetHistoryPanelOpen(true)
+	if err := ed.PreviewHistoryEntry(entryID); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}))
+
+	// Focus a filter button inside HistoryPanelView header and verify unrelated 60 Hz rev bumps
+	// keep focus intact (no remount of header/scroll/banner).
+	app.Focus("id:history-filter-all")
+	app.Settle()
+	if !app.Find("id:history-filter-all").Focused {
+		t.Fatal("expected history-filter-all to have focus")
+	}
+
+	for i := 0; i < 15; i++ {
+		app.Post(func() {
+			ed.PanView2D(1, 0)
+		})
+	}
+	app.Settle()
+	if !app.Find("id:history-filter-all").Focused {
+		t.Fatal("unrelated viewport rev bumps dropped focus on history-filter-all (remount regression)")
+	}
+
+	// Focus the floating banner's Back button and verify unrelated rev bumps preserve focus.
+	app.Focus("id:history-viewport-back")
+	app.Settle()
+	if !app.Find("id:history-viewport-back").Focused {
+		t.Fatal("expected history-viewport-back to have focus")
+	}
+	for i := 0; i < 10; i++ {
+		app.Post(func() {
+			ed.PanView2D(-1, 0)
+		})
+	}
+	app.Settle()
+	if !app.Find("id:history-viewport-back").Focused {
+		t.Fatal("unrelated rev bumps dropped focus on history-viewport-back (banner remount regression)")
+	}
+
+	// Live Light <-> Dark and ZH <-> EN switches update banner and panel title in place.
+	app.Post(func() {
+		_ = ed.SetAppearance(editor.AppearanceLight)
+		_ = ed.SetLanguage(editor.Language("zh"))
+	})
+	app.Settle()
+	if got := app.Find("id:history-panel-title").Text; got != "历史" {
+		t.Fatalf("ZH history panel title = %q, want 历史", got)
+	}
+	if got := app.Find("id:history-preview-banner-text").Text; !strings.Contains(got, "正在预览") {
+		t.Fatalf("ZH preview banner = %q, want 正在预览", got)
+	}
 }

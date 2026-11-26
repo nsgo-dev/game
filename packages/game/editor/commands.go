@@ -304,6 +304,9 @@ func (e *Editor) initBuiltinCommands() {
 	notPlaying := func() bool {
 		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
 	}
+	canEdit := func() bool {
+		return notPlaying() && !e.HistoryPreviewActive()
+	}
 	inEditor := func() bool {
 		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
 	}
@@ -509,7 +512,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"cut", "clipboard", "yaml", "object", "tile"},
 			Shortcut:    "mod+x",
 			Enabled: func() bool {
-				if !notPlaying() {
+				if !canEdit() {
 					return false
 				}
 				return e.allSelectedObjectsAreLocal() || (e.ViewMode == ViewMode2D && e.hasTileSel)
@@ -530,7 +533,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"paste", "clipboard", "yaml", "object", "tile"},
 			Shortcut:    "mod+v",
-			Enabled:     notPlaying,
+			Enabled:     canEdit,
 			Run: func() error {
 				if e.ViewMode == ViewMode2D && isTileTool(e.Tool) && !e.tileClipboard.Empty() && e.lastClipboardKind == clipboardTile {
 					if col, row, ok := e.HoveredTile(); ok {
@@ -554,7 +557,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"paste", "child", "parent", "clipboard", "yaml", "object"},
 			Shortcut:    "mod+shift+v",
-			Enabled:     func() bool { return notPlaying() && e.selectedObjectIsLocal() },
+			Enabled:     func() bool { return canEdit() && e.selectedObjectIsLocal() },
 			Run: func() error {
 				_, err := e.PasteInto(e.SelectedID)
 				return err
@@ -570,7 +573,7 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:           "delete",
 			AlternateShortcuts: []string{"backspace"},
 			Enabled: func() bool {
-				return notPlaying() && (e.allSelectedObjectsAreLocal() || e.SelectedRoomID() != "")
+				return canEdit() && (e.allSelectedObjectsAreLocal() || e.SelectedRoomID() != "")
 			},
 			Run: func() error {
 				if e.allSelectedObjectsAreLocal() {
@@ -590,7 +593,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"clone", "copy", "object"},
 			Scope:       ScopeViewport,
 			Shortcut:    "mod+d",
-			Enabled:     func() bool { return notPlaying() && e.allSelectedObjectsAreLocal() },
+			Enabled:     func() bool { return canEdit() && e.allSelectedObjectsAreLocal() },
 			Run: func() error {
 				_, err := e.DuplicateSelected()
 				return err
@@ -604,7 +607,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"group", "parent", "container", "hierarchy", "object"},
 			Scope:       ScopeViewport,
 			Shortcut:    "mod+g",
-			Enabled:     func() bool { return notPlaying() && e.allSelectedObjectsAreLocal() },
+			Enabled:     func() bool { return canEdit() && e.allSelectedObjectsAreLocal() },
 			Run: func() error {
 				_, err := e.GroupSelected()
 				return err
@@ -619,7 +622,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeViewport,
 			Shortcut:    "mod+shift+g",
 			Enabled: func() bool {
-				if !notPlaying() || e.SelectedID == "" {
+				if !canEdit() || e.SelectedID == "" {
 					return false
 				}
 				o, _, _ := e.FindObject(e.SelectedID)

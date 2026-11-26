@@ -476,7 +476,7 @@ func (e *Editor) DraggingHandle3D() bool {
 
 // BeginHandleDrag3D picks an interactive light/camera handle at (sx, sy) and begins dragging it.
 func (e *Editor) BeginHandleDrag3D(sx, sy, w, h float32) Handle3DKind {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return Handle3DNone
 	}
 	kind := e.PickHandle3D(sx, sy, w, h)

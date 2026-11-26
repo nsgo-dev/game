@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -108,11 +109,34 @@ func (e *Editor) HistoryPanelOpen() bool {
 	return e != nil && e.historyPanel.open
 }
 
+// resetHistoryPanelForProject clears UI, preview, and transient save-batch state when switching
+// projects or opening the Demo Room, preserving any injected test clock.
+func (e *Editor) resetHistoryPanelForProject() {
+	if e == nil {
+		return
+	}
+	if e.historyPanel.preview != nil {
+		e.s3d.stale = true
+	}
+	e.historyPanel.open = false
+	e.historyPanel.filter = HistoryFilterAll
+	e.historyPanel.preview = nil
+	e.historyPanel.pendingMeta = nil
+	e.historyPanel.savingDepth = 0
+	e.historyPanel.savedFiles = nil
+}
+
 // SetHistoryPanelOpen opens or closes the History timeline panel.
 // Closing the panel also exits any active point-in-time preview.
 func (e *Editor) SetHistoryPanelOpen(open bool) {
 	if e == nil {
 		return
+	}
+	if open && (e.Playing() || e.StartScreenOpen() || e.MergeConflictOpen()) {
+		return
+	}
+	if open && e.ProblemAgentPanelOpen() {
+		e.SetProblemAgentPanelOpen(false)
 	}
 	changed := e.historyPanel.open != open
 	e.historyPanel.open = open
@@ -224,6 +248,9 @@ func (e *Editor) PreviewHistoryEntry(id uint64) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.StartScreenOpen() || e.MergeConflictOpen() {
+		return errors.New("editor: history preview is unavailable while a full-window screen is open")
+	}
 	idx := e.History.recordIndexByID(id)
 	if idx < 0 {
 		return fmt.Errorf("editor: history entry %d not found", id)
@@ -247,6 +274,7 @@ func (e *Editor) PreviewHistoryEntry(id uint64) error {
 	built.DrawAllTiles = true
 
 	e.cancelTransientInteraction()
+	e.cancelAutoSaveTimer()
 	e.historyPanel.preview = &historyPreviewState{
 		entryID: id,
 		entry:   rec.entry.Clone(),
@@ -267,6 +295,7 @@ func (e *Editor) ExitHistoryPreview() {
 	e.historyPanel.preview = nil
 	e.s3d.stale = true
 	e.Status = "Ready"
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 }
 
@@ -280,6 +309,9 @@ func (e *Editor) RecordAgentTurn(opts AgentTurnOptions, fn func() error) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.StartScreenOpen() || e.MergeConflictOpen() {
+		return errors.New("editor: agent turns are unavailable while a full-window screen is open")
+	}
 	if fn == nil {
 		return nil
 	}
@@ -288,7 +320,10 @@ func (e *Editor) RecordAgentTurn(opts AgentTurnOptions, fn func() error) error {
 	}
 
 	extraPaths := normalizeHistoryFileList(opts.Files)
-	beforeFiles := e.snapshotExtraFiles(extraPaths)
+	beforeFiles, err := e.snapshotExtraFiles(extraPaths)
+	if err != nil {
+		return err
+	}
 	var sceneBefore []byte
 	if e.Doc != nil {
 		sceneBefore, _ = e.SaveYAML()
@@ -324,18 +359,48 @@ func (e *Editor) RecordAgentTurn(opts AgentTurnOptions, fn func() error) error {
 	prevMeta := e.historyPanel.pendingMeta
 	defer func() { e.historyPanel.pendingMeta = prevMeta }()
 
-	err := e.History.Group(undoLabel, func() error {
+	rollbackExtraFiles := func() {
+		if len(beforeFiles) == 0 {
+			return
+		}
+		afterNow, _ := e.snapshotExtraFiles(extraPaths)
+		changed := diffExtraFiles(beforeFiles, afterNow)
+		if len(changed) == 0 {
+			// Best-effort restore of every pre-existing/absent tracked file in case snapshot failed mid-write.
+			_ = e.applyHistoryFiles(beforeFiles)
+			return
+		}
+		restore := make(map[string]historyFileSnapshot, len(changed))
+		for _, p := range changed {
+			restore[p] = beforeFiles[p]
+		}
+		_ = e.applyHistoryFiles(restore)
+	}
+
+	err = e.History.Group(undoLabel, func() (groupErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				rollbackExtraFiles()
+				panic(r)
+			}
+		}()
 		if err := fn(); err != nil {
+			rollbackExtraFiles()
 			return err
 		}
 		if e.History.group != nil {
 			executedSubCmds = len(e.History.group.cmds)
 		}
-		afterFiles := e.snapshotExtraFiles(extraPaths)
+		afterFiles, err := e.snapshotExtraFiles(extraPaths)
+		if err != nil {
+			rollbackExtraFiles()
+			return err
+		}
 		changedFiles := diffExtraFiles(beforeFiles, afterFiles)
+		var beforeSubset, afterSubset map[string]historyFileSnapshot
 		if len(changedFiles) > 0 {
-			beforeSubset := make(map[string]historyFileSnapshot, len(changedFiles))
-			afterSubset := make(map[string]historyFileSnapshot, len(changedFiles))
+			beforeSubset = make(map[string]historyFileSnapshot, len(changedFiles))
+			afterSubset = make(map[string]historyFileSnapshot, len(changedFiles))
 			for _, p := range changedFiles {
 				beforeSubset[p] = beforeFiles[p]
 				afterSubset[p] = afterFiles[p]
@@ -390,8 +455,8 @@ func (e *Editor) RecordAgentTurn(opts AgentTurnOptions, fn func() error) error {
 			Files:       touched,
 			ChangeCount: changeCount,
 			KeptCount:   keptCount,
-			BeforeFiles: beforeFiles,
-			AfterFiles:  afterFiles,
+			BeforeFiles: beforeSubset,
+			AfterFiles:  afterSubset,
 		}
 		return nil
 	})
@@ -426,6 +491,9 @@ func (e *Editor) RestoreHistoryEntry(id uint64) error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.StartScreenOpen() || e.MergeConflictOpen() {
+		return errors.New("editor: history restore is unavailable while a full-window screen is open")
 	}
 	idx := e.History.recordIndexByID(id)
 	if idx < 0 {
@@ -483,7 +551,10 @@ func (e *Editor) RestoreHistoryEntry(id uint64) error {
 	}
 	allExtra = normalizeHistoryFileList(allExtra)
 
-	beforeSnap := e.captureHistorySnapshot(allExtra)
+	beforeSnap, err := e.captureHistorySnapshot(allExtra)
+	if err != nil {
+		return fmt.Errorf("editor: snapshot before restore %d: %w", id, err)
+	}
 	afterSnap := historySnapshot{
 		sceneYAML:   slices.Clone(target.snapshot.sceneYAML),
 		scenePath:   target.snapshot.scenePath,
@@ -521,6 +592,12 @@ func (e *Editor) RestoreHistoryEntry(id uint64) error {
 		return err
 	}
 
+	wantProject := e.ProjectPath
+	wantTabID := e.activeTabID()
+	wantHistory := e.History
+	wantCursor := e.History.Index()
+	wantCmd := e.History.topUndoCommand()
+
 	toastMsg := fmt.Sprintf("Restored to %s · %s", ago, detail)
 	e.Status = toastMsg
 	e.ShowToast(Toast{
@@ -531,6 +608,15 @@ func (e *Editor) RestoreHistoryEntry(id uint64) error {
 		ActionShortcut: FormatShortcut(e.EffectiveShortcut(CmdUndo), e.defaultShortcutOS()),
 		OnAction: func() {
 			e.DismissToast()
+			if e.Playing() || e.StartScreenOpen() || e.MergeConflictOpen() {
+				return
+			}
+			if e.ProjectPath != wantProject || e.activeTabID() != wantTabID || e.History != wantHistory {
+				return
+			}
+			if e.History == nil || e.History.Index() != wantCursor || e.History.topUndoCommand() != wantCmd {
+				return
+			}
 			e.Undo()
 		},
 	})
@@ -538,6 +624,7 @@ func (e *Editor) RestoreHistoryEntry(id uint64) error {
 }
 
 func (e *Editor) applyHistorySnapshot(snap historySnapshot) error {
+	var parsedDoc *sceneformat.SceneDoc
 	if len(snap.sceneYAML) > 0 {
 		doc, err := sceneformat.ParseWith(snap.sceneYAML, sceneformat.ParseOptions{
 			File:          snap.scenePath,
@@ -547,75 +634,128 @@ func (e *Editor) applyHistorySnapshot(snap historySnapshot) error {
 		if err != nil {
 			return err
 		}
-		e.Doc = doc
+		parsedDoc = doc
 	}
+	var parsedProj *project.File
 	if len(snap.projectYAML) > 0 && e.Project != nil {
 		pf, err := project.Parse(snap.projectYAML)
 		if err != nil {
 			return err
 		}
-		e.Project = pf
+		parsedProj = pf
 	}
-	if len(snap.files) > 0 && e.ProjectPath != "" {
-		root := filepath.Dir(e.ProjectPath)
-		paths := make([]string, 0, len(snap.files))
-		for p := range snap.files {
-			paths = append(paths, p)
-		}
-		slices.Sort(paths)
-		for _, rel := range paths {
-			fsnap := snap.files[rel]
-			abs, err := e.historyExtraFileAbsPath(root, rel)
-			if err != nil {
-				return err
-			}
-			if !fsnap.exists {
-				if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-				continue
-			}
-			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				return err
-			}
-			if err := writeFileAtomic(abs, fsnap.data); err != nil {
-				return err
-			}
-		}
-		e.filesRev++
-		e.snapshotProjectTree()
-		e.invalidateProjectIndex()
+	// Apply disk files before committing in-memory doc/project; applyHistoryFiles rolls back
+	// any partially written files if a later file fails, leaving memory and disk consistent.
+	if err := e.applyHistoryFiles(snap.files); err != nil {
+		return err
+	}
+	if parsedDoc != nil {
+		e.setDoc(parsedDoc)
+		e.pruneSelection()
+	}
+	if parsedProj != nil {
+		e.Project = parsedProj
+		e.syncAudioMixer()
 	}
 	return nil
 }
 
-func (e *Editor) historyExtraFileAbsPath(root, rel string) (string, error) {
-	cleaned := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(cleaned) || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("editor: history file path %q leaves project root", rel)
+func (e *Editor) applyHistoryFiles(files map[string]historyFileSnapshot) error {
+	if len(files) == 0 || e.ProjectPath == "" {
+		return nil
 	}
-	return filepath.Join(root, cleaned), nil
+	root := filepath.Dir(e.ProjectPath)
+	paths := make([]string, 0, len(files))
+	for p := range files {
+		paths = append(paths, p)
+	}
+	slices.Sort(paths)
+
+	type resolvedFileOp struct {
+		rel      string
+		abs      string
+		target   historyFileSnapshot
+		previous historyFileSnapshot
+	}
+	ops := make([]resolvedFileOp, 0, len(paths))
+	for _, rel := range paths {
+		cleanRel, abs, err := resolveProjectFileWithinRoot(root, rel, true)
+		if err != nil {
+			return err
+		}
+		var prev historyFileSnapshot
+		data, rerr := readProjectFileBounded(root, cleanRel, maxInspectorYAMLBytes)
+		switch {
+		case rerr == nil:
+			prev = historyFileSnapshot{exists: true, data: data}
+		case errors.Is(rerr, fs.ErrNotExist):
+			prev = historyFileSnapshot{exists: false}
+		default:
+			return rerr
+		}
+		ops = append(ops, resolvedFileOp{
+			rel:      cleanRel,
+			abs:      abs,
+			target:   files[rel],
+			previous: prev,
+		})
+	}
+
+	writeOne := func(abs string, snap historyFileSnapshot) error {
+		if !snap.exists {
+			if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return err
+		}
+		return writeFileAtomic(abs, snap.data)
+	}
+
+	for i, op := range ops {
+		if err := writeOne(op.abs, op.target); err != nil {
+			// Roll back previously applied files in reverse order.
+			for j := i - 1; j >= 0; j-- {
+				_ = writeOne(ops[j].abs, ops[j].previous)
+			}
+			return err
+		}
+	}
+	e.filesRev++
+	e.snapshotProjectTree()
+	e.invalidateProjectIndex()
+	return nil
 }
 
-func (e *Editor) snapshotExtraFiles(paths []string) map[string]historyFileSnapshot {
+func (e *Editor) historyExtraFileAbsPath(root, rel string) (string, error) {
+	_, abs, err := resolveProjectFileWithinRoot(root, rel, true)
+	return abs, err
+}
+
+func (e *Editor) snapshotExtraFiles(paths []string) (map[string]historyFileSnapshot, error) {
 	if e == nil || e.ProjectPath == "" || len(paths) == 0 {
-		return nil
+		return nil, nil
 	}
 	root := filepath.Dir(e.ProjectPath)
 	out := make(map[string]historyFileSnapshot, len(paths))
 	for _, rel := range paths {
-		abs, err := e.historyExtraFileAbsPath(root, rel)
+		cleanRel, _, err := resolveProjectFileWithinRoot(root, rel, true)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		data, err := os.ReadFile(abs)
+		data, err := readProjectFileBounded(root, cleanRel, maxInspectorYAMLBytes)
 		if err != nil {
-			out[rel] = historyFileSnapshot{exists: false}
-			continue
+			if errors.Is(err, fs.ErrNotExist) {
+				out[cleanRel] = historyFileSnapshot{exists: false}
+				continue
+			}
+			return nil, err
 		}
-		out[rel] = historyFileSnapshot{exists: true, data: data}
+		out[cleanRel] = historyFileSnapshot{exists: true, data: data}
 	}
-	return out
+	return out, nil
 }
 
 func diffExtraFiles(before, after map[string]historyFileSnapshot) []string {
@@ -638,22 +778,34 @@ func diffExtraFiles(before, after map[string]historyFileSnapshot) []string {
 	return changed
 }
 
-func (e *Editor) captureHistorySnapshot(extraFiles []string) historySnapshot {
+func (e *Editor) captureHistorySnapshot(extraFiles []string) (historySnapshot, error) {
 	var snap historySnapshot
 	if e == nil {
-		return snap
+		return snap, nil
 	}
 	if e.Doc != nil {
-		snap.sceneYAML, _ = e.SaveYAML()
+		data, err := e.SaveYAML()
+		if err != nil {
+			return snap, err
+		}
+		snap.sceneYAML = data
 		snap.scenePath = e.historyActiveSceneFile()
 	}
 	if e.Project != nil {
-		snap.projectYAML, _ = project.Encode(e.Project)
+		data, err := project.Encode(e.Project)
+		if err != nil {
+			return snap, err
+		}
+		snap.projectYAML = data
 	}
 	if len(extraFiles) > 0 {
-		snap.files = e.snapshotExtraFiles(extraFiles)
+		files, err := e.snapshotExtraFiles(extraFiles)
+		if err != nil {
+			return snap, err
+		}
+		snap.files = files
 	}
-	return snap
+	return snap, nil
 }
 
 func (e *Editor) historyActiveSceneFile() string {
@@ -726,11 +878,15 @@ func (e *Editor) recordHistoryStep(cmd Command, rec *historyRecord) {
 
 	// Capture scene and project YAML snapshot after the command ran.
 	if len(rec.snapshot.sceneYAML) == 0 && e.Doc != nil {
-		rec.snapshot.sceneYAML, _ = e.SaveYAML()
-		rec.snapshot.scenePath = e.historyActiveSceneFile()
+		if data, err := e.SaveYAML(); err == nil {
+			rec.snapshot.sceneYAML = data
+			rec.snapshot.scenePath = e.historyActiveSceneFile()
+		}
 	}
 	if len(rec.snapshot.projectYAML) == 0 && e.Project != nil {
-		rec.snapshot.projectYAML, _ = project.Encode(e.Project)
+		if data, err := project.Encode(e.Project); err == nil {
+			rec.snapshot.projectYAML = data
+		}
 	}
 }
 
@@ -793,7 +949,10 @@ func (e *Editor) recordSavedHistoryMarker(files []string) {
 	for _, f := range files {
 		bases = append(bases, filepath.Base(filepath.FromSlash(f)))
 	}
-	snap := e.captureHistorySnapshot(nil)
+	snap, err := e.captureHistorySnapshot(nil)
+	if err != nil {
+		return
+	}
 	e.History.RecordSaved(files, strings.Join(bases, " · "), snap)
 }
 

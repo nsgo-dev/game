@@ -731,7 +731,7 @@ func (e *Editor) GizmoLength3D(pos [3]float32) float32 {
 }
 
 func (e *Editor) gizmo3DBlocked() bool {
-	return e == nil || e.playing || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
+	return e == nil || e.playing || e.HistoryPreviewActive() || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
 }
 
 type mat3 [3][3]float64

@@ -1454,7 +1454,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				}
 			}
 			// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell unless picking a connection target.
-			if !ed.PickingConnectionTarget() {
+			if !ed.PickingConnectionTarget() && !ed.HistoryPreviewActive() {
 				if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
 					ed.EndTileStroke()
 					return
@@ -1743,6 +1743,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							g.middle, g.middleLast = true, ev.Position
 						case core.MouseButtonLeft:
 							g.suppressPress = false
+							if ed.HistoryPreviewActive() {
+								return
+							}
 							px, py := float32(ev.Position.X), float32(ev.Position.Y)
 							if !spaceHeld() && !ed.PickingConnectionTarget() {
 								if ed.RoomCreateMode() && ed.BeginRoomDrag(px, py) {
@@ -1768,6 +1771,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							}
 							beginStroke(ev.Position, false, ev.Modifiers.Alt)
 						case core.MouseButtonRight:
+							if ed.HistoryPreviewActive() {
+								return
+							}
 							if !spaceHeld() && !ed.PickingConnectionTarget() && ed.HandleCanvasSecondaryPress(float32(ev.Position.X), float32(ev.Position.Y)) {
 								rightConsumed = true
 								return

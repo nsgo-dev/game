@@ -1571,6 +1571,7 @@ func (e *Editor) OpenFile(path string) error {
 
 func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLayerTable) error {
 	e.CloseAskInPlace()
+	e.ExitHistoryPreview()
 	rel, _ := e.projectRel(path)
 	if idx := e.findTabByPath(rel, path); idx >= 0 {
 		if e.playing {
@@ -1622,6 +1623,7 @@ func (e *Editor) SaveFile(path string) error {
 		e.cancelMaterialColorPreview()
 		e.endTileStrokeForChange()
 		e.exitTileReviewBeforePreview()
+		e.ExitHistoryPreview()
 		e.endGridMapStrokeForChange()
 	}
 	if err := e.checkDiskConflict(DiskFileScene, path, e.disk.sceneDisk); err != nil {
@@ -1696,6 +1698,7 @@ func (e *Editor) Undo() bool {
 	if e.playing {
 		return false
 	}
+	e.ExitHistoryPreview()
 	if e.undoCutsceneReviewEdit() {
 		return true
 	}
@@ -1740,6 +1743,7 @@ func (e *Editor) Redo() bool {
 	if e.playing {
 		return false
 	}
+	e.ExitHistoryPreview()
 	if e.redoCutsceneReviewEdit() {
 		return true
 	}
@@ -1918,6 +1922,9 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 	if e.playing {
 		return "", ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return "", ErrHistoryPreview
+	}
 	li, err := e.resolveLayerIndex(layerName)
 	if err != nil {
 		return "", err
@@ -2073,6 +2080,9 @@ func (e *Editor) DeleteObject(id string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
@@ -2109,6 +2119,9 @@ func (e *Editor) DeleteObject(id string) error {
 func (e *Editor) MoveObject(id string, x, y float32) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
 	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return errors.New("editor: position must be finite")
@@ -2374,6 +2387,9 @@ func equalTransform3D(a, b Transform3D) bool {
 func (e *Editor) MoveObject3D(id string, x, y, posZ float32) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
 	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(posZ) {
 		return errors.New("editor: 3D position must be finite")
