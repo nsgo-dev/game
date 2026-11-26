@@ -325,6 +325,7 @@ type AgentTurn struct {
 	TriggerSummary  string                `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
 	CheckpointID    string                `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
 	ReviewState     AgentReviewState      `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
+	Plan            *AgentPlanReview      `json:"plan,omitempty"`
 
 	turnStartHistoryIdx int
 	baselineDoc         *sceneformat.SceneDoc
@@ -675,6 +676,7 @@ func (e *Editor) resetAgentForProject() {
 	e.resetTurnReviewForProject()
 	e.resetTaskNotificationsForProject()
 	e.sceneOverlays = nil
+	e.resetPlanForProject()
 	e.agent.activeRunID++
 	e.agent.activeTurnID = ""
 	e.agent.clients = nil
@@ -1812,9 +1814,16 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 	return e.SubmitAgentTaskPrompt(AgentTaskSceneEdit, prompt)
 }
 
-// StopAgentRun cancels the currently running agent request, keeping completed steps visible,
-// recording done and not-done steps for Resume, and leaving changes unkept until reviewed.
+// StopAgentRun cancels the currently running agent request or active running plan,
+// keeping completed steps visible, recording done and not-done steps for Resume,
+// and leaving changes unkept until reviewed.
 func (e *Editor) StopAgentRun() {
+	if e == nil {
+		return
+	}
+	if e.IsPlanRunning() {
+		_, _ = e.StopAgentPlan()
+	}
 	e.StopAgent()
 }
 

@@ -1370,7 +1370,6 @@ func main() {
 - **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
 - **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
-
 ## 后台任务列表：排队与并行智能体请求（#1022）
 
 请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `docs/design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
@@ -1600,7 +1599,6 @@ func main() {
 - **上下文标签与精确悬停预览**：输入框上方依次展示已附加标签（点击 `×` 通过 `RemoveComposerChip` 移除，或在空输入框中按 `⌫` 通过 `RemoveLastComposerChip` 移除）、**始终附加**标签（项目根目录中的 `brief.yaml` 与 `AGENTS.md`）以及可开关的 **视口图像** 标签（`SetViewportImageIncluded` / `ToggleViewportImage`）。在视口或场景树中选中对象只会显示虚线建议标签 `+ <名称> · 已选中`（`SuggestedChip`），除非主动添加（`AcceptSuggestedChip`），否则绝不会随请求发送；`TriggerAskAgentShortcut` 会在选中对象时附加该对象，未选中任何对象时附加整个打开的场景（`AttachWholeSceneChip`）并聚焦输入框。悬停任意标签（`SetHoveredChip` / `HoveredChipPayload`）都会通过 `ResolveChipPayload` 显示实际发送的精确头部（如 `# level_01.scene.yaml · lines 72–78`）及对应的 YAML 文本或图像。
 - **单一数据源的请求组装**：`AssembleAgentRequest` 仅从当前生效的标签组装 `AgentRequest`（调用与悬停预览完全相同的 `ResolveChipPayload`），并统一供 `SendComposerPrompt`（`Editor.OnSendAgentComposerRequest`）与 `SubmitAgentPrompt`（`Editor.AgentRunner`）使用。
 - **上下文计量环、明细、压缩与新开线程**：20×20 环形进度指示器根据智能体回报的 token 用量（`SetAgentTokenUsage` 或 `AgentResponse.Usage`）呈现三种规范状态（正常 `≤ 70%`、超过 70% 警告 `71–89%`、以及 `≥ 90%` 的“立即压缩”状态）。点击计量环可展开 6 项明细（**Conversation**、**Open scene**、**Attached**、**Always**、**Tools and instructions**、**Viewport image**），并提供 **压缩线程**（`CompactAgentThread`，将较早请求折叠为摘要并完整保留最后一条请求，同时降低计量环占比）与 **使用摘要新开**（`StartFreshAgentThread`，以该摘要启动新线程）。
-
 ## AI 优先的主界面布局（#1007）
 
 编辑器主窗口（`main_layout_ui.go`、`ui.go`、`agent_ui.go`、`overlays_ui.go`、`scenetree.go`）按 `docs/design/editor/Main.dc.html` 实现 AI 优先工作区，并严格使用 `docs/design/editor/Spec.dc.html` 的颜色令牌、尺寸比例与无障碍控件：
@@ -1629,7 +1627,6 @@ func main() {
 - **菜单显示、隐藏与重置**：通过 **View > Panels** 菜单勾选或取消显示任意内置面板与已启用插件面板（`PanelVisible`、`SetPanelVisible`、`TogglePanel`、`Panels`），或选择 **View > Reset Layout** / **View > Panels > Reset Layout**（`CmdResetLayout`、`ResetLayout`）恢复默认布局。
 - **按用户保存布局（`LayoutFile`、`ParseLayout`、`EncodeLayout`）**：布局改动会自动以严格版本化 YAML 保存在所有项目之外的用户配置目录 `<UserConfigDir>/nsgo-game/layout.yaml`（`DefaultLayoutPath`，通过 `Editor.LayoutPath` / `Editor.SetLayoutPath` 配置，并由 `game editor` 与 `editorcmd` 自动接入）。下次启动时恢复已保存的分割、标签组、当前活动标签页、尺寸与隐藏面板；不再存在的面板（例如已卸载插件的面板）会在恢复时自动丢弃。
 - **插件面板位置**：插件面板（`Plugin.Panels`）首次使用时出现在其声明的默认 `Dock`（`DockLeft`、`DockRight` 或 `DockBottom`）；一旦用户将其移动或合并到其他位置，之后每次启动都会恢复到用户移动后的位置。
-
 ## 逐文件审查智能体的 Go 代码更改（#1034）
 
 当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `docs/design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `SpecPalette` 令牌）：
@@ -1639,7 +1636,6 @@ func main() {
 - **检查状态条、失败测试卡片与同回合第 2 轮修复**：状态条（`RoleStatus` + `LiveRegionPolite`）展示 `nsgo check`、`nsgo test` 通过/失败计数、耗时与包路径、**Run again**（`r`）以及运行中的实时进度（`"nsgo test running · M of N"` / `"Agent is fixing · nsgo test running · M of N"` 及 `"Agent edited <file>:<line>"` 徽章）。失败测试卡片会展示测试名、`file:line` 错误输出和智能体的原因说明，并提供 **Ask the agent to fix**（`AskAgentToFixCodeReview`、`Editor.OnAskCodeReviewFix`，在同一回合内作为 Round 2 修复并重新运行检查）与 **Open the test**（`OpenCodeReviewTestFile`）。
 - **逐文件确认、保留、等待卡片与单步撤销**：在最新待定代码通过 `nsgo check` 和 `nsgo test` 之前，**Confirm `<file>`**（`ConfirmCodeReviewFile`）保持禁用并返回 `ErrCodeReviewChecksNotPassed`；检查通过后解锁，确认后切换为 **Confirmed · undo**。**Keep**（`KeepCodeReview` / `⌘↵`）会将保留的 YAML 文件与**已确认**的 Go 文件作为 `Editor.History` 中的**单个撤销步骤**原子写入磁盘，一次 `Editor.Undo()` 即可还原旧 YAML/Go 文件并移除新建的 Go 文件。若保留时仍有未确认的 Go 文件，则仅写入 YAML 更改并在 **Agent** 面板保留一张等待卡片（说明哪些文件等待确认及其在运行模式中的影响，并附带 **Review** 按钮直接回到未确认的 Go 文件）。按 `Esc`（`CloseCodeReview`）可暂停审查而不丢弃更改，**Revert all**（`RevertCodeReview` / `⌘⌫`）则直接丢弃待定更改且不触碰磁盘。
 - **命令与 MCP 工具**：命令 `CmdReviewCode`（`agent.reviewCode`）用于打开或恢复进行中的 Go 审查。`editormcp` 提供 `code_review_propose`、`code_review_status` 与 `code_review_run_checks`，使智能体可在不阻塞 UI goroutine 的情况下提交待审 Go 代码、读取失败详情、在同一回合提交 Round 2 修复并重新运行覆盖层检查。
-
 ## 回退智能体对话线程（#1021）
 
 可将智能体对话回退到任意已发送消息之前（对应 `docs/design/editor/Checkpoints.dc.html`，全部界面仅使用 `docs/design/editor/Spec.dc.html` 设计 Token）：
@@ -1650,3 +1646,20 @@ func main() {
   - **仅文件（`AgentRewindFilesOnly`）**：从回合检查点还原文件，同时保持对话记录与会话不变。
   - **仅对话（`AgentRewindConversationOnly`）**：移除目标及后续回合与会话推进，同时保持磁盘文件现状不变。
 - **回退横幅、重做与消息回到输入框**：回退完成后，被回退的消息会重新填入输入框并以规范强调色边框高亮（`AgentComposerRewound`），方便修改后重新发送；输入框上方会显示状态横幅（`AgentRewindBanner`）说明已回退的范围，并提供 **Redo** / **重做** 按钮（`RedoAgentRewind` / `CanRedoAgentRewind`）一键恢复文件、对话回合、会话 ID 与原有输入框草稿。
+
+## 智能体执行前提出计划、澄清问题与规划虚影（#1035）
+
+对于较大规模的修改（例如依据项目 `permissions.yaml` 规则会修改 Go 代码、新建文件或跨多个文件的操作，`EvaluatePlanPermissions`、`PlanNeededForEdit`），智能体会在修改任何场景或文件前先提出结构化计划（对应 `docs/design/editor/Plan.dc.html`，严格遵循 `Spec.dc.html` 深色与浅色令牌）：
+
+- **MCP 计划提案与进度工具（`plan_propose` 与 `plan_step_update`）**：调用 `editormcp` 的 `plan_propose`（`ActionRead`，批准前绝不修改任何文件）会在编辑器中以草稿态（`PlanPhaseDraft`）展示 `AgentPlan`，包含标题、动态摘要（如 `"5 steps · 3 files · 10 objects · about 2 min · ~35k tokens"`）、带可视化预览（房间草图 `room` 或时序条 `strip`）的澄清问题、带文件清单/新增说明/带上下限步进器（`PlanStepField`）/权限徽章（如 `Edit Go`、`Run the game`）/规划场景树节点与视口虚影的编号步骤，并等待用户决定后返回结构化的 `AgentPlanDecision`（包含回答、修改后的数量、步骤备注与移除步骤）。`plan_step_update` 用于更新执行进度并在完成时将计划步骤清单（`AgentPlanReview`）写入该回合的审查视图。
+- **智能体面板中的交互式计划卡片（`agentPlanCardView`）**：
+  - 澄清问题以单选选项卡片呈现，选中后自动折叠为一行摘要并提供**修改（Change）**按钮（`ReopenPlanQuestion`）。所有问题回答完毕前**批准执行（`⌘↵`）**保持禁用并拒绝提交（`ApproveAgentPlan`）；**直接执行（Just do it）**（`JustDoItAgentPlan`）会自动采纳每个未答问题的推荐选项并显示 `"Picked for you: …"`。
+  - 每个步骤支持展开内联编辑器修改数值与备注（`EditPlanStep`、`AdjustPlanStepField`、`SetPlanStepNote`），以及移除与恢复（`RemovePlanStep`、`RestorePlanStep`），并在**本计划涉及的文件**列表中为仅属于已移除步骤的文件添加删除线。
+  - 底部提示“批准前不会更改任何文件”，说明触发计划的权限原因，并提供可点击的**权限设置**链接直接打开 **设置 › 权限**（`SettingsPagePermissions`）。
+- **视口规划虚影与场景树标记**：
+  - `drawPlanGhostsOverlay` 以智能体紫虚线框和带步骤编号的胶囊标签绘制规划虚影（`ResolvedPlanGhosts`），当回答改变选项（通过 `PlanGhostOverride` 移动门或拉杆）或步进器调整数量（`RepeatField`）时实时更新；视口左上角展示图例（`"planned · not in the file yet"`），底部悬浮栏提供**计划虚影（Plan ghosts）**开关（`TogglePlanGhosts`）。
+  - `SceneTreeView` 顶部显示规划节点计数，在受影响的现有图层旁显示步骤徽章，列出带虚线紫色标记的规划节点行，并在底部固定显示**本计划涉及的文件**（`ResolvedPlanFiles`）。
+- **执行中暂停手动编辑、停止与回合审查**：
+  - 进入执行态（`PlanPhaseRunning`）后，顶部标题栏显示状态胶囊（`"Agent is working · step k of N · manual edits to planned objects are paused"`），当前活动步骤的虚影变为实线，并暂停对被规划对象的手动修改（`IsObjectPausedByPlan`）。
+  - 在第 1 步写入任何内容前点击**停止**、按 `Esc` 或 `⌘.`（`StopAgentPlan`），所有文件保持原样（`NothingWritten: true`），底部显示“已在第 1 步前停止，未写入任何内容”并提供**编辑计划**（`EditStoppedPlan`）与**重新运行**（`RunStoppedPlanAgain`）。
+  - 计划完成后（`CompleteAgentPlan` 或 `plan_step_update` 传入 `complete: true`），该回合的审查视图（`AgentTurn.Plan`、`agentTurnPlanReviewView`）会列出计划的全部步骤并标明已完成或已跳过的条目。使用 `⌘L` 发起的小修改仍通过 `SkipPlan: true` 跳过计划。

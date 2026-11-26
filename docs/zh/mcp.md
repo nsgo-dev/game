@@ -355,6 +355,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `datatable_review_status` | read | `file`（可选） | 返回当前数据表审查的文件列表、保留/还原/用户编辑计数、当前文件改动记录状态、已附带的核验指标以及 `checksOutOfDate` 是否为真。 |
 | `sketch_read` | read | `includeImage`、`scale` | 读取当前或已发送的视口草图标记（画笔、箭头、方框、文本），返回连续编号、精确场景坐标、标签、提示词、确认闸门状态，以及可选的叠加编号标记的视口渲染 PNG。 |
 | `sketch_reading` | edit | `summary`、`items`、`assumptions` | 向编辑器提交智能体对已发送草图的复述卡片（`"I read your sketch as: …"`）与假设说明；在草图等待确认期间，`scene_edit` 及其他变更场景的工具会被拦住，直到用户点击 **Go ahead**、**Correct a mark** 或以文字回复。 |
+| `plan_propose` | read | `title`、`steps`（必填）；`id`、`turnId`、`prompt`、`summary`、`estimate`、`reason`、`files`、`questions`、`wait`（可选） | 在修改任何场景或文件前提出包含澄清问题（支持预览与虚影/标题联动）、可编辑编号步骤、规划场景树节点与视口紫色虚影的结构化计划；默认等待用户批准（批准执行或直接执行）或停止后返回结构化的 `AgentPlanDecision`（含回答、调整后的数量与备注、移除步骤）。 |
+| `plan_step_update` | read | `step`、`status`、`complete`（可选） | 更新已批准计划步骤的执行状态（`pending`、`running`、`done`、`failed`、`skipped`）或结束计划并将步骤完成清单附加到回合审查，同时回报用户是否已按下停止。 |
 
 编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`。
 

@@ -855,7 +855,7 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 			})
 		}
 		res, managed, err := s.callWithSessionManaged(ctx, t, rawArgs, false, sess)
-		if !isTaskSession && !managed {
+		if !isTaskSession && !managed && t.Name != ToolPlanPropose && t.Name != ToolPlanStepUpdate {
 			clientName := ""
 			if sess != nil {
 				s.mu.Lock()
@@ -880,7 +880,7 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 					IsError:     err != nil,
 				})
 			})
-		} else if !isTaskSession && managed && t.Name != ToolAgentReportStep {
+		} else if !isTaskSession && managed && t.Name != ToolAgentReportStep && t.Name != ToolPlanPropose && t.Name != ToolPlanStepUpdate {
 			stepTitle := t.Title
 			if stepTitle == "" {
 				stepTitle = t.Name

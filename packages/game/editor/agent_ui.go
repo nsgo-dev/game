@@ -1141,7 +1141,12 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|",
+		activePlan := ed.ActivePlan()
+		activePlanID := ""
+		if activePlan != nil {
+			activePlanID = activePlan.ID
+		}
+		fmt.Fprintf(&b, "%v|%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|pl=%s|",
 			ed.SpecPalette(cx).Dark,
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
@@ -1162,6 +1167,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.agentComposer.threadRev,
 			len(ed.AgentThreadSummary()),
 			ed.AgentThreadID(),
+			activePlanID,
 		)
 		for _, t := range ed.agent.turns {
 			kept, revd, notChk := false, false, 0
@@ -1169,6 +1175,10 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				kept, revd, notChk = t.PendingReview.Kept, t.PendingReview.Reverted, len(t.PendingReview.NotChecked)
 			}
 			fmt.Fprintf(&b, "%s:%s:%d:%d:%d:%d:%v:%v:%v:%s:%s:%v:%v:%d:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), len(t.FollowUps), len(t.ChangedFiles), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, kept, revd, notChk, len(t.Summary), len(t.Reply), len(t.Error))
+			if t.Plan != nil {
+				planDone, planTotal := t.Plan.DoneCount()
+				fmt.Fprintf(&b, ":PL(%s,%d/%d)", t.Plan.Phase, planDone, planTotal)
+			}
 			if t.Partial != nil {
 				fmt.Fprintf(&b, ":P(%v,%v,%v,%v)", t.Partial.Pointing, t.Partial.Kept, t.Partial.TryingAnother, t.Partial.HasPoint)
 			}
@@ -1253,12 +1263,13 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		activeRev := ed.ActiveAgentReview()
 		offlineNodes := agentOfflineAndQueueSection(ed, p)
 		waitingCard := agentCodeReviewWaitingCard(ed, p)
+		activePlan := ed.ActivePlan()
 
 		if active != nil && len(active.Requests) > 0 {
-			return agentThreadConversationBody(cx, ed, rev, p, osKind, active, turns, pendingAsk, openReq, openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef, hoveredTurnID, focusedTurnID)
+			return agentThreadConversationBody(cx, ed, rev, p, osKind, active, turns, pendingAsk, openReq, openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef, hoveredTurnID, focusedTurnID, activePlan)
 		}
 		ready := ed.ReadyToReviewTurns()
-		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || pendingAsk != nil || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil || waitingCard != nil {
+		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || pendingAsk != nil || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil || waitingCard != nil || activePlan != nil {
 			var items []core.Node
 			if len(ready) > 0 {
 				items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
@@ -1273,7 +1284,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				items = append(items, agentComposerSummaryCard(ed, p, summary))
 			}
 			for ti, turn := range turns {
-				items = append(items, agentTurnView(ed, rev, ti, turn, p, osKind, hoveredTurnID, focusedTurnID))
+				items = append(items, agentTurnView(ed, rev, ti, turn, activePlan, p, osKind, hoveredTurnID, focusedTurnID))
 			}
 			if len(composerTurns) > 0 {
 				items = append(items, agentComposerThreadNodes(ed, p, composerTurns)...)
@@ -1298,11 +1309,14 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			if pendingAsk != nil {
 				items = append(items, agentPermissionCardView(p, ed, *pendingAsk, osKind, cardRef, allowOnceRef, allowAlwaysRef, denyRef))
-			} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
+			} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") && (activePlan == nil || openReq.ID != activePlan.ID) {
 				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
 			}
 			if !limitReached && len(limitQueued) > 0 {
 				items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
+			}
+			if activePlan != nil {
+				items = append(items, agentPlanCardView(cx, ed, rev, p))
 			}
 			return ui.ScrollView{
 				TestID: "agent-thread-scroll",
@@ -1494,7 +1508,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette, osKind core.OS, hoveredTurnID, focusedTurnID *core.Signal[string]) core.Node {
+func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, activePlan *AgentPlan, p SpecPalette, osKind core.OS, hoveredTurnID, focusedTurnID *core.Signal[string]) core.Node {
 	var children []core.Node
 	if turn.Automation {
 		stateLabel, stateFg, stateBg, stateEdge := automationReviewBadgeStyle(ed, turn.ReviewState, p)
@@ -1703,6 +1717,10 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 		})
 	}
 
+	if turn.Plan != nil && (activePlan == nil || activePlan.ID != turn.Plan.PlanID) {
+		children = append(children, agentTurnPlanReviewView(ed, turnIdx, turn.Plan, p))
+	}
+
 	// Stopped card renders DONE and NOT DONE sections directly inside the card; avoid duplicating steps above it.
 	if len(turn.Steps) > 0 && turn.StoppedState == nil {
 		stepNodes := make([]core.Node, 0, len(turn.Steps))
@@ -1790,7 +1808,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 		children = append(children, agentStoppedSection(ed, turnIdx, turn, p)...)
 	} else if turn.PendingReview != nil && (turn.Done || turn.Stopped) {
 		children = append(children, agentTurnReviewCardView(p, ed, *turn.PendingReview, osKind))
-	} else if turn.Stopped {
+	} else if turn.Stopped && (activePlan == nil || turn.Plan == nil || activePlan.ID != turn.Plan.PlanID) {
 		children = append(children, core.Text{
 			TestID:  fmt.Sprintf("agent-turn-stopped-%d", turnIdx),
 			Content: "Stopped · edits already made stay undoable.",

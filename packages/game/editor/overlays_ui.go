@@ -286,6 +286,49 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									ed.FrameAll2D()
 								},
 							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.ActivePlan() != nil
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return ui.Button{
+										TestID: "viewport-plan-ghosts-toggle",
+										TextFunc: func() string {
+											_ = rev.Get()
+											return ed.T("plan.ghostsToggle")
+										},
+										LabelFunc: func() string {
+											_ = rev.Get()
+											return ed.T("plan.ghostsToggleLabel")
+										},
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonGhost,
+										Color: func() core.Color {
+											_ = rev.Get()
+											if ed.PlanGhostsVisible() {
+												return p.Agent.Fill
+											}
+											return core.Transparent
+										},
+										TextStyle: core.Style{
+											FontSize:   12,
+											FontWeight: 500,
+											Color:      p.Agent.Fg,
+										},
+										Style: core.Style{
+											Height:       core.Pt(28),
+											Padding:      core.Symmetric(0, 8),
+											CornerRadius: 6,
+											BorderWidth:  1,
+											BorderColor:  p.Agent.Edge,
+										},
+										OnPress: func() {
+											ed.TogglePlanGhosts()
+										},
+									}
+								},
+							},
 							barDivider(),
 							ui.Popover{
 								TestID:    "viewport-overlays-button",

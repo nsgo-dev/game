@@ -1029,6 +1029,24 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 	}
 
+	skipPlanHint := core.Text{
+		TestID: "agent-composer-skip-plan-hint",
+		ContentFunc: func() string {
+			_ = rev.Get()
+			askKey := FormatShortcut(ed.EffectiveShortcut(CmdAskAgent), cx.Env().OS())
+			return ed.T("agentPanel.skipPlanHint", l10n.Param("askKey", askKey))
+		},
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			p := ed.SpecPalette(cx)
+			return core.Style{
+				FontSize: 11,
+				Color:    p.TextFaint,
+				Padding:  core.Symmetric(0, 2),
+			}
+		},
+	}
+
 	return core.View{
 		TestID: "agent-composer",
 		OnFileDragEnter: func() {
@@ -1061,6 +1079,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			popoversView,
 			composerCard,
 			composerHint,
+			skipPlanHint,
 		},
 	}
 }

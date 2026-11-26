@@ -523,6 +523,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawSceneOverlays2D(d, scene)
 	e.drawComponentShapes2D(d, scene)
 	e.drawViewportOverlays(d, scene)
+	e.drawPlanGhostsOverlay(d)
 	e.drawProblemOverlays2D(d, scene)
 	e.drawSketchOverlay(d)
 	e.drawGizmo2D(d)
@@ -2086,6 +2087,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewportCameraCaptionView(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),
 			viewportOverlayLegendView(cx, ed, rev),
+			planViewportLegendView(cx, ed, rev),
 			playViewportOverlaysView(cx, ed, rev),
 			AskInPlaceComposerView(cx, ed, rev),
 			viewportTaskLegendOverlay(cx, ed, rev),
