@@ -354,6 +354,9 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		ToolRulesEdit,
 		ToolHistoryList,
 		ToolReleaseNotesDraft,
+		ToolReviewStatus,
+		ToolReviewNotesGet,
+		ToolReviewRedo,
 		ToolGameCheck:
 		if !policy.SceneAndData {
 			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, t.Name)

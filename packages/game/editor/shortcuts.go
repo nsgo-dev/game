@@ -108,7 +108,7 @@ func (e *Editor) commandScopeSearchTerms(scope string) []string {
 	case ScopePlay:
 		terms = append(terms, "play", "run")
 	case ScopeReview:
-		terms = append(terms, "review", "agent", "diff", "keep", "revert")
+		terms = append(terms, "review", "agent", "diff", "keep", "revert", "notes", "round")
 	}
 	return terms
 }

@@ -1467,7 +1467,15 @@ func main() {
 - **右侧面板（Why 与 YAML）**：在顶部显示智能体给出该改动的原因（**WHY**），下方展示带行号与 `+` / `−` 符号的精确 YAML 差异行。
 - **按 `Esc` 挂起与恢复审核**：按 `Esc`（`PauseReview`）回到编辑器并保持审核挂起——主视口继续绘制待审核改动叠加层（`drawPendingReviewOverlay`），右侧 **Agent** 标签页（`AgentPanelView`）展示 `"Review waiting · N changes, F files"`、已读计数、阻塞数与 **Resume review** 按钮（`ResumeReview`），点击后精确回到离开时的聚焦改动与已读状态。
 - **保留、全部撤回与单步撤销**：**Revert all** 弹出带焦点限制的确认对话框，列出将还原的文件并提示 `⌘Z` / `Ctrl+Z` 可全部恢复。**Keep**（`KeepTurnReview`）与 **Revert all**（`ConfirmReviewRevertAll`）均记录为 `Editor.History` 中的**单个步骤**，更新磁盘 YAML 文件与当前打开场景、弹出带 **Undo** 的规范 Toast，并在 Agent 面板显示 `"Kept K · reverted R · one undo step"`；执行一次 `Editor.Undo()` 即可按字节完整还原全部改动文件。
-- **MCP 只读接口（`editormcp`）**：新增只读工具 `review_status`（`ToolReviewStatus`、`ActionRead`），供智能体读取哪些改动已被查看或撤回、当前阻塞项以及保留/撤回结果，但保持保留与撤回决定权始终属于用户。
+- **MCP 只读接口（`editormcp`）**：新增只读工具 `review_status`（`ToolReviewStatus`、`ActionRead`），供智能体读取哪些改动已被查看或撤回、当前阻塞项以及保留/撤回结果，但保持保留与撤回决定权始终属于用户（绝不暴露未发送的草稿批注，并强制执行 `SceneAndData` / `GoSource` 隐私规则）。
+
+### 审核批注与第二轮局部重做（#1031）
+
+当审核中只需微调一两处改动而不想全部撤回或手改 YAML 时，作者可以在当前回合的任意改动上添加批注并交由智能体在同一审核内仅重做带批注的改动作为 **Round 2**（`docs/design/editor/Review.dc.html`）：
+
+- **行内批注编辑器（`C` / `CmdReviewNote`）与视口图钉**：在聚焦改动上按 `C`（或点击批注图标按钮）会在卡片下方展开行内批注框（`"Note for the agent · not sent"`），提供 **Add note**（`CommitReviewNote`）、**Revert and redo with this note**（`RevertAndRedoReviewChange`）与 **Cancel**（`CancelReviewNoteComposer` 或 `Esc`）。已保存的批注会显示在卡片上（支持 **Edit** 与 **Remove** / `RemoveReviewNote`），并在审核视口与挂起后的 2D 主视口中以规范配色图钉标注在对应对象旁（`ReviewViewportPins`）。批注仅保存在当前回合的内存状态中（且限制长度与数量），绝不写入任何场景、预制体或数据文件；发送前被移除的批注绝不会到达智能体。
+- **发送批注与仅重做批注项（`SendReviewNotes`、`ApplyReviewRedo`、`editormcp`）**：点击顶栏的 **Send N notes**（存在未发送批注时切换为主强调色按钮）会通过 MCP（`review_notes_get`）将所有未发送批注连同每项改动的 `change_id`、`file`、`object`、`field`、`kind` 与 `note` 发给智能体。智能体在同一回合内调用 `review_redo` 仅重做带有批注的改动（未加批注的改动以及同一文件中被夹带修改的未批注对象均会被原子拒绝，同时强制执行 You-only、权限规则与隐私边界）；重做后的改动在 Round 2+ 中重新标为未读，并在 **WHY** 中显示 `"Redone from your note: …"`、在卡片下方显示 `"Revised in round N. Your note: …"`。
+- **轮次标签页、横幅、过滤、挂起卡片与单步撤销**：进入 Round 2 后，顶栏展示 **Round 1 | Round 2** 切换标签（`SetReviewViewRound`），过滤标签下方展示轮次横幅（`"Round 2 · the agent redid only the N changes you left notes on. Both rounds keep and undo as one step."`）。**Round 1** 以只读方式保留智能体最初版本供对照（编辑、撤回或批注操作返回 `ErrReviewReadOnlyRound`）；**Keep**（`⌘↵`）始终将**最新一轮**合并为 `Editor.History` 中的**单个步骤**，按一次 **Undo**（`⌘Z`）即可将全部受影响文件按字节还原至请求前状态。**Notes** 标签用于筛选带批注的改动，挂起时的 **Agent** 面板卡片会显示未发送批注数（`"N notes not sent"`），**Revert all** 对话框也会提示将丢弃未发送批注。
 
 ## 智能体任务的系统通知、Dock 角标与播放模式提示点（#1023）
 

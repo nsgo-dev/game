@@ -107,7 +107,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		}
 	})
 
-	// Esc steps back cleanly: close revert dialog -> yield to overlays -> blur filter field -> pause review back to editor.
+	// Esc steps back cleanly: close revert dialog -> yield to overlays -> cancel note composer -> blur filter field -> pause review back to editor.
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
 		if !ed.ReviewOpen() || ed.shortcutCaptureActive {
 			return
@@ -117,6 +117,10 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			return
 		}
 		if ed.reviewModalBlocking() {
+			return
+		}
+		if ed.ReviewNoteComposerChangeID() != "" {
+			ed.CancelReviewNoteComposer()
 			return
 		}
 		if ed.IsTyping() {
@@ -169,9 +173,15 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				snap := ed.ReviewStatus()
 				undoKey := ed.reviewShortcutHint(CmdUndo, "mod+z")
 				fileList := ed.ReviewRevertAllFileList()
-				body := fmt.Sprintf("%s go back to how they were before this request. %s brings everything back.", fileList, undoKey)
+				noteWarning := ""
+				if dropped := ed.ReviewUnsentOrPendingNoteCount(); dropped == 1 {
+					noteWarning = " Your 1 note is dropped."
+				} else if dropped > 1 {
+					noteWarning = fmt.Sprintf(" Your %d notes are dropped.", dropped)
+				}
+				body := fmt.Sprintf("%s go back to how they were before this request.%s %s brings everything back.", fileList, noteWarning, undoKey)
 				if snap.FileCount == 1 {
-					body = fmt.Sprintf("%s goes back to how it was before this request. %s brings everything back.", fileList, undoKey)
+					body = fmt.Sprintf("%s goes back to how it was before this request.%s %s brings everything back.", fileList, noteWarning, undoKey)
 				}
 				shadowAlpha := float32(0.50)
 				if !p.Dark {
@@ -407,9 +417,65 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 					Color:      p.TextFaint,
 					FlexShrink: 1,
 					MinWidth:   core.Pt(0),
-					MaxWidth:   core.Pt(420),
+					MaxWidth:   core.Pt(380),
 					Overflow:   core.Hidden,
 				},
+			})
+		}
+
+		if snap.Round > 1 {
+			roundTabs := make([]core.Node, 0, snap.Round)
+			for r := 1; r <= snap.Round; r++ {
+				roundNum := r
+				active := snap.ViewRound == roundNum
+				bg := core.Transparent
+				fg := p.TextMuted
+				if active {
+					bg = p.LineRaised
+					fg = p.TextPrimary
+				}
+				roundTabs = append(roundTabs, core.View{
+					TestID:    fmt.Sprintf("review-round-tab-%d", roundNum),
+					Role:      core.RoleButton,
+					Label:     fmt.Sprintf("Round %d", roundNum),
+					Focusable: func() bool { return true },
+					Style: core.Style{
+						Height:         core.Pt(26),
+						Padding:        core.Symmetric(0, 10),
+						CornerRadius:   6,
+						Background:     bg,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FlexShrink:     0,
+						FocusVisible:   p.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						ed.report(ed.SetReviewViewRound(roundNum))
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: fmt.Sprintf("Round %d", roundNum),
+							Style:   core.Style{FontSize: 12, FontWeight: 500, Color: fg},
+						},
+					},
+				})
+			}
+			headerChildren = append(headerChildren, core.View{
+				TestID: "review-round-tabs",
+				Role:   core.RoleGroup,
+				Label:  "Review round",
+				Style: core.Style{
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          2,
+					Padding:      core.All(2),
+					CornerRadius: 8,
+					Background:   p.Raised,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+					FlexShrink:   0,
+				},
+				Children: roundTabs,
 			})
 		}
 
@@ -485,9 +551,17 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			},
 		)
 
+		hasDraftNotes := snap.DraftNoteCount > 0 && !snap.ViewingReadOnlyRound
 		keepBg := p.Accent.Fg
 		keepFg := p.Accent.OnFill
 		keepBorder := core.Transparent
+		keepBorderW := core.Points(0)
+		if hasDraftNotes {
+			keepBg = p.Raised
+			keepFg = p.TextSecondary
+			keepBorder = p.LineRaised
+			keepBorderW = 1
+		}
 		var keepOpacity core.Opacity
 		if blocked {
 			keepOpacity = core.Alpha(0.55)
@@ -502,7 +576,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 				Padding:        core.Symmetric(0, 14),
 				CornerRadius:   8,
 				Background:     keepBg,
-				BorderWidth:    0,
+				BorderWidth:    keepBorderW,
 				BorderColor:    keepBorder,
 				Opacity:        keepOpacity,
 				AlignItems:     core.AlignCenter,
@@ -527,6 +601,44 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 				},
 			},
 		})
+
+		if hasDraftNotes {
+			sendLabel := fmt.Sprintf("Send %d %s", snap.DraftNoteCount, pluralWord(snap.DraftNoteCount, "note", "notes"))
+			headerChildren = append(headerChildren, core.View{
+				TestID:    "review-send-notes",
+				Role:      core.RoleButton,
+				Label:     sendLabel,
+				Focusable: func() bool { return true },
+				Style: core.Style{
+					Height:         core.Pt(32),
+					Padding:        core.Symmetric(0, 14),
+					Direction:      core.Row,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					Gap:            8,
+					CornerRadius:   8,
+					Background:     p.Accent.Fg,
+					FlexShrink:     0,
+					FocusVisible:   p.FocusRing(2),
+				},
+				OnPress: func(core.PressEvent) {
+					if _, err := ed.SendReviewNotes(); err != nil {
+						ed.report(err)
+					}
+				},
+				Children: []core.Node{
+					core.Icon{
+						SVG:   lucide.MessageSquare(),
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.Accent.OnFill},
+					},
+					core.Text{
+						TestID:  "review-send-notes-label",
+						Content: sendLabel,
+						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.Accent.OnFill},
+					},
+				},
+			})
+		}
 
 		base := core.Style{
 			Height:      core.Pt(44),
@@ -561,15 +673,23 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], activeRegion *core.Signal[string], listRef, filterInputRef *core.Ref) core.Node {
 	// Keep filter input mounted outside dynamic rows so typing never loses focus.
 	searchSig := core.NewSignal(cx, ed.review.search)
+	// Keep composer draft in a dedicated signal synced ONLY when the composing change ID switches
+	// so typing never triggers a list rebuild or loses focus.
+	noteDraftSig := core.NewSignal(cx, ed.ReviewNoteDraft())
+	lastComposerID := ed.ReviewNoteComposerChangeID()
 	cx.Effect(func() {
 		_ = reviewRev.Get()
 		cur := ed.review.search
 		if searchSig.GetUntracked() != cur {
 			searchSig.Set(cur)
 		}
+		cid := ed.ReviewNoteComposerChangeID()
+		if cid != lastComposerID {
+			lastComposerID = cid
+			noteDraftSig.Set(ed.ReviewNoteDraft())
+		}
 	})
 
-	p0 := ed.SpecPalette(cx)
 	filterBar := core.View{
 		Style: core.Style{
 			Direction:  core.Row,
@@ -578,24 +698,30 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		},
 		Children: []core.Node{
 			core.View{
-				Style: core.Style{
-					FlexGrow:     1,
-					FlexBasis:    core.Pt(0),
-					MinWidth:     core.Pt(0),
-					Height:       core.Pt(28),
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Gap:          6,
-					Padding:      core.Symmetric(0, 8),
-					CornerRadius: 6,
-					Background:   p0.Raised,
-					BorderWidth:  1,
-					BorderColor:  p0.LineRaised,
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{
+						FlexGrow:     1,
+						FlexBasis:    core.Pt(0),
+						MinWidth:     core.Pt(0),
+						Height:       core.Pt(28),
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          6,
+						Padding:      core.Symmetric(0, 8),
+						CornerRadius: 6,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+					}
 				},
 				Children: []core.Node{
 					core.Icon{
-						SVG:   lucide.Search(),
-						Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p0.TextFaint, FlexShrink: 0},
+						SVG: lucide.Search(),
+						StyleFunc: func() core.Style {
+							p := ed.SpecPalette(cx)
+							return core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextFaint, FlexShrink: 0}
+						},
 					},
 					specInputField(cx, ed, ui.Input{
 						Ref:         filterInputRef,
@@ -607,16 +733,19 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 							searchSig.Set(v)
 							ed.SetReviewSearch(v)
 						},
-						Style: core.Style{
-							FlexGrow:     1,
-							FlexBasis:    core.Pt(0),
-							MinWidth:     core.Pt(0),
-							Height:       core.Pt(26),
-							BorderWidth:  0,
-							Background:   core.Transparent,
-							FontSize:     12,
-							Color:        p0.TextPrimary,
-							FocusVisible: p0.FocusRing(-2),
+						StyleFunc: func() core.Style {
+							p := ed.SpecPalette(cx)
+							return core.Style{
+								FlexGrow:     1,
+								FlexBasis:    core.Pt(0),
+								MinWidth:     core.Pt(0),
+								Height:       core.Pt(26),
+								BorderWidth:  0,
+								Background:   core.Transparent,
+								FontSize:     12,
+								Color:        p.TextPrimary,
+								FocusVisible: p.FocusRing(-2),
+							}
 						},
 					}),
 				},
@@ -628,10 +757,13 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 					st := ed.ReviewStatus()
 					return fmt.Sprintf("%d of %d seen", st.SeenCount, st.TotalChanges)
 				},
-				Style: core.Style{
-					FontSize:   11.5,
-					Color:      p0.TextFaint,
-					FlexShrink: 0,
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{
+						FontSize:   11.5,
+						Color:      p.TextFaint,
+						FlexShrink: 0,
+					}
 				},
 			},
 			core.View{
@@ -639,23 +771,32 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				Role:      core.RoleButton,
 				Label:     "Previous change (K)",
 				Focusable: func() bool { return true },
-				Style: core.Style{
-					Width:          core.Pt(28),
-					Height:         core.Pt(28),
-					CornerRadius:   6,
-					Background:     p0.Raised,
-					BorderWidth:    1,
-					BorderColor:    p0.LineRaised,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-					FlexShrink:     0,
-					FocusVisible:   p0.FocusRing(2),
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{
+						Width:          core.Pt(28),
+						Height:         core.Pt(28),
+						CornerRadius:   6,
+						Background:     p.Raised,
+						BorderWidth:    1,
+						BorderColor:    p.LineRaised,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FlexShrink:     0,
+						FocusVisible:   p.FocusRing(2),
+					}
 				},
 				OnPress: func(core.PressEvent) {
 					ed.StepReviewChange(-1)
 				},
 				Children: []core.Node{
-					core.Icon{SVG: lucide.ChevronUp(), Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p0.TextMuted}},
+					core.Icon{
+						SVG: lucide.ChevronUp(),
+						StyleFunc: func() core.Style {
+							p := ed.SpecPalette(cx)
+							return core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted}
+						},
+					},
 				},
 			},
 			core.View{
@@ -663,23 +804,32 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				Role:      core.RoleButton,
 				Label:     "Next change (J)",
 				Focusable: func() bool { return true },
-				Style: core.Style{
-					Width:          core.Pt(28),
-					Height:         core.Pt(28),
-					CornerRadius:   6,
-					Background:     p0.Raised,
-					BorderWidth:    1,
-					BorderColor:    p0.LineRaised,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-					FlexShrink:     0,
-					FocusVisible:   p0.FocusRing(2),
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{
+						Width:          core.Pt(28),
+						Height:         core.Pt(28),
+						CornerRadius:   6,
+						Background:     p.Raised,
+						BorderWidth:    1,
+						BorderColor:    p.LineRaised,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FlexShrink:     0,
+						FocusVisible:   p.FocusRing(2),
+					}
 				},
 				OnPress: func(core.PressEvent) {
 					ed.StepReviewChange(+1)
 				},
 				Children: []core.Node{
-					core.Icon{SVG: lucide.ChevronDown(), Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p0.TextMuted}},
+					core.Icon{
+						SVG: lucide.ChevronDown(),
+						StyleFunc: func() core.Style {
+							p := ed.SpecPalette(cx)
+							return core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted}
+						},
+					},
 				},
 			},
 		},
@@ -783,6 +933,48 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		}
 	})
 
+	roundBanner := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = reviewRev.Get()
+		snap := ed.ReviewStatus()
+		if snap.Round <= 1 || snap.RoundBanner == "" {
+			return nil
+		}
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "review-round-banner",
+			Role:   core.RoleStatus,
+			Style: core.Style{
+				Margin:       core.Edges{Top: 8, Left: 12, Right: 12},
+				Padding:      core.Symmetric(8, 12),
+				Direction:    core.Row,
+				AlignItems:   core.AlignStart,
+				Gap:          8,
+				CornerRadius: 8,
+				Background:   p.Raised,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+				FlexShrink:   0,
+			},
+			Children: []core.Node{
+				core.Icon{
+					SVG:   lucide.RefreshCw(),
+					Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted, Margin: core.Edges{Top: 2}, FlexShrink: 0},
+				},
+				core.Text{
+					TestID:  "review-round-banner-text",
+					Content: snap.RoundBanner,
+					Style: core.Style{
+						FontSize:  12,
+						Color:     p.TextMuted,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						MinWidth:  core.Pt(0),
+					},
+				},
+			},
+		}
+	})
+
 	rowsList := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		p := ed.SpecPalette(cx)
@@ -806,12 +998,12 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		for _, r := range vis {
 			switch r.RowKind {
 			case ReviewRowFile:
-				nodes = append(nodes, reviewFileRowView(ed, p, r, snap.FocusedRowKey == r.Key))
+				nodes = append(nodes, reviewFileRowView(ed, p, r, snap.FocusedRowKey == r.Key, snap.ViewingReadOnlyRound))
 			case ReviewRowKindHeader:
-				nodes = append(nodes, reviewKindRowView(ed, p, r, snap.FocusedRowKey == r.Key))
+				nodes = append(nodes, reviewKindRowView(ed, p, r, snap.FocusedRowKey == r.Key, snap.ViewingReadOnlyRound))
 			case ReviewRowCard:
 				if ch := ed.review.changesByID[r.ChangeID]; ch != nil {
-					nodes = append(nodes, reviewCardView(ed, p, ch, snap.FocusedID == ch.ID && snap.FocusedRowKey == r.Key, snap.FocusedID == ch.ID))
+					nodes = append(nodes, reviewCardView(cx, ed, p, snap, ch, noteDraftSig, snap.FocusedID == ch.ID && snap.FocusedRowKey == r.Key, snap.FocusedID == ch.ID))
 				}
 			}
 		}
@@ -836,7 +1028,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				Height:      core.Pt(36),
 				Direction:   core.Row,
 				AlignItems:  core.AlignCenter,
-				Gap:         12,
+				Gap:         10,
 				Padding:     core.Symmetric(0, 12),
 				Borders:     core.Edges{Top: 1},
 				BorderColor: p.Line,
@@ -844,8 +1036,9 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			},
 			Children: []core.Node{
 				hint("J K", "move"),
+				hint("C", "note"),
 				hint("X", "revert"),
-				hint("B", "hold for before"),
+				hint("B", "before"),
 				hint(ed.reviewShortcutHint(CmdReviewKeep, "mod+enter"), "keep"),
 			},
 		}
@@ -887,6 +1080,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				},
 				Children: []core.Node{filterBar, chipsAndBar},
 			},
+			roundBanner,
 			ui.ScrollView{
 				TestID: "review-changes-scroll",
 				Style: core.Style{
@@ -902,7 +1096,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 	}
 }
 
-func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused bool) core.Node {
+func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
 	filePath := r.File
 	chev := lucide.ChevronDown()
 	if r.Collapsed {
@@ -995,7 +1189,7 @@ func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 		},
 	}
 
-	if r.CanRevertGroup {
+	if r.CanRevertGroup && !readOnlyRound {
 		toggleText := "Revert file"
 		toggleColor := p.TextMuted
 		if r.AllReverted {
@@ -1042,7 +1236,7 @@ func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 	}
 }
 
-func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused bool) core.Node {
+func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
 	filePath := r.File
 	kind := r.Kind
 	chev := lucide.ChevronDown()
@@ -1100,7 +1294,7 @@ func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 		},
 		core.View{Style: core.Style{FlexGrow: 1}},
 	}
-	if r.CanRevertGroup {
+	if r.CanRevertGroup && !readOnlyRound {
 		kids = append(kids, core.View{
 			TestID:    fmt.Sprintf("review-kind-toggle-%s-%s", filePath, kind),
 			Role:      core.RoleButton,
@@ -1138,8 +1332,12 @@ func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 	}
 }
 
-func reviewCardView(ed *Editor, p SpecPalette, ch *ReviewChange, rowFocused, changeFocused bool) core.Node {
+func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapshot, ch *ReviewChange, noteDraftSig *core.Signal[string], rowFocused, changeFocused bool) core.Node {
 	id := ch.ID
+	ver := ch.VersionFor(snap.ViewRound)
+	readOnly := snap.ViewingReadOnlyRound
+	composing := !readOnly && snap.ComposingChangeID == id
+	hasDraftNote := strings.TrimSpace(ch.Note) != ""
 	role := reviewKindSpecRole(p, ch.Kind)
 	cardBg := core.Transparent
 	borderW := core.Points(0)
@@ -1196,7 +1394,7 @@ func reviewCardView(ed *Editor, p SpecPalette, ch *ReviewChange, rowFocused, cha
 		core.View{
 			TestID:    "review-card-focus-" + id,
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s, %s, %s, %s", ch.Title, ch.Kind, ch.Detail, ternaryString(ch.Seen, "seen", "not seen")),
+			Label:     fmt.Sprintf("%s, %s, %s, %s", ch.Title, ch.Kind, ver.Detail, ternaryString(ch.Seen, "seen", "not seen")),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				FlexGrow:     1,
@@ -1246,7 +1444,7 @@ func reviewCardView(ed *Editor, p SpecPalette, ch *ReviewChange, rowFocused, cha
 					},
 				},
 				core.Text{
-					Content:  ch.Detail,
+					Content:  ver.Detail,
 					MaxLines: 1,
 					Style: core.Style{
 						FontSize:  11.5,
@@ -1261,7 +1459,46 @@ func reviewCardView(ed *Editor, p SpecPalette, ch *ReviewChange, rowFocused, cha
 		},
 	}
 
-	if !ch.GoRequiresConfirm {
+	if !readOnly {
+		noteBtnBg := core.Transparent
+		noteBtnFg := p.TextFaint
+		if hasDraftNote || composing {
+			noteBtnBg = p.LineRaised
+			noteBtnFg = p.TextPrimary
+		}
+		noteBtnLabel := fmt.Sprintf("Note for the agent on %s (C)", ch.Title)
+		if hasDraftNote {
+			noteBtnLabel = fmt.Sprintf("Edit note on %s (C)", ch.Title)
+		}
+		rowKids = append(rowKids, core.View{
+			TestID:    "review-card-note-btn-" + id,
+			Role:      core.RoleButton,
+			Label:     noteBtnLabel,
+			Focusable: func() bool { return true },
+			Style: core.Style{
+				Width:          core.Pt(26),
+				Height:         core.Pt(26),
+				CornerRadius:   6,
+				Background:     noteBtnBg,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FlexShrink:     0,
+				FocusVisible:   p.FocusRing(2),
+			},
+			OnPress: func(core.PressEvent) {
+				if composing {
+					ed.CancelReviewNoteComposer()
+				} else {
+					ed.report(ed.OpenReviewNoteComposer(id))
+				}
+			},
+			Children: []core.Node{
+				core.Icon{SVG: lucide.MessageSquare(), Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: noteBtnFg}},
+			},
+		})
+	}
+
+	if !ch.GoRequiresConfirm && !readOnly {
 		rowKids = append(rowKids, core.View{
 			TestID:    "review-card-toggle-" + id,
 			Role:      core.RoleButton,
@@ -1301,18 +1538,244 @@ func reviewCardView(ed *Editor, p SpecPalette, ch *ReviewChange, rowFocused, cha
 		},
 	}
 
-	if ch.Note != "" {
+	// Saved unsent note box (with Edit & Remove when viewing the latest round).
+	if hasDraftNote && !composing {
+		noteHeaderKids := []core.Node{
+			core.Text{
+				Content: "Note for the agent · not sent",
+				Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexGrow: 1},
+			},
+		}
+		if !readOnly {
+			noteHeaderKids = append(noteHeaderKids,
+				core.View{
+					TestID:    "review-card-note-edit-" + id,
+					Role:      core.RoleButton,
+					Label:     "Edit note on " + ch.Title,
+					Focusable: func() bool { return true },
+					Style: core.Style{
+						Height:         core.Pt(22),
+						Padding:        core.Symmetric(0, 4),
+						CornerRadius:   4,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FocusVisible:   p.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						ed.report(ed.OpenReviewNoteComposer(id))
+					},
+					Children: []core.Node{
+						core.Text{Content: "Edit", Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
+					},
+				},
+				core.View{
+					TestID:    "review-card-note-remove-" + id,
+					Role:      core.RoleButton,
+					Label:     "Remove note on " + ch.Title,
+					Focusable: func() bool { return true },
+					Style: core.Style{
+						Height:         core.Pt(22),
+						Padding:        core.Symmetric(0, 4),
+						CornerRadius:   4,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FocusVisible:   p.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						ed.report(ed.RemoveReviewNote(id))
+					},
+					Children: []core.Node{
+						core.Text{Content: "Remove", Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
+					},
+				},
+			)
+		}
 		cardChildren = append(cardChildren, core.View{
+			TestID: "review-card-note-" + id,
 			Style: core.Style{
 				Margin:       core.Edges{Left: 42, Right: 8, Bottom: 8},
-				Padding:      core.Symmetric(6, 10),
+				Padding:      core.Symmetric(8, 12),
+				Gap:          4,
 				CornerRadius: 8,
 				Background:   p.Bg,
 				BorderWidth:  1,
 				BorderColor:  p.LineRaised,
 			},
 			Children: []core.Node{
-				core.Text{Content: ch.Note, Style: core.Style{FontSize: 11.5, Color: p.TextSecondary}},
+				core.View{
+					Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+					Children: noteHeaderKids,
+				},
+				core.Text{
+					TestID:  "review-card-note-text-" + id,
+					Content: ch.Note,
+					Style:   core.Style{FontSize: 12, Color: p.TextPrimary},
+				},
+			},
+		})
+	}
+
+	// Inline note composer ("Note for the agent · not sent").
+	if composing {
+		cardChildren = append(cardChildren, core.View{
+			TestID: "review-note-composer-" + id,
+			Style: core.Style{
+				Margin: core.Edges{Left: 42, Right: 8, Bottom: 8},
+				Gap:    8,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: "Note for the agent · not sent",
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
+				},
+				specInputField(cx, ed, ui.Input{
+					TestID:      "review-note-input",
+					Label:       "Note for the agent about " + ch.Title,
+					Placeholder: "Tell the agent what to adjust…",
+					Multiline:   true,
+					Value:       noteDraftSig.Get,
+					OnChange: func(v string) {
+						noteDraftSig.Set(v)
+						ed.SetReviewNoteDraft(v)
+					},
+					Style: core.Style{
+						MinHeight:    core.Pt(52),
+						Padding:      core.Symmetric(8, 10),
+						CornerRadius: 8,
+						Background:   p.Bg,
+						BorderWidth:  1.5,
+						BorderColor:  p.Accent.Fg,
+						FontSize:     12,
+						Color:        p.TextPrimary,
+						FocusVisible: p.FocusRing(2),
+					},
+				}),
+				core.View{
+					Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, AlignItems: core.AlignCenter},
+					Children: []core.Node{
+						core.View{
+							TestID:    "review-note-add",
+							Role:      core.RoleButton,
+							Label:     "Add note",
+							Focusable: func() bool { return true },
+							Style: core.Style{
+								Height:         core.Pt(28),
+								Padding:        core.Symmetric(0, 12),
+								CornerRadius:   8,
+								Background:     p.Accent.Fg,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+								FocusVisible:   p.FocusRing(2),
+							},
+							OnPress: func(core.PressEvent) {
+								ed.report(ed.CommitReviewNote())
+							},
+							Children: []core.Node{
+								core.Text{Content: "Add note", Style: core.Style{FontSize: 12, FontWeight: 600, Color: p.Accent.OnFill}},
+							},
+						},
+						core.View{
+							TestID:    "review-note-revert-redo",
+							Role:      core.RoleButton,
+							Label:     "Revert and redo with this note",
+							Focusable: func() bool { return true },
+							Style: core.Style{
+								Height:         core.Pt(28),
+								Padding:        core.Symmetric(0, 10),
+								CornerRadius:   8,
+								Background:     p.Raised,
+								BorderWidth:    1,
+								BorderColor:    p.LineRaised,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+								FocusVisible:   p.FocusRing(2),
+							},
+							OnPress: func(core.PressEvent) {
+								if _, err := ed.RevertAndRedoReviewChange(id, noteDraftSig.GetUntracked()); err != nil {
+									ed.report(err)
+								}
+							},
+							Children: []core.Node{
+								core.Text{Content: "Revert and redo with this note", Style: core.Style{FontSize: 11.5, Color: p.TextSecondary}},
+							},
+						},
+						core.View{
+							TestID:    "review-note-cancel",
+							Role:      core.RoleButton,
+							Label:     "Cancel",
+							Focusable: func() bool { return true },
+							Style: core.Style{
+								Height:         core.Pt(28),
+								Padding:        core.Symmetric(0, 8),
+								CornerRadius:   8,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+								FocusVisible:   p.FocusRing(2),
+							},
+							OnPress: func(core.PressEvent) {
+								ed.CancelReviewNoteComposer()
+							},
+							Children: []core.Node{
+								core.Text{Content: "Cancel", Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
+							},
+						},
+					},
+				},
+			},
+		})
+	}
+
+	// Sent note awaiting agent's redo.
+	if !readOnly && strings.TrimSpace(ch.SentNote) != "" {
+		cardChildren = append(cardChildren, core.View{
+			TestID: "review-card-sent-note-" + id,
+			Style: core.Style{
+				Margin:       core.Edges{Left: 42, Right: 8, Bottom: 8},
+				Padding:      core.Symmetric(6, 10),
+				Gap:          2,
+				CornerRadius: 8,
+				Background:   p.Bg,
+				BorderWidth:  1,
+				BorderColor:  p.Accent.Edge,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: fmt.Sprintf("Sent for round %d · waiting for agent", snap.Round+1),
+					Style:   core.Style{FontSize: 11, Color: p.Accent.Fg},
+				},
+				core.Text{
+					Content: ch.SentNote,
+					Style:   core.Style{FontSize: 11.5, Color: p.TextSecondary},
+				},
+			},
+		})
+	}
+
+	// Revised in Round 2+ annotation (shown on the latest round, hidden on read-only Round 1).
+	if !readOnly && ch.RedoneInRound > 1 && strings.TrimSpace(ch.RedoneNote) != "" {
+		cardChildren = append(cardChildren, core.View{
+			TestID: "review-card-revised-" + id,
+			Style: core.Style{
+				Margin:     core.Edges{Left: 42, Right: 8, Bottom: 8},
+				Direction:  core.Row,
+				AlignItems: core.AlignStart,
+				Gap:        6,
+			},
+			Children: []core.Node{
+				core.Icon{
+					SVG:   lucide.RefreshCw(),
+					Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.TextMuted, Margin: core.Edges{Top: 2}, FlexShrink: 0},
+				},
+				core.Text{
+					Content: fmt.Sprintf("Revised in round %d. Your note: %s", ch.RedoneInRound, ch.RedoneNote),
+					Style: core.Style{
+						FontSize:  11.5,
+						Color:     p.TextMuted,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						MinWidth:  core.Pt(0),
+					},
+				},
 			},
 		})
 	}
@@ -1422,6 +1885,9 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 	fs := ed.review.filesByPath[focused.File]
 	peek := ed.ReviewPeekingBefore()
 	overlays := ed.reviewOverlaysForFile(focused.File)
+	pins := ed.reviewViewportPinsForFile(focused.File)
+	readOnlyRound := ed.ReviewViewingReadOnlyRound()
+	viewRound := ed.ReviewViewRound()
 
 	// Count total changes in this scene for the top-right badge.
 	sceneChangeCount := 0
@@ -1500,7 +1966,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 				Height: core.Pct(100),
 			},
 			Draw: func(d *core.Drawing, sz core.Size) {
-				drawReviewSceneCanvas(ed, d, sz, p, fs, peek, overlays)
+				drawReviewSceneCanvas(ed, d, sz, p, fs, peek, overlays, pins)
 			},
 		},
 		// Top-left overlay legend toggles (per Spec.dc.html) + top-right scene label & Before peek button.
@@ -1553,8 +2019,14 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: fmt.Sprintf("%s · %d %s", path.Base(focused.File), sceneChangeCount, pluralWord(sceneChangeCount, "change", "changes")),
-									Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
+									Content: func() string {
+										s := fmt.Sprintf("%s · %d %s", path.Base(focused.File), sceneChangeCount, pluralWord(sceneChangeCount, "change", "changes"))
+										if readOnlyRound {
+											s += fmt.Sprintf(" · Round %d (read-only)", viewRound)
+										}
+										return s
+									}(),
+									Style: core.Style{FontSize: 11.5, Color: p.TextMuted},
 								},
 							},
 						},
@@ -1692,7 +2164,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 	}
 }
 
-func drawReviewSceneCanvas(ed *Editor, d *core.Drawing, sz core.Size, p SpecPalette, fs *reviewFileState, peek bool, overlays []ReviewSceneOverlay) {
+func drawReviewSceneCanvas(ed *Editor, d *core.Drawing, sz core.Size, p SpecPalette, fs *reviewFileState, peek bool, overlays []ReviewSceneOverlay, pins []ReviewViewportPin) {
 	w, h := float32(sz.Width), float32(sz.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -1800,6 +2272,46 @@ func drawReviewSceneCanvas(ed *Editor, d *core.Drawing, sz core.Size, p SpecPale
 			drawOne(ov)
 		}
 	}
+
+	// Draw Spec-token note pins beside noted objects (per Review.dc.html).
+	for _, pin := range pins {
+		pt := viewAff.TransformPoint(math2d.Vec2{X: pin.X, Y: pin.Y})
+		drawReviewViewportNotePin(d, pt.X+4, pt.Y-20, p, pin.Redone)
+	}
+}
+
+// drawReviewViewportNotePin draws a crisp 20×20 Spec speech-bubble pin beside a noted object
+// in both Spec Dark and Spec Light themes.
+func drawReviewViewportNotePin(d *core.Drawing, x, y float32, p SpecPalette, redone bool) {
+	if d == nil {
+		return
+	}
+	fill := p.TextPrimary
+	ink := p.Bg
+	edge := p.LineRaised
+	if redone {
+		fill = p.Accent.Fg
+		ink = p.Accent.OnFill
+		edge = p.Accent.Edge
+	}
+	d.Save()
+	d.SetFillColor(fill)
+	d.BeginPath().RoundRect(x, y, 20, 20, 8).Fill()
+	d.SetStrokeColor(edge).SetLineWidth(1)
+	d.BeginPath().RoundRect(x, y, 20, 20, 8).Stroke()
+	// Speech-bubble glyph inside the 20×20 pin.
+	d.SetStrokeColor(ink).SetLineWidth(1.6)
+	d.BeginPath().
+		MoveTo(x+5.5, y+6).
+		LineTo(x+14.5, y+6).
+		LineTo(x+14.5, y+12.5).
+		LineTo(x+9.2, y+12.5).
+		LineTo(x+6.2, y+15).
+		LineTo(x+6.2, y+12.5).
+		LineTo(x+5.5, y+12.5).
+		ClosePath().
+		Stroke()
+	d.Restore()
 }
 
 func drawReviewObjectFallbackMarker(d *core.Drawing, bo *sceneformat.BuiltObject, p SpecPalette) {
@@ -2474,7 +2986,16 @@ func agentReviewPanelCards(ed *Editor, p SpecPalette, turns []AgentTurn) []core.
 		title := fmt.Sprintf("Review waiting · %d %s, %d %s",
 			snap.TotalChanges, pluralWord(snap.TotalChanges, "change", "changes"),
 			snap.FileCount, pluralWord(snap.FileCount, "file", "files"))
+		if snap.Round > 1 {
+			title += fmt.Sprintf(" · round %d", snap.Round)
+		}
 		sub := fmt.Sprintf("%d of %d seen", snap.SeenCount, snap.TotalChanges)
+		if snap.DraftNoteCount > 0 {
+			sub += fmt.Sprintf(" · %d %s not sent", snap.DraftNoteCount, pluralWord(snap.DraftNoteCount, "note", "notes"))
+		}
+		if snap.PendingBatch != nil && len(snap.PendingBatch.Notes) > 0 {
+			sub += fmt.Sprintf(" · %d %s sent", len(snap.PendingBatch.Notes), pluralWord(len(snap.PendingBatch.Notes), "note", "notes"))
+		}
 		if len(snap.Blockers) > 0 {
 			sub += fmt.Sprintf(" · %d %s", len(snap.Blockers), pluralWord(len(snap.Blockers), "blocker", "blockers"))
 		}
@@ -2564,6 +3085,10 @@ func (e *Editor) drawPendingReviewOverlay(d *core.Drawing, scene *sceneformat.Bu
 		}
 		d.BeginPath().RoundRect(rx, ry, rw, rh, 6).Stroke()
 		d.Restore()
+	}
+	for _, pin := range e.ReviewViewportPins() {
+		px, py := e.WorldToCanvas(pin.X, pin.Y)
+		drawReviewViewportNotePin(d, px+4, py-20, p, pin.Redone)
 	}
 }
 
