@@ -454,6 +454,17 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						en, total := ed.EnabledMCPToolCount()
 						return fmt.Sprintf("%d / %d", en, total), false
 					}, nil),
+					navRow(SettingsPageAutomations, "settings.page.automations", "Automations", func() (string, bool) {
+						_ = rev.Get()
+						_ = langMemo.Get()
+						if ed.AutomationsPausedToday() {
+							return ed.T("settings.automations.metaPaused"), true
+						}
+						if n := ed.EnabledAutomationsCount(); n > 0 {
+							return ed.T("settings.automations.metaOn", l10n.Param("count", fmt.Sprintf("%d", n))), false
+						}
+						return "", false
+					}, nil),
 					navRow(SettingsPageUsage, "settings.page.usage", "Usage and privacy", nil, nil),
 				},
 			},
@@ -615,6 +626,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			return ed.T("settings.page.tools"), ed.T("settings.page.toolsSubtitle"), ed.T("settings.scopeComputer"), false
 		case SettingsPageUsage:
 			return ed.T("settings.page.usage"), ed.T("settings.page.usageSubtitle"), ed.T("settings.scopeComputer"), false
+		case SettingsPageAutomations:
+			return ed.T("settings.page.automations"), ed.T("settings.page.automationsSubtitle"), ed.T("settings.scopeAutomations"), true
 		case SettingsPageProject:
 			return ed.T("settings.page.project"), ed.T("settings.page.projectSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPageInput:
@@ -879,6 +892,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				case SettingsPageUsage:
 					_ = langMemo.Get()
 					return settingsUsagePageView(cx, ed, rev, ed.SpecPalette(cx))
+				case SettingsPageAutomations:
+					return automationsSettingsPageView(cx, ed, rev)
 				case SettingsPageProject:
 					return projectSettingsPanel(cx, ed, rev)
 				case SettingsPageInput:
@@ -972,6 +987,9 @@ func matchSettingsPageQuery(q string, hasProject bool) (SettingsPage, bool) {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {
 		return "", false
+	}
+	if strings.Contains(q, "automation") || strings.Contains(q, "trigger") || strings.Contains(q, "nightly") || strings.Contains(q, "daily") || strings.Contains(q, "schedule") || strings.Contains(q, "自动化") || strings.Contains(q, "触发") || strings.Contains(q, "定时") {
+		return SettingsPageAutomations, true
 	}
 	if strings.Contains(q, "shortcut") || strings.Contains(q, "keymap") || strings.Contains(q, "hotkey") || strings.Contains(q, "rebind") || strings.Contains(q, "快捷键") {
 		return SettingsPageShortcuts, true

@@ -533,6 +533,8 @@ type Editor struct {
 	OnStopAgent func()
 	// AgentRunner runs a composer request against an external agent (such as Claude Code or Codex) and streams incremental steps; when nil on desktop, CLIAgentRunner is used.
 	AgentRunner AgentRunner
+	// AutomationDrafter optionally turns plain words from "+ New automation, in words" into a candidate AutomationRule; when nil, a built-in English/Chinese drafter is used.
+	AutomationDrafter func(ctx context.Context, words string) (AutomationRule, error)
 	// AgentReconnectProbe checks whether an MCP agent session is reachable during a reconnect attempt; wired automatically by editormcp.Server and replaceable in tests.
 	AgentReconnectProbe func(ctx context.Context) (AgentClientInfo, error)
 	// AgentScheduleAfter schedules fn to run after d and returns a cancel function; when nil, time.AfterFunc posting onto the editor's UI scope is used. Tests replace this to verify the 1, 2, 4, 8, 16 s reconnect backoff without real sleeps.
@@ -903,6 +905,8 @@ type Editor struct {
 	focus focusRegionState
 	// agent holds the Connect dialog, status chip, reconnect backoff, permission checkboxes, active thread, and composer state.
 	agent agentState
+	// automations holds the project's automations.yaml rules, pre-run checkpoints, weekly run counters, pause-for-today state, and background automation runs.
+	automations automationRuntimeState
 	// autosave tracks debounced automatic saving of kept changes, the 300 ms Saving… threshold, and persistent status-bar save errors.
 	autosave autoSaveState
 	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, Always saved toast, You-only draft state, tool toggles, and held external loosenings.
@@ -988,6 +992,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		},
 	}
 	ed.agent.initDefaults()
+	ed.automations.initDefaults()
 	ed.History = ed.newTabHistory()
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
@@ -1078,6 +1083,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.startParticlePreviewLoop()
 		e.syncSceneEmitterLoop()
 		e.syncTileAnimLoop()
+		e.startAutomationScheduler()
 		cx.SetAppearance(e.Appearance().CoreAppearance())
 	} else {
 		e.stopAllTaskRunners()
@@ -1085,6 +1091,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.stopSceneEmitterLoop()
 		e.stopModelPreviewLoop()
 		e.stopTileAnimLoop()
+		e.stopAutomationRunsAndScheduler()
 	}
 }
 
@@ -1663,6 +1670,7 @@ func (e *Editor) SaveFile(path string) error {
 	e.Status = "Saved " + path
 	e.notify()
 	e.CheckProblems()
+	e.NotifyAutomationFileChanged(path)
 	return nil
 }
 

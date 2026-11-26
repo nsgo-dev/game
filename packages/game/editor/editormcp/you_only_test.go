@@ -69,6 +69,8 @@ func TestAgentCannotWriteYouOnlyFilesThroughAnyTool(t *testing.T) {
 		".nsgo/models.yaml",
 		"usage.yaml",
 		".nsgo/usage.yaml",
+		"automations.yaml",
+		".nsgo/automations-state.yaml",
 	}
 
 	// Attempt to write permissions.yaml through every write/edit/rename/delete tool on the server.

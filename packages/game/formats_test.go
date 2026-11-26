@@ -122,6 +122,7 @@ var formatVersions = map[string]string{
 	"cutscene.CurrentVersion":                   "cutscene",
 	"cutscene.MinVersion":                       "cutscene",
 	"editor.AgentThreadVersion":                 "editor#thread",
+	"editor.AutomationsVersion":                 "editor#automations",
 	"editor.PermissionsVersion":                 "editor#permissions",
 	"editor.RecentProjectsVersion":              "editor",
 	"editor.SettingsVersion":                    "editor",

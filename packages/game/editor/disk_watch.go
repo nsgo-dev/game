@@ -964,9 +964,25 @@ func (e *Editor) PollDiskChanges() DiskPollResult {
 	}
 
 	// 1. Check project tree changes (safe even during play).
+	var addedProjectFiles []string
 	if e.Project != nil && e.ProjectPath != "" {
 		if curTree, err := listProjectTree(filepath.Dir(e.ProjectPath)); err == nil {
 			if !slices.Equal(curTree, e.disk.treeFiles) {
+				if len(e.disk.treeFiles) > 0 {
+					prev := make(map[string]struct{}, len(e.disk.treeFiles))
+					for _, f := range e.disk.treeFiles {
+						if !f.Dir {
+							prev[f.Path] = struct{}{}
+						}
+					}
+					for _, f := range curTree {
+						if !f.Dir {
+							if _, existed := prev[f.Path]; !existed {
+								addedProjectFiles = append(addedProjectFiles, f.Path)
+							}
+						}
+					}
+				}
 				e.disk.treeFiles = curTree
 				e.filesRev++
 				e.assetsRev++
@@ -974,6 +990,11 @@ func (e *Editor) PollDiskChanges() DiskPollResult {
 				e.CheckProblems()
 				res.TreeChanged = true
 			}
+		}
+	}
+	if !e.playing {
+		for _, added := range addedProjectFiles {
+			e.NotifyAutomationFileAdded(added)
 		}
 	}
 

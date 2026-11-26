@@ -247,6 +247,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.syncAudioMixer()
 	e.resetExportPanelForProject()
 	e.resetBuildReleaseForProject()
+	e.loadAutomationsForOpenProject()
 	_ = e.RecordRecentProject(f.Name, filepath.Dir(path))
 	e.syncNavMeshForProject()
 	e.resetHUDForProject()
@@ -355,6 +356,7 @@ func (e *Editor) SaveProject() error {
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()
 	e.CheckProblems()
+	e.NotifyAutomationFileChanged(e.ProjectPath)
 	return nil
 }
 

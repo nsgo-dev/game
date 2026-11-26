@@ -1320,6 +1320,7 @@ func main() {
 - **运行控制栏与标记（`alt+f` / `CmdPlayMark`）**：本地运行模式在主工具栏下方展示 Spec 风格的运行控制栏（`playModeBarView`，不增加 2D 工具栏按钮），包含运行/暂停状态徽章、暂停/继续（`mod+shift+p`、`SetPlayPaused`）、单帧步进（暂停时按 `.`、`StepPlay`）、时间倍率（`0.25×`–`2×`、`SetPlayTimeScale`）、**Mark `⌥F`**（`AddPlayMark`）、**Something looks wrong `⌘L`** 与 **Stop**。按下 `alt+f` 不会停止运行，会保存对应的 `.replay.yaml`、在 60 秒帧耗时条上标注旗标，并在右侧 **Agent** 标签页的 **MARKS · N** 列表中展示时间、帧号与 `"replay attached"`（`PlayInspectorTab`、`PlayMarks`）。停止运行（`Stop`）或提前点击 **Send marks now**（`SendPlayMarks`）会将全部未发送标记打包为**同一条线程**派发给 `Editor.OnPlayMarksThread`（并保存在 `LastPlayMarksThread` 中）。
 - **冻结帧提问（`mod+l` / `CmdAskFrozenFrame`）与 MCP 回放步进**：按下 `mod+l` 或点击 **Something looks wrong**（`OpenAskFrozenFrame`）会立即暂停运行、截取当前视口 PNG 并打开 **"Ask about frame N"** 弹窗，展示冻结帧缩略图、附件标签、输入框（`"What looks wrong? e.g. the slime walks through the wall"`）、`"A fix comes back as a review"` 提示及 **Cancel** / **Ask** 按钮。提交（`SubmitAskFrozenFrame`）后会保存滚动回放、附上帧图像与实时实体状态快照、触发 `Editor.OnAskFrozenFrame` 并切到 **Agent** 标签页。智能体通过 `editormcp` 的 `play_frozen_context` 获取冻结帧上下文，并通过 `play_replay_step`（`AgentStepPlayReplay`）步进回放；视口显示智能体徽章（`"agent stepping frames A–B"`），Agent 标签页记录步进日志（`"Stepped frames A–B with game_loop_step…"`），且游戏保持暂停直至用户手动恢复。
 - **输出面板崩溃卡片与回放到崩溃前**：`ParsePanicTrace` 会解析游戏运行输出或 Play 模式恢复的 Go panic 消息与调用栈（`OutputPanic`、`SetOutputPanic`）。`OutputPanelView` 以 Spec 风格卡片展示错误消息、可点击跳转到源码文件的游戏调用帧 `file:line` 链接、折叠的运行时调用帧（`"N frames in the game runtime · Show"` / `"Hide"` 切换，`SetOutputPanicRuntimeExpanded`）、**Ask the agent to fix**（`AskAgentToFixPanic`、`Editor.OnAskPanicFix`）以及 **Replay up to the panic**（`ReplayUpToPanic`、`ReplayUpToFrame`），后者重置场景（设置时调用 `Editor.OnPlayReset`）、经由 `PlayActiveInput()` 回放已保存录制，并在崩溃帧前一帧（`panicFrame - 1`）精确停住并暂停而不触发崩溃。
+
 ## 权限方案与 MCP 规则强制执行（#1010）
 
 编辑器通过位于 `game.yaml` 旁的版本化 YAML 文件 `permissions.yaml` 控制所有修改类与运行类 MCP 工具调用（将 `.nsgo/` 保留为 Git 忽略的本机编辑器状态，把团队共享的权限规则纳入版本控制）：
@@ -1381,7 +1382,6 @@ func main() {
 - **权限草案卡片（`permissions_draft` / `PermissionsDraftCardView`）**：智能体只能通过 `permissions_draft`（`Editor.SubmitPermissionsDraft`）提交草案。草案以带焦点限制与关闭恢复的独立模态 `ui.Dialog` 打开，展示每条规则的 `NOW → DRAFT` 决策、实时 `permissions.yaml · if applied` YAML 差异预览、**默认全部不勾选**的逐条复选框、**丢弃草案**与**应用 n 条规则**按钮。`⌘↵`、**全部保留**、自动化流程及任意配置档（含 `Autonomous`）都无法应用该草案；已应用的规则在历史记录（`History`）中归属于用户本人（`HistoryActorPerson`），且可用 `⌘Z` 逐字节撤销。
 - **外部磁盘变更的收紧生效与放宽暂挂（`ReconcileExternalPermissions`）**：当 `permissions.yaml` 在编辑器外部被修改（如克隆仓库、`git pull` 或其他工具编辑）时，**收紧的配置档与规则会立即生效**；而**放宽的配置档或规则**（例如将 `Balanced` 改为 `Autonomous`、将 `Deny` 改为 `Allow`，或删掉一条 `Deny` 规则）会被暂挂且不会启用，直到用户在 **设置 › 权限** 中逐条确认（`ConfirmHeldPermissionLoosening`）或保持更严格规则（`RejectHeldPermissionLoosening`）。
 - **“全部保留”永不自动执行的提议删除（`game_delete_file` / `AgentReviewPanelView`）**：`game_delete_file` 默认关闭（`Editor.ToolEnabled("game_delete_file") == false`），调用后始终只在**审查更改**面板中提议删除（`Editor.ProposeFileDeletion`），展示文件精确行数（或二进制摘要）、红色差异预览以及是否有场景引用该文件（基于 `Editor.FindUsages`），并拒绝符号链接、`.git/**`、`game.yaml`、已打开的场景标签页及大于 1 MiB 的文件。执行**全部保留**（`Editor.KeepAllReviewChanges` / `⌘↵`）会保留其他改动并将待确认删除的文件原样留在磁盘上；用户就地点击**删除此文件**（`Editor.ConfirmProposedDeletion`）后会通过带检查点的可逆命令（`deleteFileCmd`）删除文件，按 **`⌘Z`（`Editor.Undo`）** 可从检查点逐字节恢复原文件。
-
 ## 轻提示 Toast 与反馈通道（#1004）
 
 编辑器中的瞬时反馈统一使用同一个符合 Spec 规范的 Toast 组件（`ToastView`、`WindowToastView` 与 `SpecToastCard`，对应 `docs/design/editor/Toasts.dc.html` 与 `Spec.dc.html`，严格仅使用 `SpecPalette` 令牌）。需要用户做决定的事项绝不放入 Toast：权限请求与提问留在智能体面板卡片中，检查失败进入 Problems 面板，完成的智能体回合打开审查流。
@@ -1412,3 +1412,17 @@ func main() {
 | 智能体完成请求（Agent finished a request） | Review opens | 绝不使用 Toast |
 | 检查失败或损坏引用（Check failed, broken reference） | Problems | 绝不使用 Toast |
 | 编辑器在后台时智能体提问、完成或停止 | + System notification | 与编辑器内通道配合 |
+
+## 智能体自动化（#1029）
+
+项目自动化（位于 `game.yaml` 旁的 `automations.yaml`，JSON Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json`）允许智能体在更改发生后自动执行后续检查与任务，同时确保每项结果均经过人工审查（对应 `docs/design/editor/Settings.dc.html`、`Tasks.dc.html`、`Checkpoints.dc.html`）：
+
+- **带版本的 YAML 格式（`AutomationsFile`、`ParseAutomations`、`EncodeAutomations`）**：`version: 1` 及有序的 `automations` 列表（每项包含 `id`、`name`、`enabled`、`trigger`、`instruction`）。拒绝未知字段、多余 YAML 文档、重复键、YAML 锚点/别名、重复 ID 与无效触发器参数，并返回带行号与列号的 `*loaderr.Error`；编码输出确定且无损往返。
+- **五种触发器**：
+  - `file_changed`（`glob`）：匹配的项目文件保存时（手动保存、自动保存或标签页保存）触发，支持 `*`、`**` 与 `?`。
+  - `review_kept`（可选 `glob`）：保留审查时（`KeepReview`、`EndReview(true)`、`KeepTileReview`、`KeepCutsceneReview`、`KeepAllReviewChanges`、`KeepAgentTurnReview`）触发，并自动跳过触发来源的同一自动化 ID 以避免循环。
+  - `file_added`（`kind`，可选 `glob`）：新增指定类型文件（`prefab`、`scene`、`tileset`、`cutscene`、`material`、`particles`、`rig`、`screen`、`datatable`、`script`、`asset` 或 `any`）或磁盘监视（`PollDiskChanges`）发现新文件时触发。
+  - `before_export`（可选 `platform`）：在 `StartExportBuild` 或 `StartReleaseBuild` 开始前触发。
+  - `daily`（24 小时制 `HH:MM` 的 `time`）：编辑器打开期间每天到达或超过指定时间后最多触发一次（由 UI 调度器定期检查，也可通过 `Editor.StepAutomations` 确定性驱动）。
+- **运行前检查点、权限、后台任务与待审查机制**：每次自动化运行开始前，编辑器都会先将受追踪的项目文本/YAML/Go 文件快照（跳过符号链接、内部状态与仅限用户文件，并受文件数与总字节上限约束）写入 `.nsgo/checkpoints/<id>/`（已被 git 忽略，可通过 `AutomationCheckpoints` 查看、通过 `RestoreAutomationCheckpoint` 在路径与符号链接隔离校验下恢复）。任务在有界并发与超时保护下运行于 `WithAgentActor` 与项目权限规则（`Editor.Permissions` / `CheckAutomationActionPermission`）约束内，同步登记到共享后台任务列表（`TaskSourceAutomation`）并以 `AgentTurn` 落入智能体面板的 **待审查**（`AgentReviewReady`），提供 **保留**、**忽略** 与 **恢复检查点** 按钮。`automations.yaml` 与 `.nsgo/automations-state.yaml` 受“仅限用户”边界（`YouOnlyAutomations`）保护，自动化永远无法直接应用“仅限用户”草案（`PermissionsDraft`、`AutomationDraft`）、确认暂挂的权限放宽或提议删除，或自行保留审查（返回 `ErrAutomationYouOnly`）。
+- **设置 › 自动化页面（`SettingsPageAutomations`）**：以 `WHEN → THE AGENT` 卡片展示每项自动化、本周运行次数（`AutomationWeeklyRuns`，保存在被 git 忽略的 `.nsgo/automations-state.yaml` 中）及 `SpecSwitch`（`core.RoleSwitch`）开关，支持 **+ 用一句话新建自动化**（`DraftAutomationFromWords` 生成草稿卡片并由用户点击 `KeepAutomationDraft` 保留）、**今天暂停全部自动化**（`PauseAutomationsForToday` / `ResumeAutomations`，暂停所有触发直至次日自动恢复）以及 **本页智能体** 卡片，深浅色外观均严格使用 `SpecPalette` 令牌。

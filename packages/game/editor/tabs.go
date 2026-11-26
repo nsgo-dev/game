@@ -605,6 +605,7 @@ func (e *Editor) SaveTab(index int) error {
 		e.Status = "Saved " + t.filePath
 		e.notify()
 		e.CheckProblems()
+		e.NotifyAutomationFileChanged(t.filePath)
 		return nil
 	default:
 		return ErrNoSceneFile

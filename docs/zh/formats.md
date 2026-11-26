@@ -192,6 +192,52 @@ tasks:
     state: queued
     startsAfterTaskId: task-1
 ```
+
+<!-- format: editor#automations -->
+### 编辑器自动化
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 位于项目根目录 `game.yaml` 旁的 `automations.yaml` | `version: 1` | `editor.ParseAutomations`、`editor.EncodeAutomations` | [编辑器](editor.md#智能体自动化1029)；Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/automations.v1.json
+version: 1
+automations:
+  - id: level-check
+    name: A level file changes
+    enabled: true
+    trigger:
+      event: file_changed
+      glob: scenes/level_*.scene.yaml
+    instruction: runs game check and 5 playtests, reports only problems
+  - id: review-brief
+    name: You keep a review
+    enabled: true
+    trigger:
+      event: review_kept
+    instruction: updates the brief's open questions if the change answers one
+  - id: new-prefab-example
+    name: A new prefab is added
+    enabled: true
+    trigger:
+      event: file_added
+      kind: prefab
+    instruction: writes its example scene and a test
+  - id: before-export-mobile
+    name: Before export
+    enabled: false
+    trigger:
+      event: before_export
+    instruction: checks frame time and memory on a low-end phone profile
+  - id: nightly-balance
+    name: Every night
+    enabled: false
+    trigger:
+      event: daily
+      time: "02:00"
+    instruction: plays all floors 50 times and leaves a balance report
+```
 <!-- format: tooling/importsettings -->
 ### 导入设置旁注文件
 

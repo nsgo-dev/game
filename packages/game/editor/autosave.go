@@ -203,6 +203,9 @@ func (e *Editor) EndReview(kept bool) {
 	if changed {
 		e.notify()
 	}
+	if kept {
+		e.NotifyAutomationReviewKept(e.ScenePath)
+	}
 }
 
 // KeepReview closes the general interactive edit review as kept and schedules automatic saving of kept changes after AutoSaveDelay (2 s).
@@ -1018,6 +1021,15 @@ func (e *Editor) commitAutoSaveItems(plan []autoSavePlanItem) (savedAnyScene, sa
 		e.invalidateProjectIndex()
 		e.CheckProblems()
 		e.RefreshChangesCount()
+		for _, item := range plan {
+			target := item.path
+			if target == "" {
+				target = item.displayPath
+			}
+			if target != "" {
+				e.NotifyAutomationFileChanged(target)
+			}
+		}
 	}
 	return savedAnyScene, savedAnyProject
 }

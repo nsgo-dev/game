@@ -247,28 +247,34 @@ type AgentTurnContext struct {
 	ViewMode       string   `json:"viewMode,omitempty"`
 }
 
-// AgentTurn is one user request (in-place ⌘L, Agent panel composer, or terminal-initiated MCP turn)
+// AgentTurn is one user request (in-place ⌘L, Agent panel composer, terminal-initiated MCP turn, or background automation run)
 // and its attached context, streamed steps, and reply.
 type AgentTurn struct {
-	ID           string           `json:"id"`
-	Prompt       string           `json:"prompt"`
-	Source       string           `json:"source,omitempty"`   // "in_place", "panel", or "external"
-	SkipPlan     bool             `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
-	Status       string           `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
-	External     bool             `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
-	AgentName    string           `json:"agentName,omitempty"`
-	Steps        []AgentStep      `json:"steps,omitempty"`
-	Summary      string           `json:"summary,omitempty"`
-	Reply        string           `json:"reply,omitempty"`
-	Error        string           `json:"error,omitempty"`
-	Stopped      bool             `json:"stopped,omitempty"`
-	Done         bool             `json:"done,omitempty"`
-	InputTokens  int              `json:"inputTokens,omitempty"`
-	OutputTokens int              `json:"outputTokens,omitempty"`
-	CreatedAt    time.Time        `json:"createdAt"`
-	StartedAt    time.Time        `json:"startedAt"`
-	FinishedAt   time.Time        `json:"finishedAt"`
-	Context      AgentTurnContext `json:"context"`
+	ID             string           `json:"id"`
+	Prompt         string           `json:"prompt"`
+	Source         string           `json:"source,omitempty"`   // "in_place", "panel", "external", or "automation"
+	SkipPlan       bool             `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
+	Status         string           `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
+	External       bool             `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
+	AgentName      string           `json:"agentName,omitempty"`
+	Steps          []AgentStep      `json:"steps,omitempty"`
+	Summary        string           `json:"summary,omitempty"`
+	Reply          string           `json:"reply,omitempty"`
+	Error          string           `json:"error,omitempty"`
+	Stopped        bool             `json:"stopped,omitempty"`
+	Done           bool             `json:"done,omitempty"`
+	InputTokens    int              `json:"inputTokens,omitempty"`
+	OutputTokens   int              `json:"outputTokens,omitempty"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	StartedAt      time.Time        `json:"startedAt"`
+	FinishedAt     time.Time        `json:"finishedAt"`
+	Context        AgentTurnContext `json:"context"`
+	Automation     bool             `json:"automation,omitempty"`     // true for turns started by an automation trigger
+	AutomationID   string           `json:"automationId,omitempty"`   // rule ID from automations.yaml when Automation is true
+	AutomationName string           `json:"automationName,omitempty"` // WHEN summary of the triggering automation rule
+	TriggerSummary string           `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
+	CheckpointID   string           `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
+	ReviewState    AgentReviewState `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
 }
 
 // AgentOpenRequest represents a pending permission prompt or question waiting on the user.
@@ -279,16 +285,21 @@ type AgentOpenRequest struct {
 	OpenedAt time.Time
 }
 
-// AgentRequest is passed to an AgentRunner when the user submits text from the composer.
+// AgentRequest is passed to an AgentRunner when the user submits text from the composer or an automation triggers.
 type AgentRequest struct {
-	ThreadID    string
-	SessionID   string
-	Prompt      string
-	ProjectRoot string
-	ScenePath   string
-	SelectedID  string
-	AgentKind   ExternalAgentKind
-	Permissions AgentPermissions
+	ThreadID       string
+	SessionID      string
+	Prompt         string
+	ProjectRoot    string
+	ScenePath      string
+	SelectedID     string
+	AgentKind      ExternalAgentKind
+	Permissions    AgentPermissions
+	AutomationID   string
+	AutomationName string
+	TriggerKind    AutomationTriggerKind
+	TriggerDetail  string
+	CheckpointID   string
 }
 
 // AgentEventKind classifies one streamed event from an AgentRunner.
@@ -494,6 +505,7 @@ func (e *Editor) stopAgentTimers() {
 		e.agent.activeRunCancel()
 		e.agent.activeRunCancel = nil
 	}
+	e.stopAutomationRunsAndScheduler()
 	e.agent.connectAPIKey = ""
 }
 

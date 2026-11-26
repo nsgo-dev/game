@@ -1812,6 +1812,7 @@ func (e *Editor) ReviewReleaseUploads() error {
 }
 
 func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseOptions, resume bool) error {
+	e.TriggerBeforeExportAutomations(platforms...)
 	dir := filepath.Dir(e.ProjectPath)
 	notes := strings.TrimSpace(opt.ReleaseNotes)
 	if notes != "" && !filepath.IsAbs(notes) {

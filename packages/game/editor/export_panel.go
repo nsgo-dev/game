@@ -786,6 +786,7 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 
 	// Refresh credits pre-flight before planning so the panel displays any missing credits immediately.
 	e.CheckExportCredits()
+	e.TriggerBeforeExportAutomations(opts.Targets...)
 
 	dir := filepath.Dir(e.ProjectPath)
 	notes := strings.TrimSpace(opts.ReleaseNotes)

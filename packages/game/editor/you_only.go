@@ -27,6 +27,8 @@ const (
 	YouOnlyModels YouOnlyDomain = "models"
 	// YouOnlyUsage protects usage limits and privacy toggles (usage.yaml).
 	YouOnlyUsage YouOnlyDomain = "usage"
+	// YouOnlyAutomations protects automations.yaml and .nsgo/automations-state.yaml so agents can only draft automations for the person to keep.
+	YouOnlyAutomations YouOnlyDomain = "automations"
 )
 
 // DisplayName returns the human-readable Settings page name for d.
@@ -40,12 +42,14 @@ func (d YouOnlyDomain) DisplayName() string {
 		return "Models and connections"
 	case YouOnlyUsage:
 		return "Usage and privacy"
+	case YouOnlyAutomations:
+		return "Automations"
 	default:
 		return string(d)
 	}
 }
 
-// MatchYouOnlyPath reports whether filePath targets a You-only configuration file (permissions, tools, models, or usage)
+// MatchYouOnlyPath reports whether filePath targets a You-only configuration file (permissions, tools, models, usage, or automations)
 // that the MCP server refuses every agent write to, regardless of profile or rules.
 func MatchYouOnlyPath(filePath string) (YouOnlyDomain, bool) {
 	raw := strings.TrimSpace(filePath)
@@ -72,6 +76,14 @@ func MatchYouOnlyPath(filePath string) (YouOnlyDomain, bool) {
 	case "usage.yaml", "usage.yml", "privacy.yaml", "privacy.yml":
 		if cleaned == base || inNSGoDir {
 			return YouOnlyUsage, true
+		}
+	case "automations.yaml", "automations.yml":
+		if cleaned == base || inNSGoDir {
+			return YouOnlyAutomations, true
+		}
+	case "automations-state.yaml", "automations-state.yml":
+		if inNSGoDir {
+			return YouOnlyAutomations, true
 		}
 	case "editor.yaml", "editor.yml":
 		if inNSGoDir || strings.Contains(cleaned, "/nsgo-game/") {
@@ -314,7 +326,7 @@ func (e *Editor) ToolEnabled(toolName string) bool {
 
 // SetToolEnabled toggles an MCP tool in Settings › Tools (person-only).
 func (e *Editor) SetToolEnabled(toolName string, enabled bool) {
-	if e == nil || strings.TrimSpace(toolName) == "" {
+	if e == nil || strings.TrimSpace(toolName) == "" || e.AgentActorActive() {
 		return
 	}
 	if err := e.SetMCPToolEnabled(toolName, enabled); err != nil {
@@ -717,6 +729,9 @@ func (e *Editor) ConfirmHeldPermissionLoosening(id string) error {
 	if e == nil {
 		return nil
 	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
+	}
 	e.ensurePermissionsInit()
 	idx := slices.IndexFunc(e.perms.held, func(h HeldPermissionLoosening) bool { return h.ID == id })
 	if idx < 0 {
@@ -787,6 +802,9 @@ func (e *Editor) ConfirmHeldPermissionLoosening(id string) error {
 func (e *Editor) RejectHeldPermissionLoosening(id string) error {
 	if e == nil {
 		return nil
+	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
 	}
 	e.ensurePermissionsInit()
 	idx := slices.IndexFunc(e.perms.held, func(h HeldPermissionLoosening) bool { return h.ID == id })
@@ -920,7 +938,7 @@ func (e *Editor) PermissionsDraftTickedCount() int {
 
 // SetPermissionsDraftRuleTicked sets the checkbox state of rule index in the open permissions draft (person-only).
 func (e *Editor) SetPermissionsDraftRuleTicked(index int, ticked bool) {
-	if e == nil || e.perms.draft == nil || index < 0 || index >= len(e.perms.draft.Rules) {
+	if e == nil || e.AgentActorActive() || e.perms.draft == nil || index < 0 || index >= len(e.perms.draft.Rules) {
 		return
 	}
 	if e.perms.draft.Rules[index].Ticked == ticked {
@@ -964,6 +982,9 @@ func (e *Editor) PermissionsDraftPreviewYAML() []PermissionsDraftYAMLLine {
 func (e *Editor) ApplyPermissionsDraft() (int, error) {
 	if e == nil || e.perms.draft == nil {
 		return 0, ErrNoPermissionsDraft
+	}
+	if e.AgentActorActive() {
+		return 0, ErrAutomationYouOnly
 	}
 	e.ensurePermissionsInit()
 	draft := e.perms.draft
