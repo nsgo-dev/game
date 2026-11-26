@@ -147,7 +147,7 @@ func renderSketchOverlayTextPNG(pngBytes []byte, ops []core.DrawOp) ([]byte, boo
 	}
 	cur := state{
 		m:     sketchTextAffine{a: 1, d: 1},
-		color: core.RGB(0xFFFFFF),
+		color: darkSpecPalette.TextPrimary,
 		alpha: 1,
 	}
 	var stack []state

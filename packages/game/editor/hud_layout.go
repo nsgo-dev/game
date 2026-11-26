@@ -3,8 +3,10 @@ package editor
 import (
 	"bytes"
 	"cmp"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"maps"
 	"math"
@@ -149,6 +151,7 @@ type hudLayoutState struct {
 	open           bool
 	rev            uint64
 	session        uint64
+	localeRev      uint64
 	screens        []hudScreenRecord
 	activePath     string
 	selectedNodeID string
@@ -554,6 +557,7 @@ func (e *Editor) loadHUDLocalesFromDir(dir string, enforceProjectRoot bool) {
 	e.hud.locales = locales
 	e.hud.localeStrings = stringsMap
 	e.hud.localePlurals = pluralsMap
+	e.hud.localeRev++
 	if e.hud.locale == "" || !slices.Contains(locales, e.hud.locale) {
 		e.hud.locale = locales[0]
 	}
@@ -725,6 +729,7 @@ func (e *Editor) OpenHUDScreenDoc(name string, doc *gameui.ScreenDoc, locales ma
 		e.hud.locales = locs
 		e.hud.localeStrings = sm
 		e.hud.localePlurals = pm
+		e.hud.localeRev++
 	}
 	e.hud.activePath = relPath
 	e.hud.open = true
@@ -1017,8 +1022,57 @@ func (e *Editor) syncHUDAfterMutate() {
 			e.hud.localePlurals[loc] = maps.Clone(e.l10n.plurals[loc])
 		}
 		slices.Sort(e.hud.locales)
+		e.hud.localeRev++
 	}
 	e.ensureHUDSelection()
+}
+
+// hudStableFingerprint summarizes the HUD layout state rendered by the left rail,
+// text-width table, and inspector so unrelated editor notifications (such as async
+// project-wide problem rechecks or overlay toggles) do not needlessly remount those
+// subtrees and drop in-flight pointer presses.
+func (e *Editor) hudStableFingerprint() uint64 {
+	if e == nil {
+		return 0
+	}
+	h := fnv.New64a()
+	var buf [8]byte
+	writeU64 := func(v uint64) {
+		binary.LittleEndian.PutUint64(buf[:], v)
+		_, _ = h.Write(buf[:])
+	}
+	writeStr := func(s string) {
+		writeU64(uint64(len(s)))
+		_, _ = h.Write([]byte(s))
+	}
+	writeU64(e.hud.rev)
+	writeU64(e.hud.session)
+	writeU64(e.hud.localeRev)
+	writeStr(e.hud.activePath)
+	writeStr(e.hud.selectedNodeID)
+	writeStr(e.hud.locale)
+	writeU64(uint64(len(e.hud.locales)))
+	for _, loc := range e.hud.locales {
+		writeStr(loc)
+	}
+	writeU64(uint64(len(e.hud.screens)))
+	for i := range e.hud.screens {
+		rec := &e.hud.screens[i]
+		writeStr(rec.path)
+		writeU64(uint64(len(rec.raw)))
+		_, _ = h.Write(rec.raw)
+		if rec.doc != nil {
+			writeU64(1)
+		} else {
+			writeU64(0)
+		}
+		if rec.loadErr != nil {
+			writeStr(rec.loadErr.Error())
+		} else {
+			writeU64(0)
+		}
+	}
+	return h.Sum64()
 }
 
 // HUDTree returns the flattened node tree for the active screen's NODES rail.
