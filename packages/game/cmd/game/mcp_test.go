@@ -376,8 +376,10 @@ func TestGameMCPInstallConnectReconnectAndComposer(t *testing.T) {
 	}
 
 	// Connecting via the installed config transitions the Connect dialog and status chip to Connected.
+	// Wait for the MCP initialized handshake to populate the proxy client identity ("Claude Code over stdio"),
+	// since serveConn registers the raw unix transport before notifications/initialized arrives.
 	app.WaitUntil(10*time.Second, func() bool {
-		return ed.AgentStatus() == editor.AgentStatusConnected
+		return ed.AgentStatus() == editor.AgentStatusConnected && ed.AgentStatusTooltip() == "Claude Code over stdio"
 	})
 	if tip := ed.AgentStatusTooltip(); tip != "Claude Code over stdio" {
 		t.Fatalf("tooltip = %q, want Claude Code over stdio", tip)
