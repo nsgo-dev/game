@@ -606,6 +606,8 @@ const (
 	SettingsPageAudio SettingsPage = "audio"
 	// SettingsPageExport edits game.yaml's export output, platform presets, credits pre-flight, and release builds.
 	SettingsPageExport SettingsPage = "export"
+	// SettingsPagePermissions edits permissions.yaml's MCP agent permission profile and first-match-wins rules.
+	SettingsPagePermissions SettingsPage = "permissions"
 	// SettingsPageGeneral edits per-computer editor language and appearance preferences.
 	SettingsPageGeneral SettingsPage = "general"
 	// SettingsPageShortcuts edits per-computer command keyboard shortcuts within a scope.
@@ -615,7 +617,7 @@ const (
 // Valid reports whether p is a recognized Settings page.
 func (p SettingsPage) Valid() bool {
 	switch p {
-	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPageGeneral, SettingsPageShortcuts:
+	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts:
 		return true
 	default:
 		return false
@@ -683,6 +685,8 @@ func (e *Editor) OpenSettingsPage(page SettingsPage) {
 		e.syncExportPanel()
 		e.CheckExportCredits()
 		return
+	case SettingsPagePermissions:
+		e.ensurePermissionsInit()
 	}
 	e.notify()
 }

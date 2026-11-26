@@ -48,6 +48,7 @@ func tileTools() []Tool {
 			Description: "Paint explicit cells, inclusive rectangles, or deterministic weighted random picks of tiles on an inline tilemap layer in one undoable edit, tracked in the active region-based tile edit review (default review: true).",
 			InputSchema: []byte(tilePaintSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tilePaint,
 		},
 		{
@@ -56,6 +57,7 @@ func tileTools() []Tool {
 			Description: "Re-edge a region (or place terrain and re-edge it) on a layered tilemap using a YAML tileset terrain set's 4-bit cardinal or 8-bit blob autotile rules in one undoable edit, tracked in the active tile edit review (default review: true).",
 			InputSchema: []byte(tileAutotileSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tileAutotile,
 		},
 		{
@@ -64,6 +66,7 @@ func tileTools() []Tool {
 			Description: "Erase explicit cells or inclusive rectangles on an inline tilemap layer in one undoable edit, tracked in the active region-based tile edit review (default review: true).",
 			InputSchema: []byte(tileEraseSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tileErase,
 		},
 		{
@@ -80,6 +83,7 @@ func tileTools() []Tool {
 			Description: "Mark one region in the active tile edit review as reverted (by region id or 0-based index) and update the live 2D viewport.",
 			InputSchema: []byte(tileReviewRegionSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tileReviewRevertRegion,
 		},
 		{
@@ -88,6 +92,7 @@ func tileTools() []Tool {
 			Description: "Restore a previously reverted region in the active tile edit review (by region id or 0-based index) and update the live 2D viewport.",
 			InputSchema: []byte(tileReviewRegionSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tileReviewRestoreRegion,
 		},
 		{
@@ -96,6 +101,7 @@ func tileTools() []Tool {
 			Description: "Commit all non-reverted regions of the active tile edit review cleanly as one undoable step on History and close the review.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tileReviewKeep,
 		},
 		{
@@ -104,6 +110,7 @@ func tileTools() []Tool {
 			Description: "Revert every pending change in the active tile edit review back to the pre-review tilemap and close the review.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     tileReviewRevertAll,
 		},
 	}

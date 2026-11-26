@@ -89,41 +89,9 @@ var ErrReleaseUploadRunning = errors.New("editor: a store upload is already runn
 // ErrInvalidPublishDestination is returned when an unknown store destination is supplied.
 var ErrInvalidPublishDestination = errors.New("editor: unknown publish destination")
 
-// AgentPermissionProfile selects the agent's permission profile from Settings -> Permissions.
+// AgentPermissionProfile aliases PermissionProfile from Settings -> Permissions.
 // Store uploads ALWAYS ask first in Review uploads regardless of profile (including Autonomous).
-type AgentPermissionProfile string
-
-const (
-	// PermissionProfileCautious asks before every change, check, and playtest.
-	PermissionProfileCautious AgentPermissionProfile = "cautious"
-	// PermissionProfileBalanced allows content edits and checks/playtests, asking before code, config, and deletions.
-	PermissionProfileBalanced AgentPermissionProfile = "balanced"
-	// PermissionProfileAutonomous allows end-to-end tasks without asking, except irreversible trust boundaries
-	// such as store uploads and permission edits, which always require the person's confirmation.
-	PermissionProfileAutonomous AgentPermissionProfile = "autonomous"
-)
-
-// Valid reports whether p is a recognized AgentPermissionProfile.
-func (p AgentPermissionProfile) Valid() bool {
-	switch p {
-	case PermissionProfileCautious, PermissionProfileBalanced, PermissionProfileAutonomous:
-		return true
-	default:
-		return false
-	}
-}
-
-// DisplayName returns the human-readable profile name from Settings.dc.html.
-func (p AgentPermissionProfile) DisplayName() string {
-	switch p {
-	case PermissionProfileCautious:
-		return "Cautious"
-	case PermissionProfileAutonomous:
-		return "Autonomous"
-	default:
-		return "Balanced"
-	}
-}
+type AgentPermissionProfile = PermissionProfile
 
 // StoreUploadRequiresConfirmation reports whether store publishing requires explicit confirmation
 // in Review uploads for the given permission profile. It always returns true.
@@ -343,7 +311,7 @@ func (e *Editor) AgentPermissionProfile() AgentPermissionProfile {
 	return e.buildRelease.permissionProfile
 }
 
-// SetAgentPermissionProfile sets the editor's agent permission profile.
+// SetAgentPermissionProfile sets the editor's agent permission profile in Settings -> Permissions (permissions.yaml).
 // Store uploads always ask first in Review uploads regardless of profile.
 func (e *Editor) SetAgentPermissionProfile(profile AgentPermissionProfile) error {
 	if e == nil {
@@ -352,16 +320,7 @@ func (e *Editor) SetAgentPermissionProfile(profile AgentPermissionProfile) error
 	if !profile.Valid() {
 		return fmt.Errorf("editor: unknown agent permission profile %q", profile)
 	}
-	e.buildRelease.mu.Lock()
-	if e.buildRelease.permissionProfile == profile {
-		e.buildRelease.mu.Unlock()
-		return nil
-	}
-	e.buildRelease.permissionProfile = profile
-	e.buildRelease.rev++
-	e.buildRelease.mu.Unlock()
-	e.notify()
-	return nil
+	return e.SelectPermissionProfile(profile)
 }
 
 // WithAgentActor runs fn marked as an agent actor so strict human-only boundaries

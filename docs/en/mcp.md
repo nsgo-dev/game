@@ -366,6 +366,8 @@ Before running any mutating or running tool call (every action other than `Actio
 - **`ask`**: invokes `Options.OnPermissionAsk` when configured, or queues a pending permission request on `Editor` (`PendingPermissionRequests`) and returns a structured `*editormcp.PermissionError` with `decision: "ask"` without running the tool. Answering **Always** (`PermissionAnswerAllowAlways` / `Editor.ApproveAlwaysPermission`) inserts an `allow` rule ahead of the matching rule, persists `permissions.yaml`, and shows the `"Always permission rule saved"` toast with **Show** and **Undo**.
 - **`deny`**: records a blocked step on `Editor` (`BlockedPermissions`), returns a structured `*editormcp.PermissionError` naming the exact rule index, rule summary, base profile, and Settings link (for example `"Settings › Permissions · rule 7 of 7"`), and never calls the underlying tool handler.
 
+Enforcement is fail-closed: `Server.AddTool` refuses empty or unrecognized `Action` values; a corrupt or unreadable `permissions.yaml` denies mutating/running calls until fixed; file targets are canonically cleaned and symlink-resolved against the project root before rule matching (refusing absolute paths, `..` traversal, and symlink escapes, and matching case-insensitively on macOS/Windows); and multi-target tools (`refactor_rename` checking `from`, destination `to`, and rewritten referencing files when `apply: true`; `merge_finish` checking both the resolved scene edit and `git merge` run) apply the strictest verdict (`deny > ask > allow`).
+
 Rules govern the editor's MCP server tools only. Files modified directly by an external agent outside MCP continue to surface through the editor's disk watcher.
 
 ```go

@@ -2,7 +2,9 @@ package editormcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
@@ -25,7 +27,17 @@ func releaseTools() []Tool {
 			Description: "Draft player-facing Markdown release notes from commits since the last release tag (or initial commit) and kept reviews, saving them directly to the Markdown file `game release -release-notes` reads. Optionally accepts custom markdown or kept_reviews to include.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"markdown":{"type":"string","description":"Optional player-facing Markdown release notes to save directly to the release notes file; when omitted, drafts from git commits and kept reviews"},"kept_reviews":{"type":"array","items":{"type":"string"},"description":"Optional kept review summaries to include when drafting"}}}`),
 			Action:      ActionEdit,
-			Handler:     releaseNotesDraftTool,
+			Target: func(_ json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string) {
+				notes := ""
+				if ed != nil {
+					notes = strings.TrimSpace(ed.ExportReleaseNotes())
+				}
+				if notes == "" {
+					notes = editor.DefaultReleaseNotesFile
+				}
+				return editor.PermissionActionEdit, filepath.ToSlash(notes)
+			},
+			Handler: releaseNotesDraftTool,
 		},
 		{
 			Name:        ToolReleaseReviewUploads,
@@ -33,7 +45,10 @@ func releaseTools() []Tool {
 			Description: "Open the Review uploads confirmation dialog listing every artifact, its file size, store destination (itch.io, Google Play internal testing, TestFlight), and version. Never starts an upload: store uploads always require the person's explicit confirmation in Review uploads, whatever the permission profile.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionRun,
-			Handler:     releaseReviewUploadsTool,
+			Target: func(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {
+				return editor.PermissionActionRun, "release review"
+			},
+			Handler: releaseReviewUploadsTool,
 		},
 	}
 }

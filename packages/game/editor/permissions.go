@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,6 +33,13 @@ const PermissionsSchemaURL = "https://game.nsgo.dev/schemas/permissions.v1.json"
 
 // PermissionsSchemaComment is the first line EncodePermissions writes: a YAML comment pointing a YAML language server at PermissionsSchemaURL. ParsePermissions ignores it like any other comment.
 const PermissionsSchemaComment = "# yaml-language-server: $schema=" + PermissionsSchemaURL
+
+const (
+	maxPermissionsFileBytes      = 1 << 20 // 1 MiB cap on permissions.yaml reads/parses
+	maxPermissionsRules          = 512     // cap on rules per permissions.yaml
+	maxPermissionsPatternsPerRow = 128     // cap on patterns per rule
+	maxPendingPermissionRequests = 64      // cap on queued permission requests in memory
+)
 
 // PermissionProfile selects a preset rule table for what the editor's MCP server lets an agent do on its own.
 // Profiles are presets of rules; the rules themselves decide every tool call.
@@ -356,6 +364,9 @@ func ParsePermissions(data []byte) (*PermissionsFile, error) {
 }
 
 func parsePermissions(data []byte) (*PermissionsFile, error) {
+	if len(data) > maxPermissionsFileBytes {
+		return nil, fmt.Errorf("editor: permissions document exceeds %d bytes", maxPermissionsFileBytes)
+	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("editor: empty permissions document")
 	}
@@ -458,12 +469,18 @@ func ValidatePermissions(f *PermissionsFile) error {
 	if !f.Profile.Valid() {
 		return loaderr.Errorf("profile", fixPermissionsProfile, "editor: invalid permissions profile %q (want cautious, balanced, or autonomous)", f.Profile)
 	}
+	if len(f.Rules) > maxPermissionsRules {
+		return loaderr.Errorf("rules", fixPermissionsDoc, "editor: permissions has %d rules, exceeding limit (%d)", len(f.Rules), maxPermissionsRules)
+	}
 	for i, r := range f.Rules {
 		if !r.Action.Valid() {
 			return loaderr.Errorf(fmt.Sprintf("rules[%d].action", i), fixPermissionsAction, "editor: rule %d has invalid action %q (want edit, create, delete, run, or code)", i+1, r.Action)
 		}
 		if len(r.Patterns) == 0 {
 			return loaderr.Errorf(fmt.Sprintf("rules[%d].patterns", i), fixPermissionsPattern, "editor: rule %d must list at least one pattern", i+1)
+		}
+		if len(r.Patterns) > maxPermissionsPatternsPerRow {
+			return loaderr.Errorf(fmt.Sprintf("rules[%d].patterns", i), fixPermissionsPattern, "editor: rule %d has %d patterns, exceeding limit (%d)", i+1, len(r.Patterns), maxPermissionsPatternsPerRow)
 		}
 		for j, pat := range r.Patterns {
 			if err := validatePermissionPattern(r.Action, pat); err != nil {
@@ -547,14 +564,21 @@ func PermissionsFilePath(projectDir string) string {
 }
 
 // LoadPermissions reads and parses permissions.yaml from path.
-func LoadPermissions(path string) (*PermissionsFile, error) {
-	data, err := os.ReadFile(path)
+func LoadPermissions(filePath string) (*PermissionsFile, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxPermissionsFileBytes {
+		return nil, loaderr.WithFile(fmt.Errorf("editor: permissions file exceeds %d bytes", maxPermissionsFileBytes), filePath)
+	}
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
 	f, err := ParsePermissions(data)
 	if err != nil {
-		return nil, loaderr.WithFile(err, path)
+		return nil, loaderr.WithFile(err, filePath)
 	}
 	return f, nil
 }
@@ -615,14 +639,65 @@ type PermissionEvaluation struct {
 
 // Evaluate checks req against f's rules from top to bottom (first match wins).
 // When no rule matches, the active profile's default decision applies.
+// Unrecognized actions or escaping file paths fail closed (PermissionDeny).
 func (f PermissionsFile) Evaluate(req PermissionRequest) PermissionEvaluation {
 	profile := f.Profile
 	if !profile.Valid() {
-		profile = PermissionProfileBalanced
+		profile = PermissionProfileCautious
 	}
-	target := normalizePermissionTarget(req.Action, req.Target)
 	modified := f.IsModified()
 	total := len(f.Rules)
+
+	if !req.Action.Valid() {
+		return PermissionEvaluation{
+			Decision:  PermissionDeny,
+			Profile:   profile,
+			Modified:  modified,
+			RuleIndex: -1,
+			RuleTotal: total,
+			Reason:    fmt.Sprintf("Denied: unrecognized permission action %q.", req.Action),
+			Link:      "Settings › Permissions",
+			Tool:      req.Tool,
+			Action:    req.Action,
+			Target:    strings.TrimSpace(req.Target),
+		}
+	}
+
+	target := ""
+	if req.Action == PermissionActionRun {
+		target = strings.TrimSpace(req.Target)
+		if hasControlRune(target) {
+			return PermissionEvaluation{
+				Decision:  PermissionDeny,
+				Profile:   profile,
+				Modified:  modified,
+				RuleIndex: -1,
+				RuleTotal: total,
+				Reason:    "Denied: run target contains control characters.",
+				Link:      "Settings › Permissions",
+				Tool:      req.Tool,
+				Action:    req.Action,
+				Target:    target,
+			}
+		}
+	} else {
+		var ok bool
+		target, ok = cleanPermissionFileTarget(req.Target)
+		if !ok {
+			return PermissionEvaluation{
+				Decision:  PermissionDeny,
+				Profile:   profile,
+				Modified:  modified,
+				RuleIndex: -1,
+				RuleTotal: total,
+				Reason:    fmt.Sprintf("Denied: target path %q is invalid or escapes the project root.", req.Target),
+				Link:      "Settings › Permissions",
+				Tool:      req.Tool,
+				Action:    req.Action,
+				Target:    strings.TrimSpace(req.Target),
+			}
+		}
+	}
 
 	for i, rule := range f.Rules {
 		if !actionMatchesRule(req.Action, rule.Action, target) {
@@ -687,6 +762,9 @@ func isGoSourceTarget(target string) bool {
 }
 
 func defaultProfileDecision(profile PermissionProfile, action PermissionAction, target string) PermissionDecision {
+	if !action.Valid() {
+		return PermissionDeny
+	}
 	if action == PermissionActionDelete {
 		return PermissionDeny
 	}
@@ -732,41 +810,136 @@ func formatProfileDefaultReason(decision PermissionDecision, profile PermissionP
 	}
 }
 
-func normalizePermissionTarget(action PermissionAction, target string) string {
-	target = strings.TrimSpace(target)
-	if action == PermissionActionRun {
-		return target
+func hasControlRune(s string) bool {
+	for _, r := range s {
+		if r == 0 || unicode.IsControl(r) {
+			return true
+		}
 	}
-	target = strings.ReplaceAll(target, `\`, "/")
-	target = strings.TrimPrefix(target, "./")
-	if target == "" {
-		return ""
+	return false
+}
+
+// cleanPermissionFileTarget normalizes a slash-separated project-relative file path for permission matching.
+// It returns ("", true) for an empty target (or "."), and ("", false) for any path containing NUL/control characters,
+// an absolute prefix, a Windows drive prefix, or ".." traversal escaping the project root.
+func cleanPermissionFileTarget(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", true
 	}
-	cleaned := path.Clean(target)
+	if hasControlRune(s) {
+		return "", false
+	}
+	s = strings.ReplaceAll(s, `\`, "/")
+	if strings.HasPrefix(s, "/") {
+		return "", false
+	}
+	// Reject Windows drive-letter prefixes such as "C:/foo" or "C:foo".
+	if len(s) >= 2 && s[1] == ':' && ((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z')) {
+		return "", false
+	}
+	cleaned := path.Clean(s)
 	if cleaned == "." {
-		return ""
+		return "", true
 	}
-	return cleaned
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return "", false
+	}
+	return cleaned, true
+}
+
+// ResolvePermissionFileTarget canonicalizes raw against projectRoot, refusing control characters, absolute paths,
+// ".." escapes, and symlinks pointing outside projectRoot. When a symlink inside projectRoot resolves to another
+// location inside projectRoot (for example "scenes/link.scene.yaml" -> "../game.yaml"), the real project-relative
+// target ("game.yaml") is returned so permission rules match the actual file being touched.
+func ResolvePermissionFileTarget(projectRoot, raw string) (string, error) {
+	cleaned, ok := cleanPermissionFileTarget(raw)
+	if !ok {
+		return "", fmt.Errorf("editor: target path %q leaves the project root", raw)
+	}
+	if cleaned == "" || strings.TrimSpace(projectRoot) == "" {
+		return cleaned, nil
+	}
+	realRoot, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		realRoot, err = filepath.Abs(projectRoot)
+		if err != nil {
+			return "", fmt.Errorf("editor: resolve project root: %w", err)
+		}
+	}
+	absCandidate := filepath.Join(realRoot, filepath.FromSlash(cleaned))
+	// Walk upward to the deepest existing ancestor so non-existent targets (such as Create) still resolve parent symlinks.
+	cur := absCandidate
+	var tail []string
+	var resolvedBase string
+	for {
+		real, rerr := filepath.EvalSymlinks(cur)
+		if rerr == nil {
+			resolvedBase = real
+			break
+		}
+		if !errors.Is(rerr, fs.ErrNotExist) {
+			return "", fmt.Errorf("editor: resolve target %q: %w", raw, rerr)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", fmt.Errorf("editor: target path %q escapes the project root", raw)
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+	}
+	slices.Reverse(tail)
+	resolved := resolvedBase
+	if len(tail) > 0 {
+		resolved = filepath.Join(append([]string{resolvedBase}, tail...)...)
+	}
+	rel, err := filepath.Rel(realRoot, resolved)
+	if err != nil {
+		return "", fmt.Errorf("editor: target path %q escapes the project root", raw)
+	}
+	relSlash := filepath.ToSlash(rel)
+	finalClean, ok := cleanPermissionFileTarget(relSlash)
+	if !ok {
+		return "", fmt.Errorf("editor: target path %q resolves outside the project root", raw)
+	}
+	return finalClean, nil
+}
+
+// permissionFileCaseInsensitive reports whether file patterns should fold ASCII/Unicode case
+// to match the host OS filesystem's case-insensitivity (macOS APFS/HFS+ and Windows NTFS).
+func permissionFileCaseInsensitive() bool {
+	return runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 }
 
 // MatchPermissionPattern reports whether target matches pattern for action.
-// For file actions, "**" matches zero or more path segments (so "**/*.go" matches both "main.go" and "scripts/slime.go", and "scenes/**" matches everything under "scenes/").
+// For file actions, "**" matches zero or more path segments (so "**/*.go" matches both "main.go" and "scripts/slime.go", and "scenes/**" matches everything under "scenes/"),
+// and empty, absolute, or ".."-escaping targets never match any pattern (including "**" and "*").
 // For run actions, matching is case-insensitive and supports target prefixes such as "shell" matching "shell: go generate ./assets", as well as "*" and "**" wildcards.
 func MatchPermissionPattern(action PermissionAction, pattern, target string) bool {
 	pattern = strings.TrimSpace(pattern)
 	target = strings.TrimSpace(target)
-	if pattern == "" {
+	if pattern == "" || target == "" {
+		return false
+	}
+	if action == PermissionActionRun {
+		if hasControlRune(target) {
+			return false
+		}
+		if pattern == "**" || pattern == "*" {
+			return true
+		}
+		return matchRunPattern(pattern, target)
+	}
+	normTarget, ok := cleanPermissionFileTarget(target)
+	if !ok || normTarget == "" {
 		return false
 	}
 	if pattern == "**" || pattern == "*" {
 		return true
 	}
-	if action == PermissionActionRun {
-		return matchRunPattern(pattern, target)
-	}
-	normTarget := normalizePermissionTarget(action, target)
-	if normTarget == "" {
-		return false
+	if permissionFileCaseInsensitive() {
+		pattern = strings.ToLower(pattern)
+		normTarget = strings.ToLower(normTarget)
 	}
 	return matchGlobPath(pattern, normTarget)
 }
@@ -809,34 +982,43 @@ func matchGlobPath(pattern, target string) bool {
 	return matchGlobSegments(pSegs, tSegs)
 }
 
+// matchGlobSegments matches slash-separated glob segments in O(len(pSegs) * len(tSegs)) time using DP,
+// preventing exponential backtracking on patterns with multiple "**" segments.
 func matchGlobSegments(pSegs, tSegs []string) bool {
-	if len(pSegs) == 0 {
-		return len(tSegs) == 0
+	// Collapse consecutive "**" segments up front.
+	collapsed := make([]string, 0, len(pSegs))
+	for _, seg := range pSegs {
+		if seg == "**" && len(collapsed) > 0 && collapsed[len(collapsed)-1] == "**" {
+			continue
+		}
+		collapsed = append(collapsed, seg)
 	}
-	if pSegs[0] == "**" {
-		// Collapse consecutive "**" segments.
-		for len(pSegs) > 1 && pSegs[1] == "**" {
-			pSegs = pSegs[1:]
-		}
-		if len(pSegs) == 1 {
-			return true
-		}
-		// "**" matches zero or more directory segments.
-		for i := 0; i <= len(tSegs); i++ {
-			if matchGlobSegments(pSegs[1:], tSegs[i:]) {
-				return true
+	m, n := len(collapsed), len(tSegs)
+	dp := make([]bool, n+1)
+	dp[0] = true
+	for i := range m {
+		next := make([]bool, n+1)
+		seg := collapsed[i]
+		if seg == "**" {
+			// "**" matches 0 or more target segments: next[j] = dp[j] || next[j-1].
+			for j := 0; j <= n; j++ {
+				if dp[j] || (j > 0 && next[j-1]) {
+					next[j] = true
+				}
+			}
+		} else {
+			for j := 1; j <= n; j++ {
+				if !dp[j-1] {
+					continue
+				}
+				if ok, err := path.Match(seg, tSegs[j-1]); err == nil && ok {
+					next[j] = true
+				}
 			}
 		}
-		return false
+		dp = next
 	}
-	if len(tSegs) == 0 {
-		return false
-	}
-	ok, err := path.Match(pSegs[0], tSegs[0])
-	if err != nil || !ok {
-		return false
-	}
-	return matchGlobSegments(pSegs[1:], tSegs[1:])
+	return dp[n]
 }
 
 // BlockedPermissionStep records an MCP tool call stopped by a Deny rule so the editor can show the blocked step and link directly to its rule in Settings › Permissions.
@@ -882,13 +1064,13 @@ type permissionsState struct {
 	initialized   bool
 	path          string
 	loadErr       error
-	open          bool
 	focusedRule   int
 	focusSeq      uint64
 	nextID        int
 	blocked       []BlockedPermissionStep
 	pending       []PendingPermissionRequest
 	toast         *PermissionToast
+	rulesRev      uint64
 	rev           uint64
 	focusPending  bool
 	searchQuery   string
@@ -907,9 +1089,39 @@ func (e *Editor) ensurePermissionsInit() {
 	}
 }
 
+func (e *Editor) syncBuildReleasePermissionProfile() {
+	if e == nil {
+		return
+	}
+	p := e.perms.file.Profile
+	if !p.Valid() {
+		p = PermissionProfileBalanced
+	}
+	e.buildRelease.mu.Lock()
+	if e.buildRelease.permissionProfile != p {
+		e.buildRelease.permissionProfile = p
+		e.buildRelease.rev++
+	}
+	e.buildRelease.mu.Unlock()
+}
+
+func (e *Editor) bumpPermissionsRulesRev() {
+	e.syncBuildReleasePermissionProfile()
+	e.perms.rulesRev++
+	e.perms.rev++
+	e.notify()
+}
+
 func (e *Editor) bumpPermissionsRev() {
 	e.perms.rev++
 	e.notify()
+}
+
+func (e *Editor) permissionsRulesRev() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.perms.rulesRev
 }
 
 func (e *Editor) permissionsStateRev() uint64 {
@@ -950,18 +1162,17 @@ func (e *Editor) PermissionsErr() error {
 	return e.perms.loadErr
 }
 
-// PermissionsSettingsOpen reports whether the Settings › Permissions screen is open.
+// PermissionsSettingsOpen reports whether the Settings › Permissions page is open.
 func (e *Editor) PermissionsSettingsOpen() bool {
-	return e != nil && e.perms.open
+	return e != nil && e.settingsOpen && e.settingsPage == SettingsPagePermissions
 }
 
 // OpenPermissionsSettings opens Settings › Permissions and optionally focuses rule index focusRule (0-based; pass -1 to keep or clear rule focus).
 func (e *Editor) OpenPermissionsSettings(focusRule int) {
-	if e == nil {
+	if e == nil || e.playing {
 		return
 	}
 	e.ensurePermissionsInit()
-	e.perms.open = true
 	e.perms.activeSection = "permissions"
 	if focusRule >= 0 && focusRule < len(e.perms.file.Rules) {
 		e.perms.focusedRule = focusRule
@@ -970,16 +1181,22 @@ func (e *Editor) OpenPermissionsSettings(focusRule int) {
 	} else if focusRule < 0 {
 		e.perms.focusedRule = -1
 	}
-	e.bumpPermissionsRev()
+	e.perms.rulesRev++
+	e.perms.rev++
+	wasOpen := e.PermissionsSettingsOpen()
+	e.OpenSettingsPage(SettingsPagePermissions)
+	if wasOpen {
+		e.notify()
+	}
 }
 
 // ClosePermissionsSettings closes Settings › Permissions.
 func (e *Editor) ClosePermissionsSettings() {
-	if e == nil || !e.perms.open {
+	if e == nil || !e.PermissionsSettingsOpen() {
 		return
 	}
-	e.perms.open = false
-	e.bumpPermissionsRev()
+	e.perms.rev++
+	e.CloseSettings()
 }
 
 // SetPermissionsSettingsOpen opens or closes Settings › Permissions.
@@ -1016,10 +1233,11 @@ func (e *Editor) FocusPermissionRule(index int) {
 		e.perms.focusSeq++
 		e.perms.focusPending = true
 	}
-	e.bumpPermissionsRev()
+	e.bumpPermissionsRulesRev()
 }
 
-// SetPermissions validates and applies f to the editor, persisting permissions.yaml when a project path is available.
+// SetPermissions validates, persists permissions.yaml when a project path is available, and atomically applies f to the editor.
+// If writing permissions.yaml fails, in-memory rules remain unchanged so disk and memory never diverge.
 func (e *Editor) SetPermissions(f PermissionsFile) error {
 	if e == nil {
 		return nil
@@ -1031,17 +1249,19 @@ func (e *Editor) SetPermissions(f PermissionsFile) error {
 	if err := ValidatePermissions(&f); err != nil {
 		return err
 	}
-	e.perms.file = f.Clone()
+	next := f.Clone()
+	if p := e.PermissionsPath(); p != "" {
+		if err := SavePermissions(p, &next); err != nil {
+			return err
+		}
+	}
+	e.perms.file = next
 	e.perms.loadErr = nil
 	if e.perms.focusedRule >= len(e.perms.file.Rules) {
 		e.perms.focusedRule = len(e.perms.file.Rules) - 1
 	}
-	var saveErr error
-	if p := e.PermissionsPath(); p != "" {
-		saveErr = SavePermissions(p, &e.perms.file)
-	}
-	e.bumpPermissionsRev()
-	return saveErr
+	e.bumpPermissionsRulesRev()
+	return nil
 }
 
 // SelectPermissionProfile switches to profile and fills the rule table with PermissionPreset(profile), persisting permissions.yaml when a project is open.
@@ -1184,7 +1404,7 @@ func (e *Editor) RemovePermissionRule(index int) error {
 	} else if e.perms.focusedRule >= len(e.perms.file.Rules) {
 		e.perms.focusedRule = len(e.perms.file.Rules) - 1
 	}
-	e.bumpPermissionsRev()
+	e.bumpPermissionsRulesRev()
 	return nil
 }
 
@@ -1208,6 +1428,8 @@ func (e *Editor) MovePermissionRule(index, delta int) error {
 }
 
 // LoadProjectPermissions loads permissions.yaml from path (falling back to DefaultPermissions when the file does not exist yet).
+// When permissions.yaml exists but fails to parse or validate, the editor fails closed: it records PermissionsErr(),
+// loads PermissionProfileCautious into memory, and EvaluatePermission denies all mutating/running calls until fixed.
 func (e *Editor) LoadProjectPermissions(path string) error {
 	if e == nil {
 		return nil
@@ -1217,23 +1439,23 @@ func (e *Editor) LoadProjectPermissions(path string) error {
 	e.perms.loadErr = nil
 	if strings.TrimSpace(path) == "" {
 		e.perms.file = DefaultPermissions()
-		e.bumpPermissionsRev()
+		e.bumpPermissionsRulesRev()
 		return nil
 	}
 	f, err := LoadPermissions(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			e.perms.file = DefaultPermissions()
-			e.bumpPermissionsRev()
+			e.bumpPermissionsRulesRev()
 			return nil
 		}
 		e.perms.loadErr = err
-		e.perms.file = DefaultPermissions()
-		e.bumpPermissionsRev()
+		e.perms.file = PermissionPreset(PermissionProfileCautious)
+		e.bumpPermissionsRulesRev()
 		return err
 	}
 	e.perms.file = f.Clone()
-	e.bumpPermissionsRev()
+	e.bumpPermissionsRulesRev()
 	return nil
 }
 
@@ -1265,12 +1487,32 @@ func (e *Editor) resetPermissionsForProject() {
 		e.perms.path = ""
 		e.perms.file = DefaultPermissions()
 		e.perms.initialized = true
+		e.syncBuildReleasePermissionProfile()
+		e.perms.rulesRev++
 		e.perms.rev++
 	}
 }
 
 // EvaluatePermission evaluates req against the editor's current permission rules.
+// If the project's permissions.yaml failed to load, EvaluatePermission fails closed with PermissionDeny.
 func (e *Editor) EvaluatePermission(req PermissionRequest) PermissionEvaluation {
+	if e != nil && e.perms.loadErr != nil {
+		profile := e.perms.file.Profile
+		if !profile.Valid() {
+			profile = PermissionProfileCautious
+		}
+		return PermissionEvaluation{
+			Decision:  PermissionDeny,
+			Profile:   profile,
+			RuleIndex: -1,
+			RuleTotal: len(e.perms.file.Rules),
+			Reason:    fmt.Sprintf("Denied because %s is invalid and could not be loaded: %v", PermissionsFileName, e.perms.loadErr),
+			Link:      "Settings › Permissions",
+			Tool:      req.Tool,
+			Action:    req.Action,
+			Target:    strings.TrimSpace(req.Target),
+		}
+	}
 	return e.Permissions().Evaluate(req)
 }
 
@@ -1365,6 +1607,19 @@ func (e *Editor) EnqueuePermissionRequest(eval PermissionEvaluation, summary str
 		onResolve:  onResolve,
 	}
 	e.perms.pending = append(e.perms.pending, req)
+	// Prune already-resolved requests and cap total queue length to prevent unbounded growth.
+	if len(e.perms.pending) > maxPendingPermissionRequests {
+		active := make([]PendingPermissionRequest, 0, len(e.perms.pending))
+		for _, r := range e.perms.pending {
+			if r.Status == "pending" {
+				active = append(active, r)
+			}
+		}
+		if len(active) > maxPendingPermissionRequests {
+			active = active[len(active)-maxPendingPermissionRequests:]
+		}
+		e.perms.pending = active
+	}
 	e.bumpPermissionsRev()
 	return req
 }
@@ -1399,21 +1654,21 @@ func (e *Editor) RespondPermissionRequest(id string, resp PermissionResponse) er
 			return fmt.Errorf("editor: permission request %q is already %s", id, e.perms.pending[i].Status)
 		}
 		eval := e.perms.pending[i].Evaluation
-		cb := e.perms.pending[i].onResolve
-		e.perms.pending[i].onResolve = nil
 		switch resp {
 		case PermissionResponseAllowOnce:
 			e.perms.pending[i].Status = "allowed_once"
 		case PermissionResponseAlways:
-			e.perms.pending[i].Status = "allowed_always"
 			if _, err := e.ApproveAlwaysPermission(eval); err != nil {
 				return err
 			}
+			e.perms.pending[i].Status = "allowed_always"
 		case PermissionResponseDeny:
 			e.perms.pending[i].Status = "denied"
 		default:
 			return fmt.Errorf("editor: invalid permission response %d", resp)
 		}
+		cb := e.perms.pending[i].onResolve
+		e.perms.pending[i].onResolve = nil
 		e.bumpPermissionsRev()
 		if cb != nil {
 			cb(resp)
@@ -1423,17 +1678,53 @@ func (e *Editor) RespondPermissionRequest(id string, resp PermissionResponse) er
 	return fmt.Errorf("editor: unknown permission request %q", id)
 }
 
+// escapePermissionGlobLiteral escapes glob metacharacters ('*', '?', '[') into single-character bracket classes
+// so a literal file path containing glob characters never becomes a wildcard Allow rule and stays valid without backslashes.
+func escapePermissionGlobLiteral(s string) string {
+	if !strings.ContainsAny(s, "*?[") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for _, r := range s {
+		switch r {
+		case '*':
+			b.WriteString("[*]")
+		case '?':
+			b.WriteString("[?]")
+		case '[':
+			b.WriteString("[[]")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // AlwaysRuleForEvaluation constructs the specific Allow rule added when a person chooses "Always" on eval.
+// Returns a rule with empty Patterns when eval lacks a safe, concrete target (callers must refuse to persist it).
 func AlwaysRuleForEvaluation(eval PermissionEvaluation) PermissionRule {
 	pat := strings.TrimSpace(eval.Target)
+	if !eval.Action.Valid() {
+		return PermissionRule{Action: eval.Action, Decision: PermissionAllow}
+	}
 	if eval.Action == PermissionActionRun {
+		if hasControlRune(pat) {
+			return PermissionRule{Action: eval.Action, Decision: PermissionAllow}
+		}
 		if strings.HasPrefix(strings.ToLower(pat), PermissionRunShell+":") {
 			pat = PermissionRunShell
-		} else if pat == "" {
-			pat = PermissionRunPlaytests
 		}
-	} else if pat == "" {
-		pat = "**"
+		if pat == "" {
+			return PermissionRule{Action: eval.Action, Decision: PermissionAllow}
+		}
+		pat = escapePermissionGlobLiteral(pat)
+	} else {
+		clean, ok := cleanPermissionFileTarget(pat)
+		if !ok || clean == "" {
+			return PermissionRule{Action: eval.Action, Decision: PermissionAllow}
+		}
+		pat = escapePermissionGlobLiteral(clean)
 	}
 	return PermissionRule{
 		Action:   eval.Action,
@@ -1442,13 +1733,34 @@ func AlwaysRuleForEvaluation(eval PermissionEvaluation) PermissionRule {
 	}
 }
 
-// ApproveAlwaysPermission inserts an Allow rule for eval ahead of its blocking/asking rule (so first-match-wins lets future matching calls through immediately), saves permissions.yaml when a project is open, and shows the "Always permission rule saved" toast with Show and Undo.
-// It returns the 0-based index of the newly inserted rule.
+// ApproveAlwaysPermission inserts an Allow rule for eval ahead of its current asking rule (so first-match-wins lets future matching calls through immediately), saves permissions.yaml when a project is open, and shows the "Always permission rule saved" toast with Show and Undo.
+// It re-evaluates eval against the live rule table so a stale RuleIndex can never insert Allow ahead of a Deny rule, refuses empty/escaping targets, and refuses when permissions.yaml failed to load.
+// It returns the 0-based index of the newly inserted (or already matching) rule.
 func (e *Editor) ApproveAlwaysPermission(eval PermissionEvaluation) (int, error) {
 	if e == nil {
 		return -1, nil
 	}
 	e.ensurePermissionsInit()
+	if e.perms.loadErr != nil {
+		return -1, fmt.Errorf("editor: cannot save Always permission rule while %s is invalid: %w", PermissionsFileName, e.perms.loadErr)
+	}
+	rule := AlwaysRuleForEvaluation(eval)
+	if len(rule.Patterns) == 0 {
+		return -1, errors.New("editor: cannot save Always permission rule without a valid concrete target")
+	}
+	// Re-evaluate against the current rules so a stale eval.RuleIndex can never bypass a Deny rule.
+	fresh := e.perms.file.Evaluate(PermissionRequest{
+		Tool:   eval.Tool,
+		Action: eval.Action,
+		Target: eval.Target,
+	})
+	if fresh.Decision == PermissionDeny {
+		return -1, fmt.Errorf("editor: cannot save Always permission rule: target is denied (%s)", fresh.Reason)
+	}
+	if fresh.Decision == PermissionAllow {
+		return fresh.RuleIndex, nil
+	}
+
 	prev := e.perms.file.Clone()
 	hadFile := false
 	if p := e.PermissionsPath(); p != "" {
@@ -1456,10 +1768,9 @@ func (e *Editor) ApproveAlwaysPermission(eval PermissionEvaluation) (int, error)
 			hadFile = true
 		}
 	}
-	rule := AlwaysRuleForEvaluation(eval)
 	insertAt := len(e.perms.file.Rules)
-	if eval.RuleIndex >= 0 && eval.RuleIndex <= len(e.perms.file.Rules) {
-		insertAt = eval.RuleIndex
+	if fresh.RuleIndex >= 0 && fresh.RuleIndex <= len(e.perms.file.Rules) {
+		insertAt = fresh.RuleIndex
 	}
 	next := e.perms.file.Clone()
 	next.Rules = slices.Insert(next.Rules, insertAt, rule)
@@ -1500,23 +1811,25 @@ func (e *Editor) UndoPermissionToast() error {
 		return nil
 	}
 	toast := e.perms.toast
-	e.perms.toast = nil
-	e.perms.file = toast.previous.Clone()
-	if e.perms.focusedRule >= len(e.perms.file.Rules) {
-		e.perms.focusedRule = len(e.perms.file.Rules) - 1
-	}
-	var err error
+	prev := toast.previous.Clone()
 	if p := e.PermissionsPath(); p != "" {
 		if toast.hadFile {
-			err = SavePermissions(p, &e.perms.file)
+			if err := SavePermissions(p, &prev); err != nil {
+				return err
+			}
 		} else {
 			if rerr := os.Remove(p); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-				err = rerr
+				return rerr
 			}
 		}
 	}
-	e.bumpPermissionsRev()
-	return err
+	e.perms.toast = nil
+	e.perms.file = prev
+	if e.perms.focusedRule >= len(e.perms.file.Rules) {
+		e.perms.focusedRule = len(e.perms.file.Rules) - 1
+	}
+	e.bumpPermissionsRulesRev()
+	return nil
 }
 
 // DismissPermissionToast hides the active permission toast without changing saved rules.

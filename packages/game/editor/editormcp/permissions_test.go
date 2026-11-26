@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -287,4 +288,141 @@ func TestMCPPermissionsAskOnceAlwaysAndUndo(t *testing.T) {
 	}
 	// Suppress unused json import check if needed.
 	_ = json.RawMessage{}
+}
+
+func TestMCPPermissionsSecurityBypassesAndRace(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+
+	var customCalls atomic.Int32
+	if err := s.AddTool(editormcp.Tool{
+		Name:   "file_writer",
+		Action: editormcp.ActionEdit,
+		Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) {
+			customCalls.Add(1)
+			return &editormcp.Result{Text: "written"}, nil
+		},
+	}); err != nil {
+		t.Fatalf("AddTool: %v", err)
+	}
+	// Empty/invalid action must be refused by AddTool (fail-closed).
+	if err := s.AddTool(editormcp.Tool{
+		Name: "missing_action",
+		Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) {
+			return &editormcp.Result{Text: "bad"}, nil
+		},
+	}); err == nil {
+		t.Fatal("expected AddTool with empty Action to be rejected")
+	}
+
+	cs := connect(t, s, nil)
+
+	// 1. Path traversal, leading slash, and symlink escapes MUST be denied before handler executes.
+	outsideFile := filepath.Join(t.TempDir(), "outside.yaml")
+	if err := os.WriteFile(outsideFile, []byte("x: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "game.yaml"), filepath.Join(f.dir, "scenes", "link_game.scene.yaml")); err == nil {
+		// In Balanced profile, scenes/** is Allow, game.yaml is Ask -> symlink inside scenes/ pointing to game.yaml MUST trigger Ask (not Allow)!
+		res := call(t, cs, "file_writer", map[string]any{"file": "scenes/link_game.scene.yaml"})
+		if !res.IsError {
+			t.Fatal("symlink scenes/link_game.scene.yaml -> ../game.yaml bypassed game.yaml Ask rule")
+		}
+	}
+	if err := os.Symlink(outsideFile, filepath.Join(f.dir, "scenes", "escape_link.scene.yaml")); err == nil {
+		res := call(t, cs, "file_writer", map[string]any{"file": "scenes/escape_link.scene.yaml"})
+		if !res.IsError || !strings.Contains(text(res), "permission denied") {
+			t.Fatalf("outside symlink escape was not denied: err=%v text=%q", res.IsError, text(res))
+		}
+	}
+	for _, bad := range []string{"../outside.yaml", "scenes/../../outside.yaml", "/game.yaml"} {
+		res := call(t, cs, "file_writer", map[string]any{"file": bad})
+		if !res.IsError || !strings.Contains(text(res), "permission denied") {
+			t.Fatalf("escaping path %q was not denied: err=%v text=%q", bad, res.IsError, text(res))
+		}
+	}
+	if customCalls.Load() != 0 {
+		t.Fatalf("file_writer ran %d times on blocked/asking paths, want 0", customCalls.Load())
+	}
+
+	// 2. refactor_rename MUST check destination `to` (moving to ./game.yaml asks, moving to ../escape.yaml denies).
+	resToGame := call(t, cs, editormcp.ToolRefactorRename, map[string]any{
+		"from": "scenes/room.scene.yaml",
+		"to":   "./game.yaml",
+	})
+	if !resToGame.IsError || !strings.Contains(text(resToGame), "permission required") {
+		t.Fatalf("refactor_rename to ./game.yaml should require permission, got err=%v text=%q", resToGame.IsError, text(resToGame))
+	}
+	resToEscape := call(t, cs, editormcp.ToolRefactorRename, map[string]any{
+		"from": "scenes/room.scene.yaml",
+		"to":   "../escape.yaml",
+	})
+	if !resToEscape.IsError || !strings.Contains(text(resToEscape), "permission denied") {
+		t.Fatalf("refactor_rename to ../escape.yaml should be denied, got err=%v text=%q", resToEscape.IsError, text(resToEscape))
+	}
+
+	// 3. merge_finish MUST NOT be silently allowed as `game check` under Balanced profile.
+	resMerge := call(t, cs, editormcp.ToolMergeFinish, map[string]any{})
+	if !resMerge.IsError || !strings.Contains(text(resMerge), "permission required") {
+		t.Fatalf("merge_finish under Balanced should require permission (git merge), got err=%v text=%q", resMerge.IsError, text(resMerge))
+	}
+
+	// 4. Newly landed #1194/#1195/#1189 tools obey scene edit rules (allowed in Balanced, denied when scenes/** is denied).
+	if err := f.ed.SetPermissionRuleDecision(0, editor.PermissionDeny); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{editormcp.ToolObjectSetField, map[string]any{"id": "hero", "field": "x", "value": 10}},
+		{editormcp.ToolObjectDuplicate, map[string]any{"id": "hero"}},
+		{editormcp.ToolTilePaint, map[string]any{"cells": []any{map[string]any{"col": 0, "row": 0}}, "tile": 1}},
+	} {
+		res := call(t, cs, tc.tool, tc.args)
+		if !res.IsError || !strings.Contains(text(res), "permission denied") {
+			t.Fatalf("%s with scenes/** denied: err=%v text=%q", tc.tool, res.IsError, text(res))
+		}
+	}
+	// Restore rule 0 to Allow.
+	if err := f.ed.SetPermissionRuleDecision(0, editor.PermissionAllow); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Corrupt permissions.yaml fails closed on scene_edit.
+	if err := os.WriteFile(filepath.Join(f.dir, editor.PermissionsFileName), []byte("version: 1\nprofile: balanced\nbogus: true\nrules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.ed.LoadProjectPermissions(filepath.Join(f.dir, editor.PermissionsFileName))
+	resCorrupt := call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "move", "id": "hero", "x": 99, "y": 99}},
+	})
+	if !resCorrupt.IsError || !strings.Contains(text(resCorrupt), "permission denied") {
+		t.Fatalf("corrupt permissions.yaml must deny scene_edit, got err=%v text=%q", resCorrupt.IsError, text(resCorrupt))
+	}
+	// Restore clean Balanced rules for concurrency test.
+	if err := f.ed.SelectPermissionProfile(editor.PermissionProfileBalanced); err != nil {
+		t.Fatal(err)
+	}
+
+	// 6. LastPermissionDecision returns a deep copy and concurrent calls pass -race cleanly.
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for range 5 {
+				if id%2 == 0 {
+					_ = call(t, cs, editormcp.ToolGameCheck, map[string]any{})
+				} else {
+					_ = call(t, cs, "file_writer", map[string]any{"file": "../escape.yaml"})
+				}
+				if ev, ok := s.LastPermissionDecision(); ok && ev.Rule != nil && len(ev.Rule.Patterns) > 0 {
+					ev.Rule.Patterns[0] = "mutated-copy"
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }

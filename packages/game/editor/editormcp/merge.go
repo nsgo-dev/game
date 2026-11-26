@@ -81,7 +81,7 @@ func mergeTools() []Tool {
 			Description: "Write the resolved scene, run game check and a short playtest on the result, and stage and commit the Git merge once every conflict is resolved.",
 			InputSchema: []byte(mergeEmptySchema),
 			Action:      ActionRun,
-			Target:      mergeFinishTarget,
+			targets:     mergeFinishTargets,
 			Handler:     mergeFinish,
 		},
 		{

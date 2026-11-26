@@ -557,10 +557,12 @@ func TestAddTool(t *testing.T) {
 		t.Fatalf("custom_action: %q", out)
 	}
 	for _, bad := range []editormcp.Tool{
-		{Name: "custom_action", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
-		{Name: "bad name", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
-		{Name: "no_handler"},
-		{Name: "bad_schema", InputSchema: json.RawMessage(`{"type":"array"}`), Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
+		{Name: "custom_action", Action: editormcp.ActionRead, Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
+		{Name: "bad name", Action: editormcp.ActionRead, Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
+		{Name: "no_handler", Action: editormcp.ActionRead},
+		{Name: "no_action", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
+		{Name: "bad_action", Action: editormcp.Action("exec"), Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
+		{Name: "bad_schema", Action: editormcp.ActionRead, InputSchema: json.RawMessage(`{"type":"array"}`), Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
 	} {
 		if err := s.AddTool(bad); err == nil {
 			t.Errorf("AddTool(%q) accepted", bad.Name)
@@ -590,7 +592,7 @@ func TestPanickingToolIsAnError(t *testing.T) {
 	s := editormcp.New(f.ed, editormcp.Options{})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
-	if err := s.AddTool(editormcp.Tool{Name: "boom", Handler: func(ctx context.Context, c *editormcp.Call) (*editormcp.Result, error) {
+	if err := s.AddTool(editormcp.Tool{Name: "boom", Action: editormcp.ActionRead, Handler: func(ctx context.Context, c *editormcp.Call) (*editormcp.Result, error) {
 		return nil, c.Editor(ctx, func(*editor.Editor) error { panic("boom") })
 	}}); err != nil {
 		t.Fatal(err)

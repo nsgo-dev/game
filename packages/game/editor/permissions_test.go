@@ -3,10 +3,13 @@ package editor_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
@@ -298,4 +301,220 @@ func TestPermissionsSettingsUIProfilesArrowsBlockedLinkAndAlwaysToast(t *testing
 	if !bytes.Equal(beforeYAML, restoredYAML) {
 		t.Fatalf("Undo did not restore permissions.yaml byte-for-byte:\n--- before ---\n%s\n--- restored ---\n%s", beforeYAML, restoredYAML)
 	}
+}
+
+func TestPermissionsSecurityHardeningAndLifecycle(t *testing.T) {
+	// 1. Unrecognized action fails closed (PermissionDeny) even under Autonomous.
+	auto := editor.PermissionPreset(editor.PermissionProfileAutonomous)
+	if ev := auto.Evaluate(editor.PermissionRequest{Action: "unknown", Target: "scenes/a.scene.yaml"}); ev.Decision != editor.PermissionDeny {
+		t.Fatalf("unknown action decision = %q, want deny", ev.Decision)
+	}
+
+	// 2. Escaping, absolute, drive-prefixed, and control-char paths NEVER match "**" or "*" and fail closed.
+	for _, badTarget := range []string{"../secret.yaml", "scenes/../../etc/passwd", "/game.yaml", "C:/game.yaml", "scenes/a\x00.yaml"} {
+		if editor.MatchPermissionPattern(editor.PermissionActionEdit, "**", badTarget) {
+			t.Fatalf("MatchPermissionPattern(**) matched escaping target %q", badTarget)
+		}
+		if editor.MatchPermissionPattern(editor.PermissionActionEdit, "*", badTarget) {
+			t.Fatalf("MatchPermissionPattern(*) matched escaping target %q", badTarget)
+		}
+		if ev := auto.Evaluate(editor.PermissionRequest{Action: editor.PermissionActionEdit, Target: badTarget}); ev.Decision != editor.PermissionDeny {
+			t.Fatalf("Evaluate(%q) = %q, want deny", badTarget, ev.Decision)
+		}
+	}
+	if editor.MatchPermissionPattern(editor.PermissionActionEdit, "**", "") {
+		t.Fatal("MatchPermissionPattern(**) matched empty file target")
+	}
+
+	// 3. Symlink resolution maps internal symlinks to their real target and rejects outside escapes.
+	projDir := t.TempDir()
+	outsideDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projDir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "game.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideFile := filepath.Join(outsideDir, "secret.yaml")
+	if err := os.WriteFile(outsideFile, []byte("secret: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "game.yaml"), filepath.Join(projDir, "scenes", "link_game.scene.yaml")); err == nil {
+		got, err := editor.ResolvePermissionFileTarget(projDir, "scenes/link_game.scene.yaml")
+		if err != nil || got != "game.yaml" {
+			t.Fatalf("ResolvePermissionFileTarget internal symlink = (%q, %v), want (\"game.yaml\", nil)", got, err)
+		}
+	}
+	if err := os.Symlink(outsideFile, filepath.Join(projDir, "scenes", "escape.scene.yaml")); err == nil {
+		if got, err := editor.ResolvePermissionFileTarget(projDir, "scenes/escape.scene.yaml"); err == nil {
+			t.Fatalf("ResolvePermissionFileTarget outside symlink succeeded with %q, want error", got)
+		}
+	}
+
+	// 4. Case-insensitive matching on macOS/Windows prevents Game.yaml from bypassing game.yaml rules.
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		bal := editor.PermissionPreset(editor.PermissionProfileBalanced)
+		if ev := bal.Evaluate(editor.PermissionRequest{Action: editor.PermissionActionEdit, Target: "Game.yaml"}); ev.Decision != editor.PermissionAsk || ev.RuleNumber != 3 {
+			t.Fatalf("case-folded Game.yaml eval = %+v, want ask by rule 3", ev)
+		}
+	}
+
+	// 5. Adversarial multi-** glob must complete in polynomial time (DP O(|p|*|t|)), not exponential backtracking.
+	start := time.Now()
+	advPat := "a/**/b/**/c/**/d/**/e/**/f/**/g/**/h/**/i/**/j"
+	advTarget := strings.Repeat("a/", 30) + "z"
+	if editor.MatchPermissionPattern(editor.PermissionActionEdit, advPat, advTarget) {
+		t.Fatal("adversarial glob unexpectedly matched")
+	}
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("adversarial glob took %v, expected fast DP execution", elapsed)
+	}
+
+	// 6. Corrupt permissions.yaml fails closed (PermissionsErr != nil, profile Cautious, EvaluatePermission == Deny).
+	corruptProj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(corruptProj, "game.yaml"), []byte("version: 1\nname: corrupt\nid: dev.test.corrupt\nappVersion: 0.1.0\nwindow:\n  width: 320\n  height: 240\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(corruptProj, editor.PermissionsFileName), []byte("version: 1\nprofile: cautious\nunknownField: 123\nrules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(corruptProj, "game.yaml")); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if ed.PermissionsErr() == nil {
+		t.Fatal("expected PermissionsErr for corrupt permissions.yaml")
+	}
+	if ev := ed.EvaluatePermission(editor.PermissionRequest{
+		Tool:   "scene_edit",
+		Action: editor.PermissionActionEdit,
+		Target: "scenes/level_01.scene.yaml",
+	}); ev.Decision != editor.PermissionDeny {
+		t.Fatalf("corrupt permissions.yaml must fail closed with deny, got %+v", ev)
+	}
+	if _, err := ed.ApproveAlwaysPermission(editor.PermissionEvaluation{
+		Action: editor.PermissionActionEdit,
+		Target: "scenes/level_01.scene.yaml",
+	}); err == nil {
+		t.Fatal("expected ApproveAlwaysPermission to fail while permissions.yaml is invalid")
+	}
+
+	// 7. ApproveAlwaysPermission refuses empty target, escapes glob metacharacters, and refuses to bypass Deny with stale RuleIndex.
+	cleanEd, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanEd.SelectPermissionProfile(editor.PermissionProfileCautious); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cleanEd.ApproveAlwaysPermission(editor.PermissionEvaluation{
+		Action:    editor.PermissionActionEdit,
+		Target:    "",
+		RuleIndex: 0,
+	}); err == nil {
+		t.Fatal("expected ApproveAlwaysPermission with empty target to fail instead of inserting Allow **")
+	}
+	// Escaping glob metacharacters in literal filename: scenes/level*.scene.yaml must NOT allow scenes/level_other.scene.yaml!
+	idx, err := cleanEd.ApproveAlwaysPermission(editor.PermissionEvaluation{
+		Action:    editor.PermissionActionEdit,
+		Target:    "scenes/level*.scene.yaml",
+		RuleIndex: 0,
+	})
+	if err != nil || idx < 0 {
+		t.Fatalf("ApproveAlwaysPermission literal glob char: idx=%d err=%v", idx, err)
+	}
+	if ev := cleanEd.EvaluatePermission(editor.PermissionRequest{Action: editor.PermissionActionEdit, Target: "scenes/level*.scene.yaml"}); ev.Decision != editor.PermissionAllow {
+		t.Fatalf("escaped literal target should allow itself, got %+v", ev)
+	}
+	if ev := cleanEd.EvaluatePermission(editor.PermissionRequest{Action: editor.PermissionActionEdit, Target: "scenes/level_other.scene.yaml"}); ev.Decision != editor.PermissionAsk {
+		t.Fatalf("escaped literal pattern leaked wildcard to scenes/level_other.scene.yaml: %+v", ev)
+	}
+	// Stale RuleIndex: user changed rule to Deny after Ask was issued -> ApproveAlwaysPermission must refuse!
+	askEval := cleanEd.EvaluatePermission(editor.PermissionRequest{Action: editor.PermissionActionEdit, Target: "game.yaml"})
+	if askEval.Decision != editor.PermissionAsk {
+		t.Fatalf("expected Ask for game.yaml, got %+v", askEval)
+	}
+	if err := cleanEd.SetPermissionRuleDecision(askEval.RuleIndex, editor.PermissionDeny); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cleanEd.ApproveAlwaysPermission(askEval); err == nil {
+		t.Fatal("expected ApproveAlwaysPermission to refuse bypassing a rule that is now Deny")
+	}
+
+	// 8. OpenDemo() resets permissions path/state so Demo edits never overwrite the previous project's permissions.yaml.
+	projA := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projA, "game.yaml"), []byte("version: 1\nname: projA\nid: dev.test.proja\nappVersion: 0.1.0\nwindow:\n  width: 320\n  height: 240\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(projA, "game.yaml")); err != nil {
+		t.Fatalf("OpenProject projA: %v", err)
+	}
+	if err := ed.SelectPermissionProfile(editor.PermissionProfileCautious); err != nil {
+		t.Fatal(err)
+	}
+	projABytesBefore, err := os.ReadFile(filepath.Join(projA, editor.PermissionsFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.PermissionsPath() != "" {
+		t.Fatalf("after OpenDemo, PermissionsPath = %q, want empty", ed.PermissionsPath())
+	}
+	if err := ed.SelectPermissionProfile(editor.PermissionProfileAutonomous); err != nil {
+		t.Fatal(err)
+	}
+	projABytesAfter, err := os.ReadFile(filepath.Join(projA, editor.PermissionsFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(projABytesBefore, projABytesAfter) {
+		t.Fatal("editing permissions in Demo overwrote previous project's permissions.yaml")
+	}
+
+	// 9. Atomic SetPermissions: disk write failure must NOT mutate in-memory rules.
+	unwritableDir := filepath.Join(t.TempDir(), editor.PermissionsFileName)
+	if err := os.MkdirAll(unwritableDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	atomicEd, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = atomicEd.LoadProjectPermissions(unwritableDir) // fails to read directory as file -> loadErr set, Cautious loaded
+	beforeProfile := atomicEd.Permissions().Profile
+	if err := atomicEd.SelectPermissionProfile(editor.PermissionProfileAutonomous); err == nil {
+		t.Fatal("expected SetPermissions to fail when path is a directory")
+	}
+	if got := atomicEd.Permissions().Profile; got != beforeProfile {
+		t.Fatalf("failed SetPermissions mutated in-memory profile from %q to %q", beforeProfile, got)
+	}
+
+	// 10. Pending queue is bounded and ParsePermissions enforces size/rule caps.
+	for i := range 100 {
+		cleanEd.EnqueuePermissionRequest(askEval, fmt.Sprintf("ask %d", i), nil)
+	}
+	if got := len(cleanEd.PendingPermissionRequests()); got > 64 {
+		t.Fatalf("pending permission requests grew to %d, want <= 64", got)
+	}
+	if _, err := editor.ParsePermissions(bytes.Repeat([]byte(" "), (1<<20)+16)); err == nil {
+		t.Fatal("expected ParsePermissions to reject >1MiB document")
+	}
+
+	// 11. Unified Settings integration + Spec Light theme renders cleanly.
+	cleanEd.OpenPermissionsSettings(0)
+	if !cleanEd.SettingsOpen() || cleanEd.SettingsPage() != editor.SettingsPagePermissions || !cleanEd.PermissionsSettingsOpen() {
+		t.Fatalf("expected unified Settings on SettingsPagePermissions, open=%v page=%q", cleanEd.SettingsOpen(), cleanEd.SettingsPage())
+	}
+	if err := cleanEd.SetAppearance(editor.AppearanceLight); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, cleanEd)
+	}, nsgotest.Size(1280, 800))
+	app.Settle()
 }

@@ -11,20 +11,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for Settings › Permissions controls.
-// Every base color comes strictly from docs/design/editor/Spec.dc.html (accent #3B7BFF, added #4FD38A, changed #E9A84A, problem #FF6B6B, warning #F2C14E/#2A2414/#4A3F1F, agent #9B7BFF).
-var (
-	permAccentFill   = core.RGBA(0x3B7BFF, 0.14)
-	permAccentRowBg  = core.RGBA(0x3B7BFF, 0.10)
-	permAccentBorder = core.RGBA(0x3B7BFF, 0.55)
-	permAllowFill    = core.RGBA(0x4FD38A, 0.16)
-	permAllowBorder  = core.RGBA(0x4FD38A, 0.45)
-	permDenyFill     = core.RGBA(0xFF6B6B, 0.16)
-	permDenyBorder   = core.RGBA(0xFF6B6B, 0.50)
-	permChangedFill  = core.RGBA(0xE9A84A, 0.16)
-	permChangedEdge  = core.RGBA(0xE9A84A, 0.45)
-)
-
 var permissionActionsOrder = []PermissionAction{
 	PermissionActionEdit,
 	PermissionActionCreate,
@@ -39,8 +25,21 @@ var permissionDecisionsOrder = []PermissionDecision{
 	PermissionDeny,
 }
 
-// PermissionsSettingsView renders the full-window Settings › Permissions screen matching
-// docs/design/editor/Settings.dc.html and docs/design/editor/Permissions.dc.html using only Spec.dc.html tokens.
+type permissionsMemoKey struct {
+	rev  uint64
+	lang string
+	dark bool
+}
+
+type permissionsOverlayMemoKey struct {
+	rev  uint64
+	open bool
+	lang string
+	dark bool
+}
+
+// PermissionsSettingsView renders the standalone full-window Settings › Permissions screen matching
+// docs/design/editor/Settings.dc.html and docs/design/editor/Permissions.dc.html using SpecPalette tokens.
 func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.PermissionsSettingsOpen() {
@@ -48,9 +47,76 @@ func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		}
 	})
 
-	permRev := core.NewMemo(cx, func() uint64 {
+	railKey := core.NewMemo(cx, func() permissionsMemoKey {
 		_ = rev.Get()
-		return ed.permissionsStateRev()
+		return permissionsMemoKey{
+			rev:  ed.permissionsStateRev(),
+			lang: ed.ResolvedLanguage(),
+			dark: ed.SpecPalette(cx).Dark,
+		}
+	})
+	chromeKey := core.NewMemo(cx, func() permissionsMemoKey {
+		_ = rev.Get()
+		return permissionsMemoKey{
+			lang: ed.ResolvedLanguage(),
+			dark: ed.SpecPalette(cx).Dark,
+		}
+	})
+
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = chromeKey.Get()
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "permissions-settings-standalone",
+			Role:   core.RoleRegion,
+			Label:  ed.T("permissions.title"),
+			Style: core.Style{
+				Direction:  core.Row,
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				permissionsSidebarView(cx, ed, railKey),
+				core.View{
+					Style: core.Style{
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						MinWidth:  core.Pt(0),
+						Height:    core.Pct(100),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						permissionsTopBarView(p, ed),
+						permissionsSettingsPageBody(cx, ed, rev),
+					},
+				},
+			},
+		}
+	})
+}
+
+// permissionsSettingsPageBody renders the Permissions page body (profile cards, first-match-wins rule table,
+// and Agent rail with blocked-step links & Ask approval cards) inside the unified SettingsView (or standalone PermissionsSettingsView).
+// The rule table memoizes on permissionsRulesRev so incoming Ask/blocked rail updates or toast dismisses never
+// remount rule rows or disrupt typing focus in pattern inputs.
+func permissionsSettingsPageBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	rulesKey := core.NewMemo(cx, func() permissionsMemoKey {
+		_ = rev.Get()
+		return permissionsMemoKey{
+			rev:  ed.permissionsRulesRev(),
+			lang: ed.ResolvedLanguage(),
+			dark: ed.SpecPalette(cx).Dark,
+		}
+	})
+	railKey := core.NewMemo(cx, func() permissionsMemoKey {
+		_ = rev.Get()
+		return permissionsMemoKey{
+			rev:  ed.permissionsStateRev(),
+			lang: ed.ResolvedLanguage(),
+			dark: ed.SpecPalette(cx).Dark,
+		}
 	})
 
 	// Stable ref pool for Allow / Ask / Deny radio controls so arrow navigation and blocked-step links move real keyboard focus to the matching rule row.
@@ -66,7 +132,7 @@ func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	}
 
 	focusSeqMemo := core.NewMemo(cx, func() uint64 {
-		_ = permRev.Get()
+		_ = rulesKey.Get()
 		return ed.perms.focusSeq
 	})
 	cx.Effect(func() {
@@ -87,49 +153,25 @@ func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 
 	return core.View{
 		TestID: "permissions-settings-view",
-		Role:   core.RoleRegion,
-		Label:  ed.T("permissions.title"),
 		Style: core.Style{
-			Direction:  core.Row,
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
+			Direction: core.Row,
+			FlexGrow:  1,
+			FlexBasis: core.Pt(0),
+			MinHeight: core.Pt(0),
+			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
-			permissionsSidebarView(cx, ed, permRev),
-			core.View{
-				Style: core.Style{
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					MinWidth:  core.Pt(0),
-					Height:    core.Pct(100),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					permissionsTopBarView(ed),
-					core.View{
-						Style: core.Style{
-							Direction: core.Row,
-							FlexGrow:  1,
-							FlexBasis: core.Pt(0),
-							MinHeight: core.Pt(0),
-							Overflow:  core.Hidden,
-						},
-						Children: []core.Node{
-							permissionsMainPaneView(cx, ed, permRev, getRadioRef),
-							permissionsAgentRailView(cx, ed, permRev),
-						},
-					},
-				},
-			},
+			permissionsMainPaneView(cx, ed, rulesKey, getRadioRef),
+			permissionsAgentRailView(cx, ed, railKey),
 		},
 	}
 }
 
-func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint64]) core.Node {
+func permissionsSidebarView(cx *core.Scope, ed *Editor, railKey *core.Memo[permissionsMemoKey]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = permRev.Get()
+		_ = railKey.Get()
+		p := ed.SpecPalette(cx)
+		focusRing := p.FocusRing(2)
 		perms := ed.Permissions()
 		projName := ed.T("permissions.noProject")
 		if ed.Project != nil && strings.TrimSpace(ed.Project.Name) != "" {
@@ -139,10 +181,10 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 		}
 
 		profileMeta := ed.localizedProfileName(perms.Profile)
-		profileMetaColor := specTextMuted
+		profileMetaColor := p.TextFaint
 		if perms.IsModified() {
 			profileMeta = profileMeta + " · " + ed.T("permissions.changed")
-			profileMetaColor = specChanged
+			profileMetaColor = p.Changed.Fg
 		}
 
 		sectionTitle := func(text string, topPad core.Points) core.Node {
@@ -150,7 +192,7 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 				Content: text,
 				Style: core.Style{
 					Padding:       core.Edges{Top: topPad, Right: 10, Bottom: 4, Left: 10},
-					Color:         specTextMuted,
+					Color:         p.TextFaint,
 					FontSize:      11,
 					FontWeight:    600,
 					LetterSpacing: 0.6,
@@ -160,10 +202,10 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 
 		navButton := func(testID, label, meta string, active bool, metaColor core.Color, onPress func()) core.Node {
 			bg := core.Color(0)
-			fg := specTextSecondary
+			fg := p.TextMuted
 			if active {
-				bg = permAccentFill
-				fg = specTextStrong
+				bg = p.Accent.Fill
+				fg = p.TextPrimary
 			}
 			children := []core.Node{
 				core.Text{
@@ -202,7 +244,7 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 					Gap:          8,
 					CornerRadius: 8,
 					Background:   bg,
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: focusRing,
 				},
 				Children: children,
 			}
@@ -215,9 +257,9 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 			Style: core.Style{
 				Width:       core.Pt(264),
 				FlexShrink:  0,
-				Background:  specPanel,
+				Background:  p.Panel,
 				Borders:     core.Edges{Right: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				Padding:     core.Symmetric(16, 10),
 				Gap:         2,
 			},
@@ -235,41 +277,37 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 								Width:        core.Pt(22),
 								Height:       core.Pt(22),
 								CornerRadius: 6,
-								Background:   specAccent,
+								Background:   p.Accent.Fg,
 							},
 						},
 						core.Text{
 							Content: ed.T("permissions.settingsTitle"),
-							Style:   core.Style{Color: specTextStrong, FontSize: 13, FontWeight: 600},
+							Style:   core.Style{Color: p.TextPrimary, FontSize: 13, FontWeight: 600},
 						},
 						core.Text{
 							Content: "· " + projName,
-							Style:   core.Style{Color: specTextMuted, FontSize: 12.5},
+							Style:   core.Style{Color: p.TextFaint, FontSize: 12.5},
 						},
 					},
 				},
 				sectionTitle(ed.T("permissions.sectionAgent"), 6),
 				navButton("perm-nav-permissions", ed.T("permissions.title"), profileMeta, true, profileMetaColor, nil),
 				sectionTitle(ed.T("permissions.sectionProject"), 14),
-				navButton("perm-nav-project", ed.T("menu.projectSettings"), "", false, specTextMuted, func() {
-					ed.ClosePermissionsSettings()
-					ed.SetProjectSettingsOpen(true)
+				navButton("perm-nav-project", ed.T("menu.projectSettings"), "", false, p.TextFaint, func() {
+					ed.OpenSettingsPage(SettingsPageProject)
 				}),
-				navButton("perm-nav-input", ed.T("permissions.navInputMap"), "", false, specTextMuted, func() {
-					ed.ClosePermissionsSettings()
-					ed.SetInputMapOpen(true)
+				navButton("perm-nav-input", ed.T("permissions.navInputMap"), "", false, p.TextFaint, func() {
+					ed.OpenSettingsPage(SettingsPageInput)
 				}),
-				navButton("perm-nav-audio", ed.T("menu.audioMixer"), "", false, specTextMuted, func() {
-					ed.ClosePermissionsSettings()
-					ed.SetAudioMixerOpen(true)
+				navButton("perm-nav-audio", ed.T("menu.audioMixer"), "", false, p.TextFaint, func() {
+					ed.OpenSettingsPage(SettingsPageAudio)
 				}),
-				navButton("perm-nav-export", ed.T("permissions.navExport"), "", false, specTextMuted, func() {
-					ed.ClosePermissionsSettings()
-					ed.SetExportPanelOpen(true)
+				navButton("perm-nav-export", ed.T("permissions.navExport"), "", false, p.TextFaint, func() {
+					ed.OpenSettingsPage(SettingsPageExport)
 				}),
 				sectionTitle(ed.T("permissions.sectionEditor"), 14),
-				navButton("perm-nav-general", ed.T("permissions.navGeneral"), "", false, specTextMuted, func() {
-					ed.SetEditorSettingsOpen(true)
+				navButton("perm-nav-general", ed.T("permissions.navGeneral"), "", false, p.TextFaint, func() {
+					ed.OpenSettingsPage(SettingsPageGeneral)
 				}),
 				core.View{Style: core.Style{FlexGrow: 1}},
 				core.View{
@@ -287,19 +325,19 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 						Padding:        core.Symmetric(0, 12),
 						Gap:            8,
 						CornerRadius:   8,
-						Background:     specRaised,
+						Background:     p.Raised,
 						Borders:        core.All(1),
-						BorderColor:    specLineRaised,
-						FocusVisible:   specFocusRingStyle,
+						BorderColor:    p.LineRaised,
+						FocusVisible:   focusRing,
 					},
 					Children: []core.Node{
 						core.Icon{
 							SVG:   lucide.ArrowLeft(),
-							Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: specTextSecondary},
+							Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted},
 						},
 						core.Text{
 							Content: ed.T("permissions.backToEditor"),
-							Style:   core.Style{Color: specText, FontSize: 12.5, FontWeight: 500},
+							Style:   core.Style{Color: p.TextSecondary, FontSize: 12.5, FontWeight: 500},
 						},
 					},
 				},
@@ -308,13 +346,13 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint6
 	})
 }
 
-func permissionsTopBarView(ed *Editor) core.Node {
+func permissionsTopBarView(p SpecPalette, ed *Editor) core.Node {
 	return core.View{
 		Style: core.Style{
 			Padding:     core.Symmetric(14, 28),
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
-			Background:  specBg,
+			BorderColor: p.Line,
+			Background:  p.Bg,
 		},
 		Children: []core.Node{
 			core.View{
@@ -325,22 +363,22 @@ func permissionsTopBarView(ed *Editor) core.Node {
 					Padding:      core.Symmetric(0, 14),
 					Gap:          10,
 					CornerRadius: 10,
-					Background:   specRaised,
+					Background:   p.Raised,
 					Borders:      core.All(1),
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.Sparkles(),
-						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: specAgent},
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.Agent.Fg},
 					},
 					core.Text{
 						Content: ed.T("permissions.searchHint"),
-						Style:   core.Style{FlexGrow: 1, Color: specTextMuted, FontSize: 12.5},
+						Style:   core.Style{FlexGrow: 1, Color: p.TextFaint, FontSize: 12.5},
 					},
 					core.Text{
 						Content: "Esc",
-						Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: specTextMuted},
+						Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: p.TextFaint},
 					},
 				},
 			},
@@ -351,30 +389,32 @@ func permissionsTopBarView(ed *Editor) core.Node {
 func permissionsMainPaneView(
 	cx *core.Scope,
 	ed *Editor,
-	permRev *core.Memo[uint64],
+	rulesKey *core.Memo[permissionsMemoKey],
 	getRadioRef func(row int, dec PermissionDecision) *core.Ref,
 ) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = permRev.Get()
+		_ = rulesKey.Get()
+		p := ed.SpecPalette(cx)
+		focusRing := p.FocusRing(2)
 		perms := ed.Permissions()
 		modified := perms.IsModified()
 		focusedRule := ed.PermissionsFocusedRule()
 
 		profileCard := func(profile PermissionProfile, descKey string) core.Node {
 			active := perms.Profile == profile
-			bg := specRaised
-			borderColor := specLineRaised
+			bg := p.Raised
+			borderColor := p.LineRaised
 			borderW := core.Points(1)
 			if active {
-				bg = permAccentFill
-				borderColor = specAccent
+				bg = p.Accent.Fill
+				borderColor = p.Accent.Edge
 				borderW = 1.5
 			}
 			titleRowChildren := []core.Node{
 				core.Text{
 					TestID:  fmt.Sprintf("perm-profile-%s-name", profile),
 					Content: ed.localizedProfileName(profile),
-					Style:   core.Style{Color: specTextStrong, FontSize: 13, FontWeight: 600},
+					Style:   core.Style{Color: p.TextPrimary, FontSize: 13, FontWeight: 600},
 				},
 			}
 			if active && modified {
@@ -384,16 +424,16 @@ func permissionsMainPaneView(
 						Height:         core.Pt(20),
 						Padding:        core.Symmetric(0, 8),
 						CornerRadius:   6,
-						Background:     permChangedFill,
+						Background:     p.Changed.Fill,
 						Borders:        core.All(1),
-						BorderColor:    permChangedEdge,
+						BorderColor:    p.Changed.Edge,
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifyCenter,
 					},
 					Children: []core.Node{
 						core.Text{
 							Content: ed.T("permissions.changed"),
-							Style:   core.Style{Color: specChanged, FontSize: 11, FontWeight: 600},
+							Style:   core.Style{Color: p.Changed.Fg, FontSize: 11, FontWeight: 600},
 						},
 					},
 				})
@@ -415,7 +455,7 @@ func permissionsMainPaneView(
 					Background:   bg,
 					Borders:      core.All(borderW),
 					BorderColor:  borderColor,
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: focusRing,
 				},
 				Children: []core.Node{
 					core.View{
@@ -429,7 +469,7 @@ func permissionsMainPaneView(
 					core.Text{
 						Content: ed.T(descKey),
 						Style: core.Style{
-							Color:      specTextSecondary,
+							Color:      p.TextMuted,
 							FontSize:   12,
 							LineHeight: 18,
 						},
@@ -445,11 +485,11 @@ func permissionsMainPaneView(
 					core.Text{
 						TestID:  "perm-page-title",
 						Content: ed.T("permissions.title"),
-						Style:   core.Style{Color: specTextStrong, FontSize: 18, FontWeight: 600},
+						Style:   core.Style{Color: p.TextPrimary, FontSize: 18, FontWeight: 600},
 					},
 					core.Text{
 						Content: ed.T("permissions.subtitle"),
-						Style:   core.Style{Color: specTextMuted, FontSize: 12.5, LineHeight: 19},
+						Style:   core.Style{Color: p.TextFaint, FontSize: 12.5, LineHeight: 19},
 					},
 				},
 			},
@@ -459,9 +499,9 @@ func permissionsMainPaneView(
 					Height:         core.Pt(24),
 					Padding:        core.Symmetric(0, 10),
 					CornerRadius:   12,
-					Background:     permAccentFill,
+					Background:     p.Accent.Fill,
 					Borders:        core.All(1),
-					BorderColor:    permAccentBorder,
+					BorderColor:    p.Accent.Edge,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					FlexShrink:     0,
@@ -469,7 +509,7 @@ func permissionsMainPaneView(
 				Children: []core.Node{
 					core.Text{
 						Content: ed.T("permissions.scopeShared"),
-						Style:   core.Style{Color: specText, FontSize: 11.5, FontWeight: 500},
+						Style:   core.Style{Color: p.TextSecondary, FontSize: 11.5, FontWeight: 500},
 					},
 				},
 			},
@@ -488,17 +528,17 @@ func permissionsMainPaneView(
 					Height:         core.Pt(28),
 					Padding:        core.Symmetric(0, 10),
 					CornerRadius:   8,
-					Background:     specRaised,
+					Background:     p.Raised,
 					Borders:        core.All(1),
-					BorderColor:    specLineRaised,
+					BorderColor:    p.LineRaised,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
-					FocusVisible:   specFocusRingStyle,
+					FocusVisible:   focusRing,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: ed.T("permissions.resetPreset"),
-						Style:   core.Style{Color: specText, FontSize: 11.5, FontWeight: 500},
+						Style:   core.Style{Color: p.TextSecondary, FontSize: 11.5, FontWeight: 500},
 					},
 				},
 			})
@@ -522,17 +562,17 @@ func permissionsMainPaneView(
 				Padding:        core.Symmetric(0, 10),
 				Gap:            6,
 				CornerRadius:   8,
-				Background:     specLineRaised,
-				FocusVisible:   specFocusRingStyle,
+				Background:     p.LineRaised,
+				FocusVisible:   focusRing,
 			},
 			Children: []core.Node{
 				core.Icon{
 					SVG:   lucide.Plus(),
-					Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: specTextStrong},
+					Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextPrimary},
 				},
 				core.Text{
 					Content: ed.T("permissions.addRule"),
-					Style:   core.Style{Color: specTextStrong, FontSize: 11.5, FontWeight: 500},
+					Style:   core.Style{Color: p.TextPrimary, FontSize: 11.5, FontWeight: 500},
 				},
 			},
 		})
@@ -547,28 +587,28 @@ func permissionsMainPaneView(
 				Gap:         12,
 				Padding:     core.Symmetric(10, 14),
 				Borders:     core.Edges{Bottom: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: "#",
-					Style:   core.Style{Width: core.Pt(24), Color: specTextMuted, FontSize: 11, FontWeight: 600},
+					Style:   core.Style{Width: core.Pt(24), Color: p.TextFaint, FontSize: 11, FontWeight: 600},
 				},
 				core.Text{
 					Content: ed.T("permissions.colAction"),
-					Style:   core.Style{Width: core.Pt(88), Color: specTextMuted, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
+					Style:   core.Style{Width: core.Pt(88), Color: p.TextFaint, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
 				},
 				core.Text{
 					Content: ed.T("permissions.colFiles"),
-					Style:   core.Style{FlexGrow: 1, Color: specTextMuted, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
+					Style:   core.Style{FlexGrow: 1, Color: p.TextFaint, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
 				},
 				core.Text{
 					Content: ed.T("permissions.colDecision"),
-					Style:   core.Style{Width: core.Pt(196), Color: specTextMuted, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
+					Style:   core.Style{Width: core.Pt(196), Color: p.TextFaint, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
 				},
 				core.Text{
 					Content: ed.T("permissions.colOrder"),
-					Style:   core.Style{Width: core.Pt(92), Color: specTextMuted, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
+					Style:   core.Style{Width: core.Pt(92), Color: p.TextFaint, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
 				},
 			},
 		})
@@ -579,15 +619,15 @@ func permissionsMainPaneView(
 			isFocused := focusedRule == rowIdx
 			rowBg := core.Color(0)
 			rowBorders := core.Edges{Bottom: 1}
-			rowBorderColor := specLine
+			rowBorderColor := p.Line
 			if isFocused {
-				rowBg = permAccentRowBg
+				rowBg = p.Accent.Fill
 				rowBorders = core.Edges{Left: 3, Bottom: 1}
-				rowBorderColor = specAccent
+				rowBorderColor = p.Accent.Edge
 			}
-			numColor := specTextMuted
+			numColor := p.TextFaint
 			if isFocused {
-				numColor = specAccent
+				numColor = p.Accent.Fg
 			}
 
 			patternStr := strings.Join(r.Patterns, ", ")
@@ -607,7 +647,7 @@ func permissionsMainPaneView(
 			decisionBtn := func(dec PermissionDecision, labelKey string) core.Node {
 				selected := r.Decision == dec
 				bg := core.Color(0)
-				fg := specTextMuted
+				fg := p.TextFaint
 				border := core.Color(0)
 				borderW := core.Points(0)
 				weight := core.FontWeight(400)
@@ -616,17 +656,17 @@ func permissionsMainPaneView(
 					borderW = 1
 					switch dec {
 					case PermissionAllow:
-						bg = permAllowFill
-						border = permAllowBorder
-						fg = specAdded
+						bg = p.Added.Fill
+						border = p.Added.Edge
+						fg = p.Added.Fg
 					case PermissionAsk:
-						bg = specWarningFill
-						border = specWarningEdge
-						fg = specWarning
+						bg = p.Warning.Fill
+						border = p.Warning.Edge
+						fg = p.Warning.Fg
 					case PermissionDeny:
-						bg = permDenyFill
-						border = permDenyBorder
-						fg = specProblem
+						bg = p.Removed.Fill
+						border = p.Removed.Edge
+						fg = p.Removed.Fg
 					}
 				}
 				ref := getRadioRef(rowIdx, dec)
@@ -634,7 +674,7 @@ func permissionsMainPaneView(
 					Ref:       ref,
 					TestID:    fmt.Sprintf("perm-rule-%d-%s", rowIdx, dec),
 					Role:      core.RoleRadio,
-					Label:     fmt.Sprintf("Rule %d %s", rowIdx+1, dec.DisplayName()),
+					Label:     ed.T("permissions.ruleDecisionOption", l10n.Param("num", rowIdx+1), l10n.Param("decision", ed.T(labelKey))),
 					Checked:   func() bool { return selected },
 					Focusable: func() bool { return selected },
 					OnPress: func(core.PressEvent) {
@@ -677,7 +717,7 @@ func permissionsMainPaneView(
 						Background:     bg,
 						Borders:        core.All(borderW),
 						BorderColor:    border,
-						FocusVisible:   specFocusRingStyle,
+						FocusVisible:   focusRing,
 					},
 					Children: []core.Node{
 						core.Text{
@@ -689,12 +729,12 @@ func permissionsMainPaneView(
 			}
 
 			orderBtn := func(testID, label string, svg *core.SVG, disabled bool, danger bool, onPress func()) core.Node {
-				fg := specTextSecondary
+				fg := p.TextMuted
 				if danger {
-					fg = specProblem
+					fg = p.Removed.Fg
 				}
 				if disabled {
-					fg = specTextMuted
+					fg = p.TextFaint
 				}
 				opacity := core.Alpha(1)
 				if disabled {
@@ -716,11 +756,11 @@ func permissionsMainPaneView(
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifyCenter,
 						CornerRadius:   6,
-						Background:     specRaised,
+						Background:     p.Raised,
 						Borders:        core.All(1),
-						BorderColor:    specLineRaised,
+						BorderColor:    p.LineRaised,
 						Opacity:        opacity,
-						FocusVisible:   specFocusRingStyle,
+						FocusVisible:   focusRing,
 					},
 					Children: []core.Node{
 						core.Icon{
@@ -752,7 +792,7 @@ func permissionsMainPaneView(
 					core.View{
 						TestID: fmt.Sprintf("perm-rule-%d-action", rowIdx),
 						Role:   core.RoleButton,
-						Label:  fmt.Sprintf("Rule %d action: %s", rowIdx+1, r.Action.DisplayName()),
+						Label:  ed.T("permissions.ruleActionLabel", l10n.Param("num", rowIdx+1), l10n.Param("action", ed.localizedActionName(r.Action))),
 						OnPress: func(core.PressEvent) {
 							ed.FocusPermissionRule(rowIdx)
 							nextAct := permissionActionsOrder[0]
@@ -772,19 +812,19 @@ func permissionsMainPaneView(
 							Height:         core.Pt(28),
 							Padding:        core.Symmetric(0, 8),
 							CornerRadius:   6,
-							Background:     specRaised,
+							Background:     p.Raised,
 							Borders:        core.All(1),
-							BorderColor:    specLineRaised,
-							FocusVisible:   specFocusRingStyle,
+							BorderColor:    p.LineRaised,
+							FocusVisible:   focusRing,
 						},
 						Children: []core.Node{
 							core.Text{
 								Content: ed.localizedActionName(r.Action),
-								Style:   core.Style{Color: specTextStrong, FontSize: 12, FontWeight: 500},
+								Style:   core.Style{Color: p.TextPrimary, FontSize: 12, FontWeight: 500},
 							},
 							core.Icon{
 								SVG:   lucide.ChevronDown(),
-								Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: specTextMuted},
+								Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.TextFaint},
 							},
 						},
 					},
@@ -793,7 +833,7 @@ func permissionsMainPaneView(
 						Children: []core.Node{
 							ui.Input{
 								TestID: fmt.Sprintf("perm-rule-%d-patterns", rowIdx),
-								Label:  fmt.Sprintf("Rule %d patterns", rowIdx+1),
+								Label:  ed.T("permissions.rulePatternsLabel", l10n.Param("num", rowIdx+1)),
 								Value:  patVal.Get,
 								OnChange: func(v string) {
 									patVal.Set(v)
@@ -810,13 +850,13 @@ func permissionsMainPaneView(
 									Height:       core.Pt(28),
 									Padding:      core.Symmetric(0, 8),
 									CornerRadius: 6,
-									Background:   specBg,
+									Background:   p.Bg,
 									Borders:      core.All(1),
-									BorderColor:  specLineRaised,
-									Color:        specText,
+									BorderColor:  p.LineRaised,
+									Color:        p.TextSecondary,
 									FontFamily:   "monospace",
 									FontSize:     11.5,
-									FocusVisible: specFocusRingStyle,
+									FocusVisible: focusRing,
 								},
 							},
 						},
@@ -824,7 +864,7 @@ func permissionsMainPaneView(
 					core.View{
 						TestID: fmt.Sprintf("perm-rule-%d-decision", rowIdx),
 						Role:   core.RoleRadioGroup,
-						Label:  fmt.Sprintf("Rule %d decision", rowIdx+1),
+						Label:  ed.T("permissions.ruleDecisionLabel", l10n.Param("num", rowIdx+1)),
 						Style: core.Style{
 							Direction:    core.Row,
 							AlignItems:   core.AlignCenter,
@@ -832,9 +872,9 @@ func permissionsMainPaneView(
 							Padding:      core.All(3),
 							Gap:          2,
 							CornerRadius: 8,
-							Background:   specRaised,
+							Background:   p.Raised,
 							Borders:      core.All(1),
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 						},
 						Children: []core.Node{
 							decisionBtn(PermissionAllow, "permissions.allow"),
@@ -871,7 +911,7 @@ func permissionsMainPaneView(
 				Children: []core.Node{
 					core.Text{
 						Content: ed.T("permissions.emptyRules"),
-						Style:   core.Style{Color: specTextMuted, FontSize: 12.5},
+						Style:   core.Style{Color: p.TextFaint, FontSize: 12.5},
 					},
 				},
 			})
@@ -896,14 +936,14 @@ func permissionsMainPaneView(
 				Style: core.Style{
 					Padding:      core.Symmetric(10, 14),
 					CornerRadius: 10,
-					Background:   permDenyFill,
+					Background:   p.Removed.Fill,
 					Borders:      core.All(1),
-					BorderColor:  permDenyBorder,
+					BorderColor:  p.Removed.Edge,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: loadErr.Error(),
-						Style:   core.Style{Color: specProblem, FontSize: 12},
+						Style:   core.Style{Color: p.Removed.Fg, FontSize: 12},
 					},
 				},
 			})
@@ -932,7 +972,7 @@ func permissionsMainPaneView(
 				Children: []core.Node{
 					core.Text{
 						Content: ed.T("permissions.rulesHeader"),
-						Style:   core.Style{Color: specTextMuted, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
+						Style:   core.Style{Color: p.TextFaint, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6},
 					},
 					core.View{
 						Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
@@ -946,16 +986,16 @@ func permissionsMainPaneView(
 				Label:  ed.T("permissions.rulesHeader"),
 				Style: core.Style{
 					CornerRadius: 12,
-					Background:   specPanel,
+					Background:   p.Panel,
 					Borders:      core.All(1),
-					BorderColor:  specLine,
+					BorderColor:  p.Line,
 					Overflow:     core.Hidden,
 				},
 				Children: rows,
 			},
 			core.Text{
 				Content: ed.T("permissions.mcpOnlyNote"),
-				Style:   core.Style{Color: specTextMuted, FontSize: 11.5, LineHeight: 18},
+				Style:   core.Style{Color: p.TextFaint, FontSize: 11.5, LineHeight: 18},
 			},
 		)
 
@@ -969,7 +1009,7 @@ func permissionsMainPaneView(
 			Children: []core.Node{
 				core.View{
 					Style: core.Style{
-						Padding: core.Symmetric(22, 28),
+						Padding: core.Symmetric(18, 20),
 						Gap:     16,
 					},
 					Children: bodyChildren,
@@ -979,9 +1019,10 @@ func permissionsMainPaneView(
 	})
 }
 
-func permissionsAgentRailView(cx *core.Scope, ed *Editor, permRev *core.Memo[uint64]) core.Node {
+func permissionsAgentRailView(cx *core.Scope, ed *Editor, railKey *core.Memo[permissionsMemoKey]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = permRev.Get()
+		_ = railKey.Get()
+		p := ed.SpecPalette(cx)
 		perms := ed.Permissions()
 		allowN, askN, denyN := 0, 0, 0
 		for _, r := range perms.Rules {
@@ -1000,11 +1041,11 @@ func permissionsAgentRailView(cx *core.Scope, ed *Editor, permRev *core.Memo[uin
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
 					core.View{
-						Style: core.Style{Width: core.Pt(7), Height: core.Pt(7), CornerRadius: 4, Background: specAgent},
+						Style: core.Style{Width: core.Pt(7), Height: core.Pt(7), CornerRadius: 4, Background: p.Agent.Fg},
 					},
 					core.Text{
 						Content: ed.T("permissions.agentRailTitle"),
-						Style:   core.Style{Color: specTextStrong, FontSize: 12.5, FontWeight: 500},
+						Style:   core.Style{Color: p.TextPrimary, FontSize: 12.5, FontWeight: 500},
 					},
 				},
 			},
@@ -1014,14 +1055,14 @@ func permissionsAgentRailView(cx *core.Scope, ed *Editor, permRev *core.Memo[uin
 					l10n.Param("ask", askN),
 					l10n.Param("deny", denyN),
 				),
-				Style: core.Style{Color: specTextSecondary, FontSize: 12, LineHeight: 19},
+				Style: core.Style{Color: p.TextMuted, FontSize: 12, LineHeight: 19},
 			},
 		}
 
 		// Show pending Ask permission requests.
 		pending := ed.PendingPermissionRequests()
 		if len(pending) > 0 {
-			children = append(children, permissionsAskCardNode(ed, pending[0], "perm-rail-ask"))
+			children = append(children, permissionsAskCardNode(p, ed, pending[0], "perm-rail-ask"))
 		}
 
 		// Show blocked steps with clickable links to the exact matching rule row.
@@ -1029,11 +1070,11 @@ func permissionsAgentRailView(cx *core.Scope, ed *Editor, permRev *core.Memo[uin
 		if len(blocked) > 0 {
 			children = append(children, core.Text{
 				Content: ed.T("permissions.blockedHeader"),
-				Style:   core.Style{Color: specTextMuted, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6, Padding: core.Edges{Top: 6}},
+				Style:   core.Style{Color: p.TextFaint, FontSize: 11, FontWeight: 600, LetterSpacing: 0.6, Padding: core.Edges{Top: 6}},
 			})
 			for i := len(blocked) - 1; i >= 0 && len(blocked)-1-i < 3; i-- {
 				step := blocked[i]
-				children = append(children, permissionsBlockedCardNode(ed, step, fmt.Sprintf("perm-blocked-link-%d", i)))
+				children = append(children, permissionsBlockedCardNode(p, ed, step, fmt.Sprintf("perm-blocked-link-%d", i)))
 			}
 		}
 
@@ -1042,9 +1083,9 @@ func permissionsAgentRailView(cx *core.Scope, ed *Editor, permRev *core.Memo[uin
 			Style: core.Style{
 				Width:       core.Pt(300),
 				FlexShrink:  0,
-				Background:  specPanel,
+				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				Padding:     core.All(18),
 				Gap:         12,
 			},
@@ -1053,7 +1094,8 @@ func permissionsAgentRailView(cx *core.Scope, ed *Editor, permRev *core.Memo[uin
 	})
 }
 
-func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTestID string) core.Node {
+func permissionsBlockedCardNode(p SpecPalette, ed *Editor, step BlockedPermissionStep, linkTestID string) core.Node {
+	focusRing := p.FocusRing(2)
 	ruleSummary := step.Evaluation.Reason
 	if step.Evaluation.Rule != nil {
 		ruleSummary = step.Evaluation.Rule.Summary()
@@ -1070,9 +1112,9 @@ func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTest
 			Padding:      core.All(12),
 			Gap:          8,
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   p.Raised,
 			Borders:      core.All(1),
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 		},
 		Children: []core.Node{
 			core.View{
@@ -1083,7 +1125,7 @@ func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTest
 							Width:          core.Pt(18),
 							Height:         core.Pt(18),
 							CornerRadius:   9,
-							Background:     specLineRaised,
+							Background:     p.LineRaised,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 							FlexShrink:     0,
@@ -1091,13 +1133,13 @@ func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTest
 						Children: []core.Node{
 							core.Icon{
 								SVG:   lucide.Lock(),
-								Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specText},
+								Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: p.TextSecondary},
 							},
 						},
 					},
 					core.Text{
 						Content: ed.T("permissions.blockedPrefix", l10n.Param("summary", step.Summary)),
-						Style:   core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Color: specTextStrong, FontSize: 12, FontWeight: 500},
+						Style:   core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Color: p.TextPrimary, FontSize: 12, FontWeight: 500},
 					},
 				},
 			},
@@ -1114,10 +1156,10 @@ func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTest
 					Gap:          8,
 					Padding:      core.Symmetric(8, 10),
 					CornerRadius: 8,
-					Background:   specBg,
+					Background:   p.Bg,
 					Borders:      core.All(1),
-					BorderColor:  specLine,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.Line,
+					FocusVisible: focusRing,
 				},
 				Children: []core.Node{
 					core.View{
@@ -1125,17 +1167,17 @@ func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTest
 						Children: []core.Node{
 							core.Text{
 								Content: ruleSummary,
-								Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: specTextStrong},
+								Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: p.TextPrimary},
 							},
 							core.Text{
 								Content: linkLabel,
-								Style:   core.Style{FontSize: 11, Color: specTextMuted},
+								Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 							},
 						},
 					},
 					core.Icon{
 						SVG:   lucide.ChevronRight(),
-						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), FlexShrink: 0, Color: specTextMuted},
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), FlexShrink: 0, Color: p.TextFaint},
 					},
 				},
 			},
@@ -1143,7 +1185,8 @@ func permissionsBlockedCardNode(ed *Editor, step BlockedPermissionStep, linkTest
 	}
 }
 
-func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix string) core.Node {
+func permissionsAskCardNode(p SpecPalette, ed *Editor, req PendingPermissionRequest, testPrefix string) core.Node {
+	focusRing := p.FocusRing(2)
 	reqID := req.ID
 	rule := AlwaysRuleForEvaluation(req.Evaluation)
 	return core.View{
@@ -1154,9 +1197,9 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 			Padding:      core.All(12),
 			Gap:          10,
 			CornerRadius: 12,
-			Background:   specWarningFill,
+			Background:   p.Warning.Fill,
 			Borders:      core.All(1),
-			BorderColor:  specWarningEdge,
+			BorderColor:  p.Warning.Edge,
 		},
 		Children: []core.Node{
 			core.View{
@@ -1164,11 +1207,11 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.ShieldAlert(),
-						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: specWarning},
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.Warning.Fg},
 					},
 					core.Text{
 						Content: ed.T("permissions.askTitle", l10n.Param("summary", req.Summary)),
-						Style:   core.Style{FlexGrow: 1, Color: specWarning, FontSize: 13, FontWeight: 600},
+						Style:   core.Style{FlexGrow: 1, Color: p.Warning.Fg, FontSize: 13, FontWeight: 600},
 					},
 				},
 			},
@@ -1186,16 +1229,15 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 							Height:         core.Pt(30),
 							Padding:        core.Symmetric(0, 12),
 							CornerRadius:   8,
-							Background:     specAccent,
+							Background:     p.Accent.Fg,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
+							FocusVisible:   focusRing,
 						},
 						Children: []core.Node{
 							core.Text{
 								Content: ed.T("permissions.allowOnce"),
-								// Per Spec.dc.html contrast table: #101216 on accent #3B7BFF (4.88:1 AA, weight 600).
-								Style: core.Style{Color: specBg, FontSize: 12, FontWeight: 600},
+								Style:   core.Style{Color: p.Accent.OnFill, FontSize: 12, FontWeight: 600},
 							},
 						},
 					},
@@ -1210,17 +1252,17 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 							Height:         core.Pt(30),
 							Padding:        core.Symmetric(0, 12),
 							CornerRadius:   8,
-							Background:     specRaised,
+							Background:     p.Raised,
 							Borders:        core.All(1),
-							BorderColor:    specWarningEdge,
+							BorderColor:    p.Warning.Edge,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
+							FocusVisible:   focusRing,
 						},
 						Children: []core.Node{
 							core.Text{
 								Content: ed.T("permissions.allowAlways"),
-								Style:   core.Style{Color: specTextStrong, FontSize: 12, FontWeight: 500},
+								Style:   core.Style{Color: p.TextPrimary, FontSize: 12, FontWeight: 500},
 							},
 						},
 					},
@@ -1236,15 +1278,15 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 							Padding:        core.Symmetric(0, 12),
 							CornerRadius:   8,
 							Borders:        core.All(1),
-							BorderColor:    specWarningEdge,
+							BorderColor:    p.Warning.Edge,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
+							FocusVisible:   focusRing,
 						},
 						Children: []core.Node{
 							core.Text{
 								Content: ed.T("permissions.deny"),
-								Style:   core.Style{Color: specText, FontSize: 12},
+								Style:   core.Style{Color: p.TextSecondary, FontSize: 12},
 							},
 						},
 					},
@@ -1255,16 +1297,16 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 					Padding:      core.Symmetric(8, 10),
 					Gap:          4,
 					CornerRadius: 8,
-					Background:   specBg,
+					Background:   p.Bg,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: rule.Summary(),
-						Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: specTextStrong},
+						Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: req.Evaluation.Reason,
-						Style:   core.Style{FontSize: 11, Color: specTextMuted, LineHeight: 16},
+						Style:   core.Style{FontSize: 11, Color: p.TextFaint, LineHeight: 16},
 					},
 				},
 			},
@@ -1273,20 +1315,32 @@ func permissionsAskCardNode(ed *Editor, req PendingPermissionRequest, testPrefix
 }
 
 // PermissionsToastView renders the floating bottom-center "Always permission rule saved" toast with Show and Undo actions.
+// It memoizes on permissionsStateRev, language, and appearance so 60 Hz frame ticks never remount it.
 func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	toastKey := core.NewMemo(cx, func() permissionsMemoKey {
+		_ = rev.Get()
+		return permissionsMemoKey{
+			rev:  ed.permissionsStateRev(),
+			lang: ed.ResolvedLanguage(),
+			dark: ed.SpecPalette(cx).Dark,
+		}
+	})
 	return core.Show{
 		When: func() bool {
-			_ = rev.Get()
+			_ = toastKey.Get()
 			_, ok := ed.PermissionToast()
 			return ok
 		},
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = rev.Get()
+				_ = toastKey.Get()
 				toast, ok := ed.PermissionToast()
 				if !ok {
 					return core.View{}
 				}
+				p := ed.SpecPalette(cx)
+				focusRing := p.FocusRing(2)
+				msg := ed.T("permissions.toastSaved")
 				return core.View{
 					TestID: "perm-toast-overlay",
 					Style: core.Style{
@@ -1303,7 +1357,7 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						core.View{
 							TestID: "perm-toast",
 							Role:   core.RoleStatus,
-							Label:  toast.Message,
+							Label:  msg,
 							Style: core.Style{
 								Direction:    core.Row,
 								AlignItems:   core.AlignCenter,
@@ -1311,24 +1365,24 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								Padding:      core.Edges{Top: 0, Right: 8, Bottom: 0, Left: 16},
 								Gap:          12,
 								CornerRadius: 12,
-								Background:   specRaised,
+								Background:   p.Raised,
 								Borders:      core.All(1),
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 							},
 							Children: []core.Node{
 								core.Icon{
 									SVG:   lucide.Check(),
-									Style: core.Style{Width: core.Pt(15), Height: core.Pt(15), Color: specAdded},
+									Style: core.Style{Width: core.Pt(15), Height: core.Pt(15), Color: p.Added.Fg},
 								},
 								core.Text{
 									TestID:  "perm-toast-message",
-									Content: toast.Message,
-									Style:   core.Style{Color: specTextStrong, FontSize: 12.5, FontWeight: 600},
+									Content: msg,
+									Style:   core.Style{Color: p.TextPrimary, FontSize: 12.5, FontWeight: 600},
 								},
 								core.Text{
 									TestID:  "perm-toast-rule",
 									Content: toast.Rule.Summary(),
-									Style:   core.Style{FontFamily: "monospace", FontSize: 11.5, Color: specTextSecondary},
+									Style:   core.Style{FontFamily: "monospace", FontSize: 11.5, Color: p.TextMuted},
 								},
 								core.View{
 									TestID: "perm-toast-show",
@@ -1341,15 +1395,15 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 										Height:         core.Pt(28),
 										Padding:        core.Symmetric(0, 12),
 										CornerRadius:   8,
-										Background:     specLineRaised,
+										Background:     p.LineRaised,
 										AlignItems:     core.AlignCenter,
 										JustifyContent: core.JustifyCenter,
-										FocusVisible:   specFocusRingStyle,
+										FocusVisible:   focusRing,
 									},
 									Children: []core.Node{
 										core.Text{
 											Content: ed.T("permissions.toastShow"),
-											Style:   core.Style{Color: specTextStrong, FontSize: 12, FontWeight: 500},
+											Style:   core.Style{Color: p.TextPrimary, FontSize: 12, FontWeight: 500},
 										},
 									},
 								},
@@ -1364,15 +1418,15 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 										Height:         core.Pt(28),
 										Padding:        core.Symmetric(0, 12),
 										CornerRadius:   8,
-										Background:     specLineRaised,
+										Background:     p.LineRaised,
 										AlignItems:     core.AlignCenter,
 										JustifyContent: core.JustifyCenter,
-										FocusVisible:   specFocusRingStyle,
+										FocusVisible:   focusRing,
 									},
 									Children: []core.Node{
 										core.Text{
 											Content: ed.T("permissions.toastUndo"),
-											Style:   core.Style{Color: specTextStrong, FontSize: 12, FontWeight: 500},
+											Style:   core.Style{Color: p.TextPrimary, FontSize: 12, FontWeight: 500},
 										},
 									},
 								},
@@ -1389,12 +1443,12 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 										CornerRadius:   6,
 										AlignItems:     core.AlignCenter,
 										JustifyContent: core.JustifyCenter,
-										FocusVisible:   specFocusRingStyle,
+										FocusVisible:   focusRing,
 									},
 									Children: []core.Node{
 										core.Icon{
 											SVG:   lucide.X(),
-											Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: specTextMuted},
+											Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextFaint},
 										},
 									},
 								},
@@ -1408,28 +1462,39 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 }
 
 // PermissionsWorkspaceOverlayView surfaces the latest blocked MCP step link or pending Ask request in the main editor workspace while Settings › Permissions is closed, so clicking a blocked step link opens Settings › Permissions with the matching rule focused.
+// It memoizes on permissionsStateRev, PermissionsSettingsOpen, language, and appearance so 60 Hz frame ticks never remount it.
 func PermissionsWorkspaceOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	overlayKey := core.NewMemo(cx, func() permissionsOverlayMemoKey {
+		_ = rev.Get()
+		return permissionsOverlayMemoKey{
+			rev:  ed.permissionsStateRev(),
+			open: ed.PermissionsSettingsOpen(),
+			lang: ed.ResolvedLanguage(),
+			dark: ed.SpecPalette(cx).Dark,
+		}
+	})
 	return core.Show{
 		When: func() bool {
-			_ = rev.Get()
-			if ed.PermissionsSettingsOpen() {
+			k := overlayKey.Get()
+			if k.open {
 				return false
 			}
 			return len(ed.BlockedPermissions()) > 0 || len(ed.PendingPermissionRequests()) > 0
 		},
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = rev.Get()
-				if ed.PermissionsSettingsOpen() {
+				k := overlayKey.Get()
+				if k.open {
 					return core.View{}
 				}
+				p := ed.SpecPalette(cx)
 				items := make([]core.Node, 0, 2)
 				if pending := ed.PendingPermissionRequests(); len(pending) > 0 {
-					items = append(items, permissionsAskCardNode(ed, pending[0], "workspace-perm-ask"))
+					items = append(items, permissionsAskCardNode(p, ed, pending[0], "workspace-perm-ask"))
 				}
 				if blocked := ed.BlockedPermissions(); len(blocked) > 0 {
 					latest := blocked[len(blocked)-1]
-					items = append(items, permissionsBlockedCardNode(ed, latest, "workspace-blocked-step-link"))
+					items = append(items, permissionsBlockedCardNode(p, ed, latest, "workspace-blocked-step-link"))
 				}
 				if len(items) == 0 {
 					return core.View{}

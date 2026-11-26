@@ -83,7 +83,7 @@ func TestProxyFindsTheEditor(t *testing.T) {
 	if !strings.Contains(out, "id: hero") {
 		t.Fatalf("scene_read through the proxy:\n%s", out)
 	}
-	if err := s.AddTool(editormcp.Tool{Name: "custom_action", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) {
+	if err := s.AddTool(editormcp.Tool{Name: "custom_action", Action: editormcp.ActionRead, Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) {
 		return &editormcp.Result{Text: "played"}, nil
 	}}); err != nil {
 		t.Fatal(err)

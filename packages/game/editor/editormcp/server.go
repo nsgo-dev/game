@@ -50,6 +50,16 @@ const (
 	ActionCode Action = "code"
 )
 
+// Valid reports whether a is one of the recognized tool actions.
+func (a Action) Valid() bool {
+	switch a {
+	case ActionRead, ActionEdit, ActionCreate, ActionDelete, ActionRun, ActionCode:
+		return true
+	default:
+		return false
+	}
+}
+
 // Tool is one tool of the editor's server: the five this package adds (scene_read, scene_edit, selection_get, viewport_image and game_check) and those other parts of the editor add with Server.AddTool, so that every editor action with a button or a shortcut has a tool.
 type Tool struct {
 	// Name is the tool's MCP name, such as scene_read: letters, digits, '_', '-' and '.', unique on the server.
@@ -60,10 +70,12 @@ type Tool struct {
 	Description string
 	// InputSchema is the JSON Schema of the tool's arguments, an object schema; nil takes any object.
 	InputSchema json.RawMessage
-	// Action is what the tool does to the project.
+	// Action is what the tool does to the project. It must be set to a valid Action; AddTool refuses tools with an empty or unrecognized Action so no tool can silently bypass permission enforcement.
 	Action Action
 	// Target optionally derives the permission action and project-relative file path or run target from args and ed before permission rules are evaluated. When nil, the server infers the target from common argument fields (file, path, from, command) or the open scene.
 	Target func(args json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string)
+	// targets optionally derives multiple permission checks for built-in tools that touch more than one file or action (such as refactor_rename or merge_finish).
+	targets func(args json.RawMessage, ed *editor.Editor) []editor.PermissionRequest
 	// Handler runs the tool on a goroutine of the server, never the editor's: it reaches the editor through Call.Editor, which runs a function on the editor's goroutine, so it may wait for work the editor does elsewhere, such as a project check, without stopping the editor.
 	Handler func(ctx context.Context, c *Call) (*Result, error)
 }
@@ -237,6 +249,9 @@ func (s *Server) AddTool(t Tool) error {
 	}
 	if t.Handler == nil {
 		return fmt.Errorf("editormcp: tool %s needs a handler", t.Name)
+	}
+	if !t.Action.Valid() {
+		return fmt.Errorf("editormcp: tool %s must specify a valid action (read, edit, create, delete, run, or code), got %q", t.Name, t.Action)
 	}
 	schema := t.InputSchema
 	if len(schema) == 0 {
