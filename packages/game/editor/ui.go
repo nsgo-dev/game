@@ -110,6 +110,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.cancelChangesOps()
 		ed.stopExportBuild()
 		ed.stopReleaseBuild()
+		ed.StopAndroidDeviceRun()
+		_ = ed.stopWebBuildServerInternal(false)
 		ed.stopAssetsBuild()
 		ed.stopProblemCheckTimer()
 		ed.stopDiskWatcher()

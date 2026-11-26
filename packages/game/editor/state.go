@@ -2,6 +2,7 @@ package editor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -441,6 +442,18 @@ type Editor struct {
 	Keychain Keychain
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
 	OpenOutputFolder func(dir string) error
+	// OpenBrowserURL opens a local/LAN web build URL in this computer's browser from the Build and Release screen's RUN ON DEVICE list; when nil the editor uses the host platform's default browser opener.
+	OpenBrowserURL func(rawURL string) error
+	// LANAddressResolver returns the local/LAN IPv4 address the web build test server binds to and advertises in the QR code; when nil the editor picks a private RFC 1918 LAN interface address (falling back to 127.0.0.1). Non-LAN public IP addresses are always refused.
+	LANAddressResolver func() (string, error)
+	// WebBuildServePort optionally pins the TCP port used by StartWebBuildServer; 0 (the default) allocates an ephemeral free port on the LAN interface.
+	WebBuildServePort int
+	// DeviceDiscoverer probes connected USB devices (such as Android phones over adb) for the Build and Release screen's RUN ON DEVICE list; when nil the editor queries `adb devices -l` on desktop.
+	DeviceDiscoverer func(ctx context.Context, dir string) ([]ConnectedDevice, error)
+	// DeviceCommandRunner executes `go tool nsgo build -target ... -run -device ...` when launching a finished Android build on a connected USB device; when nil the editor invokes `go` via os/exec on desktop.
+	DeviceCommandRunner func(ctx context.Context, req DeviceCommandRequest, stdout, stderr io.Writer) error
+	// WebBridgeHandler optionally handles JSON-RPC 2.0 requests received on `/__nsgo_mcp/rpc` from a served web build in Play mode; when nil, built-in bridge discovery/status methods are served.
+	WebBridgeHandler func(ctx context.Context, method string, params json.RawMessage) (any, error)
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
 	RunGameCommand func(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error)
 	// RemoteTransport, when set, supplies the MCP client transport used to connect to a running game launched with RunGameOptions.Automation; when nil the editor spawns `go tool nsgo mcp` in the project directory on desktop.

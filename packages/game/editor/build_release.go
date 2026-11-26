@@ -183,6 +183,7 @@ type BuildArtifactResult struct {
 	SmokePlaytestWhere   string             `json:"smokePlaytestWhere,omitempty"`
 	SmokePlaytestSummary string             `json:"smokePlaytestSummary,omitempty"`
 	TestURL              string             `json:"testUrl,omitempty"`
+	WebBuildDir          string             `json:"webBuildDir,omitempty"`
 }
 
 // LastReleaseArtifact records one platform's size and breakdown from the previous release.
@@ -213,10 +214,14 @@ type BuildPreflightSummary struct {
 
 // BuildDeviceEntry describes one selectable run-on-device target on the finished build view.
 type BuildDeviceEntry struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Note      string `json:"note"`
-	Available bool   `json:"available"`
+	ID         string           `json:"id"`
+	Name       string           `json:"name"`
+	Kind       string           `json:"kind,omitempty"`
+	Serial     string           `json:"serial,omitempty"`
+	State      BuildDeviceState `json:"state,omitempty"`
+	Note       string           `json:"note"`
+	Available  bool             `json:"available"`
+	Actionable bool             `json:"actionable"`
 }
 
 // BuildPresetEntry holds the live state of one platform preset in the Build and Release screen.
@@ -283,6 +288,7 @@ type BuildReleaseSnapshot struct {
 	ActivePlatform         string                      `json:"activePlatform"`
 	SelectedDeviceID       string                      `json:"selectedDeviceId"`
 	Devices                []BuildDeviceEntry          `json:"devices"`
+	WebServer              WebBuildServerSnapshot      `json:"webServer"`
 	Running                bool                        `json:"running"`
 	Stopped                bool                        `json:"stopped"`
 	DryRun                 bool                        `json:"dryRun"`
@@ -321,40 +327,49 @@ func (r *releaseBuildRun) finish() {
 }
 
 type buildReleaseState struct {
-	mu                  sync.Mutex
-	open                bool
-	rev                 uint64
-	gitCommit           string
-	gitBranch           string
-	lastReleaseVersion  string
-	commitsSinceRelease int
-	releaseNotes        string
-	notesFile           string
-	notesSinceRef       string
-	notesProvenance     string
-	keptReviews         []string
-	notesInitialized    bool
-	permissionProfile   AgentPermissionProfile
-	keychainAccounts    map[PublishDestination]string
-	uploadReview        releaseUploadReviewState
-	preflight           BuildPreflightSummary
-	baseline            LastReleaseBaseline
-	presets             []BuildPresetEntry
-	signingOverrides    map[string]BuildPresetSigningConfig
-	selectedPlatform    string
-	activePlatform      string
-	selectedDeviceID    string
-	dryRun              bool
-	followLog           bool
-	showWholeLog        bool
-	editingPreset       bool
-	stopped             bool
-	planCommandLine     string
-	dryRunOutput        string
-	lastErr             error
-	pendingStatus       string
-	hasPendingStatus    bool
-	run                 *releaseBuildRun
+	mu                     sync.Mutex
+	open                   bool
+	rev                    uint64
+	gitCommit              string
+	gitBranch              string
+	lastReleaseVersion     string
+	commitsSinceRelease    int
+	releaseNotes           string
+	notesFile              string
+	notesSinceRef          string
+	notesProvenance        string
+	keptReviews            []string
+	notesInitialized       bool
+	permissionProfile      AgentPermissionProfile
+	keychainAccounts       map[PublishDestination]string
+	uploadReview           releaseUploadReviewState
+	preflight              BuildPreflightSummary
+	baseline               LastReleaseBaseline
+	presets                []BuildPresetEntry
+	signingOverrides       map[string]BuildPresetSigningConfig
+	selectedPlatform       string
+	activePlatform         string
+	selectedDeviceID       string
+	dryRun                 bool
+	followLog              bool
+	showWholeLog           bool
+	editingPreset          bool
+	stopped                bool
+	planCommandLine        string
+	dryRunOutput           string
+	lastErr                error
+	pendingStatus          string
+	hasPendingStatus       bool
+	run                    *releaseBuildRun
+	webServer              *activeWebServer
+	webServerStoppedByUser bool
+	webServerLastErr       string
+	lastWebServeDir        string
+	browserOpened          bool
+	connectedDevices       []ConnectedDevice
+	androidDeviceState     BuildDeviceState
+	androidDeviceErr       string
+	androidRun             *androidDeviceRun
 }
 
 type presetYAMLConfig struct {
@@ -403,6 +418,9 @@ func (e *Editor) OpenBuildReleaseScreen() error {
 
 	e.refreshBuildReleaseMetadata()
 	e.syncBuildReleasePresets()
+	if e.DeviceDiscoverer != nil {
+		_, _ = e.RefreshConnectedDevices()
+	}
 	_ = e.RefreshBuildPreflight()
 	e.CheckExportCredits()
 	e.notify()
@@ -562,6 +580,7 @@ func (e *Editor) BuildReleaseSnapshot() BuildReleaseSnapshot {
 		ActivePlatform:         e.buildRelease.activePlatform,
 		SelectedDeviceID:       e.buildRelease.selectedDeviceID,
 		Devices:                e.buildDevicesLocked(),
+		WebServer:              e.webServerSnapshotLocked(),
 		Running:                e.buildRelease.run != nil,
 		Stopped:                e.buildRelease.stopped,
 		DryRun:                 e.buildRelease.dryRun,
@@ -575,25 +594,181 @@ func (e *Editor) BuildReleaseSnapshot() BuildReleaseSnapshot {
 }
 
 func (e *Editor) buildDevicesLocked() []BuildDeviceEntry {
-	androidOK := false
-	androidNote := "Android not built yet"
+	webURL := ""
+	webDone := false
+	androidStatus := BuildPresetQueued
+	hasAndroidPreset := false
 	for _, p := range e.buildRelease.presets {
-		if p.Platform == "android" {
-			switch p.Status {
-			case BuildPresetDone:
-				androidOK = true
-				androidNote = "AAB ready"
-			case BuildPresetFailed:
-				androidNote = "Android build failed"
-			case BuildPresetBuilding:
-				androidNote = "after Android builds"
+		switch p.Platform {
+		case "web":
+			if p.Status == BuildPresetDone {
+				webDone = true
 			}
+			if p.Result != nil && p.Result.TestURL != "" {
+				webURL = p.Result.TestURL
+			}
+		case "android":
+			hasAndroidPreset = true
+			androidStatus = p.Status
 		}
 	}
+
+	ws := e.webServerSnapshotLocked()
+	if ws.Serving && ws.URL != "" {
+		webURL = ws.URL
+	}
+
+	// 1. This Mac's / computer's browser.
+	browserState := BuildDeviceUnavailable
+	browserNote := "Build Web first"
+	browserAvail := false
+	switch {
+	case ws.Serving:
+		browserAvail = true
+		if e.buildRelease.browserOpened {
+			browserState = BuildDeviceRunning
+			browserNote = "Opened in browser"
+		} else {
+			browserState = BuildDeviceReady
+			browserNote = "Web build"
+		}
+	case ws.StoppedByUser:
+		browserState = BuildDeviceStopped
+		browserNote = "Server stopped"
+		browserAvail = ws.ServeDir != ""
+	case webURL != "" || webDone:
+		browserAvail = true
+		if e.buildRelease.browserOpened {
+			browserState = BuildDeviceRunning
+			browserNote = "Opened in browser"
+		} else {
+			browserState = BuildDeviceReady
+			browserNote = "Web build"
+		}
+	}
+
+	// 2. Phone via QR / LAN link.
+	phoneName := "Phone · Wi-Fi"
+	phoneState := BuildDeviceUnavailable
+	phoneNote := "Web build via QR"
+	phoneAvail := false
+	switch {
+	case ws.Serving && len(ws.ConnectedClients) > 0:
+		c := ws.ConnectedClients[len(ws.ConnectedClients)-1]
+		if c.Device != "" {
+			phoneName = c.Device + " · Wi-Fi"
+		}
+		phoneState = BuildDeviceConnected
+		phoneNote = "MCP bridge connected"
+		phoneAvail = true
+	case ws.Serving:
+		phoneState = BuildDeviceServing
+		phoneNote = "Serving via QR"
+		phoneAvail = true
+	case ws.StoppedByUser:
+		phoneState = BuildDeviceStopped
+		phoneNote = "Stopped"
+		phoneAvail = ws.ServeDir != ""
+	case webURL != "":
+		phoneState = BuildDeviceReady
+		phoneNote = "Web build via QR"
+		phoneAvail = true
+	}
+
+	// 3. Connected Android device on USB.
+	var androidDev *ConnectedDevice
+	for i := range e.buildRelease.connectedDevices {
+		d := e.buildRelease.connectedDevices[i]
+		if d.Platform == "android" && d.Online {
+			cp := d
+			androidDev = &cp
+			break
+		}
+	}
+
+	androidName := "Android · USB"
+	androidSerial := ""
+	if androidDev != nil {
+		if androidDev.Name != "" {
+			androidName = androidDev.Name + " · USB"
+		}
+		androidSerial = androidDev.ID
+	}
+
+	androidState := BuildDeviceDisconnected
+	androidNote := "No USB device"
+	androidAvail := false
+	androidActionable := false
+
+	switch {
+	case hasAndroidPreset && androidStatus == BuildPresetFailed:
+		androidState = BuildDeviceFailed
+		androidNote = "Android build failed"
+	case hasAndroidPreset && (androidStatus == BuildPresetBuilding || androidStatus == BuildPresetNotarizing):
+		androidState = BuildDeviceUnavailable
+		androidNote = "after Android builds"
+	case hasAndroidPreset && androidStatus == BuildPresetDone:
+		if androidDev == nil {
+			androidState = BuildDeviceDisconnected
+			androidNote = "Disconnected · connect USB"
+		} else {
+			androidAvail = true
+			androidActionable = true
+			switch e.buildRelease.androidDeviceState {
+			case BuildDeviceInstalling:
+				androidState = BuildDeviceInstalling
+				androidNote = "Installing…"
+				androidActionable = false
+			case BuildDeviceRunning:
+				androidState = BuildDeviceRunning
+				androidNote = "Running on device"
+			case BuildDeviceFailed:
+				androidState = BuildDeviceFailed
+				androidNote = "Install failed"
+			default:
+				androidState = BuildDeviceReady
+				androidNote = "Ready · install & run"
+			}
+		}
+	default:
+		if androidDev != nil {
+			androidState = BuildDeviceUnavailable
+			androidNote = "after Android builds"
+		} else {
+			androidState = BuildDeviceDisconnected
+			androidNote = "Android not built yet"
+		}
+	}
+
 	return []BuildDeviceEntry{
-		{ID: "browser", Name: "This computer's browser", Note: "Web build", Available: true},
-		{ID: "phone-wifi", Name: "Phone · Wi-Fi", Note: "Web build via QR", Available: true},
-		{ID: "android-usb", Name: "Android · USB", Note: androidNote, Available: androidOK},
+		{
+			ID:         "browser",
+			Name:       localBrowserDeviceName(),
+			Kind:       "browser",
+			State:      browserState,
+			Note:       browserNote,
+			Available:  browserAvail,
+			Actionable: browserAvail,
+		},
+		{
+			ID:         "phone-wifi",
+			Name:       phoneName,
+			Kind:       "phone-wifi",
+			State:      phoneState,
+			Note:       phoneNote,
+			Available:  phoneAvail,
+			Actionable: phoneAvail,
+		},
+		{
+			ID:         "android-usb",
+			Name:       androidName,
+			Kind:       "android-usb",
+			Serial:     androidSerial,
+			State:      androidState,
+			Note:       androidNote,
+			Available:  androidAvail,
+			Actionable: androidActionable,
+		},
 	}
 }
 
@@ -1758,11 +1933,13 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 		cmdRunner = defaultExportCommandRunner
 	}
 	runners := releaseBuildRunners{
-		step:     e.ReleaseStepRunner,
-		check:    checkRunner,
-		cmd:      cmdRunner,
-		playtest: e.ReleasePlaytestRunner,
-		measure:  e.ReleaseMeasureRunner,
+		step:        e.ReleaseStepRunner,
+		check:       checkRunner,
+		cmd:         cmdRunner,
+		playtest:    e.ReleasePlaytestRunner,
+		measure:     e.ReleaseMeasureRunner,
+		lanResolver: e.LANAddressResolver,
+		servePort:   e.WebBuildServePort,
 	}
 
 	remaining := make(map[string]bool, len(platforms))
@@ -1841,11 +2018,13 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 }
 
 type releaseBuildRunners struct {
-	step     func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
-	check    func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
-	cmd      func(ctx context.Context, args []string, stdout, stderr io.Writer) error
-	playtest func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
-	measure  func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
+	step        func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
+	check       func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
+	cmd         func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+	playtest    func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
+	measure     func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
+	lanResolver func() (string, error)
+	servePort   int
 }
 
 func (e *Editor) nextBuildPlatform(remaining map[string]bool, fallbackOrder []string) string {
@@ -2136,6 +2315,9 @@ func (e *Editor) executePresetBuild(
 						measured.SmokePlaytestSummary = smokeRes.Summary
 						measured.SmokePlaytestWhere = smokeRes.Where
 					}
+					if platform == "web" && !dryRun {
+						e.autoServeWebBuildIfReady(plan, &measured, runners.lanResolver, runners.servePort)
+					}
 					stepDetail = fmt.Sprintf("%s · p95 %.1f ms", formatSizeMB(measured.SizeBytes), measured.FrameTimeP95Ms)
 					logLine(fmt.Sprintf("measure %s: %s (%s), p95 %.1f ms", platform, measured.ArtifactName, formatSizeMB(measured.SizeBytes), measured.FrameTimeP95Ms))
 
@@ -2297,6 +2479,8 @@ func (e *Editor) resetBuildReleaseForProject() {
 	}
 	e.stopReleaseBuild()
 	e.CancelReleaseUpload()
+	e.StopAndroidDeviceRun()
+	_ = e.StopWebBuildServer()
 	e.buildRelease.mu.Lock()
 	e.buildRelease.open = false
 	e.buildRelease.gitCommit = ""
@@ -2328,6 +2512,13 @@ func (e *Editor) resetBuildReleaseForProject() {
 	e.buildRelease.lastErr = nil
 	e.buildRelease.pendingStatus = ""
 	e.buildRelease.hasPendingStatus = false
+	e.buildRelease.webServerStoppedByUser = false
+	e.buildRelease.webServerLastErr = ""
+	e.buildRelease.lastWebServeDir = ""
+	e.buildRelease.browserOpened = false
+	e.buildRelease.connectedDevices = nil
+	e.buildRelease.androidDeviceState = ""
+	e.buildRelease.androidDeviceErr = ""
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
 }

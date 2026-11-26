@@ -1,13 +1,17 @@
 package editorcmd_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -335,4 +339,157 @@ func TestBuildReleaseNotesAndReviewUploadsMacOSScreenshots(t *testing.T) {
 	app.Press("id:build-release-review-uploads")
 	app.Settle()
 	app.Screenshot("build-release-review-uploads-dialog")
+}
+
+// TestBuildReleaseWebQRAndDevicesMacOSScreenshots renders real macOS screenshots of the
+// #1049 Web build result card with a live LAN QR code, MCP bridge phone connection,
+// Stop/Start serving toggle, and RUN ON DEVICE live states (Mac browser, QR phone, Android USB).
+func TestBuildReleaseWebQRAndDevicesMacOSScreenshots(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(buildReleaseScreenshotGameYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: dungeon-run\nid: dev.dungeonrun.game\nversion: 0.4.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+
+	ed.LANAddressResolver = func() (string, error) { return "127.0.0.1", nil }
+	ed.GitRunner = func(_ string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "rev-parse --short HEAD":
+			return "5b0e8a4\n", nil
+		case "rev-parse --abbrev-ref HEAD":
+			return "main\n", nil
+		case "describe --tags --abbrev=0":
+			return "v0.3.2\n", nil
+		case "rev-list --count v0.3.2..HEAD":
+			return "14\n", nil
+		default:
+			return "", nil
+		}
+	}
+	ed.ReleaseCheckRunner = func(_ context.Context, _ string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, 4 * time.Second, nil
+	}
+	ed.ExportCommandRunner = func(_ context.Context, args []string, stdout, _ io.Writer) error {
+		if slices.Contains(args, "web") {
+			webOut := filepath.Join(dir, "dist", "web")
+			if err := os.MkdirAll(webOut, 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(webOut, "index.html"), []byte("<!doctype html><h1>dungeon-run</h1>"), 0o644); err != nil {
+				return err
+			}
+		}
+		_, _ = io.WriteString(stdout, "built ok\n")
+		return nil
+	}
+	ed.ReleaseMeasureRunner = func(_ context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		if platform == "android" {
+			return editor.BuildArtifactResult{
+				ArtifactPath:   filepath.Join(plan.OutputDir, "dungeon-run-0.4.0.aab"),
+				ArtifactName:   "dungeon-run-0.4.0.aab",
+				SizeBytes:      mbToBytes(28.4),
+				DeltaBytes:     mbToBytes(0.6),
+				HasLastRelease: true,
+				Breakdown: editor.BuildSizeBreakdown{
+					CodeBytes:     mbToBytes(8.2),
+					TexturesBytes: mbToBytes(14.6),
+					AudioBytes:    mbToBytes(4.9),
+					OtherBytes:    mbToBytes(0.7),
+					GrowthSummary: "Grew 0.6 MB: ETC2 dungeon sprites.",
+				},
+				FrameTimeP95Ms:       12.1,
+				SmokePlaytestWhere:   "Pixel 7 emulator · Low profile",
+				SmokePlaytestSummary: "0 errors, 3 of 3 coins collected.",
+			}, nil
+		}
+		return editor.BuildArtifactResult{
+			ArtifactPath:   filepath.Join(plan.OutputDir, "dungeon-run-0.4.0-web.zip"),
+			ArtifactName:   "dungeon-run-0.4.0-web.zip",
+			WebBuildDir:    filepath.Join(plan.OutputDir, "web"),
+			SizeBytes:      mbToBytes(18.9),
+			DeltaBytes:     mbToBytes(0.4),
+			HasLastRelease: true,
+			Breakdown: editor.BuildSizeBreakdown{
+				CodeBytes:     mbToBytes(6.1),
+				TexturesBytes: mbToBytes(9.8),
+				AudioBytes:    mbToBytes(2.6),
+				OtherBytes:    mbToBytes(0.4),
+				GrowthSummary: "Grew 0.4 MB: audio/door_creak.ogg. Audio is Opus in the web build.",
+			},
+			FrameTimeP95Ms:       9.8,
+			SmokePlaytestWhere:   "headless Chromium · Low profile",
+			SmokePlaytestSummary: "0 errors, 0 falls through the floor, 3 of 3 coins collected, door opened after the lever.",
+		}, nil
+	}
+	ed.DeviceDiscoverer = func(_ context.Context, _ string) ([]editor.ConnectedDevice, error) {
+		return []editor.ConnectedDevice{{
+			ID:        "pixel7-usb-01",
+			Name:      "Pixel 7",
+			Platform:  "android",
+			Transport: "usb",
+			Online:    true,
+		}}, nil
+	}
+	ed.OpenBrowserURL = func(string) error { return nil }
+	ed.DeviceCommandRunner = func(_ context.Context, _ editor.DeviceCommandRequest, _, _ io.Writer) error { return nil }
+
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetLastReleaseBaseline(editor.LastReleaseBaseline{Version: "0.3.2"})
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"macos", "windows", "linux"} {
+		_ = ed.SetBuildPresetIncluded(p, false)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	app.Press("id:build-release-primary-action")
+	app.WaitUntil(5*time.Second, func() bool { return !ed.ReleaseBuildRunning() })
+	app.Settle()
+
+	app.Press("id:build-preset-pick-web")
+	app.Settle()
+
+	// Connect a simulated iPhone 15 Play-mode session to the LAN MCP bridge.
+	ws := ed.WebBuildServerState()
+	if !ws.Serving {
+		t.Fatalf("expected web build server serving, got %+v", ws)
+	}
+	handshake, _ := json.Marshal(map[string]any{
+		"token":    ws.BridgeToken,
+		"clientId": "iphone-15-safari",
+		"device":   "iPhone 15",
+		"playMode": true,
+	})
+	resp, err := http.Post(ws.URL+"__nsgo_mcp/session", "application/json", bytes.NewReader(handshake))
+	if err != nil {
+		t.Fatalf("POST /__nsgo_mcp/session: %v", err)
+	}
+	_ = resp.Body.Close()
+	app.Settle()
+
+	// 1. Live LAN serving + scannable QR code + MCP bridge connected + Pixel 7 USB ready.
+	app.Screenshot("build-release-web-qr-serving")
+
+	// 2. Launch on Pixel 7 USB + Stop serving -> Stopped state + Running on Pixel 7.
+	app.Press("id:build-device-android-usb")
+	if err := ed.WaitAndroidDeviceRun(); err != nil {
+		t.Fatalf("WaitAndroidDeviceRun: %v", err)
+	}
+	app.Press("id:build-qr-toggle-serve")
+	app.Settle()
+	app.Screenshot("build-release-web-qr-stopped")
 }

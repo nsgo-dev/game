@@ -332,6 +332,8 @@ func (e *Editor) Close() error {
 	e.stopExportBuild()
 	e.stopReleaseBuild()
 	e.CancelReleaseUpload()
+	e.StopAndroidDeviceRun()
+	webSrvErr := e.stopWebBuildServerInternal(false)
 	e.stopAssetsBuild()
 	e.stopProblemCheckTimer()
 	e.stopDiskWatcher()
@@ -344,7 +346,7 @@ func (e *Editor) Close() error {
 	profErr := e.DisconnectProfiler()
 	remoteErr := e.DisconnectRemote()
 	stopErr := e.StopGame()
-	return errors.Join(stopErr, remoteErr, playErr, profErr)
+	return errors.Join(stopErr, remoteErr, playErr, profErr, webSrvErr)
 }
 
 func (e *Editor) openRunSceneRelPath() string {
