@@ -214,6 +214,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetUsagesForProject()
 	e.resetContextMenuForProject()
 	e.resetAssetGenForProject()
+	e.resetTextInputFocus()
 	e.applyViewStateSnap(nil)
 
 	e.Doc = DemoSceneDoc()

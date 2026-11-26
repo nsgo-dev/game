@@ -2092,7 +2092,7 @@ func hudComposerView(cx *core.Scope, ed *Editor, promptDraft *core.Signal[string
 					Background:   specRaised,
 					BorderWidth:  1,
 					BorderColor:  specLineRaised,
-					FocusWithin:  specCardFocusWithinStyle,
+					FocusWithin:  ed.SpecPalette(cx).FocusRing(2),
 				},
 				Children: []core.Node{
 					core.Input{

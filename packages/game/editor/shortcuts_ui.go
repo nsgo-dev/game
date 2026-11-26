@@ -754,6 +754,11 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	})
 
+	onDialogClose := bindDialogFocusRestore(cx, ed, func() bool {
+		_ = rev.Get()
+		return ed.ShortcutsSheetOpen()
+	})
+
 	return ui.Dialog{
 		TestID: "editor-shortcuts-sheet",
 		Bare:   true,
@@ -764,6 +769,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		OnOpenChange: func(open bool, _ base.Reason) {
 			ed.SetShortcutsSheetOpen(open)
 		},
+		OnClose: onDialogClose,
 		LabelFunc: func() string {
 			_ = langMemo.Get()
 			return ed.T("shortcutsSheet.title")

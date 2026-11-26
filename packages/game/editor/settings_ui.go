@@ -32,6 +32,9 @@ func SettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			dark: cx.Dark(),
 		}
 	})
+	bindViewFocusRestore(cx, ed, func() bool {
+		return key.Get().open
+	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		if !key.Get().open {
 			return nil

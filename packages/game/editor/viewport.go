@@ -1506,7 +1506,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					// entered via F6), and Tab / Shift-Tab select the next and previous object.
 					Focusable: func() bool { return !ed.Playing() },
 					OnKeyDown: func(ev core.KeyEvent) bool {
-						if ev.Key != "tab" || ev.Modifiers.Ctrl || ev.Modifiers.Meta || ev.Modifiers.Alt || ed.Playing() || ed.shortcutCaptureActive || ed.ObjectContextMenuOpen() {
+						if ev.Key != "tab" || ev.Modifiers.Platform || ev.Modifiers.Control || ev.Modifiers.Alt || ed.Playing() || ed.shortcutCaptureActive || ed.ObjectContextMenuOpen() {
 							return false
 						}
 						if ev.Modifiers.Shift {

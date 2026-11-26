@@ -241,6 +241,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.contextMenu.open = false
 	e.contextMenu.targetID = ""
 	e.contextMenu.renameReqID = ""
+	e.resetTextInputFocus()
 	e.cancelBackgroundPreview()
 	e.cancelMaterialColorPreview()
 	e.playSnapshot = snap

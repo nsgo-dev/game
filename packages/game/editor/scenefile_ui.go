@@ -325,7 +325,7 @@ func sceneFileDialogs(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], prom
 				return ed.T("dialog.newScene")
 			},
 			Description: ed.T("dialog.scenePathDesc"),
-			Children: []core.Node{specInputField(ed, ui.Input{
+			Children: []core.Node{specInputField(cx, ed, ui.Input{
 				TestID:    "scene-path-input",
 				Label:     ed.T("dialog.scenePathLabel"),
 				AutoFocus: true,
@@ -363,7 +363,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 	colors := ui.ColorsOf(cx)
 	fileBtnRef := &core.Ref{}
 	if ed.focus.ctrl != nil {
-		ed.focus.ctrl.registerCandidate(RegionHeader, fileBtnRef, nil)
+		ed.focus.ctrl.registerCandidate(cx, RegionHeader, fileBtnRef, nil)
 	}
 	noProject := func() bool {
 		_ = rev.Get()

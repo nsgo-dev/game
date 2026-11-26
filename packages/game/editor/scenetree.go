@@ -418,10 +418,10 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								Style: core.Style{
 									FlexGrow:     1,
 									FlexBasis:    core.Pt(0),
-									FocusVisible: specRowFocusRingStyle,
+									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 								},
 								RowStyle: core.Style{
-									FocusVisible: specRowFocusRingStyle,
+									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 								},
 							}}},
 							core.Text{
@@ -592,7 +592,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			if edit.field == editID {
 				testID, labelText = "scene-tree-id-"+id, ed.T("sceneTree.objectID")
 			}
-			return specInputField(ed, ui.Input{
+			return specInputField(cx, ed, ui.Input{
 				TestID:       testID,
 				Label:        labelText,
 				DefaultValue: text,
