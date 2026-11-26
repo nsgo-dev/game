@@ -330,7 +330,11 @@ func diskReloadNoticeView(_ *core.Scope, ed *Editor, _ *core.Signal[uint64], not
 }
 
 // saveConflictDialog asks before overwriting a file that changed on disk since the editor opened or last saved it.
-func saveConflictDialog(ed *Editor, rev *core.Signal[uint64]) core.Node {
+func saveConflictDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	onClose := bindDialogFocusRestore(cx, ed, func() bool {
+		_ = rev.Get()
+		return ed.SaveConflictPromptOpen()
+	})
 	return ui.AlertDialog{
 		TestID: "save-conflict-dialog",
 		Open: func() bool {
@@ -342,7 +346,8 @@ func saveConflictDialog(ed *Editor, rev *core.Signal[uint64]) core.Node {
 				ed.CancelSaveConflict()
 			}
 		},
-		Title: ed.T("dialog.diskConflictTitle"),
+		OnClose: onClose,
+		Title:   ed.T("dialog.diskConflictTitle"),
 		DescriptionFunc: func() string {
 			_ = rev.Get()
 			file := ed.SceneLabel()

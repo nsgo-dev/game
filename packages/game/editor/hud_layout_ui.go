@@ -2081,6 +2081,7 @@ func hudComposerView(cx *core.Scope, ed *Editor, promptDraft *core.Signal[string
 		},
 		Children: []core.Node{
 			core.View{
+				TestID: "hud-composer-card",
 				Style: core.Style{
 					Height:       core.Pt(40),
 					Direction:    core.Row,
@@ -2091,6 +2092,7 @@ func hudComposerView(cx *core.Scope, ed *Editor, promptDraft *core.Signal[string
 					Background:   specRaised,
 					BorderWidth:  1,
 					BorderColor:  specLineRaised,
+					FocusWithin:  specCardFocusWithinStyle,
 				},
 				Children: []core.Node{
 					core.Input{
@@ -2098,6 +2100,8 @@ func hudComposerView(cx *core.Scope, ed *Editor, promptDraft *core.Signal[string
 						Label:       "Ask the agent",
 						Placeholder: "e.g. add a boss health bar that only shows on floor 3",
 						Value:       promptDraft.Get,
+						OnFocus:     func() { ed.noteTextInputFocus(true) },
+						OnBlur:      func() { ed.noteTextInputFocus(false) },
 						OnChange: func(v string) {
 							promptDraft.Set(v)
 						},

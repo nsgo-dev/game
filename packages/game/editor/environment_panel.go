@@ -573,7 +573,7 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		}))
 	}
 
-	fogChildren = append(fogChildren, row("Height Fog", ui.Switch{
+	fogChildren = append(fogChildren, row("Height Fog", SpecSwitch{
 		TestID:   "env-fog-height",
 		Label:    "Height Fog",
 		Disabled: disabled,
@@ -862,7 +862,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 		)
 	}
 	rows = append(rows,
-		fieldRow("Shadows", ui.Switch{
+		fieldRow("Shadows", SpecSwitch{
 			TestID:   "inspector-light-shadows",
 			Label:    "Cast Shadows",
 			Disabled: disabled,
@@ -1058,7 +1058,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 				})
 			},
 		}),
-		fieldRow("Current", ui.Switch{
+		fieldRow("Current", SpecSwitch{
 			TestID:   "inspector-cam3d-current",
 			Label:    "Current Camera",
 			Disabled: disabled,

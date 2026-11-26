@@ -141,7 +141,13 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 	}
 
-	bgInput := ui.Input{
+	sceneNameRef := &core.Ref{}
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(RegionInspector, sceneNameRef, func() bool {
+			return !disabled()
+		})
+	}
+	bgInput := specInputField(ed, ui.Input{
 		TestID:      "inspector-scene-bg",
 		Label:       ed.T("inspector.backgroundColor"),
 		Placeholder: "#141824",
@@ -174,7 +180,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				commitBgText(bgDraft.Get())
 			}
 		},
-	}
+	})
 
 	bgClear := removeButton("inspector-scene-bg-clear", ed.T("inspector.clearBackground"), func() bool {
 		if disabled() {
@@ -392,7 +398,8 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				}
 			},
 		},
-		fieldRow(ed.T("inspector.name"), ui.Input{
+		fieldRow(ed.T("inspector.name"), specInputField(ed, ui.Input{
+			Ref:      sceneNameRef,
 			TestID:   "inspector-scene-name",
 			Label:    ed.T("inspector.sceneName"),
 			Disabled: disabled,
@@ -406,7 +413,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			OnChange: func(text string) {
 				ed.report(ed.SetSceneName(text))
 			},
-		}),
+		})),
 		fieldRow(ed.T("inspector.width"), ui.NumberInput{
 			TestID:      "inspector-scene-width",
 			Label:       ed.T("inspector.virtualWidth"),
@@ -555,7 +562,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetCameraRotation(fv))
 			},
 		}),
-		fieldRow(ed.T("inspector.bounds"), ui.Switch{
+		fieldRow(ed.T("inspector.bounds"), SpecSwitch{
 			TestID:   "inspector-camera-bounds-enabled",
 			Label:    ed.T("inspector.cameraBounds"),
 			Disabled: disabled,

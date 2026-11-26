@@ -179,6 +179,7 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						BorderWidth:  1,
 						BorderColor:  border,
 						Background:   bg,
+						FocusVisible: specRowFocusRingStyle,
 					}
 				},
 				OnPress: func(core.PressEvent) {
@@ -332,6 +333,7 @@ func prefabListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						BorderWidth:  1,
 						BorderColor:  border,
 						Background:   bg,
+						FocusVisible: specRowFocusRingStyle,
 					}
 				},
 				Disabled: func() bool {

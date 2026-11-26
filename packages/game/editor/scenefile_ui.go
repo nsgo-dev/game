@@ -176,7 +176,14 @@ func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 }
 
 // sceneFileDialogs returns the localized unsaved-changes prompt and the path dialog of New Scene and Save As.
-func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[*unsavedPrompt], mode *core.Signal[pathMode], target *core.Signal[string]) []core.Node {
+func sceneFileDialogs(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[*unsavedPrompt], mode *core.Signal[pathMode], target *core.Signal[string]) []core.Node {
+	onUnsavedClose := bindDialogFocusRestore(cx, ed, func() bool {
+		_ = rev.Get()
+		return prompt.Get() != nil || ed.UnsavedPromptOpen()
+	})
+	onPathClose := bindDialogFocusRestore(cx, ed, func() bool {
+		return mode.Get() != pathNone
+	})
 	// answer takes the open question off the prompt and hands it to fn.
 	answer := func(fn func(p *unsavedPrompt)) func() {
 		return func() {
@@ -224,7 +231,8 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 					p.cancel()
 				}
 			},
-			Title: ed.T("dialog.unsavedTitle"),
+			OnClose: onUnsavedClose,
+			Title:   ed.T("dialog.unsavedTitle"),
 			DescriptionFunc: func() string {
 				_ = rev.Get()
 				if pending, ok := ed.PendingProjectAction(); ok && pending.Summary != "" {
@@ -308,6 +316,7 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 					mode.Set(pathNone)
 				}
 			},
+			OnClose:   onPathClose,
 			OnConfirm: confirm,
 			TitleFunc: func() string {
 				if mode.Get() == pathSaveAs {
@@ -316,14 +325,14 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 				return ed.T("dialog.newScene")
 			},
 			Description: ed.T("dialog.scenePathDesc"),
-			Children: []core.Node{ui.Input{
+			Children: []core.Node{specInputField(ed, ui.Input{
 				TestID:    "scene-path-input",
 				Label:     ed.T("dialog.scenePathLabel"),
 				AutoFocus: true,
 				Value:     target.Get,
 				OnChange:  target.Set,
 				OnSubmit:  func(string) { confirm() },
-			}},
+			})},
 			Footer: []core.Node{
 				ui.Button{
 					TestID:  "scene-path-cancel",
@@ -345,13 +354,17 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 				},
 			},
 		},
-		saveConflictDialog(ed, rev),
+		saveConflictDialog(cx, ed, rev),
 	}
 }
 
 // sceneFileButtons are the toolbar's scene file controls: the open scene's path, its unsaved marker, and the File menu with New Scene, Save As and Revert.
 func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], mode *core.Signal[pathMode], target *core.Signal[string]) []core.Node {
 	colors := ui.ColorsOf(cx)
+	fileBtnRef := &core.Ref{}
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(RegionHeader, fileBtnRef, nil)
+	}
 	noProject := func() bool {
 		_ = rev.Get()
 		return ed.Playing() || ed.Project == nil || ed.ProjectPath == ""
@@ -393,7 +406,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 		ui.Menu{
 			TestID:  "toolbar-file",
 			Label:   ed.T("toolbar.fileMenuLabel"),
-			Trigger: ui.Button{Text: ed.T("toolbar.file"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary},
+			Trigger: ui.Button{Ref: fileBtnRef, Text: ed.T("toolbar.file"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary},
 			Children: []core.Node{
 				ui.MenuItem{
 					TestID:   "toolbar-new",

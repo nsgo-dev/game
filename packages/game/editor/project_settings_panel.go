@@ -855,7 +855,7 @@ func psSwitchField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		errMsg.Set("")
 	})
 
-	sw := ui.Switch{
+	sw := SpecSwitch{
 		TestID:   testID,
 		Label:    label,
 		Disabled: disabled,
@@ -1844,7 +1844,7 @@ func psRegisteredPluginRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 		"project-settings-plugin-"+name,
 		name,
 		summary,
-		ui.Switch{
+		SpecSwitch{
 			TestID:   "project-settings-plugin-switch-" + name,
 			Label:    "Enable plugin " + name,
 			Disabled: disabled,

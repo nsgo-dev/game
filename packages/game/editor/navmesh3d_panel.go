@@ -115,7 +115,7 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 													Color:    colors.Text(),
 												},
 											},
-											ui.Switch{
+											SpecSwitch{
 												TestID: "navmesh-overlay-toggle",
 												Label:  "Show 3D NavMesh Overlay",
 												Checked: func() bool {

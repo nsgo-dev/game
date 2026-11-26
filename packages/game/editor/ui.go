@@ -31,9 +31,32 @@ import (
 // Mod+S saves (Editor.Save), and the window title follows the open scene and its unsaved marker (Editor.WindowTitle). Opening a scene from the file browser, the Problems panel or the Search and References panel, New Scene, a user's request to quit and closing the window ask first while the scene or project has unsaved edits (Editor.HasUnsavedChanges): Save saves them and goes on, Discard drops them and goes on, and Cancel keeps them.
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	ed.AttachScope(cx)
+	focusCtrl := newFocusRegionController(cx)
+	ed.focus.ctrl = focusCtrl
 	rev := core.NewSignal(cx, ed.Revision())
 	unsub := ed.Subscribe(func() {
 		rev.Set(ed.Revision())
+	})
+	cx.OnKeyWith("f6", core.KeyOptions{When: core.KeyAlways}, func() {
+		if ed.shortcutCaptureActive {
+			return
+		}
+		ed.CycleRegion(+1)
+	})
+	cx.OnKeyWith("shift+f6", core.KeyOptions{When: core.KeyAlways}, func() {
+		if ed.shortcutCaptureActive {
+			return
+		}
+		ed.CycleRegion(-1)
+	})
+	// Spec rule 04: global shortcuts rest behind dialogs except Mod+. to stop the agent.
+	cx.OnKeyWith("mod+.", core.KeyOptions{When: core.KeyAlways, OverModals: true}, func() {
+		if ed.shortcutCaptureActive {
+			return
+		}
+		if ed.OnStopAgent != nil {
+			ed.OnStopAgent()
+		}
 	})
 	cx.OnKeyWith("shift+f5", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.GameRunning() {
@@ -96,6 +119,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		if ed.scope == cx {
 			ed.AttachScope(nil)
 		}
+		if ed.focus.ctrl == focusCtrl {
+			ed.focus.ctrl = nil
+		}
 	})
 
 	cx.SetTheme(SpecTheme())
@@ -151,7 +177,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 
 	workspace := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = chromeKey.Get()
-		files := sceneFileDialogs(ed, rev, prompt, pathMode, pathTarget)
+		files := sceneFileDialogs(cx, ed, rev, prompt, pathMode, pathTarget)
 		return core.View{
 			Disabled:                    topLevelSettingsOpen,
 			AccessibilityElementsHidden: topLevelSettingsOpen,
@@ -348,6 +374,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			_ = chromeKey.Get()
 			return core.Style{Background: colors.Background()}
 		},
+		OnTouchCapture: func(core.TouchEvent) {
+			focusCtrl.clearRegionRingOnPointer()
+		},
 		Children: []core.Node{
 			workspace,
 			core.Show{
@@ -357,6 +386,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 				},
 			},
 			ShortcutsSheetView(cx, ed, rev),
+			dialogFocusTrapView(ed),
 		},
 	}
 }
@@ -369,43 +399,71 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 	})
 
 	return []core.Node{
-		core.Show{
-			When: assetsMode.Get,
-			Then: func(cx *core.Scope) core.Node {
-				return AssetsLeftRailView(cx, ed, rev)
+		core.View{
+			Ref:    ed.focus.ctrl.rootRef(RegionSceneTree),
+			TestID: "editor-region-scene-tree",
+			Role:   core.RoleRegion,
+			Label:  ed.T("region.sceneTree"),
+			Focusable: func() bool {
+				return ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionSceneTree
 			},
-			Else: func(cx *core.Scope) core.Node {
-				children := []core.Node{
-					core.View{
-						TestID: "editor-scene-column",
-						Style:  core.Style{Width: core.Pt(220)},
-						Children: []core.Node{
-							LeftRailSwitchView(cx, ed, rev),
-							SceneTreeView(cx, ed, rev),
-							LayersView(cx, ed, rev),
-						},
+			OnFocusIn: func() {
+				if ed.focus.ctrl != nil {
+					ed.focus.ctrl.onRegionFocusIn(RegionSceneTree)
+				}
+			},
+			OnFocusOut: func() {
+				if ed.focus.ctrl != nil {
+					ed.focus.ctrl.onRegionFocusOut(RegionSceneTree)
+				}
+			},
+			StyleFunc: func() core.Style {
+				base := core.Style{Direction: core.Row, FlexShrink: 0}
+				if ed.focus.ctrl == nil {
+					return base
+				}
+				return ed.focus.ctrl.regionOutlineStyle(RegionSceneTree, base)
+			},
+			Children: []core.Node{
+				core.Show{
+					When: assetsMode.Get,
+					Then: func(cx *core.Scope) core.Node {
+						return AssetsLeftRailView(cx, ed, rev)
 					},
-					core.View{
-						TestID: "editor-left",
-						Style:  core.Style{Width: core.Pt(224)},
-						Children: []core.Node{
-							// A row stretches the asset browser to the height it gets, which is all of the column without a project and half of it beside the file browser.
+					Else: func(cx *core.Scope) core.Node {
+						children := []core.Node{
 							core.View{
-								Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
-								Children: []core.Node{AssetBrowserView(cx, ed, rev)},
+								TestID: "editor-scene-column",
+								Style:  core.Style{Width: core.Pt(220)},
+								Children: []core.Node{
+									LeftRailSwitchView(cx, ed, rev),
+									SceneTreeView(cx, ed, rev),
+									LayersView(cx, ed, rev),
+								},
 							},
-							FilesView(cx, ed, rev),
-						},
+							core.View{
+								TestID: "editor-left",
+								Style:  core.Style{Width: core.Pt(224)},
+								Children: []core.Node{
+									// A row stretches the asset browser to the height it gets, which is all of the column without a project and half of it beside the file browser.
+									core.View{
+										Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
+										Children: []core.Node{AssetBrowserView(cx, ed, rev)},
+									},
+									FilesView(cx, ed, rev),
+								},
+							},
+						}
+						if ed.Library != nil {
+							children = append(children, LibraryView(cx, ed, rev))
+						}
+						children = append(children, pluginDockView(cx, ed, rev, DockLeft))
+						return core.View{
+							Style:    core.Style{Direction: core.Row, FlexShrink: 0},
+							Children: children,
+						}
 					},
-				}
-				if ed.Library != nil {
-					children = append(children, LibraryView(cx, ed, rev))
-				}
-				children = append(children, pluginDockView(cx, ed, rev, DockLeft))
-				return core.View{
-					Style:    core.Style{Direction: core.Row, FlexShrink: 0},
-					Children: children,
-				}
+				},
 			},
 		},
 		core.View{
@@ -419,21 +477,70 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				SceneTabsView(cx, ed, rev),
 				playReplayBannerView(ed, rev),
 				core.View{
+					Ref:    ed.focus.ctrl.rootRef(RegionViewport),
+					TestID: "editor-region-viewport",
+					Role:   core.RoleRegion,
+					Label:  ed.T("region.viewport"),
+					Focusable: func() bool {
+						return ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionViewport
+					},
+					OnFocusIn: func() {
+						if ed.focus.ctrl != nil {
+							ed.focus.ctrl.onRegionFocusIn(RegionViewport)
+						}
+					},
+					OnFocusOut: func() {
+						if ed.focus.ctrl != nil {
+							ed.focus.ctrl.onRegionFocusOut(RegionViewport)
+						}
+					},
 					StyleFunc: func() core.Style {
+						var base core.Style
 						if assetsMode.Get() {
-							return core.Style{
+							base = core.Style{
 								Height:     core.Pt(290),
 								FlexShrink: 0,
 								Overflow:   core.Hidden,
 							}
+						} else {
+							base = core.Style{
+								FlexGrow:  1,
+								FlexBasis: core.Pt(0),
+								Overflow:  core.Hidden,
+							}
 						}
-						return core.Style{
-							FlexGrow:  1,
-							FlexBasis: core.Pt(0),
-							Overflow:  core.Hidden,
+						if ed.focus.ctrl == nil {
+							return base
 						}
+						return ed.focus.ctrl.regionOutlineStyle(RegionViewport, base)
 					},
-					Children: []core.Node{ViewportView(cx, ed, rev)},
+					Children: []core.Node{
+						ViewportView(cx, ed, rev),
+						// Draw the inset F6 region ring over the opaque Canvas child so macOS
+						// layer compositing never obscures the Viewport region indicator.
+						core.Show{
+							When: func() bool {
+								return ed.focus.ctrl != nil && ed.focus.ctrl.activeRegionRing.Get() == RegionViewport
+							},
+							Then: func(cx *core.Scope) core.Node {
+								return core.View{
+									TestID:        "editor-region-viewport-ring",
+									PointerEvents: core.PointerEventsNone,
+									StyleFunc: func() core.Style {
+										return core.Style{
+											Position:    core.Absolute,
+											Top:         core.Pt(0),
+											Right:       core.Pt(0),
+											Bottom:      core.Pt(0),
+											Left:        core.Pt(0),
+											BorderWidth: 2,
+											BorderColor: ed.SpecPalette(cx).Accent.Edge,
+										}
+									},
+								}
+							},
+						},
+					},
 				},
 				core.Show{
 					When: assetsMode.Get,
@@ -444,32 +551,60 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				ProfilerStripView(cx, ed, rev),
 			},
 		},
-		core.Show{
-			When: assetsMode.Get,
-			Then: func(cx *core.Scope) core.Node {
-				return AssetInspectorView(cx, ed, rev)
+		core.View{
+			Ref:    ed.focus.ctrl.rootRef(RegionInspector),
+			TestID: "editor-region-inspector",
+			Role:   core.RoleRegion,
+			Label:  ed.T("region.inspector"),
+			Focusable: func() bool {
+				return ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionInspector
 			},
-			Else: func(cx *core.Scope) core.Node {
-				return core.View{
-					Style: core.Style{Direction: core.Row, FlexShrink: 0},
-					Children: []core.Node{
-						TilePaletteView(cx, ed, rev),
-						GridMapPaletteView(cx, ed, rev),
-						core.Show{
-							When: func() bool {
-								_ = rev.Get()
-								return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
-							},
-							Then: func(cx *core.Scope) core.Node {
-								return TileReviewPanelView(cx, ed, rev)
-							},
-							Else: func(cx *core.Scope) core.Node {
-								return InspectorView(cx, ed, rev)
-							},
-						},
-						pluginDockView(cx, ed, rev, DockRight),
-					},
+			OnFocusIn: func() {
+				if ed.focus.ctrl != nil {
+					ed.focus.ctrl.onRegionFocusIn(RegionInspector)
 				}
+			},
+			OnFocusOut: func() {
+				if ed.focus.ctrl != nil {
+					ed.focus.ctrl.onRegionFocusOut(RegionInspector)
+				}
+			},
+			StyleFunc: func() core.Style {
+				base := core.Style{Direction: core.Row, FlexShrink: 0}
+				if ed.focus.ctrl == nil {
+					return base
+				}
+				return ed.focus.ctrl.regionOutlineStyle(RegionInspector, base)
+			},
+			Children: []core.Node{
+				core.Show{
+					When: assetsMode.Get,
+					Then: func(cx *core.Scope) core.Node {
+						return AssetInspectorView(cx, ed, rev)
+					},
+					Else: func(cx *core.Scope) core.Node {
+						return core.View{
+							Style: core.Style{Direction: core.Row, FlexShrink: 0},
+							Children: []core.Node{
+								TilePaletteView(cx, ed, rev),
+								GridMapPaletteView(cx, ed, rev),
+								core.Show{
+									When: func() bool {
+										_ = rev.Get()
+										return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
+									},
+									Then: func(cx *core.Scope) core.Node {
+										return TileReviewPanelView(cx, ed, rev)
+									},
+									Else: func(cx *core.Scope) core.Node {
+										return InspectorView(cx, ed, rev)
+									},
+								},
+								pluginDockView(cx, ed, rev, DockRight),
+							},
+						}
+					},
+				},
 			},
 		},
 	}
@@ -584,19 +719,47 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 			},
 		}
 	}
+	settingsBtnRef := &core.Ref{}
+	paletteBtnRef := &core.Ref{}
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(cx, RegionHeader, settingsBtnRef, nil)
+		ed.focus.ctrl.registerCandidate(cx, RegionHeader, paletteBtnRef, nil)
+	}
+	toolbarBaseStyle := core.Style{
+		Direction:      core.Row,
+		Wrap:           core.Wrap,
+		AlignItems:     core.AlignCenter,
+		JustifyContent: core.JustifySpaceBetween,
+		Padding:        core.Symmetric(4, 10),
+		Gap:            4,
+		Background:     colors.Raised(),
+		Borders:        core.Edges{Bottom: 1},
+		BorderColor:    colors.Line(),
+	}
 	// The edit tools and the 2D view group make the bar wider than a narrow window; it wraps, moving the file and play buttons to a second row rather than past the window's edge, where they cannot be pressed.
 	return core.View{
+		Ref:    ed.focus.ctrl.rootRef(RegionHeader),
 		TestID: "editor-toolbar",
-		Style: core.Style{
-			Direction:      core.Row,
-			Wrap:           core.Wrap,
-			AlignItems:     core.AlignCenter,
-			JustifyContent: core.JustifySpaceBetween,
-			Padding:        core.Symmetric(4, 10),
-			Gap:            4,
-			Background:     colors.Raised(),
-			Borders:        core.Edges{Bottom: 1},
-			BorderColor:    colors.Line(),
+		Role:   core.RoleRegion,
+		Label:  ed.T("region.header"),
+		Focusable: func() bool {
+			return ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionHeader
+		},
+		OnFocusIn: func() {
+			if ed.focus.ctrl != nil {
+				ed.focus.ctrl.onRegionFocusIn(RegionHeader)
+			}
+		},
+		OnFocusOut: func() {
+			if ed.focus.ctrl != nil {
+				ed.focus.ctrl.onRegionFocusOut(RegionHeader)
+			}
+		},
+		StyleFunc: func() core.Style {
+			if ed.focus.ctrl == nil {
+				return toolbarBaseStyle
+			}
+			return ed.focus.ctrl.regionOutlineStyle(RegionHeader, toolbarBaseStyle)
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -628,12 +791,16 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return base
 						},
 						Trigger: ui.Button{
+							Ref:     settingsBtnRef,
 							TestID:  "toolbar-editor-settings",
 							Icon:    lucide.Settings,
 							Label:   ed.T("toolbar.editorSettingsLabel"),
 							Size:    ui.SizeSmall,
 							Variant: ui.ButtonGhost,
 							OnPress: func() {
+								if ed.focus.ctrl != nil {
+									ed.focus.ctrl.recordDialogOpener(settingsBtnRef)
+								}
 								ed.ToggleEditorSettings()
 							},
 						},
@@ -965,12 +1132,16 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.Button{
+						Ref:     paletteBtnRef,
 						TestID:  "toolbar-palette",
 						Text:    ed.T("toolbar.commands"),
 						Label:   ed.T("toolbar.commandsLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						OnPress: func() {
+							if ed.focus.ctrl != nil {
+								ed.focus.ctrl.recordDialogOpener(paletteBtnRef)
+							}
 							ed.ToggleCommandPalette()
 						},
 					},
@@ -1274,16 +1445,55 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 
 func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
+	changesBtnRef := &core.Ref{}
+	conflictsBtnRef := &core.Ref{}
+	playtestBtnRef := &core.Ref{}
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(cx, RegionStatusBar, changesBtnRef, func() bool {
+			return ed.Project != nil && ed.ProjectPath != "" && !ed.Playing()
+		})
+		ed.focus.ctrl.registerCandidate(cx, RegionStatusBar, conflictsBtnRef, func() bool {
+			return len(ed.DetectedMergeConflicts()) > 0
+		})
+		ed.focus.ctrl.registerCandidate(cx, RegionStatusBar, playtestBtnRef, func() bool {
+			return ed.ActivePlaytestReport() != nil
+		})
+	}
+	statusBaseStyle := core.Style{
+		Direction:      core.Row,
+		AlignItems:     core.AlignCenter,
+		JustifyContent: core.JustifySpaceBetween,
+		Padding:        core.Symmetric(4, 12),
+		Background:     colors.Raised(),
+		Borders:        core.Edges{Top: 1},
+		BorderColor:    colors.Line(),
+	}
 	return core.View{
+		Ref:    ed.focus.ctrl.rootRef(RegionStatusBar),
 		TestID: "editor-status",
-		Style: core.Style{
-			Direction:      core.Row,
-			AlignItems:     core.AlignCenter,
-			JustifyContent: core.JustifySpaceBetween,
-			Padding:        core.Symmetric(4, 12),
-			Background:     colors.Raised(),
-			Borders:        core.Edges{Top: 1},
-			BorderColor:    colors.Line(),
+		Role:   core.RoleRegion,
+		Label:  ed.T("region.statusBar"),
+		Focusable: func() bool {
+			if ed.focus.ctrl == nil {
+				return false
+			}
+			return !ed.focus.ctrl.hasEnabledCandidate(RegionStatusBar) || ed.focus.ctrl.fallbackRegion.Get() == RegionStatusBar
+		},
+		OnFocusIn: func() {
+			if ed.focus.ctrl != nil {
+				ed.focus.ctrl.onRegionFocusIn(RegionStatusBar)
+			}
+		},
+		OnFocusOut: func() {
+			if ed.focus.ctrl != nil {
+				ed.focus.ctrl.onRegionFocusOut(RegionStatusBar)
+			}
+		},
+		StyleFunc: func() core.Style {
+			if ed.focus.ctrl == nil {
+				return statusBaseStyle
+			}
+			return ed.focus.ctrl.regionOutlineStyle(RegionStatusBar, statusBaseStyle)
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -1384,6 +1594,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						},
 						Then: func(cx *core.Scope) core.Node {
 							return ui.Button{
+								Ref:     changesBtnRef,
 								TestID:  "status-changes",
 								Icon:    lucide.GitBranch,
 								Variant: ui.ButtonGhost,
@@ -1430,6 +1641,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						Then: func(cx *core.Scope) core.Node {
 							spec := ed.SpecPalette(cx)
 							return ui.Button{
+								Ref:     conflictsBtnRef,
 								TestID:  "status-merge-conflicts",
 								Icon:    lucide.GitMerge,
 								Variant: ui.ButtonGhost,
@@ -1470,6 +1682,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						Then: func(cx *core.Scope) core.Node {
 							spec := ed.SpecPalette(cx)
 							return ui.Button{
+								Ref:     playtestBtnRef,
 								TestID:  "status-playtest-report",
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,

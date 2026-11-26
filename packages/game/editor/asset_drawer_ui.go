@@ -52,8 +52,17 @@ func sanitizeAssetTestID(s string) string {
 // matching docs/design/editor/Assets.dc.html screen 1 with Spec.dc.html tokens.
 func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	p := ed.SpecPalette(cx)
+	sceneTabRef := &core.Ref{}
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(cx, RegionSceneTree, sceneTabRef, nil)
+	}
 	modeBtn := func(testID, label string, mode LeftRailMode) core.Node {
+		var ref *core.Ref
+		if mode == LeftRailScene {
+			ref = sceneTabRef
+		}
 		return core.View{
+			Ref:    ref,
 			TestID: testID,
 			Role:   core.RoleButton,
 			Label:  label,

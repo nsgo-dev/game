@@ -414,7 +414,15 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								Selection:   selection,
 								Row:         row,
 								Ref:         listRef,
-								Style:       core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+								// Inset -2 px ring so the scrolling tree never clips it; selected+focused rows keep both selection fill and inset ring.
+								Style: core.Style{
+									FlexGrow:     1,
+									FlexBasis:    core.Pt(0),
+									FocusVisible: specRowFocusRingStyle,
+								},
+								RowStyle: core.Style{
+									FocusVisible: specRowFocusRingStyle,
+								},
 							}}},
 							core.Text{
 								TestID:  "scene-tree-hint",
@@ -584,7 +592,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			if edit.field == editID {
 				testID, labelText = "scene-tree-id-"+id, ed.T("sceneTree.objectID")
 			}
-			return ui.Input{
+			return specInputField(ed, ui.Input{
 				TestID:       testID,
 				Label:        labelText,
 				DefaultValue: text,
@@ -593,7 +601,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 				OnSubmit:     func(s string) { text = s; commit() },
 				OnBlur:       commit,
 				Style:        core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(22)},
-			}
+			})
 		},
 		Else: func(cx *core.Scope) core.Node {
 			return core.View{

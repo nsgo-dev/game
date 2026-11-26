@@ -153,7 +153,14 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 					Content: ed.T("layers.empty"),
 					Style:   core.Style{FontSize: 12, Color: colors.Muted(), Padding: core.All(4)},
 				},
-				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+				Style: core.Style{
+					FlexGrow:     1,
+					FlexBasis:    core.Pt(0),
+					FocusVisible: specRowFocusRingStyle,
+				},
+				RowStyle: core.Style{
+					FocusVisible: specRowFocusRingStyle,
+				},
 			}}},
 		},
 	}
@@ -196,7 +203,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 					editing.Set("")
 				}
 			})
-			return ui.Input{
+			return specInputField(ed, ui.Input{
 				TestID:       "layers-rename-" + name,
 				Label:        ed.T("layers.nameLabel"),
 				DefaultValue: text,
@@ -205,7 +212,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 				OnSubmit:     func(s string) { text = s; commit() },
 				OnBlur:       commit,
 				Style:        core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Height: core.Pt(22)},
-			}
+			})
 		},
 		Else: func(cx *core.Scope) core.Node {
 			return core.View{

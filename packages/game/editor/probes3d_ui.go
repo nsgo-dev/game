@@ -158,7 +158,7 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				mutate(func(p *sceneformat.ReflectionProbeDoc) { p.Priority = int(math.Round(v)) })
 			},
 		}),
-		fieldRow("Box Proj", ui.Switch{
+		fieldRow("Box Proj", SpecSwitch{
 			TestID:   "inspector-reflprobe-boxproj",
 			Label:    "Box Projection",
 			Disabled: disabled,
