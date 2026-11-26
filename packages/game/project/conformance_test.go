@@ -15,3 +15,12 @@ func TestFormatConformance(t *testing.T) {
 		Doc:    "project",
 	})
 }
+
+func TestBriefFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*project.Brief]{
+		Decode: project.ParseBrief,
+		Encode: project.EncodeBrief,
+		Files:  []string{"testdata/brief/*.yaml"},
+		Doc:    "project#brief",
+	})
+}

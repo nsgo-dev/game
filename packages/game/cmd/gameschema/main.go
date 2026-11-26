@@ -225,6 +225,13 @@ var formats = []format{
 		version: project.CurrentVersion,
 	},
 	{
+		url:     project.BriefSchemaURL,
+		title:   "NSGo game brief (version 1)",
+		typ:     reflect.TypeFor[project.Brief](),
+		pkg:     "project",
+		version: project.BriefVersion,
+	},
+	{
 		url:     ai.BTSchemaURL,
 		title:   "NSGo game behavior tree (version 1)",
 		typ:     reflect.TypeFor[ai.BehaviorTreeDoc](),

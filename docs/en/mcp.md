@@ -333,6 +333,9 @@ claude mcp add game-editor -- nsgo game mcp
 | `tasks_list` | read | `include_dismissed` (optional, default `false`) | Lists background agent tasks across Needs you, Running, Ready to review, Queued, and Failed (plus dismissed/completed tasks when `include_dismissed` is `true`), along with active per-object holds and `TaskSummary` badge counts (`dockBadge = needsYou + readyToReview + failed`). |
 | `tasks_submit` | edit | `prompt` (required), `title`, `mode` (`"queue"` or `"parallel"`, default `"queue"`), `scene` (optional) | Submits a background agent request to the editor's task list: `"queue"` waits behind the active or unreviewed turn and starts only after it is kept or reverted; `"parallel"` starts immediately (up to the concurrency cap) as a separate session with its own numbered overlay. |
 | `tasks_control` | edit | `action` (required: `"keep"`, `"revert"`, `"dismiss"`, `"stop"`, `"retry"`, `"open"`, `"focus"`, `"allow"`, or `"deny"`), `task_id`, `task_ids` (for bulk dismiss) | Controls background agent tasks: keeps or safely reverts a turn (preserving unrelated parallel/kept edits), bulk-dismisses Ready to review or Failed tasks without reverting kept work, stops or retries a task, focuses/opens a task's scene (confined to project root), or resolves a permission prompt. |
+| `project_context` | read | none | Returns the shared project context the agent reads before every request: `brief.yaml` (canonical YAML, parsed fields, missing sections/gaps, and structured playtest targets) and `AGENTS.md` (plain Markdown project rules and rule count), plus any pending document reviews. |
+| `brief_edit` | edit | `yaml` or structured fields (`pitch`, `genre`, `tags`, `platforms`, `artDirection`, `toneAndAudio`, `feel`), `summary`, `rationale` | Strictly validates a proposed `brief.yaml` edit (refusing unknown fields with line numbers) and queues a reviewable `DocReview` diff without touching disk until the person keeps it. |
+| `rules_edit` | edit | `markdown` or `appendRule`, `summary`, `rationale` | Proposes an edit or appended bullet rule for `AGENTS.md` as a reviewable `DocReview` diff without touching disk until the person keeps it. |
 
 The edits `scene_edit` takes, each an object with `op`:
 
@@ -357,7 +360,13 @@ While the editor's automatic saving is failing (for example into a read-only fol
 
 ### The change stream
 
+<<<<<<< HEAD
 The server has three resources: `editor://scene`, the open scene's YAML as the editor holds it; `editor://selection`, the selection as `selection_get` reports it in JSON; and `editor://agent/turn`, the latest request started from the `⌘L` in-place composer or Agent panel (JSON metadata including `selectionIds`, `scenePath`, `sceneYaml`, and `skipPlan`, plus the captured `image/png` viewport blob). A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"` (and `"nsgo.dev/turnId"` / `"nsgo.dev/skipPlan"` on `editor://agent/turn` notices). A burst of changes may come as one notice.
+||||||| parent of 41731645 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
+The server has two resources: `editor://scene`, the open scene's YAML as the editor holds it, and `editor://selection`, the selection as `selection_get` reports it in JSON. A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"`. A burst of changes may come as one notice.
+=======
+The server exposes five resources: `editor://scene` (the open scene's YAML as the editor holds it), `editor://selection` (the selection as `selection_get` reports it in JSON), `editor://brief` (the open project's `brief.yaml` as canonical YAML), `editor://rules` (the open project's `AGENTS.md` as plain Markdown), and `editor://context` (the combined JSON project context returned by `project_context`). A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"`. A burst of changes may come as one notice.
+>>>>>>> 41731645 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
 
 ### Adding tools
 

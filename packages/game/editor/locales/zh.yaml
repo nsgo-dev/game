@@ -749,13 +749,48 @@ strings:
   search.refsPrompt: 在文件浏览器中选择一个文件后点击“查找引用”
   search.retry: 重试
   search.search: 搜索
+  settings.agentAskPlaceholder: 询问关于“{page}”的问题…
+  settings.agentOnPage: 本页智能体
+  settings.agentSend: 发送
+  settings.agentSent: 已发送到智能体面板：{prompt}
   settings.appearance: 外观
   settings.appearanceHelp: 深色、浅色或跟随系统。
   settings.autoSave: 自动保存
   settings.autoSaveHelp: 仅自动保存已保留的更改，延迟 2 秒。
+  settings.brief: 游戏简报
+  settings.briefAddTarget: 添加目标
+  settings.briefAgentCompleteNote: 简报已填写完整。智能体在每次请求前都会阅读 brief.yaml 并对照检查自己的修改。
+  settings.briefAgentDraftAsk: 根据当前项目起草 brief.yaml
+  settings.briefAgentEmptyNote: 此项目还没有 brief.yaml。填写核心概念和目标，或让智能体为你起草一份。
+  settings.briefAgentFooter: 智能体会在每次请求前阅读此文件并对照自检，例如试玩目标会来自“手感与难度”。
+  settings.briefAgentTargetsAsk: 根据简报生成 playtest.yaml 目标
+  settings.briefAgentTuneAsk: 按简报调整关卡难度
+  settings.briefArtDirection: 美术方向
+  settings.briefArtPlaceholder: 像素规格、配色、描边与光照规则…
+  settings.briefEmptyBadge: 未填写
+  settings.briefEmptyState: 此项目还没有 brief.yaml。填写下方任意栏目并保存即可创建。
+  settings.briefFeel: 手感与难度
+  settings.briefFeelPlaceholder: 跳跃手感、节奏、通关时长与死亡次数目标…
+  settings.briefGapTag: 待补充
+  settings.briefGenre: 类型
+  settings.briefGenrePlaceholder: 添加类型…
+  settings.briefHelp: 这款游戏的目标定位。智能体会在每次请求前阅读并对照评估自己的工作。
+  settings.briefManyGaps: '{count} 项缺口'
+  settings.briefOneGap: 1 项缺口
+  settings.briefPitch: 核心简介
+  settings.briefPitchPlaceholder: 用一两句话概括这款游戏的核心体验…
+  settings.briefPlatforms: 平台
+  settings.briefPlatformsPlaceholder: 添加平台…
+  settings.briefPlaytestTargets: 试玩目标 · 来自手感与难度
+  settings.briefSave: 保存简报
+  settings.briefTags: 标签
+  settings.briefTagsPlaceholder: 逗号分隔的标签（例如 dungeon, pixel-art）
+  settings.briefToneAudio: 氛围与音频
+  settings.briefTonePlaceholder: 情绪基调、音乐与音效方向…
   settings.connectAnother: + 连接其他智能体或模型
   settings.dark: 深色
   settings.description: 此计算机的语言、外观与键盘快捷键设置。
+  settings.dismiss: 忽略
   settings.done: 完成
   settings.general: 通用
   settings.generalHelp: 语言、外观与保存。
@@ -784,11 +819,28 @@ strings:
   settings.page.projectSubtitle: 名称、ID、窗口尺寸与主场景。
   settings.policyAgent: 智能体可修改
   settings.policyYouOnly: 仅限用户
+  settings.reload: 重新加载
+  settings.reviewKeep: 保留
+  settings.reviewPending: 待审阅：{summary}
+  settings.reviewRevert: 撤销
+  settings.rules: 项目规则
+  settings.rulesAddSuggested: 添加为规则
+  settings.rulesAgentCheckAsk: 按这些规则检查项目
+  settings.rulesAgentNote: 规则是纯 Markdown；我会在每次请求中遵守，并在请求违反规则时提醒你。
+  settings.rulesAgentRevertsAsk: 把我上周撤销的修改总结为规则
+  settings.rulesHelp: 用你自己的话写下项目协作规则。Claude Code、Codex 和内置智能体都会读取同一份文件。
+  settings.rulesMarkdownHint: 纯 Markdown · 与 Claude Code 和 Codex 共享
+  settings.rulesPlaceholder: '# AGENTS.md · 本项目协作规则'
+  settings.rulesSave: 保存规则
+  settings.scopeBrief: 项目 · brief.yaml
   settings.scopeComputer: 此计算机
   settings.scopeProject: 项目 · game.yaml
+  settings.scopeRules: 项目 · AGENTS.md
+  settings.searchAskAgent: 询问智能体：{query}
   settings.searchClear: 清除
-  settings.searchLabel: 搜索设置
-  settings.searchPlaceholder: 搜索设置 — 项目、输入、音频、导出、快捷键、语言…
+  settings.searchLabel: 搜索设置或向智能体提问
+  settings.searchPlaceholder: 搜索设置，或告诉智能体你想做什么——“让游戏手感更有挑战性”、“配置 iOS 导出”
+  settings.sectionAgent: 智能体
   settings.sectionEditor: 编辑器 · 此计算机
   settings.sectionProject: 项目 · game.yaml
   settings.shortcuts: 快捷键

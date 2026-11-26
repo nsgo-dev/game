@@ -39,11 +39,11 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"agent_turn_get", "agent_turn_reply", "cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_copy_yaml", "object_duplicate", "object_find_usages", "object_group", "object_locate_yaml", "object_move_under", "object_paste_yaml", "object_select_same_prefab", "object_set_field", "object_visibility", "play_frozen_context", "play_replay_step", "playtest_define", "playtest_report", "problem_propose_fix", "refactor_rename", "refs_find", "release_notes_draft", "release_review_uploads", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tasks_control", "tasks_list", "tasks_submit", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}
+	want := []string{"agent_turn_get", "agent_turn_reply", "brief_edit", "cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_copy_yaml", "object_duplicate", "object_find_usages", "object_group", "object_locate_yaml", "object_move_under", "object_paste_yaml", "object_select_same_prefab", "object_set_field", "object_visibility", "play_frozen_context", "play_replay_step", "playtest_define", "playtest_report", "problem_propose_fix", "project_context", "refactor_rename", "refs_find", "release_notes_draft", "release_review_uploads", "rules_edit", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tasks_control", "tasks_list", "tasks_submit", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
-	if actions["scene_edit"] != "edit" || actions["scene_read"] != "read" || actions["game_check"] != "run" || actions["game_playtest"] != "run" || actions["playtest_define"] != "edit" || actions["agent_turn_get"] != "read" || actions["agent_turn_reply"] != "edit" {
+	if actions["scene_edit"] != "edit" || actions["scene_read"] != "read" || actions["game_check"] != "run" || actions["game_playtest"] != "run" || actions["playtest_define"] != "edit" || actions["agent_turn_get"] != "read" || actions["agent_turn_reply"] != "edit" || actions["project_context"] != "read" || actions["brief_edit"] != "edit" || actions["rules_edit"] != "edit" {
 		t.Fatalf("actions = %v", actions)
 	}
 	var uris []string
@@ -54,7 +54,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		uris = append(uris, r.URI)
 	}
 	slices.Sort(uris)
-	if !slices.Equal(uris, []string{editormcp.AgentTurnURI, editormcp.SceneURI, editormcp.SelectionURI}) {
+	if !slices.Equal(uris, []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI}) {
 		t.Fatalf("resources = %v", uris)
 	}
 }

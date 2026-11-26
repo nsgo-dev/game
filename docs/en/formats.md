@@ -40,6 +40,36 @@ autoload:
       path: scenes/title.scene.yaml
 ```
 
+<!-- format: project#brief -->
+### Game brief
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `brief.yaml` at the project's root | `version: 1` | `project.ParseBrief`, `project.EncodeBrief` | [Editor](editor.md#game-brief-and-project-rules-1026); schema `https://game.nsgo.dev/schemas/brief.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/brief.v1.json
+version: 1
+pitch: 'A short, tense dungeon platformer: a knight with one sword and three hearts dives through five floors, each ending in a door that only opens once its lever is found.'
+genre: [2D platformer, action]
+tags: [dungeon, pixel-art]
+platforms: [desktop, 'phones, touch', web]
+artDirection: 16 px pixel art, 4-colour shading, cold stone with warm torch light. No outlines on tiles; 1 px dark outline on characters.
+feel:
+  summary: Snappy, forgiving jumps (coyote time). A first-time player clears floor 1 in under a minute and dies 2–4 times on floor 3.
+  targets:
+    - metric: median_time
+      scene: floor_01
+      summary: first-time player clears floor 1 in under a minute
+      unit: s
+      max: 60
+    - metric: deaths
+      scene: floor_03
+      summary: 2–4 deaths on floor 3
+      min: 2
+      max: 4
+```
+
 <!-- format: editor#settings -->
 ### Editor settings
 
