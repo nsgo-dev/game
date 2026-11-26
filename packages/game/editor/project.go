@@ -138,6 +138,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.clipMeta = clipMeta{}
 	e.clipScene = nil
 	e.clipPlayer = nil
+	e.clipLoading = false
 	e.clipErr = nil
 	e.clipSaved = nil
 	e.table = nil

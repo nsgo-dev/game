@@ -28,6 +28,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		problems []assetcheck.Problem
 		checking bool
 		errMsg   string
+		dark     bool
 	}
 	state := core.NewMemoFunc(cx, func() snapshot {
 		_ = rev.Get()
@@ -39,17 +40,19 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			problems: ed.Problems(),
 			checking: ed.CheckingProblems(),
 			errMsg:   errMsg,
+			dark:     cx.Dark(),
 		}
 	}, func(a, b snapshot) bool {
-		return a.checking == b.checking && a.errMsg == b.errMsg && slices.Equal(a.problems, b.problems)
+		return a.checking == b.checking && a.errMsg == b.errMsg && a.dark == b.dark && slices.Equal(a.problems, b.problems)
 	})
 
-	checkShortcut := FormatShortcut("mod+shift+b", cx.Env().OS())
+	checkShortcut := FormatShortcut(ed.EffectiveShortcut(CmdCheckProblems), cx.Env().OS())
 
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := state.Get()
+		p := ed.SpecPalette(cx)
 		if s.errMsg != "" {
-			retryBtn := specPanelButton(specPanelButtonSpec{
+			retryBtn := specPanelButton(p, specPanelButtonSpec{
 				TestID:     "problems-error-retry",
 				Text:       ed.T("problems.retry"),
 				Icon:       lucide.RefreshCw,
@@ -60,38 +63,38 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				InsetFocus: true,
 				OnPress:    ed.CheckProblems,
 			})
-			return specStatusBanner("problems-error", false, s.errMsg, nil, retryBtn)
+			return specStatusBanner(p, "problems-error", false, s.errMsg, nil, retryBtn)
 		}
 		if s.checking && len(s.problems) == 0 {
-			return specLoadingState("problems-loading", ed.T("problems.checking"))
+			return specLoadingState(p, "problems-loading", ed.T("problems.checking"))
 		}
 		if len(s.problems) == 0 {
-			return specEmptyState("problems-empty", lucide.CircleCheck, specAdded, ed.T("problems.empty"), "", nil)
+			return specEmptyState(p, "problems-empty", lucide.CircleCheck, p.Added.Fg, ed.T("problems.empty"), "", nil)
 		}
 		rows := make([]core.Node, 0, len(s.problems))
 		for i, prob := range s.problems {
-			p := prob
-			loc := p.File
-			if p.Line > 0 {
-				loc += ":" + strconv.Itoa(p.Line)
+			item := prob
+			loc := item.File
+			if item.Line > 0 {
+				loc += ":" + strconv.Itoa(item.Line)
 			}
-			isWarn := problemIsWarning(p)
+			isWarn := problemIsWarning(item)
 
-			rowBg := specRaised
-			rowBorder := specLineRaised
-			rowHover := specLineRaised
-			locColor := specTextStrong
+			rowBg := p.Raised
+			rowBorder := p.LineRaised
+			rowHover := p.LineRaised
+			locColor := p.TextPrimary
 			badgeLabel := ed.T("problems.error")
 			if isWarn {
-				rowBg = specWarningFill
-				rowBorder = specWarningEdge
-				rowHover = specWarningEdge
-				locColor = specWarning
+				rowBg = p.Warning.Fill
+				rowBorder = p.Warning.Edge
+				rowHover = p.Warning.Edge
+				locColor = p.Warning.Fg
 				badgeLabel = ed.T("problems.warning")
 			}
 
-			rowAria := fmt.Sprintf("%s: %s — %s", badgeLabel, loc, p.Message)
-			rows = append(rows, specPanelRowButton(specPanelRowButtonSpec{
+			rowAria := fmt.Sprintf("%s: %s — %s", badgeLabel, loc, item.Message)
+			rows = append(rows, specPanelRowButton(p, specPanelRowButtonSpec{
 				TestID:  fmt.Sprintf("problems-row-%d", i),
 				Label:   rowAria,
 				Tooltip: "Open " + loc,
@@ -101,10 +104,10 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					Hover:       &core.Style{Background: rowHover, BorderColor: rowBorder},
 				},
 				OnPress: func() {
-					ed.report(ed.OpenProblem(p))
+					ed.report(ed.OpenProblem(item))
 				},
 				Children: []core.Node{
-					specSeverityPill("", isWarn, badgeLabel),
+					specSeverityPill(p, "", isWarn, badgeLabel),
 					core.Text{
 						Content: loc,
 						Style: core.Style{
@@ -116,10 +119,10 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						},
 					},
 					core.Text{
-						Content: p.Message,
+						Content: item.Message,
 						Style: core.Style{
 							FontSize:   12.5,
-							Color:      specText,
+							Color:      p.TextSecondary,
 							FlexGrow:   1,
 							FlexShrink: 1,
 						},
@@ -133,39 +136,42 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	return core.Show{
 		When: open.Get,
 		Then: func(cx *core.Scope) core.Node {
-			headerIcon := core.Dynamic(func(*core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
+			headerIcon := core.Dynamic(func(cx *core.Scope) core.Node {
 				s := state.Get()
+				p := ed.SpecPalette(cx)
 				if s.checking {
 					return ui.Spinner{
 						Size:  specIconSize,
 						Label: ed.T("problems.checking"),
-						Tint:  func() core.Color { return specAccent },
+						Tint:  func() core.Color { return p.Accent.Fg },
 					}
 				}
 				if s.errMsg != "" {
-					return specIcon(lucide.TriangleAlert, specIconSize, specProblem)
+					return specIcon(lucide.TriangleAlert, specIconSize, p.Problem().Fg)
 				}
 				if len(s.problems) == 0 {
-					return specIcon(lucide.CircleCheck, specIconSize, specAdded)
+					return specIcon(lucide.CircleCheck, specIconSize, p.Added.Fg)
 				}
 				hasErr := false
-				for _, p := range s.problems {
-					if !problemIsWarning(p) {
+				for _, item := range s.problems {
+					if !problemIsWarning(item) {
 						hasErr = true
 						break
 					}
 				}
 				if hasErr {
-					return specIcon(lucide.TriangleAlert, specIconSize, specProblem)
+					return specIcon(lucide.TriangleAlert, specIconSize, p.Problem().Fg)
 				}
-				return specIcon(lucide.TriangleAlert, specIconSize, specWarning)
+				return specIcon(lucide.TriangleAlert, specIconSize, p.Warning.Fg)
 			})
 
-			headerCounts := core.Dynamic(func(*core.Scope) core.Node {
+			headerCounts := core.Dynamic(func(cx *core.Scope) core.Node {
 				s := state.Get()
+				p := ed.SpecPalette(cx)
 				var errs, warns int
-				for _, p := range s.problems {
-					if problemIsWarning(p) {
+				for _, item := range s.problems {
+					if problemIsWarning(item) {
 						warns++
 					} else {
 						errs++
@@ -176,10 +182,10 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				}
 				var pills []core.Node
 				if errs > 0 {
-					pills = append(pills, specSeverityPill("", false, fmt.Sprintf("%d %s", errs, ed.T("problems.error"))))
+					pills = append(pills, specSeverityPill(p, "", false, fmt.Sprintf("%d %s", errs, ed.T("problems.error"))))
 				}
 				if warns > 0 {
-					pills = append(pills, specSeverityPill("", true, fmt.Sprintf("%d %s", warns, ed.T("problems.warning"))))
+					pills = append(pills, specSeverityPill(p, "", true, fmt.Sprintf("%d %s", warns, ed.T("problems.warning"))))
 				}
 				return core.View{
 					Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
@@ -187,7 +193,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				}
 			})
 
-			header := specPanelHeader(
+			header := specPanelHeader(p,
 				headerIcon,
 				core.Text{
 					TestID: "problems-title",
@@ -201,12 +207,12 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					Style: core.Style{
 						FontSize:   14,
 						FontWeight: core.FontWeightSemibold,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 					},
 				},
 				headerCounts,
 				core.View{Style: core.Style{FlexGrow: 1}},
-				specPanelButton(specPanelButtonSpec{
+				specPanelButton(p, specPanelButtonSpec{
 					TestID:  "problems-refresh",
 					Text:    ed.T("problems.check"),
 					Icon:    lucide.RefreshCw,
@@ -233,7 +239,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				Children: []core.Node{list},
 			}
 
-			return specPanelContainer("problems-panel", ed.T("problems.title", l10n.Param("count", 0)), 164, header, body)
+			return specPanelContainer(p, "problems-panel", ed.T("problems.title", l10n.Param("count", 0)), 164, header, body)
 		},
 	}
 }

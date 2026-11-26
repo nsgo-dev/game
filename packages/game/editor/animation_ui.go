@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -25,12 +26,16 @@ func AnimationPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-// clipLengthSeconds returns the open clip's length in seconds, or 1 with none open.
+// clipLengthSeconds returns the open clip's length in seconds, or 1 with none open or non-positive/non-finite length.
 func (e *Editor) clipLengthSeconds() float64 {
 	if e.clip == nil {
 		return 1
 	}
-	return animclip.KeyValue(e.clip.Length)
+	v := animclip.KeyValue(e.clip.Length)
+	if math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return 1
+	}
+	return v
 }
 
 // report shows err in the status bar and appends it to the Output panel history, so an edit the panel's controls make and the editor refuses is never silently dropped or overwritten by the next error.
@@ -42,34 +47,47 @@ func (e *Editor) report(err error) {
 }
 
 func durationOfSeconds(s float64) time.Duration {
+	if math.IsNaN(s) || math.IsInf(s, 0) || s <= 0 {
+		return 0
+	}
+	const maxSec = float64(math.MaxInt64/time.Second) - 1
+	if s >= maxSec {
+		return time.Duration(maxSec) * time.Second
+	}
 	return time.Duration(s * float64(time.Second))
 }
 
 func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	property := core.NewSignal(cx, "")
 	frameChoice := core.NewSignal(cx, "")
 	asepriteTag := core.NewSignal(cx, "")
 	runFPS := core.NewSignal(cx, 12.0)
 	eventName := core.NewSignal(cx, "")
 	selEvent := core.NewSignal(cx, -1)
-	saveShortcut := FormatShortcut("mod+s", cx.Env().OS())
+	saveShortcut := FormatShortcut(ed.EffectiveShortcut(CmdSave), cx.Env().OS())
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing()
 	}
+	// Memoize clip playback state so 60 Hz rev ticks during preview playback do not remount anim-play's icon.
+	clipPlaying := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.ClipPlaying()
+	})
 	keySelected := func() bool {
 		_ = rev.Get()
 		_, _, ok := ed.SelectedClipKey()
 		return ok
 	}
-	// structure changes when tracks or keys are added or removed, frame thumbnails change, loading toggles, or events change, so the lanes remount then and not on every numeric key value edit.
+	// structure changes when tracks or keys are added or removed, frame thumbnails change, loading toggles, theme changes, or events change, so the lanes remount then and not on every numeric key value edit.
 	structure := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		if ed.clip == nil {
 			return ""
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "len=%v|load=%t|", ed.clip.Length, ed.clipLoading)
+		fmt.Fprintf(&b, "len=%v|load=%t|dark=%t|", ed.clip.Length, ed.clipLoading, cx.Dark())
 		for _, tr := range ed.clip.Tracks {
 			fmt.Fprintf(&b, "%s/%s:k%d:f%d|", tr.Target, tr.Property, len(tr.Keys), len(tr.Frames))
 			for _, fk := range tr.Frames {
@@ -83,8 +101,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return b.String()
 	})
 
-	header := specPanelHeader(
-		specPanelTitle("", lucide.Film, "Animation", nil),
+	header := specPanelHeader(p,
+		specPanelTitle(p, "", lucide.Film, "Animation", nil),
 		core.Text{
 			TestID: "anim-target",
 			ContentFunc: func() string {
@@ -93,7 +111,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			Style: core.Style{
 				FontSize: 12.5,
-				Color:    specTextSecondary,
+				Color:    p.TextMuted,
 			},
 		},
 		core.View{
@@ -102,7 +120,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				TestID:      "anim-name",
 				Label:       "Clip Name",
 				Placeholder: "Clip name",
-				Style:       specInputStyle(),
+				Style:       specInputStyle(p),
 				Disabled:    disabled,
 				Value: func() string {
 					_ = rev.Get()
@@ -114,7 +132,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				OnChange: func(text string) { ed.report(ed.SetClipName(text)) },
 			}},
 		},
-		specSectionLabel("LENGTH"),
+		specSectionLabel(p, "LENGTH"),
 		core.View{
 			Style: core.Style{Width: core.Pt(104)},
 			Children: []core.Node{ui.NumberInput{
@@ -123,7 +141,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				Min:      0.01,
 				Step:     0.1,
 				Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) },
-				Style:    specNumberInputStyle(),
+				Style:    specNumberInputStyle(p),
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
@@ -132,7 +150,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				OnChange: func(v float64) { ed.report(ed.SetClipLength(durationOfSeconds(v))) },
 			}},
 		},
-		specPanelToggle(specPanelToggleSpec{
+		specPanelToggle(p, specPanelToggleSpec{
 			TestID:   "anim-loop",
 			Text:     "Loop",
 			Icon:     lucide.Repeat,
@@ -145,27 +163,24 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			OnChange: func(on bool) { ed.report(ed.SetClipLoop(on)) },
 		}),
-		specPanelButton(specPanelButtonSpec{
+		specPanelButton(p, specPanelButtonSpec{
 			TestID:  "anim-play",
 			Variant: specBtnPrimary,
 			Compact: true,
 			IconFunc: func() *core.SVG {
-				_ = rev.Get()
-				if ed.ClipPlaying() {
+				if clipPlaying.Get() {
 					return lucide.Pause()
 				}
 				return lucide.Play()
 			},
 			TextFunc: func() string {
-				_ = rev.Get()
-				if ed.ClipPlaying() {
+				if clipPlaying.Get() {
 					return "Pause"
 				}
 				return "Play"
 			},
 			LabelFunc: func() string {
-				_ = rev.Get()
-				if ed.ClipPlaying() {
+				if clipPlaying.Get() {
 					return "Pause clip preview"
 				}
 				return "Play clip preview"
@@ -190,22 +205,23 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				FontFamily:  core.FontMonospace,
 				FontSize:    11.5,
 				FontVariant: core.FontTabularNums,
-				Color:       specTextSecondary,
+				Color:       p.TextMuted,
 				FlexShrink:  0,
 			},
 		},
 		core.View{Style: core.Style{FlexGrow: 1}},
-		specPanelButton(specPanelButtonSpec{
-			TestID:  "anim-save",
-			Text:    "Save Clip",
-			Icon:    lucide.Save,
-			Label:   "Save Clip",
-			Tooltip: specShortcutTip("Save Clip", saveShortcut),
-			Variant: specBtnQuiet,
-			Compact: true,
-			OnPress: func() { ed.report(ed.saveClipFromPanel()) },
+		specPanelButton(p, specPanelButtonSpec{
+			TestID:   "anim-save",
+			Text:     "Save Clip",
+			Icon:     lucide.Save,
+			Label:    "Save Clip",
+			Tooltip:  specShortcutTip("Save Clip", saveShortcut),
+			Variant:  specBtnQuiet,
+			Compact:  true,
+			Disabled: disabled,
+			OnPress:  func() { ed.report(ed.saveClipFromPanel()) },
 		}),
-		specPanelButton(specPanelButtonSpec{
+		specPanelButton(p, specPanelButtonSpec{
 			TestID:   "anim-close",
 			Icon:     lucide.X,
 			Label:    "Close Animation",
@@ -218,10 +234,11 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	)
 
 	scrubber := ui.Slider{
-		TestID:  "anim-scrub",
-		Label:   "Playhead",
-		Style:   core.Style{FocusVisible: specRowFocusRingStyle},
-		MinFunc: func() float64 { return 0 },
+		TestID:   "anim-scrub",
+		Label:    "Playhead",
+		Style:    core.Style{FocusVisible: p.FocusRing(-2)},
+		Disabled: disabled,
+		MinFunc:  func() float64 { return 0 },
 		MaxFunc: func() float64 {
 			_ = rev.Get()
 			return ed.clipLengthSeconds()
@@ -250,14 +267,14 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					Label:       "Property to key",
 					Placeholder: "Property",
 					Searchable:  true,
-					Style:       specSelectStyle(),
+					Style:       specSelectStyle(p),
 					Disabled:    disabled,
 					OptionsFunc: func() []ui.Option[string] {
 						_ = rev.Get()
 						props := animclip.Properties(ed.components)
 						opts := make([]ui.Option[string], len(props))
-						for i, p := range props {
-							opts[i] = ui.Option[string]{Value: p.Name, Label: p.Name}
+						for i, prop := range props {
+							opts[i] = ui.Option[string]{Value: prop.Name, Label: prop.Name}
 						}
 						return opts
 					},
@@ -268,6 +285,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			core.Show{
 				When: func() bool { return property.Get() == animclip.PropertySpriteFrame },
 				Then: func(cx *core.Scope) core.Node {
+					p := ed.SpecPalette(cx)
 					return core.View{
 						Style: core.Style{Width: core.Pt(160)},
 						Children: []core.Node{ui.Select[string]{
@@ -275,7 +293,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							Label:       "Sprite frame to key",
 							Placeholder: "Current frame",
 							Searchable:  true,
-							Style:       specSelectStyle(),
+							Style:       specSelectStyle(p),
 							Disabled:    disabled,
 							OptionsFunc: func() []ui.Option[string] {
 								_ = rev.Get()
@@ -293,7 +311,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					}
 				},
 			},
-			specPanelButton(specPanelButtonSpec{
+			specPanelButton(p, specPanelButtonSpec{
 				TestID:  "anim-key",
 				Text:    "Key",
 				Icon:    lucide.KeyRound,
@@ -317,7 +335,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}),
 			core.Show{
 				When: keySelected,
-				Then: func(cx *core.Scope) core.Node { return keyEditor(cx, ed, rev, disabled) },
+				Then: func(cx *core.Scope) core.Node { return keyEditor(cx, ed.SpecPalette(cx), ed, rev, disabled) },
 			},
 		},
 	}
@@ -328,6 +346,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			return len(ed.ClipTargetFrames("")) > 0
 		},
 		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
 			return core.View{
 				Style: core.Style{
 					Direction:  core.Row,
@@ -336,13 +355,14 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					Gap:        specSpace8,
 				},
 				Children: []core.Node{
-					specSectionLabel("FLIPBOOK"),
+					specSectionLabel(p, "FLIPBOOK"),
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
 							return len(ed.ClipTargetAsepriteTags("")) > 0
 						},
 						Then: func(cx *core.Scope) core.Node {
+							p := ed.SpecPalette(cx)
 							return core.View{
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 								Children: []core.Node{
@@ -353,7 +373,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 											Label:       "Aseprite tag",
 											Placeholder: "Aseprite tag",
 											Searchable:  true,
-											Style:       specSelectStyle(),
+											Style:       specSelectStyle(p),
 											Disabled:    disabled,
 											OptionsFunc: func() []ui.Option[string] {
 												_ = rev.Get()
@@ -368,7 +388,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 											OnChange: asepriteTag.Set,
 										}},
 									},
-									specPanelButton(specPanelButtonSpec{
+									specPanelButton(p, specPanelButtonSpec{
 										TestID:  "anim-from-tag",
 										Text:    "From Tag",
 										Icon:    lucide.Tag,
@@ -388,7 +408,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							}
 						},
 					},
-					specSectionLabel("FPS"),
+					specSectionLabel(p, "FPS"),
 					core.View{
 						Style: core.Style{Width: core.Pt(84)},
 						Children: []core.Node{ui.NumberInput{
@@ -397,13 +417,13 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							Min:      1,
 							Step:     1,
 							Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) },
-							Style:    specNumberInputStyle(),
+							Style:    specNumberInputStyle(p),
 							Disabled: disabled,
 							Value:    runFPS.Get,
 							OnChange: runFPS.Set,
 						}},
 					},
-					specPanelButton(specPanelButtonSpec{
+					specPanelButton(p, specPanelButtonSpec{
 						TestID:   "anim-from-frames",
 						Text:     "From Frames",
 						Icon:     lucide.Film,
@@ -436,7 +456,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			return ed.clipErr != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
-			return specStatusBanner("anim-error", false, "", func() string {
+			p := ed.SpecPalette(cx)
+			return specStatusBanner(p, "anim-error", false, "", func() string {
 				_ = rev.Get()
 				if ed.clipErr == nil {
 					return ""
@@ -456,17 +477,18 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			if structure.Get() == "" {
 				return nil
 			}
+			p := ed.SpecPalette(cx)
 			if ed.ClipLoading() {
-				return specLoadingState("anim-loading", "Loading animation clip…")
+				return specLoadingState(p, "anim-loading", "Loading animation clip…")
 			}
 			var rows []core.Node
 			if len(ed.clip.Tracks) == 0 && len(ed.clip.Events) == 0 {
-				rows = append(rows, specEmptyState("anim-empty", lucide.KeyRound, specTextMuted, "No tracks yet", "Choose a property above and press Key to add keyframes at the playhead.", nil))
+				rows = append(rows, specEmptyState(p, "anim-empty", lucide.KeyRound, p.TextFaint, "No tracks yet", "Choose a property above and press Key to add keyframes at the playhead.", nil))
 			}
 			for ti, tr := range ed.clip.Tracks {
-				rows = append(rows, trackLane(cx, ed, rev, ti, tr, disabled))
+				rows = append(rows, trackLane(cx, p, ed, rev, ti, tr, disabled))
 			}
-			rows = append(rows, eventLane(cx, ed, rev, selEvent, eventName, disabled))
+			rows = append(rows, eventLane(cx, p, ed, rev, selEvent, eventName, disabled))
 			return core.View{Style: core.Style{Gap: specSpace4}, Children: rows}
 		})},
 	}
@@ -485,7 +507,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		},
 	}
 
-	return specPanelContainer("anim-panel", "Animation", 284, header, controls, lanes)
+	return specPanelContainer(p, "anim-panel", "Animation", 284, header, controls, lanes)
 }
 
 // keyTarget is the track target the Key button writes: the selected object when it is not the one the clip plays on, and empty (the clip's target) otherwise.
@@ -517,7 +539,7 @@ func (e *Editor) saveClipFromPanel() error {
 }
 
 // keyEditor edits the selected key's time, value/frame and interpolation (or frame duration for discrete sprite.frame keys), and deletes it.
-func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
 	selectedTrack := func() (*resource.Track, int, int, bool) {
 		_ = rev.Get()
 		ti, ki, ok := ed.SelectedClipKey()
@@ -544,8 +566,8 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 		}
 		return tr.Frames[ki], tr.Target, ti, ki, true
 	}
-	interpBtn := func(id, text string, interp resource.Interp) core.Node {
-		return specPanelToggle(specPanelToggleSpec{
+	interpBtn := func(p SpecPalette, id, text string, interp resource.Interp) core.Node {
+		return specPanelToggle(p, specPanelToggleSpec{
 			TestID:   id,
 			Text:     text,
 			Label:    "Interpolation " + text,
@@ -574,7 +596,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 			Gap:        specSpace8,
 		},
 		Children: []core.Node{
-			specSectionLabel("TIME"),
+			specSectionLabel(p, "TIME"),
 			core.View{
 				Style: core.Style{Width: core.Pt(96)},
 				Children: []core.Node{ui.NumberInput{
@@ -583,7 +605,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 					Min:      0,
 					Step:     1 / 60.0,
 					Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) },
-					Style:    specNumberInputStyle(),
+					Style:    specNumberInputStyle(p),
 					Disabled: disabled,
 					Value: func() float64 {
 						tr, _, ki, ok := selectedTrack()
@@ -603,6 +625,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 			core.Show{
 				When: selectedIsFrame,
 				Then: func(cx *core.Scope) core.Node {
+					p := ed.SpecPalette(cx)
 					return core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 						Children: []core.Node{
@@ -612,7 +635,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 									TestID:     "anim-key-frame",
 									Label:      "Key Frame",
 									Searchable: true,
-									Style:      specSelectStyle(),
+									Style:      specSelectStyle(p),
 									Disabled:   disabled,
 									OptionsFunc: func() []ui.Option[string] {
 										fk, target, _, _, ok := selectedFrame()
@@ -642,7 +665,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 									},
 								}},
 							},
-							specPanelButton(specPanelButtonSpec{
+							specPanelButton(p, specPanelButtonSpec{
 								TestID:   "anim-frame-shorter",
 								Text:     "-10ms",
 								Icon:     lucide.Minus,
@@ -676,10 +699,10 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 									FontFamily:  core.FontMonospace,
 									FontSize:    11.5,
 									FontVariant: core.FontTabularNums,
-									Color:       specTextSecondary,
+									Color:       p.TextMuted,
 								},
 							},
-							specPanelButton(specPanelButtonSpec{
+							specPanelButton(p, specPanelButtonSpec{
 								TestID:   "anim-frame-longer",
 								Text:     "+10ms",
 								Icon:     lucide.Plus,
@@ -703,10 +726,11 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 			core.Show{
 				When: func() bool { return !selectedIsFrame() },
 				Then: func(cx *core.Scope) core.Node {
+					p := ed.SpecPalette(cx)
 					return core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 						Children: []core.Node{
-							specSectionLabel("VALUE"),
+							specSectionLabel(p, "VALUE"),
 							core.View{
 								Style: core.Style{Width: core.Pt(96)},
 								Children: []core.Node{ui.NumberInput{
@@ -714,7 +738,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 									Label:    "Key Value",
 									Step:     0.1,
 									Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) },
-									Style:    specNumberInputStyle(),
+									Style:    specNumberInputStyle(p),
 									Disabled: disabled,
 									Value: func() float64 {
 										k, _, _, _ := selectedNumeric()
@@ -727,17 +751,17 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 									},
 								}},
 							},
-							specPanelToggleGroup(
+							specPanelToggleGroup(p,
 								"Interpolation",
-								interpBtn("anim-interp-linear", "Linear", resource.InterpLinear),
-								interpBtn("anim-interp-smooth", "Smooth", resource.InterpSmooth),
-								interpBtn("anim-interp-step", "Step", resource.InterpStep),
+								interpBtn(p, "anim-interp-linear", "Linear", resource.InterpLinear),
+								interpBtn(p, "anim-interp-smooth", "Smooth", resource.InterpSmooth),
+								interpBtn(p, "anim-interp-step", "Step", resource.InterpStep),
 							),
 						},
 					}
 				},
 			},
-			specPanelButton(specPanelButtonSpec{
+			specPanelButton(p, specPanelButtonSpec{
 				TestID:   "anim-key-delete",
 				Text:     "Delete Key",
 				Icon:     lucide.Trash,
@@ -756,9 +780,17 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 	}
 }
 
-// laneLeft places a marker at seconds along a lane as long as the clip.
+// laneLeft places a marker at seconds along a lane as long as the clip, always returning a finite percentage in [0, 100].
 func (e *Editor) laneLeft(seconds float64) core.Length {
-	return core.Pct(float32(min(max(seconds/e.clipLengthSeconds(), 0), 1) * 100))
+	length := e.clipLengthSeconds()
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || math.IsNaN(length) || math.IsInf(length, 0) || length <= 0 {
+		return core.Pct(0)
+	}
+	ratio := seconds / length
+	if math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return core.Pct(0)
+	}
+	return core.Pct(float32(min(max(ratio, 0), 1) * 100))
 }
 
 func playheadLine(ed *Editor, rev *core.Signal[uint64], color core.Color) core.Node {
@@ -768,22 +800,24 @@ func playheadLine(ed *Editor, rev *core.Signal[uint64], color core.Color) core.N
 	}}
 }
 
-func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, disabled func() bool) core.Node {
+func trackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, disabled func() bool) core.Node {
 	name := tr.Property
 	if tr.Target != "" {
 		name = tr.Target + " · " + tr.Property
 	}
 	if tr.IsFrameTrack() {
-		return frameTrackLane(cx, ed, rev, ti, tr, name, disabled)
+		return frameTrackLane(cx, p, ed, rev, ti, tr, name, disabled)
 	}
-	markers := []core.Node{playheadLine(ed, rev, specAccent)}
+	markers := []core.Node{playheadLine(ed, rev, p.Accent.Fg)}
+	hoverFill := specHoverOverlay(p)
+	focusRing := p.FocusRing(-2)
 	for ki, k := range tr.Keys {
 		keyIdx := ki
 		tip := fmt.Sprintf("%s @ %.2fs = %g", name, animclip.KeyValue(k.Time), animclip.KeyValue(k.Value))
 		markers = append(markers, base.Button{
 			TestID:  fmt.Sprintf("anim-key-%d-%d", ti, keyIdx),
 			Label:   fmt.Sprintf("%s key %d", name, keyIdx+1),
-			Tooltip: specTooltipNode(tip),
+			Tooltip: specTooltipNode(p, tip),
 			Selected: func() bool {
 				_ = rev.Get()
 				t, kk, ok := ed.SelectedClipKey()
@@ -812,17 +846,17 @@ func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr 
 					JustifyContent: core.JustifyCenter,
 					CornerRadius:   specRadiusControl,
 					Cursor:         core.CursorPointer,
-					Hover:          &core.Style{Background: specHoverFill},
-					FocusVisible:   specRowFocusRingStyle,
+					Hover:          &core.Style{Background: hoverFill},
+					FocusVisible:   focusRing,
 				}
 			},
 			Children: []core.Node{
 				core.View{
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						fill := specTextSecondary
+						fill := p.TextMuted
 						if t, kk, ok := ed.SelectedClipKey(); ok && t == ti && kk == keyIdx {
-							fill = specAccent
+							fill = p.Accent.Fg
 						}
 						return core.Style{
 							Width:        core.Pt(8),
@@ -849,7 +883,7 @@ func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr 
 					Width:      core.Pt(152),
 					FontFamily: core.FontMonospace,
 					FontSize:   11.5,
-					Color:      specText,
+					Color:      p.TextSecondary,
 					FlexShrink: 0,
 				},
 			},
@@ -858,14 +892,14 @@ func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr 
 					FlexGrow:     1,
 					Height:       core.Pt(specRowHeight),
 					Position:     core.Relative,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					CornerRadius: specRadiusControl,
 				},
 				Children: markers,
 			},
-			specPanelButton(specPanelButtonSpec{
+			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("anim-track-%d-remove", ti),
 				Text:       "Remove",
 				Icon:       lucide.Trash,
@@ -881,11 +915,12 @@ func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr 
 	}
 }
 
-func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, name string, disabled func() bool) core.Node {
+func frameTrackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, name string, disabled func() bool) core.Node {
 	totalSec := ed.clipLengthSeconds()
-	if totalSec <= 0 {
+	if math.IsNaN(totalSec) || math.IsInf(totalSec, 0) || totalSec <= 0 {
 		totalSec = 1
 	}
+	focusRing := p.FocusRing(-2)
 	cells := make([]core.Node, 0, len(tr.Frames)+1)
 	for ki, fk := range tr.Frames {
 		frameIdx := ki
@@ -895,16 +930,20 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 		if frameIdx+1 < len(tr.Frames) {
 			endSec = animclip.KeyValue(tr.Frames[frameIdx+1].Time)
 		}
-		spanPct := float32(min(max((endSec-startSec)/totalSec, 0), 1) * 100)
+		rawSpan := (endSec - startSec) / totalSec
+		if math.IsNaN(rawSpan) || math.IsInf(rawSpan, 0) {
+			rawSpan = 0
+		}
+		spanPct := float32(min(max(rawSpan, 0), 1) * 100)
 		entry, hasEntry := ed.ClipFrameEntry(tr.Target, frameKey.Frame)
-		durMs := max(int64(animclip.Seconds(float32(endSec-startSec)).Milliseconds()), 0)
+		durMs := durationOfSeconds(endSec - startSec).Milliseconds()
 		tip := fmt.Sprintf("%s (%d ms)", frameKey.Frame, durMs)
 		thumb := core.Canvas{
 			TestID: fmt.Sprintf("anim-frame-thumb-%d-%d", ti, frameIdx),
 			Style: core.Style{
 				Width:        core.Pt(28),
 				Height:       core.Pt(28),
-				Background:   specBg,
+				Background:   p.Bg,
 				CornerRadius: 4,
 				FlexShrink:   0,
 			},
@@ -926,7 +965,7 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 		cells = append(cells, base.Button{
 			TestID:  fmt.Sprintf("anim-key-%d-%d", ti, frameIdx),
 			Label:   fmt.Sprintf("%s frame %s", name, frameKey.Frame),
-			Tooltip: specTooltipNode(tip),
+			Tooltip: specTooltipNode(p, tip),
 			Selected: func() bool {
 				_ = rev.Get()
 				t, k, ok := ed.SelectedClipKey()
@@ -940,11 +979,11 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				border := specLineRaised
-				bg := specPanel
+				border := p.LineRaised
+				bg := p.Panel
 				if t, k, ok := ed.SelectedClipKey(); ok && t == ti && k == frameIdx {
-					border = specAccent
-					bg = specAccentFill
+					border = p.Accent.Edge
+					bg = p.Accent.Fill
 				}
 				return core.Style{
 					Position:     core.Absolute,
@@ -963,8 +1002,8 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 					CornerRadius: specRadiusControl,
 					Overflow:     core.Hidden,
 					Cursor:       core.CursorPointer,
-					Hover:        &core.Style{Background: specLineRaised},
-					FocusVisible: specRowFocusRingStyle,
+					Hover:        &core.Style{Background: p.LineRaised},
+					FocusVisible: focusRing,
 				}
 			},
 			Children: []core.Node{
@@ -975,13 +1014,13 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 					Style: core.Style{
 						FontFamily: core.FontMonospace,
 						FontSize:   11.5,
-						Color:      specText,
+						Color:      p.TextSecondary,
 					},
 				},
 			},
 		})
 	}
-	cells = append(cells, playheadLine(ed, rev, specAccent))
+	cells = append(cells, playheadLine(ed, rev, p.Accent.Fg))
 	return core.View{
 		Style: core.Style{
 			Direction:  core.Row,
@@ -996,7 +1035,7 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 					Width:      core.Pt(152),
 					FontFamily: core.FontMonospace,
 					FontSize:   11.5,
-					Color:      specText,
+					Color:      p.TextSecondary,
 					FlexShrink: 0,
 				},
 			},
@@ -1005,15 +1044,15 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 					FlexGrow:     1,
 					Height:       core.Pt(44),
 					Position:     core.Relative,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					CornerRadius: specRadiusControl,
 					Overflow:     core.Hidden,
 				},
 				Children: cells,
 			},
-			specPanelButton(specPanelButtonSpec{
+			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("anim-track-%d-remove", ti),
 				Text:       "Remove",
 				Icon:       lucide.Trash,
@@ -1029,8 +1068,10 @@ func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int
 	}
 }
 
-func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *core.Signal[int], eventName *core.Signal[string], disabled func() bool) core.Node {
-	markers := []core.Node{playheadLine(ed, rev, specAccent)}
+func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], selEvent *core.Signal[int], eventName *core.Signal[string], disabled func() bool) core.Node {
+	markers := []core.Node{playheadLine(ed, rev, p.Accent.Fg)}
+	hoverFill := specHoverOverlay(p)
+	focusRing := p.FocusRing(-2)
 	for i, ev := range ed.clip.Events {
 		evIdx := i
 		evCopy := ev
@@ -1038,7 +1079,7 @@ func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *c
 		markers = append(markers, base.Button{
 			TestID:  fmt.Sprintf("anim-event-%d", evIdx),
 			Label:   "Event " + evCopy.Name,
-			Tooltip: specTooltipNode(tip),
+			Tooltip: specTooltipNode(p, tip),
 			Selected: func() bool {
 				return selEvent.Get() == evIdx
 			},
@@ -1056,16 +1097,16 @@ func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *c
 					JustifyContent: core.JustifyCenter,
 					CornerRadius:   specRadiusControl,
 					Cursor:         core.CursorPointer,
-					Hover:          &core.Style{Background: specHoverFill},
-					FocusVisible:   specRowFocusRingStyle,
+					Hover:          &core.Style{Background: hoverFill},
+					FocusVisible:   focusRing,
 				}
 			},
 			Children: []core.Node{
 				core.View{
 					StyleFunc: func() core.Style {
-						fill := specWarning
+						fill := p.Warning.Fg
 						if selEvent.Get() == evIdx {
-							fill = specAccent
+							fill = p.Accent.Fg
 						}
 						return core.Style{
 							Width:        core.Pt(10),
@@ -1094,8 +1135,8 @@ func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *c
 					FlexShrink: 0,
 				},
 				Children: []core.Node{
-					specIcon(lucide.Sparkles, 13, specWarning),
-					specSectionLabel("EVENTS"),
+					specIcon(lucide.Sparkles, 13, p.Warning.Fg),
+					specSectionLabel(p, "EVENTS"),
 				},
 			},
 			core.View{
@@ -1103,9 +1144,9 @@ func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *c
 					FlexGrow:     1,
 					Height:       core.Pt(specRowHeight),
 					Position:     core.Relative,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					CornerRadius: specRadiusControl,
 				},
 				Children: markers,
@@ -1116,13 +1157,13 @@ func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *c
 					TestID:      "anim-event-name",
 					Label:       "Event Name",
 					Placeholder: "Event name",
-					Style:       specInputStyle(),
+					Style:       specInputStyle(p),
 					Disabled:    disabled,
 					Value:       eventName.Get,
 					OnChange:    eventName.Set,
 				}},
 			},
-			specPanelButton(specPanelButtonSpec{
+			specPanelButton(p, specPanelButtonSpec{
 				TestID:     "anim-event-add",
 				Text:       "Add Event",
 				Icon:       lucide.Plus,
@@ -1137,7 +1178,7 @@ func eventLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], selEvent *c
 				},
 				OnPress: func() { ed.report(ed.AddClipEvent(ed.ClipTime(), eventName.Get())) },
 			}),
-			specPanelButton(specPanelButtonSpec{
+			specPanelButton(p, specPanelButtonSpec{
 				TestID:     "anim-event-delete",
 				Text:       "Delete Event",
 				Icon:       lucide.Trash,

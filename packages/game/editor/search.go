@@ -172,6 +172,7 @@ func (e *Editor) RefreshSearch() error {
 	e.filesRev++
 	e.assetsRev++
 	ix, err := e.ensureProjectIndex(true)
+	e.search.loading = false
 	e.search.lastErr = err
 	if err != nil {
 		e.notify()
@@ -238,6 +239,7 @@ func (e *Editor) SetSearchQuery(query string) error {
 		e.search.open = true
 	}
 	results, err := e.Search(query)
+	e.search.loading = false
 	e.search.results = results
 	e.search.lastErr = err
 	e.notify()
@@ -281,12 +283,14 @@ func (e *Editor) ShowReferences(target string) ([]refs.Ref, error) {
 	}
 	clean := e.normalizeProjectPath(target)
 	if clean == "" {
+		e.search.loading = false
 		e.search.refsTarget = ""
 		e.search.refsResults = nil
 		e.notify()
 		return nil, nil
 	}
 	found, err := e.FindReferences(clean)
+	e.search.loading = false
 	e.search.lastErr = err
 	if err != nil {
 		e.notify()

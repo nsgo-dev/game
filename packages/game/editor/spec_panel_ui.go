@@ -7,19 +7,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints and layout metrics from docs/design/editor/Spec.dc.html.
-// Base color tokens (specBg, specPanel, specRaised, specLine, specLineRaised,
-// specTextStrong, specText, specTextSecondary, specTextMuted, specAccent,
-// specAdded, specChanged, specProblem, specProblemEdge, specWarning,
-// specWarningFill, specWarningEdge, specFocusRingStyle, specRowFocusRingStyle)
-// are defined in profiler_ui.go.
-var (
-	specProblemFill = core.RGBA(0xFF6B6B, 0.12)
-	specHoverFill   = core.RGBA(0xFFFFFF, 0.06)
-	specActiveFill  = core.RGBA(0xFFFFFF, 0.10)
-	specPrimaryHov  = core.RGB(0xD9DDE5) // Spec text token used for subtle primary hover.
-)
-
 const (
 	specSpace4  core.Points = 4
 	specSpace8  core.Points = 8
@@ -91,6 +78,27 @@ type specPanelRowButtonSpec struct {
 	Children  []core.Node
 }
 
+func specHoverOverlay(p SpecPalette) core.Color {
+	if p.Dark {
+		return core.RGBA(0xFFFFFF, 0.06)
+	}
+	return core.RGBA(0x000000, 0.05)
+}
+
+func specActiveOverlay(p SpecPalette) core.Color {
+	if p.Dark {
+		return core.RGBA(0xFFFFFF, 0.10)
+	}
+	return core.RGBA(0x000000, 0.09)
+}
+
+func specPrimaryHover(p SpecPalette) core.Color {
+	if p.Dark {
+		return core.RGB(0xD9DDE5)
+	}
+	return core.RGB(0x2B303B)
+}
+
 // specShortcutTip formats a Spec tooltip string ("Name · shortcut") when shortcut is non-empty.
 func specShortcutTip(name, shortcut string) string {
 	if name == "" {
@@ -103,15 +111,15 @@ func specShortcutTip(name, shortcut string) string {
 }
 
 // specTooltipNode builds a Spec-styled tooltip bubble for base.Button / base.Toggle Tooltip props.
-func specTooltipNode(tip string) core.Node {
+func specTooltipNode(p SpecPalette, tip string) core.Node {
 	if tip == "" {
 		return nil
 	}
 	return core.View{
 		Style: core.Style{
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 			CornerRadius: specRadiusControl,
 			Padding:      core.Symmetric(specSpace4, specSpace8),
 		},
@@ -120,7 +128,7 @@ func specTooltipNode(tip string) core.Node {
 				Content: tip,
 				Style: core.Style{
 					FontSize: 11.5,
-					Color:    specText,
+					Color:    p.TextSecondary,
 				},
 			},
 		},
@@ -144,6 +152,7 @@ func specIcon(svg func() *core.SVG, size core.Points, col core.Color) core.Node 
 }
 
 // specDynamicIcon renders a reactive decorative Lucide stroke icon.
+// Callers should read a memoized signal inside svgFunc so unrelated rev ticks do not remount the icon.
 func specDynamicIcon(svgFunc func() *core.SVG, size core.Points, colFunc func() core.Color) core.Node {
 	if size == 0 {
 		size = specIconSize
@@ -167,8 +176,8 @@ func specDynamicIcon(svgFunc func() *core.SVG, size core.Points, colFunc func() 
 	})
 }
 
-// specPanelContainer renders a bottom panel root region using only Spec tokens.
-func specPanelContainer(testID, ariaLabel string, height core.Points, children ...core.Node) core.Node {
+// specPanelContainer renders a bottom panel root region using SpecPalette tokens (Dark & Light).
+func specPanelContainer(p SpecPalette, testID, ariaLabel string, height core.Points, children ...core.Node) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleRegion,
@@ -176,9 +185,9 @@ func specPanelContainer(testID, ariaLabel string, height core.Points, children .
 		Style: core.Style{
 			Height:      core.Pt(height),
 			FlexShrink:  0,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Overflow:    core.Hidden,
 		},
 		Children: children,
@@ -186,7 +195,7 @@ func specPanelContainer(testID, ariaLabel string, height core.Points, children .
 }
 
 // specPanelHeader renders a 44 px Spec panel header bar with 8/16 spacing and a bottom line divider.
-func specPanelHeader(children ...core.Node) core.Node {
+func specPanelHeader(p SpecPalette, children ...core.Node) core.Node {
 	return core.View{
 		Style: core.Style{
 			MinHeight:   core.Pt(specHeaderHeight),
@@ -196,16 +205,16 @@ func specPanelHeader(children ...core.Node) core.Node {
 			AlignItems:  core.AlignCenter,
 			Padding:     core.Symmetric(specSpace8, specSpace16),
 			Gap:         specSpace8,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: children,
 	}
 }
 
-// specPanelTitle renders a Spec panel title (Inter 14 / 600, #FFFFFF) with a leading Lucide icon.
-func specPanelTitle(testID string, icon func() *core.SVG, title string, titleFunc func() string) core.Node {
+// specPanelTitle renders a Spec panel title (Inter 14 / 600) with a leading Lucide icon.
+func specPanelTitle(p SpecPalette, testID string, icon func() *core.SVG, title string, titleFunc func() string) core.Node {
 	txt := core.Text{
 		TestID:      testID,
 		Content:     title,
@@ -213,7 +222,7 @@ func specPanelTitle(testID string, icon func() *core.SVG, title string, titleFun
 		Style: core.Style{
 			FontSize:   14,
 			FontWeight: core.FontWeightSemibold,
-			Color:      specTextStrong,
+			Color:      p.TextPrimary,
 		},
 	}
 	if icon == nil {
@@ -227,30 +236,30 @@ func specPanelTitle(testID string, icon func() *core.SVG, title string, titleFun
 			FlexShrink: 0,
 		},
 		Children: []core.Node{
-			specIcon(icon, specIconSize, specTextSecondary),
+			specIcon(icon, specIconSize, p.TextMuted),
 			txt,
 		},
 	}
 }
 
-// specSectionLabel renders a Spec section header label (11 / 600 / +6% tracking, #8B92A0).
-func specSectionLabel(text string) core.Node {
+// specSectionLabel renders a Spec section header label (11 / 600 / +6% tracking).
+func specSectionLabel(p SpecPalette, text string) core.Node {
 	return core.Text{
 		Content: text,
 		Style: core.Style{
 			FontSize:      11,
 			FontWeight:    core.FontWeightSemibold,
 			LetterSpacing: 0.66,
-			Color:         specTextMuted,
+			Color:         p.TextFaint,
 			FlexShrink:    0,
 		},
 	}
 }
 
-// specPanelButton renders a real base.Button on Spec tokens, heights (28/30), radius (8),
+// specPanelButton renders a real base.Button on SpecPalette tokens, heights (28/30), radius (8),
 // contrast-verified text/fill pairs, focus ring, aria-label, and optional tooltip.
-func specPanelButton(b specPanelButtonSpec) core.Node {
-	bg, hoverBg, activeBg, fg, border := specButtonColors(b.Variant)
+func specPanelButton(p SpecPalette, b specPanelButtonSpec) core.Node {
+	bg, hoverBg, activeBg, fg, border := specButtonColors(p, b.Variant)
 	weight := core.FontWeightMedium
 	if b.Variant == specBtnPrimary || b.Variant == specBtnAccent {
 		weight = core.FontWeightSemibold
@@ -268,9 +277,9 @@ func specPanelButton(b specPanelButtonSpec) core.Node {
 		width = core.Pt(height)
 	}
 
-	focusRing := specFocusRingStyle
+	focusRing := p.FocusRing(2)
 	if b.InsetFocus {
-		focusRing = specRowFocusRingStyle
+		focusRing = p.FocusRing(-2)
 	}
 
 	label := b.Label
@@ -357,7 +366,7 @@ func specPanelButton(b specPanelButtonSpec) core.Node {
 		TestID:    b.TestID,
 		Label:     label,
 		LabelFunc: labelFunc,
-		Tooltip:   specTooltipNode(b.Tooltip),
+		Tooltip:   specTooltipNode(p, b.Tooltip),
 		Disabled:  b.Disabled,
 		Busy:      b.Busy,
 		Style:     baseStyle,
@@ -366,30 +375,34 @@ func specPanelButton(b specPanelButtonSpec) core.Node {
 	}
 }
 
-func specButtonColors(v specButtonVariant) (bg, hover, active, fg, border core.Color) {
+func specButtonColors(p SpecPalette, v specButtonVariant) (bg, hover, active, fg, border core.Color) {
+	hov := specHoverOverlay(p)
+	act := specActiveOverlay(p)
+	transparent := core.RGBA(0x000000, 0)
 	switch v {
 	case specBtnPrimary:
-		// Spec contrast table: #101216 on #FFFFFF (18.75:1 AAA).
-		return specTextStrong, specPrimaryHov, specTextSecondary, specBg, specTextStrong
+		// Spec contrast table: 18.75:1 AAA in Dark (#101216 on #FFFFFF) and Light (#FFFFFF on #101216).
+		return p.TextPrimary, specPrimaryHover(p), p.TextSecondary, p.OnTextPrimary, p.TextPrimary
 	case specBtnAccent:
-		// Spec contrast table: #101216 on #3B7BFF (4.88:1 AA). Never #FFFFFF on #3B7BFF.
-		return specAccent, specAccent, specAccent, specBg, specAccent
+		// Spec contrast table: OnFill ink on Accent fill meets WCAG AA in both Dark and Light.
+		return p.Accent.Fg, p.Accent.Fg, p.Accent.Fg, p.Accent.OnFill, p.Accent.Fg
 	case specBtnSecondary:
-		return specLineRaised, specHoverFill.Over(specLineRaised), specActiveFill.Over(specLineRaised), specText, specLineRaised
+		return p.LineRaised, hov.Over(p.LineRaised), act.Over(p.LineRaised), p.TextSecondary, p.LineRaised
 	case specBtnGhost:
-		return core.RGBA(0x171A21, 0), specRaised, specLineRaised, specTextSecondary, core.RGBA(0x171A21, 0)
+		return transparent, p.Raised, p.LineRaised, p.TextMuted, transparent
 	case specBtnDanger:
-		return specProblemFill, specHoverFill.Over(specProblemFill), specActiveFill.Over(specProblemFill), specProblem, specProblemEdge
+		prob := p.Problem()
+		return prob.Fill, hov.Over(prob.Fill), act.Over(prob.Fill), prob.Fg, prob.Edge
 	default: // specBtnQuiet
-		return specRaised, specLineRaised, specActiveFill.Over(specLineRaised), specText, specLineRaised
+		return p.Raised, p.LineRaised, act.Over(p.LineRaised), p.TextSecondary, p.LineRaised
 	}
 }
 
-// specPanelToggle renders a real base.Toggle button styled strictly with Spec tokens.
-func specPanelToggle(b specPanelToggleSpec) core.Node {
-	focusRing := specFocusRingStyle
+// specPanelToggle renders a real base.Toggle button styled strictly with SpecPalette tokens.
+func specPanelToggle(p SpecPalette, b specPanelToggleSpec) core.Node {
+	focusRing := p.FocusRing(2)
 	if b.InsetFocus {
-		focusRing = specRowFocusRingStyle
+		focusRing = p.FocusRing(-2)
 	}
 	label := b.Label
 	if label == "" {
@@ -401,9 +414,9 @@ func specPanelToggle(b specPanelToggleSpec) core.Node {
 		children = append(children, core.Icon{
 			SVG: b.Icon(),
 			StyleFunc: func() core.Style {
-				col := specTextSecondary
+				col := p.TextMuted
 				if b.On != nil && b.On() {
-					col = specTextStrong
+					col = p.TextPrimary
 				}
 				return core.Style{
 					Width:      core.Pt(specIconSize),
@@ -419,10 +432,10 @@ func specPanelToggle(b specPanelToggleSpec) core.Node {
 			Content:  b.Text,
 			MaxLines: 1,
 			StyleFunc: func() core.Style {
-				col := specTextSecondary
+				col := p.TextMuted
 				weight := core.FontWeightMedium
 				if b.On != nil && b.On() {
-					col = specTextStrong
+					col = p.TextPrimary
 					weight = core.FontWeightSemibold
 				}
 				return core.Style{
@@ -437,16 +450,16 @@ func specPanelToggle(b specPanelToggleSpec) core.Node {
 	return base.Toggle{
 		TestID:   b.TestID,
 		Label:    label,
-		Tooltip:  specTooltipNode(b.Tooltip),
+		Tooltip:  specTooltipNode(p, b.Tooltip),
 		Pressed:  b.On,
 		Disabled: b.Disabled,
 		OnChange: b.OnChange,
 		StyleFunc: func() core.Style {
-			bg := specRaised
-			border := specLineRaised
+			bg := p.Raised
+			border := p.LineRaised
 			if b.On != nil && b.On() {
-				bg = specAccentFill
-				border = specAccent
+				bg = p.Accent.Fill
+				border = p.Accent.Edge
 			}
 			return core.Style{
 				Height:         core.Pt(specRowHeight),
@@ -463,7 +476,7 @@ func specPanelToggle(b specPanelToggleSpec) core.Node {
 				BorderWidth:    1,
 				BorderColor:    border,
 				Cursor:         core.CursorPointer,
-				Hover:          &core.Style{Background: specLineRaised},
+				Hover:          &core.Style{Background: p.LineRaised},
 				Disabled:       &core.Style{Opacity: core.Alpha(0.45), Cursor: core.CursorDefault},
 				FocusVisible:   focusRing,
 			}
@@ -474,7 +487,7 @@ func specPanelToggle(b specPanelToggleSpec) core.Node {
 
 // specPanelToggleGroup wraps toggles in a horizontal roving-focus base.ToggleGroup
 // so arrow keys move between choices and Tab reaches the group cleanly.
-func specPanelToggleGroup(label string, children ...core.Node) core.Node {
+func specPanelToggleGroup(p SpecPalette, label string, children ...core.Node) core.Node {
 	return base.ToggleGroup{
 		Label: label,
 		Style: core.Style{
@@ -483,9 +496,9 @@ func specPanelToggleGroup(label string, children ...core.Node) core.Node {
 			Gap:          specSpace4,
 			Padding:      core.All(specSpace4),
 			CornerRadius: specRadiusButton,
-			Background:   specBg,
+			Background:   p.Bg,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 			FlexShrink:   0,
 		},
 		Children: children,
@@ -493,7 +506,7 @@ func specPanelToggleGroup(label string, children ...core.Node) core.Node {
 }
 
 // specPanelRowButton renders a real base.Button for clickable list, search, reference, and problem rows.
-func specPanelRowButton(b specPanelRowButtonSpec) core.Node {
+func specPanelRowButton(p SpecPalette, b specPanelRowButtonSpec) core.Node {
 	baseStyle := core.Style{
 		Direction:    core.Row,
 		AlignItems:   core.AlignCenter,
@@ -502,14 +515,14 @@ func specPanelRowButton(b specPanelRowButtonSpec) core.Node {
 		Gap:          specSpace8,
 		Padding:      core.Symmetric(specSpace4, specSpace12),
 		CornerRadius: specRadiusControl,
-		Background:   specRaised,
+		Background:   p.Raised,
 		BorderWidth:  1,
-		BorderColor:  specLine,
+		BorderColor:  p.Line,
 		Cursor:       core.CursorPointer,
-		Hover:        &core.Style{Background: specLineRaised, BorderColor: specLineRaised},
-		Active:       &core.Style{Background: specLineRaised},
+		Hover:        &core.Style{Background: p.LineRaised, BorderColor: p.LineRaised},
+		Active:       &core.Style{Background: p.LineRaised},
 		Disabled:     &core.Style{Opacity: core.Alpha(0.45), Cursor: core.CursorDefault},
-		FocusVisible: specRowFocusRingStyle,
+		FocusVisible: p.FocusRing(-2),
 	}.Merge(b.Style)
 
 	var onPress func(core.PressEvent)
@@ -520,7 +533,7 @@ func specPanelRowButton(b specPanelRowButtonSpec) core.Node {
 		TestID:    b.TestID,
 		Label:     b.Label,
 		LabelFunc: b.LabelFunc,
-		Tooltip:   specTooltipNode(b.Tooltip),
+		Tooltip:   specTooltipNode(p, b.Tooltip),
 		Disabled:  b.Disabled,
 		Selected:  b.Selected,
 		Style:     baseStyle,
@@ -531,63 +544,59 @@ func specPanelRowButton(b specPanelRowButtonSpec) core.Node {
 }
 
 // specInputStyle returns the Spec control style for text and numeric inputs (28 px height, 6 px radius).
-func specInputStyle() core.Style {
+func specInputStyle(p SpecPalette) core.Style {
 	return core.Style{
 		Height:           core.Pt(specRowHeight),
 		CornerRadius:     specRadiusControl,
 		FontSize:         12.5,
-		Color:            specText,
-		PlaceholderColor: specTextMuted,
-		Background:       specRaised,
+		Color:            p.TextSecondary,
+		PlaceholderColor: p.TextFaint,
+		Background:       p.Raised,
 		BorderWidth:      1,
-		BorderColor:      specLineRaised,
-		CaretColor:       specAccent,
-		Focus:            &core.Style{BorderColor: specAccent},
-		FocusVisible:     specRowFocusRingStyle,
+		BorderColor:      p.LineRaised,
+		CaretColor:       p.Accent.Edge,
+		Focus:            &core.Style{BorderColor: p.Accent.Edge},
+		FocusVisible:     p.FocusRing(-2),
 	}
 }
 
 // specNumberInputStyle returns the Spec control style for ui.NumberInput filling its container width
 // (overriding ui.NumberInput's default 160 pt width so steppers stay inside the wrapper).
-func specNumberInputStyle() core.Style {
-	s := specInputStyle()
+func specNumberInputStyle(p SpecPalette) core.Style {
+	s := specInputStyle(p)
 	s.Width = core.Pct(100)
 	return s
 }
 
 // specSelectStyle returns the Spec control style for ui.Select controls filling their container width.
-func specSelectStyle() core.Style {
+func specSelectStyle(p SpecPalette) core.Style {
 	return core.Style{
 		Width:        core.Pct(100),
 		Height:       core.Pt(specRowHeight),
 		CornerRadius: specRadiusControl,
 		FontSize:     12.5,
-		Color:        specText,
-		Background:   specRaised,
+		Color:        p.TextSecondary,
+		Background:   p.Raised,
 		BorderWidth:  1,
-		BorderColor:  specLineRaised,
-		FocusVisible: specRowFocusRingStyle,
+		BorderColor:  p.LineRaised,
+		FocusVisible: p.FocusRing(-2),
 	}
 }
 
-// specStatusBanner renders a Spec problem (#FF6B6B + TriangleAlert) or warning (#F2C14E on #2A2414 + #4A3F1F) banner.
-func specStatusBanner(testID string, isWarning bool, msg string, msgFunc func() string, action core.Node) core.Node {
-	bg := specProblemFill
-	border := specProblemEdge
-	iconCol := specProblem
+// specStatusBanner renders a Spec problem or warning banner with TriangleAlert icon.
+func specStatusBanner(p SpecPalette, testID string, isWarning bool, msg string, msgFunc func() string, action core.Node) core.Node {
+	role := p.Problem()
 	if isWarning {
-		bg = specWarningFill
-		border = specWarningEdge
-		iconCol = specWarning
+		role = p.Warning
 	}
 	children := []core.Node{
-		specIcon(lucide.TriangleAlert, specIconSize, iconCol),
+		specIcon(lucide.TriangleAlert, specIconSize, role.Fg),
 		core.Text{
 			Content:     msg,
 			ContentFunc: msgFunc,
 			Style: core.Style{
 				FontSize:   12.5,
-				Color:      specText, // Spec contrast table: 11.33:1 AAA on warning fill, high contrast on problem tint.
+				Color:      p.TextSecondary,
 				FlexGrow:   1,
 				FlexShrink: 1,
 			},
@@ -606,9 +615,9 @@ func specStatusBanner(testID string, isWarning bool, msg string, msgFunc func() 
 			Gap:          specSpace8,
 			Padding:      core.Symmetric(specSpace8, specSpace12),
 			CornerRadius: specRadiusButton,
-			Background:   bg,
+			Background:   role.Fill,
 			BorderWidth:  1,
-			BorderColor:  border,
+			BorderColor:  role.Edge,
 			FlexShrink:   0,
 		},
 		Children: children,
@@ -616,14 +625,14 @@ func specStatusBanner(testID string, isWarning bool, msg string, msgFunc func() 
 }
 
 // specEmptyState renders a Spec empty state card with a leading Lucide icon, title, optional detail, and optional action.
-func specEmptyState(testID string, icon func() *core.SVG, iconColor core.Color, title, detail string, action core.Node) core.Node {
+func specEmptyState(p SpecPalette, testID string, icon func() *core.SVG, iconColor core.Color, title, detail string, action core.Node) core.Node {
 	textChildren := []core.Node{
 		core.Text{
 			Content: title,
 			Style: core.Style{
 				FontSize:   12.5,
 				FontWeight: core.FontWeightMedium,
-				Color:      specText,
+				Color:      p.TextSecondary,
 			},
 		},
 	}
@@ -632,7 +641,7 @@ func specEmptyState(testID string, icon func() *core.SVG, iconColor core.Color, 
 			Content: detail,
 			Style: core.Style{
 				FontSize: 11.5,
-				Color:    specTextMuted,
+				Color:    p.TextFaint,
 			},
 		})
 	}
@@ -658,16 +667,16 @@ func specEmptyState(testID string, icon func() *core.SVG, iconColor core.Color, 
 			Gap:          specSpace12,
 			Padding:      core.Symmetric(specSpace12, specSpace16),
 			CornerRadius: specRadiusCard,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  p.Line,
 		},
 		Children: children,
 	}
 }
 
 // specLoadingState renders a Spec loading state card with a spinner and status label.
-func specLoadingState(testID, label string) core.Node {
+func specLoadingState(p SpecPalette, testID, label string) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleStatus,
@@ -678,21 +687,21 @@ func specLoadingState(testID, label string) core.Node {
 			Gap:          specSpace12,
 			Padding:      core.Symmetric(specSpace12, specSpace16),
 			CornerRadius: specRadiusCard,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  p.Line,
 		},
 		Children: []core.Node{
 			ui.Spinner{
 				Size:  specIconSize,
 				Label: label,
-				Tint:  func() core.Color { return specAccent },
+				Tint:  func() core.Color { return p.Accent.Fg },
 			},
 			core.Text{
 				Content: label,
 				Style: core.Style{
 					FontSize: 12.5,
-					Color:    specTextSecondary,
+					Color:    p.TextMuted,
 				},
 			},
 		},
@@ -700,14 +709,10 @@ func specLoadingState(testID, label string) core.Node {
 }
 
 // specSeverityPill renders a small semantic badge (Problem or Warning) with icon + label.
-func specSeverityPill(testID string, isWarning bool, text string) core.Node {
-	bg := specProblemFill
-	border := specProblemEdge
-	fg := specProblem
+func specSeverityPill(p SpecPalette, testID string, isWarning bool, text string) core.Node {
+	role := p.Problem()
 	if isWarning {
-		bg = specWarningFill
-		border = specWarningEdge
-		fg = specWarning
+		role = p.Warning
 	}
 	return core.View{
 		TestID: testID,
@@ -718,19 +723,19 @@ func specSeverityPill(testID string, isWarning bool, text string) core.Node {
 			Height:       core.Pt(20),
 			Padding:      core.Symmetric(0, specSpace8),
 			CornerRadius: specRadiusControl,
-			Background:   bg,
+			Background:   role.Fill,
 			BorderWidth:  1,
-			BorderColor:  border,
+			BorderColor:  role.Edge,
 			FlexShrink:   0,
 		},
 		Children: []core.Node{
-			specIcon(lucide.TriangleAlert, 12, fg),
+			specIcon(lucide.TriangleAlert, 12, role.Fg),
 			core.Text{
 				Content: text,
 				Style: core.Style{
 					FontSize:   11,
 					FontWeight: core.FontWeightSemibold,
-					Color:      fg,
+					Color:      role.Fg,
 				},
 			},
 		},
