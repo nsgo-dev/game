@@ -531,8 +531,8 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 
 	var turn *AgentTurn
 	activeComposer := false
-	if e.agent.activeRunCancel != nil && len(e.agent.turns) > 0 && !e.agent.turns[len(e.agent.turns)-1].Done {
-		// Active composer run owns the latest turn.
+	if (e.agent.activeRunCancel != nil || e.agent.liveRequestActive) && len(e.agent.turns) > 0 && !e.agent.turns[len(e.agent.turns)-1].Done {
+		// Active composer or live MCP request owns the latest turn.
 		turn = &e.agent.turns[len(e.agent.turns)-1]
 		activeComposer = true
 	} else {
@@ -703,13 +703,17 @@ func (e *Editor) recordConsecutiveToolFailure(turn *AgentTurn, toolName, callSum
 	turn.FinishedAt = e.nowTime()
 	e.agent.turnChangeSeq++
 
-	// Cancel any active composer runner so the agent stops guessing immediately.
+	// Cancel any active composer runner or live MCP request so the agent stops guessing immediately.
 	if e.agent.activeRunCancel != nil {
 		e.agent.activeRunID++
 		cancel := e.agent.activeRunCancel
 		e.agent.activeRunCancel = nil
 		cancel()
 	}
+	e.resolvePendingLiveAskLocked(PermissionOutcomeStopped)
+	e.closeLiveStopChLocked()
+	e.agent.liveRequestActive = false
+	e.agent.liveActivity = ""
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
 	e.SetAgentWaitingForYou(AgentOpenRequest{
@@ -767,6 +771,10 @@ func (e *Editor) KeepAgentPartial(turnID string) {
 	if turn.Review != nil {
 		turn.Review.Kept = true
 		turn.Review.Discarded = false
+	}
+	if turn.PendingReview != nil {
+		turn.PendingReview.Kept = true
+		turn.PendingReview.Reverted = false
 	}
 	e.agent.turnChangeSeq++
 	e.scheduleAutoSaveIfNeeded()
@@ -1028,8 +1036,8 @@ func (e *Editor) markActiveTurnLost(reason string) {
 	turn := &e.agent.turns[len(e.agent.turns)-1]
 	now := e.nowTime()
 
-	// Only mark Lost if a composer run is actively running OR an external MCP turn was active recently with steps.
-	activeComposer := e.agent.activeRunCancel != nil && !turn.Done
+	// Only mark Lost if a composer/live run is actively running OR an external MCP turn was active recently with steps.
+	activeComposer := (e.agent.activeRunCancel != nil || e.agent.liveRequestActive) && !turn.Done
 	activeExternal := turn.External && len(turn.Steps) > 0 && turn.Lost == nil && turn.Stuck == nil && now.Sub(turn.FinishedAt) <= 60*time.Second
 	if !activeComposer && !activeExternal {
 		return
@@ -1041,6 +1049,10 @@ func (e *Editor) markActiveTurnLost(reason string) {
 		e.agent.activeRunCancel = nil
 		cancel()
 	}
+	e.resolvePendingLiveAskLocked(PermissionOutcomeStopped)
+	e.closeLiveStopChLocked()
+	e.agent.liveRequestActive = false
+	e.agent.liveActivity = ""
 
 	doneCount := 0
 	duringStep := 0
@@ -1329,6 +1341,15 @@ func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
 		runner = defaultCLIAgentRunner()
 	}
 
+	e.resolvePendingLiveAskLocked(PermissionOutcomeStopped)
+	e.closeLiveStopChLocked()
+	e.agent.liveRequestActive = true
+	e.agent.liveStopped = false
+	e.agent.liveStopCh = make(chan struct{})
+	e.agent.liveDeniedKeys = make(map[string]bool)
+	e.agent.liveQueuedFollowUps = nil
+	e.agent.liveActivity = "Agent is working · manual edits stay available"
+
 	e.agent.activeRunID++
 	runID := e.agent.activeRunID
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1393,6 +1414,15 @@ func (e *Editor) continueExistingTurn(turn *AgentTurn, prompt, stepTitle string,
 		Status: AgentStepRunning,
 	})
 	e.agent.turnChangeSeq++
+
+	e.resolvePendingLiveAskLocked(PermissionOutcomeStopped)
+	e.closeLiveStopChLocked()
+	e.agent.liveRequestActive = true
+	e.agent.liveStopped = false
+	e.agent.liveStopCh = make(chan struct{})
+	e.agent.liveDeniedKeys = make(map[string]bool)
+	e.agent.liveQueuedFollowUps = nil
+	e.agent.liveActivity = "Agent is working · manual edits stay available"
 
 	e.agent.activeRunID++
 	runID := e.agent.activeRunID
@@ -1867,6 +1897,10 @@ func (e *Editor) KeepAgentTurnDiffReview(turnID string) bool {
 	}
 	turn.Review.Kept = true
 	turn.Review.Discarded = false
+	if turn.PendingReview != nil {
+		turn.PendingReview.Kept = true
+		turn.PendingReview.Reverted = false
+	}
 	if turn.Partial != nil {
 		turn.Partial.Kept = true
 		turn.Partial.Pointing = false
@@ -1909,6 +1943,10 @@ func (e *Editor) DiscardAgentTurnReview(turnID string) bool {
 	turn.Review.Removed = nil
 	turn.Review.PlusLines = 0
 	turn.Review.MinusLines = 0
+	if turn.PendingReview != nil {
+		turn.PendingReview.Kept = false
+		turn.PendingReview.Reverted = true
+	}
 	turn.baselineDoc = nil
 	turn.baselineYAML = ""
 	turn.lastSeenIDs = nil

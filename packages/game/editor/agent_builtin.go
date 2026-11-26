@@ -634,6 +634,8 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	req.BriefImages = briefImgs
 	req.Images = allImgs
 
+	e.resolvePendingLiveAskLocked(PermissionOutcomeStopped)
+	e.closeLiveStopChLocked()
 	if fromComposer || text == strings.TrimSpace(e.composerDraft) || text == strings.TrimSpace(e.agent.composerText) {
 		e.composerDraft = ""
 		e.agent.composerText = ""
@@ -648,6 +650,8 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	e.agentComposer.hoveredChipID = ""
 	e.agent.turnSeq++
 	e.agent.turnChangeSeq++
+	e.agent.liveRequestID++
+	e.agent.liveStepSeq++
 	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
 	agentKind := ExternalAgentAuto
 	if !route.IsBuiltIn() {
@@ -666,6 +670,10 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		cp.Data = nil
 		turnImages[i] = cp
 	}
+	startHist := 0
+	if e.History != nil {
+		startHist = e.History.Index()
+	}
 	e.agent.turns = append(e.agent.turns, AgentTurn{
 		ID:        turnID,
 		Prompt:    text,
@@ -676,11 +684,24 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		Task:      task,
 		Route:     route,
 		Model:     model,
-		CreatedAt: now,
-		StartedAt: now,
+		Steps: []AgentStep{{
+			ID:        fmt.Sprintf("step-%d", e.agent.liveStepSeq),
+			Title:     "Starting request…",
+			Status:    AgentStepPlaceholder,
+			StartedAt: now,
+		}},
+		CreatedAt:           now,
+		StartedAt:           now,
+		turnStartHistoryIdx: startHist,
 	})
 	e.trimAgentTurnAttachments()
 	e.initTurnBaseline(&e.agent.turns[len(e.agent.turns)-1])
+	e.agent.liveRequestActive = true
+	e.agent.liveStopped = false
+	e.agent.liveStopCh = make(chan struct{})
+	e.agent.liveDeniedKeys = make(map[string]bool)
+	e.agent.liveQueuedFollowUps = nil
+	e.agent.liveActivity = "Agent is working · manual edits stay available"
 
 	e.agent.activeRunID++
 	runID := e.agent.activeRunID

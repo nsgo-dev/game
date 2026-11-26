@@ -220,22 +220,38 @@ func (p AgentPermissions) Rules() []AgentPermissionRule {
 type AgentStepStatus string
 
 const (
+	// AgentStepPlaceholder is the gray placeholder step shown immediately upon starting a request (within 300 ms) before the first real step arrives.
+	AgentStepPlaceholder AgentStepStatus = "placeholder"
 	AgentStepPending     AgentStepStatus = "pending"
 	AgentStepRunning     AgentStepStatus = "running"
 	AgentStepDone        AgentStepStatus = "done"
 	AgentStepWaiting     AgentStepStatus = "waiting"
 	AgentStepWarning     AgentStepStatus = "warning"
 	AgentStepInterrupted AgentStepStatus = "interrupted"
-	AgentStepFailed      AgentStepStatus = "failed"
+	// AgentStepDenied is a step the user denied, shown with "You denied … · continued without it" and an explicit Allow now action.
+	AgentStepDenied AgentStepStatus = "denied"
+	// AgentStepBlocked is a step stopped by a Deny permission rule without prompting.
+	AgentStepBlocked AgentStepStatus = "blocked"
+	// AgentStepStopped is the terminal row added when the user stops the agent with Stop or Mod+.
+	AgentStepStopped AgentStepStatus = "stopped"
+	AgentStepFailed  AgentStepStatus = "failed"
 )
 
 // AgentStep is a single visible step in an agent turn's progress list.
 type AgentStep struct {
-	ID       string
-	Title    string
-	Detail   string
-	ToolName string
-	Status   AgentStepStatus
+	ID            string
+	Title         string
+	Detail        string
+	ToolName      string
+	Objects       []string
+	Status        AgentStepStatus
+	CanAllowNow   bool
+	allowNowFunc  func()
+	PermissionKey string
+	RuleSummary   string
+	RuleIndex     int
+	UncheckedNote string
+	StartedAt     time.Time
 }
 
 const (
@@ -262,7 +278,7 @@ type AgentTurnContext struct {
 }
 
 // AgentTurn is one user request (in-place ⌘L, Agent panel composer, terminal-initiated MCP turn, or background automation run)
-// and its attached context, streamed steps, and reply.
+// and its attached context, streamed steps, follow-ups, pending review, and reply.
 type AgentTurn struct {
 	ID             string                `json:"id"`
 	Prompt         string                `json:"prompt"`
@@ -277,6 +293,10 @@ type AgentTurn struct {
 	Model          string                `json:"model,omitempty"`
 	Steps          []AgentStep           `json:"steps,omitempty"`
 	PlannedSteps   []string              `json:"plannedSteps,omitempty"`
+	FollowUps      []AgentFollowUp       `json:"followUps,omitempty"`
+	NotChecked     []string              `json:"notChecked,omitempty"`
+	StoppedBefore  string                `json:"stoppedBefore,omitempty"`
+	PendingReview  *AgentPendingReview   `json:"pendingReview,omitempty"`
 	Summary        string                `json:"summary,omitempty"`
 	Reply          string                `json:"reply,omitempty"`
 	Error          string                `json:"error,omitempty"`
@@ -302,6 +322,7 @@ type AgentTurn struct {
 	CheckpointID   string                `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
 	ReviewState    AgentReviewState      `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
 
+	turnStartHistoryIdx int
 	baselineDoc         *sceneformat.SceneDoc
 	baselineYAML        string
 	baselineFile        string
@@ -487,6 +508,21 @@ type agentState struct {
 	externalBaselineFile string
 	externalHistoryStart int
 	externalBaselineIDs  map[string]struct{}
+
+	// Live MCP request streaming, permission card, follow-up, and Stop state (#1012).
+	liveRequestID       uint64
+	liveRequestActive   bool
+	liveStopped         bool
+	liveStopCh          chan struct{}
+	liveStepSeq         uint64
+	liveAskSeq          uint64
+	livePendingAsk      *agentPendingAskHandle
+	liveDeniedKeys      map[string]bool
+	liveQueuedFollowUps []string
+	liveActivity        string
+	liveFocusCardSeq    uint64
+	liveFocusReviewSeq  uint64
+	livePermCardFocused bool
 }
 
 func (a *agentState) setScope(cx *core.Scope) {
@@ -610,6 +646,9 @@ func (e *Editor) stopAgentTimers() {
 	e.stopAutomationRunsAndScheduler()
 	e.agent.activeRetryNow = nil
 	e.agent.activeTurnID = ""
+	e.resolvePendingLiveAskLocked(PermissionOutcomeStopped)
+	e.closeLiveStopChLocked()
+	e.agent.liveRequestActive = false
 	e.agent.connectAPIKey = ""
 }
 
@@ -661,6 +700,11 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.externalBaselineFile = ""
 	e.agent.externalHistoryStart = 0
 	e.agent.externalBaselineIDs = nil
+	e.agent.liveStopped = false
+	e.agent.liveDeniedKeys = nil
+	e.agent.liveQueuedFollowUps = nil
+	e.agent.liveActivity = ""
+	e.agent.livePermCardFocused = false
 	if e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
 		if e.AgentWeeklyLimitReached() {
 			e.agent.status = AgentStatusLimitReached
@@ -1458,9 +1502,16 @@ func (e *Editor) AgentWaitingElapsed() string {
 	return fmt.Sprintf("%d:%02d", secs/60, secs%60)
 }
 
-// FocusOpenAgentRequest opens the Agent panel and focuses the open waiting request.
+// FocusOpenAgentRequest opens the Agent panel and focuses the open waiting request or permission card.
 func (e *Editor) FocusOpenAgentRequest() {
-	if e == nil || e.agent.openRequest == nil {
+	if e == nil {
+		return
+	}
+	if e.agent.livePendingAsk != nil && !e.agent.livePendingAsk.resolved {
+		e.FocusPermissionCard()
+		return
+	}
+	if e.agent.openRequest == nil {
 		return
 	}
 	if e.agent.mode != AgentModeNone {
@@ -1507,7 +1558,15 @@ func (e *Editor) InsertAgentComposerNewline() {
 }
 
 func cloneAgentTurn(t AgentTurn) AgentTurn {
-	t.Steps = slices.Clone(t.Steps)
+	if len(t.Steps) > 0 {
+		steps := make([]AgentStep, len(t.Steps))
+		for i, s := range t.Steps {
+			s.Objects = slices.Clone(s.Objects)
+			s.allowNowFunc = nil
+			steps[i] = s
+		}
+		t.Steps = steps
+	}
 	if len(t.Images) > 0 {
 		imgs := make([]AgentReferenceImage, len(t.Images))
 		for i, img := range t.Images {
@@ -1516,6 +1575,13 @@ func cloneAgentTurn(t AgentTurn) AgentTurn {
 		t.Images = imgs
 	}
 	t.PlannedSteps = slices.Clone(t.PlannedSteps)
+	t.FollowUps = slices.Clone(t.FollowUps)
+	t.NotChecked = slices.Clone(t.NotChecked)
+	if t.PendingReview != nil {
+		cp := *t.PendingReview
+		cp.NotChecked = slices.Clone(t.PendingReview.NotChecked)
+		t.PendingReview = &cp
+	}
 	t.Context.SelectionIDs = slices.Clone(t.Context.SelectionIDs)
 	t.Context.SelectionNames = slices.Clone(t.Context.SelectionNames)
 	t.Context.ViewportPNG = slices.Clone(t.Context.ViewportPNG)
@@ -1690,13 +1756,23 @@ func (e *Editor) AgentSessionID() string {
 	return e.agent.sessionID
 }
 
-// AgentWorking reports whether a composer request is currently running.
+// AgentWorking reports whether an agent request (composer runner or live MCP session) is currently working or waiting for permission.
 func (e *Editor) AgentWorking() bool {
-	return e != nil && e.agent.activeRunCancel != nil
+	if e == nil {
+		return false
+	}
+	return e.agent.activeRunCancel != nil || e.agent.liveRequestActive || e.agent.status == AgentStatusWorking || e.agent.status == AgentStatusWaitingForYou
 }
 
 // RecordExternalAgentToolCall records a tool call executed by a terminal-started MCP session so its work appears as an agent turn in the panel.
 func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary string, isErr bool) {
+	if e == nil || e.agent.mode == AgentModeNone {
+		return
+	}
+	// If a live MCP turn is active or was just stopped, live step streaming owns the steps.
+	if e.agent.liveRequestActive || e.agent.liveStopped {
+		return
+	}
 	e.RecordAgentToolCall(AgentToolCallRecord{
 		ClientName:  clientName,
 		ToolName:    toolName,
@@ -1711,46 +1787,10 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 	return e.SubmitAgentTaskPrompt(AgentTaskSceneEdit, prompt)
 }
 
-// StopAgentRun cancels the currently running composer request, keeping completed steps visible,
+// StopAgentRun cancels the currently running agent request, keeping completed steps visible,
 // recording done and not-done steps for Resume, and leaving changes unkept until reviewed.
 func (e *Editor) StopAgentRun() {
-	if e == nil || e.agent.activeRunCancel == nil {
-		return
-	}
-	if e.agent.activeRetryCancel != nil {
-		e.agent.activeRetryCancel()
-		e.agent.activeRetryCancel = nil
-	}
-	e.agent.activeRetryNow = nil
-	e.agent.activeRunID++
-	cancel := e.agent.activeRunCancel
-	stoppedTurnID := e.agent.activeTurnID
-	e.agent.activeRunCancel = nil
-	e.agent.activeTurnID = ""
-	cancel()
-	if e.agent.openRequest != nil && stoppedTurnID != "" &&
-		(e.agent.openRequest.ID == stoppedTurnID || e.waitingTurnTaskID() == stoppedTurnID) {
-		e.agent.openRequest = nil
-		e.clearWaitingTurnTaskID()
-	}
-	if n := len(e.agent.turns); n > 0 && !e.agent.turns[n-1].Done {
-		turn := &e.agent.turns[n-1]
-		turn.Stopped = true
-		turn.Done = true
-		turn.Status = "stopped"
-		turn.FinishedAt = e.nowTime()
-		if turn.ModelError != nil {
-			turn.ModelError.Retrying = false
-		}
-		e.populateStoppedTurnState(turn)
-	}
-	e.agent.turnChangeSeq++
-	e.restoreIdleAgentStatus()
-	if stoppedTurnID != "" {
-		e.removeTurnNotificationTask(stoppedTurnID)
-		return
-	}
-	e.notify()
+	e.StopAgent()
 }
 
 func (e *Editor) findAgentTurn(turnID string) *AgentTurn {
@@ -1790,9 +1830,17 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 			e.agent.sessionID = ev.SessionID
 		}
 	case AgentEventStep:
+		dropTurnPlaceholder(turn)
 		stepStatus := ev.StepStatus
 		if stepStatus == "" {
 			stepStatus = AgentStepRunning
+		}
+		if stepStatus == AgentStepRunning {
+			for i := range turn.Steps {
+				if turn.Steps[i].Status == AgentStepRunning && (ev.StepID == "" || turn.Steps[i].ID != ev.StepID) {
+					turn.Steps[i].Status = AgentStepDone
+				}
+			}
 		}
 		updated := false
 		resolvedToolName := ev.ToolName
@@ -1822,12 +1870,16 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 				stepID = fmt.Sprintf("%s-step-%d", turn.ID, len(turn.Steps)+1)
 			}
 			turn.Steps = append(turn.Steps, AgentStep{
-				ID:       stepID,
-				Title:    ev.StepTitle,
-				Detail:   ev.StepDetail,
-				ToolName: ev.ToolName,
-				Status:   stepStatus,
+				ID:        stepID,
+				Title:     ev.StepTitle,
+				Detail:    ev.StepDetail,
+				ToolName:  ev.ToolName,
+				Status:    stepStatus,
+				StartedAt: e.nowTime(),
 			})
+		}
+		if stepStatus == AgentStepRunning && ev.StepTitle != "" {
+			e.agent.liveActivity = fmt.Sprintf("Agent: %s · manual edits stay available", ev.StepTitle)
 		}
 		if ev.StepIndex > 0 {
 			e.agent.workingStep = ev.StepIndex
@@ -1892,6 +1944,7 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 	case AgentEventModelRecovered:
 		turn.ModelError = nil
 	case AgentEventDone:
+		dropTurnPlaceholder(turn)
 		if ev.Text != "" && turn.Summary == "" {
 			turn.Summary = ev.Text
 			turn.Reply = ev.Text
@@ -1927,8 +1980,11 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 	if e.agent.activeTurnID == turnID {
 		e.agent.activeTurnID = ""
 	}
+	e.agent.liveRequestActive = false
+	e.agent.liveActivity = ""
 	turn := e.findAgentTurn(turnID)
 	if turn != nil && !turn.Done {
+		dropTurnPlaceholder(turn)
 		turn.Done = true
 		turn.FinishedAt = e.nowTime()
 		if canceled {
@@ -1963,6 +2019,9 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 		if turn.Summary != "" && turn.Mismatch == nil {
 			turn.Mismatch = CheckAgentSummaryAgainstDiff(turn.Summary, turn.Review, turn.mutations)
 		}
+		if len(turn.NotChecked) > 0 && turn.PendingReview == nil {
+			turn.PendingReview = e.buildTurnPendingReviewLocked(turn, turn.Summary, false)
+		}
 	}
 	if e.agent.openRequest != nil && turnID != "" &&
 		(e.agent.openRequest.ID == turnID || e.waitingTurnTaskID() == turnID) {
@@ -1971,7 +2030,7 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 	}
 	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
-	if !e.HasUnkeptAgentTurnReview() {
+	if !e.HasUnkeptAgentTurnReview() && !e.HasPendingAgentTurnReview() {
 		e.scheduleAutoSaveIfNeeded()
 	} else {
 		e.cancelAutoSaveTimer()

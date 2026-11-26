@@ -60,27 +60,10 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.report(ed.StopAgentTurn())
 		}
 		ed.StopRunningTasks()
-		if ed.OnStopAgent != nil {
-			ed.OnStopAgent()
-		}
+		ed.StopAgent()
 	})
 	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes or modals.
-		if ed.shortcutCaptureActive || ed.PermissionsDraftOpen() || ed.StartScreenOpen() || ed.FirstRunFullScreenOpen() ||
-			ed.ReviewOpen() || ed.MergeConflictOpen() || ed.DataTableReviewOpen() || ed.UsagesScreenOpen() || ed.SettingsOpen() ||
-			ed.AssetGeneratorOpen() || ed.ConnectDialogOpen() || ed.PendingTurnPromptOpen() || ed.BuildReleaseScreenOpen() {
-			return
-		}
-		if ed.AgentReviewOpen() && !ed.Playing() {
-			_, err := ed.KeepAllReviewChanges()
-			ed.report(err)
-			return
-		}
-		if ed.reviewKeepShortcutAllowed() {
-			if err := ed.KeepTurnReview(); err != nil && !errors.Is(err, ErrReviewBlocked) {
-				ed.report(err)
-			}
-		}
+		ed.handleGlobalModEnter()
 	})
 	cx.OnKeyWith("shift+f5", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.GameRunning() {
@@ -1888,6 +1871,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						},
 					},
 					remoteStatusView(cx, ed, rev),
+					agentStatusBarActivityView(cx, ed, rev),
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
@@ -2137,5 +2121,25 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 				},
 			}
 		},
+	}
+}
+
+func (e *Editor) handleGlobalModEnter() {
+	// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes, modals, or a focused permission card.
+	if e.shortcutCaptureActive || e.CapturingKey() || e.PermissionsDraftOpen() || e.PendingAgentPermissionCardFocused() ||
+		e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() ||
+		e.DataTableReviewOpen() || e.UsagesScreenOpen() || e.SettingsOpen() || e.AssetGeneratorOpen() ||
+		e.ConnectDialogOpen() || e.PendingTurnPromptOpen() || e.BuildReleaseScreenOpen() {
+		return
+	}
+	if e.AgentReviewOpen() && !e.Playing() {
+		_, err := e.KeepAllReviewChanges()
+		e.report(err)
+		return
+	}
+	if e.reviewKeepShortcutAllowed() {
+		if err := e.KeepTurnReview(); err != nil && !errors.Is(err, ErrReviewBlocked) {
+			e.report(err)
+		}
 	}
 }

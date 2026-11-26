@@ -2262,6 +2262,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					saveStatusBarView(cx, ed, rev),
 					tasksStatusIndicatorView(cx, ed, rev),
 					remoteStatusView(cx, ed, rev),
+					agentStatusBarActivityView(cx, ed, rev),
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()

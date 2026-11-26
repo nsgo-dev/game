@@ -3085,43 +3085,54 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 					continue
 				}
 				cx.OnKeyWith(key, core.KeyOptions{When: core.KeyNotEditing}, func() {
-					if e.shortcutCaptureActive || e.CapturingKey() {
-						return
-					}
-					active, ok := e.resolveShortcutCommand(key)
-					if !ok {
-						if key == "mod+enter" &&
-							!e.PermissionsDraftOpen() && !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() &&
-							!e.ReviewOpen() && !e.MergeConflictOpen() && !e.DataTableReviewOpen() && !e.UsagesScreenOpen() &&
-							!e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.ConnectDialogOpen() &&
-							!e.PendingTurnPromptOpen() && !e.BuildReleaseScreenOpen() &&
-							e.AgentReviewOpen() && !e.Playing() {
-							_, err := e.KeepAllReviewChanges()
-							e.report(err)
-						}
-						return
-					}
-					if active.ID == CmdToolPaintTile && key == "b" && (e.TileReviewOpen() || e.ReviewOpen()) && e.ViewMode == ViewMode2D && !e.Playing() {
-						return
-					}
-					if active.ID == CmdReviewPeekBefore && key == "b" && e.ReviewOpen() {
-						// Holding B in ReviewScreenView is tracked continuously by core.KeyHeld(cx, "b");
-						// do not flip peek on initial keydown so KeyDown/KeyUp works cleanly as a hold.
-						return
-					}
-					if active.ID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {
-						if !e.GameRunning() {
-							e.report(e.RunGame())
-						}
-						return
-					}
-					if err := active.Run(); err != nil {
-						e.report(err)
-					}
+					e.dispatchBoundShortcut(key)
 				})
 			}
 		}
 	})
+}
+
+func (e *Editor) dispatchBoundShortcut(key string) {
+	if e.shortcutCaptureActive || e.CapturingKey() {
+		return
+	}
+	if e.PendingAgentPermissionCardFocused() {
+		switch key {
+		case "mod+enter":
+			e.AllowPermissionOnce()
+			return
+		case "alt+enter":
+			e.AllowPermissionAlways()
+			return
+		case "mod+backspace", "mod+delete":
+			e.DenyPermission()
+			return
+		}
+	}
+	active, ok := e.resolveShortcutCommand(key)
+	if !ok {
+		if key == "mod+enter" {
+			e.handleGlobalModEnter()
+		}
+		return
+	}
+	if active.ID == CmdToolPaintTile && key == "b" && (e.TileReviewOpen() || e.ReviewOpen()) && e.ViewMode == ViewMode2D && !e.Playing() {
+		return
+	}
+	if active.ID == CmdReviewPeekBefore && key == "b" && e.ReviewOpen() {
+		// Holding B in ReviewScreenView is tracked continuously by core.KeyHeld(cx, "b");
+		// do not flip peek on initial keydown so KeyDown/KeyUp works cleanly as a hold.
+		return
+	}
+	if active.ID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {
+		if !e.GameRunning() {
+			e.report(e.RunGame())
+		}
+		return
+	}
+	if err := active.Run(); err != nil {
+		e.report(err)
+	}
 }
 
 // bindReviewShortcuts binds ScopeReview command shortcuts inside ReviewScreenView's own scope.

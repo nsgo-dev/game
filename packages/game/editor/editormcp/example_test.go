@@ -82,6 +82,7 @@ func ExampleServer_AddTool() {
 	}
 	// Output:
 	// <nil>
+	// agent_report_step read
 	// agent_turn_get read
 	// agent_turn_reply edit
 	// brief_edit edit

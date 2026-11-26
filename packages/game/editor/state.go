@@ -550,6 +550,10 @@ type Editor struct {
 	OnAskAgent func(AgentPromptRequest)
 	// OnStopAgent is invoked by Mod+. (even while a modal dialog is open, per Spec rule 04) to stop an active agent run without disturbing reviewable changes.
 	OnStopAgent func()
+	// OnStartAgentRequest, when set, is called when the author starts a new agent request via StartAgentRequest.
+	OnStartAgentRequest func(prompt string)
+	// OnAddToAgentRequest, when set, is called when the author adds follow-up instructions via "Add to this request" while an agent request is running.
+	OnAddToAgentRequest func(text string)
 	// AgentRunner runs a composer request against an external agent (such as Claude Code or Codex) and streams incremental steps; when nil on desktop, CLIAgentRunner is used.
 	AgentRunner AgentRunner
 	// AutomationDrafter optionally turns plain words from "+ New automation, in words" into a candidate AutomationRule; when nil, a built-in English/Chinese drafter is used.

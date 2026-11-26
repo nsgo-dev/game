@@ -1593,7 +1593,6 @@ func main() {
 - **左上角可切换图例（`viewport-overlay-legend`）**：所有编辑态视口（2D 与 3D）在左上角挂载同一张图例卡片（`viewportOverlayLegendView`），提供 6 行无障碍 `role="switch"` 开关（**选中**、**智能体处理中**、**已添加**、**已修改**、**已移除**、**问题**），每行都绘出对应线型与第二线索。切换任一行（`Editor.ToggleOverlayKind`、`Editor.SetOverlayKindVisible`、`Editor.SetOverlayLegendKinds`）会立即在所有视口隐藏或显示该类叠加层，并将 `overlayLegend` 持久化到项目之外的用户级 `EditorSettings` YAML 文件（`Editor.SettingsPath`，绝不修改项目或场景文件）。
 - **实时场景叠加层接口与问题对象关联**：实时智能体编辑、审查与计划通过 `Editor.SetSceneOverlays`、`AddSceneOverlay`、`RemoveSceneOverlay` 和 `ClearSceneOverlays`（`SceneOverlayEntry`）将叠加层附加到场景对象或已移除幽灵边界上。`assetcheck.Problem` 现包含 `Object` 字段（同时通过 `editormcp` 的 `game_check` 返回），覆盖场景对象、组件、覆写与连接诊断，使问题面板中指向当前打开场景对象的诊断会自动在 2D 与 3D 视口中绘制 Spec **问题**叠加层。
 - **中性视口参考线**：相机取景框、相机边界、相机连线、瓦片网格与对齐网格统一迁移到中性 `SpecPalette` 令牌（`TextMuted` / `TextFaint` 1 px 细线与 `2, 4` 点线），与所有语义图例线型完全区分。
-
 ## 智能体输入框：@-提及、上下文标签与上下文计量环（#1020）
 
 在统一右侧栏的 **智能体** 标签页（`RightRailView` / `AgentPanelView`，可通过 `⌘1` / `⌘2` 经 `CmdAgentTab` / `CmdInspectorTab` 切换）中，`AgentComposerView`（对应 `docs/design/editor/Threads.dc.html`，严格遵循 `Spec.dc.html` 令牌）提供 `@`-提及、显式上下文标签、精确悬停预览与实时上下文计量环：
@@ -1614,3 +1613,13 @@ func main() {
 - **32 px 状态栏（`mainStatusBarView`）**：在 `bg` 表面以弱化文本呈现左侧的活动图层按钮（可切换图层面板）、实时 2D 指针坐标与当前工具，以及右侧的问题数胶囊（打开问题面板）、输出（Output）与调试器（Debugger）。原工具栏中的其余面板（设置、混音器、输入映射、多语言、导出、资源库、数据表、项目搜索、文件、资源、动画、粒子、材质、HUD 布局、地形、导航网格）全部保留，可通过命令面板（`⌘K`）、菜单栏、设置窗口与状态栏访问。
 - **空状态、加载状态与错误状态（`WorkspaceState`、`SceneOpenError`）**：各区域均为 `WorkspaceNoProject`、`WorkspaceNoScene`、`WorkspaceLoading`（`SetProjectLoading`）和 `WorkspaceSceneError`（`SceneOpenError`、`RetryOpenScene`、`ClearSceneOpenError`）提供专门的界面状态。打开缺失或 YAML 格式错误的场景文件时，视口会展示带有路径、行/列号、错误描述、修复建议、**重试**和**关闭**按钮的告警卡片，而非空白视口。
 - **规范控件与键盘可达性**：遵循 Spec 尺寸（行与工具按钮 `28 px`、按钮 `30–32 px`、顶部栏 `44 px`、状态栏 `32 px`，无小于 `28 × 28` 的交互热区）、间距（`4 / 8 / 12 / 16 / 24`）、圆角（`6 / 8`）、`base.RadioGroup` / `base.Radio` 与 `base.Switch` 语义、2 px Spec 焦点环、完整无障碍名称，以及覆盖全部五个区域的 `F6` 循环导航（顶部栏、场景树、视口、智能体/检视器、状态栏）。
+
+## 智能体面板实时步骤、权限确认卡与停止（#1012）
+
+**智能体**面板（`RightRailView` 中的 `AgentPanelView`，`⌘1` / `⌘2` 切换）基于项目的 `permissions.yaml` 规则与“仅限你操作”边界，使用 `docs/design/editor/Spec.dc.html` 令牌（`Working.dc.html`、`Permissions.dc.html`、`Main.dc.html`、`AgentStates.dc.html`）实时展示步骤进度、交互式权限确认卡、补充指令与全局停止控制：
+
+- **实时步骤流与 `agent_report_step`**：发起请求（`Editor.StartAgentRequest` 或 `Editor.SubmitAgentPrompt`）后会立即显示灰色占位步骤（保证 300 ms 内可见）。当 `editormcp.Server` 执行工具调用时，每一步都会以平实语言实时流式呈现：当前唯一进行中的步骤显示紫色旋转图标，完成后切换为绿色对勾。智能体也可以调用 `agent_report_step`（`text`、可选 `objects`、可选 `status`）用自己的话汇报步骤、列出涉及的场景对象 ID，并接收用户通过「补充到此请求」排队的追加指令。
+- **基于 `permissions.yaml` 的交互式权限确认卡**：在先通过“仅限你操作”边界检查后，当工具调用按 `permissions.yaml` 规则求值为 `ask` 时，`editormcp.Server` 会在其自身 goroutine 上暂停该调用而不阻塞编辑器 UI，并在智能体面板中渲染 `alertdialog`（`LiveRegionPolite`）权限确认卡，展示标题、请求原因、影响说明（例如 *“不会保存任何内容。”*）、规则预览与命中规则来源，以及**仅允许一次**、**始终允许**与**拒绝**按钮。
+- **焦点纪律与键盘规则（规范规则 02、04、05）**：除非焦点已在智能体面板内部（`Editor.ShouldFocusAgentPrompt`），否则权限确认卡绝不抢夺焦点；点击顶部**等待你确认**状态条可按需聚焦到卡片。卡片获得焦点时，`⌘↵` 仅允许一次，`⌥↵` 通过 `Editor.ApproveAlwaysPermission` 将**始终允许**规则持久化写入 `permissions.yaml`（并弹出带**查看**与**撤销**按钮的提示条），后续同类调用不再弹窗，`⌘⌫` 拒绝，`↑`/`↓` 切换按钮，`Esc` 保持卡片未回答状态而智能体继续等待。
+- **拒绝后永不自动重试**：拒绝权限确认卡会在当前请求中记录对应的 `(action, target)` 键，将该步骤显示为 *“你拒绝了 … · 已跳过继续”* 并提供显式的**立即允许**操作，在回合审查摘要中标明未检查项（例如 *“Not playtested”*），并对同一请求中重复发起的相同调用立即返回非致命的结构化 `denied` 结果而不再次弹出卡片。发起新请求时才会清除单次请求的拒绝记录。
+- **补充到此请求、停止（`⌘.`）与并发手动编辑**：智能体工作或等待期间，手动编辑始终可用，底部状态栏会实时显示智能体当前动作（*“manual edits stay available”*）。工作态页脚的「补充到此请求」输入框（`Editor.AddToAgentRequest`）在步骤流式更新时保持焦点稳定。从任何位置（包括模态对话框内）点击**停止**或按下 `⌘.` 都会立即取消运行中的请求与等待中的权限确认（`Editor.StopAgent`），保留已完成步骤与场景编辑等待审查（期间暂停自动保存，直到保留或还原），并弹出带**审查**操作的**代理已停止**提示条；`Esc` 绝不会停止智能体。
