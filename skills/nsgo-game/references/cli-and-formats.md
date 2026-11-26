@@ -2,7 +2,7 @@
 
 ## `nsgo game` CLI
 
-Install the tool once per module, then run it as `nsgo game` (nsgo-dev/nsgo#2366) or `go tool game`; outside a module, `nsgo game` runs the matching release with `go run`:
+Inside a module whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool through NSGo's extension mechanism (and `go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` directly:
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest

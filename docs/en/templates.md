@@ -72,7 +72,7 @@ nsgo game new -list
 nsgo game new -template starter mygame
 ```
 
-Outside a project, `nsgo game` runs the game layer's release made for that `nsgo` ([Command Line](cli.md#install)); `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new` runs the same without `nsgo`.
+Outside a project, install `nsgo-game` once (`go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`) for `nsgo game` ([Command Line](cli.md#install)), or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new` directly with nothing to install.
 
 Without `-template`, `game new` uses `starter`. A name that is not in the list is refused with the names that are. Shell completion for `game` ([Command Line](cli.md#completion)) completes `-template` with the same names. [Command Line](cli.md#new) describes the other flags.
 
@@ -103,7 +103,7 @@ template/
       ├─ …_test.go
       ├─ README.md
       └─ .gitignore
-packages/game/cmd/game/
+packages/game/internal/gamecli/
 ├─ templates.go               the registry: one entry per template
 └─ _templates/projects/
    ├─ starter/                a copy of template/template
@@ -118,8 +118,8 @@ A template is added in one pull request of its own:
 
 1. Create the module: `template/<name>/go.mod` declaring `module github.com/nsgo-dev/game/template/<name>` with the `go` line of `template/go.mod`, and the project in `template/<name>/template/`. Its name is lower-case letters, digits and `-`, starting with a letter, and not `template`.
 2. Add `./template/<name>` to the `use` list of `go.work`.
-3. Copy the project into the `game` command, from `packages/game/cmd/game`: `cp -R ../../../../template/<name>/template _templates/projects/<name>`.
-4. Add one entry to `projectTemplates` in `packages/game/cmd/game/templates.go`: `newProjectTemplate("<name>", templateModuleRoot+"/<name>", "<one line saying what the game is>")`.
+3. Copy the project into the `game` CLI package, from `packages/game/internal/gamecli`: `cp -R ../../../../template/<name>/template _templates/projects/<name>`.
+4. Add one entry to `projectTemplates` in `packages/game/internal/gamecli/templates.go`: `newProjectTemplate("<name>", templateModuleRoot+"/<name>", "<one line saying what the game is>")`.
 5. Add a row for the template to the table above, in `docs/en/templates.md` and `docs/zh/templates.md`, and a fragment under `changelog.d/`.
 
 The project in `template/<name>/template/` follows these rules, which the tests check where they can:
@@ -130,6 +130,6 @@ The project in `template/<name>/template/` follows these rules, which the tests 
 - `main.go`, `README.md`, `.gitignore` and tests are there, and `go run ./cmd/game index ../../template` from `packages/game` has nothing left to do.
 - Every file the template's author writes is text, as for any project in this repository.
 
-The tests of `packages/game/cmd/game` fail when any of these steps is missing: when the copy under `_templates/projects` differs from the module's `template` directory by a byte, when a `template/*/template` directory has no registry entry, when a registry entry has no copy, module or `go.work` entry, and when this page or its Chinese counterpart has no row naming a template and its module. They also create a project from every template, build it against the local game layer and run its tests.
+The tests of `packages/game/internal/gamecli` fail when any of these steps is missing: when the copy under `_templates/projects` differs from the module's `template` directory by a byte, when a `template/*/template` directory has no registry entry, when a registry entry has no copy, module or `go.work` entry, and when this page or its Chinese counterpart has no row naming a template and its module. They also create a project from every template, build it against the local game layer and run its tests.
 
 CI's `templates` job needs no edit for a new template: it lists `template/template` and every `template/*/template` directory and tests each template the way a developer's project gets it: it copies the template out of the workspace, renders `go.mod` for `example.com/<name>game`, and runs `go tool nsgo test ./...` with `GOWORK=off`, so the project builds against the game layer version `go.mod.tmpl` pins rather than this checkout. A template that needs a package not yet published bumps that pin once the package is on `main`.

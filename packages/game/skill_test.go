@@ -77,7 +77,7 @@ func stripFencedCodeBlocks(md string) string {
 	return out.String()
 }
 
-// TestAgentSkillValid verifies that skills/nsgo-game conforms to the Agent Skills layout (installable via `bunx skills add`), has valid relative links, lists every package under packages/game with the status docs/en/stability.md gives it, and catalogs exactly the tools game/mcp registers. cmd/game's TestAgentSkillDocumentsEveryCommand checks the CLI subcommands.
+// TestAgentSkillValid verifies that skills/nsgo-game conforms to the Agent Skills layout (installable via `bunx skills add`), has valid relative links, lists every package under packages/game with the status docs/en/stability.md gives it, and catalogs exactly the tools game/mcp registers. internal/gamecli's TestAgentSkillDocumentsEveryCommand checks the CLI subcommands.
 func TestAgentSkillValid(t *testing.T) {
 	skillDir := filepath.Join("..", "..", "skills", "nsgo-game")
 	skillPath := filepath.Join(skillDir, "SKILL.md")

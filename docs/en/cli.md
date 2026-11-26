@@ -4,16 +4,23 @@
 
 ## Install
 
-Run the command as `nsgo game`, a command of NSGo's own `nsgo` since v0.3.3 (nsgo-dev/nsgo#2366). Install `nsgo` once, with Homebrew (`brew install nsgo-dev/tap/nsgo`), with the install script on macOS and Linux (`curl -fsSL https://nsgo.dev/install.sh | sh`) or with Go on any system (`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`), as [NSGo's setup](https://nsgo.dev/docs/getting-started/#install-nsgo) describes. In a project, `nsgo game` runs the `game` tool the module's `go.mod` declares:
+Run the command as `nsgo game` through NSGo's extension mechanism (since NSGo v0.3.3). Install `nsgo` once, with Homebrew (`brew install nsgo-dev/tap/nsgo`), with the install script on macOS and Linux (`curl -fsSL https://nsgo.dev/install.sh | sh`) or with Go on any system (`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`), as [NSGo's setup](https://nsgo.dev/docs/getting-started/#install-nsgo) describes. In a project whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool (`go tool github.com/nsgo-dev/game/packages/game/cmd/game`):
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
 nsgo game help
 ```
 
-The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one. A project created with [`game new`](#new) has it already. An `nsgo` of another version than the one the project's `go.mod` pins runs the project's own instead, so the project's `nsgo` tool needs v0.3.3 or later too; every template's `go.mod` and the game layer itself require v0.3.4, the first release whose software renderer and surface depth buffer draw 3D scenes right. Outside a project, such as to create one, `nsgo game` runs the game layer's release made for that `nsgo` with `go run`, with nothing else to install.
+The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one. A project created with [`game new`](#new) has it already. An `nsgo` of another version than the one the project's `go.mod` pins runs the project's own instead, so the project's `nsgo` tool needs v0.3.3 or later too; every template's `go.mod` and the game layer itself require v0.3.4, the first release whose software renderer and surface depth buffer draw 3D scenes right.
 
-`go tool game` runs the same command in a project without an installed `nsgo`, and `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` does anywhere.
+Outside a project, such as before creating one with `nsgo game new`, install the `nsgo-game` extension binary once on `PATH` so `nsgo game` finds it:
+
+```sh
+go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest
+nsgo game new mygame
+```
+
+Or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` directly anywhere with nothing to install. Inside a project, `go tool game` also runs the same command without an installed `nsgo`.
 
 ## Commands
 
@@ -193,7 +200,7 @@ nsgo game new -list
 
 Writes a project from a template into the directory named, creating it if needed, and prints each file's path. It then runs `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` and `go mod tidy` there, which need the Go module proxy, so the project requires that version of the game layer and has the `game` tool beside the `nsgo` tool, and builds and runs with `go tool nsgo dev` without edits.
 
-The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new`, or `nsgo game new` with `NSGO_GAME_VERSION=v0.4.0` outside a project, creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, `starter` by default, and an unknown name is refused with the names there are. `-list` prints each template's name, the default marked, beside a line saying what it is, and creates nothing. [Templates](templates.md) lists them with the module `nsgo init -template` takes for each, and describes how a template is laid out and how to add one.
+The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new`, or an `nsgo-game` installed at `v0.4.0`, creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, `starter` by default, and an unknown name is refused with the names there are. `-list` prints each template's name, the default marked, beside a line saying what it is, and creates nothing. [Templates](templates.md) lists them with the module `nsgo init -template` takes for each, and describes how a template is laid out and how to add one.
 
 `new` writes nothing when any file it would write already exists in the directory, and fails with 1. Every template includes `.gitattributes` registering `*.scene.yaml` and `*.scene.yml` with the `nsgo-scene` merge driver, and when the directory already holds a `.git` repository, `new` also configures the local Git driver automatically (otherwise run `go tool game merge -setup` after `git init`). When `go get` or `go mod tidy` fails, such as without a network, the files stay where they are written, and the error names the commands left to run in the directory to finish the project: both `go get -tool …` and `go mod tidy` when `go get` failed, and `go mod tidy` alone when it failed.
 

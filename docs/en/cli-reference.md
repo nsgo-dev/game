@@ -1,6 +1,6 @@
 # Command Reference
 
-<!-- Code generated from the game command's definitions by `go tool nsgo test ./cmd/game -run TestReference -update` in packages/game. DO NOT EDIT. -->
+<!-- Code generated from the game command's definitions by `go tool nsgo test ./internal/gamecli -run TestReference -update` in packages/game. DO NOT EDIT. -->
 
 Every subcommand of `nsgo game`, which `go tool game` runs alike, with its usage line and flags, generated from the commands' definitions so it always matches `game help`. [Command Line](cli.md) shows how to install the command, what each subcommand is for and how to set up shell completion.
 

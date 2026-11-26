@@ -87,6 +87,7 @@
 | `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
 | `game/cmd/gameschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
+| `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cutscene` | 实验性 | [cutscene](cutscene.md) |
