@@ -74,6 +74,7 @@ func (e *Editor) SelectObjectsWithPrimary(ids []string, primary string) bool {
 	curIDs := e.SelectedIDs()
 	changed := e.SelectedID != primary || !slices.Equal(curIDs, valid) || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom
 	if changed {
+		e.CancelInspectorScrub()
 		e.CancelComponentGizmoDrag3D()
 		e.CancelCameraDrag()
 		e.CancelCameraBoundsDrag()

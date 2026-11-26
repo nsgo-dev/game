@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestObjectSetFieldAndLocateYAML(t *testing.T) {
@@ -102,5 +105,30 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 	f.ed.Undo() // x
 	if hero.X != 64 || hero.Light != nil {
 		t.Fatalf("after undoing 4 edits: x=%v light=%+v", hero.X, hero.Light)
+	}
+
+	// object_locate_yaml with open=true reports Opened=false when OnOpenFileAtLine is nil
+	// and refuses while playing.
+	f.ed.OnOpenFileAtLine = nil
+	locRes = call(t, cs, editormcp.ToolObjectLocateYAML, map[string]any{"open": true})
+	mustOK(t, locRes)
+	var locNoHook editormcp.ObjectYAMLLocation
+	structured(t, locRes, &locNoHook)
+	if locNoHook.Opened {
+		t.Fatalf("object_locate_yaml without OnOpenFileAtLine set Opened=true: %+v", locNoHook)
+	}
+
+	var rootScope *core.Scope
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, f.ed)
+	}, nsgotest.Size(800, 600))
+	if err := f.ed.PlayIn(rootScope); err != nil {
+		t.Fatalf("PlayIn: %v", err)
+	}
+	defer func() { _ = f.ed.Stop() }()
+	playRes := call(t, cs, editormcp.ToolObjectLocateYAML, map[string]any{"open": true})
+	if !playRes.IsError {
+		t.Fatalf("expected object_locate_yaml open=true to fail during Play mode, got %+v", playRes)
 	}
 }

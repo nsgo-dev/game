@@ -150,6 +150,8 @@ func (e *Editor) OpenDemo() error {
 			return err
 		}
 	}
+	e.CancelInspectorScrub()
+	e.resetInspectorSessionState()
 	e.drag2D = drag2DState{}
 	e.stroke = nil
 	e.clearTileBrushTransient()

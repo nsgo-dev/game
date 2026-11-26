@@ -213,6 +213,7 @@ func (e *Editor) canReplacePlaceholderTab() bool {
 func (e *Editor) cancelTransientInteraction() {
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelAssetDrag()
@@ -474,6 +475,7 @@ func (e *Editor) SaveTab(index int) error {
 	}
 	if index == e.activeTab {
 		e.CancelDrag2D()
+		e.CancelInspectorScrub()
 		e.CancelShapeDrag2D()
 		e.CancelPluginDrag2D()
 		e.CancelCameraDrag()

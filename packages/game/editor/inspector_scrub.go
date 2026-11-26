@@ -127,7 +127,14 @@ func inspectorScrubHandle(
 			shiftHeld = ev.Modifiers.Shift
 		},
 		OnPan: func(ev core.PanEvent) {
+			if ev.Phase == core.GestureCancelled {
+				ed.CancelInspectorScrub()
+				return
+			}
 			if disabled != nil && disabled() {
+				if ed.InspectorScrubbing() {
+					ed.CancelInspectorScrub()
+				}
 				return
 			}
 			switch ev.Phase {
@@ -142,8 +149,6 @@ func inspectorScrubHandle(
 					_, _ = ed.UpdateInspectorScrub(float64(ev.Translation.X), shiftHeld)
 					ed.EndInspectorScrub()
 				}
-			case core.GestureCancelled:
-				ed.CancelInspectorScrub()
 			}
 		},
 		Children: []core.Node{content},
@@ -154,7 +159,7 @@ func inspectorScrubHandle(
 // handle ("X", "Y", "Z"), keyboard ↑↓ / ⇧×10 stepping, Enter commit, and Escape restore.
 func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg) core.Node {
 	step := cfg.Step
-	if step <= 0 {
+	if !isFiniteFloat64(step) || step <= 0 {
 		if cfg.Integer {
 			step = 1
 		} else {
@@ -164,41 +169,66 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 	format := cfg.Format
 	if format == nil {
 		if cfg.Integer {
-			format = func(v float64) string { return strconv.Itoa(int(math.Round(v))) }
+			format = func(v float64) string {
+				if !isFiniteFloat64(v) {
+					return "0"
+				}
+				v = clampInt32Float(math.Round(v))
+				return strconv.Itoa(int(v))
+			}
 		} else {
-			format = func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+			format = func(v float64) string {
+				if !isFiniteFloat64(v) {
+					return "0"
+				}
+				return strconv.FormatFloat(v, 'g', -1, 64)
+			}
 		}
 	}
 	parse := func(s string) (float64, bool) {
 		v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-		return v, err == nil && !math.IsNaN(v) && !math.IsInf(v, 0)
+		return v, err == nil && isFiniteFloat64(v)
 	}
-	clamp := func(v float64) float64 {
-		if cfg.Min != nil && v < *cfg.Min {
+	clamp := func(v float64) (float64, bool) {
+		if !isFiniteFloat64(v) {
+			return 0, false
+		}
+		if cfg.Min != nil && isFiniteFloat64(*cfg.Min) && v < *cfg.Min {
 			v = *cfg.Min
 		}
-		if cfg.Max != nil && v > *cfg.Max {
+		if cfg.Max != nil && isFiniteFloat64(*cfg.Max) && v > *cfg.Max {
 			v = *cfg.Max
 		}
 		if cfg.Integer {
-			v = math.Round(v)
+			v = clampInt32Float(math.Round(v))
 		}
-		return v
+		return v, isFiniteFloat64(v)
 	}
 
 	fieldRef := new(core.Ref)
 	focused := core.NewSignal(cx, false)
 	var focusStart float64
+	var focusHistoryIdx int
+	var cancelling bool
 
 	stepBy := func(delta float64) {
 		if cfg.Disabled != nil && cfg.Disabled() {
+			return
+		}
+		if !isFiniteFloat64(delta) {
 			return
 		}
 		cur := 0.0
 		if cfg.Value != nil {
 			cur = core.Untracked(cx, cfg.Value)
 		}
-		next := clamp(roundToStepPrecision(cur+delta, math.Abs(delta)))
+		if !isFiniteFloat64(cur) {
+			return
+		}
+		next, ok := clamp(roundToStepPrecision(cur+delta, math.Abs(delta)))
+		if !ok {
+			return
+		}
 		if cfg.OnChange != nil {
 			cfg.OnChange(next)
 		}
@@ -276,17 +306,25 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 			return &v
 		},
 		OnChange: func(v *float64) {
-			if v != nil && cfg.OnChange != nil {
-				cfg.OnChange(clamp(*v))
+			if cancelling || v == nil || cfg.OnChange == nil {
+				return
+			}
+			if clamped, ok := clamp(*v); ok {
+				cfg.OnChange(clamped)
 			}
 		},
 		OnFocus: func() {
+			cancelling = false
 			if cfg.Value != nil {
 				focusStart = core.Untracked(cx, cfg.Value)
+			}
+			if ed != nil && ed.History != nil {
+				focusHistoryIdx = ed.History.Index()
 			}
 			focused.Set(true)
 		},
 		OnBlur: func() {
+			cancelling = false
 			focused.Set(false)
 		},
 		Prefix: prefix,
@@ -366,11 +404,22 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 				stepBy(-step * 10)
 			})
 			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
-				if cfg.OnChange != nil && cfg.Value != nil {
+				// Restore any keyboard-stepped edits cleanly via Undo (avoiding extra undo steps),
+				// then suppress commit-on-blur so uncommitted typed text is discarded and replaced
+				// by the formatted focusStart value.
+				if ed != nil && ed.History != nil && !ed.Playing() {
+					for ed.History.Index() > focusHistoryIdx {
+						if !ed.Undo() {
+							break
+						}
+					}
+				}
+				if cfg.OnChange != nil && cfg.Value != nil && isFiniteFloat64(focusStart) {
 					if cur := core.Untracked(cx, cfg.Value); cur != focusStart {
 						cfg.OnChange(focusStart)
 					}
 				}
+				cancelling = true
 				fieldRef.Blur()
 			})
 			return nil
@@ -407,13 +456,30 @@ func inspectorTitledSection(
 	forceExpanded bool,
 	body []core.Node,
 ) core.Node {
-	isOpen := func() bool {
+	type sectionMeta struct {
+		probs   int
+		reviews int
+	}
+	openMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
 		if forceExpanded {
 			return true
 		}
 		return !ed.InspectorSectionCollapsed(sectionID)
-	}
+	})
+	isOpen := openMemo.Get
+	metaMemo := core.NewMemo(cx, func() sectionMeta {
+		_ = rev.Get()
+		probs := 0
+		if problemCount != nil {
+			probs = problemCount()
+		}
+		reviews := 0
+		if reviewCount != nil {
+			reviews = reviewCount()
+		}
+		return sectionMeta{probs: probs, reviews: reviews}
+	})
 
 	countText := func() string {
 		if fieldCount == 1 {
@@ -438,15 +504,8 @@ func inspectorTitledSection(
 	}
 
 	metaBadge := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = rev.Get()
-		probs := 0
-		if problemCount != nil {
-			probs = problemCount()
-		}
-		reviews := 0
-		if reviewCount != nil {
-			reviews = reviewCount()
-		}
+		m := metaMemo.Get()
+		probs, reviews := m.probs, m.reviews
 		if probs > 0 {
 			label := ed.T("inspector.problemCountOther", l10n.Param("count", probs))
 			if probs == 1 {
