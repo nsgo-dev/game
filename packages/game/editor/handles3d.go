@@ -939,9 +939,13 @@ func (e *Editor) pickIcon3D(sx, sy, w, h float32) (int, bool) {
 	}
 	bestIdx := -1
 	bestDepth := float32(math.Inf(1))
+	doc := e.resolvedDoc()
+	if doc == nil {
+		return -1, false
+	}
 	idx := 0
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
+	for li := range doc.Layers {
+		layer := &doc.Layers[li]
 		visible := layer.IsVisible() && layer.EffectiveSpace() != sceneformat.SpaceScreen && !e.layerLocked[layer.Name]
 		var walk func(objs []sceneformat.ObjectDoc, parent aff3, skip bool)
 		walk = func(objs []sceneformat.ObjectDoc, parent aff3, skip bool) {
@@ -972,13 +976,17 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 	if e == nil || e.Doc == nil {
 		return
 	}
+	doc := e.resolvedDoc()
+	if doc == nil {
+		return
+	}
 	vc := e.activeView3DCam(w, h)
 	activeCamID := ""
 	if e.LookThroughCamera3D() {
 		_, activeCamID, _ = e.ActiveSceneCamera3D(w, h)
 	}
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
+	for li := range doc.Layers {
+		layer := &doc.Layers[li]
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}

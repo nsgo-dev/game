@@ -352,7 +352,7 @@ func (e *Editor) syncBuilt3D(built *scenemodel.Built) {
 		if rp == nil {
 			continue
 		}
-		if o, _, _ := e.FindObject(rp.Object); o != nil {
+		if o, _ := e.FindResolvedObject(rp.Object); o != nil {
 			posed := e.posed3D(o)
 			if posed.ReflectionProbe != nil {
 				rp.Doc = *posed.ReflectionProbe.Clone()
@@ -363,7 +363,7 @@ func (e *Editor) syncBuilt3D(built *scenemodel.Built) {
 		if g == nil {
 			continue
 		}
-		if o, _, _ := e.FindObject(g.Object); o != nil {
+		if o, _ := e.FindResolvedObject(g.Object); o != nil {
 			posed := e.posed3D(o)
 			if posed.LightProbeGrid != nil {
 				g.Doc = *posed.LightProbeGrid.Clone()
@@ -378,7 +378,7 @@ func (e *Editor) geometryBounds3D(id string) (math3d.AABB, bool) {
 	return b, ok && !b.Empty()
 }
 
-// pickGeometry3D returns the object of the open scene whose geometry the ray from orig along dir hits first, passing over geometry that belongs to an object hidden or locked in the editor or under one. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds.
+// pickGeometry3D returns the resolved scene object whose geometry the ray from orig along dir hits first, passing over geometry that belongs to an object hidden or locked in the editor or under one.
 func (e *Editor) pickGeometry3D(s *scene3DState, orig, dir [3]float64) (id string, ok bool) {
 	_, id, ok = e.rayGeometry3D(s, orig, dir)
 	return id, ok

@@ -251,7 +251,7 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 		ed.OrbitView3D(-dx*0.01, dy*0.01)
 	case core.GestureEnded:
 		if g.began {
-			if ed.PluginDragging3D() || ed.DraggingComponentGizmo3D() {
+			if ed.PluginDragging3D() || ed.DraggingComponentGizmo3D() || ed.DraggingGizmo3D() || ed.ActiveHandle3D() != Handle3DNone {
 				g.suppressPress = true
 			}
 			invert := g.snapInvert != nil && g.snapInvert()

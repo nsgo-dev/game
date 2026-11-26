@@ -227,6 +227,12 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 // HandleCanvasPressWith dispatches a click/tap at canvas coordinates (x, y) with optional
 // Shift (add to selection) and Mod (toggle selection membership) modifiers.
 func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
+	e.HandleCanvasPressWithModifiers(x, y, shift, mod, false)
+}
+
+// HandleCanvasPressWithModifiers dispatches a click/tap at canvas coordinates (x, y) with optional
+// Shift (add), Mod (toggle), and Alt/Option (in 3D, select the hit child's parent or instance root) modifiers.
+func (e *Editor) HandleCanvasPressWithModifiers(x, y float32, shift, mod, alt bool) {
 	if e == nil || e.playing {
 		return
 	}
@@ -238,7 +244,7 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 			}
 			return
 		}
-		e.HandleViewport3DPressWith(x, y, cw, ch, shift, mod)
+		e.HandleViewport3DPressWithModifiers(x, y, cw, ch, shift, mod, alt)
 		return
 	}
 	if e.connPick != nil {
@@ -1300,8 +1306,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			}
 			shift := ev.Modifiers.Shift || shiftHeld()
 			mod := ev.Modifiers.Platform || ev.Modifiers.Control || modHeld()
+			alt := ev.Modifiers.Alt || altHeld()
 			ed.withSnapInvert(ev.Modifiers.Control || ev.Modifiers.Platform || snapInvertHeld(), func() {
-				ed.HandleCanvasPressWith(x, y, shift, mod)
+				ed.HandleCanvasPressWithModifiers(x, y, shift, mod, alt)
 			})
 		},
 		Draw: func(d *core.Drawing, size core.Size) {
