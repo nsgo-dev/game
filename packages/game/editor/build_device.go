@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -569,7 +570,61 @@ func (e *Editor) resolveWebServeTarget(explicit string) (string, error) {
 	return "", ErrNoWebBuildDir
 }
 
-// safeDirFS serves files strictly beneath root, refusing symlink traversal outside root.
+const (
+	maxWebAssetBytes         = 256 << 20 // 256 MiB per streamed zip asset
+	maxWebBridgeSessions     = 16
+	maxWebBridgeFieldLen     = 128
+	maxWebBridgeCapabilities = 32
+	maxWebBridgeCapLen       = 64
+	maxAndroidRunLogBytes    = 64 * 1024
+	androidDeviceRunTimeout  = 10 * time.Minute
+)
+
+// lockedCappedBuffer is a concurrency-safe byte buffer with a hard byte cap,
+// used to capture combined stdout+stderr from device subprocesses without data races or OOM.
+type lockedCappedBuffer struct {
+	mu    sync.Mutex
+	buf   []byte
+	limit int
+}
+
+func (b *lockedCappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if rem := b.limit - len(b.buf); rem > 0 {
+		if len(p) > rem {
+			b.buf = append(b.buf, p[:rem]...)
+		} else {
+			b.buf = append(b.buf, p...)
+		}
+	}
+	return len(p), nil
+}
+
+// isBlockedWebAssetPath reports whether a clean slash-separated relative asset path
+// attempts to read dot-prefixed entries (.git, .env, .game, .DS_Store) or sensitive
+// project manifest files.
+func isBlockedWebAssetPath(rel string) bool {
+	if rel == "" {
+		return false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "" {
+			continue
+		}
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+		switch strings.ToLower(seg) {
+		case "game.yaml", "game.yml", "nsgo.yaml", "nsgo.yml", "go.mod", "go.sum", "go.work", "go.work.sum":
+			return true
+		}
+	}
+	return false
+}
+
+// safeDirFS serves files strictly beneath root, refusing symlink traversal outside root
+// as well as dotfiles and sensitive project manifest files.
 type safeDirFS struct {
 	root string
 }
@@ -577,6 +632,9 @@ type safeDirFS struct {
 func (s safeDirFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	if isBlockedWebAssetPath(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
 	}
 	f, err := os.OpenInRoot(s.root, filepath.FromSlash(name))
 	if err != nil {
@@ -598,7 +656,19 @@ func (e *Editor) newWebBuildHTTPHandler(srv *activeWebServer, files fs.FS, proje
 			http.Error(w, "forbidden: local network only", http.StatusForbidden)
 			return
 		}
+		// Reject mismatched Host headers to defeat DNS rebinding attacks.
+		if !isAllowedLANHostHeader(r.Host, srv) {
+			http.Error(w, "forbidden: invalid host", http.StatusForbidden)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
+
+		if strings.HasPrefix(r.URL.Path, "/__nsgo_mcp/") {
+			if (r.Method == http.MethodPost || r.Method == http.MethodDelete) && !isAllowedBridgeOrigin(r.Header.Get("Origin"), srv) {
+				http.Error(w, "forbidden: cross-origin bridge request", http.StatusForbidden)
+				return
+			}
+		}
 
 		switch {
 		case r.URL.Path == "/__nsgo_mcp/info":
@@ -629,6 +699,53 @@ func (e *Editor) newWebBuildHTTPHandler(srv *activeWebServer, files fs.FS, proje
 	})
 }
 
+func isAllowedLANHost(host string, srv *activeWebServer) bool {
+	if srv == nil {
+		return false
+	}
+	h := strings.TrimSpace(host)
+	if h == "" {
+		return false
+	}
+	if strings.EqualFold(h, srv.host) {
+		return true
+	}
+	boundIP := net.ParseIP(srv.host)
+	if boundIP != nil && boundIP.IsLoopback() {
+		if strings.EqualFold(h, "localhost") || h == "127.0.0.1" || h == "::1" {
+			return true
+		}
+	}
+	return false
+}
+
+func isAllowedLANHostHeader(hostHeader string, srv *activeWebServer) bool {
+	h := strings.TrimSpace(hostHeader)
+	if h == "" {
+		return true
+	}
+	if host, portStr, err := net.SplitHostPort(h); err == nil {
+		if srv != nil && srv.port > 0 && portStr != strconv.Itoa(srv.port) {
+			return false
+		}
+		return isAllowedLANHost(host, srv)
+	}
+	h = strings.TrimPrefix(strings.TrimSuffix(h, "]"), "[")
+	return isAllowedLANHost(h, srv)
+}
+
+func isAllowedBridgeOrigin(originHeader string, srv *activeWebServer) bool {
+	origin := strings.TrimSpace(originHeader)
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	return isAllowedLANHostHeader(u.Host, srv)
+}
+
 func isRequestFromLAN(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -652,6 +769,10 @@ func serveWebBuildAsset(files fs.FS, w http.ResponseWriter, r *http.Request) {
 			rel = path.Join(rel, "index.html")
 		}
 	}
+	if isBlockedWebAssetPath(rel) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	f, err := files.Open(rel)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -673,7 +794,12 @@ func serveWebBuildAsset(files fs.FS, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if info.IsDir() {
-		sub, serr := files.Open(path.Join(rel, "index.html"))
+		subRel := path.Join(rel, "index.html")
+		if isBlockedWebAssetPath(subRel) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		sub, serr := files.Open(subRel)
 		if serr != nil {
 			http.NotFound(w, r)
 			return
@@ -686,7 +812,7 @@ func serveWebBuildAsset(files fs.FS, w http.ResponseWriter, r *http.Request) {
 		}
 		f = sub
 		info = subInfo
-		rel = path.Join(rel, "index.html")
+		rel = subRel
 	}
 
 	if ct := webAssetContentType(rel); ct != "" {
@@ -697,15 +823,19 @@ func serveWebBuildAsset(files fs.FS, w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-NSGo-Play-Mode", "debug")
 	}
 
-	data, err := io.ReadAll(f)
-	if err != nil {
-		http.Error(w, "failed to read asset", http.StatusInternalServerError)
+	if rs, ok := f.(io.ReadSeeker); ok {
+		http.ServeContent(w, r, path.Base(rel), info.ModTime(), rs)
 		return
 	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	if size := info.Size(); size > maxWebAssetBytes {
+		http.Error(w, "asset too large", http.StatusRequestEntityTooLarge)
+		return
+	} else if size >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	}
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(data)
+		_, _ = io.Copy(w, io.LimitReader(f, maxWebAssetBytes))
 	}
 }
 
@@ -815,6 +945,9 @@ func (e *Editor) handleWebBridgeSession(srv *activeWebServer, w http.ResponseWri
 			return
 		}
 		device := strings.TrimSpace(req.Device)
+		if len(device) > maxWebBridgeFieldLen {
+			device = device[:maxWebBridgeFieldLen]
+		}
 		if device == "" {
 			device = "Phone browser"
 		}
@@ -823,22 +956,43 @@ func (e *Editor) handleWebBridgeSession(srv *activeWebServer, w http.ResponseWri
 			remoteHost = r.RemoteAddr
 		}
 		sessionID := strings.TrimSpace(req.ClientID)
+		if len(sessionID) > maxWebBridgeFieldLen {
+			sessionID = sessionID[:maxWebBridgeFieldLen]
+		}
 		if sessionID == "" {
 			sessionID = "sess-" + randomBridgeToken()[:12]
+		}
+		var caps []string
+		if len(req.Capabilities) > 0 {
+			n := min(len(req.Capabilities), maxWebBridgeCapabilities)
+			caps = make([]string, 0, n)
+			for _, c := range req.Capabilities[:n] {
+				c = strings.TrimSpace(c)
+				if len(c) > maxWebBridgeCapLen {
+					c = c[:maxWebBridgeCapLen]
+				}
+				if c != "" {
+					caps = append(caps, c)
+				}
+			}
 		}
 		now := time.Now().UTC()
 		sess := WebBridgeSession{
 			SessionID:    sessionID,
-			ClientID:     req.ClientID,
+			ClientID:     sessionID,
 			Device:       device,
 			RemoteIP:     remoteHost,
 			PlayMode:     req.PlayMode,
-			Capabilities: slices.Clone(req.Capabilities),
+			Capabilities: caps,
 			ConnectedAt:  now,
 		}
 		srv.mu.Lock()
 		if existing, ok := srv.clients[sessionID]; ok {
 			existing.info = sess
+		} else if len(srv.clients) >= maxWebBridgeSessions {
+			srv.mu.Unlock()
+			http.Error(w, "too many active sessions", http.StatusTooManyRequests)
+			return
 		} else {
 			srv.clients[sessionID] = &webBridgeClientState{
 				info:    sess,
@@ -1105,13 +1259,12 @@ func (e *Editor) WebBridgeSessions() []WebBridgeSession {
 func (e *Editor) bumpBuildReleaseRevAndNotifyUI() {
 	e.buildRelease.mu.Lock()
 	e.buildRelease.rev++
+	scope := e.buildRelease.scope
 	e.buildRelease.mu.Unlock()
-	if scope := e.scope; scope != nil {
+	if scope != nil {
 		scope.Post(func() {
 			e.notify()
 		})
-	} else {
-		e.notify()
 	}
 }
 
@@ -1316,6 +1469,12 @@ func (e *Editor) RunBuildOnAndroidDevice() error {
 	if len(androidPreset.Targets) > 0 {
 		target = androidPreset.Targets[0]
 	}
+	if !validBuildTargetName(target) {
+		return fmt.Errorf("editor: invalid Android build target %q", target)
+	}
+	if dev.ID != "" && !validDeviceSerial(dev.ID) {
+		return fmt.Errorf("editor: invalid Android device serial %q", dev.ID)
+	}
 	args := []string{"-C", dir, "tool", "nsgo", "build", "-target", target, "-run"}
 	if dev.ID != "" {
 		args = append(args, "-device", dev.ID)
@@ -1335,7 +1494,7 @@ func (e *Editor) RunBuildOnAndroidDevice() error {
 		Args:         args,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), androidDeviceRunTimeout)
 	run := &androidDeviceRun{
 		cancel: cancel,
 		done:   make(chan struct{}),
@@ -1357,17 +1516,17 @@ func (e *Editor) RunBuildOnAndroidDevice() error {
 			return defaultDeviceCommandRunner(ctx, req, stdout, stderr)
 		}
 	}
-	scope := e.scope
 
 	go func() {
 		defer run.finish()
 		defer cancel()
 
-		var logBuf strings.Builder
-		err := runner(ctx, req, &logBuf, &logBuf)
+		logBuf := &lockedCappedBuffer{limit: maxAndroidRunLogBytes}
+		err := runner(ctx, req, logBuf, logBuf)
 
 		e.buildRelease.mu.Lock()
 		active := e.buildRelease.androidRun == run
+		scope := e.buildRelease.scope
 		if active {
 			e.buildRelease.androidRun = nil
 			switch {
@@ -1389,16 +1548,11 @@ func (e *Editor) RunBuildOnAndroidDevice() error {
 		}
 		e.buildRelease.mu.Unlock()
 
-		if active {
-			if scope != nil {
-				scope.Post(func() {
-					e.flushBuildReleaseStatus()
-					e.notify()
-				})
-			} else {
+		if active && scope != nil {
+			scope.Post(func() {
 				e.flushBuildReleaseStatus()
 				e.notify()
-			}
+			})
 		}
 	}()
 
@@ -1416,6 +1570,7 @@ func (e *Editor) WaitAndroidDeviceRun() error {
 	if run != nil {
 		<-run.done
 	}
+	e.flushBuildReleaseStatus()
 	e.buildRelease.mu.Lock()
 	errText := e.buildRelease.androidDeviceErr
 	e.buildRelease.mu.Unlock()
@@ -1495,6 +1650,37 @@ func localBrowserDeviceName() string {
 	return "This computer's browser"
 }
 
+func validDeviceSerial(s string) bool {
+	if s == "" || len(s) > maxWebBridgeFieldLen || s[0] == '-' {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		ok := (c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') ||
+			c == '.' || c == '_' || c == ':' || c == '@' || c == '-'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func validBuildTargetName(s string) bool {
+	if s == "" || len(s) > 64 || s[0] == '-' {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func parseADBDevicesOutput(out string) []ConnectedDevice {
 	var devices []ConnectedDevice
 	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
@@ -1507,6 +1693,9 @@ func parseADBDevicesOutput(out string) []ConnectedDevice {
 			continue
 		}
 		serial := fields[0]
+		if !validDeviceSerial(serial) {
+			continue
+		}
 		state := fields[1]
 		name := serial
 		for _, f := range fields[2:] {

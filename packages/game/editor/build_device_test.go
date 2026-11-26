@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,10 +14,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -624,4 +627,263 @@ func TestBuildReleaseRunOnDeviceMacBrowserPhoneQRAndAndroidUSB(t *testing.T) {
 	if !ed.WebBuildServerState().Serving || !app.Exists("id:build-qr-canvas") {
 		t.Fatalf("expected Start serving to restore LAN server and QR canvas: %+v", ed.WebBuildServerState())
 	}
+}
+
+// Security, concurrency (-race), and Spec Light theme regression tests for the LAN web build server,
+// MCP bridge, Android USB runner, and QR card.
+func TestWebBuildServerSecurityConcurrencyAndSpecLight(t *testing.T) {
+	t.Run("blocks_dotfiles_manifests_dns_rebinding_cross_origin_and_session_flood", func(t *testing.T) {
+		webDir, _ := writeWebBuildFixture(t)
+		// Plant sensitive dotfiles and manifests inside the served directory.
+		for rel, body := range map[string]string{
+			".git/config":       "[core]\nrepositoryformatversion = 0\n",
+			".env":              "SECRET_KEY=supersecret\n",
+			".game/editor.yaml": "version: 1\n",
+			"game.yaml":         "name: secret\n",
+			"nsgo.yaml":         "app: secret\n",
+			"go.mod":            "module secret\n",
+		} {
+			p := filepath.Join(webDir, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		ed, err := editor.New(nil, testResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = ed.Close() }()
+		ed.LANAddressResolver = func() (string, error) { return "127.0.0.1", nil }
+
+		snap, err := ed.StartWebBuildServer(webDir)
+		if err != nil {
+			t.Fatalf("StartWebBuildServer: %v", err)
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+
+		// 1. Dotfiles and project manifests must be refused with 403 Forbidden.
+		for _, badPath := range []string{".git/config", ".env", ".game/editor.yaml", "game.yaml", "nsgo.yaml", "go.mod"} {
+			res, err := client.Get(snap.URL + badPath)
+			if err != nil {
+				t.Fatalf("GET %s: %v", badPath, err)
+			}
+			_ = res.Body.Close()
+			if res.StatusCode != http.StatusForbidden {
+				t.Fatalf("GET %s status = %d, want 403 Forbidden", badPath, res.StatusCode)
+			}
+		}
+
+		// 2. DNS rebinding: mismatched Host header must be refused with 403 Forbidden.
+		rebindReq, _ := http.NewRequest(http.MethodGet, snap.URL+"__nsgo_mcp/info", nil)
+		rebindReq.Host = "attacker.example:12345"
+		rebindRes, err := client.Do(rebindReq)
+		if err != nil {
+			t.Fatalf("rebind GET: %v", err)
+		}
+		_ = rebindRes.Body.Close()
+		if rebindRes.StatusCode != http.StatusForbidden {
+			t.Fatalf("DNS rebinding Host status = %d, want 403 Forbidden", rebindRes.StatusCode)
+		}
+
+		// 3. Cross-origin Origin header on bridge POST must be refused with 403 Forbidden.
+		csrfReq, _ := http.NewRequest(http.MethodPost, snap.URL+"__nsgo_mcp/session", strings.NewReader(`{"token":"`+snap.BridgeToken+`"}`))
+		csrfReq.Header.Set("Content-Type", "application/json")
+		csrfReq.Header.Set("Origin", "https://evil.example")
+		csrfRes, err := client.Do(csrfReq)
+		if err != nil {
+			t.Fatalf("cross-origin POST: %v", err)
+		}
+		_ = csrfRes.Body.Close()
+		if csrfRes.StatusCode != http.StatusForbidden {
+			t.Fatalf("cross-origin bridge POST status = %d, want 403 Forbidden", csrfRes.StatusCode)
+		}
+
+		// 4. Session cap: up to 16 distinct clients succeed; 17th returns 429 Too Many Requests.
+		for i := range 17 {
+			body := fmt.Sprintf(`{"token":%q,"clientId":"client-%d","device":"Phone %d","playMode":true}`, snap.BridgeToken, i, i)
+			req, _ := http.NewRequest(http.MethodPost, snap.URL+"__nsgo_mcp/session", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("session %d POST: %v", i, err)
+			}
+			_ = res.Body.Close()
+			if i < 16 && res.StatusCode != http.StatusOK {
+				t.Fatalf("session %d status = %d, want 200", i, res.StatusCode)
+			}
+			if i == 16 && res.StatusCode != http.StatusTooManyRequests {
+				t.Fatalf("17th session status = %d, want 429 Too Many Requests", res.StatusCode)
+			}
+		}
+
+		// 5. Range request streams cleanly via http.ServeContent.
+		rangeReq, _ := http.NewRequest(http.MethodGet, snap.URL+"app.js", nil)
+		rangeReq.Header.Set("Range", "bytes=0-6")
+		rangeRes, err := client.Do(rangeReq)
+		if err != nil {
+			t.Fatalf("Range GET app.js: %v", err)
+		}
+		gotRange, _ := io.ReadAll(rangeRes.Body)
+		_ = rangeRes.Body.Close()
+		if rangeRes.StatusCode != http.StatusPartialContent || string(gotRange) != "console" {
+			t.Fatalf("Range GET app.js = (%d, %q), want (206, %q)", rangeRes.StatusCode, string(gotRange), "console")
+		}
+	})
+
+	t.Run("android_runner_concurrent_stdout_stderr_race_free_and_rejects_flag_injection", func(t *testing.T) {
+		dir := writeBuildReleaseProject(t, `export:
+  output: dist
+  presets:
+    - platform: android
+      targets: [android_arm64]
+`)
+		ed, err := editor.New(nil, testResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = ed.Close() }()
+		if err := ed.OpenProject(dir); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenBuildReleaseScreen(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Complete an Android build first.
+		_ = ed.SetBuildPresetIncluded("android", true)
+		ed.ReleaseCheckRunner = func(_ context.Context, _ string) ([]assetcheck.Problem, time.Duration, error) {
+			return nil, time.Millisecond, nil
+		}
+		ed.ReleaseStepRunner = func(ctx context.Context, req editor.ReleaseStepRequest, stdout, stderr io.Writer) error {
+			return nil
+		}
+		ed.ReleasePlaytestRunner = func(ctx context.Context, platform, projDir string) (editor.BuildSmokePlaytestResult, error) {
+			return editor.BuildSmokePlaytestResult{Summary: "ok"}, nil
+		}
+		ed.ReleaseMeasureRunner = func(ctx context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+			return editor.BuildArtifactResult{ArtifactPath: filepath.Join(dir, "dist", "app.aab"), SizeBytes: 1024}, nil
+		}
+		if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{}); err != nil {
+			t.Fatalf("StartReleaseBuild: %v", err)
+		}
+		if err := ed.WaitReleaseBuild(); err != nil {
+			t.Fatalf("WaitReleaseBuild: %v", err)
+		}
+
+		// 1. Malicious serial starting with '-' must be rejected before spawning subprocess.
+		ed.DeviceDiscoverer = func(ctx context.Context, dir string) ([]editor.ConnectedDevice, error) {
+			return []editor.ConnectedDevice{{ID: "-evil-flag", Name: "Evil", Platform: "android", Transport: "usb", Online: true}}, nil
+		}
+		if _, err := ed.RefreshConnectedDevices(); err != nil {
+			t.Fatalf("RefreshConnectedDevices: %v", err)
+		}
+		if err := ed.RunBuildOnAndroidDevice(); err == nil || !strings.Contains(err.Error(), "invalid Android device serial") {
+			t.Fatalf("RunBuildOnAndroidDevice with -evil-flag = %v, want invalid serial error", err)
+		}
+
+		// 2. Concurrent writes to stdout and stderr from the runner must be race-free under -race.
+		ed.DeviceDiscoverer = func(ctx context.Context, dir string) ([]editor.ConnectedDevice, error) {
+			return []editor.ConnectedDevice{{ID: "pixel8-usb:5555", Name: "Pixel 8", Platform: "android", Transport: "usb", Online: true}}, nil
+		}
+		if _, err := ed.RefreshConnectedDevices(); err != nil {
+			t.Fatalf("RefreshConnectedDevices valid: %v", err)
+		}
+		ed.DeviceCommandRunner = func(ctx context.Context, req editor.DeviceCommandRequest, stdout, stderr io.Writer) error {
+			if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+				return errors.New("expected timeout deadline on Android device run context")
+			}
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				for range 200 {
+					_, _ = io.WriteString(stdout, "stdout log line\n")
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				for range 200 {
+					_, _ = io.WriteString(stderr, "stderr log line\n")
+				}
+			}()
+			wg.Wait()
+			return nil
+		}
+		if err := ed.RunBuildOnAndroidDevice(); err != nil {
+			t.Fatalf("RunBuildOnAndroidDevice valid: %v", err)
+		}
+		if err := ed.WaitAndroidDeviceRun(); err != nil {
+			t.Fatalf("WaitAndroidDeviceRun valid: %v", err)
+		}
+	})
+
+	t.Run("spec_light_qr_card_uses_light_spec_palette", func(t *testing.T) {
+		webDir, _ := writeWebBuildFixture(t)
+		dir := writeBuildReleaseProject(t, `export:
+  output: dist
+  presets:
+    - platform: web
+`)
+		ed, err := editor.New(nil, testResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = ed.Close() }()
+		if err := ed.SetAppearance(editor.AppearanceLight); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenProject(dir); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenBuildReleaseScreen(); err != nil {
+			t.Fatal(err)
+		}
+		ed.LANAddressResolver = func() (string, error) { return "127.0.0.1", nil }
+		_ = ed.SetBuildPresetIncluded("web", true)
+		ed.ReleaseCheckRunner = func(_ context.Context, _ string) ([]assetcheck.Problem, time.Duration, error) {
+			return nil, time.Millisecond, nil
+		}
+		ed.ExportCommandRunner = func(_ context.Context, _ []string, stdout, _ io.Writer) error {
+			_, _ = io.WriteString(stdout, "ok\n")
+			return nil
+		}
+		ed.ReleasePlaytestRunner = func(ctx context.Context, platform, projDir string) (editor.BuildSmokePlaytestResult, error) {
+			return editor.BuildSmokePlaytestResult{Summary: "ok"}, nil
+		}
+		ed.ReleaseMeasureRunner = func(ctx context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+			return editor.BuildArtifactResult{ArtifactPath: filepath.Join(webDir, "index.html"), WebBuildDir: webDir, SizeBytes: 1024}, nil
+		}
+		if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.WaitReleaseBuild(); err != nil {
+			t.Fatal(err)
+		}
+		ed.SelectBuildPreset("web")
+
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			return editor.EditorView(cx, ed)
+		}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{
+			OS:     core.OSMacOS,
+			Idiom:  core.IdiomDesktop,
+			Dark:   false,
+			Locale: "en-US",
+		}))
+
+		light := editor.LightSpecPalette()
+		qrCard := app.Find("id:build-result-qr").Style
+		if qrCard.Background != light.Raised || qrCard.BorderColor != light.LineRaised {
+			t.Fatalf("Spec Light build-result-qr bg=0x%08x border=0x%08x, want LightSpecPalette().Raised/LineRaised 0x%08x/0x%08x",
+				uint32(qrCard.Background), uint32(qrCard.BorderColor), uint32(light.Raised), uint32(light.LineRaised))
+		}
+		qrStatus := app.Find("id:build-qr-status").Style
+		if qrStatus.Background != light.Added.Fill || qrStatus.BorderColor != light.Added.Edge {
+			t.Fatalf("Spec Light build-qr-status bg=0x%08x border=0x%08x, want LightSpecPalette().Added 0x%08x/0x%08x",
+				uint32(qrStatus.Background), uint32(qrStatus.BorderColor), uint32(light.Added.Fill), uint32(light.Added.Edge))
+		}
+	})
 }

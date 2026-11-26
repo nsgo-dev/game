@@ -1022,7 +1022,7 @@ func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uin
 				case BuildPresetFailed:
 					body = buildDetailFailedView(ed, *sel, snap.ShowWholeLog)
 				case BuildPresetDone:
-					body = buildDetailDoneView(ed, snap, *sel)
+					body = buildDetailDoneView(cx, ed, snap, *sel)
 				case BuildPresetSetup:
 					body = buildDetailReadinessView(ed, *sel)
 				default:
@@ -1507,11 +1507,12 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 	}
 }
 
-func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEntry) core.Node {
+func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEntry) core.Node {
 	res := p.Result
 	if res == nil {
 		return core.View{TestID: "build-detail-done"}
 	}
+	spec := ed.SpecPalette(cx)
 
 	totalBytes := res.Breakdown.CodeBytes + res.Breakdown.TexturesBytes + res.Breakdown.AudioBytes + res.Breakdown.OtherBytes
 	if totalBytes <= 0 {
@@ -1693,7 +1694,7 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 	}
 	showQRCard := qrURL != "" || (p.Platform == "web" && (snap.WebServer.StoppedByUser || snap.WebServer.ServeDir != ""))
 	if showQRCard {
-		rightRailChildren = append(rightRailChildren, buildWebQRCardView(ed, snap.WebServer, qrURL))
+		rightRailChildren = append(rightRailChildren, buildWebQRCardView(ed, spec, snap.WebServer, qrURL))
 	}
 
 	deviceRows := make([]core.Node, 0, len(snap.Devices))
@@ -1703,16 +1704,16 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 		var dBg core.Color
 		var dBorderW core.Points
 		var dBorder core.Color
-		dFg := specText
-		dotCol := deviceStateDotColor(d.State, d.Available)
+		dFg := spec.TextPrimary
+		dotCol := deviceStateDotColor(spec, d.State, d.Available)
 		if !d.Available && d.State != BuildDeviceInstalling {
-			dFg = specTextMuted
+			dFg = spec.TextMuted
 		}
 		if isSel {
-			dBg = specSelectedRowFill
+			dBg = spec.Accent.Fill
 			dBorderW = 1
-			dBorder = specAccent
-			dFg = specTextStrong
+			dBorder = spec.Accent.Edge
+			dFg = spec.TextPrimary
 		}
 		deviceRows = append(deviceRows, core.View{
 			TestID: "build-device-" + d.ID,
@@ -1728,7 +1729,7 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 				Background:   dBg,
 				BorderWidth:  dBorderW,
 				BorderColor:  dBorder,
-				FocusVisible: specFocusRingStyle,
+				FocusVisible: spec.FocusRing(2),
 			},
 			OnPress: func(core.PressEvent) {
 				if d.Actionable {
@@ -1746,7 +1747,7 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 				core.Text{
 					TestID:  "build-device-note-" + d.ID,
 					Content: d.Note,
-					Style:   core.Style{FontSize: 11, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11, Color: spec.TextMuted},
 				},
 			},
 		})
@@ -1755,9 +1756,9 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 	rightRailChildren = append(rightRailChildren, core.View{
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   spec.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  spec.LineRaised,
 			Padding:      core.All(8),
 			Gap:          2,
 		},
@@ -1767,7 +1768,7 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 				Children: []core.Node{
 					core.Text{
 						Content: "RUN ON DEVICE",
-						Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: spec.TextMuted},
 					},
 				},
 			},
@@ -2078,38 +2079,44 @@ func buildDetailQueuedView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetE
 	}
 }
 
-func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) core.Node {
+func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot, qrURL string) core.Node {
 	statusLabel := "LAN test link"
-	statusDot := specAdded
-	statusFg := specTextSecondary
-	statusBg := specAddedFill
-	statusBorder := specAddedEdge
+	statusDot := spec.Added.Fg
+	statusFg := spec.TextSecondary
+	statusBg := spec.Added.Fill
+	statusBorder := spec.Added.Edge
 	switch {
 	case ws.Serving && len(ws.ConnectedClients) > 0:
 		c := ws.ConnectedClients[len(ws.ConnectedClients)-1]
 		statusLabel = "MCP bridge · " + c.Device
-		statusDot = specAgent
-		statusFg = specText
-		statusBg = specAgentTint
-		statusBorder = specAgentEdge
+		statusDot = spec.Agent.Fg
+		statusFg = spec.TextPrimary
+		statusBg = spec.Agent.Fill
+		statusBorder = spec.Agent.Edge
 	case ws.Serving:
 		statusLabel = "Serving on LAN"
-		statusDot = specAdded
-		statusFg = specText
-		statusBg = specAddedFill
-		statusBorder = specAddedEdge
+		statusDot = spec.Added.Fg
+		statusFg = spec.TextPrimary
+		statusBg = spec.Added.Fill
+		statusBorder = spec.Added.Edge
 	case ws.StoppedByUser:
 		statusLabel = "Stopped"
-		statusDot = specTextMuted
-		statusFg = specTextMuted
-		statusBg = specPanel
-		statusBorder = specLineRaised
+		statusDot = spec.TextMuted
+		statusFg = spec.TextMuted
+		statusBg = spec.Panel
+		statusBorder = spec.LineRaised
 	}
 
 	var qrNode core.Node
 	if !ws.StoppedByUser && qrURL != "" {
 		code, err := EncodeBuildQR(qrURL)
 		if err == nil && code != nil {
+			qrBorderW := core.Points(0)
+			var qrBorderCol core.Color
+			if !spec.Dark {
+				qrBorderW = 1
+				qrBorderCol = spec.LineRaised
+			}
 			qrNode = core.View{
 				Role:  core.RoleImage,
 				Label: "QR code for " + qrURL,
@@ -2117,7 +2124,9 @@ func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) cor
 					Width:        core.Pt(160),
 					Height:       core.Pt(160),
 					CornerRadius: 8,
-					Background:   specTextStrong,
+					Background:   core.RGB(0xFFFFFF),
+					BorderWidth:  qrBorderW,
+					BorderColor:  qrBorderCol,
 					Overflow:     core.Hidden,
 				},
 				Children: []core.Node{
@@ -2143,19 +2152,19 @@ func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) cor
 				Width:          core.Pt(160),
 				Height:         core.Pt(160),
 				CornerRadius:   8,
-				Background:     specPanel,
+				Background:     spec.Panel,
 				BorderWidth:    1,
-				BorderColor:    specLineRaised,
+				BorderColor:    spec.LineRaised,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 				Padding:        core.All(12),
 				Gap:            6,
 			},
 			Children: []core.Node{
-				buildSpecIcon(lucide.WifiOff(), 20, specTextMuted),
+				buildSpecIcon(lucide.WifiOff(), 20, spec.TextMuted),
 				core.Text{
 					Content: "Server stopped",
-					Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: specTextSecondary},
+					Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: spec.TextSecondary},
 				},
 			},
 		}
@@ -2187,7 +2196,7 @@ func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) cor
 		children = append(children, core.Text{
 			TestID:  "build-qr-url",
 			Content: qrURL,
-			Style:   core.Style{FontSize: 11.5, Color: specText, FontVariant: core.FontTabularNums},
+			Style:   core.Style{FontSize: 11.5, Color: spec.TextPrimary, FontVariant: core.FontTabularNums},
 		})
 	}
 
@@ -2198,7 +2207,7 @@ func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) cor
 	children = append(children, core.Text{
 		TestID:  "build-qr-caption",
 		Content: caption,
-		Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+		Style:   core.Style{FontSize: 11.5, Color: spec.TextMuted},
 	})
 
 	var actions []core.Node
@@ -2229,9 +2238,9 @@ func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) cor
 		TestID: "build-result-qr",
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   spec.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  spec.LineRaised,
 			Padding:      core.All(14),
 			Gap:          10,
 			AlignItems:   core.AlignCenter,
@@ -2240,26 +2249,27 @@ func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) cor
 	}
 }
 
-// drawQRCode renders code on a high-contrast light quiet-zone card using Spec tokens
-// (specTextStrong #FFFFFF quiet zone, specBg #101216 dark modules — 18.75:1 AAA contrast).
+// drawQRCode renders code on a high-contrast light quiet-zone card (#FFFFFF quiet zone,
+// #101216 dark modules — 18.75:1 AAA contrast) so phone cameras scan reliably in Dark and Light themes.
 func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
-	if d == nil || code == nil || code.Size <= 0 || sz.Width <= 0 || sz.Height <= 0 {
+	w, h := float64(sz.Width), float64(sz.Height)
+	if d == nil || code == nil || code.Size <= 0 || math.IsNaN(w) || math.IsInf(w, 0) || math.IsNaN(h) || math.IsInf(h, 0) || w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(specTextStrong).FillRect(0, 0, float32(sz.Width), float32(sz.Height))
+	d.SetFillColor(core.RGB(0xFFFFFF)).FillRect(0, 0, float32(w), float32(h))
 
 	qz := code.QuietZone()
 	totalModules := code.Size + 2*qz
-	side := float64(min(sz.Width, sz.Height))
+	side := min(w, h)
 	cell := math.Floor(side / float64(totalModules))
 	if cell < 1 {
 		cell = side / float64(totalModules)
 	}
 	gridSide := cell * float64(totalModules)
-	ox := math.Floor((float64(sz.Width) - gridSide) / 2)
-	oy := math.Floor((float64(sz.Height) - gridSide) / 2)
+	ox := math.Floor((w - gridSide) / 2)
+	oy := math.Floor((h - gridSide) / 2)
 
-	d.SetFillColor(specBg)
+	d.SetFillColor(core.RGB(0x101216))
 	cellF := float32(cell)
 	for y := range code.Size {
 		py := float32(oy + float64(qz+y)*cell)
@@ -2272,21 +2282,21 @@ func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
 	}
 }
 
-func deviceStateDotColor(st BuildDeviceState, available bool) core.Color {
+func deviceStateDotColor(spec SpecPalette, st BuildDeviceState, available bool) core.Color {
 	switch st {
 	case BuildDeviceReady, BuildDeviceServing, BuildDeviceRunning:
-		return specAdded
+		return spec.Added.Fg
 	case BuildDeviceConnected, BuildDeviceInstalling:
-		return specAgent
+		return spec.Agent.Fg
 	case BuildDeviceFailed:
-		return specProblem
+		return spec.Removed.Fg
 	case BuildDeviceStopped, BuildDeviceDisconnected, BuildDeviceUnavailable:
-		return specTextMuted
+		return spec.TextMuted
 	default:
 		if available {
-			return specAdded
+			return spec.Added.Fg
 		}
-		return specTextMuted
+		return spec.TextMuted
 	}
 }
 

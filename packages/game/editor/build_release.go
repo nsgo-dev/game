@@ -370,6 +370,20 @@ type buildReleaseState struct {
 	androidDeviceState     BuildDeviceState
 	androidDeviceErr       string
 	androidRun             *androidDeviceRun
+	scope                  *core.Scope
+}
+
+func (s *buildReleaseState) setScope(cx *core.Scope) {
+	s.mu.Lock()
+	s.scope = cx
+	s.mu.Unlock()
+}
+
+func (s *buildReleaseState) getScope() *core.Scope {
+	s.mu.Lock()
+	cx := s.scope
+	s.mu.Unlock()
+	return cx
 }
 
 type presetYAMLConfig struct {
