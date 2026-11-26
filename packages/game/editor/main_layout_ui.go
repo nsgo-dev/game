@@ -1076,6 +1076,8 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 			},
 			// Flexible spacer before trailing actions.
 			core.View{Style: core.Style{FlexGrow: 1}},
+			// Active agent plan pill (#1035): hidden when no plan is active.
+			planHeaderPillView(cx, ed, rev),
 			// Live agent state pill (#1013): hidden when idle, shows working / waiting / pending review Keep & Revert.
 			toolbarAgentPillView(cx, ed, rev),
 			// Right: History (⌘Y), Search ⌘K, Play (⌘P) as the one primary button.
@@ -2275,6 +2277,35 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					FlexShrink: 0,
 				},
 				Children: []core.Node{
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ActivePlan() != nil
+						},
+						Then: func(cx *core.Scope) core.Node {
+							darkMemo := core.NewMemo(cx, func() bool {
+								_ = rev.Get()
+								return ed.SpecPalette(cx).Dark
+							})
+							return core.Dynamic(func(cx *core.Scope) core.Node {
+								spec := SpecPaletteFor(darkMemo.Get())
+								return core.Text{
+									TestID: "status-plan-summary",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										return ed.PlanStatusBarLine()
+									},
+									MaxLines:      1,
+									EllipsizeMode: core.EllipsizeTail,
+									Style: core.Style{
+										FontSize: 11,
+										Color:    spec.Agent.Fg,
+										MaxWidth: core.Pt(260),
+									},
+								}
+							})
+						},
+					},
 					saveStatusBarView(cx, ed, rev),
 					tasksStatusIndicatorView(cx, ed, rev),
 					remoteStatusView(cx, ed, rev),
