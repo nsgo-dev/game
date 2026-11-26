@@ -578,19 +578,17 @@ func (s safeDirFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
-	target := filepath.Join(s.root, filepath.FromSlash(name))
-	rootReal, err := evalBuildReleaseSymlinks(s.root)
+	f, err := os.OpenInRoot(s.root, filepath.FromSlash(name))
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return nil, err
+		}
+		if strings.Contains(err.Error(), "escapes from parent") {
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
+		}
 		return nil, err
 	}
-	targetReal, err := evalBuildReleaseSymlinks(target)
-	if err != nil {
-		return nil, err
-	}
-	if !isWithinBuildReleaseDir(rootReal, targetReal) {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
-	}
-	return os.Open(target)
+	return f, nil
 }
 
 func (e *Editor) newWebBuildHTTPHandler(srv *activeWebServer, files fs.FS, projectName string) http.Handler {
