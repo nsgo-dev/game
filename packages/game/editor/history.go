@@ -173,6 +173,7 @@ type historyRecord struct {
 type historyMetaCommand interface {
 	historyMeta() HistoryMeta
 }
+
 // Command is a reversible edit executed through History: a change to the open scene, project or clip, or a move of the project's files (MoveFile).
 type Command interface {
 	Do()
