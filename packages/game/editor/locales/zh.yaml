@@ -88,6 +88,35 @@ strings:
   agentPanel.statusStopped: 已停止
   agentPanel.tab: 智能体
   agentPanel.viewportImage: 视口图像
+  agentTurn.cancel: 取消
+  agentTurn.changeWord: 处更改
+  agentTurn.changesWord: 处更改
+  agentTurn.compact: 收起
+  agentTurn.composerHintPending: 在你保留之前，更改不会写入磁盘
+  agentTurn.fileWord: 个文件
+  agentTurn.filesWord: 个文件
+  agentTurn.headerPartialSummary: '{active}/{total} {changes} · {files} {fileWord}'
+  agentTurn.headerSummary: '{total} {changes} · {files} {fileWord}'
+  agentTurn.keep: 保留
+  agentTurn.keepPartial: 保留 {active}/{total}
+  agentTurn.keptNote: 已保留 · 单个撤销步骤（{undoKey}）
+  agentTurn.noChanges: 本回合没有文件更改。
+  agentTurn.promptDesc: 你有一个待确认的智能体回合（{count} {changes}）。继续之前要保留还是还原？
+  agentTurn.promptDescAction: 你有一个待确认的智能体回合（{count} {changes}）。在继续（{action}）之前要保留还是还原？
+  agentTurn.promptTitle: 待确认的智能体回合
+  agentTurn.restore: 恢复
+  agentTurn.restoreFile: 恢复文件
+  agentTurn.revert: 还原
+  agentTurn.revertFile: 还原文件
+  agentTurn.revertedNote: 已还原 · 场景已恢复到本次请求前的状态
+  agentTurn.review: 审查
+  agentTurn.reviewWaiting: 等待审查
+  agentTurn.stop: 停止
+  agentTurn.stopLabel: 停止智能体
+  agentTurn.stopped: 已停止
+  agentTurn.undo: 撤销
+  agentTurn.whyPrefix: 原因：
+  agentTurn.working: 智能体正在工作…
   app.defaultName: NSGo 场景编辑器
   askInPlace.announceScene: 正在询问打开的场景 {scene}
   askInPlace.announceSelection: 已选中 {count} 项：{names}
@@ -204,6 +233,8 @@ strings:
   cmd.historyPanel.label: 历史
   cmd.inspectorTab.desc: 将右侧面板切换为属性检查器
   cmd.inspectorTab.label: 检查器面板
+  cmd.keepAgentTurn.desc: 将当前待确认智能体回合中剩余的更改合并保留为单个撤销步骤
+  cmd.keepAgentTurn.label: 保留智能体回合
   cmd.lightingPreview.desc: 在 2D 视口中显示或隐藏实时 2D 灯光、遮挡阴影与环境暗度
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
@@ -242,6 +273,8 @@ strings:
   cmd.redo.label: 重做
   cmd.replayTips.desc: 重置已关闭的首次审查提示以便重新显示
   cmd.replayTips.label: 重播提示
+  cmd.revertAgentTurn.desc: 将当前待确认智能体回合触及的所有文件还原到请求前状态
+  cmd.revertAgentTurn.label: 还原智能体回合
   cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
   cmd.runGame.label: 运行游戏
   cmd.save.desc: 保存当前打开的场景与项目更改
@@ -290,6 +323,8 @@ strings:
   cmd.sketchUndoMark.label: 草图：撤销上一个标记
   cmd.startScreen.desc: 显示包含最近项目、模板与演示的开始界面
   cmd.startScreen.label: 开始界面
+  cmd.stopAgentTurn.desc: 停止进行中的智能体回合；已完成的改动将保持待审查状态
+  cmd.stopAgentTurn.label: 停止智能体
   cmd.tasks.desc: 切换智能体后台任务列表面板
   cmd.tasks.label: 后台任务
   cmd.toolEraseTile.desc: 切换为擦除瓦片工具

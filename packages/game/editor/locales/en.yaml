@@ -88,6 +88,35 @@ strings:
   agentPanel.statusStopped: Stopped
   agentPanel.tab: Agent
   agentPanel.viewportImage: Viewport image
+  agentTurn.cancel: Cancel
+  agentTurn.changeWord: change
+  agentTurn.changesWord: changes
+  agentTurn.compact: Compact
+  agentTurn.composerHintPending: Edits stay unsaved until you keep them
+  agentTurn.fileWord: file
+  agentTurn.filesWord: files
+  agentTurn.headerPartialSummary: '{active} of {total} {changes} · {files} {fileWord}'
+  agentTurn.headerSummary: '{total} {changes} · {files} {fileWord}'
+  agentTurn.keep: Keep
+  agentTurn.keepPartial: Keep {active} of {total}
+  agentTurn.keptNote: Kept · one undo step ({undoKey})
+  agentTurn.noChanges: No file changes in this turn.
+  agentTurn.promptDesc: You have a pending agent turn ({count} {changes}). Keep or revert it before proceeding?
+  agentTurn.promptDescAction: You have a pending agent turn ({count} {changes}). Keep or revert it before proceeding ({action})?
+  agentTurn.promptTitle: Pending agent turn
+  agentTurn.restore: Restore
+  agentTurn.restoreFile: Restore file
+  agentTurn.revert: Revert
+  agentTurn.revertFile: Revert file
+  agentTurn.revertedNote: Reverted · the scene is as it was before this request
+  agentTurn.review: Review
+  agentTurn.reviewWaiting: review waiting
+  agentTurn.stop: Stop
+  agentTurn.stopLabel: Stop agent
+  agentTurn.stopped: Stopped
+  agentTurn.undo: Undo
+  agentTurn.whyPrefix: 'Why: '
+  agentTurn.working: Agent working…
   app.defaultName: NSGo Scene Editor
   askInPlace.announceScene: Asking about open scene {scene}
   askInPlace.announceSelection: '{count} selected: {names}'
@@ -204,6 +233,8 @@ strings:
   cmd.historyPanel.label: History
   cmd.inspectorTab.desc: Switch the right panel to the Property Inspector
   cmd.inspectorTab.label: Inspector Panel
+  cmd.keepAgentTurn.desc: Keep the remaining changes in the open agent turn as one undo step
+  cmd.keepAgentTurn.label: Keep Agent Turn
   cmd.lightingPreview.desc: Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
@@ -242,6 +273,8 @@ strings:
   cmd.redo.label: Redo
   cmd.replayTips.desc: Reset dismissed first-run review tips so they show again
   cmd.replayTips.label: Replay tips
+  cmd.revertAgentTurn.desc: Revert all files touched by the open agent turn to their pre-request state
+  cmd.revertAgentTurn.label: Revert Agent Turn
   cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
   cmd.runGame.label: Run Game
   cmd.save.desc: Save the open scene and project changes
@@ -290,6 +323,8 @@ strings:
   cmd.sketchUndoMark.label: 'Sketch: Undo Last Mark'
   cmd.startScreen.desc: Show the Start Screen with recent projects, templates, and demo
   cmd.startScreen.label: Start Screen
+  cmd.stopAgentTurn.desc: Stop the active agent turn; changes made so far stay pending for review
+  cmd.stopAgentTurn.label: Stop Agent
   cmd.tasks.desc: Toggle the Agent background task list panel
   cmd.tasks.label: Background Tasks
   cmd.toolEraseTile.desc: Switch to the Erase Tile tool

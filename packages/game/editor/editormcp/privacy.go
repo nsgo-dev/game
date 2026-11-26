@@ -297,6 +297,17 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		if !policy.SceneAndData {
 			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolRefactorRename)
 		}
+	case ToolFileEdit:
+		var a struct {
+			File string `json:"file"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if err := checkPathPrivacy(policy, root, a.File); err != nil {
+			return err
+		}
+		if !policy.SceneAndData {
+			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolFileEdit)
+		}
 	case ToolGameDeleteFile:
 		var a struct {
 			File string `json:"file"`
@@ -369,7 +380,10 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		ToolReviewStatus,
 		ToolReviewNotesGet,
 		ToolReviewRedo,
-		ToolGameCheck:
+		ToolGameCheck,
+		ToolTurnStart,
+		ToolTurnEnd,
+		ToolTurnStatus:
 		if !policy.SceneAndData {
 			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, t.Name)
 		}

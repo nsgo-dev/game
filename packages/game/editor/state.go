@@ -966,6 +966,7 @@ type Editor struct {
 	// agentTurn holds the active, pending, stopped, kept, or reverted multi-file agent turn.
 	agentTurn        *agentTurnState
 	agentTurnSeq     uint64
+	agentTurnRev     uint64
 	lastRevertedTurn *agentTurnState
 	// stagedFiles holds in-memory edits to non-active project files (other scenes, prefabs, data tables, clips)
 	// touched by an agent turn, so nothing is written to disk until the turn is kept and saved.
@@ -1660,19 +1661,22 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 		return e.SelectTab(idx)
 	}
 	if rel != "" {
-		if staged, ok := e.stagedFiles[rel]; ok && staged.sceneDoc != nil {
+		if staged, ok := e.stagedFiles[rel]; ok && !staged.shouldDelete && staged.sceneDoc != nil {
 			saved := append([]byte(nil), staged.savedData...)
 			if len(saved) == 0 {
 				if enc, encErr := sceneformat.Encode(staged.sceneDoc); encErr == nil {
 					saved = enc
 				}
 			}
+			docClone := staged.sceneDoc.Clone()
 			if e.playing {
 				if err := e.Stop(); err != nil {
 					return err
 				}
 			}
-			e.activateNewTab(staged.sceneDoc.Clone(), saved, path)
+			// Promote staged copy into a real open tab and drop the staged entry so saveKeptStagedFiles cannot clobber later tab edits.
+			delete(e.stagedFiles, rel)
+			e.activateNewTab(docClone, saved, path)
 			if diskData, rErr := os.ReadFile(path); rErr == nil {
 				e.recordSceneDiskSnapshot(path, diskData)
 			}
@@ -1807,12 +1811,12 @@ func (e *Editor) Undo() bool {
 	if e.undoCutsceneReviewEdit() {
 		return true
 	}
-	if handled, ok := e.undoForAgentTurn(); handled {
-		return ok
-	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	if handled, ok := e.undoForAgentTurn(); handled {
+		return ok
+	}
 	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()

@@ -921,6 +921,9 @@ func agentThreadConversationBody(cx *core.Scope, ed *Editor, p SpecPalette, t *A
 	if ed.DataTableReviewPending() {
 		nodes = append(nodes, agentPendingDataTableReviewCard(ed, p))
 	}
+	if turnSnap, hasPendingTurn := ed.CurrentAgentTurn(); hasPendingTurn {
+		nodes = append(nodes, agentTurnSection(cx, ed, p, turnSnap))
+	}
 	if openReq != nil {
 		nodes = append(nodes, agentOpenRequestCard(ed, openReq, openReqRef, p))
 	}

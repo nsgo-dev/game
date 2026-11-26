@@ -65,8 +65,10 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		}
 	})
 	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes.
-		if ed.shortcutCaptureActive || ed.PermissionsDraftOpen() || ed.StartScreenOpen() || ed.FirstRunFullScreenOpen() || ed.ReviewOpen() || ed.MergeConflictOpen() || ed.DataTableReviewOpen() || ed.UsagesScreenOpen() {
+		// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes or modals.
+		if ed.shortcutCaptureActive || ed.PermissionsDraftOpen() || ed.StartScreenOpen() || ed.FirstRunFullScreenOpen() ||
+			ed.ReviewOpen() || ed.MergeConflictOpen() || ed.DataTableReviewOpen() || ed.UsagesScreenOpen() || ed.SettingsOpen() ||
+			ed.AssetGeneratorOpen() || ed.ConnectDialogOpen() || ed.PendingTurnPromptOpen() || ed.BuildReleaseScreenOpen() {
 			return
 		}
 		if ed.AgentReviewOpen() && !ed.Playing() {
@@ -78,10 +80,6 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			if err := ed.KeepTurnReview(); err != nil && !errors.Is(err, ErrReviewBlocked) {
 				ed.report(err)
 			}
-			return
-		}
-		if ed.HasPendingAgentTurn() && !ed.AgentTurnWorking() && !ed.Playing() {
-			ed.report(ed.KeepAgentTurn())
 		}
 	})
 	cx.OnKeyWith("shift+f5", core.KeyOptions{When: core.KeyNotEditing}, func() {

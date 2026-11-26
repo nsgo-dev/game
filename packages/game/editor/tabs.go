@@ -58,7 +58,7 @@ type sceneTab struct {
 	tileSel              TileRect
 	hasTileSel           bool
 	tileReview           *tileReviewState
-	agentTurn            *agentTurnState
+	agentTurn            *agentLiveTurnState
 	agentWorkingIDs      []string
 	agentWorkingActivity string
 	sketch               sketchState

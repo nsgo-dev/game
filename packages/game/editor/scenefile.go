@@ -293,6 +293,8 @@ func (e *Editor) Save() error {
 		}
 		if projectSaved || gridMapSaved || terrainSaved || roomsSaved || materialSaved || stagedSaved {
 			e.RefreshChangesCount()
+			e.recordSaveSucceeded()
+			e.notify()
 		} else {
 			e.Status = "No unsaved changes"
 			e.notify()

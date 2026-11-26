@@ -93,6 +93,8 @@ func turnTools() []Tool {
 	}
 }
 
+const maxFileEditBytes = 2 << 20 // 2 MiB max YAML payload accepted by file_edit
+
 func turnStart(ctx context.Context, c *Call) (*Result, error) {
 	var args struct {
 		Prompt string `json:"prompt"`
@@ -117,8 +119,12 @@ func turnStart(ctx context.Context, c *Call) (*Result, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("turn_start: %w", err)
 	}
+	text := "Started agent turn. Subsequent MCP edits stay in memory until the person keeps or reverts the turn."
+	if out.Turn != nil {
+		text = fmt.Sprintf("Started agent turn #%d (%q). Subsequent MCP edits stay in memory until the person keeps or reverts the turn.", out.Turn.ID, out.Turn.Prompt)
+	}
 	return &Result{
-		Text:       fmt.Sprintf("Started agent turn #%d (%q). Subsequent MCP edits stay in memory until the person keeps or reverts the turn.", out.Turn.ID, out.Turn.Prompt),
+		Text:       text,
 		Structured: out,
 	}, nil
 }
@@ -223,11 +229,17 @@ func fileEdit(ctx context.Context, c *Call) (*Result, error) {
 	if strings.TrimSpace(args.YAML) == "" {
 		return nil, errors.New("file_edit: yaml must not be empty")
 	}
+	if len(args.YAML) > maxFileEditBytes {
+		return nil, fmt.Errorf("file_edit: yaml exceeds %d bytes limit", maxFileEditBytes)
+	}
 	var res FileEditResult
 	res.File = clean
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		if ed.Playing() {
 			return errors.New("the scene is playing in the editor, which refuses edits")
+		}
+		if holdErr := sketchHoldEditError(ed, clean); holdErr != nil {
+			return holdErr
 		}
 		if ed.AgentTurnWorking() {
 			if err := ed.RecordAgentFileEdit(clean, []byte(args.YAML), args.Why); err != nil {

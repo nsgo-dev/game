@@ -442,8 +442,20 @@ func sceneEditTarget(args json.RawMessage, ed *editor.Editor) (editor.Permission
 		File string `json:"file"`
 	}
 	_ = json.Unmarshal(args, &in)
-	if target := strings.TrimSpace(in.File); target != "" {
-		return editor.PermissionActionEdit, target
+	if raw := strings.TrimSpace(in.File); raw != "" {
+		if ed != nil {
+			if root := projectRoot(ed); root != "" {
+				if resolved, err := editor.ResolvePermissionFileTarget(root, raw); err == nil && resolved != "" {
+					if ed.AgentTurnWorking() && resolved != scenePath(ed, root) {
+						if _, serr := os.Stat(filepath.Join(root, filepath.FromSlash(resolved))); os.IsNotExist(serr) {
+							return editor.PermissionActionCreate, resolved
+						}
+					}
+					return editor.PermissionActionEdit, resolved
+				}
+			}
+		}
+		return editor.PermissionActionEdit, raw
 	}
 	return editor.PermissionActionEdit, openSceneTarget(ed)
 }

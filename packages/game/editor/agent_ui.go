@@ -146,7 +146,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 				Then: func(cx *core.Scope) core.Node {
 					return core.View{
 						TestID: "agent-tab-pending-dot",
-						Label:  "review waiting",
+						Label:  ed.T("agentTurn.reviewWaiting"),
 						Style: core.Style{
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
@@ -927,11 +927,12 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|%d|%d|%s|%d|%d|%d|%s|%s|",
+		fmt.Fprintf(&b, "%s|%s|%d|%d|%d|%s|%d|%d|%d|%s|%s|",
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
 			len(ed.agent.turns),
 			ed.AgentTurnSeq(),
+			ed.agentTurnRev,
 			ed.review.outcome,
 			ed.review.uiRev,
 			len(ed.agent.queued),
@@ -953,11 +954,6 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		}
 		if ed.agent.openRequest != nil {
 			fmt.Fprintf(&b, "req:%s|", ed.agent.openRequest.ID)
-		}
-		if snap, hasTurn := ed.CurrentAgentTurn(); hasTurn {
-			fmt.Fprintf(&b, "pt:%d:%s:%d:%d:%d:%d:%d:%v:%d",
-				snap.ID, snap.Status, snap.TotalChanges, snap.ActiveChanges, snap.RevertedCount,
-				len(snap.Steps), len(snap.Summary), snap.ReviewOpen, len(snap.Files))
 		}
 		if ed.DataTableReviewPending() {
 			fmt.Fprintf(&b, "dtrev:%d:%v", ed.dataTableReviewRev(), ed.DataTableReviewPaused())
@@ -2230,7 +2226,7 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 								ContentFunc: func() string {
 									_ = rev.Get()
 									if ed.HasPendingAgentTurn() {
-										return "Edits stay unsaved until you keep them"
+										return ed.T("agentTurn.composerHintPending")
 									}
 									return ed.T("agent.composerHint")
 								},

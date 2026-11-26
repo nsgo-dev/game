@@ -1306,6 +1306,7 @@ func main() {
 - **分组“添加组件”与“请智能体添加”**：对象尚未挂载的已注册组件按 `GAMEPLAY`、`PHYSICS` 与 `AUDIO AND VISUAL` 分组展示（`ComponentCategoryOf`、`AddableComponentGroups`）；输入框旁的 **Ask to add**（`AskToAddComponent`、`ComposerDraft`、`SetComposerDraft`、`Editor.OnComposerPrompt`）会在智能体输入框预填 `"Add a component to <object> that "`。
 - **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
 - **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。
+
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
 通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 令牌并对应 `docs/design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
@@ -1559,8 +1560,8 @@ func main() {
 - **待确认期间按单条或按文件还原与恢复**：回合处于待确认或已停止状态（`⌘.` / `CmdStopAgentTurn`）时，用户可以随时还原或恢复任意单条变更（`RevertAgentTurnChange` / `RestoreAgentTurnChange` / `ToggleAgentTurnChange`）或某个文件中的全部变更（`RevertAgentTurnFile` / `RestoreAgentTurnFile`）。被还原的变更立即从内存状态移除，恢复时干净回到原位，且不影响未触及对象上的其他改动（包括用户并发做的编辑）。
 - **Keep 与 Revert 的单步撤销及 Spec 提示条**：
   - **Keep**（`KeepAgentTurn` / `⌘↵` / `CmdKeepAgentTurn`）把所有文件上剩余的改动合并提交为 `Editor.History` 中的**单个** `AuthorAgent` / `HistoryAuthorAgent` 撤销步骤（可通过 `History.Entries()`、`History.UndoAuthor()`、`History.RedoAuthor()` 区分用户与智能体）。一次 `⌘Z` 即可把所有被改动文件按字节还原，一次 `⇧⌘Z` 即可重做整个保留的回合，并弹出带 **Undo（`⌘Z`）** 按钮的 Spec `ToastSuccess`。
-  - **Revert**（`RevertAgentTurn` / `⌘⌫` / `CmdRevertAgentTurn`）把每个被触及的文件按字节还原到请求前状态，并弹出带 **Undo（`⌘Z`）** 按钮的 Spec `ToastInfo`，点击后（`UndoRevertAgentTurn`）可将回合重新恢复为待确认状态。
+  - **Revert**（`RevertAgentTurn` / `⌘⌫` / `CmdRevertAgentTurn`）把每个被触及的文件按字节还原到请求前状态，并弹出带 **Undo** 按钮的 Spec `ToastInfo`，点击后（`UndoRevertAgentTurn`）可将回合重新恢复为待确认状态。
   - **Checkpoints `⌘Z` 规则**：智能体正在工作（`AgentTurnWorking`）时，`⌘Z` 仅撤销用户自己的编辑；在打开的审查（`AgentTurnReviewOpen`）中，`⌘Z` 先撤销用户在审查期间所做的编辑，再还原整个审查；保留或空闲后，`⌘Z` 按普通历史栈撤销。
-- **右侧 Agent 标签页与摘要卡片（`RightRailView` / `AgentPanelView`）**：右侧栏顶部支持在 **Agent**（`mod+shift+1` / `CmdRightTabAgent`）与 **Inspector**（`mod+shift+2` / `CmdRightTabInspector`）之间切换，并显示待确认状态点与 MCP 连接状态。界面严格使用 `Spec.dc.html` 令牌并对应 `Main.dc.html` 布局，展示请求气泡、进度步骤、工作中的 **Stop（`⌘.`）** 按钮、完成摘要、精简摘要卡片（`"6 changes · 1 file · +38 −0"`、按类型展示的变更列表与单条/按文件还原恢复按钮、**Keep** / **Review** / **Revert**）、已保留/已还原状态（`"one undo step (⌘Z)"`）以及带 `"Edits stay unsaved until you keep them"` 提示的输入框。
-- **切换场景/项目与关闭保护**：存在待确认回合时，打开其他场景（`RequestOpenScene`）、切换项目（`RequestOpenProject`）、关闭窗口或退出应用都会弹出 **Keep / Revert / Cancel** 确认框（`pendingTurnDialog`），与未保存修改的行为保持一致。
+- **右侧 Agent 标签页与摘要卡片（`RightRailView` / `AgentPanelView`）**：右侧栏顶部支持在 **Agent**（`mod+1` / `CmdAgentTab`）与 **Inspector**（`mod+2` / `CmdInspectorTab`）之间切换，并显示待确认状态点与 MCP 连接状态。界面严格使用 `Spec.dc.html` 令牌并对应 `Main.dc.html` 布局（完整支持中英文界面），展示请求气泡、进度步骤、工作中的 **Stop（`⌘.`）** 按钮、完成摘要、精简摘要卡片（`"6 changes · 1 file · +38 −0"`、按类型展示的变更列表与单条/按文件还原恢复按钮、**Keep** / **Review** / **Revert**）、已保留/已还原状态（`"one undo step (⌘Z)"`）以及带 `"Edits stay unsaved until you keep them"` 提示的输入框。
+- **切换场景/标签页/项目、关闭与安全边界保护**：存在待确认回合时，打开其他场景（`RequestOpenScene`）、切换场景标签页（`RequestSelectTab`）、切换项目（`RequestOpenProject`）、关闭窗口或退出应用都会弹出 **Keep / Revert / Cancel** 确认框（`pendingTurnDialog`），与未保存修改的行为保持一致。所有暂存文件均强制校验项目根目录符号链接包含性、拒绝 `.git/**` 与“仅限本人”配置文件、限制单文件 2 MiB 上限，并在 `OpenProject` 与 `OpenDemo` 时彻底重置状态。
 - **MCP 工具（`editormcp`）**：提供 `turn_start`、`turn_end`、`turn_status`（只读，如实报告已还原的变更）和 `file_edit`（在内存中校验并编辑 `game.yaml`、数据表、动画片段、预制体与场景），并为 `scene_edit` 与 `object_set_field` 增加 `why` 参数；按设计不提供可由智能体调用的保留或还原回合工具。

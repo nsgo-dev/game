@@ -147,8 +147,6 @@ const (
 	CmdSketchToggleReviewOverlay = "sketch.toggleReviewOverlay"
 	CmdSketchKeepReview          = "sketch.keepReview"
 	CmdSketchRevertReview        = "sketch.revertReview"
-	CmdRightTabAgent             = "view.tab.agent"
-	CmdRightTabInspector         = "view.tab.inspector"
 	CmdKeepAgentTurn             = "agent.turn.keep"
 	CmdRevertAgentTurn           = "agent.turn.revert"
 	CmdStopAgentTurn             = "agent.turn.stop"
@@ -2198,36 +2196,6 @@ func (e *Editor) initBuiltinCommands() {
 			Run:         func() error { return e.RevertSketchReview() },
 		},
 		{
-			ID:          CmdRightTabAgent,
-			Label:       "Agent Tab",
-			Description: "Show the Agent panel in the right column",
-			Category:    "View",
-			Keywords:    []string{"agent", "ai", "turn", "review", "panel", "tab"},
-			Scope:       ScopeGlobal,
-			Shortcut:    "mod+shift+1",
-			Enabled:     func() bool { return inEditor() && e.AgentMode() != AgentModeNone },
-			Checked:     func() bool { return e.RightPanelTab() == RightPanelAgent },
-			Run: func() error {
-				e.SetRightPanelTab(RightPanelAgent)
-				return nil
-			},
-		},
-		{
-			ID:          CmdRightTabInspector,
-			Label:       "Inspector Tab",
-			Description: "Show the Property Inspector in the right column",
-			Category:    "View",
-			Keywords:    []string{"inspector", "properties", "panel", "tab"},
-			Scope:       ScopeGlobal,
-			Shortcut:    "mod+shift+2",
-			Enabled:     inEditor,
-			Checked:     func() bool { return e.RightPanelTab() == RightPanelInspector },
-			Run: func() error {
-				e.SetRightPanelTab(RightPanelInspector)
-				return nil
-			},
-		},
-		{
 			ID:          CmdKeepAgentTurn,
 			Label:       "Keep Agent Turn",
 			Description: "Keep the remaining changes in the open agent turn as one undo step",
@@ -2236,7 +2204,10 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeGlobal,
 			Shortcut:    "mod+enter",
 			Enabled: func() bool {
-				if !notPlaying() || e.PermissionsDraftOpen() || e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.UsagesScreenOpen() || e.AgentReviewOpen() || e.agentTurn == nil {
+				if !notPlaying() || e.PermissionsDraftOpen() || e.StartScreenOpen() || e.FirstRunFullScreenOpen() ||
+					e.ReviewOpen() || e.MergeConflictOpen() || e.DataTableReviewOpen() || e.UsagesScreenOpen() || e.AgentReviewOpen() ||
+					e.SettingsOpen() || e.AssetGeneratorOpen() || e.ConnectDialogOpen() || e.PendingTurnPromptOpen() ||
+					e.BuildReleaseScreenOpen() || e.SketchActive() || e.SketchHoldActive() || e.SketchReviewOpen() || e.agentTurn == nil {
 					return false
 				}
 				return e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped
@@ -2252,7 +2223,10 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeGlobal,
 			Shortcut:    "mod+backspace",
 			Enabled: func() bool {
-				if !notPlaying() || e.PermissionsDraftOpen() || e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.UsagesScreenOpen() || e.agentTurn == nil {
+				if !notPlaying() || e.PermissionsDraftOpen() || e.StartScreenOpen() || e.FirstRunFullScreenOpen() ||
+					e.ReviewOpen() || e.MergeConflictOpen() || e.DataTableReviewOpen() || e.UsagesScreenOpen() || e.AgentReviewOpen() ||
+					e.SettingsOpen() || e.AssetGeneratorOpen() || e.ConnectDialogOpen() || e.PendingTurnPromptOpen() ||
+					e.BuildReleaseScreenOpen() || e.SketchActive() || e.SketchHoldActive() || e.SketchReviewOpen() || e.agentTurn == nil {
 					return false
 				}
 				return e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped
@@ -2494,6 +2468,9 @@ var builtinCommandKeys = map[string][3]string{
 	CmdSketchToggleReviewOverlay: {"cmd.sketchReviewOverlay.label", "cmd.sketchReviewOverlay.desc", "cmd.category.view"},
 	CmdSketchKeepReview:          {"cmd.sketchKeepReview.label", "cmd.sketchKeepReview.desc", "cmd.category.edit"},
 	CmdSketchRevertReview:        {"cmd.sketchRevertReview.label", "cmd.sketchRevertReview.desc", "cmd.category.edit"},
+	CmdKeepAgentTurn:             {"cmd.keepAgentTurn.label", "cmd.keepAgentTurn.desc", "cmd.category.edit"},
+	CmdRevertAgentTurn:           {"cmd.revertAgentTurn.label", "cmd.revertAgentTurn.desc", "cmd.category.edit"},
+	CmdStopAgentTurn:             {"cmd.stopAgentTurn.label", "cmd.stopAgentTurn.desc", "cmd.category.project"},
 }
 
 // Commands returns all currently active commands in deterministic order:
@@ -2849,6 +2826,15 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 					}
 					active, ok := e.resolveShortcutCommand(key)
 					if !ok {
+						if key == "mod+enter" &&
+							!e.PermissionsDraftOpen() && !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() &&
+							!e.ReviewOpen() && !e.MergeConflictOpen() && !e.DataTableReviewOpen() && !e.UsagesScreenOpen() &&
+							!e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.ConnectDialogOpen() &&
+							!e.PendingTurnPromptOpen() && !e.BuildReleaseScreenOpen() &&
+							e.AgentReviewOpen() && !e.Playing() {
+							_, err := e.KeepAllReviewChanges()
+							e.report(err)
+						}
 						return
 					}
 					if active.ID == CmdToolPaintTile && key == "b" && (e.TileReviewOpen() || e.ReviewOpen()) && e.ViewMode == ViewMode2D && !e.Playing() {

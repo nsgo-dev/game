@@ -232,6 +232,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetTasksForProject()
 	e.resetHistoryPanelForProject()
 	e.resetSketchForProject()
+	e.resetAgentTurnForProject()
 	e.applyViewStateSnap(nil)
 
 	e.Doc = DemoSceneDoc()
