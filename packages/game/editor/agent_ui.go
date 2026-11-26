@@ -1019,7 +1019,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 	pendingAskMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.PendingAgentPermissionAsk() != nil
+		return ed.PendingAgentPermissionAsk() != nil && !ed.CodeReviewOpen()
 	})
 	// Permission card keyboard shortcuts (Spec.dc.html "CARD · PERMISSION OR QUESTION FOCUSED"):
 	// Mod+Enter allows once, Alt+Enter adds Always rule, Mod+Backspace/Delete denies,
@@ -1078,7 +1078,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	}
 
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.shortcutCaptureActive || ed.CapturingKey() {
+		if ed.shortcutCaptureActive || ed.CapturingKey() || ed.CodeReviewOpen() {
 			return
 		}
 		if cardRef.HoldsFocus() {

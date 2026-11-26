@@ -2,6 +2,7 @@ package editormcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -73,7 +74,8 @@ func codeReviewTools() []Tool {
 			Title:       "Propose Go code changes for review",
 			Description: "Stage or update pending Go files (and optional companion YAML/prefab files) in the editor's file-by-file Go review without touching disk, so Play keeps running the old code until each Go file passes nsgo check and nsgo test and is confirmed by the author. Calling this while a review is active updates the same turn as round 2.",
 			InputSchema: []byte(codeReviewProposeSchema),
-			Action:      ActionEdit,
+			Action:      ActionCode,
+			targets:     codeReviewProposeTargets,
 			Handler:     codeReviewPropose,
 		},
 		{
@@ -90,9 +92,54 @@ func codeReviewTools() []Tool {
 			Description: "Run nsgo check and nsgo test against the editor's pending Go files via a Go build overlay without modifying files on disk, unlocking per-file confirmation only when all checks pass.",
 			InputSchema: []byte(codeReviewRunChecksSchema),
 			Action:      ActionRun,
+			Target:      codeReviewRunChecksTarget,
 			Handler:     codeReviewRunChecks,
 		},
 	}
+}
+
+func codeReviewProposeTargets(args json.RawMessage, _ *editor.Editor) []editor.PermissionRequest {
+	var in codeReviewProposeArgs
+	if err := json.Unmarshal(args, &in); err != nil || len(in.Files) == 0 {
+		return nil
+	}
+	runChecks := true
+	if in.RunChecks != nil {
+		runChecks = *in.RunChecks
+	}
+	reqs := make([]editor.PermissionRequest, 0, len(in.Files)+1)
+	hasGo := false
+	for _, pf := range in.Files {
+		target := strings.TrimSpace(pf.Path)
+		action := editor.PermissionActionEdit
+		isGo := strings.HasSuffix(strings.ToLower(target), ".go")
+		if isGo {
+			hasGo = true
+		}
+		switch {
+		case pf.Delete:
+			action = editor.PermissionActionDelete
+		case isGo:
+			action = editor.PermissionActionCode
+		}
+		reqs = append(reqs, editor.PermissionRequest{
+			Tool:   ToolCodeReviewPropose,
+			Action: action,
+			Target: target,
+		})
+	}
+	if runChecks && hasGo {
+		reqs = append(reqs, editor.PermissionRequest{
+			Tool:   ToolCodeReviewPropose,
+			Action: editor.PermissionActionRun,
+			Target: editor.PermissionRunGameCheck,
+		})
+	}
+	return reqs
+}
+
+func codeReviewRunChecksTarget(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {
+	return editor.PermissionActionRun, editor.PermissionRunGameCheck
 }
 
 // CodeReviewFileSummary is one file entry in CodeReviewStatusResult.

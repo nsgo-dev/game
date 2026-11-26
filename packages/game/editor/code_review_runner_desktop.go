@@ -17,8 +17,62 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+const (
+	maxCodeReviewCheckOutputBytes = 512 * 1024
+	maxCodeReviewStderrBytes      = 256 * 1024
+	maxCodeReviewTestLinesBytes   = 64 * 1024
+)
+
+type codeReviewBoundedBuf struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *codeReviewBoundedBuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit <= 0 {
+		return len(p), nil
+	}
+	remain := b.limit - b.buf.Len()
+	if remain > 0 {
+		if len(p) <= remain {
+			_, _ = b.buf.Write(p)
+		} else {
+			_, _ = b.buf.Write(p[:remain])
+			b.truncated = true
+		}
+	} else if len(p) > 0 {
+		b.truncated = true
+	}
+	return len(p), nil
+}
+
+func (b *codeReviewBoundedBuf) WriteString(s string) {
+	_, _ = b.Write([]byte(s))
+}
+
+func (b *codeReviewBoundedBuf) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func (b *codeReviewBoundedBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.buf.String()
+	if b.truncated {
+		return s + "\n... (output truncated)"
+	}
+	return s
+}
 
 // BuildGoOverlay writes a temporary Go build overlay JSON file mapping each pending Go file inside projectDir
 // to its staged content in a temporary directory, leaving projectDir on disk untouched.
@@ -36,7 +90,7 @@ func BuildGoOverlay(projectDir string, pending map[string]PendingGoOverlayFile) 
 		realRoot = eval
 	}
 
-	// GOFLAGS splits tokens on whitespace, so ensure the overlay file lives in a space-free temp dir.
+	// GOFLAGS splits tokens on whitespace, so prefer a space-free temp dir.
 	baseTmp := os.TempDir()
 	if strings.ContainsAny(baseTmp, " \t\r\n") && runtime.GOOS != "windows" {
 		baseTmp = "/tmp"
@@ -65,6 +119,10 @@ func BuildGoOverlay(projectDir string, pending map[string]PendingGoOverlayFile) 
 	for idx, rel := range keys {
 		clean, err := cleanCodeReviewPath(rel)
 		if err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		if _, err := resolveCodeReviewAbsPath(projectDir, clean); err != nil {
 			cleanup()
 			return "", nil, err
 		}
@@ -107,7 +165,7 @@ func BuildGoOverlay(projectDir string, pending map[string]PendingGoOverlayFile) 
 // withOverlayGOFLAGS returns a copy of env with GOFLAGS updated to include -overlay=<overlayPath>
 // (replacing any pre-existing -overlay=... flag while preserving other GOFLAGS tokens).
 func withOverlayGOFLAGS(env []string, overlayPath string) []string {
-	if overlayPath == "" {
+	if overlayPath == "" || strings.ContainsAny(overlayPath, "\r\n\x00") {
 		return env
 	}
 	out := make([]string, 0, len(env)+1)
@@ -120,15 +178,40 @@ func withOverlayGOFLAGS(env []string, overlayPath string) []string {
 		out = append(out, kv)
 	}
 	var kept []string
-	for _, tok := range strings.Fields(existing) {
-		if strings.HasPrefix(tok, "-overlay=") {
+	tokens := strings.Fields(existing)
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
+		if tok == "-overlay" || tok == "--overlay" {
+			i++ // skip separate flag argument too
+			continue
+		}
+		if strings.HasPrefix(tok, "-overlay=") || strings.HasPrefix(tok, "--overlay=") {
 			continue
 		}
 		kept = append(kept, tok)
 	}
-	kept = append(kept, "-overlay="+overlayPath)
+	flag := "-overlay=" + overlayPath
+	if strings.ContainsAny(overlayPath, " \t") && !strings.ContainsRune(overlayPath, '\'') {
+		// Go's GOFLAGS parser (internal/quoted.Split) supports single-quoted tokens containing spaces.
+		flag = "'" + flag + "'"
+	}
+	kept = append(kept, flag)
 	out = append(out, "GOFLAGS="+strings.Join(kept, " "))
 	return out
+}
+
+func validateCodeReviewPackage(pkg string) error {
+	if pkg == "." {
+		return nil
+	}
+	if !strings.HasPrefix(pkg, "./") || strings.ContainsAny(pkg, "\r\n\x00") {
+		return fmt.Errorf("editor: invalid Go package path %q", pkg)
+	}
+	cleaned := path.Clean(strings.TrimPrefix(pkg, "./"))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "-") {
+		return fmt.Errorf("editor: invalid Go package path %q", pkg)
+	}
+	return nil
 }
 
 type goTestJSONEvent struct {
@@ -145,6 +228,15 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 	if len(pkgs) == 0 {
 		pkgs = []string{"."}
 	}
+	for _, pkg := range pkgs {
+		if err := validateCodeReviewPackage(pkg); err != nil {
+			return CodeReviewCheckResult{
+				Phase:      CodeReviewChecksFailed,
+				CheckError: err.Error(),
+				Duration:   time.Since(started),
+			}, err
+		}
+	}
 	res := CodeReviewCheckResult{
 		Phase:         CodeReviewChecksRunning,
 		Packages:      slices.Clone(pkgs),
@@ -154,18 +246,37 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 	env := withOverlayGOFLAGS(os.Environ(), req.OverlayPath)
 
 	// 1. Run `go tool nsgo check <pkg>` for each affected package using the Go build overlay.
-	var checkOutBuf strings.Builder
+	checkOutBuf := &codeReviewBoundedBuf{limit: maxCodeReviewCheckOutputBytes}
 	res.CheckPassed = true
 	for _, pkg := range pkgs {
+		if err := ctx.Err(); err != nil {
+			res.CheckPassed = false
+			res.CheckError = err.Error()
+			res.Duration = time.Since(started)
+			res.Phase = CodeReviewChecksFailed
+			return res, err
+		}
 		cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "check", pkg)
 		cmd.Dir = req.ProjectDir
 		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if len(out) > 0 {
+		configureCodeReviewCmd(cmd)
+		cmdBuf := &codeReviewBoundedBuf{limit: maxCodeReviewCheckOutputBytes}
+		cmd.Stdout = cmdBuf
+		cmd.Stderr = cmdBuf
+		err := cmd.Run()
+		if cmdBuf.Len() > 0 {
 			if checkOutBuf.Len() > 0 {
-				checkOutBuf.WriteByte('\n')
+				checkOutBuf.WriteString("\n")
 			}
-			checkOutBuf.Write(out)
+			checkOutBuf.WriteString(cmdBuf.String())
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			res.CheckPassed = false
+			res.CheckOutput = strings.TrimSpace(checkOutBuf.String())
+			res.CheckError = ctxErr.Error()
+			res.Duration = time.Since(started)
+			res.Phase = CodeReviewChecksFailed
+			return res, ctxErr
 		}
 		if err != nil {
 			res.CheckPassed = false
@@ -179,14 +290,22 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 	res.CheckOutput = strings.TrimSpace(checkOutBuf.String())
 
 	// 2. Run `go tool nsgo test -json <pkg> -count=1` and stream progress & failures.
-	var testOutBuf strings.Builder
+	testOutBuf := &codeReviewBoundedBuf{limit: maxCodeReviewCheckOutputBytes}
 	res.TestPassed = true
 	for _, pkg := range pkgs {
+		if err := ctx.Err(); err != nil {
+			res.TestPassed = false
+			res.CheckError = err.Error()
+			res.Duration = time.Since(started)
+			res.Phase = CodeReviewChecksFailed
+			return res, err
+		}
 		cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "test", "-json", pkg, "-count=1")
 		cmd.Dir = req.ProjectDir
 		cmd.Env = env
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
+		configureCodeReviewCmd(cmd)
+		stderr := &codeReviewBoundedBuf{limit: maxCodeReviewStderrBytes}
+		cmd.Stderr = stderr
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			res.TestPassed = false
@@ -204,6 +323,15 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 		}
 
 		testLines := make(map[string][]string)
+		testLineBytes := make(map[string]int)
+		appendTestLine := func(name, line string) {
+			if testLineBytes[name]+len(line) > maxCodeReviewTestLinesBytes {
+				return
+			}
+			testLines[name] = append(testLines[name], line)
+			testLineBytes[name] += len(line)
+		}
+
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for scanner.Scan() {
@@ -215,7 +343,11 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 			if ev.Output != "" {
 				testOutBuf.WriteString(ev.Output)
 				if ev.Test != "" {
-					testLines[ev.Test] = append(testLines[ev.Test], ev.Output)
+					appendTestLine(ev.Test, ev.Output)
+					// Also retain subtest failure output under its top-level test so subtest file:line failures surface clearly.
+					if root, _, isSub := strings.Cut(ev.Test, "/"); isSub && root != "" {
+						appendTestLine(root, ev.Output)
+					}
 				}
 			}
 			if ev.Test == "" || strings.Contains(ev.Test, "/") {
@@ -253,12 +385,26 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 				}
 			}
 		}
+		scanErr := scanner.Err()
 		waitErr := cmd.Wait()
-		if waitErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			res.TestPassed = false
+			res.CheckError = ctxErr.Error()
+			res.Duration = time.Since(started)
+			res.Phase = CodeReviewChecksFailed
+			return res, ctxErr
+		}
+		if waitErr != nil || scanErr != nil {
 			res.TestPassed = false
 			if len(res.Failures) == 0 {
 				combined := strings.TrimSpace(testOutBuf.String() + "\n" + stderr.String())
-				res.CheckError = firstNonEmptyLine(combined, waitErr.Error())
+				fallback := ""
+				if waitErr != nil {
+					fallback = waitErr.Error()
+				} else if scanErr != nil {
+					fallback = scanErr.Error()
+				}
+				res.CheckError = firstNonEmptyLine(combined, fallback)
 			}
 		}
 	}
@@ -311,9 +457,14 @@ func openExternalSourceFileOS(absPath string) error {
 	case "darwin":
 		cmd = exec.Command("open", absPath)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", absPath)
+		// Use rundll32 directly rather than cmd /c start so path metacharacters cannot inject shell commands.
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", absPath)
 	default:
 		cmd = exec.Command("xdg-open", absPath)
 	}
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,7 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
@@ -59,7 +62,11 @@ const (
 	CodeReviewTagRound2      CodeReviewLineTag = "round 2"
 )
 
-const defaultCodeReviewChecksTimeout = 5 * time.Minute
+const (
+	defaultCodeReviewChecksTimeout = 5 * time.Minute
+	maxCodeReviewFiles             = 64
+	maxCodeReviewFileBytes         = 2 * 1024 * 1024
+)
 
 var (
 	// ErrNoCodeReview is returned when a Go code review action runs with no active review session.
@@ -348,10 +355,11 @@ type codeReviewState struct {
 	session *CodeReviewSession
 	rev     uint64
 
-	checkMu     sync.Mutex
-	checkGen    uint64
-	checkCancel context.CancelFunc
-	checkDone   chan struct{}
+	checkMu        sync.Mutex
+	checkGen       uint64
+	checkCancel    context.CancelFunc
+	checkDone      chan struct{}
+	checkDoneClose func()
 }
 
 func (e *Editor) codeReviewStateRev() uint64 {
@@ -377,11 +385,16 @@ func (e *Editor) cancelCodeReviewChecks() {
 	e.codeReview.checkMu.Lock()
 	e.codeReview.checkGen++
 	cancel := e.codeReview.checkCancel
+	closeDone := e.codeReview.checkDoneClose
 	e.codeReview.checkCancel = nil
 	e.codeReview.checkDone = nil
+	e.codeReview.checkDoneClose = nil
 	e.codeReview.checkMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if closeDone != nil {
+		closeDone()
 	}
 }
 
@@ -467,7 +480,7 @@ func cleanCodeReviewPath(raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("editor: empty file path")
 	}
-	if strings.ContainsRune(raw, 0) {
+	if strings.ContainsRune(raw, 0) || strings.IndexFunc(raw, unicode.IsControl) >= 0 {
 		return "", errors.New("editor: invalid file path")
 	}
 	slashed := strings.ReplaceAll(raw, `\`, "/")
@@ -475,13 +488,18 @@ func cleanCodeReviewPath(raw string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrCodeReviewPathOutsideProject, raw)
 	}
 	clean := path.Clean(slashed)
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || !fs.ValidPath(clean) {
 		return "", fmt.Errorf("%w: %s", ErrCodeReviewPathOutsideProject, raw)
 	}
 	return clean, nil
 }
 
-// resolveCodeReviewAbsPath resolves cleanRel inside projectDir and refuses symlink escapes outside projectDir.
+func isCodeReviewGitPath(cleanRel string) bool {
+	lower := strings.ToLower(cleanRel)
+	return lower == ".git" || strings.HasPrefix(lower, ".git/")
+}
+
+// resolveCodeReviewAbsPath resolves cleanRel inside projectDir and refuses symlink escapes (including broken symlinks) outside projectDir.
 func resolveCodeReviewAbsPath(projectDir, cleanRel string) (string, error) {
 	if projectDir == "" {
 		return "", errors.New("editor: no project directory is open")
@@ -495,15 +513,29 @@ func resolveCodeReviewAbsPath(projectDir, cleanRel string) (string, error) {
 		realRoot = eval
 	}
 	target := filepath.Join(absRoot, filepath.FromSlash(cleanRel))
-	// Walk upward to the deepest existing ancestor to verify symlink containment even for brand-new files.
-	probe := target
+
+	// Check the target itself first: if it exists (including as a broken symlink), EvalSymlinks must succeed and remain inside realRoot.
+	if _, lerr := os.Lstat(target); lerr == nil {
+		eval, serr := filepath.EvalSymlinks(target)
+		if serr != nil || !isSubpath(realRoot, eval) {
+			return "", fmt.Errorf("%w: %s", ErrCodeReviewPathOutsideProject, cleanRel)
+		}
+		return target, nil
+	} else if !errors.Is(lerr, fs.ErrNotExist) {
+		return "", lerr
+	}
+
+	// For a new file, walk upward to the deepest existing ancestor; if any existing ancestor is a broken or escaping symlink, refuse it.
+	probe := filepath.Dir(target)
 	for {
-		if eval, err := filepath.EvalSymlinks(probe); err == nil {
-			rel, relErr := filepath.Rel(realRoot, eval)
-			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if _, lerr := os.Lstat(probe); lerr == nil {
+			eval, serr := filepath.EvalSymlinks(probe)
+			if serr != nil || !isSubpath(realRoot, eval) {
 				return "", fmt.Errorf("%w: %s", ErrCodeReviewPathOutsideProject, cleanRel)
 			}
 			break
+		} else if !errors.Is(lerr, fs.ErrNotExist) {
+			return "", lerr
 		}
 		parent := filepath.Dir(probe)
 		if parent == probe {
@@ -531,6 +563,9 @@ func (e *Editor) ProposeCodeReviewFiles(req CodeReviewProposeRequest) error {
 	if len(req.Files) == 0 {
 		return errors.New("editor: at least one file is required for code review")
 	}
+	if len(req.Files) > maxCodeReviewFiles {
+		return fmt.Errorf("editor: too many files (%d) in code review proposal (max %d)", len(req.Files), maxCodeReviewFiles)
+	}
 	projectDir := e.codeReviewProjectRoot()
 
 	// Validate and normalize every path before mutating state.
@@ -545,9 +580,20 @@ func (e *Editor) ProposeCodeReviewFiles(req CodeReviewProposeRequest) error {
 	items := make([]resolvedItem, 0, len(req.Files))
 	seen := make(map[string]bool, len(req.Files))
 	for _, pf := range req.Files {
+		if len(pf.Content) > maxCodeReviewFileBytes {
+			return fmt.Errorf("editor: proposed file %q exceeds %d-byte limit", pf.Path, maxCodeReviewFileBytes)
+		}
 		rel, err := cleanCodeReviewPath(pf.Path)
 		if err != nil {
 			return err
+		}
+		if isCodeReviewGitPath(rel) {
+			return fmt.Errorf("editor: refusing to stage Git metadata path %q in code review", rel)
+		}
+		if dom, ok := e.CheckYouOnlyTarget(rel); ok {
+			return fmt.Errorf("editor: %s is protected under %s (You only) and cannot be staged in code review", rel, dom.DisplayName())
+		} else if dom, ok := MatchYouOnlyPath(rel); ok {
+			return fmt.Errorf("editor: %s is protected under %s (You only) and cannot be staged in code review", rel, dom.DisplayName())
 		}
 		if seen[rel] {
 			return fmt.Errorf("editor: duplicate file %q in code review proposal", rel)
@@ -641,6 +687,16 @@ func (e *Editor) ProposeCodeReviewFiles(req CodeReviewProposeRequest) error {
 	for _, it := range items {
 		existing := sess.FindFile(it.rel)
 		if existing != nil {
+			if existing.Applied && it.abs != "" {
+				// File was already written to disk by an earlier Keep; refresh Original from disk so a subsequent Undo restores the post-Keep content.
+				if data, err := os.ReadFile(it.abs); err == nil {
+					existing.Original = string(data)
+					existing.Existed = true
+				} else {
+					existing.Original = ""
+					existing.Existed = false
+				}
+			}
 			existing.PreviousRound = existing.Pending
 			existing.Pending = it.content
 			existing.Delete = it.del
@@ -705,7 +761,9 @@ func (e *Editor) ProposeCodeReviewFiles(req CodeReviewProposeRequest) error {
 		return strings.Compare(a.Path, b.Path)
 	})
 
-	sess.EditGen++
+	if touchedGo || sess.EditGen == 0 {
+		sess.EditGen++
+	}
 	if touchedGo {
 		// Any Go change invalidates prior confirmations and check passes across all Go files in the review.
 		for _, f := range sess.Files {
@@ -734,6 +792,7 @@ func (e *Editor) ProposeCodeReviewFiles(req CodeReviewProposeRequest) error {
 	sess.LastErr = ""
 	if req.Open {
 		sess.Open = true
+		e.closeComposerPopovers()
 	}
 	if sess.SelectedPath == "" || sess.FindFile(sess.SelectedPath) == nil {
 		if goFiles := sess.GoFiles(); len(goFiles) > 0 {
@@ -810,6 +869,7 @@ func (e *Editor) OpenCodeReview(selectPath string) {
 	sess := e.codeReview.session
 	sess.Open = true
 	sess.Paused = false
+	e.closeComposerPopovers()
 	if selectPath != "" {
 		if clean, err := cleanCodeReviewPath(selectPath); err == nil && sess.FindFile(clean) != nil {
 			sess.SelectedPath = clean
@@ -832,7 +892,7 @@ func (e *Editor) CloseCodeReview() {
 	}
 	sess := e.codeReview.session
 	sess.Open = false
-	if !sess.KeptYAML {
+	if !sess.KeptYAML || len(sess.WaitingGoFiles()) == 0 {
 		sess.Paused = true
 	}
 	waiting := len(sess.WaitingGoFiles())
@@ -1097,6 +1157,7 @@ type CodeReviewCheckRun struct {
 	pkgs       []string
 	pendingGo  map[string]PendingGoOverlayFile
 	prevTotal  int
+	runner     func(context.Context, CodeReviewCheckRequest, func(CodeReviewCheckProgress)) (CodeReviewCheckResult, error)
 }
 
 // PrepareCodeReviewCheckRun snapshots the active code review and marks checks running on the editor goroutine.
@@ -1104,6 +1165,8 @@ func (e *Editor) PrepareCodeReviewCheckRun() (*CodeReviewCheckRun, error) {
 	if e == nil || e.codeReview.session == nil {
 		return nil, ErrNoCodeReview
 	}
+	// Cancel any earlier in-flight async UI check so stale results cannot race with this run.
+	e.cancelCodeReviewChecks()
 	sess := e.codeReview.session
 	prevTotal := sess.Checks.TotalCount
 	if prevTotal == 0 {
@@ -1125,6 +1188,7 @@ func (e *Editor) PrepareCodeReviewCheckRun() (*CodeReviewCheckRun, error) {
 		pkgs:       pkgs,
 		pendingGo:  sess.pendingGoMap(),
 		prevTotal:  prevTotal,
+		runner:     e.CodeReviewCheckRunner,
 	}, nil
 }
 
@@ -1139,7 +1203,7 @@ func (e *Editor) ExecuteCodeReviewCheckRun(ctx context.Context, run *CodeReviewC
 		ctx, cancel = context.WithTimeout(context.Background(), defaultCodeReviewChecksTimeout)
 		defer cancel()
 	}
-	return e.executeCodeReviewChecks(ctx, run.projectDir, run.pkgs, run.pendingGo, run.prevTotal, func(prog CodeReviewCheckProgress) {
+	return executeCodeReviewChecks(ctx, run.runner, run.projectDir, run.pkgs, run.pendingGo, run.prevTotal, func(prog CodeReviewCheckProgress) {
 		e.postOrRun(func() {
 			if e.codeReview.session == run.sess && run.sess.EditGen == run.editGen {
 				run.sess.Checks.Completed = prog.Completed
@@ -1173,7 +1237,7 @@ func (e *Editor) RunCodeReviewChecks(ctx context.Context) error {
 		ctx, cancel = context.WithTimeout(context.Background(), defaultCodeReviewChecksTimeout)
 		defer cancel()
 	}
-	res, runErr := e.executeCodeReviewChecks(ctx, run.projectDir, run.pkgs, run.pendingGo, run.prevTotal, func(prog CodeReviewCheckProgress) {
+	res, runErr := executeCodeReviewChecks(ctx, run.runner, run.projectDir, run.pkgs, run.pendingGo, run.prevTotal, func(prog CodeReviewCheckProgress) {
 		if e.codeReview.session == run.sess && run.sess.EditGen == run.editGen {
 			run.sess.Checks.Completed = prog.Completed
 			if prog.Total > 0 {
@@ -1196,6 +1260,7 @@ func (e *Editor) RunCodeReviewChecksAsync() error {
 	projectDir := e.codeReviewProjectRoot()
 	pendingGo := sess.pendingGoMap()
 	pkgs := sess.goPackages()
+	runner := e.CodeReviewCheckRunner
 	prevTotal := sess.Checks.TotalCount
 	if prevTotal == 0 {
 		prevTotal = sess.Checks.ExpectedTotal
@@ -1204,11 +1269,16 @@ func (e *Editor) RunCodeReviewChecksAsync() error {
 	e.cancelCodeReviewChecks()
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCodeReviewChecksTimeout)
 	done := make(chan struct{})
+	var doneOnce sync.Once
+	finishDone := func() {
+		doneOnce.Do(func() { close(done) })
+	}
 	e.codeReview.checkMu.Lock()
 	e.codeReview.checkGen++
 	checkGen := e.codeReview.checkGen
 	e.codeReview.checkCancel = cancel
 	e.codeReview.checkDone = done
+	e.codeReview.checkDoneClose = finishDone
 	e.codeReview.checkMu.Unlock()
 
 	if sess.Checks.Phase != CodeReviewChecksFixing {
@@ -1221,8 +1291,7 @@ func (e *Editor) RunCodeReviewChecksAsync() error {
 	e.notify()
 
 	go func() {
-		defer close(done)
-		res, runErr := e.executeCodeReviewChecks(ctx, projectDir, pkgs, pendingGo, prevTotal, func(prog CodeReviewCheckProgress) {
+		res, runErr := executeCodeReviewChecks(ctx, runner, projectDir, pkgs, pendingGo, prevTotal, func(prog CodeReviewCheckProgress) {
 			e.postOrRun(func() {
 				e.codeReview.checkMu.Lock()
 				stale := e.codeReview.checkGen != checkGen
@@ -1239,12 +1308,14 @@ func (e *Editor) RunCodeReviewChecksAsync() error {
 			})
 		})
 		e.postOrRun(func() {
+			defer finishDone()
 			cancel()
 			e.codeReview.checkMu.Lock()
 			stale := e.codeReview.checkGen != checkGen
 			if !stale {
 				e.codeReview.checkCancel = nil
 				e.codeReview.checkDone = nil
+				e.codeReview.checkDoneClose = nil
 			}
 			e.codeReview.checkMu.Unlock()
 			if stale {
@@ -1256,8 +1327,9 @@ func (e *Editor) RunCodeReviewChecksAsync() error {
 	return nil
 }
 
-func (e *Editor) executeCodeReviewChecks(
+func executeCodeReviewChecks(
 	ctx context.Context,
+	runner func(context.Context, CodeReviewCheckRequest, func(CodeReviewCheckProgress)) (CodeReviewCheckResult, error),
 	projectDir string,
 	pkgs []string,
 	pendingGo map[string]PendingGoOverlayFile,
@@ -1285,8 +1357,8 @@ func (e *Editor) executeCodeReviewChecks(
 		OverlayPath:   overlayPath,
 		PreviousTotal: prevTotal,
 	}
-	if e.CodeReviewCheckRunner != nil {
-		return e.CodeReviewCheckRunner(ctx, req, onProgress)
+	if runner != nil {
+		return runner(ctx, req, onProgress)
 	}
 	return runDefaultCodeReviewChecks(ctx, req, onProgress)
 }
@@ -1357,6 +1429,9 @@ func (e *Editor) KeepCodeReview() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return errors.New("editor: exit history preview before keeping code review changes")
+	}
 	sess := e.codeReview.session
 	projectDir := e.codeReviewProjectRoot()
 	if projectDir == "" {
@@ -1367,10 +1442,12 @@ func (e *Editor) KeepCodeReview() error {
 	var batch []*CodeReviewFile
 	var yamlNames []string
 	var confirmedGoNames []string
+	totalPending := 0
 	for _, f := range sess.Files {
 		if f.Applied {
 			continue
 		}
+		totalPending++
 		if f.Kind == CodeReviewFileYAML {
 			batch = append(batch, f)
 			yamlNames = append(yamlNames, f.BaseName())
@@ -1384,6 +1461,9 @@ func (e *Editor) KeepCodeReview() error {
 	}
 
 	entries := make([]codeReviewFileWrite, 0, len(batch))
+	touchedFiles := make([]string, 0, len(batch))
+	beforeFiles := make(map[string]historyFileSnapshot, len(batch))
+	afterFiles := make(map[string]historyFileSnapshot, len(batch))
 	for _, f := range batch {
 		abs, err := resolveCodeReviewAbsPath(projectDir, f.Path)
 		if err != nil {
@@ -1398,19 +1478,49 @@ func (e *Editor) KeepCodeReview() error {
 			delete:   f.Delete,
 			file:     f,
 		})
+		touchedFiles = append(touchedFiles, f.Path)
+		beforeFiles[f.Path] = historyFileSnapshot{
+			exists: f.Existed,
+			data:   []byte(f.Original),
+		}
+		if f.Delete {
+			afterFiles[f.Path] = historyFileSnapshot{exists: false}
+		} else {
+			afterFiles[f.Path] = historyFileSnapshot{
+				exists: true,
+				data:   []byte(f.Pending),
+			}
+		}
 	}
 
 	label := buildCodeReviewKeepLabel(yamlNames, confirmedGoNames)
+	summary := label
+	if p := strings.TrimSpace(sess.Prompt); p != "" {
+		summary = p
+	}
 	cmd := &codeReviewApplyCmd{
 		ed:      e,
 		label:   label,
 		entries: entries,
 	}
-	if err := e.History.execute(cmd); err != nil {
-		sess.LastErr = err.Error()
+	prevMeta := e.historyPanel.pendingMeta
+	e.historyPanel.pendingMeta = &HistoryMeta{
+		Author:      HistoryAuthorAgent,
+		Summary:     summary,
+		Detail:      formatAgentTurnDetail("", totalPending, len(batch)),
+		Files:       touchedFiles,
+		ChangeCount: totalPending,
+		KeptCount:   len(batch),
+		BeforeFiles: beforeFiles,
+		AfterFiles:  afterFiles,
+	}
+	execErr := e.History.execute(cmd)
+	e.historyPanel.pendingMeta = prevMeta
+	if execErr != nil {
+		sess.LastErr = execErr.Error()
 		e.codeReview.rev++
 		e.notify()
-		return err
+		return execErr
 	}
 
 	waitingGo := sess.WaitingGoFiles()
@@ -1577,6 +1687,15 @@ func (c *codeReviewApplyCmd) undo() error {
 			en.file.Applied = false
 		}
 	}
+	if c.ed != nil && c.ed.codeReview.session != nil {
+		sess := c.ed.codeReview.session
+		if len(sess.YAMLFiles()) > 0 {
+			sess.KeptYAML = false
+			if !sess.Open {
+				sess.Paused = true
+			}
+		}
+	}
 	c.syncOpenEditorFiles()
 	return nil
 }
@@ -1586,8 +1705,7 @@ func (c *codeReviewApplyCmd) syncOpenEditorFiles() {
 		return
 	}
 	if c.ed.FilePath != "" {
-		openAbs, err := filepath.Abs(c.ed.FilePath)
-		if err == nil {
+		if openAbs, err := filepath.Abs(c.ed.FilePath); err == nil {
 			for _, en := range c.entries {
 				if en.absPath == openAbs {
 					if data, readErr := os.ReadFile(openAbs); readErr == nil {
@@ -1601,6 +1719,44 @@ func (c *codeReviewApplyCmd) syncOpenEditorFiles() {
 			}
 		}
 	}
+	if c.ed.ProjectPath != "" {
+		if projAbs, err := filepath.Abs(c.ed.ProjectPath); err == nil {
+			for _, en := range c.entries {
+				if en.absPath == projAbs {
+					if data, readErr := os.ReadFile(projAbs); readErr == nil {
+						if proj, parseErr := project.Parse(data); parseErr == nil {
+							c.ed.Project = proj
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+	for _, tab := range c.ed.tabs {
+		if tab == nil || tab.filePath == "" || tab.filePath == c.ed.FilePath {
+			continue
+		}
+		tabAbs, err := filepath.Abs(tab.filePath)
+		if err != nil {
+			continue
+		}
+		for _, en := range c.entries {
+			if en.absPath == tabAbs {
+				if data, readErr := os.ReadFile(tabAbs); readErr == nil {
+					if doc, parseErr := sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: c.ed.components}); parseErr == nil {
+						tab.doc = doc
+					}
+				}
+				break
+			}
+		}
+	}
+	c.ed.filesRev++
+	c.ed.assetsRev++
+	c.ed.invalidateProjectIndex()
+	c.ed.snapshotProjectTree()
+	c.ed.syncDiskWatchTargets()
 	c.ed.codeReview.rev++
 	c.ed.notify()
 }

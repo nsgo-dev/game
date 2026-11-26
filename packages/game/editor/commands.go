@@ -350,16 +350,16 @@ func (e *Editor) initBuiltinCommands() {
 		return
 	}
 	notPlaying := func() bool {
-		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.CodeReviewOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
 	}
 	canEdit := func() bool {
 		return notPlaying() && !e.HistoryPreviewActive()
 	}
 	inEditor := func() bool {
-		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.CodeReviewOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
 	}
 	hasProject := func() bool {
-		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.CodeReviewOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
 	}
 
 	e.commands = []EditorCommand{
@@ -384,7 +384,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeAgent,
 			Shortcut:    "mod+n",
 			Enabled: func() bool {
-				return !e.Playing() && e.RightRailTab() == RightRailAgent
+				return !e.CodeReviewOpen() && !e.Playing() && e.RightRailTab() == RightRailAgent
 			},
 			Run: func() error {
 				e.NewAgentThread()
@@ -2053,7 +2053,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "go", "code", "diff", "check", "test", "confirm", "agent"},
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.Playing() && e.HasPendingCodeReview()
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && e.HasPendingCodeReview()
 			},
 			Checked: func() bool { return e.CodeReviewOpen() },
 			Run: func() error {
@@ -3146,7 +3146,7 @@ func (e *Editor) dispatchBoundShortcut(key string) {
 	if e.shortcutCaptureActive || e.CapturingKey() {
 		return
 	}
-	if e.PendingAgentPermissionCardFocused() {
+	if e.PendingAgentPermissionCardFocused() && !e.CodeReviewOpen() {
 		switch key {
 		case "mod+enter":
 			e.AllowPermissionOnce()

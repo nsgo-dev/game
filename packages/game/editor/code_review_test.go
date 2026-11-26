@@ -773,3 +773,148 @@ func TestCodeReviewScreenshots(t *testing.T) {
 	app.Settle()
 	app.Screenshot("code-review/05-agent-waiting-card-dark")
 }
+
+func TestCodeReviewSecurityIntegrationAndEdgeCases(t *testing.T) {
+	dir, ed := setupCodeReviewProject(t)
+	ed.CodeReviewCheckRunner = func(_ context.Context, req editor.CodeReviewCheckRequest, onProgress func(editor.CodeReviewCheckProgress)) (editor.CodeReviewCheckResult, error) {
+		if onProgress != nil {
+			onProgress(editor.CodeReviewCheckProgress{Completed: 1, Total: 1, CurrentTest: "TestPatrol"})
+		}
+		return editor.CodeReviewCheckResult{
+			Phase:       editor.CodeReviewChecksPassed,
+			CheckPassed: true,
+			TestPassed:  true,
+			PassedCount: 1,
+			TotalCount:  1,
+			Packages:    req.Packages,
+		}, nil
+	}
+
+	// 1. Refuse You-only files, .git metadata, oversized proposals, and broken/escaping symlinks.
+	for _, forbidden := range []string{"permissions.yaml", "tools.yaml", ".git/config", ".git/hooks/pre-commit"} {
+		if err := ed.ProposeCodeReviewFiles(editor.CodeReviewProposeRequest{
+			Files: []editor.CodeReviewProposedFile{{Path: forbidden, Content: "x\n"}},
+		}); err == nil {
+			t.Fatalf("expected ProposeCodeReviewFiles(%q) to fail", forbidden)
+		}
+	}
+	if err := ed.ProposeCodeReviewFiles(editor.CodeReviewProposeRequest{
+		Files: []editor.CodeReviewProposedFile{{Path: "gameplay/huge.go", Content: strings.Repeat("a", 2*1024*1024+1)}},
+	}); err == nil {
+		t.Fatal("expected oversized proposed file to fail")
+	}
+	if runtime.GOOS != "windows" {
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "secret.go"), []byte("package secret\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		escapeLink := filepath.Join(dir, "gameplay", "escape.go")
+		if err := os.Symlink(filepath.Join(outside, "secret.go"), escapeLink); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.ProposeCodeReviewFiles(editor.CodeReviewProposeRequest{
+			Files: []editor.CodeReviewProposedFile{{Path: "gameplay/escape.go", Content: "package p\n"}},
+		}); err == nil {
+			t.Fatal("expected escaping symlink to be refused")
+		}
+		brokenLink := filepath.Join(dir, "gameplay", "broken.go")
+		if err := os.Symlink(filepath.Join(outside, "nonexistent.go"), brokenLink); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.ProposeCodeReviewFiles(editor.CodeReviewProposeRequest{
+			Files: []editor.CodeReviewProposedFile{{Path: "gameplay/broken.go", Content: "package p\n"}},
+		}); err == nil {
+			t.Fatal("expected broken symlink to be refused")
+		}
+		if _, _, err := editor.BuildGoOverlay(dir, map[string]editor.PendingGoOverlayFile{
+			"gameplay/escape.go": {Content: "package p\n"},
+		}); err == nil {
+			t.Fatal("expected BuildGoOverlay to refuse escaping symlink")
+		}
+	}
+
+	// 2. HasOpenReview pauses autosave while CodeReviewOpen, and async checks synchronize cleanly.
+	if err := ed.ProposeCodeReviewFiles(editor.CodeReviewProposeRequest{
+		Prompt: "Fix patrol edge detection",
+		Open:   true,
+		Files: []editor.CodeReviewProposedFile{
+			{Path: "prefabs/slime.prefab.yaml", Content: testPrefabPending},
+			{Path: "gameplay/patrol.go", Content: testPatrolRound2Fixed},
+		},
+	}); err != nil {
+		t.Fatalf("ProposeCodeReviewFiles: %v", err)
+	}
+	if !ed.HasOpenReview() {
+		t.Fatal("HasOpenReview() = false while CodeReviewOpen() is true")
+	}
+	if err := ed.RunCodeReviewChecksAsync(); err != nil {
+		t.Fatalf("RunCodeReviewChecksAsync: %v", err)
+	}
+	ed.WaitCodeReviewChecks()
+	if !ed.CanConfirmCodeReviewFile("gameplay/patrol.go") {
+		t.Fatal("CanConfirmCodeReviewFile = false after WaitCodeReviewChecks")
+	}
+
+	// 3. Updating a companion YAML file does not invalidate already-passed Go checks.
+	if err := ed.ProposeCodeReviewFiles(editor.CodeReviewProposeRequest{
+		PreserveTurn: true,
+		Open:         true,
+		Files: []editor.CodeReviewProposedFile{
+			{Path: "prefabs/slime.prefab.yaml", Content: testPrefabPending + "# note\n"},
+		},
+	}); err != nil {
+		t.Fatalf("YAML-only update: %v", err)
+	}
+	if !ed.CanConfirmCodeReviewFile("gameplay/patrol.go") {
+		t.Fatal("YAML-only proposal unexpectedly invalidated passing Go checks")
+	}
+
+	// 4. Partial Keep writes YAML only, records an Agent entry on History, and Undo resets KeptYAML cleanly.
+	if err := ed.KeepCodeReview(); err != nil {
+		t.Fatalf("partial KeepCodeReview: %v", err)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("HasOpenReview() = true after partial KeepCodeReview closed screen")
+	}
+	entries := ed.HistoryEntries()
+	if len(entries) == 0 || entries[0].Author != editor.HistoryAuthorAgent {
+		t.Fatalf("expected newest History entry to be HistoryAuthorAgent, got %+v", entries)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo() of partial Keep returned false")
+	}
+	if ed.CodeReviewSession().KeptYAML {
+		t.Fatal("KeptYAML remained true after undoing partial YAML Keep")
+	}
+
+	// 5. Re-keep YAML, confirm patrol.go, then Esc before Apply -> waiting/paused card MUST stay visible!
+	if err := ed.KeepCodeReview(); err != nil {
+		t.Fatalf("second partial KeepCodeReview: %v", err)
+	}
+	ed.OpenCodeReview("gameplay/patrol.go")
+	if err := ed.ConfirmCodeReviewFile("gameplay/patrol.go", true); err != nil {
+		t.Fatalf("ConfirmCodeReviewFile: %v", err)
+	}
+	ed.CloseCodeReview()
+	if !ed.CodeReviewHasWaitingCard() {
+		t.Fatal("CodeReviewHasWaitingCard() = false after confirming remaining Go file and pressing Esc before Apply")
+	}
+
+	// 6. KeepCodeReview refuses when HistoryPreviewActive is true.
+	if len(ed.HistoryEntries()) > 0 {
+		if err := ed.PreviewHistoryEntry(ed.HistoryEntries()[0].ID); err == nil {
+			if keepErr := ed.KeepCodeReview(); keepErr == nil {
+				t.Fatal("KeepCodeReview succeeded while HistoryPreviewActive is true")
+			}
+			ed.ExitHistoryPreview()
+		}
+	}
+
+	// 7. Apply remaining confirmed Go file and verify cleanup.
+	if err := ed.KeepCodeReview(); err != nil {
+		t.Fatalf("final KeepCodeReview: %v", err)
+	}
+	if ed.HasPendingCodeReview() {
+		t.Fatal("HasPendingCodeReview() = true after applying all files")
+	}
+}

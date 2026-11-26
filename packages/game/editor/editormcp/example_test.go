@@ -88,6 +88,9 @@ func ExampleServer_AddTool() {
 	// brief_edit edit
 	// checkpoint_list read
 	// checkpoint_restore edit
+	// code_review_propose code
+	// code_review_run_checks run
+	// code_review_status read
 	// cutscene_scrub read
 	// cutscene_write edit
 	// datatable_review_checks edit

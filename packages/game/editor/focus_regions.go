@@ -471,6 +471,7 @@ func (e *Editor) regionCyclingBlocked() bool {
 		e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() ||
 		e.ChangesOpen() ||
+		e.CodeReviewOpen() ||
 		e.HUDLayoutOpen() ||
 		e.BuildReleaseScreenOpen() ||
 		e.AssetGeneratorOpen() ||
