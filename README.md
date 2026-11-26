@@ -1,4 +1,6 @@
-# game
+<h1 align="center">
+  <img src=".github/banner.webp" alt="NSGo Game: write games in Go, ship one codebase to six platforms" width="100%">
+</h1>
 
 A game layer for [NSGo](https://github.com/nsgo-dev/nsgo) apps, written in Go, in two stages:
 
