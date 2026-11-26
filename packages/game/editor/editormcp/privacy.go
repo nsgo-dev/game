@@ -236,6 +236,17 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		if !policy.SceneAndData {
 			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolAgentTurnGet)
 		}
+	case ToolSketchRead:
+		var a struct {
+			IncludeImage *bool `json:"includeImage"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if a.IncludeImage != nil && *a.IncludeImage && !policy.ViewportImages {
+			return editor.PrivacyRefusalError(editor.PrivacyViewportImages, ToolSketchRead)
+		}
+		if !policy.SceneAndData {
+			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolSketchRead)
+		}
 	case ToolSceneRead:
 		var a struct {
 			File string `json:"file"`
@@ -353,6 +364,7 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		ToolBriefEdit,
 		ToolRulesEdit,
 		ToolHistoryList,
+		ToolSketchReading,
 		ToolReleaseNotesDraft,
 		ToolReviewStatus,
 		ToolReviewNotesGet,

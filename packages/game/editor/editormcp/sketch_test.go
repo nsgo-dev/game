@@ -265,3 +265,57 @@ func TestSketchHoldGateBlocksAllMutatingToolsRecordsObjectReviewAndIsRaceFree(t 
 		t.Fatalf("SketchReviewChanges = %+v, want hero recorded", changes)
 	}
 }
+
+func TestSketchToolsRespectPrivacyAndToolToggles(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	f.ed.AddSketchBox(10, 20, 40, 50, "spikes")
+	if _, err := f.ed.SendSketch("build spikes"); err != nil {
+		t.Fatalf("SendSketch: %v", err)
+	}
+
+	// Turning off Viewport images refuses sketch_read when an image is requested or implied by marks,
+	// while still allowing includeImage: false so coordinates can be read without sending pixels.
+	if err := f.ed.SetAgentPrivacy(editor.PrivacyViewportImages, false); err != nil {
+		t.Fatalf("SetAgentPrivacy(ViewportImages, false): %v", err)
+	}
+	if res := call(t, cs, editormcp.ToolSketchRead, map[string]any{"includeImage": true}); !res.IsError {
+		t.Fatal("sketch_read(includeImage:true) succeeded with ViewportImages disabled")
+	}
+	if res := call(t, cs, editormcp.ToolSketchRead, map[string]any{}); !res.IsError {
+		t.Fatal("sketch_read({}) with marks succeeded with ViewportImages disabled")
+	}
+	mustOK(t, call(t, cs, editormcp.ToolSketchRead, map[string]any{"includeImage": false}))
+
+	// Turning off Scene and data files refuses both sketch_read and sketch_reading.
+	if err := f.ed.SetAgentPrivacy(editor.PrivacySceneAndData, false); err != nil {
+		t.Fatalf("SetAgentPrivacy(SceneAndData, false): %v", err)
+	}
+	if res := call(t, cs, editormcp.ToolSketchRead, map[string]any{"includeImage": false}); !res.IsError {
+		t.Fatal("sketch_read succeeded with SceneAndData disabled")
+	}
+	if res := call(t, cs, editormcp.ToolSketchReading, map[string]any{
+		"items": []map[string]any{{"number": 1, "text": "Place spikes"}},
+	}); !res.IsError {
+		t.Fatal("sketch_reading succeeded with SceneAndData disabled")
+	}
+
+	// Restore privacy and verify Settings › Tools toggle disables sketch_reading cleanly.
+	if err := f.ed.SetAgentPrivacy(editor.PrivacySceneAndData, true); err != nil {
+		t.Fatalf("SetAgentPrivacy(SceneAndData, true): %v", err)
+	}
+	if err := f.ed.SetAgentPrivacy(editor.PrivacyViewportImages, true); err != nil {
+		t.Fatalf("SetAgentPrivacy(ViewportImages, true): %v", err)
+	}
+	if err := f.ed.SetMCPToolEnabled(editormcp.ToolSketchReading, false); err != nil {
+		t.Fatalf("SetMCPToolEnabled(sketch_reading, false): %v", err)
+	}
+	if res := call(t, cs, editormcp.ToolSketchReading, map[string]any{
+		"items": []map[string]any{{"number": 1, "text": "Place spikes"}},
+	}); !res.IsError || !strings.Contains(text(res), "turned off") {
+		t.Fatalf("disabled sketch_reading result = (err=%v, %q), want turned-off refusal", res.IsError, text(res))
+	}
+}
