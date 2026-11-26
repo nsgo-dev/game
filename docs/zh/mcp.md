@@ -348,6 +348,8 @@ claude mcp add game-editor -- nsgo game mcp
 
 把智能体的一次请求归为一个由用户保留或还原的回合、以及实时绘制智能体的编辑，会在各自的改动中基于这个服务器实现；在那之前，每次 `scene_edit` 调用就是一个普通的撤销步骤。
 
+当编辑器的自动保存处于失败状态时（例如目标目录只读或磁盘已满），`editormcp` 返回的每次工具结果都会追加一条警告，说明当前更改尚未写入磁盘并附上失败原因（同时在 `_meta` 中附带 `nsgo.dev/editsNotOnDisk`、`nsgo.dev/saveError`、`nsgo.dev/saveWarning`，并在 `Result` / `AutomationResult` 中填充 `SaveWarning`），直到保存成功为止，避免智能体基于未落盘的编辑继续构建。
+
 ### 变更流
 
 服务器有两个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。

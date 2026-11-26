@@ -518,6 +518,7 @@ func (e *Editor) CloseUsagesScreen() {
 	}
 	e.usages.open = false
 	e.usages.rev++
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 }
 

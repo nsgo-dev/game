@@ -30,6 +30,8 @@ type SceneTab struct {
 	Name string
 	// Dirty reports whether this tab's scene differs from what it was opened from or last saved to.
 	Dirty bool
+	// SaveFailed reports whether an automatic save for this tab is currently in a failed state.
+	SaveFailed bool
 	// Active reports whether this tab is the currently active tab.
 	Active bool
 }
@@ -370,15 +372,16 @@ func (e *Editor) Tabs() []SceneTab {
 			name = t.doc.Name
 		}
 		out[i] = SceneTab{
-			ID:        t.id,
-			Index:     i,
-			Label:     label,
-			Path:      full,
-			FilePath:  t.filePath,
-			ScenePath: t.scenePath,
-			Name:      name,
-			Dirty:     e.tabDirtyAt(i),
-			Active:    i == e.activeTab,
+			ID:         t.id,
+			Index:      i,
+			Label:      label,
+			Path:       full,
+			FilePath:   t.filePath,
+			ScenePath:  t.scenePath,
+			Name:       name,
+			Dirty:      e.tabDirtyAt(i),
+			SaveFailed: e.SaveFailedForTab(t.id),
+			Active:     i == e.activeTab,
 		}
 	}
 	return out
@@ -525,6 +528,7 @@ func (e *Editor) SaveTab(index int) error {
 			e.syncActiveTab()
 			e.invalidateProjectIndex()
 			e.rebuildDependentTabs(e.activeTabID())
+			e.recordSaveSucceeded()
 			e.Status = "Saved scene"
 			e.notify()
 			e.CheckProblems()
@@ -553,6 +557,7 @@ func (e *Editor) SaveTab(index int) error {
 		t.placeholder = false
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
+		e.recordSaveSucceeded()
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()
@@ -564,7 +569,7 @@ func (e *Editor) SaveTab(index int) error {
 		if err := os.MkdirAll(filepath.Dir(t.filePath), 0o755); err != nil {
 			return err
 		}
-		if err := writeFileAtomic(t.filePath, data); err != nil {
+		if err := e.saveWriter()(t.filePath, data); err != nil {
 			return err
 		}
 		t.sceneSaved = append([]byte(nil), data...)
@@ -578,6 +583,7 @@ func (e *Editor) SaveTab(index int) error {
 		e.snapshotProjectTree()
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
+		e.recordSaveSucceeded()
 		e.Status = "Saved " + t.filePath
 		e.notify()
 		e.CheckProblems()

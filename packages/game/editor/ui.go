@@ -117,6 +117,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopDiskWatcher()
 		ed.CloseObjectContextMenu()
 		ed.stopAgentTimers()
+		ed.stopAutoSave()
 		_ = ed.DisconnectProfiler()
 		ed.cancelAssetGenOps()
 		ed.DisconnectAllAssetGenerators()
@@ -150,6 +151,20 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	prompt := core.NewSignal[*unsavedPrompt](cx, nil)
 	pathMode := core.NewSignal(cx, pathNone)
 	pathTarget := core.NewSignal(cx, "")
+	ed.autosave.openSaveAs = func() {
+		if ed.Playing() || ed.Project == nil || ed.ProjectPath == "" {
+			return
+		}
+		p := ed.ScenePath
+		if p == "" {
+			p = "scenes/untitled.scene.yaml"
+		}
+		pathTarget.Set(p)
+		pathMode.Set(pathSaveAs)
+	}
+	cx.Cleanup(func() {
+		ed.autosave.openSaveAs = nil
+	})
 	bindSceneFileHooks(cx, ed, rev, dirty, prompt)
 	dragAreaKey.Provide(cx, true)
 
@@ -1818,24 +1833,38 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					},
 				},
 			},
-			core.Text{
-				TestID: "editor-status-message",
-				ContentFunc: func() string {
-					_ = rev.Get()
-					if delta := ed.GizmoDragDelta3D(); delta != "" {
-						return delta
-					}
-					if ed.BuildErr != nil {
-						return ed.T("status.buildError", l10n.Param("error", ed.BuildErr.Error()))
-					}
-					if ed.Status == "Ready" {
-						return ed.T("status.ready")
-					}
-					return ed.Status
-				},
+			core.View{
 				Style: core.Style{
-					FontSize: 11,
-					Color:    colors.Muted(),
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        12,
+					FlexShrink: 0,
+				},
+				Children: []core.Node{
+					core.Text{
+						TestID: "editor-status-message",
+						ContentFunc: func() string {
+							_ = rev.Get()
+							if delta := ed.GizmoDragDelta3D(); delta != "" {
+								return delta
+							}
+							if ed.BuildErr != nil {
+								return ed.T("status.buildError", l10n.Param("error", ed.BuildErr.Error()))
+							}
+							if ed.Status == "Ready" {
+								return ed.T("status.ready")
+							}
+							return ed.Status
+						},
+						MaxLines:      1,
+						EllipsizeMode: core.EllipsizeTail,
+						Style: core.Style{
+							FontSize: 11,
+							Color:    colors.Muted(),
+							MaxWidth: core.Pt(260),
+						},
+					},
+					saveStatusBarView(cx, ed, rev),
 				},
 			},
 		},

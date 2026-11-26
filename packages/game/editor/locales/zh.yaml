@@ -573,6 +573,15 @@ strings:
   region.statusBar: 状态栏
   region.toast: 通知
   region.viewport: 视口
+  saveStatus.errDiskFull: 无法保存：磁盘已满
+  saveStatus.errDiskFullFree: 无法保存：磁盘已满 · 剩余 {free}
+  saveStatus.errOther: 无法保存：{reason}
+  saveStatus.errReadOnly: 无法保存：文件夹为只读
+  saveStatus.retry: 重试
+  saveStatus.saveAs: 另存为…
+  saveStatus.saved: 已保存
+  saveStatus.savedAt: 已保存 · {time}
+  saveStatus.saving: 正在保存…
   scene.untitled: 未命名
   scene.untitledScene: 未命名场景
   sceneTree.active: 当前
@@ -635,12 +644,14 @@ strings:
   search.search: 搜索
   settings.appearance: 外观
   settings.appearanceHelp: 深色、浅色或跟随系统。
+  settings.autoSave: 自动保存
+  settings.autoSaveHelp: 仅自动保存已保留的更改，延迟 2 秒。
   settings.connectAnother: + 连接其他智能体或模型
   settings.dark: 深色
   settings.description: 此计算机的语言、外观与键盘快捷键设置。
   settings.done: 完成
   settings.general: 通用
-  settings.generalHelp: 语言与外观。
+  settings.generalHelp: 语言、外观与保存。
   settings.goGeneral: 打开通用设置
   settings.langChinese: 简体中文
   settings.langEnglish: English
@@ -802,6 +813,7 @@ strings:
   toolbar.terrain: 地形
   toolbar.translate: 平移
   toolbar.undo: 撤销
+  toolbar.unsavedFailedLabel: 未保存的更改 · 保存失败
   toolbar.unsavedLabel: 未保存的更改
 plurals:
   output.errorCount:

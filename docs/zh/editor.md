@@ -1115,15 +1115,20 @@ func main() {
 
 编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
 
-- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `language`、`appearance` 以及可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
+- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）以及可选的 `shortcuts`。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
   ```yaml
   # yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
   version: 1
   language: system
   appearance: system
+  autoSave: true
   shortcuts:
     view.frame: g
   ```
+- **自动保存与状态栏保存状态（#1016）**：
+  - **通用 › 自动保存（`Editor.AutoSave`、`Editor.SetAutoSave`）**：默认启用，并以 `autoSave` 字段保存在 `EditorSettings` 中。对有对应文件的场景与 `game.yaml` 的已保留更改会在 2 秒防抖延迟后自动保存（`DefaultAutoSaveDelay`，可通过 `Editor.AutoSaveDelay` 覆盖）。处于打开审查中的编辑（`Editor.HasOpenReview()`，涵盖 `BeginReview` / `KeepReview`、过场审查、试玩指标提案审查、安全重命名审查、合并冲突与未解决的外部磁盘冲突）尚未保留，在确认保留前不会自动保存。
+  - **状态栏保存状态项（`Editor.SaveStatus`，`SaveStatusSaved` / `SaveStatusSaving` / `SaveStatusFailed`）**：已保存时以柔和 Spec 样式显示 `已保存`（悬停提示显示上次保存时间）；仅当保存耗时超过 300 毫秒（`DefaultSavingIndicatorDelay`，可通过 `Editor.SavingIndicatorDelay` 配置）后才显示 `正在保存…`，避免快速保存闪烁；自动保存失败时会持续停留在状态栏中（从不以 toast 弹出），显示可读原因（如 `无法保存：文件夹为只读` 或 `无法保存：磁盘已满 · 剩余 12 MB`）以及**重试**（`Editor.RetrySave`）和**另存为…**操作，直到问题解决。
+  - **保存失败期间**：场景名称及失败标签页旁的未保存圆点变为 Spec 问题红（`#FF6B6B`），退出前会先询问（`Editor.HasUnsavedChanges()` 保持为 `true`），且 `editormcp` 会在后续每次工具结果中警告智能体当前更改未落盘，直到保存成功。
 - **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在**编辑器设置**对话框（`EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
 - **外观（`core.Scope.SetAppearance`）与 Spec 深/浅色主题（#1062）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`EditorView` 会在根作用域挂载内嵌的 YAML 规范主题（`spec_theme.yaml`，经由 `core.ParseTheme` 解析并通过 `SpecTheme`、`DarkSpecPalette`、`LightSpecPalette`、`SpecPaletteFor` 与 `Editor.SpecPalette` 暴露），使所有 NSGo `ui` 组件、面板、视口叠加层、叠加图例（`SpecOverlayLegendView` / `SetOverlayLegendOpen`）与轻提示 Toast（`ShowToast` / `DismissToast` / `ToastView`）在深色与浅色外观下都严格遵循 Spec 令牌，不再回退到 NSGo 默认主题。深浅两套调色板中的每一组前景/背景、强调按钮文字、警告卡片与视口叠加层均按同一张 WCAG 2.2 对比度表进行校验（`ContrastRatio`、`SpecContrastTable`：正文、胶囊文字及强调/智能体/问题填充上的文字均 >= 4.5:1 AA；焦点环与视口叠加层描边 >= 3:1 UI 对比度）。当设置为 `AppearanceSystem` 时，系统外观变化会实时重绘编辑器而无需重启；显式选择的 `AppearanceLight` 或 `AppearanceDark` 会持久化到 `Editor.SettingsPath` 并在重启后保持生效。
 - **快捷键：按作用域搜索与重绑（#1061）**：

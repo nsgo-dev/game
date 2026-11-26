@@ -818,6 +818,27 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						settingsRow(
 							curPal,
 							ed,
+							"editor-settings-autosave",
+							ed.T("settings.autoSave"),
+							ed.T("settings.autoSaveHelp"),
+							ui.Switch{
+								TestID: "editor-settings-autosave-switch",
+								Label:  ed.T("settings.autoSave"),
+								Size:   ui.SizeSmall,
+								Checked: func() bool {
+									_ = rev.Get()
+									return ed.AutoSave()
+								},
+								OnChange: func(on bool) {
+									ed.report(ed.SetAutoSave(on))
+								},
+							},
+							policyYouOnly,
+							nil,
+						),
+						settingsRow(
+							curPal,
+							ed,
 							"editor-settings-tools",
 							ed.T("settings.tools"),
 							ed.T("settings.toolsHelp"),

@@ -719,6 +719,7 @@ func (e *Editor) OpenPlaytestProposalReview(id string) {
 	if p := e.playtest.session.ProposalByID(id); p != nil {
 		e.playtest.session.ReviewProposalID = p.ID
 		e.playtest.session.ConfigPreviewOpen = false
+		e.cancelAutoSaveTimer()
 		e.playtest.rev++
 		e.notify()
 	}
@@ -731,6 +732,7 @@ func (e *Editor) ClosePlaytestProposalReview() {
 	}
 	e.playtest.session.ReviewProposalID = ""
 	e.playtest.rev++
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 }
 
@@ -785,6 +787,7 @@ func (e *Editor) ApplyPlaytestProposal(id string) error {
 	e.playtest.session.Notice = fmt.Sprintf("Applied metric %q to %s", p.MetricName, p.File)
 	e.Status = e.playtest.session.Notice
 	e.playtest.rev++
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }

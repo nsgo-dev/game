@@ -18,6 +18,8 @@ type AutomationResult struct {
 	Structured any `json:"structured,omitempty"`
 	// PNGBase64 is the tool's PNG in base64, or empty.
 	PNGBase64 string `json:"pngBase64,omitempty"`
+	// SaveWarning is set while the editor's automatic saving is failing, so the agent does not build on edits not on disk.
+	SaveWarning *SaveWarning `json:"saveWarning,omitempty"`
 }
 
 // RegisterAutomation registers the server's tools, as they are now, with github.com/nsgo-dev/nsgo/automation on cx, so that nsgo mcp offers them too while the editor runs under go tool nsgo dev -automation or go tool nsgo test, beside the tools that drive its windows. cx must be a scope on the editor's goroutine, the one Options.Run hands functions to; the tools are unregistered when cx is cleaned up. App tools run synchronously on that goroutine (nsgo-dev/nsgo#2342), so each call runs there from start to end: game_check holds the editor until the check ends. In ordinary and release builds automation registers nothing, and the server's own endpoint (Open) is how agents reach the editor.
@@ -37,7 +39,7 @@ func (s *Server) RegisterAutomation(cx *core.Scope) error {
 					}
 					return nil, err
 				}
-				out := AutomationResult{Text: res.Text, Structured: res.Structured}
+				out := AutomationResult{Text: res.Text, Structured: res.Structured, SaveWarning: res.SaveWarning}
 				if res.PNG != nil {
 					out.PNGBase64 = base64.StdEncoding.EncodeToString(res.PNG)
 				}

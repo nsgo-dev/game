@@ -101,11 +101,19 @@ type EditorSettings struct {
 	Language Language `yaml:"language" schema:"required,enum=system|en|zh"`
 	// Appearance selects the editor color scheme ("system", "light", or "dark").
 	Appearance Appearance `yaml:"appearance" schema:"required,enum=system|light|dark"`
+	// AutoSave controls whether kept edits save automatically after 2 seconds.
+	// When omitted, autosave is enabled by default.
+	AutoSave *bool `yaml:"autoSave,omitempty"`
 	// ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order.
 	// When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.
 	ViewportOverlays *[]string `yaml:"viewportOverlays,omitempty"`
 	// Shortcuts overrides default command shortcuts keyed by command ID (for example "view.frame": "g"). An empty string explicitly unbinds a command.
 	Shortcuts map[string]string `yaml:"shortcuts,omitempty"`
+}
+
+// AutoSaveEnabled reports whether automatic saving of kept changes is enabled (true when AutoSave is nil).
+func (s EditorSettings) AutoSaveEnabled() bool {
+	return s.AutoSave == nil || *s.AutoSave
 }
 
 // EditorSettingsTab selects which page is active in EditorSettingsDialogView.
@@ -293,6 +301,10 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 		Appearance: s.Appearance,
 		Shortcuts:  shortcuts,
 	}
+	if s.AutoSave != nil {
+		v := *s.AutoSave
+		out.AutoSave = &v
+	}
 	if s.ViewportOverlays != nil {
 		sorted := slices.Clone(*s.ViewportOverlays)
 		if sorted == nil {
@@ -367,6 +379,10 @@ func (e *Editor) Settings() EditorSettings {
 	if !s.Appearance.Valid() {
 		s.Appearance = AppearanceSystem
 	}
+	if s.AutoSave != nil {
+		v := *s.AutoSave
+		s.AutoSave = &v
+	}
 	if s.ViewportOverlays != nil {
 		cp := slices.Clone(*s.ViewportOverlays)
 		if cp == nil {
@@ -390,6 +406,39 @@ func (e *Editor) Language() Language {
 // Appearance returns the editor's configured appearance setting (AppearanceSystem, AppearanceLight, or AppearanceDark).
 func (e *Editor) Appearance() Appearance {
 	return e.Settings().Appearance
+}
+
+// AutoSave reports whether kept edits save automatically after AutoSaveDelay (default 2 s).
+func (e *Editor) AutoSave() bool {
+	return e.Settings().AutoSaveEnabled()
+}
+
+// SetAutoSave updates the per-user automatic saving preference live. When SettingsPath is non-empty, the updated settings are persisted to SettingsPath.
+func (e *Editor) SetAutoSave(enabled bool) error {
+	if e == nil {
+		return nil
+	}
+	cur := e.Settings()
+	changed := cur.AutoSave == nil || *cur.AutoSave != enabled
+	v := enabled
+	cur.AutoSave = &v
+	e.settings = cur
+	if enabled {
+		e.scheduleAutoSaveIfNeeded()
+	} else {
+		e.cancelAutoSaveTimer()
+	}
+	if !changed {
+		return nil
+	}
+	if e.SettingsPath != "" {
+		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
+			e.notify()
+			return err
+		}
+	}
+	e.notify()
+	return nil
 }
 
 // Dark reports whether the editor is currently shown in dark appearance: when a UI scope is attached it reflects cx.Dark() (combining SetAppearance, SetSubtreeAppearance, and the system appearance); otherwise it reports Appearance() == AppearanceDark.
@@ -463,6 +512,10 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	if err := ValidateEditorSettings(&s); err != nil {
 		return err
 	}
+	if s.AutoSave != nil {
+		v := *s.AutoSave
+		s.AutoSave = &v
+	}
 	if s.ViewportOverlays != nil {
 		cp := slices.Clone(*s.ViewportOverlays)
 		if cp == nil {
@@ -486,6 +539,11 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	}
 	e.settings = s
 	e.syncOverlaysFromSettings()
+	if s.AutoSaveEnabled() {
+		e.scheduleAutoSaveIfNeeded()
+	} else {
+		e.cancelAutoSaveTimer()
+	}
 	if e.scope != nil {
 		e.scope.SetAppearance(s.Appearance.CoreAppearance())
 	}

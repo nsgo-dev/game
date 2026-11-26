@@ -348,6 +348,8 @@ An `add`'s object is read by the scene format's own reader with the editor's com
 
 Grouping one request of the agent into one turn the person keeps or reverts, and drawing the agent's edits live, build on this server in their own changes; until then each `scene_edit` call is one ordinary undo step.
 
+While the editor's automatic saving is failing (for example into a read-only folder or a full disk), every tool result returned by `editormcp` appends a warning stating that edits are not on disk along with the failure reason (and attaches `nsgo.dev/editsNotOnDisk`, `nsgo.dev/saveError`, and `nsgo.dev/saveWarning` in `_meta`, plus `SaveWarning` on `Result` / `AutomationResult`) until a save succeeds, so the agent does not build on edits that have not landed on disk.
+
 ### The change stream
 
 The server has two resources: `editor://scene`, the open scene's YAML as the editor holds it, and `editor://selection`, the selection as `selection_get` reports it in JSON. A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"`. A burst of changes may come as one notice.
