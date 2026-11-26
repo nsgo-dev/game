@@ -1532,6 +1532,7 @@ func (e *Editor) OpenFile(path string) error {
 }
 
 func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLayerTable) error {
+	e.CloseAskInPlace()
 	rel, _ := e.projectRel(path)
 	if idx := e.findTabByPath(rel, path); idx >= 0 {
 		if e.playing {

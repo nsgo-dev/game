@@ -652,6 +652,7 @@ func (e *Editor) OpenSettingsPage(page SettingsPage) {
 	if e == nil || !page.Valid() {
 		return
 	}
+	e.CloseAskInPlace()
 	prevOpen := e.settingsOpen
 	prevPage := e.settingsPage
 	if prevOpen && prevPage == page {

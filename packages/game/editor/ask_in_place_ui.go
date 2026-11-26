@@ -21,33 +21,101 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		When: openMemo.Get,
 		Then: func(cx *core.Scope) core.Node {
 			var inputRef core.Ref
+			var closeRef core.Ref
+			var sendRef core.Ref
 			var cardRef core.Ref
+			var sugRefs [2]core.Ref
+			inputFocused := core.NewSignal(cx, false)
 
-			// Bind composer keys with KeyAlways while open so Esc closes cleanly and returns focus,
-			// ↵ / ⌘↵ send, ⇧↵ inserts a newline, and Up/Down navigate suggestions without blocking typing.
+			stepFocus := func(delta int) {
+				if ed.askInPlaceKeyBlocked() {
+					return
+				}
+				stops := make([]*core.Ref, 0, 5)
+				if refMounted(&inputRef) {
+					stops = append(stops, &inputRef)
+				}
+				nSug := min(len(ed.askInPlace.suggestions), len(sugRefs))
+				for i := 0; i < nSug; i++ {
+					if refMounted(&sugRefs[i]) {
+						stops = append(stops, &sugRefs[i])
+					}
+				}
+				if refMounted(&sendRef) {
+					stops = append(stops, &sendRef)
+				}
+				if refMounted(&closeRef) {
+					stops = append(stops, &closeRef)
+				}
+				if len(stops) == 0 {
+					return
+				}
+				cur := -1
+				for i, r := range stops {
+					if r.HoldsFocus() {
+						cur = i
+						break
+					}
+				}
+				next := 0
+				if cur >= 0 {
+					next = (cur + delta + len(stops)) % len(stops)
+				} else if delta < 0 {
+					next = len(stops) - 1
+				}
+				stops[next].Focus()
+			}
+
+			// Bind composer keys guarded against shortcut capture / higher-priority modals so Esc closes
+			// cleanly and returns focus, Tab/Shift+Tab stay trapped inside the card, ↵ / ⌘↵ send only when
+			// the input holds focus (never hijacking Close or Suggestion buttons), ⇧↵ inserts a newline,
+			// and Up/Down navigate suggestions without blocking typing.
 			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.askInPlaceKeyBlocked() {
+					return
+				}
 				ed.CloseAskInPlace()
 			})
+			cx.OnKeyWith("tab", core.KeyOptions{When: core.KeyAlways}, func() {
+				stepFocus(1)
+			})
+			cx.OnKeyWith("shift+tab", core.KeyOptions{When: core.KeyAlways}, func() {
+				stepFocus(-1)
+			})
 			cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.askInPlaceKeyBlocked() || !ed.AskInPlaceOpen() {
+					return
+				}
 				if _, err := ed.SubmitAskInPlace(); err != nil {
 					ed.report(err)
 				}
 			})
 			cx.OnKeyWith("shift+enter", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.askInPlaceKeyBlocked() || !inputFocused.Get() {
+					return
+				}
 				ed.InsertAskInPlaceNewline()
-				inputRef.Focus()
 			})
 			cx.OnKeyWith("enter", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.askInPlaceKeyBlocked() || !ed.AskInPlaceOpen() || !inputFocused.Get() {
+					return
+				}
 				if _, err := ed.SubmitAskInPlace(); err != nil {
 					ed.report(err)
 				}
 			})
 			cx.OnKeyWith("down", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.askInPlaceKeyBlocked() || !inputFocused.Get() {
+					return
+				}
 				if !strings.Contains(ed.askInPlace.draft, "\n") || ed.askInPlace.selectedSuggestion >= 0 {
 					ed.StepAskInPlaceSuggestion(1)
 				}
 			})
 			cx.OnKeyWith("up", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.askInPlaceKeyBlocked() || !inputFocused.Get() {
+					return
+				}
 				if !strings.Contains(ed.askInPlace.draft, "\n") || ed.askInPlace.selectedSuggestion >= 0 {
 					ed.StepAskInPlaceSuggestion(-1)
 				}
@@ -67,7 +135,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			cardKey := core.NewMemo(cx, func() chromeKey {
 				_ = rev.Get()
 				return chromeKey{
-					dark: cx.Dark(),
+					dark: ed.SpecPalette(cx).Dark,
 					lang: ed.ResolvedLanguage(),
 					seq:  ed.askInPlace.seq,
 				}
@@ -82,7 +150,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			suggestionsKey := core.NewMemo(cx, func() suggestKey {
 				_ = rev.Get()
 				return suggestKey{
-					dark:   cx.Dark(),
+					dark:   ed.SpecPalette(cx).Dark,
 					lang:   ed.ResolvedLanguage(),
 					seq:    ed.askInPlace.seq,
 					selIdx: ed.AskInPlaceSelectedSuggestion(),
@@ -233,6 +301,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						},
 						core.View{
 							TestID:    "ask-in-place-close",
+							Ref:       &closeRef,
 							Role:      core.RoleButton,
 							Label:     ed.T("askInPlace.close"),
 							Focusable: func() bool { return true },
@@ -255,8 +324,9 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					},
 				}
 
-				// Real labelled multi-line text field (stays stably mounted while typing and navigating suggestions).
-				inputNode := ui.Input{
+				// Real labelled multi-line text field wrapped with specInputField so Editor.IsTyping stays
+				// accurate and unmount-safe while typing and navigating suggestions.
+				inputNode := specInputField(cx, ed, ui.Input{
 					TestID:         "ask-in-place-input",
 					Ref:            &inputRef,
 					Label:          snap.InputLabel,
@@ -268,10 +338,19 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						_ = rev.Get()
 						return ed.askInPlace.draft
 					},
+					OnFocus: func() {
+						inputFocused.Set(true)
+					},
+					OnBlur: func() {
+						inputFocused.Set(false)
+					},
 					OnChange: func(text string) {
 						ed.SetAskInPlaceDraft(text)
 					},
 					OnSubmit: func(text string) {
+						if !ed.AskInPlaceOpen() || ed.askInPlaceKeyBlocked() {
+							return
+						}
 						if strings.TrimSpace(text) != "" && ed.askInPlace.draft != text {
 							ed.SetAskInPlaceDraft(text)
 						}
@@ -294,10 +373,11 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						FontSize:         13,
 						FocusVisible:     p.FocusRing(-2),
 					},
-				}
+				})
 
 				sendBtn := core.View{
 					TestID:    "ask-in-place-send",
+					Ref:       &sendRef,
 					Role:      core.RoleButton,
 					Label:     ed.T("askInPlace.send"),
 					Focusable: func() bool { return true },
@@ -375,8 +455,13 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 										chipBorder = sp.Accent.Edge
 										chipColor = sp.TextPrimary
 									}
+									var sugRef *core.Ref
+									if idx < len(sugRefs) {
+										sugRef = &sugRefs[idx]
+									}
 									footerChildren = append(footerChildren, core.View{
 										TestID:    fmt.Sprintf("ask-in-place-suggestion-%d", idx),
+										Ref:       sugRef,
 										Role:      core.RoleButton,
 										Label:     s.Label,
 										Focusable: func() bool { return true },
@@ -493,8 +578,18 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
 									pl := ed.AskInPlacePlacement()
+									vw, vh := ed.CanvasSize()
+									if vw <= 0 || vh <= 0 {
+										vw, vh = ed.ViewportSize()
+									}
 									tagLeft := max(core.Points(8), core.Points(pl.SelectionBounds[0]))
+									if vw > 0 {
+										tagLeft = min(tagLeft, max(core.Points(8), core.Points(vw)-96))
+									}
 									tagTop := max(core.Points(8), core.Points(pl.SelectionBounds[1]-24))
+									if vh > 0 {
+										tagTop = min(tagTop, max(core.Points(8), core.Points(vh)-26))
+									}
 									return core.Style{
 										Left: core.Pt(tagLeft),
 										Top:  core.Pt(tagTop),

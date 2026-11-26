@@ -202,7 +202,7 @@ layers:
 	}
 
 	// 4. Turn shows in the Agent panel and updates live when the agent calls agent_turn_reply.
-	if !app.Exists("id:editor-agent-panel") || !app.Exists("id:agent-turn-"+got.ID) {
+	if !app.Exists("id:agent-panel") || !app.Exists("id:agent-turn-0") {
 		t.Fatalf("turn %s not shown in Agent panel", got.ID)
 	}
 	var replyRes *mcp.CallToolResult
@@ -217,5 +217,27 @@ layers:
 	app.Settle()
 	if !app.Exists("id:agent-turn-reply-" + got.ID) {
 		t.Fatalf("agent reply not rendered in Agent panel for %s", got.ID)
+	}
+
+	// 5. agent_turn_reply rejects NUL bytes and replies exceeding 256 KiB.
+	var nulRes *mcp.CallToolResult
+	runMCP(func() {
+		nulRes = call(t, cs, editormcp.ToolAgentTurnReply, map[string]any{
+			"turnId": got.ID,
+			"reply":  "bad\x00reply",
+		})
+	})
+	if !nulRes.IsError {
+		t.Fatal("agent_turn_reply unexpectedly accepted NUL byte")
+	}
+	var hugeRes *mcp.CallToolResult
+	runMCP(func() {
+		hugeRes = call(t, cs, editormcp.ToolAgentTurnReply, map[string]any{
+			"turnId": got.ID,
+			"reply":  strings.Repeat("x", (256<<10)+1),
+		})
+	})
+	if !hugeRes.IsError {
+		t.Fatal("agent_turn_reply unexpectedly accepted oversized reply")
 	}
 }

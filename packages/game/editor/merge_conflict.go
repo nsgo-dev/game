@@ -239,6 +239,7 @@ func (e *Editor) OpenMergeConflictSession(cfg MergeConflictSessionConfig) error 
 	if !res.HasConflicts() {
 		return errors.New("editor: scenes merge cleanly with no conflicts")
 	}
+	e.CloseAskInPlace()
 
 	mineMeta := cfg.Mine
 	if mineMeta.Branch == "" {

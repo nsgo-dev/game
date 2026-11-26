@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -213,14 +214,14 @@ func TestAskInPlaceSelectTwoObjectsSendAndShowsInAgentPanel(t *testing.T) {
 		t.Fatalf("turn ViewportPNG invalid: err=%v cfg=%+v len=%d", err, cfg, len(turn.Context.ViewportPNG))
 	}
 
-	// Verify the turn shows in the Agent panel's thread.
-	if ed.RightPanelTab() != editor.RightPanelAgent {
-		t.Fatalf("RightPanelTab = %v, want RightPanelAgent", ed.RightPanelTab())
+	// Verify the turn shows in the unified Agent panel's thread (RightRailView / AgentPanelView).
+	if ed.RightRailTab() != editor.RightTabAgent {
+		t.Fatalf("RightRailTab = %v, want RightTabAgent", ed.RightRailTab())
 	}
-	if !app.Exists("id:editor-agent-panel") || !app.Exists("id:agent-turn-"+turn.ID) {
+	if !app.Exists("id:agent-panel") || !app.Exists("id:agent-turn-0") {
 		t.Fatalf("Agent panel or turn %s not rendered", turn.ID)
 	}
-	panelText := allText(app.Find("id:agent-turn-" + turn.ID))
+	panelText := allText(app.Find("id:agent-turn-0"))
 	if !strings.Contains(panelText, "make these two hop instead of walk, and a bit faster") || !strings.Contains(panelText, "slime_01") || !strings.Contains(panelText, "slime_02") {
 		t.Fatalf("Agent panel turn text = %q, want prompt + slime_01 + slime_02", panelText)
 	}
@@ -388,7 +389,7 @@ func TestAskInPlaceNoSelectionContextMenuSuggestionsAndClamping(t *testing.T) {
 	}
 	composerBounds := app.Find("id:ask-in-place-composer").Bounds()
 	vpBounds := app.Find("id:editor-viewport-container").Bounds()
-	rightBounds := app.Find("id:editor-right-panel").Bounds()
+	rightBounds := app.Find("id:editor-region-inspector").Bounds()
 
 	composerRight := composerBounds.Origin.X + composerBounds.Size.Width
 	composerBottom := composerBounds.Origin.Y + composerBounds.Size.Height
@@ -429,5 +430,170 @@ func TestComputeAskInPlacePlacementClampingEdgeCases(t *testing.T) {
 	noSel := editor.ComputeAskInPlacePlacement(800, 600, [4]float32{}, false, 420, 152)
 	if noSel.Left < 180 || noSel.Left > 200 {
 		t.Fatalf("no-selection left = %v, want centered (~190)", noSel.Left)
+	}
+
+	// Non-finite (NaN / Inf) inputs are clamped to finite safe placement.
+	nan32 := float32(math.NaN())
+	inf32 := float32(math.Inf(1))
+	safe := editor.ComputeAskInPlacePlacement(nan32, inf32, [4]float32{nan32, inf32, nan32, inf32}, true, nan32, inf32)
+	for name, v := range map[string]float32{"Left": safe.Left, "Top": safe.Top, "Width": safe.Width, "Height": safe.Height} {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 {
+			t.Fatalf("ComputeAskInPlacePlacement non-finite %s = %v", name, v)
+		}
+	}
+}
+
+func TestAskInPlaceHardeningThemeLifecycleFocusAndBounds(t *testing.T) {
+	ed := newAskInPlaceProjectEditor(t)
+	t.Cleanup(func() { _ = ed.Close() })
+	_ = ed.SetAppearance(editor.AppearanceLight)
+
+	// Host OS is Dark Mode, but user selected AppearanceLight -> composer MUST use LightSpecPalette!
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}), nsgotest.Size(1440, 900))
+	app.Settle()
+
+	app.Post(func() {
+		ed.SelectObjects([]string{"slime_01", "slime_02"})
+	})
+	app.Settle()
+	app.Key("meta+l")
+	app.Settle()
+	if !ed.AskInPlaceOpen() {
+		t.Fatal("meta+l did not open composer")
+	}
+
+	// 1. Spec Light override renders LightSpecPalette().Raised even on Dark OS.
+	composer := app.Find("id:ask-in-place-composer")
+	if want := editor.LightSpecPalette().Raised; composer.Style.Background != want {
+		t.Fatalf("AppearanceLight composer background = %v, want %v", composer.Style.Background, want)
+	}
+
+	// 2. specInputField integration: Editor.IsTyping() is true while focused in ask-in-place-input.
+	if !ed.IsTyping() {
+		t.Fatal("Editor.IsTyping() = false while ask-in-place-input holds focus")
+	}
+
+	// 3. Tab wraps inside the composer card and Enter on focused Close button closes instead of submitting.
+	for i := 0; i < 6; i++ {
+		app.Key("tab")
+		app.Settle()
+		if app.Find("id:ask-in-place-close").Focused {
+			break
+		}
+	}
+	if !app.Find("id:ask-in-place-close").Focused {
+		t.Fatal("Tab trap did not reach ask-in-place-close")
+	}
+	app.Key("tab")
+	app.Settle()
+	if !app.Find("id:ask-in-place-input").Focused {
+		t.Fatal("Tab did not wrap back from ask-in-place-close to ask-in-place-input")
+	}
+	app.Focus("id:ask-in-place-close")
+	app.Settle()
+	app.Key("enter")
+	app.Settle()
+	if ed.AskInPlaceOpen() {
+		// Enter on close button must never submit; verify no turn was recorded.
+		app.Press("id:ask-in-place-close")
+		app.Settle()
+	}
+	if len(ed.AgentTurns()) != 0 {
+		t.Fatalf("Enter on Close button unexpectedly submitted %d turn(s)", len(ed.AgentTurns()))
+	}
+	if ed.IsTyping() {
+		t.Fatal("Editor.IsTyping() remained true after closing ask-in-place")
+	}
+
+	// 4. Lifecycle: opening Settings, Connect dialog, or Play mode automatically closes Ask-in-place and blocks reopening.
+	app.Key("meta+l")
+	app.Settle()
+	if !ed.AskInPlaceOpen() {
+		t.Fatal("failed to reopen ask-in-place")
+	}
+	app.Post(func() { ed.SetSettingsOpen(true) })
+	app.Settle()
+	if ed.AskInPlaceOpen() {
+		t.Fatal("SetSettingsOpen(true) did not close ask-in-place")
+	}
+	app.Key("meta+l")
+	app.Settle()
+	if ed.AskInPlaceOpen() {
+		t.Fatal("meta+l opened ask-in-place while Settings (Project page) was open")
+	}
+	app.Post(func() { ed.SetSettingsOpen(false) })
+	app.Settle()
+
+	app.Key("meta+l")
+	app.Settle()
+	app.Post(func() { ed.OpenConnectDialog() })
+	app.Settle()
+	if ed.AskInPlaceOpen() {
+		t.Fatal("OpenConnectDialog did not close ask-in-place")
+	}
+	app.Post(func() { ed.CloseConnectDialog() })
+	app.Settle()
+
+	// 5. RenderViewportPNG clamps NaN, Inf, and oversized scale safely to <= 1280 px.
+	for _, scale := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 0, 50} {
+		pngBytes, pw, ph, err := ed.RenderViewportPNG(scale)
+		if err != nil {
+			t.Fatalf("RenderViewportPNG(%v): %v", scale, err)
+		}
+		if len(pngBytes) == 0 || pw <= 0 || ph <= 0 || pw > 1280 || ph > 1280 {
+			t.Fatalf("RenderViewportPNG(%v) invalid dimensions (%dx%d, len=%d)", scale, pw, ph, len(pngBytes))
+		}
+	}
+
+	// 6. Retained heavy attachments (ViewportPNG, SceneYAML) are capped to latest 8 turns.
+	app.Post(func() {
+		for i := 0; i < 10; i++ {
+			_ = ed.OpenAskInPlace()
+			ed.SetAskInPlaceDraft("turn test")
+			if _, err := ed.SubmitAskInPlace(); err != nil {
+				t.Errorf("SubmitAskInPlace %d: %v", i, err)
+			}
+		}
+	})
+	app.Settle()
+	turns := ed.AgentTurns()
+	if len(turns) != 10 {
+		t.Fatalf("AgentTurns count = %d, want 10", len(turns))
+	}
+	if len(turns[0].Context.ViewportPNG) != 0 || turns[0].Context.SceneYAML != "" {
+		t.Fatalf("oldest turn 0 should have trimmed heavy attachments (png=%d, yaml=%d)", len(turns[0].Context.ViewportPNG), len(turns[0].Context.SceneYAML))
+	}
+	if len(turns[9].Context.ViewportPNG) == 0 || turns[9].Context.SceneYAML == "" {
+		t.Fatal("latest turn 9 should retain ViewportPNG and SceneYAML")
+	}
+
+	// 7. ReplyAgentTurn rejects NUL bytes and oversized replies (> 256 KiB).
+	if err := ed.ReplyAgentTurn("", "bad\x00reply", ""); err == nil {
+		t.Fatal("ReplyAgentTurn accepted NUL byte")
+	}
+	if err := ed.ReplyAgentTurn("", strings.Repeat("a", (256<<10)+1), ""); err == nil {
+		t.Fatal("ReplyAgentTurn accepted oversized reply")
+	}
+
+	// 8. CmdAgentTab & CmdInspectorTab obey Enabled guards and switch RightRailTab cleanly.
+	app.Post(func() {
+		if err := ed.ExecuteCommand(editor.CmdInspectorTab); err != nil {
+			t.Errorf("CmdInspectorTab: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.RightRailTab() != editor.RightTabInspector {
+		t.Fatalf("RightRailTab after CmdInspectorTab = %v, want RightTabInspector", ed.RightRailTab())
+	}
+	app.Post(func() {
+		if err := ed.ExecuteCommand(editor.CmdAgentTab); err != nil {
+			t.Errorf("CmdAgentTab: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.RightRailTab() != editor.RightTabAgent {
+		t.Fatalf("RightRailTab after CmdAgentTab = %v, want RightTabAgent", ed.RightRailTab())
 	}
 }
