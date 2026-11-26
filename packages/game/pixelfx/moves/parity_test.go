@@ -14,10 +14,17 @@ var allEffects = []struct {
 	effect *pixelfx.Effect
 }{
 	{"arrow-shot", moves.ArrowShot},
+	{"dash-strike", moves.DashStrike},
 	{"earth-stomp", moves.EarthStomp},
+	{"fireball-throw", moves.FireballThrow},
 	{"ground-pound", moves.GroundPound},
+	{"holy-smite", moves.HolySmite},
+	{"ice-lance-throw", moves.IceLanceThrow},
+	{"lightning-call", moves.LightningCall},
+	{"meteor-call", moves.MeteorCall},
 	{"pistol-shots", moves.PistolShots},
 	{"rocket-launcher", moves.RocketLauncher},
+	{"sword-combo", moves.SwordCombo},
 }
 
 func TestMovesAreRegistered(t *testing.T) {
