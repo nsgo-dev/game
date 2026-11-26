@@ -948,6 +948,9 @@ func agentThreadConversationBody(
 	if activeRev := ed.ActiveAgentReview(); activeRev != nil {
 		nodes = append(nodes, agentTurnReviewDrawer(ed, activeRev, p))
 	}
+	if waitingCard := agentCodeReviewWaitingCard(ed, p); waitingCard != nil {
+		nodes = append(nodes, waitingCard)
+	}
 	if pendingAsk != nil {
 		nodes = append(nodes, agentPermissionCardView(p, ed, *pendingAsk, osKind, cardRef, allowOnceRef, allowAlwaysRef, denyRef))
 	} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {

@@ -120,6 +120,7 @@ const (
 	CmdRevertOverrides        = "scene.revertOverrides"
 	CmdGeneratedAssets        = "project.generatedAssets"
 	CmdConnectAgent           = "agent.connect"
+	CmdReviewCode             = "agent.reviewCode"
 	CmdAgentPanel             = "view.agent"
 	CmdAttachReferenceImage   = "agent.attachImage"
 	CmdPlayMark               = "play.mark"
@@ -2045,6 +2046,26 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdReviewCode,
+			Label:       "Review Agent Go Changes",
+			Description: "Open the file-by-file Go code review with nsgo check and nsgo test",
+			Category:    "Project",
+			Keywords:    []string{"review", "go", "code", "diff", "check", "test", "confirm", "agent"},
+			Scope:       ScopeGlobal,
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.Playing() && e.HasPendingCodeReview()
+			},
+			Checked: func() bool { return e.CodeReviewOpen() },
+			Run: func() error {
+				if e.CodeReviewOpen() {
+					e.CloseCodeReview()
+					return nil
+				}
+				e.OpenCodeReview("")
+				return nil
+			},
+		},
+		{
 			ID:          CmdAgentPanel,
 			Label:       "Agent Panel",
 			Description: "Toggle the right sidebar between the Agent panel and the Inspector",
@@ -2052,7 +2073,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"agent", "chat", "composer", "mcp", "inspector"},
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.CodeReviewOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
 			},
 			Checked: func() bool { return e.AgentPanelOpen() },
 			Run: func() error {
@@ -2731,6 +2752,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdEditorSettings:            {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
 	CmdShortcutsSettings:         {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
 	CmdConnectAgent:              {"cmd.connectAgent.label", "cmd.connectAgent.desc", "cmd.category.project"},
+	CmdReviewCode:                {"cmd.reviewCode.label", "cmd.reviewCode.desc", "cmd.category.project"},
 	CmdAgentPanel:                {"cmd.agentPanel.label", "cmd.agentPanel.desc", "cmd.category.view"},
 	CmdAttachReferenceImage:      {"cmd.attachReferenceImage.label", "cmd.attachReferenceImage.desc", "cmd.category.project"},
 	CmdPermissionsSettings:       {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
