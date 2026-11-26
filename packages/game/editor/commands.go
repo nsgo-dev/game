@@ -119,6 +119,7 @@ const (
 	CmdAddReflectionProbe = "scene.addReflectionProbe"
 	CmdAddLightProbeGrid  = "scene.addLightProbeGrid"
 	CmdBakeProbes3D       = "project.bakeProbes3D"
+	CmdReplayTips         = "help.replayTips"
 )
 
 var (
@@ -300,13 +301,13 @@ func (e *Editor) initBuiltinCommands() {
 		return
 	}
 	notPlaying := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
 	}
 	inEditor := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
 	}
 	hasProject := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
+		return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
 	}
 
 	e.commands = []EditorCommand{
@@ -458,7 +459,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"revert", "history"},
 			Shortcut:    "mod+z",
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.canUndo() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.Playing() && e.canUndo() },
 			Run: func() error {
 				e.Undo()
 				return nil
@@ -471,7 +472,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"repeat", "history"},
 			Shortcut:    "mod+shift+z",
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.canRedo() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.Playing() && e.canRedo() },
 			Run: func() error {
 				e.Redo()
 				return nil
@@ -1546,7 +1547,7 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:    "mod+shift+r",
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.BuildReleaseScreenOpen() || e.Project != nil)
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.BuildReleaseScreenOpen() || e.Project != nil)
 			},
 			Checked: func() bool { return e.BuildReleaseScreenOpen() },
 			Run: func() error {
@@ -1592,7 +1593,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeGlobal,
 			Shortcut:    "shift+f12",
 			Enabled: func() bool {
-				if e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() || e.HUDLayoutOpen() || e.Playing() || e.Project == nil {
+				if e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() || e.HUDLayoutOpen() || e.Playing() || e.Project == nil {
 					return false
 				}
 				if e.UsagesScreenOpen() {
@@ -1658,7 +1659,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"changes", "git", "diff", "commit", "push", "pull", "branch", "pr"},
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.ChangesOpen() || e.Project != nil || e.FilePath != "")
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.ChangesOpen() || e.Project != nil || e.FilePath != "")
 			},
 			Checked: func() bool { return e.ChangesOpen() },
 			Run: func() error {
@@ -1726,8 +1727,10 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"playtest", "report", "bot", "goals", "metrics", "chart", "heatmap", "replay"},
 			Scope:       ScopeGlobal,
 			Shortcut:    "mod+shift+y",
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() },
-			Checked:     func() bool { return e.PlaytestReportOpen() },
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing()
+			},
+			Checked: func() bool { return e.PlaytestReportOpen() },
 			Run: func() error {
 				e.SetPlaytestReportOpen(!e.PlaytestReportOpen())
 				return nil
@@ -1739,11 +1742,24 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Generate image and sound candidates via MCP generator servers, inspect style and licenses, and pick a candidate",
 			Category:    "Project",
 			Keywords:    []string{"generate", "assets", "mcp", "candidates", "license", "source", "brief", "sprite", "sound"},
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() },
-			Checked:     func() bool { return e.AssetGeneratorOpen() },
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing()
+			},
+			Checked: func() bool { return e.AssetGeneratorOpen() },
 			Run: func() error {
 				e.SetAssetGeneratorOpen(!e.AssetGeneratorOpen())
 				return nil
+			},
+		},
+		{
+			ID:          CmdReplayTips,
+			Label:       "Replay tips",
+			Description: "Reset dismissed first-run review tips so they show again",
+			Category:    "Help",
+			Keywords:    []string{"help", "tips", "replay", "onboarding", "first run", "review"},
+			Scope:       ScopeGlobal,
+			Run: func() error {
+				return e.ReplayTips()
 			},
 		},
 	}
@@ -1950,6 +1966,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdPermissionsSettings:   {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
+	CmdReplayTips:            {"cmd.replayTips.label", "cmd.replayTips.desc", "cmd.category.help"},
 }
 
 // Commands returns all currently active commands in deterministic order:

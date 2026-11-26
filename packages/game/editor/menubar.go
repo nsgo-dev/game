@@ -270,7 +270,17 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		Items: projectItems,
 	}
 
-	return []desktop.MenuItem{fileMenu, editMenu, viewMenu, projectMenu}
+	// Help menu
+	helpMenu := desktop.MenuItem{
+		Label: e.T("menu.help"),
+		Items: []desktop.MenuItem{
+			cmdItem(CmdReplayTips, e.T("menu.replayTips"), false),
+			sep,
+			cmdItem(CmdShortcutsSheet, e.T("menu.shortcutsSheet"), false),
+		},
+	}
+
+	return []desktop.MenuItem{fileMenu, editMenu, viewMenu, projectMenu, helpMenu}
 }
 
 // bindApplicationMenu keeps the desktop application menu synchronized with editor state
@@ -285,7 +295,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -353,6 +363,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.AgentMode(),
 			e.AskInPlaceOpen(),
 			e.TasksPanelOpen(),
+			e.FirstRunStage(),
 		)
 		for _, ov := range e.ViewportOverlays() {
 			b.WriteByte('|')

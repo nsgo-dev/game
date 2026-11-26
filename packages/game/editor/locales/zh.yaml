@@ -97,6 +97,7 @@ strings:
   cmd.category.edit: 编辑
   cmd.category.file: 文件
   cmd.category.gizmo3d: 3D 操纵杆
+  cmd.category.help: 帮助
   cmd.category.project: 项目
   cmd.category.tools: 工具
   cmd.category.view: 视图
@@ -168,6 +169,8 @@ strings:
   cmd.projectSettings.label: 项目设置
   cmd.redo.desc: 重新应用上一次撤销的编辑
   cmd.redo.label: 重做
+  cmd.replayTips.desc: 重置已关闭的首次审查提示以便重新显示
+  cmd.replayTips.label: 重播提示
   cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
   cmd.runGame.label: 运行游戏
   cmd.save.desc: 保存当前打开的场景与项目更改
@@ -479,6 +482,7 @@ strings:
   menu.generatedAssets: 生成资源
   menu.gizmo3d: 3D 操纵杆
   menu.group: 编组
+  menu.help: 帮助
   menu.inspectorPanel: 检查器面板
   menu.lightingPreview: 2D 光照预览
   menu.localization: 本地化字符串
@@ -509,6 +513,7 @@ strings:
   menu.project: 项目
   menu.projectSettings: 项目设置
   menu.redo: 重做
+  menu.replayTips: 重播提示
   menu.revertOverrides: 还原所有覆盖
   menu.rotate: 旋转
   menu.runGame: 运行游戏

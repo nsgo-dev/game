@@ -360,29 +360,47 @@ func startRecentRow(ed *Editor, index int, entry RecentProjectEntry, now time.Ti
 }
 
 func startMainPaneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	return ui.ScrollView{
 		TestID: "start-main-scroll",
 		Style: core.Style{
 			FlexGrow:   1,
 			FlexBasis:  core.Pt(0),
 			Height:     core.Pct(100),
-			Background: specBg,
+			Background: p.Bg,
 		},
 		ContentStyle: core.Style{
 			Padding: core.Symmetric(24, 32),
 			Gap:     20,
 		},
-		EdgeColor: func() core.Color { return specBg },
+		EdgeColor: func() core.Color { return p.Bg },
 		Children: []core.Node{
-			startIdeaSectionView(cx, ed, rev),
-			startTemplatesSectionView(cx, ed, rev),
-			startCreateFormView(cx, ed, rev),
-			startCreateOutputView(cx, ed, rev),
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.FirstRunStage() == FirstRunStageConnect
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return firstRunConnectInPlaceView(cx, ed, rev)
+				},
+				Else: func(cx *core.Scope) core.Node {
+					return core.View{
+						Style: core.Style{Gap: 20},
+						Children: []core.Node{
+							startIdeaSectionView(cx, ed, rev),
+							startTemplatesSectionView(cx, ed, rev),
+							startCreateFormView(cx, ed, rev),
+							startCreateOutputView(cx, ed, rev),
+						},
+					}
+				},
+			},
 		},
 	}
 }
 
 func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	return core.View{
 		TestID: "start-idea-section",
 		Style:  core.Style{Gap: 12},
@@ -392,14 +410,14 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				Style: core.Style{
 					FontSize:   20,
 					FontWeight: 600,
-					Color:      specTextStrong,
+					Color:      p.TextPrimary,
 				},
 			},
 			core.View{
 				Style: core.Style{
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					CornerRadius: 12,
 					Padding:      core.All(16),
 					Gap:          12,
@@ -419,11 +437,11 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						},
 						Style: core.Style{
 							Width:        core.Pct(100),
-							Background:   specPanel,
+							Background:   p.Panel,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 							CornerRadius: 6,
-							Color:        specText,
+							Color:        p.TextSecondary,
 							FontSize:     13,
 						},
 					},
@@ -435,52 +453,61 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							Gap:            12,
 						},
 						Children: []core.Node{
-							core.Text{
-								ContentFunc: func() string {
-									_ = rev.Get()
-									ed.startScreen.mu.Lock()
-									notice := ed.startScreen.aiNotice
-									ed.startScreen.mu.Unlock()
-									if notice != "" {
-										return notice
-									}
-									return "The agent picks the closest template, sets up the project and builds a first playable scene you can review."
-								},
-								Style: core.Style{
-									FlexGrow:  1,
-									FlexBasis: core.Pt(0),
-									FontSize:  12,
-									Color:     specTextMuted,
-								},
-							},
-							// Secondary/quiet styling so Create stays the single primary button on the screen (per FirstRun.dc.html / Spec.dc.html).
-							ui.Button{
+							core.Dynamic(func(cx *core.Scope) core.Node {
+								_ = rev.Get()
+								dotColor := p.TextFaint
+								status := "No agent connected yet"
+								if ed.FirstRunAgentConnected() {
+									_, name, _ := ed.FirstRunConnectedAgent()
+									dotColor = p.Added.Fg
+									status = name + " connected"
+								}
+								return core.View{
+									TestID: "start-agent-status",
+									Style: core.Style{
+										Direction:  core.Row,
+										AlignItems: core.AlignCenter,
+										Gap:        6,
+										FlexGrow:   1,
+										FlexBasis:  core.Pt(0),
+									},
+									Children: []core.Node{
+										core.View{
+											Style: core.Style{
+												Width:        core.Pt(7),
+												Height:       core.Pt(7),
+												CornerRadius: 4,
+												Background:   dotColor,
+												FlexShrink:   0,
+											},
+										},
+										core.Text{
+											Content: status,
+											Style: core.Style{
+												FontSize: 12,
+												Color:    p.TextMuted,
+											},
+										},
+									},
+								}
+							}),
+							// Quiet/accent styling paired with Start screen Create button (Spec tokens, Dark & Light).
+							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "start-ai-btn",
 								Text:    "Start with AI",
 								Icon:    lucide.Sparkles,
-								Variant: ui.ButtonSecondary,
-								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specLineRaised },
-								Tint:    func() core.Color { return specText },
-								TextStyle: core.Style{
-									FontSize:   12.5,
-									FontWeight: 500,
-									Color:      specText,
-								},
-								Style: core.Style{
-									Height:       core.Pt(32),
-									CornerRadius: 8,
-									Padding:      core.Symmetric(0, 12),
+								Variant: specBtnAccent,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.CreatingProject() || !ed.StartNameStatus().OK
 								},
 								OnPress: func() {
-									ed.startScreen.mu.Lock()
-									ed.startScreen.aiNotice = "Start with AI connects an agent in a separate workflow; pick a template below to create a project now."
-									ed.startScreen.mu.Unlock()
-									ed.notify()
+									ed.report(ed.StartWithAI())
 								},
-							},
+							}),
 						},
 					},
+					startWhatHappensNextView(p),
 				},
 			},
 		},

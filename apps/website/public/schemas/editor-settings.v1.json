@@ -45,6 +45,13 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "seenTips": {
+      "description": "SeenTips lists the onboarding tip IDs already seen or skipped by this user in canonical sorted order. Help › Replay tips clears the first-run review tip IDs so each tip shows again.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

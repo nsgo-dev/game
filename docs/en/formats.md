@@ -90,6 +90,10 @@ viewportOverlays:
   - triggers
 shortcuts:
   view.frame: g
+seenTips:
+  - first_review.ask_selection
+  - first_review.hold_b
+  - first_review.keep_revert
 ```
 
 <!-- format: editor#permissions -->

@@ -348,10 +348,10 @@ func TestDesktopMenuBarMatchesRegistryAndExecutesActions(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1200, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
 
-	if len(app.Menu) != 4 {
-		t.Fatalf("top-level menus = %d, want 4 (File, Edit, View, Project)", len(app.Menu))
+	if len(app.Menu) != 5 {
+		t.Fatalf("top-level menus = %d, want 5 (File, Edit, View, Project, Help)", len(app.Menu))
 	}
-	wantTop := []string{"File", "Edit", "View", "Project"}
+	wantTop := []string{"File", "Edit", "View", "Project", "Help"}
 	for i, want := range wantTop {
 		if app.Menu[i].Label != want {
 			t.Fatalf("Menu[%d] = %q, want %q", i, app.Menu[i].Label, want)
