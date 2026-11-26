@@ -1974,11 +1974,15 @@ func (e *Editor) finishAutomationRun(runGen uint64, turnID string, err error, ca
 	cancel, ok := e.automations.activeRuns[turnID]
 	if ok {
 		delete(e.automations.activeRuns, turnID)
-		if e.automations.activeRunCount.Add(-1) < 0 {
-			e.automations.activeRunCount.Store(0)
-		}
 	}
 	e.automations.mu.Unlock()
+	if ok {
+		defer func() {
+			if e.automations.activeRunCount.Add(-1) < 0 {
+				e.automations.activeRunCount.Store(0)
+			}
+		}()
+	}
 	if cancel != nil {
 		cancel()
 	}
