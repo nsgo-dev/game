@@ -148,29 +148,40 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	// A press on a row selects its object(s) in the editor (supporting Shift/Mod multi-selection), or makes its layer the active one.
 	// While connection target pick mode is active, pressing an object row picks it as the target without changing SelectedID, and pressing a layer row is ignored so pick mode and SelectedID stay intact.
 	var ignorePickKey sceneTreeKey
-	var syncingFromEditor bool
+	var syncedFromEditor bool
+	var syncedCursor sceneTreeKey
+	var syncedIDs []string
+	recordEditorSync := func(cursor sceneTreeKey, ids []string) {
+		syncedFromEditor = true
+		syncedCursor = cursor
+		syncedIDs = slices.Clone(ids)
+	}
 	syncTreeToEditor := func() {
-		syncingFromEditor = true
-		defer func() { syncingFromEditor = false }()
 		ids := ed.SelectedIDs()
 		if len(ids) == 0 {
+			recordEditorSync(sceneTreeKey{}, nil)
 			selection.Clear()
 			selection.SetCursor(nil)
 			return
 		}
 		keys := make([]any, 0, len(ids))
+		synced := make([]string, 0, len(ids))
 		for _, id := range ids {
 			if k := keyOf(id); k.id != "" {
 				keys = append(keys, k)
+				synced = append(synced, id)
 			}
 		}
 		if len(keys) == 0 {
+			recordEditorSync(sceneTreeKey{}, nil)
 			selection.Clear()
 			selection.SetCursor(nil)
 			return
 		}
+		pk := keyOf(ed.SelectedID)
+		recordEditorSync(pk, synced)
 		selection.Set(keys...)
-		if pk := keyOf(ed.SelectedID); pk.id != "" {
+		if pk.id != "" {
 			selection.SetCursor(pk)
 		}
 	}
@@ -179,8 +190,20 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		keys := selection.Keys()
 		chosen := selection.Has(cur)
 		cx.Untrack(func() {
-			if syncingFromEditor {
-				return
+			objIDs := make([]string, 0, len(keys))
+			for _, raw := range keys {
+				if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" && !tk.removed && !slices.Contains(objIDs, tk.id) {
+					objIDs = append(objIDs, tk.id)
+				}
+			}
+			if syncedFromEditor {
+				matched := cur == syncedCursor && sameIDSet(objIDs, syncedIDs)
+				syncedFromEditor = false
+				syncedCursor = sceneTreeKey{}
+				syncedIDs = nil
+				if matched {
+					return
+				}
 			}
 			if ed.PickingConnectionTarget() {
 				if cur == (sceneTreeKey{}) {
@@ -208,20 +231,13 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			if cur.layer != "" && cur.id == "" && chosen {
 				// A layer's row is selected in place of any object selection.
 				if selection.Len() != 1 {
-					syncingFromEditor = true
+					recordEditorSync(cur, nil)
 					selection.Set(cur)
-					syncingFromEditor = false
 				}
 				ed.ClearSelection()
 				ed.SetActiveLayer(cur.layer)
 				ed.SetRightRailTab(RightTabInspector)
 				return
-			}
-			objIDs := make([]string, 0, len(keys))
-			for _, raw := range keys {
-				if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" && !tk.removed && !slices.Contains(objIDs, tk.id) {
-					objIDs = append(objIDs, tk.id)
-				}
 			}
 			if len(objIDs) > 0 {
 				primary := objIDs[len(objIDs)-1]
@@ -258,10 +274,9 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					}
 				}
 				if cur, _ := selection.Cursor().(sceneTreeKey); hasObj || cur.id != "" {
-					syncingFromEditor = true
+					recordEditorSync(sceneTreeKey{}, nil)
 					selection.Clear()
 					selection.SetCursor(nil)
-					syncingFromEditor = false
 				}
 				return
 			}
@@ -277,12 +292,14 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				return
 			}
 			wantKeys := make([]any, 0, len(ids))
+			synced := make([]string, 0, len(ids))
 			for _, id := range ids {
 				k := keyOf(id)
 				if k.id == "" {
 					continue
 				}
 				wantKeys = append(wantKeys, k)
+				synced = append(synced, id)
 				path := ed.resolvedObjectPath(k.id)
 				setOpen(sceneTreeKey{layer: k.layer}, true)
 				for _, a := range path[:max(len(path)-1, 0)] {
@@ -292,7 +309,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			if len(wantKeys) == 0 {
 				return
 			}
-			syncingFromEditor = true
+			recordEditorSync(pk, synced)
 			selection.Set(wantKeys...)
 			if pk.id != "" {
 				selection.SetCursor(pk)
@@ -300,7 +317,6 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					listRef.ScrollToIndexAt(row, 0.5, 0, false)
 				}
 			}
-			syncingFromEditor = false
 		})
 	})
 
@@ -731,6 +747,9 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
+							if ch, ok := ed.AgentObjectChange(id); ok && (ch.Kind == AgentChangeAdded || ch.Kind == AgentChangeChanged) {
+								return false
+							}
 							return ed.IsObjectProposedNew(id)
 						},
 						Then: func(cx *core.Scope) core.Node {

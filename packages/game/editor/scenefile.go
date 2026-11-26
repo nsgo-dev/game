@@ -480,6 +480,8 @@ func (e *Editor) RevertScene() error {
 	e.CancelTileStroke()
 	e.connPick = nil
 	e.CancelGridMapStroke()
+	e.sceneOpenErr = nil
+	e.proposedNewObjects = nil
 	e.sceneSaved = saved
 	e.recordSceneDiskSnapshot(e.FilePath, data)
 	e.History.Execute(&replaceSceneCmd{ed: e, label: "Revert scene", before: e.Doc.Clone(), after: doc})

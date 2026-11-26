@@ -37,10 +37,10 @@ func TestSettingsWindowCmdCommaAndEscRestoresFocus(t *testing.T) {
 	}))
 
 	// 1. Focus a toolbar control, press ⌘, to open Settings, and press Esc to restore exact focus.
-	app.Focus("id:toolbar-save")
+	app.Focus("id:toolbar-history")
 	app.Settle()
-	if !viewOrDescendantFocused(app.Find("id:toolbar-save")) {
-		t.Fatal("toolbar-save did not receive initial focus")
+	if !viewOrDescendantFocused(app.Find("id:toolbar-history")) {
+		t.Fatal("toolbar-history did not receive initial focus")
 	}
 
 	app.Key("mod+,")
@@ -60,7 +60,7 @@ func TestSettingsWindowCmdCommaAndEscRestoresFocus(t *testing.T) {
 		t.Fatal("expected meta lines on General and Viewport navigation entries")
 	}
 
-	// Pressing Escape while focused inside settings-search still closes Settings and restores toolbar-save.
+	// Pressing Escape while focused inside settings-search still closes Settings and restores toolbar-history.
 	app.Focus("id:settings-search")
 	app.Settle()
 	app.Key("escape")
@@ -68,8 +68,8 @@ func TestSettingsWindowCmdCommaAndEscRestoresFocus(t *testing.T) {
 	if ed.SettingsOpen() || app.Exists("id:settings-view") {
 		t.Fatal("Escape from settings-search did not close Settings view")
 	}
-	if !viewOrDescendantFocused(app.Find("id:toolbar-save")) {
-		t.Fatal("Escape did not return focus to toolbar-save")
+	if !viewOrDescendantFocused(app.Find("id:toolbar-history")) {
+		t.Fatal("Escape did not return focus to toolbar-history")
 	}
 
 	// 2. Without an open project, ⌘, still opens Settings and omits empty PROJECT · game.yaml group.
@@ -85,7 +85,7 @@ func TestSettingsWindowCmdCommaAndEscRestoresFocus(t *testing.T) {
 		Dark:   true,
 		Locale: "en-US",
 	}))
-	appNoProj.Focus("id:toolbar-editor-settings")
+	appNoProj.Focus("id:toolbar-palette")
 	appNoProj.Settle()
 	appNoProj.Key("mod+,")
 	appNoProj.Settle()
@@ -100,8 +100,8 @@ func TestSettingsWindowCmdCommaAndEscRestoresFocus(t *testing.T) {
 	if edNoProj.SettingsOpen() {
 		t.Fatal("Escape did not close Settings without a project")
 	}
-	if !viewOrDescendantFocused(appNoProj.Find("id:toolbar-editor-settings")) {
-		t.Fatal("Escape did not return focus to toolbar-editor-settings")
+	if !viewOrDescendantFocused(appNoProj.Find("id:toolbar-palette")) {
+		t.Fatal("Escape did not return focus to toolbar-palette")
 	}
 
 	// 3. On the Start screen (top-level Settings mount), ⌘, opens Settings and Esc restores focus to the Start screen opener.

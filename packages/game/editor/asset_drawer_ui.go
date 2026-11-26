@@ -52,7 +52,6 @@ func sanitizeAssetTestID(s string) string {
 // LeftRailSwitchView renders the Scene / Assets segmented switch at the top of the left rail,
 // matching docs/design/editor/Assets.dc.html screen 1 with Spec.dc.html tokens.
 func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
 	sceneTabRef := &core.Ref{}
 	if ed.focus.ctrl != nil {
 		ed.focus.ctrl.registerCandidate(cx, RegionSceneTree, sceneTabRef, nil)
@@ -137,15 +136,18 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			base.RadioGroup{
 				TestID: "left-rail-mode-group",
 				Label:  ed.T("region.sceneTree"),
-				Style: core.Style{
-					FlexGrow:     1,
-					Direction:    core.Row,
-					Gap:          2,
-					Padding:      core.All(3),
-					CornerRadius: specRadiusButton,
-					Background:   p.Raised,
-					BorderWidth:  1,
-					BorderColor:  p.LineRaised,
+				StyleFunc: func() core.Style {
+					cur := ed.SpecPalette(cx)
+					return core.Style{
+						FlexGrow:     1,
+						Direction:    core.Row,
+						Gap:          2,
+						Padding:      core.All(3),
+						CornerRadius: specRadiusButton,
+						Background:   cur.Raised,
+						BorderWidth:  1,
+						BorderColor:  cur.LineRaised,
+					}
 				},
 				Children: []core.Node{
 					modeBtn("rail-mode-scene", "Scene", LeftRailScene),

@@ -1771,6 +1771,7 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 		}
 	}
 	e.sceneOpenErr = nil
+	e.proposedNewObjects = nil
 	e.activateNewTab(doc, saved, path)
 	e.recordSceneDiskSnapshot(path, data)
 	e.syncActiveTab()

@@ -380,7 +380,7 @@ func TestMainLayoutLegacyPanelsRemainReachable(t *testing.T) {
 		close func()
 	}{
 		{"Project Settings", editor.CmdProjectSettings, ed.ProjectSettingsOpen, func() { ed.SetProjectSettingsOpen(false) }},
-		{"Editor Settings", editor.CmdEditorSettings, ed.EditorSettingsOpen, func() { ed.SetEditorSettingsOpen(false) }},
+		{"Editor Settings", editor.CmdEditorSettings, ed.SettingsOpen, func() { ed.CloseSettings() }},
 		{"Audio Mixer", editor.CmdAudioMixer, ed.AudioMixerOpen, func() { ed.SetAudioMixerOpen(false) }},
 		{"Input Map", editor.CmdInputMap, ed.InputMapOpen, func() { ed.SetInputMapOpen(false) }},
 		{"Strings / Localization", editor.CmdLocalization, ed.LocalizationOpen, func() { _ = ed.ExecuteCommand(editor.CmdLocalization) }},
@@ -544,9 +544,95 @@ func TestMainLayoutEmptyLoadingAndErrorStates(t *testing.T) {
 	if !app.Exists("id:viewport-error-state") {
 		t.Fatal("expected error state after OpenScene on missing project scene")
 	}
+	if app.Exists("id:viewport-overlay-bar") {
+		t.Fatal("viewport bottom bar remained mounted behind error overlay")
+	}
 	app.Press("id:viewport-error-dismiss")
 	app.Settle()
 	if app.Exists("id:viewport-error-state") || ed.SceneOpenError() != nil {
 		t.Fatal("Dismiss did not clear scene-open error state")
+	}
+}
+
+// TestMainLayoutHardening verifies Agent tab preservation on non-tree selection,
+// deterministic multi-component kind classification, and lifecycle resets for
+// loading/error/proposed-new states (#1007).
+func TestMainLayoutHardening(t *testing.T) {
+	ed, dir := setupMainLayoutProject(t)
+	ed.SetProposedNewObjectIDs([]string{"slime_01"})
+	ed.SetRightRailTab(editor.RightTabAgent)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), focusDesktopEnv)
+	app.Settle()
+
+	// 1. Selecting an object outside the scene tree (e.g. canvas click / agent action)
+	// must NOT yank the right rail away from the Agent tab.
+	app.Post(func() { ed.SelectObject("knight") })
+	app.Settle()
+	if ed.RightRailTab() != editor.RightTabAgent {
+		t.Fatalf("programmatic/canvas selection switched right rail to %v, want RightTabAgent", ed.RightRailTab())
+	}
+	// Clicking a row in the scene tree DOES switch to Inspector.
+	app.Press("id:scene-tree-label-door_trigger")
+	app.Settle()
+	if ed.RightRailTab() != editor.RightTabInspector {
+		t.Fatalf("scene tree row click gave right rail %v, want RightTabInspector", ed.RightRailTab())
+	}
+
+	// 2. SceneRailObjectKind is deterministic even when an object carries multiple kind components.
+	app.Post(func() {
+		if err := ed.SetComponentField("door_trigger", "light", "intensity", 1.0); err != nil {
+			t.Error(err)
+		}
+		if err := ed.SetComponentField("door_trigger", "camera", "zoom", 1.0); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	for i := 0; i < 32; i++ {
+		if got := ed.SceneRailObjectKind("door_trigger"); got != "camera" {
+			t.Fatalf("iteration %d: SceneRailObjectKind = %q, want deterministic \"camera\"", i, got)
+		}
+	}
+
+	// 3. Failed OpenProjectScene while ProjectLoading is true transitions to WorkspaceSceneError
+	// (never stuck in WorkspaceLoading), and SelectTab / OpenDemo clear stale errors & proposedNewObjects.
+	app.Post(func() {
+		ed.SetProjectLoading(true, filepath.Join(dir, "game.yaml"))
+		_ = ed.OpenProjectScene(dir, filepath.Join(dir, "scenes", "missing.scene.yaml"))
+	})
+	app.Settle()
+	if ed.ProjectLoading() {
+		t.Fatal("ProjectLoading remained true after failed OpenProjectScene")
+	}
+	if ed.WorkspaceState() != editor.WorkspaceSceneError {
+		t.Fatalf("WorkspaceState = %v, want WorkspaceSceneError", ed.WorkspaceState())
+	}
+	app.Post(func() {
+		if err := ed.SelectTab(ed.ActiveTab()); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if ed.SceneOpenError() != nil {
+		t.Fatal("SelectTab on active valid tab did not clear SceneOpenError")
+	}
+
+	// OpenDemo clears proposedNewObjects and sceneOpenErr cleanly.
+	app.Post(func() {
+		ed.SetProposedNewObjectIDs([]string{"slime_01"})
+		_ = ed.OpenScene("scenes/missing.scene.yaml")
+		if err := ed.OpenDemo(); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if ed.SceneOpenError() != nil {
+		t.Fatal("OpenDemo did not clear SceneOpenError")
+	}
+	if ed.IsObjectProposedNew("slime_01") {
+		t.Fatal("OpenDemo did not clear proposedNewObjects")
 	}
 }
