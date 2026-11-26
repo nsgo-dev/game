@@ -706,6 +706,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		}},
 		CreatedAt:           now,
 		StartedAt:           now,
+		ThreadID:            threadID,
 		SessionIDBefore:     sessionBefore,
 		turnStartHistoryIdx: startHist,
 	})
