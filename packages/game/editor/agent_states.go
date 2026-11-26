@@ -20,7 +20,6 @@ import (
 const AgentStuckFailureThreshold = 3
 
 const (
-	maxAgentQueuedRequests    = 100
 	maxTurnMutations          = 2048
 	maxFailedCallSummaryRunes = 200
 	maxFailedCallErrorRunes   = 512
@@ -40,20 +39,6 @@ func upperFirstRune(s string) string {
 	}
 	r, size := utf8.DecodeRuneInString(s)
 	return string(unicode.ToUpper(r)) + s[size:]
-}
-
-func truncateRunes(s string, maxRunes int) string {
-	if maxRunes <= 0 || len(s) <= maxRunes {
-		return s
-	}
-	count := 0
-	for i := range s {
-		if count == maxRunes {
-			return s[:i] + "…"
-		}
-		count++
-	}
-	return s
 }
 
 // AgentPartialState holds the panel state when only part of a request could be completed.
@@ -279,13 +264,6 @@ func (r *AgentTurnReview) Clone() *AgentTurnReview {
 	cp.Changed = slices.Clone(r.Changed)
 	cp.Removed = slices.Clone(r.Removed)
 	return &cp
-}
-
-// AgentQueuedRequest is one request waiting in the offline queue.
-type AgentQueuedRequest struct {
-	ID       string
-	Prompt   string
-	QueuedAt time.Time
 }
 
 // AgentToolCallRecord carries structured metadata from an MCP tool execution into the Agent panel.
@@ -1974,18 +1952,17 @@ func (e *Editor) SetAgentOffline(offline bool) {
 	e.notify()
 }
 
-// AgentQueuedRequests returns a copy of the requests waiting in the offline/manual send queue.
-func (e *Editor) AgentQueuedRequests() []AgentQueuedRequest {
-	if e == nil {
-		return nil
-	}
-	return slices.Clone(e.agent.queue)
-}
-
 // QueueAgentRequest appends a request to the queue with its timestamp without executing it.
 func (e *Editor) QueueAgentRequest(prompt string) AgentQueuedRequest {
+	return e.queueAgentTaskRequest(AgentTaskSceneEdit, prompt, true)
+}
+
+func (e *Editor) queueAgentTaskRequest(task AgentTaskKind, prompt string, offline bool) AgentQueuedRequest {
 	if e == nil {
 		return AgentQueuedRequest{}
+	}
+	if !task.Valid() {
+		task = AgentTaskSceneEdit
 	}
 	fromComposer := strings.TrimSpace(prompt) == ""
 	text := strings.TrimSpace(prompt)
@@ -1995,7 +1972,7 @@ func (e *Editor) QueueAgentRequest(prompt string) AgentQueuedRequest {
 	if text == "" {
 		return AgentQueuedRequest{}
 	}
-	if len(e.agent.queue) >= maxAgentQueuedRequests {
+	if len(e.agent.queued) >= maxQueuedAgentRequests {
 		return AgentQueuedRequest{}
 	}
 	if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
@@ -2004,53 +1981,14 @@ func (e *Editor) QueueAgentRequest(prompt string) AgentQueuedRequest {
 	e.agent.queueSeq++
 	item := AgentQueuedRequest{
 		ID:       fmt.Sprintf("queue-%d", e.agent.queueSeq),
+		Task:     task,
 		Prompt:   text,
 		QueuedAt: e.nowTime(),
+		Offline:  offline,
 	}
-	e.agent.queue = append(e.agent.queue, item)
+	e.agent.queued = append(e.agent.queued, item)
 	e.notify()
 	return item
-}
-
-// RemoveQueuedAgentRequest removes a queued request by ID.
-func (e *Editor) RemoveQueuedAgentRequest(id string) bool {
-	if e == nil || id == "" {
-		return false
-	}
-	for i, q := range e.agent.queue {
-		if q.ID == id {
-			e.agent.queue = append(e.agent.queue[:i], e.agent.queue[i+1:]...)
-			e.notify()
-			return true
-		}
-	}
-	return false
-}
-
-// SendQueuedAgentRequest explicitly sends one queued request once back online.
-// If submitting fails (for example while playing or while another request is running), the item remains in the queue.
-func (e *Editor) SendQueuedAgentRequest(id string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
-	}
-	if e.AgentOffline() {
-		return errors.New("editor: cannot send queued request while offline")
-	}
-	for i, q := range e.agent.queue {
-		if q.ID == id {
-			e.agent.queue = append(e.agent.queue[:i], e.agent.queue[i+1:]...)
-			if err := e.SubmitAgentPrompt(q.Prompt); err != nil {
-				// Restore the queued request at its original position so it is never lost on failure.
-				idx := min(i, len(e.agent.queue))
-				e.agent.queue = slices.Insert(e.agent.queue, idx, q)
-				e.notify()
-				return err
-			}
-			e.notify()
-			return nil
-		}
-	}
-	return fmt.Errorf("editor: queued request %q not found", id)
 }
 
 func (e *Editor) findOrLatestAgentTurn(turnID string) *AgentTurn {

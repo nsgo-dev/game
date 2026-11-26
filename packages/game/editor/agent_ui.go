@@ -976,7 +976,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|",
+		fmt.Fprintf(&b, "%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|",
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
 			ed.AgentTurnSeq(),
@@ -984,6 +984,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.review.outcome,
 			ed.review.uiRev,
 			ed.agent.offline,
+			ed.AgentWeeklyLimitReached(),
 			len(ed.agent.queued),
 			ed.agent.pointingTurnID,
 			ed.agent.openReviewTurnID,
@@ -1021,7 +1022,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 		}
 		for _, q := range ed.agent.queued {
-			fmt.Fprintf(&b, "q=%s;", q.ID)
+			fmt.Fprintf(&b, "q=%s:%v;", q.ID, q.Offline)
 		}
 		if ed.agent.openRequest != nil {
 			fmt.Fprintf(&b, "req:%s|", ed.agent.openRequest.ID)
