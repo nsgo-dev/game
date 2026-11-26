@@ -79,6 +79,7 @@ func (e *Editor) CheckProblems() {
 	e.problems.done = myDone
 	fn := e.problems.checkFn
 	e.problems.mu.Unlock()
+	e.notify()
 	if fn == nil {
 		fn = runProjectCheck
 	}
@@ -409,4 +410,11 @@ func hasProblemMentioning(problems []assetcheck.Problem, file, path string) bool
 	return slices.ContainsFunc(problems, func(p assetcheck.Problem) bool {
 		return p.File == file && strings.Contains(p.Message, quoted)
 	})
+}
+
+// problemIsWarning reports whether p should be rendered with the Spec warning
+// token (warning fill, edge, and alert icon) rather than the problem/error token.
+func problemIsWarning(p assetcheck.Problem) bool {
+	msg := strings.ToLower(strings.TrimSpace(p.Message))
+	return strings.HasPrefix(msg, "warning:") || strings.HasPrefix(msg, "warn:")
 }

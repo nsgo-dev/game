@@ -505,6 +505,7 @@ type Editor struct {
 	clipStop    func()
 	clipScene   *sceneformat.BuiltScene
 	clipPlayer  *animclip.Player
+	clipLoading bool
 	clipErr     error
 	selKey      clipKeyRef
 

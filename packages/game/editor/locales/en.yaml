@@ -479,11 +479,14 @@ strings:
   problems.checkLabel: Re-run project and asset checks
   problems.checking: Checking project…
   problems.empty: No problems
+  problems.error: Error
+  problems.retry: Retry
   problems.statusChecking: 'Problems: checking…'
   problems.statusCount: 'Problems: {count}'
   problems.statusError: 'Problems: error'
   problems.title: Problems ({count})
   problems.titleChecking: Problems (checking…)
+  problems.warning: Warning
   scene.untitled: Untitled
   scene.untitledScene: Untitled Scene
   sceneTree.active: active
@@ -533,6 +536,7 @@ strings:
   search.closeLabel: Close the search panel
   search.emptyPrompt: Type to search project files, UIDs, scene objects, components, prefabs, and scene references
   search.inputLabel: Search project files, UIDs, objects, components, prefabs and scene references
+  search.loading: Searching project…
   search.matchCount: '{count} match(es)'
   search.noMatches: No matches
   search.noRefs: No references to {target}
@@ -541,6 +545,7 @@ strings:
   search.refresh: Refresh
   search.refreshLabel: Rescan the project index and references
   search.refsPrompt: Select a file in the file browser and press Find Refs
+  search.retry: Retry
   search.search: Search
   settings.appearance: Appearance
   settings.appearanceHelp: Dark, light, or follow the system.

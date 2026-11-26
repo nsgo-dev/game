@@ -76,6 +76,7 @@ type projectSearchState struct {
 	results     []SearchResult
 	refsTarget  string
 	refsResults []refs.Ref
+	loading     bool
 	lastErr     error
 	index       *projectSearchIndex
 }
@@ -256,6 +257,20 @@ func (e *Editor) SearchResults() []SearchResult {
 // SearchErr returns the last error encountered while indexing or searching the project.
 func (e *Editor) SearchErr() error {
 	return e.search.lastErr
+}
+
+// SearchLoading reports whether the Search & References panel is currently scanning or searching.
+func (e *Editor) SearchLoading() bool {
+	return e != nil && e.search.loading
+}
+
+// SetSearchLoading updates the Search & References panel loading state and notifies listeners.
+func (e *Editor) SetSearchLoading(loading bool) {
+	if e == nil || e.search.loading == loading {
+		return
+	}
+	e.search.loading = loading
+	e.notify()
 }
 
 // ShowReferences runs FindReferences for target, opens the Search & References

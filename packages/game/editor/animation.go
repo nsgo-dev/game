@@ -41,6 +41,20 @@ func (e *Editor) ClipTarget() string { return e.clipMeta.target }
 // ClipError returns why the open clip cannot be previewed on the scene, such as a track naming an object the scene does not have, or nil.
 func (e *Editor) ClipError() error { return e.clipErr }
 
+// ClipLoading reports whether the animation panel is currently loading a clip.
+func (e *Editor) ClipLoading() bool {
+	return e != nil && e.clipLoading
+}
+
+// SetClipLoading sets the animation panel's loading state and notifies listeners.
+func (e *Editor) SetClipLoading(loading bool) {
+	if e == nil || e.clipLoading == loading {
+		return
+	}
+	e.clipLoading = loading
+	e.notify()
+}
+
 // NewClip opens a new, empty clip named name and length long that plays on the object target (the selected object when target is empty), as an undoable command.
 func (e *Editor) NewClip(target, name string, length time.Duration) error {
 	if e.playing {
