@@ -38,7 +38,6 @@ func dockedStyle(cx *core.Scope, fallback core.Style) core.Style {
 // dragdrop.Area so dragging assets and models from docked panels onto the viewport works across regions.
 func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	dockedPanelKey.Provide(cx, true)
-	colors := ui.ColorsOf(cx)
 	areaRef := &dock.AreaRef{}
 	ed.dock.areaRef = areaRef
 	cx.Cleanup(func() {
@@ -101,19 +100,25 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							Padding: core.Symmetric(0, 8),
 						},
 						RenderTab: func(cx *core.Scope, tab dock.Tab) core.Node {
-							title := ed.panelTitle(tab.Key)
-							closeLabel := ""
-							if tab.Key != PanelViewport {
-								closeLabel = "Close " + title
-							}
+							titleMemo := core.NewMemo(cx, func() string {
+								_ = rev.Get()
+								return ed.panelTitle(tab.Key)
+							})
 							return core.View{
 								TestID: "dock-tab-" + tab.Key,
 								Children: []core.Node{
-									ui.DockTabLabel{
-										Tab:        tab,
-										Text:       title,
-										CloseLabel: closeLabel,
-									},
+									core.Dynamic(func(cx *core.Scope) core.Node {
+										title := titleMemo.Get()
+										closeLabel := ""
+										if tab.Key != PanelViewport {
+											closeLabel = "Close " + title
+										}
+										return ui.DockTabLabel{
+											Tab:        tab,
+											Text:       title,
+											CloseLabel: closeLabel,
+										}
+									}),
 								},
 							}
 						},
@@ -123,8 +128,13 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 									Padding:      core.Symmetric(4, 10),
 									CornerRadius: ui.RadiusSmall,
 									BorderWidth:  1,
-									BorderColor:  colors.Border(),
-									Background:   colors.Raised(),
+								},
+								StyleFunc: func() core.Style {
+									p := ed.SpecPalette(cx)
+									return core.Style{
+										BorderColor: p.LineRaised,
+										Background:  p.Raised,
+									}
 								},
 								Children: []core.Node{
 									core.Text{
@@ -132,7 +142,9 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 										Style: core.Style{
 											FontSize:   12,
 											FontWeight: 600,
-											Color:      colors.Text(),
+										},
+										StyleFunc: func() core.Style {
+											return core.Style{Color: ed.SpecPalette(cx).TextPrimary}
 										},
 									},
 								},
@@ -161,7 +173,10 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 								Children: []core.Node{
 									core.Text{
 										Content: "No panels open",
-										Style:   core.Style{FontSize: 12, Color: colors.Muted()},
+										Style:   core.Style{FontSize: 12},
+										StyleFunc: func() core.Style {
+											return core.Style{Color: ed.SpecPalette(cx).TextMuted}
+										},
 									},
 								},
 							}

@@ -360,6 +360,9 @@ func TestParseLayoutRefusesInvalidDocuments(t *testing.T) {
 		"yaml alias":      "version: 1\ncenter: &c\n  panels: [viewport]\nleft:\n  size: 200\n  root: *c\n",
 		"yaml merge key":  "version: 1\ncenter:\n  panels: [viewport]\nleft:\n  <<: {size: 200}\n  root:\n    panels: [files]\n",
 		"hidden viewport": "version: 1\ncenter:\n  panels: [viewport]\nhidden:\n  - viewport\n",
+		"split active":    "version: 1\ncenter:\n  axis: horizontal\n  active: 1\n  children:\n    - panels: [viewport]\n",
+		"huge region":     "version: 1\ncenter:\n  panels: [viewport]\nleft:\n  size: 100001\n  root:\n    panels: [files]\n",
+		"huge split size": "version: 1\ncenter:\n  axis: horizontal\n  sizes: [0, 100001]\n  children:\n    - panels: [viewport]\n    - panels: [inspector]\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -368,6 +371,39 @@ func TestParseLayoutRefusesInvalidDocuments(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("excessive depth", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString("version: 1\ncenter:\n")
+		for i := 0; i < 70; i++ {
+			indent := strings.Repeat("  ", i+1)
+			b.WriteString(indent + "axis: horizontal\n")
+			b.WriteString(indent + "children:\n")
+			b.WriteString(indent + "  -\n")
+		}
+		b.WriteString(strings.Repeat("  ", 71) + "panels: [viewport]\n")
+		if _, err := editor.ParseLayout([]byte(b.String())); err == nil {
+			t.Fatal("ParseLayout accepted split tree deeper than maxLayoutDepth")
+		}
+	})
+
+	t.Run("oversized document", func(t *testing.T) {
+		huge := []byte("version: 1\ncenter:\n  panels: [viewport]\n" + strings.Repeat(" ", 1<<20+1))
+		if _, err := editor.ParseLayout(huge); err == nil {
+			t.Fatal("ParseLayout accepted oversized document")
+		}
+		dir := t.TempDir()
+		p := filepath.Join(dir, "huge.yaml")
+		if err := os.WriteFile(p, huge, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := editor.LoadLayoutFile(p); err == nil {
+			t.Fatal("LoadLayoutFile accepted oversized file")
+		}
+		if _, err := editor.LoadLayoutFile(dir); err == nil {
+			t.Fatal("LoadLayoutFile accepted directory path")
+		}
+	})
 }
 
 func TestSaveLayoutFileRefusesEmptyPath(t *testing.T) {
@@ -530,5 +566,158 @@ func TestDockLocalizedResetLayoutAndPluginPanelTitle(t *testing.T) {
 	}
 	if !foundCmd {
 		t.Fatal("CmdResetLayout missing from Commands()")
+	}
+}
+
+func TestDockLayoutHardeningMoveViewportDuplicatesUnavailableAndReveal(t *testing.T) {
+	dir := writeEditorProject(t)
+	layoutFile := filepath.Join(t.TempDir(), "layout.yaml")
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetLayoutPath(layoutFile); err != nil {
+		t.Fatalf("SetLayoutPath: %v", err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// MovePanel must refuse moving viewport or an empty targetPanel (never duplicating viewport).
+	if ed.MovePanel(editor.PanelViewport, editor.PanelFiles) {
+		t.Fatal("MovePanel allowed moving viewport out of Center")
+	}
+	if ed.MovePanel(editor.PanelInspector, "") {
+		t.Fatal("MovePanel allowed empty targetPanel")
+	}
+	if err := editor.ValidateLayout(ed.LayoutFile()); err != nil {
+		t.Fatalf("layout invalid after refused MovePanel: %v", err)
+	}
+
+	// SetDockLayout must deduplicate duplicate panel keys and clamp oversized sizes so SaveLayout succeeds.
+	ed.SetDockLayout(dock.Layout{
+		Center: dock.Node{
+			Axis:     base.Horizontal,
+			Children: []dock.Node{dock.Tabs(editor.PanelViewport, editor.PanelViewport), dock.Tabs(editor.PanelInspector)},
+			Sizes:    []core.Points{0, 9999999},
+		},
+		Left: &dock.Region{
+			Size: 9999999,
+			Root: dock.Tabs(editor.PanelSceneTree, editor.PanelInspector),
+		},
+	})
+	raw, err := os.ReadFile(layoutFile)
+	if err != nil {
+		t.Fatalf("saved layout missing after SetDockLayout: %v", err)
+	}
+	parsed, err := editor.ParseLayout(raw)
+	if err != nil {
+		t.Fatalf("ParseLayout rejected sanitized layout: %v\n%s", err, raw)
+	}
+	if parsed.Left == nil || parsed.Left.Size > 100000 {
+		t.Fatalf("left size was not clamped: %+v", parsed.Left)
+	}
+
+	// Requesting an unavailable contextual panel (animation with no open clip) must not inject it into LayoutFile.
+	ed.SetPanelVisible(editor.PanelAnimation, true)
+	if ed.PanelVisible(editor.PanelAnimation) {
+		t.Fatal("animation panel should remain hidden when no clip is open")
+	}
+	if data, err := editor.EncodeLayout(ed.LayoutFile()); err != nil {
+		t.Fatalf("EncodeLayout: %v", err)
+	} else if strings.Contains(string(data), editor.PanelAnimation) {
+		t.Fatalf("unavailable animation panel leaked into persisted layout:\n%s", data)
+	}
+
+	// Hiding Inspector and invoking History / Tasks / Inspector commands reveals Inspector cleanly.
+	ed.SetPanelVisible(editor.PanelInspector, false)
+	if ed.PanelVisible(editor.PanelInspector) {
+		t.Fatal("expected inspector hidden")
+	}
+	if err := ed.ExecuteCommand(editor.CmdHistoryPanel); err != nil {
+		t.Fatalf("CmdHistoryPanel: %v", err)
+	}
+	if !ed.PanelVisible(editor.PanelInspector) {
+		t.Fatal("CmdHistoryPanel did not reveal hidden inspector panel")
+	}
+	ed.ToggleHistoryPanel()
+
+	ed.SetPanelVisible(editor.PanelInspector, false)
+	if err := ed.ExecuteCommand(editor.CmdToggleTasks); err != nil {
+		t.Fatalf("CmdToggleTasks: %v", err)
+	}
+	if !ed.PanelVisible(editor.PanelInspector) {
+		t.Fatal("CmdToggleTasks did not reveal hidden inspector panel")
+	}
+	ed.ToggleTasksPanel()
+
+	ed.SetPanelVisible(editor.PanelInspector, false)
+	if err := ed.ExecuteCommand(editor.CmdInspectorTab); err != nil {
+		t.Fatalf("CmdInspectorTab: %v", err)
+	}
+	if !ed.PanelVisible(editor.PanelInspector) {
+		t.Fatal("CmdInspectorTab did not reveal hidden inspector panel")
+	}
+}
+
+func TestDockLiveLanguageSwitchAndSpecThemeParity(t *testing.T) {
+	dir := writeEditorProject(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RegisterPlugin(editor.Plugin{
+		Name: "loclive",
+		LocaleYAML: [][]byte{
+			[]byte("version: 1\nlocale: en\nstrings:\n  panel.title: Live Panel\n"),
+			[]byte("version: 1\nlocale: zh\nstrings:\n  panel.title: 实时面板\n"),
+		},
+		Panels: []editor.Panel{{
+			ID:       "main",
+			Title:    "Live Panel",
+			TitleKey: "panel.title",
+			Dock:     editor.DockRight,
+			View: func(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64]) core.Node {
+				return core.Text{Content: "body"}
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("RegisterPlugin: %v", err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if err := ed.SetPluginEnabled("loclive", true); err != nil {
+		t.Fatalf("SetPluginEnabled: %v", err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+	tabSel := "id:dock-tab-" + editor.PluginPanelKey("loclive", "main")
+	if !app.Exists(tabSel) {
+		t.Fatal("plugin dock tab did not mount")
+	}
+	if !app.Exists("text:Live Panel") {
+		t.Fatal("expected English plugin tab title initially")
+	}
+
+	app.Post(func() {
+		if err := ed.SetLanguage(editor.LanguageChinese); err != nil {
+			t.Errorf("SetLanguage(zh): %v", err)
+		}
+		if err := ed.SetAppearance(editor.AppearanceLight); err != nil {
+			t.Errorf("SetAppearance(light): %v", err)
+		}
+	})
+	app.Settle()
+
+	if !app.Exists("text:实时面板") {
+		t.Fatal("plugin dock tab title did not update live to Chinese")
+	}
+	if !app.Exists("id:editor-dock-area") {
+		t.Fatal("dock area missing in Spec Light appearance")
 	}
 }
