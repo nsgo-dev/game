@@ -653,6 +653,11 @@ func listProjectTree(root string) ([]ProjectFile, error) {
 		if d.IsDir() && skippedProjectDir(d.Name()) {
 			return fs.SkipDir
 		}
+		// Skip transient atomic-write temp files created by writeFileAtomic so diskWatchTick
+		// never spuriously reports the editor's own saves as external tree changes.
+		if !d.IsDir() && strings.HasPrefix(d.Name(), ".scene-") && strings.HasSuffix(d.Name(), ".tmp") {
+			return nil
+		}
 		out = append(out, ProjectFile{Path: p, Dir: d.IsDir()})
 		return nil
 	})

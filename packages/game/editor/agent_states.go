@@ -566,6 +566,7 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 			turn = &e.agent.turns[n-1]
 		} else {
 			e.agent.turnSeq++
+			e.agent.turnChangeSeq++
 			id := fmt.Sprintf("turn-%d", e.agent.turnSeq)
 			name := FriendlyAgentName(rec.ClientName)
 			e.agent.turns = append(e.agent.turns, AgentTurn{
@@ -577,6 +578,7 @@ func (e *Editor) RecordAgentToolCall(rec AgentToolCallRecord) {
 				CreatedAt: now,
 				StartedAt: now,
 			})
+			e.RecordAgentRequest(1)
 			e.trimAgentTurnAttachments()
 			turn = &e.agent.turns[len(e.agent.turns)-1]
 			// Note: because the tool call already ran before RecordAgentToolCall when the turn is brand new,
