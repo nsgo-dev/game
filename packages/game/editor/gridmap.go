@@ -1624,6 +1624,9 @@ func (e *Editor) SetObjectGridMap(id, gridMapPath string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if gridMapPath != "" {
 		if !validScenePath(gridMapPath) {
 			return fmt.Errorf("editor: gridMap %q must be a slash-separated path relative to the project root", gridMapPath)

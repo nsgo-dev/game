@@ -18,6 +18,20 @@ strings:
   agent.composerLabel: 向智能体提问
   agent.composerPlaceholder: 描述你想做的修改… 例如让骑士跳得更高
   agent.connectShort: 连接
+  agent.headerPendingReview: 智能体 · {count} 项待审更改
+  agent.headerWaiting: 等待你确认
+  agent.headerWaitingDetail: 等待你确认 · {detail}
+  agent.headerWorking: 智能体正在处理 · 手动编辑仍可用
+  agent.headerWorkingDetail: 智能体正在{activity} · 手动编辑仍可用
+  agent.inspectorReadOnly: 智能体正在此对象上工作 — 本步骤结束前为只读
+  agent.keep: 保留
+  agent.legendAdded: 新增
+  agent.legendAgent: 智能体工作中
+  agent.legendChanged: 已修改
+  agent.legendProblem: 问题
+  agent.legendRemoved: 已移除
+  agent.legendSelection: 选中
+  agent.legendTitle: 叠加层
   agent.notify.actionAllowOnce: 允许一次
   agent.notify.actionLater: 稍后
   agent.notify.actionOpen: 打开
@@ -27,11 +41,18 @@ strings:
   agent.notify.reviewTitle: 待审查
   agent.notify.waitingTitle: 智能体需要权限
   agent.playDot.hoverFormat: '{summary} · 停止播放以打开'
+  agent.revert: 还原
   agent.status.disconnected: 已断开
   agent.status.reconnectingShort: 重连中
   agent.status.waitingShort: 等待你
   agent.status.workingShort: 处理中
+  agent.statusKept: 已保留智能体更改
+  agent.statusReverted: 已还原智能体更改
   agent.tab: 智能体
+  agent.treeChanged: 改
+  agent.treeNew: NEW
+  agent.treeRemoved: 删
+  agent.workingHere: 智能体正在此处工作
   agentPanel.emptyHint: 在视口中按 {askKey} 就地询问选中内容，或在下方输入请求。
   agentPanel.emptyTitle: 向智能体提问
   agentPanel.inputLabel: 向智能体提问

@@ -495,7 +495,7 @@ func (e *Editor) BeginHandleDragKind3D(kind Handle3DKind, sx, sy, w, h float32) 
 		return false
 	}
 	obj, _ := e.SelectedObject()
-	if obj == nil || e.viewportFrozen(obj.ID) {
+	if obj == nil || e.viewportFrozen(obj.ID) || e.checkAgentTouchLock(obj.ID) != nil {
 		return false
 	}
 	hp, ok := e.HandlePosition3D(kind)

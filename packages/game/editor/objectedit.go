@@ -15,6 +15,9 @@ func (e *Editor) AddComponent(objectID, component string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	if err := checkName("component name", component); err != nil {
 		return err
 	}
@@ -145,6 +148,9 @@ func (e *Editor) RemoveComponent(objectID, component string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
@@ -214,6 +220,9 @@ func (e *Editor) AddProperty(objectID, key string, kind sceneformat.FieldKind) e
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	if err := checkName("property key", key); err != nil {
 		return err
 	}
@@ -265,6 +274,9 @@ func (e *Editor) AddProperty(objectID, key string, kind sceneformat.FieldKind) e
 func (e *Editor) SetObjectSprite(objectID string, ref *sceneformat.SpriteRef) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
 	}
 	if ref != nil {
 		if ref.Atlas == "" || ref.Frame == "" {
@@ -322,6 +334,9 @@ func (e *Editor) SetObjectOrigin(objectID string, x, y float32) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return errors.New("editor: object origin must be finite")
 	}
@@ -362,6 +377,9 @@ func (e *Editor) SetObjectFlip(objectID string, flipX, flipY bool) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
@@ -398,6 +416,9 @@ func (e *Editor) SetObjectFlip(objectID string, flipX, flipY bool) error {
 func (e *Editor) SetObjectMaterial(objectID, material string) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
 	}
 	if material != "" && (!fs.ValidPath(material) || material == ".") {
 		return fmt.Errorf("editor: material %q must be a slash-separated path relative to the project root", material)

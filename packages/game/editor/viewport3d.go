@@ -1191,6 +1191,10 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 		if obj == nil || e.viewportFrozen(obj.ID) {
 			return false
 		}
+		if err := e.checkAgentTouchLock(obj.ID); err != nil {
+			e.report(err)
+			return false
+		}
 		for _, hh := range e.ColliderHandles3D(obj) {
 			if hh.Axis == axis && hh.Sign > 0 {
 				return e.beginColliderDrag3D(obj, hh, sx, sy, w, h)
@@ -1204,6 +1208,12 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	draggable := e.draggableSelectedIDs()
 	if len(draggable) == 0 {
 		return false
+	}
+	for _, id := range draggable {
+		if err := e.checkAgentTouchLock(id); err != nil {
+			e.report(err)
+			return false
+		}
 	}
 	pos, ok := e.gizmo3DOrigin()
 	if !ok {
@@ -2250,11 +2260,14 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	proj := e.Projection3D(w, h)
 
 	// 6. Active 3D transform gizmo, light/camera handles, and component gizmo handles on the selected object (hidden while painting a GridMap or 3D Terrain brush).
-	if !e.gizmo3DBlocked() {
+	if !e.gizmo3DBlocked() && e.OverlayLegendKindEnabled(OverlayLegendSelection) {
 		e.drawSceneHandles3D(d, w, h)
 		e.drawGizmo3D(d, w, h)
 		e.drawComponentGizmos3D(d, proj)
 	}
+
+	// 6b. Live agent change and agent-working overlays projected onto the 3D viewport.
+	e.drawAgentLiveOverlays3D(d, w, h)
 
 	// 7. Active 3D plugin tool overlay.
 	if !e.playing {

@@ -237,6 +237,15 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
+		openedTurn := !ed.AgentTurnPending()
+		if openedTurn {
+			ed.BeginAgentTurn("Agent: paste object")
+		}
+		autoStep := !c.s.explicitStep
+		if autoStep {
+			ed.BeginAgentStep(nil, "pasting object")
+			defer ed.EndAgentStep()
+		}
 		var (
 			id  string
 			err error
@@ -247,6 +256,9 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 			id, err = ed.PasteObject()
 		}
 		if err != nil {
+			if openedTurn {
+				ed.DiscardEmptyAgentTurn()
+			}
 			return err
 		}
 		out = ObjectPasteYAMLResult{ID: id, Revision: ed.Revision()}
@@ -311,8 +323,20 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 		if src == "" {
 			src = ed.SelectedID
 		}
+		openedTurn := !ed.AgentTurnPending()
+		if openedTurn {
+			ed.BeginAgentTurn("Agent: duplicate " + src)
+		}
+		autoStep := !c.s.explicitStep
+		if autoStep {
+			ed.BeginAgentStep([]string{src}, "duplicating "+src)
+			defer ed.EndAgentStep()
+		}
 		id, err := ed.DuplicateObject(src)
 		if err != nil {
+			if openedTurn {
+				ed.DiscardEmptyAgentTurn()
+			}
 			return err
 		}
 		out = ObjectDuplicateResult{SourceID: src, ID: id, Revision: ed.Revision()}
@@ -378,6 +402,15 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 		if len(ids) == 0 {
 			ids = ed.SelectedIDs()
 		}
+		openedTurn := !ed.AgentTurnPending()
+		if openedTurn {
+			ed.BeginAgentTurn("Agent: group objects")
+		}
+		autoStep := !c.s.explicitStep
+		if autoStep {
+			ed.BeginAgentStep(ids, "grouping objects")
+			defer ed.EndAgentStep()
+		}
 		var (
 			gid string
 			err error
@@ -395,6 +428,9 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 			gid, err = ed.GroupObjects(ids...)
 		}
 		if err != nil {
+			if openedTurn {
+				ed.DiscardEmptyAgentTurn()
+			}
 			return err
 		}
 		out = ObjectGroupResult{GroupID: gid, Children: ids, Revision: ed.Revision()}
@@ -478,7 +514,19 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
+		openedTurn := !ed.AgentTurnPending()
+		if openedTurn {
+			ed.BeginAgentTurn("Agent: move " + id)
+		}
+		autoStep := !c.s.explicitStep
+		if autoStep {
+			ed.BeginAgentStep([]string{id}, "moving "+id)
+			defer ed.EndAgentStep()
+		}
 		if err := ed.MoveObjectUnder(id, args.Parent); err != nil {
+			if openedTurn {
+				ed.DiscardEmptyAgentTurn()
+			}
 			return err
 		}
 		out = ObjectMoveUnderResult{

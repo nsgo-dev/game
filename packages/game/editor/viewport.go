@@ -309,7 +309,7 @@ func (e *Editor) HandleCanvasPressWithModifiers(x, y float32, shift, mod, alt bo
 			if inv, ok := chain2(path[:max(len(path)-1, 0)]).invert(); ok {
 				lx, ly := inv.apply(float64(wx), float64(wy))
 				sx, sy := e.SnapPosition2D(lx, ly)
-				_ = e.MoveObject(id, float32(sx), float32(sy))
+				e.report(e.MoveObject(id, float32(sx), float32(sy)))
 			}
 		} else if len(draggable) > 1 {
 			if g, ok := e.gizmo2D(); ok {
@@ -510,6 +510,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawParticleEmitterOverlays(d, scene)
 	e.drawSelectionOverlay(d, scene)
 	e.drawAgentTaskOverlays(d, scene)
+	e.drawAgentLiveOverlays(d, scene)
 	e.drawComponentShapes2D(d, scene)
 	e.drawViewportOverlays(d, scene)
 	e.drawProblemOverlays2D(d, scene)
@@ -797,6 +798,9 @@ func drawBuiltLayer(d *core.Drawing, layer *sceneformat.BuiltLayer) {
 }
 
 func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	if !e.OverlayLegendKindEnabled(OverlayLegendSelection) {
+		return
+	}
 	ids := e.SelectedIDs()
 	if len(ids) == 0 {
 		return

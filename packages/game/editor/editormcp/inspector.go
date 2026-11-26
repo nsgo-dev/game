@@ -150,7 +150,17 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}
 
-		return ed.History.Group(label, func() error {
+		openedTurn := !ed.AgentTurnPending()
+		if openedTurn {
+			ed.BeginAgentTurn(label)
+		}
+		autoStep := !c.s.explicitStep
+		if autoStep {
+			ed.BeginAgentStep([]string{targetID}, "editing "+targetID)
+			defer ed.EndAgentStep()
+		}
+
+		err := ed.History.Group(label, func() error {
 			switch {
 			case args.Property:
 				v, err := scalarValue(args.Value)
@@ -173,6 +183,10 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 				return nil
 			}
 		})
+		if err != nil && openedTurn {
+			ed.DiscardEmptyAgentTurn()
+		}
+		return err
 	})
 	if err != nil {
 		return nil, err

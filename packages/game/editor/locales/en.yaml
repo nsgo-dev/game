@@ -18,6 +18,20 @@ strings:
   agent.composerLabel: Ask the agent
   agent.composerPlaceholder: Describe a change… e.g. make the knight jump higher
   agent.connectShort: Connect
+  agent.headerPendingReview: Agent · {count} pending changes
+  agent.headerWaiting: Waiting for you
+  agent.headerWaitingDetail: Waiting for you · {detail}
+  agent.headerWorking: Agent is working · manual edits stay available
+  agent.headerWorkingDetail: Agent is {activity} · manual edits stay available
+  agent.inspectorReadOnly: Agent working here — read-only until this step moves on
+  agent.keep: Keep
+  agent.legendAdded: Added
+  agent.legendAgent: Agent working
+  agent.legendChanged: Changed
+  agent.legendProblem: Problem
+  agent.legendRemoved: Removed
+  agent.legendSelection: Selection
+  agent.legendTitle: OVERLAYS
   agent.notify.actionAllowOnce: Allow once
   agent.notify.actionLater: Later
   agent.notify.actionOpen: Open
@@ -27,11 +41,18 @@ strings:
   agent.notify.reviewTitle: Ready to review
   agent.notify.waitingTitle: Agent needs permission
   agent.playDot.hoverFormat: '{summary} · stop Play to open'
+  agent.revert: Revert
   agent.status.disconnected: Disconnected
   agent.status.reconnectingShort: Reconnecting
   agent.status.waitingShort: Waiting
   agent.status.workingShort: Working
+  agent.statusKept: Kept agent turn
+  agent.statusReverted: Reverted agent turn
   agent.tab: Agent
+  agent.treeChanged: MOD
+  agent.treeNew: NEW
+  agent.treeRemoved: DEL
+  agent.workingHere: agent working here
   agentPanel.emptyHint: Press {askKey} in the viewport to ask about the selection in place, or type a request below.
   agentPanel.emptyTitle: Ask the agent
   agentPanel.inputLabel: Ask the agent

@@ -23,6 +23,9 @@ func (e *Editor) SetObjectLight(id string, light *sceneformat.LightDoc) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if e.Doc == nil {
 		return errors.New("editor: nil scene document")
 	}
@@ -120,6 +123,9 @@ func (e *Editor) SetObjectCamera3D(id string, cam *sceneformat.Camera3DDoc) erro
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
 	}
 	if e.Doc == nil {
 		return errors.New("editor: nil scene document")

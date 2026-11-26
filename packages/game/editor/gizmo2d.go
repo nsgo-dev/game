@@ -526,9 +526,17 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	}
 	h, idx := e.pickGizmo2DWithIndex(x, y)
 	if h.IsNavRegion() {
+		if err := e.checkAgentTouchLock(e.SelectedID); err != nil {
+			e.report(err)
+			return Handle2DNone
+		}
 		return e.beginNavRegionDrag2D(h, idx, x, y)
 	}
 	if h.IsComponentHandle() {
+		if err := e.checkAgentTouchLock(e.SelectedID); err != nil {
+			e.report(err)
+			return Handle2DNone
+		}
 		return e.beginLightingDrag2D(h, idx, x, y)
 	}
 	anchorID := ""
@@ -540,6 +548,10 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 		if obj, _ := e.FindResolvedObject(hit); obj == nil || e.viewportFrozen(hit) {
 			return Handle2DNone
 		}
+		if err := e.checkAgentTouchLock(hit); err != nil {
+			e.report(err)
+			return Handle2DNone
+		}
 		if !e.IsSelected(hit) {
 			e.SelectObject(hit)
 		}
@@ -548,11 +560,21 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	}
 	draggable := e.draggableSelectedIDs()
 	if len(draggable) > 1 {
+		for _, id := range draggable {
+			if err := e.checkAgentTouchLock(id); err != nil {
+				e.report(err)
+				return Handle2DNone
+			}
+		}
 		return e.beginMultiDrag2D(h, draggable, anchorID, x, y)
 	}
 	targetID := e.SelectedID
 	if len(draggable) == 1 {
 		targetID = draggable[0]
+	}
+	if err := e.checkAgentTouchLock(targetID); err != nil {
+		e.report(err)
+		return Handle2DNone
 	}
 	obj, layerName := e.FindResolvedObject(targetID)
 	if obj == nil || e.viewportFrozen(targetID) {
@@ -1321,7 +1343,7 @@ var (
 
 // drawGizmo2D draws the selected object's transform gizmo: the rotation ring, the X and Y arrows, the move square and, on an outline large enough, the scale handles. The handle a drag holds is drawn highlighted.
 func (e *Editor) drawGizmo2D(d *core.Drawing) {
-	if !e.Gizmo2DShown() {
+	if !e.Gizmo2DShown() || !e.OverlayLegendKindEnabled(OverlayLegendSelection) {
 		return
 	}
 	g, _ := e.gizmo2D()

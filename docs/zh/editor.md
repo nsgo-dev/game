@@ -1478,3 +1478,19 @@ func main() {
 - **点击通知回到对应场景中的任务**：`cx.OnNotificationPress`（经由 `Editor.HandleNotificationPress` / `Editor.OpenAgentTask`）将编辑器窗口置前（并触发可选的 `Editor.OnFocusWindow` 钩子）、若在播放中先停止播放、关闭遮挡面板（设置、历史、问题智能体面板、就地提问、资源模式）、切换到或严格在项目根目录内打开该任务所在的场景标签页（拒绝路径遍历与符号链接逃逸）、打开任务或智能体面板并聚焦对应任务及待处理请求卡片。
 - **Dock 图标角标（`cx.SetBadge`）**：`Editor.AgentDockBadgeCount` 仅统计等待中（`TaskNeedsYou`）、待审查（`TaskReadyToReview`）与失败（`TaskFailed`）任务的总数（`AgentTaskCounts.BadgeCount()`）；运行中与排队中的任务绝不计入角标，归零或在作用域清理时自动清除。
 - **播放模式角落提示点与延后通知（`PlayTaskDotView`）**：在播放模式（`Editor.Playing()`）期间，运行中的游戏上方不会弹出任何智能体任务通知，系统通知会暂存（`Editor.HeldAgentNotifications`）直至 `Editor.Stop()` 停止播放后才对仍需处理的任务发出。视口右上角稳定挂载一个带 3 pt 光晕的 8 pt 圆点，颜色取当前最紧急状态的 Spec 令牌色（**失败** `Removed.Fg` > **等待处理** `Warning.Fg` > **待审查** `Accent.Fg`），仅在悬停或键盘聚焦时显示提示胶囊（例如 `"1 task needs you · stop Play to open"`）。
+
+## 在视口与场景树中实时显示智能体编辑（#1013）
+
+当智能体通过 `editormcp` 或待定智能体回合（`Editor.BeginAgentTurn` / `Editor.RunAsAgent`）编辑场景时，编辑器会在视口与场景树中实时呈现其未确认改动（对应 `docs/design/editor/Working.dc.html`、`Main.dc.html` 与 `Spec.dc.html`），且绝不会替智能体移动 2D 或 3D 视口相机：
+
+- **实时视口叠加层（`ViewportLiveOverlays` / `VisibleViewportLiveOverlays`）**：
+  - **新增（Added）**：1.5 px 绿色虚线框（`SpecPalette.Added`）与 `"+ <name>"` 等宽胶囊标签。
+  - **修改（Changed）**：1.5 px 琥珀色虚线框（`SpecPalette.Changed`）与 `"<field> <old> → <new>"` 等宽胶囊标签（同时自动同步到检查器的琥珀色审查提示）。
+  - **移除（Removed）**：位于对象原边界处的 25% 灰色虚影、1.5 px 红色实线框（`SpecPalette.Removed`）以及带删除线名称的 `"<name> removed"` 胶囊标签。
+  - **智能体处理中（Agent working）**：1.5 px 紫色脉冲实线框（`SpecPalette.Agent`，1.6 秒在 45%–100% 不透明度间循环；开启“减少动态效果”时固定 100% 实线），不带缩放手柄，上方显示带紫色星芒图标与活动描述的胶囊（如 `playing level_01 headless`）。
+  - **问题（Problem）**：2 px 红色实线框与实心高对比度告警胶囊。
+  - 胶囊排布自动避让碰撞并向上错开，避免相邻对象或叠加状态互相遮挡。
+- **选中对象共存与步骤级只读保护**：当用户选中智能体当前正在操作的对象（`Editor.BeginAgentStep` / `editormcp.Server.BeginStep`）时，选中框保留其变换手柄，智能体轮廓自动再向外偏移 3 px（`OutsetPx: 6`）。在该步骤离开此对象（`EndAgentStep`）之前，视口、2D/3D 手柄、检查器（顶部显示紫色只读提示条）、场景树（重命名与拖拽重挂）、右键菜单及直接调用的 `Editor` 修改方法均会以 `ErrAgentTouchingObject` 拒绝手动修改；未被智能体触及的其他对象仍可自由手动编辑。
+- **场景树标记**：新增节点显示 `NEW` 徽章，修改节点显示 `MOD` 徽章，被移除节点以带删除线的虚影行与 `DEL` 徽章保留在树中，智能体正在操作的节点显示紫色圆点，直至执行 **Keep** 或 **Revert**。
+- **顶栏状态胶囊**：随智能体状态自动切换（`Editor.SetAgentState` / `Editor.AgentState`）：工作中显示紫色胶囊（`"Agent is <activity> · manual edits stay available"`），等待确认显示警告胶囊（`"Waiting for you · <detail>"`），待审查状态显示改动数量与 **Keep**（`KeepAgentTurn`，将整个回合合并为单步撤销）/**Revert**（`RevertAgentTurn`，回滚回合改动并还原已删除对象）按钮，空闲时自动隐藏。
+- **左上角可交互叠加层图例**：当存在任意实时叠加层（或 `OverlayLegendOpen` 为真）时自动显示。图例中的每一行（**Selection**、**Agent working**、**Added**、**Changed**、**Removed**、**Problem**）都是可点击的 `RoleSwitch` 开关（`ToggleOverlayLegendKind` / `SetOverlayLegendKind`），隐藏项按用户持久化到项目之外的 `EditorSettings.HiddenOverlayKinds`（`editor.yaml` 中的 `hiddenOverlayKinds`，Schema 为 `editor-settings.v1.json`），绝不污染项目文件。

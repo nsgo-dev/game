@@ -69,6 +69,13 @@
         "type": "string"
       }
     },
+    "hiddenOverlayKinds": {
+      "description": "HiddenOverlayKinds lists Spec overlay legend kinds toggled off by the user (\"selection\", \"agent\", \"added\", \"changed\", \"removed\", \"problem\") in canonical sorted order.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "shortcuts": {
       "description": "Shortcuts overrides default command shortcuts keyed by command ID (for example \"view.frame\": \"g\"). An empty string explicitly unbinds a command.",
       "type": "object",

@@ -857,6 +857,10 @@ type Editor struct {
 	toastRT       *toastRuntime
 	// overlayLegendOpen controls whether the compact Spec overlay legend is shown in the viewport corner.
 	overlayLegendOpen bool
+	// agentLive tracks the pending agent turn, structural diff overlays, active touched objects, and header pill state.
+	agentLive agentLiveState
+	// agentMutating is > 0 while an agent-originated MCP tool executes through RunAsAgent.
+	agentMutating int
 	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
 	hud hudLayoutState
 	// lookThroughCamera3D makes the 3D viewport render and project through the scene's active 3D camera (LookThroughCamera3D) instead of Camera3D.
@@ -1126,6 +1130,7 @@ func (e *Editor) afterMutate() {
 	e.syncExportPanel()
 	e.syncHUDAfterMutate()
 	e.syncTileReviewAfterMutate()
+	e.syncAgentTurnAfterMutate()
 	e.Rebuild()
 	// Ensure SelectedID and selectedIDs still point to existing local, instanced, or inherited objects.
 	e.pruneSelection()
@@ -1539,6 +1544,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.paletteStampRect = TileRect{}
 	e.hasPaletteStampRect = false
 	e.tileReview = nil
+	e.clearAgentLiveForSceneReset()
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.clearSelectionFields()
@@ -2107,6 +2113,9 @@ func (e *Editor) DeleteObject(id string) error {
 	if e.HistoryPreviewActive() {
 		return ErrHistoryPreview
 	}
+	if err := e.checkAgentTouchLockSubtree(id); err != nil {
+		return err
+	}
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
@@ -2147,6 +2156,9 @@ func (e *Editor) MoveObject(id string, x, y float32) error {
 	if e.HistoryPreviewActive() {
 		return ErrHistoryPreview
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return errors.New("editor: position must be finite")
 	}
@@ -2185,6 +2197,9 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(radians) {
 		return errors.New("editor: rotation must be finite")
 	}
@@ -2221,6 +2236,9 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
 	}
 	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
 		return errors.New("editor: scale must be finite")
@@ -2263,6 +2281,9 @@ func (e *Editor) SetObjectAlpha(id string, alpha float32) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(alpha) || alpha < 0 || alpha > 1 {
 		return fmt.Errorf("editor: alpha %v must be in [0, 1]", alpha)
 	}
@@ -2297,6 +2318,9 @@ func (e *Editor) SetObjectZ(id string, z int) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
@@ -2327,6 +2351,9 @@ func (e *Editor) SetObjectZ(id string, z int) error {
 func (e *Editor) SetObjectName(id, name string) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
@@ -2415,6 +2442,9 @@ func (e *Editor) MoveObject3D(id string, x, y, posZ float32) error {
 	if e.HistoryPreviewActive() {
 		return ErrHistoryPreview
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(posZ) {
 		return errors.New("editor: 3D position must be finite")
 	}
@@ -2457,6 +2487,9 @@ func (e *Editor) RotateObject3D(id string, rotX, rotY, rotZ float32) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(rotX) || !isFiniteFloat32(rotY) || !isFiniteFloat32(rotZ) {
 		return errors.New("editor: 3D rotation must be finite")
 	}
@@ -2498,6 +2531,9 @@ func (e *Editor) RotateObject3D(id string, rotX, rotY, rotZ float32) error {
 func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
 	}
 	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) || !isFiniteFloat32(sz) {
 		return errors.New("editor: 3D scale must be finite")
@@ -2546,6 +2582,9 @@ func (e *Editor) SetObjectDepth(id string, depth float32) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(depth) || depth < 0 {
 		return fmt.Errorf("editor: depth %v must be finite and non-negative", depth)
 	}
@@ -2578,6 +2617,9 @@ func (e *Editor) SetObjectDepth(id string, depth float32) error {
 func (e *Editor) SetObjectMesh(id, mesh string) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
 	}
 	if mesh != "" && !slices.Contains(sceneformat.MeshPrimitives(), mesh) {
 		return fmt.Errorf("editor: mesh %q is not a built-in primitive (want one of %s)", mesh, strings.Join(sceneformat.MeshPrimitives(), ", "))

@@ -747,6 +747,9 @@ func (e *Editor) BeginInspectorScrub(spec InspectorScrubField) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(spec.ObjectID); err != nil {
+		return err
+	}
 	if spec.ObjectID == "" || spec.Field == "" {
 		return errors.New("editor: scrub requires objectID and field")
 	}

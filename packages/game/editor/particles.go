@@ -1557,6 +1557,9 @@ func (e *Editor) SetObjectParticles(objectID string, ref *sceneformat.ParticlesR
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	if ref != nil {
 		if ref.File == "" || !fs.ValidPath(ref.File) || ref.File == "." {
 			return fmt.Errorf("editor: particles file %q must be a slash-separated path relative to the project root", ref.File)
