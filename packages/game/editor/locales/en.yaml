@@ -2,6 +2,15 @@
 version: 1
 locale: en
 strings:
+  agent.composerHint: Enter sends · Shift+Enter adds a line
+  agent.composerLabel: Ask the agent
+  agent.composerPlaceholder: Describe a change… e.g. make the knight jump higher
+  agent.connectShort: Connect
+  agent.status.disconnected: Disconnected
+  agent.status.reconnectingShort: Reconnecting
+  agent.status.waitingShort: Waiting
+  agent.status.workingShort: Working
+  agent.tab: Agent
   app.defaultName: NSGo Scene Editor
   assetGen.back: Back to scene editor
   assetGen.cancel: Cancel
@@ -31,6 +40,8 @@ strings:
   assets.prefab: Prefab
   assets.prefabs: Prefabs
   assets.title: Assets
+  cmd.agentPanel.desc: Toggle the right sidebar between the Agent panel and the Inspector
+  cmd.agentPanel.label: Agent Panel
   cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
   cmd.assetDrawer.label: Asset Drawer
   cmd.audioMixer.desc: Toggle the Audio Bus Mixer panel
@@ -49,6 +60,8 @@ strings:
   cmd.checkProblems.label: Check Problems
   cmd.commandPalette.desc: Search and run editor commands, plugin tools, panels, and project files
   cmd.commandPalette.label: Command Palette
+  cmd.connectAgent.desc: Connect Claude Code, Codex, or another MCP client to this project
+  cmd.connectAgent.label: Connect an Agent
   cmd.copy.desc: Copy the selected objects or tile region to the clipboard
   cmd.copy.label: Copy
   cmd.cut.desc: Cut the selected objects or tile region to the clipboard
@@ -377,6 +390,7 @@ strings:
   menu.checkProblems: Check Problems
   menu.closeTab: Close Scene Tab
   menu.commandPalette: Command Palette...
+  menu.connectAgent: Connect an Agent...
   menu.copy: Copy
   menu.cut: Cut
   menu.delete: Delete
@@ -579,6 +593,7 @@ strings:
   search.search: Search
   settings.appearance: Appearance
   settings.appearanceHelp: Dark, light, or follow the system.
+  settings.connectAnother: + Connect another agent or model
   settings.dark: Dark
   settings.description: Language, appearance, and keyboard shortcuts for this computer.
   settings.done: Done
@@ -593,6 +608,7 @@ strings:
   settings.metaReady: Ready
   settings.metaSetUp: Set up
   settings.metaUnsaved: Unsaved
+  settings.modelsTitle: Models and connections
   settings.navTitle: Settings
   settings.noProjectBody: Open a game.yaml project to configure Project, Input map, Audio buses, and Export settings.
   settings.noProjectTitle: No project open

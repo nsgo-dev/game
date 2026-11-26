@@ -1,0 +1,3 @@
+### Added
+
+- `game/editor`, `game/editor/editormcp`, `cmd/game`: add `go tool game mcp install` to idempotently write project-level MCP configs for Claude Code (`.mcp.json`) and Codex (`.codex/config.toml`), the Connect an agent dialog (`ConnectAgentDialogView`), the right-sidebar Agent panel with thread, streamed steps, and multiline composer (`AgentPanelView`, `AgentRunner`, `CLIAgentRunner`), and the `LiveRegionPolite` header status chip (`Connected · MCP`, `Working · step n of m`, `Waiting for you · elapsed`, `Reconnecting · try n of 5` with `1, 2, 4, 8, 16 s` backoff, and `Disconnected` with `Reconnect` and step-targeted `Troubleshoot`) (#1009).

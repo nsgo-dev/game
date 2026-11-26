@@ -120,8 +120,11 @@ type Server struct {
 	root     string
 	openErr  error
 	conns    map[net.Conn]struct{}
-	closed   bool
-	done     chan struct{}
+	// sessions tracks active MCP client sessions for Connect dialog & status chip reporting.
+	sessions      map[*mcp.ServerSession]editor.AgentClientInfo
+	nextSessionID int
+	closed        bool
+	done          chan struct{}
 	// wg tracks the goroutines serving connections and sending notifications.
 	wg sync.WaitGroup
 
@@ -148,12 +151,14 @@ func New(ed *editor.Editor, opts Options) *Server {
 		tools:       map[string]Tool{},
 		subs:        map[*mcp.ServerSession]map[string]bool{},
 		conns:       map[net.Conn]struct{}{},
+		sessions:    map[*mcp.ServerSession]editor.AgentClientInfo{},
 		done:        make(chan struct{}),
 		pending:     map[string]mcp.Meta{},
 		wake:        make(chan struct{}, 1),
 	}
 	s.sdk = mcp.NewServer(&mcp.Implementation{Name: ServerName, Title: "NSGo Game Editor"}, &mcp.ServerOptions{
 		Instructions:       instructions,
+		InitializedHandler: s.initialized,
 		SubscribeHandler:   s.subscribe,
 		UnsubscribeHandler: s.unsubscribe,
 		Capabilities: &mcp.ServerCapabilities{
@@ -169,6 +174,9 @@ func New(ed *editor.Editor, opts Options) *Server {
 	s.addResources()
 	s.stream.reset(ed)
 	s.unsub = ed.Subscribe(s.changed)
+	if ed.AgentReconnectProbe == nil {
+		ed.AgentReconnectProbe = s.probeClient
+	}
 	s.wg.Add(1)
 	go s.sendNotices()
 	return s
@@ -276,7 +284,154 @@ func (s *Server) asAgent(fn func(ed *editor.Editor) error) (err error) {
 
 // Connect serves one MCP session on t until the client disconnects or the server closes, as Open does for each client of the endpoint and as a test or an in-process agent does with mcp.NewInMemoryTransports.
 func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSession, error) {
-	return s.sdk.Connect(ctx, t, nil)
+	ss, err := s.sdk.Connect(ctx, t, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.trackSession(ss, "in-memory")
+	return ss, nil
+}
+
+// Clients returns the MCP clients currently attached to the server.
+func (s *Server) Clients() []editor.AgentClientInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]editor.AgentClientInfo, 0, len(s.sessions))
+	for _, info := range s.sessions {
+		out = append(out, info)
+	}
+	return out
+}
+
+func (s *Server) initialized(_ context.Context, req *mcp.InitializedRequest) {
+	if req == nil || req.Session == nil {
+		return
+	}
+	info := s.registerOrUpdateSession(req.Session, "")
+	s.notifyEditor(func(ed *editor.Editor) {
+		ed.NotifyAgentMCPConnected(info)
+	})
+}
+
+func (s *Server) trackSession(ss *mcp.ServerSession, defaultTransport string) {
+	if ss == nil {
+		return
+	}
+	info := s.registerOrUpdateSession(ss, defaultTransport)
+	s.notifyEditor(func(ed *editor.Editor) {
+		ed.NotifyAgentMCPConnected(info)
+	})
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		_ = ss.Wait()
+		s.dropSession(ss)
+	}()
+}
+
+func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport string) editor.AgentClientInfo {
+	name, title, version := "", "", ""
+	if p := ss.InitializeParams(); p != nil && p.ClientInfo != nil {
+		name = p.ClientInfo.Name
+		title = p.ClientInfo.Title
+		version = p.ClientInfo.Version
+	}
+	transport := defaultTransport
+	if transport == "" {
+		transport = "stdio"
+	}
+	// Proxy encodes its downstream stdio transport in ClientInfo.Title ("stdio") when connecting over the local Unix socket.
+	if title == proxyStdioMarker || version == proxyStdioMarker {
+		transport = "stdio"
+		title = ""
+	}
+	display := title
+	if display == "" {
+		display = editor.FriendlyAgentName(name)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.sessions[ss]; ok {
+		if name != "" {
+			existing.Name = name
+			existing.DisplayName = display
+		}
+		if defaultTransport != "" && existing.Transport == "" {
+			existing.Transport = defaultTransport
+		}
+		if title == "" && (version == proxyStdioMarker) {
+			existing.Transport = "stdio"
+		}
+		s.sessions[ss] = existing
+		return existing
+	}
+	s.nextSessionID++
+	id := ss.ID()
+	if id == "" {
+		id = fmt.Sprintf("mcp-%d", s.nextSessionID)
+	}
+	info := editor.AgentClientInfo{
+		ID:          id,
+		Name:        name,
+		DisplayName: display,
+		Transport:   transport,
+	}
+	s.sessions[ss] = info
+	return info
+}
+
+func (s *Server) dropSession(ss *mcp.ServerSession) {
+	s.mu.Lock()
+	info, ok := s.sessions[ss]
+	delete(s.sessions, ss)
+	closed := s.closed
+	s.mu.Unlock()
+	if !ok || closed {
+		return
+	}
+	s.notifyEditor(func(ed *editor.Editor) {
+		ed.NotifyAgentMCPDisconnected(info.ID, "")
+	})
+}
+
+func (s *Server) probeClient(ctx context.Context) (editor.AgentClientInfo, error) {
+	s.mu.Lock()
+	var target *mcp.ServerSession
+	var info editor.AgentClientInfo
+	for ss, ci := range s.sessions {
+		target, info = ss, ci
+		break
+	}
+	s.mu.Unlock()
+	if target == nil {
+		return editor.AgentClientInfo{}, ErrNoEditor
+	}
+	if err := target.Ping(ctx, nil); err != nil {
+		return editor.AgentClientInfo{}, err
+	}
+	return info, nil
+}
+
+func (s *Server) notifyEditor(fn func(ed *editor.Editor)) {
+	if s.ed == nil || fn == nil {
+		return
+	}
+	if s.run != nil {
+		s.run(func() {
+			fn(s.ed)
+		})
+		return
+	}
+	if s.ed.HasScope() {
+		s.ed.Post(func() {
+			fn(s.ed)
+		})
+		return
+	}
+	s.inline.Lock()
+	defer s.inline.Unlock()
+	fn(s.ed)
 }
 
 // Open starts serving on the endpoint of the project open in the editor (Endpoint) and moves to the new project's endpoint whenever the editor opens another, until Close. Call it on the editor's goroutine. Without a project it serves nothing until one opens. It returns the error opening the endpoint, such as ErrInUse when another editor has the same project open, which Status reports too.
@@ -389,7 +544,12 @@ func (s *Server) serveConn(conn net.Conn) {
 	if err != nil {
 		return
 	}
+	info := s.registerOrUpdateSession(ss, "unix")
+	s.notifyEditor(func(ed *editor.Editor) {
+		ed.NotifyAgentMCPConnected(info)
+	})
 	_ = ss.Wait()
+	s.dropSession(ss)
 }
 
 // Close stops serving: it closes the endpoint and every session, removes the socket file and stops following the editor. Call it on the editor's goroutine; the editor stays as it is.
@@ -409,6 +569,9 @@ func (s *Server) Close() error {
 		s.unsub()
 		s.unsub = nil
 	}
+	if s.ed != nil {
+		s.ed.CancelAgentReconnect()
+	}
 	if l != nil {
 		closeListener(l)
 	}
@@ -426,6 +589,21 @@ func (s *Server) Close() error {
 func (s *Server) handler(t Tool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		res, err := s.call(ctx, t, req.Params.Arguments, false)
+		clientName := ""
+		if req != nil && req.Session != nil {
+			s.mu.Lock()
+			if info, ok := s.sessions[req.Session]; ok {
+				clientName = info.DisplayName
+			}
+			s.mu.Unlock()
+		}
+		summary := t.Title
+		if summary == "" {
+			summary = t.Name
+		}
+		s.notifyEditor(func(ed *editor.Editor) {
+			ed.RecordExternalAgentToolCall(clientName, t.Name, summary, err != nil)
+		})
 		return sdkResult(res, err), nil
 	}
 }

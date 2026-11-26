@@ -1219,13 +1219,7 @@ func main() {
 - **插件自定义叠加层（`ViewportOverlay`）**：插件可通过 `Plugin.Overlays`（或直接在编辑器上调用 `Editor.RegisterViewportOverlay`）注册带 `ID`、`Name`/`NameKey`、可选 `Count` 计数回调与 `Draw func(*Editor, *core.Drawing, *sceneformat.BuiltScene)` 绘制函数的自定义叠加层。启用的插件叠加层会自动出现在弹出层、`View > Overlays` 菜单以及 `editormcp` 的 `viewport_image` 工具中。
 - **用户级持久化**：切换任意叠加层（`SetViewportOverlay`、`ToggleViewportOverlay`、`SetViewportOverlays`）都会把 `viewportOverlays` 写入项目之外的 `Editor.SettingsPath`（`EditorSettings` YAML），绝不改动任何项目或场景文件，重启后保持不变（全部关闭时显式写为 `[]`）。
 - **与 `editormcp` 的 `viewport_image` 共用**：`Editor.DrawViewportWithOverlays(d, size, overlayIDs)` 将完全一致的叠加层渲染进 `viewport_image`。省略 `viewport_overlays` 时默认使用编辑器当前已开启的叠加层；传入名称列表（或 `[]`）时仅覆盖本次截图而不修改编辑器设置。
-<<<<<<< HEAD
 
-||||||| parent of a5fa7835 (feat(editor): add Spec focus rings, F6 region cycling, and dialog focus restoration)
-
-
-=======
->>>>>>> a5fa7835 (feat(editor): add Spec focus rings, F6 region cycling, and dialog focus restoration)
 ## 分节检查器、字段筛选、拖拽微调、打开 YAML 与请智能体添加（#1038）
 
 对象检查器（`InspectorView`）采用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `Inspector.dc.html`、`Main.dc.html` 与 `Viewport3D.dc.html`，将对象属性组织为紧凑的可折叠标题分区，同时保持每个控件都对应一个 `Editor` 方法与匹配的 `editormcp` 工具：
@@ -1237,6 +1231,7 @@ func main() {
 - **分组“添加组件”与“请智能体添加”**：对象尚未挂载的已注册组件按 `GAMEPLAY`、`PHYSICS` 与 `AUDIO AND VISUAL` 分组展示（`ComponentCategoryOf`、`AddableComponentGroups`）；输入框旁的 **Ask to add**（`AskToAddComponent`、`ComposerDraft`、`SetComposerDraft`、`Editor.OnComposerPrompt`）会在智能体输入框预填 `"Add a component to <object> that "`。
 - **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
 - **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。
+
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
 通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 令牌并对应 `docs/design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
@@ -1257,3 +1252,18 @@ func main() {
 - **视口内焦点即选中对象**：视口画布本身不绘制焦点环；当焦点位于视口（`editor-viewport-frame`）内时，`Tab`（`Editor.SelectNextObject`）与 `Shift-Tab`（`Editor.SelectPreviousObject`）按场景顺序循环选中下一个/上一个可见且未锁定的对象。
 - **对话框焦点限制与关闭恢复**：所有编辑器对话框（`EditorSettingsDialogView`、`ShortcutsSheetView`、`CommandPaletteView`、未保存提示、场景路径对话框与保存冲突对话框）会将 `Tab` / `Shift-Tab` 限制在最顶层模态框内（同时不干扰 `Settings › Shortcuts` 的按键录制），在对话框打开期间屏蔽全局快捷键（除用于停止智能体的 `⌘.` / `Ctrl+.`，即 `Editor.OnStopAgent` 外），并在按 `Esc` 取消或点击操作按钮关闭后将焦点精确恢复到打开该对话框的控件。
 - **焦点稳定性**：在拖拽或检查器数值微调进行中（`Editor.IsDragging`）或用户正在文本字段中输入时（`Editor.IsTyping`），编辑器不会自动抢占焦点；弹出 Toast 不会抢走焦点；`Editor.ShouldFocusAgentPrompt` 仅在未拖拽、未输入且焦点原本就位于智能体面板内（`Editor.SetAgentPanelRef`）时才返回 `true`。
+
+## 连接智能体与状态胶囊（#1009）
+
+在编辑器内或通过 `go tool game mcp install` 连接本机的外部编程智能体（Claude Code、Codex 或任意 MCP 客户端），界面严格遵循 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Connect.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Settings.dc.html`：
+
+- **一次性项目安装（`go tool game mcp install`）**：在项目根目录幂等地写入 `.mcp.json`（Claude Code）和 `.codex/config.toml`（Codex），保留文件中已有的其他 MCP 服务器与设置，并打印每个文件是写入还是未变更。
+- **连接智能体对话框（`ConnectAgentDialogView`）**：可通过 `项目 > 连接智能体…`、命令面板（`CmdConnectAgent`）、`编辑器设置 > 模型与连接`（`+ 连接其他智能体或模型`）或智能体面板顶部栏打开。提供三个选项（**本机上的智能体** / 推荐、**内置，使用你的 API 密钥**、**不使用智能体**），展示带 **Copy** 按钮的 `go tool game mcp install` 命令与等待连接状态（首个 MCP 客户端接入后立即切换为绿色已连接状态），提供四项起始权限复选框（编辑场景与数据、运行 `game check`、运行无头试玩、编辑 Go 代码 -> `AgentPermissionRules`），选择 **不使用智能体** 时保持智能体面板关闭，并提供 **Later** 与 **Done** 按钮。
+- **智能体标签页面板（`AgentPanelView`）**：在右侧栏的 **检视器**（`RightTabInspector`）与 **智能体**（`RightTabAgent`、`CmdAgentPanel`）之间切换，展示请求对话流（包括终端启动的 MCP 客户端发起的外部回合）、实时流式步骤以及带标签的多行输入框（`Enter` 发送、`Shift+Enter` 换行，并提供 **Send** / **Stop** 按钮）。输入框请求经由 `Editor.AgentRunner` 分发（桌面端默认为 `CLIAgentRunner`，在项目目录中以非交互流式 JSON 模式调用 `claude --print --output-format=stream-json --verbose` 或 `codex exec --json` 并接入项目 MCP 配置）。
+- **状态胶囊（`AgentStatusChipView`）**：通过 `core.LiveRegionPolite` 播报状态变化，展示全部五种状态，且手动编辑工具在任何状态下均可正常使用：
+  - `Connected · MCP`（悬停提示智能体名称与传输方式，例如 `Claude Code over stdio`）
+  - `Working · step n of m`（紫色圆点以 `1.2 s` 周期脉动，开启减弱动态效果时保持静止）
+  - `Waiting for you · m:ss`（点击聚焦当前待处理请求卡片）
+  - `Reconnecting · try n of 5`（按 `1、2、4、8、16 s` 指数退避重试，可通过 `Editor.AgentScheduleAfter` 注入调度器以确定性测试）
+  - `Disconnected` 及 **Reconnect** 与 **Troubleshoot** 按钮（点击 **Troubleshoot** 直接在失败的步骤重新打开连接对话框，而非回到起始步）。
+>>>>>>> a7b64108 (feat(editor,editormcp): connect an agent via Connect dialog, mcp install, and status chip)

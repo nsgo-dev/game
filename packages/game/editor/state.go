@@ -473,6 +473,14 @@ type Editor struct {
 	OnAskAgent func(AgentPromptRequest)
 	// OnStopAgent is invoked by Mod+. (even while a modal dialog is open, per Spec rule 04) to stop an active agent run without disturbing reviewable changes.
 	OnStopAgent func()
+	// AgentRunner runs a composer request against an external agent (such as Claude Code or Codex) and streams incremental steps; when nil on desktop, CLIAgentRunner is used.
+	AgentRunner AgentRunner
+	// AgentReconnectProbe checks whether an MCP agent session is reachable during a reconnect attempt; wired automatically by editormcp.Server and replaceable in tests.
+	AgentReconnectProbe func(ctx context.Context) (AgentClientInfo, error)
+	// AgentScheduleAfter schedules fn to run after d and returns a cancel function; when nil, time.AfterFunc posting onto the editor's UI scope is used. Tests replace this to verify the 1, 2, 4, 8, 16 s reconnect backoff without real sleeps.
+	AgentScheduleAfter func(d time.Duration, fn func()) (cancel func())
+	// OnFocusAgentRequest, when set, is called when the user clicks the "Waiting for you" status chip to focus the open request.
+	OnFocusAgentRequest func(req AgentOpenRequest)
 
 	playing            bool
 	playSnapshot       []byte
@@ -781,6 +789,8 @@ type Editor struct {
 	inspectorFieldProblems []InspectorFieldProblem
 	// focus holds the editor's keyboard region controller, per-region focus memory, dialog focus trap state, and text-input typing state.
 	focus focusRegionState
+	// agent holds the Connect dialog, status chip, reconnect backoff, permission checkboxes, active thread, and composer state.
+	agent agentState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -844,6 +854,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		hud: hudLayoutState{
 			overlays: DefaultHUDOverlays(),
 		},
+		agent: defaultAgentState(),
 	}
 	ed.History = ed.newTabHistory()
 	if len(doc.Layers) > 0 {

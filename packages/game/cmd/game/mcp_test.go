@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -268,4 +271,305 @@ func TestGameMCPWithoutAnEditor(t *testing.T) {
 	if code := run([]string{"mcp", "extra"}, a); code != 2 {
 		t.Fatalf("an argument: exit %d, %s", code, stderr)
 	}
+}
+
+// Acceptance tests for #1009:
+// 1. `go tool game mcp install` run twice in a fixture project produces identical files, and a client started from that configuration connects to the open editor.
+// 2. Connect an MCP client -> Connected, drop the connection -> Reconnecting with retry schedule (1, 2, 4, 8, 16 s), then Disconnected after five failures; Troubleshoot opens Connect at the failed step.
+// 3. A request typed in the composer reaches a connected agent and its steps stream into the panel.
+func TestGameMCPInstallConnectReconnectAndComposer(t *testing.T) {
+	mcpEndpoints(t)
+	dir := writeMCPFixture(t)
+
+	// 1. Run `game mcp install` twice and verify byte-identical .mcp.json and .codex/config.toml.
+	a1, stdout1, stderr1 := newTestApp(t)
+	if code := run([]string{"mcp", "install", "-project", dir}, a1); code != 0 {
+		t.Fatalf("first mcp install exit %d (stderr: %s)", code, stderr1)
+	}
+	if !strings.Contains(stdout1.String(), "Wrote .mcp.json") || !strings.Contains(stdout1.String(), "Wrote .codex/config.toml") {
+		t.Fatalf("first mcp install stdout:\n%s", stdout1)
+	}
+	claudeBytes1, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexBytes1, err := os.ReadFile(filepath.Join(dir, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a2, stdout2, stderr2 := newTestApp(t)
+	if code := run([]string{"mcp", "install", "-project", dir}, a2); code != 0 {
+		t.Fatalf("second mcp install exit %d (stderr: %s)", code, stderr2)
+	}
+	if !strings.Contains(stdout2.String(), "Unchanged .mcp.json") || !strings.Contains(stdout2.String(), "Unchanged .codex/config.toml") {
+		t.Fatalf("second mcp install stdout:\n%s", stdout2)
+	}
+	claudeBytes2, _ := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	codexBytes2, _ := os.ReadFile(filepath.Join(dir, ".codex", "config.toml"))
+	if !bytes.Equal(claudeBytes1, claudeBytes2) {
+		t.Fatalf(".mcp.json differed on second install")
+	}
+	if !bytes.Equal(codexBytes1, codexBytes2) {
+		t.Fatalf(".codex/config.toml differed on second install")
+	}
+
+	// Parse the written .mcp.json configuration and verify the command it specifies.
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(claudeBytes1, &cfg); err != nil {
+		t.Fatalf("parse .mcp.json: %v", err)
+	}
+	entry, ok := cfg.MCPServers[editormcp.ServerName]
+	if !ok || entry.Command != "go" || !slices.Equal(entry.Args, []string{"tool", "game", "mcp"}) {
+		t.Fatalf("unexpected .mcp.json entry: %+v", entry)
+	}
+
+	// Open the editor on the fixture project with an injectable retry scheduler for deterministic backoff testing.
+	edApp, _, edErr := newTestApp(t)
+	var ed *editor.Editor
+	edApp.launch = func(e *editor.Editor) { ed = e }
+	if code := run([]string{"editor", dir}, edApp); code != 0 {
+		t.Fatalf("game editor exit %d (stderr: %s)", code, edErr)
+	}
+	t.Cleanup(ed.WaitForProblems)
+
+	type retryItem struct {
+		delay    time.Duration
+		fn       func()
+		canceled bool
+	}
+	var retries []*retryItem
+	ed.AgentScheduleAfter = func(d time.Duration, fn func()) func() {
+		it := &retryItem{delay: d, fn: fn}
+		retries = append(retries, it)
+		return func() { it.canceled = true }
+	}
+	ed.SetRightRailTab(editor.RightTabAgent)
+	ed.OpenConnectDialog()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		editorcmd.Serve(cx, ed, io.Discard)
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	app.WaitUntil(10*time.Second, func() bool { return !ed.CheckingProblems() })
+
+	// Launch the MCP proxy using the subcommand from the written `.mcp.json` (`args[2:]` = `["mcp"]`) inside dir.
+	t.Chdir(dir)
+	proxyApp, _, proxyErr := newTestApp(t)
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	proxyApp.stdin, proxyApp.stdout = inR, outW
+	proxyDone := make(chan int, 1)
+	go func() {
+		code := run(entry.Args[2:], proxyApp)
+		_ = outW.Close()
+		proxyDone <- code
+	}()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "claude-code"}, nil).Connect(context.Background(), &mcp.IOTransport{Reader: outR, Writer: inW}, nil)
+	if err != nil {
+		t.Fatalf("connect from installed config: %v (stderr: %s)", err, proxyErr)
+	}
+
+	// Connecting via the installed config transitions the Connect dialog and status chip to Connected.
+	app.WaitUntil(10*time.Second, func() bool {
+		return ed.AgentStatus() == editor.AgentStatusConnected
+	})
+	if tip := ed.AgentStatusTooltip(); tip != "Claude Code over stdio" {
+		t.Fatalf("tooltip = %q, want Claude Code over stdio", tip)
+	}
+	if got := mcpViewText(t, app, "id:connect-waiting-text"); !strings.Contains(got, "Connected") {
+		t.Fatalf("connect waiting indicator = %q, want Connected", got)
+	}
+	app.Press("id:connect-done")
+	app.Settle()
+
+	// 3. A request typed in the composer reaches the connected agent and its steps stream into the panel.
+	ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "1", StepTitle: "Read scenes/room.scene.yaml", StepStatus: editor.AgentStepDone, StepIndex: 1, StepTotal: 2})
+		emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "2", StepTitle: "Checked prompt: " + req.Prompt, StepStatus: editor.AgentStepDone, StepIndex: 2, StepTotal: 2})
+		emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "Completed request."})
+		emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+		return nil
+	})
+	app.Type("id:agent-composer-input", "Inspect hero position")
+	app.Press("id:agent-composer-send")
+	app.WaitUntil(5*time.Second, func() bool {
+		return app.Exists("id:agent-turn-summary-0") && ed.AgentStatus() == editor.AgentStatusConnected
+	})
+	if got := mcpViewText(t, app, "id:agent-step-0-1"); !strings.Contains(got, "Inspect hero position") {
+		t.Fatalf("streamed step = %q", got)
+	}
+
+	// 2. Drop the MCP connection -> Reconnecting with 1, 2, 4, 8, 16 s schedule -> Disconnected after 5 failures -> Troubleshoot opens Connect at failed step.
+	ed.AgentReconnectProbe = func(context.Context) (editor.AgentClientInfo, error) {
+		return editor.AgentClientInfo{}, errors.New("connection dropped")
+	}
+	_ = cs.Close()
+	_ = inW.Close()
+	<-proxyDone
+
+	app.WaitUntil(10*time.Second, func() bool {
+		return ed.AgentStatus() == editor.AgentStatusReconnecting
+	})
+	var gotDelays []time.Duration
+	for attempt := 1; attempt <= 5; attempt++ {
+		if len(retries) == 0 {
+			t.Fatalf("attempt %d: no retry scheduled", attempt)
+		}
+		last := retries[len(retries)-1]
+		gotDelays = append(gotDelays, last.delay)
+		last.fn()
+		app.Settle()
+	}
+	wantDelays := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}
+	if !slices.Equal(gotDelays, wantDelays) {
+		t.Fatalf("reconnect schedule = %v, want %v", gotDelays, wantDelays)
+	}
+	if ed.AgentStatus() != editor.AgentStatusDisconnected {
+		t.Fatalf("status after 5 failures = %q, want disconnected", ed.AgentStatus())
+	}
+	app.Press("id:agent-status-troubleshoot")
+	app.Settle()
+	if !ed.ConnectDialogOpen() || ed.ConnectDialogStep() != editor.ConnectStepWaiting {
+		t.Fatalf("Troubleshoot opened=%v step=%q, want open at %q", ed.ConnectDialogOpen(), ed.ConnectDialogStep(), editor.ConnectStepWaiting)
+	}
+}
+
+func mcpViewText(t *testing.T, app *nsgotest.App, sel string) string {
+	t.Helper()
+	v := app.Find(sel)
+	if v == nil {
+		t.Fatalf("selector %q not found", sel)
+	}
+	if v.Text != "" {
+		return v.Text
+	}
+	var parts []string
+	var walk func(n *nsgotest.View)
+	walk = func(n *nsgotest.View) {
+		if n.Text != "" {
+			parts = append(parts, n.Text)
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(v)
+	return strings.Join(parts, " ")
+}
+
+// TestEditorAgentConnectScreenshots mounts the real NSGo Game Editor on macOS and captures
+// screenshots of the Connect an agent dialog and the Agent panel across its status chip states
+// for side-by-side visual review against docs/design/editor/Connect.dc.html and AgentStates.dc.html.
+func TestEditorAgentConnectScreenshots(t *testing.T) {
+	ed, err := newDemoEditor()
+	if err != nil {
+		t.Fatalf("newDemoEditor: %v", err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	now := time.Date(2026, 11, 26, 14, 0, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+	_ = ed.SetAppearance(editor.AppearanceDark)
+
+	var retries []func()
+	ed.AgentScheduleAfter = func(_ time.Duration, fn func()) func() {
+		retries = append(retries, fn)
+		return func() {}
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	post := func(fn func()) {
+		done := make(chan struct{})
+		ed.Post(func() {
+			fn()
+			close(done)
+		})
+		app.WaitUntil(5*time.Second, func() bool {
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
+		})
+		app.Settle()
+	}
+
+	// 1. Connect dialog (local choice, Waiting state) beside Connect.dc.html.
+	post(func() { ed.OpenConnectDialog() })
+	app.Screenshot("agent/connect-waiting")
+
+	// 2. Connect dialog once first MCP client attaches -> green Connected state.
+	post(func() {
+		ed.NotifyAgentMCPConnected(editor.AgentClientInfo{
+			ID:        "c1",
+			Name:      "claude-code",
+			Transport: "stdio",
+		})
+	})
+	app.Screenshot("agent/connect-connected")
+
+	// 3. Agent panel (Connected · MCP + streamed steps + composer).
+	app.Press("id:connect-done")
+	app.Settle()
+	post(func() {
+		ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "1", StepTitle: "Read level_01.scene.yaml and slime.prefab.yaml", StepStatus: editor.AgentStepDone, StepIndex: 1, StepTotal: 3})
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "2", StepTitle: "Placed 3 slimes and 3 coins on layer actors", StepStatus: editor.AgentStepDone, StepIndex: 2, StepTotal: 3})
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "3", StepTitle: "Ran game check · no problems", StepStatus: editor.AgentStepDone, StepIndex: 3, StepTotal: 3})
+			emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "Done. The slimes patrol the lower floor and the coins lead toward the door."})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		})
+		_ = ed.SubmitAgentPrompt("Put three slimes patrolling the lower floor and a short coin trail toward the door.")
+	})
+	app.WaitUntil(5*time.Second, func() bool {
+		return ed.AgentStatus() == editor.AgentStatusConnected && app.Exists("id:agent-turn-summary-0")
+	})
+	app.Settle()
+	app.Screenshot("agent/panel-connected")
+
+	// 4. Waiting for you · 0:32 state.
+	post(func() {
+		ed.SetAgentWaitingForYou(editor.AgentOpenRequest{
+			ID:       "req-playtest",
+			Title:    "Allow the agent to run the game?",
+			Body:     "It wants to play level_01 headless for 10 seconds to check the slimes stay on the floor. Nothing is saved.",
+			OpenedAt: now.Add(-32 * time.Second),
+		})
+	})
+	app.Screenshot("agent/panel-waiting")
+
+	// 5. Reconnecting · try 3 of 5 state.
+	post(func() {
+		ed.ClearAgentWaitingForYou()
+		ed.AgentReconnectProbe = func(context.Context) (editor.AgentClientInfo, error) {
+			return editor.AgentClientInfo{}, errors.New("offline")
+		}
+		ed.NotifyAgentMCPDisconnected("c1", "Claude Code stopped answering over MCP.")
+		for range 2 {
+			if len(retries) > 0 {
+				retries[len(retries)-1]()
+			}
+		}
+	})
+	app.Screenshot("agent/panel-reconnecting")
+
+	// 6. Disconnected with Reconnect and Troubleshoot buttons.
+	post(func() {
+		for range 3 {
+			if len(retries) > 0 {
+				retries[len(retries)-1]()
+			}
+		}
+	})
+	app.Screenshot("agent/panel-disconnected")
 }
