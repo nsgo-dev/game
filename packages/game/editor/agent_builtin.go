@@ -584,7 +584,11 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		return err
 	}
 
+	attachedImgs, briefImgs, allImgs := e.collectRequestReferenceImages()
 	e.agent.composerText = ""
+	e.agent.attachedImages = nil
+	e.agent.attachErr = ""
+	e.agent.previewImageID = ""
 	e.agent.turnSeq++
 	e.agent.turnChangeSeq++
 	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
@@ -595,9 +599,17 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		}
 	}
 	now := e.nowTime()
+	turnImages := make([]AgentReferenceImage, len(allImgs))
+	for i, img := range allImgs {
+		cp := img.clone()
+		// Historical turns only render thumbnails from Pixels; avoid retaining multi-MiB raw encoded bytes in RAM.
+		cp.Data = nil
+		turnImages[i] = cp
+	}
 	e.agent.turns = append(e.agent.turns, AgentTurn{
 		ID:        turnID,
 		Prompt:    text,
+		Images:    turnImages,
 		Source:    "panel",
 		Status:    "running",
 		AgentName: clientName,
@@ -643,17 +655,20 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		}
 	}
 	req := AgentRequest{
-		ThreadID:    threadID,
-		SessionID:   sessionID,
-		Prompt:      text,
-		ProjectRoot: e.agentProjectRoot(),
-		ScenePath:   e.ScenePath,
-		SelectedID:  e.SelectedID,
-		AgentKind:   agentKind,
-		Permissions: e.agent.permissions,
-		Task:        task,
-		Route:       route,
-		Model:       model,
+		ThreadID:       threadID,
+		SessionID:      sessionID,
+		Prompt:         text,
+		ProjectRoot:    e.agentProjectRoot(),
+		ScenePath:      e.ScenePath,
+		SelectedID:     e.SelectedID,
+		AgentKind:      agentKind,
+		Permissions:    e.agent.permissions,
+		Task:           task,
+		Route:          route,
+		Model:          model,
+		AttachedImages: attachedImgs,
+		BriefImages:    briefImgs,
+		Images:         allImgs,
 	}
 
 	if builtIn, ok := runner.(*builtInAgentRunner); ok {
@@ -1045,7 +1060,7 @@ func (r *builtInAgentRunner) Run(ctx context.Context, req AgentRequest, emit fun
 
 	systemPrompt := buildBuiltInSystemPrompt(req)
 	messages := []anthropicMessage{
-		{Role: "user", Content: req.Prompt},
+		{Role: "user", Content: buildBuiltInUserContent(req)},
 	}
 
 	for iter := 0; iter < builtInMaxToolIterations; iter++ {
@@ -1427,4 +1442,36 @@ func buildBuiltInSystemPrompt(req AgentRequest) string {
 		fmt.Fprintf(&b, "\nSelected object: %s", req.SelectedID)
 	}
 	return b.String()
+}
+
+func buildBuiltInUserContent(req AgentRequest) any {
+	if len(req.Images) == 0 {
+		return req.Prompt
+	}
+	var blocks []map[string]any
+	for _, img := range req.Images {
+		mimeType := strings.TrimSpace(img.MIMEType)
+		if mimeType == "" {
+			mimeType = img.Format.MIMEType()
+		}
+		if len(img.Data) == 0 || len(img.Data) > builtInMaxToolImageBytes || mimeType == "" {
+			continue
+		}
+		blocks = append(blocks, map[string]any{
+			"type": "image",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": mimeType,
+				"data":       base64.StdEncoding.EncodeToString(img.Data),
+			},
+		})
+	}
+	if len(blocks) == 0 {
+		return req.Prompt
+	}
+	blocks = append(blocks, map[string]any{
+		"type": "text",
+		"text": req.Prompt,
+	})
+	return blocks
 }

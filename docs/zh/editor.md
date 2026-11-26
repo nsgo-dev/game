@@ -1339,6 +1339,7 @@ func main() {
   - `Waiting for you · m:ss`（点击聚焦当前待处理请求卡片）
   - `Reconnecting · try n of 5`（按 `1、2、4、8、16 s` 指数退避重试，可通过 `Editor.AgentScheduleAfter` 注入调度器以确定性测试）
   - `Disconnected` 及 **Reconnect** 与 **Troubleshoot** 按钮（点击 **Troubleshoot** 直接在失败的步骤重新打开连接对话框，而非回到起始步）。
+
 ## 运行模式标记、滚动回放与冻结帧智能体提问（#1042）
 
 在运行模式（`Play`、`PlayIn`、`StepPlay`、`PlayTick`）或连接运行中游戏期间，编辑器会持续保留最近 60 秒的滚动输入回放，支持在不中断运行的情况下打标记、冻结任意帧向智能体提问，并在输出面板提供崩溃堆栈卡片与一键回放到崩溃前一帧（对应 `docs/design/editor/PlayMode.dc.html`，严格采用 `Spec.dc.html` 设计令牌）：
@@ -1532,3 +1533,12 @@ func main() {
 - **将草图发送给智能体（`SendSketch` / `Editor.OnSendSketch`）**：输入框附带 `"Sketch · N marks"` 上下文芯片（点击可展开 `"Sent with this request"` 场景坐标预览）。发送时通过 `SketchAgentRequest` 传递结构化标记（编号、类型、场景坐标几何、标签）以及叠加了编号标记的视口渲染 PNG（`RenderSketchViewportPNG`）。
 - **智能体解读卡片与 `scene_edit` 确认闸门**：发送草图后立即启用确认闸门（`SketchHoldActive() == true`），在用户确认前 `scene_edit` 等变更场景的 MCP 工具会被拒绝。智能体通过 `sketch_read` 读取草图，并通过 `sketch_reading`（`PostSketchReading`）提交复述卡片（`"I read your sketch as: …"` 与待确认假设）。点击 **Go ahead**（`ApproveSketchReading`、`⌘↵`）放行修改；点击 **Correct a mark**（`CorrectSketchMark`、`⇧M` 或点击任意编号条目）会重新进入草图模式并精确选中该标记，同时保持确认闸门生效；直接输入文字回复（`ReplyToSketchReading`）同样有效。
 - **审查叠加层与保留 / 撤销行为**：确认后智能体的场景修改会打开审查卡片（`SketchReviewOpen`），内置 **Sketch overlay** 开关（`O`、`ToggleSketchReviewOverlay`，瓦片审查 `TileReview` 中同样支持）将草图以半透明点线叠加在结果之上。**Keep**（`KeepSketchReview` / `KeepTileReview`）保留修改并清空草图层；**Revert**（`RevertSketchReview` / `RevertAllTileReview`）撤销修改但保留草图标记以便再次发送。
+
+## 智能体输入框中的参考图与固定到简报（#1027）
+
+在智能体输入框中为单次请求附加 PNG、JPEG 或 WebP 参考图，或将其固定到项目的游戏简报，界面严格遵循 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `docs/design/editor/Sketch.dc.html`（*Paste or drop an image*、*Pin to brief*）：
+
+- **拖放、粘贴或选取 PNG、JPEG 与 WebP**：将文件拖到智能体输入框上方时会显示符合 Spec 规范的 **“Drop to attach”** 拖放层（`SetAgentComposerDragOver`、`DropAgentReferenceFiles`）；向输入框粘贴图片或图片文件（通过 `core.Input.OnPaste` 调用 `HandleAgentComposerPaste`，或调用 `PasteAgentReferenceImage`），或点击 **附加参考图** 按钮（`PickAndAttachAgentReferenceImages` / `CmdAttachReferenceImage`）会在内存中校验真实的 PNG、JPEG 或 WebP 文件头与像素（`DecodeAgentReferenceImage`）。不支持的文件类型（如 GIF、SVG、BMP、文本或损坏的图片）会被拒绝并在无障碍提示横幅中说明具体原因（`AgentAttachError`）。
+- **带悬停预览的单次请求标签**：每张附加的图片都会显示为包含缩略图、文件名、**Pin to brief** 按钮与 **×** 移除按钮的标签（`RemoveAgentReferenceImage`）。悬停或聚焦标签会在输入框上方弹出预览卡片，展示解码后的图片、格式、尺寸及作用范围（仅随本次请求发送）。发送请求（`SubmitAgentPrompt`）会将附加图片随 `AgentRequest.AttachedImages` 与 `AgentRequest.Images` 传入（并在 `AgentTurn.Images` 中记录缩略图），随后立即清空单次附加标签，确保下一次请求不再携带。
+- **固定到简报（`PinAgentReferenceImage`）**：点击 **Pin to brief** 会将图片复制到 `art/reference/<name>`（存在不同内容同名文件时自动去重而不覆盖），并通过 YAML AST 编辑在 `brief.yaml` 的 `art.references` 下新增一条记录（完整保留原有字段与注释），整个操作作为 `Editor.History` 中的**单个原子可撤销步骤**执行。两个文件会立即出现在审查/变更列表（`RefreshChanges`）中，确认卡片会展示带 `+` 高亮的 YAML 差异及 **Undo** 按钮（`UndoLastBriefPin`）；执行一次撤销即可同时移除复制的图片文件与新增的 YAML 行（若 `brief.yaml` 与空 `art/reference/` 目录是本次创建的也会一并清理）。
+- **始终附带标签（`brief.yaml`）**：只要项目存在 `brief.yaml`，输入框中就会显示 **Always** 行及带锁图标的 `brief.yaml` 标签（有固定参考图时显示数量）。悬停或点击该标签可预览全部已固定参考图，后续每次智能体请求都会通过 `AgentRequest.BriefImages` 与 `AgentRequest.Images` 自动携带这些图片。

@@ -41,6 +41,20 @@ strings:
   agent.notify.reviewTitle: 待审查
   agent.notify.waitingTitle: 智能体需要权限
   agent.playDot.hoverFormat: '{summary} · 停止播放以打开'
+  agent.ref.always: 始终附带
+  agent.ref.attachLabel: 附加参考图
+  agent.ref.attachTooltip: 附加参考图 · 粘贴或拖放
+  agent.ref.briefEmpty: 尚未固定参考图。固定已附加的图片即可在每次请求中附带。
+  agent.ref.briefPreviewTitle: 已固定的参考图
+  agent.ref.dropSubtitle: PNG、JPEG 或 WebP · 仅随本次请求发送
+  agent.ref.dropTitle: 拖放到此处以附加
+  agent.ref.pinToBrief: 固定到简报
+  agent.ref.pinTooltip: 保存到 art/reference/ 并添加到 brief.yaml
+  agent.ref.pinned: 已固定
+  agent.ref.pinnedCaption: 已复制到 {path}。后续每次请求都会通过 brief.yaml 读取它。
+  agent.ref.pinnedTooltip: 已保存到 art/reference/ 并记录在 brief.yaml 中
+  agent.ref.sentOnce: 仅随本次请求发送
+  agent.ref.undo: 撤销
   agent.revert: 还原
   agent.status.disconnected: 已断开
   agent.status.limitShort: 已达上限
@@ -131,6 +145,8 @@ strings:
   cmd.askFrozenFrame.label: 画面看起来不对
   cmd.assetDrawer.desc: 在左侧栏的“场景”与“资源抽屉”模式之间切换
   cmd.assetDrawer.label: 资源抽屉
+  cmd.attachReferenceImage.desc: 为下一次智能体请求附加 PNG、JPEG 或 WebP 参考图
+  cmd.attachReferenceImage.label: 附加参考图
   cmd.audioMixer.desc: 切换音频总线混音器面板
   cmd.audioMixer.label: 音频总线混音器
   cmd.bakeNavMesh3d.desc: 从当前场景的静态几何体烘焙 3D 导航网格

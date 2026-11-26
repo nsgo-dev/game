@@ -261,6 +261,7 @@ type AgentTurnContext struct {
 type AgentTurn struct {
 	ID             string                `json:"id"`
 	Prompt         string                `json:"prompt"`
+	Images         []AgentReferenceImage `json:"-"`                  // reference images sent with this turn (one-shot attachments and pinned brief references)
 	Source         string                `json:"source,omitempty"`   // "in_place", "panel", "external", or "automation"
 	SkipPlan       bool                  `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
 	Status         string                `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
@@ -316,6 +317,9 @@ type AgentRequest struct {
 	TriggerKind    AutomationTriggerKind
 	TriggerDetail  string
 	CheckpointID   string
+	AttachedImages []AgentReferenceImage // one-shot reference images dropped or pasted for this request only
+	BriefImages    []AgentReferenceImage // project-wide reference images joined through brief.yaml's Always chip
+	Images         []AgentReferenceImage // deduplicated union of AttachedImages and BriefImages sent with this request
 }
 
 // AgentEventKind classifies one streamed event from an AgentRunner.
@@ -400,6 +404,15 @@ type agentState struct {
 	sessionID          string
 	turns              []AgentTurn
 	composerText       string
+	attachedImages     []AgentReferenceImage
+	attachSeq          uint64
+	attachImgVer       uint64
+	attachErr          string
+	composerDragOver   bool
+	previewImageID     string
+	lastPinNotice      *BriefPinNotice
+	lastPinCmd         *pinReferenceImageCmd
+	briefRefCache      map[string]cachedBriefRefImage
 	workingStep        int
 	workingTotal       int
 	activeRunCancel    context.CancelFunc
@@ -565,6 +578,13 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.turns = nil
 	e.agent.queued = nil
 	e.agent.composerText = ""
+	e.agent.attachedImages = nil
+	e.agent.attachErr = ""
+	e.agent.composerDragOver = false
+	e.agent.previewImageID = ""
+	e.agent.lastPinNotice = nil
+	e.agent.lastPinCmd = nil
+	e.agent.briefRefCache = nil
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
 	e.agent.openRequest = nil
@@ -1407,6 +1427,13 @@ func (e *Editor) InsertAgentComposerNewline() {
 
 func cloneAgentTurn(t AgentTurn) AgentTurn {
 	t.Steps = slices.Clone(t.Steps)
+	if len(t.Images) > 0 {
+		imgs := make([]AgentReferenceImage, len(t.Images))
+		for i, img := range t.Images {
+			imgs[i] = img.clone()
+		}
+		t.Images = imgs
+	}
 	t.Context.SelectionIDs = slices.Clone(t.Context.SelectionIDs)
 	t.Context.SelectionNames = slices.Clone(t.Context.SelectionNames)
 	t.Context.ViewportPNG = slices.Clone(t.Context.ViewportPNG)

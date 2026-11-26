@@ -939,7 +939,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.agentThreads.expandedRequestID,
 		)
 		for _, t := range ed.agent.turns {
-			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
+			fmt.Fprintf(&b, "%s:%s:%d:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), len(t.Images), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
 			for _, st := range t.Steps {
 				fmt.Fprintf(&b, "%s=%s;", st.ID, st.Status)
 			}
@@ -1251,19 +1251,22 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 				Color:      p.TextFaint,
 			},
 		})
-	} else if turn.Prompt != "" {
-		promptChildren := []core.Node{
-			core.Text{
+	} else if turn.Prompt != "" || len(turn.Images) > 0 {
+		var bubbleChildren []core.Node
+		if imgRow := agentTurnImagesRowView(turnIdx, turn.Images, p); imgRow != nil {
+			bubbleChildren = append(bubbleChildren, imgRow)
+		}
+		if turn.Prompt != "" {
+			bubbleChildren = append(bubbleChildren, core.Text{
 				Content: turn.Prompt,
 				Style: core.Style{
 					FontSize: 12.5,
 					Color:    p.TextSecondary,
 				},
-			},
+			})
 		}
-		chips := agentTurnContextChips(ed, turn, p)
-		if len(chips) > 0 {
-			promptChildren = append(promptChildren, core.View{
+		if chips := agentTurnContextChips(ed, turn, p); len(chips) > 0 {
+			bubbleChildren = append(bubbleChildren, core.View{
 				Style: core.Style{
 					Direction:  core.Row,
 					Wrap:       core.Wrap,
@@ -1279,13 +1282,13 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 				AlignSelf:    core.AlignEnd,
 				MaxWidth:     core.Pt(296),
 				Padding:      core.Symmetric(8, 12),
+				Gap:          8,
 				CornerRadius: 12,
 				Background:   p.Raised,
 				BorderWidth:  1,
 				BorderColor:  p.LineRaised,
-				Gap:          6,
 			},
-			Children: promptChildren,
+			Children: bubbleChildren,
 		})
 	}
 
@@ -2006,20 +2009,40 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p Sp
 }
 
 func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, composerFocused *core.Signal[bool]) core.Node {
-	type composerContextKey struct {
-		sel   string
-		scene string
-	}
-	contextMemo := core.NewMemo(cx, func() composerContextKey {
+	refMemo := core.NewMemo(cx, func() agentComposerRefKey {
 		_ = rev.Get()
-		var sceneName string
-		if ed.Doc != nil {
-			sceneName = ed.Doc.Name
-		}
-		return composerContextKey{sel: ed.SelectedID, scene: sceneName}
+		return buildAgentComposerRefKey(ed)
 	})
+
+	aboveComposer := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = refMemo.Get()
+		var nodes []core.Node
+		if pop := agentImagePreviewPopover(ed, p); pop != nil {
+			nodes = append(nodes, pop)
+		}
+		if pinCard := agentPinNoticeCardView(ed, p); pinCard != nil {
+			nodes = append(nodes, pinCard)
+		}
+		if errBanner := agentAttachErrorBannerView(ed, p); errBanner != nil {
+			nodes = append(nodes, errBanner)
+		}
+		if dropZone := agentComposerDropZoneView(ed, p); dropZone != nil {
+			nodes = append(nodes, dropZone)
+		}
+		if len(nodes) == 0 {
+			return nil
+		}
+		return core.View{
+			Style: core.Style{
+				Gap: 8,
+			},
+			Children: nodes,
+		}
+	})
+
 	contextChips := core.Dynamic(func(cx *core.Scope) core.Node {
-		ctxKey := contextMemo.Get()
+		ctxKey := refMemo.Get()
+		var rows []core.Node
 		var chips []core.Node
 		if ctxKey.sel != "" {
 			chips = append(chips, core.View{
@@ -2074,29 +2097,55 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 				},
 			})
 		}
-		if len(chips) == 0 {
+		chips = append(chips, agentAttachedImageChipsView(ed, p)...)
+		if len(chips) > 0 {
+			rows = append(rows, core.View{
+				TestID: "agent-composer-chips",
+				Style: core.Style{
+					Direction:  core.Row,
+					Wrap:       core.Wrap,
+					AlignItems: core.AlignCenter,
+					Gap:        6,
+				},
+				Children: chips,
+			})
+		}
+		if alwaysRow := agentAlwaysBriefRowView(ed, p); alwaysRow != nil {
+			rows = append(rows, alwaysRow)
+		}
+		if len(rows) == 0 {
 			return nil
 		}
 		return core.View{
 			Style: core.Style{
-				Direction: core.Row,
-				Wrap:      core.Wrap,
-				Gap:       6,
+				Gap: 6,
 			},
-			Children: chips,
+			Children: rows,
 		}
 	})
 
 	return core.View{
 		TestID: "agent-composer",
+		OnFileDragEnter: func() {
+			ed.SetAgentComposerDragOver(true)
+		},
+		OnFileDragLeave: func() {
+			ed.SetAgentComposerDragOver(false)
+		},
+		OnFileDrop: func(uris []string) {
+			_, err := ed.DropAgentReferenceFiles(uris)
+			ed.report(err)
+		},
 		Style: core.Style{
 			Padding:     core.All(12),
+			Gap:         8,
 			Borders:     core.Edges{Top: 1},
 			BorderColor: p.Line,
 			Background:  p.Panel,
 			FlexShrink:  0,
 		},
 		Children: []core.Node{
+			aboveComposer,
 			core.View{
 				Style: core.Style{
 					CornerRadius: 12,
@@ -2133,6 +2182,10 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 						OnSubmit: func(text string) {
 							ed.report(ed.SubmitAgentPrompt(text))
 						},
+						OnPaste: func(ev core.PasteEvent) {
+							_, _, err := ed.HandleAgentComposerPaste(ev)
+							ed.report(err)
+						},
 						OnFocus: func() {
 							composerFocused.Set(true)
 						},
@@ -2157,9 +2210,10 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 						Style: core.Style{
 							Direction:  core.Row,
 							AlignItems: core.AlignCenter,
-							Gap:        8,
+							Gap:        6,
 						},
 						Children: []core.Node{
+							agentAttachImageButtonView(ed, p),
 							core.Text{
 								Content: ed.T("agent.composerHint"),
 								Style: core.Style{
