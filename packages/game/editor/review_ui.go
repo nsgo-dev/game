@@ -78,6 +78,10 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		}
 	}
 
+	// Bind ScopeReview command shortcuts (j, k, x, b, mod+enter, mod+backspace, plus any user overrides)
+	// strictly inside ReviewScreenView's scope so they never intercept keys when Review is closed.
+	ed.bindReviewShortcuts(cx, rev)
+
 	// Track held B key for Before-request peek while Review is open and not typing in a text field.
 	cx.Effect(func() {
 		held := core.KeyHeld(cx, "b")

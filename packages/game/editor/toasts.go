@@ -866,6 +866,7 @@ func (e *Editor) viewportVisibleOnScreen() bool {
 	}
 	if e.StartScreenOpen() ||
 		e.FirstRunFullScreenOpen() ||
+		e.ReviewOpen() ||
 		e.MergeConflictOpen() ||
 		e.ChangesOpen() ||
 		e.BuildReleaseScreenOpen() ||
