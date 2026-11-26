@@ -47,8 +47,41 @@ type modelThumbs struct {
 	running bool
 	// worker counts the running worker, for tests that wait for it.
 	worker sync.WaitGroup
-	// onReady runs on the UI goroutine after a thumbnail is rendered; the asset browser sets it to redraw.
-	onReady func()
+	// listeners run on the UI goroutine after a thumbnail is rendered; mounted thumbnail views subscribe to redraw.
+	nextListener uint64
+	listeners    map[uint64]func()
+}
+
+// subscribe registers fn to run on the UI goroutine whenever a model thumbnail finishes rendering, and returns an unsubscribe function.
+func (t *modelThumbs) subscribe(fn func()) func() {
+	if fn == nil {
+		return func() {}
+	}
+	t.mu.Lock()
+	t.nextListener++
+	id := t.nextListener
+	if t.listeners == nil {
+		t.listeners = make(map[uint64]func())
+	}
+	t.listeners[id] = fn
+	t.mu.Unlock()
+	return func() {
+		t.mu.Lock()
+		delete(t.listeners, id)
+		t.mu.Unlock()
+	}
+}
+
+func (t *modelThumbs) notifyReady() {
+	t.mu.Lock()
+	fns := make([]func(), 0, len(t.listeners))
+	for _, fn := range t.listeners {
+		fns = append(fns, fn)
+	}
+	t.mu.Unlock()
+	for _, fn := range fns {
+		fn()
+	}
 }
 
 // ModelThumbnail returns a picture of m, ModelThumbnailSize pixels square: its geometry framed from above, in front and to the right, lit by DefaultLights3D on a transparent background. The first call for a model loads it on the calling goroutine, the UI goroutine, as everything the Resolver serves loads, and leaves the rendering, through scenemodel on NSGo's software GPU (gpu.SoftwareRenderer), to a worker goroutine: it returns nil and no error, and the asset browser redraws when the picture is ready. The model loads apart from the 3D build's cache, which keeps only what the scene uses. It returns an error when m's model does not load or draws no geometry. The thumbnails are kept until the open project changes or its built assets reload (ReloadAssets).
@@ -130,17 +163,23 @@ func (e *Editor) renderModelThumbs() {
 		t.mu.Unlock()
 		if job.post != nil {
 			job.post(func() {
-				if t.onReady != nil {
-					t.onReady()
-				}
+				t.notifyReady()
 			})
 		}
 	}
 }
 
+// WaitModelThumbnails blocks until all model thumbnails queued so far have finished rendering offscreen.
+func (e *Editor) WaitModelThumbnails() {
+	if e == nil {
+		return
+	}
+	e.thumbs.worker.Wait()
+}
+
 // waitModelThumbnails blocks until the thumbnails queued so far are rendered.
 func (e *Editor) waitModelThumbnails() {
-	e.thumbs.worker.Wait()
+	e.WaitModelThumbnails()
 }
 
 // thumbnailCamera3D returns an orbit camera that frames bounds from the default view's direction, with clip planes around them.

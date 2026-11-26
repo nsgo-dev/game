@@ -484,3 +484,186 @@ func TestPlaceModelsInTheEditorWindow(t *testing.T) {
 		t.Fatal("the Model field is enabled on an object that draws a primitive")
 	}
 }
+
+// The bottom MODELS strip in 3D lists project models before primitives with drag tooltips,
+// places a model undoably when dragged onto the 3D viewport, and opens the "Or ask for one" prompt;
+// the 3D inspector renders MODEL, MATERIAL, COLLIDER, CHILDREN, and "Ask to add a component…".
+func TestViewport3DModelsStripAndInspectorDetails(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	if err := ed.SetComponentRegistry(sceneformat.PhysicsComponentRegistry()); err != nil {
+		t.Fatal(err)
+	}
+	// Give crate a material file and a static convex hull collider, and add a group with children.
+	if err := ed.SetObjectMaterial("crate", "materials/stone.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.AddComponent("crate", sceneformat.Collider3DComponentName); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetComponentField("crate", sceneformat.Collider3DComponentName, "shape", "convex"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.AddComponent("crate", sceneformat.Body3DComponentName); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetComponentField("crate", sceneformat.Body3DComponentName, "kind", "static"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PlaceObject("level", sceneformat.ObjectDoc{
+		ID:   "gate",
+		Name: "Gate",
+		Children: []sceneformat.ObjectDoc{
+			{ID: "pillar_l", Mesh: "box"},
+			{ID: "pillar_r", Mesh: "box"},
+			{ID: "lintel", Mesh: "box"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PlaceObject("level", sceneformat.ObjectDoc{
+		ID:   "benches",
+		Name: "Benches",
+		Children: []sceneformat.ObjectDoc{
+			{ID: "bench_01", Model: "models/crate.glb"},
+			{ID: "bench_02", Model: "models/crate.glb"},
+			{ID: "bench_03", Model: "models/crate.glb"},
+			{ID: "bench_04", Model: "models/crate.glb"},
+			{ID: "bench_05", Model: "models/crate.glb"},
+			{ID: "bench_06", Model: "models/crate.glb"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify summary APIs directly.
+	ms, ok := ed.ObjectModelSummary3D("crate")
+	if !ok || ms.Path != "models/crate.glb" || ms.Triangles <= 0 || ms.MaterialCount <= 0 {
+		t.Fatalf("ObjectModelSummary3D(crate) = %+v, %v", ms, ok)
+	}
+	mats, ok := ed.ObjectMaterialSummary3D("crate")
+	if !ok || mats.FileName != "stone.material.yaml" || !mats.HasValues {
+		t.Fatalf("ObjectMaterialSummary3D(crate) = %+v, %v", mats, ok)
+	}
+	assertNear32(t, "stone roughness", mats.Roughness, 0.9, 1e-3)
+	assertNear32(t, "stone metallic", mats.Metallic, 0, 1e-3)
+
+	cs, ok := ed.ObjectColliderSummary3D("crate")
+	if !ok || cs.Shape != "Convex hull" || cs.BodyKind != "static" || cs.Text() != "Convex hull · static" {
+		t.Fatalf("ObjectColliderSummary3D(crate) = %+v, %v", cs, ok)
+	}
+	gs, ok := ed.ObjectChildrenSummary3D("gate")
+	if !ok || gs.Count != 3 || gs.Summary != "pillar_l · pillar_r · lintel" {
+		t.Fatalf("ObjectChildrenSummary3D(gate) = %+v, %v", gs, ok)
+	}
+	bs, ok := ed.ObjectChildrenSummary3D("benches")
+	if !ok || bs.Count != 6 || bs.Summary != "bench_01 … bench_06 · models/crate.glb" {
+		t.Fatalf("ObjectChildrenSummary3D(benches) = %+v, %v", bs, ok)
+	}
+
+	// StripModels lists project models before built-in primitives.
+	strip := ed.StripModels()
+	if len(strip) == 0 || strip[0].Path != "models/crate.glb" || strip[0].FileLabel() != "crate.glb" {
+		t.Fatalf("StripModels = %+v, want project model crate.glb first", strip)
+	}
+
+	var asked []editor.Viewport3DAgentRequest
+	ed.OnAskAgent3D = func(req editor.Viewport3DAgentRequest) {
+		asked = append(asked, req)
+	}
+
+	ed.SelectObject("crate")
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1440, 900), nsgotest.NoGPU())
+	ed.WaitModelThumbnails()
+	app.Settle()
+
+	// Bottom MODELS strip is visible in 3D with title, hint, model card tooltip, and "Or ask for one".
+	if got := app.Find("id:viewport3d-models-strip-title").Text; got != "MODELS" {
+		t.Fatalf("strip title = %q, want MODELS", got)
+	}
+	if got := app.Find("id:viewport3d-models-strip-hint").Text; got != "drag in" {
+		t.Fatalf("strip hint = %q, want drag in", got)
+	}
+	crateCard := app.Find("id:viewport3d-model-card-models-crate-glb")
+	if crateCard.Props.Label != "Drag into the viewport to place crate.glb" {
+		t.Fatalf("crate card label = %q", crateCard.Props.Label)
+	}
+
+	// Inspector shows MODEL, MATERIAL, COLLIDER, and Ask to add a component… for crate.
+	if got := app.Find("id:inspector-model-path").Text; got != "models/crate.glb" {
+		t.Fatalf("inspector-model-path = %q", got)
+	}
+	if got := app.Find("id:inspector-model-stats").Text; got != ms.StatsText() {
+		t.Fatalf("inspector-model-stats = %q, want %q", got, ms.StatsText())
+	}
+	if got := app.Find("id:inspector-material3d-header").Text; got != "MATERIAL · stone.material.yaml" {
+		t.Fatalf("inspector-material3d-header = %q", got)
+	}
+	if got := app.Find("id:inspector-material3d-roughness-value").Text; got != "0.90" {
+		t.Fatalf("roughness text = %q, want 0.90", got)
+	}
+	if got := app.Find("id:inspector-material3d-metallic-value").Text; got != "0.00" {
+		t.Fatalf("metallic text = %q, want 0.00", got)
+	}
+	if got := app.Find("id:inspector-collider3d-shape").Text; got != "Convex hull" {
+		t.Fatalf("collider shape = %q, want Convex hull", got)
+	}
+	if got := app.Find("id:inspector-collider3d-kind").Text; got != "static" {
+		t.Fatalf("collider kind = %q, want static", got)
+	}
+
+	// Dragging a model card from the bottom MODELS strip onto the 3D viewport places it undoably.
+	beforeCount := len(objectsWith(ed, crateModel))
+	app.DragTo("id:viewport3d-model-card-models-crate-glb", viewportFrame)
+	afterDrag := objectsWith(ed, crateModel)
+	if len(afterDrag) != beforeCount+1 {
+		t.Fatalf("dragging from MODELS strip left %d crates, want %d", len(afterDrag), beforeCount+1)
+	}
+	app.Press("id:toolbar-undo")
+	if len(objectsWith(ed, crateModel)) != beforeCount {
+		t.Fatal("Undo did not remove model dragged from MODELS strip")
+	}
+	app.Press("id:toolbar-redo")
+	if got := objectsWith(ed, crateModel); !slices.Equal(got, afterDrag) {
+		t.Fatalf("Redo after MODELS strip drag = %v, want %v", got, afterDrag)
+	}
+
+	// "Or ask for one" opens the inline prompt with the expected placeholder and dispatches on submit.
+	app.Press("id:viewport3d-ask-for-model")
+	if !ed.Viewport3DAgentPromptOpen() || ed.Viewport3DAgentPromptKind() != editor.Viewport3DAgentPromptModel {
+		t.Fatalf("after pressing Or ask for one: open=%v kind=%v", ed.Viewport3DAgentPromptOpen(), ed.Viewport3DAgentPromptKind())
+	}
+	if got := ed.Viewport3DAgentPromptPlaceholder(); got != "Describe a model… e.g. a low stone planter, 1 × 0.5 m, same stone as the walls" {
+		t.Fatalf("model prompt placeholder = %q", got)
+	}
+	app.Type("id:viewport3d-agent-prompt-input", "low stone planter 1x0.5m")
+	app.Press("id:viewport3d-agent-prompt-send")
+	if len(asked) != 1 || asked[0].Kind != editor.Viewport3DAgentPromptModel || asked[0].Prompt != "low stone planter 1x0.5m" {
+		t.Fatalf("asked = %+v", asked)
+	}
+	if ed.Viewport3DAgentPromptOpen() {
+		t.Fatal("prompt bar stayed open after submit")
+	}
+
+	// Selecting the group shows CHILDREN and "Ask to add a component…" targets it.
+	app.Post(func() { ed.SelectObject("gate") })
+	app.Settle()
+	if got := app.Find("id:inspector-children-summary").Text; got != "pillar_l · pillar_r · lintel" {
+		t.Fatalf("inspector-children-summary = %q", got)
+	}
+	app.Press("id:inspector-ask-add-component")
+	if got := ed.Viewport3DAgentPromptPlaceholder(); got != "Add a component to Gate… e.g. a trigger that plays splash.ogg" {
+		t.Fatalf("component prompt placeholder = %q", got)
+	}
+	app.Type("id:viewport3d-agent-prompt-input", "trigger that plays splash.ogg")
+	app.Press("id:viewport3d-agent-prompt-send")
+	if len(asked) != 2 || asked[1].Kind != editor.Viewport3DAgentPromptComponent || asked[1].ObjectID != "gate" {
+		t.Fatalf("asked after component prompt = %+v", asked)
+	}
+
+	// Switching to 2D hides the bottom 3D MODELS strip.
+	app.Post(func() { ed.SetViewMode(editor.ViewMode2D) })
+	app.Settle()
+	if app.Exists("id:viewport3d-models-strip") {
+		t.Fatal("viewport3d-models-strip is visible in 2D mode")
+	}
+}

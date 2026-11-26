@@ -430,7 +430,10 @@ func TestToastViewAvoids2DOverlayBarAndMemoizesRevisions(t *testing.T) {
 		t.Fatalf("toast message after unrelated rev bumps = %q, want %q", got, "Saved scene")
 	}
 
-	// In 3D edit mode the bottom-center 3D navigation bar sits at Bottom: 16, so toast stays at Bottom: 60 above it.
+	// In 3D edit mode the bottom-center 3D navigation bar sits at Bottom: 16 inside the viewport container
+	// (which sits above the 3D bottom MODELS strip), so the toast keeps 60pt bottom clearance above the bar and strip.
+	vp2DRect := app.Find("id:editor-viewport-container").Bounds()
+	bottomClearance2D := (vp2DRect.Origin.Y + vp2DRect.Size.Height) - (toastRect.Origin.Y + toastRect.Size.Height)
 	app.Post(func() {
 		ed.SetViewMode(editor.ViewMode3D)
 	})
@@ -440,8 +443,14 @@ func TestToastViewAvoids2DOverlayBarAndMemoizesRevisions(t *testing.T) {
 	if toast3DRect.Origin.Y+toast3DRect.Size.Height > bar3DRect.Origin.Y {
 		t.Fatalf("3D mode toast rect %+v overlaps 3D bottom bar %+v", toast3DRect, bar3DRect)
 	}
-	if math.Abs(float64(toast3DRect.Origin.Y-toastRect.Origin.Y)) > 1 {
-		t.Fatalf("3D edit mode toast Y = %v, want %v (same 60pt clearance as 2D)", toast3DRect.Origin.Y, toastRect.Origin.Y)
+	vp3DRect := app.Find("id:editor-viewport-container").Bounds()
+	bottomClearance3D := (vp3DRect.Origin.Y + vp3DRect.Size.Height) - (toast3DRect.Origin.Y + toast3DRect.Size.Height)
+	if math.Abs(float64(bottomClearance3D-bottomClearance2D)) > 1 {
+		t.Fatalf("3D edit mode toast clearance = %v, want %v (same 60pt clearance as 2D)", bottomClearance3D, bottomClearance2D)
+	}
+	stripRect := app.Find("id:viewport3d-models-strip").Bounds()
+	if toast3DRect.Origin.Y+toast3DRect.Size.Height > stripRect.Origin.Y {
+		t.Fatalf("3D mode toast rect %+v overlaps bottom MODELS strip %+v", toast3DRect, stripRect)
 	}
 
 	// Switching back to 2D keeps the 60pt clearance.

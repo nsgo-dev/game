@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -44,6 +45,14 @@ func (m ModelEntry) Name() string {
 	}
 	base := path.Base(m.Path)
 	return strings.TrimSuffix(base, path.Ext(base))
+}
+
+// FileLabel is the concise filename label shown on 3D MODELS strip cards and tooltips: the file's basename ("fountain.glb") for glTF models, or the primitive's name ("box") for built-in primitives.
+func (m ModelEntry) FileLabel() string {
+	if m.Mesh != "" {
+		return m.Mesh
+	}
+	return path.Base(m.Path)
 }
 
 // object returns the object that draws m, with no ID or transform.
@@ -129,6 +138,24 @@ func (e *Editor) Models() []ModelEntry {
 	outputs := e.modelOutputs()
 	for _, p := range e.ProjectModels() {
 		out = append(out, ModelEntry{Path: p, Output: slices.Contains(outputs, p)})
+	}
+	return out
+}
+
+// StripModels returns the models offered in the 3D viewport's bottom MODELS strip: the open project's models first (in ProjectModels order, with model target outputs marked Output), followed by the built-in primitives in sceneformat.MeshPrimitives order.
+func (e *Editor) StripModels() []ModelEntry {
+	if e == nil {
+		return nil
+	}
+	proj := e.ProjectModels()
+	prims := sceneformat.MeshPrimitives()
+	outputs := e.modelOutputs()
+	out := make([]ModelEntry, 0, len(proj)+len(prims))
+	for _, p := range proj {
+		out = append(out, ModelEntry{Path: p, Output: slices.Contains(outputs, p)})
+	}
+	for _, m := range prims {
+		out = append(out, ModelEntry{Mesh: m})
 	}
 	return out
 }
@@ -530,4 +557,476 @@ func (c *modelObjectCmd) Undo() {
 		obj.Model, obj.ModelNode, obj.ModelMesh = c.old.model, c.old.node, c.old.mesh
 		c.ed.Doc.Version = c.prevVersion
 	}
+}
+
+// ObjectModelSummary3D summarizes the 3D geometry drawn by an object for the 3D inspector's MODEL card.
+type ObjectModelSummary3D struct {
+	// Path is the project-relative glTF model path (e.g. "models/fountain.glb"), or empty for a built-in primitive.
+	Path string
+	// Mesh is the built-in primitive name (e.g. "box"), or empty for a glTF model file.
+	Mesh string
+	// Triangles is the total triangle count across all drawables belonging to the object.
+	Triangles int
+	// MaterialCount is the number of distinct materials used by the object's drawables.
+	MaterialCount int
+}
+
+// Entry returns the ModelEntry for rendering the object's offscreen thumbnail.
+func (s ObjectModelSummary3D) Entry() ModelEntry {
+	return ModelEntry{Mesh: s.Mesh, Path: s.Path}
+}
+
+// StatsText formats triangle and material counts concisely (for example, "1,284 tris · 2 materials").
+func (s ObjectModelSummary3D) StatsText() string {
+	triWord := "tris"
+	if s.Triangles == 1 {
+		triWord = "tri"
+	}
+	matWord := "materials"
+	if s.MaterialCount == 1 {
+		matWord = "material"
+	}
+	return fmt.Sprintf("%s %s · %s %s", formatThousands(s.Triangles), triWord, formatThousands(s.MaterialCount), matWord)
+}
+
+// formatThousands formats a non-negative integer with comma thousands separators (e.g. 1284 -> "1,284").
+func formatThousands(n int) string {
+	if n < 0 {
+		return "-" + formatThousands(-n)
+	}
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	rem := len(s) % 3
+	if rem > 0 {
+		b.WriteString(s[:rem])
+	}
+	for i := rem; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// ObjectModelSummary3D returns the model path or primitive name, total triangle count, and distinct material count for object id, or false when id has no 3D model or mesh.
+func (e *Editor) ObjectModelSummary3D(id string) (ObjectModelSummary3D, bool) {
+	if e == nil || id == "" {
+		return ObjectModelSummary3D{}, false
+	}
+	obj, _ := e.FindResolvedObject(id)
+	if obj == nil || (obj.Model == "" && obj.Mesh == "") {
+		return ObjectModelSummary3D{}, false
+	}
+	summary := ObjectModelSummary3D{
+		Path: obj.Model,
+		Mesh: obj.Mesh,
+	}
+	tris, matCount, found := e.objectDrawableStats3D(id)
+	if !found {
+		if built, _, err := e.buildModel3D(summary.Entry()); err == nil && built != nil {
+			tris, matCount = drawablesStats3D(built.Drawables, "")
+		}
+	}
+	summary.Triangles = tris
+	summary.MaterialCount = matCount
+	return summary, true
+}
+
+func (e *Editor) objectDrawableStats3D(id string) (tris, matCount int, found bool) {
+	s := e.scene3D()
+	if s == nil || s.built == nil {
+		return 0, 0, false
+	}
+	t, m := drawablesStats3D(s.built.Drawables, id)
+	if t == 0 && m == 0 {
+		return 0, 0, false
+	}
+	return t, m, true
+}
+
+func drawablesStats3D(drawables []*scenemodel.Drawable, objectID string) (tris, matCount int) {
+	mats := make(map[uint32]struct{})
+	for _, d := range drawables {
+		if objectID != "" && d.Object != objectID {
+			continue
+		}
+		for _, part := range d.Parts {
+			if n := len(part.Mesh.Indices); n > 0 {
+				tris += n / 3
+			} else {
+				tris += len(part.Mesh.Positions) / 3
+			}
+			mats[part.MaterialID] = struct{}{}
+		}
+	}
+	return tris, len(mats)
+}
+
+// ObjectMaterialSummary3D summarizes the 3D surface material (material file name, roughness, and metallic) for the 3D inspector's MATERIAL section.
+type ObjectMaterialSummary3D struct {
+	// Path is the project-relative *.material.yaml path, or empty when the object uses the model's embedded glTF material or default primitive surface.
+	Path string
+	// FileName is the basename of Path (e.g. "stone.material.yaml"), or empty when no external material file is assigned.
+	FileName string
+	// Roughness is the PBR roughness in [0, 1].
+	Roughness float32
+	// Metallic is the PBR metallic factor in [0, 1].
+	Metallic float32
+	// HasValues reports whether Roughness and Metallic were resolved from a material file or built 3D drawable.
+	HasValues bool
+}
+
+// ObjectMaterialSummary3D returns the material file and roughness/metallic summary for object id, or false when id has neither a material nor 3D model/mesh geometry.
+func (e *Editor) ObjectMaterialSummary3D(id string) (ObjectMaterialSummary3D, bool) {
+	if e == nil || id == "" {
+		return ObjectMaterialSummary3D{}, false
+	}
+	obj, _ := e.FindResolvedObject(id)
+	if obj == nil || (obj.Material == "" && obj.Model == "" && obj.Mesh == "") {
+		return ObjectMaterialSummary3D{}, false
+	}
+	if obj.Material != "" {
+		out := ObjectMaterialSummary3D{
+			Path:     obj.Material,
+			FileName: path.Base(obj.Material),
+		}
+		if e.material != nil && e.material.relPath == obj.Material {
+			out.Roughness = clampUnit32(e.material.mat.EffectiveRoughness())
+			out.Metallic = clampUnit32(e.material.mat.Metallic)
+			out.HasValues = true
+			return out, true
+		}
+		if mat, err := e.modelAssets3D().Material(obj.Material); err == nil && mat != nil {
+			out.Roughness = clampUnit32(mat.EffectiveRoughness())
+			out.Metallic = clampUnit32(mat.Metallic)
+			out.HasValues = true
+			return out, true
+		}
+		return out, true
+	}
+	// Fall back to the first built drawable's embedded material (from glTF or primitive default).
+	if s := e.scene3D(); s != nil && s.built != nil {
+		for _, d := range s.built.Drawables {
+			if d.Object == id && len(d.Parts) > 0 {
+				return ObjectMaterialSummary3D{
+					Roughness: clampUnit32(d.Parts[0].Material.Roughness),
+					Metallic:  clampUnit32(d.Parts[0].Material.Metallic),
+					HasValues: true,
+				}, true
+			}
+		}
+	}
+	if built, _, err := e.buildModel3D(ModelEntry{Mesh: obj.Mesh, Path: obj.Model}); err == nil && built != nil {
+		for _, d := range built.Drawables {
+			if len(d.Parts) > 0 {
+				return ObjectMaterialSummary3D{
+					Roughness: clampUnit32(d.Parts[0].Material.Roughness),
+					Metallic:  clampUnit32(d.Parts[0].Material.Metallic),
+					HasValues: true,
+				}, true
+			}
+		}
+	}
+	return ObjectMaterialSummary3D{}, false
+}
+
+func clampUnit32(v float32) float32 {
+	if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+// ObjectColliderSummary3D summarizes an object's 3D collider and physics body kind for the 3D inspector's COLLIDER section.
+type ObjectColliderSummary3D struct {
+	// ShapeKey is the canonical component shape value (e.g. "convex", "box", "sphere", "capsule", "cylinder", "trimesh", "heightfield").
+	ShapeKey string
+	// Shape is the localized human-readable shape name (e.g. "Convex hull", "Box").
+	Shape string
+	// BodyKind is the effective 3D body kind ("static", "dynamic", "kinematic", or "trigger").
+	BodyKind string
+	// IsTrigger reports whether the collider behaves as a non-solid trigger sensor.
+	IsTrigger bool
+}
+
+// Text formats the collider summary as "<Shape> · <BodyKind>" (for example, "Convex hull · static").
+func (s ObjectColliderSummary3D) Text() string {
+	return s.Shape + " · " + s.BodyKind
+}
+
+// ObjectColliderSummary3D returns the 3D collider shape and body kind summary for object id, or false when id has no collider3d or trigger3d component.
+func (e *Editor) ObjectColliderSummary3D(id string) (ObjectColliderSummary3D, bool) {
+	if e == nil || id == "" {
+		return ObjectColliderSummary3D{}, false
+	}
+	obj, _ := e.FindResolvedObject(id)
+	if obj == nil || len(obj.Components) == 0 {
+		return ObjectColliderSummary3D{}, false
+	}
+	var comp map[string]any
+	isTrigger := false
+	if raw, ok := obj.Components[sceneformat.Collider3DComponentName]; ok {
+		comp, _ = raw.(map[string]any)
+		if b, ok := comp["isTrigger"].(bool); ok && b {
+			isTrigger = true
+		}
+	} else if raw, ok := obj.Components[sceneformat.Trigger3DComponentName]; ok {
+		comp, _ = raw.(map[string]any)
+		isTrigger = true
+	} else {
+		return ObjectColliderSummary3D{}, false
+	}
+	shapeKey := "box"
+	if s, ok := comp["shape"].(string); ok && s != "" {
+		shapeKey = s
+	}
+	bodyKind := "static"
+	if rawBody, ok := obj.Components[sceneformat.Body3DComponentName]; ok {
+		if bm, ok := rawBody.(map[string]any); ok {
+			if k, ok := bm["kind"].(string); ok && k != "" {
+				bodyKind = k
+			}
+		}
+	}
+	if isTrigger || bodyKind == "trigger" {
+		bodyKind = "trigger"
+		isTrigger = true
+	}
+	return ObjectColliderSummary3D{
+		ShapeKey:  shapeKey,
+		Shape:     e.colliderShapeLabel3D(shapeKey),
+		BodyKind:  bodyKind,
+		IsTrigger: isTrigger,
+	}, true
+}
+
+func (e *Editor) colliderShapeLabel3D(shapeKey string) string {
+	switch shapeKey {
+	case "convex":
+		return e.T("inspector.collider.convex")
+	case "box":
+		return e.T("inspector.collider.box")
+	case "sphere":
+		return e.T("inspector.collider.sphere")
+	case "capsule":
+		return e.T("inspector.collider.capsule")
+	case "cylinder":
+		return e.T("inspector.collider.cylinder")
+	case "trimesh":
+		return e.T("inspector.collider.trimesh")
+	case "heightfield":
+		return e.T("inspector.collider.heightfield")
+	default:
+		return shapeKey
+	}
+}
+
+// ObjectChildrenSummary3D summarizes the direct children of a group object for the 3D inspector's CHILDREN section.
+type ObjectChildrenSummary3D struct {
+	// Count is the number of direct children.
+	Count int
+	// IDs are the child IDs (or names when an ID is empty) in document order.
+	IDs []string
+	// SharedRef is the shared prefab, model, or scene path when every child references the same one.
+	SharedRef string
+	// Summary is the formatted single-line summary (e.g. "wall_n · wall_e · wall_w · wall_s_l · wall_s_r" or "bench_01 … bench_06 · prefabs/bench.prefab.yaml").
+	Summary string
+}
+
+// ObjectChildrenSummary3D returns a summary of object id's direct children, or false when id has no children.
+func (e *Editor) ObjectChildrenSummary3D(id string) (ObjectChildrenSummary3D, bool) {
+	if e == nil || id == "" {
+		return ObjectChildrenSummary3D{}, false
+	}
+	obj, _ := e.FindResolvedObject(id)
+	if obj == nil || len(obj.Children) == 0 {
+		return ObjectChildrenSummary3D{}, false
+	}
+	ids := make([]string, 0, len(obj.Children))
+	sharedRef := ""
+	sharedValid := true
+	for i := range obj.Children {
+		ch := &obj.Children[i]
+		label := ch.ID
+		if label == "" {
+			label = ch.Name
+		}
+		ids = append(ids, label)
+		ref := ch.Prefab
+		if ref == "" {
+			ref = ch.Scene
+		}
+		if ref == "" {
+			ref = ch.Model
+		}
+		if i == 0 {
+			sharedRef = ref
+		} else if ref != sharedRef {
+			sharedValid = false
+		}
+	}
+	if !sharedValid {
+		sharedRef = ""
+	}
+	var text string
+	if len(ids) <= 5 {
+		text = strings.Join(ids, " · ")
+	} else {
+		text = ids[0] + " … " + ids[len(ids)-1]
+	}
+	if sharedRef != "" {
+		text += " · " + sharedRef
+	}
+	return ObjectChildrenSummary3D{
+		Count:     len(ids),
+		IDs:       ids,
+		SharedRef: sharedRef,
+		Summary:   text,
+	}, true
+}
+
+// Viewport3DAgentPromptKind identifies what the 3D viewport's inline agent prompt is asking for.
+type Viewport3DAgentPromptKind int
+
+const (
+	// Viewport3DAgentPromptNone means the 3D inline agent prompt is closed.
+	Viewport3DAgentPromptNone Viewport3DAgentPromptKind = iota
+	// Viewport3DAgentPromptModel asks the agent for a new 3D model ("Or ask for one").
+	Viewport3DAgentPromptModel
+	// Viewport3DAgentPromptComponent asks the agent to add a component to the selected object ("Ask to add a component…").
+	Viewport3DAgentPromptComponent
+)
+
+// Viewport3DAgentRequest is dispatched when the author submits a prompt from the 3D MODELS strip ("Or ask for one")
+// or from the 3D inspector ("Ask to add a component…").
+type Viewport3DAgentRequest struct {
+	Kind     Viewport3DAgentPromptKind
+	ObjectID string
+	Prompt   string
+}
+
+type viewport3DAgentPromptState struct {
+	kind     Viewport3DAgentPromptKind
+	objectID string
+}
+
+// OpenModelAgentPrompt opens the 3D viewport's inline agent prompt to describe and request a new model ("Or ask for one").
+func (e *Editor) OpenModelAgentPrompt() {
+	if e == nil {
+		return
+	}
+	e.agentPrompt3D = viewport3DAgentPromptState{kind: Viewport3DAgentPromptModel}
+	e.Status = e.T("models.askForOneHint")
+	e.notify()
+}
+
+// OpenComponentAgentPrompt opens the 3D viewport's inline agent prompt to add a component to objectID ("Ask to add a component…").
+func (e *Editor) OpenComponentAgentPrompt(objectID string) {
+	if e == nil {
+		return
+	}
+	if objectID == "" {
+		objectID = e.SelectedID
+	}
+	e.agentPrompt3D = viewport3DAgentPromptState{kind: Viewport3DAgentPromptComponent, objectID: objectID}
+	e.Status = e.Viewport3DAgentPromptPlaceholder()
+	e.notify()
+}
+
+// CloseViewport3DAgentPrompt closes the 3D inline agent prompt.
+func (e *Editor) CloseViewport3DAgentPrompt() {
+	if e == nil || e.agentPrompt3D.kind == Viewport3DAgentPromptNone {
+		return
+	}
+	e.agentPrompt3D = viewport3DAgentPromptState{}
+	e.notify()
+}
+
+// Viewport3DAgentPromptOpen reports whether the 3D inline agent prompt is currently open.
+func (e *Editor) Viewport3DAgentPromptOpen() bool {
+	return e != nil && e.agentPrompt3D.kind != Viewport3DAgentPromptNone
+}
+
+// Viewport3DAgentPromptKind returns the active 3D inline agent prompt kind.
+func (e *Editor) Viewport3DAgentPromptKind() Viewport3DAgentPromptKind {
+	if e == nil {
+		return Viewport3DAgentPromptNone
+	}
+	return e.agentPrompt3D.kind
+}
+
+// Viewport3DAgentPromptObjectID returns the target object ID for a component prompt, or "".
+func (e *Editor) Viewport3DAgentPromptObjectID() string {
+	if e == nil {
+		return ""
+	}
+	return e.agentPrompt3D.objectID
+}
+
+// Viewport3DAgentPromptPlaceholder returns the contextual placeholder text for the open 3D inline agent prompt.
+func (e *Editor) Viewport3DAgentPromptPlaceholder() string {
+	if e == nil {
+		return ""
+	}
+	switch e.agentPrompt3D.kind {
+	case Viewport3DAgentPromptModel:
+		return e.T("models.askForOneHint")
+	case Viewport3DAgentPromptComponent:
+		name := e.agentPrompt3D.objectID
+		if o, _ := e.FindResolvedObject(e.agentPrompt3D.objectID); o != nil && o.Name != "" {
+			name = o.Name
+		}
+		if name == "" {
+			name = "selection"
+		}
+		return e.T("inspector.askAddComponentHint", l10n.Param("name", name))
+	default:
+		return ""
+	}
+}
+
+// SubmitViewport3DAgentPrompt dispatches text as a Viewport3DAgentRequest to OnAskAgent3D (falling back to OnAssetAskAgent when configured), updates the status bar, and closes the inline prompt.
+func (e *Editor) SubmitViewport3DAgentPrompt(text string) (Viewport3DAgentRequest, error) {
+	if e == nil {
+		return Viewport3DAgentRequest{}, errors.New("editor: nil editor")
+	}
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return Viewport3DAgentRequest{}, errors.New("editor: prompt must not be empty")
+	}
+	kind := e.agentPrompt3D.kind
+	if kind == Viewport3DAgentPromptNone {
+		kind = Viewport3DAgentPromptModel
+	}
+	req := Viewport3DAgentRequest{
+		Kind:     kind,
+		ObjectID: e.agentPrompt3D.objectID,
+		Prompt:   trimmed,
+	}
+	reqCopy := req
+	e.lastAgentReq3D = &reqCopy
+	e.agentPrompt3D = viewport3DAgentPromptState{}
+	e.Status = "Asked agent: " + trimmed
+	if e.OnAskAgent3D != nil {
+		e.OnAskAgent3D(req)
+	} else if e.OnAssetAskAgent != nil {
+		e.OnAssetAskAgent(req.ObjectID, req.Prompt)
+	}
+	e.notify()
+	return req, nil
+}
+
+// LastViewport3DAgentRequest returns the most recent request submitted from the 3D MODELS strip or 3D inspector agent prompt.
+func (e *Editor) LastViewport3DAgentRequest() (Viewport3DAgentRequest, bool) {
+	if e == nil || e.lastAgentReq3D == nil {
+		return Viewport3DAgentRequest{}, false
+	}
+	return *e.lastAgentReq3D, true
 }

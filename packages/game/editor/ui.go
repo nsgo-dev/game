@@ -506,6 +506,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 							base = core.Style{
 								FlexGrow:  1,
 								FlexBasis: core.Pt(0),
+								MinHeight: core.Pt(88),
 								Overflow:  core.Hidden,
 							}
 						}
@@ -540,6 +541,15 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 								}
 							},
 						},
+					},
+				},
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.ViewMode == ViewMode3D && !assetsMode.Get()
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return Viewport3DModelsStripView(cx, ed, rev)
 					},
 				},
 				core.Show{

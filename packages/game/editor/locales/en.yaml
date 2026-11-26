@@ -226,6 +226,8 @@ strings:
   inspector.addComponent: Add component
   inspector.addProperty: Add property
   inspector.alpha: Alpha
+  inspector.askAddComponent: Ask to add a component…
+  inspector.askAddComponentHint: Add a component to {name}… e.g. a trigger that plays splash.ogg
   inspector.askToAdd: Ask to add
   inspector.background: Background
   inspector.backgroundColor: Background Color
@@ -245,6 +247,13 @@ strings:
   inspector.cameraY: Camera Y
   inspector.cameraZoom: Camera Zoom
   inspector.clearBackground: Clear background color
+  inspector.collider.box: Box
+  inspector.collider.capsule: Capsule
+  inspector.collider.convex: Convex hull
+  inspector.collider.cylinder: Cylinder
+  inspector.collider.heightfield: Heightfield
+  inspector.collider.sphere: Sphere
+  inspector.collider.trimesh: Triangle mesh
   inspector.connect: Connect
   inspector.delete: Delete
   inspector.deleteProperty: Delete property {key}
@@ -266,8 +275,13 @@ strings:
   inspector.jumpTo: Jump to {id}
   inspector.kindLayer: '{kind} · layer {layer}'
   inspector.material: Material
+  inspector.materialEmbedded: glTF material
+  inspector.materialMetallic: Metallic
+  inspector.materialRoughness: Roughness
   inspector.mesh: Mesh
   inspector.mixed: Mixed
+  inspector.model: Model
+  inspector.modelPrimitive: Primitive · {mesh}
   inspector.multiNoteOnlyTransform: Only Transform is shared by these {count} objects. Editing a Mixed field sets it on all of them.
   inspector.multiNoteShared: 'Shared by these {count} objects: {sections}. Editing a Mixed field sets it on all of them.'
   inspector.name: Name
@@ -304,8 +318,12 @@ strings:
   inspector.scenePrefix: Scene · {label}
   inspector.scrubHint3D: Drag a label to scrub · Shift for 0.01 steps
   inspector.section.camera: CAMERA
+  inspector.section.children: CHILDREN
+  inspector.section.collider: COLLIDER
   inspector.section.components: COMPONENTS
   inspector.section.connections: CONNECTIONS
+  inspector.section.material: MATERIAL
+  inspector.section.model: MODEL
   inspector.section.properties: PROPERTIES
   inspector.section.scene: SCENE
   inspector.section.sprite: SPRITE
@@ -447,6 +465,13 @@ strings:
   menu.view: View
   menu.view2d: 2D View
   menu.view3d: 3D View
+  models.askForOne: Or ask for one
+  models.askForOneHint: Describe a model… e.g. a low stone planter, 1 × 0.5 m, same stone as the walls
+  models.dragIn: drag in
+  models.dragTooltip: Drag into the viewport to place {name}
+  models.promptClose: Close
+  models.promptSend: Send
+  models.stripTitle: MODELS
   output.clear: Clear
   output.clearLabel: Clear all messages from the Output panel
   output.empty: No output

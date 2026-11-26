@@ -226,6 +226,8 @@ strings:
   inspector.addComponent: 添加组件
   inspector.addProperty: 添加属性
   inspector.alpha: 不透明度
+  inspector.askAddComponent: 让智能体添加组件…
+  inspector.askAddComponentHint: 为 {name} 添加组件… 例如播放 splash.ogg 的触发器
   inspector.askToAdd: 请智能体添加
   inspector.background: 背景
   inspector.backgroundColor: 背景颜色
@@ -245,6 +247,13 @@ strings:
   inspector.cameraY: 相机 Y
   inspector.cameraZoom: 相机缩放
   inspector.clearBackground: 清除背景颜色
+  inspector.collider.box: 盒体
+  inspector.collider.capsule: 胶囊体
+  inspector.collider.convex: 凸包
+  inspector.collider.cylinder: 圆柱体
+  inspector.collider.heightfield: 高度场
+  inspector.collider.sphere: 球体
+  inspector.collider.trimesh: 三角网格
   inspector.connect: 连接
   inspector.delete: 删除
   inspector.deleteProperty: 删除属性 {key}
@@ -266,8 +275,13 @@ strings:
   inspector.jumpTo: 跳转至 {id}
   inspector.kindLayer: '{kind} · 图层 {layer}'
   inspector.material: 材质
+  inspector.materialEmbedded: glTF 材质
+  inspector.materialMetallic: 金属度
+  inspector.materialRoughness: 粗糙度
   inspector.mesh: 网格
   inspector.mixed: 混合
+  inspector.model: 模型
+  inspector.modelPrimitive: 基本形体 · {mesh}
   inspector.multiNoteOnlyTransform: 这 {count} 个对象仅共享变换。编辑“混合”字段会同时应用到所有选中对象。
   inspector.multiNoteShared: 这 {count} 个对象共享：{sections}。编辑“混合”字段会同时应用到所有选中对象。
   inspector.name: 名称
@@ -304,8 +318,12 @@ strings:
   inspector.scenePrefix: 场景 · {label}
   inspector.scrubHint3D: 拖拽标签微调 · 按住 Shift 以 0.01 步进
   inspector.section.camera: 相机
+  inspector.section.children: 子对象
+  inspector.section.collider: 碰撞体
   inspector.section.components: 组件
   inspector.section.connections: 连接
+  inspector.section.material: 材质
+  inspector.section.model: 模型
   inspector.section.properties: 属性
   inspector.section.scene: 场景
   inspector.section.sprite: 精灵
@@ -447,6 +465,13 @@ strings:
   menu.view: 视图
   menu.view2d: 2D 视图
   menu.view3d: 3D 视图
+  models.askForOne: 或让智能体生成一个
+  models.askForOneHint: 描述一个模型… 例如一个 1 × 0.5 米的矮石花盆，与围墙材质相同
+  models.dragIn: 拖入视口
+  models.dragTooltip: 拖入视口以放置 {name}
+  models.promptClose: 关闭
+  models.promptSend: 发送
+  models.stripTitle: 模型
   output.clear: 清空
   output.clearLabel: 清空输出面板中的所有消息
   output.empty: 暂无输出

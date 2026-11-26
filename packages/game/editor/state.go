@@ -473,6 +473,8 @@ type Editor struct {
 	OnAssetReplaceMissing func(missingPath string)
 	// OnAssetAskAgent, when set, handles "Ask the agent" actions from the Asset Drawer and selected-asset inspector.
 	OnAssetAskAgent func(assetPath, prompt string)
+	// OnAskAgent3D, when set, handles "Or ask for one" (3D MODELS strip) and "Ask to add a component…" (3D inspector) prompts.
+	OnAskAgent3D func(req Viewport3DAgentRequest)
 	// ChangesCheckRunner overrides `nsgo check` and `nsgo test` in the Changes panel; when nil, the editor invokes `go tool nsgo check` and `go tool nsgo test`.
 	ChangesCheckRunner func(dir string) (ChangesCheckStatus, error)
 	// CommitMessageDrafter generates the commit summary and description for the Changes panel; when nil, DefaultCommitDraft is used.
@@ -566,6 +568,8 @@ type Editor struct {
 	// fly3DOrtho says the camera was orthographic when the flight began, and fly3DMoved that the flight has turned or moved it, so a flight that did neither puts the projection back.
 	fly3DOrtho       bool
 	fly3DMoved       bool
+	agentPrompt3D    viewport3DAgentPromptState
+	lastAgentReq3D   *Viewport3DAgentRequest
 	cameraDrag       cameraDragState
 	cameraBoundsDrag cameraBoundsDragState
 	rooms            *roomMapState
