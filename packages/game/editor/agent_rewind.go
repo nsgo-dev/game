@@ -108,6 +108,7 @@ type agentRewindRecord struct {
 	previousTurns           []AgentTurn
 	previousSessionID       string
 	previousCheckpoints     map[string]*agentTurnCheckpoint
+	previousLiveStopped     bool
 	threadID                string
 	previousThreadSessionID string
 	hadThreadSession        bool
@@ -649,6 +650,7 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 		previousTurns:        e.AgentTurns(),
 		previousSessionID:    e.agent.sessionID,
 		previousCheckpoints:  cloneCheckpointMap(e.agent.checkpoints),
+		previousLiveStopped:  e.agent.liveStopped,
 	}
 
 	if restoreFiles {
@@ -728,9 +730,25 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 		if e.agent.openRequest != nil {
 			e.agent.openRequest = nil
 		}
+		e.agent.liveStopped = false
+		e.agent.liveDeniedKeys = nil
+		e.agent.liveQueuedFollowUps = nil
+		e.agent.liveActivity = ""
 		e.restoreIdleAgentStatus()
 	} else {
 		rec.state.TurnsDropped = 0
+		if restoreFiles {
+			for j := idx; j < len(e.agent.turns); j++ {
+				if e.agent.turns[j].PendingReview != nil && !e.agent.turns[j].PendingReview.Reverted {
+					e.agent.turns[j].PendingReview.Kept = false
+					e.agent.turns[j].PendingReview.Reverted = true
+				}
+				if e.agent.turns[j].Review != nil && !e.agent.turns[j].Review.Discarded {
+					e.agent.turns[j].Review.Kept = false
+					e.agent.turns[j].Review.Discarded = true
+				}
+			}
+		}
 	}
 
 	if targetTurn.Prompt != "" {
@@ -748,8 +766,10 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	}
 	e.agent.rewindOpenTurnID = ""
 	e.agent.lastRewind = rec
+	e.agent.turnChangeSeq++
 	e.agent.liveAnnouncement = e.formatRewindBannerText(rec.state)
 	e.Status = e.agent.liveAnnouncement
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
@@ -806,6 +826,7 @@ func (e *Editor) RedoAgentRewind() error {
 		e.agent.turns = cloneAgentTurns(rec.previousTurns)
 		e.agent.sessionID = rec.previousSessionID
 		e.agent.checkpoints = cloneCheckpointMap(rec.previousCheckpoints)
+		e.agent.liveStopped = rec.previousLiveStopped
 		if rec.hadThreadSession && rec.threadID != "" {
 			if t := e.findPersistedAgentThread(rec.threadID); t != nil {
 				if t.SessionID != rec.previousThreadSessionID {
@@ -821,6 +842,18 @@ func (e *Editor) RedoAgentRewind() error {
 			}
 		}
 		e.restoreIdleAgentStatus()
+	} else if restoreFiles {
+		prevByID := make(map[string]AgentTurn, len(rec.previousTurns))
+		for _, pt := range rec.previousTurns {
+			prevByID[pt.ID] = pt
+		}
+		for j := rec.state.TurnIndex; j >= 0 && j < len(e.agent.turns); j++ {
+			if prev, ok := prevByID[e.agent.turns[j].ID]; ok {
+				cp := cloneAgentTurn(prev)
+				e.agent.turns[j].PendingReview = cp.PendingReview
+				e.agent.turns[j].Review = cp.Review
+			}
+		}
 	}
 
 	e.composerDraft = rec.previousComposerText
@@ -834,8 +867,10 @@ func (e *Editor) RedoAgentRewind() error {
 	e.agentComposer.hoveredChipID = ""
 	e.agent.rewindOpenTurnID = ""
 	e.agent.lastRewind = nil
+	e.agent.turnChangeSeq++
 	e.updateAgentAnnouncement()
 	e.Status = e.T("agent.rewind.redidStatus")
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }

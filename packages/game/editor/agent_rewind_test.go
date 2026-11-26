@@ -1152,3 +1152,78 @@ func TestAgentRewindIntegratesWithAgentComposerDraftAndPopovers(t *testing.T) {
 		t.Fatal("expected StartFreshAgentThread to clear rewind redo, highlight, and open popover state")
 	}
 }
+
+func TestAgentRewindClearsPendingReviewAndStoppedState(t *testing.T) {
+	_, ed, _, _, _ := setupRewindProject(t)
+
+	// Run a live request that edits the scene and then gets stopped, leaving PendingReview + liveStopped.
+	ed.StartAgentRequest("Move the knight right")
+	s1 := ed.BeginAgentToolStep("scene_edit", "Move knight", "", []string{"knight"})
+	if err := ed.MoveObject("knight", 250, 120); err != nil {
+		t.Fatalf("MoveObject: %v", err)
+	}
+	ed.FinishAgentToolStep(s1, "Move knight", "", []string{"knight"}, false)
+	if !ed.StopAgent() {
+		t.Fatal("expected StopAgent to return true")
+	}
+	if !ed.AgentStopped() {
+		t.Fatal("expected AgentStopped true after StopAgent")
+	}
+	if !ed.HasPendingAgentTurnReview() {
+		t.Fatal("expected HasPendingAgentTurnReview true after stopped turn with edits")
+	}
+
+	turns := ed.AgentTurns()
+	if len(turns) != 1 {
+		t.Fatalf("len(turns) = %d, want 1", len(turns))
+	}
+	turnID := turns[0].ID
+
+	// Verify Esc in AgentPanelView closes AgentRewindPopover cleanly.
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820))
+	app.Settle()
+
+	if !ed.OpenAgentRewindPopover(turnID) {
+		t.Fatal("OpenAgentRewindPopover failed")
+	}
+	app.Settle()
+	app.Key("escape")
+	app.Settle()
+	if ed.AgentRewindOpenTurnID() != "" {
+		t.Fatalf("expected Esc to close AgentRewindPopover, still open for %q", ed.AgentRewindOpenTurnID())
+	}
+
+	// Files-only rewind should mark the turn's PendingReview reverted so autosave is not stuck paused.
+	if err := ed.RewindAgentTurn(turnID, editor.AgentRewindFilesOnly); err != nil {
+		t.Fatalf("RewindAgentTurn(FilesOnly): %v", err)
+	}
+	if ed.HasPendingAgentTurnReview() {
+		t.Fatal("expected HasPendingAgentTurnReview false after FilesOnly rewind")
+	}
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind(FilesOnly): %v", err)
+	}
+	if !ed.HasPendingAgentTurnReview() {
+		t.Fatal("expected HasPendingAgentTurnReview restored after RedoAgentRewind(FilesOnly)")
+	}
+
+	// Both rewind drops the stopped turn and clears both PendingReview and AgentStopped.
+	if err := ed.RewindAgentTurn(turnID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("RewindAgentTurn(Both): %v", err)
+	}
+	if ed.HasPendingAgentTurnReview() {
+		t.Fatal("expected HasPendingAgentTurnReview false after Both rewind")
+	}
+	if ed.AgentStopped() {
+		t.Fatal("expected AgentStopped false after Both rewind drops the stopped turn")
+	}
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind(Both): %v", err)
+	}
+	if !ed.HasPendingAgentTurnReview() || !ed.AgentStopped() {
+		t.Fatalf("expected PendingReview=%v and AgentStopped=%v restored after RedoAgentRewind(Both)",
+			ed.HasPendingAgentTurnReview(), ed.AgentStopped())
+	}
+}
