@@ -2488,7 +2488,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 	})
 
 	spec := e.SpecPalette(nil)
-	selVisible := e.OverlayKindVisible(OverlayKindSelection)
+	selVisible := !e.playing && !e.HistoryPreviewActive() && e.OverlayKindVisible(OverlayKindSelection)
 	canvas := core.Size{Width: core.Points(w), Height: core.Points(h)}
 
 	for _, item := range items {

@@ -92,16 +92,28 @@ func connectionErrorObject(ce *sceneformat.ConnectionError) string {
 		return ""
 	}
 	switch ce.Field {
-	case "to", "handler":
+	case "handler", "args":
 		if ce.To != "" {
 			return ce.To
 		}
 		return ce.From
-	case "from", "event":
+	case "event":
 		if ce.From != "" {
 			return ce.From
 		}
 		return ce.To
+	case "to":
+		// "to" errors report a missing target object; attach the Problem to the live source endpoint.
+		if ce.From != "" {
+			return ce.From
+		}
+		return ce.To
+	case "from":
+		// "from" errors report a missing source object; attach the Problem to the live target endpoint.
+		if ce.To != "" {
+			return ce.To
+		}
+		return ce.From
 	default:
 		if ce.Arg != "" && ce.To != "" {
 			return ce.To

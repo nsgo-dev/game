@@ -350,3 +350,59 @@ layers:
 		t.Fatalf("%d problems, want 3:\n%s", len(r.Problems), got)
 	}
 }
+
+func TestStandaloneConnectionErrorAttributesLiveEndpoint(t *testing.T) {
+	fsys := fstest.MapFS{
+		"scenes/solo.scene.yaml": &fstest.MapFile{Data: []byte(`version: 2
+layers:
+  - name: actors
+    objects:
+      - id: lever
+        components:
+          button: {}
+      - id: door
+        components:
+          door: {}
+connections:
+  - from: lever
+    event: pressed
+    to: missing_door
+    handler: open
+  - from: missing_lever
+    event: pressed
+    to: door
+    handler: open
+`)},
+	}
+	r, err := assetcheck.CheckWith(fsys, assetcheck.Options{Components: connectionsRegistry(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Problems) != 1 {
+		t.Fatalf("expected 1 standalone connection problem (first validation error), got %+v", r.Problems)
+	}
+	if r.Problems[0].Object != "lever" {
+		t.Fatalf("standalone missing-to connection Object = %q, want live endpoint %q", r.Problems[0].Object, "lever")
+	}
+
+	fsys["scenes/solo.scene.yaml"] = &fstest.MapFile{Data: []byte(`version: 2
+layers:
+  - name: actors
+    objects:
+      - id: door
+        components:
+          door: {}
+connections:
+  - from: missing_lever
+    event: pressed
+    to: door
+    handler: open
+`)}
+	r, err = assetcheck.CheckWith(fsys, assetcheck.Options{Components: connectionsRegistry(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Problems) != 1 || r.Problems[0].Object != "door" {
+		t.Fatalf("standalone missing-from connection = %+v, want Object=%q", r.Problems, "door")
+	}
+}

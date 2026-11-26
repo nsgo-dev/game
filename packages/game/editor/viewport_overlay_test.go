@@ -823,3 +823,212 @@ func TestViewportOverlaysSpecMacOSScreenshot(t *testing.T) {
 	app.Settle()
 	app.Screenshot("viewport-overlays-spec-light")
 }
+
+// Regression test: Play mode and History preview hide overlays and legend in both 2D and 3D and restore
+// them cleanly; SceneOverlays are scoped per scene tab, deep-copied, and cleared on OpenDemo;
+// toggling a legend switch does not remount or steal keyboard focus.
+func TestViewportOverlayLifecyclePlayHistoryAndFocus(t *testing.T) {
+	ed, _ := openTestProject(t)
+	ed.SetReduceMotion(true)
+
+	var objID string
+	for _, layer := range ed.Doc.Layers {
+		if len(layer.Objects) > 0 {
+			objID = layer.Objects[0].ID
+			break
+		}
+	}
+	if objID == "" {
+		var err error
+		objID, err = ed.PlaceObject(ed.ActiveLayer, sceneformat.ObjectDoc{ID: "knight", Name: "Knight", X: 160, Y: 180})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	ed.SelectObject(objID)
+
+	ghost := core.Bounds{Origin: core.Point{X: 200, Y: 160}, Size: core.Size{Width: 20, Height: 20}}
+	ghostPos3D := [3]float32{0, 0, 0}
+	ghostSize3D := [3]float32{32, 48, 24}
+	ed.SetSceneOverlays([]editor.SceneOverlayEntry{
+		{ID: "ad", ObjectID: objID, Kind: editor.OverlayKindAdded, Label: "new_slime"},
+		{ID: "rm", ObjectID: "gone", Kind: editor.OverlayKindRemoved, Label: "coin_04", GhostBounds: &ghost, GhostPos3D: &ghostPos3D, GhostSize3D: &ghostSize3D},
+	})
+
+	// 1. SceneOverlays() returns a deep copy that does not alias internal pointers.
+	snap := ed.SceneOverlays()
+	if len(snap) != 2 || snap[1].GhostBounds == nil || snap[1].GhostSize3D == nil {
+		t.Fatalf("SceneOverlays() = %+v, want 2 entries with ghost pointers", snap)
+	}
+	snap[1].GhostBounds.Origin.X = 9999
+	snap[1].GhostSize3D[0] = 9999
+	snap2 := ed.SceneOverlays()
+	if snap2[1].GhostBounds.Origin.X == 9999 || snap2[1].GhostSize3D[0] == 9999 {
+		t.Fatal("mutating SceneOverlays() result mutated internal editor state")
+	}
+
+	// 2. Play mode hides overlays and legend in both 2D and 3D, and Stop() restores them.
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 720), nsgotest.Environment(core.Environment{
+		OS:           core.OSMacOS,
+		Idiom:        core.IdiomDesktop,
+		Dark:         true,
+		ReduceMotion: true,
+	}))
+	app.Settle()
+
+	if !app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("expected legend visible before Play")
+	}
+	// Focus legend-added and toggle it via Space: switch toggles cleanly and keeps keyboard focus (no remount).
+	app.Focus("id:legend-added")
+	app.Settle()
+	if !app.Find("id:legend-added").Focused {
+		t.Fatal("legend-added did not gain keyboard focus")
+	}
+	app.Key("space")
+	app.Settle()
+	if app.Find("id:legend-added").Props.Checked {
+		t.Fatal("Space key did not toggle focused legend-added switch off")
+	}
+	if !app.Find("id:legend-added").Focused {
+		t.Fatal("toggling legend-added via Space remounted the switch and lost keyboard focus")
+	}
+	// Toggle it back ON via Space so overlays are active for Play & History checks.
+	app.Key("space")
+	app.Settle()
+	if !app.Find("id:legend-added").Props.Checked || !app.Find("id:legend-added").Focused {
+		t.Fatal("second Space key press did not restore legend-added while keeping focus")
+	}
+
+	app.Post(func() { _ = ed.Play() })
+	app.Settle()
+	if app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("legend stayed visible during Play mode")
+	}
+	var play2D core.Drawing
+	ed.DrawViewport(&play2D, core.Size{Width: 640, Height: 360})
+	if hasOverlayFillText(play2D.Ops, "+ new_slime") {
+		t.Fatal("2D overlays drew during Play mode")
+	}
+	ed.SetViewMode(editor.ViewMode3D)
+	var play3D core.Drawing
+	ed.DrawViewport(&play3D, core.Size{Width: 640, Height: 360})
+	if hasOverlayFillText(play3D.Ops, "+ new_slime") || hasOverlayFillText(play3D.Ops, objID) {
+		t.Fatal("3D overlays drew during Play mode")
+	}
+
+	app.Post(func() {
+		_ = ed.Stop()
+		ed.SetViewMode(editor.ViewMode2D)
+	})
+	app.Settle()
+	if !app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("legend did not restore after Stop()")
+	}
+
+	// 3. History preview hides overlays & legend in both 2D and 3D and restores them on exit.
+	if _, err := ed.PlaceObject(ed.ActiveLayer, sceneformat.ObjectDoc{ID: "hist_prop", Name: "HistProp", X: 80, Y: 80}); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetHistoryPanelOpen(true)
+	entries := ed.HistoryEntries()
+	if len(entries) == 0 {
+		t.Fatal("expected at least one history entry")
+	}
+	app.Post(func() { _ = ed.PreviewHistoryEntry(entries[0].ID) })
+	app.Settle()
+	if !ed.HistoryPreviewActive() {
+		t.Fatal("expected HistoryPreviewActive()")
+	}
+	if app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("legend stayed visible during History preview")
+	}
+	var hist2D core.Drawing
+	ed.DrawViewport(&hist2D, core.Size{Width: 640, Height: 360})
+	if hasOverlayFillText(hist2D.Ops, "+ new_slime") {
+		t.Fatal("2D overlays drew during History preview")
+	}
+	ed.SetViewMode(editor.ViewMode3D)
+	var hist3D core.Drawing
+	ed.DrawViewport(&hist3D, core.Size{Width: 640, Height: 360})
+	if hasOverlayFillText(hist3D.Ops, "+ new_slime") || hasOverlayFillText(hist3D.Ops, "coin_04") {
+		t.Fatal("3D overlays drew during History preview")
+	}
+	app.Post(func() {
+		ed.ExitHistoryPreview()
+		ed.SetViewMode(editor.ViewMode2D)
+	})
+	app.Settle()
+	if !app.Exists("id:viewport-overlay-legend") {
+		t.Fatal("legend did not restore after ExitHistoryPreview()")
+	}
+
+	// 4. Tab/scene lifecycle: new scene starts with clean SceneOverlays; switching back preserves tab 0;
+	// OpenDemo clears all scene overlays.
+	if _, err := ed.NewScene("scenes/second.scene.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.SceneOverlays(); len(got) != 0 {
+		t.Fatalf("new scene tab inherited stale SceneOverlays: %+v", got)
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.SceneOverlays(); len(got) != 2 {
+		t.Fatalf("switching back to tab 0 lost SceneOverlays: got %d, want 2", len(got))
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.SceneOverlays(); len(got) != 0 {
+		t.Fatalf("OpenDemo() left stale SceneOverlays: %+v", got)
+	}
+}
+
+// Regression test: adding a second change overlay after a first 240 ms fade completes re-arms the
+// viewport fade animation timer so the new overlay smoothly animates to full opacity.
+func TestViewportOverlaySequentialFadeRearmsTimer(t *testing.T) {
+	ed := newOverlaysTestEditor(t)
+	_ = ed.SetAppearance(editor.AppearanceDark)
+	ed.ClearReduceMotion()
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	ed.SetOverlayClock(func() time.Time { return now })
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 720), nsgotest.Environment(core.Environment{
+		OS:           core.OSMacOS,
+		Idiom:        core.IdiomDesktop,
+		Dark:         true,
+		ReduceMotion: false,
+	}))
+	app.Settle()
+
+	// 1. First Added overlay starts fading and finishes after 240 ms.
+	app.Post(func() {
+		ed.AddSceneOverlay(editor.SceneOverlayEntry{ID: "first", ObjectID: "knight", Kind: editor.OverlayKindAdded, Label: "knight", StartedAt: now})
+	})
+	app.Settle()
+	now = now.Add(300 * time.Millisecond)
+	app.Advance(40 * time.Millisecond)
+	app.Settle()
+
+	// 2. Second Added overlay starts at t=300ms (initially alpha 0); timer must re-arm and redraw it at 100%.
+	secondStart := now
+	app.Post(func() {
+		ed.AddSceneOverlay(editor.SceneOverlayEntry{ID: "second", ObjectID: "slime_01", Kind: editor.OverlayKindAdded, Label: "slime_01", StartedAt: secondStart})
+	})
+	app.Settle()
+	if hasOverlayFillText(app.Find("id:editor-viewport").Ops, "+ slime_01") {
+		t.Fatal("expected second Added overlay to start invisible at t=0")
+	}
+
+	now = secondStart.Add(300 * time.Millisecond)
+	app.Advance(50 * time.Millisecond)
+	app.Settle()
+	if !hasOverlayFillText(app.Find("id:editor-viewport").Ops, "+ slime_01") {
+		t.Fatal("sequential Added overlay stayed invisible: fade animation timer did not re-arm")
+	}
+}

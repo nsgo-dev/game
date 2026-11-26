@@ -58,6 +58,7 @@ type sceneTab struct {
 	tileSel              TileRect
 	hasTileSel           bool
 	tileReview           *tileReviewState
+	sceneOverlays        []SceneOverlayEntry
 	agentTurn            *agentLiveTurnState
 	agentWorkingIDs      []string
 	agentWorkingActivity string
@@ -165,6 +166,7 @@ func (e *Editor) syncActiveTab() {
 	t.tileSel = e.tileSel
 	t.hasTileSel = e.hasTileSel
 	t.tileReview = e.tileReview
+	t.sceneOverlays = e.sceneOverlays
 	t.agentTurn = e.agentLive.turn
 	t.agentWorkingIDs = slices.Clone(e.agentLive.workingIDs)
 	t.agentWorkingActivity = e.agentLive.workingActivity
@@ -210,6 +212,7 @@ func (e *Editor) loadActiveTab() {
 	e.hasTileSel = t.hasTileSel
 	hadWorking := len(e.agentLive.workingIDs) > 0
 	e.tileReview = t.tileReview
+	e.sceneOverlays = t.sceneOverlays
 	e.agentLive.turn = t.agentTurn
 	e.agentLive.workingIDs = slices.Clone(t.agentWorkingIDs)
 	if len(e.agentLive.workingIDs) > 0 {

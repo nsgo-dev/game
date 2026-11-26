@@ -607,6 +607,7 @@ func (e *Editor) resetAgentForProject() {
 	e.CloseAskInPlace()
 	e.resetTurnReviewForProject()
 	e.resetTaskNotificationsForProject()
+	e.sceneOverlays = nil
 	e.agent.activeRunID++
 	e.agent.activeTurnID = ""
 	e.agent.clients = nil
