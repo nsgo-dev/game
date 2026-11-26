@@ -46,6 +46,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	rightRef := &core.Ref{}
 	revertBtnRef := &core.Ref{}
 	filterInputRef := &core.Ref{}
+	yamlInputRef := &core.Ref{}
 
 	regionRefs := map[string]*core.Ref{
 		reviewRegionHeader: headerRef,
@@ -124,7 +125,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			return
 		}
 		if ed.IsTyping() {
-			if filterInputRef.HoldsFocus() {
+			if filterInputRef.HoldsFocus() || yamlInputRef.HoldsFocus() {
 				headerRef.Focus()
 			}
 			return
@@ -268,7 +269,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Children: []core.Node{
 					reviewSidebarView(cx, ed, reviewRev, activeRegion, listRef, filterInputRef),
 					reviewCenterView(cx, ed, reviewRev, activeRegion, centerRef),
-					reviewRightView(cx, ed, reviewRev, activeRegion, rightRef),
+					reviewRightView(cx, ed, reviewRev, activeRegion, rightRef, yamlInputRef),
 				},
 			},
 			revertModal,
@@ -482,7 +483,12 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 		headerChildren = append(headerChildren, core.View{Style: core.Style{FlexGrow: 1}})
 
 		if blocked {
-			reason := snap.Blockers[0].Reason
+			blocker := snap.Blockers[0]
+			reason := blocker.Reason
+			blockerRole := p.Warning
+			if blocker.Kind == "yaml_error" {
+				blockerRole = p.Removed
+			}
 			headerChildren = append(headerChildren, core.View{
 				TestID:    "review-blocker-pill",
 				Role:      core.RoleButton,
@@ -495,9 +501,9 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 					Padding:      core.Symmetric(0, 10),
 					Gap:          8,
 					CornerRadius: 6,
-					Background:   p.Warning.Fill,
+					Background:   blockerRole.Fill,
 					BorderWidth:  1,
-					BorderColor:  p.Warning.Edge,
+					BorderColor:  blockerRole.Edge,
 					FlexShrink:   0,
 					FocusVisible: p.FocusRing(2),
 				},
@@ -507,11 +513,11 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.TriangleAlert(),
-						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.Warning.Fg},
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: blockerRole.Fg},
 					},
 					core.Text{
 						Content: reason,
-						Style:   core.Style{FontSize: 12, FontWeight: 500, Color: p.Warning.Fg},
+						Style:   core.Style{FontSize: 12, FontWeight: 500, Color: blockerRole.Fg},
 					},
 				},
 			})
@@ -1780,6 +1786,50 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 		})
 	}
 
+	if !readOnly && len(ch.Conflicts) > 0 && !ch.Reverted {
+		cardChildren = append(cardChildren, reviewConflictCardView(ed, ch, p))
+	}
+
+	if !readOnly && ch.YAMLError != nil && !ch.Reverted {
+		cardChildren = append(cardChildren, core.View{
+			TestID: "review-card-yaml-error-" + ch.ObjectID,
+			Style: core.Style{
+				Margin:       core.Edges{Left: 42, Right: 8, Bottom: 8},
+				Padding:      core.Symmetric(6, 10),
+				CornerRadius: 8,
+				Background:   p.Removed.Fill,
+				BorderWidth:  1,
+				BorderColor:  p.Removed.Edge,
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          6,
+			},
+			Children: []core.Node{
+				core.Icon{SVG: lucide.TriangleAlert(), Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.Removed.Fg}},
+				core.Text{Content: ch.YAMLError.Title, Style: core.Style{FontSize: 11.5, FontWeight: 500, Color: p.Removed.Fg}},
+			},
+		})
+	} else if !readOnly && ch.HandEdited && !ch.Reverted {
+		cardChildren = append(cardChildren, core.View{
+			TestID: "review-card-hand-edited-" + ch.ObjectID,
+			Style: core.Style{
+				Margin:       core.Edges{Left: 42, Right: 8, Bottom: 8},
+				Padding:      core.Symmetric(4, 8),
+				CornerRadius: 6,
+				Background:   p.Bg,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          6,
+			},
+			Children: []core.Node{
+				core.Icon{SVG: lucide.Pencil(), Style: core.Style{Width: core.Pt(11), Height: core.Pt(11), Color: p.TextMuted}},
+				core.Text{Content: "Edited in review · tagged you", Style: core.Style{FontSize: 11, Color: p.TextMuted}},
+			},
+		})
+	}
+
 	if ch.Blocker != "" && !ch.Reverted {
 		cardChildren = append(cardChildren, core.View{
 			Style: core.Style{
@@ -1811,6 +1861,170 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 			Opacity:      opacity,
 		},
 		Children: cardChildren,
+	}
+}
+
+func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.Node {
+	resolved := ch.ConflictChoice != ReviewConflictUnresolved
+	changeID := ch.ID
+	objID := ch.ObjectID
+	if objID == "" {
+		objID = ch.Title
+	}
+
+	boxBg := p.Warning.Fill
+	boxBorder := p.Warning.Edge
+	headFg := p.Warning.Fg
+	headIcon := lucide.TriangleAlert()
+	headIconColor := p.Warning.Fg
+	headTitle := fmt.Sprintf("You also edited %s", ch.Title)
+	segBorder := p.Warning.Edge
+
+	if resolved {
+		boxBg = p.Bg
+		boxBorder = p.LineRaised
+		headFg = p.TextPrimary
+		headIcon = lucide.Check()
+		headIconColor = p.Added.Fg
+		segBorder = p.LineRaised
+		switch ch.ConflictChoice {
+		case ReviewConflictBoth:
+			headTitle = "Merged both, yours first"
+		case ReviewConflictMine:
+			headTitle = "Merged: your edit only"
+		case ReviewConflictAgent:
+			headTitle = "Merged: the agent’s edit only"
+		}
+	}
+
+	var diffLines []core.Node
+	for _, c := range ch.Conflicts {
+		for _, ml := range c.MineLines {
+			diffLines = append(diffLines, reviewConflictLineRow(string(ml.Author), ml.Sign+" "+ml.Text, p))
+		}
+		for _, al := range c.AgentLines {
+			diffLines = append(diffLines, reviewConflictLineRow(string(al.Author), al.Sign+" "+al.Text, p))
+		}
+	}
+
+	segBtn := func(testID, label string, choice ReviewConflictChoice) core.Node {
+		selected := ch.ConflictChoice == choice
+		bg := core.Transparent
+		fg := p.TextMuted
+		if selected {
+			bg = p.LineRaised
+			fg = p.TextPrimary
+		}
+		return core.View{
+			TestID:    testID,
+			Role:      core.RoleButton,
+			Label:     fmt.Sprintf("%s for %s", label, ch.Title),
+			Focusable: func() bool { return true },
+			Style: core.Style{
+				FlexGrow:       1,
+				FlexBasis:      core.Pt(0),
+				Height:         core.Pt(26),
+				Padding:        core.Symmetric(0, 8),
+				CornerRadius:   6,
+				Background:     bg,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FocusVisible:   p.FocusRing(2),
+			},
+			OnPress: func(core.PressEvent) {
+				ed.report(ed.ResolveReviewConflict(changeID, choice))
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: label,
+					Style: core.Style{
+						FontSize:   12,
+						FontWeight: 500,
+						Color:      fg,
+					},
+				},
+			},
+		}
+	}
+
+	return core.View{
+		TestID: "review-conflict-card-" + objID,
+		Role:   core.RoleGroup,
+		Label:  "Conflict on " + ch.Title,
+		Style: core.Style{
+			Margin:       core.Edges{Right: 8, Bottom: 8, Left: 42},
+			Padding:      core.All(12),
+			CornerRadius: 8,
+			Background:   boxBg,
+			BorderWidth:  1,
+			BorderColor:  boxBorder,
+			Gap:          8,
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+				Children: []core.Node{
+					core.Icon{
+						SVG:   headIcon,
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: headIconColor, FlexShrink: 0},
+					},
+					core.Text{
+						TestID:  "review-conflict-title-" + objID,
+						Content: headTitle,
+						Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: headFg},
+					},
+				},
+			},
+			core.View{
+				Style:    core.Style{Gap: 3},
+				Children: diffLines,
+			},
+			core.View{
+				Style: core.Style{
+					Direction:    core.Row,
+					Gap:          2,
+					Padding:      core.All(2),
+					CornerRadius: 8,
+					Background:   p.Bg,
+					BorderWidth:  1,
+					BorderColor:  segBorder,
+				},
+				Children: []core.Node{
+					segBtn("review-conflict-mine-"+objID, "Mine", ReviewConflictMine),
+					segBtn("review-conflict-agent-"+objID, "Agent's", ReviewConflictAgent),
+					segBtn("review-conflict-both-"+objID, "Both", ReviewConflictBoth),
+				},
+			},
+		},
+	}
+}
+
+func reviewConflictLineRow(author, text string, p SpecPalette) core.Node {
+	return core.View{
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter},
+		Children: []core.Node{
+			core.Text{
+				Content: author,
+				Style: core.Style{
+					Width:      core.Pt(48),
+					FlexShrink: 0,
+					FontSize:   11.5,
+					FontFamily: core.FontMonospace,
+					Color:      p.TextFaint,
+				},
+			},
+			core.Text{
+				Content: text,
+				Style: core.Style{
+					FlexGrow:   1,
+					FlexBasis:  core.Pt(0),
+					MinWidth:   core.Pt(0),
+					FontSize:   11.5,
+					FontFamily: core.FontMonospace,
+					Color:      p.TextSecondary,
+				},
+			},
+		},
 	}
 }
 
@@ -2738,26 +2952,170 @@ func reviewGenericFileCenterView(p SpecPalette, ch *ReviewChange) core.Node {
 	}
 }
 
-// --- Right pane: Why + YAML lines touched ---
+// --- Right pane: Why + YAML lines touched + in-place YAML editing ---
 
-func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], activeRegion *core.Signal[string], rightRef *core.Ref) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], activeRegion *core.Signal[string], rightRef, yamlInputRef *core.Ref) core.Node {
+	// Key the YAML input strictly on (editing, changeID, yamlEditSessionRev) — NEVER on reviewRev —
+	// so typing in the multiline YAML editor never remounts ui.Input, steals focus, or resets caret!
+	yamlEditKey := core.NewMemo(cx, func() string {
+		_ = reviewRev.Get()
+		if ed.ReviewViewingReadOnlyRound() {
+			return ""
+		}
+		ch := ed.review.changesByID[ed.review.focusedID]
+		if ch == nil || !ch.EditingYAML {
+			return ""
+		}
+		return fmt.Sprintf("%s:%d", ch.ID, ed.review.yamlEditSessionRev)
+	})
+
+	headerNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		p := ed.SpecPalette(cx)
 		ch := ed.review.changesByID[ed.review.focusedID]
+		readOnly := ed.ReviewViewingReadOnlyRound()
 
 		title := "YAML"
-		whyText := ""
-		var ylines []ReviewYAMLLine
-		reverted := false
+		var headerActions []core.Node
 		if ch != nil {
 			title = ch.Title + " · YAML"
 			if ch.FileKind == ReviewFileGo {
 				title = ch.Title + " · diff"
 			}
-			whyText = ch.Why
-			ylines = ch.YAMLLines
+			changeID := ch.ID
+			editing := !readOnly && ch.EditingYAML
+			canEdit := !readOnly && !editing && ch.CanEditYAML()
+			yamlBroken := ch.YAMLError != nil
+
+			if canEdit {
+				headerActions = append(headerActions, core.View{
+					TestID:    "review-yaml-edit",
+					Role:      core.RoleButton,
+					Label:     "Edit YAML for " + ch.Title,
+					Focusable: func() bool { return true },
+					Style: core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Height:       core.Pt(28),
+						Padding:      core.Symmetric(0, 10),
+						Gap:          6,
+						CornerRadius: 6,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						FlexShrink:   0,
+						FocusVisible: p.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						ed.report(ed.BeginReviewYAMLEdit(changeID))
+					},
+					Children: []core.Node{
+						core.Icon{
+							SVG:   lucide.Pencil(),
+							Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextSecondary},
+						},
+						core.Text{
+							Content: "Edit",
+							Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
+						},
+					},
+				})
+			}
+			if editing {
+				doneStyle := core.Style{
+					Height:         core.Pt(28),
+					Padding:        core.Symmetric(0, 12),
+					CornerRadius:   6,
+					Background:     p.Accent.Fg,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					FlexShrink:     0,
+					FocusVisible:   p.FocusRing(2),
+				}
+				if yamlBroken {
+					doneStyle.Opacity = core.Alpha(0.45)
+				}
+				headerActions = append(headerActions,
+					core.Text{
+						TestID:  "review-yaml-editing-label",
+						Content: "Editing",
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexShrink: 0},
+					},
+					core.View{
+						TestID:    "review-yaml-done",
+						Role:      core.RoleButton,
+						Label:     "Done editing YAML",
+						Focusable: func() bool { return true },
+						Style:     doneStyle,
+						OnPress: func(core.PressEvent) {
+							if err := ed.FinishReviewYAMLEdit(changeID); err != nil && !errors.Is(err, ErrReviewYAMLInvalid) {
+								ed.report(err)
+							}
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: "Done",
+								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.Accent.OnFill},
+							},
+						},
+					},
+				)
+			}
+		}
+
+		return core.View{
+			Style: core.Style{
+				Height:      core.Pt(44),
+				Direction:   core.Row,
+				AlignItems:  core.AlignCenter,
+				Gap:         8,
+				Padding:     core.Edges{Left: 14, Right: 10},
+				Borders:     core.Edges{Bottom: 1},
+				BorderColor: p.Line,
+				FlexShrink:  0,
+			},
+			Children: append([]core.Node{
+				core.Text{
+					TestID:   "review-right-title",
+					Content:  title,
+					MaxLines: 1,
+					Style: core.Style{
+						FontSize:   12.5,
+						FontWeight: 600,
+						Color:      p.TextPrimary,
+						FlexGrow:   1,
+						MinWidth:   core.Pt(0),
+						Overflow:   core.Hidden,
+					},
+				},
+			}, headerActions...),
+		}
+	})
+
+	diffBodyNode := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = reviewRev.Get()
+		p := ed.SpecPalette(cx)
+		ch := ed.review.changesByID[ed.review.focusedID]
+		readOnly := ed.ReviewViewingReadOnlyRound()
+		viewRound := ed.ReviewViewRound()
+
+		whyText := ""
+		var ylines []ReviewYAMLLine
+		reverted := false
+		editing := false
+		yamlBroken := false
+		if ch != nil {
 			reverted = ch.Reverted
+			if readOnly {
+				ver := ch.VersionFor(viewRound)
+				whyText = ver.Why
+				ylines = ver.YAMLLines
+			} else {
+				whyText = ch.Why
+				ylines = ch.YAMLLines
+				editing = ch.EditingYAML
+				yamlBroken = ch.YAMLError != nil
+			}
 		}
 
 		var bodyKids []core.Node
@@ -2814,69 +3172,268 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 			})
 		}
 
+		scrollStyle := core.Style{
+			FlexGrow:  1,
+			FlexBasis: core.Pt(0),
+			MinHeight: core.Pt(0),
+			Padding:   core.Symmetric(10, 0),
+		}
+		if editing {
+			scrollStyle.Background = p.Inset
+			scrollStyle.Borders = core.Edges{Bottom: 1}
+			if yamlBroken {
+				scrollStyle.BorderColor = p.Removed.Edge
+			} else {
+				scrollStyle.BorderColor = p.Accent.Edge
+			}
+		}
+
 		bodyKids = append(bodyKids, ui.ScrollView{
-			TestID: "review-yaml-scroll",
+			TestID:   "review-yaml-scroll",
+			Style:    scrollStyle,
+			Children: []core.Node{reviewYAMLDiffLinesView(p, ylines)},
+		})
+
+		return core.View{
 			Style: core.Style{
 				FlexGrow:  1,
 				FlexBasis: core.Pt(0),
 				MinHeight: core.Pt(0),
-				Padding:   core.Symmetric(10, 0),
 			},
-			Children: []core.Node{reviewYAMLDiffLinesView(p, ylines)},
-		})
-
-		base := core.Style{
-			Width:       core.Pt(392),
-			FlexShrink:  0,
-			Background:  p.Panel,
-			Borders:     core.Edges{Left: 1},
-			BorderColor: p.Line,
-			MinHeight:   core.Pt(0),
+			Children: bodyKids,
 		}
+	})
+
+	yamlEditorNode := core.Dynamic(func(cx *core.Scope) core.Node {
+		key := yamlEditKey.Get()
+		if key == "" {
+			return core.View{Style: core.Style{Height: core.Pt(0), FlexShrink: 0}}
+		}
+		ch := ed.review.changesByID[ed.review.focusedID]
+		if ch == nil || !ch.EditingYAML {
+			return core.View{Style: core.Style{Height: core.Pt(0), FlexShrink: 0}}
+		}
+		changeID := ch.ID
+		title := ch.Title
+		draftSig := core.NewSignal(cx, ch.HandEditYAML)
+
 		return core.View{
-			Ref:       rightRef,
-			TestID:    "review-right-pane",
-			Role:      core.RoleRegion,
-			Label:     "Why and YAML diff",
-			Focusable: func() bool { return true },
-			OnFocusIn: func() {
-				if activeRegion.GetUntracked() != "" && activeRegion.GetUntracked() != reviewRegionRight {
-					activeRegion.Set("")
+			TestID: "review-yaml-editor-box",
+			StyleFunc: func() core.Style {
+				p := ed.SpecPalette(cx)
+				return core.Style{
+					Padding:     core.All(12),
+					Background:  p.Inset,
+					Borders:     core.Edges{Top: 1},
+					BorderColor: p.Line,
+					Gap:         6,
+					FlexShrink:  0,
 				}
 			},
-			StyleFunc: func() core.Style {
-				return reviewRegionStyle(p, activeRegion, reviewRegionRight, base)
+			Children: []core.Node{
+				core.Text{
+					Content: "EDIT YAML IN PLACE",
+					StyleFunc: func() core.Style {
+						p := ed.SpecPalette(cx)
+						return core.Style{
+							FontSize:      11,
+							FontWeight:    600,
+							LetterSpacing: 0.6,
+							Color:         p.TextFaint,
+						}
+					},
+				},
+				specInputField(cx, ed, ui.Input{
+					Ref:       yamlInputRef,
+					TestID:    "review-yaml-input",
+					Label:     "Edit YAML for " + title,
+					Multiline: true,
+					Value:     draftSig.Get,
+					OnChange: func(v string) {
+						draftSig.Set(v)
+						_ = ed.SetReviewYAMLDraft(changeID, v)
+					},
+					StyleFunc: func() core.Style {
+						p := ed.SpecPalette(cx)
+						return core.Style{
+							Width:        core.Pct(100),
+							Height:       core.Pt(160),
+							Background:   p.Bg,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
+							CornerRadius: 6,
+							Padding:      core.All(8),
+							FontSize:     11.5,
+							FontFamily:   core.FontMonospace,
+							Color:        p.TextPrimary,
+							FocusVisible: p.FocusRing(-2),
+						}
+					},
+				}),
 			},
-			Children: append([]core.Node{
-				core.View{
+		}
+	})
+
+	yamlFooterNode := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = reviewRev.Get()
+		p := ed.SpecPalette(cx)
+		if ed.ReviewViewingReadOnlyRound() {
+			return core.View{Style: core.Style{Height: core.Pt(0), FlexShrink: 0}}
+		}
+		ch := ed.review.changesByID[ed.review.focusedID]
+		if ch == nil {
+			return core.View{Style: core.Style{Height: core.Pt(0), FlexShrink: 0}}
+		}
+		changeID := ch.ID
+		if ch.YAMLError != nil {
+			errObj := ch.YAMLError
+			var errActions []core.Node
+			if errObj.Fix != nil {
+				errActions = append(errActions, core.View{
+					TestID:    "review-yaml-fix",
+					Role:      core.RoleButton,
+					Label:     errObj.Fix.Label,
+					Focusable: func() bool { return true },
 					Style: core.Style{
-						Height:      core.Pt(44),
-						Direction:   core.Row,
-						AlignItems:  core.AlignCenter,
-						Padding:     core.Symmetric(0, 14),
-						Borders:     core.Edges{Bottom: 1},
-						BorderColor: p.Line,
-						FlexShrink:  0,
+						Height:         core.Pt(28),
+						Padding:        core.Symmetric(0, 12),
+						CornerRadius:   8,
+						Background:     p.Raised,
+						BorderWidth:    1,
+						BorderColor:    p.LineRaised,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FocusVisible:   p.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						ed.report(ed.ApplyReviewYAMLFix(changeID))
 					},
 					Children: []core.Node{
 						core.Text{
-							TestID:   "review-right-title",
-							Content:  title,
-							MaxLines: 1,
-							Style: core.Style{
-								FontSize:   12.5,
-								FontWeight: 600,
-								Color:      p.TextPrimary,
-								FlexGrow:   1,
-								MinWidth:   core.Pt(0),
-								Overflow:   core.Hidden,
+							Content: errObj.Fix.Label,
+							Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
+						},
+					},
+				})
+			}
+			errActions = append(errActions, core.View{
+				TestID:    "review-yaml-undo",
+				Role:      core.RoleButton,
+				Label:     "Undo my typing",
+				Focusable: func() bool { return true },
+				Style: core.Style{
+					Height:         core.Pt(28),
+					Padding:        core.Symmetric(0, 8),
+					CornerRadius:   8,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					FocusVisible:   p.FocusRing(2),
+				},
+				OnPress: func(core.PressEvent) {
+					ed.report(ed.UndoReviewYAMLTyping(changeID))
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: "Undo my typing",
+						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
+					},
+				},
+			})
+
+			return core.View{
+				TestID: "review-yaml-error",
+				Role:   core.RoleAlert,
+				Style: core.Style{
+					Margin:       core.Edges{Top: 10, Right: 14, Bottom: 14, Left: 14},
+					Padding:      core.All(12),
+					CornerRadius: 12,
+					Background:   p.Removed.Fill,
+					BorderWidth:  1,
+					BorderColor:  p.Removed.Edge,
+					Gap:          8,
+					FlexShrink:   0,
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{
+									Width:        core.Pt(6),
+									Height:       core.Pt(6),
+									CornerRadius: 3,
+									Background:   p.Removed.Fg,
+									FlexShrink:   0,
+								},
+							},
+							core.Text{
+								TestID:  "review-yaml-error-title",
+								Content: errObj.Title,
+								Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.Removed.Fg},
 							},
 						},
 					},
+					core.Text{
+						TestID:  "review-yaml-error-message",
+						Content: errObj.Message,
+						Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
+					},
+					core.View{
+						Style:    core.Style{Direction: core.Row, Gap: 8},
+						Children: errActions,
+					},
 				},
-			}, bodyKids...),
+			}
 		}
+		if ch.EditingYAML {
+			return core.View{
+				Style: core.Style{
+					Margin:     core.Edges{Top: 8, Right: 14, Bottom: 12, Left: 14},
+					FlexShrink: 0,
+				},
+				Children: []core.Node{
+					core.Text{
+						TestID:  "review-yaml-valid-hint",
+						Content: "Your edit joins this review; the agent sees it in round 2.",
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
+					},
+				},
+			}
+		}
+		return core.View{Style: core.Style{Height: core.Pt(0), FlexShrink: 0}}
 	})
+
+	return core.View{
+		Ref:       rightRef,
+		TestID:    "review-right-pane",
+		Role:      core.RoleRegion,
+		Label:     "Why and YAML diff",
+		Focusable: func() bool { return true },
+		OnFocusIn: func() {
+			if activeRegion.GetUntracked() != "" && activeRegion.GetUntracked() != reviewRegionRight {
+				activeRegion.Set("")
+			}
+		},
+		StyleFunc: func() core.Style {
+			p := ed.SpecPalette(cx)
+			base := core.Style{
+				Width:       core.Pt(392),
+				FlexShrink:  0,
+				Background:  p.Panel,
+				Borders:     core.Edges{Left: 1},
+				BorderColor: p.Line,
+				MinHeight:   core.Pt(0),
+				Overflow:    core.Hidden,
+			}
+			return reviewRegionStyle(p, activeRegion, reviewRegionRight, base)
+		},
+		Children: []core.Node{
+			headerNode,
+			diffBodyNode,
+			yamlEditorNode,
+			yamlFooterNode,
+		},
+	}
 }
 
 func reviewYAMLDiffLinesView(p SpecPalette, lines []ReviewYAMLLine) core.Node {
@@ -2900,6 +3457,7 @@ func reviewYAMLDiffLinesView(p SpecPalette, lines []ReviewYAMLLine) core.Node {
 		if l.Error {
 			bg = p.Removed.Fill
 			fg = p.TextPrimary
+			signColor = p.Removed.Fg
 		}
 		lineNum := ""
 		if l.Line > 0 {
@@ -2909,47 +3467,78 @@ func reviewYAMLDiffLinesView(p SpecPalette, lines []ReviewYAMLLine) core.Node {
 		if sign == "-" {
 			sign = "−"
 		}
+		tagText := l.Tag
+		if tagText == "" && l.Author != ReviewAuthorNone {
+			tagText = string(l.Author)
+		}
+		tagColor := p.TextFaint
+		if l.Error {
+			if tagText == "" && l.Line > 0 {
+				tagText = fmt.Sprintf("line %d", l.Line)
+			}
+			tagColor = p.Removed.Fg
+		}
+
+		rowChildren := []core.Node{
+			core.Text{
+				Content: lineNum,
+				Style: core.Style{
+					Width:      core.Pt(30),
+					FontFamily: core.FontMonospace,
+					FontSize:   11,
+					Color:      p.TextFaint,
+					FlexShrink: 0,
+				},
+			},
+			core.Text{
+				Content: sign,
+				Style: core.Style{
+					Width:      core.Pt(12),
+					FontFamily: core.FontMonospace,
+					FontSize:   11.5,
+					FontWeight: 600,
+					Color:      signColor,
+					FlexShrink: 0,
+				},
+			},
+			core.Text{
+				Content: l.Text,
+				Style: core.Style{
+					FontFamily: core.FontMonospace,
+					FontSize:   11.5,
+					Color:      fg,
+					FlexGrow:   1,
+					MinWidth:   core.Pt(0),
+				},
+			},
+		}
+		if tagText != "" {
+			rowChildren = append(rowChildren, core.Text{
+				TestID:  fmt.Sprintf("review-yaml-tag-%d", l.Line),
+				Content: tagText,
+				Style: core.Style{
+					FontSize:   11,
+					Color:      tagColor,
+					FlexShrink: 0,
+					Padding:    core.Edges{Left: 6},
+				},
+			})
+		}
+
+		rowStyle := core.Style{
+			Direction:  core.Row,
+			AlignItems: core.AlignCenter,
+			Padding:    core.Symmetric(2, 12),
+			Gap:        6,
+			Background: bg,
+		}
+		if l.Error {
+			rowStyle.Borders = core.Edges{Bottom: 1.5}
+			rowStyle.BorderColor = p.Removed.Edge
+		}
 		nodes = append(nodes, core.View{
-			Style: core.Style{
-				Direction:  core.Row,
-				AlignItems: core.AlignCenter,
-				Padding:    core.Symmetric(2, 12),
-				Gap:        6,
-				Background: bg,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: lineNum,
-					Style: core.Style{
-						Width:      core.Pt(30),
-						FontFamily: core.FontMonospace,
-						FontSize:   11,
-						Color:      p.TextFaint,
-						FlexShrink: 0,
-					},
-				},
-				core.Text{
-					Content: sign,
-					Style: core.Style{
-						Width:      core.Pt(12),
-						FontFamily: core.FontMonospace,
-						FontSize:   11.5,
-						FontWeight: 600,
-						Color:      signColor,
-						FlexShrink: 0,
-					},
-				},
-				core.Text{
-					Content: l.Text,
-					Style: core.Style{
-						FontFamily: core.FontMonospace,
-						FontSize:   11.5,
-						Color:      fg,
-						FlexGrow:   1,
-						MinWidth:   core.Pt(0),
-					},
-				},
-			},
+			Style:    rowStyle,
+			Children: rowChildren,
 		})
 	}
 	return core.View{TestID: "review-yaml-lines", Children: nodes}

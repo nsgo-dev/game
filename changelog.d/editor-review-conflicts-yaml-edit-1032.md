@@ -1,0 +1,4 @@
+### Added
+
+- `game/editor`: three-way conflict detection and resolution (**Mine / Agent's / Both**, keeping yours first) for concurrent manual edits during an agent turn review (`syncReviewAfterMutate`, `SyncReviewPersonEdits`, `ResolveReviewConflict`), plus in-place YAML editing in the Review right pane (`BeginReviewYAMLEdit`, `SetReviewYAMLDraft`, `FinishReviewYAMLEdit`) with live viewport preview, `you`-tagged lines, strict unknown-field/duplicate-key validation, mechanical one-step parse fixes (`ApplyReviewYAMLFix`), **Undo my typing** (`UndoReviewYAMLTyping`), and single-step `History` Keep/Undo (#1032).
+- `game/editor/editormcp`: extend `review_status` to expose conflict merge choices (`mine`, `agent`, `both`), `you`-tagged hand-edited YAML fields and lines (preserved after Keep for round 2), and YAML parse error blockers, while enforcing `PrivacySceneAndData` and `PrivacyGoSource` privacy switches (#1032).

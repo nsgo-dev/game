@@ -32,6 +32,8 @@ const (
 	maxReviewRounds = 20
 	// maxReviewRedoYAMLLines bounds custom YAML diff lines provided on one review_redo item.
 	maxReviewRedoYAMLLines = 2000
+	// maxReviewYAMLEditBytes bounds an in-place YAML edit draft in the Review right pane (256 KiB).
+	maxReviewYAMLEditBytes = 256 << 10
 )
 
 var (
@@ -57,7 +59,20 @@ var (
 	ErrReviewMaxRounds = errors.New("editor: review reached maximum number of rounds")
 	// ErrReviewInvalidRound is returned when selecting an out-of-range review round.
 	ErrReviewInvalidRound = errors.New("editor: invalid review round")
+	// ErrReviewYAMLInvalid is returned by FinishReviewYAMLEdit when the hand-edited YAML does not parse or validate.
+	ErrReviewYAMLInvalid = errors.New("editor: review YAML is invalid")
 )
+
+// ReviewBlockedError describes why KeepTurnReview refused to land the turn.
+type ReviewBlockedError struct {
+	Blocker ReviewBlocker
+}
+
+func (e *ReviewBlockedError) Error() string {
+	return "editor: review has an unresolved blocker: " + e.Blocker.Reason
+}
+
+func (e *ReviewBlockedError) Unwrap() error { return ErrReviewBlocked }
 
 // ReviewFileKind classifies the kind of file touched by an agent turn.
 type ReviewFileKind string
@@ -112,11 +127,12 @@ const (
 
 // ReviewYAMLLine is one line in the right-hand YAML/code diff view.
 type ReviewYAMLLine struct {
-	Line  int    `json:"line"`
-	Sign  string `json:"sign,omitempty"` // "", "+", "-"
-	Text  string `json:"text"`
-	Tag   string `json:"tag,omitempty"`
-	Error bool   `json:"error,omitempty"`
+	Line   int              `json:"line"`
+	Sign   string           `json:"sign,omitempty"` // "", "+", "-"
+	Text   string           `json:"text"`
+	Tag    string           `json:"tag,omitempty"`
+	Author ReviewLineAuthor `json:"author,omitempty"`
+	Error  bool             `json:"error,omitempty"`
 }
 
 // ReviewDataCellDiff describes a changed cell in a data table row.
@@ -150,7 +166,10 @@ type ReviewDataTablePreview struct {
 
 // ReviewBlocker describes an active blocker preventing Keep until resolved.
 type ReviewBlocker struct {
+	Kind     string `json:"kind,omitempty"` // "yaml_error", "conflict", or "custom"
 	ChangeID string `json:"changeId"`
+	ObjectID string `json:"objectId,omitempty"`
+	Line     int    `json:"line,omitempty"`
 	Reason   string `json:"reason"`
 }
 
@@ -175,42 +194,62 @@ type ReviewChangeVersion struct {
 
 // ReviewChange is one reviewable change inside an agent turn.
 type ReviewChange struct {
-	ID                string                 `json:"id"`
-	File              string                 `json:"file"`
-	FileKind          ReviewFileKind         `json:"fileKind"`
-	Kind              ReviewChangeKind       `json:"kind"`
-	Title             string                 `json:"title"`
-	Detail            string                 `json:"detail"`
-	Why               string                 `json:"why"`
-	ObjectID          string                 `json:"objectId,omitempty"`
-	Layer             string                 `json:"layer,omitempty"`
-	ParentID          string                 `json:"parentId,omitempty"`
-	Field             string                 `json:"field,omitempty"`
-	OldValue          string                 `json:"oldValue,omitempty"`
-	NewValue          string                 `json:"newValue,omitempty"`
-	DeltaPct          string                 `json:"deltaPct,omitempty"`
-	PrefabImpact      string                 `json:"prefabImpact,omitempty"`
-	RowID             string                 `json:"rowId,omitempty"`
-	Line              int                    `json:"line,omitempty"`
-	YAMLLines         []ReviewYAMLLine       `json:"yamlLines,omitempty"`
-	Seen              bool                   `json:"seen"`
-	Reverted          bool                   `json:"reverted"`
-	Note              string                 `json:"note,omitempty"`
-	SentNote          string                 `json:"sentNote,omitempty"`
-	RedoneInRound     int                    `json:"redoneInRound,omitempty"`
-	RedoneNote        string                 `json:"redoneNote,omitempty"`
-	Versions          []ReviewChangeVersion  `json:"versions,omitempty"`
-	Blocker           string                 `json:"blocker,omitempty"`
-	GoRequiresConfirm bool                   `json:"goRequiresConfirm,omitempty"`
-	GoConfirmed       bool                   `json:"goConfirmed,omitempty"`
-	beforeObj         *sceneformat.ObjectDoc `json:"-"`
-	afterObj          *sceneformat.ObjectDoc `json:"-"`
-	beforeLayer       string                 `json:"-"`
-	afterLayer        string                 `json:"-"`
-	beforeParentID    string                 `json:"-"`
-	beforeYAMLNode    *yaml.Node             `json:"-"`
-	afterYAMLNode     *yaml.Node             `json:"-"`
-	cellDiffs         []ReviewDataCellDiff   `json:"-"`
+	ID                       string                 `json:"id"`
+	File                     string                 `json:"file"`
+	FileKind                 ReviewFileKind         `json:"fileKind"`
+	Kind                     ReviewChangeKind       `json:"kind"`
+	Title                    string                 `json:"title"`
+	Detail                   string                 `json:"detail"`
+	Why                      string                 `json:"why"`
+	ObjectID                 string                 `json:"objectId,omitempty"`
+	Layer                    string                 `json:"layer,omitempty"`
+	ParentID                 string                 `json:"parentId,omitempty"`
+	Field                    string                 `json:"field,omitempty"`
+	OldValue                 string                 `json:"oldValue,omitempty"`
+	NewValue                 string                 `json:"newValue,omitempty"`
+	DeltaPct                 string                 `json:"deltaPct,omitempty"`
+	PrefabImpact             string                 `json:"prefabImpact,omitempty"`
+	RowID                    string                 `json:"rowId,omitempty"`
+	Line                     int                    `json:"line,omitempty"`
+	YAMLLines                []ReviewYAMLLine       `json:"yamlLines,omitempty"`
+	Seen                     bool                   `json:"seen"`
+	Reverted                 bool                   `json:"reverted"`
+	Note                     string                 `json:"note,omitempty"`
+	SentNote                 string                 `json:"sentNote,omitempty"`
+	RedoneInRound            int                    `json:"redoneInRound,omitempty"`
+	RedoneNote               string                 `json:"redoneNote,omitempty"`
+	Versions                 []ReviewChangeVersion  `json:"versions,omitempty"`
+	Blocker                  string                 `json:"blocker,omitempty"`
+	GoRequiresConfirm        bool                   `json:"goRequiresConfirm,omitempty"`
+	GoConfirmed              bool                   `json:"goConfirmed,omitempty"`
+	Author                   ReviewLineAuthor       `json:"author,omitempty"`
+	Conflicts                []ReviewConflict       `json:"conflicts,omitempty"`
+	ConflictChoice           ReviewConflictChoice   `json:"conflictChoice,omitempty"`
+	AutoMergedFields         []string               `json:"autoMergedFields,omitempty"`
+	EditingYAML              bool                   `json:"editingYaml,omitempty"`
+	HandEdited               bool                   `json:"handEdited,omitempty"`
+	HandEditBy               ReviewLineAuthor       `json:"handEditBy,omitempty"`
+	HandEditFields           []string               `json:"handEditFields,omitempty"`
+	HandEditLines            []ReviewYAMLLine       `json:"handEditLines,omitempty"`
+	HandEditYAML             string                 `json:"handEditYaml,omitempty"`
+	YAMLError                *ReviewYAMLError       `json:"yamlError,omitempty"`
+	beforeObj                *sceneformat.ObjectDoc `json:"-"`
+	afterObj                 *sceneformat.ObjectDoc `json:"-"`
+	personObj                *sceneformat.ObjectDoc `json:"-"`
+	beforeLayer              string                 `json:"-"`
+	afterLayer               string                 `json:"-"`
+	beforeParentID           string                 `json:"-"`
+	beforeYAMLNode           *yaml.Node             `json:"-"`
+	afterYAMLNode            *yaml.Node             `json:"-"`
+	cellDiffs                []ReviewDataCellDiff   `json:"-"`
+	handEditPreYAML          string                 `json:"-"`
+	handEditObj              *sceneformat.ObjectDoc `json:"-"`
+	handEditBaseObj          *sceneformat.ObjectDoc `json:"-"`
+	handEditLineNums         []int                  `json:"-"`
+	hadHandEditBeforeSession bool                   `json:"-"`
+	preSessionHandObj        *sceneformat.ObjectDoc `json:"-"`
+	preSessionHandFields     []string               `json:"-"`
+	preSessionHandLineNums   []int                  `json:"-"`
 }
 
 // ReviewFileSummary summarizes one file group in the review.
@@ -278,6 +317,8 @@ type ReviewFileInput struct {
 	BeforeYAML []byte
 	// AfterYAML is the exact file content after the agent turn (empty/nil when deleted).
 	AfterYAML []byte
+	// PersonYAML optionally supplies concurrent manual edits made by the person to this file.
+	PersonYAML []byte
 	// ExistedBefore explicitly records whether the file existed on disk before the turn.
 	// When nil, it defaults to len(BeforeYAML) > 0.
 	ExistedBefore *bool
@@ -351,6 +392,8 @@ type reviewFileState struct {
 	afterYAML     []byte
 	beforeDoc     *sceneformat.SceneDoc
 	afterDoc      *sceneformat.SceneDoc
+	personDoc     *sceneformat.SceneDoc
+	personEdited  bool
 	beforeBuilt   *sceneformat.BuiltScene
 	currentBuilt  *sceneformat.BuiltScene
 	builtDirty    bool
@@ -364,38 +407,42 @@ type reviewFileState struct {
 }
 
 type turnReviewState struct {
-	open           bool
-	outcome        ReviewOutcome
-	request        string
-	defaultWhy     string
-	round          int
-	viewRound      int
-	composingID    string
-	noteDraft      string
-	pendingBatch   *ReviewNoteBatch
-	roundRedone    map[int]int
-	files          []*reviewFileState
-	filesByPath    map[string]*reviewFileState
-	changes        []*ReviewChange
-	changesByID    map[string]*ReviewChange
-	focusedID      string
-	focusedRowKey  string
-	filter         ReviewFilter
-	search         string
-	collapsedFiles map[string]bool
-	collapsedKinds map[string]bool
-	peekBefore     bool
-	revertConfirm  bool
-	legend         ReviewOverlayVisibility
-	activeRegion   string
-	lastKept       int
-	lastReverted   int
-	lastTotal      int
-	lastFileCount  int
-	lastRounds     int
-	lastRequest    string
-	lastOutcomeMsg string
-	uiRev          uint64
+	open               bool
+	outcome            ReviewOutcome
+	request            string
+	defaultWhy         string
+	round              int
+	viewRound          int
+	composingID        string
+	noteDraft          string
+	pendingBatch       *ReviewNoteBatch
+	roundRedone        map[int]int
+	files              []*reviewFileState
+	filesByPath        map[string]*reviewFileState
+	changes            []*ReviewChange
+	changesByID        map[string]*ReviewChange
+	focusedID          string
+	focusedRowKey      string
+	filter             ReviewFilter
+	search             string
+	collapsedFiles     map[string]bool
+	collapsedKinds     map[string]bool
+	peekBefore         bool
+	revertConfirm      bool
+	legend             ReviewOverlayVisibility
+	activeRegion       string
+	lastKept           int
+	lastReverted       int
+	lastTotal          int
+	lastFileCount      int
+	lastRounds         int
+	lastRequest        string
+	lastOutcomeMsg     string
+	lastChanges        []ReviewChange
+	lastFiles          []ReviewFileSummary
+	applyingCmd        bool
+	yamlEditSessionRev uint64
+	uiRev              uint64
 }
 
 func (e *Editor) bumpReviewUIRev() {
@@ -551,7 +598,7 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 		if err != nil {
 			return err
 		}
-		if len(fi.BeforeYAML) > maxReviewFileBytes || len(fi.AfterYAML) > maxReviewFileBytes {
+		if len(fi.BeforeYAML) > maxReviewFileBytes || len(fi.AfterYAML) > maxReviewFileBytes || len(fi.PersonYAML) > maxReviewFileBytes {
 			return fmt.Errorf("editor: review file %q exceeds %d byte limit", cleanPath, maxReviewFileBytes)
 		}
 		if seenPaths[cleanPath] {
@@ -580,6 +627,11 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 		fileChanges, err := e.diffReviewFile(fs, fi, st.defaultWhy)
 		if err != nil {
 			return fmt.Errorf("editor: diff review file %s: %w", cleanPath, err)
+		}
+		if fs.kind == ReviewFileScene {
+			if err := e.initReviewScenePersonDoc(fs, fi); err != nil {
+				return fmt.Errorf("editor: parse review person scene %s: %w", cleanPath, err)
+			}
 		}
 		if len(fileChanges) == 0 {
 			continue
@@ -610,6 +662,7 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 
 	e.ExitHistoryPreview()
 	e.review = st
+	e.syncAllReviewConflicts()
 	e.cancelAutoSaveTimer()
 	if input.StartPending {
 		e.showAgentTabForReview()
@@ -1767,13 +1820,24 @@ func (e *Editor) effectiveReviewSceneDocForRound(fs *reviewFileState, round int)
 	if fs == nil {
 		return nil
 	}
+	latest := e.reviewLatestRound()
+	isLatest := latest <= 0 || round >= latest
 	rs := fs.roundState(round)
 	afterDoc := fs.afterDoc
 	if rs != nil && rs.afterDoc != nil {
 		afterDoc = rs.afterDoc
 	}
+	if fs.personEdited && isLatest {
+		if merged := e.effectiveReviewSceneDocWithConflicts(fs); merged != nil {
+			return merged
+		}
+	}
 	if fs.beforeDoc == nil {
-		return cloneSceneDoc(afterDoc)
+		doc := cloneSceneDoc(afterDoc)
+		if isLatest {
+			e.applyReviewHandEditsToDoc(fs, doc)
+		}
+		return doc
 	}
 	doc := cloneSceneDoc(fs.beforeDoc)
 
@@ -1894,6 +1958,9 @@ func (e *Editor) effectiveReviewSceneDocForRound(fs *reviewFileState, round int)
 		doc.Layers[li].Objects = append(doc.Layers[li].Objects, m.obj)
 	}
 
+	if isLatest {
+		e.applyReviewHandEditsToDoc(fs, doc)
+	}
 	return doc
 }
 
@@ -1947,23 +2014,31 @@ func (e *Editor) effectiveReviewFileBytesForRound(fs *reviewFileState, round int
 	if fs == nil {
 		return nil, false, nil
 	}
-	if e.allFileChangesReverted(fs.path) {
+	if e.allFileChangesReverted(fs.path) && !fs.personEdited {
 		return append([]byte(nil), fs.beforeYAML...), fs.existedBefore, nil
 	}
+	latest := e.reviewLatestRound()
+	isLatest := latest <= 0 || round >= latest
 	rs := fs.roundState(round)
 	afterYAML := fs.afterYAML
 	if rs != nil {
 		afterYAML = rs.afterYAML
 	}
-	// If no changes in this file are reverted, preserve exact AfterYAML for the requested round!
+	// If no changes in this file are reverted, hand-edited, or merged with person edits, preserve exact AfterYAML for the requested round!
 	anyReverted := false
+	anyHandEdited := false
 	for _, ch := range e.review.changes {
-		if ch.File == fs.path && ch.Reverted {
+		if ch.File != fs.path {
+			continue
+		}
+		if ch.Reverted {
 			anyReverted = true
-			break
+		}
+		if ch.HandEdited {
+			anyHandEdited = true
 		}
 	}
-	if !anyReverted {
+	if !anyReverted && (!isLatest || (!anyHandEdited && !fs.personEdited)) {
 		return append([]byte(nil), afterYAML...), len(afterYAML) > 0, nil
 	}
 
@@ -2446,7 +2521,12 @@ func (e *Editor) reviewOverlaysForFile(filePath string) []ReviewSceneOverlay {
 			p0 := bo.World.TransformPoint(math2d.Vec2{X: rx, Y: ry})
 			x, y, w, h = p0.X, p0.Y, rw, rh
 		} else {
-			obj := ver.afterObj
+			var obj *sceneformat.ObjectDoc
+			if !e.ReviewViewingReadOnlyRound() && ch.handEditObj != nil {
+				obj = ch.handEditObj
+			} else {
+				obj = ver.afterObj
+			}
 			if obj == nil {
 				obj = ch.beforeObj
 			}
@@ -2711,14 +2791,21 @@ func (e *Editor) SetReviewSearch(q string) {
 	e.notify()
 }
 
-// FocusReviewChange focuses changeID, expands its file/kind groups if collapsed, marks it seen, and frames it.
+// FocusReviewChange focuses changeID (full change ID or object ID), expands its file/kind groups if collapsed,
+// marks it seen, and frames it.
 func (e *Editor) FocusReviewChange(changeID string) bool {
 	if e == nil || e.review.outcome != ReviewOutcomePending {
 		return false
 	}
-	ch := e.review.changesByID[changeID]
+	ch := e.findReviewChange(changeID)
 	if ch == nil {
 		return false
+	}
+	// Close any valid inline YAML edit on another change when moving away; keep broken edits flagged.
+	for _, other := range e.review.changes {
+		if other.ID != ch.ID && other.EditingYAML && other.YAMLError == nil {
+			other.EditingYAML = false
+		}
 	}
 	e.review.focusedID = ch.ID
 	e.review.focusedRowKey = reviewCardRowKey(ch.ID)
@@ -2726,6 +2813,7 @@ func (e *Editor) FocusReviewChange(changeID string) bool {
 	e.review.collapsedFiles[ch.File] = false
 	e.review.collapsedKinds[ch.File+":"+string(ch.Kind)] = false
 	e.review.peekBefore = false
+	e.review.yamlEditSessionRev++
 	e.frameFocusedReviewChange()
 	e.bumpReviewUIRev()
 	e.notify()
@@ -2919,13 +3007,19 @@ func (e *Editor) ToggleReviewChangeReverted(changeID string) bool {
 	if e == nil || e.review.outcome != ReviewOutcomePending || e.ReviewViewingReadOnlyRound() {
 		return false
 	}
-	ch := e.review.changesByID[changeID]
+	ch := e.findReviewChange(changeID)
 	if ch == nil || ch.GoRequiresConfirm {
 		return false
 	}
 	ch.Reverted = !ch.Reverted
+	if ch.Reverted {
+		ch.EditingYAML = false
+		ch.YAMLError = nil
+		e.review.yamlEditSessionRev++
+	}
 	if fs := e.review.filesByPath[ch.File]; fs != nil {
 		fs.markAllRoundsDirty()
+		e.refreshReviewChangeYAMLLines(fs, ch)
 	}
 	e.refreshPrefabImpacts()
 	e.bumpReviewUIRev()
@@ -2959,7 +3053,14 @@ func (e *Editor) ToggleReviewFileReverted(filePath string) bool {
 	for _, ch := range e.review.changes {
 		if ch.File == filePath && !ch.GoRequiresConfirm {
 			ch.Reverted = target
+			if target {
+				ch.EditingYAML = false
+				ch.YAMLError = nil
+			}
 		}
+	}
+	if target {
+		e.review.yamlEditSessionRev++
 	}
 	fs.markAllRoundsDirty()
 	e.refreshPrefabImpacts()
@@ -2994,7 +3095,14 @@ func (e *Editor) ToggleReviewKindReverted(filePath string, kind ReviewChangeKind
 	for _, ch := range e.review.changes {
 		if ch.File == filePath && ch.Kind == kind && !ch.GoRequiresConfirm {
 			ch.Reverted = target
+			if target {
+				ch.EditingYAML = false
+				ch.YAMLError = nil
+			}
 		}
+	}
+	if target {
+		e.review.yamlEditSessionRev++
 	}
 	fs.markAllRoundsDirty()
 	e.refreshPrefabImpacts()
@@ -3071,7 +3179,9 @@ func (e *Editor) SetReviewChangeBlocker(changeID, reason string) {
 	e.notify()
 }
 
-// ReviewBlockers returns all active blockers on non-reverted changes.
+// ReviewBlockers returns all active blockers on non-reverted changes in priority order:
+// active YAML parse errors first ("Fix YAML on line N"), then unresolved merge conflicts
+// ("Choose how <title> merges"), then any custom blockers.
 func (e *Editor) ReviewBlockers() []ReviewBlocker {
 	if e == nil || e.review.outcome != ReviewOutcomePending {
 		return nil
@@ -3081,8 +3191,40 @@ func (e *Editor) ReviewBlockers() []ReviewBlocker {
 		if ch.Reverted {
 			continue
 		}
+		if ch.YAMLError != nil {
+			out = append(out, ReviewBlocker{
+				Kind:     "yaml_error",
+				ChangeID: ch.ID,
+				ObjectID: ch.ObjectID,
+				Line:     ch.YAMLError.Line,
+				Reason:   fmt.Sprintf("Fix YAML on line %d", ch.YAMLError.Line),
+			})
+		}
+	}
+	for _, ch := range e.review.changes {
+		if ch.Reverted {
+			continue
+		}
+		if ch.HasUnresolvedConflict() {
+			out = append(out, ReviewBlocker{
+				Kind:     "conflict",
+				ChangeID: ch.ID,
+				ObjectID: ch.ObjectID,
+				Reason:   fmt.Sprintf("Choose how %s merges", ch.Title),
+			})
+		}
+	}
+	for _, ch := range e.review.changes {
+		if ch.Reverted {
+			continue
+		}
 		if ch.Blocker != "" {
-			out = append(out, ReviewBlocker{ChangeID: ch.ID, Reason: ch.Blocker})
+			out = append(out, ReviewBlocker{
+				Kind:     "custom",
+				ChangeID: ch.ID,
+				ObjectID: ch.ObjectID,
+				Reason:   ch.Blocker,
+			})
 		}
 	}
 	return out
@@ -3098,6 +3240,11 @@ func (e *Editor) JumpToReviewBlocker() string {
 		e.review.filter = ReviewFilterAll
 	}
 	e.review.search = ""
+	if blockers[0].Kind == "yaml_error" {
+		if ch := e.review.changesByID[blockers[0].ChangeID]; ch != nil {
+			ch.EditingYAML = true
+		}
+	}
 	e.FocusReviewChange(blockers[0].ChangeID)
 	return blockers[0].ChangeID
 }
@@ -3181,16 +3328,22 @@ func (e *Editor) reviewAbsPath(relPath string) string {
 }
 
 func (e *Editor) openSceneProjectRelPath() string {
-	if e == nil || e.FilePath == "" {
+	if e == nil {
 		return ""
 	}
-	if e.ProjectPath != "" {
-		root := filepath.Dir(e.ProjectPath)
-		if rel, err := filepath.Rel(root, e.FilePath); err == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.ToSlash(rel)
+	if e.FilePath != "" {
+		if e.ProjectPath != "" {
+			root := filepath.Dir(e.ProjectPath)
+			if rel, err := filepath.Rel(root, e.FilePath); err == nil && !strings.HasPrefix(rel, "..") {
+				return filepath.ToSlash(rel)
+			}
 		}
+		return filepath.ToSlash(e.FilePath)
 	}
-	return filepath.ToSlash(e.FilePath)
+	if e.ScenePath != "" {
+		return path.Clean(strings.ReplaceAll(e.ScenePath, `\`, "/"))
+	}
+	return ""
 }
 
 func reviewDefaultTargetOS() core.OS {
@@ -3288,39 +3441,76 @@ func writeReviewFileAtomic(absPath string, data []byte) error {
 
 // KeepTurnReview applies all non-reverted changes across every touched file as ONE History undo step,
 // saves them cleanly, shows a Toast with Undo, and updates the Agent panel summary.
-// When any blocker is active, KeepTurnReview jumps to the first blocker and returns ErrReviewBlocked.
+// When any blocker is active, KeepTurnReview jumps to the first blocker and returns *ReviewBlockedError
+// (which wraps ErrReviewBlocked).
 func (e *Editor) KeepTurnReview() error {
 	if e == nil || e.review.outcome != ReviewOutcomePending {
 		return ErrNoReview
 	}
 	if blockers := e.ReviewBlockers(); len(blockers) > 0 {
 		e.JumpToReviewBlocker()
-		return fmt.Errorf("%w: %s", ErrReviewBlocked, blockers[0].Reason)
+		return &ReviewBlockedError{Blocker: blockers[0]}
 	}
 
+	diskBacked := e.ProjectPath != "" || e.FilePath != ""
 	writes := make([]reviewFileWrite, 0, len(e.review.files))
 	for _, fs := range e.review.files {
 		if fs.kind == ReviewFileGo {
 			continue
 		}
-		abs, err := e.resolveSafeReviewWritePath(fs.path)
-		if err != nil {
-			return err
+		var abs string
+		if diskBacked {
+			var err error
+			abs, err = e.resolveSafeReviewWritePath(fs.path)
+			if err != nil {
+				return err
+			}
+		} else {
+			if _, err := e.validateReviewRelPath(fs.path); err != nil {
+				return err
+			}
+		}
+		if fs.kind == ReviewFileScene {
+			effDoc := e.effectiveReviewSceneDoc(fs)
+			if err := sceneformat.Validate(effDoc); err != nil {
+				return fmt.Errorf("editor: validate review scene %s: %w", fs.path, err)
+			}
 		}
 		afterBytes, existsAfter, err := e.effectiveReviewFileBytes(fs)
 		if err != nil {
 			return fmt.Errorf("editor: encode review file %s: %w", fs.path, err)
 		}
+		beforeBytes := append([]byte(nil), fs.beforeYAML...)
+		if fs.kind == ReviewFileScene && fs.personEdited && fs.personDoc != nil {
+			if enc, eerr := sceneformat.Encode(fs.personDoc); eerr == nil {
+				beforeBytes = enc
+			}
+		}
 		writes = append(writes, reviewFileWrite{
 			relPath:       fs.path,
 			absPath:       abs,
 			existedBefore: fs.existedBefore,
-			beforeBytes:   append([]byte(nil), fs.beforeYAML...),
+			beforeBytes:   beforeBytes,
 			existedAfter:  existsAfter,
 			afterBytes:    afterBytes,
 		})
 	}
 
+	// Commit any active valid inline YAML edits before capturing the kept snapshot.
+	for _, ch := range e.review.changes {
+		if ch.EditingYAML && ch.YAMLError == nil {
+			ch.EditingYAML = false
+		}
+	}
+
+	keptSnap := e.ReviewStatus()
+	latestRound := e.reviewLatestRound()
+	if e.ReviewViewingReadOnlyRound() {
+		keptSnap.Changes = make([]ReviewChange, len(e.review.changes))
+		for i, ch := range e.review.changes {
+			keptSnap.Changes[i] = cloneReviewChangeForSnapshot(ch, latestRound, false)
+		}
+	}
 	e.ExitHistoryPreview()
 	kept, reverted := e.reviewKeptAndRevertedCounts()
 	savedState := e.review
@@ -3330,16 +3520,18 @@ func (e *Editor) KeepTurnReview() error {
 	}
 
 	cmd := &agentTurnKeepCmd{
-		ed:         e,
-		label:      label,
-		writes:     writes,
-		kept:       kept,
-		reverted:   reverted,
-		total:      len(savedState.changes),
-		fileCount:  len(savedState.files),
-		rounds:     max(savedState.round, 1),
-		request:    savedState.request,
-		priorState: savedState,
+		ed:          e,
+		label:       label,
+		writes:      writes,
+		kept:        kept,
+		reverted:    reverted,
+		total:       len(savedState.changes),
+		fileCount:   len(savedState.files),
+		rounds:      max(savedState.round, 1),
+		request:     savedState.request,
+		keptChanges: keptSnap.Changes,
+		keptFiles:   keptSnap.Files,
+		priorState:  savedState,
 	}
 	if err := e.History.execute(cmd); err != nil {
 		return err
@@ -3471,7 +3663,9 @@ func (e *Editor) syncOpenSceneAfterReviewWrites(writes []reviewFileWrite, forwar
 				e.sceneSaved = canon
 			}
 			e.syncActiveTab()
-			e.recordSceneDiskSnapshot(w.absPath, data)
+			if w.absPath != "" {
+				e.recordSceneDiskSnapshot(w.absPath, data)
+			}
 			e.cancelAutoSaveTimer()
 			e.recordSaveSucceededFor(e.activeTabID(), false)
 			continue
@@ -3507,16 +3701,18 @@ func (e *Editor) syncOpenSceneAfterReviewWrites(writes []reviewFileWrite, forwar
 }
 
 type agentTurnKeepCmd struct {
-	ed         *Editor
-	label      string
-	writes     []reviewFileWrite
-	kept       int
-	reverted   int
-	total      int
-	fileCount  int
-	rounds     int
-	request    string
-	priorState turnReviewState
+	ed          *Editor
+	label       string
+	writes      []reviewFileWrite
+	kept        int
+	reverted    int
+	total       int
+	fileCount   int
+	rounds      int
+	request     string
+	keptChanges []ReviewChange
+	keptFiles   []ReviewFileSummary
+	priorState  turnReviewState
 }
 
 func (c *agentTurnKeepCmd) Label() string       { return c.label }
@@ -3553,7 +3749,10 @@ func (c *agentTurnKeepCmd) historyMeta() HistoryMeta {
 }
 
 func (c *agentTurnKeepCmd) do() error {
-	if err := c.ed.applyReviewFileWrites(c.writes, true); err != nil {
+	c.ed.review.applyingCmd = true
+	err := c.ed.applyReviewFileWrites(c.writes, true)
+	c.ed.review.applyingCmd = false
+	if err != nil {
 		return err
 	}
 	msg := formatKeptSummary(c.kept, c.reverted, c.rounds)
@@ -3568,6 +3767,8 @@ func (c *agentTurnKeepCmd) do() error {
 		lastRounds:     max(c.rounds, 1),
 		lastRequest:    c.request,
 		lastOutcomeMsg: msg,
+		lastChanges:    cloneReviewChangesSlice(c.keptChanges),
+		lastFiles:      slices.Clone(c.keptFiles),
 		legend:         c.priorState.legend,
 		uiRev:          c.ed.review.uiRev + 1,
 	}
@@ -3589,12 +3790,17 @@ func (c *agentTurnKeepCmd) do() error {
 }
 
 func (c *agentTurnKeepCmd) undo() error {
-	if err := c.ed.applyReviewFileWrites(c.writes, false); err != nil {
+	c.ed.review.applyingCmd = true
+	err := c.ed.applyReviewFileWrites(c.writes, false)
+	c.ed.review.applyingCmd = false
+	if err != nil {
 		return err
 	}
 	c.ed.review.outcome = ReviewOutcomeNone
 	c.ed.review.open = false
 	c.ed.review.lastOutcomeMsg = ""
+	c.ed.review.lastChanges = nil
+	c.ed.review.lastFiles = nil
 	c.ed.bumpReviewUIRev()
 	c.ed.Status = "Undid kept review"
 	c.ed.notify()
@@ -3639,7 +3845,10 @@ func (c *agentTurnRevertAllCmd) historyMeta() HistoryMeta {
 }
 
 func (c *agentTurnRevertAllCmd) do() error {
-	if err := c.ed.applyReviewFileWrites(c.writes, true); err != nil {
+	c.ed.review.applyingCmd = true
+	err := c.ed.applyReviewFileWrites(c.writes, true)
+	c.ed.review.applyingCmd = false
+	if err != nil {
 		return err
 	}
 	msg := fmt.Sprintf("Reverted all %d · files are as they were before this request", c.total)
@@ -3675,7 +3884,10 @@ func (c *agentTurnRevertAllCmd) do() error {
 }
 
 func (c *agentTurnRevertAllCmd) undo() error {
-	if err := c.ed.applyReviewFileWrites(c.writes, false); err != nil {
+	c.ed.review.applyingCmd = true
+	err := c.ed.applyReviewFileWrites(c.writes, false)
+	c.ed.review.applyingCmd = false
+	if err != nil {
 		return err
 	}
 	restored := c.priorState
@@ -3751,6 +3963,17 @@ func (e *Editor) ReviewStatus() ReviewSnapshot {
 		if snap.Request == "" {
 			snap.Request = st.lastRequest
 		}
+		if st.outcome == ReviewOutcomeKept && len(st.lastChanges) > 0 {
+			snap.Changes = cloneReviewChangesSlice(st.lastChanges)
+			snap.Files = slices.Clone(st.lastFiles)
+			seen := 0
+			for _, ch := range snap.Changes {
+				if ch.Seen {
+					seen++
+				}
+			}
+			snap.SeenCount = seen
+		}
 		return snap
 	}
 
@@ -3775,17 +3998,7 @@ func (e *Editor) ReviewStatus() ReviewSnapshot {
 		if ch.Seen {
 			seen++
 		}
-		cp := *ch
-		ver := ch.VersionFor(viewRound)
-		cp.Detail = ver.Detail
-		cp.Why = ver.Why
-		cp.OldValue = ver.OldValue
-		cp.NewValue = ver.NewValue
-		cp.DeltaPct = ver.DeltaPct
-		cp.Line = ver.Line
-		cp.YAMLLines = slices.Clone(ver.YAMLLines)
-		cp.Versions = cloneReviewChangeVersions(ch.Versions)
-		snap.Changes[i] = cp
+		snap.Changes[i] = cloneReviewChangeForSnapshot(ch, viewRound, snap.ViewingReadOnlyRound)
 	}
 	snap.SeenCount = seen
 

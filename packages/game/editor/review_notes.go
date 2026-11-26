@@ -303,7 +303,22 @@ func (e *Editor) SetReviewViewRound(round int) error {
 	}
 	for _, ch := range e.review.changes {
 		ch.syncFromVersion(ch.VersionFor(round))
+		if round == latest {
+			if ch.HandEdited && ch.handEditObj != nil {
+				if ch.Kind == ReviewChangeAdded {
+					ch.Detail = formatAddedObjectDetail(ch.handEditObj)
+				} else if ch.Kind == ReviewChangeChanged && ch.beforeObj != nil {
+					ch.Detail = formatChangedObjectDetail(ch.beforeObj, ch.handEditObj, ch.beforeLayer, ch.afterLayer)
+				}
+			}
+			if ch.HandEdited || ch.EditingYAML || len(ch.Conflicts) > 0 || ch.YAMLError != nil {
+				if fs := e.review.filesByPath[ch.File]; fs != nil {
+					e.refreshReviewChangeYAMLLines(fs, ch)
+				}
+			}
+		}
 	}
+	e.review.yamlEditSessionRev++
 	e.frameFocusedReviewChange()
 	e.bumpReviewUIRev()
 	e.notify()
@@ -1148,6 +1163,14 @@ func (e *Editor) ApplyReviewRedo(redos []ReviewRedoChange) error {
 
 		ch.Versions = append(ch.Versions, nextVer)
 		ch.syncFromVersion(nextVer)
+		ch.EditingYAML = false
+		ch.YAMLError = nil
+		ch.HandEdited = false
+		ch.handEditObj = nil
+		ch.handEditBaseObj = nil
+		ch.HandEditFields = nil
+		ch.handEditLineNums = nil
+		ch.HandEditYAML = ""
 		ch.Seen = false
 		ch.Reverted = false
 		ch.RedoneInRound = nextRound
@@ -1170,6 +1193,7 @@ func (e *Editor) ApplyReviewRedo(redos []ReviewRedoChange) error {
 
 	e.review.round = nextRound
 	e.review.viewRound = nextRound
+	e.review.yamlEditSessionRev++
 	if e.review.roundRedone == nil {
 		e.review.roundRedone = make(map[int]int)
 	}
@@ -1177,6 +1201,19 @@ func (e *Editor) ApplyReviewRedo(redos []ReviewRedoChange) error {
 	e.review.composingID = ""
 	e.review.noteDraft = ""
 
+	e.syncAllReviewConflicts()
+	for _, ch := range e.review.changes {
+		if ch.HandEdited && ch.handEditObj != nil {
+			if ch.Kind == ReviewChangeAdded {
+				ch.Detail = formatAddedObjectDetail(ch.handEditObj)
+			} else if ch.Kind == ReviewChangeChanged && ch.beforeObj != nil {
+				ch.Detail = formatChangedObjectDetail(ch.beforeObj, ch.handEditObj, ch.beforeLayer, ch.afterLayer)
+			}
+			if fs := e.review.filesByPath[ch.File]; fs != nil {
+				e.refreshReviewChangeYAMLLines(fs, ch)
+			}
+		}
+	}
 	e.refreshPrefabImpacts()
 	e.frameFocusedReviewChange()
 	e.Status = e.ReviewRoundBannerText()
