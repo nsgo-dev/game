@@ -19,24 +19,25 @@ type objectContextMenuOpts struct {
 // 3D viewport, keyboard (Shift+F10 / ContextMenu key), and Scene Tree rows.
 // Any item whose underlying feature does not apply to the target object (for example Select same prefab
 // on a plain object, Find usages when no project is open, or Move under when no valid candidate parents exist)
-// is omitted rather than shown disabled.
+// is omitted rather than shown disabled. Foreign (inherited / instanced-child) objects expose their
+// override actions (Open Source Scene, Revert Overrides) and omit or disable local-only structural edits.
 func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], id string, opts objectContextMenuOpts) []core.Node {
 	if ed == nil || ed.Doc == nil || id == "" {
 		return nil
 	}
-	loc := ed.lookupObject(id).loc
-	if loc.obj == nil || loc.layer < 0 || loc.layer >= len(ed.Doc.Layers) {
+	obj, layerName, _, isForeign := ed.resolveContextObject(id)
+	if obj == nil || layerName == "" {
 		return nil
 	}
-	obj := loc.obj
-	layerName := ed.Doc.Layers[loc.layer].Name
+	p := ed.SpecPalette(cx)
 	displayName := contextObjectDisplayName(obj)
 	subtitle := ed.ObjectContextSubtitle(id)
 	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
+	structOff := func() bool { return editsOff() || isForeign }
 	hidden := func() bool { _ = rev.Get(); return ed.ObjectHidden(id) }
 	locked := func() bool { _ = rev.Get(); return ed.ObjectLocked(id) }
 
-	// Header: object display name + subtitle with kind and layer, styled using Spec tokens.
+	// Header: object display name + subtitle with kind and layer, styled using active Spec palette tokens.
 	header := core.View{
 		TestID: "context-menu-header",
 		Style: core.Style{
@@ -51,7 +52,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				Style: core.Style{
 					FontSize:   12,
 					FontWeight: core.FontWeightSemibold,
-					Color:      specTextStrong,
+					Color:      p.TextPrimary,
 				},
 			},
 			core.Text{
@@ -60,7 +61,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				MaxLines: 1,
 				Style: core.Style{
 					FontSize: 11,
-					Color:    specTextMuted,
+					Color:    p.TextMuted,
 				},
 			},
 		},
@@ -95,6 +96,12 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	renameTestID := "context-menu-rename"
 	hideTestID := "context-menu-hide"
 	lockTestID := "context-menu-lock"
+	findUsagesTestID := "context-menu-find-usages"
+	openSceneTestID := "context-menu-open-scene"
+	makeLocalTestID := "context-menu-make-local"
+	applyOverridesTestID := "context-menu-apply-overrides"
+	revertOverridesTestID := "context-menu-revert-overrides"
+	openSourceTestID := "context-menu-open-source"
 	if opts.includeTreeActions {
 		copyTestID = "scene-tree-copy-" + id
 		pasteTestID = "scene-tree-paste-" + id
@@ -103,130 +110,194 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		renameTestID = "scene-tree-rename-" + id
 		hideTestID = "scene-tree-hide-" + id
 		lockTestID = "scene-tree-lock-item-" + id
+		openSceneTestID = "scene-tree-open-scene-" + id
+		makeLocalTestID = "scene-tree-make-local-" + id
+		applyOverridesTestID = "scene-tree-apply-overrides-" + id
+		revertOverridesTestID = "scene-tree-revert-overrides-" + id
+		openSourceTestID = "scene-tree-open-source-" + id
+		if obj.Scene != "" || (obj.Prefab != "" && isPathLikePrefab(obj.Prefab)) {
+			findUsagesTestID = "scene-tree-find-usages-" + id
+		}
 	}
 
 	items := []core.Node{
 		header,
 		ui.MenuSeparator{},
-		ui.MenuItem{
-			TestID:   copyTestID,
-			Text:     ed.T("contextMenu.copyYAML"),
-			Icon:     lucide.Copy,
-			Shortcut: "mod+c",
-			OnSelect: func() {
-				if ids := targetIDs(); len(ids) > 1 {
-					_, err := ed.CopyObjects(ids...)
-					ed.report(err)
-					return
-				}
-				_, _, err := ed.CopyObjectYAML(id)
-				ed.report(err)
-			},
-		},
-		ui.MenuItem{
-			TestID:   pasteTestID,
-			Text:     ed.T("contextMenu.paste"),
-			Icon:     lucide.ClipboardPaste,
-			Shortcut: "mod+v",
-			Disabled: editsOff,
-			OnSelect: pasteAction,
-		},
-		ui.MenuItem{
-			TestID:   dupTestID,
-			Text:     ed.T("contextMenu.duplicate"),
-			Icon:     lucide.CopyPlus,
-			Shortcut: "mod+d",
-			Disabled: editsOff,
-			OnSelect: func() {
-				_, err := ed.DuplicateObjects(targetIDs()...)
-				ed.report(err)
-			},
-		},
-		ui.MenuSeparator{},
-		ui.MenuItem{
-			TestID:   groupTestID,
-			Text:     ed.T("contextMenu.group"),
-			Icon:     lucide.Group,
-			Shortcut: "mod+g",
-			Disabled: editsOff,
-			OnSelect: func() {
-				gid, err := ed.GroupObjects(targetIDs()...)
-				if err != nil {
-					ed.report(err)
-					return
-				}
-				if gid != "" && opts.onReparented != nil {
-					layer := layerName
-					if gloc := ed.lookupObject(gid).loc; gloc.obj != nil && gloc.layer >= 0 {
-						layer = ed.Doc.Layers[gloc.layer].Name
-					}
-					opts.onReparented(layer, gid)
-				}
-			},
-		},
 	}
 
-	// Move under submenu: omit when there are no candidate targets.
-	candidates := ed.MoveUnderCandidates(id)
-	if len(candidates) > 0 {
-		subItems := make([]core.Node, 0, len(candidates))
-		for _, c := range candidates {
-			cand := c
-			dotColor := specAccent
-			if cand.IsLayerRoot {
-				dotColor = specTextMuted
-			} else if cand.Locked {
-				dotColor = specWarning
-			} else if cand.ChildCount > 0 {
-				dotColor = specChanged
-			}
-			itemTestID := "context-menu-move-under-" + cand.ID
-			if cand.IsLayerRoot {
-				itemTestID = "context-menu-move-under-layer-" + cand.Layer
-			}
-			subItems = append(subItems, ui.MenuItem{
-				TestID: itemTestID,
-				Text:   cand.Name,
-				Leading: core.View{
-					Style: core.Style{
-						Width:        core.Pt(7),
-						Height:       core.Pt(7),
-						CornerRadius: 2,
-						Background:   dotColor,
-						FlexShrink:   0,
-					},
-				},
-				Trailing: core.Text{
-					Content:  cand.Note,
-					MaxLines: 1,
-					Style: core.Style{
-						FontSize: 11,
-						Color:    specTextMuted,
-						Margin:   core.Edges{Left: 12},
-					},
-				},
+	// Scene instance and inherited/foreign object override actions (#1184).
+	if !isForeign && obj.Scene != "" {
+		items = append(items,
+			ui.MenuItem{
+				TestID:   openSceneTestID,
+				Text:     ed.T("overrides.openInstancedScene"),
+				Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
+				OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
+			},
+			ui.MenuItem{
+				TestID:   makeLocalTestID,
+				Text:     ed.T("overrides.makeLocal"),
+				Disabled: editsOff,
+				OnSelect: func() { ed.report(ed.MakeInstanceLocal(id)) },
+			},
+			ui.MenuItem{
+				TestID: applyOverridesTestID,
+				Text:   ed.T("overrides.applyToSource"),
 				Disabled: func() bool {
-					return editsOff() || cand.Current || cand.Locked
+					return editsOff() || ed.Project == nil || ed.ProjectPath == "" || ed.InstanceOverrideCount(id) == 0
 				},
+				OnSelect: func() { ed.report(ed.ApplyOverridesToSource(id)) },
+			},
+			ui.MenuItem{
+				TestID:   revertOverridesTestID,
+				Text:     ed.T("overrides.revertAll"),
+				Disabled: func() bool { return editsOff() || ed.InstanceOverrideCount(id) == 0 },
+				OnSelect: func() { ed.report(ed.RevertObjectOverrides(id)) },
+			},
+			ui.MenuSeparator{},
+		)
+	} else if isForeign {
+		items = append(items,
+			ui.MenuItem{
+				TestID:   openSourceTestID,
+				Text:     ed.T("overrides.openSourceScene"),
+				Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
+				OnSelect: func() { ed.report(ed.OpenSourceScene(id)) },
+			},
+			ui.MenuItem{
+				TestID:   revertOverridesTestID,
+				Text:     ed.T("overrides.revertAll"),
+				Disabled: func() bool { return editsOff() || !ed.ObjectHasAnyOverride(id) },
+				OnSelect: func() { ed.report(ed.RevertObjectOverrides(id)) },
+			},
+			ui.MenuSeparator{},
+		)
+	}
+
+	items = append(items, ui.MenuItem{
+		TestID:   copyTestID,
+		Text:     ed.T("contextMenu.copyYAML"),
+		Icon:     lucide.Copy,
+		Shortcut: ed.EffectiveShortcut(CmdCopy),
+		OnSelect: func() {
+			if ids := targetIDs(); len(ids) > 1 && ed.allSelectedObjectsAreLocal() {
+				_, err := ed.CopyObjects(ids...)
+				ed.report(err)
+				return
+			}
+			_, _, err := ed.CopyObjectYAML(id)
+			ed.report(err)
+		},
+	})
+
+	if !isForeign || opts.includeTreeActions {
+		items = append(items,
+			ui.MenuItem{
+				TestID:   pasteTestID,
+				Text:     ed.T("contextMenu.paste"),
+				Icon:     lucide.ClipboardPaste,
+				Shortcut: ed.EffectiveShortcut(CmdPaste),
+				Disabled: editsOff,
+				OnSelect: pasteAction,
+			},
+			ui.MenuItem{
+				TestID:   dupTestID,
+				Text:     ed.T("contextMenu.duplicate"),
+				Icon:     lucide.CopyPlus,
+				Shortcut: ed.EffectiveShortcut(CmdDuplicate),
+				Disabled: structOff,
 				OnSelect: func() {
-					if err := ed.MoveObjectUnder(id, cand.ID); err != nil {
+					_, err := ed.DuplicateObjects(targetIDs()...)
+					ed.report(err)
+				},
+			},
+			ui.MenuItem{
+				TestID:   groupTestID,
+				Text:     ed.T("contextMenu.group"),
+				Icon:     lucide.FolderPlus,
+				Shortcut: ed.EffectiveShortcut(CmdGroup),
+				Disabled: structOff,
+				OnSelect: func() {
+					gid, err := ed.GroupObjects(targetIDs()...)
+					if err != nil {
 						ed.report(err)
 						return
 					}
-					if opts.onReparented != nil && cand.ID != "" {
-						opts.onReparented(cand.Layer, cand.ID)
+					if opts.onReparented != nil && gid != "" {
+						layer := layerName
+						if gloc := ed.lookupObject(gid).loc; gloc.obj != nil && gloc.layer >= 0 {
+							layer = ed.Doc.Layers[gloc.layer].Name
+						}
+						opts.onReparented(layer, gid)
 					}
 				},
+			},
+		)
+	}
+
+	// Move under submenu: omit when there are no candidate targets (including foreign objects).
+	if !isForeign {
+		candidates := ed.MoveUnderCandidates(id)
+		if len(candidates) > 0 {
+			subItems := make([]core.Node, 0, len(candidates))
+			for _, c := range candidates {
+				cand := c
+				dotColor := p.Accent.Fg
+				if cand.IsLayerRoot {
+					dotColor = p.TextMuted
+				} else if cand.Locked {
+					dotColor = p.Warning.Fg
+				} else if cand.ChildCount > 0 {
+					dotColor = p.Changed.Fg
+				}
+				itemTestID := "context-menu-move-under-" + cand.ID
+				if cand.IsLayerRoot {
+					itemTestID = "context-menu-move-under-layer-" + cand.Layer
+				}
+				subItems = append(subItems, ui.MenuItem{
+					TestID: itemTestID,
+					Text:   cand.Name,
+					Leading: core.View{
+						Style: core.Style{
+							Width:        core.Pt(7),
+							Height:       core.Pt(7),
+							CornerRadius: 2,
+							Background:   dotColor,
+							FlexShrink:   0,
+						},
+					},
+					Trailing: core.Text{
+						Content:  cand.Note,
+						MaxLines: 1,
+						Style: core.Style{
+							FontSize: 11,
+							Color:    p.TextMuted,
+							Margin:   core.Edges{Left: 12},
+						},
+					},
+					Disabled: func() bool {
+						return editsOff() || cand.Current || cand.Locked
+					},
+					OnSelect: func() {
+						if err := ed.MoveObjectUnder(id, cand.ID); err != nil {
+							ed.report(err)
+							return
+						}
+						if opts.onReparented != nil && cand.ID != "" {
+							opts.onReparented(cand.Layer, cand.ID)
+						}
+					},
+				})
+			}
+			items = append(items, ui.Submenu{
+				TestID:   "context-menu-move-under",
+				Text:     ed.T("contextMenu.moveUnder"),
+				Icon:     lucide.CornerDownRight,
+				Back:     ed.T("contextMenu.back"),
+				Disabled: editsOff,
+				Children: subItems,
 			})
 		}
-		items = append(items, ui.Submenu{
-			TestID:   "context-menu-move-under",
-			Text:     ed.T("contextMenu.moveUnder"),
-			Icon:     lucide.CornerDownRight,
-			Back:     ed.T("contextMenu.back"),
-			Disabled: editsOff,
-			Children: subItems,
-		})
 	}
 
 	// Select same prefab: omit when the object has neither Prefab nor instanced Scene.
@@ -268,9 +339,8 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			},
 		},
 		ui.MenuItem{
-			TestID:   lockTestID,
-			Icon:     lockIcon,
-			Shortcut: "l",
+			TestID: lockTestID,
+			Icon:   lockIcon,
 			TextFunc: func() string {
 				if locked() {
 					return ed.T("contextMenu.unlock")
@@ -287,10 +357,10 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	// Find usages: omit when no project is open (project search/references requires a project).
 	if ed.Project != nil && ed.ProjectPath != "" {
 		items = append(items, ui.MenuItem{
-			TestID:   "context-menu-find-usages",
+			TestID:   findUsagesTestID,
 			Text:     ed.T("contextMenu.findUsages"),
 			Icon:     lucide.Search,
-			Shortcut: "shift+f12",
+			Shortcut: ed.EffectiveShortcut(CmdFindUsages),
 			OnSelect: func() {
 				_, err := ed.ShowObjectUsages(id)
 				ed.report(err)
@@ -298,21 +368,26 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		})
 	}
 
+	if !isForeign || opts.includeTreeActions {
+		items = append(items,
+			ui.MenuItem{
+				TestID:   renameTestID,
+				Text:     ed.T("contextMenu.rename"),
+				Icon:     lucide.Pencil,
+				Shortcut: "f2",
+				Disabled: structOff,
+				OnSelect: renameAction,
+			},
+			ui.MenuSeparator{},
+		)
+	}
+
 	items = append(items,
-		ui.MenuItem{
-			TestID:   renameTestID,
-			Text:     ed.T("contextMenu.rename"),
-			Icon:     lucide.Pencil,
-			Shortcut: "f2",
-			Disabled: editsOff,
-			OnSelect: renameAction,
-		},
-		ui.MenuSeparator{},
 		ui.MenuItem{
 			TestID:   "context-menu-ask-agent",
 			Text:     ed.T("contextMenu.askAgent"),
 			Shortcut: "mod+l",
-			Leading:  ui.Icon(lucide.Sparkles, 14, func() core.Color { return specAgent }),
+			Leading:  ui.Icon(lucide.Sparkles, 14, func() core.Color { return p.Agent.Fg }),
 			OnSelect: func() {
 				_, err := ed.AskAgentAboutObject(id)
 				ed.report(err)
@@ -320,7 +395,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		},
 	)
 
-	// Scene Tree rows also preserve their existing hierarchy, layer, ID, instanced-scene, and delete items.
+	// Scene Tree rows also preserve their existing hierarchy, layer, ID, and delete items.
 	if opts.includeTreeActions {
 		siblings := func() (index, count int, prev, parent string) {
 			cur := ed.lookupObject(id).loc
@@ -343,22 +418,13 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			return cur.obj != nil && len(cur.obj.Children) > 0
 		}
 
-		items = append(items, ui.MenuSeparator{})
-		if obj.Scene != "" {
-			items = append(items,
-				ui.MenuItem{
-					TestID:   "scene-tree-open-scene-" + id,
-					Text:     "Open Instanced Scene",
-					Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
-					OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
-				},
-			)
-		}
 		items = append(items,
+			ui.MenuSeparator{},
 			ui.MenuItem{
 				TestID:   "scene-tree-cut-" + id,
 				Text:     ed.T("sceneTree.cut"),
-				Disabled: editsOff,
+				Shortcut: ed.EffectiveShortcut(CmdCut),
+				Disabled: structOff,
 				OnSelect: func() {
 					_, err := ed.CutObjects(targetIDs()...)
 					ed.report(err)
@@ -367,7 +433,8 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			ui.MenuItem{
 				TestID:   "scene-tree-paste-into-" + id,
 				Text:     ed.T("sceneTree.pasteInto"),
-				Disabled: editsOff,
+				Shortcut: ed.EffectiveShortcut(CmdPasteInto),
+				Disabled: structOff,
 				OnSelect: func() {
 					if ids, err := ed.PasteInto(id); err == nil && len(ids) > 0 && opts.onReparented != nil {
 						opts.onReparented(opts.treeKey.layer, id)
@@ -377,7 +444,8 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			ui.MenuItem{
 				TestID:   "scene-tree-ungroup-" + id,
 				Text:     ed.T("sceneTree.ungroup"),
-				Disabled: func() bool { return editsOff() || !hasChildren() },
+				Shortcut: ed.EffectiveShortcut(CmdUngroup),
+				Disabled: func() bool { return structOff() || !hasChildren() },
 				OnSelect: func() {
 					_, err := ed.UngroupObject(id)
 					ed.report(err)
@@ -386,7 +454,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			ui.MenuItem{
 				TestID:   "scene-tree-change-id-" + id,
 				Text:     ed.T("sceneTree.changeID"),
-				Disabled: editsOff,
+				Disabled: structOff,
 				OnSelect: func() {
 					if opts.onChangeID != nil {
 						opts.onChangeID()
@@ -398,7 +466,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				Text:   ed.T("sceneTree.moveUp"),
 				Disabled: func() bool {
 					i, _, _, _ := siblings()
-					return editsOff() || i <= 0
+					return structOff() || i <= 0
 				},
 				OnSelect: func() {
 					if i, _, _, _ := siblings(); i > 0 {
@@ -411,7 +479,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				Text:   ed.T("sceneTree.moveDown"),
 				Disabled: func() bool {
 					i, n, _, _ := siblings()
-					return editsOff() || i < 0 || i >= n-1
+					return structOff() || i < 0 || i >= n-1
 				},
 				OnSelect: func() {
 					if i, n, _, _ := siblings(); i >= 0 && i < n-1 {
@@ -424,7 +492,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				Text:   ed.T("sceneTree.indent"),
 				Disabled: func() bool {
 					_, _, prev, _ := siblings()
-					return editsOff() || prev == ""
+					return structOff() || prev == ""
 				},
 				OnSelect: func() {
 					if _, _, prev, _ := siblings(); prev != "" {
@@ -443,32 +511,29 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				Text:   ed.T("sceneTree.outdent"),
 				Disabled: func() bool {
 					_, _, _, parent := siblings()
-					return editsOff() || parent == ""
+					return structOff() || parent == ""
 				},
 				OnSelect: func() {
-					_, _, _, parent := siblings()
-					if parent == "" {
-						return
+					if _, _, _, parent := siblings(); parent != "" {
+						gp := ""
+						if ploc := ed.lookupObject(parent).loc; ploc.parent != nil {
+							gp = ploc.parent.ID
+						}
+						ed.report(ed.ReparentObject(id, gp, -1))
 					}
-					ploc := locateObject(ed.Doc, parent)
-					grand := ""
-					if ploc.parent != nil {
-						grand = ploc.parent.ID
-					}
-					ed.report(ed.ReparentObject(id, grand, ploc.index+1))
 				},
 			},
 		)
-		if len(ed.Doc.Layers) > 1 {
+		if ed.Doc != nil && len(ed.Doc.Layers) > 1 {
 			items = append(items, ui.MenuSeparator{})
-			for i := range ed.Doc.Layers {
-				name := ed.Doc.Layers[i].Name
+			for li := range ed.Doc.Layers {
+				name := ed.Doc.Layers[li].Name
 				items = append(items, ui.MenuItem{
-					TestID: "scene-tree-to-layer-" + id + "-" + name,
+					TestID: "scene-tree-layer-" + id + "-" + name,
 					Text:   ed.T("sceneTree.moveToLayer", l10n.Param("name", name)),
 					Disabled: func() bool {
 						cur := ed.lookupObject(id).loc
-						return editsOff() || cur.obj == nil || (ed.Doc.Layers[cur.layer].Name == name && cur.parent == nil)
+						return structOff() || cur.obj == nil || (ed.Doc.Layers[cur.layer].Name == name && cur.parent == nil)
 					},
 					OnSelect: func() { ed.report(ed.MoveObjectToLayer(id, name, -1)) },
 				})
@@ -479,8 +544,9 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			ui.MenuItem{
 				TestID:   "scene-tree-delete-" + id,
 				Text:     ed.T("sceneTree.delete"),
+				Shortcut: ed.EffectiveShortcut(CmdDelete),
 				Variant:  ui.MenuItemDanger,
-				Disabled: editsOff,
+				Disabled: structOff,
 				OnSelect: func() {
 					if ed.IsSelected(id) && ed.SelectionCount() > 1 {
 						ed.report(ed.DeleteSelected())
@@ -495,87 +561,14 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	return items
 }
 
-// viewportToastView renders the Spec-styled floating status toast at the top center of the viewport
-// (for example "Copied Hero as YAML · 12 lines"), matching docs/design/editor/Inspector.dc.html.
-func viewportToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	return core.Show{
-		When: func() bool {
-			_ = rev.Get()
-			return ed.ToastMessage() != ""
-		},
-		Then: func(cx *core.Scope) core.Node {
-			return core.View{
-				PointerEvents: core.PointerEventsBoxNone,
-				Style: core.Style{
-					Position:       core.Absolute,
-					Left:           core.Pt(0),
-					Right:          core.Pt(0),
-					Top:            core.Pt(16),
-					Direction:      core.Row,
-					JustifyContent: core.JustifyCenter,
-				},
-				Children: []core.Node{
-					core.View{
-						TestID: "editor-viewport-toast",
-						Role:   core.RoleStatus,
-						Style: core.Style{
-							Height:       core.Pt(30),
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          8,
-							Padding:      core.Edges{Left: 12, Right: 8},
-							CornerRadius: 8,
-							Background:   specRaised,
-							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-						},
-						Children: []core.Node{
-							ui.Icon(lucide.Check, 13, func() core.Color { return specAdded }),
-							core.Text{
-								TestID: "editor-viewport-toast-text",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return ed.ToastMessage()
-								},
-								MaxLines: 1,
-								Style: core.Style{
-									FontSize: 12,
-									Color:    specText,
-								},
-							},
-							ui.Button{
-								TestID:  "editor-viewport-toast-dismiss",
-								Icon:    lucide.X,
-								Label:   "Dismiss",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								Tint:    func() core.Color { return specTextMuted },
-								Style: core.Style{
-									Width:        core.Pt(22),
-									Height:       core.Pt(22),
-									CornerRadius: 6,
-									Padding:      core.All(0),
-								},
-								OnPress: func() {
-									ed.DismissToast()
-								},
-							},
-						},
-					},
-				},
-			}
-		},
-	}
-}
-
 // bindObjectContextMenuKeys wires keyboard triggers for the unified object context menu (Shift+F10 and
 // the Menu/ContextMenu key) and object context menu shortcuts that do not clash with built-in commands.
 func bindObjectContextMenuKeys(cx *core.Scope, ed *Editor) {
 	inScene := func() bool {
-		return ed != nil && ed.Doc != nil && !ed.StartScreenOpen() && !ed.MergeConflictOpen() && !ed.HUDLayoutOpen()
+		return ed != nil && !ed.shortcutCaptureActive && !ed.contextMenuBlocked()
 	}
 	openMenu := func() {
-		if inScene() && !ed.Playing() && ed.SelectedID != "" {
+		if inScene() && ed.SelectedID != "" {
 			ed.OpenObjectContextMenu(ed.SelectedID)
 		}
 	}
@@ -585,12 +578,6 @@ func bindObjectContextMenuKeys(cx *core.Scope, ed *Editor) {
 	cx.OnKeyWith("h", opts, func() {
 		if inScene() && ed.SelectedID != "" {
 			_, err := ed.ToggleObjectHidden(ed.SelectedID)
-			ed.report(err)
-		}
-	})
-	cx.OnKeyWith("shift+f12", opts, func() {
-		if inScene() && ed.Project != nil && ed.ProjectPath != "" && ed.SelectedID != "" {
-			_, err := ed.ShowObjectUsages(ed.SelectedID)
 			ed.report(err)
 		}
 	})

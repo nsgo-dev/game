@@ -236,6 +236,9 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.shortcutsSheetOpen = false
 	e.stopReleaseBuild()
 	e.closeBuildReleaseScreenSilent()
+	e.contextMenu.open = false
+	e.contextMenu.targetID = ""
+	e.contextMenu.renameReqID = ""
 	e.cancelBackgroundPreview()
 	e.cancelMaterialColorPreview()
 	e.playSnapshot = snap

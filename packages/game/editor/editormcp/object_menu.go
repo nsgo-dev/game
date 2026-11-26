@@ -411,6 +411,9 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 		if id == "" {
 			id = ed.SelectedID
 		}
+		if obj, _ := ed.FindResolvedObject(id); obj == nil {
+			return fmt.Errorf("object %q not found", id)
+		}
 		if args.Hidden != nil {
 			if err := ed.SetObjectHidden(id, *args.Hidden); err != nil {
 				return err
@@ -420,9 +423,6 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 			if err := ed.SetObjectLocked(id, *args.Locked); err != nil {
 				return err
 			}
-		}
-		if obj, _, _ := ed.FindObject(id); obj == nil {
-			return fmt.Errorf("object %q not found", id)
 		}
 		out = ObjectVisibilityResult{
 			ID:     id,

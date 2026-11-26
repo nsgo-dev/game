@@ -235,6 +235,7 @@ func (e *Editor) cancelTransientInteraction() {
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
 	e.exitTileReviewBeforePreview()
+	e.CloseObjectContextMenu()
 	e.connPick = nil
 }
 
