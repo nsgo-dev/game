@@ -1627,6 +1627,7 @@ The **Agent** panel (`AgentPanelView` inside `RightRailView`, `⌘1` / `⌘2`) s
 - **Show, hide, and reset from the menu**: open **View > Panels** to check or uncheck any built-in or active plugin panel (`PanelVisible`, `SetPanelVisible`, `TogglePanel`, `Panels`), or choose **View > Reset Layout** / **View > Panels > Reset Layout** (`CmdResetLayout`, `ResetLayout`) to restore the default arrangement.
 - **Per-user saved layout (`LayoutFile`, `ParseLayout`, `EncodeLayout`)**: layout changes persist automatically as strict versioned YAML outside any project under `<UserConfigDir>/nsgo-game/layout.yaml` (`DefaultLayoutPath`, configured via `Editor.LayoutPath` / `Editor.SetLayoutPath` and wired automatically by `game editor` and `editorcmd`). Starting the editor again restores saved splits, tab groups, active tabs, sizes, and hidden panels, dropping any panel that no longer exists (for example from a removed plugin).
 - **Plugin panel placement**: plugin panels (`Plugin.Panels`) appear at their declared default `Dock` (`DockLeft`, `DockRight`, or `DockBottom`) on first use; once moved or tabbed elsewhere by the user, subsequent launches restore them at their moved position.
+
 ## Reviewing the agent's Go changes file by file (#1034)
 
 When an agent turn proposes Go edits alongside scene, prefab, or data YAML changes, the editor opens a dedicated file-by-file code review (`CodeReviewView`, matching `docs/design/editor/ReviewCode.dc.html` and `Review.dc.html` with exclusively `SpecPalette` tokens in both Dark and Light appearances):
