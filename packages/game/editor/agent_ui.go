@@ -1397,11 +1397,12 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						When: func() bool {
 							_ = rev.Get()
 							pl := ed.ActivePlan()
-							return pl != nil && pl.Phase == PlanPhaseDraft && ed.PendingAgentPermissionAsk() == nil && !ed.MentionPickerOpen() && !ed.ContextBreakdownOpen()
+							return pl != nil && pl.Phase == PlanPhaseDraft && ed.PendingAgentPermissionAsk() == nil && !ed.CodeReviewOpen() && !ed.MentionPickerOpen() && !ed.ContextBreakdownOpen()
 						},
 						Then: func(cx *core.Scope) core.Node {
 							cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
 								if ed.IsTyping() || cardRef.HoldsFocus() || ed.PendingAgentPermissionAsk() != nil ||
+									ed.CodeReviewOpen() ||
 									ed.AgentSwitcherOpen() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() ||
 									ed.AskInPlaceOpen() || ed.askInPlaceKeyBlocked() ||
 									ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.AgentReviewOpen() ||
@@ -1426,11 +1427,12 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
-							return ed.IsPlanRunning() && ed.PendingAgentPermissionAsk() == nil && !ed.AgentSwitcherOpen() && !ed.AgentPointingActive() && !ed.MentionPickerOpen() && !ed.ContextBreakdownOpen()
+							return ed.IsPlanRunning() && ed.PendingAgentPermissionAsk() == nil && !ed.CodeReviewOpen() && !ed.AgentSwitcherOpen() && !ed.AgentPointingActive() && !ed.MentionPickerOpen() && !ed.ContextBreakdownOpen()
 						},
 						Then: func(cx *core.Scope) core.Node {
 							cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 								if cardRef.HoldsFocus() || ed.PendingAgentPermissionAsk() != nil ||
+									ed.CodeReviewOpen() ||
 									ed.AgentSwitcherOpen() || ed.AgentPointingActive() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() ||
 									ed.AskInPlaceOpen() || ed.askInPlaceKeyBlocked() || ed.ObjectContextMenuOpen() ||
 									ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.AgentReviewOpen() ||

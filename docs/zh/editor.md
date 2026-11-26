@@ -1627,6 +1627,7 @@ func main() {
 - **菜单显示、隐藏与重置**：通过 **View > Panels** 菜单勾选或取消显示任意内置面板与已启用插件面板（`PanelVisible`、`SetPanelVisible`、`TogglePanel`、`Panels`），或选择 **View > Reset Layout** / **View > Panels > Reset Layout**（`CmdResetLayout`、`ResetLayout`）恢复默认布局。
 - **按用户保存布局（`LayoutFile`、`ParseLayout`、`EncodeLayout`）**：布局改动会自动以严格版本化 YAML 保存在所有项目之外的用户配置目录 `<UserConfigDir>/nsgo-game/layout.yaml`（`DefaultLayoutPath`，通过 `Editor.LayoutPath` / `Editor.SetLayoutPath` 配置，并由 `game editor` 与 `editorcmd` 自动接入）。下次启动时恢复已保存的分割、标签组、当前活动标签页、尺寸与隐藏面板；不再存在的面板（例如已卸载插件的面板）会在恢复时自动丢弃。
 - **插件面板位置**：插件面板（`Plugin.Panels`）首次使用时出现在其声明的默认 `Dock`（`DockLeft`、`DockRight` 或 `DockBottom`）；一旦用户将其移动或合并到其他位置，之后每次启动都会恢复到用户移动后的位置。
+
 ## 逐文件审查智能体的 Go 代码更改（#1034）
 
 当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `docs/design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `SpecPalette` 令牌）：
