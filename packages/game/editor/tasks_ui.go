@@ -13,20 +13,16 @@ import (
 // tasksStatusIndicatorView renders the Tasks status bar button matching docs/design/editor/Tasks.dc.html:
 // idle ("No tasks"), single running ("1 running · 0:38"), or mixed counts most urgent first
 // (Failed, Needs you, Running, Ready to review, Queued) with zero counts omitted.
+// The outer button stays stably mounted across task updates so keyboard focus is never dropped.
 func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	statusKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		parts := ed.TaskStatusParts()
 		var b strings.Builder
-		if cx.Dark() {
+		if ed.SpecPalette(cx).Dark {
 			b.WriteString("D:")
 		} else {
 			b.WriteString("L:")
-		}
-		if ed.TasksPanelOpen() {
-			b.WriteString("1:")
-		} else {
-			b.WriteString("0:")
 		}
 		for _, part := range parts {
 			b.WriteString(string(part.State))
@@ -37,14 +33,12 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		return b.String()
 	})
 
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+	partsNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = statusKey.Get()
 		p := ed.SpecPalette(cx)
 		parts := ed.TaskStatusParts()
-		var ariaParts []string
 		kids := make([]core.Node, 0, len(parts))
 		for i, part := range parts {
-			ariaParts = append(ariaParts, part.Label)
 			dotColor := p.LineRaised
 			textColor := p.TextFaint
 			switch part.State {
@@ -92,58 +86,111 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 				},
 			})
 		}
-
-		bg := p.Raised
-		border := p.LineRaised
-		if ed.TasksPanelOpen() {
-			border = p.Accent.Edge
-		}
 		return core.View{
-			TestID:    "status-tasks",
-			Role:      core.RoleButton,
-			Label:     strings.Join(ariaParts, ", ") + ". Show tasks",
-			Focusable: func() bool { return true },
 			Style: core.Style{
-				Direction:    core.Row,
-				AlignItems:   core.AlignCenter,
-				Gap:          10,
-				Height:       core.Pt(24),
-				Padding:      core.Symmetric(0, 8),
-				CornerRadius: 6,
-				Background:   bg,
-				BorderWidth:  1,
-				BorderColor:  border,
-				FlexShrink:   0,
-				FocusVisible: p.FocusRing(2),
-			},
-			OnPress: func(core.PressEvent) {
-				ed.ToggleTasksPanel()
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        10,
 			},
 			Children: kids,
 		}
 	})
+
+	return core.View{
+		TestID: "status-tasks",
+		Role:   core.RoleButton,
+		LabelFunc: func() string {
+			_ = rev.Get()
+			parts := ed.TaskStatusParts()
+			ariaParts := make([]string, 0, len(parts))
+			for _, part := range parts {
+				ariaParts = append(ariaParts, part.Label)
+			}
+			return strings.Join(ariaParts, ", ") + ". Show tasks"
+		},
+		Focusable: func() bool { return true },
+		Style: core.Style{
+			Direction:    core.Row,
+			AlignItems:   core.AlignCenter,
+			Height:       core.Pt(24),
+			Padding:      core.Symmetric(0, 8),
+			CornerRadius: 6,
+			BorderWidth:  1,
+			FlexShrink:   0,
+		},
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			p := ed.SpecPalette(cx)
+			border := p.LineRaised
+			if ed.TasksPanelOpen() {
+				border = p.Accent.Edge
+			}
+			return core.Style{
+				Background:   p.Raised,
+				BorderColor:  border,
+				FocusVisible: p.FocusRing(2),
+			}
+		},
+		OnPress: func(core.PressEvent) {
+			ed.ToggleTasksPanel()
+		},
+		Children: []core.Node{partsNode},
+	}
 }
 
 // TasksPanelView renders the Agent right panel with its collapsible Tasks list (grouped under
 // Needs you, Running, Ready to review, Queued, and Failed), bulk Dismiss for Ready to review,
 // focused task detail with live steps & review actions, and Queue / Run in parallel composer,
 // matching docs/design/editor/Tasks.dc.html using exclusively SpecPalette tokens.
+// The panel container, ScrollViews, and composer input remain stably mounted across task updates
+// so background progress never steals typing focus or resets scroll position.
 func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	panelKey := core.NewMemo(cx, func() string {
+	panelRef := new(core.Ref)
+	ed.SetAgentPanelRef(panelRef)
+
+	themeKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		if ed.SpecPalette(cx).Dark {
+			return "D|" + ed.ResolvedLanguage()
+		}
+		return "L|" + ed.ResolvedLanguage()
+	})
+
+	expandedMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.TasksListExpanded()
+	})
+
+	summaryKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		s := ed.TaskSummary()
+		return fmt.Sprintf("%v|%d|%d|%d|%d", ed.TasksListExpanded(), s.Running, s.NeedsYou, s.ReadyToReview, s.Failed)
+	})
+
+	listKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		if cx.Dark() {
-			b.WriteString("D|")
-		} else {
-			b.WriteString("L|")
-		}
-		b.WriteString(ed.ResolvedLanguage())
-		fmt.Fprintf(&b, "|open=%v|exp=%v|mode=%s|focus=%s|sel=%d",
-			ed.TasksPanelOpen(), ed.TasksListExpanded(), ed.TaskComposerMode(), ed.tasks.focusedID, len(ed.SelectedDismissTaskIDs()))
+		fmt.Fprintf(&b, "focus=%s|sel=%d", ed.FocusedTaskID(), len(ed.SelectedDismissTaskIDs()))
 		for _, t := range ed.Tasks() {
-			fmt.Fprintf(&b, "|%s:%s:%d:%v:%v:%s:%s:%d:%d:%s:%d",
+			fmt.Fprintf(&b, "|%s:%s:%d:%v:%v:%s:%s:%d:%s:%d",
 				t.ID, t.State, t.Number, t.Dismissed, ed.TaskDismissSelected(t.ID),
-				t.BlockedOn, t.StepSummary, len(t.Steps), t.ElapsedSeconds, t.TimeLabel, t.Review.EffectiveChangeCount())
+				t.BlockedOn, t.StepSummary, t.ElapsedSeconds, t.TimeLabel, t.Review.EffectiveChangeCount())
+		}
+		return b.String()
+	})
+
+	detailKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		focused, ok := ed.FocusedTask()
+		if !ok {
+			return "none"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s|%s|%d|%s|%s|%s|%s|%d",
+			focused.ID, focused.State, focused.Number, focused.Title, focused.BlockedOn,
+			focused.PermissionDetail, focused.Error, len(focused.Steps))
+		for _, st := range focused.Steps {
+			fmt.Fprintf(&b, "|%s:%v:%v:%v", st.Summary, st.Done, st.Active, st.Blocked)
 		}
 		return b.String()
 	})
@@ -158,11 +205,8 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = panelKey.Get()
+		_ = themeKey.Get()
 		p := ed.SpecPalette(cx)
-		summary := ed.TaskSummary()
-		selectedDismiss := ed.SelectedDismissTaskIDs()
-		focused, hasFocused := ed.FocusedTask()
 
 		header := core.View{
 			TestID: "tasks-panel-header",
@@ -186,32 +230,7 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						FlexGrow:   1,
 					},
 				},
-				core.View{
-					TestID: "tasks-mcp-badge",
-					Style: core.Style{
-						Direction:  core.Row,
-						AlignItems: core.AlignCenter,
-						Gap:        6,
-						Padding:    core.Symmetric(0, 8),
-					},
-					Children: []core.Node{
-						core.View{
-							Style: core.Style{
-								Width:        core.Pt(6),
-								Height:       core.Pt(6),
-								CornerRadius: 3,
-								Background:   p.Added.Fg,
-							},
-						},
-						core.Text{
-							Content: "MCP",
-							Style: core.Style{
-								FontSize: 11.5,
-								Color:    p.TextFaint,
-							},
-						},
-					},
-				},
+				AgentStatusChipView(cx, ed, rev),
 				ui.Button{
 					TestID:   "tasks-panel-close",
 					Icon:     lucide.X,
@@ -232,37 +251,50 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 		}
 
-		// Summary counts inside the collapsible "Tasks" header.
-		summaryBadges := []core.Node{
-			core.Text{
-				Content: ed.T("tasks.sectionTitle"),
-				Style: core.Style{
-					FontSize:   12.5,
-					FontWeight: 600,
-					Color:      p.TextPrimary,
+		// Summary counts inside the collapsible "Tasks" header; only the inner chips update.
+		listToggleContent := core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = summaryKey.Get()
+			summary := ed.TaskSummary()
+			summaryBadges := []core.Node{
+				core.Text{
+					Content: ed.T("tasks.sectionTitle"),
+					Style: core.Style{
+						FontSize:   12.5,
+						FontWeight: 600,
+						Color:      p.TextPrimary,
+					},
 				},
-			},
-		}
-		if summary.Running > 0 {
-			summaryBadges = append(summaryBadges, taskCountChip(p.Agent.Fg, p.TextMuted, fmt.Sprintf("%d running", summary.Running)))
-		}
-		if summary.NeedsYou > 0 {
-			summaryBadges = append(summaryBadges, taskCountChip(p.Warning.Fg, p.Warning.Fg, fmt.Sprintf("%d needs you", summary.NeedsYou)))
-		}
-		if summary.ReadyToReview > 0 {
-			summaryBadges = append(summaryBadges, taskCountChip(p.Accent.Fg, p.TextMuted, fmt.Sprintf("%d to review", summary.ReadyToReview)))
-		}
-		if summary.Failed > 0 {
-			summaryBadges = append(summaryBadges, taskCountChip(p.Removed.Fg, p.Removed.Fg, fmt.Sprintf("%d failed", summary.Failed)))
-		}
-		summaryBadges = append(summaryBadges, core.View{Style: core.Style{FlexGrow: 1}})
-		chevronIcon := lucide.ChevronDown
-		if ed.TasksListExpanded() {
-			chevronIcon = lucide.ChevronUp
-		}
-		summaryBadges = append(summaryBadges, core.Icon{
-			SVG:   chevronIcon(),
-			Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.TextFaint},
+			}
+			if summary.Running > 0 {
+				summaryBadges = append(summaryBadges, taskCountChip(p.Agent.Fg, p.TextMuted, fmt.Sprintf("%d running", summary.Running)))
+			}
+			if summary.NeedsYou > 0 {
+				summaryBadges = append(summaryBadges, taskCountChip(p.Warning.Fg, p.Warning.Fg, fmt.Sprintf("%d needs you", summary.NeedsYou)))
+			}
+			if summary.ReadyToReview > 0 {
+				summaryBadges = append(summaryBadges, taskCountChip(p.Accent.Fg, p.TextMuted, fmt.Sprintf("%d to review", summary.ReadyToReview)))
+			}
+			if summary.Failed > 0 {
+				summaryBadges = append(summaryBadges, taskCountChip(p.Removed.Fg, p.Removed.Fg, fmt.Sprintf("%d failed", summary.Failed)))
+			}
+			summaryBadges = append(summaryBadges, core.View{Style: core.Style{FlexGrow: 1}})
+			chevronIcon := lucide.ChevronDown
+			if ed.TasksListExpanded() {
+				chevronIcon = lucide.ChevronUp
+			}
+			summaryBadges = append(summaryBadges, core.Icon{
+				SVG:   chevronIcon(),
+				Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.TextFaint},
+			})
+			return core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					FlexGrow:   1,
+					Gap:        10,
+				},
+				Children: summaryBadges,
+			}
 		})
 
 		listToggle := core.View{
@@ -275,137 +307,132 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				AlignItems:   core.AlignCenter,
 				Height:       core.Pt(40),
 				Padding:      core.Symmetric(0, 16),
-				Gap:          10,
 				FocusVisible: p.FocusRing(-2),
 			},
 			OnPress: func(core.PressEvent) {
 				ed.ToggleTasksListExpanded()
 			},
-			Children: summaryBadges,
+			Children: []core.Node{listToggleContent},
 		}
 
-		// Build the five grouped task sections.
-		type groupDef struct {
-			state TaskState
-			head  string
-		}
-		groups := []groupDef{
-			{TaskNeedsYou, ed.T("tasks.group.needsYou")},
-			{TaskRunning, ed.T("tasks.group.running")},
-			{TaskReadyToReview, ed.T("tasks.group.readyToReview")},
-			{TaskQueued, ed.T("tasks.group.queued")},
-			{TaskFailed, ed.T("tasks.group.failed")},
-		}
+		// Build the five grouped task sections inside a stably-mounted ScrollView.
+		listRows := core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = listKey.Get()
+			selectedDismiss := ed.SelectedDismissTaskIDs()
+			focused, hasFocused := ed.FocusedTask()
+			type groupDef struct {
+				state TaskState
+				head  string
+			}
+			groups := []groupDef{
+				{TaskNeedsYou, ed.T("tasks.group.needsYou")},
+				{TaskRunning, ed.T("tasks.group.running")},
+				{TaskReadyToReview, ed.T("tasks.group.readyToReview")},
+				{TaskQueued, ed.T("tasks.group.queued")},
+				{TaskFailed, ed.T("tasks.group.failed")},
+			}
 
-		var groupNodes []core.Node
-		for _, g := range groups {
-			items := ed.TasksInState(g.state)
-			if len(items) == 0 {
-				continue
-			}
-			headChildren := []core.Node{
-				core.Text{
-					Content: fmt.Sprintf("%s · %d", g.head, len(items)),
-					Style: core.Style{
-						FontSize:      11,
-						FontWeight:    600,
-						LetterSpacing: 0.6,
-						Color:         p.TextFaint,
-						FlexGrow:      1,
-					},
-				},
-			}
-			if g.state == TaskReadyToReview {
-				selN := len(selectedDismiss)
-				dismissBg := core.Transparent
-				dismissColor := p.TextFaint
-				if selN > 0 {
-					dismissBg = p.LineRaised
-					dismissColor = p.TextPrimary
+			var groupNodes []core.Node
+			for _, g := range groups {
+				items := ed.TasksInState(g.state)
+				if len(items) == 0 {
+					continue
 				}
-				headChildren = append(headChildren, core.View{
-					TestID:    "tasks-dismiss-selected",
-					Role:      core.RoleButton,
-					Label:     fmt.Sprintf("Dismiss %d", selN),
-					Disabled:  func() bool { return selN == 0 },
-					Focusable: func() bool { return selN > 0 },
-					Style: core.Style{
-						Height:         core.Pt(24),
-						Padding:        core.Symmetric(0, 8),
-						CornerRadius:   6,
-						Background:     dismissBg,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-						FocusVisible:   p.FocusRing(2),
+				headChildren := []core.Node{
+					core.Text{
+						Content: fmt.Sprintf("%s · %d", g.head, len(items)),
+						Style: core.Style{
+							FontSize:      11,
+							FontWeight:    600,
+							LetterSpacing: 0.6,
+							Color:         p.TextFaint,
+							FlexGrow:      1,
+						},
 					},
-					OnPress: func(core.PressEvent) {
-						ed.DismissSelectedTasks()
+				}
+				if g.state == TaskReadyToReview {
+					selN := len(selectedDismiss)
+					dismissBg := core.Transparent
+					dismissColor := p.TextFaint
+					if selN > 0 {
+						dismissBg = p.LineRaised
+						dismissColor = p.TextPrimary
+					}
+					headChildren = append(headChildren, core.View{
+						TestID:    "tasks-dismiss-selected",
+						Role:      core.RoleButton,
+						Label:     fmt.Sprintf("Dismiss %d", selN),
+						Disabled:  func() bool { return selN == 0 },
+						Focusable: func() bool { return selN > 0 },
+						Style: core.Style{
+							Height:         core.Pt(24),
+							Padding:        core.Symmetric(0, 8),
+							CornerRadius:   6,
+							Background:     dismissBg,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							FocusVisible:   p.FocusRing(2),
+						},
+						OnPress: func(core.PressEvent) {
+							ed.DismissSelectedTasks()
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: fmt.Sprintf("%s %d", ed.T("tasks.action.dismiss"), selN),
+								Style: core.Style{
+									FontSize:   11,
+									FontWeight: 500,
+									Color:      dismissColor,
+								},
+							},
+						},
+					})
+				}
+				groupNodes = append(groupNodes, core.View{
+					TestID: "tasks-group-" + string(g.state),
+					Style: core.Style{
+						Direction:  core.Row,
+						AlignItems: core.AlignCenter,
+						Height:     core.Pt(24),
+						Padding:    core.Symmetric(0, 8),
+						Gap:        8,
+					},
+					Children: headChildren,
+				})
+				for _, item := range items {
+					groupNodes = append(groupNodes, taskRowView(ed, p, item, hasFocused && focused.ID == item.ID))
+				}
+			}
+
+			if len(groupNodes) == 0 {
+				groupNodes = append(groupNodes, core.View{
+					TestID: "tasks-empty-state",
+					Style: core.Style{
+						Padding: core.Symmetric(12, 16),
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: fmt.Sprintf("%s %d", ed.T("tasks.action.dismiss"), selN),
+							Content: ed.T("tasks.empty"),
 							Style: core.Style{
-								FontSize:   11,
-								FontWeight: 500,
-								Color:      dismissColor,
+								FontSize:   12,
+								LineHeight: 17,
+								Color:      p.TextFaint,
 							},
 						},
 					},
 				})
 			}
-			groupNodes = append(groupNodes, core.View{
-				TestID: "tasks-group-" + string(g.state),
+
+			return core.View{
+				TestID: "tasks-list-rows",
 				Style: core.Style{
-					Direction:  core.Row,
-					AlignItems: core.AlignCenter,
-					Height:     core.Pt(24),
-					Padding:    core.Symmetric(0, 8),
-					Gap:        8,
+					Padding: core.Edges{Left: 8, Right: 8, Bottom: 8},
+					Gap:     2,
 				},
-				Children: headChildren,
-			})
-			for _, item := range items {
-				groupNodes = append(groupNodes, taskRowView(ed, p, item, hasFocused && focused.ID == item.ID))
+				Children: groupNodes,
 			}
-		}
+		})
 
-		if len(groupNodes) == 0 {
-			groupNodes = append(groupNodes, core.View{
-				TestID: "tasks-empty-state",
-				Style: core.Style{
-					Padding: core.Symmetric(12, 16),
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: ed.T("tasks.empty"),
-						Style: core.Style{
-							FontSize:   12,
-							LineHeight: 17,
-							Color:      p.TextFaint,
-						},
-					},
-				},
-			})
-		}
-
-		listSectionChildren := []core.Node{listToggle}
-		if ed.TasksListExpanded() {
-			listSectionChildren = append(listSectionChildren, ui.ScrollView{
-				Style: core.Style{
-					MaxHeight: core.Pt(468),
-				},
-				Children: []core.Node{
-					core.View{
-						TestID: "tasks-list-rows",
-						Style: core.Style{
-							Padding: core.Edges{Left: 8, Right: 8, Bottom: 8},
-							Gap:     2,
-						},
-						Children: groupNodes,
-					},
-				},
-			})
-		}
 		listSection := core.View{
 			TestID: "tasks-list-section",
 			Style: core.Style{
@@ -413,24 +440,41 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				Borders:     core.Edges{Bottom: 1},
 				BorderColor: p.Line,
 			},
-			Children: listSectionChildren,
+			Children: []core.Node{
+				listToggle,
+				core.Show{
+					When: expandedMemo.Get,
+					Then: func(cx *core.Scope) core.Node {
+						return ui.ScrollView{
+							Style: core.Style{
+								MaxHeight: core.Pt(468),
+							},
+							Children: []core.Node{listRows},
+						}
+					},
+				},
+			},
 		}
 
-		// Focused task detail area.
-		detailSection := taskDetailView(ed, p, focused, hasFocused)
+		// Focused task detail area inside a stably-mounted ScrollView.
+		detailSection := ui.ScrollView{
+			Style: core.Style{
+				FlexGrow:  1,
+				FlexBasis: core.Pt(0),
+				MinHeight: core.Pt(0),
+			},
+			Children: []core.Node{
+				core.Dynamic(func(cx *core.Scope) core.Node {
+					_ = detailKey.Get()
+					focused, hasFocused := ed.FocusedTask()
+					return taskDetailView(ed, p, focused, hasFocused)
+				}),
+			},
+		}
 
-		// Composer section at the bottom matching Tasks.dc.html.
-		mode := ed.TaskComposerMode()
+		// Stably-mounted composer section at the bottom matching Tasks.dc.html.
+		// Never remounted on task progress so typing focus is preserved.
 		segBtn := func(testID, label string, target TaskStartMode) core.Node {
-			active := mode == target
-			bg := core.Transparent
-			fg := p.TextMuted
-			fw := core.FontWeight(400)
-			if active {
-				bg = p.LineRaised
-				fg = p.TextPrimary
-				fw = 500
-			}
 			return core.View{
 				TestID:    testID,
 				Role:      core.RoleRadio,
@@ -440,10 +484,16 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					Height:         core.Pt(26),
 					Padding:        core.Symmetric(0, 10),
 					CornerRadius:   6,
-					Background:     bg,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					FocusVisible:   p.FocusRing(2),
+				},
+				StyleFunc: func() core.Style {
+					_ = rev.Get()
+					if ed.TaskComposerMode() == target {
+						return core.Style{Background: p.LineRaised}
+					}
+					return core.Style{Background: core.Transparent}
 				},
 				OnPress: func(core.PressEvent) {
 					ed.SetTaskComposerMode(target)
@@ -452,9 +502,14 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					core.Text{
 						Content: label,
 						Style: core.Style{
-							FontSize:   11.5,
-							FontWeight: fw,
-							Color:      fg,
+							FontSize: 11.5,
+						},
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							if ed.TaskComposerMode() == target {
+								return core.Style{FontWeight: 500, Color: p.TextPrimary}
+							}
+							return core.Style{FontWeight: 400, Color: p.TextMuted}
 						},
 					},
 				},
@@ -497,10 +552,19 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 									ed.report(err)
 								}
 							},
+							OnFocus: func() {
+								ed.noteTextInputFocus(true)
+							},
+							OnBlur: func() {
+								ed.noteTextInputFocus(false)
+							},
 							Style: core.Style{
-								Height:      core.Pt(28),
-								Background:  core.Transparent,
-								BorderWidth: 0,
+								Height:           core.Pt(28),
+								Background:       core.Transparent,
+								BorderWidth:      0,
+								Color:            p.TextSecondary,
+								PlaceholderColor: p.TextFaint,
+								FocusVisible:     p.FocusRing(2),
 							},
 						},
 						core.View{
@@ -560,8 +624,11 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 				},
 				core.Text{
-					TestID:  "tasks-mode-hint",
-					Content: ed.TaskComposerHint(),
+					TestID: "tasks-mode-hint",
+					ContentFunc: func() string {
+						_ = rev.Get()
+						return ed.TaskComposerHint()
+					},
 					Style: core.Style{
 						FontSize: 11.5,
 						Color:    p.TextFaint,
@@ -571,7 +638,10 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		}
 
 		return core.View{
+			Ref:    panelRef,
 			TestID: "tasks-panel",
+			Role:   core.RoleRegion,
+			Label:  ed.T("tasks.panelTitle"),
 			Style: core.Style{
 				Width:       core.Pt(368),
 				FlexShrink:  0,
@@ -1049,22 +1119,13 @@ func taskDetailView(ed *Editor, p SpecPalette, focused AgentTask, hasFocused boo
 		})
 	}
 
-	return ui.ScrollView{
+	return core.View{
+		TestID: "tasks-detail",
 		Style: core.Style{
-			FlexGrow:  1,
-			FlexBasis: core.Pt(0),
-			MinHeight: core.Pt(0),
+			Padding: core.Symmetric(12, 16),
+			Gap:     8,
 		},
-		Children: []core.Node{
-			core.View{
-				TestID: "tasks-detail",
-				Style: core.Style{
-					Padding: core.Symmetric(12, 16),
-					Gap:     8,
-				},
-				Children: detailKids,
-			},
-		},
+		Children: detailKids,
 	}
 }
 

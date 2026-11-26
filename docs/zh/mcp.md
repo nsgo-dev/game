@@ -330,6 +330,9 @@ claude mcp add game-editor -- nsgo game mcp
 | `release_review_uploads` | run | 无 | 打开构建与发布界面的 **Review uploads** 确认对话框，列出每个产物的名称、体积、目标商店（`itch.io`、`Google Play · internal testing`、`TestFlight`）与版本号。绝不启动上传：无论权限配置如何，商店上传始终需要开发者本人显式确认。 |
 | `agent_turn_get` | read | `turnId`、`includeScene`、`includeImage`（可选） | 读取从 `⌘L` 就地提问框或智能体面板提交的最新（或指定）请求，返回提示词、`skipPlan` 标记、选中对象 ID 与名称、打开场景的路径与 YAML，以及捕获的视口 PNG 图像。 |
 | `agent_turn_reply` | edit | `turnId`、`reply`、`status`（可选） | 更新智能体面板对话线程中指定回合的状态（`pending`、`running`、`done`、`stopped`）和/或写入智能体回复文本。 |
+| `tasks_list` | read | `include_dismissed`（可选，默认 `false`） | 列出需要确认、运行中、待审查、排队中与失败五个分组中的后台智能体任务（`include_dismissed` 为 `true` 时同时包含已忽略/已完成任务），并返回当前对象持有锁与 `TaskSummary` 徽章计数（`dockBadge = needsYou + readyToReview + failed`）。 |
+| `tasks_submit` | edit | `prompt`（必填）、`title`、`mode`（`"queue"` 或 `"parallel"`，默认 `"queue"`）、`scene`（可选） | 向编辑器后台任务列表提交请求：`"queue"` 排在当前运行或待审查回合之后，仅在该回合被保留或还原后启动；`"parallel"` 在并发上限内立即作为独立会话启动，并带有自己的编号叠加层。 |
+| `tasks_control` | edit | `action`（必填：`"keep"`、`"revert"`、`"dismiss"`、`"stop"`、`"retry"`、`"open"`、`"focus"`、`"allow"` 或 `"deny"`）、`task_id`、`task_ids`（用于批量忽略） | 控制后台智能体任务：保留或安全还原单个回合（保留其他并行/已保留修改）、批量忽略待审查或失败任务而不还原已保留修改、停止或重试任务、聚焦或打开任务对应场景（严格限制在项目根目录内），或响应权限请求。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

@@ -54,6 +54,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		if ed.shortcutCaptureActive {
 			return
 		}
+		ed.StopRunningTasks()
 		if ed.OnStopAgent != nil {
 			ed.OnStopAgent()
 		}

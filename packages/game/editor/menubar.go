@@ -191,7 +191,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdAskAgent, e.T("menu.askAgent"), false),
 			cmdItem(CmdCommandPalette, e.T("menu.commandPalette"), false),
 			cmdItem(CmdShortcutsSheet, e.T("menu.shortcutsSheet"), false),
-			cmdItem(CmdToggleTasks, e.T("menu.tasks"), false),
+			cmdItem(CmdToggleTasks, e.T("menu.tasks"), true),
 			sep,
 			cmdItem(CmdAgentTab, e.T("menu.agentPanel"), false),
 			cmdItem(CmdInspectorTab, e.T("menu.inspectorPanel"), false),

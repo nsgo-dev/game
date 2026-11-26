@@ -91,6 +91,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if args.Component != "" && args.Property {
 		return nil, errors.New("object_set_field: component and property cannot both be set")
 	}
+	committed := false
 	if !c.onEditor {
 		holdTarget := args.ID
 		if holdTarget == "" {
@@ -100,11 +101,15 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			})
 		}
 		if holdTarget != "" {
-			release, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
+			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
 			if err != nil {
 				return nil, err
 			}
-			defer release()
+			defer func() {
+				if !committed {
+					rollback()
+				}
+			}()
 		}
 	}
 	var res ObjectFieldResult
@@ -172,6 +177,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	committed = true
 	if c.taskID != "" {
 		c.s.recordTaskObjectFieldEdit(c.taskID, res.File, res.Object, res.Field)
 	}

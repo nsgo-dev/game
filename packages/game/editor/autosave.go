@@ -207,13 +207,16 @@ func (e *Editor) KeepReview() {
 	e.EndReview(true)
 }
 
-// HasOpenReview reports whether any interactive review (scene/agent review, cutscene review, playtest proposal review, safe rename review, scene merge conflict, or unresolved external disk conflict) is currently open.
+// HasOpenReview reports whether any interactive review (scene/agent review, background task review, cutscene review, playtest proposal review, safe rename review, scene merge conflict, or unresolved external disk conflict) is currently open.
 // Edits made inside an open review are not kept yet and are not automatically saved.
 func (e *Editor) HasOpenReview() bool {
 	if e == nil {
 		return false
 	}
 	if e.autosave.reviewOpen {
+		return true
+	}
+	if e.HasOpenTaskReview() {
 		return true
 	}
 	if e.CutsceneReviewOpen() {

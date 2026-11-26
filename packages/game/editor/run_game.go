@@ -339,6 +339,7 @@ func (e *Editor) Close() error {
 	e.stopDiskWatcher()
 	e.stopAgentTimers()
 	e.stopAutoSave()
+	e.stopAllTaskRunners()
 	e.cancelCreateProject()
 	var playErr error
 	if e.Playing() {

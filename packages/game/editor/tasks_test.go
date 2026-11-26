@@ -3,11 +3,13 @@ package editor_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -493,5 +495,365 @@ func TestTasksPanelUIAndCompactToolbar(t *testing.T) {
 	app.Settle()
 	if ed.TaskSummary().Running != 3 {
 		t.Fatalf("Running count after parallel submit = %d, want 3", ed.TaskSummary().Running)
+	}
+}
+
+func TestTaskConcurrencyCapsAndPerThreadLimit(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	for i := 1; i <= 4; i++ {
+		if _, err := ed.SubmitTask(editor.TaskRequest{
+			Title:     fmt.Sprintf("Parallel %d", i),
+			StartMode: editor.TaskStartParallel,
+		}); err != nil {
+			t.Fatalf("SubmitTask parallel %d: %v", i, err)
+		}
+	}
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		Title:     "Parallel 5 should fail",
+		StartMode: editor.TaskStartParallel,
+	}); err == nil {
+		t.Fatal("expected 5th parallel task to be rejected by concurrency cap")
+	}
+
+	// Fill up to 64 active queued tasks (4 running + 60 queued = 64).
+	for i := 5; i <= 64; i++ {
+		if _, err := ed.SubmitTask(editor.TaskRequest{
+			Title:     fmt.Sprintf("Queued %d", i),
+			StartMode: editor.TaskStartQueue,
+		}); err != nil {
+			t.Fatalf("SubmitTask queued %d: %v", i, err)
+		}
+	}
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		Title:     "65th active task should fail",
+		StartMode: editor.TaskStartQueue,
+	}); err == nil {
+		t.Fatal("expected 65th active task to be rejected by per-thread cap")
+	}
+}
+
+func TestTaskPathTraversalAndThreadIDValidation(t *testing.T) {
+	dir := t.TempDir()
+	projDir := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(filepath.Join(projDir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideScene := filepath.Join(dir, "secret.scene.yaml")
+	if err := os.WriteFile(outsideScene, []byte("version: 1\nname: secret\nvirtualWidth: 320\nvirtualHeight: 180\nlayers:\n  - name: main\n    space: world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bad thread IDs are refused by ParseAgentThread and EncodeAgentThread.
+	for _, badID := range []string{"", "../evil", "a/b", "a\\b", "foo.bar", strings.Repeat("a", 65)} {
+		raw := fmt.Sprintf("version: 1\nid: %q\n", badID)
+		if _, err := editor.ParseAgentThread([]byte(raw)); err == nil {
+			t.Fatalf("expected ParseAgentThread to refuse id %q", badID)
+		}
+		if _, err := editor.EncodeAgentThread(&editor.AgentThreadDoc{Version: 1, ID: badID}); err == nil && badID != "" {
+			t.Fatalf("expected EncodeAgentThread to refuse id %q", badID)
+		}
+	}
+
+	// Oversized thread file (>2 MiB) is refused by LoadAgentThread.
+	threadsDir := filepath.Join(projDir, ".nsgo", "threads")
+	if err := os.MkdirAll(threadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bigPath := filepath.Join(threadsDir, "big.thread.yaml")
+	if err := os.WriteFile(bigPath, bytes.Repeat([]byte("a"), (2<<20)+16), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ProjectPath = filepath.Join(projDir, "game.yaml")
+	ed.ThreadsDir = threadsDir
+	if err := ed.LoadAgentThread(bigPath); err == nil {
+		t.Fatal("expected LoadAgentThread to refuse oversized file")
+	}
+
+	// Symlink escaping ThreadsDir is refused by LoadAgentThread.
+	outsideThread := filepath.Join(dir, "outside.thread.yaml")
+	if err := os.WriteFile(outsideThread, []byte("version: 1\nid: outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlinkThread := filepath.Join(threadsDir, "link.thread.yaml")
+	if err := os.Symlink(outsideThread, symlinkThread); err == nil {
+		if err := ed.LoadAgentThread(symlinkThread); err == nil {
+			t.Fatal("expected LoadAgentThread to refuse symlink escaping threads directory")
+		}
+	}
+
+	// SubmitTask refuses path traversal scene paths.
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		ID:        "bad-scene",
+		Title:     "Bad scene",
+		ScenePath: "../secret.scene.yaml",
+	}); err == nil {
+		t.Fatal("expected SubmitTask to refuse traversal scene path")
+	}
+
+	// OpenTask refuses a scene symlink escaping project root.
+	symlinkScene := filepath.Join(projDir, "scenes", "link.scene.yaml")
+	if err := os.Symlink(outsideScene, symlinkScene); err == nil {
+		if _, err := ed.SubmitTask(editor.TaskRequest{
+			ID:           "link-task",
+			Title:        "Symlink scene",
+			ScenePath:    "scenes/link.scene.yaml",
+			InitialState: editor.TaskReadyToReview,
+		}); err != nil {
+			t.Fatalf("SubmitTask link-task: %v", err)
+		}
+		if err := ed.OpenTask("link-task"); err == nil {
+			t.Fatal("expected OpenTask to refuse scene symlink escaping project root")
+		}
+	}
+}
+
+func TestTaskProjectGenerationGuardAndLifecycle(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan string, 4)
+	canceled := make(chan struct{}, 2)
+	releaseOld := make(chan struct{})
+	ed.AgentTaskRunner = func(ctx context.Context, task editor.AgentTask) error {
+		started <- task.ID
+		<-ctx.Done()
+		canceled <- struct{}{}
+		<-releaseOld
+		return ctx.Err()
+	}
+
+	var releasedHolds []string
+	ed.SetTaskHoldReleaseHook(func(taskID string) {
+		releasedHolds = append(releasedHolds, taskID)
+	})
+
+	t1, err := ed.SubmitTask(editor.TaskRequest{Title: "Old project task", StartMode: editor.TaskStartQueue})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+
+	// OpenDemo resets tasks, cancels old runner, releases holds, and does not reuse old task IDs.
+	ed.OpenDemo()
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OpenDemo did not cancel running task runner")
+	}
+	if len(releasedHolds) == 0 || releasedHolds[0] != t1.ID {
+		t.Fatalf("OpenDemo did not release old task holds: %v", releasedHolds)
+	}
+
+	// Submit a brand new task in the new session — must get a fresh ID and survive stale old-runner exit.
+	ed.AgentTaskRunner = nil
+	tNew, err := ed.SubmitTask(editor.TaskRequest{Title: "Demo task", StartMode: editor.TaskStartQueue})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tNew.ID == t1.ID {
+		t.Fatalf("nextSeq was reset across project switch: reused ID %q", tNew.ID)
+	}
+	close(releaseOld)
+	time.Sleep(20 * time.Millisecond)
+
+	cur, ok := ed.Task(tNew.ID)
+	if !ok || cur.State != editor.TaskRunning {
+		t.Fatalf("new session task corrupted by stale runner: ok=%v task=%+v", ok, cur)
+	}
+
+	// StopRunningTasks (wired to Mod+.) stops running tasks without disturbing Ready to review tasks.
+	_, _ = ed.SubmitTask(editor.TaskRequest{
+		ID:           "rev-keep",
+		Title:        "Reviewable turn",
+		Source:       editor.TaskSourceAutomation,
+		InitialState: editor.TaskReadyToReview,
+	})
+	ed.StopRunningTasks()
+	if cur, _ := ed.Task(tNew.ID); cur.State != editor.TaskStopped {
+		t.Fatalf("StopRunningTasks state = %s, want stopped", cur.State)
+	}
+	if revTask, _ := ed.Task("rev-keep"); revTask.State != editor.TaskReadyToReview {
+		t.Fatalf("StopRunningTasks disturbed reviewable task: state=%s", revTask.State)
+	}
+
+	// Editor.Close stops active runners cleanly.
+	if err := ed.Close(); err != nil {
+		t.Fatalf("Editor.Close: %v", err)
+	}
+}
+
+func TestRevertTaskPreservesParallelKeptEditsAndHumanEdits(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s0, _ := ed.SaveYAML()
+
+	// Parallel Task 1 edits slime_01.
+	if _, err := ed.SubmitTask(editor.TaskRequest{ID: "p1", Title: "Move slime_01", StartMode: editor.TaskStartParallel}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveObject("slime_01", 120, 260); err != nil {
+		t.Fatal(err)
+	}
+	s1, _ := ed.SaveYAML()
+	if err := ed.CompleteTaskTurn("p1", editor.TaskReview{
+		ID:              "rev-p1",
+		TaskID:          "p1",
+		BeforeSceneYAML: string(s0),
+		AfterSceneYAML:  string(s1),
+		Changes:         []editor.TaskReviewChange{{ObjectID: "slime_01", Kind: "changed", Summary: "move slime_01"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Parallel Task 2 edits slime_03 (and captures BeforeSceneYAML after p1's edit).
+	if _, err := ed.SubmitTask(editor.TaskRequest{ID: "p2", Title: "Move slime_03", StartMode: editor.TaskStartParallel}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveObject("slime_03", 500, 180); err != nil {
+		t.Fatal(err)
+	}
+	s2, _ := ed.SaveYAML()
+	if err := ed.CompleteTaskTurn("p2", editor.TaskReview{
+		ID:              "rev-p2",
+		TaskID:          "p2",
+		BeforeSceneYAML: string(s1),
+		AfterSceneYAML:  string(s2),
+		Changes:         []editor.TaskReviewChange{{ObjectID: "slime_03", Kind: "changed", Summary: "move slime_03"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Human also moves player.
+	if err := ed.MoveObject("player", 80, 220); err != nil {
+		t.Fatal(err)
+	}
+
+	// Keep Task 2, then Revert Task 1.
+	if err := ed.KeepTask("p2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RevertTask("p1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// slime_01 must be reverted to (196, 260), while Task 2's kept slime_03 (500, 180) and human's player (80, 220) are preserved!
+	o1, _, _ := ed.FindObject("slime_01")
+	o3, _, _ := ed.FindObject("slime_03")
+	op, _, _ := ed.FindObject("player")
+	if o1 == nil || o1.X != 196 || o1.Y != 260 {
+		t.Fatalf("slime_01 = %+v, want reverted to (196, 260)", o1)
+	}
+	if o3 == nil || o3.X != 500 || o3.Y != 180 {
+		t.Fatalf("Task 2 kept slime_03 was clobbered by RevertTask(p1): %+v", o3)
+	}
+	if op == nil || op.X != 80 || op.Y != 220 {
+		t.Fatalf("Human player edit was clobbered by RevertTask(p1): %+v", op)
+	}
+}
+
+func TestTasksComposerPreservesFocusAcrossBackgroundProgressAndUTF8Title(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ed.SubmitTask(editor.TaskRequest{
+		ID:           "bg-1",
+		Title:        "Background runner",
+		StartMode:    editor.TaskStartQueue,
+		InitialState: editor.TaskRunning,
+	})
+	ed.SetTasksPanelOpen(true)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	// Real AgentStatusChipView is rendered inside TasksPanelView (no fake static MCP badge).
+	if app.Exists("id:tasks-mcp-badge") {
+		t.Fatal("expected static fake tasks-mcp-badge to be replaced by real AgentStatusChipView")
+	}
+
+	// Focus the composer input and trigger repeated background task updates.
+	app.Focus("id:tasks-composer-input")
+	app.Settle()
+	if !ed.IsTyping() {
+		t.Fatal("expected ed.IsTyping() == true while tasks-composer-input is focused")
+	}
+	app.Post(func() {
+		_ = ed.UpdateTaskStep("bg-1", 2, 5, "placing jump arc")
+		_ = ed.AddTaskStep("bg-1", "updated slime_02", false)
+		ed.SetTaskComposerMode(editor.TaskStartParallel)
+	})
+	app.Settle()
+
+	// Typing focus MUST NOT be dropped by background progress updates.
+	if !ed.IsTyping() {
+		t.Fatal("background task updates remounted tasks-composer-input and dropped typing focus!")
+	}
+
+	// Long multi-byte UTF-8 prompt truncates cleanly on rune boundaries without producing invalid UTF-8.
+	longCN := strings.Repeat("给史莱姆加上跳跃动画并调整速度", 8)
+	app.Post(func() {
+		ed.SetTaskComposerDraft(longCN)
+		task, serr := ed.SubmitComposerTask()
+		if serr != nil {
+			t.Errorf("SubmitComposerTask UTF-8: %v", serr)
+			return
+		}
+		if !utf8.ValidString(task.Title) {
+			t.Errorf("task.Title contains invalid UTF-8: %q", task.Title)
+		}
+		if len([]rune(task.Title)) > 72 {
+			t.Errorf("task.Title rune length = %d, want <= 72", len([]rune(task.Title)))
+		}
+	})
+	app.Settle()
+}
+
+func TestTasksOpenReviewBlocksAutoSave(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("expected HasOpenReview == false before any task review")
+	}
+	task, err := ed.SubmitTask(editor.TaskRequest{
+		ID:     "rev-1",
+		Title:  "Tune player jump",
+		Prompt: "Tune player jump",
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask: %v", err)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("expected HasOpenReview == false while task is still running")
+	}
+	if err := ed.CompleteTaskTurn(task.ID, editor.TaskReview{
+		Summary: "Adjusted jump velocity",
+		Changes: []editor.TaskReviewChange{{ObjectID: "player", Summary: "jump +20%"}},
+	}); err != nil {
+		t.Fatalf("CompleteTaskTurn: %v", err)
+	}
+	if !ed.HasOpenTaskReview() || !ed.HasOpenReview() {
+		t.Fatal("expected HasOpenReview == true while background task review is unkept")
+	}
+	if err := ed.KeepTask(task.ID); err != nil {
+		t.Fatalf("KeepTask: %v", err)
+	}
+	if ed.HasOpenTaskReview() || ed.HasOpenReview() {
+		t.Fatal("expected HasOpenReview == false after KeepTask")
 	}
 }

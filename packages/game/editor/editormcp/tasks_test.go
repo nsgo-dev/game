@@ -323,3 +323,187 @@ func TestMCPTasksTools(t *testing.T) {
 		t.Fatalf("summary after keep = %+v, want running=1 queued=0", after)
 	}
 }
+
+func TestParallelABBADeadlockAvoidedAndHoldWaitTimeout(t *testing.T) {
+	ed := newSlimesEditor(t)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t1", Number: 1, Title: "Task 1", StartMode: editor.TaskStartParallel})
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t2", Number: 2, Title: "Task 2", StartMode: editor.TaskStartParallel})
+
+	c1 := connectTaskClient(t, s, "t1")
+	c2 := connectTaskClient(t, s, "t2")
+
+	// ConnectTask sessions must appear in Server.Clients().
+	if clients := s.Clients(); len(clients) < 2 {
+		t.Fatalf("Server.Clients() = %d, want >= 2", len(clients))
+	}
+
+	// Task 1 acquires slime_01; Task 2 acquires slime_02.
+	mustOK(t, call(t, c1, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_01", "component": "patrol", "fields": map[string]any{"speed": 50.0}}},
+	}))
+	mustOK(t, call(t, c2, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_02", "component": "patrol", "fields": map[string]any{"speed": 55.0}}},
+	}))
+
+	// Task 1 starts waiting on slime_02 (held by Task 2).
+	t1Blocked := make(chan struct{}, 1)
+	s.SetHoldBlockedHook(func(taskID, objectID, holderTaskID string) {
+		if taskID == "t1" && objectID == "slime_02" && holderTaskID == "t2" {
+			select {
+			case t1Blocked <- struct{}{}:
+			default:
+			}
+		}
+	})
+	t1Done := make(chan *mcp.CallToolResult, 1)
+	go func() {
+		res, _ := c1.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: editormcp.ToolSceneEdit,
+			Arguments: map[string]any{
+				"edits": []any{map[string]any{"op": "set", "id": "slime_02", "component": "patrol", "fields": map[string]any{"jump": true}}},
+			},
+		})
+		t1Done <- res
+	}()
+	select {
+	case <-t1Blocked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for t1 to block on slime_02")
+	}
+
+	// Task 2 now requests slime_01 (held by Task 1) -> AB-BA cycle MUST be rejected immediately without hanging!
+	res2 := call(t, c2, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_01", "component": "patrol", "fields": map[string]any{"jump": true}}},
+	})
+	if !res2.IsError || !strings.Contains(text(res2), "deadlock avoided") {
+		t.Fatalf("expected AB-BA deadlock error, got isError=%v text=%q", res2.IsError, text(res2))
+	}
+
+	// Finish Task 2 -> Task 1 unblocks and succeeds cleanly.
+	if _, err := s.CompleteTaskTurn(context.Background(), "t2", "Task 2 done"); err != nil {
+		t.Fatalf("CompleteTaskTurn t2: %v", err)
+	}
+	select {
+	case res1 := <-t1Done:
+		mustOK(t, res1)
+	case <-time.After(3 * time.Second):
+		t.Fatal("t1 did not resume after t2 released holds")
+	}
+	if _, err := s.CompleteTaskTurn(context.Background(), "t1", "Task 1 done"); err != nil {
+		t.Fatalf("CompleteTaskTurn t1: %v", err)
+	}
+
+	// Verify bounded hold-wait timeout also fails cleanly instead of hanging forever.
+	s.SetHoldWaitTimeout(50 * time.Millisecond)
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t3", Number: 3, Title: "Task 3", StartMode: editor.TaskStartParallel})
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t4", Number: 4, Title: "Task 4", StartMode: editor.TaskStartParallel})
+	c3 := connectTaskClient(t, s, "t3")
+	c4 := connectTaskClient(t, s, "t4")
+	mustOK(t, call(t, c3, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_03", "component": "patrol", "fields": map[string]any{"speed": 60.0}}},
+	}))
+	res4 := call(t, c4, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_03", "component": "patrol", "fields": map[string]any{"speed": 70.0}}},
+	})
+	if !res4.IsError || !strings.Contains(text(res4), "timed out waiting") {
+		t.Fatalf("expected hold wait timeout error, got isError=%v text=%q", res4.IsError, text(res4))
+	}
+	s.ReleaseTaskHolds("t3")
+}
+
+func TestFailedEditRollsBackHoldsAndObjectToolsRespectHolds(t *testing.T) {
+	ed := newSlimesEditor(t)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	s.SetHoldWaitTimeout(60 * time.Millisecond)
+
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t1", Number: 1, Title: "Task 1", StartMode: editor.TaskStartParallel})
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t2", Number: 2, Title: "Task 2", StartMode: editor.TaskStartParallel})
+	c1 := connectTaskClient(t, s, "t1")
+	c2 := connectTaskClient(t, s, "t2")
+
+	// Failed scene_edit on slime_02 MUST roll back the newly acquired hold on slime_02.
+	bad := call(t, c1, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_02", "component": "patrol", "fields": map[string]any{"noSuchField": 1}}},
+	})
+	if !bad.IsError {
+		t.Fatal("expected invalid field edit to fail")
+	}
+	if held := s.HeldObjects(); held["slime_02"] != "" {
+		t.Fatalf("failed edit leaked hold on slime_02: %+v", held)
+	}
+
+	// Now Task 1 holds slime_02 via a valid edit; Task 2 calling object_visibility / object_duplicate on slime_02 MUST hold (and hit our 60ms timeout rather than mutating!).
+	mustOK(t, call(t, c1, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_02", "component": "patrol", "fields": map[string]any{"jump": true}}},
+	}))
+	visRes := call(t, c2, editormcp.ToolObjectVisibility, map[string]any{"id": "slime_02", "hidden": true})
+	if !visRes.IsError || !strings.Contains(text(visRes), "timed out waiting") {
+		t.Fatalf("object_visibility bypassed hold on slime_02: isError=%v text=%q", visRes.IsError, text(visRes))
+	}
+	dupRes := call(t, c2, editormcp.ToolObjectDuplicate, map[string]any{"id": "slime_02"})
+	if !dupRes.IsError || !strings.Contains(text(dupRes), "timed out waiting") {
+		t.Fatalf("object_duplicate bypassed hold on slime_02: isError=%v text=%q", dupRes.IsError, text(dupRes))
+	}
+
+	// Releasing Task 1's holds lets Task 2 succeed cleanly.
+	s.ReleaseTaskHolds("t1")
+	mustOK(t, call(t, c2, editormcp.ToolObjectVisibility, map[string]any{"id": "slime_02", "hidden": true}))
+	s.ReleaseTaskHolds("t2")
+}
+
+func TestParallelRevertTaskPreservesOtherTasksKeptEditsOverMCP(t *testing.T) {
+	ed := newSlimesEditor(t)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t1", Number: 1, Title: "Edit slime_01", StartMode: editor.TaskStartParallel})
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t2", Number: 2, Title: "Edit slime_03", StartMode: editor.TaskStartParallel})
+	c1 := connectTaskClient(t, s, "t1")
+	c2 := connectTaskClient(t, s, "t2")
+
+	mustOK(t, call(t, c1, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_01", "component": "patrol", "fields": map[string]any{"speed": 99.0}}},
+	}))
+	mustOK(t, call(t, c2, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_03", "component": "patrol", "fields": map[string]any{"speed": 77.0}}},
+	}))
+
+	if _, err := s.CompleteTaskTurn(context.Background(), "t1", "slime_01 faster"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteTaskTurn(context.Background(), "t2", "slime_03 faster"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Keep t2, then revert t1 over MCP.
+	mustOK(t, call(t, c2, editormcp.ToolTasksControl, map[string]any{"action": "keep", "task_id": "t2"}))
+	mustOK(t, call(t, c1, editormcp.ToolTasksControl, map[string]any{"action": "revert", "task_id": "t1"}))
+
+	if err := s.Editor(context.Background(), func(ed *editor.Editor) error {
+		o1, _, _ := ed.FindObject("slime_01")
+		o3, _, _ := ed.FindObject("slime_03")
+		asFloat := func(v any) float64 {
+			switch n := v.(type) {
+			case float64:
+				return n
+			case int:
+				return float64(n)
+			default:
+				return -1
+			}
+		}
+		if got := asFloat(o1.Components["patrol"].(map[string]any)["speed"]); got != 40.0 {
+			t.Fatalf("slime_01 speed = %v (%T), want reverted 40", o1.Components["patrol"], o1.Components["patrol"].(map[string]any)["speed"])
+		}
+		if got := asFloat(o3.Components["patrol"].(map[string]any)["speed"]); got != 77.0 {
+			t.Fatalf("t2 kept slime_03 speed = %v, want preserved 77", o3.Components["patrol"])
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

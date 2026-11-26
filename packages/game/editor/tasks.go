@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 
@@ -24,6 +27,17 @@ const AgentThreadVersion = 1
 
 // DefaultAgentThreadID is the filename stem of the default project thread file (.nsgo/threads/default.thread.yaml).
 const DefaultAgentThreadID = "default"
+
+const (
+	// maxParallelTasks caps how many background agent tasks may run concurrently.
+	maxParallelTasks = 4
+	// maxTasksPerThread caps total retained tasks per thread YAML document.
+	maxTasksPerThread = 64
+	// maxThreadFileBytes caps the maximum size of a *.thread.yaml file read from disk.
+	maxThreadFileBytes = 2 << 20
+	// defaultTaskRunnerTimeout bounds each background AgentTaskRunner execution.
+	defaultTaskRunnerTimeout = 10 * time.Minute
+)
 
 // TaskState identifies where a background agent task sits in its lifecycle.
 type TaskState string
@@ -276,8 +290,13 @@ type ObjectTaskOverlay struct {
 }
 
 type agentTasksState struct {
+	// inlineMu serializes headless (scope == nil) task mutations and notifications so concurrent
+	// worker goroutines never race on Editor.revision, listeners, or thread persistence.
+	// Always acquired before mu when both are needed.
+	inlineMu        sync.Mutex
 	mu              sync.Mutex
 	scope           *core.Scope
+	projectGen      uint64
 	panelOpen       bool
 	listExpanded    bool
 	composerMode    TaskStartMode
@@ -298,7 +317,30 @@ func (s *agentTasksState) setScope(cx *core.Scope) {
 	s.mu.Unlock()
 }
 
-func (s *agentTasksState) ensureInit() {
+func (s *agentTasksState) hasScope() bool {
+	s.mu.Lock()
+	ok := s.scope != nil
+	s.mu.Unlock()
+	return ok
+}
+
+func (s *agentTasksState) currentGen() uint64 {
+	s.mu.Lock()
+	g := s.projectGen
+	s.mu.Unlock()
+	return g
+}
+
+// lockHeadless serializes task mutations when no core.Scope drives single-goroutine dispatch.
+func (e *Editor) lockHeadlessTaskOp() func() {
+	if e == nil || e.tasks.hasScope() {
+		return func() {}
+	}
+	e.tasks.inlineMu.Lock()
+	return e.tasks.inlineMu.Unlock
+}
+
+func (s *agentTasksState) ensureInitLocked() {
 	if s.composerMode == "" {
 		s.composerMode = TaskStartQueue
 	}
@@ -311,6 +353,37 @@ func (s *agentTasksState) ensureInit() {
 	if s.cancels == nil {
 		s.cancels = make(map[string]context.CancelFunc)
 	}
+}
+
+func validAgentThreadID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validTaskScenePath(p string) bool {
+	if p == "" {
+		return true
+	}
+	if strings.ContainsAny(p, "\\:") || strings.IndexFunc(p, unicode.IsControl) >= 0 {
+		return false
+	}
+	if strings.HasPrefix(p, "/") || filepath.IsAbs(p) {
+		return false
+	}
+	cleaned := path.Clean(p)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return false
+	}
+	return fs.ValidPath(cleaned)
 }
 
 // ParseAgentThread decodes a *.thread.yaml document, refusing unknown fields, duplicate keys,
@@ -338,8 +411,11 @@ func ParseAgentThread(data []byte) (*AgentThreadDoc, error) {
 	if doc.Version != AgentThreadVersion {
 		return nil, fmt.Errorf("editor: thread yaml version = %d, want %d", doc.Version, AgentThreadVersion)
 	}
-	if strings.TrimSpace(doc.ID) == "" {
-		return nil, errors.New("editor: thread yaml missing id")
+	if !validAgentThreadID(doc.ID) {
+		return nil, fmt.Errorf("editor: thread yaml invalid id %q (must match ^[a-zA-Z0-9_-]{1,64}$)", doc.ID)
+	}
+	if len(doc.Tasks) > maxTasksPerThread {
+		return nil, fmt.Errorf("editor: thread yaml has %d tasks, exceeds maximum %d", len(doc.Tasks), maxTasksPerThread)
 	}
 	seenID := make(map[string]bool, len(doc.Tasks))
 	for i := range doc.Tasks {
@@ -362,6 +438,21 @@ func ParseAgentThread(data []byte) (*AgentThreadDoc, error) {
 		}
 		if !t.State.Valid() {
 			return nil, fmt.Errorf("editor: thread yaml task %q has unknown state %q", t.ID, t.State)
+		}
+		if t.Number < 0 || t.ElapsedSeconds < 0 || t.StepIndex < 0 || t.StepTotal < 0 || t.PlanStep < 0 || t.PlanTotal < 0 {
+			return nil, fmt.Errorf("editor: thread yaml task %q has negative numeric field", t.ID)
+		}
+		if !validTaskScenePath(t.ScenePath) {
+			return nil, fmt.Errorf("editor: thread yaml task %q has invalid scene path %q", t.ID, t.ScenePath)
+		}
+		if t.Review != nil {
+			for j, ch := range t.Review.Changes {
+				switch ch.Kind {
+				case "", "added", "changed", "removed":
+				default:
+					return nil, fmt.Errorf("editor: thread yaml task %q review change[%d] has unknown kind %q", t.ID, j, ch.Kind)
+				}
+			}
 		}
 	}
 	return &doc, nil
@@ -404,6 +495,9 @@ func EncodeAgentThread(doc *AgentThreadDoc) ([]byte, error) {
 	if strings.TrimSpace(cp.ID) == "" {
 		cp.ID = DefaultAgentThreadID
 	}
+	if !validAgentThreadID(cp.ID) {
+		return nil, fmt.Errorf("editor: invalid thread id %q", cp.ID)
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -436,8 +530,14 @@ func (e *Editor) AgentThreadFilePath() string {
 	if dir == "" {
 		return ""
 	}
-	e.tasks.ensureInit()
-	return filepath.Join(dir, e.tasks.threadID+".thread.yaml")
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	id := e.tasks.threadID
+	e.tasks.mu.Unlock()
+	if !validAgentThreadID(id) {
+		return ""
+	}
+	return filepath.Join(dir, id+".thread.yaml")
 }
 
 // SaveAgentThread writes the current task list to its plain-text YAML thread file when a project or ThreadsDir is set.
@@ -445,19 +545,26 @@ func (e *Editor) SaveAgentThread() error {
 	if e == nil {
 		return nil
 	}
-	path := e.AgentThreadFilePath()
-	if path == "" {
+	dir := e.effectiveThreadsDir()
+	if dir == "" {
 		return nil
 	}
 	doc := e.AgentThreadDoc()
+	if !validAgentThreadID(doc.ID) {
+		return fmt.Errorf("editor: invalid thread id %q", doc.ID)
+	}
 	data, err := EncodeAgentThread(doc)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	_, abs, err := resolveProjectFileWithinRoot(dir, doc.ID+".thread.yaml", true)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(abs, data)
 }
 
 // AgentThreadDoc returns a snapshot of the editor's current background tasks as an AgentThreadDoc.
@@ -465,29 +572,75 @@ func (e *Editor) AgentThreadDoc() *AgentThreadDoc {
 	if e == nil {
 		return &AgentThreadDoc{Version: AgentThreadVersion, ID: DefaultAgentThreadID}
 	}
-	e.tasks.ensureInit()
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	id := e.tasks.threadID
 	tasks := make([]AgentTask, len(e.tasks.tasks))
 	for i := range e.tasks.tasks {
 		tasks[i] = e.tasks.tasks[i].clone()
 	}
+	e.tasks.mu.Unlock()
 	scene := e.ScenePath
 	if scene == "" && e.Doc != nil {
 		scene = e.Doc.Name
 	}
 	return &AgentThreadDoc{
 		Version: AgentThreadVersion,
-		ID:      e.tasks.threadID,
+		ID:      id,
 		Scene:   scene,
 		Tasks:   tasks,
 	}
 }
 
+func readBoundedThreadFile(filePath, threadsDir string) ([]byte, error) {
+	if threadsDir != "" {
+		dirAbs, err := filepath.Abs(threadsDir)
+		if err != nil {
+			return nil, err
+		}
+		resolvedDir := dirAbs
+		if r, rerr := filepath.EvalSymlinks(dirAbs); rerr == nil {
+			resolvedDir = r
+		}
+		absPath, err := filepath.Abs(filePath)
+		if err != nil {
+			return nil, err
+		}
+		resolvedPath, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			return nil, err
+		}
+		if !isSubpath(resolvedDir, resolvedPath) {
+			return nil, fmt.Errorf("editor: thread file %q escapes threads directory", filePath)
+		}
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxThreadFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxThreadFileBytes {
+		return nil, fmt.Errorf("editor: thread file %q exceeds maximum size (%d bytes)", filePath, maxThreadFileBytes)
+	}
+	return data, nil
+}
+
 // LoadAgentThread loads tasks from path (a *.thread.yaml file) into the editor.
-func (e *Editor) LoadAgentThread(path string) error {
+func (e *Editor) LoadAgentThread(filePath string) error {
 	if e == nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	return e.loadAgentThreadUnlocked(filePath)
+}
+
+func (e *Editor) loadAgentThreadUnlocked(filePath string) error {
+	data, err := readBoundedThreadFile(filePath, e.effectiveThreadsDir())
 	if err != nil {
 		return err
 	}
@@ -495,8 +648,10 @@ func (e *Editor) LoadAgentThread(path string) error {
 	if err != nil {
 		return err
 	}
-	e.stopAllTaskRunners()
-	e.tasks.ensureInit()
+	oldIDs := e.stopAllTaskRunners()
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	e.tasks.projectGen++
 	e.tasks.threadID = doc.ID
 	e.tasks.tasks = make([]AgentTask, len(doc.Tasks))
 	maxNum := 0
@@ -510,6 +665,10 @@ func (e *Editor) LoadAgentThread(path string) error {
 	e.tasks.nextNumber = max(e.tasks.nextNumber, maxNum)
 	e.tasks.selectedDismiss = make(map[string]bool)
 	e.ensureFocusedTaskLocked()
+	e.tasks.mu.Unlock()
+	for _, id := range oldIDs {
+		e.fireHoldRelease(id)
+	}
 	e.notify()
 	return nil
 }
@@ -518,27 +677,42 @@ func (e *Editor) resetTasksForProject() {
 	if e == nil {
 		return
 	}
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
 	e.stopAllTaskRunners()
+	e.tasks.mu.Lock()
+	oldIDs := make([]string, 0, len(e.tasks.tasks))
+	for i := range e.tasks.tasks {
+		oldIDs = append(oldIDs, e.tasks.tasks[i].ID)
+	}
+	e.tasks.projectGen++
 	e.tasks.tasks = nil
 	e.tasks.selectedDismiss = make(map[string]bool)
 	e.tasks.focusedID = ""
-	e.tasks.nextSeq = 0
+	// Never reset nextSeq across project switches so a stale goroutine can never collide on IDs.
 	e.tasks.nextNumber = 0
 	e.tasks.threadID = DefaultAgentThreadID
-	if path := e.AgentThreadFilePath(); path != "" {
-		if _, err := os.Stat(path); err == nil {
-			_ = e.LoadAgentThread(path)
+	e.tasks.mu.Unlock()
+	for _, id := range oldIDs {
+		e.fireHoldRelease(id)
+	}
+	if threadPath := e.AgentThreadFilePath(); threadPath != "" {
+		if _, err := os.Stat(threadPath); err == nil {
+			_ = e.loadAgentThreadUnlocked(threadPath)
 		}
 	}
 }
 
-func (e *Editor) stopAllTaskRunners() {
+func (e *Editor) stopAllTaskRunners() []string {
 	if e == nil {
-		return
+		return nil
 	}
 	e.tasks.mu.Lock()
+	e.tasks.projectGen++
 	cancels := make([]context.CancelFunc, 0, len(e.tasks.cancels))
+	ids := make([]string, 0, len(e.tasks.cancels))
 	for id, cancel := range e.tasks.cancels {
+		ids = append(ids, id)
 		if cancel != nil {
 			cancels = append(cancels, cancel)
 		}
@@ -547,6 +721,39 @@ func (e *Editor) stopAllTaskRunners() {
 	e.tasks.mu.Unlock()
 	for _, cancel := range cancels {
 		cancel()
+	}
+	return ids
+}
+
+// StopRunningTasks stops every currently running background task without disturbing reviewable turns.
+func (e *Editor) StopRunningTasks() {
+	if e == nil {
+		return
+	}
+	e.tasks.mu.Lock()
+	var runningIDs []string
+	for i := range e.tasks.tasks {
+		t := &e.tasks.tasks[i]
+		if !t.Dismissed && t.State == TaskRunning {
+			runningIDs = append(runningIDs, t.ID)
+		}
+	}
+	e.tasks.mu.Unlock()
+	for _, id := range runningIDs {
+		_ = e.StopTask(id)
+	}
+}
+
+// stopRunningTasksForPlay cancels any running background task runners and releases their holds
+// before Play mode snapshots and simulates the scene.
+func (e *Editor) stopRunningTasksForPlay() {
+	if e == nil {
+		return
+	}
+	e.StopRunningTasks()
+	ids := e.stopAllTaskRunners()
+	for _, id := range ids {
+		e.fireHoldRelease(id)
 	}
 }
 
@@ -575,7 +782,13 @@ func (e *Editor) fireHoldRelease(taskID string) {
 
 // TasksPanelOpen reports whether the Agent / Background Tasks panel is currently open.
 func (e *Editor) TasksPanelOpen() bool {
-	return e != nil && e.tasks.panelOpen
+	if e == nil {
+		return false
+	}
+	e.tasks.mu.Lock()
+	open := e.tasks.panelOpen
+	e.tasks.mu.Unlock()
+	return open
 }
 
 // SetTasksPanelOpen opens or closes the Agent / Background Tasks panel.
@@ -583,8 +796,10 @@ func (e *Editor) SetTasksPanelOpen(open bool) {
 	if e == nil {
 		return
 	}
-	e.tasks.ensureInit()
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
 	if e.tasks.panelOpen == open {
+		e.tasks.mu.Unlock()
 		return
 	}
 	e.tasks.panelOpen = open
@@ -592,6 +807,7 @@ func (e *Editor) SetTasksPanelOpen(open bool) {
 		e.tasks.listExpanded = true
 	}
 	e.ensureFocusedTaskLocked()
+	e.tasks.mu.Unlock()
 	e.notify()
 }
 
@@ -600,7 +816,7 @@ func (e *Editor) ToggleTasksPanel() {
 	if e == nil {
 		return
 	}
-	e.SetTasksPanelOpen(!e.tasks.panelOpen)
+	e.SetTasksPanelOpen(!e.TasksPanelOpen())
 }
 
 // TasksListExpanded reports whether the Tasks section inside the Agent panel is expanded.
@@ -608,15 +824,24 @@ func (e *Editor) TasksListExpanded() bool {
 	if e == nil {
 		return false
 	}
-	return e.tasks.listExpanded
+	e.tasks.mu.Lock()
+	exp := e.tasks.listExpanded
+	e.tasks.mu.Unlock()
+	return exp
 }
 
 // SetTasksListExpanded expands or collapses the Tasks list inside the Agent panel.
 func (e *Editor) SetTasksListExpanded(expanded bool) {
-	if e == nil || e.tasks.listExpanded == expanded {
+	if e == nil {
+		return
+	}
+	e.tasks.mu.Lock()
+	if e.tasks.listExpanded == expanded {
+		e.tasks.mu.Unlock()
 		return
 	}
 	e.tasks.listExpanded = expanded
+	e.tasks.mu.Unlock()
 	e.notify()
 }
 
@@ -625,7 +850,7 @@ func (e *Editor) ToggleTasksListExpanded() {
 	if e == nil {
 		return
 	}
-	e.SetTasksListExpanded(!e.tasks.listExpanded)
+	e.SetTasksListExpanded(!e.TasksListExpanded())
 }
 
 // TaskComposerMode returns the selected start mode (Queue or Run in parallel) in the Tasks composer.
@@ -633,8 +858,11 @@ func (e *Editor) TaskComposerMode() TaskStartMode {
 	if e == nil {
 		return TaskStartQueue
 	}
-	e.tasks.ensureInit()
-	return e.tasks.composerMode
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	mode := e.tasks.composerMode
+	e.tasks.mu.Unlock()
+	return mode
 }
 
 // SetTaskComposerMode sets the selected start mode (Queue or Run in parallel) in the Tasks composer.
@@ -642,11 +870,14 @@ func (e *Editor) SetTaskComposerMode(mode TaskStartMode) {
 	if e == nil || !mode.Valid() {
 		return
 	}
-	e.tasks.ensureInit()
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
 	if e.tasks.composerMode == mode {
+		e.tasks.mu.Unlock()
 		return
 	}
 	e.tasks.composerMode = mode
+	e.tasks.mu.Unlock()
 	e.notify()
 }
 
@@ -655,15 +886,24 @@ func (e *Editor) TaskComposerDraft() string {
 	if e == nil {
 		return ""
 	}
-	return e.tasks.composerDraft
+	e.tasks.mu.Lock()
+	draft := e.tasks.composerDraft
+	e.tasks.mu.Unlock()
+	return draft
 }
 
 // SetTaskComposerDraft updates the prompt draft in the Tasks panel composer.
 func (e *Editor) SetTaskComposerDraft(draft string) {
-	if e == nil || e.tasks.composerDraft == draft {
+	if e == nil {
+		return
+	}
+	e.tasks.mu.Lock()
+	if e.tasks.composerDraft == draft {
+		e.tasks.mu.Unlock()
 		return
 	}
 	e.tasks.composerDraft = draft
+	e.tasks.mu.Unlock()
 	e.notify()
 }
 
@@ -672,12 +912,16 @@ func (e *Editor) SubmitComposerTask() (AgentTask, error) {
 	if e == nil {
 		return AgentTask{}, errors.New("editor: nil editor")
 	}
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
 	prompt := strings.TrimSpace(e.tasks.composerDraft)
+	mode := e.tasks.composerMode
 	if prompt == "" {
+		e.tasks.mu.Unlock()
 		return AgentTask{}, errors.New("editor: task prompt is empty")
 	}
-	mode := e.TaskComposerMode()
 	e.tasks.composerDraft = ""
+	e.tasks.mu.Unlock()
 	return e.SubmitTask(TaskRequest{
 		Title:     firstLineTitle(prompt),
 		Prompt:    prompt,
@@ -691,20 +935,14 @@ func firstLineTitle(prompt string) string {
 	if idx := strings.IndexByte(line, '\n'); idx >= 0 {
 		line = strings.TrimSpace(line[:idx])
 	}
-	if len(line) > 72 {
-		line = strings.TrimSpace(line[:69]) + "…"
+	runes := []rune(line)
+	if len(runes) > 72 {
+		line = strings.TrimSpace(string(runes[:69])) + "…"
 	}
 	return line
 }
 
-func (e *Editor) nowTime() time.Time {
-	if e != nil && e.Now != nil {
-		return e.Now()
-	}
-	return time.Now()
-}
-
-func (e *Editor) findTaskIndex(id string) int {
+func (e *Editor) findTaskIndexLocked(id string) int {
 	for i := range e.tasks.tasks {
 		if e.tasks.tasks[i].ID == id {
 			return i
@@ -718,10 +956,12 @@ func (e *Editor) Tasks() []AgentTask {
 	if e == nil {
 		return nil
 	}
+	e.tasks.mu.Lock()
 	out := make([]AgentTask, len(e.tasks.tasks))
 	for i := range e.tasks.tasks {
 		out[i] = e.tasks.tasks[i].clone()
 	}
+	e.tasks.mu.Unlock()
 	return out
 }
 
@@ -730,12 +970,14 @@ func (e *Editor) VisibleTasks() []AgentTask {
 	if e == nil {
 		return nil
 	}
+	e.tasks.mu.Lock()
 	var out []AgentTask
 	for i := range e.tasks.tasks {
 		if e.tasks.tasks[i].Visible() {
 			out = append(out, e.tasks.tasks[i].clone())
 		}
 	}
+	e.tasks.mu.Unlock()
 	return out
 }
 
@@ -744,6 +986,7 @@ func (e *Editor) TasksInState(state TaskState) []AgentTask {
 	if e == nil {
 		return nil
 	}
+	e.tasks.mu.Lock()
 	var out []AgentTask
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
@@ -751,6 +994,7 @@ func (e *Editor) TasksInState(state TaskState) []AgentTask {
 			out = append(out, t.clone())
 		}
 	}
+	e.tasks.mu.Unlock()
 	return out
 }
 
@@ -759,11 +1003,15 @@ func (e *Editor) Task(id string) (AgentTask, bool) {
 	if e == nil || id == "" {
 		return AgentTask{}, false
 	}
-	idx := e.findTaskIndex(id)
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return AgentTask{}, false
 	}
-	return e.tasks.tasks[idx].clone(), true
+	cp := e.tasks.tasks[idx].clone()
+	e.tasks.mu.Unlock()
+	return cp, true
 }
 
 // FocusedTask returns the currently focused task in the Tasks panel.
@@ -771,9 +1019,11 @@ func (e *Editor) FocusedTask() (AgentTask, bool) {
 	if e == nil {
 		return AgentTask{}, false
 	}
+	e.tasks.mu.Lock()
+	defer e.tasks.mu.Unlock()
 	if e.tasks.focusedID != "" {
-		if t, ok := e.Task(e.tasks.focusedID); ok && !t.Dismissed {
-			return t, true
+		if idx := e.findTaskIndexLocked(e.tasks.focusedID); idx >= 0 && !e.tasks.tasks[idx].Dismissed {
+			return e.tasks.tasks[idx].clone(), true
 		}
 	}
 	for _, st := range []TaskState{TaskRunning, TaskNeedsYou, TaskReadyToReview, TaskQueued, TaskFailed} {
@@ -791,19 +1041,19 @@ func (e *Editor) FocusTask(id string) {
 	if e == nil || id == "" {
 		return
 	}
-	if e.findTaskIndex(id) < 0 {
-		return
-	}
-	if e.tasks.focusedID == id {
+	e.tasks.mu.Lock()
+	if e.findTaskIndexLocked(id) < 0 || e.tasks.focusedID == id {
+		e.tasks.mu.Unlock()
 		return
 	}
 	e.tasks.focusedID = id
+	e.tasks.mu.Unlock()
 	e.notify()
 }
 
 func (e *Editor) ensureFocusedTaskLocked() {
 	if e.tasks.focusedID != "" {
-		if idx := e.findTaskIndex(e.tasks.focusedID); idx >= 0 && !e.tasks.tasks[idx].Dismissed {
+		if idx := e.findTaskIndexLocked(e.tasks.focusedID); idx >= 0 && !e.tasks.tasks[idx].Dismissed {
 			return
 		}
 	}
@@ -819,24 +1069,31 @@ func (e *Editor) ensureFocusedTaskLocked() {
 }
 
 // OpenTask opens the Tasks panel focused on id and, when possible, switches to or opens its target
-// scene and selects its first edited/blocked object.
+// scene (strictly confined inside the open project root) and selects its first edited/blocked object.
 func (e *Editor) OpenTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
-	task := e.tasks.tasks[idx]
+	task := e.tasks.tasks[idx].clone()
 	e.tasks.panelOpen = true
 	e.tasks.listExpanded = true
 	e.tasks.focusedID = id
+	e.tasks.mu.Unlock()
 
-	// Switch to or open the task's scene if it names a project scene file.
+	// Switch to or open the task's scene if it names a project scene file (strictly confined to project root).
 	if task.ScenePath != "" && e.ProjectPath != "" && strings.HasSuffix(task.ScenePath, ".scene.yaml") {
-		abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(task.ScenePath))
-		if _, err := os.Stat(abs); err == nil && filepath.Clean(abs) != filepath.Clean(e.FilePath) {
+		_, abs, err := resolveProjectFileWithinRoot(filepath.Dir(e.ProjectPath), task.ScenePath, false)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		} else if filepath.Clean(abs) != filepath.Clean(e.FilePath) {
 			if err := e.OpenFile(abs); err != nil {
 				return err
 			}
@@ -864,6 +1121,17 @@ func (e *Editor) OpenTask(id string) error {
 	return nil
 }
 
+// FocusedTaskID returns the ID of the currently focused task, or empty string.
+func (e *Editor) FocusedTaskID() string {
+	if e == nil {
+		return ""
+	}
+	e.tasks.mu.Lock()
+	id := e.tasks.focusedID
+	e.tasks.mu.Unlock()
+	return id
+}
+
 // SubmitTask adds a new background agent request according to req.StartMode:
 //   - TaskStartQueue starts immediately only when no blocking turn is running, waiting on you,
 //     or unreviewed; otherwise it enters TaskQueued and starts only after the blocking task is
@@ -873,7 +1141,9 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	if e == nil {
 		return AgentTask{}, errors.New("editor: nil editor")
 	}
-	e.tasks.ensureInit()
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+
 	title := strings.TrimSpace(req.Title)
 	prompt := strings.TrimSpace(req.Prompt)
 	if title == "" {
@@ -896,21 +1166,11 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	if !mode.Valid() {
 		return AgentTask{}, fmt.Errorf("editor: unknown task start mode %q", mode)
 	}
-
-	e.tasks.nextSeq++
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = fmt.Sprintf("task-%d", e.tasks.nextSeq)
+	if req.InitialState != "" && !req.InitialState.Valid() {
+		return AgentTask{}, fmt.Errorf("editor: unknown task state %q", req.InitialState)
 	}
-	if e.findTaskIndex(id) >= 0 {
-		return AgentTask{}, fmt.Errorf("editor: duplicate task id %q", id)
-	}
-	num := req.Number
-	if num <= 0 && (source != TaskSourceAutomation || mode == TaskStartParallel || req.InitialState == TaskRunning) {
-		e.tasks.nextNumber++
-		num = e.tasks.nextNumber
-	} else if num > e.tasks.nextNumber {
-		e.tasks.nextNumber = num
+	if !validTaskScenePath(req.ScenePath) {
+		return AgentTask{}, fmt.Errorf("editor: invalid task scene path %q", req.ScenePath)
 	}
 
 	scenePath := req.ScenePath
@@ -921,8 +1181,55 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 			scenePath = e.Doc.Name
 		}
 	}
-
 	now := e.nowTime()
+
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+
+	// Enforce per-thread task cap, pruning oldest inactive/dismissed entries first if possible.
+	if len(e.tasks.tasks) >= maxTasksPerThread {
+		pruned := false
+		for i := range e.tasks.tasks {
+			t := &e.tasks.tasks[i]
+			if t.Dismissed || t.State == TaskDone || t.State == TaskStopped {
+				delete(e.tasks.selectedDismiss, t.ID)
+				e.tasks.tasks = append(e.tasks.tasks[:i], e.tasks.tasks[i+1:]...)
+				pruned = true
+				break
+			}
+		}
+		if !pruned {
+			e.tasks.mu.Unlock()
+			return AgentTask{}, fmt.Errorf("editor: maximum %d tasks per thread reached; dismiss or complete existing tasks first", maxTasksPerThread)
+		}
+	}
+
+	// Enforce bounded concurrency for parallel tasks.
+	if req.InitialState == "" && mode == TaskStartParallel {
+		running := e.countRunningTasksLocked()
+		if running >= maxParallelTasks {
+			e.tasks.mu.Unlock()
+			return AgentTask{}, fmt.Errorf("editor: at most %d parallel tasks can run at once; wait for one to finish or queue this request", maxParallelTasks)
+		}
+	}
+
+	e.tasks.nextSeq++
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = fmt.Sprintf("task-%d", e.tasks.nextSeq)
+	}
+	if e.findTaskIndexLocked(id) >= 0 {
+		e.tasks.mu.Unlock()
+		return AgentTask{}, fmt.Errorf("editor: duplicate task id %q", id)
+	}
+	num := req.Number
+	if num <= 0 && (source != TaskSourceAutomation || mode == TaskStartParallel || req.InitialState == TaskRunning) {
+		e.tasks.nextNumber++
+		num = e.tasks.nextNumber
+	} else if num > e.tasks.nextNumber {
+		e.tasks.nextNumber = num
+	}
+
 	task := AgentTask{
 		ID:               id,
 		Number:           num,
@@ -949,7 +1256,7 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 		CreatedAt:        now.UTC().Format(time.RFC3339),
 	}
 	if task.BlockedByTaskID != "" {
-		if holderIdx := e.findTaskIndex(task.BlockedByTaskID); holderIdx >= 0 {
+		if holderIdx := e.findTaskIndexLocked(task.BlockedByTaskID); holderIdx >= 0 {
 			task.BlockedByTaskNumber = e.tasks.tasks[holderIdx].Number
 		}
 	}
@@ -967,9 +1274,6 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 
 	shouldLaunch := false
 	if req.InitialState != "" {
-		if !req.InitialState.Valid() {
-			return AgentTask{}, fmt.Errorf("editor: unknown task state %q", req.InitialState)
-		}
 		task.State = req.InitialState
 		task.StartsAfterTaskID = req.StartsAfterTaskID
 		if task.State == TaskRunning {
@@ -980,11 +1284,11 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 		task.State = TaskRunning
 		task.StartedAt = now.UTC().Format(time.RFC3339)
 		task.SessionID = "session-" + id
-		shouldLaunch = true
+		shouldLaunch = !e.playing
 	} else {
 		blockerID := req.StartsAfterTaskID
 		if blockerID == "" {
-			blockerID = e.findQueueBlockerID()
+			blockerID = e.findQueueBlockerIDLocked()
 		}
 		if blockerID != "" {
 			task.State = TaskQueued
@@ -993,7 +1297,7 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 			task.State = TaskRunning
 			task.StartedAt = now.UTC().Format(time.RFC3339)
 			task.SessionID = "session-" + id
-			shouldLaunch = true
+			shouldLaunch = !e.playing
 		}
 	}
 
@@ -1001,18 +1305,32 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	if e.tasks.focusedID == "" || task.State == TaskRunning {
 		e.tasks.focusedID = task.ID
 	}
+	ret := task.clone()
+	e.tasks.mu.Unlock()
+
 	_ = e.SaveAgentThread()
 	e.notify()
 
 	if shouldLaunch {
-		e.launchTaskRunner(task.ID)
+		e.launchTaskRunner(ret.ID)
 	}
-	return task.clone(), nil
+	return ret, nil
 }
 
-// findQueueBlockerID returns the task ID that a newly queued request must wait behind:
+func (e *Editor) countRunningTasksLocked() int {
+	n := 0
+	for i := range e.tasks.tasks {
+		t := &e.tasks.tasks[i]
+		if !t.Dismissed && t.State == TaskRunning {
+			n++
+		}
+	}
+	return n
+}
+
+// findQueueBlockerIDLocked returns the task ID that a newly queued request must wait behind:
 // the last queued task if any exist, otherwise a running, needs-you, or unreviewed non-automation turn.
-func (e *Editor) findQueueBlockerID() string {
+func (e *Editor) findQueueBlockerIDLocked() string {
 	// If there is already a queued chain, append behind the last queued task.
 	for i := len(e.tasks.tasks) - 1; i >= 0; i-- {
 		t := &e.tasks.tasks[i]
@@ -1038,11 +1356,11 @@ func (e *Editor) findQueueBlockerID() string {
 	return ""
 }
 
-func (e *Editor) isTaskStillBlocking(id string) bool {
+func (e *Editor) isTaskStillBlockingLocked(id string) bool {
 	if id == "" {
 		return false
 	}
-	idx := e.findTaskIndex(id)
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
 		return false
 	}
@@ -1058,7 +1376,7 @@ func (e *Editor) isTaskStillBlocking(id string) bool {
 	}
 }
 
-func (e *Editor) hasAnyForegroundBlocker(excludeID string) bool {
+func (e *Editor) hasAnyForegroundBlockerLocked(excludeID string) bool {
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
 		if t.ID == excludeID || t.Dismissed {
@@ -1079,18 +1397,23 @@ func (e *Editor) hasAnyForegroundBlocker(excludeID string) bool {
 // advanceTaskQueue starts the next eligible queued task once its predecessor has been kept,
 // reverted, stopped, or resolved.
 func (e *Editor) advanceTaskQueue(resolvedID string) {
+	if e == nil || e.playing {
+		return
+	}
+	now := e.nowTime()
+	var startedID string
+	e.tasks.mu.Lock()
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
 		if t.Dismissed || t.State != TaskQueued {
 			continue
 		}
-		if t.StartsAfterTaskID != "" && t.StartsAfterTaskID != resolvedID && e.isTaskStillBlocking(t.StartsAfterTaskID) {
+		if t.StartsAfterTaskID != "" && t.StartsAfterTaskID != resolvedID && e.isTaskStillBlockingLocked(t.StartsAfterTaskID) {
 			continue
 		}
-		if e.hasAnyForegroundBlocker(t.ID) {
+		if e.hasAnyForegroundBlockerLocked(t.ID) {
 			continue
 		}
-		now := e.nowTime()
 		t.State = TaskRunning
 		t.StartsAfterTaskID = ""
 		t.StartedAt = now.UTC().Format(time.RFC3339)
@@ -1101,16 +1424,20 @@ func (e *Editor) advanceTaskQueue(resolvedID string) {
 			e.tasks.nextNumber++
 			t.Number = e.tasks.nextNumber
 		}
-		startedID := t.ID
-		_ = e.SaveAgentThread()
-		e.notify()
-		e.launchTaskRunner(startedID)
+		startedID = t.ID
+		break
+	}
+	e.tasks.mu.Unlock()
+	if startedID == "" {
 		return
 	}
+	_ = e.SaveAgentThread()
+	e.notify()
+	e.launchTaskRunner(startedID)
 }
 
 func (e *Editor) launchTaskRunner(taskID string) {
-	if e == nil || e.AgentTaskRunner == nil {
+	if e == nil || e.AgentTaskRunner == nil || e.playing {
 		return
 	}
 	task, ok := e.Task(taskID)
@@ -1118,8 +1445,10 @@ func (e *Editor) launchTaskRunner(taskID string) {
 		return
 	}
 	runner := e.AgentTaskRunner
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTaskRunnerTimeout)
 	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	gen := e.tasks.projectGen
 	if prev := e.tasks.cancels[taskID]; prev != nil {
 		prev()
 	}
@@ -1129,9 +1458,18 @@ func (e *Editor) launchTaskRunner(taskID string) {
 	post := func(fn func()) {
 		e.tasks.mu.Lock()
 		sc := e.tasks.scope
+		stale := e.tasks.projectGen != gen
 		e.tasks.mu.Unlock()
+		if stale {
+			return
+		}
 		if sc != nil {
-			sc.Post(fn)
+			sc.Post(func() {
+				if e.tasks.currentGen() != gen {
+					return
+				}
+				fn()
+			})
 			return
 		}
 		fn()
@@ -1141,10 +1479,17 @@ func (e *Editor) launchTaskRunner(taskID string) {
 		err := runner(ctx, task)
 		e.tasks.mu.Lock()
 		delete(e.tasks.cancels, taskID)
+		stale := e.tasks.projectGen != gen
 		e.tasks.mu.Unlock()
 		cancel()
+		if stale {
+			return
+		}
 
 		post(func() {
+			if e.tasks.currentGen() != gen {
+				return
+			}
 			cur, ok := e.Task(taskID)
 			if !ok {
 				return
@@ -1176,8 +1521,12 @@ func (e *Editor) UpdateTaskStep(id string, stepIndex, stepTotal int, summary str
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1190,6 +1539,7 @@ func (e *Editor) UpdateTaskStep(id string, stepIndex, stepTotal int, summary str
 	if summary != "" {
 		t.StepSummary = summary
 	}
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
 	return nil
@@ -1200,8 +1550,12 @@ func (e *Editor) AddTaskStep(id string, summary string, done bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1219,6 +1573,7 @@ func (e *Editor) AddTaskStep(id string, summary string, done bool) error {
 		Done:    done,
 		Active:  !done,
 	})
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
 	return nil
@@ -1230,8 +1585,12 @@ func (e *Editor) SetTaskHoldState(id string, editing []string, holding []string,
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1241,7 +1600,7 @@ func (e *Editor) SetTaskHoldState(id string, editing []string, holding []string,
 	t.BlockedByTaskID = blockedByTaskID
 	t.BlockedByTaskNumber = 0
 	if blockedByTaskID != "" {
-		if holderIdx := e.findTaskIndex(blockedByTaskID); holderIdx >= 0 {
+		if holderIdx := e.findTaskIndexLocked(blockedByTaskID); holderIdx >= 0 {
 			t.BlockedByTaskNumber = e.tasks.tasks[holderIdx].Number
 		}
 	}
@@ -1272,6 +1631,7 @@ func (e *Editor) SetTaskHoldState(id string, editing []string, holding []string,
 			}
 		}
 	}
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
 	return nil
@@ -1282,16 +1642,24 @@ func (e *Editor) ClearTaskHoldState(id string) {
 	if e == nil {
 		return
 	}
-	if idx := e.findTaskIndex(id); idx >= 0 {
+	unlock := e.lockHeadlessTaskOp()
+	changed := false
+	e.tasks.mu.Lock()
+	if idx := e.findTaskIndexLocked(id); idx >= 0 {
 		t := &e.tasks.tasks[idx]
 		t.EditingObjects = nil
 		t.HoldingObjects = nil
 		t.BlockedOn = ""
 		t.BlockedByTaskID = ""
 		t.BlockedByTaskNumber = 0
+		changed = true
+	}
+	e.tasks.mu.Unlock()
+	if changed {
 		_ = e.SaveAgentThread()
 		e.notify()
 	}
+	unlock()
 	e.fireHoldRelease(id)
 }
 
@@ -1300,8 +1668,12 @@ func (e *Editor) RequestTaskPermission(id, prompt, detail string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1311,6 +1683,7 @@ func (e *Editor) RequestTaskPermission(id, prompt, detail string) error {
 	if prompt != "" {
 		t.StepSummary = prompt
 	}
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
 	return nil
@@ -1322,13 +1695,20 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
+		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
 	if t.State != TaskNeedsYou {
-		return fmt.Errorf("editor: task %q is not waiting for permission (state=%s)", id, t.State)
+		st := t.State
+		e.tasks.mu.Unlock()
+		unlock()
+		return fmt.Errorf("editor: task %q is not waiting for permission (state=%s)", id, st)
 	}
 	t.State = TaskRunning
 	t.PermissionPrompt = ""
@@ -1338,10 +1718,13 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	} else {
 		t.Steps = append(t.Steps, TaskStep{Summary: "Permission denied", Done: true})
 	}
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
-	if e.OnTaskPermissionDecision != nil {
-		e.OnTaskPermissionDecision(id, allow)
+	cb := e.OnTaskPermissionDecision
+	unlock()
+	if cb != nil {
+		cb(id, allow)
 	}
 	return nil
 }
@@ -1353,12 +1736,16 @@ func (e *Editor) CompleteTaskTurn(id string, review TaskReview) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	now := e.nowTime()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
+		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
-	now := e.nowTime()
 	t.State = TaskReadyToReview
 	t.EditingObjects = nil
 	t.HoldingObjects = nil
@@ -1393,11 +1780,34 @@ func (e *Editor) CompleteTaskTurn(id string, review TaskReview) error {
 	cp := review
 	cp.Changes = slices.Clone(review.Changes)
 	t.Review = &cp
+	e.tasks.mu.Unlock()
 
+	if !cp.Kept {
+		e.cancelAutoSaveTimer()
+	}
 	_ = e.SaveAgentThread()
 	e.notify()
+	unlock()
 	e.fireHoldRelease(id)
 	return nil
+}
+
+// HasOpenTaskReview reports whether any non-dismissed background agent task is
+// waiting in TaskReadyToReview with an unkept review. Autosave pauses while
+// this is true so unkept task edits are never flushed to disk prematurely.
+func (e *Editor) HasOpenTaskReview() bool {
+	if e == nil {
+		return false
+	}
+	e.tasks.mu.Lock()
+	defer e.tasks.mu.Unlock()
+	for i := range e.tasks.tasks {
+		t := &e.tasks.tasks[i]
+		if !t.Dismissed && t.State == TaskReadyToReview && (t.Review == nil || !t.Review.Kept) {
+			return true
+		}
+	}
+	return false
 }
 
 // FailTask moves task id to TaskFailed, releases its holds, and keeps it visible until opened, retried, or dismissed.
@@ -1405,8 +1815,13 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	now := e.nowTime()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
+		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1417,9 +1832,11 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	t.BlockedOn = ""
 	t.BlockedByTaskID = ""
 	t.BlockedByTaskNumber = 0
-	t.FinishedAt = e.nowTime().UTC().Format(time.RFC3339)
+	t.FinishedAt = now.UTC().Format(time.RFC3339)
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
+	unlock()
 	e.fireHoldRelease(id)
 	return nil
 }
@@ -1429,17 +1846,17 @@ func (e *Editor) StopTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	now := e.nowTime()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
+		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
-	e.tasks.mu.Lock()
 	cancel := e.tasks.cancels[id]
 	delete(e.tasks.cancels, id)
-	e.tasks.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 	t := &e.tasks.tasks[idx]
 	t.State = TaskStopped
 	t.EditingObjects = nil
@@ -1447,13 +1864,19 @@ func (e *Editor) StopTask(id string) error {
 	t.BlockedOn = ""
 	t.BlockedByTaskID = ""
 	t.BlockedByTaskNumber = 0
-	t.FinishedAt = e.nowTime().UTC().Format(time.RFC3339)
+	t.FinishedAt = now.UTC().Format(time.RFC3339)
 	delete(e.tasks.selectedDismiss, id)
 	e.ensureFocusedTaskLocked()
+	e.tasks.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 	_ = e.SaveAgentThread()
 	e.notify()
 	e.fireHoldRelease(id)
 	e.advanceTaskQueue(id)
+	unlock()
 	return nil
 }
 
@@ -1462,21 +1885,31 @@ func (e *Editor) RetryTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	now := e.nowTime()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
 	if t.State != TaskFailed {
-		return fmt.Errorf("editor: task %q is not failed (state=%s)", id, t.State)
+		st := t.State
+		e.tasks.mu.Unlock()
+		return fmt.Errorf("editor: task %q is not failed (state=%s)", id, st)
+	}
+	if t.StartMode == TaskStartParallel && e.countRunningTasksLocked() >= maxParallelTasks {
+		e.tasks.mu.Unlock()
+		return fmt.Errorf("editor: at most %d parallel tasks can run at once; wait for one to finish before retrying", maxParallelTasks)
 	}
 	t.Error = ""
 	t.Dismissed = false
 	t.FinishedAt = ""
 	t.ElapsedSeconds = 0
-	now := e.nowTime()
 	shouldLaunch := false
-	if t.StartMode == TaskStartParallel || !e.hasAnyForegroundBlocker(t.ID) {
+	if t.StartMode == TaskStartParallel || !e.hasAnyForegroundBlockerLocked(t.ID) {
 		t.State = TaskRunning
 		t.StartedAt = now.UTC().Format(time.RFC3339)
 		if t.SessionID == "" {
@@ -1486,16 +1919,18 @@ func (e *Editor) RetryTask(id string) error {
 			e.tasks.nextNumber++
 			t.Number = e.tasks.nextNumber
 		}
-		shouldLaunch = true
+		shouldLaunch = !e.playing
 	} else {
 		t.State = TaskQueued
-		t.StartsAfterTaskID = e.findQueueBlockerID()
+		t.StartsAfterTaskID = e.findQueueBlockerIDLocked()
 	}
 	e.tasks.focusedID = t.ID
+	taskID := t.ID
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
 	if shouldLaunch {
-		e.launchTaskRunner(t.ID)
+		e.launchTaskRunner(taskID)
 	}
 	return nil
 }
@@ -1506,13 +1941,19 @@ func (e *Editor) KeepTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
 	if t.State != TaskReadyToReview {
-		return fmt.Errorf("editor: task %q is not ready to review (state=%s)", id, t.State)
+		st := t.State
+		e.tasks.mu.Unlock()
+		return fmt.Errorf("editor: task %q is not ready to review (state=%s)", id, st)
 	}
 	if t.Review == nil {
 		t.Review = &TaskReview{ID: "review-" + id, TaskID: id, ScenePath: t.ScenePath}
@@ -1527,44 +1968,91 @@ func (e *Editor) KeepTask(id string) error {
 	t.State = TaskDone
 	delete(e.tasks.selectedDismiss, id)
 	e.ensureFocusedTaskLocked()
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	e.advanceTaskQueue(id)
 	return nil
 }
 
-// RevertTask reverts an unkept TaskReadyToReview turn, marks it TaskStopped, and starts the next
-// queued task waiting for it. A turn already kept is never reverted by RevertTask.
+// RevertTask reverts an unkept TaskReadyToReview turn (patching only objects touched by this task
+// so edits from other parallel tasks or human edits are preserved), marks it TaskStopped, and
+// starts the next queued task waiting for it. A turn already kept is never reverted by RevertTask.
 func (e *Editor) RevertTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	idx := e.findTaskIndex(id)
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
-	t := &e.tasks.tasks[idx]
-	if t.State != TaskReadyToReview {
-		return fmt.Errorf("editor: task %q is not ready to review (state=%s)", id, t.State)
+	tCopy := e.tasks.tasks[idx].clone()
+	if tCopy.State != TaskReadyToReview {
+		e.tasks.mu.Unlock()
+		return fmt.Errorf("editor: task %q is not ready to review (state=%s)", id, tCopy.State)
 	}
-	if t.Review != nil && !t.Review.Kept {
-		if err := e.applyTaskReviewRevert(t); err != nil {
+	keptObjects := e.keptObjectsByOtherTasksLocked(id)
+	hasOtherKept := e.hasOtherKeptTaskLocked(id)
+	e.tasks.mu.Unlock()
+
+	if tCopy.Review != nil && !tCopy.Review.Kept {
+		if err := e.applyTaskReviewRevert(&tCopy, keptObjects, hasOtherKept); err != nil {
 			return err
 		}
-		t.Review.Reverted = true
-		for i := range t.Review.Changes {
-			if !t.Review.Changes[i].Kept {
-				t.Review.Changes[i].Reverted = true
+	}
+
+	e.tasks.mu.Lock()
+	if curIdx := e.findTaskIndexLocked(id); curIdx >= 0 {
+		t := &e.tasks.tasks[curIdx]
+		if t.Review != nil && !t.Review.Kept {
+			t.Review.Reverted = true
+			for i := range t.Review.Changes {
+				if !t.Review.Changes[i].Kept {
+					t.Review.Changes[i].Reverted = true
+				}
 			}
 		}
+		t.State = TaskStopped
+		delete(e.tasks.selectedDismiss, id)
+		e.ensureFocusedTaskLocked()
 	}
-	t.State = TaskStopped
-	delete(e.tasks.selectedDismiss, id)
-	e.ensureFocusedTaskLocked()
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	e.advanceTaskQueue(id)
 	return nil
+}
+
+func (e *Editor) keptObjectsByOtherTasksLocked(excludeID string) map[string]bool {
+	out := make(map[string]bool)
+	for i := range e.tasks.tasks {
+		t := &e.tasks.tasks[i]
+		if t.ID == excludeID || t.Review == nil || !t.Review.Kept {
+			continue
+		}
+		for _, ch := range t.Review.Changes {
+			if ch.ObjectID != "" && !ch.Reverted {
+				out[ch.ObjectID] = true
+			}
+		}
+	}
+	return out
+}
+
+func (e *Editor) hasOtherKeptTaskLocked(excludeID string) bool {
+	for i := range e.tasks.tasks {
+		t := &e.tasks.tasks[i]
+		if t.ID != excludeID && t.Review != nil && t.Review.Kept {
+			return true
+		}
+	}
+	return false
 }
 
 type taskSceneRevertCmd struct {
@@ -1584,7 +2072,117 @@ func (c *taskSceneRevertCmd) Undo() {
 	c.ed.Rebuild()
 }
 
-func (e *Editor) applyTaskReviewRevert(t *AgentTask) error {
+func findObjectDocInSlice(objs []sceneformat.ObjectDoc, id, layerName, parentID string) (*sceneformat.ObjectDoc, string, string) {
+	for i := range objs {
+		if objs[i].ID == id {
+			return &objs[i], layerName, parentID
+		}
+		if len(objs[i].Children) > 0 {
+			if found, l, p := findObjectDocInSlice(objs[i].Children, id, layerName, objs[i].ID); found != nil {
+				return found, l, p
+			}
+		}
+	}
+	return nil, "", ""
+}
+
+func findObjectDocInScene(doc *sceneformat.SceneDoc, id string) (*sceneformat.ObjectDoc, string, string) {
+	if doc == nil || id == "" {
+		return nil, "", ""
+	}
+	for i := range doc.Layers {
+		if found, l, p := findObjectDocInSlice(doc.Layers[i].Objects, id, doc.Layers[i].Name, ""); found != nil {
+			return found, l, p
+		}
+	}
+	return nil, "", ""
+}
+
+func removeObjectDocFromSlice(objs []sceneformat.ObjectDoc, id string) ([]sceneformat.ObjectDoc, bool) {
+	for i := range objs {
+		if objs[i].ID == id {
+			return append(objs[:i], objs[i+1:]...), true
+		}
+		if len(objs[i].Children) > 0 {
+			if next, removed := removeObjectDocFromSlice(objs[i].Children, id); removed {
+				objs[i].Children = next
+				return objs, true
+			}
+		}
+	}
+	return objs, false
+}
+
+func removeObjectDocFromScene(doc *sceneformat.SceneDoc, id string) bool {
+	if doc == nil || id == "" {
+		return false
+	}
+	for i := range doc.Layers {
+		if next, removed := removeObjectDocFromSlice(doc.Layers[i].Objects, id); removed {
+			doc.Layers[i].Objects = next
+			return true
+		}
+	}
+	return false
+}
+
+func objectDocsEqual(a, b *sceneformat.ObjectDoc) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	ra, errA := yaml.Marshal(a)
+	rb, errB := yaml.Marshal(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return bytes.Equal(ra, rb)
+}
+
+func insertObjectDocInScene(doc *sceneformat.SceneDoc, obj sceneformat.ObjectDoc, layerName, parentID string) {
+	if doc == nil || len(doc.Layers) == 0 {
+		return
+	}
+	if parentID != "" {
+		if parent, _, _ := findObjectDocInScene(doc, parentID); parent != nil {
+			parent.Children = append(parent.Children, obj)
+			return
+		}
+	}
+	for i := range doc.Layers {
+		if doc.Layers[i].Name == layerName {
+			doc.Layers[i].Objects = append(doc.Layers[i].Objects, obj)
+			return
+		}
+	}
+	doc.Layers[0].Objects = append(doc.Layers[0].Objects, obj)
+}
+
+func collectAllObjectIDs(doc *sceneformat.SceneDoc) []string {
+	if doc == nil {
+		return nil
+	}
+	var ids []string
+	var walk func(objs []sceneformat.ObjectDoc)
+	walk = func(objs []sceneformat.ObjectDoc) {
+		for i := range objs {
+			if objs[i].ID != "" {
+				ids = append(ids, objs[i].ID)
+			}
+			if len(objs[i].Children) > 0 {
+				walk(objs[i].Children)
+			}
+		}
+	}
+	for i := range doc.Layers {
+		walk(doc.Layers[i].Objects)
+	}
+	return ids
+}
+
+func (e *Editor) applyTaskReviewRevert(t *AgentTask, keptObjects map[string]bool, hasOtherKept bool) error {
 	if e == nil || t == nil || t.Review == nil || t.Review.Kept {
 		return nil
 	}
@@ -1594,19 +2192,128 @@ func (e *Editor) applyTaskReviewRevert(t *AgentTask) error {
 	if t.ScenePath != "" && e.ScenePath != "" && t.ScenePath != e.ScenePath {
 		return nil
 	}
-	doc, err := sceneformat.ParseWith([]byte(t.Review.BeforeSceneYAML), sceneformat.ParseOptions{
+	parseOpts := sceneformat.ParseOptions{
 		Components:    e.components,
 		PhysicsLayers: e.physicsLayers,
-	})
+	}
+	beforeDoc, err := sceneformat.ParseWith([]byte(t.Review.BeforeSceneYAML), parseOpts)
 	if err != nil {
 		return err
 	}
+	var afterDoc *sceneformat.SceneDoc
+	if t.Review.AfterSceneYAML != "" {
+		if parsed, perr := sceneformat.ParseWith([]byte(t.Review.AfterSceneYAML), parseOpts); perr == nil {
+			afterDoc = parsed
+		}
+	}
+
+	// Collect the deterministic set of object IDs touched by this task.
+	var touched []string
+	seen := make(map[string]bool)
+	for _, ch := range t.Review.Changes {
+		if ch.ObjectID != "" && !ch.Kept && !seen[ch.ObjectID] {
+			seen[ch.ObjectID] = true
+			touched = append(touched, ch.ObjectID)
+		}
+	}
+	if len(touched) == 0 && afterDoc != nil {
+		// Derive touched object IDs by diffing beforeDoc vs afterDoc so we still only patch this task's objects.
+		allIDs := append(collectAllObjectIDs(beforeDoc), collectAllObjectIDs(afterDoc)...)
+		for _, oid := range allIDs {
+			if seen[oid] {
+				continue
+			}
+			bObj, bLayer, bParent := findObjectDocInScene(beforeDoc, oid)
+			aObj, aLayer, aParent := findObjectDocInScene(afterDoc, oid)
+			if !objectDocsEqual(bObj, aObj) || bLayer != aLayer || bParent != aParent {
+				seen[oid] = true
+				touched = append(touched, oid)
+			}
+		}
+	}
+
+	if len(touched) == 0 {
+		// Fallback only when no per-object metadata exists AND no other kept tasks could be clobbered.
+		if hasOtherKept {
+			return nil
+		}
+		e.History.Execute(&taskSceneRevertCmd{
+			ed:     e,
+			label:  "Revert agent task: " + t.Title,
+			before: e.Doc,
+			after:  beforeDoc,
+		})
+		return nil
+	}
+
+	// Deep-clone current scene so we patch ONLY this task's untouched-since-turn objects.
+	curBytes, err := sceneformat.Encode(e.Doc)
+	if err != nil {
+		return err
+	}
+	patchedDoc, err := sceneformat.ParseWith(curBytes, parseOpts)
+	if err != nil {
+		return err
+	}
+
+	applied := 0
+	var skipped []string
+	for _, oid := range touched {
+		beforeObj, beforeLayer, beforeParent := findObjectDocInScene(beforeDoc, oid)
+		curObj, curLayer, curParent := findObjectDocInScene(patchedDoc, oid)
+
+		// Protect any object modified later by another task (kept or parallel) or human edit.
+		if afterDoc != nil {
+			afterObj, afterLayer, afterParent := findObjectDocInScene(afterDoc, oid)
+			if !objectDocsEqual(curObj, afterObj) || curLayer != afterLayer || curParent != afterParent {
+				skipped = append(skipped, oid)
+				continue
+			}
+		} else if keptObjects[oid] {
+			skipped = append(skipped, oid)
+			continue
+		}
+
+		switch {
+		case beforeObj == nil && curObj != nil:
+			// Added by this task -> remove it.
+			if removeObjectDocFromScene(patchedDoc, oid) {
+				applied++
+			}
+		case beforeObj != nil && curObj != nil:
+			// Modified (and possibly reparented/moved across layers) -> restore exact pre-task object.
+			restored := beforeObj.Clone()
+			if curLayer == beforeLayer && curParent == beforeParent {
+				*curObj = restored
+			} else {
+				removeObjectDocFromScene(patchedDoc, oid)
+				insertObjectDocInScene(patchedDoc, restored, beforeLayer, beforeParent)
+			}
+			applied++
+		case beforeObj != nil && curObj == nil:
+			// Removed by this task -> re-insert it.
+			restored := beforeObj.Clone()
+			insertObjectDocInScene(patchedDoc, restored, beforeLayer, beforeParent)
+			applied++
+		}
+	}
+
+	if applied == 0 {
+		if len(skipped) > 0 {
+			e.Status = fmt.Sprintf("Skipped reverting %s (modified by a newer edit)", strings.Join(skipped, ", "))
+		}
+		return nil
+	}
+
 	e.History.Execute(&taskSceneRevertCmd{
 		ed:     e,
 		label:  "Revert agent task: " + t.Title,
 		before: e.Doc,
-		after:  doc,
+		after:  patchedDoc,
 	})
+	if len(skipped) > 0 {
+		e.Status = fmt.Sprintf("Reverted %d object(s); kept newer edits on %s", applied, strings.Join(skipped, ", "))
+	}
 	return nil
 }
 
@@ -1616,11 +2323,14 @@ func (e *Editor) DismissTasks(ids []string) int {
 	if e == nil || len(ids) == 0 {
 		return 0
 	}
-	e.tasks.ensureInit()
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
 	dismissed := 0
 	var resolved []string
 	for _, id := range ids {
-		idx := e.findTaskIndex(id)
+		idx := e.findTaskIndexLocked(id)
 		if idx < 0 {
 			continue
 		}
@@ -1641,6 +2351,9 @@ func (e *Editor) DismissTasks(ids []string) int {
 	}
 	if dismissed > 0 {
 		e.ensureFocusedTaskLocked()
+	}
+	e.tasks.mu.Unlock()
+	if dismissed > 0 {
 		_ = e.SaveAgentThread()
 		e.notify()
 		for _, id := range resolved {
@@ -1655,9 +2368,11 @@ func (e *Editor) SetTaskDismissSelected(id string, selected bool) {
 	if e == nil || id == "" {
 		return
 	}
-	e.tasks.ensureInit()
-	idx := e.findTaskIndex(id)
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	idx := e.findTaskIndexLocked(id)
 	if idx < 0 || e.tasks.tasks[idx].State != TaskReadyToReview || e.tasks.tasks[idx].Dismissed {
+		e.tasks.mu.Unlock()
 		return
 	}
 	if selected {
@@ -1665,6 +2380,7 @@ func (e *Editor) SetTaskDismissSelected(id string, selected bool) {
 	} else {
 		delete(e.tasks.selectedDismiss, id)
 	}
+	e.tasks.mu.Unlock()
 	e.notify()
 }
 
@@ -1673,8 +2389,7 @@ func (e *Editor) ToggleTaskDismissSelection(id string) {
 	if e == nil || id == "" {
 		return
 	}
-	e.tasks.ensureInit()
-	e.SetTaskDismissSelected(id, !e.tasks.selectedDismiss[id])
+	e.SetTaskDismissSelected(id, !e.TaskDismissSelected(id))
 }
 
 // TaskDismissSelected reports whether task id is currently checked for bulk dismissal.
@@ -1682,7 +2397,10 @@ func (e *Editor) TaskDismissSelected(id string) bool {
 	if e == nil || id == "" {
 		return false
 	}
-	return e.tasks.selectedDismiss[id]
+	e.tasks.mu.Lock()
+	ok := e.tasks.selectedDismiss[id]
+	e.tasks.mu.Unlock()
+	return ok
 }
 
 // SelectedDismissTaskIDs returns the IDs of all Ready to review tasks currently checked for bulk dismissal, in list order.
@@ -1690,6 +2408,7 @@ func (e *Editor) SelectedDismissTaskIDs() []string {
 	if e == nil {
 		return nil
 	}
+	e.tasks.mu.Lock()
 	var out []string
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
@@ -1697,6 +2416,7 @@ func (e *Editor) SelectedDismissTaskIDs() []string {
 			out = append(out, t.ID)
 		}
 	}
+	e.tasks.mu.Unlock()
 	return out
 }
 
@@ -1713,6 +2433,9 @@ func (e *Editor) ReorderQueuedTask(id string, delta int) error {
 	if delta == 0 {
 		return nil
 	}
+	unlock := e.lockHeadlessTaskOp()
+	defer unlock()
+	e.tasks.mu.Lock()
 	var queuedIndices []int
 	pos := -1
 	for i := range e.tasks.tasks {
@@ -1725,6 +2448,7 @@ func (e *Editor) ReorderQueuedTask(id string, delta int) error {
 		}
 	}
 	if pos < 0 {
+		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q is not queued", id)
 	}
 	target := pos + delta
@@ -1735,10 +2459,12 @@ func (e *Editor) ReorderQueuedTask(id string, delta int) error {
 		target = len(queuedIndices) - 1
 	}
 	if target == pos {
+		e.tasks.mu.Unlock()
 		return nil
 	}
 	a, b := queuedIndices[pos], queuedIndices[target]
 	e.tasks.tasks[a], e.tasks.tasks[b] = e.tasks.tasks[b], e.tasks.tasks[a]
+	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
 	e.notify()
 	return nil
@@ -1750,6 +2476,13 @@ func (e *Editor) TaskSummary() TaskSummary {
 	if e == nil {
 		return TaskSummary{}
 	}
+	e.tasks.mu.Lock()
+	s := e.taskSummaryLocked()
+	e.tasks.mu.Unlock()
+	return s
+}
+
+func (e *Editor) taskSummaryLocked() TaskSummary {
 	var s TaskSummary
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
@@ -1827,15 +2560,21 @@ func (e *Editor) TaskElapsedString(t AgentTask) string {
 //   - Single running task (and nothing else active): "1 running · M:SS"
 //   - Mixed: non-zero counts in urgency order (Failed, Needs you, Running, Ready to review, Queued); zero counts drop out.
 func (e *Editor) TaskStatusParts() []TaskStatusPart {
-	s := e.TaskSummary()
+	if e == nil {
+		return []TaskStatusPart{{State: "", Label: "No tasks"}}
+	}
+	e.tasks.mu.Lock()
+	s := e.taskSummaryLocked()
 	total := s.Failed + s.NeedsYou + s.Running + s.ReadyToReview + s.Queued
 	if total == 0 {
+		e.tasks.mu.Unlock()
 		return []TaskStatusPart{{State: "", Label: "No tasks"}}
 	}
 	if s.Running == 1 && total == 1 {
 		for i := range e.tasks.tasks {
 			t := e.tasks.tasks[i]
 			if !t.Dismissed && t.State == TaskRunning {
+				e.tasks.mu.Unlock()
 				return []TaskStatusPart{{
 					State: TaskRunning,
 					Label: fmt.Sprintf("1 running · %s", e.TaskElapsedString(t)),
@@ -1843,6 +2582,7 @@ func (e *Editor) TaskStatusParts() []TaskStatusPart {
 			}
 		}
 	}
+	e.tasks.mu.Unlock()
 	var parts []TaskStatusPart
 	if s.Failed > 0 {
 		parts = append(parts, TaskStatusPart{State: TaskFailed, Label: fmt.Sprintf("%d failed", s.Failed)})
@@ -1956,13 +2696,16 @@ func (e *Editor) TaskComposerHint() string {
 	if e == nil {
 		return ""
 	}
-	e.tasks.ensureInit()
-	s := e.TaskSummary()
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	s := e.taskSummaryLocked()
+	mode := e.tasks.composerMode
 	var primary *AgentTask
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
 		if !t.Dismissed && t.State == TaskRunning && !t.Holding() {
-			primary = t
+			cp := t.clone()
+			primary = &cp
 			break
 		}
 	}
@@ -1970,13 +2713,15 @@ func (e *Editor) TaskComposerHint() string {
 		for i := range e.tasks.tasks {
 			t := &e.tasks.tasks[i]
 			if !t.Dismissed && (t.State == TaskRunning || (t.State == TaskReadyToReview && t.Source != TaskSourceAutomation)) {
-				primary = t
+				cp := t.clone()
+				primary = &cp
 				break
 			}
 		}
 	}
+	e.tasks.mu.Unlock()
 
-	if e.tasks.composerMode == TaskStartQueue {
+	if mode == TaskStartQueue {
 		if primary == nil {
 			return "Starts right away; later queued requests wait until it is kept or reverted"
 		}
@@ -2023,6 +2768,8 @@ func (e *Editor) ObjectTaskBadge(objectID string) (ObjectTaskOverlay, bool) {
 	if e == nil || objectID == "" {
 		return ObjectTaskOverlay{}, false
 	}
+	e.tasks.mu.Lock()
+	defer e.tasks.mu.Unlock()
 	var holding *ObjectTaskOverlay
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
@@ -2074,6 +2821,8 @@ func (e *Editor) SceneTaskOverlays() []ObjectTaskOverlay {
 	if e == nil {
 		return nil
 	}
+	e.tasks.mu.Lock()
+	defer e.tasks.mu.Unlock()
 	var out []ObjectTaskOverlay
 	for i := range e.tasks.tasks {
 		t := &e.tasks.tasks[i]
