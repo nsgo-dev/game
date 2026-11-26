@@ -281,6 +281,42 @@ strings:
   disk.reload: Reload from disk
   disk.showDiff: Show diff
   disk.useThese: Use these
+  dtReview.agentCardTitle: Review waiting · {changes} changes, {files} files
+  dtReview.agentCheck: Agent's check
+  dtReview.back: Editor
+  dtReview.backLabel: Back to the editor, review stays open (Esc)
+  dtReview.chip.all: All
+  dtReview.chip.changed: Changed
+  dtReview.chip.reverted: Reverted
+  dtReview.chip.unchanged: Unchanged
+  dtReview.chip.yours: Yours
+  dtReview.colAction: Action
+  dtReview.colOrder: Order
+  dtReview.done: Done
+  dtReview.dragToReorder: Drag to reorder
+  dtReview.emptyFile: No records — ask the agent to add some
+  dtReview.fileMetaChanged: '{changed} of {total} changed'
+  dtReview.fileMetaNew: new · {count} records
+  dtReview.filesHeading: DATA · {count} FILES
+  dtReview.filterPlaceholder: Filter items
+  dtReview.hintEdit: Click a new value to change it · drag a row to reorder
+  dtReview.hintJoin: Both join this review as your edits.
+  dtReview.keepCount: Keep {kept} of {total}
+  dtReview.noMatch: No rows match this filter.
+  dtReview.outOfDate: Out of date
+  dtReview.outOfDateHint: Figures are out of date after your edits · ask the agent to refresh
+  dtReview.restore: Restore
+  dtReview.resume: Resume
+  dtReview.resumeReview: Resume review
+  dtReview.revert: Revert
+  dtReview.revertAll: Revert all
+  dtReview.showRows: Show rows
+  dtReview.title: Review
+  dtReview.toastKept: Kept {kept} · reverted {reverted}
+  dtReview.toastPaused: Review paused · resume it from the Agent panel
+  dtReview.toastReverted: Reverted {count} records
+  dtReview.toastYours: '{count} of your edits'
+  dtReview.was: was
   files.editMaterial: Edit Material
   files.editMaterialLabel: Open the selected material file in the Material Editor
   files.findRefs: Find Refs

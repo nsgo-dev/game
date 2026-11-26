@@ -237,6 +237,9 @@ func (e *Editor) HasOpenReview() bool {
 	if e.TileReviewOpen() || e.tileReview != nil {
 		return true
 	}
+	if e.DataTableReviewPending() {
+		return true
+	}
 	if e.playtest.session != nil && e.playtest.session.ReviewProposalID != "" {
 		return true
 	}

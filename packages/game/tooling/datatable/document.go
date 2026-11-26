@@ -833,6 +833,48 @@ func (d *Document) Cell(row int, col string) (Value, bool) {
 	return v.Clone(), true
 }
 
+// RowLine returns the 1-based YAML line number where row begins in the parsed
+// document, or 0 if line metadata is unavailable (for example on a newly added row).
+func (d *Document) RowLine(row int) int {
+	if d == nil || d.rowsNode == nil || row < 0 || row >= len(d.rowsNode.Content) {
+		return 0
+	}
+	node := d.rowsNode.Content[row]
+	if node == nil {
+		return 0
+	}
+	if node.Line > 0 {
+		return node.Line
+	}
+	resolved := resolveYAMLAlias(node, 0)
+	if resolved != nil && resolved.Line > 0 {
+		return resolved.Line
+	}
+	return 0
+}
+
+// CellLine returns the 1-based YAML line number of column col in row, or 0 if
+// the cell or its line metadata is unavailable.
+func (d *Document) CellLine(row int, col string) int {
+	if d == nil || d.rowsNode == nil || row < 0 || row >= len(d.rowsNode.Content) {
+		return 0
+	}
+	node := resolveYAMLAlias(d.rowsNode.Content[row], 0)
+	if node == nil || node.Kind != yaml.MappingNode {
+		return 0
+	}
+	for j := 0; j+1 < len(node.Content); j += 2 {
+		kNode := resolveYAMLAlias(node.Content[j], 0)
+		if kNode != nil && kNode.Value == col {
+			if node.Content[j].Line > 0 {
+				return node.Content[j].Line
+			}
+			return kNode.Line
+		}
+	}
+	return 0
+}
+
 // SetCell updates or inserts col in row with val.
 // Updating an existing scalar or inline-list cell on a block-style row patches only that
 // line in the preserved YAML bytes; inserting a new key appends it to that row and encodes

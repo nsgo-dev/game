@@ -341,6 +341,9 @@ claude mcp add game-editor -- nsgo game mcp
 | `history_list` | read | `author`（`"all"`、`"you"`、`"agent"`）、`limit`（可选） | 按时间倒序列出编辑器统一的历史时间线，包含手动编辑、智能体回合与已保存检查点。 |
 | `permissions_draft` | read | `request`（可选）、`rules`（必填） | 提交仅限用户审阅的权限草案卡片，默认不勾选任何规则；绝不直接修改 `permissions.yaml`。 |
 | `game_delete_file` | delete | `file`（必填）、`reason`（可选） | 在**设置 › 工具**中默认关闭（启用前不会向已连接客户端公布）。启用后在“审查更改”面板中提议删除项目文件并展示行数与场景引用，在用户确认前绝不改动磁盘（拒绝仅限用户文件、符号链接、`.git/**`、`game.yaml`、已打开场景标签页及超过 1 MiB 的文件）。 |
+| `datatable_review_propose` | edit | `files`（必填）、`prompt`、`checks`（可选） | 使用 `datatable.ParseDocument`（及已注册的 Go 行类型）校验一个或多个版本 1 YAML 数据表文件，并打开带旧值 → 新值、`Δ%`、单行 Revert/Restore 与可选智能体核验指标的逐行数据表审查界面，在用户点击 Keep 前不修改磁盘。 |
+| `datatable_review_checks` | edit | `checks`（必填） | 在当前数据表审查中附上或刷新智能体的具名核验指标（`label`、`value`、`before`、`basis`），并在作者还原、编辑或重排记录后清除 `checksOutOfDate` 标记。 |
+| `datatable_review_status` | read | `file`（可选） | 返回当前数据表审查的文件列表、保留/还原/用户编辑计数、当前文件改动记录状态、已附带的核验指标以及 `checksOutOfDate` 是否为真。 |
 
 编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`。
 
