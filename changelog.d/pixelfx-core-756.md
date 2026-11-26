@@ -1,5 +1,0 @@
-### Added
-
-- `game/pixelfx`: a Go port of pixelfx's core at commit `5294518`, under its MIT license: frames with additive light and `Composite`, the `Painter`, seeded `Rng` and noise, closed-form and simulated particles, colors and palettes, the two pixel fonts, the acting system (`Rig`, `Pose`, `Act`, `Perform`, `ActTiming`, `Chain`), the effect registry with options for placement, flip, angle, seed, palette and light, sprite sheet export as Aseprite JSON for `sprite.LoadAtlas` (`Render`, `RenderAct`, `Frames.Sheet`), and `Image` and `View` to show frames in NSGo scaled up without smoothing (#756).
-- `game/pixelfx/fire`, `game/pixelfx/explosions`, `game/pixelfx/impacts` and `game/pixelfx/moves`: the torch, the small explosion, the ground slam and the ground pound, each tested frame by frame against pixelfx's own render (#756).
-- `game pixelfx` renders a pixelfx effect, or the effect acted out, to a PNG sprite sheet and its Aseprite JSON, with `-set` for the effect's options and `-list` for the effects (#756).

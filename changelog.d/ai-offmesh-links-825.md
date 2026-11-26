@@ -1,4 +1,0 @@
-### Added
-
-- `ai.NavMesh` and `world3d.NavMesh` now support full off-mesh links with endpoint `Radius` snapping, one-way or `Bidirectional` traversal, explicit `Cost`, `NavArea` / `NavFlags` filtering (`NavAreaJump`, `NavAreaClimb`, `NavAreaTeleport`, `NavFlagClimb`, `NavFlagTeleport`), arbitrary `UserData`, `OffMeshLinks` / `ClearOffMeshLinks`, shortcut-aware optimal A* search, and traversed link segment reporting on `NavPathResult.Links` (`HasLinks`, `LinkAt`) and `NavLinkEvent` (#825).
-- `navbake` and `navbake3d` now store and validate off-mesh links in their YAML formats (`links` / `meshes[].links`) and apply them automatically in `Mesh.NavMesh()`, and `sceneformat` adds the built-in `"nav_link"` component (`RegisterNavLink`, `ExtractNavLinks2D`, `ExtractNavLinks3D`) baked automatically by `navbake3d.Geometry.AddSceneFile` (#825).

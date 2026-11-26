@@ -1,3 +1,0 @@
-### Added
-
-- `world3d`, `render3d`, and `editor`: extend `*.terrain.yaml` with `size`, 16-bit grayscale PNG heightmap encoding/decoding (`NewHeightmap`, `Heightmap.ToGray16`, `Heightmap.EncodePNG`, `DecodeHeightmapPNG`), per-layer material references and grayscale weight-map PNGs (`PackLayerWeightMaps`, `LoadTerrainSplatMapFromWeights`), embedded foliage layers with density-map PNGs (`Heightmap.FoliageDensityAt`, `TerrainDoc.ScatterFoliage`, `DensityMap.EncodePNG`), `render3d.TerrainMaterialFromDoc` / `MeshFromTerrainMesh` loading, and 3D editor terrain sculpt and paint tools (raise/lower, smooth, flatten, set height, layer paint, foliage density paint with radius, strength, falloff, single-step undo per stroke, and lossless 16-bit PNG + YAML saving) (#900).

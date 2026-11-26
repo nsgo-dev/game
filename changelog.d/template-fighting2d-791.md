@@ -1,3 +1,0 @@
-### Added
-
-- `fighting2d` template: a one-on-one 2D fighting game with two original fighters, special moves from motion inputs and a charge, cancels and combos with damage scaling, guards high and low with chip damage, best-of-three rounds on a timer, a CPU opponent and local versus on one keyboard or two game controllers, played with the keyboard, game controllers or touch, its moves, frame data, rules and roster in YAML and nsgotest playthroughs that win and lose a match; `game new -template fighting2d` and `nsgo init -template github.com/nsgo-dev/game/template/fighting2d` create it ([The fighting game template](docs/en/template-fighting2d.md), #791).

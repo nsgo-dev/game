@@ -1,3 +1,0 @@
-### Added
-
-- `game/sceneformat`: scene files connect one object's events to another object's handlers under `connections`, as Godot's `.tscn` connections do: component types declare `Events` and `Handlers` (with typed params and a `Func`), `ParseWith` refuses unknown events, handlers and arguments with the file, line and column, `Resolve` carries connections through instancing and inheritance, and `Connect` returns `Signals` whose `Emit` runs the connected handlers, so a button opens a door with no Go wiring code; `game/editor`'s `DeleteObject` removes the connections of the deleted objects and undo restores them (#490).

@@ -1,3 +1,0 @@
-### Added
-
-- `game/gltf`: complete `KHR_texture_transform` and `KHR_materials_variants` support with strict spec validation, UV evaluation helpers (`DefaultTextureTransform`, `TextureTransform.IsIdentity`, `TextureTransform.Apply`, `TextureRef.ApplyUV`, `Document.PrimitiveTexCoords`, `Document.TransformTexCoords`), variant lookup/resolution helpers (`Document.VariantIndex`, `Document.MaterialForVariant`, `Document.MeshMaterials`, `Document.ResolveVariantMaterials`), and verification against the Khronos `TextureTransformTest`, `TextureTransformMultiTest`, and `GlamVelvetSofa` sample models (#274).

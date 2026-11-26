@@ -1,3 +1,0 @@
-### Added
-
-- `game/render3d`: GPU skeletal skinning (`SkinnedMesh`, `GPUSkinnedMesh`, `SkinnedVertexLayout`, `SkinnedMeshFromGLTF`, `SkinnedMeshesFromGLTFNode`, `GPUSkinPalette`, `SkinJointMatrices`, `AppendJointMatrices`, `SkinVertex`, `SkinnedBounds`, `SkinWGSL`, and `NewSkinnedMeshPipeline`) with up to 128 joints in a portable 8 KiB uniform buffer, weight normalization, joint bounds validation, and `Retained` device-loss recovery. Skinned meshes also draw with scene lights (`LitPBRPipelineOptions.SkinLayout`) or a glTF material (`MaterialPipelineOptions.SkinLayout`), and `GPUSkinPalette.UpdateWithTransform` uploads anim3d's mesh-local joint matrices (#121).

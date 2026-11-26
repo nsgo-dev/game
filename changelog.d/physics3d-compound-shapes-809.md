@@ -1,3 +1,0 @@
-### Added
-
-- `game/physics3d`: compound shapes (`ShapeCompound`, `CompoundShape`, `CompoundChild`) supporting multiple local-offset/rotated child shapes (including boxes, spheres, capsules, convex hulls, cylinders, and nested compounds) on one rigid body, with parallel-axis combined mass, `CenterOfMass`, and 3×3 `SymMat3` `InvInertiaTensor`, combined bounds, per-child contact/raycast/overlap child-index reporting, per-child trigger and collision layer/mask overrides, CCD/area/character/cover/XPBD integration, debug wireframe drawing, and bit-identical FMA-free `WorldSnapshot` save/restore (#809).

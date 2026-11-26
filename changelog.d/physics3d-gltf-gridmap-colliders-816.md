@@ -1,5 +1,0 @@
-### Added
-
-- `game/gltf`: parse Godot-style collider node suffixes (`-col`, `-colonly`, `-boxcol`, `-boxcolonly`, `-spherecol`, `-spherecolonly`, `-capsulecol`, `-capsulecolonly`, `-convcol`, `-convcolonly`) and `extras.collider` metadata via `ParseNodeCollider`, `Node.IsDrawable`, `Document.DrawableNodes`, and `Document.ColliderNodes` (#816).
-- `game/physics3d`: build static colliders from glTF primitives, meshes, and scenes (`NewTriMeshFromGLTFPrimitive`, `NewTriMeshFromGLTFMesh`, `NewTriMeshFromGLTFNode`, `BuildGLTFColliders`, `World.AddGLTFColliders`), build `HeightfieldCollider` from `image.Image` (`NewHeightfieldFromImage`), and greedily merge aligned 3D boxes along X, Z, and Y (`MergeBoxes`) (#816).
-- `game/world3d`: create merged static `physics3d` bodies from `GridMap` cell `ColliderBoxes` (`GridMap.ColliderBoxes`, `GridMap.MergedColliderBoxes`, `GridMap.BuildStaticBodies`, `GridMap.AddCollidersToWorld`) and bridge `Heightmap` to `physics3d.HeightfieldCollider` via `Heightmap.Collider` (#816).

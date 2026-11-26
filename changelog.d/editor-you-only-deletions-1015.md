@@ -1,2 +1,0 @@
-### Added
-- Enforce the You-only trust boundary across every `editormcp` tool, add the `permissions_draft` modal card (nothing ticked by default, never applied by `⌘↵`, Keep all, automations, or Autonomous, recorded in History as the person's), hold externally loosened `permissions.yaml` profiles and rules in Settings › Permissions while applying tightened ones immediately, and add `game_delete_file` proposed deletions that Keep all leaves untouched until confirmed in place and `⌘Z` restores from a checkpoint (#1015).

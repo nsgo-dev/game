@@ -11,7 +11,7 @@ The loop, input actions, sound and scene switching are shared by both stages. It
 
 ## Status
 
-Early and unreleased. Every package is either stable or experimental: stable packages break their API only in a minor release and only after a deprecation period, experimental ones may change in any minor release. The [API stability policy](docs/en/stability.md) ([中文](docs/zh/stability.md)) defines both, describes how deprecations work across releases, and lists each package's status.
+Released as `v0.1.0` (compatible with NSGo `v0.3.4` or later). Every package is either stable or experimental: stable packages break their API only in a minor release and only after a deprecation period, experimental ones may change in any minor release. The [API stability policy](docs/en/stability.md) ([中文](docs/zh/stability.md)) defines both, describes how deprecations work across releases, and lists each package's status.
 
 The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047), and its tasks are this repository's issues. The engine-side primitives it needs (key-up and held keys, display frame times, gamepads, audio everywhere, a batched `DrawAtlas`, the GPU view) are tracked in NSGo.
 
@@ -70,7 +70,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, local test and
 
 | `game` | Go | NSGo |
 | --- | --- | --- |
-| Unreleased / `v0.1.0` | 1.27+ | `v0.3.4` or later |
+| `v0.1.0` | 1.27+ | `v0.3.4` or later |
 
 ## Networking
 

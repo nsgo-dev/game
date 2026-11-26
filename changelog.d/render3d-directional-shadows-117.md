@@ -1,3 +1,0 @@
-### Added
-
-- `game/render3d`: directional light shadow mapping (`DirectionalShadowConfig`, `ShadowMapOptions`, `DirectionalShadowMap`, `ShadowUniforms`, `AppendShadowUniforms`, `ShadowDepthWGSL`, `ShadowWGSL`, `ShadowWGSLForGroup`, and the CPU reference `EvaluateDirectionalShadow`) with `FitBounds` orthographic framing, texel snapping that keeps shadow edges still as the framing moves, hard 1-tap and 3x3 PCF comparison filtering, dynamic multi-caster shadow passes, and `Retained` device-loss recovery. The lit PBR pipeline takes the shadow at bind group 3 (`LitPBRShadowWGSL`, `NewLitPBRShadowPipeline`, `LitPBRPipelineOptions.ShadowLayout`), attenuating the `LightRig`'s first directional light, with `ShadePointShadowed` as its CPU reference (#117).

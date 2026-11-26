@@ -1,3 +1,0 @@
-### Added
-
-- `game/tooling/hotreload`: live hot reload for WGSL (`.wgsl`) and Kage (`.kage`) shaders and YAML 3D shader materials (`.material.yaml`, `.mat.yaml`, `.material.yml`, `.mat.yml`) under `game dev` via `CompileShaderSource`, `ShaderReloader`, `MaterialReloader`, `MaterialDef` (`ParseMaterial`, `ParseMaterialFile`, `EncodeMaterial`), `ReloadError`, `Watcher.WatchShader`, `Watcher.WatchShaders`, and `Watcher.WatchMaterials`; candidate shaders and GPU render pipelines compile and validate before swapping so compile, entry-point, or YAML errors report structured `*loaderr.Error` diagnostics without crashing while keeping the previous working pipeline active, and editing a shader automatically rebuilds dependent materials (#366).
