@@ -290,6 +290,42 @@ strings:
   disk.reload: 从磁盘重新加载
   disk.showDiff: 查看差异
   disk.useThese: 应用合并
+  dtReview.agentCardTitle: 等待审查 · {changes} 处更改，{files} 个文件
+  dtReview.agentCheck: 智能体核验
+  dtReview.back: 编辑器
+  dtReview.backLabel: 返回编辑器，审查保持打开（Esc）
+  dtReview.chip.all: 全部
+  dtReview.chip.changed: 已更改
+  dtReview.chip.reverted: 已还原
+  dtReview.chip.unchanged: 未更改
+  dtReview.chip.yours: 你的编辑
+  dtReview.colAction: 操作
+  dtReview.colOrder: 顺序
+  dtReview.done: 完成
+  dtReview.dragToReorder: 拖动以重排
+  dtReview.emptyFile: 暂无记录 — 请让智能体添加一些
+  dtReview.fileMetaChanged: '{total} 条中更改了 {changed} 条'
+  dtReview.fileMetaNew: 新建 · {count} 条记录
+  dtReview.filesHeading: 数据表 · {count} 个文件
+  dtReview.filterPlaceholder: 筛选条目
+  dtReview.hintEdit: 点击新值即可修改 · 拖动行即可重排顺序
+  dtReview.hintJoin: 两者都会作为你的编辑加入本次审查。
+  dtReview.keepCount: 保留 {kept} / {total}
+  dtReview.noMatch: 没有符合当前筛选条件的行。
+  dtReview.outOfDate: 已过期
+  dtReview.outOfDateHint: 你的修改已使指标过期 · 请让智能体重新核验
+  dtReview.restore: 恢复
+  dtReview.resume: 继续
+  dtReview.resumeReview: 继续审查
+  dtReview.revert: 还原
+  dtReview.revertAll: 全部还原
+  dtReview.showRows: 显示行
+  dtReview.title: 审查
+  dtReview.toastKept: 已保留 {kept} · 已还原 {reverted}
+  dtReview.toastPaused: 审查已暂停 · 可在智能体面板继续
+  dtReview.toastReverted: 已还原 {count} 条记录
+  dtReview.toastYours: '{count} 处你的编辑'
+  dtReview.was: 原为
   files.editMaterial: 编辑材质
   files.editMaterialLabel: 在材质编辑器中打开所选材质文件
   files.findRefs: 查找引用

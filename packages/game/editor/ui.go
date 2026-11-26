@@ -224,6 +224,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.FirstRunFullScreenOpen() ||
 			ed.ReviewOpen() ||
 			ed.MergeConflictOpen() ||
+			ed.DataTableReviewOpen() ||
 			ed.ChangesOpen() ||
 			ed.BuildReleaseScreenOpen() ||
 			ed.UsagesScreenOpen() ||
@@ -299,133 +300,144 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 												return core.Show{
 													When: func() bool {
 														_ = rev.Get()
-														return ed.ChangesOpen()
+														return ed.DataTableReviewOpen()
 													},
 													Then: func(cx *core.Scope) core.Node {
-														return ChangesPanelView(cx, ed, rev)
+														return DataTableReviewView(cx, ed, rev)
 													},
 													Else: func(cx *core.Scope) core.Node {
 														return core.Show{
 															When: func() bool {
 																_ = rev.Get()
-																return ed.BuildReleaseScreenOpen()
+																return ed.ChangesOpen()
 															},
 															Then: func(cx *core.Scope) core.Node {
-																return BuildReleaseScreenView(cx, ed, rev)
+																return ChangesPanelView(cx, ed, rev)
 															},
 															Else: func(cx *core.Scope) core.Node {
 																return core.Show{
 																	When: func() bool {
 																		_ = rev.Get()
-																		return ed.UsagesScreenOpen()
+																		return ed.BuildReleaseScreenOpen()
 																	},
 																	Then: func(cx *core.Scope) core.Node {
-																		return ReferencesScreenView(cx, ed, rev)
+																		return BuildReleaseScreenView(cx, ed, rev)
 																	},
 																	Else: func(cx *core.Scope) core.Node {
 																		return core.Show{
 																			When: func() bool {
 																				_ = rev.Get()
-																				return ed.PlaytestReportOpen()
+																				return ed.UsagesScreenOpen()
 																			},
 																			Then: func(cx *core.Scope) core.Node {
-																				return PlaytestReportView(cx, ed, rev)
+																				return ReferencesScreenView(cx, ed, rev)
 																			},
 																			Else: func(cx *core.Scope) core.Node {
 																				return core.Show{
 																					When: func() bool {
 																						_ = rev.Get()
-																						return ed.AssetGeneratorOpen()
+																						return ed.PlaytestReportOpen()
 																					},
 																					Then: func(cx *core.Scope) core.Node {
-																						return AssetGeneratorView(cx, ed, rev)
+																						return PlaytestReportView(cx, ed, rev)
 																					},
 																					Else: func(cx *core.Scope) core.Node {
 																						return core.Show{
 																							When: func() bool {
 																								_ = rev.Get()
-																								return ed.HUDLayoutOpen()
+																								return ed.AssetGeneratorOpen()
 																							},
 																							Then: func(cx *core.Scope) core.Node {
-																								return HUDLayoutView(cx, ed, rev)
+																								return AssetGeneratorView(cx, ed, rev)
 																							},
 																							Else: func(cx *core.Scope) core.Node {
-																								return core.View{
-																									Style: core.Style{
-																										Width:  core.Pct(100),
-																										Height: core.Pct(100),
+																								return core.Show{
+																									When: func() bool {
+																										_ = rev.Get()
+																										return ed.HUDLayoutOpen()
 																									},
-																									Children: []core.Node{
-																										toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-																										remotePlayBarView(cx, ed, rev),
-																										playModeBarView(cx, ed, rev),
-																										diskWatchBannerView(cx, ed, rev),
-																										core.Show{
-																											When: func() bool {
-																												_ = rev.Get()
-																												return ed.CutsceneOpen() && !ed.Playing()
+																									Then: func(cx *core.Scope) core.Node {
+																										return HUDLayoutView(cx, ed, rev)
+																									},
+																									Else: func(cx *core.Scope) core.Node {
+																										return core.View{
+																											Style: core.Style{
+																												Width:  core.Pct(100),
+																												Height: core.Pct(100),
 																											},
-																											Then: func(cx *core.Scope) core.Node {
-																												return CutscenePanelView(cx, ed, rev)
-																											},
-																											Else: func(cx *core.Scope) core.Node {
-																												return core.View{
-																													Style: core.Style{
-																														FlexGrow:  1,
-																														FlexBasis: core.Pt(0),
-																														Overflow:  core.Hidden,
+																											Children: []core.Node{
+																												toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+																												remotePlayBarView(cx, ed, rev),
+																												playModeBarView(cx, ed, rev),
+																												diskWatchBannerView(cx, ed, rev),
+																												core.Show{
+																													When: func() bool {
+																														_ = rev.Get()
+																														return ed.CutsceneOpen() && !ed.Playing()
 																													},
-																													Children: []core.Node{
-																														core.View{
-																															Disabled:                    settingsOpen,
-																															AccessibilityElementsHidden: settingsOpen,
+																													Then: func(cx *core.Scope) core.Node {
+																														return CutscenePanelView(cx, ed, rev)
+																													},
+																													Else: func(cx *core.Scope) core.Node {
+																														return core.View{
 																															Style: core.Style{
 																																FlexGrow:  1,
 																																FlexBasis: core.Pt(0),
 																																Overflow:  core.Hidden,
 																															},
-																															StyleFunc: func() core.Style {
-																																if settingsOpen() {
-																																	return core.Style{PointerEvents: core.PointerEventsNone}
-																																}
-																																return core.Style{}
-																															},
 																															Children: []core.Node{
 																																core.View{
-																																	// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																																	Disabled:                    settingsOpen,
+																																	AccessibilityElementsHidden: settingsOpen,
 																																	Style: core.Style{
-																																		Direction: core.Row,
 																																		FlexGrow:  1,
 																																		FlexBasis: core.Pt(0),
 																																		Overflow:  core.Hidden,
 																																	},
-																																	// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-																																	Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																																	StyleFunc: func() core.Style {
+																																		if settingsOpen() {
+																																			return core.Style{PointerEvents: core.PointerEventsNone}
+																																		}
+																																		return core.Style{}
+																																	},
+																																	Children: []core.Node{
+																																		core.View{
+																																			// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																																			Style: core.Style{
+																																				Direction: core.Row,
+																																				FlexGrow:  1,
+																																				FlexBasis: core.Pt(0),
+																																				Overflow:  core.Hidden,
+																																			},
+																																			// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+																																			Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																																		},
+																																		pluginDockView(cx, ed, rev, DockBottom),
+																																		TilesetEditorPanelView(cx, ed, rev),
+																																		TerrainPanelView(cx, ed, rev),
+																																		RigPanelView(cx, ed, rev),
+																																		DataTablePanelView(cx, ed, rev),
+																																		ParticleEditorPanelView(cx, ed, rev),
+																																		MaterialEditorPanelView(cx, ed, rev),
+																																		AnimationPanelView(cx, ed, rev),
+																																		EnvironmentPanelView(cx, ed, rev),
+																																		StatesPanelView(cx, ed, rev),
+																																		NavMeshPanelView(cx, ed, rev),
+																																		LocalizationPanelView(cx, ed, rev),
+																																		SearchPanelView(cx, ed, rev),
+																																		ProblemsView(cx, ed, rev),
+																																		ProfilerPanelView(cx, ed, rev),
+																																		OutputPanelView(cx, ed, rev),
+																																	},
 																																},
-																																pluginDockView(cx, ed, rev, DockBottom),
-																																TilesetEditorPanelView(cx, ed, rev),
-																																TerrainPanelView(cx, ed, rev),
-																																RigPanelView(cx, ed, rev),
-																																DataTablePanelView(cx, ed, rev),
-																																ParticleEditorPanelView(cx, ed, rev),
-																																MaterialEditorPanelView(cx, ed, rev),
-																																AnimationPanelView(cx, ed, rev),
-																																EnvironmentPanelView(cx, ed, rev),
-																																StatesPanelView(cx, ed, rev),
-																																NavMeshPanelView(cx, ed, rev),
-																																LocalizationPanelView(cx, ed, rev),
-																																SearchPanelView(cx, ed, rev),
-																																ProblemsView(cx, ed, rev),
-																																ProfilerPanelView(cx, ed, rev),
-																																OutputPanelView(cx, ed, rev),
+																																SettingsView(cx, ed, rev),
 																															},
-																														},
-																														SettingsView(cx, ed, rev),
+																														}
 																													},
-																												}
+																												},
+																												statusBarView(cx, ed, rev),
 																											},
-																										},
-																										statusBarView(cx, ed, rev),
+																										}
 																									},
 																								}
 																							},

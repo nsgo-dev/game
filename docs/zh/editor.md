@@ -587,6 +587,16 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 }
 ```
 
+### 逐行审查智能体的数据表改动（#1033）
+
+当智能体为一个或多个数据表文件提出修改建议时（通过 `Editor.OpenDataTableReview` 或 `datatable_review_propose` MCP 工具），编辑器会打开全窗口的逐行数据表审查界面（`DataTableReviewView`），完全采用设计规范配色与控件令牌：
+
+- **本轮文件与空数据表**：左侧栏列出本轮涉及的每个数据表文件（如 `27 of 40 changed`、`new · 0 records`）；选中尚无记录的新建数据表时显示 `"No records — ask the agent to add some"`（中文界面为“暂无记录 — 请让智能体添加一些”）。
+- **筛选标签、搜索与排序**：支持带实时计数的 **All / Changed / Unchanged / Reverted / Yours** 筛选标签（`SetDataTableReviewFilter`）、跨列实时筛选输入框（`SetDataTableReviewSearch`），以及点击任意列头在升序、降序与文件原序之间循环排序（`CycleDataTableReviewSort`，通过 `DataTableReviewAriaSort` 暴露 `aria-sort` 状态）。含改动的数值列以 `Δ` 标注列头并按涨跌幅百分比排序，且不改写底层文件行顺序。
+- **旧值 → 新值单元格、就地编辑与拖拽重排**：有改动的单元格采用设计规范 `changed` 虚线胶囊显示删除线旧值 `→` 新值及 `Δ%`，数值 `0` 显示为 `—`（`FormatReviewCellValue`）。每条改动记录提供独立的 **Revert / Restore** 按钮（`ToggleDataTableReviewRecord`）。点击单元格可就地修改新值（`StartDataTableReviewCellEdit`、`SetDataTableReviewCellText`、`StepDataTableReviewCellNumber`），拖动行首手柄可重排记录顺序（`ReorderDataTableReviewRecord`）；两者都会作为你的编辑纳入本次审查，以实线强调边框显示、可由 **Yours** 标签筛选，并在右侧焦点记录的 `+`/`-` YAML 差异面板（`DataTableReviewFocusedYAML`）中标注 `you`。
+- **智能体核验指标**：智能体可通过 `SetDataTableReviewChecks` 或 `datatable_review_checks` MCP 工具为本轮审查附上具名核验指标（`DataTableReviewCheck`：指标名、当前值、请求前的值及测算依据）。一旦作者还原、恢复、就地编辑或重排记录，指标会被标记为 **已过期**（`DataTableReviewChecksOutOfDate`），直到智能体重新刷新。
+- **暂停审查、无损保留与单步撤销**：按 `Esc` 或点击 **Editor** 会暂停审查（`PauseDataTableReview`），继续暂停自动保存（`HasOpenReview`），并弹出带 **Resume** 按钮的“审查已暂停”提示条，同时在 Agent 面板中展示待继续卡片（`ResumeDataTableReview`）。点击 **Keep N of M**（`KeepDataTableReview`、`⌘↵`）会基于原始 `datatable.Document` 字节仅修补保留与编辑过的单元格行，未改动行与已还原行保持逐字节不变，并将所有文件变更合并为**单个原子撤销步骤**（一次 `Undo` 即可逐字节还原原文件并删除本轮新建的文件）。**Revert all**（`RevertAllDataTableReview`、`⌘⌫`）不触碰磁盘文件并支持通过 `⌘Z` 撤销恢复审查。
+
 ### 2D 视口导航（#864）
 
 2D 视口的画布填满所在面板，并通过编辑器自己的视图（`View2D`：画布中心对应的世界坐标点、缩放和旋转）显示场景，它与场景的 `camera` 相互独立，因此比一屏更大的关卡在任何位置都能看到和编辑。视图从不保存到场景中，也不记入撤销历史。

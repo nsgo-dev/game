@@ -632,9 +632,10 @@ type Editor struct {
 	// The cutscene timeline editor: open *.cutscene.yaml timeline, live preview player, thumbnails and agent review state.
 	cutscene cutsceneEditorState
 
-	// The data table editor: the open table state and registered Go row types per file pattern.
-	table      *dataTableState
-	tableTypes *datatable.Registry
+	// The data table editor: the open table state, active agent review, and registered Go row types per file pattern.
+	table       *dataTableState
+	tableReview *dataTableReviewState
+	tableTypes  *datatable.Registry
 
 	// The tileset editor: the open *.tileset.yaml document, selected terrain/tile, collision/animation/data state, and viewport tile animation loop.
 	tileset              *tilesetEditorState

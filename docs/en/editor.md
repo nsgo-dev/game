@@ -587,6 +587,16 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 }
 ```
 
+### Reviewing an agent's data table changes (#1033)
+
+When an agent proposes changes to one or more data table files (through `Editor.OpenDataTableReview` or the `datatable_review_propose` MCP tool), the editor opens a full-window row-by-row Data Table review (`DataTableReviewView`) using exclusively the editor's design spec tokens:
+
+- **Turn files and empty tables**: the left sidebar lists every data table touched in the turn (`27 of 40 changed`, `new · 0 records`); selecting a newly created empty file shows `"No records — ask the agent to add some"`.
+- **Filter chips, search, and sorting**: switch between **All**, **Changed**, **Unchanged**, **Reverted**, and **Yours** chips with live counts (`SetDataTableReviewFilter`), search across all fields (`SetDataTableReviewSearch`), and click any column header (`CycleDataTableReviewSort`) to cycle ascending, descending, and back to file order (reporting `aria-sort` via `DataTableReviewAriaSort`). Numeric columns with changes show a `Δ` header and sort by percentage delta without mutating file order.
+- **Old → new cells, in-place edits, and drag-to-reorder**: changed cells render in the Spec `changed` dashed pill showing struck-through old value `→` new value and `Δ%`, while numeric zeros render as `—` (`FormatReviewCellValue`). Each changed record has its own **Revert** / **Restore** button (`ToggleDataTableReviewRecord`). Clicking a cell value edits it in place (`StartDataTableReviewCellEdit`, `SetDataTableReviewCellText`, `StepDataTableReviewCellNumber`) and dragging a row's grip handle reorders it (`ReorderDataTableReviewRecord`); both join the review under **Yours** with a solid accent border and a `you` tag in the right-hand YAML diff pane (`DataTableReviewFocusedYAML`).
+- **Agent's check figures**: the agent attaches named figures (`DataTableReviewCheck`: label, value, optional value before the request, and basis) via `SetDataTableReviewChecks` or the `datatable_review_checks` MCP tool. Any person revert, restore, in-place edit, or row reorder marks those figures **Out of date** (`DataTableReviewChecksOutOfDate`) until the agent refreshes them.
+- **Pause, lossless Keep, and single-step Undo**: pressing `Esc` or **Editor** pauses the review (`PauseDataTableReview`), keeping autosave paused (`HasOpenReview`) and showing a `"Review paused"` toast with **Resume** plus a pending review card in the Agent panel (`ResumeDataTableReview`). **Keep N of M** (`KeepDataTableReview`, `⌘↵`) starts from the original parsed `datatable.Document` bytes and patches only the kept and edited lines so untouched and reverted lines stay byte-for-byte identical, committing every file in **one atomic Undo step** (`Undo` restores all files byte for byte and removes newly created files). **Revert all** (`RevertAllDataTableReview`, `⌘⌫`) closes the review cleanly without modifying disk and stays undoable with `⌘Z`.
+
 ### 2D viewport navigation (#864)
 
 The 2D viewport's canvas fills its panel and shows the scene through the editor's own view (`View2D`: the world point at the canvas's center, a zoom and a rotation), separate from the scene's `camera`, so a level larger than one screen can be seen and edited anywhere. The view is never saved to the scene nor recorded in the undo history.

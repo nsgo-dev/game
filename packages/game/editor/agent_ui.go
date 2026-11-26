@@ -127,6 +127,24 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 					}
 				},
 			})
+			children = append(children, core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return !ed.HasPendingReview() && ed.DataTableReviewPaused()
+				},
+				Then: func(*core.Scope) core.Node {
+					return core.View{
+						TestID: "right-tab-agent-review-dot",
+						Label:  "review waiting",
+						Style: core.Style{
+							Width:        core.Pt(6),
+							Height:       core.Pt(6),
+							CornerRadius: 3,
+							Background:   p.Accent.Fg,
+						},
+					}
+				},
+			})
 		}
 		return core.View{
 			TestID: testID,
@@ -751,6 +769,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		if ed.agent.openRequest != nil {
 			fmt.Fprintf(&b, "req:%s", ed.agent.openRequest.ID)
 		}
+		if ed.DataTableReviewPending() {
+			fmt.Fprintf(&b, "dtrev:%d:%v", ed.dataTableReviewRev(), ed.DataTableReviewPaused())
+		}
 		return b.String()
 	})
 
@@ -766,6 +787,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			turns := ed.AgentTurns()
 			openReq := ed.AgentOpenRequest()
 			hasReviewCard := ed.HasAgentPanelCard()
+			dtPending := ed.DataTableReviewPending()
 
 			var items []core.Node
 			if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
@@ -803,7 +825,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 				})
 			}
-			if len(turns) == 0 && openReq == nil && !hasReviewCard {
+			if len(turns) == 0 && openReq == nil && !hasReviewCard && !dtPending {
 				items = append(items, agentEmptyStateCard(ed, p))
 			}
 			for ti, turn := range turns {
@@ -811,6 +833,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			if hasReviewCard {
 				items = append(items, agentReviewPanelCards(ed, p, turns)...)
+			}
+			if dtPending {
+				items = append(items, agentPendingDataTableReviewCard(ed, p))
 			}
 			if openReq != nil {
 				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))

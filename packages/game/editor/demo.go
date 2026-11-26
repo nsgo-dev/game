@@ -187,6 +187,7 @@ func (e *Editor) OpenDemo() error {
 	e.clipErr = nil
 	e.clipSaved = nil
 	e.table = nil
+	e.tableReview = nil
 	e.tableSaved = nil
 	e.rig = nil
 	e.l10n = nil

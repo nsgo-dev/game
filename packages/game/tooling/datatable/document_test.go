@@ -476,3 +476,38 @@ func TestRegistryAndRowTypeValidationMatchesLoadYAML(t *testing.T) {
 		t.Fatalf("ParseCellText(hp, 99) = %+v, %v", v, err)
 	}
 }
+
+func TestDocumentRowLineAndCellLine(t *testing.T) {
+	const src = `# shop items
+version: 1
+rows:
+  - id: rusty_sword
+    price: 40
+    power: 2
+  - id: plate_armor
+    price: 600
+    power: 8
+`
+	doc, err := datatable.ParseDocument("items.yaml", []byte(src))
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if got := doc.RowLine(0); got != 4 {
+		t.Fatalf("RowLine(0) = %d, want 4", got)
+	}
+	if got := doc.RowLine(1); got != 7 {
+		t.Fatalf("RowLine(1) = %d, want 7", got)
+	}
+	if got := doc.CellLine(0, "price"); got != 5 {
+		t.Fatalf("CellLine(0, price) = %d, want 5", got)
+	}
+	if got := doc.CellLine(1, "power"); got != 9 {
+		t.Fatalf("CellLine(1, power) = %d, want 9", got)
+	}
+	if got := doc.CellLine(1, "missing"); got != 0 {
+		t.Fatalf("CellLine(1, missing) = %d, want 0", got)
+	}
+	if got := doc.RowLine(99); got != 0 {
+		t.Fatalf("RowLine(99) = %d, want 0", got)
+	}
+}

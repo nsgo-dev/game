@@ -87,6 +87,9 @@ func ExampleServer_AddTool() {
 	// brief_edit edit
 	// cutscene_scrub read
 	// cutscene_write edit
+	// datatable_review_checks edit
+	// datatable_review_propose edit
+	// datatable_review_status read
 	// game_check run
 	// game_delete_file delete
 	// game_playtest run
