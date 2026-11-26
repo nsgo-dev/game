@@ -270,13 +270,13 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 	}
 }
 
-// flyKeys3D are the keys that move the flying camera, which take them from the gizmo's shortcuts (W and S) while it flies.
+// flyKeys3D are the keys that move the flying camera, which take them from the gizmo's shortcuts (W and E) while it flies.
 var flyKeys3D = []string{"w", "a", "s", "d", "q", "e"}
 
 // maxFlyStep3D caps the time one frame moves the flying camera for, so a stalled frame does not throw it across the scene.
 const maxFlyStep3D = 100 * time.Millisecond
 
-// flyView3D runs while the camera flies (Flying3D): it binds the movement keys, so W and S move the camera instead of switching the gizmo, and on every display frame moves it by the keys held, W and S forward and back, A and D left and right, Q and E down and up, Shift faster.
+// flyView3D runs while the camera flies (Flying3D): it binds the movement keys, so W and E move the camera instead of switching the gizmo, and on every display frame moves it by the keys held, W and S forward and back, A and D left and right, Q and E down and up, Shift faster.
 func flyView3D(cx *core.Scope, ed *Editor) core.Node {
 	for _, k := range flyKeys3D {
 		cx.OnKeyWith(k, core.KeyOptions{When: core.KeyNotEditing}, func() {})

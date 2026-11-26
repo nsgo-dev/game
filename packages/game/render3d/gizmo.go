@@ -173,6 +173,8 @@ func (g Gizmo) translateSegments(segs []GizmoSegment, origin math3d.Vec3, scale 
 			GizmoSegment{A: c3, B: c0, Axis: pl.axis, Color: pl.color},
 		)
 	}
+	// Screen-space center translate handle at origin.
+	segs = appendCubeSegments(segs, origin, 0.07*scale, AxisAll, gizmoColorAll)
 	return segs
 }
 
@@ -278,11 +280,20 @@ func (g Gizmo) PickAxis(ray math3d.Ray, origin math3d.Vec3, scale float32, mode 
 }
 
 func (g Gizmo) pickTranslate(ray math3d.Ray, origin math3d.Vec3, scale, tol float32) (GizmoAxis, float32) {
-	bestAxis := AxisNone
-	bestDist := float32(math.Inf(1))
-	bestT := float32(math.Inf(1))
+	// Test center screen-space translate handle (matches the 0.07*scale center cube).
+	centerHit := false
+	centerT := float32(math.Inf(1))
+	centerSphere := math3d.Sphere{Center: origin, Radius: 0.08 * scale}
+	if t, hit := ray.IntersectSphere(centerSphere); hit {
+		centerHit = true
+		centerT = t
+	}
 
-	// Test primary axis shafts first.
+	shaftAxis := AxisNone
+	shaftDist := float32(math.Inf(1))
+	shaftT := float32(math.Inf(1))
+
+	// Test primary axis shafts.
 	axes := [3]struct {
 		axis GizmoAxis
 		dir  math3d.Vec3
@@ -293,17 +304,16 @@ func (g Gizmo) pickTranslate(ray math3d.Ray, origin math3d.Vec3, scale, tol floa
 	}
 	for _, a := range axes {
 		d, t := raySegmentDistance(ray, origin, origin.Add(a.dir.Scale(scale)))
-		if d <= tol && (d < bestDist-1e-5 || (math3d.ApproxEqual(d, bestDist, 1e-5) && t < bestT)) {
-			bestAxis = a.axis
-			bestDist = d
-			bestT = t
+		if d <= tol && (d < shaftDist-1e-5 || (math3d.ApproxEqual(d, shaftDist, 1e-5) && t < shaftT)) {
+			shaftAxis = a.axis
+			shaftDist = d
+			shaftT = t
 		}
-	}
-	if bestAxis != AxisNone {
-		return bestAxis, bestT
 	}
 
 	// Test the planar translate handles, the squares translateSegments draws.
+	planeAxis := AxisNone
+	planeT := float32(math.Inf(1))
 	minP := planarMin * scale
 	maxP := planarMax * scale
 	planes := [3]struct {
@@ -317,21 +327,38 @@ func (g Gizmo) pickTranslate(ray math3d.Ray, origin math3d.Vec3, scale, tol floa
 	}
 	for _, p := range planes {
 		t, hit := ray.IntersectPlane(math3d.PlaneFromPointNormal(origin, p.normal))
-		if !hit || t >= bestT {
+		if !hit || t >= planeT {
 			continue
 		}
 		local := ray.At(t).Sub(origin)
 		lu := local.Dot(p.u)
 		lv := local.Dot(p.v)
 		if lu >= minP && lu <= maxP && lv >= minP && lv <= maxP {
-			bestAxis = p.axis
-			bestT = t
+			planeAxis = p.axis
+			planeT = t
 		}
 	}
-	if bestAxis == AxisNone {
-		return AxisNone, 0
+	if centerHit {
+		// If a planar handle lies clearly in front of the center handle along the view ray,
+		// let the closer plane handle win; otherwise the center handle takes priority.
+		if planeAxis != AxisNone && planeT < centerT-0.02*scale {
+			return planeAxis, planeT
+		}
+		return AxisAll, centerT
 	}
-	return bestAxis, bestT
+	if shaftAxis != AxisNone && planeAxis != AxisNone {
+		if planeT < shaftT-tol {
+			return planeAxis, planeT
+		}
+		return shaftAxis, shaftT
+	}
+	if shaftAxis != AxisNone {
+		return shaftAxis, shaftT
+	}
+	if planeAxis != AxisNone {
+		return planeAxis, planeT
+	}
+	return AxisNone, 0
 }
 
 func (g Gizmo) pickScale(ray math3d.Ray, origin math3d.Vec3, scale, tol float32) (GizmoAxis, float32) {
@@ -393,12 +420,8 @@ func (g Gizmo) pickRotate(ray math3d.Ray, origin math3d.Vec3, scale, tol float32
 			bestT = t
 		}
 	}
-	if bestAxis != AxisNone {
-		return bestAxis, bestT
-	}
-
-	// Fallback for rays nearly parallel (edge-on) to a ring plane: test against
-	// the tessellated ring segments directly.
+	// Also test against the tessellated ring segments so rays near an edge-on
+	// ring are not stolen by a more distant face-on ring.
 	var buf [gizmoSegmentBuf]GizmoSegment
 	for _, seg := range g.rotateSegments(buf[:0], origin, scale) {
 		d, t := raySegmentDistance(ray, seg.A, seg.B)
@@ -438,6 +461,10 @@ func (g Gizmo) DragTranslate(origin math3d.Vec3, axis GizmoAxis, startRay, curre
 
 	case AxisXY, AxisXZ, AxisYZ:
 		n := planeNormalForAxis(axis)
+		const minPlaneCos = 0.02
+		if math.Abs(float64(r0.Dir.Dot(n))) < minPlaneCos || math.Abs(float64(r1.Dir.Dot(n))) < minPlaneCos {
+			return math3d.Vec3Zero()
+		}
 		pl := math3d.PlaneFromPointNormal(origin, n)
 		t0, ok0 := r0.IntersectPlane(pl)
 		t1, ok1 := r1.IntersectPlane(pl)
@@ -449,7 +476,12 @@ func (g Gizmo) DragTranslate(origin math3d.Vec3, axis GizmoAxis, startRay, curre
 		return snapVec3ForAxis(delta, axis, snap)
 
 	case AxisAll:
-		pl := math3d.PlaneFromPointNormal(origin, r0.Dir.Neg())
+		n := r0.Dir.Neg()
+		const minPlaneCos = 0.02
+		if math.Abs(float64(r1.Dir.Dot(n))) < minPlaneCos {
+			return math3d.Vec3Zero()
+		}
+		pl := math3d.PlaneFromPointNormal(origin, n)
 		t0, ok0 := r0.IntersectPlane(pl)
 		t1, ok1 := r1.IntersectPlane(pl)
 		if !ok0 || !ok1 {
