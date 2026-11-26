@@ -1,15 +1,15 @@
 # Overview
 
-game is a game layer for [NSGo](https://nsgo.dev) apps, written in Go. A game draws into one NSGo view, a `Canvas`, a pixel buffer or a shader, and its HUD and menus stay ordinary native NSGo views on top. It uses only NSGo's public API (`core`, `audio`, and later `gamepad`), so an app that does not import it links none of it.
+game is a pure-Go 2D and 3D game layer for [NSGo](https://nsgo.dev) apps. A game draws into one NSGo view—a `Canvas`, a pixel buffer, a shader or a GPU view—while its HUD and menus stay ordinary native NSGo views on top. It uses only NSGo's public API (`core`, `audio`, `gamepad`, and GPU views), so an app that does not import it links none of it.
 
-> The project is early: the packages below work and are tested, and [API Stability](stability.md) says which of their APIs are stable and which may still change. Start with [Getting Started](getting-started.md) to build and run a game, then follow the [tutorial](tutorial.md) to build a whole one.
+> NSGo Game `v0.1.0` requires Go 1.27+ and NSGo `v0.3.4+`. [API Stability](stability.md) says which packages are stable and which are experimental. Start with [Getting Started](getting-started.md) to build and run a game, pick one of the [starter templates](templates.md), or follow the [tutorial](tutorial.md) to build a complete game.
 
-## Stages
+## 2D and 3D
 
-1. **2D**: a fixed-step loop, input actions, sprites, tilemaps, scenes and sound, drawn at 60 fps or the display's rate.
-2. **3D**: meshes, cameras, lights and glTF models drawn with depth on a GPU view NSGo adds for it ([nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)). See [3D Models from Blender](3d-models-blender.md) for coordinate conventions, Blender 4.x export settings, FBX/OBJ conversion and sample glTF assets, and [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d) for an interactive glTF 3D scene example with orbit camera, dynamic lighting, a native HUD, and 2D ↔ 3D scene switching with shared input and sound.
+1. **2D**: a fixed-step loop, input actions, sprites, tilemaps, scenes, physics, lighting, particles, UI and sound, drawn at 60 fps or the display's rate.
+2. **3D**: meshes, cameras, PBR lighting, skeletal animation, 3D physics, terrain, voxels and glTF models drawn with depth on NSGo's GPU view. See [3D Models from Blender](3d-models-blender.md) for coordinate conventions, Blender 4.x export settings, FBX/OBJ conversion and sample glTF assets, and [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d) for an interactive glTF 3D scene example with orbit camera, dynamic lighting, a native HUD, and 2D ↔ 3D scene switching with shared input and sound.
 
-The loop, input actions, sound and scene switching are shared by both stages, so 3D adds drawing without replacing them. The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047); its tasks are this repository's issues and the engine primitives NSGo adds for it.
+The loop, input actions, sound, assets and scene switching are shared by both 2D and 3D, so you can combine 2D and 3D scenes in one game without rewriting its structure. Every author-facing file—scenes, prefabs, materials, animations, tables and project settings—is plain-text versioned YAML ([File Formats](formats.md)), editable by hand, with coding agents, or in the visual [Scene Editor](editor.md).
 
 ## Packages
 
@@ -127,7 +127,7 @@ See [Building and Shipping](shipping.md) for icons, signing, notarization, store
 
 ### VR and AR
 
-The game layer does not support VR or AR for now ([#495](https://github.com/nsgo-dev/game/issues/495)). Every package draws into one flat NSGo view, a `Canvas` or the GPU view of [nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059), and reads touch, mouse, keyboard, gamepads and device motion. NSGo v0.2 has no XR runtime on any of its targets, and this repository uses only NSGo's public API and holds no platform code, so it cannot add one itself.
+The game layer does not support VR or AR for now ([#495](https://github.com/nsgo-dev/game/issues/495)). Every package draws into one flat NSGo view, a `Canvas` or a GPU view, and reads touch, mouse, keyboard, gamepads and device motion. NSGo currently has no XR runtime on any of its targets, and this repository uses only NSGo's public API and holds no platform code, so it cannot add one itself.
 
 XR work here can start once NSGo provides, on at least one runtime (OpenXR on desktop and Android headsets, visionOS, ARKit, ARCore or WebXR):
 

@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import type { MouseEventHandler, ReactNode } from 'react'
 import { type Lang, useLang } from '../i18n'
 
-export type SimplePage = 'home' | 'docs' | 'api' | 'playground' | 'showcase' | 'roadmap' | 'tutorial' | 'packages' | 'examples'
+export type SimplePage = 'home' | 'docs' | 'api' | 'playground' | 'showcase' | 'tutorial' | 'packages' | 'examples'
 
 export type LocaleTarget =
   | { page: SimplePage }
@@ -116,16 +116,6 @@ export function LocaleLink(props: LocaleLinkProps) {
         </Link>
       ) : (
         <Link to="/$lang/showcase/" params={{ lang }} {...common}>
-          {props.children}
-        </Link>
-      )
-    case 'roadmap':
-      return lang === 'en' ? (
-        <Link to="/roadmap/" {...common}>
-          {props.children}
-        </Link>
-      ) : (
-        <Link to="/$lang/roadmap/" params={{ lang }} {...common}>
           {props.children}
         </Link>
       )

@@ -1,7 +1,5 @@
 import type { Copy } from './en'
 
-const STAGE_NAMES = ['Primitivas de NSGo para juegos', 'Capa de juegos 2D', '3D', 'Herramientas, editor y formato de proyecto', 'Publicación, operaciones y comunidad']
-
 export const es: Copy = {
   nav: {
     skip: 'Ir al contenido',
@@ -10,7 +8,6 @@ export const es: Copy = {
     docs: 'Docs',
     playground: 'Playground',
     showcase: 'Galería',
-    roadmap: 'Hoja de ruta',
     nsgo: 'NSGo',
     github: 'GitHub',
     menu: 'Menú',
@@ -20,7 +17,7 @@ export const es: Copy = {
   },
   site: {
     title: 'NSGo Game: una capa de juegos en Go para NSGo',
-    description: 'Una capa de juegos en Go para aplicaciones NSGo: bucle de paso fijo, sprites y sonido, y después 3D.',
+    description: 'Una capa de juegos 2D y 3D en Go puro para aplicaciones NSGo: bucle de paso fijo, sprites, renderizado glTF, editor visual de escenas y YAML en texto plano en seis plataformas.',
   },
   docs: {
     titleSuffix: 'Documentación de NSGo Game',
@@ -62,32 +59,6 @@ export const es: Copy = {
     source: 'Código fuente',
     notice: 'La referencia de API proviene de los comentarios de documentación de Go en el código fuente y está redactada en inglés.',
     unavailable: ['Esta compilación no pudo leer los paquetes Go (', ').'],
-  },
-  roadmap: {
-    title: 'Hoja de ruta — NSGo Game',
-    description: 'El plan de juegos para NSGo en cinco etapas: cada issue abierto y cerrado en nsgo-dev/game y NSGo, organizado por área.',
-    heading: 'Hoja de ruta',
-    intro: ['Los issues de ', ' y NSGo dentro de su plan, ', ', por etapa y área.'],
-    asOf: [' Actualizado al ', '.'],
-    unavailable: ['Esta compilación no pudo leer los issues desde GitHub (', '). Consúltalos en ', '.'],
-    stage: (n: number) => `Etapa ${n}`,
-    stageNames: STAGE_NAMES,
-    stageDescriptions: [
-      'Lo que la capa de juegos necesita del propio NSGo: entrada (teclas, mandos, puntero y toque), temporización de fotogramas y pantallas, capacidades de lienzo e imagen, audio, háptica y sensores, además de funciones de plataforma móvil. La mayoría sirve para cualquier app de NSGo, no solo juegos.',
-      'Paquetes 2D de nsgo-dev/game: bucle, acciones de entrada, sprites, mapas de tiles, escenas, cámara, física, iluminación, animación esquelética, partículas, texto, UI de juegos, efectos, sonido, guardados, recursos, localización, accesibilidad, IA y el resto de piezas de un juego 2D.',
-      '3D en NSGo: nueva vista GPU en NSGo (nsgo#1059), paquetes 3D en nsgo-dev/game (game#9), física 3D y decisiones sobre XR.',
-      'Cómo se construyen los juegos: CLI, MCP para agentes, editor, herramientas de recursos, depuración, repeticiones y controles de calidad, proyectos en archivos de texto que una IA puede leer de una vez y soporte de herramientas en NSGo.',
-      'Llevar los juegos a los jugadores y mantenerlos en marcha: lanzamientos, empaquetado y subida a tiendas, operaciones en vivo, pruebas en dispositivos reales, ejemplos, documentación, comunidad y decisiones sobre plataformas soportadas.',
-    ],
-    closed: (closed: number, total: number) => `${closed} de ${total} cerrados`,
-    xp: 'XP',
-    quest: 'Área',
-    open: 'Abierto',
-    closedState: 'Cerrado',
-    single: 'Issues individuales',
-    unplanned: 'Sin planificar',
-    unplannedCount: (n: number) => `${n} ${n === 1 ? 'issue' : 'issues'} de nsgo-dev/game fuera de las etapas del plan.`,
-    dateLocale: 'es',
   },
   playground: {
     title: 'Playground — NSGo Game',

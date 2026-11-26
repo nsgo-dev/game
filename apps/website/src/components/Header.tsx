@@ -28,8 +28,8 @@ export function Header() {
       <LocaleLink page="playground" lang={lang} activeProps={current}>
         {copy.playground}
       </LocaleLink>
-      <LocaleLink page="roadmap" lang={lang} activeProps={current}>
-        {copy.roadmap}
+      <LocaleLink page="showcase" lang={lang} activeProps={current}>
+        {copy.showcase}
       </LocaleLink>
     </>
   )

@@ -9,12 +9,12 @@ export const jaPages: PagesCopy = {
     "search": "検索"
   },
   "home": {
-    "eyebrow": "初期開発段階：API は変更されます",
+    "eyebrow": "v0.1.0 · 純 Go",
     "title": [
       "Go でゲームを書く。",
       "ひとつのコードで 6 プラットフォームへ。"
     ],
-    "lead": "game は NSGo のゲームレイヤーです。固定ステップのループ、入力アクション、スプライト、タイルマップ、シーン、サウンド。ゲームは 1 つの Canvas に描画され、HUD とメニューはネイティブの NSGo ビューのままです。",
+    "lead": "game は NSGo の 2D・3D ゲームレイヤーです。固定ステップのループ、入力アクション、スプライト、glTF 描画、ビジュアルシーンエディタ、プレーンテキスト YAML。ゲームは 1 つの NSGo ビューに描画され、HUD とメニューはネイティブのままです。",
     "start": "はじめる",
     "playground": "Playground で遊ぶ",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const jaPages: PagesCopy = {
     ],
     "hudNote": "HUD · ネイティブ NSGo ビュー",
     "canvasNote": "ゲーム画面 · core.Canvas",
-    "stagesTitle": "2 つのステージ、共通の土台。",
-    "stagesLead": "ループ、入力アクション、サウンド、シーン切り替えは両ステージで共通。3D は描画を追加するだけで、それらを置き換えません。",
+    "stagesTitle": "2D と 3D、ひとつの共通基盤。",
+    "stagesLead": "ループ、入力アクション、サウンド、シーン切り替えは 2D と 3D で共通。ゲーム構造を書き換えずにシーンを自在に組み合わせられます。",
     "stages": [
       {
         "status": "利用可能",
-        "body": "固定ステップのループ、入力アクション、スプライト、タイルマップ、シーン、サウンドを 60 fps またはディスプレイのリフレッシュレートで描画します。"
+        "body": "固定ステップのループ、入力アクション、スプライト、タイルマップ、シーン、物理、ライティング、サウンドを 60 fps またはディスプレイのリフレッシュレートで描画します。"
       },
       {
-        "status": "開発中",
-        "body": "NSGo が追加する GPU ビュー上で、メッシュ、カメラ、ライト、glTF モデルを深度付きで描画。Blender からのインポートにも対応します。"
+        "status": "利用可能",
+        "body": "NSGo の GPU ビュー上でメッシュ、カメラ、PBR ライティング、スケルタルアニメーション、3D 物理、glTF モデルを描画。Blender からのインポートにも対応しています。"
       }
     ],
     "codeTitle": "ひとつのコンポーネントが、ひとつのゲーム。",
@@ -60,6 +60,28 @@ export const jaPages: PagesCopy = {
       "固定ステップで更新、描画フレームは補間",
       "キーボードとゲームパッドを同じアクションに",
       "保存でホットリロード：go tool nsgo dev"
+    ],
+    "workflowTitle": "プレーンテキスト YAML。ビジュアルエディタ。AI エージェント対応。",
+    "workflowLead": "シーン、プレハブ、マテリアル、アニメーション、データテーブルはすべてバージョン付き YAML。人もコーディングエージェントもそのまま読み、差分を確認し、編集できます。",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "ビジュアル 2D & 3D シーンエディタ",
+        "body": "game editor でライブビューポート、ヒエラルキー、インスペクタ、ギズモ、アセットブラウザを起動。Go プラグインでの拡張も可能です。",
+        "link": "エディタを見る"
+      },
+      {
+        "tag": "YAML",
+        "title": "スキーマ検証付きのプレーンテキスト形式",
+        "body": "ブラックボックスなバイナリシーンは不要。すべての形式がバージョンを持ち、未知のフィールドを拒否し、JSON Schema と Git で綺麗な往復保存に対応します。",
+        "link": "ファイル形式一覧"
+      },
+      {
+        "tag": "TEMPLATES & AI",
+        "title": "16 種のテンプレートと MCP ツール",
+        "body": "game new -template でプラットフォーマー、RPG、ローグライク、3D アクション、FPS、レースを即作成。MCP と Agent Skills で実行中シーンも検査できます。",
+        "link": "全 16 テンプレートを見る"
+      }
     ],
     "packagesTitle": "{n} のパッケージ、必要な分だけ。",
     "packagesLead": "スプライトから専用サーバーまで。すべてのパッケージにガイドがあり、安定版か実験版かが明示されています。",
@@ -77,10 +99,10 @@ export const jaPages: PagesCopy = {
     ],
     "requirements": "Go 1.27+ と NSGo v0.3.4+ が必要です。iOS のビルドには macOS と Xcode が必要です。",
     "migrate": "他のエンジンから移行：",
-    "finalTitle": "まだ初期段階。それでも、ゲームを 1 本作りきれます。",
-    "finalLead": "まだリリース前です。API 安定性ポリシーで、どのパッケージが安定版で、どれがまだ変わりうるかを確認できます。",
+    "finalTitle": "v0.1.0 リリース。純 Go でゲームを作り、届けよう。",
+    "finalLead": "すべてのパッケージにガイドがあり、API 安定性ポリシーで安定版か実験版かを明示しています。テンプレートから始めるか、ショーケースをご覧ください。",
     "finalStart": "はじめかたを読む",
-    "finalRoadmap": "ロードマップを見る"
+    "finalShowcase": "ショーケースを見る"
   },
   "categories": [
     "コア",
@@ -130,7 +152,7 @@ export const jaPages: PagesCopy = {
     "run": "このリポジトリで各章を実行"
   },
   "footer": {
-    "tagline": "Go で書かれた NSGo のゲームレイヤー。2D は今すぐ、3D はまもなく。",
+    "tagline": "純 Go で書かれた NSGo のゲームレイヤー。2D・3D、ビジュアルエディタ、プレーンテキスト YAML で 6 プラットフォームへ。",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const jaPages: PagesCopy = {
     "stability": "API 安定性",
     "playground": "Playground",
     "examples": "サンプル",
-    "roadmap": "ロードマップ",
+    "editor": "シーンエディタ",
+    "templates": "スターターテンプレート",
     "changelog": "変更履歴",
     "github": "GitHub",
     "nsgo": "NSGo",

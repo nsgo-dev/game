@@ -9,12 +9,12 @@ export const ptPages: PagesCopy = {
     "search": "Buscar"
   },
   "home": {
-    "eyebrow": "Fase inicial: as APIs vão mudar",
+    "eyebrow": "v0.1.0 · Go puro",
     "title": [
       "Crie jogos em Go.",
       "Um só código, seis plataformas."
     ],
-    "lead": "game é a camada de jogos do NSGo: loop de passo fixo, ações de entrada, sprites, tilemaps, cenas e som. O jogo é desenhado em um Canvas; o HUD e os menus continuam sendo views nativas do NSGo.",
+    "lead": "game é a camada de jogos 2D e 3D do NSGo: loop de passo fixo, ações de entrada, sprites, renderização glTF, editor visual de cenas e formatos YAML em texto simples. O jogo é desenhado em uma view do NSGo; o HUD e os menus continuam nativos.",
     "start": "Começar",
     "playground": "Jogar no Playground",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const ptPages: PagesCopy = {
     ],
     "hudNote": "HUD · views nativas do NSGo",
     "canvasNote": "Jogo · core.Canvas",
-    "stagesTitle": "Duas etapas, uma base comum.",
-    "stagesLead": "O loop, as ações de entrada, o som e a troca de cenas são comuns às duas etapas, então o 3D acrescenta desenho sem substituí-los.",
+    "stagesTitle": "2D e 3D sobre uma base comum.",
+    "stagesLead": "O loop, as ações de entrada, o som e a troca de cenas são compartilhados por 2D e 3D, permitindo combinar cenas livremente sem reescrever o jogo.",
     "stages": [
       {
         "status": "Disponível",
-        "body": "Loop de passo fixo, ações de entrada, sprites, tilemaps, cenas e som, desenhados a 60 fps ou na taxa de atualização da tela."
+        "body": "Loop de passo fixo, ações de entrada, sprites, tilemaps, cenas, física, iluminação e som, desenhados a 60 fps ou na taxa de atualização da tela."
       },
       {
-        "status": "Em andamento",
-        "body": "Malhas, câmeras, luzes e modelos glTF desenhados com profundidade na view de GPU que o NSGo adiciona para isso, com importação do Blender."
+        "status": "Disponível",
+        "body": "Malhas, câmeras, iluminação PBR, animação esquelética, física 3D e modelos glTF na view de GPU do NSGo, com importação direta do Blender."
       }
     ],
     "codeTitle": "Um componente é um jogo.",
@@ -60,6 +60,28 @@ export const ptPages: PagesCopy = {
       "Atualizações de passo fixo, quadros interpolados",
       "Teclado e controle na mesma ação",
       "Hot reload ao salvar: go tool nsgo dev"
+    ],
+    "workflowTitle": "Projetos em texto simples. Editor visual. Pronto para agentes de IA.",
+    "workflowLead": "Cada cena, prefab, material, animação e tabela de dados é um arquivo YAML versionado que pessoas e agentes de código podem ler, comparar e editar com clareza.",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "Editor visual de cenas 2D e 3D",
+        "body": "Execute game editor para abrir um viewport ao vivo, hierarquia, inspetor, gizmos de transformação e navegador de assets — extensível com plugins em Go.",
+        "link": "Explorar o editor"
+      },
+      {
+        "tag": "YAML",
+        "title": "Arquivos em texto com validação por esquema",
+        "body": "Sem cenas binárias opacas. Cada formato tem versão, rejeita campos desconhecidos, inclui JSON Schema e mantém diffs limpos no Git.",
+        "link": "Ver formatos de arquivo"
+      },
+      {
+        "tag": "MODELOS E IA",
+        "title": "16 modelos iniciais e ferramentas MCP",
+        "body": "Crie jogos de plataforma, RPG, roguelike, ação 3D, FPS ou corrida com game new -template e inspecione cenas em execução via MCP e Agent Skills.",
+        "link": "Ver todos os 16 modelos"
+      }
     ],
     "packagesTitle": "{n} pacotes. Importe só o que precisar.",
     "packagesLead": "De sprites a servidores dedicados, cada pacote tem um guia e é marcado como estável ou experimental.",
@@ -77,10 +99,10 @@ export const ptPages: PagesCopy = {
     ],
     "requirements": "Requer Go 1.27+ e NSGo v0.3.4+. Builds para iOS exigem macOS e Xcode.",
     "migrate": "Vindo de outra engine:",
-    "finalTitle": "Ainda no começo, e já dá para lançar um jogo inteiro.",
-    "finalLead": "Nada foi lançado ainda. A política de estabilidade da API mostra quais pacotes são estáveis e quais ainda podem mudar.",
+    "finalTitle": "v0.1.0 chegou. Crie e publique seu jogo em Go puro.",
+    "finalLead": "Cada pacote tem um guia e está marcado como estável ou experimental na política de estabilidade da API. Comece por um modelo ou explore a vitrine.",
     "finalStart": "Ler o guia inicial",
-    "finalRoadmap": "Ver o roadmap"
+    "finalShowcase": "Explorar a vitrine"
   },
   "categories": [
     "Núcleo",
@@ -130,7 +152,7 @@ export const ptPages: PagesCopy = {
     "run": "Rode os capítulos a partir do repositório"
   },
   "footer": {
-    "tagline": "A camada de jogos do NSGo, escrita em Go. 2D hoje, 3D a caminho.",
+    "tagline": "A camada de jogos em Go puro para o NSGo: 2D, 3D, editor visual de cenas e YAML em texto simples em seis plataformas.",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const ptPages: PagesCopy = {
     "stability": "Estabilidade da API",
     "playground": "Playground",
     "examples": "Exemplos",
-    "roadmap": "Roadmap",
+    "editor": "Editor de cenas",
+    "templates": "Modelos iniciais",
     "changelog": "Changelog",
     "github": "GitHub",
     "nsgo": "NSGo",

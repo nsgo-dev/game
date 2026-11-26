@@ -206,8 +206,7 @@ pre {
     background-color 0.15s ease;
 }
 
-.hud:not(.roadmap-stage, .editor, .playground__stage):has(a:hover, button:hover, a:focus-visible, button:focus-visible),
-.roadmap-group:has(a:hover, a:focus-visible) {
+.hud:not(.editor, .playground__stage):has(a:hover, button:hover, a:focus-visible, button:focus-visible) {
   border-color: var(--border-hover);
   background-color: var(--raised);
 }
@@ -270,24 +269,6 @@ pre {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-/* A segmented bar, a segment per issue (--segments of them, set inline); the gaps narrow as the count grows so a long stage still fits a phone. */
-.segments {
-  display: flex;
-  gap: min(3px, calc(100% / var(--segments, 10) / 3));
-  height: 8px;
-}
-
-.segments span {
-  flex: 1 1 0;
-  min-width: 0;
-  border-radius: 2px;
-  background: var(--border-strong);
-}
-
-.segments .is-on {
-  background: var(--blue-light);
 }
 
 /* The mark's speed lines before a section's name. */
@@ -1898,6 +1879,74 @@ pre {
   color: var(--blue-ink);
 }
 
+/* Workflow cards (visual editor, plain-text YAML, templates and AI tools) */
+.workflow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 40px;
+}
+
+.workflow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 26px 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.workflow-card:hover {
+  border-color: var(--border-hover);
+  background: var(--raised);
+}
+
+.workflow-card__tag {
+  align-self: flex-start;
+  padding: 3px 8px;
+  border: 1px solid var(--chip-border);
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--blue-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.workflow-card h3 {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.workflow-card p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.workflow-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .workflow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Three commands */
 .steps {
   display: grid;
@@ -3289,7 +3338,7 @@ pre {
   }
 }
 
-/* Roadmap: a page head, then each stage as a panel with its progress as an experience bar, and its areas as quest lists. */
+/* Shared page head and notice banners. */
 
 .page-head {
   padding: 36px 0 4px;
@@ -3330,192 +3379,6 @@ pre {
 
 .notice a {
   color: var(--blue-ink);
-}
-
-.roadmap {
-  padding-bottom: 72px;
-}
-
-.roadmap-stage {
-  margin-top: 36px;
-  padding: 24px 24px 12px;
-}
-
-.roadmap-stage__head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 10px 16px;
-  margin-bottom: 24px;
-}
-
-.roadmap-stage__head .eyebrow {
-  grid-column: 1 / -1;
-}
-
-.roadmap-stage__head h2 {
-  font-size: clamp(24px, 3vw, 30px);
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.03em;
-}
-
-.roadmap-stage__count {
-  display: grid;
-  justify-items: end;
-  color: var(--muted);
-  font-size: 13.5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.roadmap-stage__head h2 a:hover,
-.roadmap-group__name:hover {
-  color: var(--blue-ink);
-}
-
-/* The stage issue's description under its name, the count beside both. */
-.roadmap-stage__desc {
-  max-width: 72ch;
-  color: var(--muted);
-  font-size: 14.5px;
-  line-height: 1.55;
-}
-
-.roadmap-stage__head:has(.roadmap-stage__desc) .roadmap-stage__count {
-  grid-row: span 2;
-  align-self: end;
-}
-
-.roadmap-stage__xp {
-  color: var(--blue-ink);
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.roadmap-stage__head .segments {
-  grid-column: 1 / -1;
-  height: 12px;
-}
-
-.roadmap-groups {
-  columns: 3 300px;
-  column-gap: 12px;
-}
-
-.roadmap-group {
-  break-inside: avoid;
-  margin-bottom: 12px;
-  padding: 0 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.roadmap-group h3 {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--soft);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.roadmap-group h3 .hud-label {
-  font-size: 11px;
-}
-
-.roadmap-group__count {
-  margin-left: auto;
-  color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.roadmap-group ul {
-  padding: 0 14px;
-}
-
-.roadmap-group > ul:first-child {
-  padding-top: 10px;
-}
-
-.roadmap-group__name .issue__ref {
-  margin-left: 2px;
-  font-weight: 400;
-}
-
-/* Anything deeper than an area's own sub-issues, one step in, its marker under the text of the line above. */
-.issue.issue--nested {
-  padding-left: 22px;
-  font-size: 14px;
-}
-
-.issue {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 3px 0;
-  font-size: 14.5px;
-  line-height: 1.5;
-}
-
-.issue a:hover {
-  color: var(--blue-ink);
-}
-
-.issue__ref {
-  color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-}
-
-/* A quest's marker: an empty box while open, a filled box with a check once closed, so the shape tells as well as the color. */
-.issue__state {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid var(--border-strong);
-  border-radius: 2px;
-  transform: translateY(1px);
-}
-
-.issue--closed .issue__state {
-  border-color: var(--blue);
-  background: var(--blue);
-  color: #ffffff;
-}
-
-.issue__state svg {
-  stroke-width: 3.5;
-}
-
-.issue--closed a {
-  color: var(--muted);
-}
-
-@media (max-width: 560px) {
-  .roadmap-stage {
-    padding: 20px 14px 8px;
-  }
-
-  .roadmap-stage__desc {
-    grid-column: 1 / -1;
-  }
-
-  .roadmap-stage__head:has(.roadmap-stage__desc) .roadmap-stage__count {
-    grid-row: auto;
-  }
 }
 
 /* Showcase: a responsive grid of game panels, then a call to submit community games. */
@@ -4065,7 +3928,7 @@ p.api__platforms {
   margin-bottom: 12px;
 }
 
-/* The roadmap's, playground's and showcase's titles as the other pages' ------------------ */
+/* The playground's and showcase's titles as the other pages' ------------------ */
 
 .page-head {
   display: flex;
@@ -4093,7 +3956,6 @@ p.api__platforms {
   text-wrap: pretty;
 }
 
-.roadmap-stage,
 .showcase-card,
 .playground__stage,
 .playground__source {

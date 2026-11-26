@@ -1,7 +1,5 @@
 import type { Copy } from './en'
 
-const STAGE_NAMES = ['ゲームに必要な NSGo プリミティブ', '2D ゲーム層', '3D', 'ツール・エディタ・プロジェクト形式', 'リリース・運用・コミュニティ']
-
 export const ja: Copy = {
   nav: {
     skip: '本文へスキップ',
@@ -10,7 +8,6 @@ export const ja: Copy = {
     docs: 'ドキュメント',
     playground: 'プレイグラウンド',
     showcase: 'ショーケース',
-    roadmap: 'ロードマップ',
     nsgo: 'NSGo',
     github: 'GitHub',
     menu: 'メニューを開く',
@@ -20,7 +17,7 @@ export const ja: Copy = {
   },
   site: {
     title: 'NSGo Game：NSGo 向けの Go 製ゲーム層',
-    description: 'Go で書かれた NSGo アプリ向けゲーム層。固定ステップループ、スプライト、サウンドから始まり、3D へ広がります。',
+    description: '純 Go で書かれた NSGo アプリ向け 2D・3D ゲーム層。固定ステップループ、スプライト、glTF 描画、ビジュアルシーンエディタ、プレーンテキスト YAML で 6 プラットフォームに対応。',
   },
   docs: {
     titleSuffix: 'NSGo Game ドキュメント',
@@ -62,32 +59,6 @@ export const ja: Copy = {
     source: 'ソース',
     notice: 'API リファレンスはソースコード内の Go ドキュメントコメントから生成されており、英語で記述されています。',
     unavailable: ['このビルドでは Go パッケージを読み込めませんでした（', '）。'],
-  },
-  roadmap: {
-    title: 'ロードマップ — NSGo Game',
-    description: 'NSGo でのゲーム開発計画の全 5 ステージ。nsgo-dev/game と NSGo の計画に属するすべてのオープン・クローズ済み issue を領域別に一覧表示します。',
-    heading: 'ロードマップ',
-    intro: ['', ' および NSGo の開発計画 ', ' に属する issue を、ステージと領域ごとに一覧表示しています。'],
-    asOf: [' 取得時点：', '。'],
-    unavailable: ['このビルドでは GitHub から issue を取得できませんでした（', '）。詳しくは ', ' をご覧ください。'],
-    stage: (n: number) => `ステージ ${n}`,
-    stageNames: STAGE_NAMES,
-    stageDescriptions: [
-      'ゲーム層が NSGo 本体に必要とする基盤機能：入力（キー、ゲームパッド、ポインター、タッチ）、フレームタイミングとディスプレイ、キャンバスと画像機能、オーディオ、触覚フィードバックとセンサー、モバイル向けプラットフォーム機能。その多くはゲームに限らず NSGo アプリ全般に役立ちます。',
-      'nsgo-dev/game の 2D パッケージ：ループ、入力アクション、スプライト、タイルマップ、シーン、カメラ、物理、ライティング、スケルタルアニメーション、パーティクル、テキスト、ゲーム UI、エフェクト、サウンド、セーブ、アセット、ローカライズ、アクセシビリティ、AI など 2D ゲームを構成する機能群。',
-      'NSGo 上の 3D：NSGo に追加される GPU ビュー（nsgo#1059）、nsgo-dev/game の 3D パッケージ（game#9）、3D 物理、および XR に関する方針決定。',
-      'ゲーム制作を支える仕組み：CLI、エージェント向け MCP、エディタ、アセットツール、デバッグ・リプレイ・品質チェック、AI が一度に読み通せるテキストファイルによるプロジェクト形式、そして NSGo 本体のツール支援。',
-      'ゲームをプレイヤーへ届けて運用し続ける仕組み：リリース、ストア向けビルドとアップロード、ライブ運用、プラットフォームサービス、実機検証、サンプル、ドキュメント、コミュニティ、対応プラットフォームの範囲決定。',
-    ],
-    closed: (closed: number, total: number) => `${total} 件中 ${closed} 件完了`,
-    xp: '進捗',
-    quest: '領域',
-    open: '未完了',
-    closedState: '完了',
-    single: '単独の issue',
-    unplanned: '未計画',
-    unplannedCount: (n: number) => `nsgo-dev/game に計画のどのステージにも属さない issue が ${n} 件あります。`,
-    dateLocale: 'ja-JP',
   },
   playground: {
     title: 'プレイグラウンド — NSGo Game',

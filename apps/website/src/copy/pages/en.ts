@@ -9,12 +9,12 @@ export const enPages = {
     "search": "Search"
   },
   "home": {
-    "eyebrow": "Early: APIs will change",
+    "eyebrow": "v0.1.0 · Pure Go",
     "title": [
       "Write games in Go.",
       "Ship one codebase to six platforms."
     ],
-    "lead": "game is the game layer for NSGo: a fixed-step loop, input actions, sprites, tilemaps, scenes and sound. Your game draws into one Canvas; its HUD and menus stay native NSGo views.",
+    "lead": "game is the 2D and 3D game layer for NSGo: a fixed-step loop, input actions, sprites, glTF rendering, a visual scene editor and plain-text YAML formats. Your game draws into one NSGo view; its HUD and menus stay native.",
     "start": "Get started",
     "playground": "Try the Playground",
     "live": "LIVE · WEB BUILD",
@@ -42,16 +42,16 @@ export const enPages = {
     ],
     "hudNote": "HUD · native NSGo views",
     "canvasNote": "Game · core.Canvas",
-    "stagesTitle": "Two stages, one shared foundation.",
-    "stagesLead": "The loop, input actions, sound and scene switching are shared by both stages, so 3D adds drawing rather than replacing them.",
+    "stagesTitle": "2D and 3D on one shared foundation.",
+    "stagesLead": "The loop, input actions, sound and scene switching are shared by both 2D and 3D, so you can mix scenes freely without rewriting your game.",
     "stages": [
       {
         "status": "Available",
-        "body": "A fixed-step loop, input actions, sprites, tilemaps, scenes and sound, drawn at 60 fps or the display’s refresh rate."
+        "body": "A fixed-step loop, input actions, sprites, tilemaps, scenes, physics, lighting and sound, drawn at 60 fps or the display’s refresh rate."
       },
       {
-        "status": "In progress",
-        "body": "Meshes, cameras, lights and glTF models drawn with depth on the GPU view NSGo adds for it, with models imported from Blender."
+        "status": "Available",
+        "body": "Meshes, cameras, PBR lighting, skeletal animation, 3D physics and glTF models on NSGo’s GPU view, with models imported from Blender."
       }
     ],
     "codeTitle": "One component is one game.",
@@ -60,6 +60,28 @@ export const enPages = {
       "Fixed-step updates, interpolated draw frames",
       "Keys and gamepads bound to the same action",
       "Hot reload on save: go tool nsgo dev"
+    ],
+    "workflowTitle": "Plain-text projects. Visual editor. Built for AI agents.",
+    "workflowLead": "Every scene, prefab, material, animation and data table is versioned YAML that humans and coding agents can read, diff and edit cleanly.",
+    "workflow": [
+      {
+        "tag": "EDITOR",
+        "title": "Visual 2D & 3D scene editor",
+        "body": "Launch game editor for a live viewport, hierarchy, inspector, transform gizmos and asset browser — or extend it with custom Go plugins.",
+        "link": "Explore the editor"
+      },
+      {
+        "tag": "YAML",
+        "title": "Plain-text, schema-validated files",
+        "body": "No opaque binary scenes. Every format carries a version, rejects unknown fields, ships a JSON Schema and round-trips cleanly in Git.",
+        "link": "Browse file formats"
+      },
+      {
+        "tag": "TEMPLATES & AI",
+        "title": "16 starter templates & MCP tools",
+        "body": "Scaffold platformers, RPGs, roguelikes, 3D action, FPS or racing games with game new -template, and inspect live scenes via MCP and Agent Skills.",
+        "link": "See all 16 templates"
+      }
     ],
     "packagesTitle": "{n} packages. Import only what you need.",
     "packagesLead": "From sprites to dedicated servers, every package has a guide and is marked stable or experimental.",
@@ -77,10 +99,10 @@ export const enPages = {
     ],
     "requirements": "Needs Go 1.27+ and NSGo v0.3.4+. iOS builds need macOS and Xcode.",
     "migrate": "Coming from another engine:",
-    "finalTitle": "Early, and already enough to ship a whole game.",
-    "finalLead": "Nothing is released yet. The API stability policy says which packages are stable and which may still change.",
+    "finalTitle": "v0.1.0 is here. Build and ship your game in pure Go.",
+    "finalLead": "Every package is documented and marked stable or experimental in the API stability policy. Start from a template or explore games built with NSGo Game.",
     "finalStart": "Read Getting Started",
-    "finalRoadmap": "See the roadmap"
+    "finalShowcase": "Explore the Showcase"
   },
   "categories": [
     "Core",
@@ -130,7 +152,7 @@ export const enPages = {
     "run": "Run the chapters from this repository"
   },
   "footer": {
-    "tagline": "The game layer for NSGo, written in Go. 2D today, 3D on the way.",
+    "tagline": "The pure-Go game layer for NSGo: 2D, 3D, visual scene editor and plain-text YAML across six platforms.",
     "columns": [
       "DOCS",
       "PROJECT",
@@ -142,7 +164,8 @@ export const enPages = {
     "stability": "API Stability",
     "playground": "Playground",
     "examples": "Examples",
-    "roadmap": "Roadmap",
+    "editor": "Scene Editor",
+    "templates": "Starter Templates",
     "changelog": "Changelog",
     "github": "GitHub",
     "nsgo": "NSGo",

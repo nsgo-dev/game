@@ -1,7 +1,5 @@
 import type { Copy } from './en'
 
-const STAGE_NAMES = ['NSGo-Grundlagen für Spiele', '2D-Spielebene', '3D', 'Werkzeuge, Editor & Projektformat', 'Veröffentlichung, Betrieb & Community']
-
 export const de: Copy = {
   nav: {
     skip: 'Zum Inhalt springen',
@@ -10,7 +8,6 @@ export const de: Copy = {
     docs: 'Doku',
     playground: 'Playground',
     showcase: 'Showcase',
-    roadmap: 'Roadmap',
     nsgo: 'NSGo',
     github: 'GitHub',
     menu: 'Menü',
@@ -20,7 +17,7 @@ export const de: Copy = {
   },
   site: {
     title: 'NSGo Game: eine Go-Spielebene für NSGo',
-    description: 'Eine in Go geschriebene Spielebene für NSGo-Apps: feste Zeitschritte, Sprites und Sound, gefolgt von 3D.',
+    description: 'Eine reine Go-Spielebene in 2D und 3D für NSGo-Apps: feste Zeitschritte, Sprites, glTF-Rendering, visueller Szeneneditor und Klartext-YAML für sechs Plattformen.',
   },
   docs: {
     titleSuffix: 'NSGo Game Dokumentation',
@@ -62,32 +59,6 @@ export const de: Copy = {
     source: 'Quellcode',
     notice: 'Die API-Referenz stammt aus den Go-Doc-Kommentaren im Quellcode und ist auf Englisch verfasst.',
     unavailable: ['Dieser Build konnte die Go-Pakete nicht lesen (', ').'],
-  },
-  roadmap: {
-    title: 'Roadmap — NSGo Game',
-    description: 'Der Spieleplan für NSGo in fünf Phasen: alle offenen und geschlossenen Issues in nsgo-dev/game und NSGo, nach Bereich gegliedert.',
-    heading: 'Roadmap',
-    intro: ['Die Issues von ', ' und NSGo unter dem Plan ', ', gegliedert nach Phase und Bereich.'],
-    asOf: [' Stand: ', '.'],
-    unavailable: ['Dieser Build konnte die Issues nicht von GitHub laden (', '). Siehe ', '.'],
-    stage: (n: number) => `Phase ${n}`,
-    stageNames: STAGE_NAMES,
-    stageDescriptions: [
-      'Was die Spielebene von NSGo selbst benötigt: Eingaben (Tasten, Gamepads, Zeiger und Touch), Frame-Timing und Displays, Canvas- und Bildfunktionen, Audio, Haptik und Sensoren sowie mobile Plattformfunktionen. Das meiste nützt allen NSGo-Apps, nicht nur Spielen.',
-      'Die 2D-Pakete in nsgo-dev/game: Schleife, Eingabeaktionen, Sprites, Tilemaps, Szenen, Kamera, Physik, Beleuchtung, Skelettanimation, Partikel, Text, Game-UI, Effekte, Sound, Spielstände, Assets, Lokalisierung, Barrierefreiheit, KI und alles Weitere für 2D-Spiele.',
-      '3D auf NSGo: eine neue GPU-View in NSGo (nsgo#1059), die 3D-Pakete in nsgo-dev/game (game#9), 3D-Physik sowie Entscheidungen zu XR.',
-      'Wie Spiele entstehen: CLI, MCP für Agenten, Editor, Asset-Tools, Debugging, Replays und Qualitätschecks, Projekte aus Textdateien, die eine KI am Stück lesen kann, sowie Tooling-Unterstützung in NSGo.',
-      'Spiele zu den Spielern bringen und betreiben: Releases, Store-Paketierung und -Uploads, Live-Betrieb, Plattformdienste, Tests auf echten Geräten, Beispiele, Dokumentation, Community und Entscheidungen zu unterstützten Plattformen.',
-    ],
-    closed: (closed: number, total: number) => `${closed} von ${total} geschlossen`,
-    xp: 'XP',
-    quest: 'Bereich',
-    open: 'Offen',
-    closedState: 'Geschlossen',
-    single: 'Einzelne Issues',
-    unplanned: 'Ungeplant',
-    unplannedCount: (n: number) => `${n} ${n === 1 ? 'Issue' : 'Issues'} in nsgo-dev/game ohne Zuordnung zu einer Phase.`,
-    dateLocale: 'de',
   },
   playground: {
     title: 'Playground — NSGo Game',

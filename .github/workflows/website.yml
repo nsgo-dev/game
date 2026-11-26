@@ -1,6 +1,6 @@
 name: Website
 
-# Builds the site in apps/website, every page prerendered to static HTML, with the playground's web builds of the examples and the API reference generated from packages/game's Go doc comments, and deploys it to GitHub Pages. It builds again as this repository's issues change, so the roadmap follows them, and hourly for the NSGo issues under nsgo-dev/nsgo#1047, whose changes cannot trigger a workflow here.
+# Builds the site in apps/website, every page prerendered to static HTML, with the playground's web builds of the examples and the API reference generated from packages/game's Go doc comments, and deploys it to GitHub Pages.
 on:
   push:
     branches:
@@ -24,10 +24,6 @@ on:
       - "package.json"
       - "bun.lock"
       - ".github/workflows/website.yml"
-  issues:
-    types: [opened, edited, closed, reopened, deleted, transferred]
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -76,7 +72,6 @@ jobs:
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
           SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: bun run build
       - name: Upload the Pages artifact
         if: github.event_name != 'pull_request'

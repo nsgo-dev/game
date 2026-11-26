@@ -39,6 +39,8 @@ const STAGE_PACKAGES = [
   ['scene3d', 'render3d', 'gltf', 'anim3d', 'physics3d', 'math3d'],
 ]
 
+const WORKFLOW_SLUGS = ['editor', 'formats', 'templates'] as const
+
 export function Home() {
   const lang = useLang()
   const copy = copies[lang]
@@ -170,7 +172,7 @@ export function Home() {
         </div>
         <div className="stages">
           {home.stages.map((stage, i) => (
-            <article key={stage.status} className="stage-card">
+            <article key={i === 0 ? '2d' : '3d'} className="stage-card">
               <div className="stage-card__art">
                 {i === 0 ? (
                   <img src={mediaUrl('media/caverun-still.webp')} alt="" loading="lazy" />
@@ -229,6 +231,28 @@ export function Home() {
         <CodePanel />
       </section>
 
+      <section className="container section reveal" aria-labelledby="home-workflow">
+        <div className="section__intro">
+          <h2 id="home-workflow">{home.workflowTitle}</h2>
+          <p className="section__lead">{home.workflowLead}</p>
+        </div>
+        <div className="workflow">
+          {home.workflow.map((item, i) => (
+            <article key={WORKFLOW_SLUGS[i]} className="workflow-card">
+              <span className="workflow-card__tag">{item.tag}</span>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+              <div className="workflow-card__foot">
+                <LocaleLink page="doc" slug={WORKFLOW_SLUGS[i]!} lang={lang} className="link-arrow">
+                  {item.link}
+                  <Icon name="arrow" size={15} />
+                </LocaleLink>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <PackageGroups lang={lang} />
 
       <section className="container section reveal" aria-labelledby="home-start">
@@ -272,8 +296,8 @@ export function Home() {
                 {home.finalStart}
                 <Icon name="arrow" size={16} className="arrow" />
               </LocaleLink>
-              <LocaleLink page="roadmap" lang={lang} className="btn btn--glass btn--large">
-                {home.finalRoadmap}
+              <LocaleLink page="showcase" lang={lang} className="btn btn--glass btn--large">
+                {home.finalShowcase}
               </LocaleLink>
             </div>
           </div>
