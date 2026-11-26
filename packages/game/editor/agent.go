@@ -493,6 +493,12 @@ func (a *agentState) setScope(cx *core.Scope) {
 	a.scopeMu.Lock()
 	a.scope = cx
 	a.scopeMu.Unlock()
+	if cx != nil {
+		// Drain any in-flight inline postOrRun callback that began before cx attached,
+		// so EditorView cannot subscribe UI signals while a background goroutine is still notifying inline.
+		a.inlineMu.Lock()
+		a.inlineMu.Unlock()
+	}
 }
 
 func (a *agentState) getScope() *core.Scope {
@@ -551,11 +557,12 @@ func (e *Editor) postOrRun(fn func()) {
 		return
 	}
 	if e != nil {
+		e.agent.inlineMu.Lock()
 		if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+			e.agent.inlineMu.Unlock()
 			cx.Post(fn)
 			return
 		}
-		e.agent.inlineMu.Lock()
 		defer e.agent.inlineMu.Unlock()
 	}
 	fn()
