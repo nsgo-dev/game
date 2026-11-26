@@ -153,6 +153,9 @@ func cutsceneWrite(ctx context.Context, c *Call) (*Result, error) {
 		if ed.Playing() {
 			return fmt.Errorf("cutscene_write: %w", editor.ErrPlaying)
 		}
+		if holdErr := sketchHoldEditError(ed, clean); holdErr != nil {
+			return holdErr
+		}
 		root := projectRoot(ed)
 		if root == "" {
 			return errors.New("cutscene_write: no project is open in the editor; open one with go tool game editor <project-dir>")

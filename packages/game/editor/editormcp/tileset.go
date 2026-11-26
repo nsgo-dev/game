@@ -317,6 +317,9 @@ func tilesetEdit(ctx context.Context, c *Call) (*Result, error) {
 		if ed.Playing() {
 			return fmt.Errorf("tileset_edit: %w", editor.ErrPlaying)
 		}
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		if clean != "" {
 			if !ed.TilesetOpen() || ed.TilesetPath() != clean {
 				if err := ed.OpenTilesetProjectFile(clean); err != nil {

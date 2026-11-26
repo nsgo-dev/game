@@ -254,6 +254,9 @@ func mergeResolve(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var out MergeStatusResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		if args.Suggest != nil {
 			if args.ID == "" {
 				return errors.New("suggest requires id")

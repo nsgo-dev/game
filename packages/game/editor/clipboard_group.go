@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -172,14 +173,27 @@ func (e *Editor) SetViewportPointer2D(canvasX, canvasY float32) {
 		return
 	}
 	pos := math2d.Vec2{X: canvasX, Y: canvasY}
-	changed := !e.hasPointer2D || e.pointer2D != pos
+	prevHas := e.hasPointer2D
+	prevPos := e.pointer2D
+	changed := !prevHas || prevPos != pos
 	if changed {
 		e.pasteStreak = 0
 	}
 	e.pointer2D = pos
 	e.hasPointer2D = true
 	if changed && e.SketchActive() {
-		e.notify()
+		// Only notify when the rounded integer scene coordinates shown in the status bar change,
+		// avoiding 120 Hz rev storms across the whole editor on sub-pixel mouse movement.
+		wx, wy := e.CanvasToWorld(pos.X, pos.Y)
+		rx, ry := int(math.Round(float64(wx))), int(math.Round(float64(wy)))
+		if !prevHas {
+			e.notify()
+		} else {
+			pwx, pwy := e.CanvasToWorld(prevPos.X, prevPos.Y)
+			if rx != int(math.Round(float64(pwx))) || ry != int(math.Round(float64(pwy))) {
+				e.notify()
+			}
+		}
 	}
 }
 

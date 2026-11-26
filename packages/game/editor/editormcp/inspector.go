@@ -164,7 +164,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			defer ed.EndAgentStep()
 		}
 
-		return ed.History.Group(label, func() error {
+		err := ed.History.Group(label, func() error {
 			switch {
 			case args.Property:
 				v, err := scalarValue(args.Value)
@@ -187,6 +187,13 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 				return nil
 			}
 		})
+		if err != nil {
+			return err
+		}
+		if ed.SketchApproved() {
+			ed.RecordSketchReviewEdits(label, nil, []string{targetID}, nil)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

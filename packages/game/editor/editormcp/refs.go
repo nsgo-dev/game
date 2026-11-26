@@ -210,6 +210,9 @@ func refactorRename(ctx context.Context, c *Call) (*Result, error) {
 
 	var out RefactorRenameResult
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, fromClean); holdErr != nil {
+			return holdErr
+		}
 		plan, perr := ed.PreviewSafeRename(fromClean, toRaw)
 		if plan == nil {
 			if perr != nil {

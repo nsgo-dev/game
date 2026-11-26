@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"image/png"
 	"math"
 	"strings"
@@ -521,4 +522,222 @@ func TestSketchUIAndScreenshots(t *testing.T) {
 	app.Settle()
 
 	app.Screenshot("sketch-review")
+}
+
+func TestSketchLifecycleResetPlayGuardAndDetachedChip(t *testing.T) {
+	ed := newSketchTestEditor(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760))
+	_ = app
+
+	// Detaching the sketch chip prevents SendSketch from attaching removed marks.
+	ed.AddSketchBox(100, 100, 60, 40, "spikes")
+	ed.SetSketchAttached(false)
+	if _, err := ed.SendSketch("build it"); !errors.Is(err, editor.ErrSketchEmpty) {
+		t.Fatalf("SendSketch with detached chip = %v, want ErrSketchEmpty", err)
+	}
+	ed.SetSketchAttached(true)
+
+	// Send, post reading, approve, and record review edits, then Play guards all mutators.
+	if _, err := ed.SendSketch("build spikes"); err != nil {
+		t.Fatalf("SendSketch: %v", err)
+	}
+	if err := ed.PostSketchReading(editor.SketchReading{
+		Items: []editor.SketchReadingItem{{Number: 1, Text: "Add spikes"}},
+	}); err != nil {
+		t.Fatalf("PostSketchReading: %v", err)
+	}
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	if m := ed.AddSketchBox(10, 10, 20, 20, "bad"); m.Number != 0 {
+		t.Fatalf("AddSketchBox during Play succeeded: %+v", m)
+	}
+	if m := ed.AddSketchArrow(10, 10, 20, 20, "bad"); m.Number != 0 {
+		t.Fatalf("AddSketchArrow during Play succeeded: %+v", m)
+	}
+	if m := ed.AddSketchText(10, 10, "bad"); m.Number != 0 {
+		t.Fatalf("AddSketchText during Play succeeded: %+v", m)
+	}
+	if _, err := ed.SendSketch("bad"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("SendSketch during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.ApproveSketchReading(); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("ApproveSketchReading during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.CorrectSketchMark(1); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("CorrectSketchMark during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.ReplyToSketchReading("ok"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("ReplyToSketchReading during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// OpenDemo resets all sketch marks, reading, hold gate, and review baseYAML so nothing leaks across projects.
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.SketchMarkCount() != 0 || ed.SketchHoldActive() || ed.SketchReading() != nil || ed.SketchReviewOpen() {
+		t.Fatalf("OpenDemo leaked sketch state: marks=%d hold=%v reading=%v review=%v",
+			ed.SketchMarkCount(), ed.SketchHoldActive(), ed.SketchReading() != nil, ed.SketchReviewOpen())
+	}
+}
+
+func TestSketchNonFiniteCoordsAndPayloadBounds(t *testing.T) {
+	ed := newSketchTestEditor(t)
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+
+	if m := ed.AddSketchBox(nan, 0, 10, 10, "nan"); m.Number != 0 {
+		t.Fatalf("AddSketchBox accepted NaN: %+v", m)
+	}
+	if m := ed.AddSketchBox(0, 0, inf, 10, "inf"); m.Number != 0 {
+		t.Fatalf("AddSketchBox accepted Inf: %+v", m)
+	}
+	if m := ed.AddSketchArrow(0, 0, nan, 10, "nan"); m.Number != 0 {
+		t.Fatalf("AddSketchArrow accepted NaN: %+v", m)
+	}
+	if m := ed.AddSketchText(inf, 0, "inf"); m.Number != 0 {
+		t.Fatalf("AddSketchText accepted Inf: %+v", m)
+	}
+	if ed.SketchMarkCount() != 0 {
+		t.Fatalf("non-finite marks were stored: count=%d", ed.SketchMarkCount())
+	}
+
+	// Huge label is clamped cleanly.
+	longLabel := strings.Repeat("x", 1000)
+	mk := ed.AddSketchBox(20, 20, 40, 30, longLabel)
+	if len([]rune(mk.Label)) > 256 {
+		t.Fatalf("label was not clamped: len=%d", len([]rune(mk.Label)))
+	}
+
+	// PostSketchReading refuses > 200 items and > 32 assumptions.
+	tooManyItems := make([]editor.SketchReadingItem, 201)
+	for i := range tooManyItems {
+		tooManyItems[i] = editor.SketchReadingItem{Number: 1, Text: "x"}
+	}
+	if err := ed.PostSketchReading(editor.SketchReading{Items: tooManyItems}); err == nil {
+		t.Fatal("PostSketchReading accepted 201 items, want error")
+	}
+	tooManyAssump := make([]string, 33)
+	for i := range tooManyAssump {
+		tooManyAssump[i] = "a"
+	}
+	if err := ed.PostSketchReading(editor.SketchReading{
+		Items:       []editor.SketchReadingItem{{Number: 1, Text: "ok"}},
+		Assumptions: tooManyAssump,
+	}); err == nil {
+		t.Fatal("PostSketchReading accepted 33 assumptions, want error")
+	}
+
+	// RenderSketchViewportPNG refuses 3D view mode and caps huge viewports cleanly.
+	ed.SetViewMode(editor.ViewMode3D)
+	if _, _, _, err := ed.RenderSketchViewportPNG(1); err == nil {
+		t.Fatal("RenderSketchViewportPNG succeeded in 3D mode, want error")
+	}
+	ed.SetViewMode(editor.ViewMode2D)
+	ed.SetCanvasSize(3000, 3000)
+	_, pw, ph, err := ed.RenderSketchViewportPNG(4)
+	if err != nil {
+		t.Fatalf("RenderSketchViewportPNG on oversized viewport: %v", err)
+	}
+	if pw > 2048 || ph > 2048 || int64(pw)*int64(ph) > 4_000_000 {
+		t.Fatalf("RenderSketchViewportPNG did not cap pixels: %dx%d", pw, ph)
+	}
+}
+
+func TestSketchPanelCloseSpecLightTypingAndRevertSelection(t *testing.T) {
+	ed := newSketchTestEditor(t)
+	ed.AddSketchBox(100, 100, 80, 40, "spikes")
+	ed.StartSketch()
+	if _, err := ed.SendSketch("build spikes"); err != nil {
+		t.Fatalf("SendSketch: %v", err)
+	}
+	if err := ed.PostSketchReading(editor.SketchReading{
+		Items: []editor.SketchReadingItem{{Number: 1, Text: "Add spikes"}},
+	}); err != nil {
+		t.Fatalf("PostSketchReading: %v", err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1360, 820), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	light := editor.LightSpecPalette()
+	dark := editor.DarkSpecPalette()
+
+	if got := app.Find("id:sketch-agent-panel").Style.Background; got != light.Panel {
+		t.Fatalf("light mode sketch-agent-panel bg = %#x, want %#x", uint32(got), uint32(light.Panel))
+	}
+
+	// Clicking sketch-panel-close must dismiss the panel cleanly even while a reading card is open,
+	// revealing RightRailView underneath.
+	app.Press("id:sketch-panel-close")
+	app.Settle()
+	if ed.SketchPanelOpen() {
+		t.Fatal("SketchPanelOpen remained true after pressing sketch-panel-close with reading open")
+	}
+	if !app.Exists("id:right-rail-inspector-wrap") {
+		t.Fatal("expected RightRailView (right-rail-inspector-wrap) visible after closing SketchPanelView")
+	}
+
+	// Reopen panel, focus composer input -> IsTyping() == true, then flip Dark mode live.
+	app.Post(func() { ed.SetSketchPanelOpen(true) })
+	app.Settle()
+	app.Focus("id:sketch-composer-input")
+	app.Settle()
+	if !ed.IsTyping() {
+		t.Fatal("expected IsTyping() true while sketch-composer-input is focused")
+	}
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	if got := app.Find("id:sketch-agent-panel").Style.Background; got != dark.Panel {
+		t.Fatalf("dark mode sketch-agent-panel bg = %#x, want %#x", uint32(got), uint32(dark.Panel))
+	}
+
+	// Full-window screens block CmdSketchToggle and SetSketchActive.
+	app.Post(func() {
+		ed.OpenSettingsPage(editor.SettingsPageGeneral)
+		ed.SetSketchActive(true)
+	})
+	app.Settle()
+	if ed.SketchActive() {
+		t.Fatal("SetSketchActive(true) succeeded while Settings full-window screen was open")
+	}
+	app.Post(func() { ed.CloseSettings() })
+	app.Settle()
+
+	// RevertSketchReview must clear SelectedID when it pointed at a reverted agent-added object.
+	app.Post(func() {
+		if err := ed.ApproveSketchReading(); err != nil {
+			t.Errorf("ApproveSketchReading: %v", err)
+			return
+		}
+		addedID, err := ed.PlaceObject("Actors", sceneformat.ObjectDoc{ID: "temp_spikes", Name: "temp_spikes", X: 120, Y: 120})
+		if err != nil {
+			t.Errorf("PlaceObject: %v", err)
+			return
+		}
+		ed.SelectObject(addedID)
+		ed.RecordSketchReviewEdits("Agent: add temp_spikes", []string{addedID}, nil, nil)
+		if err := ed.RevertSketchReview(); err != nil {
+			t.Errorf("RevertSketchReview: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.SelectedID != "" {
+		t.Fatalf("SelectedID = %q after RevertSketchReview removed object, want empty", ed.SelectedID)
+	}
 }
