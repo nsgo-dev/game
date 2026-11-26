@@ -181,15 +181,27 @@ func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) ([]string, error) {
 	if err := validateCLISessionID(req.SessionID); err != nil {
 		return nil, err
 	}
+	prompt := req.Prompt
+	var refPaths []string
+	if len(req.Images) > 0 && req.ProjectRoot != "" {
+		for _, img := range req.Images {
+			if img.Path != "" && !strings.HasPrefix(img.Path, "-") {
+				refPaths = append(refPaths, filepath.Join(req.ProjectRoot, filepath.FromSlash(img.Path)))
+			}
+		}
+	}
 	if kind == ExternalAgentCodex {
 		if req.SessionID != "" {
-			return []string{"exec", "resume", "--json", "--", req.SessionID, req.Prompt}, nil
+			return []string{"exec", "resume", "--json", "--", req.SessionID, prompt}, nil
 		}
 		args := []string{"exec", "--json"}
 		if req.ProjectRoot != "" {
 			args = append(args, "-C", req.ProjectRoot)
 		}
-		return append(args, "--", req.Prompt), nil
+		for _, p := range refPaths {
+			args = append(args, "-i", p)
+		}
+		return append(args, "--", prompt), nil
 	}
 	args := []string{"--print", "--output-format=stream-json", "--verbose"}
 	if req.ProjectRoot != "" {
@@ -201,5 +213,23 @@ func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) ([]string, error) {
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
 	}
-	return append(args, "--", req.Prompt), nil
+	if len(refPaths) > 0 {
+		var b strings.Builder
+		b.WriteString(prompt)
+		b.WriteString("\n\nReference images:")
+		for _, img := range req.Images {
+			if img.Path == "" {
+				continue
+			}
+			b.WriteString("\n- ")
+			b.WriteString(img.Path)
+			if img.Note != "" {
+				b.WriteString(" (")
+				b.WriteString(img.Note)
+				b.WriteByte(')')
+			}
+		}
+		prompt = b.String()
+	}
+	return append(args, "--", prompt), nil
 }

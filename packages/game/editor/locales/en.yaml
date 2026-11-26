@@ -41,6 +41,20 @@ strings:
   agent.notify.reviewTitle: Ready to review
   agent.notify.waitingTitle: Agent needs permission
   agent.playDot.hoverFormat: '{summary} · stop Play to open'
+  agent.ref.always: Always
+  agent.ref.attachLabel: Attach an image
+  agent.ref.attachTooltip: Attach an image · paste or drop
+  agent.ref.briefEmpty: No reference images pinned yet. Pin an attached image to keep it for every request.
+  agent.ref.briefPreviewTitle: Pinned references
+  agent.ref.dropSubtitle: PNG, JPEG or WebP · sent with this request only
+  agent.ref.dropTitle: Drop to attach
+  agent.ref.pinToBrief: Pin to brief
+  agent.ref.pinTooltip: Save to art/reference/ and add it to brief.yaml
+  agent.ref.pinned: Pinned
+  agent.ref.pinnedCaption: Copied to {path}. Every later request reads it through brief.yaml.
+  agent.ref.pinnedTooltip: Saved to art/reference/ and listed in brief.yaml
+  agent.ref.sentOnce: Sent with this request only
+  agent.ref.undo: Undo
   agent.revert: Revert
   agent.status.disconnected: Disconnected
   agent.status.limitShort: Limit
@@ -131,6 +145,8 @@ strings:
   cmd.askFrozenFrame.label: Something Looks Wrong
   cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
   cmd.assetDrawer.label: Asset Drawer
+  cmd.attachReferenceImage.desc: Attach a PNG, JPEG, or WebP reference image to the next agent request
+  cmd.attachReferenceImage.label: Attach Reference Image
   cmd.audioMixer.desc: Toggle the Audio Bus Mixer panel
   cmd.audioMixer.label: Audio Bus Mixer
   cmd.bakeNavMesh3d.desc: Bake a 3D navigation mesh from the open scene's static geometry

@@ -502,6 +502,12 @@ type Editor struct {
 	WriteClipboard func(text string)
 	// ReadClipboard, when set, overrides reading text from the system clipboard (used by Paste); when nil and a UI scope is attached, core.Scope.ReadClipboard is used.
 	ReadClipboard func(done func(text string))
+	// ReadClipboardImage, when set, overrides reading an image from the system clipboard (used by PasteAgentReferenceImage); when nil and a UI scope is attached, core.Scope.ReadClipboardImage is used.
+	ReadClipboardImage func(done func(img core.ClipboardImage, ok bool, err error))
+	// ReadClipboardFiles, when set, overrides reading copied file URLs from the system clipboard (used by PasteAgentReferenceImage); when nil and a UI scope is attached, core.Scope.ReadClipboardFiles is used.
+	ReadClipboardFiles func(done func(uris []string))
+	// PickAgentReferenceFiles, when set, overrides the native file picker opened by the Agent composer's Attach an image button.
+	PickAgentReferenceFiles func(done func(uris []string))
 	// DiskWatchInterval controls how often the editor polls watched open files (scene, clip, game.yaml) and the project tree for external changes while a UI scope is attached (defaults to 250ms when <= 0).
 	DiskWatchInterval time.Duration
 	// OnPlaytestPrompt, when set, is called when the author presses "Ask the agent to tune it" or clicks an actionable suggestion in the Playtest Report screen.

@@ -103,6 +103,7 @@ const (
 	CmdGeneratedAssets        = "project.generatedAssets"
 	CmdConnectAgent           = "agent.connect"
 	CmdAgentPanel             = "view.agent"
+	CmdAttachReferenceImage   = "agent.attachImage"
 	CmdPlayMark               = "play.mark"
 	CmdAskFrozenFrame         = "play.askFrozenFrame"
 	CmdPermissionsSettings    = "settings.permissions"
@@ -1775,6 +1776,22 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdAttachReferenceImage,
+			Label:       "Attach Reference Image",
+			Description: "Attach a PNG, JPEG, or WebP reference image to the next agent request",
+			Category:    "Project",
+			Keywords:    []string{"agent", "image", "reference", "attach", "brief", "pin"},
+			Scope:       ScopeGlobal,
+			Enabled: func() bool {
+				return !e.Playing() && e.AgentMode() != AgentModeNone
+			},
+			Run: func() error {
+				e.SetAgentPanelOpen(true)
+				e.PickAndAttachAgentReferenceImages()
+				return nil
+			},
+		},
+		{
 			ID:          CmdMergeConflicts,
 			Label:       "Resolve Scene Merge Conflicts",
 			Description: "Open the object-by-object scene merge conflict resolver for an active Git merge",
@@ -2377,6 +2394,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdShortcutsSettings:         {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
 	CmdConnectAgent:              {"cmd.connectAgent.label", "cmd.connectAgent.desc", "cmd.category.project"},
 	CmdAgentPanel:                {"cmd.agentPanel.label", "cmd.agentPanel.desc", "cmd.category.view"},
+	CmdAttachReferenceImage:      {"cmd.attachReferenceImage.label", "cmd.attachReferenceImage.desc", "cmd.category.project"},
 	CmdPermissionsSettings:       {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
 	CmdMergeConflicts:            {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:          {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
