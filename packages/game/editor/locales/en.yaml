@@ -68,6 +68,27 @@ strings:
   agent.ref.undo: Undo
   agent.revert: Revert
   agent.review: Review
+  agent.rewind.action: Rewind
+  agent.rewind.banner: Rewound {mode} to before “{prompt}”
+  agent.rewind.bannerNoPrompt: Rewound {mode}
+  agent.rewind.both: Files and conversation
+  agent.rewind.bothDetailManyFilesManyReplies: Undo {files} files, drop {replies} replies
+  agent.rewind.bothDetailManyFilesOneReply: Undo {files} files, drop the reply
+  agent.rewind.bothDetailNoFilesManyReplies: Drop {replies} replies
+  agent.rewind.bothDetailNoFilesOneReply: Drop the reply
+  agent.rewind.bothDetailOneFileManyReplies: Undo 1 file, drop {replies} replies
+  agent.rewind.bothDetailOneFileOneReply: Undo 1 file, drop the reply
+  agent.rewind.cancel: Cancel
+  agent.rewind.convOnly: Conversation only
+  agent.rewind.convOnlyDetail: Keep the files as they are
+  agent.rewind.filesOnly: Files only
+  agent.rewind.filesOnlyDetail: Keep the conversation as it is
+  agent.rewind.modeBoth: files and conversation
+  agent.rewind.modeConv: conversation only
+  agent.rewind.modeFiles: files only
+  agent.rewind.redo: Redo
+  agent.rewind.title: Rewind to before this message
+  agent.rewind.trigger: Rewind to here
   agent.status.disconnected: Disconnected
   agent.status.limitShort: Limit
   agent.status.offline: Offline

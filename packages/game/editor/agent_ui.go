@@ -997,6 +997,8 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 // working "Add to this request" + Stop footer.
 func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	addDraft := core.NewSignal(cx, "")
+	hoveredTurnID := core.NewSignal(cx, "")
+	focusedTurnID := core.NewSignal(cx, "")
 	openReqRef := new(core.Ref)
 	panelRef := new(core.Ref)
 	switcherBtnRef := new(core.Ref)
@@ -1093,6 +1095,10 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.SetAgentSwitcherOpen(false)
 			return
 		}
+		if ed.AgentRewindOpenTurnID() != "" {
+			ed.CloseAgentRewindPopover()
+			return
+		}
 		if ed.CommandPaletteOpen() || ed.ConnectDialogOpen() || ed.SettingsOpen() || ed.AskInPlaceOpen() || ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() {
 			return
 		}
@@ -1135,10 +1141,12 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|",
+		fmt.Fprintf(&b, "%v|%s|%s|rw=%s:%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|",
 			ed.SpecPalette(cx).Dark,
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
+			ed.AgentRewindOpenTurnID(),
+			ed.AgentRewindMode(),
 			ed.AgentTurnSeq(),
 			ed.agentTurnRev,
 			ed.review.outcome,
@@ -1162,7 +1170,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			if t.PendingReview != nil {
 				kept, revd, notChk = t.PendingReview.Kept, t.PendingReview.Reverted, len(t.PendingReview.NotChecked)
 			}
-			fmt.Fprintf(&b, "%s:%s:%d:%d:%d:%v:%v:%v:%s:%s:%v:%v:%d:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), len(t.FollowUps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, kept, revd, notChk, len(t.Summary), len(t.Reply), len(t.Error))
+			fmt.Fprintf(&b, "%s:%s:%d:%d:%d:%d:%v:%v:%v:%s:%s:%v:%v:%d:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), len(t.FollowUps), len(t.ChangedFiles), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, kept, revd, notChk, len(t.Summary), len(t.Reply), len(t.Error))
 			if t.Partial != nil {
 				fmt.Fprintf(&b, ":P(%v,%v,%v,%v)", t.Partial.Pointing, t.Partial.Kept, t.Partial.TryingAnother, t.Partial.HasPoint)
 			}
@@ -1245,7 +1253,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		waitingCard := agentCodeReviewWaitingCard(ed, p)
 
 		if active != nil && len(active.Requests) > 0 {
-			return agentThreadConversationBody(cx, ed, rev, p, osKind, active, turns, pendingAsk, openReq, openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef)
+			return agentThreadConversationBody(cx, ed, rev, p, osKind, active, turns, pendingAsk, openReq, openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef, hoveredTurnID, focusedTurnID)
 		}
 		ready := ed.ReadyToReviewTurns()
 		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || pendingAsk != nil || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil || waitingCard != nil {
@@ -1263,7 +1271,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				items = append(items, agentComposerSummaryCard(ed, p, summary))
 			}
 			for ti, turn := range turns {
-				items = append(items, agentTurnView(ed, rev, ti, turn, p, osKind))
+				items = append(items, agentTurnView(ed, rev, ti, turn, p, osKind, hoveredTurnID, focusedTurnID))
 			}
 			if len(composerTurns) > 0 {
 				items = append(items, agentComposerThreadNodes(ed, p, composerTurns)...)
@@ -1369,6 +1377,10 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 				},
 			},
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				p := SpecPaletteFor(darkMemo.Get())
+				return agentRewindBannerView(ed, rev, p)
+			}),
 			footer,
 		},
 	}
@@ -1479,7 +1491,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette, osKind core.OS) core.Node {
+func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette, osKind core.OS, hoveredTurnID, focusedTurnID *core.Signal[string]) core.Node {
 	var children []core.Node
 	if turn.Automation {
 		stateLabel, stateFg, stateBg, stateEdge := automationReviewBadgeStyle(ed, turn.ReviewState, p)
@@ -1558,6 +1570,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 			},
 		})
 	} else if turn.Prompt != "" || len(turn.Images) > 0 {
+		turnID := turn.ID
 		var bubbleChildren []core.Node
 		if imgRow := agentTurnImagesRowView(turnIdx, turn.Images, p); imgRow != nil {
 			bubbleChildren = append(bubbleChildren, imgRow)
@@ -1567,7 +1580,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 				Content: turn.Prompt,
 				Style: core.Style{
 					FontSize: 12.5,
-					Color:    p.TextSecondary,
+					Color:    p.TextPrimary,
 				},
 			})
 		}
@@ -1583,19 +1596,98 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 			})
 		}
 		children = append(children, core.View{
-			TestID: fmt.Sprintf("agent-turn-prompt-%d", turnIdx),
+			TestID: fmt.Sprintf("agent-turn-user-%d", turnIdx),
 			Style: core.Style{
-				AlignSelf:    core.AlignEnd,
-				MaxWidth:     core.Pt(296),
-				Padding:      core.Symmetric(8, 12),
-				Gap:          8,
-				CornerRadius: 12,
-				Background:   p.Raised,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
+				AlignItems: core.AlignEnd,
+				Gap:        4,
 			},
-			Children: bubbleChildren,
+			OnMouseEnter: func(core.MouseEvent) {
+				hoveredTurnID.Set(turnID)
+			},
+			OnMouseLeave: func(core.MouseEvent) {
+				if hoveredTurnID.Get() == turnID {
+					hoveredTurnID.Set("")
+				}
+			},
+			OnFocusIn: func() {
+				focusedTurnID.Set(turnID)
+			},
+			OnFocusOut: func() {
+				if focusedTurnID.Get() == turnID {
+					focusedTurnID.Set("")
+				}
+			},
+			Children: []core.Node{
+				core.View{
+					TestID: fmt.Sprintf("agent-turn-prompt-%d", turnIdx),
+					Focusable: func() bool {
+						_ = rev.Get()
+						return !ed.AgentWorking()
+					},
+					Style: core.Style{
+						MaxWidth:     core.Pt(312),
+						Padding:      core.Symmetric(8, 12),
+						CornerRadius: 12,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						Gap:          8,
+						FocusVisible: p.FocusRing(2),
+					},
+					Children: bubbleChildren,
+				},
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						if ed.AgentWorking() {
+							return false
+						}
+						return hoveredTurnID.Get() == turnID || focusedTurnID.Get() == turnID || ed.AgentRewindOpenTurnID() == turnID
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return core.View{
+							TestID: fmt.Sprintf("agent-rewind-trigger-%d", turnIdx),
+							Role:   core.RoleButton,
+							Label:  ed.T("agent.rewind.trigger"),
+							Style: core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Height:       core.Pt(24),
+								Gap:          6,
+								Padding:      core.Symmetric(0, 8),
+								CornerRadius: 6,
+								Hover:        &core.Style{Background: p.Raised},
+								FocusVisible: p.FocusRing(2),
+							},
+							OnPress: func(core.PressEvent) {
+								ed.ToggleAgentRewindPopover(turnID)
+							},
+							Children: []core.Node{
+								core.SVGView{
+									SVG: lucide.Undo2(),
+									Style: core.Style{
+										Width:      core.Pt(13),
+										Height:     core.Pt(13),
+										Color:      p.TextMuted,
+										FlexShrink: 0,
+									},
+								},
+								core.Text{
+									Content: ed.T("agent.rewind.trigger"),
+									Style: core.Style{
+										FontSize: 12,
+										Color:    p.TextMuted,
+									},
+								},
+							},
+						}
+					},
+				},
+			},
 		})
+		if ed.AgentRewindOpenTurnID() == turnID {
+			children = append(children, agentRewindPopoverView(ed, rev, turnID, p))
+		}
 	}
 
 	// Stopped card renders DONE and NOT DONE sections directly inside the card; avoid duplicating steps above it.
@@ -1789,7 +1881,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 	return core.View{
 		TestID: fmt.Sprintf("agent-turn-%d", turnIdx),
 		Style: core.Style{
-			Gap: 10,
+			Gap: 8,
 		},
 		Children: children,
 	}
@@ -2382,6 +2474,303 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p Sp
 					Color:    p.TextSecondary,
 				},
 			},
+		},
+	}
+}
+
+func agentRewindPopoverView(ed *Editor, rev *core.Signal[uint64], turnID string, p SpecPalette) core.Node {
+	preview, ok := ed.AgentRewindPreview(turnID)
+	if !ok {
+		return core.View{}
+	}
+	shadowAlpha := float32(0.5)
+	if !p.Dark {
+		shadowAlpha = 0.16
+	}
+	optionRow := func(testID string, mode AgentRewindMode, label, detail string) core.Node {
+		return core.View{
+			TestID: testID,
+			Role:   core.RoleRadio,
+			Label:  label,
+			StyleFunc: func() core.Style {
+				_ = rev.Get()
+				selected := ed.AgentRewindMode() == mode
+				st := core.Style{
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          10,
+					Padding:      core.Symmetric(6, 8),
+					CornerRadius: 8,
+					BorderWidth:  1.5,
+					BorderColor:  core.Transparent,
+					FocusVisible: p.FocusRing(2),
+				}
+				if selected {
+					st.Background = p.Accent.Fill
+					st.BorderColor = p.Accent.Edge
+				} else {
+					st.Hover = &core.Style{Background: p.Inset}
+				}
+				return st
+			},
+			OnPress: func(core.PressEvent) {
+				ed.SetAgentRewindMode(mode)
+			},
+			Children: []core.Node{
+				core.View{
+					StyleFunc: func() core.Style {
+						_ = rev.Get()
+						if ed.AgentRewindMode() == mode {
+							return core.Style{
+								Width:        core.Pt(14),
+								Height:       core.Pt(14),
+								CornerRadius: 7,
+								BorderWidth:  4,
+								BorderColor:  p.Accent.Fg,
+								Background:   p.Raised,
+								FlexShrink:   0,
+							}
+						}
+						return core.Style{
+							Width:        core.Pt(14),
+							Height:       core.Pt(14),
+							CornerRadius: 7,
+							BorderWidth:  1.5,
+							BorderColor:  p.TextFaint,
+							FlexShrink:   0,
+						}
+					},
+				},
+				core.View{
+					Style: core.Style{
+						FlexGrow:   1,
+						FlexShrink: 1,
+						MinWidth:   core.Pt(0),
+						Gap:        2,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: label,
+							Style: core.Style{
+								FontSize: 12.5,
+								Color:    p.TextPrimary,
+							},
+						},
+						core.Text{
+							TestID:  testID + "-detail",
+							Content: detail,
+							Style: core.Style{
+								FontSize: 11.5,
+								Color:    p.TextFaint,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	return core.View{
+		TestID: "agent-rewind-popover",
+		Role:   core.RoleDialog,
+		Label:  ed.T("agent.rewind.title"),
+		Style: core.Style{
+			AlignSelf:    core.AlignEnd,
+			Width:        core.Pt(320),
+			MaxWidth:     core.Pct(100),
+			CornerRadius: 12,
+			Background:   p.Raised,
+			BorderWidth:  1,
+			BorderColor:  p.LineRaised,
+			Padding:      core.All(10),
+			Gap:          8,
+			Shadows: []core.BoxShadow{
+				ui.Shadow(0, 16, 40, 0, ui.Black(shadowAlpha)),
+			},
+		},
+		Children: []core.Node{
+			core.Text{
+				TestID:  "agent-rewind-title",
+				Content: ed.T("agent.rewind.title"),
+				Style: core.Style{
+					FontSize:   12.5,
+					FontWeight: 600,
+					Color:      p.TextPrimary,
+				},
+			},
+			core.View{
+				TestID: "agent-rewind-options",
+				Role:   core.RoleRadioGroup,
+				Label:  ed.T("agent.rewind.title"),
+				Style:  core.Style{Gap: 4},
+				Children: []core.Node{
+					optionRow("agent-rewind-opt-both", AgentRewindBoth, ed.T("agent.rewind.both"), ed.formatRewindBothDetail(preview)),
+					optionRow("agent-rewind-opt-files", AgentRewindFilesOnly, ed.T("agent.rewind.filesOnly"), ed.T("agent.rewind.filesOnlyDetail")),
+					optionRow("agent-rewind-opt-conv", AgentRewindConversationOnly, ed.T("agent.rewind.convOnly"), ed.T("agent.rewind.convOnlyDetail")),
+				},
+			},
+			core.View{
+				Style: core.Style{
+					Direction:      core.Row,
+					Gap:            8,
+					JustifyContent: core.JustifyEnd,
+				},
+				Children: []core.Node{
+					core.View{
+						TestID: "agent-rewind-cancel",
+						Role:   core.RoleButton,
+						Label:  ed.T("agent.rewind.cancel"),
+						Style: core.Style{
+							Height:         core.Pt(30),
+							Padding:        core.Symmetric(0, 12),
+							CornerRadius:   8,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							Background:     p.LineRaised,
+							FocusVisible:   p.FocusRing(2),
+						},
+						OnPress: func(core.PressEvent) {
+							ed.CloseAgentRewindPopover()
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("agent.rewind.cancel"),
+								Style: core.Style{
+									FontSize: 12.5,
+									Color:    p.TextPrimary,
+								},
+							},
+						},
+					},
+					core.View{
+						TestID: "agent-rewind-confirm",
+						Role:   core.RoleButton,
+						Label:  ed.T("agent.rewind.action"),
+						Style: core.Style{
+							Height:         core.Pt(30),
+							Padding:        core.Symmetric(0, 12),
+							CornerRadius:   8,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							Background:     p.Accent.Fg,
+							FocusVisible:   p.FocusRing(2),
+						},
+						OnPress: func(core.PressEvent) {
+							ed.report(ed.ConfirmAgentRewind())
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("agent.rewind.action"),
+								Style: core.Style{
+									FontSize:   12.5,
+									FontWeight: 600,
+									Color:      p.Accent.OnFill,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func agentRewindBannerView(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+	shadowAlpha := float32(0.45)
+	if !p.Dark {
+		shadowAlpha = 0.14
+	}
+	return core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			_, ok := ed.AgentRewindBanner()
+			return ok
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return core.View{
+				Style: core.Style{
+					Padding:    core.Edges{Left: 12, Right: 12, Top: 8},
+					Background: p.Panel,
+					FlexShrink: 0,
+				},
+				Children: []core.Node{
+					core.View{
+						TestID:     "agent-rewind-banner",
+						Role:       core.RoleStatus,
+						LiveRegion: core.LiveRegionPolite,
+						Style: core.Style{
+							Direction:    core.Row,
+							AlignItems:   core.AlignCenter,
+							Gap:          8,
+							Padding:      core.Edges{Top: 6, Right: 6, Bottom: 6, Left: 12},
+							CornerRadius: 12,
+							Background:   p.Raised,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
+							Shadows: []core.BoxShadow{
+								ui.Shadow(0, 12, 32, 0, ui.Black(shadowAlpha)),
+							},
+						},
+						Children: []core.Node{
+							core.SVGView{
+								SVG: lucide.Undo2(),
+								Style: core.Style{
+									Width:      core.Pt(15),
+									Height:     core.Pt(15),
+									Color:      p.TextMuted,
+									FlexShrink: 0,
+								},
+							},
+							core.Text{
+								TestID: "agent-rewind-banner-text",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									st, ok := ed.AgentRewindBanner()
+									if !ok {
+										return ""
+									}
+									return ed.formatRewindBannerText(st)
+								},
+								Style: core.Style{
+									FlexGrow:   1,
+									FlexShrink: 1,
+									MinWidth:   core.Pt(0),
+									FontSize:   12,
+									Color:      p.TextPrimary,
+								},
+							},
+							core.View{
+								TestID: "agent-rewind-redo",
+								Role:   core.RoleButton,
+								Label:  ed.T("agent.rewind.redo"),
+								Style: core.Style{
+									Height:         core.Pt(30),
+									Padding:        core.Symmetric(0, 12),
+									CornerRadius:   8,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+									Background:     p.LineRaised,
+									FlexShrink:     0,
+									FocusVisible:   p.FocusRing(2),
+								},
+								OnPress: func(core.PressEvent) {
+									ed.report(ed.RedoAgentRewind())
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: ed.T("agent.rewind.redo"),
+										Style: core.Style{
+											FontSize:   12.5,
+											FontWeight: 500,
+											Color:      p.TextPrimary,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
 		},
 	}
 }

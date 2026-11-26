@@ -582,6 +582,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		if fromComposer || text == strings.TrimSpace(e.composerDraft) || text == strings.TrimSpace(e.agent.composerText) {
 			e.composerDraft = ""
 			e.agent.composerText = ""
+			e.agent.composerHighlighted = false
 			e.agentComposer.pickerOpen = false
 			e.agentComposer.pickerOpenedByAt = false
 			e.agentComposer.pickerQuery = ""
@@ -630,6 +631,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	req.Task = task
 	req.Route = route
 	req.Model = model
+	req.PriorTurns = e.agentPriorTurnSummaries()
 	req.AttachedImages = attachedImgs
 	req.BriefImages = briefImgs
 	req.Images = allImgs
@@ -648,11 +650,23 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	e.agentComposer.pickerQuery = ""
 	e.agentComposer.pickerActiveIndex = 0
 	e.agentComposer.hoveredChipID = ""
+	e.agent.composerHighlighted = false
+	e.agent.rewindOpenTurnID = ""
+	e.agent.lastRewind = nil
+
+	sessionBefore := sessionID
+	cp := e.captureTurnStartCheckpoint()
 	e.agent.turnSeq++
 	e.agent.turnChangeSeq++
 	e.agent.liveRequestID++
 	e.agent.liveStepSeq++
 	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
+	if cp != nil {
+		if e.agent.checkpoints == nil {
+			e.agent.checkpoints = make(map[string]*agentTurnCheckpoint)
+		}
+		e.agent.checkpoints[turnID] = cp
+	}
 	agentKind := ExternalAgentAuto
 	if !route.IsBuiltIn() {
 		if c, ok := e.AgentPrimaryClient(); ok {
@@ -692,6 +706,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		}},
 		CreatedAt:           now,
 		StartedAt:           now,
+		SessionIDBefore:     sessionBefore,
 		turnStartHistoryIdx: startHist,
 	})
 	e.trimAgentTurnAttachments()
@@ -817,6 +832,7 @@ func (e *Editor) SwitchAgentTurnToAlternative(turnID string) error {
 	turn.Status = "done"
 	turn.FinishedAt = e.nowTime()
 	e.agent.turnChangeSeq++
+	e.finalizeTurnCheckpoint(turnID)
 	if turn.ModelError != nil {
 		turn.ModelError.Retrying = false
 	}

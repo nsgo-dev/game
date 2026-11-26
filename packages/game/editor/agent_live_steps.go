@@ -905,6 +905,9 @@ func (e *Editor) StopAgent() bool {
 	e.agent.liveActivity = ""
 
 	if turn := e.latestAgentTurnPtr(); turn != nil && !turn.Done {
+		if stoppedTurnID == "" {
+			stoppedTurnID = turn.ID
+		}
 		dropTurnPlaceholder(turn)
 		if hadActiveRun {
 			for i := range turn.Steps {
@@ -976,6 +979,9 @@ func (e *Editor) StopAgent() bool {
 			e.refreshTurnReview(turn)
 			turn.PendingReview = e.buildTurnPendingReviewLocked(turn, fmt.Sprintf("%s · %s.", stepLabel, keptDetail), true)
 		}
+	}
+	if stoppedTurnID != "" {
+		e.finalizeTurnCheckpoint(stoppedTurnID)
 	}
 
 	e.ShowToast(Toast{

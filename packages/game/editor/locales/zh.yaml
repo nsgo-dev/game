@@ -68,6 +68,27 @@ strings:
   agent.ref.undo: 撤销
   agent.revert: 还原
   agent.review: 审查
+  agent.rewind.action: 回退
+  agent.rewind.banner: 已将{mode}回退到“{prompt}”之前
+  agent.rewind.bannerNoPrompt: 已回退{mode}
+  agent.rewind.both: 文件与对话
+  agent.rewind.bothDetailManyFilesManyReplies: 撤销 {files} 个文件，移除 {replies} 条回复
+  agent.rewind.bothDetailManyFilesOneReply: 撤销 {files} 个文件，移除该回复
+  agent.rewind.bothDetailNoFilesManyReplies: 移除 {replies} 条回复
+  agent.rewind.bothDetailNoFilesOneReply: 移除该回复
+  agent.rewind.bothDetailOneFileManyReplies: 撤销 1 个文件，移除 {replies} 条回复
+  agent.rewind.bothDetailOneFileOneReply: 撤销 1 个文件，移除该回复
+  agent.rewind.cancel: 取消
+  agent.rewind.convOnly: 仅对话
+  agent.rewind.convOnlyDetail: 保持文件现状不变
+  agent.rewind.filesOnly: 仅文件
+  agent.rewind.filesOnlyDetail: 保持对话现状不变
+  agent.rewind.modeBoth: 文件与对话
+  agent.rewind.modeConv: 仅对话
+  agent.rewind.modeFiles: 仅文件
+  agent.rewind.redo: 重做
+  agent.rewind.title: 回退到此消息之前
+  agent.rewind.trigger: 回退到此处
   agent.status.disconnected: 已断开
   agent.status.limitShort: 已达上限
   agent.status.offline: 离线
