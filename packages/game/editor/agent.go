@@ -316,6 +316,7 @@ type AgentTurn struct {
 	FinishedAt      time.Time             `json:"finishedAt"`
 	Context         AgentTurnContext      `json:"context"`
 	ChangedFiles    []string              `json:"changedFiles,omitempty"`
+	ThreadID        string                `json:"threadId,omitempty"`
 	SessionIDBefore string                `json:"sessionIdBefore,omitempty"`
 	SessionIDAfter  string                `json:"sessionIdAfter,omitempty"`
 	Automation      bool                  `json:"automation,omitempty"`     // true for turns started by an automation trigger

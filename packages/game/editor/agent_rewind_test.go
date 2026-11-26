@@ -962,3 +962,109 @@ func TestAgentRewindSceneSwitchStopAndLifecycleGuards(t *testing.T) {
 		t.Fatal("expected popover to close on Cancel")
 	}
 }
+
+func TestAgentRewindWithSceneGroupedThreads(t *testing.T) {
+	_, ed, _, coinFile, _ := setupRewindProject(t)
+	defer ed.Close()
+
+	// Seed an active #1019 persisted thread for level_01 with an earlier kept request and session ID.
+	if _, err := ed.SendAgentRequestWith(editor.AgentSendRequest{
+		Title:        "Earlier kept request",
+		Prompt:       "Seed level_01 thread",
+		SessionID:    "sess-persisted-0",
+		Outcome:      editor.AgentThreadOutcomeKept,
+		ChangesTotal: 1,
+		ChangesKept:  1,
+	}); err != nil {
+		t.Fatalf("SendAgentRequestWith: %v", err)
+	}
+	activeThreadID := ed.ActiveAgentThread().ID
+
+	var seenSessions []string
+	ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		seenSessions = append(seenSessions, req.SessionID)
+		switch req.Prompt {
+		case "Spin coins":
+			emit(editor.AgentEvent{Kind: editor.AgentEventSession, SessionID: "sess-turn-1"})
+			_ = os.WriteFile(coinFile, []byte("version: 1\nname: coin\nspin: true\nbob: false\n"), 0o644)
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Updated coin spin."})
+		case "Bob coins instead":
+			emit(editor.AgentEvent{Kind: editor.AgentEventSession, SessionID: "sess-turn-2"})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Updated coin bob."})
+		}
+		return nil
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820))
+
+	if err := ed.SubmitAgentPrompt("Spin coins"); err != nil {
+		t.Fatalf("SubmitAgentPrompt: %v", err)
+	}
+	waitAgentIdleWithTurns(t, app, ed, 1)
+
+	// Simulate the persisted thread also tracking the newer session ID.
+	if err := ed.SetAgentThreadSessionID(activeThreadID, "sess-turn-1"); err != nil {
+		t.Fatalf("SetAgentThreadSessionID: %v", err)
+	}
+
+	// Verify mutual exclusion between thread switcher and rewind popover inside agentThreadConversationBody.
+	ed.SetAgentSwitcherOpen(true)
+	if !ed.AgentSwitcherOpen() {
+		t.Fatal("expected thread switcher open")
+	}
+	turnID := ed.AgentTurns()[0].ID
+	if !ed.OpenAgentRewindPopover(turnID) {
+		t.Fatal("OpenAgentRewindPopover failed")
+	}
+	if ed.AgentSwitcherOpen() {
+		t.Fatal("opening rewind popover should close thread switcher")
+	}
+	ed.SetAgentSwitcherOpen(true)
+	if ed.AgentRewindOpenTurnID() != "" {
+		t.Fatal("opening thread switcher should close rewind popover")
+	}
+	ed.SetAgentSwitcherOpen(false)
+	app.Settle()
+
+	// Hovering the live turn inside a persisted #1019 thread renders the rewind trigger and popover.
+	app.Hover("id:agent-turn-prompt-0")
+	app.Settle()
+	app.Press("id:agent-rewind-trigger-0")
+	app.Settle()
+	if !app.Exists("id:agent-rewind-popover") {
+		t.Fatal("expected rewind popover inside persisted thread conversation body")
+	}
+	app.Press("id:agent-rewind-confirm")
+	app.Settle()
+
+	// Both AgentSessionID and the persisted thread's SessionID must rewind to sess-persisted-0.
+	if got := ed.AgentSessionID(); got != "sess-persisted-0" {
+		t.Fatalf("AgentSessionID after rewind = %q, want sess-persisted-0", got)
+	}
+	if got := ed.AgentThread(activeThreadID).SessionID; got != "sess-persisted-0" {
+		t.Fatalf("persisted thread SessionID after rewind = %q, want sess-persisted-0", got)
+	}
+	if gotCoin, err := os.ReadFile(coinFile); err != nil || !strings.Contains(string(gotCoin), "spin: false") {
+		t.Fatalf("coin.prefab.yaml after rewind = %q err=%v, want spin: false", gotCoin, err)
+	}
+
+	// Redo restores both AgentSessionID and persisted thread SessionID, then rewind again and submit a new prompt.
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind: %v", err)
+	}
+	if got := ed.AgentThread(activeThreadID).SessionID; got != "sess-turn-1" {
+		t.Fatalf("persisted thread SessionID after redo = %q, want sess-turn-1", got)
+	}
+	if err := ed.RewindAgentTurn(turnID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("second RewindAgentTurn: %v", err)
+	}
+	if err := ed.SubmitAgentPrompt("Bob coins instead"); err != nil {
+		t.Fatalf("SubmitAgentPrompt after rewind: %v", err)
+	}
+	waitAgentIdleWithTurns(t, app, ed, 1)
+	if len(seenSessions) != 2 || seenSessions[0] != "sess-persisted-0" || seenSessions[1] != "sess-persisted-0" {
+		t.Fatalf("runner saw sessions %v, want [sess-persisted-0 sess-persisted-0]", seenSessions)
+	}
+}

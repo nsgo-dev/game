@@ -102,12 +102,15 @@ type agentTurnCheckpoint struct {
 }
 
 type agentRewindRecord struct {
-	state                AgentRewindState
-	root                 string
-	previousComposerText string
-	previousTurns        []AgentTurn
-	previousSessionID    string
-	previousCheckpoints  map[string]*agentTurnCheckpoint
+	state                   AgentRewindState
+	root                    string
+	previousComposerText    string
+	previousTurns           []AgentTurn
+	previousSessionID       string
+	previousCheckpoints     map[string]*agentTurnCheckpoint
+	threadID                string
+	previousThreadSessionID string
+	hadThreadSession        bool
 
 	redoFiles          map[string]fileSnapshot
 	hadDocRestore      bool
@@ -432,6 +435,11 @@ func (e *Editor) OpenAgentRewindPopover(turnID string) bool {
 	if e.agent.rewindOpenTurnID != turnID {
 		e.agent.rewindMode = AgentRewindBoth
 	}
+	if e.agentThreads.switcherOpen {
+		e.agentThreads.switcherOpen = false
+		e.agentThreads.switcherQuery = ""
+		e.agentThreads.rev++
+	}
 	e.agent.rewindOpenTurnID = turnID
 	e.notify()
 	return true
@@ -681,6 +689,26 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 		}
 		e.agent.turns = e.agent.turns[:idx]
 		e.agent.sessionID = targetTurn.SessionIDBefore
+		if targetTurn.ThreadID != "" {
+			if t := e.findPersistedAgentThread(targetTurn.ThreadID); t != nil {
+				rec.threadID = t.ID
+				rec.previousThreadSessionID = t.SessionID
+				rec.hadThreadSession = true
+				if t.SessionID != targetTurn.SessionIDBefore {
+					t.SessionID = targetTurn.SessionIDBefore
+					_ = e.persistAgentThread(t)
+					e.agentThreads.rev++
+				}
+			} else if e.agentThreads.draftThread != nil && e.agentThreads.draftThread.ID == targetTurn.ThreadID {
+				rec.threadID = e.agentThreads.draftThread.ID
+				rec.previousThreadSessionID = e.agentThreads.draftThread.SessionID
+				rec.hadThreadSession = true
+				if e.agentThreads.draftThread.SessionID != targetTurn.SessionIDBefore {
+					e.agentThreads.draftThread.SessionID = targetTurn.SessionIDBefore
+					e.agentThreads.rev++
+				}
+			}
+		}
 		if e.agent.openRequest != nil {
 			e.agent.openRequest = nil
 		}
@@ -755,6 +783,20 @@ func (e *Editor) RedoAgentRewind() error {
 		e.agent.turns = cloneAgentTurns(rec.previousTurns)
 		e.agent.sessionID = rec.previousSessionID
 		e.agent.checkpoints = cloneCheckpointMap(rec.previousCheckpoints)
+		if rec.hadThreadSession && rec.threadID != "" {
+			if t := e.findPersistedAgentThread(rec.threadID); t != nil {
+				if t.SessionID != rec.previousThreadSessionID {
+					t.SessionID = rec.previousThreadSessionID
+					_ = e.persistAgentThread(t)
+					e.agentThreads.rev++
+				}
+			} else if e.agentThreads.draftThread != nil && e.agentThreads.draftThread.ID == rec.threadID {
+				if e.agentThreads.draftThread.SessionID != rec.previousThreadSessionID {
+					e.agentThreads.draftThread.SessionID = rec.previousThreadSessionID
+					e.agentThreads.rev++
+				}
+			}
+		}
 		e.restoreIdleAgentStatus()
 	}
 

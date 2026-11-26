@@ -639,6 +639,7 @@ func (e *Editor) loadAgentThreadsForProject() {
 	e.agentThreads.switcherQuery = ""
 	e.agentThreads.expandedRequestID = ""
 	e.agentThreads.selectedHistoryStep = AgentHistorySelection{}
+	e.agent.rewindOpenTurnID = ""
 	e.agentThreads.rev++
 
 	root, ok := e.agentThreadsRoot()
@@ -697,6 +698,7 @@ func (e *Editor) resetAgentThreadsForDemo() {
 	e.agentThreads.switcherQuery = ""
 	e.agentThreads.expandedRequestID = ""
 	e.agentThreads.selectedHistoryStep = AgentHistorySelection{}
+	e.agent.rewindOpenTurnID = ""
 	e.agentThreads.rev++
 	e.syncAgentThreadForOpenScene()
 }
@@ -721,6 +723,7 @@ func (e *Editor) syncAgentThreadForOpenScene() {
 	scenePath := e.currentThreadScenePath()
 	e.agentThreads.switcherOpen = false
 	e.agentThreads.expandedRequestID = ""
+	e.agent.rewindOpenTurnID = ""
 
 	// Keep the currently active persisted thread only if it already belongs to this scene.
 	if cur := e.findPersistedAgentThread(e.agentThreads.activeThreadID); cur != nil && cur.ScenePath == scenePath {
@@ -942,6 +945,7 @@ func (e *Editor) newAgentThreadForScene(scenePath string) *AgentThread {
 	e.agentThreads.switcherOpen = false
 	e.agentThreads.switcherQuery = ""
 	e.agentThreads.expandedRequestID = ""
+	e.agent.rewindOpenTurnID = ""
 	e.agentThreads.rev++
 	e.notify()
 	return draft.Clone()
@@ -959,6 +963,7 @@ func (e *Editor) SelectAgentThread(id string) error {
 			e.agentThreads.activeThreadID = id
 			e.agentThreads.switcherOpen = false
 			e.agentThreads.expandedRequestID = ""
+			e.agent.rewindOpenTurnID = ""
 			e.agentThreads.rev++
 			e.notify()
 			return nil
@@ -974,6 +979,7 @@ func (e *Editor) SelectAgentThread(id string) error {
 	e.agentThreads.draftThread = nil
 	e.agentThreads.switcherOpen = false
 	e.agentThreads.expandedRequestID = ""
+	e.agent.rewindOpenTurnID = ""
 	e.agentThreads.rev++
 	e.notify()
 	return nil
@@ -990,7 +996,9 @@ func (e *Editor) SetAgentSwitcherOpen(open bool) {
 		return
 	}
 	e.agentThreads.switcherOpen = open
-	if !open {
+	if open {
+		e.agent.rewindOpenTurnID = ""
+	} else {
 		e.agentThreads.switcherQuery = ""
 	}
 	e.agentThreads.rev++
@@ -1610,6 +1618,7 @@ func (e *Editor) OpenHistoryStep(threadID, requestID, stepID string) error {
 	e.agentThreads.selectedHistoryStep = sel
 	e.agent.rightTab = RightTabHistory
 	e.agentThreads.switcherOpen = false
+	e.agent.rewindOpenTurnID = ""
 	e.agentThreads.rev++
 	e.Status = e.T("threads.history.openedStatus")
 	e.notify()
