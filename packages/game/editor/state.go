@@ -1006,6 +1006,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.startScreen.setScope(cx)
 	e.remote.setScope(cx)
 	e.agent.setScope(cx)
+	e.buildRelease.setScope(cx)
 	e.setDiskWatcherScope(cx)
 	if cx != nil {
 		e.startParticlePreviewLoop()

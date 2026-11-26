@@ -28,7 +28,13 @@ func defaultOpenBrowserURL(rawURL string) error {
 	default:
 		return fmt.Errorf("editor: opening a browser is not supported on %s", runtime.GOOS)
 	}
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return nil
 }
 
 func defaultDiscoverConnectedDevices(ctx context.Context, _ string) ([]ConnectedDevice, error) {
