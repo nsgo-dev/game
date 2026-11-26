@@ -133,6 +133,8 @@ strings:
   cmd.gizmoTranslate.label: 3D 操纵杆：平移
   cmd.group.desc: 将选中的对象归组到位于其共同中心的新空父级下
   cmd.group.label: 编组选中对象
+  cmd.historyPanel.desc: 切换显示你的编辑、智能体回合与保存点的统一历史时间线面板
+  cmd.historyPanel.label: 历史
   cmd.inspectorTab.desc: 将右侧面板切换为属性检查器
   cmd.inspectorTab.label: 检查器面板
   cmd.lightingPreview.desc: 在 2D 视口中显示或隐藏实时 2D 灯光、遮挡阴影与环境暗度
@@ -291,6 +293,21 @@ strings:
   gizmo.spaceGlobal: 全局
   gizmo.spaceLocal: 局部
   gizmo.translate: 平移
+  history.back: 返回
+  history.close: 关闭历史面板
+  history.empty: 暂无编辑记录。你的编辑与智能体的回合会按同一条时间线显示在这里。
+  history.emptyAgent: 暂无智能体回合记录。
+  history.emptyYou: 暂无手动编辑记录。
+  history.filter.agent: 智能体
+  history.filter.all: 全部
+  history.filter.you: 你
+  history.filterLabel: 显示
+  history.footer: 点击任意步骤即可只读预览当时的场景；“恢复”会将其作为一个新的可撤销步骤回滚，不会丢失后续历史。
+  history.now: 现在
+  history.restore: 恢复
+  history.saved: 已保存
+  history.title: 历史
+  history.unsaved: 未保存
   inspector.addComponent: 添加组件
   inspector.addProperty: 添加属性
   inspector.alpha: 不透明度
@@ -483,6 +500,7 @@ strings:
   menu.gizmo3d: 3D 操纵杆
   menu.group: 编组
   menu.help: 帮助
+  menu.history: 历史
   menu.inspectorPanel: 检查器面板
   menu.lightingPreview: 2D 光照预览
   menu.localization: 本地化字符串
@@ -970,6 +988,7 @@ strings:
   toolbar.group.tools: 工具
   toolbar.group.view2d: 2D 视图
   toolbar.group.viewMode: 视图模式
+  toolbar.historyLabel: 历史
   toolbar.input: 输入
   toolbar.inputLabel: 切换输入映射面板
   toolbar.label: 编辑器工具

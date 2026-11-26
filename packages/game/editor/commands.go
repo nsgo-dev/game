@@ -77,6 +77,7 @@ const (
 	CmdCommandPalette         = "view.palette"
 	CmdShortcutsSheet         = "view.shortcuts"
 	CmdToggleTasks            = "agent.tasks"
+	CmdHistoryPanel           = "view.history"
 	CmdPlayStop               = "project.play"
 	CmdRunGame                = "project.run"
 	CmdProjectSettings        = "project.settings"
@@ -1389,6 +1390,21 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdHistoryPanel,
+			Label:       "History",
+			Description: "Toggle the unified History timeline of your edits, agent turns, and saved points",
+			Category:    "View",
+			Keywords:    []string{"history", "timeline", "undo", "checkpoints", "restore", "preview", "agent"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+y",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.HistoryPanelOpen() },
+			Run: func() error {
+				e.ToggleHistoryPanel()
+				return nil
+			},
+		},
+		{
 			ID:          CmdPlayStop,
 			Label:       "Play / Stop",
 			Description: "Toggle play-in-editor simulation",
@@ -1946,6 +1962,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
 	CmdShortcutsSheet:        {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
 	CmdToggleTasks:           {"cmd.tasks.label", "cmd.tasks.desc", "cmd.category.view"},
+	CmdHistoryPanel:          {"cmd.historyPanel.label", "cmd.historyPanel.desc", "cmd.category.view"},
 	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
 	CmdPlayMark:              {"cmd.playMark.label", "cmd.playMark.desc", "cmd.category.project"},
 	CmdAskFrozenFrame:        {"cmd.askFrozenFrame.label", "cmd.askFrozenFrame.desc", "cmd.category.project"},

@@ -1,5 +1,151 @@
 package editor
 
+import (
+	"slices"
+	"strings"
+	"time"
+)
+
+// HistoryAuthor identifies who produced a timeline entry in History.
+type HistoryAuthor string
+
+const (
+	// HistoryAuthorYou marks edits made directly by the person in the editor.
+	HistoryAuthorYou HistoryAuthor = "you"
+	// HistoryAuthorAgent marks turns made by an AI agent (through MCP or kept reviews).
+	HistoryAuthorAgent HistoryAuthor = "agent"
+	// HistoryAuthorGit marks external Git working-tree transitions (such as switching branches).
+	HistoryAuthorGit HistoryAuthor = "git"
+)
+
+// Label returns the human-readable author prefix used in the History panel and MCP readouts.
+func (a HistoryAuthor) Label() string {
+	switch a {
+	case HistoryAuthorAgent:
+		return "Agent"
+	case HistoryAuthorGit:
+		return "git"
+	case HistoryAuthorYou:
+		return "You"
+	default:
+		return ""
+	}
+}
+
+// HistoryEntryKind distinguishes undoable edit steps from saved-point markers on the History timeline.
+type HistoryEntryKind string
+
+const (
+	// HistoryEntryEdit is a recorded manual edit, agent turn, external reload, or restore step.
+	HistoryEntryEdit HistoryEntryKind = "edit"
+	// HistoryEntrySaved is a saved-point marker recorded when files are persisted to disk or OnSave.
+	HistoryEntrySaved HistoryEntryKind = "saved"
+)
+
+// HistoryFilter filters which entries the History panel or MCP history_list returns.
+type HistoryFilter string
+
+const (
+	HistoryFilterAll   HistoryFilter = "all"
+	HistoryFilterYou   HistoryFilter = "you"
+	HistoryFilterAgent HistoryFilter = "agent"
+)
+
+// HistoryEntry is one visible row on the unified History timeline: a manual edit, an agent turn,
+// a Git/external reload, a non-destructive restore, or a saved-point marker.
+type HistoryEntry struct {
+	// ID uniquely identifies this entry within the current History instance.
+	ID uint64
+	// Kind is HistoryEntryEdit or HistoryEntrySaved.
+	Kind HistoryEntryKind
+	// Author is who produced the step (HistoryAuthorYou, HistoryAuthorAgent, or HistoryAuthorGit; empty for saved markers).
+	Author HistoryAuthor
+	// Summary is the concise headline (for example "moved Knight", "slimes and coins", or "Saved").
+	Summary string
+	// Detail is the secondary description (for example "x 416 → 452", "6 changes · kept 5", or "level_01.scene.yaml").
+	Detail string
+	// Files lists the project-relative (or base) file paths touched by this entry.
+	Files []string
+	// Timestamp is when the step was recorded.
+	Timestamp time.Time
+	// ChangeCount is the number of individual changes proposed in an agent turn (0 when not applicable).
+	ChangeCount int
+	// KeptCount is the number of changes kept in an agent turn (0 when not applicable).
+	KeptCount int
+	// CommandIndex is the 1-based History command index right after this step ran, or 0 for saved markers and superseded steps.
+	CommandIndex int
+	// Undone reports whether this step is currently undone (ahead of the History undo cursor or superseded).
+	Undone bool
+	// RestoredFromID is non-zero when this step was created by restoring an earlier HistoryEntry.
+	RestoredFromID uint64
+}
+
+// Clone returns a deep copy of e so callers cannot mutate History's internal slice.
+func (e HistoryEntry) Clone() HistoryEntry {
+	e.Files = slices.Clone(e.Files)
+	return e
+}
+
+// HistoryMeta provides rich timeline metadata for a Command executed through History.
+type HistoryMeta struct {
+	Author         HistoryAuthor
+	Summary        string
+	Detail         string
+	Files          []string
+	ChangeCount    int
+	KeptCount      int
+	RestoredFromID uint64
+	BeforeFiles    map[string]historyFileSnapshot
+	AfterFiles     map[string]historyFileSnapshot
+}
+
+type historyFileSnapshot struct {
+	exists bool
+	data   []byte
+}
+
+func cloneHistoryFileSnapshots(src map[string]historyFileSnapshot) map[string]historyFileSnapshot {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]historyFileSnapshot, len(src))
+	for k, v := range src {
+		out[k] = historyFileSnapshot{
+			exists: v.exists,
+			data:   slices.Clone(v.data),
+		}
+	}
+	return out
+}
+
+type historySnapshot struct {
+	sceneYAML   []byte
+	scenePath   string
+	projectYAML []byte
+	files       map[string]historyFileSnapshot
+}
+
+func (s historySnapshot) clone() historySnapshot {
+	return historySnapshot{
+		sceneYAML:   slices.Clone(s.sceneYAML),
+		scenePath:   s.scenePath,
+		projectYAML: slices.Clone(s.projectYAML),
+		files:       cloneHistoryFileSnapshots(s.files),
+	}
+}
+
+type historyRecord struct {
+	entry       HistoryEntry
+	snapshot    historySnapshot
+	beforeFiles map[string]historyFileSnapshot
+	superseded  bool
+}
+
+// historyMetaCommand is an optional interface implemented by Commands that supply rich timeline metadata.
+type historyMetaCommand interface {
+	historyMeta() HistoryMeta
+}
+
 // Command is a reversible edit executed through History: a change to the open scene, project or clip, or a move of the project's files (MoveFile).
 type Command interface {
 	Do()
@@ -14,14 +160,200 @@ type fallibleCommand interface {
 	undo() error
 }
 
-// History records executed Commands and supports linear undo and redo, plus non-destructive commit milestones.
+// History records executed Commands and supports linear undo and redo, a unified timeline of manual edits, agent turns, and saved points, plus non-destructive commit milestones.
 type History struct {
 	commands []Command
 	cursor   int
 	onChange func()
+	// onRecord enriches a newly recorded timeline entry with scene/file snapshots and editor context.
+	onRecord func(cmd Command, rec *historyRecord)
+	// onClear runs when Clear empties the stack.
+	onClear func()
+	// clock returns the timestamp for newly recorded entries; defaults to time.Now when nil.
+	clock func() time.Time
 	// group collects the commands executed while Group runs, or is nil outside one.
-	group      *groupCmd
-	milestones []CommitMilestone
+	group       *groupCmd
+	records     []historyRecord
+	nextEntryID uint64
+	milestones  []CommitMilestone
+}
+
+// SetClock sets the time source used to timestamp newly recorded history entries. Passing nil restores time.Now.
+func (h *History) SetClock(fn func() time.Time) {
+	if h == nil {
+		return
+	}
+	h.clock = fn
+}
+
+func (h *History) now() time.Time {
+	if h != nil && h.clock != nil {
+		return h.clock()
+	}
+	return time.Now()
+}
+
+// Entries returns a copy of all recorded timeline entries, newest first.
+func (h *History) Entries() []HistoryEntry {
+	return h.FilteredEntries(HistoryFilterAll)
+}
+
+// FilteredEntries returns a copy of recorded timeline entries matching filter, newest first.
+func (h *History) FilteredEntries(filter HistoryFilter) []HistoryEntry {
+	if h == nil || len(h.records) == 0 {
+		return nil
+	}
+	out := make([]HistoryEntry, 0, len(h.records))
+	for i := len(h.records) - 1; i >= 0; i-- {
+		e := h.records[i].entry
+		switch filter {
+		case HistoryFilterYou:
+			if e.Kind != HistoryEntryEdit || e.Author != HistoryAuthorYou {
+				continue
+			}
+		case HistoryFilterAgent:
+			if e.Kind != HistoryEntryEdit || e.Author != HistoryAuthorAgent {
+				continue
+			}
+		}
+		out = append(out, e.Clone())
+	}
+	return out
+}
+
+// Entry returns the timeline entry with ID id, or false when not found.
+func (h *History) Entry(id uint64) (HistoryEntry, bool) {
+	if h == nil || id == 0 {
+		return HistoryEntry{}, false
+	}
+	for i := range h.records {
+		if h.records[i].entry.ID == id {
+			return h.records[i].entry.Clone(), true
+		}
+	}
+	return HistoryEntry{}, false
+}
+
+func (h *History) recordIndexByID(id uint64) int {
+	if h == nil || id == 0 {
+		return -1
+	}
+	for i := range h.records {
+		if h.records[i].entry.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// RecordSaved appends a saved-point marker to the timeline without altering the undo/redo stack.
+func (h *History) RecordSaved(files []string, detail string, snap historySnapshot) HistoryEntry {
+	if h == nil {
+		return HistoryEntry{}
+	}
+	h.nextEntryID++
+	entry := HistoryEntry{
+		ID:        h.nextEntryID,
+		Kind:      HistoryEntrySaved,
+		Summary:   "Saved",
+		Detail:    detail,
+		Files:     slices.Clone(files),
+		Timestamp: h.now(),
+	}
+	h.records = append(h.records, historyRecord{
+		entry:    entry,
+		snapshot: snap.clone(),
+	})
+	return entry.Clone()
+}
+
+func (h *History) markSupersededAfterCursor() {
+	for i := range h.records {
+		r := &h.records[i]
+		if r.entry.Kind == HistoryEntryEdit && r.entry.CommandIndex > h.cursor {
+			r.entry.CommandIndex = 0
+			r.entry.Undone = true
+			r.superseded = true
+		}
+	}
+}
+
+func (h *History) syncUndoFlags() {
+	for i := range h.records {
+		r := &h.records[i]
+		if r.entry.Kind != HistoryEntryEdit {
+			continue
+		}
+		if r.superseded || r.entry.CommandIndex <= 0 {
+			r.entry.Undone = true
+			continue
+		}
+		r.entry.Undone = r.entry.CommandIndex > h.cursor
+	}
+}
+
+// truncateRecordsAfterCommand removes non-superseded timeline records whose CommandIndex > cursor
+// (used when collapsing intermediate review edits into one kept step).
+func (h *History) truncateRecordsAfterCommand(cursor int) {
+	if h == nil || len(h.records) == 0 {
+		return
+	}
+	kept := h.records[:0]
+	for _, r := range h.records {
+		if r.entry.Kind == HistoryEntryEdit && !r.superseded && r.entry.CommandIndex > cursor {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	clear(h.records[len(kept):])
+	h.records = kept
+}
+
+func (h *History) recordCommand(cmd Command, commandIndex int) {
+	h.nextEntryID++
+	entry := HistoryEntry{
+		ID:           h.nextEntryID,
+		Kind:         HistoryEntryEdit,
+		Author:       HistoryAuthorYou,
+		Summary:      strings.TrimSpace(cmd.Label()),
+		Timestamp:    h.now(),
+		CommandIndex: commandIndex,
+	}
+	rec := historyRecord{entry: entry}
+	if mc, ok := cmd.(historyMetaCommand); ok {
+		m := mc.historyMeta()
+		if m.Author != "" {
+			rec.entry.Author = m.Author
+		}
+		if m.Summary != "" {
+			rec.entry.Summary = m.Summary
+		}
+		if m.Detail != "" {
+			rec.entry.Detail = m.Detail
+		}
+		if len(m.Files) > 0 {
+			rec.entry.Files = slices.Clone(m.Files)
+		}
+		if m.ChangeCount > 0 {
+			rec.entry.ChangeCount = m.ChangeCount
+		}
+		if m.KeptCount > 0 {
+			rec.entry.KeptCount = m.KeptCount
+		}
+		if m.RestoredFromID > 0 {
+			rec.entry.RestoredFromID = m.RestoredFromID
+		}
+		rec.beforeFiles = cloneHistoryFileSnapshots(m.BeforeFiles)
+		rec.snapshot.files = cloneHistoryFileSnapshots(m.AfterFiles)
+	}
+	if h.onRecord != nil {
+		h.onRecord(cmd, &rec)
+	}
+	if rec.entry.Summary == "" {
+		rec.entry.Summary = "Edit"
+	}
+	h.records = append(h.records, rec)
+	h.syncUndoFlags()
 }
 
 // RecordMilestone records a Git commit milestone in history without altering the undo/redo command stack or rebuilding the scene.
@@ -84,11 +416,13 @@ func (h *History) execute(cmd Command) error {
 		return nil
 	}
 	if h.cursor < len(h.commands) {
+		h.markSupersededAfterCursor()
 		clear(h.commands[h.cursor:])
 		h.commands = h.commands[:h.cursor]
 	}
 	h.commands = append(h.commands, cmd)
 	h.cursor = len(h.commands)
+	h.recordCommand(cmd, h.cursor)
 	if h.onChange != nil {
 		h.onChange()
 	}
@@ -115,6 +449,7 @@ func (h *History) undo() (bool, error) {
 		cmd.Undo()
 	}
 	h.cursor--
+	h.syncUndoFlags()
 	if h.onChange != nil {
 		h.onChange()
 	}
@@ -141,6 +476,7 @@ func (h *History) redo() (bool, error) {
 		cmd.Do()
 	}
 	h.cursor++
+	h.syncUndoFlags()
 	if h.onChange != nil {
 		h.onChange()
 	}
@@ -157,16 +493,20 @@ func (h *History) CanRedo() bool {
 	return h != nil && h.cursor < len(h.commands)
 }
 
-// Clear empties the command stack.
+// Clear empties the command stack and timeline entries.
 func (h *History) Clear() {
 	if h == nil {
 		return
 	}
 	h.commands = nil
 	h.cursor = 0
+	h.records = nil
 	if h.group != nil {
 		// What the group did belongs to the document the clear left behind.
 		h.group.cmds = nil
+	}
+	if h.onClear != nil {
+		h.onClear()
 	}
 	if h.onChange != nil {
 		h.onChange()
@@ -247,11 +587,13 @@ func (h *History) Group(label string, fn func() error) error {
 		return nil
 	}
 	if h.cursor < len(h.commands) {
+		h.markSupersededAfterCursor()
 		clear(h.commands[h.cursor:])
 		h.commands = h.commands[:h.cursor]
 	}
 	h.commands = append(h.commands, g)
 	h.cursor = len(h.commands)
+	h.recordCommand(g, h.cursor)
 	if h.onChange != nil {
 		h.onChange()
 	}
@@ -368,11 +710,13 @@ func (h *History) commitPreview(label string, cmds []Command) bool {
 		return true
 	}
 	if h.cursor < len(h.commands) {
+		h.markSupersededAfterCursor()
 		clear(h.commands[h.cursor:])
 		h.commands = h.commands[:h.cursor]
 	}
 	h.commands = append(h.commands, cmd)
 	h.cursor = len(h.commands)
+	h.recordCommand(cmd, h.cursor)
 	if h.onChange != nil {
 		h.onChange()
 	}

@@ -2056,6 +2056,7 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 		clear(e.History.commands[historyStart:])
 		e.History.commands = e.History.commands[:historyStart]
 		e.History.cursor = historyStart
+		e.History.truncateRecordsAfterCommand(historyStart)
 
 		// Restore grid to base first so Do/Undo transitions cleanly from base <-> final.
 		var toBase []tileChange
@@ -2082,6 +2083,18 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 		}
 
 		label := fmt.Sprintf("Keep %d of %d tile regions (%d cells) on %s", kept, total, len(netChanges), layerName)
+		summary := "tile edits on " + layerName
+		if len(rev.steps) > 0 && rev.steps[len(rev.steps)-1].Summary != "" {
+			summary = rev.steps[len(rev.steps)-1].Summary
+		}
+		prevMeta := e.historyPanel.pendingMeta
+		e.historyPanel.pendingMeta = &HistoryMeta{
+			Author:      HistoryAuthorAgent,
+			Summary:     summary,
+			Detail:      formatAgentTurnDetail("", total, kept),
+			ChangeCount: total,
+			KeptCount:   kept,
+		}
 		e.History.Execute(&tileEditCmd{
 			ed:        e,
 			layerName: layerName,
@@ -2089,6 +2102,7 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 			label:     label,
 			changes:   netChanges,
 		})
+		e.historyPanel.pendingMeta = prevMeta
 		return AgentTileEditResult{
 			Layer:        layerName,
 			TileLayer:    tileLayer,

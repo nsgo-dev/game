@@ -85,6 +85,13 @@ func (e *Editor) nextTabID() uint64 {
 
 func (e *Editor) newTabHistory() *History {
 	h := NewHistory()
+	h.clock = e.historyPanel.clock
+	h.onRecord = func(cmd Command, rec *historyRecord) {
+		e.recordHistoryStep(cmd, rec)
+	}
+	h.onClear = func() {
+		e.onHistoryCleared()
+	}
 	h.onChange = func() {
 		e.afterMutate()
 	}
@@ -446,6 +453,7 @@ func (e *Editor) SelectTab(index int) error {
 		return nil
 	}
 	e.saveViewStateQuietly()
+	e.ExitHistoryPreview()
 	e.cancelTransientInteraction()
 	e.syncActiveTab()
 	e.activeTab = index

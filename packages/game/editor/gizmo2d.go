@@ -521,7 +521,7 @@ func (e *Editor) Dragging2D() GizmoHandle2D {
 
 // BeginDrag2D starts a drag in the 2D viewport at the canvas point (x, y), where the pointer went down, with the Select or Move tool: on a handle of the selected object's gizmo (PickGizmo2D) it takes that handle, and on another object it selects that object and moves it. A nested child is dragged in its parent's space, so it follows the pointer under a turned or scaled parent. It returns the handle taken, Handle2DNone when the press is on nothing, another drag is under way, the tool or view mode is another, the scene plays, or the object is hidden or locked in the editor or under one that is. The drag changes the object as UpdateDrag2D says and is recorded by EndDrag2D as one undoable step.
 func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
-	if e == nil || e.playing || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) || e.drag2D.handle != Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+	if e == nil || e.playing || e.HistoryPreviewActive() || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) || e.drag2D.handle != Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return Handle2DNone
 	}
 	h, idx := e.pickGizmo2DWithIndex(x, y)

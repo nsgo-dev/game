@@ -233,7 +233,7 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 // HandleCanvasPressWithModifiers dispatches a click/tap at canvas coordinates (x, y) with optional
 // Shift (add), Mod (toggle), and Alt/Option (in 3D, select the hit child's parent or instance root) modifiers.
 func (e *Editor) HandleCanvasPressWithModifiers(x, y float32, shift, mod, alt bool) {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	if e.ViewMode == ViewMode3D {
@@ -492,6 +492,10 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	}
 	e.drawPhysicsDebug2D(d, scene)
 	if e.playing {
+		return
+	}
+	if e.HistoryPreviewActive() {
+		e.drawCameraFrameOverlay(d)
 		return
 	}
 	e.drawLightingOverlays2D(d, scene)
@@ -1570,7 +1574,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() || ed.AskInPlaceOpen() {
+					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() || ed.AskInPlaceOpen() || ed.HistoryPreviewActive() {
 						return false
 					}
 					_, gmActive := ed.GridMapStrokeActive()
@@ -1998,6 +2002,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			playViewportOverlaysView(cx, ed, rev),
 			AskInPlaceComposerView(cx, ed, rev),
 			viewportTaskLegendOverlay(cx, ed, rev),
+			viewportHistoryPreviewBannerView(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

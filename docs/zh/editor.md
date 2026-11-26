@@ -1344,7 +1344,6 @@ func main() {
 - **视口与场景树编号叠加层**：运行中任务会在正在编辑的对象周围绘制实线紫色（`SpecPalette.Agent`）描边与编号胶囊（如 `1 placing the jump arc`），在等待持有的对象周围绘制 45% 不透明度的虚线描边、时钟图标与 `"2 waiting on slime_02"` 胶囊，并在视口左下角显示紧凑图例，在场景树行右侧显示 `"1 · editing"` / `"2 · holding"` 标记（`ObjectTaskBadge`、`SceneTaskOverlays`）。
 - **批量忽略与摘要徽章计数**：可在 **待审查** 分组中勾选多项任务（`ToggleTaskDismissSelection`）并一键批量忽略（`DismissSelectedTasks` / `DismissTasks`），绝不还原任何已保留的修改。`TaskSummary` 与 `TaskDockBadgeCount` 提供 `NeedsYou`、`Running`、`Blocked`、`ReadyToReview`、`Queued`、`Failed`、`MostUrgent` 及 `DockBadge = NeedsYou + ReadyToReview + Failed`（运行中与排队中绝不计入徽章），供状态栏（`No tasks`、`1 running · 0:38`、按紧急程度排序的混合计数与持久化的 `Failed`）及后续系统通知/程序坞徽章（#1023）直接复用。
 - **配套 MCP 工具（`editormcp`）**：提供 `tasks_list`（查询任务、对象持有锁与摘要计数）、`tasks_submit`（排队或并行提交任务）与 `tasks_control`（执行 `keep`、`revert`、`dismiss`、`stop`、`retry`、`open`、`focus`、`allow`、`deny`）。
-
 ## 游戏简报与项目规则（#1026）
 
 设置界面（`EditorSettingsDialogView`，对应 `docs/design/editor/Settings.dc.html` 并严格使用 `Spec.dc.html` 设计令牌）在 **智能体（AGENT）** 分组下新增两个智能体每次请求前都会读取的共享项目页面：
@@ -1353,3 +1352,14 @@ func main() {
 - **项目规则（`AGENTS.md`，`OpenRulesSettings`）**：在等宽代码输入框中以纯 Markdown 编辑项目根目录的 `AGENTS.md`（Claude Code、Codex 与内置智能体共同读取的同一份文件），所有编辑均为可撤销步骤（`SetProjectRules`），并在侧栏显示规则条数（`ProjectRulesCount`）。根据近期审查中被反复撤销的模式（`RecordReviewOutcome` / `SuggestedProjectRules`）生成规则建议（例如 `"Suggested from your last 30 reviews: you reverted every change that moved the camera bounds."`）；点击 **添加为规则（Add as a rule）**（`ProposeSuggestedRule`）会以可审查差异卡片（**保留** / **撤销**）呈现，在确认保留前不会改写磁盘上的 `AGENTS.md`。
 - **智能体编辑走审查流**：智能体通过 `editormcp` 的 `brief_edit` 与 `rules_edit` 提出的修改会排队为待审阅的 `DocReview` 卡片（`ProposeBriefReview` / `ProposeProjectRulesReview`、`KeepDocReview` / `RevertDocReview`），确认保留前绝不改写磁盘；保留后会作为单个可撤销步骤记入 `Editor.History`。
 - **本页智能体卡片与设置搜索栏**：两个智能体页面右侧均显示 **本页智能体（Agent on this page）** 卡片，包含上下文提示、可点击的建议提问与内联输入框；点击建议提问或在顶部设置搜索栏提交需求会调用 `AskAgentFromSettings`，将带当前页面上下文的请求写入 `ComposerDraft` 并触发 `Editor.OnSettingsAgentRequest`（及 `Editor.OnComposerPrompt`）。
+
+## 历史面板：你的编辑与智能体回合共用一条时间线（#1017）
+
+历史面板（`HistoryPanelView`）仅使用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html` 与 `Checkpoints.dc.html`，将手动编辑、保留的智能体回合、外部 Git 重载以及保存点统一呈现于同一条时间线上：
+
+- **丰富的历史条目（`History.Entries`、`Editor.HistoryEntries`）**：每条 `HistoryEntry` 记录操作来源（`HistoryAuthorYou`、`HistoryAuthorAgent` 或 `HistoryAuthorGit`）、摘要与详情（例如 `You · moved Knight` / `x 416 → 452`，或 `Agent · slimes and coins` / `6 changes · kept 5`）、涉及的文件列表、变更与保留计数以及由可注入时钟（`Editor.SetHistoryClock` / `History.SetClock`）提供的时间戳，便于确定性测试。保存操作会写入一条带快照的 `HistoryEntrySaved` 标记（`Saved · level_01.scene.yaml`）。
+- **统一的多文件智能体回合（`Editor.RecordAgentTurn`）**：将场景、项目与额外改动的项目文件打包为单个可撤销的 `HistoryAuthorAgent` 步骤；同时 `editormcp` 工具调用（`EnterAgentContext` / `LeaveAgentContext`）、`KeepTileReview` 与 `KeepCutsceneReview` 都会自动归属为智能体条目。
+- **打开与筛选**：按 `⌘Y`（Windows/Linux 为 `Ctrl+Y`，`CmdHistoryPanel`）、选择 **视图 > 历史**，或点击工具栏的历史图标按钮（提示 `"History · ⌘Y"`）即可打开。条目按最新优先并按日期分组（`TODAY`、`YESTERDAY` 或日期）展示在顶部 **Now**（有未保存改动时标记 `unsaved`）之下，并提供 **All** / **You** / **Agent** 筛选标签（`Editor.SetHistoryFilter`）。
+- **只读时间点预览（`PreviewHistoryEntry`、`ExitHistoryPreview`）**：点击任意历史条目会在 2D/3D 视口中只读预览该时刻的场景快照，并显示 `"Previewing <相对时间> · editing is off"` 横幅，不修改当前打开的 `Editor.Doc`，也不移动 `History` 撤销游标。按 `Esc`、**Back** 或 **Now** 即可退出预览并返回实时编辑。
+- **非破坏性恢复（`RestoreHistoryEntry`）**：点击 **Restore** 会将当前场景、项目以及期间改动的全部额外文件作为**一个新的可撤销步骤**回滚到该时间点；后续历史步骤全部保留且仍可预览或恢复，执行一次 `Undo` 即可立即回到恢复前的最新状态。
+- **智能体读取接口（`editormcp`）**：只读工具 `history_list`（`ActionRead`）向已连接的智能体暴露同一份按最新优先排列的历史列表，支持 `author`（`all`、`you`、`agent`）与 `limit` 筛选以及未保存和当前预览状态。

@@ -906,6 +906,8 @@ type Editor struct {
 	tasks agentTasksState
 	// agentDocs holds the open project's brief.yaml, AGENTS.md, pending document reviews, review outcomes, and last Settings agent request.
 	agentDocs agentDocsState
+	// historyPanel holds the unified History timeline panel, point-in-time read-only preview, and agent-turn recording state.
+	historyPanel historyPanelState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1169,10 +1171,13 @@ func (e *Editor) Rebuild() {
 	e.recomputeNavPath2D()
 }
 
-// ActiveScene returns the live play scene when playing, the scene posed by the open state machine or animation clip when previewing, or the edit BuiltScene otherwise.
+// ActiveScene returns the live play scene when playing, the read-only history preview scene when previewing a timeline step, the scene posed by the open state machine or animation clip when previewing, or the edit BuiltScene otherwise.
 func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
 	if e.playing && e.playScene != nil {
 		return e.playScene
+	}
+	if e.historyPanel.preview != nil && e.historyPanel.preview.scene != nil {
+		return e.historyPanel.preview.scene
 	}
 	if e.cutscene.scene != nil {
 		return e.cutscene.scene
@@ -1637,6 +1642,7 @@ func (e *Editor) SaveFile(path string) error {
 	e.recordSceneDiskSnapshot(path, data)
 	e.syncScenePath()
 	e.syncActiveTab()
+	e.noteSavedHistoryFile(path)
 	e.saveViewStateQuietly()
 	e.filesRev++
 	e.snapshotProjectTree()
@@ -2788,6 +2794,39 @@ func (c *deleteObjectCmd) Undo() {
 	c.ed.setSelectionQuiet(c.prevSelectedIDs, c.prevSelected)
 }
 
+func historyObjectDisplayName(ed *Editor, id string) string {
+	if ed != nil && id != "" {
+		if obj, _, _ := ed.FindObject(id); obj != nil && obj.Name != "" {
+			return obj.Name
+		}
+	}
+	return id
+}
+
+func (c *placeObjectCmd) historyMeta() HistoryMeta {
+	name := c.obj.Name
+	if name == "" {
+		name = c.obj.ID
+	}
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "added " + name,
+		Detail:  fmt.Sprintf("on %s (%g, %g)", c.layerName, c.obj.X, c.obj.Y),
+	}
+}
+
+func (c *deleteObjectCmd) historyMeta() HistoryMeta {
+	name := c.obj.Name
+	if name == "" {
+		name = c.obj.ID
+	}
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "removed " + name,
+		Detail:  "from " + c.layerName,
+	}
+}
+
 type moveObjectCmd struct {
 	ed         *Editor
 	id         string
@@ -2796,6 +2835,24 @@ type moveObjectCmd struct {
 }
 
 func (c *moveObjectCmd) Label() string { return "Move " + c.id }
+
+func (c *moveObjectCmd) historyMeta() HistoryMeta {
+	name := historyObjectDisplayName(c.ed, c.id)
+	var detail string
+	switch {
+	case c.oldX != c.newX && c.oldY == c.newY:
+		detail = fmt.Sprintf("x %g → %g", c.oldX, c.newX)
+	case c.oldX == c.newX && c.oldY != c.newY:
+		detail = fmt.Sprintf("y %g → %g", c.oldY, c.newY)
+	default:
+		detail = fmt.Sprintf("x %g → %g, y %g → %g", c.oldX, c.newX, c.oldY, c.newY)
+	}
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "moved " + name,
+		Detail:  detail,
+	}
+}
 
 func (c *moveObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
@@ -2820,6 +2877,15 @@ type rotateObjectCmd struct {
 
 func (c *rotateObjectCmd) Label() string { return "Rotate " + c.id }
 
+func (c *rotateObjectCmd) historyMeta() HistoryMeta {
+	name := historyObjectDisplayName(c.ed, c.id)
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "rotated " + name,
+		Detail:  fmt.Sprintf("rotation %g → %g", c.oldRot, c.newRot),
+	}
+}
+
 func (c *rotateObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
 		obj.Rotation = c.newRot
@@ -2840,6 +2906,21 @@ type scaleObjectCmd struct {
 }
 
 func (c *scaleObjectCmd) Label() string { return "Scale " + c.id }
+
+func (c *scaleObjectCmd) historyMeta() HistoryMeta {
+	name := historyObjectDisplayName(c.ed, c.id)
+	val := func(p *float32) float32 {
+		if p == nil {
+			return 1
+		}
+		return *p
+	}
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "scaled " + name,
+		Detail:  fmt.Sprintf("scale %g×%g → %g×%g", val(c.oldScaleX), val(c.oldScaleY), val(c.newScaleX), val(c.newScaleY)),
+	}
+}
 
 func (c *scaleObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
@@ -2864,6 +2945,21 @@ type alphaObjectCmd struct {
 
 func (c *alphaObjectCmd) Label() string { return "Set alpha " + c.id }
 
+func (c *alphaObjectCmd) historyMeta() HistoryMeta {
+	name := historyObjectDisplayName(c.ed, c.id)
+	val := func(p *float32) float32 {
+		if p == nil {
+			return 1
+		}
+		return *p
+	}
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "changed alpha of " + name,
+		Detail:  fmt.Sprintf("alpha %g → %g", val(c.oldAlpha), val(c.newAlpha)),
+	}
+}
+
 func (c *alphaObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
 		obj.Alpha = cloneFloat32Ptr(c.newAlpha)
@@ -2885,6 +2981,15 @@ type zObjectCmd struct {
 
 func (c *zObjectCmd) Label() string { return "Set Z " + c.id }
 
+func (c *zObjectCmd) historyMeta() HistoryMeta {
+	name := historyObjectDisplayName(c.ed, c.id)
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "changed z of " + name,
+		Detail:  fmt.Sprintf("z %d → %d", c.oldZ, c.newZ),
+	}
+}
+
 func (c *zObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
 		obj.Z = c.newZ
@@ -2905,6 +3010,22 @@ type nameObjectCmd struct {
 }
 
 func (c *nameObjectCmd) Label() string { return "Rename " + c.id }
+
+func (c *nameObjectCmd) historyMeta() HistoryMeta {
+	oldLabel := c.oldName
+	if oldLabel == "" {
+		oldLabel = c.id
+	}
+	newLabel := c.newName
+	if newLabel == "" {
+		newLabel = c.id
+	}
+	return HistoryMeta{
+		Author:  HistoryAuthorYou,
+		Summary: "renamed " + c.id,
+		Detail:  fmt.Sprintf("%s → %s", oldLabel, newLabel),
+	}
+}
 
 func (c *nameObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {

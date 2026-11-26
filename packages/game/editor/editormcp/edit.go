@@ -164,7 +164,16 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if label == "" {
 			label = editLabel(args.Edits)
 		}
-		return ed.History.Group(label, func() error {
+		title := strings.TrimSpace(strings.TrimPrefix(label, "Agent:"))
+		if title == "" {
+			title = label
+		}
+		return ed.RecordAgentTurn(editor.AgentTurnOptions{
+			Title:       title,
+			UndoLabel:   label,
+			ChangeCount: len(args.Edits),
+			KeptCount:   len(args.Edits),
+		}, func() error {
 			for i, e := range args.Edits {
 				id, err := applyEdit(ed, e)
 				if err != nil {

@@ -343,6 +343,7 @@ func (e *Editor) SaveProject() error {
 	e.projectSavedOnce = true
 	e.recordProjectDiskSnapshot(e.ProjectPath, data)
 	e.refreshAppleTeamIDCache()
+	e.noteSavedHistoryFile(project.FileName)
 	e.invalidateProjectIndex()
 	e.recordSaveSucceededFor(0, true)
 	e.Status = "Saved project " + e.ProjectPath
