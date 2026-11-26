@@ -28,14 +28,23 @@ type TaskReport struct {
 	DurationMS  int64             `json:"duration_ms"`
 	Criteria    []CriterionResult `json:"criteria"`
 	AgentOutput string            `json:"agent_output,omitempty"`
-	// AgentTimedOut reports that the agent command hit its own timeout; grading still ran on what it left.
-	AgentTimedOut bool `json:"agent_timed_out,omitempty"`
+	// AgentTimedOut reports that the agent hit its own timeout; grading still ran on what it left.
+	AgentTimedOut         bool   `json:"agent_timed_out,omitempty"`
+	AgentError            string `json:"agent_error,omitempty"`
+	AgentTurns            int    `json:"agent_turns,omitempty"`
+	AgentToolCalls        int    `json:"agent_tool_calls,omitempty"`
+	AgentPromptTokens     int    `json:"agent_prompt_tokens,omitempty"`
+	AgentCompletionTokens int    `json:"agent_completion_tokens,omitempty"`
 }
 
 // SuiteReport aggregates scores across every evaluated task.
 type SuiteReport struct {
 	Version      int          `json:"version"`
 	Mode         string       `json:"mode"`
+	Provider     string       `json:"provider,omitempty"`
+	Model        string       `json:"model,omitempty"`
+	Skipped      bool         `json:"skipped,omitempty"`
+	SkipReason   string       `json:"skip_reason,omitempty"`
 	PassedTasks  int          `json:"passed_tasks"`
 	TotalTasks   int          `json:"total_tasks"`
 	AverageScore float64      `json:"average_score"`
@@ -67,16 +76,66 @@ func BuildSuiteReport(mode string, tasks []TaskReport) SuiteReport {
 	return report
 }
 
-// RenderMarkdown formats r as a GitHub-Flavored Markdown summary table suitable for stdout or $GITHUB_STEP_SUMMARY.
+// BuildSkippedSuiteReport constructs a passing skipped report used when live agent evaluation is not configured.
+func BuildSkippedSuiteReport(mode, reason string) SuiteReport {
+	return SuiteReport{
+		Version:    CurrentTaskVersion,
+		Mode:       mode,
+		Skipped:    true,
+		SkipReason: strings.TrimSpace(reason),
+		Passed:     true,
+		Tasks:      []TaskReport{},
+	}
+}
+
+// RenderMarkdown formats r as a GitHub-Flavored Markdown summary table suitable for stdout, files, or $GITHUB_STEP_SUMMARY.
 func (r SuiteReport) RenderMarkdown() string {
 	var b strings.Builder
-	b.WriteString("## Agent Evaluation Suite\n\n")
+	if r.Mode != "" {
+		fmt.Fprintf(&b, "## Agent Evaluation Suite (%s)\n\n", r.Mode)
+	} else {
+		b.WriteString("## Agent Evaluation Suite\n\n")
+	}
 	fmt.Fprintf(&b, "- **Mode**: `%s`\n", r.Mode)
-	fmt.Fprintf(&b, "- **Tasks passed**: %d / %d\n", r.PassedTasks, r.TotalTasks)
-	fmt.Fprintf(&b, "- **Average score**: %.1f / 100\n\n", r.AverageScore)
+	if r.Provider != "" {
+		fmt.Fprintf(&b, "- **Provider**: `%s`\n", r.Provider)
+	}
+	if r.Model != "" {
+		fmt.Fprintf(&b, "- **Model**: `%s`\n", r.Model)
+	}
+	if r.Skipped {
+		b.WriteString("- **Status**: SKIPPED\n")
+		if r.SkipReason != "" {
+			fmt.Fprintf(&b, "- **Reason**: %s\n", strings.TrimSpace(r.SkipReason))
+		}
+		return b.String()
+	}
 
-	b.WriteString("| Task | Score | Threshold | Criteria | Status | Duration |\n")
-	b.WriteString("| --- | ---: | ---: | ---: | --- | ---: |\n")
+	fmt.Fprintf(&b, "- **Tasks passed**: %d / %d\n", r.PassedTasks, r.TotalTasks)
+	fmt.Fprintf(&b, "- **Average score**: %.1f / 100\n", r.AverageScore)
+
+	showAgentStats := r.Mode == ModeAgent
+	var totalPrompt, totalCompletion int
+	for _, t := range r.Tasks {
+		if t.AgentTurns > 0 || t.AgentToolCalls > 0 {
+			showAgentStats = true
+		}
+		totalPrompt += t.AgentPromptTokens
+		totalCompletion += t.AgentCompletionTokens
+	}
+	if totalPrompt > 0 || totalCompletion > 0 {
+		fmt.Fprintf(&b, "- **Tokens**: %d prompt / %d completion\n", totalPrompt, totalCompletion)
+	}
+	b.WriteString("\n")
+
+	if showAgentStats {
+		b.WriteString("| Task | Score | Threshold | Criteria | Agent | Status | Duration |\n")
+		b.WriteString("| --- | ---: | ---: | ---: | --- | --- | ---: |\n")
+	} else {
+		b.WriteString("| Task | Score | Threshold | Criteria | Status | Duration |\n")
+		b.WriteString("| --- | ---: | ---: | ---: | --- | ---: |\n")
+	}
+
 	for _, t := range r.Tasks {
 		passedCriteria := 0
 		for _, c := range t.Criteria {
@@ -90,14 +149,25 @@ func (r SuiteReport) RenderMarkdown() string {
 		}
 		if t.AgentTimedOut {
 			status += " (agent timed out)"
+		} else if t.AgentError != "" {
+			status += " (agent error)"
 		}
-		fmt.Fprintf(&b, "| `%s` (%s) | %d/%d | %d | %d/%d | %s | %dms |\n",
-			t.ID, mdCell(t.Title), t.Score, t.MaxScore, t.MinScore, passedCriteria, len(t.Criteria), status, t.DurationMS)
+		if showAgentStats {
+			agentStats := fmt.Sprintf("%d turns, %d tools", t.AgentTurns, t.AgentToolCalls)
+			fmt.Fprintf(&b, "| `%s` (%s) | %d/%d | %d | %d/%d | %s | %s | %dms |\n",
+				t.ID, mdCell(t.Title), t.Score, t.MaxScore, t.MinScore, passedCriteria, len(t.Criteria), agentStats, status, t.DurationMS)
+		} else {
+			fmt.Fprintf(&b, "| `%s` (%s) | %d/%d | %d | %d/%d | %s | %dms |\n",
+				t.ID, mdCell(t.Title), t.Score, t.MaxScore, t.MinScore, passedCriteria, len(t.Criteria), status, t.DurationMS)
+		}
 	}
 
 	b.WriteString("\n### Criterion Breakdown\n")
 	for _, t := range r.Tasks {
 		fmt.Fprintf(&b, "\n#### `%s` — %d/%d\n\n", t.ID, t.Score, t.MaxScore)
+		if t.AgentError != "" {
+			fmt.Fprintf(&b, "> Agent error: %s\n\n", mdCell(t.AgentError))
+		}
 		b.WriteString("| Criterion | Points | Status | Detail |\n")
 		b.WriteString("| --- | ---: | --- | --- |\n")
 		for _, c := range t.Criteria {
@@ -128,6 +198,17 @@ func (r SuiteReport) WriteJSON(path string) error {
 	data = append(data, '\n')
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("write JSON report %s: %w", path, err)
+	}
+	return nil
+}
+
+// WriteMarkdown writes r.RenderMarkdown() to path, replacing any existing file.
+func (r SuiteReport) WriteMarkdown(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create markdown report directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(r.RenderMarkdown()), 0o644); err != nil {
+		return fmt.Errorf("write markdown report %s: %w", path, err)
 	}
 	return nil
 }

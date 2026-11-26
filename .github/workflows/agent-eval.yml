@@ -1,11 +1,23 @@
 name: Agent Eval
 
-# Grades the agent evaluation suite's reference solutions on a daily schedule (and on demand or when the suite changes) to catch regressions in the game APIs, YAML formats, project checks and MCP tools they use, reporting a score per task. It does not run a coding agent; that is tools/agenteval -mode=command, run by hand.
+# Runs the agent evaluation suite on a daily schedule (and on demand or when the suite or skill changes):
+# - `eval` runs unit/integration tests and grades the hand-written reference solutions deterministically (zero secrets).
+# - `eval-agent` runs a live coding agent (`-mode=command` via AGENT_EVAL_COMMAND or `-mode=agent` via ANTHROPIC_API_KEY / OPENAI_API_KEY / AGENT_EVAL_API_KEY) on schedule and manual dispatch, reporting per-task scores to $GITHUB_STEP_SUMMARY and uploading JSON + Markdown artifacts. When no credentials are configured in auto/scheduled mode, it writes a skipped summary cleanly instead of failing.
 on:
   schedule:
     - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Evaluation mode: auto (reference + live agent if configured), reference, agent, or command"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - reference
+          - agent
+          - command
       task:
         description: "Optional comma-separated task IDs to run (leave empty for all tasks)"
         required: false
@@ -16,15 +28,22 @@ on:
         required: false
         default: ""
         type: string
+      agent_model:
+        description: "Optional model override for live agent mode (defaults to AGENT_EVAL_MODEL variable or provider default)"
+        required: false
+        default: ""
+        type: string
   push:
     branches:
       - main
     paths:
       - "tools/agenteval/**"
+      - "skills/nsgo-game/**"
       - ".github/workflows/agent-eval.yml"
   pull_request:
     paths:
       - "tools/agenteval/**"
+      - "skills/nsgo-game/**"
       - ".github/workflows/agent-eval.yml"
 
 concurrency:
@@ -36,7 +55,8 @@ permissions:
 
 jobs:
   eval:
-    name: Agent evaluation suite
+    name: Agent evaluation suite (reference)
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == '' || inputs.mode == 'auto' || inputs.mode == 'reference'
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
@@ -55,13 +75,17 @@ jobs:
       - name: Test the agent evaluation suite
         working-directory: tools/agenteval
         run: go tool nsgo test ./...
-      - name: Run agent evaluation suite and report scores
+      - name: Run reference evaluation suite and report scores
         env:
           EVAL_TASK: ${{ inputs.task }}
           EVAL_MIN_SCORE: ${{ inputs.min_score }}
         run: |
           set -euo pipefail
-          args=(-mode=reference -out agent-eval-report.json)
+          args=(
+            -mode=reference
+            -out agent-eval-reference-report.json
+            -markdown-out agent-eval-reference-summary.md
+          )
           if [ -n "$EVAL_TASK" ]; then
             args+=("-task=$EVAL_TASK")
           fi
@@ -69,10 +93,78 @@ jobs:
             args+=("-min-score=$EVAL_MIN_SCORE")
           fi
           go run ./tools/agenteval "${args[@]}"
-      - name: Upload evaluation report
+      - name: Upload reference evaluation report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: agent-eval-report
-          path: agent-eval-report.json
+          name: agent-eval-reference-report
+          path: |
+            agent-eval-reference-report.json
+            agent-eval-reference-summary.md
+          if-no-files-found: warn
+
+  eval-agent:
+    name: Agent evaluation suite (coding agent)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'reference')
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: |
+            packages/game/go.sum
+            tools/agenteval/go.sum
+      - name: Run coding agent evaluation suite and report scores
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AGENT_EVAL_API_KEY: ${{ secrets.AGENT_EVAL_API_KEY }}
+          AGENT_EVAL_COMMAND: ${{ secrets.AGENT_EVAL_COMMAND || vars.AGENT_EVAL_COMMAND }}
+          AGENT_EVAL_PROVIDER: ${{ vars.AGENT_EVAL_PROVIDER }}
+          AGENT_EVAL_MODEL: ${{ inputs.agent_model || vars.AGENT_EVAL_MODEL }}
+          AGENT_EVAL_BASE_URL: ${{ vars.AGENT_EVAL_BASE_URL }}
+          AGENT_EVAL_MAX_TURNS: ${{ vars.AGENT_EVAL_MAX_TURNS }}
+          EVAL_MODE: ${{ inputs.mode || 'auto' }}
+          EVAL_TASK: ${{ inputs.task }}
+          EVAL_MIN_SCORE: ${{ inputs.min_score || vars.AGENT_EVAL_MIN_SCORE }}
+        run: |
+          set -euo pipefail
+          mode="$EVAL_MODE"
+          if [ "$mode" = "auto" ]; then
+            if [ -n "${AGENT_EVAL_COMMAND:-}" ]; then
+              mode="command"
+            else
+              mode="agent"
+            fi
+          fi
+          args=(
+            "-mode=$mode"
+            -out agent-eval-agent-report.json
+            -markdown-out agent-eval-agent-summary.md
+          )
+          if [ "$EVAL_MODE" = "auto" ]; then
+            args+=(-skip-if-unconfigured)
+          fi
+          if [ -n "$EVAL_TASK" ]; then
+            args+=("-task=$EVAL_TASK")
+          fi
+          if [ -n "$EVAL_MIN_SCORE" ]; then
+            args+=("-min-score=$EVAL_MIN_SCORE")
+          fi
+          go run ./tools/agenteval "${args[@]}"
+      - name: Upload coding agent evaluation report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-eval-agent-report
+          path: |
+            agent-eval-agent-report.json
+            agent-eval-agent-summary.md
           if-no-files-found: warn
