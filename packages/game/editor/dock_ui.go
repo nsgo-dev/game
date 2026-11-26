@@ -78,6 +78,9 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							PanelViewport: {NoClose: true},
 						},
 						HandleLabel: "Resize panel",
+						HandleStyleFunc: func() core.Style {
+							return core.Style{Background: ed.SpecPalette(cx).Line}
+						},
 						Style: core.Style{
 							FlexGrow:  1,
 							FlexBasis: core.Pt(0),
