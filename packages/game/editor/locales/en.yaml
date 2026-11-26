@@ -352,6 +352,60 @@ strings:
   cmd.view3d.label: Switch to 3D View
   cmd.view3dOrtho.desc: Switch the 3D viewport between perspective and orthographic projection
   cmd.view3dOrtho.label: '3D View: Orthographic'
+  composer.addSuggested: Add {name} to the request
+  composer.always: Always
+  composer.alwaysTooltip: Read with every request
+  composer.attachedSceneStatus: Attached whole scene to agent composer
+  composer.compactCaption: Compact folds the {count} earlier requests into a summary and keeps the last one whole. Start fresh opens a new thread seeded with that summary.
+  composer.compactNow: compact now
+  composer.compactThread: Compact thread
+  composer.compactedStatus: Compacted earlier requests into a summary
+  composer.contextRingLabel: Context {pct}% used. Show breakdown
+  composer.contextRingTip: Context · {pct}% used
+  composer.contextTokensOf: '{used} of {limit}'
+  composer.contextUsedTitle: Context · {pct}% used
+  composer.earlierRequests: '{count} EARLIER REQUESTS'
+  composer.emptyContextHint: 'The agent reads these with every request:'
+  composer.group.all: All
+  composer.group.assets: Assets
+  composer.group.files: Files
+  composer.group.history: History
+  composer.group.objects: Objects
+  composer.group.playtests: Playtests
+  composer.group.prefabs: Prefabs
+  composer.group.problems: Problems
+  composer.group.rules: Rules
+  composer.hintAdd: add
+  composer.hintClose: close
+  composer.hintMove: move
+  composer.hintNextGroup: next group
+  composer.inputLabel: Ask the agent
+  composer.matchCount: '{count} matches'
+  composer.matchCountOne: 1 match
+  composer.mentionLabel: Mention a file, object or asset
+  composer.mentionPickerLabel: Mention
+  composer.mentionTip: Mention · @
+  composer.newThread: New thread
+  composer.noMatches: No matches
+  composer.placeholder: Describe a change · @ to mention
+  composer.removeChip: Remove {name} from the request
+  composer.section.assets: ASSETS
+  composer.section.files: FILES
+  composer.section.history: HISTORY STEPS
+  composer.section.objects: OBJECTS
+  composer.section.playtests: PLAYTEST RUNS
+  composer.section.prefabs: PREFABS
+  composer.section.problems: PROBLEMS
+  composer.section.rules: RULES
+  composer.selected: selected
+  composer.send: Send
+  composer.sentStatus: Sent request to agent
+  composer.startFresh: Start fresh with summary
+  composer.startedFreshStatus: Started fresh thread with summary
+  composer.summaryHeading: THREAD SUMMARY
+  composer.viewportImage: Viewport image
+  composer.viewportImageToggle: Include viewport image in the request
+  composer.wholeScene: whole scene
   contextMenu.askAgent: Ask the agent about this
   contextMenu.back: Back
   contextMenu.copiedYAML: Copied {name} as YAML · {lines} lines

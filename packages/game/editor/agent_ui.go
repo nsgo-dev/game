@@ -919,9 +919,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 // AgentPanelView renders the Agent tab panel: 44 pt header with tabs and status chip,
 // scene-grouped thread header and switcher popover, scrollable thread of persisted requests /
-// live user turns / streamed steps / open requests or empty-thread orientation, and the labelled multiline composer.
+// live user turns / streamed steps / open requests or empty-thread orientation, and AgentComposerView
+// (@-mentions, context chips, hover preview, and context meter).
 func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	composerFocused := core.NewSignal(cx, false)
 	openReqRef := new(core.Ref)
 	panelRef := new(core.Ref)
 	switcherBtnRef := new(core.Ref)
@@ -943,26 +943,19 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		}
 	})
 
-	// Shift+Enter inserts a newline while the composer is focused; plain Enter submits via SubmitBehaviorSubmit.
-	cx.OnKeyWith("shift+enter", core.KeyOptions{When: core.KeyAlways}, func() {
-		if composerFocused.Get() {
-			ed.InsertAgentComposerNewline()
-		}
-	})
 	// Esc cancels "Let me point" viewport picking, or stops an active agent run when not editing text or in a modal.
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.CommandPaletteOpen() || ed.ConnectDialogOpen() || ed.SettingsOpen() || ed.AskInPlaceOpen() || ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() {
+		if ed.CommandPaletteOpen() || ed.ConnectDialogOpen() || ed.SettingsOpen() || ed.AskInPlaceOpen() || ed.PermissionsDraftOpen() || ed.HistoryPreviewActive() || ed.AgentSwitcherOpen() || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() {
 			return
 		}
 		if ed.AgentPointingActive() {
 			ed.CancelAgentPointing()
 			return
 		}
-		if ed.AgentWorking() && !composerFocused.Get() && !ed.IsTyping() {
+		if ed.AgentWorking() && !ed.IsTyping() {
 			ed.StopAgentRun()
 		}
 	})
-
 	focusSeqMemo := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
 		return ed.agent.focusRequestSeq
@@ -976,7 +969,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|",
+		fmt.Fprintf(&b, "%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%s|",
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
 			ed.AgentTurnSeq(),
@@ -992,6 +985,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.agentThreads.rev,
 			ed.agentThreads.activeThreadID,
 			ed.agentThreads.expandedRequestID,
+			len(ed.agentComposer.turns),
+			len(ed.AgentThreadSummary()),
+			ed.AgentThreadID(),
 		)
 		for _, t := range ed.agent.turns {
 			fmt.Fprintf(&b, "%s:%s:%d:%d:%v:%v:%v:%s:%s:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
@@ -1043,6 +1039,8 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		bodyArea := core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = threadKey.Get()
 			turns := ed.AgentTurns()
+			composerTurns := ed.AgentThreadTurns()
+			summary := ed.AgentThreadSummary()
 			openReq := ed.AgentOpenRequest()
 			hasReviewCard := ed.HasAgentPanelCard()
 			dtPending := ed.DataTableReviewPending()
@@ -1063,7 +1061,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				return agentThreadConversationBody(cx, ed, rev, p, active, turns, openReq, openReqRef)
 			}
 			ready := ed.ReadyToReviewTurns()
-			if len(turns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
+			if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
 				var items []core.Node
 				if len(ready) > 0 {
 					items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
@@ -1074,8 +1072,14 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
 					}
 				}
+				if summary != "" {
+					items = append(items, agentComposerSummaryCard(ed, p, summary))
+				}
 				for ti, turn := range turns {
 					items = append(items, agentTurnView(ed, rev, ti, turn, p))
+				}
+				if len(composerTurns) > 0 {
+					items = append(items, agentComposerThreadNodes(ed, p, composerTurns)...)
 				}
 				if hasReviewCard {
 					items = append(items, agentReviewPanelCards(ed, p, turns)...)
@@ -1155,7 +1159,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						},
 					},
 				},
-				agentComposerView(cx, ed, rev, p, composerFocused),
+				AgentComposerView(cx, ed, rev),
 			},
 		}
 	})
@@ -2161,364 +2165,6 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p Sp
 				Style: core.Style{
 					FontSize: 12.5,
 					Color:    p.TextSecondary,
-				},
-			},
-		},
-	}
-}
-
-func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, composerFocused *core.Signal[bool]) core.Node {
-	refMemo := core.NewMemo(cx, func() agentComposerRefKey {
-		_ = rev.Get()
-		return buildAgentComposerRefKey(ed)
-	})
-
-	aboveComposer := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = refMemo.Get()
-		var nodes []core.Node
-		if pop := agentImagePreviewPopover(ed, p); pop != nil {
-			nodes = append(nodes, pop)
-		}
-		if pinCard := agentPinNoticeCardView(ed, p); pinCard != nil {
-			nodes = append(nodes, pinCard)
-		}
-		if errBanner := agentAttachErrorBannerView(ed, p); errBanner != nil {
-			nodes = append(nodes, errBanner)
-		}
-		if dropZone := agentComposerDropZoneView(ed, p); dropZone != nil {
-			nodes = append(nodes, dropZone)
-		}
-		if len(nodes) == 0 {
-			return nil
-		}
-		return core.View{
-			Style: core.Style{
-				Gap: 8,
-			},
-			Children: nodes,
-		}
-	})
-	offlineMemo := core.NewMemo(cx, func() bool {
-		_ = rev.Get()
-		return ed.AgentOffline()
-	})
-	contextChips := core.Dynamic(func(cx *core.Scope) core.Node {
-		ctxKey := refMemo.Get()
-		var rows []core.Node
-		var chips []core.Node
-		if ctxKey.sel != "" {
-			chips = append(chips, core.View{
-				TestID: "agent-context-selection",
-				Style: core.Style{
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Height:       core.Pt(22),
-					Padding:      core.Symmetric(0, 8),
-					Gap:          5,
-					CornerRadius: 6,
-					Background:   p.LineRaised,
-				},
-				Children: []core.Node{
-					core.View{
-						Style: core.Style{
-							Width:        core.Pt(6),
-							Height:       core.Pt(6),
-							CornerRadius: 2,
-							Background:   p.Changed.Fg,
-						},
-					},
-					core.Text{
-						Content: ctxKey.sel,
-						Style: core.Style{
-							FontSize: 11.5,
-							Color:    p.TextMuted,
-						},
-					},
-				},
-			})
-		}
-		if ctxKey.scene != "" {
-			chips = append(chips, core.View{
-				TestID: "agent-context-scene",
-				Style: core.Style{
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Height:       core.Pt(22),
-					Padding:      core.Symmetric(0, 8),
-					CornerRadius: 6,
-					Background:   p.LineRaised,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: ctxKey.scene,
-						Style: core.Style{
-							FontSize: 11.5,
-							Color:    p.TextMuted,
-						},
-					},
-				},
-			})
-		}
-		chips = append(chips, agentAttachedImageChipsView(ed, p)...)
-		if len(chips) > 0 {
-			rows = append(rows, core.View{
-				TestID: "agent-composer-chips",
-				Style: core.Style{
-					Direction:  core.Row,
-					Wrap:       core.Wrap,
-					AlignItems: core.AlignCenter,
-					Gap:        6,
-				},
-				Children: chips,
-			})
-		}
-		if alwaysRow := agentAlwaysBriefRowView(ed, p); alwaysRow != nil {
-			rows = append(rows, alwaysRow)
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-		return core.View{
-			Style: core.Style{
-				Gap: 6,
-			},
-			Children: rows,
-		}
-	})
-
-	return core.View{
-		TestID: "agent-composer",
-		OnFileDragEnter: func() {
-			ed.SetAgentComposerDragOver(true)
-		},
-		OnFileDragLeave: func() {
-			ed.SetAgentComposerDragOver(false)
-		},
-		OnFileDrop: func(uris []string) {
-			_, err := ed.DropAgentReferenceFiles(uris)
-			ed.report(err)
-		},
-		Style: core.Style{
-			Padding:     core.All(12),
-			Gap:         8,
-			Borders:     core.Edges{Top: 1},
-			BorderColor: p.Line,
-			Background:  p.Panel,
-			FlexShrink:  0,
-		},
-		Children: []core.Node{
-			aboveComposer,
-			core.View{
-				Style: core.Style{
-					CornerRadius: 12,
-					Background:   p.Raised,
-					BorderWidth:  1,
-					BorderColor:  p.LineRaised,
-					Padding:      core.Symmetric(10, 12),
-					Gap:          8,
-				},
-				Children: []core.Node{
-					contextChips,
-					core.Text{
-						ContentFunc: func() string {
-							_ = rev.Get()
-							if ed.AgentOffline() {
-								return "Queue a request"
-							}
-							return ed.T("agent.composerLabel")
-						},
-						Style: core.Style{
-							FontSize:   11,
-							FontWeight: 600,
-							Color:      p.TextFaint,
-						},
-					},
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						offline := offlineMemo.Get()
-						label := ed.T("agent.composerLabel")
-						placeholder := ed.T("agent.composerPlaceholder")
-						if offline {
-							label = "Queue a request"
-							placeholder = "Queue a request…"
-						}
-						return ui.Input{
-							TestID:         "agent-composer-input",
-							Label:          label,
-							Placeholder:    placeholder,
-							Multiline:      true,
-							SubmitBehavior: core.SubmitBehaviorSubmit,
-							ReturnKeyType:  core.ReturnKeySend,
-							Value: func() string {
-								_ = rev.Get()
-								return ed.AgentComposerText()
-							},
-							OnChange: func(text string) {
-								ed.SetAgentComposerText(text)
-							},
-							OnSubmit: func(text string) {
-								ed.report(ed.SubmitAgentPrompt(text))
-							},
-							OnPaste: func(ev core.PasteEvent) {
-								_, _, err := ed.HandleAgentComposerPaste(ev)
-								ed.report(err)
-							},
-							OnFocus: func() {
-								composerFocused.Set(true)
-							},
-							OnBlur: func() {
-								composerFocused.Set(false)
-							},
-							Style: core.Style{
-								MinHeight:        core.Pt(48),
-								MaxHeight:        core.Pt(120),
-								Background:       p.Bg,
-								BorderWidth:      1,
-								BorderColor:      p.LineRaised,
-								CornerRadius:     8,
-								Padding:          core.Symmetric(8, 10),
-								FontSize:         12.5,
-								Color:            p.TextSecondary,
-								PlaceholderColor: p.TextFaint,
-								FocusVisible:     p.FocusRing(2),
-							},
-						}
-					}),
-					core.View{
-						Style: core.Style{
-							Direction:  core.Row,
-							AlignItems: core.AlignCenter,
-							Gap:        6,
-						},
-						Children: []core.Node{
-							agentAttachImageButtonView(ed, p),
-							core.Text{
-								TestID: "agent-composer-hint",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									if ed.HasPendingAgentTurn() {
-										return ed.T("agentTurn.composerHintPending")
-									}
-									return ed.T("agent.composerHint")
-								},
-								Style: core.Style{
-									FlexGrow: 1,
-									FontSize: 11,
-									Color:    p.TextFaint,
-								},
-							},
-							core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.AgentWorking()
-								},
-								Then: func(cx *core.Scope) core.Node {
-									return core.View{
-										TestID: "agent-composer-stop",
-										Role:   core.RoleButton,
-										Label:  "Stop",
-										Style: core.Style{
-											Direction:      core.Row,
-											AlignItems:     core.AlignCenter,
-											JustifyContent: core.JustifyCenter,
-											Height:         core.Pt(30),
-											Padding:        core.Symmetric(0, 12),
-											Gap:            6,
-											CornerRadius:   8,
-											Background:     p.LineRaised,
-											FocusVisible:   p.FocusRing(2),
-										},
-										OnPress: func(core.PressEvent) {
-											ed.StopAgentRun()
-										},
-										Children: []core.Node{
-											core.View{
-												Style: core.Style{
-													Width:        core.Pt(9),
-													Height:       core.Pt(9),
-													CornerRadius: 2,
-													Background:   p.TextPrimary,
-												},
-											},
-											core.Text{
-												Content: "Stop",
-												Style: core.Style{
-													FontSize:   12,
-													FontWeight: 500,
-													Color:      p.TextPrimary,
-												},
-											},
-										},
-									}
-								},
-								Else: func(cx *core.Scope) core.Node {
-									return core.Show{
-										When: func() bool {
-											_ = rev.Get()
-											return ed.AgentOffline()
-										},
-										Then: func(cx *core.Scope) core.Node {
-											return core.View{
-												TestID: "agent-composer-queue",
-												Role:   core.RoleButton,
-												Label:  "Queue",
-												Style: core.Style{
-													Height:         core.Pt(30),
-													Padding:        core.Symmetric(0, 12),
-													CornerRadius:   8,
-													AlignItems:     core.AlignCenter,
-													JustifyContent: core.JustifyCenter,
-													Background:     p.LineRaised,
-													FocusVisible:   p.FocusRing(2),
-												},
-												OnPress: func(core.PressEvent) {
-													ed.QueueAgentRequest("")
-												},
-												Children: []core.Node{
-													core.Text{
-														Content: "Queue",
-														Style: core.Style{
-															FontSize:   12.5,
-															FontWeight: 500,
-															Color:      p.TextPrimary,
-														},
-													},
-												},
-											}
-										},
-										Else: func(cx *core.Scope) core.Node {
-											return core.View{
-												TestID: "agent-composer-send",
-												Role:   core.RoleButton,
-												Label:  "Send",
-												Style: core.Style{
-													Width:          core.Pt(30),
-													Height:         core.Pt(30),
-													CornerRadius:   8,
-													AlignItems:     core.AlignCenter,
-													JustifyContent: core.JustifyCenter,
-													Background:     p.TextPrimary,
-													FocusVisible:   p.FocusRing(2),
-												},
-												OnPress: func(core.PressEvent) {
-													ed.report(ed.SubmitAgentPrompt(""))
-												},
-												Children: []core.Node{
-													core.SVGView{
-														SVG: lucide.ArrowUp(),
-														Style: core.Style{
-															Width:  core.Pt(14),
-															Height: core.Pt(14),
-															Color:  p.OnTextPrimary,
-														},
-													},
-												},
-											}
-										},
-									}
-								},
-							},
-						},
-					},
 				},
 			},
 		},
