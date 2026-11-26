@@ -996,6 +996,21 @@ func (e *Editor) requestSwitch(action PendingProjectAction, fn func() error) err
 	if e == nil {
 		return nil
 	}
+	if e.HasPendingAgentTurn() {
+		e.askPendingTurn(action.Summary, func() {
+			if e.HasUnsavedChanges() {
+				e.unsavedPrompt = unsavedPromptState{
+					open:    true,
+					pending: action,
+					run:     fn,
+				}
+				e.notify()
+				return
+			}
+			e.report(fn())
+		}, nil)
+		return nil
+	}
 	if e.HasUnsavedChanges() {
 		e.unsavedPrompt = unsavedPromptState{
 			open:    true,

@@ -146,7 +146,7 @@ func builtinTools() []Tool {
 			Target:      tilesetEditTarget,
 			Handler:     tilesetEdit,
 		},
-	}, append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), problemTools()...), playFrozenTools()...), agentTools()...), taskTools()...), contextTools()...), historyTools()...), youOnlyTools()...), reviewTools()...), dataTableReviewTools()...), sketchTools()...), checkpointTools()...)...)
+	}, append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), problemTools()...), playFrozenTools()...), agentTools()...), taskTools()...), contextTools()...), historyTools()...), youOnlyTools()...), reviewTools()...), dataTableReviewTools()...), sketchTools()...), checkpointTools()...), turnTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.
@@ -319,6 +319,10 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 				return err
 			}
 			text, info.File, info.Source, info.Unsaved, info.hasFile = data, clean, "editor", true, true
+		default:
+			if staged, ok := ed.StagedFileYAML(clean); ok {
+				text, info.File, info.Source, info.Unsaved, info.hasFile = staged, clean, "editor", true, true
+			}
 		}
 		return nil
 	})

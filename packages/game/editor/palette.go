@@ -111,6 +111,9 @@ func (e *Editor) OpenProjectFile(relPath string) error {
 		return e.OpenHUDScreen(relPath)
 	}
 	if isProjectScene(e.Project, relPath) {
+		if e.HasPendingAgentTurn() && relPath != e.ScenePath {
+			return e.RequestOpenScene(relPath)
+		}
 		if err := e.OpenScene(relPath); err != nil {
 			e.selectFile(relPath)
 			e.notify()

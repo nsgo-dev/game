@@ -141,11 +141,12 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 			children = append(children, core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					return ed.HasPendingReview()
+					return ed.HasPendingReview() || (ed.HasPendingAgentTurn() && ed.RightRailTab() != RightTabAgent)
 				},
 				Then: func(cx *core.Scope) core.Node {
 					return core.View{
 						TestID: "agent-tab-pending-dot",
+						Label:  "review waiting",
 						Style: core.Style{
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
@@ -186,10 +187,10 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 					bg = p.Raised
 				}
 				return core.Style{
-					Height:         core.Pt(30),
-					Padding:        core.Symmetric(0, 12),
 					Direction:      core.Row,
 					Gap:            6,
+					Height:         core.Pt(30),
+					Padding:        core.Symmetric(0, 12),
 					CornerRadius:   8,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
@@ -951,7 +952,12 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			fmt.Fprintf(&b, "q=%s;", q.ID)
 		}
 		if ed.agent.openRequest != nil {
-			fmt.Fprintf(&b, "req:%s", ed.agent.openRequest.ID)
+			fmt.Fprintf(&b, "req:%s|", ed.agent.openRequest.ID)
+		}
+		if snap, hasTurn := ed.CurrentAgentTurn(); hasTurn {
+			fmt.Fprintf(&b, "pt:%d:%s:%d:%d:%d:%d:%d:%v:%d",
+				snap.ID, snap.Status, snap.TotalChanges, snap.ActiveChanges, snap.RevertedCount,
+				len(snap.Steps), len(snap.Summary), snap.ReviewOpen, len(snap.Files))
 		}
 		if ed.DataTableReviewPending() {
 			fmt.Fprintf(&b, "dtrev:%d:%v", ed.dataTableReviewRev(), ed.DataTableReviewPaused())
@@ -975,12 +981,13 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			queued := ed.AgentQueuedRequests()
 			limitReached := ed.AgentWeeklyLimitReached()
 			active := ed.ActiveAgentThread()
+			turnSnap, hasPendingTurn := ed.CurrentAgentTurn()
 
 			if active != nil && len(active.Requests) > 0 {
 				return agentThreadConversationBody(cx, ed, p, active, turns, openReq, openReqRef)
 			}
 			ready := ed.ReadyToReviewTurns()
-			if len(turns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached {
+			if len(turns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn {
 				var items []core.Node
 				if len(ready) > 0 {
 					items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
@@ -999,6 +1006,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				}
 				if dtPending {
 					items = append(items, agentPendingDataTableReviewCard(ed, p))
+				}
+				if hasPendingTurn {
+					items = append(items, agentTurnSection(cx, ed, p, turnSnap))
 				}
 				if openReq != nil {
 					items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
@@ -1044,6 +1054,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				rightRailTabBar(cx, ed, rev, p, true),
 				agentThreadHeaderBar(cx, ed, rev, switcherBtnRef),
 				core.View{
+					TestID: "editor-agent-panel",
 					Style: core.Style{
 						FlexGrow:  1,
 						FlexBasis: core.Pt(0),
@@ -2215,7 +2226,14 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 						Children: []core.Node{
 							agentAttachImageButtonView(ed, p),
 							core.Text{
-								Content: ed.T("agent.composerHint"),
+								TestID: "agent-composer-hint",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if ed.HasPendingAgentTurn() {
+										return "Edits stay unsaved until you keep them"
+									}
+									return ed.T("agent.composerHint")
+								},
 								Style: core.Style{
 									FlexGrow: 1,
 									FontSize: 11,

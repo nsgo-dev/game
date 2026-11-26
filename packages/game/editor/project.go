@@ -269,6 +269,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.resetProblemsForProject()
 	e.loadAgentDocsForProject(filepath.Dir(path))
 	e.resetHistoryPanelForProject()
+	e.resetAgentTurnForProject()
 	e.Status = "Opened project " + path
 	if missing := e.MissingPlugins(); len(missing) > 0 {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")

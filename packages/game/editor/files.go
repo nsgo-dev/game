@@ -139,7 +139,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						case isPlaytestReportFile(p):
 							ed.report(ed.OpenPlaytestReportFile(p))
 						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
-							ed.report(ed.OpenScene(p))
+							ed.report(ed.RequestOpenScene(p))
 						}
 					}
 				},
@@ -263,7 +263,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 										case isPlaytestReportFile(p):
 											ed.report(ed.OpenPlaytestReportFile(p))
 										default:
-											ed.report(ed.OpenScene(p))
+											ed.report(ed.RequestOpenScene(p))
 										}
 									}
 								},

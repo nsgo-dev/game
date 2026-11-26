@@ -437,8 +437,34 @@ func formatToolCallSummary(action editor.PermissionAction, toolName, target stri
 
 // Target extractors for built-in tools.
 
-func sceneEditTarget(_ json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string) {
+func sceneEditTarget(args json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string) {
+	var in struct {
+		File string `json:"file"`
+	}
+	_ = json.Unmarshal(args, &in)
+	if target := strings.TrimSpace(in.File); target != "" {
+		return editor.PermissionActionEdit, target
+	}
 	return editor.PermissionActionEdit, openSceneTarget(ed)
+}
+
+func fileEditTarget(args json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string) {
+	var in struct {
+		File string `json:"file"`
+	}
+	_ = json.Unmarshal(args, &in)
+	raw := strings.TrimSpace(in.File)
+	if raw != "" && ed != nil {
+		if root := projectRoot(ed); root != "" {
+			if resolved, err := editor.ResolvePermissionFileTarget(root, raw); err == nil && resolved != "" {
+				if _, serr := os.Stat(filepath.Join(root, filepath.FromSlash(resolved))); os.IsNotExist(serr) {
+					return editor.PermissionActionCreate, resolved
+				}
+				return editor.PermissionActionEdit, resolved
+			}
+		}
+	}
+	return editor.PermissionActionEdit, raw
 }
 
 func gameCheckTarget(_ json.RawMessage, _ *editor.Editor) (editor.PermissionAction, string) {

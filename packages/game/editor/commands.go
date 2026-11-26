@@ -147,6 +147,11 @@ const (
 	CmdSketchToggleReviewOverlay = "sketch.toggleReviewOverlay"
 	CmdSketchKeepReview          = "sketch.keepReview"
 	CmdSketchRevertReview        = "sketch.revertReview"
+	CmdRightTabAgent             = "view.tab.agent"
+	CmdRightTabInspector         = "view.tab.inspector"
+	CmdKeepAgentTurn             = "agent.turn.keep"
+	CmdRevertAgentTurn           = "agent.turn.revert"
+	CmdStopAgentTurn             = "agent.turn.stop"
 )
 
 var (
@@ -2191,6 +2196,79 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:    "mod+backspace",
 			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
 			Run:         func() error { return e.RevertSketchReview() },
+		},
+		{
+			ID:          CmdRightTabAgent,
+			Label:       "Agent Tab",
+			Description: "Show the Agent panel in the right column",
+			Category:    "View",
+			Keywords:    []string{"agent", "ai", "turn", "review", "panel", "tab"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+shift+1",
+			Enabled:     func() bool { return inEditor() && e.AgentMode() != AgentModeNone },
+			Checked:     func() bool { return e.RightPanelTab() == RightPanelAgent },
+			Run: func() error {
+				e.SetRightPanelTab(RightPanelAgent)
+				return nil
+			},
+		},
+		{
+			ID:          CmdRightTabInspector,
+			Label:       "Inspector Tab",
+			Description: "Show the Property Inspector in the right column",
+			Category:    "View",
+			Keywords:    []string{"inspector", "properties", "panel", "tab"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+shift+2",
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.RightPanelTab() == RightPanelInspector },
+			Run: func() error {
+				e.SetRightPanelTab(RightPanelInspector)
+				return nil
+			},
+		},
+		{
+			ID:          CmdKeepAgentTurn,
+			Label:       "Keep Agent Turn",
+			Description: "Keep the remaining changes in the open agent turn as one undo step",
+			Category:    "Edit",
+			Keywords:    []string{"agent", "turn", "keep", "accept", "review"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+enter",
+			Enabled: func() bool {
+				if !notPlaying() || e.PermissionsDraftOpen() || e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.UsagesScreenOpen() || e.AgentReviewOpen() || e.agentTurn == nil {
+					return false
+				}
+				return e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped
+			},
+			Run: func() error { return e.KeepAgentTurn() },
+		},
+		{
+			ID:          CmdRevertAgentTurn,
+			Label:       "Revert Agent Turn",
+			Description: "Revert all files touched by the open agent turn to their pre-request state",
+			Category:    "Edit",
+			Keywords:    []string{"agent", "turn", "revert", "discard", "review"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+backspace",
+			Enabled: func() bool {
+				if !notPlaying() || e.PermissionsDraftOpen() || e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.UsagesScreenOpen() || e.agentTurn == nil {
+					return false
+				}
+				return e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped
+			},
+			Run: func() error { return e.RevertAgentTurn() },
+		},
+		{
+			ID:          CmdStopAgentTurn,
+			Label:       "Stop Agent",
+			Description: "Stop the active agent turn; changes made so far stay pending for review",
+			Category:    "Project",
+			Keywords:    []string{"agent", "turn", "stop", "cancel"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+.",
+			Enabled:     func() bool { return e.AgentTurnWorking() },
+			Run:         func() error { return e.StopAgentTurn() },
 		},
 	}
 }

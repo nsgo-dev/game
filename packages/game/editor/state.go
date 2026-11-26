@@ -963,6 +963,15 @@ type Editor struct {
 	review turnReviewState
 	// checkpoints holds the open project's persistent .nsgo/checkpoints/ state and any active turn.
 	checkpoints checkpointState
+	// agentTurn holds the active, pending, stopped, kept, or reverted multi-file agent turn.
+	agentTurn        *agentTurnState
+	agentTurnSeq     uint64
+	lastRevertedTurn *agentTurnState
+	// stagedFiles holds in-memory edits to non-active project files (other scenes, prefabs, data tables, clips)
+	// touched by an agent turn, so nothing is written to disk until the turn is kept and saved.
+	stagedFiles map[string]*stagedFileEntry
+	// pendingTurnPrompt tracks a blocked close/scene-switch/project-switch waiting on Keep, Revert, or Cancel.
+	pendingTurnPrompt pendingTurnPromptState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1650,6 +1659,28 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 		}
 		return e.SelectTab(idx)
 	}
+	if rel != "" {
+		if staged, ok := e.stagedFiles[rel]; ok && staged.sceneDoc != nil {
+			saved := append([]byte(nil), staged.savedData...)
+			if len(saved) == 0 {
+				if enc, encErr := sceneformat.Encode(staged.sceneDoc); encErr == nil {
+					saved = enc
+				}
+			}
+			if e.playing {
+				if err := e.Stop(); err != nil {
+					return err
+				}
+			}
+			e.activateNewTab(staged.sceneDoc.Clone(), saved, path)
+			if diskData, rErr := os.ReadFile(path); rErr == nil {
+				e.recordSceneDiskSnapshot(path, diskData)
+			}
+			e.syncActiveTab()
+			e.notify()
+			return nil
+		}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return loaderr.Locate(err, path, nil, "check that the scene exists at this path and can be read")
@@ -1760,14 +1791,14 @@ func writeFileAtomic(path string, data []byte) error {
 }
 
 func (e *Editor) canUndo() bool {
-	return e != nil && (e.canUndoCutsceneReviewEdit() || e.History.CanUndo())
+	return e != nil && (e.canUndoCutsceneReviewEdit() || e.AgentTurnReviewOpen() || e.History.CanUndo())
 }
 
 func (e *Editor) canRedo() bool {
 	return e != nil && (e.canRedoCutsceneReviewEdit() || e.History.CanRedo())
 }
 
-// Undo reverts the last edit in History (or the last manual edit joined to an open cutscene review; no-op while playing). A step that fails to revert, such as a file move (MoveFile) that something now on disk blocks, stays in place, and the status bar says why.
+// Undo reverts the last edit in History (or follows Checkpoints.dc.html rules during an active agent turn/review, or the last manual edit joined to an open cutscene review; no-op while playing). A step that fails to revert, such as a file move (MoveFile) that something now on disk blocks, stays in place, and the status bar says why.
 func (e *Editor) Undo() bool {
 	if e.playing {
 		return false
@@ -1775,6 +1806,9 @@ func (e *Editor) Undo() bool {
 	e.ExitHistoryPreview()
 	if e.undoCutsceneReviewEdit() {
 		return true
+	}
+	if handled, ok := e.undoForAgentTurn(); handled {
+		return ok
 	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()

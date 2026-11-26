@@ -23,7 +23,8 @@ const objectSetFieldSchema = `{"type":"object","additionalProperties":false,"req
 	`"property":{"type":"boolean","description":"When true, edit a custom property key on the object"},` +
 	`"field":{"type":"string","description":"Object field name (e.g. x, y, rotation, scaleX, z, alpha, sprite, material, model, gridMap, particles, occluder, light, camera), component field name, or custom property key"},` +
 	`"value":{"description":"New field value"},` +
-	`"label":{"type":"string","description":"Optional undo step label"}` +
+	`"label":{"type":"string","description":"Optional undo step label"},` +
+	`"why":{"type":"string","description":"Optional reason for this edit, shown in turn review"}` +
 	`}}`
 
 const objectLocateYAMLSchema = `{"type":"object","additionalProperties":false,"properties":{` +
@@ -81,6 +82,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		Field     string          `json:"field"`
 		Value     json.RawMessage `json:"value"`
 		Label     string          `json:"label"`
+		Why       string          `json:"why"`
 	}
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_set_field: %w", err)
@@ -153,6 +155,46 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}
 
+		applyFn := func(target *editor.Editor) error {
+			switch {
+			case args.Property:
+				v, err := scalarValue(args.Value)
+				if err != nil {
+					return &EditError{File: name, Object: targetID, Field: args.Field, Problem: err.Error(), Fix: "give the property a string, finite number, or boolean"}
+				}
+				if err := target.SetProperty(targetID, args.Field, v); err != nil {
+					return editError(name, 1, editArgs{Op: "set_property", ID: targetID, Key: args.Field}, err)
+				}
+				return nil
+			case args.Component != "":
+				if err := setComponentFields(target, targetID, args.Component, map[string]json.RawMessage{args.Field: args.Value}); err != nil {
+					return editError(name, 1, editArgs{Op: "set", ID: targetID, Component: args.Component}, err)
+				}
+				return nil
+			default:
+				if err := setObjectFields(target, targetID, map[string]json.RawMessage{args.Field: args.Value}); err != nil {
+					return editError(name, 1, editArgs{Op: "set", ID: targetID}, err)
+				}
+				return nil
+			}
+		}
+
+		if ed.AgentTurnWorking() {
+			var reasons map[string]string
+			if w := strings.TrimSpace(args.Why); w != "" {
+				reasons = map[string]string{"obj:" + targetID: w}
+				switch {
+				case args.Property:
+					reasons["obj:"+targetID+"::property:"+args.Field] = w
+				case args.Component != "":
+					reasons["obj:"+targetID+"::component:"+args.Component+"."+args.Field] = w
+				default:
+					reasons["obj:"+targetID+"::"+args.Field] = w
+				}
+			}
+			return ed.RunAgentSceneEdit("", reasons, applyFn)
+		}
+
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn(label)
@@ -165,27 +207,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		}
 
 		err := ed.History.Group(label, func() error {
-			switch {
-			case args.Property:
-				v, err := scalarValue(args.Value)
-				if err != nil {
-					return &EditError{File: name, Object: targetID, Field: args.Field, Problem: err.Error(), Fix: "give the property a string, finite number, or boolean"}
-				}
-				if err := ed.SetProperty(targetID, args.Field, v); err != nil {
-					return editError(name, 1, editArgs{Op: "set_property", ID: targetID, Key: args.Field}, err)
-				}
-				return nil
-			case args.Component != "":
-				if err := setComponentFields(ed, targetID, args.Component, map[string]json.RawMessage{args.Field: args.Value}); err != nil {
-					return editError(name, 1, editArgs{Op: "set", ID: targetID, Component: args.Component}, err)
-				}
-				return nil
-			default:
-				if err := setObjectFields(ed, targetID, map[string]json.RawMessage{args.Field: args.Value}); err != nil {
-					return editError(name, 1, editArgs{Op: "set", ID: targetID}, err)
-				}
-				return nil
-			}
+			return applyFn(ed)
 		})
 		if err != nil {
 			return err
