@@ -534,10 +534,9 @@ func TestAgentLiveHardeningLifecycleLocksThemeAndPulse(t *testing.T) {
 	if got := app.Find("id:header-agent-pill").Style.Background; got != wantLight.Agent.Fill {
 		t.Fatalf("header agent pill background after live Dark->Light switch = %v, want %v", got, wantLight.Agent.Fill)
 	}
-	// Inspector lives inside inspectorThemeScope (Spec Dark subtree), so its banner stays in dark contrast tokens.
-	wantDark := editor.DarkSpecPalette()
-	if got := app.Find("id:inspector-agent-working-banner").Style.Background; got != wantDark.Agent.Fill {
-		t.Fatalf("inspector banner background = %v, want dark subtree token %v", got, wantDark.Agent.Fill)
+	// Inspector inherits the root SpecTheme() and adapts live to Spec Light tokens too.
+	if got := app.Find("id:inspector-agent-working-banner").Style.Background; got != wantLight.Agent.Fill {
+		t.Fatalf("inspector banner background after live Dark->Light switch = %v, want %v", got, wantLight.Agent.Fill)
 	}
 
 	// Switching to a second tab isolates pending turn, working lock, review changes, and state; switching back restores them.
