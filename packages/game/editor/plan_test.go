@@ -521,6 +521,13 @@ func TestAgentPlanUIAndScreenshots(t *testing.T) {
 	if !app.Exists("id:plan-viewport-legend") {
 		t.Fatal("plan-viewport-legend did not render")
 	}
+	if app.Exists("id:viewport-overlay-legend") {
+		overlayBounds := app.Find("id:viewport-overlay-legend").Bounds()
+		planLegendBounds := app.Find("id:plan-viewport-legend").Bounds()
+		if planLegendBounds.Origin.Y < overlayBounds.Origin.Y+overlayBounds.Size.Height {
+			t.Fatalf("plan-viewport-legend (%+v) overlaps viewport-overlay-legend (%+v)", planLegendBounds, overlayBounds)
+		}
+	}
 
 	// 1. Draft state (2 unanswered questions, ghosts visible, Approve disabled).
 	app.Screenshot("plan-draft-dark")
