@@ -13,6 +13,9 @@ import (
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // #1026: The editor's MCP server gives both brief.yaml and AGENTS.md to the agent as context
@@ -160,5 +163,84 @@ func TestMCPBriefAndRulesEditsGoThroughReviewAndUndo(t *testing.T) {
 	gotRules, err := os.ReadFile(rulesPath)
 	if err != nil || !strings.Contains(string(gotRules), "Keep floors under 400 objects.") {
 		t.Fatalf("AGENTS.md after Keep: err=%v content=%q", err, gotRules)
+	}
+}
+
+func TestMCPBriefAndRulesGuardsAndSizeCaps(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// Oversized YAML (> 1 MiB) refused before parsing.
+	hugeYAML := "version: 1\npitch: " + strings.Repeat("a", (1<<20)+128) + "\n"
+	res := call(t, cs, editormcp.ToolBriefEdit, map[string]any{"yaml": hugeYAML})
+	if !res.IsError || !strings.Contains(text(res), "maximum size") {
+		t.Fatalf("expected size cap error for brief_edit, got isErr=%v text=%q", res.IsError, text(res))
+	}
+
+	// Oversized Markdown (> 1 MiB) refused.
+	hugeMD := strings.Repeat("b", (1<<20)+128)
+	res = call(t, cs, editormcp.ToolRulesEdit, map[string]any{"markdown": hugeMD})
+	if !res.IsError || !strings.Contains(text(res), "maximum size") {
+		t.Fatalf("expected size cap error for rules_edit, got isErr=%v text=%q", res.IsError, text(res))
+	}
+
+	// Play mode blocks both brief_edit and rules_edit.
+	var rootScope *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return core.View{}
+	})
+	if err := f.ed.PlayIn(rootScope); err != nil {
+		t.Fatalf("PlayIn: %v", err)
+	}
+	res = call(t, cs, editormcp.ToolBriefEdit, map[string]any{"pitch": "Blocked during play"})
+	if !res.IsError {
+		t.Fatalf("expected brief_edit to fail during Play, got %q", text(res))
+	}
+	res = call(t, cs, editormcp.ToolRulesEdit, map[string]any{"appendRule": "Blocked during play"})
+	if !res.IsError {
+		t.Fatalf("expected rules_edit to fail during Play, got %q", text(res))
+	}
+	if err := f.ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	app.Settle()
+
+	// Merge conflict also blocks both brief_edit and rules_edit.
+	baseDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "c",
+		Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "hero", Name: "Hero", X: 10}}}},
+	}
+	mineDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "c",
+		Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "hero", Name: "Hero", X: 20}}}},
+	}
+	theirsDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "c",
+		Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "hero", Name: "Hero", X: 30}}}},
+	}
+	if err := f.ed.OpenMergeConflictSession(editor.MergeConflictSessionConfig{
+		ScenePath: "scenes/main.scene.yaml",
+		BaseDoc:   baseDoc,
+		MineDoc:   mineDoc,
+		TheirsDoc: theirsDoc,
+	}); err != nil {
+		t.Fatalf("OpenMergeConflictSession: %v", err)
+	}
+	res = call(t, cs, editormcp.ToolBriefEdit, map[string]any{"pitch": "Blocked during merge"})
+	if !res.IsError {
+		t.Fatalf("expected brief_edit to fail during merge conflict, got %q", text(res))
+	}
+	res = call(t, cs, editormcp.ToolRulesEdit, map[string]any{"appendRule": "Blocked during merge"})
+	if !res.IsError {
+		t.Fatalf("expected rules_edit to fail during merge conflict, got %q", text(res))
+	}
+	if len(f.ed.PendingDocReviews("")) != 0 {
+		t.Fatalf("no reviews should be queued during Play/merge, got %d", len(f.ed.PendingDocReviews("")))
 	}
 }

@@ -762,9 +762,13 @@ strings:
   settings.briefAgentCompleteNote: Your brief is complete. The agent reads brief.yaml before every request and checks its work against it.
   settings.briefAgentDraftAsk: Draft brief.yaml from the open project
   settings.briefAgentEmptyNote: This project does not have a brief.yaml yet. Fill in the pitch and targets, or ask the agent to draft one.
+  settings.briefAgentFillMissingAsk: Fill in the missing {sections} section
   settings.briefAgentFooter: The agent reads this before every request and checks its own work against it, e.g. playtest targets come from "Feel and difficulty".
+  settings.briefAgentMissedNote: '{scene} {metric} average {value}, outside the {goal} your brief asks for.'
+  settings.briefAgentMissingNote: 'The agent reads brief.yaml before every request. Missing: {sections}.'
   settings.briefAgentTargetsAsk: Derive playtest.yaml goals from the brief
   settings.briefAgentTuneAsk: Tune levels toward the brief
+  settings.briefAgentTuneSceneAsk: Tune {scene} toward the brief
   settings.briefArtDirection: Art direction
   settings.briefArtPlaceholder: Pixel size, palette, outlines, lighting rules…
   settings.briefEmptyBadge: Empty
@@ -785,6 +789,9 @@ strings:
   settings.briefSave: Save brief
   settings.briefTags: Tags
   settings.briefTagsPlaceholder: Comma-separated tags (e.g. dungeon, pixel-art)
+  settings.briefTargetMaxNumErr: Target max must be a number.
+  settings.briefTargetMetricReq: Target metric name is required.
+  settings.briefTargetMinNumErr: Target min must be a number.
   settings.briefToneAudio: Tone and audio
   settings.briefTonePlaceholder: Mood, music, and sound direction…
   settings.connectAnother: + Connect another agent or model

@@ -465,11 +465,32 @@ func EncodeBrief(b *Brief) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+const maxBriefFileBytes = 1 << 20
+
+func readBoundedBrief(r io.Reader, name string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBriefFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBriefFileBytes {
+		return nil, loaderr.WithFile(
+			loaderr.Errorf("", "keep brief.yaml under 1 MiB", "project: brief file exceeds maximum size of %d bytes", maxBriefFileBytes),
+			name,
+		)
+	}
+	return data, nil
+}
+
 // ReadBriefFS reads and parses BriefFileName at the root of fsys.
 func ReadBriefFS(fsys fs.FS) (*Brief, error) {
-	data, err := fs.ReadFile(fsys, BriefFileName)
+	f, err := fsys.Open(BriefFileName)
 	if err != nil {
 		return nil, fmt.Errorf("project: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := readBoundedBrief(f, BriefFileName)
+	if err != nil {
+		return nil, err
 	}
 	b, err := ParseBrief(data)
 	if err != nil {
@@ -480,7 +501,12 @@ func ReadBriefFS(fsys fs.FS) (*Brief, error) {
 
 // LoadBrief reads and parses brief.yaml from path.
 func LoadBrief(path string) (*Brief, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := readBoundedBrief(f, path)
 	if err != nil {
 		return nil, err
 	}

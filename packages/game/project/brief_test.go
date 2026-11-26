@@ -207,3 +207,18 @@ func TestBriefTargetsForScenePrecedence(t *testing.T) {
 		t.Fatalf("all targets len = %d, want 3", len(all))
 	}
 }
+
+func TestBriefLoadRejectsOversizedFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, project.BriefFileName)
+	huge := "version: 1\npitch: " + strings.Repeat("a", (1<<20)+64) + "\n"
+	if err := os.WriteFile(p, []byte(huge), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := project.LoadBrief(p); err == nil {
+		t.Fatal("LoadBrief accepted file > 1 MiB")
+	}
+	if _, err := project.ReadBriefFS(os.DirFS(dir)); err == nil {
+		t.Fatal("ReadBriefFS accepted file > 1 MiB")
+	}
+}

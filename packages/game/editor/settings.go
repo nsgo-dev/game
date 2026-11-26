@@ -786,27 +786,27 @@ func (e *Editor) SetEditorSettingsTab(tab EditorSettingsTab) {
 	if e == nil {
 		return
 	}
-	changed := e.editorSettingsTab != tab
+	var target SettingsPage
+	switch tab {
+	case EditorSettingsTabShortcuts:
+		target = SettingsPageShortcuts
+	case EditorSettingsTabBrief:
+		target = SettingsPageBrief
+	case EditorSettingsTabRules:
+		target = SettingsPageRules
+	default:
+		target = SettingsPageGeneral
+	}
+	changed := e.editorSettingsTab != tab || e.settingsPage != target
 	e.editorSettingsTab = tab
 	if tab != EditorSettingsTabShortcuts {
 		e.shortcutCaptureActive = false
 	}
 	if e.settingsOpen {
-		switch tab {
-		case EditorSettingsTabShortcuts:
-			e.OpenSettingsPage(SettingsPageShortcuts)
-			return
-		case EditorSettingsTabGeneral:
-			e.OpenSettingsPage(SettingsPageGeneral)
-			return
-		case EditorSettingsTabBrief:
-			e.OpenSettingsPage(SettingsPageBrief)
-			return
-		case EditorSettingsTabRules:
-			e.OpenSettingsPage(SettingsPageRules)
-			return
-		}
+		e.OpenSettingsPage(target)
+		return
 	}
+	e.settingsPage = target
 	if changed {
 		e.notify()
 	}

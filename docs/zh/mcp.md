@@ -360,13 +360,7 @@ claude mcp add game-editor -- nsgo game mcp
 
 ### 变更流
 
-<<<<<<< HEAD
-服务器有三个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON），`editor://agent/turn` 是通过 `⌘L` 就地提问框或智能体面板发起的最新请求（包含 `selectionIds`、`scenePath`、`sceneYaml` 与 `skipPlan` 的 JSON 载荷，以及捕获的 `image/png` 视口二进制图像）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下（`editor://agent/turn` 通知还会附带 `"nsgo.dev/turnId"` 与 `"nsgo.dev/skipPlan"`）。一连串变化可能合并为一条通知。
-||||||| parent of 41731645 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
-服务器有两个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。
-=======
-服务器暴露五个资源：`editor://scene`（编辑器当前持有的打开场景 YAML）、`editor://selection`（`selection_get` 报告的选择内容 JSON）、`editor://brief`（当前项目的 `brief.yaml` 规范 YAML）、`editor://rules`（当前项目的 `AGENTS.md` 纯 Markdown）以及 `editor://context`（与 `project_context` 一致的综合 JSON 项目上下文）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。
->>>>>>> 41731645 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
+服务器暴露六个资源：`editor://scene`（编辑器当前持有的打开场景 YAML）、`editor://selection`（`selection_get` 报告的选择内容 JSON）、`editor://agent/turn`（通过 `⌘L` 就地提问框或智能体面板发起的最新请求，包含 `selectionIds`、`scenePath`、`sceneYaml` 与 `skipPlan` 的 JSON 载荷，以及捕获的 `image/png` 视口二进制图像）、`editor://brief`（当前项目的 `brief.yaml` 规范 YAML）、`editor://rules`（当前项目的 `AGENTS.md` 纯 Markdown）以及 `editor://context`（与 `project_context` 一致的综合 JSON 项目上下文）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下（`editor://agent/turn` 通知还会附带 `"nsgo.dev/turnId"` 与 `"nsgo.dev/skipPlan"`）。一连串变化可能合并为一条通知。
 
 ### 添加工具
 

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/project"
 )
 
@@ -17,7 +18,10 @@ import (
 // read by Claude Code, Codex, and the built-in editor agent.
 const ProjectRulesFileName = "AGENTS.md"
 
-const reviewSuggestionWindow = 30
+const (
+	reviewSuggestionWindow       = 30
+	maxAgentDocBytes       int64 = 1 << 20
+)
 
 // DocReviewTarget identifies a shared project document whose agent or suggested edits go through review.
 type DocReviewTarget string
@@ -79,6 +83,8 @@ type SettingsAgentRequest struct {
 }
 
 type agentDocsState struct {
+	rootDir string
+
 	brief        *project.Brief
 	briefExists  bool
 	briefPath    string
@@ -95,8 +101,16 @@ type agentDocsState struct {
 	reviewOutcomes   []ReviewOutcomeRecord
 	dismissedSuggest map[string]bool
 
-	lastAgentReq SettingsAgentRequest
-	rev          uint64
+	lastAgentReq    SettingsAgentRequest
+	rev             uint64
+	briefContentRev uint64
+	rulesContentRev uint64
+}
+
+// AgentDocsRevision returns a monotonic revision counter incremented whenever game brief,
+// project rules, pending document reviews, or review outcomes change.
+func (e *Editor) AgentDocsRevision() uint64 {
+	return e.agentDocsRev()
 }
 
 func (e *Editor) agentDocsRev() uint64 {
@@ -106,10 +120,62 @@ func (e *Editor) agentDocsRev() uint64 {
 	return e.agentDocs.rev
 }
 
+func (e *Editor) briefContentRev() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.agentDocs.briefContentRev
+}
+
+func (e *Editor) rulesContentRev() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.agentDocs.rulesContentRev
+}
+
+func (e *Editor) agentDocsRootFor(absPath string) string {
+	if e != nil && e.agentDocs.rootDir != "" {
+		return e.agentDocs.rootDir
+	}
+	if e != nil && e.ProjectPath != "" {
+		return filepath.Dir(e.ProjectPath)
+	}
+	if absPath != "" {
+		return filepath.Dir(absPath)
+	}
+	return ""
+}
+
+func readConfinedAgentDoc(rootDir, absPath, relName string) ([]byte, error) {
+	if err := verifyAssetGenReadPath(rootDir, absPath, relName); err != nil {
+		return nil, err
+	}
+	return readBoundedAssetFile(absPath, maxAgentDocBytes)
+}
+
+func (e *Editor) syncAssetStyleBriefFromAgentDocs() {
+	if e == nil {
+		return
+	}
+	if !e.agentDocs.briefExists || e.agentDocs.brief == nil {
+		e.SetAssetStyleBrief(DefaultAssetStyleBrief())
+		return
+	}
+	if e.ProjectPath != "" && e.OnSaveBrief == nil {
+		e.LoadAssetStyleBrief()
+		return
+	}
+	if len(e.agentDocs.briefSaved) > 0 {
+		e.SetAssetStyleBrief(parseBriefStyleYAML(e.agentDocs.briefSaved, DefaultAssetStyleBrief()))
+	}
+}
+
 func (e *Editor) loadAgentDocsForProject(projectDir string) {
 	if e == nil {
 		return
 	}
+	e.agentDocs.rootDir = projectDir
 	e.agentDocs.brief = nil
 	e.agentDocs.briefExists = false
 	e.agentDocs.briefPath = ""
@@ -122,16 +188,21 @@ func (e *Editor) loadAgentDocsForProject(projectDir string) {
 	e.agentDocs.rulesSaved = ""
 
 	e.agentDocs.reviews = nil
+	e.agentDocs.nextReviewID = 0
+	e.agentDocs.reviewOutcomes = nil
 	e.agentDocs.dismissedSuggest = nil
+	e.agentDocs.lastAgentReq = SettingsAgentRequest{}
 
 	if projectDir == "" {
+		e.agentDocs.briefContentRev++
+		e.agentDocs.rulesContentRev++
 		e.agentDocs.rev++
 		return
 	}
 
 	briefPath := filepath.Join(projectDir, project.BriefFileName)
 	e.agentDocs.briefPath = briefPath
-	if raw, err := os.ReadFile(briefPath); err == nil {
+	if raw, err := readConfinedAgentDoc(projectDir, briefPath, project.BriefFileName); err == nil {
 		if b, perr := project.ParseBrief(raw); perr == nil {
 			e.agentDocs.brief = b
 			e.agentDocs.briefExists = true
@@ -149,13 +220,15 @@ func (e *Editor) loadAgentDocsForProject(projectDir string) {
 
 	rulesPath := filepath.Join(projectDir, ProjectRulesFileName)
 	e.agentDocs.rulesPath = rulesPath
-	if raw, err := os.ReadFile(rulesPath); err == nil {
+	if raw, err := readConfinedAgentDoc(projectDir, rulesPath, ProjectRulesFileName); err == nil {
 		text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 		e.agentDocs.rules = text
 		e.agentDocs.rulesExists = true
 		e.agentDocs.rulesSaved = text
 	}
 
+	e.agentDocs.briefContentRev++
+	e.agentDocs.rulesContentRev++
 	e.agentDocs.rev++
 }
 
@@ -226,6 +299,7 @@ func (e *Editor) BriefPlaytestTargets(scene string) []project.BriefPlaytestTarge
 type briefCmd struct {
 	ed            *Editor
 	label         string
+	rootDir       string
 	before        *project.Brief
 	beforeExists  bool
 	beforeDisk    []byte
@@ -235,8 +309,8 @@ type briefCmd struct {
 }
 
 func (c *briefCmd) Label() string { return c.label }
-func (c *briefCmd) Do()           { _ = c.do() }
-func (c *briefCmd) Undo()         { _ = c.undo() }
+func (c *briefCmd) Do()           { c.ed.report(c.do()) }
+func (c *briefCmd) Undo()         { c.ed.report(c.undo()) }
 
 func (c *briefCmd) do() error {
 	ed := c.ed
@@ -245,6 +319,13 @@ func (c *briefCmd) do() error {
 			return err
 		}
 	} else if ed.agentDocs.briefPath != "" {
+		rootDir := c.rootDir
+		if rootDir == "" {
+			rootDir = ed.agentDocsRootFor(ed.agentDocs.briefPath)
+		}
+		if err := verifyAssetGenWritePath(rootDir, ed.agentDocs.briefPath, project.BriefFileName); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(ed.agentDocs.briefPath), 0o755); err != nil {
 			return err
 		}
@@ -259,7 +340,9 @@ func (c *briefCmd) do() error {
 	if !c.beforeExists {
 		ed.filesRev++
 	}
+	ed.agentDocs.briefContentRev++
 	ed.agentDocs.rev++
+	ed.syncAssetStyleBriefFromAgentDocs()
 	ed.notify()
 	return nil
 }
@@ -277,6 +360,13 @@ func (c *briefCmd) undo() error {
 			}
 		}
 	} else if ed.agentDocs.briefPath != "" {
+		rootDir := c.rootDir
+		if rootDir == "" {
+			rootDir = ed.agentDocsRootFor(ed.agentDocs.briefPath)
+		}
+		if err := verifyAssetGenWritePath(rootDir, ed.agentDocs.briefPath, project.BriefFileName); err != nil {
+			return err
+		}
 		if c.beforeHasDisk {
 			if err := writeFileAtomic(ed.agentDocs.briefPath, c.beforeDisk); err != nil {
 				return err
@@ -299,7 +389,9 @@ func (c *briefCmd) undo() error {
 	if !c.beforeExists {
 		ed.filesRev++
 	}
+	ed.agentDocs.briefContentRev++
 	ed.agentDocs.rev++
+	ed.syncAssetStyleBriefFromAgentDocs()
 	ed.notify()
 	return nil
 }
@@ -313,6 +405,9 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
 	}
 	var next *project.Brief
 	if e.agentDocs.briefExists && e.agentDocs.brief != nil {
@@ -328,6 +423,9 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 	if err != nil {
 		return err
 	}
+	if int64(len(encoded)) > maxAgentDocBytes {
+		return fmt.Errorf("editor: %s exceeds maximum size of %d bytes", project.BriefFileName, maxAgentDocBytes)
+	}
 	// Re-parse canonical form so in-memory state matches disk byte for byte.
 	canonical, err := project.ParseBrief(encoded)
 	if err != nil {
@@ -340,10 +438,16 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 	}
 	var beforeDisk []byte
 	var beforeHasDisk bool
-	if e.agentDocs.briefPath != "" {
-		if raw, rerr := os.ReadFile(e.agentDocs.briefPath); rerr == nil {
+	rootDir := e.agentDocsRootFor(e.agentDocs.briefPath)
+	if e.OnSaveBrief == nil && e.agentDocs.briefPath != "" {
+		if err := verifyAssetGenWritePath(rootDir, e.agentDocs.briefPath, project.BriefFileName); err != nil {
+			return err
+		}
+		if raw, rerr := readConfinedAgentDoc(rootDir, e.agentDocs.briefPath, project.BriefFileName); rerr == nil {
 			beforeDisk = raw
 			beforeHasDisk = true
+		} else if !errors.Is(rerr, fs.ErrNotExist) {
+			return rerr
 		}
 	}
 	if label == "" {
@@ -352,6 +456,7 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 	cmd := &briefCmd{
 		ed:            e,
 		label:         label,
+		rootDir:       rootDir,
 		before:        e.agentDocs.brief.Clone(),
 		beforeExists:  e.agentDocs.briefExists,
 		beforeDisk:    beforeDisk,
@@ -505,15 +610,28 @@ func (e *Editor) SaveBrief() error {
 	if e == nil || !e.BriefExists() {
 		return nil
 	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
 	data, err := project.EncodeBrief(e.agentDocs.brief)
 	if err != nil {
 		return err
+	}
+	if int64(len(data)) > maxAgentDocBytes {
+		return fmt.Errorf("editor: %s exceeds maximum size of %d bytes", project.BriefFileName, maxAgentDocBytes)
 	}
 	if e.OnSaveBrief != nil {
 		if err := e.OnSaveBrief(data); err != nil {
 			return err
 		}
 	} else if e.agentDocs.briefPath != "" {
+		rootDir := e.agentDocsRootFor(e.agentDocs.briefPath)
+		if err := verifyAssetGenWritePath(rootDir, e.agentDocs.briefPath, project.BriefFileName); err != nil {
+			return err
+		}
 		if err := writeFileAtomic(e.agentDocs.briefPath, data); err != nil {
 			return err
 		}
@@ -522,6 +640,7 @@ func (e *Editor) SaveBrief() error {
 	}
 	e.agentDocs.briefSaved = data
 	e.agentDocs.rev++
+	e.syncAssetStyleBriefFromAgentDocs()
 	e.notify()
 	return nil
 }
@@ -531,14 +650,23 @@ func (e *Editor) ReloadBrief() error {
 	if e == nil || e.agentDocs.briefPath == "" {
 		return ErrNoProject
 	}
-	raw, err := os.ReadFile(e.agentDocs.briefPath)
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
+	rootDir := e.agentDocsRootFor(e.agentDocs.briefPath)
+	raw, err := readConfinedAgentDoc(rootDir, e.agentDocs.briefPath, project.BriefFileName)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			e.agentDocs.brief = nil
 			e.agentDocs.briefExists = false
 			e.agentDocs.briefSaved = nil
 			e.agentDocs.briefLoadErr = nil
+			e.agentDocs.briefContentRev++
 			e.agentDocs.rev++
+			e.syncAssetStyleBriefFromAgentDocs()
 			e.notify()
 			return nil
 		}
@@ -562,7 +690,9 @@ func (e *Editor) ReloadBrief() error {
 	e.agentDocs.briefExists = true
 	e.agentDocs.briefSaved = enc
 	e.agentDocs.briefLoadErr = nil
+	e.agentDocs.briefContentRev++
 	e.agentDocs.rev++
+	e.syncAssetStyleBriefFromAgentDocs()
 	e.notify()
 	return nil
 }
@@ -640,6 +770,7 @@ func (e *Editor) ProjectRulesCount() int {
 type projectRulesCmd struct {
 	ed            *Editor
 	label         string
+	rootDir       string
 	before        string
 	beforeExists  bool
 	beforeDisk    []byte
@@ -648,8 +779,8 @@ type projectRulesCmd struct {
 }
 
 func (c *projectRulesCmd) Label() string { return c.label }
-func (c *projectRulesCmd) Do()           { _ = c.do() }
-func (c *projectRulesCmd) Undo()         { _ = c.undo() }
+func (c *projectRulesCmd) Do()           { c.ed.report(c.do()) }
+func (c *projectRulesCmd) Undo()         { c.ed.report(c.undo()) }
 
 func (c *projectRulesCmd) do() error {
 	ed := c.ed
@@ -659,6 +790,13 @@ func (c *projectRulesCmd) do() error {
 			return err
 		}
 	} else if ed.agentDocs.rulesPath != "" {
+		rootDir := c.rootDir
+		if rootDir == "" {
+			rootDir = ed.agentDocsRootFor(ed.agentDocs.rulesPath)
+		}
+		if err := verifyAssetGenWritePath(rootDir, ed.agentDocs.rulesPath, ProjectRulesFileName); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(ed.agentDocs.rulesPath), 0o755); err != nil {
 			return err
 		}
@@ -672,6 +810,7 @@ func (c *projectRulesCmd) do() error {
 	if !c.beforeExists {
 		ed.filesRev++
 	}
+	ed.agentDocs.rulesContentRev++
 	ed.agentDocs.rev++
 	ed.notify()
 	return nil
@@ -686,6 +825,13 @@ func (c *projectRulesCmd) undo() error {
 			}
 		}
 	} else if ed.agentDocs.rulesPath != "" {
+		rootDir := c.rootDir
+		if rootDir == "" {
+			rootDir = ed.agentDocsRootFor(ed.agentDocs.rulesPath)
+		}
+		if err := verifyAssetGenWritePath(rootDir, ed.agentDocs.rulesPath, ProjectRulesFileName); err != nil {
+			return err
+		}
 		if c.beforeHasDisk {
 			if err := writeFileAtomic(ed.agentDocs.rulesPath, c.beforeDisk); err != nil {
 				return err
@@ -706,6 +852,7 @@ func (c *projectRulesCmd) undo() error {
 	if !c.beforeExists {
 		ed.filesRev++
 	}
+	ed.agentDocs.rulesContentRev++
 	ed.agentDocs.rev++
 	ed.notify()
 	return nil
@@ -720,16 +867,28 @@ func (e *Editor) SetProjectRules(label, content string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
 	norm := strings.ReplaceAll(content, "\r\n", "\n")
+	if int64(len(norm)) > maxAgentDocBytes {
+		return fmt.Errorf("editor: %s exceeds maximum size of %d bytes", ProjectRulesFileName, maxAgentDocBytes)
+	}
 	if e.agentDocs.rulesExists && e.agentDocs.rules == norm {
 		return nil
 	}
 	var beforeDisk []byte
 	var beforeHasDisk bool
-	if e.agentDocs.rulesPath != "" {
-		if raw, err := os.ReadFile(e.agentDocs.rulesPath); err == nil {
+	rootDir := e.agentDocsRootFor(e.agentDocs.rulesPath)
+	if e.OnSaveProjectRules == nil && e.agentDocs.rulesPath != "" {
+		if err := verifyAssetGenWritePath(rootDir, e.agentDocs.rulesPath, ProjectRulesFileName); err != nil {
+			return err
+		}
+		if raw, err := readConfinedAgentDoc(rootDir, e.agentDocs.rulesPath, ProjectRulesFileName); err == nil {
 			beforeDisk = raw
 			beforeHasDisk = true
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
 		}
 	}
 	if label == "" {
@@ -738,6 +897,7 @@ func (e *Editor) SetProjectRules(label, content string) error {
 	return e.History.execute(&projectRulesCmd{
 		ed:            e,
 		label:         label,
+		rootDir:       rootDir,
 		before:        e.agentDocs.rules,
 		beforeExists:  e.agentDocs.rulesExists,
 		beforeDisk:    beforeDisk,
@@ -751,12 +911,25 @@ func (e *Editor) SaveProjectRules() error {
 	if e == nil || !e.agentDocs.rulesExists {
 		return nil
 	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
 	data := []byte(e.agentDocs.rules)
+	if int64(len(data)) > maxAgentDocBytes {
+		return fmt.Errorf("editor: %s exceeds maximum size of %d bytes", ProjectRulesFileName, maxAgentDocBytes)
+	}
 	if e.OnSaveProjectRules != nil {
 		if err := e.OnSaveProjectRules(data); err != nil {
 			return err
 		}
 	} else if e.agentDocs.rulesPath != "" {
+		rootDir := e.agentDocsRootFor(e.agentDocs.rulesPath)
+		if err := verifyAssetGenWritePath(rootDir, e.agentDocs.rulesPath, ProjectRulesFileName); err != nil {
+			return err
+		}
 		if err := writeFileAtomic(e.agentDocs.rulesPath, data); err != nil {
 			return err
 		}
@@ -774,12 +947,20 @@ func (e *Editor) ReloadProjectRules() error {
 	if e == nil || e.agentDocs.rulesPath == "" {
 		return ErrNoProject
 	}
-	raw, err := os.ReadFile(e.agentDocs.rulesPath)
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
+	rootDir := e.agentDocsRootFor(e.agentDocs.rulesPath)
+	raw, err := readConfinedAgentDoc(rootDir, e.agentDocs.rulesPath, ProjectRulesFileName)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			e.agentDocs.rules = ""
 			e.agentDocs.rulesExists = false
 			e.agentDocs.rulesSaved = ""
+			e.agentDocs.rulesContentRev++
 			e.agentDocs.rev++
 			e.notify()
 			return nil
@@ -790,6 +971,7 @@ func (e *Editor) ReloadProjectRules() error {
 	e.agentDocs.rules = text
 	e.agentDocs.rulesExists = true
 	e.agentDocs.rulesSaved = text
+	e.agentDocs.rulesContentRev++
 	e.agentDocs.rev++
 	e.notify()
 	return nil
@@ -913,7 +1095,7 @@ func (e *Editor) SuggestedProjectRules() []SuggestedProjectRule {
 
 // DismissSuggestedRule hides suggestion id from SuggestedProjectRules.
 func (e *Editor) DismissSuggestedRule(id string) {
-	if e == nil || id == "" {
+	if e == nil || id == "" || e.playing || e.MergeConflictOpen() {
 		return
 	}
 	if e.agentDocs.dismissedSuggest == nil {
@@ -929,6 +1111,12 @@ func (e *Editor) DismissSuggestedRule(id string) {
 func (e *Editor) ProposeSuggestedRule(id string) (*DocReview, error) {
 	if e == nil {
 		return nil, errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return nil, ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return nil, ErrMergeConflictInProgress
 	}
 	for _, s := range e.SuggestedProjectRules() {
 		if s.ID == id {
@@ -1037,6 +1225,12 @@ func (e *Editor) ProposeBriefReview(next *project.Brief, summary, rationale, sou
 	if e == nil {
 		return nil, errors.New("editor: nil editor")
 	}
+	if e.playing {
+		return nil, ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return nil, ErrMergeConflictInProgress
+	}
 	if next == nil {
 		return nil, errors.New("editor: nil brief")
 	}
@@ -1047,6 +1241,9 @@ func (e *Editor) ProposeBriefReview(next *project.Brief, summary, rationale, sou
 	afterBytes, err := project.EncodeBrief(next)
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(afterBytes)) > maxAgentDocBytes {
+		return nil, fmt.Errorf("editor: %s exceeds maximum size of %d bytes", project.BriefFileName, maxAgentDocBytes)
 	}
 	var before string
 	if e.BriefExists() {
@@ -1073,7 +1270,16 @@ func (e *Editor) ProposeProjectRulesReview(nextMarkdown, summary, rationale, sou
 	if e == nil {
 		return nil, errors.New("editor: nil editor")
 	}
+	if e.playing {
+		return nil, ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return nil, ErrMergeConflictInProgress
+	}
 	after := strings.ReplaceAll(nextMarkdown, "\r\n", "\n")
+	if int64(len(after)) > maxAgentDocBytes {
+		return nil, fmt.Errorf("editor: %s exceeds maximum size of %d bytes", ProjectRulesFileName, maxAgentDocBytes)
+	}
 	before := e.agentDocs.rules
 	if before == after {
 		return nil, errors.New("editor: proposed AGENTS.md makes no changes")
@@ -1142,6 +1348,9 @@ func (e *Editor) KeepDocReview(id string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
 	idx := -1
 	for i := range e.agentDocs.reviews {
 		if e.agentDocs.reviews[i].ID == id {
@@ -1191,6 +1400,12 @@ func (e *Editor) KeepDocReview(id string) error {
 func (e *Editor) RevertDocReview(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
 	}
 	idx := -1
 	for i := range e.agentDocs.reviews {
@@ -1262,17 +1477,27 @@ func splitLinesForDiff(s string) []string {
 }
 
 // SettingsPageContext returns the page ID, display title, scope pill, and associated project file
-// for the active Settings tab.
+// for the active Settings page.
 func (e *Editor) SettingsPageContext() (pageID, title, scope, file string) {
-	switch e.EditorSettingsTab() {
-	case EditorSettingsTabBrief:
+	switch e.SettingsPage() {
+	case SettingsPageProject:
+		return "project", e.T("settings.page.project"), e.T("settings.scopeProject"), project.FileName
+	case SettingsPageInput:
+		return "input", e.T("settings.page.input"), e.T("settings.scopeProject"), project.FileName
+	case SettingsPageAudio:
+		return "audio", e.T("settings.page.audio"), e.T("settings.scopeProject"), project.FileName
+	case SettingsPageExport:
+		return "export", e.T("settings.page.export"), e.T("settings.scopeProject"), project.FileName
+	case SettingsPagePermissions:
+		return "permissions", e.T("permissions.title"), PermissionsFileName, PermissionsFileName
+	case SettingsPageBrief:
 		return "brief", e.T("settings.brief"), e.T("settings.scopeBrief"), project.BriefFileName
-	case EditorSettingsTabRules:
+	case SettingsPageRules:
 		return "rules", e.T("settings.rules"), e.T("settings.scopeRules"), ProjectRulesFileName
-	case EditorSettingsTabShortcuts:
-		return "shortcuts", e.T("settings.shortcuts"), e.T("settings.thisComputer"), ""
+	case SettingsPageShortcuts:
+		return "shortcuts", e.T("settings.shortcuts"), e.T("settings.scopeComputer"), ""
 	default:
-		return "general", e.T("settings.general"), e.T("settings.thisComputer"), ""
+		return "general", e.T("settings.general"), e.T("settings.scopeComputer"), ""
 	}
 }
 
@@ -1280,7 +1505,7 @@ func (e *Editor) SettingsPageContext() (pageID, title, scope, file string) {
 // card or the top Settings search bar) with the current Settings page as context, updating
 // ComposerDraft and invoking OnSettingsAgentRequest and OnComposerPrompt when set.
 func (e *Editor) AskAgentFromSettings(source, prompt string) SettingsAgentRequest {
-	if e == nil {
+	if e == nil || e.playing || e.MergeConflictOpen() {
 		return SettingsAgentRequest{}
 	}
 	prompt = strings.TrimSpace(prompt)
@@ -1349,10 +1574,15 @@ func (e *Editor) BriefAgentNote() (note string, suggestions []string) {
 					if scene == "" {
 						scene = "playtests"
 					}
-					note = fmt.Sprintf("%s %s average %g, outside the %s your brief asks for.", scene, strings.ToLower(label), m.Value, m.Goal.Describe(m.Unit))
-					sug := []string{fmt.Sprintf("Tune %s toward the brief", scene)}
+					note = e.T("settings.briefAgentMissedNote",
+						l10n.Param("scene", scene),
+						l10n.Param("metric", strings.ToLower(label)),
+						l10n.Param("value", fmt.Sprintf("%g", m.Value)),
+						l10n.Param("goal", m.Goal.Describe(m.Unit)),
+					)
+					sug := []string{e.T("settings.briefAgentTuneSceneAsk", l10n.Param("scene", scene))}
 					if len(gaps) > 0 {
-						sug = append(sug, "Fill in the missing "+briefSectionDisplayNames(gaps)+" section")
+						sug = append(sug, e.T("settings.briefAgentFillMissingAsk", l10n.Param("sections", e.briefSectionDisplayNames(gaps))))
 					} else {
 						sug = append(sug, e.T("settings.briefAgentTargetsAsk"))
 					}
@@ -1362,9 +1592,9 @@ func (e *Editor) BriefAgentNote() (note string, suggestions []string) {
 		}
 	}
 	if len(gaps) > 0 {
-		gapText := briefSectionDisplayNames(gaps)
-		return fmt.Sprintf("The agent reads brief.yaml before every request. Missing: %s.", gapText), []string{
-			"Fill in the missing " + gapText + " section",
+		gapText := e.briefSectionDisplayNames(gaps)
+		return e.T("settings.briefAgentMissingNote", l10n.Param("sections", gapText)), []string{
+			e.T("settings.briefAgentFillMissingAsk", l10n.Param("sections", gapText)),
 			e.T("settings.briefAgentTargetsAsk"),
 		}
 	}
@@ -1383,15 +1613,37 @@ func (e *Editor) RulesAgentNote() (note string, suggestions []string) {
 	}
 }
 
-func briefSectionDisplayNames(sections []project.BriefSection) string {
+func (e *Editor) briefSectionDisplayNames(sections []project.BriefSection) string {
 	names := make([]string, 0, len(sections))
 	for _, s := range sections {
-		names = append(names, briefSectionLabel(s))
+		names = append(names, e.briefSectionLabel(s))
 	}
-	return strings.Join(names, ", ")
+	sep := ", "
+	if e != nil && e.ResolvedLanguage() == string(LanguageChinese) {
+		sep = "、"
+	}
+	return strings.Join(names, sep)
 }
 
-func briefSectionLabel(s project.BriefSection) string {
+func (e *Editor) briefSectionLabel(s project.BriefSection) string {
+	if e != nil && e.ResolvedLanguage() == string(LanguageChinese) {
+		switch s {
+		case project.BriefSectionPitch:
+			return e.T("settings.briefPitch")
+		case project.BriefSectionGenre:
+			return e.T("settings.briefGenre")
+		case project.BriefSectionPlatforms:
+			return e.T("settings.briefPlatforms")
+		case project.BriefSectionArtDirection:
+			return e.T("settings.briefArtDirection")
+		case project.BriefSectionFeel:
+			return e.T("settings.briefFeel")
+		case project.BriefSectionToneAndAudio:
+			return e.T("settings.briefToneAudio")
+		default:
+			return string(s)
+		}
+	}
 	switch s {
 	case project.BriefSectionPitch:
 		return "pitch"

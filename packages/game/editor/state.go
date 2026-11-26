@@ -550,22 +550,18 @@ type Editor struct {
 	SaveFileWriter func(path string, data []byte) error
 	// FreeSpaceBytes optionally overrides available-disk-space lookup for path when formatting disk-full save errors (for example "Couldn't save: disk is full · 12 MB free"). When nil, the OS filesystem free space is queried.
 	FreeSpaceBytes func(path string) (uint64, bool)
-<<<<<<< HEAD
 	// AgentTaskRunner, when set, executes each background agent task started by SubmitTask or the queue scheduler in its own goroutine.
 	AgentTaskRunner func(ctx context.Context, task AgentTask) error
 	// OnTaskPermissionDecision, when set, is called when the user clicks Allow once or Deny on a TaskNeedsYou task.
 	OnTaskPermissionDecision func(taskID string, allow bool)
 	// ThreadsDir optionally overrides where *.thread.yaml background task files are persisted; when empty, <projectDir>/.nsgo/threads is used while a project is open.
 	ThreadsDir string
-||||||| parent of 1dbbcb27 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
-=======
 	// OnSettingsAgentRequest, when set, is called when the author clicks a suggested ask or submits an agent prompt on a Settings page or in the Settings search bar.
 	OnSettingsAgentRequest func(SettingsAgentRequest)
 	// OnSaveBrief, when set, overrides writing brief.yaml on disk when the game brief is edited or saved.
 	OnSaveBrief func(data []byte) error
 	// OnSaveProjectRules, when set, overrides writing AGENTS.md on disk when project rules are edited or saved.
 	OnSaveProjectRules func(data []byte) error
->>>>>>> 1dbbcb27 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
 
 	playing            bool
 	playPaused         bool

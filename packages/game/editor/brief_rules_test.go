@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -321,5 +323,482 @@ func TestSettingsAgentOnThisPageAndSearchDispatch(t *testing.T) {
 	}
 	if !strings.Contains(ed.ComposerDraft(), "AGENTS.md") || !strings.Contains(ed.ComposerDraft(), "make the game feel harder") {
 		t.Fatalf("ComposerDraft() = %q", ed.ComposerDraft())
+	}
+}
+
+func TestBriefAndRulesSymlinkContainmentAndSizeCaps(t *testing.T) {
+	outsideDir := t.TempDir()
+	secretBrief := filepath.Join(outsideDir, "secret-brief.yaml")
+	secretRules := filepath.Join(outsideDir, "secret-rules.md")
+	const secretBriefBody = "version: 1\npitch: TOP_SECRET_OUTSIDE\n"
+	const secretRulesBody = "# SECRET\n- Never leak this.\n"
+	if err := os.WriteFile(secretBrief, []byte(secretBriefBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secretRules, []byte(secretRulesBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := writeMinimalProjectForBrief(t)
+	briefLink := filepath.Join(dir, project.BriefFileName)
+	rulesLink := filepath.Join(dir, editor.ProjectRulesFileName)
+	if err := os.Symlink(secretBrief, briefLink); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := os.Symlink(secretRules, rulesLink); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	if ed.BriefExists() {
+		t.Fatal("symlinked brief.yaml must not be loaded")
+	}
+	if ed.BriefLoadErr() == nil {
+		t.Fatal("expected BriefLoadErr for symlinked brief.yaml")
+	}
+	if ed.ProjectRulesExists() || ed.ProjectRules() != "" {
+		t.Fatalf("symlinked AGENTS.md must not be loaded, got exists=%v content=%q", ed.ProjectRulesExists(), ed.ProjectRules())
+	}
+	if err := ed.SetBriefPitch("overwrite attempt"); err == nil {
+		t.Fatal("EditBrief must refuse symlinked brief.yaml")
+	}
+	if err := ed.SetProjectRules("overwrite", "- hijack\n"); err == nil {
+		t.Fatal("SetProjectRules must refuse symlinked AGENTS.md")
+	}
+	// External targets must be completely untouched.
+	if got, _ := os.ReadFile(secretBrief); string(got) != secretBriefBody {
+		t.Fatalf("external secretBrief modified: %q", got)
+	}
+	if got, _ := os.ReadFile(secretRules); string(got) != secretRulesBody {
+		t.Fatalf("external secretRules modified: %q", got)
+	}
+
+	// Undo must also refuse to delete/overwrite if brief.yaml was replaced by a symlink after creation.
+	dir2 := writeMinimalProjectForBrief(t)
+	ed2, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed2.OpenProject(dir2); err != nil {
+		t.Fatal(err)
+	}
+	ed2.WaitForProblems()
+	if err := ed2.SetBriefPitch("Legit pitch"); err != nil {
+		t.Fatal(err)
+	}
+	realBriefPath := filepath.Join(dir2, project.BriefFileName)
+	if err := os.Remove(realBriefPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secretBrief, realBriefPath); err != nil {
+		t.Fatal(err)
+	}
+	ed2.Undo()
+	// Symlink must still exist (not unlinked via os.Remove) and secret target untouched.
+	if fi, err := os.Lstat(realBriefPath); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("Undo should have refused to remove symlinked brief.yaml (err=%v)", err)
+	}
+	if got, _ := os.ReadFile(secretBrief); string(got) != secretBriefBody {
+		t.Fatalf("external secretBrief modified on Undo: %q", got)
+	}
+
+	// Oversized (> 1 MiB) files on disk and in-memory mutations are refused.
+	dir3 := writeMinimalProjectForBrief(t)
+	huge := "version: 1\npitch: " + strings.Repeat("a", (1<<20)+128) + "\n"
+	if err := os.WriteFile(filepath.Join(dir3, project.BriefFileName), []byte(huge), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir3, editor.ProjectRulesFileName), []byte(strings.Repeat("x", (1<<20)+128)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed3, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed3.OpenProject(dir3); err != nil {
+		t.Fatal(err)
+	}
+	ed3.WaitForProblems()
+	if ed3.BriefExists() || ed3.BriefLoadErr() == nil {
+		t.Fatalf("expected oversized brief.yaml to be rejected, exists=%v err=%v", ed3.BriefExists(), ed3.BriefLoadErr())
+	}
+	if ed3.ProjectRulesExists() || ed3.ProjectRules() != "" {
+		t.Fatalf("expected oversized AGENTS.md to be rejected, exists=%v len=%d", ed3.ProjectRulesExists(), len(ed3.ProjectRules()))
+	}
+	if err := ed3.SetProjectRules("huge", strings.Repeat("r", (1<<20)+64)); err == nil {
+		t.Fatal("SetProjectRules accepted > 1 MiB payload")
+	}
+}
+
+func TestBriefAndRulesOpenDemoResetAndAllSettingsPageContexts(t *testing.T) {
+	dirA := writeMinimalProjectForBrief(t)
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dirA); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	if err := ed.SetBriefPitch("Project A pitch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetProjectRules("init", "- Rule from project A.\n"); err != nil {
+		t.Fatal(err)
+	}
+	ed.RecordReviewOutcome(editor.ReviewOutcomeRecord{Action: "moved the camera bounds", Kept: false})
+	if _, err := ed.ProposeProjectRulesReview("- Rule from project A.\n- Pending rule.\n", "add", "", "agent"); err != nil {
+		t.Fatal(err)
+	}
+	ed.OpenBriefSettings()
+	ed.AskAgentFromSettings("page_composer", "check pitch")
+
+	// Verify SettingsPageContext covers all 8 unified Settings pages.
+	pages := []struct {
+		page editor.SettingsPage
+		id   string
+		file string
+	}{
+		{editor.SettingsPageProject, "project", project.FileName},
+		{editor.SettingsPageInput, "input", project.FileName},
+		{editor.SettingsPageAudio, "audio", project.FileName},
+		{editor.SettingsPageExport, "export", project.FileName},
+		{editor.SettingsPagePermissions, "permissions", editor.PermissionsFileName},
+		{editor.SettingsPageBrief, "brief", project.BriefFileName},
+		{editor.SettingsPageRules, "rules", editor.ProjectRulesFileName},
+		{editor.SettingsPageShortcuts, "shortcuts", ""},
+		{editor.SettingsPageGeneral, "general", ""},
+	}
+	for _, tc := range pages {
+		ed.OpenSettingsPage(tc.page)
+		gotID, gotTitle, gotScope, gotFile := ed.SettingsPageContext()
+		if gotID != tc.id || gotTitle == "" || gotScope == "" || gotFile != tc.file {
+			t.Fatalf("SettingsPageContext(%s) = (%q, %q, %q, %q), want id=%q file=%q", tc.page, gotID, gotTitle, gotScope, gotFile, tc.id, tc.file)
+		}
+	}
+
+	origBriefBytes, err := os.ReadFile(filepath.Join(dirA, project.BriefFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	origRulesBytes, err := os.ReadFile(filepath.Join(dirA, editor.ProjectRulesFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Switching to OpenDemo must completely reset all agentDocs state and detach Project A paths.
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.BriefExists() || ed.BriefPath() != "" {
+		t.Fatalf("after OpenDemo: BriefExists=%v BriefPath=%q", ed.BriefExists(), ed.BriefPath())
+	}
+	if ed.ProjectRulesExists() || ed.ProjectRulesPath() != "" || ed.ProjectRules() != "" {
+		t.Fatalf("after OpenDemo: rulesExists=%v path=%q rules=%q", ed.ProjectRulesExists(), ed.ProjectRulesPath(), ed.ProjectRules())
+	}
+	if len(ed.PendingDocReviews("")) != 0 || len(ed.ReviewOutcomes()) != 0 || ed.LastSettingsAgentRequest().Prompt != "" {
+		t.Fatalf("after OpenDemo: stale reviews=%d outcomes=%d lastReq=%+v", len(ed.PendingDocReviews("")), len(ed.ReviewOutcomes()), ed.LastSettingsAgentRequest())
+	}
+
+	// Editing brief/rules while in Demo must NEVER write to Project A's directory.
+	if err := ed.SetBriefPitch("Demo-only pitch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetProjectRules("demo", "- Demo rule.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dirA, project.BriefFileName)); !bytes.Equal(got, origBriefBytes) {
+		t.Fatalf("Demo edit overwrote Project A brief.yaml:\n%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dirA, editor.ProjectRulesFileName)); !bytes.Equal(got, origRulesBytes) {
+		t.Fatalf("Demo edit overwrote Project A AGENTS.md:\n%s", got)
+	}
+}
+
+func TestBriefAndRulesPlayModeAndMergeConflictGuards(t *testing.T) {
+	dir := writeMinimalProjectForBrief(t)
+	ed, err := editor.New(editor.DemoSceneDoc(), editor.DemoAtlasMap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+	if err := ed.SetBriefPitch("Guard test pitch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetProjectRules("init", "- Guard rule.\n"); err != nil {
+		t.Fatal(err)
+	}
+	ed.RecordReviewOutcomes(
+		editor.ReviewOutcomeRecord{Action: "moved the camera bounds", Kept: false},
+		editor.ReviewOutcomeRecord{Action: "moved the camera bounds", Kept: false},
+	)
+	sug := ed.SuggestedProjectRules()
+	if len(sug) == 0 {
+		t.Fatal("expected suggested rule")
+	}
+	pending, err := ed.ProposeProjectRulesReview("- Guard rule.\n- Proposed.\n", "add", "", "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Play mode guards.
+	var rootScope *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 680))
+	var playGuardErr string
+	app.Post(func() {
+		if err := ed.PlayIn(rootScope); err != nil {
+			playGuardErr = "PlayIn: " + err.Error()
+			return
+		}
+		if err := ed.SetBriefPitch("blocked"); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "EditBrief during Play != ErrPlaying"
+			return
+		}
+		if err := ed.SaveBrief(); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "SaveBrief during Play != ErrPlaying"
+			return
+		}
+		if err := ed.ReloadBrief(); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "ReloadBrief during Play != ErrPlaying"
+			return
+		}
+		if err := ed.SetProjectRules("blocked", "x"); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "SetProjectRules during Play != ErrPlaying"
+			return
+		}
+		if err := ed.SaveProjectRules(); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "SaveProjectRules during Play != ErrPlaying"
+			return
+		}
+		if err := ed.ReloadProjectRules(); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "ReloadProjectRules during Play != ErrPlaying"
+			return
+		}
+		if _, err := ed.ProposeBriefReview(&project.Brief{Version: 1, Pitch: "x"}, "", "", ""); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "ProposeBriefReview during Play != ErrPlaying"
+			return
+		}
+		if _, err := ed.ProposeProjectRulesReview("x", "", "", ""); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "ProposeProjectRulesReview during Play != ErrPlaying"
+			return
+		}
+		if _, err := ed.ProposeSuggestedRule(sug[0].ID); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "ProposeSuggestedRule during Play != ErrPlaying"
+			return
+		}
+		if err := ed.KeepDocReview(pending.ID); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "KeepDocReview during Play != ErrPlaying"
+			return
+		}
+		if err := ed.RevertDocReview(pending.ID); !errors.Is(err, editor.ErrPlaying) {
+			playGuardErr = "RevertDocReview during Play != ErrPlaying"
+			return
+		}
+		if req := ed.AskAgentFromSettings("search", "blocked"); req.Prompt != "" {
+			playGuardErr = "AskAgentFromSettings during Play should return empty"
+			return
+		}
+		ed.DismissSuggestedRule(sug[0].ID)
+		if len(ed.SuggestedProjectRules()) == 0 {
+			playGuardErr = "DismissSuggestedRule during Play must be a no-op"
+			return
+		}
+		if err := ed.Stop(); err != nil {
+			playGuardErr = "Stop: " + err.Error()
+		}
+	})
+	app.Settle()
+	if playGuardErr != "" {
+		t.Fatal(playGuardErr)
+	}
+
+	// 2. Merge conflict guards.
+	baseDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "c",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "main",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "hero", Name: "Hero", X: 10, Y: 10},
+			},
+		}},
+	}
+	mineDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "c",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "main",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "hero", Name: "Hero", X: 20, Y: 10},
+			},
+		}},
+	}
+	theirsDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "c",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "main",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "hero", Name: "Hero", X: 30, Y: 10},
+			},
+		}},
+	}
+	var mergeGuardErr string
+	app.Post(func() {
+		if err := ed.OpenMergeConflictSession(editor.MergeConflictSessionConfig{
+			ScenePath: "scenes/main.scene.yaml",
+			BaseDoc:   baseDoc,
+			MineDoc:   mineDoc,
+			TheirsDoc: theirsDoc,
+		}); err != nil {
+			mergeGuardErr = "OpenMergeConflictSession: " + err.Error()
+			return
+		}
+		if err := ed.SetBriefPitch("blocked"); !errors.Is(err, editor.ErrMergeConflictInProgress) {
+			mergeGuardErr = "EditBrief during merge != ErrMergeConflictInProgress"
+			return
+		}
+		if err := ed.SetProjectRules("blocked", "x"); !errors.Is(err, editor.ErrMergeConflictInProgress) {
+			mergeGuardErr = "SetProjectRules during merge != ErrMergeConflictInProgress"
+			return
+		}
+		if _, err := ed.ProposeBriefReview(&project.Brief{Version: 1, Pitch: "x"}, "", "", ""); !errors.Is(err, editor.ErrMergeConflictInProgress) {
+			mergeGuardErr = "ProposeBriefReview during merge != ErrMergeConflictInProgress"
+			return
+		}
+		if err := ed.KeepDocReview(pending.ID); !errors.Is(err, editor.ErrMergeConflictInProgress) {
+			mergeGuardErr = "KeepDocReview during merge != ErrMergeConflictInProgress"
+			return
+		}
+		if err := ed.RevertDocReview(pending.ID); !errors.Is(err, editor.ErrMergeConflictInProgress) {
+			mergeGuardErr = "RevertDocReview during merge != ErrMergeConflictInProgress"
+			return
+		}
+		if req := ed.AskAgentFromSettings("search", "blocked"); req.Prompt != "" {
+			mergeGuardErr = "AskAgentFromSettings during merge should return empty"
+		}
+	})
+	app.Settle()
+	if mergeGuardErr != "" {
+		t.Fatal(mergeGuardErr)
+	}
+}
+
+func TestBriefAndRulesDraftStabilityAndThemeRepaint(t *testing.T) {
+	dir := writeMinimalProjectForBrief(t)
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+	ed.RecordReviewOutcomes(
+		editor.ReviewOutcomeRecord{Action: "moved the camera bounds", Kept: false},
+		editor.ReviewOutcomeRecord{Action: "moved the camera bounds", Kept: false},
+	)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	}))
+
+	// 1. Unsaved brief draft must survive incoming DocReviews and form validation errors.
+	app.Post(func() { ed.OpenBriefSettings() })
+	app.Settle()
+	app.Type("id:brief-pitch-input", "Unsaved draft pitch")
+	app.Post(func() {
+		_, _ = ed.ProposeBriefReview(&project.Brief{Version: 1, Pitch: "Agent proposal"}, "agent pitch", "", "agent")
+	})
+	app.Settle()
+	// Trigger target validation error (empty metric).
+	app.Press("id:brief-target-add-btn")
+	if app.Find("id:brief-form-error") == nil {
+		t.Fatal("expected brief-form-error to appear")
+	}
+	// Pressing Save brief should persist our preserved unsaved draft, not an empty wiped field!
+	app.Press("id:brief-save-btn")
+	if b := ed.Brief(); b == nil || b.Pitch != "Unsaved draft pitch" {
+		t.Fatalf("unsaved brief draft was wiped before save; got brief=%+v", b)
+	}
+
+	// 2. Unsaved rules draft must survive incoming DocReviews and dismissing suggestions.
+	app.Press("id:editor-settings-tab-rules")
+	app.Type("id:rules-markdown-input", "- Unsaved custom rule.\n")
+	app.Post(func() {
+		_, _ = ed.ProposeProjectRulesReview("- Agent rule.\n", "agent rule", "", "agent")
+		for _, s := range ed.SuggestedProjectRules() {
+			ed.DismissSuggestedRule(s.ID)
+		}
+	})
+	app.Settle()
+	app.Press("id:rules-save-btn")
+	if !strings.Contains(ed.ProjectRules(), "Unsaved custom rule.") {
+		t.Fatalf("unsaved rules draft was wiped before save; got %q", ed.ProjectRules())
+	}
+
+	// 3. Live Dark -> Light Spec appearance switch repaints settings-agent-card.
+	cardDark := app.Find("id:settings-agent-card")
+	if cardDark == nil {
+		t.Fatal("settings-agent-card missing in dark theme")
+	}
+	darkBG := cardDark.Style.Background
+	if darkBG != editor.SpecPaletteFor(true).Panel {
+		t.Fatalf("dark settings-agent-card bg = %#x, want %#x", uint32(darkBG), uint32(editor.SpecPaletteFor(true).Panel))
+	}
+	app.Post(func() { _ = ed.SetAppearance(editor.AppearanceLight) })
+	app.Settle()
+	cardLight := app.Find("id:settings-agent-card")
+	if cardLight == nil {
+		t.Fatal("settings-agent-card missing in light theme")
+	}
+	if cardLight.Style.Background != editor.SpecPaletteFor(false).Panel {
+		t.Fatalf("light settings-agent-card bg = %#x, want %#x", uint32(cardLight.Style.Background), uint32(editor.SpecPaletteFor(false).Panel))
+	}
+}
+
+func TestBriefArtDirectionSyncsAssetGeneratorStyleBrief(t *testing.T) {
+	dir := writeMinimalProjectForBrief(t)
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	const art = "16 px pixel art with warm torch light and cool stone shadows."
+	if err := ed.SetBriefArtDirection(art); err != nil {
+		t.Fatalf("SetBriefArtDirection: %v", err)
+	}
+	if got := ed.AssetStyleBrief().Summary; got != art {
+		t.Fatalf("AssetStyleBrief().Summary = %q, want %q", got, art)
+	}
+	if !ed.Undo() {
+		t.Fatal("expected Undo to succeed")
+	}
+	if got := ed.AssetStyleBrief().Summary; got != editor.DefaultAssetStyleBrief().Summary {
+		t.Fatalf("after Undo AssetStyleBrief().Summary = %q, want %q", got, editor.DefaultAssetStyleBrief().Summary)
 	}
 }

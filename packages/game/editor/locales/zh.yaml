@@ -762,9 +762,13 @@ strings:
   settings.briefAgentCompleteNote: 简报已填写完整。智能体在每次请求前都会阅读 brief.yaml 并对照检查自己的修改。
   settings.briefAgentDraftAsk: 根据当前项目起草 brief.yaml
   settings.briefAgentEmptyNote: 此项目还没有 brief.yaml。填写核心概念和目标，或让智能体为你起草一份。
+  settings.briefAgentFillMissingAsk: 补充缺失的{sections}栏目
   settings.briefAgentFooter: 智能体会在每次请求前阅读此文件并对照自检，例如试玩目标会来自“手感与难度”。
+  settings.briefAgentMissedNote: '{scene} 的 {metric} 平均值为 {value}，超出了简报要求的 {goal}。'
+  settings.briefAgentMissingNote: 智能体在每次请求前都会阅读 brief.yaml。缺少：{sections}。
   settings.briefAgentTargetsAsk: 根据简报生成 playtest.yaml 目标
   settings.briefAgentTuneAsk: 按简报调整关卡难度
+  settings.briefAgentTuneSceneAsk: 按简报调整 {scene}
   settings.briefArtDirection: 美术方向
   settings.briefArtPlaceholder: 像素规格、配色、描边与光照规则…
   settings.briefEmptyBadge: 未填写
@@ -785,6 +789,9 @@ strings:
   settings.briefSave: 保存简报
   settings.briefTags: 标签
   settings.briefTagsPlaceholder: 逗号分隔的标签（例如 dungeon, pixel-art）
+  settings.briefTargetMaxNumErr: 目标最大值必须是数字。
+  settings.briefTargetMetricReq: 必须填写目标指标名称。
+  settings.briefTargetMinNumErr: 目标最小值必须是数字。
   settings.briefToneAudio: 氛围与音频
   settings.briefTonePlaceholder: 情绪基调、音乐与音效方向…
   settings.connectAnother: + 连接其他智能体或模型
