@@ -143,11 +143,11 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 	sceneNameRef := &core.Ref{}
 	if ed.focus.ctrl != nil {
-		ed.focus.ctrl.registerCandidate(RegionInspector, sceneNameRef, func() bool {
+		ed.focus.ctrl.registerCandidate(cx, RegionInspector, sceneNameRef, func() bool {
 			return !disabled()
 		})
 	}
-	bgInput := specInputField(ed, ui.Input{
+	bgInput := specInputField(cx, ed, ui.Input{
 		TestID:      "inspector-scene-bg",
 		Label:       ed.T("inspector.backgroundColor"),
 		Placeholder: "#141824",
@@ -398,7 +398,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				}
 			},
 		},
-		fieldRow(ed.T("inspector.name"), specInputField(ed, ui.Input{
+		fieldRow(ed.T("inspector.name"), specInputField(cx, ed, ui.Input{
 			Ref:      sceneNameRef,
 			TestID:   "inspector-scene-name",
 			Label:    ed.T("inspector.sceneName"),

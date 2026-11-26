@@ -511,6 +511,12 @@ strings:
   problems.title: 问题（{count}）
   problems.titleChecking: 问题（检查中…）
   problems.warning: 警告
+  region.header: 顶栏
+  region.inspector: 智能体与检查器
+  region.sceneTree: 场景树
+  region.statusBar: 状态栏
+  region.toast: 通知
+  region.viewport: 视口
   scene.untitled: 未命名
   scene.untitledScene: 未命名场景
   sceneTree.active: 当前

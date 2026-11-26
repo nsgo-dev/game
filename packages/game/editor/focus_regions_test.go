@@ -18,6 +18,7 @@ var wantSpecAccent = core.RGB(0x3B7BFF)
 var focusDesktopEnv = nsgotest.Environment(core.Environment{
 	OS:    core.OSMacOS,
 	Idiom: core.IdiomDesktop,
+	Dark:  true,
 })
 
 func newFocusTestScene() *sceneformat.SceneDoc {
@@ -259,10 +260,10 @@ func TestF6CyclesRegionsInSpecOrderAndRestoresLastControl(t *testing.T) {
 	}
 
 	// Show a toast: must NOT steal focus from Header, and must now appear after StatusBar in F6 order.
-	toastID := ed.ShowToast(editor.EditorToast{
-		Kind:    editor.ToastSuccess,
-		Message: "Kept 3 changes",
-		Action:  "Undo",
+	ed.ShowToast(editor.Toast{
+		Kind:        editor.ToastSuccess,
+		Message:     "Kept 3 changes",
+		ActionLabel: "Undo",
 	})
 	app.Settle()
 	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
@@ -305,7 +306,7 @@ func TestF6CyclesRegionsInSpecOrderAndRestoresLastControl(t *testing.T) {
 		t.Fatalf("returning to Toast did not restore last focused control: got %q, want editor-toast-dismiss", gotID)
 	}
 
-	ed.DismissToast(toastID)
+	ed.DismissToast()
 	app.Settle()
 }
 
@@ -385,19 +386,19 @@ func TestDialogTrapsFocusAndEscRestoresOpener(t *testing.T) {
 	}, focusDesktopEnv, nsgotest.Size(1440, 900))
 	app.Settle()
 
-	// 1. Open Editor Settings via keyboard on toolbar-editor-settings.
+	// 1. Open Keyboard Shortcuts modal (⌘/) while focused on toolbar-editor-settings.
 	app.Focus("id:toolbar-editor-settings")
 	app.Settle()
-	app.Key("enter")
+	app.Key("meta+/")
 	app.Settle()
-	if !ed.EditorSettingsOpen() {
-		t.Fatal("expected Editor Settings dialog to open on Enter")
+	if !ed.ShortcutsSheetOpen() {
+		t.Fatal("expected Shortcuts Sheet dialog to open on Cmd+/")
 	}
 
-	dialog := app.Find("id:editor-settings-dialog")
+	dialog := app.Find("id:editor-shortcuts-sheet")
 
-	// Tab must stay trapped inside the dialog across repeated Tab presses.
-	for i := 0; i < 10; i++ {
+	// Tab must stay trapped inside the modal dialog across repeated Tab presses.
+	for i := 0; i < 6; i++ {
 		app.Key("tab")
 		app.Settle()
 		fv := focusedView(app)
@@ -424,18 +425,43 @@ func TestDialogTrapsFocusAndEscRestoresOpener(t *testing.T) {
 	app.Key("escape")
 	app.Advance(250 * time.Millisecond)
 	app.Settle()
-	if ed.EditorSettingsOpen() {
-		t.Fatal("expected Esc to close Editor Settings dialog")
+	if ed.ShortcutsSheetOpen() {
+		t.Fatal("expected Esc to close Shortcuts Sheet dialog")
 	}
 	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after Esc closed Editor Settings, focus = %q, want toolbar-editor-settings", gotID)
+		t.Fatalf("after Esc closed Shortcuts Sheet, focus = %q, want toolbar-editor-settings", gotID)
 	}
 
-	// 2. Open Command Palette via mouse click on toolbar-palette, close with Esc -> returns focus to toolbar-palette.
+	// 2. Open unified Settings view via Enter on toolbar-editor-settings, verify F6 is blocked, and Esc restores toolbar-editor-settings.
+	app.Key("enter")
+	app.Settle()
+	if !ed.SettingsOpen() {
+		t.Fatal("expected Settings view to open on Enter")
+	}
+	app.Key("f6")
+	app.Settle()
+	if ed.ActiveRegionRing() != editor.RegionNone {
+		t.Fatalf("F6 fired while Settings view open: ActiveRegionRing() = %q", ed.ActiveRegionRing())
+	}
+	app.Key("escape")
+	app.Advance(250 * time.Millisecond)
+	app.Settle()
+	if ed.SettingsOpen() {
+		t.Fatal("expected Esc to close Settings view")
+	}
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+		gotID := "<nil>"
+		if fv != nil {
+			gotID = fv.Props.TestID
+		}
+		t.Fatalf("after Esc closed Settings view, focus = %q, want toolbar-editor-settings", gotID)
+	}
+
+	// 3. Open Command Palette via mouse click on toolbar-palette, close with Esc -> returns focus to toolbar-palette.
 	app.Press("id:toolbar-palette")
 	app.Settle()
 	if !ed.CommandPaletteOpen() {
@@ -897,4 +923,160 @@ func TestFocusRingGalleryScreenshots(t *testing.T) {
 	app.Key("tab")
 	app.Settle()
 	app.Screenshot("editor-f6-viewport")
+}
+
+// TestFocusSpecLightCaptureGuardsUnmountTypingAndScrub verifies:
+// 1. Spec Light appearance uses LightSpecPalette().Accent.Edge (#1D5CE6) on focus rings and F6 regions.
+// 2. Active shortcut capture in Settings › Shortcuts suppresses F6, Shift-F6, and Mod+.
+// 3. Unmounting a focused text input (switching selection while typing) clears IsTyping() cleanly.
+// 4. Chrome remounts (appearance switch) do not desync subsequent modal opener focus restoration.
+// 5. Active inspector scrubbing (BeginInspectorScrub) counts as IsDragging() and blocks F6 cycling.
+func TestFocusSpecLightCaptureGuardsUnmountTypingAndScrub(t *testing.T) {
+	lightAccent := editor.LightSpecPalette().Accent.Edge
+	lightEnv := nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false})
+
+	// 1. Spec Light controls draw #1D5CE6 focus rings (never dark #3B7BFF).
+	lightApp := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.SetTheme(editor.FocusTheme())
+		onSig := core.NewSignal(cx, true)
+		return core.View{
+			Style: core.Style{Padding: core.All(16), Gap: 12},
+			Children: []core.Node{
+				editor.SpecSwitch{TestID: "light-switch", Label: "Snap", Checked: onSig.Get, OnChange: onSig.Set},
+				editor.SpecIconButton{TestID: "light-icon-btn", Icon: lucide.Settings, Label: "Settings", OnPress: func() {}},
+				editor.SpecFocusWithinCard{
+					TestID:   "light-card",
+					Children: []core.Node{ui.Input{TestID: "light-card-input", Label: "Prompt"}},
+				},
+			},
+		}
+	}, lightEnv, nsgotest.Size(600, 300))
+	lightApp.Settle()
+
+	for _, id := range []string{"light-switch", "light-icon-btn"} {
+		lightApp.Key("tab")
+		lightApp.Settle()
+		o := lightApp.Find("id:" + id).Style.Outline
+		if o.Width != 2 || o.Color != lightAccent || o.Offset != 2 {
+			t.Fatalf("%s light outline = %+v, want (2, %v, 2)", id, o, lightAccent)
+		}
+	}
+	lightApp.Key("tab")
+	lightApp.Settle()
+	if o := lightApp.Find("id:light-card").Style.Outline; o.Width != 2 || o.Color != lightAccent || o.Offset != 2 {
+		t.Fatalf("light-card FocusWithin outline = %+v, want (2, %v, 2)", o, lightAccent)
+	}
+
+	// 2. Full EditorView in Spec Light: F6 region ring uses #1D5CE6, shortcut capture suppresses F6/Mod+.,
+	// unmounting a focused input clears IsTyping(), appearance toggle doesn't break dialog focus restore,
+	// and inspector scrubbing blocks F6.
+	ed, err := editor.New(newFocusTestScene(), nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	_ = ed.SetAppearance(editor.AppearanceLight)
+	ed.SelectObject("hero")
+
+	agentStopped := 0
+	ed.OnStopAgent = func() { agentStopped++ }
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, lightEnv, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	// F6 region ring in Spec Light must use #1D5CE6.
+	app.Key("f6")
+	app.Settle()
+	if o := app.Find("id:editor-toolbar").Style.Outline; o.Width != 2 || o.Color != lightAccent || o.Offset != -2 {
+		t.Fatalf("Spec Light Header F6 ring = %+v, want (2, %v, -2)", o, lightAccent)
+	}
+
+	// Shortcut capture in Settings › Shortcuts must suppress F6 and Mod+.
+	app.Post(func() {
+		ed.OpenSettingsPage(editor.SettingsPageShortcuts)
+	})
+	app.Settle()
+	app.Press("id:shortcut-bind-" + string(editor.CmdFrameSelection))
+	app.Settle()
+	app.Key("f6") // captured as new binding rather than cycling regions
+	app.Settle()
+	if ed.ActiveRegionRing() != editor.RegionNone {
+		t.Fatalf("F6 fired region ring during shortcut capture: %q", ed.ActiveRegionRing())
+	}
+	app.Press("id:shortcut-bind-" + string(editor.CmdFrameSelection))
+	app.Settle()
+	app.Key("mod+.") // suppressed while capturing a shortcut
+	app.Settle()
+	if agentStopped != 0 {
+		t.Fatalf("mod+. fired OnStopAgent (%d times) during shortcut capture", agentStopped)
+	}
+	app.Key("escape") // cancel capture
+	app.Settle()
+	app.Post(func() {
+		_ = ed.ResetShortcut(editor.CmdFrameSelection)
+		ed.CloseSettings()
+	})
+	app.Settle()
+
+	// Unmounting a focused text input (switching selection to "") must not stick IsTyping() == true.
+	app.Focus("id:inspector-name")
+	app.Settle()
+	if !ed.IsTyping() {
+		t.Fatal("expected IsTyping() true while inspector-name is focused")
+	}
+	app.Post(func() { ed.SelectObject("") })
+	app.Settle()
+	if ed.IsTyping() {
+		t.Fatal("IsTyping() remained stuck true after focused inspector-name unmounted")
+	}
+
+	// Inspector scrub counts as IsDragging() and blocks F6 cycling.
+	ed.SelectObject("hero")
+	app.Focus("id:toolbar-play")
+	app.Settle()
+	app.Post(func() {
+		if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "hero", Field: "x", Step: 1}); err != nil {
+			t.Errorf("BeginInspectorScrub: %v", err)
+		}
+	})
+	app.Settle()
+	if !ed.IsDragging() || ed.CanAutoMoveFocus() {
+		t.Fatalf("during inspector scrub: IsDragging=%v CanAutoMoveFocus=%v", ed.IsDragging(), ed.CanAutoMoveFocus())
+	}
+	app.Key("f6")
+	app.Settle()
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-play" {
+		t.Fatalf("F6 moved focus during inspector scrub: got %v", fv)
+	}
+	app.Post(func() { ed.CancelInspectorScrub() })
+	app.Settle()
+
+	// Toggling appearance while Command Palette is open remounts workspace; closing and opening a fresh dialog must still restore focus cleanly.
+	app.Focus("id:toolbar-palette")
+	app.Settle()
+	app.Key("enter")
+	app.Settle()
+	app.Post(func() {
+		_ = ed.SetAppearance(editor.AppearanceDark)
+		ed.SetCommandPaletteOpen(false)
+	})
+	app.Advance(250 * time.Millisecond)
+	app.Settle()
+
+	app.Focus("id:toolbar-editor-settings")
+	app.Settle()
+	app.Key("meta+/")
+	app.Settle()
+	app.Key("escape")
+	app.Advance(250 * time.Millisecond)
+	app.Settle()
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+		gotID := "<nil>"
+		if fv != nil {
+			gotID = fv.Props.TestID
+		}
+		t.Fatalf("after chrome remount + ShortcutsSheet Esc, focus = %q, want toolbar-editor-settings", gotID)
+	}
 }

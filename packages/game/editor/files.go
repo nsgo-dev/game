@@ -111,7 +111,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Margin:       core.Edges{Left: core.Points(6 * strings.Count(p, "/"))},
 						CornerRadius: 4,
 						Background:   bg,
-						FocusVisible: specRowFocusRingStyle,
+						FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 					}
 				},
 				OnPress: func(ev core.PressEvent) {
@@ -309,7 +309,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Style:    core.Style{FlexGrow: 1, MinHeight: core.Pt(48)},
 						Children: []core.Node{ownDragArea(cx, list)},
 					},
-					specInputField(ed, ui.Input{
+					specInputField(cx, ed, ui.Input{
 						TestID:   "files-path",
 						Label:    ed.T("files.newPathLabel"),
 						Disabled: func() bool { return current.Get() == "" },

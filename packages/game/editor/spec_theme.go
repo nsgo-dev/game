@@ -25,6 +25,8 @@ func init() {
 	parsedSpecTheme = th
 	darkSpecPalette = extractSpecPalette(&th.Dark, true)
 	lightSpecPalette = extractSpecPalette(&th.Light, false)
+	th.Dark.SetColor("ring", darkSpecPalette.Accent.Edge)
+	th.Light.SetColor("ring", lightSpecPalette.Accent.Edge)
 }
 
 // SpecRole holds the coordinated colors for a semantic Spec token role

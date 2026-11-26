@@ -9,11 +9,9 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec focus ring styles matching docs/design/editor/Spec.dc.html ("Focus ring").
-//
-//   - Controls (buttons, icon buttons, switches): 2 px accent ring, +2 px offset, :focus-visible only.
-//   - Tree rows, list rows, fields, and regions: 2 px accent ring, -2 px inset offset so scrolling parents never clip them.
-//   - Composer and cards: 2 px accent ring, +2 px offset, on :focus-within.
+// Spec focus ring fallback styles matching docs/design/editor/Spec.dc.html ("Focus ring").
+// Prefer ed.SpecPalette(cx).FocusRing(offset) or SpecPaletteFor(cx.Dark()).FocusRing(offset)
+// whenever a *core.Scope is in scope so Dark (#3B7BFF) and Light (#1D5CE6) both meet WCAG AA.
 var (
 	specFocusRingStyle = &core.Style{
 		OutlineWidth:  2,
@@ -32,18 +30,10 @@ var (
 	}
 )
 
-// FocusTheme returns the editor's NSGo theme extending core.DefaultTheme so every
-// ui component calling ui.FocusRing draws the Spec's 2 px accent ring (#3B7BFF) on
-// :focus-visible while preserving light and dark appearance surfaces.
-func FocusTheme() *core.Theme {
-	return editorFocusTheme()
-}
-
-// editorFocusTheme extends NSGo's DefaultTheme so every ui component that calls
-// ui.FocusRing(cx, offset) — which reads ColorsOf(cx).Info() in NSGo v0.3.0 —
-// renders the Spec's 2 px accent focus ring (#3B7BFF) on :focus-visible instead
-// of NSGo's cyan info role (#64D2FF / #0891B2). Light and dark palette surfaces
-// and appearance switching remain intact.
+// FocusTheme returns the editor's unified Spec *core.Theme (SpecTheme), mapping
+// focus, info, and ring roles to Spec accent (#3B7BFF in Dark, #1D5CE6 in Light)
+// so every ui component calling ui.FocusRing draws the Spec 2 px focus ring on
+// :focus-visible while preserving both Spec Dark and Spec Light surfaces.
 //
 // NSGo gap (v0.3.0): ui.FocusRing reads Palette.Colors["info"] rather than a
 // dedicated focus-ring token, ui.Switch carries no FocusVisible style, ui.IconButton
@@ -51,15 +41,8 @@ func FocusTheme() *core.Theme {
 // ui.Input uses only a 1 px border color change without an inset outline, and
 // core.Modal / ui.Dialog do not restore focus to the opener on close. Editor-level
 // helpers in this file bridge each gap.
-func editorFocusTheme() *core.Theme {
-	t := core.DefaultTheme()
-	t.Light.Focus = specAccent
-	t.Dark.Focus = specAccent
-	t.Light.SetColor("info", specAccent)
-	t.Dark.SetColor("info", specAccent)
-	t.Light.SetColor("ring", specAccent)
-	t.Dark.SetColor("ring", specAccent)
-	return t
+func FocusTheme() *core.Theme {
+	return SpecTheme()
 }
 
 // EditorRegion identifies a fixed-order keyboard landmark region in the editor,
@@ -110,14 +93,16 @@ type focusRegionController struct {
 	fallbackRegion   *core.Signal[EditorRegion]
 	agentPanelRef    *core.Ref
 
-	// Dialog focus restoration stack (top = opener for innermost open dialog) and
-	// active open-dialog counter driving the modal Tab/Shift-Tab focus trap.
-	dialogOpeners   []*core.Ref
+	// Pending opener recorded on pointer press before a modal/dialog or Settings view opens,
+	// and active open-modal counter driving the modal Tab/Shift-Tab focus trap.
 	pendingOpener   *core.Ref
 	openDialogCount *core.Signal[int]
 
-	// Text input focus counter for focus-stability checks (IsTyping).
+	// Text input focus tracking for focus-stability checks (IsTyping).
+	// textFocusRef is verified mounted + HoldsFocus inside IsTyping so unmounting a focused
+	// input without OnBlur can never leave IsTyping permanently stuck true.
 	textFocusDepth int
+	textFocusRef   *core.Ref
 }
 
 type focusRegionState struct {
@@ -149,24 +134,46 @@ func (c *focusRegionController) rootRef(r EditorRegion) *core.Ref {
 	return ref
 }
 
-func (c *focusRegionController) registerCandidate(r EditorRegion, ref *core.Ref, enabled func() bool) *core.Ref {
+func (c *focusRegionController) registerCandidate(cx *core.Scope, r EditorRegion, ref *core.Ref, enabled func() bool) *core.Ref {
 	if ref == nil {
 		ref = &core.Ref{}
 	}
 	if c == nil {
 		return ref
 	}
-	// Do not prune unmounted candidates here: sibling controls created during the same
-	// render pass have not committed yet. Stale unmounted entries are pruned after commit
-	// inside pruneCandidates.
+	updated := false
 	for i := range c.candidates[r] {
 		if c.candidates[r][i].ref == ref {
 			c.candidates[r][i].enabled = enabled
-			return ref
+			updated = true
+			break
 		}
 	}
-	c.candidates[r] = append(c.candidates[r], regionCandidate{ref: ref, enabled: enabled})
+	if !updated {
+		c.candidates[r] = append(c.candidates[r], regionCandidate{ref: ref, enabled: enabled})
+	}
+	if cx != nil {
+		cx.Cleanup(func() {
+			c.unregisterCandidate(r, ref)
+		})
+	}
 	return ref
+}
+
+func (c *focusRegionController) unregisterCandidate(r EditorRegion, ref *core.Ref) {
+	if c == nil || ref == nil {
+		return
+	}
+	list := c.candidates[r]
+	for i := range list {
+		if list[i].ref == ref {
+			c.candidates[r] = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if c.lastFocused[r] == ref {
+		delete(c.lastFocused, r)
+	}
 }
 
 func (c *focusRegionController) pruneCandidates(r EditorRegion) {
@@ -210,6 +217,13 @@ func (c *focusRegionController) onRegionFocusIn(r EditorRegion) {
 	if c == nil {
 		return
 	}
+	// ToastView is mounted inside ViewportView; ignore bubbled focus-in on RegionViewport
+	// while native focus is inside RegionToast.
+	if r == RegionViewport {
+		if toastRoot := c.roots[RegionToast]; toastRoot != nil && toastRoot.HoldsFocus() {
+			return
+		}
+	}
 	c.focusedRegion.Set(r)
 	if ref := core.FocusedRef(c.cx); ref != nil {
 		c.lastFocused[r] = ref
@@ -226,7 +240,6 @@ func (c *focusRegionController) onRegionFocusOut(r EditorRegion) {
 		return
 	}
 	if c.focusedRegion.GetUntracked() == r {
-		// Check whether focus actually moved outside r.
 		if root := c.roots[r]; root == nil || !root.HoldsFocus() {
 			c.focusedRegion.Set(RegionNone)
 		}
@@ -262,6 +275,10 @@ func (c *focusRegionController) currentFocusedRegion() EditorRegion {
 	if ring := c.activeRegionRing.GetUntracked(); ring != RegionNone {
 		return ring
 	}
+	// Check RegionToast before RegionViewport because ToastView is mounted inside ViewportView.
+	if toastRoot := c.roots[RegionToast]; toastRoot != nil && toastRoot.HoldsFocus() {
+		return RegionToast
+	}
 	for _, r := range EditorRegionOrder() {
 		if root := c.roots[r]; root != nil && root.HoldsFocus() {
 			return r
@@ -289,7 +306,11 @@ func (c *focusRegionController) visibleRegions(ed *Editor) []EditorRegion {
 
 func (c *focusRegionController) regionOutlineStyle(r EditorRegion, baseStyle core.Style) core.Style {
 	if c != nil && c.activeRegionRing.Get() == r {
-		return baseStyle.Merge(*specRowFocusRingStyle)
+		dark := true
+		if c.cx != nil {
+			dark = c.cx.Dark()
+		}
+		return baseStyle.Merge(*SpecPaletteFor(dark).FocusRing(-2))
 	}
 	return baseStyle
 }
@@ -324,7 +345,6 @@ func (c *focusRegionController) focusRegion(ed *Editor, target EditorRegion) boo
 
 	// 1. Restore the last focused control inside this region when still mounted.
 	if saved := c.lastFocused[target]; refMounted(saved) && saved != root {
-		// Verify saved is not an unmounted or disabled known candidate.
 		disabled := false
 		for _, cand := range c.candidates[target] {
 			if cand.ref == saved && cand.enabled != nil && !cand.enabled() {
@@ -362,13 +382,33 @@ func (c *focusRegionController) focusRegion(ed *Editor, target EditorRegion) boo
 	return true
 }
 
+func (e *Editor) regionCyclingBlocked() bool {
+	if e == nil {
+		return true
+	}
+	return e.shortcutCaptureActive ||
+		e.StartScreenOpen() ||
+		e.MergeConflictOpen() ||
+		e.PlaytestReportOpen() ||
+		e.UsagesScreenOpen() ||
+		e.ChangesOpen() ||
+		e.HUDLayoutOpen() ||
+		e.BuildReleaseScreenOpen() ||
+		e.AssetGeneratorOpen() ||
+		e.SettingsOpen() ||
+		(e.CutsceneOpen() && !e.Playing())
+}
+
 func (c *focusRegionController) cycleRegion(ed *Editor, delta int) EditorRegion {
 	if c == nil || delta == 0 {
 		return RegionNone
 	}
-	// Never move focus during an active pointer drag.
-	if ed.IsDragging() {
+	// Never move focus during an active drag/scrub or while shortcut capture / full-window screens are active.
+	if ed.IsDragging() || ed.regionCyclingBlocked() {
 		return c.currentFocusedRegion()
+	}
+	if ed.ObjectContextMenuOpen() {
+		ed.CloseObjectContextMenu()
 	}
 	visible := c.visibleRegions(ed)
 	if len(visible) == 0 {
@@ -398,29 +438,18 @@ func (c *focusRegionController) recordDialogOpener(ref *core.Ref) {
 	c.pendingOpener = ref
 }
 
-func (c *focusRegionController) pushDialogOpener() {
+func (c *focusRegionController) captureDialogOpener() *core.Ref {
 	if c == nil {
-		return
+		return nil
 	}
 	opener := core.FocusedRef(c.cx)
 	if opener == nil && refMounted(c.pendingOpener) {
 		opener = c.pendingOpener
 	}
 	c.pendingOpener = nil
-	c.dialogOpeners = append(c.dialogOpeners, opener)
-	// Hide F6 region highlight while a modal dialog traps focus.
+	// Hide F6 region highlight while a modal dialog or overlay screen traps focus.
 	c.activeRegionRing.Set(RegionNone)
-}
-
-func (c *focusRegionController) restoreDialogOpener() {
-	if c == nil || len(c.dialogOpeners) == 0 {
-		return
-	}
-	opener := c.dialogOpeners[len(c.dialogOpeners)-1]
-	c.dialogOpeners = c.dialogOpeners[:len(c.dialogOpeners)-1]
-	if refMounted(opener) {
-		opener.Focus()
-	}
+	return opener
 }
 
 // bindDialogFocusRestore hooks a modal dialog's open/close lifecycle so that:
@@ -430,12 +459,13 @@ func (c *focusRegionController) restoreDialogOpener() {
 //   - when closed (Esc, Cancel, or confirmation), keyboard focus returns to the exact
 //     control that opened the dialog once the modal has dismissed.
 //
-// NSGo gap (v0.3.0): core.Modal and ui.Dialog dismiss on Esc, but do not save or
-// restore the pre-modal opener focus on dismissal, and nsgotest's Tab traversal does
-// not filter out views behind a modal.
+// Each binding holds its own opener ref locally rather than sharing a global LIFO slice,
+// so out-of-order closes and scope cleanups (for example language/theme chrome remounts)
+// can never desync or restore another dialog's opener.
 func bindDialogFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) (onClose func()) {
 	var wasOpen bool
 	var needRestore bool
+	var opener *core.Ref
 	cx.Effect(func() {
 		open := isOpen()
 		cx.Untrack(func() {
@@ -443,7 +473,7 @@ func bindDialogFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) (onC
 				wasOpen = true
 				needRestore = true
 				if ed.focus.ctrl != nil {
-					ed.focus.ctrl.pushDialogOpener()
+					opener = ed.focus.ctrl.captureDialogOpener()
 					ed.focus.ctrl.openDialogCount.Set(ed.focus.ctrl.openDialogCount.GetUntracked() + 1)
 				}
 			} else if !open && wasOpen {
@@ -457,6 +487,8 @@ func bindDialogFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) (onC
 		})
 	})
 	cx.Cleanup(func() {
+		opener = nil
+		needRestore = false
 		if wasOpen && ed.focus.ctrl != nil {
 			wasOpen = false
 			if n := ed.focus.ctrl.openDialogCount.GetUntracked(); n > 0 {
@@ -469,15 +501,50 @@ func bindDialogFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) (onC
 			return
 		}
 		needRestore = false
-		if ed.focus.ctrl != nil {
-			ed.focus.ctrl.restoreDialogOpener()
+		target := opener
+		opener = nil
+		if refMounted(target) {
+			target.Focus()
 		}
 	}
 }
 
+// bindViewFocusRestore tracks opener focus for a non-modal full-window view (such as SettingsView)
+// that opens over the workspace without core.Modal, restoring focus to the opener after the view unmounts.
+func bindViewFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) {
+	var wasOpen bool
+	var opener *core.Ref
+	cx.Effect(func() {
+		open := isOpen()
+		cx.Untrack(func() {
+			if open && !wasOpen {
+				wasOpen = true
+				if ed.focus.ctrl != nil {
+					opener = ed.focus.ctrl.captureDialogOpener()
+				}
+			} else if !open && wasOpen {
+				wasOpen = false
+				target := opener
+				opener = nil
+				if target != nil {
+					cx.Post(func() {
+						if refMounted(target) {
+							target.Focus()
+						}
+					})
+				}
+			}
+		})
+	})
+	cx.Cleanup(func() {
+		wasOpen = false
+		opener = nil
+	})
+}
+
 // dialogFocusTrapView binds Tab and Shift-Tab to core.MoveFocus (which strictly
 // scopes stops to the topmost core.Modal and wraps inside it) whenever at least one
-// editor dialog is open.
+// editor dialog is open and shortcut capture is inactive.
 func dialogFocusTrapView(ed *Editor) core.Node {
 	return core.Show{
 		When: func() bool {
@@ -486,9 +553,15 @@ func dialogFocusTrapView(ed *Editor) core.Node {
 		Then: func(cx *core.Scope) core.Node {
 			opts := core.KeyOptions{When: core.KeyAlways, OverModals: true}
 			cx.OnKeyWith("tab", opts, func() {
+				if ed.shortcutCaptureActive {
+					return
+				}
 				core.MoveFocus(cx, core.FocusDirNext, true)
 			})
 			cx.OnKeyWith("shift+tab", opts, func() {
+				if ed.shortcutCaptureActive {
+					return
+				}
 				core.MoveFocus(cx, core.FocusDirPrev, true)
 			})
 			return core.View{
@@ -542,16 +615,18 @@ func (e *Editor) SetAgentPanelRef(ref *core.Ref) {
 	e.focus.ctrl.agentPanelRef = ref
 }
 
-// IsDragging reports whether any interactive drag, marquee, gizmo, camera drag, or
-// paint stroke is currently active in the editor. Nothing may move focus while true.
+// IsDragging reports whether any interactive drag, scrub, marquee, gizmo, camera drag/flight,
+// or paint stroke is currently active in the editor. Nothing may move focus while true.
 func (e *Editor) IsDragging() bool {
 	if e == nil {
 		return false
 	}
 	_, gmActive := e.GridMapStrokeActive()
 	_, strokeActive := e.TileStrokeActive()
+	rigDragging := e.RigOpen() && e.rig.drag.handle != RigHandleNone
 	return e.Dragging2D() != Handle2DNone ||
 		e.MarqueeActive() ||
+		e.InspectorScrubbing() ||
 		e.AssetDragActive() ||
 		e.DraggingGizmo3D() ||
 		e.DraggingHandle3D() ||
@@ -559,6 +634,10 @@ func (e *Editor) IsDragging() bool {
 		e.PluginDragging3D() ||
 		e.DraggingShape2D() ||
 		e.PluginDragging2D() ||
+		e.drag3D.kind != drag3DNone ||
+		e.fly3D ||
+		rigDragging ||
+		e.HUDTouchDragActive() ||
 		e.cameraDrag.active ||
 		e.cameraBoundsDrag.active ||
 		e.roomDrag.active ||
@@ -573,19 +652,47 @@ func (e *Editor) IsTyping() bool {
 	if e == nil || e.focus.ctrl == nil {
 		return false
 	}
-	return e.focus.ctrl.textFocusDepth > 0
+	c := e.focus.ctrl
+	if c.textFocusRef != nil {
+		if !refMounted(c.textFocusRef) || !c.textFocusRef.HoldsFocus() {
+			c.textFocusRef = nil
+			c.textFocusDepth = 0
+			return false
+		}
+		return true
+	}
+	return c.textFocusDepth > 0
 }
 
-// noteTextInputFocus updates the text-editing focus counter for focus-stability guards.
+// noteTextInputFocus updates the text-editing focus state for focus-stability guards.
 func (e *Editor) noteTextInputFocus(focused bool) {
 	if e == nil || e.focus.ctrl == nil {
 		return
 	}
+	c := e.focus.ctrl
 	if focused {
-		e.focus.ctrl.textFocusDepth++
-	} else if e.focus.ctrl.textFocusDepth > 0 {
-		e.focus.ctrl.textFocusDepth--
+		c.textFocusDepth++
+		if ref := core.FocusedRef(c.cx); ref != nil {
+			c.textFocusRef = ref
+		}
+	} else {
+		if c.textFocusDepth > 0 {
+			c.textFocusDepth--
+		}
+		if c.textFocusDepth == 0 {
+			c.textFocusRef = nil
+		}
 	}
+}
+
+// resetTextInputFocus clears stale text-input focus tracking across lifecycle transitions
+// (tab switches, Play mode, OpenProject, OpenDemo).
+func (e *Editor) resetTextInputFocus() {
+	if e == nil || e.focus.ctrl == nil {
+		return
+	}
+	e.focus.ctrl.textFocusDepth = 0
+	e.focus.ctrl.textFocusRef = nil
 }
 
 // FocusInAgentPanel reports whether keyboard focus is currently inside the agent panel.
@@ -597,7 +704,7 @@ func (e *Editor) FocusInAgentPanel() bool {
 }
 
 // CanAutoMoveFocus reports whether background UI activity is allowed to move focus
-// (false during any drag or while the person is typing in a text field).
+// (false during any drag/scrub or while the person is typing in a text field).
 func (e *Editor) CanAutoMoveFocus() bool {
 	return !e.IsDragging() && !e.IsTyping()
 }
@@ -619,8 +726,8 @@ func (e *Editor) SelectNextObject() string {
 }
 
 // SelectPreviousObject selects the previous visible, unlocked object in scene order
-// (wrapping around to the last), returning the newly selected ID or "" when the scene
-// has none. Used by Shift-Tab in the viewport region.
+// (wrapping around to the last), returning the newly selected ID or "" when the scene has none.
+// Used by Shift-Tab in the viewport region.
 func (e *Editor) SelectPreviousObject() string {
 	return e.stepViewportSelection(-1)
 }
@@ -686,8 +793,8 @@ func (e *Editor) collectSelectableObjects(objs []sceneformat.ObjectDoc, out *[]s
 // --- Spec Focus-Ring Control Primitives ---
 
 // SpecSwitch is a Spec-compliant on/off switch (RoleSwitch, aria-checked) with a
-// 2 px accent focus ring at +2 px offset on :focus-visible only. Mouse clicks toggle
-// without drawing the ring.
+// 2 px accent focus ring at +2 px offset on :focus-visible only in both Spec Dark
+// and Spec Light appearances. Mouse clicks toggle without drawing the ring.
 //
 // NSGo gap (v0.3.0): ui.Switch does not set FocusVisible on its pressable view or track.
 type SpecSwitch struct {
@@ -704,6 +811,8 @@ type SpecSwitch struct {
 // Render implements core.Node.
 func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 	checked := func() bool { return s.Checked != nil && s.Checked() }
+	p := SpecPaletteFor(cx.Dark())
+	colors := ui.ColorsOf(cx)
 	return base.Switch{
 		Ref:      s.Ref,
 		Checked:  checked,
@@ -719,13 +828,17 @@ func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 			Width:        core.Pt(32),
 			Height:       core.Pt(18),
 			CornerRadius: 9,
-			FocusVisible: specFocusRingStyle,
+			FocusVisible: p.FocusRing(2),
 			Disabled:     &core.Style{Opacity: core.Alpha(0.4)},
 		},
 		TrackStyleFunc: func() core.Style {
-			bg := specLineRaised
+			cur := SpecPaletteFor(cx.Dark())
+			bg := colors.Track()
+			if bg == 0 {
+				bg = cur.LineRaised
+			}
 			if checked() {
-				bg = specAccent
+				bg = cur.Accent.Fg
 			}
 			return core.Style{
 				Width:        core.Pt(32),
@@ -740,11 +853,15 @@ func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 			if checked() {
 				tx = 14
 			}
+			knob := colors.Knob()
+			if knob == 0 {
+				knob = core.RGB(0xFFFFFF)
+			}
 			return core.Style{
 				Width:        core.Pt(14),
 				Height:       core.Pt(14),
 				CornerRadius: 7,
-				Background:   specTextStrong,
+				Background:   knob,
 				Transform:    core.Transform{TranslateX: tx},
 			}
 		},
@@ -752,7 +869,8 @@ func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 }
 
 // SpecIconButton is a Spec-compliant icon-only button with a 2 px accent focus ring
-// at +2 px offset on :focus-visible only and a tooltip that opens on hover and focus.
+// at +2 px offset on :focus-visible only in both Spec Dark and Spec Light appearances,
+// and a tooltip that opens on hover and focus.
 //
 // NSGo gap (v0.3.0): ui.IconButton hardcodes FocusRing(cx, -2) on ghost buttons and
 // omits FocusVisible on circular variants.
@@ -772,6 +890,7 @@ type SpecIconButton struct {
 
 // Render implements core.Node.
 func (b SpecIconButton) Render(cx *core.Scope) core.Node {
+	p := SpecPaletteFor(cx.Dark())
 	size := b.Size
 	if size <= 0 {
 		size = 30
@@ -782,7 +901,7 @@ func (b SpecIconButton) Render(cx *core.Scope) core.Node {
 	}
 	tint := b.Tint
 	if tint == nil {
-		tint = func() core.Color { return specText }
+		tint = func() core.Color { return SpecPaletteFor(cx.Dark()).TextSecondary }
 	}
 	tip := b.Tooltip
 	if tip == "" {
@@ -805,11 +924,11 @@ func (b SpecIconButton) Render(cx *core.Scope) core.Node {
 			CornerRadius:   8,
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifyCenter,
-			Background:     specRaised,
+			Background:     p.Raised,
 			BorderWidth:    1,
-			BorderColor:    specLineRaised,
-			Hover:          &core.Style{Background: specLineRaised},
-			FocusVisible:   specFocusRingStyle,
+			BorderColor:    p.LineRaised,
+			Hover:          &core.Style{Background: p.LineRaised},
+			FocusVisible:   p.FocusRing(2),
 			Disabled:       &core.Style{Opacity: core.Alpha(0.4)},
 		},
 		Children: []core.Node{
@@ -827,7 +946,7 @@ func (b SpecIconButton) Render(cx *core.Scope) core.Node {
 
 // SpecFocusWithinCard wraps a composer or card container so keyboard focus on any
 // control inside it draws the 2 px accent ring (+2 px offset) on the card itself
-// via :focus-within, matching docs/design/editor/Spec.dc.html.
+// via :focus-within in both Spec Dark and Spec Light appearances.
 type SpecFocusWithinCard struct {
 	Ref      *core.Ref
 	TestID   string
@@ -836,13 +955,14 @@ type SpecFocusWithinCard struct {
 }
 
 // Render implements core.Node.
-func (c SpecFocusWithinCard) Render(*core.Scope) core.Node {
+func (c SpecFocusWithinCard) Render(cx *core.Scope) core.Node {
+	p := SpecPaletteFor(cx.Dark())
 	baseStyle := core.Style{
 		CornerRadius: 12,
-		Background:   specRaised,
+		Background:   p.Raised,
 		BorderWidth:  1,
-		BorderColor:  specLineRaised,
-		FocusWithin:  specCardFocusWithinStyle,
+		BorderColor:  p.LineRaised,
+		FocusWithin:  p.FocusRing(2),
 	}
 	return core.View{
 		Ref:      c.Ref,
@@ -852,21 +972,36 @@ func (c SpecFocusWithinCard) Render(*core.Scope) core.Node {
 	}
 }
 
-// specInputField wraps a ui.Input with the Spec inset -2 px focus ring and text-focus
-// tracking for focus-stability guards (Editor.IsTyping).
-func specInputField(ed *Editor, in ui.Input) ui.Input {
+// specInputField wraps a ui.Input with the Spec inset -2 px focus ring (matching Dark/Light
+// appearance) and unmount-safe text-focus tracking for focus-stability guards (Editor.IsTyping).
+func specInputField(cx *core.Scope, ed *Editor, in ui.Input) ui.Input {
 	if in.Style.FocusVisible == nil {
-		in.Style.FocusVisible = specRowFocusRingStyle
+		in.Style.FocusVisible = ed.SpecPalette(cx).FocusRing(-2)
+	}
+	var focused bool
+	if cx != nil {
+		cx.Cleanup(func() {
+			if focused {
+				focused = false
+				ed.noteTextInputFocus(false)
+			}
+		})
 	}
 	origFocus, origBlur := in.OnFocus, in.OnBlur
 	in.OnFocus = func() {
-		ed.noteTextInputFocus(true)
+		if !focused {
+			focused = true
+			ed.noteTextInputFocus(true)
+		}
 		if origFocus != nil {
 			origFocus()
 		}
 	}
 	in.OnBlur = func() {
-		ed.noteTextInputFocus(false)
+		if focused {
+			focused = false
+			ed.noteTextInputFocus(false)
+		}
 		if origBlur != nil {
 			origBlur()
 		}

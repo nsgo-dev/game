@@ -511,6 +511,12 @@ strings:
   problems.title: Problems ({count})
   problems.titleChecking: Problems (checking…)
   problems.warning: Warning
+  region.header: Header
+  region.inspector: Agent and Inspector
+  region.sceneTree: Scene tree
+  region.statusBar: Status bar
+  region.toast: Notification
+  region.viewport: Viewport
   scene.untitled: Untitled
   scene.untitledScene: Untitled Scene
   sceneTree.active: active

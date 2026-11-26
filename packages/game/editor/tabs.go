@@ -236,6 +236,7 @@ func (e *Editor) cancelTransientInteraction() {
 	e.endTerrainStrokeForChange()
 	e.exitTileReviewBeforePreview()
 	e.CloseObjectContextMenu()
+	e.resetTextInputFocus()
 	e.connPick = nil
 }
 

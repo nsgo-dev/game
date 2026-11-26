@@ -109,6 +109,13 @@ func (e *Editor) ActiveToast() (Toast, bool) {
 	return e.toasts[0], true
 }
 
+// HasActiveToast reports whether a toast is currently shown and therefore part of
+// the F6 region cycle (RegionToast).
+func (e *Editor) HasActiveToast() bool {
+	_, ok := e.ActiveToast()
+	return ok
+}
+
 // QueuedToastCount returns how many additional toasts are waiting behind the visible toast.
 func (e *Editor) QueuedToastCount() int {
 	if e == nil || len(e.toasts) <= 1 {
@@ -174,6 +181,50 @@ func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					// Sit cleanly above the bottom-center 2D overlay bar and 3D navigation bar (Bottom: 12–16, height ~36).
 					bottom = core.Pt(60)
 				}
+				actionRef := &core.Ref{}
+				dismissRef := &core.Ref{}
+				var toastRootRef *core.Ref
+				if ed != nil && ed.focus.ctrl != nil {
+					toastRootRef = ed.focus.ctrl.rootRef(RegionToast)
+					ed.focus.ctrl.registerCandidate(cx, RegionToast, actionRef, func() bool {
+						cur, ok := ed.ActiveToast()
+						return ok && cur.ActionLabel != ""
+					})
+					ed.focus.ctrl.registerCandidate(cx, RegionToast, dismissRef, func() bool {
+						cur, ok := ed.ActiveToast()
+						return ok && cur.canDismiss()
+					})
+				}
+				toastRegion := core.View{
+					Ref:        toastRootRef,
+					TestID:     "editor-region-toast",
+					Role:       core.RoleRegion,
+					Label:      ed.T("region.toast"),
+					LiveRegion: core.LiveRegionPolite,
+					Focusable: func() bool {
+						return ed != nil && ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionToast
+					},
+					OnFocusIn: func() {
+						if ed != nil && ed.focus.ctrl != nil {
+							ed.focus.ctrl.onRegionFocusIn(RegionToast)
+						}
+					},
+					OnFocusOut: func() {
+						if ed != nil && ed.focus.ctrl != nil {
+							ed.focus.ctrl.onRegionFocusOut(RegionToast)
+						}
+					},
+					StyleFunc: func() core.Style {
+						base := core.Style{CornerRadius: 12}
+						if ed == nil || ed.focus.ctrl == nil {
+							return base
+						}
+						return ed.focus.ctrl.regionOutlineStyle(RegionToast, base)
+					},
+					Children: []core.Node{
+						specToastCardWithRefs(p, t, waiting, ed.DismissToast, actionRef, dismissRef),
+					},
+				}
 				return core.View{
 					TestID:        "editor-toast-host",
 					Role:          core.RoleStatus,
@@ -187,7 +238,7 @@ func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						JustifyContent: core.JustifyCenter,
 					},
 					Children: []core.Node{
-						SpecToastCard(p, t, waiting, ed.DismissToast),
+						toastRegion,
 					},
 				}
 			})
@@ -199,6 +250,10 @@ func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 // optional waiting count badge, optional action button with shortcut, optional dismiss button) using
 // exclusively tokens from p.
 func SpecToastCard(p SpecPalette, t Toast, waiting int, onDismiss func()) core.Node {
+	return specToastCardWithRefs(p, t, waiting, onDismiss, nil, nil)
+}
+
+func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func(), actionRef, dismissRef *core.Ref) core.Node {
 	bg := p.Raised
 	border := p.LineRaised
 	actionBg := p.LineRaised
@@ -304,6 +359,7 @@ func SpecToastCard(p SpecPalette, t Toast, waiting int, onDismiss func()) core.N
 			actionStyle.BorderColor = actionBorder
 		}
 		children = append(children, core.View{
+			Ref:       actionRef,
 			TestID:    "editor-toast-action",
 			Role:      core.RoleButton,
 			Label:     t.ActionLabel,
@@ -320,6 +376,7 @@ func SpecToastCard(p SpecPalette, t Toast, waiting int, onDismiss func()) core.N
 
 	if t.canDismiss() {
 		children = append(children, core.View{
+			Ref:       dismissRef,
 			TestID:    "editor-toast-dismiss",
 			Role:      core.RoleButton,
 			Label:     "Dismiss",

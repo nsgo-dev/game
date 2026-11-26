@@ -156,10 +156,10 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
-					FocusVisible: specRowFocusRingStyle,
+					FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 				},
 				RowStyle: core.Style{
-					FocusVisible: specRowFocusRingStyle,
+					FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 				},
 			}}},
 		},
@@ -203,7 +203,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 					editing.Set("")
 				}
 			})
-			return specInputField(ed, ui.Input{
+			return specInputField(cx, ed, ui.Input{
 				TestID:       "layers-rename-" + name,
 				Label:        ed.T("layers.nameLabel"),
 				DefaultValue: text,
