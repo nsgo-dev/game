@@ -276,10 +276,66 @@ func New(ed *editor.Editor, opts Options) *Server {
 			return err
 		}
 	}
+	if ed.AgentTools == nil {
+		ed.AgentTools = &serverToolExecutor{s: s}
+	}
 	s.syncTools(true)
 	s.wg.Add(1)
 	go s.sendNotices()
 	return s
+}
+
+type serverToolExecutor struct {
+	s *Server
+}
+
+func (e *serverToolExecutor) ListTools(_ context.Context) ([]editor.AgentToolSpec, error) {
+	if e == nil || e.s == nil || e.s.isClosed() {
+		return nil, errors.New("editormcp: the editor's server is closed")
+	}
+	tools := e.s.Tools()
+	out := make([]editor.AgentToolSpec, 0, len(tools))
+	for _, t := range tools {
+		if !e.s.isToolEnabled(t.Name) {
+			continue
+		}
+		out = append(out, editor.AgentToolSpec{
+			Name:        t.Name,
+			Title:       t.Title,
+			Description: t.Description,
+			InputSchema: slices.Clone(t.InputSchema),
+		})
+	}
+	return out, nil
+}
+
+func (e *serverToolExecutor) CallTool(ctx context.Context, name string, args json.RawMessage) (editor.AgentToolCallResult, error) {
+	if e == nil || e.s == nil || e.s.isClosed() {
+		return editor.AgentToolCallResult{}, errors.New("editormcp: the editor's server is closed")
+	}
+	e.s.mu.Lock()
+	t, ok := e.s.tools[name]
+	e.s.mu.Unlock()
+	if !ok {
+		return editor.AgentToolCallResult{
+			Text:    fmt.Sprintf("unknown editor MCP tool %q", name),
+			IsError: true,
+		}, nil
+	}
+	res, err := e.s.call(ctx, t, args, false)
+	if err != nil {
+		return editor.AgentToolCallResult{
+			Text:    err.Error(),
+			IsError: true,
+		}, nil
+	}
+	if res == nil {
+		return editor.AgentToolCallResult{}, nil
+	}
+	return editor.AgentToolCallResult{
+		Text: res.Text,
+		PNG:  slices.Clone(res.PNG),
+	}, nil
 }
 
 // AddTool adds t to the server, which tells connected clients the tool list changed. It refuses a tool without a name or a handler, with an invalid input schema, or with a name already on the server.
@@ -774,6 +830,9 @@ func (s *Server) Close() error {
 		s.ed.SetTaskHoldReleaseHook(nil)
 		s.ed.CancelAgentReconnect()
 		s.ed.AgentReconnectProbe = nil
+		if exec, ok := s.ed.AgentTools.(*serverToolExecutor); ok && exec.s == s {
+			s.ed.AgentTools = nil
+		}
 	}
 	return nil
 }

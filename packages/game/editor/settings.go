@@ -824,9 +824,13 @@ func (e *Editor) SetAppearance(appearance Appearance) error {
 }
 
 // ApplySettings validates and applies s to the editor without writing to disk.
+// Refused when invoked on behalf of an agent because EditorSettings includes You-only agent limits and privacy switches.
 func (e *Editor) ApplySettings(s EditorSettings) error {
 	if e == nil {
 		return nil
+	}
+	if e.AgentActorActive() {
+		return ErrAgentSettingsYouOnly
 	}
 	if err := ValidateEditorSettings(&s); err != nil {
 		return err
@@ -884,6 +888,7 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	e.agent.builtInKeyChecked = false
 	e.settingsMu.Unlock()
 	e.applyViewStateSnap(s.Snap)
+	e.refreshAgentLimitStatus()
 	e.syncOverlaysFromSettings()
 	if s.AutoSaveEnabled() {
 		e.scheduleAutoSaveIfNeeded()

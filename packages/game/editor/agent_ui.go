@@ -257,6 +257,8 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 						col = p.Warning.Fg
 					case AgentStatusDisconnected:
 						col = p.Removed.Fg
+					case AgentStatusLimitReached:
+						col = p.Removed.Fg
 					case AgentStatusReconnecting:
 						col = p.TextFaint
 					}
@@ -273,6 +275,9 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 					_ = rev.Get()
 					switch ed.AgentStatus() {
 					case AgentStatusConnected:
+						if len(ed.AgentClients()) == 0 && (ed.AgentMode() == AgentModeAPIKey || ed.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
+							return "API"
+						}
 						return "MCP"
 					case AgentStatusWorking:
 						return ed.T("agent.status.workingShort")
@@ -282,6 +287,8 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 						return ed.T("agent.status.reconnectingShort")
 					case AgentStatusDisconnected:
 						return ed.T("agent.status.disconnected")
+					case AgentStatusLimitReached:
+						return ed.T("agent.status.limitShort")
 					default:
 						return ed.T("agent.connectShort")
 					}
@@ -369,6 +376,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Role:   core.RoleButton,
 				LabelFunc: func() string {
 					_ = rev.Get()
+					if len(ed.AgentClients()) == 0 && (ed.AgentMode() == AgentModeAPIKey || ed.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
+						return fmt.Sprintf("Connected · API (%s)", ed.AgentStatusTooltip())
+					}
 					return fmt.Sprintf("Connected · MCP (%s)", ed.AgentStatusTooltip())
 				},
 				Style: core.Style{
@@ -397,8 +407,14 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 					},
 					core.Text{
-						TestID:  "agent-status-text",
-						Content: "Connected · MCP",
+						TestID: "agent-status-text",
+						ContentFunc: func() string {
+							_ = rev.Get()
+							if len(ed.AgentClients()) == 0 && (ed.AgentMode() == AgentModeAPIKey || ed.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
+								return "Connected · API"
+							}
+							return "Connected · MCP"
+						},
 						Style: core.Style{
 							FontSize: 11.5,
 							Color:    p.TextMuted,
@@ -667,6 +683,74 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				},
 			}
 
+		case AgentStatusLimitReached:
+			return core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        6,
+				},
+				Children: []core.Node{
+					core.View{
+						TestID: "agent-status-chip",
+						Style: core.Style{
+							Direction:    core.Row,
+							AlignItems:   core.AlignCenter,
+							Height:       core.Pt(24),
+							Padding:      core.Symmetric(0, 10),
+							Gap:          6,
+							CornerRadius: 12,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
+						},
+						Children: []core.Node{
+							core.SVGView{
+								SVG: lucide.Gauge(),
+								Style: core.Style{
+									Width:      core.Pt(13),
+									Height:     core.Pt(13),
+									Color:      p.Removed.Fg,
+									FlexShrink: 0,
+								},
+							},
+							core.Text{
+								TestID: "agent-status-text",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									return fmt.Sprintf("Limit reached · resets %s", ed.AgentUsageResetLabel())
+								},
+								Style: core.Style{
+									FontSize: 11.5,
+									Color:    p.TextSecondary,
+								},
+							},
+						},
+					},
+					ui.Button{
+						TestID:  "agent-status-usage",
+						Text:    "Usage",
+						Label:   "Open Usage and privacy settings",
+						Variant: ui.ButtonGhost,
+						Size:    ui.SizeSmall,
+						Color:   func() core.Color { return p.Panel },
+						TextStyle: core.Style{
+							FontSize:   11.5,
+							FontWeight: 500,
+							Color:      p.Accent.Fg,
+						},
+						Style: core.Style{
+							Height:       core.Pt(24),
+							Padding:      core.Symmetric(0, 8),
+							CornerRadius: 6,
+							FocusVisible: p.FocusRing(2),
+						},
+						OnPress: func() {
+							ed.OpenSettingsPage(SettingsPageUsage)
+						},
+					},
+				},
+			}
+
 		default:
 			return core.View{
 				TestID: "agent-status-chip",
@@ -759,12 +843,18 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|%d|%d|%s|%d|", ed.ResolvedLanguage(), ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq(), ed.review.outcome, ed.review.uiRev)
+		fmt.Fprintf(&b, "%s|%s|%d|%d|%s|%d|%d|", ed.ResolvedLanguage(), ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq(), ed.review.outcome, ed.review.uiRev, len(ed.agent.queued))
 		for _, t := range ed.agent.turns {
 			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
 			for _, st := range t.Steps {
 				fmt.Fprintf(&b, "%s=%s;", st.ID, st.Status)
 			}
+			if t.ModelError != nil {
+				fmt.Fprintf(&b, "me=%d:%d:%d:%v:%s:%s;", t.ModelError.StatusCode, t.ModelError.RetryAttempt, t.ModelError.RetryTotal, t.ModelError.Retrying, t.ModelError.Headline, t.ModelError.AlternativeAgent)
+			}
+		}
+		for _, q := range ed.agent.queued {
+			fmt.Fprintf(&b, "q=%s;", q.ID)
 		}
 		if ed.agent.openRequest != nil {
 			fmt.Fprintf(&b, "req:%s", ed.agent.openRequest.ID)
@@ -788,6 +878,8 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			openReq := ed.AgentOpenRequest()
 			hasReviewCard := ed.HasAgentPanelCard()
 			dtPending := ed.DataTableReviewPending()
+			queued := ed.AgentQueuedRequests()
+			limitReached := ed.AgentWeeklyLimitReached()
 
 			var items []core.Node
 			if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
@@ -825,7 +917,13 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 				})
 			}
-			if len(turns) == 0 && openReq == nil && !hasReviewCard && !dtPending {
+			if limitReached {
+				items = append(items, agentLimitReachedCard(ed, p))
+				if len(queued) > 0 {
+					items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
+				}
+			}
+			if len(turns) == 0 && openReq == nil && !hasReviewCard && !dtPending && len(queued) == 0 && !limitReached {
 				items = append(items, agentEmptyStateCard(ed, p))
 			}
 			for ti, turn := range turns {
@@ -839,6 +937,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			if openReq != nil {
 				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
+			}
+			if !limitReached && len(queued) > 0 {
+				items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
 			}
 			return core.View{
 				TestID: "agent-thread-list",
@@ -1140,7 +1241,9 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 		})
 	}
 
-	if turn.Error != "" {
+	if turn.ModelError != nil {
+		children = append(children, agentModelErrorCard(ed, turnIdx, turn.ID, turn.ModelError, p))
+	} else if turn.Error != "" {
 		children = append(children, core.View{
 			TestID: fmt.Sprintf("agent-turn-error-%d", turnIdx),
 			Style: core.Style{
@@ -1343,6 +1446,260 @@ func automationReviewBadgeStyle(ed *Editor, state AgentReviewState, p SpecPalett
 		return ed.T("agent.automationState.ready"), p.Accent.Fg, p.Accent.Fill, p.Accent.Edge
 	}
 }
+
+func agentModelErrorCard(ed *Editor, turnIdx int, turnID string, me *AgentModelErrorState, p SpecPalette) core.Node {
+	actions := []core.Node{
+		ui.Button{
+			TestID:  fmt.Sprintf("agent-turn-retry-%d", turnIdx),
+			Text:    "Retry now",
+			Label:   "Retry now",
+			Variant: ui.ButtonGhost,
+			Size:    ui.SizeSmall,
+			Color:   func() core.Color { return p.Raised },
+			TextStyle: core.Style{
+				FontSize:   12,
+				FontWeight: 500,
+				Color:      p.TextSecondary,
+			},
+			Style: core.Style{
+				Height:       core.Pt(30),
+				Padding:      core.Symmetric(0, 12),
+				CornerRadius: 8,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+				FocusVisible: p.FocusRing(2),
+			},
+			OnPress: func() {
+				ed.report(ed.RetryAgentTurn(turnID))
+			},
+		},
+	}
+	if me.AlternativeAgent != "" && me.AlternativeRoute != "" && me.AlternativeRoute != AgentRouteNone {
+		switchLabel := "Use " + me.AlternativeAgent
+		actions = append(actions, ui.Button{
+			TestID:  fmt.Sprintf("agent-turn-switch-%d", turnIdx),
+			Text:    switchLabel,
+			Label:   switchLabel,
+			Variant: ui.ButtonGhost,
+			Size:    ui.SizeSmall,
+			Color:   func() core.Color { return p.Removed.Fill },
+			TextStyle: core.Style{
+				FontSize:   12,
+				FontWeight: 500,
+				Color:      p.TextMuted,
+			},
+			Style: core.Style{
+				Height:       core.Pt(30),
+				Padding:      core.Symmetric(0, 12),
+				CornerRadius: 8,
+				FocusVisible: p.FocusRing(2),
+			},
+			OnPress: func() {
+				ed.report(ed.SwitchAgentTurnToAlternative(turnID))
+			},
+		})
+	}
+	return core.View{
+		TestID: fmt.Sprintf("agent-turn-model-error-%d", turnIdx),
+		Role:   core.RoleAlert,
+		Label:  me.Headline,
+		Style: core.Style{
+			CornerRadius: 12,
+			Background:   p.Removed.Fill,
+			BorderWidth:  1,
+			BorderColor:  p.Removed.Edge,
+			Padding:      core.All(12),
+			Gap:          8,
+		},
+		Children: []core.Node{
+			core.Text{
+				TestID:  fmt.Sprintf("agent-turn-model-error-title-%d", turnIdx),
+				Content: me.Headline,
+				Style: core.Style{
+					FontSize:   12.5,
+					FontWeight: 600,
+					Color:      p.Removed.Fg,
+				},
+			},
+			core.Text{
+				TestID:  fmt.Sprintf("agent-turn-model-error-body-%d", turnIdx),
+				Content: me.Body(),
+				Style: core.Style{
+					FontSize: 12.5,
+					Color:    p.TextSecondary,
+				},
+			},
+			core.View{
+				Style: core.Style{
+					Direction: core.Row,
+					Wrap:      core.Wrap,
+					Gap:       8,
+				},
+				Children: actions,
+			},
+		},
+	}
+}
+
+func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
+	u := ed.AgentUsage()
+	limit := ed.WeeklyRequestLimit()
+	return core.View{
+		TestID: "agent-limit-card",
+		Role:   core.RoleRegion,
+		Label:  "Weekly limit reached",
+		Style: core.Style{
+			CornerRadius: 12,
+			Background:   p.Raised,
+			BorderWidth:  1,
+			BorderColor:  p.LineRaised,
+			Padding:      core.All(12),
+			Gap:          8,
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        8,
+				},
+				Children: []core.Node{
+					core.SVGView{
+						SVG: lucide.Gauge(),
+						Style: core.Style{
+							Width:      core.Pt(14),
+							Height:     core.Pt(14),
+							Color:      p.Removed.Fg,
+							FlexShrink: 0,
+						},
+					},
+					core.Text{
+						Content: fmt.Sprintf("Limit reached · resets %s", ed.AgentUsageResetLabel()),
+						Style: core.Style{
+							FontSize:   13,
+							FontWeight: 600,
+							Color:      p.TextPrimary,
+						},
+					},
+				},
+			},
+			core.Text{
+				Content: fmt.Sprintf("This week's limit (%d of %d requests) is used. Requests wait in the queue until the reset or until you raise the limit; only you can.", u.WeeklyRequests, limit),
+				Style: core.Style{
+					FontSize: 12.5,
+					Color:    p.TextSecondary,
+				},
+			},
+			core.View{
+				Style: core.Style{
+					Direction: core.Row,
+					Gap:       8,
+				},
+				Children: []core.Node{
+					settingsSpecButton(p, "agent-limit-open-usage", "Usage and privacy", "Open Usage and privacy settings", false, nil, func() {
+						ed.OpenSettingsPage(SettingsPageUsage)
+					}),
+				},
+			},
+		},
+	}
+}
+
+func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReached bool, p SpecPalette) core.Node {
+	rows := make([]core.Node, 0, len(queued)+2)
+	rows = append(rows, core.Text{
+		TestID:  "agent-queued-heading",
+		Content: fmt.Sprintf("QUEUED · %d", len(queued)),
+		Style: core.Style{
+			FontSize:      11,
+			FontWeight:    600,
+			LetterSpacing: 0.7,
+			Color:         p.TextFaint,
+		},
+	})
+	for i, q := range queued {
+		item := q
+		idx := i
+		rowChildren := []core.Node{
+			core.View{
+				Style: core.Style{
+					FlexGrow:   1,
+					FlexShrink: 1,
+					MinWidth:   core.Pt(0),
+					Gap:        2,
+				},
+				Children: []core.Node{
+					core.Text{
+						TestID:  fmt.Sprintf("agent-queued-text-%d", idx),
+						Content: item.Prompt,
+						Style: core.Style{
+							FontSize: 12.5,
+							Color:    p.TextSecondary,
+						},
+					},
+					core.Text{
+						Content: fmt.Sprintf("queued %s", item.QueuedAt.Format("15:04")),
+						Style: core.Style{
+							FontSize: 11.5,
+							Color:    p.TextFaint,
+						},
+					},
+				},
+			},
+		}
+		if !limitReached {
+			rowChildren = append(rowChildren, settingsSpecButton(p, fmt.Sprintf("agent-queued-send-%d", idx), "Send", "Send queued request", true, nil, func() {
+				ed.report(ed.SendQueuedAgentRequest(item.ID))
+			}))
+		}
+		rowChildren = append(rowChildren, ui.Button{
+			TestID:  fmt.Sprintf("agent-queued-remove-%d", idx),
+			Label:   fmt.Sprintf("Remove %q from queue", item.Prompt),
+			Variant: ui.ButtonGhost,
+			Size:    ui.SizeSmall,
+			Color:   func() core.Color { return p.Raised },
+			Style: core.Style{
+				Width:        core.Pt(28),
+				Height:       core.Pt(28),
+				CornerRadius: 6,
+				FocusVisible: p.FocusRing(2),
+			},
+			OnPress: func() {
+				ed.RemoveQueuedAgentRequest(item.ID)
+			},
+			Icon: lucide.X,
+		})
+		rows = append(rows, core.View{
+			TestID: fmt.Sprintf("agent-queued-item-%d", idx),
+			Style: core.Style{
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          8,
+				Padding:      core.Edges{Top: 8, Right: 8, Bottom: 8, Left: 12},
+				CornerRadius: 12,
+				Background:   p.Raised,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+			},
+			Children: rowChildren,
+		})
+	}
+	rows = append(rows, core.Text{
+		Content: "When the limit resets or you raise it, each queued request waits for you to send it.",
+		Style: core.Style{
+			FontSize: 12,
+			Color:    p.TextFaint,
+		},
+	})
+	return core.View{
+		TestID: "agent-queued-section",
+		Style: core.Style{
+			Gap: 8,
+		},
+		Children: rows,
+	}
+}
+
 func agentStepRow(turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node {
 	var badge core.Node
 	textCol := p.TextMuted
@@ -1994,6 +2351,9 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 										if cause := ed.AgentFailedCause(); cause != "" {
 											return cause
 										}
+										if ed.ConnectDialogStep() == ConnectStepAPIKey {
+											return "The built-in API key could not be verified. Check your key in the system keychain or paste a new key."
+										}
 										return "The MCP connection stopped answering. Confirm the project configuration and reconnect your agent."
 									},
 									Style: core.Style{
@@ -2240,6 +2600,39 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 									Style: core.Style{
 										FontSize: 12,
 										Color:    p.TextFaint,
+									},
+								},
+								core.Show{
+									When: func() bool {
+										_ = rev.Get()
+										return ed.HasAgentAPIKey(DefaultAgentAPIKeyAccount)
+									},
+									Then: func(cx *core.Scope) core.Node {
+										return core.View{
+											TestID: "connect-key-saved-status",
+											Style: core.Style{
+												Direction:  core.Row,
+												AlignItems: core.AlignCenter,
+												Gap:        8,
+											},
+											Children: []core.Node{
+												core.View{
+													Style: core.Style{
+														Width:        core.Pt(7),
+														Height:       core.Pt(7),
+														CornerRadius: 4,
+														Background:   p.Added.Fg,
+													},
+												},
+												core.Text{
+													Content: "Key stored in system keychain · leave blank to keep current key",
+													Style: core.Style{
+														FontSize: 12,
+														Color:    p.Added.Fg,
+													},
+												},
+											},
+										}
 									},
 								},
 							},
