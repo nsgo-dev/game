@@ -232,7 +232,9 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 		e.usages.rev++
 	}
 	e.shortcutCaptureActive = false
-	e.editorSettingsOpen = false
+	if e.EditorSettingsOpen() {
+		e.settingsOpen = false
+	}
 	e.shortcutsSheetOpen = false
 	e.stopReleaseBuild()
 	e.closeBuildReleaseScreenSilent()

@@ -127,17 +127,31 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		}
 	})
 
+	fullWindowScreenOpen := func() bool {
+		return ed.StartScreenOpen() ||
+			ed.MergeConflictOpen() ||
+			ed.ChangesOpen() ||
+			ed.BuildReleaseScreenOpen() ||
+			ed.UsagesScreenOpen() ||
+			ed.PlaytestReportOpen() ||
+			ed.HUDLayoutOpen() ||
+			(ed.CutsceneOpen() && !ed.Playing())
+	}
 	settingsOpen := func() bool {
 		_ = rev.Get()
-		return ed.SettingsOpen()
+		return ed.SettingsOpen() && !ed.Playing()
+	}
+	topLevelSettingsOpen := func() bool {
+		_ = rev.Get()
+		return ed.SettingsOpen() && !ed.Playing() && fullWindowScreenOpen()
 	}
 
 	workspace := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = chromeKey.Get()
 		files := sceneFileDialogs(ed, rev, prompt, pathMode, pathTarget)
 		return core.View{
-			Disabled:                    settingsOpen,
-			AccessibilityElementsHidden: settingsOpen,
+			Disabled:                    topLevelSettingsOpen,
+			AccessibilityElementsHidden: topLevelSettingsOpen,
 			Style: core.Style{
 				FlexGrow:  1,
 				FlexBasis: core.Pt(0),
@@ -145,7 +159,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 				Height:    core.Pct(100),
 			},
 			StyleFunc: func() core.Style {
-				if settingsOpen() {
+				if topLevelSettingsOpen() {
 					return core.Style{PointerEvents: core.PointerEventsNone}
 				}
 				return core.Style{}
@@ -240,32 +254,50 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																							},
 																							Children: []core.Node{
 																								core.View{
-																									// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																									Disabled:                    settingsOpen,
+																									AccessibilityElementsHidden: settingsOpen,
 																									Style: core.Style{
-																										Direction: core.Row,
 																										FlexGrow:  1,
 																										FlexBasis: core.Pt(0),
 																										Overflow:  core.Hidden,
 																									},
-																									// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-																									Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																									StyleFunc: func() core.Style {
+																										if settingsOpen() {
+																											return core.Style{PointerEvents: core.PointerEventsNone}
+																										}
+																										return core.Style{}
+																									},
+																									Children: []core.Node{
+																										core.View{
+																											// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																											Style: core.Style{
+																												Direction: core.Row,
+																												FlexGrow:  1,
+																												FlexBasis: core.Pt(0),
+																												Overflow:  core.Hidden,
+																											},
+																											// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+																											Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																										},
+																										pluginDockView(cx, ed, rev, DockBottom),
+																										TilesetEditorPanelView(cx, ed, rev),
+																										TerrainPanelView(cx, ed, rev),
+																										RigPanelView(cx, ed, rev),
+																										DataTablePanelView(cx, ed, rev),
+																										ParticleEditorPanelView(cx, ed, rev),
+																										MaterialEditorPanelView(cx, ed, rev),
+																										AnimationPanelView(cx, ed, rev),
+																										EnvironmentPanelView(cx, ed, rev),
+																										StatesPanelView(cx, ed, rev),
+																										NavMeshPanelView(cx, ed, rev),
+																										LocalizationPanelView(cx, ed, rev),
+																										SearchPanelView(cx, ed, rev),
+																										ProblemsView(cx, ed, rev),
+																										ProfilerPanelView(cx, ed, rev),
+																										OutputPanelView(cx, ed, rev),
+																									},
 																								},
-																								pluginDockView(cx, ed, rev, DockBottom),
-																								TilesetEditorPanelView(cx, ed, rev),
-																								TerrainPanelView(cx, ed, rev),
-																								RigPanelView(cx, ed, rev),
-																								DataTablePanelView(cx, ed, rev),
-																								ParticleEditorPanelView(cx, ed, rev),
-																								MaterialEditorPanelView(cx, ed, rev),
-																								AnimationPanelView(cx, ed, rev),
-																								EnvironmentPanelView(cx, ed, rev),
-																								StatesPanelView(cx, ed, rev),
-																								NavMeshPanelView(cx, ed, rev),
-																								LocalizationPanelView(cx, ed, rev),
-																								SearchPanelView(cx, ed, rev),
-																								ProblemsView(cx, ed, rev),
-																								ProfilerPanelView(cx, ed, rev),
-																								OutputPanelView(cx, ed, rev),
+																								SettingsView(cx, ed, rev),
 																							},
 																						}
 																					},
@@ -304,7 +336,12 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		},
 		Children: []core.Node{
 			workspace,
-			SettingsView(cx, ed, rev),
+			core.Show{
+				When: topLevelSettingsOpen,
+				Then: func(cx *core.Scope) core.Node {
+					return SettingsView(cx, ed, rev)
+				},
+			},
 			ShortcutsSheetView(cx, ed, rev),
 		},
 	}

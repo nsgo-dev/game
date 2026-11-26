@@ -72,18 +72,21 @@ func (r *exportBuildRun) finish() {
 }
 
 type exportPanelState struct {
-	mu               sync.Mutex
-	selectedPlatform string
-	selectedTargets  []string
-	channel          string
-	releaseNotes     string
-	dryRun           bool
-	credits          ExportCreditsReport
-	output           []string
-	lastErr          error
-	lastOutputDir    string
-	lastCommandLine  string
-	run              *exportBuildRun
+	mu                 sync.Mutex
+	selectedPlatform   string
+	selectedTargets    []string
+	channel            string
+	releaseNotes       string
+	dryRun             bool
+	credits            ExportCreditsReport
+	appleTeamIDPath    string
+	appleTeamIDChecked bool
+	appleTeamIDReady   bool
+	output             []string
+	lastErr            error
+	lastOutputDir      string
+	lastCommandLine    string
+	run                *exportBuildRun
 }
 
 // ExportPanelOpen reports whether the Settings view is open on the Export page.
@@ -182,12 +185,53 @@ func exportPlatformDisplayName(platform string) string {
 	}
 }
 
-func (e *Editor) nsgoHasAppleTeamID() bool {
-	if e == nil || e.ProjectPath == "" {
+const maxNSGoReadBytes = 1 << 20 // 1 MiB safety cap for reading nsgo.yaml metadata
+
+func (e *Editor) resetExportPanelCache() {
+	if e == nil {
+		return
+	}
+	e.exportPanel.mu.Lock()
+	e.exportPanel.credits = ExportCreditsReport{}
+	e.exportPanel.appleTeamIDPath = ""
+	e.exportPanel.appleTeamIDChecked = false
+	e.exportPanel.appleTeamIDReady = false
+	e.exportPanel.mu.Unlock()
+}
+
+func (e *Editor) refreshAppleTeamIDCache() bool {
+	if e == nil {
 		return false
 	}
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(e.ProjectPath), project.NSGoFileName))
+	projPath := e.ProjectPath
+	ready := false
+	if projPath != "" {
+		ready = readNSGoHasAppleTeamID(filepath.Dir(projPath))
+	}
+	e.exportPanel.mu.Lock()
+	e.exportPanel.appleTeamIDPath = projPath
+	e.exportPanel.appleTeamIDChecked = true
+	e.exportPanel.appleTeamIDReady = ready
+	e.exportPanel.mu.Unlock()
+	return ready
+}
+
+func readNSGoHasAppleTeamID(projectDir string) bool {
+	if projectDir == "" {
+		return false
+	}
+	nsgoPath := filepath.Join(projectDir, project.NSGoFileName)
+	info, err := os.Lstat(nsgoPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxNSGoReadBytes {
+		return false
+	}
+	f, err := os.Open(nsgoPath)
 	if err != nil {
+		return false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxNSGoReadBytes+1))
+	if err != nil || len(data) > maxNSGoReadBytes {
 		return false
 	}
 	var cfg struct {
@@ -213,6 +257,20 @@ func (e *Editor) nsgoHasAppleTeamID() bool {
 		strings.TrimSpace(cfg.IOS.TeamID) != "" ||
 		strings.TrimSpace(cfg.Signing.TeamID) != "" ||
 		strings.TrimSpace(cfg.Signing.Apple.TeamID) != ""
+}
+
+func (e *Editor) nsgoHasAppleTeamID() bool {
+	if e == nil || e.ProjectPath == "" {
+		return false
+	}
+	e.exportPanel.mu.Lock()
+	if e.exportPanel.appleTeamIDChecked && e.exportPanel.appleTeamIDPath == e.ProjectPath {
+		ready := e.exportPanel.appleTeamIDReady
+		e.exportPanel.mu.Unlock()
+		return ready
+	}
+	e.exportPanel.mu.Unlock()
+	return e.refreshAppleTeamIDCache()
 }
 
 // ExportOutput returns the open project's export.output directory, or empty when unset.
@@ -603,6 +661,7 @@ func (e *Editor) CheckExportCredits() ExportCreditsReport {
 			}
 		}
 	}
+	e.refreshAppleTeamIDCache()
 	e.exportPanel.mu.Lock()
 	e.exportPanel.credits = report
 	e.exportPanel.mu.Unlock()
@@ -949,6 +1008,7 @@ func (e *Editor) syncExportPanel() {
 	if e == nil {
 		return
 	}
+	e.refreshAppleTeamIDCache()
 	if e.Project == nil || e.Project.Export == nil || len(e.Project.Export.Presets) == 0 {
 		e.exportPanel.selectedPlatform = ""
 		return
@@ -1069,6 +1129,7 @@ func ExportPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	pal := ed.SpecPalette(cx)
 	outputDraft := core.NewSignal(cx, ed.ExportOutput())
 	outputErr := core.NewSignal(cx, "")
 	addPlatform := core.NewSignal(cx, firstAvailableExportPlatform(ed))
@@ -1143,7 +1204,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	})
 
 	label := func(text string) core.Node {
-		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted}}
+		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: pal.TextFaint}}
 	}
 
 	channelOptions := []ui.Option[string]{
@@ -1154,7 +1215,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		{Value: "none", Label: "none"},
 	}
 
-	// Build & release action bar styled with Spec tokens.
+	// Build & release action bar styled with SpecPalette tokens.
 	buildBar := core.View{
 		Style: core.Style{
 			Direction:    core.Row,
@@ -1163,9 +1224,9 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			Gap:          8,
 			Padding:      core.Symmetric(8, 12),
 			CornerRadius: 12,
-			Background:   specPanel,
+			Background:   pal.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  pal.Line,
 		},
 		Children: []core.Node{
 			label("OUTPUT"),
@@ -1187,7 +1248,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					},
 				},
 			},
-			settingsSpecButton("export-output-apply", "Set", "Apply export output directory", false, editDisabled, commitOutput),
+			settingsSpecButton(pal, "export-output-apply", "Set", "Apply export output directory", false, editDisabled, commitOutput),
 			label("CHANNEL"),
 			core.View{
 				Style: core.Style{Width: core.Pt(118), FlexShrink: 0},
@@ -1255,17 +1316,17 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					}
 					return "Build"
 				},
-				Color: func() core.Color { return specAccent },
+				Color: func() core.Color { return pal.Accent.Fg },
 				TextStyle: core.Style{
 					FontSize:   12,
 					FontWeight: 600,
-					Color:      specBg, // Spec.dc.html: #101216 on #3B7BFF (4.88:1 AA).
+					Color:      pal.Accent.OnFill,
 				},
 				Style: core.Style{
 					Height:       core.Pt(28),
 					CornerRadius: 8,
 					FlexShrink:   0,
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: pal.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.report(ed.RunExportBuild())
@@ -1277,17 +1338,17 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					return ed.ExportRunning()
 				},
 				Then: func(cx *core.Scope) core.Node {
-					return settingsSpecButton("export-cancel", "Cancel", "Cancel export build", false, nil, func() {
+					return settingsSpecButton(pal, "export-cancel", "Cancel", "Cancel export build", false, nil, func() {
 						ed.CancelExportBuild()
 					})
 				},
 			},
-			settingsSpecButton("export-open-output", "Open Output", "Open export output folder", false, func() bool {
+			settingsSpecButton(pal, "export-open-output", "Open Output", "Open export output folder", false, func() bool {
 				_ = rev.Get()
 				return ed.Project == nil
 			}, func() { ed.report(ed.OpenExportOutputFolder()) }),
 			core.View{Style: core.Style{FlexGrow: 1}},
-			settingsSpecButton("export-close", "Close", "Close Export settings", false, nil, func() {
+			settingsSpecButton(pal, "export-close", "Close", "Close Export settings", false, nil, func() {
 				ed.SetExportPanelOpen(false)
 			}),
 		},
@@ -1302,7 +1363,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			Gap:         8,
 			Padding:     core.Edges{Right: 16},
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: pal.Line,
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -1332,7 +1393,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							},
 						},
 					},
-					settingsSpecButton("export-add-preset", "Add Preset", "Add platform export preset", false, func() bool {
+					settingsSpecButton(pal, "export-add-preset", "Add Preset", "Add platform export preset", false, func() bool {
 						return editDisabled() || addPlatform.Get() == ""
 					}, func() {
 						plat := addPlatform.Get()
@@ -1352,13 +1413,13 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							return core.Text{
 								TestID:  "export-empty-presets",
 								Content: "No export presets yet. Default platforms will be built until a preset is added.",
-								Style:   core.Style{FontSize: 12, Color: specTextMuted, Padding: core.Symmetric(12, 0)},
+								Style:   core.Style{FontSize: 12, Color: pal.TextFaint, Padding: core.Symmetric(12, 0)},
 							}
 						}
 						presets := ed.ExportPresets()
 						rows := make([]core.Node, 0, len(presets))
 						for i, p := range presets {
-							rows = append(rows, exportPresetRow(cx, ed, rev, i, p, len(presets), editDisabled))
+							rows = append(rows, exportPresetRow(cx, ed, rev, pal, i, p, len(presets), editDisabled))
 						}
 						return core.View{Style: core.Style{Gap: 8}, Children: rows}
 					}),
@@ -1371,7 +1432,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					Gap:         8,
 					Padding:     core.Edges{Top: 12},
 					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
+					BorderColor: pal.Line,
 				},
 				Children: []core.Node{
 					ui.HStack{
@@ -1441,30 +1502,30 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = creditsKey.Get()
 				report := ed.ExportCredits()
-				borderColor := specLine
-				statusColor := specTextMuted
-				bg := specPanel
+				borderColor := pal.Line
+				statusColor := pal.TextFaint
+				bg := pal.Panel
 				statusText := "No assets section in game.yaml (no CREDITS.md will be written)"
 				if report.Configured {
 					switch {
 					case report.Err != nil:
-						borderColor = specProblemEdge
-						statusColor = specProblem
-						bg = specSettingsProblemBg
+						borderColor = pal.Problem().Edge
+						statusColor = pal.Problem().Fg
+						bg = pal.Problem().Fill
 						statusText = "Credits error: " + report.Err.Error()
 					case len(report.Missing) > 0:
-						borderColor = specProblemEdge
-						statusColor = specProblem
-						bg = specSettingsProblemBg
+						borderColor = pal.Problem().Edge
+						statusColor = pal.Problem().Fg
+						bg = pal.Problem().Fill
 						noun := "assets have"
 						if len(report.Missing) == 1 {
 							noun = "asset has"
 						}
 						statusText = fmt.Sprintf("Credits required: %d %s no credit (release builds are blocked)", len(report.Missing), noun)
 					default:
-						borderColor = specAddedEdge
-						statusColor = specAdded
-						bg = specAddedFill
+						borderColor = pal.Added.Edge
+						statusColor = pal.Added.Fg
+						bg = pal.Added.Fill
 						statusText = fmt.Sprintf("Credits OK: %d asset(s) credited", len(report.Entries))
 					}
 				}
@@ -1477,7 +1538,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								Content: statusText,
 								Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: statusColor, FlexGrow: 1},
 							},
-							settingsSpecButton("export-credits-refresh", "Refresh Credits", "Refresh asset credits check", false, nil, func() {
+							settingsSpecButton(pal, "export-credits-refresh", "Refresh Credits", "Refresh asset credits check", false, nil, func() {
 								ed.CheckExportCredits()
 							}),
 						},
@@ -1491,7 +1552,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					children = append(children, core.Text{
 						TestID:  "export-credits-missing",
 						Content: strings.Join(missingLines, "\n"),
-						Style:   core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specProblem},
+						Style:   core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: pal.Problem().Fg},
 					})
 				}
 				return core.View{
@@ -1527,9 +1588,9 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							}
 							return "Idle"
 						},
-						Style: core.Style{FontSize: 11.5, Color: specTextMuted, FlexGrow: 1},
+						Style: core.Style{FontSize: 11.5, Color: pal.TextFaint, FlexGrow: 1},
 					},
-					settingsSpecButton("export-log-clear", "Clear", "Clear export build output", false, func() bool {
+					settingsSpecButton(pal, "export-log-clear", "Clear", "Clear export build output", false, func() bool {
 						_ = rev.Get()
 						return ed.ExportRunning() || len(ed.ExportOutputLines()) == 0
 					}, func() { ed.ClearExportOutput() }),
@@ -1539,10 +1600,10 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
-					Background:   specPanel,
+					Background:   pal.Panel,
 					CornerRadius: 8,
 					BorderWidth:  1,
-					BorderColor:  specLine,
+					BorderColor:  pal.Line,
 					Padding:      core.All(12),
 				},
 				Children: []core.Node{
@@ -1556,7 +1617,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							}
 							return txt
 						},
-						Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specText},
+						Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: pal.TextSecondary},
 					},
 				},
 			},
@@ -1573,7 +1634,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		},
 		Children: []core.Node{
 			buildBar,
-			psErrorText("export-output-error", outputErr),
+			psErrorText(pal, "export-output-error", outputErr),
 			core.View{
 				Style: core.Style{
 					Direction: core.Row,
@@ -1587,7 +1648,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 }
 
-func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, p project.Preset, total int, disabled func() bool) core.Node {
+func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecPalette, idx int, p project.Preset, total int, disabled func() bool) core.Node {
 	plat := p.Platform
 	validTargets := project.TargetsOf(plat)
 	targetBtns := make([]core.Node, 0, len(validTargets))
@@ -1621,8 +1682,8 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 			Padding:      core.Symmetric(12, 12),
 			CornerRadius: 8,
 			BorderWidth:  1,
-			BorderColor:  specLine,
-			Background:   specPanel,
+			BorderColor:  pal.Line,
+			Background:   pal.Panel,
 		},
 		Children: []core.Node{
 			core.View{
@@ -1633,7 +1694,7 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 						Children: []core.Node{
 							core.Text{
 								Content: exportPlatformDisplayName(plat),
-								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: pal.TextPrimary},
 							},
 							core.Text{
 								TestID: "export-preset-summary-" + plat,
@@ -1645,9 +1706,9 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
 									ready, _ := ed.ExportPresetReadiness(plat)
-									c := specTextMuted
+									c := pal.TextFaint
 									if !ready {
-										c = specWarning
+										c = pal.Warning.Fg
 									}
 									return core.Style{FontSize: 11.5, Color: c}
 								},
@@ -1659,9 +1720,9 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
 							ready, _ := ed.ExportPresetReadiness(plat)
-							bg, border := specAddedFill, specAddedEdge
+							bg, border := pal.Added.Fill, pal.Added.Edge
 							if !ready {
-								bg, border = specWarningFill, specWarningEdge
+								bg, border = pal.Warning.Fill, pal.Warning.Edge
 							}
 							return core.Style{
 								Height:         core.Pt(24),
@@ -1679,22 +1740,22 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 								ContentFunc: func() string {
 									_ = rev.Get()
 									if ready, _ := ed.ExportPresetReadiness(plat); ready {
-										return "Ready"
+										return ed.T("settings.metaReady")
 									}
-									return "Set up"
+									return ed.T("settings.metaSetUp")
 								},
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									c := specAdded
+									c := pal.Added.Fg
 									if ready, _ := ed.ExportPresetReadiness(plat); !ready {
-										c = specWarning
+										c = pal.Warning.Fg
 									}
 									return core.Style{FontSize: 11.5, FontWeight: 600, Color: c}
 								},
 							},
 						},
 					},
-					settingsPolicyBadge(policy),
+					settingsPolicyBadge(pal, ed, policy),
 				},
 			},
 			core.View{
@@ -1706,13 +1767,13 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 				},
 				Children: append(targetBtns,
 					core.View{Style: core.Style{FlexGrow: 1}},
-					settingsSpecButton("export-preset-up-"+plat, "Up", "Move "+plat+" preset up", false, func() bool {
+					settingsSpecButton(pal, "export-preset-up-"+plat, "Up", "Move "+plat+" preset up", false, func() bool {
 						return disabled() || idx == 0
 					}, func() { ed.report(ed.MoveExportPreset(plat, -1)) }),
-					settingsSpecButton("export-preset-down-"+plat, "Down", "Move "+plat+" preset down", false, func() bool {
+					settingsSpecButton(pal, "export-preset-down-"+plat, "Down", "Move "+plat+" preset down", false, func() bool {
 						return disabled() || idx >= total-1
 					}, func() { ed.report(ed.MoveExportPreset(plat, 1)) }),
-					settingsSpecButton("export-preset-remove-"+plat, "Remove", "Remove "+plat+" preset", false, disabled, func() {
+					settingsSpecButton(pal, "export-preset-remove-"+plat, "Remove", "Remove "+plat+" preset", false, disabled, func() {
 						ed.report(ed.RemoveExportPreset(plat))
 					}),
 				),

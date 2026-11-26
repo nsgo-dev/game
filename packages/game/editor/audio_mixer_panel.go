@@ -874,10 +874,14 @@ func AudioMixerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 }
 
 func formatGainDB(gain float32) string {
-	if gain <= 0.0001 {
+	g := float64(gain)
+	if math.IsNaN(g) || math.IsInf(g, -1) || g <= 0.0001 {
 		return "−∞ dB"
 	}
-	db := 20 * math.Log10(float64(gain))
+	if math.IsInf(g, 1) {
+		return "+∞ dB"
+	}
+	db := 20 * math.Log10(g)
 	if math.Abs(db) < 0.05 {
 		return "0.0 dB"
 	}
@@ -888,6 +892,7 @@ func formatGainDB(gain float32) string {
 }
 
 func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	pal := ed.SpecPalette(cx)
 	newBusName := core.NewSignal(cx, "")
 	addEffectKind := core.NewSignal(cx, AudioEffectReverb)
 	renameText := core.NewSignal(cx, ed.SelectedAudioBus())
@@ -950,11 +955,13 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}, slices.Equal)
 
 	label := func(text string) core.Node {
-		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted}}
+		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: pal.TextFaint}}
 	}
 
 	// Master output row in the Settings.dc.html row layout (label, help, value control, policy).
 	masterRow := settingsRow(
+		pal,
+		ed,
 		"mixer-master-row",
 		"Master",
 		"Output",
@@ -988,9 +995,9 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						MinWidth:       core.Pt(72),
 						Padding:        core.Symmetric(0, 8),
 						CornerRadius:   6,
-						Background:     specRaised,
+						Background:     pal.Raised,
 						BorderWidth:    1,
-						BorderColor:    specLineRaised,
+						BorderColor:    pal.LineRaised,
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifyCenter,
 					},
@@ -1001,7 +1008,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								_ = rev.Get()
 								return formatGainDB(ed.AudioMasterVolume())
 							},
-							Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specText},
+							Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: pal.TextSecondary},
 						},
 					},
 				},
@@ -1011,7 +1018,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		nil,
 	)
 
-	// Audition toolbar row styled with Spec tokens.
+	// Audition toolbar row styled with SpecPalette tokens.
 	auditionBar := core.View{
 		Style: core.Style{
 			Direction:    core.Row,
@@ -1020,9 +1027,9 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			Gap:          8,
 			Padding:      core.Symmetric(8, 12),
 			CornerRadius: 12,
-			Background:   specPanel,
+			Background:   pal.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  pal.Line,
 		},
 		Children: []core.Node{
 			label("AUDITION"),
@@ -1084,17 +1091,17 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					}
 					return "Audition"
 				},
-				Color: func() core.Color { return specAccent },
+				Color: func() core.Color { return pal.Accent.Fg },
 				TextStyle: core.Style{
 					FontSize:   12,
 					FontWeight: 600,
-					Color:      specBg, // Spec.dc.html: #101216 on #3B7BFF (4.88:1 AA).
+					Color:      pal.Accent.OnFill,
 				},
 				Style: core.Style{
 					Height:       core.Pt(28),
 					CornerRadius: 8,
 					Padding:      core.Symmetric(0, 12),
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: pal.FocusRing(2),
 				},
 				OnPress: func() {
 					if ed.Auditioning() {
@@ -1105,7 +1112,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			settingsSpecButton("mixer-close", "Close", "Close Audio buses", false, nil, func() {
+			settingsSpecButton(pal, "mixer-close", "Close", "Close Audio buses", false, nil, func() {
 				ed.SetAudioMixerOpen(false)
 			}),
 		},
@@ -1120,7 +1127,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			Gap:         8,
 			Padding:     core.Edges{Right: 16},
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: pal.Line,
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -1139,7 +1146,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							},
 						},
 					},
-					settingsSpecButton("mixer-add-bus", "Add Bus", "Add Audio Bus", false, disabled, func() {
+					settingsSpecButton(pal, "mixer-add-bus", "Add Bus", "Add Audio Bus", false, disabled, func() {
 						name := strings.TrimSpace(newBusName.Get())
 						if name == "" {
 							name = ed.nextDefaultBusName()
@@ -1161,13 +1168,13 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							return core.Text{
 								TestID:  "mixer-empty-buses",
 								Content: "No audio buses yet. Add a bus to mix and audition.",
-								Style:   core.Style{FontSize: 12, Color: specTextMuted, Padding: core.Symmetric(12, 0)},
+								Style:   core.Style{FontSize: 12, Color: pal.TextFaint, Padding: core.Symmetric(12, 0)},
 							}
 						}
 						buses := ed.Project.Audio.Buses
 						rows := make([]core.Node, 0, len(buses))
 						for i, b := range buses {
-							rows = append(rows, mixerBusRow(cx, ed, rev, i, b.Name, len(buses), selectedBus, disabled))
+							rows = append(rows, mixerBusRow(cx, ed, rev, pal, i, b.Name, len(buses), selectedBus, disabled))
 						}
 						return core.View{Style: core.Style{Gap: 4}, Children: rows}
 					}),
@@ -1217,7 +1224,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											},
 										},
 									},
-									settingsSpecButton("mixer-bus-rename", "Rename", "Rename selected audio bus", false, func() bool {
+									settingsSpecButton(pal, "mixer-bus-rename", "Rename", "Rename selected audio bus", false, func() bool {
 										if disabled() {
 											return true
 										}
@@ -1242,7 +1249,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											},
 										},
 									},
-									settingsSpecButton("mixer-add-effect", "Add Effect", "Add DSP effect to bus", false, disabled, func() {
+									settingsSpecButton(pal, "mixer-add-effect", "Add Effect", "Add DSP effect to bus", false, disabled, func() {
 										_, err := ed.AddAudioBusEffectKind(selectedBus.Get(), addEffectKind.Get())
 										ed.report(err)
 									}),
@@ -1266,12 +1273,12 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											return core.Text{
 												TestID:  "mixer-empty-effects",
 												Content: "No effects on this bus. Choose an effect type and press Add Effect.",
-												Style:   core.Style{FontSize: 11.5, Color: specTextMuted, Padding: core.Symmetric(8, 0)},
+												Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint, Padding: core.Symmetric(8, 0)},
 											}
 										}
 										rows := make([]core.Node, 0, len(effects))
 										for ei, fx := range effects {
-											rows = append(rows, mixerEffectRow(cx, ed, rev, busName, ei, len(effects), AudioEffectKindOf(fx), disabled))
+											rows = append(rows, mixerEffectRow(cx, ed, rev, pal, busName, ei, len(effects), AudioEffectKindOf(fx), disabled))
 										}
 										return core.View{Style: core.Style{Gap: 8}, Children: rows}
 									}),
@@ -1283,7 +1290,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				Else: func(cx *core.Scope) core.Node {
 					return core.Text{
 						Content: "Select or add a bus to edit its name, volume, routing and effect chain.",
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: pal.TextFaint},
 					}
 				},
 			},
@@ -1314,15 +1321,17 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}
 }
 
-func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, busName string, total int, selectedBus *core.Memo[string], disabled func() bool) core.Node {
+func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecPalette, idx int, busName string, total int, selectedBus *core.Memo[string], disabled func() bool) core.Node {
+	accentEdge := ui.Alpha(pal.Accent.Fg, 0.45)
+	activeNav := ui.Alpha(pal.Accent.Fg, 0.16)
 	return core.View{
 		TestID: fmt.Sprintf("mixer-bus-%d", idx),
 		StyleFunc: func() core.Style {
-			bg := specPanel
-			border := specLine
+			bg := pal.Panel
+			border := pal.Line
 			if selectedBus.Get() == busName {
-				bg = specRaised
-				border = specSettingsAccentEdge
+				bg = pal.Raised
+				border = accentEdge
 			}
 			return core.Style{
 				Padding:      core.Symmetric(8, 12),
@@ -1346,21 +1355,21 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, 
 						Flex:    1,
 						Color: func() core.Color {
 							if selectedBus.Get() == busName {
-								return specSettingsActiveNav
+								return activeNav
 							}
-							return specPanel
+							return pal.Panel
 						},
 						TextStyle: core.Style{
 							FontSize:   12.5,
 							FontWeight: 600,
-							Color:      specTextStrong,
+							Color:      pal.TextPrimary,
 							FlexGrow:   1,
 							TextAlign:  core.TextAlignLeft,
 						},
 						Style: core.Style{
 							Height:       core.Pt(28),
 							CornerRadius: 6,
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: pal.FocusRing(2),
 						},
 						OnPress: func() {
 							ed.SelectAudioBus(busName)
@@ -1375,15 +1384,15 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, 
 							}
 							return "Into Master"
 						},
-						Style: core.Style{FontSize: 11, Color: specTextMuted},
+						Style: core.Style{FontSize: 11, Color: pal.TextFaint},
 					},
-					settingsSpecButton(fmt.Sprintf("mixer-bus-%d-up", idx), "Up", "Move Bus "+busName+" Up", false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-up", idx), "Up", "Move Bus "+busName+" Up", false, func() bool {
 						return disabled() || idx == 0
 					}, func() { ed.report(ed.MoveAudioBus(idx, idx-1)) }),
-					settingsSpecButton(fmt.Sprintf("mixer-bus-%d-down", idx), "Down", "Move Bus "+busName+" Down", false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-down", idx), "Down", "Move Bus "+busName+" Down", false, func() bool {
 						return disabled() || idx >= total-1
 					}, func() { ed.report(ed.MoveAudioBus(idx, idx+1)) }),
-					settingsSpecButton(fmt.Sprintf("mixer-bus-%d-delete", idx), "Del", "Delete Bus "+busName, false, disabled, func() {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-delete", idx), "Del", "Delete Bus "+busName, false, disabled, func() {
 						ed.report(ed.DeleteAudioBus(busName))
 					}),
 				},
@@ -1419,9 +1428,9 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, 
 							MinWidth:       core.Pt(64),
 							Padding:        core.Symmetric(0, 8),
 							CornerRadius:   6,
-							Background:     specBg,
+							Background:     pal.Bg,
 							BorderWidth:    1,
-							BorderColor:    specLineRaised,
+							BorderColor:    pal.LineRaised,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 						},
@@ -1433,18 +1442,18 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, 
 									v, _ := ed.AudioBusVolume(busName)
 									return formatGainDB(v)
 								},
-								Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specText},
+								Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: pal.TextSecondary},
 							},
 						},
 					},
-					settingsPolicyBadge(policyAgentMayChange),
+					settingsPolicyBadge(pal, ed, policyAgentMayChange),
 				},
 			},
 		},
 	}
 }
 
-func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busName string, ei, total int, kind AudioEffectKind, disabled func() bool) core.Node {
+func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecPalette, busName string, ei, total int, kind AudioEffectKind, disabled func() bool) core.Node {
 	readEffect := func() (project.Effect, bool) {
 		_ = rev.Get()
 		bi := ed.findAudioBusIndex(busName)
@@ -1467,7 +1476,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busNam
 		return ui.HStack{
 			Gap: 4,
 			Children: []core.Node{
-				core.Text{Content: caption, Style: core.Style{FontSize: 11, Color: specTextMuted}},
+				core.Text{Content: caption, Style: core.Style{FontSize: 11, Color: pal.TextFaint}},
 				core.View{
 					Style: core.Style{Width: core.Pt(86)},
 					Children: []core.Node{
@@ -1694,9 +1703,9 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busNam
 			Padding:      core.Symmetric(8, 12),
 			Gap:          8,
 			CornerRadius: 8,
-			Background:   specPanel,
+			Background:   pal.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  pal.Line,
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -1705,15 +1714,15 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busNam
 					core.Text{
 						TestID:  fmt.Sprintf("mixer-effect-%d-title", ei),
 						Content: fmt.Sprintf("%d. %s", ei+1, kind.Label()),
-						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong, FlexGrow: 1},
+						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: pal.TextPrimary, FlexGrow: 1},
 					},
-					settingsSpecButton(fmt.Sprintf("mixer-effect-%d-up", ei), "Up", fmt.Sprintf("Move Effect %d Up", ei), false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-up", ei), "Up", fmt.Sprintf("Move Effect %d Up", ei), false, func() bool {
 						return disabled() || ei == 0
 					}, func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei-1)) }),
-					settingsSpecButton(fmt.Sprintf("mixer-effect-%d-down", ei), "Down", fmt.Sprintf("Move Effect %d Down", ei), false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-down", ei), "Down", fmt.Sprintf("Move Effect %d Down", ei), false, func() bool {
 						return disabled() || ei >= total-1
 					}, func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei+1)) }),
-					settingsSpecButton(fmt.Sprintf("mixer-effect-%d-remove", ei), "Remove", fmt.Sprintf("Remove Effect %d", ei), false, disabled, func() {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-remove", ei), "Remove", fmt.Sprintf("Remove Effect %d", ei), false, disabled, func() {
 						ed.report(ed.RemoveAudioBusEffect(busName, ei))
 					}),
 				},

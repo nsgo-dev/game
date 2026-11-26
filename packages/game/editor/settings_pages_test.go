@@ -554,3 +554,226 @@ func TestSettingsProjectPagesScreenshots(t *testing.T) {
 		app.Screenshot(shot.name)
 	}
 }
+
+func TestSettingsVisibleFromStartScreenAndShortcutsEscapeCapture(t *testing.T) {
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.SetStartScreenOpen(true)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	// Opening Settings while Start Screen is active must render SettingsView at top level.
+	app.Post(func() { ed.OpenSettingsPage(editor.SettingsPageGeneral) })
+	app.Settle()
+	if !app.Exists("id:settings-view") || !app.Exists("id:editor-settings-dialog") {
+		t.Fatal("SettingsView did not render over Start Screen")
+	}
+
+	// Switch to Shortcuts page inside unified Settings; EditorSettingsOpen must stay true.
+	app.Press("id:editor-settings-tab-shortcuts")
+	if ed.SettingsPage() != editor.SettingsPageShortcuts {
+		t.Fatalf("SettingsPage = %q, want shortcuts", ed.SettingsPage())
+	}
+	if !ed.EditorSettingsOpen() {
+		t.Fatal("EditorSettingsOpen() = false on Shortcuts page, want true")
+	}
+
+	// Start key capture, then press Escape: must cancel capture WITHOUT closing SettingsView.
+	app.Press("id:shortcut-bind-" + editor.CmdFrameSelection)
+	if !app.Exists("id:shortcut-capture-" + editor.CmdFrameSelection) {
+		t.Fatal("shortcut capture did not activate")
+	}
+	app.Key("Escape")
+	if app.Exists("id:shortcut-capture-" + editor.CmdFrameSelection) {
+		t.Fatal("Escape did not cancel shortcut capture")
+	}
+	if !ed.SettingsOpen() || !app.Exists("id:settings-view") {
+		t.Fatal("Escape during shortcut capture unexpectedly closed SettingsView")
+	}
+
+	// Pressing editor-settings-close from Shortcuts closes Settings cleanly.
+	app.Press("id:editor-settings-close")
+	if ed.SettingsOpen() || app.Exists("id:settings-view") {
+		t.Fatal("editor-settings-close did not close SettingsView from Shortcuts page")
+	}
+}
+
+func TestSettingsSpecLightThemeLiveRepaint(t *testing.T) {
+	dir := writeProjectSettingsFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	light := editor.LightSpecPalette()
+	dark := editor.DarkSpecPalette()
+
+	app.Post(func() { ed.OpenSettingsPage(editor.SettingsPageProject) })
+	app.Settle()
+	if got := app.Find("id:settings-view").Style.Background; got != light.Bg {
+		t.Fatalf("light settings-view bg = %#x, want %#x", uint32(got), uint32(light.Bg))
+	}
+	if got := app.Find("id:settings-sidebar").Style.Background; got != light.Panel {
+		t.Fatalf("light settings-sidebar bg = %#x, want %#x", uint32(got), uint32(light.Panel))
+	}
+
+	// Switching live to Dark repaints the open SettingsView immediately.
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	if got := app.Find("id:settings-view").Style.Background; got != dark.Bg {
+		t.Fatalf("dark settings-view bg = %#x, want %#x", uint32(got), uint32(dark.Bg))
+	}
+	if got := app.Find("id:settings-sidebar").Style.Background; got != dark.Panel {
+		t.Fatalf("dark settings-sidebar bg = %#x, want %#x", uint32(got), uint32(dark.Panel))
+	}
+}
+
+func TestSettingsExportAppleTeamIDCacheAndLifecycleReset(t *testing.T) {
+	dir := writeProjectSettingsFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.AddExportPreset("ios"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initial check caches missing team_id -> not ready.
+	if ready, _ := ed.ExportPresetReadiness("ios"); ready {
+		t.Fatal("expected ios preset not ready without team_id")
+	}
+
+	// Mutating nsgo.yaml on disk must NOT trigger re-reads until explicit refresh/save.
+	nsgoPath := filepath.Join(dir, project.NSGoFileName)
+	if err := os.WriteFile(nsgoPath, []byte("name: Test\nid: dev.example.test\nversion: 0.1.0\nteam_id: ABCDE12345\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ready, _ := ed.ExportPresetReadiness("ios"); ready {
+		t.Fatal("ExportPresetReadiness re-read nsgo.yaml without cache refresh")
+	}
+
+	// Explicit CheckExportCredits refreshes the cache and picks up team_id.
+	ed.CheckExportCredits()
+	if ready, _ := ed.ExportPresetReadiness("ios"); !ready {
+		t.Fatal("expected ios preset ready after CheckExportCredits with team_id")
+	}
+
+	// Symlink nsgo.yaml must be refused by non-symlink Lstat check.
+	outside := filepath.Join(t.TempDir(), "outside.yaml")
+	if err := os.WriteFile(outside, []byte("team_id: SYMLINK123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(nsgoPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, nsgoPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ed.CheckExportCredits()
+	if ready, _ := ed.ExportPresetReadiness("ios"); ready {
+		t.Fatal("expected symlink nsgo.yaml to be refused")
+	}
+
+	// Opening Demo while Settings is open must close Settings and clear cached readiness.
+	ed.OpenSettingsPage(editor.SettingsPageExport)
+	if !ed.SettingsOpen() {
+		t.Fatal("expected SettingsOpen before OpenDemo")
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.SettingsOpen() {
+		t.Fatal("OpenDemo left SettingsOpen == true")
+	}
+}
+
+func TestSettingsPlayClosesSettingsAndPageSwitchResetsCapture(t *testing.T) {
+	dir := writeProjectSettingsFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.AddInputAction("jump"); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	}))
+
+	app.Post(func() {
+		ed.OpenSettingsPage(editor.SettingsPageInput)
+		if err := ed.BeginKeyCapture("jump", project.KindKey); err != nil {
+			t.Errorf("BeginKeyCapture: %v", err)
+		}
+		// Switching to Project page must cancel input key capture.
+		ed.OpenSettingsPage(editor.SettingsPageProject)
+	})
+	app.Settle()
+	if ed.CapturingKey() {
+		t.Fatal("switching away from Input map page did not cancel key capture")
+	}
+	if !app.Exists("id:settings-view") {
+		t.Fatal("expected settings-view visible before Play")
+	}
+
+	// Starting Play mode hides SettingsView so the game viewport is unobstructed.
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if app.Exists("id:settings-view") {
+		t.Fatal("Play() left settings-view visible over playing viewport")
+	}
+	app.Post(func() {
+		_ = ed.Stop()
+		// Opening General/Shortcuts and entering Play closes EditorSettingsOpen permanently.
+		ed.OpenSettingsPage(editor.SettingsPageShortcuts)
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play (shortcuts): %v", err)
+		}
+	})
+	app.Settle()
+	if ed.SettingsOpen() || ed.EditorSettingsOpen() {
+		t.Fatal("Play() did not close Shortcuts/General Settings")
+	}
+	app.Post(func() { _ = ed.Stop() })
+	app.Settle()
+}

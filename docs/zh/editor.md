@@ -929,9 +929,9 @@ func main() {
 
 当 `Editor.Library` 设为一个包库（`library.Open`）时（`nsgo game editor -library <索引>` 就会这样设置），资源浏览器旁会出现一个面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。面板上的 Install、Update 和 Remove 按钮调用 `InstallPack` 和 `RemovePack`：把包的文件写到 `game.yaml` 旁边，在项目中记录包及其新增的自动加载条目和插件，然后保存项目；插件包列出的已注册插件会立即启用。正在运行、没有打开项目或项目有未保存修改（`ErrProjectDirty`）时它们会拒绝执行；由于写入的文件无法撤销，它们会清空撤销历史。从 https 库获取包时不会阻塞事件循环，包到达之前按钮显示为忙碌状态（`FetchingPack`）。库的格式以及安装会写入什么，见[资源与插件库](library.md)。
 
-## 统一设置页面：项目、输入映射、音频总线、导出与通用偏好（#907、#908、#909、#916、#1060）
+## 统一设置页面：项目、输入映射、音频总线、导出、通用偏好与快捷键（#907、#908、#909、#916、#1060、#1061）
 
-所有项目级 `game.yaml` 配置与每台电脑的编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `docs/design/editor/Settings.dc.html` 与 `Spec.dc.html`。左侧导航将 **`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
+所有项目级 `game.yaml` 配置与每台电脑的编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `docs/design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `SpecPalette` 令牌。左侧导航将 **`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
 
 ### 项目设置页（#907、#1060）
 
