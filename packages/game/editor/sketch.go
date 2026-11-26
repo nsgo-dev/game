@@ -1843,7 +1843,7 @@ func (e *Editor) drawSketchDraft(d *core.Drawing, spec SpecPalette, dr *sketchDr
 }
 
 func (e *Editor) drawSketchMark(d *core.Drawing, spec SpecPalette, m SketchMark, selected, reviewDotted bool, alpha float32) {
-	haloColor := core.RGBA(0x000000, 0.55*alpha)
+	haloColor := ui.Alpha(spec.Bg, 0.65*alpha)
 	if !spec.Dark {
 		haloColor = ui.Alpha(spec.Bg, 0.72*alpha)
 	}
