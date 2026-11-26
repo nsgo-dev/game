@@ -214,7 +214,7 @@ func initChangesFixtureRepo(t *testing.T) (repoDir, bareRemote string) {
 		t.Skip("git binary not available")
 	}
 	bareRemote = filepath.Join(t.TempDir(), "origin.git")
-	runTestGit(t, filepath.Dir(bareRemote), "init", "--bare", bareRemote)
+	runTestGit(t, filepath.Dir(bareRemote), "init", "--bare", "-b", "main", bareRemote)
 
 	repoDir = filepath.Join(t.TempDir(), "dungeon-run")
 	if err := os.MkdirAll(filepath.Join(repoDir, "scenes"), 0o755); err != nil {
@@ -543,7 +543,7 @@ func TestChangesPanelChecksRedraftShareBranchAndPull(t *testing.T) {
 	}
 
 	otherClone := filepath.Join(t.TempDir(), "other")
-	runTestGit(t, filepath.Dir(otherClone), "clone", bareRemote, otherClone)
+	runTestGit(t, filepath.Dir(otherClone), "clone", "-b", "main", bareRemote, otherClone)
 	runTestGit(t, otherClone, "config", "user.name", "mia")
 	runTestGit(t, otherClone, "config", "user.email", "mia@example.com")
 	mustWriteFile(t, filepath.Join(otherClone, "README.md"), "# dungeon-run\n")
