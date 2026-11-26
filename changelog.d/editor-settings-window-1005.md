@@ -1,0 +1,3 @@
+### Added
+
+- `game/editor`: unified **Settings** window (`⌘,` to open, `Esc` to close and restore focus to the exact opener control) with `AGENT`, `PROJECT · game.yaml`, and `EDITOR · THIS COMPUTER` navigation groups, live cross-page search narrowing both navigation and rows (offering to send unmatched queries to the agent when enabled), arrow-key sidebar navigation, **Interface size** on **General**, a new **Viewport** page (Snap step/angle, Grid, Show agent changes, 3D navigation mouse mapping, and Overlay legend toggles), and strict version-1 per-person `editor.yaml` persistence with updated JSON Schema (#1005).

@@ -75,7 +75,11 @@ func (g *viewport3DGestures) mouseDown(cx *core.Scope, ed *Editor, frame *core.R
 			return
 		}
 		cw, ch := ed.CanvasSize()
-		ed.BeginViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y), cw, ch, true)
+		pan := true
+		if ed.Navigation3D() == Navigation3DBlender {
+			pan = core.KeyHeld(cx, "shift")
+		}
+		ed.BeginViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y), cw, ch, pan)
 		g.middle, g.middleLast = true, ev.Position
 	case core.MouseButtonRight:
 		if g.middle || !ed.BeginFly3D() {

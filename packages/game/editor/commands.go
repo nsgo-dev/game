@@ -1473,7 +1473,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle the Project Settings panel",
 			Category:    "Project",
 			Keywords:    []string{"settings", "game.yaml", "config", "panel"},
-			Shortcut:    "mod+,",
+			Shortcut:    "mod+shift+,",
 			Enabled:     hasProject,
 			Checked:     func() bool { return e.ProjectSettingsOpen() },
 			Run: func() error {
@@ -1642,14 +1642,18 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdEditorSettings,
 			Label:       "Editor Settings",
-			Description: "Configure editor language, appearance, and keyboard shortcuts",
+			Description: "Configure editor language, appearance, viewport, and keyboard shortcuts",
 			Category:    "File",
-			Keywords:    []string{"preferences", "language", "chinese", "english", "appearance", "theme", "dark", "light", "shortcuts"},
+			Keywords:    []string{"preferences", "settings", "language", "chinese", "english", "appearance", "theme", "dark", "light", "viewport", "snap", "grid", "shortcuts"},
 			Scope:       ScopeGlobal,
-			Shortcut:    "mod+shift+,",
-			Checked:     func() bool { return e.EditorSettingsOpen() },
+			Shortcut:    "mod+,",
+			Checked:     func() bool { return e.SettingsOpen() },
 			Run: func() error {
-				e.ToggleEditorSettings()
+				if e.SettingsOpen() {
+					e.CloseSettings()
+					return nil
+				}
+				e.OpenSettingsPage(e.SettingsPage())
 				return nil
 			},
 		},

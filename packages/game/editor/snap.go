@@ -139,6 +139,7 @@ func (e *Editor) SetSnapSettings(s SnapSettings) bool {
 	e.SnapScale = s.Scale
 	e.ScaleSnapStep = scaleStep
 	e.ShowGrid = s.ShowGrid
+	e.persistSnapToSettings()
 	e.notify()
 	return true
 }
@@ -180,6 +181,7 @@ func (e *Editor) SetSnapToGrid(on bool) {
 		return
 	}
 	e.SnapToGrid = on
+	e.persistSnapToSettings()
 	e.notify()
 }
 
@@ -193,6 +195,7 @@ func (e *Editor) SetGridSize(size float32) bool {
 		return true
 	}
 	e.GridSize = size
+	e.persistSnapToSettings()
 	e.notify()
 	return true
 }
@@ -203,6 +206,7 @@ func (e *Editor) ResetGridSize() {
 		return
 	}
 	e.GridSize = 0
+	e.persistSnapToSettings()
 	e.notify()
 }
 
@@ -212,6 +216,7 @@ func (e *Editor) SetSnapToPixel(on bool) {
 		return
 	}
 	e.SnapToPixel = on
+	e.persistSnapToSettings()
 	e.notify()
 }
 
@@ -221,6 +226,7 @@ func (e *Editor) SetSnapRotation(on bool) {
 		return
 	}
 	e.SnapRotation = on
+	e.persistSnapToSettings()
 	e.notify()
 }
 
@@ -233,6 +239,7 @@ func (e *Editor) SetRotationSnapDeg(deg float32) bool {
 		return true
 	}
 	e.RotationSnapDeg = deg
+	e.persistSnapToSettings()
 	e.notify()
 	return true
 }
@@ -243,6 +250,7 @@ func (e *Editor) SetSnapScale(on bool) {
 		return
 	}
 	e.SnapScale = on
+	e.persistSnapToSettings()
 	e.notify()
 }
 
@@ -255,6 +263,7 @@ func (e *Editor) SetScaleSnapStep(step float32) bool {
 		return true
 	}
 	e.ScaleSnapStep = step
+	e.persistSnapToSettings()
 	e.notify()
 	return true
 }
@@ -265,6 +274,7 @@ func (e *Editor) SetShowGrid(show bool) {
 		return
 	}
 	e.ShowGrid = show
+	e.persistSnapToSettings()
 	e.notify()
 }
 

@@ -1056,7 +1056,7 @@ func main() {
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+c`（拷贝对象或当前瓦片区域）、`mod+x`（剪切对象或当前瓦片区域）、`mod+v`（粘贴对象或瓦片区域）、`mod+shift+v`（粘贴为子级）、`mod+d`（复制选中对象）、`mod+g`（编组）、`mod+shift+g`（取消编组）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
   - 3D 变换控件与视图：`w`（平移）、`e`（旋转）、`r`（缩放）、`t`（局部 / 全局空间）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）、`5`（3D 透视或正交）以及 `0`（透过场景相机观看），这些只在 3D 视图中生效、`View > Scene Environment`（开关场景环境面板）、`mod+k`（命令面板）。
-  - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布面板）、`mod+shift+r`（构建与发布界面）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
+  - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（设置）、`mod+shift+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布面板）、`mod+shift+r`（构建与发布界面）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
 - **插件命令**：插件可通过 `Commands []PluginCommand` 声明带可选 `Shortcut` 的命令。`RegisterPlugin` 会规范化快捷键（`NormalizeShortcut`），并在改动编辑器状态之前拒绝任何在 macOS 或 Windows/Linux 上与内置命令、自定义命令或其他已注册插件冲突的快捷键。
@@ -1128,28 +1128,44 @@ func main() {
 
 编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
 
-- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）、可选的 `shortcuts` 以及可选的 `agent` 偏好（任务路由、MCP 工具开关、外部 MCP 服务器、每周请求限额、出站隐私开关与本地用量统计；API 密钥等机密绝不写入 `editor.yaml`）。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
+- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`、#921、#1005、#1028）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `version`、`language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `interfaceSize`（`compact`、`default` 或 `large`）、可选的 `snap`（用户级默认吸附设置：`grid`、`gridSize`、`pixel`、`rotation`、`rotationStepDeg`、`scale`、`scaleStep` 与 `showGrid`，当项目未在 `.game/editor.yaml` 单独覆盖吸附设置时自动生效）、可选的 `showAgentChanges`（省略时默认为 `true`）、可选的 `navigation3D`（`default`、`blender` 或 `maya`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）、可选的 `shortcuts`、可选的 `seenTips` 以及可选的 `agent` 偏好（任务路由、MCP 工具开关、外部 MCP 服务器、每周请求限额、出站隐私开关与本地用量统计；API 密钥等机密绝不写入 `editor.yaml`）。未知字段、YAML 锚点/别名/合并键、多余文档、负数/非有限吸附步长和非法枚举值都会被拒绝并返回 `*loaderr.Error`。输出为带 `SettingsSchemaComment` 头的确定性 2 空格 YAML，加载后重新保存字节完全不变。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
   ```yaml
   # yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
   version: 1
   language: system
   appearance: system
   autoSave: true
+  interfaceSize: default
+  snap:
+    grid: true
+    gridSize: 16
+    rotation: true
+    rotationStepDeg: 15
+    showGrid: true
+  showAgentChanges: true
+  navigation3D: default
   shortcuts:
     view.frame: g
   ```
+- **统一设置窗口（`SettingsView`、`⌘,` / `Esc`、#1005）**：
+  - **打开、关闭与焦点恢复**：按 `⌘,`（`mod+,`、`CmdEditorSettings`）可随时打开全窗口设置视图（无论是否打开项目），按 `Esc` 关闭并将键盘焦点精确恢复到打开前所在的控件。
+  - **分组导航与页面结构**：左侧导航列表按 **`AGENT`**（模型与连接、权限、游戏简报、项目规则、工具、用量与隐私）、**`PROJECT · game.yaml`**（项目、输入映射、音频总线、导出；未打开项目时不显示空分组）与 **`EDITOR · THIS COMPUTER`**（通用、视口、快捷键）分组，每项附带实时元信息且不显示空分组标题。每个页面均显示标题、单行副标题与作用域标签（`此计算机`、`项目 · 共享` 或 `项目 · game.yaml`），每行均包含标签、说明文本、值控件以及 `智能体可修改` / `仅限用户` 策略列。
+  - **搜索与智能体转交**：在顶部搜索框（`搜索设置，或告诉智能体你想做什么`）输入关键词会跨页面匹配设置标签与说明，同时收窄左侧导航（隐藏无匹配页面与空分组）以及当前页设置行；当没有任何设置匹配且智能体面板处于启用状态时，可直接将该查询发送给智能体（`AskAgentFromSettings`）。
+  - **通用页面（`SettingsPageGeneral`）**：配置**语言**（`Editor.SetLanguage`）、**外观**（`Editor.SetAppearance`）、**自动保存**（`Editor.SetAutoSave`，仅自动保存已保留的更改，延迟 2 秒）和**界面尺寸**（`Editor.InterfaceSize`、`Editor.SetInterfaceSize`：`紧凑`、`默认`、`较大`，文本与控件同步缩放）。
+  - **视口页面（`SettingsPageViewport`、`OpenViewportSettings`）**：配置**吸附**（开关、像素步长 `px` 与旋转角度 `°`，按住 `⌘` 临时忽略）、**网格**（按吸附步长显示，`SetShowGrid`）、**显示智能体更改**（`Editor.ShowAgentChanges`、`Editor.SetShowAgentChanges`，审阅打开时在视口中显示轮廓）、**3D 导航**（`Editor.Navigation3D`、`Editor.SetNavigation3D`：`默认`、`Blender` 或 `Maya` 鼠标映射），以及按计算机保存的全部**叠加层图例**开关（`ViewportOverlays`）。
+  - **键盘与无障碍**：左侧列表支持 `ArrowDown` / `ArrowUp` / `Home` / `End` 方向键导航；所有开关均使用 `SpecSwitch`（`RoleSwitch`、`aria-checked` 与 2 px Spec 强调色焦点环）；每一行均可经由 `Tab` 键访问。
 - **自动保存与状态栏保存状态（#1016）**：
   - **通用 › 自动保存（`Editor.AutoSave`、`Editor.SetAutoSave`）**：默认启用，并以 `autoSave` 字段保存在 `EditorSettings` 中。对有对应文件的场景与 `game.yaml` 的已保留更改会在 2 秒防抖延迟后自动保存（`DefaultAutoSaveDelay`，可通过 `Editor.AutoSaveDelay` 覆盖）。处于打开审查中的编辑（`Editor.HasOpenReview()`，涵盖 `BeginReview` / `KeepReview`、过场审查、试玩指标提案审查、安全重命名审查、合并冲突与未解决的外部磁盘冲突）尚未保留，在确认保留前不会自动保存。
   - **状态栏保存状态项（`Editor.SaveStatus`，`SaveStatusSaved` / `SaveStatusSaving` / `SaveStatusFailed`）**：已保存时以柔和 Spec 样式显示 `已保存`（悬停提示显示上次保存时间）；仅当保存耗时超过 300 毫秒（`DefaultSavingIndicatorDelay`，可通过 `Editor.SavingIndicatorDelay` 配置）后才显示 `正在保存…`，避免快速保存闪烁；自动保存失败时会持续停留在状态栏中（从不以 toast 弹出），显示可读原因（如 `无法保存：文件夹为只读` 或 `无法保存：磁盘已满 · 剩余 12 MB`）以及**重试**（`Editor.RetrySave`）和**另存为…**操作，直到问题解决。
   - **保存失败期间**：场景名称及失败标签页旁的未保存圆点变为 Spec 问题红（`#FF6B6B`），退出前会先询问（`Editor.HasUnsavedChanges()` 保持为 `true`），且 `editormcp` 会在后续每次工具结果中警告智能体当前更改未落盘，直到保存成功。
-- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在**编辑器设置**对话框（`EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
+- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
 - **外观（`core.Scope.SetAppearance`）与 Spec 深/浅色主题（#1062）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`EditorView` 会在根作用域挂载内嵌的 YAML 规范主题（`spec_theme.yaml`，经由 `core.ParseTheme` 解析并通过 `SpecTheme`、`DarkSpecPalette`、`LightSpecPalette`、`SpecPaletteFor` 与 `Editor.SpecPalette` 暴露），使所有 NSGo `ui` 组件、面板、视口叠加层、叠加图例（`SpecOverlayLegendView` / `SetOverlayLegendOpen`）与轻提示 Toast（`ShowToast` / `DismissToast` / `ToastView`）在深色与浅色外观下都严格遵循 Spec 令牌，不再回退到 NSGo 默认主题。深浅两套调色板中的每一组前景/背景、强调按钮文字、警告卡片与视口叠加层均按同一张 WCAG 2.2 对比度表进行校验（`ContrastRatio`、`SpecContrastTable`：正文、胶囊文字及强调/智能体/问题填充上的文字均 >= 4.5:1 AA；焦点环与视口叠加层描边 >= 3:1 UI 对比度）。当设置为 `AppearanceSystem` 时，系统外观变化会实时重绘编辑器而无需重启；显式选择的 `AppearanceLight` 或 `AppearanceDark` 会持久化到 `Editor.SettingsPath` 并在重启后保持生效。
 - **快捷键：按作用域搜索与重绑（#1061）**：
   - **命令作用域**：每个 `EditorCommand` 和 `PluginCommand` 都带有 `Scope`（`ScopeGlobal`、`ScopeViewport`、`ScopeViewport2D`、`ScopeViewport3D`、`ScopeSceneTree`、`ScopeTile`、`ScopeAnimation`、`ScopePlay`，未指定时默认为 `ScopeGlobal`）。
   - **设置 › 快捷键（`EditorSettingsTabShortcuts`、`OpenShortcutsSettings`、`CmdShortcutsSettings`）**：列出所有已注册的内置、自定义与已启用插件命令及其作用域和当前按键，支持按命令名称、按键或作用域搜索（`FilterShortcutCommands`）。点击命令的按键按钮即可进入按键录制模式（`ShortcutFromKeyEvent`，按 `Escape` 可取消录制而不关闭设置对话框）。若按键在**同一作用域**中已被占用（`ShortcutConflict` / `*ShortcutConflictError`），会在行内原地提示并提供**交换**按钮（`SwapShortcut`，交换后两条命令互换按键且均保持绑定）；若按键仅在**不同作用域**中被使用（`RebindShortcut`），则会立即绑定而不弹出冲突提示。支持单行**重置**（`ResetShortcut`）与顶部**全部重置**（`ResetAllShortcuts`）。
   - **持久化与全界面即时同步**：自定义按键保存在 `EditorSettings` 的 `shortcuts` 字段（`editor.yaml`，位于所有项目之外），重绑后立即同步到 `EffectiveShortcut`、工具栏提示与无障碍标签、桌面菜单栏（`ApplicationMenu`）、命令面板（`CommandPaletteView`）、实时按键调度以及 **`⌘/` 快捷键速查表**（`ShortcutsSheetView`、`CmdShortcutsSheet` / `mod+/`）。
 
-- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
+- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
 - **外观（`core.Scope.SetAppearance`）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`Editor.SetAppearance` 会立即通过 NSGo 的 `core.Scope.SetAppearance` 生效（即使系统为浅色也可保持深色，反之亦然），并在设置了 `Editor.SettingsPath` 时自动持久化，重启后保持不变。
 - **插件本地化**：插件可提供 `Catalog *l10n.Catalog` 或带版本号的 `LocaleYAML [][]byte` 字符串表（`RegisterPlugin` 会严格校验），并在面板、工具和命令上设置可选的 `TitleKey` / `LabelKey` / `DescriptionKey` / `CategoryKey`。在 `Panel.View` 和 `Inspector.View` 中，插件可调用 `Editor.PluginT(pluginName, key, args...)` 与 `Editor.PluginPlural(...)`，使插件界面实时跟随编辑器当前语言。
 

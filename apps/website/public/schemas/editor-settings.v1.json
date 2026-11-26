@@ -32,6 +32,36 @@
       "description": "AutoSave controls whether kept edits save automatically after 2 seconds. When omitted, autosave is enabled by default.",
       "type": "boolean"
     },
+    "interfaceSize": {
+      "description": "InterfaceSize scales editor text and controls together (\"compact\", \"default\", or \"large\"). When omitted, \"default\" is used.",
+      "type": "string",
+      "enum": [
+        "compact",
+        "default",
+        "large"
+      ]
+    },
+    "snap": {
+      "description": "Snap holds per-user viewport snapping and 2D snap grid preferences (step in px, rotation step in degrees, grid overlay).",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SnapSettings"
+        }
+      ]
+    },
+    "showAgentChanges": {
+      "description": "ShowAgentChanges controls whether viewport outlines highlight agent changes while a review is open. When omitted, outlines are shown by default.",
+      "type": "boolean"
+    },
+    "navigation3D": {
+      "description": "Navigation3D selects the 3D viewport's mouse navigation mapping (\"default\", \"blender\", or \"maya\"). When omitted, \"default\" is used.",
+      "type": "string",
+      "enum": [
+        "default",
+        "blender",
+        "maya"
+      ]
+    },
     "viewportOverlays": {
       "description": "ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order. When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.",
       "type": "array",
@@ -215,6 +245,51 @@
           "type": "integer",
           "minimum": -9223372036854776000,
           "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "SnapSettings": {
+      "description": "SnapSettings holds the editor's snapping and 2D grid overlay preferences. They are editor preferences persisted per project in ViewStateFile (.game/editor.yaml), never in scene files.",
+      "type": "object",
+      "properties": {
+        "grid": {
+          "description": "Grid snaps object placement, drags, 2D handles, and 3D translate gizmos to EffectiveGridStep.",
+          "type": "boolean"
+        },
+        "gridSize": {
+          "description": "GridSize is an explicit grid step in world/layer units; 0 means follow the active layer's tilemap tile size (or 8 when it has none).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "pixel": {
+          "description": "Pixel snaps positions to whole points (1-unit increments) when Grid is off.",
+          "type": "boolean"
+        },
+        "rotation": {
+          "description": "Rotation snaps 2D and 3D rotation drags to RotationStepDeg-degree increments.",
+          "type": "boolean"
+        },
+        "rotationStepDeg": {
+          "description": "RotationStepDeg is the rotation snap step in degrees (defaults to 15 when <= 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scale": {
+          "description": "Scale snaps 2D and 3D scale drags to ScaleStep increments.",
+          "type": "boolean"
+        },
+        "scaleStep": {
+          "description": "ScaleStep is the scale snap step (defaults to 0.25 when <= 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "showGrid": {
+          "description": "ShowGrid draws a 2D grid overlay at the active snap step in the 2D edit viewport, following View2D.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false

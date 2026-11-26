@@ -195,14 +195,16 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	dragAreaKey.Provide(cx, true)
 
 	type chromeState struct {
-		lang string
-		dark bool
+		lang   string
+		dark   bool
+		uiSize InterfaceSize
 	}
 	chromeKey := core.NewMemo(cx, func() chromeState {
 		_ = rev.Get()
 		return chromeState{
-			lang: ed.ResolvedLanguage(),
-			dark: cx.Dark(),
+			lang:   ed.ResolvedLanguage(),
+			dark:   cx.Dark(),
+			uiSize: ed.InterfaceSize(),
 		}
 	})
 
