@@ -459,16 +459,29 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							Disabled: disabled,
 							TextFunc: func() string {
 								_ = langMemo.Get()
+								label := fallbackLabel
 								if labelKey != "" {
-									return ed.T(labelKey)
+									label = ed.T(labelKey)
 								}
-								return fallbackLabel
+								if page == SettingsPageShortcuts {
+									_ = rev.Get()
+									if n := len(ed.Settings().Shortcuts); n > 0 {
+										return fmt.Sprintf("%s · %d", label, n)
+									}
+								}
+								return label
 							},
 							LabelFunc: func() string {
 								_ = langMemo.Get()
 								lbl := fallbackLabel
 								if labelKey != "" {
 									lbl = ed.T(labelKey)
+								}
+								if page == SettingsPageShortcuts {
+									_ = rev.Get()
+									if n := len(ed.Settings().Shortcuts); n > 0 {
+										return fmt.Sprintf("%s · %d", lbl, n)
+									}
 								}
 								if metaFunc != nil {
 									if m, _ := metaFunc(); m != "" {
@@ -777,13 +790,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								deg := ed.EffectiveRotationSnapDeg()
 								return fmt.Sprintf("%s px · %s°", formatSettingsStep(step), formatSettingsStep(deg)), false
 							}, nil),
-							navRowWithIDs(SettingsPageShortcuts, "editor-settings-tab-shortcuts", "settings-nav-shortcuts-meta", "settings.shortcuts", "Shortcuts", func() (string, bool) {
-								_ = rev.Get()
-								if n := len(ed.Settings().Shortcuts); n > 0 {
-									return fmt.Sprintf("%d", n), false
-								}
-								return "", false
-							}, nil),
+							navRowWithIDs(SettingsPageShortcuts, "editor-settings-tab-shortcuts", "settings-nav-shortcuts-meta", "settings.shortcuts", "Shortcuts", nil, nil),
 						},
 					}
 				},
