@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/nsgo/core"
@@ -730,4 +731,302 @@ func TestReviewScreenScreenshots(t *testing.T) {
 	// 5. Paused pending state in Editor (Esc -> Agent panel Review waiting card + viewport overlays).
 	app.Key("escape")
 	app.Screenshot("review-paused-editor-dark")
+}
+
+func TestReviewSecurityPathConfinementAndYouOnly(t *testing.T) {
+	f := newReviewFixture(t)
+
+	// 1. Refuse traversal, .git metadata, and You-only files at StartTurnReview.
+	for _, badPath := range []string{
+		"..",
+		"../outside.yaml",
+		"scenes/../../outside.yaml",
+		"/etc/passwd",
+		".git/config",
+		"permissions.yaml",
+		".nsgo/permissions.yaml",
+		"tools.yaml",
+		".nsgo/models.yaml",
+		"usage.yaml",
+	} {
+		err := f.ed.StartTurnReview(editor.ReviewTurnInput{
+			Request: "bad path test",
+			Files: []editor.ReviewFileInput{
+				{
+					Path:       badPath,
+					BeforeYAML: []byte("a: 1\n"),
+					AfterYAML:  []byte("a: 2\n"),
+				},
+			},
+		})
+		if err == nil {
+			t.Fatalf("StartTurnReview accepted forbidden path %q", badPath)
+		}
+	}
+
+	// 2. Refuse oversized files (>8 MiB).
+	huge := bytes.Repeat([]byte("a"), (8<<20)+1)
+	if err := f.ed.StartTurnReview(editor.ReviewTurnInput{
+		Request: "oversized test",
+		Files: []editor.ReviewFileInput{
+			{Path: "notes.txt", BeforeYAML: []byte("ok\n"), AfterYAML: huge},
+		},
+	}); err == nil {
+		t.Fatal("StartTurnReview accepted file exceeding 8 MiB cap")
+	}
+
+	// 3. Refuse symlink escape on KeepTurnReview and ConfirmReviewRevertAll without touching outside target.
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("original-secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(f.dir, "escaped.txt")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if err := f.ed.StartTurnReview(editor.ReviewTurnInput{
+		Request: "symlink escape test",
+		Files: []editor.ReviewFileInput{
+			{
+				Path:       "escaped.txt",
+				BeforeYAML: []byte("original-secret\n"),
+				AfterYAML:  []byte("pwned\n"),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("StartTurnReview(escaped.txt): %v", err)
+	}
+	if err := f.ed.KeepTurnReview(); err == nil {
+		t.Fatal("KeepTurnReview overwrote symlink escaping project root")
+	}
+	if err := f.ed.ConfirmReviewRevertAll(); err == nil {
+		t.Fatal("ConfirmReviewRevertAll wrote through symlink escaping project root")
+	}
+	gotOutside, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotOutside) != "original-secret\n" {
+		t.Fatalf("outside symlink target was modified: %q", gotOutside)
+	}
+}
+
+func TestReviewLayerMovePartialRevertAndMultiTabSync(t *testing.T) {
+	f := newReviewFixture(t)
+
+	// Open BOTH level_01 and level_02 as open tabs before starting the review.
+	if err := f.ed.OpenScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatalf("OpenScene level_02: %v", err)
+	}
+	if err := f.ed.OpenScene("scenes/level_01.scene.yaml"); err != nil {
+		t.Fatalf("OpenScene level_01: %v", err)
+	}
+
+	// level_01 moves knight to a new layer "foreground" AND adds an extra coin we will revert.
+	l1AfterMove := []byte(`version: 2
+name: level_01
+virtualWidth: 640
+virtualHeight: 360
+backgroundColor: "#181C24"
+layers:
+  - name: actors
+    objects:
+      - id: door_1
+        x: 574
+        "y": 248
+      - id: crate_04
+        x: 504
+        "y": 270
+      - id: temp_coin
+        x: 100
+        "y": 100
+  - name: foreground
+    objects:
+      - id: knight
+        x: 352
+        "y": 192
+        z: 15
+`)
+	if err := f.ed.StartTurnReview(editor.ReviewTurnInput{
+		Request: "Move knight to foreground and add slimes to level_02",
+		Files: []editor.ReviewFileInput{
+			{Path: "scenes/level_01.scene.yaml", BeforeYAML: f.level1Before, AfterYAML: l1AfterMove},
+			{Path: "scenes/level_02.scene.yaml", BeforeYAML: f.level2Before, AfterYAML: f.level2After},
+		},
+	}); err != nil {
+		t.Fatalf("StartTurnReview: %v", err)
+	}
+
+	// Revert temp_coin so level_01 must reconstruct via effectiveReviewSceneDoc.
+	for _, ch := range f.ed.ReviewStatus().Changes {
+		if ch.ObjectID == "temp_coin" {
+			f.ed.ToggleReviewChangeReverted(ch.ID)
+		}
+	}
+	if err := f.ed.KeepTurnReview(); err != nil {
+		t.Fatalf("KeepTurnReview: %v", err)
+	}
+
+	// Verify knight moved to foreground layer and temp_coin was excluded.
+	gotL1, err := os.ReadFile(filepath.Join(f.dir, "scenes", "level_01.scene.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(gotL1), "id: temp_coin") {
+		t.Fatalf("reverted temp_coin leaked into saved level_01:\n%s", gotL1)
+	}
+	if !strings.Contains(string(gotL1), "name: foreground") || !strings.Contains(string(gotL1), "z: 15") {
+		t.Fatalf("knight layer move lost during partial revert reconstruction:\n%s", gotL1)
+	}
+	// Verify knight is on foreground in active Editor.Doc (not duplicated on actors).
+	fgFound, actorsFound := false, false
+	for _, l := range f.ed.Doc.Layers {
+		for _, o := range l.Objects {
+			if o.ID == "knight" {
+				if l.Name == "foreground" {
+					fgFound = true
+				}
+				if l.Name == "actors" {
+					actorsFound = true
+				}
+			}
+		}
+	}
+	if !fgFound || actorsFound {
+		t.Fatalf("knight layer placement = (foreground:%v, actors:%v), want (true, false)", fgFound, actorsFound)
+	}
+
+	// Switch to previously-open inactive tab level_02 and confirm it was synced in memory!
+	if err := f.ed.OpenScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatalf("switch to level_02 tab: %v", err)
+	}
+	foundSlime04 := false
+	for _, l := range f.ed.Doc.Layers {
+		for _, o := range l.Objects {
+			if o.ID == "slime_04" {
+				foundSlime04 = true
+			}
+		}
+	}
+	if !foundSlime04 {
+		t.Fatal("inactive open tab level_02 was not synced after KeepTurnReview")
+	}
+	if f.ed.HasUnsavedChanges() {
+		t.Fatal("synced inactive tab level_02 was left marked dirty")
+	}
+
+	// Switch back to level_01 and Undo -> both tabs and disk files restore cleanly!
+	if err := f.ed.OpenScene("scenes/level_01.scene.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	f.ed.Undo()
+	if err := f.ed.OpenScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range f.ed.Doc.Layers {
+		for _, o := range l.Objects {
+			if o.ID == "slime_04" {
+				t.Fatal("inactive tab level_02 still had slime_04 after Undo")
+			}
+		}
+	}
+}
+
+func TestReviewUnifiedHistoryIntegrationAndModalShortcutGuards(t *testing.T) {
+	f := newReviewFixture(t)
+	f.startTurn(t, false)
+
+	macEnv := nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false, Locale: "en-US"})
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, f.ed)
+	}, nsgotest.Size(1440, 900), macEnv)
+
+	// 1. Opening Command Palette over ReviewScreenView must block Review shortcuts and Esc must NOT pause Review.
+	app.Post(func() { f.ed.SetCommandPaletteOpen(true) })
+	app.Settle()
+	focusedBefore := f.ed.ReviewStatus().FocusedID
+	app.Key("j")
+	if f.ed.ReviewStatus().FocusedID != focusedBefore {
+		t.Fatal("J stepped review while Command Palette was open")
+	}
+	app.Key("escape") // clears the "j" typed into Command Palette search
+	app.Key("escape") // closes the empty Command Palette
+	app.Advance(250 * time.Millisecond)
+	app.Settle()
+	if !f.ed.ReviewOpen() {
+		t.Fatal("Esc while Command Palette was open paused Review underneath")
+	}
+	if f.ed.CommandPaletteOpen() {
+		t.Fatal("Esc did not close Command Palette")
+	}
+
+	// 2. While Review is paused and a You-only Permissions draft card is open, ⌘↵ must NOT keep the review.
+	app.Key("escape")
+	if f.ed.ReviewOpen() || !f.ed.HasPendingReview() {
+		t.Fatalf("expected Review paused after Esc (open=%v pending=%v palette=%v typing=%v)",
+			f.ed.ReviewOpen(), f.ed.HasPendingReview(), f.ed.CommandPaletteOpen(), f.ed.IsTyping())
+	}
+	app.Post(func() {
+		_, err := f.ed.SubmitPermissionsDraft(editor.PermissionsDraftRequest{
+			Request: "need allow",
+			Rules: []editor.PermissionsDraftRuleSpec{
+				{Action: editor.PermissionActionEdit, Patterns: []string{"scenes/**"}, Decision: editor.PermissionAllow},
+			},
+		})
+		if err != nil {
+			t.Errorf("SubmitPermissionsDraft: %v", err)
+		}
+	})
+	app.Settle()
+	app.Key("meta+enter")
+	if !f.ed.HasPendingReview() {
+		t.Fatal("meta+enter kept paused Review while PermissionsDraft dialog was open")
+	}
+	if !f.ed.PermissionsDraftOpen() {
+		t.Fatal("meta+enter closed or applied PermissionsDraft dialog")
+	}
+	app.Post(func() { f.ed.DiscardPermissionsDraft() })
+	app.Advance(250 * time.Millisecond)
+	app.Settle()
+
+	// 3. Resume review, then PlayIn must pause ReviewOpen so Play mode is not trapped behind ReviewScreenView.
+	app.Post(func() {
+		if err := f.ed.ResumeReview(); err != nil {
+			t.Errorf("ResumeReview: %v", err)
+		}
+		if err := f.ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if f.ed.ReviewOpen() {
+		t.Fatal("Play did not pause full-window Review screen")
+	}
+	if !f.ed.HasPendingReview() {
+		t.Fatal("Play dropped pending review instead of pausing it")
+	}
+	app.Post(func() {
+		_ = f.ed.Stop()
+		_ = f.ed.ResumeReview()
+	})
+	app.Settle()
+
+	// 4. KeepTurnReview records an Agent entry in the unified History panel (#1017).
+	app.Key("meta+enter")
+	if f.ed.ReviewOutcome() != editor.ReviewOutcomeKept {
+		t.Fatalf("outcome = %q, want kept", f.ed.ReviewOutcome())
+	}
+	agentEntries := f.ed.FilteredHistoryEntries(editor.HistoryFilterAgent)
+	if len(agentEntries) == 0 {
+		t.Fatal("KeepTurnReview did not record an HistoryAuthorAgent entry on unified History timeline")
+	}
+	latest := agentEntries[0]
+	if latest.Author != editor.HistoryAuthorAgent || latest.ChangeCount != 10 || latest.KeptCount != 10 {
+		t.Fatalf("history agent entry = %+v, want author=agent changes=10 kept=10", latest)
+	}
+	if !slices.Contains(latest.Files, "prefabs/slime.prefab.yaml") {
+		t.Fatalf("history agent entry files = %v, missing prefabs/slime.prefab.yaml", latest.Files)
+	}
 }

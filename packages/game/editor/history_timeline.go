@@ -248,7 +248,7 @@ func (e *Editor) PreviewHistoryEntry(id uint64) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.StartScreenOpen() || e.MergeConflictOpen() {
+	if e.StartScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() {
 		return errors.New("editor: history preview is unavailable while a full-window screen is open")
 	}
 	idx := e.History.recordIndexByID(id)
@@ -309,7 +309,7 @@ func (e *Editor) RecordAgentTurn(opts AgentTurnOptions, fn func() error) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.StartScreenOpen() || e.MergeConflictOpen() {
+	if e.StartScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() {
 		return errors.New("editor: agent turns are unavailable while a full-window screen is open")
 	}
 	if fn == nil {
@@ -492,7 +492,7 @@ func (e *Editor) RestoreHistoryEntry(id uint64) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.StartScreenOpen() || e.MergeConflictOpen() {
+	if e.StartScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() {
 		return errors.New("editor: history restore is unavailable while a full-window screen is open")
 	}
 	idx := e.History.recordIndexByID(id)

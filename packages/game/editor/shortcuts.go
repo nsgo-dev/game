@@ -483,10 +483,10 @@ func (e *Editor) FilterShortcutCommands(query string, targetOS core.OS) []Editor
 func (e *Editor) shortcutScopePriority(scope string) int {
 	switch normalizeCommandScope(scope) {
 	case ScopeReview:
-		if e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() {
+		if e.ReviewOpen() && !e.reviewModalBlocking() {
 			return 5
 		}
-		if e.HasPendingReview() && !e.ReviewRevertAllDialogOpen() {
+		if e.reviewKeepShortcutAllowed() {
 			return 3
 		}
 		return 0

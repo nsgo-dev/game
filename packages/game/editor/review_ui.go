@@ -55,7 +55,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 
 	cycleReviewRegion := func(delta int) {
-		if !ed.ReviewOpen() || ed.ReviewRevertAllDialogOpen() || ed.shortcutCaptureActive {
+		if !ed.ReviewOpen() || ed.reviewModalBlocking() {
 			return
 		}
 		cur := activeRegion.GetUntracked()
@@ -81,8 +81,10 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	// Track held B key for Before-request peek while Review is open and not typing in a text field.
 	cx.Effect(func() {
 		held := core.KeyHeld(cx, "b")
-		if ed.ReviewOpen() && !ed.ReviewRevertAllDialogOpen() && !ed.IsTyping() {
+		if ed.ReviewOpen() && !ed.reviewModalBlocking() && !ed.IsTyping() {
 			ed.SetReviewPeekBefore(held)
+		} else if ed.ReviewPeekingBefore() {
+			ed.SetReviewPeekBefore(false)
 		}
 	})
 	cx.Cleanup(func() {
@@ -91,23 +93,26 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 	// F6 / Shift-F6 cycles Review's 4 regions: Header -> List -> Center -> Right.
 	cx.OnKeyWith("f6", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.ReviewOpen() && !ed.ReviewRevertAllDialogOpen() {
+		if ed.ReviewOpen() && !ed.reviewModalBlocking() {
 			cycleReviewRegion(+1)
 		}
 	})
 	cx.OnKeyWith("shift+f6", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.ReviewOpen() && !ed.ReviewRevertAllDialogOpen() {
+		if ed.ReviewOpen() && !ed.reviewModalBlocking() {
 			cycleReviewRegion(-1)
 		}
 	})
 
-	// Esc steps back cleanly: close revert dialog -> blur filter field -> pause review back to editor.
+	// Esc steps back cleanly: close revert dialog -> yield to overlays -> blur filter field -> pause review back to editor.
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
 		if !ed.ReviewOpen() || ed.shortcutCaptureActive {
 			return
 		}
 		if ed.ReviewRevertAllDialogOpen() {
 			ed.CancelReviewRevertAllDialog()
+			return
+		}
+		if ed.reviewModalBlocking() {
 			return
 		}
 		if ed.IsTyping() {
@@ -121,12 +126,12 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 	// Arrow keys walk visible rows (file headers, kind headers, and change cards) when not typing.
 	cx.OnKeyWith("down", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.ReviewOpen() && !ed.ReviewRevertAllDialogOpen() {
+		if ed.ReviewOpen() && !ed.reviewModalBlocking() {
 			ed.StepReviewRow(+1)
 		}
 	})
 	cx.OnKeyWith("up", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.ReviewOpen() && !ed.ReviewRevertAllDialogOpen() {
+		if ed.ReviewOpen() && !ed.reviewModalBlocking() {
 			ed.StepReviewRow(-1)
 		}
 	})
@@ -164,6 +169,10 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				if snap.FileCount == 1 {
 					body = fmt.Sprintf("%s goes back to how it was before this request. %s brings everything back.", fileList, undoKey)
 				}
+				shadowAlpha := float32(0.50)
+				if !p.Dark {
+					shadowAlpha = 0.20
+				}
 				return core.View{
 					Role:  core.RoleAlertDialog,
 					Label: fmt.Sprintf("Revert all %d changes?", snap.TotalChanges),
@@ -176,7 +185,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						BorderWidth:  1,
 						BorderColor:  p.LineRaised,
 						Shadows: []core.BoxShadow{
-							ui.Shadow(0, 24, 60, 0, ui.Black(0.5)),
+							ui.Shadow(0, 24, 60, 0, ui.Black(shadowAlpha)),
 						},
 					},
 					Children: []core.Node{
@@ -584,7 +593,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 						SVG:   lucide.Search(),
 						Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p0.TextFaint, FlexShrink: 0},
 					},
-					ui.Input{
+					specInputField(cx, ed, ui.Input{
 						Ref:         filterInputRef,
 						TestID:      "review-filter-input",
 						Label:       "Filter changes by name, field or file",
@@ -594,8 +603,6 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 							searchSig.Set(v)
 							ed.SetReviewSearch(v)
 						},
-						OnFocus: func() { ed.noteTextInputFocus(true) },
-						OnBlur:  func() { ed.noteTextInputFocus(false) },
 						Style: core.Style{
 							FlexGrow:     1,
 							FlexBasis:    core.Pt(0),
@@ -607,7 +614,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 							Color:        p0.TextPrimary,
 							FocusVisible: p0.FocusRing(-2),
 						},
-					},
+					}),
 				},
 			},
 			core.Text{
@@ -1816,8 +1823,14 @@ func reviewPrefabCenterView(p SpecPalette, ch *ReviewChange) core.Node {
 	role := reviewKindSpecRole(p, ch.Kind)
 	oldText := ch.OldValue
 	newText := ch.NewValue
+	if oldText == "" {
+		oldText = "(none)"
+	}
+	if newText == "" {
+		newText = "(removed)"
+	}
 	if ch.Reverted {
-		newText = ch.OldValue
+		newText = oldText
 	}
 
 	diffChildren := []core.Node{
@@ -2149,13 +2162,26 @@ func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core
 			core.View{
 				TestID: "review-data-table",
 				Style: core.Style{
+					FlexGrow:     1,
+					FlexBasis:    core.Pt(0),
+					MinHeight:    core.Pt(0),
 					CornerRadius: 12,
 					Background:   p.Panel,
 					BorderWidth:  1,
 					BorderColor:  p.Line,
 					Overflow:     core.Hidden,
 				},
-				Children: rowNodes,
+				Children: []core.Node{
+					rowNodes[0],
+					ui.ScrollView{
+						Style: core.Style{
+							FlexGrow:  1,
+							FlexBasis: core.Pt(0),
+							MinHeight: core.Pt(0),
+						},
+						Children: rowNodes[1:],
+					},
+				},
 			},
 		},
 	}

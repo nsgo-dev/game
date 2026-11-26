@@ -11,6 +11,13 @@ import (
 // ToolReviewStatus reads the active or most recent agent turn review's seen and reverted change state.
 const ToolReviewStatus = "review_status"
 
+const (
+	// maxReviewStatusTextChanges caps how many individual change lines review_status renders in its text reply.
+	maxReviewStatusTextChanges = 200
+	// maxReviewStatusYAMLLines caps YAML diff lines per change in the MCP structured snapshot.
+	maxReviewStatusYAMLLines = 60
+)
+
 const reviewStatusSchema = `{"type":"object","additionalProperties":false,"properties":{}}`
 
 func reviewTools() []Tool {
@@ -39,6 +46,12 @@ func reviewStatus(ctx context.Context, c *Call) (*Result, error) {
 		return nil, err
 	}
 
+	for i := range snap.Changes {
+		if len(snap.Changes[i].YAMLLines) > maxReviewStatusYAMLLines {
+			snap.Changes[i].YAMLLines = snap.Changes[i].YAMLLines[:maxReviewStatusYAMLLines]
+		}
+	}
+
 	var b strings.Builder
 	switch snap.Outcome {
 	case editor.ReviewOutcomePending:
@@ -57,7 +70,8 @@ func reviewStatus(ctx context.Context, c *Call) (*Result, error) {
 				fmt.Fprintf(&b, "\n  - %s: %s", bl.ChangeID, bl.Reason)
 			}
 		}
-		for _, ch := range snap.Changes {
+		limit := min(len(snap.Changes), maxReviewStatusTextChanges)
+		for _, ch := range snap.Changes[:limit] {
 			seenTag := "unseen"
 			if ch.Seen {
 				seenTag = "seen"
@@ -67,6 +81,9 @@ func reviewStatus(ctx context.Context, c *Call) (*Result, error) {
 				revTag = "reverted"
 			}
 			fmt.Fprintf(&b, "\n- [%s] %s (%s) %s · %s, %s", ch.Kind, ch.Title, ch.File, ch.Detail, seenTag, revTag)
+		}
+		if len(snap.Changes) > limit {
+			fmt.Fprintf(&b, "\n... and %d more changes", len(snap.Changes)-limit)
 		}
 	case editor.ReviewOutcomeKept, editor.ReviewOutcomeReverted:
 		fmt.Fprintf(&b, "Review %s: %s", snap.Outcome, snap.LastOutcomeMsg)

@@ -43,7 +43,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
-	if actions["scene_edit"] != "edit" || actions["scene_read"] != "read" || actions["game_check"] != "run" || actions["game_playtest"] != "run" || actions["playtest_define"] != "edit" || actions["agent_turn_get"] != "read" || actions["agent_turn_reply"] != "edit" || actions["project_context"] != "read" || actions["brief_edit"] != "edit" || actions["rules_edit"] != "edit" {
+	if actions["scene_edit"] != "edit" || actions["scene_read"] != "read" || actions["game_check"] != "run" || actions["game_playtest"] != "run" || actions["playtest_define"] != "edit" || actions["agent_turn_get"] != "read" || actions["agent_turn_reply"] != "edit" || actions["project_context"] != "read" || actions["brief_edit"] != "edit" || actions["rules_edit"] != "edit" || actions["review_status"] != "read" {
 		t.Fatalf("actions = %v", actions)
 	}
 	var uris []string

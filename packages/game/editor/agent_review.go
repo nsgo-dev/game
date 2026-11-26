@@ -24,11 +24,10 @@ const (
 )
 
 // AgentReviewChangeKind classifies a regular (non-deletion) entry in an agent review.
-type AgentReviewChangeKind string
+type AgentReviewChangeKind = ReviewChangeKind
 
 const (
 	ReviewChangeModified AgentReviewChangeKind = "modified"
-	ReviewChangeAdded    AgentReviewChangeKind = "added"
 )
 
 // AgentReviewChange is one non-deletion file change listed in the Review changes panel.
