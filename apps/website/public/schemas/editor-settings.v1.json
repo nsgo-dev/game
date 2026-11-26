@@ -28,6 +28,10 @@
         "dark"
       ]
     },
+    "autoSave": {
+      "description": "AutoSave controls whether kept edits save automatically after 2 seconds. When omitted, autosave is enabled by default.",
+      "type": "boolean"
+    },
     "viewportOverlays": {
       "description": "ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order. When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.",
       "type": "array",

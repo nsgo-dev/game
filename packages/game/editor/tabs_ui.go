@@ -87,15 +87,21 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									},
 								},
 							}
-							if t.Dirty {
-								labelChildren = append(labelChildren, core.Text{
-									TestID:  fmt.Sprintf("scene-tab-dirty-%d", idx),
-									Content: "*",
-									Label:   "Unsaved changes",
+							if t.Dirty || t.SaveFailed {
+								dotBg := specChanged
+								dotLabel := "Unsaved changes"
+								if t.SaveFailed {
+									dotBg = specProblem
+									dotLabel = "Unsaved changes · save failed"
+								}
+								labelChildren = append(labelChildren, core.View{
+									TestID: fmt.Sprintf("scene-tab-dirty-%d", idx),
+									Label:  dotLabel,
 									Style: core.Style{
-										FontSize:   12,
-										FontWeight: 700,
-										Color:      colors.Accent(),
+										Width:        core.Pt(6),
+										Height:       core.Pt(6),
+										CornerRadius: 3,
+										Background:   dotBg,
 									},
 								})
 							}

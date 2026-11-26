@@ -540,6 +540,14 @@ type Editor struct {
 	ProblemCheckDebounce time.Duration
 	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.
 	OnAskAboutProblem func(ProblemQuestionRequest)
+	// AutoSaveDelay configures the debounce delay after kept edits before automatic saving runs (defaults to DefaultAutoSaveDelay = 2s when <= 0).
+	AutoSaveDelay time.Duration
+	// SavingIndicatorDelay configures how long an automatic save must stay in flight before the status bar shows "Saving…" (defaults to DefaultSavingIndicatorDelay = 300ms when <= 0).
+	SavingIndicatorDelay time.Duration
+	// SaveFileWriter optionally overrides the atomic file writer used when saving scenes and project files (defaults to writeFileAtomic when nil), allowing deterministic slow-write or error tests.
+	SaveFileWriter func(path string, data []byte) error
+	// FreeSpaceBytes optionally overrides available-disk-space lookup for path when formatting disk-full save errors (for example "Couldn't save: disk is full · 12 MB free"). When nil, the OS filesystem free space is queried.
+	FreeSpaceBytes func(path string) (uint64, bool)
 
 	playing            bool
 	playPaused         bool
@@ -860,6 +868,8 @@ type Editor struct {
 	focus focusRegionState
 	// agent holds the Connect dialog, status chip, reconnect backoff, permission checkboxes, active thread, and composer state.
 	agent agentState
+	// autosave tracks debounced automatic saving of kept changes, the 300 ms Saving… threshold, and persistent status-bar save errors.
+	autosave autoSaveState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1008,6 +1018,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.agent.setScope(cx)
 	e.buildRelease.setScope(cx)
 	e.setDiskWatcherScope(cx)
+	e.setAutoSaveScope(cx)
 	if cx != nil {
 		e.startParticlePreviewLoop()
 		e.syncSceneEmitterLoop()
@@ -1065,6 +1076,7 @@ func (e *Editor) afterMutate() {
 	}
 	e.refreshOpenSceneSearch()
 	e.scheduleLiveProblemCheck()
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 }
 
@@ -1568,7 +1580,7 @@ func (e *Editor) SaveFile(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(path, data); err != nil {
+	if err := e.saveWriter()(path, data); err != nil {
 		return err
 	}
 	e.FilePath = path
@@ -1584,6 +1596,7 @@ func (e *Editor) SaveFile(path string) error {
 	e.snapshotProjectTree()
 	e.invalidateProjectIndex()
 	e.rebuildDependentTabs(e.activeTabID())
+	e.recordSaveSucceeded()
 	e.Status = "Saved " + path
 	e.notify()
 	e.CheckProblems()

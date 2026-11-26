@@ -128,6 +128,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.stopExportBuild()
 	e.resetExportPanelCache()
 	e.stopAssetsBuild()
+	e.resetAutoSaveState()
 	e.resetInputMapTransient()
 	if e.ProjectPath != "" && e.ProjectPath != path {
 		e.settingsOpen = false
@@ -326,11 +327,12 @@ func (e *Editor) SaveProject() error {
 	case !errors.Is(err, fs.ErrNotExist):
 		return err
 	}
-	if err := writeFileAtomic(e.ProjectPath, data); err != nil {
+	writer := e.saveWriter()
+	if err := writer(e.ProjectPath, data); err != nil {
 		return err
 	}
 	if nsgo != nil && !bytes.Equal(nsgo, old) {
-		if err := writeFileAtomic(nsgoPath, nsgo); err != nil {
+		if err := writer(nsgoPath, nsgo); err != nil {
 			return err
 		}
 	}
@@ -339,6 +341,12 @@ func (e *Editor) SaveProject() error {
 	e.recordProjectDiskSnapshot(e.ProjectPath, data)
 	e.refreshAppleTeamIDCache()
 	e.invalidateProjectIndex()
+	if !e.autosave.failed || e.autosave.failedTabID == 0 {
+		e.recordSaveSucceeded()
+	} else {
+		e.autosave.lastSavedAt = e.now()
+		e.autosave.hasSaved = true
+	}
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()
 	e.CheckProblems()

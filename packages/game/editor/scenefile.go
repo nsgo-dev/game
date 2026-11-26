@@ -64,12 +64,20 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, tileset, localization workspace, animation clip, cutscene, data table, skeletal rig, or material has edits that are not saved, which switching projects or quitting would lose.
-func (e *Editor) HasUnsavedChanges() bool {
+// hasDirtyDocuments reports whether any open document currently differs from its last saved encoding.
+func (e *Editor) hasDirtyDocuments() bool {
 	if e == nil {
 		return false
 	}
 	return e.AnySceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.TilesetDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty() || e.MaterialDirty()
+}
+
+// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, tileset, localization workspace, animation clip, cutscene, data table, skeletal rig, or material has edits that are not saved (or an active failed save), which switching projects or quitting would lose.
+func (e *Editor) HasUnsavedChanges() bool {
+	if e == nil {
+		return false
+	}
+	return e.hasDirtyDocuments() || e.autosave.failed
 }
 
 // SaveAll persists all currently dirty editors (project, every dirty open scene tab, GridMap, terrain, room map, localizations, clip, cutscene, data table, skeletal rig, and material) that have a save destination configured.
@@ -161,6 +169,8 @@ func (e *Editor) SaveAll() error {
 		}
 	}
 	e.RefreshChangesCount()
+	e.recordSaveSucceeded()
+	e.notify()
 	return nil
 }
 
@@ -283,6 +293,7 @@ func (e *Editor) Save() error {
 		e.syncActiveTab()
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(e.activeTabID())
+		e.recordSaveSucceeded()
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()
@@ -443,6 +454,7 @@ func (e *Editor) RevertScene() error {
 	e.recordSceneDiskSnapshot(e.FilePath, data)
 	e.History.Execute(&replaceSceneCmd{ed: e, label: "Revert scene", before: e.Doc.Clone(), after: doc})
 	e.syncActiveTab()
+	e.clearSaveFailureIfClean()
 	e.Status = "Reverted " + e.SceneLabel()
 	e.notify()
 	return nil

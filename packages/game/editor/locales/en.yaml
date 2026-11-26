@@ -573,6 +573,15 @@ strings:
   region.statusBar: Status bar
   region.toast: Notification
   region.viewport: Viewport
+  saveStatus.errDiskFull: 'Couldn''t save: disk is full'
+  saveStatus.errDiskFullFree: 'Couldn''t save: disk is full · {free} free'
+  saveStatus.errOther: 'Couldn''t save: {reason}'
+  saveStatus.errReadOnly: 'Couldn''t save: folder is read-only'
+  saveStatus.retry: Retry
+  saveStatus.saveAs: Save as…
+  saveStatus.saved: Saved
+  saveStatus.savedAt: Saved · {time}
+  saveStatus.saving: Saving…
   scene.untitled: Untitled
   scene.untitledScene: Untitled Scene
   sceneTree.active: active
@@ -635,12 +644,14 @@ strings:
   search.search: Search
   settings.appearance: Appearance
   settings.appearanceHelp: Dark, light, or follow the system.
+  settings.autoSave: Save automatically
+  settings.autoSaveHelp: Kept changes only, after 2 s.
   settings.connectAnother: + Connect another agent or model
   settings.dark: Dark
   settings.description: Language, appearance, and keyboard shortcuts for this computer.
   settings.done: Done
   settings.general: General
-  settings.generalHelp: Language and appearance.
+  settings.generalHelp: Language, appearance, and saving.
   settings.goGeneral: Open General Settings
   settings.langChinese: 简体中文
   settings.langEnglish: English
@@ -802,6 +813,7 @@ strings:
   toolbar.terrain: Terrain
   toolbar.translate: Translate
   toolbar.undo: Undo
+  toolbar.unsavedFailedLabel: Unsaved changes · save failed
   toolbar.unsavedLabel: Unsaved changes
 plurals:
   output.errorCount:

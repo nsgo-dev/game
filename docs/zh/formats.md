@@ -52,6 +52,7 @@ autoload:
 version: 1
 language: system
 appearance: system
+autoSave: true
 viewportOverlays:
   - collision_shapes
   - connections

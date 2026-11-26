@@ -1048,6 +1048,7 @@ func (e *Editor) OpenCutsceneReview(req CutsceneReviewRequest) error {
 		prevSaved: prevSaved,
 		prevDirty: prevDirty,
 	}
+	e.cancelAutoSaveTimer()
 	e.cutscene.structRev++
 	// Select a sensible default clip (first clip of the first change or first clip in doc).
 	e.cutscene.selTrack, e.cutscene.selClip = -1, -1
@@ -1310,6 +1311,7 @@ func (e *Editor) RevertAllCutsceneReview() error {
 	e.cutscene.structRev++
 	e.keepCutsceneSelectionValid(e.cutscene.doc)
 	e.refreshCutscenePreview()
+	e.scheduleAutoSaveIfNeeded()
 	e.Status = "Reverted all cutscene changes"
 	e.notify()
 	return nil
@@ -1355,6 +1357,7 @@ func (e *Editor) KeepCutsceneReview() error {
 		e.cutscene.structRev++
 		e.keepCutsceneSelectionValid(e.cutscene.doc)
 		e.refreshCutscenePreview()
+		e.scheduleAutoSaveIfNeeded()
 		e.Status = fmt.Sprintf("Kept 0 of %d cutscene changes", total)
 		e.notify()
 		return nil

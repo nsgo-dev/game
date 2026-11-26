@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -81,6 +82,26 @@ func (c *Call) Decode(v any) error {
 	return decodeArgs(c.Args, v)
 }
 
+// SaveWarning is attached to tool results while the editor's automatic saving is failing,
+// so the agent does not build on edits that are not on disk.
+type SaveWarning struct {
+	// Message is the human-readable warning appended to tool text output.
+	Message string `json:"message"`
+	// Error is the editor's current save error message.
+	Error string `json:"error"`
+	// File is the scene or project path that failed to save, when known.
+	File string `json:"file,omitempty"`
+}
+
+// saveWarningError wraps a tool error with an active editor save failure warning.
+type saveWarningError struct {
+	err     error
+	warning *SaveWarning
+}
+
+func (e *saveWarningError) Error() string { return e.err.Error() }
+func (e *saveWarningError) Unwrap() error { return e.err }
+
 // Result is what a tool returns: text for the agent, an optional JSON value with the same facts for programs, and an optional PNG.
 type Result struct {
 	// Text is what the agent reads.
@@ -89,6 +110,8 @@ type Result struct {
 	Structured any
 	// PNG is an image the tool returns, such as viewport_image's, or nil.
 	PNG []byte
+	// SaveWarning is populated by Server when the editor's automatic saving is currently failing.
+	SaveWarning *SaveWarning
 }
 
 // Options configure a Server.
@@ -658,7 +681,56 @@ func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage, onEdito
 			res, err = nil, fmt.Errorf("editormcp: tool %s failed: %v", t.Name, failure)
 		}
 	}()
-	return t.Handler(ctx, &Call{Args: args, s: s, onEditor: onEditor})
+	res, err = t.Handler(ctx, &Call{Args: args, s: s, onEditor: onEditor})
+	if warn := s.saveFailureWarning(ctx, onEditor); warn != nil {
+		if err != nil {
+			err = &saveWarningError{err: err, warning: warn}
+		} else {
+			if res == nil {
+				res = &Result{}
+			}
+			res.SaveWarning = warn
+			if res.Text != "" {
+				if !strings.HasSuffix(res.Text, "\n") {
+					res.Text += "\n"
+				}
+				res.Text += warn.Message
+			} else {
+				res.Text = warn.Message
+			}
+		}
+	}
+	return res, err
+}
+
+func (s *Server) saveFailureWarning(ctx context.Context, onEditor bool) *SaveWarning {
+	if s == nil || s.ed == nil {
+		return nil
+	}
+	var st editor.SaveStatus
+	read := func(ed *editor.Editor) error {
+		st = ed.SaveStatus()
+		return nil
+	}
+	var err error
+	if onEditor {
+		err = s.asAgent(read)
+	} else {
+		err = s.Editor(ctx, read)
+	}
+	if err != nil || st.Kind != editor.SaveStatusFailed {
+		return nil
+	}
+	msg := "Warning: edits are not on disk — " + st.ErrorMessage
+	if st.TargetPath != "" {
+		msg += " (" + st.TargetPath + ")"
+	}
+	msg += ". Do not build on these edits until saving succeeds."
+	return &SaveWarning{
+		Message: msg,
+		Error:   st.ErrorMessage,
+		File:    st.TargetPath,
+	}
 }
 
 // sdkTool is t as the SDK lists it.
@@ -678,11 +750,24 @@ func sdkTool(t Tool) *mcp.Tool {
 // sdkResult is a tool's result or error as the SDK returns it.
 func sdkResult(res *Result, err error) *mcp.CallToolResult {
 	if err != nil {
+		var warn *SaveWarning
+		if sw, ok := errors.AsType[*saveWarningError](err); ok {
+			warn = sw.warning
+			err = sw.err
+		}
 		r := &mcp.CallToolResult{}
 		if d, ok := errors.AsType[*EditError](err); ok {
 			r.StructuredContent = map[string]any{"error": d}
 		}
 		r.SetError(err)
+		if warn != nil {
+			r.Content = append(r.Content, &mcp.TextContent{Text: warn.Message})
+			r.Meta = mcp.Meta{
+				"nsgo.dev/editsNotOnDisk": true,
+				"nsgo.dev/saveError":      warn.Error,
+				"nsgo.dev/saveWarning":    warn.Message,
+			}
+		}
 		return r
 	}
 	if res == nil {
@@ -697,6 +782,13 @@ func sdkResult(res *Result, err error) *mcp.CallToolResult {
 	}
 	if res.Structured != nil {
 		r.StructuredContent = res.Structured
+	}
+	if res.SaveWarning != nil {
+		r.Meta = mcp.Meta{
+			"nsgo.dev/editsNotOnDisk": true,
+			"nsgo.dev/saveError":      res.SaveWarning.Error,
+			"nsgo.dev/saveWarning":    res.SaveWarning.Message,
+		}
 	}
 	return r
 }

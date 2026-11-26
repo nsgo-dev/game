@@ -385,19 +385,39 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				},
 			},
 		},
-		// Reserve a fixed slot for the dirty "*" marker so marking the scene dirty or clean
+		// Reserve a fixed slot for the unsaved dot so marking the scene dirty, clean, or save-failed
 		// never widens the toolbar and wraps it onto an extra row mid-interaction.
 		core.View{
-			Style: core.Style{Width: core.Pt(10), AlignItems: core.AlignCenter},
+			Style: core.Style{Width: core.Pt(10), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 			Children: []core.Node{
 				core.Show{
-					When: func() bool { return dirty.Get().either() },
+					When: func() bool {
+						_ = rev.Get()
+						return dirty.Get().either() || ed.SaveFailed()
+					},
 					Then: func(cx *core.Scope) core.Node {
-						return core.Text{
-							TestID:  "toolbar-unsaved",
-							Content: "*",
-							Label:   ed.T("toolbar.unsavedLabel"),
-							Style:   core.Style{FontSize: 14, FontWeight: 700, Color: colors.Accent()},
+						return core.View{
+							TestID: "toolbar-unsaved",
+							LabelFunc: func() string {
+								_ = rev.Get()
+								if ed.SaveFailed() {
+									return ed.T("toolbar.unsavedFailedLabel")
+								}
+								return ed.T("toolbar.unsavedLabel")
+							},
+							Style: core.Style{
+								Width:        core.Pt(6),
+								Height:       core.Pt(6),
+								CornerRadius: 3,
+							},
+							StyleFunc: func() core.Style {
+								_ = rev.Get()
+								bg := specChanged
+								if ed.SaveFailed() {
+									bg = specProblem
+								}
+								return core.Style{Background: bg}
+							},
 						}
 					},
 				},
