@@ -1030,3 +1030,69 @@ func TestReviewUnifiedHistoryIntegrationAndModalShortcutGuards(t *testing.T) {
 		t.Fatalf("history agent entry files = %v, missing prefabs/slime.prefab.yaml", latest.Files)
 	}
 }
+
+// Regression test: ScopeReview single-key shortcuts ('x', 'j', 'k', 'b', 'mod+enter')
+// must only intercept keys while ReviewScreenView is open, and must never steal 'x' from
+// 3D GridMap rotation before opening Review or after pausing/closing Review.
+func TestReviewShortcutsDoNotStealKeysWhenClosed(t *testing.T) {
+	dir, ed := setupGridMapProject(t)
+	macEnv := nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true, Locale: "en-US"})
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800), macEnv)
+
+	// 1. Before Review ever opens, 'x' rotates GridMap orientation.
+	beforeRot := ed.GridMapOrientation()
+	app.Key("x")
+	afterRot := ed.GridMapOrientation()
+	if afterRot == beforeRot {
+		t.Fatal("pressing 'x' with Review closed did not rotate GridMap orientation")
+	}
+
+	// 2. Open a turn Review: 'x' now toggles revert inside ReviewScreenView and does NOT rotate GridMap.
+	notePath := filepath.Join(dir, "scenes", "note.txt")
+	if err := os.WriteFile(notePath, []byte("before\n"), 0o644); err != nil {
+		t.Fatalf("write note before: %v", err)
+	}
+	app.Post(func() {
+		if err := ed.StartTurnReview(editor.ReviewTurnInput{
+			Request: "Update note",
+			Files: []editor.ReviewFileInput{
+				{
+					Path:       "scenes/note.txt",
+					BeforeYAML: []byte("before\n"),
+					AfterYAML:  []byte("after\n"),
+				},
+			},
+		}); err != nil {
+			t.Errorf("StartTurnReview: %v", err)
+		}
+	})
+	app.Settle()
+	if !ed.ReviewOpen() {
+		t.Fatal("Review did not open")
+	}
+	rotWhileOpen := ed.GridMapOrientation()
+	app.Key("x")
+	if ed.GridMapOrientation() != rotWhileOpen {
+		t.Fatal("pressing 'x' while Review was open rotated GridMap underneath")
+	}
+	if ed.ReviewStatus().RevertedCount != 1 {
+		t.Fatalf("pressing 'x' inside ReviewScreenView reverted %d changes, want 1", ed.ReviewStatus().RevertedCount)
+	}
+
+	// 3. Pause Review (Esc): Review bindings release immediately, so 'x' rotates GridMap again
+	// and does NOT toggle revert on the paused review.
+	app.Key("escape")
+	if ed.ReviewOpen() || !ed.HasPendingReview() {
+		t.Fatalf("expected Review paused after Esc (open=%v pending=%v)", ed.ReviewOpen(), ed.HasPendingReview())
+	}
+	rotBeforePausedX := ed.GridMapOrientation()
+	app.Key("x")
+	if ed.GridMapOrientation() == rotBeforePausedX {
+		t.Fatal("pressing 'x' after pausing Review did not rotate GridMap orientation")
+	}
+	if ed.ReviewStatus().RevertedCount != 1 {
+		t.Fatalf("pressing 'x' while Review paused changed RevertedCount to %d, want 1", ed.ReviewStatus().RevertedCount)
+	}
+}

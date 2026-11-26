@@ -2404,11 +2404,17 @@ func view3DCommand(e *Editor, id string, v View3D, shortcut string, keywords ...
 // Every binding uses core.KeyNotEditing so shortcuts are ignored while any text field has focus,
 // deduplicates keys shared across different scopes with scope-aware priority dispatch,
 // and re-binds automatically whenever active plugins or user shortcut overrides change.
+// ScopeReview commands are bound separately inside ReviewScreenView (bindReviewShortcuts) so
+// single-key Review shortcuts ('j', 'k', 'x', 'b', 'mod+enter', 'mod+backspace') only intercept
+// keys while Review is open and never steal keys from Viewport/GridMap or other screens.
 func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
 		for _, cmd := range e.Commands() {
+			if normalizeCommandScope(cmd.Scope) == ScopeReview {
+				continue
+			}
 			for _, sc := range shortcutsForCommand(cmd) {
 				b.WriteString(cmd.ID)
 				b.WriteByte(0)
@@ -2422,6 +2428,9 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 		_ = sig.Get()
 		seen := make(map[string]struct{})
 		for _, cmd := range e.Commands() {
+			if normalizeCommandScope(cmd.Scope) == ScopeReview {
+				continue
+			}
 			for _, sc := range shortcutsForCommand(cmd) {
 				if _, dup := seen[sc]; dup {
 					continue
@@ -2448,6 +2457,62 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 						if !e.GameRunning() {
 							e.report(e.RunGame())
 						}
+						return
+					}
+					if err := active.Run(); err != nil {
+						e.report(err)
+					}
+				})
+			}
+		}
+	})
+}
+
+// bindReviewShortcuts binds ScopeReview command shortcuts inside ReviewScreenView's own scope.
+// Keeping these bindings scoped to ReviewScreenView ensures they are active ONLY while Review
+// is open and automatically released when Review closes, preventing Review keys like 'x' or
+// 'mod+enter' from shadowing Viewport/GridMap or other screens under NSGo's newest-wins dispatch.
+func (e *Editor) bindReviewShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
+	sig := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		var b strings.Builder
+		for _, cmd := range e.Commands() {
+			if normalizeCommandScope(cmd.Scope) != ScopeReview {
+				continue
+			}
+			for _, sc := range shortcutsForCommand(cmd) {
+				b.WriteString(cmd.ID)
+				b.WriteByte(0)
+				b.WriteString(sc)
+				b.WriteByte(0)
+			}
+		}
+		return b.String()
+	})
+	cx.Effect(func() {
+		_ = sig.Get()
+		seen := make(map[string]struct{})
+		for _, cmd := range e.Commands() {
+			if normalizeCommandScope(cmd.Scope) != ScopeReview {
+				continue
+			}
+			for _, sc := range shortcutsForCommand(cmd) {
+				if _, dup := seen[sc]; dup {
+					continue
+				}
+				seen[sc] = struct{}{}
+				key := sc
+				cx.OnKeyWith(key, core.KeyOptions{When: core.KeyNotEditing}, func() {
+					if e.shortcutCaptureActive {
+						return
+					}
+					active, ok := e.resolveShortcutCommand(key)
+					if !ok {
+						return
+					}
+					if active.ID == CmdReviewPeekBefore && key == "b" && e.ReviewOpen() {
+						// Holding B in ReviewScreenView is tracked continuously by core.KeyHeld(cx, "b");
+						// do not flip peek on initial keydown so KeyDown/KeyUp works cleanly as a hold.
 						return
 					}
 					if err := active.Run(); err != nil {
