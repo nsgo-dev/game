@@ -355,6 +355,7 @@ func (e *Editor) submitAgentTurn(prompt, source string, skipPlan bool, targetIDs
 
 	e.agent.turns = append(e.agent.turns, cloneAgentTurn(turn))
 	e.trimAgentTurnAttachments()
+	e.initTurnBaseline(&e.agent.turns[len(e.agent.turns)-1])
 	e.askInPlace.open = false
 	e.askInPlace.draft = ""
 	e.askInPlace.selectedSuggestion = -1

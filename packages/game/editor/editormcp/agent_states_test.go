@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // TestScriptedMCPThreeFailedSceneEditsPauseRequest verifies the #1024 Stuck acceptance criterion:
@@ -102,43 +105,75 @@ func TestScriptedMCPDroppedConnectionLeavesReviewAndNoHalfWrittenFile(t *testing
 		t.Fatal(err)
 	}
 
-	s := editormcp.New(f.ed, editormcp.Options{})
-	t.Cleanup(func() { _ = s.Close() })
+	var s *editormcp.Server
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		s = editormcp.New(f.ed, editormcp.Options{Run: cx.Post})
+		cx.Cleanup(func() { _ = s.Close() })
+		return editor.EditorView(cx, f.ed)
+	}, nsgotest.Size(1280, 820))
+
+	runMCP := func(fn func()) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			fn()
+		}()
+		for {
+			app.Settle()
+			select {
+			case <-done:
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
 
 	// Connect scripted MCP client #1.
-	ct, st := mcp.NewInMemoryTransports()
-	if _, err := s.Connect(context.Background(), st); err != nil {
-		t.Fatal(err)
-	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "claude-code"}, nil)
-	cs, err := client.Connect(context.Background(), ct, nil)
-	if err != nil {
-		t.Fatal(err)
+	var cs *mcp.ClientSession
+	runMCP(func() {
+		ct, st := mcp.NewInMemoryTransports()
+		if _, err := s.Connect(context.Background(), st); err != nil {
+			t.Errorf("Connect: %v", err)
+			return
+		}
+		client := mcp.NewClient(&mcp.Implementation{Name: "claude-code"}, nil)
+		var err error
+		cs, err = client.Connect(context.Background(), ct, nil)
+		if err != nil {
+			t.Errorf("client.Connect: %v", err)
+		}
+	})
+	if cs == nil {
+		t.Fatal("client session nil")
 	}
 
 	// Scripted MCP client performs two completed steps (read + edit adding 2 coins).
-	mustOK(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{}))
-	mustOK(t, call(t, cs, editormcp.ToolSceneEdit, map[string]any{
-		"edits": []any{
-			map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "coin_04", "x": 120, "y": 40}},
-			map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "coin_05", "x": 150, "y": 40}},
-		},
-	}))
+	runMCP(func() {
+		mustOK(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{}))
+		mustOK(t, call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+			"edits": []any{
+				map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "coin_04", "x": 120, "y": 40}},
+				map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "coin_05", "x": 150, "y": 40}},
+			},
+		}))
+	})
 
 	// Drop the MCP client connection abruptly mid-request!
 	_ = cs.Close()
 
-	// Wait briefly for server dropSession goroutine to notify editor.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	app.WaitUntil(3*time.Second, func() bool {
 		turns := f.ed.AgentTurns()
-		if len(turns) > 0 && turns[len(turns)-1].Lost != nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return len(turns) > 0 && turns[len(turns)-1].Lost != nil
+	})
 
-	turns := f.ed.AgentTurns()
+	var turns []editor.AgentTurn
+	var hasOpenReview bool
+	app.Post(func() {
+		turns = f.ed.AgentTurns()
+		hasOpenReview = f.ed.HasOpenReview()
+	})
+	app.Settle()
 	if len(turns) == 0 || turns[len(turns)-1].Lost == nil {
 		t.Fatalf("expected Lost state after dropped MCP connection, got %+v", turns)
 	}
@@ -148,6 +183,9 @@ func TestScriptedMCPDroppedConnectionLeavesReviewAndNoHalfWrittenFile(t *testing
 	}
 	if last.Review == nil || len(last.Review.Added) != 2 || last.Review.Kept {
 		t.Fatalf("Lost turn review = %+v, want 2 unkept added objects", last.Review)
+	}
+	if !hasOpenReview {
+		t.Fatal("HasOpenReview should be true while Lost review is unkept so autosave pauses")
 	}
 
 	// Disk file is completely intact (no partly written file on disk).
@@ -160,14 +198,20 @@ func TestScriptedMCPDroppedConnectionLeavesReviewAndNoHalfWrittenFile(t *testing
 	}
 
 	// Reconnecting with client #2 asks before picking up instead of auto-running.
-	cs2 := connect(t, s, nil)
-	_ = cs2
-	turns = f.ed.AgentTurns()
+	runMCP(func() {
+		_ = connect(t, s, nil)
+	})
+	var status editor.AgentStatus
+	app.Post(func() {
+		turns = f.ed.AgentTurns()
+		status = f.ed.AgentStatus()
+	})
+	app.Settle()
 	if !turns[len(turns)-1].Lost.AskResumePending {
 		t.Fatal("reconnecting did not enter ask-before-pickup state")
 	}
-	if f.ed.AgentStatus() != editor.AgentStatusWaitingForYou {
-		t.Fatalf("AgentStatus after reconnect = %q, want waiting", f.ed.AgentStatus())
+	if status != editor.AgentStatusWaitingForYou {
+		t.Fatalf("AgentStatus after reconnect = %q, want waiting", status)
 	}
 }
 
@@ -237,15 +281,47 @@ func TestScriptedMCPMismatchSummaryThreeVsDiffTwo(t *testing.T) {
 func TestScriptedMCPResumeAfterStopSkipsDoneSteps(t *testing.T) {
 	f := openFixture(t)
 	f.ed.SetRightRailTab(editor.RightTabAgent)
-	s := editormcp.New(f.ed, editormcp.Options{})
-	t.Cleanup(func() { _ = s.Close() })
-	cs := connect(t, s, nil)
+
+	var s *editormcp.Server
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		s = editormcp.New(f.ed, editormcp.Options{Run: cx.Post})
+		cx.Cleanup(func() { _ = s.Close() })
+		return editor.EditorView(cx, f.ed)
+	}, nsgotest.Size(1280, 820))
+
+	runMCP := func(fn func()) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			fn()
+		}()
+		for {
+			app.Settle()
+			select {
+			case <-done:
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
+
+	var cs *mcp.ClientSession
+	runMCP(func() {
+		cs = connect(t, s, nil)
+	})
 
 	stoppedGate := make(chan struct{})
+	var stepMu sync.Mutex
 	var executedSteps []string
+	var runnerDone sync.WaitGroup
 	f.ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		runnerDone.Add(1)
+		defer runnerDone.Done()
 		if req.ResumeFromStep <= 1 {
+			stepMu.Lock()
 			executedSteps = append(executedSteps, "place-slimes")
+			stepMu.Unlock()
 			mustOK(t, call(t, cs, editormcp.ToolSceneEdit, map[string]any{
 				"edits": []any{
 					map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "slime_01", "x": 100, "y": 40}},
@@ -268,7 +344,9 @@ func TestScriptedMCPResumeAfterStopSkipsDoneSteps(t *testing.T) {
 		}
 		// Resume starts at step 2 ("Run game check"), never re-running "Place slimes".
 		for _, rem := range req.RemainingSteps {
+			stepMu.Lock()
 			executedSteps = append(executedSteps, rem)
+			stepMu.Unlock()
 			if rem == "Run game check" {
 				mustOK(t, call(t, cs, editormcp.ToolGameCheck, map[string]any{}))
 				emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "s2", StepTitle: "Run game check", StepStatus: editor.AgentStepDone, StepIndex: 2, StepTotal: 3})
@@ -286,28 +364,51 @@ func TestScriptedMCPResumeAfterStopSkipsDoneSteps(t *testing.T) {
 		return nil
 	})
 
-	if err := f.ed.SubmitAgentPrompt("Place slimes, check, and place coins"); err != nil {
-		t.Fatal(err)
-	}
-	<-stoppedGate
-	f.ed.StopAgentRun()
-
-	if err := f.ed.ResumeAgentTurn(""); err != nil {
-		t.Fatalf("ResumeAgentTurn: %v", err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if !f.ed.AgentWorking() && len(executedSteps) >= 3 {
-			break
+	app.Post(func() {
+		if err := f.ed.SubmitAgentPrompt("Place slimes, check, and place coins"); err != nil {
+			t.Errorf("SubmitAgentPrompt: %v", err)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	})
+	app.WaitUntil(5*time.Second, func() bool {
+		select {
+		case <-stoppedGate:
+			turns := f.ed.AgentTurns()
+			return len(turns) == 1 && len(turns[0].Steps) >= 2
+		default:
+			return false
+		}
+	})
+	app.Post(func() {
+		f.ed.StopAgentRun()
+	})
+	app.Post(func() {
+		if err := f.ed.ResumeAgentTurn(""); err != nil {
+			t.Errorf("ResumeAgentTurn: %v", err)
+		}
+	})
+	app.WaitUntil(5*time.Second, func() bool {
+		stepMu.Lock()
+		n := len(executedSteps)
+		stepMu.Unlock()
+		return !f.ed.AgentWorking() && n >= 3
+	})
+	runnerDone.Wait()
+	app.Settle()
 
+	stepMu.Lock()
+	gotSteps := append([]string(nil), executedSteps...)
+	stepMu.Unlock()
 	want := []string{"place-slimes", "Run game check", "Place coins"}
-	if strings.Join(executedSteps, ",") != strings.Join(want, ",") {
-		t.Fatalf("executedSteps = %v, want %v (done step must not be redone)", executedSteps, want)
+	if strings.Join(gotSteps, ",") != strings.Join(want, ",") {
+		t.Fatalf("executedSteps = %v, want %v (done step must not be redone)", gotSteps, want)
 	}
-	if obj, _, _ := f.ed.FindObject("coin_01"); obj == nil {
+	var found bool
+	app.Post(func() {
+		obj, _, _ := f.ed.FindObject("coin_01")
+		found = obj != nil
+	})
+	app.Settle()
+	if !found {
 		t.Fatal("coin_01 not placed on Resume")
 	}
 }

@@ -862,7 +862,7 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 
 	startLabel := "the first step not done"
 	if firstTodoTitle != "" {
-		startLabel = strings.ToLower(firstTodoTitle[:1]) + firstTodoTitle[1:]
+		startLabel = lowerFirstRune(firstTodoTitle)
 	}
 	caption := fmt.Sprintf("Resume starts at %s; steps already done are not redone.", startLabel)
 	if reviewCount > 0 && turn.Review != nil && !turn.Review.Kept {
@@ -1428,69 +1428,75 @@ func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p SpecPalette) c
 // viewportAgentPointingOverlay renders a compact Spec pill at the top center of the viewport while
 // "Let me point" is active so the author sees what clicking will place and that Esc cancels.
 func viewportAgentPointingOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
 			return ed.AgentPointingActive()
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
-			return core.View{
-				TestID:        "viewport-agent-pointing-pill",
-				PointerEvents: core.PointerEventsNone,
-				Style: core.Style{
-					Position:       core.Absolute,
-					Left:           core.Pt(0),
-					Right:          core.Pt(0),
-					Top:            core.Pt(12),
-					Direction:      core.Row,
-					JustifyContent: core.JustifyCenter,
-				},
-				Children: []core.Node{
-					core.View{
-						Style: core.Style{
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          8,
-							Height:       core.Pt(32),
-							Padding:      core.Symmetric(0, 12),
-							CornerRadius: 10,
-							Background:   p.PillBg,
-							BorderWidth:  1.5,
-							BorderColor:  p.Accent.Edge,
-						},
-						Children: []core.Node{
-							core.SVGView{
-								SVG: lucide.Crosshair(),
-								Style: core.Style{
-									Width:  core.Pt(14),
-									Height: core.Pt(14),
-									Color:  p.Accent.Fg,
-								},
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				p := SpecPaletteFor(darkMemo.Get())
+				return core.View{
+					TestID:        "viewport-agent-pointing-pill",
+					PointerEvents: core.PointerEventsNone,
+					Style: core.Style{
+						Position:       core.Absolute,
+						Left:           core.Pt(0),
+						Right:          core.Pt(0),
+						Top:            core.Pt(12),
+						Direction:      core.Row,
+						JustifyContent: core.JustifyCenter,
+					},
+					Children: []core.Node{
+						core.View{
+							Style: core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          8,
+								Height:       core.Pt(32),
+								Padding:      core.Symmetric(0, 12),
+								CornerRadius: 10,
+								Background:   p.PillBg,
+								BorderWidth:  1.5,
+								BorderColor:  p.Accent.Edge,
 							},
-							core.Text{
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return ed.AgentPointingPrompt()
+							Children: []core.Node{
+								core.SVGView{
+									SVG: lucide.Crosshair(),
+									Style: core.Style{
+										Width:  core.Pt(14),
+										Height: core.Pt(14),
+										Color:  p.Accent.Fg,
+									},
 								},
-								Style: core.Style{
-									FontSize:   12,
-									FontWeight: 500,
-									Color:      p.TextSecondary,
+								core.Text{
+									ContentFunc: func() string {
+										_ = rev.Get()
+										return ed.AgentPointingPrompt()
+									},
+									Style: core.Style{
+										FontSize:   12,
+										FontWeight: 500,
+										Color:      p.TextSecondary,
+									},
 								},
-							},
-							core.Text{
-								Content: "Esc",
-								Style: core.Style{
-									FontFamily: core.FontMonospace,
-									FontSize:   11,
-									Color:      p.TextFaint,
+								core.Text{
+									Content: "Esc",
+									Style: core.Style{
+										FontFamily: core.FontMonospace,
+										FontSize:   11,
+										Color:      p.TextFaint,
+									},
 								},
 							},
 						},
 					},
-				},
-			}
+				}
+			})
 		},
 	}
 }

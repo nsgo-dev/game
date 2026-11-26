@@ -310,6 +310,8 @@ type AgentTurn struct {
 	mutations           []agentObjectMutation
 	consecutiveFailTool string
 	consecutiveFails    []AgentFailedCall
+	lastMCPFailTool     string
+	lastMCPFailAt       time.Time
 }
 
 // AgentOpenRequest represents a pending permission prompt or question waiting on the user.
@@ -1528,6 +1530,8 @@ func cloneAgentTurn(t AgentTurn) AgentTurn {
 	t.lastSeenIDs = nil
 	t.mutations = nil
 	t.consecutiveFails = nil
+	t.lastMCPFailTool = ""
+	t.lastMCPFailAt = time.Time{}
 	if t.Status == "" {
 		switch {
 		case t.Stopped:
@@ -1552,6 +1556,10 @@ func (e *Editor) trimAgentTurnAttachments() {
 	for i := 0; i < cutoff; i++ {
 		e.agent.turns[i].Context.ViewportPNG = nil
 		e.agent.turns[i].Context.SceneYAML = ""
+		e.agent.turns[i].baselineDoc = nil
+		e.agent.turns[i].baselineYAML = ""
+		e.agent.turns[i].lastSeenIDs = nil
+		e.agent.turns[i].mutations = nil
 	}
 }
 
@@ -1642,6 +1650,11 @@ func (e *Editor) ReplyAgentTurn(turnID, reply, status string) error {
 			turn.Status = "done"
 			turn.Done = true
 			turn.FinishedAt = e.nowTime()
+		}
+		e.refreshTurnReview(turn)
+		if mm := CheckAgentSummaryAgainstDiff(turn.Summary, turn.Review, turn.mutations); mm != nil {
+			turn.Mismatch = mm
+			e.cancelAutoSaveTimer()
 		}
 	}
 	e.agent.turnChangeSeq++
@@ -1762,6 +1775,7 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 			stepStatus = AgentStepRunning
 		}
 		updated := false
+		resolvedToolName := ev.ToolName
 		if ev.StepID != "" {
 			for i := range turn.Steps {
 				if turn.Steps[i].ID == ev.StepID {
@@ -1773,6 +1787,8 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 					}
 					if ev.ToolName != "" {
 						turn.Steps[i].ToolName = ev.ToolName
+					} else if resolvedToolName == "" {
+						resolvedToolName = turn.Steps[i].ToolName
 					}
 					turn.Steps[i].Status = stepStatus
 					updated = true
@@ -1804,23 +1820,29 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 		e.observeTurnSceneMutations(turn, max(1, e.agent.workingStep))
 		e.refreshTurnReview(turn)
 		if stepStatus == AgentStepFailed {
-			toolName := normalizeMCPToolName(ev.ToolName)
+			toolName := normalizeMCPToolName(resolvedToolName)
 			if toolName != "" {
-				callSum := ev.CallSummary
-				if callSum == "" {
-					callSum = ev.StepTitle
-				}
-				errMsg := ev.Err
-				if errMsg == "" {
-					errMsg = ev.StepDetail
-				}
-				if e.recordConsecutiveToolFailure(turn, toolName, callSum, errMsg) {
-					return
+				// Avoid double-counting a failed MCP tool call already recorded by editormcp.Server.
+				if turn.lastMCPFailTool == toolName && ev.CallSummary == "" && e.nowTime().Sub(turn.lastMCPFailAt) <= 2*time.Second {
+					turn.lastMCPFailTool = ""
+				} else {
+					callSum := ev.CallSummary
+					if callSum == "" {
+						callSum = ev.StepTitle
+					}
+					errMsg := ev.Err
+					if errMsg == "" {
+						errMsg = ev.StepDetail
+					}
+					if e.recordConsecutiveToolFailure(turn, toolName, callSum, errMsg) {
+						return
+					}
 				}
 			}
-		} else if stepStatus == AgentStepDone && ev.ToolName != "" {
+		} else if stepStatus == AgentStepDone && resolvedToolName != "" {
 			turn.consecutiveFailTool = ""
 			turn.consecutiveFails = nil
+			turn.lastMCPFailTool = ""
 		}
 		if stepStatus == AgentStepWaiting {
 			e.SetAgentWaitingForYou(AgentOpenRequest{
@@ -1929,6 +1951,11 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 	}
 	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
+	if !e.HasUnkeptAgentTurnReview() {
+		e.scheduleAutoSaveIfNeeded()
+	} else {
+		e.cancelAutoSaveTimer()
+	}
 	if turn != nil {
 		switch {
 		case canceled || turn.Stopped:

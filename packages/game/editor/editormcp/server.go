@@ -848,71 +848,88 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 				rawArgs = req.Params.Arguments
 			}
 		}
-		if t.Action == ActionEdit {
+		isTaskSession := s.sessionTaskID(sess) != ""
+		if t.Action == ActionEdit && !isTaskSession {
 			s.notifyEditor(func(ed *editor.Editor) {
 				ed.PrepareExternalAgentBaseline()
 			})
 		}
 		res, err := s.callWithSession(ctx, t, rawArgs, false, sess)
-		clientName := ""
-		if sess != nil {
-			s.mu.Lock()
-			if ts, ok := s.sessions[sess]; ok {
-				clientName = ts.info.DisplayName
+		if !isTaskSession {
+			clientName := ""
+			if sess != nil {
+				s.mu.Lock()
+				if ts, ok := s.sessions[sess]; ok {
+					clientName = ts.info.DisplayName
+				}
+				s.mu.Unlock()
 			}
-			s.mu.Unlock()
-		}
-		stepTitle := t.Title
-		if stepTitle == "" {
-			stepTitle = t.Name
-		}
-		callSummary := formatMCPCallSummary(t.Name, rawArgs, stepTitle)
-		errText := formatMCPErrorSummary(err)
-		s.notifyEditor(func(ed *editor.Editor) {
-			ed.RecordAgentToolCall(editor.AgentToolCallRecord{
-				ClientName:  clientName,
-				ToolName:    t.Name,
-				StepTitle:   stepTitle,
-				CallSummary: callSummary,
-				ErrorText:   errText,
-				IsError:     err != nil,
+			stepTitle := t.Title
+			if stepTitle == "" {
+				stepTitle = t.Name
+			}
+			callSummary := formatMCPCallSummary(t.Name, rawArgs, stepTitle)
+			errText := formatMCPErrorSummary(err)
+			s.notifyEditor(func(ed *editor.Editor) {
+				ed.RecordAgentToolCall(editor.AgentToolCallRecord{
+					ClientName:  clientName,
+					ToolName:    t.Name,
+					StepTitle:   stepTitle,
+					CallSummary: callSummary,
+					ErrorText:   errText,
+					IsError:     err != nil,
+				})
 			})
-		})
+		}
 		return sdkResult(res, err), nil
 	}
 }
 
+func truncateMCPSummary(s string, maxRunes int) string {
+	if maxRunes <= 0 || len(s) <= maxRunes {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == maxRunes {
+			return s[:i] + "…"
+		}
+		count++
+	}
+	return s
+}
+
 func formatMCPCallSummary(toolName string, rawArgs json.RawMessage, fallback string) string {
 	if toolName != ToolSceneEdit || len(rawArgs) == 0 {
-		return fallback
+		return truncateMCPSummary(fallback, 200)
 	}
 	var args sceneEditArgs
 	if err := json.Unmarshal(rawArgs, &args); err != nil || len(args.Edits) == 0 {
-		return fallback
+		return truncateMCPSummary(fallback, 200)
 	}
 	e := args.Edits[0]
 	switch e.Op {
 	case "add_component":
 		if e.ID != "" && e.Component != "" {
-			return fmt.Sprintf("add %s.%s", e.ID, e.Component)
+			return truncateMCPSummary(fmt.Sprintf("add %s.%s", e.ID, e.Component), 200)
 		}
 	case "remove_component":
 		if e.ID != "" && e.Component != "" {
-			return fmt.Sprintf("remove %s.%s", e.ID, e.Component)
+			return truncateMCPSummary(fmt.Sprintf("remove %s.%s", e.ID, e.Component), 200)
 		}
 	case "set":
 		if e.ID != "" && len(e.Fields) > 0 {
 			for _, k := range sortedKeys(e.Fields) {
 				v := strings.TrimSpace(string(e.Fields[k]))
 				if e.Component != "" {
-					return fmt.Sprintf("set %s.%s.%s: %s", e.ID, e.Component, k, v)
+					return truncateMCPSummary(fmt.Sprintf("set %s.%s.%s: %s", e.ID, e.Component, k, v), 200)
 				}
-				return fmt.Sprintf("set %s.%s: %s", e.ID, k, v)
+				return truncateMCPSummary(fmt.Sprintf("set %s.%s: %s", e.ID, k, v), 200)
 			}
 		}
 	case "move":
 		if e.ID != "" && e.X != nil && e.Y != nil {
-			return fmt.Sprintf("move %s to (%g, %g)", e.ID, *e.X, *e.Y)
+			return truncateMCPSummary(fmt.Sprintf("move %s to (%g, %g)", e.ID, *e.X, *e.Y), 200)
 		}
 	case "add":
 		var obj struct {
@@ -920,17 +937,17 @@ func formatMCPCallSummary(toolName string, rawArgs json.RawMessage, fallback str
 		}
 		_ = json.Unmarshal(e.Object, &obj)
 		if obj.ID != "" {
-			return fmt.Sprintf("add %s", obj.ID)
+			return truncateMCPSummary(fmt.Sprintf("add %s", obj.ID), 200)
 		}
 	case "remove":
 		if e.ID != "" {
-			return fmt.Sprintf("remove %s", e.ID)
+			return truncateMCPSummary(fmt.Sprintf("remove %s", e.ID), 200)
 		}
 	}
 	if e.Op != "" && e.ID != "" {
-		return fmt.Sprintf("%s %s", e.Op, e.ID)
+		return truncateMCPSummary(fmt.Sprintf("%s %s", e.Op, e.ID), 200)
 	}
-	return fallback
+	return truncateMCPSummary(fallback, 200)
 }
 
 func formatMCPErrorSummary(err error) string {
@@ -938,9 +955,9 @@ func formatMCPErrorSummary(err error) string {
 		return ""
 	}
 	if edErr, ok := errors.AsType[*EditError](err); ok && strings.TrimSpace(edErr.Problem) != "" {
-		return strings.TrimSpace(edErr.Problem)
+		return truncateMCPSummary(strings.TrimSpace(edErr.Problem), 512)
 	}
-	return strings.TrimSpace(err.Error())
+	return truncateMCPSummary(strings.TrimSpace(err.Error()), 512)
 }
 
 // call runs t with args after checking the editor's permission rules, recovering a panic as an error; onEditor says the caller is on the editor's goroutine.
