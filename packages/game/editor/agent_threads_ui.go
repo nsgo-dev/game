@@ -3,6 +3,7 @@ package editor
 import (
 	"cmp"
 	"fmt"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/core"
@@ -492,18 +493,24 @@ func agentEmptyThreadBody(cx *core.Scope, ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentThreadConversationBody(cx *core.Scope, ed *Editor, p SpecPalette, t *AgentThread, turns []AgentTurn, openReq *AgentOpenRequest, openReqRef *core.Ref) core.Node {
+func agentThreadConversationBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, t *AgentThread, turns []AgentTurn, openReq *AgentOpenRequest, openReqRef *core.Ref) core.Node {
 	expandedID := ed.ExpandedAgentRequestID()
 	var nodes []core.Node
 	if ready := ed.ReadyToReviewTurns(); len(ready) > 0 {
 		nodes = append(nodes, agentReadyToReviewBanner(ed, p, len(ready)))
 	}
 	queued := ed.AgentQueuedRequests()
+	var limitQueued []AgentQueuedRequest
+	for _, q := range queued {
+		if !q.Offline {
+			limitQueued = append(limitQueued, q)
+		}
+	}
 	limitReached := ed.AgentWeeklyLimitReached()
 	if limitReached {
 		nodes = append(nodes, agentLimitReachedCard(ed, p))
-		if len(queued) > 0 {
-			nodes = append(nodes, agentQueuedRequestsView(ed, queued, limitReached, p))
+		if len(limitQueued) > 0 {
+			nodes = append(nodes, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
 		}
 	}
 
@@ -913,7 +920,7 @@ func agentThreadConversationBody(cx *core.Scope, ed *Editor, p SpecPalette, t *A
 		Children: latestNodes,
 	})
 	for ti, turn := range turns {
-		nodes = append(nodes, agentTurnView(ed, ti, turn, p))
+		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, p))
 	}
 	if ed.HasAgentPanelCard() {
 		nodes = append(nodes, agentReviewPanelCards(ed, p, turns)...)
@@ -924,11 +931,17 @@ func agentThreadConversationBody(cx *core.Scope, ed *Editor, p SpecPalette, t *A
 	if turnSnap, hasPendingTurn := ed.CurrentAgentTurn(); hasPendingTurn {
 		nodes = append(nodes, agentTurnSection(cx, ed, p, turnSnap))
 	}
-	if openReq != nil {
+	if offlineNodes := agentOfflineAndQueueSection(ed, p); len(offlineNodes) > 0 {
+		nodes = append(nodes, offlineNodes...)
+	}
+	if activeRev := ed.ActiveAgentReview(); activeRev != nil {
+		nodes = append(nodes, agentTurnReviewDrawer(ed, activeRev, p))
+	}
+	if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
 		nodes = append(nodes, agentOpenRequestCard(ed, openReq, openReqRef, p))
 	}
-	if !limitReached && len(queued) > 0 {
-		nodes = append(nodes, agentQueuedRequestsView(ed, queued, limitReached, p))
+	if !limitReached && len(limitQueued) > 0 {
+		nodes = append(nodes, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
 	}
 
 	bodyChildren := []core.Node{

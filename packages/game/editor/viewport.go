@@ -247,6 +247,11 @@ func (e *Editor) HandleCanvasPressWithModifiers(x, y float32, shift, mod, alt bo
 		e.HandleViewport3DPressWithModifiers(x, y, cw, ch, shift, mod, alt)
 		return
 	}
+	if e.AgentPointingActive() {
+		wx, wy := e.CanvasToWorld(x, y)
+		e.PickAgentPointWorld(wx, wy)
+		return
+	}
 	if e.connPick != nil {
 		if hit := e.HitTest(x, y); hit != "" {
 			e.finishConnectionPick(hit)
@@ -1608,6 +1613,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() || ed.AskInPlaceOpen() || ed.HistoryPreviewActive() || ed.SettingsOpen() || ed.ReviewOpen() || ed.DataTableReviewOpen() {
 						return false
 					}
+					if ed.AgentPointingActive() {
+						return true
+					}
 					_, gmActive := ed.GridMapStrokeActive()
 					_, strokeActive := ed.TileStrokeActive()
 					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
@@ -1617,6 +1625,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
+						if ed.CancelAgentPointing() {
+							return
+						}
 						if ed.SketchDragging() {
 							ed.CancelSketchDrag()
 							g.sketchDrag = false
@@ -1787,7 +1798,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 								return
 							}
 							px, py := float32(ev.Position.X), float32(ev.Position.Y)
-							if !spaceHeld() && !ed.PickingConnectionTarget() {
+							if !spaceHeld() && !ed.PickingConnectionTarget() && !ed.AgentPointingActive() {
 								if ed.SketchActive() && ed.BeginSketchDrag(px, py) {
 									g.sketchDrag = true
 									g.suppressPress = true
@@ -2076,6 +2087,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewportHistoryPreviewBannerView(cx, ed, rev),
 			PlayTaskDotView(cx, ed, rev),
 			viewportSketchOverlayView(cx, ed, rev),
+			viewportAgentPointingOverlay(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

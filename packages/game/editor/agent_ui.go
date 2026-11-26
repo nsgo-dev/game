@@ -324,7 +324,7 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 						col = p.Agent.Fg
 					case AgentStatusWaitingForYou:
 						col = p.Warning.Fg
-					case AgentStatusDisconnected:
+					case AgentStatusDisconnected, AgentStatusOffline:
 						col = p.Removed.Fg
 					case AgentStatusLimitReached:
 						col = p.Removed.Fg
@@ -358,6 +358,8 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 						return ed.T("agent.status.disconnected")
 					case AgentStatusLimitReached:
 						return ed.T("agent.status.limitShort")
+					case AgentStatusOffline:
+						return ed.T("agent.status.offline")
 					default:
 						return ed.T("agent.connectShort")
 					}
@@ -820,6 +822,40 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				},
 			}
 
+		case AgentStatusOffline:
+			return core.View{
+				TestID: "agent-status-chip",
+				Style: core.Style{
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Height:       core.Pt(24),
+					Padding:      core.Symmetric(0, 10),
+					Gap:          6,
+					CornerRadius: 12,
+					Background:   p.Removed.Fill,
+					BorderWidth:  1,
+					BorderColor:  p.Removed.Edge,
+				},
+				Children: []core.Node{
+					core.SVGView{
+						SVG: lucide.WifiOff(),
+						Style: core.Style{
+							Width:      core.Pt(13),
+							Height:     core.Pt(13),
+							Color:      p.Removed.Fg,
+							FlexShrink: 0,
+						},
+					},
+					core.Text{
+						TestID:  "agent-status-text",
+						Content: "Disconnected · offline",
+						Style: core.Style{
+							FontSize: 11.5,
+							Color:    p.Removed.Fg,
+						},
+					},
+				},
+			}
 		default:
 			return core.View{
 				TestID: "agent-status-chip",
@@ -913,6 +949,16 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.InsertAgentComposerNewline()
 		}
 	})
+	// Esc cancels "Let me point" viewport picking, or stops an active agent run when not editing text.
+	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+		if ed.AgentPointingActive() {
+			ed.CancelAgentPointing()
+			return
+		}
+		if ed.AgentWorking() && !composerFocused.Get() && !ed.IsTyping() {
+			ed.StopAgentRun()
+		}
+	})
 
 	focusSeqMemo := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
@@ -927,21 +973,43 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|%d|%d|%d|%s|%d|%d|%d|%s|%s|",
+		fmt.Fprintf(&b, "%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|",
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
-			len(ed.agent.turns),
 			ed.AgentTurnSeq(),
 			ed.agentTurnRev,
 			ed.review.outcome,
 			ed.review.uiRev,
+			ed.agent.offline,
 			len(ed.agent.queued),
+			ed.agent.pointingTurnID,
+			ed.agent.openReviewTurnID,
+			len(ed.agent.turns),
 			ed.agentThreads.rev,
 			ed.agentThreads.activeThreadID,
 			ed.agentThreads.expandedRequestID,
 		)
 		for _, t := range ed.agent.turns {
-			fmt.Fprintf(&b, "%s:%s:%d:%d:%v:%v:%v:%s:%s:%d:%d:%d|", t.ID, t.Status, len(t.Steps), len(t.Images), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
+			fmt.Fprintf(&b, "%s:%s:%d:%d:%v:%v:%v:%s:%s:%d:%d:%d", t.ID, t.Status, len(t.Steps), len(t.Images), t.Done, t.Stopped, t.SkipPlan, t.ReviewState, t.CheckpointID, len(t.Summary), len(t.Reply), len(t.Error))
+			if t.Partial != nil {
+				fmt.Fprintf(&b, ":P(%v,%v,%v,%v)", t.Partial.Pointing, t.Partial.Kept, t.Partial.TryingAnother, t.Partial.HasPoint)
+			}
+			if t.Stuck != nil {
+				fmt.Fprintf(&b, ":S(%s,%d)", t.Stuck.Resolution, len(t.Stuck.Failures))
+			}
+			if t.Lost != nil {
+				fmt.Fprintf(&b, ":L(%s,%v,%v,%v)", t.Lost.Kind, t.Lost.Reconnected, t.Lost.AskResumePending, t.Lost.Resumed)
+			}
+			if t.StoppedState != nil {
+				fmt.Fprintf(&b, ":ST(%v,%d)", t.StoppedState.Resumed, t.StoppedState.AtStep)
+			}
+			if t.Mismatch != nil {
+				fmt.Fprintf(&b, ":M(%d,%v)", len(t.Mismatch.Rows), t.Mismatch.AskedWhy)
+			}
+			if t.Review != nil {
+				fmt.Fprintf(&b, ":R(%d,%v,%v)", t.Review.Count(), t.Review.Kept, t.Review.Discarded)
+			}
+			b.WriteByte('|')
 			for _, st := range t.Steps {
 				fmt.Fprintf(&b, "%s=%s;", st.ID, st.Status)
 			}
@@ -975,27 +1043,35 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			hasReviewCard := ed.HasAgentPanelCard()
 			dtPending := ed.DataTableReviewPending()
 			queued := ed.AgentQueuedRequests()
+			var limitQueued []AgentQueuedRequest
+			for _, q := range queued {
+				if !q.Offline {
+					limitQueued = append(limitQueued, q)
+				}
+			}
 			limitReached := ed.AgentWeeklyLimitReached()
 			active := ed.ActiveAgentThread()
 			turnSnap, hasPendingTurn := ed.CurrentAgentTurn()
+			activeRev := ed.ActiveAgentReview()
+			offlineNodes := agentOfflineAndQueueSection(ed, p)
 
 			if active != nil && len(active.Requests) > 0 {
-				return agentThreadConversationBody(cx, ed, p, active, turns, openReq, openReqRef)
+				return agentThreadConversationBody(cx, ed, rev, p, active, turns, openReq, openReqRef)
 			}
 			ready := ed.ReadyToReviewTurns()
-			if len(turns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn {
+			if len(turns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
 				var items []core.Node
 				if len(ready) > 0 {
 					items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
 				}
 				if limitReached {
 					items = append(items, agentLimitReachedCard(ed, p))
-					if len(queued) > 0 {
-						items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
+					if len(limitQueued) > 0 {
+						items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
 					}
 				}
 				for ti, turn := range turns {
-					items = append(items, agentTurnView(ed, ti, turn, p))
+					items = append(items, agentTurnView(ed, rev, ti, turn, p))
 				}
 				if hasReviewCard {
 					items = append(items, agentReviewPanelCards(ed, p, turns)...)
@@ -1006,11 +1082,17 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				if hasPendingTurn {
 					items = append(items, agentTurnSection(cx, ed, p, turnSnap))
 				}
-				if openReq != nil {
+				if len(offlineNodes) > 0 {
+					items = append(items, offlineNodes...)
+				}
+				if activeRev != nil {
+					items = append(items, agentTurnReviewDrawer(ed, activeRev, p))
+				}
+				if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
 					items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
 				}
-				if !limitReached && len(queued) > 0 {
-					items = append(items, agentQueuedRequestsView(ed, queued, limitReached, p))
+				if !limitReached && len(limitQueued) > 0 {
+					items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
 				}
 				return ui.ScrollView{
 					TestID: "agent-thread-scroll",
@@ -1180,7 +1262,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.Node {
+func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette) core.Node {
 	var children []core.Node
 	if turn.Automation {
 		stateLabel, stateFg, stateBg, stateEdge := automationReviewBadgeStyle(ed, turn.ReviewState, p)
@@ -1299,16 +1381,21 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 		})
 	}
 
-	if len(turn.Steps) > 0 {
+	// Stopped card renders DONE and NOT DONE sections directly inside the card; avoid duplicating steps above it.
+	if len(turn.Steps) > 0 && turn.StoppedState == nil {
 		stepNodes := make([]core.Node, 0, len(turn.Steps))
 		for si, step := range turn.Steps {
 			stepNodes = append(stepNodes, agentStepRow(turnIdx, si, step, p))
 		}
+		stepStyle := core.Style{
+			Gap: 8,
+		}
+		if turn.Lost != nil && turn.Lost.Kind == AgentLostConnection && !turn.Lost.Resumed {
+			stepStyle.Opacity = core.Alpha(0.75)
+		}
 		children = append(children, core.View{
-			TestID: fmt.Sprintf("agent-turn-steps-%d", turnIdx),
-			Style: core.Style{
-				Gap: 8,
-			},
+			TestID:   fmt.Sprintf("agent-turn-steps-%d", turnIdx),
+			Style:    stepStyle,
 			Children: stepNodes,
 		})
 	}
@@ -1364,7 +1451,18 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 		})
 	}
 
-	if turn.Stopped {
+	if turn.Partial != nil {
+		children = append(children, agentPartialSection(ed, turnIdx, turn, p)...)
+	}
+	if turn.Stuck != nil {
+		children = append(children, agentStuckSection(ed, rev, turnIdx, turn, p)...)
+	}
+	if turn.Lost != nil {
+		children = append(children, agentLostSection(ed, turnIdx, turn, p)...)
+	}
+	if turn.StoppedState != nil {
+		children = append(children, agentStoppedSection(ed, turnIdx, turn, p)...)
+	} else if turn.Stopped {
 		children = append(children, core.Text{
 			TestID:  fmt.Sprintf("agent-turn-stopped-%d", turnIdx),
 			Content: "Stopped · edits already made stay undoable.",
@@ -1374,10 +1472,13 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 			},
 		})
 	}
+	if turn.Mismatch != nil {
+		children = append(children, agentMismatchSection(ed, turnIdx, turn, p)...)
+	}
 
 	if turn.ModelError != nil {
 		children = append(children, agentModelErrorCard(ed, turnIdx, turn.ID, turn.ModelError, p))
-	} else if turn.Error != "" {
+	} else if turn.Error != "" && turn.Lost == nil {
 		children = append(children, core.View{
 			TestID: fmt.Sprintf("agent-turn-error-%d", turnIdx),
 			Style: core.Style{
@@ -1895,6 +1996,53 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node
 				},
 			},
 		}
+	case AgentStepWarning:
+		textCol = p.TextSecondary
+		badge = core.View{
+			Style: core.Style{
+				Width:          core.Pt(16),
+				Height:         core.Pt(16),
+				CornerRadius:   8,
+				Background:     p.Warning.Fill,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FlexShrink:     0,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: "!",
+					Style: core.Style{
+						FontSize:   10,
+						FontWeight: 700,
+						Color:      p.Warning.Fg,
+					},
+				},
+			},
+		}
+	case AgentStepInterrupted:
+		textCol = p.TextMuted
+		badge = core.View{
+			Style: core.Style{
+				Width:          core.Pt(16),
+				Height:         core.Pt(16),
+				CornerRadius:   8,
+				BorderWidth:    1.5,
+				BorderColor:    p.TextFaint,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FlexShrink:     0,
+			},
+			Children: []core.Node{
+				core.SVGView{
+					SVG: lucide.Pause(),
+					Style: core.Style{
+						Width:  core.Pt(9),
+						Height: core.Pt(9),
+						Color:  p.TextFaint,
+					},
+				},
+			},
+		}
 	case AgentStepFailed:
 		textCol = p.TextSecondary
 		badge = core.View{
@@ -2046,7 +2194,10 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 			Children: nodes,
 		}
 	})
-
+	offlineMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.AgentOffline()
+	})
 	contextChips := core.Dynamic(func(cx *core.Scope) core.Node {
 		ctxKey := refMemo.Get()
 		var rows []core.Node
@@ -2165,54 +2316,69 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 				Children: []core.Node{
 					contextChips,
 					core.Text{
-						Content: ed.T("agent.composerLabel"),
+						ContentFunc: func() string {
+							_ = rev.Get()
+							if ed.AgentOffline() {
+								return "Queue a request"
+							}
+							return ed.T("agent.composerLabel")
+						},
 						Style: core.Style{
 							FontSize:   11,
 							FontWeight: 600,
 							Color:      p.TextFaint,
 						},
 					},
-					ui.Input{
-						TestID:         "agent-composer-input",
-						Label:          ed.T("agent.composerLabel"),
-						Placeholder:    ed.T("agent.composerPlaceholder"),
-						Multiline:      true,
-						SubmitBehavior: core.SubmitBehaviorSubmit,
-						ReturnKeyType:  core.ReturnKeySend,
-						Value: func() string {
-							_ = rev.Get()
-							return ed.AgentComposerText()
-						},
-						OnChange: func(text string) {
-							ed.SetAgentComposerText(text)
-						},
-						OnSubmit: func(text string) {
-							ed.report(ed.SubmitAgentPrompt(text))
-						},
-						OnPaste: func(ev core.PasteEvent) {
-							_, _, err := ed.HandleAgentComposerPaste(ev)
-							ed.report(err)
-						},
-						OnFocus: func() {
-							composerFocused.Set(true)
-						},
-						OnBlur: func() {
-							composerFocused.Set(false)
-						},
-						Style: core.Style{
-							MinHeight:        core.Pt(48),
-							MaxHeight:        core.Pt(120),
-							Background:       p.Bg,
-							BorderWidth:      1,
-							BorderColor:      p.LineRaised,
-							CornerRadius:     8,
-							Padding:          core.Symmetric(8, 10),
-							FontSize:         12.5,
-							Color:            p.TextSecondary,
-							PlaceholderColor: p.TextFaint,
-							FocusVisible:     p.FocusRing(2),
-						},
-					},
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						offline := offlineMemo.Get()
+						label := ed.T("agent.composerLabel")
+						placeholder := ed.T("agent.composerPlaceholder")
+						if offline {
+							label = "Queue a request"
+							placeholder = "Queue a request…"
+						}
+						return ui.Input{
+							TestID:         "agent-composer-input",
+							Label:          label,
+							Placeholder:    placeholder,
+							Multiline:      true,
+							SubmitBehavior: core.SubmitBehaviorSubmit,
+							ReturnKeyType:  core.ReturnKeySend,
+							Value: func() string {
+								_ = rev.Get()
+								return ed.AgentComposerText()
+							},
+							OnChange: func(text string) {
+								ed.SetAgentComposerText(text)
+							},
+							OnSubmit: func(text string) {
+								ed.report(ed.SubmitAgentPrompt(text))
+							},
+							OnPaste: func(ev core.PasteEvent) {
+								_, _, err := ed.HandleAgentComposerPaste(ev)
+								ed.report(err)
+							},
+							OnFocus: func() {
+								composerFocused.Set(true)
+							},
+							OnBlur: func() {
+								composerFocused.Set(false)
+							},
+							Style: core.Style{
+								MinHeight:        core.Pt(48),
+								MaxHeight:        core.Pt(120),
+								Background:       p.Bg,
+								BorderWidth:      1,
+								BorderColor:      p.LineRaised,
+								CornerRadius:     8,
+								Padding:          core.Symmetric(8, 10),
+								FontSize:         12.5,
+								Color:            p.TextSecondary,
+								PlaceholderColor: p.TextFaint,
+								FocusVisible:     p.FocusRing(2),
+							},
+						}
+					}),
 					core.View{
 						Style: core.Style{
 							Direction:  core.Row,
@@ -2281,31 +2447,68 @@ func agentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 									}
 								},
 								Else: func(cx *core.Scope) core.Node {
-									return core.View{
-										TestID: "agent-composer-send",
-										Role:   core.RoleButton,
-										Label:  "Send",
-										Style: core.Style{
-											Width:          core.Pt(30),
-											Height:         core.Pt(30),
-											CornerRadius:   8,
-											AlignItems:     core.AlignCenter,
-											JustifyContent: core.JustifyCenter,
-											Background:     p.TextPrimary,
-											FocusVisible:   p.FocusRing(2),
+									return core.Show{
+										When: func() bool {
+											_ = rev.Get()
+											return ed.AgentOffline()
 										},
-										OnPress: func(core.PressEvent) {
-											ed.report(ed.SubmitAgentPrompt(""))
-										},
-										Children: []core.Node{
-											core.SVGView{
-												SVG: lucide.ArrowUp(),
+										Then: func(cx *core.Scope) core.Node {
+											return core.View{
+												TestID: "agent-composer-queue",
+												Role:   core.RoleButton,
+												Label:  "Queue",
 												Style: core.Style{
-													Width:  core.Pt(14),
-													Height: core.Pt(14),
-													Color:  p.OnTextPrimary,
+													Height:         core.Pt(30),
+													Padding:        core.Symmetric(0, 12),
+													CornerRadius:   8,
+													AlignItems:     core.AlignCenter,
+													JustifyContent: core.JustifyCenter,
+													Background:     p.LineRaised,
+													FocusVisible:   p.FocusRing(2),
 												},
-											},
+												OnPress: func(core.PressEvent) {
+													ed.QueueAgentRequest("")
+												},
+												Children: []core.Node{
+													core.Text{
+														Content: "Queue",
+														Style: core.Style{
+															FontSize:   12.5,
+															FontWeight: 500,
+															Color:      p.TextPrimary,
+														},
+													},
+												},
+											}
+										},
+										Else: func(cx *core.Scope) core.Node {
+											return core.View{
+												TestID: "agent-composer-send",
+												Role:   core.RoleButton,
+												Label:  "Send",
+												Style: core.Style{
+													Width:          core.Pt(30),
+													Height:         core.Pt(30),
+													CornerRadius:   8,
+													AlignItems:     core.AlignCenter,
+													JustifyContent: core.JustifyCenter,
+													Background:     p.TextPrimary,
+													FocusVisible:   p.FocusRing(2),
+												},
+												OnPress: func(core.PressEvent) {
+													ed.report(ed.SubmitAgentPrompt(""))
+												},
+												Children: []core.Node{
+													core.SVGView{
+														SVG: lucide.ArrowUp(),
+														Style: core.Style{
+															Width:  core.Pt(14),
+															Height: core.Pt(14),
+															Color:  p.OnTextPrimary,
+														},
+													},
+												},
+											}
 										},
 									}
 								},
