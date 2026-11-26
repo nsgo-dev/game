@@ -237,6 +237,9 @@ func (e *Editor) HasOpenReview() bool {
 	if e.DiskCompareOpen() || len(e.disk.conflicts) > 0 {
 		return true
 	}
+	if st := e.FirstRunStage(); st == FirstRunStageReview || st == FirstRunStageBuilding {
+		return true
+	}
 	return false
 }
 

@@ -270,6 +270,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.endTerrainStrokeForChange()
 	e.exitTileReviewBeforePreview()
 	e.resetViewport3DAgentPrompt(false)
+	e.resetFirstRunFlow()
 	e.cancelAutoSaveTimer()
 	e.stopRunningTasksForPlay()
 
