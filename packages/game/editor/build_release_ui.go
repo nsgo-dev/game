@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/internal/qrcode"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -1684,43 +1685,15 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 		},
 	}
 
-	// Right side rail: optional QR card (for web) + Run on Device list.
+	// Right side rail: QR card (for web builds) + Run on Device list.
 	var rightRailChildren []core.Node
-	if res.TestURL != "" {
-		rightRailChildren = append(rightRailChildren, core.View{
-			TestID: "build-result-qr",
-			Style: core.Style{
-				CornerRadius: 12,
-				Background:   specRaised,
-				BorderWidth:  1,
-				BorderColor:  specLineRaised,
-				Padding:      core.All(14),
-				Gap:          10,
-				AlignItems:   core.AlignCenter,
-			},
-			Children: []core.Node{
-				core.View{
-					Role:  core.RoleImage,
-					Label: "QR code for the test link",
-					Style: core.Style{
-						Width:          core.Pt(148),
-						Height:         core.Pt(148),
-						CornerRadius:   8,
-						Background:     specTextStrong,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-					},
-					Children: []core.Node{
-						core.Text{Content: "QR", Style: core.Style{FontSize: 20, FontWeight: core.FontWeightMedium, Color: specBg}},
-					},
-				},
-				core.Text{Content: res.TestURL, Style: core.Style{FontSize: 11.5, Color: specText}},
-				core.Text{
-					Content: "Scan on a phone on this Wi-Fi to test the web build.",
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
-				},
-			},
-		})
+	qrURL := res.TestURL
+	if snap.WebServer.Serving && snap.WebServer.URL != "" {
+		qrURL = snap.WebServer.URL
+	}
+	showQRCard := qrURL != "" || (p.Platform == "web" && (snap.WebServer.StoppedByUser || snap.WebServer.ServeDir != ""))
+	if showQRCard {
+		rightRailChildren = append(rightRailChildren, buildWebQRCardView(ed, snap.WebServer, qrURL))
 	}
 
 	deviceRows := make([]core.Node, 0, len(snap.Devices))
@@ -1731,10 +1704,9 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 		var dBorderW core.Points
 		var dBorder core.Color
 		dFg := specText
-		dotCol := specAdded
-		if !d.Available {
+		dotCol := deviceStateDotColor(d.State, d.Available)
+		if !d.Available && d.State != BuildDeviceInstalling {
 			dFg = specTextMuted
-			dotCol = specTextMuted
 		}
 		if isSel {
 			dBg = specSelectedRowFill
@@ -1745,7 +1717,7 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 		deviceRows = append(deviceRows, core.View{
 			TestID: "build-device-" + d.ID,
 			Role:   core.RoleButton,
-			Label:  d.Name,
+			Label:  d.Name + " · " + d.Note,
 			Style: core.Style{
 				Height:       core.Pt(32),
 				Direction:    core.Row,
@@ -1759,14 +1731,23 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 				FocusVisible: specFocusRingStyle,
 			},
 			OnPress: func(core.PressEvent) {
-				if d.Available {
+				if d.Actionable {
+					ed.report(ed.LaunchBuildOnDevice(d.ID))
+				} else if d.Available {
 					ed.SelectBuildDevice(d.ID)
 				}
 			},
 			Children: []core.Node{
-				core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dotCol}},
+				core.View{
+					TestID: "build-device-dot-" + d.ID,
+					Style:  core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dotCol},
+				},
 				core.Text{Content: d.Name, Style: core.Style{FontSize: 12, Color: dFg, FlexGrow: 1}},
-				core.Text{Content: d.Note, Style: core.Style{FontSize: 11, Color: specTextMuted}},
+				core.Text{
+					TestID:  "build-device-note-" + d.ID,
+					Content: d.Note,
+					Style:   core.Style{FontSize: 11, Color: specTextMuted},
+				},
 			},
 		})
 	}
@@ -2094,6 +2075,218 @@ func buildDetailQueuedView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetE
 		ContentStyle: core.Style{Gap: 16},
 		EdgeColor:    func() core.Color { return specPanel },
 		Children:     children,
+	}
+}
+
+func buildWebQRCardView(ed *Editor, ws WebBuildServerSnapshot, qrURL string) core.Node {
+	statusLabel := "LAN test link"
+	statusDot := specAdded
+	statusFg := specTextSecondary
+	statusBg := specAddedFill
+	statusBorder := specAddedEdge
+	switch {
+	case ws.Serving && len(ws.ConnectedClients) > 0:
+		c := ws.ConnectedClients[len(ws.ConnectedClients)-1]
+		statusLabel = "MCP bridge · " + c.Device
+		statusDot = specAgent
+		statusFg = specText
+		statusBg = specAgentTint
+		statusBorder = specAgentEdge
+	case ws.Serving:
+		statusLabel = "Serving on LAN"
+		statusDot = specAdded
+		statusFg = specText
+		statusBg = specAddedFill
+		statusBorder = specAddedEdge
+	case ws.StoppedByUser:
+		statusLabel = "Stopped"
+		statusDot = specTextMuted
+		statusFg = specTextMuted
+		statusBg = specPanel
+		statusBorder = specLineRaised
+	}
+
+	var qrNode core.Node
+	if !ws.StoppedByUser && qrURL != "" {
+		code, err := EncodeBuildQR(qrURL)
+		if err == nil && code != nil {
+			qrNode = core.View{
+				Role:  core.RoleImage,
+				Label: "QR code for " + qrURL,
+				Style: core.Style{
+					Width:        core.Pt(160),
+					Height:       core.Pt(160),
+					CornerRadius: 8,
+					Background:   specTextStrong,
+					Overflow:     core.Hidden,
+				},
+				Children: []core.Node{
+					core.Canvas{
+						TestID: "build-qr-canvas",
+						Label:  "QR code for " + qrURL,
+						Style: core.Style{
+							Width:  core.Pt(160),
+							Height: core.Pt(160),
+						},
+						Draw: func(d *core.Drawing, sz core.Size) {
+							drawQRCode(d, sz, code)
+						},
+					},
+				},
+			}
+		}
+	}
+	if qrNode == nil {
+		qrNode = core.View{
+			TestID: "build-qr-stopped-placeholder",
+			Style: core.Style{
+				Width:          core.Pt(160),
+				Height:         core.Pt(160),
+				CornerRadius:   8,
+				Background:     specPanel,
+				BorderWidth:    1,
+				BorderColor:    specLineRaised,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				Padding:        core.All(12),
+				Gap:            6,
+			},
+			Children: []core.Node{
+				buildSpecIcon(lucide.WifiOff(), 20, specTextMuted),
+				core.Text{
+					Content: "Server stopped",
+					Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: specTextSecondary},
+				},
+			},
+		}
+	}
+
+	children := []core.Node{
+		core.View{
+			TestID: "build-qr-status",
+			Style: core.Style{
+				Height:       core.Pt(22),
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          6,
+				Padding:      core.Symmetric(0, 8),
+				CornerRadius: 11,
+				Background:   statusBg,
+				BorderWidth:  1,
+				BorderColor:  statusBorder,
+			},
+			Children: []core.Node{
+				core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: statusDot}},
+				core.Text{Content: statusLabel, Style: core.Style{FontSize: 11, Color: statusFg}},
+			},
+		},
+		qrNode,
+	}
+
+	if !ws.StoppedByUser && qrURL != "" {
+		children = append(children, core.Text{
+			TestID:  "build-qr-url",
+			Content: qrURL,
+			Style:   core.Style{FontSize: 11.5, Color: specText, FontVariant: core.FontTabularNums},
+		})
+	}
+
+	caption := "Scan on a phone on this Wi-Fi. Play mode there connects to the MCP bridge, so the agent can debug it too."
+	if ws.StoppedByUser {
+		caption = "Local server stopped and port released. Start serving again to test on a phone on this Wi-Fi."
+	}
+	children = append(children, core.Text{
+		TestID:  "build-qr-caption",
+		Content: caption,
+		Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+	})
+
+	var actions []core.Node
+	if !ws.StoppedByUser && qrURL != "" {
+		actions = append(actions, buildReleaseSecondaryButton("build-qr-copy-url", "Copy URL", func() {
+			_, err := ed.CopyWebBuildURL()
+			ed.report(err)
+		}))
+	}
+	if ws.Serving {
+		actions = append(actions, buildReleaseSecondaryButton("build-qr-toggle-serve", "Stop serving", func() {
+			ed.report(ed.StopWebBuildServer())
+		}))
+	} else if ws.ServeDir != "" {
+		actions = append(actions, buildReleaseSecondaryButton("build-qr-toggle-serve", "Start serving", func() {
+			_, err := ed.StartWebBuildServer("")
+			ed.report(err)
+		}))
+	}
+	if len(actions) > 0 {
+		children = append(children, core.View{
+			Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
+			Children: actions,
+		})
+	}
+
+	return core.View{
+		TestID: "build-result-qr",
+		Style: core.Style{
+			CornerRadius: 12,
+			Background:   specRaised,
+			BorderWidth:  1,
+			BorderColor:  specLineRaised,
+			Padding:      core.All(14),
+			Gap:          10,
+			AlignItems:   core.AlignCenter,
+		},
+		Children: children,
+	}
+}
+
+// drawQRCode renders code on a high-contrast light quiet-zone card using Spec tokens
+// (specTextStrong #FFFFFF quiet zone, specBg #101216 dark modules — 18.75:1 AAA contrast).
+func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
+	if d == nil || code == nil || code.Size <= 0 || sz.Width <= 0 || sz.Height <= 0 {
+		return
+	}
+	d.SetFillColor(specTextStrong).FillRect(0, 0, float32(sz.Width), float32(sz.Height))
+
+	qz := code.QuietZone()
+	totalModules := code.Size + 2*qz
+	side := float64(min(sz.Width, sz.Height))
+	cell := math.Floor(side / float64(totalModules))
+	if cell < 1 {
+		cell = side / float64(totalModules)
+	}
+	gridSide := cell * float64(totalModules)
+	ox := math.Floor((float64(sz.Width) - gridSide) / 2)
+	oy := math.Floor((float64(sz.Height) - gridSide) / 2)
+
+	d.SetFillColor(specBg)
+	cellF := float32(cell)
+	for y := range code.Size {
+		py := float32(oy + float64(qz+y)*cell)
+		for x := range code.Size {
+			if code.Black(x, y) {
+				px := float32(ox + float64(qz+x)*cell)
+				d.FillRect(px, py, cellF, cellF)
+			}
+		}
+	}
+}
+
+func deviceStateDotColor(st BuildDeviceState, available bool) core.Color {
+	switch st {
+	case BuildDeviceReady, BuildDeviceServing, BuildDeviceRunning:
+		return specAdded
+	case BuildDeviceConnected, BuildDeviceInstalling:
+		return specAgent
+	case BuildDeviceFailed:
+		return specProblem
+	case BuildDeviceStopped, BuildDeviceDisconnected, BuildDeviceUnavailable:
+		return specTextMuted
+	default:
+		if available {
+			return specAdded
+		}
+		return specTextMuted
 	}
 }
 
