@@ -573,7 +573,7 @@ func (e *Editor) persistEditorSettings() error {
 	return SaveEditorSettings(e.SettingsPath, &s)
 }
 
-// --- Models & connections + system keychain API key ---
+// --- Models & connections + system keychain / core.Secrets API key ---
 
 func agentAPIKeyAccount(account string) string {
 	acc := strings.TrimSpace(account)
@@ -583,7 +583,64 @@ func agentAPIKeyAccount(account string) string {
 	return acc
 }
 
-// StoreAgentAPIKey saves the built-in model API key exclusively in the system keychain
+func agentSecretStoreAccount(account string) string {
+	acc := agentAPIKeyAccount(account)
+	if acc == DefaultAgentAPIKeyAccount {
+		return AgentAPIKeySecretAccount
+	}
+	return "agent." + acc + ".api_key"
+}
+
+// agentSecretsStore returns the active NSGo core.Secrets handle (or explicit AgentSecretStore override)
+// when no explicit Editor.Keychain override is configured.
+func (e *Editor) agentSecretsStore() AgentSecretStore {
+	if e == nil {
+		return nil
+	}
+	if e.AgentSecretStore != nil {
+		return e.AgentSecretStore
+	}
+	if e.Keychain != nil {
+		return nil
+	}
+	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+		return cx.Secrets()
+	}
+	return nil
+}
+
+func (e *Editor) writeAgentSecret(account, value string) error {
+	if store := e.agentSecretsStore(); store != nil {
+		return store.Set(agentSecretStoreAccount(account), value)
+	}
+	return e.activeKeychain().Set(AgentKeychainServiceName, agentAPIKeyAccount(account), value)
+}
+
+func (e *Editor) readAgentSecret(account string) (string, error) {
+	if store := e.agentSecretsStore(); store != nil {
+		val, ok, err := store.Get(agentSecretStoreAccount(account))
+		if err != nil {
+			return "", err
+		}
+		if !ok || strings.TrimSpace(val) == "" {
+			return "", ErrCredentialNotFound
+		}
+		return val, nil
+	}
+	return e.activeKeychain().Get(AgentKeychainServiceName, agentAPIKeyAccount(account))
+}
+
+func (e *Editor) deleteAgentSecret(account string) error {
+	if store := e.agentSecretsStore(); store != nil {
+		return store.Delete(agentSecretStoreAccount(account))
+	}
+	if err := e.activeKeychain().Delete(AgentKeychainServiceName, agentAPIKeyAccount(account)); err != nil && !errors.Is(err, ErrCredentialNotFound) {
+		return err
+	}
+	return nil
+}
+
+// StoreAgentAPIKey saves the built-in model API key exclusively in NSGo's core.Secrets / system keychain
 // (never in editor.yaml or any project file). Refused when invoked by an agent.
 func (e *Editor) StoreAgentAPIKey(account, apiKey string) error {
 	if e == nil {
@@ -597,17 +654,27 @@ func (e *Editor) StoreAgentAPIKey(account, apiKey string) error {
 		return errors.New("editor: API key must not be empty")
 	}
 	acc := agentAPIKeyAccount(account)
-	if err := e.activeKeychain().Set(AgentKeychainServiceName, acc, apiKey); err != nil {
+	if err := e.writeAgentSecret(acc, apiKey); err != nil {
 		return err
 	}
 	e.settingsMu.Lock()
-	e.agent.builtInKeyChecked = true
-	e.agent.builtInKeyPresent = true
+	if acc == DefaultAgentAPIKeyAccount {
+		e.agent.builtInKeyChecked = true
+		e.agent.builtInKeyPresent = true
+	}
 	a := e.ensureAgentSettings()
 	if strings.TrimSpace(a.BuiltInProvider) == "" {
 		a.BuiltInProvider = DefaultBuiltInProviderName
 	}
 	e.settingsMu.Unlock()
+	if acc == DefaultAgentAPIKeyAccount && e.agent.mode == AgentModeAPIKey && (e.agent.status == AgentStatusNotConnected || e.agent.status == AgentStatusDisconnected) {
+		if e.AgentWeeklyLimitReached() {
+			e.agent.status = AgentStatusLimitReached
+		} else {
+			e.agent.status = AgentStatusConnected
+		}
+		e.updateAgentAnnouncement()
+	}
 	if err := e.persistEditorSettings(); err != nil {
 		e.notify()
 		return err
@@ -617,7 +684,7 @@ func (e *Editor) StoreAgentAPIKey(account, apiKey string) error {
 	return nil
 }
 
-// DeleteAgentAPIKey removes the built-in model API key from the system keychain.
+// DeleteAgentAPIKey removes the built-in model API key from NSGo's core.Secrets / system keychain.
 // Refused when invoked by an agent.
 func (e *Editor) DeleteAgentAPIKey(account string) error {
 	if e == nil {
@@ -627,17 +694,23 @@ func (e *Editor) DeleteAgentAPIKey(account string) error {
 		return ErrAgentSettingsYouOnly
 	}
 	acc := agentAPIKeyAccount(account)
-	if err := e.activeKeychain().Delete(AgentKeychainServiceName, acc); err != nil && !errors.Is(err, ErrCredentialNotFound) {
+	if err := e.deleteAgentSecret(acc); err != nil {
 		return err
 	}
 	e.settingsMu.Lock()
-	e.agent.builtInKeyChecked = true
-	e.agent.builtInKeyPresent = false
-	if e.settings.Agent != nil {
-		e.settings.Agent.BuiltInProvider = ""
-		e.settings.Agent = cloneAgentSettings(e.settings.Agent)
+	if acc == DefaultAgentAPIKeyAccount {
+		e.agent.builtInKeyChecked = true
+		e.agent.builtInKeyPresent = false
+		if e.settings.Agent != nil {
+			e.settings.Agent.BuiltInProvider = ""
+			e.settings.Agent = cloneAgentSettings(e.settings.Agent)
+		}
 	}
 	e.settingsMu.Unlock()
+	if acc == DefaultAgentAPIKeyAccount && e.agent.mode == AgentModeAPIKey && len(e.agent.clients) == 0 {
+		e.agent.status = AgentStatusNotConnected
+		e.updateAgentAnnouncement()
+	}
 	if err := e.persistEditorSettings(); err != nil {
 		e.notify()
 		return err
@@ -647,7 +720,7 @@ func (e *Editor) DeleteAgentAPIKey(account string) error {
 	return nil
 }
 
-// AgentAPIKey retrieves the built-in model API key from the system keychain.
+// AgentAPIKey retrieves the built-in model API key from NSGo's core.Secrets / system keychain.
 // Refused when invoked by an agent actor so secrets can never leak through MCP tools.
 func (e *Editor) AgentAPIKey(account string) (string, error) {
 	if e == nil {
@@ -656,15 +729,15 @@ func (e *Editor) AgentAPIKey(account string) (string, error) {
 	if e.AgentActorActive() {
 		return "", ErrAgentSettingsYouOnly
 	}
-	return e.activeKeychain().Get(AgentKeychainServiceName, agentAPIKeyAccount(account))
+	return e.readAgentSecret(account)
 }
 
-// RefreshAgentAPIKeyStatus queries the system keychain for the built-in API key and caches whether one is present.
+// RefreshAgentAPIKeyStatus queries NSGo's core.Secrets / system keychain for the built-in API key and caches whether one is present.
 func (e *Editor) RefreshAgentAPIKeyStatus() bool {
 	if e == nil {
 		return false
 	}
-	val, err := e.activeKeychain().Get(AgentKeychainServiceName, DefaultAgentAPIKeyAccount)
+	val, err := e.readAgentSecret(DefaultAgentAPIKeyAccount)
 	present := err == nil && strings.TrimSpace(val) != ""
 	e.settingsMu.Lock()
 	e.agent.builtInKeyChecked = true
@@ -673,19 +746,35 @@ func (e *Editor) RefreshAgentAPIKeyStatus() bool {
 	return present
 }
 
-// HasAgentAPIKey reports whether a built-in API key is currently stored in the system keychain.
+// HasAgentAPIKey reports whether a built-in API key is currently stored in NSGo's core.Secrets / system keychain.
 func (e *Editor) HasAgentAPIKey(account string) bool {
 	if e == nil {
 		return false
 	}
 	acc := agentAPIKeyAccount(account)
 	if acc != DefaultAgentAPIKeyAccount {
-		val, err := e.activeKeychain().Get(AgentKeychainServiceName, acc)
+		val, err := e.readAgentSecret(acc)
 		return err == nil && strings.TrimSpace(val) != ""
 	}
-	if e.Keychain != nil {
-		val, err := e.Keychain.Get(AgentKeychainServiceName, acc)
+	if e.AgentSecretStore != nil || e.Keychain != nil {
+		val, err := e.readAgentSecret(acc)
 		present := err == nil && strings.TrimSpace(val) != ""
+		e.settingsMu.Lock()
+		e.agent.builtInKeyChecked = true
+		e.agent.builtInKeyPresent = present
+		e.settingsMu.Unlock()
+		return present
+	}
+	if store := e.agentSecretsStore(); store != nil {
+		e.settingsMu.RLock()
+		checked := e.agent.builtInKeyChecked
+		present := e.agent.builtInKeyPresent
+		e.settingsMu.RUnlock()
+		if checked {
+			return present
+		}
+		val, ok, err := store.Get(AgentAPIKeySecretAccount)
+		present = err == nil && ok && strings.TrimSpace(val) != ""
 		e.settingsMu.Lock()
 		e.agent.builtInKeyChecked = true
 		e.agent.builtInKeyPresent = present
@@ -1183,6 +1272,7 @@ func (e *Editor) SetWeeklyRequestLimit(limit int) error {
 	v := limit
 	a.WeeklyRequestLimit = &v
 	e.settingsMu.Unlock()
+	e.refreshAgentLimitStatus()
 	if err := e.persistEditorSettings(); err != nil {
 		e.notify()
 		return err
@@ -1208,6 +1298,7 @@ func (e *Editor) RecordAgentRequest(count int) {
 	}
 	a.Usage.WeeklyRequests += count
 	e.settingsMu.Unlock()
+	e.refreshAgentLimitStatus()
 	_ = e.persistEditorSettings()
 	e.notify()
 }

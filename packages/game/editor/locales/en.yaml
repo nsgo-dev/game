@@ -43,6 +43,7 @@ strings:
   agent.playDot.hoverFormat: '{summary} · stop Play to open'
   agent.revert: Revert
   agent.status.disconnected: Disconnected
+  agent.status.limitShort: Limit
   agent.status.reconnectingShort: Reconnecting
   agent.status.waitingShort: Waiting
   agent.status.workingShort: Working

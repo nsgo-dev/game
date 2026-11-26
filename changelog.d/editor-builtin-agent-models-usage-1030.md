@@ -1,0 +1,4 @@
+### Added
+
+- `game/editor`, `game/editor/editormcp`: add the built-in agent runner (`SubmitAgentTaskPrompt`, `Editor.AgentTools`, `Editor.BuiltInAgentEndpoint`) that runs requests against the Anthropic Messages API using the editor's MCP tools (enforcing Settings › Tools toggles, permissions, You-only boundaries, and outbound privacy) with API keys kept in NSGo's `core.Secrets` / system keychain and never written to project files, `editor.yaml`, or logs (#1030).
+- `game/editor`: connect WHO DOES WHAT task routing (`scene_edits`, `playtest_analysis`, `problems_fixes`, `ask_in_place`, `art_and_sound`), person-only weekly request limit queueing (`Limit reached · resets 00:00` + Usage link and manual queue dispatch), and transient model-error retry backoff (`4 s, 8 s, 16 s, 32 s`) with **Retry now** and switching that task kind to another connected agent (#1030).

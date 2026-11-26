@@ -35,7 +35,7 @@ const (
 	AgentModeUnconfigured AgentMode = ""
 	// AgentModeLocal connects to an external MCP agent running on this computer (Claude Code, Codex, or any MCP client).
 	AgentModeLocal AgentMode = "local"
-	// AgentModeAPIKey selects the built-in model path using an API key (implemented in its own issue).
+	// AgentModeAPIKey selects the built-in model path using an API key stored in NSGo's core.Secrets / system keychain.
 	AgentModeAPIKey AgentMode = "apikey"
 	// AgentModeNone disables agent features and keeps the Agent panel closed.
 	AgentModeNone AgentMode = "none"
@@ -47,7 +47,7 @@ type AgentStatus string
 const (
 	// AgentStatusNotConnected indicates no agent has connected yet.
 	AgentStatusNotConnected AgentStatus = "not_connected"
-	// AgentStatusConnected indicates an MCP client is attached and idle.
+	// AgentStatusConnected indicates an MCP client or built-in API key agent is attached and idle.
 	AgentStatusConnected AgentStatus = "connected"
 	// AgentStatusWorking indicates the agent is actively executing a request.
 	AgentStatusWorking AgentStatus = "working"
@@ -57,6 +57,8 @@ const (
 	AgentStatusReconnecting AgentStatus = "reconnecting"
 	// AgentStatusDisconnected indicates all reconnect retries failed.
 	AgentStatusDisconnected AgentStatus = "disconnected"
+	// AgentStatusLimitReached indicates the weekly request limit set on Usage and privacy has been reached and requests queue until reset or until the person raises it.
+	AgentStatusLimitReached AgentStatus = "limit_reached"
 )
 
 // ConnectStep identifies a specific step inside the Connect an agent dialog so Troubleshoot reopens directly at the step that failed.
@@ -250,31 +252,35 @@ type AgentTurnContext struct {
 // AgentTurn is one user request (in-place ⌘L, Agent panel composer, terminal-initiated MCP turn, or background automation run)
 // and its attached context, streamed steps, and reply.
 type AgentTurn struct {
-	ID             string           `json:"id"`
-	Prompt         string           `json:"prompt"`
-	Source         string           `json:"source,omitempty"`   // "in_place", "panel", "external", or "automation"
-	SkipPlan       bool             `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
-	Status         string           `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
-	External       bool             `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
-	AgentName      string           `json:"agentName,omitempty"`
-	Steps          []AgentStep      `json:"steps,omitempty"`
-	Summary        string           `json:"summary,omitempty"`
-	Reply          string           `json:"reply,omitempty"`
-	Error          string           `json:"error,omitempty"`
-	Stopped        bool             `json:"stopped,omitempty"`
-	Done           bool             `json:"done,omitempty"`
-	InputTokens    int              `json:"inputTokens,omitempty"`
-	OutputTokens   int              `json:"outputTokens,omitempty"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	StartedAt      time.Time        `json:"startedAt"`
-	FinishedAt     time.Time        `json:"finishedAt"`
-	Context        AgentTurnContext `json:"context"`
-	Automation     bool             `json:"automation,omitempty"`     // true for turns started by an automation trigger
-	AutomationID   string           `json:"automationId,omitempty"`   // rule ID from automations.yaml when Automation is true
-	AutomationName string           `json:"automationName,omitempty"` // WHEN summary of the triggering automation rule
-	TriggerSummary string           `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
-	CheckpointID   string           `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
-	ReviewState    AgentReviewState `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
+	ID             string                `json:"id"`
+	Prompt         string                `json:"prompt"`
+	Source         string                `json:"source,omitempty"`   // "in_place", "panel", "external", or "automation"
+	SkipPlan       bool                  `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
+	Status         string                `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
+	External       bool                  `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
+	AgentName      string                `json:"agentName,omitempty"`
+	Task           AgentTaskKind         `json:"task,omitempty"`
+	Route          AgentModelRoute       `json:"route,omitempty"`
+	Model          string                `json:"model,omitempty"`
+	Steps          []AgentStep           `json:"steps,omitempty"`
+	Summary        string                `json:"summary,omitempty"`
+	Reply          string                `json:"reply,omitempty"`
+	Error          string                `json:"error,omitempty"`
+	ModelError     *AgentModelErrorState `json:"modelError,omitempty"`
+	Stopped        bool                  `json:"stopped,omitempty"`
+	Done           bool                  `json:"done,omitempty"`
+	InputTokens    int                   `json:"inputTokens,omitempty"`
+	OutputTokens   int                   `json:"outputTokens,omitempty"`
+	CreatedAt      time.Time             `json:"createdAt"`
+	StartedAt      time.Time             `json:"startedAt"`
+	FinishedAt     time.Time             `json:"finishedAt"`
+	Context        AgentTurnContext      `json:"context"`
+	Automation     bool                  `json:"automation,omitempty"`     // true for turns started by an automation trigger
+	AutomationID   string                `json:"automationId,omitempty"`   // rule ID from automations.yaml when Automation is true
+	AutomationName string                `json:"automationName,omitempty"` // WHEN summary of the triggering automation rule
+	TriggerSummary string                `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
+	CheckpointID   string                `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
+	ReviewState    AgentReviewState      `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
 }
 
 // AgentOpenRequest represents a pending permission prompt or question waiting on the user.
@@ -295,6 +301,9 @@ type AgentRequest struct {
 	SelectedID     string
 	AgentKind      ExternalAgentKind
 	Permissions    AgentPermissions
+	Task           AgentTaskKind
+	Route          AgentModelRoute
+	Model          string
 	AutomationID   string
 	AutomationName string
 	TriggerKind    AutomationTriggerKind
@@ -306,12 +315,13 @@ type AgentRequest struct {
 type AgentEventKind string
 
 const (
-	AgentEventSession AgentEventKind = "session"
-	AgentEventStep    AgentEventKind = "step"
-	AgentEventMessage AgentEventKind = "message"
-	AgentEventUsage   AgentEventKind = "usage"
-	AgentEventDone    AgentEventKind = "done"
-	AgentEventError   AgentEventKind = "error"
+	AgentEventSession        AgentEventKind = "session"
+	AgentEventStep           AgentEventKind = "step"
+	AgentEventMessage        AgentEventKind = "message"
+	AgentEventUsage          AgentEventKind = "usage"
+	AgentEventDone           AgentEventKind = "done"
+	AgentEventError          AgentEventKind = "error"
+	AgentEventModelRecovered AgentEventKind = "model_recovered"
 )
 
 // AgentEvent is one incremental update streamed by an AgentRunner.
@@ -388,6 +398,10 @@ type agentState struct {
 	activeRunCancel    context.CancelFunc
 	activeRunID        uint64
 	activeTurnID       string
+	activeRetryNow     chan struct{}
+	activeRetryCancel  func()
+	queued             []AgentQueuedRequest
+	queueSeq           int
 	openRequest        *AgentOpenRequest
 	focusRequestSeq    uint64
 	focusRequestCalled int
@@ -504,17 +518,22 @@ func (e *Editor) stopAgentTimers() {
 		e.agent.connectCopiedStop()
 		e.agent.connectCopiedStop = nil
 	}
+	if e.agent.activeRetryCancel != nil {
+		e.agent.activeRetryCancel()
+		e.agent.activeRetryCancel = nil
+	}
 	if e.agent.activeRunCancel != nil {
 		e.agent.activeRunCancel()
 		e.agent.activeRunCancel = nil
 	}
 	e.stopAutomationRunsAndScheduler()
+	e.agent.activeRetryNow = nil
 	e.agent.activeTurnID = ""
 	e.agent.connectAPIKey = ""
 }
 
 // resetAgentForProject stops active agent runs/timers and clears per-project agent conversation,
-// client sessions, open requests, composer draft, and draft API key when switching projects or demos.
+// client sessions, open requests, queued requests, composer draft, and draft API key when switching projects or demos.
 func (e *Editor) resetAgentForProject() {
 	if e == nil {
 		return
@@ -537,11 +556,20 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.connectAPIKey = ""
 	e.agent.sessionID = ""
 	e.agent.turns = nil
+	e.agent.queued = nil
 	e.agent.composerText = ""
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
 	e.agent.openRequest = nil
-	e.agent.status = AgentStatusNotConnected
+	if e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
+		if e.AgentWeeklyLimitReached() {
+			e.agent.status = AgentStatusLimitReached
+		} else {
+			e.agent.status = AgentStatusConnected
+		}
+	} else {
+		e.agent.status = AgentStatusNotConnected
+	}
 	e.updateAgentAnnouncement()
 }
 
@@ -627,8 +655,14 @@ func (e *Editor) AgentPrimaryClient() (AgentClientInfo, bool) {
 	return AgentClientInfo{}, false
 }
 
-// AgentStatusTooltip returns the hover text for the Connected status chip, naming the agent and transport (for example "Claude Code over stdio").
+// AgentStatusTooltip returns the hover text for the Connected status chip, naming the agent and transport (for example "Claude Code over stdio" or "Anthropic API (built in)").
 func (e *Editor) AgentStatusTooltip() string {
+	if len(e.agent.clients) > 0 {
+		return e.agent.clients[0].HoverLabel()
+	}
+	if e != nil && (e.agent.mode == AgentModeAPIKey || e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
+		return e.BuiltInAgentProvider() + " (built in · key in system keychain)"
+	}
 	if c, ok := e.AgentPrimaryClient(); ok {
 		return c.HoverLabel()
 	}
@@ -695,7 +729,11 @@ func (e *Editor) AgentLiveAnnouncement() string {
 func (e *Editor) updateAgentAnnouncement() {
 	switch e.agent.status {
 	case AgentStatusConnected:
-		e.agent.liveAnnouncement = fmt.Sprintf("Connected via MCP: %s", e.AgentStatusTooltip())
+		if len(e.agent.clients) == 0 && (e.agent.mode == AgentModeAPIKey || e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
+			e.agent.liveAnnouncement = fmt.Sprintf("Connected via %s", e.BuiltInAgentProvider())
+		} else {
+			e.agent.liveAnnouncement = fmt.Sprintf("Connected via MCP: %s", e.AgentStatusTooltip())
+		}
 	case AgentStatusWorking:
 		if e.agent.workingTotal > 0 {
 			e.agent.liveAnnouncement = fmt.Sprintf("Agent working, step %d of %d", max(1, e.agent.workingStep), e.agent.workingTotal)
@@ -713,6 +751,8 @@ func (e *Editor) updateAgentAnnouncement() {
 		e.agent.liveAnnouncement = fmt.Sprintf("Agent reconnecting, try %d of %d", attempt, total)
 	case AgentStatusDisconnected:
 		e.agent.liveAnnouncement = "Agent disconnected"
+	case AgentStatusLimitReached:
+		e.agent.liveAnnouncement = fmt.Sprintf("Weekly agent limit reached, resets at %s", e.AgentUsageResetLabel())
 	default:
 		e.agent.liveAnnouncement = "No agent connected"
 	}
@@ -782,6 +822,15 @@ func (e *Editor) OpenConnectDialog() {
 	e.agent.connectCopied = false
 	e.agent.connectPermsDraft = e.agent.permissions
 	e.notify()
+}
+
+// OpenConnectDialogForMode opens the Connect an agent dialog pre-selected on mode (for example AgentModeAPIKey).
+func (e *Editor) OpenConnectDialogForMode(mode AgentMode) {
+	if e == nil {
+		return
+	}
+	e.OpenConnectDialog()
+	e.SetConnectChoice(mode)
 }
 
 // OpenConnectDialogAt opens the Connect an agent dialog focused directly on step (used by Troubleshoot so it lands on the step that failed, not the start).
@@ -922,13 +971,17 @@ func (e *Editor) CompleteConnectDialog() {
 
 	switch choice {
 	case AgentModeNone:
-		e.cancelAgentReconnect()
+		e.stopAgentTimers()
+		e.agent.queued = nil
 		e.agent.rightTab = RightTabInspector
 		e.agent.status = AgentStatusNotConnected
 		e.updateAgentAnnouncement()
 	case AgentModeLocal:
 		e.agent.rightTab = RightTabAgent
-		if len(e.agent.clients) > 0 && e.agent.status == AgentStatusNotConnected {
+		if e.AgentWeeklyLimitReached() {
+			e.agent.status = AgentStatusLimitReached
+			e.updateAgentAnnouncement()
+		} else if len(e.agent.clients) > 0 && e.agent.status == AgentStatusNotConnected {
 			e.agent.status = AgentStatusConnected
 			e.updateAgentAnnouncement()
 		}
@@ -938,6 +991,14 @@ func (e *Editor) CompleteConnectDialog() {
 			if err := e.StoreAgentAPIKey(DefaultAgentAPIKeyAccount, apiKeyDraft); err != nil {
 				e.Status = err.Error()
 			}
+		}
+		if e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
+			if e.AgentWeeklyLimitReached() {
+				e.agent.status = AgentStatusLimitReached
+			} else if e.agent.status == AgentStatusNotConnected || e.agent.status == AgentStatusDisconnected {
+				e.agent.status = AgentStatusConnected
+			}
+			e.updateAgentAnnouncement()
 		}
 	}
 	e.notify()
@@ -1528,96 +1589,9 @@ func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary strin
 	e.notify()
 }
 
-// SubmitAgentPrompt submits prompt (or the current composer text when prompt is empty) to the connected agent runner and streams its steps into the Agent panel.
+// SubmitAgentPrompt submits prompt (or the current composer text when prompt is empty) to the agent routed for Scene and data edits and streams its steps into the Agent panel.
 func (e *Editor) SubmitAgentPrompt(prompt string) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
-	}
-	if e.playing {
-		return ErrPlaying
-	}
-	if e.agent.mode == AgentModeNone {
-		return errors.New("editor: agent is disabled")
-	}
-	text := strings.TrimSpace(prompt)
-	if text == "" {
-		text = strings.TrimSpace(e.agent.composerText)
-	}
-	if text == "" {
-		return nil
-	}
-	if e.agent.activeRunCancel != nil {
-		return errors.New("editor: an agent request is already running")
-	}
-	runner := e.AgentRunner
-	if runner == nil {
-		if len(e.agent.clients) == 0 && e.agent.mode != AgentModeLocal {
-			e.OpenConnectDialog()
-			return errors.New("editor: no agent connected")
-		}
-		runner = defaultCLIAgentRunner()
-	}
-
-	e.agent.composerText = ""
-	e.agent.turnSeq++
-	e.agent.turnChangeSeq++
-	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
-	clientName := ""
-	agentKind := ExternalAgentAuto
-	if c, ok := e.AgentPrimaryClient(); ok {
-		clientName = c.DisplayName
-		agentKind = DetectExternalAgentKind(c.Name)
-	}
-	now := e.nowTime()
-	e.agent.turns = append(e.agent.turns, AgentTurn{
-		ID:        turnID,
-		Prompt:    text,
-		Source:    "panel",
-		Status:    "running",
-		AgentName: clientName,
-		CreatedAt: now,
-		StartedAt: now,
-	})
-
-	e.agent.activeRunID++
-	runID := e.agent.activeRunID
-	e.agent.activeTurnID = turnID
-	ctx, cancel := context.WithCancel(context.Background())
-	e.agent.activeRunCancel = cancel
-	e.agent.status = AgentStatusWorking
-	e.agent.workingStep = 1
-	e.agent.workingTotal = 0
-	e.RecordAgentRequest(1)
-	e.updateAgentAnnouncement()
-	e.upsertTurnNotificationTask(AgentTask{
-		ID:        turnID,
-		Title:     text,
-		State:     TaskRunning,
-		ScenePath: e.ScenePath,
-	}, e.FilePath, time.Time{})
-
-	req := AgentRequest{
-		ThreadID:    e.agent.threadID,
-		SessionID:   e.agent.sessionID,
-		Prompt:      text,
-		ProjectRoot: e.agentProjectRoot(),
-		ScenePath:   e.ScenePath,
-		SelectedID:  e.SelectedID,
-		AgentKind:   agentKind,
-		Permissions: e.agent.permissions,
-	}
-
-	go func() {
-		err := runner.Run(ctx, req, func(ev AgentEvent) {
-			e.postOrRun(func() {
-				e.applyAgentEventForRun(runID, turnID, ev)
-			})
-		})
-		e.postOrRun(func() {
-			e.finishAgentRun(runID, turnID, err, ctx.Err() != nil)
-		})
-	}()
-	return nil
+	return e.SubmitAgentTaskPrompt(AgentTaskSceneEdit, prompt)
 }
 
 // StopAgentRun cancels the currently running composer request, keeping completed steps visible.
@@ -1625,6 +1599,11 @@ func (e *Editor) StopAgentRun() {
 	if e == nil || e.agent.activeRunCancel == nil {
 		return
 	}
+	if e.agent.activeRetryCancel != nil {
+		e.agent.activeRetryCancel()
+		e.agent.activeRetryCancel = nil
+	}
+	e.agent.activeRetryNow = nil
 	cancel := e.agent.activeRunCancel
 	stoppedTurnID := e.agent.activeTurnID
 	e.agent.activeRunCancel = nil
@@ -1638,8 +1617,13 @@ func (e *Editor) StopAgentRun() {
 	if n := len(e.agent.turns); n > 0 && !e.agent.turns[n-1].Done {
 		e.agent.turns[n-1].Stopped = true
 		e.agent.turns[n-1].Done = true
+		e.agent.turns[n-1].Status = "stopped"
 		e.agent.turns[n-1].FinishedAt = e.nowTime()
+		if e.agent.turns[n-1].ModelError != nil {
+			e.agent.turns[n-1].ModelError.Retrying = false
+		}
 	}
+	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
 	if stoppedTurnID != "" {
 		e.removeTurnNotificationTask(stoppedTurnID)
@@ -1740,11 +1724,14 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 		if ev.Err != "" {
 			turn.Error = ev.Err
 		}
+	case AgentEventModelRecovered:
+		turn.ModelError = nil
 	case AgentEventDone:
 		if ev.Text != "" && turn.Summary == "" {
 			turn.Summary = ev.Text
 			turn.Reply = ev.Text
 		}
+		turn.ModelError = nil
 		turn.Done = true
 		turn.Status = "done"
 		turn.FinishedAt = e.nowTime()
@@ -1758,6 +1745,11 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 	if e.agent.activeRunID != runID {
 		return
 	}
+	if e.agent.activeRetryCancel != nil {
+		e.agent.activeRetryCancel()
+		e.agent.activeRetryCancel = nil
+	}
+	e.agent.activeRetryNow = nil
 	if e.agent.activeRunCancel != nil {
 		e.agent.activeRunCancel()
 		e.agent.activeRunCancel = nil
@@ -1772,10 +1764,16 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 		if canceled {
 			turn.Stopped = true
 			turn.Status = "stopped"
+			if turn.ModelError != nil {
+				turn.ModelError.Retrying = false
+			}
 		} else {
 			turn.Status = "done"
 			if err != nil && turn.Error == "" {
 				turn.Error = err.Error()
+			}
+			if turn.ModelError != nil {
+				turn.ModelError.Retrying = false
 			}
 		}
 		for i := range turn.Steps {
@@ -1830,11 +1828,16 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 func (e *Editor) restoreIdleAgentStatus() {
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
+	if e.agent.mode != AgentModeNone && e.AgentWeeklyLimitReached() {
+		e.agent.status = AgentStatusLimitReached
+		e.updateAgentAnnouncement()
+		return
+	}
 	if e.agent.openRequest != nil {
 		e.agent.status = AgentStatusWaitingForYou
-	} else if len(e.agent.clients) > 0 {
+	} else if len(e.agent.clients) > 0 || (e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
 		e.agent.status = AgentStatusConnected
-	} else if e.agent.status == AgentStatusWorking {
+	} else if e.agent.status == AgentStatusWorking || e.agent.status == AgentStatusLimitReached {
 		if e.agent.hadClient {
 			e.agent.status = AgentStatusDisconnected
 		} else {

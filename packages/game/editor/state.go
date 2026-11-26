@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -535,6 +536,14 @@ type Editor struct {
 	AgentRunner AgentRunner
 	// AutomationDrafter optionally turns plain words from "+ New automation, in words" into a candidate AutomationRule; when nil, a built-in English/Chinese drafter is used.
 	AutomationDrafter func(ctx context.Context, words string) (AutomationRule, error)
+	// AgentTools lists and executes the editor's MCP tools for the built-in agent; editormcp.New wires this automatically.
+	AgentTools AgentToolExecutor
+	// AgentSecretStore optionally overrides secret storage for the built-in agent's API key; when nil and Keychain is nil, cx.Secrets() is used whenever a core.Scope is attached (backed by the OS keychain in production and nsgotest.Secrets in tests) so keys never touch project files.
+	AgentSecretStore AgentSecretStore
+	// BuiltInAgentEndpoint optionally overrides the HTTP endpoint used by the built-in agent (defaults to DefaultBuiltInAgentEndpoint). Only https:// URLs or loopback http:// URLs are permitted.
+	BuiltInAgentEndpoint string
+	// BuiltInHTTPClient optionally overrides the *http.Client used by the built-in agent.
+	BuiltInHTTPClient *http.Client
 	// AgentReconnectProbe checks whether an MCP agent session is reachable during a reconnect attempt; wired automatically by editormcp.Server and replaceable in tests.
 	AgentReconnectProbe func(ctx context.Context) (AgentClientInfo, error)
 	// AgentScheduleAfter schedules fn to run after d and returns a cancel function; when nil, time.AfterFunc posting onto the editor's UI scope is used. Tests replace this to verify the 1, 2, 4, 8, 16 s reconnect backoff without real sleeps.
@@ -1086,6 +1095,9 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.firstRun.setScope(cx)
 	e.remote.setScope(cx)
 	e.agent.setScope(cx)
+	e.settingsMu.Lock()
+	e.agent.builtInKeyChecked = false
+	e.settingsMu.Unlock()
 	e.buildRelease.setScope(cx)
 	e.tasks.setScope(cx)
 	e.setDiskWatcherScope(cx)
@@ -1098,6 +1110,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.syncAgentPulseLoop()
 		cx.SetAppearance(e.Appearance().CoreAppearance())
 	} else {
+		e.stopAgentTimers()
 		e.stopAllTaskRunners()
 		e.stopParticlePreviewLoop()
 		e.stopSceneEmitterLoop()
