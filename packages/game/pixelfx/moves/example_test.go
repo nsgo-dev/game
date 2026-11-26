@@ -39,3 +39,11 @@ func ExampleRocketLauncher() {
 	fmt.Printf("wind-up %.2f s, lands at %.2f s freezing %.2f s, leaves %q\n", tm.Windup, h.T, h.Freeze, h.Skin)
 	// Output: wind-up 0.52 s, lands at 1.16 s freezing 0.20 s, leaves "char"
 }
+
+// A combo move shifts and concatenates the acts of its chained melee strokes.
+func ExampleSwordCombo() {
+	tm := pixelfx.ActTiming(moves.SwordCombo)
+	last := tm.Hits[len(tm.Hits)-1]
+	fmt.Printf("wind-up %.2f s, %d hits, finisher at %.3f s freezing %.2f s\n", tm.Windup, len(tm.Hits), last.T, last.Freeze)
+	// Output: wind-up 0.55 s, 4 hits, finisher at 1.375 s freezing 0.20 s
+}
