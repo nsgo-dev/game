@@ -2395,6 +2395,10 @@ func (e *Editor) submitComposerFromUI() {
 	if e == nil || strings.TrimSpace(e.composerDraft) == "" {
 		return
 	}
+	if e.AgentOffline() {
+		e.QueueAgentRequest("")
+		return
+	}
 	if e.OnSendAgentComposerRequest != nil {
 		if _, err := e.SendComposerPrompt(); err != nil {
 			e.report(err)
