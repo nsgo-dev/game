@@ -2,9 +2,11 @@ package editor_test
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
@@ -574,5 +576,147 @@ func TestAgentPlanUIAndScreenshots(t *testing.T) {
 	app.Press("id:plan-permissions-link")
 	if !ed.SettingsOpen() || ed.SettingsPage() != editor.SettingsPagePermissions {
 		t.Fatalf("SettingsOpen=%v Page=%q, want SettingsPagePermissions", ed.SettingsOpen(), ed.SettingsPage())
+	}
+}
+
+// Hardening tests: validation bounds, path traversal & You-only refusal, phase guards,
+// idempotent WrittenSteps, HasOpenReview autosave pause, manual-edit pause across inspector/hierarchy,
+// HistoryPreviewActive hiding ghosts, and concurrent read/update race safety.
+func TestPlanHardeningValidationPhasePauseAndConcurrency(t *testing.T) {
+	ed := newTestEditor(t)
+
+	// 1. Refuse path traversal, absolute paths, .git metadata, You-only files, non-finite geometry, and oversized step counts.
+	badCases := []struct {
+		name string
+		plan editor.AgentPlan
+	}{
+		{
+			name: "path traversal in step",
+			plan: editor.AgentPlan{Title: "Bad", Steps: []editor.PlanStep{{Title: "S1", Files: []string{"../outside.yaml"}}}},
+		},
+		{
+			name: "absolute path in files",
+			plan: editor.AgentPlan{Title: "Bad", Files: []editor.PlanFile{{Path: "/etc/passwd"}}, Steps: []editor.PlanStep{{Title: "S1"}}},
+		},
+		{
+			name: "git metadata",
+			plan: editor.AgentPlan{Title: "Bad", Steps: []editor.PlanStep{{Title: "S1", Files: []string{".git/config"}}}},
+		},
+		{
+			name: "you-only permissions.yaml",
+			plan: editor.AgentPlan{Title: "Bad", Steps: []editor.PlanStep{{Title: "S1", Files: []string{"permissions.yaml"}}}},
+		},
+		{
+			name: "you-only tools.yaml",
+			plan: editor.AgentPlan{Title: "Bad", Files: []editor.PlanFile{{Path: ".nsgo/tools.yaml"}}, Steps: []editor.PlanStep{{Title: "S1"}}},
+		},
+		{
+			name: "non-finite ghost x",
+			plan: editor.AgentPlan{Title: "Bad", Steps: []editor.PlanStep{{Title: "S1", Ghosts: []editor.PlanGhost{{X: float32(math.NaN()), Y: 0, Width: 10, Height: 10}}}}},
+		},
+		{
+			name: "negative ghost width",
+			plan: editor.AgentPlan{Title: "Bad", Steps: []editor.PlanStep{{Title: "S1", Ghosts: []editor.PlanGhost{{X: 0, Y: 0, Width: -5, Height: 10}}}}},
+		},
+		{
+			name: "too many steps",
+			plan: func() editor.AgentPlan {
+				steps := make([]editor.PlanStep, 65)
+				for i := range steps {
+					steps[i] = editor.PlanStep{Title: "Step"}
+				}
+				return editor.AgentPlan{Title: "TooMany", Steps: steps}
+			}(),
+		},
+	}
+	for _, tc := range badCases {
+		if _, _, err := ed.ProposeAgentPlan(tc.plan); err == nil {
+			t.Errorf("%s: ProposeAgentPlan succeeded; want validation error", tc.name)
+		}
+	}
+
+	// 2. Stage valid plan; verify phase guards before approval and PlannedNewTreeNodeCount excludes Existing nodes.
+	pl := sampleRoom2Plan()
+	if _, _, err := ed.ProposeAgentPlan(pl); err != nil {
+		t.Fatalf("ProposeAgentPlan: %v", err)
+	}
+	if got := ed.PlannedNewTreeNodeCount(); got != 4 {
+		t.Fatalf("PlannedNewTreeNodeCount = %d, want 4 (excluding Existing layer)", got)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("HasOpenReview should be false while plan is only in Draft")
+	}
+	if err := ed.UpdateAgentPlanStep(1, editor.PlanStepDone); err == nil {
+		t.Fatal("UpdateAgentPlanStep should refuse while plan is still in Draft")
+	}
+	if err := ed.CompleteAgentPlan(); err == nil {
+		t.Fatal("CompleteAgentPlan should refuse while plan is still in Draft")
+	}
+
+	// Remove step 4, approve via Just do it.
+	if err := ed.RemovePlanStep(4); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.JustDoItAgentPlan(); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.HasOpenReview() {
+		t.Fatal("HasOpenReview must be true while plan is Running to pause autosave")
+	}
+
+	// 3. Manual edits across inspector/hierarchy on planned object "hero" are paused, while agent edits succeed.
+	if err := ed.SetObjectName("hero", "Renamed"); err == nil {
+		t.Fatal("manual SetObjectName on planned object should be paused while running")
+	}
+	if err := ed.SetProperty("hero", "hp", 10); err == nil {
+		t.Fatal("manual SetProperty on planned object should be paused while running")
+	}
+	if err := ed.SetObjectAlpha("hero", 0.5); err == nil {
+		t.Fatal("manual SetObjectAlpha on planned object should be paused while running")
+	}
+	if err := ed.WithAgentActor(func() error { return ed.SetObjectName("hero", "Knight2") }); err != nil {
+		t.Fatalf("agent SetObjectName on planned object failed: %v", err)
+	}
+
+	// 4. Removed step cannot be marked done; duplicate done does not double-count WrittenSteps.
+	if err := ed.UpdateAgentPlanStep(4, editor.PlanStepDone); err == nil {
+		t.Fatal("UpdateAgentPlanStep should refuse marking a removed step done")
+	}
+	if err := ed.UpdateAgentPlanStep(1, editor.PlanStepDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.UpdateAgentPlanStep(1, editor.PlanStepDone); err != nil {
+		t.Fatal(err)
+	}
+	if cur := ed.ActivePlan(); cur == nil || cur.WrittenSteps != 1 {
+		t.Fatalf("WrittenSteps after duplicate step 1 done = %+v, want 1", cur)
+	}
+
+	// 5. Concurrent readers + step updates under -race must be race-free.
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = ed.ActivePlan()
+				_ = ed.ResolvedPlanGhosts()
+				_ = ed.ResolvedPlanFiles()
+				_ = ed.ResolvedPlanTreeNodes()
+				_ = ed.PlanSummaryLine()
+				_ = ed.PlanHeaderPillText()
+				_ = ed.IsObjectPausedByPlan("hero")
+			}
+		}()
+	}
+	_ = ed.UpdateAgentPlanStep(2, editor.PlanStepRunning)
+	_ = ed.UpdateAgentPlanStep(2, editor.PlanStepDone)
+	wg.Wait()
+
+	if err := ed.CompleteAgentPlan(); err != nil {
+		t.Fatalf("CompleteAgentPlan: %v", err)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("HasOpenReview should be false after CompleteAgentPlan")
 	}
 }

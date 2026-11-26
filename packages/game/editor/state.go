@@ -2458,6 +2458,9 @@ func (e *Editor) SetObjectAlpha(id string, alpha float32) error {
 	if err := e.checkAgentTouchLock(id); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(id); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(alpha) || alpha < 0 || alpha > 1 {
 		return fmt.Errorf("editor: alpha %v must be in [0, 1]", alpha)
 	}
@@ -2495,6 +2498,9 @@ func (e *Editor) SetObjectZ(id string, z int) error {
 	if err := e.checkAgentTouchLock(id); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(id); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
@@ -2527,6 +2533,9 @@ func (e *Editor) SetObjectName(id, name string) error {
 		return ErrPlaying
 	}
 	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
+	if err := e.checkObjectNotPausedByPlan(id); err != nil {
 		return err
 	}
 	obj, _, _ := e.FindObject(id)

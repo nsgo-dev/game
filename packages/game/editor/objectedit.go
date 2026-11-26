@@ -18,6 +18,9 @@ func (e *Editor) AddComponent(objectID, component string) error {
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	if err := checkName("component name", component); err != nil {
 		return err
 	}
@@ -151,6 +154,9 @@ func (e *Editor) RemoveComponent(objectID, component string) error {
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
@@ -278,6 +284,9 @@ func (e *Editor) SetObjectSprite(objectID string, ref *sceneformat.SpriteRef) er
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	if ref != nil {
 		if ref.Atlas == "" || ref.Frame == "" {
 			return errors.New("editor: object sprite requires both atlas and frame")
@@ -337,6 +346,9 @@ func (e *Editor) SetObjectOrigin(objectID string, x, y float32) error {
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return errors.New("editor: object origin must be finite")
 	}
@@ -380,6 +392,9 @@ func (e *Editor) SetObjectFlip(objectID string, flipX, flipY bool) error {
 	if err := e.checkAgentTouchLock(objectID); err != nil {
 		return err
 	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
@@ -418,6 +433,9 @@ func (e *Editor) SetObjectMaterial(objectID, material string) error {
 		return ErrPlaying
 	}
 	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
+	if err := e.checkObjectNotPausedByPlan(objectID); err != nil {
 		return err
 	}
 	if material != "" && (!fs.ValidPath(material) || material == ".") {

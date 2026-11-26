@@ -282,6 +282,9 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	}
 	e.cancelAutoSaveTimer()
 	e.stopRunningTasksForPlay()
+	if e.IsPlanRunning() {
+		_, _ = e.StopAgentPlan()
+	}
 	e.ExitHistoryPreview()
 	e.CancelAgentPointing()
 

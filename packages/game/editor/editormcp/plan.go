@@ -282,8 +282,45 @@ func planPropose(ctx context.Context, c *Call) (*Result, error) {
 		staged     *editor.AgentPlan
 		decisionCh <-chan editor.AgentPlanDecision
 		summary    string
+		youOnlyErr *YouOnlyError
 	)
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		checkPath := func(raw string) *YouOnlyError {
+			p := strings.TrimSpace(raw)
+			if p == "" {
+				return nil
+			}
+			if dom, ok := ed.CheckYouOnlyTarget(p); ok {
+				return &YouOnlyError{
+					Tool:   ToolPlanPropose,
+					Domain: dom,
+					Path:   p,
+					Reason: fmt.Sprintf("plans cannot modify %s files (%s is You only)", dom.DisplayName(), p),
+					Hint:   "Submit a draft with permissions_draft instead; only the person can approve You-only changes.",
+				}
+			}
+			return nil
+		}
+		for _, f := range proposal.Files {
+			if yerr := checkPath(f.Path); yerr != nil {
+				youOnlyErr = yerr
+				return nil
+			}
+		}
+		for _, st := range proposal.Steps {
+			for _, f := range st.Files {
+				if yerr := checkPath(f); yerr != nil {
+					youOnlyErr = yerr
+					return nil
+				}
+			}
+			if st.PermissionAction != editor.PermissionActionRun {
+				if yerr := checkPath(st.PermissionTarget); yerr != nil {
+					youOnlyErr = yerr
+					return nil
+				}
+			}
+		}
 		var err error
 		staged, decisionCh, err = ed.ProposeAgentPlan(proposal)
 		if err != nil {
@@ -293,6 +330,9 @@ func planPropose(ctx context.Context, c *Call) (*Result, error) {
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("plan_propose: %w", err)
+	}
+	if youOnlyErr != nil {
+		return nil, youOnlyErr
 	}
 
 	wait := true
@@ -396,10 +436,23 @@ func planStepUpdate(ctx context.Context, c *Call) (*Result, error) {
 			return errors.New("no active plan")
 		}
 		payload.PlanID = cur.ID
+		turnID := cur.TurnID
 		if cur.Phase == editor.PlanPhaseStopped {
 			payload.Phase = editor.PlanPhaseStopped
 			payload.Stopped = true
+			for _, s := range cur.Steps {
+				if s.Removed {
+					continue
+				}
+				payload.TotalSteps++
+				if s.Status == editor.PlanStepDone {
+					payload.DoneSteps++
+				}
+			}
 			return nil
+		}
+		if cur.Phase != editor.PlanPhaseRunning {
+			return fmt.Errorf("plan %s is in phase %q and has not been approved to run", cur.ID, cur.Phase)
 		}
 		if args.Step > 0 {
 			st := args.Status
@@ -415,8 +468,20 @@ func planStepUpdate(ctx context.Context, c *Call) (*Result, error) {
 				return err
 			}
 			payload.Phase = editor.PlanPhaseDone
-			if turn, ok := ed.LatestAgentTurn(); ok && turn.Plan != nil {
-				payload.DoneSteps, payload.TotalSteps = turn.Plan.DoneCount()
+			found := false
+			if turnID != "" {
+				for _, t := range ed.AgentTurns() {
+					if t.ID == turnID && t.Plan != nil {
+						payload.DoneSteps, payload.TotalSteps = t.Plan.DoneCount()
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				if turn, ok := ed.LatestAgentTurn(); ok && turn.Plan != nil {
+					payload.DoneSteps, payload.TotalSteps = turn.Plan.DoneCount()
+				}
 			}
 			return nil
 		}

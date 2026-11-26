@@ -289,7 +289,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							core.Show{
 								When: func() bool {
 									_ = rev.Get()
-									return ed.ActivePlan() != nil
+									return ed.ActivePlan() != nil && !ed.HistoryPreviewActive()
 								},
 								Then: func(cx *core.Scope) core.Node {
 									return ui.Button{

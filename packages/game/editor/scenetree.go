@@ -432,22 +432,28 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					return len(ed.ResolvedPlanTreeNodes()) > 0
+					return ed.PlannedNewTreeNodeCount() > 0
 				},
 				Then: func(cx *core.Scope) core.Node {
-					spec := ed.SpecPalette(cx)
-					return core.Text{
-						TestID: "scene-tree-planned-count",
-						ContentFunc: func() string {
-							_ = rev.Get()
-							return ed.T("plan.plannedCount", l10n.Param("count", strconv.Itoa(len(ed.ResolvedPlanTreeNodes()))))
-						},
-						Style: core.Style{
-							FontSize:   10.5,
-							FontWeight: 500,
-							Color:      spec.Agent.Fg,
-						},
-					}
+					darkMemo := core.NewMemo(cx, func() bool {
+						_ = rev.Get()
+						return ed.SpecPalette(cx).Dark
+					})
+					return core.Dynamic(func(cx *core.Scope) core.Node {
+						spec := SpecPaletteFor(darkMemo.Get())
+						return core.Text{
+							TestID: "scene-tree-planned-count",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								return ed.T("plan.plannedCount", l10n.Param("count", strconv.Itoa(ed.PlannedNewTreeNodeCount())))
+							},
+							Style: core.Style{
+								FontSize:   10.5,
+								FontWeight: 500,
+								Color:      spec.Agent.Fg,
+							},
+						}
+					})
 				},
 			},
 			core.Show{
@@ -625,34 +631,40 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 						return ed.PlanStepBadgeForNode(k.layer) > 0
 					},
 					Then: func(cx *core.Scope) core.Node {
-						spec := ed.SpecPalette(cx)
-						return core.View{
-							TestID: "scene-tree-plan-badge-" + k.layer,
-							Style: core.Style{
-								Width:          core.Pt(16),
-								Height:         core.Pt(16),
-								CornerRadius:   8,
-								Background:     spec.Agent.Fill,
-								BorderWidth:    1,
-								BorderColor:    spec.Agent.Edge,
-								AlignItems:     core.AlignCenter,
-								JustifyContent: core.JustifyCenter,
-								FlexShrink:     0,
-							},
-							Children: []core.Node{
-								core.Text{
-									ContentFunc: func() string {
-										_ = rev.Get()
-										return strconv.Itoa(ed.PlanStepBadgeForNode(k.layer))
-									},
-									Style: core.Style{
-										FontSize:   10,
-										FontWeight: 600,
-										Color:      spec.Agent.Fg,
+						darkMemo := core.NewMemo(cx, func() bool {
+							_ = rev.Get()
+							return ed.SpecPalette(cx).Dark
+						})
+						return core.Dynamic(func(cx *core.Scope) core.Node {
+							spec := SpecPaletteFor(darkMemo.Get())
+							return core.View{
+								TestID: "scene-tree-plan-badge-" + k.layer,
+								Style: core.Style{
+									Width:          core.Pt(16),
+									Height:         core.Pt(16),
+									CornerRadius:   8,
+									Background:     spec.Agent.Fill,
+									BorderWidth:    1,
+									BorderColor:    spec.Agent.Edge,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+									FlexShrink:     0,
+								},
+								Children: []core.Node{
+									core.Text{
+										ContentFunc: func() string {
+											_ = rev.Get()
+											return strconv.Itoa(ed.PlanStepBadgeForNode(k.layer))
+										},
+										Style: core.Style{
+											FontSize:   10,
+											FontWeight: 600,
+											Color:      spec.Agent.Fg,
+										},
 									},
 								},
-							},
-						}
+							}
+						})
 					},
 				},
 			},
