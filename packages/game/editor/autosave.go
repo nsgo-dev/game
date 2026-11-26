@@ -192,6 +192,9 @@ func (e *Editor) EndReview(kept bool) {
 	}
 	changed := e.autosave.reviewOpen
 	e.autosave.reviewOpen = false
+	if changed {
+		e.RecordAgentReviewOutcome(kept, 1)
+	}
 	if kept {
 		e.scheduleAutoSaveIfNeeded()
 	} else {

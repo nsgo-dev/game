@@ -602,6 +602,7 @@ func TestAgentReconnectAsyncNonBlockingWithStalledProbe(t *testing.T) {
 
 func TestAgentLifecycleResetAPIKeyClearingAndPlayGuard(t *testing.T) {
 	ed := newTestEditor(t)
+	ed.Keychain = editor.NewMemoryKeychain()
 	ed.AgentScheduleAfter = func(_ time.Duration, _ func()) func() { return func() {} }
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
@@ -680,10 +681,10 @@ func TestAgentSpecLightAppearanceSwitchesColors(t *testing.T) {
 		t.Fatalf("light mode connect-dialog-body bg = %#x, want %#x", uint32(got), uint32(light.Panel))
 	}
 	ed.CloseConnectDialog()
-	ed.OpenSettingsPage(editor.SettingsPageGeneral)
+	ed.OpenSettingsPage(editor.SettingsPageModels)
 	app.Settle()
-	if got := app.Find("id:editor-settings-connected-agent").Style.Background; got != light.Raised {
-		t.Fatalf("light mode editor-settings-connected-agent bg = %#x, want %#x", uint32(got), uint32(light.Raised))
+	if got := app.Find("id:settings-models-local-card").Style.Background; got != light.Raised {
+		t.Fatalf("light mode settings-models-local-card bg = %#x, want %#x", uint32(got), uint32(light.Raised))
 	}
 
 	app.SetEnvironment(core.Environment{
@@ -692,8 +693,8 @@ func TestAgentSpecLightAppearanceSwitchesColors(t *testing.T) {
 		Dark:   true,
 		Locale: "en-US",
 	})
-	if got := app.Find("id:editor-settings-connected-agent").Style.Background; got != dark.Raised {
-		t.Fatalf("dark mode editor-settings-connected-agent bg = %#x, want %#x", uint32(got), uint32(dark.Raised))
+	if got := app.Find("id:settings-models-local-card").Style.Background; got != dark.Raised {
+		t.Fatalf("dark mode settings-models-local-card bg = %#x, want %#x", uint32(got), uint32(dark.Raised))
 	}
 	ed.CloseSettings()
 	ed.OpenConnectDialog()

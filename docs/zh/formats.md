@@ -94,6 +94,26 @@ seenTips:
   - first_review.ask_selection
   - first_review.hold_b
   - first_review.keep_revert
+agent:
+  builtInProvider: Anthropic API
+  tools:
+    game_delete_file: false
+  mcpServers:
+    - name: nsgo-game
+      title: Running game · nsgo dev
+      description: inspect and drive the live game
+      command: go
+      args:
+        - tool
+        - nsgo
+        - mcp
+      enabled: true
+  weeklyRequestLimit: 300
+  privacy:
+    sceneAndData: true
+    viewportImages: true
+    goSource: false
+    artAndAudio: false
 ```
 
 <!-- format: editor#permissions -->

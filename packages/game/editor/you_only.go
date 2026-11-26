@@ -309,11 +309,7 @@ func (e *Editor) ToolEnabled(toolName string) bool {
 	if e == nil {
 		return false
 	}
-	e.ensurePermissionsInit()
-	if enabled, ok := e.perms.toolEnabled[toolName]; ok {
-		return enabled
-	}
-	return true
+	return e.IsMCPToolEnabled(toolName)
 }
 
 // SetToolEnabled toggles an MCP tool in Settings › Tools (person-only).
@@ -321,10 +317,10 @@ func (e *Editor) SetToolEnabled(toolName string, enabled bool) {
 	if e == nil || strings.TrimSpace(toolName) == "" {
 		return
 	}
-	e.ensurePermissionsInit()
-	if cur, ok := e.perms.toolEnabled[toolName]; ok && cur == enabled {
+	if err := e.SetMCPToolEnabled(toolName, enabled); err != nil {
 		return
 	}
+	e.ensurePermissionsInit()
 	e.perms.toolEnabled[toolName] = enabled
 	e.bumpPermissionsRev()
 }

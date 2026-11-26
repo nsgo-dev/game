@@ -84,9 +84,11 @@ func youOnlyTools() []Tool {
 		{
 			Name:        ToolGameDeleteFile,
 			Title:       "Propose deleting a file",
-			Description: "Propose deleting a project file in the Review changes panel, showing its line count and whether any scene uses it. Never deletes the file directly on disk; Keep all leaves the file until the person confirms the deletion in place, and ⌘Z restores it from the checkpoint.",
+			Description: "Propose deleting a project file in the Review changes panel, showing its line count and whether any scene uses it. Never deletes the file directly on disk; Keep all leaves the file until the person confirms the deletion in place, and ⌘Z restores it from the checkpoint. Turned off by default in Settings › Tools.",
 			InputSchema: []byte(gameDeleteFileSchema),
 			Action:      ActionDelete,
+			DefaultOff:  true,
+			Destructive: true,
 			Handler:     gameDeleteFile,
 		},
 	}

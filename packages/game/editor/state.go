@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -438,8 +439,10 @@ type Editor struct {
 	// ReleaseUploader uploads a single user-confirmed artifact to a store destination (itch.io, Google Play internal testing, or TestFlight).
 	// It is never invoked until the person confirms in Review uploads, whatever the permission profile.
 	ReleaseUploader ReleaseUploader
-	// Keychain stores and retrieves store upload credentials outside project files; when nil, DefaultKeychain() is used.
+	// Keychain stores and retrieves store upload credentials and built-in agent API keys outside project files; when nil, DefaultKeychain() is used.
 	Keychain Keychain
+	// SyncMCPConfig, when set (automatically wired by editormcp.New), writes configured external MCP servers into the open project's agent MCP configuration (.mcp.json and .codex/config.toml).
+	SyncMCPConfig func(root string, servers []AgentMCPServer, removed []string) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
 	OpenOutputFolder func(dir string) error
 	// OpenBrowserURL opens a local/LAN web build URL in this computer's browser from the Build and Release screen's RUN ON DEVICE list; when nil the editor uses the host platform's default browser opener.
@@ -831,6 +834,7 @@ type Editor struct {
 	terrain      *terrainState
 	terrainBrush TerrainBrush
 	// settings holds the per-user editor language, appearance, and shortcut override preferences and the unified Settings screen state.
+	settingsMu            sync.RWMutex
 	settings              EditorSettings
 	settingsOpen          bool
 	settingsPage          SettingsPage

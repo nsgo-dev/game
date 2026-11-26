@@ -2147,6 +2147,14 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 		e.Status = label
 		e.afterMutate()
 	}
+	if total > 0 {
+		if kept > 0 {
+			e.RecordAgentReviewOutcome(true, kept)
+		}
+		if reverted := total - kept; reverted > 0 {
+			e.RecordAgentReviewOutcome(false, reverted)
+		}
+	}
 	return AgentTileEditResult{
 		Layer:        layerName,
 		TileLayer:    tileLayer,

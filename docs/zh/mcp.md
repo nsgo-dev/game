@@ -337,6 +337,11 @@ claude mcp add game-editor -- nsgo game mcp
 | `project_context` | read | 无 | 返回智能体每次请求前读取的共享项目上下文：`brief.yaml`（规范 YAML、解析字段、缺失栏目缺口与结构化试玩目标）与 `AGENTS.md`（纯 Markdown 项目规则与条数），以及待审阅文档变更。 |
 | `brief_edit` | edit | `yaml` 或结构化字段（`pitch`、`genre`、`tags`、`platforms`、`artDirection`、`toneAndAudio`、`feel`）、`summary`、`rationale` | 严格校验提议的 `brief.yaml` 修改（未知字段带行号拒绝），并排队为可审查的 `DocReview` 差异卡片，在用户保留前不改动磁盘。 |
 | `rules_edit` | edit | `markdown` 或 `appendRule`、`summary`、`rationale` | 为 `AGENTS.md` 提议整段修改或追加单条规则，作为可审查的 `DocReview` 差异卡片排队，在用户保留前不改动磁盘。 |
+| `history_list` | read | `author`（`"all"`、`"you"`、`"agent"`）、`limit`（可选） | 按时间倒序列出编辑器统一的历史时间线，包含手动编辑、智能体回合与已保存检查点。 |
+| `permissions_draft` | read | `request`（可选）、`rules`（必填） | 提交仅限用户审阅的权限草案卡片，默认不勾选任何规则；绝不直接修改 `permissions.yaml`。 |
+| `game_delete_file` | delete | `file`（必填）、`reason`（可选） | 在**设置 › 工具**中默认关闭（启用前不会向已连接客户端公布）。启用后在“审查更改”面板中提议删除项目文件并展示行数与场景引用，在用户确认前绝不改动磁盘（拒绝仅限用户文件、符号链接、`.git/**`、`game.yaml`、已打开场景标签页及超过 1 MiB 的文件）。 |
+
+编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`。
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

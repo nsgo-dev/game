@@ -17,8 +17,11 @@ import (
 // through EVERY mutating/deleting tool gets a You-only refusal every time — even under Autonomous profile.
 func TestAgentCannotWriteYouOnlyFilesThroughAnyTool(t *testing.T) {
 	f := openFixture(t)
-	// Switch to the loosest profile (Autonomous) to prove no profile allows writing You-only files.
+	// Switch to the loosest profile (Autonomous) and enable game_delete_file to prove no profile or tool switch allows writing/deleting You-only files.
 	if err := f.ed.SelectPermissionProfile(editor.PermissionProfileAutonomous); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ed.SetMCPToolEnabled(editormcp.ToolGameDeleteFile, true); err != nil {
 		t.Fatal(err)
 	}
 	permPath := editor.PermissionsFilePath(f.dir)
@@ -244,6 +247,9 @@ func TestMCPGameDeleteFileProposesAndKeepAllLeavesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := f.ed.SetMCPToolEnabled(editormcp.ToolGameDeleteFile, true); err != nil {
+		t.Fatal(err)
+	}
 	s := editormcp.New(f.ed, editormcp.Options{})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
@@ -261,7 +267,7 @@ func TestMCPGameDeleteFileProposesAndKeepAllLeavesFile(t *testing.T) {
 	mustOK(t, res)
 	var out editormcp.GameDeleteFileResult
 	structured(t, res, &out)
-	if out.Status != "proposed_deletion" || out.LineCount != 5 || out.UsedByAnyScene || out.DeletedOnDisk || out.ToolEnabled {
+	if out.Status != "proposed_deletion" || out.LineCount != 5 || out.UsedByAnyScene || out.DeletedOnDisk || !out.ToolEnabled {
 		t.Fatalf("unexpected game_delete_file result: %+v", out)
 	}
 	if _, err := os.Stat(unusedFile); err != nil {

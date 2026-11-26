@@ -51,6 +51,26 @@ func NewProxy(root string) *Proxy {
 	})
 	p.sdk.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "tools/call" {
+				if callReq, ok := req.(*mcp.CallToolRequest); ok && callReq != nil && callReq.Params != nil {
+					name := callReq.Params.Name
+					p.mu.Lock()
+					_, listed := p.tools[name]
+					p.mu.Unlock()
+					if !listed {
+						cs, err := p.editor(ctx)
+						if err == nil {
+							res, callErr := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: callReq.Params.Arguments})
+							if callErr == nil && res != nil {
+								return res, nil
+							}
+							if callErr != nil && ctx.Err() == nil {
+								p.drop(cs)
+							}
+						}
+					}
+				}
+			}
 			res, err := next(ctx, method, req)
 			if err == nil && (method == "server/discover" || method == "initialize" || method == "notifications/initialized") {
 				if ss, ok := req.GetSession().(*mcp.ServerSession); ok && ss != nil {
@@ -71,6 +91,9 @@ func NewProxy(root string) *Proxy {
 		}
 	})
 	for _, t := range builtinTools() {
+		if t.DefaultOff {
+			continue
+		}
 		p.mirror(sdkTool(t))
 	}
 	for _, r := range resources {

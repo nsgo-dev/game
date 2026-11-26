@@ -327,15 +327,44 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 	}
 	switch {
 	case info.Source == "" && rel != "":
-		data, err := readProjectFile(root, rel)
+		data, realRel, err := readProjectFileResolved(root, rel)
 		if err != nil {
 			return nil, fmt.Errorf("scene_read: %w", err)
+		}
+		// Enforce privacy on BOTH the requested path and the symlink-resolved target path after binary-file
+		// checks so binary files still report "not a text file" while no forbidden Go source, art/audio
+		// metadata, or symlinked file content ever leaves this computer when switched off.
+		policy, _, perr := c.s.readPrivacyContext(ctx, c.onEditor)
+		if perr != nil {
+			return nil, perr
+		}
+		for _, candidate := range []string{rel, realRel} {
+			if candidate == "" {
+				continue
+			}
+			kind := editor.ClassifyProjectFilePrivacy(candidate)
+			if !policy.Allows(kind) {
+				return nil, editor.PrivacyRefusalError(kind, rel)
+			}
 		}
 		text, info.File, info.Source = data, rel, "disk"
 	case fromDisk != "":
 		info.Unsaved, info.hasFile = unsaved(text, fromDisk, reg), true
 		if !info.Unsaved {
 			// The editor holds no edits, so the file on disk is the scene: read it, comments and line numbers as game_check reports them.
+			if root != "" {
+				if real, rerr := filepath.EvalSymlinks(fromDisk); rerr == nil {
+					if inside, ierr := filepath.Rel(root, real); ierr == nil && inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+						policy, _, perr := c.s.readPrivacyContext(ctx, c.onEditor)
+						if perr != nil {
+							return nil, perr
+						}
+						if kind := editor.ClassifyProjectFilePrivacy(filepath.ToSlash(inside)); !policy.Allows(kind) {
+							return nil, editor.PrivacyRefusalError(kind, info.File)
+						}
+					}
+				}
+			}
 			data, err := os.ReadFile(fromDisk)
 			if err != nil {
 				return nil, fmt.Errorf("scene_read: %w", err)
@@ -350,35 +379,44 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 
 // readProjectFile reads the text file rel inside root, refusing one a symbolic link takes out of the project, one that is not a regular file, one larger than maxReadBytes and one that is not UTF-8 text.
 func readProjectFile(root, rel string) ([]byte, error) {
+	data, _, err := readProjectFileResolved(root, rel)
+	return data, err
+}
+
+// readProjectFileResolved reads the text file rel inside root and returns both the file bytes and the
+// symlink-resolved slash-separated path relative to root so privacy checks see the real target file too.
+func readProjectFileResolved(root, rel string) ([]byte, string, error) {
 	abs := filepath.Join(root, filepath.FromSlash(rel))
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%s: no such file in the project at %s; name a file by its path from the project root, such as scenes/level.scene.yaml", rel, root)
+			return nil, "", fmt.Errorf("%s: no such file in the project at %s; name a file by its path from the project root, such as scenes/level.scene.yaml", rel, root)
 		}
-		return nil, err
+		return nil, "", err
 	}
-	if inside, err := filepath.Rel(root, real); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("%s: the file links to %s, outside the project; scene_read reads files inside it", rel, real)
+	inside, err := filepath.Rel(root, real)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return nil, "", fmt.Errorf("%s: the file links to %s, outside the project; scene_read reads files inside it", rel, real)
 	}
+	realRel := filepath.ToSlash(inside)
 	st, err := os.Stat(real)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: not a file; name a scene, prefab, data or other text file", rel)
+		return nil, "", fmt.Errorf("%s: not a file; name a scene, prefab, data or other text file", rel)
 	}
 	if st.Size() > maxReadBytes {
-		return nil, fmt.Errorf("%s: %d bytes is more than the %d scene_read reads", rel, st.Size(), maxReadBytes)
+		return nil, "", fmt.Errorf("%s: %d bytes is more than the %d scene_read reads", rel, st.Size(), maxReadBytes)
 	}
 	data, err := os.ReadFile(real)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
-		return nil, fmt.Errorf("%s: not a text file; scene_read reads YAML and other text files, and viewport_image shows what the scene draws", rel)
+		return nil, "", fmt.Errorf("%s: not a text file; scene_read reads YAML and other text files, and viewport_image shows what the scene draws", rel)
 	}
-	return data, nil
+	return data, realRel, nil
 }
 
 // numberLines returns the lines of text from offset, at most limit of them, each after its 1-based number and a tab, under a line naming the file.

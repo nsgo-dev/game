@@ -1,0 +1,4 @@
+### Added
+
+- `game/editor`: add the per-computer **AGENT** Settings pages (**Models and connections**, **Tools**, and **Usage and privacy**, all marked **You only**) to `SettingsView` and persist their non-secret configuration under `agent` in `EditorSettings` (`editor.yaml`), keeping built-in API keys exclusively in the system keychain (#1028).
+- `game/editor/editormcp`: wire `game_delete_file` as off by default in **Settings › Tools**, add live MCP tool on/off switching with `tools/list_changed` and readable call refusals, enforce outbound privacy across every connected agent and resource (including symlink-resolved paths) for Scene/data, Viewport images, Go source, and Art/audio, and add `InstallWithServers` syncing external MCP servers into `.mcp.json` and `.codex/config.toml` (#1028).

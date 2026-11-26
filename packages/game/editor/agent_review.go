@@ -219,6 +219,7 @@ func (e *Editor) RevertReviewChange(id string) error {
 		}
 	}
 	e.agentReview.changes[idx].Reverted = true
+	e.RecordAgentReviewOutcome(false, 1)
 	e.agentReview.rev++
 	e.notify()
 	return nil
@@ -656,6 +657,10 @@ func (e *Editor) KeepAllReviewChanges() (KeepAllResult, error) {
 		}
 	}
 
+	if res.KeptChanges > 0 {
+		e.RecordAgentReviewOutcome(true, res.KeptChanges)
+	}
+
 	// Keep the review open if any proposed deletions still await confirmation; close otherwise.
 	if len(res.LeftPendingDeletions) > 0 {
 		res.ReviewStillOpen = true
@@ -674,6 +679,7 @@ func (e *Editor) RevertAllReviewChanges() error {
 	if e == nil || !e.agentReview.open {
 		return nil
 	}
+	revertedCount := 0
 	for i := range e.agentReview.changes {
 		c := &e.agentReview.changes[i]
 		if c.Reverted || c.Kept {
@@ -685,6 +691,10 @@ func (e *Editor) RevertAllReviewChanges() error {
 			}
 		}
 		c.Reverted = true
+		revertedCount++
+	}
+	if revertedCount > 0 {
+		e.RecordAgentReviewOutcome(false, revertedCount)
 	}
 	e.agentReview.open = false
 	e.agentReview.deletions = nil
