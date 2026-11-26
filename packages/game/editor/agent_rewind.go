@@ -427,7 +427,7 @@ func (e *Editor) SetAgentRewindMode(mode AgentRewindMode) {
 
 // OpenAgentRewindPopover opens the "Rewind to before this message" popover for turnID.
 func (e *Editor) OpenAgentRewindPopover(turnID string) bool {
-	if e == nil || e.playing || e.AgentWorking() || e.agent.mode == AgentModeNone {
+	if e == nil || e.playing || e.AgentWorking() || e.IsPlanRunning() || e.agent.mode == AgentModeNone {
 		return false
 	}
 	if e.findAgentTurnIndex(turnID) < 0 {
@@ -524,7 +524,7 @@ func (e *Editor) AgentRewindBanner() (AgentRewindState, bool) {
 
 // CanRedoAgentRewind reports whether a rewound turn can currently be restored with RedoAgentRewind.
 func (e *Editor) CanRedoAgentRewind() bool {
-	return e != nil && e.agent.lastRewind != nil && !e.playing && !e.AgentWorking() && e.agent.mode != AgentModeNone
+	return e != nil && e.agent.lastRewind != nil && !e.playing && !e.AgentWorking() && !e.IsPlanRunning() && e.agent.mode != AgentModeNone
 }
 
 // DismissAgentRewindBanner hides the post-rewind banner without redoing.
@@ -569,7 +569,7 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	if e.agent.mode == AgentModeNone {
 		return errors.New("editor: agent is disabled")
 	}
-	if e.AgentWorking() {
+	if e.AgentWorking() || e.IsPlanRunning() {
 		return errors.New("editor: cannot rewind while the agent is working")
 	}
 	switch mode {
@@ -693,8 +693,14 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	}
 
 	if restoreConv {
+		droppedTurnIDs := make(map[string]bool, len(e.agent.turns)-idx)
+		droppedPlanIDs := make(map[string]bool)
 		for j := idx; j < len(e.agent.turns); j++ {
 			id := e.agent.turns[j].ID
+			droppedTurnIDs[id] = true
+			if e.agent.turns[j].Plan != nil && e.agent.turns[j].Plan.PlanID != "" {
+				droppedPlanIDs[e.agent.turns[j].Plan.PlanID] = true
+			}
 			if e.agent.checkpoints != nil {
 				delete(e.agent.checkpoints, id)
 			}
@@ -705,6 +711,7 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 				e.agent.openReviewTurnID = ""
 			}
 		}
+		e.clearActivePlanForRewind(droppedTurnIDs, droppedPlanIDs)
 		e.agent.turns = e.agent.turns[:idx]
 		e.agent.sessionID = targetTurn.SessionIDBefore
 		if targetTurn.ThreadID != "" {
@@ -785,7 +792,7 @@ func (e *Editor) RedoAgentRewind() error {
 	if e.agent.mode == AgentModeNone {
 		return errors.New("editor: agent is disabled")
 	}
-	if e.AgentWorking() {
+	if e.AgentWorking() || e.IsPlanRunning() {
 		return errors.New("editor: cannot redo rewind while the agent is working")
 	}
 	rec := e.agent.lastRewind

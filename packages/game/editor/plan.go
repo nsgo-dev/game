@@ -395,6 +395,22 @@ func (r *AgentPlanReview) DoneCount() (done, total int) {
 	return done, total
 }
 
+// Clone returns a deep copy of r.
+func (r *AgentPlanReview) Clone() *AgentPlanReview {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	if len(r.Steps) > 0 {
+		cp.Steps = make([]PlanReviewStep, len(r.Steps))
+		for i, st := range r.Steps {
+			st.Files = slices.Clone(st.Files)
+			cp.Steps[i] = st
+		}
+	}
+	return &cp
+}
+
 // ResolvedPlanGhost is a concrete ghost rectangle ready to draw in the 2D viewport.
 type ResolvedPlanGhost struct {
 	ID       string
@@ -476,6 +492,32 @@ func (e *Editor) resetPlanForProject() {
 			}
 			close(ch)
 		}
+	}
+}
+
+func (e *Editor) clearActivePlanForRewind(droppedTurnIDs, droppedPlanIDs map[string]bool) {
+	if e == nil {
+		return
+	}
+	e.plan.mu.Lock()
+	p := e.plan.active
+	if p == nil || (p.TurnID != "" && !droppedTurnIDs[p.TurnID] && !droppedPlanIDs[p.ID]) {
+		e.plan.mu.Unlock()
+		return
+	}
+	waiters := e.plan.waiters
+	var dec AgentPlanDecision
+	if len(waiters) > 0 {
+		dec = buildPlanDecisionLocked(p, "stopped")
+	}
+	e.plan.active = nil
+	e.plan.waiters = nil
+	e.plan.decided = false
+	e.plan.seq++
+	e.plan.ghostRev++
+	e.plan.mu.Unlock()
+	if len(waiters) > 0 {
+		deliverPlanDecision(waiters, dec)
 	}
 }
 
@@ -780,6 +822,7 @@ func (e *Editor) ProposeAgentPlan(proposal AgentPlan) (*AgentPlan, <-chan AgentP
 	if e.agent.mode != AgentModeNone {
 		e.agent.rightTab = RightTabAgent
 	}
+	e.agent.rewindOpenTurnID = ""
 	e.agent.status = AgentStatusWaitingForYou
 	e.agent.openRequest = &AgentOpenRequest{
 		ID:       stored.ID,
@@ -1566,6 +1609,7 @@ func (e *Editor) startPlanLocked(p *AgentPlan, pickedForYou bool) (AgentPlanDeci
 
 func (e *Editor) onPlanStartedUI(p *AgentPlan, dec AgentPlanDecision, waiters []chan AgentPlanDecision) {
 	liveTotal := livePlanStepCount(p)
+	e.agent.rewindOpenTurnID = ""
 	e.agent.openRequest = nil
 	e.agent.status = AgentStatusWorking
 	e.agent.workingStep = 1
@@ -1649,6 +1693,7 @@ func (e *Editor) EditStoppedPlan() error {
 	cp := p.Clone()
 	e.plan.mu.Unlock()
 
+	e.agent.rewindOpenTurnID = ""
 	e.agent.status = AgentStatusWaitingForYou
 	e.agent.openRequest = &AgentOpenRequest{
 		ID:       id,
