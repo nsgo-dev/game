@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -309,14 +311,9 @@ func TestAutoSaveReadOnlyFolderFailureRedDotQuitGuardAndRetry(t *testing.T) {
 	app.Settle()
 
 	// Wait for the real 40 ms autosave timer + background write to fail and post back.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		app.Settle()
-		if ed.SaveStatus().Kind == editor.SaveStatusFailed {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+	app.WaitUntil(3*time.Second, func() bool {
+		return ed.SaveStatus().Kind == editor.SaveStatusFailed
+	})
 	app.Settle()
 
 	st := ed.SaveStatus()
@@ -373,8 +370,8 @@ func TestAutoSaveDiskFullFormatsFreeSpaceAndSaveAsRecovers(t *testing.T) {
 	ed, dir := openTestProject(t)
 	_ = ed.SetAppearance(editor.AppearanceDark)
 	ed.AutoSaveDelay = 30 * time.Millisecond
-	ed.SaveFileWriter = func(string, []byte) error {
-		return &os.PathError{Op: "write", Path: ed.FilePath, Err: syscall.ENOSPC}
+	ed.SaveFileWriter = func(path string, _ []byte) error {
+		return &os.PathError{Op: "write", Path: path, Err: syscall.ENOSPC}
 	}
 	ed.FreeSpaceBytes = func(string) (uint64, bool) {
 		return 12 * 1024 * 1024, true
@@ -390,14 +387,9 @@ func TestAutoSaveDiskFullFormatsFreeSpaceAndSaveAsRecovers(t *testing.T) {
 			t.Errorf("MoveObject: %v", err)
 		}
 	})
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		app.Settle()
-		if ed.SaveStatus().Kind == editor.SaveStatusFailed {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+	app.WaitUntil(3*time.Second, func() bool {
+		return ed.SaveStatus().Kind == editor.SaveStatusFailed
+	})
 	app.Settle()
 
 	wantMsg := "Couldn't save: disk is full · 12 MB free"
@@ -472,14 +464,9 @@ func TestAutoSaveStatusBarScreenshots(t *testing.T) {
 	if !started {
 		t.Fatal("timed out waiting for slow autosave write to start")
 	}
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		app.Settle()
-		if ed.SaveStatus().Kind == editor.SaveStatusSaving {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+	app.WaitUntil(3*time.Second, func() bool {
+		return ed.SaveStatus().Kind == editor.SaveStatusSaving
+	})
 	app.Settle()
 	if !app.Exists("id:status-save-saving") {
 		t.Fatal("expected status-save-saving")
@@ -487,14 +474,9 @@ func TestAutoSaveStatusBarScreenshots(t *testing.T) {
 	app.Screenshot("autosave-status-saving")
 
 	close(releaseWrite)
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		app.Settle()
-		if ed.SaveStatus().Kind == editor.SaveStatusSaved && !ed.AutoSaveInFlight() {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+	app.WaitUntil(3*time.Second, func() bool {
+		return ed.SaveStatus().Kind == editor.SaveStatusSaved && !ed.AutoSaveInFlight()
+	})
 
 	// 3. Failed autosave: read-only folder (red dot beside scene name + Retry / Save as…).
 	app.Post(func() {
@@ -503,14 +485,9 @@ func TestAutoSaveStatusBarScreenshots(t *testing.T) {
 		}
 		_ = ed.MoveObject("hero", 74, 48)
 	})
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		app.Settle()
-		if ed.SaveStatus().Kind == editor.SaveStatusFailed {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+	app.WaitUntil(3*time.Second, func() bool {
+		return ed.SaveStatus().Kind == editor.SaveStatusFailed
+	})
 	app.Settle()
 	if !app.Exists("id:status-save-error") || !app.Exists("id:toolbar-unsaved") {
 		t.Fatal("expected failed save bar and red unsaved dot")
@@ -536,4 +513,421 @@ func TestAutoSaveStatusBarScreenshots(t *testing.T) {
 	})
 	app.Settle()
 	app.Screenshot("autosave-settings-general")
+}
+
+// #1016 regression: Tile Review (including Before preview) must pause autosave until kept.
+func TestAutoSaveSkipsTileReviewAndBeforePreviewUntilKept(t *testing.T) {
+	ed, dir := openTestProject(t)
+	now := time.Date(2026, 11, 26, 15, 0, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+
+	// Add a small inline tilemap to the main layer and save cleanly first.
+	ed.Doc.Layers[0].Tilemap = &sceneformat.TilemapDoc{
+		Tileset:    "world",
+		TileWidth:  16,
+		TileHeight: 16,
+		Width:      4,
+		Height:     4,
+		Data:       make([]int, 16),
+	}
+	if err := ed.Save(); err != nil {
+		t.Fatalf("initial Save: %v", err)
+	}
+	scenePath := filepath.Join(dir, "scenes", "room.yaml")
+	beforeDisk, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Paint tiles inside a tracked agent tile review and toggle Before peek.
+	res, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       ed.Doc.Layers[0].Name,
+		TileID:      3,
+		Cells:       []editor.AgentTileCell{{Col: 1, Row: 1}, {Col: 2, Row: 1}},
+		Label:       "Paint floor",
+		TrackReview: true,
+	})
+	if err != nil {
+		t.Fatalf("AgentPaintTiles: %v", err)
+	}
+	if !res.ReviewOpen || !ed.TileReviewOpen() || !ed.HasOpenReview() {
+		t.Fatalf("expected open tile review: res=%+v HasOpenReview=%v", res, ed.HasOpenReview())
+	}
+	ed.SetTileReviewPeekBefore(true)
+	if ed.AutoSavePending() {
+		t.Fatal("autosave must not arm while tile review is open")
+	}
+	now = now.Add(10 * time.Second)
+	ed.StepAutoSave()
+	ed.WaitAutoSave()
+
+	duringDisk, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(duringDisk, beforeDisk) {
+		t.Fatal("autosave wrote to disk while tile review / Before preview was open")
+	}
+
+	// Keeping the tile review closes the review and arms the 2 s autosave timer.
+	if _, err := ed.KeepTileReview(); err != nil {
+		t.Fatalf("KeepTileReview: %v", err)
+	}
+	if ed.HasOpenReview() || !ed.AutoSavePending() {
+		t.Fatalf("after KeepTileReview: HasOpenReview=%v AutoSavePending=%v", ed.HasOpenReview(), ed.AutoSavePending())
+	}
+	now = now.Add(2 * time.Second)
+	ed.StepAutoSave()
+	ed.WaitAutoSave()
+
+	afterDisk, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(afterDisk, beforeDisk) || !strings.Contains(string(afterDisk), "3") {
+		t.Fatalf("kept tile review edits were not persisted after 2 s:\n%s", afterDisk)
+	}
+}
+
+// #1016 regression: Inspector numeric scrub defers autosave and re-arms pre-existing dirty edits on cancel.
+func TestAutoSaveDefersDuringInspectorScrubAndRearmsOnCancel(t *testing.T) {
+	ed, dir := openTestProject(t)
+	now := time.Date(2026, 11, 26, 15, 5, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+
+	scenePath := filepath.Join(dir, "scenes", "room.yaml")
+	beforeDisk, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make a pre-existing kept edit (arms debounce at +2 s).
+	if err := ed.MoveObject("hero", 33, 44); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.AutoSavePending() {
+		t.Fatal("expected debounce armed after MoveObject")
+	}
+
+	// Start live inspector scrub before 2 s elapses.
+	if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "hero", Field: "x", Step: 1}); err != nil {
+		t.Fatalf("BeginInspectorScrub: %v", err)
+	}
+	if _, err := ed.UpdateInspectorScrub(50, false); err != nil {
+		t.Fatalf("UpdateInspectorScrub: %v", err)
+	}
+
+	// Advance past 2 s while scrubbing: must NOT write to disk mid-scrub.
+	now = now.Add(3 * time.Second)
+	ed.StepAutoSave()
+	ed.WaitAutoSave()
+	midDisk, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(midDisk, beforeDisk) {
+		t.Fatal("autosave wrote to disk while inspector scrub was active")
+	}
+
+	// Cancelling the scrub restores pre-scrub x=33 and re-arms autosave for the pre-existing dirty edit.
+	if !ed.CancelInspectorScrub() {
+		t.Fatal("CancelInspectorScrub returned false")
+	}
+	if !ed.AutoSavePending() {
+		t.Fatal("CancelInspectorScrub did not re-arm deferred autosave")
+	}
+	now = now.Add(2 * time.Second)
+	ed.StepAutoSave()
+	ed.WaitAutoSave()
+
+	afterDisk, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(afterDisk), "x: 33") {
+		t.Fatalf("pre-existing dirty edit x=33 not saved after scrub cancel:\n%s", afterDisk)
+	}
+}
+
+// #1016 + #1171 regression: partial multi-target failure commits succeeded items and suppresses in-flight disk watch false conflicts.
+func TestAutoSavePartialMultiTargetFailureCommitsSucceededAndSuppressesDiskWatchSelfConflict(t *testing.T) {
+	ed, dir := openTestProject(t)
+	now := time.Date(2026, 11, 26, 15, 10, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+
+	// Dirty BOTH game.yaml and scenes/room.yaml.
+	ed.EditProject("Rename project", func(f *project.File) {
+		f.Name = "Updated Project Name"
+	})
+	if err := ed.MoveObject("hero", 81, 92); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.ProjectDirty() || !ed.SceneDirty() {
+		t.Fatalf("expected both project and scene dirty: project=%v scene=%v", ed.ProjectDirty(), ed.SceneDirty())
+	}
+
+	gamePath := filepath.Join(dir, project.FileName)
+	scenePath := filepath.Join(dir, "scenes", "room.yaml")
+
+	gameWritten := make(chan struct{})
+	releaseScene := make(chan struct{})
+	ed.SaveFileWriter = func(path string, data []byte) error {
+		if filepath.Clean(path) == filepath.Clean(scenePath) {
+			close(gameWritten)
+			<-releaseScene
+			return &os.PathError{Op: "open", Path: path, Err: syscall.EACCES}
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+
+	now = now.Add(2 * time.Second)
+	ed.StepAutoSave()
+	<-gameWritten
+
+	// While flight is in progress (game.yaml is already written to disk, scenes/room.yaml is blocked),
+	// PollDiskChanges must NOT flag game.yaml as an external disk conflict.
+	midPoll := ed.PollDiskChanges()
+	if len(midPoll.Conflicts) > 0 || len(ed.DiskConflicts()) > 0 {
+		t.Fatalf("PollDiskChanges flagged false external conflict for in-flight autosave: poll=%+v conflicts=%+v", midPoll, ed.DiskConflicts())
+	}
+
+	close(releaseScene)
+	ed.WaitAutoSave()
+
+	// scenes/room.yaml failed, so SaveFailed() is true; game.yaml succeeded and MUST be committed so ProjectDirty()==false and no false disk conflict occurs.
+	if !ed.SaveFailed() {
+		t.Fatal("expected SaveFailed() == true after scenes/room.yaml failed")
+	}
+	if ed.ProjectDirty() {
+		t.Fatal("expected game.yaml partial success to commit (ProjectDirty() == false)")
+	}
+	afterPoll := ed.PollDiskChanges()
+	if len(afterPoll.Conflicts) > 0 || len(ed.DiskConflicts()) > 0 {
+		t.Fatalf("PollDiskChanges flagged false external conflict after partial autosave failure: poll=%+v conflicts=%+v", afterPoll, ed.DiskConflicts())
+	}
+	gotGame, err := os.ReadFile(gamePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotGame), "Updated Project Name") {
+		t.Fatalf("game.yaml missing partial autosave update:\n%s", gotGame)
+	}
+}
+
+// #1016 regression: OnSave runs synchronously on editor goroutine (-race safe), and Close()/OpenDemo() clean up timers and failure state.
+func TestAutoSaveOnSaveRunsOnEditorGoroutineAndCloseDemoReset(t *testing.T) {
+	ed := newTestEditor(t)
+	now := time.Date(2026, 11, 26, 15, 15, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+
+	// Unsynchronized slice mutated in OnSave AND read immediately after StepAutoSave() — -race catches any off-goroutine invocation.
+	var saves [][]byte
+	ed.OnSave = func(data []byte) error {
+		saves = append(saves, append([]byte(nil), data...))
+		return nil
+	}
+	if err := ed.MoveObject("hero", 19, 29); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	ed.StepAutoSave()
+	if len(saves) != 1 || ed.SceneDirty() || ed.AutoSaveInFlight() {
+		t.Fatalf("expected synchronous OnSave on editor goroutine: saves=%d dirty=%v inFlight=%v", len(saves), ed.SceneDirty(), ed.AutoSaveInFlight())
+	}
+
+	// Editor.Close() stops timers even when called while Play mode is active.
+	ed2, _ := openTestProject(t)
+	app2 := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed2)
+	}, nsgotest.Size(1280, 800))
+	app2.Settle()
+	app2.Post(func() {
+		if err := ed2.MoveObject("hero", 11, 22); err != nil {
+			t.Errorf("MoveObject: %v", err)
+			return
+		}
+		if err := ed2.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+			return
+		}
+		if err := ed2.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	app2.Settle()
+	if ed2.AutoSavePending() {
+		t.Fatal("Close() left autosave debounce timer armed")
+	}
+
+	// OpenDemo() resets armed timers and active SaveFailed state cleanly.
+	ed3, _ := openTestProject(t)
+	now3 := time.Date(2026, 11, 26, 15, 20, 0, 0, time.UTC)
+	ed3.Now = func() time.Time { return now3 }
+	ed3.SaveFileWriter = func(path string, _ []byte) error {
+		return &os.PathError{Op: "open", Path: path, Err: syscall.EACCES}
+	}
+	if err := ed3.MoveObject("hero", 41, 51); err != nil {
+		t.Fatal(err)
+	}
+	now3 = now3.Add(2 * time.Second)
+	ed3.StepAutoSave()
+	ed3.WaitAutoSave()
+	if !ed3.SaveFailed() {
+		t.Fatal("expected SaveFailed() before OpenDemo()")
+	}
+	if err := ed3.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed3.SaveFailed() || ed3.AutoSavePending() || ed3.AutoSaveInFlight() {
+		t.Fatalf("OpenDemo() leaked autosave state: failed=%v pending=%v inFlight=%v", ed3.SaveFailed(), ed3.AutoSavePending(), ed3.AutoSaveInFlight())
+	}
+}
+
+// #1016 regression: multi-tab save failure isolation, Save as… targeting the failed tab, and CloseTab ghost cleanup.
+func TestAutoSaveMultiTabFailureIsolationCloseTabCleanupAndSaveAsTarget(t *testing.T) {
+	ed, dir := openTestProject(t)
+	_ = ed.SetAppearance(editor.AppearanceDark)
+	now := time.Date(2026, 11, 26, 15, 25, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+
+	// Create and open a second scene tab (scenes/other.yaml).
+	otherPath := filepath.Join(dir, "scenes", "other.yaml")
+	roomData, err := os.ReadFile(filepath.Join(dir, "scenes", "room.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(otherPath, roomData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenScene("scenes/other.yaml"); err != nil {
+		t.Fatalf("OpenScene other: %v", err)
+	}
+	if len(ed.Tabs()) != 2 {
+		t.Fatalf("expected 2 tabs, got %d", len(ed.Tabs()))
+	}
+	tab0ID := ed.Tabs()[0].ID
+
+	// Fail autosave on tab 0 (scenes/room.yaml), while keeping scenes/other.yaml writable.
+	roomPath := filepath.Join(dir, "scenes", "room.yaml")
+	ed.SaveFileWriter = func(path string, data []byte) error {
+		if filepath.Clean(path) == filepath.Clean(roomPath) {
+			return &os.PathError{Op: "open", Path: path, Err: syscall.EACCES}
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveObject("hero", 61, 71); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	ed.StepAutoSave()
+	ed.WaitAutoSave()
+	if !ed.SaveFailed() || !ed.SaveFailedForTab(tab0ID) {
+		t.Fatalf("expected failure on tab 0: status=%+v", ed.SaveStatus())
+	}
+
+	// Switch to tab 1, edit it, and manually save tab 1: must NOT clear tab 0's failed-save alert!
+	if err := ed.SelectTab(1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveObject("hero", 12, 34); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SaveTab(1); err != nil {
+		t.Fatalf("SaveTab(1): %v", err)
+	}
+	if !ed.SaveFailed() || !ed.SaveFailedForTab(tab0ID) {
+		t.Fatal("saving tab 1 clobbered tab 0's active SaveFailed alert")
+	}
+
+	// Mount EditorView while tab 1 is active and press status-save-as: must select tab 0 (scenes/room.yaml)!
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	app.Press("id:status-save-as")
+	app.Settle()
+	if !app.Exists("id:scene-path-dialog") {
+		t.Fatal("expected scene-path-dialog when pressing status-save-as")
+	}
+	if ed.ScenePath != "scenes/room.yaml" {
+		t.Fatalf("Save as… targeted %q, want failed tab scenes/room.yaml", ed.ScenePath)
+	}
+	app.Press("id:scene-path-cancel")
+	app.Settle()
+
+	// Closing the failing tab clears its failure state (no ghost alert, HasUnsavedChanges() == false).
+	app.Post(func() {
+		if err := ed.CloseTab(0); err != nil {
+			t.Errorf("CloseTab(0): %v", err)
+		}
+	})
+	app.Settle()
+	if ed.SaveFailed() || ed.HasUnsavedChanges() {
+		t.Fatalf("CloseTab(0) left ghost save failure: failed=%v unsaved=%v", ed.SaveFailed(), ed.HasUnsavedChanges())
+	}
+	if app.Exists("id:status-save-error") || !app.Exists("id:status-save-saved") {
+		t.Fatal("status bar did not return to Saved after closing failing tab")
+	}
+}
+
+// #1016 + #1192 regression: status bar save alert and toolbar unsaved dot follow Spec Light and Dark palettes live.
+func TestAutoSaveStatusBarSpecLightAndDarkThemeParity(t *testing.T) {
+	ed, _ := openTestProject(t)
+	now := time.Date(2026, 11, 26, 15, 30, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+	ed.SaveFileWriter = func(path string, _ []byte) error {
+		return &os.PathError{Op: "open", Path: path, Err: syscall.EACCES}
+	}
+	if err := ed.MoveObject("hero", 45, 55); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	ed.StepAutoSave()
+	ed.WaitAutoSave()
+	if !ed.SaveFailed() {
+		t.Fatal("expected SaveFailed() == true")
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+	app.Settle()
+
+	assertTheme := func(label string, want editor.SpecPalette) {
+		t.Helper()
+		pill := app.Find("id:status-save-error")
+		if pill.Style.Background != want.Problem().Fill || pill.Style.BorderColor != want.Problem().Edge {
+			t.Fatalf("%s: status-save-error bg=#%08X border=#%08X, want bg=#%08X border=#%08X",
+				label, uint32(pill.Style.Background), uint32(pill.Style.BorderColor),
+				uint32(want.Problem().Fill), uint32(want.Problem().Edge))
+		}
+		dot := app.Find("id:toolbar-unsaved")
+		if dot.Style.Background != want.Problem().Fg {
+			t.Fatalf("%s: toolbar-unsaved bg=#%08X, want #%08X", label, uint32(dot.Style.Background), uint32(want.Problem().Fg))
+		}
+		b := dot.Bounds()
+		if b.Size.Width < 5.5 || b.Size.Height < 5.5 {
+			t.Fatalf("%s: toolbar-unsaved bounds = %.1fx%.1f, want 6x6", label, b.Size.Width, b.Size.Height)
+		}
+	}
+
+	assertTheme("light", editor.LightSpecPalette())
+
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	app.Settle()
+	assertTheme("dark", editor.DarkSpecPalette())
 }

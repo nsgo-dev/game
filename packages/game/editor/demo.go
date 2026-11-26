@@ -168,6 +168,7 @@ func (e *Editor) OpenDemo() error {
 	e.stopExportBuild()
 	e.resetExportPanelCache()
 	e.stopAssetsBuild()
+	e.resetAutoSaveState()
 	e.resetInputMapTransient()
 	e.settingsOpen = false
 	e.shortcutCaptureActive = false

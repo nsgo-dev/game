@@ -890,6 +890,7 @@ func (e *Editor) EndInspectorScrub() bool {
 			(&groupCmd{cmds: cmds}).rollback(len(cmds))
 		}
 		e.Rebuild()
+		e.resumeAutoSaveAfterInteraction()
 		e.notify()
 		return false
 	}
@@ -899,6 +900,11 @@ func (e *Editor) EndInspectorScrub() bool {
 	}
 	committed := e.History.commitPreview(label, cmds)
 	e.Rebuild()
+	if committed {
+		e.scheduleAutoSaveIfNeeded()
+	} else {
+		e.resumeAutoSaveAfterInteraction()
+	}
 	e.notify()
 	return committed
 }
@@ -917,6 +923,7 @@ func (e *Editor) CancelInspectorScrub() bool {
 	}
 	e.Status = "Restored " + scrubFieldLabel(s.spec)
 	e.Rebuild()
+	e.resumeAutoSaveAfterInteraction()
 	e.notify()
 	return true
 }

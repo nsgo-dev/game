@@ -515,7 +515,9 @@ func (e *Editor) diskWatchTick() {
 	if m.sceneHas && m.scenePath != "" {
 		if data, err := os.ReadFile(m.scenePath); err == nil {
 			sum := sha256.Sum256(data)
-			if sum == m.sceneHash {
+			if e.isInFlightAutoSaveHash(m.scenePath, sum) {
+				// Ignore the editor's own in-flight autosave write until commit updates sceneHash.
+			} else if sum == m.sceneHash {
 				if m.notifiedSceneHas {
 					changed = true
 					sceneReverted = true
@@ -530,7 +532,9 @@ func (e *Editor) diskWatchTick() {
 	if m.projectHas && m.projectPath != "" {
 		if data, err := os.ReadFile(m.projectPath); err == nil {
 			sum := sha256.Sum256(data)
-			if sum == m.projectHash {
+			if e.isInFlightAutoSaveHash(m.projectPath, sum) {
+				// Ignore the editor's own in-flight autosave write until commit updates projectHash.
+			} else if sum == m.projectHash {
 				if m.notifiedProjectHas {
 					changed = true
 					projectReverted = true
@@ -991,7 +995,9 @@ func (e *Editor) PollDiskChanges() DiskPollResult {
 	if e.Project != nil && e.ProjectPath != "" && e.disk.projectDisk.exists {
 		if data, err := os.ReadFile(e.ProjectPath); err == nil {
 			sum := sha256.Sum256(data)
-			if sum == e.disk.projectDisk.hash {
+			if e.isInFlightAutoSaveHash(e.ProjectPath, sum) {
+				// Ignore the editor's own in-flight autosave write.
+			} else if sum == e.disk.projectDisk.hash {
 				clearStaleConflict(DiskFileProject)
 			} else {
 				if e.ProjectDirty() {
@@ -1020,7 +1026,9 @@ func (e *Editor) PollDiskChanges() DiskPollResult {
 	if e.Doc != nil && e.FilePath != "" && e.disk.sceneDisk.exists {
 		if data, err := os.ReadFile(e.FilePath); err == nil {
 			sum := sha256.Sum256(data)
-			if sum == e.disk.sceneDisk.hash {
+			if e.isInFlightAutoSaveHash(e.FilePath, sum) {
+				// Ignore the editor's own in-flight autosave write.
+			} else if sum == e.disk.sceneDisk.hash {
 				clearStaleConflict(DiskFileScene)
 			} else {
 				if e.SceneDirty() {
@@ -1484,6 +1492,7 @@ func (e *Editor) ReloadFromDisk(kind DiskFileKind) error {
 			after:  doc,
 		})
 		e.syncActiveTab()
+		e.scheduleAutoSaveIfNeeded()
 		e.Status = "Reloaded " + e.SceneLabel() + " from disk"
 		e.notify()
 		e.CheckProblems()
@@ -1513,6 +1522,7 @@ func (e *Editor) ReloadFromDisk(kind DiskFileKind) error {
 			before: e.Project.Clone(),
 			after:  f,
 		})
+		e.scheduleAutoSaveIfNeeded()
 		e.Status = "Reloaded " + project.FileName + " from disk"
 		e.notify()
 		e.CheckProblems()
@@ -1545,6 +1555,7 @@ func (e *Editor) ReloadFromDisk(kind DiskFileKind) error {
 			before: cloneClip(e.clip),
 			after:  clip,
 		})
+		e.scheduleAutoSaveIfNeeded()
 		e.Status = "Reloaded clip from disk"
 		e.notify()
 		return nil
@@ -1591,6 +1602,7 @@ func (e *Editor) KeepLocalVersion(kind DiskFileKind) error {
 			e.recordSceneDiskSnapshot(e.FilePath, data)
 		}
 		e.syncActiveTab()
+		e.scheduleAutoSaveIfNeeded()
 		e.Status = "Kept your version of " + e.SceneLabel()
 		e.notify()
 		return nil
@@ -1618,6 +1630,7 @@ func (e *Editor) KeepLocalVersion(kind DiskFileKind) error {
 		} else {
 			e.recordProjectDiskSnapshot(e.ProjectPath, data)
 		}
+		e.scheduleAutoSaveIfNeeded()
 		e.Status = "Kept your version of " + project.FileName
 		e.notify()
 		return nil

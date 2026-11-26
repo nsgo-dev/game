@@ -3,6 +3,7 @@
 package editor
 
 import (
+	"math"
 	"path/filepath"
 	"syscall"
 )
@@ -20,5 +21,10 @@ func availableDiskSpace(path string) (uint64, bool) {
 	if st.Bsize <= 0 {
 		return 0, false
 	}
-	return st.Bavail * uint64(st.Bsize), true
+	bavail := uint64(st.Bavail)
+	bsize := uint64(st.Bsize)
+	if bavail > math.MaxUint64/bsize {
+		return math.MaxUint64, true
+	}
+	return bavail * bsize, true
 }

@@ -1281,6 +1281,7 @@ func (e *Editor) commitAgentTileChanges(
 			uiRev:             e.nextTileReviewUIRev(),
 		}
 		e.tileReview = rev
+		e.cancelAutoSaveTimer()
 	}
 
 	rev.applying = true
@@ -1311,6 +1312,7 @@ func (e *Editor) commitAgentTileChanges(
 	} else {
 		// Ensure live grid reflects composed state (preserving any previously reverted regions).
 		e.applyTileReviewDisplay()
+		e.cancelAutoSaveTimer()
 	}
 	e.notify()
 	return e.agentTileResult(layerName, tileLayer, len(changes), undoLabel), nil

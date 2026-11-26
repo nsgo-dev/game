@@ -8,28 +8,32 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// specSaveErrorFill is the Spec problem fill for the persistent failed-save status bar alert (Checkpoints.dc.html: rgba(255,107,107,0.08)).
-var specSaveErrorFill = core.RGBA(0xFF6B6B, 0.08)
-
 // saveStatusBarView renders the status bar's save status item matching docs/design/editor/Checkpoints.dc.html
-// ("Save status · status bar"):
+// ("Save status · status bar") using theme-aware SpecPalette tokens (Dark & Light):
 //   - Saved: muted Spec styling with a green check icon; hovering shows the last save time.
 //   - Saving…: appears only after SavingIndicatorDelay (300 ms) so quick saves do not flicker.
 //   - Failed autosave: persistent alert pill with problem red border/icon, failure reason, Retry, and Save as… buttons.
 func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	statusKind := core.NewMemo(cx, func() SaveStatusKind {
+	type statusChromeKey struct {
+		kind SaveStatusKind
+		lang string
+		dark bool
+	}
+	chromeKey := core.NewMemo(cx, func() statusChromeKey {
 		_ = rev.Get()
-		return ed.SaveStatus().Kind
-	})
-	langMemo := core.NewMemo(cx, func() string {
-		_ = rev.Get()
-		return ed.ResolvedLanguage()
+		return statusChromeKey{
+			kind: ed.SaveStatus().Kind,
+			lang: ed.ResolvedLanguage(),
+			dark: cx.Dark(),
+		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = langMemo.Get()
-		switch statusKind.Get() {
+		key := chromeKey.Get()
+		p := ed.SpecPalette(cx)
+		switch key.kind {
 		case SaveStatusFailed:
+			prob := p.Problem()
 			return core.View{
 				TestID: "status-save-error",
 				Role:   core.RoleAlert,
@@ -44,9 +48,9 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Height:       core.Pt(26),
 					Padding:      core.Edges{Left: 10, Right: 4},
 					CornerRadius: 8,
-					Background:   specSaveErrorFill,
+					Background:   prob.Fill,
 					BorderWidth:  1,
-					BorderColor:  specProblem,
+					BorderColor:  prob.Edge,
 					FlexShrink:   0,
 				},
 				Children: []core.Node{
@@ -55,7 +59,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Style: core.Style{
 							Width:      core.Pt(13),
 							Height:     core.Pt(13),
-							Color:      specProblem,
+							Color:      prob.Fg,
 							FlexShrink: 0,
 						},
 					},
@@ -69,7 +73,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						EllipsizeMode: core.EllipsizeTail,
 						Style: core.Style{
 							FontSize:   11.5,
-							Color:      specTextStrong,
+							Color:      p.TextPrimary,
 							MaxWidth:   core.Pt(360),
 							FlexShrink: 1,
 						},
@@ -79,16 +83,16 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Text:    ed.T("saveStatus.retry"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
-						Color:   func() core.Color { return specLineRaised },
+						Color:   func() core.Color { return p.LineRaised },
 						TextStyle: core.Style{
 							FontSize: 11.5,
-							Color:    specTextStrong,
+							Color:    p.TextPrimary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(20),
 							CornerRadius: 6,
 							Padding:      core.Symmetric(0, 8),
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: p.FocusRing(2),
 						},
 						Disabled: func() bool {
 							_ = rev.Get()
@@ -103,16 +107,16 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Text:    ed.T("saveStatus.saveAs"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
-						Color:   func() core.Color { return specLineRaised },
+						Color:   func() core.Color { return p.LineRaised },
 						TextStyle: core.Style{
 							FontSize: 11.5,
-							Color:    specTextStrong,
+							Color:    p.TextPrimary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(20),
 							CornerRadius: 6,
 							Padding:      core.Symmetric(0, 8),
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: p.FocusRing(2),
 						},
 						Disabled: func() bool {
 							_ = rev.Get()
@@ -150,7 +154,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							cx := float32(size.Width) / 2
 							cy := float32(size.Height) / 2
 							r := min(cx, cy) - 1
-							d.SetStrokeColor(specTextMuted).
+							d.SetStrokeColor(p.TextFaint).
 								SetLineWidth(1.5).
 								SetLineCap(core.CapRound).
 								BeginPath().
@@ -163,7 +167,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Content: ed.T("saveStatus.saving"),
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 					},
 				},
@@ -194,7 +198,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							Style: core.Style{
 								Width:      core.Pt(13),
 								Height:     core.Pt(13),
-								Color:      specAdded,
+								Color:      p.Added.Fg,
 								FlexShrink: 0,
 							},
 						},
@@ -203,7 +207,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							Content: ed.T("saveStatus.saved"),
 							Style: core.Style{
 								FontSize: 11.5,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 					},

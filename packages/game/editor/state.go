@@ -1596,7 +1596,7 @@ func (e *Editor) SaveFile(path string) error {
 	e.snapshotProjectTree()
 	e.invalidateProjectIndex()
 	e.rebuildDependentTabs(e.activeTabID())
-	e.recordSaveSucceeded()
+	e.recordSaveSucceededFor(e.activeTabID(), false)
 	e.Status = "Saved " + path
 	e.notify()
 	e.CheckProblems()

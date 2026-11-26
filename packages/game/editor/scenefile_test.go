@@ -357,6 +357,7 @@ func startEditorApp(t *testing.T, ed *editor.Editor) *nsgotest.App {
 // TestUnsavedMarkerAndModS edits a scene in the editor: the toolbar's marker and the window title show the unsaved edit, Undo back to the saved state clears them, and Mod+S saves.
 func TestUnsavedMarkerAndModS(t *testing.T) {
 	ed, dir := openTestProject(t)
+	_ = ed.SetAutoSave(false)
 	app := startEditorApp(t, ed)
 	if app.Exists("id:toolbar-unsaved") || app.Title != "scenes/room.yaml - NSGo Scene Editor" {
 		t.Fatalf("a clean scene shows the marker (%v), title %q", app.Exists("id:toolbar-unsaved"), app.Title)
@@ -433,6 +434,7 @@ func TestUnsavedMarkerAndModS(t *testing.T) {
 // TestOpenFromTheFileBrowserOpensTabs opens scenes from the file browser into tabs without prompting or losing edits, switches to an already-open tab, and asks only when closing a dirty tab.
 func TestOpenFromTheFileBrowserOpensTabs(t *testing.T) {
 	ed, dir := openTestProject(t)
+	_ = ed.SetAutoSave(false)
 	app := startEditorApp(t, ed)
 	edit := func(x float32) {
 		app.Post(func() {
@@ -520,6 +522,7 @@ func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = ed.SetAutoSave(false)
 	if err := ed.OpenProject(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -600,6 +603,7 @@ func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
 // TestQuitAsksWhileEditsAreUnsaved quits with and without unsaved edits.
 func TestQuitAsksWhileEditsAreUnsaved(t *testing.T) {
 	ed, _ := openTestProject(t)
+	_ = ed.SetAutoSave(false)
 	app := startEditorApp(t, ed)
 
 	app.Post(func() {
@@ -694,6 +698,7 @@ func TestAppNameTitlesTheWindow(t *testing.T) {
 // TestDiscardFollowsTheProjectBack discards a project edit that added an audio bus being auditioned when switching away from the project: the audition through the bus that is gone stops, as it does when the edit is undone.
 func TestDiscardFollowsTheProjectBack(t *testing.T) {
 	ed, dir := openTestProject(t)
+	_ = ed.SetAutoSave(false)
 	rawWAV, _, _ := makeTestAudioWAV(t)
 	if err := os.MkdirAll(filepath.Join(dir, "audio"), 0o755); err != nil {
 		t.Fatal(err)
@@ -766,6 +771,7 @@ func TestClosingTheWindowAsksWhileEditsAreUnsaved(t *testing.T) {
 		t.Skip("closes the headless model's window")
 	}
 	ed, _ := openTestProject(t)
+	_ = ed.SetAutoSave(false)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1120, 680), nsgotest.Environment(core.Environment{OS: core.OSMacOS}))

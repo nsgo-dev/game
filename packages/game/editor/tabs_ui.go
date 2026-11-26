@@ -58,6 +58,7 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
+						p := ed.SpecPalette(cx)
 						list := tabs.Get()
 						nodes := make([]core.Node, 0, len(list))
 						for i, tab := range list {
@@ -88,11 +89,11 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								},
 							}
 							if t.Dirty || t.SaveFailed {
-								dotBg := specChanged
-								dotLabel := "Unsaved changes"
+								dotBg := p.Changed.Fg
+								dotLabel := ed.T("toolbar.unsavedLabel")
 								if t.SaveFailed {
-									dotBg = specProblem
-									dotLabel = "Unsaved changes · save failed"
+									dotBg = p.Problem().Fg
+									dotLabel = ed.T("toolbar.unsavedFailedLabel")
 								}
 								labelChildren = append(labelChildren, core.View{
 									TestID: fmt.Sprintf("scene-tab-dirty-%d", idx),

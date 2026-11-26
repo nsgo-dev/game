@@ -341,12 +341,7 @@ func (e *Editor) SaveProject() error {
 	e.recordProjectDiskSnapshot(e.ProjectPath, data)
 	e.refreshAppleTeamIDCache()
 	e.invalidateProjectIndex()
-	if !e.autosave.failed || e.autosave.failedTabID == 0 {
-		e.recordSaveSucceeded()
-	} else {
-		e.autosave.lastSavedAt = e.now()
-		e.autosave.hasSaved = true
-	}
+	e.recordSaveSucceededFor(0, true)
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()
 	e.CheckProblems()
