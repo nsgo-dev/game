@@ -49,7 +49,7 @@ type staticMesh struct {
 	material render3d.PBRMaterial
 }
 
-// renderer draws a match with render3d's lit PBR pipeline under one light rig. The level is three baked meshes, the floor tiles, the walls and the crates, drawn once each; everything that moves is the unit cube, scaled and placed per draw and refilled from the match every frame.
+// renderer draws a match with render3d's lit PBR pipeline under one light rig. The level is three baked meshes, the floor, the walls and the crates, drawn once each; everything that moves is the unit cube, scaled and placed per draw and refilled from the match every frame.
 type renderer struct {
 	cube    *render3d.GPUMesh
 	camera  *render3d.CameraBuffer
@@ -187,10 +187,13 @@ func viewRotation(yaw, pitch float32) math3d.Quat {
 	return math3d.QuatFromAxisAngle(worldUp, yaw).Mul(math3d.QuatFromAxisAngle(math3d.Vec3{X: 1}, pitch))
 }
 
-// levelMeshes bakes the level into one mesh per material: a floor tile under every open cell, a box on every wall cell and a slightly smaller one on every crate cell. Tiles rather than one floor slab keep every triangle small, so none spans from in front of the camera to behind it. NSGo's headless software GPU drops a triangle with a vertex behind the camera instead of clipping it (https://github.com/nsgo-dev/nsgo/issues/2344), and small tiles keep the floor drawn there as on real GPUs.
+// levelMeshes bakes the level into one mesh per material: one floor slab inside the border walls, a box on every wall cell and a slightly smaller one on every crate cell.
 func levelMeshes(a *Arena) []staticMesh {
 	s := a.CellSize
-	var floor, walls, crates []math3d.Mat4
+	// Every row has the same length and the border is wall, so the slab spans the cells inside it.
+	cols, rows := float32(len(a.Layout[0])), float32(len(a.Layout))
+	floor := []math3d.Mat4{box(math3d.Vec3{X: cols * s / 2, Y: -0.25, Z: rows * s / 2}, math3d.Vec3{X: (cols - 2) * s, Y: 0.5, Z: (rows - 2) * s})}
+	var walls, crates []math3d.Mat4
 	for r, line := range a.Layout {
 		for c := 0; c < len(line); c++ {
 			x, z := (float32(c)+0.5)*s, (float32(r)+0.5)*s
@@ -199,10 +202,7 @@ func levelMeshes(a *Arena) []staticMesh {
 				walls = append(walls, box(math3d.Vec3{X: x, Y: a.WallHeight / 2, Z: z}, math3d.Vec3{X: s, Y: a.WallHeight, Z: s}))
 			case cellCrate:
 				inset := s * 0.9
-				floor = append(floor, box(math3d.Vec3{X: x, Y: -0.25, Z: z}, math3d.Vec3{X: s, Y: 0.5, Z: s}))
 				crates = append(crates, box(math3d.Vec3{X: x, Y: a.CrateHeight / 2, Z: z}, math3d.Vec3{X: inset, Y: a.CrateHeight, Z: inset}))
-			default:
-				floor = append(floor, box(math3d.Vec3{X: x, Y: -0.25, Z: z}, math3d.Vec3{X: s, Y: 0.5, Z: s}))
 			}
 		}
 	}

@@ -8,15 +8,14 @@ import (
 )
 
 func TestLevelMeshesCoverTheFloorWallsAndCrates(t *testing.T) {
-	walls, crates, cells := 0, 0, 0
+	walls, crates := 0, 0
 	for _, row := range arena.Layout {
 		walls += strings.Count(row, string(cellWall))
 		crates += strings.Count(row, string(cellCrate))
-		cells += len(row)
 	}
 	level := levelMeshes(arena)
-	// Twelve triangles a box: a floor tile under every cell but the walls, a box per wall and per crate.
-	want := []int{(cells - walls) * 12, walls * 12, crates * 12}
+	// Twelve triangles a box: one floor slab, a box per wall and per crate.
+	want := []int{12, walls * 12, crates * 12}
 	if len(level) != len(want) {
 		t.Fatalf("levelMeshes returned %d meshes, want the floor, the walls and the crates", len(level))
 	}
@@ -29,7 +28,7 @@ func TestLevelMeshesCoverTheFloorWallsAndCrates(t *testing.T) {
 		}
 	}
 	// The floor's top is the ground the player walks on, inside the border walls.
-	if b := level[0].mesh.Bounds(); b.Max.Y != 0 || b.Min.X != arena.CellSize || b.Max.X != float32(len(arena.Layout[0])-1)*arena.CellSize {
+	if b := level[0].mesh.Bounds(); b.Max.Y != 0 || b.Min.X != arena.CellSize || b.Max.X != float32(len(arena.Layout[0])-1)*arena.CellSize || b.Min.Z != arena.CellSize || b.Max.Z != float32(len(arena.Layout)-1)*arena.CellSize {
 		t.Errorf("the floor spans %+v", b)
 	}
 	if err := unitCube().Validate(); err != nil {
