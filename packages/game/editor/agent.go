@@ -387,17 +387,18 @@ type agentState struct {
 	workingTotal       int
 	activeRunCancel    context.CancelFunc
 	activeRunID        uint64
+	activeTurnID       string
 	openRequest        *AgentOpenRequest
 	focusRequestSeq    uint64
 	focusRequestCalled int
 	liveAnnouncement   string
 	turnSeq            int
 	turnChangeSeq      uint64
-
 	// Registered MCP tools published by editormcp.Server and cached keychain presence for built-in API key.
 	registeredTools   []AgentToolInfo
 	builtInKeyChecked bool
 	builtInKeyPresent bool
+	notify            agentNotifyState
 }
 
 func (a *agentState) setScope(cx *core.Scope) {
@@ -425,6 +426,7 @@ func (a *agentState) initDefaults() {
 	a.connectPermsDraft = perms
 	a.threadID = "thread-1"
 	a.reconnectTotal = len(AgentReconnectDelays)
+	a.notify.initDefaults()
 }
 
 func (e *Editor) nowTime() time.Time {
@@ -497,6 +499,7 @@ func (e *Editor) cancelAgentReconnect() {
 
 func (e *Editor) stopAgentTimers() {
 	e.cancelAgentReconnect()
+	e.stopAllTaskNotificationTimers()
 	if e.agent.connectCopiedStop != nil {
 		e.agent.connectCopiedStop()
 		e.agent.connectCopiedStop = nil
@@ -506,6 +509,7 @@ func (e *Editor) stopAgentTimers() {
 		e.agent.activeRunCancel = nil
 	}
 	e.stopAutomationRunsAndScheduler()
+	e.agent.activeTurnID = ""
 	e.agent.connectAPIKey = ""
 }
 
@@ -518,7 +522,9 @@ func (e *Editor) resetAgentForProject() {
 	e.stopAgentTimers()
 	e.CloseAskInPlace()
 	e.resetTurnReviewForProject()
+	e.resetTaskNotificationsForProject()
 	e.agent.activeRunID++
+	e.agent.activeTurnID = ""
 	e.agent.clients = nil
 	e.agent.lastClient = AgentClientInfo{}
 	e.agent.hadClient = false
@@ -1199,13 +1205,35 @@ func (e *Editor) SetAgentWaitingForYou(req AgentOpenRequest) {
 	e.agent.openRequest = &cp
 	e.agent.status = AgentStatusWaitingForYou
 	e.updateAgentAnnouncement()
-	e.notify()
+
+	taskID := e.agent.activeTurnID
+	taskTitle := ""
+	if taskID != "" {
+		if turn := e.findAgentTurn(taskID); turn != nil {
+			taskTitle = turn.Prompt
+		}
+	} else {
+		taskID = cp.ID
+	}
+	e.setWaitingTurnTaskID(taskID)
+	e.upsertTurnNotificationTask(AgentTask{
+		ID:               taskID,
+		Title:            taskTitle,
+		PermissionPrompt: cp.Title,
+		PermissionDetail: cp.Body,
+		State:            TaskNeedsYou,
+		ScenePath:        e.ScenePath,
+	}, e.FilePath, cp.OpenedAt)
 }
 
 // ClearAgentWaitingForYou clears the open waiting request and restores Working or Connected status.
 func (e *Editor) ClearAgentWaitingForYou() {
 	if e == nil || e.agent.openRequest == nil {
 		return
+	}
+	waitingTaskID := e.clearWaitingTurnTaskID()
+	if waitingTaskID == "" {
+		waitingTaskID = e.agent.openRequest.ID
 	}
 	e.agent.openRequest = nil
 	if e.agent.activeRunCancel != nil {
@@ -1216,6 +1244,20 @@ func (e *Editor) ClearAgentWaitingForYou() {
 		e.agent.status = AgentStatusNotConnected
 	}
 	e.updateAgentAnnouncement()
+	if waitingTaskID != "" {
+		if e.agent.activeRunCancel != nil && waitingTaskID == e.agent.activeTurnID {
+			if existing, filePath, ok := e.turnNotificationTaskByID(waitingTaskID); ok {
+				existing.State = TaskRunning
+				existing.PermissionPrompt = ""
+				existing.PermissionDetail = ""
+				e.upsertTurnNotificationTask(existing, filePath, time.Time{})
+				return
+			}
+		} else {
+			e.removeTurnNotificationTask(waitingTaskID)
+			return
+		}
+	}
 	e.notify()
 }
 
@@ -1539,6 +1581,7 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 
 	e.agent.activeRunID++
 	runID := e.agent.activeRunID
+	e.agent.activeTurnID = turnID
 	ctx, cancel := context.WithCancel(context.Background())
 	e.agent.activeRunCancel = cancel
 	e.agent.status = AgentStatusWorking
@@ -1546,7 +1589,12 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 	e.agent.workingTotal = 0
 	e.RecordAgentRequest(1)
 	e.updateAgentAnnouncement()
-	e.notify()
+	e.upsertTurnNotificationTask(AgentTask{
+		ID:        turnID,
+		Title:     text,
+		State:     TaskRunning,
+		ScenePath: e.ScenePath,
+	}, e.FilePath, time.Time{})
 
 	req := AgentRequest{
 		ThreadID:    e.agent.threadID,
@@ -1578,14 +1626,25 @@ func (e *Editor) StopAgentRun() {
 		return
 	}
 	cancel := e.agent.activeRunCancel
+	stoppedTurnID := e.agent.activeTurnID
 	e.agent.activeRunCancel = nil
+	e.agent.activeTurnID = ""
 	cancel()
+	if e.agent.openRequest != nil && stoppedTurnID != "" &&
+		(e.agent.openRequest.ID == stoppedTurnID || e.waitingTurnTaskID() == stoppedTurnID) {
+		e.agent.openRequest = nil
+		e.clearWaitingTurnTaskID()
+	}
 	if n := len(e.agent.turns); n > 0 && !e.agent.turns[n-1].Done {
 		e.agent.turns[n-1].Stopped = true
 		e.agent.turns[n-1].Done = true
 		e.agent.turns[n-1].FinishedAt = e.nowTime()
 	}
 	e.restoreIdleAgentStatus()
+	if stoppedTurnID != "" {
+		e.removeTurnNotificationTask(stoppedTurnID)
+		return
+	}
 	e.notify()
 }
 
@@ -1703,7 +1762,11 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 		e.agent.activeRunCancel()
 		e.agent.activeRunCancel = nil
 	}
-	if turn := e.findAgentTurn(turnID); turn != nil && !turn.Done {
+	if e.agent.activeTurnID == turnID {
+		e.agent.activeTurnID = ""
+	}
+	turn := e.findAgentTurn(turnID)
+	if turn != nil && !turn.Done {
 		turn.Done = true
 		turn.FinishedAt = e.nowTime()
 		if canceled {
@@ -1725,8 +1788,42 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 			}
 		}
 	}
+	if e.agent.openRequest != nil && turnID != "" &&
+		(e.agent.openRequest.ID == turnID || e.waitingTurnTaskID() == turnID) {
+		e.agent.openRequest = nil
+		e.clearWaitingTurnTaskID()
+	}
 	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
+	if turn != nil {
+		switch {
+		case canceled || turn.Stopped:
+			e.removeTurnNotificationTask(turnID)
+			return
+		case err != nil || turn.Error != "":
+			detail := turn.Error
+			if detail == "" && err != nil {
+				detail = err.Error()
+			}
+			e.upsertTurnNotificationTask(AgentTask{
+				ID:        turnID,
+				Title:     turn.Prompt,
+				Error:     detail,
+				State:     TaskFailed,
+				ScenePath: e.ScenePath,
+			}, e.FilePath, time.Time{})
+			return
+		default:
+			e.upsertTurnNotificationTask(AgentTask{
+				ID:          turnID,
+				Title:       turn.Prompt,
+				StepSummary: turn.Summary,
+				State:       TaskReadyToReview,
+				ScenePath:   e.ScenePath,
+			}, e.FilePath, time.Time{})
+			return
+		}
+	}
 	e.notify()
 }
 

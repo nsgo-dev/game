@@ -18,6 +18,15 @@ strings:
   agent.composerLabel: Ask the agent
   agent.composerPlaceholder: Describe a change… e.g. make the knight jump higher
   agent.connectShort: Connect
+  agent.notify.actionAllowOnce: Allow once
+  agent.notify.actionLater: Later
+  agent.notify.actionOpen: Open
+  agent.notify.actionRetry: Retry
+  agent.notify.actionReview: Review
+  agent.notify.failedTitle: Task failed
+  agent.notify.reviewTitle: Ready to review
+  agent.notify.waitingTitle: Agent needs permission
+  agent.playDot.hoverFormat: '{summary} · stop Play to open'
   agent.status.disconnected: Disconnected
   agent.status.reconnectingShort: Reconnecting
   agent.status.waitingShort: Waiting
@@ -1171,6 +1180,15 @@ strings:
   toolbar.unsavedFailedLabel: Unsaved changes · save failed
   toolbar.unsavedLabel: Unsaved changes
 plurals:
+  agent.playDot.failed:
+    one: '{count} task failed'
+    other: '{count} tasks failed'
+  agent.playDot.review:
+    one: '{count} task ready to review'
+    other: '{count} tasks ready to review'
+  agent.playDot.waiting:
+    one: '{count} task needs you'
+    other: '{count} tasks need you'
   output.errorCount:
     one: ' · {count} error'
     other: ' · {count} errors'

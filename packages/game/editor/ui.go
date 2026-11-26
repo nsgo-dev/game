@@ -139,6 +139,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopAgentTimers()
 		ed.stopAutoSave()
 		ed.CloseAskInPlace()
+		ed.resetDockBadgeOnCleanup(cx)
 		_ = ed.DisconnectProfiler()
 		ed.cancelAssetGenOps()
 		ed.DisconnectAllAssetGenerators()
@@ -165,6 +166,16 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	})
 	cx.Effect(func() {
 		cx.SetAppearance(appearanceMemo.Get())
+	})
+	cx.OnNotificationPress(func(id string) {
+		ed.HandleNotificationPress(id)
+	})
+	cx.Effect(func() {
+		ed.setWindowLifecycle(cx.Env().Lifecycle())
+	})
+	cx.Effect(func() {
+		_ = rev.Get()
+		ed.syncDockBadge(cx)
 	})
 	ed.bindShortcuts(cx, rev)
 	ed.bindFirstRunKeys(cx)

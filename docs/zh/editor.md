@@ -1442,3 +1442,13 @@ func main() {
 - **按 `Esc` 挂起与恢复审核**：按 `Esc`（`PauseReview`）回到编辑器并保持审核挂起——主视口继续绘制待审核改动叠加层（`drawPendingReviewOverlay`），右侧 **Agent** 标签页（`AgentPanelView`）展示 `"Review waiting · N changes, F files"`、已读计数、阻塞数与 **Resume review** 按钮（`ResumeReview`），点击后精确回到离开时的聚焦改动与已读状态。
 - **保留、全部撤回与单步撤销**：**Revert all** 弹出带焦点限制的确认对话框，列出将还原的文件并提示 `⌘Z` / `Ctrl+Z` 可全部恢复。**Keep**（`KeepTurnReview`）与 **Revert all**（`ConfirmReviewRevertAll`）均记录为 `Editor.History` 中的**单个步骤**，更新磁盘 YAML 文件与当前打开场景、弹出带 **Undo** 的规范 Toast，并在 Agent 面板显示 `"Kept K · reverted R · one undo step"`；执行一次 `Editor.Undo()` 即可按字节完整还原全部改动文件。
 - **MCP 只读接口（`editormcp`）**：新增只读工具 `review_status`（`ToolReviewStatus`、`ActionRead`），供智能体读取哪些改动已被查看或撤回、当前阻塞项以及保留/撤回结果，但保持保留与撤回决定权始终属于用户。
+
+## 智能体任务的系统通知、Dock 角标与播放模式提示点（#1023）
+
+编辑器通过 NSGo 原生通知与角标 API（`core.Scope.ShowNotification`、`core.Scope.RequestNotificationPermission`、`core.Scope.OnNotificationPress` 与 `core.Scope.SetBadge`）为后台任务（`tasks.go` / #1022）与智能体面板回合提供编辑器外提醒，界面严格遵循 `docs/design/editor/Tasks.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Spec.dc.html` 令牌规范：
+
+- **仅三类事件发送系统通知**：**等待权限**（`TaskNeedsYou`）、**待审查**（`TaskReadyToReview`）与**任务失败**（`TaskFailed`），标题与正文包含 `"NSGo Editor · <项目名>"`、任务名称、详情与主要操作（`Allow once`、`Review` 或 `Open`），并对控制字符进行净化与长度限制。已完成的步骤、排队启动、从磁盘恢复的历史任务以及普通智能体回复绝不发送系统通知。
+- **按需请求通知权限与 30 秒规则**：仅在首次真正需要发送通知时调用 `cx.RequestNotificationPermission`（在未检查通知权限前保持 macOS Dock 角标可用）。当编辑器窗口处于后台（`cx.Env().Lifecycle() != core.LifecycleActive`）时，三类事件立即通知；在前台时，未答复的等待权限请求会在 `AgentWaitingNotifyDelay`（`30 s`）后发送系统通知，若提前处理则取消。
+- **点击通知回到对应场景中的任务**：`cx.OnNotificationPress`（经由 `Editor.HandleNotificationPress` / `Editor.OpenAgentTask`）将编辑器窗口置前（并触发可选的 `Editor.OnFocusWindow` 钩子）、若在播放中先停止播放、关闭遮挡面板（设置、历史、问题智能体面板、就地提问、资源模式）、切换到或严格在项目根目录内打开该任务所在的场景标签页（拒绝路径遍历与符号链接逃逸）、打开任务或智能体面板并聚焦对应任务及待处理请求卡片。
+- **Dock 图标角标（`cx.SetBadge`）**：`Editor.AgentDockBadgeCount` 仅统计等待中（`TaskNeedsYou`）、待审查（`TaskReadyToReview`）与失败（`TaskFailed`）任务的总数（`AgentTaskCounts.BadgeCount()`）；运行中与排队中的任务绝不计入角标，归零或在作用域清理时自动清除。
+- **播放模式角落提示点与延后通知（`PlayTaskDotView`）**：在播放模式（`Editor.Playing()`）期间，运行中的游戏上方不会弹出任何智能体任务通知，系统通知会暂存（`Editor.HeldAgentNotifications`）直至 `Editor.Stop()` 停止播放后才对仍需处理的任务发出。视口右上角稳定挂载一个带 3 pt 光晕的 8 pt 圆点，颜色取当前最紧急状态的 Spec 令牌色（**失败** `Removed.Fg` > **等待处理** `Warning.Fg` > **待审查** `Accent.Fg`），仅在悬停或键盘聚焦时显示提示胶囊（例如 `"1 task needs you · stop Play to open"`）。
