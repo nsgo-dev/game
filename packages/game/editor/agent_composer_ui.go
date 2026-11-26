@@ -287,12 +287,19 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	// Fine-grained memo keys so normal typing in composerInput never triggers disk I/O or rebuilds
 	// chip rows, action buttons, or popovers on every keystroke.
+	refMemo := core.NewMemo(cx, func() agentComposerRefKey {
+		_ = rev.Get()
+		return buildAgentComposerRefKey(ed)
+	})
+
 	popoverKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
+		rk := refMemo.Get()
 		pickerOpen := ed.MentionPickerOpen()
 		breakdownOpen := ed.ContextBreakdownOpen()
 		hovered := ed.HoveredChipID()
-		if !pickerOpen && !breakdownOpen && hovered == "" {
+		hasRefPopover := rk.previewID != "" || rk.pinNoticeSig != "" || rk.attachErr != "" || rk.dragOver
+		if !pickerOpen && !breakdownOpen && hovered == "" && !hasRefPopover {
 			return ""
 		}
 		dark := ed.SpecPalette(cx).Dark
@@ -311,17 +318,23 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		if hovered != "" {
 			fmt.Fprintf(&b, "h:%s|%d|", hovered, ed.Revision())
 		}
+		if hasRefPopover {
+			fmt.Fprintf(&b, "r:%s|%s|%v|%s|%v|%s|%s|",
+				rk.previewID, rk.pinNoticeSig, rk.canUndoPin, rk.attachErr, rk.dragOver, rk.attachedSig, rk.briefSig)
+		}
 		return b.String()
 	})
 
 	chipRowsKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
+		rk := refMemo.Get()
 		dark := ed.SpecPalette(cx).Dark
 		lang := ed.ResolvedLanguage()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%s|%s|%s|%v|%s|%d|%d|",
+		fmt.Fprintf(&b, "%v|%s|%s|%s|%v|%s|%d|%d|%s|%v|%s|%s|",
 			dark, lang, ed.SelectedID, ed.HoveredChipID(), ed.ViewportImageIncluded(),
-			ed.ProjectPath, ed.filesRev, ed.AgentDocsRevision())
+			ed.ProjectPath, ed.filesRev, ed.AgentDocsRevision(),
+			rk.attachedSig, rk.briefExists, rk.briefSig, rk.previewID)
 		for _, c := range ed.agentComposer.attached {
 			b.WriteString(c.ID)
 			b.WriteByte('=')
@@ -361,6 +374,18 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		}
 		if hasHover && !pickerOpen && !breakdownOpen {
 			topPopovers = append(topPopovers, chipHoverPreviewView(p, hoverPayload))
+		}
+		if pop := agentImagePreviewPopover(ed, p); pop != nil {
+			topPopovers = append(topPopovers, pop)
+		}
+		if pinCard := agentPinNoticeCardView(ed, p); pinCard != nil {
+			topPopovers = append(topPopovers, pinCard)
+		}
+		if errBanner := agentAttachErrorBannerView(ed, p); errBanner != nil {
+			topPopovers = append(topPopovers, errBanner)
+		}
+		if dropZone := agentComposerDropZoneView(ed, p); dropZone != nil {
+			topPopovers = append(topPopovers, dropZone)
 		}
 		if len(topPopovers) == 0 {
 			return nil
@@ -489,6 +514,8 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			})
 		}
 
+		chipNodes = append(chipNodes, agentAttachedImageChipsView(ed, p)...)
+
 		var alwaysNodes []core.Node
 		alwaysNodes = append(alwaysNodes, core.Text{
 			Content: ed.T("composer.always"),
@@ -498,8 +525,16 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				Margin:   core.Edges{Right: specSpace4},
 			},
 		})
+		renderedBrief := false
 		for _, a := range always {
 			ac := a
+			if ac.Name == "brief.yaml" {
+				if briefChip := agentBriefAlwaysChipView(ed, p, ac.ID); briefChip != nil {
+					alwaysNodes = append(alwaysNodes, briefChip)
+					renderedBrief = true
+					continue
+				}
+			}
 			hovered := ed.HoveredChipID() == ac.ID
 			bCol := p.LineRaised
 			if hovered {
@@ -537,6 +572,11 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 				},
 			})
+		}
+		if !renderedBrief {
+			if briefChip := agentBriefAlwaysChipView(ed, p, ""); briefChip != nil {
+				alwaysNodes = append(alwaysNodes, briefChip)
+			}
 		}
 
 		vpBg := core.Transparent
@@ -770,6 +810,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						specIcon(lucide.AtSign, specIconSize, atFg),
 					},
 				},
+				agentAttachImageButtonView(ed, p),
 				core.View{Style: core.Style{FlexGrow: 1}},
 				base.Button{
 					TestID:  "agent-context-ring-btn",
@@ -843,6 +884,10 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		OnChange: func(v string) {
 			ed.updateComposerDraftFromInput(v)
 		},
+		OnPaste: func(ev core.PasteEvent) {
+			_, _, err := ed.HandleAgentComposerPaste(ev)
+			ed.report(err)
+		},
 		OnSubmit: func(string) {
 			if suppressSubmit {
 				suppressSubmit = false
@@ -899,6 +944,16 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	return core.View{
 		TestID: "agent-composer",
+		OnFileDragEnter: func() {
+			ed.SetAgentComposerDragOver(true)
+		},
+		OnFileDragLeave: func() {
+			ed.SetAgentComposerDragOver(false)
+		},
+		OnFileDrop: func(uris []string) {
+			_, err := ed.DropAgentReferenceFiles(uris)
+			ed.report(err)
+		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
 			p := ed.SpecPalette(cx)
