@@ -138,6 +138,9 @@ func sketchRead(ctx context.Context, c *Call) (*Result, error) {
 			wantImg = *args.IncludeImage
 		}
 		if wantImg {
+			if !ed.AgentPrivacy().ViewportImages {
+				return editor.PrivacyRefusalError(editor.PrivacyViewportImages, ToolSketchRead)
+			}
 			b, w, h, err := ed.RenderSketchViewportPNG(float32(scale))
 			if err != nil {
 				return fmt.Errorf("sketch_read: %w", err)
