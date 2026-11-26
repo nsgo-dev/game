@@ -763,6 +763,13 @@ strings:
   overlays.fit: 适应画面
   overlays.fitLabel: 在 2D 视口中适应显示全部可见对象
   overlays.labels: 标签
+  overlays.legend.added: 已添加
+  overlays.legend.agent: 智能体处理中
+  overlays.legend.changed: 已修改
+  overlays.legend.problem: 问题
+  overlays.legend.removed: 已移除
+  overlays.legend.selection: 选中
+  overlays.legendTitle: 叠加层
   overlays.navigation: 导航区域
   overlays.patrolPaths: 巡逻路径
   overlays.popoverTitle: 在视口中显示

@@ -2257,6 +2257,10 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 		e.drawWireframe3D(d, s3, w, h)
 	}
 
+	// 5b. Spec viewport overlays (Agent working, Added, Changed, Removed, Focused change, Problem)
+	// sharing DrawObjectOverlay and the top-left legend toggles with the 2D viewport.
+	e.drawSceneOverlays3D(d, w, h)
+
 	proj := e.Projection3D(w, h)
 
 	// 6. Active 3D transform gizmo, light/camera handles, and component gizmo handles on the selected object (hidden while painting a GridMap or 3D Terrain brush).
@@ -2298,7 +2302,8 @@ func (e *Editor) drawWireframe3D(d *core.Drawing, s *scene3DState, w, h float32)
 	if s.built == nil {
 		return
 	}
-	d.Save().SetStrokeColor(core.RGBA(0xE2E8F0, 0.55)).SetLineWidth(1).BeginPath()
+	spec := e.SpecPalette(nil)
+	d.Save().SetStrokeColor(ui.Alpha(spec.TextSecondary, 0.55)).SetLineWidth(1).BeginPath()
 	drawn := 0
 	var world [][3]float32
 	for _, dr := range s.built.Drawables {
@@ -2347,7 +2352,8 @@ func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 	extent := step * float32(half)
 	vc := e.activeView3DCam(w, h)
 
-	d.Save().SetStrokeColor(core.RGBA(0x94A3B8, 0.22)).SetLineWidth(1).BeginPath()
+	spec := e.SpecPalette(nil)
+	d.Save().SetStrokeColor(ui.Alpha(spec.TextFaint, 0.24)).SetLineWidth(1).BeginPath()
 	hasSegments := false
 	for i := -half; i <= half; i++ {
 		coord := float32(i) * step
@@ -2380,13 +2386,14 @@ func (e *Editor) drawOriginAxes3D(d *core.Drawing, w, h float32) {
 	origin := [3]float32{0, 0, 0}
 	vc := e.activeView3DCam(w, h)
 
+	spec := e.SpecPalette(nil)
 	axes := []struct {
 		end   [3]float32
 		color core.Color
 	}{
-		{[3]float32{axisLen, 0, 0}, core.RGBA(0xEF4444, 0.9)},
-		{[3]float32{0, axisLen, 0}, core.RGBA(0x22C55E, 0.9)},
-		{[3]float32{0, 0, axisLen}, core.RGBA(0x3B82F6, 0.9)},
+		{[3]float32{axisLen, 0, 0}, ui.Alpha(spec.Problem().Fg, 0.9)},
+		{[3]float32{0, axisLen, 0}, ui.Alpha(spec.Added.Fg, 0.9)},
+		{[3]float32{0, 0, axisLen}, ui.Alpha(spec.Accent.Fg, 0.9)},
 	}
 	for _, ax := range axes {
 		x0, y0, x1, y1, vis := vc.projectSegment(origin, ax.end, w, h)
@@ -2480,21 +2487,25 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 		return cmp.Compare(b.depth, a.depth)
 	})
 
+	spec := e.SpecPalette(nil)
+	selVisible := e.OverlayKindVisible(OverlayKindSelection)
+	canvas := core.Size{Width: core.Points(w), Height: core.Points(h)}
+
 	for _, item := range items {
 		occluded := e.vp3d.occludedObjects[item.obj.ID]
 		lod, hasLOD := e.vp3d.lodByObject[item.obj.ID]
 		if item.wireframe {
 			corners := e.objectCorners3DUnder(item.obj, item.parent)
-			color := core.RGBA(0xCBD5E1, 0.8)
+			color := ui.Alpha(spec.TextMuted, 0.75)
 			lineWidth := float32(1.25)
 			if occluded {
-				color = core.RGBA(0x94A3B8, 0.35)
+				color = ui.Alpha(spec.TextFaint, 0.35)
 			} else if e.ShowLODOverlay && hasLOD {
 				color = lodColor3D(lod)
 			}
-			if item.selected {
-				color = core.RGBA(0x38BDF8, 1)
-				lineWidth = 2.0
+			if item.selected && selVisible {
+				color = spec.Accent.Edge
+				lineWidth = overlaySelectionWidth
 			}
 
 			d.Save().SetStrokeColor(color).SetLineWidth(lineWidth)
@@ -2521,10 +2532,18 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 			e.drawObjectLODBadge3D(d, item.obj, lod, w, h)
 		}
 
-		if item.selected {
-			pos := vec32(item.parent.point([3]float64{float64(item.obj.X), float64(item.obj.Y), float64(item.obj.PosZ)}))
-			if cx, cy, _, vis := vc.project(pos, w, h); vis {
-				d.Save().SetFillColor(core.RGBA(0x38BDF8, 1)).BeginPath().Arc(cx, cy, 3, 0, float32(2*math.Pi), false).Fill().Restore()
+		if item.selected && selVisible {
+			if bounds, vis := e.projectObject3DBounds(item.obj, item.parent, vc, w, h); vis {
+				name := item.obj.Name
+				if name == "" {
+					name = item.obj.ID
+				}
+				DrawObjectOverlay(d, spec, ObjectOverlay{
+					Kind:       OverlayKindSelection,
+					Label:      name,
+					Bounds:     bounds,
+					CanvasSize: canvas,
+				})
 			}
 		}
 	}

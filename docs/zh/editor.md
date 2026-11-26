@@ -1140,7 +1140,7 @@ func main() {
 
 编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
 
-- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`、#921、#1005、#1028）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `version`、`language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `interfaceSize`（`compact`、`default` 或 `large`）、可选的 `snap`（用户级默认吸附设置：`grid`、`gridSize`、`pixel`、`rotation`、`rotationStepDeg`、`scale`、`scaleStep` 与 `showGrid`，当项目未在 `.game/editor.yaml` 单独覆盖吸附设置时自动生效）、可选的 `showAgentChanges`（省略时默认为 `true`）、可选的 `navigation3D`（`default`、`blender` 或 `maya`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）、可选的 `shortcuts`、可选的 `seenTips` 以及可选的 `agent` 偏好（任务路由、MCP 工具开关、外部 MCP 服务器、每周请求限额、出站隐私开关与本地用量统计；API 密钥等机密绝不写入 `editor.yaml`）。未知字段、YAML 锚点/别名/合并键、多余文档、负数/非有限吸附步长和非法枚举值都会被拒绝并返回 `*loaderr.Error`。输出为带 `SettingsSchemaComment` 头的确定性 2 空格 YAML，加载后重新保存字节完全不变。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
+- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`、#921、#1005、#1006、#1028）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `version`、`language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `interfaceSize`（`compact`、`default` 或 `large`）、可选的 `snap`（用户级默认吸附设置：`grid`、`gridSize`、`pixel`、`rotation`、`rotationStepDeg`、`scale`、`scaleStep` 与 `showGrid`，当项目未在 `.game/editor.yaml` 单独覆盖吸附设置时自动生效）、可选的 `showAgentChanges`（省略时默认为 `true`）、可选的 `navigation3D`（`default`、`blender` 或 `maya`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）、可选的 `overlayLegend`（按字典序排列的已启用 Spec 视口叠加图例类型：`selection`、`agent`、`added`、`changed`、`removed`、`problem`；省略时全部开启，`[]` 表示全部隐藏）、可选的 `shortcuts`、可选的 `seenTips` 以及可选的 `agent` 偏好（任务路由、MCP 工具开关、外部 MCP 服务器、每周请求限额、出站隐私开关与本地用量统计；API 密钥等机密绝不写入 `editor.yaml`）。未知字段、YAML 锚点/别名/合并键、多余文档、负数/非有限吸附步长和非法枚举值都会被拒绝并返回 `*loaderr.Error`。输出为带 `SettingsSchemaComment` 头的确定性 2 空格 YAML，加载后重新保存字节完全不变。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
   ```yaml
   # yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
   version: 1
@@ -1575,3 +1575,22 @@ func main() {
 - **已停止（`AgentStoppedState`）**：停止运行中的请求后，卡片分区列出 `DONE` 与 `NOT DONE` 步骤，提供 **Resume**（`ResumeAgentTurn`，从首个未完成步骤开始继续，跳过已完成步骤不重复执行）与 **Review N changes**；已生成的改动在审查采纳前保持未保留状态。
 - **摘要与差异不一致（`AgentMismatchReport`）**：编辑器会自动将每条智能体摘要与实际 diff 比对（`CheckAgentSummaryAgainstDiff`），当两者不一致时展示 `WHAT · SUMMARY · REVIEW` 对比表与已知原因（例如某对象在第 3 步被添加、第 5 步被移除），并提供 **Ask why**（`AskAgentWhyMismatch`）与 **Open review**（`OpenAgentTurnReview`）。点击 **Keep** 始终仅采纳实际审查差异，绝不采纳摘要中的虚构数量。
 - **离线队列（`AgentStatusOffline`、`SetAgentOffline`）**：展示 `"You're offline"`，并在保持选择、移动、检视器、游戏检查与 Play 全部可用的同时，将提交的请求连同时间戳加入队列（`AgentQueuedRequests`、`QueueAgentRequest`、`RemoveQueuedAgentRequest`）。恢复联网后队列中的请求不会自动执行，而是逐条等待用户手动点击 **Send**（`SendQueuedAgentRequest`）发送。
+
+## 规范视口叠加层与可切换图例（#1006）
+
+2D 与 3D 视口中的所有语义叠加层都通过统一绘制辅助函数 `DrawObjectOverlay` 绘制，完全使用 `SpecPalette` 令牌（对应 `docs/design/editor/Spec.dc.html` 中的 “Overlay legend”），且每一种类型都配备非颜色的第二视觉线索（角点手柄、胶囊图标/前缀、灰色幽灵填充、删除线或实心警告徽章），在灰度下依然彼此可辨：
+
+| 类型（`OverlayKind`） | 令牌与线型 | 第二视觉线索 |
+| --- | --- | --- |
+| **选中**（`selection`） | `Accent`，1.5 px 实线 | 四个 8×8 角点手柄与强调色名称标签（仅表示用户的选中） |
+| **智能体处理中**（`agent`） | `Agent`，1.5 px 实线，无手柄 | 1.6 秒周期在 100% 与 45% 之间脉冲，深色胶囊配四角星智能体图标（或编号任务徽章）说明正在执行的操作 |
+| **已添加**（`added`） | `Added`，1.5 px 虚线 | 带 `"+ <名称>"` 文本的深色胶囊 |
+| **已修改**（`changed`） | `Changed`，1.5 px 虚线 | 显示字段名及旧值与新值的深色胶囊（如 `"z 10 → 12"`） |
+| **已移除**（`removed`） | `Removed`，1.5 px 实线 | 25% 透明度灰色幽灵块与带删除线对象名 + `"removed"` 的深色胶囊 |
+| **问题**（`problem`） | `Problem`，活体对象上的 2 px 实线 | 实心填充胶囊（`Problem.Fg` / `Problem.OnFill`），带三角警告图标与错误信息，绝不会与已移除幽灵混淆 |
+| **审查中聚焦的改动**（`focused`） | 沿用对应改动类型自身颜色与虚/实线，线宽 2.5 px（绝不使用 `Accent`） | 与该改动同色描边的醒目胶囊 |
+
+- **同对象叠加、动效与减弱动态效果**：当**选中**与**智能体处理中**同时落在同一对象上（`PairedWithSelection`）时，选中框保留四个角点手柄，智能体外框向外偏移 3 px（`OverlaySelectionAgentGap`），其胶囊自动上移堆叠。已添加、已修改、已移除叠加层在 240 ms 内淡入（`OverlayChangeFadeDuration` / `OverlayFadeAlpha`），智能体处理中外框以 1.6 s 周期脉冲（`OverlayAgentPulsePeriod` / `OverlayAgentPulseAlpha`）。开启减弱动态效果（`core.Environment.ReduceMotion` 或 `Editor.SetReduceMotion(true)`）后，变更叠加层立即以 100% 出现，智能体外框保持 100% 实线且不再启动动画定时器。
+- **左上角可切换图例（`viewport-overlay-legend`）**：所有编辑态视口（2D 与 3D）在左上角挂载同一张图例卡片（`viewportOverlayLegendView`），提供 6 行无障碍 `role="switch"` 开关（**选中**、**智能体处理中**、**已添加**、**已修改**、**已移除**、**问题**），每行都绘出对应线型与第二线索。切换任一行（`Editor.ToggleOverlayKind`、`Editor.SetOverlayKindVisible`、`Editor.SetOverlayLegendKinds`）会立即在所有视口隐藏或显示该类叠加层，并将 `overlayLegend` 持久化到项目之外的用户级 `EditorSettings` YAML 文件（`Editor.SettingsPath`，绝不修改项目或场景文件）。
+- **实时场景叠加层接口与问题对象关联**：实时智能体编辑、审查与计划通过 `Editor.SetSceneOverlays`、`AddSceneOverlay`、`RemoveSceneOverlay` 和 `ClearSceneOverlays`（`SceneOverlayEntry`）将叠加层附加到场景对象或已移除幽灵边界上。`assetcheck.Problem` 现包含 `Object` 字段（同时通过 `editormcp` 的 `game_check` 返回），覆盖场景对象、组件、覆写与连接诊断，使问题面板中指向当前打开场景对象的诊断会自动在 2D 与 3D 视口中绘制 Spec **问题**叠加层。
+- **中性视口参考线**：相机取景框、相机边界、相机连线、瓦片网格与对齐网格统一迁移到中性 `SpecPalette` 令牌（`TextMuted` / `TextFaint` 1 px 细线与 `2, 4` 点线），与所有语义图例线型完全区分。

@@ -88,6 +88,13 @@ viewportOverlays:
   - connections
   - navigation
   - triggers
+overlayLegend:
+  - added
+  - agent
+  - changed
+  - problem
+  - removed
+  - selection
 shortcuts:
   view.frame: g
 seenTips:

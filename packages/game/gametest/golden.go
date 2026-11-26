@@ -68,6 +68,7 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 		fillColor   core.Color
 		strokeColor core.Color
 		lineWidth   float64
+		dash        []float64
 	}
 	type pathRect struct {
 		x, y, w, h float64
@@ -115,7 +116,11 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 	for _, op := range ops {
 		switch op.Kind {
 		case core.DrawSave:
-			stack = append(stack, cur)
+			saved := cur
+			if len(cur.dash) > 0 {
+				saved.dash = slices.Clone(cur.dash)
+			}
+			stack = append(stack, saved)
 		case core.DrawRestore:
 			if n := len(stack); n > 0 {
 				cur = stack[n-1]
@@ -150,6 +155,22 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 			if op.W > 0 {
 				cur.lineWidth = float64(op.W)
 			}
+		case core.DrawLineDash:
+			cur.dash = nil
+			if op.Dash != nil && len(*op.Dash) > 0 {
+				d := make([]float64, 0, len(*op.Dash))
+				for _, v := range *op.Dash {
+					if v > 0 {
+						d = append(d, float64(v))
+					}
+				}
+				if len(d) > 0 {
+					if len(d)%2 == 1 {
+						d = append(d, d...)
+					}
+					cur.dash = d
+				}
+			}
 		case core.DrawBeginPath:
 			rects = rects[:0]
 			subs = subs[:0]
@@ -160,6 +181,22 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 				w: float64(op.W), h: float64(op.H),
 				m: cur.m,
 			})
+		case core.DrawRoundRect:
+			if sub, ok := buildRoundRectSub(cur.m, float64(op.X), float64(op.Y), float64(op.W), float64(op.H), float64(op.R)); ok {
+				subs = append(subs, sub)
+			}
+		case core.DrawArc:
+			if pts := buildArcPoints(cur.m, float64(op.X), float64(op.Y), float64(op.R), float64(op.R), float64(op.A0), float64(op.A1), op.CCW); len(pts) > 0 {
+				curSub = append(curSub, pts...)
+			}
+		case core.DrawEllipse:
+			rx, ry := float64(op.R), float64(op.RY)
+			if ry == 0 {
+				ry = rx
+			}
+			if pts := buildArcPoints(cur.m, float64(op.X), float64(op.Y), rx, ry, 0, 2*math.Pi, false); len(pts) > 0 {
+				subs = append(subs, pathSub{pts: pts, closed: true})
+			}
 		case core.DrawMoveTo:
 			if len(curSub) > 0 {
 				subs = append(subs, pathSub{pts: curSub})
@@ -194,16 +231,47 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 			if sa <= 0 || cur.lineWidth <= 0 {
 				continue
 			}
+			scale := cur.m.scale()
+			lw := cur.lineWidth * scale
+			scaledDash := scaleDashPattern(cur.dash, scale)
 			for _, r := range rects {
-				strokeTransformedRect(dst, r.m, r.x, r.y, r.w, r.h, cur.lineWidth, sr, sg, sb, sa)
+				if len(scaledDash) > 0 {
+					x, y, w, h := normalizeRect(r.x, r.y, r.w, r.h)
+					p0x, p0y := r.m.apply(x, y)
+					p1x, p1y := r.m.apply(x+w, y)
+					p2x, p2y := r.m.apply(x+w, y+h)
+					p3x, p3y := r.m.apply(x, y+h)
+					rSub := []pathSub{{
+						pts:    []pathPt{{p0x, p0y}, {p1x, p1y}, {p2x, p2y}, {p3x, p3y}},
+						closed: true,
+					}}
+					strokePolygonsDashed(dst, rSub, lw, scaledDash, sr, sg, sb, sa)
+				} else {
+					strokeTransformedRect(dst, r.m, r.x, r.y, r.w, r.h, cur.lineWidth, sr, sg, sb, sa)
+				}
 			}
 			if len(subs) > 0 || len(curSub) >= 2 {
 				all := subs
 				if len(curSub) >= 2 {
 					all = append(slices.Clone(subs), pathSub{pts: curSub})
 				}
-				strokePolygons(dst, all, cur.lineWidth, sr, sg, sb, sa)
+				if len(scaledDash) > 0 {
+					strokePolygonsDashed(dst, all, lw, scaledDash, sr, sg, sb, sa)
+				} else {
+					strokePolygons(dst, all, lw, sr, sg, sb, sa)
+				}
 			}
+		case core.DrawFillText:
+			if op.Text == "" {
+				continue
+			}
+			sr, sg, sb, sa := premulFromColor(cur.fillColor, cur.alpha)
+			if sa <= 0 {
+				continue
+			}
+			px, py := cur.m.apply(float64(op.X), float64(op.Y))
+			scale := max(1, int(math.Round(cur.m.scale())))
+			drawBitmapText(dst, int(math.Round(px)), int(math.Round(py))-7*scale, op.Text, sr, sg, sb, sa, scale)
 		case core.DrawClear:
 			clearTransformedRect(dst, cur.m, float64(op.X), float64(op.Y), float64(op.W), float64(op.H))
 		case core.DrawImage:

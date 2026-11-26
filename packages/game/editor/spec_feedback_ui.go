@@ -34,17 +34,17 @@ var (
 	}
 )
 
-// OverlayLegendOpen reports whether the compact viewport overlay legend is visible.
+// OverlayLegendOpen reports whether the compact viewport overlay legend is visible (true by default in edit mode).
 func (e *Editor) OverlayLegendOpen() bool {
-	return e != nil && e.overlayLegendOpen
+	return e != nil && !e.overlayLegendHidden
 }
 
 // SetOverlayLegendOpen shows or hides the compact viewport overlay legend in the viewport top-left corner.
 func (e *Editor) SetOverlayLegendOpen(open bool) {
-	if e == nil || e.overlayLegendOpen == open {
+	if e == nil || e.overlayLegendHidden == !open {
 		return
 	}
-	e.overlayLegendOpen = open
+	e.overlayLegendHidden = !open
 	e.notify()
 }
 
@@ -767,133 +767,314 @@ func specToastIcon(p SpecPalette, kind ToastKind) core.Node {
 	}
 }
 
-// viewportOverlayLegendView renders the compact interactive Spec overlay legend in the top-left of the
-// viewport when Editor.OverlayLegendOpen is true or live agent overlays are active (matching Spec.dc.html's
-// line-style legend). Each row toggles its overlay kind on or off and persists the choice per user in
-// EditorSettings.HiddenOverlayKinds.
+// viewportOverlayLegendView renders the Spec overlay legend in the top-left corner of every
+// edit-mode viewport (both 2D and 3D) as six accessible role="switch" toggles — one per kind
+// (Selection, Agent working, Added, Changed, Removed, Problem) with its exact Spec line style
+// and second cue. Turning a row off hides that kind and saves the choice per person in EditorSettings.
 func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	type legendStateKey struct {
+		visible  bool
+		dark     bool
+		viewMode ViewMode
+		lang     string
+		mask     uint8
+	}
+	keyMemo := core.NewMemo(cx, func() legendStateKey {
+		_ = rev.Get()
+		if ed == nil || ed.Playing() || ed.HistoryPreviewActive() || !ed.OverlayLegendOpen() {
+			return legendStateKey{}
+		}
+		var mask uint8
+		for i, k := range OverlayLegendKinds() {
+			if ed.OverlayKindVisible(k) {
+				mask |= 1 << uint(i)
+			}
+		}
+		return legendStateKey{
+			visible:  true,
+			dark:     cx.Dark(),
+			viewMode: ed.ViewMode,
+			lang:     ed.ResolvedLanguage(),
+			mask:     mask,
+		}
+	})
+
 	return core.Show{
 		When: func() bool {
-			_ = rev.Get()
-			return !ed.Playing() && !ed.HistoryPreviewActive() && (ed.OverlayLegendOpen() || ed.HasAgentLiveOverlays())
+			return keyMemo.Get().visible
 		},
 		Then: func(cx *core.Scope) core.Node {
-			row := func(testID string, kind OverlayLegendKind, labelKey string, colFn func(SpecPalette) core.Color, dashed bool) core.Node {
-				k := kind
-				isOn := func() bool {
-					_ = rev.Get()
-					return ed.OverlayLegendKindEnabled(k)
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				k := keyMemo.Get()
+				if !k.visible {
+					return core.View{}
 				}
-				return core.View{
-					TestID:    testID,
-					Role:      core.RoleSwitch,
-					LabelFunc: func() string { _ = rev.Get(); return ed.T(labelKey) },
-					Checked:   isOn,
-					Focusable: func() bool { return true },
-					Style: core.Style{
+				p := SpecPaletteFor(k.dark)
+				leftPt := core.Pt(10)
+				topPt := core.Pt(10)
+				compact3D := k.viewMode == ViewMode3D
+				if compact3D {
+					// Sit cleanly beneath view3d-bar + view3d-help in the 3D viewport's top-left corner
+					// using a compact 2×3 layout so the middle-left orbit/pan zone stays unobstructed.
+					leftPt = core.Pt(16)
+					topPt = core.Pt(92)
+				}
+
+				legendLabel := func(kind OverlayKind) string {
+					switch kind {
+					case OverlayKindSelection:
+						return ed.T("overlays.legend.selection")
+					case OverlayKindAgent:
+						return ed.T("overlays.legend.agent")
+					case OverlayKindAdded:
+						return ed.T("overlays.legend.added")
+					case OverlayKindChanged:
+						return ed.T("overlays.legend.changed")
+					case OverlayKindRemoved:
+						return ed.T("overlays.legend.removed")
+					case OverlayKindProblem:
+						return ed.T("overlays.legend.problem")
+					default:
+						return string(kind)
+					}
+				}
+
+				legendRole := func(kind OverlayKind) SpecRole {
+					switch kind {
+					case OverlayKindSelection:
+						return p.Accent
+					case OverlayKindAgent:
+						return p.Agent
+					case OverlayKindAdded:
+						return p.Added
+					case OverlayKindChanged:
+						return p.Changed
+					case OverlayKindRemoved:
+						return p.Removed
+					case OverlayKindProblem:
+						return p.Problem()
+					default:
+						return p.Accent
+					}
+				}
+
+				legendRow := func(kind OverlayKind) core.Node {
+					on := ed.OverlayKindVisible(kind)
+					role := legendRole(kind)
+					label := legendLabel(kind)
+					swatchAlpha := float32(1)
+					textColor := p.TextSecondary
+					if !on {
+						swatchAlpha = 0.35
+						textColor = p.TextFaint
+					}
+					trackBg := p.LineRaised
+					knobLeft := core.Pt(2)
+					if on {
+						trackBg = role.Fg
+						knobLeft = core.Pt(12)
+					}
+					knobBg := specHandleFill(p)
+					if on && p.Dark {
+						knobBg = role.OnFill
+					}
+
+					swatch := core.Canvas{
+						Style: core.Style{Width: core.Pt(26), Height: core.Pt(12), FlexShrink: 0},
+						Draw: func(d *core.Drawing, _ core.Size) {
+							d.Save()
+							edge := ui.Alpha(role.Edge, swatchAlpha)
+							fg := ui.Alpha(role.Fg, swatchAlpha)
+							switch kind {
+							case OverlayKindSelection:
+								// 1.5 px solid accent line + two corner handle squares.
+								d.SetStrokeColor(edge).SetLineWidth(1.5)
+								d.BeginPath().MoveTo(4, 6).LineTo(22, 6).Stroke()
+								hf := ui.Alpha(specHandleFill(p), swatchAlpha)
+								for _, hx := range [2]float32{1.5, 19.5} {
+									d.SetFillColor(hf).BeginPath().RoundRect(hx, 3.5, 5, 5, 1).Fill()
+									d.SetStrokeColor(edge).SetLineWidth(1.2).BeginPath().RoundRect(hx, 3.5, 5, 5, 1).Stroke()
+								}
+							case OverlayKindAgent:
+								// 1.5 px solid agent violet line + 4-point agent sparkle glyph.
+								d.SetStrokeColor(edge).SetLineWidth(1.5)
+								d.BeginPath().MoveTo(1.5, 6).LineTo(14.5, 6).Stroke()
+								drawAgentSparkleGlyph(d, 21, 6, 4.2, fg)
+							case OverlayKindAdded:
+								// 1.5 px dashed added green line + "+" cue.
+								d.SetStrokeColor(edge).SetLineWidth(1.5).SetLineDash(3.5, 2)
+								d.BeginPath().MoveTo(1.5, 6).LineTo(15.5, 6).Stroke()
+								d.SetLineDash()
+								d.SetStrokeColor(fg).SetLineWidth(1.5).SetLineCap(core.CapRound)
+								d.BeginPath().MoveTo(18.5, 6).LineTo(24.5, 6).MoveTo(21.5, 3).LineTo(21.5, 9).Stroke()
+							case OverlayKindChanged:
+								// 1.5 px dashed changed amber line + "→" cue.
+								d.SetStrokeColor(edge).SetLineWidth(1.5).SetLineDash(3.5, 2)
+								d.BeginPath().MoveTo(1.5, 6).LineTo(14.5, 6).Stroke()
+								d.SetLineDash()
+								d.SetStrokeColor(fg).SetLineWidth(1.5).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
+								d.BeginPath().MoveTo(17.5, 6).LineTo(24.5, 6).MoveTo(22, 3.5).LineTo(24.5, 6).LineTo(22, 8.5).Stroke()
+							case OverlayKindRemoved:
+								// 1.5 px solid removed red frame around a 25% grey ghost + strikethrough cue.
+								d.SetFillColor(ui.Alpha(p.TextFaint, 0.28*swatchAlpha)).BeginPath().RoundRect(2.5, 2.5, 11, 7, 1.5).Fill()
+								d.SetStrokeColor(edge).SetLineWidth(1.5).BeginPath().RoundRect(1.5, 1.5, 13, 9, 2).Stroke()
+								d.SetStrokeColor(fg).SetLineWidth(1.4).SetLineCap(core.CapRound)
+								d.BeginPath().MoveTo(17, 6).LineTo(24.5, 6).Stroke()
+							case OverlayKindProblem:
+								// 2 px solid problem red line + filled alert triangle badge.
+								d.SetStrokeColor(edge).SetLineWidth(2)
+								d.BeginPath().MoveTo(1.5, 6).LineTo(12.5, 6).Stroke()
+								d.SetFillColor(fg).BeginPath().RoundRect(15, 0.5, 11, 11, 5.5).Fill()
+								onFill := ui.Alpha(role.OnFill, swatchAlpha)
+								d.SetStrokeColor(onFill).SetLineWidth(1.2).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
+								d.BeginPath().MoveTo(20.5, 2.5).LineTo(23.8, 8.8).LineTo(17.2, 8.8).ClosePath().Stroke()
+								d.BeginPath().MoveTo(20.5, 5).LineTo(20.5, 6.7).Stroke()
+							}
+							d.Restore()
+						},
+					}
+
+					switchTrack := core.View{
+						PointerEvents: core.PointerEventsNone,
+						Style: core.Style{
+							Position:     core.Relative,
+							Width:        core.Pt(22),
+							Height:       core.Pt(12),
+							CornerRadius: 6,
+							Background:   trackBg,
+							FlexShrink:   0,
+						},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{
+									Position:     core.Absolute,
+									Left:         knobLeft,
+									Top:          core.Pt(2),
+									Width:        core.Pt(8),
+									Height:       core.Pt(8),
+									CornerRadius: 4,
+									Background:   knobBg,
+								},
+							},
+						},
+					}
+
+					kindCopy := kind
+					rowStyle := core.Style{
 						Direction:    core.Row,
 						AlignItems:   core.AlignCenter,
-						Gap:          8,
-						Height:       core.Pt(28),
-						Padding:      core.Symmetric(0, 6),
-						CornerRadius: 6,
-					},
-					StyleFunc: func() core.Style {
-						return core.Style{FocusVisible: ed.SpecPalette(cx).FocusRing(2)}
-					},
-					OnPress: func(core.PressEvent) {
-						ed.report(ed.ToggleOverlayLegendKind(k))
-					},
-					Children: []core.Node{
-						core.Canvas{
-							Style: core.Style{Width: core.Pt(18), Height: core.Pt(10), FlexShrink: 0},
-							Draw: func(d *core.Drawing, _ core.Size) {
-								_ = rev.Get()
-								p := ed.SpecPalette(cx)
-								c := colFn(p)
-								if !ed.OverlayLegendKindEnabled(k) {
-									c = ui.Alpha(p.TextFaint, 0.45)
-								}
-								d.SetStrokeColor(c).SetLineWidth(1.8)
-								if dashed {
-									d.SetLineDash(4, 2.5)
-								}
-								d.BeginPath().MoveTo(1, 5).LineTo(17, 5).Stroke()
-							},
-						},
-						core.Text{
-							ContentFunc: func() string {
-								_ = rev.Get()
-								return ed.T(labelKey)
-							},
-							Style: core.Style{
-								FontSize:   11.5,
-								FontWeight: 500,
-							},
-							StyleFunc: func() core.Style {
-								p := ed.SpecPalette(cx)
-								if !isOn() {
-									return core.Style{
-										Color:          p.TextFaint,
-										TextDecoration: core.TextDecorationLineThrough,
-									}
-								}
-								return core.Style{Color: p.TextSecondary}
-							},
-						},
-					},
-				}
-			}
-			return core.View{
-				TestID: "viewport-overlay-legend",
-				Style: core.Style{
-					Position:     core.Absolute,
-					Left:         core.Pt(12),
-					Top:          core.Pt(12),
-					Padding:      core.Symmetric(8, 10),
-					Gap:          0,
-					CornerRadius: 10,
-					BorderWidth:  1,
-				},
-				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
-					return core.Style{
-						Background:  p.Raised,
-						BorderColor: p.LineRaised,
+						Gap:          6,
+						Height:       core.Pt(20),
+						Padding:      core.Symmetric(0, 4),
+						CornerRadius: 5,
+						FocusVisible: p.FocusRing(2),
 					}
-				},
-				Children: []core.Node{
-					core.Text{
-						ContentFunc: func() string {
-							_ = rev.Get()
-							return ed.T("agent.legendTitle")
+					if compact3D {
+						rowStyle.MinWidth = core.Pt(138)
+					}
+					return core.View{
+						TestID:    "legend-" + string(kind),
+						Role:      core.RoleSwitch,
+						Label:     label,
+						Checked:   func() bool { _ = rev.Get(); return ed.OverlayKindVisible(kindCopy) },
+						Focusable: func() bool { return true },
+						OnPress: func(core.PressEvent) {
+							ed.report(ed.ToggleOverlayKind(kindCopy))
 						},
+						Style: rowStyle,
+						Children: []core.Node{
+							swatch,
+							core.Text{
+								Content:  label,
+								MaxLines: 1,
+								Style: core.Style{
+									FlexGrow:   1,
+									FontSize:   11,
+									FontWeight: 500,
+									Color:      textColor,
+								},
+							},
+							switchTrack,
+						},
+					}
+				}
+				if compact3D {
+					kinds := OverlayLegendKinds()
+					leftCol := make([]core.Node, 0, 3)
+					rightCol := make([]core.Node, 0, 3)
+					for i, kind := range kinds {
+						if i < 3 {
+							leftCol = append(leftCol, legendRow(kind))
+						} else {
+							rightCol = append(rightCol, legendRow(kind))
+						}
+					}
+					return core.View{
+						TestID: "viewport-overlay-legend",
+						Role:   core.RoleGroup,
+						Label:  ed.T("overlays.legendTitle"),
 						Style: core.Style{
-							FontSize:      10.5,
-							FontWeight:    600,
-							LetterSpacing: 0.6,
-							Padding:       core.Edges{Left: 6, Right: 6, Bottom: 4},
+							Position:     core.Absolute,
+							Left:         leftPt,
+							Top:          topPt,
+							Direction:    core.Row,
+							Gap:          6,
+							Padding:      core.Symmetric(4, 5),
+							CornerRadius: 8,
+							Background:   p.Raised,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
 						},
-						StyleFunc: func() core.Style {
-							return core.Style{Color: ed.SpecPalette(cx).TextFaint}
+						Children: []core.Node{
+							core.View{Style: core.Style{Gap: 2}, Children: leftCol},
+							core.View{Style: core.Style{Gap: 2}, Children: rightCol},
 						},
+					}
+				}
+
+				children := make([]core.Node, 0, 7)
+				children = append(children, core.Text{
+					TestID:  "viewport-overlay-legend-title",
+					Content: ed.T("overlays.legendTitle"),
+					Style: core.Style{
+						FontSize:      9.5,
+						FontWeight:    600,
+						LetterSpacing: 0.6,
+						Color:         p.TextFaint,
+						Padding:       core.Edges{Left: 4, Right: 4, Top: 1, Bottom: 1},
 					},
-					row("legend-selection", OverlayLegendSelection, "agent.legendSelection", func(p SpecPalette) core.Color { return p.Accent.Edge }, false),
-					row("legend-agent", OverlayLegendAgent, "agent.legendAgent", func(p SpecPalette) core.Color { return p.Agent.Edge }, false),
-					row("legend-added", OverlayLegendAdded, "agent.legendAdded", func(p SpecPalette) core.Color { return p.Added.Edge }, true),
-					row("legend-changed", OverlayLegendChanged, "agent.legendChanged", func(p SpecPalette) core.Color { return p.Changed.Edge }, true),
-					row("legend-removed", OverlayLegendRemoved, "agent.legendRemoved", func(p SpecPalette) core.Color { return p.Removed.Edge }, false),
-					row("legend-problem", OverlayLegendProblem, "agent.legendProblem", func(p SpecPalette) core.Color { return p.Problem().Edge }, false),
-				},
-			}
+				})
+				for _, kind := range OverlayLegendKinds() {
+					children = append(children, legendRow(kind))
+				}
+
+				return core.View{
+					TestID: "viewport-overlay-legend",
+					Role:   core.RoleGroup,
+					Label:  ed.T("overlays.legendTitle"),
+					Style: core.Style{
+						Position:     core.Absolute,
+						Left:         leftPt,
+						Top:          topPt,
+						MinWidth:     core.Pt(150),
+						Padding:      core.Symmetric(4, 4),
+						Gap:          1,
+						CornerRadius: 8,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+					},
+					Children: children,
+				}
+			})
 		},
 	}
 }
 
-// SpecOverlayLegendView renders the complete 6-card Spec.dc.html Overlay Legend board
-// (Selection, Agent working, Added, Changed, Removed, Problem) on the active theme's viewport surround,
-// using exclusively SpecPalette tokens so every outline (>= 3:1) and pill label (>= 4.5:1) can be
-// inspected side by side in Dark and Light appearances.
+// SpecOverlayLegendView renders the complete Spec.dc.html Overlay Legend board
+// (Selection, Agent working, Added, Changed, Removed, Problem, and Focused change in Review)
+// on the active theme's viewport surround, drawing every card through DrawObjectOverlay using
+// exclusively SpecPalette tokens so Dark and Light appearances can be inspected side by side.
 func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
@@ -903,7 +1084,21 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			modeLabel = "Dark theme"
 		}
 
-		card := func(testID, title, desc string, preview core.Node) core.Node {
+		drawVPBackdrop := func(d *core.Drawing, sz core.Size) {
+			w, h := float32(sz.Width), float32(sz.Height)
+			d.SetFillColor(p.Viewport).FillRect(0, 0, w, h)
+			d.SetFillColor(p.ViewportDot)
+			for y := float32(8); y < h; y += 16 {
+				for x := float32(8); x < w; x += 16 {
+					d.FillRect(x, y, 1.2, 1.2)
+				}
+			}
+			floorY := h - 34
+			d.SetFillColor(p.Inset).FillRect(0, floorY, w, 34)
+			d.SetFillColor(p.LineRaised).FillRect(0, floorY, w, 3)
+		}
+
+		card := func(testID, title, desc string, drawPreview func(d *core.Drawing, sz core.Size)) core.Node {
 			return core.View{
 				TestID: testID,
 				Style: core.Style{
@@ -922,7 +1117,15 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 							BorderColor:  p.Line,
 							Overflow:     core.Hidden,
 						},
-						Children: []core.Node{preview},
+						Children: []core.Node{
+							core.Canvas{
+								Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+								Draw: func(d *core.Drawing, sz core.Size) {
+									drawVPBackdrop(d, sz)
+									drawPreview(d, sz)
+								},
+							},
+						},
 					},
 					core.Text{
 						Content: title,
@@ -943,116 +1146,16 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			}
 		}
 
-		drawVPBackdrop := func(d *core.Drawing, sz core.Size) {
-			w, h := float32(sz.Width), float32(sz.Height)
-			d.SetFillColor(p.Viewport).FillRect(0, 0, w, h)
-			d.SetFillColor(p.ViewportDot)
-			for y := float32(8); y < h; y += 16 {
-				for x := float32(8); x < w; x += 16 {
-					d.FillRect(x, y, 1.2, 1.2)
-				}
-			}
-			// Floor strip using Spec Inset / LineRaised tokens.
-			floorY := h - 34
-			d.SetFillColor(p.Inset).FillRect(0, floorY, w, 34)
-			d.SetFillColor(p.LineRaised).FillRect(0, floorY, w, 3)
-		}
-
-		pillNode := func(testID, label string, fg, bg, border core.Color, strikePrefix string) core.Node {
-			kids := []core.Node{}
-			if strikePrefix != "" {
-				kids = append(kids, core.Text{
-					Content: strikePrefix,
-					Style: core.Style{
-						FontFamily:     core.FontMonospace,
-						FontSize:       11,
-						FontWeight:     500,
-						Color:          fg,
-						TextDecoration: core.TextDecorationLineThrough,
-					},
-				})
-			}
-			kids = append(kids, core.Text{
-				Content: label,
-				Style: core.Style{
-					FontFamily: core.FontMonospace,
-					FontSize:   11,
-					FontWeight: 600,
-					Color:      fg,
-				},
-			})
-			st := core.Style{
-				Direction:      core.Row,
-				AlignItems:     core.AlignCenter,
-				Gap:            6,
-				Height:         core.Pt(22),
-				Padding:        core.Symmetric(0, 8),
-				CornerRadius:   11,
-				Background:     bg,
-				JustifyContent: core.JustifyCenter,
-			}
-			if border != core.Transparent {
-				st.BorderWidth = 1
-				st.BorderColor = border
-			}
-			return core.View{TestID: testID, Style: st, Children: kids}
-		}
-
 		selectionCard := card(
 			"spec-legend-selection",
 			"Selection",
 			"accent · 1.5 px solid · four handles and a name tag.",
-			core.View{
-				Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), Position: core.Relative},
-				Children: []core.Node{
-					core.Canvas{
-						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						Draw: func(d *core.Drawing, sz core.Size) {
-							drawVPBackdrop(d, sz)
-							cx := float32(sz.Width) / 2
-							fy := float32(sz.Height) - 34
-							d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(cx-12, fy-34, 24, 34, 4).Fill()
-							d.SetStrokeColor(p.Accent.Edge).SetLineWidth(1.5).BeginPath().RoundRect(cx-18, fy-40, 36, 46, 6).Stroke()
-							for _, pt := range [4][2]float32{{cx - 18, fy - 40}, {cx + 18, fy - 40}, {cx - 18, fy + 6}, {cx + 18, fy + 6}} {
-								d.SetFillColor(p.Raised).FillRect(pt[0]-4, pt[1]-4, 8, 8)
-								d.SetStrokeColor(p.Accent.Edge).SetLineWidth(1.5).StrokeRect(pt[0]-4, pt[1]-4, 8, 8)
-							}
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Position:       core.Absolute,
-							Left:           core.Pt(0),
-							Right:          core.Pt(0),
-							Top:            core.Pt(56),
-							Direction:      core.Row,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							core.View{
-								TestID: "spec-legend-selection-tag",
-								Style: core.Style{
-									Height:         core.Pt(20),
-									Padding:        core.Symmetric(0, 8),
-									CornerRadius:   5,
-									Background:     p.Accent.Fg,
-									AlignItems:     core.AlignCenter,
-									JustifyContent: core.JustifyCenter,
-								},
-								Children: []core.Node{
-									core.Text{
-										Content: "Knight",
-										Style: core.Style{
-											FontSize:   11,
-											FontWeight: 600,
-											Color:      p.Accent.OnFill,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
+				d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(cx-12, fy-34, 24, 34, 4).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindSelection, Label: "Knight", Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
@@ -1060,62 +1163,12 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			"spec-legend-agent",
 			"Agent working",
 			"agent · 1.5 px solid · pulsing violet · agent pill.",
-			core.View{
-				Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), Position: core.Relative},
-				Children: []core.Node{
-					core.Canvas{
-						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						Draw: func(d *core.Drawing, sz core.Size) {
-							drawVPBackdrop(d, sz)
-							cx := float32(sz.Width) / 2
-							fy := float32(sz.Height) - 34
-							d.SetFillColor(ui.Alpha(p.Agent.Fg, 0.28)).BeginPath().RoundRect(cx-15, fy-22, 30, 22, 8).Fill()
-							d.SetStrokeColor(p.Agent.Edge).SetLineWidth(1.5).BeginPath().RoundRect(cx-19, fy-26, 38, 30, 10).Stroke()
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Position:       core.Absolute,
-							Left:           core.Pt(0),
-							Right:          core.Pt(0),
-							Top:            core.Pt(68),
-							Direction:      core.Row,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							core.View{
-								TestID: "spec-legend-agent-pill",
-								Style: core.Style{
-									Direction:    core.Row,
-									AlignItems:   core.AlignCenter,
-									Gap:          6,
-									Height:       core.Pt(22),
-									Padding:      core.Symmetric(0, 8),
-									CornerRadius: 11,
-									Background:   p.PillBg,
-									BorderWidth:  1,
-									BorderColor:  p.Agent.Edge,
-								},
-								Children: []core.Node{
-									core.Canvas{
-										Style: core.Style{Width: core.Pt(10), Height: core.Pt(10)},
-										Draw: func(d *core.Drawing, _ core.Size) {
-											d.SetFillColor(p.Agent.Fg).BeginPath().MoveTo(5, 0.5).LineTo(6.6, 3.4).LineTo(9.5, 5).LineTo(6.6, 6.6).LineTo(5, 9.5).LineTo(3.4, 6.6).LineTo(0.5, 5).LineTo(3.4, 3.4).ClosePath().Fill()
-										},
-									},
-									core.Text{
-										Content: "placing slime_02",
-										Style: core.Style{
-											FontSize:   11,
-											FontWeight: 500,
-											Color:      p.TextSecondary,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 15), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
+				d.SetFillColor(ui.Alpha(p.Agent.Fg, 0.28)).BeginPath().RoundRect(cx-15, fy-22, 30, 22, 8).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAgent, Label: "placing slime_02", Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
@@ -1123,33 +1176,12 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			"spec-legend-added",
 			"Added",
 			"added · 1.5 px dashed · “+ name” pill.",
-			core.View{
-				Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), Position: core.Relative},
-				Children: []core.Node{
-					core.Canvas{
-						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						Draw: func(d *core.Drawing, sz core.Size) {
-							drawVPBackdrop(d, sz)
-							cx := float32(sz.Width) / 2
-							fy := float32(sz.Height) - 34
-							d.SetFillColor(ui.Alpha(p.Added.Fg, 0.28)).BeginPath().RoundRect(cx-15, fy-22, 30, 22, 8).Fill()
-							d.SetStrokeColor(p.Added.Edge).SetLineWidth(1.5).SetLineDash(5, 3).BeginPath().RoundRect(cx-19, fy-26, 38, 30, 10).Stroke()
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Position:       core.Absolute,
-							Left:           core.Pt(0),
-							Right:          core.Pt(0),
-							Top:            core.Pt(68),
-							Direction:      core.Row,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							pillNode("spec-legend-added-pill", "+ slime_03", p.Added.Fg, p.Added.Fill, p.Added.Edge, ""),
-						},
-					},
-				},
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 15), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
+				d.SetFillColor(ui.Alpha(p.Added.Fg, 0.28)).BeginPath().RoundRect(cx-15, fy-22, 30, 22, 8).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAdded, Label: "slime_03", Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
@@ -1157,101 +1189,68 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			"spec-legend-changed",
 			"Changed",
 			"changed · 1.5 px dashed · field old → new pill.",
-			core.View{
-				Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), Position: core.Relative},
-				Children: []core.Node{
-					core.Canvas{
-						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						Draw: func(d *core.Drawing, sz core.Size) {
-							drawVPBackdrop(d, sz)
-							cx := float32(sz.Width) / 2
-							fy := float32(sz.Height) - 34
-							d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(cx-12, fy-34, 24, 34, 4).Fill()
-							d.SetStrokeColor(p.Changed.Edge).SetLineWidth(1.5).SetLineDash(5, 3).BeginPath().RoundRect(cx-17, fy-39, 34, 44, 6).Stroke()
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Position:       core.Absolute,
-							Left:           core.Pt(0),
-							Right:          core.Pt(0),
-							Top:            core.Pt(56),
-							Direction:      core.Row,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							pillNode("spec-legend-changed-pill", "z 10 → 12", p.Changed.Fg, p.Changed.Fill, p.Changed.Edge, ""),
-						},
-					},
-				},
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
+				d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(cx-12, fy-34, 24, 34, 4).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindChanged, Label: "z 10 → 12", Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
 		removedCard := card(
 			"spec-legend-removed",
 			"Removed",
-			"removed · 1.5 px solid around ghost · struck-through name.",
-			core.View{
-				Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), Position: core.Relative},
-				Children: []core.Node{
-					core.Canvas{
-						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						Draw: func(d *core.Drawing, sz core.Size) {
-							drawVPBackdrop(d, sz)
-							cx := float32(sz.Width) / 2
-							fy := float32(sz.Height) - 34
-							d.SetFillColor(ui.Alpha(p.TextFaint, 0.30)).BeginPath().Ellipse(cx, fy-16, 8, 8).Fill()
-							d.SetStrokeColor(p.Removed.Edge).SetLineWidth(1.5).BeginPath().RoundRect(cx-13, fy-29, 26, 26, 6).Stroke()
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Position:       core.Absolute,
-							Left:           core.Pt(0),
-							Right:          core.Pt(0),
-							Top:            core.Pt(64),
-							Direction:      core.Row,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							pillNode("spec-legend-removed-pill", "removed", p.Removed.Fg, p.Removed.Fill, p.Removed.Edge, "coin_04"),
-						},
-					},
-				},
+			"removed · 1.5 px solid around 25% grey ghost · struck-through name.",
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 10), Y: core.Points(fy - 24)}, Size: core.Size{Width: 20, Height: 20}}
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindRemoved, Label: "coin_04", Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
 		problemCard := card(
 			"spec-legend-problem",
 			"Problem",
-			"problem · 2 px solid on live object · filled pill.",
-			core.View{
-				Style: core.Style{Width: core.Pct(100), Height: core.Pct(100), Position: core.Relative},
-				Children: []core.Node{
-					core.Canvas{
-						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
-						Draw: func(d *core.Drawing, sz core.Size) {
-							drawVPBackdrop(d, sz)
-							cx := float32(sz.Width) / 2
-							fy := float32(sz.Height) - 34
-							d.SetFillColor(p.TextMuted).BeginPath().RoundRect(cx-14, fy-38, 28, 38, 4).Fill()
-							d.SetStrokeColor(p.Problem().Edge).SetLineWidth(2).BeginPath().RoundRect(cx-18, fy-42, 36, 46, 6).Stroke()
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Position:       core.Absolute,
-							Left:           core.Pt(0),
-							Right:          core.Pt(0),
-							Top:            core.Pt(52),
-							Direction:      core.Row,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							pillNode("spec-legend-problem-pill", "door: lever_02 missing", p.Problem().OnFill, p.Problem().Fg, core.Transparent, ""),
-						},
-					},
-				},
+			"problem · 2 px solid on live object · filled alert pill.",
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 14), Y: core.Points(fy - 38)}, Size: core.Size{Width: 28, Height: 38}}
+				d.SetFillColor(p.TextMuted).BeginPath().RoundRect(cx-14, fy-38, 28, 38, 4).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindProblem, Label: "door: lever_02 missing", Bounds: bounds, CanvasSize: sz})
+			},
+		)
+
+		focusedCard := card(
+			"spec-legend-focused",
+			"Focused change in Review",
+			"own color & dash · 2.5 px · outlined pill · never accent.",
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				leftBounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 56), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
+				d.SetFillColor(ui.Alpha(p.Added.Fg, 0.28)).BeginPath().RoundRect(cx-56, fy-22, 30, 22, 8).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAdded, Bounds: leftBounds, CanvasSize: sz})
+
+				rightBounds := core.Bounds{Origin: core.Point{X: core.Points(cx + 12), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
+				d.SetFillColor(ui.Alpha(p.Added.Fg, 0.45)).BeginPath().RoundRect(cx+12, fy-22, 30, 22, 8).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindFocusedChange, ChangeKind: OverlayKindAdded, Label: "slime_02", Bounds: rightBounds, CanvasSize: sz})
+			},
+		)
+
+		pairedCard := card(
+			"spec-legend-paired",
+			"Selection + Agent",
+			"selection keeps handles · agent outline sits 3 px further out.",
+			func(d *core.Drawing, sz core.Size) {
+				cx := float32(sz.Width) / 2
+				fy := float32(sz.Height) - 34
+				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
+				d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(cx-12, fy-34, 24, 34, 4).Fill()
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindSelection, Label: "Knight", Bounds: bounds, CanvasSize: sz})
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAgent, Label: "tuning jump", Bounds: bounds, CanvasSize: sz, PairedWithSelection: true, PillStackOffset: 24})
 			},
 		)
 
@@ -1321,14 +1320,14 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 						Direction: core.Row,
 						Gap:       16,
 					},
-					Children: []core.Node{selectionCard, agentCard, addedCard},
+					Children: []core.Node{selectionCard, agentCard, addedCard, changedCard},
 				},
 				core.View{
 					Style: core.Style{
 						Direction: core.Row,
 						Gap:       16,
 					},
-					Children: []core.Node{changedCard, removedCard, problemCard},
+					Children: []core.Node{removedCard, problemCard, focusedCard, pairedCard},
 				},
 			},
 		}

@@ -490,6 +490,10 @@ func (e *Editor) syncOverlaysFromSettings() {
 	if e == nil {
 		return
 	}
+	legendSet := e.effectiveOverlayLegendSet()
+	e.problems.mu.Lock()
+	e.problems.problemOverlayHidden = !legendSet[OverlayKindProblem]
+	e.problems.mu.Unlock()
 	if e.settings.ViewportOverlays == nil {
 		e.ShowNavMesh2D = true
 		return
@@ -1138,7 +1142,8 @@ func drawCameraBoundsOverlay(e *Editor, d *core.Drawing, _ *sceneformat.BuiltSce
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	b := e.Doc.Camera.Bounds
 	pts := worldRectCanvasCorners(e, b.X, b.Y, b.Width, b.Height)
-	d.SetStrokeColor(col).SetLineWidth(1.25).SetLineDash(3, 3)
+	// Camera bounds use a fine 1 px dotted line in Spec TextFaint, distinct from all legend kinds.
+	d.SetStrokeColor(col).SetLineWidth(1).SetLineDash(2, 4)
 	strokePolygon(d, pts)
 	d.SetLineDash()
 	caption := fmt.Sprintf("bounds %g × %g", b.Width, b.Height)

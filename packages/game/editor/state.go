@@ -886,8 +886,16 @@ type Editor struct {
 	toastSeq      uint64
 	toastNextInst uint64
 	toastRT       *toastRuntime
-	// overlayLegendOpen controls whether the compact Spec overlay legend is shown in the viewport corner.
-	overlayLegendOpen bool
+	// overlayLegendHidden hides the compact Spec overlay legend in the viewport top-left corner when true (shown by default in edit mode).
+	overlayLegendHidden bool
+	// sceneOverlays holds active live Spec viewport overlays (Agent working, Added, Changed, Removed, Focused change).
+	sceneOverlays []SceneOverlayEntry
+	// overlayEpoch is the reference start time used for pulsing task overlays.
+	overlayEpoch time.Time
+	// overlayNowFn optionally overrides time.Now for deterministic overlay animation tests.
+	overlayNowFn func() time.Time
+	// reduceMotionOverride optionally overrides Scope.Env().ReduceMotion() for tests and headless editors.
+	reduceMotionOverride *bool
 	// agentLive tracks the pending agent turn, structural diff overlays, active touched objects, and header pill state.
 	agentLive agentLiveState
 	// agentMutating is > 0 while an agent-originated MCP tool executes through RunAsAgent.
@@ -1035,7 +1043,8 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 			open:       false,
 			lastStatus: "Ready",
 		},
-		settings: DefaultEditorSettings(),
+		settings:     DefaultEditorSettings(),
+		overlayEpoch: time.Now(),
 		perms: permissionsState{
 			file:          DefaultPermissions(),
 			initialized:   true,

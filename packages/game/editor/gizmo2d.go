@@ -8,6 +8,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // GizmoHandle2D names a part of the 2D transform gizmo drawn on the selected object, or the object itself, that a drag in the 2D viewport takes.
@@ -1332,37 +1333,43 @@ func (c *transform2DCmd) Undo() {
 	}
 }
 
-// Gizmo colors: the axes as most editors color them, X red and Y green.
+// Gizmo colors derived from Spec palette tokens.
 var (
-	gizmoColorX      = core.RGBA(0xEF4444, 1)
-	gizmoColorY      = core.RGBA(0x22C55E, 1)
-	gizmoColorRing   = core.RGBA(0x38BDF8, 0.8)
-	gizmoColorCenter = core.RGBA(0xF8FAFC, 1)
-	gizmoColorActive = core.RGBA(0xFBBF24, 1)
+	gizmoColorX      = specRemoved
+	gizmoColorY      = specAdded
+	gizmoColorRing   = ui.Alpha(specAccent, 0.8)
+	gizmoColorCenter = specTextStrong
+	gizmoColorActive = specWarning
 )
 
 // drawGizmo2D draws the selected object's transform gizmo: the rotation ring, the X and Y arrows, the move square and, on an outline large enough, the scale handles. The handle a drag holds is drawn highlighted.
 func (e *Editor) drawGizmo2D(d *core.Drawing) {
-	if !e.Gizmo2DShown() || !e.OverlayLegendKindEnabled(OverlayLegendSelection) {
+	if !e.Gizmo2DShown() || !e.OverlayKindVisible(OverlayKindSelection) {
 		return
 	}
 	g, _ := e.gizmo2D()
+	spec := e.SpecPalette(nil)
+	colX := spec.Problem().Fg
+	colY := spec.Added.Fg
+	colRing := ui.Alpha(spec.Accent.Edge, 0.8)
+	colCenter := specHandleFill(spec)
+	colActive := spec.Warning.Fg
 	active := e.drag2D.handle
 	pick := func(h GizmoHandle2D, c core.Color) core.Color {
 		if h == active {
-			return gizmoColorActive
+			return colActive
 		}
 		return c
 	}
 	d.Save()
 	d.SetLineWidth(1.5)
-	d.SetStrokeColor(pick(Handle2DRotate, gizmoColorRing))
+	d.SetStrokeColor(pick(Handle2DRotate, colRing))
 	d.BeginPath().Arc(g.origin.X, g.origin.Y, g.ring, 0, 2*math.Pi, false).Stroke()
 	for _, a := range [2]struct {
 		h   GizmoHandle2D
 		dir math2d.Vec2
 		c   core.Color
-	}{{Handle2DMoveX, g.axisX, gizmoColorX}, {Handle2DMoveY, g.axisY, gizmoColorY}} {
+	}{{Handle2DMoveX, g.axisX, colX}, {Handle2DMoveY, g.axisY, colY}} {
 		c := pick(a.h, a.c)
 		from := g.origin.Add(a.dir.Scale(gizmoArrowStart))
 		tip := g.origin.Add(a.dir.Scale(gizmoArrowLen))
@@ -1374,15 +1381,15 @@ func (e *Editor) drawGizmo2D(d *core.Drawing) {
 		d.SetFillColor(c)
 		d.BeginPath().MoveTo(tip.X, tip.Y).LineTo(l.X, l.Y).LineTo(r.X, r.Y).ClosePath().Fill()
 	}
-	d.SetFillColor(pick(Handle2DMove, gizmoColorCenter))
+	d.SetFillColor(pick(Handle2DMove, colCenter))
 	d.FillRect(g.origin.X-gizmoCenterHalf, g.origin.Y-gizmoCenterHalf, 2*gizmoCenterHalf, 2*gizmoCenterHalf)
 	d.SetLineWidth(1.5)
 	for h := Handle2DScaleN; h <= Handle2DScaleNW; h++ {
 		if g.scaleShown(h) {
 			c := g.scaleHandlePos(h)
-			d.SetFillColor(pick(h, gizmoColorCenter))
+			d.SetFillColor(pick(h, colCenter))
 			d.FillRect(c.X-gizmoScaleHalf, c.Y-gizmoScaleHalf, 2*gizmoScaleHalf, 2*gizmoScaleHalf)
-			d.SetStrokeColor(core.RGBA(0x38BDF8, 1))
+			d.SetStrokeColor(spec.Accent.Edge)
 			d.StrokeRect(c.X-gizmoScaleHalf, c.Y-gizmoScaleHalf, 2*gizmoScaleHalf, 2*gizmoScaleHalf)
 		}
 	}

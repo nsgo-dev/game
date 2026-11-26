@@ -74,16 +74,43 @@ func (s *sceneCheck) located(err error) {
 	if ce, ok := errors.AsType[*sceneformat.ComponentError](err); ok {
 		e := *ce
 		e.File, e.Line, e.Column = "", 0, 0
-		s.problemAt(s.path, min(ce.Line, s.lines), ce.Column, "%v", &e)
+		s.problemOnObject(s.path, min(ce.Line, s.lines), ce.Column, ce.Object, "%v", &e)
 		return
 	}
 	if ce, ok := errors.AsType[*sceneformat.ConnectionError](err); ok {
 		e := *ce
 		e.File, e.Line, e.Column = "", 0, 0
-		s.problemAt(s.path, min(ce.Line, s.lines), ce.Column, "%v", &e)
+		obj := connectionErrorObject(ce)
+		s.problemOnObject(s.path, min(ce.Line, s.lines), ce.Column, obj, "%v", &e)
 		return
 	}
 	s.problem(s.path, 0, "%v", err)
+}
+
+func connectionErrorObject(ce *sceneformat.ConnectionError) string {
+	if ce == nil {
+		return ""
+	}
+	switch ce.Field {
+	case "to", "handler":
+		if ce.To != "" {
+			return ce.To
+		}
+		return ce.From
+	case "from", "event":
+		if ce.From != "" {
+			return ce.From
+		}
+		return ce.To
+	default:
+		if ce.Arg != "" && ce.To != "" {
+			return ce.To
+		}
+		if ce.From != "" {
+			return ce.From
+		}
+		return ce.To
+	}
 }
 
 // sceneRefs checks doc, a scene that instances or inherits other scenes: that it resolves, that its own connections name objects of the resolved scene and, given component types reg, that the components its overrides change keep their types and that every connection of the resolved scene, its own and those the scenes it instances and inherits bring, names events, handlers and arguments its objects declare. A fault a scene brings unchanged from a file it instances or inherits is reported on that file, which is checked on its own; one this scene's overrides cause is reported at the override, so each fault is reported once.
@@ -118,26 +145,32 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 	}
 	overrides := s.overrides(doc)
 	for _, ov := range overrides {
-		if o := byID[ov.id]; o != nil && o.Model != "" && (ov.model != nil || ov.modelNode != nil || ov.modelMesh != nil) {
-			s.overrideModel(o, ov)
-		}
-		if o := byID[ov.id]; o != nil && o.GridMap != "" && ov.gridMap != nil {
-			s.gridMap(o.GridMap, s.line(append(slices.Clip(ov.steps), "gridMap")...))
-		}
-		if ov.reflectionProbe != nil && ov.reflectionProbe.Cubemap != "" {
-			s.reflectionProbeCubemap(ov.reflectionProbe.Cubemap, append(slices.Clip(ov.steps), "reflectionProbe", "cubemap")...)
-		}
-		if ov.lightProbeGrid != nil && ov.lightProbeGrid.Data != "" {
-			s.lightProbeGridData(ov.lightProbeGrid.Data, append(slices.Clip(ov.steps), "lightProbeGrid", "data")...)
-		}
+		s.withObject(s.path, ov.id, func() {
+			if o := byID[ov.id]; o != nil && o.Model != "" && (ov.model != nil || ov.modelNode != nil || ov.modelMesh != nil) {
+				s.overrideModel(o, ov)
+			}
+			if o := byID[ov.id]; o != nil && o.GridMap != "" && ov.gridMap != nil {
+				s.gridMap(o.GridMap, s.line(append(slices.Clip(ov.steps), "gridMap")...))
+			}
+			if ov.reflectionProbe != nil && ov.reflectionProbe.Cubemap != "" {
+				s.reflectionProbeCubemap(ov.reflectionProbe.Cubemap, append(slices.Clip(ov.steps), "reflectionProbe", "cubemap")...)
+			}
+			if ov.lightProbeGrid != nil && ov.lightProbeGrid.Data != "" {
+				s.lightProbeGridData(ov.lightProbeGrid.Data, append(slices.Clip(ov.steps), "lightProbeGrid", "data")...)
+			}
+		})
 	}
 	missing := false
 	for i, c := range conns {
-		for _, end := range []struct{ field, id string }{{"from", c.From}, {"to", c.To}} {
+		for _, end := range []struct{ field, id, other string }{{"from", c.From, c.To}, {"to", c.To, c.From}} {
 			if byID[end.id] == nil {
 				missing = true
 				line, col := s.pos("connections", strconv.Itoa(i), end.field)
-				s.problemAt(s.path, line, col, "sceneformat: connection %d (%q %s -> %q %s): the scene has no object %q, counting those of the scenes it instances and inherits", i, c.From, c.Event, c.To, c.Handler, end.id)
+				liveObj := ""
+				if byID[end.other] != nil {
+					liveObj = end.other
+				}
+				s.problemOnObject(s.path, line, col, liveObj, "sceneformat: connection %d (%q %s -> %q %s): the scene has no object %q, counting those of the scenes it instances and inherits", i, c.From, c.Event, c.To, c.Handler, end.id)
 			}
 		}
 	}
@@ -157,13 +190,13 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 			ce, ok := errors.AsType[*sceneformat.ComponentError](err)
 			if !ok {
 				line, col := s.pos(append(slices.Clip(ov.steps), "components", name)...)
-				s.problemAt(s.path, line, col, "sceneformat: object %q component %q: %v", ov.id, name, err)
+				s.problemOnObject(s.path, line, col, ov.id, "sceneformat: object %q component %q: %v", ov.id, name, err)
 				continue
 			}
 			e := *ce
 			e.File, e.Line, e.Column, e.Object = "", 0, 0, ov.id
 			line, col := s.pos(append(slices.Clip(ov.steps), "components", name, ce.Field)...)
-			s.problemAt(s.path, line, col, "%v", &e)
+			s.problemOnObject(s.path, line, col, ov.id, "%v", &e)
 		}
 	}
 	s.resolvedConnections(resolved, len(resolved.Connections), conns, overrides, reg)
@@ -207,7 +240,7 @@ func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged 
 				steps = append(steps, e.Arg)
 			}
 			line, col := s.pos(steps...)
-			s.problemAt(s.path, line, col, "%v", &e)
+			s.problemOnObject(s.path, line, col, connectionErrorObject(&e), "%v", &e)
 		} else {
 			at := e.To
 			if e.Field == "from" || e.Field == "event" {
@@ -219,7 +252,7 @@ func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged 
 					arg = fmt.Sprintf(" argument %q", e.Arg)
 				}
 				line, col := s.pos(overrides[i].steps...)
-				s.problemAt(s.path, line, col, "sceneformat: the override of object %q breaks connection (%q %s -> %q %s)%s, which a scene it instances or inherits brings: %s", at, e.From, e.Event, e.To, e.Handler, arg, e.Msg)
+				s.problemOnObject(s.path, line, col, at, "sceneformat: the override of object %q breaks connection (%q %s -> %q %s)%s, which a scene it instances or inherits brings: %s", at, e.From, e.Event, e.To, e.Handler, arg, e.Msg)
 			}
 		}
 		resolved.Connections = slices.Delete(resolved.Connections, ce.Index, ce.Index+1)
@@ -287,7 +320,7 @@ func (s *sceneCheck) unresolved(own *sceneformat.SceneDoc, files *sceneFiles, er
 		if len(o.Overrides) > 0 && strings.Contains(ierr.Error(), " overrides ") {
 			field = "overrides"
 		}
-		s.problem(s.path, s.line(append(slices.Clip(steps), field)...), "%v", ierr)
+		s.problemOnObject(s.path, s.line(append(slices.Clip(steps), field)...), 0, o.ID, "%v", ierr)
 	})
 	if found {
 		return
@@ -337,31 +370,33 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 	for j := range objs {
 		o := &objs[j]
 		op := append(slices.Clip(steps), strconv.Itoa(j))
-		if o.Sprite != nil {
-			s.sprite(o.Sprite, append(slices.Clip(op), "sprite")...)
-		}
-		if o.Material != "" {
-			s.material(o.Material, append(slices.Clip(op), "material")...)
-		}
-		if o.Particles != nil {
-			s.particlesRef(o.Particles, append(slices.Clip(op), "particles")...)
-		}
-		if o.Model != "" {
-			at := func(key string) int { return s.line(append(slices.Clip(op), key)...) }
-			s.model(o.Model, o.ModelNode, o.ModelMesh, at("model"), at("modelNode"), at("modelMesh"), true)
-		}
-		if o.GridMap != "" {
-			s.gridMap(o.GridMap, s.line(append(slices.Clip(op), "gridMap")...))
-		}
-		if o.ReflectionProbe != nil && o.ReflectionProbe.Cubemap != "" {
-			s.reflectionProbeCubemap(o.ReflectionProbe.Cubemap, append(slices.Clip(op), "reflectionProbe", "cubemap")...)
-		}
-		if o.LightProbeGrid != nil && o.LightProbeGrid.Data != "" {
-			s.lightProbeGridData(o.LightProbeGrid.Data, append(slices.Clip(op), "lightProbeGrid", "data")...)
-		}
-		if o.Components != nil {
-			s.animator(o, op...)
-		}
+		s.withObject(s.path, o.ID, func() {
+			if o.Sprite != nil {
+				s.sprite(o.Sprite, append(slices.Clip(op), "sprite")...)
+			}
+			if o.Material != "" {
+				s.material(o.Material, append(slices.Clip(op), "material")...)
+			}
+			if o.Particles != nil {
+				s.particlesRef(o.Particles, append(slices.Clip(op), "particles")...)
+			}
+			if o.Model != "" {
+				at := func(key string) int { return s.line(append(slices.Clip(op), key)...) }
+				s.model(o.Model, o.ModelNode, o.ModelMesh, at("model"), at("modelNode"), at("modelMesh"), true)
+			}
+			if o.GridMap != "" {
+				s.gridMap(o.GridMap, s.line(append(slices.Clip(op), "gridMap")...))
+			}
+			if o.ReflectionProbe != nil && o.ReflectionProbe.Cubemap != "" {
+				s.reflectionProbeCubemap(o.ReflectionProbe.Cubemap, append(slices.Clip(op), "reflectionProbe", "cubemap")...)
+			}
+			if o.LightProbeGrid != nil && o.LightProbeGrid.Data != "" {
+				s.lightProbeGridData(o.LightProbeGrid.Data, append(slices.Clip(op), "lightProbeGrid", "data")...)
+			}
+			if o.Components != nil {
+				s.animator(o, op...)
+			}
+		})
 		s.objects(o.Children, append(slices.Clip(op), "children")...)
 	}
 }
@@ -755,11 +790,13 @@ func (c *checker) yamlError(p string, data []byte, err error) {
 	if fe, ok := errors.AsType[*sceneformat.FieldError](err); ok {
 		var root yaml.Node
 		line, col := 0, 0
+		obj := ""
 		if yaml.Unmarshal(data, &root) == nil {
 			line, col = yamlPos(&root, fe.Path)
 			line = min(line, yamlLineCount(data))
+			obj = yamlFieldErrorObject(&root, fe.Path)
 		}
-		c.problemAt(p, line, col, "%v", fe)
+		c.problemOnObject(p, line, col, obj, "%v", fe)
 		return
 	}
 	if te, ok := errors.AsType[*yaml.TypeError](err); ok {
@@ -847,4 +884,119 @@ func yamlPos(root *yaml.Node, steps []string) (int, int) {
 		}
 	}
 	return line, col
+}
+
+// yamlFieldErrorObject resolves the scene object ID associated with a sceneformat.FieldError
+// path (under layers[*].objects[*]..., overrides.<id>..., or connections[*].from/to) when present in root.
+func yamlFieldErrorObject(root *yaml.Node, steps []string) string {
+	if root == nil || len(steps) < 2 {
+		return ""
+	}
+	doc := root
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return ""
+	}
+	lookup := func(n *yaml.Node, key string) *yaml.Node {
+		if n == nil || n.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == key {
+				return n.Content[i+1]
+			}
+		}
+		return nil
+	}
+	// Collect existing object IDs in the scene so connection errors attach to a live endpoint.
+	liveIDs := make(map[string]bool)
+	var collectIDs func(seq *yaml.Node)
+	collectIDs = func(seq *yaml.Node) {
+		if seq == nil || seq.Kind != yaml.SequenceNode {
+			return
+		}
+		for _, item := range seq.Content {
+			if idNode := lookup(item, "id"); idNode != nil && idNode.Value != "" {
+				liveIDs[idNode.Value] = true
+			}
+			collectIDs(lookup(item, "children"))
+		}
+	}
+	if layers := lookup(doc, "layers"); layers != nil && layers.Kind == yaml.SequenceNode {
+		for _, layer := range layers.Content {
+			collectIDs(lookup(layer, "objects"))
+		}
+	}
+
+	switch steps[0] {
+	case "layers":
+		// Walk down layers[i].objects[j](.children[k])* and remember the innermost object ID.
+		cur := doc
+		lastID := ""
+		for i := 0; i < len(steps); i++ {
+			step := steps[i]
+			switch cur.Kind {
+			case yaml.MappingNode:
+				next := lookup(cur, step)
+				if next == nil {
+					return lastID
+				}
+				cur = next
+			case yaml.SequenceNode:
+				idx, err := strconv.Atoi(step)
+				if err != nil || idx < 0 || idx >= len(cur.Content) {
+					return lastID
+				}
+				cur = cur.Content[idx]
+				if i >= 3 && (steps[i-1] == "objects" || steps[i-1] == "children") {
+					if idNode := lookup(cur, "id"); idNode != nil && idNode.Value != "" {
+						lastID = idNode.Value
+					}
+				}
+			default:
+				return lastID
+			}
+		}
+		return lastID
+	case "overrides":
+		return steps[1]
+	case "connections":
+		conns := lookup(doc, "connections")
+		idx, err := strconv.Atoi(steps[1])
+		if conns == nil || conns.Kind != yaml.SequenceNode || err != nil || idx < 0 || idx >= len(conns.Content) {
+			return ""
+		}
+		conn := conns.Content[idx]
+		fromID := ""
+		toID := ""
+		if n := lookup(conn, "from"); n != nil {
+			fromID = n.Value
+		}
+		if n := lookup(conn, "to"); n != nil {
+			toID = n.Value
+		}
+		field := ""
+		if len(steps) >= 3 {
+			field = steps[2]
+		}
+		// Attach to the live object endpoint.
+		if field == "from" {
+			if liveIDs[toID] {
+				return toID
+			}
+			if liveIDs[fromID] {
+				return fromID
+			}
+		} else {
+			if liveIDs[fromID] {
+				return fromID
+			}
+			if liveIDs[toID] {
+				return toID
+			}
+		}
+	}
+	return ""
 }

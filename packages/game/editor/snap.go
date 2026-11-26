@@ -579,9 +579,10 @@ func (e *Editor) drawSnapGridOverlay(d *core.Drawing) {
 	startRow := int(startRowF)
 	endRow := int(endRowF)
 
+	spec := e.SpecPalette(nil)
 	d.Save()
 	applyAffine(d, m)
-	d.SetStrokeColor(core.RGBA(0x94A3B8, 0.22)).SetLineWidth(lw).BeginPath()
+	d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.20)).SetLineWidth(lw).BeginPath()
 	for c := startCol; c <= endCol; c++ {
 		if c == 0 {
 			continue
@@ -606,7 +607,7 @@ func (e *Editor) drawSnapGridOverlay(d *core.Drawing) {
 
 	// Emphasize the origin axes (x=0, y=0) when visible.
 	if startCol <= 0 && endCol >= 0 || startRow <= 0 && endRow >= 0 {
-		d.SetStrokeColor(core.RGBA(0x94A3B8, 0.42)).SetLineWidth(lw).BeginPath()
+		d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.42)).SetLineWidth(lw).BeginPath()
 		if startCol <= 0 && endCol >= 0 {
 			d.MoveTo(0, minY).LineTo(0, maxY)
 		}
