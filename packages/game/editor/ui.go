@@ -107,6 +107,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopAssetsBuild()
 		ed.stopDiskWatcher()
 		ed.CloseObjectContextMenu()
+		ed.stopAgentTimers()
 		_ = ed.DisconnectProfiler()
 		ed.cancelAssetGenOps()
 		ed.DisconnectAllAssetGenerators()
@@ -386,6 +387,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 				},
 			},
 			ShortcutsSheetView(cx, ed, rev),
+			ConnectAgentDialogView(cx, ed, rev),
 			dialogFocusTrapView(ed),
 		},
 	}
@@ -607,7 +609,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 										return TileReviewPanelView(cx, ed, rev)
 									},
 									Else: func(cx *core.Scope) core.Node {
-										return InspectorView(cx, ed, rev)
+										return RightRailView(cx, ed, rev)
 									},
 								},
 								pluginDockView(cx, ed, rev, DockRight),

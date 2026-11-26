@@ -17,8 +17,9 @@ type Proxy struct {
 	root string
 	sdk  *mcp.Server
 
-	mu      sync.Mutex
-	session *mcp.ClientSession
+	mu         sync.Mutex
+	session    *mcp.ClientSession
+	clientInfo *mcp.Implementation
 	// tools are the tools listed to the client, as the editor last listed them, or the built-in ones before it has.
 	tools map[string]*mcp.Tool
 	// subs are the resource URIs the client subscribes to, which a new connection to the editor subscribes to again.
@@ -26,6 +27,9 @@ type Proxy struct {
 	// refreshing serializes mirroring the editor's tool list.
 	refreshing sync.Mutex
 }
+
+// proxyStdioMarker identifies a connection forwarded from go tool game mcp over stdio so the editor shows "<Agent> over stdio".
+const proxyStdioMarker = "nsgo-mcp-stdio"
 
 // editorProtocol is the MCP version the proxy speaks to the editor. Under 2026-07-28 the SDK's ClientSession.Subscribe holds a subscriptions/listen request open until the subscription ends instead of returning, so the proxy, which subscribes for its client as it connects, keeps to the version before, where a subscription is a request that returns and updates arrive as notifications. Its own client may speak either.
 const editorProtocol = "2025-11-25"
@@ -42,6 +46,27 @@ func NewProxy(root string) *Proxy {
 			Resources: &mcp.ResourceCapabilities{Subscribe: true, ListChanged: true},
 		},
 	})
+	p.sdk.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			res, err := next(ctx, method, req)
+			if err == nil && (method == "server/discover" || method == "initialize" || method == "notifications/initialized") {
+				if ss, ok := req.GetSession().(*mcp.ServerSession); ok && ss != nil {
+					if params := ss.InitializeParams(); params != nil && params.ClientInfo != nil && params.ClientInfo.Name != "" {
+						ci := *params.ClientInfo
+						p.mu.Lock()
+						p.clientInfo = &ci
+						p.mu.Unlock()
+					}
+				}
+				go func() {
+					if cs, dialErr := p.editor(context.Background()); dialErr == nil {
+						p.refresh(context.Background(), cs)
+					}
+				}()
+			}
+			return res, err
+		}
+	})
 	for _, t := range builtinTools() {
 		p.mirror(sdkTool(t))
 	}
@@ -51,12 +76,8 @@ func NewProxy(root string) *Proxy {
 	return p
 }
 
-// Run serves one client on t, connecting to the editor first if one has the project open, until the client disconnects or ctx ends; then it closes its connection to the editor.
+// Run serves one client on t until the client disconnects or ctx ends; then it closes its connection to the editor.
 func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
-	if cs, err := p.editor(ctx); err == nil {
-		// List the editor's own tools before the client first asks.
-		p.refresh(ctx, cs)
-	}
 	err := p.sdk.Run(ctx, t)
 	p.mu.Lock()
 	cs := p.session
@@ -66,6 +87,27 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 		_ = cs.Close()
 	}
 	return err
+}
+
+func (p *Proxy) forwardImpl() *mcp.Implementation {
+	impl := &mcp.Implementation{
+		Name:    "go tool game mcp",
+		Version: proxyStdioMarker,
+	}
+	if p.clientInfo == nil && p.sdk != nil {
+		for ss := range p.sdk.Sessions() {
+			if params := ss.InitializeParams(); params != nil && params.ClientInfo != nil && params.ClientInfo.Name != "" {
+				ci := *params.ClientInfo
+				p.clientInfo = &ci
+				break
+			}
+		}
+	}
+	if p.clientInfo != nil && p.clientInfo.Name != "" {
+		impl.Name = p.clientInfo.Name
+		impl.Title = p.clientInfo.Title
+	}
+	return impl
 }
 
 // editor returns the session with the editor, connecting when there is none; its error says how to open the project when no editor has it open.
@@ -79,7 +121,7 @@ func (p *Proxy) editor(ctx context.Context) (*mcp.ClientSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "go tool game mcp"}, &mcp.ClientOptions{
+	client := mcp.NewClient(p.forwardImpl(), &mcp.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
 			// The handler runs on the session's reading goroutine, which the list request needs free.
 			go p.refresh(context.Background(), p.current())

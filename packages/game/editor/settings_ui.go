@@ -840,6 +840,7 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							policyYouOnly,
 							nil,
 						),
+						editorSettingsModelsSection(cx, ed, rev),
 					},
 				}
 			}),
@@ -969,5 +970,138 @@ func settingsSpecButton(p SpecPalette, testID, text, label string, primary bool,
 			FocusVisible: p.FocusRing(2),
 		},
 		OnPress: onPress,
+	}
+}
+
+// editorSettingsModelsSection renders the "Models and connections" summary inside EditorSettingsDialogView
+// matching docs/design/editor/Settings.dc.html, listing connected agents and "+ Connect another agent or model".
+func editorSettingsModelsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{
+		TestID: "editor-settings-models",
+		Style: core.Style{
+			Padding: core.Edges{Top: 12},
+			Gap:     8,
+		},
+		Children: []core.Node{
+			core.Text{
+				Content: ed.T("settings.modelsTitle"),
+				Style: core.Style{
+					FontSize:   13,
+					FontWeight: 600,
+					Color:      colors.Text(),
+				},
+			},
+			core.View{
+				Style: core.Style{
+					Direction: core.Row,
+					Gap:       10,
+				},
+				Children: []core.Node{
+					core.View{
+						TestID: "editor-settings-connected-agent",
+						Style: core.Style{
+							FlexGrow:     1,
+							FlexBasis:    core.Pt(0),
+							CornerRadius: 10,
+							Padding:      core.All(12),
+							Gap:          4,
+							Background:   specRaised,
+							BorderWidth:  1,
+							BorderColor:  specLineRaised,
+						},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{
+									Direction:  core.Row,
+									AlignItems: core.AlignCenter,
+									Gap:        8,
+								},
+								Children: []core.Node{
+									core.View{
+										StyleFunc: func() core.Style {
+											_ = rev.Get()
+											col := specTextMuted
+											if ed.AgentStatus() == AgentStatusConnected || ed.AgentStatus() == AgentStatusWorking {
+												col = specAdded
+											} else if ed.AgentStatus() == AgentStatusDisconnected {
+												col = specProblem
+											}
+											return core.Style{
+												Width:        core.Pt(8),
+												Height:       core.Pt(8),
+												CornerRadius: 4,
+												Background:   col,
+											}
+										},
+									},
+									core.Text{
+										ContentFunc: func() string {
+											_ = rev.Get()
+											if ed.AgentMode() == AgentModeNone {
+												return "No agent"
+											}
+											if c, ok := ed.AgentPrimaryClient(); ok {
+												return c.DisplayName
+											}
+											return "Local MCP agent"
+										},
+										Style: core.Style{
+											FontSize:   12.5,
+											FontWeight: 500,
+											Color:      specTextStrong,
+										},
+									},
+								},
+							},
+							core.Text{
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if ed.AgentMode() == AgentModeNone {
+										return "Agent panel stays closed"
+									}
+									if len(ed.AgentClients()) > 0 {
+										return "On this computer · MCP · default"
+									}
+									return "Not connected yet"
+								},
+								Style: core.Style{
+									FontSize: 11.5,
+									Color:    specTextMuted,
+								},
+							},
+						},
+					},
+					core.View{
+						TestID: "editor-settings-connect-agent",
+						Role:   core.RoleButton,
+						Label:  ed.T("settings.connectAnother"),
+						Style: core.Style{
+							FlexGrow:       1,
+							FlexBasis:      core.Pt(0),
+							CornerRadius:   10,
+							Padding:        core.All(12),
+							BorderWidth:    1,
+							BorderColor:    specLineRaised,
+							JustifyContent: core.JustifyCenter,
+							FocusVisible:   specFocusRingStyle,
+						},
+						OnPress: func(core.PressEvent) {
+							ed.SetEditorSettingsOpen(false)
+							ed.OpenConnectDialog()
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("settings.connectAnother"),
+								Style: core.Style{
+									FontSize: 12,
+									Color:    specTextSecondary,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }

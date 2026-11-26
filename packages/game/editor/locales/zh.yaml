@@ -2,6 +2,15 @@
 version: 1
 locale: zh
 strings:
+  agent.composerHint: Enter 发送 · Shift+Enter 换行
+  agent.composerLabel: 向智能体提问
+  agent.composerPlaceholder: 描述你想做的修改… 例如让骑士跳得更高
+  agent.connectShort: 连接
+  agent.status.disconnected: 已断开
+  agent.status.reconnectingShort: 重连中
+  agent.status.waitingShort: 等待你
+  agent.status.workingShort: 处理中
+  agent.tab: 智能体
   app.defaultName: NSGo 场景编辑器
   assetGen.back: 返回场景编辑器
   assetGen.cancel: 取消
@@ -31,6 +40,8 @@ strings:
   assets.prefab: 预制体
   assets.prefabs: 预制体
   assets.title: 资源
+  cmd.agentPanel.desc: 在右侧栏的“智能体”与“检视器”面板之间切换
+  cmd.agentPanel.label: 智能体面板
   cmd.assetDrawer.desc: 在左侧栏的“场景”与“资源抽屉”模式之间切换
   cmd.assetDrawer.label: 资源抽屉
   cmd.audioMixer.desc: 切换音频总线混音器面板
@@ -49,6 +60,8 @@ strings:
   cmd.checkProblems.label: 检查问题
   cmd.commandPalette.desc: 搜索并运行编辑器命令、插件工具、面板与项目文件
   cmd.commandPalette.label: 命令面板
+  cmd.connectAgent.desc: 将 Claude Code、Codex 或其他 MCP 客户端连接到当前项目
+  cmd.connectAgent.label: 连接智能体
   cmd.copy.desc: 将选中的对象或瓦片区域拷贝到剪贴板
   cmd.copy.label: 拷贝
   cmd.cut.desc: 将选中的对象或瓦片区域剪切到剪贴板
@@ -395,6 +408,7 @@ strings:
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页
   menu.commandPalette: 命令面板…
+  menu.connectAgent: 连接智能体…
   menu.copy: 拷贝
   menu.cut: 剪切
   menu.delete: 删除
@@ -604,6 +618,7 @@ strings:
   search.search: 搜索
   settings.appearance: 外观
   settings.appearanceHelp: 深色、浅色或跟随系统。
+  settings.connectAnother: + 连接其他智能体或模型
   settings.dark: 深色
   settings.description: 此计算机的语言、外观与键盘快捷键设置。
   settings.done: 完成
@@ -618,6 +633,7 @@ strings:
   settings.metaReady: 就绪
   settings.metaSetUp: 需配置
   settings.metaUnsaved: 未保存
+  settings.modelsTitle: 模型与连接
   settings.navTitle: 设置
   settings.noProjectBody: 打开一个 game.yaml 项目以配置项目、输入映射、音频总线与导出设置。
   settings.noProjectTitle: 未打开项目

@@ -1230,13 +1230,7 @@ In 2D edit mode (`ViewMode2D`), a floating bar at the bottom-center of the viewp
 - **Custom plugin overlays (`ViewportOverlay`)**: plugins add custom overlays via `Plugin.Overlays` (or directly on an editor with `Editor.RegisterViewportOverlay`), supplying an `ID`, `Name`/`NameKey`, optional `Count` callback, and `Draw func(*Editor, *core.Drawing, *sceneformat.BuiltScene)` function. Active plugin overlays appear in the popover, `View > Overlays`, and `editormcp`'s `viewport_image`.
 - **Per-user persistence**: toggling any overlay (`SetViewportOverlay`, `ToggleViewportOverlay`, `SetViewportOverlays`) writes `viewportOverlays` to `Editor.SettingsPath` (`EditorSettings` YAML outside the project), never to any project or scene file, so choices survive restarts (including an explicit empty list `[]` when all overlays are turned off).
 - **Shared with `editormcp`'s `viewport_image`**: `Editor.DrawViewportWithOverlays(d, size, overlayIDs)` renders the exact same overlay set into `viewport_image`. Omitting `viewport_overlays` uses the editor's active overlays; passing explicit names (or `[]`) overrides them for that image without mutating editor settings.
-<<<<<<< HEAD
 
-||||||| parent of a5fa7835 (feat(editor): add Spec focus rings, F6 region cycling, and dialog focus restoration)
-
-
-=======
->>>>>>> a5fa7835 (feat(editor): add Spec focus rings, F6 region cycling, and dialog focus restoration)
 ## Inspector titled sections, field filter, scrub fields, Open YAML, and Ask to add (#1038)
 
 The object Inspector (`InspectorView`), styled with `docs/design/editor/Spec.dc.html` tokens matching `Inspector.dc.html`, `Main.dc.html`, and `Viewport3D.dc.html`, organizes object editing into compact collapsible sections while keeping every control backed by an `Editor` method and matching `editormcp` tool:
@@ -1248,6 +1242,7 @@ The object Inspector (`InspectorView`), styled with `docs/design/editor/Spec.dc.
 - **Grouped Add component and Ask to add**: registered components the object lacks are grouped under `GAMEPLAY`, `PHYSICS`, and `AUDIO AND VISUAL` (`ComponentCategoryOf`, `AddableComponentGroups`). Beside the input, **Ask to add** (`AskToAddComponent`, `ComposerDraft`, `SetComposerDraft`, `Editor.OnComposerPrompt`) stages `"Add a component to <object> that "` in the agent composer.
 - **Review and problem indicators plus footer**: fields with active agent review changes (`SetInspectorReviewChanges`) show an amber accent bar and `"was <old> · in review"`; fields failing a project check or schema bound (`SetInspectorFieldProblems` / `Editor.Problems`) show a problem pill beside the control and on the section header. The footer reminds authors: `"Everything else about this object is in its YAML. Ask the agent, or open the file."`
 - **Matching MCP tools (`editormcp`)**: `object_set_field` edits any single object field, component field, or custom property through the same `Editor` commands as one undo step; `object_locate_yaml` returns an object's 1-based YAML line and snippet (optionally triggering `OnOpenFileAtLine`); and `scene_edit` `set` supports all 2D/3D inspector fields including `particles`, `model`, `gridMap`, `occluder`, `light`, and `camera`.
+
 ## Generated assets through MCP generator servers (#1053)
 
 Open the full-window **Generated Assets** screen (`AssetGeneratorView`) from `Project > Generated Assets` or the Command Palette (`CmdGeneratedAssets` / `SetAssetGeneratorOpen`). Styled strictly with `docs/design/editor/Spec.dc.html` tokens matching Screen 2 of `docs/design/editor/Assets.dc.html`, it connects to external MCP image and sound generator servers, checks returned candidates against the game's `brief.yaml`, and keeps generated output off disk until a person explicitly picks a candidate:
@@ -1268,3 +1263,18 @@ Every interactive control in the editor carries the `docs/design/editor/Spec.dc.
 - **Viewport focus is the selection**: the viewport canvas draws no focus ring of its own; while focus is in the viewport (`editor-viewport-frame`), `Tab` (`Editor.SelectNextObject`) and `Shift-Tab` (`Editor.SelectPreviousObject`) cycle through visible, unlocked scene objects in order.
 - **Dialog focus trapping and opener restoration**: editor dialogs (`EditorSettingsDialogView`, `ShortcutsSheetView`, `CommandPaletteView`, unsaved-changes prompt, scene path dialog, and save-conflict dialog) trap `Tab` / `Shift-Tab` inside the topmost modal (respecting shortcut capture in `Settings › Shortcuts`), block global shortcuts behind the modal except `⌘.` / `Ctrl+.` (`Editor.OnStopAgent`) to stop an active agent, and return focus to the exact control that opened the dialog when dismissed with `Esc` or an action button.
 - **Focus stability**: nothing moves focus automatically during an active drag or inspector scrub (`Editor.IsDragging`) or while typing in a text field (`Editor.IsTyping`). Showing a toast never steals focus, and `Editor.ShouldFocusAgentPrompt` returns `true` only when no drag or text input is active and focus is already inside the agent panel (`Editor.SetAgentPanelRef`).
+
+## Connect an agent and status chip (#1009)
+
+Connect an external coding agent (Claude Code, Codex, or any MCP client on your computer) directly from the editor or with `go tool game mcp install`, matching `docs/design/editor/Connect.dc.html`, `docs/design/editor/AgentStates.dc.html`, and `docs/design/editor/Settings.dc.html` using exclusively `docs/design/editor/Spec.dc.html` tokens:
+
+- **One-time project install (`go tool game mcp install`)**: writes `.mcp.json` (Claude Code) and `.codex/config.toml` (Codex) idempotently in the project root while preserving existing unrelated servers and settings, and prints each file written or left unchanged.
+- **Connect dialog (`ConnectAgentDialogView`)**: reachable from `Project > Connect an Agent...`, Command Palette (`CmdConnectAgent`), `Editor Settings > Models and connections` (`+ Connect another agent or model`), or the Agent panel header. Offers three choices (**An agent on this computer** — Recommended, **Built in, with your API key**, and **No agent**), shows `go tool game mcp install` with a **Copy** button, displays `"Waiting for an agent to connect…"` which turns to `"Connected · <agent> over <transport>"` as soon as the first MCP client attaches, provides four starting permission checkboxes (**Edit scenes and data (always reviewable)**, **Run game check**, **Run headless playtests**, **Edit Go code** -> `AgentPermissionRules`), keeps the Agent panel closed when **No agent** is chosen, and provides **Later** and **Done**.
+- **Agent tab panel (`AgentPanelView`)**: switches the right sidebar between **Inspector** (`RightTabInspector`) and **Agent** (`RightTabAgent`, `CmdAgentPanel`), showing the thread of requests (including turns made by terminal-started MCP clients), streamed steps, and a labelled multi-line composer (`Enter` sends, `Shift+Enter` adds a line, plus **Send** / **Stop**). Composer requests run through `Editor.AgentRunner` (defaulting on desktop to `CLIAgentRunner`, invoking Claude Code's `--print --output-format=stream-json --verbose` or Codex's `codex exec --json` with the project's MCP configuration).
+- **Status chip (`AgentStatusChipView`)**: announces transitions through `core.LiveRegionPolite` and renders all five states while keeping manual tools working in every state:
+  - `Connected · MCP` (hover tooltip names the agent and transport, such as `Claude Code over stdio`)
+  - `Working · step n of m` (violet dot pulses on a `1.2 s` cycle, staying still when `ReduceMotion` is enabled)
+  - `Waiting for you · m:ss` (clicking focuses the open request card)
+  - `Reconnecting · try n of 5` (retries after `1, 2, 4, 8, 16 s` using injectable `Editor.AgentScheduleAfter`)
+  - `Disconnected` with **Reconnect** and **Troubleshoot** (reopens Connect directly at the failed step rather than the start).
+>>>>>>> a7b64108 (feat(editor,editormcp): connect an agent via Connect dialog, mcp install, and status chip)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -12,13 +13,15 @@ import (
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
 )
 
-// mcpCommand serves the editor's MCP tools on standard input and output for an agent that starts it, forwarding to the editor that has the project open.
+// mcpCommand serves the editor's MCP tools on standard input and output for an agent that starts it, forwarding to the editor that has the project open, or writes project-level MCP configurations for Claude Code and Codex with `mcp install`.
 var mcpCommand = &command{
 	name:    "mcp",
-	summary: "Serve the editor's MCP tools on standard input and output for an agent, forwarding each call to the editor that has the project open",
+	args:    "[install]",
+	summary: "Serve the editor's MCP tools on stdio, or run `mcp install` to configure Claude Code and Codex for this project",
 	define:  defineMCP,
 	complete: map[string]completion{
 		"project": filePaths,
+		"":        oneOf("install"),
 	},
 }
 
@@ -26,7 +29,10 @@ func defineMCP(a *app, fs *flag.FlagSet) func() error {
 	dir := fs.String("project", ".", "the project: its directory, a directory inside it, or its game.yaml")
 	return func() error {
 		if fs.NArg() > 0 {
-			return usagef("expected no arguments, got %d", fs.NArg())
+			if fs.Arg(0) == "install" {
+				return runMCPInstall(a, *dir, fs.Args()[1:])
+			}
+			return usagef("unknown subcommand %q (expected none or install)", fs.Arg(0))
 		}
 		root, err := editormcp.ProjectRoot(*dir)
 		if err != nil {
@@ -36,6 +42,30 @@ func defineMCP(a *app, fs *flag.FlagSet) func() error {
 		defer stop()
 		return editormcp.NewProxy(root).Run(ctx, &mcp.IOTransport{Reader: io.NopCloser(a.stdin), Writer: nopWriteCloser{a.stdout}})
 	}
+}
+
+func runMCPInstall(a *app, defaultDir string, args []string) error {
+	sub := flag.NewFlagSet("game mcp install", flag.ContinueOnError)
+	sub.SetOutput(a.stderr)
+	dir := sub.String("project", defaultDir, "the project: its directory, a directory inside it, or its game.yaml")
+	if err := sub.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if sub.NArg() > 0 {
+		return usagef("expected no arguments after install, got %d", sub.NArg())
+	}
+	res, err := editormcp.Install(*dir)
+	if err != nil {
+		return err
+	}
+	for _, f := range res.Files {
+		verb := "Wrote"
+		if !f.Changed {
+			verb = "Unchanged"
+		}
+		fmt.Fprintf(a.stdout, "%s %s (%s)\n", verb, f.RelPath, f.Client)
+	}
+	return nil
 }
 
 // nopWriteCloser is a writer the MCP transport may close without closing what it writes to, standard output.

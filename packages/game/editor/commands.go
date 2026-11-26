@@ -96,6 +96,8 @@ const (
 	CmdApplyOverridesToSource = "scene.applyOverridesToSource"
 	CmdRevertOverrides        = "scene.revertOverrides"
 	CmdGeneratedAssets        = "project.generatedAssets"
+	CmdConnectAgent           = "agent.connect"
+	CmdAgentPanel             = "view.agent"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -1556,6 +1558,35 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdConnectAgent,
+			Label:       "Connect an Agent",
+			Description: "Connect Claude Code, Codex, or another MCP client to this project",
+			Category:    "Project",
+			Keywords:    []string{"agent", "mcp", "claude", "codex", "connect", "install"},
+			Checked:     func() bool { return e.ConnectDialogOpen() },
+			Run: func() error {
+				if e.ConnectDialogOpen() {
+					e.CloseConnectDialog()
+					return nil
+				}
+				e.OpenConnectDialog()
+				return nil
+			},
+		},
+		{
+			ID:          CmdAgentPanel,
+			Label:       "Agent Panel",
+			Description: "Toggle the right sidebar between the Agent panel and the Inspector",
+			Category:    "View",
+			Keywords:    []string{"agent", "chat", "composer", "mcp", "inspector"},
+			Enabled:     func() bool { return e.AgentMode() != AgentModeNone },
+			Checked:     func() bool { return e.AgentPanelOpen() },
+			Run: func() error {
+				e.SetAgentPanelOpen(!e.AgentPanelOpen())
+				return nil
+			},
+		},
+		{
 			ID:          CmdMergeConflicts,
 			Label:       "Resolve Scene Merge Conflicts",
 			Description: "Open the object-by-object scene merge conflict resolver for an active Git merge",
@@ -1792,6 +1823,8 @@ var builtinCommandKeys = map[string][3]string{
 	CmdFindUsages:            {"cmd.findUsages.label", "cmd.findUsages.desc", "cmd.category.project"},
 	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
 	CmdShortcutsSettings:     {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
+	CmdConnectAgent:          {"cmd.connectAgent.label", "cmd.connectAgent.desc", "cmd.category.project"},
+	CmdAgentPanel:            {"cmd.agentPanel.label", "cmd.agentPanel.desc", "cmd.category.view"},
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
 }
