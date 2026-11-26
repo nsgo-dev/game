@@ -1264,10 +1264,40 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 		if got := app.Find("id:editor-viewport-container").Style.Background; got != want.Viewport {
 			t.Errorf("%s: viewport surround = #%06X, want Viewport #%06X", label, uint32(got)>>8, uint32(want.Viewport)>>8)
 		}
+		dockArea := app.Find("id:editor-dock-area")
+		if got := dockArea.Style.Background; got != want.Bg {
+			t.Errorf("%s: editor-dock-area bg=#%06X, want Bg=#%06X",
+				label, uint32(got)>>8, uint32(want.Bg)>>8)
+		}
+		var dockHandles int
+		var walkDockHandles func(v *nsgotest.View)
+		walkDockHandles = func(v *nsgotest.View) {
+			if v == nil {
+				return
+			}
+			if v.Props.Label == "Resize panel" {
+				dockHandles++
+				if len(v.Children) == 0 || v.Children[0].Style.Background != want.Line {
+					var got core.Color
+					if len(v.Children) > 0 {
+						got = v.Children[0].Style.Background
+					}
+					t.Errorf("%s: dock split handle line bg=#%06X, want Line=#%06X",
+						label, uint32(got)>>8, uint32(want.Line)>>8)
+				}
+			}
+			for _, ch := range v.Children {
+				walkDockHandles(ch)
+			}
+		}
+		walkDockHandles(dockArea)
+		if dockHandles == 0 {
+			t.Errorf("%s: expected dock split handles inside editor-dock-area", label)
+		}
 		col := app.Find("id:editor-scene-column").Style
-		if col.Background != want.Bg || col.BorderColors.Right != want.Line {
-			t.Errorf("%s: editor-scene-column bg=#%06X rightBorder=#%06X, want Bg=#%06X Line=#%06X",
-				label, uint32(col.Background)>>8, uint32(col.BorderColors.Right)>>8, uint32(want.Bg)>>8, uint32(want.Line)>>8)
+		if col.Background != want.Bg {
+			t.Errorf("%s: editor-scene-column bg=#%06X, want Bg=#%06X",
+				label, uint32(col.Background)>>8, uint32(want.Bg)>>8)
 		}
 		st := app.Find("id:scene-tree-panel").Style
 		if st.Background != want.Bg {
@@ -1275,19 +1305,19 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 				label, uint32(st.Background)>>8, uint32(want.Bg)>>8)
 		}
 		lp := app.Find("id:layers-panel").Style
-		if lp.Background != want.Panel || lp.BorderColors.Top != want.Line || lp.BorderColors.Right != want.Line {
-			t.Errorf("%s: layers-panel bg=#%06X topBorder=#%06X rightBorder=#%06X, want Panel=#%06X Line=#%06X",
-				label, uint32(lp.Background)>>8, uint32(lp.BorderColors.Top)>>8, uint32(lp.BorderColors.Right)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		if lp.Background != want.Panel {
+			t.Errorf("%s: layers-panel bg=#%06X, want Panel=#%06X",
+				label, uint32(lp.Background)>>8, uint32(want.Panel)>>8)
 		}
 		ab := app.Find("id:asset-browser").Style
-		if ab.Background != want.Panel || ab.BorderColors.Right != want.Line {
-			t.Errorf("%s: asset-browser bg=#%06X rightBorder=#%06X, want Panel=#%06X Line=#%06X",
-				label, uint32(ab.Background)>>8, uint32(ab.BorderColors.Right)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		if ab.Background != want.Panel {
+			t.Errorf("%s: asset-browser bg=#%06X, want Panel=#%06X",
+				label, uint32(ab.Background)>>8, uint32(want.Panel)>>8)
 		}
 		insp := app.Find("id:editor-inspector").Style
-		if insp.Background != want.Panel || insp.BorderColors.Left != want.Line {
-			t.Errorf("%s: editor-inspector bg=#%06X leftBorder=#%06X, want Panel=#%06X Line=#%06X",
-				label, uint32(insp.Background)>>8, uint32(insp.BorderColors.Left)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		if insp.Background != want.Panel {
+			t.Errorf("%s: editor-inspector bg=#%06X, want Panel=#%06X",
+				label, uint32(insp.Background)>>8, uint32(want.Panel)>>8)
 		}
 		sb := app.Find("id:editor-status").Style
 		if sb.Background != want.Bg || sb.BorderColors.Top != want.Line {
