@@ -183,6 +183,7 @@ func TestAgentTurnPendingPromptsGuardNavigation(t *testing.T) {
 	}
 
 	// Opening another scene from the file browser with a pending turn must prompt Keep / Revert / Cancel!
+	openFileBrowserInUI(app, ed)
 	app.DoublePress("id:files-row-scenes/other.scene.yaml")
 	app.Settle()
 	if !ed.PendingTurnPromptOpen() || !app.Exists("id:pending-turn-dialog") {

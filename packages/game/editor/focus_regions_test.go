@@ -436,11 +436,11 @@ func TestDialogTrapsFocusAndEscRestoresOpener(t *testing.T) {
 		t.Fatalf("after Esc closed Shortcuts Sheet, focus = %q, want toolbar-history", gotID)
 	}
 
-	// 2. Open unified Settings view via Cmd+Shift+, while focused on toolbar-history, verify F6 is blocked, and Esc restores toolbar-history.
-	app.Key("meta+shift+,")
+	// 2. Open unified Settings view via Cmd+, while focused on toolbar-history, verify F6 is blocked, and Esc restores toolbar-history.
+	app.Key("mod+,")
 	app.Settle()
 	if !ed.SettingsOpen() {
-		t.Fatal("expected Settings view to open on Cmd+Shift+,")
+		t.Fatal("expected Settings view to open on Cmd+,")
 	}
 	app.Key("f6")
 	app.Settle()
