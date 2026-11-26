@@ -1160,7 +1160,7 @@ func runProjectCheckWithOverrides(dir string, reg *sceneformat.ComponentRegistry
 	}
 
 	slices.SortFunc(problems, func(a, b assetcheck.Problem) int {
-		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column), cmp.Compare(a.Message, b.Message))
+		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column), cmp.Compare(a.Object, b.Object), cmp.Compare(a.Message, b.Message))
 	})
 	problems = slices.Compact(problems)
 	return problems, nil
@@ -1398,6 +1398,11 @@ func (e *Editor) attributeProblemObject(p assetcheck.Problem, loadSpans func() [
 			return true
 		}
 		return false
+	}
+
+	// 0. Direct object ID reported by assetcheck.Problem.Object.
+	if p.Object != "" && hasObj(p.Object) {
+		return p.Object
 	}
 
 	// 1. Explicit connection error: attach to the live endpoint (for example,

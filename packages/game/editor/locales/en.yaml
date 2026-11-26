@@ -763,6 +763,13 @@ strings:
   overlays.fit: Fit
   overlays.fitLabel: Fit all visible objects in the 2D viewport
   overlays.labels: Labels
+  overlays.legend.added: Added
+  overlays.legend.agent: Agent working
+  overlays.legend.changed: Changed
+  overlays.legend.problem: Problem
+  overlays.legend.removed: Removed
+  overlays.legend.selection: Selection
+  overlays.legendTitle: OVERLAYS
   overlays.navigation: Navigation
   overlays.patrolPaths: Patrol paths
   overlays.popoverTitle: SHOW IN VIEWPORT

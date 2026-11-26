@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/particles"
@@ -516,6 +517,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawSelectionOverlay(d, scene)
 	e.drawAgentTaskOverlays(d, scene)
 	e.drawAgentLiveOverlays(d, scene)
+	e.drawSceneOverlays2D(d, scene)
 	e.drawComponentShapes2D(d, scene)
 	e.drawViewportOverlays(d, scene)
 	e.drawProblemOverlays2D(d, scene)
@@ -603,41 +605,43 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 	highlight := e.ShowingSceneSettings()
 	spec := e.SpecPalette(nil)
 	d.Save()
+	// Camera frame, camera bounds, and camera handle use neutral Spec tokens in a 1 px hairline/dotted
+	// style distinct from all semantic overlay legend kinds (never Accent, Agent, Added, Changed, Removed, Problem).
 	if highlight {
-		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
+		d.SetStrokeColor(ui.Alpha(spec.TextMuted, 0.9)).SetLineWidth(1)
 	} else {
-		d.SetStrokeColor(ui.Alpha(spec.TextMuted, 0.7)).SetLineWidth(1)
+		d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.65)).SetLineWidth(1)
 	}
 	strokePolygon(d, corners(0, 0, vw, vh, e.ScreenToCanvas))
 	if e.Doc != nil && e.Doc.Camera != nil && e.Doc.Camera.Bounds != nil && e.drawOverlayOverride == nil {
 		b := e.Doc.Camera.Bounds
 		if highlight {
-			d.SetStrokeColor(ui.Alpha(spec.Changed.Edge, 0.95)).SetLineWidth(1.5).SetLineDash(6, 4)
+			d.SetStrokeColor(ui.Alpha(spec.TextMuted, 0.85)).SetLineWidth(1).SetLineDash(2, 4)
 			strokePolygon(d, corners(b.X, b.Y, b.Width, b.Height, e.WorldToCanvas))
 			if e.Tool == ToolSelect || e.Tool == ToolMove {
-				drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, spec.Raised, spec.Changed.Edge, spec.Changed.Fg)
+				drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, spec.Raised, spec.TextMuted, spec.TextPrimary)
 			}
 		}
 	}
 	if hx, hy, ok := e.CameraHandleCanvasPos(); ok {
 		// If bounds clamp the visible frame away from the camera's configured position,
-		// draw a dashed tether from the handle to the clamped frame center.
+		// draw a fine dotted tether from the handle to the clamped frame center.
 		fcx, fcy := e.ScreenToCanvas(vw/2, vh/2)
 		if math.Hypot(float64(hx-fcx), float64(hy-fcy)) > 1 {
-			d.SetStrokeColor(ui.Alpha(spec.Accent.Edge, 0.6)).SetLineWidth(1).SetLineDash(4, 3)
+			d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.7)).SetLineWidth(1).SetLineDash(2, 4)
 			d.BeginPath().MoveTo(hx, hy).LineTo(fcx, fcy).Stroke()
 		}
-		// Reset dash for the solid crosshair and circular handle.
+		// Reset dash for the solid neutral crosshair and circular handle.
 		d.SetLineDash()
 		const arm float32 = 10
-		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
+		d.SetStrokeColor(spec.TextMuted).SetLineWidth(1)
 		d.BeginPath().MoveTo(hx-arm, hy).LineTo(hx+arm, hy).MoveTo(hx, hy-arm).LineTo(hx, hy+arm).Stroke()
 		r := float32(5)
 		fill := spec.Raised
-		stroke := spec.Accent.Edge
+		stroke := spec.TextMuted
 		if e.cameraDrag.active {
 			r = 6
-			fill = spec.Accent.Edge
+			fill = spec.TextPrimary
 			stroke = spec.Raised
 		}
 		d.SetFillColor(fill).SetStrokeColor(stroke).SetLineWidth(1.5)
@@ -656,10 +660,11 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	}
 	space, px, py := e.layerSpaceAndParallax(layerName)
 	m := e.layerAffineFor(space, px, py)
+	spec := e.SpecPalette(nil)
 	d.Save()
 	applyAffine(d, m)
-	// The grid is a hairline at any zoom.
-	d.SetStrokeColor(core.RGBA(0xFFFFFF, 0.2)).SetLineWidth(1 / strokeScale(m))
+	// The tile grid is a neutral hairline using Spec tokens, distinct from every legend kind.
+	d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.22)).SetLineWidth(1 / strokeScale(m))
 	ox, oy := tm.OffsetX, tm.OffsetY
 	totalW := float32(tm.Width) * float32(tm.TileWidth)
 	totalH := float32(tm.Height) * float32(tm.TileHeight)
@@ -804,7 +809,7 @@ func drawBuiltLayer(d *core.Drawing, layer *sceneformat.BuiltLayer) {
 }
 
 func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if !e.OverlayLegendKindEnabled(OverlayLegendSelection) {
+	if !e.OverlayKindVisible(OverlayKindSelection) {
 		return
 	}
 	ids := e.SelectedIDs()
@@ -812,30 +817,15 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 		return
 	}
 	spec := e.SpecPalette(nil)
+	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
 	d.Save()
 	drawn := 0
 	var minX, maxX, minY, maxY float32
 	for _, id := range ids {
 		bo := scene.Object(id)
-		if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
+		bounds, corners, ok := e.builtObjectCanvasBounds(scene, bo)
+		if !ok {
 			continue
-		}
-		space := sceneformat.SpaceWorld
-		var px, py float32 = 1, 1
-		if layer := scene.Layer(bo.Layer); layer != nil {
-			if !layer.Visible {
-				continue
-			}
-			space = layer.Space
-			px, py = layer.ParallaxX, layer.ParallaxY
-		}
-		m := e.layerAffineFor(space, px, py).Mul(bo.World)
-		rx, ry, rw, rh := objectOutline(bo)
-		corners := []math2d.Vec2{
-			m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
-			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry}),
-			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
-			m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
 		}
 		for _, c := range corners {
 			if drawn == 0 {
@@ -845,8 +835,13 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 				minY, maxY = min(minY, c.Y), max(maxY, c.Y)
 			}
 		}
-		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
-		strokePolygon(d, corners)
+		DrawObjectOverlay(d, spec, ObjectOverlay{
+			Kind:       OverlayKindSelection,
+			Label:      e.objectDisplayName(bo, id),
+			Bounds:     bounds,
+			Corners:    corners,
+			CanvasSize: canvas,
+		})
 		drawn++
 	}
 	if drawn > 1 {
@@ -856,11 +851,11 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	d.Restore()
 }
 
-// drawAgentTaskOverlays draws numbered violet overlays (editing solid, holding at 45% opacity
-// with clock glyph and "waiting on <object>" pill) for active background agent tasks on the open scene,
-// following docs/design/editor/Tasks.dc.html and Spec.dc.html.
+// drawAgentTaskOverlays draws numbered violet overlays (editing solid pulsing 1.6 s between 100% and 45%,
+// holding at 45% dashed with clock glyph and "waiting on <object>" pill) for active background agent tasks
+// on the open scene through DrawObjectOverlay, respecting the Agent working legend toggle and ReduceMotion.
 func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if !e.ShowAgentChanges() || !e.OverlayLegendKindEnabled(OverlayLegendAgent) || e.HistoryPreviewActive() {
+	if !e.ShowAgentChanges() || !e.OverlayKindVisible(OverlayKindAgent) || e.HistoryPreviewActive() {
 		return
 	}
 	ovs := e.SceneTaskOverlays()
@@ -868,60 +863,36 @@ func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.Built
 		return
 	}
 	spec := e.SpecPalette(nil)
-	d.Save()
-	fontNum := core.Font{Size: 10, Weight: 600}
-	fontLbl := core.Font{Size: 11, Weight: 500}
+	now := e.overlayNow()
+	rm := e.ReduceMotion()
+	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
 
 	type objBox struct {
-		ov         ObjectTaskOverlay
-		minX, minY float32
-		maxX, maxY float32
-		pad        float32
+		ov     ObjectTaskOverlay
+		bounds core.Bounds
+		paired bool
 	}
 	var boxes []objBox
 	for _, ov := range ovs {
 		bo := scene.Object(ov.ObjectID)
-		if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
+		bounds, _, ok := e.builtObjectCanvasBounds(scene, bo)
+		if !ok {
 			continue
 		}
-		space := sceneformat.SpaceWorld
-		var px, py float32 = 1, 1
-		if layer := scene.Layer(bo.Layer); layer != nil {
-			if !layer.Visible {
-				continue
-			}
-			space = layer.Space
-			px, py = layer.ParallaxX, layer.ParallaxY
-		}
-		m := e.layerAffineFor(space, px, py).Mul(bo.World)
-		rx, ry, rw, rh := objectOutline(bo)
-		corners := []math2d.Vec2{
-			m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
-			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry}),
-			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
-			m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
-		}
-		minX, maxX := corners[0].X, corners[0].X
-		minY, maxY := corners[0].Y, corners[0].Y
-		for _, c := range corners[1:] {
-			minX, maxX = min(minX, c.X), max(maxX, c.X)
-			minY, maxY = min(minY, c.Y), max(maxY, c.Y)
-		}
-		pad := float32(3)
-		if e.IsSelected(ov.ObjectID) {
-			pad = 6
-		}
-		outlineColor := spec.Agent.Edge
-		if ov.Holding {
-			outlineColor = ui.Alpha(spec.Agent.Edge, 0.45)
-			d.SetLineDash(4, 3)
-		} else {
-			d.SetLineDash()
-		}
-		d.SetStrokeColor(outlineColor).SetLineWidth(1.5)
-		d.BeginPath().RoundRect(minX-pad, minY-pad, (maxX-minX)+pad*2, (maxY-minY)+pad*2, 4).Stroke()
-		d.SetLineDash()
-		boxes = append(boxes, objBox{ov: ov, minX: minX, minY: minY, maxX: maxX, maxY: maxY, pad: pad})
+		paired := e.IsSelected(ov.ObjectID) && e.OverlayKindVisible(OverlayKindSelection)
+		// Draw the pulsing/holding outline on every target object (pill drawn once per task group below).
+		DrawObjectOverlay(d, spec, ObjectOverlay{
+			Kind:                OverlayKindAgent,
+			TaskNumber:          ov.TaskNumber,
+			Holding:             ov.Holding,
+			Bounds:              bounds,
+			CanvasSize:          canvas,
+			PairedWithSelection: paired,
+			Elapsed:             now.Sub(e.overlayEpoch),
+			HasElapsed:          true,
+			ReduceMotion:        rm,
+		})
+		boxes = append(boxes, objBox{ov: ov, bounds: bounds, paired: paired})
 	}
 
 	// Pick one anchor box per (taskID, holding) group — preferring the highest object so holding
@@ -938,86 +909,58 @@ func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.Built
 		if !exists {
 			groupOrder = append(groupOrder, k)
 			anchorByGroup[k] = b
-		} else if b.minY < prev.minY {
+		} else if b.bounds.Origin.Y < prev.bounds.Origin.Y {
 			anchorByGroup[k] = b
 		}
 	}
 
-	type rectF struct{ x, y, w, h float32 }
-	overlapsAny := func(r rectF, placed []rectF) bool {
+	overlapsAny := func(r core.Bounds, placed []core.Bounds) bool {
 		for _, o := range placed {
-			if r.x < o.x+o.w+6 && r.x+r.w+6 > o.x && r.y < o.y+o.h+4 && r.y+r.h+4 > o.y {
+			if r.Origin.X < o.Origin.X+o.Size.Width+6 &&
+				r.Origin.X+r.Size.Width+6 > o.Origin.X &&
+				r.Origin.Y < o.Origin.Y+o.Size.Height+4 &&
+				r.Origin.Y+r.Size.Height+4 > o.Origin.Y {
 				return true
 			}
 		}
 		return false
 	}
-	var placed []rectF
+	var placed []core.Bounds
 
 	for _, k := range groupOrder {
 		b := anchorByGroup[k]
-		ov := b.ov
-		label := ov.Label
-		numStr := fmt.Sprintf("%d", ov.TaskNumber)
-		clockW := float32(0)
-		if ov.Holding {
-			clockW = 16
-		}
-		textW := float32(len([]rune(label))) * 6.2
-		pillW := 4 + 16 + 6 + clockW + textW + 8
-		const pillH float32 = 22
-		cx := (b.minX + b.maxX) * 0.5
-		pillX := cx - pillW*0.5
-		pillY := b.minY - b.pad - pillH - 8
-		if pillY < 8 {
-			pillY = b.maxY + b.pad + 8
+		stackOff := float32(0)
+		if b.paired {
+			stackOff = 24
 		}
 		for range 8 {
-			if !overlapsAny(rectF{pillX, pillY, pillW, pillH}, placed) {
+			estY := float32(b.bounds.Origin.Y) - OverlayBaseOffset - 22 - 8 - stackOff
+			est := core.Bounds{
+				Origin: core.Point{X: b.bounds.Origin.X, Y: core.Points(estY)},
+				Size:   core.Size{Width: core.Points(max(float32(len([]rune(b.ov.Label)))*6.2+40, 80)), Height: 22},
+			}
+			if !overlapsAny(est, placed) {
 				break
 			}
-			pillY -= pillH + 6
+			stackOff += 28
 		}
-		placed = append(placed, rectF{pillX, pillY, pillW, pillH})
-
-		pillBorder := spec.Agent.Edge
-		if ov.Holding {
-			pillBorder = spec.LineRaised
+		pill := DrawObjectOverlay(d, spec, ObjectOverlay{
+			Kind:                OverlayKindAgent,
+			Label:               b.ov.Label,
+			TaskNumber:          b.ov.TaskNumber,
+			Holding:             b.ov.Holding,
+			Bounds:              b.bounds,
+			CanvasSize:          canvas,
+			PairedWithSelection: b.paired,
+			PillStackOffset:     stackOff,
+			Elapsed:             now.Sub(e.overlayEpoch),
+			HasElapsed:          true,
+			ReduceMotion:        rm,
+		})
+		if pill.Size.Width > 0 && pill.Size.Height > 0 {
+			placed = append(placed, pill)
 		}
-		d.SetFillColor(ui.Alpha(spec.PillBg, 0.94))
-		d.BeginPath().RoundRect(pillX, pillY, pillW, pillH, 11).Fill()
-		d.SetStrokeColor(pillBorder).SetLineWidth(1)
-		d.BeginPath().RoundRect(pillX, pillY, pillW, pillH, 11).Stroke()
-
-		// Number circle badge.
-		badgeCX := pillX + 12
-		badgeCY := pillY + pillH*0.5
-		if ov.Holding {
-			d.SetStrokeColor(spec.Agent.Edge).SetLineWidth(1.5)
-			d.BeginPath().Ellipse(badgeCX, badgeCY, 7.5, 7.5).Stroke()
-			d.SetFillColor(spec.TextSecondary).FillText(numStr, badgeCX-3, badgeCY+3.5, fontNum)
-		} else {
-			d.SetFillColor(spec.Agent.Fg).BeginPath().Ellipse(badgeCX, badgeCY, 8, 8).Fill()
-			d.SetFillColor(spec.Agent.OnFill).FillText(numStr, badgeCX-3, badgeCY+3.5, fontNum)
-		}
-
-		curX := pillX + 26
-		if ov.Holding {
-			// Clock glyph beside task number (never hue-only).
-			ccx := curX + 5
-			ccy := pillY + pillH*0.5
-			d.SetStrokeColor(spec.TextMuted).SetLineWidth(1.4).SetLineCap(core.CapRound)
-			d.BeginPath().Ellipse(ccx, ccy, 5, 5).Stroke()
-			d.BeginPath().MoveTo(ccx, ccy-2.5).LineTo(ccx, ccy).LineTo(ccx+2.2, ccy+1.4).Stroke()
-			curX += clockW
-		}
-		txtColor := spec.TextSecondary
-		if ov.Holding {
-			txtColor = spec.TextMuted
-		}
-		d.SetFillColor(txtColor).FillText(label, curX, pillY+14.5, fontLbl)
 	}
-	d.Restore()
 }
 
 // wheelZoomPoints is how far a wheel moves the content, in points, to double or halve the 2D view's zoom: a notch of 40 points zooms by about 15%.
@@ -1344,6 +1287,41 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		agentPulseRev.Set(ed.AgentPulseRevision())
 	})
 	cx.Cleanup(unsubAgentPulse)
+
+	// Animate active Agent working pulses (1.6 s) and change overlay fade-ins (240 ms).
+	// Disabled completely when ReduceMotion is enabled so nothing fades or pulses.
+	overlayAnimRev := core.NewSignal(cx, uint64(0))
+	animateOverlays := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		if cx.Env().ReduceMotion() || ed.ReduceMotion() {
+			return false
+		}
+		return ed.hasAnimatedOverlays()
+	})
+	cx.Effect(func() {
+		if !animateOverlays.Get() {
+			return
+		}
+		stopped := false
+		var stop func() bool
+		var tick func()
+		tick = func() {
+			if stopped {
+				return
+			}
+			overlayAnimRev.Set(overlayAnimRev.Get() + 1)
+			if !cx.Env().ReduceMotion() && ed.hasAnimatedOverlays() {
+				stop = cx.AfterFunc(33*time.Millisecond, tick)
+			}
+		}
+		stop = cx.AfterFunc(33*time.Millisecond, tick)
+		cx.Cleanup(func() {
+			stopped = true
+			if stop != nil {
+				stop()
+			}
+		})
+	})
 	var g viewportGestures
 	var g3 viewport3DGestures
 	// frame is the view the 3D viewport's flight locks the pointer to.
@@ -1517,6 +1495,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			_ = rev.Get()
 			_ = tileAnimRev.Get()
 			_ = agentPulseRev.Get()
+			_ = overlayAnimRev.Get()
 			ed.DrawViewport(d, size)
 		},
 	}

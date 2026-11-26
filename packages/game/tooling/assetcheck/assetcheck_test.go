@@ -306,6 +306,37 @@ func TestProblemString(t *testing.T) {
 	}
 }
 
+func TestProblemNamesSceneObject(t *testing.T) {
+	// Missing sprite frame on a scene object attaches Object ID.
+	fsys := project(t)
+	fsys["scenes/room.scene.yaml"].Data = []byte(strings.Replace(roomScene, "frame: hero", "frame: ghost_frame", 1))
+	r := mustCheck(t, fsys)
+	if len(r.Problems) != 1 || r.Problems[0].Object != "hero" {
+		t.Fatalf("missing sprite frame problem = %+v, want Object=%q", r.Problems, "hero")
+	}
+
+	// Missing material on a scene object attaches Object ID (not on external non-scene files).
+	fsys = project(t)
+	fsys["scenes/room.scene.yaml"].Data = []byte(strings.Replace(roomScene, "material: materials/stone.material.yaml", "material: materials/missing.material.yaml", 1))
+	r = mustCheck(t, fsys)
+	if len(r.Problems) != 1 || r.Problems[0].Object != "hero" {
+		t.Fatalf("missing material problem = %+v, want Object=%q", r.Problems, "hero")
+	}
+
+	// Broken texture inside the external material file has empty Object (file-scoped, not a scene object).
+	fsys = project(t)
+	delete(fsys, "art/stone.png")
+	r = mustCheck(t, fsys)
+	if len(r.Problems) == 0 {
+		t.Fatal("expected problem for missing art/stone.png")
+	}
+	for _, p := range r.Problems {
+		if p.File != "scenes/room.scene.yaml" && p.Object != "" {
+			t.Fatalf("non-scene problem %+v unexpectedly set Object=%q", p, p.Object)
+		}
+	}
+}
+
 func TestProblemsAreSortedAndCounted(t *testing.T) {
 	fsys := project(t)
 	delete(fsys, "art/sky.png")

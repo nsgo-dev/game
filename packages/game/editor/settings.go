@@ -177,6 +177,10 @@ type EditorSettings struct {
 	// HiddenOverlayKinds lists Spec overlay legend kinds toggled off by the user
 	// ("selection", "agent", "added", "changed", "removed", "problem") in canonical sorted order.
 	HiddenOverlayKinds []string `yaml:"hiddenOverlayKinds,omitempty"`
+	// OverlayLegend lists the enabled Spec viewport overlay legend kinds
+	// ("selection", "agent", "added", "changed", "removed", "problem") in canonical sorted order.
+	// When omitted, all six legend kinds are enabled by default; an empty list hides all six kinds.
+	OverlayLegend *[]string `yaml:"overlayLegend,omitempty"`
 	// Shortcuts overrides default command shortcuts keyed by command ID (for example "view.frame": "g"). An empty string explicitly unbinds a command.
 	Shortcuts map[string]string `yaml:"shortcuts,omitempty"`
 	// SeenTips lists the onboarding tip IDs already seen or skipped by this user in canonical sorted order.
@@ -397,6 +401,18 @@ func ValidateEditorSettings(s *EditorSettings) error {
 			seen[raw] = struct{}{}
 		}
 	}
+	if s.OverlayLegend != nil {
+		seen := make(map[string]struct{}, len(*s.OverlayLegend))
+		for i, id := range *s.OverlayLegend {
+			if !OverlayKind(id).IsLegendKind() {
+				return loaderr.Errorf(fmt.Sprintf("overlayLegend[%d]", i), "use legend kinds selection, agent, added, changed, removed, or problem", "editor: invalid overlay legend kind %q", id)
+			}
+			if _, dup := seen[id]; dup {
+				return loaderr.Errorf(fmt.Sprintf("overlayLegend[%d]", i), "remove duplicate overlay legend kinds", "editor: duplicate overlay legend kind %q", id)
+			}
+			seen[id] = struct{}{}
+		}
+	}
 	for _, cmdID := range slices.Sorted(maps.Keys(s.Shortcuts)) {
 		raw := s.Shortcuts[cmdID]
 		if err := validateCommandID(cmdID); err != nil {
@@ -495,6 +511,14 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 		slices.Sort(hidden)
 		out.HiddenOverlayKinds = hidden
 	}
+	if s.OverlayLegend != nil {
+		sorted := slices.Clone(*s.OverlayLegend)
+		if sorted == nil {
+			sorted = []string{}
+		}
+		slices.Sort(sorted)
+		out.OverlayLegend = &sorted
+	}
 	var buf bytes.Buffer
 	buf.WriteString(SettingsSchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
@@ -585,6 +609,13 @@ func (e *Editor) Settings() EditorSettings {
 		s.HiddenOverlayKinds = slices.Clone(s.HiddenOverlayKinds)
 	} else {
 		s.HiddenOverlayKinds = nil
+	}
+	if s.OverlayLegend != nil {
+		cp := slices.Clone(*s.OverlayLegend)
+		if cp == nil {
+			cp = []string{}
+		}
+		s.OverlayLegend = &cp
 	}
 	if len(s.Shortcuts) > 0 {
 		s.Shortcuts = maps.Clone(s.Shortcuts)
@@ -861,6 +892,14 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 		s.HiddenOverlayKinds = cp
 	} else {
 		s.HiddenOverlayKinds = nil
+	}
+	if s.OverlayLegend != nil {
+		cp := slices.Clone(*s.OverlayLegend)
+		if cp == nil {
+			cp = []string{}
+		}
+		slices.Sort(cp)
+		s.OverlayLegend = &cp
 	}
 	if len(s.Shortcuts) > 0 {
 		normalized := make(map[string]string, len(s.Shortcuts))

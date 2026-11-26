@@ -49,6 +49,8 @@ type Problem struct {
 	Line int
 	// Column is the 1-based column on Line where the scene or YAML format knows it, or 0 when unknown.
 	Column int
+	// Object is the ID of the scene object the problem names or belongs to when known, or "" for file-wide or non-scene problems.
+	Object string
 	// Message says what is wrong.
 	Message string
 }
@@ -278,6 +280,19 @@ type checker struct {
 	l10nByRoot map[string]*l10nIndex
 	// localeTables holds the parsed l10n YAML string tables discovered in each project root.
 	localeTables map[string]*projectLocales
+	// curObjectFile and curObject tag scene-object problems recorded against curObjectFile with Object.
+	curObjectFile string
+	curObject     string
+}
+
+// withObject scopes problems recorded against file inside fn to objectID.
+func (c *checker) withObject(file, objectID string, fn func()) {
+	prevFile, prevObj := c.curObjectFile, c.curObject
+	c.curObjectFile, c.curObject = file, objectID
+	defer func() {
+		c.curObjectFile, c.curObject = prevFile, prevObj
+	}()
+	fn()
 }
 
 // problem records a problem in file at line (0 for none).
@@ -287,18 +302,27 @@ func (c *checker) problem(file string, line int, format string, args ...any) {
 
 // problemAt records a problem in file at 1-based line and column (0 for unknown).
 func (c *checker) problemAt(file string, line, col int, format string, args ...any) {
+	obj := ""
+	if file == c.curObjectFile {
+		obj = c.curObject
+	}
+	c.problemOnObject(file, line, col, obj, format, args...)
+}
+
+// problemOnObject records a problem in file at 1-based line and column attributed to objectID (or "" for none).
+func (c *checker) problemOnObject(file string, line, col int, objectID, format string, args ...any) {
 	c.broken[file] = true
 	if line <= 0 {
 		col = 0
 	}
-	c.report.Problems = append(c.report.Problems, Problem{File: file, Line: line, Column: col, Message: fmt.Sprintf(format, args...)})
+	c.report.Problems = append(c.report.Problems, Problem{File: file, Line: line, Column: col, Object: objectID, Message: fmt.Sprintf(format, args...)})
 }
 
 // finish sorts the problems, drops repeats and returns the report.
 func (c *checker) finish() *Report {
 	r := &c.report
 	slices.SortFunc(r.Problems, func(a, b Problem) int {
-		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column), cmp.Compare(a.Message, b.Message))
+		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column), cmp.Compare(a.Object, b.Object), cmp.Compare(a.Message, b.Message))
 	})
 	r.Problems = slices.Compact(r.Problems)
 	return r

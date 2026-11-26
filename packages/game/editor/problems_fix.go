@@ -4,14 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
@@ -161,30 +159,21 @@ func (e *Editor) SetProblemAgentPanelOpen(open bool) {
 }
 
 // ProblemOverlayVisible reports whether the Spec Problem overlay is drawn on
-// live objects in the 2D viewport (true by default).
+// live objects in the viewport (true by default, synchronized with the Problem legend toggle).
 func (e *Editor) ProblemOverlayVisible() bool {
 	if e == nil {
 		return false
 	}
-	e.problems.mu.Lock()
-	defer e.problems.mu.Unlock()
-	return !e.problems.problemOverlayHidden
+	return e.OverlayKindVisible(OverlayKindProblem)
 }
 
-// SetProblemOverlayVisible toggles the Spec Problem overlay in the 2D viewport.
+// SetProblemOverlayVisible toggles the Spec Problem overlay in the viewport
+// (synchronized with the Problem legend toggle and persisted when SettingsPath is set).
 func (e *Editor) SetProblemOverlayVisible(visible bool) {
 	if e == nil {
 		return
 	}
-	e.problems.mu.Lock()
-	hidden := !visible
-	if e.problems.problemOverlayHidden == hidden {
-		e.problems.mu.Unlock()
-		return
-	}
-	e.problems.problemOverlayHidden = hidden
-	e.problems.mu.Unlock()
-	e.notify()
+	_ = e.SetOverlayKindVisible(OverlayKindProblem, visible)
 }
 
 // ActiveProblem returns the problem currently focused in the Agent problem panel.
@@ -1166,6 +1155,9 @@ func extractProblemObjectIDFromDoc(doc *sceneformat.SceneDoc, p assetcheck.Probl
 		return ""
 	}
 	hasObj := func(id string) bool { return locateObject(doc, id).obj != nil }
+	if p.Object != "" && hasObj(p.Object) {
+		return p.Object
+	}
 	if m := connProblemRE.FindStringSubmatch(p.Message); len(m) == 6 {
 		if hasObj(m[2]) {
 			return m[2]
@@ -1215,9 +1207,9 @@ func shortProblemLabel(p assetcheck.Problem) string {
 // drawProblemOverlays2D draws the Spec Problem overlay (2 px solid Problem.Edge
 // outline on the live object plus a filled Problem.Fg pill with the alert
 // triangle icon and message in Problem.OnFill) for every live visible object in
-// the open scene that has a non-ignored problem.
+// the open scene that has a non-ignored problem, through DrawObjectOverlay.
 func (e *Editor) drawProblemOverlays2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if e == nil || d == nil || scene == nil || e.playing || e.HistoryPreviewActive() || !e.ProblemOverlayVisible() || !e.OverlayLegendKindEnabled(OverlayLegendProblem) {
+	if e == nil || d == nil || scene == nil || e.playing || e.HistoryPreviewActive() || !e.OverlayKindVisible(OverlayKindProblem) {
 		return
 	}
 	objProbs := e.openSceneObjectProblems()
@@ -1225,83 +1217,38 @@ func (e *Editor) drawProblemOverlays2D(d *core.Drawing, scene *sceneformat.Built
 		return
 	}
 	spec := e.SpecPalette(nil)
-	probRole := spec.Problem()
-	font := core.Font{Family: core.FontMonospace, Size: 10.5}
+	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
 
 	d.Save()
 	for _, layer := range scene.Layers {
 		if !layer.Visible {
 			continue
 		}
-		layerM := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
 		var walk func(objs []*sceneformat.BuiltObject, hidden bool)
 		walk = func(objs []*sceneformat.BuiltObject, hidden bool) {
 			for _, bo := range objs {
 				h := hidden || e.hidden[bo.ID]
 				if !h && bo != nil && bo.Doc != nil {
 					if probs := objProbs[bo.ID]; len(probs) > 0 {
-						m := layerM.Mul(bo.World)
-						rx, ry, rw, rh := objectOutline(bo)
-						corners := [4]math2d.Vec2{
-							m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
-							m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry}),
-							m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
-							m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
+						bounds, _, ok := e.builtObjectCanvasBounds(scene, bo)
+						if !ok {
+							continue
 						}
-						minX, minY := corners[0].X, corners[0].Y
-						maxX, maxY := corners[0].X, corners[0].Y
-						for _, pt := range corners[1:] {
-							minX = float32(math.Min(float64(minX), float64(pt.X)))
-							minY = float32(math.Min(float64(minY), float64(pt.Y)))
-							maxX = float32(math.Max(float64(maxX), float64(pt.X)))
-							maxY = float32(math.Max(float64(maxY), float64(pt.Y)))
-						}
-						// 2 px solid Spec Problem outline with 3 px offset around the live object.
-						const pad float32 = 3
-						d.SetStrokeColor(probRole.Edge).SetLineWidth(2).SetLineDash()
-						d.BeginPath().Rect(minX-pad, minY-pad, (maxX-minX)+2*pad, (maxY-minY)+2*pad).Stroke()
-
-						// Filled Spec Problem pill above the object with alert triangle icon + message.
 						label := shortProblemLabel(probs[0])
 						if len(probs) > 1 {
 							label = fmt.Sprintf("%s (+%d)", label, len(probs)-1)
 						}
-						const iconW float32 = 14
-						const pillH float32 = 20
-						pillW := float32(len([]rune(label)))*6.5 + iconW + 16
-						cx := (minX + maxX) * 0.5
-						px := cx - pillW*0.5
-						if e.canvasW > 0 {
-							if px+pillW > e.canvasW-6 {
-								px = e.canvasW - pillW - 6
-							}
-							if px < 6 {
-								px = 6
-							}
+						stackOff := float32(0)
+						if e.IsSelected(bo.ID) && e.OverlayKindVisible(OverlayKindSelection) {
+							stackOff = 24
 						}
-						py := minY - pad - pillH - 6
-						if py < 6 {
-							py = maxY + pad + 6
-						}
-						if e.canvasH > 0 {
-							if py+pillH > e.canvasH-6 {
-								py = e.canvasH - pillH - 6
-							}
-							if py < 6 {
-								py = 6
-							}
-						}
-						d.SetFillColor(probRole.Fg)
-						d.BeginPath().Rect(px, py, pillW, pillH).Fill()
-
-						// Alert triangle icon in Problem.OnFill (never color alone).
-						ix, iy := px+6, py+4
-						d.SetStrokeColor(probRole.OnFill).SetLineWidth(1.5).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
-						d.BeginPath().MoveTo(ix+6, iy+1).LineTo(ix+11, iy+10.5).LineTo(ix+1, iy+10.5).ClosePath().Stroke()
-						d.BeginPath().MoveTo(ix+6, iy+4.5).LineTo(ix+6, iy+7.2).Stroke()
-						d.SetFillColor(probRole.OnFill).BeginPath().Arc(ix+6, iy+9, 0.75, 0, float32(2*math.Pi), false).Fill()
-
-						d.SetFillColor(probRole.OnFill).FillText(label, px+iconW+8, py+13.5, font)
+						DrawObjectOverlay(d, spec, ObjectOverlay{
+							Kind:            OverlayKindProblem,
+							Label:           label,
+							Bounds:          bounds,
+							CanvasSize:      canvas,
+							PillStackOffset: stackOff,
+						})
 					}
 				}
 				walk(bo.Children, h)

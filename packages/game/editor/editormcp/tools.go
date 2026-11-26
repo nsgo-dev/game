@@ -755,6 +755,8 @@ type Problem struct {
 	Line int `json:"line,omitempty"`
 	// Column is the 1-based column on Line where the scene format knows it, or 0 when unknown.
 	Column int `json:"column,omitempty"`
+	// Object is the ID of the scene object the problem names or belongs to when known.
+	Object string `json:"object,omitempty"`
 	// Message says what is wrong.
 	Message string `json:"message"`
 }
@@ -814,7 +816,7 @@ func gameCheck(ctx context.Context, c *Call) (*Result, error) {
 	found := ed.Problems()
 	res := Check{Problems: make([]Problem, 0, len(found))}
 	for _, p := range found {
-		res.Problems = append(res.Problems, Problem{File: p.File, Line: p.Line, Column: p.Column, Message: p.Message})
+		res.Problems = append(res.Problems, Problem{File: p.File, Line: p.Line, Column: p.Column, Object: p.Object, Message: p.Message})
 	}
 	if file != "" && unsaved(scene, file, reg) {
 		res.Unsaved = name

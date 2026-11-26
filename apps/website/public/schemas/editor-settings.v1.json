@@ -76,6 +76,13 @@
         "type": "string"
       }
     },
+    "overlayLegend": {
+      "description": "OverlayLegend lists the enabled Spec viewport overlay legend kinds (\"selection\", \"agent\", \"added\", \"changed\", \"removed\", \"problem\") in canonical sorted order. When omitted, all six legend kinds are enabled by default; an empty list hides all six kinds.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "shortcuts": {
       "description": "Shortcuts overrides default command shortcuts keyed by command ID (for example \"view.frame\": \"g\"). An empty string explicitly unbinds a command.",
       "type": "object",
