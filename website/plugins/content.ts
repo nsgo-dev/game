@@ -180,6 +180,7 @@ const DOC_ORDER = [
   'platforms.md',
   'shipping.md',
   'steam.md',
+  'shipping-china.md',
   'cli.md',
   'cli-reference.md',
 ] as const

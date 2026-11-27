@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```
 
-`liveops` 为 NSGo 游戏提供与具体服务商无关的线上运营基础能力。它只依赖 Go 标准库、`github.com/nsgo-dev/game` 和 NSGo 的公开 `core`、`cloud` API，不内置任何第三方崩溃上报、埋点分析、广告或支付 SDK。
+`liveops` 为 NSGo 游戏提供与具体服务商无关的线上运营基础能力。它只依赖 Go 标准库、`github.com/nsgo-dev/game` 和 NSGo 的公开 `core`、`cloud` API，不内置任何第三方崩溃上报、埋点分析、广告或支付 SDK。面向中国大陆发布时的首次启动隐私同意门控、无 Google Play 服务 Android 设备的自部署替代方案及规划中的防沉迷合规能力，详见[在中国大陆发布](shipping-china.md)。
 
 ## 范围决策（[#194](https://github.com/nsgo-dev/game/issues/194)）
 
