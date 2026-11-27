@@ -94,19 +94,22 @@ func ExampleMixer() {
 	// 0.3 0.8 1
 }
 
-// Music plays one long track at a time through the mixer's "music" group, crossfading into the next. PlayWithIntro plays a SectionedTrack's intro once and then loops its loop section. Playing needs the platform's audio, so this example is compiled but not run.
+// Music plays one long track at a time through the mixer's "music" group, crossfading into the next. PlayLooped plays a single file once from the start and loops back to a loop point inside the native player; PlayWithIntro pairs separate intro and loop files. Playing needs the platform's audio, so this example is compiled but not run.
 func ExampleMusic() {
 	root := core.NewRoot(core.RootOptions{})
 	defer root.Dispose()
 	mixer := sound.NewMixer(root, "mixer")
 	music := mixer.Music("music")
 
-	// The title screen's theme loops; the first level's track crossfades in over two seconds.
+	// The title screen's theme loops; the first level's track plays a 12-second intro once and loops from 12s inside one player.
 	music.Loop = true
 	music.Play(audio.Source{URI: "asset:music/title.m4a"}, 0)
+	music.PlayLooped(audio.Source{URI: "asset:music/level1.m4a"}, 12*time.Second, 2*time.Second)
+
+	// Separate intro and loop assets can use PlayWithIntro when a single file is not available.
 	music.PlayWithIntro(sound.SectionedTrack{
-		Intro: audio.Source{URI: "asset:music/level1-intro.m4a"},
-		Loop:  audio.Source{URI: "asset:music/level1-loop.m4a"},
+		Intro: audio.Source{URI: "asset:music/boss-intro.m4a"},
+		Loop:  audio.Source{URI: "asset:music/boss-loop.m4a"},
 	}, 2*time.Second)
 
 	// Pausing the game fades the music out.
