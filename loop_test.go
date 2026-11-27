@@ -1059,3 +1059,388 @@ func TestLoopStepsElapsedAndStepNow(t *testing.T) {
 		t.Fatal("nil Loop helpers returned unexpected values")
 	}
 }
+
+func TestPausedReleasesDisplayKeepAwakeAndUnpauseReacquires(t *testing.T) {
+	t.Run("set_paused_and_direct_mutation", func(t *testing.T) {
+		l := &game.Loop{}
+		app := start(t, l)
+		if len(app.Awake) != 1 || !app.Awake[0].Display {
+			t.Fatalf("initial awake holds = %+v, want 1 display hold", app.Awake)
+		}
+		firstID := app.Awake[0].ID
+
+		// SetPaused(true) releases immediately with default PausedAwake == 0,
+		// and stays released across long pauses (issue #1658 repro).
+		app.Post(func() { l.SetPaused(true) })
+		app.Settle()
+		if len(app.Awake) != 0 {
+			t.Fatalf("after SetPaused(true): awake holds = %+v, want none", app.Awake)
+		}
+		if len(app.AwakeReleases) != 1 || app.AwakeReleases[0] != firstID {
+			t.Fatalf("after SetPaused(true): releases = %v, want [%d]", app.AwakeReleases, firstID)
+		}
+		app.FastForward(10 * time.Minute)
+		if len(app.Awake) != 0 {
+			t.Fatalf("after 10m paused: awake holds = %+v, want none", app.Awake)
+		}
+
+		// Redundant SetPaused(true) is a no-op.
+		app.Post(func() { l.SetPaused(true) })
+		app.Settle()
+		if len(app.Awake) != 0 || len(app.AwakeHolds) != 1 {
+			t.Fatalf("after redundant SetPaused(true): awake=%+v holds=%+v, want none / 1", app.Awake, app.AwakeHolds)
+		}
+
+		// SetPaused(false) re-acquires immediately without waiting for a frame.
+		app.Post(func() { l.SetPaused(false) })
+		app.Settle()
+		if len(app.Awake) != 1 || !app.Awake[0].Display {
+			t.Fatalf("after SetPaused(false): awake holds = %+v, want 1 display hold", app.Awake)
+		}
+
+		// Direct Paused field mutation releases and re-acquires on the next frame.
+		app.Post(func() { l.Paused = true })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if len(app.Awake) != 0 {
+			t.Fatalf("after direct Paused=true: awake holds = %+v, want none", app.Awake)
+		}
+		app.Post(func() { l.Paused = false })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if len(app.Awake) != 1 || !app.Awake[0].Display {
+			t.Fatalf("after direct Paused=false: awake holds = %+v, want 1 display hold", app.Awake)
+		}
+	})
+
+	t.Run("start_paused_and_background_return_paused", func(t *testing.T) {
+		l := &game.Loop{Paused: true}
+		app := start(t, l)
+		if len(app.Awake) != 0 || len(app.AwakeHolds) != 0 {
+			t.Fatalf("start paused: awake=%+v holds=%+v, want none", app.Awake, app.AwakeHolds)
+		}
+		app.Advance(time.Second)
+		if len(app.Awake) != 0 || len(app.AwakeHolds) != 0 {
+			t.Fatalf("1s after start paused: awake=%+v holds=%+v, want none", app.Awake, app.AwakeHolds)
+		}
+
+		// Returning from background while still Paused must not acquire a hold.
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+		if len(app.Awake) != 0 || len(app.AwakeHolds) != 0 {
+			t.Fatalf("foreground return while paused: awake=%+v holds=%+v, want none", app.Awake, app.AwakeHolds)
+		}
+
+		// Unpausing while backgrounded does not acquire until foreground.
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+		app.Post(func() { l.SetPaused(false) })
+		app.Settle()
+		if len(app.Awake) != 0 || len(app.AwakeHolds) != 0 {
+			t.Fatalf("unpaused in background: awake=%+v holds=%+v, want none", app.Awake, app.AwakeHolds)
+		}
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+		if len(app.Awake) != 1 || !app.Awake[0].Display {
+			t.Fatalf("foreground after unpause: awake=%+v, want 1 display hold", app.Awake)
+		}
+	})
+
+	t.Run("pause_in_update_releases_same_frame", func(t *testing.T) {
+		var l *game.Loop
+		l = &game.Loop{
+			Update: func(time.Duration) { l.Paused = true },
+		}
+		app := start(t, l)
+		if len(app.Awake) != 1 {
+			t.Fatalf("initial awake holds = %+v, want 1", app.Awake)
+		}
+		app.FastForward(20 * time.Millisecond)
+		if len(app.Awake) != 0 {
+			t.Fatalf("after pause in Update: awake holds = %+v, want none", app.Awake)
+		}
+	})
+
+	t.Run("stop_and_dispose_while_paused_ignore_later_unpause", func(t *testing.T) {
+		var stop func()
+		l := &game.Loop{Paused: true}
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			stop = l.Run(cx)
+			return core.View{}
+		})
+		app.Post(stop)
+		app.Settle()
+		app.Post(func() { l.SetPaused(false) })
+		app.Settle()
+		app.Advance(time.Second)
+		if len(app.Awake) != 0 || len(app.AwakeHolds) != 0 {
+			t.Fatalf("unpause after stop: awake=%+v holds=%+v, want none", app.Awake, app.AwakeHolds)
+		}
+	})
+}
+
+func TestPausedAwakeGracePeriodAndDynamicChanges(t *testing.T) {
+	t.Run("grace_period_release_and_unpause", func(t *testing.T) {
+		l := &game.Loop{PausedAwake: 30 * time.Second}
+		app := start(t, l)
+		if len(app.Awake) != 1 {
+			t.Fatalf("initial awake holds = %+v, want 1", app.Awake)
+		}
+
+		app.Post(func() { l.SetPaused(true) })
+		app.Settle()
+		app.Advance(29 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("at 29s paused (< 30s grace): awake holds = %+v, want 1", app.Awake)
+		}
+
+		// Redundant SetPaused(true) must not reset the grace timer.
+		app.Post(func() { l.SetPaused(true) })
+		app.Settle()
+		app.Advance(2 * time.Second)
+		if len(app.Awake) != 0 {
+			t.Fatalf("at 31s paused (>= 30s grace): awake holds = %+v, want none", app.Awake)
+		}
+
+		// Unpausing takes a fresh hold.
+		app.Post(func() { l.SetPaused(false) })
+		app.Settle()
+		if len(app.Awake) != 1 || !app.Awake[0].Display {
+			t.Fatalf("after SetPaused(false): awake holds = %+v, want 1 display hold", app.Awake)
+		}
+
+		// Direct Paused mutation honors PausedAwake too.
+		app.Post(func() { l.Paused = true })
+		app.Settle()
+		app.FastForward(15 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("at 15s direct paused: awake holds = %+v, want 1", app.Awake)
+		}
+		app.FastForward(15 * time.Second)
+		if len(app.Awake) != 0 {
+			t.Fatalf("at 30s direct paused: awake holds = %+v, want none", app.Awake)
+		}
+	})
+
+	t.Run("negative_and_dynamic_paused_awake", func(t *testing.T) {
+		l := &game.Loop{PausedAwake: -5 * time.Second}
+		app := start(t, l)
+		app.Post(func() { l.SetPaused(true) })
+		app.Settle()
+		if len(app.Awake) != 0 {
+			t.Fatalf("negative PausedAwake: awake holds = %+v, want none", app.Awake)
+		}
+
+		// Raising PausedAwake while paused re-acquires if idle time is below it; lowering releases.
+		app.Post(func() { l.PausedAwake = 10 * time.Second })
+		app.Settle()
+		app.Advance(2 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("after raising PausedAwake to 10s at 2s idle: awake holds = %+v, want 1", app.Awake)
+		}
+		app.Post(func() { l.PausedAwake = time.Second })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if len(app.Awake) != 0 {
+			t.Fatalf("after lowering PausedAwake below idle time: awake holds = %+v, want none", app.Awake)
+		}
+	})
+
+	t.Run("background_and_stop_release_immediately_during_grace", func(t *testing.T) {
+		var stop func()
+		l := &game.Loop{PausedAwake: 30 * time.Second}
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			stop = l.Run(cx)
+			return core.View{}
+		})
+		app.Post(func() { l.SetPaused(true) })
+		app.Settle()
+		app.Advance(5 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("during grace: awake holds = %+v, want 1", app.Awake)
+		}
+
+		// Background releases immediately even inside the grace period.
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+		if len(app.Awake) != 0 {
+			t.Fatalf("background during grace: awake holds = %+v, want none", app.Awake)
+		}
+		// Returning to foreground while paused starts a fresh grace period.
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+		if len(app.Awake) != 1 {
+			t.Fatalf("foreground return with PausedAwake: awake holds = %+v, want 1", app.Awake)
+		}
+		app.Post(stop)
+		app.Settle()
+		if len(app.Awake) != 0 {
+			t.Fatalf("stop during grace: awake holds = %+v, want none", app.Awake)
+		}
+	})
+}
+
+func TestPendingStepsKeepDisplayAwakeWhileStepping(t *testing.T) {
+	t.Run("immediate_release_mode", func(t *testing.T) {
+		var awakeInUpdate, awakeInDraw []int
+		var app *nsgotest.App
+		l := &game.Loop{
+			Paused: true,
+			Update: func(time.Duration) { awakeInUpdate = append(awakeInUpdate, len(app.Awake)) },
+			Draw:   func(float64) { awakeInDraw = append(awakeInDraw, len(app.Awake)) },
+		}
+		app = start(t, l)
+		if len(app.Awake) != 0 {
+			t.Fatalf("start paused: awake holds = %+v, want none", app.Awake)
+		}
+
+		// Stepping while backgrounded does not acquire a hold.
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+		app.Post(func() { l.Step(1) })
+		app.Settle()
+		if len(app.Awake) != 0 {
+			t.Fatalf("Step in background: awake holds = %+v, want none", app.Awake)
+		}
+		// Returning to foreground with pendingSteps acquires the hold and steps.
+		app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+		if len(app.Awake) != 1 {
+			t.Fatalf("foreground with pendingSteps: awake holds = %+v, want 1", app.Awake)
+		}
+		app.FastForward(17 * time.Millisecond)
+		if len(awakeInUpdate) != 1 || awakeInUpdate[0] != 1 {
+			t.Fatalf("awakeInUpdate = %v, want [1]", awakeInUpdate)
+		}
+		if len(awakeInDraw) != 1 || awakeInDraw[0] != 1 {
+			t.Fatalf("awakeInDraw = %v, want [1]", awakeInDraw)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after pendingSteps completed: awake holds = %+v, want none", app.Awake)
+		}
+
+		// Stepping multiple updates in foreground holds through Update and Draw, then releases.
+		app.Post(func() { l.Step(2) })
+		app.Settle()
+		if len(app.Awake) != 1 {
+			t.Fatalf("after Step(2): awake holds = %+v, want 1", app.Awake)
+		}
+		app.FastForward(17 * time.Millisecond)
+		if len(awakeInUpdate) != 3 || awakeInUpdate[1] != 1 || awakeInUpdate[2] != 1 {
+			t.Fatalf("awakeInUpdate = %v, want [1 1 1]", awakeInUpdate)
+		}
+		if len(awakeInDraw) != 2 || awakeInDraw[1] != 1 {
+			t.Fatalf("awakeInDraw = %v, want [1 1]", awakeInDraw)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after second Step completed: awake holds = %+v, want none", app.Awake)
+		}
+	})
+
+	t.Run("step_resets_grace_period", func(t *testing.T) {
+		l := &game.Loop{Paused: true, PausedAwake: 5 * time.Second}
+		app := start(t, l)
+		app.Advance(6 * time.Second)
+		if len(app.Awake) != 0 {
+			t.Fatalf("after 6s idle: awake holds = %+v, want none", app.Awake)
+		}
+		app.Post(func() { l.Step(1) })
+		app.Settle()
+		if len(app.Awake) != 1 {
+			t.Fatalf("after Step(1): awake holds = %+v, want 1", app.Awake)
+		}
+		app.Advance(4 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("4s after Step(1): awake holds = %+v, want 1", app.Awake)
+		}
+		app.Advance(2 * time.Second)
+		if len(app.Awake) != 0 {
+			t.Fatalf("6s after Step(1): awake holds = %+v, want none", app.Awake)
+		}
+	})
+}
+
+func TestOnDemandIdleReleasesDisplayKeepAwake(t *testing.T) {
+	t.Run("idle_immediate_and_mark_dirty", func(t *testing.T) {
+		var awakeInDraw []int
+		var app *nsgotest.App
+		l := &game.Loop{
+			Paused:   true,
+			OnDemand: true,
+			DrawRate: 30,
+			Draw:     func(float64) { awakeInDraw = append(awakeInDraw, len(app.Awake)) },
+		}
+		app = start(t, l)
+		if len(app.Awake) != 0 {
+			t.Fatalf("idle OnDemand start: awake holds = %+v, want none", app.Awake)
+		}
+		app.Advance(time.Second)
+		if len(app.Awake) != 0 || len(awakeInDraw) != 0 {
+			t.Fatalf("1s idle OnDemand: awake=%+v draws=%v, want none", app.Awake, awakeInDraw)
+		}
+
+		// MarkDirty acquires until Draw runs, then releases.
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		if len(app.Awake) != 1 {
+			t.Fatalf("after MarkDirty: awake holds = %+v, want 1", app.Awake)
+		}
+		app.Advance(17 * time.Millisecond)
+		if len(awakeInDraw) != 1 || awakeInDraw[0] != 1 {
+			t.Fatalf("awakeInDraw = %v, want [1]", awakeInDraw)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after OnDemand Draw: awake holds = %+v, want none", app.Awake)
+		}
+
+		// A MarkDirty deferred by DrawRate stays held until the draw actually runs.
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if len(awakeInDraw) != 1 || len(app.Awake) != 1 {
+			t.Fatalf("deferred dirty frame: draws=%v awake=%+v, want [1] and 1 hold", awakeInDraw, app.Awake)
+		}
+		app.Advance(17 * time.Millisecond)
+		if len(awakeInDraw) != 2 || awakeInDraw[1] != 1 || len(app.Awake) != 0 {
+			t.Fatalf("after deferred draw: draws=%v awake=%+v, want [1 1] and none", awakeInDraw, app.Awake)
+		}
+	})
+
+	t.Run("idle_with_grace_period_and_mark_dirty_reset", func(t *testing.T) {
+		l := &game.Loop{
+			Paused:      true,
+			OnDemand:    true,
+			PausedAwake: 5 * time.Second,
+		}
+		app := start(t, l)
+		if len(app.Awake) != 1 {
+			t.Fatalf("OnDemand start with 5s grace: awake holds = %+v, want 1", app.Awake)
+		}
+		app.Advance(4 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("at 4s idle: awake holds = %+v, want 1", app.Awake)
+		}
+		// MarkDirty resets the idle timer.
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		app.Advance(4 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("4s after MarkDirty: awake holds = %+v, want 1", app.Awake)
+		}
+		app.Advance(2 * time.Second)
+		if len(app.Awake) != 0 {
+			t.Fatalf("6s after MarkDirty: awake holds = %+v, want none", app.Awake)
+		}
+		// Another MarkDirty re-acquires the hold.
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		if len(app.Awake) != 1 {
+			t.Fatalf("after MarkDirty post-release: awake holds = %+v, want 1", app.Awake)
+		}
+	})
+
+	t.Run("running_on_demand_keeps_continuous_hold_without_churn", func(t *testing.T) {
+		// 30 Hz updates on 60 Hz display: half the frames skip Draw, but the loop is unpaused and active.
+		c := count(game.Loop{Rate: 30, OnDemand: true})
+		app := start(t, &c.Loop)
+		app.Advance(time.Second)
+		c.expect(t, 30, 30)
+		if len(app.Awake) != 1 || len(app.AwakeHolds) != 1 || len(app.AwakeReleases) != 0 {
+			t.Fatalf("unpaused OnDemand: awake=%+v holds=%+v releases=%v, want 1 continuous hold", app.Awake, app.AwakeHolds, app.AwakeReleases)
+		}
+	})
+}

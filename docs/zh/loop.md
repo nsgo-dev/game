@@ -149,6 +149,26 @@ loop := &game.Loop{
 stop = loop.Run(cx)
 ```
 
+## 保持屏幕常亮
+
+当循环在前台运行且未处于 `Paused` 时，`Loop.Run` 会持有显示常亮锁（`core.Scope.KeepAwake`，`Display: true`），防止游玩中途屏幕变暗或自动锁屏：
+
+- **进入后台、`stop` 或作用域销毁**：立即释放常亮锁。
+- **暂停或空闲的 `OnDemand` 循环**：当循环处于 `Paused`（且没有待执行的 `Step` 更新；若开启了 `OnDemand`，且没有 `MarkDirty` 重绘请求）时，在经过 `PausedAwake` 后释放常亮锁。默认值 `0`（或任意非正值）会立即释放，使暂停菜单、标题界面和结算界面下系统自动锁屏正常工作。
+- **宽限期（`PausedAwake`）**：可设置 `PausedAwake`（例如 `30 * time.Second`），在暂停或最后一次 `Step` / `MarkDirty` 之后短暂保持亮屏，超时后再释放。
+- **恢复与单步推进**：调用 `SetPaused(false)` 会立即重新获取常亮锁（直接将 `Paused` 设为 `false` 则在下一帧生效）。暂停期间调用 `Step` 推进更新，或在暂停的 `OnDemand` 循环上调用 `MarkDirty`，都会在对应更新或绘制期间保持亮屏并重置 `PausedAwake` 计时器。
+- **过场动画**：[`cutscene.Player`](cutscene.md) 在播放期间持有自己的显示常亮锁，因此播放过场时暂停底层游戏循环不会导致熄屏。
+
+```go
+loop := &game.Loop{
+	Rate:        60,
+	PausedAwake: 30 * time.Second, // 可选：暂停菜单下的亮屏宽限期
+	Update:      stepWorld,
+	Draw:        renderWorld,
+}
+loop.Run(cx)
+```
+
 ## 手机上的沉浸模式
 
 设置 `Immersive` 后，游戏进行时会隐藏手机的系统栏，进入菜单时再恢复。循环调用 NSGo 的 `mobile.Immersive`：Android 隐藏状态栏和导航栏，从屏幕边缘滑动时会短暂显示；iOS 隐藏状态栏并让主屏幕指示条自动淡出；HarmonyOS 隐藏状态栏、导航栏和导航条。桌面端和 Web 目标会忽略此设置。

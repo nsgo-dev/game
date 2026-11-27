@@ -149,6 +149,26 @@ loop := &game.Loop{
 stop = loop.Run(cx)
 ```
 
+## Keeping the display awake
+
+While the loop runs in the foreground and is not `Paused`, `Loop.Run` holds a display keep-awake lock (`core.Scope.KeepAwake` with `Display: true`) so the device does not dim or auto-lock mid-game:
+
+- **Background, `stop`, or scope disposal**: the display hold is released immediately.
+- **Paused or idle `OnDemand` loops**: once the loop is `Paused` (with no pending `Step` updates and, when `OnDemand` is set, no `MarkDirty` draw), the hold is released after `PausedAwake`. The default `0` (or any non-positive value) releases the hold immediately so the OS auto-lock timer runs normally on pause, title, and game-over screens.
+- **Grace period (`PausedAwake`)**: set `PausedAwake` (for example `30 * time.Second`) to keep the display awake briefly after pausing or after the last `Step` / `MarkDirty` before releasing the hold.
+- **Resuming and stepping**: calling `SetPaused(false)` takes the hold again immediately (changing `Paused = false` directly takes it on the next frame). Queuing `Step` updates while paused or calling `MarkDirty` on a paused `OnDemand` loop keeps the hold while those updates or draws run and resets the `PausedAwake` timer.
+- **Cutscenes**: [`cutscene.Player`](cutscene.md) takes its own display hold while a cutscene plays, so pausing the game loop underneath a cutscene does not let the screen sleep.
+
+```go
+loop := &game.Loop{
+	Rate:        60,
+	PausedAwake: 30 * time.Second, // optional grace period on pause menus
+	Update:      stepWorld,
+	Draw:        renderWorld,
+}
+loop.Run(cx)
+```
+
 ## Immersive mode on phones
 
 Set `Immersive` to hide a phone's system bars while the game plays and bring them back in menus. The loop calls NSGo's `mobile.Immersive`: Android hides its status and navigation bars and shows them briefly on an edge swipe, iOS hides the status bar and lets the home indicator fade, and HarmonyOS hides its status bar, navigation bar and navigation indicator. Desktop and web targets ignore it.
