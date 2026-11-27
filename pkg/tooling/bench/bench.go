@@ -276,15 +276,36 @@ func SaveFile(path string, b *Baseline) error {
 // ParseOutput reads benchmark result lines and returns the median metrics of each benchmark, by name without its trailing -GOMAXPROCS suffix.
 //
 // It reads the lines `go test -bench -benchmem` prints, such as "BenchmarkRaycast-8  2000000  420.5 ns/op  0 B/op  0 allocs/op", and the same lines `nsgo test -bench` prints after a ✓ mark, and skips every other line. A line without ns/op is skipped; one without B/op or allocs/op counts them as 0.
+//
+// A trailing -N suffix (N >= 2, as Go's testing package formats GOMAXPROCS > 1) is stripped only when every parsed benchmark line in the input ends with the same -N suffix and verbose output does not declare those raw names verbatim. Lines with different full names are never merged.
 func ParseOutput(r io.Reader) (map[string]Metrics, error) {
 	type series struct{ ns, bytes, allocs []float64 }
 	grouped := make(map[string]*series)
+	var declared map[string]struct{}
 
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) > 0 && fields[0] == "✓" {
+		line := sc.Text()
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) == 1 && line == fields[0] && strings.HasPrefix(line, "Benchmark") {
+			if declared == nil {
+				declared = make(map[string]struct{})
+			}
+			declared[line] = struct{}{}
+			continue
+		}
+		if len(fields) == 3 && fields[0] == "===" && fields[1] == "RUN" && strings.HasPrefix(fields[2], "Benchmark") {
+			if declared == nil {
+				declared = make(map[string]struct{})
+			}
+			declared[fields[2]] = struct{}{}
+			continue
+		}
+		if fields[0] == "✓" {
 			fields = fields[1:]
 		}
 		if len(fields) < 4 || !strings.HasPrefix(fields[0], "Benchmark") {
@@ -312,11 +333,11 @@ func ParseOutput(r io.Reader) (map[string]Metrics, error) {
 		if !hasNs {
 			continue
 		}
-		name := normalizeName(fields[0])
-		s := grouped[name]
+		rawName := fields[0]
+		s := grouped[rawName]
 		if s == nil {
 			s = &series{}
-			grouped[name] = s
+			grouped[rawName] = s
 		}
 		s.ns = append(s.ns, m.NsPerOp)
 		s.bytes = append(s.bytes, m.BytesPerOp)
@@ -325,25 +346,72 @@ func ParseOutput(r io.Reader) (map[string]Metrics, error) {
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("bench: read results: %w", err)
 	}
+
+	strip := commonCPUSuffix(grouped, declared)
 	out := make(map[string]Metrics, len(grouped))
-	for name, s := range grouped {
+	for rawName, s := range grouped {
+		name := rawName
+		if strip != "" {
+			name = strings.TrimSuffix(rawName, strip)
+		}
 		out[name] = Metrics{NsPerOp: median(s.ns), BytesPerOp: median(s.bytes), AllocsPerOp: median(s.allocs)}
 	}
 	return out, nil
 }
 
-// normalizeName strips the -GOMAXPROCS suffix go test adds to a benchmark's name.
-func normalizeName(raw string) string {
-	i := strings.LastIndexByte(raw, '-')
-	if i <= 0 || i == len(raw)-1 {
-		return raw
+// commonCPUSuffix returns the uniform "-N" GOMAXPROCS suffix shared by every parsed benchmark name in grouped, or "" when no suffix should be stripped.
+func commonCPUSuffix[T any](grouped map[string]T, declared map[string]struct{}) string {
+	if len(grouped) == 0 {
+		return ""
 	}
-	for _, r := range raw[i+1:] {
-		if r < '0' || r > '9' {
-			return raw
+	// When verbose output declared every parsed raw name verbatim, the run ran without a -GOMAXPROCS suffix (GOMAXPROCS == 1).
+	if len(declared) > 0 {
+		allDeclared := true
+		for rawName := range grouped {
+			if _, ok := declared[rawName]; !ok {
+				allDeclared = false
+				break
+			}
+		}
+		if allDeclared {
+			return ""
 		}
 	}
-	return raw[:i]
+	common := ""
+	for rawName := range grouped {
+		suffix, ok := cpuSuffix(rawName)
+		if !ok {
+			return ""
+		}
+		if common == "" {
+			common = suffix
+		} else if suffix != common {
+			return ""
+		}
+	}
+	return common
+}
+
+// cpuSuffix returns the trailing "-N" suffix of raw when N is a decimal integer >= 2 with no leading zero, matching Go testing's benchmarkName formatting when GOMAXPROCS > 1.
+func cpuSuffix(raw string) (string, bool) {
+	i := strings.LastIndexByte(raw, '-')
+	if i < len("Benchmark") || i == len(raw)-1 {
+		return "", false
+	}
+	suf := raw[i+1:]
+	if suf[0] == '0' {
+		return "", false
+	}
+	for j := range len(suf) {
+		if suf[j] < '0' || suf[j] > '9' {
+			return "", false
+		}
+	}
+	n, err := strconv.Atoi(suf)
+	if err != nil || n < 2 {
+		return "", false
+	}
+	return raw[i:], true
 }
 
 func median(vals []float64) float64 {
