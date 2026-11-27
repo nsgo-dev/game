@@ -88,7 +88,18 @@ func (r *CLIAgentRunner) Run(ctx context.Context, req AgentRequest, emit func(Ag
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = nil
-	cmd.Env = enrichedAgentEnv(os.Environ(), bin)
+	env := enrichedAgentEnv(os.Environ(), bin)
+	filteredEnv := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == "NSGO_EDITOR_TASK_ID" {
+			continue
+		}
+		filteredEnv = append(filteredEnv, kv)
+	}
+	if req.TaskID != "" {
+		filteredEnv = append(filteredEnv, "NSGO_EDITOR_TASK_ID="+req.TaskID)
+	}
+	cmd.Env = filteredEnv
 	if req.ProjectRoot != "" {
 		cmd.Dir = req.ProjectRoot
 	}

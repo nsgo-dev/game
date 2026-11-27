@@ -353,6 +353,7 @@ type AgentOpenRequest struct {
 type AgentRequest struct {
 	ThreadID         string
 	SessionID        string
+	TaskID           string
 	Prompt           string
 	ProjectRoot      string
 	ScenePath        string

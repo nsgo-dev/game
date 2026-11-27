@@ -3,10 +3,13 @@ package editor_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -16,6 +19,11 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func holdTaskUntilCanceled(ctx context.Context, _ editor.AgentTask) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
 
 func newTasksTestScene() *sceneformat.SceneDoc {
 	return &sceneformat.SceneDoc{
@@ -132,7 +140,9 @@ func TestQueuedTaskStartsOnlyAfterRunningIsKeptOrReverted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New(2): %v", err)
 	}
+	t.Cleanup(func() { _ = ed2.Close() })
 	ed2.Now = func() time.Time { return now }
+	ed2.AgentTaskRunner = holdTaskUntilCanceled
 	beforeYAML, err := ed2.SaveYAML()
 	if err != nil {
 		t.Fatalf("SaveYAML: %v", err)
@@ -177,6 +187,8 @@ func TestDismissingSeveralReadyToReviewTasksRevertsNothingKept(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	beforeYAML, _ := ed.SaveYAML()
 
 	// Task 1 edits slime_02 and is KEPT.
@@ -344,7 +356,9 @@ func TestTaskSummaryDockBadgeAndStatusBarParts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
 	ed.Now = func() time.Time { return now }
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 
 	// 1. Idle -> "No tasks"
 	if parts := ed.TaskStatusParts(); len(parts) != 1 || parts[0].Label != "No tasks" {
@@ -411,6 +425,8 @@ func TestTasksPanelUIAndCompactToolbar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	_, _ = ed.SubmitTask(editor.TaskRequest{
 		ID:             "t1",
 		Number:         1,
@@ -503,6 +519,8 @@ func TestTaskConcurrencyCapsAndPerThreadLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	for i := 1; i <= 4; i++ {
 		if _, err := ed.SubmitTask(editor.TaskRequest{
 			Title:     fmt.Sprintf("Parallel %d", i),
@@ -654,7 +672,7 @@ func TestTaskProjectGenerationGuardAndLifecycle(t *testing.T) {
 	}
 
 	// Submit a brand new task in the new session — must get a fresh ID and survive stale old-runner exit.
-	ed.AgentTaskRunner = nil
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	tNew, err := ed.SubmitTask(editor.TaskRequest{Title: "Demo task", StartMode: editor.TaskStartQueue})
 	if err != nil {
 		t.Fatal(err)
@@ -696,6 +714,8 @@ func TestRevertTaskPreservesParallelKeptEditsAndHumanEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	s0, _ := ed.SaveYAML()
 
 	// Parallel Task 1 edits slime_01.
@@ -767,6 +787,8 @@ func TestTasksComposerPreservesFocusAcrossBackgroundProgressAndUTF8Title(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	_, _ = ed.SubmitTask(editor.TaskRequest{
 		ID:           "bg-1",
 		Title:        "Background runner",
@@ -827,6 +849,8 @@ func TestTasksOpenReviewBlocksAutoSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	if ed.HasOpenReview() {
 		t.Fatal("expected HasOpenReview == false before any task review")
 	}
@@ -855,5 +879,371 @@ func TestTasksOpenReviewBlocksAutoSave(t *testing.T) {
 	}
 	if ed.HasOpenTaskReview() || ed.HasOpenReview() {
 		t.Fatal("expected HasOpenReview == false after KeepTask")
+	}
+}
+
+func waitForTaskState(t *testing.T, ed *editor.Editor, id string, want editor.TaskState) editor.AgentTask {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		cur, ok := ed.Task(id)
+		if ok && cur.State == want {
+			return cur
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("task %q did not reach state %s (last=%+v, ok=%v)", id, want, cur, ok)
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+// #1507 Acceptance 1 & 2: Without an injected AgentTaskRunner, submitting a parallel task with a
+// scripted CLI agent runs it in its own session and reaches Ready to review with its own turn;
+// a queued task starts automatically after the first is kept.
+func TestDefaultTaskRunnerParallelScriptedCLIAgentAndQueuedTaskAfterKeep(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("scripted POSIX shell CLI agent test runs on Unix")
+	}
+
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "cli-invocations.log")
+	gatePath := filepath.Join(dir, "release-first")
+
+	// Fake `claude` CLI on PATH: logs task ID + whether --resume was passed, gates task-1 until
+	// the test creates gatePath, emits stream-json session/step/message/usage/result lines.
+	fakeClaude := filepath.Join(binDir, "claude")
+	script := `#!/bin/sh
+set -eu
+has_resume="no"
+for arg in "$@"; do
+  if [ "$arg" = "--resume" ]; then
+    has_resume="yes"
+  fi
+done
+task_id="${NSGO_EDITOR_TASK_ID:-}"
+printf '%s|resume=%s\n' "$task_id" "$has_resume" >> "` + logPath + `"
+if [ "$task_id" = "task-1" ]; then
+  i=0
+  while [ ! -f "` + gatePath + `" ] && [ "$i" -lt 400 ]; do
+    sleep 0.01
+    i=$((i + 1))
+  done
+fi
+printf '{"type":"system","subtype":"init","session_id":"cli-sess-%s"}\n' "$task_id"
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu-%s","name":"scene_edit"}]}}\n' "$task_id"
+printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu-%s","is_error":false}]}}\n' "$task_id"
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"Completed %s."}]}}\n' "$task_id"
+printf '{"type":"result","subtype":"success","session_id":"cli-sess-%s","result":"Completed %s.","usage":{"input_tokens":120,"output_tokens":45}}\n' "$task_id" "$task_id"
+`
+	if err := os.WriteFile(fakeClaude, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	// Deliberately leave BOTH ed.AgentTaskRunner == nil AND ed.AgentRunner == nil!
+	if ed.AgentTaskRunner != nil || ed.AgentRunner != nil {
+		t.Fatal("expected nil AgentTaskRunner and AgentRunner")
+	}
+
+	// Simulate Claude Code connected over MCP.
+	ed.NotifyAgentMCPConnected(editor.AgentClientInfo{
+		ID:        "c1",
+		Name:      "claude-code",
+		Transport: "stdio",
+	})
+
+	// Submit task 1 in Run in parallel mode via the Tasks composer.
+	ed.SetTaskComposerMode(editor.TaskStartParallel)
+	ed.SetTaskComposerDraft("add three coins to level_01")
+	t1, err := ed.SubmitComposerTask()
+	if err != nil {
+		t.Fatalf("SubmitComposerTask (parallel): %v", err)
+	}
+	if t1.ID != "task-1" || t1.State != editor.TaskRunning {
+		t.Fatalf("t1 = %+v, want task-1 running", t1)
+	}
+	if ed.TaskComposerDraft() != "" {
+		t.Fatalf("expected composer draft to clear on successful submit, got %q", ed.TaskComposerDraft())
+	}
+
+	// Queue task 2 behind task 1 while task 1 is still running.
+	ed.SetTaskComposerMode(editor.TaskStartQueue)
+	ed.SetTaskComposerDraft("adjust coin pickup sound")
+	t2, err := ed.SubmitComposerTask()
+	if err != nil {
+		t.Fatalf("SubmitComposerTask (queue): %v", err)
+	}
+	if t2.State != editor.TaskQueued || t2.StartsAfterTaskID != t1.ID {
+		t.Fatalf("t2 = %+v, want queued behind %s", t2, t1.ID)
+	}
+
+	// Let task 1 finish and reach Ready to review.
+	if err := os.WriteFile(gatePath, []byte("go"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done1 := waitForTaskState(t, ed, t1.ID, editor.TaskReadyToReview)
+	if done1.TurnID == "" {
+		t.Fatalf("task 1 missing dedicated TurnID: %+v", done1)
+	}
+	if done1.SessionID != "cli-sess-task-1" {
+		t.Fatalf("task 1 SessionID = %q, want cli-sess-task-1", done1.SessionID)
+	}
+	if ed.AgentSessionID() != "" {
+		t.Fatalf("parallel task clobbered foreground AgentSessionID = %q", ed.AgentSessionID())
+	}
+	turn1, ok := ed.AgentTurn(done1.TurnID)
+	if !ok || !turn1.Done || turn1.Source != "task" || !strings.Contains(turn1.Summary, "Completed task-1.") {
+		t.Fatalf("task 1 AgentTurn = %+v (ok=%v)", turn1, ok)
+	}
+	if turn1.InputTokens != 120 || turn1.OutputTokens != 45 {
+		t.Fatalf("task 1 turn tokens = %d/%d, want 120/45", turn1.InputTokens, turn1.OutputTokens)
+	}
+	if done1.Review == nil || !strings.Contains(done1.Review.Summary, "Completed task-1.") {
+		t.Fatalf("task 1 Review = %+v", done1.Review)
+	}
+
+	// Task 2 MUST still be queued until task 1 is kept or reverted.
+	if cur2, _ := ed.Task(t2.ID); cur2.State != editor.TaskQueued {
+		t.Fatalf("task 2 started before task 1 was kept! state=%s", cur2.State)
+	}
+
+	// Keep task 1 -> queued task 2 starts automatically through the default runner and reaches Ready to review with its own turn!
+	if err := ed.KeepTask(t1.ID); err != nil {
+		t.Fatalf("KeepTask(t1): %v", err)
+	}
+	done2 := waitForTaskState(t, ed, t2.ID, editor.TaskReadyToReview)
+	if done2.TurnID == "" || done2.TurnID == done1.TurnID {
+		t.Fatalf("task 2 TurnID = %q, want distinct from %q", done2.TurnID, done1.TurnID)
+	}
+	if done2.SessionID != "cli-sess-task-2" {
+		t.Fatalf("task 2 SessionID = %q, want cli-sess-task-2", done2.SessionID)
+	}
+	turn2, ok := ed.AgentTurn(done2.TurnID)
+	if !ok || !turn2.Done || !strings.Contains(turn2.Summary, "Completed task-2.") {
+		t.Fatalf("task 2 AgentTurn = %+v (ok=%v)", turn2, ok)
+	}
+
+	rawLog, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read CLI log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(rawLog)), "\n")
+	if len(lines) != 2 || lines[0] != "task-1|resume=no" || lines[1] != "task-2|resume=no" {
+		t.Fatalf("CLI invocations = %q, want two fresh sessions [task-1|resume=no, task-2|resume=no]", lines)
+	}
+}
+
+// #1507 Acceptance 3: With no agent connected, submitting from SubmitTask or the Tasks panel
+// composer opens the Connect dialog and creates no task.
+func TestTaskSubmitWithoutConnectedAgentOpensConnectAndCreatesNoTask(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+
+	// 1. Direct SubmitTask in parallel mode without a connected agent.
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		Title:     "Add three coins",
+		Prompt:    "add three coins to level_01",
+		StartMode: editor.TaskStartParallel,
+	}); err == nil {
+		t.Fatal("expected SubmitTask to fail when no agent is connected")
+	}
+	if !ed.ConnectDialogOpen() {
+		t.Fatal("expected Connect dialog to open when submitting with no agent connected")
+	}
+	if got := ed.Tasks(); len(got) != 0 {
+		t.Fatalf("expected no task to be created, got %+v", got)
+	}
+
+	// 2. Direct SubmitTask in queue mode without a connected agent.
+	ed.CloseConnectDialog()
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		Title:     "Queue task",
+		Prompt:    "queue a request",
+		StartMode: editor.TaskStartQueue,
+	}); err == nil {
+		t.Fatal("expected queued SubmitTask to fail when no agent is connected")
+	}
+	if !ed.ConnectDialogOpen() {
+		t.Fatal("expected Connect dialog to open for queued SubmitTask with no agent connected")
+	}
+	if got := ed.Tasks(); len(got) != 0 {
+		t.Fatalf("expected no task to be created, got %+v", got)
+	}
+
+	// 3. UI Tasks panel composer press with no agent connected -> opens Connect, creates no task, preserves draft.
+	ed.CloseConnectDialog()
+	ed.SetTasksPanelOpen(true)
+	ed.SetTaskComposerMode(editor.TaskStartParallel)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	app.Post(func() {
+		ed.SetTaskComposerDraft("add three coins to level_01")
+	})
+	app.Settle()
+	app.Press("id:tasks-composer-send")
+	app.Settle()
+
+	if !ed.ConnectDialogOpen() {
+		t.Fatal("expected Tasks composer send with no agent connected to open Connect dialog")
+	}
+	if got := ed.Tasks(); len(got) != 0 {
+		t.Fatalf("expected Tasks composer send with no agent connected to create no task, got %+v", got)
+	}
+	if ed.TaskComposerDraft() != "add three coins to level_01" {
+		t.Fatalf("expected composer draft to be preserved after Connect refusal, got %q", ed.TaskComposerDraft())
+	}
+
+	// 4. API key mode without a stored API key -> opens Connect at API key step, creates no task.
+	ed.CloseConnectDialog()
+	ed.OpenConnectDialogForMode(editor.AgentModeAPIKey)
+	ed.CompleteConnectDialog()
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		Prompt:    "add coins with missing key",
+		StartMode: editor.TaskStartParallel,
+	}); !errors.Is(err, editor.ErrAgentAPIKeyMissing) {
+		t.Fatalf("expected ErrAgentAPIKeyMissing, got %v", err)
+	}
+	if !ed.ConnectDialogOpen() || ed.ConnectDialogStep() != editor.ConnectStepAPIKey {
+		t.Fatalf("expected Connect dialog at ConnectStepAPIKey, open=%v step=%s", ed.ConnectDialogOpen(), ed.ConnectDialogStep())
+	}
+	if len(ed.Tasks()) != 0 {
+		t.Fatalf("expected no task created when API key is missing, got %+v", ed.Tasks())
+	}
+
+	// 5. AgentModeNone -> refuses without creating a task.
+	ed.OpenConnectDialogForMode(editor.AgentModeNone)
+	ed.CompleteConnectDialog()
+	if _, err := ed.SubmitTask(editor.TaskRequest{
+		Prompt:    "should refuse when agent disabled",
+		StartMode: editor.TaskStartParallel,
+	}); err == nil {
+		t.Fatal("expected SubmitTask to fail in AgentModeNone")
+	}
+	if len(ed.Tasks()) != 0 {
+		t.Fatalf("expected no task created in AgentModeNone, got %+v", ed.Tasks())
+	}
+}
+
+// #1507: Default task runner reports steps, Needs you, Ready to review, Failed, Retry, and Stop
+// through existing task state transitions without any injected AgentTaskRunner.
+func TestDefaultTaskRunnerStepsNeedsYouFailureRetryAndStop(t *testing.T) {
+	ed, err := editor.New(newTasksTestScene(), nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+
+	permResolved := make(chan struct{})
+	ed.OnTaskPermissionDecision = func(taskID string, allow bool) {
+		if allow {
+			close(permResolved)
+		}
+	}
+
+	var mu sync.Mutex
+	attempts := map[string]int{}
+	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		mu.Lock()
+		attempts[req.TaskID]++
+		n := attempts[req.TaskID]
+		mu.Unlock()
+
+		switch req.Prompt {
+		case "needs permission":
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "s1", StepTitle: "Inspect scene", StepStatus: editor.AgentStepRunning, StepIndex: 1, StepTotal: 2})
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "s1", StepTitle: "Inspect scene", StepStatus: editor.AgentStepDone, StepIndex: 1, StepTotal: 2})
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "s2", StepTitle: "Allow playtest?", StepDetail: "Needs to run level_01 headless", StepStatus: editor.AgentStepWaiting, StepIndex: 2, StepTotal: 2})
+			select {
+			case <-permResolved:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "Playtest passed."})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		case "fail then succeed":
+			if n == 1 {
+				return errors.New("tool exited with code 1")
+			}
+			emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "Succeeded on retry."})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		default:
+			<-ctx.Done()
+			return ctx.Err()
+		}
+	})
+
+	// 1. Steps + Needs you -> ResolveTaskPermission -> Ready to review.
+	tPerm, err := ed.SubmitTask(editor.TaskRequest{
+		Prompt:    "needs permission",
+		StartMode: editor.TaskStartParallel,
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask perm: %v", err)
+	}
+	waiting := waitForTaskState(t, ed, tPerm.ID, editor.TaskNeedsYou)
+	if waiting.PermissionPrompt != "Allow playtest?" || waiting.PermissionDetail != "Needs to run level_01 headless" {
+		t.Fatalf("waiting permission = %+v", waiting)
+	}
+	if err := ed.ResolveTaskPermission(tPerm.ID, true); err != nil {
+		t.Fatalf("ResolveTaskPermission: %v", err)
+	}
+	ready := waitForTaskState(t, ed, tPerm.ID, editor.TaskReadyToReview)
+	if ready.Review == nil || !strings.Contains(ready.Review.Summary, "Playtest passed.") {
+		t.Fatalf("ready review = %+v", ready.Review)
+	}
+
+	// 2. Failure -> TaskFailed -> RetryTask -> Ready to review.
+	tFail, err := ed.SubmitTask(editor.TaskRequest{
+		Prompt:    "fail then succeed",
+		StartMode: editor.TaskStartParallel,
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask fail: %v", err)
+	}
+	failed := waitForTaskState(t, ed, tFail.ID, editor.TaskFailed)
+	if !strings.Contains(failed.Error, "tool exited with code 1") {
+		t.Fatalf("failed.Error = %q", failed.Error)
+	}
+	if err := ed.RetryTask(tFail.ID); err != nil {
+		t.Fatalf("RetryTask: %v", err)
+	}
+	retried := waitForTaskState(t, ed, tFail.ID, editor.TaskReadyToReview)
+	if retried.Review == nil || !strings.Contains(retried.Review.Summary, "Succeeded on retry.") {
+		t.Fatalf("retried review = %+v", retried.Review)
+	}
+
+	// 3. StopTask cancels a running default-runner task cleanly.
+	tStop, err := ed.SubmitTask(editor.TaskRequest{
+		Prompt:    "wait forever",
+		StartMode: editor.TaskStartParallel,
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask stop: %v", err)
+	}
+	if err := ed.StopTask(tStop.ID); err != nil {
+		t.Fatalf("StopTask: %v", err)
+	}
+	stopped := waitForTaskState(t, ed, tStop.ID, editor.TaskStopped)
+	if stopped.State != editor.TaskStopped {
+		t.Fatalf("stopped state = %s", stopped.State)
 	}
 }

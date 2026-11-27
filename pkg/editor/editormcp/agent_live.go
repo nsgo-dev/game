@@ -341,6 +341,10 @@ func (s *Server) invokeHandlerWithCheckpoint(ctx context.Context, t Tool, c *Cal
 // opens interactive non-blocking permission cards when appropriate, delivers queued follow-ups, and ties tool
 // execution to the active request's Stop channel.
 func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMessage, onEditor bool, session *mcp.ServerSession) (res *Result, managed bool, err error) {
+	taskID := s.sessionTaskID(session)
+	if taskID == "" {
+		taskID = editor.TaskIDFromContext(ctx)
+	}
 	if onEditor {
 		if err := s.checkPermission(ctx, t, args, true); err != nil {
 			return nil, false, err
@@ -353,7 +357,7 @@ func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMe
 			s:        s,
 			onEditor: true,
 			session:  session,
-			taskID:   s.sessionTaskID(session),
+			taskID:   taskID,
 		})
 		return res, false, err
 	}
@@ -366,7 +370,7 @@ func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMe
 			s:        s,
 			onEditor: false,
 			session:  session,
-			taskID:   s.sessionTaskID(session),
+			taskID:   taskID,
 		})
 		if err == nil {
 			if perr := s.checkPrivacyPost(ctx, t, res, false); perr != nil {
@@ -404,16 +408,23 @@ func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMe
 		stepID         string
 		askID          string
 		askCh          <-chan editor.AgentPermissionOutcome
+		taskAskCh      <-chan bool
+		cancelTaskAsk  func()
 		stopCh         <-chan struct{}
 		reDenied       bool
 	)
 
 	if err := s.Editor(ctx, func(ed *editor.Editor) error {
-		if ed.AgentStopped() {
+		if taskID != "" {
+			if task, ok := ed.Task(taskID); ok && task.State == editor.TaskStopped {
+				stopped = true
+				return nil
+			}
+		} else if ed.AgentStopped() {
 			stopped = true
 			return nil
 		}
-		liveActive = ed.HasActiveLiveAgentRequest()
+		liveActive = taskID == "" && ed.HasActiveLiveAgentRequest()
 		interactiveAsk := s.onPermAsk == nil && (liveActive || s.run != nil)
 
 		if t.Action == ActionRead {
@@ -454,6 +465,21 @@ func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMe
 			return nil
 
 		case editor.PermissionAsk:
+			if taskID != "" {
+				if s.onPermAsk != nil {
+					useCallbackAsk = true
+					return nil
+				}
+				if ch, cancelFn, perr := ed.BeginTaskPermissionAsk(taskID, meta.askTitle, meta.askWhy); perr == nil {
+					taskAskCh = ch
+					cancelTaskAsk = cancelFn
+					return nil
+				}
+				req := ed.EnqueuePermissionRequest(eval, summary, nil)
+				reqID = req.ID
+				askOnly = true
+				return nil
+			}
 			if !interactiveAsk {
 				if s.onPermAsk == nil {
 					req := ed.EnqueuePermissionRequest(eval, summary, nil)
@@ -573,6 +599,36 @@ func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMe
 		}
 	}
 
+	// Background task Needs you permission wait (runs on MCP goroutine, never blocks UI).
+	if taskAskCh != nil {
+		defer func() {
+			if cancelTaskAsk != nil {
+				cancelTaskAsk()
+			}
+		}()
+		select {
+		case allow, ok := <-taskAskCh:
+			if !ok {
+				return nil, false, fmt.Errorf("%s: stopped by the person; changes so far stay pending for review", t.Name)
+			}
+			if !allow {
+				msg := fmt.Sprintf("The person denied %s. Continue without this step and do not retry it unless they send a new request.", meta.askShort)
+				return &Result{
+					Text: msg,
+					Structured: PermissionDeniedResult{
+						Denied:             true,
+						ContinuedWithoutIt: true,
+						Message:            msg,
+					},
+				}, false, nil
+			}
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-s.done:
+			return nil, false, errors.New("editormcp: the editor's server is closed")
+		}
+	}
+
 	// Interactive Agent panel permission card wait (runs on MCP goroutine, never blocks UI).
 	if askCh != nil {
 		var outcome editor.AgentPermissionOutcome
@@ -626,7 +682,7 @@ func (s *Server) runManagedToolCall(ctx context.Context, t Tool, args json.RawMe
 			s:        s,
 			onEditor: false,
 			session:  session,
-			taskID:   s.sessionTaskID(session),
+			taskID:   taskID,
 		})
 	}
 

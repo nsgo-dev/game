@@ -167,6 +167,7 @@ type AgentTask struct {
 	Title               string        `yaml:"title" json:"title"`
 	Prompt              string        `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 	Source              TaskSource    `yaml:"source" json:"source"`
+	TaskKind            AgentTaskKind `yaml:"taskKind,omitempty" json:"taskKind,omitempty"`
 	PlanStep            int           `yaml:"planStep,omitempty" json:"planStep,omitempty"`
 	PlanTotal           int           `yaml:"planTotal,omitempty" json:"planTotal,omitempty"`
 	StartMode           TaskStartMode `yaml:"startMode" json:"startMode"`
@@ -186,6 +187,7 @@ type AgentTask struct {
 	HoldingObjects      []string      `yaml:"holdingObjects,omitempty" json:"holdingObjects,omitempty"`
 	StartsAfterTaskID   string        `yaml:"startsAfterTaskId,omitempty" json:"startsAfterTaskId,omitempty"`
 	SessionID           string        `yaml:"sessionId,omitempty" json:"sessionId,omitempty"`
+	TurnID              string        `yaml:"turnId,omitempty" json:"turnId,omitempty"`
 	Review              *TaskReview   `yaml:"review,omitempty" json:"review,omitempty"`
 	CreatedAt           string        `yaml:"createdAt,omitempty" json:"createdAt,omitempty"`
 	StartedAt           string        `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
@@ -234,6 +236,7 @@ type TaskRequest struct {
 	Title             string
 	Prompt            string
 	Source            TaskSource
+	TaskKind          AgentTaskKind
 	PlanStep          int
 	PlanTotal         int
 	StartMode         TaskStartMode
@@ -290,22 +293,48 @@ type ObjectTaskOverlay struct {
 	Label               string
 }
 
+type taskToolContextKey struct{}
+
+// WithTaskToolContext returns a derived context tagged with taskID so in-process MCP tool calls
+// (such as those from the built-in agent runner) participate in editormcp's per-object holds,
+// per-task review tracking, and Needs you permission prompts.
+func WithTaskToolContext(ctx context.Context, taskID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if taskID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, taskToolContextKey{}, taskID)
+}
+
+// TaskIDFromContext returns the background task ID attached by WithTaskToolContext, or "".
+func TaskIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(taskToolContextKey{}).(string)
+	return id
+}
+
 type agentTasksState struct {
-	mu              sync.Mutex
-	scope           *core.Scope
-	projectGen      uint64
-	panelOpen       bool
-	listExpanded    bool
-	composerMode    TaskStartMode
-	composerDraft   string
-	focusedID       string
-	threadID        string
-	tasks           []AgentTask
-	selectedDismiss map[string]bool
-	nextSeq         int
-	nextNumber      int
-	cancels         map[string]context.CancelFunc
-	onHoldChange    func(taskID string)
+	mu                 sync.Mutex
+	scope              *core.Scope
+	projectGen         uint64
+	panelOpen          bool
+	listExpanded       bool
+	composerMode       TaskStartMode
+	composerDraft      string
+	focusedID          string
+	threadID           string
+	tasks              []AgentTask
+	selectedDismiss    map[string]bool
+	nextSeq            int
+	nextNumber         int
+	cancels            map[string]context.CancelFunc
+	permWaiters        map[string]chan bool
+	onHoldChange       func(taskID string)
+	reviewSnapshotHook func(taskID string) (beforeYAML string, changes []TaskReviewChange, ok bool)
 }
 
 func (s *agentTasksState) setScope(cx *core.Scope) {
@@ -333,6 +362,9 @@ func (s *agentTasksState) ensureInitLocked() {
 	}
 	if s.cancels == nil {
 		s.cancels = make(map[string]context.CancelFunc)
+	}
+	if s.permWaiters == nil {
+		s.permWaiters = make(map[string]chan bool)
 	}
 }
 
@@ -424,6 +456,9 @@ func ParseAgentThread(data []byte) (*AgentThreadDoc, error) {
 		}
 		if !t.Source.Valid() {
 			return nil, loaderr.Locate(loaderr.Errorf(tPath+".source", "set source to a valid task source (chat, automation, or manual)", "editor: thread yaml task %q has unknown source %q", t.ID, t.Source), "", data, "")
+		}
+		if t.TaskKind != "" && !t.TaskKind.Valid() {
+			return nil, fmt.Errorf("editor: thread yaml task %q has unknown taskKind %q", t.ID, t.TaskKind)
 		}
 		if !t.StartMode.Valid() {
 			return nil, loaderr.Locate(loaderr.Errorf(tPath+".startMode", "set startMode to a valid task start mode", "editor: thread yaml task %q has unknown startMode %q", t.ID, t.StartMode), "", data, "")
@@ -725,7 +760,15 @@ func (e *Editor) stopAllTaskRunners() []string {
 		}
 		delete(e.tasks.cancels, id)
 	}
+	waiters := make([]chan bool, 0, len(e.tasks.permWaiters))
+	for id, ch := range e.tasks.permWaiters {
+		waiters = append(waiters, ch)
+		delete(e.tasks.permWaiters, id)
+	}
 	e.tasks.mu.Unlock()
+	for _, ch := range waiters {
+		close(ch)
+	}
 	for _, cancel := range cancels {
 		cancel()
 	}
@@ -773,6 +816,30 @@ func (e *Editor) SetTaskHoldReleaseHook(fn func(taskID string)) {
 	e.tasks.mu.Lock()
 	e.tasks.onHoldChange = fn
 	e.tasks.mu.Unlock()
+}
+
+// SetTaskReviewSnapshotHook registers a callback queried when the default task runner finishes
+// a task turn so edits recorded on its editormcp session populate the task's separate TaskReview.
+func (e *Editor) SetTaskReviewSnapshotHook(fn func(taskID string) (beforeYAML string, changes []TaskReviewChange, ok bool)) {
+	if e == nil {
+		return
+	}
+	e.tasks.mu.Lock()
+	e.tasks.reviewSnapshotHook = fn
+	e.tasks.mu.Unlock()
+}
+
+func (e *Editor) snapshotTaskReviewFromMCP(taskID string) (string, []TaskReviewChange, bool) {
+	if e == nil || taskID == "" {
+		return "", nil, false
+	}
+	e.tasks.mu.Lock()
+	fn := e.tasks.reviewSnapshotHook
+	e.tasks.mu.Unlock()
+	if fn == nil {
+		return "", nil, false
+	}
+	return fn(taskID)
 }
 
 func (e *Editor) fireHoldRelease(taskID string) {
@@ -914,7 +981,7 @@ func (e *Editor) SetTaskComposerDraft(draft string) {
 	e.notify()
 }
 
-// SubmitComposerTask submits the current composer draft using TaskComposerMode and clears the draft.
+// SubmitComposerTask submits the current composer draft using TaskComposerMode and clears the draft on success.
 func (e *Editor) SubmitComposerTask() (AgentTask, error) {
 	if e == nil {
 		return AgentTask{}, errors.New("editor: nil editor")
@@ -923,18 +990,26 @@ func (e *Editor) SubmitComposerTask() (AgentTask, error) {
 	e.tasks.ensureInitLocked()
 	prompt := strings.TrimSpace(e.tasks.composerDraft)
 	mode := e.tasks.composerMode
+	e.tasks.mu.Unlock()
 	if prompt == "" {
-		e.tasks.mu.Unlock()
 		return AgentTask{}, errors.New("editor: task prompt is empty")
 	}
-	e.tasks.composerDraft = ""
-	e.tasks.mu.Unlock()
-	return e.SubmitTask(TaskRequest{
+	task, err := e.SubmitTask(TaskRequest{
 		Title:     firstLineTitle(prompt),
 		Prompt:    prompt,
 		Source:    TaskSourceUser,
 		StartMode: mode,
 	})
+	if err != nil {
+		return AgentTask{}, err
+	}
+	e.tasks.mu.Lock()
+	if strings.TrimSpace(e.tasks.composerDraft) == prompt {
+		e.tasks.composerDraft = ""
+	}
+	e.tasks.mu.Unlock()
+	e.notify()
+	return task, nil
 }
 
 func firstLineTitle(prompt string) string {
@@ -1139,6 +1214,37 @@ func (e *Editor) FocusedTaskID() string {
 	return id
 }
 
+// validateTaskAgentRoute checks whether the editor can run a background task through its default
+// agent runner (using the same route resolution as the agent composer). When no agent is connected,
+// it opens the Connect dialog and returns an error so no Running task is created.
+func (e *Editor) validateTaskAgentRoute(taskKind AgentTaskKind) error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	return e.validateTaskAgentRouteLocked(taskKind)
+}
+
+func (e *Editor) validateTaskAgentRouteLocked(taskKind AgentTaskKind) error {
+	if e.agent.mode == AgentModeNone {
+		return errors.New("editor: agent is disabled")
+	}
+	if !taskKind.Valid() {
+		taskKind = AgentTaskSceneEdit
+	}
+	route, _, _, _, err := e.resolveRouteAndRunner(taskKind)
+	if err != nil {
+		if route == AgentRouteNone && !e.ConnectDialogOpen() {
+			e.OpenConnectDialog()
+		}
+		return err
+	}
+	if route.IsBuiltIn() && !e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
+		e.OpenConnectDialogForMode(AgentModeAPIKey)
+		return ErrAgentAPIKeyMissing
+	}
+	return nil
+}
+
 // SubmitTask adds a new background agent request according to req.StartMode:
 //   - TaskStartQueue starts immediately only when no blocking turn is running, waiting on you,
 //     or unreviewed; otherwise it enters TaskQueued and starts only after the blocking task is
@@ -1164,6 +1270,9 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	if !source.Valid() {
 		return AgentTask{}, fmt.Errorf("editor: unknown task source %q", source)
 	}
+	if req.TaskKind != "" && !req.TaskKind.Valid() {
+		return AgentTask{}, fmt.Errorf("editor: unknown task kind %q", req.TaskKind)
+	}
 	mode := req.StartMode
 	if mode == "" {
 		mode = TaskStartQueue
@@ -1176,6 +1285,13 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	}
 	if !validTaskScenePath(req.ScenePath) {
 		return AgentTask{}, fmt.Errorf("editor: invalid task scene path %q", req.ScenePath)
+	}
+
+	// Refuse runnable tasks when no agent is connected (showing the Connect dialog just like the agent composer).
+	if req.InitialState == "" && e.AgentTaskRunner == nil {
+		if err := e.validateTaskAgentRoute(req.TaskKind); err != nil {
+			return AgentTask{}, err
+		}
 	}
 
 	scenePath := req.ScenePath
@@ -1241,6 +1357,7 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 		Title:            title,
 		Prompt:           prompt,
 		Source:           source,
+		TaskKind:         req.TaskKind,
 		PlanStep:         req.PlanStep,
 		PlanTotal:        req.PlanTotal,
 		StartMode:        mode,
@@ -1322,6 +1439,9 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 
 	if shouldLaunch {
 		e.launchTaskRunner(ret.ID)
+		if updated, ok := e.Task(ret.ID); ok {
+			ret = updated
+		}
 	}
 	return ret, nil
 }
@@ -1446,11 +1566,15 @@ func (e *Editor) advanceTaskQueue(resolvedID string) {
 }
 
 func (e *Editor) launchTaskRunner(taskID string) {
-	if e == nil || e.AgentTaskRunner == nil || e.playing {
+	if e == nil || e.playing {
 		return
 	}
 	task, ok := e.Task(taskID)
 	if !ok {
+		return
+	}
+	if e.AgentTaskRunner == nil {
+		e.launchDefaultTaskRunner(task)
 		return
 	}
 	if e.Project != nil && e.ProjectPath != "" && e.ActiveTurnID() == "" {
@@ -1522,6 +1646,539 @@ func (e *Editor) launchTaskRunner(taskID string) {
 			})
 		})
 	}()
+}
+
+// launchDefaultTaskRunner executes task through the same agent route as the agent composer
+// (resolveRouteAndRunner: CLI runner or built-in runner) in its own session and AgentTurn,
+// streaming steps, Needs you, Ready to review, and Failed through the existing task transitions.
+func (e *Editor) launchDefaultTaskRunner(task AgentTask) {
+	if e == nil || e.playing {
+		return
+	}
+	taskKind := task.TaskKind
+	if !taskKind.Valid() {
+		taskKind = AgentTaskSceneEdit
+	}
+
+	if e.Project != nil && e.ProjectPath != "" && e.ActiveTurnID() == "" {
+		if task.Source == TaskSourceAutomation {
+			_, _ = e.TakeCheckpointBeforeAutomation(task.Title)
+		} else {
+			_, _ = e.TakeCheckpointBeforeTask(task.Title)
+		}
+	}
+
+	if e.agent.mode == AgentModeNone {
+		_ = e.FailTask(task.ID, "editor: agent is disabled")
+		return
+	}
+	route, runner, clientName, model, err := e.resolveRouteAndRunner(taskKind)
+	if err != nil {
+		if route == AgentRouteNone && !e.ConnectDialogOpen() {
+			e.OpenConnectDialog()
+		}
+		_ = e.FailTask(task.ID, err.Error())
+		return
+	}
+	if route.IsBuiltIn() && !e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
+		e.OpenConnectDialogForMode(AgentModeAPIKey)
+		_ = e.FailTask(task.ID, ErrAgentAPIKeyMissing.Error())
+		return
+	}
+
+	prompt := strings.TrimSpace(task.Prompt)
+	if prompt == "" {
+		prompt = strings.TrimSpace(task.Title)
+	}
+	attachedImgs, briefImgs, allImgs := e.collectRequestReferenceImages()
+	req := e.AssembleAgentRequest(prompt)
+	taskThreadID := "task-" + task.ID
+	scenePath := task.ScenePath
+	if scenePath == "" {
+		scenePath = e.ScenePath
+	}
+	agentKind := ExternalAgentAuto
+	if !route.IsBuiltIn() {
+		if c, ok := e.AgentPrimaryClient(); ok {
+			agentKind = DetectExternalAgentKind(c.Name)
+		}
+	}
+	req.ThreadID = taskThreadID
+	// Always start a fresh CLI session for each background/parallel task rather than resuming the foreground thread.
+	req.SessionID = ""
+	req.TaskID = task.ID
+	req.ProjectRoot = e.agentProjectRoot()
+	req.ScenePath = scenePath
+	req.SelectedID = e.SelectedID
+	req.AgentKind = agentKind
+	req.Permissions = e.agent.permissions
+	req.Task = taskKind
+	req.Route = route
+	req.Model = model
+	req.PriorTurns = nil
+	req.AttachedImages = attachedImgs
+	req.BriefImages = briefImgs
+	req.Images = allImgs
+
+	var beforeSceneYAML string
+	if raw, yerr := e.SaveYAML(); yerr == nil {
+		beforeSceneYAML = string(raw)
+	}
+
+	now := e.nowTime()
+	startHist := 0
+	if e.History != nil {
+		startHist = e.History.Index()
+	}
+	e.agent.turnSeq++
+	e.agent.turnChangeSeq++
+	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
+	turnImages := make([]AgentReferenceImage, len(allImgs))
+	for i, img := range allImgs {
+		cp := img.clone()
+		cp.Data = nil
+		turnImages[i] = cp
+	}
+	e.agent.turns = append(e.agent.turns, AgentTurn{
+		ID:        turnID,
+		Prompt:    prompt,
+		Images:    turnImages,
+		Source:    "task",
+		Status:    "running",
+		AgentName: clientName,
+		Task:      taskKind,
+		Route:     route,
+		Model:     model,
+		Steps: []AgentStep{{
+			ID:        fmt.Sprintf("%s-step-start", turnID),
+			Title:     "Starting request…",
+			Status:    AgentStepPlaceholder,
+			StartedAt: now,
+		}},
+		CreatedAt:           now,
+		StartedAt:           now,
+		ThreadID:            taskThreadID,
+		ReviewState:         AgentReviewRunning,
+		turnStartHistoryIdx: startHist,
+	})
+	e.trimAgentTurnAttachments()
+	e.initTurnBaseline(&e.agent.turns[len(e.agent.turns)-1])
+	e.RecordAgentRequest(1)
+
+	if builtIn, ok := runner.(*builtInAgentRunner); ok {
+		builtIn.turnID = turnID
+		builtIn.taskID = task.ID
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTaskRunnerTimeout)
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	gen := e.tasks.projectGen
+	if prev := e.tasks.cancels[task.ID]; prev != nil {
+		prev()
+	}
+	e.tasks.cancels[task.ID] = cancel
+	if idx := e.findTaskIndexLocked(task.ID); idx >= 0 {
+		e.tasks.tasks[idx].TurnID = turnID
+	}
+	e.tasks.mu.Unlock()
+	e.notify()
+
+	go func() {
+		runCtx := WithTaskToolContext(ctx, task.ID)
+		runErr := runner.Run(runCtx, req, func(ev AgentEvent) {
+			e.postOrRun(func() {
+				if e.tasks.currentGen() != gen {
+					return
+				}
+				e.applyDefaultTaskEvent(task.ID, turnID, ev)
+			})
+		})
+		wasCanceled := errors.Is(ctx.Err(), context.Canceled)
+		e.tasks.mu.Lock()
+		delete(e.tasks.cancels, task.ID)
+		stale := e.tasks.projectGen != gen
+		e.tasks.mu.Unlock()
+		cancel()
+		if stale {
+			return
+		}
+		e.postOrRun(func() {
+			if e.tasks.currentGen() != gen {
+				return
+			}
+			e.finishDefaultTaskRun(task.ID, turnID, beforeSceneYAML, runErr, wasCanceled)
+		})
+	}()
+}
+
+// applyDefaultTaskEvent runs on the UI scope (or on the single headless executor when scope == nil).
+func (e *Editor) applyDefaultTaskEvent(taskID, turnID string, ev AgentEvent) {
+	resolvedStepTitle := strings.TrimSpace(ev.StepTitle)
+	turn := e.findAgentTurn(turnID)
+	if turn != nil && !turn.Done {
+		switch ev.Kind {
+		case AgentEventSession:
+			if ev.SessionID != "" {
+				turn.SessionIDAfter = ev.SessionID
+			}
+		case AgentEventStep:
+			dropTurnPlaceholder(turn)
+			stepStatus := ev.StepStatus
+			if stepStatus == "" {
+				stepStatus = AgentStepRunning
+			}
+			if stepStatus == AgentStepRunning {
+				for i := range turn.Steps {
+					if turn.Steps[i].Status == AgentStepRunning && (ev.StepID == "" || turn.Steps[i].ID != ev.StepID) {
+						turn.Steps[i].Status = AgentStepDone
+					}
+				}
+			}
+			updated := false
+			if ev.StepID != "" {
+				for i := range turn.Steps {
+					if turn.Steps[i].ID == ev.StepID {
+						if ev.StepTitle != "" {
+							turn.Steps[i].Title = ev.StepTitle
+						} else if resolvedStepTitle == "" {
+							resolvedStepTitle = strings.TrimSpace(turn.Steps[i].Title)
+						}
+						if ev.StepDetail != "" {
+							turn.Steps[i].Detail = ev.StepDetail
+						}
+						if ev.ToolName != "" {
+							turn.Steps[i].ToolName = ev.ToolName
+						}
+						turn.Steps[i].Status = stepStatus
+						updated = true
+						break
+					}
+				}
+			}
+			if !updated {
+				stepID := ev.StepID
+				if stepID == "" {
+					stepID = fmt.Sprintf("%s-step-%d", turn.ID, len(turn.Steps)+1)
+				}
+				turn.Steps = append(turn.Steps, AgentStep{
+					ID:        stepID,
+					Title:     ev.StepTitle,
+					Detail:    ev.StepDetail,
+					ToolName:  ev.ToolName,
+					Status:    stepStatus,
+					StartedAt: e.nowTime(),
+				})
+			}
+			if stepStatus == AgentStepWaiting {
+				turn.ReviewState = AgentReviewNeedsYou
+			}
+			e.observeTurnSceneMutations(turn, max(1, len(turn.Steps)))
+			e.refreshTurnReview(turn)
+		case AgentEventMessage:
+			if ev.Text != "" && len(turn.Summary) < maxAgentTurnReplyBytes {
+				chunk := ev.Text
+				if turn.Summary != "" && !strings.HasSuffix(turn.Summary, "\n") && !strings.HasPrefix(chunk, "\n") {
+					chunk = "\n" + chunk
+				}
+				rem := maxAgentTurnReplyBytes - len(turn.Summary)
+				if len(chunk) > rem {
+					chunk = chunk[:rem]
+				}
+				turn.Summary += chunk
+			}
+		case AgentEventUsage:
+			turn.InputTokens += ev.InputTokens
+			turn.OutputTokens += ev.OutputTokens
+		case AgentEventError:
+			if ev.Err != "" {
+				turn.Error = ev.Err
+			}
+		case AgentEventModelRecovered:
+			turn.ModelError = nil
+		case AgentEventDone:
+			dropTurnPlaceholder(turn)
+			if ev.Text != "" && turn.Summary == "" {
+				txt := ev.Text
+				if len(txt) > maxAgentTurnReplyBytes {
+					txt = txt[:maxAgentTurnReplyBytes]
+				}
+				turn.Summary = txt
+				turn.Reply = txt
+			}
+			turn.ModelError = nil
+			turn.Done = true
+			turn.Status = "done"
+			turn.FinishedAt = e.nowTime()
+			e.observeTurnSceneMutations(turn, max(1, len(turn.Steps)))
+			e.refreshTurnReview(turn)
+		}
+		e.agent.turnChangeSeq++
+	}
+
+	switch ev.Kind {
+	case AgentEventSession:
+		if ev.SessionID != "" {
+			e.tasks.mu.Lock()
+			if idx := e.findTaskIndexLocked(taskID); idx >= 0 {
+				e.tasks.tasks[idx].SessionID = ev.SessionID
+			}
+			e.tasks.mu.Unlock()
+		}
+	case AgentEventStep:
+		stepStatus := ev.StepStatus
+		if stepStatus == "" {
+			stepStatus = AgentStepRunning
+		}
+		if stepStatus == AgentStepWaiting {
+			_ = e.RequestTaskPermission(taskID, ev.StepTitle, ev.StepDetail)
+			return
+		}
+		title := resolvedStepTitle
+		if title == "" {
+			title = strings.TrimSpace(ev.ToolName)
+		}
+		e.applyTaskStepEvent(taskID, ev.StepIndex, ev.StepTotal, title, stepStatus == AgentStepDone || stepStatus == AgentStepFailed)
+	case AgentEventMessage:
+		if line := firstLineTitle(ev.Text); line != "" {
+			if cur, ok := e.Task(taskID); ok && cur.State == TaskRunning && cur.BlockedOn == "" {
+				_ = e.UpdateTaskStep(taskID, 0, 0, line)
+				return
+			}
+		}
+	}
+	e.notify()
+}
+
+func (e *Editor) applyTaskStepEvent(taskID string, stepIndex, stepTotal int, summary string, done bool) {
+	if e == nil || taskID == "" {
+		return
+	}
+	e.tasks.mu.Lock()
+	idx := e.findTaskIndexLocked(taskID)
+	if idx < 0 {
+		e.tasks.mu.Unlock()
+		return
+	}
+	t := &e.tasks.tasks[idx]
+	if stepIndex > 0 {
+		t.StepIndex = stepIndex
+	}
+	if stepTotal > 0 {
+		t.StepTotal = stepTotal
+	}
+	if summary != "" {
+		if t.BlockedOn == "" {
+			t.StepSummary = summary
+		}
+		updated := false
+		for i := len(t.Steps) - 1; i >= 0; i-- {
+			if t.Steps[i].Active && t.Steps[i].Summary == summary {
+				t.Steps[i].Active = !done
+				t.Steps[i].Done = done
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			if !done {
+				for i := range t.Steps {
+					if t.Steps[i].Active {
+						t.Steps[i].Active = false
+						t.Steps[i].Done = true
+					}
+				}
+			}
+			t.Steps = append(t.Steps, TaskStep{
+				Summary: summary,
+				Done:    done,
+				Active:  !done,
+			})
+		}
+	}
+	e.tasks.mu.Unlock()
+	_ = e.SaveAgentThread()
+	e.notify()
+}
+
+// finishDefaultTaskRun runs on the UI scope (or on the single headless executor when scope == nil).
+func (e *Editor) finishDefaultTaskRun(taskID, turnID, beforeSceneYAML string, runErr error, canceled bool) {
+	var (
+		turnSummary string
+		turnErr     string
+	)
+	if turn := e.findAgentTurn(turnID); turn != nil {
+		if !turn.Done {
+			dropTurnPlaceholder(turn)
+			turn.Done = true
+			turn.FinishedAt = e.nowTime()
+		}
+		if canceled || errors.Is(runErr, context.Canceled) {
+			turn.Stopped = true
+			turn.Status = "stopped"
+			turn.ReviewState = AgentReviewDismissed
+		} else if runErr != nil || turn.Error != "" {
+			if runErr != nil && turn.Error == "" {
+				turn.Error = runErr.Error()
+			}
+			turn.Status = "done"
+			turn.ReviewState = AgentReviewFailed
+		} else {
+			turn.Status = "done"
+			if turn.ReviewState != AgentReviewKept && turn.ReviewState != AgentReviewDismissed {
+				turn.ReviewState = AgentReviewReady
+			}
+		}
+		if turn.ModelError != nil {
+			turn.ModelError.Retrying = false
+		}
+		for i := range turn.Steps {
+			if turn.Steps[i].Status == AgentStepRunning {
+				if canceled || errors.Is(runErr, context.Canceled) {
+					turn.Steps[i].Status = AgentStepPending
+				} else if runErr != nil || turn.Error != "" {
+					turn.Steps[i].Status = AgentStepFailed
+				} else {
+					turn.Steps[i].Status = AgentStepDone
+				}
+			}
+		}
+		e.observeTurnSceneMutations(turn, max(1, len(turn.Steps)))
+		e.refreshTurnReview(turn)
+		if turn.Reply == "" && turn.Summary != "" {
+			turn.Reply = turn.Summary
+		}
+		turnSummary = turn.Summary
+		turnErr = turn.Error
+		e.agent.turnChangeSeq++
+	}
+
+	cur, ok := e.Task(taskID)
+	if !ok {
+		e.fireHoldRelease(taskID)
+		e.notify()
+		return
+	}
+	// If the task was already transitioned (e.g. StopTask, CompleteTaskTurn, FailTask), respect it.
+	if cur.State != TaskRunning && cur.State != TaskNeedsYou {
+		e.fireHoldRelease(taskID)
+		e.notify()
+		return
+	}
+
+	if canceled || errors.Is(runErr, context.Canceled) {
+		_ = e.StopTask(taskID)
+		return
+	}
+	if runErr != nil || turnErr != "" {
+		errMsg := turnErr
+		if errMsg == "" && runErr != nil {
+			errMsg = runErr.Error()
+		}
+		_ = e.FailTask(taskID, errMsg)
+		return
+	}
+
+	summary := strings.TrimSpace(turnSummary)
+	if summary == "" {
+		summary = cur.StepSummary
+	}
+	revBefore := beforeSceneYAML
+	var changes []TaskReviewChange
+	if mcpBefore, mcpChanges, hasMCP := e.snapshotTaskReviewFromMCP(taskID); hasMCP {
+		if mcpBefore != "" {
+			revBefore = mcpBefore
+		}
+		changes = mcpChanges
+	}
+	var afterSceneYAML string
+	if raw, yerr := e.SaveYAML(); yerr == nil {
+		afterSceneYAML = string(raw)
+	}
+	if len(changes) == 0 && revBefore != "" && afterSceneYAML != "" && revBefore != afterSceneYAML {
+		changes = e.deriveTaskReviewChanges(cur.ScenePath, revBefore, afterSceneYAML)
+	}
+	_ = e.CompleteTaskTurn(taskID, TaskReview{
+		ID:              "review-" + taskID,
+		TaskID:          taskID,
+		ScenePath:       cur.ScenePath,
+		Summary:         summary,
+		ChangeCount:     len(changes),
+		Changes:         changes,
+		BeforeSceneYAML: revBefore,
+		AfterSceneYAML:  afterSceneYAML,
+	})
+}
+
+func (e *Editor) deriveTaskReviewChanges(scenePath, beforeYAML, afterYAML string) []TaskReviewChange {
+	if e == nil || beforeYAML == "" || afterYAML == "" || beforeYAML == afterYAML {
+		return nil
+	}
+	parseOpts := sceneformat.ParseOptions{
+		Components:    e.components,
+		PhysicsLayers: e.physicsLayers,
+	}
+	beforeDoc, err := sceneformat.ParseWith([]byte(beforeYAML), parseOpts)
+	if err != nil {
+		return nil
+	}
+	afterDoc, err := sceneformat.ParseWith([]byte(afterYAML), parseOpts)
+	if err != nil {
+		return nil
+	}
+	allIDs := append(collectAllObjectIDs(beforeDoc), collectAllObjectIDs(afterDoc)...)
+	seen := make(map[string]bool, len(allIDs))
+	var changes []TaskReviewChange
+	for _, oid := range allIDs {
+		if oid == "" || seen[oid] {
+			continue
+		}
+		seen[oid] = true
+		bObj, bLayer, bParent := findObjectDocInScene(beforeDoc, oid)
+		aObj, aLayer, aParent := findObjectDocInScene(afterDoc, oid)
+		if objectDocsEqual(bObj, aObj) && bLayer == aLayer && bParent == aParent {
+			continue
+		}
+		kind := "changed"
+		summary := "changed " + oid
+		switch {
+		case bObj == nil && aObj != nil:
+			kind = "added"
+			summary = "added " + oid
+		case bObj != nil && aObj == nil:
+			kind = "removed"
+			summary = "removed " + oid
+		}
+		changes = append(changes, TaskReviewChange{
+			ObjectID: oid,
+			File:     scenePath,
+			Kind:     kind,
+			Summary:  summary,
+		})
+	}
+	return changes
+}
+
+func (e *Editor) markTaskTurnReviewState(turnID string, state AgentReviewState) {
+	if e == nil || turnID == "" {
+		return
+	}
+	turn := e.findAgentTurn(turnID)
+	if turn == nil {
+		return
+	}
+	turn.ReviewState = state
+	if turn.Review != nil {
+		if state == AgentReviewKept {
+			turn.Review.Kept = true
+			turn.Review.Discarded = false
+		} else if state == AgentReviewDismissed {
+			turn.Review.Kept = false
+			turn.Review.Discarded = true
+		}
+	}
+	e.agent.turnChangeSeq++
+	e.notify()
 }
 
 // UpdateTaskStep updates the current step progress text and step numbers on task id.
@@ -1663,6 +2320,49 @@ func (e *Editor) ClearTaskHoldState(id string) {
 	e.fireHoldRelease(id)
 }
 
+// BeginTaskPermissionAsk transitions task id to TaskNeedsYou with the given prompt/detail and
+// returns a channel that receives true (Allow once) or false (Deny) when ResolveTaskPermission
+// is called, or closes when the task is stopped, failed, or cancelled.
+func (e *Editor) BeginTaskPermissionAsk(id, prompt, detail string) (<-chan bool, func(), error) {
+	if e == nil {
+		return nil, func() {}, errors.New("editor: nil editor")
+	}
+	e.tasks.mu.Lock()
+	e.tasks.ensureInitLocked()
+	idx := e.findTaskIndexLocked(id)
+	if idx < 0 {
+		e.tasks.mu.Unlock()
+		return nil, func() {}, fmt.Errorf("editor: task %q not found", id)
+	}
+	t := &e.tasks.tasks[idx]
+	prevState := t.State
+	t.State = TaskNeedsYou
+	t.PermissionPrompt = prompt
+	t.PermissionDetail = detail
+	if prompt != "" {
+		t.StepSummary = prompt
+	}
+	if prev := e.tasks.permWaiters[id]; prev != nil {
+		close(prev)
+	}
+	ch := make(chan bool, 1)
+	e.tasks.permWaiters[id] = ch
+	taskCopy := t.clone()
+	e.tasks.mu.Unlock()
+	_ = e.SaveAgentThread()
+	e.onAgentTaskStateUpdated(taskCopy, prevState, e.nowTime())
+	e.syncDockBadgeIfAttached()
+	e.notify()
+	cancel := func() {
+		e.tasks.mu.Lock()
+		if cur, ok := e.tasks.permWaiters[id]; ok && cur == ch {
+			delete(e.tasks.permWaiters, id)
+		}
+		e.tasks.mu.Unlock()
+	}
+	return ch, cancel, nil
+}
+
 // RequestTaskPermission transitions task id to TaskNeedsYou with the given permission prompt.
 func (e *Editor) RequestTaskPermission(id, prompt, detail string) error {
 	if e == nil {
@@ -1718,6 +2418,8 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	} else {
 		t.Steps = append(t.Steps, TaskStep{Summary: "Permission denied", Done: true})
 	}
+	waiter := e.tasks.permWaiters[id]
+	delete(e.tasks.permWaiters, id)
 	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 	_ = e.SaveAgentThread()
@@ -1725,6 +2427,12 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	e.syncDockBadgeIfAttached()
 	e.notify()
 	cb := e.OnTaskPermissionDecision
+	if waiter != nil {
+		select {
+		case waiter <- allow:
+		default:
+		}
+	}
 	if cb != nil {
 		cb(id, allow)
 	}
@@ -1835,8 +2543,13 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	t.BlockedByTaskID = ""
 	t.BlockedByTaskNumber = 0
 	t.FinishedAt = now.UTC().Format(time.RFC3339)
+	waiter := e.tasks.permWaiters[id]
+	delete(e.tasks.permWaiters, id)
 	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
+	if waiter != nil {
+		close(waiter)
+	}
 	_ = e.SaveAgentThread()
 	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
 	e.syncDockBadgeIfAttached()
@@ -1859,6 +2572,8 @@ func (e *Editor) StopTask(id string) error {
 	}
 	cancel := e.tasks.cancels[id]
 	delete(e.tasks.cancels, id)
+	waiter := e.tasks.permWaiters[id]
+	delete(e.tasks.permWaiters, id)
 	t := &e.tasks.tasks[idx]
 	prevState := t.State
 	t.State = TaskStopped
@@ -1873,6 +2588,9 @@ func (e *Editor) StopTask(id string) error {
 	taskCopy := t.clone()
 	e.tasks.mu.Unlock()
 
+	if waiter != nil {
+		close(waiter)
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -1889,6 +2607,13 @@ func (e *Editor) StopTask(id string) error {
 func (e *Editor) RetryTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.AgentTaskRunner == nil {
+		if existing, ok := e.Task(id); ok && existing.State == TaskFailed {
+			if err := e.validateTaskAgentRoute(existing.TaskKind); err != nil {
+				return err
+			}
+		}
 	}
 	now := e.nowTime()
 	e.tasks.mu.Lock()
@@ -1985,6 +2710,9 @@ func (e *Editor) KeepTask(id string) error {
 	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
 	e.syncDockBadgeIfAttached()
 	e.notify()
+	if taskCopy.TurnID != "" {
+		e.markTaskTurnReviewState(taskCopy.TurnID, AgentReviewKept)
+	}
 	e.advanceTaskQueue(id)
 	return nil
 }
@@ -2044,6 +2772,9 @@ func (e *Editor) RevertTask(id string) error {
 	}
 	e.syncDockBadgeIfAttached()
 	e.notify()
+	if hasUpdated && updatedTask.TurnID != "" {
+		e.markTaskTurnReviewState(updatedTask.TurnID, AgentReviewDismissed)
+	}
 	e.advanceTaskQueue(id)
 	return nil
 }
@@ -2377,6 +3108,8 @@ func (e *Editor) DismissTasks(ids []string) int {
 		}
 		e.syncDockBadgeIfAttached()
 		e.notify()
+	}
+	if dismissed > 0 {
 		for _, id := range resolved {
 			e.advanceTaskQueue(id)
 		}

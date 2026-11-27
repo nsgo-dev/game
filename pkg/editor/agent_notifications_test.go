@@ -279,6 +279,11 @@ func TestAgentScriptedBackgroundNotificationAndDockBadgeCount(t *testing.T) {
 // KeepTask, RetryTask, DismissTasks) drive system notifications and Dock badges end-to-end.
 func TestBackgroundTaskTransitionsNotifyAndClearBadge(t *testing.T) {
 	ed, _ := setupNotificationProject(t)
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = func(ctx context.Context, _ editor.AgentTask) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
