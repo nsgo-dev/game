@@ -20,12 +20,14 @@ const (
 	UDPDatagramTypePong UDPDatagramType = 180
 	// Client-to-server session goodbye (0xB5).
 	UDPDatagramTypeBye UDPDatagramType = 181
+	// UDPTransport pre-shared key peer datagram (0xB6).
+	UDPDatagramTypePeerData UDPDatagramType = 182
 )
 
 // Valid reports whether v is a declared UDPDatagramType value.
 func (v UDPDatagramType) Valid() bool {
 	switch v {
-	case UDPDatagramTypeData, UDPDatagramTypeServerData, UDPDatagramTypePing, UDPDatagramTypePong, UDPDatagramTypeBye:
+	case UDPDatagramTypeData, UDPDatagramTypeServerData, UDPDatagramTypePing, UDPDatagramTypePong, UDPDatagramTypeBye, UDPDatagramTypePeerData:
 		return true
 	default:
 		return false
@@ -55,14 +57,14 @@ func DecodeUDPDatagramType(src []byte, v *UDPDatagramType) (int, error) {
 	return off, nil
 }
 
-// UDPSealedDatagram is an authenticated UDP session datagram with an 18-byte header (type, peer, seq, channel, 8-byte truncated HMAC-SHA256 tag) and trailing payload.
+// UDPSealedDatagram is a ChaCha20-Poly1305 AEAD UDP datagram with a 10-byte cleartext header (type, peer, seq, channel) authenticated as associated data followed by ciphertext and a 16-byte Poly1305 tag.
 type UDPSealedDatagram struct {
 	Type    UDPDatagramType
 	Peer    uint32
 	Seq     uint32
 	Channel Channel
-	Tag     [8]uint8
-	Payload []byte
+	// ChaCha20-Poly1305 ciphertext followed by the 16-byte Poly1305 authentication tag.
+	Sealed []byte
 }
 
 // AppendUDPSealedDatagram encodes m onto dst in wire format without allocating when dst has capacity.
@@ -71,10 +73,7 @@ func AppendUDPSealedDatagram(dst []byte, m *UDPSealedDatagram) []byte {
 	dst = binary.BigEndian.AppendUint32(dst, uint32(m.Peer))
 	dst = binary.BigEndian.AppendUint32(dst, uint32(m.Seq))
 	dst = AppendChannel(dst, m.Channel)
-	for i := range m.Tag {
-		dst = append(dst, byte(m.Tag[i]))
-	}
-	dst = append(dst, m.Payload...)
+	dst = append(dst, m.Sealed...)
 	return dst
 }
 
@@ -105,19 +104,12 @@ func DecodeUDPSealedDatagram(src []byte, m *UDPSealedDatagram) (int, error) {
 		}
 		off += n
 	}
-	for i := range m.Tag {
-		if len(src)-off < 1 {
-			return 0, ErrShortBuffer
-		}
-		m.Tag[i] = src[off]
-		off++
-	}
 	{
 		blen := len(src) - off
 		if blen == 0 {
-			m.Payload = m.Payload[:0]
+			m.Sealed = m.Sealed[:0]
 		} else {
-			m.Payload = append(m.Payload[:0], src[off:off+blen]...)
+			m.Sealed = append(m.Sealed[:0], src[off:off+blen]...)
 		}
 		off += blen
 	}

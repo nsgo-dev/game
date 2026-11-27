@@ -61,12 +61,11 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 			Peer:    5,
 			Seq:     1234,
 			Channel: wire.ChannelUnreliable,
-			Tag:     [8]uint8{1, 2, 3, 4, 5, 6, 7, 8},
-			Payload: []byte("sealed payload"),
+			Sealed:  []byte("sealed ciphertext + 16B poly tag"),
 		}
 		buf := make([]byte, 0, 128)
 		var out wire.UDPSealedDatagram
-		out.Payload = make([]byte, 0, 128)
+		out.Sealed = make([]byte, 0, 128)
 
 		buf = wire.AppendUDPSealedDatagram(buf[:0], &in)
 		if _, err := wire.DecodeUDPSealedDatagram(buf, &out); err != nil {
