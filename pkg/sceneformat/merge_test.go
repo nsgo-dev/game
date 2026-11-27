@@ -842,3 +842,248 @@ func TestMergeScene3DLightsEnvironmentAndCameras(t *testing.T) {
 		t.Fatalf("expected ConflictValidation for two current cameras, got %+v", resCur.Conflicts)
 	}
 }
+
+func TestMergeVersionMonotonic(t *testing.T) {
+	t.Run("base_v1_ours_v2_theirs_v4_independent_edits", func(t *testing.T) {
+		base := &sceneformat.SceneDoc{
+			Version: 1,
+			Layers: []sceneformat.LayerDoc{
+				{
+					Name: "main",
+					Objects: []sceneformat.ObjectDoc{
+						{ID: "a", X: 0, Y: 0},
+						{ID: "b", X: 10, Y: 20},
+					},
+				},
+			},
+		}
+		ours := cloneDoc(t, base)
+		ours.Version = 2
+		ours.Layers[0].Objects[0].X = 5
+		ours.Layers[0].Objects[1].Model = "models/crate.glb"
+
+		theirs := cloneDoc(t, base)
+		theirs.Version = 4
+		theirs.Layers[0].Objects[0].Y = 7
+		theirs.Layers[0].ParallaxX = sceneformat.Float32(0.5)
+		theirs.Environment = &sceneformat.EnvironmentDoc{
+			Tonemapping: sceneformat.TonemapACES,
+		}
+
+		res, err := sceneformat.Merge(base, ours, theirs)
+		if err != nil {
+			t.Fatalf("Merge: %v", err)
+		}
+		if res.HasConflicts() {
+			t.Fatalf("expected clean merge, got conflicts: %+v", res.Conflicts)
+		}
+		if res.Doc.Version != 4 {
+			t.Fatalf("merged version = %d, want 4", res.Doc.Version)
+		}
+		if err := sceneformat.Validate(res.Doc); err != nil {
+			t.Fatalf("Validate(merged): %v", err)
+		}
+		if got := res.Doc.Layers[0].Objects[0]; got.X != 5 || got.Y != 7 {
+			t.Errorf("object a = (%v, %v), want (5, 7)", got.X, got.Y)
+		}
+		if got := res.Doc.Layers[0].Objects[1].Model; got != "models/crate.glb" {
+			t.Errorf("object b model = %q, want models/crate.glb", got)
+		}
+		if res.Doc.Layers[0].ParallaxX == nil || *res.Doc.Layers[0].ParallaxX != 0.5 {
+			t.Errorf("layer parallaxX = %v, want 0.5", res.Doc.Layers[0].ParallaxX)
+		}
+		if res.Doc.Environment == nil || res.Doc.Environment.Tonemapping != sceneformat.TonemapACES {
+			t.Errorf("environment = %+v, want tonemapping=aces", res.Doc.Environment)
+		}
+		encoded, err := sceneformat.Encode(res.Doc)
+		if err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		if !strings.HasPrefix(string(encoded), sceneformat.SchemaCommentV4+"\n") {
+			t.Errorf("encoded scene missing v4 schema header:\n%s", encoded)
+		}
+	})
+
+	t.Run("base_v1_ours_v4_theirs_v2_symmetric", func(t *testing.T) {
+		base := &sceneformat.SceneDoc{
+			Version: 1,
+			Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "a"}}}},
+		}
+		ours := cloneDoc(t, base)
+		ours.Version = 4
+		ours.Layers[0].Objects[0].X = 5
+		ours.Environment = &sceneformat.EnvironmentDoc{Tonemapping: sceneformat.TonemapACES}
+
+		theirs := cloneDoc(t, base)
+		theirs.Version = 2
+		theirs.Layers[0].Objects[0].Y = 7
+
+		res, err := sceneformat.Merge(base, ours, theirs)
+		if err != nil {
+			t.Fatalf("Merge: %v", err)
+		}
+		if res.HasConflicts() {
+			t.Fatalf("expected clean merge, got conflicts: %+v", res.Conflicts)
+		}
+		if res.Doc.Version != 4 {
+			t.Fatalf("merged version = %d, want 4", res.Doc.Version)
+		}
+		if got := res.Doc.Layers[0].Objects[0]; got.X != 5 || got.Y != 7 {
+			t.Errorf("object a = (%v, %v), want (5, 7)", got.X, got.Y)
+		}
+	})
+
+	t.Run("add_add_nil_base_different_versions", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			oursVer   int
+			theirsVer int
+			wantVer   int
+		}{
+			{name: "1_and_4", oursVer: 1, theirsVer: 4, wantVer: 4},
+			{name: "4_and_1", oursVer: 4, theirsVer: 1, wantVer: 4},
+			{name: "2_and_3", oursVer: 2, theirsVer: 3, wantVer: 3},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				ours := &sceneformat.SceneDoc{
+					Version: tc.oursVer,
+					Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "a", X: 1}}}},
+				}
+				theirs := &sceneformat.SceneDoc{
+					Version: tc.theirsVer,
+					Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "b", X: 2}}}},
+				}
+				res, err := sceneformat.Merge(nil, ours, theirs)
+				if err != nil {
+					t.Fatalf("Merge(nil, ...): %v", err)
+				}
+				if res.HasConflicts() {
+					t.Fatalf("expected clean add/add merge, got conflicts: %+v", res.Conflicts)
+				}
+				if res.Doc.Version != tc.wantVer {
+					t.Fatalf("merged version = %d, want %d", res.Doc.Version, tc.wantVer)
+				}
+				if len(res.Doc.Layers[0].Objects) != 2 {
+					t.Fatalf("got %d objects, want 2", len(res.Doc.Layers[0].Objects))
+				}
+			})
+		}
+	})
+
+	t.Run("equal_versions_unchanged", func(t *testing.T) {
+		for ver := sceneformat.MinVersion; ver <= sceneformat.CurrentVersion; ver++ {
+			base := &sceneformat.SceneDoc{
+				Version: ver,
+				Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "a"}}}},
+			}
+			ours := cloneDoc(t, base)
+			ours.Layers[0].Objects[0].X = 3
+			theirs := cloneDoc(t, base)
+			theirs.Layers[0].Objects[0].Y = 4
+
+			res, err := sceneformat.Merge(base, ours, theirs)
+			if err != nil {
+				t.Fatalf("v%d Merge: %v", ver, err)
+			}
+			if res.HasConflicts() {
+				t.Fatalf("v%d unexpected conflicts: %+v", ver, res.Conflicts)
+			}
+			if res.Doc.Version != ver {
+				t.Errorf("v%d merged version = %d, want %d", ver, res.Doc.Version, ver)
+			}
+			for _, item := range res.Merged {
+				if item.Scope == "scene" {
+					t.Errorf("v%d unexpected scene MergedItem when version stayed unchanged: %+v", ver, item)
+				}
+			}
+		}
+	})
+
+	t.Run("one_sided_upgrades_and_never_below_base", func(t *testing.T) {
+		cases := []struct {
+			name          string
+			base          int
+			ours          int
+			theirs        int
+			wantVer       int
+			wantSceneSide string
+		}{
+			{name: "ours_upgrades_1_to_2", base: 1, ours: 2, theirs: 1, wantVer: 2, wantSceneSide: "ours"},
+			{name: "theirs_upgrades_1_to_4", base: 1, ours: 1, theirs: 4, wantVer: 4, wantSceneSide: "theirs"},
+			{name: "both_upgrade_same_1_to_3", base: 1, ours: 3, theirs: 3, wantVer: 3, wantSceneSide: "both"},
+			{name: "both_upgrade_different_1_2_4", base: 1, ours: 2, theirs: 4, wantVer: 4, wantSceneSide: "both"},
+			{name: "ours_downgrades_below_base", base: 3, ours: 2, theirs: 3, wantVer: 3, wantSceneSide: ""},
+			{name: "both_downgrade_below_base", base: 3, ours: 1, theirs: 2, wantVer: 3, wantSceneSide: ""},
+			{name: "ours_downgrades_theirs_upgrades", base: 3, ours: 2, theirs: 4, wantVer: 4, wantSceneSide: "theirs"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				base := &sceneformat.SceneDoc{Version: tc.base}
+				ours := &sceneformat.SceneDoc{Version: tc.ours}
+				theirs := &sceneformat.SceneDoc{Version: tc.theirs}
+
+				res, err := sceneformat.Merge(base, ours, theirs)
+				if err != nil {
+					t.Fatalf("Merge: %v", err)
+				}
+				if res.HasConflicts() {
+					t.Fatalf("unexpected conflicts: %+v", res.Conflicts)
+				}
+				if res.Doc.Version != tc.wantVer {
+					t.Errorf("version = %d, want %d", res.Doc.Version, tc.wantVer)
+				}
+				gotSide := ""
+				for _, item := range res.Merged {
+					if item.Scope == "scene" {
+						gotSide = item.Side
+					}
+				}
+				if gotSide != tc.wantSceneSide {
+					t.Errorf("scene merged side = %q, want %q (merged=%+v)", gotSide, tc.wantSceneSide, res.Merged)
+				}
+			})
+		}
+	})
+
+	t.Run("validation_failure_still_reported_with_version_upgrade", func(t *testing.T) {
+		base := &sceneformat.SceneDoc{
+			Version: 1,
+			Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "prop"}}}},
+		}
+		ours := cloneDoc(t, base)
+		ours.Version = 2
+		ours.Layers[0].Objects[0].Model = "models/crate.glb"
+
+		theirs := cloneDoc(t, base)
+		theirs.Version = 4
+		theirs.Layers[0].Objects[0].Mesh = sceneformat.MeshBox
+		theirs.Environment = &sceneformat.EnvironmentDoc{Tonemapping: sceneformat.TonemapACES}
+
+		res, err := sceneformat.Merge(base, ours, theirs)
+		if err != nil {
+			t.Fatalf("Merge: %v", err)
+		}
+		if res.Doc.Version != 4 {
+			t.Errorf("merged version = %d, want 4", res.Doc.Version)
+		}
+		if len(res.Conflicts) != 1 || res.Conflicts[0].Kind != sceneformat.ConflictValidation {
+			t.Fatalf("expected single ConflictValidation (no version conflict), got %+v", res.Conflicts)
+		}
+	})
+
+	t.Run("unsupported_versions_return_error", func(t *testing.T) {
+		valid := &sceneformat.SceneDoc{Version: 2}
+		for _, badVer := range []int{-1, 0, sceneformat.CurrentVersion + 1} {
+			bad := &sceneformat.SceneDoc{Version: badVer}
+			if _, err := sceneformat.Merge(bad, valid, valid); err == nil {
+				t.Errorf("expected error for invalid base version %d", badVer)
+			}
+			if _, err := sceneformat.Merge(valid, bad, valid); err == nil {
+				t.Errorf("expected error for invalid ours version %d", badVer)
+			}
+			if _, err := sceneformat.Merge(valid, valid, bad); err == nil {
+				t.Errorf("expected error for invalid theirs version %d", badVer)
+			}
+		}
+	})
+}

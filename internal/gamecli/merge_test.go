@@ -207,6 +207,124 @@ func TestMergeEmptyBaseAddAdd(t *testing.T) {
 	}
 }
 
+func TestMergeIndependentVersionUpgradesExits0(t *testing.T) {
+	t.Run("base_v1_ours_v2_theirs_v4", func(t *testing.T) {
+		dir := t.TempDir()
+		base := &sceneformat.SceneDoc{
+			Version: 1,
+			Layers: []sceneformat.LayerDoc{
+				{
+					Name: "main",
+					Objects: []sceneformat.ObjectDoc{
+						{ID: "a", X: 0, Y: 0},
+					},
+				},
+			},
+		}
+		ours := &sceneformat.SceneDoc{
+			Version: 2,
+			Layers: []sceneformat.LayerDoc{
+				{
+					Name: "main",
+					Objects: []sceneformat.ObjectDoc{
+						{ID: "a", X: 5, Y: 0},
+						{ID: "crate", Model: "models/crate.glb"},
+					},
+				},
+			},
+		}
+		theirs := &sceneformat.SceneDoc{
+			Version: 4,
+			Environment: &sceneformat.EnvironmentDoc{
+				Tonemapping: sceneformat.TonemapACES,
+			},
+			Layers: []sceneformat.LayerDoc{
+				{
+					Name:      "main",
+					ParallaxX: sceneformat.Float32(0.5),
+					Objects: []sceneformat.ObjectDoc{
+						{ID: "a", X: 0, Y: 7},
+					},
+				},
+			},
+		}
+
+		baseFile := filepath.Join(dir, "base.scene.yaml")
+		oursFile := filepath.Join(dir, "ours.scene.yaml")
+		theirsFile := filepath.Join(dir, "theirs.scene.yaml")
+		writeSceneFile(t, baseFile, base)
+		writeSceneFile(t, oursFile, ours)
+		writeSceneFile(t, theirsFile, theirs)
+
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"merge", baseFile, oursFile, theirsFile, "scenes/level_01.scene.yaml"}, a); code != 0 {
+			t.Fatalf("exit %d, want 0 (stderr: %s)", code, stderr)
+		}
+		raw, err := os.ReadFile(oursFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		merged, err := sceneformat.Parse(raw)
+		if err != nil {
+			t.Fatalf("Parse merged: %v\n%s", err, raw)
+		}
+		if merged.Version != 4 {
+			t.Errorf("merged version = %d, want 4", merged.Version)
+		}
+		if got := merged.Layers[0].Objects[0]; got.ID != "a" || got.X != 5 || got.Y != 7 {
+			t.Errorf("object a = %+v, want id=a x=5 y=7", got)
+		}
+		if len(merged.Layers[0].Objects) != 2 || merged.Layers[0].Objects[1].ID != "crate" {
+			t.Errorf("merged objects = %+v, want a and crate", merged.Layers[0].Objects)
+		}
+		if merged.Layers[0].ParallaxX == nil || *merged.Layers[0].ParallaxX != 0.5 {
+			t.Errorf("parallaxX = %v, want 0.5", merged.Layers[0].ParallaxX)
+		}
+		if merged.Environment == nil || merged.Environment.Tonemapping != sceneformat.TonemapACES {
+			t.Errorf("environment = %+v, want tonemapping=aces", merged.Environment)
+		}
+	})
+
+	t.Run("empty_base_v1_and_v4", func(t *testing.T) {
+		dir := t.TempDir()
+		baseFile := filepath.Join(dir, "base.scene.yaml")
+		if err := os.WriteFile(baseFile, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ours := &sceneformat.SceneDoc{
+			Version: 1,
+			Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "a"}}}},
+		}
+		theirs := &sceneformat.SceneDoc{
+			Version: 4,
+			Layers:  []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{{ID: "b"}}}},
+		}
+		oursFile := filepath.Join(dir, "ours.scene.yaml")
+		theirsFile := filepath.Join(dir, "theirs.scene.yaml")
+		writeSceneFile(t, oursFile, ours)
+		writeSceneFile(t, theirsFile, theirs)
+
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"merge", baseFile, oursFile, theirsFile}, a); code != 0 {
+			t.Fatalf("exit %d, want 0 (stderr: %s)", code, stderr)
+		}
+		raw, err := os.ReadFile(oursFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		merged, err := sceneformat.Parse(raw)
+		if err != nil {
+			t.Fatalf("Parse merged: %v", err)
+		}
+		if merged.Version != 4 {
+			t.Errorf("merged version = %d, want 4", merged.Version)
+		}
+		if len(merged.Layers[0].Objects) != 2 {
+			t.Errorf("got %d objects, want 2", len(merged.Layers[0].Objects))
+		}
+	})
+}
+
 func TestMergeUsageErrors(t *testing.T) {
 	cases := [][]string{
 		{"merge"},
