@@ -5,8 +5,52 @@ import (
 	"fmt"
 )
 
-// AnimatorComponentName is the built-in sprite animation state machine component type name in scene and prefab YAML files.
-const AnimatorComponentName = "animator"
+const (
+	// AnimatorComponentName is the built-in sprite animation state machine component type name in scene and prefab YAML files.
+	AnimatorComponentName = "animator"
+
+	// AnimatorEventStateChanged is the event emitted when an animator transitions to a new state.
+	AnimatorEventStateChanged = "stateChanged"
+	// AnimatorEventClipEvent is the event emitted when an animator's active clip crosses a named cue event.
+	AnimatorEventClipEvent = "clipEvent"
+
+	// AnimatorHandlerSetState is the handler that switches an animator directly to a named state.
+	AnimatorHandlerSetState = "setState"
+	// AnimatorHandlerTrigger is the handler that pulses a named trigger parameter on an animator.
+	AnimatorHandlerTrigger = "trigger"
+)
+
+// AnimatorStateChangedEvent is the payload emitted with an object's "animator.stateChanged" event.
+type AnimatorStateChangedEvent struct {
+	// ObjectID is the ID of the object whose animator transitioned.
+	ObjectID string
+	// From is the state left.
+	From string
+	// To is the state entered.
+	To string
+}
+
+// AnimatorClipEvent is the payload emitted with an object's "animator.clipEvent" event.
+type AnimatorClipEvent struct {
+	// ObjectID is the ID of the object whose active clip crossed the cue.
+	ObjectID string
+	// State is the name of the active state whose clip emitted the cue.
+	State string
+	// Name is the cue event name declared in the clip.
+	Name string
+}
+
+// AnimatorController is the runtime state machine interface driven by the built-in "animator" component's setState and trigger handlers.
+// *animclip.StateMachine implements it.
+type AnimatorController interface {
+	SetState(name string) bool
+	Trigger(name string)
+}
+
+// AnimatorProvider may be implemented by Call.Context (as *BuiltScene does) to supply the AnimatorController for an object ID when none was bound directly on Signals.
+type AnimatorProvider interface {
+	Animator(objectID string) AnimatorController
+}
 
 // AnimatorComponent returns the ComponentType schema for the built-in "animator" component.
 // An object with an animator component names a *.states.yaml file and an optional starting state or clip.
@@ -21,26 +65,70 @@ func AnimatorComponent() ComponentType {
 			{Name: "speed", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.1, Doc: "Playback speed multiplier applied to every state (>= 0)."},
 		},
 		Events: []Event{
-			{Name: "stateChanged", Doc: "Emitted when the animator transitions to a new state."},
-			{Name: "clipEvent", Doc: "Emitted when the active clip crosses a named cue event."},
+			{Name: AnimatorEventStateChanged, Doc: "Emitted when the animator transitions to a new state."},
+			{Name: AnimatorEventClipEvent, Doc: "Emitted when the active clip crosses a named cue event."},
 		},
 		Handlers: []Handler{
 			{
-				Name: "setState",
+				Name: AnimatorHandlerSetState,
 				Doc:  "Switches directly to a named state.",
 				Params: []Field{
 					{Name: "state", Kind: FieldString, Default: "", Doc: "Name of the target state."},
 				},
+				Func: handleAnimatorSetState,
 			},
 			{
-				Name: "trigger",
+				Name: AnimatorHandlerTrigger,
 				Doc:  "Pulses a named trigger parameter.",
 				Params: []Field{
 					{Name: "name", Kind: FieldString, Default: "", Doc: "Name of the trigger parameter."},
 				},
+				Func: handleAnimatorTrigger,
 			},
 		},
 	}
+}
+
+func handleAnimatorSetState(c Call) {
+	ctrl := resolveAnimatorController(c)
+	if ctrl == nil {
+		return
+	}
+	state, _ := c.Args["state"].(string)
+	if state == "" {
+		return
+	}
+	ctrl.SetState(state)
+}
+
+func handleAnimatorTrigger(c Call) {
+	ctrl := resolveAnimatorController(c)
+	if ctrl == nil {
+		return
+	}
+	name, _ := c.Args["name"].(string)
+	if name == "" {
+		return
+	}
+	ctrl.Trigger(name)
+}
+
+func resolveAnimatorController(c Call) AnimatorController {
+	if c.Target == nil {
+		return nil
+	}
+	id := c.Target.ID
+	if c.Signals != nil {
+		if ctrl := c.Signals.Animator(id); ctrl != nil {
+			return ctrl
+		}
+	}
+	if p, ok := c.Context.(AnimatorProvider); ok && p != nil {
+		if ctrl := p.Animator(id); ctrl != nil {
+			return ctrl
+		}
+	}
+	return nil
 }
 
 // RegisterAnimatorComponent registers the built-in "animator" component type on reg.

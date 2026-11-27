@@ -123,3 +123,28 @@ sm.Update(dt)
 - **触发器**：`Trigger(name)` 激活触发器参数；当引用它的过渡触发时自动消费，或在当前固定步长结束时清除（`Update`）。
 - **脚本化输入与测试**：`InputDriver` 将项目的 `input.Actions`（如 `move_left`、`move_right`、`jump`、`attack`、`hurt`）映射为运动参数（`move.x`、`velocity.y`、`on_floor`、`jump`、`attack`、`hurt`），`SimulateStateMachine` 在固定步长下确定性地驱动状态机，报告访问过的状态、切换轨迹与卡死状态。
 - **校验与引用**：`game check`（`tooling/assetcheck`）校验每个 `*.states.yaml` 文件与 `animator` 组件，拒绝指向缺失状态的过渡、不存在的片段文件以及没有任何过渡读取的参数，并给出精确的文件与行号。移动文件时，`refs` 会跟踪 `animator.states` 和 `states[].clip` 路径。
+
+### 场景连接
+
+内置的 `animator` 组件（`sceneformat.RegisterAnimatorComponent` / `sceneformat.AnimatorComponentRegistry`）声明了两个事件和两个处理器，并在运行时提供完整实现：
+
+| 成员 | 种类 | 参数 / 载荷 | 说明 |
+| --- | --- | --- | --- |
+| `animator.stateChanged` | 事件 | `sceneformat.AnimatorStateChangedEvent{ObjectID, From, To}` | 每次状态机切换到不同状态（经由过渡或 `SetState`）时发出一次。 |
+| `animator.clipEvent` | 事件 | `sceneformat.AnimatorClipEvent{ObjectID, State, Name}` | 每次活动状态的片段在 `Update` 期间越过具名提示事件时发出一次。 |
+| `animator.setState` | 处理器 | `state`（`string`） | 通过 `SetState` 将目标对象的状态机直接切换到 `state`。 |
+| `animator.trigger` | 处理器 | `name`（`string`） | 通过 `Trigger` 激活目标对象状态机上名为 `name` 的触发器参数。 |
+
+使用 `animclip.Connect` 将状态机接入场景的 `sceneformat.Signals`：
+
+```go
+sig, err := sceneformat.Connect(built.Doc, components, built)
+if err != nil {
+	return err
+}
+if err := animclip.Connect(sm, sig, "knight"); err != nil {
+	return err
+}
+```
+
+`animclip.Connect` 会将 `sm` 绑定到 `sig`（`sig.BindAnimator`），使 `animator.setState` 和 `animator.trigger` 处理器能够驱动它，并在触发状态切换或片段事件时与 `OnTransition` / `OnEvent` 回调一起通过 `sig` 发出 `animator.stateChanged` 与 `animator.clipEvent`。`NewAnimator` 也会将 `sm` 注册到 `built`（`BuiltScene.SetAnimator`，实现了 `sceneformat.AnimatorProvider`），因此将 `built` 作为上下文传入 `sceneformat.Connect` 时，即使尚未调用 `animclip.Connect`，`animator.setState` 和 `animator.trigger` 处理器也能直接驱动该状态机。

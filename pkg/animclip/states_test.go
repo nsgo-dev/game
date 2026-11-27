@@ -4,12 +4,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/animclip"
+	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -362,4 +364,335 @@ transitions:
 			t.Fatalf("State after clamped huge speed step = %q, want idle", got)
 		}
 	})
+}
+
+func TestAnimatorSignalsEventsAndHandlers(t *testing.T) {
+	doc := loadKnightStates(t)
+	clips := knightTestClips(t)
+	// Add two cue events to the attack clip (length 320ms: 4 frames x 80ms).
+	atk := clips["anim/knight_attack.animation.yaml"]
+	atk.Events = []resource.Event{
+		{Time: 0.08, Name: "swing"},
+		{Time: 0.16, Name: "hit"},
+	}
+
+	reg := sceneformat.AnimatorComponentRegistry()
+	var stateEvents []sceneformat.AnimatorStateChangedEvent
+	var clipEvents []sceneformat.AnimatorClipEvent
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "button",
+		Events: []sceneformat.Event{
+			{Name: "attackPressed"},
+			{Name: "forceRun"},
+			{Name: "forceIdle"},
+		},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "sfx",
+		Handlers: []sceneformat.Handler{
+			{
+				Name: "onStateChanged",
+				Func: func(c sceneformat.Call) {
+					ev, ok := c.Payload.(sceneformat.AnimatorStateChangedEvent)
+					if !ok {
+						t.Errorf("stateChanged payload = %T, want AnimatorStateChangedEvent", c.Payload)
+						return
+					}
+					stateEvents = append(stateEvents, ev)
+				},
+			},
+			{
+				Name: "onClipEvent",
+				Func: func(c sceneformat.Call) {
+					ev, ok := c.Payload.(sceneformat.AnimatorClipEvent)
+					if !ok {
+						t.Errorf("clipEvent payload = %T, want AnimatorClipEvent", c.Payload)
+						return
+					}
+					clipEvents = append(clipEvents, ev)
+				},
+			},
+		},
+	})
+
+	sceneDoc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		Name:          "Arena",
+		VirtualWidth:  320,
+		VirtualHeight: 180,
+		Layers: []sceneformat.LayerDoc{{
+			Name:  "actors",
+			Space: sceneformat.SpaceWorld,
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "btn", Components: map[string]any{"button": map[string]any{}}},
+				{
+					ID:     "knight",
+					Sprite: &sceneformat.SpriteRef{Atlas: "knight", Frame: "idle_0"},
+					Components: map[string]any{
+						sceneformat.AnimatorComponentName: map[string]any{
+							"states":    "anim/knight.states.yaml",
+							"startClip": "idle",
+						},
+					},
+				},
+				{ID: "audio", Components: map[string]any{"sfx": map[string]any{}}},
+			},
+		}},
+		Connections: []sceneformat.ConnectionDoc{
+			{From: "btn", Event: "attackPressed", To: "knight", Handler: "animator.trigger", Args: map[string]any{"name": "attack"}},
+			{From: "btn", Event: "forceRun", To: "knight", Handler: "animator.setState", Args: map[string]any{"state": "run"}},
+			{From: "btn", Event: "forceIdle", To: "knight", Handler: "animator.setState", Args: map[string]any{"state": "idle"}},
+			{From: "knight", Event: "animator.stateChanged", To: "audio", Handler: "onStateChanged"},
+			{From: "knight", Event: "animator.clipEvent", To: "audio", Handler: "onClipEvent"},
+		},
+	}
+
+	built, err := sceneformat.Build(sceneDoc, sceneformat.AtlasMap{"knight": knightTestAtlas()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	sm, err := animclip.NewAnimator(built, "knight", animclip.StatesMap{"anim/knight.states.yaml": doc}, clips, reg)
+	if err != nil {
+		t.Fatalf("NewAnimator: %v", err)
+	}
+	// Connect succeeds with the default animator component registration.
+	sig, err := sceneformat.Connect(built.Doc, reg, built)
+	if err != nil {
+		t.Fatalf("sceneformat.Connect: %v", err)
+	}
+	if err := animclip.Connect(sm, sig, "knight"); err != nil {
+		t.Fatalf("animclip.Connect: %v", err)
+	}
+
+	// Go callbacks must continue to fire alongside scene Signals.
+	var cbTransitions []string
+	var cbEvents []string
+	sm.OnTransition = func(from, to string) {
+		cbTransitions = append(cbTransitions, from+"->"+to)
+	}
+	sm.OnEvent = func(state, event string) {
+		cbEvents = append(cbEvents, state+":"+event)
+	}
+
+	// 1. Trigger handler pulses "attack", transitioning idle -> attack on Update, firing cue events once each, then onEnd -> idle.
+	if err := sig.Emit("btn", "attackPressed", nil); err != nil {
+		t.Fatalf("Emit attackPressed: %v", err)
+	}
+	dt := 20 * time.Millisecond
+	for range 20 { // 400ms > 320ms attack length
+		sm.Update(dt)
+	}
+	if sm.State() != "idle" {
+		t.Fatalf("state after attack finished = %q, want idle", sm.State())
+	}
+
+	wantStateEvents := []sceneformat.AnimatorStateChangedEvent{
+		{ObjectID: "knight", From: "idle", To: "attack"},
+		{ObjectID: "knight", From: "attack", To: "idle"},
+	}
+	if !reflect.DeepEqual(stateEvents, wantStateEvents) {
+		t.Fatalf("stateEvents = %+v, want %+v", stateEvents, wantStateEvents)
+	}
+	wantClipEvents := []sceneformat.AnimatorClipEvent{
+		{ObjectID: "knight", State: "attack", Name: "swing"},
+		{ObjectID: "knight", State: "attack", Name: "hit"},
+	}
+	if !reflect.DeepEqual(clipEvents, wantClipEvents) {
+		t.Fatalf("clipEvents = %+v, want %+v", clipEvents, wantClipEvents)
+	}
+	if !slices.Equal(cbTransitions, []string{"idle->attack", "attack->idle"}) {
+		t.Fatalf("OnTransition = %v, want [idle->attack attack->idle]", cbTransitions)
+	}
+	if !slices.Equal(cbEvents, []string{"attack:swing", "attack:hit"}) {
+		t.Fatalf("OnEvent = %v, want [attack:swing attack:hit]", cbEvents)
+	}
+
+	// 2. setState handler switches directly to "run" and emits stateChanged once; repeating same state emits nothing.
+	if err := sig.Emit("btn", "forceRun", nil); err != nil {
+		t.Fatalf("Emit forceRun: %v", err)
+	}
+	if sm.State() != "run" {
+		t.Fatalf("state after setState(run) = %q, want run", sm.State())
+	}
+	if got := built.Object("knight").Sprite.Frame.Name; got != "run_0" {
+		t.Fatalf("sprite frame after setState(run) = %q, want run_0", got)
+	}
+	if err := sig.Emit("btn", "forceRun", nil); err != nil {
+		t.Fatalf("second Emit forceRun: %v", err)
+	}
+	if len(stateEvents) != 3 {
+		t.Fatalf("stateEvents count = %d (%+v), want 3 (no duplicate for same state)", len(stateEvents), stateEvents)
+	}
+	if want := (sceneformat.AnimatorStateChangedEvent{ObjectID: "knight", From: "idle", To: "run"}); stateEvents[2] != want {
+		t.Fatalf("stateEvents[2] = %+v, want %+v", stateEvents[2], want)
+	}
+
+	// 3. setState back to idle works too.
+	if err := sig.Emit("btn", "forceIdle", nil); err != nil {
+		t.Fatalf("Emit forceIdle: %v", err)
+	}
+	if sm.State() != "idle" || len(stateEvents) != 4 {
+		t.Fatalf("after forceIdle: state=%q events=%+v", sm.State(), stateEvents)
+	}
+}
+
+func TestNewAnimatorBuiltSceneContextHandlersWithoutExplicitConnect(t *testing.T) {
+	doc := loadKnightStates(t)
+	clips := knightTestClips(t)
+	reg := sceneformat.AnimatorComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "button",
+		Events: []sceneformat.Event{{Name: "go"}, {Name: "hit"}},
+	})
+
+	sceneDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers: []sceneformat.LayerDoc{{
+			Name:  "actors",
+			Space: sceneformat.SpaceWorld,
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "btn", Components: map[string]any{"button": map[string]any{}}},
+				{
+					ID:     "knight",
+					Sprite: &sceneformat.SpriteRef{Atlas: "knight", Frame: "idle_0"},
+					Components: map[string]any{
+						sceneformat.AnimatorComponentName: map[string]any{
+							"states": "anim/knight.states.yaml",
+						},
+					},
+				},
+			},
+		}},
+		Connections: []sceneformat.ConnectionDoc{
+			{From: "btn", Event: "go", To: "knight", Handler: "animator.setState", Args: map[string]any{"state": "run"}},
+			{From: "btn", Event: "hit", To: "knight", Handler: "animator.trigger", Args: map[string]any{"name": "hurt"}},
+		},
+	}
+
+	built, err := sceneformat.Build(sceneDoc, sceneformat.AtlasMap{"knight": knightTestAtlas()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm, err := animclip.NewAnimator(built, "knight", animclip.StatesMap{"anim/knight.states.yaml": doc}, clips, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pass built as Call.Context without calling animclip.Connect: handlers must still drive sm.
+	sig, err := sceneformat.Connect(built.Doc, reg, built)
+	if err != nil {
+		t.Fatalf("sceneformat.Connect: %v", err)
+	}
+	if err := sig.Emit("btn", "go", nil); err != nil {
+		t.Fatal(err)
+	}
+	if sm.State() != "run" {
+		t.Fatalf("state after setState via BuiltScene context = %q, want run", sm.State())
+	}
+	// Keep move.x non-zero so run -> idle does not preempt Any state -> hurt.
+	sm.SetFloat("move.x", 1)
+	if err := sig.Emit("btn", "hit", nil); err != nil {
+		t.Fatal(err)
+	}
+	sm.Update(time.Second / 60)
+	if sm.State() != "hurt" {
+		t.Fatalf("state after trigger via BuiltScene context = %q, want hurt", sm.State())
+	}
+}
+
+func TestAnimatorSelfWiredClipEventToTriggerAndSpawnConnected(t *testing.T) {
+	doc := loadKnightStates(t)
+	clips := knightTestClips(t)
+	clips["anim/knight_attack.animation.yaml"].Events = []resource.Event{
+		{Time: 0.08, Name: "recoil"},
+	}
+
+	reg := sceneformat.AnimatorComponentRegistry()
+	var observed []sceneformat.AnimatorStateChangedEvent
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "obs",
+		Handlers: []sceneformat.Handler{{
+			Name: "record",
+			Func: func(c sceneformat.Call) {
+				if ev, ok := c.Payload.(sceneformat.AnimatorStateChangedEvent); ok {
+					observed = append(observed, ev)
+				}
+			},
+		}},
+	})
+
+	sceneDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers: []sceneformat.LayerDoc{{
+			Name:  "actors",
+			Space: sceneformat.SpaceWorld,
+			Objects: []sceneformat.ObjectDoc{
+				{
+					ID:     "knight",
+					Sprite: &sceneformat.SpriteRef{Atlas: "knight", Frame: "idle_0"},
+					Components: map[string]any{
+						sceneformat.AnimatorComponentName: map[string]any{
+							"states": "anim/knight.states.yaml",
+						},
+					},
+				},
+				{ID: "obs", Components: map[string]any{"obs": map[string]any{}}},
+			},
+		}},
+		Connections: []sceneformat.ConnectionDoc{
+			// Clip cue during attack pulses hurt trigger on the same animator; must survive to next Update.
+			{From: "knight", Event: "animator.clipEvent", To: "knight", Handler: "animator.trigger", Args: map[string]any{"name": "hurt"}},
+			{From: "knight", Event: "animator.stateChanged", To: "obs", Handler: "record"},
+		},
+	}
+
+	built, err := sceneformat.Build(sceneDoc, sceneformat.AtlasMap{"knight": knightTestAtlas()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm, err := animclip.NewAnimator(built, "knight", animclip.StatesMap{"anim/knight.states.yaml": doc}, clips, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := entities.NewWorld()
+	spawned, sig, err := sceneformat.SpawnConnected(built.Doc, w, reg, built)
+	if err != nil {
+		t.Fatalf("SpawnConnected: %v", err)
+	}
+	if err := animclip.Connect(sm, sig, "knight"); err != nil {
+		t.Fatalf("animclip.Connect: %v", err)
+	}
+
+	sm.Trigger("attack")
+	sm.Update(100 * time.Millisecond) // transitions idle->attack, crosses 80ms "recoil" cue -> pulses "hurt"
+	if sm.State() != "attack" {
+		t.Fatalf("state after cue step = %q, want attack", sm.State())
+	}
+	sm.Update(20 * time.Millisecond) // consumes pending "hurt" trigger -> attack->hurt
+	if sm.State() != "hurt" {
+		t.Fatalf("state after follow-up step = %q, want hurt", sm.State())
+	}
+	if len(observed) != 2 || observed[0].To != "attack" || observed[1].From != "attack" || observed[1].To != "hurt" {
+		t.Fatalf("observed transitions = %+v", observed)
+	}
+
+	// Destroying the entity stops further signal delivery.
+	w.Destroy(spawned["knight"])
+	sm.SetState("idle")
+	if len(observed) != 2 {
+		t.Fatalf("destroyed entity emitted stateChanged: %+v", observed)
+	}
+
+	// animclip.Connect error checks.
+	if err := animclip.Connect(nil, sig, "knight"); err == nil {
+		t.Fatal("Connect(nil, sig, id) succeeded, want error")
+	}
+	if err := animclip.Connect(sm, nil, "knight"); err == nil {
+		t.Fatal("Connect(sm, nil, id) succeeded, want error")
+	}
+	if err := animclip.Connect(sm, sig, ""); err == nil {
+		t.Fatal("Connect(sm, sig, \"\") succeeded, want error")
+	}
+	if err := animclip.Connect(sm, sig, "missing"); err == nil {
+		t.Fatal("Connect(sm, sig, missing) succeeded, want error")
+	}
 }
