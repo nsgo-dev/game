@@ -35,7 +35,7 @@ Godot 的场景是一棵保存下来的节点树，可以实例化，也可以�
 
 `Controller.Enter` 会收到一个自己的子 `*core.Scope`。在它上面创建的循环、计时器、声音和信号会在场景退出时一并释放，这覆盖了 `_ready`、`_exit_tree` 和 `queue_free` 对场景自身对象所做的事。
 
-自动加载（autoload）没有专门的形式：在根组件里创建一次，再传给需要它的场景。
+自动加载（autoload）写在 `game.yaml` 里：它的 `autoload` 部分列出启动时要加载的场景和资源，并指定主场景，`LoadAutoloads` 会在第一帧之前读取并校验全部文件（见[在游戏中读取](project.md#在游戏中读取)）。其他单例就是普通的 Go 值：在根组件里创建一次，再传给需要它的场景。
 
 ## 节点
 
@@ -94,7 +94,7 @@ Godot 的输入映射在这里是一个 `input.Actions` 值：把名字绑定到
 - **`RigidBody2D` 与关节**：`physics.RigidWorld` 加上盒形和圆形的 `RigidBody`；`RevoluteJoint` 对应 `PinJoint2D`，`SpringJoint` 对应 `DampedSpringJoint2D`，`DistanceJoint` 是定长杆。见 [2D 刚体](physics2d-rigid.md)。
 - **3D**：`physics3d.CharacterController` 像 `CharacterBody3D` 一样让胶囊体走过斜坡和台阶，`physics3d.World` 推进盒体、球体和胶囊体刚体。见 [physics3d](physics3d.md)。
 
-2D 形状只有盒形和圆形，2D 中没有凹多边形碰撞体。3D 中物体是盒体、球体和胶囊体，静态的关卡几何可以用三角网格或高度场参与碰撞：`ConcavePolygonShape3D` 对应用 `World.AddTriMesh` 加入的 `physics3d.TriMeshCollider`，`HeightMapShape3D` 对应用 `World.AddHeightfield` 加入的 `physics3d.HeightfieldCollider`。
+2D 形状有盒形、圆形、凸多边形（最多 8 个顶点，可加圆角）、胶囊、线段和链（见 [physics](physics.md#多边形胶囊体线段与链)）；凹轮廓由多个凸多边形拼成，静态的关卡边缘也可以用链。场景文件目前只能放盒形和圆形碰撞体（#1379）。3D 中物体是盒体、球体和胶囊体，静态的关卡几何可以用三角网格或高度场参与碰撞：`ConcavePolygonShape3D` 对应用 `World.AddTriMesh` 加入的 `physics3d.TriMeshCollider`，`HeightMapShape3D` 对应用 `World.AddHeightfield` 加入的 `physics3d.HeightfieldCollider`。
 
 ## 导出
 
