@@ -48,7 +48,17 @@ func runBuiltTool(t *testing.T, bin string, args ...string) (string, string) {
 	return stdout.String(), stderr.String()
 }
 
-// #916 Acceptance 1: adding a preset in the panel, saving, verifying `gameproject targets` prints its targets, and undoing removes the preset.
+// savedTargets reads the game.yaml saved in dir and returns its build targets as `game project targets` prints them, comma-separated.
+func savedTargets(t *testing.T, dir string) string {
+	t.Helper()
+	f, err := project.ReadFS(os.DirFS(dir))
+	if err != nil {
+		t.Fatalf("read the saved project: %v", err)
+	}
+	return strings.Join(f.BuildTargets(), ",")
+}
+
+// #916 Acceptance 1: adding a preset in the panel, saving, verifying the saved game.yaml gives the targets `game project targets` prints, and undoing removes the preset.
 func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 	dir := writeEditorProject(t)
 	ed, err := editor.New(nil, testResolver())
@@ -121,11 +131,9 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 		t.Fatalf("saved BuildTargets = %v, want %v", got, wantTargets)
 	}
 
-	// Verify `gameproject targets` prints the exact targets.
-	gameprojectBin := buildGameTool(t, "../../cmd/gameproject", "gameproject")
-	stdout, _ := runBuiltTool(t, gameprojectBin, "targets", dir)
-	if got, want := strings.TrimSpace(stdout), "macos_arm64,windows_x64,web"; got != want {
-		t.Fatalf("gameproject targets = %q, want %q", got, want)
+	// Verify the saved game.yaml gives the exact targets `game project targets` prints, which internal/gamecli's tests check it prints comma-separated.
+	if got, want := savedTargets(t, dir), "macos_arm64,windows_x64,web"; got != want {
+		t.Fatalf("saved targets = %q, want %q", got, want)
 	}
 
 	// Undo every edit (6 steps: set output, add macos, toggle macos_arm64, add windows, toggle windows_x64, add web).
@@ -140,12 +148,11 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 		t.Fatal("expected empty presets notice after undoing all export edits")
 	}
 
-	// Save after Undo and verify `gameproject targets` prints nothing.
+	// Save after Undo and verify the saved game.yaml has no targets.
 	saveInUI(app, ed)
 	app.Settle()
-	stdout, _ = runBuiltTool(t, gameprojectBin, "targets", dir)
-	if got := strings.TrimSpace(stdout); got != "" {
-		t.Fatalf("gameproject targets after Undo+Save = %q, want empty", got)
+	if got := savedTargets(t, dir); got != "" {
+		t.Fatalf("saved targets after Undo+Save = %q, want empty", got)
 	}
 
 	// Redo brings the presets and output directory back.

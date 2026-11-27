@@ -66,7 +66,6 @@
 | `game/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | 实验性 | [场景编辑器](editor.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
-| `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
 | `game/cmd/gamewire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |

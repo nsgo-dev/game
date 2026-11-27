@@ -54,4 +54,4 @@ or, without the `game` tool, `nsgo init -template github.com/nsgo-dev/game/templ
 - **New objects.** Register a component type in `levelComponents` in `level.go`, such as a moving platform or a lever, read it in `buildLevel`, and connect its events to handlers in the scene.
 - **Models.** Replace the boxes with glTF models: load them with package `gltf` ([3D models from Blender](3d-models-blender.md)), upload their meshes with `render3d.UploadMesh` and draw them in `renderer.draw`.
 
-After editing `game.yaml`, `go run github.com/nsgo-dev/game/cmd/gameproject sync` writes what `nsgo.yaml` shares with it, and after moving or adding files `go run github.com/nsgo-dev/game/cmd/game index` keeps `game.index.yaml`, the project's index of stable file IDs, up to date.
+After editing `game.yaml`, `go run github.com/nsgo-dev/game/cmd/game project sync` writes what `nsgo.yaml` shares with it, and after moving or adding files `go run github.com/nsgo-dev/game/cmd/game index` keeps `game.index.yaml`, the project's index of stable file IDs, up to date.

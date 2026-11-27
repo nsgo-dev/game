@@ -9,7 +9,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
-// gameYAML is the game's project file, which holds its settings: its name, id and version, its window, its input map, the scene and data files it autoloads, and its export presets. nsgo.yaml repeats some of them; after editing game.yaml, run go run github.com/nsgo-dev/game/cmd/gameproject sync to update it.
+// gameYAML is the game's project file, which holds its settings: its name, id and version, its window, its input map, the scene and data files it autoloads, and its export presets. nsgo.yaml repeats some of them; after editing game.yaml, run go run github.com/nsgo-dev/game/cmd/game project sync to update it.
 //
 //go:embed game.yaml
 var gameYAML []byte

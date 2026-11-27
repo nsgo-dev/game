@@ -33,14 +33,14 @@ Deal *n* shuffles the same way for every player, so a deal can be shared and rep
 - New rules, such as more ranks or fewer redeals: edit `rules.yaml`. `TestSomeDealsAreWon` keeps the game winnable for a careful player, and `winDeal` and `loseDeal` in `table_test.go` name the deals the playthroughs win and lose.
 - A different table: move the slots in `board.yaml`, in the coordinates of `game.yaml`'s display. `newTable` refuses a board without the slots the rules need.
 - Other moves, such as climbing from the discard pile: change `allows` in `table.go`, which is both the board's drop rule and the check behind every key and button, and `judge`, which decides when a game is over.
-- Other controls: edit the input map in `game.yaml`, then run `go run github.com/nsgo-dev/game/cmd/gameproject check`.
+- Other controls: edit the input map in `game.yaml`, then run `go run github.com/nsgo-dev/game/cmd/game project check`.
 - Card art: `drawCard` and `drawSuit` in `render.go`, or `sprite.LoadAtlas` once you have images.
 
 Edit the name and identifier in `game.yaml` before shipping, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/game project sync
+go run github.com/nsgo-dev/game/cmd/game project check
 ```
 
 ## Running and testing

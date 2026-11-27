@@ -56,8 +56,8 @@ go tool nsgo check -target macos,windows,linux,android,web
 After editing `game.yaml`, write the name and id it shares with `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/game project sync
+go run github.com/nsgo-dev/game/cmd/game project check
 ```
 
 After moving or adding files, `go run github.com/nsgo-dev/game/cmd/game index` keeps `game.index.yaml`, the project's index of stable file IDs, up to date.

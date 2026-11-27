@@ -14,8 +14,8 @@ It shows:
 Edit the name and identifier in `game.yaml` before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/game project sync
+go run github.com/nsgo-dev/game/cmd/game project check
 ```
 
 ## Running and testing

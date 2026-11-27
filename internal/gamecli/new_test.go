@@ -62,7 +62,7 @@ func readYAML(t *testing.T, path string) map[string]any {
 	return m
 }
 
-// checkProjectFile checks that the project in dir has a game.yaml naming the game name with id, in the form gameproject fmt writes, and that its nsgo.yaml agrees with it, as the starter's own TestProjectFileIsValidAndCanonical does.
+// checkProjectFile checks that the project in dir has a game.yaml naming the game name with id, in the form game project fmt writes, and that its nsgo.yaml agrees with it, as the starter's own TestProjectFileIsValidAndCanonical does.
 func checkProjectFile(t *testing.T, dir, name, id string) {
 	t.Helper()
 	f, err := project.Check(os.DirFS(dir))

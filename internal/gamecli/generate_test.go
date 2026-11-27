@@ -478,7 +478,7 @@ func TestGenerateRefusesExistingFiles(t *testing.T) {
 func TestGenerateAutoloadRefusals(t *testing.T) {
 	// A game.yaml that is not canonical would lose its comments.
 	dir := generateProject(t, map[string]string{project.FileName: "# Rocks\n" + generateGameYAML})
-	if code, _, stderr := runGenerate(t, dir, "-autoload", "scene", "title"); code != 1 || !strings.Contains(stderr, "run gameproject fmt first") {
+	if code, _, stderr := runGenerate(t, dir, "-autoload", "scene", "title"); code != 1 || !strings.Contains(stderr, "run game project fmt first") {
 		t.Errorf("non-canonical game.yaml: exit %d, stderr %q", code, stderr)
 	}
 	if got := listFiles(t, dir); !slices.Equal(got, []string{"game.yaml", "main.go"}) {

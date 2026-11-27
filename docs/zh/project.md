@@ -1,6 +1,6 @@
 # 项目文件
 
-`github.com/nsgo-dev/game/pkg/project` 负责读取、检查、写入并应用 `game.yaml`。它是游戏根目录下唯一保存项目设置的文件：游戏名称、标识与版本，窗口与虚拟分辨率，输入映射，音频总线，启动时加载的场景与资源，各平台的导出预设，它启用的编辑器插件、`game assets` 构建的资源目标，以及安装到项目中的库包。游戏在启动时读取它，`gameproject` 命令检查并应用它，编辑器打开、编辑并保存它，`game release` 读取其中的导出预设，`game assets` 读取其中的资源目标。
+`github.com/nsgo-dev/game/pkg/project` 负责读取、检查、写入并应用 `game.yaml`。它是游戏根目录下唯一保存项目设置的文件：游戏名称、标识与版本，窗口与虚拟分辨率，输入映射，音频总线，启动时加载的场景与资源，各平台的导出预设，它启用的编辑器插件、`game assets` 构建的资源目标，以及安装到项目中的库包。游戏在启动时读取它，[`game project`](cli.md#project) 命令检查并应用它，编辑器打开、编辑并保存它，`game release` 读取其中的导出预设，`game assets` 读取其中的资源目标。
 
 ## 文件内容
 
@@ -143,7 +143,7 @@ assets:
 | `navigation` | [`game navmesh`](cli.md#navmesh) 烘焙场景[导航网格](navbake3d.md)时使用的设置和代理类型：体素的 `cellSize` 和 `cellHeight`、`minRegionArea`、`maxEdgeLength`、`maxSimplificationError`、`maxVertsPerPoly`（3 到 12）、`detailSampleDistance`（不小于 `cellSize`）和 `detailSampleMaxError`，以及 `agents`，每种代理类型有唯一的 `name` 及其 `radius`、`height`、`maxSlope`（角度，小于 90）和 `maxClimb`。省略的尺寸取 navbake3d 的默认值，没有代理类型时烘焙一种名为 `default` 的代理类型。 |
 | `packs` | 从[资源与插件库](library.md)安装的包，每项包含 `name`、`kind`（`asset`、`plugin` 或 `template`）、`packVersion`（不带前导 `v` 的严格语义化版本，如 `1.0.0`）、`sha256` 摘要、写入 `files` 的目录 `dir`，以及安装时新增的自动加载 `scenes`、`resources` 和编辑器 `plugins`，这些条目必须仍在文件中。`game library` 和编辑器的库面板负责写入它；两个包不能占用同一个文件、条目或插件。 |
 
-`Parse` 会拒绝未知字段、其他版本、多余的 YAML 文档、重复名称、轴读取了却未声明的动作、未被自动加载的主场景、跳出项目目录的路径、属于其他平台的目标、越界的值，以及写入同一文件、覆盖 `game.yaml` 或某个目标读取的文件、或写入其他目标扫描目录的资源目标，并在错误里指明出错的字段。`Encode` 先校验 `File`，再按固定字段顺序输出 2 空格缩进的 YAML，`Parse` 读回后内容不变。手写时可以使用任意 YAML 风格并加注释；`gameproject fmt` 会把文件改写为规范形式，规范形式不保留注释。
+`Parse` 会拒绝未知字段、其他版本、多余的 YAML 文档、重复名称、轴读取了却未声明的动作、未被自动加载的主场景、跳出项目目录的路径、属于其他平台的目标、越界的值，以及写入同一文件、覆盖 `game.yaml` 或某个目标读取的文件、或写入其他目标扫描目录的资源目标，并在错误里指明出错的字段。`Encode` 先校验 `File`，再按固定字段顺序输出 2 空格缩进的 YAML，`Parse` 读回后内容不变。手写时可以使用任意 YAML 风格并加注释；`game project fmt` 会把文件改写为规范形式，规范形式不保留注释。
 
 ## 在游戏中读取
 
@@ -192,13 +192,13 @@ NSGo 自己的 `nsgo.yaml` 与 `game.yaml` 放在同一目录，其中部分设�
 
 `SyncNSGo` 把这些字段写入 `nsgo.yaml`，在存在跨宿主目标时将 `build.targets` 过滤为所有宿主都能构建的目标（省略 Apple 目标和 `android_x64`），使普通 `nsgo build` 在 Linux 和 Windows 上也能成功，同时保留它的其他字段（`dev`、`icon` 等）和注释；`CheckNSGo` 报告每个不一致的字段，对 `build.targets` 同时接受跨宿主子集和完整的预设目标列表。两者都与 NSGo 一样，把空的 `build:` 字段视为没有构建设置。`nsgo.yaml` 的其余内容仍由 NSGo 负责。
 
-## gameproject 命令
+## game project 命令
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject check [dir]
-go run github.com/nsgo-dev/game/cmd/gameproject fmt [-check] [dir]
-go run github.com/nsgo-dev/game/cmd/gameproject sync [-check] [dir]
-go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
+go tool game project check [dir]
+go tool game project [-check] fmt [dir]
+go tool game project [-check] sync [dir]
+go tool game project targets [dir]
 ```
 
 - `check` 一次报告项目的全部问题（`project.Check`）：无法解析的 `game.yaml`、与它不一致的 `nsgo.yaml`、缺失或无效的自动加载文件，以及已安装包写入但已缺失的文件。
@@ -206,7 +206,7 @@ go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
 - `sync` 把 `game.yaml` 负责的字段写入 `nsgo.yaml`，文件不存在时会创建；加 `-check` 时不改写，两者不一致则报错。修改 `game.yaml` 后运行它。
 - `targets` 以逗号分隔输出各导出预设的构建目标，可直接传给 `nsgo build -target`。
 
-`dir` 是项目根目录，省略时为当前目录。
+`dir` 是项目根目录，省略时为当前目录。在项目中，`go tool game project` 无需安装 `nsgo` 即可运行同一命令。检查不通过时以 1 退出；调用方式错误时（例如对 `check` 或 `targets` 使用 `-check`，或把 `-check` 写在动词之后）以 2 退出。
 
 ## 在编辑器中
 
