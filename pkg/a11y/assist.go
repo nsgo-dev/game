@@ -215,12 +215,12 @@ func MigrateLegacyAssist(storage core.Storage, legacyKey string, store *save.Def
 	}
 	if raw, ok := rawVals["captionsEnabled"]; ok {
 		if v, err := strconv.ParseBool(raw); err == nil {
-			s.Accessibility.Captions = v
+			s.Accessibility.SetCaptions(v)
 		}
 	}
 	if raw, ok := rawVals["sfxCaptionsEnabled"]; ok {
 		if v, err := strconv.ParseBool(raw); err == nil {
-			s.Accessibility.SFXCaptions = v
+			s.Accessibility.SetSoundCaptions(v)
 		}
 	}
 	if raw, ok := rawVals["colorVision"]; ok {
@@ -641,23 +641,128 @@ func (a *Assist) SetHighContrast(v bool) error {
 	})
 }
 
-// CaptionsEnabled reports whether dialogue and music captions are enabled.
-func (a *Assist) CaptionsEnabled() bool { return a.load().Captions }
+// CaptionsEnabled reports whether speech captions (dialogue and chatter) are enabled.
+// When unset in settings, it follows the platform caption preference when exposed by cx.Env().
+func (a *Assist) CaptionsEnabled() bool { return a.load().EffectiveCaptions(a.env()) }
 
-// SetCaptionsEnabled persists whether captions are enabled.
+// SetCaptionsEnabled persists an explicit captions preference.
 func (a *Assist) SetCaptionsEnabled(v bool) error {
 	return a.update(func(acc *save.AccessibilitySettings) {
-		acc.Captions = v
+		acc.SetCaptions(v)
 	})
 }
 
-// SFXCaptionsEnabled reports whether sound-effect captions are enabled.
-func (a *Assist) SFXCaptionsEnabled() bool { return a.load().SFXCaptions }
+// SFXCaptionsEnabled reports whether non-speech sound and music captions are enabled.
+func (a *Assist) SFXCaptionsEnabled() bool { return a.load().EffectiveSoundCaptions() }
 
-// SetSFXCaptionsEnabled persists whether sound-effect captions are enabled.
+// SetSFXCaptionsEnabled persists whether non-speech sound and music captions are enabled.
 func (a *Assist) SetSFXCaptionsEnabled(v bool) error {
 	return a.update(func(acc *save.AccessibilitySettings) {
-		acc.SFXCaptions = v
+		acc.SetSoundCaptions(v)
+	})
+}
+
+// DialogueCaptionsEnabled reports whether main spoken dialogue captions are enabled
+// when CaptionsEnabled is true.
+func (a *Assist) DialogueCaptionsEnabled() bool { return a.load().Caption.EffectiveDialogue() }
+
+// SetDialogueCaptionsEnabled persists whether main spoken dialogue captions are enabled.
+func (a *Assist) SetDialogueCaptionsEnabled(v bool) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.SetDialogue(v)
+	})
+}
+
+// ChatterCaptionsEnabled reports whether ambient background chatter captions are enabled
+// when CaptionsEnabled is true.
+func (a *Assist) ChatterCaptionsEnabled() bool { return a.load().Caption.Chatter }
+
+// SetChatterCaptionsEnabled persists whether ambient background chatter captions are enabled.
+func (a *Assist) SetChatterCaptionsEnabled(v bool) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.Chatter = v
+	})
+}
+
+// CaptionSettings returns the current validated save.CaptionSettings snapshot,
+// with Sounds synchronized with EffectiveSoundCaptions.
+func (a *Assist) CaptionSettings() save.CaptionSettings {
+	acc := a.load()
+	cs := acc.Caption
+	cs.Validate()
+	cs.Sounds = acc.EffectiveSoundCaptions()
+	return cs
+}
+
+// SetCaptionSettings persists cs into AccessibilitySettings.Caption (keeping
+// SFXCaptions synchronized with cs.Sounds when cs.SoundsSet or cs.Sounds is set).
+func (a *Assist) SetCaptionSettings(cs save.CaptionSettings) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		cs.Validate()
+		acc.Caption = cs
+		if cs.SoundsSet || cs.Sounds {
+			acc.SFXCaptions = cs.Sounds
+		}
+	})
+}
+
+// CaptionBackground returns the normalized caption backdrop color preset or hex string.
+func (a *Assist) CaptionBackground() string {
+	return save.NormalizeCaptionBackground(a.load().Caption.Background)
+}
+
+// SetCaptionBackground persists the caption backdrop color preset or "#rrggbb" hex string.
+func (a *Assist) SetCaptionBackground(color string) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.Background = save.NormalizeCaptionBackground(color)
+	})
+}
+
+// CaptionBackgroundOpacity returns the caption backdrop opacity in [0, 1].
+func (a *Assist) CaptionBackgroundOpacity() float64 {
+	return a.load().Caption.EffectiveBackgroundOpacity()
+}
+
+// SetCaptionBackgroundOpacity clamps opacity to [0, 1] and persists it.
+func (a *Assist) SetCaptionBackgroundOpacity(opacity float64) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.SetBackgroundOpacity(opacity)
+	})
+}
+
+// CaptionTextColor returns the normalized caption text color preset or hex string.
+func (a *Assist) CaptionTextColor() string {
+	return save.NormalizeCaptionTextColor(a.load().Caption.TextColor)
+}
+
+// SetCaptionTextColor persists the caption text color preset or "#rrggbb" hex string.
+func (a *Assist) SetCaptionTextColor(color string) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.TextColor = save.NormalizeCaptionTextColor(color)
+	})
+}
+
+// CaptionSpeakerColors reports whether distinct per-speaker caption colors are enabled.
+func (a *Assist) CaptionSpeakerColors() bool {
+	return a.load().Caption.EffectiveSpeakerColors()
+}
+
+// SetCaptionSpeakerColors persists whether distinct per-speaker caption colors are enabled.
+func (a *Assist) SetCaptionSpeakerColors(v bool) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.SetSpeakerColors(v)
+	})
+}
+
+// CaptionSize returns the normalized caption size preset ("small", "medium", "large", "xlarge").
+func (a *Assist) CaptionSize() string {
+	return save.NormalizeCaptionSize(a.load().Caption.Size)
+}
+
+// SetCaptionSize persists the caption size preset.
+func (a *Assist) SetCaptionSize(size string) error {
+	return a.update(func(acc *save.AccessibilitySettings) {
+		acc.Caption.Size = save.NormalizeCaptionSize(size)
 	})
 }
 
@@ -719,8 +824,8 @@ func (a *Assist) Snapshot() AssistOptions {
 		AutoAim:            acc.AutoAim,
 		HoldToToggle:       acc.HoldToToggle,
 		HighContrast:       acc.EffectiveHighContrast(env),
-		CaptionsEnabled:    acc.Captions,
-		SFXCaptionsEnabled: acc.SFXCaptions,
+		CaptionsEnabled:    acc.EffectiveCaptions(env),
+		SFXCaptionsEnabled: acc.EffectiveSoundCaptions(),
 		ColorVision:        mode,
 		TextScale:          float32(acc.EffectiveCaptionScale(env)),
 	}
@@ -740,8 +845,8 @@ func (a *Assist) Apply(opts AssistOptions) error {
 		acc.AutoAim = opts.AutoAim
 		acc.HoldToToggle = opts.HoldToToggle
 		acc.SetHighContrast(opts.HighContrast)
-		acc.Captions = opts.CaptionsEnabled
-		acc.SFXCaptions = opts.SFXCaptionsEnabled
+		acc.SetCaptions(opts.CaptionsEnabled)
+		acc.SetSoundCaptions(opts.SFXCaptionsEnabled)
 		acc.ColorBlindMode = save.NormalizeColorBlindMode(opts.ColorVision.String())
 		ts := float64(opts.TextScale)
 		if math.IsNaN(ts) || math.IsInf(ts, 0) {

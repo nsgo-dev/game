@@ -61,6 +61,9 @@ func TestSettingsMenuLayoutNoOverlapAllTabsAndDraw(t *testing.T) {
 			items = append(items, menu.TabButton(tb))
 		}
 		items = append(items, menu.TabControls(tab)...)
+		if tab == gameui.SettingsTabAccessibility && menu.CaptionPreviewPanel() != nil {
+			items = append(items, menu.CaptionPreviewPanel())
+		}
 		aBtn, sBtn, rBtn, bBtn := menu.FooterButtons()
 		items = append(items, aBtn, sBtn, rBtn, bBtn)
 
@@ -250,52 +253,79 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	pressGamepadButton(menu, gamepad.ButtonSouth)
 
 	// --- 5. ACCESSIBILITY TAB (switch with RB) ---
-	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] ColorBlindSeverity, [9] GameSpeed, [10] Invincibility, [11] AutoAim, [12] HoldToToggle
+	// Controls:
+	// [0] Captions, [1] DialogueCaptions, [2] ChatterCaptions, [3] SFXCaptions,
+	// [4] CaptionSize, [5] CaptionBackground, [6] CaptionOpacity, [7] CaptionTextColor, [8] SpeakerColors,
+	// [9] TextScale, [10] HighContrast, [11] ReduceMotion, [12] ScreenShake, [13] ReduceFlashes,
+	// [14] ColorBlind, [15] ColorBlindSeverity, [16] GameSpeed, [17] Invincibility, [18] AutoAim, [19] HoldToToggle
 	pressGamepadButton(menu, gamepad.ButtonRB)
 	if menu.Tab() != gameui.SettingsTabAccessibility {
 		t.Fatalf("tab after RB = %v, want accessibility", menu.Tab())
 	}
-	// Captions -> true
+	// [0] Captions -> true
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// SFXCaptions -> true
+	// [1] DialogueCaptions -> stays true (default true, skip toggle)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	// [2] ChatterCaptions -> true
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// TextScale -> 1.5 (two steps up from 1.0 by 0.25)
+	// [3] SFXCaptions -> true
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	// [4] CaptionSize -> large (one step right from medium)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	// [5] CaptionBackground -> gray -> blue (two steps right from black)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
-	// HighContrast -> true
+	// [6] CaptionOpacity -> 0.5 (four steps left from 0.9 by 0.1)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	for range 4 {
+		pressGamepadButton(menu, gamepad.ButtonDPadLeft)
+	}
+	// [7] CaptionTextColor -> yellow (one step right from white)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	// [8] SpeakerColors -> false (default true, toggle off)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// ReduceMotion -> true
+	// [9] TextScale -> 1.5 (two steps up from 1.0 by 0.25)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	// [10] HighContrast -> true
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// ScreenShake -> 0.5 (5 steps left from 1.0 by 0.1)
+	// [11] ReduceMotion -> true
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	// [12] ScreenShake -> 0.5 (5 steps left from 1.0 by 0.1)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	for range 5 {
 		pressGamepadButton(menu, gamepad.ButtonDPadLeft)
 	}
-	// ReduceFlashes -> true
+	// [13] ReduceFlashes -> true
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// ColorBlind -> protanopia -> deuteranopia (Right twice)
+	// [14] ColorBlind -> protanopia -> deuteranopia (Right twice)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
-	// ColorBlindSeverity -> 0.8 (Left twice from 1.0 by 0.1)
+	// [15] ColorBlindSeverity -> 0.8 (Left twice from 1.0 by 0.1)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
 	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
-	// GameSpeed -> 0.75 (Left once from 1.0 by 0.25)
+	// [16] GameSpeed -> 0.75 (Left once from 1.0 by 0.25)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
-	// Invincibility -> true
+	// [17] Invincibility -> true
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// AutoAim -> true
+	// [18] AutoAim -> true
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// HoldToToggle -> true
+	// [19] HoldToToggle -> true
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
 
@@ -353,7 +383,15 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 		t.Fatalf("Locale = %q, want zh-Hans", reloaded.Locale)
 	}
 	if !reloaded.Accessibility.Captions ||
+		!reloaded.Accessibility.Caption.EffectiveDialogue() ||
+		!reloaded.Accessibility.Caption.Chatter ||
 		!reloaded.Accessibility.SFXCaptions ||
+		!reloaded.Accessibility.EffectiveSoundCaptions() ||
+		reloaded.Accessibility.Caption.Size != save.CaptionSizeLarge ||
+		reloaded.Accessibility.Caption.Background != save.CaptionBackgroundBlue ||
+		math.Abs(reloaded.Accessibility.Caption.EffectiveBackgroundOpacity()-0.5) > 1e-4 ||
+		reloaded.Accessibility.Caption.TextColor != save.CaptionTextYellow ||
+		reloaded.Accessibility.Caption.EffectiveSpeakerColors() ||
 		math.Abs(reloaded.Accessibility.CaptionScale-1.5) > 1e-4 ||
 		!reloaded.Accessibility.HighContrast ||
 		!reloaded.Accessibility.ReduceMotion ||
@@ -839,46 +877,64 @@ func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
 			t.Fatal("flash did not trigger while Reduced Motion was off")
 		}
 
-		// Player toggles Subtitles, SFX Captions, Text Scale (1.5x), Reduced Motion, Reduce Flashes,
-		// Invincibility, Auto-Aim, Hold to Toggle in SettingsMenu and clicks Save.
+		// Player toggles Subtitles, Chatter, Sound Captions, Caption Background/Opacity, Text Scale (1.5x),
+		// Reduced Motion, Reduce Flashes, Invincibility, Auto-Aim, Hold to Toggle in SettingsMenu and clicks Save.
 		app.Post(func() {
 			menu.SetTab(gameui.SettingsTabAccessibility)
 			menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
 			// [0] Captions = true
 			menu.HandleAction(gameui.NavConfirm)
-			// [1] SFX Captions = true
+			// [1] Dialogue Captions = keep true
+			menu.HandleAction(gameui.NavDown)
+			// [2] Chatter Captions = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
-			// [2] Text Scale = 1.5 (two steps up from 1.0)
-			menu.HandleAction(gameui.NavDown)
-			menu.HandleAction(gameui.NavRight)
-			menu.HandleAction(gameui.NavRight)
-			// [3] High Contrast = skip
-			menu.HandleAction(gameui.NavDown)
-			// [4] Reduced Motion = true
+			// [3] Sound / SFX Captions = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
-			// [5] Screen Shake = skip
+			// [4] Caption Size = keep medium
 			menu.HandleAction(gameui.NavDown)
-			// [6] Reduce Flashes = true
-			menu.HandleAction(gameui.NavDown)
-			menu.HandleAction(gameui.NavConfirm)
-			// [7] Color-Blind = protanopia
+			// [5] Caption Background = gray (one step right from black)
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavRight)
-			// [8] Color-Blind Strength = 0.8 (two steps left from 1.0)
+			// [6] Background Opacity = 0.7 (two steps left from 0.9)
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavLeft)
 			menu.HandleAction(gameui.NavLeft)
-			// [9] Game Speed = skip
+			// [7] Caption Text Color = keep white
 			menu.HandleAction(gameui.NavDown)
-			// [10] Invincibility = true
+			// [8] Speaker Colors = keep true
+			menu.HandleAction(gameui.NavDown)
+			// [9] Text Scale = 1.5 (two steps up from 1.0)
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavRight)
+			menu.HandleAction(gameui.NavRight)
+			// [10] High Contrast = skip
+			menu.HandleAction(gameui.NavDown)
+			// [11] Reduced Motion = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
-			// [11] Auto-Aim = true
+			// [12] Screen Shake = skip
+			menu.HandleAction(gameui.NavDown)
+			// [13] Reduce Flashes = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
-			// [12] Hold to Toggle = true
+			// [14] Color-Blind = protanopia
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavRight)
+			// [15] Color-Blind Strength = 0.8 (two steps left from 1.0)
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavLeft)
+			menu.HandleAction(gameui.NavLeft)
+			// [16] Game Speed = skip
+			menu.HandleAction(gameui.NavDown)
+			// [17] Invincibility = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [18] Auto-Aim = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [19] Hold to Toggle = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
 
@@ -889,12 +945,14 @@ func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
 		app.Settle()
 
 		// Assist observes every saved change immediately.
-		if !assist.CaptionsEnabled() || !assist.SFXCaptionsEnabled() ||
+		if !assist.CaptionsEnabled() || !assist.ChatterCaptionsEnabled() || !assist.SFXCaptionsEnabled() ||
+			assist.CaptionBackground() != save.CaptionBackgroundGray ||
+			math.Abs(assist.CaptionBackgroundOpacity()-0.7) > 1e-4 ||
 			assist.TextScale() != 1.5 || !assist.ReduceMotion() ||
 			!assist.ReduceFlashes() || assist.ColorVision() != a11y.VisionProtanopia ||
 			math.Abs(assist.ColorBlindSeverity()-0.8) > 1e-4 ||
 			!assist.Invincibility() || !assist.AutoAim() || !assist.HoldToToggle() {
-			t.Fatalf("Assist did not observe SettingsMenu.Save: %+v severity=%v", assist.Snapshot(), assist.ColorBlindSeverity())
+			t.Fatalf("Assist did not observe SettingsMenu.Save: snap=%+v caption=%+v severity=%v", assist.Snapshot(), assist.CaptionSettings(), assist.ColorBlindSeverity())
 		}
 		if _, ok := assist.ColorVisionFilter(); !ok {
 			t.Fatal("expected Assist.ColorVisionFilter to be active after saving protanopia")
@@ -958,9 +1016,9 @@ func TestSettingsMenuAccessibilityFollowsPlatformAndOverrides(t *testing.T) {
 	controls := menu.TabControls(gameui.SettingsTabAccessibility)
 
 	// Platform defaults are reflected in the Accessibility controls without locking overrides.
-	textScale := controls[2].(*gameui.Slider)
-	highContrast := controls[3].(*gameui.Toggle)
-	reduceMotion := controls[4].(*gameui.Toggle)
+	textScale := controls[9].(*gameui.Slider)
+	highContrast := controls[10].(*gameui.Toggle)
+	reduceMotion := controls[11].(*gameui.Toggle)
 	if math.Abs(float64(textScale.Value)-1.5) > 1e-4 || !highContrast.Checked || !reduceMotion.Checked {
 		t.Fatalf("controls did not reflect platform env: scale=%v hc=%v rm=%v", textScale.Value, highContrast.Checked, reduceMotion.Checked)
 	}
@@ -1260,5 +1318,118 @@ func TestSettingsMenuControlsTabMotorAssists(t *testing.T) {
 	menu.ResetControls()
 	if !menu.Settings().InputAssists.IsZero() {
 		t.Fatalf("ResetControls did not clear InputAssists: %+v", menu.Settings().InputAssists)
+	}
+}
+
+func TestSettingsMenuCaptionLivePreviewReactsAndDrawsSwatches(t *testing.T) {
+	menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{})
+	bounds := core.Bounds{Size: core.Size{Width: 960, Height: 540}}
+	menu.SetTab(gameui.SettingsTabAccessibility)
+	menu.Layout(bounds)
+
+	// Initially captions and sounds are off -> preview reports Enabled=false.
+	st0 := menu.CaptionPreviewState()
+	if st0.Enabled || len(st0.Lines) != 0 {
+		t.Fatalf("initial preview state = %+v, want Enabled=false with no lines", st0)
+	}
+
+	controls := menu.TabControls(gameui.SettingsTabAccessibility)
+	captionsTog := controls[0].(*gameui.Toggle)
+	chatterTog := controls[2].(*gameui.Toggle)
+	soundsTog := controls[3].(*gameui.Toggle)
+	sizeBtn := controls[4].(*gameui.Button)
+	bgBtn := controls[5].(*gameui.Button)
+	opacitySld := controls[6].(*gameui.Slider)
+	textColBtn := controls[7].(*gameui.Button)
+	speakerColTog := controls[8].(*gameui.Toggle)
+
+	// Enable Captions -> shows Guide (on radio): Watch the bridge ahead! with speaker color.
+	menu.Navigator().SetFocus(captionsTog)
+	menu.HandleAction(gameui.NavConfirm)
+	st1 := menu.CaptionPreviewState()
+	if !st1.Enabled || len(st1.Lines) != 1 {
+		t.Fatalf("preview after enabling Captions = %+v, want 1 dialogue line", st1)
+	}
+	if !strings.Contains(st1.Lines[0].FullText, "Guide (on radio):") || st1.Lines[0].SpeakerColor == 0 {
+		t.Fatalf("preview dialogue line = %+v, want speaker + qualifier + speaker color", st1.Lines[0])
+	}
+
+	// Enable Chatter and Sounds -> 3 active sample kinds still cap at 2 lines (older leaves first).
+	menu.Navigator().SetFocus(chatterTog)
+	menu.HandleAction(gameui.NavConfirm)
+	menu.Navigator().SetFocus(soundsTog)
+	menu.HandleAction(gameui.NavConfirm)
+	st2 := menu.CaptionPreviewState()
+	if len(st2.Lines) != a11y.DefaultCaptionMaxLines {
+		t.Fatalf("preview lines with all 3 kinds enabled = %d, want %d", len(st2.Lines), a11y.DefaultCaptionMaxLines)
+	}
+
+	// Adjust size preset -> large (1.25x = 20pt), background -> white (3 steps right),
+	// opacity -> 0.0 (transparent), text color -> black (4 steps right), speaker colors -> off.
+	menu.Navigator().SetFocus(sizeBtn)
+	menu.HandleAction(gameui.NavRight) // medium -> large
+	menu.Navigator().SetFocus(bgBtn)
+	menu.HandleAction(gameui.NavRight) // black -> gray
+	menu.HandleAction(gameui.NavRight) // gray -> blue
+	menu.HandleAction(gameui.NavRight) // blue -> white
+	menu.Navigator().SetFocus(opacitySld)
+	for range 10 {
+		menu.HandleAction(gameui.NavLeft)
+	}
+	menu.Navigator().SetFocus(textColBtn)
+	for range 4 {
+		menu.HandleAction(gameui.NavRight) // white -> yellow -> cyan -> green -> black
+	}
+	menu.Navigator().SetFocus(speakerColTog)
+	menu.HandleAction(gameui.NavConfirm) // true -> false
+
+	st3 := menu.CaptionPreviewState()
+	if st3.FontSize != 20 {
+		t.Fatalf("preview FontSize for large preset = %v, want 20", st3.FontSize)
+	}
+	if st3.BackgroundOpacity != 0 || st3.Background&0xff != 0 {
+		t.Fatalf("preview transparent bg = %08x (opacity=%v), want alpha 0", uint32(st3.Background), st3.BackgroundOpacity)
+	}
+	if st3.SpeakerColors {
+		t.Fatal("preview SpeakerColors = true after toggling off")
+	}
+	if st3.TextColor != a11y.ResolveCaptionTextColor(save.CaptionTextBlack) {
+		t.Fatalf("preview TextColor at 0%% opacity = %08x, want black %08x",
+			uint32(st3.TextColor), uint32(a11y.ResolveCaptionTextColor(save.CaptionTextBlack)))
+	}
+
+	// Raise opacity back to 80% on white background and render into a real Canvas:
+	// verify both light (#E8EEF5) and dark (#141923) swatches and caption text draw ops appear.
+	menu.Navigator().SetFocus(opacitySld)
+	for range 8 {
+		menu.HandleAction(gameui.NavRight)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.Canvas{
+			TestID: "preview-canvas",
+			Style:  core.Style{Width: core.Pt(960), Height: core.Pt(540)},
+			Draw: func(d *core.Drawing, sz core.Size) {
+				menu.Draw(d, core.Bounds{Size: sz})
+			},
+		}
+	}, nsgotest.Size(960, 540))
+
+	ops := app.Find("id:preview-canvas").Ops
+	var sawLightSwatch, sawDarkSwatch, sawPreviewText bool
+	for _, op := range ops {
+		if op.Kind == core.DrawFillColor {
+			if op.Color == core.RGB(0xE8EEF5) {
+				sawLightSwatch = true
+			}
+			if op.Color == core.RGB(0x141923) {
+				sawDarkSwatch = true
+			}
+		}
+		if op.Kind == core.DrawFillText && strings.Contains(op.Text, "Wind howling") {
+			sawPreviewText = true
+		}
+	}
+	if !sawLightSwatch || !sawDarkSwatch || !sawPreviewText {
+		t.Fatalf("preview canvas ops missing expected draws: light=%v dark=%v text=%v", sawLightSwatch, sawDarkSwatch, sawPreviewText)
 	}
 }

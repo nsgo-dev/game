@@ -2,9 +2,28 @@
 version: 1
 locale: en
 strings:
+  a11y.captions.bgBlack: Black
+  a11y.captions.bgBlue: Navy
+  a11y.captions.bgGray: Gray
+  a11y.captions.bgWhite: White
   a11y.captions.importantPrefix: '! '
   a11y.captions.musicPrefix: '♪ '
+  a11y.captions.previewChatter: Did you hear that?
+  a11y.captions.previewChatterSpeaker: Scout
+  a11y.captions.previewDialogue: Watch the bridge!
+  a11y.captions.previewQualifier: on radio
+  a11y.captions.previewSFX: Wind howling
+  a11y.captions.previewSpeaker: Guide
   a11y.captions.regionLabel: Captions
+  a11y.captions.sizeLarge: Large
+  a11y.captions.sizeMedium: Medium
+  a11y.captions.sizeSmall: Small
+  a11y.captions.sizeXLarge: Extra Large
+  a11y.captions.textBlack: Black
+  a11y.captions.textCyan: Cyan
+  a11y.captions.textGreen: Green
+  a11y.captions.textWhite: White
+  a11y.captions.textYellow: Yellow
   a11y.menu.checked: checked
   a11y.menu.closed: '{label} closed'
   a11y.menu.defaultLabel: Menu
