@@ -47,6 +47,7 @@ Or run `go run github.com/nsgo-dev/game/cmd/game@latest` directly anywhere with 
 | `pixelfx` | Renders a pixelfx effect, or the effect acted out, to a PNG sprite sheet and Aseprite JSON for `sprite.LoadAtlas` |
 | `navmesh` | Bakes a scene's glTF level geometry into a navigation mesh for each agent type `game.yaml` declares, written to the file the scene's `navMesh` names |
 | `merge` | Merges scene YAML files object by object for Git, or sets up the `nsgo-scene` Git merge driver in a project |
+| `schema` | Writes the project's scene JSON Schema, including its registered components and plugins, or the built-in scene schema when the project has no editor command of its own |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
@@ -531,6 +532,16 @@ Three-way Git merge driver for YAML scene files (`*.scene.yaml`, `*.scene.yml`).
 When Git invokes the driver with `<base> <ours> <theirs> [path]`, a clean merge overwrites `<ours>` (or `-out`) with the canonical merged scene and exits with 0. An empty `<base>` file (a Git add/add merge) is handled by merging `<ours>` and `<theirs>` against an empty ancestor. When both sides change the same field differently, one side deletes what the other modified, both add different objects with the same ID, reparenting conflicts or cycles occur, or the combined scene fails `sceneformat.Validate`, the driver writes a versioned, deterministic [scene merge conflict report](formats.md#scene-merge-conflict-report) (`version: 1` YAML naming each object, field, and the `base`, `ours`, and `theirs` values) to `<ours>` (or `-conflict-out` / `-out`) and exits with 1 so Git marks the path unmerged.
 
 `-setup [dir]` registers `merge.nsgo-scene.name` and `merge.nsgo-scene.driver` (`go tool game merge %O %A %B %P`) in the repository's local Git config and ensures `.gitattributes` routes `*.scene.yaml` and `*.scene.yml` to `merge=nsgo-scene`. New projects created with `game new` already include `.gitattributes` and configure the driver automatically when initialized inside a Git repository.
+
+### schema
+
+```sh
+nsgo game schema
+nsgo game schema -out schemas/scene.json
+nsgo game schema -out schemas/scene.json path/to/project
+```
+
+Writes the project's draft-07 scene JSON Schema to standard output or to `-out`, with deterministic sorted component names and property order (see [Schemas for YAML files](schemas.md#project-scene-schemas)). Because the `game` CLI cannot inspect a project's Go types directly, when the project has its own editor command (either a `main` package in `cmd/editor` importing `pkg/editor/editorcmd`, or a `main` built with `-tags gameeditor` as `game generate editor` writes), `game schema` runs that command with `-schema`, which prints the schema for `editorcmd.Options.Components` (including plugins and built-in physics and skeletal components) and exits without opening a window. A project without its own editor command gets the built-in scene schema, which types the built-in physics, skeletal and 2D navigation region components while keeping custom components free-form.
 
 ### completion
 

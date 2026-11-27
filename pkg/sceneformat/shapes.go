@@ -8,9 +8,9 @@ import (
 // Point is a 2D point in an object's local coordinate space, used by FieldPoint and FieldPolygon component fields.
 type Point struct {
 	// X is the horizontal coordinate in object-local space.
-	X float64 `yaml:"x"`
+	X float64 `yaml:"x" json:"x"`
 	// Y is the vertical coordinate in object-local space.
-	Y float64 `yaml:"y"`
+	Y float64 `yaml:"y" json:"y"`
 }
 
 // MarshalYAML encodes Point with deterministic key order matching YAML map decoding ("x", "y").
@@ -24,13 +24,13 @@ func (p Point) MarshalYAML() (any, error) {
 // Rect is an axis-aligned 2D rectangle in an object's local coordinate space, used by FieldRect component fields.
 type Rect struct {
 	// X is the left edge coordinate in object-local space.
-	X float64 `yaml:"x"`
+	X float64 `yaml:"x" json:"x"`
 	// Y is the top edge coordinate in object-local space.
-	Y float64 `yaml:"y"`
+	Y float64 `yaml:"y" json:"y"`
 	// Width is the horizontal extent in object-local space (non-negative).
-	Width float64 `yaml:"width" schema:"minimum=0"`
+	Width float64 `yaml:"width" json:"width" schema:"minimum=0"`
 	// Height is the vertical extent in object-local space (non-negative).
-	Height float64 `yaml:"height" schema:"minimum=0"`
+	Height float64 `yaml:"height" json:"height" schema:"minimum=0"`
 }
 
 // MarshalYAML encodes Rect with deterministic alphabetical key order matching YAML map decoding ("height", "width", "x", "y").
@@ -46,11 +46,11 @@ func (r Rect) MarshalYAML() (any, error) {
 // Circle is a 2D circle in an object's local coordinate space, used by FieldCircle component fields.
 type Circle struct {
 	// X is the horizontal center coordinate in object-local space.
-	X float64 `yaml:"x"`
+	X float64 `yaml:"x" json:"x"`
 	// Y is the vertical center coordinate in object-local space.
-	Y float64 `yaml:"y"`
+	Y float64 `yaml:"y" json:"y"`
 	// Radius is the circle's radius in object-local space (non-negative).
-	Radius float64 `yaml:"radius" schema:"minimum=0"`
+	Radius float64 `yaml:"radius" json:"radius" schema:"minimum=0"`
 }
 
 // MarshalYAML encodes Circle with deterministic alphabetical key order matching YAML map decoding ("radius", "x", "y").

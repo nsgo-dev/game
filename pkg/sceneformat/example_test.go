@@ -215,3 +215,42 @@ layers:
 	// floor true 0
 	// 2 {32 8}
 }
+
+// Merge combines two component registries in an all-or-nothing step, refusing any colliding component name.
+func ExampleComponentRegistry_Merge() {
+	game := sceneformat.NewComponentRegistry()
+	game.MustRegister(sceneformat.ComponentType{
+		Name:   "health",
+		Fields: []sceneformat.Field{{Name: "hp", Kind: sceneformat.FieldInt, Default: 10}},
+	})
+	plugin := sceneformat.NewComponentRegistry()
+	plugin.MustRegister(sceneformat.ComponentType{
+		Name:   "hitbox",
+		Fields: []sceneformat.Field{{Name: "bounds", Kind: sceneformat.FieldRect}},
+	})
+
+	fmt.Println(game.Merge(plugin))
+	fmt.Println(game.Names())
+	// Output:
+	// <nil>
+	// [health hitbox]
+}
+
+// JSONSchema returns a draft-07 JSON Schema for a scene object's components map in ascending component name order.
+func ExampleComponentRegistry_JSONSchema() {
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "hitbox",
+		Fields: []sceneformat.Field{{Name: "bounds", Kind: sceneformat.FieldRect}},
+	})
+	s := reg.JSONSchema()
+	fmt.Println(s.Validate(map[string]any{
+		"hitbox": map[string]any{"bounds": map[string]any{"x": 0, "y": 0, "width": 16, "height": 16}},
+	}))
+	fmt.Println(s.Validate(map[string]any{
+		"hitbox": map[string]any{"bounds": "not-a-rect"},
+	}) != nil)
+	// Output:
+	// <nil>
+	// true
+}

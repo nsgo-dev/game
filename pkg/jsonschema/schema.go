@@ -57,6 +57,8 @@ type Schema struct {
 	Description string
 	// Types lists the allowed JSON types; empty allows every type.
 	Types []Type
+	// Default, when non-nil, is the value a tool shows or fills in when the property is left out.
+	Default any
 	// Const, when non-nil, is the only allowed value.
 	Const any
 	// Enum, when non-empty, lists the allowed values.
@@ -169,6 +171,9 @@ func (s *Schema) write(buf *bytes.Buffer) error {
 		w.value("type", s.Types[0])
 	default:
 		w.value("type", s.Types)
+	}
+	if s.Default != nil {
+		w.value("default", s.Default)
 	}
 	if s.Const != nil {
 		w.value("const", s.Const)
