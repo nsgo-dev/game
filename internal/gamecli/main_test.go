@@ -116,6 +116,9 @@ func TestUsageErrors(t *testing.T) {
 		{[]string{"help", "build"}, `game help: unknown command "build"`},
 		{[]string{"help", "pack", "audio"}, "usage: game help [command]"},
 		{[]string{"pack", "-nope"}, "flag provided but not defined: -nope"},
+		{[]string{"mcp", "install", "-nope"}, "flag provided but not defined: -nope"},
+		{[]string{"mcp", "install", "-project"}, "flag needs an argument: -project"},
+		{[]string{"mcp", "install", "extra"}, "game mcp: expected no arguments after install, got 1"},
 	}
 	for _, tc := range cases {
 		a, stdout, stderr := newTestApp(t)
@@ -127,6 +130,61 @@ func TestUsageErrors(t *testing.T) {
 		}
 		if stdout.Len() != 0 {
 			t.Errorf("%q wrote to stdout: %q", tc.args, stdout)
+		}
+	}
+}
+
+func TestMCPInstallHelpAndUsage(t *testing.T) {
+	a, helpOut, helpErr := newTestApp(t)
+	if code := run([]string{"help", "mcp"}, a); code != 0 || helpErr.Len() != 0 {
+		t.Fatalf("help mcp exit %d (stderr: %s)", code, helpErr)
+	}
+	wantUsage := helpOut.String()
+
+	for _, args := range [][]string{
+		{"mcp", "install", "-h"},
+		{"mcp", "install", "-help"},
+		{"mcp", "install", "--help"},
+	} {
+		a, stdout, stderr := newTestApp(t)
+		if code := run(args, a); code != 0 {
+			t.Errorf("%v exit %d, want 0 (stderr: %s)", args, code, stderr)
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("%v wrote to stdout: %q", args, stdout)
+		}
+		if stderr.String() != wantUsage {
+			t.Errorf("%v stderr = %q, want %q", args, stderr, wantUsage)
+		}
+		if got := strings.Count(stderr.String(), "usage: "); got != 1 {
+			t.Errorf("%v printed usage %d times, want 1:\n%s", args, got, stderr)
+		}
+	}
+
+	for _, tc := range []struct {
+		args    []string
+		wantErr string
+	}{
+		{[]string{"mcp", "install", "-nope"}, "flag provided but not defined: -nope"},
+		{[]string{"mcp", "install", "-project"}, "flag needs an argument: -project"},
+		{[]string{"mcp", "install", "extra"}, "game mcp: expected no arguments after install, got 1"},
+	} {
+		a, stdout, stderr := newTestApp(t)
+		if code := run(tc.args, a); code != 2 {
+			t.Errorf("%v exit %d, want 2", tc.args, code)
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("%v wrote to stdout: %q", tc.args, stdout)
+		}
+		got := stderr.String()
+		if n := strings.Count(got, tc.wantErr); n != 1 {
+			t.Errorf("%v error %q appeared %d times, want 1:\n%s", tc.args, tc.wantErr, n, got)
+		}
+		if n := strings.Count(got, wantUsage); n != 1 {
+			t.Errorf("%v usage appeared %d times, want 1:\n%s", tc.args, n, got)
+		}
+		if strings.Contains(got, "Usage of ") {
+			t.Errorf("%v printed Go's default usage:\n%s", tc.args, got)
 		}
 	}
 }
