@@ -193,8 +193,12 @@ func (x *index) window(first, limit int) []Entry {
 	if first < 1 {
 		first = 1
 	}
+	if limit <= 0 || first > x.n {
+		return nil
+	}
 	nd := x.at(first)
-	out := make([]Entry, 0, min(limit, max(x.n-first+1, 0)))
+	const maxWindowPrealloc = 1024
+	out := make([]Entry, 0, min(limit, x.n-first+1, maxWindowPrealloc))
 	for r := first; nd != nil && len(out) < limit; r++ {
 		out = append(out, nd.e.public(r))
 		nd = nd.next[0].to

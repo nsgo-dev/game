@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -226,7 +227,7 @@ func buildBMFont(raw bmfontData, pageImage func(id int, file string) core.ImageS
 	}
 
 	for _, c := range raw.chars {
-		if c.id < 0 {
+		if c.id < 0 || c.id > math.MaxInt32 {
 			return nil, recordError(c.line, "use the character's Unicode code point, 0 or more, as its id", "invalid char id %d", c.id)
 		}
 		if c.x < 0 || c.y < 0 || c.w < 0 || c.h < 0 {
@@ -264,7 +265,7 @@ func buildBMFont(raw bmfontData, pageImage func(id int, file string) core.ImageS
 	if len(raw.kernings) > 0 {
 		f.Kernings = make(map[KerningPair]float32, len(raw.kernings))
 		for _, k := range raw.kernings {
-			if k.first < 0 || k.second < 0 {
+			if k.first < 0 || k.first > math.MaxInt32 || k.second < 0 || k.second > math.MaxInt32 {
 				return nil, recordError(k.line, "use the characters' code points, 0 or more, as first and second", "invalid kerning pair (%d, %d)", k.first, k.second)
 			}
 			f.Kernings[KerningPair{First: rune(k.first), Second: rune(k.second)}] = k.amount

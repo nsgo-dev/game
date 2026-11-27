@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
@@ -71,6 +72,9 @@ func (g tileGrid) apply(changes []tileChange, undo bool) {
 		}
 		if g.layer == nil {
 			g.tm.Data[ch.index] = int(v)
+			continue
+		}
+		if v < 0 || v > math.MaxUint32 {
 			continue
 		}
 		cells[ch.index] = uint32(v)
