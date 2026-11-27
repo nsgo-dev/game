@@ -1941,6 +1941,19 @@ func buildBudgetCard(p SpecPalette, testID, title, metric string, met bool, pct 
 	}
 }
 
+func joinNaturalList(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
+	}
+}
+
 func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry) core.Node {
 	_, totalIssues := countReadinessIssues(entry.Readiness)
 	heading := fmt.Sprintf("READINESS · %d to fix before %s can build", totalIssues, entry.Name)
@@ -2012,12 +2025,20 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 
 	guidance := fmt.Sprintf("The agent can handle project-side setup for %s; account sign-in and store credentials require you.", entry.Name)
 	if len(agentItems) > 0 && len(personItems) > 0 {
-		guidance = fmt.Sprintf("The agent can write %s from what the game uses. %s needs your account, so you complete sign-in directly.",
-			strings.Join(agentItems, ", "), capitalizeProfile(strings.Join(personItems, ", ")))
+		verb := "needs"
+		if len(personItems) > 1 {
+			verb = "need"
+		}
+		guidance = fmt.Sprintf("The agent can write %s from what the game uses. %s %s your account, so you complete sign-in directly.",
+			joinNaturalList(agentItems), capitalizeProfile(joinNaturalList(personItems)), verb)
 	} else if len(agentItems) > 0 {
-		guidance = fmt.Sprintf("The agent can complete %s automatically.", strings.Join(agentItems, ", "))
+		guidance = fmt.Sprintf("The agent can complete %s automatically.", joinNaturalList(agentItems))
 	} else if len(personItems) > 0 {
-		guidance = fmt.Sprintf("%s requires your account sign-in before %s can build.", capitalizeProfile(strings.Join(personItems, ", ")), entry.Name)
+		verb := "requires"
+		if len(personItems) > 1 {
+			verb = "require"
+		}
+		guidance = fmt.Sprintf("%s %s your account sign-in before %s can build.", capitalizeProfile(joinNaturalList(personItems)), verb, entry.Name)
 	}
 
 	return ui.ScrollView{

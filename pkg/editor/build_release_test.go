@@ -8,7 +8,9 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
@@ -535,20 +538,33 @@ func TestBuildReleaseScreenFinishedResultBreakdownBudgetsAndFinder(t *testing.T)
 }
 
 // Verifies iOS READINESS panel shows all 6 requirements, distinguishes agent vs person actions,
-// writes PrivacyInfo.xcprivacy on agent action, and delegates Apple sign-in to person action callback.
+// writes resources/PrivacyInfo.xcprivacy (and merges cleanly with apple.privacy), generates
+// controls.touch.yaml for existing game.yaml actions, and delegates Apple sign-in to person callback.
 func TestBuildReleaseScreenIOSReadinessAgentVsPerson(t *testing.T) {
-	dir := writeBuildReleaseProject(t, `export:
+	dir := writeBuildReleaseProject(t, `input:
+  actions:
+    - name: left
+      bindings:
+        - kind: key
+          key: a
+    - name: right
+      bindings:
+        - kind: key
+          key: d
+    - name: jump
+      bindings:
+        - kind: key
+          key: space
+  axes:
+    - name: move_x
+      negative: left
+      positive: right
+export:
   presets:
     - platform: ios
     - platform: web
 `)
-	writeSolidPNG(t, filepath.Join(dir, "art", "icon.png"), 64, 64)
-	if err := os.MkdirAll(filepath.Join(dir, "input"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "input", "touch.input.yaml"), []byte("version: 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSolidPNG(t, filepath.Join(dir, "assets", "Icon.png"), 64, 64)
 
 	ed, err := editor.New(nil, testResolver())
 	if err != nil {
@@ -591,33 +607,95 @@ func TestBuildReleaseScreenIOSReadinessAgentVsPerson(t *testing.T) {
 		t.Fatalf("iOS readiness items = %d, want 6", len(ios.Readiness))
 	}
 
-	// Verify agent-handleable privacy manifest vs person-required provisioning profile.
-	var privacyItem, profileItem editor.BuildReadinessItem
+	// Verify privacy manifest starts OK (NSGo writes it) with optional agent action,
+	// touch_controls offers agent generation from game.yaml actions, and provisioning_profile requires person.
+	var iconItem, privacyItem, profileItem, touchItem editor.BuildReadinessItem
 	for _, it := range ios.Readiness {
 		switch it.ID {
+		case "app_icon":
+			iconItem = it
 		case "privacy_manifest":
 			privacyItem = it
 		case "provisioning_profile":
 			profileItem = it
+		case "touch_controls":
+			touchItem = it
 		}
 	}
-	if !privacyItem.AgentCanHandle || privacyItem.RequiresPerson {
-		t.Fatalf("privacy_manifest must be AgentCanHandle=true, RequiresPerson=false: %+v", privacyItem)
+	if iconItem.Status != editor.BuildReadinessOK || !strings.Contains(iconItem.Detail, "assets/Icon.png") {
+		t.Fatalf("app_icon = %+v, want ok for assets/Icon.png", iconItem)
 	}
-	if !profileItem.RequiresPerson || profileItem.AgentCanHandle {
-		t.Fatalf("provisioning_profile must be RequiresPerson=true, AgentCanHandle=false: %+v", profileItem)
+	if privacyItem.Status != editor.BuildReadinessOK || !privacyItem.AgentCanHandle || privacyItem.RequiresPerson {
+		t.Fatalf("privacy_manifest must be Status=ok, AgentCanHandle=true, RequiresPerson=false: %+v", privacyItem)
+	}
+	if !profileItem.RequiresPerson || profileItem.AgentCanHandle || !strings.Contains(profileItem.Detail, "sign.profile") {
+		t.Fatalf("provisioning_profile must be RequiresPerson=true, AgentCanHandle=false, mention sign.profile: %+v", profileItem)
+	}
+	if touchItem.Status != editor.BuildReadinessWarn || !touchItem.AgentCanHandle || touchItem.RequiresPerson {
+		t.Fatalf("touch_controls must be Status=warn, AgentCanHandle=true when game.yaml has actions: %+v", touchItem)
 	}
 
-	// Click "Let the agent write it" -> actually writes PrivacyInfo.xcprivacy and turns item OK.
+	// Click privacy_manifest action -> writes resources/PrivacyInfo.xcprivacy (never project root).
 	app.Press("id:build-readiness-action-privacy_manifest")
 	app.Settle()
-	if _, err := os.Stat(filepath.Join(dir, "PrivacyInfo.xcprivacy")); err != nil {
-		t.Fatalf("expected PrivacyInfo.xcprivacy to be written: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "PrivacyInfo.xcprivacy")); !os.IsNotExist(err) {
+		t.Fatalf("privacy_manifest fix must not write to project root PrivacyInfo.xcprivacy: %v", err)
 	}
+	resPrivacyPath := filepath.Join(dir, "resources", "PrivacyInfo.xcprivacy")
+	resPrivacyBytes, err := os.ReadFile(resPrivacyPath)
+	if err != nil {
+		t.Fatalf("expected resources/PrivacyInfo.xcprivacy to be written: %v", err)
+	}
+	// Verify NSGo-compatible merged manifest includes NSGo's required-reason APIs plus apple.privacy declarations.
+	merged, err := releaseplan.MergePrivacyManifest(resPrivacyBytes, releaseplan.NSGoPrivacyConfig{
+		AccessedAPIs: map[string][]string{
+			"NSPrivacyAccessedAPICategoryDiskSpace": {"E174.1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("MergePrivacyManifest(resources/PrivacyInfo.xcprivacy): %v", err)
+	}
+	for _, wantKey := range []string{
+		"NSPrivacyAccessedAPICategoryDiskSpace",
+		"NSPrivacyAccessedAPICategoryFileTimestamp",
+		"NSPrivacyAccessedAPICategorySystemBootTime",
+		"NSPrivacyAccessedAPICategoryUserDefaults",
+	} {
+		if !strings.Contains(string(merged), wantKey) {
+			t.Fatalf("merged PrivacyInfo.xcprivacy missing %s:\n%s", wantKey, merged)
+		}
+	}
+
+	// Click touch_controls action -> writes canonical controls.touch.yaml for existing game.yaml actions (no fake touch_action).
+	app.Press("id:build-readiness-action-touch_controls")
+	app.Settle()
+	touchBytes, err := os.ReadFile(filepath.Join(dir, "controls.touch.yaml"))
+	if err != nil {
+		t.Fatalf("expected controls.touch.yaml to be written: %v", err)
+	}
+	layout, err := input.ParseTouchLayout(touchBytes)
+	if err != nil {
+		t.Fatalf("ParseTouchLayout(controls.touch.yaml): %v", err)
+	}
+	if len(layout.Controls) != 2 {
+		t.Fatalf("generated controls = %d, want 2 (dpad + jump): %+v", len(layout.Controls), layout.Controls)
+	}
+	if strings.Contains(string(touchBytes), "touch_action") {
+		t.Fatalf("generated controls.touch.yaml must not contain fake touch_action:\n%s", touchBytes)
+	}
+	for _, a := range ed.Project.Input.Actions {
+		if a.Name == "touch_action" {
+			t.Fatal("touch_controls action must not add fake touch_action to game.yaml")
+		}
+	}
+
 	snap = ed.BuildReleaseSnapshot()
 	for _, it := range snap.SelectedPreset().Readiness {
-		if it.ID == "privacy_manifest" && it.Status != editor.BuildReadinessOK {
-			t.Fatalf("privacy_manifest status after agent action = %q, want ok", it.Status)
+		if it.ID == "privacy_manifest" && (it.Status != editor.BuildReadinessOK || !strings.Contains(it.Detail, "resources/PrivacyInfo.xcprivacy")) {
+			t.Fatalf("privacy_manifest after write = %+v", it)
+		}
+		if it.ID == "touch_controls" && (it.Status != editor.BuildReadinessOK || !strings.Contains(it.Detail, "controls.touch.yaml")) {
+			t.Fatalf("touch_controls after write = %+v", it)
 		}
 	}
 
@@ -636,6 +714,230 @@ func TestBuildReleaseScreenIOSReadinessAgentVsPerson(t *testing.T) {
 	}
 }
 
+func TestBuildReleaseScreenIOSReadinessConfiguredThroughNSGoYAMLAndEmptyProject(t *testing.T) {
+	// 1. Project configured through nsgo.yaml passes every readiness item and iOS preset is Queued & Included.
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: ios
+`)
+	writeSolidPNG(t, filepath.Join(dir, "branding", "AppIcon.png"), 1024, 1024)
+	if err := os.MkdirAll(filepath.Join(dir, "certs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "certs", "AppStore.mobileprovision"), []byte("profile"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nsgoYAML := `name: Demo
+id: dev.example.demo
+version: 1.0.0
+icon:
+  png: branding/AppIcon.png
+sign:
+  profile: certs/AppStore.mobileprovision
+apple:
+  privacy:
+    accessed_apis:
+      NSPrivacyAccessedAPICategoryDiskSpace:
+        - E174.1
+`
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte(nsgoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touchYAML := `version: 1
+reference: {width: 844, height: 390}
+controls:
+  - id: jump
+    kind: button
+    anchor: bottomRight
+    size: {width: 96, height: 96}
+    action: jump
+    text: JUMP
+`
+	if err := os.WriteFile(filepath.Join(dir, "controls.touch.yaml"), []byte(touchYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	snap := ed.BuildReleaseSnapshot()
+	if len(snap.Presets) != 1 || snap.Presets[0].Platform != "ios" {
+		t.Fatalf("unexpected presets: %+v", snap.Presets)
+	}
+	ios := snap.Presets[0]
+	if ios.Status != editor.BuildPresetQueued || !ios.Included {
+		t.Fatalf("configured iOS preset = (status=%q, included=%v), want (queued, true); readiness=%+v", ios.Status, ios.Included, ios.Readiness)
+	}
+	for _, it := range ios.Readiness {
+		if it.Status != editor.BuildReadinessOK {
+			t.Errorf("readiness item %s = %q (%s), want ok", it.ID, it.Status, it.Detail)
+		}
+	}
+
+	// 2. Empty project (missing nsgo.yaml config and no touch actions) fails readiness with details naming nsgo.yaml keys.
+	emptyDir := t.TempDir()
+	emptyEd, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyEd.Project = &project.File{}
+	emptyEd.ProjectPath = filepath.Join(emptyDir, project.FileName)
+	emptyItems := emptyEd.EvaluateBuildReadiness("ios")
+	if len(emptyItems) != 6 {
+		t.Fatalf("empty project readiness items = %d, want 6", len(emptyItems))
+	}
+	for _, it := range emptyItems {
+		switch it.ID {
+		case "bundle_id":
+			if it.Status != editor.BuildReadinessFail || !strings.Contains(it.Detail, "nsgo.yaml") {
+				t.Errorf("empty bundle_id = %+v", it)
+			}
+		case "app_icon":
+			if it.Status != editor.BuildReadinessWarn || !strings.Contains(it.Detail, "icon.png") {
+				t.Errorf("empty app_icon = %+v", it)
+			}
+		case "distribution_cert":
+			if it.Status != editor.BuildReadinessWarn || !strings.Contains(it.Detail, "sign.identity") {
+				t.Errorf("empty distribution_cert = %+v", it)
+			}
+		case "provisioning_profile":
+			if it.Status != editor.BuildReadinessFail || !strings.Contains(it.Detail, "sign.profile") {
+				t.Errorf("empty provisioning_profile = %+v", it)
+			}
+		case "privacy_manifest":
+			if it.Status != editor.BuildReadinessOK || !strings.Contains(it.Detail, "apple.privacy") {
+				t.Errorf("empty privacy_manifest = %+v", it)
+			}
+		case "touch_controls":
+			if it.Status != editor.BuildReadinessWarn || it.AgentCanHandle {
+				t.Errorf("empty touch_controls = %+v, want advisory warn", it)
+			}
+		}
+	}
+}
+
+// #1667 Acceptance: The privacy fix writes under resources/ and a real nsgo build merges it
+// with NSGo's required-reason APIs and nsgo.yaml's apple.privacy into the Apple bundle.
+func TestBuildReleasePrivacyFixBuildsMergedManifestWithNSGo(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("requires a desktop host Go toolchain")
+	}
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: ios
+`)
+	nsgoYAML := `name: Demo
+id: dev.example.demo
+version: 1.0.0
+apple:
+  privacy:
+    accessed_apis:
+      NSPrivacyAccessedAPICategoryDiskSpace:
+        - E174.1
+`
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte(nsgoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/privacytest\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RunBuildReadinessAction("ios", "privacy_manifest"); err != nil {
+		t.Fatalf("RunBuildReadinessAction(privacy_manifest): %v", err)
+	}
+
+	resPath := filepath.Join(dir, "resources", "PrivacyInfo.xcprivacy")
+	resData, err := os.ReadFile(resPath)
+	if err != nil {
+		t.Fatalf("resources/PrivacyInfo.xcprivacy missing: %v", err)
+	}
+
+	// Build an Apple bundle with nsgo build on macOS so NSGo itself merges resources/PrivacyInfo.xcprivacy + apple.privacy.
+	if runtime.GOOS == "darwin" {
+		target := "macos_arm64"
+		if runtime.GOARCH == "amd64" {
+			target = "macos_x64"
+		}
+		outDir := filepath.Join(dir, "dist-privacy")
+		cmd := exec.Command("go", "tool", "nsgo", "build", "-target", target, "-installers=false", "-output", outDir, dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go tool nsgo build failed: %v\n%s", err, out)
+		}
+		bundledPath := filepath.Join(outDir, "Demo-1.0.0-"+target, "Demo.app", "Contents", "Resources", "PrivacyInfo.xcprivacy")
+		bundled, err := os.ReadFile(bundledPath)
+		if err != nil {
+			t.Fatalf("bundled PrivacyInfo.xcprivacy missing at %s: %v", bundledPath, err)
+		}
+		decoded, err := releaseplan.DecodePlist(bundled)
+		if err != nil {
+			t.Fatalf("DecodePlist(bundled): %v\n%s", err, bundled)
+		}
+		manifest, ok := decoded.(map[string]any)
+		if !ok {
+			t.Fatalf("bundled manifest type = %T, want map[string]any", decoded)
+		}
+		if err := releaseplan.ValidateResourcePrivacy(manifest); err != nil {
+			t.Fatalf("ValidateResourcePrivacy(bundled): %v", err)
+		}
+		for _, wantKey := range []string{
+			"NSPrivacyAccessedAPICategoryDiskSpace",
+			"NSPrivacyAccessedAPICategoryFileTimestamp",
+			"NSPrivacyAccessedAPICategorySystemBootTime",
+			"NSPrivacyAccessedAPICategoryUserDefaults",
+		} {
+			if !strings.Contains(string(bundled), wantKey) {
+				t.Fatalf("nsgo-built PrivacyInfo.xcprivacy missing %s:\n%s", wantKey, bundled)
+			}
+		}
+	}
+
+	// Cross-platform merge verification via releaseplan.MergePrivacyManifest (runs on macOS, Linux, and Windows).
+	merged, err := releaseplan.MergePrivacyManifest(resData, releaseplan.NSGoPrivacyConfig{
+		AccessedAPIs: map[string][]string{
+			"NSPrivacyAccessedAPICategoryDiskSpace": {"E174.1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("MergePrivacyManifest: %v", err)
+	}
+	for _, wantKey := range []string{
+		"NSPrivacyAccessedAPICategoryDiskSpace",
+		"NSPrivacyAccessedAPICategoryFileTimestamp",
+		"NSPrivacyAccessedAPICategorySystemBootTime",
+		"NSPrivacyAccessedAPICategoryUserDefaults",
+	} {
+		if !strings.Contains(string(merged), wantKey) {
+			t.Fatalf("merged PrivacyInfo.xcprivacy missing %s:\n%s", wantKey, merged)
+		}
+	}
+}
+
 func TestBuildReleaseHardeningSymlinksKnownFieldsAndFinder(t *testing.T) {
 	outside := t.TempDir()
 	outsideSecret := filepath.Join(outside, "secret.txt")
@@ -643,14 +945,23 @@ func TestBuildReleaseHardeningSymlinksKnownFieldsAndFinder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir := writeBuildReleaseProject(t, `export:
+	dir := writeBuildReleaseProject(t, `input:
+  actions:
+    - name: jump
+export:
   presets:
     - platform: android
     - platform: ios
     - platform: web
 `)
-	// Symlink PrivacyInfo.xcprivacy to an outside file -> agent write must fail without touching outside file.
-	if err := os.Symlink(outsideSecret, filepath.Join(dir, "PrivacyInfo.xcprivacy")); err != nil {
+	// Symlink resources/PrivacyInfo.xcprivacy and controls.touch.yaml to an outside file -> agent writes must fail without touching outside file.
+	if err := os.MkdirAll(filepath.Join(dir, "resources"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideSecret, filepath.Join(dir, "resources", "PrivacyInfo.xcprivacy")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	if err := os.Symlink(outsideSecret, filepath.Join(dir, "controls.touch.yaml")); err != nil {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
 	// Symlink export/android.export.yaml to an outside file -> ApplyBuildPresetFixAndRebuild must fail.
@@ -680,12 +991,20 @@ func TestBuildReleaseHardeningSymlinksKnownFieldsAndFinder(t *testing.T) {
 	}
 	ed.ReleaseReadinessInspector = func(platform, _ string, _ *project.File) []editor.BuildReadinessItem {
 		if platform == "ios" {
-			return []editor.BuildReadinessItem{{
-				ID:             "privacy_manifest",
-				Label:          "Privacy manifest",
-				Status:         editor.BuildReadinessWarn,
-				AgentCanHandle: true,
-			}}
+			return []editor.BuildReadinessItem{
+				{
+					ID:             "privacy_manifest",
+					Label:          "Privacy manifest",
+					Status:         editor.BuildReadinessWarn,
+					AgentCanHandle: true,
+				},
+				{
+					ID:             "touch_controls",
+					Label:          "Touch controls",
+					Status:         editor.BuildReadinessWarn,
+					AgentCanHandle: true,
+				},
+			}
 		}
 		return nil
 	}
@@ -707,9 +1026,12 @@ func TestBuildReleaseHardeningSymlinksKnownFieldsAndFinder(t *testing.T) {
 		}
 	}
 
-	// Verify symlinked PrivacyInfo.xcprivacy write is refused and outsideSecret is untouched.
+	// Verify symlinked resources/PrivacyInfo.xcprivacy and controls.touch.yaml writes are refused and outsideSecret is untouched.
 	if err := ed.RunBuildReadinessAction("ios", "privacy_manifest"); err == nil {
-		t.Fatal("expected symlinked PrivacyInfo.xcprivacy write to fail")
+		t.Fatal("expected symlinked resources/PrivacyInfo.xcprivacy write to fail")
+	}
+	if err := ed.RunBuildReadinessAction("ios", "touch_controls"); err == nil {
+		t.Fatal("expected symlinked controls.touch.yaml write to fail")
 	}
 	if got, _ := os.ReadFile(outsideSecret); string(got) != "untouched" {
 		t.Fatalf("outsideSecret modified: %q", got)
