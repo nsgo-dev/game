@@ -1,6 +1,6 @@
 ---
 name: nsgo-game
-description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `go run github.com/nsgo-dev/game/cmd/game@latest new` or running `go tool game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
+description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `go run github.com/nsgo-dev/game/cmd/game@latest new` or running `go tool game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/pkg/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
 ---
 
 # NSGo Game
@@ -73,7 +73,7 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
    go tool game release                              # builds export presets from game.yaml via nsgo build
    ```
 
-## Minimal game with `game.Loop` and `game/mcp`
+## Minimal game with `game.Loop` and `game/pkg/mcp`
 
 A game component owns a fixed-step `game.Loop` and triggers `core.Canvas` redraws via a frame signal so the native view tree does not re-commit every frame. Attach `mcp.Bridge` on the same `*core.Scope` so agents can inspect and drive the running game over `nsgo mcp` (in normal and release builds `automation.Register` is a no-op):
 
@@ -121,8 +121,14 @@ When testing or debugging a game over `nsgo mcp` (or headlessly via `nsgotest.St
 1. **Discover state:** call `game_scenes_list`, `game_layers_list`, and `game_entities_list` to find active scenes and stable generational entity references (`"entity:<index>:<generation>"`).
 2. **Make runs deterministic:** call `game_loop_pause`, then `game_loop_seed` with a fixed unsigned 64-bit seed.
 3. **Drive gameplay:** inject actions/axes/pointer events (`game_input_action`, `game_input_axis`, `game_input_pointer`) or spawn/edit entities (`game_entity_spawn`, `game_component_set`) and advance an exact step count synchronously with `game_loop_step` (60 steps at 60 Hz advances exactly `1.0` second).
-4. **Assert state & visuals:** read updated component values with `game_entity_inspect` / `game_component_get`, check performance with `game_perf_readout`, and capture aligned debug screenshots with `game_screenshot` (`bounds: true`, `collision_shapes: true`).
-5. **Reproduce & regress:** record sequences with `game_replay_record_start` / `game_replay_record_stop` to save editable YAML recordings, then replay them deterministically with `game_replay_play` or `go tool game replay`.
+4. **Check your change (capture → act → step → capture → diff):**
+   - Save baselines before acting: `game_state_capture` (`name: "before"`) and `game_screenshot` (`baseline: "before"`).
+   - Perform the edit or drive input and advance exact steps (`game_loop_step`).
+   - Capture again (`game_state_capture` `name: "after"`) and diff with `game_state_diff` (`from: "before"`, `to: "after"`, optional `paths`) to verify only the intended entities/values changed.
+   - Compare pixels with `game_screenshot` (`compare_to: "before"`, optional `tolerance`, `diff_path` / `include_diff_image`) to confirm changed-region bounding boxes and `gametest_match` / `within_tolerance`.
+   - Read recent logs and any recovered panic with `game_log_read` (pass `next_cursor` back as `since` on follow-up checks).
+5. **Inspect details & performance:** read specific component values with `game_entity_inspect` / `game_component_get`, check performance with `game_perf_readout`, and draw aligned debug overlays with `game_screenshot` (`bounds: true`, `collision_shapes: true`).
+6. **Reproduce & regress:** record sequences with `game_replay_record_start` / `game_replay_record_stop` to save editable YAML recordings, then replay them deterministically with `game_replay_play` or `go tool game replay`.
 
 ## References
 
@@ -130,4 +136,4 @@ Load on demand for exact APIs, flags, schemas, and tool arguments:
 
 - [references/packages.md](references/packages.md) — complete catalog of `pkg/*` packages grouped by stage and domain, with import paths and stability status.
 - [references/cli-and-formats.md](references/cli-and-formats.md) — `go tool game` subcommands, companion tools, YAML file format contract, schemas, and external tool formats.
-- [references/mcp-tools.md](references/mcp-tools.md) — full `game/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.
+- [references/mcp-tools.md](references/mcp-tools.md) — full `game/pkg/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.

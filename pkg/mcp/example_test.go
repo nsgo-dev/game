@@ -41,6 +41,8 @@ func ExampleNew() {
 	// game_entity_inspect
 	// game_component_get
 	// game_state_dump
+	// game_state_capture
+	// game_state_diff
 	// game_loop_status
 	// game_loop_pause
 	// game_loop_resume
@@ -74,4 +76,5 @@ func ExampleNew() {
 	// game_asset_reload
 	// game_assets_reload_group
 	// game_screenshot
+	// game_log_read
 }

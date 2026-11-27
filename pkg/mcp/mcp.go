@@ -187,14 +187,20 @@ type Config struct {
 	// CaptureFrame optionally returns an already-rendered game frame (for example from a GPU readback or offscreen canvas). Requested overlays are composited on top in the same camera and viewport coordinates.
 	CaptureFrame func(ctx context.Context) (*image.RGBA, error)
 
-	// ScreenshotDir confines relative output paths written when game_screenshot is called with a path argument. When empty, writing to disk via path is refused.
+	// ScreenshotDir confines relative output paths written when game_screenshot is called with a path or diff_path argument, and serves as the fallback root for relative compare_to PNG paths when ProjectDir is empty. When empty, writing to disk via path or diff_path is refused.
 	ScreenshotDir string
+
+	// ProjectDir optionally confines project-relative PNG paths read by game_screenshot's compare_to argument (read-only via os.Root). Writes never target ProjectDir; they always require ScreenshotDir.
+	ProjectDir string
 
 	// ScreenshotBackground optionally fills the screenshot canvas before drawing the game frame when CaptureFrame is nil. Zero leaves the background transparent.
 	ScreenshotBackground core.Color
 
-	// StateValues optionally returns game-wide key-value state included by game_state_dump alongside the entity world and scene stack.
+	// StateValues optionally returns game-wide key-value state included by game_state_dump and game_state_capture alongside the entity world and scene stack.
 	StateValues func() map[string]any
+
+	// Log enables bounded slog capture for game_log_read. Set to &mcp.LogConfig{} to install a tee slog.Handler around slog.Default() while the Bridge is attached (restoring the previous default logger on Detach), or pass a pre-created LogBuffer.
+	Log *LogConfig
 }
 
 type compTypeKey any
@@ -229,7 +235,10 @@ type Bridge struct {
 	prefabs     map[string]prefabEntry
 	prefabOrder []string
 
-	customAssets *assetRegistry
+	customAssets        *assetRegistry
+	stateCaptures       *stateCaptureStore
+	screenshotBaselines *screenshotBaselineStore
+	logBuf              *LogBuffer
 }
 
 // New constructs a Bridge for cfg without registering its tools yet.
@@ -242,9 +251,14 @@ func New(cfg Config) *Bridge {
 		}
 		cfg.NamedScenes = copied
 	}
-	b := &Bridge{cfg: cfg}
+	b := &Bridge{
+		cfg:                 cfg,
+		stateCaptures:       newStateCaptureStore(),
+		screenshotBaselines: newScreenshotBaselineStore(),
+	}
 	b.initPrefabs(cfg.Prefabs)
 	b.cfg.Prefabs = nil
+	b.initLog()
 	return b
 }
 
@@ -285,9 +299,11 @@ func (b *Bridge) Attach(cx *core.Scope) error {
 		}
 	}
 	unregisterWeb := b.attachWebBridge(sub)
+	restoreLog := b.attachDefaultLogger()
 	b.sub = sub
 	sub.Run(func() {
 		sub.Cleanup(func() {
+			restoreLog()
 			unregisterWeb()
 			if b.sub == sub {
 				b.sub = nil
@@ -376,6 +392,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.perfTools()...)
 	out = append(out, b.assetTools()...)
 	out = append(out, b.screenshotTools()...)
+	out = append(out, b.logTools()...)
 	return out
 }
 

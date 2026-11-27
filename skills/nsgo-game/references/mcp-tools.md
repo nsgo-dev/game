@@ -1,4 +1,4 @@
-# `game/mcp` Tool Reference
+# `game/pkg/mcp` Tool Reference
 
 `github.com/nsgo-dev/game/pkg/mcp` registers game-specific MCP tools on NSGo's reactive graph through `github.com/nsgo-dev/nsgo/automation`. When the game runs under `go tool nsgo dev -automation` (or `go tool nsgo test`), `go tool nsgo mcp` serves these tools alongside NSGo's built-in view tools. In ordinary and release builds, `automation.Register` is a no-op.
 
@@ -43,13 +43,18 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	// Prefabs for live spawning (#464)
 	Prefabs: map[string]mcp.PrefabSpawner{"slime": g.spawnSlime},
 
-	// Screenshots & diagnostic overlays (#465)
+	// Screenshots & diagnostic overlays (#465, #1744)
 	Physics:              g.physics,      // or PhysicsFunc
 	RigidPhysics:         g.rigidPhysics, // or RigidPhysicsFunc
 	DrawFrame:            g.drawFrame,
 	CaptureFrame:         g.captureFrame,
 	ScreenshotDir:        g.screenshotDir,
+	ProjectDir:           g.projectDir, // optional confined root for compare_to PNGs
 	ScreenshotBackground: core.RGB(0x0f172a),
+
+	// State values & bounded slog capture (#1744)
+	StateValues: func() map[string]any { return map[string]any{"score": g.score} },
+	Log:         &mcp.LogConfig{}, // installs tee slog.Handler on slog.Default() while attached
 
 	// Debug tunables & console (#466)
 	Console: g.console, // or ConsoleFunc: func() *gamedebug.Console
@@ -94,6 +99,8 @@ All MCP tools strictly refuse unknown JSON argument fields.
 | `game_entity_inspect` | `ref` (req) | One live entity's `ref`, `index`, `generation`, `name`, `layer`, `tags`, `parent`, `children` refs and all readable `components` values |
 | `game_component_get` | `ref` (req), `component` (req) | Serialized `value` of one component on a live entity |
 | `game_state_dump` | `{}` | Deterministic state dump (`version`, `rate`, `steps`, `game_time_seconds`, `scene`, `entities`, `values` from `Config.StateValues`, and canonical `statedump` `yaml`) |
+| `game_state_capture` | `name` (req), `values` (opt key list), `include_yaml` (opt bool, default `false`) | Runs `statedump.Capture` and stores canonical YAML in memory under `name` (bounded count/bytes with FIFO eviction); returns capture summary |
+| `game_state_diff` | `from` (req), `to` (opt; defaults to live state), `paths` (opt dot-path prefixes) | Returns `statedump.Diff` unified YAML diff, `equal`, `steps_delta`, `scene_changed`, `changed_entities`/`added_entities`/`removed_entities`/`modified_entities`, per-entity `entity_changes`, and `value_changes` |
 
 Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityRef` / `mcp.ParseEntityRef`). Stale references to destroyed or recycled slots return a `"not alive"` error.
 
@@ -131,7 +138,7 @@ Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityR
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `game_screenshot` | `scene` (opt), `width`/`height` (opt pair, `1..8192`), `format` (`"png"`), `path` (opt relative path inside `ScreenshotDir`), top-level booleans or `overlays` object (`bounds`, `collision_shapes` / `physics`, `grid`, `grid_step`, `camera`, `labels`) | Captures the game view as PNG (`png_base64` or written `path`), with `width`, `height`, `bytes` and `overlays_drawn` counts |
+| `game_screenshot` | `scene` (opt), `width`/`height` (opt pair, `1..8192`), `format` (`"png"`), `path` (opt relative path inside `ScreenshotDir`), `baseline` (opt name), `compare_to` (opt baseline name or relative `.png`), `tolerance` (`0..255`), `max_mismatched_pixels`, `max_mismatched_percent`, `diff_path`, `include_diff_image`, top-level booleans or `overlays` object (`bounds`, `collision_shapes` / `physics`, `grid`, `grid_step`, `camera`, `labels`) | Captures the game view as PNG (`png_base64` or written `path`), with `width`, `height`, `bytes`, `overlays_drawn`, optional saved `baseline`, and optional `comparison` (`changed_pixels`, `exact_changed_pixels`, `changed_percent`, `gametest_match`, `within_tolerance`, `changed_bounds`, `changed_regions`, and optional diff PNG) |
 
 ### 6. Debug tunables and console commands
 
@@ -169,6 +176,25 @@ Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityR
 | `game_assets_list` | `group` (opt), `state` (`"loaded"` \| `"loading"` \| `"unloaded"` \| `"failed"`), `kind` (opt) | Asset groups, states, asset entries (`key`, `kind`, `uri`, `loaded`, `bytes`, `frames`) and `total_bytes` |
 | `game_asset_reload` | `key` (asset name/URI/path, req unless `all: true`), `group` (opt), `all` (opt bool) | Reloads one asset (or all loaded assets) in place; surfaces parse/compile errors cleanly |
 | `game_assets_reload_group` | `group` (req) | Reloads every loaded asset in a group and reports per-asset results and errors |
+
+### 10. Logs and recovered panics
+
+| Tool | Arguments | Returns |
+| --- | --- | --- |
+| `game_log_read` | `since` (opt cursor), `level` (opt min level), `contains` (opt substring), `limit` (opt `1..1000`, default `100`) | Bounded ring-buffer `slog` entries (`seq`, `time`, `level`, `message`, `attrs`, `source`), `next_cursor`, `dropped`, `missed`, `has_more`/`truncated`, and `last_panic` recorded by `pkg/tooling/gamedebug` |
+
+## Recipe: check your change
+
+After editing gameplay code, scenes, or tunables, verify both intended and unintended side effects in five calls:
+
+1. **Capture baseline:** call `game_loop_pause`, `game_state_capture` (`{"name": "before"}`), `game_screenshot` (`{"baseline": "before"}`), and note `next_cursor` from `game_log_read` (`{}`).
+2. **Act:** inject input (`game_input_action`, `game_input_axis`, `game_input_pointer`) or mutate a tunable/component.
+3. **Step:** advance an exact step count with `game_loop_step` (`{"count": 10}`).
+4. **Capture after:** call `game_state_capture` (`{"name": "after"}`).
+5. **Diff & inspect logs:**
+   - Call `game_state_diff` (`{"from": "before", "to": "after"}`, or with `"paths": ["entities"]`) to verify only the expected entities and fields changed.
+   - Call `game_screenshot` (`{"compare_to": "before", "diff_path": "diff.png"}`) to check `changed_pixels`, `changed_regions`, `gametest_match`, and `within_tolerance`.
+   - Call `game_log_read` (`{"since": <cursor>, "level": "warn"}`) to catch any new warnings, errors, or `last_panic`.
 
 ## Headless verification in `nsgotest`
 
