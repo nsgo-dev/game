@@ -8,11 +8,11 @@ Games built with `game/gameui` had primitives (`Panel`, `VBox`, `HBox`, `Button`
 
 ## Decision
 
-`game/gameui` provides `SettingsMenu` (`packages/game/gameui/settings_menu.go` and `packages/game/gameui/settings_bindings.go`), a ready-to-use five-tab settings screen wired directly to `save.Settings` and `save.DefaultSettingsStore`, and integrated into `examples/caverun` (`examples/caverun/settings.go`).
+`game/gameui` provides `SettingsMenu` (`pkg/gameui/settings_menu.go` and `pkg/gameui/settings_bindings.go`), a ready-to-use five-tab settings screen wired directly to `save.Settings`, `save.DefaultSettingsStore`, and `screen.Video`, and integrated into `examples/caverun` (`examples/caverun/settings.go`).
 
 ### Structure and persistence contract
 
-- `SettingsMenu` organizes controls into five tabs (`SettingsTabAudio`, `SettingsTabVideo`, `SettingsTabControls`, `SettingsTabLanguage`, `SettingsTabAccessibility`) over a persistent header, tab bar, active content panel, and footer (`Apply`, `Save`, `Reset`, `Back`).
+- `SettingsMenu` organizes controls into five tabs (`SettingsTabAudio`, `SettingsTabVideo`, `SettingsTabControls`, `SettingsTabLanguage`, `SettingsTabAccessibility`) over a persistent header, tab bar, active content panel, and footer (`Apply`, `Save`, `Reset`, `Back`). In the Video tab, VSync is hidden by default (`SettingsMenuConfig.ShowVSync`) because NSGo v0.3.4 exposes no swap-interval control, and Resolution is hidden on phones, tablets, and the web when `SettingsMenuConfig.Env` is supplied (or `HideResolution` is set); windowed resolution is applied through `screen.Video.ApplyResolution` via `SettingsMenuConfig.Video` or `ApplySettingsResolution` (see [Settings Video tab resolution and VSync](../bug-fix/2026-11-28-settings-video-resolution-vsync.md)).
 - All standard fields map directly onto `save.Settings` (`Audio`, `Display`, `Bindings`, `Locale`, `Accessibility`). Because `game/save` is a `Stable` package, the two menu-level preferences without dedicated fields on `save.DisplaySettings` / `save.AccessibilitySettings` — selected resolution ID and flash-reduction toggle — are stored in `save.Settings.Custom` under `SettingsCustomResolution` (`"resolution"`) and `SettingsCustomReduceFlashes` (`"reduce_flashes"`), with typed accessors (`SettingsResolutionFrom`, `SetSettingsResolution`, `SettingsReduceFlashesFrom`, `SetSettingsReduceFlashes`).
 - When `SettingsMenuConfig.Store` is set, `NewSettingsMenu` loads from `Store` only when `Store.Exists()` is true; otherwise it starts from `Initial` or `Defaults`, so game-specific defaults (such as Cave Run's `integerScale: true` from `game.yaml`) are not overwritten by `save.DefaultSettings()` before the player saves for the first time.
 

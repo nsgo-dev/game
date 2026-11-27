@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/quality"
@@ -30,7 +31,7 @@ type SettingsTab uint8
 const (
 	// SettingsTabAudio edits mute, master volume, and audio bus volumes.
 	SettingsTabAudio SettingsTab = iota
-	// SettingsTabVideo edits window mode, resolution, scale mode, integer scale, quality preset, VSync, and frame cap.
+	// SettingsTabVideo edits window mode, resolution (on desktop), scale mode, integer scale, quality preset, frame cap, and (when enabled via ShowVSync) VSync.
 	SettingsTabVideo
 	// SettingsTabControls edits keyboard and gamepad action bindings with capture and reset.
 	SettingsTabControls
@@ -313,6 +314,45 @@ func SetSettingsResolution(s *save.Settings, id string) {
 	s.Custom[SettingsCustomResolution] = raw
 }
 
+// ParseSettingsResolution parses a persisted resolution ID (such as "1280x720", "1280×720",
+// "native", or "") into target dimensions in points. "native" and "" return (0, 0, true).
+func ParseSettingsResolution(id string) (width, height int, ok bool) {
+	s := strings.ToLower(strings.TrimSpace(id))
+	if s == "" || s == "native" {
+		return 0, 0, true
+	}
+	s = strings.ReplaceAll(s, "×", "x")
+	parts := strings.Split(s, "x")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	w, errW := strconv.Atoi(strings.TrimSpace(parts[0]))
+	h, errH := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if errW != nil || errH != nil || w <= 0 || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// ApplySettingsResolution reads the persisted resolution ID from s.Custom["resolution"],
+// resolves its dimensions against resolutions (falling back to ParseSettingsResolution),
+// and applies it to v via v.ApplyResolution. A nil v is a no-op.
+func ApplySettingsResolution(v *screen.Video, s save.Settings, resolutions ...SettingsResolution) {
+	if v == nil {
+		return
+	}
+	id := SettingsResolutionFrom(s)
+	for _, r := range resolutions {
+		if r.ID == id {
+			v.ApplyResolution(core.Points(r.Width), core.Points(r.Height))
+			return
+		}
+	}
+	if w, h, ok := ParseSettingsResolution(id); ok {
+		v.ApplyResolution(core.Points(w), core.Points(h))
+	}
+}
+
 // SettingsReduceFlashesFrom reads the flash-reduction flag from s.Custom["reduce_flashes"].
 func SettingsReduceFlashesFrom(s save.Settings) bool {
 	if len(s.Custom) == 0 {
@@ -347,6 +387,10 @@ type SettingsMenuConfig struct {
 	Store *save.DefaultSettingsStore
 	// Targets optionally receives validated settings via save.Apply when Apply or Save is called.
 	Targets save.SettingsTargets
+	// Video optionally receives the selected windowed resolution via ApplySettingsResolution whenever Apply or Save runs.
+	Video *screen.Video
+	// Env optionally supplies the platform environment so the Video tab hides controls that cannot apply on the current platform (hiding Window Mode where screen.CanFullScreen is false and hiding Resolution where screen.SupportsWindowResolution is false) and keeps Window Mode synchronized with Env.FullScreen. When nil, desktop capabilities are assumed unless HideResolution is set.
+	Env *core.Env
 	// Initial supplies starting settings when Store is nil (or if Store.Load fails).
 	Initial *save.Settings
 	// Defaults supplies baseline settings restored by Reset.
@@ -356,6 +400,10 @@ type SettingsMenuConfig struct {
 	AudioBuses []SettingsAudioBus
 	// Resolutions configures selectable resolutions in the Video tab (defaults to Native, 960x540, 1280x720, 1920x1080).
 	Resolutions []SettingsResolution
+	// HideResolution omits the Resolution row from the Video tab even on desktop or when Env is nil.
+	HideResolution bool
+	// ShowVSync includes the VSync toggle in the Video tab. False by default because NSGo v0.3.4 does not yet expose swap-interval control; enable only when wiring save.DisplaySettings.VSync to a real backend control.
+	ShowVSync bool
 	// ScaleModes configures scale mode options in the Video tab (defaults to fit, fill, stretch, expand).
 	ScaleModes []SettingsOptionItem
 	// QualityPresets configures quality preset options in the Video tab (defaults to auto, low, medium, high).
@@ -376,8 +424,6 @@ type SettingsMenuConfig struct {
 	Theme *Theme
 	// Viewport optionally attaches virtual-resolution scaling to the menu's Root.
 	Viewport *Viewport
-	// Env optionally supplies the platform environment so SettingsMenu hides Window Mode where the platform cannot enter full screen (screen.CanFullScreen) and keeps Window Mode synchronized with Env.FullScreen.
-	Env *core.Env
 
 	// AutoApply dispatches Targets and OnApply immediately whenever any control changes.
 	AutoApply bool
@@ -404,11 +450,15 @@ type SettingsMenuConfig struct {
 type SettingsMenu struct {
 	store     *save.DefaultSettingsStore
 	targets   save.SettingsTargets
+	video     *screen.Video
 	defaults  save.Settings
 	settings  save.Settings
 	savedSnap save.Settings
 	dirty     bool
 	lastErr   error
+
+	showResolution bool
+	showVSync      bool
 
 	audioBuses      []SettingsAudioBus
 	resolutions     []SettingsResolution
@@ -503,9 +553,13 @@ type SettingsMenu struct {
 
 // NewSettingsMenu constructs a SettingsMenu wired to cfg and ready to draw and receive input.
 func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
+	showRes := !cfg.HideResolution && (cfg.Env == nil || screen.SupportsWindowResolution(cfg.Env))
 	m := &SettingsMenu{
 		store:              cfg.Store,
 		targets:            cfg.Targets,
+		video:              cfg.Video,
+		showResolution:     showRes,
+		showVSync:          cfg.ShowVSync,
 		text:               resolveSettingsText(cfg.Text),
 		userTheme:          cfg.Theme,
 		autoApply:          cfg.AutoApply,
@@ -1058,31 +1112,39 @@ func (m *SettingsMenu) buildVideoTab() {
 		m.cycleHandlers[m.windowModeBtn] = stepWindowMode
 	}
 
-	stepResolution := func(delta int) {
-		if len(m.resolutions) == 0 {
-			return
-		}
-		cur := SettingsResolutionFrom(m.settings)
-		idx := 0
-		for i, r := range m.resolutions {
-			if r.ID == cur {
-				idx = i
-				break
+	controls := make([]Widget, 0, 7)
+	if m.windowModeBtn != nil {
+		controls = append(controls, m.windowModeBtn)
+	}
+
+	if m.showResolution {
+		stepResolution := func(delta int) {
+			if len(m.resolutions) == 0 {
+				return
+			}
+			cur := SettingsResolutionFrom(m.settings)
+			idx := 0
+			for i, r := range m.resolutions {
+				if r.ID == cur {
+					idx = i
+					break
+				}
+			}
+			next := (idx + delta + len(m.resolutions)) % len(m.resolutions)
+			chosen := m.resolutions[next]
+			SetSettingsResolution(&m.settings, chosen.ID)
+			m.onSettingMutated()
+			if m.onResolutionChange != nil {
+				m.onResolutionChange(chosen)
 			}
 		}
-		next := (idx + delta + len(m.resolutions)) % len(m.resolutions)
-		chosen := m.resolutions[next]
-		SetSettingsResolution(&m.settings, chosen.ID)
-		m.onSettingMutated()
-		if m.onResolutionChange != nil {
-			m.onResolutionChange(chosen)
+		m.resolutionBtn = &Button{
+			Height:  30,
+			OnClick: func() { stepResolution(1) },
 		}
+		m.cycleHandlers[m.resolutionBtn] = stepResolution
+		controls = append(controls, m.resolutionBtn)
 	}
-	m.resolutionBtn = &Button{
-		Height:  30,
-		OnClick: func() { stepResolution(1) },
-	}
-	m.cycleHandlers[m.resolutionBtn] = stepResolution
 
 	stepScaleMode := func(delta int) {
 		if len(m.scaleModes) == 0 {
@@ -1098,6 +1160,7 @@ func (m *SettingsMenu) buildVideoTab() {
 		OnClick: func() { stepScaleMode(1) },
 	}
 	m.cycleHandlers[m.scaleModeBtn] = stepScaleMode
+	controls = append(controls, m.scaleModeBtn)
 
 	m.integerScaleTog = &Toggle{
 		Label:  m.text.IntegerScale,
@@ -1111,6 +1174,7 @@ func (m *SettingsMenu) buildVideoTab() {
 			m.onSettingMutated()
 		},
 	}
+	controls = append(controls, m.integerScaleTog)
 
 	stepQuality := func(delta int) {
 		if len(m.qualityPresets) == 0 {
@@ -1126,18 +1190,22 @@ func (m *SettingsMenu) buildVideoTab() {
 		OnClick: func() { stepQuality(1) },
 	}
 	m.cycleHandlers[m.qualityBtn] = stepQuality
+	controls = append(controls, m.qualityBtn)
 
-	m.vsyncToggle = &Toggle{
-		Label:  m.text.VSync,
-		Style:  ToggleSwitch,
-		Height: 30,
-		OnChange: func(v bool) {
-			if m.suppressCallbacks {
-				return
-			}
-			m.settings.Display.VSync = v
-			m.onSettingMutated()
-		},
+	if m.showVSync {
+		m.vsyncToggle = &Toggle{
+			Label:  m.text.VSync,
+			Style:  ToggleSwitch,
+			Height: 30,
+			OnChange: func(v bool) {
+				if m.suppressCallbacks {
+					return
+				}
+				m.settings.Display.VSync = v
+				m.onSettingMutated()
+			},
+		}
+		controls = append(controls, m.vsyncToggle)
 	}
 
 	stepFrameCap := func(delta int) {
@@ -1157,19 +1225,8 @@ func (m *SettingsMenu) buildVideoTab() {
 		OnClick: func() { stepFrameCap(1) },
 	}
 	m.cycleHandlers[m.frameCapBtn] = stepFrameCap
+	controls = append(controls, m.frameCapBtn)
 
-	controls := make([]Widget, 0, 7)
-	if m.windowModeBtn != nil {
-		controls = append(controls, m.windowModeBtn)
-	}
-	controls = append(controls,
-		m.resolutionBtn,
-		m.scaleModeBtn,
-		m.integerScaleTog,
-		m.qualityBtn,
-		m.vsyncToggle,
-		m.frameCapBtn,
-	)
 	m.tabPanels[SettingsTabVideo] = &VBox{
 		Spacing:  6,
 		Align:    AlignStretch,
@@ -1495,25 +1552,29 @@ func (m *SettingsMenu) syncWidgets() {
 		m.windowModeBtn.Text = fmt.Sprintf("%s: < %s >", m.text.WindowMode, winLabel)
 	}
 
-	resID := SettingsResolutionFrom(m.settings)
-	resLabel := resID
-	for _, r := range m.resolutions {
-		if r.ID == resID {
-			resLabel = r.Label
-			break
+	if m.resolutionBtn != nil {
+		resID := SettingsResolutionFrom(m.settings)
+		resLabel := resID
+		for _, r := range m.resolutions {
+			if r.ID == resID {
+				resLabel = r.Label
+				break
+			}
 		}
+		if resLabel == "" && len(m.resolutions) > 0 {
+			resLabel = m.resolutions[0].Label
+		}
+		m.resolutionBtn.Text = fmt.Sprintf("%s: < %s >", m.text.Resolution, resLabel)
 	}
-	if resLabel == "" && len(m.resolutions) > 0 {
-		resLabel = m.resolutions[0].Label
-	}
-	m.resolutionBtn.Text = fmt.Sprintf("%s: < %s >", m.text.Resolution, resLabel)
 
 	m.scaleModeBtn.Text = fmt.Sprintf("%s: < %s >", m.text.ScaleMode, optionLabel(m.scaleModes, m.settings.Display.ScaleMode))
 	m.integerScaleTog.Label = m.text.IntegerScale
 	m.integerScaleTog.Checked = m.settings.Display.IntegerScale
 	m.qualityBtn.Text = fmt.Sprintf("%s: < %s >", m.text.QualityPreset, optionLabel(m.qualityPresets, m.settings.Display.Quality))
-	m.vsyncToggle.Label = m.text.VSync
-	m.vsyncToggle.Checked = m.settings.Display.VSync
+	if m.vsyncToggle != nil {
+		m.vsyncToggle.Label = m.text.VSync
+		m.vsyncToggle.Checked = m.settings.Display.VSync
+	}
 
 	capLabel := m.text.Uncapped
 	if m.settings.Display.FrameCap > 0 {
@@ -1801,13 +1862,16 @@ func (m *SettingsMenu) ResetControls() {
 	m.statusLabel.Text = m.text.ResetStatus
 }
 
-// Apply validates the working settings and dispatches them to Targets and OnApply.
+// Apply validates the working settings and dispatches them to Targets, Video (for resolution), and OnApply.
 func (m *SettingsMenu) Apply() error {
 	m.settings.Validate()
 	snap := m.Settings()
 	var errs []error
 	if err := save.Apply(snap, m.targets); err != nil {
 		errs = append(errs, err)
+	}
+	if m.video != nil {
+		ApplySettingsResolution(m.video, snap, m.resolutions...)
 	}
 	if m.onApply != nil {
 		if err := m.onApply(snap); err != nil {
@@ -1824,7 +1888,7 @@ func (m *SettingsMenu) Apply() error {
 }
 
 // Save validates the working settings, persists them through Store (when configured),
-// applies them to Targets/OnApply, and invokes OnSave.
+// applies them to Targets/Video/OnApply, and invokes OnSave.
 func (m *SettingsMenu) Save() error {
 	m.settings.Validate()
 	snap := m.Settings()
@@ -1836,6 +1900,9 @@ func (m *SettingsMenu) Save() error {
 	}
 	if err := save.Apply(snap, m.targets); err != nil {
 		errs = append(errs, err)
+	}
+	if m.video != nil {
+		ApplySettingsResolution(m.video, snap, m.resolutions...)
 	}
 	if m.onApply != nil {
 		if err := m.onApply(snap); err != nil {
