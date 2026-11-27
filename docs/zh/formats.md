@@ -1532,6 +1532,9 @@ leaderboards:
   - name: high-score
     gameCenter: dev.nsgo.game.example.high_score
     playGames: CgkI6v7z8vQREAIQAQ
+    miniGame:
+      key: best
+      order: desc
 ```
 
 <!-- format: online/liveops#reminders -->

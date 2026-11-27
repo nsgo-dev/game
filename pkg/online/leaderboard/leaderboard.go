@@ -3,7 +3,7 @@ package leaderboard
 import (
 	"errors"
 	"fmt"
-	"slices"
+	"sync"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gameservices"
@@ -38,9 +38,9 @@ const (
 var (
 	// ErrUnknownLeaderboard means the name is not declared in the catalog. It is reported on every platform, so a misspelt name shows up while developing on a desktop without a game service.
 	ErrUnknownLeaderboard = errors.New("leaderboard: unknown leaderboard")
-	// ErrNoPlatformID means the board is declared but has no ID for the game service of the platform the game runs on.
+	// ErrNoPlatformID means the board is declared but has no ID or storage entry for the game service of the platform the game runs on.
 	ErrNoPlatformID = errors.New("leaderboard: no ID for this platform's game service")
-	// ErrUnsupported means the platform has no game service the game can reach (Windows, Linux, the web, watchOS, mini programs, or a device without Game Center or Play Games).
+	// ErrUnsupported means the platform has no game service the game can reach (Windows, Linux, the web, watchOS, simulated OS builds without a mini-game host, or a device without Game Center or Play Games), or the operation is unsupported by the current provider (such as Scores on ProviderMiniGame).
 	ErrUnsupported = gameservices.ErrUnsupported
 	// ErrUnavailable means the platform's game service could not be reached or is not enabled.
 	ErrUnavailable = gameservices.ErrUnavailable
@@ -50,7 +50,7 @@ var (
 	ErrCancelled = gameservices.ErrCancelled
 )
 
-// Provider names a platform game service a Board can carry an ID for.
+// Provider names a platform game service a Board can carry an ID or storage entry for.
 type Provider uint8
 
 const (
@@ -60,22 +60,35 @@ const (
 	ProviderGameCenter
 	// ProviderPlayGames is Google Play Games Services on Android.
 	ProviderPlayGames
+	// ProviderMiniGame is WeChat or Douyin mini-game friend rankings backed by host user cloud storage and the open data context.
+	ProviderMiniGame
 )
 
-// String returns the provider's catalog key: "gameCenter", "playGames" or "none".
+// String returns the provider's catalog key: "gameCenter", "playGames", "miniGame" or "none".
 func (p Provider) String() string {
 	switch p {
 	case ProviderGameCenter:
 		return "gameCenter"
 	case ProviderPlayGames:
 		return "playGames"
+	case ProviderMiniGame:
+		return "miniGame"
 	}
 	return "none"
 }
 
-// ProviderFor returns the game service NSGo's gameservices package talks to on os: Game Center on macOS and iOS (which covers iPadOS and tvOS), Play Games on Android, and ProviderNone elsewhere.
-func ProviderFor(os core.OS) Provider {
-	switch os {
+// ProviderFor returns the leaderboard provider for env: ProviderMiniGame inside a mini program host (CanSignInMiniProgram), ProviderNone when env is nil or Simulated (such as a web build run with --nsgo-os ios), ProviderGameCenter on native macOS and iOS (which covers iPadOS and tvOS), ProviderPlayGames on native Android, and ProviderNone elsewhere.
+func ProviderFor(env *core.Env) Provider {
+	if env == nil {
+		return ProviderNone
+	}
+	if env.CanSignInMiniProgram() {
+		return ProviderMiniGame
+	}
+	if env.Simulated() {
+		return ProviderNone
+	}
+	switch env.OS() {
 	case core.OSMacOS, core.OSIOS:
 		return ProviderGameCenter
 	case core.OSAndroid:
@@ -94,52 +107,73 @@ type Query struct {
 	Limit int
 }
 
-// Service submits scores to and shows the leaderboards a Catalog declares, through NSGo's gameservices package and so through Game Center or Play Games. Every callback runs on the engine goroutine, after the call that started it has returned, so it may update signals and views directly.
+// Service submits scores to and shows the leaderboards a Catalog declares, through NSGo's gameservices package (Game Center or Play Games) or a mini-game host's friend cloud storage and open data context (WeChat and Douyin). Every callback runs on the engine goroutine, after the call that started it has returned, so it may update signals and views directly.
 type Service struct {
-	cx      *core.Scope
-	catalog Catalog
-	player  *core.Signal[Player]
+	cx       *core.Scope
+	catalog  Catalog
+	player   *core.Signal[Player]
+	miniHost MiniGameHost
+
+	bestMu   sync.Mutex
+	miniBest map[string]int64
 }
 
-// New validates c and returns a Service bound to cx, which keeps its own copy of the catalog. The service starts signed out; call SignIn before submitting scores.
-func New(cx *core.Scope, c *Catalog) (*Service, error) {
+// New validates c and returns a Service bound to cx, which keeps its own copy of the catalog. The service starts signed out; on Game Center and Play Games call SignIn before submitting scores. Pass Option values such as WithMiniGameHost to override the mini-game host in tests.
+func New(cx *core.Scope, c *Catalog, opts ...Option) (*Service, error) {
 	if cx == nil {
 		return nil, errors.New("leaderboard: nil scope")
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	var cfg serviceConfig
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
 	return &Service{
-		cx:      cx,
-		catalog: Catalog{Version: c.Version, Leaderboards: slices.Clone(c.Leaderboards)},
-		player:  core.NewSignal(cx, Player{}),
+		cx:       cx,
+		catalog:  Catalog{Version: c.Version, Leaderboards: cloneBoards(c.Leaderboards)},
+		player:   core.NewSignal(cx, Player{}),
+		miniHost: cfg.miniHost,
+		miniBest: make(map[string]int64),
 	}, nil
 }
 
-// Catalog returns a copy of the catalog the service was built from.
+// Catalog returns a deep copy of the catalog the service was built from.
 func (s *Service) Catalog() *Catalog {
-	return &Catalog{Version: s.catalog.Version, Leaderboards: slices.Clone(s.catalog.Leaderboards)}
+	return &Catalog{Version: s.catalog.Version, Leaderboards: cloneBoards(s.catalog.Leaderboards)}
 }
 
 // Provider returns the game service of the platform the game runs on, whether or not it is reachable.
 func (s *Service) Provider() Provider {
-	return ProviderFor(core.Untracked(s.cx, s.cx.Env().OS))
+	return core.Untracked(s.cx, func() Provider { return ProviderFor(s.cx.Env()) })
 }
 
 // Available reports whether the platform's game service can be used here. It reads the environment reactively, so a view that calls it updates when that changes.
 func (s *Service) Available() bool {
-	return s.cx.Env().CanUseGameServices() && s.Provider() != ProviderNone
+	env := s.cx.Env()
+	switch ProviderFor(env) {
+	case ProviderGameCenter, ProviderPlayGames:
+		return env.CanUseGameServices()
+	case ProviderMiniGame:
+		return s.miniGameHost() != nil
+	default:
+		return false
+	}
 }
 
-// Supports reports whether the board name can be submitted to and shown here: the service is Available and the board has an ID for this platform. Like Available it reads reactively.
+// Supports reports whether the board name can be submitted to and shown here: the service is Available and the board has an entry for this platform. Like Available it reads reactively.
 func (s *Service) Supports(name string) bool {
-	_, err := s.resolve(name, s.Available())
+	_, _, err := s.resolveBoard(name, s.Available())
 	return err == nil
 }
 
-// ID returns the platform ID of the board name, or ErrUnknownLeaderboard, ErrUnsupported or ErrNoPlatformID (checked in that order).
+// ID returns the platform ID (or mini-game cloud storage key) of the board name, or ErrUnknownLeaderboard, ErrUnsupported or ErrNoPlatformID (checked in that order).
 func (s *Service) ID(name string) (string, error) {
-	return s.resolveNow(name)
+	_, id, err := s.resolveBoardNow(name)
+	return id, err
 }
 
 // Player returns the signed-in player, or the zero Player while signed out. It reads a signal, so a view that calls it updates on sign-in and sign-out.
@@ -162,6 +196,10 @@ func (s *Service) SignIn(done func(Player, error)) {
 		})
 		return
 	}
+	if s.Provider() == ProviderMiniGame {
+		s.signInMiniGame(done)
+		return
+	}
 	gameservices.Authenticate(s.cx, func(p Player, err error) {
 		if err == nil && !p.Authenticated {
 			// A backend that answers nil without a player has not signed anyone in.
@@ -179,11 +217,15 @@ func (s *Service) SignIn(done func(Player, error)) {
 	})
 }
 
-// Submit sends score to the board name for the signed-in player and calls done with the result; done may be nil. The platform keeps each player's best score by the board's own sort order, so a game can submit every finished run. A board the catalog does not declare, a platform without a game service or a board without an ID here fail through done without reaching the platform.
+// Submit sends score to the board name for the signed-in player and calls done with the result; done may be nil. On Game Center and Play Games the platform keeps each player's best score by the board's own sort order; on ProviderMiniGame Service writes through host user cloud storage only when score improves on the player's previous best for the board's Order. A board the catalog does not declare, a platform without a game service or a board without an entry here fail through done without reaching the platform.
 func (s *Service) Submit(name string, score int64, done func(error)) {
-	id, err := s.resolveNow(name)
+	b, id, err := s.resolveBoardNow(name)
 	if err != nil {
 		s.fail(err, done)
+		return
+	}
+	if s.Provider() == ProviderMiniGame {
+		s.submitMiniGame(b, score, done)
 		return
 	}
 	gameservices.SubmitScore(s.cx, id, score, func(err error) {
@@ -194,24 +236,61 @@ func (s *Service) Submit(name string, score int64, done func(error)) {
 	})
 }
 
-// Show presents the platform's own leaderboard UI for the board name. It reports ErrUnknownLeaderboard, ErrUnsupported or ErrNoPlatformID instead of silently doing nothing; once it returns nil, what the platform shows (including its sign-in prompt) is up to the platform.
+// Show presents the platform's own leaderboard UI for the board name. On ProviderMiniGame it presents the open data context friend ranking over the full game view; call ShowIn to place it inside a specific rectangle and Hide to remove it. It reports ErrUnknownLeaderboard, ErrUnsupported or ErrNoPlatformID instead of silently doing nothing; once it returns nil on Game Center or Play Games, what the platform shows (including its sign-in prompt) is up to the platform.
 func (s *Service) Show(name string) error {
-	id, err := s.resolveNow(name)
+	return s.show(name, core.Bounds{}, false)
+}
+
+// ShowIn presents the leaderboard UI for name over bounds (in points relative to the game view). On ProviderMiniGame it sizes and positions the open data context friend ranking at bounds (or the full window when bounds.Size is zero). On Game Center and Play Games native sheets are full-screen, so ShowIn behaves like Show.
+func (s *Service) ShowIn(name string, bounds core.Bounds) error {
+	return s.show(name, bounds, true)
+}
+
+func (s *Service) show(name string, bounds core.Bounds, hasBounds bool) error {
+	b, id, err := s.resolveBoardNow(name)
 	if err != nil {
 		return err
+	}
+	if s.Provider() == ProviderMiniGame {
+		return s.showMiniGame(b, bounds, hasBounds)
 	}
 	gameservices.ShowLeaderboard(s.cx, id)
 	return nil
 }
 
-// Scores loads ranked rows of the board name selected by q, for a game that draws its own board, and calls done with them or an error. done must not be nil.
+// Hide removes the open data context friend ranking presented by Show or ShowIn on ProviderMiniGame. On platforms without an available game service it returns ErrUnsupported; on Game Center and Play Games native overlays are dismissed by the player and Hide returns nil.
+func (s *Service) Hide() error {
+	if !s.availableNow() {
+		return ErrUnsupported
+	}
+	if s.Provider() == ProviderMiniGame {
+		return s.miniGameHost().HideFriendRanking()
+	}
+	return nil
+}
+
+// Scores loads ranked rows of the board name selected by q, for a game that draws its own board, and calls done with them or an error. done must not be nil. On ProviderMiniGame, Scores (including Friends) always answers ErrUnsupported because friend cloud storage is isolated inside the open data context and never returned to the game.
 func (s *Service) Scores(name string, q Query, done func([]Entry, error)) {
 	if done == nil {
 		panic("leaderboard: Scores needs a done callback")
 	}
-	id, err := s.resolveNow(name)
-	if err != nil {
-		s.post(func() { done(nil, err) })
+	b, ok := s.catalog.Board(name)
+	if !ok {
+		s.post(func() { done(nil, fmt.Errorf("%w %q", ErrUnknownLeaderboard, name)) })
+		return
+	}
+	if !s.availableNow() {
+		s.post(func() { done(nil, ErrUnsupported) })
+		return
+	}
+	provider := s.Provider()
+	if provider == ProviderMiniGame {
+		s.post(func() { done(nil, ErrUnsupported) })
+		return
+	}
+	id := b.ID(provider)
+	if id == "" {
+		s.post(func() { done(nil, fmt.Errorf("%w: board %q has no %s ID", ErrNoPlatformID, name, provider)) })
 		return
 	}
 	gameservices.LoadScores(s.cx, id, q.Players, q.Time, q.Limit, func(entries []Entry, err error) {
@@ -225,25 +304,26 @@ func (s *Service) availableNow() bool {
 	return core.Untracked(s.cx, s.Available)
 }
 
-// resolveNow maps a catalog name to this platform's ID without subscribing the running computation.
-func (s *Service) resolveNow(name string) (string, error) {
-	return s.resolve(name, s.availableNow())
+// resolveBoardNow maps a catalog name to its Board and platform ID without subscribing the running computation.
+func (s *Service) resolveBoardNow(name string) (Board, string, error) {
+	return s.resolveBoard(name, s.availableNow())
 }
 
-// resolve maps a catalog name to this platform's ID, given whether the game service is available.
-func (s *Service) resolve(name string, available bool) (string, error) {
+// resolveBoard maps a catalog name to its Board and platform ID, given whether the game service is available.
+func (s *Service) resolveBoard(name string, available bool) (Board, string, error) {
 	b, ok := s.catalog.Board(name)
 	if !ok {
-		return "", fmt.Errorf("%w %q", ErrUnknownLeaderboard, name)
+		return Board{}, "", fmt.Errorf("%w %q", ErrUnknownLeaderboard, name)
 	}
 	if !available {
-		return "", ErrUnsupported
+		return Board{}, "", ErrUnsupported
 	}
-	id := b.ID(s.Provider())
+	provider := s.Provider()
+	id := b.ID(provider)
 	if id == "" {
-		return "", fmt.Errorf("%w: board %q has no %s ID", ErrNoPlatformID, name, s.Provider())
+		return Board{}, "", fmt.Errorf("%w: board %q has no %s ID", ErrNoPlatformID, name, provider)
 	}
-	return id, nil
+	return b, id, nil
 }
 
 // noteSignedOut clears the player when the platform reports that nobody is signed in any more.

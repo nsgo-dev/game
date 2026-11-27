@@ -3,7 +3,13 @@ leaderboards:
   - name: high-score
     gameCenter: dev.nsgo.game.example.high_score
     playGames: CgkI6v7z8vQREAIQAQ
+    miniGame:
+      key: best
+      order: desc
   - name: fastest-run
     gameCenter: dev.nsgo.game.example.fastest_run
+    miniGame:
+      key: fastest
+      order: asc
   - name: daily
     playGames: CgkI6v7z8vQREAIQAw
