@@ -9,8 +9,9 @@ import (
 	"github.com/nsgo-dev/game/pkg/undo"
 )
 
-const sampleLog = `version: 1
+const sampleLog = `version: 2
 applied: 2
+forgotten: 0
 moves:
   - dir: right
   - dir: down
@@ -138,7 +139,7 @@ func TestEmptyLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "version: 1\napplied: 0\nmoves: []\n"
+	const want = "version: 2\napplied: 0\nforgotten: 0\nmoves: []\n"
 	if string(data) != want {
 		t.Fatalf("empty log encoded as %q, want %q", data, want)
 	}
@@ -153,7 +154,9 @@ func TestDecodeLogRefuses(t *testing.T) {
 		"empty":           {"  \n", "empty log"},
 		"unknown field":   {"version: 1\napplied: 0\nmoves: []\nseed: 4\n", "seed"},
 		"unknown in move": {"version: 1\napplied: 1\nmoves:\n  - dir: up\n    box: true\n", "box"},
-		"version":         {"version: 2\napplied: 0\nmoves: []\n", "unsupported log version 2"},
+		"version":         {"version: 3\napplied: 0\nmoves: []\n", "unsupported log version 3"},
+		"v1 forgotten":    {"version: 1\napplied: 0\nforgotten: 2\nmoves: []\n", "version 1 records 2 forgotten"},
+		"forgotten below": {"version: 2\napplied: 0\nforgotten: -1\nmoves: []\n", "forgets -1"},
 		"missing version": {"applied: 0\nmoves: []\n", "no version"},
 		"zero version":    {"version: 0\napplied: 0\nmoves: []\n", "unsupported log version 0"},
 		"missing applied": {"version: 1\nmoves:\n  - dir: up\n", "no applied"},
@@ -171,6 +174,61 @@ func TestDecodeLogRefuses(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want one containing %q", name, err, c.want)
 		}
+	}
+}
+
+func TestDecodeLogReadsVersion1(t *testing.T) {
+	const v1 = `version: 1
+applied: 2
+moves:
+  - dir: right
+  - dir: down
+  - dir: down
+`
+	log, err := undo.DecodeLog[*push]([]byte(v1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if log.Forgotten != 0 || log.Applied != 2 || len(log.Moves) != 3 {
+		t.Fatalf("decoded version 1 log as %+v", log)
+	}
+	data, err := undo.EncodeLog(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != sampleLog {
+		t.Fatalf("a version 1 log saved again became\n%s\nwant the current form\n%s", data, sampleLog)
+	}
+}
+
+func TestLogWithForgottenMoves(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *stepBy](&x)
+	h.Limit = 3
+	for i := 1; i <= 5; i++ {
+		h.Do(&stepBy{D: i})
+	}
+	log := h.Log()
+	if log.Forgotten != 2 || log.Applied != 3 || len(log.Moves) != 3 {
+		t.Fatalf("Log after forgetting gave %+v, want 2 forgotten of 3 moves, all applied", log)
+	}
+	data, err := undo.EncodeLog(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := undo.DecodeLog[*stepBy](data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Forgotten != 2 || !reflect.DeepEqual(back, log) {
+		t.Fatalf("forgotten count did not round trip: %+v, want %+v", back, log)
+	}
+	if _, err := undo.Restore(new(int), back); err == nil || !strings.Contains(err.Error(), "forgot 2 moves") {
+		t.Fatalf("Restore of a log with forgotten moves gave %v, want a refusal", err)
+	}
+	h.Clear()
+	if log := h.Log(); log.Forgotten != 0 {
+		t.Fatalf("Log after Clear forgets %d moves, want 0", log.Forgotten)
 	}
 }
 
