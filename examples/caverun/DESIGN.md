@@ -13,19 +13,19 @@
 
 - **Virtual Canvas**: `320×180` logical pixels (16:9 aspect ratio, showing `20×11.25` tiles of `16×16` pixels at a time).
 - **Scaling**: Integer or crisp nearest-neighbor letterboxed fit inside the NSGo window via `screen`, preserving pixel-art edges across macOS, iOS, Windows, Linux, Android, and Web.
-- **Orientation**: the root scope requests landscape (`cx.RequestOrientation(core.OrientationLandscape)`), so an iPhone or Android phone turns sideways and stays there while the game runs. `build.targets` in `nsgo.yaml` does not list iOS, so a plain `nsgo build` makes no iPhone package; build one on a Mac with Xcode with `go tool nsgo build -target ios`, or `-target ios_simulator` for the simulator (CI checks both targets on its macOS runner).
+- **Orientation**: the root scope requests landscape (`cx.RequestOrientation(core.OrientationLandscape)`), so an iPhone or Android phone turns sideways and stays there while the game runs. `build.targets` in `nsgo.yaml` and the export presets in `game.yaml` list iOS, so a plain `nsgo build` on a Mac with Xcode makes an iPhone package too; use `-target ios_simulator` for the simulator (CI checks both targets on its macOS runner).
 - **World & Camera**: `level1.tmj` is `40×14` tiles (`640×224` virtual pixels). The tilemap camera smoothly tracks the explorer with horizontal look-ahead and clamps cleanly to the world bounds.
 - **Fixed Timestep**: `game.Loop` runs physics, collision, enemy patrols, and `sprite.Animation` updates at `60 Hz`, interpolating render positions by `alpha`.
 
 ## 3. Controls
 
-All gameplay inputs are mapped through named `input` actions (`bindControls` in `game.go`) so keyboard, gamepad, touch, and mouse work identically. `input.Actions.WatchKeys` hears held keys anywhere on the window and `WatchGamepads` reads every connected controller; one `Actions.Step` per fixed step samples them all:
+All gameplay inputs are mapped through named `input` actions (`bindControls` in `game.go`) so keyboard, gamepad, and touch work identically. Touch goes through one path: the `input.TouchControls` layer `controls.touch.yaml` declares, a d-pad at the lower left and a large jump button at the lower right, placed in the safe area, drawn over the canvas while the game is played, shown from the start on phones and on a desktop only once the screen is touched, and hidden again by the keyboard or a controller. `input.Actions.WatchKeys` hears held keys anywhere on the window and `WatchGamepads` reads every connected controller; one `Actions.Step` per fixed step samples them all:
 
-| Action | Keyboard | Gamepad | Touch / Mouse |
+| Action | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
-| Move Left | `A`, `←` | D-Pad Left, Left Stick `< -0.3` | On-screen Left button (HUD overlay), lower-left canvas region |
-| Move Right | `D`, `→` | D-Pad Right, Left Stick `> 0.3` | On-screen Right button (HUD overlay), lower-middle canvas region |
-| Jump | `Space`, `W`, `↑`, `Z` | South (`A` / Cross) | On-screen Jump button (HUD overlay), lower-right canvas region |
+| Move Left | `A`, `←` | D-Pad Left, Left Stick `< -0.3` | On-screen d-pad, left |
+| Move Right | `D`, `→` | D-Pad Right, Left Stick `> 0.3` | On-screen d-pad, right |
+| Jump | `Space`, `W`, `↑`, `Z` | South (`A` / Cross) | On-screen Jump button |
 | Start / Play Again | `Enter` (or Jump on the title) | `Start` / Menu | Play / Play Again buttons |
 | Pause / Resume | `Esc`, `P` | `Start` / Menu | Native HUD Pause button |
 | Quick Restart | `R` | `Select` / Back | Pause / End overlay Restart button |
@@ -96,7 +96,7 @@ All audio assets are uncompressed 16-bit mono PCM WAV files at `22050 Hz`, route
 
 Keeping with NSGo's architecture, gameplay renders into a single `core.Canvas` while UI chrome stays native NSGo views overlaid on top:
 
-- **In-Game HUD**: Top-left hearts + collected gem counter (`3/8`), top-center score, top-right Pause button; optional bottom touch controls rendered on touch/mobile viewports.
+- **In-Game HUD**: Top-left hearts + collected gem counter (`3/8`), top-center score, top-right Pause button. The touch controls are not native views: `input.TouchControls` draws them into the game canvas and names them as canvas nodes for screen readers.
 - **Pause Menu**: Semi-transparent native modal pausing `game.Loop` and ducking/pausing music, with **Resume**, **Restart**, **Fireflies** (the stress swarm), and **Music / SFX Volume** controls persisted by `sound.Mixer`. While the swarm is on, the score pill also shows the frame's sprite count (`SPRITES 1012`).
 - **End Overlays**: **Cave Cleared** (score breakdown, gems collected, replay) and **Try Again** (instant restart on 0 hearts).
 
@@ -106,6 +106,6 @@ Keeping with NSGo's architecture, gameplay renders into a single `core.Canvas` w
 - **Stress Swarm**: `swarm.go` adds 1000 fireflies (`swarmSize`) that drift and twinkle over the camera's view, all at the same `Z` and below full opacity, so `sprite.Batch` draws the whole swarm with one `DrawAtlas`. Moving them allocates nothing; NSGo v0.3.0's `Drawing` still copies each image draw's source onto the heap, so the tilemap's tiles allocate on every frame, and the swarm adds the copies for its own `DrawAtlas` and for the second run it splits the level's sprites into (its `Z` sits between the gems and the slimes and explorer). `BenchmarkLevel1000Sprites` measures a step and a step plus the frame's drawing with the swarm on.
 - **Headless Completion Test (`nsgotest`)**:
   1. Boot the `caverun` app in a headless `nsgotest` harness with deterministic fixed-step ticks (`1/60 s`).
-  2. Drive the explorer from `spawn` across Chambers 1–3 using scripted holds/releases (jumping the starter bridge, both lava pits, both slimes, and ascending to the Upper Shrine), once each with the HUD buttons, held keyboard keys, a game controller, and held keys with the 1000-firefly swarm on.
+  2. Drive the explorer from `spawn` across Chambers 1–3 using scripted holds/releases (jumping the starter bridge, both lava pits, both slimes, and ascending to the Upper Shrine), once each with two fingers on the touch controls, held keyboard keys, a game controller, and held keys with the 1000-firefly swarm on.
   3. Assert at least one gem pickup increments score (`+100`) and triggers the `spark` animation, no unhandled panics occur, and reaching `goal` transitions the scene to the Victory state within a bounded step count.
   4. Verify pause/resume freezes simulation time and volume changes propagate cleanly through `sound.Mixer`.

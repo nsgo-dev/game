@@ -15,26 +15,8 @@ display:
 input:
   actions:
     - name: left
-      bindings:
-        - kind: touchRegion
-          region: {"y": 116, width: 72, height: 64}
-        - kind: mouseRegion
-          button: left
-          region: {"y": 116, width: 72, height: 64}
     - name: right
-      bindings:
-        - kind: touchRegion
-          region: {x: 72, "y": 116, width: 72, height: 64}
-        - kind: mouseRegion
-          button: left
-          region: {x: 72, "y": 116, width: 72, height: 64}
     - name: jump
-      bindings:
-        - kind: touchRegion
-          region: {x: 224, "y": 116, width: 96, height: 64}
-        - kind: mouseRegion
-          button: left
-          region: {x: 224, "y": 116, width: 96, height: 64}
   axes:
     - name: move
       negative: left
@@ -55,3 +37,4 @@ export:
     - platform: linux
     - platform: android
     - platform: web
+    - platform: ios

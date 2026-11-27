@@ -16,12 +16,12 @@ func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 const testFrame = 16667 * time.Microsecond
 
-func startCaveRun(t *testing.T) (*nsgotest.App, *caveRun) {
+func startCaveRun(t *testing.T, opts ...nsgotest.Option) (*nsgotest.App, *caveRun) {
 	t.Helper()
 	var g *caveRun
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return rootWithHook(cx, func(c *caveRun) { g = c })
-	}, nsgotest.Size(960, 540), nsgotest.ManualFrames())
+	}, append([]nsgotest.Option{nsgotest.Size(960, 540), nsgotest.ManualFrames()}, opts...)...)
 
 	// Populate test audio durations so audio.LoadSound succeeds cleanly in headless mode.
 	app.AudioDurations = map[string]time.Duration{
@@ -57,34 +57,100 @@ type controls interface {
 	jump(held bool)
 }
 
-// hudControls presses the native HUD's touch buttons.
-type hudControls struct {
-	app                  *nsgotest.App
-	left, right, jumping bool
+// touchControls holds fingers on the on-screen d-pad and jump button, as a player's thumbs do: it reports multi-touch events to the game view as a platform does, since nsgotest's Touch puts down one finger at a time. The move finger rocks between the d-pad's left and right without lifting.
+type touchControls struct {
+	t       testing.TB
+	app     *nsgotest.App
+	g       *caveRun
+	fingers map[int]core.Point
+	dir     int
 }
 
-func (c *hudControls) hold(id string, held *bool, want bool) {
-	if *held == want {
+const (
+	moveFinger = 1
+	jumpFinger = 2
+)
+
+// controlFrame returns where the touch control id is on screen.
+func controlFrame(t testing.TB, g *caveRun, id string) core.Bounds {
+	t.Helper()
+	for _, c := range g.touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
+	}
+	t.Fatalf("no touch control %q", id)
+	return core.Bounds{}
+}
+
+// dpadPoint returns the point on the d-pad that presses dir: -1 left, 1 right.
+func dpadPoint(t testing.TB, g *caveRun, dir int) core.Point {
+	f := controlFrame(t, g, "move")
+	return core.Point{X: f.Origin.X + f.Size.Width/2 + core.Points(dir)*f.Size.Width*0.35, Y: f.Origin.Y + f.Size.Height/2}
+}
+
+func centerOf(f core.Bounds) core.Point {
+	return core.Point{X: f.Origin.X + f.Size.Width/2, Y: f.Origin.Y + f.Size.Height/2}
+}
+
+// report sends the fingers down, with finger id the one that changed, in phase.
+func (c *touchControls) report(phase core.GesturePhase, id int, at core.Point) {
+	touches := []core.Touch{{ID: id, PagePosition: at, Changed: true}}
+	for other, p := range c.fingers {
+		if other != id {
+			touches = append(touches, core.Touch{ID: other, PagePosition: p})
+		}
+	}
+	c.app.Report(nsgotest.Event{Kind: nsgotest.EventTouch, Phase: phase, Touches: touches})
+}
+
+func (c *touchControls) down(id int, at core.Point) {
+	if c.fingers == nil {
+		c.fingers = map[int]core.Point{}
+	}
+	c.report(core.GestureBegan, id, at)
+	c.fingers[id] = at
+}
+
+func (c *touchControls) moveTo(id int, at core.Point) {
+	c.fingers[id] = at
+	c.report(core.GestureChanged, id, at)
+}
+
+func (c *touchControls) up(id int) {
+	at, ok := c.fingers[id]
+	if !ok {
 		return
 	}
-	if !c.app.Exists(id) {
-		*held = false
+	c.report(core.GestureEnded, id, at)
+	delete(c.fingers, id)
+}
+
+func (c *touchControls) move(dir int) {
+	if dir == c.dir {
 		return
 	}
-	if want {
-		c.app.PressDown(id)
+	switch {
+	case dir == 0:
+		c.up(moveFinger)
+	case c.dir == 0:
+		c.down(moveFinger, dpadPoint(c.t, c.g, dir))
+	default:
+		c.moveTo(moveFinger, dpadPoint(c.t, c.g, dir))
+	}
+	c.dir = dir
+}
+
+func (c *touchControls) jump(held bool) {
+	if _, down := c.fingers[jumpFinger]; down == held {
+		return
+	}
+	if held {
+		c.down(jumpFinger, centerOf(controlFrame(c.t, c.g, "jump")))
 	} else {
-		c.app.PressUp(id)
+		c.up(jumpFinger)
 	}
-	*held = want
 }
-
-func (c *hudControls) move(dir int) {
-	c.hold("id:ctrl-left", &c.left, dir < 0)
-	c.hold("id:ctrl-right", &c.right, dir > 0)
-}
-
-func (c *hudControls) jump(held bool) { c.hold("id:ctrl-jump", &c.jumping, held) }
 
 // keyControls holds keys on the keyboard, which input.Actions hears through WatchKeys.
 type keyControls struct {
@@ -133,12 +199,14 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 		name  string
 		swarm bool
 		start func(*testing.T, *nsgotest.App, *caveRun)
-		ctl   func(*nsgotest.App) controls
+		ctl   func(*testing.T, *nsgotest.App, *caveRun) controls
 	}{
-		{name: "hud_buttons", start: startPlaying, ctl: func(app *nsgotest.App) controls { return &hudControls{app: app} }},
-		{name: "keyboard", start: startWithEnter, ctl: func(app *nsgotest.App) controls { return &keyControls{app: app} }},
-		{name: "gamepad", start: startWithGamepad, ctl: func(app *nsgotest.App) controls { return &padControls{app: app} }},
-		{name: "keyboard_1000_fireflies", swarm: true, start: startWithEnter, ctl: func(app *nsgotest.App) controls { return &keyControls{app: app} }},
+		{name: "touch_controls", start: startPlaying, ctl: func(t *testing.T, app *nsgotest.App, g *caveRun) controls {
+			return &touchControls{t: t, app: app, g: g}
+		}},
+		{name: "keyboard", start: startWithEnter, ctl: func(_ *testing.T, app *nsgotest.App, _ *caveRun) controls { return &keyControls{app: app} }},
+		{name: "gamepad", start: startWithGamepad, ctl: func(_ *testing.T, app *nsgotest.App, _ *caveRun) controls { return &padControls{app: app} }},
+		{name: "keyboard_1000_fireflies", swarm: true, start: startWithEnter, ctl: func(_ *testing.T, app *nsgotest.App, _ *caveRun) controls { return &keyControls{app: app} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app, g := startCaveRun(t)
@@ -167,7 +235,7 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 				t.Fatal("the firefly swarm did not carry over from the title screen into the level")
 			}
 
-			driveLevel(t, app, g, tc.ctl(app))
+			driveLevel(t, app, g, tc.ctl(t, app, g))
 			checkVictoryAndReplay(t, app, g, tc.swarm)
 		})
 	}
@@ -383,17 +451,26 @@ func TestHUDAndPauseMenu(t *testing.T) {
 	app, g := startCaveRun(t)
 	startPlaying(t, app, g)
 
-	// Drive movement via input.Actions touch region on id:game-view.
+	// The on-screen d-pad and jump button are drawn over the game, named for screen readers.
+	for _, id := range []string{"id:touch-move", "id:touch-jump"} {
+		if !app.Exists(id) {
+			t.Fatalf("expected %s on the game canvas while playing", id)
+		}
+	}
+	if got := app.Find("id:touch-jump").Props.Label; got != "Jump" {
+		t.Fatalf("jump control label = %q, want %q", got, "Jump")
+	}
+
+	// A finger on the d-pad's right arrow runs right.
 	startX := g.level.playerBody.Bounds().X
-	rightViewPt := g.viewport.GameToView(g.currentViewSize(), core.Point{X: 108, Y: 148})
-	finger := app.Touch("id:game-view", rightViewPt)
+	finger := app.Touch("id:game-view", dpadPoint(t, g, 1))
 	app.Advance(350 * time.Millisecond)
 	finger.Lift()
 	app.Advance(2 * testFrame)
 
 	movedX := g.level.playerBody.Bounds().X
 	if movedX <= startX+15 {
-		t.Fatalf("expected TouchRegion right input to move player: startX=%.1f movedX=%.1f", startX, movedX)
+		t.Fatalf("expected the d-pad's right arrow to move the player: startX=%.1f movedX=%.1f", startX, movedX)
 	}
 
 	// Press Pause button -> pause menu appears and gameplay stops stepping.
@@ -490,16 +567,17 @@ func TestHazardDamageAndGameOver(t *testing.T) {
 
 		// Walk right over the Chamber 1 step ledge and straight into Lava Pit 1 (cols 12..15).
 		// Hop once onto the row 11 ledge (cols 10..11), then walk off into lava!
-		app.PressDown("id:ctrl-right")
+		touch := &touchControls{t: t, app: app, g: g}
+		touch.move(1)
 		var sawShake bool
 		jumpedStep := false
 
 		for i := 0; i < 600 && g.phase.Get() == phasePlaying; i++ {
 			pb := g.level.playerBody.Bounds()
 			if !jumpedStep && pb.X >= 132 && g.level.wasGrounded {
-				app.PressDown("id:ctrl-jump")
+				touch.jump(true)
 				app.Advance(3 * testFrame)
-				app.PressUp("id:ctrl-jump")
+				touch.jump(false)
 				jumpedStep = true
 				continue
 			}
@@ -509,20 +587,16 @@ func TestHazardDamageAndGameOver(t *testing.T) {
 				if off.X != 0 || off.Y != 0 {
 					sawShake = true
 				}
-				if app.Exists("id:ctrl-right") {
-					app.PressUp("id:ctrl-right")
-				}
+				touch.move(0)
 				app.Advance(g.level.invulnTimer + 2*testFrame)
-				if g.phase.Get() == phasePlaying && app.Exists("id:ctrl-right") {
-					app.PressDown("id:ctrl-right")
+				if g.phase.Get() == phasePlaying {
+					touch.move(1)
 				}
 				continue
 			}
 			app.Advance(testFrame)
 		}
-		if app.Exists("id:ctrl-right") {
-			app.PressUp("id:ctrl-right")
-		}
+		touch.move(0)
 		app.Advance(250 * time.Millisecond)
 
 		if !sawShake {
