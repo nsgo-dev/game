@@ -1691,7 +1691,7 @@ strings:
   toolbar.revert: Revert
   toolbar.rotate: Rotate
   toolbar.run: Run
-  toolbar.runLabel: Run the game with go tool game dev (F5)
+  toolbar.runLabel: Run the game with go tool game dev
   toolbar.save: Save
   toolbar.saveAs: Save As…
   toolbar.scale: Scale

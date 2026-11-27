@@ -85,7 +85,7 @@ func (e *Editor) GameRunning() bool {
 	return e.gameRun.active != nil
 }
 
-// RunStartAtOpenScene reports whether RunGame (and the toolbar Run button / F5 shortcut) starts the game at the currently open scene when one is open inside the project.
+// RunStartAtOpenScene reports whether RunGame (and the toolbar Run button / Run Game shortcut) starts the game at the currently open scene when one is open inside the project.
 func (e *Editor) RunStartAtOpenScene() bool {
 	if e == nil {
 		return false
