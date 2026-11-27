@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -297,9 +298,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.loadAgentDocsForProject(filepath.Dir(path))
 	e.resetHistoryPanelForProject()
 	e.resetAgentTurnForProject()
-	e.Status = "Opened project " + path
+	e.Status = e.T("status.openedProject", l10n.Param("path", path))
 	if missing := e.MissingPlugins(); len(missing) > 0 {
-		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
+		e.Status += "; " + e.T("status.missingPlugins", l10n.Param("plugins", strings.Join(missing, ", ")))
 	}
 	e.merge.open = false
 	e.merge.session = nil
@@ -311,7 +312,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.RefreshChangesCount()
 	if conflictedScene != "" {
 		if merr := e.OpenMergeConflict(conflictedScene); merr != nil {
-			e.Status = "Opened project " + path + "; " + merr.Error()
+			e.Status = e.T("status.openedProject", l10n.Param("path", path)) + "; " + merr.Error()
 		}
 	}
 	e.notify()

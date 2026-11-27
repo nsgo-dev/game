@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -58,21 +59,25 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				}
 
 				totalItems := len(snap.Changes) + len(snap.Deletions)
-				keepLabel := fmt.Sprintf("Keep %d of %d", unkeptRegular, activeRegular)
+				keepLabel := ed.T("agentReview.keepOf", l10n.Param("unkept", unkeptRegular), l10n.Param("active", activeRegular))
 				if unkeptRegular == 0 && confirmedDels > 0 {
-					keepLabel = fmt.Sprintf("Delete %d", confirmedDels)
+					keepLabel = ed.T("agentReview.deleteCount", l10n.Param("count", confirmedDels))
 				} else if confirmedDels > 0 {
-					keepLabel = fmt.Sprintf("Keep %d and delete %d", unkeptRegular, confirmedDels)
+					keepLabel = ed.T("agentReview.keepAndDelete", l10n.Param("keep", unkeptRegular), l10n.Param("delete", confirmedDels))
 				} else if unkeptRegular == 0 {
-					keepLabel = "Keep all"
+					keepLabel = ed.T("agentReview.keepAll")
 				}
 
-				subHeader := fmt.Sprintf("%d CHANGES · %d FILES", totalItems, totalItems)
-				if totalItems == 1 {
-					subHeader = "1 CHANGE · 1 FILE"
-				}
-				if snap.Prompt != "" {
-					subHeader += fmt.Sprintf(" · from “%s”", snap.Prompt)
+				var subHeader string
+				switch {
+				case totalItems == 1 && snap.Prompt != "":
+					subHeader = ed.T("agentReview.subheaderOneFrom", l10n.Param("prompt", snap.Prompt))
+				case totalItems == 1:
+					subHeader = ed.T("agentReview.subheaderOne")
+				case snap.Prompt != "":
+					subHeader = ed.T("agentReview.subheaderManyFrom", l10n.Param("count", totalItems), l10n.Param("prompt", snap.Prompt))
+				default:
+					subHeader = ed.T("agentReview.subheaderMany", l10n.Param("count", totalItems))
 				}
 
 				bodyChildren := []core.Node{
@@ -104,12 +109,12 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					switch {
 					case chg.Kept:
 						rightCtrl = core.Text{
-							Content: "Kept",
+							Content: ed.T("agentReview.kept"),
 							Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: p.Added.Fg, Padding: core.Symmetric(0, 8)},
 						}
 					case chg.Reverted:
 						rightCtrl = core.Text{
-							Content: "Reverted",
+							Content: ed.T("agentReview.reverted"),
 							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, Padding: core.Symmetric(0, 8)},
 						}
 					default:
@@ -118,8 +123,8 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							TestID:  fmt.Sprintf("agent-review-revert-%d", i),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Text:    "Revert",
-							Label:   "Revert " + chg.Title,
+							Text:    ed.T("agent.revert"),
+							Label:   ed.T("agentReview.revertItem", l10n.Param("title", chg.Title)),
 							Color:   func() core.Color { return p.LineRaised },
 							TextStyle: core.Style{
 								FontSize:   12,
@@ -240,7 +245,7 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					case DeletionPending:
 						delKids = append(delKids,
 							core.Text{
-								Content: "Keep leaves this file alone until you confirm the deletion here. ⌘Z restores it from the checkpoint.",
+								Content: ed.T("agentReview.deletionPendingHint"),
 								Style:   core.Style{FontSize: 12, Color: p.TextSecondary, Padding: core.Edges{Left: 34}},
 							},
 							core.View{
@@ -301,15 +306,15 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							Children: []core.Node{
 								core.Text{
 									TestID:  fmt.Sprintf("agent-review-del-state-%d", i),
-									Content: "Deletion confirmed · happens with Keep",
+									Content: ed.T("agentReview.deletionConfirmed"),
 									Style:   core.Style{FlexGrow: 1, FontSize: 12, Color: p.TextSecondary},
 								},
 								ui.Button{
 									TestID:    fmt.Sprintf("agent-review-del-reset-%d", i),
 									Variant:   ui.ButtonGhost,
 									Size:      ui.SizeSmall,
-									Text:      "Undo",
-									Label:     "Undo confirm deletion",
+									Text:      ed.T("agentTurn.undo"),
+									Label:     ed.T("agentReview.undoConfirmDeletion"),
 									Color:     func() core.Color { return core.Transparent },
 									TextStyle: core.Style{FontSize: 12, FontWeight: 500, Color: p.Accent.Fg},
 									Style:     core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FocusVisible: focusRing},
@@ -323,15 +328,15 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							Children: []core.Node{
 								core.Text{
 									TestID:  fmt.Sprintf("agent-review-del-state-%d", i),
-									Content: "The file stays · the rest of the review is unchanged",
+									Content: ed.T("agentReview.deletionKept"),
 									Style:   core.Style{FlexGrow: 1, FontSize: 12, Color: p.TextSecondary},
 								},
 								ui.Button{
 									TestID:    fmt.Sprintf("agent-review-del-reset-%d", i),
 									Variant:   ui.ButtonGhost,
 									Size:      ui.SizeSmall,
-									Text:      "Undo",
-									Label:     "Undo keep file",
+									Text:      ed.T("agentTurn.undo"),
+									Label:     ed.T("agentReview.undoKeepFile"),
 									Color:     func() core.Color { return core.Transparent },
 									TextStyle: core.Style{FontSize: 12, FontWeight: 500, Color: p.Accent.Fg},
 									Style:     core.Style{Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 6, FocusVisible: focusRing},
@@ -342,7 +347,7 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					case DeletionApplied:
 						delKids = append(delKids, core.Text{
 							TestID:  fmt.Sprintf("agent-review-del-state-%d", i),
-							Content: "Deleted · ⌘Z restores from checkpoint",
+							Content: ed.T("agentReview.deletionApplied"),
 							Style:   core.Style{FontSize: 12, Color: p.TextFaint, Padding: core.Edges{Left: 34}},
 						})
 					}
@@ -387,7 +392,7 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					}
 					if previewDel.MoreLines > 0 {
 						previewNodes = append(previewNodes, core.Text{
-							Content: fmt.Sprintf("  %d more lines", previewDel.MoreLines),
+							Content: ed.T("agentReview.moreLines", l10n.Param("count", previewDel.MoreLines)),
 							Style:   core.Style{FontFamily: core.FontMonospace, FontSize: 11.5, Color: p.TextFaint, Padding: core.Symmetric(0, 8)},
 						})
 					}
@@ -502,7 +507,7 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 									Variant: ui.ButtonGhost,
 									Size:    ui.SizeSmall,
 									Text:    "×",
-									Label:   "Close review changes panel",
+									Label:   ed.T("agentReview.closePanel"),
 									Color:   func() core.Color { return core.Transparent },
 									TextStyle: core.Style{
 										FontSize:   14,

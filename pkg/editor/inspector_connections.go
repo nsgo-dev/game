@@ -281,7 +281,7 @@ func connectionsSection(
 		if ed.ComponentRegistry() == nil {
 			return core.Text{
 				TestID:  "inspector-conn-no-registry",
-				Content: "No component registry set",
+				Content: ed.T("inspectorConn.noRegistry"),
 				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 			}
 		}
@@ -289,13 +289,13 @@ func connectionsSection(
 		if len(events) == 0 {
 			return core.Text{
 				TestID:  "inspector-conn-no-events",
-				Content: "No events declared",
+				Content: ed.T("inspectorConn.noEvents"),
 				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 			}
 		}
 		rows := make([]core.Node, 0, len(events)+1)
 		rows = append(rows, core.Text{
-			Content: "Events",
+			Content: ed.T("inspectorConn.events"),
 			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted()},
 		})
 		for _, ev := range events {
@@ -310,8 +310,8 @@ func connectionsSection(
 			}, tip)
 			connectBtn := ui.Button{
 				TestID:   "inspector-conn-event-" + e.Component + "-" + e.Event.Name + "-connect",
-				Text:     "Connect",
-				Label:    "Connect " + e.Ref,
+				Text:     ed.T("inspectorConn.connect"),
+				Label:    ed.T("inspectorConn.connectEvent", l10n.Param("event", e.Ref)),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -341,8 +341,8 @@ func connectionsSection(
 				if len(events) == 0 {
 					return ui.Input{
 						TestID:      "inspector-conn-event",
-						Label:       "Event",
-						Placeholder: "event",
+						Label:       ed.T("inspectorConn.event"),
+						Placeholder: ed.T("inspectorConn.eventPlaceholder"),
 						Disabled:    disabled,
 						Value:       eventRef.Get,
 						OnChange:    eventRef.Set,
@@ -350,8 +350,8 @@ func connectionsSection(
 				}
 				return ui.Select[string]{
 					TestID:      "inspector-conn-event",
-					Label:       "Event",
-					Placeholder: "Pick event",
+					Label:       ed.T("inspectorConn.event"),
+					Placeholder: ed.T("inspectorConn.pickEvent"),
 					Searchable:  true,
 					Disabled:    disabled,
 					Style:       core.Style{Width: core.Pct(100)},
@@ -377,8 +377,8 @@ func connectionsSection(
 
 			targetSelect := ui.Select[string]{
 				TestID:      "inspector-conn-target",
-				Label:       "Target",
-				Placeholder: "Pick target",
+				Label:       ed.T("inspectorConn.target"),
+				Placeholder: ed.T("inspectorConn.pickTarget"),
 				Searchable:  true,
 				Disabled:    disabled,
 				Style:       core.Style{Width: core.Pct(100)},
@@ -404,13 +404,13 @@ func connectionsSection(
 			pickBtn := ui.IconButton{
 				TestID: "inspector-conn-pick-target",
 				Icon:   lucide.Crosshair,
-				Label:  "Pick target from viewport or scene tree",
+				Label:  ed.T("inspectorConn.pickTargetLabel"),
 				Tooltip: func() string {
 					_ = rev.Get()
 					if ed.PickingConnectionTarget() {
-						return "Click an object in the viewport or scene tree (Esc to cancel)"
+						return ed.T("inspectorConn.pickTargetActiveTip")
 					}
-					return "Pick target object from viewport or scene tree"
+					return ed.T("inspectorConn.pickTargetTip")
 				},
 				Selected: func() bool {
 					_ = rev.Get()
@@ -428,8 +428,8 @@ func connectionsSection(
 
 			handlerInput := ui.Input{
 				TestID:      "inspector-conn-handler",
-				Label:       "Handler",
-				Placeholder: "handler",
+				Label:       ed.T("inspectorConn.handler"),
+				Placeholder: ed.T("inspectorConn.handlerPlaceholder"),
 				Disabled:    disabled,
 				Value:       handlerRef.Get,
 				OnChange:    setHandler,
@@ -446,7 +446,7 @@ func connectionsSection(
 				if len(handlers) == 0 {
 					return core.Text{
 						TestID:  "inspector-conn-no-handlers",
-						Content: "No handlers on " + tID,
+						Content: ed.T("inspectorConn.noHandlersOn", l10n.Param("id", tID)),
 						Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 					}
 				}
@@ -494,7 +494,7 @@ func connectionsSection(
 					}
 					rows := make([]core.Node, 0, len(h.Params)+1)
 					rows = append(rows, core.Text{
-						Content: "Params",
+						Content: ed.T("inspectorConn.params"),
 						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted()},
 					})
 					for _, p := range h.Params {
@@ -508,7 +508,8 @@ func connectionsSection(
 							}
 							return param.Default
 						}
-						ctrl := registeredFieldControl(
+						ctrl := registeredFieldControlFor(
+							ed,
 							"inspector-conn-param-"+param.Name,
 							param.Name,
 							param,
@@ -516,7 +517,7 @@ func connectionsSection(
 							get,
 							func(val any) { setArg(param.Name, val) },
 						)
-						rows = append(rows, describedRow(param.Name, "inspector-conn-param-"+param.Name+"-label", fieldTooltip(param), ctrl))
+						rows = append(rows, describedRow(param.Name, "inspector-conn-param-"+param.Name+"-label", localizedFieldTooltip(ed, param), ctrl))
 					}
 					return core.View{Style: core.Style{Gap: 6}, Children: rows}
 				}
@@ -528,7 +529,7 @@ func connectionsSection(
 					keys := sortedMapKeys(draftArgs)
 					rows := make([]core.Node, 0, len(keys)+1)
 					rows = append(rows, core.Text{
-						Content: "Args",
+						Content: ed.T("inspectorConn.args"),
 						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted()},
 					})
 					for _, k := range keys {
@@ -559,29 +560,29 @@ func connectionsSection(
 				core.Text{
 					ContentFunc: func() string {
 						if mode.Get() == connFormEdit {
-							return "Edit connection"
+							return ed.T("inspectorConn.editTitle")
 						}
-						return "New connection"
+						return ed.T("inspectorConn.newTitle")
 					},
 					Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Text()},
 				},
 				core.Show{
 					When: func() bool { return fromID.Get() != objID },
 					Then: func(cx *core.Scope) core.Node {
-						return describedRow("From", "", "", core.Text{
+						return describedRow(ed.T("inspectorConn.from"), "", "", core.Text{
 							ContentFunc: fromID.Get,
 							Style:       core.Style{FontSize: 12, Color: colors.Text()},
 						})
 					},
 				},
-				describedRow("Event", "", "", eventControl),
-				describedRow("Target", "", "", withTrailing(targetSelect, pickBtn)),
-				describedRow("Handler", "", "", handlerInput),
+				describedRow(ed.T("inspectorConn.event"), "", "", eventControl),
+				describedRow(ed.T("inspectorConn.target"), "", "", withTrailing(targetSelect, pickBtn)),
+				describedRow(ed.T("inspectorConn.handler"), "", "", handlerInput),
 				handlerChips,
 				paramsView,
-				describedRow("Once", "", "Disconnect after the first time the event fires", ui.Checkbox{
+				describedRow(ed.T("inspectorConn.once"), "", ed.T("inspectorConn.onceTip"), ui.Checkbox{
 					TestID:   "inspector-conn-once",
-					Label:    "Once",
+					Label:    ed.T("inspectorConn.once"),
 					Disabled: disabled,
 					Checked:  onceVal.Get,
 					OnChange: onceVal.Set,

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -61,7 +62,11 @@ func ReferencesScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 
 	refsRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
-		return ed.usagesStateRev()
+		r := ed.usagesStateRev()
+		if ed.ResolvedLanguage() != "en" {
+			r ^= 1 << 63
+		}
+		return r
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -69,7 +74,7 @@ func ReferencesScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		return core.View{
 			TestID: "references-screen",
 			Role:   core.RoleRegion,
-			Label:  "Find usages and safe rename",
+			Label:  ed.T("usages.screenLabel"),
 			Style: core.Style{
 				Width:      core.Pct(100),
 				Height:     core.Pct(100),
@@ -107,30 +112,39 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 		var title, subtitle string
 		switch st.Mode {
 		case ReferencesModeRename:
-			title = "Rename " + base
-			subtitle = "every reference is rewritten in one review and one undo step"
+			title = ed.T("usages.titleRename", l10n.Param("name", base))
+			subtitle = ed.T("usages.subtitleRename")
 		case ReferencesModeDone:
-			title = "Renamed to " + base
+			title = ed.T("usages.titleRenamed", l10n.Param("name", base))
 			if len(st.CheckProblems) > 0 {
 				p0 := st.CheckProblems[0]
 				if len(st.CheckProblems) == 1 {
-					subtitle = fmt.Sprintf("%d files rewritten · game check: 1 problem in %s", st.AppliedFiles, p0.File)
+					subtitle = ed.T("usages.doneOneProblem", l10n.Param("files", st.AppliedFiles), l10n.Param("file", p0.File))
 				} else {
-					subtitle = fmt.Sprintf("%d files rewritten · game check: %d problems", st.AppliedFiles, len(st.CheckProblems))
+					subtitle = ed.T("usages.doneManyProblems", l10n.Param("files", st.AppliedFiles), l10n.Param("problems", len(st.CheckProblems)))
 				}
 			} else {
-				subtitle = fmt.Sprintf("%d files rewritten · game check: clean", st.AppliedFiles)
+				subtitle = ed.T("usages.doneClean", l10n.Param("files", st.AppliedFiles))
 			}
 		default:
-			title = "Usages of " + base
+			title = ed.T("usages.titleUsages", l10n.Param("name", base))
 			totalU, totalF := 0, 0
 			if st.Report != nil {
 				totalU = st.Report.TotalUsages
 				totalF = st.Report.TotalFiles
 			}
-			subtitle = fmt.Sprintf("%d %s in %d %s", totalU, pluralWord(totalU, "usage", "usages"), totalF, pluralWord(totalF, "file", "files"))
+			switch {
+			case totalU == 1 && totalF == 1:
+				subtitle = ed.T("usages.countOneOne")
+			case totalU == 1:
+				subtitle = ed.T("usages.countOneMany", l10n.Param("files", totalF))
+			case totalF == 1:
+				subtitle = ed.T("usages.countManyOne", l10n.Param("usages", totalU))
+			default:
+				subtitle = ed.T("usages.countManyMany", l10n.Param("usages", totalU), l10n.Param("files", totalF))
+			}
 			if st.SourceObjectID != "" {
-				subtitle += " · Find usages on " + st.SourceObjectID
+				subtitle = ed.T("usages.subtitleWithSource", l10n.Param("summary", subtitle), l10n.Param("id", st.SourceObjectID))
 			}
 		}
 
@@ -138,7 +152,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 			core.View{
 				TestID: "refs-back-to-editor",
 				Role:   core.RoleButton,
-				Label:  "Back to the editor (Esc)",
+				Label:  ed.T("usages.backLabel"),
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
@@ -156,7 +170,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted},
 					},
 					core.Text{
-						Content: "Editor",
+						Content: ed.T("usages.editor"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
 					refsKeyCap(p, "Esc"),
@@ -211,7 +225,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 			rightNodes = append(rightNodes, core.View{
 				TestID: "refs-start-rename",
 				Role:   core.RoleButton,
-				Label:  "Rename · F2",
+				Label:  ed.T("usages.renameShortcutLabel"),
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
@@ -232,7 +246,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 						Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextPrimary},
 					},
 					core.Text{
-						Content: "Rename…",
+						Content: ed.T("usages.renameAction"),
 						Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 					},
 					core.Text{
@@ -247,7 +261,10 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 			if st.Plan != nil && st.Plan.TotalTouchedFiles > 0 {
 				fileCount = st.Plan.TotalTouchedFiles
 			}
-			applyLabel := fmt.Sprintf("Keep · Rename %d %s", fileCount, pluralWord(fileCount, "file", "files"))
+			applyLabel := ed.T("usages.applyRenameMany", l10n.Param("count", fileCount))
+			if fileCount == 1 {
+				applyLabel = ed.T("usages.applyRenameOne")
+			}
 			applyBg := p.Line
 			applyFg := p.TextFaint
 			if valid {
@@ -257,7 +274,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 			rightNodes = append(rightNodes,
 				ui.Button{
 					TestID:  "refs-cancel-rename",
-					Text:    "Cancel",
+					Text:    ed.T("usages.cancel"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.Raised },
@@ -279,7 +296,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 				},
 				ui.Button{
 					TestID:   "refs-apply-rename",
-					Text:     applyLabel + " ⌘↵",
+					Text:     applyLabel,
 					Variant:  ui.ButtonGhost,
 					Size:     ui.SizeSmall,
 					Disabled: func() bool { return !valid },
@@ -302,11 +319,11 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 				},
 			)
 		case ReferencesModeDone:
-			backLabel := "Back to " + st.ReturnSceneName
+			backLabel := ed.T("usages.backToScene", l10n.Param("scene", st.ReturnSceneName))
 			rightNodes = append(rightNodes,
 				ui.Button{
 					TestID:  "refs-undo-rename",
-					Text:    "Undo · ⌘Z",
+					Text:    ed.T("usages.undo"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.Raised },
@@ -429,7 +446,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "NEW NAME",
+						Content: ed.T("usages.newNameHeading"),
 						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 					},
 					core.View{
@@ -460,7 +477,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 								Children: []core.Node{
 									ui.Input{
 										TestID: "refs-new-name-input",
-										Label:  "New file name",
+										Label:  ed.T("usages.newFileNameLabel"),
 										Value:  renameInput.Get,
 										OnChange: func(v string) {
 											_ = ed.SetSafeRenameInput(v)
@@ -501,7 +518,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 						st := ed.ReferencesScreen()
 						valid := st != nil && st.Plan != nil && st.Plan.Valid
 						valColor := p.Added.Fg
-						valMsg := "Enter a new name"
+						valMsg := ed.T("usages.enterNewName")
 						if st != nil && st.Plan != nil && st.Plan.ValidationMsg != "" {
 							valMsg = st.Plan.ValidationMsg
 						}
@@ -564,7 +581,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 		}
 
 		if st.Mode == ReferencesModeRename && st.Plan != nil && st.Plan.Valid {
-			addGroupHeader("MOVED", "")
+			addGroupHeader(ed.T("usages.groupMoved"), "")
 			isOpen := st.FocusedFile == movedFocusSentinel
 			var rowBg core.Color
 			rowText := p.TextSecondary
@@ -595,7 +612,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 						Style:    core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: rowText, FlexGrow: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Overflow: core.Hidden},
 					},
 					core.Text{
-						Content: "moved",
+						Content: ed.T("usages.movedTag"),
 						Style:   core.Style{FontSize: 11, Color: p.TextFaint, FlexShrink: 0},
 					},
 				},
@@ -639,7 +656,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 							FlexShrink:   0,
 						},
 						Children: []core.Node{
-							core.Text{Content: "not rewritten", Style: core.Style{FontSize: 10.5, Color: p.Warning.Fg}},
+							core.Text{Content: ed.T("usages.notRewritten"), Style: core.Style{FontSize: 10.5, Color: p.Warning.Fg}},
 						},
 					}
 				case st.Mode == ReferencesModeRename && st.Plan != nil && st.Plan.Valid:
@@ -708,7 +725,11 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 						noteText := ""
 						noteColor := p.TextFaint
 						if uItem.OverrideCount > 0 {
-							noteText = fmt.Sprintf("%d %s", uItem.OverrideCount, pluralWord(uItem.OverrideCount, "override", "overrides"))
+							if uItem.OverrideCount == 1 {
+								noteText = ed.T("usages.overrideOne")
+							} else {
+								noteText = ed.T("usages.overrideMany", l10n.Param("count", uItem.OverrideCount))
+							}
 							noteColor = p.Changed.Fg
 						} else if uItem.HasPos {
 							noteText = fmt.Sprintf("%.0f, %.0f", uItem.X, uItem.Y)
@@ -760,24 +781,40 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 
 		if st.Report != nil {
 			sceneRefs := countGroupRefs(st.Report.Scenes)
-			addGroupHeader("SCENES", fmt.Sprintf("%d %s", sceneRefs, pluralWord(sceneRefs, "instance", "instances")))
+			sceneMeta := ed.T("usages.instanceMany", l10n.Param("count", sceneRefs))
+			if sceneRefs == 1 {
+				sceneMeta = ed.T("usages.instanceOne")
+			}
+			addGroupHeader(ed.T("usages.groupScenes"), sceneMeta)
 			addFileRows(st.Report.Scenes)
 
 			variantCount := len(st.Report.Variants)
-			addGroupHeader("PREFAB VARIANTS", fmt.Sprintf("%d inherit it", variantCount))
+			addGroupHeader(ed.T("usages.groupVariants"), ed.T("usages.inheritCount", l10n.Param("count", variantCount)))
 			addFileRows(st.Report.Variants)
 
 			dataRows := countGroupRefs(st.Report.DataTables)
-			addGroupHeader("DATA TABLES", fmt.Sprintf("%d %s", dataRows, pluralWord(dataRows, "row", "rows")))
+			dataMeta := ed.T("usages.rowMany", l10n.Param("count", dataRows))
+			if dataRows == 1 {
+				dataMeta = ed.T("usages.rowOne")
+			}
+			addGroupHeader(ed.T("usages.groupDataTables"), dataMeta)
 			addFileRows(st.Report.DataTables)
 
 			goRefs := countGroupRefs(st.Report.GoCode)
-			addGroupHeader("GO CODE", fmt.Sprintf("%d %s", goRefs, pluralWord(goRefs, "constant", "constants")))
+			goMeta := ed.T("usages.constantMany", l10n.Param("count", goRefs))
+			if goRefs == 1 {
+				goMeta = ed.T("usages.constantOne")
+			}
+			addGroupHeader(ed.T("usages.groupGoCode"), goMeta)
 			addFileRows(st.Report.GoCode)
 
 			if len(st.Report.Other) > 0 {
 				otherRefs := countGroupRefs(st.Report.Other)
-				addGroupHeader("OTHER", fmt.Sprintf("%d %s", otherRefs, pluralWord(otherRefs, "ref", "refs")))
+				otherMeta := ed.T("usages.refMany", l10n.Param("count", otherRefs))
+				if otherRefs == 1 {
+					otherMeta = ed.T("usages.refOne")
+				}
+				addGroupHeader(ed.T("usages.groupOther"), otherMeta)
 				addFileRows(st.Report.Other)
 			}
 		}
@@ -809,7 +846,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "↑↓ moves through usages · ↵ opens the scene with the object framed",
+						Content: ed.T("usages.sidebarHint"),
 						Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 					},
 				},
@@ -830,7 +867,7 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 
 		// Rename plan summary card during Rename review mode.
 		if st.Mode == ReferencesModeRename && st.Plan != nil {
-			sections = append(sections, referencesRenamePlanCard(p, st.Plan))
+			sections = append(sections, referencesRenamePlanCard(ed, p, st.Plan))
 		}
 
 		// Post-rename problems card in Done mode when non-rewritten Go references remain.
@@ -844,6 +881,17 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 			scenes = st.Report.Scenes
 		}
 		sceneRefs := countGroupRefs(scenes)
+		var sceneCountMeta string
+		switch {
+		case sceneRefs == 1 && len(scenes) == 1:
+			sceneCountMeta = ed.T("usages.instancesInScenesOneOne")
+		case sceneRefs == 1:
+			sceneCountMeta = ed.T("usages.instancesInScenesOneMany", l10n.Param("scenes", len(scenes)))
+		case len(scenes) == 1:
+			sceneCountMeta = ed.T("usages.instancesInScenesManyOne", l10n.Param("instances", sceneRefs))
+		default:
+			sceneCountMeta = ed.T("usages.instancesInScenesManyMany", l10n.Param("instances", sceneRefs), l10n.Param("scenes", len(scenes)))
+		}
 		sections = append(sections, core.View{
 			Style: core.Style{
 				Direction:      core.Row,
@@ -851,9 +899,9 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 				JustifyContent: core.JustifySpaceBetween,
 			},
 			Children: []core.Node{
-				core.Text{Content: "SCENES", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+				core.Text{Content: ed.T("usages.groupScenes"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				core.Text{
-					Content: fmt.Sprintf("%d %s in %d %s", sceneRefs, pluralWord(sceneRefs, "instance", "instances"), len(scenes), pluralWord(len(scenes), "scene", "scenes")),
+					Content: sceneCountMeta,
 					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 			},
@@ -871,7 +919,7 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "No scene files instance this target.",
+						Content: ed.T("usages.noScenes"),
 						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
@@ -893,9 +941,9 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 			}
 		}
 
-		gridNote := "Click a scene to see its usages; ↵ on a usage opens the scene with that object framed."
+		gridNote := ed.T("usages.gridNoteUsages")
 		if st.Mode == ReferencesModeRename {
-			gridNote = "Each scene keeps its instances and their overrides; only the prefab path in each line changes."
+			gridNote = ed.T("usages.gridNoteRename")
 		}
 		sections = append(sections, core.Text{
 			Content: gridNote,
@@ -917,7 +965,7 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 	})
 }
 
-func referencesRenamePlanCard(p SpecPalette, plan *SafeRenamePlan) core.Node {
+func referencesRenamePlanCard(ed *Editor, p SpecPalette, plan *SafeRenamePlan) core.Node {
 	type planRow struct {
 		kind string // "step", "ok", "warn"
 		text string
@@ -925,36 +973,44 @@ func referencesRenamePlanCard(p SpecPalette, plan *SafeRenamePlan) core.Node {
 	}
 	var items []planRow
 	if plan.To != "" {
-		items = append(items, planRow{kind: "step", text: fmt.Sprintf("Move %s to %s", plan.From, plan.To), meta: "1 file"})
+		items = append(items, planRow{kind: "step", text: ed.T("usages.planMove", l10n.Param("from", plan.From), l10n.Param("to", plan.To)), meta: ed.T("usages.fileOne")})
 	} else {
 		items = append(items, planRow{kind: "warn", text: plan.ValidationMsg, meta: ""})
 	}
 	if plan.Valid {
+		rewriteText := ed.T("usages.planRewriteMany", l10n.Param("count", plan.RewrittenRefCount))
+		if plan.RewrittenRefCount == 1 {
+			rewriteText = ed.T("usages.planRewriteOne")
+		}
+		fileMeta := ed.T("usages.fileMany", l10n.Param("count", plan.RewrittenFileCount))
+		if plan.RewrittenFileCount == 1 {
+			fileMeta = ed.T("usages.fileOne")
+		}
 		items = append(items, planRow{
 			kind: "step",
-			text: fmt.Sprintf("Rewrite %d %s in scenes, variants and data", plan.RewrittenRefCount, pluralWord(plan.RewrittenRefCount, "reference", "references")),
-			meta: fmt.Sprintf("%d %s", plan.RewrittenFileCount, pluralWord(plan.RewrittenFileCount, "file", "files")),
+			text: rewriteText,
+			meta: fileMeta,
 		})
 		if len(plan.PreservedObjects) > 0 {
 			items = append(items, planRow{
 				kind: "ok",
-				text: fmt.Sprintf("Overrides on %s are kept as they are", joinEnglishList(plan.PreservedObjects)),
+				text: ed.T("usages.planOverridesKept", l10n.Param("objects", joinLocalizedList(ed, plan.PreservedObjects))),
 			})
 		}
 	}
 	for _, prob := range plan.Problems {
 		text := prob.Message
 		if prob.AskSent {
-			text = fmt.Sprintf("The agent is updating %s; it will ask before editing Go", prob.File)
+			text = ed.T("usages.agentUpdatingGo", l10n.Param("file", prob.File))
 		}
 		meta := ""
 		if prob.Line > 0 {
-			meta = fmt.Sprintf("line %d", prob.Line)
+			meta = ed.T("usages.lineNumber", l10n.Param("line", prob.Line))
 		}
 		items = append(items, planRow{kind: "warn", text: text, meta: meta})
 	}
 	if plan.Valid {
-		items = append(items, planRow{kind: "ok", text: "Then game check runs; nothing may point at the old name"})
+		items = append(items, planRow{kind: "ok", text: ed.T("usages.planGameCheck")})
 	}
 
 	rowNodes := make([]core.Node, 0, len(items))
@@ -1030,7 +1086,7 @@ func referencesDoneProblemsCard(p SpecPalette, ed *Editor, problems []SafeRename
 		prob := item
 		text := prob.Message
 		if prob.AskSent {
-			text = fmt.Sprintf("The agent is updating %s; it will ask before editing Go", prob.File)
+			text = ed.T("usages.agentUpdatingGo", l10n.Param("file", prob.File))
 		}
 		rows = append(rows, core.View{
 			Style: core.Style{
@@ -1043,7 +1099,7 @@ func referencesDoneProblemsCard(p SpecPalette, ed *Editor, problems []SafeRename
 				core.Text{Content: "!", Style: core.Style{FontSize: 12, FontWeight: 700, Color: p.Warning.Fg, FlexShrink: 0}},
 				core.Text{Content: text, Style: core.Style{FontSize: 12, Color: p.TextSecondary, FlexGrow: 1, MinWidth: core.Pt(0)}},
 				ui.Button{
-					Text:    "Inspect",
+					Text:    ed.T("usages.inspect"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.LineRaised },
@@ -1080,9 +1136,15 @@ func referencesSceneCard(p SpecPalette, ed *Editor, st *ReferencesScreenState, f
 		borderCol = p.Accent.Fg
 		borderW = 1.5
 	}
-	meta := fmt.Sprintf("%d %s", len(fg.Refs), pluralWord(len(fg.Refs), "instance", "instances"))
+	meta := ed.T("usages.instanceMany", l10n.Param("count", len(fg.Refs)))
+	if len(fg.Refs) == 1 {
+		meta = ed.T("usages.instanceOne")
+	}
 	if st.Mode == ReferencesModeRename {
-		meta = fmt.Sprintf("%d %s", len(fg.Refs), pluralWord(len(fg.Refs), "line", "lines"))
+		meta = ed.T("usages.lineMany", l10n.Param("count", len(fg.Refs)))
+		if len(fg.Refs) == 1 {
+			meta = ed.T("usages.lineOne")
+		}
 	}
 
 	// Capture snapshot data for canvas draw.
@@ -1298,9 +1360,9 @@ func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core
 				focusLine = focusItem.Line
 			}
 			askSent := st.AskSentFiles[goFile]
-			askLabel := "Ask the agent to update it"
+			askLabel := ed.T("usages.askAgentUpdate")
 			if askSent {
-				askLabel = "Asked · the agent is on it"
+				askLabel = ed.T("usages.askedAgent")
 			}
 			children = append(children, core.View{
 				TestID: "refs-go-warning",
@@ -1316,11 +1378,11 @@ func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Go code is not rewritten",
+						Content: ed.T("usages.goNotRewrittenTitle"),
 						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.Warning.Fg},
 					},
 					core.Text{
-						Content: "The rename only rewrites YAML. This string constant keeps the old path and must be updated separately.",
+						Content: ed.T("usages.goNotRewrittenBody"),
 						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 					},
 					core.View{
@@ -1348,7 +1410,7 @@ func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core
 							},
 							ui.Button{
 								TestID:  "refs-open-go-file",
-								Text:    "Open " + path.Base(goFile),
+								Text:    ed.T("usages.openFile", l10n.Param("file", path.Base(goFile))),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								TextStyle: core.Style{
@@ -1379,7 +1441,7 @@ func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "The agent finds and renames through the same path, refs_find and refactor_rename, so its renames land here as the same review.",
+					Content: ed.T("usages.agentFooterNote"),
 					Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 				},
 			},
@@ -1441,6 +1503,19 @@ func joinEnglishList(items []string) string {
 		return items[0] + " and " + items[1]
 	default:
 		return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+	}
+}
+
+func joinLocalizedList(ed *Editor, items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return ed.T("usages.listTwo", l10n.Param("a", items[0]), l10n.Param("b", items[1]))
+	default:
+		return ed.T("usages.listMany", l10n.Param("init", strings.Join(items[:len(items)-1], ed.T("usages.listSep"))), l10n.Param("last", items[len(items)-1]))
 	}
 }
 

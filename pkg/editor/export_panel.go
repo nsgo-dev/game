@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
 	"github.com/nsgo-dev/nsgo/core"
@@ -160,12 +161,12 @@ func (e *Editor) ExportPresetReadiness(platform string) (ready bool, detail stri
 	switch platform {
 	case "ios", "tvos", "watchos":
 		if !e.nsgoHasAppleTeamID() {
-			return false, "Needs a team ID"
+			return false, e.T("exportPanel.needsTeamID")
 		}
 	}
 	if e != nil {
 		if c := e.ExportCredits(); c.Configured && !c.OK() {
-			return false, "Needs asset credits"
+			return false, e.T("exportPanel.needsAssetCredits")
 		}
 	}
 	if e != nil && e.Project != nil {
@@ -175,17 +176,17 @@ func (e *Editor) ExportPresetReadiness(platform string) (ready bool, detail stri
 	}
 	switch platform {
 	case "macos":
-		return true, "Universal, macOS targets"
+		return true, e.T("exportPanel.detailMacOS")
 	case "windows":
-		return true, "Windows x64 / arm64"
+		return true, e.T("exportPanel.detailWindows")
 	case "linux":
-		return true, "Linux x64 / arm64"
+		return true, e.T("exportPanel.detailLinux")
 	case "web":
-		return true, "WebAssembly, compressed"
+		return true, e.T("exportPanel.detailWeb")
 	case "android":
-		return true, "Android arm64 / x64"
+		return true, e.T("exportPanel.detailAndroid")
 	default:
-		return true, "default (" + platform + ")"
+		return true, e.T("exportPanel.detailDefault", l10n.Param("platform", platform))
 	}
 }
 
@@ -200,7 +201,7 @@ func (e *Editor) ExportNavWarningMeta() string {
 		}
 	}
 	if c := e.ExportCredits(); c.Configured && !c.OK() {
-		return "Credits"
+		return e.T("exportPanel.navWarningCredits")
 	}
 	return ""
 }
@@ -847,14 +848,14 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 		e.exportPanel.lastErr = err
 		e.exportPanel.lastCommandLine = ""
 		e.exportPanel.mu.Unlock()
-		e.Status = "Export blocked: " + err.Error()
+		e.Status = e.T("exportPanel.statusBlocked", l10n.Param("error", err.Error()))
 		if !opts.DryRun {
 			retryOpts := opts
 			e.EmitToastEvent(ToastEvent{
 				Kind:        ToastEventExportFailed,
 				ID:          "toast:export",
-				Message:     fmt.Sprintf("Couldn't export %s: %s", projectName, err.Error()),
-				ActionLabel: "Retry",
+				Message:     e.T("exportPanel.toastFailed", l10n.Param("project", projectName), l10n.Param("error", err.Error())),
+				ActionLabel: e.T("exportPanel.retry"),
 				OnAction: func() {
 					_ = e.StartExportBuild(retryOpts)
 				},
@@ -895,19 +896,19 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 	e.exportPanel.mu.Unlock()
 
 	if opts.DryRun {
-		e.Status = "Running dry-run release…"
+		e.Status = e.T("exportPanel.statusDryRun")
 	} else {
-		e.Status = "Building release…"
+		e.Status = e.T("exportPanel.statusBuilding")
 		targetLabel := exportToastTargetLabel(opts.Targets, e.EffectiveExportTargets())
-		msg := fmt.Sprintf("Exporting %s", projectName)
+		msg := e.T("exportPanel.toastExporting", l10n.Param("project", projectName))
 		if targetLabel != "" {
-			msg = fmt.Sprintf("Exporting %s for %s", projectName, targetLabel)
+			msg = e.T("exportPanel.toastExportingFor", l10n.Param("project", projectName), l10n.Param("targets", targetLabel))
 		}
 		run.toast = e.EmitToastEvent(ToastEvent{
 			Kind:        ToastEventExportRunning,
 			ID:          "toast:export",
 			Message:     msg,
-			ActionLabel: "Cancel",
+			ActionLabel: e.T("exportPanel.cancel"),
 			OnCancel: func() {
 				e.CancelExportBuild()
 			},
@@ -1020,33 +1021,33 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 			if active {
 				switch {
 				case runErr != nil:
-					e.Status = "Export failed: " + runErr.Error()
+					e.Status = e.T("exportPanel.statusFailed", l10n.Param("error", runErr.Error()))
 					if !opts.DryRun && run.toast != nil {
 						if wasCanceled {
 							run.toast.Dismiss()
 						} else {
-							run.toast.Fail(fmt.Sprintf("Couldn't export %s: %s", projectName, runErr.Error()), "Retry", func() {
+							run.toast.Fail(e.T("exportPanel.toastFailed", l10n.Param("project", projectName), l10n.Param("error", runErr.Error())), e.T("exportPanel.retry"), func() {
 								_ = e.StartExportBuild(retryOpts)
 							})
 						}
 					}
 				case opts.DryRun:
-					e.Status = "Dry-run release complete"
+					e.Status = e.T("exportPanel.statusDryRunComplete")
 				case openErr != nil:
-					e.Status = "Release built to " + plan.OutputDir + " (could not open folder: " + openErr.Error() + ")"
+					e.Status = e.T("exportPanel.statusBuiltOpenErr", l10n.Param("dir", plan.OutputDir), l10n.Param("error", openErr.Error()))
 					if run.toast != nil {
 						outDir := plan.OutputDir
-						run.toast.Complete("Exported "+displayOut, e.revealInFileManagerLabel(), "", func() {
+						run.toast.Complete(e.T("exportPanel.toastExported", l10n.Param("dir", displayOut)), e.revealInFileManagerLabel(), "", func() {
 							if opener != nil {
 								_ = opener(outDir)
 							}
 						})
 					}
 				default:
-					e.Status = "Release built to " + plan.OutputDir
+					e.Status = e.T("exportPanel.statusBuilt", l10n.Param("dir", plan.OutputDir))
 					if run.toast != nil {
 						outDir := plan.OutputDir
-						run.toast.Complete("Exported "+displayOut, e.revealInFileManagerLabel(), "", func() {
+						run.toast.Complete(e.T("exportPanel.toastExported", l10n.Param("dir", displayOut)), e.revealInFileManagerLabel(), "", func() {
 							if opener != nil {
 								_ = opener(outDir)
 							}
@@ -1342,7 +1343,14 @@ func ExportPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			return ed.Project != nil && ed.ExportPanelOpen()
 		},
 		Then: func(cx *core.Scope) core.Node {
-			return exportPanel(cx, ed, rev)
+			langMemo := core.NewMemo(cx, func() string {
+				_ = rev.Get()
+				return ed.ResolvedLanguage()
+			})
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = langMemo.Get()
+				return exportPanel(cx, ed, rev)
+			})
 		},
 	}
 }
@@ -1427,11 +1435,11 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 
 	channelOptions := []ui.Option[string]{
-		{Value: "", Label: "(default)"},
-		{Value: "direct", Label: "direct"},
-		{Value: "store", Label: "store"},
-		{Value: "steam", Label: "steam"},
-		{Value: "none", Label: "none"},
+		{Value: "", Label: ed.T("exportPanel.channelDefault")},
+		{Value: "direct", Label: ed.T("exportPanel.channelDirect")},
+		{Value: "store", Label: ed.T("exportPanel.channelStore")},
+		{Value: "steam", Label: ed.T("exportPanel.channelSteam")},
+		{Value: "none", Label: ed.T("exportPanel.channelNone")},
 	}
 
 	// Build & release action bar styled with SpecPalette tokens.
@@ -1448,14 +1456,14 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			BorderColor:  pal.Line,
 		},
 		Children: []core.Node{
-			label("OUTPUT"),
+			label(ed.T("exportPanel.outputHeading")),
 			core.View{
 				Style: core.Style{Width: core.Pt(140)},
 				Children: []core.Node{
 					ui.Input{
 						TestID:      "export-output-input",
-						Label:       "Export Output Directory",
-						Placeholder: "dist (default)",
+						Label:       ed.T("exportPanel.outputDirLabel"),
+						Placeholder: ed.T("exportPanel.outputDirPlaceholder"),
 						Disabled:    editDisabled,
 						Invalid:     func() bool { return outputErr.Get() != "" },
 						Value:       outputDraft.Get,
@@ -1467,14 +1475,14 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					},
 				},
 			},
-			settingsSpecButton(pal, "export-output-apply", "Set", "Apply export output directory", false, editDisabled, commitOutput),
-			label("CHANNEL"),
+			settingsSpecButton(pal, "export-output-apply", ed.T("exportPanel.set"), ed.T("exportPanel.setOutputDirLabel"), false, editDisabled, commitOutput),
+			label(ed.T("exportPanel.channelHeading")),
 			core.View{
 				Style: core.Style{Width: core.Pt(118), FlexShrink: 0},
 				Children: []core.Node{
 					ui.Select[string]{
 						TestID:   "export-channel-select",
-						Label:    "Release Channel",
+						Label:    ed.T("exportPanel.channelLabel"),
 						Disabled: editDisabled,
 						Options:  channelOptions,
 						Style:    core.Style{Width: core.Pt(118)},
@@ -1488,13 +1496,13 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					},
 				},
 			},
-			label("NOTES"),
+			label(ed.T("exportPanel.notesHeading")),
 			core.View{
 				Style: core.Style{Width: core.Pt(148), FlexShrink: 0},
 				Children: []core.Node{
 					ui.Input{
 						TestID:      "export-notes-input",
-						Label:       "Release Notes File",
+						Label:       ed.T("exportPanel.notesLabel"),
 						Placeholder: "release-notes.md",
 						Disabled:    editDisabled,
 						Style:       core.Style{Width: core.Pt(148)},
@@ -1508,7 +1516,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			},
 			ui.ToggleButton{
 				TestID:   "export-dry-run",
-				Text:     "Dry Run",
+				Text:     ed.T("exportPanel.dryRun"),
 				Disabled: editDisabled,
 				On: func() bool {
 					_ = rev.Get()
@@ -1531,9 +1539,9 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 				TextFunc: func() string {
 					_ = rev.Get()
 					if ed.ExportDryRun() {
-						return "Dry Run"
+						return ed.T("exportPanel.dryRun")
 					}
-					return "Build"
+					return ed.T("exportPanel.build")
 				},
 				Color: func() core.Color { return pal.Accent.Fg },
 				TextStyle: core.Style{
@@ -1557,17 +1565,17 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					return ed.ExportRunning()
 				},
 				Then: func(cx *core.Scope) core.Node {
-					return settingsSpecButton(pal, "export-cancel", "Cancel", "Cancel export build", false, nil, func() {
+					return settingsSpecButton(pal, "export-cancel", ed.T("exportPanel.cancel"), ed.T("exportPanel.cancelBuildLabel"), false, nil, func() {
 						ed.CancelExportBuild()
 					})
 				},
 			},
-			settingsSpecButton(pal, "export-open-output", "Open Output", "Open export output folder", false, func() bool {
+			settingsSpecButton(pal, "export-open-output", ed.T("exportPanel.openOutput"), ed.T("exportPanel.openOutputLabel"), false, func() bool {
 				_ = rev.Get()
 				return ed.Project == nil
 			}, func() { ed.report(ed.OpenExportOutputFolder()) }),
 			core.View{Style: core.Style{FlexGrow: 1}},
-			settingsSpecButton(pal, "export-close", "Close", "Close Export settings", false, nil, func() {
+			settingsSpecButton(pal, "export-close", ed.T("exportPanel.close"), ed.T("exportPanel.closeLabel"), false, nil, func() {
 				ed.SetExportPanelOpen(false)
 			}),
 		},
@@ -1593,8 +1601,8 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						Children: []core.Node{
 							ui.Select[string]{
 								TestID:      "export-add-platform",
-								Label:       "Platform to Add",
-								Placeholder: "All platforms added",
+								Label:       ed.T("exportPanel.platformToAddLabel"),
+								Placeholder: ed.T("exportPanel.allPlatformsAdded"),
 								Disabled: func() bool {
 									return editDisabled() || len(ed.AvailableExportPlatforms()) == 0
 								},
@@ -1616,7 +1624,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							},
 						},
 					},
-					settingsSpecButton(pal, "export-add-preset", "Add Preset", "Add platform export preset", false, func() bool {
+					settingsSpecButton(pal, "export-add-preset", ed.T("exportPanel.addPreset"), ed.T("exportPanel.addPresetLabel"), false, func() bool {
 						return editDisabled() || addPlatform.Get() == ""
 					}, func() {
 						plat := addPlatform.Get()
@@ -1635,7 +1643,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						if presetsKey.Get() == "" {
 							return core.Text{
 								TestID:  "export-empty-presets",
-								Content: "No export presets yet. Default platforms will be built until a preset is added.",
+								Content: ed.T("exportPanel.emptyPresets"),
 								Style:   core.Style{FontSize: 12, Color: pal.TextFaint, Padding: core.Symmetric(12, 0)},
 							}
 						}
@@ -1661,10 +1669,10 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					ui.HStack{
 						Gap: 8,
 						Children: []core.Node{
-							label("BUILD TARGETS"),
+							label(ed.T("exportPanel.buildTargetsHeading")),
 							ui.ToggleButton{
 								TestID:   "export-scope-all",
-								Text:     "All Presets",
+								Text:     ed.T("exportPanel.allPresets"),
 								Disabled: editDisabled,
 								On: func() bool {
 									_ = rev.Get()
@@ -1728,28 +1736,24 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 				borderColor := pal.Line
 				statusColor := pal.TextFaint
 				bg := pal.Panel
-				statusText := "No assets section in game.yaml (no CREDITS.md will be written)"
+				statusText := ed.T("exportPanel.creditsUnconfigured")
 				if report.Configured {
 					switch {
 					case report.Err != nil:
 						borderColor = pal.Problem().Edge
 						statusColor = pal.Problem().Fg
 						bg = pal.Problem().Fill
-						statusText = "Credits error: " + report.Err.Error()
+						statusText = ed.T("exportPanel.creditsError", l10n.Param("error", report.Err.Error()))
 					case len(report.Missing) > 0:
 						borderColor = pal.Problem().Edge
 						statusColor = pal.Problem().Fg
 						bg = pal.Problem().Fill
-						noun := "assets have"
-						if len(report.Missing) == 1 {
-							noun = "asset has"
-						}
-						statusText = fmt.Sprintf("Credits required: %d %s no credit (release builds are blocked)", len(report.Missing), noun)
+						statusText = ed.Plural("exportPanel.creditsMissing", len(report.Missing))
 					default:
 						borderColor = pal.Added.Edge
 						statusColor = pal.Added.Fg
 						bg = pal.Added.Fill
-						statusText = fmt.Sprintf("Credits OK: %d asset(s) credited", len(report.Entries))
+						statusText = ed.T("exportPanel.creditsOK", l10n.Param("count", len(report.Entries)))
 					}
 				}
 				children := []core.Node{
@@ -1761,7 +1765,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								Content: statusText,
 								Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: statusColor, FlexGrow: 1},
 							},
-							settingsSpecButton(pal, "export-credits-refresh", "Refresh Credits", "Refresh asset credits check", false, nil, func() {
+							settingsSpecButton(pal, "export-credits-refresh", ed.T("exportPanel.refreshCredits"), ed.T("exportPanel.refreshCreditsLabel"), false, nil, func() {
 								ed.CheckExportCredits()
 							}),
 						},
@@ -1770,7 +1774,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 				if len(report.Missing) > 0 {
 					missingLines := make([]string, len(report.Missing))
 					for i, a := range report.Missing {
-						missingLines[i] = fmt.Sprintf("• %s  (add credit in %s)", a, importsettings.Path(a))
+						missingLines[i] = ed.T("exportPanel.creditsMissingItem", l10n.Param("asset", a), l10n.Param("path", importsettings.Path(a)))
 					}
 					children = append(children, core.Text{
 						TestID:  "export-credits-missing",
@@ -1795,25 +1799,25 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			ui.HStack{
 				Gap: 8,
 				Children: []core.Node{
-					label("OUTPUT"),
+					label(ed.T("exportPanel.outputHeading")),
 					core.Text{
 						TestID: "export-run-status",
 						ContentFunc: func() string {
 							_ = rev.Get()
 							if ed.ExportRunning() {
-								return "Running…"
+								return ed.T("exportPanel.runStatusRunning")
 							}
 							if err := ed.ExportLastError(); err != nil {
-								return "Failed"
+								return ed.T("exportPanel.runStatusFailed")
 							}
 							if len(ed.ExportOutputLines()) > 0 {
-								return "Done"
+								return ed.T("exportPanel.runStatusDone")
 							}
-							return "Idle"
+							return ed.T("exportPanel.runStatusIdle")
 						},
 						Style: core.Style{FontSize: 11.5, Color: pal.TextFaint, FlexGrow: 1},
 					},
-					settingsSpecButton(pal, "export-log-clear", "Clear", "Clear export build output", false, func() bool {
+					settingsSpecButton(pal, "export-log-clear", ed.T("exportPanel.clearLog"), ed.T("exportPanel.clearLogLabel"), false, func() bool {
 						_ = rev.Get()
 						return ed.ExportRunning() || len(ed.ExportOutputLines()) == 0
 					}, func() { ed.ClearExportOutput() }),
@@ -1836,7 +1840,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							_ = rev.Get()
 							txt := ed.ExportOutputText()
 							if txt == "" {
-								return "Build output will stream here."
+								return ed.T("exportPanel.outputPlaceholder")
 							}
 							return txt
 						},
@@ -2041,13 +2045,13 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal S
 		},
 		Children: append(targetBtns,
 			core.View{Style: core.Style{FlexGrow: 1}},
-			settingsSpecButton(pal, "export-preset-up-"+plat, "Up", "Move "+plat+" preset up", false, func() bool {
+			settingsSpecButton(pal, "export-preset-up-"+plat, ed.T("exportPanel.moveUp"), ed.T("exportPanel.moveUpLabel", l10n.Param("platform", plat)), false, func() bool {
 				return disabled() || idx == 0
 			}, func() { ed.report(ed.MoveExportPreset(plat, -1)) }),
-			settingsSpecButton(pal, "export-preset-down-"+plat, "Down", "Move "+plat+" preset down", false, func() bool {
+			settingsSpecButton(pal, "export-preset-down-"+plat, ed.T("exportPanel.moveDown"), ed.T("exportPanel.moveDownLabel", l10n.Param("platform", plat)), false, func() bool {
 				return disabled() || idx >= total-1
 			}, func() { ed.report(ed.MoveExportPreset(plat, 1)) }),
-			settingsSpecButton(pal, "export-preset-remove-"+plat, "Remove", "Remove "+plat+" preset", false, disabled, func() {
+			settingsSpecButton(pal, "export-preset-remove-"+plat, ed.T("exportPanel.remove"), ed.T("exportPanel.removeLabel", l10n.Param("platform", plat)), false, disabled, func() {
 				ed.report(ed.RemoveExportPreset(plat))
 			}),
 		),

@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -24,6 +25,8 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		} else {
 			b.WriteString("L:")
 		}
+		b.WriteString(ed.ResolvedLanguage())
+		b.WriteByte('|')
 		for _, part := range parts {
 			b.WriteString(string(part.State))
 			b.WriteByte('=')
@@ -106,7 +109,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			for _, part := range parts {
 				ariaParts = append(ariaParts, part.Label)
 			}
-			return strings.Join(ariaParts, ", ") + ". Show tasks"
+			return ed.T("tasksExtra.showTasksLabel", l10n.Param("summary", strings.Join(ariaParts, ", ")))
 		},
 		Focusable: func() bool { return true },
 		Style: core.Style{
@@ -268,16 +271,16 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				},
 			}
 			if summary.Running > 0 {
-				summaryBadges = append(summaryBadges, taskCountChip(p.Agent.Fg, p.TextMuted, fmt.Sprintf("%d running", summary.Running)))
+				summaryBadges = append(summaryBadges, taskCountChip(p.Agent.Fg, p.TextMuted, ed.T("tasksExtra.countRunning", l10n.Param("count", summary.Running))))
 			}
 			if summary.NeedsYou > 0 {
-				summaryBadges = append(summaryBadges, taskCountChip(p.Warning.Fg, p.Warning.Fg, fmt.Sprintf("%d needs you", summary.NeedsYou)))
+				summaryBadges = append(summaryBadges, taskCountChip(p.Warning.Fg, p.Warning.Fg, ed.T("tasksExtra.countNeedsYou", l10n.Param("count", summary.NeedsYou))))
 			}
 			if summary.ReadyToReview > 0 {
-				summaryBadges = append(summaryBadges, taskCountChip(p.Accent.Fg, p.TextMuted, fmt.Sprintf("%d to review", summary.ReadyToReview)))
+				summaryBadges = append(summaryBadges, taskCountChip(p.Accent.Fg, p.TextMuted, ed.T("tasksExtra.countToReview", l10n.Param("count", summary.ReadyToReview))))
 			}
 			if summary.Failed > 0 {
-				summaryBadges = append(summaryBadges, taskCountChip(p.Removed.Fg, p.Removed.Fg, fmt.Sprintf("%d failed", summary.Failed)))
+				summaryBadges = append(summaryBadges, taskCountChip(p.Removed.Fg, p.Removed.Fg, ed.T("tasksExtra.countFailed", l10n.Param("count", summary.Failed))))
 			}
 			summaryBadges = append(summaryBadges, core.View{Style: core.Style{FlexGrow: 1}})
 			chevronIcon := lucide.ChevronDown
@@ -360,10 +363,11 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						dismissBg = p.LineRaised
 						dismissColor = p.TextPrimary
 					}
+					dismissText := ed.T("tasksExtra.dismissCount", l10n.Param("count", selN))
 					headChildren = append(headChildren, core.View{
 						TestID:    "tasks-dismiss-selected",
 						Role:      core.RoleButton,
-						Label:     fmt.Sprintf("Dismiss %d", selN),
+						Label:     dismissText,
 						Disabled:  func() bool { return selN == 0 },
 						Focusable: func() bool { return selN > 0 },
 						Style: core.Style{
@@ -380,7 +384,7 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: fmt.Sprintf("%s %d", ed.T("tasks.action.dismiss"), selN),
+								Content: dismissText,
 								Style: core.Style{
 									FontSize:   11,
 									FontWeight: 500,
@@ -726,7 +730,7 @@ func taskRowView(ed *Editor, p SpecPalette, t AgentTask, focused bool) core.Node
 		children = append(children, core.View{
 			TestID:    "task-check-" + id,
 			Role:      core.RoleCheckbox,
-			Label:     fmt.Sprintf("Select %q", t.Title),
+			Label:     ed.T("tasksExtra.selectTask", l10n.Param("title", fmt.Sprintf("%q", t.Title))),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				Width:          core.Pt(28),
@@ -1150,6 +1154,8 @@ func viewportTaskLegendOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		} else {
 			b.WriteString("L:")
 		}
+		b.WriteString(ed.ResolvedLanguage())
+		b.WriteByte('|')
 		seen := make(map[string]bool)
 		for _, ov := range ovs {
 			k := fmt.Sprintf("%d:%v", ov.TaskNumber, ov.Holding)
@@ -1186,10 +1192,10 @@ func viewportTaskLegendOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				rows := make([]core.Node, 0, len(entries))
 				for _, ent := range entries {
 					col := p.Agent.Edge
-					label := fmt.Sprintf("task %d editing", ent.num)
+					label := ed.T("tasksExtra.overlayEditing", l10n.Param("num", ent.num))
 					if ent.holding {
 						col = ui.Alpha(p.Agent.Edge, 0.45)
-						label = fmt.Sprintf("task %d holding, not editing yet", ent.num)
+						label = ed.T("tasksExtra.overlayHolding", l10n.Param("num", ent.num))
 					}
 					rows = append(rows, core.View{
 						Style: core.Style{

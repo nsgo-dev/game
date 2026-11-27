@@ -17,7 +17,7 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 		return []core.Node{
 			ui.Button{
 				TestID:   "inspector-reflprobe-add",
-				Text:     "Add Reflection Probe",
+				Text:     ed.T("probes3d.addReflectionProbe"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -85,7 +85,7 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 	}
 
 	return []core.Node{
-		vec3Row("inspector-reflprobe-center", "Center", -100000,
+		vec3Row("inspector-reflprobe-center", ed.T("probes3d.center"), -100000,
 			func(p *sceneformat.ReflectionProbeDoc) [3]float32 { return p.EffectiveCenter() },
 			func(p *sceneformat.ReflectionProbeDoc, v [3]float32) {
 				if v == ([3]float32{}) {
@@ -95,13 +95,13 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				}
 			},
 		),
-		vec3Row("inspector-reflprobe-size", "Size", 0.1,
+		vec3Row("inspector-reflprobe-size", ed.T("probes3d.size"), 0.1,
 			func(p *sceneformat.ReflectionProbeDoc) [3]float32 { return p.EffectiveSize() },
 			func(p *sceneformat.ReflectionProbeDoc, v [3]float32) { p.Size = &v },
 		),
-		fieldRow("Blend", ui.NumberInput{
+		fieldRow(ed.T("probes3d.blend"), ui.NumberInput{
 			TestID:   "inspector-reflprobe-blend",
-			Label:    "Reflection Probe Blend Distance",
+			Label:    ed.T("probes3d.reflBlendLabel"),
 			Min:      0,
 			Step:     0.1,
 			Format:   formatFloat,
@@ -120,9 +120,9 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				mutate(func(p *sceneformat.ReflectionProbeDoc) { p.BlendDistance = float32(v) })
 			},
 		}),
-		fieldRow("Intensity", ui.NumberInput{
+		fieldRow(ed.T("probes3d.intensity"), ui.NumberInput{
 			TestID:   "inspector-reflprobe-intensity",
-			Label:    "Reflection Probe Intensity",
+			Label:    ed.T("probes3d.reflIntensityLabel"),
 			Min:      0,
 			Step:     0.1,
 			Format:   formatFloat,
@@ -141,9 +141,9 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				mutate(func(p *sceneformat.ReflectionProbeDoc) { p.Intensity = sceneformat.Float32(float32(v)) })
 			},
 		}),
-		fieldRow("Priority", ui.NumberInput{
+		fieldRow(ed.T("probes3d.priority"), ui.NumberInput{
 			TestID:   "inspector-reflprobe-priority",
-			Label:    "Reflection Probe Priority",
+			Label:    ed.T("probes3d.reflPriorityLabel"),
 			Step:     1,
 			Format:   func(v float64) string { return strconv.Itoa(int(math.Round(v))) },
 			Disabled: disabled,
@@ -158,9 +158,9 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				mutate(func(p *sceneformat.ReflectionProbeDoc) { p.Priority = int(math.Round(v)) })
 			},
 		}),
-		fieldRow("Box Proj", SpecSwitch{
+		fieldRow(ed.T("probes3d.boxProj"), SpecSwitch{
 			TestID:   "inspector-reflprobe-boxproj",
-			Label:    "Box Projection",
+			Label:    ed.T("probes3d.boxProjectionLabel"),
 			Disabled: disabled,
 			Checked: func() bool {
 				_ = rev.Get()
@@ -171,9 +171,9 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				mutate(func(p *sceneformat.ReflectionProbeDoc) { p.BoxProjection = sceneformat.Bool(on) })
 			},
 		}),
-		fieldRow("Resolution", ui.Select[string]{
+		fieldRow(ed.T("probes3d.resolution"), ui.Select[string]{
 			TestID:   "inspector-reflprobe-resolution",
-			Label:    "Cubemap Resolution",
+			Label:    ed.T("probes3d.cubemapResolutionLabel"),
 			Disabled: disabled,
 			Options: []ui.Option[string]{
 				{Value: "16", Label: "16"},
@@ -195,10 +195,10 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				}
 			},
 		}),
-		fieldRow("Cubemap", ui.Input{
+		fieldRow(ed.T("probes3d.cubemap"), ui.Input{
 			TestID:      "inspector-reflprobe-cubemap",
-			Label:       "Baked Cubemap Path",
-			Placeholder: "probes/room.hdr",
+			Label:       ed.T("probes3d.cubemapPathLabel"),
+			Placeholder: ed.T("probes3d.cubemapPlaceholder"),
 			Disabled:    disabled,
 			Value: func() string {
 				_ = rev.Get()
@@ -216,7 +216,7 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 			Children: []core.Node{
 				ui.Button{
 					TestID:   "inspector-reflprobe-bake",
-					Text:     "Bake Cubemap",
+					Text:     ed.T("probes3d.bakeCubemap"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonPrimary,
 					Disabled: disabled,
@@ -227,7 +227,7 @@ func reflectionProbeInspectorFields(ed *Editor, rev *core.Signal[uint64], objID 
 				},
 				ui.Button{
 					TestID:   "inspector-reflprobe-remove",
-					Text:     "Remove",
+					Text:     ed.T("probes3d.remove"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonGhost,
 					Disabled: disabled,
@@ -247,7 +247,7 @@ func lightProbeGridInspectorFields(ed *Editor, rev *core.Signal[uint64], objID s
 		return []core.Node{
 			ui.Button{
 				TestID:   "inspector-lightprobe-add",
-				Text:     "Add Light Probe Grid",
+				Text:     ed.T("probes3d.addLightProbeGrid"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -348,7 +348,7 @@ func lightProbeGridInspectorFields(ed *Editor, rev *core.Signal[uint64], objID s
 	}
 
 	return []core.Node{
-		vec3Row("inspector-lightprobe-center", "Center", -100000,
+		vec3Row("inspector-lightprobe-center", ed.T("probes3d.center"), -100000,
 			func(g *sceneformat.LightProbeGridDoc) [3]float32 { return g.EffectiveCenter() },
 			func(g *sceneformat.LightProbeGridDoc, v [3]float32) {
 				if v == ([3]float32{}) {
@@ -358,21 +358,21 @@ func lightProbeGridInspectorFields(ed *Editor, rev *core.Signal[uint64], objID s
 				}
 			},
 		),
-		vec3Row("inspector-lightprobe-size", "Size", 0.1,
+		vec3Row("inspector-lightprobe-size", ed.T("probes3d.size"), 0.1,
 			func(g *sceneformat.LightProbeGridDoc) [3]float32 { return g.EffectiveSize() },
 			func(g *sceneformat.LightProbeGridDoc, v [3]float32) { g.Size = &v },
 		),
-		fieldRow("Counts", core.View{
+		fieldRow(ed.T("probes3d.counts"), core.View{
 			Style: core.Style{Direction: core.Row, Gap: 4},
 			Children: []core.Node{
-				countInput("x", "Probe Count X", 0),
-				countInput("y", "Probe Count Y", 1),
-				countInput("z", "Probe Count Z", 2),
+				countInput("x", ed.T("probes3d.probeCountX"), 0),
+				countInput("y", ed.T("probes3d.probeCountY"), 1),
+				countInput("z", ed.T("probes3d.probeCountZ"), 2),
 			},
 		}),
-		fieldRow("Intensity", ui.NumberInput{
+		fieldRow(ed.T("probes3d.intensity"), ui.NumberInput{
 			TestID:   "inspector-lightprobe-intensity",
-			Label:    "Light Probe Grid Intensity",
+			Label:    ed.T("probes3d.lightProbeIntensityLabel"),
 			Min:      0,
 			Step:     0.1,
 			Format:   formatFloat,
@@ -391,9 +391,9 @@ func lightProbeGridInspectorFields(ed *Editor, rev *core.Signal[uint64], objID s
 				mutate(func(g *sceneformat.LightProbeGridDoc) { g.Intensity = sceneformat.Float32(float32(v)) })
 			},
 		}),
-		fieldRow("Data", ui.Input{
+		fieldRow(ed.T("probes3d.data"), ui.Input{
 			TestID:      "inspector-lightprobe-data",
-			Label:       "Baked Light Probes Path",
+			Label:       ed.T("probes3d.lightProbeDataLabel"),
 			Placeholder: "probes/room.probes.yaml",
 			Disabled:    disabled,
 			Value: func() string {
@@ -412,7 +412,7 @@ func lightProbeGridInspectorFields(ed *Editor, rev *core.Signal[uint64], objID s
 			Children: []core.Node{
 				ui.Button{
 					TestID:   "inspector-lightprobe-bake",
-					Text:     "Bake Probes",
+					Text:     ed.T("probes3d.bakeProbes"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonPrimary,
 					Disabled: disabled,
@@ -423,7 +423,7 @@ func lightProbeGridInspectorFields(ed *Editor, rev *core.Signal[uint64], objID s
 				},
 				ui.Button{
 					TestID:   "inspector-lightprobe-remove",
-					Text:     "Remove",
+					Text:     ed.T("probes3d.remove"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonGhost,
 					Disabled: disabled,

@@ -18,6 +18,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -3313,14 +3314,14 @@ func (e *Editor) TaskElapsedString(t AgentTask) string {
 //   - Mixed: non-zero counts in urgency order (Failed, Needs you, Running, Ready to review, Queued); zero counts drop out.
 func (e *Editor) TaskStatusParts() []TaskStatusPart {
 	if e == nil {
-		return []TaskStatusPart{{State: "", Label: "No tasks"}}
+		return []TaskStatusPart{{State: "", Label: e.T("tasksExtra.noTasks")}}
 	}
 	e.tasks.mu.Lock()
 	s := e.taskSummaryLocked()
 	total := s.Failed + s.NeedsYou + s.Running + s.ReadyToReview + s.Queued
 	if total == 0 {
 		e.tasks.mu.Unlock()
-		return []TaskStatusPart{{State: "", Label: "No tasks"}}
+		return []TaskStatusPart{{State: "", Label: e.T("tasksExtra.noTasks")}}
 	}
 	if s.Running == 1 && total == 1 {
 		for i := range e.tasks.tasks {
@@ -3329,7 +3330,7 @@ func (e *Editor) TaskStatusParts() []TaskStatusPart {
 				e.tasks.mu.Unlock()
 				return []TaskStatusPart{{
 					State: TaskRunning,
-					Label: fmt.Sprintf("1 running · %s", e.TaskElapsedString(t)),
+					Label: e.T("tasksExtra.oneRunningElapsed", l10n.Param("elapsed", e.TaskElapsedString(t))),
 				}}
 			}
 		}
@@ -3337,19 +3338,19 @@ func (e *Editor) TaskStatusParts() []TaskStatusPart {
 	e.tasks.mu.Unlock()
 	var parts []TaskStatusPart
 	if s.Failed > 0 {
-		parts = append(parts, TaskStatusPart{State: TaskFailed, Label: fmt.Sprintf("%d failed", s.Failed)})
+		parts = append(parts, TaskStatusPart{State: TaskFailed, Label: e.T("tasksExtra.countFailed", l10n.Param("count", s.Failed))})
 	}
 	if s.NeedsYou > 0 {
-		parts = append(parts, TaskStatusPart{State: TaskNeedsYou, Label: fmt.Sprintf("%d needs you", s.NeedsYou)})
+		parts = append(parts, TaskStatusPart{State: TaskNeedsYou, Label: e.T("tasksExtra.countNeedsYou", l10n.Param("count", s.NeedsYou))})
 	}
 	if s.Running > 0 {
-		parts = append(parts, TaskStatusPart{State: TaskRunning, Label: fmt.Sprintf("%d running", s.Running)})
+		parts = append(parts, TaskStatusPart{State: TaskRunning, Label: e.T("tasksExtra.countRunning", l10n.Param("count", s.Running))})
 	}
 	if s.ReadyToReview > 0 {
-		parts = append(parts, TaskStatusPart{State: TaskReadyToReview, Label: fmt.Sprintf("%d to review", s.ReadyToReview)})
+		parts = append(parts, TaskStatusPart{State: TaskReadyToReview, Label: e.T("tasksExtra.countToReview", l10n.Param("count", s.ReadyToReview))})
 	}
 	if s.Queued > 0 && len(parts) == 0 {
-		parts = append(parts, TaskStatusPart{State: TaskQueued, Label: fmt.Sprintf("%d queued", s.Queued)})
+		parts = append(parts, TaskStatusPart{State: TaskQueued, Label: e.T("tasksExtra.countQueued", l10n.Param("count", s.Queued))})
 	}
 	return parts
 }

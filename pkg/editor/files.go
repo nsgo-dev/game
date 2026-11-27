@@ -385,8 +385,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								Then: func(cx *core.Scope) core.Node {
 									return ui.Button{
 										TestID:  "files-open-tileset",
-										Text:    "Edit Tileset",
-										Label:   "Open the selected tileset file in the Tileset Editor",
+										Text:    ed.T("filesExtra.editTileset"),
+										Label:   ed.T("filesExtra.editTilesetLabel"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonSecondary,
 										Disabled: func() bool {
@@ -414,8 +414,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								Then: func(cx *core.Scope) core.Node {
 									return ui.Button{
 										TestID:  "files-open-terrain",
-										Text:    "Terrain",
-										Label:   "Open the selected *.terrain.yaml file in the 3D terrain editor",
+										Text:    ed.T("filesExtra.terrain"),
+										Label:   ed.T("filesExtra.terrainLabel"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonSecondary,
 										Disabled: func() bool {
@@ -443,8 +443,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								Then: func(cx *core.Scope) core.Node {
 									return ui.Button{
 										TestID:  "files-open-rig",
-										Text:    "Open Rig",
-										Label:   "Open the selected .skel.yaml file in the 2D Skeletal Rig editor",
+										Text:    ed.T("filesExtra.openRig"),
+										Label:   ed.T("filesExtra.openRigLabel"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonSecondary,
 										Disabled: func() bool {
@@ -497,8 +497,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Then: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:  "files-open-emitter",
-								Text:    "Open Emitter",
-								Label:   "Open the selected YAML file in the Particle Emitter editor",
+								Text:    ed.T("filesExtra.openEmitter"),
+								Label:   ed.T("filesExtra.openEmitterLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {

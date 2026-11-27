@@ -242,12 +242,12 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 
 	easingOptions := []ui.Option[rooms.Easing]{
-		{Value: "", Label: "Default"},
-		{Value: rooms.EasingLinear, Label: "linear"},
-		{Value: rooms.EasingEase, Label: "ease"},
-		{Value: rooms.EasingEaseIn, Label: "easeIn"},
-		{Value: rooms.EasingEaseOut, Label: "easeOut"},
-		{Value: rooms.EasingEaseInOut, Label: "easeInOut"},
+		{Value: "", Label: ed.T("inspectorRoom.easingDefault")},
+		{Value: rooms.EasingLinear, Label: ed.T("inspectorRoom.easingLinear")},
+		{Value: rooms.EasingEase, Label: ed.T("inspectorRoom.easingEase")},
+		{Value: rooms.EasingEaseIn, Label: ed.T("inspectorRoom.easingEaseIn")},
+		{Value: rooms.EasingEaseOut, Label: ed.T("inspectorRoom.easingEaseOut")},
+		{Value: rooms.EasingEaseInOut, Label: ed.T("inspectorRoom.easingEaseInOut")},
 	}
 
 	return core.View{
@@ -279,7 +279,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								},
 							},
 							ui.Badge{
-								Text:    "room",
+								Text:    ed.T("inspectorRoom.badge"),
 								Variant: ui.BadgeNeutral,
 							},
 						},
@@ -289,8 +289,8 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Children: []core.Node{
 							ui.Button{
 								TestID:  "inspector-room-back",
-								Text:    "Scene",
-								Label:   "Return to Scene Settings",
+								Text:    ed.T("inspectorRoom.scene"),
+								Label:   ed.T("inspectorRoom.returnToScene"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								OnPress: func() {
@@ -299,7 +299,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.Button{
 								TestID:   "inspector-room-delete",
-								Text:     "Delete",
+								Text:     ed.T("inspectorRoom.delete"),
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonOutline,
 								Disabled: disabled,
@@ -314,10 +314,10 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 			},
 
-			sectionHeader("ROOM"),
-			fieldRow("ID", ui.Input{
+			sectionHeader(ed.T("inspectorRoom.section.room")),
+			fieldRow(ed.T("inspectorRoom.id"), ui.Input{
 				TestID:   "inspector-room-id",
-				Label:    "Room ID",
+				Label:    ed.T("inspectorRoom.roomID"),
 				Disabled: disabled,
 				Value: func() string {
 					_ = rev.Get()
@@ -345,10 +345,10 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					}
 				},
 			}),
-			fieldRow("Name", ui.Input{
+			fieldRow(ed.T("inspectorRoom.name"), ui.Input{
 				TestID:      "inspector-room-name",
-				Label:       "Room Name",
-				Placeholder: "Display name or key",
+				Label:       ed.T("inspectorRoom.roomName"),
+				Placeholder: ed.T("inspectorRoom.namePlaceholder"),
 				Disabled:    disabled,
 				Value: func() string {
 					if r := currentRoom(); r != nil {
@@ -363,10 +363,10 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 			}),
 
-			sectionHeader("BOUNDS"),
+			sectionHeader(ed.T("inspectorRoom.section.bounds")),
 			fieldRow("X", ui.NumberInput{
 				TestID:   "inspector-room-x",
-				Label:    "Room X",
+				Label:    ed.T("inspectorRoom.roomX"),
 				Step:     1,
 				Format:   floatFormat,
 				Disabled: disabled,
@@ -382,7 +382,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			}),
 			fieldRow("Y", ui.NumberInput{
 				TestID:   "inspector-room-y",
-				Label:    "Room Y",
+				Label:    ed.T("inspectorRoom.roomY"),
 				Step:     1,
 				Format:   floatFormat,
 				Disabled: disabled,
@@ -396,9 +396,9 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					updateRect(func(r *rooms.Room) { r.Y = float32(v) })
 				},
 			}),
-			fieldRow("Width", ui.NumberInput{
+			fieldRow(ed.T("inspectorRoom.width"), ui.NumberInput{
 				TestID:   "inspector-room-width",
-				Label:    "Room Width",
+				Label:    ed.T("inspectorRoom.roomWidth"),
 				Step:     1,
 				Format:   floatFormat,
 				Disabled: disabled,
@@ -412,9 +412,9 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					updateRect(func(r *rooms.Room) { r.Width = float32(v) })
 				},
 			}),
-			fieldRow("Height", ui.NumberInput{
+			fieldRow(ed.T("inspectorRoom.height"), ui.NumberInput{
 				TestID:   "inspector-room-height",
-				Label:    "Room Height",
+				Label:    ed.T("inspectorRoom.roomHeight"),
 				Step:     1,
 				Format:   floatFormat,
 				Disabled: disabled,
@@ -429,7 +429,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 			}),
 
-			sectionHeader("TRANSITION"),
+			sectionHeader(ed.T("inspectorRoom.section.transition")),
 			core.View{
 				Style: core.Style{
 					Direction: core.Row,
@@ -437,10 +437,10 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Gap:       4,
 				},
 				Children: []core.Node{
-					transKindBtn("inspector-room-transition-inherit", "Inherit", "", true),
-					transKindBtn("inspector-room-transition-cut", "Cut", rooms.KindCut, false),
-					transKindBtn("inspector-room-transition-slide", "Slide", rooms.KindSlide, false),
-					transKindBtn("inspector-room-transition-fade", "Fade", rooms.KindFade, false),
+					transKindBtn("inspector-room-transition-inherit", ed.T("inspectorRoom.transInherit"), "", true),
+					transKindBtn("inspector-room-transition-cut", ed.T("inspectorRoom.transCut"), rooms.KindCut, false),
+					transKindBtn("inspector-room-transition-slide", ed.T("inspectorRoom.transSlide"), rooms.KindSlide, false),
+					transKindBtn("inspector-room-transition-fade", ed.T("inspectorRoom.transFade"), rooms.KindFade, false),
 				},
 			},
 			core.Show{
@@ -449,10 +449,10 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return core.View{
 						Style: core.Style{Gap: 8},
 						Children: []core.Node{
-							fieldRow("Duration", ui.Input{
+							fieldRow(ed.T("inspectorRoom.duration"), ui.Input{
 								TestID:      "inspector-room-transition-duration",
-								Label:       "Transition Duration",
-								Placeholder: "e.g. 400ms",
+								Label:       ed.T("inspectorRoom.transDuration"),
+								Placeholder: ed.T("inspectorRoom.durationPlaceholder"),
 								Disabled:    disabled,
 								Value: func() string {
 									_ = rev.Get()
@@ -480,9 +480,9 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									}
 								},
 							}),
-							fieldRow("Easing", ui.Select[rooms.Easing]{
+							fieldRow(ed.T("inspectorRoom.easing"), ui.Select[rooms.Easing]{
 								TestID:   "inspector-room-transition-easing",
-								Label:    "Transition Easing",
+								Label:    ed.T("inspectorRoom.transEasing"),
 								Disabled: disabled,
 								Style:    core.Style{Width: core.Pct(100)},
 								Options:  easingOptions,
@@ -509,9 +509,9 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			core.Show{
 				When: isFade,
 				Then: func(cx *core.Scope) core.Node {
-					return fieldRow("Color", ui.Input{
+					return fieldRow(ed.T("inspectorRoom.color"), ui.Input{
 						TestID:      "inspector-room-transition-color",
-						Label:       "Fade Color",
+						Label:       ed.T("inspectorRoom.fadeColor"),
 						Placeholder: "#000000",
 						Disabled:    disabled,
 						Value: func() string {
@@ -543,10 +543,10 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 			},
 
-			sectionHeader("ROOM MAP"),
-			fieldRow("Grid Snap", SpecSwitch{
+			sectionHeader(ed.T("inspectorRoom.section.roomMap")),
+			fieldRow(ed.T("inspectorRoom.gridSnap"), SpecSwitch{
 				TestID:   "inspector-room-snap",
-				Label:    "Snap Room Edges to Tile Grid",
+				Label:    ed.T("inspectorRoom.snapRoomEdges"),
 				Disabled: disabled,
 				Checked: func() bool {
 					_ = rev.Get()
@@ -561,7 +561,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				Children: []core.Node{
 					ui.ToggleButton{
 						TestID:   "inspector-room-draw-mode",
-						Text:     "Draw Room",
+						Text:     ed.T("inspectorRoom.drawRoom"),
 						Disabled: disabled,
 						On: func() bool {
 							_ = rev.Get()
@@ -573,7 +573,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 					ui.Button{
 						TestID:   "inspector-room-save",
-						Text:     "Save Rooms",
+						Text:     ed.T("inspectorRoom.saveRooms"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -752,19 +752,19 @@ func roomsSceneSection(
 		return tr != nil && tr.Kind == rooms.KindFade
 	}
 	mapEasingOptions := []ui.Option[rooms.Easing]{
-		{Value: "", Label: "Default"},
-		{Value: rooms.EasingLinear, Label: "linear"},
-		{Value: rooms.EasingEase, Label: "ease"},
-		{Value: rooms.EasingEaseIn, Label: "easeIn"},
-		{Value: rooms.EasingEaseOut, Label: "easeOut"},
-		{Value: rooms.EasingEaseInOut, Label: "easeInOut"},
+		{Value: "", Label: ed.T("inspectorRoom.easingDefault")},
+		{Value: rooms.EasingLinear, Label: ed.T("inspectorRoom.easingLinear")},
+		{Value: rooms.EasingEase, Label: ed.T("inspectorRoom.easingEase")},
+		{Value: rooms.EasingEaseIn, Label: ed.T("inspectorRoom.easingEaseIn")},
+		{Value: rooms.EasingEaseOut, Label: ed.T("inspectorRoom.easingEaseOut")},
+		{Value: rooms.EasingEaseInOut, Label: ed.T("inspectorRoom.easingEaseInOut")},
 	}
 
 	return core.View{
 		TestID: "inspector-rooms-section",
 		Style:  core.Style{Gap: 8},
 		Children: []core.Node{
-			sectionHeader("ROOMS"),
+			sectionHeader(ed.T("inspectorRoom.section.rooms")),
 			core.Show{
 				When: hasRooms,
 				Then: func(cx *core.Scope) core.Node {
@@ -784,9 +784,9 @@ func roomsSceneSection(
 								MaxLines: 1,
 								Style:    core.Style{FontSize: 11, Color: colors.Muted()},
 							},
-							fieldRow("Grid Snap", SpecSwitch{
+							fieldRow(ed.T("inspectorRoom.gridSnap"), SpecSwitch{
 								TestID:   "inspector-rooms-snap",
-								Label:    "Snap Room Edges to Tile Grid",
+								Label:    ed.T("inspectorRoom.snapRoomEdges"),
 								Disabled: disabled,
 								Checked: func() bool {
 									_ = rev.Get()
@@ -801,7 +801,7 @@ func roomsSceneSection(
 								Children: []core.Node{
 									ui.Button{
 										TestID:   "inspector-rooms-add",
-										Text:     "Add Room",
+										Text:     ed.T("inspectorRoom.addRoom"),
 										Size:     ui.SizeSmall,
 										Variant:  ui.ButtonSecondary,
 										Disabled: disabled,
@@ -812,7 +812,7 @@ func roomsSceneSection(
 									},
 									ui.ToggleButton{
 										TestID:   "inspector-rooms-draw",
-										Text:     "Draw Room",
+										Text:     ed.T("inspectorRoom.drawRoom"),
 										Disabled: disabled,
 										On: func() bool {
 											_ = rev.Get()
@@ -824,7 +824,7 @@ func roomsSceneSection(
 									},
 									ui.Button{
 										TestID:   "inspector-rooms-save",
-										Text:     "Save",
+										Text:     ed.T("inspectorRoom.save"),
 										Size:     ui.SizeSmall,
 										Variant:  ui.ButtonSecondary,
 										Disabled: disabled,
@@ -834,7 +834,7 @@ func roomsSceneSection(
 									},
 									ui.Button{
 										TestID:   "inspector-rooms-close",
-										Text:     "Close",
+										Text:     ed.T("inspectorRoom.close"),
 										Size:     ui.SizeSmall,
 										Variant:  ui.ButtonOutline,
 										Disabled: disabled,
@@ -844,13 +844,13 @@ func roomsSceneSection(
 									},
 								},
 							},
-							fieldRow("Default", core.View{
+							fieldRow(ed.T("inspectorRoom.default"), core.View{
 								Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
 								Children: []core.Node{
-									mapTransKindBtn("inspector-rooms-transition-none", "None", "", true),
-									mapTransKindBtn("inspector-rooms-transition-cut", "Cut", rooms.KindCut, false),
-									mapTransKindBtn("inspector-rooms-transition-slide", "Slide", rooms.KindSlide, false),
-									mapTransKindBtn("inspector-rooms-transition-fade", "Fade", rooms.KindFade, false),
+									mapTransKindBtn("inspector-rooms-transition-none", ed.T("inspectorRoom.transNone"), "", true),
+									mapTransKindBtn("inspector-rooms-transition-cut", ed.T("inspectorRoom.transCut"), rooms.KindCut, false),
+									mapTransKindBtn("inspector-rooms-transition-slide", ed.T("inspectorRoom.transSlide"), rooms.KindSlide, false),
+									mapTransKindBtn("inspector-rooms-transition-fade", ed.T("inspectorRoom.transFade"), rooms.KindFade, false),
 								},
 							}),
 							core.Show{
@@ -859,10 +859,10 @@ func roomsSceneSection(
 									return core.View{
 										Style: core.Style{Gap: 8},
 										Children: []core.Node{
-											fieldRow("Duration", ui.Input{
+											fieldRow(ed.T("inspectorRoom.duration"), ui.Input{
 												TestID:      "inspector-rooms-transition-duration",
-												Label:       "Default Transition Duration",
-												Placeholder: "e.g. 400ms",
+												Label:       ed.T("inspectorRoom.defaultTransDuration"),
+												Placeholder: ed.T("inspectorRoom.durationPlaceholder"),
 												Disabled:    disabled,
 												Value: func() string {
 													_ = rev.Get()
@@ -890,9 +890,9 @@ func roomsSceneSection(
 													}
 												},
 											}),
-											fieldRow("Easing", ui.Select[rooms.Easing]{
+											fieldRow(ed.T("inspectorRoom.easing"), ui.Select[rooms.Easing]{
 												TestID:   "inspector-rooms-transition-easing",
-												Label:    "Default Transition Easing",
+												Label:    ed.T("inspectorRoom.defaultTransEasing"),
 												Disabled: disabled,
 												Style:    core.Style{Width: core.Pct(100)},
 												Options:  mapEasingOptions,
@@ -919,9 +919,9 @@ func roomsSceneSection(
 							core.Show{
 								When: mapTransFade,
 								Then: func(cx *core.Scope) core.Node {
-									return fieldRow("Color", ui.Input{
+									return fieldRow(ed.T("inspectorRoom.color"), ui.Input{
 										TestID:      "inspector-rooms-transition-color",
-										Label:       "Default Fade Color",
+										Label:       ed.T("inspectorRoom.defaultFadeColor"),
 										Placeholder: "#000000",
 										Disabled:    disabled,
 										Value: func() string {
@@ -958,7 +958,7 @@ func roomsSceneSection(
 								if m == nil || len(m.Rooms) == 0 {
 									return core.Text{
 										TestID:  "inspector-rooms-empty",
-										Content: "No rooms — add or draw a room before saving.",
+										Content: ed.T("inspectorRoom.noRooms"),
 										Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 									}
 								}
@@ -989,12 +989,12 @@ func roomsSceneSection(
 						Style: core.Style{Gap: 6},
 						Children: []core.Node{
 							core.Text{
-								Content: "No room map open beside this scene.",
+								Content: ed.T("inspectorRoom.noRoomMap"),
 								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 							},
 							ui.Button{
 								TestID:   "inspector-rooms-new",
-								Text:     "New Room Map",
+								Text:     ed.T("inspectorRoom.newRoomMap"),
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonSecondary,
 								Disabled: disabled,

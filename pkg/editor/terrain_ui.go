@@ -1,14 +1,50 @@
 package editor
 
 import (
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+func localizedTerrainBrushMode(ed *Editor, mode TerrainBrushMode) string {
+	switch mode {
+	case TerrainBrushNone:
+		return ed.T("terrain.brush.off")
+	case TerrainBrushRaise:
+		return ed.T("terrain.brush.raise")
+	case TerrainBrushLower:
+		return ed.T("terrain.brush.lower")
+	case TerrainBrushSmooth:
+		return ed.T("terrain.brush.smooth")
+	case TerrainBrushFlatten:
+		return ed.T("terrain.brush.flatten")
+	case TerrainBrushSetHeight:
+		return ed.T("terrain.brush.setHeight")
+	case TerrainBrushPaintLayer:
+		return ed.T("terrain.brush.paintLayer")
+	case TerrainBrushPaintFoliage:
+		return ed.T("terrain.brush.paintFoliage")
+	default:
+		return mode.String()
+	}
+}
+
+func localizedTerrainFalloff(ed *Editor, f TerrainBrushFalloff) string {
+	switch f {
+	case TerrainFalloffSmooth:
+		return ed.T("terrain.falloff.smooth")
+	case TerrainFalloffLinear:
+		return ed.T("terrain.falloff.linear")
+	case TerrainFalloffFlat:
+		return ed.T("terrain.falloff.flat")
+	default:
+		return f.String()
+	}
+}
 
 // TerrainPanelView renders the docked Terrain Sculpt & Paint panel below the
 // viewport while a terrain is open: brush mode selector (Raise, Lower, Smooth,
@@ -35,7 +71,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	modeBtn := func(testID string, mode TerrainBrushMode) core.Node {
 		return ui.ToggleButton{
 			TestID:   testID,
-			Text:     mode.String(),
+			Text:     localizedTerrainBrushMode(ed, mode),
 			Disabled: disabled,
 			On: func() bool {
 				_ = rev.Get()
@@ -54,7 +90,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	falloffBtn := func(testID string, f TerrainBrushFalloff) core.Node {
 		return ui.ToggleButton{
 			TestID:   testID,
-			Text:     f.String(),
+			Text:     localizedTerrainFalloff(ed, f),
 			Disabled: disabled,
 			On: func() bool {
 				_ = rev.Get()
@@ -119,7 +155,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		Gap: 8,
 		Children: []core.Node{
 			core.Text{
-				Content: "Terrain",
+				Content: ed.T("terrain.title"),
 				Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
 			},
 			core.Text{
@@ -127,14 +163,18 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				ContentFunc: func() string {
 					_ = rev.Get()
 					p := ed.TerrainPath()
-					label := "Untitled Terrain"
+					label := ed.T("terrain.untitled")
 					if p != "" {
 						label = filepath.Base(p)
 					} else if doc := ed.TerrainDoc(); doc != nil && doc.Name != "" {
 						label = doc.Name
 					}
 					if hm := ed.Terrain(); hm != nil {
-						label = fmt.Sprintf("%s (%dx%d)", label, hm.Cols, hm.Rows)
+						label = ed.T("terrain.labelWithDims",
+							l10n.Param("label", label),
+							l10n.Param("cols", hm.Cols),
+							l10n.Param("rows", hm.Rows),
+						)
 					}
 					if ed.TerrainDirty() {
 						label += "*"
@@ -146,7 +186,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			core.View{Style: core.Style{FlexGrow: 1}},
 			ui.Button{
 				TestID:   "terrain-save",
-				Text:     "Save Terrain",
+				Text:     ed.T("terrain.save"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -156,7 +196,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			},
 			ui.Button{
 				TestID:   "terrain-close",
-				Text:     "Close",
+				Text:     ed.T("terrain.close"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonGhost,
 				Disabled: disabled,
@@ -184,7 +224,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	params := ui.HStack{
 		Gap: 8,
 		Children: []core.Node{
-			floatField("terrain-brush-radius", "Radius",
+			floatField("terrain-brush-radius", ed.T("terrain.radius"),
 				func() float32 { return ed.TerrainBrush().Radius },
 				func(v float32) {
 					if v > 0 {
@@ -194,7 +234,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 			),
-			floatField("terrain-brush-strength", "Strength",
+			floatField("terrain-brush-strength", ed.T("terrain.strength"),
 				func() float32 { return ed.TerrainBrush().Strength },
 				func(v float32) {
 					if v > 0 && v <= 1 {
@@ -204,7 +244,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 			),
-			floatField("terrain-brush-target-height", "Target Y",
+			floatField("terrain-brush-target-height", ed.T("terrain.targetY"),
 				func() float32 { return ed.TerrainBrush().TargetHeight },
 				func(v float32) {
 					b := ed.TerrainBrush()
@@ -212,7 +252,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					ed.SetTerrainBrush(b)
 				},
 			),
-			floatField("terrain-brush-target-density", "Density",
+			floatField("terrain-brush-target-density", ed.T("terrain.density"),
 				func() float32 { return ed.TerrainBrush().TargetDensity },
 				func(v float32) {
 					b := ed.TerrainBrush()
@@ -224,7 +264,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				Style: core.Style{Gap: 2},
 				Children: []core.Node{
 					core.Text{
-						Content: "Falloff",
+						Content: ed.T("terrain.falloff"),
 						Style:   core.Style{FontSize: 10, Color: colors.Muted()},
 					},
 					ui.HStack{
@@ -248,7 +288,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		}
 		var layerBtns []core.Node
 		layerBtns = append(layerBtns, core.Text{
-			Content: "Layers:",
+			Content: ed.T("terrain.layers"),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		})
 		for i, l := range doc.Layers {
@@ -273,7 +313,7 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		}
 		if len(doc.Foliage) > 0 {
 			layerBtns = append(layerBtns, core.Text{
-				Content: "Foliage:",
+				Content: ed.T("terrain.foliage"),
 				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 			})
 			for i, fl := range doc.Foliage {

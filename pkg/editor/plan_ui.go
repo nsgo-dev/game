@@ -19,6 +19,7 @@ func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		dark   bool
 		phase  PlanPhase
 		active bool
+		lang   string
 	}
 	keyMemo := core.NewMemo(cx, func() pillKey {
 		_ = rev.Get()
@@ -30,6 +31,7 @@ func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			dark:   ed.SpecPalette(cx).Dark,
 			phase:  p.Phase,
 			active: true,
+			lang:   ed.ResolvedLanguage(),
 		}
 	})
 	return core.Show{
@@ -309,11 +311,16 @@ func planFilesFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						deco = core.TextDecorationLineThrough
 					}
 					tagCol := p.Changed.Fg
+					tagLabel := string(f.Tag)
 					switch f.Tag {
+					case PlanFileEdit:
+						tagLabel = ed.T("planExtra.fileTagEdit")
 					case PlanFileNew:
 						tagCol = p.Added.Fg
+						tagLabel = ed.T("planExtra.fileTagNew")
 					case PlanFileDelete:
 						tagCol = p.Removed.Fg
+						tagLabel = ed.T("planExtra.fileTagDelete")
 					}
 					rows = append(rows, core.View{
 						TestID: fmt.Sprintf("plan-file-row-%d", idx),
@@ -341,7 +348,7 @@ func planFilesFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								},
 							},
 							core.Text{
-								Content: string(f.Tag),
+								Content: tagLabel,
 								Style: core.Style{
 									FontSize:   10.5,
 									Color:      tagCol,
@@ -1322,7 +1329,7 @@ func planStepEditorDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						core.View{
 							TestID: "plan-field-" + field.Key + "-dec",
 							Role:   core.RoleButton,
-							Label:  "Decrease " + field.Label,
+							Label:  ed.T("planExtra.decreaseField", l10n.Param("field", field.Label)),
 							Style: core.Style{
 								Width:          core.Pt(28),
 								Height:         core.Pt(24),
@@ -1371,7 +1378,7 @@ func planStepEditorDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						core.View{
 							TestID: "plan-field-" + field.Key + "-inc",
 							Role:   core.RoleButton,
-							Label:  "Increase " + field.Label,
+							Label:  ed.T("planExtra.increaseField", l10n.Param("field", field.Label)),
 							Style: core.Style{
 								Width:          core.Pt(28),
 								Height:         core.Pt(24),

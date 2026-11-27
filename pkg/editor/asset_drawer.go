@@ -24,6 +24,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -247,6 +248,7 @@ type decodedAudioMeta struct {
 	modTime  time.Time
 	size     int64
 	filesRev uint64
+	lang     string
 	wave     []float32
 	dur      time.Duration
 	rate     int
@@ -263,6 +265,7 @@ type assetDrawerRailKey struct {
 	scenesRev   uint64
 	viewRev     uint64
 	hasProject  bool
+	lang        string
 }
 
 type assetDrawerInspectorKey struct {
@@ -288,6 +291,7 @@ func (e *Editor) assetDrawerRailKey() assetDrawerRailKey {
 		scenesRev:   e.scenesRev,
 		viewRev:     e.assetDrawer.viewRev,
 		hasProject:  e.Project != nil,
+		lang:        e.ResolvedLanguage(),
 	}
 }
 
@@ -577,7 +581,7 @@ func (e *Editor) SelectAssetPath(relPath string) {
 	if clean != "" {
 		e.SelectedFile = clean
 		e.selectedFileRev++
-		e.Status = "Selected asset " + clean
+		e.Status = e.T("assetDrawer.statusSelected", l10n.Param("path", clean))
 	}
 	e.assetDrawer.viewRev++
 	e.assetDrawer.previewRev++
@@ -625,11 +629,7 @@ func (e *Editor) KeepProposedAssets() {
 	}
 	n := len(e.assetDrawer.proposed)
 	clear(e.assetDrawer.proposed)
-	if n == 1 {
-		e.assetDrawer.proposedNote = "Kept 1 imported asset"
-	} else {
-		e.assetDrawer.proposedNote = fmt.Sprintf("Kept %d imported assets", n)
-	}
+	e.assetDrawer.proposedNote = e.Plural("assetDrawer.statusKeptProposed", n)
 	e.Status = e.assetDrawer.proposedNote
 	e.assetDrawer.drawerRev++
 	e.assetDrawer.viewRev++
@@ -643,7 +643,7 @@ func (e *Editor) RevertProposedAssets() {
 		return
 	}
 	clear(e.assetDrawer.proposed)
-	e.assetDrawer.proposedNote = "Import proposal dismissed"
+	e.assetDrawer.proposedNote = e.T("assetDrawer.statusProposalDismissed")
 	e.Status = e.assetDrawer.proposedNote
 	e.assetDrawer.drawerRev++
 	e.assetDrawer.viewRev++
@@ -660,7 +660,7 @@ func (e *Editor) AssetDrawerSnapshot() AssetDrawerSnapshot {
 	all, dirs := e.ensureAssetDrawerCatalog()
 
 	// Folder counts across all items.
-	folders := buildAssetFolders(all, dirs)
+	folders := buildAssetFolders(e, all, dirs)
 
 	// SHOW ONLY counts across all items.
 	var counts AssetDrawerCounts
@@ -772,7 +772,7 @@ func (e *Editor) AssetDrawerSnapshot() AssetDrawerSnapshot {
 }
 
 func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
-	key := fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", e.ProjectPath, e.filesRev, e.assetsRev, e.assetDrawer.drawerRev, e.scenesRev)
+	key := fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d\x00%s", e.ProjectPath, e.filesRev, e.assetsRev, e.assetDrawer.drawerRev, e.scenesRev, e.ResolvedLanguage())
 	if e.Project == nil || e.ProjectPath == "" {
 		// Standalone mode without a project directory: list resolver atlas frames.
 		return e.buildResolverOnlyAssets(), nil
@@ -913,7 +913,7 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 		isGenerated := sourceSidecars[rel]
 		isProposed := e.assetDrawer.proposed[rel]
 
-		kind, kindLabel := classifyAssetPath(rel, tilesetImages[rel])
+		kind, kindLabel := e.classifyAssetPath(rel, tilesetImages[rel])
 		folder := path.Dir(rel)
 		if folder == "." {
 			folder = ""
@@ -945,22 +945,22 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 		// Badge priority: Missing > new (Proposed) > Generated > Not used.
 		switch {
 		case item.Missing:
-			item.Badge = "Missing"
+			item.Badge = e.T("assetDrawer.badgeMissing")
 		case item.Proposed:
-			item.Badge = "new"
+			item.Badge = e.T("assetDrawer.badgeNew")
 		case item.Generated:
-			item.Badge = "Generated"
+			item.Badge = e.T("assetDrawer.badgeGenerated")
 		case item.Unused:
-			item.Badge = "Not used"
+			item.Badge = e.T("assetDrawer.badgeNotUsed")
 		}
 
 		absPath := filepath.Join(root, filepath.FromSlash(rel))
 		if item.Missing {
-			item.Dims = "not on disk"
+			item.Dims = e.T("assetDrawer.dimsNotOnDisk")
 			if item.UseCount > 0 {
-				item.Meta = fmt.Sprintf("Missing · used %d×", item.UseCount)
+				item.Meta = e.T("assetDrawer.metaMissingUsed", l10n.Param("count", item.UseCount))
 			} else {
-				item.Meta = "Missing"
+				item.Meta = e.T("assetDrawer.badgeMissing")
 			}
 		} else {
 			switch kind {
@@ -969,9 +969,9 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 			case AssetKindAudio:
 				e.populateAudioAssetItem(&item, root, absPath, info)
 			case AssetKindFonts:
-				populateFontAssetItem(&item)
+				populateFontAssetItem(e, &item)
 			default:
-				item.Meta = formatAssetMeta("", item.UseCount, item.Unused, item.Generated)
+				item.Meta = formatAssetMeta(e, "", item.UseCount, item.Unused, item.Generated)
 			}
 		}
 
@@ -997,16 +997,16 @@ func (e *Editor) buildResolverOnlyAssets() []AssetDrawerItem {
 		unused := uses == 0
 		badge := ""
 		if unused {
-			badge = "Not used"
+			badge = e.T("assetDrawer.badgeNotUsed")
 		}
-		meta := formatAssetMeta("", uses, unused, false)
+		meta := formatAssetMeta(e, "", uses, unused, false)
 		dims := fmt.Sprintf("%.0f × %.0f", ae.Rect.W, ae.Rect.H)
 		items = append(items, AssetDrawerItem{
 			Path:        p,
 			Name:        ae.Frame,
 			Folder:      ae.Atlas,
 			Kind:        AssetKindSprites,
-			KindLabel:   "Sprite",
+			KindLabel:   e.T("assetDrawer.kindLabelSprite"),
 			Meta:        meta,
 			Dims:        dims,
 			Badge:       badge,
@@ -1119,22 +1119,31 @@ func (e *Editor) populateImageAssetItem(
 	case item.Kind == AssetKindTiles:
 		if item.ImageWidth > 0 && item.ImageHeight > 0 {
 			cols, rows := max(1, item.ImageWidth/16), max(1, item.ImageHeight/16)
-			item.Dims = fmt.Sprintf("16 px · %d × %d tiles", cols, rows)
-			prefix = fmt.Sprintf("%d tiles", cols*rows)
+			item.Dims = e.T("assetDrawer.dimsTilesetGrid", l10n.Param("cols", cols), l10n.Param("rows", rows))
+			prefix = e.T("assetDrawer.metaTilesCount", l10n.Param("count", cols*rows))
 		} else {
-			item.Dims = "tileset"
-			prefix = "Tileset"
+			item.Dims = e.T("assetDrawer.dimsTileset")
+			prefix = e.T("assetDrawer.kindLabelTileset")
 		}
 	case len(item.Clips) > 1:
-		item.Dims = fmt.Sprintf("%d × %d · %d clips · %d frames", item.ImageWidth, item.ImageHeight, len(item.Clips), totalFrames)
-		prefix = fmt.Sprintf("%d clips", len(item.Clips))
+		item.Dims = e.T("assetDrawer.dimsClipsFrames",
+			l10n.Param("w", item.ImageWidth),
+			l10n.Param("h", item.ImageHeight),
+			l10n.Param("clips", len(item.Clips)),
+			l10n.Param("frames", totalFrames),
+		)
+		prefix = e.T("assetDrawer.metaClipsCount", l10n.Param("count", len(item.Clips)))
 	case totalFrames > 1:
-		item.Dims = fmt.Sprintf("%d × %d · %d frames", item.ImageWidth, item.ImageHeight, totalFrames)
-		prefix = fmt.Sprintf("%d frames", totalFrames)
+		item.Dims = e.T("assetDrawer.dimsFrames",
+			l10n.Param("w", item.ImageWidth),
+			l10n.Param("h", item.ImageHeight),
+			l10n.Param("frames", totalFrames),
+		)
+		prefix = e.T("assetDrawer.metaFramesCount", l10n.Param("count", totalFrames))
 	case item.ImageWidth > 0 && item.ImageHeight > 0:
 		item.Dims = fmt.Sprintf("%d × %d", item.ImageWidth, item.ImageHeight)
 	}
-	item.Meta = formatAssetMeta(prefix, item.UseCount, item.Unused, item.Generated)
+	item.Meta = formatAssetMeta(e, prefix, item.UseCount, item.Unused, item.Generated)
 }
 
 func (e *Editor) loadDiskThumb(root, rel, absPath string, info os.FileInfo) (decodedThumb, bool) {
@@ -1188,9 +1197,11 @@ func (e *Editor) loadDiskThumb(root, rel, absPath string, info os.FileInfo) (dec
 
 func (e *Editor) populateAudioAssetItem(item *AssetDrawerItem, root, absPath string, info os.FileInfo) {
 	ext := strings.ToLower(path.Ext(item.Name))
+	lang := e.ResolvedLanguage()
 	if info != nil && e.assetDrawer.audioCache != nil {
 		if prev, ok := e.assetDrawer.audioCache[item.Path]; ok &&
 			prev.filesRev == e.filesRev &&
+			prev.lang == lang &&
 			prev.modTime.Equal(info.ModTime()) &&
 			prev.size == info.Size() {
 			item.AudioWave = prev.wave
@@ -1198,13 +1209,14 @@ func (e *Editor) populateAudioAssetItem(item *AssetDrawerItem, root, absPath str
 			item.AudioRate = prev.rate
 			item.AudioChannels = prev.channels
 			item.Dims = prev.dims
-			item.Meta = formatAssetMeta(prev.prefix, item.UseCount, item.Unused, item.Generated)
+			item.Meta = formatAssetMeta(e, prev.prefix, item.UseCount, item.Unused, item.Generated)
 			return
 		}
 	}
 
 	meta := decodedAudioMeta{
 		filesRev: e.filesRev,
+		lang:     lang,
 		wave:     synthWaveform(item.Path, 48),
 		dims:     strings.TrimPrefix(ext, "."),
 	}
@@ -1219,11 +1231,11 @@ func (e *Editor) populateAudioAssetItem(item *AssetDrawerItem, root, absPath str
 		if verifyFileWithinRoot(root, absPath, item.Path) == nil {
 			if data, err := readFileLimited(absPath, maxAssetAudioWaveBytes); err == nil {
 				if wave, dur, rate, ch, ok := decodeWAVPreview(data, 48); ok {
-					chLabel := "mono"
+					chLabel := e.T("assetDrawer.audioMono")
 					if ch == 2 {
-						chLabel = "stereo"
+						chLabel = e.T("assetDrawer.audioStereo")
 					} else if ch > 2 {
-						chLabel = fmt.Sprintf("%d ch", ch)
+						chLabel = e.T("assetDrawer.audioChannels", l10n.Param("count", ch))
 					}
 					sec := dur.Seconds()
 					meta.wave = wave
@@ -1249,23 +1261,23 @@ func (e *Editor) populateAudioAssetItem(item *AssetDrawerItem, root, absPath str
 	item.AudioRate = meta.rate
 	item.AudioChannels = meta.channels
 	item.Dims = meta.dims
-	item.Meta = formatAssetMeta(meta.prefix, item.UseCount, item.Unused, item.Generated)
+	item.Meta = formatAssetMeta(e, meta.prefix, item.UseCount, item.Unused, item.Generated)
 }
 
-func populateFontAssetItem(item *AssetDrawerItem) {
+func populateFontAssetItem(e *Editor, item *AssetDrawerItem) {
 	lower := strings.ToLower(item.Name)
 	if strings.Contains(lower, "cjk") || strings.Contains(lower, "zh") || strings.Contains(lower, "zpix") || strings.Contains(lower, "sc") {
 		item.FontSample = "中文 Aa"
-		item.Dims = "font · 中文 + Latin"
-		item.Meta = formatAssetMeta("中文 + Latin", item.UseCount, item.Unused, item.Generated)
+		item.Dims = e.T("assetDrawer.dimsFontCJKLatin")
+		item.Meta = formatAssetMeta(e, e.T("assetDrawer.metaFontCJKLatin"), item.UseCount, item.Unused, item.Generated)
 		return
 	}
 	item.FontSample = "Aa 12"
-	item.Dims = "font · Latin"
-	item.Meta = formatAssetMeta("Latin", item.UseCount, item.Unused, item.Generated)
+	item.Dims = e.T("assetDrawer.dimsFontLatin")
+	item.Meta = formatAssetMeta(e, e.T("assetDrawer.metaFontLatin"), item.UseCount, item.Unused, item.Generated)
 }
 
-func formatAssetMeta(prefix string, useCount int, unused, generated bool) string {
+func formatAssetMeta(e *Editor, prefix string, useCount int, unused, generated bool) string {
 	var parts []string
 	if prefix != "" {
 		parts = append(parts, prefix)
@@ -1273,47 +1285,47 @@ func formatAssetMeta(prefix string, useCount int, unused, generated bool) string
 	switch {
 	case unused:
 		if len(parts) == 0 {
-			return "Not used"
+			return e.T("assetDrawer.badgeNotUsed")
 		}
-		parts = append(parts, "Not used")
+		parts = append(parts, e.T("assetDrawer.badgeNotUsed"))
 	case generated && useCount > 0:
 		if prefix == "" {
-			parts = append(parts, "Generated")
+			parts = append(parts, e.T("assetDrawer.badgeGenerated"))
 		}
-		parts = append(parts, fmt.Sprintf("used %d×", useCount))
+		parts = append(parts, e.T("assetDrawer.metaUsedCount", l10n.Param("count", useCount)))
 	case useCount > 0:
-		parts = append(parts, fmt.Sprintf("used %d×", useCount))
+		parts = append(parts, e.T("assetDrawer.metaUsedCount", l10n.Param("count", useCount)))
 	case generated:
-		parts = append(parts, "Generated")
+		parts = append(parts, e.T("assetDrawer.badgeGenerated"))
 	}
 	if len(parts) == 0 {
-		return "Not used"
+		return e.T("assetDrawer.badgeNotUsed")
 	}
 	return strings.Join(parts, " · ")
 }
 
-func classifyAssetPath(rel string, isTilesetImage bool) (AssetDrawerKind, string) {
+func (e *Editor) classifyAssetPath(rel string, isTilesetImage bool) (AssetDrawerKind, string) {
 	lower := strings.ToLower(rel)
 	if strings.HasSuffix(lower, ".tileset.yaml") || strings.HasSuffix(lower, ".tileset.yml") {
-		return AssetKindTiles, "Tileset"
+		return AssetKindTiles, e.T("assetDrawer.kindLabelTileset")
 	}
 	ext := strings.ToLower(path.Ext(lower))
 	switch ext {
 	case ".tsj", ".tsx":
-		return AssetKindTiles, "Tileset"
+		return AssetKindTiles, e.T("assetDrawer.kindLabelTileset")
 	case ".wav", ".ogg", ".mp3", ".flac", ".m4a", ".aac", ".opus":
-		return AssetKindAudio, "Sound"
+		return AssetKindAudio, e.T("assetDrawer.kindLabelSound")
 	case ".ttf", ".otf", ".woff", ".woff2":
-		return AssetKindFonts, "Font"
+		return AssetKindFonts, e.T("assetDrawer.kindLabelFont")
 	case ".aseprite", ".ase":
 		return AssetKindSprites, "Aseprite"
 	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp":
 		if isTilesetImage || strings.Contains("/"+lower, "/tiles/") || strings.Contains("/"+lower, "/tilesets/") {
-			return AssetKindTiles, "Tileset"
+			return AssetKindTiles, e.T("assetDrawer.kindLabelTileset")
 		}
-		return AssetKindSprites, "Sprite"
+		return AssetKindSprites, e.T("assetDrawer.kindLabelSprite")
 	default:
-		return AssetKindAll, "Asset"
+		return AssetKindAll, e.T("assetDrawer.kindLabelAsset")
 	}
 }
 
@@ -1324,7 +1336,7 @@ func assetInFolder(assetPath, folder string) bool {
 	return strings.HasPrefix(assetPath, folder+"/")
 }
 
-func buildAssetFolders(items []AssetDrawerItem, diskDirs []string) []AssetFolderEntry {
+func buildAssetFolders(e *Editor, items []AssetDrawerItem, diskDirs []string) []AssetFolderEntry {
 	dirSet := make(map[string]bool)
 	for _, it := range items {
 		for d := path.Dir(it.Path); d != "." && d != "/" && d != ""; d = path.Dir(d) {
@@ -1348,7 +1360,7 @@ func buildAssetFolders(items []AssetDrawerItem, diskDirs []string) []AssetFolder
 	out := make([]AssetFolderEntry, 0, len(sortedDirs)+1)
 	out = append(out, AssetFolderEntry{
 		Path:  "",
-		Label: "All assets",
+		Label: e.T("assetDrawer.folderAll"),
 		Depth: 0,
 		Count: len(items),
 	})
@@ -1694,7 +1706,7 @@ func (e *Editor) ToggleAssetAudioPreview(relPath string) error {
 	}
 	e.assetDrawer.audioPlayingPath = clean
 	e.assetDrawer.previewRev++
-	e.Status = "Playing " + path.Base(clean)
+	e.Status = e.T("assetDrawer.statusPlaying", l10n.Param("name", path.Base(clean)))
 	e.notify()
 	return nil
 }
@@ -1708,7 +1720,7 @@ func (e *Editor) StopAssetAudioPreview() {
 	e.stopAssetAudioPreview()
 	if was {
 		e.assetDrawer.previewRev++
-		e.Status = "Stopped sound preview"
+		e.Status = e.T("assetDrawer.statusStoppedPreview")
 		e.notify()
 	}
 }
@@ -1850,9 +1862,12 @@ func (e *Editor) updateAssetDragPayload(drag AssetDrawerDrag, canvasX, canvasY f
 	}
 	var detail string
 	if hitID != "" {
-		detail = fmt.Sprintf("swap sprite on %s", hitName)
+		detail = e.T("assetDrawer.dragSwapDetail", l10n.Param("name", hitName))
 	} else {
-		detail = fmt.Sprintf("new Sprite on %s · snapped to %.0f px", layerName, step)
+		detail = e.T("assetDrawer.dragNewDetail",
+			l10n.Param("layer", layerName),
+			l10n.Param("step", fmt.Sprintf("%.0f", step)),
+		)
 	}
 
 	e.assetDrawer.drag = AssetDragState{
@@ -1887,7 +1902,7 @@ func (e *Editor) CancelAssetDrag() {
 		return
 	}
 	e.assetDrawer.drag = AssetDragState{}
-	e.Status = "Cancelled asset drag"
+	e.Status = e.T("assetDrawer.statusDragCancelled")
 	e.notify()
 }
 
@@ -1944,7 +1959,10 @@ func (e *Editor) dropAssetDragAt(drag AssetDrawerDrag, canvasX, canvasY float32)
 		}
 		e.SelectObject(hitID)
 		e.assetDrawer.viewRev++
-		e.Status = fmt.Sprintf("Swapped sprite on %s to %s", hitID, drag.Name)
+		e.Status = e.T("assetDrawer.statusSwappedSprite",
+			l10n.Param("target", hitID),
+			l10n.Param("name", drag.Name),
+		)
 		notified = true
 		e.notify()
 		return hitID, true, nil
@@ -1974,7 +1992,11 @@ func (e *Editor) dropAssetDragAt(drag AssetDrawerDrag, canvasX, canvasY float32)
 		return "", false, err
 	}
 	e.assetDrawer.viewRev++
-	e.Status = fmt.Sprintf("%s new Sprite on %s · snapped to %.0f px", drag.Name, e.ActiveLayer, step)
+	e.Status = e.T("assetDrawer.statusPlacedSprite",
+		l10n.Param("name", drag.Name),
+		l10n.Param("layer", e.ActiveLayer),
+		l10n.Param("step", fmt.Sprintf("%.0f", step)),
+	)
 	notified = true
 	e.notify()
 	return id, false, nil
@@ -2319,7 +2341,7 @@ func (e *Editor) ImportAssetFiles(srcPaths []string) ([]string, error) {
 			}
 			destFolder = cleanFolder
 		} else {
-			kind, _ := classifyAssetPath(base, false)
+			kind, _ := e.classifyAssetPath(base, false)
 			switch kind {
 			case AssetKindAudio:
 				destFolder = "audio/sfx"
@@ -2360,7 +2382,7 @@ func (e *Editor) ImportAssetFiles(srcPaths []string) ([]string, error) {
 		e.assetDrawer.importCacheKey = ""
 		e.ProposeAssetImports(imported)
 		e.SelectAssetPath(imported[0])
-		e.Status = fmt.Sprintf("Imported %d asset(s)", len(imported))
+		e.Status = e.T("assetDrawer.statusImported", l10n.Param("count", len(imported)))
 		e.notify()
 	}
 	return imported, nil
@@ -2412,7 +2434,7 @@ func (e *Editor) ReplaceMissingAsset(missingPath, srcFilePath string) error {
 	e.assetDrawer.importCacheKey = ""
 	e.invalidateProjectIndex()
 	e.CheckProblems()
-	e.Status = "Replaced missing asset " + clean
+	e.Status = e.T("assetDrawer.statusReplacedMissing", l10n.Param("path", clean))
 	e.notify()
 	return nil
 }
@@ -2428,7 +2450,7 @@ func (e *Editor) TriggerAssetImport() {
 	}
 	if e.scope != nil {
 		e.scope.PickFiles(core.PickFilesOptions{
-			Title:    "Import assets",
+			Title:    e.T("assetDrawer.pickImportTitle"),
 			Multiple: true,
 		}, func(files []core.File, err error) {
 			if err != nil {
@@ -2448,7 +2470,7 @@ func (e *Editor) TriggerAssetImport() {
 		})
 		return
 	}
-	e.Status = "Select files to import into " + cmp.Or(e.assetDrawer.folder, "project")
+	e.Status = e.T("assetDrawer.statusSelectImport", l10n.Param("dest", cmp.Or(e.assetDrawer.folder, e.T("assetDrawer.projectFallback"))))
 	e.notify()
 }
 
@@ -2461,7 +2483,7 @@ func (e *Editor) TriggerAssetGenerate() {
 		e.OnAssetGenerate(e.assetDrawer.folder)
 		return
 	}
-	e.Status = "Generate asset: connect an MCP generator in Settings › Tools"
+	e.Status = e.T("assetDrawer.statusConnectGenerator")
 	e.notify()
 }
 
@@ -2476,7 +2498,7 @@ func (e *Editor) TriggerReplaceMissingAsset(missingPath string) {
 	}
 	if e.scope != nil {
 		e.scope.PickFiles(core.PickFilesOptions{
-			Title: "Replace " + path.Base(missingPath),
+			Title: e.T("assetDrawer.pickReplaceTitle", l10n.Param("name", path.Base(missingPath))),
 		}, func(files []core.File, err error) {
 			if err != nil {
 				e.report(err)
@@ -2488,7 +2510,7 @@ func (e *Editor) TriggerReplaceMissingAsset(missingPath string) {
 		})
 		return
 	}
-	e.Status = "Replace missing file " + missingPath
+	e.Status = e.T("assetDrawer.statusReplaceMissing", l10n.Param("path", missingPath))
 	e.notify()
 }
 
@@ -2500,7 +2522,10 @@ func (e *Editor) AskAgentAboutAsset(assetPath, prompt string) {
 	if e.OnAssetAskAgent != nil {
 		e.OnAssetAskAgent(assetPath, prompt)
 	}
-	e.Status = fmt.Sprintf("Asked agent about %s: %s", cmp.Or(assetPath, "assets"), prompt)
+	e.Status = e.T("assetDrawer.statusAskedAgent",
+		l10n.Param("target", cmp.Or(assetPath, e.T("assetDrawer.assetsFallback"))),
+		l10n.Param("prompt", prompt),
+	)
 	e.notify()
 }
 

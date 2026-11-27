@@ -86,12 +86,12 @@ func (e *Editor) recordSceneOpenError(filePath string, err error) {
 		se.Fix = le.Fix
 	}
 	if se.Fix == "" {
-		se.Fix = "Check that the scene file exists and contains valid YAML."
+		se.Fix = e.T("mainLayoutExtra.sceneOpenFix")
 	}
 	e.projectLoading = false
 	e.projectLoadingPath = ""
 	e.sceneOpenErr = se
-	e.Status = "Failed to open " + filepath.Base(se.Path)
+	e.Status = e.T("mainLayoutExtra.failedToOpen", l10n.Param("file", filepath.Base(se.Path)))
 	e.notify()
 }
 
@@ -1832,7 +1832,7 @@ func viewportCameraCaptionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				ContentFunc: func() string {
 					_ = rev.Get()
 					vw, vh := ed.ViewportSize()
-					return fmt.Sprintf("Camera · %d × %d", int(math.Round(float64(vw))), int(math.Round(float64(vh))))
+					return ed.T("mainLayoutExtra.cameraCaption", l10n.Param("w", int(math.Round(float64(vw)))), l10n.Param("h", int(math.Round(float64(vh)))))
 				},
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
@@ -2397,7 +2397,12 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							}
 							if ed.ViewMode == ViewMode3D {
 								if gt := ed.GridMapTool(); gt != GridMapToolNone {
-									return fmt.Sprintf("%s · %s · Floor %d · %d/24", ed.viewStatus3D(), gt.String(), ed.GridMapFloor(), ed.GridMapOrientation())
+									return ed.T("mainLayoutExtra.gridMapStatus",
+										l10n.Param("view", ed.viewStatus3D()),
+										l10n.Param("tool", gt.String()),
+										l10n.Param("floor", ed.GridMapFloor()),
+										l10n.Param("orient", ed.GridMapOrientation()),
+									)
 								}
 								space := ed.T("gizmo.spaceGlobal")
 								if ed.GizmoSpace3D == GizmoSpaceLocal {
@@ -2412,10 +2417,10 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							if !ed.Playing() && ed.SketchActive() {
 								_ = pointerRev.Get()
 								sx, sy := ed.SketchStatusSceneCoords()
-								return fmt.Sprintf("Sketch layer · scene %d, %d · Sketch · %s",
-									int(math.Round(float64(sx))),
-									int(math.Round(float64(sy))),
-									ed.SketchTool().String(),
+								return ed.T("mainLayoutExtra.sketchStatus",
+									l10n.Param("x", int(math.Round(float64(sx)))),
+									l10n.Param("y", int(math.Round(float64(sy)))),
+									l10n.Param("tool", ed.SketchTool().String()),
 								)
 							}
 							tool := ed.toolLabel()
@@ -2430,12 +2435,12 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								}
 							case ToolStampTile:
 								if stamp, ok := ed.TileStamp(); ok {
-									tool += fmt.Sprintf(" | Stamp: %dx%d", stamp.Width, stamp.Height)
+									tool += ed.T("mainLayoutExtra.stampSuffix", l10n.Param("w", stamp.Width), l10n.Param("h", stamp.Height))
 								} else if tile, ok := ed.TilePalette().Tile(ed.ActiveTileID); ok {
 									tool += ed.T("status.tileSuffix", l10n.Param("tile", tile.Number))
 								}
 							case ToolRandomTile:
-								tool += fmt.Sprintf(" | Random: %d tiles (seed %d)", len(ed.effectiveRandomPool()), ed.RandomBrushSeed())
+								tool += ed.T("mainLayoutExtra.randomSuffix", l10n.Param("count", len(ed.effectiveRandomPool())), l10n.Param("seed", ed.RandomBrushSeed()))
 							}
 							return tool
 						},
@@ -2595,9 +2600,9 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											_ = rev.Get()
 											n := len(ed.DetectedMergeConflicts())
 											if n == 1 {
-												return "1 scene conflict"
+												return ed.T("mainLayoutExtra.sceneConflictOne")
 											}
-											return fmt.Sprintf("%d scene conflicts", n)
+											return ed.T("mainLayoutExtra.sceneConflictMany", l10n.Param("count", n))
 										},
 										StyleFunc: func() core.Style {
 											return core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: ed.SpecPalette(cx).Warning.Fg}
@@ -2616,7 +2621,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							return base.Button{
 								Ref:    playtestBtnRef,
 								TestID: "status-playtest-report",
-								Label:  "Playtest Report",
+								Label:  ed.T("mainLayoutExtra.playtestReportLabel"),
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
 									cur := ed.SpecPalette(cx)
@@ -2639,12 +2644,12 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											_ = rev.Get()
 											rep := ed.ActivePlaytestReport()
 											if rep == nil {
-												return "Playtest"
+												return ed.T("mainLayoutExtra.playtest")
 											}
 											if missed := len(rep.MissedMetrics()); missed > 0 {
-												return fmt.Sprintf("Playtest · %d missed", missed)
+												return ed.T("mainLayoutExtra.playtestMissed", l10n.Param("count", missed))
 											}
-											return "Playtest · met"
+											return ed.T("mainLayoutExtra.playtestMet")
 										},
 										StyleFunc: func() core.Style {
 											return core.Style{FontSize: 11.5, FontWeight: core.FontWeightSemibold, Color: ed.SpecPalette(cx).TextSecondary}

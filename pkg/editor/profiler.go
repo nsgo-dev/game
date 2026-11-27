@@ -975,9 +975,9 @@ func (e *Editor) ProfilerSnapshot() ProfilerSnapshot {
 	source := e.profiler.sourceLabel
 	if source == "" {
 		if e.profiler.client != nil {
-			source = "Connected · live"
+			source = e.T("profiler.connectedLive")
 		} else {
-			source = "Disconnected"
+			source = e.T("profiler.disconnected")
 		}
 	}
 

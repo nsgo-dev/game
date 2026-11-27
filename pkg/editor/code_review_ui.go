@@ -133,12 +133,12 @@ func codeReviewHeaderView(ed *Editor, sess *CodeReviewSession, p SpecPalette) co
 	}
 
 	canKeep := len(yamlFiles) > 0 || len(confirmedGo) > 0
-	keepLabel := fmt.Sprintf("Keep %d of %d", len(yamlFiles), len(yamlFiles))
+	keepLabel := ed.T("codeReview.keepCount", l10n.Param("kept", len(yamlFiles)), l10n.Param("total", len(yamlFiles)))
 	if len(yamlFiles) == 0 {
 		if len(confirmedGo) == 1 {
-			keepLabel = "Apply 1 confirmed"
+			keepLabel = ed.T("codeReview.applyConfirmedOne")
 		} else {
-			keepLabel = fmt.Sprintf("Apply %d confirmed", len(confirmedGo))
+			keepLabel = ed.T("codeReview.applyConfirmedMany", l10n.Param("count", len(confirmedGo)))
 		}
 	}
 
@@ -244,7 +244,7 @@ func codeReviewHeaderView(ed *Editor, sess *CodeReviewSession, p SpecPalette) co
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: fmt.Sprintf("Round %d", sess.Round),
+					Content: ed.T("codeReview.round", l10n.Param("round", sess.Round)),
 					Style: core.Style{
 						FontSize: 11.5,
 						Color:    p.TextMuted,
@@ -719,7 +719,7 @@ func codeReviewMainPaneView(ed *Editor, sess *CodeReviewSession, p SpecPalette) 
 		children = append(children, codeReviewFailureCardView(ed, sess, p))
 	}
 	children = append(children,
-		codeReviewDiffBoxView(sess, file, p),
+		codeReviewDiffBoxView(ed, sess, file, p),
 		codeReviewConfirmFooterView(ed, sess, file, p),
 	)
 
@@ -961,18 +961,18 @@ func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 
 	switch checks.Phase {
 	case CodeReviewChecksPassed:
-		testText := "nsgo test · passed"
+		testText := ed.T("codeReview.testPassed")
 		if checks.PassedCount > 0 {
-			testText = fmt.Sprintf("nsgo test · %d passed", checks.PassedCount)
+			testText = ed.T("codeReview.testPassedCount", l10n.Param("count", checks.PassedCount))
 		}
-		liveLabel = "nsgo check passed, " + testText
+		liveLabel = ed.T("codeReview.liveCheckPassed", l10n.Param("test", testText))
 		children = []core.Node{
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 				Children: []core.Node{
 					specIcon(lucide.Check, 14, p.Added.Fg),
 					core.Text{
-						Content: "nsgo check",
+						Content: ed.T("codeReview.nsgoCheck"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 					},
 				},
@@ -998,14 +998,14 @@ func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 		}
 
 	case CodeReviewChecksRunning, CodeReviewChecksFixing:
-		runningText := "nsgo test running"
+		runningText := ed.T("codeReview.testRunning")
 		if checks.ExpectedTotal > 0 {
-			runningText = fmt.Sprintf("nsgo test running · %d of %d", checks.Completed, checks.ExpectedTotal)
+			runningText = ed.T("codeReview.testRunningOf", l10n.Param("done", checks.Completed), l10n.Param("total", checks.ExpectedTotal))
 		} else if checks.Completed > 0 {
-			runningText = fmt.Sprintf("nsgo test running · %d done", checks.Completed)
+			runningText = ed.T("codeReview.testRunningDone", l10n.Param("done", checks.Completed))
 		}
 		if checks.Phase == CodeReviewChecksFixing {
-			runningText = "Agent is fixing · " + runningText
+			runningText = ed.T("codeReview.agentFixingPrefix", l10n.Param("status", runningText))
 		}
 		liveLabel = runningText
 		pct := float32(35)
@@ -1079,17 +1079,17 @@ func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 		stripBg = p.Removed.Fill
 		checkIcon := lucide.Check
 		checkColor := p.Added.Fg
-		checkText := "nsgo check"
+		checkText := ed.T("codeReview.nsgoCheck")
 		if !checks.CheckPassed {
 			checkIcon = lucide.X
 			checkColor = p.Removed.Fg
-			checkText = "nsgo check failed"
+			checkText = ed.T("codeReview.checkFailed")
 		}
-		testText := "nsgo test · failed"
+		testText := ed.T("codeReview.testFailed")
 		if checks.FailedCount > 0 {
-			testText = fmt.Sprintf("nsgo test · %d failed, %d passed", checks.FailedCount, checks.PassedCount)
+			testText = ed.T("codeReview.testFailedCounts", l10n.Param("failed", checks.FailedCount), l10n.Param("passed", checks.PassedCount))
 		} else if !checks.CheckPassed {
-			testText = "nsgo test · skipped"
+			testText = ed.T("codeReview.testSkipped")
 		}
 		liveLabel = checkText + ", " + testText
 		children = []core.Node{
@@ -1124,7 +1124,7 @@ func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 		}
 
 	default:
-		liveLabel = "Checks have not run yet"
+		liveLabel = ed.T("codeReview.checksNotRun")
 		children = []core.Node{
 			core.Text{
 				TestID:  "code-review-checks-idle",
@@ -1158,13 +1158,13 @@ func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 
 func codeReviewFailureCardView(ed *Editor, sess *CodeReviewSession, p SpecPalette) core.Node {
 	failure := sess.Checks.PrimaryFailure()
-	title := "nsgo check failed"
+	title := ed.T("codeReview.checkFailed")
 	msg := sess.Checks.CheckError
 	explanation := sess.FailureExplanation
 	hasTest := false
 	if failure != nil {
 		hasTest = true
-		title = failure.TestName + " failed"
+		title = ed.T("codeReview.testNameFailed", l10n.Param("name", failure.TestName))
 		msg = failure.Message
 		if failure.Explanation != "" {
 			explanation = failure.Explanation
@@ -1312,19 +1312,19 @@ func codeReviewFailureCardView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 	}
 }
 
-func codeReviewDiffBoxView(sess *CodeReviewSession, f *CodeReviewFile, p SpecPalette) core.Node {
+func codeReviewDiffBoxView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p SpecPalette) core.Node {
 	useSplit := f.Kind == CodeReviewFileGo && sess.Layout == CodeReviewDiffSplit
 	var rows []core.Node
 	if useSplit {
 		splitRows := BuildCodeReviewSplitRows(f.Diff)
 		rows = make([]core.Node, 0, len(splitRows))
 		for i, r := range splitRows {
-			rows = append(rows, codeReviewSplitRowView(i, r, p))
+			rows = append(rows, codeReviewSplitRowView(ed, i, r, p))
 		}
 	} else {
 		rows = make([]core.Node, 0, len(f.Diff))
 		for i, l := range f.Diff {
-			rows = append(rows, codeReviewUnifiedRowView(i, l, p))
+			rows = append(rows, codeReviewUnifiedRowView(ed, i, l, p))
 		}
 	}
 
@@ -1361,7 +1361,7 @@ func codeReviewDiffBoxView(sess *CodeReviewSession, f *CodeReviewFile, p SpecPal
 	}
 }
 
-func codeReviewUnifiedRowView(idx int, l CodeReviewDiffLine, p SpecPalette) core.Node {
+func codeReviewUnifiedRowView(ed *Editor, idx int, l CodeReviewDiffLine, p SpecPalette) core.Node {
 	var rowBg core.Color
 	textCol := p.TextMuted
 	signCol := p.TextFaint
@@ -1462,7 +1462,7 @@ func codeReviewUnifiedRowView(idx int, l CodeReviewDiffLine, p SpecPalette) core
 		},
 	}
 	if l.Tag != CodeReviewTagNone {
-		children = append(children, codeReviewLineTagNode(idx, l.Tag, p))
+		children = append(children, codeReviewLineTagNode(ed, idx, l.Tag, p))
 	}
 
 	return core.View{
@@ -1472,7 +1472,7 @@ func codeReviewUnifiedRowView(idx int, l CodeReviewDiffLine, p SpecPalette) core
 	}
 }
 
-func codeReviewSplitRowView(idx int, r CodeReviewSplitRow, p SpecPalette) core.Node {
+func codeReviewSplitRowView(ed *Editor, idx int, r CodeReviewSplitRow, p SpecPalette) core.Node {
 	leftBg := p.Bg
 	leftCol := p.TextMuted
 	if r.LeftKind == DiffLineDel {
@@ -1542,7 +1542,7 @@ func codeReviewSplitRowView(idx int, r CodeReviewSplitRow, p SpecPalette) core.N
 		},
 	}
 	if r.RightTag != CodeReviewTagNone {
-		rightChildren = append(rightChildren, codeReviewLineTagNode(idx, r.RightTag, p))
+		rightChildren = append(rightChildren, codeReviewLineTagNode(ed, idx, r.RightTag, p))
 	}
 
 	return core.View{
@@ -1599,7 +1599,22 @@ func codeReviewSplitRowView(idx int, r CodeReviewSplitRow, p SpecPalette) core.N
 	}
 }
 
-func codeReviewLineTagNode(idx int, tag CodeReviewLineTag, p SpecPalette) core.Node {
+func codeReviewLineTagLabel(ed *Editor, tag CodeReviewLineTag) string {
+	switch tag {
+	case CodeReviewTagFailsTest:
+		return ed.T("codeReview.tagFailsTest")
+	case CodeReviewTagFailedHere:
+		return ed.T("codeReview.tagFailedHere")
+	case CodeReviewTagAgentEdited:
+		return ed.T("codeReview.tagAgentEdited")
+	case CodeReviewTagRound2:
+		return ed.T("codeReview.tagRound2")
+	default:
+		return string(tag)
+	}
+}
+
+func codeReviewLineTagNode(ed *Editor, idx int, tag CodeReviewLineTag, p SpecPalette) core.Node {
 	bg := p.Raised
 	border := p.LineRaised
 	fg := p.TextMuted
@@ -1628,7 +1643,7 @@ func codeReviewLineTagNode(idx int, tag CodeReviewLineTag, p SpecPalette) core.N
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: string(tag),
+				Content: codeReviewLineTagLabel(ed, tag),
 				Style: core.Style{
 					FontSize: 11,
 					Color:    fg,
@@ -1659,7 +1674,7 @@ func codeReviewConfirmFooterView(ed *Editor, sess *CodeReviewSession, f *CodeRev
 			hint = ed.T("codeReview.hintWaiting")
 		}
 
-		btnLabel := "Confirm " + f.BaseName()
+		btnLabel := ed.T("codeReview.confirmFile", l10n.Param("file", f.BaseName()))
 		btnBg := p.Accent.Fg
 		btnFg := p.Accent.OnFill
 		var btnBorder core.Color
@@ -1774,13 +1789,13 @@ func agentCodeReviewWaitingCard(ed *Editor, p SpecPalette) core.Node {
 		}
 		var title, btnLabel string
 		if len(names) == 1 {
-			title = names[0] + " is waiting for your OK"
-			btnLabel = "Review " + names[0]
+			title = ed.T("codeReview.waitingOneFile", l10n.Param("file", names[0]))
+			btnLabel = ed.T("codeReview.reviewFile", l10n.Param("file", names[0]))
 		} else if len(names) == 2 {
-			title = names[0] + " and " + names[1] + " are waiting for your OK"
+			title = ed.T("codeReview.waitingTwoFiles", l10n.Param("file1", names[0]), l10n.Param("file2", names[1]))
 			btnLabel = ed.T("codeReview.reviewCode")
 		} else {
-			title = fmt.Sprintf("%d Go files are waiting for your OK", len(names))
+			title = ed.T("codeReview.waitingManyFiles", l10n.Param("count", len(names)))
 			btnLabel = ed.T("codeReview.reviewCode")
 		}
 		impact := strings.TrimSpace(sess.PlayImpact)
@@ -1862,15 +1877,15 @@ func agentCodeReviewWaitingCard(ed *Editor, p SpecPalette) core.Node {
 
 	if sess.Paused && (len(sess.YAMLFiles()) > 0 || len(sess.GoFiles()) > 0) {
 		totalFiles := len(sess.YAMLFiles()) + len(sess.GoFiles())
-		title := fmt.Sprintf("Review waiting · %d files", totalFiles)
+		title := ed.T("codeReview.pausedTitleMany", l10n.Param("count", totalFiles))
 		if totalFiles == 1 {
-			title = "Review waiting · 1 file"
+			title = ed.T("codeReview.pausedTitleOne")
 		}
-		detail := fmt.Sprintf("%d Go file(s) waiting for your OK", len(waitingGo))
+		detail := ed.T("codeReview.pausedGoZero", l10n.Param("count", len(waitingGo)))
 		if len(waitingGo) == 1 {
-			detail = "1 Go file waiting for your OK"
+			detail = ed.T("codeReview.pausedGoOne")
 		} else if len(waitingGo) > 1 {
-			detail = fmt.Sprintf("%d Go files waiting for your OK", len(waitingGo))
+			detail = ed.T("codeReview.pausedGoMany", l10n.Param("count", len(waitingGo)))
 		}
 		return core.View{
 			TestID: "agent-review-paused-card",

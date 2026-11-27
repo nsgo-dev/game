@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -70,7 +71,11 @@ func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	mergeRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
-		return ed.mergeStateRev()
+		r := ed.mergeStateRev()
+		if ed.ResolvedLanguage() != "en" {
+			r ^= 1 << 63
+		}
+		return r
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -78,7 +83,7 @@ func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		return core.View{
 			TestID: "scene-merge-conflict",
 			Role:   core.RoleRegion,
-			Label:  "Scene merge conflict",
+			Label:  ed.T("mergeConflict.screenLabel"),
 			Style: core.Style{
 				Width:      core.Pct(100),
 				Height:     core.Pct(100),
@@ -145,7 +150,7 @@ func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 		if sess.Finished {
 			rightActions = append(rightActions, ui.Button{
 				TestID:  "merge-back-to-editor",
-				Text:    "Back to editor",
+				Text:    ed.T("mergeConflict.backToEditor"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return p.LineRaised },
@@ -332,7 +337,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 			id := item.ID
 			focused := sess.FocusedID == id
 			dotColor := p.Changed.Fg
-			chipText := "Unresolved"
+			chipText := ed.T("mergeConflict.chip.unresolved")
 			chipBg := p.Warning.Fill
 			chipBorder := p.Warning.Edge
 			var chipBorderW core.Points = 1
@@ -344,13 +349,13 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 				chipFg = p.TextSecondary
 				switch item.Choice {
 				case MergeChoiceAgent:
-					chipText = "Agent"
+					chipText = ed.T("mergeConflict.chip.agent")
 				case MergeChoiceMine:
-					chipText = "Mine"
+					chipText = ed.T("mergeConflict.chip.mine")
 				case MergeChoiceTheirs:
 					chipText = sess.theirsChipLabel()
 				case MergeChoiceCustom:
-					chipText = "Custom"
+					chipText = ed.T("mergeConflict.chip.custom")
 				}
 			}
 
@@ -366,7 +371,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 			conflictRows = append(conflictRows, core.View{
 				TestID: "merge-conflict-" + id,
 				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("Conflict %s (%s): %s", item.Name, chipText, item.Summary),
+				Label:  ed.T("mergeConflict.conflictRowLabel", l10n.Param("name", item.Name), l10n.Param("status", chipText), l10n.Param("summary", item.Summary)),
 				Style: core.Style{
 					Width:        core.Pct(100),
 					Padding:      core.All(8),
@@ -491,9 +496,9 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 			})
 		}
 
-		autoCountLabel := fmt.Sprintf("%d objects", len(sess.AutoMerged))
+		autoCountLabel := ed.T("mergeConflict.objectMany", l10n.Param("count", len(sess.AutoMerged)))
 		if len(sess.AutoMerged) == 1 {
-			autoCountLabel = "1 object"
+			autoCountLabel = ed.T("mergeConflict.objectOne")
 		}
 
 		return core.View{
@@ -537,7 +542,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "CONFLICTS",
+							Content: ed.T("mergeConflict.sectionConflicts"),
 							Style: core.Style{
 								FontSize:      11,
 								FontWeight:    600,
@@ -547,7 +552,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 						},
 						core.Text{
 							TestID:  "merge-resolved-count",
-							Content: fmt.Sprintf("%d of %d resolved", resolved, total),
+							Content: ed.T("mergeConflict.resolvedCount", l10n.Param("resolved", resolved), l10n.Param("total", total)),
 							Style: core.Style{
 								FontSize:   11,
 								FontWeight: 500,
@@ -573,7 +578,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "MERGED BY ID",
+									Content: ed.T("mergeConflict.sectionMergedByID"),
 									Style: core.Style{
 										FontSize:      11,
 										FontWeight:    600,
@@ -601,7 +606,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 				},
 				ui.Button{
 					TestID:  "merge-take-all-agent",
-					Text:    fmt.Sprintf("Take the agent's suggestion for all %d", total),
+					Text:    ed.T("mergeConflict.takeAllAgent", l10n.Param("count", total)),
 					Icon:    lucide.Sparkles,
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
@@ -773,7 +778,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 			return core.View{
 				TestID: testID,
 				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("Pick %s (%s)", title, meta.Branch),
+				Label:  ed.T("mergeConflict.pickSideLabel", l10n.Param("title", title), l10n.Param("branch", meta.Branch)),
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
@@ -802,7 +807,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 						Children: []core.Node{
 							core.Canvas{
 								TestID: canvasID,
-								Label:  title + " scene preview",
+								Label:  ed.T("mergeConflict.sidePreviewLabel", l10n.Param("title", title)),
 								Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 								Draw: func(d *core.Drawing, size core.Size) {
 									drawMergeScenePreview(d, size, p, sess, doc, built, side)
@@ -835,7 +840,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 							},
 						},
 						core.Text{
-							Content: "unresolved, both positions shown",
+							Content: ed.T("mergeConflict.unresolvedLegend"),
 							Style: core.Style{
 								FontSize: 11.5,
 								Color:    p.TextFaint,
@@ -893,7 +898,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 							},
 							Children: append([]core.Node{
 								core.Text{
-									Content: "RESULT",
+									Content: ed.T("mergeConflict.sectionResult"),
 									Style: core.Style{
 										FontSize:      11,
 										FontWeight:    600,
@@ -925,7 +930,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 							Children: []core.Node{
 								core.Canvas{
 									TestID: "merge-canvas-result",
-									Label:  "Merged result scene preview",
+									Label:  ed.T("mergeConflict.resultPreviewLabel"),
 									Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 									Draw: func(d *core.Drawing, size core.Size) {
 										resDoc, _ := sess.ResultDoc()
@@ -1086,7 +1091,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 			return core.View{
 				TestID: testID,
 				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("%s (%s) for %s", opt.Title, opt.Meta, item.Name),
+				Label:  ed.T("mergeConflict.optionLabel", l10n.Param("title", opt.Title), l10n.Param("meta", opt.Meta), l10n.Param("name", item.Name)),
 				Style: core.Style{
 					Width:        core.Pct(100),
 					Padding:      core.All(12),
@@ -1132,7 +1137,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Hand-edited YAML",
+								Content: ed.T("mergeConflict.handEditedYAML"),
 								Style: core.Style{
 									FontSize:   12.5,
 									FontWeight: 500,
@@ -1140,7 +1145,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 								},
 							},
 							core.Text{
-								Content: "custom",
+								Content: ed.T("mergeConflict.customTag"),
 								Style: core.Style{
 									FontSize: 11.5,
 									Color:    p.TextFaint,
@@ -1170,9 +1175,9 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 			})
 		}
 
-		editLabel := "Edit the result YAML by hand"
+		editLabel := ed.T("mergeConflict.editYAMLByHand")
 		if item.EditingCustom {
-			editLabel = "Hide YAML editor"
+			editLabel = ed.T("mergeConflict.hideYAMLEditor")
 		}
 		bodyChildren = append(bodyChildren, ui.Button{
 			TestID:  "merge-edit-yaml",
@@ -1211,7 +1216,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 			editorChildren := append([]core.Node{
 				ui.Input{
 					TestID:      "merge-custom-yaml-input",
-					Label:       "Result YAML for " + item.Name,
+					Label:       ed.T("mergeConflict.resultYAMLLabel", l10n.Param("name", item.Name)),
 					Multiline:   true,
 					Placeholder: "id: " + item.ObjectID + "\nx: 600",
 					Value: func() string {
@@ -1247,7 +1252,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "merge-custom-yaml-apply",
-						Text:    "Apply YAML",
+						Text:    ed.T("mergeConflict.applyYAML"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Color:   func() core.Color { return p.Accent.Fg },
@@ -1271,7 +1276,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 					},
 					ui.Button{
 						TestID:  "merge-custom-yaml-cancel",
-						Text:    "Cancel",
+						Text:    ed.T("mergeConflict.cancel"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Color:   func() core.Color { return p.LineRaised },
@@ -1320,7 +1325,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Merge verification failed",
+						Content: ed.T("mergeConflict.verifyFailed"),
 						Style: core.Style{
 							FontSize:   12,
 							FontWeight: 600,

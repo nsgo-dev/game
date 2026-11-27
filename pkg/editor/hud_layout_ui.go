@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/gameui"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -42,7 +43,7 @@ func HUDLayoutView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		return core.View{
 			TestID: "hud-layout-screen",
 			Role:   core.RoleRegion,
-			Label:  "HUD and menu layout",
+			Label:  ed.T("hudLayout.screenLabel"),
 			Style: core.Style{
 				Width:      core.Pct(100),
 				Height:     core.Pct(100),
@@ -109,7 +110,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 	return core.View{
 		TestID: "hud-header",
 		Role:   core.RoleRegion,
-		Label:  "HUD layout header",
+		Label:  ed.T("hudLayout.headerLabel"),
 		Style: core.Style{
 			Height:      core.Pt(44),
 			FlexShrink:  0,
@@ -134,7 +135,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 					core.View{
 						TestID: "hud-back-scene",
 						Role:   core.RoleButton,
-						Label:  "Back to scene editor",
+						Label:  ed.T("hudLayout.backToSceneEditor"),
 						Style: core.Style{
 							Height:       core.Pt(28),
 							MinWidth:     core.Pt(28),
@@ -181,7 +182,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 						},
 					},
 					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
-					core.Text{Content: "screens", Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
+					core.Text{Content: ed.T("hudLayout.breadcrumbScreens"), Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
 					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
 					core.Text{
 						TestID: "hud-breadcrumb-file",
@@ -189,7 +190,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 							_ = rev.Get()
 							sp := ed.HUDActiveScreenPath()
 							if sp == "" {
-								return "none"
+								return ed.T("hudLayout.breadcrumbNone")
 							}
 							return screenFileName(sp, "")
 						},
@@ -210,7 +211,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Language",
+						Content: ed.T("hudLayout.language"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
@@ -231,7 +232,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 							btns = append(btns, core.View{
 								TestID: "hud-lang-" + l,
 								Role:   core.RoleButton,
-								Label:  "Language " + hudLocaleLabel(l),
+								Label:  ed.T("hudLayout.languageItemLabel", l10n.Param("language", hudLocaleLabel(l))),
 								Style: core.Style{
 									Height:         core.Pt(24),
 									MinWidth:       core.Pt(28),
@@ -261,7 +262,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 						return core.View{
 							TestID: "hud-language-group",
 							Role:   core.RoleGroup,
-							Label:  "Language",
+							Label:  ed.T("hudLayout.language"),
 							Style: core.Style{
 								Direction:    core.Row,
 								Gap:          2,
@@ -288,7 +289,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 					core.View{
 						TestID: "hud-search-btn",
 						Role:   core.RoleButton,
-						Label:  "Search · " + searchShortcut,
+						Label:  ed.T("hudLayout.searchButtonLabel", l10n.Param("key", searchShortcut)),
 						Style: core.Style{
 							Height:       core.Pt(30),
 							Direction:    core.Row,
@@ -311,7 +312,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 								Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextFaint},
 							},
 							core.Text{
-								Content: "Search",
+								Content: ed.T("hudLayout.search"),
 								Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 							},
 							core.Text{
@@ -327,7 +328,7 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 					core.View{
 						TestID: "hud-play-btn",
 						Role:   core.RoleButton,
-						Label:  "Play",
+						Label:  ed.T("hudLayout.play"),
 						Style: core.Style{
 							Height:       core.Pt(30),
 							Direction:    core.Row,
@@ -355,9 +356,9 @@ func hudHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[u
 								ContentFunc: func() string {
 									_ = rev.Get()
 									if ed.Playing() {
-										return "Stop"
+										return ed.T("hudLayout.stop")
 									}
-									return "Play"
+									return ed.T("hudLayout.play")
 								},
 								Style: core.Style{
 									FontSize:   12.5,
@@ -378,7 +379,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 	return core.View{
 		TestID: "hud-left-rail",
 		Role:   core.RoleRegion,
-		Label:  "Screens and nodes",
+		Label:  ed.T("hudLayout.leftRailLabel"),
 		Style: core.Style{
 			Width:       core.Pt(232),
 			FlexShrink:  0,
@@ -399,7 +400,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "SCREENS",
+						Content: ed.T("hudLayout.screensHeading"),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
@@ -421,7 +422,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 						Children: []core.Node{
 							core.Text{
 								TestID:  "hud-screens-empty",
-								Content: "No screens found",
+								Content: ed.T("hudLayout.noScreens"),
 								Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 							},
 						},
@@ -437,17 +438,13 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 						idSuffix = fmt.Sprintf("-%d", seenName[entry.Name])
 					}
 					on := entry.Path == activePath
-					meta := fmt.Sprintf("%d nodes", entry.NodeCount)
+					meta := ed.T("hudLayout.screenNodesCount", l10n.Param("count", entry.NodeCount))
 					metaColor := p.TextFaint
 					if entry.LoadErr != nil {
-						meta = "error"
+						meta = ed.T("hudLayout.screenError")
 						metaColor = p.Removed.Fg
 					} else if entry.ProblemCount > 0 {
-						noun := "problems"
-						if entry.ProblemCount == 1 {
-							noun = "problem"
-						}
-						meta = fmt.Sprintf("%d %s", entry.ProblemCount, noun)
+						meta = ed.Plural("hudLayout.screenProblems", entry.ProblemCount)
 						if on {
 							metaColor = p.Removed.Fg
 						}
@@ -461,7 +458,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 					rows = append(rows, core.View{
 						TestID: "hud-screen-" + entry.Name + idSuffix,
 						Role:   core.RoleButton,
-						Label:  "Screen " + entry.Name + " " + meta,
+						Label:  ed.T("hudLayout.screenItemLabel", l10n.Param("name", entry.Name), l10n.Param("meta", meta)),
 						Style: core.Style{
 							Height:       core.Pt(28),
 							Direction:    core.Row,
@@ -514,7 +511,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "NODES",
+						Content: ed.T("hudLayout.nodesHeading"),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
@@ -581,7 +578,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 							if r.HasProblem {
 								rowChildren = append(rowChildren, core.View{
 									TestID: "hud-tree-problem-" + r.ID,
-									Label:  "has a problem",
+									Label:  ed.T("hudLayout.nodeHasProblem"),
 									Style: core.Style{
 										Width:        core.Pt(6),
 										Height:       core.Pt(6),
@@ -603,10 +600,10 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 								})
 							}
 							testID := "hud-tree-root"
-							label := "Screen " + r.Name
+							label := ed.T("hudLayout.treeScreenLabel", l10n.Param("name", r.Name))
 							if r.ID != "" {
 								testID = "hud-tree-" + r.ID
-								label = "Node " + r.Name
+								label = ed.T("hudLayout.treeNodeLabel", l10n.Param("name", r.Name))
 							}
 							rows = append(rows, core.View{
 								TestID: testID,
@@ -650,7 +647,7 @@ func hudLeftRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "By hand: order inside a container, spacing, and dragging touch controls. The agent builds the rest.",
+						Content: ed.T("hudLayout.railFooterHint"),
 						Style: core.Style{
 							FontSize:   12,
 							LineHeight: 18,
@@ -742,7 +739,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 	return core.View{
 		TestID: "hud-center",
 		Role:   core.RoleRegion,
-		Label:  "All screen sizes preview",
+		Label:  ed.T("hudLayout.centerRegionLabel"),
 		Style: core.Style{
 			FlexGrow:   1,
 			FlexBasis:  core.Pt(0),
@@ -766,7 +763,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "All sizes",
+						Content: ed.T("hudLayout.allSizes"),
 						Style: core.Style{
 							FontSize:   14,
 							FontWeight: core.FontWeightSemibold,
@@ -782,7 +779,10 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 							if doc != nil && doc.DesignWidth > 0 && doc.DesignHeight > 0 {
 								w, h = doc.DesignWidth, doc.DesignHeight
 							}
-							return fmt.Sprintf("designed at %s × %s · scaled to fit height", formatHUDPoints(w), formatHUDPoints(h))
+							return ed.T("hudLayout.designCaption",
+								l10n.Param("width", formatHUDPoints(w)),
+								l10n.Param("height", formatHUDPoints(h)),
+							)
 						},
 						Style: core.Style{
 							FontSize: 12.5,
@@ -790,7 +790,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 						},
 					},
 					core.View{Style: core.Style{FlexGrow: 1}},
-					overlaySwitch("safe", "Safe areas", func(o HUDOverlays) bool { return o.SafeAreas }, core.View{
+					overlaySwitch("safe", ed.T("hudLayout.overlay.safeAreas"), func(o HUDOverlays) bool { return o.SafeAreas }, core.View{
 						Style: core.Style{
 							Width:        core.Pt(10),
 							Height:       core.Pt(10),
@@ -800,7 +800,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 							BorderColor:  p.Warning.Fg,
 						},
 					}),
-					overlaySwitch("anchors", "Anchors", func(o HUDOverlays) bool { return o.Anchors }, core.View{
+					overlaySwitch("anchors", ed.T("hudLayout.overlay.anchors"), func(o HUDOverlays) bool { return o.Anchors }, core.View{
 						Style: core.Style{
 							Width:        core.Pt(8),
 							Height:       core.Pt(8),
@@ -808,7 +808,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 							Background:   p.Accent.Fg,
 						},
 					}),
-					overlaySwitch("touch", "Touch areas", func(o HUDOverlays) bool { return o.TouchAreas }, core.View{
+					overlaySwitch("touch", ed.T("hudLayout.overlay.touchAreas"), func(o HUDOverlays) bool { return o.TouchAreas }, core.View{
 						Style: core.Style{
 							Width:        core.Pt(10),
 							Height:       core.Pt(10),
@@ -817,7 +817,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 							BorderColor:  p.Accent.Fg,
 						},
 					}),
-					overlaySwitch("focus", "Focus order", func(o HUDOverlays) bool { return o.FocusOrder }, core.View{
+					overlaySwitch("focus", ed.T("hudLayout.overlay.focusOrder"), func(o HUDOverlays) bool { return o.FocusOrder }, core.View{
 						Style: core.Style{
 							Width:        core.Pt(10),
 							Height:       core.Pt(10),
@@ -880,15 +880,15 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 						p := ed.SpecPalette(cx)
 						if m.kind == "error" {
 							if loadErr := ed.HUDLoadErr(); loadErr != nil {
-								return hudErrorStateView(p, m.path, loadErr)
+								return hudErrorStateView(ed, p, m.path, loadErr)
 							}
 						}
 						if m.kind == "empty" {
-							return hudEmptyStateView(p)
+							return hudEmptyStateView(ed, p)
 						}
 						return core.Canvas{
 							TestID: "hud-multisize-canvas",
-							Label:  "HUD preview at Phone, Tablet, Desktop, and Ultrawide sizes",
+							Label:  ed.T("hudLayout.multiSizeCanvasLabel"),
 							Style: core.Style{
 								Width:  core.Pct(100),
 								Height: core.Pct(100),
@@ -906,7 +906,7 @@ func hudCenterViewportView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 	}
 }
 
-func hudEmptyStateView(p SpecPalette) core.Node {
+func hudEmptyStateView(ed *Editor, p SpecPalette) core.Node {
 	return core.View{
 		TestID: "hud-empty-state",
 		Style: core.Style{
@@ -929,7 +929,7 @@ func hudEmptyStateView(p SpecPalette) core.Node {
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "No HUD or menu screens yet",
+						Content: ed.T("hudLayout.emptyTitle"),
 						Style: core.Style{
 							FontSize:   14,
 							FontWeight: core.FontWeightSemibold,
@@ -937,7 +937,7 @@ func hudEmptyStateView(p SpecPalette) core.Node {
 						},
 					},
 					core.Text{
-						Content: "Add a *.screen.yaml file under screens/ or ask the agent to build a HUD or menu screen.",
+						Content: ed.T("hudLayout.emptyBody"),
 						Style: core.Style{
 							FontSize:   12.5,
 							LineHeight: 18,
@@ -950,7 +950,7 @@ func hudEmptyStateView(p SpecPalette) core.Node {
 	}
 }
 
-func hudErrorStateView(p SpecPalette, path string, err error) core.Node {
+func hudErrorStateView(ed *Editor, p SpecPalette, path string, err error) core.Node {
 	return core.View{
 		TestID: "hud-error-state",
 		Style: core.Style{
@@ -973,7 +973,7 @@ func hudErrorStateView(p SpecPalette, path string, err error) core.Node {
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Could not open " + screenFileName(path, ""),
+						Content: ed.T("hudLayout.errorTitle", l10n.Param("file", screenFileName(path, ""))),
 						Style: core.Style{
 							FontSize:   14,
 							FontWeight: core.FontWeightSemibold,
@@ -1010,7 +1010,7 @@ func hudTextWidthTableView(cx *core.Scope, ed *Editor, stableTick func()) core.N
 
 		headerCells := []core.Node{
 			core.Text{
-				Content: "TEXT WIDTH, PX",
+				Content: ed.T("hudLayout.textWidthHeading"),
 				Style: core.Style{
 					FlexGrow:      1,
 					FontSize:      11,
@@ -1020,7 +1020,7 @@ func hudTextWidthTableView(cx *core.Scope, ed *Editor, stableTick func()) core.N
 				},
 			},
 			core.Text{
-				Content: "BOX",
+				Content: ed.T("hudLayout.textWidthBox"),
 				Style: core.Style{
 					Width:         core.Pt(40),
 					TextAlign:     core.TextAlignEnd,
@@ -1108,7 +1108,7 @@ func hudTextWidthTableView(cx *core.Scope, ed *Editor, stableTick func()) core.N
 			tableRows = append(tableRows, core.View{
 				TestID: "hud-text-width-row-" + row.NodeID,
 				Role:   core.RoleButton,
-				Label:  "Text width " + row.NodeID,
+				Label:  ed.T("hudLayout.textWidthRowLabel", l10n.Param("id", row.NodeID)),
 				Style: core.Style{
 					Height:       core.Pt(28),
 					Direction:    core.Row,
@@ -1133,7 +1133,7 @@ func hudTextWidthTableView(cx *core.Scope, ed *Editor, stableTick func()) core.N
 		return core.View{
 			TestID: "hud-text-width-table",
 			Role:   core.RoleRegion,
-			Label:  "Text width in pixels",
+			Label:  ed.T("hudLayout.textWidthRegionLabel"),
 			Style: core.Style{
 				Position:     core.Absolute,
 				Right:        core.Pt(24),
@@ -1156,7 +1156,7 @@ func hudInspectorRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 	return core.View{
 		TestID: "hud-inspector-rail",
 		Role:   core.RoleRegion,
-		Label:  "HUD node inspector",
+		Label:  ed.T("hudLayout.inspectorRegionLabel"),
 		Style: core.Style{
 			Width:       core.Pt(360),
 			FlexShrink:  0,
@@ -1185,7 +1185,7 @@ func hudInspectorRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 							_ = rev.Get()
 							doc := ed.HUDActiveScreen()
 							if doc == nil {
-								return "No screen selected"
+								return ed.T("hudLayout.noScreenSelected")
 							}
 							n := findHUDNode(doc.Nodes, ed.HUDSelectedNodeID())
 							if n == nil {
@@ -1233,7 +1233,7 @@ func hudInspectorRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 								Style: core.Style{Padding: core.All(16)},
 								Children: []core.Node{
 									core.Text{
-										Content: "Select or open a screen file to inspect anchors, localized text width, and GAME CHECK diagnostics.",
+										Content: ed.T("hudLayout.inspectorEmptyHint"),
 										Style:   core.Style{FontSize: 12.5, LineHeight: 18, Color: p.TextFaint},
 									},
 								},
@@ -1270,6 +1270,33 @@ func hudInspectorRailView(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 	}
 }
 
+func hudAnchorWordsLocalized(ed *Editor, a gameui.ScreenAnchor) string {
+	switch a {
+	case gameui.AnchorTopLeft:
+		return ed.T("hudLayout.anchor.topLeft")
+	case gameui.AnchorTopCenter:
+		return ed.T("hudLayout.anchor.topCenter")
+	case gameui.AnchorTopRight:
+		return ed.T("hudLayout.anchor.topRight")
+	case gameui.AnchorCenterLeft:
+		return ed.T("hudLayout.anchor.centerLeft")
+	case gameui.AnchorCenter:
+		return ed.T("hudLayout.anchor.center")
+	case gameui.AnchorCenterRight:
+		return ed.T("hudLayout.anchor.centerRight")
+	case gameui.AnchorBottomLeft:
+		return ed.T("hudLayout.anchor.bottomLeft")
+	case gameui.AnchorBottomCenter:
+		return ed.T("hudLayout.anchor.bottomCenter")
+	case gameui.AnchorBottomRight:
+		return ed.T("hudLayout.anchor.bottomRight")
+	case gameui.AnchorFill:
+		return ed.T("hudLayout.anchor.fill")
+	default:
+		return ed.T("hudLayout.anchor.topLeft")
+	}
+}
+
 func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) core.Node {
 	selAnchor := sel.EffectiveAnchor()
 	safeOn := sel.KeepInSafeArea()
@@ -1297,7 +1324,7 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 			rowBtns = append(rowBtns, core.View{
 				TestID: "hud-anchor-" + string(a),
 				Role:   core.RoleButton,
-				Label:  "Anchor " + strings.ToLower(hudAnchorWords(a)),
+				Label:  ed.T("hudLayout.anchorButtonLabel", l10n.Param("anchor", strings.ToLower(hudAnchorWordsLocalized(ed, a)))),
 				Style: core.Style{
 					Width:          core.Pt(28),
 					Height:         core.Pt(28),
@@ -1339,22 +1366,26 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 		fillBorder = p.Accent.Fg
 	}
 
-	anchorText := hudAnchorWords(selAnchor)
+	anchorWords := hudAnchorWordsLocalized(ed, selAnchor)
+	anchorText := anchorWords
 	if selAnchor != gameui.AnchorFill {
 		if safeOn {
-			anchorText += " of the safe area"
+			anchorText = ed.T("hudLayout.anchorOfSafeArea", l10n.Param("anchor", anchorWords))
 		} else {
-			anchorText += " of the screen"
+			anchorText = ed.T("hudLayout.anchorOfScreen", l10n.Param("anchor", anchorWords))
 		}
 	}
 
-	offsetText := "no offset"
+	offsetText := ed.T("hudLayout.noOffset")
 	if selAnchor != gameui.AnchorFill {
 		var ox, oy float32
 		if sel.Offset != nil {
 			ox, oy = sel.Offset.X, sel.Offset.Y
 		}
-		offsetText = fmt.Sprintf("x %s · y %s from the anchor", formatHUDPoints(ox), formatHUDPoints(oy))
+		offsetText = ed.T("hudLayout.offsetFromAnchor",
+			l10n.Param("x", formatHUDPoints(ox)),
+			l10n.Param("y", formatHUDPoints(oy)),
+		)
 	}
 
 	checkBg := core.Transparent
@@ -1399,7 +1430,7 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 					core.View{
 						TestID: "hud-anchor-fill",
 						Role:   core.RoleButton,
-						Label:  "Anchor fill",
+						Label:  ed.T("hudLayout.anchorFillLabel"),
 						Style: core.Style{
 							Height:         core.Pt(28),
 							CornerRadius:   6,
@@ -1416,7 +1447,7 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Fill",
+								Content: ed.T("hudLayout.fill"),
 								Style: core.Style{
 									FontSize:   12,
 									FontWeight: core.FontWeightMedium,
@@ -1436,7 +1467,7 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "ANCHOR",
+						Content: ed.T("hudLayout.anchorHeading"),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
@@ -1461,7 +1492,7 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 					core.View{
 						TestID:  "hud-safe-area-toggle",
 						Role:    core.RoleCheckbox,
-						Label:   "Keep inside the safe area",
+						Label:   ed.T("hudLayout.keepInSafeArea"),
 						Checked: func() bool { return safeOn },
 						Style: core.Style{
 							MinHeight:    core.Pt(28),
@@ -1490,7 +1521,7 @@ func hudAnchorSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) 
 								Children: checkChildren,
 							},
 							core.Text{
-								Content: "Keep inside the safe area",
+								Content: ed.T("hudLayout.keepInSafeArea"),
 								Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 							},
 						},
@@ -1508,32 +1539,35 @@ func hudSizeAndLayoutSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDo
 	sizeSummary := ""
 	switch {
 	case sel.Anchor == gameui.AnchorFill:
-		sizeSummary = "fills the screen"
+		sizeSummary = ed.T("hudLayout.size.fillsScreen")
 	case sel.Type.IsContainer() && sel.Width == 0 && sel.Height == 0:
-		sizeSummary = "sized by its children"
+		sizeSummary = ed.T("hudLayout.size.byChildren")
 	default:
 		wStr := formatHUDPoints(sel.Width)
 		if sel.TextKey != "" && isFit {
 			needed, _ := ed.hudMeasureNodeText(sel, ed.HUDLocale())
-			wStr = "fits text · " + formatHUDPoints(needed)
+			wStr = ed.T("hudLayout.size.fitsText", l10n.Param("width", formatHUDPoints(needed)))
 		}
 		hStr := formatHUDPoints(sel.Height)
 		sizeSummary = wStr + " × " + hStr
 		if sel.TouchHitSize > 0 || sel.Type == gameui.NodeTouchButton || sel.Type == gameui.NodeTouchStick {
-			sizeSummary += " · touch " + formatHUDPoints(effectiveTouchHitSize(sel)) + " pt"
+			sizeSummary = ed.T("hudLayout.size.withTouch",
+				l10n.Param("size", sizeSummary),
+				l10n.Param("touch", formatHUDPoints(effectiveTouchHitSize(sel))),
+			)
 		}
 	}
 
 	widthRowChildren := []core.Node{
 		core.Text{
-			Content: "Width",
+			Content: ed.T("hudLayout.width"),
 			Style:   core.Style{Width: core.Pt(52), FontSize: 12.5, Color: p.TextMuted},
 		},
 	}
 	if canFit {
-		fixedLabel := "Fixed"
+		fixedLabel := ed.T("hudLayout.size.fixed")
 		if sel.Width > 0 {
-			fixedLabel = "Fixed " + formatHUDPoints(sel.Width)
+			fixedLabel = ed.T("hudLayout.size.fixedValue", l10n.Param("width", formatHUDPoints(sel.Width)))
 		}
 		segBtn := func(testID, text string, active bool, fn func()) core.Node {
 			bg := core.Transparent
@@ -1578,7 +1612,7 @@ func hudSizeAndLayoutSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDo
 				segBtn("hud-size-fixed", fixedLabel, !isFit, func() {
 					ed.report(ed.SetHUDNodeSizeMode(sel.ID, gameui.SizeFixed))
 				}),
-				segBtn("hud-size-fit", "Fit text", isFit, func() {
+				segBtn("hud-size-fit", ed.T("hudLayout.size.fitText"), isFit, func() {
 					ed.report(ed.SetHUDNodeSizeMode(sel.ID, gameui.SizeFitText))
 				}),
 			},
@@ -1596,7 +1630,7 @@ func hudSizeAndLayoutSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDo
 
 	rows := []core.Node{
 		core.Text{
-			Content: "SIZE",
+			Content: ed.T("hudLayout.sizeHeading"),
 			Style: core.Style{
 				FontSize:      11,
 				FontWeight:    core.FontWeightSemibold,
@@ -1626,10 +1660,10 @@ func hudSizeAndLayoutSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDo
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Spacing",
+					Content: ed.T("hudLayout.spacing"),
 					Style:   core.Style{Width: core.Pt(52), FontSize: 12.5, Color: p.TextMuted},
 				},
-				hudSmallIconBtn(p, "hud-spacing-dec", "Decrease spacing", lucide.Minus(), sel.Spacing <= 0, func() {
+				hudSmallIconBtn(p, "hud-spacing-dec", ed.T("hudLayout.decreaseSpacing"), lucide.Minus(), sel.Spacing <= 0, func() {
 					ed.report(ed.SetHUDNodeSpacing(sel.ID, max(float32(0), sel.Spacing-2)))
 				}),
 				core.Text{
@@ -1643,7 +1677,7 @@ func hudSizeAndLayoutSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDo
 						Color:      p.TextSecondary,
 					},
 				},
-				hudSmallIconBtn(p, "hud-spacing-inc", "Increase spacing", lucide.Plus(), false, func() {
+				hudSmallIconBtn(p, "hud-spacing-inc", ed.T("hudLayout.increaseSpacing"), lucide.Plus(), false, func() {
 					ed.report(ed.SetHUDNodeSpacing(sel.ID, sel.Spacing+2))
 				}),
 			},
@@ -1662,18 +1696,18 @@ func hudSizeAndLayoutSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDo
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Order",
+					Content: ed.T("hudLayout.order"),
 					Style:   core.Style{Width: core.Pt(52), FontSize: 12.5, Color: p.TextMuted},
 				},
-				hudSmallIconBtn(p, "hud-order-up", "Move earlier in container", lucide.ChevronUp(), idx <= 0, func() {
+				hudSmallIconBtn(p, "hud-order-up", ed.T("hudLayout.moveEarlier"), lucide.ChevronUp(), idx <= 0, func() {
 					ed.report(ed.ReorderHUDNode(sel.ID, -1))
 				}),
-				hudSmallIconBtn(p, "hud-order-down", "Move later in container", lucide.ChevronDown(), idx >= total-1, func() {
+				hudSmallIconBtn(p, "hud-order-down", ed.T("hudLayout.moveLater"), lucide.ChevronDown(), idx >= total-1, func() {
 					ed.report(ed.ReorderHUDNode(sel.ID, 1))
 				}),
 				core.Text{
 					TestID:  "hud-order-value",
-					Content: fmt.Sprintf("%d of %d", idx+1, total),
+					Content: ed.T("hudLayout.orderValue", l10n.Param("index", idx+1), l10n.Param("total", total)),
 					Style: core.Style{
 						FontFamily: core.FontMonospace,
 						FontSize:   11.5,
@@ -1744,7 +1778,7 @@ func hudTextSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) co
 		val, ok := ed.hudLookupText(loc, sel.TextKey)
 		valColor := p.TextPrimary
 		if !ok {
-			val = "(missing)"
+			val = ed.T("hudLayout.textMissing")
 			valColor = p.Removed.Fg
 		}
 		if zoomLoc == "" {
@@ -1793,7 +1827,7 @@ func hudTextSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) co
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "TEXT",
+					Content: ed.T("hudLayout.textHeading"),
 					Style: core.Style{
 						FontSize:      11,
 						FontWeight:    core.FontWeightSemibold,
@@ -1842,19 +1876,19 @@ func hudTextSectionView(p SpecPalette, ed *Editor, sel *gameui.ScreenNodeDoc) co
 					Children: []core.Node{
 						core.Text{
 							TestID:  "hud-zoom-title",
-							Content: fmt.Sprintf("Phone · %s · 1.5×", hudLocaleLabel(zoomLoc)),
+							Content: ed.T("hudLayout.zoomTitle", l10n.Param("language", hudLocaleLabel(zoomLoc))),
 							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 						core.Text{
 							TestID:  "hud-zoom-over",
-							Content: fmt.Sprintf("%s px past the box", formatHUDPoints(overCopy)),
+							Content: ed.T("hudLayout.zoomOver", l10n.Param("px", formatHUDPoints(overCopy))),
 							Style:   core.Style{FontSize: 11.5, Color: p.Removed.Fg},
 						},
 					},
 				},
 				core.Canvas{
 					TestID: "hud-zoom-canvas",
-					Label:  fmt.Sprintf("Zoomed 1.5x preview of %s overflowing by %s px", sel.ID, formatHUDPoints(overCopy)),
+					Label:  ed.T("hudLayout.zoomCanvasLabel", l10n.Param("id", sel.ID), l10n.Param("px", formatHUDPoints(overCopy))),
 					Style: core.Style{
 						Height:       core.Pt(48),
 						Width:        core.Pct(100),
@@ -1890,7 +1924,7 @@ func hudGameCheckSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDoc) c
 			Children: []core.Node{
 				core.Text{
 					TestID:  "hud-check-header",
-					Content: "GAME CHECK · " + screenName,
+					Content: ed.T("hudLayout.gameCheckHeading", l10n.Param("screen", screenName)),
 					Style: core.Style{
 						FontSize:      11,
 						FontWeight:    core.FontWeightSemibold,
@@ -1929,7 +1963,7 @@ func hudGameCheckSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDoc) c
 					},
 				},
 				core.Text{
-					Content: "No problems at any size in this language",
+					Content: ed.T("hudLayout.noProblems"),
 					Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 				},
 			},
@@ -1996,7 +2030,7 @@ func hudGameCheckSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDoc) c
 					core.View{
 						TestID: "hud-problem-show-" + prob.NodeID + probSuffix,
 						Role:   core.RoleButton,
-						Label:  "Show " + prob.NodeID,
+						Label:  ed.T("hudLayout.showNodeLabel", l10n.Param("id", prob.NodeID)),
 						Style: core.Style{
 							Height:         core.Pt(28),
 							FlexShrink:     0,
@@ -2013,7 +2047,7 @@ func hudGameCheckSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDoc) c
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Show",
+								Content: ed.T("hudLayout.show"),
 								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
 						},
@@ -2024,7 +2058,7 @@ func hudGameCheckSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDoc) c
 		children = append(children, core.View{
 			TestID: "hud-ask-agent-fix",
 			Role:   core.RoleButton,
-			Label:  fmt.Sprintf("Ask the agent to fix %d", len(probs)),
+			Label:  ed.T("hudLayout.askAgentFix", l10n.Param("count", len(probs))),
 			Style: core.Style{
 				Height:         core.Pt(32),
 				Direction:      core.Row,
@@ -2044,7 +2078,7 @@ func hudGameCheckSectionView(p SpecPalette, ed *Editor, doc *gameui.ScreenDoc) c
 					Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.Accent.OnFill},
 				},
 				core.Text{
-					Content: fmt.Sprintf("Ask the agent to fix %d", len(probs)),
+					Content: ed.T("hudLayout.askAgentFix", l10n.Param("count", len(probs))),
 					Style: core.Style{
 						FontSize:   12.5,
 						FontWeight: core.FontWeightSemibold,
@@ -2097,8 +2131,8 @@ func hudComposerView(cx *core.Scope, p SpecPalette, ed *Editor, promptDraft *cor
 				Children: []core.Node{
 					core.Input{
 						TestID:      "hud-composer-input",
-						Label:       "Ask the agent",
-						Placeholder: "e.g. add a boss health bar that only shows on floor 3",
+						Label:       ed.T("hudLayout.composerLabel"),
+						Placeholder: ed.T("hudLayout.composerPlaceholder"),
 						Value:       promptDraft.Get,
 						OnFocus:     func() { ed.noteTextInputFocus(true) },
 						OnBlur:      func() { ed.noteTextInputFocus(false) },
@@ -2122,7 +2156,7 @@ func hudComposerView(cx *core.Scope, p SpecPalette, ed *Editor, promptDraft *cor
 					core.View{
 						TestID: "hud-composer-send",
 						Role:   core.RoleButton,
-						Label:  "Send",
+						Label:  ed.T("hudLayout.send"),
 						Style: core.Style{
 							Width:          core.Pt(28),
 							Height:         core.Pt(28),

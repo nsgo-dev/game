@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -45,18 +46,22 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	})
 
-	stageMemo := core.NewMemo(cx, func() FirstRunStage {
+	type firstRunRenderKey struct {
+		stage FirstRunStage
+		dark  bool
+		lang  string
+	}
+	renderKey := core.NewMemo(cx, func() firstRunRenderKey {
 		_ = rev.Get()
-		return ed.FirstRunStage()
-	})
-	darkMemo := core.NewMemo(cx, func() bool {
-		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return firstRunRenderKey{
+			stage: ed.FirstRunStage(),
+			dark:  ed.SpecPalette(cx).Dark,
+			lang:  ed.ResolvedLanguage(),
+		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = darkMemo.Get()
-		switch stageMemo.Get() {
+		switch renderKey.Get().stage {
 		case FirstRunStagePlan:
 			return firstRunPlanView(cx, ed, rev)
 		case FirstRunStageBuilding:
@@ -70,7 +75,7 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 }
 
 // startWhatHappensNextView renders the 3-step WHAT HAPPENS NEXT strip on Step 1 of the Start Screen.
-func startWhatHappensNextView(p SpecPalette) core.Node {
+func startWhatHappensNextView(p SpecPalette, ed *Editor) core.Node {
 	stepRow := func(num, title, note string) core.Node {
 		return core.View{
 			Style: core.Style{
@@ -131,10 +136,10 @@ func startWhatHappensNextView(p SpecPalette) core.Node {
 			Gap:         6,
 		},
 		Children: []core.Node{
-			specSectionLabel(p, "WHAT HAPPENS NEXT"),
-			stepRow("1", "Connect an agent", "Once, about a minute"),
-			stepRow("2", "Approve its plan", "Nothing is written before"),
-			stepRow("3", "Review the first scene", "Keep or revert each change"),
+			specSectionLabel(p, ed.T("firstRun.whatHappensNext")),
+			stepRow("1", ed.T("firstRun.step1Title"), ed.T("firstRun.step1Note")),
+			stepRow("2", ed.T("firstRun.step2Title"), ed.T("firstRun.step2Note")),
+			stepRow("3", ed.T("firstRun.step3Title"), ed.T("firstRun.step3Note")),
 		},
 	}
 }
@@ -183,7 +188,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							_ = rev.Get()
 							idea := strings.TrimSpace(ed.StartProjectIdea())
 							if idea == "" {
-								return "New AI-built game project"
+								return ed.T("firstRun.defaultIdeaSummary")
 							}
 							return idea
 						},
@@ -209,7 +214,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 					},
 					specPanelButton(p, specPanelButtonSpec{
 						TestID:  "first-run-connect-edit",
-						Text:    "Edit",
+						Text:    ed.T("firstRun.edit"),
 						Variant: specBtnGhost,
 						Compact: true,
 						Style:   core.Style{BorderWidth: 0},
@@ -243,7 +248,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 								Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 4},
 								Children: []core.Node{
 									core.Text{
-										Content: "Connect an agent",
+										Content: ed.T("firstRun.connectTitle"),
 										Style: core.Style{
 											FontSize:   14,
 											FontWeight: core.FontWeightSemibold,
@@ -251,7 +256,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 										},
 									},
 									core.Text{
-										Content: "The agent does the editing through this editor. Use one you already have, or paste an API key.",
+										Content: ed.T("firstRun.connectSubtitle"),
 										Style: core.Style{
 											FontSize: 12.5,
 											Color:    p.TextMuted,
@@ -261,8 +266,8 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							},
 							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "first-run-connect-refresh",
-								Label:   "Re-detect local agents",
-								Tooltip: "Re-detect local agents",
+								Label:   ed.T("firstRun.redetectAgents"),
+								Tooltip: ed.T("firstRun.redetectAgents"),
 								Icon:    lucide.RefreshCw,
 								Variant: specBtnGhost,
 								Compact: true,
@@ -370,7 +375,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 									},
 									Children: []core.Node{
 										core.Text{
-											Content: "Detected",
+											Content: ed.T("firstRun.detected"),
 											Style: core.Style{
 												FontSize:   11,
 												FontWeight: core.FontWeightMedium,
@@ -407,23 +412,25 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 						}
 						return core.View{
 							Role:     core.RoleRadioGroup,
-							Label:    "Agent",
+							Label:    ed.T("firstRun.agentGroupLabel"),
 							Style:    core.Style{Gap: 8},
 							Children: rows,
 						}
 					}),
-					// Status body: keyed on (selectedAgent, isTimeout) so the API key input stays stably
+					// Status body: keyed on (selectedAgent, isTimeout, lang) so the API key input stays stably
 					// mounted across every keystroke instead of remounting on rev bumps.
 					func() core.Node {
 						type connectBodyMode struct {
 							sel     string
 							timeout bool
+							lang    string
 						}
 						bodyMode := core.NewMemo(cx, func() connectBodyMode {
 							_ = rev.Get()
 							return connectBodyMode{
 								sel:     ed.FirstRunSelectedAgent(),
 								timeout: ed.FirstRunConnectStatus() == FirstRunConnectTimeout,
+								lang:    ed.ResolvedLanguage(),
 							}
 						})
 						return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -524,7 +531,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 						Children: []core.Node{
 							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "first-run-connect-later",
-								Text:    "Later",
+								Text:    ed.T("firstRun.later"),
 								Variant: specBtnGhost,
 								Style:   core.Style{BorderWidth: 0},
 								OnPress: func() {
@@ -533,7 +540,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							}),
 							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "first-run-connect-done",
-								Text:    "Done",
+								Text:    ed.T("firstRun.done"),
 								Variant: specBtnAccent,
 								Disabled: func() bool {
 									_ = rev.Get()
@@ -562,17 +569,17 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 		displayPath = "~/games/" + ed.StartProjectName()
 	}
 	copied := ed.FirstRunDiagnosticsCopied()
-	copyText := "Copy diagnostics"
+	copyText := ed.T("firstRun.copyDiagnostics")
 	var copyIcon func() *core.SVG
 	if copied {
-		copyText = "Copied"
+		copyText = ed.T("firstRun.copied")
 		copyIcon = lucide.Check
 	}
 	connectErr := strings.TrimSpace(ed.FirstRunConnectError())
-	headline := "No answer from " + agentName + " after 30 s"
-	body := fmt.Sprintf("1. Open Terminal, run %s once and sign in.\n2. When it asks, trust the folder %s.\n3. Come back here and try again.", bin, displayPath)
+	headline := ed.T("firstRun.timeoutHeading", l10n.Param("agent", agentName))
+	body := ed.T("firstRun.timeoutInstructions", l10n.Param("bin", bin), l10n.Param("path", displayPath))
 	if connectErr != "" && !strings.Contains(strings.ToLower(connectErr), "timed out") && !strings.Contains(strings.ToLower(connectErr), "deadline exceeded") {
-		headline = "Couldn't connect to " + agentName
+		headline = ed.T("firstRun.connectFailedHeading", l10n.Param("agent", agentName))
 		body = connectErr + "\n\n" + body
 	}
 	return core.View{
@@ -607,7 +614,7 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 				Children: []core.Node{
 					specPanelButton(p, specPanelButtonSpec{
 						TestID:  "first-run-connect-retry",
-						Text:    "Try again",
+						Text:    ed.T("firstRun.tryAgain"),
 						Variant: specBtnQuiet,
 						OnPress: func() {
 							ed.RetryFirstRunConnect()
@@ -634,7 +641,7 @@ func firstRunAPIKeySection(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 		Style:  core.Style{Gap: 8},
 		Children: []core.Node{
 			core.Text{
-				Content: "API key",
+				Content: ed.T("firstRun.apiKeyLabel"),
 				Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 			},
 			// Reactive border wrapper keeps the inner specInputField stably mounted across keystrokes.
@@ -663,9 +670,9 @@ func firstRunAPIKeySection(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 				Children: []core.Node{
 					specInputField(cx, ed, ui.Input{
 						TestID:      "first-run-api-key-input",
-						Label:       "API key",
+						Label:       ed.T("firstRun.apiKeyLabel"),
 						Masked:      true,
-						Placeholder: "sk-…",
+						Placeholder: ed.T("firstRun.apiKeyPlaceholder"),
 						Value: func() string {
 							_ = rev.Get()
 							return ed.FirstRunAPIKey()
@@ -687,34 +694,34 @@ func firstRunAPIKeySection(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = rev.Get()
 				st := ed.FirstRunConnectStatus()
-				statusText := "Paste an API key to check it immediately."
+				statusText := ed.T("firstRun.apiKeyIdle")
 				statusColor := p.TextMuted
 				var badgeText string
 				var badgeFg, badgeBg, badgeEdge core.Color
 				switch st {
 				case FirstRunConnectKeyValid:
 					if ed.Keychain != nil || ed.FirstRunAPIKeyStoredInKeychain() {
-						statusText = "Key works · checked just now · kept in the system keychain"
+						statusText = ed.T("firstRun.apiKeyValidKeychain")
 					} else {
-						statusText = "Key works · checked just now · kept in memory for this session"
+						statusText = ed.T("firstRun.apiKeyValidMemory")
 					}
 					statusColor = p.TextSecondary
-					badgeText = "Key works"
+					badgeText = ed.T("firstRun.apiKeyValidBadge")
 					badgeFg, badgeBg, badgeEdge = p.Added.Fg, p.Added.Fill, p.Added.Edge
 				case FirstRunConnectKeyInvalid:
-					statusText = "Key not accepted — check that the full key was pasted."
+					statusText = ed.T("firstRun.apiKeyInvalid")
 					statusColor = p.Removed.Fg
-					badgeText = "Key not accepted"
+					badgeText = ed.T("firstRun.apiKeyInvalidBadge")
 					badgeFg, badgeBg, badgeEdge = p.Removed.Fg, p.Removed.Fill, p.Removed.Edge
 				case FirstRunConnectKeyNoNetwork:
-					statusText = "No network — reconnect to verify this API key."
+					statusText = ed.T("firstRun.apiKeyNoNetwork")
 					statusColor = p.Warning.Fg
-					badgeText = "No network"
+					badgeText = ed.T("firstRun.apiKeyNoNetworkBadge")
 					badgeFg, badgeBg, badgeEdge = p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
 				case FirstRunConnectKeyNoQuota:
-					statusText = "No quota left on this API key."
+					statusText = ed.T("firstRun.apiKeyNoQuota")
 					statusColor = p.Warning.Fg
-					badgeText = "No quota left"
+					badgeText = ed.T("firstRun.apiKeyNoQuotaBadge")
 					badgeFg, badgeBg, badgeEdge = p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
 				}
 				statusRow := []core.Node{}
@@ -785,11 +792,11 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Asking " + agentName + " for a plan…",
+						Content: ed.T("firstRun.askingForPlan", l10n.Param("agent", agentName)),
 						Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, Color: p.TextPrimary},
 					},
 					core.Text{
-						Content: "Nothing is written to disk before you approve.",
+						Content: ed.T("firstRun.nothingWrittenBeforeApprove"),
 						Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 					},
 				},
@@ -809,7 +816,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Couldn't get a plan from the agent",
+						Content: ed.T("firstRun.planErrorHeading"),
 						Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: p.Warning.Fg},
 					},
 					core.Text{
@@ -821,7 +828,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						Children: []core.Node{
 							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "first-run-plan-retry",
-								Text:    "Try again",
+								Text:    ed.T("firstRun.tryAgain"),
 								Variant: specBtnQuiet,
 								OnPress: func() {
 									ed.report(ed.RetryFirstRunPlan())
@@ -870,12 +877,12 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 						Children: []core.Node{
 							specIcon(lucide.ListChecks, 13, p.Agent.Fg),
-							specSectionLabel(p, "PLAN"),
+							specSectionLabel(p, ed.T("firstRun.planHeading")),
 						},
 					},
 					core.Text{
 						TestID:  "first-run-plan-title",
-						Content: "New project: " + plan.ProjectName,
+						Content: ed.T("firstRun.planTitle", l10n.Param("name", plan.ProjectName)),
 						Style: core.Style{
 							FontSize:   14,
 							FontWeight: core.FontWeightSemibold,
@@ -1071,7 +1078,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Nothing changes until you approve.",
+					Content: ed.T("firstRun.planNothingChanges"),
 					Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
 				},
 				core.View{
@@ -1084,7 +1091,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					Children: []core.Node{
 						specPanelButton(p, specPanelButtonSpec{
 							TestID:  "first-run-plan-just-do-it",
-							Text:    "Just do it",
+							Text:    ed.T("firstRun.justDoIt"),
 							Variant: specBtnQuiet,
 							OnPress: func() {
 								ed.report(ed.JustDoItFirstRunPlan())
@@ -1092,7 +1099,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						}),
 						specPanelButton(p, specPanelButtonSpec{
 							TestID:  "first-run-plan-approve",
-							Text:    "Approve " + approveShortcut,
+							Text:    ed.T("firstRun.approveWithShortcut", l10n.Param("shortcut", approveShortcut)),
 							Variant: specBtnAccent,
 							Disabled: func() bool {
 								return !approveEnabled
@@ -1145,7 +1152,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						Children: []core.Node{
 							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "first-run-plan-back",
-								Text:    "Start",
+								Text:    ed.T("firstRun.startBack"),
 								Icon:    lucide.ArrowLeft,
 								Variant: specBtnGhost,
 								Compact: true,
@@ -1196,15 +1203,15 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								ContentFunc: func() string {
 									_ = rev.Get()
 									if ed.FirstRunPlanLoading() {
-										return "Planning…"
+										return ed.T("firstRun.planningStatus")
 									}
 									if ed.FirstRunPlanError() != "" {
-										return "Plan failed"
+										return ed.T("firstRun.planFailedStatus")
 									}
 									if plan := ed.FirstRunPlan(); plan != nil && plan.Approved {
-										return "Plan approved · building"
+										return ed.T("firstRun.planApprovedBuilding")
 									}
-									return "Plan ready · waiting for you"
+									return ed.T("firstRun.planReadyWaiting")
 								},
 								Style: core.Style{FontSize: 12, Color: p.Agent.Fg, FontWeight: core.FontWeightMedium},
 							},
@@ -1269,7 +1276,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								},
 								Children: []core.Node{
 									core.Text{
-										Content: "Template preview · read-only",
+										Content: ed.T("firstRun.templatePreviewReadOnly"),
 										Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 									},
 								},
@@ -1295,7 +1302,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 										},
 									},
 									core.Text{
-										Content: "planned",
+										Content: ed.T("firstRun.plannedLegend"),
 										Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 									},
 								},
@@ -1328,7 +1335,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 										Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 										Children: []core.Node{
 											core.Text{
-												Content: "Agent",
+												Content: ed.T("firstRun.agentPanelTitle"),
 												Style: core.Style{
 													FontSize:   14,
 													FontWeight: core.FontWeightSemibold,
@@ -1360,7 +1367,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 												},
 											},
 											core.Text{
-												Content: "Connected",
+												Content: ed.T("firstRun.connected"),
 												Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 											},
 										},
@@ -1392,8 +1399,19 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	buildStageBar := func(cx *core.Scope) core.Node {
 		_ = rev.Get()
 		snap := ed.FirstRunBuildState()
+		stageKeys := [5]string{
+			"firstRun.buildStage.template",
+			"firstRun.buildStage.project",
+			"firstRun.buildStage.firstScene",
+			"firstRun.buildStage.check",
+			"firstRun.buildStage.playtest",
+		}
 		var stageNodes []core.Node
 		for i, name := range FirstRunBuildStageNames {
+			stageLabel := name
+			if i < len(stageKeys) {
+				stageLabel = ed.T(stageKeys[i])
+			}
 			st := snap.Stages[i]
 			var dot core.Node
 			labelColor := p.TextMuted
@@ -1460,7 +1478,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				Children: []core.Node{
 					dot,
 					core.Text{
-						Content: name,
+						Content: stageLabel,
 						Style: core.Style{
 							FontSize:   12,
 							FontWeight: weight,
@@ -1691,25 +1709,25 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			var dialogChildren []core.Node
 			dialogChildren = append(dialogChildren,
 				core.Text{
-					Content: "Stop building?",
+					Content: ed.T("firstRun.stopBuildingTitle"),
 					Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
 				},
 			)
 			if snap.CanDeleteFolder {
 				dialogChildren = append(dialogChildren, core.Text{
-					Content: fmt.Sprintf("%s was created %d s ago and holds only what the agent made.", snap.DisplayPath, snap.CreatedAgeSeconds),
+					Content: ed.T("firstRun.stopBuildingDeleteBody", l10n.Param("path", snap.DisplayPath), l10n.Param("seconds", snap.CreatedAgeSeconds)),
 					Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 				})
 			} else {
 				dialogChildren = append(dialogChildren, core.Text{
-					Content: "You can keep building or stop and review the files written so far.",
+					Content: ed.T("firstRun.stopBuildingKeepBody"),
 					Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 				})
 			}
 			dialogChildren = append(dialogChildren,
 				specPanelButton(p, specPanelButtonSpec{
 					TestID:  "first-run-cancel-keep-building",
-					Text:    "Keep building",
+					Text:    ed.T("firstRun.keepBuilding"),
 					Variant: specBtnQuiet,
 					Style:   core.Style{Width: core.Pct(100)},
 					OnPress: func() {
@@ -1718,7 +1736,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				}),
 				specPanelButton(p, specPanelButtonSpec{
 					TestID:  "first-run-cancel-stop-keep",
-					Text:    "Stop, keep the files",
+					Text:    ed.T("firstRun.stopKeepFiles"),
 					Variant: specBtnQuiet,
 					Style:   core.Style{Width: core.Pct(100)},
 					OnPress: func() {
@@ -1729,7 +1747,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			if snap.CanDeleteFolder {
 				dialogChildren = append(dialogChildren, specPanelButton(p, specPanelButtonSpec{
 					TestID:  "first-run-cancel-stop-delete",
-					Text:    "Stop and delete the folder",
+					Text:    ed.T("firstRun.stopDeleteFolder"),
 					Variant: specBtnDanger,
 					Style:   core.Style{Width: core.Pct(100)},
 					OnPress: func() {
@@ -1740,7 +1758,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			panelBody = append(panelBody, core.View{
 				TestID: "first-run-cancel-dialog",
 				Role:   core.RoleDialog,
-				Label:  "Stop building?",
+				Label:  ed.T("firstRun.stopBuildingTitle"),
 				Style: core.Style{
 					CornerRadius: specRadiusCard,
 					Background:   p.Raised,
@@ -1774,7 +1792,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							Children: []core.Node{
 								specPanelButton(p, specPanelButtonSpec{
 									TestID:  "first-run-check-fix-it",
-									Text:    "Fix it",
+									Text:    ed.T("firstRun.fixIt"),
 									Variant: specBtnAccent,
 									OnPress: func() {
 										ed.report(ed.ApplyFirstRunFix())
@@ -1782,7 +1800,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								}),
 								specPanelButton(p, specPanelButtonSpec{
 									TestID:  "first-run-check-review-as-is",
-									Text:    "Review as is",
+									Text:    ed.T("firstRun.reviewAsIs"),
 									Variant: specBtnQuiet,
 									OnPress: func() {
 										ed.ReviewFirstRunAsIs()
@@ -1807,12 +1825,12 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: fmt.Sprintf("Stopped. The %d objects built so far are ready to review.", snap.ObjectsDone),
+						Content: ed.T("firstRun.stoppedKeptBody", l10n.Param("count", snap.ObjectsDone)),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
 					},
 					specPanelButton(p, specPanelButtonSpec{
 						TestID:  "first-run-stopped-review",
-						Text:    "Review them",
+						Text:    ed.T("firstRun.reviewThem"),
 						Variant: specBtnQuiet,
 						OnPress: func() {
 							ed.OpenFirstRunReviewFromStopped()
@@ -1834,12 +1852,12 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: fmt.Sprintf("Stopped. %s was deleted; your idea is still on the Start screen.", snap.DisplayPath),
+						Content: ed.T("firstRun.stoppedDeletedBody", l10n.Param("path", snap.DisplayPath)),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
 					},
 					specPanelButton(p, specPanelButtonSpec{
 						TestID:  "first-run-stopped-back-start",
-						Text:    "Back to Start",
+						Text:    ed.T("firstRun.backToStart"),
 						Variant: specBtnQuiet,
 						OnPress: func() {
 							ed.ReturnToStartFromFirstRun()
@@ -2000,7 +2018,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								},
 								Children: []core.Node{
 									core.Text{
-										Content: "Agent",
+										Content: ed.T("firstRun.agentPanelTitle"),
 										Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
 									},
 									core.Text{
@@ -2042,7 +2060,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 											},
 											specPanelButton(p, specPanelButtonSpec{
 												TestID:  "first-run-build-cancel",
-												Text:    "Cancel",
+												Text:    ed.T("firstRun.cancel"),
 												Icon:    lucide.Square,
 												Variant: specBtnQuiet,
 												OnPress: func() {
@@ -2101,7 +2119,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		if snap.ActiveTipIndex < 0 {
 			headerRight = append(headerRight, specPanelButton(p, specPanelButtonSpec{
 				TestID:  "first-run-review-replay-tips",
-				Text:    "Replay tips",
+				Text:    ed.T("firstRun.replayTips"),
 				Variant: specBtnQuiet,
 				Compact: true,
 				OnPress: func() {
@@ -2121,17 +2139,17 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
-					segBtn("first-run-review-before", "Before", snap.ShowingBefore, func() {
+					segBtn("first-run-review-before", ed.T("firstRun.before"), snap.ShowingBefore, func() {
 						ed.SetFirstRunReviewBefore(true)
 					}),
-					segBtn("first-run-review-after", "After", !snap.ShowingBefore, func() {
+					segBtn("first-run-review-after", ed.T("firstRun.after"), !snap.ShowingBefore, func() {
 						ed.SetFirstRunReviewBefore(false)
 					}),
 				},
 			},
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:  "first-run-review-revert-all",
-				Text:    "Revert all",
+				Text:    ed.T("firstRun.revertAll"),
 				Variant: specBtnQuiet,
 				OnPress: func() {
 					ed.RevertAllFirstRunReview()
@@ -2139,7 +2157,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			}),
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:  "first-run-review-keep",
-				Text:    fmt.Sprintf("Keep %d of %d", snap.KeptCount, snap.TotalCount),
+				Text:    ed.T("firstRun.keepOf", l10n.Param("kept", snap.KeptCount), l10n.Param("total", snap.TotalCount)),
 				Variant: specBtnAccent,
 				OnPress: func() {
 					ed.report(ed.KeepFirstRunReview())
@@ -2159,7 +2177,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			specIcon(lucide.Check, 13, p.Added.Fg),
 			core.Text{
 				TestID:  "first-run-review-plan-steps",
-				Content: fmt.Sprintf("Plan: %d of %d steps", snap.PlanStepsDone, snap.PlanStepsTotal),
+				Content: ed.T("firstRun.planProgress", l10n.Param("done", snap.PlanStepsDone), l10n.Param("total", snap.PlanStepsTotal)),
 				Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary, FontWeight: core.FontWeightMedium},
 			},
 		}
@@ -2199,11 +2217,11 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			}
 			opacity := core.Alpha(1.0)
 			toggleIcon := lucide.Undo2
-			toggleLabel := "Revert " + ch.Title
+			toggleLabel := ed.T("firstRun.revertItemLabel", l10n.Param("title", ch.Title))
 			if ch.Reverted {
 				opacity = core.Alpha(0.55)
 				toggleIcon = lucide.Redo2
-				toggleLabel = "Restore " + ch.Title
+				toggleLabel = ed.T("firstRun.restoreItemLabel", l10n.Param("title", ch.Title))
 			}
 			changeRows = append(changeRows, core.View{
 				TestID: "first-run-review-change-" + ch.ID,
@@ -2334,7 +2352,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Before: an empty folder",
+						Content: ed.T("firstRun.beforeEmptyFolder"),
 						Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 					},
 				},
@@ -2380,11 +2398,11 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 						Children: []core.Node{
 							core.Text{
-								Content: "Review",
+								Content: ed.T("firstRun.reviewTitle"),
 								Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
 							},
 							core.Text{
-								Content: "first scene",
+								Content: ed.T("firstRun.reviewSubtitle"),
 								Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 							},
 						},
@@ -2456,19 +2474,19 @@ func firstRunReviewTipPopover(cx *core.Scope, p SpecPalette, ed *Editor, tipIdx 
 	showSkip := true
 	switch tipIdx {
 	case 0:
-		stepLabel = "1 of 3"
-		body = "Keep or revert each change here. Nothing is final until you keep it."
-		nextLabel = "Next"
+		stepLabel = ed.T("firstRun.tipStepOf", l10n.Param("current", 1), l10n.Param("total", 3))
+		body = ed.T("firstRun.tip1Body")
+		nextLabel = ed.T("firstRun.tipNext")
 		left, top = 20, 40
 	case 1:
-		stepLabel = "2 of 3"
-		body = "Hold B to see the scene as it was before these changes."
-		nextLabel = "Next"
+		stepLabel = ed.T("firstRun.tipStepOf", l10n.Param("current", 2), l10n.Param("total", 3))
+		body = ed.T("firstRun.tip2Body")
+		nextLabel = ed.T("firstRun.tipNext")
 		left, top = 160, 16
 	default:
-		stepLabel = "3 of 3"
-		body = fmt.Sprintf("Select anything, then press %s to ask the agent about just that.", askShortcut)
-		nextLabel = "Got it"
+		stepLabel = ed.T("firstRun.tipStepOf", l10n.Param("current", 3), l10n.Param("total", 3))
+		body = ed.T("firstRun.tip3Body", l10n.Param("shortcut", askShortcut))
+		nextLabel = ed.T("firstRun.tipGotIt")
 		showSkip = false
 		left, top = 180, 140
 	}
@@ -2477,7 +2495,7 @@ func firstRunReviewTipPopover(cx *core.Scope, p SpecPalette, ed *Editor, tipIdx 
 	if showSkip {
 		footer = append(footer, specPanelButton(p, specPanelButtonSpec{
 			TestID:  "first-run-tip-skip",
-			Text:    "Skip tips",
+			Text:    ed.T("firstRun.skipTips"),
 			Variant: specBtnGhost,
 			Compact: true,
 			Style:   core.Style{BorderWidth: 0},

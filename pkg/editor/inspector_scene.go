@@ -234,7 +234,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 	ambientInput := ui.Input{
 		TestID:      "inspector-scene-ambient-color",
-		Label:       "Ambient Color",
+		Label:       ed.T("inspectorSceneExtra.ambientColor"),
 		Placeholder: "rgba(12, 16, 30, 0.85)",
 		Disabled:    disabled,
 		Value: func() string {
@@ -264,7 +264,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 	}
 
-	ambientClear := removeButton("inspector-scene-ambient-clear", "Clear ambient color", func() bool {
+	ambientClear := removeButton("inspector-scene-ambient-clear", ed.T("inspectorSceneExtra.clearAmbientColor"), func() bool {
 		if disabled() {
 			return true
 		}
@@ -370,7 +370,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				return core.View{
 					Style: core.Style{Gap: 6},
 					Children: []core.Node{
-						fieldRow("Inherits", core.Text{
+						fieldRow(ed.T("inspectorSceneExtra.inherits"), core.Text{
 							TestID: "inspector-scene-inherits",
 							ContentFunc: func() string {
 								_ = rev.Get()
@@ -384,7 +384,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						}),
 						ui.Button{
 							TestID:  "inspector-open-base-scene",
-							Text:    "Open Base Scene",
+							Text:    ed.T("inspectorSceneExtra.openBaseScene"),
 							Size:    ui.SizeSmall,
 							Variant: ui.ButtonSecondary,
 							Disabled: func() bool {
@@ -465,9 +465,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 		}),
 		fieldRow(ed.T("inspector.background"), bgControl),
-		fieldRow("NavMesh", ui.Input{
+		fieldRow(ed.T("inspectorSceneExtra.navMesh"), ui.Input{
 			TestID:      "inspector-scene-navmesh",
-			Label:       "Scene NavMesh Path",
+			Label:       ed.T("inspectorSceneExtra.sceneNavMeshPath"),
 			Placeholder: "levels/level.navmesh.yaml",
 			Disabled:    disabled,
 			Value: func() string {
@@ -482,8 +482,8 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 		}),
 
-		sectionHeader("SCENE LIGHTING"),
-		fieldRow("Ambient", ambientControl),
+		sectionHeader(ed.T("inspectorSceneExtra.section.sceneLighting")),
+		fieldRow(ed.T("inspectorSceneExtra.ambient"), ambientControl),
 
 		sectionHeader(ed.T("inspector.section.camera")),
 		fieldRow("X", ui.NumberInput{

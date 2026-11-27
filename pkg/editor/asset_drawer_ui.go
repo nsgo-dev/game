@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
@@ -147,8 +148,8 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					}
 				},
 				Children: []core.Node{
-					modeBtn("rail-mode-scene", "Scene", LeftRailScene),
-					modeBtn("rail-mode-assets", "Assets", LeftRailAssets),
+					modeBtn("rail-mode-scene", ed.T("assetDrawer.modeScene"), LeftRailScene),
+					modeBtn("rail-mode-assets", ed.T("assetDrawer.modeAssets"), LeftRailAssets),
 				},
 			},
 		},
@@ -237,10 +238,10 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			color core.Color
 		}
 		filters := []filterSpec{
-			{"asset-filter-unused", AssetFilterUnused, "Unused", snap.Counts.Unused, p.TextFaint},
-			{"asset-filter-missing", AssetFilterMissing, "Missing files", snap.Counts.Missing, p.Removed.Fg},
-			{"asset-filter-generated", AssetFilterGenerated, "Generated", snap.Counts.Generated, p.Agent.Fg},
-			{"asset-filter-proposed", AssetFilterProposed, "Proposed", snap.Counts.Proposed, p.Added.Fg},
+			{"asset-filter-unused", AssetFilterUnused, ed.T("assetDrawer.filterUnused"), snap.Counts.Unused, p.TextFaint},
+			{"asset-filter-missing", AssetFilterMissing, ed.T("assetDrawer.filterMissing"), snap.Counts.Missing, p.Removed.Fg},
+			{"asset-filter-generated", AssetFilterGenerated, ed.T("assetDrawer.filterGenerated"), snap.Counts.Generated, p.Agent.Fg},
+			{"asset-filter-proposed", AssetFilterProposed, ed.T("assetDrawer.filterProposed"), snap.Counts.Proposed, p.Added.Fg},
 		}
 		filterRows := make([]core.Node, 0, len(filters))
 		for _, fl := range filters {
@@ -308,7 +309,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Style: core.Style{FlexGrow: 1, Gap: 4},
 			Children: []core.Node{
 				core.Text{
-					Content: "FOLDERS",
+					Content: ed.T("assetDrawer.sectionFolders"),
 					Style: core.Style{
 						Padding:    core.Edges{Top: 12, Left: 14, Right: 14, Bottom: 4},
 						FontSize:   11,
@@ -321,7 +322,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Children: folderRows,
 				},
 				core.Text{
-					Content: "SHOW ONLY",
+					Content: ed.T("assetDrawer.sectionShowOnly"),
 					Style: core.Style{
 						Padding:    core.Edges{Top: 16, Left: 14, Right: 14, Bottom: 4},
 						FontSize:   11,
@@ -340,7 +341,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	return core.View{
 		TestID: "assets-left-rail",
 		Role:   core.RoleRegion,
-		Label:  "Asset folders and filters",
+		Label:  ed.T("assetDrawer.leftRailLabel"),
 		OnFileDrop: func(uris []string) {
 			_, err := ed.ImportAssetFiles(uris)
 			ed.report(err)
@@ -389,7 +390,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							},
 						},
 						core.Text{
-							Content: "Drop files anywhere to import",
+							Content: ed.T("assetDrawer.dropHint"),
 							Style: core.Style{
 								FlexGrow:   1,
 								FlexShrink: 1,
@@ -473,7 +474,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "ASSETS",
+					Content: ed.T("assetDrawer.sectionAssets"),
 					Style: core.Style{
 						FontSize:   11,
 						FontWeight: 600,
@@ -493,11 +494,11 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						FlexShrink:   0,
 					},
 					Children: []core.Node{
-						kindBtn("asset-kind-all", "All", AssetKindAll),
-						kindBtn("asset-kind-sprites", "Sprites", AssetKindSprites),
-						kindBtn("asset-kind-tiles", "Tiles", AssetKindTiles),
-						kindBtn("asset-kind-audio", "Audio", AssetKindAudio),
-						kindBtn("asset-kind-fonts", "Fonts", AssetKindFonts),
+						kindBtn("asset-kind-all", ed.T("assetDrawer.kindAll"), AssetKindAll),
+						kindBtn("asset-kind-sprites", ed.T("assetDrawer.kindSprites"), AssetKindSprites),
+						kindBtn("asset-kind-tiles", ed.T("assetDrawer.kindTiles"), AssetKindTiles),
+						kindBtn("asset-kind-audio", ed.T("assetDrawer.kindAudio"), AssetKindAudio),
+						kindBtn("asset-kind-fonts", ed.T("assetDrawer.kindFonts"), AssetKindFonts),
 					},
 				},
 				core.View{
@@ -527,8 +528,8 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						},
 						ui.Input{
 							TestID:      "asset-drawer-search",
-							Label:       "Filter assets by name or path",
-							Placeholder: "Name or path",
+							Label:       ed.T("assetDrawer.searchLabel"),
+							Placeholder: ed.T("assetDrawer.searchPlaceholder"),
 							Style: core.Style{
 								FlexGrow:    1,
 								FlexShrink:  1,
@@ -557,9 +558,9 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					LabelFunc: func() string {
 						_ = rev.Get()
 						if ed.AssetDrawerSort() == AssetSortRecent {
-							return "Sort: recently changed"
+							return ed.T("assetDrawer.sortRecent")
 						}
-						return "Sort: name"
+						return ed.T("assetDrawer.sortName")
 					},
 					Color: func() core.Color { return p.Raised },
 					Tint:  func() core.Color { return p.TextMuted },
@@ -582,8 +583,8 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				ui.Button{
 					TestID:  "asset-drawer-import",
 					Icon:    lucide.Upload,
-					Text:    "Import",
-					Label:   "Import asset files",
+					Text:    ed.T("assetDrawer.import"),
+					Label:   ed.T("assetDrawer.importLabel"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.LineRaised },
@@ -606,8 +607,8 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				ui.Button{
 					TestID:  "asset-drawer-generate",
 					Icon:    lucide.Sparkles,
-					Text:    "Generate",
-					Label:   "Generate asset with AI",
+					Text:    ed.T("assetDrawer.generate"),
+					Label:   ed.T("assetDrawer.generateLabel"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.LineRaised },
@@ -674,13 +675,13 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	footer := core.Dynamic(func(cx *core.Scope) core.Node {
 		p := ed.SpecPalette(cx)
 		snap := snapMemo.Get().snap
-		countText := fmt.Sprintf("%d assets · %d shown", len(snap.AllItems), len(snap.VisibleItems))
+		countText := ed.T("assetDrawer.footerCount",
+			l10n.Param("total", len(snap.AllItems)),
+			l10n.Param("shown", len(snap.VisibleItems)),
+		)
 		rightNodes := []core.Node{}
 		if len(snap.MissingNames) > 0 {
-			probText := fmt.Sprintf("1 problem · %s missing", snap.MissingNames[0])
-			if len(snap.MissingNames) > 1 {
-				probText = fmt.Sprintf("%d problems · %s missing", len(snap.MissingNames), snap.MissingNames[0])
-			}
+			probText := ed.Plural("assetDrawer.footerProblem", len(snap.MissingNames), l10n.Param("name", snap.MissingNames[0]))
 			rightNodes = append(rightNodes, core.View{
 				TestID: "asset-drawer-footer-problem",
 				Style: core.Style{
@@ -705,7 +706,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			})
 		}
 		rightNodes = append(rightNodes, core.Text{
-			Content: "Re-imports on save",
+			Content: ed.T("assetDrawer.footerReimportsOnSave"),
 			Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 		})
 		return core.View{
@@ -743,7 +744,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	return core.View{
 		TestID: "asset-drawer",
 		Role:   core.RoleRegion,
-		Label:  "Asset drawer",
+		Label:  ed.T("assetDrawer.drawerLabel"),
 		OnFileDrop: func(uris []string) {
 			_, err := ed.ImportAssetFiles(uris)
 			ed.report(err)
@@ -772,10 +773,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
-	title := fmt.Sprintf("Import %d proposed file", count)
-	if count != 1 {
-		title = fmt.Sprintf("Import %d proposed files", count)
-	}
+	title := ed.Plural("assetDrawer.proposedBannerTitle", count)
 	return core.View{
 		TestID: "asset-proposed-banner",
 		Style: core.Style{
@@ -801,7 +799,7 @@ func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
 						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
-						Content: "· review import settings before keeping",
+						Content: ed.T("assetDrawer.proposedBannerSubtitle"),
 						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
@@ -811,7 +809,7 @@ func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "asset-proposed-keep",
-						Text:    "Keep",
+						Text:    ed.T("assetDrawer.keep"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Color:   func() core.Color { return p.Accent.Fg },
@@ -827,7 +825,7 @@ func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
 					},
 					ui.Button{
 						TestID:  "asset-proposed-revert",
-						Text:    "Revert",
+						Text:    ed.T("assetDrawer.revert"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Color:   func() core.Color { return p.LineRaised },
@@ -853,10 +851,10 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 			strings.Contains(strings.ToLower(snap.EmptyFolder), "music") ||
 			strings.Contains(strings.ToLower(snap.EmptyFolder), "sfx")
 		icon := lucide.FolderOpen()
-		hint := fmt.Sprintf("%s is empty · Drop files here, or ask the agent.", snap.EmptyFolder)
+		hint := ed.T("assetDrawer.emptyFolderHint", l10n.Param("folder", snap.EmptyFolder))
 		if isAudioFolder {
 			icon = lucide.Music()
-			hint = fmt.Sprintf("%s is empty · Drop .ogg or .wav files here, or ask the agent.", snap.EmptyFolder)
+			hint = ed.T("assetDrawer.emptyAudioFolderHint", l10n.Param("folder", snap.EmptyFolder))
 		}
 		return core.View{
 			TestID: "asset-drawer-empty-folder",
@@ -878,7 +876,7 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 					Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), Color: p.TextFaint},
 				},
 				core.Text{
-					Content: snap.EmptyFolder + " is empty",
+					Content: ed.T("assetDrawer.emptyFolderTitle", l10n.Param("folder", snap.EmptyFolder)),
 					Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 				},
 				core.Text{
@@ -891,7 +889,7 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 					Children: []core.Node{
 						ui.Button{
 							TestID:  "asset-empty-import",
-							Text:    "Import",
+							Text:    ed.T("assetDrawer.import"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
 							Color:   func() core.Color { return p.LineRaised },
@@ -908,7 +906,7 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 						ui.Button{
 							TestID:  "asset-empty-ask-agent",
 							Icon:    lucide.Sparkles,
-							Text:    "Ask the agent",
+							Text:    ed.T("assetDrawer.askAgent"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
 							Color:   func() core.Color { return p.LineRaised },
@@ -920,7 +918,7 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 							},
 							Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 							OnPress: func() {
-								ed.AskAgentAboutAsset(snap.EmptyFolder, "Create assets for "+snap.EmptyFolder)
+								ed.AskAgentAboutAsset(snap.EmptyFolder, ed.T("assetDrawer.askAgentCreateAssets", l10n.Param("folder", snap.EmptyFolder)))
 							},
 						},
 					},
@@ -949,17 +947,17 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 				Style: core.Style{Width: core.Pt(24), Height: core.Pt(24), Color: p.TextFaint},
 			},
 			core.Text{
-				Content: "Nothing matches",
+				Content: ed.T("assetDrawer.emptyMatchTitle"),
 				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
 				TestID:  "asset-drawer-empty-hint",
-				Content: "Clear a filter to see more assets.",
+				Content: ed.T("assetDrawer.emptyMatchHint"),
 				Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 			},
 			ui.Button{
 				TestID:  "asset-drawer-clear-filters",
-				Text:    "Clear filters",
+				Text:    ed.T("assetDrawer.clearFilters"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return p.LineRaised },
@@ -1010,14 +1008,14 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool, p SpecPalett
 	var badgeNode core.Node
 	if it.Badge != "" {
 		bc := p.TextMuted
-		switch it.Badge {
-		case "Missing":
+		switch {
+		case it.Missing:
 			bc = p.Removed.Fg
-		case "new":
+		case it.Proposed:
 			bc = p.Added.Fg
-		case "Generated":
+		case it.Generated:
 			bc = p.Agent.Fg
-		case "Not used":
+		case it.Unused:
 			bc = p.TextMuted
 		}
 		badgeNode = core.View{
@@ -1211,7 +1209,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				Style: core.Style{FlexGrow: 1, Padding: core.All(16), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 				Children: []core.Node{
 					core.Text{
-						Content: "Select an asset to inspect its preview and references.",
+						Content: ed.T("assetDrawer.inspectorEmpty"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 				},
@@ -1300,10 +1298,10 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			if hasClips || isAudio {
 				playingNow := (hasClips && ed.AssetPreviewPlaying()) || audioPlaying
 				playIcon := lucide.Play
-				playLabel := "Play"
+				playLabel := ed.T("assetDrawer.play")
 				if playingNow {
 					playIcon = lucide.Pause
-					playLabel = "Pause"
+					playLabel = ed.T("assetDrawer.pause")
 				}
 				previewChildren = append(previewChildren, core.View{
 					Style: core.Style{
@@ -1372,7 +1370,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					clipChips = append(clipChips, core.View{
 						TestID: "asset-clip-" + sanitizeAssetTestID(cName),
 						Role:   core.RoleButton,
-						Label:  "Clip " + cName,
+						Label:  ed.T("assetDrawer.clipLabel", l10n.Param("name", cName)),
 						Style: core.Style{
 							Height:         core.Pt(26),
 							Padding:        core.Symmetric(0, 10),
@@ -1398,7 +1396,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				frameButtons = append(frameButtons, ui.Button{
 					TestID:  "asset-frame-prev",
 					Icon:    lucide.ChevronLeft,
-					Label:   "Previous frame",
+					Label:   ed.T("assetDrawer.prevFrame"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return cur.Raised },
@@ -1423,7 +1421,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					frameButtons = append(frameButtons, core.View{
 						TestID: fmt.Sprintf("asset-frame-%d", idx),
 						Role:   core.RoleButton,
-						Label:  fmt.Sprintf("Frame %d", idx+1),
+						Label:  ed.T("assetDrawer.frameLabel", l10n.Param("num", idx+1)),
 						Style: core.Style{
 							Width:        core.Pt(36),
 							Height:       core.Pt(40),
@@ -1444,7 +1442,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				frameButtons = append(frameButtons, ui.Button{
 					TestID:  "asset-frame-next",
 					Icon:    lucide.ChevronRight,
-					Label:   "Next frame",
+					Label:   ed.T("assetDrawer.nextFrame"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return cur.Raised },
@@ -1497,11 +1495,14 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 		// Missing asset alert card with Replace with a file and Ask the agent.
 		if sel.Missing {
-			refSummary := "project files"
+			refSummary := ed.T("assetDrawer.missingRefProjectFiles")
 			if len(sel.UsedBy) == 1 {
 				refSummary = sel.UsedBy[0].File
 			} else if len(sel.UsedBy) > 1 {
-				refSummary = fmt.Sprintf("%s and %d other file(s)", sel.UsedBy[0].File, len(sel.UsedBy)-1)
+				refSummary = ed.T("assetDrawer.missingRefMultiple",
+					l10n.Param("file", sel.UsedBy[0].File),
+					l10n.Param("count", len(sel.UsedBy)-1),
+				)
 			}
 			bodyNodes = append(bodyNodes, core.View{
 				TestID: "asset-missing-card",
@@ -1515,15 +1516,18 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: fmt.Sprintf("%s is not on disk. %s still reference it; the build fails until it is back or replaced.", sel.Name, refSummary),
-						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
+						Content: ed.T("assetDrawer.missingCardDesc",
+							l10n.Param("name", sel.Name),
+							l10n.Param("refs", refSummary),
+						),
+						Style: core.Style{FontSize: 12, Color: p.TextSecondary},
 					},
 					core.View{
 						Style: core.Style{Direction: core.Row, Gap: 8},
 						Children: []core.Node{
 							ui.Button{
 								TestID:  "asset-missing-replace",
-								Text:    "Replace with a file",
+								Text:    ed.T("assetDrawer.replaceWithFile"),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.LineRaised },
@@ -1539,7 +1543,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							},
 							ui.Button{
 								TestID:  "asset-missing-ask-agent",
-								Text:    "Ask the agent",
+								Text:    ed.T("assetDrawer.askAgent"),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.Panel },
@@ -1550,7 +1554,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								},
 								Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 								OnPress: func() {
-									ed.AskAgentAboutAsset(sel.Path, "Find or recreate missing asset "+sel.Path)
+									ed.AskAgentAboutAsset(sel.Path, ed.T("assetDrawer.askAgentRecreateMissing", l10n.Param("path", sel.Path)))
 								},
 							},
 						},
@@ -1562,7 +1566,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		// Compact IMPORT settings summary for existing assets in a project (cached by path, filesRev, importRev).
 		if !sel.Missing && ed.Project != nil {
 			if info, ok := ed.cachedAssetImportSummary(sel.Path); ok {
-				bodyNodes = append(bodyNodes, assetImportSummarySection(info, p))
+				bodyNodes = append(bodyNodes, assetImportSummarySection(ed, info, p))
 			}
 		}
 
@@ -1570,7 +1574,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		usedNodes := []core.Node{
 			core.Text{
 				TestID:  "asset-used-by-header",
-				Content: fmt.Sprintf("USED BY · %d", len(sel.UsedBy)),
+				Content: ed.T("assetDrawer.usedByHeader", l10n.Param("count", len(sel.UsedBy))),
 				Style: core.Style{
 					FontSize:   11,
 					FontWeight: 600,
@@ -1582,7 +1586,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		if len(sel.UsedBy) == 0 {
 			usedNodes = append(usedNodes, core.Text{
 				TestID:  "asset-used-by-empty",
-				Content: "Nothing references it. The agent can propose deleting it; deleting files always asks you.",
+				Content: ed.T("assetDrawer.usedByEmpty"),
 				Style: core.Style{
 					Padding:  core.Symmetric(4, 8),
 					FontSize: 12,
@@ -1691,7 +1695,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "Re-imports by itself when the file changes on disk",
+							Content: ed.T("assetDrawer.inspectorFooter"),
 							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 					},
@@ -1703,7 +1707,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	return core.View{
 		TestID: "asset-inspector",
 		Role:   core.RoleRegion,
-		Label:  "Selected asset inspector",
+		Label:  ed.T("assetDrawer.inspectorLabel"),
 		StyleFunc: func() core.Style {
 			p := ed.SpecPalette(cx)
 			return core.Style{
@@ -1719,7 +1723,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-func assetImportSummarySection(info AssetImportInfo, p SpecPalette) core.Node {
+func assetImportSummarySection(ed *Editor, info AssetImportInfo, p SpecPalette) core.Node {
 	row := func(label, val string) core.Node {
 		return core.View{
 			Style: core.Style{
@@ -1755,7 +1759,7 @@ func assetImportSummarySection(info AssetImportInfo, p SpecPalette) core.Node {
 				Padding:        core.Edges{Bottom: 4},
 			},
 			Children: []core.Node{
-				core.Text{Content: "IMPORT", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+				core.Text{Content: ed.T("assetDrawer.sectionImport"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				core.Text{Content: info.SidecarPath, MaxLines: 1, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 			},
 		},
@@ -1764,18 +1768,18 @@ func assetImportSummarySection(info AssetImportInfo, p SpecPalette) core.Node {
 	case AssetImportImage:
 		filter, _ := info.EffectiveImageFilter()
 		format, _ := info.EffectiveImageFormat()
-		rows = append(rows, row("Filter", filter), row("Format", format))
+		rows = append(rows, row(ed.T("assetDrawer.importFilter"), filter), row(ed.T("assetDrawer.importFormat"), format))
 		if info.AtlasTarget != nil {
-			rows = append(rows, row("Atlas", info.AtlasTarget.Name))
+			rows = append(rows, row(ed.T("assetDrawer.importAtlas"), info.AtlasTarget.Name))
 		}
 	case AssetImportAudio:
 		format, _ := info.EffectiveAudioFormat()
 		rate, _ := info.EffectiveAudioRate()
-		rows = append(rows, row("Format", format), row("Sample rate", fmt.Sprintf("%d Hz", rate)))
+		rows = append(rows, row(ed.T("assetDrawer.importFormat"), format), row(ed.T("assetDrawer.importSampleRate"), fmt.Sprintf("%d Hz", rate)))
 	case AssetImportFont:
 		size, _ := info.EffectiveFontSize()
 		pad, _ := info.EffectiveFontPadding()
-		rows = append(rows, row("Size", fmt.Sprintf("%d px", size)), row("Padding", fmt.Sprintf("%d px", pad)))
+		rows = append(rows, row(ed.T("assetDrawer.importSize"), fmt.Sprintf("%d px", size)), row(ed.T("assetDrawer.importPadding"), fmt.Sprintf("%d px", pad)))
 	}
 	return core.View{
 		TestID:   "asset-import-summary",
@@ -1889,8 +1893,11 @@ func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			vw, vh := ed.ViewportSize()
 			nodes = append(nodes,
 				core.Text{
-					TestID:  "assets-viewport-camera-label",
-					Content: fmt.Sprintf("Camera · %.0f × %.0f", vw, vh),
+					TestID: "assets-viewport-camera-label",
+					Content: ed.T("assetDrawer.viewportCamera",
+						l10n.Param("w", fmt.Sprintf("%.0f", vw)),
+						l10n.Param("h", fmt.Sprintf("%.0f", vh)),
+					),
 					Style: core.Style{
 						Position: core.Absolute,
 						Left:     core.Pt(16),
@@ -1901,7 +1908,7 @@ func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 				},
 				core.Text{
 					TestID:  "assets-viewport-drop-hint",
-					Content: "Drop on an object to swap its sprite · Esc cancels",
+					Content: ed.T("assetDrawer.viewportDropHint"),
 					Style: core.Style{
 						Position: core.Absolute,
 						Right:    core.Pt(16),

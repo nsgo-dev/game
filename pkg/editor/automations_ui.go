@@ -154,7 +154,8 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 				if weeklyRuns > 0 {
 					runsColor = p.Agent.Fg
 				}
-				whenDetail := automationTriggerDetailText(r.Trigger)
+				whenDetail := localizedAutomationWhenDetail(ed, automationTriggerDetailText(r.Trigger))
+				displayName := localizedAutomationName(ed, r)
 				whenChildren := []core.Node{
 					core.Text{
 						Content: ed.T("settings.automations.whenLabel"),
@@ -167,7 +168,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 					},
 					core.Text{
 						TestID:  "automation-when-" + r.ID,
-						Content: r.DisplayName(),
+						Content: displayName,
 						Style: core.Style{
 							FontSize:   12.5,
 							FontWeight: 500,
@@ -233,7 +234,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 								},
 								core.Text{
 									TestID:  "automation-then-" + r.ID,
-									Content: r.Instruction,
+									Content: localizedAutomationInstruction(ed, r),
 									Style: core.Style{
 										FontSize: 12.5,
 										Color:    p.TextPrimary,
@@ -251,7 +252,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 						},
 						SpecSwitch{
 							TestID: "automation-switch-" + r.ID,
-							Label:  r.DisplayName(),
+							Label:  displayName,
 							Checked: func() bool {
 								_ = rev.Get()
 								for _, cur := range ed.Automations().Automations {
@@ -675,4 +676,50 @@ func automationAgentPageNote(ed *Editor, file *AutomationsFile) string {
 		)
 	}
 	return ed.T("settings.automations.agentNoteDefault")
+}
+
+func localizedAutomationName(ed *Editor, r AutomationRule) string {
+	name := r.DisplayName()
+	switch name {
+	case "A level file changes":
+		return ed.T("settings.automations.default.levelCheckName")
+	case "You keep a review":
+		return ed.T("settings.automations.default.reviewBriefName")
+	case "A new prefab is added":
+		return ed.T("settings.automations.default.newPrefabName")
+	case "Before export":
+		return ed.T("settings.automations.default.beforeExportName")
+	case "Every night":
+		return ed.T("settings.automations.default.nightlyBalanceName")
+	default:
+		return name
+	}
+}
+
+func localizedAutomationInstruction(ed *Editor, r AutomationRule) string {
+	switch r.Instruction {
+	case "runs game check and 5 playtests, reports only problems":
+		return ed.T("settings.automations.default.levelCheckInstruction")
+	case "updates the brief's open questions if the change answers one":
+		return ed.T("settings.automations.default.reviewBriefInstruction")
+	case "writes its example scene and a test":
+		return ed.T("settings.automations.default.newPrefabInstruction")
+	case "checks frame time and memory on a low-end phone profile":
+		return ed.T("settings.automations.default.beforeExportInstruction")
+	case "plays all floors 50 times and leaves a balance report":
+		return ed.T("settings.automations.default.nightlyBalanceInstruction")
+	default:
+		return r.Instruction
+	}
+}
+
+func localizedAutomationWhenDetail(ed *Editor, detail string) string {
+	switch detail {
+	case "prefab":
+		return ed.T("settings.automations.fileKindPrefab")
+	case "scene":
+		return ed.T("settings.automations.fileKindScene")
+	default:
+		return detail
+	}
 }

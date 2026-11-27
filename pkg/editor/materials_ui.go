@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -216,7 +217,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		}
 		well := ui.ColorWell{
 			TestID: testPrefix + "-well",
-			Label:  label + " Picker",
+			Label:  ed.T("materialExtra.colorPickerLabel", l10n.Param("label", label)),
 			Value: func() core.Color {
 				_ = rev.Get()
 				if raw := getStr(); raw != "" {
@@ -283,7 +284,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				}
 			},
 		}
-		clearBtn := removeButton(testPrefix+"-clear", "Clear "+strings.ToLower(label), func() bool {
+		clearBtn := removeButton(testPrefix+"-clear", ed.T("materialExtra.clearColorLabel", l10n.Param("label", strings.ToLower(label))), func() bool {
 			return disabled() || getStr() == ""
 		}, func() {
 			ed.report(setStr(""))
@@ -339,7 +340,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Children: []core.Node{
 						ui.NumberInput{
 							TestID:   testPrefix,
-							Label:    label + " value",
+							Label:    ed.T("materialExtra.valueLabel", l10n.Param("label", label)),
 							Min:      0,
 							Max:      1,
 							Step:     0.05,
@@ -364,8 +365,8 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	var textures []string
 	textureSelect := ui.Select[string]{
 		TestID:      "material-texture",
-		Label:       "Texture",
-		Placeholder: "None",
+		Label:       ed.T("materialExtra.texture"),
+		Placeholder: ed.T("materialExtra.none"),
 		Searchable:  true,
 		Disabled:    disabled,
 		Style:       core.Style{Width: core.Pct(100)},
@@ -399,7 +400,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	}
 	blendSelect := ui.Select[string]{
 		TestID:     "material-blend",
-		Label:      "Blend Mode",
+		Label:      ed.T("materialExtra.blendMode"),
 		Searchable: true,
 		Disabled:   disabled,
 		Style:      core.Style{Width: core.Pct(100)},
@@ -554,7 +555,7 @@ func drawMaterialPreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	if shape != MaterialPreviewSprite {
 		img, err := ed.MaterialPreviewImage(MaterialPreviewSize)
 		if err != nil {
-			d.SetFillColor(spec.Removed.Fg).FillText("Preview error", 8, 20, core.Font{Size: 11})
+			d.SetFillColor(spec.Removed.Fg).FillText(ed.T("materialExtra.previewError"), 8, 20, core.Font{Size: 11})
 			return
 		}
 		if img != nil {

@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -353,7 +354,10 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									},
 									LabelFunc: func() string {
 										_ = rev.Get()
-										return fmt.Sprintf("%s (%d)", ed.T("overlays.button"), ed.ActiveViewportOverlayCount())
+										return ed.T("overlaysExtra.buttonLabel",
+											l10n.Param("label", ed.T("overlays.button")),
+											l10n.Param("count", ed.ActiveViewportOverlayCount()),
+										)
 									},
 									Size:     ui.SizeSmall,
 									Variant:  ui.ButtonGhost,

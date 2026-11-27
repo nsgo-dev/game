@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -35,7 +36,28 @@ func specYouOnlyPill(p SpecPalette, testID, text string) core.Node {
 	}
 }
 
+func (e *Editor) localizedDecisionName(d PermissionDecision) string {
+	switch d {
+	case PermissionAllow:
+		return e.T("permissions.allow")
+	case PermissionAsk:
+		return e.T("permissions.ask")
+	case PermissionDeny:
+		return e.T("permissions.deny")
+	default:
+		return d.DisplayName()
+	}
+}
+
 func specDecisionBadge(p SpecPalette, dec PermissionDecision, muted bool) core.Node {
+	return specDecisionBadgeWithText(p, dec, dec.DisplayName(), muted)
+}
+
+func specDecisionBadgeLocalized(p SpecPalette, ed *Editor, dec PermissionDecision, muted bool) core.Node {
+	return specDecisionBadgeWithText(p, dec, ed.localizedDecisionName(dec), muted)
+}
+
+func specDecisionBadgeWithText(p SpecPalette, dec PermissionDecision, text string, muted bool) core.Node {
 	bg := p.Raised
 	fg := p.TextMuted
 	border := p.LineRaised
@@ -69,7 +91,7 @@ func specDecisionBadge(p SpecPalette, dec PermissionDecision, muted bool) core.N
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: dec.DisplayName(),
+				Content: text,
 				Style: core.Style{
 					FontSize:   11.5,
 					FontWeight: 600,
@@ -122,7 +144,7 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 
 		desc := ed.T("permissions.draft.descNoRequest")
 		if draft.Request != "" {
-			desc = fmt.Sprintf("From your request “%s”. Tick each rule you agree with. ⌘↵, Keep all and automations can't apply this, and no profile lets it through on its own.", draft.Request)
+			desc = ed.T("permissions.draft.descWithRequest", l10n.Param("request", draft.Request))
 		}
 
 		// Rule table rows.
@@ -136,10 +158,10 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			},
 			Children: []core.Node{
 				core.View{Style: core.Style{Width: core.Pt(24), FlexShrink: 0}},
-				core.Text{Content: "RULE", Style: core.Style{FlexGrow: 1, FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: p.TextFaint}},
-				core.Text{Content: "NOW", Style: core.Style{Width: core.Pt(68), FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: p.TextFaint}},
+				core.Text{Content: ed.T("permissions.draft.colRule"), Style: core.Style{FlexGrow: 1, FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: p.TextFaint}},
+				core.Text{Content: ed.T("permissions.draft.colNow"), Style: core.Style{Width: core.Pt(68), FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: p.TextFaint}},
 				core.View{Style: core.Style{Width: core.Pt(18), FlexShrink: 0}},
-				core.Text{Content: "DRAFT", Style: core.Style{Width: core.Pt(68), FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: p.TextFaint}},
+				core.Text{Content: ed.T("permissions.draft.colDraft"), Style: core.Style{Width: core.Pt(68), FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: p.TextFaint}},
 			},
 		})
 
@@ -181,9 +203,14 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Style: core.Style{Width: core.Pt(24), AlignItems: core.AlignCenter, FlexShrink: 0},
 						Children: []core.Node{
 							core.View{
-								TestID:    fmt.Sprintf("perm-draft-tick-%d", idx),
-								Role:      core.RoleCheckbox,
-								Label:     fmt.Sprintf("Apply %s %s: %s to %s", rule.Action.DisplayName(), FormatPermissionPatterns(rule.Action, rule.Patterns), rule.CurrentDecision.DisplayName(), rule.DraftDecision.DisplayName()),
+								TestID: fmt.Sprintf("perm-draft-tick-%d", idx),
+								Role:   core.RoleCheckbox,
+								Label: ed.T("permissions.draft.tickLabel",
+									l10n.Param("action", ed.localizedActionName(rule.Action)),
+									l10n.Param("patterns", FormatPermissionPatterns(rule.Action, rule.Patterns)),
+									l10n.Param("current", ed.localizedDecisionName(rule.CurrentDecision)),
+									l10n.Param("draft", ed.localizedDecisionName(rule.DraftDecision)),
+								),
 								Checked:   func() bool { return rule.Ticked },
 								Focusable: func() bool { return true },
 								Style: core.Style{
@@ -208,7 +235,7 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
 						Children: []core.Node{
 							core.Text{
-								Content: rule.Action.DisplayName(),
+								Content: ed.localizedActionName(rule.Action),
 								Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 							},
 							core.Text{
@@ -217,12 +244,12 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							},
 						},
 					},
-					specDecisionBadge(p, rule.CurrentDecision, false),
+					specDecisionBadgeLocalized(p, ed, rule.CurrentDecision, false),
 					core.Text{
 						Content: "→",
 						Style:   core.Style{Width: core.Pt(18), TextAlign: core.TextAlignCenter, FontSize: 12, Color: p.TextFaint, FlexShrink: 0},
 					},
-					specDecisionBadge(p, rule.DraftDecision, !rule.Ticked),
+					specDecisionBadgeLocalized(p, ed, rule.DraftDecision, !rule.Ticked),
 				},
 			})
 		}
@@ -230,7 +257,7 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		// YAML diff preview box.
 		yamlNodes := []core.Node{
 			core.Text{
-				Content: PermissionsFileName + " · if applied",
+				Content: ed.T("permissions.draft.yamlHeader", l10n.Param("file", PermissionsFileName)),
 				Style:   core.Style{FontFamily: core.FontMonospace, FontSize: 11.5, Color: p.TextFaint},
 			},
 		}
@@ -268,10 +295,8 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		}
 
 		applyLabel := ed.T("permissions.draft.apply")
-		if ticked == 1 {
-			applyLabel = "Apply 1 rule"
-		} else if ticked > 1 {
-			applyLabel = fmt.Sprintf("Apply %d rules", ticked)
+		if ticked > 0 {
+			applyLabel = ed.Plural("permissions.draft.applyCount", ticked)
 		}
 		applyBg := p.LineRaised
 		applyFg := p.TextFaint

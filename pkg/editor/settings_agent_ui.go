@@ -37,16 +37,17 @@ func settingsModelsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 
 	routeOptions := func() []ui.Option[string] {
 		_ = rev.Get()
-		primary := "Claude Code · default"
+		primaryName := "Claude Code"
 		if c, ok := ed.AgentPrimaryClient(); ok && c.DisplayName != "" {
-			primary = c.DisplayName + " · default"
+			primaryName = c.DisplayName
 		}
+		primary := primaryName + " · default"
 		provider := ed.BuiltInAgentProvider()
 		opts := []ui.Option[string]{
-			{Value: primary, Label: primary},
-			{Value: provider + " · fast", Label: provider + " · fast"},
-			{Value: provider + " · default", Label: provider + " · default"},
-			{Value: "Not connected", Label: "Not connected"},
+			{Value: primary, Label: ed.T("settings.models.routeDefault", l10n.Param("name", primaryName))},
+			{Value: provider + " · fast", Label: ed.T("settings.models.routeFast", l10n.Param("name", provider))},
+			{Value: provider + " · default", Label: ed.T("settings.models.routeDefault", l10n.Param("name", provider))},
+			{Value: "Not connected", Label: ed.T("settings.models.notConnected")},
 		}
 		seen := make(map[string]bool, len(opts)+4)
 		for _, o := range opts {
@@ -162,7 +163,7 @@ func settingsModelsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						}
 					}
 					if len(detected) > 0 {
-						return fmt.Sprintf("Detected on this computer: %s · ready to connect", strings.Join(detected, ", "))
+						return ed.T("settings.models.localDetected", l10n.Param("agents", strings.Join(detected, ", ")))
 					}
 					return ed.T("settings.models.localIdle")
 				},
@@ -655,7 +656,7 @@ func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 									},
 								},
 								core.Text{
-									Content: t.ShortDescription(),
+									Content: localizedAgentToolDesc(ed, t),
 									Style: core.Style{
 										FontSize: 11.5,
 										Color:    p.TextFaint,
@@ -717,7 +718,7 @@ func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
 					Children: []core.Node{
 						core.Text{
-							Content: srv.DisplayTitle(),
+							Content: localizedMCPServerTitle(ed, srv),
 							Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 						},
 						core.Text{
@@ -729,13 +730,13 @@ func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 			}
 			if srv.Description != "" {
 				rowChildren = append(rowChildren, core.Text{
-					Content: srv.Description,
+					Content: localizedMCPServerDesc(ed, srv),
 					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexShrink: 1},
 				})
 			}
 			rowChildren = append(rowChildren, ui.Switch{
 				TestID: "settings-mcp-server-switch-" + srv.Name,
-				Label:  srv.DisplayTitle(),
+				Label:  localizedMCPServerTitle(ed, srv),
 				Size:   ui.SizeSmall,
 				Checked: func() bool {
 					_ = rev.Get()
@@ -755,7 +756,7 @@ func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 				},
 			})
 			if srv.Name != DefaultRunningGameMCPServerName {
-				rowChildren = append(rowChildren, settingsSpecButton(p, "settings-mcp-server-remove-"+srv.Name, ed.T("settings.tools.removeServer"), ed.T("settings.tools.removeServer")+" "+srv.Name, false, nil, func() {
+				rowChildren = append(rowChildren, settingsSpecButton(p, "settings-mcp-server-remove-"+srv.Name, ed.T("settings.tools.removeServer"), ed.T("settings.tools.removeServerNamed", l10n.Param("name", srv.Name)), false, nil, func() {
 					if err := ed.RemoveAgentMCPServer(srv.Name); err != nil {
 						srvErr.Set(err.Error())
 						return
@@ -1320,4 +1321,41 @@ func settingsUsagePageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 			},
 		},
 	}
+}
+
+func localizedAgentToolDesc(ed *Editor, t AgentToolInfo) string {
+	desc := t.ShortDescription()
+	switch desc {
+	case "Run game check on the project":
+		return ed.T("settings.tools.desc.gameCheck")
+	case "Delete files":
+		return ed.T("settings.tools.desc.deleteFiles")
+	case "Headless runs with replays":
+		return ed.T("settings.tools.desc.gamePlaytest")
+	case "Add, move and change objects; reviewable":
+		return ed.T("settings.tools.desc.sceneEdit")
+	case "Read any scene, prefab or data file":
+		return ed.T("settings.tools.desc.sceneRead")
+	case "What you have selected":
+		return ed.T("settings.tools.desc.selectionGet")
+	case "A picture of the viewport":
+		return ed.T("settings.tools.desc.viewportImage")
+	default:
+		return desc
+	}
+}
+
+func localizedMCPServerTitle(ed *Editor, srv AgentMCPServer) string {
+	title := srv.DisplayTitle()
+	if title == "Running game · nsgo dev" {
+		return ed.T("settings.tools.runningGameTitle")
+	}
+	return title
+}
+
+func localizedMCPServerDesc(ed *Editor, srv AgentMCPServer) string {
+	if srv.Description == "inspect and drive the live game" {
+		return ed.T("settings.tools.runningGameDesc")
+	}
+	return srv.Description
 }

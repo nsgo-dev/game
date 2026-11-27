@@ -79,12 +79,12 @@ func (e *Editor) AddSceneRailObject(kind string) (string, error) {
 	obj := sceneformat.ObjectDoc{X: px, Y: py}
 	switch kind {
 	case "trigger":
-		obj.Name = "Trigger"
+		obj.Name = e.T("sceneTreeExtra.defaultTriggerName")
 		obj.Components = map[string]any{
 			"trigger": map[string]any{},
 		}
 	case "light":
-		obj.Name = "Light"
+		obj.Name = e.T("sceneTreeExtra.defaultLightName")
 		if e.ViewMode == ViewMode3D {
 			obj.Light = &sceneformat.LightDoc{
 				Kind:  sceneformat.LightPoint,
@@ -99,7 +99,7 @@ func (e *Editor) AddSceneRailObject(kind string) (string, error) {
 			}
 		}
 	default:
-		obj.Name = "Object"
+		obj.Name = e.T("sceneTreeExtra.defaultObjectName")
 	}
 	id, err := e.PlaceObject(layerName, obj)
 	if err != nil {
@@ -139,13 +139,47 @@ func (e *Editor) AddSceneRailLayer() (string, error) {
 	return name, nil
 }
 
+func localizedObjectKind(e *Editor, kind string) string {
+	switch kind {
+	case "prefab":
+		return e.T("sceneTreeExtra.objKind.prefab")
+	case "camera":
+		return e.T("sceneTreeExtra.objKind.camera")
+	case "light":
+		return e.T("sceneTreeExtra.objKind.light")
+	case "mesh":
+		return e.T("sceneTreeExtra.objKind.mesh")
+	case "group":
+		return e.T("sceneTreeExtra.objKind.group")
+	case "trigger":
+		return e.T("sceneTreeExtra.objKind.trigger")
+	case "sprite":
+		return e.T("sceneTreeExtra.objKind.sprite")
+	default:
+		return e.T("sceneTreeExtra.objKind.node")
+	}
+}
+
+func localizedLayerKind(e *Editor, kind string) string {
+	switch kind {
+	case "tiles":
+		return e.T("sceneTreeExtra.layerKind.tiles")
+	case "screen":
+		return e.T("sceneTreeExtra.layerKind.screen")
+	default:
+		return e.T("sceneTreeExtra.layerKind.layer")
+	}
+}
+
 func (e *Editor) sceneTreeFilterMatchesObject(o *sceneformat.ObjectDoc, q string) bool {
 	if q == "" || o == nil {
 		return true
 	}
+	kind := e.SceneRailObjectKind(o.ID)
 	if strings.Contains(strings.ToLower(o.ID), q) ||
 		strings.Contains(strings.ToLower(o.Name), q) ||
-		strings.Contains(strings.ToLower(e.SceneRailObjectKind(o.ID)), q) {
+		strings.Contains(strings.ToLower(kind), q) ||
+		strings.Contains(strings.ToLower(localizedObjectKind(e, kind)), q) {
 		return true
 	}
 	for i := range o.Children {
@@ -160,8 +194,10 @@ func (e *Editor) sceneTreeFilterMatchesLayer(l *sceneformat.LayerDoc, q string) 
 	if q == "" || l == nil {
 		return true
 	}
+	kind := e.LayerKindLabel(l.Name)
 	if strings.Contains(strings.ToLower(l.Name), q) ||
-		strings.Contains(strings.ToLower(e.LayerKindLabel(l.Name)), q) {
+		strings.Contains(strings.ToLower(kind), q) ||
+		strings.Contains(strings.ToLower(localizedLayerKind(e, kind)), q) {
 		return true
 	}
 	for i := range l.Objects {
@@ -262,9 +298,11 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			for i := range doc.Layers {
 				if doc.Layers[i].Name == k.layer {
 					objs := doc.Layers[i].Objects
+					layerKind := ed.LayerKindLabel(doc.Layers[i].Name)
 					layerSelfMatches := q == "" ||
 						strings.Contains(strings.ToLower(doc.Layers[i].Name), q) ||
-						strings.Contains(strings.ToLower(ed.LayerKindLabel(doc.Layers[i].Name)), q)
+						strings.Contains(strings.ToLower(layerKind), q) ||
+						strings.Contains(strings.ToLower(localizedLayerKind(ed, layerKind)), q)
 					rem := ed.AgentRemovedNodes(k.layer, "")
 					out := make([]any, 0, len(objs)+len(rem))
 					for j := range objs {
@@ -823,7 +861,7 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 					TestID: "scene-tree-layer-kind-" + k.layer,
 					ContentFunc: func() string {
 						_ = rev.Get()
-						return ed.LayerKindLabel(k.layer)
+						return localizedLayerKind(ed, ed.LayerKindLabel(k.layer))
 					},
 					StyleFunc: func() core.Style {
 						return core.Style{FontSize: 11, Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
@@ -1030,7 +1068,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						Then: func(cx *core.Scope) core.Node {
 							return core.Text{
 								TestID:  "scene-tree-new-" + id,
-								Content: "NEW",
+								Content: ed.T("sceneTreeExtra.badgeNew"),
 								StyleFunc: func() core.Style {
 									return core.Style{
 										FontSize:   10,
@@ -1062,7 +1100,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						TestID: "scene-tree-kind-" + id,
 						ContentFunc: func() string {
 							_ = rev.Get()
-							return ed.SceneRailObjectKind(id)
+							return localizedObjectKind(ed, ed.SceneRailObjectKind(id))
 						},
 						StyleFunc: func() core.Style {
 							return core.Style{FontSize: 11, Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
@@ -1084,9 +1122,9 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 										return ""
 									}
 									if ov.Holding {
-										return fmt.Sprintf("%d · holding", ov.TaskNumber)
+										return ed.T("sceneTreeExtra.taskHolding", l10n.Param("num", ov.TaskNumber))
 									}
-									return fmt.Sprintf("%d · editing", ov.TaskNumber)
+									return ed.T("sceneTreeExtra.taskEditing", l10n.Param("num", ov.TaskNumber))
 								},
 								Style: core.Style{
 									FontSize:   10.5,

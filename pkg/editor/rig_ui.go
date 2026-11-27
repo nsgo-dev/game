@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/skeletal"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -148,10 +149,10 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	header := core.View{
 		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 6},
 		Children: []core.Node{
-			core.Text{Content: "Rig Editor", Style: core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()}},
+			core.Text{Content: ed.T("rig.title"), Style: core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()}},
 			core.View{Style: core.Style{Width: core.Pt(110)}, Children: []core.Node{ui.Input{
 				TestID:   "rig-name",
-				Label:    "Rig Name",
+				Label:    ed.T("rig.nameLabel"),
 				Disabled: disabled,
 				Value: func() string {
 					_ = rev.Get()
@@ -164,8 +165,8 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			}}},
 			core.View{Style: core.Style{Width: core.Pt(105)}, Children: []core.Node{ui.Select[string]{
 				TestID:      "rig-atlas",
-				Label:       "Rig Atlas",
-				Placeholder: "Atlas",
+				Label:       ed.T("rig.atlasLabel"),
+				Placeholder: ed.T("rig.atlasPlaceholder"),
 				Disabled:    disabled,
 				OptionsFunc: func() []ui.Option[string] {
 					_ = rev.Get()
@@ -190,8 +191,8 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			}}},
 			core.View{Style: core.Style{Width: core.Pt(105)}, Children: []core.Node{ui.Select[string]{
 				TestID:      "rig-skin",
-				Label:       "Preview Skin",
-				Placeholder: "Skin",
+				Label:       ed.T("rig.skinLabel"),
+				Placeholder: ed.T("rig.skinPlaceholder"),
 				Disabled:    disabled,
 				OptionsFunc: func() []ui.Option[string] {
 					_ = rev.Get()
@@ -210,14 +211,14 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			}}},
 			core.View{Style: core.Style{Width: core.Pt(115)}, Children: []core.Node{ui.Select[string]{
 				TestID:      "rig-animation",
-				Label:       "Active Animation",
-				Placeholder: "(Bind Pose)",
+				Label:       ed.T("rig.activeAnimationLabel"),
+				Placeholder: ed.T("rig.bindPose"),
 				Disabled:    disabled,
 				OptionsFunc: func() []ui.Option[string] {
 					_ = rev.Get()
 					names := ed.RigAnimationNames()
 					opts := make([]ui.Option[string], 0, len(names)+1)
-					opts = append(opts, ui.Option[string]{Value: "", Label: "(Bind Pose)"})
+					opts = append(opts, ui.Option[string]{Value: "", Label: ed.T("rig.bindPose")})
 					for _, n := range names {
 						opts = append(opts, ui.Option[string]{Value: n, Label: n})
 					}
@@ -240,9 +241,9 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				TextFunc: func() string {
 					_ = rev.Get()
 					if ed.RigPlaying() {
-						return "Pause"
+						return ed.T("rig.pause")
 					}
-					return "Play"
+					return ed.T("rig.play")
 				},
 				OnPress: func() {
 					if ed.RigPlaying() {
@@ -254,8 +255,8 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			},
 			core.View{Style: core.Style{Width: core.Pt(105)}, Children: []core.Node{ui.Select[string]{
 				TestID:      "rig-crossfade-target",
-				Label:       "Crossfade Target",
-				Placeholder: "Crossfade to",
+				Label:       ed.T("rig.crossfadeTargetLabel"),
+				Placeholder: ed.T("rig.crossfadeTargetPlaceholder"),
 				Disabled:    disabled,
 				OptionsFunc: func() []ui.Option[string] {
 					_ = rev.Get()
@@ -271,7 +272,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			}}},
 			core.View{Style: core.Style{Width: core.Pt(62)}, Children: []core.Node{ui.NumberInput{
 				TestID:   "rig-crossfade-sec",
-				Label:    "Crossfade Duration (s)",
+				Label:    ed.T("rig.crossfadeDurationLabel"),
 				Min:      0,
 				Step:     0.05,
 				Disabled: disabled,
@@ -280,8 +281,8 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			}}},
 			ui.Button{
 				TestID:  "rig-crossfade",
-				Text:    "Blend",
-				Label:   "Crossfade to selected animation",
+				Text:    ed.T("rig.blend"),
+				Label:   ed.T("rig.blendLabel"),
 				Size:    ui.SizeSmall,
 				Variant: ui.ButtonSecondary,
 				Disabled: func() bool {
@@ -295,7 +296,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			core.View{Style: core.Style{FlexGrow: 1}},
 			ui.Button{
 				TestID:   "rig-place-scene",
-				Text:     "Place in Scene",
+				Text:     ed.T("rig.placeInScene"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonSecondary,
 				Disabled: disabled,
@@ -311,7 +312,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			},
 			ui.Button{
 				TestID:   "rig-save",
-				Text:     "Save Rig",
+				Text:     ed.T("rig.saveRig"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -319,7 +320,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			},
 			ui.Button{
 				TestID:   "rig-close",
-				Text:     "Close",
+				Text:     ed.T("rig.close"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonGhost,
 				Disabled: disabled,
@@ -379,7 +380,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "rig-canvas",
-				Label:  "Skeletal Rig Viewport",
+				Label:  ed.T("rig.viewportLabel"),
 				Style:  core.Style{FlexGrow: 1},
 				OnLayout: func(b core.Bounds) {
 					ed.SetRigCanvasSize(float32(b.Size.Width), float32(b.Size.Height))
@@ -426,15 +427,15 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(120)}, Children: []core.Node{ui.Input{
 						TestID:      "rig-new-bone-name",
-						Label:       "New Bone Name",
-						Placeholder: "New bone",
+						Label:       ed.T("rig.newBoneNameLabel"),
+						Placeholder: ed.T("rig.newBoneNamePlaceholder"),
 						Disabled:    disabled,
 						Value:       newBoneName.Get,
 						OnChange:    newBoneName.Set,
 					}}},
 					ui.Button{
 						TestID:   "rig-add-bone",
-						Text:     "Add Bone",
+						Text:     ed.T("rig.addBone"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -495,14 +496,14 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ui.HStack{
 								Gap: 6,
 								Children: []core.Node{
-									label("PARENT"),
+									label(ed.T("rig.parentSection")),
 									core.View{Style: core.Style{Width: core.Pt(110)}, Children: []core.Node{ui.Select[string]{
 										TestID:   "rig-bone-parent",
-										Label:    "Bone Parent",
+										Label:    ed.T("rig.boneParentLabel"),
 										Disabled: disabled,
 										OptionsFunc: func() []ui.Option[string] {
 											_ = rev.Get()
-											opts := []ui.Option[string]{{Value: "", Label: "(Root)"}}
+											opts := []ui.Option[string]{{Value: "", Label: ed.T("rig.rootOption")}}
 											if !ed.RigOpen() {
 												return opts
 											}
@@ -530,7 +531,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									label("X"),
 									core.View{Style: core.Style{Width: core.Pt(65)}, Children: []core.Node{ui.NumberInput{
 										TestID:   "rig-bone-x",
-										Label:    "Bone X",
+										Label:    ed.T("rig.boneXLabel"),
 										Step:     1,
 										Disabled: disabled,
 										Value: func() float64 {
@@ -549,7 +550,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									label("Y"),
 									core.View{Style: core.Style{Width: core.Pt(65)}, Children: []core.Node{ui.NumberInput{
 										TestID:   "rig-bone-y",
-										Label:    "Bone Y",
+										Label:    ed.T("rig.boneYLabel"),
 										Step:     1,
 										Disabled: disabled,
 										Value: func() float64 {
@@ -565,10 +566,10 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 											}
 										},
 									}}},
-									label("ROT"),
+									label(ed.T("rig.rotSection")),
 									core.View{Style: core.Style{Width: core.Pt(65)}, Children: []core.Node{ui.NumberInput{
 										TestID:   "rig-bone-rot",
-										Label:    "Bone Rotation",
+										Label:    ed.T("rig.boneRotationLabel"),
 										Step:     0.1,
 										Disabled: disabled,
 										Value: func() float64 {
@@ -584,10 +585,10 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 											}
 										},
 									}}},
-									label("LEN"),
+									label(ed.T("rig.lenSection")),
 									core.View{Style: core.Style{Width: core.Pt(65)}, Children: []core.Node{ui.NumberInput{
 										TestID:   "rig-bone-len",
-										Label:    "Bone Length",
+										Label:    ed.T("rig.boneLengthLabel"),
 										Min:      0,
 										Step:     1,
 										Disabled: disabled,
@@ -606,7 +607,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									}}},
 									ui.Button{
 										TestID:   "rig-bone-delete",
-										Text:     "Delete",
+										Text:     ed.T("rig.delete"),
 										Size:     ui.SizeSmall,
 										Variant:  ui.ButtonOutline,
 										Disabled: disabled,
@@ -635,15 +636,15 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(105)}, Children: []core.Node{ui.Input{
 						TestID:      "rig-new-slot-name",
-						Label:       "New Slot Name",
-						Placeholder: "New slot",
+						Label:       ed.T("rig.newSlotNameLabel"),
+						Placeholder: ed.T("rig.newSlotNamePlaceholder"),
 						Disabled:    disabled,
 						Value:       newSlotName.Get,
 						OnChange:    newSlotName.Set,
 					}}},
 					ui.Button{
 						TestID:   "rig-add-slot",
-						Text:     "Add Slot",
+						Text:     ed.T("rig.addSlot"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -668,15 +669,15 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					},
 					core.View{Style: core.Style{Width: core.Pt(105)}, Children: []core.Node{ui.Input{
 						TestID:      "rig-new-skin-name",
-						Label:       "New Skin Name",
-						Placeholder: "New skin",
+						Label:       ed.T("rig.newSkinNameLabel"),
+						Placeholder: ed.T("rig.newSkinNamePlaceholder"),
 						Disabled:    disabled,
 						Value:       newSkinName.Get,
 						OnChange:    newSkinName.Set,
 					}}},
 					ui.Button{
 						TestID:   "rig-add-skin",
-						Text:     "Add Skin",
+						Text:     ed.T("rig.addSkin"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -731,17 +732,17 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					return ui.HStack{
 						Gap: 6,
 						Children: []core.Node{
-							label("FRAME"),
+							label(ed.T("rig.frameSection")),
 							core.View{Style: core.Style{Width: core.Pt(110)}, Children: []core.Node{ui.Select[string]{
 								TestID:     "rig-attach-frame",
-								Label:      "Slot Frame",
+								Label:      ed.T("rig.slotFrameLabel"),
 								Searchable: true,
 								Disabled:   disabled,
 								OptionsFunc: func() []ui.Option[string] {
 									_ = rev.Get()
 									frames := ed.RigAtlasFrames()
 									opts := make([]ui.Option[string], 0, len(frames)+1)
-									opts = append(opts, ui.Option[string]{Value: "", Label: "(Hidden)"})
+									opts = append(opts, ui.Option[string]{Value: "", Label: ed.T("rig.hiddenOption")})
 									for _, f := range frames {
 										opts = append(opts, ui.Option[string]{Value: f, Label: f})
 									}
@@ -760,10 +761,10 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									}
 								},
 							}}},
-							label("OX"),
+							label(ed.T("rig.oxSection")),
 							core.View{Style: core.Style{Width: core.Pt(62)}, Children: []core.Node{ui.NumberInput{
 								TestID:   "rig-attach-ox",
-								Label:    "Origin X",
+								Label:    ed.T("rig.originXLabel"),
 								Step:     1,
 								Disabled: disabled,
 								Value: func() float64 {
@@ -779,10 +780,10 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									}
 								},
 							}}},
-							label("OY"),
+							label(ed.T("rig.oySection")),
 							core.View{Style: core.Style{Width: core.Pt(62)}, Children: []core.Node{ui.NumberInput{
 								TestID:   "rig-attach-oy",
-								Label:    "Origin Y",
+								Label:    ed.T("rig.originYLabel"),
 								Step:     1,
 								Disabled: disabled,
 								Value: func() float64 {
@@ -800,7 +801,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							}}},
 							ui.Button{
 								TestID:   "rig-slot-delete",
-								Text:     "Delete Slot",
+								Text:     ed.T("rig.deleteSlot"),
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonOutline,
 								Disabled: disabled,
@@ -827,15 +828,15 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(110)}, Children: []core.Node{ui.Input{
 						TestID:      "rig-new-anim-name",
-						Label:       "New Animation Name",
-						Placeholder: "New anim",
+						Label:       ed.T("rig.newAnimNameLabel"),
+						Placeholder: ed.T("rig.newAnimNamePlaceholder"),
 						Disabled:    disabled,
 						Value:       newAnimName.Get,
 						OnChange:    newAnimName.Set,
 					}}},
 					ui.Button{
 						TestID:   "rig-add-anim",
-						Text:     "Add Anim",
+						Text:     ed.T("rig.addAnim"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -858,7 +859,10 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						TestID: "rig-time",
 						ContentFunc: func() string {
 							_ = rev.Get()
-							return fmt.Sprintf("%.2f / %.2f s", ed.RigTime().Seconds(), animDurSec())
+							return ed.T("rig.timeReadout",
+								l10n.Param("current", strconv.FormatFloat(ed.RigTime().Seconds(), 'f', 2, 64)),
+								l10n.Param("total", strconv.FormatFloat(animDurSec(), 'f', 2, 64)),
+							)
 						},
 						Style: core.Style{FontSize: 11, Color: colors.Text()},
 					},
@@ -866,7 +870,7 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			},
 			ui.Slider{
 				TestID:   "rig-scrub",
-				Label:    "Rig Playhead",
+				Label:    ed.T("rig.playheadLabel"),
 				Disabled: disabled,
 				MinFunc:  func() float64 { return 0 },
 				MaxFunc: func() float64 {
@@ -885,14 +889,14 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				Gap: 4,
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(56)}, Children: []core.Node{ui.NumberInput{
-						TestID: "rig-key-tx", Label: "Key TX", Step: 1, Disabled: disabled, Value: keyTransX.Get, OnChange: keyTransX.Set,
+						TestID: "rig-key-tx", Label: ed.T("rig.keyTxLabel"), Step: 1, Disabled: disabled, Value: keyTransX.Get, OnChange: keyTransX.Set,
 					}}},
 					core.View{Style: core.Style{Width: core.Pt(56)}, Children: []core.Node{ui.NumberInput{
-						TestID: "rig-key-ty", Label: "Key TY", Step: 1, Disabled: disabled, Value: keyTransY.Get, OnChange: keyTransY.Set,
+						TestID: "rig-key-ty", Label: ed.T("rig.keyTyLabel"), Step: 1, Disabled: disabled, Value: keyTransY.Get, OnChange: keyTransY.Set,
 					}}},
 					ui.Button{
 						TestID:  "rig-key-translate",
-						Text:    "Key T",
+						Text:    ed.T("rig.keyT"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -904,11 +908,11 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						},
 					},
 					core.View{Style: core.Style{Width: core.Pt(56)}, Children: []core.Node{ui.NumberInput{
-						TestID: "rig-key-rot", Label: "Key Rotate", Step: 0.1, Disabled: disabled, Value: keyRotAngle.Get, OnChange: keyRotAngle.Set,
+						TestID: "rig-key-rot", Label: ed.T("rig.keyRotateLabel"), Step: 0.1, Disabled: disabled, Value: keyRotAngle.Get, OnChange: keyRotAngle.Set,
 					}}},
 					ui.Button{
 						TestID:  "rig-key-rotate",
-						Text:    "Key R",
+						Text:    ed.T("rig.keyR"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -920,14 +924,14 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						},
 					},
 					core.View{Style: core.Style{Width: core.Pt(52)}, Children: []core.Node{ui.NumberInput{
-						TestID: "rig-key-sx", Label: "Key SX", Step: 0.1, Disabled: disabled, Value: keyScaleX.Get, OnChange: keyScaleX.Set,
+						TestID: "rig-key-sx", Label: ed.T("rig.keySxLabel"), Step: 0.1, Disabled: disabled, Value: keyScaleX.Get, OnChange: keyScaleX.Set,
 					}}},
 					core.View{Style: core.Style{Width: core.Pt(52)}, Children: []core.Node{ui.NumberInput{
-						TestID: "rig-key-sy", Label: "Key SY", Step: 0.1, Disabled: disabled, Value: keyScaleY.Get, OnChange: keyScaleY.Set,
+						TestID: "rig-key-sy", Label: ed.T("rig.keySyLabel"), Step: 0.1, Disabled: disabled, Value: keyScaleY.Get, OnChange: keyScaleY.Set,
 					}}},
 					ui.Button{
 						TestID:  "rig-key-scale",
-						Text:    "Key S",
+						Text:    ed.T("rig.keyS"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -945,15 +949,15 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(120)}, Children: []core.Node{ui.Input{
 						TestID:      "rig-key-attach-frame",
-						Label:       "Key Attachment Frame",
-						Placeholder: "Slot frame",
+						Label:       ed.T("rig.keyAttachFrameLabel"),
+						Placeholder: ed.T("rig.slotFramePlaceholder"),
 						Disabled:    disabled,
 						Value:       keyAttachFrame.Get,
 						OnChange:    keyAttachFrame.Set,
 					}}},
 					ui.Button{
 						TestID:  "rig-key-attachment",
-						Text:    "Key Slot Frame",
+						Text:    ed.T("rig.keySlotFrame"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -979,17 +983,26 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				for _, bn := range slices.Sorted(maps.Keys(anim.Bones)) {
 					tl := anim.Bones[bn]
 					rows = append(rows, core.Text{
-						TestID:  "rig-tl-bone-" + bn,
-						Content: fmt.Sprintf("Bone %s: T(%d) R(%d) S(%d)", bn, len(tl.Translate), len(tl.Rotate), len(tl.Scale)),
-						Style:   core.Style{FontSize: 11, Color: colors.Text()},
+						TestID: "rig-tl-bone-" + bn,
+						Content: ed.T("rig.tlBoneRow",
+							l10n.Param("name", bn),
+							l10n.Param("t", len(tl.Translate)),
+							l10n.Param("r", len(tl.Rotate)),
+							l10n.Param("s", len(tl.Scale)),
+						),
+						Style: core.Style{FontSize: 11, Color: colors.Text()},
 					})
 				}
 				for _, sn := range slices.Sorted(maps.Keys(anim.Slots)) {
 					tl := anim.Slots[sn]
 					rows = append(rows, core.Text{
-						TestID:  "rig-tl-slot-" + sn,
-						Content: fmt.Sprintf("Slot %s: Attach(%d) Alpha(%d)", sn, len(tl.Attachment), len(tl.Alpha)),
-						Style:   core.Style{FontSize: 11, Color: colors.Text()},
+						TestID: "rig-tl-slot-" + sn,
+						Content: ed.T("rig.tlSlotRow",
+							l10n.Param("name", sn),
+							l10n.Param("attach", len(tl.Attachment)),
+							l10n.Param("alpha", len(tl.Alpha)),
+						),
+						Style: core.Style{FontSize: 11, Color: colors.Text()},
 					})
 				}
 				return core.View{Style: core.Style{Gap: 2}, Children: rows}
@@ -1003,9 +1016,9 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			ui.HStack{
 				Gap: 4,
 				Children: []core.Node{
-					tabBtn("rig-tab-bones", "Bones", "bones"),
-					tabBtn("rig-tab-slots", "Slots & Skins", "slots"),
-					tabBtn("rig-tab-timeline", "Timeline", "timeline"),
+					tabBtn("rig-tab-bones", ed.T("rig.tabBones"), "bones"),
+					tabBtn("rig-tab-slots", ed.T("rig.tabSlotsSkins"), "slots"),
+					tabBtn("rig-tab-timeline", ed.T("rig.tabTimeline"), "timeline"),
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{
 						TestID: "rig-summary",

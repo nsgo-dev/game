@@ -251,7 +251,7 @@ func briefSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 								ui.Button{
 									TestID:   fmt.Sprintf("%s-remove-%d", testPrefix, i),
 									Text:     "×",
-									Label:    "Remove " + val,
+									Label:    ed.T("settings.briefRemoveItem", l10n.Param("item", val)),
 									Size:     ui.SizeSmall,
 									Variant:  ui.ButtonGhost,
 									Disabled: actionsBlocked,
@@ -729,7 +729,7 @@ func briefSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 												ui.Button{
 													TestID:   fmt.Sprintf("brief-target-remove-%d", i),
 													Text:     "×",
-													Label:    "Remove target " + t.Metric,
+													Label:    ed.T("settings.briefRemoveTarget", l10n.Param("metric", t.Metric)),
 													Size:     ui.SizeSmall,
 													Variant:  ui.ButtonGhost,
 													Disabled: actionsBlocked,
@@ -751,44 +751,68 @@ func briefSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 								Children: []core.Node{
 									ui.Input{
-										TestID:      "brief-target-metric-input",
-										Label:       "Metric",
-										Placeholder: "metric (e.g. deaths)",
-										Value:       targetMetric.Get,
-										OnChange:    func(v string) { targetMetric.Set(v) },
+										TestID: "brief-target-metric-input",
+										LabelFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetMetricLabel")
+										},
+										PlaceholderFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetMetricPlaceholder")
+										},
+										Value:    targetMetric.Get,
+										OnChange: func(v string) { targetMetric.Set(v) },
 										StyleFunc: func() core.Style {
 											p := curPalette()
 											return core.Style{FlexGrow: 1, Height: core.Pt(28), Background: p.Raised, BorderWidth: 1, BorderColor: p.LineRaised, CornerRadius: 6, Color: p.TextSecondary, FontSize: 11.5, FocusVisible: p.FocusRing(2)}
 										},
 									},
 									ui.Input{
-										TestID:      "brief-target-scene-input",
-										Label:       "Scene",
-										Placeholder: "scene",
-										Value:       targetScene.Get,
-										OnChange:    func(v string) { targetScene.Set(v) },
+										TestID: "brief-target-scene-input",
+										LabelFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetSceneLabel")
+										},
+										PlaceholderFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetScenePlaceholder")
+										},
+										Value:    targetScene.Get,
+										OnChange: func(v string) { targetScene.Set(v) },
 										StyleFunc: func() core.Style {
 											p := curPalette()
 											return core.Style{Width: core.Pt(84), Height: core.Pt(28), Background: p.Raised, BorderWidth: 1, BorderColor: p.LineRaised, CornerRadius: 6, Color: p.TextSecondary, FontSize: 11.5, FocusVisible: p.FocusRing(2)}
 										},
 									},
 									ui.Input{
-										TestID:      "brief-target-min-input",
-										Label:       "Min",
-										Placeholder: "min",
-										Value:       targetMin.Get,
-										OnChange:    func(v string) { targetMin.Set(v) },
+										TestID: "brief-target-min-input",
+										LabelFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetMinLabel")
+										},
+										PlaceholderFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetMinPlaceholder")
+										},
+										Value:    targetMin.Get,
+										OnChange: func(v string) { targetMin.Set(v) },
 										StyleFunc: func() core.Style {
 											p := curPalette()
 											return core.Style{Width: core.Pt(56), Height: core.Pt(28), Background: p.Raised, BorderWidth: 1, BorderColor: p.LineRaised, CornerRadius: 6, Color: p.TextSecondary, FontSize: 11.5, FocusVisible: p.FocusRing(2)}
 										},
 									},
 									ui.Input{
-										TestID:      "brief-target-max-input",
-										Label:       "Max",
-										Placeholder: "max",
-										Value:       targetMax.Get,
-										OnChange:    func(v string) { targetMax.Set(v) },
+										TestID: "brief-target-max-input",
+										LabelFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetMaxLabel")
+										},
+										PlaceholderFunc: func() string {
+											_ = langMemo.Get()
+											return ed.T("settings.briefTargetMaxPlaceholder")
+										},
+										Value:    targetMax.Get,
+										OnChange: func(v string) { targetMax.Set(v) },
 										StyleFunc: func() core.Style {
 											p := curPalette()
 											return core.Style{Width: core.Pt(56), Height: core.Pt(28), Background: p.Raised, BorderWidth: 1, BorderColor: p.LineRaised, CornerRadius: 6, Color: p.TextSecondary, FontSize: 11.5, FocusVisible: p.FocusRing(2)}

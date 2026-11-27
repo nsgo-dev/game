@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -22,7 +23,11 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 	changesRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
-		return ed.changesStateRev()
+		r := ed.changesStateRev()
+		if ed.ResolvedLanguage() != "en" {
+			r ^= 1 << 63
+		}
+		return r
 	})
 	draftRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
@@ -34,7 +39,7 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		return core.View{
 			TestID: "changes-panel",
 			Role:   core.RoleRegion,
-			Label:  "Changes and commit",
+			Label:  ed.T("changes.screenLabel"),
 			Style: core.Style{
 				Width:      core.Pct(100),
 				Height:     core.Pct(100),
@@ -72,10 +77,10 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 
 		aheadParts := make([]string, 0, 2)
 		if sess.Ahead > 0 {
-			aheadParts = append(aheadParts, fmt.Sprintf("ahead %d", sess.Ahead))
+			aheadParts = append(aheadParts, ed.T("changes.ahead", l10n.Param("count", sess.Ahead)))
 		}
 		if sess.Behind > 0 {
-			aheadParts = append(aheadParts, fmt.Sprintf("behind %d", sess.Behind))
+			aheadParts = append(aheadParts, ed.T("changes.behind", l10n.Param("count", sess.Behind)))
 		}
 		aheadLabel := strings.Join(aheadParts, " · ")
 
@@ -181,7 +186,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 						ui.Button{
 							TestID:  "changes-back-to-editor",
 							Icon:    lucide.ArrowLeft,
-							Label:   "Back to scene editor",
+							Label:   ed.T("changes.backToEditor"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
 							Tint:    func() core.Color { return p.TextMuted },
@@ -227,7 +232,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 						core.View{Style: core.Style{Width: core.Pt(8)}},
 						ui.Menu{
 							TestID:   "changes-branch-menu",
-							Label:    "Switch branch, current " + sess.Branch,
+							Label:    ed.T("changes.switchBranchLabel", l10n.Param("branch", sess.Branch)),
 							Face:     branchFace,
 							Children: branchItems,
 						},
@@ -243,7 +248,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 						ui.Button{
 							TestID:  "changes-refresh",
 							Icon:    lucide.RefreshCw,
-							Label:   "Refresh changes",
+							Label:   ed.T("changes.refreshLabel"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
 							Color:   func() core.Color { return p.Raised },
@@ -261,7 +266,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 						},
 						ui.Button{
 							TestID:  "changes-pull",
-							Text:    "Pull",
+							Text:    ed.T("changes.pull"),
 							Icon:    lucide.Download,
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
@@ -286,7 +291,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 						},
 						ui.Button{
 							TestID:  "changes-play",
-							Text:    "Play",
+							Text:    ed.T("changes.play"),
 							Icon:    lucide.Play,
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
@@ -312,6 +317,21 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 			},
 		}
 	})
+}
+
+func changesCategoryLabel(ed *Editor, cat ChangesCategory) string {
+	switch cat {
+	case ChangesCategoryScenes:
+		return ed.T("changes.category.scenes")
+	case ChangesCategoryData:
+		return ed.T("changes.category.data")
+	case ChangesCategoryCode:
+		return ed.T("changes.category.code")
+	case ChangesCategoryAssets:
+		return ed.T("changes.category.assets")
+	default:
+		return string(cat)
+	}
 }
 
 func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]) core.Node {
@@ -348,7 +368,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 				Children: []core.Node{
 					core.Text{
 						TestID:  "changes-group-" + strings.ToLower(string(cat)),
-						Content: string(cat),
+						Content: changesCategoryLabel(ed, cat),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    600,
@@ -420,7 +440,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 							TestID:  fmt.Sprintf("changes-check-%d", idx),
 							Role:    core.RoleCheckbox,
 							Checked: func() bool { return included },
-							Label:   "Include " + f.DisplayName + " in the commit",
+							Label:   ed.T("changes.includeFileLabel", l10n.Param("file", f.DisplayName)),
 							Style: core.Style{
 								Width:          core.Pt(16),
 								Height:         core.Pt(16),
@@ -514,7 +534,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 				Children: []core.Node{
 					core.Text{
 						TestID:  "changes-empty",
-						Content: "Working tree clean — no changes since " + sess.HeadSHA,
+						Content: ed.T("changes.workingTreeClean", l10n.Param("sha", sess.HeadSHA)),
 						Style: core.Style{
 							FontSize: 12,
 							Color:    p.TextFaint,
@@ -547,7 +567,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "CHANGES",
+							Content: ed.T("changes.sectionChanges"),
 							Style: core.Style{
 								FontSize:      11,
 								FontWeight:    600,
@@ -557,7 +577,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 						},
 						core.Text{
 							TestID:  "changes-since-head",
-							Content: "since " + sess.HeadSHA,
+							Content: ed.T("changes.sinceHead", l10n.Param("sha", sess.HeadSHA)),
 							Style: core.Style{
 								FontFamily: "monospace",
 								FontSize:   11,
@@ -604,7 +624,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 					},
 				},
 				core.Text{
-					Content: "compared with HEAD",
+					Content: ed.T("changes.comparedWithHead"),
 					Style: core.Style{
 						FontSize: 12,
 						Color:    p.TextFaint,
@@ -652,9 +672,9 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
-						segBtn("changes-scene-mode-side", "Side by side", ChangesSceneViewSideBySide),
-						segBtn("changes-scene-mode-head", "HEAD", ChangesSceneViewHead),
-						segBtn("changes-scene-mode-now", "Now", ChangesSceneViewNow),
+						segBtn("changes-scene-mode-side", ed.T("changes.viewSideBySide"), ChangesSceneViewSideBySide),
+						segBtn("changes-scene-mode-head", ed.T("changes.viewHead"), ChangesSceneViewHead),
+						segBtn("changes-scene-mode-now", ed.T("changes.viewNow"), ChangesSceneViewNow),
 					},
 				})
 			}
@@ -662,7 +682,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 				filePath := cur.Path
 				subRight = append(subRight, ui.Button{
 					TestID:  "changes-open-in-editor",
-					Text:    "Open in editor",
+					Text:    ed.T("changes.openInEditor"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.LineRaised },
@@ -683,7 +703,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 			}
 		} else {
 			subLeft = append(subLeft, core.Text{
-				Content: "No file selected",
+				Content: ed.T("changes.noFileSelected"),
 				Style: core.Style{
 					FontSize: 12,
 					Color:    p.TextFaint,
@@ -705,13 +725,13 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "All changes are committed.",
+						Content: ed.T("changes.allCommitted"),
 						Style:   core.Style{FontSize: 13, Color: p.TextFaint},
 					},
 				},
 			}
 		case cur.Category == ChangesCategoryScenes && cur.Scene != nil:
-			body = changesSceneCompareView(p, sess, cur)
+			body = changesSceneCompareView(ed, p, sess, cur)
 		case cur.Category == ChangesCategoryAssets && cur.Audio != nil:
 			body = changesAudioCompareView(p, ed, cur)
 		case cur.Category == ChangesCategoryAssets:
@@ -721,9 +741,9 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 		}
 
 		// Bottom bar inside Changes screen matching VersionControl.dc.html.
-		changesBtnLabel := "Changes"
+		changesBtnLabel := ed.T("changes.statusChanges")
 		if len(sess.Files) > 0 {
-			changesBtnLabel = fmt.Sprintf("Changes · %d", len(sess.Files))
+			changesBtnLabel = ed.T("changes.statusChangesCount", l10n.Param("count", len(sess.Files)))
 		}
 		bottomBar := core.View{
 			TestID: "changes-bottom-bar",
@@ -744,11 +764,11 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 16},
 					Children: []core.Node{
 						core.Text{
-							Content: "Layer " + ed.activeLayerReadout(),
+							Content: ed.T("changes.layerReadout", l10n.Param("layer", ed.activeLayerReadout())),
 							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 						core.Text{
-							Content: ed.Tool.String(),
+							Content: ed.localizedToolName(ed.Tool),
 							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 					},
@@ -771,7 +791,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 									ContentFunc: func() string {
 										_ = rev.Get()
 										if ed.Project == nil || ed.ProjectPath == "" {
-											return "No problems"
+											return ed.T("changes.noProblems")
 										}
 										return ed.problemsStatusText()
 									},
@@ -849,7 +869,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 	})
 }
 
-func changesSceneCompareView(p SpecPalette, sess *ChangesSession, f *ChangedFile) core.Node {
+func changesSceneCompareView(ed *Editor, p SpecPalette, sess *ChangesSession, f *ChangedFile) core.Node {
 	sc := f.Scene
 
 	sceneCard := func(testID, title, badge string, doc *sceneformat.SceneDoc, built *sceneformat.BuiltScene, isHead bool) core.Node {
@@ -907,7 +927,7 @@ func changesSceneCompareView(p SpecPalette, sess *ChangesSession, f *ChangedFile
 					Children: []core.Node{
 						core.Canvas{
 							TestID: testID,
-							Label:  title + " scene preview",
+							Label:  ed.T("changes.scenePreviewLabel", l10n.Param("title", title)),
 							Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 							Draw: func(d *core.Drawing, size core.Size) {
 								drawChangesScenePreview(d, size, p, sc, doc, built, isHead)
@@ -922,9 +942,9 @@ func changesSceneCompareView(p SpecPalette, sess *ChangesSession, f *ChangedFile
 	var previewNode core.Node
 	switch sess.SceneView {
 	case ChangesSceneViewHead:
-		previewNode = sceneCard("changes-canvas-head", "HEAD", trimSceneFilename(f.DisplayName)+" at "+sess.HeadSHA, sc.HeadDoc, sc.HeadBuilt, true)
+		previewNode = sceneCard("changes-canvas-head", ed.T("changes.sceneCardHead"), ed.T("changes.sceneAtHead", l10n.Param("scene", trimSceneFilename(f.DisplayName)), l10n.Param("sha", sess.HeadSHA)), sc.HeadDoc, sc.HeadBuilt, true)
 	case ChangesSceneViewNow:
-		previewNode = sceneCard("changes-canvas-now", "NOW", f.DisplayName, sc.NowDoc, sc.NowBuilt, false)
+		previewNode = sceneCard("changes-canvas-now", ed.T("changes.sceneCardNow"), f.DisplayName, sc.NowDoc, sc.NowBuilt, false)
 	default:
 		previewNode = core.View{
 			Style: core.Style{
@@ -934,25 +954,25 @@ func changesSceneCompareView(p SpecPalette, sess *ChangesSession, f *ChangedFile
 				Gap:       12,
 			},
 			Children: []core.Node{
-				sceneCard("changes-canvas-head", "HEAD", sess.HeadSHA, sc.HeadDoc, sc.HeadBuilt, true),
-				sceneCard("changes-canvas-now", "NOW", "working tree", sc.NowDoc, sc.NowBuilt, false),
+				sceneCard("changes-canvas-head", ed.T("changes.sceneCardHead"), sess.HeadSHA, sc.HeadDoc, sc.HeadBuilt, true),
+				sceneCard("changes-canvas-now", ed.T("changes.sceneCardNow"), ed.T("changes.workingTree"), sc.NowDoc, sc.NowBuilt, false),
 			},
 		}
 	}
 
 	legendItems := make([]core.Node, 0, 3)
 	if len(sc.Added) > 0 {
-		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-added", p.Added.Fg, "added · "+joinObjectNames(sc.Added, 5)))
+		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-added", p.Added.Fg, ed.T("changes.legendAdded", l10n.Param("names", joinObjectNames(sc.Added, 5)))))
 	}
 	if len(sc.Changed) > 0 {
-		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-changed", p.Changed.Fg, "changed · "+joinObjectNames(sc.Changed, 5)))
+		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-changed", p.Changed.Fg, ed.T("changes.legendChanged", l10n.Param("names", joinObjectNames(sc.Changed, 5)))))
 	}
 	if len(sc.Removed) > 0 {
-		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-removed", p.Removed.Fg, "removed · "+joinObjectNames(sc.Removed, 5)))
+		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-removed", p.Removed.Fg, ed.T("changes.legendRemoved", l10n.Param("names", joinObjectNames(sc.Removed, 5)))))
 	}
 	if len(legendItems) == 0 {
 		legendItems = append(legendItems, core.Text{
-			Content: "No object-level differences against HEAD",
+			Content: ed.T("changes.noObjectDiffs"),
 			Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 		})
 	}
@@ -960,17 +980,17 @@ func changesSceneCompareView(p SpecPalette, sess *ChangesSession, f *ChangedFile
 	// Per-object detail chips for changed/added/removed objects.
 	badgeNodes := make([]core.Node, 0, len(sc.Added)+len(sc.Changed)+len(sc.Removed))
 	for _, o := range sc.Added {
-		badgeNodes = append(badgeNodes, changesObjectBadge("added · "+o.Name, p.Added.Fill, p.Added.Edge, p.Added.Fg))
+		badgeNodes = append(badgeNodes, changesObjectBadge(ed.T("changes.badgeAdded", l10n.Param("name", o.Name)), p.Added.Fill, p.Added.Edge, p.Added.Fg))
 	}
 	for _, o := range sc.Changed {
-		label := "changed · " + o.Name
+		label := ed.T("changes.badgeChanged", l10n.Param("name", o.Name))
 		if o.Summary != "" && o.Summary != "changed" {
-			label += " (" + o.Summary + ")"
+			label = ed.T("changes.badgeChangedSummary", l10n.Param("name", o.Name), l10n.Param("summary", o.Summary))
 		}
 		badgeNodes = append(badgeNodes, changesObjectBadge(label, p.Changed.Fill, p.Changed.Edge, p.Changed.Fg))
 	}
 	for _, o := range sc.Removed {
-		badgeNodes = append(badgeNodes, changesObjectBadge("removed · "+o.Name, p.Removed.Fill, p.Removed.Edge, p.Removed.Fg))
+		badgeNodes = append(badgeNodes, changesObjectBadge(ed.T("changes.badgeRemoved", l10n.Param("name", o.Name)), p.Removed.Fill, p.Removed.Edge, p.Removed.Fg))
 	}
 
 	children := []core.Node{
@@ -1071,32 +1091,32 @@ func changesObjectBadge(label string, bg, border, fg core.Color) core.Node {
 func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
 	// Check status bar (nsgo check & nsgo test + timestamp).
 	checkIconColor := p.TextFaint
-	checkText := "nsgo check · not run"
+	checkText := ed.T("changes.checkNotRun")
 	testIconColor := p.TextFaint
-	testText := "nsgo test · not run"
+	testText := ed.T("changes.testNotRun")
 	timeText := ""
 	if sess.Checks.Ran {
 		if sess.Checks.CheckPassed {
 			checkIconColor = p.Added.Fg
-			checkText = nonEmpty(sess.Checks.CheckSummary, "nsgo check")
+			checkText = nonEmpty(sess.Checks.CheckSummary, ed.T("changes.nsgoCheck"))
 		} else {
 			checkIconColor = p.Removed.Fg
-			checkText = nonEmpty(sess.Checks.CheckSummary, "nsgo check failed")
+			checkText = nonEmpty(sess.Checks.CheckSummary, ed.T("changes.checkFailed"))
 		}
 		if sess.Checks.TestPassed {
 			testIconColor = p.Added.Fg
 			if sess.Checks.TestSummary != "" {
 				testText = sess.Checks.TestSummary
 			} else if sess.Checks.TestCount > 0 {
-				testText = fmt.Sprintf("nsgo test · %d passed", sess.Checks.TestCount)
+				testText = ed.T("changes.testPassedCount", l10n.Param("count", sess.Checks.TestCount))
 			} else {
-				testText = "nsgo test · passed"
+				testText = ed.T("changes.testPassed")
 			}
 		} else {
 			testIconColor = p.Removed.Fg
-			testText = nonEmpty(sess.Checks.TestSummary, "nsgo test · failed")
+			testText = nonEmpty(sess.Checks.TestSummary, ed.T("changes.testFailed"))
 		}
-		timeText = "ran " + formatCheckRelativeTime(sess.Checks.RanAt, ed.now())
+		timeText = ed.T("changes.ranTime", l10n.Param("time", formatCheckRelativeTime(sess.Checks.RanAt, ed.now())))
 	}
 
 	checksBar := core.View{
@@ -1154,7 +1174,7 @@ func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 			},
 			ui.Button{
 				TestID:  "changes-run-checks",
-				Text:    "Run checks",
+				Text:    ed.T("changes.runChecks"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Disabled: func() bool {
@@ -1257,7 +1277,7 @@ func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 			Style: core.Style{Padding: core.All(16)},
 			Children: []core.Node{
 				core.Text{
-					Content: "No line-by-line differences to display.",
+					Content: ed.T("changes.noLineDiffs"),
 					Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 				},
 			},
@@ -1292,7 +1312,7 @@ func changesAudioCompareView(p SpecPalette, ed *Editor, f *ChangedFile) core.Nod
 
 	metaParts := make([]string, 0, 4)
 	if f.Status == ChangesStatusAdded || f.Status == ChangesStatusUntracked {
-		metaParts = append(metaParts, "new file")
+		metaParts = append(metaParts, ed.T("changes.audioNewFile"))
 	} else {
 		metaParts = append(metaParts, string(f.Status))
 	}
@@ -1309,17 +1329,17 @@ func changesAudioCompareView(p SpecPalette, ed *Editor, f *ChangedFile) core.Nod
 	}
 
 	playIcon := lucide.Play
-	playLabel := "Play " + f.DisplayName
+	playLabel := ed.T("changes.audioPlay", l10n.Param("name", f.DisplayName))
 	if playing {
 		playIcon = lucide.Square
-		playLabel = "Stop " + f.DisplayName
+		playLabel = ed.T("changes.audioStop", l10n.Param("name", f.DisplayName))
 	}
 
 	refNodes := make([]core.Node, 0, max(1, len(info.UsedBy)))
 	if len(info.UsedBy) == 0 {
 		refNodes = append(refNodes, core.Text{
 			TestID:  "changes-audio-refs",
-			Content: "Not referenced by any scene or asset",
+			Content: ed.T("changes.audioNotReferenced"),
 			Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 		})
 	} else {
@@ -1410,7 +1430,7 @@ func changesAudioCompareView(p SpecPalette, ed *Editor, f *ChangedFile) core.Nod
 					},
 					core.Canvas{
 						TestID: "changes-audio-waveform",
-						Label:  "Audio waveform for " + f.DisplayName,
+						Label:  ed.T("changes.audioWaveformLabel", l10n.Param("name", f.DisplayName)),
 						Style:  core.Style{Width: core.Pct(100), Height: core.Pt(56)},
 						Draw: func(d *core.Drawing, size core.Size) {
 							drawAudioWaveform(d, size, p, bars, playing)
@@ -1481,7 +1501,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				return s != nil && strings.TrimSpace(s.DraftSummary) != ""
 			}
 
-			provenance := nonEmpty(sess.DraftProvenance, fmt.Sprintf("Drafted from %d changed files", inc))
+			provenance := nonEmpty(sess.DraftProvenance, ed.T("changes.draftedFromFiles", l10n.Param("count", inc)))
 			bodyChildren = append(bodyChildren,
 				core.View{
 					Style: core.Style{
@@ -1517,7 +1537,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						},
 						ui.Button{
 							TestID:  "changes-redraft",
-							Text:    "Redraft",
+							Text:    ed.T("changes.redraft"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
 							TextStyle: core.Style{
@@ -1539,13 +1559,13 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Style: core.Style{Gap: 6},
 					Children: []core.Node{
 						core.Text{
-							Content: "Summary",
+							Content: ed.T("changes.summaryLabel"),
 							Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 						},
 						ui.Input{
 							TestID:      "changes-commit-summary",
-							Label:       "Commit summary",
-							Placeholder: "Describe what changed",
+							Label:       ed.T("changes.commitSummaryLabel"),
+							Placeholder: ed.T("changes.commitSummaryPlaceholder"),
 							Value: func() string {
 								_ = draftRev.Get()
 								if s := ed.ChangesSession(); s != nil {
@@ -1573,14 +1593,14 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Style: core.Style{Gap: 6},
 					Children: []core.Node{
 						core.Text{
-							Content: "Description",
+							Content: ed.T("changes.descriptionLabel"),
 							Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 						},
 						ui.Input{
 							TestID:      "changes-commit-description",
-							Label:       "Commit description",
+							Label:       ed.T("changes.commitDescriptionLabel"),
 							Multiline:   true,
-							Placeholder: "Details, playtest notes, and context",
+							Placeholder: ed.T("changes.commitDescriptionPlaceholder"),
 							Value: func() string {
 								_ = draftRev.Get()
 								if s := ed.ChangesSession(); s != nil {
@@ -1615,9 +1635,9 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				})
 			}
 
-			includedLabel := fmt.Sprintf("%d of %d files included", inc, total)
+			includedLabel := ed.T("changes.includedFilesMany", l10n.Param("included", inc), l10n.Param("total", total))
 			if total == 1 {
-				includedLabel = fmt.Sprintf("%d of 1 file included", inc)
+				includedLabel = ed.T("changes.includedFilesOne", l10n.Param("included", inc))
 			}
 			bodyChildren = append(bodyChildren, core.View{
 				TestID: "changes-included-summary",
@@ -1647,9 +1667,9 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				},
 			})
 
-			commitText := "Commit"
+			commitText := ed.T("changes.commit")
 			if inc == 0 {
-				commitText = "Select files to commit"
+				commitText = ed.T("changes.selectFilesToCommit")
 			}
 			bodyChildren = append(bodyChildren, core.View{
 				Style: core.Style{Direction: core.Row, Gap: 8},
@@ -1687,7 +1707,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					},
 					ui.Button{
 						TestID:  "changes-commit-push",
-						Text:    "Commit and push",
+						Text:    ed.T("changes.commitAndPush"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Disabled: func() bool {
@@ -1712,9 +1732,9 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 			})
 
 			if sess.Ahead > 0 {
-				pushLabel := fmt.Sprintf("Push %d commits", sess.Ahead)
+				pushLabel := ed.T("changes.pushMany", l10n.Param("count", sess.Ahead))
 				if sess.Ahead == 1 {
-					pushLabel = "Push 1 commit"
+					pushLabel = ed.T("changes.pushOne")
 				}
 				bodyChildren = append(bodyChildren, ui.Button{
 					TestID:  "changes-push",
@@ -1779,7 +1799,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						},
 						core.Text{
 							TestID:  "changes-committed-title",
-							Content: "Committed as " + sha,
+							Content: ed.T("changes.committedAs", l10n.Param("sha", sha)),
 							Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 						},
 					},
@@ -1789,15 +1809,15 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 				},
 				core.Text{
-					Content: "A milestone in History. Restore to it any time, or compare any later step with it.",
+					Content: ed.T("changes.milestoneDesc"),
 					Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 				},
 			}
 			if !pushed {
 				ahead := max(1, sess.Ahead)
-				pushLabel := fmt.Sprintf("Push %d commits", ahead)
+				pushLabel := ed.T("changes.pushMany", l10n.Param("count", ahead))
 				if ahead == 1 {
-					pushLabel = "Push 1 commit"
+					pushLabel = ed.T("changes.pushOne")
 				}
 				cardChildren = append(cardChildren, ui.Button{
 					TestID:  "changes-push",
@@ -1844,7 +1864,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				changesHistorySection(p, ed, sess),
 				ui.Button{
 					TestID:  "changes-back-to-draft",
-					Text:    "Back to the draft",
+					Text:    ed.T("changes.backToDraft"),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					TextStyle: core.Style{
@@ -1942,7 +1962,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "Commit",
+							Content: ed.T("changes.commit"),
 							Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 						},
 						core.Text{
@@ -1967,9 +1987,9 @@ func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 	ghAvailable := ed.ChangesGHAvailable()
 	busy := ed.ChangesBusy()
 	base := nonEmpty(sess.BaseBranch, "main")
-	openSubtitle := fmt.Sprintf("%s into %s with gh, using the same description", sess.Branch, base)
+	openSubtitle := ed.T("changes.openPRSubtitle", l10n.Param("branch", sess.Branch), l10n.Param("base", base))
 	if !ghAvailable {
-		openSubtitle = "Install GitHub CLI (gh) to open pull requests directly"
+		openSubtitle = ed.T("changes.installGHHint")
 	}
 
 	shareCard := func(testID, title, subtitle string, icon func() *core.SVG, disabled bool, onPress func()) core.Node {
@@ -2026,7 +2046,7 @@ func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 		Style:  core.Style{Gap: 6},
 		Children: []core.Node{
 			core.Text{
-				Content: "SHARE",
+				Content: ed.T("changes.sectionShare"),
 				Style: core.Style{
 					FontSize:      11,
 					FontWeight:    600,
@@ -2037,8 +2057,8 @@ func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 			},
 			shareCard(
 				"changes-copy-pr",
-				"Copy as PR description",
-				"Prompts, the plan, before and after images, playtest numbers",
+				ed.T("changes.copyPRTitle"),
+				ed.T("changes.copyPRSubtitle"),
 				lucide.Copy,
 				false,
 				func() {
@@ -2048,7 +2068,7 @@ func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 			),
 			shareCard(
 				"changes-open-pr",
-				"Open pull request",
+				ed.T("changes.openPRTitle"),
 				openSubtitle,
 				lucide.GitPullRequest,
 				!ghAvailable || busy,
@@ -2064,7 +2084,7 @@ func changesHistorySection(p SpecPalette, ed *Editor, sess *ChangesSession) core
 	now := ed.now()
 	rows := []core.Node{
 		core.Text{
-			Content: "HISTORY",
+			Content: ed.T("changes.sectionHistory"),
 			Style: core.Style{
 				FontSize:      11,
 				FontWeight:    600,
@@ -2107,7 +2127,7 @@ func changesHistorySection(p SpecPalette, ed *Editor, sess *ChangesSession) core
 					},
 				},
 				core.Text{
-					Content: "Commit " + m.SHA,
+					Content: ed.T("changes.milestoneCommit", l10n.Param("sha", m.SHA)),
 					Style:   core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 12, Color: fg},
 				},
 				core.Text{

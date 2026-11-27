@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -610,6 +611,74 @@ func helpGroup3D(p SpecPalette, keys []string, text string) core.Node {
 	}
 }
 
+func localizedAxisAriaName3D(ed *Editor, v View3D, fallback string) string {
+	switch v {
+	case View3DRight:
+		return ed.T("viewport3d.axisRight")
+	case View3DLeft:
+		return ed.T("viewport3d.axisLeft")
+	case View3DTop:
+		return ed.T("viewport3d.axisTop")
+	case View3DBottom:
+		return ed.T("viewport3d.axisBottom")
+	case View3DFront:
+		return ed.T("viewport3d.axisFront")
+	case View3DBack:
+		return ed.T("viewport3d.axisBack")
+	default:
+		return fallback
+	}
+}
+
+func localizedViewName3D(ed *Editor) string {
+	if ed == nil {
+		return ""
+	}
+	if name, ok := ed.cameraViewName3D(); ok {
+		return name
+	}
+	v, axis := ed.Camera3D.AxisView()
+	axisName := func(v View3D) string {
+		switch v {
+		case View3DFront:
+			return ed.T("viewport3d.viewFront")
+		case View3DBack:
+			return ed.T("viewport3d.viewBack")
+		case View3DLeft:
+			return ed.T("viewport3d.viewLeft")
+		case View3DRight:
+			return ed.T("viewport3d.viewRight")
+		case View3DTop:
+			return ed.T("viewport3d.viewTop")
+		case View3DBottom:
+			return ed.T("viewport3d.viewBottom")
+		default:
+			return v.String()
+		}
+	}
+	switch {
+	case axis && ed.Camera3D.Orthographic:
+		return ed.T("viewport3d.viewOrtho", l10n.Param("view", axisName(v)))
+	case axis:
+		return axisName(v)
+	case ed.Camera3D.Orthographic:
+		return ed.T("viewport3d.viewUserOrtho")
+	default:
+		return ed.T("viewport3d.perspective")
+	}
+}
+
+func localizedShading3D(ed *Editor, m Shading3D) string {
+	switch m {
+	case Shading3DUnlit:
+		return ed.T("viewport3d.shadingUnlit")
+	case Shading3DWireframe:
+		return ed.T("viewport3d.shadingWireframe")
+	default:
+		return ed.T("viewport3d.shadingLit")
+	}
+}
+
 // viewport3DOverlay renders the 3D viewport HUD strictly with SpecPalette tokens (Dark & Light),
 // matching design/editor/Viewport3D.dc.html:
 //   - Top-left: Persp/Ortho segmented control, Shading menu (Lit/Unlit/Wireframe), view name, Reset view, Camera/Env toggles, and the keycap help line below it.
@@ -713,7 +782,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 
 	shadingMenu := ui.Menu{
 		TestID: "view3d-shading",
-		Label:  "3D Shading",
+		Label:  ed.T("viewport3d.shadingMenuLabel"),
 		Face: core.View{
 			Style: core.Style{
 				Direction:    core.Row,
@@ -730,7 +799,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 					TestID: "view3d-shading-label",
 					ContentFunc: func() string {
 						_ = rev.Get()
-						return ed.Shading3D.String()
+						return localizedShading3D(ed, ed.Shading3D)
 					},
 					Style: core.Style{
 						FontSize:   12.5,
@@ -751,17 +820,17 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 		Children: []core.Node{
 			ui.MenuItem{
 				TestID:   "view3d-shading-lit",
-				Text:     Shading3DLit.String(),
+				Text:     localizedShading3D(ed, Shading3DLit),
 				OnSelect: func() { ed.SetShading3D(Shading3DLit) },
 			},
 			ui.MenuItem{
 				TestID:   "view3d-shading-unlit",
-				Text:     Shading3DUnlit.String(),
+				Text:     localizedShading3D(ed, Shading3DUnlit),
 				OnSelect: func() { ed.SetShading3D(Shading3DUnlit) },
 			},
 			ui.MenuItem{
 				TestID:   "view3d-shading-wireframe",
-				Text:     Shading3DWireframe.String(),
+				Text:     localizedShading3D(ed, Shading3DWireframe),
 				OnSelect: func() { ed.SetShading3D(Shading3DWireframe) },
 			},
 		},
@@ -798,14 +867,14 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 
 	overlays3DPopover := ui.Popover{
 		TestID:    "view3d-overlays",
-		Label:     "3D Overlays",
+		Label:     ed.T("viewport3d.overlays3d"),
 		Placement: core.PlaceTop,
 		Align:     core.AlignCenter,
 		Trigger: ui.Button{
 			Icon:     lucide.Layers,
 			IconSize: 13,
 			Side:     28,
-			Label:    "3D Overlays",
+			Label:    ed.T("viewport3d.overlays3d"),
 			Size:     ui.SizeSmall,
 			Variant:  ui.ButtonGhost,
 			Tint: func() core.Color {
@@ -934,15 +1003,15 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 
 	orthoKey := shortcutLabel(CmdView3DOrthographic)
 	camKey := shortcutLabel(CmdView3DCamera)
-	perspLabel := "Perspective"
-	orthoLabel := "Orthographic"
+	perspLabel := ed.T("viewport3d.perspective")
+	orthoLabel := ed.T("viewport3d.orthographic")
 	if orthoKey != "" {
-		perspLabel += " (" + orthoKey + ")"
-		orthoLabel += " (" + orthoKey + ")"
+		perspLabel = ed.T("viewport3d.perspectiveKey", l10n.Param("key", orthoKey))
+		orthoLabel = ed.T("viewport3d.orthographicKey", l10n.Param("key", orthoKey))
 	}
-	camLabel := "Look through scene camera"
+	camLabel := ed.T("viewport3d.lookThroughCamera")
 	if camKey != "" {
-		camLabel += " (" + camKey + ")"
+		camLabel = ed.T("viewport3d.lookThroughCameraKey", l10n.Param("key", camKey))
 	}
 
 	return []core.Node{
@@ -962,13 +1031,13 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 					Children: []core.Node{
 						core.View{
 							Role:  core.RoleGroup,
-							Label: "Projection",
+							Label: ed.T("viewport3d.projection"),
 							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
 							Children: []core.Node{
-								segBtn("view3d-persp", staticText("Persp"), perspLabel, func() bool { return !ortho() }, nil, func() {
+								segBtn("view3d-persp", staticText(ed.T("viewport3d.persp")), perspLabel, func() bool { return !ortho() }, nil, func() {
 									ed.SetOrthographic3D(false)
 								}),
-								segBtn("view3d-ortho", staticText("Ortho"), orthoLabel, ortho, nil, func() {
+								segBtn("view3d-ortho", staticText(ed.T("viewport3d.ortho")), orthoLabel, ortho, nil, func() {
 									ed.SetOrthographic3D(true)
 								}),
 							},
@@ -980,7 +1049,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 							TestID: "view3d-name",
 							ContentFunc: func() string {
 								_ = rev.Get()
-								return ed.ViewName3D()
+								return localizedViewName3D(ed)
 							},
 							Style: core.Style{
 								FontSize: 12.5,
@@ -988,15 +1057,15 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 								Padding:  core.Symmetric(0, 8),
 							},
 						},
-						iconBtn("view3d-reset", lucide.House, "Reset view", ed.ResetView3D),
+						iconBtn("view3d-reset", lucide.House, ed.T("viewport3d.resetView"), ed.ResetView3D),
 						divider3D(p),
-						segBtn("view3d-camera", staticText("Camera"), camLabel, func() bool {
+						segBtn("view3d-camera", staticText(ed.T("viewport3d.camera")), camLabel, func() bool {
 							_ = rev.Get()
 							return ed.LookThroughCamera3D()
 						}, cameraDisabled, func() {
 							ed.report(ed.SetLookThroughCamera3D(!ed.LookThroughCamera3D()))
 						}),
-						segBtn("view3d-env", staticText("Env"), "Toggle Scene Environment settings", func() bool {
+						segBtn("view3d-env", staticText(ed.T("viewport3d.env")), ed.T("viewport3d.envLabel"), func() bool {
 							_ = rev.Get()
 							return ed.EnvironmentPanelOpen()
 						}, nil, func() {
@@ -1007,21 +1076,21 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					fk := focusKeyMemo.Get()
 					hp := SpecPaletteFor(fk.dark)
-					orbitKeys := []string{"Drag"}
-					panKeys := []string{"Middle"}
-					helpLabel := "Drag orbit · Middle pan · Right WASD fly"
+					orbitKeys := []string{ed.T("viewport3d.keyDrag")}
+					panKeys := []string{ed.T("viewport3d.keyMiddle")}
+					helpLabel := ed.T("viewport3d.helpDefault")
 					switch fk.nav {
 					case Navigation3DBlender:
-						orbitKeys = []string{"Middle"}
-						panKeys = []string{"Shift", "Middle"}
-						helpLabel = "Middle orbit · Shift+Middle pan · Right WASD fly"
+						orbitKeys = []string{ed.T("viewport3d.keyMiddle")}
+						panKeys = []string{"Shift", ed.T("viewport3d.keyMiddle")}
+						helpLabel = ed.T("viewport3d.helpBlender")
 					case Navigation3DMaya:
-						orbitKeys = []string{"Alt", "Drag"}
-						panKeys = []string{"Middle"}
-						helpLabel = "Alt+Drag orbit · Middle pan · Right WASD fly"
+						orbitKeys = []string{"Alt", ed.T("viewport3d.keyDrag")}
+						panKeys = []string{ed.T("viewport3d.keyMiddle")}
+						helpLabel = ed.T("viewport3d.helpMaya")
 					}
 					if fk.focusKey != "" {
-						helpLabel += " · " + fk.focusKey + " focus"
+						helpLabel += ed.T("viewport3d.helpFocusSuffix", l10n.Param("key", fk.focusKey))
 					}
 					return core.View{
 						TestID: "view3d-help",
@@ -1038,10 +1107,10 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 							BorderColor:  hp.LineRaised,
 						},
 						Children: []core.Node{
-							helpGroup3D(hp, orbitKeys, "orbit"),
-							helpGroup3D(hp, panKeys, "pan"),
-							helpGroup3D(hp, []string{"Right", "WASD"}, "fly"),
-							helpGroup3D(hp, []string{fk.focusKey}, "focus"),
+							helpGroup3D(hp, orbitKeys, ed.T("viewport3d.helpOrbit")),
+							helpGroup3D(hp, panKeys, ed.T("viewport3d.helpPan")),
+							helpGroup3D(hp, []string{ed.T("viewport3d.keyRight"), "WASD"}, ed.T("viewport3d.helpFly")),
+							helpGroup3D(hp, []string{fk.focusKey}, ed.T("viewport3d.helpFocus")),
 						},
 					}
 				}),
@@ -1061,7 +1130,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 			Children: []core.Node{
 				core.View{
 					Role:  core.RoleGroup,
-					Label: "View orientation",
+					Label: ed.T("viewport3d.viewOrientation"),
 					Style: core.Style{
 						Width:        core.Pt(core.Points(axisWidgetSize3D)),
 						Height:       core.Pt(core.Points(axisWidgetSize3D)),
@@ -1075,7 +1144,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 							TestID: "view3d-axes",
 							LabelFunc: func() string {
 								_ = rev.Get()
-								return "View axes: " + ed.ViewName3D()
+								return ed.T("viewport3d.viewAxes", l10n.Param("view", localizedViewName3D(ed)))
 							},
 							Style: core.Style{
 								Position: core.Absolute,
@@ -1129,7 +1198,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 								}
 								btns = append(btns, base.Button{
 									TestID:  mark.id,
-									Label:   mark.ariaName,
+									Label:   localizedAxisAriaName3D(ed, mark.view, mark.ariaName),
 									HitSlop: slop,
 									Style: core.Style{
 										Position:       core.Absolute,
@@ -1178,8 +1247,8 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
-						iconBtn("view3d-orbit-left", lucide.RotateCcw, "Orbit 15° left", func() { ed.OrbitView3D(-orbitStep3D, 0) }),
-						iconBtn("view3d-orbit-right", lucide.RotateCw, "Orbit 15° right", func() { ed.OrbitView3D(orbitStep3D, 0) }),
+						iconBtn("view3d-orbit-left", lucide.RotateCcw, ed.T("viewport3d.orbitLeft"), func() { ed.OrbitView3D(-orbitStep3D, 0) }),
+						iconBtn("view3d-orbit-right", lucide.RotateCw, ed.T("viewport3d.orbitRight"), func() { ed.OrbitView3D(orbitStep3D, 0) }),
 					},
 				},
 			},
@@ -1203,13 +1272,13 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 					Children: []core.Node{
 						core.View{
 							Role:  core.RoleGroup,
-							Label: "Transform space",
+							Label: ed.T("viewport3d.transformSpace"),
 							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
 							Children: []core.Node{
 								segBtn("view3d-space-local", func() string {
 									_ = rev.Get()
 									return ed.T("gizmo.spaceLocal")
-								}, "Local transform space", func() bool {
+								}, ed.T("viewport3d.localTransformSpace"), func() bool {
 									_ = rev.Get()
 									return ed.GizmoSpace3D == GizmoSpaceLocal
 								}, playing, func() {
@@ -1218,7 +1287,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 								segBtn("view3d-space-global", func() string {
 									_ = rev.Get()
 									return ed.T("gizmo.spaceGlobal")
-								}, "Global transform space", func() bool {
+								}, ed.T("viewport3d.globalTransformSpace"), func() bool {
 									_ = rev.Get()
 									return ed.GizmoSpace3D == GizmoSpaceGlobal
 								}, playing, func() {
@@ -1232,13 +1301,13 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						divider3D(p),
 						core.View{
 							Role:  core.RoleGroup,
-							Label: "GridMap",
+							Label: ed.T("viewport3d.gridmapGroup"),
 							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
 							Children: []core.Node{
-								gridMapIconBtn("gridmap-tool-paint", lucide.Paintbrush, "GridMap: Paint", GridMapToolPaint),
-								gridMapIconBtn("gridmap-tool-erase", lucide.Eraser, "GridMap: Erase", GridMapToolErase),
-								gridMapIconBtn("gridmap-tool-pick", lucide.Pipette, "GridMap: Pick", GridMapToolPick),
-								gridMapIconBtn("gridmap-tool-boxfill", lucide.SquareDashed, "GridMap: Box Fill", GridMapToolBoxFill),
+								gridMapIconBtn("gridmap-tool-paint", lucide.Paintbrush, ed.T("viewport3d.gridmapPaint"), GridMapToolPaint),
+								gridMapIconBtn("gridmap-tool-erase", lucide.Eraser, ed.T("viewport3d.gridmapErase"), GridMapToolErase),
+								gridMapIconBtn("gridmap-tool-pick", lucide.Pipette, ed.T("viewport3d.gridmapPick"), GridMapToolPick),
+								gridMapIconBtn("gridmap-tool-boxfill", lucide.SquareDashed, ed.T("viewport3d.gridmapBoxFill"), GridMapToolBoxFill),
 							},
 						},
 						divider3D(p),
@@ -1246,9 +1315,9 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 							fk := focusKeyMemo.Get()
 							fp := SpecPaletteFor(fk.dark)
 							fRing := fp.FocusRing(2)
-							label := "Frame the selection"
+							label := ed.T("viewport3d.frameSelection")
 							if fk.focusKey != "" {
-								label += " (" + fk.focusKey + ")"
+								label = ed.T("viewport3d.frameSelectionKey", l10n.Param("key", fk.focusKey))
 							}
 							btnChildren := []core.Node{
 								core.Icon{
@@ -1260,7 +1329,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 									},
 								},
 								core.Text{
-									Content: "Focus",
+									Content: ed.T("viewport3d.focus"),
 									Style: core.Style{
 										FontSize:   12.5,
 										FontWeight: 500,
@@ -1312,7 +1381,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 				return core.View{
 					TestID: "view3d-place-bar",
 					Role:   core.RoleGroup,
-					Label:  "3D Place options",
+					Label:  ed.T("viewport3d.placeOptionsLabel"),
 					Style: core.Style{
 						Position:     core.Absolute,
 						Left:         core.Pt(16),
@@ -1328,20 +1397,20 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "Place",
+							Content: ed.T("viewport3d.placeLabel"),
 							Style: core.Style{
 								FontSize: 11,
 								Color:    pp.TextFaint,
 								Padding:  core.Edges{Left: 4, Right: 2},
 							},
 						},
-						segBtn("place3d-snap", staticText("Snap"), "Snap placed models to the grid", func() bool {
+						segBtn("place3d-snap", staticText(ed.T("viewport3d.placeSnap")), ed.T("viewport3d.placeSnapLabel"), func() bool {
 							_ = rev.Get()
 							return ed.PlaceSnap3D
 						}, playing, func() {
 							ed.report(ed.SetPlaceOptions3D(ed.PlaceHeight3D, !ed.PlaceSnap3D, ed.PlaceAlign3D))
 						}),
-						segBtn("place3d-align", staticText("Align"), "Align placed models to the surface", func() bool {
+						segBtn("place3d-align", staticText(ed.T("viewport3d.placeAlign")), ed.T("viewport3d.placeAlignLabel"), func() bool {
 							_ = rev.Get()
 							return ed.PlaceAlign3D
 						}, playing, func() {
@@ -1358,7 +1427,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						},
 						ui.NumberInput{
 							TestID: "place3d-height",
-							Label:  "Ground height",
+							Label:  ed.T("viewport3d.groundHeightLabel"),
 							Step:   0.5,
 							Style:  core.Style{Width: core.Pt(68)},
 							Value: func() float64 {

@@ -816,6 +816,15 @@ func dtReviewTable(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Me
 			colStyle := dtReviewColumnWidth(c, deltaCount)
 			colStyle.Direction = core.Row
 			colStyle.AlignItems = core.AlignCenter
+			var sortOrderLabel string
+			switch ariaSort {
+			case "ascending":
+				sortOrderLabel = ed.T("dtReview.sortAsc")
+			case "descending":
+				sortOrderLabel = ed.T("dtReview.sortDesc")
+			default:
+				sortOrderLabel = ed.T("dtReview.sortNone")
+			}
 			headCells = append(headCells, core.View{
 				TestID:                   "dt-review-colhead-" + c.Name,
 				Role:                     core.RoleColumnHeader,
@@ -825,7 +834,7 @@ func dtReviewTable(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Me
 				Children: []core.Node{
 					base.Button{
 						TestID: "dt-review-sort-" + c.Name,
-						Label:  fmt.Sprintf("%s, sort %s", c.Label, ariaSort),
+						Label:  ed.T("dtReview.colSortLabel", l10n.Param("col", c.Label), l10n.Param("order", sortOrderLabel)),
 						Style: core.Style{
 							Height:       core.Pt(24),
 							Direction:    core.Row,
@@ -953,7 +962,7 @@ func dtReviewDataRow(
 	// Drag grip cell.
 	gripBtn := base.Button{
 		TestID:  "dt-review-drag-" + recKey,
-		Label:   fmt.Sprintf("Move %s, row %d of %d", rec.DisplayName, recOrder+1, totalRows),
+		Label:   ed.T("dtReview.dragRowLabel", l10n.Param("name", rec.DisplayName), l10n.Param("row", recOrder+1), l10n.Param("total", totalRows)),
 		Tooltip: specTooltipNode(p, ed.T("dtReview.dragToReorder")),
 		Style: core.Style{
 			Width:          core.Pt(20),
@@ -1278,7 +1287,7 @@ func dtReviewValueCell(p SpecPalette, ed *Editor, rec DataTableReviewRecord, col
 		if diff.HasDeltaPct {
 			deltaText = FormatReviewDeltaPct(diff.DeltaPct)
 		}
-		label = fmt.Sprintf("%s %s %s to %s", rec.DisplayName, colName, oldText, nowText)
+		label = ed.T("dtReview.cellChangedLabel", l10n.Param("name", rec.DisplayName), l10n.Param("col", colName), l10n.Param("old", oldText), l10n.Param("new", nowText))
 		if deltaText != "" {
 			label += " (" + deltaText + ")"
 		}
@@ -1407,7 +1416,7 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 	if isNum {
 		children = append(children, base.Button{
 			TestID: "dt-review-edit-dec",
-			Label:  fmt.Sprintf("Lower %s %s", recKey, col.Name),
+			Label:  ed.T("dtReview.lowerCellLabel", l10n.Param("row", recKey), l10n.Param("col", col.Name)),
 			Style: core.Style{
 				Width:          core.Pt(22),
 				Height:         core.Pt(22),
@@ -1441,7 +1450,7 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 		Children: []core.Node{
 			ui.Input{
 				TestID: "dt-review-edit-input",
-				Label:  fmt.Sprintf("Edit %s %s", recKey, col.Name),
+				Label:  ed.T("dtReview.editCellLabel", l10n.Param("row", recKey), l10n.Param("col", col.Name)),
 				Style: core.Style{
 					Height:      core.Pt(22),
 					FontFamily:  core.FontMonospace,
@@ -1464,7 +1473,7 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 	if isNum {
 		children = append(children, base.Button{
 			TestID: "dt-review-edit-inc",
-			Label:  fmt.Sprintf("Raise %s %s", recKey, col.Name),
+			Label:  ed.T("dtReview.raiseCellLabel", l10n.Param("row", recKey), l10n.Param("col", col.Name)),
 			Style: core.Style{
 				Width:          core.Pt(22),
 				Height:         core.Pt(22),

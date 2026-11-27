@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 
 	"github.com/nsgo-dev/game/pkg/gltf"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/base"
@@ -64,17 +66,17 @@ func (e *Editor) GridMapPalette() GridMapPalette {
 		if e != nil && e.gridMap.loadErr != nil {
 			p.Message = e.gridMap.loadErr.Error()
 		} else {
-			p.Message = "Open a .gridmap.yaml file or select an object with a GridMap to paint"
+			p.Message = e.T("gridmap.emptyHint")
 		}
 		return p
 	}
 	if e.gridMap.grid.Library == nil {
-		p.Message = "GridMap has no mesh library"
+		p.Message = e.T("gridmap.noMeshLibrary")
 		return p
 	}
 	defs := e.gridMap.grid.Library.Items()
 	if len(defs) == 0 {
-		p.Message = fmt.Sprintf("Mesh library %q has no items", e.gridMap.meshLibrary)
+		p.Message = e.T("gridmap.emptyMeshLibrary", l10n.Param("library", strconv.Quote(e.gridMap.meshLibrary)))
 		return p
 	}
 	pal := e.activeSpecPalette()
@@ -422,7 +424,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		}
 		return base.RadioGroup{
 			TestID:   "gridmap-palette-grid",
-			Label:    fmt.Sprintf("GridMap items of %s", p.MeshLibrary),
+			Label:    ed.T("gridmap.gridLabel", l10n.Param("library", p.MeshLibrary)),
 			Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
 			Children: nodes,
 		}
@@ -443,7 +445,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Gap: 6,
 				Children: []core.Node{
 					core.Text{
-						Content: "GridMap",
+						Content: ed.T("gridmap.title"),
 						Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
 					},
 					core.Text{
@@ -463,14 +465,14 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						TestID: "gridmap-floor-label",
 						ContentFunc: func() string {
 							_ = rev.Get()
-							return fmt.Sprintf("Floor Y: %d", ed.GridMapFloor())
+							return ed.T("gridmap.floorLabel", l10n.Param("floor", ed.GridMapFloor()))
 						},
 						Style: core.Style{FontSize: 11, Color: colors.Text(), FlexGrow: 1},
 					},
 					ui.Button{
 						TestID:   "gridmap-floor-down",
 						Text:     "-",
-						Label:    "Lower floor height ([)",
+						Label:    ed.T("gridmap.floorDownLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: notPlaying,
@@ -479,7 +481,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					ui.Button{
 						TestID:   "gridmap-floor-up",
 						Text:     "+",
-						Label:    "Raise floor height (])",
+						Label:    ed.T("gridmap.floorUpLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: notPlaying,
@@ -494,14 +496,14 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						TestID: "gridmap-orient-label",
 						ContentFunc: func() string {
 							_ = rev.Get()
-							return fmt.Sprintf("Orient: %d/24", ed.GridMapOrientation())
+							return ed.T("gridmap.orientLabel", l10n.Param("orient", ed.GridMapOrientation()))
 						},
 						Style: core.Style{FontSize: 11, Color: colors.Text(), FlexGrow: 1},
 					},
 					ui.Button{
 						TestID:   "gridmap-rot-x",
 						Text:     "X",
-						Label:    "Rotate item around X (X)",
+						Label:    ed.T("gridmap.rotXLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: notPlaying,
@@ -510,7 +512,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					ui.Button{
 						TestID:   "gridmap-rot-y",
 						Text:     "Y",
-						Label:    "Rotate item around Y (Y)",
+						Label:    ed.T("gridmap.rotYLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: notPlaying,
@@ -519,7 +521,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					ui.Button{
 						TestID:   "gridmap-rot-z",
 						Text:     "Z",
-						Label:    "Rotate item around Z (Z)",
+						Label:    ed.T("gridmap.rotZLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: notPlaying,

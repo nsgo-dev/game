@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -140,19 +141,19 @@ func viewportTileOverlays(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								},
 								Children: []core.Node{
 									core.Text{
-										Content: "Reviewing",
+										Content: ed.T("tileReview.reviewing"),
 										Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 									},
 									core.View{
 										Style: core.Style{Direction: core.Row, Gap: 2},
 										Children: []core.Node{
-											tileReviewSegButton(cx, ed, "tile-review-before", "Before", func() bool {
+											tileReviewSegButton(cx, ed, "tile-review-before", ed.T("tileReview.before"), func() bool {
 												_ = rev.Get()
 												return ed.TileReviewShowingBefore()
 											}, func() {
 												ed.SetTileReviewViewMode(TileReviewBefore)
 											}),
-											tileReviewSegButton(cx, ed, "tile-review-after", "After", func() bool {
+											tileReviewSegButton(cx, ed, "tile-review-after", ed.T("tileReview.after"), func() bool {
 												_ = rev.Get()
 												return !ed.TileReviewShowingBefore()
 											}, func() {
@@ -165,7 +166,7 @@ func viewportTileOverlays(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 										Style:  core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
 										Children: []core.Node{
 											core.Text{
-												Content: "hold",
+												Content: ed.T("tileReview.hold"),
 												Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 											},
 											core.View{
@@ -243,9 +244,9 @@ func viewportTileOverlays(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							BorderColor:  p.LineRaised,
 						},
 						Children: []core.Node{
-							legendRow(p.Added.Fg, "painted", true),
-							legendRow(p.Changed.Fg, "replaced", true),
-							legendRow(p.Removed.Fg, "erased", false),
+							legendRow(p.Added.Fg, ed.T("tileReview.legendPainted"), true),
+							legendRow(p.Changed.Fg, ed.T("tileReview.legendReplaced"), true),
+							legendRow(p.Removed.Fg, ed.T("tileReview.legendErased"), false),
 						},
 					}
 				})
@@ -331,7 +332,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		return core.View{
 			TestID: "tile-review-panel",
 			Role:   core.RoleRegion,
-			Label:  "Tile edit review",
+			Label:  ed.T("tileReview.panelLabel"),
 			OnKeyDown: func(ev core.KeyEvent) bool {
 				return ed.TileReviewHandleKeyEvent(ev, true)
 			},
@@ -429,15 +430,10 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 										_ = rev.Get()
 										_, total := ed.TileReviewKeptCount()
 										cells := ed.TileReviewTotalCells()
-										rWord := "regions"
-										if total == 1 {
-											rWord = "region"
-										}
-										cWord := "cells"
-										if cells == 1 {
-											cWord = "cell"
-										}
-										return fmt.Sprintf("%d %s · %d %s", total, rWord, cells, cWord)
+										return ed.T("tileReview.headerCounts",
+											l10n.Param("regions", ed.Plural("tileReview.regionCount", total)),
+											l10n.Param("cells", ed.Plural("tileReview.cellCount", cells)),
+										)
 									},
 									Style: core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 								},
@@ -453,7 +449,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 												return core.View{
 													TestID: "tile-review-sketch-overlay",
 													Role:   core.RoleButton,
-													Label:  "Toggle sketch overlay",
+													Label:  ed.T("tileReview.sketchOverlayLabel"),
 													OnPress: func(core.PressEvent) {
 														ed.ToggleSketchReviewOverlay()
 													},
@@ -476,7 +472,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 													},
 													Children: []core.Node{
 														core.Text{
-															Content: "Sketch overlay",
+															Content: ed.T("tileReview.sketchOverlay"),
 															StyleFunc: func() core.Style {
 																_ = rev.Get()
 																curPal := ed.SpecPalette(cx)
@@ -549,17 +545,18 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 										if !kept {
 											rowOpacity = core.Alpha(0.55)
 										}
-										toggleText := "Revert"
+										toggleText := ed.T("tileReview.revert")
+										toggleLabel := ed.T("tileReview.revertRegionLabel", l10n.Param("title", region.Title))
 										toggleCol := curPal.TextSecondary
 										if !kept {
-											toggleText = "Restore"
+											toggleText = ed.T("tileReview.restore")
+											toggleLabel = ed.T("tileReview.restoreRegionLabel", l10n.Param("title", region.Title))
 											toggleCol = tileReviewRestoreTextColor(curPal)
 										}
-										cWord := "cells"
-										if len(region.Cells) == 1 {
-											cWord = "cell"
-										}
-										titleLine := fmt.Sprintf("%s · %d %s", region.Title, len(region.Cells), cWord)
+										titleLine := ed.T("tileReview.regionTitle",
+											l10n.Param("title", region.Title),
+											l10n.Param("cells", ed.Plural("tileReview.cellCount", len(region.Cells))),
+										)
 
 										rows = append(rows, core.View{
 											TestID: fmt.Sprintf("tile-review-region-%d", idx),
@@ -628,7 +625,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 												core.View{
 													TestID: fmt.Sprintf("tile-review-region-toggle-%d", idx),
 													Role:   core.RoleButton,
-													Label:  toggleText + " " + region.Title,
+													Label:  toggleLabel,
 													OnPress: func(core.PressEvent) {
 														ed.report(ed.ToggleTileReviewRegion(region.ID))
 													},
@@ -673,7 +670,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								core.View{
 									TestID: "tile-review-keep",
 									Role:   core.RoleButton,
-									Label:  "Keep selected tile regions",
+									Label:  ed.T("tileReview.keepLabel"),
 									OnPress: func(core.PressEvent) {
 										if _, err := ed.KeepTileReview(); err != nil {
 											ed.report(err)
@@ -694,7 +691,10 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											ContentFunc: func() string {
 												_ = rev.Get()
 												kept, total := ed.TileReviewKeptCount()
-												return fmt.Sprintf("Keep %d of %d", kept, total)
+												return ed.T("tileReview.keepCount",
+													l10n.Param("kept", kept),
+													l10n.Param("total", total),
+												)
 											},
 											Style: core.Style{FontSize: 12, FontWeight: 600, Color: p.Accent.OnFill},
 										},
@@ -703,7 +703,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								core.View{
 									TestID: "tile-review-revert-all",
 									Role:   core.RoleButton,
-									Label:  "Revert all tile edits",
+									Label:  ed.T("tileReview.revertAllLabel"),
 									OnPress: func(core.PressEvent) {
 										ed.report(ed.RevertAllTileReview())
 									},
@@ -718,7 +718,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									},
 									Children: []core.Node{
 										core.Text{
-											Content: "Revert all",
+											Content: ed.T("tileReview.revertAll"),
 											Style:   core.Style{FontSize: 12, FontWeight: 500, Color: p.TextSecondary},
 										},
 									},

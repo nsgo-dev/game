@@ -60,13 +60,20 @@ func templateSwatchColor(p SpecPalette, name string) core.Color {
 // live-validated New Project bar with a single primary Create button, and streaming `game new` output.
 func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	ed.ensureStartScreenInit()
-	darkMemo := core.NewMemo(cx, func() bool {
+	type startScreenRenderKey struct {
+		dark bool
+		lang string
+	}
+	renderKey := core.NewMemo(cx, func() startScreenRenderKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return startScreenRenderKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get())
+		p := SpecPaletteFor(renderKey.Get().dark)
 		return core.View{
 			TestID: "editor-start-screen",
 			Style: core.Style{
@@ -148,7 +155,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Children: []core.Node{
 					core.Text{
 						TestID:  "start-title",
-						Content: "NSGo Editor",
+						Content: ed.T("startScreen.title"),
 						Style: core.Style{
 							FontSize:   18,
 							FontWeight: 600,
@@ -163,8 +170,8 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						Then: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:  "start-back-to-editor",
-								Text:    "Back",
-								Label:   "Return to open editor",
+								Text:    ed.T("startScreen.back"),
+								Label:   ed.T("startScreen.backLabel"),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.LineRaised },
@@ -188,13 +195,13 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			core.View{
 				Style: core.Style{Gap: 4},
 				Children: []core.Node{
-					navBtn("start-nav-new", "New project", true, lucide.Plus, func() {
+					navBtn("start-nav-new", ed.T("startScreen.newProject"), true, lucide.Plus, func() {
 						ed.SetStartScreenOpen(true)
 					}),
-					navBtn("start-open-folder", "Open folder…", false, lucide.FolderOpen, func() {
+					navBtn("start-open-folder", ed.T("startScreen.openFolder"), false, lucide.FolderOpen, func() {
 						ed.report(ed.BrowseAndOpenProject())
 					}),
-					navBtn("start-open-demo", "Open demo", false, lucide.Play, func() {
+					navBtn("start-open-demo", ed.T("startScreen.openDemo"), false, lucide.Play, func() {
 						ed.report(ed.RequestOpenDemo())
 					}),
 				},
@@ -219,7 +226,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 							},
 							core.Text{
 								TestID:  "start-recent-heading",
-								Content: "RECENT",
+								Content: ed.T("startScreen.recentHeading"),
 								Style: core.Style{
 									FontSize:      11,
 									FontWeight:    600,
@@ -258,7 +265,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 }
 
 func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEntry, now time.Time) core.Node {
-	relTime := formatRelativeTime(entry.LastOpened, now)
+	relTime := ed.localizedRelativeTime(entry.LastOpened, now)
 	shortPath := shortenHomePath(entry.Path)
 	meta := shortPath + " · " + relTime
 	nameColor := p.TextPrimary
@@ -278,7 +285,7 @@ func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEnt
 			core.View{
 				TestID: fmt.Sprintf("start-recent-%d", index),
 				Role:   core.RoleButton,
-				Label:  "Open recent project " + entry.Name,
+				Label:  ed.T("startScreen.openRecentLabel", l10n.Param("name", entry.Name)),
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
@@ -288,7 +295,7 @@ func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEnt
 				},
 				OnPress: func(core.PressEvent) {
 					if entryMissing {
-						ed.reportStatusError("Project folder is missing: " + entryPath)
+						ed.reportStatusError(ed.T("startScreen.missingProjectError", l10n.Param("path", entryPath)))
 						return
 					}
 					ed.report(ed.RequestOpenProject(entryPath))
@@ -323,7 +330,7 @@ func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEnt
 										},
 										Children: []core.Node{
 											core.Text{
-												Content: "Missing",
+												Content: ed.T("startScreen.missingBadge"),
 												Style: core.Style{
 													FontSize:   10,
 													FontWeight: 600,
@@ -351,7 +358,7 @@ func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEnt
 					return ui.Button{
 						TestID:  fmt.Sprintf("start-recent-remove-%d", index),
 						Icon:    lucide.X,
-						Label:   "Remove missing recent project " + entry.Name,
+						Label:   ed.T("startScreen.removeMissingLabel", l10n.Param("name", entry.Name)),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Side:    28,
@@ -571,7 +578,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		Style:  core.Style{Gap: 12},
 		Children: []core.Node{
 			core.Text{
-				Content: "What do you want to make?",
+				Content: ed.T("startScreen.ideaHeading"),
 				Style: core.Style{
 					FontSize:   20,
 					FontWeight: 600,
@@ -590,9 +597,9 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				Children: []core.Node{
 					specInputField(cx, ed, ui.Input{
 						TestID:      "start-idea-input",
-						Label:       "Describe your game",
+						Label:       ed.T("startScreen.ideaLabel"),
 						Multiline:   true,
-						Placeholder: "A cozy farming game where you grow glowing mushrooms in a cave and trade them with moths at night…",
+						Placeholder: ed.T("startScreen.ideaPlaceholder"),
 						Value: func() string {
 							_ = rev.Get()
 							return ed.StartProjectIdea()
@@ -621,11 +628,11 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							core.Dynamic(func(cx *core.Scope) core.Node {
 								_ = rev.Get()
 								dotColor := p.TextFaint
-								status := "No agent connected yet"
+								status := ed.T("startScreen.noAgentConnected")
 								if ed.FirstRunAgentConnected() {
 									_, name, _ := ed.FirstRunConnectedAgent()
 									dotColor = p.Added.Fg
-									status = name + " connected"
+									status = ed.T("startScreen.agentConnected", l10n.Param("name", name))
 								}
 								return core.View{
 									TestID: "start-agent-status",
@@ -659,7 +666,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							// Quiet/accent styling paired with Start screen Create button (Spec tokens, Dark & Light).
 							specPanelButton(p, specPanelButtonSpec{
 								TestID:  "start-ai-btn",
-								Text:    "Start with AI",
+								Text:    ed.T("startScreen.startWithAI"),
 								Icon:    lucide.Sparkles,
 								Variant: specBtnAccent,
 								Disabled: func() bool {
@@ -672,7 +679,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							}),
 						},
 					},
-					startWhatHappensNextView(p),
+					startWhatHappensNextView(p, ed),
 				},
 			},
 		},
@@ -728,7 +735,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						Style: core.Style{Gap: 4},
 						Children: []core.Node{
 							core.Text{
-								Content: "Or start from a template",
+								Content: ed.T("startScreen.templatesHeading"),
 								Style: core.Style{
 									FontSize:   14,
 									FontWeight: 600,
@@ -736,7 +743,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 								},
 							},
 							core.Text{
-								Content: "Each one is a small, playable game you grow into your own.",
+								Content: ed.T("startScreen.templatesSubtitle"),
 								Style: core.Style{
 									FontSize: 12.5,
 									Color:    p.TextMuted,
@@ -747,7 +754,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					core.View{
 						Style: core.Style{Direction: core.Row, Gap: 6},
 						Children: []core.Node{
-							filterChip("all", "All"),
+							filterChip("all", ed.T("startScreen.filterAll")),
 							filterChip("2d", "2D"),
 							filterChip("3d", "3D"),
 						},
@@ -773,7 +780,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "No templates match the active filter.",
+								Content: ed.T("startScreen.templatesEmpty"),
 								Style: core.Style{
 									FontSize: 12.5,
 									Color:    p.TextSecondary,
@@ -781,7 +788,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							},
 							ui.Button{
 								TestID:  "start-templates-show-all",
-								Text:    "Show all",
+								Text:    ed.T("startScreen.showAll"),
 								Variant: ui.ButtonSecondary,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.LineRaised },
@@ -815,7 +822,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					cards = append(cards, core.View{
 						TestID: "start-template-" + tmpl.Name,
 						Role:   core.RoleButton,
-						Label:  "Select template " + tmpl.DisplayTitle(),
+						Label:  ed.T("startScreen.selectTemplateLabel", l10n.Param("title", tmpl.DisplayTitle())),
 						Style: core.Style{
 							Width:        core.Pt(220),
 							Background:   p.Raised,
@@ -923,13 +930,13 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Style: core.Style{Width: core.Pt(180), Gap: 4},
 						Children: []core.Node{
 							core.Text{
-								Content: "Name",
+								Content: ed.T("startScreen.nameHeading"),
 								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
 							specInputField(cx, ed, ui.Input{
 								TestID:      "start-new-name",
-								Label:       "Project name",
-								Placeholder: "my-game",
+								Label:       ed.T("startScreen.projectNameLabel"),
+								Placeholder: ed.T("startScreen.projectNamePlaceholder"),
 								Value: func() string {
 									_ = rev.Get()
 									return ed.StartProjectName()
@@ -953,7 +960,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(200), Gap: 4},
 						Children: []core.Node{
 							core.Text{
-								Content: "Folder",
+								Content: ed.T("startScreen.folderHeading"),
 								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
 							core.View{
@@ -961,8 +968,8 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Children: []core.Node{
 									specInputField(cx, ed, ui.Input{
 										TestID:      "start-new-folder",
-										Label:       "Parent folder",
-										Placeholder: "~/games",
+										Label:       ed.T("startScreen.parentFolderLabel"),
+										Placeholder: ed.T("startScreen.parentFolderPlaceholder"),
 										Value: func() string {
 											_ = rev.Get()
 											return ed.StartProjectParentDir()
@@ -983,7 +990,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									}),
 									ui.Button{
 										TestID:  "start-new-folder-browse",
-										Text:    "Browse…",
+										Text:    ed.T("startScreen.browse"),
 										Variant: ui.ButtonSecondary,
 										Size:    ui.SizeSmall,
 										Color:   func() core.Color { return p.LineRaised },
@@ -1008,13 +1015,13 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Style: core.Style{Width: core.Pt(220), Gap: 4},
 						Children: []core.Node{
 							core.Text{
-								Content: "Module path (optional)",
+								Content: ed.T("startScreen.moduleHeading"),
 								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
 							specInputField(cx, ed, ui.Input{
 								TestID:      "start-new-module",
-								Label:       "Go module path",
-								Placeholder: "example.com/my-game",
+								Label:       ed.T("startScreen.moduleLabel"),
+								Placeholder: ed.T("startScreen.modulePlaceholder"),
 								Value: func() string {
 									_ = rev.Get()
 									return ed.StartProjectModule()
@@ -1049,13 +1056,14 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = rev.Get()
 						st := ed.StartNameStatus()
+						msg := ed.localizedStartNameMessage(st)
 						if st.OK {
 							return core.View{
 								TestID: "start-name-status",
 								Style:  core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 								Children: []core.Node{
 									core.Text{
-										Content: st.Message,
+										Content: msg,
 										Style: core.Style{
 											FontSize: 12,
 											Color:    p.Added.Fg,
@@ -1066,7 +1074,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						}
 						children := []core.Node{
 							core.Text{
-								Content: st.Message,
+								Content: msg,
 								Style: core.Style{
 									FontSize: 12,
 									Color:    p.Removed.Fg,
@@ -1079,7 +1087,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							children = append(children,
 								ui.Button{
 									TestID:  "start-name-open-existing",
-									Text:    "Open it",
+									Text:    ed.T("startScreen.openExisting"),
 									Variant: ui.ButtonSecondary,
 									Size:    ui.SizeSmall,
 									Color:   func() core.Color { return p.LineRaised },
@@ -1098,7 +1106,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								},
 								ui.Button{
 									TestID:  "start-name-use-suggestion",
-									Text:    "Use " + suggested,
+									Text:    ed.T("startScreen.useSuggested", l10n.Param("name", suggested)),
 									Variant: ui.ButtonSecondary,
 									Size:    ui.SizeSmall,
 									Color:   func() core.Color { return p.LineRaised },
@@ -1142,13 +1150,13 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									sel := ed.SelectedProjectTemplate()
 									for _, t := range ed.ProjectTemplates() {
 										if t.Name == sel {
-											return "Template: " + t.DisplayTitle()
+											return ed.T("startScreen.pickedTemplate", l10n.Param("title", t.DisplayTitle()))
 										}
 									}
 									if sel == "" {
-										return "Template: Starter"
+										return ed.T("startScreen.pickedTemplateDefault")
 									}
-									return "Template: " + sel
+									return ed.T("startScreen.pickedTemplate", l10n.Param("title", sel))
 								},
 								Style: core.Style{
 									FontSize: 12.5,
@@ -1158,8 +1166,8 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							// Single primary button on the screen: inverted Spec TextPrimary/Bg (AAA in both Dark and Light).
 							ui.Button{
 								TestID:    "start-create",
-								Text:      "Create",
-								BusyLabel: "Creating…",
+								Text:      ed.T("startScreen.create"),
+								BusyLabel: ed.T("startScreen.creating"),
 								Variant:   ui.ButtonPrimary,
 								Size:      ui.SizeSmall,
 								Color:     func() core.Color { return p.TextPrimary },
@@ -1217,12 +1225,12 @@ func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 						ContentFunc: func() string {
 							_ = rev.Get()
 							if ed.CreatingProject() {
-								return "CREATING PROJECT…"
+								return ed.T("startScreen.creatingProjectHeading")
 							}
 							if ed.CreateProjectErr() != nil {
-								return "PROJECT CREATION FAILED"
+								return ed.T("startScreen.creationFailedHeading")
 							}
-							return "PROJECT CREATION OUTPUT"
+							return ed.T("startScreen.creationOutputHeading")
 						},
 						Style: core.Style{
 							FontSize:      11,
@@ -1267,5 +1275,59 @@ func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 				},
 			}
 		},
+	}
+}
+
+func (e *Editor) localizedStartNameMessage(st StartNameValidation) string {
+	switch {
+	case st.OK && st.DisplayPath != "":
+		return e.T("startScreen.validation.creates", l10n.Param("path", st.DisplayPath))
+	case st.Message == "Enter a project name.":
+		return e.T("startScreen.validation.enterName")
+	case st.InvalidChars:
+		return e.T("startScreen.validation.invalidChars")
+	case st.Exists && st.DisplayPath != "":
+		return e.T("startScreen.validation.alreadyExists", l10n.Param("path", st.DisplayPath))
+	case st.NotWritable && strings.HasPrefix(st.Message, "No write access to "):
+		return e.T("startScreen.validation.noWriteAccess", l10n.Param("path", strings.TrimPrefix(st.Message, "No write access to ")))
+	case strings.HasPrefix(st.Message, "Invalid module path: "):
+		return e.T("startScreen.validation.invalidModule", l10n.Param("err", strings.TrimPrefix(st.Message, "Invalid module path: ")))
+	default:
+		return st.Message
+	}
+}
+
+func (e *Editor) localizedRelativeTime(rfc3339 string, now time.Time) string {
+	t, err := time.Parse(time.RFC3339, rfc3339)
+	if err != nil {
+		return rfc3339
+	}
+	d := now.Sub(t)
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return e.T("startScreen.relTime.justNow")
+	case d < time.Hour:
+		mins := int(d.Minutes())
+		if mins == 1 {
+			return e.T("startScreen.relTime.oneMinAgo")
+		}
+		return e.T("startScreen.relTime.minsAgo", l10n.Param("count", mins))
+	case d < 24*time.Hour:
+		hrs := int(d.Hours())
+		if hrs == 1 {
+			return e.T("startScreen.relTime.oneHourAgo")
+		}
+		return e.T("startScreen.relTime.hoursAgo", l10n.Param("count", hrs))
+	case d < 48*time.Hour:
+		return e.T("startScreen.relTime.yesterday")
+	case d < 7*24*time.Hour:
+		return e.T("startScreen.relTime.daysAgo", l10n.Param("count", int(d.Hours()/24)))
+	case d < 14*24*time.Hour:
+		return e.T("startScreen.relTime.lastWeek")
+	default:
+		return t.UTC().Format("2006-01-02")
 	}
 }

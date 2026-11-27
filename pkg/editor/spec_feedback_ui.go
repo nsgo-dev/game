@@ -194,6 +194,7 @@ func toastAnimatedBranch(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], i
 
 	type toastStructKey struct {
 		dark           bool
+		lang           string
 		kind           ToastKind
 		actionLabel    string
 		actionShortcut string
@@ -203,6 +204,7 @@ func toastAnimatedBranch(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], i
 		t, _ := readToast()
 		return toastStructKey{
 			dark:           cx.Dark(),
+			lang:           ed.ResolvedLanguage(),
 			kind:           t.Kind,
 			actionLabel:    t.ActionLabel,
 			actionShortcut: t.ActionShortcut,
@@ -397,7 +399,7 @@ func specLiveToastCard(
 	}
 
 	if canDismiss {
-		children = append(children, specToastDismissButton(p, dismissRef, func() {
+		children = append(children, specToastDismissButton(ed, p, dismissRef, func() {
 			if ed == nil {
 				return
 			}
@@ -560,12 +562,12 @@ func specToastActionButton(p SpecPalette, label, shortcut string, bg, border cor
 	}
 }
 
-func specToastDismissButton(p SpecPalette, ref *core.Ref, onDismiss func()) core.Node {
+func specToastDismissButton(ed *Editor, p SpecPalette, ref *core.Ref, onDismiss func()) core.Node {
 	return core.View{
 		Ref:       ref,
 		TestID:    "editor-toast-dismiss",
 		Role:      core.RoleButton,
-		Label:     "Dismiss",
+		Label:     ed.T("specFeedback.dismiss"),
 		Focusable: func() bool { return true },
 		Style: core.Style{
 			Width:          core.Pt(28),
@@ -676,7 +678,7 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 	}
 
 	if t.canDismiss() {
-		children = append(children, specToastDismissButton(p, dismissRef, onDismiss))
+		children = append(children, specToastDismissButton(nil, p, dismissRef, onDismiss))
 	}
 
 	if t.Kind == ToastProgress {
@@ -1008,9 +1010,9 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
 		p := ed.SpecPalette(cx)
-		modeLabel := "Light theme"
+		modeLabel := ed.T("specFeedback.lightTheme")
 		if p.Dark {
-			modeLabel = "Dark theme"
+			modeLabel = ed.T("specFeedback.darkTheme")
 		}
 
 		drawVPBackdrop := func(d *core.Drawing, sz core.Size) {
@@ -1077,8 +1079,8 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 		selectionCard := card(
 			"spec-legend-selection",
-			"Selection",
-			"accent · 1.5 px solid · four handles and a name tag.",
+			ed.T("specFeedback.legend.selectionTitle"),
+			ed.T("specFeedback.legend.selectionDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
@@ -1090,21 +1092,21 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 		agentCard := card(
 			"spec-legend-agent",
-			"Agent working",
-			"agent · 1.5 px solid · pulsing violet · agent pill.",
+			ed.T("specFeedback.legend.agentTitle"),
+			ed.T("specFeedback.legend.agentDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
 				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 15), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
 				d.SetFillColor(ui.Alpha(p.Agent.Fg, 0.28)).BeginPath().RoundRect(cx-15, fy-22, 30, 22, 8).Fill()
-				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAgent, Label: "placing slime_02", Bounds: bounds, CanvasSize: sz})
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAgent, Label: ed.T("specFeedback.sample.placingSlime"), Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
 		addedCard := card(
 			"spec-legend-added",
-			"Added",
-			"added · 1.5 px dashed · “+ name” pill.",
+			ed.T("specFeedback.legend.addedTitle"),
+			ed.T("specFeedback.legend.addedDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
@@ -1116,8 +1118,8 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 		changedCard := card(
 			"spec-legend-changed",
-			"Changed",
-			"changed · 1.5 px dashed · field old → new pill.",
+			ed.T("specFeedback.legend.changedTitle"),
+			ed.T("specFeedback.legend.changedDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
@@ -1129,8 +1131,8 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 		removedCard := card(
 			"spec-legend-removed",
-			"Removed",
-			"removed · 1.5 px solid around 25% grey ghost · struck-through name.",
+			ed.T("specFeedback.legend.removedTitle"),
+			ed.T("specFeedback.legend.removedDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
@@ -1141,21 +1143,21 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 		problemCard := card(
 			"spec-legend-problem",
-			"Problem",
-			"problem · 2 px solid on live object · filled alert pill.",
+			ed.T("specFeedback.legend.problemTitle"),
+			ed.T("specFeedback.legend.problemDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
 				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 14), Y: core.Points(fy - 38)}, Size: core.Size{Width: 28, Height: 38}}
 				d.SetFillColor(p.TextMuted).BeginPath().RoundRect(cx-14, fy-38, 28, 38, 4).Fill()
-				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindProblem, Label: "door: lever_02 missing", Bounds: bounds, CanvasSize: sz})
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindProblem, Label: ed.T("specFeedback.sample.doorMissing"), Bounds: bounds, CanvasSize: sz})
 			},
 		)
 
 		focusedCard := card(
 			"spec-legend-focused",
-			"Focused change in Review",
-			"own color & dash · 2.5 px · outlined pill · never accent.",
+			ed.T("specFeedback.legend.focusedTitle"),
+			ed.T("specFeedback.legend.focusedDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
@@ -1171,15 +1173,15 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 		pairedCard := card(
 			"spec-legend-paired",
-			"Selection + Agent",
-			"selection keeps handles · agent outline sits 3 px further out.",
+			ed.T("specFeedback.legend.pairedTitle"),
+			ed.T("specFeedback.legend.pairedDesc"),
 			func(d *core.Drawing, sz core.Size) {
 				cx := float32(sz.Width) / 2
 				fy := float32(sz.Height) - 34
 				bounds := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
 				d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(cx-12, fy-34, 24, 34, 4).Fill()
 				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindSelection, Label: "Knight", Bounds: bounds, CanvasSize: sz})
-				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAgent, Label: "tuning jump", Bounds: bounds, CanvasSize: sz, PairedWithSelection: true, PillStackOffset: 24})
+				DrawObjectOverlay(d, p, ObjectOverlay{Kind: OverlayKindAgent, Label: ed.T("specFeedback.sample.tuningJump"), Bounds: bounds, CanvasSize: sz, PairedWithSelection: true, PillStackOffset: 24})
 			},
 		)
 
@@ -1204,7 +1206,7 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 							Style: core.Style{Gap: 4},
 							Children: []core.Node{
 								core.Text{
-									Content: "Overlay legend",
+									Content: ed.T("specFeedback.legend.boardTitle"),
 									Style: core.Style{
 										FontSize:   20,
 										FontWeight: 600,
@@ -1212,7 +1214,7 @@ func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									},
 								},
 								core.Text{
-									Content: "One meaning per color and line. Every overlay also has a second cue: handles, a label pill, a ghost or a pulse.",
+									Content: ed.T("specFeedback.legend.boardDesc"),
 									Style: core.Style{
 										FontSize: 12.5,
 										Color:    p.TextFaint,

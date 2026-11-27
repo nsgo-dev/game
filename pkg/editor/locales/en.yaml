@@ -118,6 +118,94 @@ strings:
   agentPanel.statusStopped: Stopped
   agentPanel.tab: Agent
   agentPanel.viewportImage: Viewport image
+  agentRefExtra.errEmptyPath: 'cannot attach empty file path: only PNG, JPEG, or WebP images are supported'
+  agentRefExtra.errNotRegularFile: 'cannot attach {name} (not a regular file): only PNG, JPEG, or WebP images are supported'
+  agentRefExtra.errTooMany: cannot attach more than {max} reference images to one request
+  agentRefExtra.errUnsupportedExt: 'cannot attach {name} ({ext}): only PNG, JPEG, or WebP images are supported'
+  agentRefExtra.pickerButton: Attach
+  agentRefExtra.pickerTitle: Attach reference image
+  agentRefExtra.pickerTypesName: Images (PNG, JPEG, WebP)
+  agentRefExtra.pinHistoryLabel: Pin {name} to brief
+  agentRefExtra.statusAttached: Attached {name} for this request
+  agentRefExtra.statusPinned: Pinned {name} to brief.yaml
+  agentRefExtra.statusUndidPin: Undid pin of {name}
+  agentReview.closePanel: Close review changes panel
+  agentReview.deleteCount: Delete {count}
+  agentReview.deletionApplied: Deleted · ⌘Z restores from checkpoint
+  agentReview.deletionConfirmed: Deletion confirmed · happens with Keep
+  agentReview.deletionKept: The file stays · the rest of the review is unchanged
+  agentReview.deletionPendingHint: Keep leaves this file alone until you confirm the deletion here. ⌘Z restores it from the checkpoint.
+  agentReview.keepAll: Keep all
+  agentReview.keepAndDelete: Keep {keep} and delete {delete}
+  agentReview.keepOf: Keep {unkept} of {active}
+  agentReview.kept: Kept
+  agentReview.moreLines: '  {count} more lines'
+  agentReview.revertItem: Revert {title}
+  agentReview.reverted: Reverted
+  agentReview.subheaderMany: '{count} CHANGES · {count} FILES'
+  agentReview.subheaderManyFrom: '{count} CHANGES · {count} FILES · from “{prompt}”'
+  agentReview.subheaderOne: 1 CHANGE · 1 FILE
+  agentReview.subheaderOneFrom: 1 CHANGE · 1 FILE · from “{prompt}”
+  agentReview.undoConfirmDeletion: Undo confirm deletion
+  agentReview.undoKeepFile: Undo keep file
+  agentStates.askResumeLabel: Pick up at step {step}?
+  agentStates.askWhy: Ask why
+  agentStates.changesOneFileMany: '{count} changes · 1 file'
+  agentStates.changesOneFileOne: 1 change · 1 file
+  agentStates.close: Close
+  agentStates.colReview: REVIEW
+  agentStates.colSummary: SUMMARY
+  agentStates.colWhat: WHAT
+  agentStates.continueAtStep: Continue at step {step}
+  agentStates.continueWithHint: Continue with hint
+  agentStates.doneHeading: DONE
+  agentStates.firstStepNotDone: the first step not done
+  agentStates.hintLabel: Hint for the agent
+  agentStates.hintPlaceholder: Tell the agent what to use…
+  agentStates.keepThese: Keep these
+  agentStates.keptChanges: Kept changes · ⌘Z undoes
+  agentStates.keptCount: Kept {count} changes · ⌘Z undoes
+  agentStates.keptCountLeftOut: Kept {count} changes · {target} left out · ⌘Z undoes
+  agentStates.keptLeftOut: Kept changes · {target} left out · ⌘Z undoes
+  agentStates.letMePoint: Let me point
+  agentStates.lostCaption: After reconnecting, the agent asks before it picks up at step {step}.
+  agentStates.mismatchCaption: The editor checks every summary against the actual diff. The review, not the summary, is what Keep applies.
+  agentStates.notDoneHeading: NOT DONE
+  agentStates.notNow: Not now
+  agentStates.nothingQueued: Nothing queued.
+  agentStates.offlineBody: Select, move, the inspector, game check and Play all work. Requests wait here.
+  agentStates.offlineTitle: You're offline
+  agentStates.openReview: Open review
+  agentStates.queueOfflineCaption: 'Back online, nothing runs on its own: each queued request waits for you to send it.'
+  agentStates.queuedHeading: QUEUED · {count}
+  agentStates.queuedMeta: queued
+  agentStates.queuedMetaAt: queued {time}
+  agentStates.reconnect: Reconnect
+  agentStates.reconnectedPickUp: Reconnected · pick up at step {step}?
+  agentStates.removeQueuedLabel: Remove “{prompt}” from the queue
+  agentStates.resume: Resume
+  agentStates.retryNow: Retry now
+  agentStates.reviewChangesMany: Review {count} changes
+  agentStates.reviewChangesOne: Review 1 change
+  agentStates.reviewDrawerTitle: Review · {file} ({count} changes)
+  agentStates.reviewNoChanges: No object changes in this review.
+  agentStates.sendQueuedLabel: Send {prompt}
+  agentStates.stepsAlreadyDone: Steps 1–{done} are already done. Continue from step {next}?
+  agentStates.stopHere: Stop here
+  agentStates.stoppedCaption: Resume starts at {step}; steps already done are not redone.
+  agentStates.stoppedCaptionUnkeptMany: Resume starts at {step}; steps already done are not redone. The {count} changes stay unkept until you review them.
+  agentStates.stoppedCaptionUnkeptOne: Resume starts at {step}; steps already done are not redone. The 1 change stays unkept until you review it.
+  agentStates.stuckStoppedNothing: Stopped. Nothing was changed; the failed edits were refused before they touched the file.
+  agentStates.stuckStoppedPartial: Stopped. The failed edits were refused before they touched the file; earlier changes stay in review.
+  agentStates.stuckTitle: Paused instead of guessing again
+  agentStates.troubleshoot: Troubleshoot
+  agentStates.tryAnotherWay: Try another way
+  agentStates.useFallback: Use {agent}
+  agentSteps.changesAndSteps: '{changes} changes · {steps} steps'
+  agentSteps.keptUndoes: Kept · {undoKey} undoes
+  agentSteps.revertedRestored: Reverted · scene restored
+  agentSteps.stepsPendingMany: '{count} steps pending review'
+  agentSteps.stepsPendingOne: 1 step pending review
   agentTurn.cancel: Cancel
   agentTurn.changeWord: change
   agentTurn.changesWord: changes
@@ -147,6 +235,143 @@ strings:
   agentTurn.undo: Undo
   agentTurn.whyPrefix: 'Why: '
   agentTurn.working: Agent working…
+  agentUI.agentPanelLabel: Agent panel
+  agentUI.apiKey: API key
+  agentUI.choiceKeyDesc: The editor talks to the model itself
+  agentUI.choiceKeyTitle: Built in, with your API key
+  agentUI.choiceLocalDesc: Claude Code, Codex or any MCP client you already use
+  agentUI.choiceLocalTitle: An agent on this computer
+  agentUI.choiceNoneDesc: Edit by hand; the Agent panel stays closed
+  agentUI.choiceNoneTitle: No agent
+  agentUI.connectAgent: Connect agent
+  agentUI.connectAnAgent: Connect an agent
+  agentUI.connectChoicesLabel: How the editor reaches the agent
+  agentUI.connectIntro: 'The editor serves this project over MCP: the agent reads and edits the scene, sees the viewport, runs checks and playtests. Pick how it reaches the agent; you can change this any time.'
+  agentUI.connectedAPI: Connected · API
+  agentUI.connectedAPILabel: Connected · API ({tooltip})
+  agentUI.connectedClient: Connected · {client}
+  agentUI.connectedMCP: Connected · MCP
+  agentUI.connectedMCPLabel: Connected · MCP ({tooltip})
+  agentUI.copied: Copied
+  agentUI.copy: Copy
+  agentUI.copyInstallCmd: Copy install command
+  agentUI.disconnectedOffline: Disconnected · offline
+  agentUI.emptyBodyConnected: Describe what you want to change. Every edit runs through the editor's MCP server so you can see it live and undo it in one step.
+  agentUI.emptyBodyDisconnected: Connect Claude Code, Codex, or any MCP client on this computer. Manual editing tools keep working in every state.
+  agentUI.emptyHeadingConnected: Ask the agent to edit this scene
+  agentUI.emptyHeadingDisconnected: Connect an agent to start
+  agentUI.foundOnComputer: 'Found on this computer:'
+  agentUI.fromTerminal: From terminal · {name}
+  agentUI.installHint: 'Run this once in the project folder; the agent then finds the editor by itself:'
+  agentUI.keyStoredHint: Key stored in system keychain · leave blank to keep current key
+  agentUI.keychainHint: Kept in the system keychain, never in the project files.
+  agentUI.limitReachedResets: Limit reached · resets {reset}
+  agentUI.mayWithoutAsking: THE AGENT MAY, WITHOUT ASKING
+  agentUI.noneDetected: None detected yet
+  agentUI.openUsageSettings: Open Usage and privacy settings
+  agentUI.pasteKey: Paste a key
+  agentUI.permEditGo: Edit Go code
+  agentUI.permEditScenes: Edit scenes and data (always reviewable)
+  agentUI.permFooterHint: Anything not ticked asks first.
+  agentUI.permRunCheck: Run game check
+  agentUI.permRunPlaytests: Run headless playtests
+  agentUI.queuedAt: queued {time}
+  agentUI.queuedHeading: QUEUED · {count}
+  agentUI.queuedLimitCaption: When the limit resets or you raise it, each queued request waits for you to send it.
+  agentUI.recommended: Recommended
+  agentUI.reconnect: Reconnect
+  agentUI.reconnectingTry: Reconnecting · try {attempt} of {total}
+  agentUI.redetectLocal: Re-detect local agents
+  agentUI.removeFromQueue: Remove {prompt} from queue
+  agentUI.retryNow: Retry now
+  agentUI.sendQueuedLabel: Send queued request
+  agentUI.stoppedUndoable: Stopped · edits already made stay undoable.
+  agentUI.terminalSession: Terminal MCP session
+  agentUI.troubleshoot: Troubleshoot
+  agentUI.troubleshootAPIKey: Troubleshooting · API key configuration
+  agentUI.troubleshootAPIKeyBody: The built-in API key could not be verified. Check your key in the system keychain or paste a new key.
+  agentUI.troubleshootInstall: 'Troubleshooting · Step 1: Project MCP configuration'
+  agentUI.troubleshootMCPBody: The MCP connection stopped answering. Confirm the project configuration and reconnect your agent.
+  agentUI.troubleshootWaiting: Troubleshooting · Waiting for MCP connection
+  agentUI.usage: Usage
+  agentUI.useAgent: Use {agent}
+  agentUI.waitingElapsed: Waiting for you · {elapsed}
+  agentUI.waitingFocusLabel: Waiting for you, {elapsed}. Focus open request
+  agentUI.waitingForConnect: Waiting for an agent to connect…
+  agentUI.weeklyLimitBody: This week's limit ({used} of {limit} requests) is used. Requests wait in the queue until the reset or until you raise the limit; only you can.
+  agentUI.weeklyLimitReached: Weekly limit reached
+  agentUI.workingStep: Working · step {step}
+  agentUI.workingStepOf: Working · step {step} of {total}
+  anim.addEvent: Add Event
+  anim.addEventTooltip: Add named event at the current playhead time
+  anim.asepriteTag: Aseprite tag
+  anim.clipLengthLabel: Clip Length (seconds)
+  anim.clipNameLabel: Clip Name
+  anim.clipNamePlaceholder: Clip name
+  anim.closeAnimation: Close Animation
+  anim.currentFramePlaceholder: Current frame
+  anim.deleteEvent: Delete Event
+  anim.deleteEventTooltip: Delete the selected event marker
+  anim.deleteKey: Delete Key
+  anim.deleteKeyTooltip: Delete the selected keyframe
+  anim.emptyDesc: Choose a property above and press Key to add keyframes at the playhead.
+  anim.emptyTitle: No tracks yet
+  anim.errorPrefix: 'Error: {err}'
+  anim.eventMarkerLabel: Event {name}
+  anim.eventNameLabel: Event Name
+  anim.eventNamePlaceholder: Event name
+  anim.eventTip: Event {name} @ {time}s
+  anim.eventsSection: EVENTS
+  anim.flipbookSection: FLIPBOOK
+  anim.frameLongerLabel: Longer by 10 ms
+  anim.frameLongerTooltip: Extend frame duration by 10 ms
+  anim.frameMarkerLabel: '{track} frame {frame}'
+  anim.frameRateLabel: Frame rate (FPS)
+  anim.frameShorterLabel: Shorter by 10 ms
+  anim.frameShorterTooltip: Shorten frame duration by 10 ms
+  anim.fromFrames: From Frames
+  anim.fromFramesLabel: Create clip from atlas frames
+  anim.fromFramesTooltip: Create a flipbook clip from all atlas frames at the chosen FPS
+  anim.fromTag: From Tag
+  anim.fromTagLabel: Create clip from Aseprite tag
+  anim.fromTagTooltip: Build flipbook frames from the selected Aseprite tag
+  anim.interpLabel: Interpolation {mode}
+  anim.interpLinear: Linear
+  anim.interpSmooth: Smooth
+  anim.interpStep: Step
+  anim.interpTooltip: Set keyframe interpolation to {mode}
+  anim.interpolation: Interpolation
+  anim.key: Key
+  anim.keyFrameLabel: Key Frame
+  anim.keyLabel: Key property at playhead
+  anim.keyMarkerLabel: '{track} key {index}'
+  anim.keyTimeLabel: Key Time (seconds)
+  anim.keyTooltip: Insert a keyframe for the chosen property at the playhead
+  anim.keyValueLabel: Key Value
+  anim.lengthSection: LENGTH
+  anim.loadingClip: Loading animation clip…
+  anim.loop: Loop
+  anim.loopLabel: Loop clip playback
+  anim.onTarget: on {target}
+  anim.pause: Pause
+  anim.pauseLabel: Pause clip preview
+  anim.play: Play
+  anim.playLabel: Play clip preview
+  anim.playPauseTooltip: Play or pause clip preview
+  anim.playhead: Playhead
+  anim.previewError: 'Preview: {err}'
+  anim.propertyLabel: Property to key
+  anim.propertyPlaceholder: Property
+  anim.remove: Remove
+  anim.removeTrack: Remove track {name}
+  anim.saveClip: Save Clip
+  anim.savedClip: Saved clip
+  anim.secondsValue: '{value} seconds'
+  anim.spriteFrameLabel: Sprite frame to key
+  anim.timeReadout: '{current} / {total} s'
+  anim.timeSection: TIME
+  anim.title: Animation
+  anim.valueSection: VALUE
   app.defaultName: NSGo Scene Editor
   askInPlace.announceScene: Asking about open scene {scene}
   askInPlace.announceSelection: '{count} selected: {names}'
@@ -173,6 +398,115 @@ strings:
   askInPlace.suggest.softenLight: Soften the light radius
   askInPlace.suggest.spaceEvenly: Space them evenly
   askInPlace.suggested: 'Suggested:'
+  assetDrawer.askAgent: Ask the agent
+  assetDrawer.askAgentCreateAssets: Create assets for {folder}
+  assetDrawer.askAgentRecreateMissing: Find or recreate missing asset {path}
+  assetDrawer.assetsFallback: assets
+  assetDrawer.audioChannels: '{count} ch'
+  assetDrawer.audioMono: mono
+  assetDrawer.audioStereo: stereo
+  assetDrawer.badgeGenerated: Generated
+  assetDrawer.badgeMissing: Missing
+  assetDrawer.badgeNew: new
+  assetDrawer.badgeNotUsed: Not used
+  assetDrawer.clearFilters: Clear filters
+  assetDrawer.clipLabel: Clip {name}
+  assetDrawer.dimsClipsFrames: '{w} × {h} · {clips} clips · {frames} frames'
+  assetDrawer.dimsFontCJKLatin: font · 中文 + Latin
+  assetDrawer.dimsFontLatin: font · Latin
+  assetDrawer.dimsFrames: '{w} × {h} · {frames} frames'
+  assetDrawer.dimsNotOnDisk: not on disk
+  assetDrawer.dimsTileset: tileset
+  assetDrawer.dimsTilesetGrid: 16 px · {cols} × {rows} tiles
+  assetDrawer.dragNewDetail: new Sprite on {layer} · snapped to {step} px
+  assetDrawer.dragSwapDetail: swap sprite on {name}
+  assetDrawer.drawerLabel: Asset drawer
+  assetDrawer.dropHint: Drop files anywhere to import
+  assetDrawer.emptyAudioFolderHint: '{folder} is empty · Drop .ogg or .wav files here, or ask the agent.'
+  assetDrawer.emptyFolderHint: '{folder} is empty · Drop files here, or ask the agent.'
+  assetDrawer.emptyFolderTitle: '{folder} is empty'
+  assetDrawer.emptyMatchHint: Clear a filter to see more assets.
+  assetDrawer.emptyMatchTitle: Nothing matches
+  assetDrawer.filterGenerated: Generated
+  assetDrawer.filterMissing: Missing files
+  assetDrawer.filterProposed: Proposed
+  assetDrawer.filterUnused: Unused
+  assetDrawer.folderAll: All assets
+  assetDrawer.footerCount: '{total} assets · {shown} shown'
+  assetDrawer.footerReimportsOnSave: Re-imports on save
+  assetDrawer.frameLabel: Frame {num}
+  assetDrawer.generate: Generate
+  assetDrawer.generateLabel: Generate asset with AI
+  assetDrawer.import: Import
+  assetDrawer.importAtlas: Atlas
+  assetDrawer.importFilter: Filter
+  assetDrawer.importFormat: Format
+  assetDrawer.importLabel: Import asset files
+  assetDrawer.importPadding: Padding
+  assetDrawer.importSampleRate: Sample rate
+  assetDrawer.importSize: Size
+  assetDrawer.inspectorEmpty: Select an asset to inspect its preview and references.
+  assetDrawer.inspectorFooter: Re-imports by itself when the file changes on disk
+  assetDrawer.inspectorLabel: Selected asset inspector
+  assetDrawer.keep: Keep
+  assetDrawer.kindAll: All
+  assetDrawer.kindAudio: Audio
+  assetDrawer.kindFonts: Fonts
+  assetDrawer.kindLabelAsset: Asset
+  assetDrawer.kindLabelFont: Font
+  assetDrawer.kindLabelSound: Sound
+  assetDrawer.kindLabelSprite: Sprite
+  assetDrawer.kindLabelTileset: Tileset
+  assetDrawer.kindSprites: Sprites
+  assetDrawer.kindTiles: Tiles
+  assetDrawer.leftRailLabel: Asset folders and filters
+  assetDrawer.metaClipsCount: '{count} clips'
+  assetDrawer.metaFontCJKLatin: 中文 + Latin
+  assetDrawer.metaFontLatin: Latin
+  assetDrawer.metaFramesCount: '{count} frames'
+  assetDrawer.metaMissingUsed: Missing · used {count}×
+  assetDrawer.metaTilesCount: '{count} tiles'
+  assetDrawer.metaUsedCount: used {count}×
+  assetDrawer.missingCardDesc: '{name} is not on disk. {refs} still reference it; the build fails until it is back or replaced.'
+  assetDrawer.missingRefMultiple: '{file} and {count} other file(s)'
+  assetDrawer.missingRefProjectFiles: project files
+  assetDrawer.modeAssets: Assets
+  assetDrawer.modeScene: Scene
+  assetDrawer.nextFrame: Next frame
+  assetDrawer.pause: Pause
+  assetDrawer.pickImportTitle: Import assets
+  assetDrawer.pickReplaceTitle: Replace {name}
+  assetDrawer.play: Play
+  assetDrawer.prevFrame: Previous frame
+  assetDrawer.projectFallback: project
+  assetDrawer.proposedBannerSubtitle: · review import settings before keeping
+  assetDrawer.replaceWithFile: Replace with a file
+  assetDrawer.revert: Revert
+  assetDrawer.searchLabel: Filter assets by name or path
+  assetDrawer.searchPlaceholder: Name or path
+  assetDrawer.sectionAssets: ASSETS
+  assetDrawer.sectionFolders: FOLDERS
+  assetDrawer.sectionImport: IMPORT
+  assetDrawer.sectionShowOnly: SHOW ONLY
+  assetDrawer.sortName: 'Sort: name'
+  assetDrawer.sortRecent: 'Sort: recently changed'
+  assetDrawer.statusAskedAgent: 'Asked agent about {target}: {prompt}'
+  assetDrawer.statusConnectGenerator: 'Generate asset: connect an MCP generator in Settings › Tools'
+  assetDrawer.statusDragCancelled: Cancelled asset drag
+  assetDrawer.statusImported: Imported {count} asset(s)
+  assetDrawer.statusPlacedSprite: '{name} new Sprite on {layer} · snapped to {step} px'
+  assetDrawer.statusPlaying: Playing {name}
+  assetDrawer.statusProposalDismissed: Import proposal dismissed
+  assetDrawer.statusReplaceMissing: Replace missing file {path}
+  assetDrawer.statusReplacedMissing: Replaced missing asset {path}
+  assetDrawer.statusSelectImport: Select files to import into {dest}
+  assetDrawer.statusSelected: Selected asset {path}
+  assetDrawer.statusStoppedPreview: Stopped sound preview
+  assetDrawer.statusSwappedSprite: Swapped sprite on {target} to {name}
+  assetDrawer.usedByEmpty: Nothing references it. The agent can propose deleting it; deleting files always asks you.
+  assetDrawer.usedByHeader: USED BY · {count}
+  assetDrawer.viewportCamera: Camera · {w} × {h}
+  assetDrawer.viewportDropHint: Drop on an object to swap its sprite · Esc cancels
   assetGen.back: Back to scene editor
   assetGen.cancel: Cancel
   assetGen.commercialUse: Commercial use allowed
@@ -196,19 +530,598 @@ strings:
   assetGen.undoPick: Undo pick
   assetGen.untrustedNotice: 'Generator output is untrusted: shown as pixels only, nothing is written before a pick'
   assetGen.varyThis: Vary this
+  assetGenExtra.assetsCount: '{count} assets'
+  assetGenExtra.breadcrumbAssets: Assets
+  assetGenExtra.breadcrumbGenerated: Generated
+  assetGenExtra.candidateTitle: Candidate
+  assetGenExtra.candidateTitleID: Candidate {id}
+  assetGenExtra.candidatesSuffix: · {count} candidates
+  assetGenExtra.defaultProjectName: project
+  assetGenExtra.headerLabel: Generated assets header
+  assetGenExtra.kindImages: images
+  assetGenExtra.kindSound: sound
+  assetGenExtra.licenseCommercialSuffix: '{license} · commercial use allowed'
+  assetGenExtra.licenseUnknownBlocksExport: License unknown · blocks export
+  assetGenExtra.pickWritesNote: Each pick writes the file and its .source.yaml.
+  assetGenExtra.pillConnectServer: Connect an MCP generator server in Settings › Tools to generate candidates
+  assetGenExtra.pillPicked: Picked {id} · {file} and its source file written · ⌘Z undoes
+  assetGenExtra.pillWaitingPick: '{generator} returned {count} candidates · waiting for your pick'
+  assetGenExtra.playCandidateLabel: Play candidate {id}
+  assetGenExtra.regenerateCount: Regenerate {count}
+  assetGenExtra.sectionGenerated: GENERATED
+  assetGenExtra.sectionGenerators: GENERATORS · MCP
+  assetGenExtra.sectionSource: SOURCE
+  assetGenExtra.sectionStyleBrief: STYLE AGAINST THE BRIEF
+  assetGenExtra.seedRange: seeds {first}–{last}
+  assetGenExtra.seedSingle: seed {seed}
+  assetGenExtra.seedSuffix: · seed {seed}
+  assetGenExtra.soundCandidatesSummary: · {count} candidates · “{prompt}”
+  assetGenExtra.statusInUse: In use
+  assetGenExtra.statusInUseRefs: In use · {count} refs
+  assetGenExtra.statusLicenseUnknown: License unknown
+  assetGenExtra.statusPickOneOf: Pick 1 of {count}
+  assetGenExtra.statusPickedIDWritten: Picked {id} · written
+  assetGenExtra.statusPickedWritten: Picked · written
+  assetImport.addPoint: Add Point
+  assetImport.addPointBtn: Add
+  assetImport.addPointBtnLabel: Add named image point
+  assetImport.addPointTooltip: Add a named image point (such as muzzle, hand, or feet) and drag it on the preview
+  assetImport.audio.bitrate: Bitrate
+  assetImport.audio.bitrateLabel: Audio Bitrate
+  assetImport.audio.bitrateReset: Reset bitrate to target default
+  assetImport.audio.bitrateTip: 'AAC/MP3 bitrate in kbps (target default: {default})'
+  assetImport.audio.channelMono: Mono (1)
+  assetImport.audio.channelSource: Source
+  assetImport.audio.channelStereo: Stereo (2)
+  assetImport.audio.channels: Channels
+  assetImport.audio.channelsLabel: Audio Channels
+  assetImport.audio.channelsReset: Reset channels to target default
+  assetImport.audio.channelsTip: 'Channel count (target default: {default})'
+  assetImport.audio.format: Format
+  assetImport.audio.formatLabel: Audio Format
+  assetImport.audio.formatReset: Reset audio format to target default
+  assetImport.audio.formatTip: 'Output format (target default: {default})'
+  assetImport.audio.levelDB: Level dB
+  assetImport.audio.levelDBLabel: Normalization Level (dBFS)
+  assetImport.audio.loop: Loop
+  assetImport.audio.loopEnd: End
+  assetImport.audio.loopEndLabel: Loop End
+  assetImport.audio.loopLabel: Loop Region
+  assetImport.audio.loopReset: Reset audio loop
+  assetImport.audio.loopStart: Start
+  assetImport.audio.loopStartLabel: Loop Start
+  assetImport.audio.loopTip: WAV loop points in source sample frames
+  assetImport.audio.normNone: None
+  assetImport.audio.normPeak: Peak (dBFS)
+  assetImport.audio.normRMS: RMS (dBFS)
+  assetImport.audio.normalize: Normalize
+  assetImport.audio.normalizeLabel: Audio Normalization
+  assetImport.audio.normalizeReset: Reset normalization to target default
+  assetImport.audio.normalizeTip: Peak or RMS loudness normalization in dBFS
+  assetImport.audio.rate: Rate
+  assetImport.audio.rateLabel: Audio Rate
+  assetImport.audio.rateReset: Reset sample rate to target default
+  assetImport.audio.rateTip: 'Sample rate in Hz, 0 keeps source (target default: {default})'
+  assetImport.buildAssets: Build Assets
+  assetImport.buildAssetsLabel: Run go tool game assets for the whole project and reload changed atlases and textures
+  assetImport.clearCollision: Clear collision settings
+  assetImport.collisionHeading: COLLISION
+  assetImport.collisionMaxVerts: Max Verts
+  assetImport.collisionMaxVertsLabel: Collision Max Vertices
+  assetImport.collisionMaxVertsTooltip: Maximum vertices per baked convex polygon (3..8)
+  assetImport.collisionMode: Mode
+  assetImport.collisionModeLabel: Collision Mode
+  assetImport.collisionModeTooltip: 2D collision shape baked into atlas metadata from alpha, box, ellipse, or explicit polygon
+  assetImport.collisionSummaryMany: '{count} convex polygons · {verts} vertices'
+  assetImport.collisionSummaryOne: 1 convex polygon · {verts} vertices
+  assetImport.collisionTolerance: Tolerance
+  assetImport.collisionToleranceLabel: Collision Alpha Tolerance
+  assetImport.collisionToleranceTooltip: 'Alpha cutoff [0..255]: pixels with alpha above tolerance are solid'
+  assetImport.credit.author: Author
+  assetImport.credit.authorLabel: Credit Author
+  assetImport.credit.authorLicenseRequired: Author and license are both required for credit
+  assetImport.credit.clear: Clear asset credit
+  assetImport.credit.license: License
+  assetImport.credit.licenseLabel: Credit License
+  assetImport.credit.licensePlaceholder: CC-BY-4.0
+  assetImport.credit.notice: Notice
+  assetImport.credit.noticeLabel: Credit Notice
+  assetImport.credit.noticePlaceholder: Optional notice
+  assetImport.credit.source: Source
+  assetImport.credit.sourceLabel: Credit Source
+  assetImport.credit.sourcePlaceholder: Optional URL
+  assetImport.font.chars: Chars
+  assetImport.font.charsLabel: Font Characters
+  assetImport.font.charsReset: Reset font characters to target default
+  assetImport.font.charsTip: Characters to bake into bitmap font
+  assetImport.font.padding: Padding
+  assetImport.font.paddingLabel: Font Padding
+  assetImport.font.paddingReset: Reset font padding to target default
+  assetImport.font.paddingTip: 'Glyph padding in pixels (target default: {default})'
+  assetImport.font.size: Size
+  assetImport.font.sizeLabel: Font Size
+  assetImport.font.sizeReset: Reset font size to target default
+  assetImport.font.sizeTip: 'Baked pixel size (target default: {default})'
+  assetImport.image.filter: Filter
+  assetImport.image.filterLabel: Image Filter
+  assetImport.image.filterReset: Reset image filter to default
+  assetImport.image.filterTip: 'Sampling filter (default: {default})'
+  assetImport.image.format: Format
+  assetImport.image.formatLabel: Image Format
+  assetImport.image.formatReset: Reset image format to target default
+  assetImport.image.formatTip: 'KTX2 texture format (target default: {default})'
+  assetImport.image.mipmaps: Mipmaps
+  assetImport.image.mipmapsReset: Reset mipmaps to target default
+  assetImport.image.mipmapsTip: 'Generate mipmaps (target default: {default})'
+  assetImport.image.previewCanvasLabel: Sprite Sheet Slice and Pivot Preview
+  assetImport.image.previewGrid: '{w}x{h} px · {cols}x{rows} grid ({cells} cells) · drag pivots'
+  assetImport.image.previewGridLarge: '{w}x{h} px · {cols}x{rows} grid ({cells} cells; showing selected cell)'
+  assetImport.image.previewInvalidSlice: '{w}x{h} px · invalid slice'
+  assetImport.image.previewUnavailable: Preview unavailable
+  assetImport.image.previewUnsliced: '{w}x{h} px · unsliced · drag pivot'
+  assetImport.image.slice: Slice
+  assetImport.image.sliceCount: Count
+  assetImport.image.sliceCountLabel: Slice Count
+  assetImport.image.sliceHeight: Cell H
+  assetImport.image.sliceHeightLabel: Slice Height
+  assetImport.image.sliceLabel: Slice Grid
+  assetImport.image.sliceMargin: Margin
+  assetImport.image.sliceMarginLabel: Slice Margin
+  assetImport.image.sliceReset: Reset slice grid
+  assetImport.image.sliceSpacing: Spacing
+  assetImport.image.sliceSpacingLabel: Slice Spacing
+  assetImport.image.sliceTip: Cut sprite sheet into grid frames for an atlas
+  assetImport.image.sliceWidth: Cell W
+  assetImport.image.sliceWidthLabel: Slice Width
+  assetImport.image.srgb: sRGB
+  assetImport.image.srgbReset: Reset sRGB to target default
+  assetImport.image.srgbTip: 'sRGB color space (target default: {default})'
+  assetImport.imagePointsHeading: IMAGE POINTS
+  assetImport.kind.audio: audio
+  assetImport.kind.font: font
+  assetImport.kind.image: image
+  assetImport.kind.model: model
+  assetImport.model.animations: Animations
+  assetImport.model.animationsLabel: Keep Animations
+  assetImport.model.animationsReset: Reset model animations to target default
+  assetImport.model.animationsTip: 'Keep model animations (target default: {default})'
+  assetImport.model.lodEntry: LOD{index} >= {ratio}
+  assetImport.model.lodHysteresis: LOD Hyst.
+  assetImport.model.lodHysteresisLabel: LOD Hysteresis
+  assetImport.model.lodHysteresisReset: Reset LOD hysteresis
+  assetImport.model.lodHysteresisTip: Relative LOD transition deadband [0, 0.5] to prevent popping
+  assetImport.model.lods: LODs
+  assetImport.model.lodsAuto: Auto (_LOD1/_LOD2)
+  assetImport.model.lodsReset: Clear declared LOD levels
+  assetImport.model.lodsTip: Declared LOD levels (or automatic _LOD1/_LOD2 convention when unset)
+  assetImport.model.scale: Scale
+  assetImport.model.scaleLabel: Model Scale
+  assetImport.model.scaleReset: Reset model scale to target default
+  assetImport.model.scaleTip: 'Model scale multiplier (target default: {default})'
+  assetImport.newPointNameLabel: New Point Name
+  assetImport.newPointNamePlaceholder: muzzle
+  assetImport.noOpaquePixels: No opaque pixels in frame
+  assetImport.pivot.cell: Cell
+  assetImport.pivot.cellLabel: Pivot Cell
+  assetImport.pivot.cellOption: Cell {index}
+  assetImport.pivot.cellPivot: Cell Pivot
+  assetImport.pivot.cellPivotTip: Normalized [x, y] pivot override for the selected cell
+  assetImport.pivot.cellPivotX: Cell Pivot X
+  assetImport.pivot.cellPivotY: Cell Pivot Y
+  assetImport.pivot.cellTip: Selected slice cell for per-cell pivot override
+  assetImport.pivot.default: Default
+  assetImport.pivot.defaultTip: Normalized [x, y] pivot fraction of untrimmed frame size (0,0 top-left; 0.5,1 bottom-center)
+  assetImport.pivot.defaultX: Default Pivot X
+  assetImport.pivot.defaultY: Default Pivot Y
+  assetImport.pivot.preset: Preset
+  assetImport.pivot.presetBottom: Bottom
+  assetImport.pivot.presetBottomLabel: Set default pivot to bottom-center [0.5, 1]
+  assetImport.pivot.presetCenter: Center
+  assetImport.pivot.presetCenterLabel: Set default pivot to center [0.5, 0.5]
+  assetImport.pivot.presetTL: TL
+  assetImport.pivot.presetTLLabel: Set default pivot to top-left [0, 0]
+  assetImport.pivot.presetTip: Quick default pivot presets
+  assetImport.pivot.resetCell: Reset selected cell pivot to default
+  assetImport.pivot.resetDefault: Reset default pivot
+  assetImport.reimport: Reimport
+  assetImport.reimportLabel: Rebuild this asset with go tool game assets and reload changed atlases and textures
+  assetImport.section.audio: AUDIO IMPORT
+  assetImport.section.credit: CREDIT
+  assetImport.section.font: FONT IMPORT
+  assetImport.section.image: IMAGE IMPORT
+  assetImport.section.model: MODEL IMPORT
+  assetImport.section.pivot: PIVOT
+  assetImport.traceUnavailable: Trace unavailable
+  assetImportModel.animOption: '{name} ({sec}s)'
+  assetImportModel.animPreviewHeader: ANIMATION PREVIEW
+  assetImportModel.animRow: '{name} · {sec}s · {channels} ch'
+  assetImportModel.animTime: '{cur}s / {dur}s'
+  assetImportModel.animTimeLabel: Animation Time
+  assetImportModel.animationsHeader: ANIMATIONS ({count})
+  assetImportModel.bounds: 'Bounds: {x} × {y} × {z}'
+  assetImportModel.boundsEmpty: 'Bounds: empty'
+  assetImportModel.boundsEmptyShort: empty
+  assetImportModel.boundsScaled: '{base} (scaled {x} × {y} × {z})'
+  assetImportModel.counts: '{nodes} nodes · {meshes} meshes · {materials} materials · {animations} animations'
+  assetImportModel.loop: Loop
+  assetImportModel.loopLabel: Loop model animation playback
+  assetImportModel.materialDoubleSided: 2-sided
+  assetImportModel.materialTex: tex
+  assetImportModel.materialUnlit: unlit
+  assetImportModel.materialsHeader: MATERIALS ({count})
+  assetImportModel.meshMorphsSuffix: ' · {count} morphs'
+  assetImportModel.meshRow: '{name} · {tris} tris · {bounds}'
+  assetImportModel.meshesHeader: MESHES ({count})
+  assetImportModel.moreCount: +{count} more
+  assetImportModel.nodesHeader: NODES ({count})
+  assetImportModel.pause: Pause
+  assetImportModel.play: Play
+  assetImportModel.playAnimNamed: Play animation {name}
+  assetImportModel.playPauseLabel: Play or pause the selected model animation
+  assetImportModel.previewAnimLabel: Preview Animation
+  assetImportModel.previewCanvasLabel: 3D Model Preview
+  assetImportModel.previewStats: '{tris} tris · {verts} verts · drag to orbit'
+  assetImportModel.previewUnavailable: Preview unavailable
+  assetImportModel.resetView: Reset View
+  assetImportModel.resetViewLabel: Re-frame the model preview camera
+  assetImportModel.secondsValue: '{sec} seconds'
+  assetImportModel.skinIndex: skin {index}
+  assetImportModel.stop: Stop
+  assetImportModel.stopLabel: Stop model animation and restore bind pose
+  assetImportModel.trisCount: '{count} tris'
   assets.empty: No atlas assets loaded
   assets.placePrefab: Place prefab
   assets.prefab: Prefab
   assets.prefabs: Prefabs
   assets.title: Assets
+  audioMixer.addBus: Add Bus
+  audioMixer.addBusLabel: Add Audio Bus
+  audioMixer.addEffect: Add Effect
+  audioMixer.addEffectLabel: Add DSP effect to bus
+  audioMixer.audition: Audition
+  audioMixer.auditionFileLabel: Audition Audio File
+  audioMixer.auditionFilePlaceholder: Audio file
+  audioMixer.auditionHeading: AUDITION
+  audioMixer.busHeading: BUS
+  audioMixer.busVolumeLabel: Bus {bus} Volume
+  audioMixer.close: Close
+  audioMixer.closeLabel: Close Audio buses
+  audioMixer.del: Del
+  audioMixer.deleteBusLabel: Delete Bus {bus}
+  audioMixer.down: Down
+  audioMixer.effect.bitcrush: Bitcrush
+  audioMixer.effect.delay: Delay
+  audioMixer.effect.gain: Gain
+  audioMixer.effect.highPass: HighPass
+  audioMixer.effect.lowPass: LowPass
+  audioMixer.effect.reverb: Reverb
+  audioMixer.effectParamLabel: Effect {index} {param}
+  audioMixer.effectTypeLabel: Effect Type
+  audioMixer.emptyBuses: No audio buses yet. Add a bus to mix and audition.
+  audioMixer.emptyEffects: No effects on this bus. Choose an effect type and press Add Effect.
+  audioMixer.intoMaster: Into Master
+  audioMixer.intoMasterFx: Into Master · {count} fx
+  audioMixer.loop: Loop
+  audioMixer.master: Master
+  audioMixer.masterVolumeLabel: Master Volume
+  audioMixer.moveBusDownLabel: Move Bus {bus} Down
+  audioMixer.moveBusUpLabel: Move Bus {bus} Up
+  audioMixer.moveEffectDownLabel: Move Effect {index} Down
+  audioMixer.moveEffectUpLabel: Move Effect {index} Up
+  audioMixer.newBusNameLabel: New Bus Name
+  audioMixer.newBusNamePlaceholder: Bus name (e.g. music, effects, voice)
+  audioMixer.output: Output
+  audioMixer.param.bits: Bits
+  audioMixer.param.cutoffHz: Cutoff Hz
+  audioMixer.param.damping: Damping
+  audioMixer.param.downsample: Downsample
+  audioMixer.param.factor: Factor
+  audioMixer.param.feedback: Feedback
+  audioMixer.param.q: Q
+  audioMixer.param.room: Room
+  audioMixer.param.roomSize: Room Size
+  audioMixer.param.timeMs: Time ms
+  audioMixer.param.wet: Wet
+  audioMixer.remove: Remove
+  audioMixer.removeEffectLabel: Remove Effect {index}
+  audioMixer.rename: Rename
+  audioMixer.renameBusLabel: Rename Bus
+  audioMixer.renameSelectedBusLabel: Rename selected audio bus
+  audioMixer.selectBusLabel: Select Bus {bus}
+  audioMixer.selectOrAddBus: Select or add a bus to edit its name, volume, routing and effect chain.
+  audioMixer.statusAuditioning: Auditioning {file} through bus "{bus}"
+  audioMixer.statusError: 'Error: {error}'
+  audioMixer.statusStopped: Stopped audition
+  audioMixer.stop: Stop
+  audioMixer.up: Up
+  buildRelease.actionBuild: Build
+  buildRelease.actionResume: Resume
+  buildRelease.actionStop: Stop
+  buildRelease.addKey: Add key…
+  buildRelease.addKeyLabel: Add keychain key for {dest}
+  buildRelease.alwaysAsksFirst: Always asks first
+  buildRelease.applyAndRebuild: Apply and rebuild {name}
+  buildRelease.backLabel: Back to scene editor
+  buildRelease.breakdownAudio: Audio
+  buildRelease.breakdownCode: Code
+  buildRelease.breakdownOther: Other
+  buildRelease.breakdownTextures: Textures
+  buildRelease.budgetDownloadSize: Download size
+  buildRelease.budgetFrameTime: Frame time p95
+  buildRelease.budgetMet: Met
+  buildRelease.budgetMissed: Missed
+  buildRelease.buildFailed: Build failed
+  buildRelease.buildNext: Build {name} next
+  buildRelease.cancel: Cancel
+  buildRelease.chipBuilding: Building · {done} of {total} done
+  buildRelease.chipDone: Done · {done} of {total} built
+  buildRelease.chipFailed: '{done} of {total} done · {failed} failed'
+  buildRelease.chipReady: Ready · {count} presets
+  buildRelease.chipStopped: Stopped · {done} of {total} done
+  buildRelease.close: Close
+  buildRelease.colArtifact: ARTIFACT
+  buildRelease.colDestination: DESTINATION
+  buildRelease.colKeychain: KEYCHAIN
+  buildRelease.colSize: SIZE
+  buildRelease.colVersion: VERSION
+  buildRelease.commitLocal: local
+  buildRelease.confirmAndUpload: Confirm and upload {count}
+  buildRelease.copyURL: Copy URL
+  buildRelease.defaultProjectName: Project
+  buildRelease.deltaNew: new
+  buildRelease.deltaToFix: '{count} to fix'
+  buildRelease.doneEditing: Done editing
+  buildRelease.dryRun: Dry Run
+  buildRelease.editPreset: Edit preset
+  buildRelease.failed: Failed
+  buildRelease.failureNotice: Other platforms keep building. Nothing was uploaded.
+  buildRelease.failureStepMeta: step {step} of {total} · {label}
+  buildRelease.failureStepMetaAfter: step {step} of {total} · {label} · after {duration}
+  buildRelease.fixEditsFile: Edits {file}
+  buildRelease.headerLabel: Release header
+  buildRelease.includePresetLabel: Include {name} in this release
+  buildRelease.keyInKeychain: Key in keychain
+  buildRelease.keychainAccountLabel: Store account
+  buildRelease.keychainAccountPlaceholder: Account or publisher name
+  buildRelease.keychainFooterNote: Credentials stay in the system keychain · never in project files.
+  buildRelease.keychainSecretLabel: API key or token
+  buildRelease.keychainSecretPlaceholder: API key / token
+  buildRelease.keychainTitle: Store {dest} credential in system keychain
+  buildRelease.lanTestLink: LAN test link
+  buildRelease.lastReleaseNone: none
+  buildRelease.lessThanOneSec: <1 s
+  buildRelease.logFollowing: Following
+  buildRelease.logHeading: Log
+  buildRelease.logPaused: Paused
+  buildRelease.mcpBridgeDevice: MCP bridge · {device}
+  buildRelease.metaLine: from {commit} on {branch} · last release {lastRelease}
+  buildRelease.neverInProjectFiles: Never written to project files
+  buildRelease.noPresets: No export presets configured yet.
+  buildRelease.noUploadsReady: No export presets are ready to upload yet. Build at least one preset first.
+  buildRelease.notesEmpty: (empty)
+  buildRelease.notesHeading: RELEASE NOTES
+  buildRelease.notesLabel: Release notes
+  buildRelease.notesPlaceholder: Summarize what changed in this release…
+  buildRelease.notesPrefix: 'Release notes:'
+  buildRelease.notesSavedTo: Saved to {file} · game release -release-notes
+  buildRelease.preflightBudgetsTitle: Budgets · {profile} profile
+  buildRelease.preflightCheckTitle: nsgo check
+  buildRelease.preflightError: error · {elapsed}
+  buildRelease.preflightHeading: BEFORE EVERY BUILD
+  buildRelease.preflightNotRun: not run yet
+  buildRelease.preflightProblems: '{count} problems · {elapsed}'
+  buildRelease.preflightSmokeDefault: 60 s per build, main scene
+  buildRelease.preflightSmokeScene: 60 s per build, {scene}
+  buildRelease.preflightSmokeTitle: Smoke playtest
+  buildRelease.presetStopped: '{name} stopped'
+  buildRelease.presetsHeading: EXPORT PRESETS · export/
+  buildRelease.profileHigh: High
+  buildRelease.profileLow: Low
+  buildRelease.profileMedium: Medium
+  buildRelease.publishSubtitle: Each upload asks first, whatever the permission profile
+  buildRelease.publishTitle: Publish to itch.io, Google Play internal, TestFlight
+  buildRelease.qrCaptionServing: Scan on a phone on this Wi-Fi. Play mode there connects to the MCP bridge, so the agent can debug it too.
+  buildRelease.qrCaptionStopped: Local server stopped and port released. Start serving again to test on a phone on this Wi-Fi.
+  buildRelease.qrCodeLabel: QR code for {url}
+  buildRelease.queued: Queued
+  buildRelease.queuedAfter: Queued after {name}
+  buildRelease.queuedSubtitle: Builds run one at a time so the editor stays responsive.
+  buildRelease.readinessGuidanceAgent: The agent can complete {agentItems} automatically.
+  buildRelease.readinessGuidanceBoth: The agent can write {agentItems} from what the game uses. {personItems} needs your account, so you complete sign-in directly.
+  buildRelease.readinessGuidanceBothPlural: The agent can write {agentItems} from what the game uses. {personItems} need your account, so you complete sign-in directly.
+  buildRelease.readinessGuidanceDefault: The agent can handle project-side setup for {name}; account sign-in and store credentials require you.
+  buildRelease.readinessGuidancePerson: '{personItems} requires your account sign-in before {name} can build.'
+  buildRelease.readinessGuidancePersonPlural: '{personItems} require your account sign-in before {name} can build.'
+  buildRelease.readinessReady: READINESS · {name} is ready to build
+  buildRelease.readinessToFix: READINESS · {count} to fix before {name} can build
+  buildRelease.redraft: Redraft
+  buildRelease.redraftLabel: Redraft release notes
+  buildRelease.releaseBreadcrumb: Release
+  buildRelease.reviewUploads: Review uploads…
+  buildRelease.reviewUploadsPolicy: 'Permission profile: {profile} · Each upload asks first, whatever the permission profile.'
+  buildRelease.reviewUploadsSubtitle: Check each artifact, store destination, and version before anything is sent.
+  buildRelease.reviewUploadsTitle: Review uploads
+  buildRelease.runOnDevice: RUN ON DEVICE
+  buildRelease.saveToKeychain: Save to keychain
+  buildRelease.screenLabel: Build and release
+  buildRelease.selectPresetLabel: Select {name} preset
+  buildRelease.serverStopped: Server stopped
+  buildRelease.servingOnLan: Serving on LAN
+  buildRelease.setupWithAgent: Set up {name} with the agent
+  buildRelease.showInFinder: Show in Finder
+  buildRelease.sizeVsVersion: size vs {version}
+  buildRelease.smokePlaytest60s: Smoke playtest · 60 s
+  buildRelease.startServing: Start serving
+  buildRelease.statusBuilding: Building
+  buildRelease.statusDone: Done
+  buildRelease.statusFailed: Failed
+  buildRelease.statusNotarizing: Notarizing
+  buildRelease.statusQueued: Queued
+  buildRelease.statusSetUp: Set up
+  buildRelease.statusStopped: Stopped
+  buildRelease.stepCheckProject: Check project
+  buildRelease.stepCompileGo: Compile Go
+  buildRelease.stepDetailMeasure: size and frame time
+  buildRelease.stepDetailPackAssets: atlases, audio, and scenes
+  buildRelease.stepDetailSignMacOS: Developer ID · notarized
+  buildRelease.stepDetailSmokeHeadless: 60 s headless
+  buildRelease.stepMeasure: Measure
+  buildRelease.stepPackAssets: Pack assets
+  buildRelease.stepSign: Sign
+  buildRelease.stepSmokePlaytest: Smoke playtest
+  buildRelease.stopServing: Stop serving
+  buildRelease.stopped: Stopped
+  buildRelease.stoppedSubtitle: Finished steps are kept; Resume continues from the step that was running.
+  buildRelease.summaryAndroid: arm64 · AAB for Google Play
+  buildRelease.summaryIOS: arm64 · TestFlight
+  buildRelease.summaryLinux: x64 · AppImage
+  buildRelease.summaryMacOS: universal · Developer ID · notarized
+  buildRelease.summaryWindows: x64 · signed installer
+  buildRelease.targetsFor: TARGETS FOR {name}
+  buildRelease.uploadError: 'Error: {error}'
+  buildRelease.uploadItemLabel: Upload {artifact} to {dest}
+  buildRelease.uploaded: Uploaded
+  buildRelease.uploading: Uploading…
+  buildRelease.uploadingPct: Uploading {pct}%
+  buildRelease.versionHeading: Version
+  buildRelease.versionLabel: Release version
+  buildRelease.waitingLog: Waiting for build output…
+  buildRelease.wholeLog: Whole log
+  changes.ahead: ahead {count}
+  changes.allCommitted: All changes are committed.
+  changes.audioNewFile: new file
+  changes.audioNotReferenced: Not referenced by any scene or asset
+  changes.audioPlay: Play {name}
+  changes.audioStop: Stop {name}
+  changes.audioWaveformLabel: Audio waveform for {name}
+  changes.backToDraft: Back to the draft
+  changes.backToEditor: Back to scene editor
+  changes.badgeAdded: added · {name}
+  changes.badgeChanged: changed · {name}
+  changes.badgeChangedSummary: changed · {name} ({summary})
+  changes.badgeRemoved: removed · {name}
+  changes.behind: behind {count}
+  changes.category.assets: ASSETS
+  changes.category.code: CODE
+  changes.category.data: DATA
+  changes.category.scenes: SCENES
+  changes.checkFailed: nsgo check failed
+  changes.checkNotRun: nsgo check · not run
+  changes.commit: Commit
+  changes.commitAndPush: Commit and push
+  changes.commitDescriptionLabel: Commit description
+  changes.commitDescriptionPlaceholder: Details, playtest notes, and context
+  changes.commitSummaryLabel: Commit summary
+  changes.commitSummaryPlaceholder: Describe what changed
+  changes.committedAs: Committed as {sha}
+  changes.comparedWithHead: compared with HEAD
+  changes.copyPRSubtitle: Prompts, the plan, before and after images, playtest numbers
+  changes.copyPRTitle: Copy as PR description
+  changes.descriptionLabel: Description
+  changes.draftedFromFiles: Drafted from {count} changed files
+  changes.includeFileLabel: Include {file} in the commit
+  changes.includedFilesMany: '{included} of {total} files included'
+  changes.includedFilesOne: '{included} of 1 file included'
+  changes.installGHHint: Install GitHub CLI (gh) to open pull requests directly
+  changes.layerReadout: Layer {layer}
+  changes.legendAdded: added · {names}
+  changes.legendChanged: changed · {names}
+  changes.legendRemoved: removed · {names}
+  changes.milestoneCommit: Commit {sha}
+  changes.milestoneDesc: A milestone in History. Restore to it any time, or compare any later step with it.
+  changes.noFileSelected: No file selected
+  changes.noLineDiffs: No line-by-line differences to display.
+  changes.noObjectDiffs: No object-level differences against HEAD
+  changes.noProblems: No problems
+  changes.nsgoCheck: nsgo check
+  changes.openInEditor: Open in editor
+  changes.openPRSubtitle: '{branch} into {base} with gh, using the same description'
+  changes.openPRTitle: Open pull request
+  changes.play: Play
+  changes.pull: Pull
+  changes.pushMany: Push {count} commits
+  changes.pushOne: Push 1 commit
+  changes.ranTime: ran {time}
+  changes.redraft: Redraft
+  changes.refreshLabel: Refresh changes
+  changes.runChecks: Run checks
+  changes.sceneAtHead: '{scene} at {sha}'
+  changes.sceneCardHead: HEAD
+  changes.sceneCardNow: NOW
+  changes.scenePreviewLabel: '{title} scene preview'
+  changes.screenLabel: Changes and commit
+  changes.sectionChanges: CHANGES
+  changes.sectionHistory: HISTORY
+  changes.sectionShare: SHARE
+  changes.selectFilesToCommit: Select files to commit
+  changes.sinceHead: since {sha}
+  changes.statusChanges: Changes
+  changes.statusChangesCount: Changes · {count}
+  changes.summaryLabel: Summary
+  changes.switchBranchLabel: Switch branch, current {branch}
+  changes.testFailed: nsgo test · failed
+  changes.testNotRun: nsgo test · not run
+  changes.testPassed: nsgo test · passed
+  changes.testPassedCount: nsgo test · {count} passed
+  changes.viewHead: HEAD
+  changes.viewNow: Now
+  changes.viewSideBySide: Side by side
+  changes.workingTree: working tree
+  changes.workingTreeClean: Working tree clean — no changes since {sha}
+  chromeExtra.backToPlaytest: Back to Playtest
+  chromeExtra.collider: Collider
+  chromeExtra.gridMapBox: Box
+  chromeExtra.gridMapErase: Erase
+  chromeExtra.gridMapGroup: GridMap
+  chromeExtra.gridMapPaint: Paint
+  chromeExtra.gridMapPick: Pick
+  chromeExtra.hudLayoutLabel: Toggle the HUD and menu layout screen
+  chromeExtra.lodLabel: Toggle active LOD indicators in the 3D viewport
+  chromeExtra.navMesh: NavMesh
+  chromeExtra.navMesh3dGroup: 3D NavMesh
+  chromeExtra.navMeshPanelLabel: Toggle the 3D Navigation Mesh bake panel
+  chromeExtra.navOverlay: Nav Overlay
+  chromeExtra.navOverlayLabel: Toggle the 3D navigation mesh overlay in the viewport
+  chromeExtra.newClip: New clip
+  chromeExtra.occluders: Occluders
+  chromeExtra.occludersLabel: Toggle occluder volume visualization in the 3D viewport
+  chromeExtra.overlays3dGroup: 3D Overlays
+  chromeExtra.particles: Particles
+  chromeExtra.particlesLabel: Toggle the Particle Emitter Editor panel
+  chromeExtra.playtest: Playtest
+  chromeExtra.playtestMet: Playtest · met
+  chromeExtra.playtestMissed: Playtest · {count} missed
+  chromeExtra.profiler: Profiler
+  chromeExtra.profilerLabel: Toggle the Profiler panel
+  chromeExtra.randomSuffix: ' | Random: {count} tiles (seed {seed})'
+  chromeExtra.sceneConflictMany: '{count} scene conflicts'
+  chromeExtra.sceneConflictOne: 1 scene conflict
+  chromeExtra.showAllShapesLabel: Show all component shapes
+  chromeExtra.sketchStatus: Sketch layer · scene {x}, {y} · Sketch · {tool}
+  chromeExtra.stampSuffix: ' | Stamp: {w}x{h}'
+  chromeExtra.stats: Stats
+  chromeExtra.statsLabel: Toggle RenderStats overlay in the 3D viewport
+  chromeExtra.terrain: Terrain
+  chromeExtra.watchingReplay: Watching replay · step {step} / {total} · seed {seed} · {path}
+  chromeExtra.watchingRun: Watching run {run} · step {step} / {total} · seed {seed} · {path}
+  cmd.addLightProbeGrid.desc: Place a 3D light probe grid on the active world layer
+  cmd.addLightProbeGrid.label: Add Light Probe Grid
+  cmd.addReflectionProbe.desc: Place a 3D reflection probe on the active world layer
+  cmd.addReflectionProbe.label: Add Reflection Probe
   cmd.agentPanel.desc: Toggle the right sidebar between the Agent panel and the Inspector
   cmd.agentPanel.label: Agent Panel
   cmd.agentTab.desc: Switch the right panel to the Agent thread
   cmd.agentTab.label: Agent Panel
+  cmd.animate.desc: Create or open an animation clip for the selected object
+  cmd.animate.label: Animate
+  cmd.applyOverridesToSource.desc: Write the selected scene instance's overrides back to its source scene file
+  cmd.applyOverridesToSource.label: Apply Overrides to Source
   cmd.askAgent.desc: Open the anchored in-place composer to ask the agent about the selection or open scene
   cmd.askAgent.label: Ask the Agent About Selection
   cmd.askFrozenFrame.desc: Pause Play mode and ask the agent about the frozen frame with replay and live state attached
   cmd.askFrozenFrame.label: Something Looks Wrong
+  cmd.assetBrowser.desc: Toggle the Asset Browser panel
+  cmd.assetBrowser.label: Asset Browser
   cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
   cmd.assetDrawer.label: Asset Drawer
   cmd.attachReferenceImage.desc: Attach a PNG, JPEG, or WebP reference image to the next agent request
@@ -217,6 +1130,10 @@ strings:
   cmd.audioMixer.label: Audio Bus Mixer
   cmd.bakeNavMesh3d.desc: Bake a 3D navigation mesh from the open scene's static geometry
   cmd.bakeNavMesh3d.label: Bake 3D NavMesh
+  cmd.bakeProbes3d.desc: Bake all reflection probe cubemaps and light probe grids in the scene
+  cmd.bakeProbes3d.label: Bake Reflection & Light Probes
+  cmd.buildAssets.desc: Run go tool game assets for the open project and reload changed atlases
+  cmd.buildAssets.label: Build Assets
   cmd.buildRelease.desc: Open the Build and Release screen with readiness, pre-build checks, and release size comparison
   cmd.buildRelease.label: Build & Release Screen
   cmd.category.agent: Agent
@@ -228,6 +1145,8 @@ strings:
   cmd.category.review: Review
   cmd.category.tools: Tools
   cmd.category.view: View
+  cmd.changes.desc: Compare modified scenes, data, code, and assets against HEAD and commit with a drafted message
+  cmd.changes.label: Changes & Commit
   cmd.checkProblems.desc: Re-run asset and project validation checks
   cmd.checkProblems.label: Check Problems
   cmd.closeTab.desc: Close the active scene tab, asking first if it has unsaved changes
@@ -238,20 +1157,34 @@ strings:
   cmd.connectAgent.label: Connect an Agent
   cmd.copy.desc: Copy the selected objects or tile region to the clipboard
   cmd.copy.label: Copy
+  cmd.copyTileRegion.desc: Copy the selected tilemap region to the tile clipboard
+  cmd.copyTileRegion.label: Copy Tile Region
   cmd.cut.desc: Cut the selected objects or tile region to the clipboard
   cmd.cut.label: Cut
+  cmd.cutTileRegion.desc: Cut the selected tilemap region to the tile clipboard
+  cmd.cutTileRegion.label: Cut Tile Region
+  cmd.dataTable.desc: Open or toggle the Data Table editor panel
+  cmd.dataTable.label: Data Table
   cmd.delete.desc: Remove the currently selected object from the scene
   cmd.delete.label: Delete Selected Object
   cmd.duplicate.desc: Clone the currently selected object on the same layer
   cmd.duplicate.label: Duplicate Selected Object
   cmd.editorSettings.desc: Configure editor language and appearance
   cmd.editorSettings.label: Editor Settings
+  cmd.environmentPanel.desc: Toggle the Scene Environment settings panel (sky, ambient, fog, tonemapping)
+  cmd.environmentPanel.label: Scene Environment
   cmd.export.desc: Toggle the Export & Release Build panel
   cmd.export.label: Export & Release
+  cmd.fileBrowser.desc: Toggle the full Project Files browser panel
+  cmd.fileBrowser.label: Project Files Browser
   cmd.findUsages.desc: Find every usage of the selected prefab, scene, or file and rename it safely in one review
   cmd.findUsages.label: Find Usages
+  cmd.fitCollider3d.desc: Fit the selected object's 3D collider to its mesh or glTF model bounds
+  cmd.fitCollider3d.label: Fit 3D Collider to Model Bounds
   cmd.frameSelection.desc: Center the viewport camera on the selected object or scene
   cmd.frameSelection.label: Frame Selection
+  cmd.generatedAssets.desc: Generate image and sound candidates via MCP generator servers, inspect style and licenses, and pick a candidate
+  cmd.generatedAssets.label: Generated Assets
   cmd.gizmoCollider.desc: Switch the 3D gizmo to Collider size handles
   cmd.gizmoCollider.label: '3D Gizmo: Collider'
   cmd.gizmoRotate.desc: Switch the 3D transform gizmo to Rotate mode
@@ -276,16 +1209,24 @@ strings:
   cmd.historyPanel.label: History
   cmd.hudLayout.desc: Toggle the multi-size, multi-language HUD and menu layout screen
   cmd.hudLayout.label: HUD & Menu Layout
+  cmd.inputMap.desc: Toggle the Input Map settings page
+  cmd.inputMap.label: Input Map
   cmd.inspectorTab.desc: Switch the right panel to the Property Inspector
   cmd.inspectorTab.label: Inspector Panel
   cmd.keepAgentTurn.desc: Keep the remaining changes in the open agent turn as one undo step
   cmd.keepAgentTurn.label: Keep Agent Turn
+  cmd.layersPanel.desc: Toggle the Layers panel for managing scene layers
+  cmd.layersPanel.label: Layers Panel
+  cmd.libraryPanel.desc: Toggle the Asset Pack Library panel
+  cmd.libraryPanel.label: Library
   cmd.lightingPreview.desc: Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
   cmd.localization.label: Localization Strings
   cmd.lodOverlay.desc: Toggle per-object active LOD labels and color-coding in the 3D viewport
   cmd.lodOverlay.label: Show 3D LOD Overlay
+  cmd.makeInstanceLocal.desc: Replace the selected scene instance with a local copy of its resolved objects
+  cmd.makeInstanceLocal.label: Make Instance Local
   cmd.materialEditor.desc: Toggle the Material Editor panel with live 3D and 2D preview
   cmd.materialEditor.label: Material Editor
   cmd.mergeConflicts.desc: Open the object-by-object scene conflict resolver for an active Git merge, rebase, cherry-pick, revert, or stash conflict
@@ -300,14 +1241,26 @@ strings:
   cmd.newAgentThread.label: New Agent Thread
   cmd.newProject.desc: Open the Start Screen to create a new project from a template
   cmd.newProject.label: New Project...
+  cmd.nextTab.desc: Switch to the next open scene tab
+  cmd.nextTab.label: Next Scene Tab
   cmd.occludersOverlay.desc: Toggle occluder volume wireframes in the 3D viewport
   cmd.occludersOverlay.label: Show 3D Occluders
+  cmd.openBaseScene.desc: Open the base scene inherited by the active scene in a tab
+  cmd.openBaseScene.label: Open Base Scene
+  cmd.openInstancedScene.desc: Open the scene instanced by the selected object in a tab
+  cmd.openInstancedScene.label: Open Instanced Scene
   cmd.openProject.desc: Choose a project folder to open in the editor
   cmd.openProject.label: Open Project...
+  cmd.outputPanel.desc: Toggle the Output log panel
+  cmd.outputPanel.label: Output
+  cmd.particleEditor.desc: Toggle the Particle Emitter Editor panel with live preview
+  cmd.particleEditor.label: Particle Emitter Editor
   cmd.paste.desc: Paste objects from the clipboard onto the active layer, or paste a copied tile region
   cmd.paste.label: Paste
   cmd.pasteInto.desc: Paste objects from the clipboard as children of the selected object
   cmd.pasteInto.label: Paste as Child
+  cmd.pasteTileRegion.desc: Paste the tile clipboard at the hovered cell or activate it as the Stamp brush
+  cmd.pasteTileRegion.label: Paste Tile Region
   cmd.permissionsSettings.desc: Configure agent MCP permission profiles and first-match-wins rules
   cmd.permissionsSettings.label: Permissions
   cmd.placeAlign3d.desc: Toggle aligning placed 3D models to the surface normal
@@ -320,6 +1273,8 @@ strings:
   cmd.playStop.label: Play / Stop
   cmd.playtestReport.desc: Open the Playtest Report screen with goals met or missed, charts, and the agent's read
   cmd.playtestReport.label: Playtest Report
+  cmd.prevTab.desc: Switch to the previous open scene tab
+  cmd.prevTab.label: Previous Scene Tab
   cmd.problemsPanel.desc: Toggle the right-rail Agent problem-fix panel
   cmd.problemsPanel.label: Agent Problem Panel
   cmd.profiler.desc: Toggle the Profiler panel for the running game
@@ -336,6 +1291,8 @@ strings:
   cmd.resetLayout.label: Reset Layout
   cmd.revertAgentTurn.desc: Revert all files touched by the open agent turn to their pre-request state
   cmd.revertAgentTurn.label: Revert Agent Turn
+  cmd.revertOverrides.desc: Clear all overrides on the selected scene instance, instanced object, or inherited object
+  cmd.revertOverrides.label: Revert All Overrides
   cmd.reviewCode.desc: Open the file-by-file Go code review with nsgo check and nsgo test
   cmd.reviewCode.label: Review Agent Go Changes
   cmd.reviewKeep.desc: Keep all non-reverted changes in the open review as one undo step
@@ -354,6 +1311,8 @@ strings:
   cmd.reviewToggleRevert.label: 'Review: Revert or Restore'
   cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
   cmd.runGame.label: Run Game
+  cmd.runOpenScene.desc: Toggle launching the game directly at the currently open scene
+  cmd.runOpenScene.label: Run From Open Scene
   cmd.save.desc: Save the open scene and project changes
   cmd.save.label: Save
   cmd.searchPanel.desc: Toggle the Project Search and References panel
@@ -406,8 +1365,24 @@ strings:
   cmd.startScreen.label: Start Screen
   cmd.stopAgentTurn.desc: Stop the active agent turn; changes made so far stay pending for review
   cmd.stopAgentTurn.label: Stop Agent
+  cmd.stopGame.desc: Stop the running game process
+  cmd.stopGame.label: Stop Game
   cmd.tasks.desc: Toggle the Agent background task list panel
   cmd.tasks.label: Background Tasks
+  cmd.terrainEditor.desc: Toggle the 3D terrain sculpting and painting panel
+  cmd.terrainEditor.label: 3D Terrain Editor
+  cmd.toggleAllShapes.desc: Toggle drawing component shape fields for all visible objects in the 2D viewport
+  cmd.toggleAllShapes.label: Show All Component Shapes
+  cmd.toggleShowGrid.desc: Toggle the 2D snap grid overlay in the 2D viewport
+  cmd.toggleShowGrid.label: Show Snap Grid
+  cmd.toggleSnapGrid.desc: Toggle grid snapping for object placement, drags, 2D handles, and 3D translate gizmos
+  cmd.toggleSnapGrid.label: Snap to Grid
+  cmd.toggleSnapPixel.desc: Toggle whole-point (pixel) snapping for object placement and drags
+  cmd.toggleSnapPixel.label: Snap to Pixels
+  cmd.toggleSnapRotation.desc: Toggle rotation step snapping for 2D and 3D rotation drags
+  cmd.toggleSnapRotation.label: Snap Rotation
+  cmd.toggleSnapScale.desc: Toggle scale step snapping for 2D and 3D scale drags
+  cmd.toggleSnapScale.label: Snap Scale
   cmd.toolEraseTile.desc: Switch to the Erase Tile tool
   cmd.toolEraseTile.label: 'Tool: Erase Tile'
   cmd.toolFillTile.desc: Switch to the Flood Fill Tile tool
@@ -464,13 +1439,20 @@ strings:
   cmd.view3dRight.label: '3D View: Right'
   cmd.view3dTop.desc: Look at the 3D viewport's target from the top
   cmd.view3dTop.label: '3D View: Top'
+  cmd.viewportOverlays.desc: Open or close the 2D viewport Overlays popover (collision shapes, triggers, connections, patrol paths, navigation, camera bounds, labels)
+  cmd.viewportOverlays.label: Viewport Overlays
+  codeReview.agentFixingPrefix: Agent is fixing · {status}
   codeReview.allGoConfirmed: All {count} Go files confirmed
+  codeReview.applyConfirmedMany: Apply {count} confirmed
+  codeReview.applyConfirmedOne: Apply 1 confirmed
   codeReview.askFix: Ask the agent to fix
   codeReview.backLabel: Back to the editor, review stays open (Esc)
   codeReview.badgeNeedsOK: Needs OK
   codeReview.badgeOK: OK
   codeReview.bothGoConfirmed: Both Go files confirmed
+  codeReview.checkFailed: nsgo check failed
   codeReview.checksNotRun: Checks have not run yet
+  codeReview.confirmFile: Confirm {file}
   codeReview.confirmedUndo: Confirmed · undo
   codeReview.diffLayout: Diff layout
   codeReview.editor: Editor
@@ -480,22 +1462,48 @@ strings:
   codeReview.hintConfirmed: Confirmed. It ships with this review; ⌘Z undoes it with the rest.
   codeReview.hintTestFailed: Confirm unlocks when nsgo test passes.
   codeReview.hintWaiting: Waiting for nsgo test.
+  codeReview.keepCount: Keep {kept} of {total}
+  codeReview.liveCheckPassed: nsgo check passed, {test}
   codeReview.manyGoNeedOK: '{count} Go files need your OK'
+  codeReview.nsgoCheck: nsgo check
   codeReview.oneGoConfirmed: Go file confirmed
   codeReview.oneGoNeedsOK: 1 Go file needs your OK
   codeReview.openExternalDefault: Open in external editor
   codeReview.openTest: Open the test
+  codeReview.pausedGoMany: '{count} Go files waiting for your OK'
+  codeReview.pausedGoOne: 1 Go file waiting for your OK
+  codeReview.pausedGoZero: '{count} Go file(s) waiting for your OK'
+  codeReview.pausedTitleMany: Review waiting · {count} files
+  codeReview.pausedTitleOne: Review waiting · 1 file
   codeReview.resumeReview: Resume review
   codeReview.revertAll: Revert all
   codeReview.reviewCode: Review code
+  codeReview.reviewFile: Review {file}
+  codeReview.round: Round {round}
   codeReview.runAgain: Run again
   codeReview.sectionGo: GO · CONFIRM EACH FILE
   codeReview.sectionPrefabs: PREFABS · IN KEEP
   codeReview.split: Split
+  codeReview.tagAgentEdited: agent edited
+  codeReview.tagFailedHere: failed here
+  codeReview.tagFailsTest: fails test
+  codeReview.tagRound2: round 2
+  codeReview.testFailed: nsgo test · failed
+  codeReview.testFailedCounts: nsgo test · {failed} failed, {passed} passed
+  codeReview.testNameFailed: '{name} failed'
+  codeReview.testPassed: nsgo test · passed
+  codeReview.testPassedCount: nsgo test · {count} passed
+  codeReview.testRunning: nsgo test running
+  codeReview.testRunningDone: nsgo test running · {done} done
+  codeReview.testRunningOf: nsgo test running · {done} of {total}
+  codeReview.testSkipped: nsgo test · skipped
   codeReview.title: Review
   codeReview.unified: Unified
   codeReview.waitingDefaultImpact: Until you confirm it, Play still runs the old code.
   codeReview.waitingGoPrefix: Go changes aren't kept with the rest.
+  codeReview.waitingManyFiles: '{count} Go files are waiting for your OK'
+  codeReview.waitingOneFile: '{file} is waiting for your OK'
+  codeReview.waitingTwoFiles: '{file1} and {file2} are waiting for your OK'
   codeReview.whyGoBody: Code changes behavior everywhere, not only in this scene. Keep and Keep all never include it; each file needs passing checks and your OK.
   codeReview.whyGoTitle: Why Go confirms on its own
   codeReview.yamlPartOfKeep: Part of Keep.
@@ -566,6 +1574,9 @@ strings:
   composer.viewportImage: Viewport image
   composer.viewportImageToggle: Include viewport image in the request
   composer.wholeScene: whole scene
+  composerExtra.queue: Queue
+  composerExtra.queueRequestLabel: Queue a request
+  composerExtra.queueRequestPlaceholder: Queue a request…
   contextMenu.askAgent: Ask the agent about this
   contextMenu.back: Back
   contextMenu.copiedYAML: Copied {name} as YAML · {lines} lines
@@ -599,6 +1610,83 @@ strings:
   contextMenu.subtitle: '{kind} · layer {layer}'
   contextMenu.topLevelNote: top level
   contextMenu.unlock: Unlock
+  cutscene.after: After
+  cutscene.before: Before
+  cutscene.beforeBanner: Showing the cutscene before this request
+  cutscene.breadcrumbCutscenes: cutscenes
+  cutscene.changeToggleLabel: '{action}: {title}'
+  cutscene.clipLabel: '{name}, {start} to {end}'
+  cutscene.close: Close
+  cutscene.defaultProject: project
+  cutscene.duration: Duration
+  cutscene.durationLonger: 0.1 s longer
+  cutscene.durationShorter: 0.1 s shorter
+  cutscene.easeHold: Hold
+  cutscene.easeIn: In
+  cutscene.easeInOut: In-out
+  cutscene.easeLinear: Linear
+  cutscene.easeOut: Out
+  cutscene.easing: Easing
+  cutscene.emptyInspector: Select a clip on the timeline to inspect its timing and easing.
+  cutscene.keepCount: Keep {kept} of {total}
+  cutscene.legendAdded: added
+  cutscene.legendChanged: changed
+  cutscene.legendSelected: selected
+  cutscene.lineNote: Text lives in {enPath} and {zhPath}; the cutscene stores only the id.
+  cutscene.linesHeader: LINES · {path}
+  cutscene.listItemLabel: Cutscene {name} ({meta})
+  cutscene.missingChinese: (missing Chinese text)
+  cutscene.missingEnglish: (missing English text)
+  cutscene.noDialogueLines: No dialogue lines in this cutscene
+  cutscene.pause: Pause
+  cutscene.peekHint: hold B to peek
+  cutscene.play: Play
+  cutscene.playPauseLabel: Play or Pause cutscene
+  cutscene.previewError: 'Preview: {err}'
+  cutscene.restore: Restore
+  cutscene.revert: Revert
+  cutscene.revertAll: Revert all
+  cutscene.reviewEditedHint: Your edit joins this review · ⌘Z undoes it
+  cutscene.reviewFromPrompt: from “{prompt}”
+  cutscene.reviewHeader: '{count} CHANGES · {file}'
+  cutscene.save: Save
+  cutscene.scrubHint: Click the strip to scrub
+  cutscene.scrubToLabel: Scrub to {time}
+  cutscene.sectionCutscenes: CUTSCENES
+  cutscene.start: Start
+  cutscene.startEarlier: Start 0.1 s earlier
+  cutscene.startLater: Start 0.1 s later
+  cutscene.videoInfoMeta: 'Fit: {fit} · Skippable: {skippable}'
+  cutscene.videoInfoTitle: Video cutscene · {source}
+  cutscene.videoKind: video
+  cutscene.videoMeta: video · {duration}
+  datatable.addFirstRow: Add first row
+  datatable.addRow: Add Row
+  datatable.addRowTooltip: Add a new row to the data table
+  datatable.cellLabel: Row {row} {col}
+  datatable.clearFilter: Clear Filter
+  datatable.clearFilterLabel: Clear row filter
+  datatable.closeTable: Close Data Table
+  datatable.colRow: ROW
+  datatable.deleteRow: Delete row {row}
+  datatable.dismissError: Dismiss error
+  datatable.dismissErrorLabel: Dismiss data table error
+  datatable.emptyDesc: Add a row to begin editing this data table.
+  datatable.emptyFilteredDesc: Clear the filter to show all rows.
+  datatable.emptyFilteredTitle: No matching rows
+  datatable.emptyTitle: No rows yet
+  datatable.filterLabel: Filter rows
+  datatable.filterPlaceholder: Filter rows…
+  datatable.loading: Loading data table…
+  datatable.moveRowDown: Move row {row} down
+  datatable.moveRowUp: Move row {row} up
+  datatable.saveTable: Save Table
+  datatable.sortAsc: asc
+  datatable.sortBy: Sort by {col}
+  datatable.sortByOrder: Sort by {col} (currently {order})
+  datatable.sortDesc: desc
+  datatable.title: Data Table
+  datatable.untitled: Untitled
   dialog.cancel: Cancel
   dialog.create: Create
   dialog.discard: Discard
@@ -620,10 +1708,14 @@ strings:
   disk.reload: Reload from disk
   disk.showDiff: Show diff
   disk.useThese: Use these
+  dockExtra.closePanel: Close {title}
+  dockExtra.noPanelsOpen: No panels open
+  dockExtra.resizePanel: Resize panel
   dtReview.agentCardTitle: Review waiting · {changes} changes, {files} files
   dtReview.agentCheck: Agent's check
   dtReview.back: Editor
   dtReview.backLabel: Back to the editor, review stays open (Esc)
+  dtReview.cellChangedLabel: '{name} {col} {old} to {new}'
   dtReview.chip.all: All
   dtReview.chip.changed: Changed
   dtReview.chip.reverted: Reverted
@@ -631,8 +1723,11 @@ strings:
   dtReview.chip.yours: Yours
   dtReview.colAction: Action
   dtReview.colOrder: Order
+  dtReview.colSortLabel: '{col}, sort {order}'
   dtReview.done: Done
+  dtReview.dragRowLabel: Move {name}, row {row} of {total}
   dtReview.dragToReorder: Drag to reorder
+  dtReview.editCellLabel: Edit {row} {col}
   dtReview.emptyFile: No records — ask the agent to add some
   dtReview.fileMetaChanged: '{changed} of {total} changed'
   dtReview.fileMetaNew: new · {count} records
@@ -641,9 +1736,11 @@ strings:
   dtReview.hintEdit: Click a new value to change it · drag a row to reorder
   dtReview.hintJoin: Both join this review as your edits.
   dtReview.keepCount: Keep {kept} of {total}
+  dtReview.lowerCellLabel: Lower {row} {col}
   dtReview.noMatch: No rows match this filter.
   dtReview.outOfDate: Out of date
   dtReview.outOfDateHint: Figures are out of date after your edits · ask the agent to refresh
+  dtReview.raiseCellLabel: Raise {row} {col}
   dtReview.restore: Restore
   dtReview.resume: Resume
   dtReview.resumeReview: Resume review
@@ -651,12 +1748,168 @@ strings:
   dtReview.revertAll: Revert all
   dtReview.reviewWaiting: Review waiting
   dtReview.showRows: Show rows
+  dtReview.sortAsc: ascending
+  dtReview.sortDesc: descending
+  dtReview.sortNone: none
   dtReview.title: Review
   dtReview.toastKept: Kept {kept} · reverted {reverted}
   dtReview.toastPaused: Review paused · resume it from the Agent panel
   dtReview.toastReverted: Reverted {count} records
   dtReview.toastYours: '{count} of your edits'
   dtReview.was: was
+  envPanel.ambient: Ambient
+  envPanel.ambientColor: Ambient Color
+  envPanel.ambientIntensityLabel: Ambient Intensity
+  envPanel.bakeProbes: Bake Probes
+  envPanel.camera.add: Add 3D Camera
+  envPanel.camera.current: Current
+  envPanel.camera.currentLabel: Current Camera
+  envPanel.camera.far: Far
+  envPanel.camera.farLabel: Far Clip
+  envPanel.camera.fov: FOV
+  envPanel.camera.fovLabel: Field of View
+  envPanel.camera.lookThrough: Look Through
+  envPanel.camera.near: Near
+  envPanel.camera.nearLabel: Near Clip
+  envPanel.camera.orthoH: Ortho H
+  envPanel.camera.orthoHLabel: Orthographic Height
+  envPanel.camera.orthographic: Orthographic
+  envPanel.camera.perspective: Perspective
+  envPanel.camera.projection: Projection
+  envPanel.camera.remove: Remove
+  envPanel.close: Close
+  envPanel.exposure: Exposure
+  envPanel.fog.exp: Exponential
+  envPanel.fog.exp2: Exponential²
+  envPanel.fog.linear: Linear
+  envPanel.fog.off: "Off"
+  envPanel.fogColor: Fog Color
+  envPanel.fogDensity: Density
+  envPanel.fogDensityLabel: Fog Density
+  envPanel.fogEnd: End
+  envPanel.fogEndLabel: Fog End
+  envPanel.fogMode: Mode
+  envPanel.fogModeLabel: Fog Mode
+  envPanel.fogStart: Start
+  envPanel.fogStartLabel: Fog Start
+  envPanel.ground: Ground
+  envPanel.groundLabel: Sky Ground Color
+  envPanel.hdrPath: HDR Path
+  envPanel.hdrPathLabel: Sky HDR Path
+  envPanel.hdrPathPlaceholder: env/studio.hdr
+  envPanel.heightFog: Height Fog
+  envPanel.horizon: Horizon
+  envPanel.horizonLabel: Sky Horizon Color
+  envPanel.ibl: IBL
+  envPanel.iblIntensityLabel: IBL Intensity
+  envPanel.light.add: Add Light
+  envPanel.light.color: Color
+  envPanel.light.colorLabel: Light Color
+  envPanel.light.directional: Directional
+  envPanel.light.innerCone: Inner Cone
+  envPanel.light.innerConeLabel: Inner Cone Degrees
+  envPanel.light.intensity: Intensity
+  envPanel.light.intensityLabel: Light Intensity
+  envPanel.light.kind: Kind
+  envPanel.light.kindLabel: Light Kind
+  envPanel.light.outerCone: Outer Cone
+  envPanel.light.outerConeLabel: Outer Cone Degrees
+  envPanel.light.point: Point
+  envPanel.light.range: Range
+  envPanel.light.rangeLabel: Light Range
+  envPanel.light.remove: Remove Light
+  envPanel.light.shadows: Shadows
+  envPanel.light.shadowsLabel: Cast Shadows
+  envPanel.light.spot: Spot
+  envPanel.none: None
+  envPanel.reset: Reset
+  envPanel.section.fog: FOG
+  envPanel.section.skyAmbient: SKY & AMBIENT
+  envPanel.section.tonemapping: TONEMAPPING
+  envPanel.sky: Sky
+  envPanel.sky.color: Solid Color
+  envPanel.sky.gradient: Gradient
+  envPanel.sky.hdr: HDR Equirectangular
+  envPanel.skyColor: Sky Color
+  envPanel.skyKindLabel: Sky Kind
+  envPanel.title: Scene Environment
+  envPanel.tonemap.aces: ACES
+  envPanel.tonemap.agx: AgX
+  envPanel.tonemap.neutral: Neutral
+  envPanel.tonemap.reinhard: Reinhard
+  envPanel.tonemapOperator: Operator
+  envPanel.tonemapOperatorLabel: Tonemapping Operator
+  envPanel.zenith: Zenith
+  envPanel.zenithLabel: Sky Zenith Color
+  exportPanel.addPreset: Add Preset
+  exportPanel.addPresetLabel: Add platform export preset
+  exportPanel.allPlatformsAdded: All platforms added
+  exportPanel.allPresets: All Presets
+  exportPanel.build: Build
+  exportPanel.buildTargetsHeading: BUILD TARGETS
+  exportPanel.cancel: Cancel
+  exportPanel.cancelBuildLabel: Cancel export build
+  exportPanel.channelDefault: (default)
+  exportPanel.channelDirect: direct
+  exportPanel.channelHeading: CHANNEL
+  exportPanel.channelLabel: Release Channel
+  exportPanel.channelNone: none
+  exportPanel.channelSteam: steam
+  exportPanel.channelStore: store
+  exportPanel.clearLog: Clear
+  exportPanel.clearLogLabel: Clear export build output
+  exportPanel.close: Close
+  exportPanel.closeLabel: Close Export settings
+  exportPanel.creditsError: 'Credits error: {error}'
+  exportPanel.creditsMissingItem: • {asset}  (add credit in {path})
+  exportPanel.creditsOK: 'Credits OK: {count} asset(s) credited'
+  exportPanel.creditsUnconfigured: No assets section in game.yaml (no CREDITS.md will be written)
+  exportPanel.detailAndroid: Android arm64 / x64
+  exportPanel.detailDefault: default ({platform})
+  exportPanel.detailLinux: Linux x64 / arm64
+  exportPanel.detailMacOS: Universal, macOS targets
+  exportPanel.detailWeb: WebAssembly, compressed
+  exportPanel.detailWindows: Windows x64 / arm64
+  exportPanel.dryRun: Dry Run
+  exportPanel.emptyPresets: No export presets yet. Default platforms will be built until a preset is added.
+  exportPanel.moveDown: Down
+  exportPanel.moveDownLabel: Move {platform} preset down
+  exportPanel.moveUp: Up
+  exportPanel.moveUpLabel: Move {platform} preset up
+  exportPanel.navWarningCredits: Credits
+  exportPanel.needsAssetCredits: Needs asset credits
+  exportPanel.needsTeamID: Needs a team ID
+  exportPanel.notesHeading: NOTES
+  exportPanel.notesLabel: Release Notes File
+  exportPanel.openOutput: Open Output
+  exportPanel.openOutputLabel: Open export output folder
+  exportPanel.outputDirLabel: Export Output Directory
+  exportPanel.outputDirPlaceholder: dist (default)
+  exportPanel.outputHeading: OUTPUT
+  exportPanel.outputPlaceholder: Build output will stream here.
+  exportPanel.platformToAddLabel: Platform to Add
+  exportPanel.refreshCredits: Refresh Credits
+  exportPanel.refreshCreditsLabel: Refresh asset credits check
+  exportPanel.remove: Remove
+  exportPanel.removeLabel: Remove {platform} preset
+  exportPanel.retry: Retry
+  exportPanel.runStatusDone: Done
+  exportPanel.runStatusFailed: Failed
+  exportPanel.runStatusIdle: Idle
+  exportPanel.runStatusRunning: Running…
+  exportPanel.set: Set
+  exportPanel.setOutputDirLabel: Apply export output directory
+  exportPanel.statusBlocked: 'Export blocked: {error}'
+  exportPanel.statusBuilding: Building release…
+  exportPanel.statusBuilt: Release built to {dir}
+  exportPanel.statusBuiltOpenErr: 'Release built to {dir} (could not open folder: {error})'
+  exportPanel.statusDryRun: Running dry-run release…
+  exportPanel.statusDryRunComplete: Dry-run release complete
+  exportPanel.statusFailed: 'Export failed: {error}'
+  exportPanel.toastExported: Exported {dir}
+  exportPanel.toastExporting: Exporting {project}
+  exportPanel.toastExportingFor: Exporting {project} for {targets}
+  exportPanel.toastFailed: 'Couldn''t export {project}: {error}'
   files.editMaterial: Edit Material
   files.editMaterialLabel: Open the selected material file in the Material Editor
   files.findRefs: Find Refs
@@ -678,11 +1931,122 @@ strings:
   files.searchLabel: Toggle the Project Search and References panel
   files.sectionTitle: Files
   files.title: Files
+  filesExtra.editTileset: Edit Tileset
+  filesExtra.editTilesetLabel: Open the selected tileset file in the Tileset Editor
+  filesExtra.openEmitter: Open Emitter
+  filesExtra.openEmitterLabel: Open the selected YAML file in the Particle Emitter editor
+  filesExtra.openRig: Open Rig
+  filesExtra.openRigLabel: Open the selected .skel.yaml file in the 2D Skeletal Rig editor
+  filesExtra.terrain: Terrain
+  filesExtra.terrainLabel: Open the selected *.terrain.yaml file in the 3D terrain editor
+  firstRun.after: After
+  firstRun.agentGroupLabel: Agent
+  firstRun.agentPanelTitle: Agent
+  firstRun.apiKeyIdle: Paste an API key to check it immediately.
+  firstRun.apiKeyInvalid: Key not accepted — check that the full key was pasted.
+  firstRun.apiKeyInvalidBadge: Key not accepted
+  firstRun.apiKeyLabel: API key
+  firstRun.apiKeyNoNetwork: No network — reconnect to verify this API key.
+  firstRun.apiKeyNoNetworkBadge: No network
+  firstRun.apiKeyNoQuota: No quota left on this API key.
+  firstRun.apiKeyNoQuotaBadge: No quota left
+  firstRun.apiKeyPlaceholder: sk-…
+  firstRun.apiKeyValidBadge: Key works
+  firstRun.apiKeyValidKeychain: Key works · checked just now · kept in the system keychain
+  firstRun.apiKeyValidMemory: Key works · checked just now · kept in memory for this session
+  firstRun.approveWithShortcut: Approve {shortcut}
+  firstRun.askingForPlan: Asking {agent} for a plan…
+  firstRun.backToStart: Back to Start
+  firstRun.before: Before
+  firstRun.beforeEmptyFolder: 'Before: an empty folder'
+  firstRun.buildStage.check: Check
+  firstRun.buildStage.firstScene: First scene
+  firstRun.buildStage.playtest: Playtest
+  firstRun.buildStage.project: Project
+  firstRun.buildStage.template: Template
+  firstRun.cancel: Cancel
+  firstRun.connectFailedHeading: Couldn't connect to {agent}
+  firstRun.connectSubtitle: The agent does the editing through this editor. Use one you already have, or paste an API key.
+  firstRun.connectTitle: Connect an agent
+  firstRun.connected: Connected
+  firstRun.copied: Copied
+  firstRun.copyDiagnostics: Copy diagnostics
+  firstRun.defaultIdeaSummary: New AI-built game project
+  firstRun.detected: Detected
+  firstRun.done: Done
+  firstRun.edit: Edit
+  firstRun.fixIt: Fix it
+  firstRun.justDoIt: Just do it
+  firstRun.keepBuilding: Keep building
+  firstRun.keepOf: Keep {kept} of {total}
+  firstRun.later: Later
+  firstRun.nothingWrittenBeforeApprove: Nothing is written to disk before you approve.
+  firstRun.planApprovedBuilding: Plan approved · building
+  firstRun.planErrorHeading: Couldn't get a plan from the agent
+  firstRun.planFailedStatus: Plan failed
+  firstRun.planHeading: PLAN
+  firstRun.planNothingChanges: Nothing changes until you approve.
+  firstRun.planProgress: 'Plan: {done} of {total} steps'
+  firstRun.planReadyWaiting: Plan ready · waiting for you
+  firstRun.planStats: '{steps} steps · {files} files · {objects} objects · about {minutes} min'
+  firstRun.planTitle: 'New project: {name}'
+  firstRun.plannedLegend: planned
+  firstRun.planningStatus: Planning…
+  firstRun.redetectAgents: Re-detect local agents
+  firstRun.replayTips: Replay tips
+  firstRun.restoreItemLabel: Restore {title}
+  firstRun.revertAll: Revert all
+  firstRun.revertItemLabel: Revert {title}
+  firstRun.reviewAsIs: Review as is
+  firstRun.reviewSubtitle: first scene
+  firstRun.reviewThem: Review them
+  firstRun.reviewTitle: Review
+  firstRun.skipTips: Skip tips
+  firstRun.startBack: Start
+  firstRun.step1Note: Once, about a minute
+  firstRun.step1Title: Connect an agent
+  firstRun.step2Note: Nothing is written before
+  firstRun.step2Title: Approve its plan
+  firstRun.step3Note: Keep or revert each change
+  firstRun.step3Title: Review the first scene
+  firstRun.stopBuildingDeleteBody: '{path} was created {seconds} s ago and holds only what the agent made.'
+  firstRun.stopBuildingKeepBody: You can keep building or stop and review the files written so far.
+  firstRun.stopBuildingTitle: Stop building?
+  firstRun.stopDeleteFolder: Stop and delete the folder
+  firstRun.stopKeepFiles: Stop, keep the files
+  firstRun.stoppedDeletedBody: Stopped. {path} was deleted; your idea is still on the Start screen.
+  firstRun.stoppedKeptBody: Stopped. The {count} objects built so far are ready to review.
+  firstRun.templatePreviewReadOnly: Template preview · read-only
+  firstRun.timeoutHeading: No answer from {agent} after 30 s
+  firstRun.timeoutInstructions: |-
+    1. Open Terminal, run {bin} once and sign in.
+    2. When it asks, trust the folder {path}.
+    3. Come back here and try again.
+  firstRun.tip1Body: Keep or revert each change here. Nothing is final until you keep it.
+  firstRun.tip2Body: Hold B to see the scene as it was before these changes.
+  firstRun.tip3Body: Select anything, then press {shortcut} to ask the agent about just that.
+  firstRun.tipGotIt: Got it
+  firstRun.tipNext: Next
+  firstRun.tipStepOf: '{current} of {total}'
+  firstRun.tryAgain: Try again
+  firstRun.whatHappensNext: WHAT HAPPENS NEXT
   gizmo.rotate: Rotate
   gizmo.scale: Scale
   gizmo.spaceGlobal: Global
   gizmo.spaceLocal: Local
   gizmo.translate: Translate
+  gridmap.emptyHint: Open a .gridmap.yaml file or select an object with a GridMap to paint
+  gridmap.emptyMeshLibrary: Mesh library {library} has no items
+  gridmap.floorDownLabel: Lower floor height ([)
+  gridmap.floorLabel: 'Floor Y: {floor}'
+  gridmap.floorUpLabel: Raise floor height (])
+  gridmap.gridLabel: GridMap items of {library}
+  gridmap.noMeshLibrary: GridMap has no mesh library
+  gridmap.orientLabel: 'Orient: {orient}/24'
+  gridmap.rotXLabel: Rotate item around X (X)
+  gridmap.rotYLabel: Rotate item around Y (Y)
+  gridmap.rotZLabel: Rotate item around Z (Z)
+  gridmap.title: GridMap
   history.back: Back
   history.checkpoint: Checkpoint
   history.close: Close History
@@ -701,6 +2065,193 @@ strings:
   history.title: History
   history.undone: undone
   history.unsaved: unsaved
+  hudLayout.allSizes: All sizes
+  hudLayout.anchor.bottomCenter: Bottom centre
+  hudLayout.anchor.bottomLeft: Bottom left
+  hudLayout.anchor.bottomRight: Bottom right
+  hudLayout.anchor.center: Centre
+  hudLayout.anchor.centerLeft: Centre left
+  hudLayout.anchor.centerRight: Centre right
+  hudLayout.anchor.fill: Fills the whole screen
+  hudLayout.anchor.topCenter: Top centre
+  hudLayout.anchor.topLeft: Top left
+  hudLayout.anchor.topRight: Top right
+  hudLayout.anchorButtonLabel: Anchor {anchor}
+  hudLayout.anchorFillLabel: Anchor fill
+  hudLayout.anchorHeading: ANCHOR
+  hudLayout.anchorOfSafeArea: '{anchor} of the safe area'
+  hudLayout.anchorOfScreen: '{anchor} of the screen'
+  hudLayout.askAgentFix: Ask the agent to fix {count}
+  hudLayout.backToSceneEditor: Back to scene editor
+  hudLayout.breadcrumbNone: none
+  hudLayout.breadcrumbScreens: screens
+  hudLayout.centerRegionLabel: All screen sizes preview
+  hudLayout.composerLabel: Ask the agent
+  hudLayout.composerPlaceholder: e.g. add a boss health bar that only shows on floor 3
+  hudLayout.decreaseSpacing: Decrease spacing
+  hudLayout.designCaption: designed at {width} × {height} · scaled to fit height
+  hudLayout.emptyBody: Add a *.screen.yaml file under screens/ or ask the agent to build a HUD or menu screen.
+  hudLayout.emptyTitle: No HUD or menu screens yet
+  hudLayout.errorTitle: Could not open {file}
+  hudLayout.fill: Fill
+  hudLayout.gameCheckHeading: GAME CHECK · {screen}
+  hudLayout.headerLabel: HUD layout header
+  hudLayout.increaseSpacing: Increase spacing
+  hudLayout.inspectorEmptyHint: Select or open a screen file to inspect anchors, localized text width, and GAME CHECK diagnostics.
+  hudLayout.inspectorRegionLabel: HUD node inspector
+  hudLayout.keepInSafeArea: Keep inside the safe area
+  hudLayout.language: Language
+  hudLayout.languageItemLabel: Language {language}
+  hudLayout.leftRailLabel: Screens and nodes
+  hudLayout.moveEarlier: Move earlier in container
+  hudLayout.moveLater: Move later in container
+  hudLayout.multiSizeCanvasLabel: HUD preview at Phone, Tablet, Desktop, and Ultrawide sizes
+  hudLayout.noOffset: no offset
+  hudLayout.noProblems: No problems at any size in this language
+  hudLayout.noScreenSelected: No screen selected
+  hudLayout.noScreens: No screens found
+  hudLayout.nodeHasProblem: has a problem
+  hudLayout.nodesHeading: NODES
+  hudLayout.offsetFromAnchor: x {x} · y {y} from the anchor
+  hudLayout.order: Order
+  hudLayout.orderValue: '{index} of {total}'
+  hudLayout.overlay.anchors: Anchors
+  hudLayout.overlay.focusOrder: Focus order
+  hudLayout.overlay.safeAreas: Safe areas
+  hudLayout.overlay.touchAreas: Touch areas
+  hudLayout.play: Play
+  hudLayout.railFooterHint: 'By hand: order inside a container, spacing, and dragging touch controls. The agent builds the rest.'
+  hudLayout.screenError: error
+  hudLayout.screenItemLabel: Screen {name} {meta}
+  hudLayout.screenLabel: HUD and menu layout
+  hudLayout.screenNodesCount: '{count} nodes'
+  hudLayout.screensHeading: SCREENS
+  hudLayout.search: Search
+  hudLayout.searchButtonLabel: Search · {key}
+  hudLayout.send: Send
+  hudLayout.show: Show
+  hudLayout.showNodeLabel: Show {id}
+  hudLayout.size.byChildren: sized by its children
+  hudLayout.size.fillsScreen: fills the screen
+  hudLayout.size.fitText: Fit text
+  hudLayout.size.fitsText: fits text · {width}
+  hudLayout.size.fixed: Fixed
+  hudLayout.size.fixedValue: Fixed {width}
+  hudLayout.size.withTouch: '{size} · touch {touch} pt'
+  hudLayout.sizeHeading: SIZE
+  hudLayout.spacing: Spacing
+  hudLayout.stop: Stop
+  hudLayout.textHeading: TEXT
+  hudLayout.textMissing: (missing)
+  hudLayout.textWidthBox: BOX
+  hudLayout.textWidthHeading: TEXT WIDTH, PX
+  hudLayout.textWidthRegionLabel: Text width in pixels
+  hudLayout.textWidthRowLabel: Text width {id}
+  hudLayout.treeNodeLabel: Node {name}
+  hudLayout.treeScreenLabel: Screen {name}
+  hudLayout.width: Width
+  hudLayout.zoomCanvasLabel: Zoomed 1.5x preview of {id} overflowing by {px} px
+  hudLayout.zoomOver: '{px} px past the box'
+  hudLayout.zoomTitle: Phone · {language} · 1.5×
+  inputMap.actionAxesHeading: ACTION AXES
+  inputMap.actionHeading: ACTION
+  inputMap.add: Add
+  inputMap.addActionLabel: Add Action
+  inputMap.addAxisLabel: Add Axis
+  inputMap.addBinding: Add Binding
+  inputMap.addBindingLabel: Add input binding
+  inputMap.addGamepadLabel: Add Gamepad Axis
+  inputMap.addMotionLabel: Add Motion Axis
+  inputMap.axial: Axial
+  inputMap.axialGamepadLabel: Axial Gamepad Axis {index}
+  inputMap.axisNegLabel: Axis {index} Negative
+  inputMap.axisPosLabel: Axis {index} Positive
+  inputMap.bindingCount: '{count} binding(s)'
+  inputMap.bindingGamepadButtonLabel: Binding {index} Gamepad Button
+  inputMap.bindingKeyCodeLabel: Binding {index} KeyCode
+  inputMap.bindingKeyLabel: Binding {index} Key
+  inputMap.bindingKindLabel: Binding Kind
+  inputMap.bindingMouseButtonLabel: Binding {index} Mouse Button
+  inputMap.bindingRegionFieldLabel: Binding {index} {field}
+  inputMap.cancel: Cancel
+  inputMap.cancelKeyCaptureLabel: Cancel key capture
+  inputMap.close: Close
+  inputMap.closeLabel: Close Input map
+  inputMap.deadZone: DeadZone
+  inputMap.deleteActionLabel: Delete Action {action}
+  inputMap.deleteAxisLabel: Delete Axis {axis}
+  inputMap.deleteGamepadLabel: Delete Gamepad Axis {axis}
+  inputMap.deleteMotionLabel: Delete Motion Axis {axis}
+  inputMap.editTriggersLabel: Edit triggers for {action}
+  inputMap.emptyActions: No actions yet. Add an action to bind keys, gamepad or regions.
+  inputMap.emptyAxes: No action axes.
+  inputMap.emptyBindings: No bindings yet. Press "Press a key" or add a binding.
+  inputMap.emptyGamepadAxes: No gamepad stick axes.
+  inputMap.emptyMotion: No motion axes.
+  inputMap.gamepadFieldLabel: Gamepad Axis {index} {field}
+  inputMap.gamepadStickLabel: Gamepad Axis {index} Stick
+  inputMap.gamepadSticksHeading: GAMEPAD STICKS
+  inputMap.invertGamepadLabel: Invert Gamepad Axis {index}
+  inputMap.invertMotionLabel: Invert Motion {index}
+  inputMap.invertShort: Inv
+  inputMap.keyCapturePrompt: Press a key to bind {kind} to "{action}"...
+  inputMap.keyCaptureTargetLabel: Key Capture Target
+  inputMap.kind.gamepadButton: Gamepad Button
+  inputMap.kind.key: Key
+  inputMap.kind.keyCode: Key Code
+  inputMap.kind.mouseButton: Mouse Button
+  inputMap.kind.mouseRegion: Mouse Region
+  inputMap.kind.touchRegion: Touch Region
+  inputMap.motionAxesHeading: MOTION AXES
+  inputMap.motionFieldLabel: Motion {index} {field}
+  inputMap.motionSensorLabel: Motion {index} Axis
+  inputMap.negPlaceholder: Neg
+  inputMap.newActionNameLabel: New Action Name
+  inputMap.newActionNamePlaceholder: Action name
+  inputMap.newAxisNameLabel: New Axis Name
+  inputMap.newAxisNamePlaceholder: Axis
+  inputMap.newAxisNegLabel: New Axis Negative Action
+  inputMap.newAxisPosLabel: New Axis Positive Action
+  inputMap.newGamepadNameLabel: New Gamepad Axis Name
+  inputMap.newGamepadNamePlaceholder: Stick
+  inputMap.newGamepadStickLabel: New Gamepad Stick Axis
+  inputMap.newMotionNameLabel: New Motion Axis Name
+  inputMap.newMotionNamePlaceholder: Motion
+  inputMap.newMotionSensorLabel: New Motion Sensor Axis
+  inputMap.noBindings: No bindings
+  inputMap.noneOption: (none)
+  inputMap.posPlaceholder: Pos
+  inputMap.pressCode: Press code
+  inputMap.pressCodeLabel: Capture physical keyCode binding
+  inputMap.pressKey: Press a key
+  inputMap.pressKeyLabel: Capture key binding
+  inputMap.regionCanvasHint: Drag a region to move, its corner to resize, or empty space to draw.
+  inputMap.regionCanvasLabel: Input Region Canvas
+  inputMap.regionDrawMouse: Mouse
+  inputMap.regionDrawMouseLabel: Draw mouse regions instead of touch regions
+  inputMap.regionHeight: Height
+  inputMap.regionWidth: Width
+  inputMap.regionsHeading: Regions ({width}×{height})
+  inputMap.remove: Remove
+  inputMap.removeBindingLabel: Remove Binding {index}
+  inputMap.rename: Rename
+  inputMap.renameActionLabel: Rename Action
+  inputMap.renameSelectedActionLabel: Rename selected action
+  inputMap.selectActionLabel: Select Action {action}
+  inputMap.selectBindingLabel: Select Binding {index}
+  inputMap.selectOrAddAction: Select or add an action to edit its bindings.
+  inputMap.sensitivity: Sensitivity
+  inputMap.smoothing: Smoothing
+  inputMap.statusBoundKey: Bound key "{key}" to "{action}"
+  inputMap.statusBoundKeyCode: Bound keyCode "{code}" to "{action}"
+  inputMap.statusCaptureCancelled: Key capture cancelled
+  inputMap.statusCapturePrompt: Press a key to bind to "{action}"...
+  inputMap.tab.actions: Actions
+  inputMap.tab.axes: Axes
+  inputMap.triggerMouseButton: mouse {button}
+  inputMap.triggerMouseRegion: mouse region
+  inputMap.triggerTouchRegion: touch region
+  inputMap.triggersHelp: Keyboard · gamepad · touch
   inspector.addComponent: Add component
   inspector.addProperty: Add property
   inspector.alpha: Alpha
@@ -819,6 +2370,179 @@ strings:
   inspector.width: Width
   inspector.zOrder: Z order
   inspector.zoom: Zoom
+  inspectorConn.args: Args
+  inspectorConn.connect: Connect
+  inspectorConn.connectEvent: Connect {event}
+  inspectorConn.editTitle: Edit connection
+  inspectorConn.event: Event
+  inspectorConn.eventPlaceholder: event
+  inspectorConn.events: Events
+  inspectorConn.from: From
+  inspectorConn.handler: Handler
+  inspectorConn.handlerPlaceholder: handler
+  inspectorConn.newTitle: New connection
+  inspectorConn.noEvents: No events declared
+  inspectorConn.noHandlersOn: No handlers on {id}
+  inspectorConn.noRegistry: No component registry set
+  inspectorConn.once: Once
+  inspectorConn.onceTip: Disconnect after the first time the event fires
+  inspectorConn.params: Params
+  inspectorConn.pickEvent: Pick event
+  inspectorConn.pickTarget: Pick target
+  inspectorConn.pickTargetActiveTip: Click an object in the viewport or scene tree (Esc to cancel)
+  inspectorConn.pickTargetLabel: Pick target from viewport or scene tree
+  inspectorConn.pickTargetTip: Pick target object from viewport or scene tree
+  inspectorConn.target: Target
+  inspectorEditExtra.atlas: Atlas
+  inspectorEditExtra.editEmitter: Edit Emitter
+  inspectorEditExtra.emitter: Emitter
+  inspectorEditExtra.none: None
+  inspectorEditExtra.origin: Origin
+  inspectorEditExtra.particleAtlas: Particle Atlas
+  inspectorEditExtra.particleEmitterFile: Particle Emitter File
+  inspectorExtra.activeLOD: Active LOD
+  inspectorExtra.addVertex: + Vertex
+  inspectorExtra.clearFieldFilter: Clear field filter
+  inspectorExtra.cmdDeleteProperty: Delete property {key}
+  inspectorExtra.cmdRevertLayerField: Revert {field} on layer {layer}
+  inspectorExtra.cmdSetComponentField: Set {component}.{field}
+  inspectorExtra.cmdSetProperty: Set property {key}
+  inspectorExtra.convertToPolygon: Convert to Polygon
+  inspectorExtra.doubleSidedOccluder: Double-Sided Occluder
+  inspectorExtra.fieldHeight: Height
+  inspectorExtra.fieldRadius: Radius
+  inspectorExtra.fieldWidth: Width
+  inspectorExtra.fitToModelBounds: Fit to Model Bounds
+  inspectorExtra.gridMap: GridMap
+  inspectorExtra.inheritedLayerNote: Inherited from base scene; edits here are saved under layerOverrides.
+  inspectorExtra.layerScreen: layer · screen
+  inspectorExtra.layerSpace: layer · {space}
+  inspectorExtra.layerWorld: layer · world
+  inspectorExtra.lodCulled: Culled ({count} levels)
+  inspectorExtra.lodLevel: LOD {level} / {count}
+  inspectorExtra.lodOccluded: Occluded ({count} levels)
+  inspectorExtra.none: None
+  inspectorExtra.occSizeX: Occ Size X
+  inspectorExtra.occSizeY: Occ Size Y
+  inspectorExtra.occSizeZ: Occ Size Z
+  inspectorExtra.occluder: Occluder
+  inspectorExtra.occluderBox: Box
+  inspectorExtra.occluderMode: Occluder Mode
+  inspectorExtra.occluderModel: Model
+  inspectorExtra.parallaxX: Parallax X
+  inspectorExtra.parallaxY: Parallax Y
+  inspectorExtra.pointsCount: '{count} points'
+  inspectorExtra.repeat: Repeat
+  inspectorExtra.repeatH: Repeat H
+  inspectorExtra.repeatHeight: Repeat Height
+  inspectorExtra.repeatW: Repeat W
+  inspectorExtra.repeatWidth: Repeat Width
+  inspectorExtra.screenSpaceNote: Screen-space layers ignore camera parallax and repeat.
+  inspectorExtra.section.camera3d: CAMERA 3D
+  inspectorExtra.section.light3d: LIGHT 3D
+  inspectorExtra.section.lightProbeGrid: LIGHT PROBE GRID
+  inspectorExtra.section.parallax: PARALLAX
+  inspectorExtra.section.particles: PARTICLES
+  inspectorExtra.section.reflectionProbe: REFLECTION PROBE
+  inspectorExtra.section.repeat: REPEAT
+  inspectorExtra.statusDeletedProperty: Deleted property {key}
+  inspectorExtra.statusUpdated: Updated {name}
+  inspectorExtra.stringListPlaceholder: layer1, layer2
+  inspectorExtra.tooltipDefault: ', default {value}'
+  inspectorExtra.tooltipRange: ' in [{min}, {max}]'
+  inspectorExtra.twoSided: 2-Sided
+  inspectorExtra.verticesCount: '{count} vertices'
+  inspectorRoom.addRoom: Add Room
+  inspectorRoom.badge: room
+  inspectorRoom.close: Close
+  inspectorRoom.color: Color
+  inspectorRoom.default: Default
+  inspectorRoom.defaultFadeColor: Default Fade Color
+  inspectorRoom.defaultTransDuration: Default Transition Duration
+  inspectorRoom.defaultTransEasing: Default Transition Easing
+  inspectorRoom.delete: Delete
+  inspectorRoom.drawRoom: Draw Room
+  inspectorRoom.duration: Duration
+  inspectorRoom.durationPlaceholder: e.g. 400ms
+  inspectorRoom.easing: Easing
+  inspectorRoom.easingDefault: Default
+  inspectorRoom.easingEase: ease
+  inspectorRoom.easingEaseIn: easeIn
+  inspectorRoom.easingEaseInOut: easeInOut
+  inspectorRoom.easingEaseOut: easeOut
+  inspectorRoom.easingLinear: linear
+  inspectorRoom.fadeColor: Fade Color
+  inspectorRoom.gridSnap: Grid Snap
+  inspectorRoom.height: Height
+  inspectorRoom.id: ID
+  inspectorRoom.name: Name
+  inspectorRoom.namePlaceholder: Display name or key
+  inspectorRoom.newRoomMap: New Room Map
+  inspectorRoom.noRoomMap: No room map open beside this scene.
+  inspectorRoom.noRooms: No rooms — add or draw a room before saving.
+  inspectorRoom.returnToScene: Return to Scene Settings
+  inspectorRoom.roomHeight: Room Height
+  inspectorRoom.roomID: Room ID
+  inspectorRoom.roomName: Room Name
+  inspectorRoom.roomWidth: Room Width
+  inspectorRoom.roomX: Room X
+  inspectorRoom.roomY: Room Y
+  inspectorRoom.save: Save
+  inspectorRoom.saveRooms: Save Rooms
+  inspectorRoom.scene: Scene
+  inspectorRoom.section.bounds: BOUNDS
+  inspectorRoom.section.room: ROOM
+  inspectorRoom.section.roomMap: ROOM MAP
+  inspectorRoom.section.rooms: ROOMS
+  inspectorRoom.section.transition: TRANSITION
+  inspectorRoom.snapRoomEdges: Snap Room Edges to Tile Grid
+  inspectorRoom.transCut: Cut
+  inspectorRoom.transDuration: Transition Duration
+  inspectorRoom.transEasing: Transition Easing
+  inspectorRoom.transFade: Fade
+  inspectorRoom.transInherit: Inherit
+  inspectorRoom.transNone: None
+  inspectorRoom.transSlide: Slide
+  inspectorRoom.width: Width
+  inspectorSceneExtra.ambient: Ambient
+  inspectorSceneExtra.ambientColor: Ambient Color
+  inspectorSceneExtra.clearAmbientColor: Clear ambient color
+  inspectorSceneExtra.inherits: Inherits
+  inspectorSceneExtra.navMesh: NavMesh
+  inspectorSceneExtra.openBaseScene: Open Base Scene
+  inspectorSceneExtra.sceneNavMeshPath: Scene NavMesh Path
+  inspectorSceneExtra.section.sceneLighting: SCENE LIGHTING
+  l10nPanel.addKey: Add Key
+  l10nPanel.addKeyTooltip: Add translation key row
+  l10nPanel.addLocale: Add Locale
+  l10nPanel.addLocaleTooltip: Add BCP-47 locale column
+  l10nPanel.closeLabel: Close Localization
+  l10nPanel.colKey: KEY
+  l10nPanel.dismissErrorLabel: Dismiss localization error
+  l10nPanel.dismissErrorTooltip: Dismiss error
+  l10nPanel.emptyDesc: Add a locale and key above to begin editing translations.
+  l10nPanel.emptyKeysDesc: Enter a key above and press Add Key to start translating.
+  l10nPanel.emptyKeysTitle: No translation keys yet
+  l10nPanel.emptyTitle: No locales or keys yet
+  l10nPanel.loading: Loading localization tables…
+  l10nPanel.missingTranslation: Missing translation
+  l10nPanel.newKeyLabel: New Key
+  l10nPanel.newKeyPlaceholder: menu.play
+  l10nPanel.newLocaleLabel: New Locale
+  l10nPanel.plural: Plural
+  l10nPanel.pluralBadge: plural
+  l10nPanel.pluralLabel: CLDR plural key
+  l10nPanel.pluralTooltip: Create a CLDR plural key (zero, one, two, few, many, other)
+  l10nPanel.remove: Remove
+  l10nPanel.removeKeyLabel: Remove key {key}
+  l10nPanel.removeLocaleLabel: Remove locale {locale}
+  l10nPanel.saveStrings: Save Strings
+  l10nPanel.statusClosedTable: Closed localization table
+  l10nPanel.statusOpened: Opened localizations
+  l10nPanel.statusOpenedDir: Opened localizations {dir}
+  l10nPanel.statusOpenedTable: Opened localization table
+  l10nPanel.statusSaved: Saved {count} locale file(s) to {dir}
+  l10nPanel.title: Localization
   layers.add: Add Layer
   layers.empty: No layers
   layers.hide: Hide Layer
@@ -846,6 +2570,19 @@ strings:
   library.remove: Remove
   library.title: Library
   library.update: Update
+  mainLayoutExtra.cameraCaption: Camera · {w} × {h}
+  mainLayoutExtra.failedToOpen: Failed to open {file}
+  mainLayoutExtra.gridMapStatus: '{view} · {tool} · Floor {floor} · {orient}/24'
+  mainLayoutExtra.playtest: Playtest
+  mainLayoutExtra.playtestMet: Playtest · met
+  mainLayoutExtra.playtestMissed: Playtest · {count} missed
+  mainLayoutExtra.playtestReportLabel: Playtest Report
+  mainLayoutExtra.randomSuffix: ' | Random: {count} tiles (seed {seed})'
+  mainLayoutExtra.sceneConflictMany: '{count} scene conflicts'
+  mainLayoutExtra.sceneConflictOne: 1 scene conflict
+  mainLayoutExtra.sceneOpenFix: Check that the scene file exists and contains valid YAML.
+  mainLayoutExtra.sketchStatus: Sketch layer · scene {x}, {y} · Sketch · {tool}
+  mainLayoutExtra.stampSuffix: ' | Stamp: {w}x{h}'
   material.close: Close
   material.field.baseColor: Base Color
   material.field.blend: Blend
@@ -866,6 +2603,13 @@ strings:
   material.shape.sphere: Sphere
   material.shape.sprite: Sprite
   material.title: Material Editor
+  materialExtra.blendMode: Blend Mode
+  materialExtra.clearColorLabel: Clear {label}
+  materialExtra.colorPickerLabel: '{label} Picker'
+  materialExtra.none: None
+  materialExtra.previewError: Preview error
+  materialExtra.texture: Texture
+  materialExtra.valueLabel: '{label} value'
   menu.agentPanel: Agent Panel
   menu.applyOverridesToSource: Apply Overrides to Source
   menu.askAgent: Ask the Agent About Selection
@@ -981,17 +2725,79 @@ strings:
   menu.view2d: 2D View
   menu.view3d: 3D View
   menu.view3dCamera: Look Through Scene Camera
+  mergeConflict.applyYAML: Apply YAML
+  mergeConflict.backToEditor: Back to editor
+  mergeConflict.cancel: Cancel
+  mergeConflict.chip.agent: Agent
+  mergeConflict.chip.custom: Custom
+  mergeConflict.chip.mine: Mine
+  mergeConflict.chip.unresolved: Unresolved
+  mergeConflict.conflictRowLabel: 'Conflict {name} ({status}): {summary}'
+  mergeConflict.customTag: custom
+  mergeConflict.editYAMLByHand: Edit the result YAML by hand
+  mergeConflict.handEditedYAML: Hand-edited YAML
+  mergeConflict.hideYAMLEditor: Hide YAML editor
+  mergeConflict.objectMany: '{count} objects'
+  mergeConflict.objectOne: 1 object
+  mergeConflict.optionLabel: '{title} ({meta}) for {name}'
+  mergeConflict.pickSideLabel: Pick {title} ({branch})
+  mergeConflict.resolvedCount: '{resolved} of {total} resolved'
+  mergeConflict.resultPreviewLabel: Merged result scene preview
+  mergeConflict.resultYAMLLabel: Result YAML for {name}
+  mergeConflict.screenLabel: Scene merge conflict
+  mergeConflict.sectionConflicts: CONFLICTS
+  mergeConflict.sectionMergedByID: MERGED BY ID
+  mergeConflict.sectionResult: RESULT
+  mergeConflict.sidePreviewLabel: '{title} scene preview'
+  mergeConflict.takeAllAgent: Take the agent's suggestion for all {count}
+  mergeConflict.unresolvedLegend: unresolved, both positions shown
+  mergeConflict.verifyFailed: Merge verification failed
   mergeDriver.bannerMessage: Scene merge driver is not configured in this Git clone — Git will merge .scene.yaml files line by line.
   mergeDriver.configuredStatus: Configured Git scene merge driver (nsgo-scene)
   mergeDriver.dismissButton: Dismiss
   mergeDriver.setupButton: Enable merge driver
+  models.align: Align
+  models.alignLabel: Align placed models to the surface
   models.askForOne: Or ask for one
   models.askForOneHint: Describe a model… e.g. a low stone planter, 1 × 0.5 m, same stone as the walls
   models.dragIn: drag in
   models.dragTooltip: Drag into the viewport to place {name}
+  models.groundHeight: Ground height
+  models.placeGroupLabel: Place
+  models.placeLabel: Place the model selected in the asset browser
+  models.primitive: Primitive
   models.promptClose: Close
   models.promptSend: Send
+  models.snap: Snap
+  models.snapLabel: Snap placed models to the grid
   models.stripTitle: MODELS
+  models.title: Models
+  navmesh3d.agent: Agent
+  navmesh3d.agentLabel: NavMesh Agent Name
+  navmesh3d.agentPlaceholder: default
+  navmesh3d.bake: Bake
+  navmesh3d.bakeLabel: Bake 3D navigation mesh from the open scene's static geometry
+  navmesh3d.cellHeight: Cell Height
+  navmesh3d.cellHeightLabel: Voxel Cell Height
+  navmesh3d.cellSize: Cell Size
+  navmesh3d.cellSizeLabel: Voxel Cell Size
+  navmesh3d.close: Close
+  navmesh3d.height: Height
+  navmesh3d.heightLabel: Agent Height
+  navmesh3d.maxSlope: Max Slope (°)
+  navmesh3d.maxSlopeLabel: Max Slope
+  navmesh3d.notBaked: No navmesh baked
+  navmesh3d.outputPath: Output Path
+  navmesh3d.outputPathLabel: NavMesh Output Path
+  navmesh3d.overlay: Overlay
+  navmesh3d.overlayLabel: Show 3D NavMesh Overlay
+  navmesh3d.radius: Radius
+  navmesh3d.radiusLabel: Agent Radius
+  navmesh3d.stepHeight: Step Height
+  navmesh3d.stepHeightLabel: Agent Step Height
+  navmesh3d.summary: '{agent}: {polygons} polygons, {vertices} vertices'
+  navmesh3d.summaryWithPath: '{agent}: {polygons} polygons, {vertices} vertices ({path})'
+  navmesh3d.title: 3D NavMesh
   output.clear: Clear
   output.clearLabel: Clear all messages from the Output panel
   output.empty: No output
@@ -1024,6 +2830,7 @@ strings:
   overlays.triggers: Triggers
   overlays.zoomIn: Zoom in
   overlays.zoomOut: Zoom out
+  overlaysExtra.buttonLabel: '{label} ({count})'
   overrides.applyToSource: Apply to Source
   overrides.baseScene: Base scene
   overrides.inherited: Inherited
@@ -1060,6 +2867,104 @@ strings:
   palette.pluginToolDesc: Plugin tool ({plugin})
   palette.projectFile: Project file
   palette.searchLabel: Search commands, nodes, and files
+  particles.addBurst: + Add Burst
+  particles.addStop: + Stop
+  particles.addSubEmitter: + Add Sub-Emitter
+  particles.angleMax: Angle Max
+  particles.angleMin: Angle Min
+  particles.backToRoot: Back to Root
+  particles.bounce: Bounce
+  particles.burst: Burst
+  particles.burstCount: Count
+  particles.burstCycles: Cycles
+  particles.burstInterval: Interval (s)
+  particles.burstTime: Time (s)
+  particles.close: Close
+  particles.collideBounce: bounce
+  particles.collideKill: kill
+  particles.collideNone: none
+  particles.collideStop: stop
+  particles.collisionModeLabel: Collision Mode
+  particles.colorHex: Color (#rrggbbaa)
+  particles.colorStopTLabel: Color Stop T
+  particles.colorStopsHint: '{count} color stops (click bar to select/add)'
+  particles.curveAlpha: Alpha
+  particles.curveColor: Color
+  particles.curveRotation: Rotation
+  particles.curveSize: Size
+  particles.curveTrailColor: Trail Color
+  particles.curveTrailWidth: Trail Width
+  particles.editChild: Edit Child
+  particles.enableTrails: Enable Ribbon Trails
+  particles.enabled: Enabled
+  particles.floatStopsHint: '{count} stops (drag handles or click graph to add)'
+  particles.floor: Floor
+  particles.friction: Friction
+  particles.gravityX: Gravity X
+  particles.gravityY: Gravity Y
+  particles.height: Height
+  particles.initRotMax: Init Rot Max
+  particles.initRotMin: Init Rot Min
+  particles.lifeMax: Life Max (s)
+  particles.lifeMin: Life Min (s)
+  particles.maxParticles: Max Particles
+  particles.mode: Mode
+  particles.noAtlasFrames: No atlas frames available (select a Preview Atlas or load an atlas in the resolver)
+  particles.noAtlasPlaceholder: No Atlas
+  particles.pause: Pause
+  particles.play: Play
+  particles.previewAtlasLabel: Preview Atlas
+  particles.previewStats: '{count} live | {elapsed}s'
+  particles.radius: Radius
+  particles.rate: Rate (/s)
+  particles.remove: Remove
+  particles.removeStop: '- Stop'
+  particles.restart: Restart
+  particles.rotSpdMax: Rot Spd Max
+  particles.rotSpdMin: Rot Spd Min
+  particles.rotationRad: Rotation (rad)
+  particles.saveEmitter: Save Emitter
+  particles.sectionBursts: SCHEDULED BURSTS
+  particles.sectionCollision: COLLISION
+  particles.sectionCurves: CURVES
+  particles.sectionEmitterShape: EMITTER & SHAPE
+  particles.sectionFrames: FRAMES (ATLAS PICKER)
+  particles.sectionLifetimeMotion: LIFETIME & MOTION
+  particles.sectionSubEmitters: SUB-EMITTERS
+  particles.sectionTrails: TRAILS
+  particles.seed: Seed
+  particles.shape: Shape
+  particles.shapeCircle: circle
+  particles.shapeKindLabel: Shape Kind
+  particles.shapePoint: point
+  particles.shapeRect: rect
+  particles.shapeRing: ring
+  particles.space: Space
+  particles.spaceLabel: Simulation Space
+  particles.spaceLocal: local
+  particles.spaceWorld: world
+  particles.speedMax: Speed Max
+  particles.speedMin: Speed Min
+  particles.step: Step
+  particles.stopTLabel: Stop T
+  particles.stopValueLabel: Stop Value
+  particles.subBurstCount: Burst Count
+  particles.subInheritVel: Inherit Vel
+  particles.subTitlePart: 'Sub #{index}'
+  particles.subTrigger: 'Sub #{index} Trigger'
+  particles.subTriggerLabel: Sub-Emitter Trigger
+  particles.textureURI: Texture URI
+  particles.title: Particle Emitter
+  particles.trailColorLabel: Trail Color
+  particles.trailLifetime: Lifetime (s)
+  particles.trailMaxPoints: Max Points
+  particles.trailMinDist: Min Dist
+  particles.trailTextureURILabel: Trail Texture URI
+  particles.triggerBirth: birth
+  particles.triggerCollision: collision
+  particles.triggerDeath: death
+  particles.width: Width
+  particles.zOrder: Z Order
   permissions.action.code: Code
   permissions.action.create: Create
   permissions.action.delete: Delete
@@ -1086,11 +2991,17 @@ strings:
   permissions.deleteToolOn: 'Tools (You only): game_delete_file still requires confirming each deletion in review.'
   permissions.deny: Deny
   permissions.draft.apply: Apply
+  permissions.draft.colDraft: DRAFT
+  permissions.draft.colNow: NOW
+  permissions.draft.colRule: RULE
   permissions.draft.descNoRequest: Tick each rule you agree with. ⌘↵, Keep all and automations can't apply this, and no profile lets it through on its own.
+  permissions.draft.descWithRequest: From your request “{request}”. Tick each rule you agree with. ⌘↵, Keep all and automations can't apply this, and no profile lets it through on its own.
   permissions.draft.discard: Discard draft
   permissions.draft.historyHint: Applied rules are recorded in History as yours.
   permissions.draft.noChangesTicked: No changes ticked
+  permissions.draft.tickLabel: 'Apply {action} {patterns}: {current} to {draft}'
   permissions.draft.title: The agent drafted a change to its own permissions
+  permissions.draft.yamlHeader: '{file} · if applied'
   permissions.emptyRules: No custom rules; the selected profile default decides.
   permissions.heldDesc: Rules tightened on disk applied immediately; loosened rules are held until you confirm each one.
   permissions.heldTitle: Loosened permission rules from disk are held
@@ -1159,6 +3070,134 @@ strings:
   plan.step.restore: Restore
   plan.stopped.nothingWritten: Stopped before step 1. Nothing was written.
   plan.stopped.partial: Stopped after {done} of {total} steps.
+  planExtra.decreaseField: Decrease {field}
+  planExtra.fileTagDelete: delete
+  planExtra.fileTagEdit: edit
+  planExtra.fileTagNew: new
+  planExtra.increaseField: Increase {field}
+  playMarks.agentEmptyHint: 'The agent sees the running game through the editor''s MCP server: live entities, the last 60 s of replay and your marks. Ask with {key} to freeze the frame first.'
+  playMarks.agentPauseNote: The game stays paused while the agent steps through the replay. Resume whenever you like; its fix comes back as a review.
+  playMarks.ask: Ask
+  playMarks.askButton: Something looks wrong {key}
+  playMarks.askButtonLabel: Pause and ask the agent about this frame ({key})
+  playMarks.askDialogLabel: Ask about frozen frame
+  playMarks.askDialogTitle: Ask about frame {frame}
+  playMarks.askInputLabel: What looks wrong?
+  playMarks.askInputPlaceholder: What looks wrong? e.g. the slime walks through the wall
+  playMarks.askReviewNote: A fix comes back as a review
+  playMarks.cancel: Cancel
+  playMarks.chip.frame: Frame {frame}
+  playMarks.chip.liveState: Live state
+  playMarks.chip.replayFrames: Replay · {frames} frames
+  playMarks.chip.replaySeconds: Replay · last {seconds} s
+  playMarks.chip.selectedLiveState: '{id} · live state'
+  playMarks.controlsLabel: Play mode controls
+  playMarks.frameLabel: frame {frame}
+  playMarks.frozenFrameImageLabel: Frozen frame image
+  playMarks.gameFrozen: game frozen
+  playMarks.markLabel: Mark this moment without stopping ({key})
+  playMarks.markWithCount: Mark {key} · {count}
+  playMarks.markWithKey: Mark {key}
+  playMarks.marksFooterHint: When you stop, all marks go to the agent as one thread.
+  playMarks.marksHeader: MARKS · {count}
+  playMarks.panicAskFix: Ask the agent to fix
+  playMarks.panicHide: Hide
+  playMarks.panicHideRuntimeLabel: Hide runtime stack frames
+  playMarks.panicMetaFrame: '{time} · frame {frame}'
+  playMarks.panicOpenLocation: Open {loc}
+  playMarks.panicReplay: Replay up to the panic
+  playMarks.panicShow: Show
+  playMarks.panicShowRuntimeLabel: Show runtime stack frames
+  playMarks.panicTitle: Run {run} stopped on a panic
+  playMarks.pauseLabel: Pause ({key})
+  playMarks.pausedHint: Paused at frame {frame} · . steps one frame · {key} resumes
+  playMarks.replayAttached: replay attached
+  playMarks.replayAttachedSent: replay attached · sent
+  playMarks.replayHint: Saved as an input recording when you mark or ask
+  playMarks.replayTitle: REPLAY
+  playMarks.resumeLabel: Resume ({key})
+  playMarks.sendMarksNow: Send marks now
+  playMarks.setTimeScaleLabel: Set play time scale to {scale}
+  playMarks.status.frozen: Frozen for your question · frame {frame}
+  playMarks.status.paused: Paused · frame {frame}
+  playMarks.status.playing: Playing · live
+  playMarks.status.playingScale: Playing · live · {scale}×
+  playMarks.stepOneFrameLabel: Step one frame (.)
+  playMarks.stop: Stop
+  playMarks.stopLabel: Stop Play mode
+  playMarks.tab.agent: Agent
+  playMarks.tab.inspector: Inspector
+  playtestReport.agentsRead: Agent's read
+  playtestReport.applyToFile: Apply to {file}
+  playtestReport.askAgent: Ask agent
+  playtestReport.askAgentToTune: Ask the agent to tune it
+  playtestReport.backToSceneEditor: Back to scene editor
+  playtestReport.botProfileHeading: BOT PROFILE
+  playtestReport.botProfileItemLabel: Bot profile {profile}
+  playtestReport.botProfileLabel: Bot profile
+  playtestReport.chart.aboveThreshold: above {value}{unit}
+  playtestReport.chart.balanced: balanced
+  playtestReport.chart.hotspotCluster: Hotspot cluster
+  playtestReport.chart.moderate: Moderate
+  playtestReport.chart.noBarData: No bar series entries to chart
+  playtestReport.chart.noData: No chart data available
+  playtestReport.chart.noHeatMapData: No positioned events recorded for heat map
+  playtestReport.chart.noLineData: No level progression entries to chart
+  playtestReport.chart.noMatrixData: No win-rate matrix data to chart
+  playtestReport.chart.sameDeck: same deck
+  playtestReport.chart.vs: vs {label}
+  playtestReport.chart.watch: watch
+  playtestReport.close: Close
+  playtestReport.closeReview: Close review
+  playtestReport.configPreviewLabel: playtest.yaml preview
+  playtestReport.defaultScope: scene
+  playtestReport.dismiss: Dismiss
+  playtestReport.emptyBody: Run a headless playtest via game_playtest or open playtest.report.yaml from the project file browser.
+  playtestReport.emptyTitle: No playtest report loaded
+  playtestReport.footnote: Runs use the replay system, so any run can be watched frame by frame or turned into a test. Metrics and the bot come from playtest.yaml; the agent proposes new ones with playtest_define and they arrive as a review.
+  playtestReport.fromTemplate: from template {template}
+  playtestReport.headerLabel: Playtest report header
+  playtestReport.metricsLabel: Playtest metrics
+  playtestReport.open: Open
+  playtestReport.openFileLabel: Open {file}
+  playtestReport.proposedMetricLabel: Proposed playtest metric
+  playtestReport.requestSuggestionLabel: 'Request suggestion: {text}'
+  playtestReport.review: Review
+  playtestReport.reviewProposalDrawerLabel: Review proposed playtest metric
+  playtestReport.reviewProposalTitle: Review playtest_define · {metric} ({file})
+  playtestReport.reviewProposedMetricLabel: Review proposed metric {metric}
+  playtestReport.reviewRequested: Review requested
+  playtestReport.screenLabel: Playtest report
+  playtestReport.strategy: Strategy
+  playtestReport.title: Playtest · {scope}
+  playtestReport.watchRunLabel: '{label} in Play mode'
+  probes3d.addLightProbeGrid: Add Light Probe Grid
+  probes3d.addReflectionProbe: Add Reflection Probe
+  probes3d.bakeCubemap: Bake Cubemap
+  probes3d.bakeProbes: Bake Probes
+  probes3d.blend: Blend
+  probes3d.boxProj: Box Proj
+  probes3d.boxProjectionLabel: Box Projection
+  probes3d.center: Center
+  probes3d.counts: Counts
+  probes3d.cubemap: Cubemap
+  probes3d.cubemapPathLabel: Baked Cubemap Path
+  probes3d.cubemapPlaceholder: probes/room.hdr
+  probes3d.cubemapResolutionLabel: Cubemap Resolution
+  probes3d.data: Data
+  probes3d.intensity: Intensity
+  probes3d.lightProbeDataLabel: Baked Light Probes Path
+  probes3d.lightProbeIntensityLabel: Light Probe Grid Intensity
+  probes3d.priority: Priority
+  probes3d.probeCountX: Probe Count X
+  probes3d.probeCountY: Probe Count Y
+  probes3d.probeCountZ: Probe Count Z
+  probes3d.reflBlendLabel: Reflection Probe Blend Distance
+  probes3d.reflIntensityLabel: Reflection Probe Intensity
+  probes3d.reflPriorityLabel: Reflection Probe Priority
+  probes3d.remove: Remove
+  probes3d.resolution: Resolution
+  probes3d.size: Size
   problems.agentHeader: Agent
   problems.agentNote: Problems are found the moment a file changes, by you or the agent; the agent only offers a fix, it never applies one without you.
   problems.applyFix: Apply fix
@@ -1183,16 +3222,501 @@ strings:
   problems.title: Problems ({count})
   problems.titleChecking: Problems (checking…)
   problems.warning: Warning
+  profiler.allocsEmpty: 0 allocs/frame
+  profiler.allocsValue: '{count} allocs/frame'
+  profiler.avgEmpty: avg — ms
+  profiler.avgValue: avg {ms} ms
+  profiler.axis30s: −30 s
+  profiler.axis60s: −60 s
+  profiler.axisNow: now
+  profiler.axisPaused: paused
+  profiler.chart.allocs: Allocs
+  profiler.chart.allocsMax: max {max} allocs/f · heap {heap}
+  profiler.chart.assetMemoryOverTime: Asset memory over time
+  profiler.chart.budget: budget {size}
+  profiler.chart.disconnected: Disconnected · connect a running game or press Play to chart live metrics
+  profiler.chart.draw: Draw
+  profiler.chart.heap: Heap
+  profiler.chart.hitch: Hitch
+  profiler.chart.update: Update
+  profiler.chart.waiting: Waiting for frame samples…
+  profiler.chartMetricLabel: Chart {metric}
+  profiler.close: Close
+  profiler.closeLabel: Close Profiler panel
+  profiler.col.avg: AVG
+  profiler.col.calls: CALLS
+  profiler.col.last: LAST
+  profiler.col.max: MAX
+  profiler.col.zone: ZONE
+  profiler.connectedLive: Connected · live
+  profiler.disconnected: Disconnected
+  profiler.errorPrefix: 'err: {error}'
+  profiler.exportTrace: Export Trace
+  profiler.exportTraceLabel: Export recorded frames as Chrome/Perfetto trace JSON
+  profiler.hideProfiler: Hide Profiler
+  profiler.inspectCardLabel: Inspect {title}
+  profiler.kpi.allocsEmpty: 0 /f
+  profiler.kpi.allocsGC: ALLOCS & GC
+  profiler.kpi.allocsValue: '{count} /f'
+  profiler.kpi.assetMemory: ASSET MEMORY
+  profiler.kpi.drawStats: '{calls} calls · {sprites} sprites'
+  profiler.kpi.fps: FPS
+  profiler.kpi.frame: FRAME
+  profiler.kpi.frameSub: upd {update} · drw {draw} · p99 {p99}
+  profiler.kpi.frameSubEmpty: upd — · drw — · p99 —
+  profiler.kpi.framesCount: '{count} frames'
+  profiler.kpi.gcSub: heap {heap} · {gc} GC · {hitches} hitches
+  profiler.kpi.gcSubEmpty: heap — · 0 GC
+  profiler.kpi.memoryBudget: budget {budget} · {groups} groups
+  profiler.kpi.memoryGroups: '{groups} groups'
+  profiler.kpi.untracked: untracked
+  profiler.legendMissed: missed 16.7 ms
+  profiler.legendOver: over 8.3 ms
+  profiler.mainChartLabel: Profiler time-series chart
+  profiler.metric.allocsGC: Allocs & GC
+  profiler.metric.fps: FPS
+  profiler.metric.frame: Frame
+  profiler.metric.memory: Memory
+  profiler.openPanelLabel: Open full Profiler panel
+  profiler.p99Empty: p99 — ms
+  profiler.p99Value: p99 {ms} ms
+  profiler.panelTitle: PROFILER
+  profiler.recordedFrames: '{count} recorded frames'
+  profiler.reset: Reset
+  profiler.resetLabel: Reset profiler timings, zones and GC history
+  profiler.stripChartLabel: Frame time chart over the last 60 seconds
+  profiler.stripRegionLabel: Frame time last 60 seconds
+  profiler.stripTitle: FRAME TIME · LAST 60 S
+  profiler.title: Profiler
+  profiler.zonesDisconnected: Connect a running game or press Play to inspect zones
+  profiler.zonesEmpty: No profiler zones recorded
+  profiler.zonesTitle: ZONES · {count}
+  projectSettings.autoload.addResource: Add Resource
+  projectSettings.autoload.addResourceLabel: Add autoload resource
+  projectSettings.autoload.addScene: Add Scene
+  projectSettings.autoload.addSceneLabel: Add autoload scene
+  projectSettings.autoload.entryNameLabel: Autoload {kind} {index} Name
+  projectSettings.autoload.entryPathLabel: Autoload {kind} {index} Path
+  projectSettings.autoload.entryRemoveLabel: Remove Autoload {kind} {index}
+  projectSettings.autoload.heading: AUTOLOAD
+  projectSettings.autoload.kindResource: resource
+  projectSettings.autoload.kindScene: scene
+  projectSettings.autoload.mainSceneLabel: Main Scene
+  projectSettings.autoload.newResourceNameLabel: New Autoload Resource Name
+  projectSettings.autoload.newResourcePathLabel: New Autoload Resource Path
+  projectSettings.autoload.newSceneNameLabel: New Autoload Scene Name
+  projectSettings.autoload.newScenePathLabel: New Autoload Scene Path
+  projectSettings.autoload.refreshFiles: Refresh Files
+  projectSettings.autoload.refreshFilesLabel: Refresh project files
+  projectSettings.autoload.resourceNamePlaceholder: Resource name
+  projectSettings.autoload.resourcePathPlaceholder: Pick project file
+  projectSettings.autoload.resourcesEmpty: No autoload resources configured.
+  projectSettings.autoload.resourcesHeading: RESOURCES
+  projectSettings.autoload.sceneNamePlaceholder: Scene name
+  projectSettings.autoload.scenePathPlaceholder: Pick scene file
+  projectSettings.autoload.scenesEmpty: No autoload scenes configured.
+  projectSettings.autoload.scenesHeading: SCENES
+  projectSettings.canonicalNotice: Saving writes game.yaml in canonical YAML form, which does not preserve comments.
+  projectSettings.close: Close
+  projectSettings.closeLabel: Close Project Settings
+  projectSettings.display.barColor: Bar color
+  projectSettings.display.barColorHelp: 'Letterbox/pillarbox fill color in #RRGGBB format'
+  projectSettings.display.barColorLabel: Display Bar Color
+  projectSettings.display.barColorPlaceholder: '#000000 (default black)'
+  projectSettings.display.enabled: Virtual display
+  projectSettings.display.enabledHelp: Render into a fixed logical resolution scaled to the window
+  projectSettings.display.enabledLabel: Enable Virtual Display
+  projectSettings.display.heading: DISPLAY
+  projectSettings.display.height: Virtual height
+  projectSettings.display.heightHelp: Logical framebuffer height in pixels
+  projectSettings.display.heightLabel: Display Virtual Height
+  projectSettings.display.integerScale: Integer scale
+  projectSettings.display.integerScaleHelp: Scale by whole integer multiples for crisp pixel art
+  projectSettings.display.integerScaleLabel: Display Integer Scale
+  projectSettings.display.mode: Mode
+  projectSettings.display.modeDefault: Default (fit)
+  projectSettings.display.modeExpand: expand
+  projectSettings.display.modeFill: fill
+  projectSettings.display.modeFit: fit
+  projectSettings.display.modeHelp: How the virtual display fits the host window
+  projectSettings.display.modeLabel: Display Mode
+  projectSettings.display.modeStretch: stretch
+  projectSettings.display.pixelSnap: Pixel snap
+  projectSettings.display.pixelSnapHelp: Snap rendered positions to whole virtual pixels
+  projectSettings.display.pixelSnapLabel: Display Pixel Snap
+  projectSettings.display.width: Virtual width
+  projectSettings.display.widthHelp: Logical framebuffer width in pixels
+  projectSettings.display.widthLabel: Display Virtual Width
+  projectSettings.general.appVersion: App version
+  projectSettings.general.appVersionHelp: Release version synced to game.yaml and nsgo.yaml
+  projectSettings.general.appVersionLabel: App Version
+  projectSettings.general.id: ID
+  projectSettings.general.idHelp: Bundle and package ID
+  projectSettings.general.idLabel: Application ID
+  projectSettings.general.mainScene: Main scene
+  projectSettings.general.mainSceneHelp: Opened when the game starts
+  projectSettings.general.name: Name
+  projectSettings.general.nameHelp: Shown in title bars and stores
+  projectSettings.general.nameLabel: Project Name
+  projectSettings.general.namePlaceholder: My Game
+  projectSettings.general.window: Window
+  projectSettings.general.windowHelp: Logical size, scaled by whole pixels
+  projectSettings.noneOption: (None)
+  projectSettings.overview.mainSceneLabel: Project Main Scene
+  projectSettings.overview.windowHeightLabel: Project Window Height
+  projectSettings.overview.windowWidthLabel: Project Window Width
+  projectSettings.physics.addLayer: Add
+  projectSettings.physics.addLayerLabel: Add collision layer
+  projectSettings.physics.gravity2DX: Gravity 2D X
+  projectSettings.physics.gravity2DXHelp: Horizontal 2D world gravity
+  projectSettings.physics.gravity2DY: Gravity 2D Y
+  projectSettings.physics.gravity2DYHelp: Vertical 2D world gravity
+  projectSettings.physics.gravity3DX: Gravity 3D X
+  projectSettings.physics.gravity3DXHelp: 3D world gravity along X
+  projectSettings.physics.gravity3DY: Gravity 3D Y
+  projectSettings.physics.gravity3DYHelp: 3D world gravity along Y
+  projectSettings.physics.gravity3DZ: Gravity 3D Z
+  projectSettings.physics.gravity3DZHelp: 3D world gravity along Z
+  projectSettings.physics.heading2D: PHYSICS 2D
+  projectSettings.physics.heading3D: PHYSICS 3D
+  projectSettings.physics.layerBitLabel: Bit
+  projectSettings.physics.layerItem: 'Bit {bit}: {name}'
+  projectSettings.physics.layerNameLabel: Layer Name
+  projectSettings.physics.layerNamePlaceholder: player
+  projectSettings.physics.layersEmpty: No named collision layers declared
+  projectSettings.physics.layersHeading: COLLISION LAYERS
+  projectSettings.physics.removeLayerLabel: Remove collision layer {name}
+  projectSettings.physics.solverIter2D: Solver iterations 2D
+  projectSettings.physics.solverIter2DHelp: Constraint solver iterations per 2D step
+  projectSettings.physics.solverIter3D: Solver iterations 3D
+  projectSettings.physics.solverIter3DHelp: Constraint solver iterations per 3D step
+  projectSettings.plugins.empty: No editor plugins are registered in this binary.
+  projectSettings.plugins.enableLabel: Enable plugin {name}
+  projectSettings.plugins.listSep: ', '
+  projectSettings.plugins.missingHeading: MISSING PLUGINS
+  projectSettings.plugins.missingNote: Listed in game.yaml, not built into this editor binary
+  projectSettings.plugins.noExtensions: No UI extensions
+  projectSettings.plugins.registeredHeading: REGISTERED PLUGINS
+  projectSettings.plugins.removeMissingLabel: Remove missing plugin {name}
+  projectSettings.remove: Remove
+  projectSettings.tab.autoload: Autoload
+  projectSettings.tab.display: Display
+  projectSettings.tab.overview: Overview
+  projectSettings.tab.physics: Physics
+  projectSettings.tab.plugins: Plugins
+  projectSettings.tab.window: Window
+  projectSettings.unsavedChanges: Unsaved changes
+  projectSettings.window.appearance: Appearance
+  projectSettings.window.appearanceDark: Dark
+  projectSettings.window.appearanceHelp: Game window color scheme synced to nsgo.yaml
+  projectSettings.window.appearanceLabel: Window Appearance
+  projectSettings.window.appearanceLight: Light
+  projectSettings.window.appearanceSystem: System (default)
+  projectSettings.window.heading: WINDOW
+  projectSettings.window.height: Height
+  projectSettings.window.heightHelp: Logical window height in points
+  projectSettings.window.heightLabel: Window Height
+  projectSettings.window.maxHeight: Max height
+  projectSettings.window.maxHeightHelp: Maximum window height when resizable (0 = unset)
+  projectSettings.window.maxHeightLabel: Window Max Height
+  projectSettings.window.maxWidth: Max width
+  projectSettings.window.maxWidthHelp: Maximum window width when resizable (0 = unset)
+  projectSettings.window.maxWidthLabel: Window Max Width
+  projectSettings.window.minHeight: Min height
+  projectSettings.window.minHeightHelp: Minimum window height when resizable (0 = unset)
+  projectSettings.window.minHeightLabel: Window Min Height
+  projectSettings.window.minWidth: Min width
+  projectSettings.window.minWidthHelp: Minimum window width when resizable (0 = unset)
+  projectSettings.window.minWidthLabel: Window Min Width
+  projectSettings.window.resizable: Resizable
+  projectSettings.window.resizableHelp: Allow players to resize the desktop window
+  projectSettings.window.resizableLabel: Window Resizable
+  projectSettings.window.title: Title
+  projectSettings.window.titleHelp: Window title bar text (defaults to project name)
+  projectSettings.window.titleLabel: Window Title
+  projectSettings.window.titlePlaceholder: Defaults to project name
+  projectSettings.window.width: Width
+  projectSettings.window.widthHelp: Logical window width in points
+  projectSettings.window.widthLabel: Window Width
   region.header: Header
   region.inspector: Agent and Inspector
   region.sceneTree: Scene tree
   region.statusBar: Status bar
   region.toast: Notification
   region.viewport: Viewport
+  remote.appliedWithoutRestart: applied without restart
+  remote.askButton: Something looks wrong
+  remote.askButtonLabel: Pause and ask the agent about this frame ({key})
+  remote.autoConnect: Auto-connect on Run
+  remote.autoConnectLabel: Pass -automation to go tool game dev and connect automatically
+  remote.badge.live: live
+  remote.badge.spawned: spawned
+  remote.bar.entities: '{count} entities'
+  remote.bar.frame: frame {frame}
+  remote.bar.live: live
+  remote.bar.paused: paused
+  remote.bar.remote: remote
+  remote.bar.summary: 'Remote: {details}'
+  remote.connect: Connect
+  remote.connectingHint: Connecting to running game over MCP…
+  remote.consoleClear: Clear
+  remote.consoleEmpty: Run a debug console command
+  remote.consoleInputLabel: Console command
+  remote.consolePlaceholder: set gravity 1200
+  remote.consoleRun: Run
+  remote.consoleTitle: CONSOLE
+  remote.discard: Discard
+  remote.disconnect: Disconnect
+  remote.disconnectedHint: Run the game with Automation enabled, or connect to a running game over nsgo mcp.
+  remote.entitiesHeader: LIVE ENTITIES · {count}
+  remote.entitiesHeaderSpawned: LIVE ENTITIES · {count} · {spawned} spawned
+  remote.entitiesTreeLabel: Remote Entities
+  remote.errorPrefix: 'Remote error: {error}'
+  remote.expand: Expand
+  remote.inspectorEmpty: Select a live entity in the Remote tab to inspect and edit its components.
+  remote.keepInScene: Keep in scene
+  remote.layerHidden: '{space} · hidden'
+  remote.liveChangesEmpty: Change a value in the inspector and the running game picks it up at once.
+  remote.liveChangesNote: Stopping keeps this list. Nothing is written until you keep it.
+  remote.liveChangesTitle: LIVE CHANGES ({count})
+  remote.mark: Mark
+  remote.markCount: Mark · {count}
+  remote.markLabel: Mark this moment without stopping ({key})
+  remote.pause: Pause
+  remote.pauseLabel: Pause running game ({key})
+  remote.readOnlyTag: live · read only
+  remote.refresh: Refresh
+  remote.resume: Resume
+  remote.resumeLabel: Resume running game ({key})
+  remote.rowLabel.layer: Layer {layer}
+  remote.rowLabel.spawned: Spawned at runtime
+  remote.rowLabel.taken: Taken {id}
+  remote.sceneActiveHeader: SCENE · {scene} ({count})
+  remote.scenesHeader: SCENES · {count}
+  remote.setTimeScaleLabel: Set remote time scale to {scale}
+  remote.spawnedHeader: SPAWNED AT RUNTIME
+  remote.spawnedNote: Spawned while running; not in the open scene file.
+  remote.spawnedSubtitle: Spawned at runtime · {ref}
+  remote.status.connectedLive: Connected · live
+  remote.status.connecting: Connecting…
+  remote.status.pausedFrame: Paused · frame {frame}
+  remote.status.playingLive: Playing · live
+  remote.status.playingLiveScale: Playing · live · {scale}×
+  remote.step: Step
+  remote.stepCountLabel: Step Count
+  remote.stepLabel: Step one fixed update (.)
+  remote.stepN: Step N
+  remote.stepNLabel: Step N fixed updates
+  remote.taken: taken
+  remote.takenAt: taken @{step}
+  remote.timeScaleLabel: Time Scale
+  remote.tunablesTitle: TUNABLES ({count})
+  remote.undo: Undo
+  remote.undoLabel: Put back the scene value
+  remote.wasValue: was {value}
   review.deleteThisFile: Delete this file
   review.keepTheFile: Keep the file
   review.revertAll: Revert all
   review.title: Review changes
+  reviewScreen.addNote: Add note
+  reviewScreen.backLabel: Back to the editor, review stays open (Esc)
+  reviewScreen.before: Before
+  reviewScreen.beforeThisRequest: Before this request
+  reviewScreen.cancel: Cancel
+  reviewScreen.cardFocusLabel: '{title}, {kind}, {detail}, {seen}'
+  reviewScreen.cardToggleLabel: '{action} {title} (X)'
+  reviewScreen.centerLabel: Change preview
+  reviewScreen.chip.added: Added
+  reviewScreen.chip.all: All
+  reviewScreen.chip.changed: Changed
+  reviewScreen.chip.notes: Notes
+  reviewScreen.chip.removed: Removed
+  reviewScreen.chip.unseen: Unseen
+  reviewScreen.chipLabel: Show {label} ({count})
+  reviewScreen.collapseFile: Collapse {file}
+  reviewScreen.collapseKindInFile: Collapse {kind} in {file}
+  reviewScreen.conflictAgent: Agent's
+  reviewScreen.conflictBoth: Both
+  reviewScreen.conflictChoiceLabel: '{choice} for {title}'
+  reviewScreen.conflictGroupLabel: Conflict on {title}
+  reviewScreen.conflictMergedAgent: 'Merged: the agent’s edit only'
+  reviewScreen.conflictMergedBoth: Merged both, yours first
+  reviewScreen.conflictMergedMine: 'Merged: your edit only'
+  reviewScreen.conflictMine: Mine
+  reviewScreen.conflictTitle: You also edited {title}
+  reviewScreen.done: Done
+  reviewScreen.doneEditingYAML: Done editing YAML
+  reviewScreen.edit: Edit
+  reviewScreen.editNoteLabel: Edit note on {title}
+  reviewScreen.editYAMLHeading: EDIT YAML IN PLACE
+  reviewScreen.editYAMLLabel: Edit YAML for {title}
+  reviewScreen.editedInReview: Edited in review · tagged you
+  reviewScreen.editing: Editing
+  reviewScreen.editor: Editor
+  reviewScreen.emptyRows: Nothing left to look at here.
+  reviewScreen.expandFile: Expand {file}
+  reviewScreen.expandKindInFile: Expand {kind} in {file}
+  reviewScreen.filterGroupLabel: Filter changes
+  reviewScreen.filterLabel: Filter changes by name, field or file
+  reviewScreen.filterPlaceholder: Filter by name, field or file
+  reviewScreen.headerLabel: Review header
+  reviewScreen.hint.before: before
+  reviewScreen.hint.keep: keep
+  reviewScreen.hint.move: move
+  reviewScreen.hint.note: note
+  reviewScreen.hint.revert: revert
+  reviewScreen.keepCount: Keep {kept} of {total}
+  reviewScreen.keepTitle: Keep the changes not reverted · {key}
+  reviewScreen.kind.added: added
+  reviewScreen.kind.changed: changed
+  reviewScreen.kind.removed: removed
+  reviewScreen.kindHeading.added: ADDED
+  reviewScreen.kindHeading.changed: CHANGED
+  reviewScreen.kindHeading.removed: REMOVED
+  reviewScreen.legend.added: added
+  reviewScreen.legend.changed: changed
+  reviewScreen.legend.removed: removed
+  reviewScreen.legend.selected: selected
+  reviewScreen.lineTag: line {line}
+  reviewScreen.nextChangeLabel: Next change (J)
+  reviewScreen.notSeen: not seen
+  reviewScreen.noteBtnAdd: Note for the agent on {title} (C)
+  reviewScreen.noteBtnEdit: Edit note on {title} (C)
+  reviewScreen.noteInputLabel: Note for the agent about {title}
+  reviewScreen.noteNotSent: Note for the agent · not sent
+  reviewScreen.notePlaceholder: Tell the agent what to adjust…
+  reviewScreen.peekBeforeLabel: Show the scene before this request (hold B)
+  reviewScreen.prefabDefaultImpact: Applies to every scene instance referencing this prefab.
+  reviewScreen.prefabTag: Prefab
+  reviewScreen.prevChangeLabel: Previous change (K)
+  reviewScreen.remove: Remove
+  reviewScreen.removeNoteLabel: Remove note on {title}
+  reviewScreen.restore: Restore
+  reviewScreen.restoreCount: Restore {count}
+  reviewScreen.restoreFile: Restore file
+  reviewScreen.resumeReview: Resume review
+  reviewScreen.revert: Revert
+  reviewScreen.revertAll: Revert all
+  reviewScreen.revertAllAlertLabel: Revert all {count} changes?
+  reviewScreen.revertAllBodyMany: '{files} go back to how they were before this request.{noteWarning} {undoKey} brings everything back.'
+  reviewScreen.revertAllBodyOne: '{files} goes back to how it was before this request.{noteWarning} {undoKey} brings everything back.'
+  reviewScreen.revertAllConfirm: Revert all {count}
+  reviewScreen.revertAllDialogLabel: Revert all changes
+  reviewScreen.revertAllDropNoteMany: ' Your {count} notes are dropped.'
+  reviewScreen.revertAllDropNoteOne: ' Your 1 note is dropped.'
+  reviewScreen.revertAllLabel: Revert all · {key}
+  reviewScreen.revertAllTitleMany: Revert all {count} changes?
+  reviewScreen.revertAllTitleOne: Revert all 1 change?
+  reviewScreen.revertAndRedo: Revert and redo with this note
+  reviewScreen.revertCount: Revert {count}
+  reviewScreen.revertFile: Revert file
+  reviewScreen.revertedBanner: Reverted · this change will not be kept (press X to restore).
+  reviewScreen.revisedInRound: 'Revised in round {round}. Your note: {note}'
+  reviewScreen.rightPaneLabel: Why and YAML diff
+  reviewScreen.rightTitleDiff: '{title} · diff'
+  reviewScreen.rightTitleYAML: '{title} · YAML'
+  reviewScreen.round: Round {round}
+  reviewScreen.roundGroupLabel: Review round
+  reviewScreen.scenePillMany: '{file} · {count} changes'
+  reviewScreen.scenePillOne: '{file} · 1 change'
+  reviewScreen.scenePillReadOnly: '{base} · Round {round} (read-only)'
+  reviewScreen.screenLabel: Review agent turn changes
+  reviewScreen.seen: seen
+  reviewScreen.seenCounter: '{seen} of {total} seen'
+  reviewScreen.selectToInspect: Select a change to inspect.
+  reviewScreen.sendNotesMany: Send {count} notes
+  reviewScreen.sendNotesOne: Send 1 note
+  reviewScreen.sentForRound: Sent for round {round} · waiting for agent
+  reviewScreen.sidebarLabel: Changes list
+  reviewScreen.tableSummaryMany: · table · {changed} of {total} records changed
+  reviewScreen.tableSummaryOne: · table · {changed} of 1 record changed
+  reviewScreen.title: Review
+  reviewScreen.toggleFileLabel: '{action} {file}'
+  reviewScreen.toggleKindInFile: '{action} {kind} in {file}'
+  reviewScreen.toggleOverlayLabel: Toggle {label} overlays
+  reviewScreen.undoTyping: Undo my typing
+  reviewScreen.valueNone: (none)
+  reviewScreen.valueRemoved: (removed)
+  reviewScreen.waitingBlockerMany: '{sub} · {count} blockers'
+  reviewScreen.waitingBlockerOne: '{sub} · 1 blocker'
+  reviewScreen.waitingRoundSuffix: '{title} · round {round}'
+  reviewScreen.waitingSentMany: '{sub} · {count} notes sent'
+  reviewScreen.waitingSentOne: '{sub} · 1 note sent'
+  reviewScreen.waitingTitleManyMany: Review waiting · {changes} changes, {files} files
+  reviewScreen.waitingTitleManyOne: Review waiting · {changes} changes, 1 file
+  reviewScreen.waitingTitleOneMany: Review waiting · 1 change, {files} files
+  reviewScreen.waitingTitleOneOne: Review waiting · 1 change, 1 file
+  reviewScreen.waitingUnsentMany: '{sub} · {count} notes not sent'
+  reviewScreen.waitingUnsentOne: '{sub} · 1 note not sent'
+  reviewScreen.whyHeading: WHY
+  reviewScreen.yamlValidHint: Your edit joins this review; the agent sees it in round 2.
+  rig.activeAnimationLabel: Active Animation
+  rig.addAnim: Add Anim
+  rig.addBone: Add Bone
+  rig.addSkin: Add Skin
+  rig.addSlot: Add Slot
+  rig.atlasLabel: Rig Atlas
+  rig.atlasPlaceholder: Atlas
+  rig.bindPose: (Bind Pose)
+  rig.blend: Blend
+  rig.blendLabel: Crossfade to selected animation
+  rig.boneLengthLabel: Bone Length
+  rig.boneParentLabel: Bone Parent
+  rig.boneRotationLabel: Bone Rotation
+  rig.boneXLabel: Bone X
+  rig.boneYLabel: Bone Y
+  rig.close: Close
+  rig.crossfadeDurationLabel: Crossfade Duration (s)
+  rig.crossfadeTargetLabel: Crossfade Target
+  rig.crossfadeTargetPlaceholder: Crossfade to
+  rig.delete: Delete
+  rig.deleteSlot: Delete Slot
+  rig.frameSection: FRAME
+  rig.hiddenOption: (Hidden)
+  rig.keyAttachFrameLabel: Key Attachment Frame
+  rig.keyR: Key R
+  rig.keyRotateLabel: Key Rotate
+  rig.keyS: Key S
+  rig.keySlotFrame: Key Slot Frame
+  rig.keySxLabel: Key SX
+  rig.keySyLabel: Key SY
+  rig.keyT: Key T
+  rig.keyTxLabel: Key TX
+  rig.keyTyLabel: Key TY
+  rig.lenSection: LEN
+  rig.nameLabel: Rig Name
+  rig.newAnimNameLabel: New Animation Name
+  rig.newAnimNamePlaceholder: New anim
+  rig.newBoneNameLabel: New Bone Name
+  rig.newBoneNamePlaceholder: New bone
+  rig.newSkinNameLabel: New Skin Name
+  rig.newSkinNamePlaceholder: New skin
+  rig.newSlotNameLabel: New Slot Name
+  rig.newSlotNamePlaceholder: New slot
+  rig.originXLabel: Origin X
+  rig.originYLabel: Origin Y
+  rig.oxSection: OX
+  rig.oySection: OY
+  rig.parentSection: PARENT
+  rig.pause: Pause
+  rig.placeInScene: Place in Scene
+  rig.play: Play
+  rig.playheadLabel: Rig Playhead
+  rig.rootOption: (Root)
+  rig.rotSection: ROT
+  rig.saveRig: Save Rig
+  rig.skinLabel: Preview Skin
+  rig.skinPlaceholder: Skin
+  rig.slotFrameLabel: Slot Frame
+  rig.slotFramePlaceholder: Slot frame
+  rig.tabBones: Bones
+  rig.tabSlotsSkins: Slots & Skins
+  rig.tabTimeline: Timeline
+  rig.timeReadout: '{current} / {total} s'
+  rig.title: Rig Editor
+  rig.tlBoneRow: 'Bone {name}: T({t}) R({r}) S({s})'
+  rig.tlSlotRow: 'Slot {name}: Attach({attach}) Alpha({alpha})'
+  rig.viewportLabel: Skeletal Rig Viewport
   saveStatus.errDiskFull: 'Couldn''t save: disk is full'
   saveStatus.errDiskFullFree: 'Couldn''t save: disk is full · {free} free'
   saveStatus.errOther: 'Couldn''t save: {reason}'
@@ -1251,6 +3775,23 @@ strings:
   sceneTree.ungroup: Ungroup
   sceneTree.unlock: Unlock
   sceneTree.unlockNamed: Unlock {id}
+  sceneTreeExtra.badgeNew: NEW
+  sceneTreeExtra.defaultLightName: Light
+  sceneTreeExtra.defaultObjectName: Object
+  sceneTreeExtra.defaultTriggerName: Trigger
+  sceneTreeExtra.layerKind.layer: layer
+  sceneTreeExtra.layerKind.screen: screen
+  sceneTreeExtra.layerKind.tiles: tiles
+  sceneTreeExtra.objKind.camera: camera
+  sceneTreeExtra.objKind.group: group
+  sceneTreeExtra.objKind.light: light
+  sceneTreeExtra.objKind.mesh: mesh
+  sceneTreeExtra.objKind.node: node
+  sceneTreeExtra.objKind.prefab: prefab
+  sceneTreeExtra.objKind.sprite: sprite
+  sceneTreeExtra.objKind.trigger: trigger
+  sceneTreeExtra.taskEditing: '{num} · editing'
+  sceneTreeExtra.taskHolding: '{num} · holding'
   scope.agent: Agent
   scope.animation: Animation
   scope.global: Global
@@ -1292,11 +3833,23 @@ strings:
   settings.automations.agentNoteRunsOne: “{name}” has run once this week. Every run takes a checkpoint before it starts.
   settings.automations.askLabel: Ask about Automations
   settings.automations.askPlaceholder: Ask about Automations…
+  settings.automations.default.beforeExportInstruction: checks frame time and memory on a low-end phone profile
+  settings.automations.default.beforeExportName: Before export
+  settings.automations.default.levelCheckInstruction: runs game check and 5 playtests, reports only problems
+  settings.automations.default.levelCheckName: A level file changes
+  settings.automations.default.newPrefabInstruction: writes its example scene and a test
+  settings.automations.default.newPrefabName: A new prefab is added
+  settings.automations.default.nightlyBalanceInstruction: plays all floors 50 times and leaves a balance report
+  settings.automations.default.nightlyBalanceName: Every night
+  settings.automations.default.reviewBriefInstruction: updates the brief's open questions if the change answers one
+  settings.automations.default.reviewBriefName: You keep a review
   settings.automations.draftAction: Draft
   settings.automations.draftEmptyError: Describe when the automation should run and what the agent should do.
   settings.automations.draftHeading: Describe an automation in words
   settings.automations.draftInputLabel: New automation in words
   settings.automations.draftPlaceholder: e.g. Before export, check frame time on a phone profile
+  settings.automations.fileKindPrefab: prefab
+  settings.automations.fileKindScene: scene
   settings.automations.keepDraft: Keep
   settings.automations.loadErrorTitle: Couldn't load automations.yaml (using defaults)
   settings.automations.metaOn: '{count} on'
@@ -1339,12 +3892,22 @@ strings:
   settings.briefPlatforms: Platforms
   settings.briefPlatformsPlaceholder: Add platform…
   settings.briefPlaytestTargets: PLAYTEST TARGETS · FROM FEEL AND DIFFICULTY
+  settings.briefRemoveItem: Remove {item}
+  settings.briefRemoveTarget: Remove target {metric}
   settings.briefSave: Save brief
   settings.briefTags: Tags
   settings.briefTagsPlaceholder: Comma-separated tags (e.g. dungeon, pixel-art)
+  settings.briefTargetMaxLabel: Max
   settings.briefTargetMaxNumErr: Target max must be a number.
+  settings.briefTargetMaxPlaceholder: max
+  settings.briefTargetMetricLabel: Metric
+  settings.briefTargetMetricPlaceholder: metric (e.g. deaths)
   settings.briefTargetMetricReq: Target metric name is required.
+  settings.briefTargetMinLabel: Min
   settings.briefTargetMinNumErr: Target min must be a number.
+  settings.briefTargetMinPlaceholder: min
+  settings.briefTargetSceneLabel: Scene
+  settings.briefTargetScenePlaceholder: scene
   settings.briefToneAudio: Tone and audio
   settings.briefTonePlaceholder: Mood, music, and sound direction…
   settings.connectAnother: + Connect another agent or model
@@ -1380,18 +3943,22 @@ strings:
   settings.models.builtInMissing: Built in · no key stored
   settings.models.builtInStored: Built in · key in keychain
   settings.models.localDefault: On this computer · MCP · default
+  settings.models.localDetected: 'Detected on this computer: {agents} · ready to connect'
   settings.models.localDisconnected: Disconnected
   settings.models.localIdle: Not connected yet
   settings.models.localNone: No agent
   settings.models.localNoneDesc: Agent panel stays closed
   settings.models.localTitle: Local MCP agent
   settings.models.metaOn: '{n} on'
+  settings.models.notConnected: Not connected
   settings.models.routeArtSound: Art and sound
   settings.models.routeArtSoundCost: Tools → add a server
   settings.models.routeArtSoundNote: needs a generator server
   settings.models.routeAskInPlace: Ask in place (⌘L)
   settings.models.routeAskInPlaceCost: about 5 s
   settings.models.routeAskInPlaceNote: small, quick edits
+  settings.models.routeDefault: '{name} · default'
+  settings.models.routeFast: '{name} · fast'
   settings.models.routePlaytest: Playtest analysis
   settings.models.routePlaytestCost: about 20 s a report
   settings.models.routePlaytestNote: reads replays and heatmaps
@@ -1485,6 +4052,7 @@ strings:
   settings.shortcutsSearchPlaceholder: Search by command, key, or scope…
   settings.shortcutsSwap: Swap
   settings.shortcutsUnbound: Unbound
+  settings.sidebarLabel: Settings pages
   settings.system: System
   settings.thisComputer: This computer
   settings.title: Editor Settings
@@ -1500,11 +4068,21 @@ strings:
   settings.tools.addName: Server name
   settings.tools.addNamePlaceholder: sprite-gen
   settings.tools.addSubmit: Add server
+  settings.tools.desc.deleteFiles: Delete files
+  settings.tools.desc.gameCheck: Run game check on the project
+  settings.tools.desc.gamePlaytest: Headless runs with replays
+  settings.tools.desc.sceneEdit: Add, move and change objects; reviewable
+  settings.tools.desc.sceneRead: Read any scene, prefab or data file
+  settings.tools.desc.selectionGet: What you have selected
+  settings.tools.desc.viewportImage: A picture of the viewport
   settings.tools.editorServerHeader: THE EDITOR'S MCP SERVER · {n} TOOLS
   settings.tools.filterLabel: Filter tools
   settings.tools.filterPlaceholder: Filter tools by name…
   settings.tools.otherServersHeader: OTHER MCP SERVERS THE AGENT MAY USE
   settings.tools.removeServer: Remove
+  settings.tools.removeServerNamed: Remove {name}
+  settings.tools.runningGameDesc: inspect and drive the live game
+  settings.tools.runningGameTitle: Running game · nsgo dev
   settings.toolsHelp: Configured MCP servers for image and sound generation.
   settings.toolsNone: None configured
   settings.usage.keptCaption: of agent changes, after review
@@ -1549,6 +4127,41 @@ strings:
   sketch.tool.text: Text
   sketch.toolbarLabel: Sketch tools
   sketch.undoMark: Undo last mark
+  sketchExtra.approvedNote: Approved · agent may edit the scene.
+  sketchExtra.changeAdded: added
+  sketchExtra.changeChanged: changed
+  sketchExtra.changeRemoved: removed
+  sketchExtra.changesMany: '{count} changes'
+  sketchExtra.changesOne: 1 change
+  sketchExtra.chipShowSent: '{label}. Show what is sent'
+  sketchExtra.correctMark: Correct a mark
+  sketchExtra.correctMarkItem: 'Correct mark {num}: {mark}'
+  sketchExtra.deleteMark: Delete mark {num}
+  sketchExtra.goAhead: Go ahead
+  sketchExtra.keepAndClear: Keep changes and clear sketch
+  sketchExtra.layerHeading: SKETCH LAYER
+  sketchExtra.layerLabel: Sketch layer
+  sketchExtra.markCountMany: '{count} marks'
+  sketchExtra.markCountOne: 1 mark
+  sketchExtra.markLabelInput: Label for mark {num}
+  sketchExtra.markLabelPlaceholder: Add label (e.g. 3 spikes)...
+  sketchExtra.markRowLabel: Mark {num} {kind}
+  sketchExtra.notSaved: not saved
+  sketchExtra.panelEmpty: Draw on the viewport with Pen, Arrow, Box or Text. Marks stay in scene coordinates and are never written to the scene file.
+  sketchExtra.panelLabel: Agent Sketch
+  sketchExtra.promptPlaceholder: Build what I sketched...
+  sketchExtra.removeFromRequest: Remove the sketch from the request
+  sketchExtra.revertAndKeep: Revert changes and keep sketch
+  sketchExtra.sceneCoordinates: scene coordinates
+  sketchExtra.sendToAgent: Send sketch to agent
+  sketchExtra.sentWithRequest: Sent with this request
+  sketchExtra.showInspector: Show Inspector
+  sketchExtra.sketchOnViewport: Sketch on the viewport · D
+  sketchExtra.sketchOverlay: Sketch overlay
+  sketchExtra.toggleSketchOverlay: Toggle sketch overlay
+  sketchExtra.waitingReadingBody: Scene edits are held until the agent restates each mark and you choose Go ahead.
+  sketchExtra.waitingReadingTitle: Waiting for the agent to read your sketch
+  sketchExtra.yourSketch: your sketch
   snap.auto: Auto
   snap.autoLabel: Follow the active layer's tilemap tile size
   snap.grid: Grid
@@ -1561,6 +4174,30 @@ strings:
   snap.scaleStep: Scale step
   snap.showGrid: Show 2D grid overlay
   snap.title: Snapping
+  specFeedback.darkTheme: Dark theme
+  specFeedback.dismiss: Dismiss
+  specFeedback.legend.addedDesc: added · 1.5 px dashed · “+ name” pill.
+  specFeedback.legend.addedTitle: Added
+  specFeedback.legend.agentDesc: agent · 1.5 px solid · pulsing violet · agent pill.
+  specFeedback.legend.agentTitle: Agent working
+  specFeedback.legend.boardDesc: 'One meaning per color and line. Every overlay also has a second cue: handles, a label pill, a ghost or a pulse.'
+  specFeedback.legend.boardTitle: Overlay legend
+  specFeedback.legend.changedDesc: changed · 1.5 px dashed · field old → new pill.
+  specFeedback.legend.changedTitle: Changed
+  specFeedback.legend.focusedDesc: own color & dash · 2.5 px · outlined pill · never accent.
+  specFeedback.legend.focusedTitle: Focused change in Review
+  specFeedback.legend.pairedDesc: selection keeps handles · agent outline sits 3 px further out.
+  specFeedback.legend.pairedTitle: Selection + Agent
+  specFeedback.legend.problemDesc: problem · 2 px solid on live object · filled alert pill.
+  specFeedback.legend.problemTitle: Problem
+  specFeedback.legend.removedDesc: removed · 1.5 px solid around 25% grey ghost · struck-through name.
+  specFeedback.legend.removedTitle: Removed
+  specFeedback.legend.selectionDesc: accent · 1.5 px solid · four handles and a name tag.
+  specFeedback.legend.selectionTitle: Selection
+  specFeedback.lightTheme: Light theme
+  specFeedback.sample.doorMissing: 'door: lever_02 missing'
+  specFeedback.sample.placingSlime: placing slime_02
+  specFeedback.sample.tuningJump: tuning jump
   start.goToolchain.download: go.dev/dl
   start.goToolchain.downloadLabel: Open go.dev/dl to download Go
   start.goToolchain.errorDetail: 'Found go at {path}, but checking its version failed: {err}.'
@@ -1569,6 +4206,84 @@ strings:
   start.goToolchain.retryLabel: Check for Go again
   start.goToolchain.title: NSGo Game Editor needs Go {version} or later
   start.goToolchain.tooOldDetail: Found Go {found} at {path}. Update Go to create projects and play games.
+  startScreen.agentConnected: '{name} connected'
+  startScreen.back: Back
+  startScreen.backLabel: Return to open editor
+  startScreen.browse: Browse…
+  startScreen.create: Create
+  startScreen.creating: Creating…
+  startScreen.creatingProjectHeading: CREATING PROJECT…
+  startScreen.creationFailedHeading: PROJECT CREATION FAILED
+  startScreen.creationOutputHeading: PROJECT CREATION OUTPUT
+  startScreen.filterAll: All
+  startScreen.folderHeading: Folder
+  startScreen.ideaHeading: What do you want to make?
+  startScreen.ideaLabel: Describe your game
+  startScreen.ideaPlaceholder: A cozy farming game where you grow glowing mushrooms in a cave and trade them with moths at night…
+  startScreen.missingBadge: Missing
+  startScreen.missingProjectError: 'Project folder is missing: {path}'
+  startScreen.moduleHeading: Module path (optional)
+  startScreen.moduleLabel: Go module path
+  startScreen.modulePlaceholder: example.com/my-game
+  startScreen.nameHeading: Name
+  startScreen.newProject: New project
+  startScreen.noAgentConnected: No agent connected yet
+  startScreen.openDemo: Open demo
+  startScreen.openExisting: Open it
+  startScreen.openFolder: Open folder…
+  startScreen.openRecentLabel: Open recent project {name}
+  startScreen.parentFolderLabel: Parent folder
+  startScreen.parentFolderPlaceholder: ~/games
+  startScreen.pickedTemplate: 'Template: {title}'
+  startScreen.pickedTemplateDefault: 'Template: Starter'
+  startScreen.projectNameLabel: Project name
+  startScreen.projectNamePlaceholder: my-game
+  startScreen.recentHeading: RECENT
+  startScreen.relTime.daysAgo: '{count} days ago'
+  startScreen.relTime.hoursAgo: '{count} hours ago'
+  startScreen.relTime.justNow: just now
+  startScreen.relTime.lastWeek: last week
+  startScreen.relTime.minsAgo: '{count} mins ago'
+  startScreen.relTime.oneHourAgo: 1 hour ago
+  startScreen.relTime.oneMinAgo: 1 min ago
+  startScreen.relTime.yesterday: yesterday
+  startScreen.removeMissingLabel: Remove missing recent project {name}
+  startScreen.selectTemplateLabel: Select template {title}
+  startScreen.showAll: Show all
+  startScreen.startWithAI: Start with AI
+  startScreen.templatesEmpty: No templates match the active filter.
+  startScreen.templatesHeading: Or start from a template
+  startScreen.templatesSubtitle: Each one is a small, playable game you grow into your own.
+  startScreen.title: NSGo Editor
+  startScreen.useSuggested: Use {name}
+  startScreen.validation.alreadyExists: '{path} already exists'
+  startScreen.validation.creates: Creates {path}
+  startScreen.validation.enterName: Enter a project name.
+  startScreen.validation.invalidChars: Use only a–z, 0–9 and -, starting with a–z.
+  startScreen.validation.invalidModule: 'Invalid module path: {err}'
+  startScreen.validation.noWriteAccess: No write access to {path}
+  states.anyState: Any state
+  states.clipEnds: clip ends
+  states.close: Close
+  states.driveWithKeys: Drive with keys
+  states.entryBadge: ENTRY
+  states.keyAttackLabel: 'J: attack'
+  states.keyHurtLabel: 'H: hurt'
+  states.keyJumpLabel: 'Space: jump'
+  states.keyMoveLabel: 'Hold left or right: run'
+  states.keyRelease: Release
+  states.keyReleaseLabel: 'Release all keys: idle'
+  states.keySpace: Space
+  states.leavingHeader: LEAVING {state}
+  states.meta: · {states} states · {transitions} transitions
+  states.noOutgoing: No outgoing transitions
+  states.pause: Pause
+  states.play: Play
+  states.previewError: 'Preview: {err}'
+  states.previewFallback: preview
+  states.save: Save
+  states.stateNodeLabel: State {name}
+  states.transitionLabel: 'Transition to {to}: {detail}'
   status.activeLayerLabel: 'Active layer: {layer}'
   status.buildError: 'Build error: {error}'
   status.changes: Changes
@@ -1577,15 +4292,18 @@ strings:
   status.debuggerLabel: Toggle Debugger and Profiler panel
   status.layerReadout: Layer {layer}
   status.mergeConflictsLabel: Open Scene Merge Conflicts
+  status.missingPlugins: 'plugins not built into this editor: {plugins}'
   status.mode2d: 'Mode: {mode} | View: 2D {zoom}% | Tool: {tool} | Layer: {layer}'
   status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} · {space} | Layer: {layer}'
   status.mode3dGridMap: 'Mode: {mode} | View: 3D {view} (GridMap {tool}, Y={floor}, Orient={orient}/24) | Layer: {layer}'
   status.modeEdit: Edit
   status.modePlay: Play
+  status.openedProject: Opened project {path}
   status.ready: Ready
   status.terrainSuffix: ' | Terrain: {terrain}'
   status.tileSuffix: ' | Tile: {tile}'
   status.toolSuffix: ' | Tool: {tool}'
+  tabsExtra.closeTab: Close {label}
   tasks.action.allowOnce: Allow once
   tasks.action.cancel: Cancel
   tasks.action.deny: Deny
@@ -1612,6 +4330,41 @@ strings:
   tasks.sectionTitle: Tasks
   tasks.send: Send
   tasks.whenToStart: When to start
+  tasksExtra.countFailed: '{count} failed'
+  tasksExtra.countNeedsYou: '{count} needs you'
+  tasksExtra.countQueued: '{count} queued'
+  tasksExtra.countRunning: '{count} running'
+  tasksExtra.countToReview: '{count} to review'
+  tasksExtra.dismissCount: Dismiss {count}
+  tasksExtra.noTasks: No tasks
+  tasksExtra.oneRunningElapsed: 1 running · {elapsed}
+  tasksExtra.overlayEditing: task {num} editing
+  tasksExtra.overlayHolding: task {num} holding, not editing yet
+  tasksExtra.selectTask: Select {title}
+  tasksExtra.showTasksLabel: '{summary}. Show tasks'
+  terrain.brush.flatten: Flatten
+  terrain.brush.lower: Lower
+  terrain.brush.off: "Off"
+  terrain.brush.paintFoliage: Paint Foliage
+  terrain.brush.paintLayer: Paint Layer
+  terrain.brush.raise: Raise
+  terrain.brush.setHeight: Set Height
+  terrain.brush.smooth: Smooth
+  terrain.close: Close
+  terrain.density: Density
+  terrain.falloff: Falloff
+  terrain.falloff.flat: Flat
+  terrain.falloff.linear: Linear
+  terrain.falloff.smooth: Smooth
+  terrain.foliage: 'Foliage:'
+  terrain.labelWithDims: '{label} ({cols}x{rows})'
+  terrain.layers: 'Layers:'
+  terrain.radius: Radius
+  terrain.save: Save Terrain
+  terrain.strength: Strength
+  terrain.targetY: Target Y
+  terrain.title: Terrain
+  terrain.untitled: Untitled Terrain
   threads.action.keep: Keep
   threads.action.revert: Revert
   threads.age.hoursAgo: '{count} h ago'
@@ -1671,6 +4424,230 @@ strings:
   tilePalette.setupTilemap: Set Up Tilemap
   tilePalette.tileLabel: Tile {number}
   tilePalette.title: TILESET
+  tilePaletteExtra.atlasNoResolver: 'Tileset {tileset} atlas {atlas} cannot be resolved: the editor has no asset resolver'
+  tilePaletteExtra.atlasResolveErr: 'Tileset {tileset} atlas {atlas} cannot be resolved: {err}'
+  tilePaletteExtra.brushLine: Line
+  tilePaletteExtra.brushLineLabel: Line tile brush (L)
+  tilePaletteExtra.brushRandom: Random
+  tilePaletteExtra.brushRandomLabel: Random tile brush (N)
+  tilePaletteExtra.brushRect: Rect
+  tilePaletteExtra.brushRectLabel: Rectangle tile brush (U)
+  tilePaletteExtra.brushStamp: Stamp
+  tilePaletteExtra.brushStampLabel: Stamp tile brush (C)
+  tilePaletteExtra.cellCoords: cell {col}, {row}
+  tilePaletteExtra.clear: Clear
+  tilePaletteExtra.clearLabel: Clear active stamp and selection
+  tilePaletteExtra.collNone: none
+  tilePaletteExtra.collOneWayTop: one-way top
+  tilePaletteExtra.collShapes: shapes
+  tilePaletteExtra.collSolid: solid
+  tilePaletteExtra.copy: Copy
+  tilePaletteExtra.copyLabel: Copy selected tile region
+  tilePaletteExtra.cut: Cut
+  tilePaletteExtra.cutLabel: Cut selected tile region
+  tilePaletteExtra.editTileset: Edit Tileset
+  tilePaletteExtra.editTilesetLabel: Open this layer's tileset in the Tileset Editor
+  tilePaletteExtra.errInvalidSeed: 'editor: invalid random seed {value}'
+  tilePaletteExtra.imageResolveErr: 'Tileset {tileset} image {image} cannot be resolved: {err}'
+  tilePaletteExtra.mode4Bit: 4-bit
+  tilePaletteExtra.mode8Bit: 8-bit
+  tilePaletteExtra.noAtlasReturned: the resolver returned no atlas
+  tilePaletteExtra.noInlineTilemap: Layer {layer} has no inline tilemap to paint
+  tilePaletteExtra.noLayerSelected: No layer is selected
+  tilePaletteExtra.noResolver: 'Tileset {tileset} cannot be resolved: the editor has no asset resolver'
+  tilePaletteExtra.noTerrains: No terrain sets defined. Press Edit Tileset to add one.
+  tilePaletteExtra.noTileFrames: Tileset {tileset} has no tile frames (frames named 1, 2, ...)
+  tilePaletteExtra.noTiles: Tileset {tileset} has no tiles
+  tilePaletteExtra.paintTerrainLabel: Paint terrain {name}
+  tilePaletteExtra.paste: Paste
+  tilePaletteExtra.pasteLabel: Paste tile clipboard
+  tilePaletteExtra.randomDecLabel: Decrease weight for tile {tile}
+  tilePaletteExtra.randomEmpty: Click tiles below to build weighted pool
+  tilePaletteExtra.randomIncLabel: Increase weight for tile {tile}
+  tilePaletteExtra.randomRemoveLabel: Remove tile {tile} from random pool
+  tilePaletteExtra.readErr: 'Tileset {tileset} cannot be read: {err}'
+  tilePaletteExtra.resolveErr: 'Tileset {tileset} cannot be resolved: {err}'
+  tilePaletteExtra.rulesNote: Rules for collision, terrain and variants live in the tileset file.
+  tilePaletteExtra.seed: Seed
+  tilePaletteExtra.seedLabel: Random brush seed
+  tilePaletteExtra.stampDefault: 'Stamp: 1x1 (right-drag map to select)'
+  tilePaletteExtra.stampRect: Rect
+  tilePaletteExtra.stampRectLabel: Extend palette stamp rectangle on next tile press
+  tilePaletteExtra.stampSize: 'Stamp: {width}x{height}'
+  tilePaletteExtra.terrainItem: '{name} ({mode})'
+  tilePaletteExtra.tileLabel: Tile {number}
+  tileReview.after: After
+  tileReview.before: Before
+  tileReview.headerCounts: '{regions} · {cells}'
+  tileReview.hold: hold
+  tileReview.keepCount: Keep {kept} of {total}
+  tileReview.keepLabel: Keep selected tile regions
+  tileReview.legendErased: erased
+  tileReview.legendPainted: painted
+  tileReview.legendReplaced: replaced
+  tileReview.panelLabel: Tile edit review
+  tileReview.regionTitle: '{title} · {cells}'
+  tileReview.restore: Restore
+  tileReview.restoreRegionLabel: Restore {title}
+  tileReview.revert: Revert
+  tileReview.revertAll: Revert all
+  tileReview.revertAllLabel: Revert all tile edits
+  tileReview.revertRegionLabel: Revert {title}
+  tileReview.reviewing: Reviewing
+  tileReview.sketchOverlay: Sketch overlay
+  tileReview.sketchOverlayLabel: Toggle sketch overlay
+  tilemapSetup.addTilemap: Add Tilemap
+  tilemapSetup.axisH: H
+  tilemapSetup.axisW: W
+  tilemapSetup.chooseAtlas: Choose atlas
+  tilemapSetup.edgeB: B
+  tilemapSetup.edgeL: L
+  tilemapSetup.edgeR: R
+  tilemapSetup.edgeT: T
+  tilemapSetup.gridHeight: Grid Height
+  tilemapSetup.gridSize: Grid Size
+  tilemapSetup.gridWidth: Grid Width
+  tilemapSetup.heading: TILEMAP
+  tilemapSetup.leftRight: L / R
+  tilemapSetup.moveInline: Move Inline
+  tilemapSetup.moveToTopLevel: Move to Top-Level
+  tilemapSetup.noTilemap: No tilemap
+  tilemapSetup.prefixInline: Inline
+  tilemapSetup.prefixRef: 'Ref: {ref}'
+  tilemapSetup.refMissing: 'Ref: {ref} (missing)'
+  tilemapSetup.refName: Ref Name
+  tilemapSetup.refNameLabel: Top-Level Tilemap Name
+  tilemapSetup.remove: Remove
+  tilemapSetup.removeLabel: Remove Tilemap
+  tilemapSetup.resizeBottomLabel: Resize Bottom Edge
+  tilemapSetup.resizeEdgesHeading: RESIZE EDGES
+  tilemapSetup.resizeGrid: Resize Grid
+  tilemapSetup.resizeLeftLabel: Resize Left Edge
+  tilemapSetup.resizeRightLabel: Resize Right Edge
+  tilemapSetup.resizeTopLabel: Resize Top Edge
+  tilemapSetup.summaryExternal: '{prefix} · {source}'
+  tilemapSetup.summaryLayered: '{prefix} · layered {width}x{height} ({tileW}x{tileH})'
+  tilemapSetup.summaryOffset: ' · offset ({x}, {y})'
+  tilemapSetup.summarySingle: '{prefix} · {width}x{height} ({tileW}x{tileH})'
+  tilemapSetup.tileHeight: Tile Height
+  tilemapSetup.tileSize: Tile Size
+  tilemapSetup.tileWidth: Tile Width
+  tilemapSetup.tilesPlaceholder: tiles
+  tilemapSetup.tileset: Tileset
+  tilemapSetup.tilesetAtlasLabel: Tileset Atlas
+  tilemapSetup.topBottom: T / B
+  tilesetEditor.addTerrain: + Add
+  tilesetEditor.animAddFrame: + Frame
+  tilesetEditor.animDurationLabel: Frame duration
+  tilesetEditor.animEmpty: Static tile. Add frames to animate.
+  tilesetEditor.animFrameRow: '#{index}  tile {tile}  {duration}'
+  tilesetEditor.animHeading: ANIMATION
+  tilesetEditor.animPause: Pause
+  tilesetEditor.animPlay: Play
+  tilesetEditor.animRemoveLabel: Remove animation frame {index}
+  tilesetEditor.animStatus: Showing tile {tile} ({frames} frames)
+  tilesetEditor.animTileIDLabel: Frame tile ID
+  tilesetEditor.animTileIDPlaceholder: tile ID
+  tilesetEditor.cancel: Cancel
+  tilesetEditor.clear: Clear
+  tilesetEditor.clearTile: Clear Tile
+  tilesetEditor.close: Close
+  tilesetEditor.collNone: None
+  tilesetEditor.collOneWay: One-way
+  tilesetEditor.collSolid: Solid
+  tilesetEditor.collisionHeading: COLLISION
+  tilesetEditor.dataHeading: TILE DATA
+  tilesetEditor.defaultMaskZero: 'Default: mask 0'
+  tilesetEditor.defaultTile: 'Default: tile {tile}'
+  tilesetEditor.delete: Delete
+  tilesetEditor.dir.c: C
+  tilesetEditor.dir.e: E
+  tilesetEditor.dir.n: "N"
+  tilesetEditor.dir.ne: NE
+  tilesetEditor.dir.nw: NW
+  tilesetEditor.dir.s: S
+  tilesetEditor.dir.se: SE
+  tilesetEditor.dir.sw: SW
+  tilesetEditor.dir.w: W
+  tilesetEditor.editShapesAnimData: Edit Shapes, Animation & Data
+  tilesetEditor.errInvalidBool: 'editor: invalid bool {value} (use true or false)'
+  tilesetEditor.errInvalidDuration: 'editor: invalid duration {value} (use e.g. 150ms)'
+  tilesetEditor.errInvalidFlags: 'editor: invalid flags mask {value}'
+  tilesetEditor.errInvalidFloat: 'editor: invalid float {value}'
+  tilesetEditor.errInvalidFrameTileID: 'editor: invalid frame tile ID {value}'
+  tilesetEditor.errInvalidInt: 'editor: invalid int {value}'
+  tilesetEditor.errInvalidWeight: 'editor: invalid weight {value}'
+  tilesetEditor.finish: Finish
+  tilesetEditor.flagBitLabel: Toggle custom flag bit {bit}
+  tilesetEditor.flagBitShort: B{bit}
+  tilesetEditor.flagsInputLabel: Custom flags mask
+  tilesetEditor.inspectorNote: The agent inferred these rules when it sliced the tileset. Change one here, or ask it to change a whole set.
+  tilesetEditor.listSep: ', '
+  tilesetEditor.maskConflict: Owned by tile {tile}
+  tilesetEditor.maskEmptyHint: Add or select a terrain to edit tile edges and corners.
+  tilesetEditor.maskIsolated: center (isolated / mask 0)
+  tilesetEditor.maskTitle: Tile {id} — {terrain}
+  tilesetEditor.maskUnassigned: unassigned
+  tilesetEditor.mode4Bit: 4-bit
+  tilesetEditor.mode8Bit: 8-bit
+  tilesetEditor.modeBlob: Blob (8-bit)
+  tilesetEditor.modeCardinal: Cardinal (4-bit)
+  tilesetEditor.newTerrainLabel: New terrain name
+  tilesetEditor.newTerrainPlaceholder: Terrain name...
+  tilesetEditor.noTerrains: No terrains yet
+  tilesetEditor.propDeleteLabel: Delete property {key}
+  tilesetEditor.propEmpty: No custom properties.
+  tilesetEditor.propKeyLabel: Property key
+  tilesetEditor.propKeyPlaceholder: key
+  tilesetEditor.propRow: '{key} ({kind}) = {value}'
+  tilesetEditor.propSet: + Set
+  tilesetEditor.propTypeBool: bool
+  tilesetEditor.propTypeFloat: float
+  tilesetEditor.propTypeInt: int
+  tilesetEditor.propTypeNameBool: bool
+  tilesetEditor.propTypeNameFloat: float
+  tilesetEditor.propTypeNameInt: int
+  tilesetEditor.propTypeNameString: string
+  tilesetEditor.propTypeStr: str
+  tilesetEditor.propValLabel: Property value
+  tilesetEditor.propValPlaceholder: value
+  tilesetEditor.reassign: Reassign
+  tilesetEditor.ruleCollision: Collision
+  tilesetEditor.ruleNone: none
+  tilesetEditor.ruleOneWayTop: one-way top
+  tilesetEditor.ruleSolid: solid
+  tilesetEditor.ruleTerrainSet: Terrain set
+  tilesetEditor.rulesHeading: RULES
+  tilesetEditor.save: Save Tileset
+  tilesetEditor.setDefault: Set Default
+  tilesetEditor.shapeAddFullRect: + Full Rect
+  tilesetEditor.shapeAddSlope: + Slope
+  tilesetEditor.shapeCanvasLabel: Tile collision shape editor canvas
+  tilesetEditor.shapeDescBox: '{kind} ({x},{y} {w}x{h})'
+  tilesetEditor.shapeDescPoly: '{kind} ({count} pts)'
+  tilesetEditor.shapeDraftPts: '{count} pts'
+  tilesetEditor.shapeKind.ellipse: ellipse
+  tilesetEditor.shapeKind.polygon: polygon
+  tilesetEditor.shapeKind.polyline: polyline
+  tilesetEditor.shapeKind.rect: rect
+  tilesetEditor.shapeRemoveLabel: Remove collision shape {index}
+  tilesetEditor.shapeToolPolygon: Polygon
+  tilesetEditor.shapeToolRect: Rect
+  tilesetEditor.tab.animation: Animation
+  tilesetEditor.tab.collision: Collision
+  tilesetEditor.tab.data: Data
+  tilesetEditor.tab.terrain: Terrain
+  tilesetEditor.terrainItem: '{name} ({mode})'
+  tilesetEditor.terrainsHeading: TERRAINS
+  tilesetEditor.tileLabel: Tile {id}
+  tilesetEditor.tileNameLabel: Tile name
+  tilesetEditor.tileNamePlaceholder: Name (e.g. moss)...
+  tilesetEditor.title: Tileset Editor
+  tilesetEditor.toggleCenter: Toggle tile terrain membership
+  tilesetEditor.toggleNeighbor: Toggle {dir} neighbor
+  tilesetEditor.untitled: Untitled
+  tilesetEditor.variantWeightLabel: Variant weight
+  tilesetEditor.weightLabel: Weight
   tool.eraseTile: Erase Tile
   tool.fillTile: Fill Tile
   tool.move: Move
@@ -1755,6 +4732,144 @@ strings:
   toolbar.undo: Undo
   toolbar.unsavedFailedLabel: Unsaved changes · save failed
   toolbar.unsavedLabel: unsaved changes
+  usages.agentFooterNote: The agent finds and renames through the same path, refs_find and refactor_rename, so its renames land here as the same review.
+  usages.agentUpdatingGo: The agent is updating {file}; it will ask before editing Go
+  usages.applyRenameMany: Keep · Rename {count} files ⌘↵
+  usages.applyRenameOne: Keep · Rename 1 file ⌘↵
+  usages.askAgentUpdate: Ask the agent to update it
+  usages.askedAgent: Asked · the agent is on it
+  usages.backLabel: Back to the editor (Esc)
+  usages.backToScene: Back to {scene}
+  usages.cancel: Cancel
+  usages.constantMany: '{count} constants'
+  usages.constantOne: 1 constant
+  usages.countManyMany: '{usages} usages in {files} files'
+  usages.countManyOne: '{usages} usages in 1 file'
+  usages.countOneMany: 1 usage in {files} files
+  usages.countOneOne: 1 usage in 1 file
+  usages.doneClean: '{files} files rewritten · game check: clean'
+  usages.doneManyProblems: '{files} files rewritten · game check: {problems} problems'
+  usages.doneOneProblem: '{files} files rewritten · game check: 1 problem in {file}'
+  usages.editor: Editor
+  usages.enterNewName: Enter a new name
+  usages.fileMany: '{count} files'
+  usages.fileOne: 1 file
+  usages.goNotRewrittenBody: The rename only rewrites YAML. This string constant keeps the old path and must be updated separately.
+  usages.goNotRewrittenTitle: Go code is not rewritten
+  usages.gridNoteRename: Each scene keeps its instances and their overrides; only the prefab path in each line changes.
+  usages.gridNoteUsages: Click a scene to see its usages; ↵ on a usage opens the scene with that object framed.
+  usages.groupDataTables: DATA TABLES
+  usages.groupGoCode: GO CODE
+  usages.groupMoved: MOVED
+  usages.groupOther: OTHER
+  usages.groupScenes: SCENES
+  usages.groupVariants: PREFAB VARIANTS
+  usages.inheritCount: '{count} inherit it'
+  usages.inspect: Inspect
+  usages.instanceMany: '{count} instances'
+  usages.instanceOne: 1 instance
+  usages.instancesInScenesManyMany: '{instances} instances in {scenes} scenes'
+  usages.instancesInScenesManyOne: '{instances} instances in 1 scene'
+  usages.instancesInScenesOneMany: 1 instance in {scenes} scenes
+  usages.instancesInScenesOneOne: 1 instance in 1 scene
+  usages.lineMany: '{count} lines'
+  usages.lineNumber: line {line}
+  usages.lineOne: 1 line
+  usages.listMany: '{init} and {last}'
+  usages.listSep: ', '
+  usages.listTwo: '{a} and {b}'
+  usages.movedTag: moved
+  usages.newFileNameLabel: New file name
+  usages.newNameHeading: NEW NAME
+  usages.noScenes: No scene files instance this target.
+  usages.notRewritten: not rewritten
+  usages.openFile: Open {file}
+  usages.overrideMany: '{count} overrides'
+  usages.overrideOne: 1 override
+  usages.planGameCheck: Then game check runs; nothing may point at the old name
+  usages.planMove: Move {from} to {to}
+  usages.planOverridesKept: Overrides on {objects} are kept as they are
+  usages.planRewriteMany: Rewrite {count} references in scenes, variants and data
+  usages.planRewriteOne: Rewrite 1 reference in scenes, variants and data
+  usages.refMany: '{count} refs'
+  usages.refOne: 1 ref
+  usages.renameAction: Rename…
+  usages.renameShortcutLabel: Rename · F2
+  usages.rowMany: '{count} rows'
+  usages.rowOne: 1 row
+  usages.screenLabel: Find usages and safe rename
+  usages.sidebarHint: ↑↓ moves through usages · ↵ opens the scene with the object framed
+  usages.subtitleRename: every reference is rewritten in one review and one undo step
+  usages.subtitleWithSource: '{summary} · Find usages on {id}'
+  usages.titleRename: Rename {name}
+  usages.titleRenamed: Renamed to {name}
+  usages.titleUsages: Usages of {name}
+  usages.undo: Undo · ⌘Z
+  viewport3d.axisBack: View from -Z (back)
+  viewport3d.axisBottom: View from -Y (bottom)
+  viewport3d.axisFront: View from +Z (front)
+  viewport3d.axisLeft: View from -X (left)
+  viewport3d.axisRight: View from +X (right)
+  viewport3d.axisTop: View from +Y (top)
+  viewport3d.camera: Camera
+  viewport3d.env: Env
+  viewport3d.envLabel: Toggle Scene Environment settings
+  viewport3d.focus: Focus
+  viewport3d.frameSelection: Frame the selection
+  viewport3d.frameSelectionKey: Frame the selection ({key})
+  viewport3d.globalTransformSpace: Global transform space
+  viewport3d.gridmapBoxFill: 'GridMap: Box Fill'
+  viewport3d.gridmapErase: 'GridMap: Erase'
+  viewport3d.gridmapGroup: GridMap
+  viewport3d.gridmapPaint: 'GridMap: Paint'
+  viewport3d.gridmapPick: 'GridMap: Pick'
+  viewport3d.groundHeightLabel: Ground height
+  viewport3d.helpBlender: Middle orbit · Shift+Middle pan · Right WASD fly
+  viewport3d.helpDefault: Drag orbit · Middle pan · Right WASD fly
+  viewport3d.helpFly: fly
+  viewport3d.helpFocus: focus
+  viewport3d.helpFocusSuffix: ' · {key} focus'
+  viewport3d.helpMaya: Alt+Drag orbit · Middle pan · Right WASD fly
+  viewport3d.helpOrbit: orbit
+  viewport3d.helpPan: pan
+  viewport3d.keyDrag: Drag
+  viewport3d.keyMiddle: Middle
+  viewport3d.keyRight: Right
+  viewport3d.localTransformSpace: Local transform space
+  viewport3d.lookThroughCamera: Look through scene camera
+  viewport3d.lookThroughCameraKey: Look through scene camera ({key})
+  viewport3d.orbitLeft: Orbit 15° left
+  viewport3d.orbitRight: Orbit 15° right
+  viewport3d.ortho: Ortho
+  viewport3d.orthographic: Orthographic
+  viewport3d.orthographicKey: Orthographic ({key})
+  viewport3d.overlays3d: 3D Overlays
+  viewport3d.persp: Persp
+  viewport3d.perspective: Perspective
+  viewport3d.perspectiveKey: Perspective ({key})
+  viewport3d.placeAlign: Align
+  viewport3d.placeAlignLabel: Align placed models to the surface
+  viewport3d.placeLabel: Place
+  viewport3d.placeOptionsLabel: 3D Place options
+  viewport3d.placeSnap: Snap
+  viewport3d.placeSnapLabel: Snap placed models to the grid
+  viewport3d.projection: Projection
+  viewport3d.resetView: Reset view
+  viewport3d.shadingLit: Lit
+  viewport3d.shadingMenuLabel: 3D Shading
+  viewport3d.shadingUnlit: Unlit
+  viewport3d.shadingWireframe: Wireframe
+  viewport3d.transformSpace: Transform space
+  viewport3d.viewAxes: 'View axes: {view}'
+  viewport3d.viewBack: Back
+  viewport3d.viewBottom: Bottom
+  viewport3d.viewFront: Front
+  viewport3d.viewLeft: Left
+  viewport3d.viewOrientation: View orientation
+  viewport3d.viewOrtho: '{view} · ortho'
+  viewport3d.viewRight: Right
+  viewport3d.viewTop: Top
+  viewport3d.viewUserOrtho: User · ortho
   workspace.dismiss: Dismiss
   workspace.loadingProject: Loading project…
   workspace.loadingShort: Loading…
@@ -1783,6 +4898,27 @@ plurals:
   agent.playDot.waiting:
     one: '{count} task needs you'
     other: '{count} tasks need you'
+  assetDrawer.footerProblem:
+    one: '{count} problem · {name} missing'
+    other: '{count} problems · {name} missing'
+  assetDrawer.proposedBannerTitle:
+    one: Import {count} proposed file
+    other: Import {count} proposed files
+  assetDrawer.statusKeptProposed:
+    one: Kept {count} imported asset
+    other: Kept {count} imported assets
+  buildRelease.notesDraftedFrom:
+    one: Drafted from {count} commit since {since}
+    other: Drafted from {count} commits since {since}
+  exportPanel.creditsMissing:
+    one: 'Credits required: {count} asset has no credit (release builds are blocked)'
+    other: 'Credits required: {count} assets have no credit (release builds are blocked)'
+  hudLayout.screenProblems:
+    one: '{count} problem'
+    other: '{count} problems'
+  l10nPanel.missingCount:
+    one: '{count} missing'
+    other: '{count} missing'
   output.errorCount:
     one: ' · {count} error'
     other: ' · {count} errors'
@@ -1792,3 +4928,27 @@ plurals:
   overlays.count.shapes:
     one: '{count} shape'
     other: '{count} shapes'
+  permissions.draft.applyCount:
+    one: Apply {count} rule
+    other: Apply {count} rules
+  playMarks.chip.liveChanges:
+    one: '{count} live change'
+    other: '{count} live changes'
+  playMarks.panicRuntimeFrames:
+    one: 1 frame in the game runtime
+    other: '{count} frames in the game runtime'
+  projectSettings.plugins.inspectorCount:
+    one: '{count} inspector'
+    other: '{count} inspectors'
+  projectSettings.plugins.panelCount:
+    one: '{count} panel'
+    other: '{count} panels'
+  projectSettings.plugins.toolCount:
+    one: '{count} tool'
+    other: '{count} tools'
+  tileReview.cellCount:
+    one: '{count} cell'
+    other: '{count} cells'
+  tileReview.regionCount:
+    one: '{count} region'
+    other: '{count} regions'

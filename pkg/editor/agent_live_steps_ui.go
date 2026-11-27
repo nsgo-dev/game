@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -630,12 +631,12 @@ func agentPermissionCardView(
 }
 
 func agentTurnReviewCardView(p SpecPalette, ed *Editor, rev AgentPendingReview, osKind core.OS) core.Node {
-	headerText := fmt.Sprintf("%d steps pending review", rev.StepsDone)
+	headerText := ed.T("agentSteps.stepsPendingMany", l10n.Param("count", rev.StepsDone))
 	if rev.StepsDone == 1 {
-		headerText = "1 step pending review"
+		headerText = ed.T("agentSteps.stepsPendingOne")
 	}
 	if rev.ChangesCount > 0 {
-		headerText = fmt.Sprintf("%d changes · %d steps", rev.ChangesCount, rev.StepsDone)
+		headerText = ed.T("agentSteps.changesAndSteps", l10n.Param("changes", rev.ChangesCount), l10n.Param("steps", rev.StepsDone))
 	}
 
 	headerKids := []core.Node{
@@ -712,7 +713,7 @@ func agentTurnReviewCardView(p SpecPalette, ed *Editor, rev AgentPendingReview, 
 			Style: core.Style{Padding: core.Symmetric(8, 12)},
 			Children: []core.Node{
 				core.Text{
-					Content: fmt.Sprintf("Kept · %s undoes", FormatShortcut("mod+z", osKind)),
+					Content: ed.T("agentSteps.keptUndoes", l10n.Param("undoKey", FormatShortcut("mod+z", osKind))),
 					Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 				},
 			},
@@ -722,7 +723,7 @@ func agentTurnReviewCardView(p SpecPalette, ed *Editor, rev AgentPendingReview, 
 			Style: core.Style{Padding: core.Symmetric(8, 12)},
 			Children: []core.Node{
 				core.Text{
-					Content: "Reverted · scene restored",
+					Content: ed.T("agentSteps.revertedRestored"),
 					Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 				},
 			},

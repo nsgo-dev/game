@@ -95,7 +95,7 @@ func spriteFieldsFiltered(
 		rows = append(rows, overrideFieldRow("sprite", ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)))
 	}
 
-	if matchesInspectorFilter(filterQuery, sectionTitle, "", "origin", "originX", "originY", ed.T("inspector.originX"), ed.T("inspector.originY")) {
+	if matchesInspectorFilter(filterQuery, sectionTitle, "", "origin", "originX", "originY", ed.T("inspectorEditExtra.origin"), ed.T("inspector.originX"), ed.T("inspector.originY")) {
 		originCfg := func(testID, label, axis, field string, axisColor core.Color, y bool) inspectorNumberFieldCfg {
 			return inspectorNumberFieldCfg{
 				TestID:    testID,
@@ -131,7 +131,7 @@ func spriteFieldsFiltered(
 		}
 		spec := ed.SpecPalette(cx)
 		rows = append(rows, multiAxisRow(
-			"Origin",
+			ed.T("inspectorEditExtra.origin"),
 			[]string{"originX", "originY"},
 			"inspector-origin",
 			[]inspectorNumberFieldCfg{
@@ -271,8 +271,8 @@ func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disable
 	}
 	fileSelect := ui.Select[string]{
 		TestID:      "inspector-particles-file",
-		Label:       "Particle Emitter File",
-		Placeholder: "None",
+		Label:       ed.T("inspectorEditExtra.particleEmitterFile"),
+		Placeholder: ed.T("inspectorEditExtra.none"),
 		Searchable:  true,
 		Disabled: func() bool {
 			return disabled() || (!ed.canLoadParticles() && currentFile() == "")
@@ -310,8 +310,8 @@ func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disable
 	}
 	atlasSelect := ui.Select[string]{
 		TestID:      "inspector-particles-atlas",
-		Label:       "Particle Atlas",
-		Placeholder: "None",
+		Label:       ed.T("inspectorEditExtra.particleAtlas"),
+		Placeholder: ed.T("inspectorEditExtra.none"),
 		Searchable:  true,
 		Disabled: func() bool {
 			return disabled() || currentFile() == ""
@@ -345,7 +345,7 @@ func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disable
 	}
 	editBtn := ui.Button{
 		TestID:  "inspector-particles-edit",
-		Text:    "Edit Emitter",
+		Text:    ed.T("inspectorEditExtra.editEmitter"),
 		Size:    ui.SizeSmall,
 		Variant: ui.ButtonSecondary,
 		Disabled: func() bool {
@@ -371,8 +371,8 @@ func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disable
 		},
 	}
 	return []core.Node{
-		fieldRow("particles", "Emitter", fileSelect),
-		fieldRow("", "Atlas", atlasSelect),
+		fieldRow("particles", ed.T("inspectorEditExtra.emitter"), fileSelect),
+		fieldRow("", ed.T("inspectorEditExtra.atlas"), atlasSelect),
 		editBtn,
 	}
 }
