@@ -48,6 +48,8 @@ type LDtkOptions struct {
 // LoadLDtk parses an LDtk JSON project and builds a Tilemap for the level matching levelIdentifier (or the first level when levelIdentifier is empty).
 //
 // Tiles (gridTiles), AutoLayer (autoLayerTiles), IntGrid (intGridCsv mapped to TileSolid/TileFlags plus optional autoLayerTiles), and Entities (entityInstances mapped to ObjectLayer with fieldInstances properties) are supported, including LDtk flip bits (bit 0 = FlipHorizontal, bit 1 = FlipVertical).
+// When multiple tiles occupy the same cell in a Tiles, AutoLayer, or IntGrid auto-layer, additional TileLayers named "<layer>#2", "<layer>#3", ... are emitted in LDtk's draw order so earlier tiles are preserved beneath later ones.
+// Entity positions convert LDtk's pivot-relative px to top-left (X, Y) using __pivot (falling back to defs.entities pivotX/pivotY, or (0, 0) when omitted) and store the normalized anchor in Object.PivotX and Object.PivotY.
 // For Free and GridVania layouts, the returned Tilemap's Origin is set from the level's (worldX, worldY) and its Neighbours are populated from __neighbours.
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
@@ -375,7 +377,7 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 		}
 	}
 
-	// Validate each grid layer's effective dimensions, intGridCsv length, and dense allocation budget before allocating any tile buffers.
+	// Validate each grid layer's effective dimensions and intGridCsv length before allocating any tile buffers.
 	for i, li := range lvl.LayerInstances {
 		if !isLDtkGridLayer(li.Type) {
 			continue
@@ -403,13 +405,6 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 		}
 		if li.Type == "IntGrid" && len(li.IntGridCSV) > cells {
 			return nil, loaderr.Errorf(loaderr.Join(layerAt, "intGridCsv"), "re-save the project in LDtk so intGridCsv has at most __cWid * __cHei cells", "layer %q intGridCsv has %d cells, more than %dx%d (%d)", li.Identifier, len(li.IntGridCSV), lw, lh, cells)
-		}
-		allocatesTiles := li.Type == "Tiles" || li.Type == "AutoLayer" || (li.Type == "IntGrid" && len(li.AutoLayerTiles) > 0)
-		if allocatesTiles && totalTiles != nil {
-			if cells > maxLDtkTotalTiles-*totalTiles {
-				return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce layer dimensions or load levels lazily with LoadLDtkWorld", "layer %q size %dx%d exceeds maximum total tile allocation (%d cells)", li.Identifier, lw, lh, maxLDtkTotalTiles)
-			}
-			*totalTiles += cells
 		}
 	}
 	if mapW > 0 && mapH > 0 && mapW > math.MaxInt/mapH {
@@ -500,6 +495,45 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 		nextGID += uint64(tileCount)
 	}
 
+	// Count stacked tile depths and enforce the cumulative dense tile budget before allocating any layer buffers.
+	layerDepths := make([]int, len(lvl.LayerInstances))
+	for i, li := range lvl.LayerInstances {
+		if !ldtkLayerAllocatesTiles(li) {
+			continue
+		}
+		lw, lh := li.CWid, li.CHei
+		if lw == 0 {
+			lw = mapW
+		}
+		if lh == 0 {
+			lh = mapH
+		}
+		layerGrid := li.GridSize
+		if layerGrid <= 0 {
+			layerGrid = gridSize
+		}
+		ts, def := resolveLDtkLayerTileset(li, tilesetsByUID, tilesetDefsByUID)
+		depth := countLDtkTileStackDepth(ldtkLayerTiles(li), lw, lh, layerGrid, ts, def)
+		layerDepths[i] = depth
+		if totalTiles != nil {
+			cells := lw * lh
+			remaining := maxLDtkTotalTiles - *totalTiles
+			if cells > remaining/depth {
+				layerAt := loaderr.Join(at, "layerInstances", i)
+				if depth > 1 {
+					return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce layer dimensions, tile stack depth, or load levels lazily with LoadLDtkWorld", "layer %q size %dx%d with stack depth %d exceeds maximum total tile allocation (%d cells)", li.Identifier, lw, lh, depth, maxLDtkTotalTiles)
+				}
+				return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce layer dimensions or load levels lazily with LoadLDtkWorld", "layer %q size %dx%d exceeds maximum total tile allocation (%d cells)", li.Identifier, lw, lh, maxLDtkTotalTiles)
+			}
+			*totalTiles += cells * depth
+		}
+	}
+
+	entityDefsByUID := make(map[int]ldtkEntityDef, len(proj.Defs.Entities))
+	for _, edef := range proj.Defs.Entities {
+		entityDefsByUID[edef.UID] = edef
+	}
+
 	// Index IntGrid value definitions (and their group names) from defs.layers by layer UID and identifier.
 	type ldtkIntGridEntry struct {
 		identifier string
@@ -559,48 +593,36 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 			lh = m.Height
 		}
 
+		addLDtkTileLayers := func(tiles []ldtkTileInstance) {
+			ts, def := resolveLDtkLayerTileset(li, tilesetsByUID, tilesetDefsByUID)
+			layers := buildLDtkTileLayers(tiles, lw, lh, layerGrid, layerDepths[i], ts, def)
+			for d, data := range layers {
+				name := li.Identifier
+				if d > 0 {
+					name = fmt.Sprintf("%s#%d", li.Identifier, d+1)
+				}
+				m.addTileLayer(TileLayer{
+					Name:        name,
+					Width:       lw,
+					Height:      lh,
+					Data:        data,
+					OffsetX:     ox,
+					OffsetY:     oy,
+					ParallaxX:   1,
+					ParallaxY:   1,
+					HasParallax: true,
+					Opacity:     opacity,
+					Visible:     visible,
+				})
+			}
+		}
+
 		switch li.Type {
 		case "Tiles":
-			ts := resolveLDtkLayerTileset(li, tilesetsByUID)
-			def := ldtkTilesetDef{}
-			if li.TilesetDefUID != nil {
-				def = tilesetDefsByUID[*li.TilesetDefUID]
-			}
-			data := buildLDtkTileData(li.GridTiles, lw, lh, layerGrid, ts, def)
-			m.addTileLayer(TileLayer{
-				Name:        li.Identifier,
-				Width:       lw,
-				Height:      lh,
-				Data:        data,
-				OffsetX:     ox,
-				OffsetY:     oy,
-				ParallaxX:   1,
-				ParallaxY:   1,
-				HasParallax: true,
-				Opacity:     opacity,
-				Visible:     visible,
-			})
+			addLDtkTileLayers(li.GridTiles)
 
 		case "AutoLayer":
-			ts := resolveLDtkLayerTileset(li, tilesetsByUID)
-			def := ldtkTilesetDef{}
-			if li.TilesetDefUID != nil {
-				def = tilesetDefsByUID[*li.TilesetDefUID]
-			}
-			data := buildLDtkTileData(li.AutoLayerTiles, lw, lh, layerGrid, ts, def)
-			m.addTileLayer(TileLayer{
-				Name:        li.Identifier,
-				Width:       lw,
-				Height:      lh,
-				Data:        data,
-				OffsetX:     ox,
-				OffsetY:     oy,
-				ParallaxX:   1,
-				ParallaxY:   1,
-				HasParallax: true,
-				Opacity:     opacity,
-				Visible:     visible,
-			})
+			addLDtkTileLayers(li.AutoLayerTiles)
 
 		case "IntGrid":
 			valDefs := intGridDefsByUID[li.LayerDefUID]
@@ -620,25 +642,7 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 				}
 			}
 			if len(li.AutoLayerTiles) > 0 {
-				ts := resolveLDtkLayerTileset(li, tilesetsByUID)
-				def := ldtkTilesetDef{}
-				if li.TilesetDefUID != nil {
-					def = tilesetDefsByUID[*li.TilesetDefUID]
-				}
-				data := buildLDtkTileData(li.AutoLayerTiles, lw, lh, layerGrid, ts, def)
-				m.addTileLayer(TileLayer{
-					Name:        li.Identifier,
-					Width:       lw,
-					Height:      lh,
-					Data:        data,
-					OffsetX:     ox,
-					OffsetY:     oy,
-					ParallaxX:   1,
-					ParallaxY:   1,
-					HasParallax: true,
-					Opacity:     opacity,
-					Visible:     visible,
-				})
+				addLDtkTileLayers(li.AutoLayerTiles)
 			}
 
 		case "Entities":
@@ -652,10 +656,11 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 				if ent.Width == 0 && ent.Height == 0 {
 					shape = ObjectPoint
 				}
+				pivotX, pivotY := resolveLDtkEntityPivot(ent, entityDefsByUID)
 				var ex, ey float32
 				if len(ent.Px) >= 2 {
-					ex = float32(ent.Px[0])
-					ey = float32(ent.Px[1])
+					ex = float32(float64(ent.Px[0]) - pivotX*float64(ent.Width))
+					ey = float32(float64(ent.Px[1]) - pivotY*float64(ent.Height))
 				}
 				objs[j] = Object{
 					ID:         j + 1,
@@ -666,6 +671,8 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 					Y:          ey,
 					Width:      float32(ent.Width),
 					Height:     float32(ent.Height),
+					PivotX:     float32(pivotX),
+					PivotY:     float32(pivotY),
 					Visible:    true,
 					Properties: ep,
 				}
@@ -687,64 +694,153 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 	return m, nil
 }
 
-func resolveLDtkLayerTileset(li ldtkLayerInstance, byUID map[int]*Tileset) *Tileset {
+func ldtkLayerAllocatesTiles(li ldtkLayerInstance) bool {
+	return li.Type == "Tiles" || li.Type == "AutoLayer" || (li.Type == "IntGrid" && len(li.AutoLayerTiles) > 0)
+}
+
+func ldtkLayerTiles(li ldtkLayerInstance) []ldtkTileInstance {
+	switch li.Type {
+	case "Tiles":
+		return li.GridTiles
+	case "AutoLayer", "IntGrid":
+		return li.AutoLayerTiles
+	default:
+		return nil
+	}
+}
+
+func resolveLDtkLayerTileset(li ldtkLayerInstance, byUID map[int]*Tileset, defsByUID map[int]ldtkTilesetDef) (*Tileset, ldtkTilesetDef) {
 	if li.OverrideTilesetUID != nil {
 		if ts, ok := byUID[*li.OverrideTilesetUID]; ok {
-			return ts
+			return ts, defsByUID[*li.OverrideTilesetUID]
 		}
 	}
 	if li.TilesetDefUID != nil {
 		if ts, ok := byUID[*li.TilesetDefUID]; ok {
-			return ts
+			return ts, defsByUID[*li.TilesetDefUID]
 		}
 	}
-	return nil
+	return nil, ldtkTilesetDef{}
 }
 
-func buildLDtkTileData(tiles []ldtkTileInstance, lw, lh, gridSize int, ts *Tileset, def ldtkTilesetDef) []uint32 {
-	if lw <= 0 || lh <= 0 || lw > math.MaxInt/lh || lw*lh > maxLDtkLayerTiles {
-		return nil
+func resolveLDtkEntityPivot(ent ldtkEntityInstance, defsByUID map[int]ldtkEntityDef) (px, py float64) {
+	if len(ent.Pivot) >= 2 {
+		px, py = ent.Pivot[0], ent.Pivot[1]
+	} else if ent.DefUID != nil {
+		if def, ok := defsByUID[*ent.DefUID]; ok {
+			px, py = def.PivotX, def.PivotY
+		}
 	}
-	data := make([]uint32, lw*lh)
-	if ts == nil || gridSize <= 0 {
-		return data
+	if math.IsNaN(px) || math.IsInf(px, 0) || px == 0 {
+		px = 0
 	}
+	if math.IsNaN(py) || math.IsInf(py, 0) || py == 0 {
+		py = 0
+	}
+	return px, py
+}
+
+func ldtkTileStep(ts *Tileset, gridSize int) int {
 	tileStep := int(ts.TileWidth + ts.Spacing)
 	if tileStep <= 0 {
 		tileStep = gridSize
 	}
-	padding := def.Padding
-	cols := ts.Columns
+	return tileStep
+}
+
+func resolveLDtkTile(tile ldtkTileInstance, lw, lh, gridSize int, ts *Tileset, def ldtkTilesetDef, tileStep int) (idx int, gid uint32, ok bool) {
+	if len(tile.Px) < 2 || tile.Px[0] < 0 || tile.Px[1] < 0 {
+		return 0, 0, false
+	}
+	col := tile.Px[0] / gridSize
+	row := tile.Px[1] / gridSize
+	if col < 0 || row < 0 || col >= lw || row >= lh {
+		return 0, 0, false
+	}
+	var localID uint32
+	if tile.T != nil && *tile.T >= 0 {
+		localID = uint32(*tile.T)
+	} else if len(tile.Src) >= 2 && ts.Columns > 0 {
+		tc := (int64(tile.Src[0]) - int64(def.Padding)) / int64(tileStep)
+		tr := (int64(tile.Src[1]) - int64(def.Padding)) / int64(tileStep)
+		if tc < 0 || tr < 0 {
+			return 0, 0, false
+		}
+		localID = uint32(tr*int64(ts.Columns) + tc)
+	}
+	gid = (ts.FirstGID + localID) & TileIDMask
+	if gid == 0 {
+		return 0, 0, false
+	}
+	if tile.F&1 != 0 {
+		gid |= FlipHorizontal
+	}
+	if tile.F&2 != 0 {
+		gid |= FlipVertical
+	}
+	return row*lw + col, gid, true
+}
+
+func countLDtkTileStackDepth(tiles []ldtkTileInstance, lw, lh, gridSize int, ts *Tileset, def ldtkTilesetDef) int {
+	if ts == nil || gridSize <= 0 || lw <= 0 || lh <= 0 || len(tiles) <= 1 {
+		return 1
+	}
+	tileStep := ldtkTileStep(ts, gridSize)
+	counts := make(map[int]int, len(tiles))
+	maxDepth := 1
 	for _, tile := range tiles {
-		if len(tile.Px) < 2 {
+		idx, _, ok := resolveLDtkTile(tile, lw, lh, gridSize, ts, def, tileStep)
+		if !ok {
 			continue
 		}
-		col := tile.Px[0] / gridSize
-		row := tile.Px[1] / gridSize
-		if col < 0 || row < 0 || col >= lw || row >= lh {
-			continue
+		counts[idx]++
+		if counts[idx] > maxDepth {
+			maxDepth = counts[idx]
 		}
-		var localID uint32
-		if tile.T != nil && *tile.T >= 0 {
-			localID = uint32(*tile.T)
-		} else if len(tile.Src) >= 2 && cols > 0 {
-			tc := (int64(tile.Src[0]) - int64(padding)) / int64(tileStep)
-			tr := (int64(tile.Src[1]) - int64(padding)) / int64(tileStep)
-			if tc < 0 || tr < 0 {
+	}
+	return maxDepth
+}
+
+func buildLDtkTileLayers(tiles []ldtkTileInstance, lw, lh, gridSize, depth int, ts *Tileset, def ldtkTilesetDef) [][]uint32 {
+	if lw <= 0 || lh <= 0 || lw > math.MaxInt/lh || lw*lh > maxLDtkLayerTiles {
+		return nil
+	}
+	if depth < 1 {
+		depth = 1
+	}
+	layers := make([][]uint32, depth)
+	for d := range depth {
+		layers[d] = make([]uint32, lw*lh)
+	}
+	if ts == nil || gridSize <= 0 {
+		return layers
+	}
+	tileStep := ldtkTileStep(ts, gridSize)
+	if depth == 1 {
+		data := layers[0]
+		for _, tile := range tiles {
+			idx, gid, ok := resolveLDtkTile(tile, lw, lh, gridSize, ts, def, tileStep)
+			if !ok {
 				continue
 			}
-			localID = uint32(tr*int64(cols) + tc)
+			data[idx] = gid
 		}
-		gid := (ts.FirstGID + localID) & TileIDMask
-		if tile.F&1 != 0 {
-			gid |= FlipHorizontal
-		}
-		if tile.F&2 != 0 {
-			gid |= FlipVertical
-		}
-		data[row*lw+col] = gid
+		return layers
 	}
-	return data
+	nextSlot := make(map[int]int, len(tiles))
+	for _, tile := range tiles {
+		idx, gid, ok := resolveLDtkTile(tile, lw, lh, gridSize, ts, def, tileStep)
+		if !ok {
+			continue
+		}
+		slot := nextSlot[idx]
+		if slot >= len(layers) {
+			continue
+		}
+		layers[slot][idx] = gid
+		nextSlot[idx] = slot + 1
+	}
+	return layers
 }
 
 func resolveLDtkIntGridFlag(value int, identifier, group string, valueFlags map[int]TileFlags, nameFlags map[string]TileFlags) TileFlags {
@@ -886,6 +982,14 @@ type ldtkWorld struct {
 type ldtkDefs struct {
 	Tilesets []ldtkTilesetDef `json:"tilesets"`
 	Layers   []ldtkLayerDef   `json:"layers"`
+	Entities []ldtkEntityDef  `json:"entities"`
+}
+
+type ldtkEntityDef struct {
+	UID        int     `json:"uid"`
+	Identifier string  `json:"identifier"`
+	PivotX     float64 `json:"pivotX"`
+	PivotY     float64 `json:"pivotY"`
 }
 
 type ldtkTilesetDef struct {
@@ -972,6 +1076,8 @@ type ldtkTileInstance struct {
 type ldtkEntityInstance struct {
 	Identifier     string              `json:"__identifier"`
 	Px             []int               `json:"px"`
+	Pivot          []float64           `json:"__pivot"`
+	DefUID         *int                `json:"defUid"`
 	Width          int                 `json:"width"`
 	Height         int                 `json:"height"`
 	IID            string              `json:"iid"`

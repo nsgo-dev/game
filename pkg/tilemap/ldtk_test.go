@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
+	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -579,4 +580,410 @@ func TestLoadLDtkMalformedLayerBoundsAndOverflow(t *testing.T) {
 			t.Fatalf("LoadLDtkAll budget error = %v, want field levels[4].layerInstances[0].__cWid", err)
 		}
 	})
+}
+
+const stackedLDtkJSON = `{
+	"defaultGridSize": 16,
+	"defs": {
+		"tilesets": [
+			{
+				"uid": 10,
+				"identifier": "Dungeon",
+				"relPath": "tiles/dungeon.png",
+				"pxWid": 64,
+				"pxHei": 32,
+				"tileGridSize": 16,
+				"spacing": 0,
+				"padding": 0,
+				"__cWid": 4,
+				"__cHei": 2
+			}
+		],
+		"layers": [
+			{
+				"uid": 30,
+				"identifier": "Terrain",
+				"type": "IntGrid",
+				"gridSize": 16,
+				"intGridValues": [
+					{"value": 1, "identifier": "solid", "color": "#FFFFFF"}
+				]
+			}
+		]
+	},
+	"levels": [
+		{
+			"identifier": "Stacked",
+			"uid": 0,
+			"pxWid": 32,
+			"pxHei": 16,
+			"layerInstances": [
+				{
+					"__identifier": "Decor",
+					"__type": "Tiles",
+					"__cWid": 2,
+					"__cHei": 1,
+					"__gridSize": 16,
+					"__opacity": 0.5,
+					"__pxTotalOffsetX": 2,
+					"__pxTotalOffsetY": -1,
+					"__tilesetDefUid": 10,
+					"visible": true,
+					"gridTiles": [
+						{"px": [0, 0], "src": [0, 0], "f": 0, "t": 0},
+						{"px": [0, 0], "src": [16, 0], "f": 1, "t": 1},
+						{"px": [16, 0], "src": [32, 0], "f": 0, "t": 2},
+						{"px": [16, 0], "src": [48, 0], "f": 0, "t": 3},
+						{"px": [16, 0], "src": [0, 16], "f": 2, "t": 4}
+					]
+				},
+				{
+					"__identifier": "AutoGround",
+					"__type": "AutoLayer",
+					"__cWid": 2,
+					"__cHei": 1,
+					"__gridSize": 16,
+					"__opacity": 1.0,
+					"__tilesetDefUid": 10,
+					"visible": true,
+					"autoLayerTiles": [
+						{"px": [0, 0], "src": [0, 0], "f": 0, "t": 0},
+						{"px": [0, 0], "src": [16, 16], "f": 0, "t": 5},
+						{"px": [0, 0], "src": [32, 16], "f": 1, "t": 6},
+						{"px": [16, 0], "src": [16, 0], "f": 0, "t": 1},
+						{"px": [16, 0], "src": [48, 16], "f": 0, "t": 7}
+					]
+				},
+				{
+					"__identifier": "Terrain",
+					"__type": "IntGrid",
+					"__cWid": 2,
+					"__cHei": 1,
+					"__gridSize": 16,
+					"__opacity": 1.0,
+					"__tilesetDefUid": 10,
+					"layerDefUid": 30,
+					"visible": true,
+					"intGridCsv": [1, 0],
+					"autoLayerTiles": [
+						{"px": [0, 0], "src": [0, 0], "f": 0, "t": 0},
+						{"px": [0, 0], "src": [48, 0], "f": 0, "t": 3}
+					]
+				}
+			]
+		}
+	]
+}`
+
+func TestLoadLDtkStackedTiles(t *testing.T) {
+	resolve := func(relPath string) core.ImageSource {
+		return core.ImageSource{URI: "asset:" + relPath}
+	}
+	m, err := tilemap.LoadLDtk([]byte(stackedLDtkJSON), "Stacked", resolve)
+	if err != nil {
+		t.Fatalf("LoadLDtk(Stacked): %v", err)
+	}
+
+	// Bottom-to-top LDtk layers, each expanded into stack-depth TileLayers in LDtk draw order:
+	// Terrain (depth 2) -> AutoGround (depth 3) -> Decor (depth 3).
+	wantNames := []string{
+		"Terrain", "Terrain#2",
+		"AutoGround", "AutoGround#2", "AutoGround#3",
+		"Decor", "Decor#2", "Decor#3",
+	}
+	if len(m.Layers) != len(wantNames) {
+		t.Fatalf("len(Layers) = %d, want %d (%v)", len(m.Layers), len(wantNames), wantNames)
+	}
+	for i, want := range wantNames {
+		if m.Layers[i].Name != want {
+			t.Fatalf("Layers[%d].Name = %q, want %q", i, m.Layers[i].Name, want)
+		}
+	}
+
+	// IntGrid collision flags still apply alongside stacked autoLayerTiles.
+	if got := m.FlagsAt(0, 0); got != tilemap.TileSolid {
+		t.Fatalf("FlagsAt(0,0) = %v, want TileSolid", got)
+	}
+	if got := m.FlagsAt(1, 0); got != 0 {
+		t.Fatalf("FlagsAt(1,0) = %v, want 0", got)
+	}
+
+	// Verify GIDs in each stack slot (FirstGID == 1).
+	checkTile := func(layerIdx, col, row int, want uint32) {
+		t.Helper()
+		if got := m.TileAt(layerIdx, col, row); got != want {
+			t.Fatalf("Layer %q (%d, %d) = %#x, want %#x", m.Layers[layerIdx].Name, col, row, got, want)
+		}
+	}
+	// Terrain (IntGrid autoLayerTiles): cell (0,0) stacks t=0 then t=3.
+	checkTile(0, 0, 0, 1)
+	checkTile(1, 0, 0, 4)
+	checkTile(0, 1, 0, 0)
+	checkTile(1, 1, 0, 0)
+
+	// AutoGround (AutoLayer): (0,0) stacks t=0, t=5, FlipH|t=6; (1,0) stacks t=1, t=7.
+	checkTile(2, 0, 0, 1)
+	checkTile(3, 0, 0, 6)
+	checkTile(4, 0, 0, tilemap.FlipHorizontal|7)
+	checkTile(2, 1, 0, 2)
+	checkTile(3, 1, 0, 8)
+	checkTile(4, 1, 0, 0)
+
+	// Decor (Tiles): (0,0) stacks t=0, FlipH|t=1; (1,0) stacks t=2, t=3, FlipV|t=4.
+	checkTile(5, 0, 0, 1)
+	checkTile(6, 0, 0, tilemap.FlipHorizontal|2)
+	checkTile(7, 0, 0, 0)
+	checkTile(5, 1, 0, 3)
+	checkTile(6, 1, 0, 4)
+	checkTile(7, 1, 0, tilemap.FlipVertical|5)
+
+	// Overflow stack layers inherit opacity and pixel offset from their LDtk layer.
+	for _, idx := range []int{5, 6, 7} {
+		l := m.Layers[idx]
+		if l.Opacity != 0.5 || l.OffsetX != 2 || l.OffsetY != -1 || !l.Visible {
+			t.Fatalf("Decor stack layer %q metadata = (opacity:%v offset:%v,%v visible:%v)", l.Name, l.Opacity, l.OffsetX, l.OffsetY, l.Visible)
+		}
+	}
+
+	// Verify exact Draw op order: all stacked tiles draw in LDtk's order.
+	img := core.ImageSource{URI: "asset:tiles/dungeon.png"}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "ldtk", Style: core.Style{Width: core.Pt(32), Height: core.Pt(16)}, Draw: func(d *core.Drawing, _ core.Size) {
+				m.Draw(d, nil)
+			}},
+			core.Canvas{TestID: "want", Style: core.Style{Width: core.Pt(32), Height: core.Pt(16)}, Draw: func(d *core.Drawing, _ core.Size) {
+				// Terrain (0,0): t=0 then t=3
+				d.DrawImageFrom(img, 0, 0, 16, 16, 0, 0, 16, 16)
+				d.DrawImageFrom(img, 48, 0, 16, 16, 0, 0, 16, 16)
+				// AutoGround depth 0: (0,0) t=0, (1,0) t=1
+				d.DrawImageFrom(img, 0, 0, 16, 16, 0, 0, 16, 16)
+				d.DrawImageFrom(img, 16, 0, 16, 16, 16, 0, 16, 16)
+				// AutoGround#2 depth 1: (0,0) t=5, (1,0) t=7
+				d.DrawImageFrom(img, 16, 16, 16, 16, 0, 0, 16, 16)
+				d.DrawImageFrom(img, 48, 16, 16, 16, 16, 0, 16, 16)
+				// AutoGround#3 depth 2: (0,0) FlipH|t=6
+				d.Save().Transform(-1, 0, 0, 1, 16, 0).DrawImageFrom(img, 32, 16, 16, 16, 0, 0, 16, 16).Restore()
+				// Decor depth 0 (opacity 0.5, offset 2,-1): (0,0) t=0, (1,0) t=2
+				d.Save().SetAlpha(0.5)
+				d.DrawImageFrom(img, 0, 0, 16, 16, 2, -1, 16, 16)
+				d.DrawImageFrom(img, 32, 0, 16, 16, 18, -1, 16, 16)
+				d.Restore()
+				// Decor#2 depth 1 (opacity 0.5, offset 2,-1): (0,0) FlipH|t=1, (1,0) t=3
+				d.Save().SetAlpha(0.5)
+				d.Save().Transform(-1, 0, 0, 1, 18, -1).DrawImageFrom(img, 16, 0, 16, 16, 0, 0, 16, 16).Restore()
+				d.DrawImageFrom(img, 48, 0, 16, 16, 18, -1, 16, 16)
+				d.Restore()
+				// Decor#3 depth 2 (opacity 0.5, offset 2,-1): (1,0) FlipV|t=4
+				d.Save().SetAlpha(0.5)
+				d.Save().Transform(1, 0, 0, -1, 18, 15).DrawImageFrom(img, 0, 16, 16, 16, 0, 0, 16, 16).Restore()
+				d.Restore()
+			}},
+		}}
+	})
+	sameOps(t, app.Find("ldtk").Ops, app.Find("want").Ops)
+
+	// Stacked tiles count toward the per-load 64 Mi cell budget before allocating dense buffers.
+	t.Run("stacked tile depth respects total tile allocation budget", func(t *testing.T) {
+		raw := []byte(`{
+			"defaultGridSize": 16,
+			"defs": {"tilesets": [{"uid": 1, "identifier": "T", "tileGridSize": 16, "__cWid": 4, "__cHei": 4}]},
+			"levels": [{
+				"identifier": "HugeStack",
+				"pxWid": 64,
+				"pxHei": 64,
+				"layerInstances": [{
+					"__identifier": "Auto",
+					"__type": "AutoLayer",
+					"__cWid": 4096,
+					"__cHei": 4096,
+					"__gridSize": 16,
+					"__tilesetDefUid": 1,
+					"autoLayerTiles": [
+						{"px": [0, 0], "t": 0},
+						{"px": [0, 0], "t": 1},
+						{"px": [0, 0], "t": 2},
+						{"px": [0, 0], "t": 3},
+						{"px": [0, 0], "t": 4}
+					]
+				}]
+			}]
+		}`)
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_, err := tilemap.LoadLDtk(raw, "HugeStack", nil)
+		runtime.ReadMemStats(&after)
+		if err == nil {
+			t.Fatal("LoadLDtk(HugeStack) succeeded, want budget error")
+		}
+		if after.TotalAlloc-before.TotalAlloc > 4<<20 {
+			t.Fatalf("LoadLDtk(HugeStack) allocated %d bytes before failing", after.TotalAlloc-before.TotalAlloc)
+		}
+		le, ok := loaderr.As(err)
+		if !ok || le.Field != "levels[0].layerInstances[0].__cWid" {
+			t.Fatalf("LoadLDtk(HugeStack) error = %v, want *loaderr.Error on levels[0].layerInstances[0].__cWid", err)
+		}
+		if !strings.Contains(err.Error(), "stack depth 5") {
+			t.Fatalf("LoadLDtk(HugeStack) error %q should mention stack depth 5", err.Error())
+		}
+	})
+}
+
+const pivotEntitiesLDtkJSON = `{
+	"defaultGridSize": 16,
+	"defs": {
+		"entities": [
+			{"uid": 42, "identifier": "DefFallback", "pivotX": 0.5, "pivotY": 1.0}
+		]
+	},
+	"levels": [
+		{
+			"identifier": "Pivots",
+			"uid": 0,
+			"pxWid": 256,
+			"pxHei": 256,
+			"layerInstances": [
+				{
+					"__identifier": "Entities",
+					"__type": "Entities",
+					"__cWid": 16,
+					"__cHei": 16,
+					"__gridSize": 16,
+					"__opacity": 1.0,
+					"__pxTotalOffsetX": 4,
+					"__pxTotalOffsetY": -2,
+					"visible": true,
+					"entityInstances": [
+						{
+							"__identifier": "TopLeft",
+							"__pivot": [0, 0],
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "BottomCenter",
+							"__pivot": [0.5, 1],
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "BottomRight",
+							"__pivot": [1, 1],
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "Center",
+							"__pivot": [0.5, 0.5],
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "Custom",
+							"__pivot": [0.25, 0.75],
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "DefFallback",
+							"defUid": 42,
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "OmittedPivot",
+							"px": [100, 200],
+							"width": 16,
+							"height": 32,
+							"fieldInstances": []
+						},
+						{
+							"__identifier": "Point",
+							"__pivot": [0.5, 1],
+							"px": [48, 16],
+							"width": 0,
+							"height": 0,
+							"fieldInstances": []
+						}
+					]
+				}
+			]
+		}
+	]
+}`
+
+func TestLoadLDtkEntityPivot(t *testing.T) {
+	m, err := tilemap.LoadLDtk([]byte(pivotEntitiesLDtkJSON), "Pivots", nil)
+	if err != nil {
+		t.Fatalf("LoadLDtk(Pivots): %v", err)
+	}
+	layer := m.ObjectLayer("Entities")
+	if layer == nil {
+		t.Fatal("missing Entities layer")
+	}
+
+	want := []struct {
+		name           string
+		shape          tilemap.ObjectShape
+		x, y, w, h     float32
+		pivotX, pivotY float32
+		anchorX        float32
+		anchorY        float32
+		hasBox         bool
+		box            physics.Box
+	}{
+		{"TopLeft", tilemap.ObjectRect, 100, 200, 16, 32, 0, 0, 100, 200, true, physics.Box{X: 100, Y: 200, W: 16, H: 32}},
+		{"BottomCenter", tilemap.ObjectRect, 92, 168, 16, 32, 0.5, 1, 100, 200, true, physics.Box{X: 92, Y: 168, W: 16, H: 32}},
+		{"BottomRight", tilemap.ObjectRect, 84, 168, 16, 32, 1, 1, 100, 200, true, physics.Box{X: 84, Y: 168, W: 16, H: 32}},
+		{"Center", tilemap.ObjectRect, 92, 184, 16, 32, 0.5, 0.5, 100, 200, true, physics.Box{X: 92, Y: 184, W: 16, H: 32}},
+		{"Custom", tilemap.ObjectRect, 96, 176, 16, 32, 0.25, 0.75, 100, 200, true, physics.Box{X: 96, Y: 176, W: 16, H: 32}},
+		{"DefFallback", tilemap.ObjectRect, 92, 168, 16, 32, 0.5, 1, 100, 200, true, physics.Box{X: 92, Y: 168, W: 16, H: 32}},
+		{"OmittedPivot", tilemap.ObjectRect, 100, 200, 16, 32, 0, 0, 100, 200, true, physics.Box{X: 100, Y: 200, W: 16, H: 32}},
+		{"Point", tilemap.ObjectPoint, 48, 16, 0, 0, 0.5, 1, 48, 16, false, physics.Box{}},
+	}
+
+	if len(layer.Objects) != len(want) {
+		t.Fatalf("len(Entities.Objects) = %d, want %d", len(layer.Objects), len(want))
+	}
+	for i, tc := range want {
+		o := layer.Objects[i]
+		if o.Name != tc.name || o.Shape != tc.shape || o.X != tc.x || o.Y != tc.y || o.Width != tc.w || o.Height != tc.h || o.PivotX != tc.pivotX || o.PivotY != tc.pivotY {
+			t.Fatalf("object[%d] (%s) = %+v, want pos=(%g,%g) size=(%g,%g) pivot=(%g,%g)",
+				i, tc.name, o, tc.x, tc.y, tc.w, tc.h, tc.pivotX, tc.pivotY)
+		}
+		if ax, ay := o.X+o.PivotX*o.Width, o.Y+o.PivotY*o.Height; ax != tc.anchorX || ay != tc.anchorY {
+			t.Fatalf("object[%d] (%s) reconstructed anchor = (%g,%g), want (%g,%g)", i, tc.name, ax, ay, tc.anchorX, tc.anchorY)
+		}
+		shape, ok := o.PhysicsShape()
+		if ok != tc.hasBox {
+			t.Fatalf("object[%d] (%s) PhysicsShape ok = %v, want %v", i, tc.name, ok, tc.hasBox)
+		}
+		if tc.hasBox {
+			if shape.Kind != physics.ShapeBox || shape.Box != tc.box {
+				t.Fatalf("object[%d] (%s) PhysicsShape = (%v, %+v), want (ShapeBox, %+v)", i, tc.name, shape.Kind, shape.Box, tc.box)
+			}
+		}
+	}
+
+	// ObjectLayer.PhysicsBodies applies the layer's pixel offset (4, -2) on top of each pivot-adjusted box.
+	bodies := layer.PhysicsBodies()
+	if len(bodies) != 7 {
+		t.Fatalf("len(PhysicsBodies) = %d, want 7 (Point has no shape)", len(bodies))
+	}
+	wantBottomCenterBody := physics.Box{X: 96, Y: 166, W: 16, H: 32}
+	if bodies[1].Tag != "BottomCenter" || bodies[1].Shape.Box != wantBottomCenterBody {
+		t.Fatalf("BottomCenter PhysicsBody = (tag:%q box:%+v), want (BottomCenter, %+v)", bodies[1].Tag, bodies[1].Shape.Box, wantBottomCenterBody)
+	}
 }

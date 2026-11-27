@@ -550,15 +550,20 @@ type TextObject struct {
 	VAlign     string
 }
 
-// Object is one object from a Tiled objectgroup layer.
+// Object is one object from a Tiled objectgroup layer or an LDtk Entities layer.
 type Object struct {
-	ID       int
-	Name     string
-	Type     string
-	Shape    ObjectShape
-	X, Y     float32
-	Width    float32
-	Height   float32
+	ID     int
+	Name   string
+	Type   string
+	Shape  ObjectShape
+	X, Y   float32
+	Width  float32
+	Height float32
+	// PivotX and PivotY hold the object's normalized anchor within its (Width, Height) box
+	// relative to the top-left corner (X, Y), populated from LDtk entity __pivot (defaulting to
+	// (0, 0) for top-left). The original anchor point is (X + PivotX*Width, Y + PivotY*Height).
+	PivotX   float32
+	PivotY   float32
 	Rotation float32
 	GID      uint32
 	Visible  bool
