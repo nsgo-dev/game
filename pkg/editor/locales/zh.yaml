@@ -850,6 +850,7 @@ strings:
   buildRelease.budgetFrameTime: 帧耗时 p95
   buildRelease.budgetMet: 达标
   buildRelease.budgetMissed: 超标
+  buildRelease.budgetNotMeasuredLimit: 未测量 · 上限 {limit}
   buildRelease.buildFailed: 构建失败
   buildRelease.buildNext: 优先构建 {name}
   buildRelease.cancel: 取消
@@ -869,6 +870,7 @@ strings:
   buildRelease.copyURL: 复制链接
   buildRelease.defaultProjectName: 项目
   buildRelease.deltaNew: 新增
+  buildRelease.deltaNotMeasured: 未测量
   buildRelease.deltaToFix: '{count} 项待修复'
   buildRelease.doneEditing: 完成编辑
   buildRelease.dryRun: 空跑预览
@@ -878,6 +880,7 @@ strings:
   buildRelease.failureStepMeta: 第 {step}/{total} 步 · {label}
   buildRelease.failureStepMetaAfter: 第 {step}/{total} 步 · {label} · 耗时 {duration}
   buildRelease.fixEditsFile: 将修改 {file}
+  buildRelease.growthNotMeasured: 未测量：输出目录中没有找到构建产物。
   buildRelease.headerLabel: 发布顶栏
   buildRelease.includePresetLabel: 在本次发布中包含 {name}
   buildRelease.keyInKeychain: 密钥已在钥匙串中
@@ -896,8 +899,11 @@ strings:
   buildRelease.mcpBridgeDevice: MCP 桥接 · {device}
   buildRelease.metaLine: 基于 {branch} 分支的 {commit} · 上次发布 {lastRelease}
   buildRelease.neverInProjectFiles: 绝不写入项目文件
+  buildRelease.noBuiltPackage: 没有构建产物
   buildRelease.noPresets: 尚未配置任何导出预设。
   buildRelease.noUploadsReady: 尚无可供上传的导出预设。请先构建至少一个预设。
+  buildRelease.notMeasured: 未测量
+  buildRelease.notRun: 未运行
   buildRelease.notesEmpty: （空）
   buildRelease.notesHeading: 发布说明
   buildRelease.notesLabel: 发布说明
@@ -910,8 +916,9 @@ strings:
   buildRelease.preflightHeading: 每次构建前
   buildRelease.preflightNotRun: 尚未运行
   buildRelease.preflightProblems: '{count} 个问题 · {elapsed}'
-  buildRelease.preflightSmokeDefault: 每次构建 60 秒，主场景
-  buildRelease.preflightSmokeScene: 每次构建 60 秒，{scene}
+  buildRelease.preflightSmokeCustom: 自定义运行器，{scene}
+  buildRelease.preflightSmokeHost: 无头运行 {scene}（仅本机）
+  buildRelease.preflightSmokeNotConfigured: 未配置
   buildRelease.preflightSmokeTitle: 冒烟试玩
   buildRelease.presetStopped: '{name} 已停止'
   buildRelease.presetsHeading: 导出预设 · export/
@@ -950,7 +957,8 @@ strings:
   buildRelease.setupWithAgent: 由智能体配置 {name}
   buildRelease.showInFinder: 在访达中显示
   buildRelease.sizeVsVersion: 体积对比 {version}
-  buildRelease.smokePlaytest60s: 冒烟试玩 · 60 秒
+  buildRelease.smokePlaytestNotRun: 冒烟试玩 · 未运行
+  buildRelease.smokePlaytestNotRunSummary: 未运行：这个目标没有执行冒烟试玩。
   buildRelease.startServing: 启动服务
   buildRelease.statusBuilding: 构建中
   buildRelease.statusDone: 已完成
@@ -964,7 +972,8 @@ strings:
   buildRelease.stepDetailMeasure: 体积与帧时间
   buildRelease.stepDetailPackAssets: 图集、音频与场景
   buildRelease.stepDetailSignMacOS: Developer ID · 已公证
-  buildRelease.stepDetailSmokeHeadless: 60 秒无头试玩
+  buildRelease.stepDetailSmokeHeadless: 无头运行主场景
+  buildRelease.stepDetailSmokeRunner: 需要试玩运行器
   buildRelease.stepMeasure: 性能测量
   buildRelease.stepPackAssets: 打包资源
   buildRelease.stepSign: 签名
@@ -986,6 +995,7 @@ strings:
   buildRelease.versionHeading: 版本
   buildRelease.versionLabel: 发布版本
   buildRelease.waitingLog: 等待构建输出…
+  buildRelease.wasmGzip: Wasm gzip 后 {size}。
   buildRelease.wholeLog: 完整日志
   changes.ahead: 领先 {count}
   changes.allCommitted: 所有更改均已提交。

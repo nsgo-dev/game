@@ -1,6 +1,8 @@
 package editor_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"image"
 	"image/color"
@@ -24,6 +26,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
+	"github.com/nsgo-dev/game/pkg/tooling/sizecheck"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -1263,4 +1266,439 @@ func TestBuildReleaseHardeningConcurrencyPrioritizePlayAndInputFocus(t *testing.
 		_ = ed.Stop()
 	})
 	app.Settle()
+}
+
+func writeStoredZipFixture(t *testing.T, zipPath string, files map[string][]byte) int64 {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(zipPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, data := range files {
+		w, err := zw.CreateHeader(&zip.FileHeader{
+			Name:   name,
+			Method: zip.Store,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zipPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return int64(buf.Len())
+}
+
+// #1618 Acceptance 1: Without injected runners or built packages, Build and Release reports "not run" / "not measured",
+// never sets DownloadBudgetMet or FrameTimeBudgetMet true, and does not write a last-release.yaml baseline.
+func TestBuildReleaseWithoutRunnersReportsNotRunAndNotMeasured(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		dryRun bool
+	}{
+		{name: "dry_run", dryRun: true},
+		{name: "real_run_without_artifacts", dryRun: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeBuildReleaseProject(t, `export:
+  output: dist
+  budgets:
+    qualityProfile: low
+    downloadSizeMB: 80
+    frameTimeP95Ms: 16.7
+  presets:
+    - platform: web
+    - platform: android
+      targets: [android_arm64]
+    - platform: macos
+      targets: [macos_arm64]
+`)
+			ed, err := editor.New(nil, testResolver())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = ed.Close() }()
+			ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+				return nil, time.Millisecond, nil
+			}
+			ed.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+				return nil // writes no artifacts
+			}
+			if err := ed.OpenProject(dir); err != nil {
+				t.Fatal(err)
+			}
+			if err := ed.OpenBuildReleaseScreen(); err != nil {
+				t.Fatal(err)
+			}
+			if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: tc.dryRun}); err != nil {
+				t.Fatalf("StartReleaseBuild: %v", err)
+			}
+			if err := ed.WaitReleaseBuild(); err != nil {
+				t.Fatalf("WaitReleaseBuild: %v", err)
+			}
+
+			snap := ed.BuildReleaseSnapshot()
+			for _, p := range snap.Presets {
+				if p.Status != editor.BuildPresetDone {
+					t.Fatalf("%s status = %q, want done", p.Platform, p.Status)
+				}
+				if p.Result == nil {
+					t.Fatalf("%s Result is nil", p.Platform)
+				}
+				res := p.Result
+				if res.SizeMeasured || res.SizeBytes != 0 {
+					t.Errorf("%s SizeMeasured=%v SizeBytes=%d, want false/0", p.Platform, res.SizeMeasured, res.SizeBytes)
+				}
+				if res.Breakdown.CodeBytes != 0 || res.Breakdown.TexturesBytes != 0 || res.Breakdown.AudioBytes != 0 || res.Breakdown.OtherBytes != 0 {
+					t.Errorf("%s invented breakdown bytes: %+v", p.Platform, res.Breakdown)
+				}
+				if res.DownloadBudgetMet {
+					t.Errorf("%s DownloadBudgetMet = true without measured artifact, want false", p.Platform)
+				}
+				if res.FrameTimeMeasured || res.FrameTimeP95Ms != 0 {
+					t.Errorf("%s FrameTimeMeasured=%v FrameTimeP95Ms=%v, want false/0", p.Platform, res.FrameTimeMeasured, res.FrameTimeP95Ms)
+				}
+				if res.FrameTimeBudgetMet {
+					t.Errorf("%s FrameTimeBudgetMet = true without playtest, want false", p.Platform)
+				}
+				if res.SmokePlaytestRan {
+					t.Errorf("%s SmokePlaytestRan = true without runner or built package, want false", p.Platform)
+				}
+				if !strings.Contains(strings.ToLower(res.SmokePlaytestSummary), "not run") {
+					t.Errorf("%s SmokePlaytestSummary = %q, want 'not run'", p.Platform, res.SmokePlaytestSummary)
+				}
+				if res.TestURL != "" {
+					t.Errorf("%s TestURL = %q, want empty without served web build", p.Platform, res.TestURL)
+				}
+				if p.SizeText != "—" || p.DeltaText != "not measured" {
+					t.Errorf("%s row text = (%q, %q), want (\"—\", \"not measured\")", p.Platform, p.SizeText, p.DeltaText)
+				}
+				if p.Steps[4].Detail != "not run" {
+					t.Errorf("%s smoke step detail = %q, want \"not run\"", p.Platform, p.Steps[4].Detail)
+				}
+				if p.Steps[5].Detail != "not measured" {
+					t.Errorf("%s measure step detail = %q, want \"not measured\"", p.Platform, p.Steps[5].Detail)
+				}
+			}
+
+			// Must never write build/last-release.yaml when nothing was measured.
+			if _, err := os.Stat(filepath.Join(dir, "build", "last-release.yaml")); !os.IsNotExist(err) {
+				t.Fatalf("last-release.yaml must not be written when nothing was measured: %v", err)
+			}
+
+			// Verify UI renders honest "Not measured" badges and "Smoke playtest · not run".
+			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				return editor.EditorView(cx, ed)
+			}, nsgotest.Size(1440, 900))
+			app.Press("id:build-preset-pick-web")
+			app.Settle()
+
+			if got := app.Find("id:build-budget-download-badge").Text; got != "Not measured" {
+				t.Errorf("download budget badge = %q, want \"Not measured\"", got)
+			}
+			if got := app.Find("id:build-budget-frame-badge").Text; got != "Not measured" {
+				t.Errorf("frame budget badge = %q, want \"Not measured\"", got)
+			}
+			if got := app.Find("id:build-result-playtest-title").Text; got != "Smoke playtest · not run" {
+				t.Errorf("playtest title = %q, want \"Smoke playtest · not run\"", got)
+			}
+		})
+	}
+}
+
+// #1618 Acceptance 2: A run over real .wasm and .aab fixtures written in NSGo's output layout reports true sizes,
+// true categories via pkg/tooling/sizecheck, honest budget pass/fail, and real baseline deltas across releases.
+func TestBuildReleaseMeasuresRealWasmAndAABFixturesAndBudgets(t *testing.T) {
+	dir := writeBuildReleaseProject(t, `export:
+  output: dist
+  budgets:
+    qualityProfile: low
+    downloadSizeMB: 1
+    frameTimeP95Ms: 16.7
+  presets:
+    - platform: web
+    - platform: android
+      targets: [android_arm64]
+`)
+	outDir := filepath.Join(dir, "dist")
+
+	// Write a real web package directory following NSGo's <Name>-<Version>-web naming.
+	webPkgDir := sizecheck.PackageDir(outDir, "Demo", "1.0.0", "web")
+	wasmPayload := append([]byte("\x00asm\x01\x00\x00\x00"), bytes.Repeat([]byte("wasm-code-section-"), 4096)...)
+	pngPayload := bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 5000)
+	oggPayload := bytes.Repeat([]byte("OggS"), 3000)
+	htmlPayload := []byte("<!doctype html><html><body>ok</body></html>")
+	for rel, data := range map[string][]byte{
+		"app.wasm":        wasmPayload,
+		"index.html":      htmlPayload,
+		"assets/hero.png": pngPayload,
+		"assets/jump.ogg": oggPayload,
+	} {
+		full := filepath.Join(webPkgDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantWasmMeas, err := sizecheck.MeasureWasm(wasmPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWebTotal := int64(len(wasmPayload) + len(pngPayload) + len(oggPayload) + len(htmlPayload))
+
+	// Write a real .aab fixture following NSGo's releases/<slug>-<version>-android-arm64.aab naming.
+	aabPath := filepath.Join(outDir, "releases", sizecheck.ReleaseName("Demo", "dev.example.demo", "1.0.0", "android_arm64", ".aab"))
+	soPayload := bytes.Repeat([]byte{0x7f, 'E', 'L', 'F'}, 8000)
+	dexPayload := bytes.Repeat([]byte("dex\n"), 2000)
+	aabTex := bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 4000)
+	aabSfx := bytes.Repeat([]byte("OggS"), 2500)
+	wantAABSize := writeStoredZipFixture(t, aabPath, map[string][]byte{
+		"base/lib/arm64-v8a/libgame.so":     soPayload,
+		"base/dex/classes.dex":              dexPayload,
+		"base/assets/sprites/hero.png":      aabTex,
+		"base/assets/sfx/jump.ogg":          aabSfx,
+		"base/manifest/AndroidManifest.xml": []byte("<manifest/>"),
+	})
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ed.Close() }()
+	ed.LANAddressResolver = func() (string, error) { return "127.0.0.1", nil }
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+		return nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: false}); err != nil {
+		t.Fatalf("StartReleaseBuild: %v", err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatalf("WaitReleaseBuild: %v", err)
+	}
+
+	snap := ed.BuildReleaseSnapshot()
+	var webRes, androidRes *editor.BuildArtifactResult
+	for _, p := range snap.Presets {
+		switch p.Platform {
+		case "web":
+			webRes = p.Result
+		case "android":
+			androidRes = p.Result
+		}
+	}
+	if webRes == nil || androidRes == nil {
+		t.Fatalf("missing results: web=%v android=%v", webRes, androidRes)
+	}
+
+	// Verify Web measurement matches true .wasm + assets sizes.
+	if !webRes.SizeMeasured || webRes.SizeBytes != wantWebTotal {
+		t.Fatalf("web size = (measured=%v, bytes=%d), want (true, %d)", webRes.SizeMeasured, webRes.SizeBytes, wantWebTotal)
+	}
+	if webRes.WasmGzipBytes != wantWasmMeas.GzipBytes {
+		t.Fatalf("web WasmGzipBytes = %d, want %d", webRes.WasmGzipBytes, wantWasmMeas.GzipBytes)
+	}
+	if webRes.Breakdown.CodeBytes != int64(len(wasmPayload)) ||
+		webRes.Breakdown.TexturesBytes != int64(len(pngPayload)) ||
+		webRes.Breakdown.AudioBytes != int64(len(oggPayload)) ||
+		webRes.Breakdown.OtherBytes != int64(len(htmlPayload)) {
+		t.Fatalf("web breakdown = %+v", webRes.Breakdown)
+	}
+	if !webRes.DownloadBudgetMet {
+		t.Fatalf("web DownloadBudgetMet = false for %d bytes vs 1 MB budget", webRes.SizeBytes)
+	}
+	if webRes.FrameTimeMeasured || webRes.FrameTimeBudgetMet || webRes.SmokePlaytestRan {
+		t.Fatalf("web must not claim frame time met without a web playtest runner: %+v", webRes)
+	}
+
+	// Verify Android .aab measurement matches true archive size & categories.
+	if !androidRes.SizeMeasured || androidRes.SizeBytes != wantAABSize || androidRes.ArtifactPath != aabPath {
+		t.Fatalf("android size = (measured=%v, bytes=%d, path=%q), want (true, %d, %q)", androidRes.SizeMeasured, androidRes.SizeBytes, androidRes.ArtifactPath, wantAABSize, aabPath)
+	}
+	if androidRes.Breakdown.CodeBytes != int64(len(soPayload)+len(dexPayload)) ||
+		androidRes.Breakdown.TexturesBytes != int64(len(aabTex)) ||
+		androidRes.Breakdown.AudioBytes != int64(len(aabSfx)) {
+		t.Fatalf("android breakdown = %+v", androidRes.Breakdown)
+	}
+	if !androidRes.DownloadBudgetMet {
+		t.Fatalf("android DownloadBudgetMet = false for %d bytes vs 1 MB budget", androidRes.SizeBytes)
+	}
+	if androidRes.FrameTimeMeasured || androidRes.FrameTimeBudgetMet || androidRes.SmokePlaytestRan {
+		t.Fatalf("android must not claim frame time met without an emulator playtest runner: %+v", androidRes)
+	}
+
+	// Verify build/last-release.yaml was written with the real measured sizes.
+	if _, err := os.Stat(filepath.Join(dir, "build", "last-release.yaml")); err != nil {
+		t.Fatalf("expected build/last-release.yaml after real measured build: %v", err)
+	}
+
+	// Grow the web texture asset by 200 KiB and tighten downloadSizeMB to 0.2 MB so budget fails and real delta is reported.
+	if err := os.WriteFile(filepath.Join(webPkgDir, "assets", "big.png"), bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 60*1024), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.EditProject("tighten budget", func(f *project.File) {
+		f.Export.Budgets.DownloadSizeMB = 0.2
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SaveProject(); err != nil {
+		t.Fatal(err)
+	}
+
+	ed2, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ed2.Close() }()
+	ed2.LANAddressResolver = func() (string, error) { return "127.0.0.1", nil }
+	ed2.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed2.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+		return nil
+	}
+	if err := ed2.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed2.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed2.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: false}); err != nil {
+		t.Fatalf("second StartReleaseBuild: %v", err)
+	}
+	if err := ed2.WaitReleaseBuild(); err != nil {
+		t.Fatalf("second WaitReleaseBuild: %v", err)
+	}
+
+	snap2 := ed2.BuildReleaseSnapshot()
+	for _, p := range snap2.Presets {
+		if p.Platform == "web" {
+			if !p.Result.SizeMeasured || p.Result.DownloadBudgetMet {
+				t.Fatalf("web should fail 0.2 MB download budget after adding 240 KiB texture: %+v", p.Result)
+			}
+			wantDelta := int64(60 * 1024 * 4)
+			if !p.Result.HasLastRelease || p.Result.DeltaBytes != wantDelta {
+				t.Fatalf("web delta = (hasLast=%v, delta=%d), want (true, %d)", p.Result.HasLastRelease, p.Result.DeltaBytes, wantDelta)
+			}
+			if !strings.Contains(p.Result.Breakdown.GrowthSummary, "textures") {
+				t.Fatalf("web GrowthSummary = %q, want mention of textures", p.Result.Breakdown.GrowthSummary)
+			}
+		}
+	}
+}
+
+// #1618 Acceptance 3: On the host desktop platform with a built package and configured autoload.mainScene,
+// Build and Release runs a real headless smoke playtest of the main scene, measures real p95 frame time,
+// and evaluates FrameTimeBudgetMet truthfully (and fails the step if the main scene is broken).
+func TestBuildReleaseHostHeadlessMainSceneSmokePlaytestMeasuresRealP95(t *testing.T) {
+	var hostPlat, hostTarget string
+	switch runtime.GOOS {
+	case "darwin":
+		hostPlat = "macos"
+		hostTarget = "macos_arm64"
+	case "linux":
+		hostPlat = "linux"
+		hostTarget = "linux_x64"
+	case "windows":
+		hostPlat = "windows"
+		hostTarget = "windows_x64"
+	default:
+		t.Skipf("unsupported host GOOS %q", runtime.GOOS)
+	}
+
+	dir := writeBuildReleaseProject(t, "export:\n  output: dist\n  budgets:\n    qualityProfile: low\n    downloadSizeMB: 80\n    frameTimeP95Ms: 16.7\n  presets:\n    - platform: "+hostPlat+"\n      targets: ["+hostTarget+"]\n")
+	// Write a built host package directory so Smoke playtest and Measure see a real built package.
+	pkgDir := sizecheck.PackageDir(filepath.Join(dir, "dist"), "Demo", "1.0.0", hostTarget)
+	var binPath string
+	switch hostPlat {
+	case "macos":
+		binPath = filepath.Join(pkgDir, "Demo.app", "Contents", "MacOS", "Demo")
+	case "windows":
+		binPath = filepath.Join(pkgDir, "Demo.exe")
+	default:
+		binPath = filepath.Join(pkgDir, "Demo")
+	}
+	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binPath, bytes.Repeat([]byte{0x90}, 8192), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ed.Close() }()
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+		return nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: false}); err != nil {
+		t.Fatalf("StartReleaseBuild: %v", err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatalf("WaitReleaseBuild: %v", err)
+	}
+
+	snap := ed.BuildReleaseSnapshot()
+	if len(snap.Presets) != 1 || snap.Presets[0].Result == nil {
+		t.Fatalf("unexpected presets: %+v", snap.Presets)
+	}
+	res := snap.Presets[0].Result
+	if !res.SizeMeasured || res.SizeBytes != 8192 || res.Breakdown.CodeBytes != 8192 {
+		t.Fatalf("unexpected desktop measurement: %+v", res)
+	}
+	if !res.SmokePlaytestRan {
+		t.Fatalf("expected host headless smoke playtest to run: %+v", res)
+	}
+	if !strings.Contains(res.SmokePlaytestSummary, "120 frames stepped") {
+		t.Fatalf("SmokePlaytestSummary = %q, want real 120-frame headless summary", res.SmokePlaytestSummary)
+	}
+	if !res.FrameTimeMeasured || res.FrameTimeP95Ms <= 0 || math.IsNaN(res.FrameTimeP95Ms) || math.IsInf(res.FrameTimeP95Ms, 0) {
+		t.Fatalf("expected real positive finite FrameTimeP95Ms, got measured=%v p95=%v", res.FrameTimeMeasured, res.FrameTimeP95Ms)
+	}
+	if !res.FrameTimeBudgetMet {
+		t.Fatalf("expected FrameTimeBudgetMet = true for p95=%.4f ms vs 16.7 ms", res.FrameTimeP95Ms)
+	}
+
+	// Corrupt the main scene YAML and verify the real smoke playtest fails at BuildStepSmokePlaytest.
+	if err := os.WriteFile(filepath.Join(dir, "scenes", "room.yaml"), []byte("version: [broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: false}); err != nil {
+		t.Fatalf("second StartReleaseBuild: %v", err)
+	}
+	if err := ed.WaitReleaseBuild(); err == nil {
+		t.Fatal("expected corrupted main scene to fail the headless smoke playtest")
+	}
+	snap = ed.BuildReleaseSnapshot()
+	if snap.Presets[0].Status != editor.BuildPresetFailed || snap.Presets[0].Failure == nil || snap.Presets[0].Failure.StepID != editor.BuildStepSmokePlaytest {
+		t.Fatalf("expected failure at BuildStepSmokePlaytest, got status=%q failure=%+v", snap.Presets[0].Status, snap.Presets[0].Failure)
+	}
 }

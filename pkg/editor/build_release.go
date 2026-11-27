@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -22,8 +23,10 @@ import (
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
+	"github.com/nsgo-dev/game/pkg/tooling/sizecheck"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -162,6 +165,7 @@ type BuildSizeBreakdown struct {
 
 // BuildSmokePlaytestResult summarizes the per-build smoke playtest step.
 type BuildSmokePlaytestResult struct {
+	Ran            bool          `json:"ran"`
 	Where          string        `json:"where,omitempty"`
 	Summary        string        `json:"summary"`
 	Duration       time.Duration `json:"duration"`
@@ -174,12 +178,16 @@ type BuildArtifactResult struct {
 	ArtifactPath         string             `json:"artifactPath"`
 	ArtifactName         string             `json:"artifactName"`
 	SizeBytes            int64              `json:"sizeBytes"`
+	SizeMeasured         bool               `json:"sizeMeasured"`
+	WasmGzipBytes        int64              `json:"wasmGzipBytes,omitempty"`
 	DeltaBytes           int64              `json:"deltaBytes"`
 	HasLastRelease       bool               `json:"hasLastRelease"`
 	Breakdown            BuildSizeBreakdown `json:"breakdown"`
 	FrameTimeP95Ms       float64            `json:"frameTimeP95Ms"`
+	FrameTimeMeasured    bool               `json:"frameTimeMeasured"`
 	DownloadBudgetMet    bool               `json:"downloadBudgetMet"`
 	FrameTimeBudgetMet   bool               `json:"frameTimeBudgetMet"`
+	SmokePlaytestRan     bool               `json:"smokePlaytestRan"`
 	SmokePlaytestWhere   string             `json:"smokePlaytestWhere,omitempty"`
 	SmokePlaytestSummary string             `json:"smokePlaytestSummary,omitempty"`
 	TestURL              string             `json:"testUrl,omitempty"`
@@ -1235,18 +1243,23 @@ func (e *Editor) RefreshBuildPreflight() error {
 		}
 	}
 
-	smokeScene := "main scene"
-	if e.Project.Autoload != nil && e.Project.Autoload.MainScene != "" {
-		smokeScene = e.Project.Autoload.MainScene
-	} else if e.Doc != nil && e.Doc.Name != "" {
-		smokeScene = e.Doc.Name
+	smokeSummary := "not configured"
+	switch {
+	case e.ReleasePlaytestRunner != nil:
+		sceneLabel := "main scene"
+		if e.Project.Autoload != nil && e.Project.Autoload.MainScene != "" {
+			sceneLabel = e.Project.Autoload.MainScene
+		}
+		smokeSummary = fmt.Sprintf("custom runner, %s", sceneLabel)
+	case e.Project.Autoload != nil && e.Project.Autoload.MainScene != "":
+		smokeSummary = fmt.Sprintf("headless %s (host only)", e.Project.Autoload.MainScene)
 	}
 
 	preflight := BuildPreflightSummary{
 		CheckRan:             true,
 		CheckProblems:        len(problems),
 		CheckElapsed:         elapsed,
-		SmokeSummary:         fmt.Sprintf("60 s per build, %s", smokeScene),
+		SmokeSummary:         smokeSummary,
 		QualityProfile:       capitalizeProfile(quality),
 		DownloadSizeBudgetMB: dlBudget,
 		FrameTimeP95BudgetMs: frameBudget,
@@ -1856,9 +1869,11 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 	scope := e.scope
 	projectClone := e.Project.Clone()
 
-	// Capture runner hooks and component registry on the caller goroutine so the background
-	// worker never reads unsynchronized Editor fields.
+	// Capture runner hooks, resolver, physics settings, and component registry on the caller goroutine
+	// so the background worker never reads unsynchronized Editor fields.
 	comps := e.components
+	resolver := e.Resolver
+	physSettings := e.physicsSettings()
 	checkRunner := e.ReleaseCheckRunner
 	if checkRunner == nil {
 		checkRunner = func(_ context.Context, d string) ([]assetcheck.Problem, time.Duration, error) {
@@ -1872,13 +1887,16 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 		cmdRunner = defaultExportCommandRunner
 	}
 	runners := releaseBuildRunners{
-		step:        e.ReleaseStepRunner,
-		check:       checkRunner,
-		cmd:         cmdRunner,
-		playtest:    e.ReleasePlaytestRunner,
-		measure:     e.ReleaseMeasureRunner,
-		lanResolver: e.LANAddressResolver,
-		servePort:   e.WebBuildServePort,
+		step:         e.ReleaseStepRunner,
+		check:        checkRunner,
+		cmd:          cmdRunner,
+		playtest:     e.ReleasePlaytestRunner,
+		measure:      e.ReleaseMeasureRunner,
+		lanResolver:  e.LANAddressResolver,
+		servePort:    e.WebBuildServePort,
+		resolver:     resolver,
+		comps:        comps,
+		physSettings: physSettings,
 	}
 
 	remaining := make(map[string]bool, len(platforms))
@@ -1914,6 +1932,7 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 			}
 		}
 
+		var measuredArtifacts map[string]LastReleaseArtifact
 		e.buildRelease.mu.Lock()
 		active := e.buildRelease.run == run
 		if active {
@@ -1933,6 +1952,27 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 			} else {
 				e.buildRelease.stopped = false
 				e.buildRelease.lastErr = firstFailure
+				if !opt.DryRun {
+					for _, p := range e.buildRelease.presets {
+						if !slices.Contains(platforms, p.Platform) {
+							continue
+						}
+						if p.Status == BuildPresetDone && p.Result != nil && p.Result.SizeMeasured && p.Result.SizeBytes > 0 {
+							if measuredArtifacts == nil {
+								measuredArtifacts = make(map[string]LastReleaseArtifact)
+							}
+							measuredArtifacts[p.Platform] = LastReleaseArtifact{
+								SizeBytes: p.Result.SizeBytes,
+								Breakdown: BuildSizeBreakdown{
+									CodeBytes:     p.Result.Breakdown.CodeBytes,
+									TexturesBytes: p.Result.Breakdown.TexturesBytes,
+									AudioBytes:    p.Result.Breakdown.AudioBytes,
+									OtherBytes:    p.Result.Breakdown.OtherBytes,
+								},
+							}
+						}
+					}
+				}
 			}
 			switch {
 			case wasStopped:
@@ -1948,6 +1988,13 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 			e.buildRelease.rev++
 		}
 		e.buildRelease.mu.Unlock()
+		if active && !wasStopped && !opt.DryRun && len(measuredArtifacts) > 0 {
+			ver := ""
+			if projectClone != nil {
+				ver = strings.TrimSpace(projectClone.AppVersion)
+			}
+			_ = writeLastReleaseBaseline(dir, ver, measuredArtifacts)
+		}
 		if active {
 			e.notifyBuildReleaseUI(scope, run)
 		}
@@ -1957,13 +2004,16 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 }
 
 type releaseBuildRunners struct {
-	step        func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
-	check       func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
-	cmd         func(ctx context.Context, args []string, stdout, stderr io.Writer) error
-	playtest    func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
-	measure     func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
-	lanResolver func() (string, error)
-	servePort   int
+	step         func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
+	check        func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
+	cmd          func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+	playtest     func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
+	measure      func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
+	lanResolver  func() (string, error)
+	servePort    int
+	resolver     sceneformat.AssetResolver
+	comps        *sceneformat.ComponentRegistry
+	physSettings *sceneformat.PhysicsSettings
 }
 
 func (e *Editor) nextBuildPlatform(remaining map[string]bool, fallbackOrder []string) string {
@@ -2221,44 +2271,93 @@ func (e *Editor) executePresetBuild(
 			case BuildStepSmokePlaytest:
 				if runners.playtest != nil {
 					smokeRes, stepErr = runners.playtest(ctx, platform, dir)
+					if stepErr == nil && !smokeRes.Ran && (isValidFrameTimeMs(smokeRes.FrameTimeP95Ms) || (strings.TrimSpace(smokeRes.Summary) != "" && !isNotRunSummary(smokeRes.Summary))) {
+						smokeRes.Ran = true
+					}
+				} else if dryRun {
+					smokeRes = BuildSmokePlaytestResult{
+						Ran:     false,
+						Where:   "not run",
+						Summary: "Not run (dry run).",
+					}
 				} else {
-					smokeRes = defaultSmokePlaytestResult(platform, preflight.QualityProfile)
+					smokeRes, stepErr = runDefaultReleaseSmokePlaytest(ctx, dir, proj, platform, plan, runners)
 				}
 				if stepErr != nil {
 					failureHeadline = "Smoke playtest failed"
 					failureErrorLine = "error: " + stepErr.Error()
 					logLine(failureErrorLine)
-				} else {
+				} else if smokeRes.Ran {
 					stepDetail = smokeRes.Where
 					if stepDetail == "" {
-						stepDetail = "60 s headless"
+						stepDetail = "headless"
+					}
+					if isValidFrameTimeMs(smokeRes.FrameTimeP95Ms) {
+						stepDetail = fmt.Sprintf("%s · p95 %.1f ms", stepDetail, smokeRes.FrameTimeP95Ms)
 					}
 					logLine(fmt.Sprintf("smoke playtest (%s): %s", platform, smokeRes.Summary))
+				} else {
+					stepDetail = "not run"
+					if smokeRes.Where == "" {
+						smokeRes.Where = "not run"
+					}
+					if smokeRes.Summary == "" {
+						smokeRes.Summary = fmt.Sprintf("Not run — no %s smoke playtest runner configured.", platformDisplayName(platform))
+					}
+					logLine(fmt.Sprintf("smoke playtest (%s): not run (%s)", platform, smokeRes.Summary))
 				}
 
 			case BuildStepMeasure:
 				var measured BuildArtifactResult
 				if runners.measure != nil {
 					measured, stepErr = runners.measure(ctx, platform, plan)
+					if stepErr == nil {
+						if !measured.SizeMeasured && measured.SizeBytes > 0 {
+							measured.SizeMeasured = true
+						}
+						if !measured.FrameTimeMeasured && isValidFrameTimeMs(measured.FrameTimeP95Ms) {
+							measured.FrameTimeMeasured = true
+						}
+						if !measured.SmokePlaytestRan && strings.TrimSpace(measured.SmokePlaytestSummary) != "" && !isNotRunSummary(measured.SmokePlaytestSummary) {
+							measured.SmokePlaytestRan = true
+						}
+					}
 				} else {
-					measured = measurePresetArtifact(dir, proj, platform, plan, baseline, preflight, smokeRes)
+					measured, stepErr = measurePresetArtifact(proj, platform, plan, baseline, smokeRes, dryRun)
 				}
 				if stepErr != nil {
 					failureHeadline = "Measure failed"
 					failureErrorLine = "error: " + stepErr.Error()
 					logLine(failureErrorLine)
 				} else {
-					measured.DownloadBudgetMet = preflight.DownloadSizeBudgetMB <= 0 || float64(measured.SizeBytes)/(1024*1024) <= preflight.DownloadSizeBudgetMB
-					measured.FrameTimeBudgetMet = preflight.FrameTimeP95BudgetMs <= 0 || measured.FrameTimeP95Ms <= preflight.FrameTimeP95BudgetMs
+					if measured.SizeMeasured && measured.SizeBytes > 0 {
+						measured.DownloadBudgetMet = preflight.DownloadSizeBudgetMB <= 0 || float64(measured.SizeBytes)/(1024*1024) <= preflight.DownloadSizeBudgetMB
+					} else {
+						measured.SizeMeasured = false
+						measured.DownloadBudgetMet = false
+					}
+					if !measured.FrameTimeMeasured && smokeRes.Ran && isValidFrameTimeMs(smokeRes.FrameTimeP95Ms) {
+						measured.FrameTimeP95Ms = smokeRes.FrameTimeP95Ms
+						measured.FrameTimeMeasured = true
+					}
+					if measured.FrameTimeMeasured && isValidFrameTimeMs(measured.FrameTimeP95Ms) {
+						measured.FrameTimeBudgetMet = preflight.FrameTimeP95BudgetMs <= 0 || measured.FrameTimeP95Ms <= preflight.FrameTimeP95BudgetMs
+					} else {
+						measured.FrameTimeMeasured = false
+						measured.FrameTimeP95Ms = 0
+						measured.FrameTimeBudgetMet = false
+					}
 					if measured.SmokePlaytestSummary == "" && smokeRes.Summary != "" {
+						measured.SmokePlaytestRan = smokeRes.Ran
 						measured.SmokePlaytestSummary = smokeRes.Summary
 						measured.SmokePlaytestWhere = smokeRes.Where
 					}
 					if platform == "web" && !dryRun {
 						e.autoServeWebBuildIfReady(plan, &measured, runners.lanResolver, runners.servePort)
 					}
-					stepDetail = fmt.Sprintf("%s · p95 %.1f ms", formatSizeMB(measured.SizeBytes), measured.FrameTimeP95Ms)
-					logLine(fmt.Sprintf("measure %s: %s (%s), p95 %.1f ms", platform, measured.ArtifactName, formatSizeMB(measured.SizeBytes), measured.FrameTimeP95Ms))
+
+					stepDetail = formatMeasureStepDetail(measured)
+					logLine(formatMeasureLogLine(platform, measured))
 
 					// Store finished result onto preset.
 					resCopy := measured
@@ -2267,11 +2366,16 @@ func (e *Editor) executePresetBuild(
 						if idx := e.findBuildPresetLocked(platform); idx >= 0 {
 							p := &e.buildRelease.presets[idx]
 							p.Result = &resCopy
-							p.SizeText = formatSizeMB(resCopy.SizeBytes)
-							if resCopy.HasLastRelease {
-								p.DeltaText = formatDeltaMB(resCopy.DeltaBytes)
+							if resCopy.SizeMeasured {
+								p.SizeText = formatSizeMB(resCopy.SizeBytes)
+								if resCopy.HasLastRelease {
+									p.DeltaText = formatDeltaMB(resCopy.DeltaBytes)
+								} else {
+									p.DeltaText = "new"
+								}
 							} else {
-								p.DeltaText = "new"
+								p.SizeText = "—"
+								p.DeltaText = "not measured"
 							}
 							e.buildRelease.rev++
 						}
@@ -2713,11 +2817,9 @@ func defaultStepsForPreset(platform string, targets []string, signing BuildPrese
 	case platform == "web":
 		signDetail = "integrity hash"
 	}
-	smokeDetail := "60 s headless"
-	if platform == "android" {
-		smokeDetail = "60 s on an emulator"
-	} else if platform == "web" {
-		smokeDetail = "60 s headless Chromium"
+	smokeDetail := "requires playtest runner"
+	if platform == hostBuildPlatform() {
+		smokeDetail = "headless main scene"
 	}
 	return []BuildStep{
 		{ID: BuildStepCheck, Label: "Check project", Detail: "nsgo check", Status: BuildStepPending},
@@ -2805,138 +2907,326 @@ func (e *Editor) runBuildGit(dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
-func defaultSmokePlaytestResult(platform, qualityProfile string) BuildSmokePlaytestResult {
-	where := fmt.Sprintf("%s · %s profile", platformDisplayName(platform), qualityProfile)
-	if platform == "web" {
-		where = fmt.Sprintf("headless Chromium · %s profile", qualityProfile)
-	}
-	return BuildSmokePlaytestResult{
-		Where:          where,
-		Summary:        "0 errors, 0 crashes, main scene loaded and stepped cleanly.",
-		Duration:       60 * time.Second,
-		FrameTimeP95Ms: 11.2,
+func hostBuildPlatform() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "macos"
+	case "linux":
+		return "linux"
+	case "windows":
+		return "windows"
+	default:
+		return ""
 	}
 }
 
-func measurePresetArtifact(
+func isValidFrameTimeMs(ms float64) bool {
+	return ms > 0 && !math.IsNaN(ms) && !math.IsInf(ms, 0)
+}
+
+func isNotRunSummary(summary string) bool {
+	lower := strings.ToLower(strings.TrimSpace(summary))
+	return lower == "" || lower == "not run" || strings.HasPrefix(lower, "not run ") || strings.HasPrefix(lower, "not run—") || strings.HasPrefix(lower, "not run —")
+}
+
+func formatMeasureStepDetail(m BuildArtifactResult) string {
+	switch {
+	case m.SizeMeasured && m.FrameTimeMeasured:
+		return fmt.Sprintf("%s · p95 %.1f ms", formatSizeMB(m.SizeBytes), m.FrameTimeP95Ms)
+	case m.SizeMeasured:
+		return fmt.Sprintf("%s · frame time not measured", formatSizeMB(m.SizeBytes))
+	case m.FrameTimeMeasured:
+		return fmt.Sprintf("size not measured · p95 %.1f ms", m.FrameTimeP95Ms)
+	default:
+		return "not measured"
+	}
+}
+
+func formatMeasureLogLine(platform string, m BuildArtifactResult) string {
+	if !m.SizeMeasured && !m.FrameTimeMeasured {
+		return fmt.Sprintf("measure %s: not measured (no built package found)", platform)
+	}
+	sizePart := "size not measured"
+	if m.SizeMeasured {
+		name := m.ArtifactName
+		if name == "" {
+			name = platform
+		}
+		sizePart = fmt.Sprintf("%s (%s)", name, formatSizeMB(m.SizeBytes))
+		if m.WasmGzipBytes > 0 {
+			sizePart = fmt.Sprintf("%s (%s, wasm gzip %s)", name, formatSizeMB(m.SizeBytes), formatSizeMB(m.WasmGzipBytes))
+		}
+	}
+	framePart := "frame time not measured"
+	if m.FrameTimeMeasured {
+		framePart = fmt.Sprintf("p95 %.1f ms", m.FrameTimeP95Ms)
+	}
+	return fmt.Sprintf("measure %s: %s, %s", platform, sizePart, framePart)
+}
+
+// runDefaultReleaseSmokePlaytest runs a real headless simulation of the project's autoload.mainScene
+// when building for the current desktop host and a built artifact exists in plan.OutputDir.
+// On non-host platforms (such as web, android, or ios), when no built package exists, or when no
+// main scene is configured, it honestly reports "not run" without inventing results or frame times.
+func runDefaultReleaseSmokePlaytest(
+	ctx context.Context,
 	dir string,
 	proj *project.File,
 	platform string,
 	plan *releaseplan.Plan,
-	baseline LastReleaseBaseline,
-	preflight BuildPreflightSummary,
-	smoke BuildSmokePlaytestResult,
-) BuildArtifactResult {
-	slug := "game"
-	ver := "0.1.0"
+	runners releaseBuildRunners,
+) (BuildSmokePlaytestResult, error) {
+	if platform != hostBuildPlatform() {
+		return BuildSmokePlaytestResult{
+			Ran:     false,
+			Where:   "not run",
+			Summary: fmt.Sprintf("Not run — no %s smoke playtest runner configured.", platformDisplayName(platform)),
+		}, nil
+	}
+	appName, appID, appVersion := releasePlanAppIdentity(proj, plan)
+	var outDir string
+	var targets []string
+	if plan != nil {
+		outDir = plan.OutputDir
+		targets = plan.Targets
+	}
+	art, err := sizecheck.MeasureBuiltArtifact(outDir, appName, appID, appVersion, platform, targets)
+	if err != nil || !art.Found {
+		return BuildSmokePlaytestResult{
+			Ran:     false,
+			Where:   "not run",
+			Summary: "Not run — no built package found to playtest.",
+		}, nil
+	}
+	return runHeadlessMainSceneSmokePlaytest(ctx, dir, proj, runners.resolver, runners.comps, runners.physSettings)
+}
+
+func resolveMainSceneRelPath(proj *project.File) (name, relPath string, ok bool) {
+	if proj == nil || proj.Autoload == nil {
+		return "", "", false
+	}
+	mainName := strings.TrimSpace(proj.Autoload.MainScene)
+	if mainName == "" {
+		return "", "", false
+	}
+	for _, sc := range proj.Autoload.Scenes {
+		if sc.Name == mainName && strings.TrimSpace(sc.Path) != "" {
+			return mainName, strings.TrimSpace(sc.Path), true
+		}
+	}
+	lower := strings.ToLower(mainName)
+	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+		return mainName, mainName, true
+	}
+	return "", "", false
+}
+
+// runHeadlessMainSceneSmokePlaytest parses, builds, and steps the project's main scene headlessly
+// for 120 fixed 60 Hz frames, checking for errors and non-finite coordinates and measuring the real
+// per-frame wall-clock p95 duration.
+func runHeadlessMainSceneSmokePlaytest(
+	ctx context.Context,
+	dir string,
+	proj *project.File,
+	resolver sceneformat.AssetResolver,
+	comps *sceneformat.ComponentRegistry,
+	physSettings *sceneformat.PhysicsSettings,
+) (BuildSmokePlaytestResult, error) {
+	sceneName, relPath, ok := resolveMainSceneRelPath(proj)
+	if !ok || dir == "" {
+		return BuildSmokePlaytestResult{
+			Ran:     false,
+			Where:   "not run",
+			Summary: "Not run — no main scene configured in game.yaml.",
+		}, nil
+	}
+	absPath, err := resolveBuildReleasePath(dir, relPath, false)
+	if err != nil {
+		return BuildSmokePlaytestResult{
+			Ran:     false,
+			Where:   "not run",
+			Summary: "Not run — main scene path is outside the project directory.",
+		}, nil
+	}
+	data, err := os.ReadFile(absPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return BuildSmokePlaytestResult{
+			Ran:     false,
+			Where:   "not run",
+			Summary: fmt.Sprintf("Not run — main scene %s not found.", relPath),
+		}, nil
+	}
+	if err != nil {
+		return BuildSmokePlaytestResult{}, fmt.Errorf("read main scene %s: %w", relPath, err)
+	}
+	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: absPath, Components: comps})
+	if err != nil {
+		return BuildSmokePlaytestResult{}, fmt.Errorf("parse main scene %s: %w", relPath, err)
+	}
+	built, err := sceneformat.Build(doc, resolver)
+	if err != nil {
+		return BuildSmokePlaytestResult{}, fmt.Errorf("build main scene %s: %w", relPath, err)
+	}
+	phys, err := sceneformat.BuildPhysics(built, physSettings, resolver)
+	if err != nil {
+		return BuildSmokePlaytestResult{}, fmt.Errorf("init physics for main scene %s: %w", relPath, err)
+	}
+
+	const (
+		smokeFrames = 120
+		dt          = time.Second / 60
+	)
+	durations := make([]time.Duration, 0, smokeFrames)
+	totalStart := time.Now()
+	for range smokeFrames {
+		if ctx.Err() != nil {
+			return BuildSmokePlaytestResult{}, ctx.Err()
+		}
+		frameStart := time.Now()
+		built.Update(dt)
+		if phys != nil {
+			phys.Step(dt)
+		}
+		durations = append(durations, time.Since(frameStart))
+	}
+	totalElapsed := time.Since(totalStart)
+
+	for _, id := range mergeSortedMapKeys(built.Objects) {
+		bo := built.Objects[id]
+		if bo == nil || bo.Doc == nil {
+			continue
+		}
+		if math.IsNaN(float64(bo.Doc.X)) || math.IsInf(float64(bo.Doc.X), 0) ||
+			math.IsNaN(float64(bo.Doc.Y)) || math.IsInf(float64(bo.Doc.Y), 0) ||
+			math.IsNaN(float64(bo.Doc.PosZ)) || math.IsInf(float64(bo.Doc.PosZ), 0) {
+			return BuildSmokePlaytestResult{}, fmt.Errorf("object %q reached non-finite position during smoke playtest", id)
+		}
+	}
+
+	slices.Sort(durations)
+	p95Idx := int(math.Ceil(0.95*float64(len(durations)))) - 1
+	p95Idx = max(0, min(p95Idx, len(durations)-1))
+	p95Dur := durations[p95Idx]
+	if p95Dur == 0 && totalElapsed > 0 {
+		p95Dur = totalElapsed / smokeFrames
+	}
+	p95Ms := float64(p95Dur) / float64(time.Millisecond)
+
+	return BuildSmokePlaytestResult{
+		Ran:            true,
+		Where:          fmt.Sprintf("headless main scene (%s)", sceneName),
+		Summary:        fmt.Sprintf("0 errors, %d frames stepped on %s (%d objects).", smokeFrames, sceneName, len(built.Objects)),
+		Duration:       totalElapsed,
+		FrameTimeP95Ms: p95Ms,
+	}, nil
+}
+
+func releasePlanAppIdentity(proj *project.File, plan *releaseplan.Plan) (name, id, version string) {
+	if plan != nil {
+		name = strings.TrimSpace(plan.AppName)
+		version = strings.TrimSpace(plan.AppVersion)
+	}
 	if proj != nil {
-		if proj.Name != "" {
-			slug = strings.ToLower(strings.ReplaceAll(proj.Name, " ", "-"))
+		if name == "" {
+			name = strings.TrimSpace(proj.Name)
 		}
-		if proj.AppVersion != "" {
-			ver = proj.AppVersion
-		}
-	}
-	artifactName := defaultArtifactName(slug, ver, platform)
-	artifactPath := filepath.Join(plan.OutputDir, artifactName)
-
-	// Measure project assets by category (or real artifact size if written in OutputDir).
-	var codeBytes, texBytes, audioBytes, otherBytes int64
-	if dir != "" {
-		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				name := d.Name()
-				if name == ".git" || name == "dist" || name == "build" || name == "node_modules" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			info, err := d.Info()
-			if err != nil {
-				return nil
-			}
-			sz := info.Size()
-			switch strings.ToLower(filepath.Ext(p)) {
-			case ".go":
-				codeBytes += sz
-			case ".png", ".jpg", ".jpeg", ".webp", ".ktx2", ".dds", ".svg":
-				texBytes += sz
-			case ".wav", ".ogg", ".opus", ".mp3", ".flac":
-				audioBytes += sz
-			default:
-				otherBytes += sz
-			}
-			return nil
-		})
-	}
-	// Provide realistic baseline binary overhead when measuring dry-run/uncompiled projects so breakdown bars stay legible.
-	if codeBytes < 2*1024*1024 {
-		switch platform {
-		case "web":
-			codeBytes += 6 * 1024 * 1024
-		default:
-			codeBytes += 9 * 1024 * 1024
+		id = strings.TrimSpace(proj.ID)
+		if version == "" {
+			version = strings.TrimSpace(proj.AppVersion)
 		}
 	}
-	if texBytes == 0 {
-		texBytes = 4 * 1024 * 1024
-	}
-	if audioBytes == 0 {
-		audioBytes = 1 * 1024 * 1024
-	}
-	if otherBytes == 0 {
-		otherBytes = 400 * 1024
-	}
-	totalBytes := codeBytes + texBytes + audioBytes + otherBytes
-	if st, err := os.Stat(artifactPath); err == nil && !st.IsDir() && st.Size() > 0 {
-		totalBytes = st.Size()
-	}
+	return name, id, version
+}
 
-	breakdown := BuildSizeBreakdown{
-		CodeBytes:     codeBytes,
-		TexturesBytes: texBytes,
-		AudioBytes:    audioBytes,
-		OtherBytes:    otherBytes,
-	}
-
-	var deltaBytes int64
-	hasLast := false
-	if prev, ok := baseline.Artifacts[platform]; ok && prev.SizeBytes > 0 {
-		hasLast = true
-		deltaBytes = totalBytes - prev.SizeBytes
-		breakdown.GrowthSummary = describeBreakdownDelta(breakdown, prev.Breakdown, deltaBytes)
-	} else {
-		breakdown.GrowthSummary = fmt.Sprintf("First measured release for %s (%s total).", platformDisplayName(platform), formatSizeMB(totalBytes))
-	}
-
-	frameMs := smoke.FrameTimeP95Ms
-	if frameMs <= 0 {
-		frameMs = 11.2
-		if platform == "web" {
-			frameMs = 9.8
-		}
-	}
-	testURL := ""
-	if platform == "web" {
-		testURL = "http://127.0.0.1:8731/"
-	}
-	return BuildArtifactResult{
-		ArtifactPath:         artifactPath,
-		ArtifactName:         artifactName,
-		SizeBytes:            totalBytes,
-		DeltaBytes:           deltaBytes,
-		HasLastRelease:       hasLast,
-		Breakdown:            breakdown,
-		FrameTimeP95Ms:       frameMs,
-		DownloadBudgetMet:    preflight.DownloadSizeBudgetMB <= 0 || float64(totalBytes)/(1024*1024) <= preflight.DownloadSizeBudgetMB,
-		FrameTimeBudgetMet:   preflight.FrameTimeP95BudgetMs <= 0 || frameMs <= preflight.FrameTimeP95BudgetMs,
+func measurePresetArtifact(
+	proj *project.File,
+	platform string,
+	plan *releaseplan.Plan,
+	baseline LastReleaseBaseline,
+	smoke BuildSmokePlaytestResult,
+	dryRun bool,
+) (BuildArtifactResult, error) {
+	res := BuildArtifactResult{
+		SmokePlaytestRan:     smoke.Ran,
 		SmokePlaytestWhere:   smoke.Where,
 		SmokePlaytestSummary: smoke.Summary,
-		TestURL:              testURL,
 	}
+	if smoke.Ran && isValidFrameTimeMs(smoke.FrameTimeP95Ms) {
+		res.FrameTimeP95Ms = smoke.FrameTimeP95Ms
+		res.FrameTimeMeasured = true
+	}
+
+	if dryRun || plan == nil || strings.TrimSpace(plan.OutputDir) == "" {
+		res.Breakdown.GrowthSummary = "Not measured (dry run)."
+		if !dryRun {
+			res.Breakdown.GrowthSummary = "Not measured — no built package found in output directory."
+		}
+		return res, nil
+	}
+
+	appName, appID, appVersion := releasePlanAppIdentity(proj, plan)
+	art, err := sizecheck.MeasureBuiltArtifact(plan.OutputDir, appName, appID, appVersion, platform, plan.Targets)
+	if err != nil {
+		return BuildArtifactResult{}, err
+	}
+	if !art.Found || art.SizeBytes <= 0 {
+		res.Breakdown.GrowthSummary = "Not measured — no built package found in output directory."
+		return res, nil
+	}
+
+	res.ArtifactPath = art.ArtifactPath
+	res.ArtifactName = art.ArtifactName
+	res.SizeBytes = art.SizeBytes
+	res.SizeMeasured = true
+	res.WebBuildDir = art.WebBuildDir
+	if art.WasmMeasurement != nil {
+		res.WasmGzipBytes = art.WasmMeasurement.GzipBytes
+	}
+	res.Breakdown = BuildSizeBreakdown{
+		CodeBytes:     art.Categories.CodeBytes,
+		TexturesBytes: art.Categories.TexturesBytes,
+		AudioBytes:    art.Categories.AudioBytes,
+		OtherBytes:    art.Categories.OtherBytes,
+	}
+
+	if prev, ok := baseline.Artifacts[platform]; ok && prev.SizeBytes > 0 {
+		res.HasLastRelease = true
+		res.DeltaBytes = art.SizeBytes - prev.SizeBytes
+		res.Breakdown.GrowthSummary = describeBreakdownDelta(res.Breakdown, prev.Breakdown, res.DeltaBytes)
+	} else {
+		res.Breakdown.GrowthSummary = fmt.Sprintf("First measured release for %s (%s total).", platformDisplayName(platform), formatSizeMB(art.SizeBytes))
+	}
+	return res, nil
+}
+
+func writeLastReleaseBaseline(dir, version string, artifacts map[string]LastReleaseArtifact) error {
+	if strings.TrimSpace(dir) == "" || len(artifacts) == 0 {
+		return nil
+	}
+	valid := make(map[string]LastReleaseArtifact, len(artifacts))
+	for plat, art := range artifacts {
+		if art.SizeBytes > 0 {
+			valid[plat] = art
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	target, err := resolveBuildReleasePath(dir, "build/last-release.yaml", true)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(LastReleaseBaseline{
+		Version:   version,
+		Artifacts: valid,
+	})
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(target, data)
 }
 
 func describeBreakdownDelta(cur, prev BuildSizeBreakdown, totalDelta int64) string {

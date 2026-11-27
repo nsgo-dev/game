@@ -1587,63 +1587,112 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 	}
 	spec := ed.Palette(cx)
 
-	totalBytes := res.Breakdown.CodeBytes + res.Breakdown.TexturesBytes + res.Breakdown.AudioBytes + res.Breakdown.OtherBytes
-	if totalBytes <= 0 {
-		totalBytes = max(res.SizeBytes, 1)
-	}
-	type part struct {
-		label string
-		bytes int64
-		color core.Color
-	}
-	parts := []part{
-		{ed.T("buildRelease.breakdownCode"), res.Breakdown.CodeBytes, spec.Accent.Fg},
-		{ed.T("buildRelease.breakdownTextures"), res.Breakdown.TexturesBytes, spec.Changed.Fg},
-		{ed.T("buildRelease.breakdownAudio"), res.Breakdown.AudioBytes, spec.Added.Fg},
-		{ed.T("buildRelease.breakdownOther"), res.Breakdown.OtherBytes, spec.TextFaint},
-	}
+	artifactName := res.ArtifactName
+	sizeText := ed.T("buildRelease.notMeasured")
+	deltaColor := spec.TextFaint
+	deltaText := ed.T("buildRelease.deltaNotMeasured")
+	var artifactBodyChildren []core.Node
 
-	var barSegs []core.Node
-	var legendCols []core.Node
-	for _, pt := range parts {
-		flex := float32(pt.bytes) / float32(totalBytes)
-		if flex < 0.02 && pt.bytes > 0 {
-			flex = 0.02
+	if res.SizeMeasured {
+		if artifactName == "" {
+			artifactName = p.Name
 		}
-		barSegs = append(barSegs, core.View{
-			Style: core.Style{
-				Height:     core.Pt(10),
-				FlexGrow:   flex,
-				FlexBasis:  core.Pt(0),
-				Background: pt.color,
-			},
-		})
-		legendCols = append(legendCols, core.View{
-			Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
-			Children: []core.Node{
-				core.View{
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
-					Children: []core.Node{
-						core.View{Style: core.Style{Width: core.Pt(8), Height: core.Pt(8), CornerRadius: 2, Background: pt.color}},
-						core.Text{Content: pt.label, Style: core.Style{FontSize: 12, Color: spec.TextMuted}},
+		sizeText = formatSizeMB(res.SizeBytes)
+		deltaText = ed.T("buildRelease.deltaNew")
+		if res.HasLastRelease {
+			deltaText = formatDeltaMB(res.DeltaBytes)
+			if res.DeltaBytes > 0 {
+				deltaColor = spec.Changed.Fg
+			} else if res.DeltaBytes < 0 {
+				deltaColor = spec.Added.Fg
+			}
+		}
+
+		totalBytes := res.Breakdown.CodeBytes + res.Breakdown.TexturesBytes + res.Breakdown.AudioBytes + res.Breakdown.OtherBytes
+		if totalBytes <= 0 {
+			totalBytes = max(res.SizeBytes, 1)
+		}
+		type part struct {
+			label string
+			bytes int64
+			color core.Color
+		}
+		parts := []part{
+			{ed.T("buildRelease.breakdownCode"), res.Breakdown.CodeBytes, spec.Accent.Fg},
+			{ed.T("buildRelease.breakdownTextures"), res.Breakdown.TexturesBytes, spec.Changed.Fg},
+			{ed.T("buildRelease.breakdownAudio"), res.Breakdown.AudioBytes, spec.Added.Fg},
+			{ed.T("buildRelease.breakdownOther"), res.Breakdown.OtherBytes, spec.TextFaint},
+		}
+
+		var barSegs []core.Node
+		var legendCols []core.Node
+		for _, pt := range parts {
+			flex := float32(pt.bytes) / float32(totalBytes)
+			if flex < 0.02 && pt.bytes > 0 {
+				flex = 0.02
+			}
+			barSegs = append(barSegs, core.View{
+				Style: core.Style{
+					Height:     core.Pt(10),
+					FlexGrow:   flex,
+					FlexBasis:  core.Pt(0),
+					Background: pt.color,
+				},
+			})
+			legendCols = append(legendCols, core.View{
+				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+						Children: []core.Node{
+							core.View{Style: core.Style{Width: core.Pt(8), Height: core.Pt(8), CornerRadius: 2, Background: pt.color}},
+							core.Text{Content: pt.label, Style: core.Style{FontSize: 12, Color: spec.TextMuted}},
+						},
+					},
+					core.Text{
+						Content: formatSizeMB(pt.bytes),
+						Style:   core.Style{FontSize: 11.5, Color: spec.TextSecondary, Padding: core.Edges{Left: 14}, FontVariant: core.FontTabularNums},
 					},
 				},
-				core.Text{
-					Content: formatSizeMB(pt.bytes),
-					Style:   core.Style{FontSize: 11.5, Color: spec.TextSecondary, Padding: core.Edges{Left: 14}, FontVariant: core.FontTabularNums},
-				},
-			},
-		})
-	}
+			})
+		}
 
-	deltaColor := spec.TextFaint
-	deltaText := ed.T("buildRelease.deltaNew")
-	if res.HasLastRelease {
-		deltaText = formatDeltaMB(res.DeltaBytes)
-		if res.DeltaBytes > 0 {
-			deltaColor = spec.Changed.Fg
-		} else if res.DeltaBytes < 0 {
-			deltaColor = spec.Added.Fg
+		growthText := res.Breakdown.GrowthSummary
+		if res.WasmGzipBytes > 0 {
+			if growthText != "" {
+				growthText += " "
+			}
+			growthText += ed.T("buildRelease.wasmGzip", l10n.Param("size", formatSizeMB(res.WasmGzipBytes)))
+		}
+		artifactBodyChildren = []core.Node{
+			core.View{
+				Style:    core.Style{Direction: core.Row, Gap: 2, Height: core.Pt(10), CornerRadius: 5, Overflow: core.Hidden},
+				Children: barSegs,
+			},
+			core.View{
+				Style:    core.Style{Direction: core.Row, Gap: 8},
+				Children: legendCols,
+			},
+			core.Text{
+				TestID:  "build-result-growth",
+				Content: growthText,
+				Style:   core.Style{FontSize: 12, Color: spec.TextFaint},
+			},
+		}
+	} else {
+		if artifactName == "" {
+			artifactName = ed.T("buildRelease.noBuiltPackage")
+		}
+		growthText := res.Breakdown.GrowthSummary
+		if growthText == "" {
+			growthText = ed.T("buildRelease.growthNotMeasured")
+		}
+		artifactBodyChildren = []core.Node{
+			core.Text{
+				TestID:  "build-result-growth",
+				Content: growthText,
+				Style:   core.Style{FontSize: 12, Color: spec.TextFaint},
+			},
 		}
 	}
 
@@ -1671,13 +1720,13 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 					buildSpecIcon(lucide.Package(), 15, spec.TextMuted),
 					core.Text{
 						TestID:  "build-result-artifact-name",
-						Content: res.ArtifactName,
+						Content: artifactName,
 						Style:   core.Style{FontSize: 12, Color: spec.TextPrimary},
 					},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{
 						TestID:  "build-result-size",
-						Content: formatSizeMB(res.SizeBytes),
+						Content: sizeText,
 						Style:   core.Style{FontSize: 12, Color: spec.TextPrimary, FontVariant: core.FontTabularNums},
 					},
 					core.Text{
@@ -1688,22 +1737,8 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 				},
 			},
 			core.View{
-				Style: core.Style{Padding: core.Symmetric(12, 14), Gap: 10},
-				Children: []core.Node{
-					core.View{
-						Style:    core.Style{Direction: core.Row, Gap: 2, Height: core.Pt(10), CornerRadius: 5, Overflow: core.Hidden},
-						Children: barSegs,
-					},
-					core.View{
-						Style:    core.Style{Direction: core.Row, Gap: 8},
-						Children: legendCols,
-					},
-					core.Text{
-						TestID:  "build-result-growth",
-						Content: res.Breakdown.GrowthSummary,
-						Style:   core.Style{FontSize: 12, Color: spec.TextFaint},
-					},
-				},
+				Style:    core.Style{Padding: core.Symmetric(12, 14), Gap: 10},
+				Children: artifactBodyChildren,
 			},
 		},
 	}
@@ -1716,20 +1751,48 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 	if frameBudget <= 0 || math.IsNaN(frameBudget) || math.IsInf(frameBudget, 0) {
 		frameBudget = DefaultFrameTimeP95BudgetMs
 	}
-	sizePct := clampBudgetPct((float64(res.SizeBytes) / (1024 * 1024) / dlBudget) * 100)
-	framePct := clampBudgetPct((res.FrameTimeP95Ms / frameBudget) * 100)
+
+	sizeMetric := ed.T("buildRelease.budgetNotMeasuredLimit", l10n.Param("limit", fmt.Sprintf("%.0f MB", dlBudget)))
+	var sizePct float32
+	if res.SizeMeasured {
+		sizeMetric = fmt.Sprintf("%s / %.0f MB", formatSizeMB(res.SizeBytes), dlBudget)
+		sizePct = clampBudgetPct((float64(res.SizeBytes) / (1024 * 1024) / dlBudget) * 100)
+	}
+
+	frameMetric := ed.T("buildRelease.budgetNotMeasuredLimit", l10n.Param("limit", fmt.Sprintf("%.1f ms", frameBudget)))
+	var framePct float32
+	if res.FrameTimeMeasured {
+		frameMetric = fmt.Sprintf("%.1f / %.1f ms", res.FrameTimeP95Ms, frameBudget)
+		framePct = clampBudgetPct((res.FrameTimeP95Ms / frameBudget) * 100)
+	}
 
 	budgetsRow := core.View{
 		TestID: "build-result-budgets",
 		Style:  core.Style{Direction: core.Row, Gap: 12},
 		Children: []core.Node{
 			buildBudgetCard(spec, ed, "build-budget-download", ed.T("buildRelease.budgetDownloadSize"),
-				fmt.Sprintf("%s / %.0f MB", formatSizeMB(res.SizeBytes), dlBudget),
-				res.DownloadBudgetMet, sizePct),
+				sizeMetric, res.SizeMeasured, res.DownloadBudgetMet, sizePct),
 			buildBudgetCard(spec, ed, "build-budget-frame", ed.T("buildRelease.budgetFrameTime"),
-				fmt.Sprintf("%.1f / %.1f ms", res.FrameTimeP95Ms, frameBudget),
-				res.FrameTimeBudgetMet, framePct),
+				frameMetric, res.FrameTimeMeasured, res.FrameTimeBudgetMet, framePct),
 		},
+	}
+
+	playtestIcon := lucide.Clock()
+	playtestIconColor := spec.TextFaint
+	playtestTitle := ed.T("buildRelease.smokePlaytestNotRun")
+	playtestWhere := res.SmokePlaytestWhere
+	playtestSummary := res.SmokePlaytestSummary
+	if res.SmokePlaytestRan {
+		playtestIcon = lucide.Check()
+		playtestIconColor = spec.Added.Fg
+		playtestTitle = ed.T("buildRelease.preflightSmokeTitle")
+	} else {
+		if playtestWhere == "" || playtestWhere == "not run" {
+			playtestWhere = ed.T("buildRelease.notRun")
+		}
+		if playtestSummary == "" {
+			playtestSummary = ed.T("buildRelease.smokePlaytestNotRunSummary")
+		}
 	}
 
 	playtestCard := core.View{
@@ -1746,14 +1809,15 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
-					buildSpecIcon(lucide.Check(), 13, spec.Added.Fg),
-					core.Text{Content: ed.T("buildRelease.smokePlaytest60s"), Style: core.Style{FontSize: 12.5, Color: spec.TextPrimary}},
+					buildSpecIcon(playtestIcon, 13, playtestIconColor),
+					core.Text{TestID: "build-result-playtest-title", Content: playtestTitle, Style: core.Style{FontSize: 12.5, Color: spec.TextPrimary}},
 					core.View{Style: core.Style{FlexGrow: 1}},
-					core.Text{Content: res.SmokePlaytestWhere, Style: core.Style{FontSize: 11.5, Color: spec.TextFaint}},
+					core.Text{TestID: "build-result-playtest-where", Content: playtestWhere, Style: core.Style{FontSize: 11.5, Color: spec.TextFaint}},
 				},
 			},
 			core.Text{
-				Content: res.SmokePlaytestSummary,
+				TestID:  "build-result-playtest-summary",
+				Content: playtestSummary,
 				Style:   core.Style{FontSize: 12, Color: spec.TextMuted},
 			},
 		},
@@ -1881,18 +1945,28 @@ func clampBudgetPct(v float64) float32 {
 	return float32(v)
 }
 
-func buildBudgetCard(p theme.Palette, ed *Editor, testID, title, metric string, met bool, pct float32) core.Node {
-	badgeText := ed.T("buildRelease.budgetMet")
-	badgeBg := p.Added.Fill
-	badgeBorder := p.Added.Edge
-	badgeFg := p.Added.Fg
-	barColor := p.Added.Fg
-	if !met {
-		badgeText = ed.T("buildRelease.budgetMissed")
-		badgeBg = p.Removed.Fill
-		badgeBorder = p.Removed.Edge
-		badgeFg = p.Removed.Fg
-		barColor = p.Removed.Fg
+func buildBudgetCard(p theme.Palette, ed *Editor, testID, title, metric string, measured, met bool, pct float32) core.Node {
+	badgeText := ed.T("buildRelease.notMeasured")
+	badgeBg := p.Panel
+	badgeBorder := p.LineRaised
+	badgeFg := p.TextFaint
+	var barChildren []core.Node
+	if measured {
+		badgeText = ed.T("buildRelease.budgetMet")
+		badgeBg = p.Added.Fill
+		badgeBorder = p.Added.Edge
+		badgeFg = p.Added.Fg
+		barColor := p.Added.Fg
+		if !met {
+			badgeText = ed.T("buildRelease.budgetMissed")
+			badgeBg = p.Removed.Fill
+			badgeBorder = p.Removed.Edge
+			badgeFg = p.Removed.Fg
+			barColor = p.Removed.Fg
+		}
+		barChildren = []core.Node{
+			core.View{Style: core.Style{Height: core.Pt(6), Width: core.Pct(pct), CornerRadius: 3, Background: barColor}},
+		}
 	}
 	return core.View{
 		TestID: testID,
@@ -1922,17 +1996,15 @@ func buildBudgetCard(p theme.Palette, ed *Editor, testID, title, metric string, 
 							JustifyContent: core.JustifyCenter,
 						},
 						Children: []core.Node{
-							core.Text{Content: badgeText, Style: core.Style{FontSize: 10.5, FontWeight: core.FontWeightMedium, Color: badgeFg}},
+							core.Text{TestID: testID + "-badge", Content: badgeText, Style: core.Style{FontSize: 10.5, FontWeight: core.FontWeightMedium, Color: badgeFg}},
 						},
 					},
 				},
 			},
-			core.Text{Content: metric, Style: core.Style{FontSize: 12, Color: p.TextPrimary, FontVariant: core.FontTabularNums}},
+			core.Text{TestID: testID + "-metric", Content: metric, Style: core.Style{FontSize: 12, Color: p.TextPrimary, FontVariant: core.FontTabularNums}},
 			core.View{
-				Style: core.Style{Height: core.Pt(6), CornerRadius: 3, Background: p.LineRaised, Overflow: core.Hidden},
-				Children: []core.Node{
-					core.View{Style: core.Style{Height: core.Pt(6), Width: core.Pct(pct), CornerRadius: 3, Background: barColor}},
-				},
+				Style:    core.Style{Height: core.Pt(6), CornerRadius: 3, Background: p.LineRaised, Overflow: core.Hidden},
+				Children: barChildren,
 			},
 		},
 	}
@@ -3221,11 +3293,16 @@ func localizedBuildQualityProfile(ed *Editor, profile string) string {
 }
 
 func localizedBuildSmokeSummary(ed *Editor, summary string) string {
-	if summary == "" {
-		return ed.T("buildRelease.preflightSmokeDefault")
+	if summary == "" || summary == "not configured" {
+		return ed.T("buildRelease.preflightSmokeNotConfigured")
 	}
-	if scene, ok := strings.CutPrefix(summary, "60 s per build, "); ok {
-		return ed.T("buildRelease.preflightSmokeScene", l10n.Param("scene", scene))
+	if scene, ok := strings.CutPrefix(summary, "custom runner, "); ok {
+		return ed.T("buildRelease.preflightSmokeCustom", l10n.Param("scene", scene))
+	}
+	if rest, ok := strings.CutPrefix(summary, "headless "); ok {
+		if scene, ok := strings.CutSuffix(rest, " (host only)"); ok {
+			return ed.T("buildRelease.preflightSmokeHost", l10n.Param("scene", scene))
+		}
 	}
 	return summary
 }
@@ -3252,6 +3329,9 @@ func localizedBuildStatusText(ed *Editor, status string) string {
 }
 
 func localizedBuildDeltaText(ed *Editor, delta string) string {
+	if delta == "not measured" {
+		return ed.T("buildRelease.deltaNotMeasured")
+	}
 	if countStr, ok := strings.CutSuffix(delta, " to fix"); ok {
 		return ed.T("buildRelease.deltaToFix", l10n.Param("count", countStr))
 	}
@@ -3300,8 +3380,14 @@ func localizedBuildStepDetail(ed *Editor, detail string) string {
 		return ed.T("buildRelease.stepDetailPackAssets")
 	case "Developer ID · notarized":
 		return ed.T("buildRelease.stepDetailSignMacOS")
-	case "60 s headless":
+	case "headless main scene":
 		return ed.T("buildRelease.stepDetailSmokeHeadless")
+	case "requires playtest runner":
+		return ed.T("buildRelease.stepDetailSmokeRunner")
+	case "not run":
+		return ed.T("buildRelease.notRun")
+	case "not measured":
+		return ed.T("buildRelease.deltaNotMeasured")
 	case "size and frame time":
 		return ed.T("buildRelease.stepDetailMeasure")
 	default:

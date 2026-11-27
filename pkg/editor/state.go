@@ -440,9 +440,9 @@ type Editor struct {
 	ReleaseCheckRunner func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
 	// ReleaseStepRunner optionally overrides execution of each Build and Release step (Check project, Compile Go, Pack assets, Sign, Smoke playtest, Measure).
 	ReleaseStepRunner func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
-	// ReleasePlaytestRunner overrides the Smoke playtest step of a Build and Release run; when nil, a default summary is produced.
+	// ReleasePlaytestRunner overrides the Smoke playtest step of a Build and Release run; when nil, a headless main-scene smoke playtest runs on the host desktop target when a built package exists, and other targets report "not run".
 	ReleasePlaytestRunner func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
-	// ReleaseMeasureRunner overrides the Measure step of a Build and Release run; when nil, artifact size and category breakdown are measured from disk and compared against the last release baseline.
+	// ReleaseMeasureRunner overrides the Measure step of a Build and Release run; when nil, the built package in the release plan's output directory is measured via pkg/tooling/sizecheck and compared against the last release baseline (or reported "not measured" when no built package exists).
 	ReleaseMeasureRunner func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
 	// ReleaseReadinessInspector overrides platform readiness evaluation on the Build and Release screen; when nil, built-in readiness checks (including iOS bundle id, icon, certificate, provisioning profile, privacy manifest, and touch controls) are used.
 	ReleaseReadinessInspector func(platform string, dir string, f *project.File) []BuildReadinessItem
