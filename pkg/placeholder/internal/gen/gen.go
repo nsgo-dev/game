@@ -11,7 +11,7 @@ import (
 	"image/png"
 	"sort"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // Files returns every file of the pack by its slash-separated path in the pack, except CREDITS.md, which a person writes.

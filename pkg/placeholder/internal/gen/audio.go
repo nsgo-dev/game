@@ -3,8 +3,8 @@ package gen
 import (
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/sound"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // SampleRate is the sample rate of every sound in the pack, in Hz. The sounds are mono, 16-bit PCM WAV.

@@ -5,7 +5,7 @@ import (
 	"image"
 	"image/color"
 
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 )
 
 // Encode writes an image as a KTX2 texture, optionally block-compressed and with a full mipmap chain; DecodeHeader and DecodeRGBA read it back.

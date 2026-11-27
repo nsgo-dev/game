@@ -164,18 +164,18 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
+| `game/pkg/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |
+| `game/pkg/importsettings` | Experimental | `<asset>.import.yaml` sidecar parser and encoder |
+| `game/pkg/jsonschema` | Experimental | JSON Schema builder and validator with JSON Pointer error paths |
+| `game/pkg/ktx2` | Experimental | KTX2 texture encoder (BC1, BC3, ETC2, RGBA8, mipmaps, sRGB) |
 | `game/pkg/tooling/apiref` | Experimental | Go doc parser powering `tools/gameapi` |
 | `game/pkg/tooling/assetbuild` | Experimental | Incremental asset pipeline driven by `game.yaml` |
 | `game/pkg/tooling/assetcheck` | Experimental | Validator for scenes, Tiled/LDtk maps, atlases and file references |
 | `game/pkg/tooling/audioconv` | Experimental | WAV normalization, resampling and WAV/AAC/MP3 conversion |
 | `game/pkg/tooling/bench` | Experimental | Headless benchmark runner and baseline regression checker |
 | `game/pkg/tooling/credits` | Experimental | Asset license/author credits generator from `.import.yaml` sidecars |
-| `game/pkg/tooling/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |
 | `game/pkg/tooling/devstate` | Experimental | Dev session state snapshots persisted across reloads |
 | `game/pkg/tooling/hotreload` | Experimental | Asset, 3D shader (`ShaderReloader`) and material (`MaterialReloader`) hot reload |
-| `game/pkg/tooling/importsettings` | Experimental | `<asset>.import.yaml` sidecar parser and encoder |
-| `game/pkg/tooling/jsonschema` | Experimental | JSON Schema builder and validator with JSON Pointer error paths |
-| `game/pkg/tooling/ktx2` | Experimental | KTX2 texture encoder (BC1, BC3, ETC2, RGBA8, mipmaps, sRGB) |
 | `game/pkg/tooling/library` | Experimental | Digest-verified asset, plugin and template pack registry |
 | `game/pkg/tooling/manifest` | Experimental | Typed Go asset manifest generator (`asset:` URIs or `//go:embed`) |
 | `game/pkg/tooling/pack` | Experimental | PNG sprite atlas packer outputting PNG pages and TexturePacker JSON |

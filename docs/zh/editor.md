@@ -576,7 +576,7 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 
 ## 数据表编辑器（#918）
 
-数据表面板（`DataTablePanelView`）可以从文件浏览器把带版本号的 YAML 数据表（[`tooling/datatable`](datatable.md)）以电子表格网格的形式打开在视口下方：
+数据表面板（`DataTablePanelView`）可以从文件浏览器把带版本号的 YAML 数据表（[`datatable`](datatable.md)）以电子表格网格的形式打开在视口下方：
 
 - **列与值类型**：列是所有行键名的并集，按首次出现的确定顺序排列（注册了 Go 行类型时，也会补齐任何行尚未设置的字段）。每一列的值类型（`string`、`number`、`bool`、`duration` 或 `list`）根据单元格的值推断，或直接取自已注册的 Go 行类型；布尔单元格渲染为切换按钮，标量和列表单元格在按回车或失焦时提交。
 - **行操作与视图控制**：支持添加（`AddDataTableRow`）、删除（`DeleteDataTableRow`）和重排行（`MoveDataTableRow`），点击任意列头即可排序（`SetDataTableSort`），并可按不区分大小写的子串过滤可见行（`SetDataTableFilter`）。排序和过滤只改变视图显示，不会改动底层 YAML 文档的行顺序。

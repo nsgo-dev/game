@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 )
 
 // texCommand encodes PNG and JPEG textures into KTX2 v2.0 containers, with optional mipmaps, sRGB metadata and BC1, BC3, ETC2 or RGBA8 encoding, taking the settings of the import settings sidecar beside the input under the flags given.

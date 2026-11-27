@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // FuzzParse checks that every sidecar Parse accepts encodes, parses back to the same File and encodes to the same bytes again.

@@ -10,9 +10,9 @@ import (
 	"sync"
 
 	"github.com/nsgo-dev/game/pkg/gltf"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/resource"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 

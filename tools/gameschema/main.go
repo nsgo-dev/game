@@ -23,6 +23,8 @@ import (
 	"github.com/nsgo-dev/game/pkg/cutscene"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/gameui"
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
@@ -30,8 +32,6 @@ import (
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/jsonschema"
 	"github.com/nsgo-dev/game/pkg/voxel"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
@@ -158,14 +158,14 @@ var formats = []format{
 		url:     importsettings.SchemaURL,
 		title:   "NSGo game import settings (version 1)",
 		typ:     reflect.TypeFor[importsettings.File](),
-		pkg:     "tooling/importsettings",
+		pkg:     "importsettings",
 		version: importsettings.CurrentVersion,
 	},
 	{
 		url:     importsettings.AssetSourceSchemaURL,
 		title:   "NSGo game generated asset source (version 1)",
 		typ:     reflect.TypeFor[importsettings.AssetSource](),
-		pkg:     "tooling/importsettings",
+		pkg:     "importsettings",
 		version: importsettings.AssetSourceVersion,
 	},
 	{

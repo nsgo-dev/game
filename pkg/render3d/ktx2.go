@@ -3,7 +3,7 @@ package render3d
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 )

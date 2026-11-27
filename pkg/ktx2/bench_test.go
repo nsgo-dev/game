@@ -5,7 +5,7 @@ import (
 	"image"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 )
 
 // BenchmarkTranscodeUASTC measures what render3d.LoadKTX2 does at load on a device without a direct UASTC path: decode every block of a base level and encode it again in the device's block format.

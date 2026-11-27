@@ -35,7 +35,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `bullets` | `github.com/nsgo-dev/game/pkg/bullets` | [bullets](bullets.md) | 射击游戏弹幕（环形、螺旋、瞄准连发），由 YAML 定义，对象池复用并通过精灵批次绘制 |
 | `save` | `github.com/nsgo-dev/game/pkg/save` | [save](save.md) | 带版本号的 JSON 存档槽、结构迁移与原子备份恢复 |
 | `achievements` | `github.com/nsgo-dev/game/pkg/online/achievements` | [achievements](achievements.md) | 在带版本号的 YAML 中声明成就、只增不减并保存在 `core.Storage` 的进度，以及上报到 Game Center 和 Play Games |
-| `datatable` | `github.com/nsgo-dev/game/pkg/tooling/datatable` | [datatable](datatable.md) | 带版本号的 YAML（及 CSV/JSON）类型化数据表，单元格级错误、确定性保存与热重载 |
+| `datatable` | `github.com/nsgo-dev/game/pkg/datatable` | [datatable](datatable.md) | 带版本号的 YAML（及 CSV/JSON）类型化数据表，单元格级错误、确定性保存与热重载 |
 | `debug` | `github.com/nsgo-dev/game/pkg/debug` | [debug](debug.md) | 帧耗时图、碰撞线框、场景检查器及 `-tags release` 零开销裁剪 |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | 通过 `nsgo/automation` 注册的 MCP 工具，用于检查运行中的场景、图层、实体与组件 |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | 游戏时钟 `Timers`、`Machine[S]`、`Seq`/`Parallel`/`Race` 与类型化事件 `Bus` |
@@ -88,7 +88,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | 分块 3D 体素世界：贪婪网格合并、跨区块剔除与 AO、脏区块局部重建、DDA 射线拾取与 YAML 存档 |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU 网格缓冲、纹理与采样器、相机 uniform、CPU 视锥裁剪、绘制排序、零分配实例化、LOD 滞回、调试线框/手柄、公告板、3D 条带拖尾与 GPU 预算 |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | 在 3D 中绘制场景文件的对象：内置基本形体和可替换材质的 glTF 模型，构建成带包围盒的 `scene3d` 节点树，并由带光照和纹理的渲染器绘制 |
-| `tooling/jsonschema` | `github.com/nsgo-dev/game/pkg/tooling/jsonschema` | [YAML 文件的 Schema](schemas.md) | 由 Go 类型生成供编辑器和 AI 工具使用的 JSON Schema、已发布的场景 Schema，以及带 JSON Pointer 路径的校验 |
+| `jsonschema` | `github.com/nsgo-dev/game/pkg/jsonschema` | [YAML 文件的 Schema](schemas.md) | 由 Go 类型生成供编辑器和 AI 工具使用的 JSON Schema、已发布的场景 Schema，以及带 JSON Pointer 路径的校验 |
 | `tooling/library` | `github.com/nsgo-dev/game/pkg/tooling/library` | [资源与插件库](library.md) | 共享资源、编辑器插件和模板包的 YAML 索引，按摘要校验后安装到项目中，并记录其文件和 `game.yaml` 引用 |
 | `framedata` | `github.com/nsgo-dev/game/pkg/framedata` | [framedata](framedata.md) | 以 YAML 编写的格斗游戏逐帧攻击框、受击框、硬直与取消窗口，每步确定性解析 |
 | `vehicle` | `github.com/nsgo-dev/game/pkg/vehicle` | [vehicle](vehicle.md) | 基于 `physics3d` 的射线车辆：车轮悬挂、轮胎摩擦与车辆控制器，比赛检查点与圈数，以及 YAML 车辆文件和单圈幽灵 |

@@ -3,7 +3,7 @@ package importsettings_test
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // Parse reads the sidecar beside a sprite sheet, which game assets slices into frames and keeps sharp.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 

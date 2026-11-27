@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

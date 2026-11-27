@@ -245,7 +245,7 @@ automations:
       time: "02:00"
     instruction: plays all floors 50 times and leaves a balance report
 ```
-<!-- format: tooling/importsettings -->
+<!-- format: importsettings -->
 ### Import settings sidecar
 
 | Files | Version | Read and written by | Fields |
@@ -272,7 +272,7 @@ credit:
   source: https://kenney.nl/assets/kenney-fonts
 ```
 
-<!-- format: tooling/importsettings#source -->
+<!-- format: importsettings#source -->
 ### Generated asset source sidecar
 
 | Files | Version | Read and written by | Fields |
@@ -1259,7 +1259,7 @@ slots:
 
 ## Game data
 
-<!-- format: tooling/datatable -->
+<!-- format: datatable -->
 ### Data table
 
 | Files | Version | Read and written by | Fields |

@@ -3,7 +3,7 @@ package datatable
 import (
 	"reflect"
 
-	"github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+	"github.com/nsgo-dev/game/pkg/jsonschema"
 )
 
 // Schema returns the JSON Schema of a YAML data table of T rows, the format LoadYAML reads and MarshalYAML writes, for an editor or AI tool to validate and complete a table file while it is written.

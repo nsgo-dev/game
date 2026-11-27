@@ -8,9 +8,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
 	"go.yaml.in/yaml/v3"
 )
 

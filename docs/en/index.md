@@ -35,7 +35,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `bullets` | `github.com/nsgo-dev/game/pkg/bullets` | [bullets](bullets.md) | Shooter bullet patterns (rings, spirals, aimed bursts) from YAML, pooled and drawn through a sprite batch |
 | `save` | `github.com/nsgo-dev/game/pkg/save` | [save](save.md) | Versioned JSON save slots, schema migrations and atomic backup recovery |
 | `achievements` | `github.com/nsgo-dev/game/pkg/online/achievements` | [achievements](achievements.md) | Achievements declared in versioned YAML, monotonic progress persisted in `core.Storage`, and reporting to Game Center and Play Games |
-| `datatable` | `github.com/nsgo-dev/game/pkg/tooling/datatable` | [datatable](datatable.md) | Typed data tables in versioned YAML (and CSV/JSON) with cell-level errors, deterministic saves and hot reload |
+| `datatable` | `github.com/nsgo-dev/game/pkg/datatable` | [datatable](datatable.md) | Typed data tables in versioned YAML (and CSV/JSON) with cell-level errors, deterministic saves and hot reload |
 | `debug` | `github.com/nsgo-dev/game/pkg/debug` | [debug](debug.md) | Frame-time graph, wireframe shapes, scene inspector and `-tags release` stripping |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | MCP tools registered through `nsgo/automation` to inspect running scenes, layers, entities and components |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race` and typed event `Bus` |
@@ -88,7 +88,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | Chunked 3D voxel worlds with greedy meshing, cross-chunk culling and AO, dirty-chunk editing, DDA raycasting and YAML saves |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU mesh buffers, textures and samplers, camera uniforms, CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos, billboards, 3D ribbon trails and GPU budgets |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | Scene file objects drawn in 3D: built-in primitives and glTF models with material overrides, built into a `scene3d` tree with bounds and drawn by a lit, textured renderer |
-| `tooling/jsonschema` | `github.com/nsgo-dev/game/pkg/tooling/jsonschema` | [Schemas for YAML files](schemas.md) | JSON Schemas built from Go types for editors and AI tools, the published scene schema and validation with JSON Pointer paths |
+| `jsonschema` | `github.com/nsgo-dev/game/pkg/jsonschema` | [Schemas for YAML files](schemas.md) | JSON Schemas built from Go types for editors and AI tools, the published scene schema and validation with JSON Pointer paths |
 | `tooling/library` | `github.com/nsgo-dev/game/pkg/tooling/library` | [Asset and Plugin Library](library.md) | A YAML index of shared asset, editor plugin and template packs, checked by digest and installed into a project with their files and `game.yaml` references recorded |
 | `framedata` | `github.com/nsgo-dev/game/pkg/framedata` | [framedata](framedata.md) | Fighting game hitboxes, hurtboxes, hitstun and cancel windows per frame in YAML, resolved deterministically each step |
 | `vehicle` | `github.com/nsgo-dev/game/pkg/vehicle` | [vehicle](vehicle.md) | Raycast cars on `physics3d`: wheel suspension, tire friction and a car controller, race checkpoints and laps, and YAML car files and lap ghosts |

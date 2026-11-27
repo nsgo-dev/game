@@ -11,9 +11,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 	"github.com/nsgo-dev/game/pkg/tooling/manifest"
 	"github.com/nsgo-dev/game/pkg/tooling/pack"
 )

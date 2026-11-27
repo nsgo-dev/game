@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
 )
 
 // texOf reads the KTX2 file at name: its format, sRGB, level count and filter.

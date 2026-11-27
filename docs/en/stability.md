@@ -82,6 +82,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/bullets` | Experimental | [bullets](bullets.md) |
 | `game/pkg/cards` | Experimental | [cards](cards.md) |
 | `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |
+| `game/pkg/datatable` | Experimental | |
 | `game/pkg/debug` | Experimental | [debug](debug.md) |
 | `game/pkg/editor` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | Experimental | [editor](editor.md) |
@@ -96,8 +97,11 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/gameui` | Experimental | [gameui](gameui.md) |
 | `game/pkg/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
 | `game/pkg/idle` | Experimental | [idle](idle.md) |
+| `game/pkg/importsettings` | Experimental | [Command Line](cli.md) |
 | `game/pkg/input` | Stable | [input](input.md) |
 | `game/pkg/inventory` | Experimental | [inventory](inventory.md) |
+| `game/pkg/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
+| `game/pkg/ktx2` | Experimental | |
 | `game/pkg/l10n` | Experimental | [l10n](l10n.md) |
 | `game/pkg/lights2d` | Experimental | [lights2d](lights2d.md) |
 | `game/pkg/loaderr` | Stable | [Errors](errors.md) |
@@ -183,12 +187,8 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tooling/audioconv` | Experimental | |
 | `game/pkg/tooling/bench` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/credits` | Experimental | [Command Line](cli.md) |
-| `game/pkg/tooling/datatable` | Experimental | |
 | `game/pkg/tooling/devstate` | Experimental | |
 | `game/pkg/tooling/hotreload` | Experimental | |
-| `game/pkg/tooling/importsettings` | Experimental | [Command Line](cli.md) |
-| `game/pkg/tooling/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
-| `game/pkg/tooling/ktx2` | Experimental | |
 | `game/pkg/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
 | `game/pkg/tooling/manifest` | Experimental | |
 | `game/pkg/tooling/pack` | Experimental | |

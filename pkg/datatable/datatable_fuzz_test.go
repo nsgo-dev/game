@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
+	"github.com/nsgo-dev/game/pkg/datatable"
 )
 
 func FuzzLoadCSV(f *testing.F) {

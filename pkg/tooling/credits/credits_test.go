@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // sampleProject declares an atlas, a texture, an audio file and the manifest of the folder they are written to, which also holds a font and a map written by hand.

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+	"github.com/nsgo-dev/game/pkg/jsonschema"
 )
 
 func FuzzValidateYAML(f *testing.F) {

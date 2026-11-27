@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 const (

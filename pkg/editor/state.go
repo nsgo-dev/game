@@ -24,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/animclip"
+	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
@@ -36,7 +37,6 @@ import (
 	"github.com/nsgo-dev/game/pkg/scenemodel"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
 	"github.com/nsgo-dev/game/pkg/tooling/library"
 	"github.com/nsgo-dev/nsgo/core"
 )

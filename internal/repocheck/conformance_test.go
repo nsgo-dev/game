@@ -24,9 +24,9 @@ var notFormats = map[string]string{
 	"internal/gamecli":     "reads single settings out of game.yaml and nsgo.yaml, whose formats package project and NSGo define",
 	"internal/formattest":  "the conformance checks themselves, which decode a document to edit it",
 	"internal/releaseplan": "reads single settings out of nsgo.yaml, whose format NSGo defines",
+	"jsonschema":           "validates documents of other formats against their schemas",
 	"loaderr":              "decodes a document only to find a field's line and column for an error",
 	"tooling/assetcheck":   "scans other formats' documents for asset references without loading them",
-	"tooling/jsonschema":   "validates documents of other formats against their schemas",
 }
 
 // yamlDecoders returns, by slash path relative to the module root, the packages whose non-test files import go.yaml.in/yaml/v3 and decode with it: they call its Unmarshal or NewDecoder, or a Decode method (as on a yaml.Node). The scan works on syntax, so it finds a format whatever decoder settings it uses, including a lenient yaml.Unmarshal, KnownFields with a variable and a walk of the node tree.

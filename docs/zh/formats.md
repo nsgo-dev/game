@@ -245,7 +245,7 @@ automations:
       time: "02:00"
     instruction: plays all floors 50 times and leaves a balance report
 ```
-<!-- format: tooling/importsettings -->
+<!-- format: importsettings -->
 ### 导入设置旁注文件
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -272,7 +272,7 @@ credit:
   source: https://kenney.nl/assets/kenney-fonts
 ```
 
-<!-- format: tooling/importsettings#source -->
+<!-- format: importsettings#source -->
 ### 生成资源来源旁注文件
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -1259,7 +1259,7 @@ slots:
 
 ## 游戏数据
 
-<!-- format: tooling/datatable -->
+<!-- format: datatable -->
 ### 数据表
 
 | 文件 | 版本 | 读写函数 | 字段 |

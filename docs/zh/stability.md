@@ -82,6 +82,7 @@
 | `game/pkg/bullets` | 实验性 | [bullets](bullets.md) |
 | `game/pkg/cards` | 实验性 | [cards](cards.md) |
 | `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
+| `game/pkg/datatable` | 实验性 | |
 | `game/pkg/debug` | 实验性 | [debug](debug.md) |
 | `game/pkg/editor` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
@@ -96,8 +97,11 @@
 | `game/pkg/gameui` | 实验性 | [gameui](gameui.md) |
 | `game/pkg/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
 | `game/pkg/idle` | 实验性 | [idle](idle.md) |
+| `game/pkg/importsettings` | 实验性 | [命令行](cli.md) |
 | `game/pkg/input` | 稳定 | [input](input.md) |
 | `game/pkg/inventory` | 实验性 | [inventory](inventory.md) |
+| `game/pkg/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
+| `game/pkg/ktx2` | 实验性 | |
 | `game/pkg/l10n` | 实验性 | [l10n](l10n.md) |
 | `game/pkg/lights2d` | 实验性 | [lights2d](lights2d.md) |
 | `game/pkg/loaderr` | 稳定 | [可据以行动的错误](errors.md) |
@@ -183,12 +187,8 @@
 | `game/pkg/tooling/audioconv` | 实验性 | |
 | `game/pkg/tooling/bench` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/credits` | 实验性 | [命令行](cli.md) |
-| `game/pkg/tooling/datatable` | 实验性 | |
 | `game/pkg/tooling/devstate` | 实验性 | |
 | `game/pkg/tooling/hotreload` | 实验性 | |
-| `game/pkg/tooling/importsettings` | 实验性 | [命令行](cli.md) |
-| `game/pkg/tooling/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
-| `game/pkg/tooling/ktx2` | 实验性 | |
 | `game/pkg/tooling/library` | 实验性 | [资源与插件库](library.md) |
 | `game/pkg/tooling/manifest` | 实验性 | |
 | `game/pkg/tooling/pack` | 实验性 | |

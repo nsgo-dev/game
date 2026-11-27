@@ -3,7 +3,7 @@
 Every file a game's author writes is YAML text, and each format has a JSON Schema so editors and AI tools can complete keys, show each field's description on hover and flag mistakes while the file is being written, before the game loads it.
 
 ```go
-import "github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+import "github.com/nsgo-dev/game/pkg/jsonschema"
 ```
 
 ## Published schemas

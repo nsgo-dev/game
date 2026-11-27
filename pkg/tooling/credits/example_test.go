@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // Collect reads the credit beside each asset game.yaml's assets section reaches, here the sound an audio target converts.
