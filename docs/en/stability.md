@@ -189,6 +189,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tilemap/tileshape` | Experimental | [tileshape](tileshape.md) |
 | `game/pkg/tooling/assetbuild` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/assetcheck` | Experimental | [Command Line](cli.md) |
+| `game/pkg/tooling/atlaspack` | Experimental | |
 | `game/pkg/tooling/audioconv` | Experimental | |
 | `game/pkg/tooling/bench` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/credits` | Experimental | [Command Line](cli.md) |
@@ -197,7 +198,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tooling/hotreload` | Experimental | |
 | `game/pkg/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
 | `game/pkg/tooling/manifest` | Experimental | |
-| `game/pkg/tooling/pack` | Experimental | |
 | `game/pkg/tooling/playtest` | Experimental | [playtest](playtest.md) |
 | `game/pkg/tooling/refs` | Experimental | [Project File](project.md) |
 | `game/pkg/tween` | Stable | [tween](tween.md) |

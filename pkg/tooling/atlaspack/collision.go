@@ -1,4 +1,4 @@
-package pack
+package atlaspack
 
 import (
 	"cmp"
@@ -66,14 +66,14 @@ func TraceCollision(img image.Image, opts CollisionOptions) ([]Polygon, error) {
 		return nil, nil
 	}
 	if opts.Tolerance < 0 || opts.Tolerance > 255 {
-		return nil, fmt.Errorf("pack: collision tolerance %d must be between 0 and 255", opts.Tolerance)
+		return nil, fmt.Errorf("atlaspack: collision tolerance %d must be between 0 and 255", opts.Tolerance)
 	}
 	maxVerts := opts.MaxVertices
 	if maxVerts == 0 {
 		maxVerts = DefaultCollisionMaxVertices
 	}
 	if maxVerts < minCollisionVertices || maxVerts > maxCollisionVertices {
-		return nil, fmt.Errorf("pack: collision maxVertices %d must be between %d and %d", maxVerts, minCollisionVertices, maxCollisionVertices)
+		return nil, fmt.Errorf("atlaspack: collision maxVertices %d must be between %d and %d", maxVerts, minCollisionVertices, maxCollisionVertices)
 	}
 
 	if opts.Mode == CollisionPolygon {
@@ -145,35 +145,35 @@ func TraceCollision(img image.Image, opts CollisionOptions) ([]Polygon, error) {
 		return canonicalizePolygons(out), nil
 
 	default:
-		return nil, fmt.Errorf("pack: unknown collision mode %q", opts.Mode)
+		return nil, fmt.Errorf("atlaspack: unknown collision mode %q", opts.Mode)
 	}
 }
 
 func buildExplicitPolygonCollision(pts []Point, maxVerts int) ([]Polygon, error) {
 	if len(pts) < minCollisionVertices {
-		return nil, fmt.Errorf("pack: polygon collision requires at least %d points", minCollisionVertices)
+		return nil, fmt.Errorf("atlaspack: polygon collision requires at least %d points", minCollisionVertices)
 	}
 	clean := make(Polygon, len(pts))
 	for i, p := range pts {
 		if math.IsNaN(p.X) || math.IsInf(p.X, 0) || math.IsNaN(p.Y) || math.IsInf(p.Y, 0) {
-			return nil, fmt.Errorf("pack: polygon point %d (%v, %v) must be finite", i, p.X, p.Y)
+			return nil, fmt.Errorf("atlaspack: polygon point %d (%v, %v) must be finite", i, p.X, p.Y)
 		}
 		clean[i] = Point{X: roundCoord4(p.X), Y: roundCoord4(p.Y)}
 	}
 	clean = cleanPolygon(clean)
 	if len(clean) < minCollisionVertices {
-		return nil, fmt.Errorf("pack: polygon collision is degenerate after removing duplicate/collinear vertices")
+		return nil, fmt.Errorf("atlaspack: polygon collision is degenerate after removing duplicate/collinear vertices")
 	}
 	area := signedArea(clean)
 	if math.Abs(area) <= geomEps {
-		return nil, fmt.Errorf("pack: polygon collision has zero area")
+		return nil, fmt.Errorf("atlaspack: polygon collision has zero area")
 	}
 	if area < 0 {
 		slices.Reverse(clean)
 	}
 	parts := decomposeOrReduce(clean, maxVerts)
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("pack: polygon collision produced no valid convex parts")
+		return nil, fmt.Errorf("atlaspack: polygon collision produced no valid convex parts")
 	}
 	return canonicalizePolygons(parts), nil
 }

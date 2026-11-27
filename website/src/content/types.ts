@@ -116,7 +116,7 @@ export interface ApiType extends ApiDecl, ApiIdent {
 export interface ApiPackage {
   importPath: string
   name: string
-  // page is the package's path below the reference's root, such as sprite or tooling/pack.
+  // page is the package's path below the reference's root, such as sprite or tooling/atlaspack.
   page: string
   synopsis: string
   docHTML?: string

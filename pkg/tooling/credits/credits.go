@@ -15,8 +15,8 @@ import (
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"github.com/nsgo-dev/game/pkg/tooling/manifest"
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
 )
 
 // FileName is the name of the credits file game release writes beside a release's packages.
@@ -70,7 +70,7 @@ func Assets(root string, a *project.Assets) ([]string, error) {
 		}
 	}
 	for _, at := range a.Atlases {
-		names, err := pack.ScanDir(abs(at.In))
+		names, err := atlaspack.ScanDir(abs(at.In))
 		if err != nil {
 			return nil, fmt.Errorf("credits: atlas %s: %w", at.Name, err)
 		}

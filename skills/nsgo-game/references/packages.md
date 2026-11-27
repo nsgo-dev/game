@@ -179,6 +179,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/ktx2` | Experimental | KTX2 texture encoder (BC1, BC3, ETC2, RGBA8, mipmaps, sRGB) |
 | `game/pkg/tooling/assetbuild` | Experimental | Incremental asset pipeline driven by `game.yaml` |
 | `game/pkg/tooling/assetcheck` | Experimental | Validator for scenes, Tiled/LDtk maps, atlases and file references |
+| `game/pkg/tooling/atlaspack` | Experimental | PNG sprite atlas packer outputting PNG pages and TexturePacker JSON |
 | `game/pkg/tooling/audioconv` | Experimental | WAV normalization, resampling and WAV/AAC/MP3 conversion |
 | `game/pkg/tooling/bench` | Experimental | Headless benchmark runner and baseline regression checker |
 | `game/pkg/tooling/credits` | Experimental | Asset license/author credits generator from `.import.yaml` sidecars |
@@ -186,4 +187,3 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/tooling/hotreload` | Experimental | Asset, 3D shader (`ShaderReloader`) and material (`MaterialReloader`) hot reload |
 | `game/pkg/tooling/library` | Experimental | Digest-verified asset, plugin and template pack registry |
 | `game/pkg/tooling/manifest` | Experimental | Typed Go asset manifest generator (`asset:` URIs or `//go:embed`) |
-| `game/pkg/tooling/pack` | Experimental | PNG sprite atlas packer outputting PNG pages and TexturePacker JSON |
