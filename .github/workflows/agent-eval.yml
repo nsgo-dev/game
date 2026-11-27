@@ -38,11 +38,15 @@ on:
       - main
     paths:
       - "tools/agenteval/**"
+      - "tools/go.mod"
+      - "tools/go.sum"
       - "skills/nsgo-game/**"
       - ".github/workflows/agent-eval.yml"
   pull_request:
     paths:
       - "tools/agenteval/**"
+      - "tools/go.mod"
+      - "tools/go.sum"
       - "skills/nsgo-game/**"
       - ".github/workflows/agent-eval.yml"
 
@@ -71,10 +75,10 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            tools/agenteval/go.sum
+            tools/go.sum
       - name: Test the agent evaluation suite
-        working-directory: tools/agenteval
-        run: go tool nsgo test ./...
+        working-directory: tools
+        run: go tool nsgo test ./agenteval/...
       - name: Run reference evaluation suite and report scores
         env:
           EVAL_TASK: ${{ inputs.task }}
@@ -120,7 +124,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            tools/agenteval/go.sum
+            tools/go.sum
       - name: Run coding agent evaluation suite and report scores
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

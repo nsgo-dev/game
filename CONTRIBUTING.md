@@ -17,10 +17,10 @@ game/
 │  └─ zh/            the same pages in Simplified Chinese
 ├─ apps/website/     the site at https://game.nsgo.dev
 ├─ changelog.d/      changelog fragments, folded into CHANGELOG.md at release
-└─ tools/changelog/  the command that checks and folds them
+└─ tools/            one Go module of contributor tooling: changelog/ checks and folds the fragments, agenteval/ is the agent evaluation suite
 ```
 
-The root `go.work` links the root module, starter templates and examples together. The `nsgo` CLI is declared as a `tool` dependency in the root `go.mod`, so run `go tool nsgo ...` directly from the repository root (just as CI does).
+The root `go.work` links the root module, starter templates, examples and the tools module together. The `nsgo` CLI is declared as a `tool` dependency in the root `go.mod`, so run `go tool nsgo ...` directly from the repository root (just as CI does).
 
 ## Development setup
 

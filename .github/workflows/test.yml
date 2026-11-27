@@ -43,6 +43,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fish
       - name: Test
         run: go tool nsgo test ./...
+      # The changelog command lives in the tools module, which ./... from the root does not reach.
+      - name: Test the changelog command
+        working-directory: tools
+        run: go tool nsgo test ./changelog/...
 
   # The Postgres stores' tests skip without a database, so this job gives them one.
   postgres:
