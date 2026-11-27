@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/tilemap"
-	"github.com/nsgo-dev/game/pkg/tileshape"
+	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

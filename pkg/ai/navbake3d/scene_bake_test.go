@@ -12,8 +12,8 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/navbake3d"
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/reference.navmesh.yaml from the current bake")

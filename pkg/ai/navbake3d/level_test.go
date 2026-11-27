@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/gltf"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )

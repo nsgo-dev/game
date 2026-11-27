@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/navbake"
+	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/tilemap"

@@ -22,12 +22,12 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/replay"

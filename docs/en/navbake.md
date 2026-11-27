@@ -1,9 +1,9 @@
 # navbake
 
-`game/navbake` bakes the 2D navigation meshes that `ai.NavMesh` searches: from a level's outline with concave obstacles and holes, or from a tilemap's solid cells, shrunk by each agent type's radius and divided into convex polygons. A baked mesh saves to a versioned YAML file beside the level, and `Draw` shows it as a debug overlay.
+`game/ai/navbake` bakes the 2D navigation meshes that `ai.NavMesh` searches: from a level's outline with concave obstacles and holes, or from a tilemap's solid cells, shrunk by each agent type's radius and divided into convex polygons. A baked mesh saves to a versioned YAML file beside the level, and `Draw` shows it as a debug overlay.
 
 ```go
-import "github.com/nsgo-dev/game/pkg/navbake"
+import "github.com/nsgo-dev/game/pkg/ai/navbake"
 ```
 
 `ai.BuildNavMesh` takes convex polygons that a game has already cut its level into, and its paths run along the polygons' corners. `navbake` does the cutting, and keeps the paths an agent's radius away from every wall, as Godot does when it bakes a navigation polygon and Recast does for 3D meshes.

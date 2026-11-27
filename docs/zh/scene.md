@@ -241,4 +241,4 @@ YAML 场景还可以设置 `ambientColor`，并在对象上附加内置的 `ligh
 
 ## 场景文件中的 2D 导航区域
 
-YAML 场景可以在对象上直接声明可行走或障碍物 `navregion2d` 多边形，并可选扣除瓦片地图的实心碰撞几何（`subtractTileCollision: true`）。`sceneformat.Build` 会通过 [`game/navbake`](navbake.md) 将其烘焙为 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`），从而使编辑器的 2D 导航网格叠加层和 **Test Path** 工具得到与游戏完全一致的寻路结果（[`game/editor`](editor.md#内置-2d-导航区域组件888)）。
+YAML 场景可以在对象上直接声明可行走或障碍物 `navregion2d` 多边形，并可选扣除瓦片地图的实心碰撞几何（`subtractTileCollision: true`）。`sceneformat.Build` 会通过 [`game/ai/navbake`](navbake.md) 将其烘焙为 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`），从而使编辑器的 2D 导航网格叠加层和 **Test Path** 工具得到与游戏完全一致的寻路结果（[`game/editor`](editor.md#内置-2d-导航区域组件888)）。

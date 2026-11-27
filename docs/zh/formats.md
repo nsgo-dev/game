@@ -740,7 +740,7 @@ conflicts:
       "y": 280
     theirs: null
 ```
-<!-- format: navbake3d -->
+<!-- format: ai/navbake3d -->
 ### 3D 导航网格
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -1774,7 +1774,7 @@ root:
         home: home_pos
 ```
 
-<!-- format: navbake -->
+<!-- format: ai/navbake -->
 ### 导航网格
 
 | 文件 | 版本 | 读写函数 | 字段 |

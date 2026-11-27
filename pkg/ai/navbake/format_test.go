@@ -9,7 +9,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/formattest"
 	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/navbake"
+	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -18,7 +18,7 @@ func TestFormatConformance(t *testing.T) {
 		Decode: navbake.Parse,
 		Encode: (*navbake.Mesh).Encode,
 		Files:  []string{"testdata/*.yaml"},
-		Doc:    "navbake",
+		Doc:    "ai/navbake",
 	})
 }
 

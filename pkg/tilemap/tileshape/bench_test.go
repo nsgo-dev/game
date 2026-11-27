@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/tilemap"
-	"github.com/nsgo-dev/game/pkg/tileshape"
+	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 )
 
 // benchMap returns a 256 by 256 map of solid cells and slope, half and flipped tiles from testdata/slopes.tmj's tileset.

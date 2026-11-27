@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/tilemap"
-	"github.com/nsgo-dev/game/pkg/tileshape"
+	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 )
 
 // hill is a Tiled map whose tileset gives tile 2 a 45 degree slope in its collision editor; tile 1 is solid.

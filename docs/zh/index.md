@@ -46,7 +46,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | 房间地图：每个房间独立的相机边界，以及房间之间的切换、滑动或淡入淡出过渡 |
 | `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为、行为树与感知 |
 | `ai/perception3d` | `github.com/nsgo-dev/game/pkg/ai/perception3d` | [ai](ai.md#3d) | 面向 3D 智能体的 `ai` 感知，基于 `math3d.Vec3`，用 `physics3d` 判定视线 |
-| `navbake` | `github.com/nsgo-dev/game/pkg/navbake` | [navbake](navbake.md) | 按代理半径从凹障碍物或 tilemap 的实心格烘焙 `ai.NavMesh` 多边形，保存为带版本的 YAML，并提供调试叠加绘制 |
+| `ai/navbake` | `github.com/nsgo-dev/game/pkg/ai/navbake` | [navbake](navbake.md) | 按代理半径从凹障碍物或 tilemap 的实心格烘焙 `ai.NavMesh` 多边形，保存为带版本的 YAML，并提供调试叠加绘制 |
 | `rts` | `github.com/nsgo-dev/game/pkg/rts` | [rts](rts.md) | 流场、带分离的大规模单位群 `Crowd`、YAML 阵型、框选/点选与编队 |
 | `procgen` | `github.com/nsgo-dev/game/pkg/procgen` | [procgen](procgen.md) | 带种子的 BSP 房间、元胞自动机洞穴与基于 YAML 规则的波函数坍缩，附连通性检查与 tilemap 绘制 |
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |
@@ -58,7 +58,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `math2d` | `github.com/nsgo-dev/game/pkg/math2d` | [math2d](math2d.md) | 共享 2D `Vec2`、`Rect`、`Circle` 与 `Affine` 值类型及无损 `core` 互转 |
 | `gameui` | `github.com/nsgo-dev/game/pkg/gameui` | [gameui](gameui.md) | 画布内盒式布局菜单、虚拟分辨率缩放、空间焦点导航与世界坐标锚定原生视图 |
 | `lights2d` | `github.com/nsgo-dev/game/pkg/lights2d` | [lights2d](lights2d.md) | 2D 环境暗场、点光源与聚光灯、可见性多边形阴影及法线贴图精灵 |
-| `tileshape` | `github.com/nsgo-dev/game/pkg/tileshape` | [tileshape](tileshape.md) | 瓦片地图的碰撞与光照几何：物理 `TileGrid` 视图、由逐瓦片形状生成的斜坡、合并轮廓与 `lights2d` 遮挡体 |
+| `tilemap/tileshape` | `github.com/nsgo-dev/game/pkg/tilemap/tileshape` | [tileshape](tileshape.md) | 瓦片地图的碰撞与光照几何：物理 `TileGrid` 视图、由逐瓦片形状生成的斜坡、合并轮廓与 `lights2d` 遮挡体 |
 | `effects` | `github.com/nsgo-dev/game/pkg/effects` | [effects](effects.md) | 在一次绘制中串联作用于游戏画面的 Kage 着色器通道、随帧时钟变化的 uniform 及 CPU 参考图 |
 | `worldmap` | `github.com/nsgo-dev/game/pkg/worldmap` | [worldmap](worldmap.md) | YAML 房间地图、随存档保存的房间发现与标记、当前区域小地图及世界地图 |
 | `fog` | `github.com/nsgo-dev/game/pkg/fog` | [fog](fog.md) | 按队伍划分的战争迷雾：阴影投射视野源、已探索与可见格子、地图叠加层与 JSON 存档 |
@@ -84,7 +84,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D 节点树、插槽/附件、动态胖 AABB/SAH BVH、轨道/FPS/第三人称相机与 3D 拾取 |
 | `anim3d` | `github.com/nsgo-dev/game/pkg/anim3d` | [anim3d](anim3d.md) | 3D 姿态状态机、1D/2D 混合空间、骨骼遮罩与叠加层、帧事件、IK 与根骨骼运动 |
 | `world3d` | `github.com/nsgo-dev/game/pkg/world3d` | [world3d](world3d.md) | 高度图地形、多层 3D 导航网格、3D `GridMap`、程序化植被与浮点原点区块流式加载 |
-| `navbake3d` | `github.com/nsgo-dev/game/pkg/navbake3d` | [navbake3d](navbake3d.md) | 按代理类型从 glTF、地形、`GridMap` 和物理关卡几何体烘焙导航网格，保存为场景引用的 YAML，附调试绘制和 `game navmesh` |
+| `ai/navbake3d` | `github.com/nsgo-dev/game/pkg/ai/navbake3d` | [navbake3d](navbake3d.md) | 按代理类型从 glTF、地形、`GridMap` 和物理关卡几何体烘焙导航网格，保存为场景引用的 YAML，附调试绘制和 `game navmesh` |
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | 分块 3D 体素世界：贪婪网格合并、跨区块剔除与 AO、脏区块局部重建、DDA 射线拾取与 YAML 存档 |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU 网格缓冲、纹理与采样器、相机 uniform、CPU 视锥裁剪、绘制排序、零分配实例化、LOD 滞回、调试线框/手柄、公告板、3D 条带拖尾与 GPU 预算 |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | 在 3D 中绘制场景文件的对象：内置基本形体和可替换材质的 glTF 模型，构建成带包围盒的 `scene3d` 节点树，并由带光照和纹理的渲染器绘制 |

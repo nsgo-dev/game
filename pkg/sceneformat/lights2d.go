@@ -8,7 +8,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/math2d"
-	"github.com/nsgo-dev/game/pkg/tileshape"
+	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
