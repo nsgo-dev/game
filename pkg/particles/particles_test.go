@@ -156,7 +156,7 @@ func assertParticlesIdentical(t *testing.T, a, b []particles.Particle) {
 	}
 	for i := range a {
 		pa, pb := a[i], b[i]
-		if pa.Frame != pb.Frame ||
+		if !reflect.DeepEqual(pa.Frame, pb.Frame) ||
 			math.Float32bits(pa.X) != math.Float32bits(pb.X) ||
 			math.Float32bits(pa.Y) != math.Float32bits(pb.Y) ||
 			math.Float32bits(pa.VX) != math.Float32bits(pb.VX) ||

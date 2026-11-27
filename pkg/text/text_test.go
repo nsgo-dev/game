@@ -63,11 +63,11 @@ func TestBMFontTextAndXMLParseIdentically(t *testing.T) {
 			t.Fatalf("pages = %+v", ft.Pages)
 		}
 		wantA := sprite.Frame{Name: "A", X: 0, Y: 0, W: 8, H: 10, Width: 8, Height: 10}
-		if got := ft.Pages[0].Frames["A"]; got != wantA {
+		if got := ft.Pages[0].Frames["A"]; !reflect.DeepEqual(got, wantA) {
 			t.Fatalf("atlas frame A = %+v, want %+v", got, wantA)
 		}
 		wantGlyphA := text.Glyph{ID: 'A', Frame: wantA, XOffset: 1, YOffset: 2, XAdvance: 10, Page: 0}
-		if got := ft.Glyphs['A']; got != wantGlyphA {
+		if got := ft.Glyphs['A']; !reflect.DeepEqual(got, wantGlyphA) {
 			t.Fatalf("glyph A = %+v, want %+v", got, wantGlyphA)
 		}
 		if got := ft.Kerning('A', 'V'); got != -2 {

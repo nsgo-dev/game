@@ -67,7 +67,7 @@ func TestAnAsepriteExportLoadsWithItsTagsAsAnimations(t *testing.T) {
 				t.Errorf("%d frames, want 4", len(a.Frames))
 			}
 			for n := range 4 {
-				if got := a.Frames[frame(n).Name]; got != frame(n) {
+				if got := a.Frames[frame(n).Name]; !reflect.DeepEqual(got, frame(n)) {
 					t.Errorf("frame %q is %+v, want %+v", frame(n).Name, got, frame(n))
 				}
 			}

@@ -137,7 +137,7 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		return ed.Assets()
 	}, func(a, b []AssetEntry) bool {
 		return slices.EqualFunc(a, b, func(x, y AssetEntry) bool {
-			return x.Atlas == y.Atlas && x.Frame == y.Frame && x.Rect == y.Rect && sameImage(x.Image, y.Image)
+			return x.Atlas == y.Atlas && x.Frame == y.Frame && sameFrame(x.Rect, y.Rect) && sameImage(x.Image, y.Image)
 		})
 	})
 

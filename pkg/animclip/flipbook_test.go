@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -123,7 +124,7 @@ func TestFromFramesPlaysFlipbookInBuiltScene(t *testing.T) {
 		if hero.Doc.Sprite.Frame != tc.want || hero.Sprite.Frame.Name != tc.want {
 			t.Fatalf("at %v: doc frame %q, sprite frame %q, want %q", tc.at, hero.Doc.Sprite.Frame, hero.Sprite.Frame.Name, tc.want)
 		}
-		if wantRect := atlas.Frames[tc.want]; hero.Sprite.Frame != wantRect {
+		if wantRect := atlas.Frames[tc.want]; !reflect.DeepEqual(hero.Sprite.Frame, wantRect) {
 			t.Fatalf("at %v: sprite Frame %+v, want %+v", tc.at, hero.Sprite.Frame, wantRect)
 		}
 	}
@@ -150,7 +151,7 @@ func TestFromFramesPlaysFlipbookInBuiltScene(t *testing.T) {
 	// BuiltObject.Sync also preserves and updates the sprite's frame when Doc.Sprite.Frame changes.
 	hero.Doc.Sprite.Frame = "walk_2"
 	hero.Sync()
-	if hero.Sprite.Frame != atlas.Frames["walk_2"] {
+	if !reflect.DeepEqual(hero.Sprite.Frame, atlas.Frames["walk_2"]) {
 		t.Fatalf("after Sync(), sprite frame = %+v, want walk_2", hero.Sprite.Frame)
 	}
 }

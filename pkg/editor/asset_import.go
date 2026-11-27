@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -237,6 +238,84 @@ func (info AssetImportInfo) EffectiveCellImagePivot(cell int) (pt importsettings
 		}
 	}
 	return importsettings.PivotPoint{0, 0}, false, false
+}
+
+// EffectiveImageCollision returns a deep copy of the sidecar's collision settings (nil when unset) and whether it is set.
+func (info AssetImportInfo) EffectiveImageCollision() (*importsettings.Collision, bool) {
+	if info.Sidecar != nil && info.Sidecar.Image != nil && info.Sidecar.Image.Collision != nil {
+		return cloneImportCollision(info.Sidecar.Image.Collision), true
+	}
+	return nil, false
+}
+
+// EffectiveCellImageCollision returns the effective collision specification for 0-based cell (or default when cell < 0),
+// whether cell has its own per-cell override, and whether it is active (mode != "" && mode != "none").
+func (info AssetImportInfo) EffectiveCellImageCollision(cell int) (spec importsettings.CollisionSpec, overridden bool, active bool) {
+	if info.Sidecar == nil || info.Sidecar.Image == nil || info.Sidecar.Image.Collision == nil {
+		return importsettings.CollisionSpec{}, false, false
+	}
+	col := info.Sidecar.Image.Collision
+	if cell >= 0 {
+		for _, c := range col.Cells {
+			if c.Cell == cell {
+				s := importsettings.CollisionSpec{
+					Mode:        c.Mode,
+					Tolerance:   c.Tolerance,
+					MaxVertices: c.MaxVertices,
+					Points:      slices.Clone(c.Points),
+				}
+				return s, true, c.Mode != "" && c.Mode != "none"
+			}
+		}
+	}
+	s, ok := col.ForImage()
+	if !ok {
+		return importsettings.CollisionSpec{Mode: col.Mode}, false, false
+	}
+	return s, false, true
+}
+
+// EffectiveImagePoints returns a copy of the sidecar's default named image points (nil when unset) and whether any are set.
+func (info AssetImportInfo) EffectiveImagePoints() (map[string]importsettings.Point2D, bool) {
+	if info.Sidecar != nil && info.Sidecar.Image != nil && len(info.Sidecar.Image.Points) > 0 {
+		return maps.Clone(info.Sidecar.Image.Points), true
+	}
+	return nil, false
+}
+
+// EffectiveCellImagePoints returns the effective named image points for 0-based cell (merging per-cell overrides on top of default points),
+// plus a map marking which point names come from a per-cell override for cell. When cell < 0, it returns the default points with nil overrides.
+func (info AssetImportInfo) EffectiveCellImagePoints(cell int) (pts map[string]importsettings.Point2D, overridden map[string]bool) {
+	if info.Sidecar == nil || info.Sidecar.Image == nil {
+		return nil, nil
+	}
+	im := info.Sidecar.Image
+	if cell < 0 {
+		if len(im.Points) == 0 {
+			return nil, nil
+		}
+		return maps.Clone(im.Points), nil
+	}
+	var cellMap map[string]importsettings.Point2D
+	for _, cp := range im.CellPoints {
+		if cp.Cell == cell {
+			cellMap = cp.Points
+			break
+		}
+	}
+	if len(im.Points) == 0 && len(cellMap) == 0 {
+		return nil, nil
+	}
+	pts = make(map[string]importsettings.Point2D, len(im.Points)+len(cellMap))
+	maps.Copy(pts, im.Points)
+	if len(cellMap) > 0 {
+		overridden = make(map[string]bool, len(cellMap))
+		for k, v := range cellMap {
+			pts[k] = v
+			overridden[k] = true
+		}
+	}
+	return pts, overridden
 }
 
 // EffectiveAudioFormat returns the effective audio format and whether the sidecar overrides it.
@@ -675,6 +754,10 @@ func (e *Editor) SetImageImportSlice(relPath string, slice *importsettings.Slice
 				if f.Image.Pivot != nil {
 					f.Image.Pivot.Cells = nil
 				}
+				if f.Image.Collision != nil {
+					f.Image.Collision.Cells = nil
+				}
+				f.Image.CellPoints = nil
 			}
 			return
 		}
@@ -692,6 +775,32 @@ func (e *Editor) SetImageImportSlice(relPath string, slice *importsettings.Slice
 				im.Pivot.Cells = nil
 			} else {
 				im.Pivot.Cells = kept
+			}
+		}
+		if im.Collision != nil && s.Count > 0 && len(im.Collision.Cells) > 0 {
+			kept := im.Collision.Cells[:0]
+			for _, c := range im.Collision.Cells {
+				if c.Cell < s.Count {
+					kept = append(kept, c)
+				}
+			}
+			if len(kept) == 0 {
+				im.Collision.Cells = nil
+			} else {
+				im.Collision.Cells = kept
+			}
+		}
+		if s.Count > 0 && len(im.CellPoints) > 0 {
+			kept := im.CellPoints[:0]
+			for _, cp := range im.CellPoints {
+				if cp.Cell < s.Count {
+					kept = append(kept, cp)
+				}
+			}
+			if len(kept) == 0 {
+				im.CellPoints = nil
+			} else {
+				im.CellPoints = kept
 			}
 		}
 	})
@@ -780,6 +889,196 @@ func (e *Editor) SetImageImportCellPivot(relPath string, cell int, pt *importset
 		}
 		im.Pivot.Cells = append(im.Pivot.Cells, importsettings.CellPivot{Cell: cell, Pivot: *pt})
 		slices.SortFunc(im.Pivot.Cells, func(a, b importsettings.CellPivot) int {
+			return cmp.Compare(a.Cell, b.Cell)
+		})
+	})
+}
+
+// SetImageImportCollision sets or clears (when nil) the image collision block in relPath's sidecar, sorting per-cell overrides by ascending cell index.
+func (e *Editor) SetImageImportCollision(relPath string, col *importsettings.Collision) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	return e.EditAssetImportSettings(relPath, "Set image collision for "+relPath, func(f *importsettings.File) {
+		if col == nil {
+			if f.Image != nil {
+				f.Image.Collision = nil
+			}
+			return
+		}
+		c := cloneImportCollision(col)
+		slices.SortFunc(c.Cells, func(a, b importsettings.CellCollision) int {
+			return cmp.Compare(a.Cell, b.Cell)
+		})
+		ensureImportImage(f).Collision = c
+	})
+}
+
+// SetImageImportDefaultCollision updates the default collision mode, tolerance, maxVertices, and explicit polygon points in relPath's sidecar without disturbing per-cell overrides.
+// Passing mode == "" clears the default collision settings.
+func (e *Editor) SetImageImportDefaultCollision(relPath, mode string, tolerance, maxVertices int, points []importsettings.Point2D) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	return e.EditAssetImportSettings(relPath, "Set default collision for "+relPath, func(f *importsettings.File) {
+		if mode == "" {
+			if f.Image != nil && f.Image.Collision != nil {
+				f.Image.Collision.Mode = ""
+				f.Image.Collision.Tolerance = 0
+				f.Image.Collision.MaxVertices = 0
+				f.Image.Collision.Points = nil
+			}
+			return
+		}
+		im := ensureImportImage(f)
+		if im.Collision == nil {
+			im.Collision = &importsettings.Collision{}
+		}
+		im.Collision.Mode = mode
+		im.Collision.Tolerance = tolerance
+		im.Collision.MaxVertices = maxVertices
+		if mode == "polygon" {
+			im.Collision.Points = slices.Clone(points)
+		} else {
+			im.Collision.Points = nil
+		}
+	})
+}
+
+// SetImageImportCellCollision sets or clears (when nil) the per-cell collision override for 0-based cell in relPath's sidecar.
+func (e *Editor) SetImageImportCellCollision(relPath string, cell int, col *importsettings.CellCollision) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	if cell < 0 {
+		return fmt.Errorf("editor: cell %d must not be negative", cell)
+	}
+	label := fmt.Sprintf("Set cell %d collision for %s", cell, relPath)
+	if col == nil {
+		label = fmt.Sprintf("Reset cell %d collision for %s", cell, relPath)
+	}
+	return e.EditAssetImportSettings(relPath, label, func(f *importsettings.File) {
+		if col == nil {
+			if f.Image == nil || f.Image.Collision == nil || len(f.Image.Collision.Cells) == 0 {
+				return
+			}
+			kept := f.Image.Collision.Cells[:0]
+			for _, c := range f.Image.Collision.Cells {
+				if c.Cell != cell {
+					kept = append(kept, c)
+				}
+			}
+			if len(kept) == 0 {
+				f.Image.Collision.Cells = nil
+			} else {
+				f.Image.Collision.Cells = kept
+			}
+			return
+		}
+		im := ensureImportImage(f)
+		if im.Collision == nil {
+			im.Collision = &importsettings.Collision{}
+		}
+		entry := *col
+		entry.Cell = cell
+		entry.Points = slices.Clone(col.Points)
+		for i := range im.Collision.Cells {
+			if im.Collision.Cells[i].Cell == cell {
+				im.Collision.Cells[i] = entry
+				return
+			}
+		}
+		im.Collision.Cells = append(im.Collision.Cells, entry)
+		slices.SortFunc(im.Collision.Cells, func(a, b importsettings.CellCollision) int {
+			return cmp.Compare(a.Cell, b.Cell)
+		})
+	})
+}
+
+// SetImageImportPoint sets or deletes (when pt == nil) the default named image point name in relPath's sidecar.
+func (e *Editor) SetImageImportPoint(relPath, name string, pt *importsettings.Point2D) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("editor: image point name must not be empty")
+	}
+	label := fmt.Sprintf("Set image point %q for %s", name, relPath)
+	if pt == nil {
+		label = fmt.Sprintf("Remove image point %q for %s", name, relPath)
+	}
+	return e.EditAssetImportSettings(relPath, label, func(f *importsettings.File) {
+		if pt == nil {
+			if f.Image != nil && f.Image.Points != nil {
+				delete(f.Image.Points, name)
+				if len(f.Image.Points) == 0 {
+					f.Image.Points = nil
+				}
+			}
+			return
+		}
+		im := ensureImportImage(f)
+		if im.Points == nil {
+			im.Points = make(map[string]importsettings.Point2D)
+		}
+		im.Points[name] = *pt
+	})
+}
+
+// SetImageImportCellPoint sets or deletes (when pt == nil) the per-cell named image point override for 0-based cell in relPath's sidecar.
+func (e *Editor) SetImageImportCellPoint(relPath string, cell int, name string, pt *importsettings.Point2D) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	if cell < 0 {
+		return fmt.Errorf("editor: cell %d must not be negative", cell)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("editor: image point name must not be empty")
+	}
+	label := fmt.Sprintf("Set cell %d point %q for %s", cell, name, relPath)
+	if pt == nil {
+		label = fmt.Sprintf("Reset cell %d point %q for %s", cell, name, relPath)
+	}
+	return e.EditAssetImportSettings(relPath, label, func(f *importsettings.File) {
+		if pt == nil {
+			if f.Image == nil || len(f.Image.CellPoints) == 0 {
+				return
+			}
+			kept := f.Image.CellPoints[:0]
+			for _, cp := range f.Image.CellPoints {
+				if cp.Cell == cell {
+					delete(cp.Points, name)
+					if len(cp.Points) == 0 {
+						continue
+					}
+				}
+				kept = append(kept, cp)
+			}
+			if len(kept) == 0 {
+				f.Image.CellPoints = nil
+			} else {
+				f.Image.CellPoints = kept
+			}
+			return
+		}
+		im := ensureImportImage(f)
+		for i := range im.CellPoints {
+			if im.CellPoints[i].Cell == cell {
+				if im.CellPoints[i].Points == nil {
+					im.CellPoints[i].Points = make(map[string]importsettings.Point2D)
+				}
+				im.CellPoints[i].Points[name] = *pt
+				return
+			}
+		}
+		im.CellPoints = append(im.CellPoints, importsettings.CellPoints{
+			Cell:   cell,
+			Points: map[string]importsettings.Point2D{name: *pt},
+		})
+		slices.SortFunc(im.CellPoints, func(a, b importsettings.CellPoints) int {
 			return cmp.Compare(a.Cell, b.Cell)
 		})
 	})
@@ -1074,6 +1373,17 @@ func (e *Editor) ResetAssetImportField(relPath, field string) error {
 					f.Image.Pivot.Cells = nil
 				}
 			})
+		case "collision":
+			return e.SetImageImportCollision(relPath, nil)
+		case "collision.default":
+			return e.SetImageImportDefaultCollision(relPath, "", 0, 0, nil)
+		case "points":
+			return e.EditAssetImportSettings(relPath, "Reset image points for "+relPath, func(f *importsettings.File) {
+				if f.Image != nil {
+					f.Image.Points = nil
+					f.Image.CellPoints = nil
+				}
+			})
 		}
 	case AssetImportAudio:
 		switch field {
@@ -1218,6 +1528,15 @@ func cloneImportFile(src *importsettings.File) *importsettings.File {
 		if src.Image.Pivot != nil {
 			im.Pivot = cloneImportPivot(src.Image.Pivot)
 		}
+		if src.Image.Collision != nil {
+			im.Collision = cloneImportCollision(src.Image.Collision)
+		}
+		if len(src.Image.Points) > 0 {
+			im.Points = maps.Clone(src.Image.Points)
+		}
+		if len(src.Image.CellPoints) > 0 {
+			im.CellPoints = cloneImportCellPoints(src.Image.CellPoints)
+		}
 		out.Image = &im
 	}
 	if src.Audio != nil {
@@ -1275,11 +1594,66 @@ func cloneImportPivot(src *importsettings.Pivot) *importsettings.Pivot {
 	return out
 }
 
+func cloneImportCollision(src *importsettings.Collision) *importsettings.Collision {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	if len(src.Points) > 0 {
+		out.Points = slices.Clone(src.Points)
+	}
+	if len(src.Cells) > 0 {
+		out.Cells = make([]importsettings.CellCollision, len(src.Cells))
+		for i, c := range src.Cells {
+			out.Cells[i] = c
+			if len(c.Points) > 0 {
+				out.Cells[i].Points = slices.Clone(c.Points)
+			}
+		}
+	}
+	return &out
+}
+
+func cloneImportCellPoints(src []importsettings.CellPoints) []importsettings.CellPoints {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]importsettings.CellPoints, len(src))
+	for i, cp := range src {
+		out[i] = importsettings.CellPoints{
+			Cell:   cp.Cell,
+			Points: maps.Clone(cp.Points),
+		}
+	}
+	return out
+}
+
 func pruneEmptyImportSections(f *importsettings.File) {
 	if f.Image != nil && f.Image.Pivot != nil &&
 		f.Image.Pivot.Default == nil &&
 		len(f.Image.Pivot.Cells) == 0 {
 		f.Image.Pivot = nil
+	}
+	if f.Image != nil && f.Image.Collision != nil &&
+		f.Image.Collision.Mode == "" &&
+		len(f.Image.Collision.Cells) == 0 {
+		f.Image.Collision = nil
+	}
+	if f.Image != nil && len(f.Image.Points) == 0 {
+		f.Image.Points = nil
+	}
+	if f.Image != nil && len(f.Image.CellPoints) > 0 {
+		kept := f.Image.CellPoints[:0]
+		for _, cp := range f.Image.CellPoints {
+			if len(cp.Points) > 0 {
+				kept = append(kept, cp)
+			}
+		}
+		if len(kept) == 0 {
+			f.Image.CellPoints = nil
+		} else {
+			f.Image.CellPoints = kept
+		}
 	}
 	if f.Image != nil &&
 		f.Image.Filter == "" &&
@@ -1287,7 +1661,10 @@ func pruneEmptyImportSections(f *importsettings.File) {
 		f.Image.Mipmaps == nil &&
 		f.Image.SRGB == nil &&
 		f.Image.Slice == nil &&
-		f.Image.Pivot == nil {
+		f.Image.Pivot == nil &&
+		f.Image.Collision == nil &&
+		len(f.Image.Points) == 0 &&
+		len(f.Image.CellPoints) == 0 {
 		f.Image = nil
 	}
 	if f.Audio != nil &&

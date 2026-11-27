@@ -51,16 +51,40 @@ sheet := &sprite.Atlas{
 
 打包工具通常会裁掉每帧四周的透明边缘以节省图集空间。`Frame` 同时记录图集里的裁剪矩形和未裁剪时的原始画框：
 
+`Frame` 还携带可选的烘焙 2D 碰撞多边形（`Shapes`）与命名图像点（`Points`），两者均以未裁剪画框左上角为原点、以点为单位：
+
 ```go
 type Frame struct {
 	Name             string
-	X, Y, W, H       float32 // 图集图片中的裁剪矩形，单位为点
-	OffsetX, OffsetY float32 // 裁剪矩形在未裁剪画框内的偏移
-	Width, Height    float32 // 未裁剪时的帧尺寸（未裁剪时等于 W、H）
+	X, Y, W, H       float32                // 图集图片中的裁剪矩形，单位为点
+	OffsetX, OffsetY float32                // 裁剪矩形在未裁剪画框内的偏移
+	Width, Height    float32                // 未裁剪时的帧尺寸（未裁剪时等于 W、H）
+	PivotX, PivotY   float32                // 未裁剪帧内的锚点，从左上角起算
+	Shapes           [][]math2d.Vec2        // 凸碰撞多边形，在 Y 向下坐标系下按顺时针绕序
+	Points           map[string]math2d.Vec2 // 命名图像点（如 muzzle、hand、feet 等）
 }
 ```
 
-`Sprite` 的 `OriginX`、`OriginY`、`FlipX`、`FlipY`、旋转和缩放都以未裁剪画框（`Width`、`Height`）为准。因此裁剪透明边缘绝不会让角色在切换动画帧时脚底漂移或错位。
+`Sprite` 的 `OriginX`、`OriginY`、`FlipX`、`FlipY`、旋转和缩放都以未裁剪画框（`Width`、`Height`）为准。因此裁剪透明边缘绝不会让角色在切换动画帧时脚底、命名点或碰撞多边形漂移错位。
+
+## 碰撞多边形与命名图像点
+
+在图片的 `.import.yaml` 伴随文件中配置 `image.collision`、`image.points` 和 `image.cellPoints`（见 [assets](assets.md#图片碰撞多边形与命名图像点)），`go tool game assets` 与 `go tool game pack` 会在打包阶段使用 marching squares 追踪透明通道轮廓、将每个凸部简化到最多 `maxVertices`（默认 `8`）个顶点、把凹轮廓拆分为凸多边形，并将 `shapes` 与 `points` 写入图集 JSON。运行时绝不做图像像素追踪。
+
+`LoadAtlas` 会读取：
+
+- 打包图集中的 `frames.<name>.shapes` 与 `frames.<name>.points`，并将所有坐标除以 `meta.scale`。
+- Aseprite 导出中带有 `pivot` 的 `meta.slices` 条目，按关键帧区间把 `bounds + pivot` 写入对应帧（以及 `Atlas.Animations`）的 `Frame.Points[slice.name]`。
+
+通过 `Sprite.PointWorld(name)` 与 `Sprite.ShapesWorld()` 可获取已应用 `FlipX`、`FlipY`、`OriginX`/`OriginY`、`ScaleX`/`ScaleY`、`Rotation` 和 `(X, Y)` 的世界（绘图）坐标：
+
+```go
+if muzzle, ok := hero.PointWorld("muzzle"); ok {
+	spawnBullet(muzzle.X, muzzle.Y, hero.FlipX)
+}
+```
+
+当精灵被镜像翻转（`FlipX`、`FlipY` 或负缩放）时，`ShapesWorld()` 会反转多边形顶点顺序，确保每个多边形在 Y 向下坐标系下保持顺时针绕序。在场景文件中为 `collider2d`（或 `trigger2d`）设置 `shape: sprite`，2D 物理就会直接使用当前帧的 `Shapes`，并在 `PhysicsScene.Step`（或 `PhysicsScene.SyncSpriteColliders`）中自动跟随帧切换、翻转、缩放与旋转。
 
 ## Animation
 

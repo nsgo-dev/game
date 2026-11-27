@@ -133,3 +133,29 @@ group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 - 不可能通过校验的 `PackSpec`（格式错误的 `sha256` 或 `signature`，或负的 `size`）会在接触缓存之前就被拒绝，因此不会删除完好的缓存资源包。只有当缓存字节与 `PackSpec` 的大小或哈希不符时才会删除缓存；字节相符但签名或内容被拒绝的资源包会保留，因为重新下载得到的仍是相同的字节。
 - 续传时收到不带 `Content-Range` 头的 `206 Partial Content`，会从第一个字节重新下载，而不是追加一段无法核对范围的响应体。
 - `ParsePackManifest` 会拒绝它未定义的字段（例如拼错的 `sha265`）、同一对象中重复出现的键，以及清单之后的多余内容，并给出行号与修复方法。
+
+## 图片碰撞多边形与命名图像点
+
+图集源 PNG 旁的 `*.import.yaml` 伴随文件可以配置烘焙的 2D 碰撞形状（`image.collision`）与命名图像点（`image.points`，切分精灵表还可通过 `image.cellPoints` 按单元格覆写）：
+
+```yaml
+version: 1
+image:
+  slice: {width: 16, height: 16}
+  collision:
+    mode: alpha        # alpha、box、ellipse、polygon 或 none
+    tolerance: 0       # 透明度阈值 [0..255]，alpha > tolerance 的像素视为实体
+    maxVertices: 8     # 每个凸多边形的最大顶点数（3..8，默认 8）
+    cells:
+      - cell: 1
+        mode: box
+  points:
+    muzzle: [14, 6]
+    feet: [8, 16]
+  cellPoints:
+    - cell: 1
+      points:
+        muzzle: [15, 5]
+```
+
+运行 `go tool game assets` 或 `go tool game pack` 打包图集时，工具会用 marching squares 追踪像素透明通道、简化轮廓并将凹轮廓拆分为顶点数不超过 `maxVertices` 的凸多边形，然后把 `shapes` 和 `points` 写入打包后的图集 JSON。伴随文件拒绝未知字段并按 `import.v1.json` 校验。在编辑器文件浏览器中选中图片后，检查器预览会直接叠加显示追踪出的碰撞轮廓与命名点，并支持在预览画布上拖拽调整命名点位置。

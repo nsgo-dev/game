@@ -115,7 +115,7 @@ func TestSDFFontLoadsFromEveryGeneratorsFormatAlike(t *testing.T) {
 	}
 	wantI := text.Glyph{ID: 'I', XOffset: -4, YOffset: 0, XAdvance: 8}
 	wantI.Frame.Name, wantI.Frame.W, wantI.Frame.H, wantI.Frame.Width, wantI.Frame.Height = "I", 12, 24, 12, 24
-	if got := want.Glyphs['I']; got != wantI {
+	if got := want.Glyphs['I']; !reflect.DeepEqual(got, wantI) {
 		t.Fatalf("glyph I = %+v, want %+v", got, wantI)
 	}
 	if got := want.Glyphs[' ']; got.XAdvance != 4 || got.Frame.W != 0 {
