@@ -327,26 +327,301 @@ func TestFullPlayableLoopRendersExpectedCanvasDrawOps(t *testing.T) {
 	}
 }
 
-func TestTouchDPadMovesPlayerThroughInputActions(t *testing.T) {
-	app, g := startTestGame(t)
+func controlFrame(t *testing.T, g *Game, id string) core.Bounds {
+	t.Helper()
+	for _, c := range g.Touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
+	}
+	t.Fatalf("no touch control %q", id)
+	return core.Bounds{}
+}
+
+func centerOf(f core.Bounds) core.Point {
+	return core.Point{X: f.Origin.X + f.Size.Width/2, Y: f.Origin.Y + f.Size.Height/2}
+}
+
+func overlaps(a, b core.Bounds) bool {
+	return a.Origin.X < b.Origin.X+b.Size.Width && b.Origin.X < a.Origin.X+a.Size.Width &&
+		a.Origin.Y < b.Origin.Y+b.Size.Height && b.Origin.Y < a.Origin.Y+a.Size.Height
+}
+
+func TestTouchStickMovesCardinallyAndDiagonallyWithOneThumb(t *testing.T) {
+	app, g := startTestGame(t, nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone}))
 	app.Advance(50 * time.Millisecond)
 
+	// Start in an open area of Entry Hall (col 3, row 4) with room to move in every direction.
+	open := g.World.CellCenter(ai.Cell{Col: 3, Row: 4})
+	app.Post(func() {
+		g.SetPlayerPos(float32(open.X), float32(open.Y))
+	})
+	app.Advance(50 * time.Millisecond)
+
+	stickCenter := centerOf(controlFrame(t, g, "move"))
+	startPos := g.PlayerCenter()
+
+	// Touch down on the floating stick, then drag right.
+	finger := app.Touch("id:stage", stickCenter)
+	finger.Move(core.Point{X: stickCenter.X + 48, Y: stickCenter.Y})
+	app.Advance(250 * time.Millisecond)
+	afterRight := g.PlayerCenter()
+	if afterRight.X <= startPos.X+10 {
+		t.Fatalf("dragging stick right did not move hero right: start=%+v after=%+v", startPos, afterRight)
+	}
+
+	// Keep the same thumb down and drag diagonally up-right (screen Y decreases -> hero moves up and right).
+	finger.Move(core.Point{X: stickCenter.X + 40, Y: stickCenter.Y - 40})
+	app.Advance(250 * time.Millisecond)
+	afterUpRight := g.PlayerCenter()
+	if afterUpRight.X <= afterRight.X+6 || afterUpRight.Y >= afterRight.Y-6 {
+		t.Fatalf("dragging stick up-right did not move hero diagonally up-right: before=%+v after=%+v", afterRight, afterUpRight)
+	}
+
+	// Drag diagonally down-left with the same thumb (screen Y increases -> hero moves down and left).
+	finger.Move(core.Point{X: stickCenter.X - 40, Y: stickCenter.Y + 40})
+	app.Advance(250 * time.Millisecond)
+	afterDownLeft := g.PlayerCenter()
+	if afterDownLeft.X >= afterUpRight.X-6 || afterDownLeft.Y <= afterUpRight.Y+6 {
+		t.Fatalf("dragging stick down-left did not move hero diagonally down-left: before=%+v after=%+v", afterUpRight, afterDownLeft)
+	}
+
+	// Lifting the thumb stops the hero.
+	finger.Lift()
+	app.Advance(100 * time.Millisecond)
+	stopped := g.PlayerCenter()
+	app.Advance(200 * time.Millisecond)
+	if end := g.PlayerCenter(); end != stopped {
+		t.Fatalf("hero kept moving after stick release: %+v -> %+v", stopped, end)
+	}
+}
+
+func TestTouchButtonsAttackInteractAndHideDuringDialogue(t *testing.T) {
+	app, g := startTestGame(t, nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone}))
+	app.Advance(50 * time.Millisecond)
+
+	if !app.Exists("id:touch-move") || !app.Exists("id:touch-interact") || !app.Exists("id:touch-attack") {
+		t.Fatal("expected touch controls to be visible on a phone")
+	}
+
+	// Move beside Bone Warden and banish it with the touch ATTACK button while also moving the stick with a second finger.
+	wardenPos := g.Enemies[0].Center()
+	app.Post(func() {
+		g.SetPlayerPos(float32(wardenPos.X), float32(wardenPos.Y)+12)
+	})
+	app.Advance(50 * time.Millisecond)
+
+	stageOrigin := app.Find("id:stage-container").Frame.Origin
+	toPage := func(local core.Point) core.Point {
+		return core.Point{X: stageOrigin.X + local.X, Y: stageOrigin.Y + local.Y}
+	}
+	stickBase := toPage(centerOf(controlFrame(t, g, "move")))
+	attackPt := toPage(centerOf(controlFrame(t, g, "attack")))
+
+	startX := g.PlayerCenter().X
+	app.Report(nsgotest.Event{
+		Kind:    nsgotest.EventTouch,
+		Phase:   core.GestureBegan,
+		Touches: []core.Touch{{ID: 1, PagePosition: stickBase, Changed: true}},
+	})
+	app.Report(nsgotest.Event{
+		Kind:  nsgotest.EventTouch,
+		Phase: core.GestureChanged,
+		Touches: []core.Touch{
+			{ID: 1, PagePosition: core.Point{X: stickBase.X + 40, Y: stickBase.Y}, Changed: true},
+		},
+	})
+	app.Report(nsgotest.Event{
+		Kind:  nsgotest.EventTouch,
+		Phase: core.GestureBegan,
+		Touches: []core.Touch{
+			{ID: 1, PagePosition: core.Point{X: stickBase.X + 40, Y: stickBase.Y}},
+			{ID: 2, PagePosition: attackPt, Changed: true},
+		},
+	})
+	app.Advance(120 * time.Millisecond)
+	app.Report(nsgotest.Event{
+		Kind:  nsgotest.EventTouch,
+		Phase: core.GestureEnded,
+		Touches: []core.Touch{
+			{ID: 1, PagePosition: core.Point{X: stickBase.X + 40, Y: stickBase.Y}},
+			{ID: 2, PagePosition: attackPt, Changed: true},
+		},
+	})
+	app.Report(nsgotest.Event{
+		Kind:    nsgotest.EventTouch,
+		Phase:   core.GestureEnded,
+		Touches: []core.Touch{{ID: 1, PagePosition: core.Point{X: stickBase.X + 40, Y: stickBase.Y}, Changed: true}},
+	})
+	app.Advance(50 * time.Millisecond)
+
+	if !g.Enemies[0].Defeated || g.Enemies[0].State.Current() != EnemyDefeated {
+		t.Fatalf("touch ATTACK did not defeat Bone Warden: state=%q defeated=%v", g.Enemies[0].State.Current(), g.Enemies[0].Defeated)
+	}
+	if gotX := g.PlayerCenter().X; gotX <= startX+2 {
+		t.Fatalf("simultaneous stick drag did not move hero right while attacking: startX=%.1f endX=%.1f", startX, gotX)
+	}
+
+	// Move beside Elder Aldric and tap the touch USE button to open dialogue; touch controls must hide while dialogue is open.
+	nearElder := g.World.CellCenter(ai.Cell{Col: 3, Row: 3})
+	app.Post(func() {
+		g.SetPlayerPos(float32(nearElder.X), float32(nearElder.Y))
+	})
+	app.Advance(50 * time.Millisecond)
+
+	useFinger := app.Touch("id:stage", centerOf(controlFrame(t, g, "interact")))
+	app.Advance(50 * time.Millisecond)
+	useFinger.Lift()
+	app.Advance(50 * time.Millisecond)
+
+	if !g.Dialogue.Open {
+		t.Fatal("touch USE button did not open Elder Aldric dialogue")
+	}
+	if app.Exists("id:touch-move") || app.Exists("id:touch-interact") || app.Exists("id:touch-attack") {
+		t.Fatal("touch controls remained visible while dialogue was open")
+	}
+
+	// Closing the dialogue brings the touch controls back at full opacity.
+	app.Press("id:dialogue-close")
+	app.Advance(50 * time.Millisecond)
+	if !app.Exists("id:touch-move") || !app.Exists("id:touch-attack") {
+		t.Fatal("touch controls did not return after closing dialogue")
+	}
+	if got := g.Touch.Alpha(); got != 1 {
+		t.Fatalf("touch controls alpha after dialogue close = %v, want 1", got)
+	}
+}
+
+func TestTouchControlsHiddenOnDesktopAndMouseClickDoesNotMoveHero(t *testing.T) {
+	app, g := startTestGame(t, nsgotest.Idiom(core.IdiomDesktop))
+	app.Advance(50 * time.Millisecond)
+
+	if app.Exists("id:touch-move") || app.Exists("id:touch-interact") || app.Exists("id:touch-attack") {
+		t.Fatal("touch controls should start hidden on desktop")
+	}
+
+	// Clicking the stage with a mouse (including where the old virtual D-pad sat and where the stick sits) must not move the hero or show touch controls.
 	startPos := g.PlayerCenter()
 	stageFrame := app.Find("id:stage").Frame
-	// Map the center of the virtual right D-pad button into stage view coordinates.
-	padCenterVirtual := core.Point{
-		X: dpadRightRect.Origin.X + dpadRightRect.Size.Width/2,
-		Y: dpadRightRect.Origin.Y + dpadRightRect.Size.Height/2,
+	oldRightPad := g.Viewport.GameToView(stageFrame.Size, core.Point{X: 55, Y: 168})
+	stickPt := centerOf(controlFrame(t, g, "move"))
+	for _, pt := range []core.Point{oldRightPad, stickPt, {X: stickPt.X + 40, Y: stickPt.Y}} {
+		app.MouseDownAt("id:stage", pt, core.MouseButtonLeft)
+		app.Advance(150 * time.Millisecond)
+		app.MouseUpAt("id:stage", pt, core.MouseButtonLeft)
 	}
-	viewPt := g.Viewport.GameToView(stageFrame.Size, padCenterVirtual)
+	if pos := g.PlayerCenter(); pos != startPos {
+		t.Fatalf("mouse clicks on stage moved the hero: start=%+v end=%+v", startPos, pos)
+	}
+	if app.Exists("id:touch-move") {
+		t.Fatal("mouse clicks on stage showed touch controls on desktop")
+	}
 
-	finger := app.Touch("id:stage", viewPt)
-	app.Advance(300 * time.Millisecond)
+	// Touching the screen shows the controls, and pressing a key hides them again.
+	finger := app.Touch("id:stage", centerOf(controlFrame(t, g, "attack")))
+	app.Advance(50 * time.Millisecond)
 	finger.Lift()
+	if !app.Exists("id:touch-move") || !app.Exists("id:touch-attack") {
+		t.Fatal("a touch did not show the touch controls on desktop")
+	}
 
-	endPos := g.PlayerCenter()
-	if endPos.X <= startPos.X+10 {
-		t.Fatalf("expected holding touch D-pad right to move player right: start=%+v end=%+v", startPos, endPos)
+	app.Key("d")
+	app.Advance(50 * time.Millisecond)
+	if app.Exists("id:touch-move") || app.Exists("id:touch-attack") {
+		t.Fatal("keyboard input did not hide the touch controls on desktop")
+	}
+}
+
+func TestTouchControlsPhoneSafeAreaSizesAndHUDLayout(t *testing.T) {
+	cases := []struct {
+		name string
+		w, h core.Points
+		safe core.Edges
+	}{
+		{
+			name: "landscape_iphone",
+			w:    844,
+			h:    390,
+			safe: core.Edges{Left: 47, Right: 47, Bottom: 21},
+		},
+		{
+			name: "portrait_iphone",
+			w:    390,
+			h:    844,
+			safe: core.Edges{Top: 59, Bottom: 34},
+		},
+		{
+			name: "narrow_portrait_phone",
+			w:    360,
+			h:    640,
+			safe: core.Edges{Top: 44, Bottom: 24},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startTestGame(
+				t,
+				nsgotest.Size(tc.w, tc.h),
+				nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: tc.safe}),
+			)
+			app.Advance(50 * time.Millisecond)
+
+			hudFrame := app.Find("id:hud-bar").Frame
+			statusFrame := app.Find("id:status-bar").Frame
+			stageFrame := app.Find("id:stage-container").Frame
+
+			if stageFrame.Size.Width <= 0 || stageFrame.Size.Height <= 0 {
+				t.Fatalf("invalid stage frame %+v", stageFrame)
+			}
+			if hudFrame.Size.Width > tc.w || statusFrame.Origin.Y+statusFrame.Size.Height > tc.h {
+				t.Fatalf("chrome exceeds window %vx%v: hud=%+v status=%+v", tc.w, tc.h, hudFrame, statusFrame)
+			}
+			if overlaps(hudFrame, stageFrame) {
+				t.Fatalf("HUD bar %+v overlaps stage %+v", hudFrame, stageFrame)
+			}
+
+			ids := []string{"move", "interact", "attack"}
+			winFrames := make(map[string]core.Bounds, len(ids))
+			for _, id := range ids {
+				if !app.Exists("id:touch-" + id) {
+					t.Fatalf("touch control %q not visible", id)
+				}
+				f := controlFrame(t, g, id)
+				if f.Size.Width < 44 || f.Size.Height < 44 {
+					t.Fatalf("control %q smaller than 44pt minimum: %+v", id, f.Size)
+				}
+				wf := core.Bounds{
+					Origin: core.Point{X: stageFrame.Origin.X + f.Origin.X, Y: stageFrame.Origin.Y + f.Origin.Y},
+					Size:   f.Size,
+				}
+				winFrames[id] = wf
+				if wf.Origin.X < tc.safe.Left ||
+					wf.Origin.Y < tc.safe.Top ||
+					wf.Origin.X+wf.Size.Width > tc.w-tc.safe.Right ||
+					wf.Origin.Y+wf.Size.Height > tc.h-tc.safe.Bottom {
+					t.Fatalf("control %q frame %+v falls outside safe area %+v of %vx%v", id, wf, tc.safe, tc.w, tc.h)
+				}
+				if overlaps(wf, hudFrame) {
+					t.Fatalf("control %q %+v overlaps HUD bar %+v", id, wf, hudFrame)
+				}
+				if overlaps(wf, statusFrame) {
+					t.Fatalf("control %q %+v overlaps status bar %+v", id, wf, statusFrame)
+				}
+			}
+
+			if winFrames["attack"].Size.Width <= winFrames["interact"].Size.Width {
+				t.Fatalf("ATTACK button (%+v) should be larger than USE button (%+v)", winFrames["attack"].Size, winFrames["interact"].Size)
+			}
+			for i := 0; i < len(ids); i++ {
+				for j := i + 1; j < len(ids); j++ {
+					a, b := ids[i], ids[j]
+					if overlaps(winFrames[a], winFrames[b]) {
+						t.Fatalf("controls %q %+v and %q %+v overlap", a, winFrames[a], b, winFrames[b])
+					}
+				}
+			}
+		})
 	}
 }
 

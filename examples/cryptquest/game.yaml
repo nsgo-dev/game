@@ -17,51 +17,24 @@ display:
 input:
   actions:
     - name: up
-      bindings:
-        - kind: touchRegion
-          region: {x: 28, "y": 142, width: 18, height: 18}
-        - kind: mouseRegion
-          button: left
-          region: {x: 28, "y": 142, width: 18, height: 18}
     - name: down
-      bindings:
-        - kind: touchRegion
-          region: {x: 28, "y": 176, width: 18, height: 18}
-        - kind: mouseRegion
-          button: left
-          region: {x: 28, "y": 176, width: 18, height: 18}
     - name: left
-      bindings:
-        - kind: touchRegion
-          region: {x: 10, "y": 159, width: 18, height: 18}
-        - kind: mouseRegion
-          button: left
-          region: {x: 10, "y": 159, width: 18, height: 18}
     - name: right
-      bindings:
-        - kind: touchRegion
-          region: {x: 46, "y": 159, width: 18, height: 18}
-        - kind: mouseRegion
-          button: left
-          region: {x: 46, "y": 159, width: 18, height: 18}
     - name: interact
-      bindings:
-        - kind: touchRegion
-          region: {x: 262, "y": 162, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 262, "y": 162, width: 22, height: 22}
     - name: attack
-      bindings:
-        - kind: touchRegion
-          region: {x: 288, "y": 162, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 288, "y": 162, width: 22, height: 22}
   axes:
     - name: move_x
       negative: left
       positive: right
     - name: move_y
-      negative: up
-      positive: down
+      negative: down
+      positive: up
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+    - platform: linux
+    - platform: android
+    - platform: web
+    - platform: ios

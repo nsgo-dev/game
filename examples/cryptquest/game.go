@@ -42,16 +42,6 @@ const (
 	typewriterCharsPerSec = 48.0
 )
 
-// Virtual-space control pad rectangles, as game.yaml binds them to input.Actions.
-var (
-	dpadUpRect      = projectRegion("up")
-	dpadDownRect    = projectRegion("down")
-	dpadLeftRect    = projectRegion("left")
-	dpadRightRect   = projectRegion("right")
-	padInteractRect = projectRegion("interact")
-	padAttackRect   = projectRegion("attack")
-)
-
 // EnemyState identifies an enemy's current flow.Machine state.
 type EnemyState string
 
@@ -181,7 +171,12 @@ type Game struct {
 	Viewport screen.Viewport
 	Camera   tilemap.Camera
 	Actions  *input.Actions
+	// Touch is the view-space on-screen touch controls (floating stick plus Attack and Use buttons).
+	Touch    *input.TouchControls
 	ViewSize core.Size
+
+	env        *core.Env
+	stageFrame core.Bounds
 
 	Player        *physics.Body
 	PlayerPrevX   float32
@@ -277,6 +272,10 @@ func (g *Game) Reset() {
 	g.keyMoveY = 0
 	g.keyMoveTimer = 0
 	g.Elapsed = 0
+	g.Actions.Reset()
+	if g.Touch != nil {
+		g.Touch.Wake()
+	}
 
 	g.PlayerAnim = sprite.Animation{
 		Loop: true,
@@ -395,55 +394,53 @@ func (g *Game) SetPlayerPos(x, y float32) {
 
 // HandleKey processes hardware keyboard input from View.OnKeyDown or Scope.OnKey.
 func (g *Game) HandleKey(key string) bool {
+	handled := false
 	switch key {
 	case "w", "up":
-		if g.Dialogue.Open {
-			return true
+		if !g.Dialogue.Open {
+			g.nudgeMove(0, -1)
 		}
-		g.nudgeMove(0, -1)
-		return true
+		handled = true
 	case "s", "down":
-		if g.Dialogue.Open {
-			return true
+		if !g.Dialogue.Open {
+			g.nudgeMove(0, 1)
 		}
-		g.nudgeMove(0, 1)
-		return true
+		handled = true
 	case "a", "left":
-		if g.Dialogue.Open {
-			return true
+		if !g.Dialogue.Open {
+			g.nudgeMove(-1, 0)
 		}
-		g.nudgeMove(-1, 0)
-		return true
+		handled = true
 	case "d", "right":
-		if g.Dialogue.Open {
-			return true
+		if !g.Dialogue.Open {
+			g.nudgeMove(1, 0)
 		}
-		g.nudgeMove(1, 0)
-		return true
+		handled = true
 	case "e", "space", "enter":
 		if g.Dialogue.Open {
 			g.AdvanceDialogue()
 		} else {
 			g.Interact()
 		}
-		return true
+		handled = true
 	case "f", "j":
 		if !g.Dialogue.Open {
 			g.Attack()
 		}
-		return true
+		handled = true
 	case "n":
 		g.ShowNavMesh = !g.ShowNavMesh
-		return true
+		handled = true
 	case "escape":
 		if g.Dialogue.Open {
 			g.CloseDialogue()
-			return true
+			handled = true
 		}
-		return false
-	default:
-		return false
 	}
+	if handled && g.Touch != nil {
+		g.Touch.Tracker().OnKey(core.KeyEvent{Key: key})
+	}
+	return handled
 }
 
 func (g *Game) nudgeMove(dx, dy float32) {
@@ -459,6 +456,9 @@ func (g *Game) Update(dt time.Duration) {
 	}
 	g.Elapsed += dt
 	g.Actions.Step()
+	if g.Touch != nil {
+		g.Touch.Update(dt)
+	}
 	g.World.Map.Update(dt)
 	g.ElderAnim.Update(dt)
 	g.Camera.Update(dt)
@@ -470,19 +470,18 @@ func (g *Game) Update(dt time.Duration) {
 		g.AttackTimer = max(0, g.AttackTimer-dt)
 	}
 
+	if g.Dialogue.Open {
+		g.updateDialogue(dt)
+		return
+	}
+
 	if g.Actions.JustPressed("interact") {
-		if g.Dialogue.Open {
-			g.AdvanceDialogue()
-		} else {
-			g.Interact()
-		}
+		g.Interact()
 	}
 	if !g.Dialogue.Open && g.Actions.JustPressed("attack") {
 		g.Attack()
 	}
-
 	if g.Dialogue.Open {
-		g.updateDialogue(dt)
 		return
 	}
 
@@ -518,8 +517,9 @@ func (g *Game) updatePlayer(dt time.Duration) {
 	g.PlayerPrevX = g.Player.Bounds().X
 	g.PlayerPrevY = g.Player.Bounds().Y
 
+	// move_y is up-positive (matching TouchControls sticks), while world Y increases downward.
 	mx := float32(g.Actions.Axis("move_x"))
-	my := float32(g.Actions.Axis("move_y"))
+	my := -float32(g.Actions.Axis("move_y"))
 	if mx == 0 && my == 0 && g.keyMoveTimer > 0 {
 		mx = g.keyMoveX
 		my = g.keyMoveY
@@ -531,12 +531,12 @@ func (g *Game) updatePlayer(dt time.Duration) {
 
 	if mx != 0 || my != 0 {
 		l := float32(math.Hypot(float64(mx), float64(my)))
-		mx /= l
-		my /= l
-		g.PlayerFacingX = mx
-		g.PlayerFacingY = my
-		g.Player.VX = mx * playerSpeed
-		g.Player.VY = my * playerSpeed
+		dirX, dirY := mx/l, my/l
+		speed := min(l, 1) * playerSpeed
+		g.PlayerFacingX = dirX
+		g.PlayerFacingY = dirY
+		g.Player.VX = dirX * speed
+		g.Player.VY = dirY * speed
 		physics.MoveAndSlide(g.Player, g.World.Physics, dt)
 		g.PlayerAnim.Update(dt)
 	} else {
@@ -647,6 +647,7 @@ func (g *Game) OpenDialogue(pages []DialoguePage) {
 		g.CloseDialogue()
 		return
 	}
+	g.Actions.Reset()
 	g.Dialogue = DialogueState{
 		Open:          true,
 		Pages:         slices.Clone(pages),
@@ -671,11 +672,18 @@ func (g *Game) AdvanceDialogue() {
 
 // CloseDialogue closes the dialogue box cleanly.
 func (g *Game) CloseDialogue() {
+	wasOpen := g.Dialogue.Open
 	g.Dialogue.Open = false
 	g.Dialogue.Pages = nil
 	g.Dialogue.PageIndex = 0
 	g.Dialogue.RevealedChars = 0
 	g.Dialogue.charAccum = 0
+	if wasOpen {
+		g.Actions.Reset()
+		if g.Touch != nil {
+			g.Touch.Wake()
+		}
+	}
 	if !g.QuestCompleted {
 		g.Status = "Explore the crypt and retrieve the Sun Relic."
 	}
@@ -906,6 +914,10 @@ func (g *Game) Load() error {
 	g.HurtCooldown = 0
 	g.AttackTimer = 0
 	g.keyMoveX, g.keyMoveY, g.keyMoveTimer = 0, 0, 0
+	g.Actions.Reset()
+	if g.Touch != nil {
+		g.Touch.Wake()
+	}
 
 	clear(g.VisitedRooms)
 	for _, r := range snap.VisitedRooms {
@@ -996,8 +1008,30 @@ func (g *Game) SnapshotHUD() HUDState {
 	}
 }
 
-// Draw renders the dungeon, sprites, A* path breadcrumbs, on-screen pads, and
-// dialogue text into d inside the virtual viewport.
+// stageSafeArea returns the part of the window's safe-area insets that still
+// overlaps the game stage, since the native HUD and status bar absorb the top
+// and bottom insets on their own edges.
+func (g *Game) stageSafeArea() core.Edges {
+	if g.env == nil {
+		return core.Edges{}
+	}
+	safe := g.env.SafeArea()
+	win := g.env.Window()
+	if g.stageFrame.Size.Width <= 0 || g.stageFrame.Size.Height <= 0 || win.Width <= 0 || win.Height <= 0 {
+		return safe
+	}
+	rightEdge := g.stageFrame.Origin.X + g.stageFrame.Size.Width
+	bottomEdge := g.stageFrame.Origin.Y + g.stageFrame.Size.Height
+	return core.Edges{
+		Left:   max(0, safe.Left-g.stageFrame.Origin.X),
+		Top:    max(0, safe.Top-g.stageFrame.Origin.Y),
+		Right:  max(0, rightEdge-(win.Width-safe.Right)),
+		Bottom: max(0, bottomEdge-(win.Height-safe.Bottom)),
+	}
+}
+
+// Draw renders the dungeon, sprites, A* path breadcrumbs, dialogue text, and
+// view-space touch controls into d.
 func (g *Game) Draw(d *core.Drawing, window core.Size) {
 	if window.Width <= 0 || window.Height <= 0 {
 		window = core.Size{Width: core.Points(VirtualWidth * 2), Height: core.Points(VirtualHeight * 2)}
@@ -1025,13 +1059,20 @@ func (g *Game) Draw(d *core.Drawing, window core.Size) {
 		if g.Dialogue.Open {
 			g.drawDialogueBox(d)
 		} else {
-			g.drawTouchPads(d)
 			g.drawContextHint(d)
 		}
 		if g.QuestCompleted {
 			g.drawVictoryBanner(d)
 		}
 	})
+
+	// 4. View-space touch controls, anchored to the safe area outside the virtual canvas.
+	if g.Touch != nil {
+		g.Touch.Resize(window, g.stageSafeArea())
+		if !g.Dialogue.Open {
+			g.Touch.Draw(d)
+		}
+	}
 }
 
 func (g *Game) drawEnemyPaths(d *core.Drawing) {
@@ -1170,36 +1211,6 @@ func (g *Game) drawRoomBadge(d *core.Drawing) {
 		Color: core.RGB(0xf4e8c8),
 	})
 	d.Restore()
-}
-
-func (g *Game) drawTouchPads(d *core.Drawing) {
-	drawPad := func(r core.Bounds, label string, active bool) {
-		bg := core.RGBA(0x181b28, 0.62)
-		border := core.RGBA(0x8892b4, 0.48)
-		if active {
-			bg = core.RGBA(0xd4a640, 0.72)
-			border = core.RGB(0xfada70)
-		}
-		d.Save()
-		d.SetFillColor(bg)
-		d.BeginPath().RoundRect(float32(r.Origin.X), float32(r.Origin.Y), float32(r.Size.Width), float32(r.Size.Height), 4).Fill()
-		d.SetStrokeColor(border).SetLineWidth(1)
-		d.BeginPath().RoundRect(float32(r.Origin.X), float32(r.Origin.Y), float32(r.Size.Width), float32(r.Size.Height), 4).Stroke()
-		text.DrawPlatform(d, label, float32(r.Origin.X), float32(r.Origin.Y)+float32(r.Size.Height)*0.68, text.PlatformStyle{
-			Font:     core.Font{Size: 8, Weight: core.FontWeightBold},
-			Color:    core.RGB(0xf4f6fc),
-			Align:    text.AlignCenter,
-			MaxWidth: float32(r.Size.Width),
-		})
-		d.Restore()
-	}
-
-	drawPad(dpadUpRect, "^", g.Actions.Pressed("up"))
-	drawPad(dpadDownRect, "v", g.Actions.Pressed("down"))
-	drawPad(dpadLeftRect, "<", g.Actions.Pressed("left"))
-	drawPad(dpadRightRect, ">", g.Actions.Pressed("right"))
-	drawPad(padInteractRect, "E", g.Actions.Pressed("interact"))
-	drawPad(padAttackRect, "F", g.Actions.Pressed("attack"))
 }
 
 func (g *Game) drawContextHint(d *core.Drawing) {

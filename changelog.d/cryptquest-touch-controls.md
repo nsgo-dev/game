@@ -1,0 +1,3 @@
+### Changed
+
+- CryptQuest: replace the virtual-canvas touch/mouse D-pad regions and `drawTouchPads` overlay with view-space `input.TouchControls` loaded from `controls.touch.yaml`: a floating thumbstick on the left driving `move_x` and `move_y` (enabling single-thumb diagonal movement) plus large `ATTACK` and smaller `USE` buttons at the bottom right anchored inside the safe area, hidden on desktop until touched and hidden while dialogue is open. Make the native HUD and status bars wrap and respect safe-area insets on narrow phones, and declare iOS alongside desktop, Android, and web in `game.yaml` and `nsgo.yaml`.
