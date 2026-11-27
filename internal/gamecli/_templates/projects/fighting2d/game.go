@@ -61,7 +61,6 @@ type fightingGame struct {
 	roster   *roster
 	controls *controls
 	viewport screen.Viewport
-	viewSize core.Size
 	loop     *game.Loop
 	mixer    *sound.Mixer
 	sounds   map[eventKind]*sound.Effect
@@ -94,6 +93,7 @@ func Root(cx *core.Scope) core.Node { return rootWithHook(cx, nil) }
 // rootWithHook is Root, handing the game to hook first, for tests.
 func rootWithHook(cx *core.Scope, hook func(*fightingGame)) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	cx.RequestOrientation(core.OrientationLandscape)
 	g := newFightingGame(cx)
 	if hook != nil {
 		hook(g)
@@ -120,7 +120,7 @@ func newFightingGame(cx *core.Scope) *fightingGame {
 		sounds:       map[eventKind]*sound.Effect{},
 	}
 	g.viewport, _ = Project.Viewport()
-	g.controls = newControls(cx, func(p core.Point) (core.Point, bool) { return g.viewport.ViewToGame(g.viewSize, p) }, g.disconnectPolicy(false))
+	g.controls = newControls(cx, g.disconnectPolicy(false))
 	Project.ConfigureMixer(g.mixer)
 	for kind, name := range sfx {
 		src, err := placeholder.Sound(name)
@@ -136,7 +136,7 @@ func newFightingGame(cx *core.Scope) *fightingGame {
 	}
 	g.loop = &game.Loop{
 		Rate:   stepRate,
-		Update: func(time.Duration) { g.update() },
+		Update: g.update,
 		Draw:   func(float64) { g.frame.Update(func(n uint64) uint64 { return n + 1 }) },
 		// The loop pauses in the background; the sound stays paused on return while a pause or reconnect menu is open.
 		OnPause: func(paused bool) {
@@ -200,6 +200,7 @@ func (g *fightingGame) startMatch(md mode) {
 	g.controls.setDisconnectPolicy(g.disconnectPolicy(false))
 	g.controls.assignFreePads(true)
 	g.mode = md
+	g.controls.setVersus(md == modeVersus)
 	picks := g.picks.GetUntracked()
 	g.m = newMatch(g.roster, g.roster.fighters[picks[0]], g.roster.fighters[picks[1]])
 	g.cpu = nil
@@ -243,6 +244,7 @@ func (g *fightingGame) pause(paused bool) {
 func (g *fightingGame) quit() {
 	g.mixer.SetPaused(false)
 	g.m, g.cpu = nil, nil
+	g.controls.setVersus(false)
 	g.setScreen(screenTitle)
 	g.controls.setDisconnectPolicy(g.disconnectPolicy(false))
 	g.controls.assignFreePads(true)
@@ -251,10 +253,10 @@ func (g *fightingGame) quit() {
 }
 
 // update is one fixed step.
-func (g *fightingGame) update() {
+func (g *fightingGame) update(dt time.Duration) {
 	c := g.controls
 	was := g.scr
-	c.step(was == screenTitle)
+	c.step(dt, was == screenTitle)
 	if c.justPressed("hitboxes") {
 		g.hitboxes = !g.hitboxes
 	}

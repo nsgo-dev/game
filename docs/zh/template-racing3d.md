@@ -18,7 +18,7 @@ go tool nsgo dev
 - 沿赛车线行驶的对手：它们朝赛车线前方的一点转向，并保持为每个弯道预先规划好制动的速度，再乘以各自的速度系数。
 - 最佳飞驰圈的幽灵车：由 `vehicle3d.GhostRecorder` 录制，从第二圈起的每一圈陪你比赛，并以 `vehicle3d.EncodeGhost` 写出的 YAML 保存在应用存储中，下次启动仍在。第一圈从起跑线后方的发车格起步，既不会存为幽灵车，也不会与幽灵车同跑；只有一圈的比赛没有幽灵车。保存的幽灵车记有赛道文件的哈希，修改 `data/track.yaml` 中的任何内容都会让它作废。
 - 在 GPU 视图上用 [`render3d`](render3d.md) 的光照 PBR 管线绘制的场景：路面、路肩、立柱和车辆是代码生成的网格，路边的木箱是[占位素材包](placeholder.md)的 `crate.glb`，用 `gltf` 读取。
-- `game.yaml` 中的一份输入映射同时覆盖键盘、手柄和触屏，由 `input.Actions` 和 `vehicle3d.Controls` 读取，屏幕上的摇杆和踏板由 `input.VirtualPad` 提供。
+- `game.yaml` 中的一份输入映射同时覆盖键盘、手柄和触屏，由 `input.Actions` 和 `vehicle3d.Controls` 读取；由 `controls.touch.yaml` 构建的 `input.TouchControls` 在安全区内放置摇杆和踏板，在手机上首帧可见、桌面上触碰后显示并在使用键盘或手柄后自动隐藏。根作用域会请求横屏方向。
 - 通过应用用每种输入完整跑完比赛的测试，分别得到胜利和失败。
 
 ## 操作
@@ -37,6 +37,7 @@ go tool nsgo dev
 | 文件 | 内容 |
 | --- | --- |
 | `game.yaml` | 项目文件：窗口和输入映射，包含动作 `throttle`、`brake`、`steerLeft`、`steerRight`、`handbrake`、`respawn`、`confirm`，以及由按键和左摇杆组成的 `steer` 轴。 |
+| `controls.touch.yaml` | 屏幕触控布局（`input.TouchControls`）：锚定在安全区内的转向摇杆以及 GAS、BRAKE 和复位按钮。 |
 | `data/track.yaml` | 赛道：中心线控制点、路宽、圈数、检查点、发车格，以及各对手的名字、颜色、速度系数和行驶车道。 |
 | `data/car.yaml` | 车辆调校，即一个 `vehicle3d.Config`。 |
 | `track.go` | 赛道文件的格式：`ParseTrack` 拒绝未知字段和越界的值，`EncodeTrack` 原样写回。 |

@@ -15,9 +15,10 @@ import (
 
 // session is the running game: the match, the devices feeding it, the 60 Hz loop and the renderer. Play again replaces the match and keeps the rest.
 type session struct {
+	env      *core.Env
 	match    *match
 	actions  *input.Actions
-	pad      *input.VirtualPad
+	touch    *input.TouchControls
 	loop     *game.Loop
 	renderer renderer
 	viewRef  core.Ref
@@ -25,7 +26,6 @@ type session struct {
 	paused   bool
 
 	hud    *core.Signal[hudState]
-	touch  *core.Signal[bool]
 	tick   *core.Signal[uint64]
 	gpuErr *core.Signal[string]
 }
@@ -51,15 +51,22 @@ func Root(cx *core.Scope) core.Node {
 // newSession starts a match on cx with its devices and its loop.
 func newSession(cx *core.Scope) *session {
 	desktop.SetTitle(cx, Project.Title())
-	s := &session{
-		match:  newMatch(arena),
-		pad:    newTouchPad(),
-		hud:    core.NewSignal(cx, hudState{}),
-		touch:  core.NewSignal(cx, cx.Env().Idiom() == core.IdiomPhone || cx.Env().Idiom() == core.IdiomTablet),
-		tick:   core.NewSignal(cx, uint64(0)),
-		gpuErr: core.NewSignal(cx, ""),
+	cx.RequestOrientation(core.OrientationLandscape)
+	touch, err := input.NewTouchControls(cx, touchLayout)
+	if err != nil {
+		panic(fmt.Sprintf("fps3d: controls.touch.yaml: %v", err))
 	}
-	s.actions = newActions(s.pad)
+	s := &session{
+		env:     cx.Env(),
+		match:   newMatch(arena),
+		actions: newActions(),
+		touch:   touch,
+		hud:     core.NewSignal(cx, hudState{}),
+		tick:    core.NewSignal(cx, uint64(0)),
+		gpuErr:  core.NewSignal(cx, ""),
+	}
+	s.touch.BindActions(s.actions)
+	s.touch.Haptics = input.NewHaptics(cx)
 	// Keys count wherever the keyboard focus is, and every connected controller plays.
 	s.actions.WatchKeys(cx)
 	s.actions.WatchGamepads(cx)
@@ -93,11 +100,15 @@ func (s *session) view(cx *core.Scope) core.Node {
 // update runs one fixed step: read the devices, handle pause and play again, then step the match.
 func (s *session) update(dt time.Duration) {
 	s.actions.Step()
+	s.touch.Update(dt)
 	if s.actions.JustPressed(actionPause) {
 		if s.match.over() {
 			s.restart()
 		} else {
 			s.paused = !s.paused
+			if !s.paused {
+				s.touch.Wake()
+			}
 		}
 	}
 	if !s.paused {
@@ -115,6 +126,7 @@ func (s *session) restart() {
 	s.match = newMatch(arena)
 	s.paused = false
 	s.actions.Reset()
+	s.touch.Wake()
 	s.publish()
 }
 
@@ -147,13 +159,8 @@ func (s *session) arenaView(cx *core.Scope) core.Node {
 		OnPress: func(core.PressEvent) {
 			s.actions.LockPointer(cx, &s.viewRef)
 		},
-		OnTouch: func(core.TouchEvent) {
-			if !s.touch.GetUntracked() {
-				s.touch.Set(true)
-			}
-		},
 		OnLayout: func(b core.Bounds) {
-			layoutTouchPad(s.pad, b.Size)
+			s.touch.Resize(b.Size, core.Untracked(cx, s.env.SafeArea))
 		},
 		Children: []core.Node{
 			gpu.View(cx, gpu.ViewProps{
@@ -200,6 +207,8 @@ func (s *session) arenaView(cx *core.Scope) core.Node {
 		},
 	}
 	s.actions.Attach(&v)
+	// After actions, so a touch shows the on-screen controls before they hear it.
+	s.touch.Attach(&v)
 	return v
 }
 
@@ -230,8 +239,9 @@ func (s *session) drawOverlay(d *core.Drawing, size core.Size) {
 	d.SetStrokeColor(color).SetLineWidth(2).BeginPath().
 		MoveTo(cx-10, cy).LineTo(cx-4, cy).MoveTo(cx+4, cy).LineTo(cx+10, cy).
 		MoveTo(cx, cy-10).LineTo(cx, cy-4).MoveTo(cx, cy+4).LineTo(cx, cy+10).Stroke()
-	if s.touch.Get() {
-		s.pad.Draw(d, input.DefaultVirtualStyle())
+	s.touch.Resize(size, s.env.SafeArea())
+	if !s.paused && !s.match.over() {
+		s.touch.Draw(d)
 	}
 }
 

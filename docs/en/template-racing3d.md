@@ -18,7 +18,7 @@ go tool nsgo dev
 - Rivals that follow a racing line: they steer toward a point ahead on the line and hold a speed planned to brake for every corner, scaled by each rival's pace.
 - A ghost of your best flying lap, recorded with `vehicle3d.GhostRecorder`, raced against on every lap after the first and kept between launches in the app's storage as the YAML `vehicle3d.EncodeGhost` writes. Lap 1 starts on the grid behind the line, so it is neither saved as the ghost nor raced against one, and a one-lap race has no ghost. The saved ghost names a hash of the track file, so editing anything in `data/track.yaml` retires it.
 - A scene on a GPU view drawn with [`render3d`](render3d.md)'s lit PBR pipeline: the road, curbs, posts and cars are meshes built in code, and the crates beside the road are the [placeholder pack](placeholder.md)'s `crate.glb`, read with `gltf`.
-- One input map in `game.yaml` for the keyboard, gamepads and touch, read with `input.Actions` and `vehicle3d.Controls`, and an `input.VirtualPad` for the on-screen stick and pedals.
+- One input map in `game.yaml` for the keyboard, gamepads and touch, read with `input.Actions` and `vehicle3d.Controls`, and an `input.TouchControls` layer built from `controls.touch.yaml` placed inside the safe area (visible from the first frame on phones and on desktop once touched, and hidden again on keyboard or controller input). The root scope requests landscape orientation.
 - Tests that play whole races through the app with each kind of input, reaching a win and a loss.
 
 ## Controls
@@ -37,6 +37,7 @@ go tool nsgo dev
 | File | What it holds |
 | --- | --- |
 | `game.yaml` | The project file: the window and the input map, with the actions `throttle`, `brake`, `steerLeft`, `steerRight`, `handbrake`, `respawn` and `confirm` and the `steer` axis over the keys and the left stick. |
+| `controls.touch.yaml` | The on-screen touch layout (`input.TouchControls`): steering stick, GAS, BRAKE and respawn buttons anchored inside the safe area. |
 | `data/track.yaml` | The circuit: its centerline points, width, laps, checkpoints, starting grid, and the rivals' names, colors, pace and lanes. |
 | `data/car.yaml` | The car's tuning, a `vehicle3d.Config`. |
 | `track.go` | The track file's format: `ParseTrack` refuses unknown fields and out-of-range values, and `EncodeTrack` writes it back unchanged. |

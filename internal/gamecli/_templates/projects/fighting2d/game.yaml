@@ -43,11 +43,6 @@ input:
           button: west
         - kind: gamepadButton
           button: south
-        - kind: touchRegion
-          region: {x: 372, "y": 200, width: 46, height: 46}
-        - kind: mouseRegion
-          button: left
-          region: {x: 372, "y": 200, width: 46, height: 46}
     - name: p1_heavy
       bindings:
         - kind: key
@@ -56,11 +51,6 @@ input:
           button: north
         - kind: gamepadButton
           button: east
-        - kind: touchRegion
-          region: {x: 424, "y": 172, width: 46, height: 46}
-        - kind: mouseRegion
-          button: left
-          region: {x: 424, "y": 172, width: 46, height: 46}
     - name: p1_start
       bindings:
         - kind: key
@@ -130,12 +120,14 @@ input:
     - name: p1_move_y
       axis: leftY
       deadZone: 0.3
+      invert: true
     - name: p2_move_x
       axis: leftX
       deadZone: 0.3
     - name: p2_move_y
       axis: leftY
       deadZone: 0.3
+      invert: true
 audio:
   buses:
     - name: sfx

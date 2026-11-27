@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/pkg/framedata"
-	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
@@ -26,9 +25,8 @@ var (
 // shapes draws the hitbox overlay F1 toggles; release builds compile it out.
 var shapes gamedebug.ShapeOverlay
 
-// draw paints the arena into the Canvas, scaled into the virtual resolution game.yaml's display sets.
+// draw paints the arena into the Canvas, scaled into the virtual resolution game.yaml's display sets, and draws the touch controls in view points inside the safe area.
 func (g *fightingGame) draw(d *core.Drawing, size core.Size) {
-	g.viewSize = size
 	g.viewport.Draw(d, size, func(d *core.Drawing, vs core.Size) {
 		w, h := float32(vs.Width), float32(vs.Height)
 		floor := g.roster.file.Rules.Floor
@@ -55,15 +53,11 @@ func (g *fightingGame) draw(d *core.Drawing, size core.Size) {
 				}
 			}
 		}
-		if g.scr == screenFight && g.showTouch() {
-			g.drawTouchControls(d)
-		}
 	})
-}
-
-// showTouch reports whether to draw the touch controls: on a device whose pointer is a finger, or once the screen has been touched.
-func (g *fightingGame) showTouch() bool {
-	return g.controls.touched || core.Untracked(g.cx, func() bool { return g.cx.Env().Pointer() == core.PointerCoarse })
+	g.controls.resize(size, g.cx.Env().SafeArea())
+	if g.scr == screenFight {
+		g.controls.draw(d)
+	}
 }
 
 // drawStage paints a dusk sky, a moon, a ridge line and the floor.
@@ -215,25 +209,5 @@ func drawSpark(d *core.Drawing, s spark) {
 		r0, r1 := 4+14*t, 10+22*t
 		cos, sin := float32(math.Cos(a)), float32(math.Sin(a))
 		d.BeginPath().MoveTo(s.x+cos*r0, s.y+sin*r0).LineTo(s.x+cos*r1, s.y+sin*r1).Stroke()
-	}
-}
-
-// drawTouchControls draws the on-screen stick and the two attack buttons at the regions game.yaml binds them to.
-func (g *fightingGame) drawTouchControls(d *core.Drawing) {
-	g.controls.stick.Draw(d, input.DefaultVirtualStyle())
-	font := core.Font{Size: 16, Weight: core.FontWeightBold}
-	d.SetTextAlign(core.TextAlignCenter).SetTextBaseline(core.BaselineMiddle)
-	for _, b := range []struct{ action, label string }{{"p1_light", "L"}, {"p1_heavy", "H"}} {
-		r, ok := Project.Region(b.action)
-		if !ok {
-			continue
-		}
-		cx, cy := float32(r.Origin.X+r.Size.Width/2), float32(r.Origin.Y+r.Size.Height/2)
-		fill := core.RGBA(0xffffff, 0.18)
-		if g.controls.pressed(0, b.action) {
-			fill = core.RGBA(0xffffff, 0.4)
-		}
-		d.SetFillColor(fill).BeginPath().Arc(cx, cy, float32(r.Size.Width)/2, 0, 2*math.Pi, false).Fill()
-		d.SetFillColor(core.RGBA(0xffffff, 0.85)).FillText(b.label, cx, cy, font)
 	}
 }

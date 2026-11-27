@@ -1,6 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/nsgo-dev/game/pkg/fighting"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/nsgo/core"
@@ -33,46 +37,96 @@ func (e either) Axis(name string) float64 {
 	return a
 }
 
-// controls are the game's input devices, coordinated through input.Players so each connected game controller stays bound to its player slot across steps and screen changes, while both players share the keyboard on disjoint keys. The first player's slot also hears touch and the mouse: an on-screen stick and the touch regions game.yaml gives its buttons.
-type controls struct {
-	players *input.Players
-	pad     *input.VirtualPad
-	stick   *input.VirtualStick
-	// touched is set by the first touch, which shows the touch controls on a device with a mouse too.
-	touched bool
+// mirrorVersusLayout turns player 1's compacted versus layout on the left half into player 2's mirrored layout on the right half, bound to p2_'s actions and axes.
+func mirrorVersusLayout(l input.TouchLayout) input.TouchLayout {
+	out := l
+	out.Mirrored = true
+	out.Controls = make([]input.TouchControlSpec, len(l.Controls))
+	for i, c := range l.Controls {
+		c.ID = strings.Replace(c.ID, "p1-", "p2-", 1)
+		c.Label = strings.Replace(c.Label, "P1", "P2", 1)
+		c.Action = strings.Replace(c.Action, "p1_", "p2_", 1)
+		c.AxisX = strings.Replace(c.AxisX, "p1_", "p2_", 1)
+		c.AxisY = strings.Replace(c.AxisY, "p1_", "p2_", 1)
+		out.Controls[i] = c
+	}
+	return out
 }
 
-func newControls(cx *core.Scope, mapPoint func(core.Point) (core.Point, bool), policy input.DisconnectPolicy) *controls {
+// controls are the game's input devices, coordinated through input.Players so each connected game controller stays bound to its player slot across steps and screen changes, while both players share the keyboard on disjoint keys. Touch is driven by input.TouchControls inside the safe area: one full-width layout for player 1 against the CPU, or player 1 compacted to the left half and player 2 mirrored on the right half in local versus.
+type controls struct {
+	players *input.Players
+	touch   [2]*input.TouchControls
+	versus  bool
+}
+
+func newControls(cx *core.Scope, policy input.DisconnectPolicy) *controls {
 	c := &controls{players: input.NewPlayers(2)}
 	for i := range 2 {
 		Project.BindInput(c.players.Player(i).Actions())
 		c.players.AssignKeyboard(i)
 	}
 	c.players.AssignPointer(0)
-	c.players.Player(0).Actions().MapPoint = mapPoint
-	c.pad = input.NewVirtualPad()
-	c.pad.MapPoint = mapPoint
-	c.stick = c.pad.AddStick(&input.VirtualStick{
-		AxisXName: "p1_move_x",
-		AxisYName: "p1_move_y",
-		Zone:      core.Bounds{Origin: core.Point{Y: 110}, Size: core.Size{Width: 240, Height: 160}},
-		Center:    core.Point{X: 70, Y: 206},
-		Radius:    34,
-		DeadZone:  0.25,
-		Floating:  true,
-	})
-	c.players.Player(0).Actions().BindVirtualPad(c.pad)
+	p1, err := input.NewTouchControls(cx, touchLayout)
+	if err != nil {
+		panic(fmt.Sprintf("fighting2d: controls.touch.yaml: %v", err))
+	}
+	p2, err := input.NewTouchControls(cx, mirrorVersusLayout(versusTouchLayout))
+	if err != nil {
+		panic(fmt.Sprintf("fighting2d: versus.touch.yaml: %v", err))
+	}
+	haptics := input.NewHaptics(cx)
+	p1.Haptics = haptics
+	p2.Haptics = haptics
+	p1.BindActions(c.players.Player(0).Actions())
+	c.touch = [2]*input.TouchControls{p1, p2}
 	c.players.WatchKeys(cx)
 	c.players.WatchGamepads(cx)
 	c.players.SetDisconnectPolicy(policy)
 	return c
 }
 
-// attach wires touch, the mouse and focused keys on v into Players and the on-screen stick.
+// setVersus switches the touch controls between single-player layout (full width for player 1) and two-player local versus (player 1 compacted on the left half, player 2 mirrored on the right half and routed touches).
+func (c *controls) setVersus(versus bool) {
+	if c.versus == versus {
+		return
+	}
+	c.versus = versus
+	if versus {
+		_ = c.touch[0].SetLayout(versusTouchLayout)
+		c.players.AssignPointer(1)
+		c.touch[1].BindActions(c.players.Player(1).Actions())
+		c.touch[1].SetVisible(c.touch[0].Visible())
+		c.touch[1].Wake()
+	} else {
+		_ = c.touch[0].SetLayout(touchLayout)
+		c.touch[1].BindActions(nil)
+		c.touch[1].Reset()
+		c.players.UnassignPointer(1)
+	}
+	c.touch[0].Wake()
+}
+
+// attach wires touch, the mouse and focused keys on v into Players and both touch control layers.
 func (c *controls) attach(v *core.View) {
-	v.OnTouch = func(core.TouchEvent) { c.touched = true }
 	c.players.Attach(v)
-	c.pad.Attach(v)
+	// After Players, so a touch shows the on-screen controls before they hear it.
+	c.touch[0].Attach(v)
+	c.touch[1].Attach(v)
+}
+
+// resize updates both touch control layers to the view's size and safe area.
+func (c *controls) resize(size core.Size, safe core.Edges) {
+	c.touch[0].Resize(size, safe)
+	c.touch[1].Resize(size, safe)
+}
+
+// draw draws the active touch control layer(s) into d.
+func (c *controls) draw(d *core.Drawing) {
+	c.touch[0].Draw(d)
+	if c.versus {
+		c.touch[1].Draw(d)
+	}
 }
 
 // setDisconnectPolicy updates the controller disconnect and reconnect rules on Players.
@@ -100,12 +154,16 @@ func (c *controls) assignFreePads(dropDisconnected bool) {
 	}
 }
 
-// step samples both players' input for this fixed step. When assignFree is true (the title screen), open slots claim newly connected controllers while existing assignments stay put; during a match each fighter keeps its assigned controller and DisconnectPolicy handles disconnects and recovery.
-func (c *controls) step(assignFree bool) {
+// step samples both players' input for this fixed step and advances the touch controls' idle fade. When assignFree is true (the title screen), open slots claim newly connected controllers while existing assignments stay put; during a match each fighter keeps its assigned controller and DisconnectPolicy handles disconnects and recovery.
+func (c *controls) step(dt time.Duration, assignFree bool) {
 	if assignFree {
 		c.assignFreePads(true)
 	}
 	c.players.Step()
+	c.touch[0].Update(dt)
+	if c.versus {
+		c.touch[1].Update(dt)
+	}
 }
 
 // source returns player i's input as a fighting.Source: its own prefix of its own actions in versus, and both sides of the keyboard for a player alone.
@@ -163,7 +221,10 @@ func (c *controls) unassignDisconnected() {
 // reset releases everything held, as the screen changes, so a key or controller button held into a new round does not act until it is pressed again, while keeping each player's assigned controller.
 func (c *controls) reset() {
 	c.players.Reset()
-	c.pad.Reset()
+	c.touch[0].Wake()
+	if c.versus {
+		c.touch[1].Wake()
+	}
 }
 
 func playerPrefix(i int) string {

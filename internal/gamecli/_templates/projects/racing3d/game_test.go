@@ -191,21 +191,39 @@ func TestKeyboardPlaythroughLoses(t *testing.T) {
 	}
 }
 
+func controlFrame(t *testing.T, g *racingGame, id string) core.Bounds {
+	t.Helper()
+	for _, c := range g.touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
+	}
+	t.Fatalf("touch control %q not found", id)
+	return core.Bounds{}
+}
+
+func centerOf(b core.Bounds) core.Point {
+	return core.Point{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y + b.Size.Height/2}
+}
+
 // TestTouchControlsDrive drives with the on-screen controls: the gas pedal speeds the car up, the stick steers it, the brake slows it and the respawn button puts it back on the road. A player holds the gas and steers at once; nsgotest gives every finger App.Touch puts down the same touch ID (nsgo-dev/nsgo nsgotest/pointer.go), so the test lifts each finger before the next goes down.
 func TestTouchControlsDrive(t *testing.T) {
-	app, g := startGame(t, nsgotest.NoGPU())
+	app, g := startGame(t, nsgotest.NoGPU(), nsgotest.Idiom(core.IdiomDesktop))
+	if g.touch.Visible() || app.Exists("id:touch-gas") {
+		t.Fatal("the touch controls show on a desktop before any touch")
+	}
 	app.Advance(countdownSteps*stepDur + stepDur)
-	gas := app.Touch("touch-controls", g.buttons[0].Center)
+	gas := app.Touch("touch-controls", centerOf(controlFrame(t, g, "gas")))
 	app.Advance(2 * time.Second)
 	if s := g.race.player.v.Speed(); s < 5 {
 		t.Fatalf("speed %v m/s after two seconds on the gas pedal", s)
 	}
-	if !g.padShown.GetUntracked() {
+	if !g.touch.Visible() || !app.Exists("id:touch-gas") {
 		t.Fatal("the touch controls did not show after a touch")
 	}
 	gas.Lift()
 
-	at := g.stick.Center
+	at := centerOf(controlFrame(t, g, "steer"))
 	steer := app.Touch("touch-controls", at)
 	steer.Move(core.Point{X: at.X + 30, Y: at.Y})
 	steer.Move(core.Point{X: at.X + 60, Y: at.Y})
@@ -220,14 +238,14 @@ func TestTouchControlsDrive(t *testing.T) {
 	}
 
 	before := g.race.player.v.Speed()
-	brake := app.Touch("touch-controls", g.buttons[1].Center)
+	brake := app.Touch("touch-controls", centerOf(controlFrame(t, g, "brake")))
 	app.Advance(time.Second)
 	if s := g.race.player.v.Speed(); s > before-3 {
 		t.Fatalf("speed %v m/s after a second on the brake from %v", s, before)
 	}
 	brake.Lift()
 
-	respawn := app.Touch("touch-controls", g.buttons[2].Center)
+	respawn := app.Touch("touch-controls", centerOf(controlFrame(t, g, "respawn")))
 	app.Advance(stepDur * 2)
 	respawn.Lift()
 	if s := g.race.player.v.Speed(); s > 0.5 {
@@ -235,6 +253,47 @@ func TestTouchControlsDrive(t *testing.T) {
 	}
 	if _, side := g.race.course.nearest(fromPhys(g.race.player.v.Body.Pos)); abs(side) > 0.5 {
 		t.Fatalf("respawned %v m off the centerline", side)
+	}
+
+	// Using the keyboard hides the touch controls again.
+	app.KeyDown("up")
+	app.Advance(stepDur * 2)
+	app.KeyUp("up")
+	app.Advance(stepDur)
+	if g.touch.Visible() || app.Exists("id:touch-gas") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
+}
+
+// TestTouchControlsShowFromFirstFrameOnPhonesAndRespectSafeArea checks native phones and phone browsers start with every control visible, inside the safe area and at least 44pt wide and tall.
+func TestTouchControlsShowFromFirstFrameOnPhonesAndRespectSafeArea(t *testing.T) {
+	safe := core.Edges{Left: 47, Right: 47, Bottom: 21}
+	for _, tc := range []struct {
+		name string
+		os   core.OS
+	}{
+		{"ios", core.OSIOS},
+		{"android", core.OSAndroid},
+		{"phone web", core.OSWeb},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startGame(t, nsgotest.NoGPU(), nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{OS: tc.os, Idiom: core.IdiomPhone, SafeArea: safe}))
+			if !g.touch.Visible() {
+				t.Fatal("the touch controls are hidden on the first frame")
+			}
+			for _, id := range []string{"steer", "gas", "brake", "respawn"} {
+				if !app.Exists("id:touch-" + id) {
+					t.Fatalf("control %q is not drawn on the first frame", id)
+				}
+				f := controlFrame(t, g, id)
+				if f.Origin.X < safe.Left || f.Origin.X+f.Size.Width > 844-safe.Right || f.Origin.Y < safe.Top || f.Origin.Y+f.Size.Height > 390-safe.Bottom {
+					t.Errorf("control %q frame %+v is outside the safe area %+v", id, f, safe)
+				}
+				if f.Size.Width < 44 || f.Size.Height < 44 {
+					t.Errorf("control %q size %+v is smaller than 44pt", id, f.Size)
+				}
+			}
+		})
 	}
 }
 

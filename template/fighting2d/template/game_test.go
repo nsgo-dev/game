@@ -349,7 +349,7 @@ func TestScreenChangeKeepsEachPadToItsPlayer(t *testing.T) {
 	untilFight(t, app, g)
 	g.setScreen(screenFight)
 	app.SetGamepadButton(2, gamepad.ButtonWest, 1)
-	g.controls.step(false)
+	g.controls.step(frame, false)
 	app.SetGamepadButton(2, gamepad.ButtonWest, 0)
 	if g.controls.pressed(0, "p1_light") || !g.controls.pressed(1, "p2_light") {
 		t.Fatalf("pad two's light after a screen change: player 1 %v, player 2 %v, want only player 2", g.controls.pressed(0, "p1_light"), g.controls.pressed(1, "p2_light"))
@@ -645,41 +645,85 @@ func TestReconnectPanelRendersOnTarget(t *testing.T) {
 	}
 }
 
+func controlFrame(t *testing.T, tc *fightingGame, player int, id string) core.Bounds {
+	t.Helper()
+	for _, c := range tc.controls.touch[player].Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
+	}
+	t.Fatalf("player %d touch control %q not found", player+1, id)
+	return core.Bounds{}
+}
+
+func centerOf(b core.Bounds) core.Point {
+	return core.Point{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y + b.Size.Height/2}
+}
+
+func overlaps(a, b core.Bounds) bool {
+	return a.Origin.X < b.Origin.X+b.Size.Width && b.Origin.X < a.Origin.X+a.Size.Width &&
+		a.Origin.Y < b.Origin.Y+b.Size.Height && b.Origin.Y < a.Origin.Y+a.Size.Height
+}
+
 // TestTouchPlays starts a match from the title screen's button and plays it with the on-screen stick and attack buttons.
 func TestTouchPlays(t *testing.T) {
-	app, g := startGame(t)
+	app, g := startGame(t, nsgotest.Idiom(core.IdiomDesktop))
 	app.Press("id:vs-cpu")
 	if g.scr != screenFight || g.mode != modeCPU {
 		t.Fatal("the Versus CPU button did not start a fight against the CPU")
 	}
 	untilFight(t, app, g)
-	p := g.m.players[0]
-	view := func(x, y float32) core.Point {
-		return g.viewport.GameToView(g.viewSize, core.Point{X: core.Points(x), Y: core.Points(y)})
+	if g.controls.touch[0].Visible() || app.Exists("id:touch-light") {
+		t.Fatal("the touch controls show on a desktop before any touch")
 	}
+	p := g.m.players[0]
 
 	// Pushing the stick toward the opponent walks forward.
 	x := p.f.X
-	finger := app.Touch("id:arena", view(60, 210))
-	finger.Move(view(100, 210))
+	moveAt := centerOf(controlFrame(t, g, 0, "move"))
+	finger := app.Touch("id:arena", moveAt)
+	finger.Move(core.Point{X: moveAt.X + 45, Y: moveAt.Y})
 	app.Advance(20 * frame)
 	finger.Lift()
-	if !g.controls.touched {
-		t.Fatal("the touch was not seen")
+	if !g.controls.touch[0].Visible() || !app.Exists("id:touch-light") {
+		t.Fatal("the touch controls did not show after a touch")
 	}
 	if p.f.X <= x {
 		t.Fatalf("the stick pushed forward moved the fighter %.1f -> %.1f", x, p.f.X)
 	}
 
-	// The light button strikes.
-	r, _ := Project.Region("p1_light")
+	// The light and heavy buttons strike.
 	app.Advance(10 * frame)
-	finger = app.Touch("id:arena", view(float32(r.Origin.X+r.Size.Width/2), float32(r.Origin.Y+r.Size.Height/2)))
+	finger = app.Touch("id:arena", centerOf(controlFrame(t, g, 0, "light")))
 	app.Advance(2 * frame)
 	if p.moveName() != "light" {
 		t.Fatalf("the light button started %q, want light", p.moveName())
 	}
 	finger.Lift()
+	app.Advance(20 * frame)
+
+	finger = app.Touch("id:arena", centerOf(controlFrame(t, g, 0, "heavy")))
+	app.Advance(2 * frame)
+	if p.moveName() != "heavy" {
+		t.Fatalf("the heavy button started %q, want heavy", p.moveName())
+	}
+	finger.Lift()
+	app.Advance(30 * frame)
+
+	// Pushing the stick up jumps (up-positive p1_move_y).
+	finger = app.Touch("id:arena", moveAt)
+	finger.Move(core.Point{X: moveAt.X, Y: moveAt.Y - 45})
+	app.Advance(4 * frame)
+	finger.Lift()
+	if !p.airborne {
+		t.Fatalf("pushing the stick up did not jump: move %q, airborne=%v", p.moveName(), p.airborne)
+	}
+
+	// Using the keyboard hides the touch controls again.
+	tap(app, "d")
+	if g.controls.touch[0].Visible() || app.Exists("id:touch-light") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
 
 	// The pause button pauses, and the menu's buttons resume and quit.
 	app.Press("id:pause-btn")
@@ -694,6 +738,127 @@ func TestTouchPlays(t *testing.T) {
 	app.Press("id:quit-btn")
 	if g.scr != screenTitle || g.m != nil {
 		t.Fatal("Quit did not go back to the title screen")
+	}
+}
+
+// TestTouchVersusPlaysTwoPlayersOnOnePhone checks that on a phone (native and browser) local versus shows P1's compacted controls on the left half and P2's mirrored controls on the right half from the first frame, inside the safe area, at least 44pt, without overlap, and lets both players move and strike independently and at the same time.
+func TestTouchVersusPlaysTwoPlayersOnOnePhone(t *testing.T) {
+	safe := core.Edges{Left: 47, Right: 47, Bottom: 21}
+	for _, tc := range []struct {
+		name string
+		os   core.OS
+	}{
+		{"ios", core.OSIOS},
+		{"android", core.OSAndroid},
+		{"phone web", core.OSWeb},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startGame(t, nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{OS: tc.os, Idiom: core.IdiomPhone, SafeArea: safe}))
+			app.Press("id:vs-player")
+			if g.scr != screenFight || g.mode != modeVersus {
+				t.Fatal("the Versus player button did not start a versus fight")
+			}
+			app.Advance(2 * frame)
+			if !g.controls.touch[0].Visible() || !g.controls.touch[1].Visible() {
+				t.Fatalf("versus touch controls hidden on first frame: p1=%v p2=%v", g.controls.touch[0].Visible(), g.controls.touch[1].Visible())
+			}
+
+			const mid = core.Points(844) / 2
+			p1IDs := []string{"p1-move", "p1-light", "p1-heavy"}
+			p2IDs := []string{"p2-move", "p2-light", "p2-heavy"}
+			var p1Frames, p2Frames []core.Bounds
+			for _, id := range p1IDs {
+				if !app.Exists("id:touch-" + id) {
+					t.Fatalf("P1 control %q not drawn on the first frame", id)
+				}
+				f := controlFrame(t, g, 0, id)
+				if f.Origin.X < safe.Left || f.Origin.X+f.Size.Width > mid || f.Origin.Y < safe.Top || f.Origin.Y+f.Size.Height > 390-safe.Bottom {
+					t.Errorf("P1 control %q frame %+v outside left-half safe area", id, f)
+				}
+				if f.Size.Width < 44 || f.Size.Height < 44 {
+					t.Errorf("P1 control %q size %+v smaller than 44pt", id, f.Size)
+				}
+				p1Frames = append(p1Frames, f)
+			}
+			for _, id := range p2IDs {
+				if !app.Exists("id:touch-" + id) {
+					t.Fatalf("P2 control %q not drawn on the first frame", id)
+				}
+				f := controlFrame(t, g, 1, id)
+				if f.Origin.X < mid || f.Origin.X+f.Size.Width > 844-safe.Right || f.Origin.Y < safe.Top || f.Origin.Y+f.Size.Height > 390-safe.Bottom {
+					t.Errorf("P2 control %q frame %+v outside right-half safe area", id, f)
+				}
+				if f.Size.Width < 44 || f.Size.Height < 44 {
+					t.Errorf("P2 control %q size %+v smaller than 44pt", id, f.Size)
+				}
+				p2Frames = append(p2Frames, f)
+			}
+			for i, a := range p1Frames {
+				for j, b := range p2Frames {
+					if overlaps(a, b) {
+						t.Errorf("P1 control %s %+v overlaps P2 control %s %+v", p1IDs[i], a, p2IDs[j], b)
+					}
+				}
+			}
+
+			untilFight(t, app, g)
+			p1, p2 := g.m.players[0], g.m.players[1]
+
+			// P1 walks forward with the left-half stick without moving P2.
+			p1x, p2x := p1.f.X, p2.f.X
+			p1Stick := centerOf(controlFrame(t, g, 0, "p1-move"))
+			f := app.Touch("id:arena", p1Stick)
+			f.Move(core.Point{X: p1Stick.X + 40, Y: p1Stick.Y})
+			app.Advance(15 * frame)
+			f.Lift()
+			if p1.f.X <= p1x || p2.f.X != p2x {
+				t.Fatalf("P1 stick moved fighters %.1f -> %.1f and %.1f -> %.1f", p1x, p1.f.X, p2x, p2.f.X)
+			}
+
+			// P2 walks forward (left toward P1) with the mirrored right-half stick without moving P1.
+			p1x, p2x = p1.f.X, p2.f.X
+			p2Stick := centerOf(controlFrame(t, g, 1, "p2-move"))
+			f = app.Touch("id:arena", p2Stick)
+			f.Move(core.Point{X: p2Stick.X - 40, Y: p2Stick.Y})
+			app.Advance(15 * frame)
+			f.Lift()
+			if p2.f.X >= p2x || p1.f.X != p1x {
+				t.Fatalf("P2 stick moved fighters %.1f -> %.1f and %.1f -> %.1f", p1x, p1.f.X, p2x, p2.f.X)
+			}
+
+			// P2's light button strikes only for P2.
+			f = app.Touch("id:arena", centerOf(controlFrame(t, g, 1, "p2-light")))
+			app.Advance(2 * frame)
+			if p2.moveName() != "light" || p1.moveName() == "light" {
+				t.Fatalf("P2 light started p1=%q p2=%q, want only p2 light", p1.moveName(), p2.moveName())
+			}
+			f.Lift()
+			app.Advance(30 * frame)
+
+			// Both players strike simultaneously with two distinct fingers on the same touch event.
+			p1Heavy := centerOf(controlFrame(t, g, 0, "p1-heavy"))
+			p2Heavy := centerOf(controlFrame(t, g, 1, "p2-heavy"))
+			down := core.TouchEvent{
+				Phase: core.TouchStart,
+				Touches: []core.Touch{
+					{ID: 1, Position: p1Heavy, Changed: true},
+					{ID: 2, Position: p2Heavy, Changed: true},
+				},
+			}
+			g.controls.players.OnTouch(down)
+			app.Advance(2 * frame)
+			if p1.moveName() != "heavy" || p2.moveName() != "heavy" {
+				t.Fatalf("simultaneous heavy touches started p1=%q p2=%q, want both heavy", p1.moveName(), p2.moveName())
+			}
+			up := core.TouchEvent{
+				Phase: core.TouchEnd,
+				Touches: []core.Touch{
+					{ID: 1, Position: p1Heavy, Changed: true},
+					{ID: 2, Position: p2Heavy, Changed: true},
+				},
+			}
+			g.controls.players.OnTouch(up)
+		})
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -44,9 +46,20 @@ func TestAutoloadsLoad(t *testing.T) {
 	}
 }
 
+// TestTouchLayoutIsCanonical checks that controls.touch.yaml is in the form input.EncodeTouchLayout writes, so a layout the game saves for the player starts from the same text.
+func TestTouchLayoutIsCanonical(t *testing.T) {
+	canonical, err := input.EncodeTouchLayout(touchLayout)
+	if err != nil || !bytes.Equal(canonical, touchLayoutYAML) {
+		t.Fatalf("controls.touch.yaml is not canonical (%v); write it as input.EncodeTouchLayout does:\n%s", err, canonical)
+	}
+}
+
 func TestRootTitlesTheWindowFromTheProject(t *testing.T) {
-	app := nsgotest.Start(t, Root)
+	app := nsgotest.Start(t, Root, nsgotest.NoGPU())
 	if app.Title != Project.Title() {
 		t.Fatalf("window title = %q, want %q", app.Title, Project.Title())
+	}
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
 	}
 }

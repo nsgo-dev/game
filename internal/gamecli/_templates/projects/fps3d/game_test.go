@@ -233,54 +233,147 @@ func TestKeysWalkTurnSwitchReloadAndPause(t *testing.T) {
 	}
 }
 
+func controlFrame(t *testing.T, s *session, id string) core.Bounds {
+	t.Helper()
+	for _, c := range s.touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
+	}
+	t.Fatalf("touch control %q not found", id)
+	return core.Bounds{}
+}
+
+func centerOf(b core.Bounds) core.Point {
+	return core.Point{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y + b.Size.Height/2}
+}
+
 func TestTouchSticksAndButtonsPlay(t *testing.T) {
 	app, s := start(t, nsgotest.Environment(core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}))
 	m := s.match
-	if !s.touch.GetUntracked() {
+	if !s.touch.Visible() {
 		t.Fatal("the touch controls are hidden on a phone")
 	}
 	app.Advance(step)
 
-	// The move stick: drag up from inside its zone and hold.
+	// The move stick: drag up from inside its zone and hold. Up-positive moveY moves forward.
 	z := m.player.ctrl.Pos.Z
-	f := app.Touch("arena", core.Point{X: 140, Y: 420})
-	f.Move(core.Point{X: 140, Y: 360})
+	moveAt := centerOf(controlFrame(t, s, "move"))
+	f := app.Touch("arena", moveAt)
+	f.Move(core.Point{X: moveAt.X, Y: moveAt.Y - 60})
 	app.Advance(500 * time.Millisecond)
 	f.Lift()
 	if m.player.ctrl.Pos.Z > z-1.5 {
 		t.Fatalf("the move stick moved the player from z %v to %v, want at least 1.5 m forward", z, m.player.ctrl.Pos.Z)
 	}
 
-	// The look stick: drag left to turn left.
-	f = app.Touch("arena", core.Point{X: 590, Y: 420})
-	f.Move(core.Point{X: 530, Y: 420})
+	// The look stick: drag left to turn left, then up to tilt up via shared lookY.
+	lookAt := centerOf(controlFrame(t, s, "look"))
+	f = app.Touch("arena", lookAt)
+	f.Move(core.Point{X: lookAt.X - 60, Y: lookAt.Y})
 	app.Advance(250 * time.Millisecond)
 	f.Lift()
 	if m.player.yaw < 0.3 {
 		t.Fatalf("the look stick turned to yaw %v, want at least 0.3 to the left", m.player.yaw)
 	}
+	pitchBefore := m.player.pitch
+	f = app.Touch("arena", lookAt)
+	f.Move(core.Point{X: lookAt.X, Y: lookAt.Y - 60})
+	app.Advance(250 * time.Millisecond)
+	f.Lift()
+	if m.player.pitch <= pitchBefore+0.2 {
+		t.Fatalf("pushing the look stick up changed pitch %v -> %v, want upward tilt", pitchBefore, m.player.pitch)
+	}
 
 	// The fire button.
 	before := m.player.weapons[0].mag
-	fire := s.pad.Buttons[0]
-	f = app.Touch("arena", fire.Center)
+	f = app.Touch("arena", centerOf(controlFrame(t, s, "fire")))
 	app.Advance(step * 3)
 	f.Lift()
 	if m.player.weapons[0].mag >= before {
 		t.Fatalf("the fire button left the magazine at %d, want fewer than %d", m.player.weapons[0].mag, before)
 	}
-	// Swap draws the launcher.
-	f = app.Touch("arena", s.pad.Buttons[3].Center)
+
+	// Weapon 2 selects the launcher directly; Weapon 1 selects the rifle directly; Swap switches again.
+	f = app.Touch("arena", centerOf(controlFrame(t, s, "weapon2")))
+	app.Advance(step * 2)
+	f.Lift()
+	app.Advance(step)
+	app.Find("text:Arc launcher 3 / 6")
+
+	f = app.Touch("arena", centerOf(controlFrame(t, s, "weapon1")))
+	app.Advance(step * 2)
+	f.Lift()
+	app.Advance(step)
+	if m.player.weapon != 0 {
+		t.Fatalf("weapon1 selected slot %d, want 0", m.player.weapon)
+	}
+
+	f = app.Touch("arena", centerOf(controlFrame(t, s, "swap")))
 	app.Advance(step * 2)
 	f.Lift()
 	app.Advance(step)
 	app.Find("text:Arc launcher 3 / 6")
 }
 
+func TestTouchControlsShowFromFirstFrameOnPhonesAndHideOnDesktop(t *testing.T) {
+	safe := core.Edges{Left: 47, Right: 47, Bottom: 21}
+	ids := []string{"move", "look", "fire", "jump", "reload", "swap", "weapon1", "weapon2"}
+	for _, tc := range []struct {
+		name string
+		os   core.OS
+	}{
+		{"ios", core.OSIOS},
+		{"android", core.OSAndroid},
+		{"phone web", core.OSWeb},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, s := start(t, nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{OS: tc.os, Idiom: core.IdiomPhone, SafeArea: safe}))
+			if !s.touch.Visible() {
+				t.Fatal("the touch controls are hidden on the first frame")
+			}
+			for _, id := range ids {
+				if !app.Exists("id:touch-" + id) {
+					t.Fatalf("control %q is not drawn on the first frame", id)
+				}
+				f := controlFrame(t, s, id)
+				if f.Origin.X < safe.Left || f.Origin.X+f.Size.Width > 844-safe.Right || f.Origin.Y < safe.Top || f.Origin.Y+f.Size.Height > 390-safe.Bottom {
+					t.Errorf("control %q frame %+v is outside the safe area %+v", id, f, safe)
+				}
+				if f.Size.Width < 44 || f.Size.Height < 44 {
+					t.Errorf("control %q size %+v is smaller than 44pt", id, f.Size)
+				}
+			}
+		})
+	}
+
+	// Desktop starts hidden, shows on touch, and hides again on keyboard input.
+	app, s := start(t, nsgotest.Environment(desktopEnv))
+	if s.touch.Visible() || app.Exists("id:touch-fire") {
+		t.Fatal("the touch controls show on a desktop before any touch")
+	}
+	f := app.Touch("arena", centerOf(controlFrame(t, s, "weapon2")))
+	app.Advance(step * 2)
+	f.Lift()
+	if !s.touch.Visible() || !app.Exists("id:touch-weapon2") {
+		t.Fatal("a touch did not show the touch controls")
+	}
+	app.KeyCodeDown("KeyW")
+	app.Advance(step * 2)
+	app.KeyCodeUp("KeyW")
+	app.Advance(step)
+	if s.touch.Visible() || app.Exists("id:touch-fire") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
+}
+
 func TestRootTitlesTheWindowFromTheProject(t *testing.T) {
 	app := nsgotest.Start(t, Root, nsgotest.NoGPU())
 	if app.Title != Project.Title() {
 		t.Fatalf("window title = %q, want %q", app.Title, Project.Title())
+	}
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
 	}
 }
 

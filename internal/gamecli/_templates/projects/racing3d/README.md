@@ -10,7 +10,7 @@ It shows:
 - Rivals that follow a racing line: pure-pursuit steering toward a point ahead on the line and a speed plan that brakes for each corner, scaled by each rival's pace.
 - A ghost of your best flying lap, recorded with `vehicle3d.GhostRecorder`, raced against on every lap after the first and saved between launches as the YAML `vehicle3d.EncodeGhost` writes. Lap 1 starts on the grid behind the line, so it is neither saved as the ghost nor raced against one; a one-lap race has no ghost. The ghost is kept only for the exact track it was driven on: editing anything in `data/track.yaml` retires it.
 - A scene drawn on a `gpu.View` with `render3d`'s lit PBR pipeline: the road, curbs, checkpoint posts and cars are meshes built in code, and the trackside crates are the placeholder pack's `crate.glb` read with `gltf`.
-- Keyboard, gamepad and touch from one input map in `game.yaml`, read with `input.Actions` and `vehicle3d.Controls`, and an `input.VirtualPad` for the on-screen stick and pedals.
+- Keyboard, gamepad and touch from one input map in `game.yaml`, read with `input.Actions` and `vehicle3d.Controls`, and an `input.TouchControls` layer built from `controls.touch.yaml` placed inside the safe area.
 - Headless tests with `nsgotest` that play whole races with each kind of input and reach both a win and a loss.
 
 ## Controls
@@ -45,6 +45,7 @@ go run github.com/nsgo-dev/game/cmd/game project check
 ## Layout
 
 - `game.yaml`: the project file, with the window and the input map: the actions `throttle`, `brake`, `steerLeft`, `steerRight`, `handbrake`, `respawn` and `confirm`, and the `steer` axis over the keys and the left stick.
+- `controls.touch.yaml`: the on-screen touch layout (`input.TouchControls`): steering stick, GAS, BRAKE and respawn buttons anchored inside the safe area.
 - `data/track.yaml`: the circuit: its centerline points, width, laps, checkpoints, starting grid and the rivals' names, colors, pace and lanes. `ParseTrack` in `track.go` reads it and refuses unknown fields.
 - `data/car.yaml`: the car's tuning, a `vehicle3d.Config`.
 - `track.go`: the track file's format. `course.go`: the track turned into geometry, samples along the centerline and the racing line's speed at each.

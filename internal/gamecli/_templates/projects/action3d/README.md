@@ -10,7 +10,7 @@ It shows:
 - Enemies that chase the hero inside their sight and leash, wind up a slow swing the hero can interrupt, and walk home when the hero gets away.
 - A level that is a scene file: blocks, the spawn, enemies, the key, the door, the goal and the lamps are objects with components, and a connection in the scene, not Go code, makes picking up the key unlock the door.
 - render3d's lit PBR pipeline drawing every box from one cube mesh, lit by a moon, an ambient fill and the scene's lamps.
-- Keyboard and mouse, game controller and touch, all through one `input.Actions` bound from `game.yaml`, with on-screen sticks and buttons (`input.VirtualPad`) that appear once the screen is touched.
+- Keyboard and mouse, game controller and touch, all through one `input.Actions` bound from `game.yaml`, with on-screen sticks and buttons (`input.TouchControls`) placed inside the safe area from `controls.touch.yaml` (visible from the first frame on phones and on desktop once touched).
 - Headless tests that play the whole run to a win with a game controller and to a loss with the keyboard, drive the touch controls and draw the level on a software GPU.
 
 ## Controls
@@ -35,6 +35,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 ## Layout
 
 - `game.yaml` — the project file: name, id, window, the input map (actions, axes and game controller sticks), the scene and data files to autoload, and export presets.
+- `controls.touch.yaml` — the on-screen touch layout (`input.TouchControls`): floating move and camera sticks, and Attack and Jump buttons anchored inside the safe area.
 - `scenes/keep.scene.yaml` — the level, a scene file the scene editor opens (`go run github.com/nsgo-dev/game/cmd/game editor .`). Each object's `x`, `y` (up) and `posZ` place it in meters, its scale sizes a box, and its components say what it is: `block`, `spawn`, `enemy`, `key`, `door`, `goal` or `lamp`. Objects sit at the top of their layer, not inside one another, and only the spawn is rotated, by `rotY`. The `connections` at the end wire the key's `collected` event to the door's `unlock` handler.
 - `data/actors.yaml` — the hero's and the enemies' tuning (health, speed, jump, reach, damage, swing speed, knockback and colors), the rig of boxes both share, and the animation clips in degrees and seconds. `actors.go` defines and checks its format.
 - `level.go` — the level's component types and how a scene becomes boxes, spawns and lamps.

@@ -80,8 +80,8 @@ input:
       negative: left
       positive: right
     - name: moveY
-      negative: forward
-      positive: back
+      negative: back
+      positive: forward
     - name: turn
       negative: turnLeft
       positive: turnRight
@@ -90,6 +90,7 @@ input:
       axis: leftX
     - name: stickY
       axis: leftY
+      invert: true
     - name: lookX
       axis: rightX
 autoload:

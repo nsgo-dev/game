@@ -6,6 +6,7 @@ input:
   right: right
   axisX: move_x
   axisY: move_y
+  yUp: true
 moves:
   - name: light
     press:

@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: stick
+    anchor: bottomLeft
+    offset: {x: 16, "y": 16}
+    size: {width: 240, height: 220}
+    label: Move
+    axisX: p1_move_x
+    axisY: p1_move_y
+    deadZone: 0.25
+    floating: true
+    radius: 52
+  - id: light
+    kind: button
+    anchor: bottomRight
+    offset: {x: 112, "y": 24}
+    size: {width: 80, height: 80}
+    label: Light
+    action: p1_light
+    text: L
+  - id: heavy
+    kind: button
+    anchor: bottomRight
+    offset: {x: 16, "y": 64}
+    size: {width: 80, height: 80}
+    label: Heavy
+    action: p1_heavy
+    text: H
