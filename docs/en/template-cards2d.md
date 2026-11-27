@@ -51,7 +51,7 @@ Starting a new deal before a game is over counts as a loss.
 - The deck and the difficulty are in `rules.yaml`. `TestSomeDealsAreWon` fails when a careful player, as the tests play, wins fewer than a tenth or more than nine tenths of 200 deals, and `winDeal` and `loseDeal` in `table_test.go` are the deals the playthroughs win and lose; after changing the rules, pick them again.
 - The table's layout is in `board.yaml`, in the display's coordinates. `newTable` refuses a board that lacks a slot the rules need.
 - The moves are in `table.go`: `allows` says which card may go where, `canDraw` when a card may be drawn or the discard pile turned over, and `judge` when a game is won or lost.
-- The controls are in `game.yaml`'s input map, which `go run github.com/nsgo-dev/game/cmd/gameproject check` validates.
+- The controls are in `game.yaml`'s input map, which `go run github.com/nsgo-dev/game/cmd/game project check` validates.
 - The card art is `drawCard` and `drawSuit` in `render.go`.
 
 ## Limits

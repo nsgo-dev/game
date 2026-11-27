@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、对照体积预算检查构建好的包、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，把 pixelfx 特效渲染为精灵表，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、对照体积预算检查构建好的包、创建项目、检查、格式化并应用项目的 `game.yaml`、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，把 pixelfx 特效渲染为精灵表，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -36,6 +36,7 @@ go tool game help
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
 | `size` | 测量 WebAssembly 二进制、Android AAB 或 APK 包或 iOS IPA 包的体积，超出体积预算时失败 |
 | `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
+| `project` | 检查项目的 `game.yaml` 及其自动加载文件，把它改写为规范形式，把它负责的字段写入 `nsgo.yaml`，或输出各导出预设的构建目标 |
 | `dev` | 用 `nsgo dev` 运行游戏，资源保存后在运行中的游戏里重新加载 |
 | `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
 | `assets` | 从 `game.yaml` 打包图集、编码纹理、转换音频、烘焙字体、打包模型并生成资源清单，只重建有改动的部分 |
@@ -215,6 +216,17 @@ go run github.com/nsgo-dev/game/cmd/game@latest new -list
 游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new` 或以 `v0.4.0` 安装的 `nsgo-game` 创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，默认是 `starter`；未知的模板名会被拒绝，并列出现有的模板名。`-list` 打印每个模板的名称（标出默认模板）和一行说明，不创建任何文件。[项目模板](templates.md)列出了所有模板以及 `nsgo init -template` 对应的模块，并说明模板的目录结构和如何新增模板。
 
 只要目录中已经存在任何一个将要写入的文件，`new` 就什么也不写，并以 1 退出。每个模板都包含设置 `* text=auto eol=lf`、将二进制媒体扩展名标记为 `binary` 并把 `*.scene.yaml` 和 `*.scene.yml` 注册给 `nsgo-scene` 合并驱动的 `.gitattributes`，以及忽略 `.nsgo/`、`.game/` 和 `dist/` 的 `.gitignore`；`new` 会在新建目录中通过 `git rev-parse --show-toplevel` 查找仓库，只要位于已有 Git 仓库内（包括上级目录或 monorepo）就自动写入本地 Git 驱动配置，否则会打印在 `git init` 后需运行的 `go tool game merge -setup`。由于 Git 不会共享 `.git/config`，每个克隆都需运行一次 `go tool game merge -setup`（或在编辑器横幅中一键启用）。`go get` 或 `go mod tidy` 失败时（例如没有网络），已写入的文件会保留，错误信息会列出还需在该目录运行的命令以完成项目：`go get` 失败时是 `go get -tool …` 和 `go mod tidy` 两条，`go mod tidy` 失败时只有它一条。
+
+### project
+
+```sh
+go tool game project check
+go tool game project fmt
+go tool game project -check sync path/to/game
+go tool game project targets
+```
+
+处理指定目录（默认为当前目录）中项目的[项目文件](project.md) `game.yaml`。`check` 一次报告项目的全部问题：无法解析的 `game.yaml`、与它不一致的 `nsgo.yaml`、缺失或无效的自动加载文件，以及已安装包写入但已缺失的文件。`fmt` 把 `game.yaml` 改写为规范形式（规范形式不保留注释），有改动时打印其路径。`sync` 把 `game.yaml` 负责的字段写入 `nsgo.yaml`，文件不存在时会创建，有改动时打印其路径；修改 `game.yaml` 后运行它。`targets` 以逗号分隔输出各导出预设的构建目标，可直接传给 `nsgo build -target`。加 `-check` 时，`fmt` 和 `sync` 不写任何文件，文件不是规范形式或两个文件不一致时以 1 退出，供 CI 使用。对 `check` 或 `targets` 使用 `-check`，或把 `-check` 写在动词之后，属于调用错误。
 
 ### dev
 
@@ -452,7 +464,7 @@ go tool game generate editor
 
 编辑器命令就是带 `gameeditor` 标签构建的游戏自身的包，因为 `game new` 创建的游戏把代码放在 `main` 包中，而其他包无法导入 `main` 包：这样构建出的编辑器链接了游戏的组件类型，不带该标签构建的游戏则不链接编辑器。[`game editor`](#editor) 以 `go run -tags gameeditor .` 在项目上运行它，因此项目的场景打开时，其组件和字段都按 `Components` 检查，检查器也会列出这些字段。要添加插件，把插件的 `editor.Plugin` 追加到 `editorPlugins`，只有编辑器用到的代码放在带该标签构建的文件中，或放在只有这些文件导入的包中；`game.yaml` 在 `editor.plugins` 下启用它（[编辑器插件](editor.md#编辑器插件492)）。用 `go tool nsgo test . -tags gameeditor` 运行它的测试。以下情况 `generate editor` 会拒绝：包不是 `main` 包或没有 `main` 函数；声明 `main` 的文件的构建约束是旧式的 `// +build` 行，或者已经提到 `gameeditor`（再次运行 `generate editor` 时就是这种情况）；声明 `main` 的文件还声明了包的其他部分需要的东西，而编辑器构建会整个去掉这个文件、丢失它们：其他文件或测试用到的名称、`init` 函数、空白 `var`，或者其他文件所声明类型的方法（把它移到另一个文件中）；包已经声明了它要声明的标识符。改写该文件失败时，它会删除已经写出的文件。
 
-`generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。包中把 `Components`、`Systems` 或 `Prefabs` 声明成变量以外的东西，或者声明了生成的文件导入包时使用的名称（例如 `entities` 或 `time`）时，它同样失败；名称 `components`、`systems` 和 `prefabs` 也会被拒绝，因为它们的 Go 名称就是注册表的名称。`-autoload` 和 `-main` 会按 `gameproject fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `gameproject fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestAutoloadsLoad` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败；它从项目目录读取这些文件，所以在手机、模拟器或 Web 上用 `nsgo test -target` 运行时会跳过，而生成的测试只读取其代码嵌入的场景文件。
+`generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。包中把 `Components`、`Systems` 或 `Prefabs` 声明成变量以外的东西，或者声明了生成的文件导入包时使用的名称（例如 `entities` 或 `time`）时，它同样失败；名称 `components`、`systems` 和 `prefabs` 也会被拒绝，因为它们的 Go 名称就是注册表的名称。`-autoload` 和 `-main` 会按 `game project fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `game project fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestAutoloadsLoad` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败；它从项目目录读取这些文件，所以在手机、模拟器或 Web 上用 `nsgo test -target` 运行时会跳过，而生成的测试只读取其代码嵌入的场景文件。
 
 ### mv
 

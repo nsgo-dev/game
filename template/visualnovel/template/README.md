@@ -46,7 +46,7 @@ The keys and buttons are the input map in `game.yaml`; change them there. Saving
 - `novel.go` is the game: the title screen, the story and its menus, input, save slots and settings.
 - `ui.go` is the interface over the stage: the Auto, Skip, Log and Menu buttons, the menus, and the stage canvas's drawing.
 - `stage.go` draws the backgrounds and paints the portraits.
-- `game.yaml` is the project file: the game's name, id, version, window, input map and export presets. After editing it, run `go run github.com/nsgo-dev/game/cmd/gameproject sync` to update `nsgo.yaml`, and `gameproject check` to check it.
+- `game.yaml` is the project file: the game's name, id, version, window, input map and export presets. After editing it, run `go run github.com/nsgo-dev/game/cmd/game project sync` to update `nsgo.yaml`, and `game project check` to check it.
 - `story_test.go` checks the story files: canonical YAML, a translation for every line, a background and strings for everything the script names, and an ending at the end of every path. `game_test.go` plays the game, and `project_test.go` checks `game.yaml`.
 
 ## Where to change it

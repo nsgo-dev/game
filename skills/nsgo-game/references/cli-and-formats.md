@@ -13,6 +13,7 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 | Command | Usage | Purpose |
 | --- | --- | --- |
 | `game new` | `game new [-list -name -module -template -version] <dir>` | Scaffold a game project (`go.mod`, `game.yaml`, `nsgo.yaml`, code and tests) from a template, `starter` by default; `-list` lists the templates |
+| `game project` | `game project [-check] check\|fmt\|sync\|targets [dir]` | Check `game.yaml` and its autoloads, rewrite it in canonical form (`fmt`), write the fields it owns into `nsgo.yaml` (`sync`), or print the export presets' build targets; `-check` makes `fmt` and `sync` fail instead of rewriting |
 | `game dev` | `game dev [-assets -fps -target] [dir] [nsgo dev flags]` | Run `nsgo dev` with live asset hot reload (`hotreload.DevAssetsDir`) |
 | `game generate` | `game generate [-in -autoload -main] component\|system\|scene\|prefab <name>` | Generate Go code, tests, `.scene.yaml` files and registrations into a project |
 | `game editor` | `game editor [-library] [project-dir \| game.yaml \| scene.yaml] [clip.animation.yaml [object-id]]` | Open the scene and animation clip editor |
@@ -49,10 +50,6 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 | `game release` | `game release [-target -channel -output -jobs -release-notes -dry-run] [dir]` | Build release packages for `game.yaml` export presets via `nsgo build` with credits |
 | `game completion` | `game completion zsh\|bash\|fish` | Output shell completion scripts |
 | `game help` | `game help [command]` | Show commands or a subcommand's flags |
-
-### Companion module tools
-
-- `go run github.com/nsgo-dev/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
 
 ## Text file formats contract
 

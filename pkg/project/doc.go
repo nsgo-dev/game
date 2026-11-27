@@ -10,5 +10,5 @@
 //
 // # The Tools
 //
-// game.yaml owns the fields NSGo's own nsgo.yaml repeats: the app's name, id and version, its appearance and its build output and targets. SyncNSGo writes them into an nsgo.yaml, keeping its other keys and comments, and CheckNSGo reports where an nsgo.yaml disagrees. The gameproject command runs these on a project directory, and the editor opens and saves game.yaml (editor.Editor.OpenProject, EditProject and SaveProject). PathRefs lists every path game.yaml holds to a file or folder of the project with the YAML node that writes it, and File.EachPath visits the same paths in a parsed File, so that package refs can check and rewrite them when a file moves.
+// game.yaml owns the fields NSGo's own nsgo.yaml repeats: the app's name, id and version, its appearance and its build output and targets. SyncNSGo writes them into an nsgo.yaml, keeping its other keys and comments, and CheckNSGo reports where an nsgo.yaml disagrees. The game project command runs these on a project directory, and the editor opens and saves game.yaml (editor.Editor.OpenProject, EditProject and SaveProject). PathRefs lists every path game.yaml holds to a file or folder of the project with the YAML node that writes it, and File.EachPath visits the same paths in a parsed File, so that package refs can check and rewrite them when a file moves.
 package project

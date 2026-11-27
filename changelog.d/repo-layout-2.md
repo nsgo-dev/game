@@ -1,6 +1,7 @@
 ### Added
 
 - `game size` checks a built package, a WebAssembly binary or an Android AAB or APK or iOS IPA, against its size budget, with the flags, reports and default budgets of the former `cmd/sizecheck`; run it as `go tool game size`. The measurements and budget checks behind it are the library package `github.com/nsgo-dev/game/pkg/tooling/sizecheck` (`sizecheck.LoadBudget`, `sizecheck.CheckMobilePackage`, `sizecheck.MeasureWasm` and so on).
+- `game project` checks, formats and applies a project's `game.yaml` with the verbs of the former `cmd/gameproject`: `game project check`, `game project fmt`, `game project sync` and `game project targets`, each taking the project directory, the working directory by default. `-check` goes before the verb, as in `game project -check fmt`, and is only for `fmt` and `sync`.
 
 ### Changed
 
@@ -11,7 +12,9 @@
 - `refs` moves from `pkg/refs` to `pkg/tooling/refs` and `playtest` from `pkg/playtest` to `pkg/tooling/playtest`, beside the other packages no release build links; their names are unchanged, so only the imports change: `github.com/nsgo-dev/game/pkg/tooling/refs` and `github.com/nsgo-dev/game/pkg/tooling/playtest`. Their File Formats entries are now `tooling/refs`, `tooling/playtest` and `tooling/playtest#report`.
 - `tooling/pack`, the atlas packer behind `game pack` and `game assets`, is renamed `atlaspack` so it no longer reads as the asset packs of `tooling/library` and `placeholder`: import `github.com/nsgo-dev/game/pkg/tooling/atlaspack` and write `atlaspack.PackImages`, `atlaspack.PackDir` and so on. Its errors start with `atlaspack:` instead of `pack:`. The `game pack` command keeps its name.
 - Package size checks exit with 1, not 2, when the budget file, the package or its ZIP archive cannot be read, as every `game` command does for a failure; 2 is left for a wrong call. Their errors start with `game size:` instead of `sizecheck:`, and the File Formats entries of the size budgets are now `tooling/sizecheck` and `tooling/sizecheck#mobile`.
+- Project file checks exit with 2, not 1, when they are called wrongly, such as with an unknown verb, more than one directory or `-check` where it does not apply, and print the usage of `game project`; their errors start with `game project:` instead of `gameproject:`.
 
 ### Removed
 
 - `cmd/sizecheck` is gone: run `go tool game size` with the same flags instead of `go run github.com/nsgo-dev/game/cmd/sizecheck`.
+- `cmd/gameproject` is gone: run `go tool game project`, with `-check` before the verb (`game project -check sync`), instead of `go run github.com/nsgo-dev/game/cmd/gameproject`. The project templates' READMEs and comments name `go run github.com/nsgo-dev/game/cmd/game project`.

@@ -62,8 +62,8 @@ The on-screen pad is drawn on phones and tablets, and on other devices once the 
 The game's settings live in `game.yaml`. Edit its name and identifier before shipping, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/game project sync
+go run github.com/nsgo-dev/game/cmd/game project check
 ```
 
 ## Git setup

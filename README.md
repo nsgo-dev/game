@@ -130,7 +130,7 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 ```text
 game/
 ├─ go.mod / go.work     Go module github.com/nsgo-dev/game (root package game at root)
-├─ cmd/                 binaries shipped to users (game, nsgo-game, gameproject, and the service daemons)
+├─ cmd/                 binaries shipped to users (game, nsgo-game, and the service daemons)
 ├─ internal/            shared helpers, CLI implementation, repo-wide checks and the sizeprobe CI fixture
 ├─ pkg/                 library packages (github.com/nsgo-dev/game/pkg/<name>)
 │  ├─ online/           online services and netplay

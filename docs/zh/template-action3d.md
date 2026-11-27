@@ -54,4 +54,4 @@ go tool nsgo dev
 - **新对象。** 在 `level.go` 的 `levelComponents` 中注册组件类型，例如移动平台或拉杆，在 `buildLevel` 中读取它，再在场景中把它的事件连接到处理器。
 - **模型。** 用 glTF 模型替换方块：用 `gltf` 包加载（见[从 Blender 导入 3D 模型](3d-models-blender.md)），用 `render3d.UploadMesh` 上传网格，并在 `renderer.draw` 中绘制。
 
-编辑 `game.yaml` 之后，`go run github.com/nsgo-dev/game/cmd/gameproject sync` 会写入 `nsgo.yaml` 与它共有的设置；移动或增加文件之后，`go run github.com/nsgo-dev/game/cmd/game index` 会更新项目的稳定文件 ID 索引 `game.index.yaml`。
+编辑 `game.yaml` 之后，`go run github.com/nsgo-dev/game/cmd/game project sync` 会写入 `nsgo.yaml` 与它共有的设置；移动或增加文件之后，`go run github.com/nsgo-dev/game/cmd/game index` 会更新项目的稳定文件 ID 索引 `game.index.yaml`。

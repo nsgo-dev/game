@@ -51,7 +51,7 @@ go tool game playtest
 - 牌组和难度在 `rules.yaml`。当测试所用的谨慎玩法在 200 局中赢下不到十分之一或超过十分之九时，`TestSomeDealsAreWon` 会失败；`table_test.go` 中的 `winDeal` 和 `loseDeal` 是完整对局测试赢下和输掉的牌局，改动规则后要重新挑选。
 - 牌桌布局在 `board.yaml`，使用显示区域的坐标。缺少规则所需槽位的牌桌会被 `newTable` 拒绝。
 - 走法在 `table.go`：`allows` 决定哪张牌可以去哪里，`canDraw` 决定何时可以摸牌或把弃牌堆翻成新的摸牌堆，`judge` 决定牌局何时胜负已分。
-- 操作在 `game.yaml` 的输入映射中，用 `go run github.com/nsgo-dev/game/cmd/gameproject check` 校验。
+- 操作在 `game.yaml` 的输入映射中，用 `go run github.com/nsgo-dev/game/cmd/game project check` 校验。
 - 卡牌图案是 `render.go` 中的 `drawCard` 和 `drawSuit`。
 
 ## 局限

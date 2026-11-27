@@ -37,8 +37,8 @@ GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/game project sync
+go run github.com/nsgo-dev/game/cmd/game project check
 ```
 
 ## Layout

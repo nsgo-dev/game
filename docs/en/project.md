@@ -1,6 +1,6 @@
 # Project File
 
-`github.com/nsgo-dev/game/pkg/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, the editor plugins it turns on, its asset pipeline and the library packs installed into it. The game reads it at startup, the `gameproject` command checks and applies it, `game release` reads its export presets, `game assets` builds its asset targets, and the editor opens, edits and saves it.
+`github.com/nsgo-dev/game/pkg/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, the editor plugins it turns on, its asset pipeline and the library packs installed into it. The game reads it at startup, the [`game project`](cli.md#project) command checks and applies it, `game release` reads its export presets, `game assets` builds its asset targets, and the editor opens, edits and saves it.
 
 ## The file
 
@@ -143,7 +143,7 @@ assets:
 | `navigation` | The settings and agent types [`game navmesh`](cli.md#navmesh) bakes a scene's [navigation meshes](navbake3d.md) with: the voxel `cellSize` and `cellHeight`, `minRegionArea`, `maxEdgeLength`, `maxSimplificationError`, `maxVertsPerPoly` (3 to 12), `detailSampleDistance` (at least `cellSize`) and `detailSampleMaxError`, and the `agents`, each with a unique `name` and its `radius`, `height`, `maxSlope` (degrees, below 90) and `maxClimb`. A size left out takes navbake3d's default, and without agents one called `default` is baked. |
 | `packs` | The packs installed from an [asset and plugin library](library.md), each with its `name`, `kind` (`asset`, `plugin` or `template`), `packVersion` (a strict semantic version without a leading `v`, such as `1.0.0`), `sha256` digest, the `dir` its `files` were written to, and the autoload `scenes` and `resources` and editor `plugins` the install added, which must still be in the file. `game library` and the editor's library panel write it; no two packs may claim the same file, entry or plugin. |
 
-`Parse` refuses unknown fields, other versions, a trailing YAML document, duplicate names, actions an axis reads but nobody declares, a main scene that is not autoloaded, paths that leave the project, targets of another platform, values out of range, and asset targets that write the same file, write over `game.yaml` or a file a target reads, or write where another target's scan reads, and says which field is wrong. `Encode` validates a `File` and writes 2-space YAML in a fixed key order that `Parse` reads back unchanged. A person may write the file in any YAML style and with comments; `gameproject fmt` rewrites it in the canonical form, which keeps no comments.
+`Parse` refuses unknown fields, other versions, a trailing YAML document, duplicate names, actions an axis reads but nobody declares, a main scene that is not autoloaded, paths that leave the project, targets of another platform, values out of range, and asset targets that write the same file, write over `game.yaml` or a file a target reads, or write where another target's scan reads, and says which field is wrong. `Encode` validates a `File` and writes 2-space YAML in a fixed key order that `Parse` reads back unchanged. A person may write the file in any YAML style and with comments; `game project fmt` rewrites it in the canonical form, which keeps no comments.
 
 ## Reading it in a game
 
@@ -192,13 +192,13 @@ NSGo's own `nsgo.yaml` sits beside `game.yaml` and repeats some of its settings.
 
 `SyncNSGo` writes these fields into an `nsgo.yaml`—filtering `build.targets` to targets every host can build (omitting Apple targets and `android_x64`) when any preset is portable so plain `nsgo build` succeeds on Linux and Windows—while keeping its other keys (`dev`, `icon` and the rest) and its comments. `CheckNSGo` reports each field that disagrees and accepts either the portable subset or the full preset target list for `build.targets`. Both read an empty `build:` key as no build settings, as NSGo does. Everything else in `nsgo.yaml` stays NSGo's.
 
-## The gameproject command
+## The game project command
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject check [dir]
-go run github.com/nsgo-dev/game/cmd/gameproject fmt [-check] [dir]
-go run github.com/nsgo-dev/game/cmd/gameproject sync [-check] [dir]
-go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
+go tool game project check [dir]
+go tool game project [-check] fmt [dir]
+go tool game project [-check] sync [dir]
+go tool game project targets [dir]
 ```
 
 - `check` reports every problem of a project at once (`project.Check`): a `game.yaml` that does not parse, an `nsgo.yaml` that disagrees with it, an autoload that is missing or invalid, and a file an installed pack wrote that is missing.
@@ -206,7 +206,7 @@ go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
 - `sync` writes the fields `game.yaml` owns into `nsgo.yaml`, creating it when missing; with `-check` it fails instead when they disagree. Run it after editing `game.yaml`.
 - `targets` prints the export presets' build targets, comma-separated, for `nsgo build -target`.
 
-`dir` is the project root, the current directory when left out.
+`dir` is the project root, the current directory when left out. Inside a project, `go tool game project` runs the same command without an installed `nsgo`. A failed check exits with 1, and a wrong call, such as `-check` with `check` or `targets`, or `-check` after the verb, with 2.
 
 ## In the editor
 

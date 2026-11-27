@@ -203,6 +203,18 @@ go tool game new [flags] <dir>
 | `-template string` | `starter` | the template to start from: starter, action3d, cards2d, fighting2d, fps3d, idle, platformer2d, puzzle2d, racing3d, rhythm, roguelike2d, rpg2d, rts2d, shmup2d, towerdefense2d, visualnovel; -list describes each |
 | `-version string` |  | the version of github.com/nsgo-dev/game to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build) |
 
+## game project
+
+Check a project's game.yaml, rewrite it in canonical form, write the fields it owns into nsgo.yaml, or print its export presets' build targets.
+
+```sh
+go tool game project [flags] check|fmt|sync|targets [dir]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-check` |  | with fmt, fail unless game.yaml is in canonical form, and with sync, fail unless nsgo.yaml agrees with game.yaml, without rewriting either |
+
 ## game dev
 
 Run the game with nsgo dev, reloading its assets in the running game when they are saved.

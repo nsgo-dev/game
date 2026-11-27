@@ -668,7 +668,7 @@ func packageDecls(dir string) (string, map[string]string, error) {
 	return bp.Name, declared, nil
 }
 
-// readProjectFile reads dir's game.yaml, nil when there is none and it is not required. When required, which adding to it is, it must exist and be in the form gameproject fmt writes, since rewriting it would lose what differs, such as comments.
+// readProjectFile reads dir's game.yaml, nil when there is none and it is not required. When required, which adding to it is, it must exist and be in the form game project fmt writes, since rewriting it would lose what differs, such as comments.
 func readProjectFile(dir string, required bool) (*project.File, error) {
 	data, err := os.ReadFile(filepath.Join(dir, project.FileName))
 	if errors.Is(err, fs.ErrNotExist) && !required {
@@ -687,7 +687,7 @@ func readProjectFile(dir string, required bool) (*project.File, error) {
 			return nil, err
 		}
 		if !bytes.Equal(canonical, data) {
-			return nil, fmt.Errorf("%s is not in the form gameproject fmt writes, so adding the scene to it would rewrite the rest; run gameproject fmt first", filepath.Join(dir, project.FileName))
+			return nil, fmt.Errorf("%s is not in the form game project fmt writes, so adding the scene to it would rewrite the rest; run game project fmt first", filepath.Join(dir, project.FileName))
 		}
 	}
 	return f, nil

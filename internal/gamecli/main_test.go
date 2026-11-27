@@ -56,7 +56,7 @@ func TestHelpListsEveryCommand(t *testing.T) {
 }
 
 func TestEveryFormerCommandIsASubcommand(t *testing.T) {
-	want := []string{"pack", "audio", "manifest", "tex", "editor", "mcp", "release", "replay", "playtest", "bench", "size", "new", "dev", "check", "assets", "generate", "mv", "index", "library", "credits", "pixelfx", "navmesh", "merge", "schema", "net", "completion"}
+	want := []string{"pack", "audio", "manifest", "tex", "editor", "mcp", "release", "replay", "playtest", "bench", "size", "new", "project", "dev", "check", "assets", "generate", "mv", "index", "library", "credits", "pixelfx", "navmesh", "merge", "schema", "net", "completion"}
 	if len(commands) != len(want) {
 		t.Fatalf("%d commands, want %d", len(commands), len(want))
 	}

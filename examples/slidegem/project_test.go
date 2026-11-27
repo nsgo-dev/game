@@ -13,14 +13,14 @@ import (
 //go:embed nsgo.yaml
 var nsgoYAML []byte
 
-// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form gameproject fmt writes, that nsgo.yaml agrees with it and that its autoloads load, as gameproject check and sync -check do.
+// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form game project fmt writes, that nsgo.yaml agrees with it and that its autoloads load, as game project check and game project -check sync do.
 func TestProjectFileIsValidAndCanonical(t *testing.T) {
 	fsys := fstest.MapFS{project.FileName: {Data: gameYAML}, project.NSGoFileName: {Data: nsgoYAML}}
 	if _, err := project.Check(fsys); err != nil {
 		t.Fatal(err)
 	}
 	if canonical, err := project.Encode(gameProject); err != nil || !bytes.Equal(canonical, gameYAML) {
-		t.Fatalf("game.yaml is not canonical (%v); run gameproject fmt:\n%s", err, canonical)
+		t.Fatalf("game.yaml is not canonical (%v); run game project fmt:\n%s", err, canonical)
 	}
 }
 

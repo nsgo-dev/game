@@ -21,7 +21,7 @@ var nsgoYAML []byte
 
 const step = time.Second / StepRate
 
-// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form gameproject fmt writes, that nsgo.yaml agrees with it, that its autoloads load and that it turns on the health plugin.
+// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form game project fmt writes, that nsgo.yaml agrees with it, that its autoloads load and that it turns on the health plugin.
 func TestProjectFileIsValidAndCanonical(t *testing.T) {
 	fsys := fstest.MapFS{project.FileName: {Data: gameYAML}, project.NSGoFileName: {Data: nsgoYAML}}
 	scenes, err := fs.Glob(sceneFiles, "scenes/*.scene.yaml")
@@ -36,7 +36,7 @@ func TestProjectFileIsValidAndCanonical(t *testing.T) {
 		t.Fatal(err)
 	}
 	if canonical, err := project.Encode(gameProject); err != nil || !bytes.Equal(canonical, gameYAML) {
-		t.Fatalf("game.yaml is not canonical (%v); run gameproject fmt:\n%s", err, canonical)
+		t.Fatalf("game.yaml is not canonical (%v); run game project fmt:\n%s", err, canonical)
 	}
 	if gameProject.Editor == nil || len(gameProject.Editor.Plugins) != 1 || gameProject.Editor.Plugins[0] != "health" {
 		t.Fatalf("game.yaml does not turn on the health plugin: %+v", gameProject.Editor)
