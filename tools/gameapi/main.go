@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/nsgo-dev/game/pkg/tooling/apiref"
+	"github.com/nsgo-dev/game/internal/apiref"
 )
 
 func main() {

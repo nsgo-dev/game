@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/apiref"
+	"github.com/nsgo-dev/game/internal/apiref"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -508,7 +508,7 @@ func FuzzUnmarshal(f *testing.F) {
 
 // TestModuleReference loads this module, the one the website documents, and checks against a parse of its own that every exported identifier any target builds, in a development or a release build, has exactly one anchor on its package's page.
 func TestModuleReference(t *testing.T) {
-	root := filepath.Join("..", "..", "..")
+	root := filepath.Join("..", "..")
 	ref, err := apiref.Load(root, apiref.Options{HTML: true})
 	if err != nil {
 		t.Fatalf("Load: %v", err)

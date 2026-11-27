@@ -292,7 +292,7 @@ Suffix matching is case-insensitive and strips Blender's trailing duplicate numb
 
 ## Round-trip sample models
 
-The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`pkg/placeholder/pack/models/`](../../pkg/placeholder/pack/models/), generated and round-trip verified in Go by [`internal/samplegltf/`](../../internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.
+The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`pkg/placeholder/pack/models/`](../../pkg/placeholder/pack/models/), generated and round-trip verified in Go by [`pkg/placeholder/internal/samplegltf/`](../../pkg/placeholder/internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.
 
 ### 1. Static binary crate (`crate.glb`)
 
@@ -329,7 +329,7 @@ File: [`models/gem.glb`](../../pkg/placeholder/pack/models/gem.glb) (1,924 bytes
 
 ### Running the round-trip verifier
 
-The Go test suite in [`internal/samplegltf/samplegltf_test.go`](../../internal/samplegltf/samplegltf_test.go) unpacks the committed models and verifies:
+The Go test suite in [`pkg/placeholder/internal/samplegltf/samplegltf_test.go`](../../pkg/placeholder/internal/samplegltf/samplegltf_test.go) unpacks the committed models and verifies:
 
 - GLB magic, version `2`, 4-byte alignment, JSON/BIN chunk bounds, and zero-byte BIN padding
 - Embedded data URI base64 decoding and exact buffer byte lengths
@@ -342,13 +342,13 @@ The Go test suite in [`internal/samplegltf/samplegltf_test.go`](../../internal/s
 Run the tests from the repository root:
 
 ```sh
-go tool nsgo test ./internal/samplegltf
+go tool nsgo test ./pkg/placeholder/internal/samplegltf
 ```
 
 If you edit the generator, regenerate the committed models and re-verify in one command:
 
 ```sh
-go test ./internal/samplegltf -update
+go tool nsgo test ./pkg/placeholder/internal/samplegltf -update
 ```
 
 ## Troubleshooting

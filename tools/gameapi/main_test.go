@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/apiref"
+	"github.com/nsgo-dev/game/internal/apiref"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 

@@ -2980,7 +2980,7 @@ runs:
 }
 ```
 
-<!-- format: tooling/apiref -->
+<!-- format: internal/apiref -->
 ### API 参考
 
 | 文件 | 版本 | 读写函数 | 字段 |

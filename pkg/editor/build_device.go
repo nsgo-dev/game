@@ -26,8 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nsgo-dev/game/internal/qrcode"
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/editor/internal/qrcode"
 )
 
 var (

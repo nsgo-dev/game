@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nsgo-dev/game/internal/samplegltf"
+	"github.com/nsgo-dev/game/pkg/placeholder/internal/samplegltf"
 )
 
 var update = flag.Bool("update", false, "regenerate the sample glTF/GLB models committed in the placeholder pack's models folder")
 
 func sampleDir(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("..", "..", "pkg", "placeholder", "pack", "models")
+	return filepath.Join("..", "..", "pack", "models")
 }
 
 func TestCrateGLBRoundTrip(t *testing.T) {
@@ -143,10 +143,10 @@ func TestCommittedSamplesMatchGenerator(t *testing.T) {
 	}
 	crateGot, err := os.ReadFile(filepath.Join(dir, "crate.glb"))
 	if err != nil {
-		t.Fatalf("read committed crate.glb (run `go test ./internal/samplegltf -update` to generate): %v", err)
+		t.Fatalf("read committed crate.glb (run `go tool nsgo test ./pkg/placeholder/internal/samplegltf -update` to generate): %v", err)
 	}
 	if !bytes.Equal(crateGot, crateWant) {
-		t.Fatalf("committed crate.glb differs from generator output (%d vs %d bytes); run `go test ./internal/samplegltf -update`", len(crateGot), len(crateWant))
+		t.Fatalf("committed crate.glb differs from generator output (%d vs %d bytes); run `go tool nsgo test ./pkg/placeholder/internal/samplegltf -update`", len(crateGot), len(crateWant))
 	}
 	if doc, bin, err := samplegltf.UnpackGLB(crateGot); err != nil {
 		t.Fatalf("UnpackGLB committed crate.glb: %v", err)
@@ -160,10 +160,10 @@ func TestCommittedSamplesMatchGenerator(t *testing.T) {
 	}
 	armGot, err := os.ReadFile(filepath.Join(dir, "robot_arm.gltf"))
 	if err != nil {
-		t.Fatalf("read committed robot_arm.gltf (run `go test ./internal/samplegltf -update` to generate): %v", err)
+		t.Fatalf("read committed robot_arm.gltf (run `go tool nsgo test ./pkg/placeholder/internal/samplegltf -update` to generate): %v", err)
 	}
 	if !bytes.Equal(armGot, armWant) {
-		t.Fatalf("committed robot_arm.gltf differs from generator output (%d vs %d bytes); run `go test ./internal/samplegltf -update`", len(armGot), len(armWant))
+		t.Fatalf("committed robot_arm.gltf differs from generator output (%d vs %d bytes); run `go tool nsgo test ./pkg/placeholder/internal/samplegltf -update`", len(armGot), len(armWant))
 	}
 	if doc, bin, err := samplegltf.ParseEmbeddedGLTF(armGot); err != nil {
 		t.Fatalf("ParseEmbeddedGLTF committed robot_arm.gltf: %v", err)
@@ -177,10 +177,10 @@ func TestCommittedSamplesMatchGenerator(t *testing.T) {
 	}
 	gemGot, err := os.ReadFile(filepath.Join(dir, "gem.glb"))
 	if err != nil {
-		t.Fatalf("read committed gem.glb (run `go test ./internal/samplegltf -update` to generate): %v", err)
+		t.Fatalf("read committed gem.glb (run `go tool nsgo test ./pkg/placeholder/internal/samplegltf -update` to generate): %v", err)
 	}
 	if !bytes.Equal(gemGot, gemWant) {
-		t.Fatalf("committed gem.glb differs from generator output (%d vs %d bytes); run `go test ./internal/samplegltf -update`", len(gemGot), len(gemWant))
+		t.Fatalf("committed gem.glb differs from generator output (%d vs %d bytes); run `go tool nsgo test ./pkg/placeholder/internal/samplegltf -update`", len(gemGot), len(gemWant))
 	}
 }
 

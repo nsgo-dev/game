@@ -292,7 +292,7 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 
 ## 往返校验示例模型
 
-[占位素材包](placeholder.md)在 [`pkg/placeholder/pack/models/`](../../pkg/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`internal/samplegltf/`](../../internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。
+[占位素材包](placeholder.md)在 [`pkg/placeholder/pack/models/`](../../pkg/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`pkg/placeholder/internal/samplegltf/`](../../pkg/placeholder/internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。
 
 ### 1. 静态二进制木箱（`crate.glb`）
 
@@ -329,7 +329,7 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 
 ### 运行往返校验测试
 
-[`internal/samplegltf/samplegltf_test.go`](../../internal/samplegltf/samplegltf_test.go) 会解包已提交的模型并逐项校验：
+[`pkg/placeholder/internal/samplegltf/samplegltf_test.go`](../../pkg/placeholder/internal/samplegltf/samplegltf_test.go) 会解包已提交的模型并逐项校验：
 
 - GLB 魔数、版本 `2`、4 字节对齐、JSON/BIN 块边界与 BIN 零填充
 - 内嵌 data URI 的 base64 解码与缓冲区精确字节长度
@@ -342,13 +342,13 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 在仓库根目录运行测试：
 
 ```sh
-go tool nsgo test ./internal/samplegltf
+go tool nsgo test ./pkg/placeholder/internal/samplegltf
 ```
 
 修改生成器后，可用一条命令重新生成并校验已提交的模型：
 
 ```sh
-go test ./internal/samplegltf -update
+go tool nsgo test ./pkg/placeholder/internal/samplegltf -update
 ```
 
 ## 故障排查

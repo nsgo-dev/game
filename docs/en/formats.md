@@ -2980,7 +2980,7 @@ Each line records one plaintext transport packet (`t` elapsed nanoseconds since 
 }
 ```
 
-<!-- format: tooling/apiref -->
+<!-- format: internal/apiref -->
 ### API reference
 
 | Files | Version | Read and written by | Fields |

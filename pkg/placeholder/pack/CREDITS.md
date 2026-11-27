@@ -1,6 +1,6 @@
 # Placeholder Pack Credits
 
-Every file in this pack is an original work made for the `github.com/nsgo-dev/game` repository: drawn, synthesized or modeled in Go by the generator in `pkg/placeholder/internal/gen` and `internal/samplegltf`, from no third-party art, fonts, samples or models. The generator writes the same files on every run.
+Every file in this pack is an original work made for the `github.com/nsgo-dev/game` repository: drawn, synthesized or modeled in Go by the generator in `pkg/placeholder/internal/gen` and `pkg/placeholder/internal/samplegltf`, from no third-party art, fonts, samples or models. The generator writes the same files on every run.
 
 All of them, including the import settings sidecars (`*.import.yaml`) beside the images and sounds, are dedicated to the public domain under Creative Commons Zero v1.0 Universal (`CC0-1.0`):
 
