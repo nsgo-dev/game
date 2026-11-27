@@ -3,12 +3,23 @@ package accounts_test
 import (
 	"bytes"
 	"crypto/rand"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
 )
+
+func configsEqual(a, b accounts.Config) bool {
+	return a.Version == b.Version &&
+		a.Issuer == b.Issuer &&
+		a.Audience == b.Audience &&
+		a.TokenTTL == b.TokenTTL &&
+		a.DisableGuests == b.DisableGuests &&
+		a.Password == b.Password &&
+		slices.Equal(a.AllowedOrigins, b.AllowedOrigins)
+}
 
 func TestConfigRoundTripIsLossless(t *testing.T) {
 	cfg, err := accounts.ParseConfig([]byte(testConfig))
@@ -28,6 +39,7 @@ func TestConfigRoundTripIsLossless(t *testing.T) {
 	def := accounts.DefaultConfig("https://accounts.example.com", "my-game")
 	def.DisableGuests = true
 	def.TokenTTL = accounts.Duration(90*time.Minute + 30*time.Second)
+	def.AllowedOrigins = []string{"https://play.example.com", "http://localhost:8080"}
 	out, err = def.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -43,12 +55,15 @@ password:
     time: 2
     memoryKiB: 19456
     threads: 1
+allowedOrigins:
+  - https://play.example.com
+  - http://localhost:8080
 `
 	if string(out) != want {
 		t.Fatalf("Marshal =\n%s\nwant\n%s", out, want)
 	}
 	back, err := accounts.ParseConfig(out)
-	if err != nil || back != def {
+	if err != nil || !configsEqual(back, def) {
 		t.Fatalf("ParseConfig(Marshal) = %+v, %v; want %+v", back, err, def)
 	}
 }
@@ -59,6 +74,7 @@ func TestConfigMarshalNormalizesHandWrittenFiles(t *testing.T) {
 issuer: https://accounts.example.com
 version: 1
 disableGuests: false
+allowedOrigins: []
 password:
   argon2id:
     threads: 1
@@ -79,7 +95,7 @@ tokenTTL: 15m0s
 		t.Fatalf("Marshal =\n%s\nwant\n%s", out, testConfig)
 	}
 	back, err := accounts.ParseConfig(out)
-	if err != nil || back != cfg {
+	if err != nil || !configsEqual(back, cfg) {
 		t.Fatalf("ParseConfig(Marshal) = %+v, %v; want %+v", back, err, cfg)
 	}
 }
@@ -108,25 +124,35 @@ func TestDurationText(t *testing.T) {
 
 func TestParseConfigRefuses(t *testing.T) {
 	cases := map[string]string{
-		"empty":          "",
-		"unknown field":  testConfig + "extra: true\n",
-		"nested unknown": strings.Replace(testConfig, "  minLength: 10\n", "  minLength: 10\n  maxLength: 99\n", 1),
-		"version":        strings.Replace(testConfig, "version: 1", "version: 2", 1),
-		"no version":     strings.Replace(testConfig, "version: 1\n", "", 1),
-		"no issuer":      strings.Replace(testConfig, "issuer: https://accounts.example.com\n", "", 1),
-		"no audience":    strings.Replace(testConfig, "audience: my-game\n", "", 1),
-		"no ttl":         strings.Replace(testConfig, "tokenTTL: 15m\n", "", 1),
-		"ttl number":     strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: 900", 1),
-		"ttl text":       strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: soon", 1),
-		"ttl too long":   strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: 25h", 1),
-		"ttl fraction":   strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: 1.5s", 1),
-		"short minimum":  strings.Replace(testConfig, "minLength: 10", "minLength: 4", 1),
-		"no time":        strings.Replace(testConfig, "    time: 1\n", "", 1),
-		"memory":         strings.Replace(testConfig, "memoryKiB: 64", "memoryKiB: 4", 1),
-		"huge memory":    strings.Replace(testConfig, "memoryKiB: 64", "memoryKiB: 8388608", 1),
-		"threads":        strings.Replace(testConfig, "threads: 1", "threads: 0", 1),
-		"trailing doc":   testConfig + "---\nversion: 1\n",
-		"not a map":      "- version\n",
+		"empty":                     "",
+		"unknown field":             testConfig + "extra: true\n",
+		"nested unknown":            strings.Replace(testConfig, "  minLength: 10\n", "  minLength: 10\n  maxLength: 99\n", 1),
+		"version":                   strings.Replace(testConfig, "version: 1", "version: 2", 1),
+		"no version":                strings.Replace(testConfig, "version: 1\n", "", 1),
+		"no issuer":                 strings.Replace(testConfig, "issuer: https://accounts.example.com\n", "", 1),
+		"no audience":               strings.Replace(testConfig, "audience: my-game\n", "", 1),
+		"no ttl":                    strings.Replace(testConfig, "tokenTTL: 15m\n", "", 1),
+		"ttl number":                strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: 900", 1),
+		"ttl text":                  strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: soon", 1),
+		"ttl too long":              strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: 25h", 1),
+		"ttl fraction":              strings.Replace(testConfig, "tokenTTL: 15m", "tokenTTL: 1.5s", 1),
+		"short minimum":             strings.Replace(testConfig, "minLength: 10", "minLength: 4", 1),
+		"no time":                   strings.Replace(testConfig, "    time: 1\n", "", 1),
+		"memory":                    strings.Replace(testConfig, "memoryKiB: 64", "memoryKiB: 4", 1),
+		"huge memory":               strings.Replace(testConfig, "memoryKiB: 64", "memoryKiB: 8388608", 1),
+		"threads":                   strings.Replace(testConfig, "threads: 1", "threads: 0", 1),
+		"origin path":               testConfig + "allowedOrigins: [https://a.example/]\n",
+		"origin scheme":             testConfig + "allowedOrigins: [ftp://a.example]\n",
+		"origin wildcard":           testConfig + "allowedOrigins: ['*']\n",
+		"origin host wildcard":      testConfig + "allowedOrigins: ['https://*.example.com']\n",
+		"origin bare wildcard host": testConfig + "allowedOrigins: ['https://*']\n",
+		"origin port out of range":  testConfig + "allowedOrigins: ['http://a.example:99999']\n",
+		"origin port zero":          testConfig + "allowedOrigins: ['http://a.example:0']\n",
+		"origin trailing colon":     testConfig + "allowedOrigins: ['http://a.example:']\n",
+		"origin empty host":         testConfig + "allowedOrigins: ['http://:8080']\n",
+		"origin twice":              testConfig + "allowedOrigins: [https://a.example, https://a.example]\n",
+		"trailing doc":              testConfig + "---\nversion: 1\n",
+		"not a map":                 "- version\n",
 	}
 	for name, data := range cases {
 		if _, err := accounts.ParseConfig([]byte(data)); err == nil {
@@ -137,6 +163,7 @@ func TestParseConfigRefuses(t *testing.T) {
 
 func FuzzParseConfig(f *testing.F) {
 	f.Add([]byte(testConfig))
+	f.Add([]byte(testConfig + "allowedOrigins:\n  - https://play.example.com\n"))
 	def, _ := accounts.DefaultConfig("i", "a").Marshal()
 	f.Add(def)
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -149,12 +176,15 @@ func FuzzParseConfig(f *testing.F) {
 			t.Fatalf("Marshal of a parsed config: %v", err)
 		}
 		back, err := accounts.ParseConfig(out)
-		if err != nil || back != cfg {
+		if err != nil || !configsEqual(back, cfg) {
 			t.Fatalf("round trip: %+v, %v; want %+v", back, err, cfg)
 		}
 		again, _ := back.Marshal()
 		if !bytes.Equal(out, again) {
 			t.Fatalf("Marshal not stable:\n%s\n%s", out, again)
+		}
+		if strings.Contains(string(out), "allowedOrigins: []") {
+			t.Fatalf("empty origins written: %q", out)
 		}
 	})
 }

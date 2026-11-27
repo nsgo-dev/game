@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/mail"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -110,6 +111,7 @@ func New(cfg Config, opts Options) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accounts: %w", err)
 	}
+	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, signer: signer, providers: map[string]IdentityVerifier{}, log: opts.Logger, now: opts.Now, rand: opts.Rand}
 	for name, v := range opts.Identities {
 		if !validProvider(name) {
@@ -153,7 +155,11 @@ func New(cfg Config, opts Options) (*Service, error) {
 }
 
 // Config returns the service's configuration.
-func (s *Service) Config() Config { return s.cfg }
+func (s *Service) Config() Config {
+	c := s.cfg
+	c.AllowedOrigins = slices.Clone(s.cfg.AllowedOrigins)
+	return c
+}
 
 // KeySet returns the public key set a game server verifies the service's tokens with: the signing key's public half first, then the keys of Options.KeySet.
 func (s *Service) KeySet() *token.KeySet {

@@ -35,6 +35,8 @@ boards:
 serverKeys:
   - id: 2317febd373fcbcd
     key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
+allowedOrigins:
+  - https://play.example.com
 ```
 
 | 字段 | 含义 |
@@ -50,8 +52,9 @@ serverKeys:
 | `validation` | `signed` 只接受带游戏服务器证明的成绩；缺省则信任玩家的客户端 |
 | `min`、`max` | 排行榜接受的分数范围；正负都不超过 2^53-1，保证每个分数在 JavaScript 的 JSON 数字里不失真 |
 | `serverKeys` | 游戏服务器签发证明所用的 Ed25519 公钥；`signed` 排行榜至少需要一个 |
+| `allowedOrigins` | 允许其页面调用服务的网页 origin；为空时省略 |
 
-`ParseConfig` 拒绝未知字段、重复键、其他版本和第二个 YAML 文档。可选字段保留文件里写的内容，`Config.Marshal` 按上表的顺序写出字段，所以这种形式的文件解析后再写出，逐字节不变。
+`ParseConfig` 拒绝未知字段、重复键、其他版本、第二个 YAML 文档，以及重复或带路径、查询、片段、用户信息、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。可选字段保留文件里写的内容，`Config.Marshal` 按上表的顺序写出字段并在为空时省略 `allowedOrigins`，所以这种形式的文件解析后再写出，逐字节不变。
 
 ## 排名
 
@@ -114,7 +117,7 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 
 一页是 `{"board", "period", "total", "entries"}`，周期是 `{"id", "start", "end"}`（总榜没有 `start` 和 `end`），条目是 `{"rank", "account", "score", "achieved"}`。错误是 `{"error": code}`：`invalid_token` 401；`proof_required`、`invalid_proof` 和 `proof_expired` 403；`unknown_board`、`unknown_period` 和 `not_ranked` 404；`bad_request`、`invalid_account` 和 `score_out_of_range` 400；`request_too_large` 413；`unavailable` 503；`internal` 500。
 
-条目里是账号 ID；要显示名字的游戏到自己的玩家资料里查找。处理器要放在 TLS 和限流器之后。
+条目里是账号 ID；要显示名字的游戏到自己的玩家资料里查找。对 `allowedOrigins` 中的 origin，处理器会应答 CORS 预检请求并允许 `Authorization` 和 `Content-Type`；其他 origin 不会收到 CORS 响应头。处理器要放在 TLS 和限流器之后。
 
 ## 存储
 
@@ -134,4 +137,4 @@ leaderboardd genkey -key server.pem
 leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 ```
 
-`init` 写出一份只有一个总榜 `high-score` 的配置供修改。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。
+`init` 写出一份只有一个总榜 `high-score` 且不含 `allowedOrigins` 的配置供修改；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `leaderboards.yaml` 的 `allowedOrigins`。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。

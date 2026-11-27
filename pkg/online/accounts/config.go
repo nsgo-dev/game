@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
 // ConfigVersion is the configuration file schema version this package reads and writes.
@@ -26,8 +28,10 @@ const ConfigVersion = 1
 //	    time: 2
 //	    memoryKiB: 19456
 //	    threads: 1
+//	allowedOrigins:
+//	  - https://play.example.com
 //
-// Unknown fields are refused. Marshal writes the canonical form: the fields in this order, durations in their shortest text and disableGuests only when true. A file in that form, such as one Marshal wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized.
+// Unknown fields are refused. Marshal writes the canonical form: the fields in this order, durations in their shortest text, disableGuests only when true and allowedOrigins only when it has entries. A file in that form, such as one Marshal wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized.
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
@@ -41,6 +45,8 @@ type Config struct {
 	DisableGuests bool `yaml:"disableGuests,omitempty"`
 	// Password sets the password rules and hash cost.
 	Password PasswordConfig `yaml:"password"`
+	// AllowedOrigins lists the web origins ("https://play.example.com") whose pages may call the service from a browser. The handler answers their CORS preflight requests; other origins get no CORS headers, so browsers refuse their requests. Native clients send no origin and need no entry.
+	AllowedOrigins []string `yaml:"allowedOrigins,omitempty"`
 }
 
 // PasswordConfig is the password rules and the argon2id cost.
@@ -80,7 +86,13 @@ func (c Config) Validate() error {
 	if c.Password.MinLength < 8 || c.Password.MinLength > MaxPasswordBytes {
 		return fmt.Errorf("accounts: password minLength %d must be from 8 to %d", c.Password.MinLength, MaxPasswordBytes)
 	}
-	return c.Password.Argon2id.Validate()
+	if err := c.Password.Argon2id.Validate(); err != nil {
+		return err
+	}
+	if err := cors.ValidateOrigins(c.AllowedOrigins); err != nil {
+		return fmt.Errorf("accounts: %w", err)
+	}
+	return nil
 }
 
 // ParseConfig decodes and validates a YAML configuration. Unknown fields and trailing documents are refused.
@@ -100,6 +112,9 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, errors.New("accounts: config: unexpected trailing YAML document")
 		}
 		return Config{}, fmt.Errorf("accounts: config: %w", err)
+	}
+	if len(c.AllowedOrigins) == 0 {
+		c.AllowedOrigins = nil
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err

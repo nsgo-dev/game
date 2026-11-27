@@ -9,3 +9,5 @@ password:
     time: 2
     memoryKiB: 19456
     threads: 1
+allowedOrigins:
+  - https://play.example.com

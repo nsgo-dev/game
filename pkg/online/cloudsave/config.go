@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
-	"strconv"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
 // ConfigVersion is the configuration file schema version this package reads and writes.
@@ -67,35 +66,10 @@ func (c Config) Validate() error {
 	if c.KeepVersions < 1 || c.KeepVersions > MaxKeepVersions {
 		return fmt.Errorf("cloudsave: keepVersions %d must be from 1 to %d", c.KeepVersions, MaxKeepVersions)
 	}
-	seen := map[string]bool{}
-	for _, o := range c.AllowedOrigins {
-		if err := validateOrigin(o); err != nil {
-			return err
-		}
-		if seen[o] {
-			return fmt.Errorf("cloudsave: allowedOrigins lists %q twice", o)
-		}
-		seen[o] = true
+	if err := cors.ValidateOrigins(c.AllowedOrigins); err != nil {
+		return fmt.Errorf("cloudsave: %w", err)
 	}
 	return nil
-}
-
-// validateOrigin checks that o is a web origin as a browser sends it: an http or https scheme and a host, with no path, query, fragment or user.
-func validateOrigin(o string) error {
-	u, err := url.Parse(o)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.String() != o || strings.Contains(u.Host, "*") || !validPort(u.Port()) {
-		return fmt.Errorf("cloudsave: allowedOrigins entry %q is not an origin such as https://play.example.com", o)
-	}
-	return nil
-}
-
-// validPort reports whether port, from url.URL.Port, is empty or a number from 1 to 65535.
-func validPort(port string) bool {
-	if port == "" {
-		return true
-	}
-	n, err := strconv.Atoi(port)
-	return err == nil && n >= 1 && n <= 65535 && strconv.Itoa(n) == port
 }
 
 // ParseConfig decodes and validates a YAML configuration. Unknown fields and trailing documents are refused.
@@ -115,6 +89,9 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, errors.New("cloudsave: config: unexpected trailing YAML document")
 		}
 		return Config{}, fmt.Errorf("cloudsave: config: %w", err)
+	}
+	if len(c.AllowedOrigins) == 0 {
+		c.AllowedOrigins = nil
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err

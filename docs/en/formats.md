@@ -2029,6 +2029,8 @@ password:
     time: 2
     memoryKiB: 19456
     threads: 1
+allowedOrigins:
+  - https://play.example.com
 ```
 
 <!-- format: online/accounts/token -->
@@ -2082,6 +2084,8 @@ boards:
     reset: weekly
     weekStart: sunday
     keep: 4
+allowedOrigins:
+  - https://play.example.com
 ```
 
 <!-- format: online/netplay/wire -->

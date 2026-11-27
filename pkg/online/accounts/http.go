@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
 // maxRequestBytes bounds a request body.
@@ -30,6 +31,8 @@ const maxRequestBytes = 32 << 10
 //	GET  /v1/keys                                          -> the key set as YAML
 //
 // Credentials are {"account", "session", "token", "expires", "created"}, expires in RFC 3339. A bearer token goes in "Authorization: Bearer <token>". Errors are {"error": code} with the status the code implies: invalid_credentials and invalid_token 401, guests_disabled 403, not_found 404, taken and already_linked 409, request_too_large 413, bad_request, invalid_email, weak_password and unknown_provider 400, unavailable 503 when the request was cancelled or timed out (for example waiting for a password hash slot under load), and internal 500.
+//
+// Browsers may call the handler from Config.AllowedOrigins: it answers their CORS preflight requests and allows Authorization and Content-Type.
 //
 // The handler does not limit request rates; put it behind a rate limiter, and behind TLS.
 func (s *Service) Handler() http.Handler {
@@ -125,7 +128,11 @@ func (s *Service) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(data)
 	})
-	return mux
+	return cors.Wrap(mux, cors.Policy{
+		Origins: s.cfg.AllowedOrigins,
+		Methods: []string{http.MethodGet, http.MethodPost},
+		Headers: []string{"Authorization", "Content-Type"},
+	})
 }
 
 type emailRequest struct {

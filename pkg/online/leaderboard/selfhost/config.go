@@ -13,6 +13,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
 // ConfigVersion is the configuration file schema version this package reads and writes.
@@ -76,8 +77,10 @@ const SignedByServer Validation = "signed"
 //	serverKeys:
 //	  - id: 2317febd373fcbcd
 //	    key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
+//	allowedOrigins:
+//	  - https://play.example.com
 //
-// Unknown fields, duplicate keys and trailing documents are refused. Optional fields keep what the file says, so a parsed file marshals back to the same fields; Marshal writes them in the order above with 2-space indentation, and a file in that form reads back and writes again byte for byte.
+// Unknown fields, duplicate keys and trailing documents are refused. Optional fields keep what the file says, so a parsed file marshals back to the same fields; Marshal writes them in the order above with 2-space indentation, omitting allowedOrigins when empty, and a file in that form reads back and writes again byte for byte.
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
@@ -87,6 +90,8 @@ type Config struct {
 	Boards []Board `yaml:"boards"`
 	// ServerKeys are the game servers' Ed25519 public keys that sign score proofs. A board with validation: signed needs at least one.
 	ServerKeys []token.PublicKey `yaml:"serverKeys,omitempty"`
+	// AllowedOrigins lists the web origins ("https://play.example.com") whose pages may call the service from a browser. The handler answers their CORS preflight requests; other origins get no CORS headers, so browsers refuse their requests. Native clients send no origin and need no entry.
+	AllowedOrigins []string `yaml:"allowedOrigins,omitempty"`
 }
 
 // Board declares one leaderboard.
@@ -203,6 +208,9 @@ func (c Config) Validate() error {
 	if signed && len(c.ServerKeys) == 0 {
 		return errors.New("selfhost: a board validates signed scores but the config has no serverKeys")
 	}
+	if err := cors.ValidateOrigins(c.AllowedOrigins); err != nil {
+		return fmt.Errorf("selfhost: %w", err)
+	}
 	return nil
 }
 
@@ -291,6 +299,9 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, errors.New("selfhost: config: unexpected trailing YAML document")
 		}
 		return Config{}, fmt.Errorf("selfhost: config: %w", err)
+	}
+	if len(c.AllowedOrigins) == 0 {
+		c.AllowedOrigins = nil
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err
