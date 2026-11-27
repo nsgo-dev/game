@@ -3,9 +3,11 @@ package editor_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
@@ -818,5 +820,128 @@ func TestCmdProblemsPanelLabelMatchesBehavior(t *testing.T) {
 	}
 	if ed.ProblemAgentPanelOpen() {
 		t.Fatal("second CmdProblemsPanel did not close ProblemAgentPanelOpen")
+	}
+}
+
+// #1610: With a project open, mod+p and f5 toggle Play-in-editor (matching the header Play button
+// and Project > Play menu item), while mod+r launches `go tool game dev` via RunGame.
+func TestPlayStopAndRunGameShortcutsWithProjectOpen(t *testing.T) {
+	platforms := []struct {
+		name string
+		os   core.OS
+		mod  string
+	}{
+		{"macOS", core.OSMacOS, "meta"},
+		{"Windows", core.OSWindows, "ctrl"},
+		{"Linux", core.OSLinux, "ctrl"},
+	}
+
+	for _, plat := range platforms {
+		t.Run(plat.name, func(t *testing.T) {
+			dir := writeRunnableFixtureProject(t)
+			ed, err := editor.New(nil, testResolver())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = ed.Close() })
+			if err := ed.OpenProject(dir); err != nil {
+				t.Fatal(err)
+			}
+			ed.WaitForProblems()
+
+			var mu sync.Mutex
+			var runSpecs []editor.RunGameSpec
+			ed.RunGameCommand = func(spec editor.RunGameSpec, stdout, stderr io.Writer) (editor.GameProcess, error) {
+				mu.Lock()
+				runSpecs = append(runSpecs, spec)
+				mu.Unlock()
+				return newFakeGameProcess(), nil
+			}
+
+			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				return editor.EditorView(cx, ed)
+			}, nsgotest.Size(1400, 900), nsgotest.Environment(core.Environment{OS: plat.os, Idiom: core.IdiomDesktop}))
+
+			// 1. mod+p starts Play-in-editor and a second press stops it without launching RunGame.
+			app.Key(plat.mod + "+p")
+			app.Settle()
+			if !ed.Playing() {
+				t.Fatalf("%s+p did not start Play-in-editor with a project open", plat.mod)
+			}
+			if ed.GameRunning() {
+				t.Fatalf("%s+p unexpectedly launched external game", plat.mod)
+			}
+			app.Key(plat.mod + "+p")
+			app.Settle()
+			if ed.Playing() {
+				t.Fatalf("second %s+p did not stop Play-in-editor", plat.mod)
+			}
+
+			// 2. f5 starts Play-in-editor and a second press stops it without launching RunGame.
+			app.Key("f5")
+			app.Settle()
+			if !ed.Playing() {
+				t.Fatal("f5 did not start Play-in-editor with a project open")
+			}
+			if ed.GameRunning() {
+				t.Fatal("f5 unexpectedly launched external game")
+			}
+			app.Key("f5")
+			app.Settle()
+			if ed.Playing() {
+				t.Fatal("second f5 did not stop Play-in-editor")
+			}
+
+			// 3. Project > Play menu item and header Play button match.
+			app.ChooseMenu("Project", "Play")
+			app.Settle()
+			if !ed.Playing() {
+				t.Fatal("Project > Play did not start Play-in-editor")
+			}
+			app.ChooseMenu("Project", "Stop")
+			app.Settle()
+			if ed.Playing() {
+				t.Fatal("Project > Stop did not stop Play-in-editor")
+			}
+			app.Press("id:toolbar-play")
+			app.Settle()
+			if !ed.Playing() {
+				t.Fatal("toolbar-play did not start Play-in-editor")
+			}
+			app.Press("id:toolbar-play")
+			app.Settle()
+			if ed.Playing() {
+				t.Fatal("second toolbar-play did not stop Play-in-editor")
+			}
+
+			mu.Lock()
+			runsBeforeModR := len(runSpecs)
+			mu.Unlock()
+			if runsBeforeModR != 0 {
+				t.Fatalf("Play-in-editor paths launched RunGame %d times, want 0", runsBeforeModR)
+			}
+
+			// 4. mod+r launches `go tool game dev` via RunGame, and shift+f5 stops it.
+			app.Key(plat.mod + "+r")
+			app.Settle()
+			if !ed.GameRunning() {
+				t.Fatalf("%s+r did not launch external game", plat.mod)
+			}
+			if ed.Playing() {
+				t.Fatalf("%s+r unexpectedly started Play-in-editor", plat.mod)
+			}
+			mu.Lock()
+			if len(runSpecs) != 1 || runSpecs[0].Name != "go" {
+				mu.Unlock()
+				t.Fatalf("%s+r run specs = %+v, want single go tool game dev launch", plat.mod, runSpecs)
+			}
+			mu.Unlock()
+
+			app.Key("shift+f5")
+			app.Settle()
+			if ed.GameRunning() {
+				t.Fatal("shift+f5 did not stop external game")
+			}
+		})
 	}
 }

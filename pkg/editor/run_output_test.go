@@ -280,7 +280,7 @@ func (f *fakeGameProcess) Stopped() bool {
 	return f.stopped
 }
 
-func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
+func TestRunGameShortcutModRAndStartAtOpenScene(t *testing.T) {
 	dir := writeRunnableFixtureProject(t)
 	ed, err := editor.New(nil, testResolver())
 	if err != nil {
@@ -308,12 +308,15 @@ func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
 
-	// F5 starts the game without -scene by default.
-	app.Key("f5")
+	// mod+r starts the external game without -scene by default.
+	app.Key("mod+r")
 	app.Settle()
 
 	if !ed.GameRunning() {
-		t.Fatal("expected F5 to start the game")
+		t.Fatal("expected mod+r to start the game")
+	}
+	if ed.Playing() {
+		t.Fatal("expected mod+r not to start in-editor Play preview")
 	}
 	mu.Lock()
 	if len(specs) != 1 {
@@ -344,7 +347,7 @@ func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
 		t.Fatal("expected fake game process Stop() to be called")
 	}
 
-	// Open scenes/other.scene.yaml, enable Current Scene toggle, and press F5.
+	// Open scenes/other.scene.yaml, enable Current Scene toggle, and press mod+r.
 	if err := ed.OpenFile(filepath.Join(dir, "scenes", "other.scene.yaml")); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +355,7 @@ func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
 	if !ed.RunStartAtOpenScene() {
 		t.Fatal("expected CmdRunOpenScene to enable RunStartAtOpenScene")
 	}
-	app.Key("f5")
+	app.Key("mod+r")
 	app.Settle()
 
 	mu.Lock()
@@ -379,7 +382,7 @@ func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// In-editor Play preview still works independently.
+	// In-editor Play preview works via toolbar-play, mod+p, and F5 even with a project open.
 	app.Press("id:toolbar-play")
 	app.Settle()
 	if !ed.Playing() {
@@ -389,6 +392,41 @@ func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
 	app.Settle()
 	if ed.Playing() {
 		t.Fatal("expected toolbar-play to stop in-editor Play preview")
+	}
+
+	app.Key("f5")
+	app.Settle()
+	if !ed.Playing() {
+		t.Fatal("expected f5 with a project open to start in-editor Play preview")
+	}
+	if ed.GameRunning() {
+		t.Fatal("expected f5 not to launch external game")
+	}
+	app.Key("f5")
+	app.Settle()
+	if ed.Playing() {
+		t.Fatal("expected second f5 to stop in-editor Play preview")
+	}
+
+	app.Key("mod+p")
+	app.Settle()
+	if !ed.Playing() {
+		t.Fatal("expected mod+p with a project open to start in-editor Play preview")
+	}
+	if ed.GameRunning() {
+		t.Fatal("expected mod+p not to launch external game")
+	}
+	app.Key("mod+p")
+	app.Settle()
+	if ed.Playing() {
+		t.Fatal("expected second mod+p to stop in-editor Play preview")
+	}
+
+	mu.Lock()
+	totalRuns := len(specs)
+	mu.Unlock()
+	if totalRuns != 2 {
+		t.Fatalf("Play-in-editor shortcuts launched external game: total runs = %d, want 2", totalRuns)
 	}
 }
 

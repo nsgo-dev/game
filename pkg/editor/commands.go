@@ -3202,12 +3202,6 @@ func (e *Editor) dispatchBoundShortcut(key string) {
 		// do not flip peek on initial keydown so KeyDown/KeyUp works cleanly as a hold.
 		return
 	}
-	if active.ID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {
-		if !e.GameRunning() {
-			e.report(e.RunGame())
-		}
-		return
-	}
 	if err := active.Run(); err != nil {
 		e.report(err)
 	}

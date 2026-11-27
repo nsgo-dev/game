@@ -1691,7 +1691,7 @@ strings:
   toolbar.revert: 还原
   toolbar.rotate: 旋转
   toolbar.run: 运行
-  toolbar.runLabel: 使用 go tool game dev 运行游戏（F5）
+  toolbar.runLabel: 使用 go tool game dev 运行游戏
   toolbar.save: 保存
   toolbar.saveAs: 另存为…
   toolbar.scale: 缩放
