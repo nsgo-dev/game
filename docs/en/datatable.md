@@ -93,7 +93,7 @@ Tools and editors that work on YAML data tables without importing every game's G
 
 ## Hot reload
 
-`NewTable[T](path)` loads the file and holds its rows. `Watch` registers it with a `hotreload.Watcher` (from `game/tooling/hotreload`) and calls back on the engine goroutine with the new rows after each valid save:
+`NewTable[T](path)` loads the file and holds its rows. `datatablewatch.Watch` (in `game/datatable/datatablewatch`) registers it with a `hotreload.Watcher` (from `game/tooling/hotreload`) and calls back on the engine goroutine with the new rows after each valid save. `datatable` itself imports no NSGo package, so a dedicated server loads tables with it headlessly; only the game client links the watcher:
 
 ```go
 func Game(cx *core.Scope) core.Node {
@@ -102,7 +102,7 @@ func Game(cx *core.Scope) core.Node {
 		panic(err)
 	}
 	w := hotreload.NewWatcher(cx, "data")
-	enemies.WatchWithError(w, func(rows []Enemy, err error) {
+	datatablewatch.WatchWithError(enemies, w, func(rows []Enemy, err error) {
 		if err != nil {
 			log.Printf("enemies.yaml: %v", err) // rows are still the last valid ones
 			return

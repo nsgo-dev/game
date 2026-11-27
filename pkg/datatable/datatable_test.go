@@ -5,17 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
-	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
-	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/nsgotest"
 )
-
-func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 type Enemy struct {
 	ID       string        `table:"enemy_id"`
@@ -221,82 +215,4 @@ rows:
 			t.Fatalf("unexpected CellError: %+v", ce)
 		}
 	})
-}
-
-func TestTableHotReloadAndErrorRecovery(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "enemies.csv")
-	v1 := "enemy_id,display_name,hp,move_speed\ngoblin,Goblin,40,3.0\n"
-	v2 := "enemy_id,display_name,hp,move_speed\ngoblin,Goblin,65,4.2\norc,Orc,110,2.5\n"
-	bad := "enemy_id,display_name,hp,move_speed\ngoblin,Goblin,WHOOPS,3.0\n"
-
-	if err := os.WriteFile(path, []byte(v1), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	tbl, err := datatable.NewTable[Enemy](path)
-	if err != nil {
-		t.Fatalf("NewTable failed: %v", err)
-	}
-	if tbl.Version() != 1 || len(tbl.Rows()) != 1 || tbl.Rows()[0].HP != 40 {
-		t.Fatalf("initial table state unexpected: ver=%d rows=%+v", tbl.Version(), tbl.Rows())
-	}
-
-	// Mutating the slice returned by Rows must not affect internal storage.
-	rowsCopy := tbl.Rows()
-	rowsCopy[0].HP = 9999
-	if tbl.Rows()[0].HP != 40 {
-		t.Fatalf("Rows() returned shared slice backing array")
-	}
-
-	var (
-		reloaded atomic.Int32
-		lastErr  atomic.Bool
-	)
-	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		w := hotreload.NewWatcher(cx, dir,
-			hotreload.WithPollInterval(20*time.Millisecond),
-			hotreload.WithDebounce(20*time.Millisecond),
-		)
-		tbl.WatchWithError(w, func(rows []Enemy, err error) {
-			if err != nil {
-				lastErr.Store(true)
-				return
-			}
-			if len(rows) == 2 && rows[0].HP == 65 {
-				reloaded.Add(1)
-			}
-		})
-		return core.View{}
-	})
-
-	// Write an invalid file first: table should keep v1 intact and record LastError.
-	if err := os.WriteFile(path, []byte(bad), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	app.WaitUntil(time.Second, lastErr.Load)
-	if tbl.Version() != 1 || tbl.Rows()[0].HP != 40 {
-		t.Fatalf("invalid reload corrupted table: ver=%d rows=%+v", tbl.Version(), tbl.Rows())
-	}
-	var ce *datatable.CellError
-	if !errors.As(tbl.LastError(), &ce) || ce.Row != 1 || ce.Field != "hp" {
-		t.Fatalf("LastError = %v, want CellError at row 1 field hp", tbl.LastError())
-	}
-
-	// Now fix the file: table should update live to v2 and bump Version to 2.
-	if err := os.WriteFile(path, []byte(v2), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	app.WaitUntil(time.Second, func() bool { return reloaded.Load() >= 1 })
-
-	if tbl.Version() != 2 {
-		t.Fatalf("Version = %d, want 2", tbl.Version())
-	}
-	if tbl.LastError() != nil {
-		t.Fatalf("LastError after valid reload = %v, want nil", tbl.LastError())
-	}
-	got := tbl.Rows()
-	if len(got) != 2 || got[0].HP != 65 || got[1].ID != "orc" {
-		t.Fatalf("updated rows = %+v, want 2 rows with goblin HP=65 and orc", got)
-	}
 }

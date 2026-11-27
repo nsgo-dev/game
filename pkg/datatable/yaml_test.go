@@ -6,14 +6,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
-	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
-	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 const enemiesYAML = `version: 1
@@ -223,72 +218,6 @@ func TestSaveYAMLThenLoadFile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rows, wantEnemies()) {
 		t.Fatalf("LoadFile = %+v, want %+v", rows, wantEnemies())
-	}
-}
-
-func TestYAMLTableHotReload(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "enemies.yaml")
-	v1 := "version: 1\nrows:\n  - enemy_id: goblin\n    display_name: Goblin\n    hp: 40\n    move_speed: 3\n"
-	typo := "version: 1\nrows:\n  - enemy_id: goblin\n    display_name: Goblin\n    hp: 40\n    move_sped: 3\n"
-	v2 := "version: 1\nrows:\n  - enemy_id: goblin\n    display_name: Goblin\n    hp: 65\n    move_speed: 4.2\n  - enemy_id: orc\n    display_name: Orc\n    hp: 110\n    move_speed: 2.5\n"
-
-	if err := os.WriteFile(path, []byte(v1), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tbl, err := datatable.NewTable[Enemy](path)
-	if err != nil {
-		t.Fatalf("NewTable: %v", err)
-	}
-	if tbl.Version() != 1 || len(tbl.Rows()) != 1 || tbl.Rows()[0].HP != 40 || tbl.Rows()[0].Speed != 3 {
-		t.Fatalf("initial table: ver=%d rows=%+v", tbl.Version(), tbl.Rows())
-	}
-
-	var (
-		reloads atomic.Int32
-		failed  atomic.Bool
-	)
-	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		w := hotreload.NewWatcher(cx, dir,
-			hotreload.WithPollInterval(20*time.Millisecond),
-			hotreload.WithDebounce(20*time.Millisecond),
-		)
-		tbl.WatchWithError(w, func(rows []Enemy, err error) {
-			if err != nil {
-				failed.Store(true)
-				return
-			}
-			if len(rows) == 2 && rows[0].HP == 65 {
-				reloads.Add(1)
-			}
-		})
-		return core.View{}
-	})
-
-	// A misspelt field is refused: the table keeps v1 and reports the row and key.
-	if err := os.WriteFile(path, []byte(typo), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	app.WaitUntil(time.Second, failed.Load)
-	if tbl.Version() != 1 || tbl.Rows()[0].HP != 40 {
-		t.Fatalf("refused reload changed the table: ver=%d rows=%+v", tbl.Version(), tbl.Rows())
-	}
-	var ce *datatable.CellError
-	if !errors.As(tbl.LastError(), &ce) || ce.Row != 1 || ce.Field != "move_sped" || !errors.Is(ce, datatable.ErrUnknownField) {
-		t.Fatalf("LastError = %v, want unknown field move_sped at row 1", tbl.LastError())
-	}
-
-	// The fixed file replaces the rows and bumps Version.
-	if err := os.WriteFile(path, []byte(v2), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	app.WaitUntil(time.Second, func() bool { return reloads.Load() >= 1 })
-	if tbl.Version() != 2 || tbl.LastError() != nil {
-		t.Fatalf("after valid reload: ver=%d err=%v", tbl.Version(), tbl.LastError())
-	}
-	got := tbl.Rows()
-	if len(got) != 2 || got[0].HP != 65 || got[0].Speed != 4.2 || got[1].ID != "orc" || got[1].HP != 110 {
-		t.Fatalf("reloaded rows = %+v", got)
 	}
 }
 

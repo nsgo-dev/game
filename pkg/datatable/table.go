@@ -1,15 +1,13 @@
 package datatable
 
 import (
-	"path/filepath"
 	"sync"
 	"sync/atomic"
-
-	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
 )
 
-// Table holds a typed game data table loaded from disk and supports safe
-// hot reloading via tooling/hotreload.
+// Table holds a typed game data table loaded from disk. datatablewatch adds
+// hot reloading via tooling/hotreload for game clients; headless builds such
+// as a dedicated server load tables without it.
 //
 // If a reload fails (for example due to a typo in a cell during editing), Table
 // preserves the last valid rows and records the error in LastError.
@@ -101,40 +99,4 @@ func (t *Table[T]) applyReload(rows []T, err error) error {
 	t.mu.Unlock()
 	t.version.Add(1)
 	return nil
-}
-
-// Watch registers the table's file with watcher and invokes onReload with the updated
-// rows on the engine goroutine whenever a valid edit is saved.
-//
-// Invalid edits keep the previous valid rows intact and record the error in LastError.
-func (t *Table[T]) Watch(watcher *hotreload.Watcher, onReload func([]T)) {
-	t.WatchWithError(watcher, func(rows []T, err error) {
-		if err == nil && onReload != nil {
-			onReload(rows)
-		}
-	})
-}
-
-// WatchWithError registers the table's file with watcher and invokes onReload with
-// either the new rows (err == nil) or the parse error (rows == previous valid rows).
-func (t *Table[T]) WatchWithError(watcher *hotreload.Watcher, onReload func([]T, error)) {
-	if t == nil || watcher == nil {
-		return
-	}
-	relPath := t.path
-	if dir := watcher.Dir(); dir != "" {
-		absDir, err1 := filepath.Abs(dir)
-		absFile, err2 := filepath.Abs(t.path)
-		if err1 == nil && err2 == nil {
-			if rel, err := filepath.Rel(absDir, absFile); err == nil {
-				relPath = rel
-			}
-		}
-	}
-	watcher.Watch(relPath, func(data []byte) {
-		err := t.ReloadBytes(data)
-		if onReload != nil {
-			onReload(t.Rows(), err)
-		}
-	})
 }

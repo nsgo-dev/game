@@ -44,6 +44,8 @@ go build ./examples/dedicatedserver
 
 它用普通 Go 工具链构建，不需要 NSGo 运行时。
 
+数据表同样可以无头加载：[`pkg/datatable`](datatable.md) 不依赖任何 NSGo 包，服务器用 `datatable.LoadFile` 或 `datatable.NewTable` 读取物品、敌人等数据表，方式与客户端完全一致。热重载（`pkg/datatable/datatablewatch`）是只有客户端链接的开发期工具。
+
 
 ## 匹配
 

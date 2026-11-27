@@ -165,6 +165,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
 | `game/pkg/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |
+| `game/pkg/datatable/datatablewatch` | Experimental | Hot reload of `datatable.Table` through a `tooling/hotreload` watcher |
 | `game/pkg/importsettings` | Experimental | `<asset>.import.yaml` sidecar parser and encoder |
 | `game/pkg/jsonschema` | Experimental | JSON Schema builder and validator with JSON Pointer error paths |
 | `game/pkg/ktx2` | Experimental | KTX2 texture encoder (BC1, BC3, ETC2, RGBA8, mipmaps, sRGB) |

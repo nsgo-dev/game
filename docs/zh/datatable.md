@@ -93,7 +93,7 @@ if err := datatable.SaveYAML("data/enemies.yaml", enemies); err != nil {
 
 ## 热重载
 
-`NewTable[T](path)` 加载文件并保存其行。`Watch` 把它注册到 `hotreload.Watcher`（来自 `game/tooling/hotreload`），每次有效保存后在引擎 goroutine 上用新行回调：
+`NewTable[T](path)` 加载文件并保存其行。`datatablewatch.Watch`（在 `game/datatable/datatablewatch` 中）把它注册到 `hotreload.Watcher`（来自 `game/tooling/hotreload`），每次有效保存后在引擎 goroutine 上用新行回调。`datatable` 本身不依赖任何 NSGo 包，专用服务器可以无头地用它加载数据表；只有游戏客户端链接监视器：
 
 ```go
 func Game(cx *core.Scope) core.Node {
@@ -102,7 +102,7 @@ func Game(cx *core.Scope) core.Node {
 		panic(err)
 	}
 	w := hotreload.NewWatcher(cx, "data")
-	enemies.WatchWithError(w, func(rows []Enemy, err error) {
+	datatablewatch.WatchWithError(enemies, w, func(rows []Enemy, err error) {
 		if err != nil {
 			log.Printf("enemies.yaml: %v", err) // rows are still the last valid ones
 			return

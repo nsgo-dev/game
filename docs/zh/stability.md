@@ -83,6 +83,7 @@
 | `game/pkg/cards` | 实验性 | [cards](cards.md) |
 | `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
 | `game/pkg/datatable` | 实验性 | |
+| `game/pkg/datatable/datatablewatch` | 实验性 | |
 | `game/pkg/debug` | 实验性 | [debug](debug.md) |
 | `game/pkg/editor` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
