@@ -7,7 +7,9 @@ The service is server-side code in its own packages; a game client imports only 
 | Package | What it holds |
 | --- | --- |
 | `cloudsave` | `Service`, `Config`, the `Store` interface, `MemoryStore` and the HTTP `Handler` |
-| `cloudsave/sqlstore` | A `Store` in SQLite (`OpenSQLite`, pure Go, every target but the web) or Postgres (`OpenPostgres`, shared by several service processes) |
+| `cloudsave/sqlitestore` | A `Store` in a SQLite file (pure Go, no cgo); every target but the web |
+| `cloudsave/pgstore` | A `Store` in Postgres, shared by several service processes |
+| `cloudsave/sqlstore` | The SQL schema and queries both stores share |
 | `cloudsave/storetest` | The `Store` contract tests, for a store of your own |
 | `cmd/cloudsaved` | A standalone HTTP server |
 | `liveops` | `CloudClient`, the game's side |
@@ -119,8 +121,8 @@ allowedOrigins:
 `Store` keeps the versions. Its `Append` is atomic: of two writes based on the same version, at most one commits.
 
 ```go
-store, err := sqlstore.OpenSQLite(ctx, "saves.db")                     // one service process
-store, err := sqlstore.OpenPostgres(ctx, os.Getenv("CLOUDSAVE_POSTGRES_DSN")) // several processes
+store, err := sqlitestore.Open(ctx, "saves.db")                      // one service process
+store, err := pgstore.Open(ctx, os.Getenv("CLOUDSAVE_POSTGRES_DSN")) // several processes
 svc, err := cloudsave.New(cfg, cloudsave.Options{Store: store, Tokens: verifier, Logger: slog.Default()})
 ```
 

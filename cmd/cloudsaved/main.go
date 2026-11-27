@@ -28,6 +28,8 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
+	"github.com/nsgo-dev/game/pkg/online/cloudsave/pgstore"
+	"github.com/nsgo-dev/game/pkg/online/cloudsave/sqlitestore"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave/sqlstore"
 )
 
@@ -111,13 +113,13 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, ready func(s
 	case *sqlitePath != "" && *usePostgres:
 		return errors.New("choose -sqlite or -postgres, not both")
 	case *sqlitePath != "":
-		store, err = sqlstore.OpenSQLite(ctx, *sqlitePath)
+		store, err = sqlitestore.Open(ctx, *sqlitePath)
 	case *usePostgres:
 		dsn := os.Getenv(dsnEnv)
 		if dsn == "" {
 			return fmt.Errorf("-postgres needs $%s", dsnEnv)
 		}
-		store, err = sqlstore.OpenPostgres(ctx, dsn)
+		store, err = pgstore.Open(ctx, dsn)
 	default:
 		return errors.New("choose a database with -sqlite or -postgres")
 	}

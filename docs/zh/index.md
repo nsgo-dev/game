@@ -83,7 +83,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `gameserver` | `github.com/nsgo-dev/game/pkg/online/gameserver` | [gameserver](gameserver.md) | 专用服务器无头固定步长 `Runner`：多场比赛独立速率、超时报告与有界信号停止 |
 | `audit` | `github.com/nsgo-dev/game/pkg/online/audit` | [gameserver](gameserver.md) | 服务器管理事件的只追加 JSON Lines 审计日志：每个 UTC 日一个文件、不阻塞的队列与丢弃计数、按天保留 |
 | `accounts` | `github.com/nsgo-dev/game/pkg/online/accounts` | [accounts](accounts.md) | 可自行部署的玩家账号：游客升级为邮箱或绑定平台/OAuth 身份、argon2id 密码、SQLite/Postgres 存储，以及游戏服务器离线校验的 Ed25519 令牌 |
-| `cloudsave` | `github.com/nsgo-dev/game/pkg/online/cloudsave` | [cloudsave](cloudsave.md) | 置于 `liveops.CloudSync` 之后的自部署云存档：经 HTTPS 按账号划分的槽位、把并发保存变成冲突的条件写入、大小上限、可恢复的历史版本，以及 SQLite/Postgres 存储 |
+| `cloudsave` | `github.com/nsgo-dev/game/pkg/online/cloudsave` | [cloudsave](cloudsave.md) | 置于 `liveops.CloudSync` 之后的自部署云存档：经 HTTPS 按账号划分的槽位、把并发保存变成冲突的条件写入、大小上限、可恢复的历史版本，以及 SQLite（`cloudsave/sqlitestore`）和 Postgres（`cloudsave/pgstore`）存储 |
 | `leaderboard` | `github.com/nsgo-dev/game/pkg/online/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |
 | `leaderboard/selfhost` | `github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | 可自行部署的跨平台排行榜：总榜、日榜和周榜并保留往期，成绩由账号令牌认证、可选由游戏服务器签名，支持前 N 名、我附近和好友查询 |
 | `presence` | `github.com/nsgo-dev/game/pkg/online/presence` | [presence](presence.md) | 通过与平台无关的 `Activity` 与 `Manager` 在 Steam（经 purego 调用 `ISteamFriends`）和 Discord（纯 Go 本地 IPC v1）好友列表显示丰富状态 |

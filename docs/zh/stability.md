@@ -117,6 +117,8 @@
 | `game/pkg/online/achievements` | 实验性 | [achievements](achievements.md) |
 | `game/pkg/online/audit` | 实验性 | [gameserver](gameserver.md) |
 | `game/pkg/online/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/online/cloudsave/pgstore` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/online/cloudsave/sqlitestore` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/gameserver` | 实验性 | [gameserver](gameserver.md) |
