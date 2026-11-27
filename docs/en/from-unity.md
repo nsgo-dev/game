@@ -23,6 +23,7 @@ A game here is Go code inside an NSGo component rather than C# scripts attached 
 | `Rigidbody`, `CharacterController` | `physics3d.World`, `physics3d.CharacterController` | [physics3d](physics3d.md) |
 | Build Settings, Player Settings | `nsgo.yaml` and `go tool nsgo build` | [Building and Shipping](shipping.md) |
 | `PlayerPrefs` | `core.Storage`, `save` slots | [save](save.md) |
+| Editor scripts in an `Editor` folder, editor packages | An `editor.Plugin` compiled into the game's own editor command | [Editor plugins](editor.md#editor-plugins-492) |
 
 ## Scenes
 

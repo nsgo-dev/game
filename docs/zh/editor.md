@@ -895,6 +895,29 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **按键驱动（Drive with keys）**：开启 **Drive with keys** 后，预览通过与游戏相同的 `animclip.InputDriver` 和 `animclip.StateMachine` 绑定到项目的输入动作（如 `move_left`、`move_right`、`jump`、`attack`、`hurt`），在 `game.Loop` 的固定步长上推进，使交互预览与运行时播放逐帧一致。
 - **出边列表（`LEAVING <STATE>`）**：选中任意状态即可查看其所有出边过渡（含 `Any state` 中断）及条件表达式；所有图编辑操作（`AddStatesState`、`RemoveStatesState`、`AddStatesTransition`、`RemoveStatesTransition`、`SetStatesEntry`、`SetStatesNodePos`、`SetStatesDoc`）均进入编辑器的撤销/重做历史，并以确定性规范 YAML 写回（`SaveStatesYAML` / `SaveStatesFile`）。
 
+## 模组、插件与包（#1268）
+
+引擎有三种扩展游戏的方式，它们不能互相替代：
+
+| | 编辑器（Go）插件 | 脚本模组 | 库包 |
+| --- | --- | --- | --- |
+| 用什么写 | Go | TSX | YAML 与媒体文件 |
+| 谁来写 | 游戏的开发者、第三方工具作者 | 玩家 | 任何人 |
+| 何时加载 | 编译进编辑器程序 | 运行时加载，支持热重载（`Manager.Reload`） | 安装进项目 |
+| 信任级别 | 完全信任 | 沙箱隔离，按能力授权 | 不含代码 |
+| 平台 | 全部，包括 iOS 和 Web | 原生平台；Web 仅在设置 `ManagerOptions.WebUnisolated` 后可用 | 全部 |
+| 扩展编辑器 | 可以 | 不能（目前） | 只能启用内置插件 |
+
+编辑器插件是编辑器程序用 `Editor.RegisterPlugin` 注册、项目再在 `game.yaml` 的 `editor.plugins` 下按名字启用的 `editor.Plugin`，下一节详细说明。脚本模组是一份 `mod.yaml` 清单加一个 TSX 入口脚本，由 `modding.Manager` 在沙箱中运行，能做什么仅限于清单申请、宿主授予的能力；见 [modding](modding.md)。库包是 `library.Install` 写入项目并记录在 `game.yaml` 中的一组文件；见[资源与插件库](library.md)。包不得包含 Go 源码或模块文件（`.go`、`go.mod` 等都会被拒绝），所以插件包只能启用编辑器程序编译时已包含的插件，而不会携带它们的代码。
+
+该选哪一种？
+
+- 给编辑器加新的面板、检查器、视口工具或 3D 操纵杆，或让编辑器按某些组件类型检查场景：用编辑器插件，见下文。
+- 让玩家在游戏设定的限度内改动已发布的游戏：用脚本模组。
+- 分享精灵图、场景、声音或起步模板：用库包。
+
+Go 插件编译进程序而不是在运行时加载，是因为 Go 没有跨平台的运行时加载代码的手段——iOS 和 Web 都不能在运行时加载原生代码——所以插件随它所扩展的编辑器命令一起发布。
+
 ## 编辑器插件（#492、#898）
 
 插件为场景编辑器添加自己的面板、自己组件类型的检查器、2D 与 3D 视口工具以及按组件类型注册的 3D 操纵杆，作用与 Godot 的 `EditorPlugin` 相同。Go 无法在所有平台上于运行时加载代码，因此插件是编译进编辑器程序的 Go 代码：编辑器程序用 `Editor.RegisterPlugin` 注册插件，项目在其[项目文件](project.md)中列出插件名即可启用：

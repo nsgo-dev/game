@@ -895,6 +895,29 @@ Opening a `*.states.yaml` file (from the file browser, command palette, or `Open
 - **Drive with keys**: toggling **Drive with keys** binds the preview to the project's input actions (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) through the same `animclip.InputDriver` and `animclip.StateMachine` the game uses, advancing on fixed steps on `game.Loop` so interactive preview and runtime playback match frame for frame.
 - **Outgoing transitions (`LEAVING <STATE>`)**: selecting any state displays its outgoing transitions (including `Any state` interrupts) and their conditions, and graph edits (`AddStatesState`, `RemoveStatesState`, `AddStatesTransition`, `RemoveStatesTransition`, `SetStatesEntry`, `SetStatesNodePos`, `SetStatesDoc`) go through the editor's undo/redo history and save back to deterministic canonical YAML (`SaveStatesYAML` / `SaveStatesFile`).
 
+## Mods, plugins and packs (#1268)
+
+The engine has three ways to extend a game, and they are not interchangeable:
+
+| | Editor (Go) plugin | Script mod | Library pack |
+| --- | --- | --- | --- |
+| Written in | Go | TSX | YAML and media |
+| Who writes it | the game's developers, third-party tool authors | players | anyone |
+| When it loads | compiled into the editor binary | at run time, with hot reload (`Manager.Reload`) | installed into the project |
+| Trust | full | sandboxed, capability-gated | carries no code |
+| Platforms | all, iOS and the web included | native; the web only with `ManagerOptions.WebUnisolated` | all |
+| Extends the editor | yes | no (today) | turns on built-in plugins only |
+
+An editor plugin is an `editor.Plugin` the editor binary registers with `Editor.RegisterPlugin` and a project turns on by name under `editor.plugins` in `game.yaml`, as the next section describes. A script mod is a `mod.yaml` manifest plus a TSX entry script that `modding.Manager` runs in a sandbox limited to the capabilities the manifest asks for and the host grants; see [modding](modding.md). A library pack is a set of files `library.Install` writes into the project and records in `game.yaml`; see [Asset and Plugin Library](library.md). A pack may not hold Go source or module files (`.go`, `go.mod` and the like are refused), so a plugin pack only turns on editor plugins the editor binary was already built with — it never ships their code.
+
+Which one do you need?
+
+- A new panel, inspector, viewport tool or 3D gizmo in the editor, or component types the editor checks scenes against: an editor plugin, below.
+- Let players change the shipped game, within limits the game sets: a script mod.
+- Share sprites, scenes, sounds or a starter template: a library pack.
+
+A Go plugin is compiled into the binary rather than loaded at run time because Go has no portable way to load code on every platform — iOS and the web cannot load native code at run time — so a plugin ships inside the editor command it extends.
+
 ## Editor plugins (#492, #898)
 
 A plugin extends the scene editor with its own panels, an inspector for its own component types, 2D and 3D viewport tools, and per-component 3D gizmos, as Godot's `EditorPlugin` does. Go cannot load code at run time on every platform, so a plugin is Go code built into the editor binary: the binary registers it with `Editor.RegisterPlugin`, and a project turns it on by naming it in its [project file](project.md):

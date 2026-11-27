@@ -26,6 +26,7 @@
 | `RigidBody2D`、关节 | `physics.RigidWorld`、`RigidBody`、关节 | [2D 刚体](physics2d-rigid.md) |
 | `CharacterBody3D`、`RigidBody3D` | `physics3d.CharacterController`、`physics3d.World` | [physics3d](physics3d.md) |
 | 导出预设、导出模板 | `nsgo.yaml` 与 `go tool nsgo build` | [构建与发布](shipping.md) |
+| `EditorPlugin`、编辑器插件（addon） | 编译进游戏自己的编辑器命令的 `editor.Plugin` | [编辑器插件](editor.md#编辑器插件492) |
 
 ## 场景
 
