@@ -220,7 +220,16 @@ type Project struct {
 	pendingUIDs map[string][]string
 	// packs records installed library packs declared in scanned game.yaml files so PlanMove can refuse moving individual tracked files out of a pack folder.
 	packs []scannedPack
+	// modEntries marks files named as a mod's entry script in a mod.yaml manifest, which are never classified as assets.
+	modEntries map[string]bool
+	// xmlTSX marks .tsx files that parsed as Tiled XML (<tileset>).
+	xmlTSX map[string]bool
+	// mapTSX marks .tsx files referenced as external tilesets from a Tiled map (.tmj or .tmx) or scene tilesetFile.
+	mapTSX map[string]bool
 }
+
+// modManifestFileName is the filename of a script mod manifest (modding.ManifestFile).
+const modManifestFileName = "mod.yaml"
 
 // scannedPack holds the scanned paths of one installed pack from a game.yaml file.
 type scannedPack struct {
@@ -233,16 +242,19 @@ type scannedPack struct {
 // Scan walks fsys, such as os.DirFS of a game's directory, and reads every file the package comment lists for its references, uids and project indexes. Directories whose names start with "." or "_", and those named testdata, are skipped, as the go command skips them. A file that does not parse is skipped; game check reports it. Scan returns an error only when fsys's root cannot be read.
 func Scan(fsys fs.FS) (*Project, error) {
 	p := &Project{
-		fsys:    fsys,
-		exists:  make(map[string]bool),
-		dirs:    make(map[string]bool),
-		files:   make(map[string]*File),
-		roots:   make(map[string]string),
-		indexes: make(map[string]*Index),
-		uids:    make(map[string][]string),
-		hashes:  make(map[string]string),
+		fsys:       fsys,
+		exists:     make(map[string]bool),
+		dirs:       make(map[string]bool),
+		files:      make(map[string]*File),
+		roots:      make(map[string]string),
+		indexes:    make(map[string]*Index),
+		uids:       make(map[string][]string),
+		hashes:     make(map[string]string),
+		modEntries: make(map[string]bool),
+		xmlTSX:     make(map[string]bool),
+		mapTSX:     make(map[string]bool),
 	}
-	var yamls, jsons, others, indexes []string
+	var yamls, jsons, others, indexes, tmxs, tsxs []string
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if name == "." {
@@ -269,6 +281,10 @@ func Scan(fsys fs.FS) (*Project, error) {
 			jsons = append(jsons, name)
 		case strings.HasSuffix(lower, ".json"):
 			others = append(others, name)
+		case strings.HasSuffix(lower, ".tmx"):
+			tmxs = append(tmxs, name)
+		case strings.HasSuffix(lower, ".tsx"):
+			tsxs = append(tsxs, name)
 		}
 		return nil
 	})
@@ -318,6 +334,20 @@ func Scan(fsys fs.FS) (*Project, error) {
 				changed = true
 				break
 			}
+		}
+	}
+	// Classify .tsx files before scanning data tables so Project.IsAsset distinguishes Tiled XML tilesets from TSX mod scripts.
+	for _, name := range tmxs {
+		p.readTMXTilesets(name)
+	}
+	for _, name := range tsxs {
+		if data, err := fs.ReadFile(p.fsys, name); err == nil && isTiledTSX(data) {
+			p.xmlTSX[name] = true
+		}
+	}
+	for _, r := range p.Refs {
+		if (r.Field == FieldExternalTileset || r.Field == FieldTilesetFile) && r.Target != "" && strings.EqualFold(path.Ext(r.Target), ".tsx") {
+			p.mapTSX[r.Target] = true
 		}
 	}
 	var stillPending []string
@@ -441,6 +471,10 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	}
 	if path.Base(name) == project.FileName {
 		p.readProject(name, data)
+		return true
+	}
+	if path.Base(name) == modManifestFileName {
+		p.readModManifest(name, data)
 		return true
 	}
 	var root yaml.Node
@@ -643,6 +677,36 @@ func (p *Project) readDataTableYAML(name string) bool {
 	return true
 }
 
+// readModManifest records the entry script named by a mod.yaml manifest so Project.IsAsset never classifies it as a tileset asset.
+func (p *Project) readModManifest(name string, data []byte) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return
+	}
+	entry := field(root.Content[0], "entry")
+	if entry == nil || entry.Kind != yaml.ScalarNode || entry.Value == "" || (entry.Tag != "" && entry.Tag != "!!str") {
+		return
+	}
+	entryVal := strings.TrimPrefix(entry.Value, "./")
+	if !validPath(entryVal) || hasVolume(entryVal) || hasScheme(entryVal) {
+		return
+	}
+	p.modEntries[path.Join(path.Dir(name), entryVal)] = true
+}
+
+// readTMXTilesets records .tsx external tileset paths referenced by a Tiled XML map (.tmx) so Project.IsAsset classifies them as tilesets.
+func (p *Project) readTMXTilesets(name string) {
+	data, err := fs.ReadFile(p.fsys, name)
+	if err != nil {
+		return
+	}
+	for _, src := range parseTMXTilesetSources(data) {
+		if target, ok := resolveFrom(path.Dir(name), src); ok && strings.EqualFold(path.Ext(target), ".tsx") {
+			p.mapTSX[target] = true
+		}
+	}
+}
+
 func (p *Project) collectDataTableCellRefs(f *File, n *yaml.Node, out *[]Ref) {
 	n = deref(n)
 	if n == nil {
@@ -650,11 +714,12 @@ func (p *Project) collectDataTableCellRefs(f *File, n *yaml.Node, out *[]Ref) {
 	}
 	switch n.Kind {
 	case yaml.ScalarNode:
-		if n.Value == "" || (n.Tag != "" && n.Tag != "!!str") || !validPath(n.Value) {
+		if n.Value == "" || (n.Tag != "" && n.Tag != "!!str") || !validPath(n.Value) || hasVolume(n.Value) || hasScheme(n.Value) {
 			return
 		}
 		target := path.Join(f.Root, n.Value)
-		if !p.exists[target] && !isKnownProjectYAMLRef(n.Value) {
+		_, indexed := p.indexes[f.Root].Lookup(strings.TrimPrefix(target, rootPrefix(f.Root)))
+		if !p.exists[target] && !indexed && !isKnownProjectYAMLRef(n.Value) && !p.IsAsset(target) {
 			return
 		}
 		r := Ref{File: f.Path, Line: n.Line, Column: n.Column, Field: FieldDataTable, Value: n.Value, Target: target}
