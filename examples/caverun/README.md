@@ -11,7 +11,7 @@ It uses the packages a 2D game is made of:
 | Package | Where |
 | --- | --- |
 | `game.Loop` | the fixed 60 Hz step and the interpolated draw (`game.go`) |
-| `input` | one set of actions for the keyboard, game controllers, touch and the mouse (`bindControls` in `game.go`) |
+| `input` | one set of actions for the keyboard, game controllers and touch (`bindControls` in `game.go`), and the on-screen d-pad and jump button `TouchControls` builds from `controls.touch.yaml` |
 | `sprite` | the Aseprite atlas, animations and one `Batch` for every sprite (`level.go`, `swarm.go`) |
 | `tilemap` | the Tiled map `assets/level1.tmj` and its following, shaking camera |
 | `scene` | the title, playing, victory and game-over scenes, and the level's drawing layers |
@@ -30,10 +30,10 @@ go tool nsgo dev -target web     # run it in a browser
 go tool nsgo build               # build every target in nsgo.yaml
 ```
 
-| Action | Keyboard | Game controller | Touch and mouse |
+| Action | Keyboard | Game controller | Touch |
 | --- | --- | --- | --- |
-| Move | `A` `D`, `←` `→` | left stick, D-pad | the `<` `>` buttons, or the lower-left of the screen |
-| Jump (hold to jump higher) | `Space`, `W`, `↑`, `Z` | South (A, Cross) | the `JUMP` button, or the lower-right of the screen |
+| Move | `A` `D`, `←` `→` | left stick, D-pad | the on-screen d-pad at the lower left; the thumb rocks between left and right without lifting |
+| Jump (hold to jump higher) | `Space`, `W`, `↑`, `Z` | South (A, Cross) | the on-screen `JUMP` button at the lower right |
 | Start, play again | `Enter` | Start | Play, Play Again |
 | Pause, resume | `Esc`, `P` | Start | Pause |
 | Restart | `R` | Back (Select) | Restart in the pause menu |
@@ -150,4 +150,4 @@ go tool nsgo test ./...
 go tool nsgo check -target macos,windows,linux,android,web
 ```
 
-The `nsgotest` tests run the game headless on a manual frame clock. `TestPlayLevelStartToEnd` plays the level from the spawn point to the exit portal four times, with the HUD's touch buttons, held keyboard keys, a game controller, and held keys with the 1000-firefly swarm on, then plays again from the victory screen. Others cover the pause menu and mixer, lava and slime damage down to game over, mouse regions, the controller's dead zone, pause, restart and disconnect, the swarm's single `DrawAtlas` and its determinism, and the landscape lock on phones.
+The `nsgotest` tests run the game headless on a manual frame clock. `TestPlayLevelStartToEnd` plays the level from the spawn point to the exit portal four times, with two fingers on the on-screen d-pad and jump button, held keyboard keys, a game controller, and held keys with the 1000-firefly swarm on, then plays again from the victory screen. Others cover the pause menu and mixer, lava and slime damage down to game over, the touch controls hiding on a desktop until touched, staying inside the safe area and clear of the explorer at spawn, the controller's dead zone, pause, restart and disconnect, the swarm's single `DrawAtlas` and its determinism, and the landscape lock on phones.

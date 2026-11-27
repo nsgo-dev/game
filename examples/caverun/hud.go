@@ -35,6 +35,8 @@ func (g *caveRun) render(cx *core.Scope) core.Node {
 		},
 	}
 	g.actions.Attach(&gameView)
+	// After the actions, so a touch shows the on-screen controls before they hear it.
+	g.touch.Attach(&gameView)
 
 	return core.View{
 		Style: core.Style{
@@ -93,12 +95,6 @@ func (g *caveRun) renderHUDOverlay(cx *core.Scope) core.Node {
 				},
 				Children: []core.Node{
 					g.renderTopBar(cx),
-					core.Show{
-						When: func() bool { return !g.paused.Get() },
-						Then: func(cx *core.Scope) core.Node {
-							return g.renderTouchControls(cx)
-						},
-					},
 				},
 			}
 		},
@@ -197,88 +193,6 @@ func (g *caveRun) renderTopBar(cx *core.Scope) core.Node {
 				TestID:  "pause-btn",
 				OnPress: g.togglePause,
 			},
-		},
-	}
-}
-
-func (g *caveRun) renderTouchControls(cx *core.Scope) core.Node {
-	makePadButton := func(testID, label, caption string, setHeld func(bool), onTap func()) core.Node {
-		return core.View{
-			TestID:  testID,
-			Role:    core.RoleButton,
-			Label:   label,
-			NoFocus: true,
-			Style: core.Style{
-				MinWidth:       core.Pt(52),
-				Height:         core.Pt(44),
-				Padding:        core.Symmetric(8, 14),
-				CornerRadius:   12,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifyCenter,
-				Background:     core.RGBA(0x1e293b, 0.65),
-				BorderWidth:    1.5,
-				BorderColor:    core.RGBA(0x94a3b8, 0.45),
-			},
-			OnPressDown: func(core.PressEvent) {
-				setHeld(true)
-				if onTap != nil {
-					onTap()
-				}
-			},
-			OnPressUp: func(core.PressEvent) {
-				setHeld(false)
-			},
-			OnMouseLeave: func(core.MouseEvent) {
-				setHeld(false)
-			},
-			OnTouch: func(ev core.TouchEvent) {
-				switch ev.Phase {
-				case core.TouchStart:
-					setHeld(true)
-					if onTap != nil {
-						onTap()
-					}
-				case core.TouchEnd, core.TouchCancel:
-					setHeld(false)
-				}
-				ev.StopPropagation()
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: caption,
-					Style: core.Style{
-						Color:      core.RGB(0xf8fafc),
-						FontSize:   14,
-						FontWeight: core.FontWeightBold,
-						FontFamily: core.FontMonospace,
-					},
-				},
-			},
-		}
-	}
-
-	return core.View{
-		TestID:        "touch-controls",
-		PointerEvents: core.PointerEventsBoxNone,
-		Style: core.Style{
-			Direction:      core.Row,
-			AlignItems:     core.AlignEnd,
-			JustifyContent: core.JustifySpaceBetween,
-			Width:          core.Pct(100),
-		},
-		Children: []core.Node{
-			core.View{
-				PointerEvents: core.PointerEventsBoxNone,
-				Style: core.Style{
-					Direction: core.Row,
-					Gap:       10,
-				},
-				Children: []core.Node{
-					makePadButton("ctrl-left", "Move left", "<", func(v bool) { g.padLeft = v }, nil),
-					makePadButton("ctrl-right", "Move right", ">", func(v bool) { g.padRight = v }, nil),
-				},
-			},
-			makePadButton("ctrl-jump", "Jump", "JUMP", func(v bool) { g.padJump = v }, func() { g.padJumpLatched = true }),
 		},
 	}
 }

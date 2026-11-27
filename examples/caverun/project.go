@@ -4,8 +4,8 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/nsgo/core"
 )
 
 // gameYAML is Cave Run's project file, which holds its settings: window, virtual resolution, input map, audio buses, autoloaded level and export presets.
@@ -25,11 +25,18 @@ var (
 	virtualHeight = gameViewport.Height
 )
 
-// projectRegion returns the on-screen control region game.yaml binds to action, which the HUD draws.
-func projectRegion(action string) core.Bounds {
-	r, ok := gameProject.Region(action)
-	if !ok {
-		panic(fmt.Sprintf("caverun: game.yaml binds no region to action %q", action))
+// touchLayoutYAML is Cave Run's on-screen touch controls: a d-pad at the bottom left and a large jump button at the bottom right.
+//
+//go:embed controls.touch.yaml
+var touchLayoutYAML []byte
+
+// touchLayout is the parsed controls.touch.yaml.
+var touchLayout = mustParseTouchLayout(touchLayoutYAML)
+
+func mustParseTouchLayout(data []byte) input.TouchLayout {
+	l, err := input.ParseTouchLayout(data)
+	if err != nil {
+		panic(fmt.Sprintf("caverun: controls.touch.yaml: %v", err))
 	}
-	return r
+	return l
 }

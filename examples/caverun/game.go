@@ -50,13 +50,6 @@ const (
 // stickDeadZone is the left stick deflection below which the explorer stands still.
 const stickDeadZone = 0.3
 
-// Virtual-space input regions, as game.yaml binds them (in virtual canvas coordinates).
-var (
-	touchRegionLeft  = projectRegion("left")
-	touchRegionRight = projectRegion("right")
-	touchRegionJump  = projectRegion("jump")
-)
-
 type caveRun struct {
 	cx       *core.Scope
 	env      *core.Env
@@ -68,7 +61,9 @@ type caveRun struct {
 	loop    game.Loop
 	scenes  *scene.Manager
 	actions *input.Actions
-	level   *levelState
+	// touch is the on-screen d-pad and jump button, which drive the same left, right and jump actions as the keyboard and controllers.
+	touch *input.TouchControls
+	level *levelState
 
 	// Audio mixer, effects, and music track.
 	mixer       *sound.Mixer
@@ -78,13 +73,6 @@ type caveRun struct {
 	fxHurt      *sound.Effect
 	fxWin       *sound.Effect
 	savedMaster float32
-
-	// Native HUD touch-button state merged with input.Actions each fixed step; the HUD buttons are native views, not Actions inputs.
-	padLeft          bool
-	padRight         bool
-	padJump          bool
-	padJumpLatched   bool
-	prevCombinedJump bool
 
 	// Interpolation alpha for the current draw frame.
 	alpha float64
@@ -155,6 +143,13 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 		return g.viewport.ViewToGame(g.currentViewSize(), p)
 	}
 	bindControls(g.actions)
+	touch, err := input.NewTouchControls(cx, touchLayout)
+	if err != nil {
+		return nil, err
+	}
+	touch.BindActions(g.actions)
+	touch.Haptics = input.NewHaptics(cx)
+	g.touch = touch
 	// Keys count wherever the keyboard focus is, such as on a HUD button, and every connected controller drives the explorer.
 	g.actions.WatchKeys(cx)
 	g.actions.WatchGamepads(cx)
@@ -273,12 +268,10 @@ func (g *caveRun) toggleSwarm() {
 }
 
 func (g *caveRun) clearHeldInputs() {
+	// Reset also releases the touch controls, which are bound to the actions.
 	g.actions.Reset()
-	g.padLeft = false
-	g.padRight = false
-	g.padJump = false
-	g.padJumpLatched = false
-	g.prevCombinedJump = false
+	// Play starts, resumes or pauses here, and the controls are drawn only during play, so they return at full opacity rather than faded by the time spent on a menu.
+	g.touch.Wake()
 }
 
 func (g *caveRun) startGame() {
@@ -350,7 +343,7 @@ func (g *caveRun) toggleMute() {
 	}
 }
 
-// bindControls binds Cave Run's actions to touch and the mouse, as game.yaml's input map does, and to the keyboard and game controllers, which game.yaml cannot bind. Touch and mouse regions are in the virtual canvas, which Actions.MapPoint maps view points into.
+// bindControls binds Cave Run's actions as game.yaml's input map declares them, and to the keyboard and game controllers, which game.yaml cannot bind. Touch drives the same actions through the on-screen controls in controls.touch.yaml, the game's one touch and pointer path.
 func bindControls(a *input.Actions) {
 	gameProject.BindInput(a)
 	a.Bind(actionLeft, append(a.Bindings(actionLeft),
@@ -405,35 +398,21 @@ func (g *caveRun) handleMenuActions() {
 	}
 }
 
-// sampleInput merges the step's actions with the native HUD touch buttons into the explorer's input.
+// sampleInput reads the step's actions, from the keyboard, controllers and touch controls alike, into the explorer's input.
 func (g *caveRun) sampleInput() stepInput {
 	a := g.actions
-	move := float32(a.Axis(actionMove))
-	// A HUD button held alone overrides the analog axis, as a held key does.
-	if g.padLeft && !g.padRight {
-		move = -1
-	} else if g.padRight && !g.padLeft {
-		move = 1
-	}
-
-	jumpHeld := a.Pressed(actionJump) || g.padJump
-	jumpPressed := a.JustPressed(actionJump) || g.padJumpLatched || (jumpHeld && !g.prevCombinedJump)
-	jumpReleased := !jumpHeld && g.prevCombinedJump
-
-	g.padJumpLatched = false
-	g.prevCombinedJump = jumpHeld
-
 	return stepInput{
-		moveAxis:     move,
-		jumpPressed:  jumpPressed,
-		jumpHeld:     jumpHeld,
-		jumpReleased: jumpReleased,
+		moveAxis:     float32(a.Axis(actionMove)),
+		jumpPressed:  a.JustPressed(actionJump),
+		jumpHeld:     a.Pressed(actionJump),
+		jumpReleased: a.JustReleased(actionJump),
 	}
 }
 
 // update runs one fixed step: it samples input once, acts on the menu actions, and advances the current scene.
 func (g *caveRun) update(dt time.Duration) {
 	g.actions.Step()
+	g.touch.Update(dt)
 	if g.settingsOpen.Get() {
 		if g.settingsMenu != nil && g.settingsMenu.StepGamepad(g.actions.Gamepads()) {
 			g.bumpSettingsTick()
@@ -457,6 +436,11 @@ func (g *caveRun) drawCanvas(d *core.Drawing, size core.Size) {
 		d.SetFillColor(core.RGB(0x131628)).FillRect(0, 0, float32(vsize.Width), float32(vsize.Height))
 		g.scenes.Draw(d, vsize, g.alpha)
 	})
+	// The touch controls sit in the view's points, over the letterbox, and show only while the game is played.
+	g.touch.Resize(size, g.env.SafeArea())
+	if g.phase.Get() == phasePlaying && !g.paused.Get() {
+		g.touch.Draw(d)
+	}
 }
 
 func (g *caveRun) titleController() *scene.Controller {

@@ -220,30 +220,64 @@ func pressPad(app *nsgotest.App, b gamepad.Button) {
 	app.Advance(2 * testFrame)
 }
 
-func TestMouseRegionsMoveAndJump(t *testing.T) {
-	app, g := startCaveRun(t)
-	startPlaying(t, app, g)
-
-	// Holding the left button and moving the pointer over the right-hand region of the canvas runs right. The HUD's own buttons sit over the regions' bottom edge, so point above them.
-	size := g.currentViewSize()
-	right := g.viewport.GameToView(size, core.Point{X: 108, Y: 124})
-	x := g.level.playerBody.Bounds().X
-	app.PressDown("id:game-view")
-	app.HoverAt("id:game-view", right)
-	app.Advance(500 * time.Millisecond)
-	app.PressUp("id:game-view")
-	if moved := g.level.playerBody.Bounds().X - x; moved < 20 {
-		t.Fatalf("holding the mouse over the right region moved the explorer %.1f px, want at least 20", moved)
+func TestTouchControlsHideOnDesktopUntilTouched(t *testing.T) {
+	app, g := startCaveRun(t, nsgotest.Idiom(core.IdiomDesktop))
+	startWithEnter(t, app, g)
+	if app.Exists("id:touch-jump") {
+		t.Fatal("the touch controls show on a desktop before any touch")
 	}
-	app.Advance(500 * time.Millisecond)
 
-	// Pressing over the jump region jumps.
-	jump := g.viewport.GameToView(size, core.Point{X: 270, Y: 124})
-	app.PressDown("id:game-view")
-	app.HoverAt("id:game-view", jump)
+	// The first touch shows them, and a touch on the jump button jumps at once.
+	finger := app.Touch("id:game-view", centerOf(controlFrame(t, g, "jump")))
 	app.Advance(2 * testFrame)
-	if g.level.playerBody.VY >= 0 {
-		t.Fatalf("a press over the jump region did not start a jump: VY=%v", g.level.playerBody.VY)
+	if !app.Exists("id:touch-jump") || !app.Exists("id:touch-move") {
+		t.Fatalf("a touch did not show the touch controls: visible=%v device=%v alpha=%v", g.touch.Visible(), g.touch.Tracker().LastDevice(), g.touch.Alpha())
 	}
-	app.PressUp("id:game-view")
+	if g.level.playerBody.VY >= 0 {
+		t.Fatalf("a touch on the jump button did not start a jump: VY=%v", g.level.playerBody.VY)
+	}
+	finger.Lift()
+
+	// Using the keyboard again hides them.
+	app.KeyDown("d")
+	app.Advance(2 * testFrame)
+	app.KeyUp("d")
+	app.Advance(testFrame)
+	if app.Exists("id:touch-jump") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
+}
+
+func TestTouchControlsStayInsideTheSafeArea(t *testing.T) {
+	// A landscape iPhone's notch and home indicator.
+	app, g := startCaveRun(t, nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
+	startPlaying(t, app, g)
+	move, jump := controlFrame(t, g, "move"), controlFrame(t, g, "jump")
+	if move.Origin.X < 47 || jump.Origin.X+jump.Size.Width > 960-47 || move.Origin.Y+move.Size.Height > 540-21 {
+		t.Fatalf("controls outside the safe area: move %+v, jump %+v", move, jump)
+	}
+	if move.Size.Width < 44 || jump.Size.Width <= move.Size.Width*0.6 {
+		t.Fatalf("control sizes: move %+v, jump %+v", move.Size, jump.Size)
+	}
+}
+
+func TestTouchControlsLeaveTheExplorerAtSpawnUncovered(t *testing.T) {
+	// A landscape iPhone, where the letterboxed canvas puts the spawn close to the d-pad.
+	app, g := startCaveRun(t, nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
+	startPlaying(t, app, g)
+	size := g.currentViewSize()
+	b := g.level.playerBody.Bounds()
+	topLeft := g.viewport.GameToView(size, g.level.cam.WorldToView(core.Point{X: core.Points(b.X), Y: core.Points(b.Y)}))
+	bottomRight := g.viewport.GameToView(size, g.level.cam.WorldToView(core.Point{X: core.Points(b.X + b.W), Y: core.Points(b.Y + b.H)}))
+	explorer := core.Bounds{Origin: topLeft, Size: core.Size{Width: bottomRight.X - topLeft.X, Height: bottomRight.Y - topLeft.Y}}
+	for _, id := range []string{"move", "jump"} {
+		if f := controlFrame(t, g, id); overlaps(f, explorer) {
+			t.Fatalf("the %s control %+v covers the explorer at spawn %+v", id, f, explorer)
+		}
+	}
+}
+
+func overlaps(a, b core.Bounds) bool {
+	return a.Origin.X < b.Origin.X+b.Size.Width && b.Origin.X < a.Origin.X+a.Size.Width &&
+		a.Origin.Y < b.Origin.Y+b.Size.Height && b.Origin.Y < a.Origin.Y+a.Size.Height
 }
