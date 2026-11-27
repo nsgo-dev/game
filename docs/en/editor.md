@@ -443,6 +443,17 @@ In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene's compon
 - **Automatic `ai.NavMesh` build (`BuildNavMesh2D`)**: `sceneformat.Build` collects every enabled `navregion2d` on visible world-space layers (normalizing polygon winding so overlapping walkable regions union and obstacle cutouts subtract cleanly), optionally subtracts solid tile collision geometry from scene tilemaps (via [`tileshape.View`](tileshape.md) and non-rectangular solid tile shapes), attaches any authored 2D `nav_link` components, bakes convex polygons with [`game/ai/navbake`](navbake.md), and populates `BuiltScene.NavBake2D` (`*navbake.Mesh`) and `BuiltScene.NavMesh2D` (`*ai.NavMesh`). Scenes with no `navregion2d` components keep both fields `nil`; call `BuiltScene.SyncNavMesh2D()` after runtime edits.
 - **2D NavMesh overlay, polygon handles & Test Path tool**: The 2D viewport renders the built `NavBake2D` convex polygons, shared portals, and authored `navregion2d` outlines whenever `Editor.ShowNavMesh2D` is enabled (default `true`, toggled via toolbar button `view-navmesh2d-overlay`, `SetShowNavMesh2D`, or `CmdToggleNavMesh2D`). Selecting a `navregion2d` object exposes draggable vertex handles (`Handle2DNavRegionVertex`) and edge-midpoint insertion handles (`Handle2DNavRegionEdgeMid`) plus `PlaceNavRegion2D`, `InitNavRegionPolygon`, `SetNavRegionPoints`, `InsertNavRegionVertex`, and `RemoveNavRegionVertex`; dragging updates the built mesh overlay live and commits one undoable step on release (Escape cancels). Selecting the **Test Path** tool (`ToolNavTestPath`, toolbar button `tool-nav-test-path`, command `CmdToolNavTestPath`) lets you press start and end points in the viewport to draw the exact path `BuiltScene.NavMesh2D.FindPath` finds (recomputed live as vertices or tiles change, and cleared with Escape or `ClearNavPathPreview2D`).
 
+### Built-in timer component (#1362)
+
+`sceneformat` ships a built-in timer component, the text counterpart of Godot's `Timer` node, registered with `RegisterTimerComponent(reg)` or `TimerComponentRegistry()` (and available automatically in the editor's inspector and the scene JSON schemas):
+
+| Component | Key fields |
+| --- | --- |
+| `timer` | `seconds` (`1`, `>= 0`), `oneShot` (`false`), `autostart` (`false`); declares the event `timeout` and the handlers `start` and `stop` |
+
+- **Running on the game clock**: `Signals.Update(dt)` advances every timer of the connected scene once per update step — call it in `game.Loop`'s `Update` before `Flush` — and enqueues each `timeout` for that `Flush`, in document order, so a scene wires a timer to any handler with no Go code and timer order stays deterministic. A one-shot timer fires once and stops; a repeating one carries the overshoot into the next period, so it does not drift; `seconds: 0` fires once per update step. The timer of an object whose entity has been destroyed (`SpawnConnected`) stops.
+- **`start` and `stop` handlers**: connecting any event to a timer's `start` restarts it from its full `seconds`, and to `stop` halts it without resetting, so a button can arm a door's timer in the file.
+
 ### Connections (#490)
 
 A scene file connects an event one object emits to a handler of another object, as Godot's `[connection]` entries in a `.tscn` file do, so a button opens a door with no Go code that names either of them:
@@ -526,6 +537,19 @@ loop.Update = func(dt time.Duration) {
 ```
 
 `Enqueue` refuses what `Emit` refuses before it holds anything, so a misspelled event fails where it is raised. `Flush` runs the events enqueued before it began, in the order they were enqueued, each as `Emit` runs it; an event a handler enqueues, its own included, waits for the next `Flush`, so one `Flush` always ends and a handler never re-enters itself. `Flush` from a handler is refused, and `Pending` says how many events wait. A handler's panic passes through `Flush`, and the events after the one that panicked stay queued for the next `Flush`. Once the queue has grown to a step's events, a step allocates nothing more than emitting them would.
+
+#### Listening to events from Go
+
+A scene's connections are declared in the file; the code side of the same events — audio, analytics, achievements, UI — subscribes from Go instead, as `Signal.connect` does in Godot, without a target object or a connection line per scene:
+
+```go
+stop, err := signals.Listen("", "opened", func(c sceneformat.Call) {
+	playSound("door_open")
+}, sceneformat.ListenOptions{})
+defer stop()
+```
+
+`Signals.Listen(from, event, fn, opts)` checks `from` and `event` as `Emit` does and refuses an unknown object or event at the call, so a misspelt name fails at once; an empty `from` listens to every object of the scene that declares the event. The listener runs after the file's connections for the same event, in the order the listeners were added, and its `Call` carries the source object, the event and the payload (`Target`, `Component`, `Handler` and `Args` stay unset, a listener not being a connection). `ListenOptions.Once` runs it the first time only (`CONNECT_ONE_SHOT`), `ListenOptions.Deferred` queues each run for the next `Flush` (`CONNECT_DEFERRED`), and the returned `stop` ends the subscription — idempotent and safe to call inside a handler. A listener on an object never runs for it once its entity has been destroyed (`SpawnConnected`), as connections do.
 
 #### Spawning connected entities
 

@@ -377,10 +377,13 @@ var builtinEditorComponents = func() *sceneformat.ComponentRegistry {
 	if err := sceneformat.RegisterNavRegion2DComponent(reg); err != nil {
 		panic(err)
 	}
+	if err := sceneformat.RegisterTimerComponent(reg); err != nil {
+		panic(err)
+	}
 	return reg
 }()
 
-// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal + 2D navigation).
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal + 2D navigation + timer).
 func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
 	if e != nil && e.components != nil {
 		if ct, ok := e.components.Lookup(cn); ok {

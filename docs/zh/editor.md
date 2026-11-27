@@ -443,6 +443,17 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 - **自动构建 `ai.NavMesh`（`BuildNavMesh2D`）**：`sceneformat.Build` 会收集可见世界空间图层上所有启用的 `navregion2d` 组件（统一绕序，确保重叠的可行走区域求并、障碍物区域挖洞），按需通过 [`tileshape.View`](tileshape.md) 及非矩形实心瓦片形状扣除场景瓦片地图中的实心碰撞，附加场景中声明的 2D `nav_link` 离网连接，并调用 [`game/ai/navbake`](navbake.md) 烘焙凸多边形，填充 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`）。不含 `navregion2d` 的场景会将两字段保持为 `nil`；运行时修改后可调用 `BuiltScene.SyncNavMesh2D()` 重新同步。
 - **2D 导航网格叠加层、多边形手柄与路径测试工具**：开启 `Editor.ShowNavMesh2D`（默认开启，可通过工具栏 `view-navmesh2d-overlay`、`SetShowNavMesh2D` 或 `CmdToggleNavMesh2D` 切换）时，2D 视口会绘制已构建 `NavBake2D` 的凸多边形、相邻门户以及作者编辑的 `navregion2d` 轮廓。选中 `navregion2d` 对象会显示可拖动顶点手柄（`Handle2DNavRegionVertex`）与边中点插点手柄（`Handle2DNavRegionEdgeMid`），并提供 `PlaceNavRegion2D`、`InitNavRegionPolygon`、`SetNavRegionPoints`、`InsertNavRegionVertex` 与 `RemoveNavRegionVertex`；拖动顶点时叠加层实时刷新，松手后记录为单个可撤销步骤（按 Escape 取消）。选择 **Test Path** 工具（`ToolNavTestPath`，工具栏 `tool-nav-test-path`，命令 `CmdToolNavTestPath`）后，在视口依次点选起点与终点即可绘制 `BuiltScene.NavMesh2D.FindPath` 找到的路径（随顶点或瓦片修改实时重算，按 Escape 或调用 `ClearNavPathPreview2D` 清除）。
 
+### 内置计时器组件（#1362）
+
+`sceneformat` 内置计时器组件，对应 Godot 的 `Timer` 节点，可通过 `RegisterTimerComponent(reg)` 或 `TimerComponentRegistry()` 注册（在编辑器检查器和场景 JSON Schema 中默认自动可用）：
+
+| 组件 | 主要字段 |
+| --- | --- |
+| `timer` | `seconds`（`1`，`>= 0`）、`oneShot`（`false`）、`autostart`（`false`）；声明事件 `timeout` 和处理函数 `start`、`stop` |
+
+- **随游戏时钟运行**：`Signals.Update(dt)` 每个更新步推进已连接场景的所有计时器一次——在 `game.Loop` 的 `Update` 中、`Flush` 之前调用——并把每个 `timeout` 按文档顺序入队，留给这次 `Flush` 分发，于是场景不用写任何 Go 代码就能把计时器接到任意处理函数上，计时器顺序也是确定的。单次计时器触发一次后停止；重复计时器把超出部分带进下一个周期，不会漂移；`seconds: 0` 每个更新步触发一次。实体被销毁（`SpawnConnected`）的对象的计时器会停止。
+- **`start` 和 `stop` 处理函数**：把任意事件连接到计时器的 `start` 会从完整 `seconds` 重新启动它，连接到 `stop` 则在不重置的情况下停住它，于是文件里就能让一个按钮启动一扇门的计时器。
+
 ### 连接（#490）
 
 场景文件可以把一个对象发出的事件连接到另一个对象的处理函数，就像 Godot 在 `.tscn` 文件里写的 `[connection]` 条目，于是按钮能打开门，而不需要任何点名这两个对象的 Go 代码：
@@ -526,6 +537,19 @@ loop.Update = func(dt time.Duration) {
 ```
 
 `Enqueue` 在排入任何东西之前就拒绝 `Emit` 会拒绝的情况，所以拼错的事件在发出的地方就会失败。`Flush` 按入队顺序运行它开始之前入队的事件，每个都像 `Emit` 那样运行；处理函数入队的事件（包括它自己的事件）要等到下一次 `Flush`，所以一次 `Flush` 总会结束，处理函数也不会重入自身。在处理函数中调用 `Flush` 会被拒绝，`Pending` 返回等待中的事件数。处理函数的 panic 会穿过 `Flush` 传出，发生 panic 的事件之后的事件仍留在队列中，等待下一次 `Flush`。队列增长到一步的事件量之后，每一步的分配不会多于直接发出这些事件。
+
+#### 在 Go 中监听事件
+
+场景的连接写在文件里；同一批事件的代码侧——音效、统计、成就、界面——改为在 Go 中订阅，就像 Godot 的 `Signal.connect`，不需要每个场景都造一个目标对象、加一行连接：
+
+```go
+stop, err := signals.Listen("", "opened", func(c sceneformat.Call) {
+	playSound("door_open")
+}, sceneformat.ListenOptions{})
+defer stop()
+```
+
+`Signals.Listen(from, event, fn, opts)` 像 `Emit` 那样检查 `from` 和 `event`，在调用时就拒绝不存在的对象或事件，拼错的名字会立即失败；`from` 为空时监听场景中所有声明了该事件的对象。监听器在同一事件的文件连接之后、按添加顺序运行，它的 `Call` 带有源对象、事件和负载（`Target`、`Component`、`Handler` 和 `Args` 保持未设置，因为监听器不是连接）。`ListenOptions.Once` 让它只在第一次触发时运行（`CONNECT_ONE_SHOT`），`ListenOptions.Deferred` 把每次运行入队到下一次 `Flush`（`CONNECT_DEFERRED`），返回的 `stop` 结束订阅——幂等，可以在处理函数内调用。对象的实体被销毁（`SpawnConnected`）后，它的监听器不再为它运行，与连接一样。
 
 #### 生成连接好的实体
 
