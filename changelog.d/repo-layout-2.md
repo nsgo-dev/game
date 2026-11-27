@@ -33,3 +33,4 @@
 
 - `cmd/sizecheck` is gone: run `go tool game size` with the same flags instead of `go run github.com/nsgo-dev/game/cmd/sizecheck`.
 - `cmd/gameproject` is gone: run `go tool game project`, with `-check` before the verb (`game project -check sync`), instead of `go run github.com/nsgo-dev/game/cmd/gameproject`. The project templates' READMEs and comments name `go run github.com/nsgo-dev/game/cmd/game project`.
+- The Agent Evaluation Suite page leaves the site: `/docs/agent-eval/` and its Chinese version are gone, and the contributor guide to `tools/agenteval` is now `tools/agenteval/README.md`, in English, beside the tool.

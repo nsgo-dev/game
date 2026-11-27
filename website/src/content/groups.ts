@@ -37,7 +37,6 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'plugins',
       'placeholder',
       'agent-skill',
-      'agent-eval',
       'package-size-budgets',
       'gc-and-allocations',
       'determinism',

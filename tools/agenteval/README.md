@@ -1,6 +1,6 @@
-# Agent Evaluation Suite
+# agenteval
 
-The agent evaluation suite under `tools/agenteval/` is contributor tooling with fixed game-development tasks. Each task has a starter workspace, a hand-written reference solution and a rubric that scores a workspace from 0 to 100 with YAML checks, `assetcheck`, `nsgo check` and live headless `game/mcp` tools. It supports three modes: deterministic `reference` grading (API and format regression checks with no model or key), built-in tool-calling `agent` grading (Anthropic Messages API or OpenAI-compatible Chat Completions API), and `command` grading for any external coding agent CLI.
+The agent evaluation suite in this directory is contributor tooling with fixed game-development tasks. Each task has a starter workspace, a hand-written reference solution and a rubric that scores a workspace from 0 to 100 with YAML checks, `assetcheck`, `nsgo check` and live headless `game/mcp` tools. It supports three modes: deterministic `reference` grading (API and format regression checks with no model or key), built-in tool-calling `agent` grading (Anthropic Messages API or OpenAI-compatible Chat Completions API), and `command` grading for any external coding agent CLI.
 
 ## Tasks
 
@@ -22,7 +22,7 @@ Every task spreads 100 points across five criteria in `checks.weights`:
 4. **`builds_cleanly`** (15 pts): `go tool nsgo check` succeeds on the workspace against the checkout's root module.
 5. **`mcp_verify_passes`** (30 pts): a generated test boots the game headless under `nsgotest.Start`, calls live `game/mcp` tools through `nsgo/automation.Call`, and must report a pass; a clean exit without it scores nothing.
 
-The documents a task lists in `context_docs` and the repository's [Agent Skill](agent-skill.md) (`skills/nsgo-game/SKILL.md` and `references/`) are not scored. They are copied next to the workspace for the agent, and a missing or empty doc or skill fails the run.
+The documents a task lists in `context_docs` and the repository's [Agent Skill](../../docs/en/agent-skill.md) (`skills/nsgo-game/SKILL.md` and `references/`) are not scored. They are copied next to the workspace for the agent, and a missing or empty doc or skill fails the run.
 
 `min_score` sets a task's passing score; when it is absent the threshold is 100, and an explicit `0` is kept.
 
@@ -30,7 +30,7 @@ The documents a task lists in `context_docs` and the repository's [Agent Skill](
 
 ### Reference mode (default)
 
-Grades each task's reference solution against the checkout, with no model or API key:
+Grades each task's reference solution against the checkout, with no model or API key. The commands below run from the repository root:
 
 ```sh
 go run ./tools/agenteval
@@ -93,7 +93,7 @@ Environment variables passed to `-agent-cmd` (and `run_command` in `-mode=agent`
 
 ## Scheduled CI
 
-`.github/workflows/agent-eval.yml` runs daily on Depot (`depot-ubuntu-24.04-4`), on demand through `workflow_dispatch`, and when `tools/agenteval/**`, the tools module's `tools/go.mod` and `tools/go.sum`, `skills/nsgo-game/**` or the workflow itself changes. It has two jobs:
+`.github/workflows/agent-eval.yml` runs daily on Depot (`depot-ubuntu-24.04-4`), on demand through `workflow_dispatch`, and when `tools/agenteval/**` (apart from this README), the tools module's `tools/go.mod` and `tools/go.sum`, `skills/nsgo-game/**` or the workflow itself changes. It has two jobs:
 
 1. **`eval` (reference)**: runs on pull requests, pushes to `main`, `schedule`, and `workflow_dispatch`. It runs `go tool nsgo test ./agenteval/...` in the `tools` module, grades the reference solutions with `-mode=reference`, appends the per-task score table and criterion breakdown to `$GITHUB_STEP_SUMMARY`, and uploads `agent-eval-reference-report` (`agent-eval-reference-report.json` and `agent-eval-reference-summary.md`).
 2. **`eval-agent` (coding agent)**: runs on `schedule` and `workflow_dispatch` (never on untrusted pull requests). When configured with repository secrets or variables, it runs an actual coding agent on the starter workspaces against the staged docs, skill, and MCP config, reports per-task scores, turns/tool counts, and criterion breakdowns to `$GITHUB_STEP_SUMMARY`, and uploads `agent-eval-agent-report` (`agent-eval-agent-report.json` and `agent-eval-agent-summary.md`). In `auto` / scheduled mode, if no credentials are configured yet, it runs with `-skip-if-unconfigured` so CI records a clear `SKIPPED` summary instead of failing.
