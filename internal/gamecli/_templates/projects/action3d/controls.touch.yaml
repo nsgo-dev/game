@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: stick
+    anchor: bottomLeft
+    offset: {x: 16, "y": 16}
+    size: {width: 240, height: 220}
+    label: Move
+    axisX: moveX
+    axisY: moveY
+    deadZone: 0.12
+    floating: true
+    radius: 52
+  - id: look
+    kind: stick
+    anchor: bottomRight
+    offset: {x: 220, "y": 24}
+    size: {width: 220, height: 220}
+    label: Look
+    axisX: turn
+    deadZone: 0.12
+    floating: true
+    radius: 48
+  - id: attack
+    kind: button
+    anchor: bottomRight
+    offset: {x: 20, "y": 28}
+    size: {width: 88, height: 88}
+    label: Attack
+    action: attack
+    text: ATTACK
+  - id: jump
+    kind: button
+    anchor: bottomRight
+    offset: {x: 120, "y": 16}
+    size: {width: 72, height: 72}
+    label: Jump
+    action: jump
+    text: JUMP

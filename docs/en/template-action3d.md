@@ -18,7 +18,7 @@ or, without the `game` tool, `nsgo init -template github.com/nsgo-dev/game/templ
 - **Melee enemies.** Enemies chase the hero inside their sight and leash, wind up a slow swing that a hit from the hero interrupts, and walk home when the hero gets away.
 - **A level that is a scene file.** Blocks, the spawn, the enemies, the key, the door, the goal and the lamps are objects with components in a [scene file](editor.md), and a connection in that file, not Go code, makes picking up the key unlock the door.
 - **Rendering.** [render3d](render3d.md)'s lit PBR pipeline draws every box from one cube mesh, lit by a moon, an ambient fill and the scene's lamps, on every GPU backend NSGo has, WebGL 2 included.
-- **Every kind of input.** Keyboard and mouse, game controllers and touch all go through one [`input.Actions`](input.md) bound from the input map in `game.yaml`; on-screen sticks and buttons (`input.VirtualPad`) appear once the screen is touched.
+- **Every kind of input.** Keyboard and mouse, game controllers and touch all go through one [`input.Actions`](input.md) bound from the input map in `game.yaml`; on-screen sticks and buttons (`input.TouchControls`) built from `controls.touch.yaml` start visible on phones inside the safe area, appear on desktop once the screen is touched, and hide again on keyboard or controller input. The root scope requests landscape orientation.
 - **Tests that play it.** Headless nsgotest tests play the whole run to a win with a game controller and to a loss with the keyboard, drive the touch controls and the mouse, check every data file is valid and canonical, and draw the level on a software GPU.
 
 ## Controls
@@ -36,6 +36,7 @@ or, without the `game` tool, `nsgo init -template github.com/nsgo-dev/game/templ
 | File | What it holds |
 | --- | --- |
 | `game.yaml` | The [project file](project.md): name, id, window, the input map, the scene and data files it autoloads, and export presets. |
+| `controls.touch.yaml` | The on-screen touch layout (`input.TouchControls`): floating move and camera sticks, and Attack and Jump buttons anchored inside the safe area. |
 | `scenes/keep.scene.yaml` | The level. Each object's `x`, `y` (up) and `posZ` place it in meters, its scale sizes a box, and its components say what it is: `block`, `spawn`, `enemy`, `key`, `door`, `goal` or `lamp`. The `connections` wire the key's `collected` event to the door's `unlock` handler. |
 | `data/actors.yaml` | The hero's and the enemies' tuning, the rig of boxes both share, and the animation clips, in meters, degrees and seconds. |
 | `actors.go` | The format of `data/actors.yaml`: version 1, unknown fields refused, and an encoder whose output reads back to the same bytes. |

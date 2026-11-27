@@ -55,7 +55,7 @@ const (
 
 // controls is what the player asks of the hero on one step, read from whichever device they use.
 type controls struct {
-	// moveX and moveY are the movement stick, each from -1 to 1: x to the right and y toward the camera, so pushing forward is negative y, as a game controller's stick reads.
+	// moveX and moveY are the movement stick, each from -1 to 1: x to the right and y away from the camera, so pushing forward is positive y.
 	moveX, moveY float32
 	// turn orbits the camera, -1 to the left and 1 to the right.
 	turn float32
@@ -227,7 +227,7 @@ func (g *game) stepHero(c controls, dt time.Duration) {
 		// The stick's forward is away from the camera.
 		forward := math3d.Vec3{X: -sin(g.camYaw), Z: -cos(g.camYaw)}
 		right := math3d.Vec3{X: cos(g.camYaw), Z: -sin(g.camYaw)}
-		wish = right.Scale(c.moveX).Add(forward.Scale(-c.moveY))
+		wish = right.Scale(c.moveX).Add(forward.Scale(c.moveY))
 		if l := wish.Len(); l > 1 {
 			wish = wish.Scale(1 / l)
 		}

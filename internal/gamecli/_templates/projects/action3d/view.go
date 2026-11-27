@@ -36,20 +36,20 @@ func Root(cx *core.Scope) core.Node {
 
 // play is the running game on screen: the simulation, the fixed-step loop that drives it, the input it reads and the renderer that draws it.
 type play struct {
+	env     *core.Env
 	g       *game
 	actions *input.Actions
-	pad     *input.VirtualPad
-	move    *input.VirtualStick
-	look    *input.VirtualStick
-	buttons []*input.VirtualButton
+	touch   *input.TouchControls
 	render  renderer
 	loop    *gamelib.Loop
 	alpha   float32
 
 	hud       *core.Signal[hudState]
-	touched   *core.Signal[bool]
 	padTick   *core.Signal[int]
 	gpuStatus *core.Signal[string]
+
+	wasTouchVisible bool
+	lastTouchAlpha  float32
 
 	dragging  bool
 	lastMouse core.Point
@@ -58,6 +58,7 @@ type play struct {
 // newPlay loads the game's content and builds its view, returning the play so tests can watch it.
 func newPlay(cx *core.Scope) (*play, core.Node) {
 	desktop.SetTitle(cx, Project.Title())
+	cx.RequestOrientation(core.OrientationLandscape)
 	c, err := loadContent()
 	if err != nil {
 		return nil, errorView(err)
@@ -66,11 +67,16 @@ func newPlay(cx *core.Scope) (*play, core.Node) {
 	if err != nil {
 		return nil, errorView(err)
 	}
+	touch, err := input.NewTouchControls(cx, touchLayout)
+	if err != nil {
+		return nil, errorView(err)
+	}
 	p := &play{
+		env:       cx.Env(),
 		g:         g,
 		actions:   input.NewActions(),
+		touch:     touch,
 		hud:       core.NewSignal(cx, g.hud()),
-		touched:   core.NewSignal(cx, false),
 		padTick:   core.NewSignal(cx, 0),
 		gpuStatus: core.NewSignal(cx, ""),
 	}
@@ -78,16 +84,23 @@ func newPlay(cx *core.Scope) (*play, core.Node) {
 	Project.BindInput(p.actions)
 	p.actions.WatchKeys(cx)
 	p.actions.WatchGamepads(cx)
-	p.pad = input.NewVirtualPad()
-	p.move = p.pad.AddStick(&input.VirtualStick{AxisXName: axisMoveX, AxisYName: axisMoveY, Radius: 56, DeadZone: 0.12, Floating: true})
-	p.look = p.pad.AddStick(&input.VirtualStick{AxisXName: axisTurn, Radius: 56, DeadZone: 0.12, Floating: true})
-	p.buttons = []*input.VirtualButton{
-		p.pad.AddButton(&input.VirtualButton{Action: actAttack, Label: "Attack", Radius: 42}),
-		p.pad.AddButton(&input.VirtualButton{Action: actJump, Label: "Jump", Radius: 34}),
-	}
-	p.pad.BindActions(p.actions)
+	p.touch.BindActions(p.actions)
+	p.touch.Haptics = input.NewHaptics(cx)
+	p.wasTouchVisible = p.touch.Visible()
+	p.lastTouchAlpha = p.touch.Alpha()
 
-	p.loop = &gamelib.Loop{Rate: stepRate, Update: p.update, Draw: func(alpha float64) { p.alpha = float32(alpha) }}
+	p.loop = &gamelib.Loop{
+		Rate:   stepRate,
+		Update: p.update,
+		Draw: func(alpha float64) {
+			p.alpha = float32(alpha)
+			visible, touchAlpha := p.touch.Visible(), p.touch.Alpha()
+			if visible || p.wasTouchVisible || touchAlpha != p.lastTouchAlpha {
+				p.wasTouchVisible, p.lastTouchAlpha = visible, touchAlpha
+				p.padTick.Update(func(n int) int { return n + 1 })
+			}
+		},
+	}
 	p.loop.Run(cx)
 	return p, p.view(cx)
 }
@@ -96,6 +109,7 @@ func newPlay(cx *core.Scope) (*play, core.Node) {
 func (p *play) update(dt time.Duration) {
 	a := p.actions
 	a.Step()
+	p.touch.Update(dt)
 	if a.JustPressed(actRestart) {
 		p.restart()
 		return
@@ -113,29 +127,9 @@ func (p *play) update(dt time.Duration) {
 func (p *play) restart() {
 	// The level has already been built once, so reset cannot fail.
 	_ = p.g.reset()
+	p.actions.Reset()
+	p.touch.Wake()
 	p.hud.Set(p.g.hud())
-}
-
-// layoutPad places the on-screen controls for a view of size: the movement stick anywhere on the left half, the camera stick anywhere on the right half, and the buttons at the bottom right.
-func (p *play) layoutPad(size core.Size) {
-	w, h := size.Width, size.Height
-	p.move.Zone = core.Bounds{Size: core.Size{Width: w / 2, Height: h}}
-	p.move.Center = core.Point{X: 96, Y: h - 96}
-	p.look.Zone = core.Bounds{Origin: core.Point{X: w / 2}, Size: core.Size{Width: w / 2, Height: h}}
-	p.look.Center = core.Point{X: w * 3 / 4, Y: h / 2}
-	p.buttons[0].Center = core.Point{X: w - 76, Y: h - 84}
-	p.buttons[1].Center = core.Point{X: w - 170, Y: h - 56}
-	if !p.move.Active() {
-		p.move.Reset()
-	}
-}
-
-func (p *play) onTouch(ev core.TouchEvent) {
-	p.pad.OnTouch(ev)
-	if !p.touched.GetUntracked() {
-		p.touched.Set(true)
-	}
-	p.padTick.Update(func(n int) int { return n + 1 })
 }
 
 func (p *play) onMouseDown(ev core.MouseButtonEvent) {
@@ -165,11 +159,10 @@ func (p *play) view(cx *core.Scope) core.Node {
 	root := core.View{
 		TestID:      "game-view",
 		Style:       core.Style{FlexGrow: 1, FlexShrink: 1, Background: skyColor, Overflow: core.Hidden},
-		OnTouch:     p.onTouch,
 		OnMouseDown: p.onMouseDown,
 		OnMouseMove: p.onMouseMove,
 		OnMouseUp:   p.onMouseUp,
-		OnLayout:    func(b core.Bounds) { p.layoutPad(b.Size) },
+		OnLayout:    func(b core.Bounds) { p.touch.Resize(b.Size, core.Untracked(cx, p.env.SafeArea)) },
 		Children: []core.Node{
 			gpu.View(cx, gpu.ViewProps{
 				TestID:          "game-gpu",
@@ -201,16 +194,11 @@ func (p *play) view(cx *core.Scope) core.Node {
 				TestID: "touch-controls",
 				Label:  "Touch controls",
 				Style:  fill(),
-				Draw: func(d *core.Drawing, _ core.Size) {
+				Draw: func(d *core.Drawing, size core.Size) {
 					_ = p.padTick.Get()
-					if p.touched.Get() {
-						p.move.Draw(d, input.VirtualStyle{})
-						if p.look.Active() {
-							p.look.Draw(d, input.VirtualStyle{})
-						}
-						for _, b := range p.buttons {
-							b.Draw(d, input.VirtualStyle{})
-						}
+					p.touch.Resize(size, p.env.SafeArea())
+					if p.hud.Get().phase == phasePlaying {
+						p.touch.Draw(d)
 					}
 				},
 			}}},
@@ -218,6 +206,8 @@ func (p *play) view(cx *core.Scope) core.Node {
 		},
 	}
 	p.actions.Attach(&root)
+	// After actions, so a touch shows the on-screen controls before they hear it.
+	p.touch.Attach(&root)
 	return root
 }
 

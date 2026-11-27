@@ -1,6 +1,6 @@
 # The fighting game template
 
-`fighting2d` is a one-on-one 2D fighting game to start a fighter from: two original characters, special moves from motion inputs, cancels and combos, guarding high and low, best-of-three rounds on a timer, a CPU opponent, and a second player on the same keyboard, on a second game controller or, against the CPU, on touch. It is built mainly on [fighting](fighting.md), which recognizes the inputs, and [framedata](framedata.md), which resolves the hits, with [input](input.md), [sound](sound.md), [screen](screen.md) and the [placeholder pack](placeholder.md)'s sounds.
+`fighting2d` is a one-on-one 2D fighting game to start a fighter from: two original characters, special moves from motion inputs, cancels and combos, guarding high and low, best-of-three rounds on a timer, a CPU opponent, and a second player on the same keyboard, on a second game controller or on one touch screen. It is built mainly on [fighting](fighting.md), which recognizes the inputs, and [framedata](framedata.md), which resolves the hits, with [input](input.md), [sound](sound.md), [screen](screen.md) and the [placeholder pack](placeholder.md)'s sounds.
 
 ```sh
 go run github.com/nsgo-dev/game/cmd/game@latest new -template fighting2d myfighter
@@ -17,14 +17,14 @@ go tool nsgo dev
 - **Guarding.** Holding back while the opponent attacks within reach, or a projectile closes in, guards; holding down-back guards crouching. Lows must be guarded crouching and overheads standing, and a guarded special still deals chip damage.
 - **Rounds.** A round ends on a knockout or when the 60 second timer runs out, when the fighter with the larger share of its health left wins it, so the sturdier fighter gains nothing from its larger health bar. A double knockout or a time-up with equal shares is a drawn round, which counts as a win for both fighters: the first to two rounds wins the match, so a draw after one fighter has won a round ends the match in that fighter's favour, and a draw that brings both to two wins makes the match a draw. Hitstop, combo damage scaling and pushback against the wall are rules in `data/match.yaml`.
 - **A CPU opponent** that decides every few steps from the distance, the opponent's attacks and jumps, and plays its decisions as input through the same recognizer and rules as a person, from per-fighter input scripts, with a seeded random source so a match replays the same way.
-- **Two local players.** Both players' keys, game controller buttons and sticks are one input map in `game.yaml`, its actions prefixed `p1_` and `p2_`. `input.Players` coordinates the two slots so both share the keyboard while each keeps its assigned controller across steps and screen changes; with two controllers connected on the title screen, the first goes to player 1 and the second to player 2, and if a controller disconnects during a versus match `DisconnectPolicy` pauses the fight with a reconnect panel (reconnect the same controller, press a button on a free controller, or continue on the keyboard). Touch gives player 1 an on-screen stick and two attack buttons, whose regions are also in `game.yaml`.
+- **Two local players.** Both players' keys, game controller buttons and sticks are one input map in `game.yaml`, its actions prefixed `p1_` and `p2_`. `input.Players` coordinates the two slots so both share the keyboard while each keeps its assigned controller across steps and screen changes; with two controllers connected on the title screen, the first goes to player 1 and the second to player 2, and if a controller disconnects during a versus match `DisconnectPolicy` pauses the fight with a reconnect panel (reconnect the same controller, press a button on a free controller, or continue on the keyboard). Touch uses `input.TouchControls` inside the safe area, starting visible on phones and requesting landscape orientation: against the CPU, `controls.touch.yaml` places player 1's floating stick at bottom left and L/H buttons at bottom right; in local versus, `versus.touch.yaml` compacts player 1 onto the left half and mirrors a second `TouchControls` bound to player 2 onto the right half so two people can play on one phone.
 - **Tests that play it.** `nsgotest` playthroughs lose a match against the CPU by standing still, win one from the keyboard with special moves, guards and combos, win a versus match with two game controllers, and play with touch; unit tests check each rule and that every data file is canonical.
 
 ## Controls
 
 | | Player 1 | Player 2 | Game controller | Touch |
 | --- | --- | --- | --- | --- |
-| Move, jump, crouch | W A S D | Arrows | D-pad or left stick | A stick on the left half of the screen |
+| Move, jump, crouch | W A S D | Arrows | D-pad or left stick | Floating stick (left half vs CPU; P1 left, P2 mirrored right in versus) |
 | Light | J | . | X / Square, A / Cross | L |
 | Heavy | K | / | Y / Triangle, B / Circle | H |
 | Start, pause | Enter | Right Shift | Start | Pause |
@@ -36,6 +36,7 @@ On the title screen, each player's left and right pick a fighter, player 1's Sta
 | File | What it holds |
 | --- | --- |
 | `game.yaml` | The project file: the window, the 480 by 270 virtual resolution, both players' input map, the sound bus and the export presets. |
+| `controls.touch.yaml`, `versus.touch.yaml` | The on-screen touch layouts (`input.TouchControls`) placed inside the safe area; `versus.touch.yaml` compacts player 1 onto the left half and mirrors it for player 2 on the right half. |
 | `data/match.yaml` | The rules, the CPU's tuning and the roster. For each fighter: its name, colors, health, speeds, its two data files, and what frame data does not say about some moves: their hit level, whether they are special, how they move the fighter, the projectile they throw, and the CPU's input scripts. |
 | `data/<fighter>.moves.yaml` | The fighter's move set (`fighting`). |
 | `data/<fighter>.frames.yaml` | The fighter's frame data (`framedata`). |

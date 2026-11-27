@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
@@ -21,6 +22,22 @@ var gameFiles embed.FS
 
 // Project is the game's parsed project file.
 var Project = project.MustParse(gameYAML)
+
+// touchLayoutYAML is the game's on-screen touch controls: floating move and camera sticks, and attack and jump buttons anchored inside the safe area.
+//
+//go:embed controls.touch.yaml
+var touchLayoutYAML []byte
+
+// touchLayout is the parsed controls.touch.yaml.
+var touchLayout = mustParseTouchLayout(touchLayoutYAML)
+
+func mustParseTouchLayout(data []byte) input.TouchLayout {
+	l, err := input.ParseTouchLayout(data)
+	if err != nil {
+		panic(fmt.Sprintf("action3d: controls.touch.yaml: %v", err))
+	}
+	return l
+}
 
 // actorsResource is the name game.yaml's autoload gives the actors file.
 const actorsResource = "actors"

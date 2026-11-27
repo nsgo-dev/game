@@ -50,7 +50,7 @@ func TestGamepadPlaythroughWins(t *testing.T) {
 	for p.g.phase == phasePlaying && p.g.elapsed < 2*time.Minute {
 		c := b.next(p.g)
 		app.SetGamepadAxis(1, gamepad.AxisLeftX, c.moveX)
-		app.SetGamepadAxis(1, gamepad.AxisLeftY, c.moveY)
+		app.SetGamepadAxis(1, gamepad.AxisLeftY, -c.moveY)
 		pressOnce(app, held, gamepad.ButtonWest, c.attack)
 		pressOnce(app, held, gamepad.ButtonSouth, c.jump)
 		app.Advance(step)
@@ -145,38 +145,67 @@ func TestReleasingTheMouseOutsideEndsTheDrag(t *testing.T) {
 	}
 }
 
-// TestTouchControlsMoveAndAttack drags the left stick forward and taps the attack button, and checks the controls appear once the screen is touched.
+// controlFrame returns the frame of touch control id, failing t when absent.
+func controlFrame(t *testing.T, p *play, id string) core.Bounds {
+	t.Helper()
+	for _, c := range p.touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
+	}
+	t.Fatalf("touch control %q not found", id)
+	return core.Bounds{}
+}
+
+func centerOf(b core.Bounds) core.Point {
+	return core.Point{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y + b.Size.Height/2}
+}
+
+// TestTouchControlsMoveAndAttack drags the left stick forward and taps the attack button, and checks the controls appear once the screen is touched and hide again on keyboard input.
 func TestTouchControlsMoveAndAttack(t *testing.T) {
-	app, p := startPlay(t)
+	app, p := startPlay(t, nsgotest.Idiom(core.IdiomDesktop))
 	if ops := app.Find("id:touch-controls").Ops; len(ops) != 0 {
 		t.Fatalf("the touch controls drew %d ops before any touch", len(ops))
 	}
+	if app.Exists("id:touch-attack") {
+		t.Fatal("the touch controls show on a desktop before any touch")
+	}
 	start := p.g.hero.pos
-	finger := app.Touch("id:game-view", core.Point{X: 120, Y: 300})
-	finger.Move(core.Point{X: 120, Y: 240})
+	moveAt := centerOf(controlFrame(t, p, "move"))
+	finger := app.Touch("id:game-view", moveAt)
+	finger.Move(core.Point{X: moveAt.X, Y: moveAt.Y - 60})
 	finger.Hold(600 * time.Millisecond)
 	if p.g.hero.pos.Z > start.Z-1 {
 		t.Fatalf("pushing the stick forward moved the hero from %v to %v", start, p.g.hero.pos)
 	}
-	if ops := app.Find("id:touch-controls").Ops; len(ops) == 0 {
+	if ops := app.Find("id:touch-controls").Ops; len(ops) == 0 || !app.Exists("id:touch-attack") {
 		t.Fatal("the touch controls did not draw while touched")
 	}
 	finger.Lift()
 
-	attack := p.buttons[0].Center
+	attack := centerOf(controlFrame(t, p, "attack"))
 	tap := app.Touch("id:game-view", attack)
 	app.Advance(2 * step)
 	tap.Lift()
 	if p.g.hero.anim.state() != stateAttack {
 		t.Fatalf("tapping Attack did not swing: state %q", p.g.hero.anim.state())
 	}
+
+	// Using the keyboard hides the touch controls again.
+	app.KeyCodeDown("KeyW")
+	app.Advance(2 * step)
+	app.KeyCodeUp("KeyW")
+	app.Advance(step)
+	if p.touch.Visible() || app.Exists("id:touch-attack") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
 }
 
-// TestTouchJumpsAndTurnsTheCamera taps Jump and drags the camera stick on the right half of the screen.
+// TestTouchJumpsAndTurnsTheCamera taps Jump and drags the camera stick on the right side of the screen.
 func TestTouchJumpsAndTurnsTheCamera(t *testing.T) {
 	app, p := startPlay(t)
 	app.Advance(100 * time.Millisecond)
-	tap := app.Touch("id:game-view", p.buttons[1].Center)
+	tap := app.Touch("id:game-view", centerOf(controlFrame(t, p, "jump")))
 	app.Advance(150 * time.Millisecond)
 	tap.Lift()
 	if p.g.hero.pos.Y < 0.3 {
@@ -185,12 +214,45 @@ func TestTouchJumpsAndTurnsTheCamera(t *testing.T) {
 	app.Advance(time.Second)
 
 	yaw := p.g.camYaw
-	finger := app.Touch("id:game-view", core.Point{X: testW * 3 / 4, Y: testH / 2})
-	finger.Move(core.Point{X: testW*3/4 + 50, Y: testH / 2})
+	lookAt := centerOf(controlFrame(t, p, "look"))
+	finger := app.Touch("id:game-view", lookAt)
+	finger.Move(core.Point{X: lookAt.X + 50, Y: lookAt.Y})
 	finger.Hold(300 * time.Millisecond)
 	finger.Lift()
 	if p.g.camYaw >= yaw {
 		t.Fatalf("dragging the camera stick right did not turn the camera right: yaw %v, was %v", p.g.camYaw, yaw)
+	}
+}
+
+// TestTouchControlsShowFromFirstFrameOnPhonesAndRespectSafeArea checks native phones and phone browsers start with every control visible, inside the safe area and at least 44pt wide and tall.
+func TestTouchControlsShowFromFirstFrameOnPhonesAndRespectSafeArea(t *testing.T) {
+	safe := core.Edges{Left: 47, Right: 47, Bottom: 21}
+	for _, tc := range []struct {
+		name string
+		os   core.OS
+	}{
+		{"ios", core.OSIOS},
+		{"android", core.OSAndroid},
+		{"phone web", core.OSWeb},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, p := startPlay(t, nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{OS: tc.os, Idiom: core.IdiomPhone, SafeArea: safe}))
+			if !p.touch.Visible() {
+				t.Fatal("the touch controls are hidden on the first frame")
+			}
+			for _, id := range []string{"move", "look", "attack", "jump"} {
+				if !app.Exists("id:touch-" + id) {
+					t.Fatalf("control %q is not drawn on the first frame", id)
+				}
+				f := controlFrame(t, p, id)
+				if f.Origin.X < safe.Left || f.Origin.X+f.Size.Width > 844-safe.Right || f.Origin.Y < safe.Top || f.Origin.Y+f.Size.Height > 390-safe.Bottom {
+					t.Errorf("control %q frame %+v is outside the safe area %+v", id, f, safe)
+				}
+				if f.Size.Width < 44 || f.Size.Height < 44 {
+					t.Errorf("control %q size %+v is smaller than 44pt", id, f.Size)
+				}
+			}
+		})
 	}
 }
 

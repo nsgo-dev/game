@@ -20,7 +20,7 @@ func (g *fightingGame) render() core.Node {
 		TestID:    "arena",
 		Focusable: func() bool { return true },
 		Style:     core.Style{Position: core.Absolute, Top: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0)},
-		OnLayout:  func(b core.Bounds) { g.viewSize = b.Size },
+		OnLayout:  func(b core.Bounds) { g.controls.resize(b.Size, core.Untracked(g.cx, g.cx.Env().SafeArea)) },
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "game-canvas",

@@ -6,7 +6,7 @@ It shows:
 
 - Motion inputs, charge moves and combos recognized from a per-step input buffer (`fighting`), with move sets in YAML.
 - Hitboxes, hurtboxes, hitstun, blockstun, cancels and knockback resolved once per step from frame data in YAML (`framedata`), which is also what the fighters are drawn from.
-- Two players on one keyboard or on two game controllers, and touch for player 1 (`input`), from one input map in `game.yaml`.
+- Two players on one keyboard, on two game controllers, or on one touch screen (`input.TouchControls`), from one input map in `game.yaml`.
 - A CPU opponent that plays through the same input pipeline as a person.
 - Sound effects from the CC0 placeholder pack (`placeholder`, `sound`), a fixed-step `game.Loop`, a virtual resolution (`screen`) and a native HUD.
 - Headless `nsgotest` playthroughs that win and lose a match.
@@ -15,7 +15,7 @@ It shows:
 
 | | Player 1 | Player 2 | Game controller | Touch |
 | --- | --- | --- | --- | --- |
-| Move, jump, crouch | W A S D | Arrows | D-pad or left stick | Left half of the screen: a stick |
+| Move, jump, crouch | W A S D | Arrows | D-pad or left stick | Floating stick (left half vs CPU; P1 left, P2 mirrored right in versus) |
 | Light | J | . | X / Square, A / Cross | L |
 | Heavy | K | / | Y / Triangle, B / Circle | H |
 | Start, pause | Enter | Right Shift | Start | Pause |
@@ -52,7 +52,8 @@ go run github.com/nsgo-dev/game/cmd/game project check
 
 ## Layout
 
-- `game.yaml`: the project file, with the window, the 480 by 270 virtual resolution, the input map of both players (keys, controller buttons and sticks, and the touch regions of the attack buttons), the sound bus and the export presets.
+- `game.yaml`: the project file, with the window, the 480 by 270 virtual resolution, the input map of both players (keys and controller buttons and sticks), the sound bus and the export presets.
+- `controls.touch.yaml`, `versus.touch.yaml`: the on-screen touch layouts (`input.TouchControls`) placed inside the safe area; `versus.touch.yaml` compacts player 1 onto the left half and mirrors it for player 2 on the right half.
 - `data/match.yaml`: the rules (rounds, timer, stage, gravity, hitstop, chip damage, combo scaling), the CPU opponent's tuning and the roster. For each fighter it names the move set and the frame data and adds what frame data does not say: a move's hit level, whether it is special, how it moves the fighter and the projectile it throws, and the CPU's input scripts.
 - `data/<fighter>.moves.yaml`: the fighter's move set, the inputs `fighting` recognizes.
 - `data/<fighter>.frames.yaml`: the fighter's frame data, the boxes and properties of every move, `framedata`'s format.

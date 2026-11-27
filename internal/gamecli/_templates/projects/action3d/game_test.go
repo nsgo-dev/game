@@ -86,7 +86,7 @@ func stick(g *game, to math3d.Vec3) controls {
 	d := to.Scale(1 / to.Len())
 	forward := math3d.Vec3{X: -sin(g.camYaw), Z: -cos(g.camYaw)}
 	right := math3d.Vec3{X: cos(g.camYaw), Z: -sin(g.camYaw)}
-	return controls{moveX: d.Dot(right), moveY: -d.Dot(forward)}
+	return controls{moveX: d.Dot(right), moveY: d.Dot(forward)}
 }
 
 func newTestGame(t testing.TB) *game {
@@ -147,7 +147,7 @@ func TestTheDoorBlocksTheGateUntilTheKeyOpensIt(t *testing.T) {
 	g.hero.body.Pos = p3(math3d.Vec3{Z: -3})
 	g.hero.pos = m3(g.hero.body.Pos)
 	for range 90 {
-		g.step(controls{moveY: -1}, step)
+		g.step(controls{moveY: 1}, step)
 	}
 	if g.hero.pos.Z < -4.5 {
 		t.Fatalf("walked through the locked door to %v", g.hero.pos)
@@ -161,7 +161,7 @@ func TestTheDoorBlocksTheGateUntilTheKeyOpensIt(t *testing.T) {
 	g.hero.body.Pos = p3(math3d.Vec3{Z: -3})
 	g.hero.body.Vel = p3(math3d.Vec3{})
 	for range 90 {
-		g.step(controls{moveY: -1}, step)
+		g.step(controls{moveY: 1}, step)
 	}
 	if g.hero.pos.Z > -6 {
 		t.Fatalf("the open gate still stops the hero at %v", g.hero.pos)

@@ -7,7 +7,7 @@ It shows:
 - A capsule `physics3d.CharacterController` for the player and for every enemy, walls and crates as static boxes, and hitscan shots, rounds and enemy sight as layered raycasts through one `physics3d.World`.
 - Enemies driven by an `ai` behavior tree (attack the player in sight, else hunt the last place it was seen or heard, else patrol), walking A* paths over a `pathfind.BoolGrid` smoothed with `pathfind.SmoothGridPath`.
 - A `render3d` lit PBR pipeline drawing the level as three baked meshes (floor, walls and crates) and every moving thing as one unit cube, under a `render3d.LightRig`, in a `gpu.View`, with a native HUD and an overlay `core.Canvas` above it.
-- One `input.Actions` fed by the keyboard, mouselook under pointer lock, game controllers and an `input.VirtualPad` of touch sticks and buttons.
+- One `input.Actions` fed by the keyboard, mouselook under pointer lock, game controllers and an `input.TouchControls` layer built from `controls.touch.yaml` (safe-area anchored sticks and fire, jump, reload, swap and weapon-slot buttons).
 - Headless `nsgotest` playthroughs that win with the keyboard and mouse and with a game controller, and lose by standing still.
 
 ## Play
@@ -19,7 +19,7 @@ It shows:
 | Fire | Left button or F | Right trigger | Fire |
 | Jump | Space | South (A) | Jump |
 | Reload | R | West (X) | Reload |
-| Next weapon | Q, or 1 and 2 | North (Y) | Swap |
+| Next weapon | Q, or 1 and 2 | North (Y) | Swap, W1 and W2 |
 | Pause, play again | P or Enter | Start | Play again |
 
 Clear all three waves to win; reaching 0 health loses. Health and ammo pickups beside the start return 20 seconds after they are taken.
@@ -45,10 +45,11 @@ go run github.com/nsgo-dev/game/cmd/game project check
 ## Layout
 
 - `game.yaml`: the project file: name, id, version, window, export presets and the input map that binds every key and controller button to an action.
+- `controls.touch.yaml`: the on-screen touch layout (`input.TouchControls`), placed inside the safe area.
 - `arena.yaml`: the level and its tuning: the layout drawn in characters, the player, the weapons, the enemy kinds, the pickups and the waves. `arena.go` documents every field and validates the file.
 - `match.go`: one match from the countdown to a win or a loss: the physics world, the player's movement and weapons, rounds in flight, pickups and waves. It reads `controls`, never a device, so tests drive it directly.
 - `enemy.go`: an enemy's body, its behavior tree and its path following.
-- `controls.go`: the actions, the touch pad and how a step's input becomes `controls`.
+- `controls.go`: the actions and how a step's input becomes `controls`.
 - `render.go`: the `render3d` renderer.
 - `game.go`: the root component, the 60 Hz `game.Loop`, the HUD, the overlay and the end panel.
 - `project.go`, `main.go`: the embedded project and arena files and the entry point.
@@ -60,7 +61,7 @@ go run github.com/nsgo-dev/game/cmd/game project check
 - Balance: weapon damage, fire rate and magazines, enemy health, speed, sight and bolts, and the waves are all in `arena.yaml`.
 - A new weapon: add it to `weapons` as `hitscan` or `projectile`; `1` to `9` draw them by slot once `game.yaml` binds `weapon3` and up and `controls.go` reads them.
 - A new enemy behavior: add a branch to the selector in `newEnemy` (`enemy.go`), such as a flee when hurt, ahead of the patrol.
-- Controls: rebind actions in `game.yaml`'s input map; the touch layout is `layoutTouchPad` in `controls.go`.
+- Controls: rebind actions in `game.yaml`'s input map; move or resize the touch controls in `controls.touch.yaml`.
 - Looks: materials and lights are at the top of `render.go`; replace `unitCube` with meshes from `gltf` for real models.
 
 ## Git setup
