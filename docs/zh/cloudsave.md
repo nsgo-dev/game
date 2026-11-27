@@ -9,7 +9,7 @@
 | `cloudsave` | `Service`、`Config`、`Store` 接口、`MemoryStore` 与 HTTP `Handler` |
 | `cloudsave/sqlstore` | 存放在 SQLite（`OpenSQLite`，纯 Go，除网页外的所有目标平台）或 Postgres（`OpenPostgres`，可由多个服务进程共享）中的 `Store` |
 | `cloudsave/storetest` | `Store` 契约测试，供自定义存储使用 |
-| `cloudsave/cmd/cloudsaved` | 独立运行的 HTTP 服务器 |
+| `cmd/cloudsaved` | 独立运行的 HTTP 服务器 |
 | `liveops` | `CloudClient`，游戏这一侧 |
 
 ## 在设备上
@@ -125,7 +125,7 @@ SQL 存储有两张表：`cloudsave_slots`（每个槽位的最新版本）和 `
 
 ## cloudsaved
 
-`cloudsave/cmd/cloudsaved` 运行该服务：
+`cmd/cloudsaved` 运行该服务：
 
 ```sh
 cloudsaved init  -config cloudsave.yaml

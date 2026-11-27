@@ -9,7 +9,7 @@ The service is server-side code in its own packages; a game client imports only 
 | `cloudsave` | `Service`, `Config`, the `Store` interface, `MemoryStore` and the HTTP `Handler` |
 | `cloudsave/sqlstore` | A `Store` in SQLite (`OpenSQLite`, pure Go, every target but the web) or Postgres (`OpenPostgres`, shared by several service processes) |
 | `cloudsave/storetest` | The `Store` contract tests, for a store of your own |
-| `cloudsave/cmd/cloudsaved` | A standalone HTTP server |
+| `cmd/cloudsaved` | A standalone HTTP server |
 | `liveops` | `CloudClient`, the game's side |
 
 ## On the device
@@ -125,7 +125,7 @@ Errors are `{"error": code}`: `bad_request` 400 (an invalid slot name, version n
 
 ## cloudsaved
 
-`cloudsave/cmd/cloudsaved` runs the service:
+`cmd/cloudsaved` runs the service:
 
 ```sh
 cloudsaved init  -config cloudsave.yaml
