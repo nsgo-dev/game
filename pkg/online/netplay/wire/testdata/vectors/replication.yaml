@@ -1,0 +1,267 @@
+version: 1
+schema: replication.wire.yaml
+vectors:
+  - name: entity_zero_mask
+    type: EntityRecord
+    hex: "0100"
+    value:
+      id: 1
+      fieldsMask: 0
+      kind: 0
+      x: 0
+      y: 0
+      vx: 0
+      vy: 0
+      rotation: 0
+      flags: 0
+      props: ""
+  - name: entity_all_fields_special_f32
+    type: EntityRecord
+    hex: "808001ffac02000000800000c07f0000807f000080ffdb0f4940ffffffff0f0400ff1020"
+    value:
+      id: 16384
+      fieldsMask: 255
+      kind: 300
+      x: -0.0
+      y: .nan
+      vx: .inf
+      vy: -.inf
+      rotation: 3.1415927
+      flags: 4294967295
+      props: "00ff1020"
+  - name: entity_empty_props_bit_set
+    type: EntityRecord
+    hex: "7f8000"
+    value:
+      id: 127
+      fieldsMask: 128
+      kind: 0
+      x: 0
+      y: 0
+      vx: 0
+      vy: 0
+      rotation: 0
+      flags: 0
+      props: ""
+  - name: msg_full
+    type: ReplicationMessage
+    hex: "21efcdab898001020100808001ffac02000000800000c07f0000807f000080ffdb0f4940ffffffff0f0400ff1020"
+    value:
+      tag: 1
+      version: 2
+      full:
+        epoch: 2309737967
+        tick: 128
+        entities:
+          - id: 1
+            fieldsMask: 0
+            kind: 0
+            x: 0
+            y: 0
+            vx: 0
+            vy: 0
+            rotation: 0
+            flags: 0
+            props: ""
+          - id: 16384
+            fieldsMask: 255
+            kind: 300
+            x: -0.0
+            y: .nan
+            vx: .inf
+            vy: -.inf
+            rotation: 3.1415927
+            flags: 4294967295
+            props: "00ff1020"
+  - name: msg_delta
+    type: ReplicationMessage
+    hex: "222a000000c801c70102038080010107820080c6420142"
+    value:
+      tag: 2
+      version: 2
+      delta:
+        epoch: 42
+        tick: 200
+        baselineTick: 199
+        despawns:
+          - 3
+          - 16384
+        updates:
+          - id: 7
+            fieldsMask: 130
+            kind: 0
+            x: 99.25
+            y: 0
+            vx: 0
+            vy: 0
+            rotation: 0
+            flags: 0
+            props: "42"
+  - name: msg_ack
+    type: ReplicationMessage
+    hex: "232a000000ffffffff0f"
+    value:
+      tag: 3
+      version: 2
+      ack:
+        epoch: 42
+        tick: 4294967295
+  - name: msg_resync
+    type: ReplicationMessage
+    hex: "2404030201"
+    value:
+      tag: 4
+      version: 2
+      resync:
+        epoch: 16909060
+  - name: msg_full_part
+    type: ReplicationMessage
+    hex: "2507000000f403010301090105"
+    value:
+      tag: 5
+      version: 2
+      fullPart:
+        epoch: 7
+        tick: 500
+        index: 1
+        total: 3
+        entities:
+          - id: 9
+            fieldsMask: 1
+            kind: 5
+            x: 0
+            y: 0
+            vx: 0
+            vy: 0
+            rotation: 0
+            flags: 0
+            props: ""
+deltas:
+  - name: entity_neg_zero_and_nan_and_clear_props
+    type: EntityRecord
+    base:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: 0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: "0102"
+    cur:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: -0.0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: ""
+    diffMask: 130
+    deltaHex: "0a820000008000"
+    expected:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: -0.0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: ""
+  - name: entity_identical_noop
+    type: EntityRecord
+    base:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: 0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: "0102"
+    cur:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: 0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: "0102"
+    diffMask: 0
+    deltaHex: "0a00"
+    expected:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: 0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: "0102"
+  - name: entity_all_changed
+    type: EntityRecord
+    base:
+      id: 10
+      fieldsMask: 255
+      kind: 1
+      x: 0
+      y: .nan
+      vx: 1.5
+      vy: -2.5
+      rotation: 0.5
+      flags: 4
+      props: "0102"
+    cur:
+      id: 10
+      fieldsMask: 255
+      kind: 2
+      x: !!float 10
+      y: !!float 20
+      vx: !!float 3
+      vy: !!float 4
+      rotation: !!float 1
+      flags: 8
+      props: "090807"
+    diffMask: 255
+    deltaHex: "0aff02000020410000a04100004040000080400000803f0803090807"
+    expected:
+      id: 10
+      fieldsMask: 255
+      kind: 2
+      x: !!float 10
+      y: !!float 20
+      vx: !!float 3
+      vy: !!float 4
+      rotation: !!float 1
+      flags: 8
+      props: "090807"
+invalid:
+  - name: repl_invalid_tag
+    type: ReplicationMessage
+    hex: "2601000000"
+    error: invalid_tag
+  - name: repl_wrong_version_v1
+    type: ReplicationMessage
+    hex: "0101000000"
+    error: invalid_version
+  - name: repl_wrong_version_v3
+    type: ReplicationMessage
+    hex: "3101000000"
+    error: invalid_version
+  - name: repl_short_buffer
+    type: ReplicationMessage
+    hex: "210100"
+    error: short_buffer

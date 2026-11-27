@@ -1,0 +1,134 @@
+version: 1
+schema: custom_props.wire.yaml
+vectors:
+  - name: fighter_full
+    type: FighterProps
+    hex: "3f000fff01532e22078000076865726f2dceb107"
+    value:
+      team: 3
+      combo: 15
+      aimX: !!float -1
+      aimY: !!float 1
+      stance: 1
+      hpDelta: -42
+      stamina: 87.5
+      stateMask: 7
+      shield: !!float 50
+      tag: hero-α
+      emote: 7
+    decoded:
+      team: 3
+      combo: 15
+      aimX: !!float -1
+      aimY: !!float 1
+      stance: 1
+      hpDelta: -42
+      stamina: 87.5
+      stateMask: 7
+      shield: 50.048878
+      tag: hero-α
+      emote: 7
+  - name: fighter_clamp_and_min_svarint
+    type: FighterProps
+    hex: "1000000002ffffffff0fffff01ffc0"
+    value:
+      team: 1
+      combo: 0
+      aimX: !!float -999
+      aimY: .nan
+      stance: 2
+      hpDelta: -2147483648
+      stamina: !!float 9999
+      stateMask: 1
+      shield: 125.5
+      tag: ""
+      emote: 0
+    decoded:
+      team: 1
+      combo: 0
+      aimX: !!float -1
+      aimY: !!float -1
+      stance: 2
+      hpDelta: -2147483648
+      stamina: 655.35
+      stateMask: 1
+      shield: !!float 100
+      tag: ""
+      emote: 0
+  - name: fighter_zero_mask
+    type: FighterProps
+    hex: "008008000000000000"
+    value:
+      team: 0
+      combo: 0
+      aimX: 0
+      aimY: -0.0
+      stance: 0
+      hpDelta: 0
+      stamina: 0
+      stateMask: 0
+      shield: 0
+      tag: ""
+      emote: 0
+    decoded:
+      team: 0
+      combo: 0
+      aimX: 0.00024420026
+      aimY: 0.00024420026
+      stance: 0
+      hpDelta: 0
+      stamina: 0
+      stateMask: 0
+      shield: 0
+      tag: ""
+      emote: 0
+deltas:
+  - name: fighter_shield_and_utf8_tag
+    type: FighterProps
+    base:
+      team: 3
+      combo: 15
+      aimX: !!float -1
+      aimY: !!float 1
+      stance: 1
+      hpDelta: -42
+      stamina: 87.5
+      stateMask: 7
+      shield: !!float 50
+      tag: hero-α
+      emote: 7
+    cur:
+      team: 3
+      combo: 15
+      aimX: !!float -1
+      aimY: !!float 1
+      stance: 1
+      hpDelta: -42
+      stamina: 87.5
+      stateMask: 7
+      shield: 12.5
+      tag: "冠军\U0001F3C6"
+      emote: 7
+    diffMask: 3
+    deltaHex: "3f000fff01532e220320000ae586a0e5869bf09f8f86"
+    expected:
+      team: 3
+      combo: 15
+      aimX: !!float -1
+      aimY: !!float 1
+      stance: 1
+      hpDelta: -42
+      stamina: 87.5
+      stateMask: 7
+      shield: 12.512219
+      tag: "冠军\U0001F3C6"
+      emote: 7
+invalid:
+  - name: fighter_invalid_mask
+    type: FighterProps
+    hex: "008008000000000008"
+    error: invalid_mask
+  - name: fighter_non_zero_padding
+    type: FighterProps
+    hex: "0080080000000000018001"
+    error: non_zero_padding

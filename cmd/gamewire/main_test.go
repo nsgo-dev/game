@@ -12,7 +12,89 @@ func TestGamewireCheckBuiltinSchemas(t *testing.T) {
 	wireDir := filepath.Join("..", "..", "pkg", "online", "netplay", "wire")
 	var stdout, stderr bytes.Buffer
 	if err := run([]string{"-in", wireDir, "-out", wireDir, "-self", "-check"}, &stdout, &stderr); err != nil {
-		t.Fatalf("builtin wire codecs are stale: %v", err)
+		t.Fatalf("builtin Go wire codecs are stale: %v", err)
+	}
+	tsOut := filepath.Join(wireDir, "ts")
+	if err := run([]string{"-lang", "ts", "-in", wireDir, "-out", tsOut, "-check"}, &stdout, &stderr); err != nil {
+		t.Fatalf("builtin TS wire codecs are stale: %v", err)
+	}
+}
+
+func TestGamewireGenerateAndCheckTS(t *testing.T) {
+	dir := t.TempDir()
+	schemaPath := filepath.Join(dir, "sample.wire.yaml")
+	const doc = `version: 1
+package: sample
+order: le
+messages:
+  - name: Move
+    fields:
+      - name: tick
+        type: uvarint
+        bits: 32
+      - name: bits
+        type: u64
+      - name: x
+        type: qfloat
+        qfloat:
+          min: -100
+          max: 100
+          bits: 12
+`
+	if err := os.WriteFile(schemaPath, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := filepath.Join(dir, "tsgen")
+	var stdout, stderr bytes.Buffer
+
+	if err := run([]string{"-lang", "ts", "-in", dir, "-out", outDir, "-check"}, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "is missing") {
+		t.Fatalf("-lang ts -check on empty dir = %v, want missing error", err)
+	}
+
+	stdout.Reset()
+	if err := run([]string{"-lang", "ts", "-in", dir, "-out", outDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("ts generate: %v", err)
+	}
+	for _, want := range []string{"runtime.ts", "sample_wire.ts", "index.ts"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %s", stdout.String(), want)
+		}
+	}
+
+	if err := run([]string{"-lang", "ts", "-in", dir, "-out", outDir, "-check"}, &stdout, &stderr); err != nil {
+		t.Fatalf("-lang ts -check after generate: %v", err)
+	}
+
+	wireTS := filepath.Join(outDir, "sample_wire.ts")
+	data, err := os.ReadFile(wireTS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "bits: bigint;") || !strings.Contains(string(data), "encodeMove(m: Move, w: Writer)") {
+		t.Fatalf("unexpected generated TS:\n%s", data)
+	}
+	if err := os.WriteFile(wireTS, append(data, []byte("\n// stale\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"-lang", "ts", "-in", dir, "-out", outDir, "-check"}, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "is out of date") {
+		t.Fatalf("-lang ts -check on stale file = %v, want out of date error", err)
+	}
+
+	// Single-file .ts embeds runtime cleanly.
+	singleOut := filepath.Join(dir, "standalone.ts")
+	if err := run([]string{"-lang", "ts", "-in", schemaPath, "-out", singleOut}, &stdout, &stderr); err != nil {
+		t.Fatalf("single-file ts generate: %v", err)
+	}
+	singleData, err := os.ReadFile(singleOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(singleData), "export class Writer") || !strings.Contains(string(singleData), "export function decodeMove") {
+		t.Fatalf("single-file ts missing embedded runtime or decoder:\n%s", singleData)
+	}
+	if err := run([]string{"-lang", "ts", "-in", schemaPath, "-out", singleOut, "-check"}, &stdout, &stderr); err != nil {
+		t.Fatalf("single-file ts -check: %v", err)
 	}
 }
 

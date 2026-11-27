@@ -79,3 +79,29 @@ func ExampleNewInspector() {
 	// Output:
 	// replication.ack 2 true
 }
+
+// GenerateTS produces deterministic, dependency-free TypeScript codecs (encodeX, decodeX, plus diffX/applyX for delta masks) from a parsed wire schema.
+func ExampleGenerateTS() {
+	const src = `version: 1
+package: demo
+messages:
+  - name: Ping
+    fields:
+      - name: seq
+        type: uvarint
+        bits: 32
+      - name: stamp
+        type: u64
+`
+	s, err := wire.Parse([]byte(src))
+	if err != nil {
+		panic(err)
+	}
+	code, err := wire.GenerateTS(s, wire.TSGenerateOptions{SourceName: "ping.wire.yaml"})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(len(code) > 0, s.Messages[0].Name)
+	// Output:
+	// true Ping
+}

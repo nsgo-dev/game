@@ -173,7 +173,40 @@ _ = renderEntities
 
 第 1 版来自加入 epoch 之前的版本，没有消息头：其消息直接以类型 1 到 5 开头，按第 1 版解读。不同版本的对端之间无法复制，且双方都不会误读对方的消息。客户端拒绝其他版本的快照并通过 `client.Err()` 报告，服务端拒绝其他版本的确认与重新同步请求并通过 `server.PeerErr(peer)` 报告；两种错误都包装了 `ErrReplicationVersion` 并写明双方版本，游戏可以据此提示玩家更新，而不是一直等待永远不会到来的世界。
 
-`pkg/online/netplay` 的每一种线路格式——传输帧、UDP 认证封包、连接握手、中继帧与控制体、复制协议 v2、锁步/回滚输入以及对局中途成员变更——都在 `pkg/online/netplay/wire/` 下以带版本的 YAML Schema（`*.wire.yaml`）描述，并由 `cmd/gamewire` 生成零分配 Go 编解码器（`AppendX` / `DecodeX`，以及增量掩码的 `DiffX` / `ApplyX`）。游戏也可以用同一套 Schema 工具配合位打包和纯整数 `qfloat`/`fixed` 量化为 `EntityState.Props` 或自定义消息生成编解码器，详见 [netplay/wire](netplay-wire.md)。
+`pkg/online/netplay` 的每一种线路格式——传输帧、UDP 认证封包、连接握手、中继帧与控制体、复制协议 v2、锁步/回滚输入以及对局中途成员变更——都在 `pkg/online/netplay/wire/` 下以带版本的 YAML Schema（`*.wire.yaml`）描述，并由 `cmd/gamewire` 生成零分配 Go 编解码器（`AppendX` / `DecodeX`，以及增量掩码的 `DiffX` / `ApplyX`）和零依赖 TypeScript 编解码器（`encodeX` / `decodeX`，以及 `diffX` / `applyX`）。游戏也可以用同一套 Schema 工具配合位打包和纯整数 `qfloat`/`fixed` 量化为 `EntityState.Props` 或自定义消息生成编解码器，详见 [netplay/wire](netplay-wire.md)。
+
+## 跨语言客户端
+
+Web 仪表盘、观战端、机器人脚本或其他引擎的客户端无需手写二进制解析器，即可在 TypeScript 中直接收发全部 `pkg/online/netplay` 协议。`cmd/gamewire -lang ts` 生成确定性、零运行时依赖的 TypeScript 模块，底层基于调用方持有的 `Uint8Array` 与 `DataView`，可在浏览器、Node 与 Bun 中一致运行：
+
+```sh
+go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts
+```
+
+七种内置协议生成的 TypeScript 编解码器提交在 `pkg/online/netplay/wire/ts/`，并在 CI 中由 `-check` 校验。每条消息 `X` 都会生成 `createX()`、`encodeX(m: X, w: Writer): void` 与 `decodeX(r: Reader, m: X): void`（直接填充可复用对象，避免 60 Hz 客户端逐包分配），开启 `delta: true` 的 `mask` 组会生成 `diffX(base, cur)` 与 `applyX(base, delta)`：
+
+```ts
+import {
+  Reader,
+  ReplicationMessageTagFull,
+  Writer,
+  createReplicationMessage,
+  decodeReplicationMessage,
+  encodeReplicationMessage,
+} from "./pkg/online/netplay/wire/ts/index.ts";
+
+const msg = createReplicationMessage();
+const reader = new Reader(packetBytes);
+decodeReplicationMessage(reader, msg);
+if (msg.tag === ReplicationMessageTagFull) {
+  console.log(msg.full.epoch, msg.full.tick, msg.full.entities.length);
+}
+```
+
+- 64 位无符号与有符号字段（`u64`、`i64`、64 位 `uvarint`/`svarint` 及超过 32 位的 `bits`）映射为 `bigint`，因此 `InputFrame.bits`、`ChecksumMsg.checksum`、`RelayAck.mask` 等超过 `Number.MAX_SAFE_INTEGER` 的值不会丢失精度。
+- `qfloat` 与 `fixed` 完全使用纯 `BigInt` 整数运算编解码，与 Go 端 `wire.QuantizeFloat` / `wire.DequantizeFloat` / `wire.QuantizeFixed` 逐位一致；`diffX` 按 IEEE-754 位模式比较浮点数（`-0.0` 与 `+0.0` 视为不同，`NaN` 与 `NaN` 视为相等）。
+- 位于 `pkg/online/netplay/wire/testdata/vectors/` 的共享 YAML 黄金测试向量会在每次 PR 中由 Go 与 TypeScript（`bun test pkg/online/netplay/wire/testdata/ts`）双向校验，并附带端到端测试验证 Go `ServerWorld` 发送的全量、增量与分片快照能被 TypeScript 解码器逐位还原。
+- 完整示例见 `examples/ts-replication-client/`，演示了如何用生成的 TypeScript 编解码器消费复制 v2 数据流（`SnapshotFull`、`SnapshotDelta`、`SnapshotFullPart`）并回传 `SnapshotAck` / `ResyncRequest`。
 
 ## 确定性锁步与回滚同步
 

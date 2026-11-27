@@ -154,16 +154,18 @@ func DecodeX(src []byte, m *X) (int, error)
 
 ## 使用 `cmd/gamewire`
 
-从目录或单个 Schema 文件生成 Go 编解码器：
+从目录或单个 Schema 文件生成 Go 或 TypeScript 编解码器：
 
 ```sh
 go run ./cmd/gamewire -in ./netmsg -out ./netmsg
+go run ./cmd/gamewire -lang ts -in ./netmsg -out ./netmsg/ts
 ```
 
 或接入 `go generate`：
 
 ```go
 //go:generate go run github.com/nsgo-dev/game/cmd/gamewire -in . -out .
+//go:generate go run github.com/nsgo-dev/game/cmd/gamewire -lang ts -in . -out ts
 ```
 
 命令行参数：
@@ -171,13 +173,33 @@ go run ./cmd/gamewire -in ./netmsg -out ./netmsg
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `-in` | `.` | 输入 `*.wire.yaml` 文件或包含 `*.wire.yaml` 的目录（也接受位置参数传入多个文件） |
-| `-out` | 输入目录 | 输出目录；当只传入单个输入文件时，也可指定单个 `.go` 输出路径 |
+| `-out` | 输入目录 | 输出目录；当只传入单个输入文件时，也可指定单个 `.go` 或 `.ts` 输出路径 |
 | `-pkg` | Schema 的 `package` | 覆盖生成的 Go 包名 |
-| `-lang` | `go` | 目标语言（`go`） |
-| `-self` | `false` | 省略 `pkg/online/netplay/wire` 导入，供 `pkg/online/netplay/wire` 自身生成代码时使用 |
+| `-lang` | `go` | 目标语言（`go` 或 `ts`） |
+| `-self` | `false` | 省略 `pkg/online/netplay/wire` 导入，供 `pkg/online/netplay/wire` 自身生成 Go 代码时使用 |
 | `-check` | `false` | 校验已提交的生成文件是否与 Schema 一致且不改写磁盘；缺失或过期时返回非零退出码 |
 
-CI 会运行 `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check` 与 `go -C tools run ./gameschema -check`。
+CI 会运行 `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check`、`go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check` 与 `go -C tools run ./gameschema -check`。
+
+## 生成的 TypeScript API 与跨语言黄金测试向量
+
+使用 `-lang ts` 时，`cmd/gamewire` 会输出共享的零依赖 `runtime.ts`（包含 `Writer`、`Reader`、`WireError` 与纯 `BigInt` 量化函数）、每个 Schema 对应的 `<stem>_wire.ts` 以及汇总导出的 `index.ts`（若 `-out` 以 `.ts` 结尾，则内联运行时输出单个自包含文件）：
+
+| 线路类型 | TypeScript 类型 | 说明 |
+| --- | --- | --- |
+| `u8`、`u16`、`u32`、`i8`、`i16`、`i32` | `number` | 基于 `DataView` 的定长整数 |
+| `u64`、`i64` | `bigint` | 超过 `Number.MAX_SAFE_INTEGER` 仍保持精确的 64 位整数 |
+| `uvarint`、`svarint`（`bits: 8\|16\|32`） | `number` | 带范围校验的 LEB128 / ZigZag 变长整数 |
+| `uvarint`、`svarint`（默认或 `bits: 64`） | `bigint` | 完整 64 位无符号或 ZigZag 有符号变长整数 |
+| `bits`（`1..32` / `33..64`） | `number` / `bigint` | MSB 优先位打包并校验补零位 |
+| `bool` | `boolean` | 严格校验 `0` 或 `1` 字节 |
+| `f32`、`qfloat`、`fixed` | `number` | 原始 `DataView` float32 或纯 `BigInt` 整数量化 |
+| `bytes`、定长 `u8` `array` | `Uint8Array` | 基于调用方缓冲区读写；定长字节数组就地解码 |
+| `string`、`array` | `string`、`T[]` | 带长度限制校验的 UTF-8 字符串与复用元素的数组 |
+
+- 每条消息与联合体 `X` 都会导出 `createX()`、`encodeX(m: X, w: Writer): void` 与 `decodeX(r: Reader, m: X): void`，就地写入调用方对象以避免 60 Hz 下的逐包分配。
+- 增量 `mask` 组会导出 `diffX(base, cur)`（通过 `float32Bits`/`float64Bits` 按位比较浮点、通过 `bytesEqual` 比较字节）与 `applyX(base, delta)`。
+- `pkg/online/netplay/wire/testdata/vectors/*.yaml` 下的共享黄金测试向量覆盖全部内置 Schema、变长整数与 ZigZag 边界、超过 `2^53` 的 `u64`、混合字节序、`-0.0` 与 `NaN` 的 `f32` 位模式、`qfloat` 边界舍入、空与最大长度字节、增量 `diff`/`apply` 以及畸形包。CI 会在 Go（`go tool nsgo test ./pkg/online/netplay/wire`）与 Bun（`bun test pkg/online/netplay/wire/testdata/ts`）两侧逐字节校验全部向量。
 
 ## 内置 `pkg/online/netplay` 线路 Schema
 

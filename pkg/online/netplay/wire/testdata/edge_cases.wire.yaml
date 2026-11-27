@@ -1,0 +1,212 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: edgecases
+order: be
+enums:
+  - name: BigMode
+    doc: BigMode exercises a 64-bit unsigned enum with values above 2^53.
+    type: u64
+    order: le
+    values:
+      - name: none
+        value: 0
+      - name: high_bit
+        value: 9007199254740993
+      - name: max_tag
+        value: 18446744073709551615
+messages:
+  - name: MixedEndian
+    doc: MixedEndian mixes big-endian and little-endian integers, floats, and varints in one message.
+    order: be
+    fields:
+      - name: be_u16
+        type: u16
+        order: be
+      - name: le_u16
+        type: u16
+        order: le
+      - name: be_u32
+        type: u32
+        order: be
+      - name: le_u32
+        type: u32
+        order: le
+      - name: be_u64
+        type: u64
+        order: be
+      - name: le_u64
+        type: u64
+        order: le
+      - name: be_i64
+        type: i64
+        order: be
+      - name: le_i64
+        type: i64
+        order: le
+      - name: be_f32
+        type: f32
+        order: be
+      - name: le_f32
+        type: f32
+        order: le
+      - name: mode
+        type: BigMode
+  - name: VarintEdge
+    doc: VarintEdge exercises unsigned and zigzag signed varints of every width.
+    fields:
+      - name: u8_v
+        type: uvarint
+        bits: 8
+      - name: u16_v
+        type: uvarint
+        bits: 16
+      - name: u32_v
+        type: uvarint
+        bits: 32
+      - name: u64_v
+        type: uvarint
+      - name: s8_v
+        type: svarint
+        bits: 8
+      - name: s16_v
+        type: svarint
+        bits: 16
+      - name: s32_v
+        type: svarint
+        bits: 32
+      - name: s64_v
+        type: svarint
+  - name: QuantizedPacket
+    doc: QuantizedPacket exercises bit-packed and byte-aligned qfloat, fixed-point numbers, and multi-width bit packing.
+    order: le
+    fields:
+      - name: flag1
+        type: bits
+        bits: 1
+      - name: tag3
+        type: bits
+        bits: 3
+      - name: wide40
+        type: bits
+        bits: 40
+      - name: q1_unit
+        type: qfloat
+        qfloat:
+          min: 0
+          max: 1
+          bits: 1
+      - name: q12_angle
+        type: qfloat
+        qfloat:
+          min: -3.1415927
+          max: 3.1415927
+          bits: 12
+      - name: q10_asym
+        type: qfloat
+        qfloat:
+          min: -10
+          max: 50
+          bits: 10
+      - name: q8_le
+        type: qfloat
+        order: le
+        qfloat:
+          min: 0
+          max: 1
+          bits: 8
+      - name: q16_le
+        type: qfloat
+        order: le
+        qfloat:
+          min: -1024
+          max: 1024
+          bits: 16
+      - name: q32_le
+        type: qfloat
+        order: le
+        qfloat:
+          min: 0
+          max: 1
+          bits: 32
+      - name: fx_i16
+        type: fixed
+        fixed:
+          scale: 100
+          type: i16
+          order: le
+      - name: fx_svar
+        type: fixed
+        fixed:
+          scale: 1000
+          type: svarint
+      - name: fx_u64
+        type: fixed
+        fixed:
+          scale: 65536
+          type: u64
+          order: be
+  - name: BytesBoundary
+    doc: BytesBoundary exercises empty and maximum-length byte slices and UTF-8 strings.
+    order: be
+    fields:
+      - name: small
+        type: bytes
+        length: u8
+        maxLength: 255
+      - name: medium
+        type: bytes
+        length: u16
+        maxLength: 65535
+      - name: label
+        type: string
+        length: uvarint
+        maxLength: 256
+      - name: tail
+        type: bytes
+        length: rest
+  - name: DeltaEdge
+    doc: DeltaEdge exercises a 16-bit little-endian delta mask with f32, qfloat, fixed, u64, and bytes fields.
+    order: le
+    fields:
+      - name: seq
+        type: uvarint
+        bits: 32
+      - name: body
+        type: mask
+        mask:
+          type: u16
+          order: le
+          delta: true
+          fields:
+            - name: pos_x
+              type: f32
+            - name: aim
+              type: qfloat
+              qfloat:
+                min: -1
+                max: 1
+                bits: 12
+            - name: energy
+              type: fixed
+              fixed:
+                scale: 100
+                type: i16
+            - name: hash
+              type: u64
+            - name: blob
+              type: bytes
+unions:
+  - name: EdgeEnvelope
+    doc: EdgeEnvelope exercises a uvarint-discriminated union.
+    discriminator:
+      type: uvarint
+    cases:
+      - name: mixed
+        tag: 1
+        message: MixedEndian
+      - name: varint
+        tag: 300
+        message: VarintEdge
+      - name: quantized
+        tag: 9007199254740993
+        message: QuantizedPacket

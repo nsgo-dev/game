@@ -1,0 +1,70 @@
+version: 1
+schema: udp_sealed.wire.yaml
+vectors:
+  - name: sealed_type_177
+    type: UDPSealedDatagram
+    hex: "b1000000641020304000"
+    value:
+      type: 177
+      peer: 100
+      seq: 270544960
+      channel: 0
+      sealed: ""
+  - name: sealed_type_178
+    type: UDPSealedDatagram
+    hex: "b2000000651020304101ff700d87ad11b5dec67b1ae69c5a75e11351e267"
+    value:
+      type: 178
+      peer: 101
+      seq: 270544961
+      channel: 1
+      sealed: "ff700d87ad11b5dec67b1ae69c5a75e11351e267"
+  - name: sealed_type_179
+    type: UDPSealedDatagram
+    hex: "b3000000661020304200f1bc743038ae2cda13b4d0e0a2ce722e8cb146bfb04f0df8"
+    value:
+      type: 179
+      peer: 102
+      seq: 270544962
+      channel: 0
+      sealed: "f1bc743038ae2cda13b4d0e0a2ce722e8cb146bfb04f0df8"
+  - name: sealed_type_180
+    type: UDPSealedDatagram
+    hex: "b40000006710203043010ff6edcfa301e7f454f6220ec6e12ea4ea7cf74e70c9b91f7d39c811"
+    value:
+      type: 180
+      peer: 103
+      seq: 270544963
+      channel: 1
+      sealed: "0ff6edcfa301e7f454f6220ec6e12ea4ea7cf74e70c9b91f7d39c811"
+  - name: sealed_type_181
+    type: UDPSealedDatagram
+    hex: "b5000000681020304400755b01d29ca9dbd5f64aad3e93b7ba08596820d6f7c48729a1ca29194871f805"
+    value:
+      type: 181
+      peer: 104
+      seq: 270544964
+      channel: 0
+      sealed: "755b01d29ca9dbd5f64aad3e93b7ba08596820d6f7c48729a1ca29194871f805"
+  - name: sealed_type_182
+    type: UDPSealedDatagram
+    hex: "b600000069102030450124f6a4a4bc169006c21bb04d5f3ef836dfa0c1f35a507d7c77f2c730a9fa7972030e0676"
+    value:
+      type: 182
+      peer: 105
+      seq: 270544965
+      channel: 1
+      sealed: "24f6a4a4bc169006c21bb04d5f3ef836dfa0c1f35a507d7c77f2c730a9fa7972030e0676"
+invalid:
+  - name: sealed_short
+    type: UDPSealedDatagram
+    hex: "b100000001"
+    error: short_buffer
+  - name: sealed_invalid_type
+    type: UDPSealedDatagram
+    hex: "ff0000000100000002000102030405060708"
+    error: invalid_enum
+  - name: sealed_invalid_channel
+    type: UDPSealedDatagram
+    hex: "b10000000100000002090102030405060708"
+    error: invalid_enum

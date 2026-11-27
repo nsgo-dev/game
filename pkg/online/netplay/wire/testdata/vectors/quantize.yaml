@@ -1,0 +1,565 @@
+version: 1
+schema: quantize
+qfloat:
+  - name: zero_in_sym_16
+    vBits: "0x00000000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 32768
+    wantDeqBits: "0x3c800080"
+  - name: neg_zero_in_sym_16
+    vBits: "0x80000000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 32768
+    wantDeqBits: "0x3c800080"
+  - name: min_exact_16
+    vBits: "0xc4800000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 0
+    wantDeqBits: "0xc4800000"
+  - name: max_exact_16
+    vBits: "0x44800000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 65535
+    wantDeqBits: "0x44800000"
+  - name: below_min_clamp
+    vBits: "0xc61c3c00"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 0
+    wantDeqBits: "0xc4800000"
+  - name: above_max_clamp
+    vBits: "0x461c3c00"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 65535
+    wantDeqBits: "0x44800000"
+  - name: nan_clamps_to_zero
+    vBits: "0x7fc00000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 0
+    wantDeqBits: "0xc4800000"
+  - name: neg_inf_clamps
+    vBits: "0xff800000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 0
+    wantDeqBits: "0xc4800000"
+  - name: pos_inf_clamps
+    vBits: "0x7f800000"
+    min: -1024
+    max: 1024
+    bits: 16
+    wantQ: 65535
+    wantDeqBits: "0x44800000"
+  - name: unit_1bit_low
+    vBits: "0x3efae148"
+    min: 0
+    max: 1
+    bits: 1
+    wantQ: 0
+    wantDeqBits: "0x00000000"
+  - name: unit_1bit_half_ties_up
+    vBits: "0x3f000000"
+    min: 0
+    max: 1
+    bits: 1
+    wantQ: 1
+    wantDeqBits: "0x3f800000"
+  - name: unit_8bit_quarter
+    vBits: "0x3e800000"
+    min: 0
+    max: 1
+    bits: 8
+    wantQ: 64
+    wantDeqBits: "0x3e808081"
+  - name: angle_12bit_pi_quarter
+    vBits: "0x3f490fdb"
+    min: -3.1415927
+    max: 3.1415927
+    bits: 12
+    wantQ: 2559
+    wantDeqBits: "0x3f48ea26"
+  - name: asymmetric_10bit
+    vBits: "0x4145851f"
+    min: -10
+    max: 50
+    bits: 10
+    wantQ: 381
+    wantDeqBits: "0x41458962"
+  - name: high_prec_24bit
+    vBits: "0x42f6e9e0"
+    min: -500
+    max: 500
+    bits: 24
+    wantQ: 10459869
+    wantDeqBits: "0x42f6e9e3"
+  - name: full_32bit_mid
+    vBits: "0x3f000000"
+    min: 0
+    max: 1
+    bits: 32
+    wantQ: 2147483648
+    wantDeqBits: "0x3f000000"
+  - name: subnormal_in_tiny_range
+    vBits: "0x00000001"
+    min: 0
+    max: 1e-38
+    bits: 16
+    wantQ: 0
+    wantDeqBits: "0x00000000"
+  - name: edge_just_above_min_12bit
+    vBits: "0xbf7fffff"
+    min: -1
+    max: 1
+    bits: 12
+    wantQ: 0
+    wantDeqBits: "0xbf800000"
+  - name: edge_just_below_max_12bit
+    vBits: "0x3f7fffff"
+    min: -1
+    max: 1
+    bits: 12
+    wantQ: 4095
+    wantDeqBits: "0x3f800000"
+  - name: halfway_3bit
+    vBits: "0x3d924925"
+    min: 0
+    max: 1
+    bits: 3
+    wantQ: 1
+    wantDeqBits: "0x3e124925"
+  - name: fuzz_00
+    vBits: "0x42e56e78"
+    min: 78
+    max: 212
+    bits: 1
+    wantQ: 0
+    wantDeqBits: "0x429c0000"
+  - name: fuzz_01
+    vBits: "0x445737d9"
+    min: 535
+    max: 1205
+    bits: 3
+    wantQ: 3
+    wantDeqBits: "0x444d8925"
+  - name: fuzz_02
+    vBits: "0x43179663"
+    min: -34
+    max: 859
+    bits: 7
+    wantQ: 26
+    wantDeqBits: "0x4314d1a3"
+  - name: fuzz_03
+    vBits: "0xc4158ecf"
+    min: -881
+    max: -30
+    bits: 8
+    wantQ: 85
+    wantDeqBits: "0xc4155555"
+  - name: fuzz_04
+    vBits: "0x442769df"
+    min: 507
+    max: 1309
+    bits: 10
+    wantQ: 207
+    wantDeqBits: "0x44275205"
+  - name: fuzz_05
+    vBits: "0x4475b0fa"
+    min: -992
+    max: 942
+    bits: 12
+    wantQ: 4095
+    wantDeqBits: "0x446b8000"
+  - name: fuzz_06
+    vBits: "0x445e92e6"
+    min: 873
+    max: 895
+    bits: 15
+    wantQ: 25760
+    wantDeqBits: "0x445e92e9"
+  - name: fuzz_07
+    vBits: "0xc36414fc"
+    min: -993
+    max: 55
+    bits: 16
+    wantQ: 47833
+    wantDeqBits: "0xc36414ab"
+  - name: fuzz_08
+    vBits: "0x44e51c48"
+    min: 642
+    max: 2491
+    bits: 20
+    wantQ: 675355
+    wantDeqBits: "0x44e51c4b"
+  - name: fuzz_09
+    vBits: "0x4513d4df"
+    min: 644
+    max: 2237
+    bits: 24
+    wantQ: 16777215
+    wantDeqBits: "0x450bd000"
+  - name: fuzz_10
+    vBits: "0xc22b736b"
+    min: -305
+    max: 875
+    bits: 31
+    wantQ: 477064015
+    wantDeqBits: "0xc22b736b"
+  - name: fuzz_11
+    vBits: "0x44200ca1"
+    min: 461
+    max: 1904
+    bits: 32
+    wantQ: 533365667
+    wantDeqBits: "0x44200ca1"
+  - name: fuzz_12
+    vBits: "0x43fec760"
+    min: 559
+    max: 1472
+    bits: 1
+    wantQ: 0
+    wantDeqBits: "0x440bc000"
+  - name: fuzz_13
+    vBits: "0x445839e6"
+    min: 489
+    max: 1802
+    bits: 3
+    wantQ: 2
+    wantDeqBits: "0x44580925"
+  - name: fuzz_14
+    vBits: "0x4517203d"
+    min: 541
+    max: 2261
+    bits: 7
+    wantQ: 127
+    wantDeqBits: "0x450d5000"
+  - name: fuzz_15
+    vBits: "0xc413d505"
+    min: -939
+    max: -191
+    bits: 8
+    wantQ: 119
+    wantDeqBits: "0xc4137bbc"
+  - name: fuzz_16
+    vBits: "0xc3d9c4c2"
+    min: -962
+    max: 487
+    bits: 10
+    wantQ: 372
+    wantDeqBits: "0xc3d98ba3"
+  - name: fuzz_17
+    vBits: "0x41703203"
+    min: -358
+    max: 313
+    bits: 12
+    wantQ: 2276
+    wantDeqBits: "0x416f10f1"
+  - name: fuzz_18
+    vBits: "0x445d4463"
+    min: 922
+    max: 1317
+    bits: 15
+    wantQ: 0
+    wantDeqBits: "0x44668000"
+  - name: fuzz_19
+    vBits: "0x450d420c"
+    min: 322
+    max: 2171
+    bits: 16
+    wantQ: 65535
+    wantDeqBits: "0x4507b000"
+  - name: fuzz_20
+    vBits: "0x430af882"
+    min: 133
+    max: 146
+    bits: 20
+    wantQ: 481597
+    wantDeqBits: "0x430af882"
+  - name: fuzz_21
+    vBits: "0x43fc9b8e"
+    min: -958
+    max: 1007
+    bits: 24
+    wantQ: 12492965
+    wantDeqBits: "0x43fc9b8c"
+  - name: fuzz_22
+    vBits: "0x443145ba"
+    min: 487
+    max: 1325
+    bits: 31
+    wantQ: 569133080
+    wantDeqBits: "0x443145ba"
+  - name: fuzz_23
+    vBits: "0xc46b5a9a"
+    min: -977
+    max: -339
+    bits: 32
+    wantQ: 239551132
+    wantDeqBits: "0xc46b5a9a"
+  - name: fuzz_24
+    vBits: "0x43f41f73"
+    min: 227
+    max: 1226
+    bits: 1
+    wantQ: 0
+    wantDeqBits: "0x43630000"
+  - name: fuzz_25
+    vBits: "0x43d07e5a"
+    min: -250
+    max: 391
+    bits: 3
+    wantQ: 7
+    wantDeqBits: "0x43c38000"
+  - name: fuzz_26
+    vBits: "0x42953d0e"
+    min: -148
+    max: 61
+    bits: 7
+    wantQ: 127
+    wantDeqBits: "0x42740000"
+  - name: fuzz_27
+    vBits: "0x43eeed28"
+    min: 375
+    max: 1390
+    bits: 8
+    wantQ: 26
+    wantDeqBits: "0x43ef3ebf"
+  - name: fuzz_28
+    vBits: "0x448b439b"
+    min: -177
+    max: 1244
+    bits: 10
+    wantQ: 929
+    wantDeqBits: "0x448b2dbb"
+  - name: fuzz_29
+    vBits: "0xc4601e11"
+    min: -845
+    max: 159
+    bits: 12
+    wantQ: 0
+    wantDeqBits: "0xc4534000"
+  - name: fuzz_30
+    vBits: "0x446361ea"
+    min: 846
+    max: 1071
+    bits: 15
+    wantQ: 9252
+    wantDeqBits: "0x446361f2"
+  - name: fuzz_31
+    vBits: "0xc2801e09"
+    min: -63
+    max: -39
+    bits: 16
+    wantQ: 0
+    wantDeqBits: "0xc27c0000"
+  - name: fuzz_32
+    vBits: "0xc208fc09"
+    min: -816
+    max: 929
+    bits: 20
+    wantQ: 469758
+    wantDeqBits: "0xc208fbe5"
+  - name: fuzz_33
+    vBits: "0xc3ea4599"
+    min: -740
+    max: -252
+    bits: 24
+    wantQ: 9332541
+    wantDeqBits: "0xc3ea4599"
+  - name: fuzz_34
+    vBits: "0x437aa47e"
+    min: 298
+    max: 1806
+    bits: 31
+    wantQ: 0
+    wantDeqBits: "0x43950000"
+  - name: fuzz_35
+    vBits: "0x4481425f"
+    min: 847
+    max: 1332
+    bits: 32
+    wantQ: 1656653870
+    wantDeqBits: "0x4481425f"
+  - name: fuzz_36
+    vBits: "0x42003353"
+    min: 64
+    max: 1582
+    bits: 1
+    wantQ: 0
+    wantDeqBits: "0x42800000"
+  - name: fuzz_37
+    vBits: "0x44364d3e"
+    min: 738
+    max: 876
+    bits: 3
+    wantQ: 0
+    wantDeqBits: "0x44388000"
+  - name: fuzz_38
+    vBits: "0x4231d1df"
+    min: -49
+    max: 1323
+    bits: 7
+    wantQ: 9
+    wantDeqBits: "0x4240e9d4"
+  - name: fuzz_39
+    vBits: "0xc3c6b9bf"
+    min: -598
+    max: 1050
+    bits: 8
+    wantQ: 31
+    wantDeqBits: "0xc3c6d3d4"
+fixedSigned:
+  - name: zero
+    vBits: "0x0000000000000000"
+    scale: "1000"
+    minInt: "-2147483648"
+    maxInt: "2147483647"
+    wantQ: "0"
+    wantDeqBits: "0x0000000000000000"
+  - name: neg_zero
+    vBits: "0x8000000000000000"
+    scale: "1000"
+    minInt: "-2147483648"
+    maxInt: "2147483647"
+    wantQ: "0"
+    wantDeqBits: "0x0000000000000000"
+  - name: pos_exact
+    vBits: "0x4028b0a3d70a3d71"
+    scale: "1000"
+    minInt: "-2147483648"
+    maxInt: "2147483647"
+    wantQ: "12345"
+    wantDeqBits: "0x4028b0a3d70a3d71"
+  - name: neg_exact
+    vBits: "0xc058b00000000000"
+    scale: "100"
+    minInt: "-32768"
+    maxInt: "32767"
+    wantQ: "-9875"
+    wantDeqBits: "0xc058b00000000000"
+  - name: half_pos_rounds_away
+    vBits: "0x3ff8000000000000"
+    scale: "1"
+    minInt: "-32768"
+    maxInt: "32767"
+    wantQ: "2"
+    wantDeqBits: "0x4000000000000000"
+  - name: half_neg_rounds_away
+    vBits: "0xbff8000000000000"
+    scale: "1"
+    minInt: "-32768"
+    maxInt: "32767"
+    wantQ: "-2"
+    wantDeqBits: "0xc000000000000000"
+  - name: clamp_hi
+    vBits: "0x41cdcd6500000000"
+    scale: "100"
+    minInt: "-32768"
+    maxInt: "32767"
+    wantQ: "32767"
+    wantDeqBits: "0x40747ab851eb851f"
+  - name: clamp_lo
+    vBits: "0xc1cdcd6500000000"
+    scale: "100"
+    minInt: "-32768"
+    maxInt: "32767"
+    wantQ: "-32768"
+    wantDeqBits: "0xc0747ae147ae147b"
+  - name: nan_to_zero
+    vBits: "0x7ff8000000000001"
+    scale: "100"
+    minInt: "-32768"
+    maxInt: "32767"
+    wantQ: "0"
+    wantDeqBits: "0x0000000000000000"
+  - name: pos_inf
+    vBits: "0x7ff0000000000000"
+    scale: "100"
+    minInt: "-9223372036854775808"
+    maxInt: "9223372036854775807"
+    wantQ: "9223372036854775807"
+    wantDeqBits: "0x43747ae147ae147b"
+  - name: neg_inf
+    vBits: "0xfff0000000000000"
+    scale: "100"
+    minInt: "-9223372036854775808"
+    maxInt: "9223372036854775807"
+    wantQ: "-9223372036854775808"
+    wantDeqBits: "0xc3747ae147ae147b"
+  - name: binary_scale_65536
+    vBits: "0x400a000000000000"
+    scale: "65536"
+    minInt: "-2147483648"
+    maxInt: "2147483647"
+    wantQ: "212992"
+    wantDeqBits: "0x400a000000000000"
+  - name: large_i64_pos
+    vBits: "0x419d6f3456000000"
+    scale: "1000000"
+    minInt: "-9223372036854775808"
+    maxInt: "9223372036854775807"
+    wantQ: "123456789500000"
+    wantDeqBits: "0x419d6f3456000000"
+  - name: large_i64_neg
+    vBits: "0xc19d6f3456000000"
+    scale: "1000000"
+    minInt: "-9223372036854775808"
+    maxInt: "9223372036854775807"
+    wantQ: "-123456789500000"
+    wantDeqBits: "0xc19d6f3456000000"
+fixedUnsigned:
+  - name: zero
+    vBits: "0x0000000000000000"
+    scale: "100"
+    maxUint: "65535"
+    wantQ: "0"
+    wantDeqBits: "0x0000000000000000"
+  - name: neg_clamps_zero
+    vBits: "0xc014000000000000"
+    scale: "100"
+    maxUint: "65535"
+    wantQ: "0"
+    wantDeqBits: "0x0000000000000000"
+  - name: nan_clamps_zero
+    vBits: "0x7ff8000000000001"
+    scale: "100"
+    maxUint: "65535"
+    wantQ: "0"
+    wantDeqBits: "0x0000000000000000"
+  - name: pos_inf_clamps_max
+    vBits: "0x7ff0000000000000"
+    scale: "100"
+    maxUint: "18446744073709551615"
+    wantQ: "18446744073709551615"
+    wantDeqBits: "0x43847ae147ae147b"
+  - name: exact_u16
+    vBits: "0x4028ae147ae147ae"
+    scale: "100"
+    maxUint: "65535"
+    wantQ: "1234"
+    wantDeqBits: "0x4028ae147ae147ae"
+  - name: half_tie_up
+    vBits: "0x4004000000000000"
+    scale: "1"
+    maxUint: "65535"
+    wantQ: "3"
+    wantDeqBits: "0x4008000000000000"
+  - name: above_2p53_u64
+    vBits: "0x42d6bcc41e900000"
+    scale: "1000"
+    maxUint: "18446744073709551615"
+    wantQ: "100000000000000000"
+    wantDeqBits: "0x42d6bcc41e900000"

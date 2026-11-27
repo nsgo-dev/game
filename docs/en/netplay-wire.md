@@ -154,16 +154,18 @@ func DecodeX(src []byte, m *X) (int, error)
 
 ## Using `cmd/gamewire`
 
-Generate Go codecs from a directory or individual schema file:
+Generate Go or TypeScript codecs from a directory or individual schema file:
 
 ```sh
 go run ./cmd/gamewire -in ./netmsg -out ./netmsg
+go run ./cmd/gamewire -lang ts -in ./netmsg -out ./netmsg/ts
 ```
 
 Or wire it into `go generate`:
 
 ```go
 //go:generate go run github.com/nsgo-dev/game/cmd/gamewire -in . -out .
+//go:generate go run github.com/nsgo-dev/game/cmd/gamewire -lang ts -in . -out ts
 ```
 
 CLI flags:
@@ -171,13 +173,33 @@ CLI flags:
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-in` | `.` | Input `*.wire.yaml` file or directory containing `*.wire.yaml` files (positional file arguments are also accepted). |
-| `-out` | input dir | Output directory, or a single `.go` file path when given one input schema. |
+| `-out` | input dir | Output directory, or a single `.go`/`.ts` file path when given one input schema. |
 | `-pkg` | schema `package` | Override the generated Go package name. |
-| `-lang` | `go` | Target language (`go`). |
-| `-self` | `false` | Omit the `pkg/online/netplay/wire` import for files generated inside `pkg/online/netplay/wire` itself. |
+| `-lang` | `go` | Target language (`go` or `ts`). |
+| `-self` | `false` | Omit the `pkg/online/netplay/wire` import for Go files generated inside `pkg/online/netplay/wire` itself. |
 | `-check` | `false` | Verify committed generated files match their schemas without writing; exits non-zero if missing or stale. |
 
-CI runs `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check` and `go -C tools run ./gameschema -check`.
+CI runs `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check`, `go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check`, and `go -C tools run ./gameschema -check`.
+
+## Generated TypeScript API and cross-language golden vectors
+
+With `-lang ts`, `cmd/gamewire` writes a shared zero-dependency `runtime.ts` (containing `Writer`, `Reader`, `WireError`, and pure-`BigInt` quantization helpers), one `<stem>_wire.ts` module per schema, and a barrel `index.ts` (or a single self-contained `.ts` file with the runtime embedded when `-out` ends in `.ts`):
+
+| Wire type | TypeScript type | Notes |
+| --- | --- | --- |
+| `u8`, `u16`, `u32`, `i8`, `i16`, `i32` | `number` | Fixed-width integer via `DataView` |
+| `u64`, `i64` | `bigint` | Exact 64-bit integers above `Number.MAX_SAFE_INTEGER` |
+| `uvarint`, `svarint` (`bits: 8\|16\|32`) | `number` | Range-checked LEB128 / zigzag varint |
+| `uvarint`, `svarint` (default / `bits: 64`) | `bigint` | Full 64-bit unsigned or zigzag signed varint |
+| `bits` (`1..32` / `33..64`) | `number` / `bigint` | MSB-first bit packing with zero-padding verification |
+| `bool` | `boolean` | Strict `0` or `1` wire byte |
+| `f32`, `qfloat`, `fixed` | `number` | Raw `DataView` float32 or pure-`BigInt` integer quantization |
+| `bytes`, fixed `array` of `u8` | `Uint8Array` | Caller-owned buffer reads/writes; fixed byte arrays decode in place |
+| `string`, `array` | `string`, `T[]` | Length-checked UTF-8 strings and element-reusing arrays |
+
+- Every message and union `X` exports `createX()`, `encodeX(m: X, w: Writer): void`, and `decodeX(r: Reader, m: X): void`, mutating caller-owned objects in place to avoid per-packet allocations at 60 Hz.
+- Delta `mask` groups export `diffX(base, cur)` (comparing IEEE-754 float bit patterns via `float32Bits`/`float64Bits` and bytes via `bytesEqual`) and `applyX(base, delta)`.
+- Shared golden vectors under `pkg/online/netplay/wire/testdata/vectors/*.yaml` cover every built-in schema, varint and zigzag boundaries, `u64` above `2^53`, mixed endianness, `-0.0` and `NaN` `f32` bit patterns, `qfloat` range edges, empty and maximum-length bytes, delta `diff`/`apply`, and invalid packets. Both Go (`go tool nsgo test ./pkg/online/netplay/wire`) and Bun (`bun test pkg/online/netplay/wire/testdata/ts`) verify every vector byte for byte in CI.
 
 ## Built-in `pkg/online/netplay` wire schemas
 
