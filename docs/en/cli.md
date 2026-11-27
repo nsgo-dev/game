@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project, move files while keeping the references to them working, keep the project index of stable file IDs, render pixelfx effects to sprite sheets and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, check a built package against its size budget, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project, move files while keeping the references to them working, keep the project index of stable file IDs, render pixelfx effects to sprite sheets and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -34,6 +34,7 @@ Running the command as `nsgo game` through NSGo's generic extension mechanism (a
 | `release` | Builds the game's release packages for macOS, Windows, Linux, web, iOS and Android, or for `game.yaml`'s export presets, in one run of `nsgo build`, with a credits file of its assets' licenses |
 | `replay` | Checks the input recordings under the directories and plays them headless through their replay tests, failing on a mismatch |
 | `bench` | Runs the benchmarks headless and fails when one regresses past its stored baseline, or updates the baseline |
+| `size` | Measures a WebAssembly binary or an Android AAB or APK or iOS IPA package and fails when it exceeds its size budget |
 | `new` | Creates a game project in a directory from a template, with its `go.mod` requiring the game layer and the `game` and `nsgo` tools |
 | `dev` | Runs the game with `nsgo dev`, reloading its assets in the running game when they are saved |
 | `check` | Checks the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to, reporting each problem with its file and line |
@@ -52,7 +53,7 @@ Running the command as `nsgo game` through NSGo's generic extension mechanism (a
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
 
-A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found, a file `generate` would overwrite, an asset without a credit) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
+A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a package over its size budget, a broken reference `check` found, a file `generate` would overwrite, an asset without a credit) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
 ### pack
 
@@ -191,6 +192,15 @@ benchmarks:
 ```
 
 Benchmarks are named without their `-GOMAXPROCS` suffix, so a baseline recorded on one machine is read on another, but time per operation depends on the machine: record the baseline on the kind of machine CI checks it on. The format is read and written by the `tooling/bench` package.
+
+### size
+
+```sh
+go tool game size -kind aab path/to/app.aab
+go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown
+```
+
+Measures a package and checks it against a size budget: an Android App Bundle (`.aab`), an Android APK (`.apk`), an iOS App Store Package (`.ipa`) or a WebAssembly binary (`.wasm`). The kind comes from `-kind`, else from the package's extension, else it is `wasm`. A mobile package is checked against the budget file `-budget` names, or the platform's built-in budget; a WebAssembly binary against `-budget`, by default `benchmarks/web-budget.json`, building the budget's target with `GOOS=js GOARCH=wasm` when `-wasm` names no binary. `-budget-mb` and `-abi-budget-mb` override the total and per-ABI limits. The report is text, Markdown with `-markdown` or JSON with `-json`, and is written in full even when the package is over budget, which fails the command. [Package Size Budgets](package-size-budgets.md) lists the categories, the default budgets and the budget files, read by the `tooling/sizecheck` package.
 
 ### new
 

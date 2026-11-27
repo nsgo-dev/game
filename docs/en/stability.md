@@ -70,7 +70,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/cmd/gamewire` | Experimental | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
-| `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
 | `game/pkg/ai` | Stable | [ai](ai.md) |
@@ -200,6 +199,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tooling/manifest` | Experimental | |
 | `game/pkg/tooling/playtest` | Experimental | [playtest](playtest.md) |
 | `game/pkg/tooling/refs` | Experimental | [Project File](project.md) |
+| `game/pkg/tooling/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/pkg/tween` | Stable | [tween](tween.md) |
 | `game/pkg/undo` | Experimental | [undo](undo.md) |
 | `game/pkg/vehicle` | Experimental | [vehicle](vehicle.md) |

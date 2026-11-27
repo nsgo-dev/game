@@ -168,6 +168,25 @@ go tool game bench [flags] [directory ...]
 | `-in file` |  | read benchmark results from this file of go test -bench output instead of running the benchmarks |
 | `-update` |  | write the measured medians to the baseline instead of checking them |
 
+## game size
+
+Measure a WebAssembly, Android AAB or APK, or iOS IPA package and fail when it exceeds its size budget.
+
+```sh
+go tool game size [flags] [package]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-abi-budget-mb MiB` |  | override the per-ABI native library budget in MiB for Android packages (> 0) |
+| `-budget file` |  | path to the budget JSON file (for wasm defaults to benchmarks/web-budget.json; for mobile packages defaults to the platform's built-in budget) |
+| `-budget-mb MiB` |  | override the total package size budget in MiB (> 0) |
+| `-file archive` |  | path to the package archive (.aab, .apk, .ipa, or .wasm); may also be passed as the positional argument |
+| `-json` |  | output the report as JSON |
+| `-kind kind` |  | package kind: aab, apk, ipa, or wasm (inferred from the file extension when omitted, defaults to wasm) |
+| `-markdown` |  | output the report as a Markdown summary |
+| `-wasm file` |  | optional path to an already built .wasm file; if empty in wasm mode, builds the budget's target with GOOS=js GOARCH=wasm |
+
 ## game new
 
 Create a game project in a directory from a template, with its go.mod requiring the game layer and the game and nsgo tools.

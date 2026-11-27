@@ -45,6 +45,7 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 | `game replay` | `game replay [-run Replay] [dir ...]` | Validate YAML input recordings and run their headless replay tests |
 | `game playtest` | `game playtest [-config -out -recordings -run -count -seeds -check] [dir ...]` | Validate `playtest.yaml`, run headless bot playtests with replays, write a YAML report and fail on missed goals |
 | `game bench` | `game bench [-baseline -bench -benchtime -count -in -update] [dir ...]` | Run headless benchmarks and fail on regressions against a YAML baseline |
+| `game size` | `game size [-kind aab\|apk\|ipa\|wasm -budget -budget-mb -abi-budget-mb -wasm -file -json -markdown] [package]` | Check a WebAssembly, AAB, APK or IPA package against its size budget, with a category and largest-file breakdown |
 | `game release` | `game release [-target -channel -output -jobs -release-notes -dry-run] [dir]` | Build release packages for `game.yaml` export presets via `nsgo build` with credits |
 | `game completion` | `game completion zsh\|bash\|fish` | Output shell completion scripts |
 | `game help` | `game help [command]` | Show commands or a subcommand's flags |
@@ -52,7 +53,6 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 ### Companion module tools
 
 - `go run github.com/nsgo-dev/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
-- `go run github.com/nsgo-dev/game/cmd/sizecheck` — check WebAssembly and mobile package size budgets.
 
 ## Text file formats contract
 

@@ -1,4 +1,5 @@
-package main
+// Package sizecheck measures a built package (a WebAssembly binary, an Android AAB or APK, or an iOS IPA) and checks it against a size budget, the checks behind `game size`.
+package sizecheck
 
 import (
 	"bytes"

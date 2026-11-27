@@ -1,4 +1,4 @@
-package main
+package sizecheck
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ func TestBudgetExamplesOnFormatsPage(t *testing.T) {
 		dec.DisallowUnknownFields()
 		return dec.Decode(v)
 	}
-	for _, ex := range formattest.Examples(t, "cmd/sizecheck", "json") {
+	for _, ex := range formattest.Examples(t, "tooling/sizecheck", "json") {
 		file := filepath.Join(t.TempDir(), "budget.json")
 		if err := os.WriteFile(file, ex.Data, 0o644); err != nil {
 			t.Fatal(err)
@@ -30,7 +30,7 @@ func TestBudgetExamplesOnFormatsPage(t *testing.T) {
 			t.Errorf("%s:%d: the example does not load as a WebAssembly budget with a target and a raw limit: %+v, %v", ex.Page, ex.Line, b, err)
 		}
 	}
-	for _, ex := range formattest.Examples(t, "cmd/sizecheck#mobile", "json") {
+	for _, ex := range formattest.Examples(t, "tooling/sizecheck#mobile", "json") {
 		file := filepath.Join(t.TempDir(), "budget.json")
 		if err := os.WriteFile(file, ex.Data, 0o644); err != nil {
 			t.Fatal(err)

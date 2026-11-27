@@ -79,7 +79,7 @@ if err != nil {
 | `datatable` | `LoadCSV`、`LoadJSON`、`LoadYAML`、`LoadFile` | 出错的单元格；`CellError` 仍在错误链中 |
 | `tooling/devstate`、`tooling/hotreload`、`tooling/library`、`tooling/assetbuild` | `Store.LoadSnapshot`、`ParseMaterial`、`ParseIndex`、`ParseManifest`、`parseCache` | 解码错误以及清单、索引和材质规则，按字段 |
 | `tooling/gamedebug` | `Console.LoadTunables` | 出错的调试参数，以存储键为文件名 |
-| `tooling/bench`、`cmd/sizecheck` | `bench.Decode`、`bench.LoadFile`、`LoadBudget`、`LoadMobileBudget` | 解码错误、回归阈值和基准指标，按字段 |
+| `tooling/bench`、`tooling/sizecheck` | `bench.Decode`、`bench.LoadFile`、`sizecheck.LoadBudget`、`sizecheck.LoadMobileBudget` | 解码错误、回归阈值和基准指标，按字段 |
 
 无法读取的文件没有行号：它的错误给出文件名，把读取错误保留在 `Err` 中，同样给出修复方法。
 

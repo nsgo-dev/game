@@ -90,7 +90,7 @@ jobs:
       - name: Check wasm size against budget
         run: |
           set -o pipefail
-          go run ./cmd/sizecheck -kind wasm -budget benchmarks/web-budget.json -markdown | tee -a "$GITHUB_STEP_SUMMARY"
+          go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown | tee -a "$GITHUB_STEP_SUMMARY"
 
   android-size-budget:
     name: Android AAB size budget
@@ -117,7 +117,7 @@ jobs:
             echo "no Android .aab produced" >&2
             exit 1
           fi
-          go run ./cmd/sizecheck -kind aab -budget benchmarks/android-aab-budget.json -markdown "$aab" | tee -a "$GITHUB_STEP_SUMMARY"
+          go tool game size -kind aab -budget benchmarks/android-aab-budget.json -markdown "$aab" | tee -a "$GITHUB_STEP_SUMMARY"
 
   ios-size-budget:
     name: iOS IPA size budget
@@ -144,7 +144,7 @@ jobs:
             echo "no iOS .ipa produced" >&2
             exit 1
           fi
-          go run ./cmd/sizecheck -kind ipa -budget benchmarks/ios-ipa-budget.json -markdown "$ipa" | tee -a "$GITHUB_STEP_SUMMARY"
+          go tool game size -kind ipa -budget benchmarks/ios-ipa-budget.json -markdown "$ipa" | tee -a "$GITHUB_STEP_SUMMARY"
 
   fuzz:
     name: Fuzz file loaders

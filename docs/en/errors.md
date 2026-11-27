@@ -79,7 +79,7 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 | `datatable` | `LoadCSV`, `LoadJSON`, `LoadYAML`, `LoadFile` | The cell at fault; `CellError` stays in the chain |
 | `tooling/devstate`, `tooling/hotreload`, `tooling/library`, `tooling/assetbuild` | `Store.LoadSnapshot`, `ParseMaterial`, `ParseIndex`, `ParseManifest`, `parseCache` | Decode errors and manifest, index and material rules, by field |
 | `tooling/gamedebug` | `Console.LoadTunables` | The tunable at fault, under the storage key |
-| `tooling/bench`, `cmd/sizecheck` | `bench.Decode`, `bench.LoadFile`, `LoadBudget`, `LoadMobileBudget` | Decode errors, limits and benchmark metrics, by field |
+| `tooling/bench`, `tooling/sizecheck` | `bench.Decode`, `bench.LoadFile`, `sizecheck.LoadBudget`, `sizecheck.LoadMobileBudget` | Decode errors, limits and benchmark metrics, by field |
 
 A file that cannot be read has no line: its error names the file, keeps the read error in `Err` and still gives a fix.
 
