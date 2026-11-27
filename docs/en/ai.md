@@ -554,6 +554,8 @@ Available nodes:
 - `AbortLower` (`lower`): aborts a running lower-priority sibling in an enclosing `Selector` on the next tick when the watched key changes and the condition becomes true.
 - `AbortBoth` (`both`): combines `AbortSelf` and `AbortLower`.
 
+A `Selector` uses key-driven observer preemption only for higher-priority branches whose gating is governed solely by `BlackboardCondition` nodes (such as a `BlackboardCondition` wrapping actions, or a `Sequence` whose gating prefix consists solely of `BlackboardCondition` nodes). When a higher-priority branch mixes `BlackboardCondition` with plain `Condition`, `Guard`, `WithAttackToken`, or another non-blackboard gating node, `Selector` re-evaluates that branch on every tick so non-blackboard conditions still preempt running lower-priority siblings, while `AbortSelf` and `AbortBoth` continue to self-abort when the watched key changes.
+
 ```go
 squadBB := ai.NewBlackboard()
 agentBB := ai.NewChildBlackboard(squadBB)

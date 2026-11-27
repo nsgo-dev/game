@@ -554,6 +554,8 @@ tree.Tick(dt)
 - `AbortLower`（`lower`）：当监听键变化导致条件变为真时，在下一 tick 中断外层 `Selector` 中正在运行的低优先级兄弟分支。
 - `AbortBoth`（`both`）：同时启用 `AbortSelf` 与 `AbortLower`。
 
+`Selector` 仅对完全由 `BlackboardCondition` 控制的较高优先级分支启用基于键变更的观察者抢占（例如直接包裹动作的 `BlackboardCondition`，或前置条件全部为 `BlackboardCondition` 的 `Sequence`）。当较高优先级分支将 `BlackboardCondition` 与普通 `Condition`、`Guard`、`WithAttackToken` 或其他非黑板门控节点混用时，`Selector` 会退回到每 tick 重新求值该分支，确保非黑板条件变化仍可正常抢占运行中的低优先级兄弟分支，同时 `AbortSelf` 与 `AbortBoth` 在监听键变化时依然会照常中断自身。
+
 ```go
 squadBB := ai.NewBlackboard()
 agentBB := ai.NewChildBlackboard(squadBB)
