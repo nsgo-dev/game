@@ -123,6 +123,8 @@ func TestAssetsAccepted(t *testing.T) {
 		{"largest font size", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      size: 2048\n"},
 		{"font beside an atlas", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  fonts:\n    - in: a.otf\n      out: assets/ui-x.fnt\n"},
 		{"glyph image font", assetsHead + "assets:\n  fonts:\n    - in: art/fonts/score\n      out: assets/fonts/score.fnt\n      glyphs:\n        plus.png: \"+\"\n      spacing: 2\n      align: bottom\n      padding: 0\n"},
+		{"remote minimal", assetsHead + "assets:\n  remote:\n    out: dist/cdn\n    base: https://cdn.example.com/game/\n"},
+		{"remote with in and include", assetsHead + "assets:\n  remote:\n    in: resources\n    out: dist/cdn\n    base: https://cdn.example.com/game/\n    prefix: \"asset:\"\n    include: [music/, \"*.m4a\"]\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := project.Parse([]byte(tc.src)); err != nil {
@@ -153,6 +155,9 @@ func TestAssetsIsOutput(t *testing.T) {
   manifest:
     in: assets
     out: internal/assets/assets.go
+  remote:
+    out: dist/cdn
+    base: https://cdn.example.com/game/
 `))
 	for p, want := range map[string]bool{
 		".game/assets-cache.yaml":   true,
@@ -164,6 +169,8 @@ func TestAssetsIsOutput(t *testing.T) {
 		"assets/sky.ktx2":           true,
 		"assets/jump.wav":           true,
 		"internal/assets/assets.go": true,
+		"dist/cdn/remote.yaml":      true,
+		"dist/cdn/ui.9f86d081.png":  true,
 		"art/sky.png":               false,
 		"sfx/jump.wav":              false,
 		"assets/font.ttf":           false,

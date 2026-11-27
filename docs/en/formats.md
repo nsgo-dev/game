@@ -2947,6 +2947,45 @@ Each line records one plaintext transport packet (`t` elapsed nanoseconds since 
 {"packs": [{"id": "forest", "url": "https://cdn.example.com/forest.zip", "version": "1.0.0", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}]}
 ```
 
+<!-- format: assets#remote -->
+### Remote asset manifest
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `remote.yaml`, written by `game assets` when `assets.remote` is configured | `version: 1` | `assets.ParseRemoteManifest`, `assets.EncodeRemoteManifest` | [assets](assets.md#remote-assets) |
+
+```yaml
+version: 1
+base: https://cdn.example.com/game/
+files:
+  - uri: asset:music/theme.m4a
+    path: music/theme.9f86d081.m4a
+    size: 48120
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+  - uri: asset:sprites/hero.png
+    path: sprites/hero.60303ae2.png
+    size: 8192
+    sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752
+```
+
+<!-- format: assets#remote-cache -->
+### Remote asset cache index
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `index.yaml` inside a `DirRemoteCache` directory | `version: 1` | `assets.DirRemoteCache` | [assets](assets.md#remote-assets) |
+
+```yaml
+version: 1
+entries:
+  - sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752
+    size: 8192
+    accessed: 1732742400000000001
+  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+    size: 48120
+    accessed: 1732742400000000002
+```
+
 <!-- format: tooling/sizecheck -->
 ### WebAssembly size budget
 

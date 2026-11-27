@@ -61,6 +61,7 @@ type Manager struct {
 
 	cx     *core.Scope
 	fs     fs.FS
+	remote *remoteLoader
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -246,7 +247,9 @@ func (m *Manager) LoadAtlas(jsonURI string, img core.ImageSource, done func(*spr
 	}
 	readFn := m.readAssetFunc()
 	ctx := m.ctx
-	prefetch := needsPrefetch(img)
+	ratio := core.Untracked(m.cx, func() float32 { return m.cx.Env().PixelRatio() })
+	remoteImgURI, _, remoteImg := m.remote.resolveImageURI(img, ratio)
+	prefetch := needsPrefetch(img) && !remoteImg
 
 	var (
 		parsed   *sprite.Atlas
@@ -287,6 +290,17 @@ func (m *Manager) LoadAtlas(jsonURI string, img core.ImageSource, done func(*spr
 	}
 
 	go func() {
+		resolvedImg := img
+		if remoteImg {
+			imgData, err := m.remote.fetchBytes(ctx, remoteImgURI)
+			if err != nil {
+				m.postWithCleanup(nil, func() {
+					deliver(fmt.Errorf("assets: atlas %q: read image %q: %w", jsonURI, remoteImgURI, err))
+				})
+				return
+			}
+			resolvedImg.Data = imgData
+		}
 		data, err := readFn(ctx, jsonURI)
 		if err != nil {
 			m.postWithCleanup(nil, func() {
@@ -294,7 +308,7 @@ func (m *Manager) LoadAtlas(jsonURI string, img core.ImageSource, done func(*spr
 			})
 			return
 		}
-		atlas, err := sprite.LoadAtlas(img, data)
+		atlas, err := sprite.LoadAtlas(resolvedImg, data)
 		if err != nil {
 			m.postWithCleanup(nil, func() {
 				deliver(loaderr.WithFile(err, jsonURI))
@@ -316,6 +330,40 @@ func (m *Manager) LoadSound(src audio.Source, done func(*audio.Sound, error)) {
 	if m.isDisposed() {
 		return
 	}
+	if len(src.Data) == 0 && src.URI != "" && m.remote != nil {
+		if m.remote.initErr != nil {
+			err := m.remote.initErr
+			m.postWithCleanup(nil, func() {
+				if done != nil {
+					done(nil, err)
+				}
+			})
+			return
+		}
+		if m.remote.has(src.URI) {
+			ctx := m.ctx
+			uri := src.URI
+			go func() {
+				data, err := m.remote.fetchBytes(ctx, uri)
+				if err != nil {
+					m.postWithCleanup(nil, func() {
+						if done != nil {
+							done(nil, fmt.Errorf("assets: read %q: %w", uri, err))
+						}
+					})
+					return
+				}
+				m.postWithCleanup(nil, func() {
+					m.loadSoundLocal(audio.Source{Data: data}, done)
+				})
+			}()
+			return
+		}
+	}
+	m.loadSoundLocal(src, done)
+}
+
+func (m *Manager) loadSoundLocal(src audio.Source, done func(*audio.Sound, error)) {
 	m.cx.Run(func() {
 		audio.LoadSound(m.cx, src, func(s *audio.Sound, err error) {
 			if m.isDisposed() {
@@ -405,6 +453,7 @@ func (m *Manager) dispose() {
 			p.close()
 		}
 	}
+	m.remote.flush()
 }
 
 func (m *Manager) isDisposed() bool {
@@ -455,17 +504,32 @@ func (m *Manager) postWithCleanup(release func(), deliver func()) {
 }
 
 func (m *Manager) readAssetFunc() func(context.Context, string) ([]byte, error) {
-	if m.ReadAsset != nil {
-		return m.ReadAsset
-	}
-	if m.fs != nil {
+	var localRead func(context.Context, string) ([]byte, error)
+	switch {
+	case m.ReadAsset != nil:
+		localRead = m.ReadAsset
+	case m.fs != nil:
 		fsys := m.fs
-		return func(ctx context.Context, uri string) ([]byte, error) {
+		localRead = func(ctx context.Context, uri string) ([]byte, error) {
 			return fsReadAsset(fsys, ctx, uri)
 		}
+	default:
+		localRead = func(ctx context.Context, uri string) ([]byte, error) {
+			return m.defaultReadAsset(ctx, uri)
+		}
 	}
+	if m.remote == nil {
+		return localRead
+	}
+	remote := m.remote
 	return func(ctx context.Context, uri string) ([]byte, error) {
-		return m.defaultReadAsset(ctx, uri)
+		if remote.initErr != nil {
+			return nil, remote.initErr
+		}
+		if remote.has(uri) {
+			return remote.fetchBytes(ctx, uri)
+		}
+		return localRead(ctx, uri)
 	}
 }
 

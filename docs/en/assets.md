@@ -159,3 +159,25 @@ image:
 ```
 
 When `go tool game assets` or `go tool game pack` builds the atlas, it traces pixel alpha silhouettes with marching squares, simplifies contours, splits concave outlines into convex polygons of at most `maxVertices` vertices, and writes `shapes` and `points` into each frame of the packed JSON. Sidecars refuse unknown fields and validate against `import.v1.json`. In the editor, selecting the image in the file browser overlays the traced collision outline and named points over the sprite and lets you drag points directly on the preview canvas.
+
+## Remote assets
+
+For loose files hosted on a CDN (such as music tracks or per-level art kept out of mini-game or web bundles), configure [`assets.remote`](cli.md#assets) in `game.yaml` so `go tool game assets` copies them to content-hashed paths (`<name>.<hash8>.<ext>`) and writes a sorted, versioned `remote.yaml` manifest, then pass `assets.WithRemote` when creating the `Manager`:
+
+```go
+manifest, err := assets.ParseRemoteManifest(remoteManifestYAML)
+if err != nil {
+	return err
+}
+cache := assets.NewDirRemoteCache(cacheDir) // default 200 MiB quota
+mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
+	Manifest: manifest,
+	Cache:    cache,
+}))
+```
+
+- Any URI listed in `Manifest` (bytes, custom assets, images, atlas JSON/images, and sounds) is fetched from `Base` (defaulting to `Manifest.Base`) using its content-hashed path, checked against exact byte size and SHA-256 (`ErrSizeMismatch` / `ErrHashMismatch`), and stored in `Cache`. URIs not in `Manifest` fall through to local sources (`WithReadAsset`, `WithFS`, or packaged `resources/`).
+- A cached file whose bytes still match the manifest's size and SHA-256 is served without a network request, allowing offline startups once cached. A corrupted or truncated cache entry is removed and re-fetched automatically.
+- Concurrent loads for the same content digest share a single in-flight request; cancelling one waiter leaves sibling waiters running, and cancelling the last waiter aborts the underlying fetch.
+- `RemoteOptions.Fetch` (`func(ctx context.Context, url string) (io.ReadCloser, int64, error)`) is the transport seam, defaulting to `net/http`. Targets without `net/http` (such as mini-program runtimes) can plug in their host request API directly.
+- `DirRemoteCache` enforces `Quota` (200 MiB by default, matching mini-game filesystem caps) with least-recently-used eviction that never removes files pinned by a loaded or loading `Group`, writes files atomically via temporary files, persists access times in a small `index.yaml` text index, and exposes `Usage()` (`Bytes`, `Quota`, `Files`, `PinnedBytes`) and `Clear()` for a settings screen. Use `MemoryRemoteCache` on targets without local disk storage (such as the web).

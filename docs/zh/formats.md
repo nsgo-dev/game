@@ -2947,6 +2947,45 @@ runs:
 {"packs": [{"id": "forest", "url": "https://cdn.example.com/forest.zip", "version": "1.0.0", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}]}
 ```
 
+<!-- format: assets#remote -->
+### 远程资源清单
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 配置 `assets.remote` 时由 `game assets` 写出的 `remote.yaml` | `version: 1` | `assets.ParseRemoteManifest`、`assets.EncodeRemoteManifest` | [assets](assets.md#远程资源) |
+
+```yaml
+version: 1
+base: https://cdn.example.com/game/
+files:
+  - uri: asset:music/theme.m4a
+    path: music/theme.9f86d081.m4a
+    size: 48120
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+  - uri: asset:sprites/hero.png
+    path: sprites/hero.60303ae2.png
+    size: 8192
+    sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752
+```
+
+<!-- format: assets#remote-cache -->
+### 远程资源缓存索引
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `DirRemoteCache` 目录中的 `index.yaml` | `version: 1` | `assets.DirRemoteCache` | [assets](assets.md#远程资源) |
+
+```yaml
+version: 1
+entries:
+  - sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752
+    size: 8192
+    accessed: 1732742400000000001
+  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+    size: 48120
+    accessed: 1732742400000000002
+```
+
 <!-- format: tooling/sizecheck -->
 ### WebAssembly 体积预算
 
