@@ -164,7 +164,6 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
-| `game/cmd/wasmprobe` | Experimental | Probe app used to measure WebAssembly binary size per package |
 | `game/pkg/tooling/apiref` | Experimental | Go doc parser powering `tools/gameapi` |
 | `game/pkg/tooling/assetbuild` | Experimental | Incremental asset pipeline driven by `game.yaml` |
 | `game/pkg/tooling/assetcheck` | Experimental | Validator for scenes, Tiled/LDtk maps, atlases and file references |

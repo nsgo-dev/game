@@ -1,6 +1,4 @@
-// Command wasmprobe is a minimal entry point referencing the game packages
-// (game, sprite, sound, tilemap) so the web size budget check can build and
-// measure their combined GOOS=js GOARCH=wasm footprint.
+// Command sizeprobe is a minimal entry point referencing the game packages (game, sprite, sound, tilemap) so the package size budget checks can build it and measure their combined WebAssembly, Android and iOS footprint.
 package main
 
 import (

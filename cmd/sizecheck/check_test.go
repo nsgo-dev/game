@@ -21,7 +21,7 @@ func TestMeasureWasmAndBudgetEvaluation(t *testing.T) {
 	}
 
 	okBudget := BudgetFile{
-		Target:       "./cmd/wasmprobe",
+		Target:       "./internal/sizeprobe",
 		MaxRawBytes:  m.RawBytes + 1024,
 		MaxGzipBytes: m.GzipBytes + 256,
 	}

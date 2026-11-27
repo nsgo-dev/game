@@ -110,9 +110,9 @@ jobs:
       - name: Build Android AAB and check size budget
         run: |
           set -euo pipefail
-          trap 'rm -rf ./cmd/wasmprobe/.sizecheck-android' EXIT
-          go tool nsgo build -target android -channel store -output .sizecheck-android ./cmd/wasmprobe
-          aab=$(find ./cmd/wasmprobe/.sizecheck-android/releases -maxdepth 1 -name '*.aab' | head -n 1)
+          trap 'rm -rf ./internal/sizeprobe/.sizecheck-android' EXIT
+          go tool nsgo build -target android -channel store -output .sizecheck-android ./internal/sizeprobe
+          aab=$(find ./internal/sizeprobe/.sizecheck-android/releases -maxdepth 1 -name '*.aab' | head -n 1)
           if [ -z "$aab" ]; then
             echo "no Android .aab produced" >&2
             exit 1
@@ -137,9 +137,9 @@ jobs:
       - name: Build iOS IPA and check size budget
         run: |
           set -euo pipefail
-          trap 'rm -rf ./cmd/wasmprobe/.sizecheck-ios' EXIT
-          go tool nsgo build -target ios -output .sizecheck-ios ./cmd/wasmprobe
-          ipa=$(find ./cmd/wasmprobe/.sizecheck-ios/releases -maxdepth 1 -name '*.ipa' | head -n 1)
+          trap 'rm -rf ./internal/sizeprobe/.sizecheck-ios' EXIT
+          go tool nsgo build -target ios -output .sizecheck-ios ./internal/sizeprobe
+          ipa=$(find ./internal/sizeprobe/.sizecheck-ios/releases -maxdepth 1 -name '*.ipa' | head -n 1)
           if [ -z "$ipa" ]; then
             echo "no iOS .ipa produced" >&2
             exit 1

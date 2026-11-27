@@ -70,7 +70,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
-| `game/cmd/wasmprobe` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
 | `game/pkg/accounts` | Experimental | [accounts](accounts.md) |

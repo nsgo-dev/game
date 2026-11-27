@@ -22,7 +22,7 @@
 | Android APK（`.apk`） | `DefaultAndroidAPKBudget` | 40 MiB | 20 MiB | `native_libs` 30 MiB、`dex` 5 MiB、`assets` 20 MiB、`resources` 15 MiB、`manifest_meta` 2 MiB |
 | iOS IPA（`.ipa`） | `DefaultIOSIPABudget` | 50 MiB | - | `executable` 25 MiB、`frameworks` 15 MiB、`assets_car` 15 MiB、`resources` 25 MiB、`lproj` 5 MiB、`code_signature` 2 MiB |
 
-针对本仓库最小的 `./cmd/wasmprobe` CI 探针，[`benchmarks/`](../../benchmarks/) 目录维护了更严格的基线预算文件：
+针对本仓库最小的 `./internal/sizeprobe` CI 探针，[`benchmarks/`](../../benchmarks/) 目录维护了更严格的基线预算文件：
 
 - [`benchmarks/web-budget.json`](../../benchmarks/web-budget.json)：原始 `.wasm` 8 MiB / gzip 后 2.25 MiB
 - [`benchmarks/android-aab-budget.json`](../../benchmarks/android-aab-budget.json)：`.aab` 总计 6 MiB / 单 ABI 4 MiB
@@ -113,9 +113,9 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 
 [`.github/workflows/quality.yml`](../../.github/workflows/quality.yml) 在每次推送到 `main` 和每次 Pull Request 上运行三个独立的包体积预算任务：
 
-1. **`web-size-budget`**（`ubuntu-24.04`）：构建 `GOOS=js GOARCH=wasm` 的 `./cmd/wasmprobe`，对照 `benchmarks/web-budget.json` 检查体积。
-2. **`android-size-budget`**（`ubuntu-24.04`）：执行 `go tool nsgo build -target android -channel store ./cmd/wasmprobe`，对照 `benchmarks/android-aab-budget.json` 检查生成的 `.aab`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
-3. **`ios-size-budget`**（`macos-15`）：执行 `go tool nsgo build -target ios ./cmd/wasmprobe`，对照 `benchmarks/ios-ipa-budget.json` 检查生成的 `.ipa`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
+1. **`web-size-budget`**（`ubuntu-24.04`）：构建 `GOOS=js GOARCH=wasm` 的 `./internal/sizeprobe`，对照 `benchmarks/web-budget.json` 检查体积。
+2. **`android-size-budget`**（`ubuntu-24.04`）：执行 `go tool nsgo build -target android -channel store ./internal/sizeprobe`，对照 `benchmarks/android-aab-budget.json` 检查生成的 `.aab`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
+3. **`ios-size-budget`**（`macos-15`）：执行 `go tool nsgo build -target ios ./internal/sizeprobe`，对照 `benchmarks/ios-ipa-budget.json` 检查生成的 `.ipa`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
 
 当预算超限时，`sizecheck` 依然会把完整的违规列表、分类表、单 ABI 表和 Top 10 最大文件写入 CI 摘要，然后以退出码 `1` 终止任务。
 

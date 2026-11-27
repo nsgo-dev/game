@@ -70,7 +70,6 @@
 | `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
-| `game/cmd/wasmprobe` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
 | `game/pkg/ability` | 实验性 | [ability](ability.md) |
 | `game/pkg/accounts` | 实验性 | [accounts](accounts.md) |

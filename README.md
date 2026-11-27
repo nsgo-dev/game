@@ -131,7 +131,7 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 game/
 ├─ go.mod / go.work     Go module github.com/nsgo-dev/game (entry package game at root)
 ├─ cmd/                 CLI binaries (game, nsgo-game, gameproject, sizecheck, ...)
-├─ internal/            internal shared helpers and CLI implementation
+├─ internal/            internal shared helpers, CLI implementation and the sizeprobe CI fixture
 ├─ pkg/                 library subpackages (github.com/nsgo-dev/game/pkg/<name>)
 ├─ template/            16 Go-module starter templates for game new / nsgo init
 ├─ examples/            8 playable sample games and the 9-chapter tutorial
