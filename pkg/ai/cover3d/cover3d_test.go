@@ -1,4 +1,4 @@
-package physics3d_test
+package cover3d_test
 
 import (
 	"math"
@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/ai/cover3d"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
-func TestGenerateCoverPoints3D(t *testing.T) {
+func TestFromWorld(t *testing.T) {
 	w := physics3d.NewWorld()
 
 	// Flat floor slab (height = 0.2 < HalfCoverMinHeight) must NOT produce cover points.
@@ -69,11 +70,11 @@ func TestGenerateCoverPoints3D(t *testing.T) {
 	dyn.Tag = "dynamic"
 	w.AddBody(dyn)
 
-	opts := physics3d.CoverOptions{
+	opts := cover3d.Options{
 		Spacing:  1.0,
 		Standoff: 0.6,
 	}
-	pts := w.GenerateCoverPoints(opts)
+	pts := cover3d.FromWorld(w, opts)
 	if len(pts) == 0 {
 		t.Fatal("expected generated 3D cover points")
 	}
@@ -116,11 +117,11 @@ func TestGenerateCoverPoints3D(t *testing.T) {
 	}
 
 	// Determinism across repeated runs.
-	pts2 := w.GenerateCoverPoints(opts)
+	pts2 := cover3d.FromWorld(w, opts)
 	if !slices.EqualFunc(pts, pts2, func(a, b ai.CoverPoint) bool {
 		return a.ID == b.ID && a.Pos == b.Pos && a.Facing == b.Facing && a.Height == b.Height && a.Elevation == b.Elevation && slices.Equal(a.Tags, b.Tags)
 	}) {
-		t.Fatal("GenerateCoverPoints output was not deterministic across repeated calls")
+		t.Fatal("FromWorld output was not deterministic across repeated calls")
 	}
 
 	// Verify cover points around the crate integrate directly with ai.TacticalQuery on the XZ plane.
@@ -138,5 +139,25 @@ func TestGenerateCoverPoints3D(t *testing.T) {
 	}
 	if best.Pos.Y >= 0 || best.Facing.Y < 0.9 {
 		t.Fatalf("expected cover on -Z side facing +Z, got pos=%v facing=%v", best.Pos, best.Facing)
+	}
+}
+
+// Static compound bodies expand into their non-trigger children.
+func TestFromWorldCompound(t *testing.T) {
+	w := physics3d.NewWorld()
+	barricade := physics3d.CompoundShape(
+		physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 1.5, Y: 0.9, Z: 0.25}}), Offset: physics3d.Vec3{Y: 0.9}},
+		physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.25, Y: 0.9, Z: 1.5}}), Offset: physics3d.Vec3{X: 1.5, Y: 0.9, Z: 1.5}},
+		physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 2, Y: 2, Z: 2}}), Offset: physics3d.Vec3{X: 10, Y: 2}, Trigger: true},
+	)
+	w.AddBody(physics3d.NewStaticBody(barricade, physics3d.Vec3{}))
+	pts := cover3d.FromWorld(w, cover3d.Options{})
+	if len(pts) == 0 {
+		t.Fatal("expected cover points generated from static compound barricade")
+	}
+	for _, pt := range pts {
+		if pt.Pos.X > 6 {
+			t.Fatalf("trigger child should not generate cover points, got %+v", pt)
+		}
 	}
 }

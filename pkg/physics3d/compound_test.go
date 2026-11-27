@@ -668,26 +668,6 @@ func TestCompoundStaticCollidersCCDAndAreas(t *testing.T) {
 			t.Fatalf("buoyant compound raft should float near surface Y=0, got Y=%v", raft.Pos.Y)
 		}
 	}
-
-	// 4. Cover generation expands static compound bodies into non-trigger children.
-	{
-		w := physics3d.NewWorld()
-		barricade := physics3d.CompoundShape(
-			physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 1.5, Y: 0.9, Z: 0.25}}), Offset: physics3d.Vec3{Y: 0.9}},
-			physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.25, Y: 0.9, Z: 1.5}}), Offset: physics3d.Vec3{X: 1.5, Y: 0.9, Z: 1.5}},
-			physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 2, Y: 2, Z: 2}}), Offset: physics3d.Vec3{X: 10, Y: 2}, Trigger: true},
-		)
-		w.AddBody(physics3d.NewStaticBody(barricade, physics3d.Vec3{}))
-		pts := w.GenerateCoverPoints(physics3d.CoverOptions{})
-		if len(pts) == 0 {
-			t.Fatal("expected cover points generated from static compound barricade")
-		}
-		for _, pt := range pts {
-			if pt.Pos.X > 6 {
-				t.Fatalf("trigger child should not generate cover points, got %+v", pt)
-			}
-		}
-	}
 }
 
 func TestCompoundEdgeCases(t *testing.T) {

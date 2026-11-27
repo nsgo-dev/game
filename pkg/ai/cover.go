@@ -55,9 +55,7 @@ func defaultCoverHeight(h CoverHeight) CoverHeight {
 
 // CoverPoint is a tactical cover position beside an obstacle.
 //
-// Facing is a unit vector pointing from Pos into the cover obstacle — the incoming
-// threat direction that this cover blocks (the obstacle's outward surface normal is
-// Facing.Neg()). Elevation stores the optional 3D floor height (0 in 2D worlds).
+// Facing is a unit vector pointing from Pos into the cover obstacle — the incoming threat direction that this cover blocks (the obstacle's outward surface normal is Facing.Neg()). Elevation stores the optional 3D floor height (0 in 2D worlds); game/pkg/ai/cover3d generates 3D cover points on the XZ plane from a physics3d world.
 type CoverPoint struct {
 	// ID uniquely identifies this cover point for reservations and deterministic tie-breaking.
 	// Generators assign sequential non-zero IDs starting from StartID (default 1).

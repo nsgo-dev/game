@@ -55,6 +55,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | 房间地图：每个房间独立的相机边界，以及房间之间的切换、滑动或淡入淡出过渡 |
 | `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | 转向行为、ORCA 避障、行为树、效用 AI、GOAP、战术查询与感知 |
 | `ai/perception3d` | `github.com/nsgo-dev/game/pkg/ai/perception3d` | [ai](ai.md#3d) | 面向 3D 智能体的 `ai` 感知，基于 `math3d.Vec3`，用 `physics3d` 判定视线 |
+| `ai/cover3d` | `github.com/nsgo-dev/game/pkg/ai/cover3d` | [ai](ai.md#掩体点与自动生成) | 由 `physics3d` 世界的碰撞体在 XZ 平面上生成的 `ai` 掩体点 |
 | `pathfind` | `github.com/nsgo-dev/game/pkg/pathfind` | [pathfind](pathfind.md) | 网格 `AStar`、HPA*、JPS、图与航点搜索、带 `NavAgent` 的 2D `NavMesh`、分块网格与限额寻路队列 |
 | `pathfind/navbake` | `github.com/nsgo-dev/game/pkg/pathfind/navbake` | [navbake](navbake.md) | 按代理半径从凹障碍物或 tilemap 的实心格烘焙 `pathfind.NavMesh` 多边形，保存为带版本的 YAML，并提供调试叠加绘制 |
 | `rts` | `github.com/nsgo-dev/game/pkg/rts` | [rts](rts.md) | 流场、带分离的大规模单位群 `Crowd`、YAML 阵型、框选/点选与编队 |
