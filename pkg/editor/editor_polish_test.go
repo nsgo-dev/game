@@ -281,6 +281,7 @@ func TestFirstRunConnectStepWrapsInsideCard(t *testing.T) {
 			t.Fatalf("StartWithAI: %v", err)
 		}
 	})
+	ed.WaitForFirstRunConnect()
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)

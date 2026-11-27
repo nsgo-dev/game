@@ -279,10 +279,11 @@ func planPropose(ctx context.Context, c *Call) (*Result, error) {
 	}
 
 	var (
-		staged     *editor.AgentPlan
-		decisionCh <-chan editor.AgentPlanDecision
-		summary    string
-		youOnlyErr *YouOnlyError
+		staged           *editor.AgentPlan
+		decisionCh       <-chan editor.AgentPlanDecision
+		summary          string
+		youOnlyErr       *YouOnlyError
+		firstRunPlanning bool
 	)
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		checkPath := func(raw string) *YouOnlyError {
@@ -327,6 +328,10 @@ func planPropose(ctx context.Context, c *Call) (*Result, error) {
 			return err
 		}
 		summary = ed.PlanSummaryLine()
+		if ed.IsFirstRunPlanning() {
+			ed.CaptureFirstRunAgentPlan(staged)
+			firstRunPlanning = true
+		}
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("plan_propose: %w", err)
@@ -339,7 +344,7 @@ func planPropose(ctx context.Context, c *Call) (*Result, error) {
 	if args.Wait != nil {
 		wait = *args.Wait
 	}
-	if c.onEditor {
+	if c.onEditor || firstRunPlanning {
 		wait = false
 	}
 

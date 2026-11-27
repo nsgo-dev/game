@@ -1468,7 +1468,7 @@ func (e *Editor) DismissAgentTurnReview(turnID string) error {
 // NotifyAutomationFileChanged fires any enabled file_changed automations whose glob matches relPath.
 // Returns the number of background automation tasks started.
 func (e *Editor) NotifyAutomationFileChanged(relPath string) int {
-	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
+	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() || e.FirstRunFullScreenOpen() {
 		return 0
 	}
 	rel := e.normalizeAutomationRelPath(relPath)
@@ -1498,7 +1498,7 @@ func (e *Editor) NotifyAutomationReviewKept(relPath string) int {
 }
 
 func (e *Editor) triggerReviewKeptAutomations(relPath, skipAutomationID string) int {
-	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
+	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() || e.FirstRunFullScreenOpen() {
 		return 0
 	}
 	rel := e.normalizeAutomationRelPath(relPath)
@@ -1528,7 +1528,7 @@ func (e *Editor) triggerReviewKeptAutomations(relPath, skipAutomationID string) 
 // NotifyAutomationFileAdded fires any enabled file_added automations matching relPath's kind (and optional glob).
 // Returns the number of background automation tasks started.
 func (e *Editor) NotifyAutomationFileAdded(relPath string) int {
-	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
+	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() || e.FirstRunFullScreenOpen() {
 		return 0
 	}
 	rel := e.normalizeAutomationRelPath(relPath)
@@ -1558,7 +1558,7 @@ func (e *Editor) NotifyAutomationFileAdded(relPath string) int {
 // TriggerBeforeExportAutomations fires any enabled before_export automations matching platforms (or all when none specified).
 // Returns the number of background automation tasks started.
 func (e *Editor) TriggerBeforeExportAutomations(platforms ...string) int {
-	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
+	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() || e.FirstRunFullScreenOpen() {
 		return 0
 	}
 	rules := e.Automations().Automations
@@ -1591,7 +1591,7 @@ func (e *Editor) TriggerBeforeExportAutomations(platforms ...string) int {
 // and starts any whose scheduled HH:MM has been reached today and has not yet run today.
 // Returns the number of background automation tasks started.
 func (e *Editor) StepAutomations() int {
-	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
+	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() || e.FirstRunFullScreenOpen() {
 		return 0
 	}
 	rules := e.Automations().Automations

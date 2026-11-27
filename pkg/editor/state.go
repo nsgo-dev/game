@@ -29,6 +29,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/replay"
@@ -633,6 +634,8 @@ type Editor struct {
 	FirstRunPlanner func(ctx context.Context, req FirstRunPlanRequest) (*FirstRunPlan, error)
 	// FirstRunBuilder overrides executing the approved first-run plan after the project folder is created.
 	FirstRunBuilder func(ctx context.Context, req FirstRunBuildRequest, emit func(FirstRunBuildEvent)) (*FirstRunBuildResult, error)
+	// FirstRunPlaytest overrides running the headless playtest stage during Start with AI Building when the project has playtest.yaml.
+	FirstRunPlaytest func(ctx context.Context, projectDir string) (*playtest.Report, error)
 	// FirstRunConnectTimeout bounds the Start with AI agent handshake before showing the no-answer checklist (defaults to 30s when <= 0).
 	FirstRunConnectTimeout time.Duration
 	// OnFocusWindow, when set, is called when clicking a system notification brings the editor window to the front.

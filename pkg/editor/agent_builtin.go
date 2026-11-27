@@ -897,6 +897,9 @@ func (e *Editor) newBuiltInAgentRunner() (*builtInAgentRunner, error) {
 				return "", gerr
 			}
 			if !ok || strings.TrimSpace(val) == "" {
+				if mem := strings.TrimSpace(e.FirstRunAPIKey()); mem != "" {
+					return mem, nil
+				}
 				return "", ErrAgentAPIKeyMissing
 			}
 			return strings.TrimSpace(val), nil
@@ -907,11 +910,17 @@ func (e *Editor) newBuiltInAgentRunner() (*builtInAgentRunner, error) {
 			val, gerr := kc.Get(AgentKeychainServiceName, DefaultAgentAPIKeyAccount)
 			if gerr != nil {
 				if errors.Is(gerr, ErrCredentialNotFound) {
+					if mem := strings.TrimSpace(e.FirstRunAPIKey()); mem != "" {
+						return mem, nil
+					}
 					return "", ErrAgentAPIKeyMissing
 				}
 				return "", gerr
 			}
 			if strings.TrimSpace(val) == "" {
+				if mem := strings.TrimSpace(e.FirstRunAPIKey()); mem != "" {
+					return mem, nil
+				}
 				return "", ErrAgentAPIKeyMissing
 			}
 			return strings.TrimSpace(val), nil

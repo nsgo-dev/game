@@ -7,13 +7,16 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/editormcp"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// TestFirstRunMacOSScreenshots renders all five stages of FirstRun.dc.html on the real native macOS host
-// (Start with WHAT HAPPENS NEXT, Connect in place, First Plan with read-only template preview & ghosts,
-// Building with 5-stage bar & counts, and First Review with plan deviations & tip callout).
+// TestFirstRunMacOSScreenshots renders all five stages of Start with AI on the real native macOS host
+// driven by a scripted agent over the real editormcp.Server (Start with WHAT HAPPENS NEXT, Connect in place
+// with real MCP tool count, First Plan from the agent, Building with live object counts, and First Review
+// listing the exact written scene objects with tip 1 of 3).
 func TestFirstRunMacOSScreenshots(t *testing.T) {
 	parentDir := t.TempDir()
 	settingsFile := filepath.Join(t.TempDir(), "editor.yaml")
@@ -32,8 +35,8 @@ func TestFirstRunMacOSScreenshots(t *testing.T) {
 		{Name: "racing3d", Title: "3D racer", Summary: "Laps, ghosts, AI drivers", Dimension: "3d"},
 	})
 	ed.SetStartProjectParentDir(parentDir)
-	ed.SetStartProjectName("dungeon-run")
-	ed.SetStartProjectIdea("A short dungeon platformer: a knight jumps on slimes, collects coins and pulls a lever to open the exit.")
+	ed.SetStartProjectName("beach-karts")
+	ed.SetStartProjectIdea("A kart racer on a sunny beach with boost pads, palm trees and a finish arch.")
 	ed.SetStartScreenOpen(true)
 
 	ed.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
@@ -43,100 +46,117 @@ func TestFirstRunMacOSScreenshots(t *testing.T) {
 			{Kind: "apikey", Name: "An API key", Description: "The editor calls the model itself", Detected: true},
 		}
 	}
-	ed.FirstRunConnectAgent = func(_ context.Context, _, _ string) (int, error) {
-		return 18, nil
-	}
 
 	stage2Ready := make(chan struct{})
 	releaseBuild := make(chan struct{})
-	ed.FirstRunBuilder = func(ctx context.Context, req editor.FirstRunBuildRequest, emit func(editor.FirstRunBuildEvent)) (*editor.FirstRunBuildResult, error) {
-		emit(editor.FirstRunBuildEvent{
-			StageIndex:  1,
-			StageStatus: editor.FirstRunBuildStageDone,
-			LogTitle:    "Created " + req.Plan.DisplayPath,
-			LogSubtitle: "14 files from the template",
-		})
-		emit(editor.FirstRunBuildEvent{
-			StageIndex:   2,
-			StageStatus:  editor.FirstRunBuildStageActive,
-			LogTitle:     "Building level_01",
-			LogSubtitle:  "19 of 31 objects",
-			ObjectsDone:  19,
-			ObjectsTotal: 31,
-			PlacingLabel: "placing slime_03",
-			PlacedShapes: []editor.FirstRunPreviewShape{
-				{ID: "f", Kind: "floor", X: 16, Y: 248, W: 340, H: 40, Outline: "added"},
-				{ID: "k", Kind: "knight", X: 54, Y: 218, W: 16, H: 30, Outline: "added"},
-				{ID: "s1", Kind: "slime", X: 94, Y: 234, W: 22, H: 14, Outline: "added"},
-				{ID: "s2", Kind: "slime", X: 152, Y: 234, W: 22, H: 14, Outline: "added"},
-				{ID: "s3", Kind: "slime", X: 214, Y: 234, W: 22, H: 14, Outline: "agent"},
-				{ID: "c1", Kind: "coin", X: 140, Y: 164, W: 9, H: 9, Outline: "added"},
-				{ID: "c2", Kind: "coin", X: 156, Y: 164, W: 9, H: 9, Outline: "added"},
-			},
-		})
-		close(stage2Ready)
-		select {
-		case <-releaseBuild:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		return &editor.FirstRunBuildResult{
-			SceneRelPath:   "scenes/level_01.scene.yaml",
-			PlanStepsDone:  3,
-			PlanStepsTotal: 3,
-			Deviations:     []editor.FirstRunPlanDeviation{{Summary: "11 coins, not 12: one sat inside a wall"}},
-			Changes: []editor.FirstRunReviewChange{
-				{ID: "tpl", Sign: "+", Title: "Template files", Detail: "game.yaml, prefabs, logic · 14"},
-				{ID: "tiles", Sign: "+", Title: "World tiles", Detail: "3 rooms · 612 tiles"},
-				{ID: "knight", Sign: "+", Title: "Knight", Detail: "player · spawn x 64"},
-				{ID: "slimes", Sign: "+", Title: "slime_01 … 04", Detail: "patrol · stomp to defeat"},
-				{ID: "coins", Sign: "+", Title: "coin_01 … 11", Detail: "pickup · value 1"},
-				{ID: "lever", Sign: "+", Title: "lever_01, door_exit", Detail: "pull to open the exit"},
-			},
-			Shapes: []editor.FirstRunPreviewShape{
-				{ID: "sh-floor", ChangeID: "tiles", Kind: "floor", X: 16, Y: 248, W: 340, H: 40, Outline: "added"},
-				{ID: "sh-plat", ChangeID: "tiles", Kind: "platform", X: 128, Y: 184, W: 76, H: 10},
-				{ID: "sh-knight", ChangeID: "knight", Kind: "knight", X: 54, Y: 218, W: 16, H: 30, Outline: "added"},
-				{ID: "sh-slime1", ChangeID: "slimes", Kind: "slime", X: 94, Y: 234, W: 22, H: 14, Outline: "added"},
-				{ID: "sh-slime2", ChangeID: "slimes", Kind: "slime", X: 152, Y: 234, W: 22, H: 14, Outline: "added"},
-				{ID: "sh-slime3", ChangeID: "slimes", Kind: "slime", X: 214, Y: 234, W: 22, H: 14, Outline: "added"},
-				{ID: "sh-coin1", ChangeID: "coins", Kind: "coin", X: 140, Y: 164, W: 9, H: 9, Outline: "added"},
-				{ID: "sh-coin2", ChangeID: "coins", Kind: "coin", X: 156, Y: 164, W: 9, H: 9, Outline: "added"},
-				{ID: "sh-lever", ChangeID: "lever", Kind: "lever", X: 254, Y: 232, W: 6, H: 16, Outline: "added"},
-				{ID: "sh-door", ChangeID: "lever", Kind: "door", X: 318, Y: 208, W: 18, H: 40, Outline: "added"},
-			},
-		}, nil
-	}
+	var app *nsgotest.App
 
-	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		switch {
+		case req.ScenePath == "" && req.ProjectRoot == "":
+			if req.Task == "" {
+				// Connect readiness probe.
+				emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "READY"})
+				emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+				return nil
+			}
+			// Planning request.
+			emit(editor.AgentEvent{
+				Kind: editor.AgentEventMessage,
+				Text: `{
+					"template": "racing3d",
+					"sceneName": "beach_circuit",
+					"estimatedFiles": 3,
+					"estimatedObjects": 4,
+					"estimatedMinutes": 2,
+					"question": {
+						"prompt": "How should beach boost pads work?",
+						"options": [
+							{"id": "pad", "label": "Speed pads on sand", "note": "Suggested", "suggested": true},
+							{"id": "drift", "label": "Drift charge", "note": "Skill-based boost"}
+						]
+					},
+					"steps": [
+						{"number": 1, "title": "Create beach-karts from 3D racer", "filesLabel": "game.yaml"},
+						{"number": 2, "title": "Build beach_circuit: player kart, 2 palm trees, boost pad and finish arch", "filesLabel": "beach_circuit · 4 objects"},
+						{"number": 3, "title": "Run project check", "filesLabel": "no files"}
+					],
+					"ghosts": [
+						{"id": "track-loop", "step": 2, "label": "beach circuit", "kind": "room", "x": 52, "y": 132, "w": 244, "h": 146}
+					]
+				}`,
+			})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		default:
+			// Build request: place first two objects, pause for building screenshot, then finish.
+			addObj := func(obj sceneformat.ObjectDoc) {
+				done := make(chan struct{})
+				app.Post(func() {
+					_, _ = ed.PlaceObject("actors", obj)
+					close(done)
+				})
+				<-done
+			}
+			addObj(sceneformat.ObjectDoc{ID: "kart_player", Name: "Player Kart", X: 96, Y: 220})
+			addObj(sceneformat.ObjectDoc{ID: "palm_tree_01", Name: "Palm Tree", X: 220, Y: 140})
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepTitle: "Place beach circuit actors", StepStatus: editor.AgentStepRunning})
+			close(stage2Ready)
+			select {
+			case <-releaseBuild:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			addObj(sceneformat.ObjectDoc{ID: "boost_pad_01", Name: "Boost Pad", X: 360, Y: 220})
+			addObj(sceneformat.ObjectDoc{ID: "finish_arch", Name: "Finish Arch", X: 520, Y: 190})
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepTitle: "Place beach circuit actors", StepStatus: editor.AgentStepDone})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		}
+	})
+
+	app = nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}))
+
+	s := editormcp.New(ed, editormcp.Options{Run: app.Post})
+	t.Cleanup(func() { _ = s.Close() })
 
 	// 1. Start screen with Start with AI and WHAT HAPPENS NEXT.
 	app.Screenshot("first-run-1-start")
 
-	// 2. Connect in place on Start screen.
+	// 2. Connect in place on Start screen (real MCP tool count).
 	app.Press("id:start-ai-btn")
-	app.WaitUntil(2*time.Second, func() bool {
+	app.WaitUntil(3*time.Second, func() bool {
 		return ed.FirstRunConnectStatus() == editor.FirstRunConnectConnected
 	})
 	app.Settle()
 	app.Screenshot("first-run-2-connect")
 
-	// 3. The first plan (read-only template preview + ghosts + clarifying question).
+	// 3. The first plan (read-only template preview + agent ghosts + clarifying question).
 	app.Press("id:first-run-connect-done")
+	app.WaitUntil(3*time.Second, func() bool {
+		return !ed.FirstRunPlanLoading() && ed.FirstRunPlan() != nil
+	})
 	app.Settle()
 	app.Screenshot("first-run-3-plan")
 
-	// 4. Building (5-stage bar + counts + live placing pill).
+	// 4. Building (5-stage bar + real object counts + live placing pill).
 	app.Press("id:first-run-plan-just-do-it")
-	<-stage2Ready
+	app.WaitUntil(5*time.Second, func() bool {
+		select {
+		case <-stage2Ready:
+			return true
+		default:
+			return false
+		}
+	})
 	app.Settle()
 	app.Screenshot("first-run-4-building")
 
-	// 5. The first review (plan summary + amber deviation + tip 1 of 3).
+	// 5. The first review (exact written scene objects + tip 1 of 3).
 	close(releaseBuild)
-	app.WaitUntil(3*time.Second, func() bool {
+	app.WaitUntil(5*time.Second, func() bool {
 		return ed.FirstRunStage() == editor.FirstRunStageReview
 	})
 	app.Settle()
