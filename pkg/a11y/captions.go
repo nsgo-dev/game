@@ -70,6 +70,10 @@ type Caption struct {
 // Format renders c as human- and screen-reader-friendly text with speaker and
 // directional stereo indicators ([<] for left, [>] for right).
 func (c Caption) Format() string {
+	return c.formatWith(defaultCaptionImportantPrefix, defaultCaptionMusicPrefix)
+}
+
+func (c Caption) formatWith(importantPrefix, musicPrefix string) string {
 	var body string
 	switch {
 	case c.Speaker != "":
@@ -81,9 +85,9 @@ func (c Caption) Format() string {
 			body = "[" + c.Text + "]"
 		}
 	case c.Kind == CaptionMusic:
-		body = "♪ " + c.Text
+		body = musicPrefix + c.Text
 	case c.Kind == CaptionImportant:
-		body = "! " + c.Text
+		body = importantPrefix + c.Text
 	default:
 		body = c.Text
 	}
@@ -291,10 +295,33 @@ type CaptionStyle struct {
 	// Assist, when non-nil, automatically scales caption text, respects
 	// HighContrast, and filters captions by CaptionsEnabled/SFXCaptionsEnabled.
 	Assist *Assist
+	// RegionLabel overrides the accessible label of the captions live region
+	// (default "Captions").
+	RegionLabel string
+	// ImportantPrefix overrides the prefix prepended to speakerless
+	// CaptionImportant cues (default "! ").
+	ImportantPrefix string
+	// MusicPrefix overrides the prefix prepended to speakerless CaptionMusic
+	// cues (default "♪ ").
+	MusicPrefix string
 	// TestID overrides the root view's TestID (default "a11y-captions").
 	TestID string
 	// Style merges additional layout/positioning style onto the container.
 	Style core.Style
+}
+
+// FormatCaption renders c using s's ImportantPrefix and MusicPrefix, falling
+// back to "! " and "♪ " when unset.
+func (s CaptionStyle) FormatCaption(c Caption) string {
+	imp := s.ImportantPrefix
+	if imp == "" {
+		imp = defaultCaptionImportantPrefix
+	}
+	mus := s.MusicPrefix
+	if mus == "" {
+		mus = defaultCaptionMusicPrefix
+	}
+	return c.formatWith(imp, mus)
 }
 
 // CaptionsView renders high-contrast live captions from track as native NSGo
@@ -373,10 +400,15 @@ func CaptionsView(cx *core.Scope, track *CaptionTrack, opts CaptionStyle) core.N
 	}
 	containerStyle = containerStyle.Merge(opts.Style)
 
+	regionLabel := opts.RegionLabel
+	if regionLabel == "" {
+		regionLabel = defaultCaptionRegionLabel
+	}
+
 	return core.View{
 		TestID:        testID,
 		Role:          core.RoleRegion,
-		Label:         "Captions",
+		Label:         regionLabel,
 		LiveRegion:    core.LiveRegionPolite,
 		PointerEvents: core.PointerEventsNone,
 		Style:         containerStyle,
@@ -452,7 +484,7 @@ func CaptionsView(cx *core.Scope, track *CaptionTrack, opts CaptionStyle) core.N
 					StyleFunc:  rowStyle,
 					Children: []core.Node{
 						core.Text{
-							ContentFunc: func() string { return item().Format() },
+							ContentFunc: func() string { return opts.FormatCaption(item()) },
 							LiveRegion:  live,
 							StyleFunc:   textStyle,
 						},

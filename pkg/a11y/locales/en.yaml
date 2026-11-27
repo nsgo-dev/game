@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: en
+strings:
+  a11y.captions.importantPrefix: '! '
+  a11y.captions.musicPrefix: '♪ '
+  a11y.captions.regionLabel: Captions
+  a11y.menu.checked: checked
+  a11y.menu.closed: '{label} closed'
+  a11y.menu.defaultLabel: Menu
+  a11y.menu.off: "Off"
+  a11y.menu.on: "On"
+  a11y.menu.opened: '{label} opened, {items}'
+  a11y.menu.openedWithItem: '{label} opened, {items}. {item}'
+  a11y.menu.position: '{item}, {index} of {count}'
+  a11y.menu.selected: '{label} selected'
+  a11y.menu.separator: ', '
+  a11y.menu.unchecked: unchecked
+plurals:
+  a11y.menu.items:
+    one: '{count} item'
+    other: '{count} items'
