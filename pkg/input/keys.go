@@ -37,6 +37,7 @@ func (a *Actions) OnKeyDown(ev core.KeyEvent) bool {
 	if ev.Repeat || (ev.Key == "" && ev.Code == "") {
 		return bound
 	}
+	a.unblockMixer()
 	if a.keysDown == nil {
 		a.keysDown = make(map[string]heldKey)
 	}
@@ -88,6 +89,9 @@ func (a *Actions) setWatchedKeys(keys, codes []string) {
 	var keysChanged, codesChanged bool
 	a.ignoredKeys, a.watchedKeys, keysChanged = splitHeld(keys, a.ignoredKeys, a.watchedKeys)
 	a.ignoredCodes, a.watchedCodes, codesChanged = splitHeld(codes, a.ignoredCodes, a.watchedCodes)
+	if len(a.watchedKeys) > 0 || len(a.watchedCodes) > 0 {
+		a.unblockMixer()
+	}
 	if a.syncRaw() || keysChanged || codesChanged {
 		a.wake()
 	}

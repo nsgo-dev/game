@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 )
@@ -74,6 +75,8 @@ type Actions struct {
 	MapPoint func(core.Point) (core.Point, bool)
 	// Wake, when set (for example to loop.MarkDirty on an OnDemand game.Loop), is called whenever input arrives so an idle loop wakes to run a Step and draw the result.
 	Wake func()
+	// Mixer, when set, has its Unblock called on a press, touch or key press a sees, retrying any music tracks blocked by browser autoplay policies (audio.NotAllowed) until NSGo signals audio unlock directly (nsgo-dev/nsgo#2675).
+	Mixer *sound.Mixer
 
 	bindings          map[string][]Input
 	unboundActions    map[string]bool
@@ -582,8 +585,18 @@ func (a *Actions) Axis(name string) float64 {
 	return 0
 }
 
+// unblockMixer retries any autoplay-blocked music tracks on a.Mixer when a user gesture reaches a.
+func (a *Actions) unblockMixer() {
+	if a.Mixer != nil {
+		a.Mixer.Unblock()
+	}
+}
+
 // OnTouch records a touch event from a view's OnTouch callback.
 func (a *Actions) OnTouch(ev core.TouchEvent) {
+	if ev.Phase == core.TouchStart || ev.Phase == core.TouchEnd {
+		a.unblockMixer()
+	}
 	switch ev.Phase {
 	case core.TouchStart, core.TouchMove:
 		if len(ev.Touches) > 0 && a.touches == nil {
@@ -628,6 +641,7 @@ func (a *Actions) OnTouch(ev core.TouchEvent) {
 
 // OnPressDown records a primary pointer press from a view's OnPressDown callback. Keyboard presses and presses synthesized while a touch finger is active are ignored so touches only trigger TouchRegion bindings.
 func (a *Actions) OnPressDown(ev core.PressEvent) {
+	a.unblockMixer()
 	if ev.Keyboard || len(a.touches) > 0 {
 		return
 	}
@@ -683,6 +697,7 @@ func (a *Actions) OnMouseLeave(ev core.MouseEvent) {
 
 // OnContextMenu records a secondary (right) click from a view's OnContextMenu callback as a single-step pulse of core.MouseButtonRight at ev.Position.
 func (a *Actions) OnContextMenu(ev core.ContextMenuEvent) {
+	a.unblockMixer()
 	a.mousePos = ev.Position
 	a.hasMousePos = true
 	a.rightPulse = true

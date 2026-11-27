@@ -928,3 +928,66 @@ func TestNoGPUFallbackShowsMessageAndAllowsSwitchingTo2D(t *testing.T) {
 		t.Fatalf("expected 1 active 2D map canvas under NoGPU, got %d canvases", len(canvases))
 	}
 }
+
+func TestAmbientMusicUnblocksAfterFirstWebClick(t *testing.T) {
+	cases := []struct {
+		name  string
+		click func(app *nsgotest.App)
+	}{
+		{
+			name: "3d-viewport-click",
+			click: func(app *nsgotest.App) {
+				pt := core.Point{X: 220, Y: 170}
+				app.MouseDownAt("id:lantern-root", pt, core.MouseButtonLeft)
+				app.MouseUpAt("id:lantern-root", pt, core.MouseButtonLeft)
+			},
+		},
+		{
+			name:  "stage-press",
+			click: func(app *nsgotest.App) { app.Press("id:lantern-stage") },
+		},
+		{
+			name:  "hud-button",
+			click: func(app *nsgotest.App) { app.Press("id:btn-orbit") },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var c *Controller
+			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				var node core.Node
+				c, node = NewView(cx)
+				return node
+			},
+				nsgotest.Size(480, 320),
+				nsgotest.ManualFrames(),
+				withTestAudio(t),
+				func(a *nsgotest.App) {
+					nsgotest.Environment(core.Environment{OS: core.OSWeb, Audio: true})(a)
+					a.RefusePlayback = true
+				},
+			)
+
+			app.Settle()
+			if len(app.Players) != 1 {
+				t.Fatalf("expected 1 ambient player, got %d", len(app.Players))
+			}
+			p := app.Players[0]
+			if p.Playing || p.Closed || !c.Audio.Music.Blocked() {
+				t.Fatalf("before first click: playing=%v closed=%v blocked=%v; want false, false, true", p.Playing, p.Closed, c.Audio.Music.Blocked())
+			}
+
+			app.RefusePlayback = false
+			tc.click(app)
+			app.Settle()
+
+			if c.Audio.Music.Blocked() {
+				t.Fatal("ambient music stayed blocked after first click")
+			}
+			if !p.Playing || p.Closed || !p.Loop || math.Abs(float64(p.Volume-0.45)) > 1e-3 {
+				t.Fatalf("after %s: playing=%v closed=%v loop=%v vol=%v; want playing looping at 0.45", tc.name, p.Playing, p.Closed, p.Loop, p.Volume)
+			}
+		})
+	}
+}

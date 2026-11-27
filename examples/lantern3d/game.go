@@ -118,6 +118,7 @@ func newView(cx *core.Scope, initialMode SceneMode) (*Controller, core.Node) {
 	}
 
 	actions := newSharedActions(cx)
+	actions.Mixer = aud.Mixer
 	mgr := scene.NewManager(cx)
 	mgr.Actions = actions
 
@@ -512,6 +513,7 @@ func (c *Controller) ResetCurrentView() {
 }
 
 func (c *Controller) onMouseDown(ev core.MouseButtonEvent) {
+	c.Audio.Unblock()
 	if ev.Button != core.MouseButtonLeft {
 		return
 	}
@@ -554,6 +556,9 @@ func (c *Controller) onWheel(ev core.WheelEvent) {
 
 // onTouch orbits the camera while exactly one finger is down; two or more fingers belong to the pinch, which onPinch follows.
 func (c *Controller) onTouch(ev core.TouchEvent) {
+	if ev.Phase == core.TouchStart || ev.Phase == core.TouchEnd {
+		c.Audio.Unblock()
+	}
 	switch ev.Phase {
 	case core.TouchStart:
 		for _, t := range ev.Touches {

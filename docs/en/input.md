@@ -69,6 +69,7 @@ You can also forward individual callbacks manually via `OnTouch`, `OnPressDown`,
 - `OnPressDown` ignores keyboard presses and synthetic presses fired while a touch finger is active so touches only trigger `TouchRegion` bindings.
 - `OnContextMenu` records a right click as a single-step pulse of `core.MouseButtonRight` at `ev.Position`.
 - `OnMouseLeave` releases held mouse buttons when the pointer exits the view.
+- Set `actions.Mixer` to your [`sound.Mixer`](sound.md#web-autoplay-and-gesture-unlock) so any press, touch or key press calls `Mixer.Unblock()` to retry music tracks blocked by browser autoplay policies on the web.
 
 ### Mapping view coordinates to a virtual canvas
 

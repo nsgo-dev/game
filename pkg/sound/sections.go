@@ -69,10 +69,15 @@ func (mu *Music) PlaySections(intro, loop audio.Source, fade time.Duration) {
 	var introTrack, loopTrack *track
 	mu.m.cx.Run(func() {
 		loopTrack = &track{}
-		endLoop := func() { loopTrack.playing, loopTrack.done = false, true }
+		endLoop := func() {
+			loopTrack.playing, loopTrack.blocked, loopTrack.done = false, false, true
+			mu.syncBlocked()
+		}
 		loopTrack.p = audio.NewPlayer(mu.m.cx, loop, audio.PlayerOptions{
-			OnEnd:   endLoop,
-			OnError: func(error) { endLoop() },
+			OnEnd: endLoop,
+			OnError: func(err error) {
+				mu.handleError(loopTrack, err, false)
+			},
 		})
 
 		introTrack = &track{next: loopTrack}
@@ -92,18 +97,17 @@ func (mu *Music) PlaySections(intro, loop audio.Source, fade time.Duration) {
 				mu.scheduleHandoff(introTrack, introTrack.p.Position(), introTrack.p.Duration())
 			},
 			OnEnd: func() {
-				introTrack.playing, introTrack.done = false, true
+				introTrack.playing, introTrack.blocked, introTrack.done = false, false, true
 				introTrack.cancelHandoff()
 				if introTrack.next != nil {
 					mu.handoff(introTrack)
 				} else {
 					mu.finishPrev(introTrack)
+					mu.syncBlocked()
 				}
 			},
-			OnError: func(error) {
-				introTrack.playing, introTrack.done = false, true
-				introTrack.cancelNext()
-				mu.finishPrev(introTrack)
+			OnError: func(err error) {
+				mu.handleError(introTrack, err, true)
 			},
 		})
 	})
@@ -116,11 +120,16 @@ func (mu *Music) playSingle(src audio.Source, loop bool, loopStart, fade time.Du
 	var t *track
 	mu.m.cx.Run(func() {
 		t = &track{}
-		end := func() { t.playing, t.done = false, true }
+		end := func() {
+			t.playing, t.blocked, t.done = false, false, true
+			mu.syncBlocked()
+		}
 		t.p = audio.NewPlayer(mu.m.cx, src, audio.PlayerOptions{
 			LoopStart: max(0, loopStart),
 			OnEnd:     end,
-			OnError:   func(error) { end() },
+			OnError: func(err error) {
+				mu.handleError(t, err, false)
+			},
 		})
 	})
 	t.p.SetLoop(loop)
@@ -166,6 +175,7 @@ func (mu *Music) handoff(intro *track) {
 	}
 	next.level = intro.level
 	mu.current = next
+	mu.syncBlocked()
 	if intro.done {
 		intro.p.Close()
 	} else {
