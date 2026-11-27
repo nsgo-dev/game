@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
@@ -35,8 +36,17 @@ func Root(cx *core.Scope) core.Node {
 }
 
 // RenderGame mounts the fixed-step game loop, virtual viewport canvas,
-// touch/mouse/keyboard bindings, native HUD, and dialogue controls for g.
+// touch/keyboard bindings, native HUD, and dialogue controls for g.
 func RenderGame(cx *core.Scope, g *Game) core.Node {
+	g.env = cx.Env()
+	touch, err := input.NewTouchControls(cx, touchLayout)
+	if err != nil {
+		panic(fmt.Sprintf("cryptquest: controls.touch.yaml: %v", err))
+	}
+	touch.BindActions(g.Actions)
+	touch.Haptics = input.NewHaptics(cx)
+	g.Touch = touch
+
 	frameTick := core.NewSignal(cx, uint64(0))
 	hud := core.NewSignal(cx, g.SnapshotHUD())
 	stageRef := &core.Ref{}
@@ -101,6 +111,9 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 		},
 		OnLayout: func(b core.Bounds) {
 			g.ViewSize = b.Size
+			if g.Touch != nil && b.Size.Width > 0 && b.Size.Height > 0 {
+				g.Touch.Resize(b.Size, g.stageSafeArea())
+			}
 		},
 		Style: core.Style{
 			FlexGrow: 1,
@@ -123,6 +136,8 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 		},
 	}
 	g.Actions.Attach(&stage)
+	// After Actions.Attach, so a touch shows the on-screen controls before they hear it.
+	g.Touch.Attach(&stage)
 
 	badge := func(testID string, color core.Color, textFn func() string) core.Node {
 		return core.View{
@@ -162,20 +177,24 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 				TestID: "hud-bar",
 				Style: core.Style{
 					Direction:      core.Row,
+					Wrap:           core.Wrap,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifySpaceBetween,
 					Padding:        core.Edges{Top: 8, Bottom: 8, Left: 12, Right: 12},
+					PaddingEnv:     core.EnvEdges{Top: core.EnvSafeArea, Left: core.EnvSafeArea, Right: core.EnvSafeArea},
 					Background:     panelBg,
 					BorderColor:    borderCol,
 					BorderWidth:    1,
-					Gap:            10,
+					RowGap:         6,
+					ColumnGap:      10,
 				},
 				Children: []core.Node{
 					core.View{
 						Style: core.Style{
 							Direction:  core.Row,
+							Wrap:       core.Wrap,
 							AlignItems: core.AlignCenter,
-							Gap:        8,
+							Gap:        6,
 						},
 						Children: []core.Node{
 							core.Text{
@@ -209,6 +228,7 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 					core.View{
 						Style: core.Style{
 							Direction:  core.Row,
+							Wrap:       core.Wrap,
 							AlignItems: core.AlignCenter,
 							Gap:        6,
 						},
@@ -271,6 +291,13 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 
 			// Game Stage + Native Dialogue Overlay Controls
 			core.View{
+				TestID: "stage-container",
+				OnLayout: func(b core.Bounds) {
+					g.stageFrame = b
+					if g.Touch != nil && b.Size.Width > 0 && b.Size.Height > 0 {
+						g.Touch.Resize(b.Size, g.stageSafeArea())
+					}
+				},
 				Style: core.Style{
 					FlexGrow: 1,
 					Position: core.Relative,
@@ -288,6 +315,7 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 									Left:           core.Pt(16),
 									Right:          core.Pt(16),
 									Bottom:         core.Pt(12),
+									MarginEnv:      core.EnvEdges{Left: core.EnvSafeArea, Right: core.EnvSafeArea},
 									Direction:      core.Row,
 									AlignItems:     core.AlignCenter,
 									JustifyContent: core.JustifySpaceBetween,
@@ -348,11 +376,14 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 
 			// Bottom Status & Controls Bar
 			core.View{
+				TestID: "status-bar",
 				Style: core.Style{
 					Direction:      core.Row,
+					Wrap:           core.Wrap,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifySpaceBetween,
 					Padding:        core.Edges{Top: 6, Bottom: 6, Left: 12, Right: 12},
+					PaddingEnv:     core.EnvEdges{Bottom: core.EnvSafeArea, Left: core.EnvSafeArea, Right: core.EnvSafeArea},
 					Background:     panelBg,
 					BorderColor:    borderCol,
 					BorderWidth:    1,
@@ -367,11 +398,16 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 							Color:    textCol,
 						},
 					},
-					core.Text{
-						Content: "Move: WASD / Arrows / D-Pad  |  E: Interact  |  F: Banish",
-						Style: core.Style{
-							FontSize: 11,
-							Color:    mutedCol,
+					core.Show{
+						When: func() bool { return cx.Env().Idiom() != core.IdiomPhone },
+						Then: func(cx *core.Scope) core.Node {
+							return core.Text{
+								Content: "Move: WASD / Arrows  |  E: Interact  |  F: Banish",
+								Style: core.Style{
+									FontSize: 11,
+									Color:    mutedCol,
+								},
+							}
 						},
 					},
 				},
