@@ -6,6 +6,29 @@
 import "github.com/nsgo-dev/game/pkg/modding"
 ```
 
+## Mods, plugins and packs (#1268)
+
+The engine has three ways to extend a game, and they are not interchangeable:
+
+| | Editor (Go) plugin | Script mod | Library pack |
+| --- | --- | --- | --- |
+| Written in | Go | TSX | YAML and media |
+| Who writes it | the game's developers, third-party tool authors | players | anyone |
+| When it loads | compiled into the editor binary | at run time, with hot reload (`Manager.Reload`) | installed into the project |
+| Trust | full | sandboxed, capability-gated | carries no code |
+| Platforms | all, iOS and the web included | native; the web only with `ManagerOptions.WebUnisolated` | all |
+| Extends the editor | yes | no (today) | turns on built-in plugins only |
+
+An editor plugin is an `editor.Plugin` the editor binary registers with `Editor.RegisterPlugin` and a project turns on by name under `editor.plugins` in `game.yaml`; see [Editor plugins](editor.md#editor-plugins-492). A script mod is a `mod.yaml` manifest plus a TSX entry script that `modding.Manager` runs in a sandbox limited to the capabilities the manifest asks for and the host grants, as this page describes. A library pack is a set of files `library.Install` writes into the project and records in `game.yaml`; see [Asset and Plugin Library](library.md). A pack may not hold Go source or module files (`.go`, `go.mod` and the like are refused), so a plugin pack only turns on editor plugins the editor binary was already built with — it never ships their code.
+
+Which one do you need?
+
+- A new panel, inspector, viewport tool or 3D gizmo in the editor, or component types the editor checks scenes against: an editor plugin — see [Editor plugins](editor.md#editor-plugins-492).
+- Let players change the shipped game, within limits the game sets: a script mod, below.
+- Share sprites, scenes, sounds or a starter template: a library pack — see [Asset and Plugin Library](library.md).
+
+A Go plugin is compiled into the binary rather than loaded at run time because Go has no portable way to load code on every platform — iOS and the web cannot load native code at run time — so a plugin ships inside the editor command it extends.
+
 ## Mod manifest (`mod.yaml`) and capabilities
 
 Each mod lives in its own directory with a `mod.yaml` (`ModManifest`) and an entry script (`mod.tsx` or `mod.js`). The sample mod in [`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) is the manifest and script shown on this page, and the package's tests load it:

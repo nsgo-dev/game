@@ -23,6 +23,7 @@
 | `Rigidbody`、`CharacterController` | `physics3d.World`、`physics3d.CharacterController` | [physics3d](physics3d.md) |
 | Build Settings、Player Settings | `nsgo.yaml` 与 `go tool nsgo build` | [构建与发布](shipping.md) |
 | `PlayerPrefs` | `core.Storage`、`save` 存档槽 | [save](save.md) |
+| `Editor` 文件夹中的编辑器脚本、编辑器扩展包 | 编译进游戏自己的编辑器命令的 `editor.Plugin` | [编辑器插件](editor.md#编辑器插件492) |
 
 ## 场景
 
