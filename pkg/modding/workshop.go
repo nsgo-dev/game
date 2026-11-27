@@ -1035,8 +1035,27 @@ func validateConfinedModDir(folder string, allowedRoots []string) (ModManifest, 
 	if err != nil {
 		return ModManifest{}, "", loaderr.WithFile(err, manifestPath)
 	}
-	if _, err := resolveConfinedFile(realFolder, manifest.Entry); err != nil {
-		return ModManifest{}, "", loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+	if manifest.Entry != "" {
+		if _, err := resolveConfinedFile(realFolder, manifest.Entry); err != nil {
+			return ModManifest{}, "", loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+		}
+	}
+	for _, item := range []struct {
+		key string
+		dir string
+	}{
+		{"assets", manifest.Contributes.Assets},
+		{"scenes", manifest.Contributes.Scenes},
+		{"l10n", manifest.Contributes.L10n},
+		{"datatables", manifest.Contributes.DataTables},
+	} {
+		if item.dir == "" {
+			continue
+		}
+		if err := checkNoEscapingSymlinksInDir(os.DirFS(realFolder), item.dir); err != nil {
+			field := loaderr.Path("contributes", item.key)
+			return ModManifest{}, "", loaderr.Locate(loaderr.Errorf(field, "create this directory in the mod, or correct contributes", "%w: mod %q contributes.%s %q: %v", ErrInvalidManifest, manifest.ID, item.key, item.dir, err), manifestPath, data, "")
+		}
 	}
 	return manifest, realFolder, nil
 }

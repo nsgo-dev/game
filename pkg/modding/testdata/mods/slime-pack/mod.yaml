@@ -1,0 +1,9 @@
+manifestVersion: 2
+id: com.example.slime-pack
+name: Slime Content Pack
+version: 1.0.0
+author: Example Studio
+description: Adds slime textures and localization strings without running script code.
+contributes:
+  assets: assets
+  l10n: locales

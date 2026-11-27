@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
@@ -65,6 +67,8 @@ type ModInfo struct {
 	Error            error
 	Logs             []LogEntry
 	Order            int
+	// Dir is the mod's directory name inside the discovered mods file system.
+	Dir string
 }
 
 // ManagerOptions configures a [Manager].
@@ -77,6 +81,10 @@ type ManagerOptions struct {
 	StorageKey string
 	// GameVersion, when non-empty, checks each discovered mod's manifest.GameVersion constraint.
 	GameVersion string
+	// Platform overrides the host platform checked against a v2 manifest's platforms list
+	// (such as "windows", "macos", "linux", "ios", "android", or "web"). When empty, it
+	// defaults to the current runtime platform (mapping "darwin" to "macos" and "js" to "web").
+	Platform string
 	// Grant, when non-nil, narrows every mod's manifest capabilities to (manifest.Capabilities & *Grant).
 	Grant *Capability
 	// GrantHost, when non-nil, narrows every mod's manifest host capabilities to those listed here.
@@ -98,6 +106,17 @@ type ManagerOptions struct {
 // pageAuthorityTarget reports whether mods run with the page's authority, which is the case in the browser.
 var pageAuthorityTarget = runtime.GOOS == "js"
 
+func runtimePlatform() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "macos"
+	case "js":
+		return "web"
+	default:
+		return runtime.GOOS
+	}
+}
+
 type managedMod struct {
 	manifest     ModManifest
 	fsys         fs.FS
@@ -106,6 +125,7 @@ type managedMod struct {
 	enabled      bool
 	state        ModState
 	err          error
+	discoveryErr error       // non-nil when the mod failed during discovery and cannot be loaded
 	grant        *Capability // optional per-mod grant override
 	hostGrantSet bool
 	hostGrant    []string // optional per-mod host capability grant override
@@ -123,6 +143,8 @@ type Manager struct {
 	opts             ManagerOptions
 	mods             map[string]*managedMod
 	order            []string
+	failed           []*managedMod
+	contentSnap      atomic.Pointer[contentSnapshot]
 	state            map[string]any
 	memStorage       map[string]string
 	spawnSeq         uint64
@@ -170,6 +192,7 @@ func NewManager(cx *core.Scope, opts ManagerOptions) *Manager {
 		hostModules:      modules,
 		hostModuleOrder:  moduleOrder,
 	}
+	m.contentSnap.Store(&contentSnapshot{})
 	cx.Cleanup(m.Close)
 	return m
 }
@@ -177,6 +200,13 @@ func NewManager(cx *core.Scope, opts ManagerOptions) *Manager {
 // HostCapabilities returns a copy of the host capabilities declared in ManagerOptions.Capabilities.
 func (m *Manager) HostCapabilities() []HostCapability {
 	return slices.Clone(m.hostCapsOrder)
+}
+
+func (m *Manager) hostPlatform() string {
+	if p := strings.TrimSpace(m.opts.Platform); p != "" {
+		return p
+	}
+	return runtimePlatform()
 }
 
 // Discover scans immediate subdirectories of dir for mod.yaml manifests, validates them, resolves dependency order, and registers them with the manager.
@@ -206,18 +236,93 @@ func checkGameVersion(host string, manifest ModManifest) error {
 	return nil
 }
 
-// DiscoverFS scans immediate subdirectories of fsys for mod.yaml manifests ([ManifestFile]), validates them, checks GameVersion compatibility and entry file existence, resolves dependency order via topological sort, and registers them with the manager. Subdirectories without a manifest are skipped; one that still has only a mod.json is refused with [ErrInvalidManifest].
+// checkPlatform reports, as a *loaderr.Error about the manifest's platforms list, whether host is supported. A mismatch matches ErrUnsupportedPlatform with errors.Is.
+func checkPlatform(host string, manifest ModManifest) error {
+	if len(manifest.Platforms) == 0 || slices.Contains(manifest.Platforms, host) {
+		return nil
+	}
+	return loaderr.Errorf("platforms", fmt.Sprintf("add %q to platforms or remove the mod on this platform", host), "%w: mod %q does not support platform %q (supports %s)", ErrUnsupportedPlatform, manifest.ID, host, strings.Join(manifest.Platforms, ", "))
+}
+
+// validateModFiles verifies that manifest's entry script (if non-empty) and declared contributes directories exist inside sub, have the right file/directory type, and contain no symlinks escaping sub.
+func validateModFiles(sub fs.FS, manifest ModManifest, manifestPath string, data []byte) error {
+	if manifest.Entry != "" {
+		entryPath := path.Clean(manifest.Entry)
+		if err := checkConfinedPath(sub, entryPath); err != nil {
+			return loaderr.Locate(loaderr.Errorf("entry", "keep entry inside the mod directory without escaping symlinks", "%w: mod %q entry %q: %w", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+		}
+		fi, err := fs.Stat(sub, entryPath)
+		if err != nil {
+			return loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q not found: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+		}
+		if fi.IsDir() {
+			return loaderr.Locate(loaderr.Errorf("entry", "name the mod's script file, not a directory", "%w: mod %q entry %q is a directory", ErrInvalidManifest, manifest.ID, manifest.Entry), manifestPath, data, "")
+		}
+	}
+	for _, item := range []struct {
+		key string
+		dir string
+	}{
+		{"assets", manifest.Contributes.Assets},
+		{"scenes", manifest.Contributes.Scenes},
+		{"l10n", manifest.Contributes.L10n},
+		{"datatables", manifest.Contributes.DataTables},
+	} {
+		if item.dir == "" {
+			continue
+		}
+		if err := checkNoEscapingSymlinksInDir(sub, item.dir); err != nil {
+			field := loaderr.Path("contributes", item.key)
+			if errors.Is(err, ErrUnsafePath) {
+				return loaderr.Locate(loaderr.Errorf(field, "keep contributed files and symlinks inside the mod directory", "%w: mod %q contributes.%s %q: %w", ErrInvalidManifest, manifest.ID, item.key, item.dir, err), manifestPath, data, "")
+			}
+			return loaderr.Locate(loaderr.Errorf(field, "create this directory in the mod, or correct contributes", "%w: mod %q contributes.%s %q: %v", ErrInvalidManifest, manifest.ID, item.key, item.dir, err), manifestPath, data, "")
+		}
+	}
+	return nil
+}
+
+type scannedMod struct {
+	manifest     ModManifest
+	fsys         fs.FS
+	dir          string
+	manifestPath string
+	data         []byte
+}
+
+// DiscoverFS scans immediate subdirectories of fsys for mod.yaml manifests ([ManifestFile]), validates them, checks GameVersion, platform compatibility, entry files, and contributes directories, resolves dependency order via topological sort, and registers them with the manager. Subdirectories without a manifest are skipped; one that still has only a mod.json fails with [ErrInvalidManifest].
 //
-// If validation or dependency resolution fails, existing loaded mods are left untouched.
+// Failures are isolated per mod: a bad manifest, missing entry or contributes directory, unsupported platform, duplicate ID (failing both mods), conflict (failing both mods), unsatisfied or failed dependency, or dependency cycle records that mod as [StateFailed] with its Error on [ModInfo] and continues scanning the rest. Healthy mods are registered and returned in deterministic topological order, and any per-mod failures are returned as a joined error.
+//
+// If the top-level directory itself cannot be read, existing loaded mods are left untouched.
 func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, fmt.Errorf("modding: discover: %w", err)
 	}
 
-	var manifests []ModManifest
-	subFSByID := map[string]fs.FS{}
-	dirByID := map[string]string{}
+	hostPlatform := m.hostPlatform()
+	byIDList := map[string][]*scannedMod{}
+	failedIDs := map[string]bool{}
+	var failedMods []*managedMod
+	var errs []error
+
+	recordFailed := func(dir string, manifest ModManifest, sub fs.FS, failErr error) {
+		failedMods = append(failedMods, &managedMod{
+			manifest:     manifest,
+			fsys:         sub,
+			dir:          dir,
+			order:        -1,
+			enabled:      manifest.ID == "" || m.loadEnabledPref(manifest.ID),
+			state:        StateFailed,
+			err:          failErr,
+			discoveryErr: failErr,
+		})
+		if manifest.ID != "" {
+			failedIDs[manifest.ID] = true
+		}
+		errs = append(errs, failErr)
+	}
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -228,54 +333,213 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 		data, err := fs.ReadFile(fsys, manifestPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				// A directory with only the old JSON manifest is refused rather than skipped, so a mod is never silently left out.
+				// A directory with only the old JSON manifest fails rather than being skipped, so a mod is never silently left out.
 				if _, legacyErr := fs.Stat(fsys, path.Join(dirName, legacyManifestFile)); legacyErr == nil {
-					return nil, fmt.Errorf("%w: %s: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, dirName, ManifestFile)
+					recordFailed(dirName, ModManifest{}, nil, fmt.Errorf("%w: %s: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, dirName, ManifestFile))
 				}
 				continue
 			}
-			return nil, loaderr.Locate(fmt.Errorf("read: %w", err), manifestPath, nil, fixReadManifest)
+			recordFailed(dirName, ModManifest{}, nil, loaderr.Locate(fmt.Errorf("read: %w", err), manifestPath, nil, fixReadManifest))
+			continue
 		}
 		manifest, err := ParseManifest(data)
 		if err != nil {
-			return nil, loaderr.WithFile(err, manifestPath)
+			recordFailed(dirName, ModManifest{}, nil, loaderr.WithFile(err, manifestPath))
+			continue
 		}
 		if m.opts.GameVersion != "" && manifest.GameVersion != "" {
 			if err := checkGameVersion(m.opts.GameVersion, manifest); err != nil {
-				return nil, loaderr.Locate(err, manifestPath, data, "")
+				recordFailed(dirName, manifest, nil, loaderr.Locate(err, manifestPath, data, ""))
+				continue
 			}
+		}
+		if err := checkPlatform(hostPlatform, manifest); err != nil {
+			recordFailed(dirName, manifest, nil, loaderr.Locate(err, manifestPath, data, ""))
+			continue
 		}
 		sub, err := fs.Sub(fsys, dirName)
 		if err != nil {
-			return nil, fmt.Errorf("modding: open mod dir %q: %w", dirName, err)
+			recordFailed(dirName, manifest, nil, fmt.Errorf("modding: open mod dir %q: %w", dirName, err))
+			continue
 		}
-		entryPath := path.Clean(manifest.Entry)
-		fi, err := fs.Stat(sub, entryPath)
-		if err != nil {
-			return nil, loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q not found: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+		if err := validateModFiles(sub, manifest, manifestPath, data); err != nil {
+			recordFailed(dirName, manifest, sub, err)
+			continue
 		}
-		if fi.IsDir() {
-			return nil, loaderr.Locate(loaderr.Errorf("entry", "name the mod's script file, not a directory", "%w: mod %q entry %q is a directory", ErrInvalidManifest, manifest.ID, manifest.Entry), manifestPath, data, "")
-		}
-		if _, dup := subFSByID[manifest.ID]; dup {
-			return nil, loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("give each mod its own id; %s already uses this one", path.Join(dirByID[manifest.ID], ManifestFile)), "%w: %q", ErrDuplicateMod, manifest.ID), manifestPath, data, "")
-		}
-		subFSByID[manifest.ID] = sub
-		dirByID[manifest.ID] = dirName
-		manifests = append(manifests, manifest)
+		byIDList[manifest.ID] = append(byIDList[manifest.ID], &scannedMod{
+			manifest:     manifest,
+			fsys:         sub,
+			dir:          dirName,
+			manifestPath: manifestPath,
+			data:         data,
+		})
 	}
 
-	ordered, err := ResolveOrder(manifests)
-	if err != nil {
-		return nil, err
+	// Duplicate IDs fail every mod claiming that ID without aborting the scan.
+	candidates := make(map[string]*scannedMod, len(byIDList))
+	for _, id := range slices.Sorted(maps.Keys(byIDList)) {
+		group := byIDList[id]
+		if len(group) == 1 {
+			candidates[id] = group[0]
+			continue
+		}
+		first := group[0]
+		// Record duplicates after the first ahead of the first in errs so errors.As(&loadErr) points at the duplicate file, matching prior behavior.
+		for _, dup := range group[1:] {
+			dupErr := loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("give each mod its own id; %s already uses this one", first.manifestPath), "%w: %q", ErrDuplicateMod, id), dup.manifestPath, dup.data, "")
+			recordFailed(dup.dir, dup.manifest, dup.fsys, dupErr)
+		}
+		firstErr := loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("give each mod its own id; %s also uses this one", group[1].manifestPath), "%w: %q", ErrDuplicateMod, id), first.manifestPath, first.data, "")
+		recordFailed(first.dir, first.manifest, first.fsys, firstErr)
 	}
 
-	// Validation succeeded: unload any previously loaded mods before replacing the registry.
+	// Conflicts among remaining candidates fail both sides symmetrically.
+	conflictErrs := map[string]error{}
+	for _, id := range slices.Sorted(maps.Keys(candidates)) {
+		c := candidates[id]
+		for _, conflictID := range slices.Sorted(maps.Keys(c.manifest.Conflicts)) {
+			other, ok := candidates[conflictID]
+			if !ok {
+				continue
+			}
+			constraint := c.manifest.Conflicts[conflictID]
+			matches, err := CheckConstraint(other.manifest.Version, constraint)
+			if err != nil || !matches {
+				continue
+			}
+			if _, exists := conflictErrs[id]; !exists {
+				conflictErrs[id] = loaderr.Locate(
+					loaderr.Errorf(loaderr.Path("conflicts", conflictID), fmt.Sprintf("remove or disable either %q or %q", id, conflictID), "%w: mod %q conflicts with %q (%s, found %s)", ErrConflictingMods, id, conflictID, constraint, other.manifest.Version),
+					c.manifestPath, c.data, "",
+				)
+			}
+			if _, exists := conflictErrs[conflictID]; !exists {
+				conflictErrs[conflictID] = fmt.Errorf("%w: mod %q conflicts with %q (%s, found %s)", ErrConflictingMods, conflictID, id, constraint, other.manifest.Version)
+			}
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(conflictErrs)) {
+		c := candidates[id]
+		delete(candidates, id)
+		recordFailed(c.dir, c.manifest, c.fsys, conflictErrs[id])
+	}
+
+	// Iteratively fail mods whose required dependencies are missing, failed, or version-mismatched,
+	// or whose present optional dependencies fail their version constraint.
+	for {
+		changed := false
+		for _, id := range slices.Sorted(maps.Keys(candidates)) {
+			c := candidates[id]
+			var depErr error
+			for _, depID := range slices.Sorted(maps.Keys(c.manifest.Dependencies)) {
+				if failedIDs[depID] {
+					depErr = fmt.Errorf("%w: mod %q depends on failed mod %q", ErrModFailed, id, depID)
+					break
+				}
+				dep, ok := candidates[depID]
+				if !ok {
+					depErr = fmt.Errorf("%w: mod %q requires missing dependency %q", ErrMissingDependency, id, depID)
+					break
+				}
+				constraint := c.manifest.Dependencies[depID]
+				okVer, err := CheckConstraint(dep.manifest.Version, constraint)
+				if err != nil {
+					depErr = fmt.Errorf("%w: mod %q dependency %q: %v", ErrInvalidManifest, id, depID, err)
+					break
+				}
+				if !okVer {
+					depErr = fmt.Errorf("%w: mod %q requires %q %s, found %s", ErrVersionMismatch, id, depID, constraint, dep.manifest.Version)
+					break
+				}
+			}
+			if depErr == nil {
+				for _, depID := range slices.Sorted(maps.Keys(c.manifest.OptionalDependencies)) {
+					dep, ok := candidates[depID]
+					if !ok {
+						// Absent or failed optional dependencies are ignored.
+						continue
+					}
+					constraint := c.manifest.OptionalDependencies[depID]
+					okVer, err := CheckConstraint(dep.manifest.Version, constraint)
+					if err != nil {
+						depErr = fmt.Errorf("%w: mod %q optional dependency %q: %v", ErrInvalidManifest, id, depID, err)
+						break
+					}
+					if !okVer {
+						depErr = fmt.Errorf("%w: mod %q optionally requires %q %s, found %s", ErrVersionMismatch, id, depID, constraint, dep.manifest.Version)
+						break
+					}
+				}
+			}
+			if depErr != nil {
+				delete(candidates, id)
+				recordFailed(c.dir, c.manifest, c.fsys, depErr)
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	// Topologically sort remaining candidates (required + present optional dependencies) and isolate any cycle.
+	candIDs := slices.Sorted(maps.Keys(candidates))
+	inDegree := make(map[string]int, len(candIDs))
+	dependents := make(map[string][]string, len(candIDs))
+	for _, id := range candIDs {
+		c := candidates[id]
+		for _, depID := range slices.Sorted(maps.Keys(c.manifest.Dependencies)) {
+			dependents[depID] = append(dependents[depID], id)
+			inDegree[id]++
+		}
+		for _, depID := range slices.Sorted(maps.Keys(c.manifest.OptionalDependencies)) {
+			if _, ok := candidates[depID]; ok {
+				dependents[depID] = append(dependents[depID], id)
+				inDegree[id]++
+			}
+		}
+	}
+
+	var ready []string
+	for _, id := range candIDs {
+		if inDegree[id] == 0 {
+			ready = append(ready, id)
+		}
+	}
+	ordered := make([]ModManifest, 0, len(candIDs))
+	for len(ready) > 0 {
+		curr := ready[0]
+		ready = ready[1:]
+		ordered = append(ordered, candidates[curr].manifest)
+		for _, next := range dependents[curr] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				idx, _ := slices.BinarySearch(ready, next)
+				ready = slices.Insert(ready, idx, next)
+			}
+		}
+	}
+	if len(ordered) != len(candIDs) {
+		var cyclic []string
+		for _, id := range candIDs {
+			if inDegree[id] > 0 {
+				cyclic = append(cyclic, id)
+			}
+		}
+		cycleErr := fmt.Errorf("%w: cycle involving [%s]", ErrCyclicDependency, strings.Join(cyclic, ", "))
+		for _, id := range cyclic {
+			c := candidates[id]
+			recordFailed(c.dir, c.manifest, c.fsys, cycleErr)
+		}
+	}
+
+	// Replace the registry with healthy mods in load order and isolated failed mods.
 	m.unloadAll()
-	m.mods = make(map[string]*managedMod, len(ordered))
+	m.mods = make(map[string]*managedMod, len(ordered)+len(failedMods))
 	m.order = make([]string, 0, len(ordered))
 
 	for i, manifest := range ordered {
+		c := candidates[manifest.ID]
 		enabled := m.loadEnabledPref(manifest.ID)
 		state := StateDiscovered
 		if !enabled {
@@ -283,8 +547,8 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 		}
 		m.mods[manifest.ID] = &managedMod{
 			manifest: manifest,
-			fsys:     subFSByID[manifest.ID],
-			dir:      dirByID[manifest.ID],
+			fsys:     c.fsys,
+			dir:      c.dir,
 			order:    i,
 			enabled:  enabled,
 			state:    state,
@@ -292,7 +556,23 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 		m.order = append(m.order, manifest.ID)
 	}
 
-	return slices.Clone(ordered), nil
+	slices.SortFunc(failedMods, func(a, b *managedMod) int {
+		if c := strings.Compare(a.dir, b.dir); c != 0 {
+			return c
+		}
+		return strings.Compare(a.manifest.ID, b.manifest.ID)
+	})
+	m.failed = failedMods
+	for _, fm := range failedMods {
+		if fm.manifest.ID != "" {
+			if _, exists := m.mods[fm.manifest.ID]; !exists {
+				m.mods[fm.manifest.ID] = fm
+			}
+		}
+	}
+	m.refreshContentOverlay()
+
+	return slices.Clone(ordered), errors.Join(errs...)
 }
 
 // Install validates a single mod directory on disk and installs or updates it in the manager
@@ -347,11 +627,13 @@ func (m *Manager) Uninstall(id string) error {
 	m.unloadMod(mod)
 	delete(m.mods, id)
 	m.order = slices.DeleteFunc(m.order, func(existing string) bool { return existing == id })
+	m.failed = slices.DeleteFunc(m.failed, func(existing *managedMod) bool { return existing.manifest.ID == id })
 	for i, existing := range m.order {
 		if other := m.mods[existing]; other != nil {
 			other.order = i
 		}
 	}
+	m.refreshContentOverlay()
 	return nil
 }
 
@@ -385,13 +667,11 @@ func (m *Manager) validateModFS(fsys fs.FS, dirName string) (ModManifest, error)
 			return ModManifest{}, loaderr.Locate(err, manifestPath, data, "")
 		}
 	}
-	entryPath := path.Clean(manifest.Entry)
-	fi, err := fs.Stat(fsys, entryPath)
-	if err != nil {
-		return ModManifest{}, loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q not found: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+	if err := checkPlatform(m.hostPlatform(), manifest); err != nil {
+		return ModManifest{}, loaderr.Locate(err, manifestPath, data, "")
 	}
-	if fi.IsDir() {
-		return ModManifest{}, loaderr.Locate(loaderr.Errorf("entry", "name the mod's script file, not a directory", "%w: mod %q entry %q is a directory", ErrInvalidManifest, manifest.ID, manifest.Entry), manifestPath, data, "")
+	if err := validateModFiles(fsys, manifest, manifestPath, data); err != nil {
+		return ModManifest{}, err
 	}
 	return manifest, nil
 }
@@ -412,6 +692,9 @@ func (m *Manager) installValidated(incoming []validatedMod) error {
 
 	manifests := make([]ModManifest, 0, len(m.mods)+len(incoming))
 	for id, existing := range m.mods {
+		if existing.discoveryErr != nil {
+			continue
+		}
 		if _, replaced := incomingByID[id]; replaced {
 			continue
 		}
@@ -427,6 +710,7 @@ func (m *Manager) installValidated(incoming []validatedMod) error {
 	}
 
 	for _, item := range incoming {
+		m.failed = slices.DeleteFunc(m.failed, func(existing *managedMod) bool { return existing.manifest.ID == item.manifest.ID })
 		if existing, ok := m.mods[item.manifest.ID]; ok {
 			if existing.state == StateLoaded {
 				m.unloadMod(existing)
@@ -434,6 +718,7 @@ func (m *Manager) installValidated(incoming []validatedMod) error {
 			existing.manifest = item.manifest
 			existing.fsys = item.fsys
 			existing.dir = item.dir
+			existing.discoveryErr = nil
 			if existing.enabled {
 				existing.state = StateDiscovered
 			} else {
@@ -463,6 +748,7 @@ func (m *Manager) installValidated(incoming []validatedMod) error {
 		}
 		m.order = append(m.order, manifest.ID)
 	}
+	m.refreshContentOverlay()
 	return nil
 }
 
@@ -542,8 +828,11 @@ func (m *Manager) Disable(id string) error {
 	if mod.state == StateLoaded {
 		m.unloadMod(mod)
 	}
-	mod.state = StateDisabled
-	mod.err = nil
+	if mod.discoveryErr == nil {
+		mod.state = StateDisabled
+		mod.err = nil
+	}
+	m.refreshContentOverlay()
 	return m.saveEnabledPref(id, false)
 }
 
@@ -568,9 +857,10 @@ func (m *Manager) LoadAll() error {
 	return errors.Join(errs...)
 }
 
-// Load compiles and starts mod id in its sandbox. Any dependencies not yet loaded are
-// loaded first. Compilation, entry execution, or panic failures are caught cleanly,
-// marking the mod StateFailed without crashing the host or other mods.
+// Load compiles and starts mod id in its sandbox (or activates its contributed content for
+// content-only v2 mods without an entry script). Any required dependencies and present enabled
+// optional dependencies not yet loaded are loaded first. Compilation, entry execution, or panic
+// failures are caught cleanly, marking the mod StateFailed without crashing the host or other mods.
 func (m *Manager) Load(id string) error {
 	if m.closed {
 		return errors.New("modding: manager is closed")
@@ -579,6 +869,11 @@ func (m *Manager) Load(id string) error {
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
+	if mod.discoveryErr != nil {
+		mod.state = StateFailed
+		mod.err = mod.discoveryErr
+		return mod.discoveryErr
+	}
 	if !mod.enabled {
 		return fmt.Errorf("%w: %q", ErrModDisabled, id)
 	}
@@ -586,13 +881,8 @@ func (m *Manager) Load(id string) error {
 		return nil
 	}
 
-	// Ensure dependencies are loaded first in deterministic order.
-	depIDs := make([]string, 0, len(mod.manifest.Dependencies))
-	for depID := range mod.manifest.Dependencies {
-		depIDs = append(depIDs, depID)
-	}
-	slices.Sort(depIDs)
-	for _, depID := range depIDs {
+	// Ensure required dependencies are loaded first in deterministic order.
+	for _, depID := range slices.Sorted(maps.Keys(mod.manifest.Dependencies)) {
 		dep, exists := m.mods[depID]
 		if !exists {
 			err := fmt.Errorf("%w: mod %q requires missing dependency %q", ErrMissingDependency, id, depID)
@@ -622,6 +912,15 @@ func (m *Manager) Load(id string) error {
 		}
 	}
 
+	// Load present, enabled optional dependencies first; absent, disabled, or failing ones do not block id.
+	for _, optID := range slices.Sorted(maps.Keys(mod.manifest.OptionalDependencies)) {
+		opt, exists := m.mods[optID]
+		if !exists || !opt.enabled || opt.discoveryErr != nil || opt.state == StateFailed || opt.state == StateLoaded {
+			continue
+		}
+		_ = m.Load(optID)
+	}
+
 	return m.loadSingle(mod)
 }
 
@@ -629,6 +928,14 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	// Reset previous logs for a fresh load.
 	mod.logs = nil
 	mod.err = nil
+
+	// Content-only v2 mods declare contributes without an entry script; activate them directly without a TSX sandbox.
+	if mod.manifest.Entry == "" {
+		mod.state = StateLoaded
+		mod.err = nil
+		m.refreshContentOverlay()
+		return nil
+	}
 
 	// On the web a mod's realm shares the page's authority (XMLHttpRequest, WebSocket, localStorage) past the game module's capability checks, so refuse unless the host opted in (#546).
 	if pageAuthorityTarget && !m.opts.WebUnisolated {
@@ -719,6 +1026,7 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 		if hadPanels {
 			m.notifyPanelsChanged()
 		}
+		m.refreshContentOverlay()
 		return mod.err
 	}
 
@@ -727,6 +1035,7 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	mod.api = api
 	mod.state = StateLoaded
 	mod.err = nil
+	m.refreshContentOverlay()
 	return nil
 }
 
@@ -737,26 +1046,35 @@ func (m *Manager) Unload(id string) error {
 		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
 	m.unloadMod(mod)
-	if mod.enabled {
+	if mod.discoveryErr != nil {
+		mod.state = StateFailed
+		mod.err = mod.discoveryErr
+	} else if mod.enabled {
 		mod.state = StateDiscovered
+		mod.err = nil
 	} else {
 		mod.state = StateDisabled
+		mod.err = nil
 	}
-	mod.err = nil
+	m.refreshContentOverlay()
 	return nil
 }
 
 // Reload re-reads mod id's manifest if present, validates it, then unloads the mod and loads it fresh from its FS.
 //
-// A manifest that cannot be read or fails validation (bad syntax, changed ID, incompatible game version or unresolvable dependencies) is reported without unloading, so the previously loaded version keeps running (#546). A mod whose mod.yaml has been replaced by a mod.json is refused the same way with [ErrInvalidManifest], as [Manager.DiscoverFS] refuses it.
+// A manifest that cannot be read or fails validation (bad syntax, changed ID, incompatible game version, unsupported platform, missing entry/contributes, or unresolvable dependencies/conflicts) is reported without unloading, so the previously loaded version keeps running (#546). A mod whose mod.yaml has been replaced by a mod.json is refused the same way with [ErrInvalidManifest], as [Manager.DiscoverFS] refuses it.
 func (m *Manager) Reload(id string) error {
 	mod, ok := m.mods[id]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
+	if mod.discoveryErr != nil {
+		return mod.discoveryErr
+	}
 	if !mod.enabled {
 		return fmt.Errorf("%w: %q", ErrModDisabled, id)
 	}
+	manifestPath := path.Join(mod.dir, ManifestFile)
 	data, readErr := fs.ReadFile(mod.fsys, ManifestFile)
 	if errors.Is(readErr, fs.ErrNotExist) {
 		if _, legacyErr := fs.Stat(mod.fsys, legacyManifestFile); legacyErr == nil {
@@ -764,7 +1082,7 @@ func (m *Manager) Reload(id string) error {
 		}
 	}
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
-		return loaderr.Locate(fmt.Errorf("read: %w", readErr), path.Join(mod.dir, ManifestFile), nil, fixReadManifest)
+		return loaderr.Locate(fmt.Errorf("read: %w", readErr), manifestPath, nil, fixReadManifest)
 	}
 	var (
 		newManifest ModManifest
@@ -773,21 +1091,27 @@ func (m *Manager) Reload(id string) error {
 	if readErr == nil {
 		manifest, err := ParseManifest(data)
 		if err != nil {
-			return loaderr.WithFile(err, path.Join(mod.dir, ManifestFile))
+			return loaderr.WithFile(err, manifestPath)
 		}
 		if manifest.ID != id {
-			return loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("put the id back to %q; a mod keeps its id across reloads, so call DiscoverFS again to load it under a new one", id), "%w: mod %q manifest id changed to %q", ErrInvalidManifest, id, manifest.ID), path.Join(mod.dir, ManifestFile), data, "")
+			return loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("put the id back to %q; a mod keeps its id across reloads, so call DiscoverFS again to load it under a new one", id), "%w: mod %q manifest id changed to %q", ErrInvalidManifest, id, manifest.ID), manifestPath, data, "")
 		}
 		// Re-apply the checks DiscoverFS made, so a mod updated on disk cannot
-		// load against an incompatible game version or unsatisfiable dependencies.
+		// load against an incompatible game version, platform, files, or dependencies.
 		if m.opts.GameVersion != "" && manifest.GameVersion != "" {
 			if err := checkGameVersion(m.opts.GameVersion, manifest); err != nil {
-				return loaderr.Locate(err, path.Join(mod.dir, ManifestFile), data, "")
+				return loaderr.Locate(err, manifestPath, data, "")
 			}
+		}
+		if err := checkPlatform(m.hostPlatform(), manifest); err != nil {
+			return loaderr.Locate(err, manifestPath, data, "")
+		}
+		if err := validateModFiles(mod.fsys, manifest, manifestPath, data); err != nil {
+			return err
 		}
 		manifests := make([]ModManifest, 0, len(m.mods))
 		for otherID, other := range m.mods {
-			if otherID == id || other.manifest.ID == "" {
+			if otherID == id || other.manifest.ID == "" || other.discoveryErr != nil {
 				continue
 			}
 			manifests = append(manifests, other.manifest)
@@ -803,8 +1127,8 @@ func (m *Manager) Reload(id string) error {
 	m.unloadMod(mod)
 	if readErr == nil {
 		mod.manifest = newManifest
-		// A reload may change dependencies; adopt the resolved order so Step
-		// and Emit keep running in topological order.
+		// A reload may change dependencies; adopt the resolved order so Step,
+		// Emit, and ContentFS keep running in topological order.
 		m.order = m.order[:0]
 		for i := range ordered {
 			entryID := ordered[i].ID
@@ -816,6 +1140,7 @@ func (m *Manager) Reload(id string) error {
 	}
 	mod.state = StateDiscovered
 	mod.err = nil
+	m.refreshContentOverlay()
 	return m.Load(id)
 }
 
@@ -905,13 +1230,17 @@ func (m *Manager) Call(id, fnName string, args []any, done func(result any, err 
 	})
 }
 
-// List returns snapshots of all discovered mods in deterministic load order.
+// List returns snapshots of all discovered mods in deterministic load order, followed by any
+// mods that failed during discovery in deterministic directory order.
 func (m *Manager) List() []ModInfo {
-	out := make([]ModInfo, 0, len(m.order))
+	out := make([]ModInfo, 0, len(m.order)+len(m.failed))
 	for _, id := range m.order {
-		if info, ok := m.Info(id); ok {
-			out = append(out, info)
+		if mod := m.mods[id]; mod != nil {
+			out = append(out, m.modInfoSnapshot(mod))
 		}
+	}
+	for _, fm := range m.failed {
+		out = append(out, m.modInfoSnapshot(fm))
 	}
 	return out
 }
@@ -922,6 +1251,10 @@ func (m *Manager) Info(id string) (ModInfo, bool) {
 	if !ok {
 		return ModInfo{}, false
 	}
+	return m.modInfoSnapshot(mod), true
+}
+
+func (m *Manager) modInfoSnapshot(mod *managedMod) ModInfo {
 	var logs []LogEntry
 	if mod.api != nil {
 		logs = slices.Clone(mod.api.logs)
@@ -937,7 +1270,8 @@ func (m *Manager) Info(id string) (ModInfo, bool) {
 		Error:            mod.err,
 		Logs:             logs,
 		Order:            mod.order,
-	}, true
+		Dir:              mod.dir,
+	}
 }
 
 // API returns the active [*ModAPI] for a loaded mod.
@@ -1065,6 +1399,7 @@ func (m *Manager) Close() {
 			}
 		}
 	}
+	m.refreshContentOverlay()
 	if hadPanels {
 		// Disposing the mods' scopes removed any panels they contributed; tell
 		// the host so it stops rendering nodes from disposed scopes.
@@ -1141,6 +1476,7 @@ func (m *Manager) failMod(mod *managedMod, err error) {
 	m.unloadMod(mod)
 	mod.state = StateFailed
 	mod.err = fmt.Errorf("modding: mod %q failed: %w", mod.manifest.ID, err)
+	m.refreshContentOverlay()
 }
 
 func (m *Manager) effectiveCapabilities(mod *managedMod) Capability {

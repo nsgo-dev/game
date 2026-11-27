@@ -3,8 +3,10 @@ package modding_test
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -35,7 +37,7 @@ func TestParseManifestReadsYAML(t *testing.T) {
 		t.Fatalf("ParseManifest: %v", err)
 	}
 	want := modding.ModManifest{
-		ManifestVersion: modding.ManifestVersion,
+		ManifestVersion: modding.MinManifestVersion,
 		ID:              "com.example.boss-rush",
 		Name:            "Boss Rush",
 		Version:         "1.2.0",
@@ -77,7 +79,7 @@ func TestEncodeManifestIsCanonicalAndRoundTrips(t *testing.T) {
 
 func TestEncodeManifestOrdersCapabilitiesAndDependencies(t *testing.T) {
 	m := modding.ModManifest{
-		ManifestVersion: modding.ManifestVersion,
+		ManifestVersion: modding.MinManifestVersion,
 		ID:              "sorter",
 		Name:            "Sorter",
 		Version:         "0.1.0",
@@ -108,7 +110,7 @@ dependencies:
 }
 
 func TestEncodeManifestOmitsEmptyOptionalFields(t *testing.T) {
-	m := modding.ModManifest{ManifestVersion: modding.ManifestVersion, ID: "tiny", Name: "Tiny", Version: "1.0.0", Entry: "mod.js"}
+	m := modding.ModManifest{ManifestVersion: modding.MinManifestVersion, ID: "tiny", Name: "Tiny", Version: "1.0.0", Entry: "mod.js"}
 	out, err := modding.EncodeManifest(m)
 	if err != nil {
 		t.Fatalf("EncodeManifest: %v", err)
@@ -121,7 +123,7 @@ func TestEncodeManifestOmitsEmptyOptionalFields(t *testing.T) {
 
 func TestEncodeManifestRefusesInvalidManifest(t *testing.T) {
 	cases := map[string]modding.ModManifest{
-		"future manifestVersion": {ManifestVersion: 2, ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
+		"future manifestVersion": {ManifestVersion: 3, ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
 		"bad id":                 {ManifestVersion: 1, ID: "../a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
 		"undefined capability":   {ManifestVersion: 1, ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js", Capabilities: 1 << 30},
 	}
@@ -147,7 +149,7 @@ func TestManifestBuiltInCodeOmitsManifestVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeManifest: %v", err)
 	}
-	want := "manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\n"
+	want := "manifestVersion: 2\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\n"
 	if string(out) != want {
 		t.Fatalf("EncodeManifest =\n%s\nwant:\n%s", out, want)
 	}
@@ -155,11 +157,12 @@ func TestManifestBuiltInCodeOmitsManifestVersion(t *testing.T) {
 
 func TestEncodeManifestSortsDependenciesInByteOrder(t *testing.T) {
 	m := modding.ModManifest{
-		ID:           "a",
-		Name:         "A",
-		Version:      "1.0.0",
-		Entry:        "mod.js",
-		Dependencies: map[string]string{"mod.v9": "*", "mod.v10": "*", "Mod.z": "*"},
+		ManifestVersion: modding.MinManifestVersion,
+		ID:              "a",
+		Name:            "A",
+		Version:         "1.0.0",
+		Entry:           "mod.js",
+		Dependencies:    map[string]string{"mod.v9": "*", "mod.v10": "*", "Mod.z": "*"},
 	}
 	out, err := modding.EncodeManifest(m)
 	if err != nil {
@@ -181,7 +184,7 @@ func TestParseManifestRefusesInvalidDocuments(t *testing.T) {
 		"unknown field":           {base + "homepage: https://example.com\n", `unknown field "homepage"`},
 		"misspelled field":        {strings.Replace(base, "entry:", "entrypoint:", 1), "entrypoint"},
 		"missing manifestVersion": {strings.Replace(base, "manifestVersion: 1\n", "", 1), "unsupported manifestVersion 0"},
-		"future manifestVersion":  {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 2", 1), "unsupported manifestVersion 2"},
+		"future manifestVersion":  {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 3", 1), "unsupported manifestVersion 3"},
 		"float manifestVersion":   {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 1.0", 1), "manifestVersion must be the integer 1"},
 		"hex manifestVersion":     {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 0x1", 1), "manifestVersion must be the integer 1"},
 		"duplicate key":           {base + "name: B\n", "already defined"},
@@ -283,7 +286,7 @@ capabilities: [readState, ui, editor.contextAction, inventory.read, scene.edit]
 	if err != nil {
 		t.Fatalf("EncodeManifest(hostOnly): %v", err)
 	}
-	wantHostOnly := "manifestVersion: 1\nid: host.only\nname: Host Only\nversion: 1.0.0\nentry: mod.ts\ncapabilities: [a.alpha, z.beta]\n"
+	wantHostOnly := "manifestVersion: 2\nid: host.only\nname: Host Only\nversion: 1.0.0\nentry: mod.ts\ncapabilities: [a.alpha, z.beta]\n"
 	if string(encoded) != wantHostOnly {
 		t.Fatalf("EncodeManifest(hostOnly) =\n%s\nwant:\n%s", encoded, wantHostOnly)
 	}
@@ -390,10 +393,17 @@ func TestSampleModLoads(t *testing.T) {
 		})
 		got, err := mgr.Install("testdata/mods/boss-rush")
 		if err != nil {
-			t.Fatalf("Install: %v", err)
+			t.Fatalf("Install(boss-rush): %v", err)
 		}
 		if !reflect.DeepEqual(got, manifest) {
 			t.Fatalf("installed = %+v, want %+v", got, manifest)
+		}
+		packGot, err := mgr.Install("testdata/mods/slime-pack")
+		if err != nil {
+			t.Fatalf("Install(slime-pack): %v", err)
+		}
+		if packGot.ID != "com.example.slime-pack" {
+			t.Fatalf("installed pack = %+v, want com.example.slime-pack", packGot)
 		}
 		if err := mgr.LoadAll(); err != nil {
 			t.Fatalf("LoadAll: %v", err)
@@ -407,6 +417,16 @@ func TestSampleModLoads(t *testing.T) {
 	info, ok := mgr.Info(manifest.ID)
 	if !ok || info.State != modding.StateLoaded {
 		t.Fatalf("sample mod info = %+v, want loaded", info)
+	}
+	packInfo, ok := mgr.Info("com.example.slime-pack")
+	if !ok || packInfo.State != modding.StateLoaded {
+		t.Fatalf("sample content-only mod info = %+v, want loaded", packInfo)
+	}
+	if spriteData, err := fs.ReadFile(mgr.ContentFS(), "assets/sprites/slime.txt"); err != nil || strings.TrimSpace(string(spriteData)) != "slime-green-16x16" {
+		t.Fatalf("ContentFS assets/sprites/slime.txt = (%q, %v), want slime-green-16x16", spriteData, err)
+	}
+	if l10nData, err := fs.ReadFile(mgr.ContentFS(), "l10n/en.yaml"); err != nil || !strings.Contains(string(l10nData), "Emerald Slime") {
+		t.Fatalf("ContentFS l10n/en.yaml = (%q, %v), want Emerald Slime", l10nData, err)
 	}
 	if len(spawns) != 1 || spawns[0].Prefab != "slime" || spawns[0].X != 120 || spawns[0].Y != 80 {
 		t.Fatalf("spawns = %+v, want one slime at (120, 80)", spawns)
@@ -426,8 +446,10 @@ func TestSampleModLoads(t *testing.T) {
 
 func FuzzParseManifest(f *testing.F) {
 	f.Add([]byte(fullManifest))
+	f.Add([]byte(fullV2Manifest))
 	f.Add([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\n"))
 	f.Add([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\ncapabilities: [readState, inventory.read, scene.edit]\n"))
+	f.Add([]byte("manifestVersion: 2\nid: pack\nname: Pack\nversion: 1.0.0\ncontributes:\n  assets: assets\n"))
 	f.Add([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\ncapabilities: [ui, ui]\n"))
 	f.Add([]byte(`{"id":"a","name":"A","version":"1.0.0","entry":"mod.js"}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -456,10 +478,23 @@ func FuzzParseManifest(f *testing.F) {
 	})
 }
 
-// normalize treats an empty dependency map like a missing one, since omitempty drops both.
+// normalize treats empty maps and slices like missing ones and sorts platforms, since omitempty drops empties and EncodeManifest sorts platforms.
 func normalize(m modding.ModManifest) modding.ModManifest {
 	if len(m.Dependencies) == 0 {
 		m.Dependencies = nil
+	}
+	if len(m.OptionalDependencies) == 0 {
+		m.OptionalDependencies = nil
+	}
+	if len(m.Conflicts) == 0 {
+		m.Conflicts = nil
+	}
+	if len(m.Platforms) == 0 {
+		m.Platforms = nil
+	} else {
+		p := slices.Clone(m.Platforms)
+		slices.Sort(p)
+		m.Platforms = p
 	}
 	return m
 }

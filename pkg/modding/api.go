@@ -32,6 +32,12 @@ var (
 	ErrVersionMismatch = errors.New("modding: incompatible version")
 	// ErrCyclicDependency is returned when mod dependencies form a cycle.
 	ErrCyclicDependency = errors.New("modding: cyclic dependency")
+	// ErrConflictingMods is returned when two mods cannot be loaded together because one declares a conflict matching the other.
+	ErrConflictingMods = errors.New("modding: conflicting mods")
+	// ErrUnsupportedPlatform is returned when a mod's platforms list does not include the host platform.
+	ErrUnsupportedPlatform = errors.New("modding: unsupported platform")
+	// ErrUnsafePath is returned when a mod file or symlink escapes its mod directory.
+	ErrUnsafePath = errors.New("modding: unsafe mod path")
 	// ErrInvalidManifest is returned when a mod.yaml manifest fails parsing or validation.
 	ErrInvalidManifest = errors.New("modding: invalid manifest")
 	// ErrModDisabled is returned when attempting to load a disabled mod.

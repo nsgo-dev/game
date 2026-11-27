@@ -31,35 +31,53 @@ A Go plugin is compiled into the binary rather than loaded at run time because G
 
 ## Mod manifest (`mod.yaml`) and capabilities
 
-Each mod lives in its own directory with a `mod.yaml` (`ModManifest`) and an entry script (`mod.tsx` or `mod.js`). The sample mod in [`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) is the manifest and script shown on this page, and the package's tests load it:
+Each mod lives in its own directory with a `mod.yaml` (`ModManifest`) and an entry script (`mod.tsx` or `mod.js`), or one or more `contributes` directories for a content-only version 2 mod. The sample mods in [`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) (v1 script mod) and [`pkg/modding/testdata/mods/slime-pack/`](../../pkg/modding/testdata/mods/slime-pack/) (v2 content-only mod) are loaded by the package's tests. Published JSON Schemas live at `https://game.nsgo.dev/schemas/mod.v1.json` and `https://game.nsgo.dev/schemas/mod.v2.json`.
 
 ```yaml
-manifestVersion: 1
+manifestVersion: 2
 id: com.example.boss-rush
 name: Boss Rush
-version: 1.2.0
+version: 1.3.0
 author: Example Studio
 description: Spawns a slime every five seconds and shows a HUD badge while the rush runs.
 entry: mod.tsx
 gameVersion: '>=0.2.0'
 capabilities: [readState, spawnEntity, emitEvent, ui]
+dependencies:
+  com.example.core: ^1.0.0
+optionalDependencies:
+  com.example.music: '>=0.2.0'
+conflicts:
+  com.example.old-boss: '*'
+platforms: [linux, macos, windows]
+contributes:
+  assets: assets
+  scenes: scenes
+  l10n: locales
+  datatables: tables
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `manifestVersion` | yes | Schema version of the file, currently `1` (`modding.ManifestVersion`) |
+| `manifestVersion` | yes | Schema version of the file: `1` (`modding.MinManifestVersion`) or `2` (`modding.ManifestVersion`) |
 | `id` | yes | Unique ID of letters, digits, `.`, `-` and `_`, such as `com.example.boss-rush` |
 | `name` | yes | Human-readable name |
 | `version` | yes | The mod's own semantic version (`MAJOR.MINOR.PATCH[-prerelease][+build]`, optional leading `v`) |
 | `author`, `description` | no | Free text |
-| `entry` | yes | Entry script relative to the mod directory: `.tsx`, `.ts`, `.jsx`, `.js` or `.mjs` |
+| `entry` | v1: yes; v2: unless `contributes` is set | Entry script relative to the mod directory: `.tsx`, `.ts`, `.jsx`, `.js` or `.mjs` |
 | `gameVersion` | no | Constraint on the host's `ManagerOptions.GameVersion`, such as `'>=0.2.0'` |
 | `capabilities` | no | Capability names the mod requests |
-| `dependencies` | no | Map of mod IDs to version constraints, such as `com.example.core-lib: ^1.0.0` |
+| `dependencies` | no | Map of required mod IDs to version constraints, such as `com.example.core: ^1.0.0` |
+| `optionalDependencies` | no (v2) | Map of optional mod IDs to version constraints; loaded first and checked when present, ignored when absent |
+| `conflicts` | no (v2) | Map of incompatible mod IDs to version constraints; a matching pair is refused in either direction (`ErrConflictingMods`) |
+| `platforms` | no (v2) | Supported target platforms (`macos`, `windows`, `linux`, `ios`, `tvos`, `watchos`, `android`, `harmonyos`, `web`, `miniprogram`); omitted means all platforms |
+| `contributes` | no (v2) | Relative slash-separated content directories inside the mod: `assets`, `scenes`, `l10n`, and `datatables` |
 
 Constraints accept `*`, `=`, `>=`, `>`, `<=`, `<`, `^` and `~` (or a bare version, equivalent to `=`), joined by spaces or commas. Clauses accept an optional leading `v` and partial versions (`MAJOR` or `MAJOR.MINOR`): `^1.2` means `>=1.2.0 <2.0.0`, `^0.2` and `^0.0` bound the next minor version, `~1.2` and `1.2` mean `>=1.2.0 <1.3.0`, `<=1.2` means `<1.3.0`, and `>1.2` means `>=1.3.0`. Comparisons use pure SemVer 2.0.0 precedence: build metadata is ignored, pre-releases (including Go pseudo-versions) match any range whose bounds bracket them (`>=1.0.0` matches `1.1.0-beta`, while `1.0.0-beta` does not), and `<2.0.0` (including the upper bound of `^1.0.0`) matches `2.0.0-alpha` unless written `<2.0.0-0`. Quote a value that starts with `>` or `*` (`'>=0.2.0'`, `'*'`), since YAML reads those characters at the start of a value as a folded block and an alias.
 
-The format is strict: `ParseManifest` refuses unknown or misspelled fields, duplicate keys, a second YAML document, unknown or repeated capability names, and a `manifestVersion` that is missing, unsupported or not written as the plain integer `1`, all as `ErrInvalidManifest`. `EncodeManifest` writes a manifest in one canonical form (fields in the order above, capabilities in the order listed below, dependencies sorted by ID in byte order), so a file already in that form is unchanged by a read and a write. A `ModManifest` built in Go may leave `ManifestVersion` at 0: `Validate` and `ResolveOrder` accept it, and `EncodeManifest` writes `manifestVersion: 1`. `Manager` reads only `mod.yaml`; a mod directory that still has only the old `mod.json` is refused with a message asking for `mod.yaml`.
+The format is strict: `ParseManifest` refuses unknown or misspelled fields, duplicate keys, a second YAML document, unknown or repeated capability or platform names, version 2 fields in a `manifestVersion: 1` file, and a `manifestVersion` that is missing, unsupported or not written as the plain integer `1` or `2`, all as `ErrInvalidManifest`. `EncodeManifest` writes back the `ManifestVersion` it read (so version 1 files round-trip byte for byte unchanged) in one canonical form: fields in the order above, capabilities in the order listed below, maps (`dependencies`, `optionalDependencies`, `conflicts`) sorted by ID in byte order, and `platforms` as a flow sequence sorted in byte order. A `ModManifest` built in Go may leave `ManifestVersion` at 0: `Validate` and `ResolveOrder` accept it, and `EncodeManifest` writes `manifestVersion: 2`. `Manager` reads only `mod.yaml`; a mod directory that still has only the old `mod.json` fails with a message asking for `mod.yaml`.
+
+`ResolveOrder` orders both required `dependencies` and present `optionalDependencies` before their dependents (ignoring absent optional dependencies), refuses conflicting pairs in either direction with `ErrConflictingMods`, and keeps lexicographical ID tie-breaking.
 
 Capabilities are bitflags on `Capability`: `CapReadState` (`readState`), `CapWriteState` (`writeState`), `CapSpawnEntity` (`spawnEntity`), `CapEmitEvent` (`emitEvent`), `CapUI` (`ui`), `CapAudio` (`audio`), and `CapStorage` (`storage`). Calls outside a mod's granted capabilities fail with `*PermissionError` without crashing the host.
 
@@ -171,7 +189,28 @@ _ = hudPanels
 
 Control individual mods at runtime with `Enable`, `Disable`, `Install`, `InstallFS`, `Uninstall`, `Load`, `Unload`, `Reload`, `SetGrant`, `Emit`, `Call`, `List`, `Info`, and `Logs`. A panicking or throwing mod transitions to `StateFailed` while the host game and sibling mods keep running.
 
-`Reload` validates the updated `mod.yaml` (syntax, ID, game version and dependencies) before it unloads anything, so a broken manifest returns an error and the version already loaded keeps running.
+`Discover` and `DiscoverFS` isolate failures per mod instead of aborting the whole scan: a bad manifest, missing entry or `contributes` directory, incompatible `gameVersion`, unsupported platform (`ErrUnsupportedPlatform`, checked against `ManagerOptions.Platform` or the current runtime platform), duplicate ID (failing both mods with `ErrDuplicateMod`), conflict (failing both mods with `ErrConflictingMods`), unsatisfied dependency, dependent of a failed mod (`ErrModFailed`), or cycle records `StateFailed` with `Error` and `Dir` on `ModInfo` (visible via `List` and `Info`) while healthy mods are registered in load order and returned alongside the joined error.
+
+### Content overlay (`ContentFS`)
+
+Version 2 mods can contribute read-only content directories under `contributes` (`assets`, `scenes`, `l10n`, `datatables`), with or without an `entry` script. `Manager.ContentFS()` returns a concurrency-safe read-only `io/fs.FS` overlaying every currently loaded mod's `contributes` directories in load order so later mods win per path:
+
+```go
+contentFS := mgr.ContentFS()
+
+// Pass assets subtree to pkg/assets:
+assetsFS, _ := fs.Sub(contentFS, "assets")
+assetMgr := assets.NewManager(cx, assets.WithFS(assetsFS))
+_ = assetMgr
+
+// Read overlaid localization tables, scenes, or data tables:
+enYAML, _ := fs.ReadFile(contentFS, "l10n/en.yaml")
+_ = enYAML
+```
+
+Paths in `ContentFS` are strictly confined to each mod's directory: path traversal and symlinks pointing outside a mod's directory (relative, absolute, or cyclic) are refused with `ErrUnsafePath` both during discovery and on read, matching Steam Workshop's path confinement rules. Unloading, disabling, or reloading a mod updates `ContentFS` immediately.
+
+`Reload` validates the updated `mod.yaml` (syntax, ID, game version, platform, files, and dependencies/conflicts) before it unloads anything, so a broken manifest returns an error and the version already loaded keeps running.
 
 `SetGrant` on a loaded mod takes effect at once: the `"game"` module checks the new capabilities from the next call, revoking `CapUI` removes the panels the mod mounted, and when the grant changes `CapAudio` or `CapStorage`, which the sandbox itself enforces, the mod is unloaded and loaded again in a sandbox built for them, which runs its entry script again. `Close` unloads every mod, after which `Info` reports each as `StateDiscovered` (or `StateDisabled`), and an unsubscribe function a mod kept from `onEvent` or `onStep` does nothing once the mod is unloaded.
 
