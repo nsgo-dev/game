@@ -66,3 +66,33 @@ func BenchmarkRigidWorld500BodiesPacked(b *testing.B) {
 		w.Step(step)
 	}
 }
+
+// boxPile2000Scene builds 2000 boxes of size 20 px arranged in 40 columns of 50 on a static floor, with sleeping disabled so every box stays active.
+func boxPile2000Scene() *physics.RigidWorld {
+	w := &physics.RigidWorld{GravityY: 600, DisableSleep: true}
+	w.AddBody(physics.NewStaticRigidBox(500, 1010, 2000, 20))
+	const (
+		cols = 40
+		rows = 50
+		size = 20
+	)
+	for r := range rows {
+		y := float32(1000 - size*0.5 - float32(r)*size)
+		for c := range cols {
+			x := float32(100 + float32(c)*(size+2))
+			w.AddBody(physics.NewRigidBox(x, y, size, size, 1))
+		}
+	}
+	return w
+}
+
+func BenchmarkRigidWorld2000Boxes(b *testing.B) {
+	w := boxPile2000Scene()
+	for range 60 {
+		w.Step(step)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		w.Step(step)
+	}
+}

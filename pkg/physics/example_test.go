@@ -241,7 +241,7 @@ func ExampleRigidWorld_tiles() {
 	hit, _ := w.RaycastFirst(core.Point{X: 0, Y: 125}, core.Point{X: 200, Y: 125}, physics.QueryBodies, 0)
 	fmt.Printf("ray hits the crate: %v at x=%.0f, facing left: %v\n", hit.RigidBody == crate, hit.Point.X, hit.NormalX < -0.99)
 	// Output:
-	// begin with tiles true at row 8, 320 px/s
+	// begin with tiles true at row 8, 310 px/s
 	// crate bottom: 128.0
 	// ray hits the crate: true at x=72, facing left: true
 }
@@ -261,5 +261,5 @@ func ExampleRigidBody_kinematic() {
 	}
 	fmt.Printf("platform at x=%.1f y=%.1f, crate at x=%.1f riding: %v\n", platform.X, platform.Y, crate.X, crate.Y+10 > 113.5)
 	// Output:
-	// platform at x=160.0 y=120.0, crate at x=159.3 riding: true
+	// platform at x=160.0 y=120.0, crate at x=159.2 riding: true
 }

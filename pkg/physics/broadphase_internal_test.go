@@ -32,7 +32,7 @@ func bruteForceContacts(w *RigidWorld, restitutionThresh, h float64) []rigidMani
 			first := len(manifolds)
 			manifolds = collideRigidPair(a, b, manifolds)
 			for k := first; k < len(manifolds); k++ {
-				prepareManifold(&manifolds[k], restitutionThresh, h)
+				prepareManifold(&manifolds[k], h, h/DefaultSubsteps)
 			}
 		}
 	}
@@ -132,7 +132,7 @@ func checkBroadphaseMatchesBruteForce(t *testing.T, seed uint64, n int, steps in
 	for s := 0; ; s++ {
 		prepareForDetection(w)
 		want := bruteForceContacts(w, 10, h)
-		got := w.detectContacts(w.broadphase(), 10, h, nil)
+		got := w.detectContacts(w.broadphase(), h, h/DefaultSubsteps, nil)
 		sameManifolds(t, got, want)
 		if s == steps {
 			return
@@ -171,7 +171,7 @@ func TestBroadphaseSkipsSleepingPairs(t *testing.T) {
 		t.Fatal("boxes did not sleep")
 	}
 	prepareForDetection(w)
-	if got := w.detectContacts(w.broadphase(), 10, 1.0/60, nil); len(got) != 0 {
+	if got := w.detectContacts(w.broadphase(), 1.0/60, 1.0/60/DefaultSubsteps, nil); len(got) != 0 {
 		t.Fatalf("sleeping bodies produced %d manifolds", len(got))
 	}
 	// Their contacts stay cached while asleep, ready to warm-start them when they wake.
@@ -202,7 +202,7 @@ func TestWarmStartCarriesRestingImpulse(t *testing.T) {
 	}
 	// A step twice as long starts from twice the impulse.
 	prepareForDetection(w)
-	ms := w.detectContacts(w.broadphase(), 10, 2.0/60, nil)
+	ms := w.detectContacts(w.broadphase(), 2.0/60, 2.0/60/DefaultSubsteps, nil)
 	crate.VX, crate.VY, crate.AngularVel = 0, 0, 0
 	w.warmStart(ms, 2.0/60)
 	if got := ms[0].points[0].pn + ms[0].points[1].pn; math.Abs(got-2*sum) > 1e-4 {

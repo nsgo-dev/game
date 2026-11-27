@@ -341,8 +341,8 @@ func TestSnapshotValidation(t *testing.T) {
 			t.Fatalf("expected error for unsupported WorldSnapshot version %d", v)
 		}
 	}
-	// Version 1 and 2 snapshots still restore cleanly.
-	for _, oldVer := range []int{1, 2} {
+	// Version 1, 2 and 3 snapshots still restore cleanly.
+	for _, oldVer := range []int{1, 2, 3} {
 		if err := w.Restore(physics.WorldSnapshot{Version: oldVer}); err != nil {
 			t.Fatalf("restoring a version %d WorldSnapshot: %v", oldVer, err)
 		}
@@ -364,7 +364,7 @@ func TestSnapshotValidation(t *testing.T) {
 			t.Fatalf("expected error for unsupported RigidWorldSnapshot version %d", v)
 		}
 	}
-	for _, oldVer := range []int{1, 2} {
+	for _, oldVer := range []int{1, 2, 3} {
 		if err := rw.Restore(physics.RigidWorldSnapshot{Version: oldVer}); err != nil {
 			t.Fatalf("restoring a version %d RigidWorldSnapshot: %v", oldVer, err)
 		}
@@ -381,7 +381,7 @@ func TestGoldenTrajectory2D(t *testing.T) {
 	// Cross-architecture golden trajectory hashes (must match identically on amd64 and arm64).
 	const (
 		wantWorldGolden uint64 = 0x1798e96d103baf55
-		wantRigidGolden uint64 = 0xd187e49bf1576008
+		wantRigidGolden uint64 = 0xbdc9de9e5f0d60de
 	)
 
 	w, _, _ := buildTestWorld2D()

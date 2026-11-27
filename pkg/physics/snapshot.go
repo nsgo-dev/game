@@ -8,8 +8,8 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; version 3 added InternalID on bodies, triggers and joints so Restore matches handles strictly by identity instead of slice index. Restore still reads version 1 and 2 snapshots and refuses any other version, so an older build refuses a newer snapshot instead of dropping what it cannot read.
-const SnapshotVersion = 3
+// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; version 3 added InternalID on bodies, triggers and joints so Restore matches handles strictly by identity instead of slice index; version 4 added Substeps on RigidWorldSnapshot for the substepped soft-constraint solver. Restore still reads version 1 through 3 snapshots and refuses any other version, so an older build refuses a newer snapshot instead of dropping what it cannot read.
+const SnapshotVersion = 4
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
 const oldestSnapshotVersion = 1
@@ -324,6 +324,7 @@ type RigidWorldSnapshot struct {
 	GravityX              float32                        `json:"gravityX"`
 	GravityY              float32                        `json:"gravityY"`
 	SolverIterations      int                            `json:"solverIterations"`
+	Substeps              int                            `json:"substeps,omitempty"`
 	DisableSleep          bool                           `json:"disableSleep,omitempty"`
 	SleepLinearThreshold  float32                        `json:"sleepLinearThreshold,omitempty"`
 	SleepAngularThreshold float32                        `json:"sleepAngularThreshold,omitempty"`
@@ -864,6 +865,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		GravityX:              w.GravityX,
 		GravityY:              w.GravityY,
 		SolverIterations:      w.SolverIterations,
+		Substeps:              w.Substeps,
 		DisableSleep:          w.DisableSleep,
 		SleepLinearThreshold:  w.SleepLinearThreshold,
 		SleepAngularThreshold: w.SleepAngularThreshold,
@@ -1800,6 +1802,7 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	w.GravityX = snap.GravityX
 	w.GravityY = snap.GravityY
 	w.SolverIterations = snap.SolverIterations
+	w.Substeps = snap.Substeps
 	w.DisableSleep = snap.DisableSleep
 	w.SleepLinearThreshold = snap.SleepLinearThreshold
 	w.SleepAngularThreshold = snap.SleepAngularThreshold
@@ -1845,6 +1848,7 @@ func (w *RigidWorld) Checksum() uint64 {
 	h.WriteFloat32(w.GravityX)
 	h.WriteFloat32(w.GravityY)
 	h.WriteInt(w.SolverIterations)
+	h.WriteInt(w.Substeps)
 	h.WriteBool(w.DisableSleep)
 	h.WriteFloat32(w.SleepLinearThreshold)
 	h.WriteFloat32(w.SleepAngularThreshold)

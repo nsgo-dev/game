@@ -162,7 +162,7 @@ func (w *RigidWorld) collidesWithTiles(b *RigidBody) bool {
 }
 
 // detectTileContacts appends to manifolds the contacts of every awake dynamic body with Tiles, prepared for solving, in body order and, for each body, in row-major tile order.
-func (w *RigidWorld) detectTileContacts(manifolds []rigidManifold, restitutionThresh, h float64) []rigidManifold {
+func (w *RigidWorld) detectTileContacts(manifolds []rigidManifold, h, subH float64) []rigidManifold {
 	if !w.tilesActive() {
 		return manifolds
 	}
@@ -176,68 +176,22 @@ func (w *RigidWorld) detectTileContacts(manifolds []rigidManifold, restitutionTh
 		_, ok := w.scratch.contactIndex[key]
 		return ok
 	}
+	gy := float64(w.GravityY)
 	for _, b := range w.Bodies {
 		if !w.collidesWithTiles(b) {
 			continue
 		}
-		fall := max(0, float64(float64(b.VY)*h))
+		vyEst := float64(b.VY) + float64(float64(gy*float64(b.EffectiveGravityScale()))*h)
+		fall := max(0, float64(vyEst*h))
 		first := len(manifolds)
 		manifolds = w.collideTiles(b, manifolds, func(sub int, depth float64) bool {
 			return held(rigidPairKey{a: b, b: w.tileBody, sub: sub}) || depth <= fall+oneWayTileMargin
 		})
 		for k := first; k < len(manifolds); k++ {
-			prepareManifold(&manifolds[k], restitutionThresh, h)
+			prepareManifold(&manifolds[k], h, subH)
 		}
 	}
 	return manifolds
-}
-
-// correctTilePositions pushes every awake dynamic body out of the tiles it sinks into by more than slop, by percent of the depth, as the positional pass does for pairs of bodies, once per surface direction. A one-way tile pushes only a body it holds this step. buf is scratch, returned for reuse.
-func (w *RigidWorld) correctTilePositions(buf []rigidManifold, slop, percent float64) []rigidManifold {
-	if !w.tilesActive() {
-		return buf
-	}
-	indexed := false
-	for _, b := range w.Bodies {
-		if !w.collidesWithTiles(b) {
-			continue
-		}
-		buf = w.collideTiles(b, buf[:0], func(sub int, _ float64) bool {
-			if !indexed {
-				w.indexContacts()
-				indexed = true
-			}
-			_, ok := w.scratch.contactIndex[rigidPairKey{a: b, b: w.tileBody, sub: sub}]
-			return ok
-		})
-		// The tiles of one flat surface each report the body's full depth, so manifolds sharing a normal push once, by the deepest of them, as one surface would; the first of them in row-major order gives the direction.
-		for mi := range buf {
-			m := &buf[mi]
-			if m.count == 0 {
-				continue
-			}
-			depth := 0.0
-			for mj := mi; mj < len(buf); mj++ {
-				o := &buf[mj]
-				if o.count == 0 || math.Abs(o.nx-m.nx) > tileNormalTolerance || math.Abs(o.ny-m.ny) > tileNormalTolerance {
-					continue
-				}
-				for k := range o.count {
-					depth = max(depth, o.points[k].depth)
-				}
-				if mj != mi {
-					o.count = 0
-				}
-			}
-			if depth <= slop {
-				continue
-			}
-			corr := (depth - slop) * percent
-			b.X = float32(float64(b.X) - float64(m.nx*corr))
-			b.Y = float32(float64(b.Y) - float64(m.ny*corr))
-		}
-	}
-	return buf
 }
 
 // indexContacts fills the scratch index of the contact cache by key. The index is only looked up, never iterated.
@@ -265,6 +219,7 @@ func (w *RigidWorld) collideTiles(b *RigidBody, out []rigidManifold, oneWay func
 	if !ok {
 		return out
 	}
+	first := len(out)
 	kept := w.scratch.tileManifolds[:0]
 	for row := minRow; row <= maxRow; row++ {
 		for col := minCol; col <= maxCol; col++ {
@@ -291,11 +246,90 @@ func (w *RigidWorld) collideTiles(b *RigidBody, out []rigidManifold, oneWay func
 			kept = append(kept, m)
 			m.nx, m.ny = -m.nx, -m.ny
 			m.sub = sub
-			out = append(out, rigidManifoldFrom(m, b, w.tileBody))
+			cur := rigidManifoldFrom(m, b, w.tileBody)
+			if merged := mergeCoplanarTileManifold(g, out[first:], &cur, col, row); merged {
+				// Keep a zero-point sentinel so storeContacts still records this tile cell and wakes a sleeping body if the tile is later removed.
+				out = append(out, rigidManifold{a: b, b: w.tileBody, sub: sub, nx: cur.nx, ny: cur.ny})
+				continue
+			}
+			out = append(out, cur)
 		}
 	}
 	w.scratch.tileManifolds = kept
 	return out
+}
+
+// mergeCoplanarTileManifold merges cur into an earlier tile manifold in prev when both belong to the same flat axis-aligned tile surface (same row for horizontal faces, same col for vertical faces, same normal). Keeping the two extreme points along the flat surface lets the 2x2 block solver resolve a body spanning a tile seam symmetrically without interior seam artifacts.
+func mergeCoplanarTileManifold(g *rigidTileGeom, prev []rigidManifold, cur *rigidManifold, col, row int) bool {
+	horiz := math.Abs(cur.ny) >= 1-tileNormalTolerance
+	vert := math.Abs(cur.nx) >= 1-tileNormalTolerance
+	if !horiz && !vert {
+		return false
+	}
+	for i := range prev {
+		dst := &prev[i]
+		if dst.count == 0 {
+			continue
+		}
+		if float64(dst.nx*cur.nx)+float64(dst.ny*cur.ny) < 1-tileNormalTolerance {
+			continue
+		}
+		dCol, dRow := g.cellAt(dst.sub)
+		if horiz && dRow != row {
+			continue
+		}
+		if vert && dCol != col {
+			continue
+		}
+		var pts [4]rigidContactPoint
+		var proj [4]float64
+		nPts := 0
+		tx, ty := -dst.ny, dst.nx
+		for k := range dst.count {
+			pts[nPts] = dst.points[k]
+			proj[nPts] = float64(pts[nPts].px*tx) + float64(pts[nPts].py*ty)
+			nPts++
+		}
+		for k := range cur.count {
+			pts[nPts] = cur.points[k]
+			proj[nPts] = float64(pts[nPts].px*tx) + float64(pts[nPts].py*ty)
+			nPts++
+		}
+		minI, maxI, deepI := 0, 0, 0
+		for k := 1; k < nPts; k++ {
+			if proj[k] < proj[minI] {
+				minI = k
+			}
+			if proj[k] > proj[maxI] {
+				maxI = k
+			}
+			if pts[k].depth > pts[deepI].depth {
+				deepI = k
+			}
+		}
+		if pts[deepI].depth > max(pts[minI].depth, pts[maxI].depth)+1e-4 {
+			other := minI
+			if math.Abs(proj[maxI]-proj[deepI]) > math.Abs(proj[minI]-proj[deepI]) {
+				other = maxI
+			}
+			dst.points[0] = pts[deepI]
+			if other != deepI && math.Abs(proj[other]-proj[deepI]) > 1e-4 {
+				dst.points[1] = pts[other]
+				dst.count = 2
+			} else {
+				dst.count = 1
+			}
+		} else if proj[maxI]-proj[minI] > 1e-4 {
+			dst.points[0] = pts[minI]
+			dst.points[1] = pts[maxI]
+			dst.count = 2
+		} else {
+			dst.points[0] = pts[deepI]
+			dst.count = 1
+		}
+		return true
+	}
+	return false
 }
 
 // tileFace returns manifold m of tile (col, row), with hull th, against body hull bh, normal from the tile toward the body, so that its normal leaves the tile through a face that is open: not covered by a solid neighbour, and for a one-way tile only its top. A manifold whose normal leans into a covered face is clipped again against the open face nearest its normal, as a chain does at a flat vertex, so a body sliding over a seam is pushed out of the floor's surface instead of back along it; with no open face facing the body the tile has no contact, and the neighbour that owns the surface reports it.

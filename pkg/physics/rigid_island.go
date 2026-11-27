@@ -20,6 +20,13 @@ type rigidPose struct {
 	x, y, angle float32
 }
 
+// rigidBodyDelta tracks a body's displacement, rotation and per-substep push-out pseudo-velocity across substeps.
+type rigidBodyDelta struct {
+	dx, dy        float64
+	sinDA, cosDA  float64
+	pvx, pvy, pav float64
+}
+
 // rigidPairKey names one contact manifold across steps: the pair of bodies, in the order the broadphase reports them, and the manifold's index within the pair.
 type rigidPairKey struct {
 	a, b *RigidBody
@@ -53,6 +60,10 @@ type rigidScratch struct {
 	manifolds     []rigidManifold
 	pairManifolds []rigidManifold
 	starts        []rigidPose
+	deltas        []rigidBodyDelta
+	pinchBest     []int
+	pinchSecond   []int
+	pinchPairs    [][3]int // {m0, m1, sharedBodyIndex}
 	statics       []int
 	ccdContacts   []ccdContact
 	ccdCandidates []ccdCandidate
@@ -335,6 +346,9 @@ func (w *RigidWorld) wakeIslands() {
 	for i := range w.contacts {
 		w.union(parent, w.contacts[i].key.a, w.contacts[i].key.b)
 	}
+	for i := range w.touching {
+		w.union(parent, w.touching[i].a, w.touching[i].b)
+	}
 	for _, j := range w.Joints {
 		if j != nil {
 			a, b := jointPair(j)
@@ -430,14 +444,14 @@ func (w *RigidWorld) awakeJoints() []Joint {
 	return joints
 }
 
-// warmStart starts each contact point from the impulses the same pair of features ended the last step with, scaled to the new step length, and applies them to the bodies, so resting stacks keep their support from one step to the next instead of rebuilding it from zero.
-func (w *RigidWorld) warmStart(manifolds []rigidManifold, h float64) {
+// warmStart starts each contact point from the impulses the same pair of features ended the last step with, scaled to the substep length subH, and applies them to the bodies, so resting stacks keep their support from one step to the next instead of rebuilding it from zero.
+func (w *RigidWorld) warmStart(manifolds []rigidManifold, subH float64) {
 	if len(w.contacts) == 0 || w.lastDt <= 0 {
 		return
 	}
 	w.indexContacts()
 	index := w.scratch.contactIndex
-	ratio := h / w.lastDt
+	ratio := subH / w.lastDt
 	for mi := range manifolds {
 		m := &manifolds[mi]
 		ci, ok := index[rigidPairKey{a: m.a, b: m.b, sub: m.sub}]
@@ -446,6 +460,7 @@ func (w *RigidWorld) warmStart(manifolds []rigidManifold, h float64) {
 		}
 		cached := &w.contacts[ci]
 		tx, ty := -m.ny, m.nx
+		var px, py [2]float64
 		for i := range m.count {
 			cp := &m.points[i]
 			for _, old := range cached.points[:cached.count] {
@@ -454,24 +469,31 @@ func (w *RigidWorld) warmStart(manifolds []rigidManifold, h float64) {
 				}
 				cp.pn = old.pn * ratio
 				cp.pt = old.pt * ratio
-				px := float64(cp.pn*m.nx) + float64(cp.pt*tx)
-				py := float64(cp.pn*m.ny) + float64(cp.pt*ty)
-				m.a.applyImpulseRaw(-px, -py, cp.rAx, cp.rAy)
-				m.b.applyImpulseRaw(px, py, cp.rBx, cp.rBy)
+				px[i] = float64(cp.pn*m.nx) + float64(cp.pt*tx)
+				py[i] = float64(cp.pn*m.ny) + float64(cp.pt*ty)
 				break
 			}
+		}
+		if m.count == 2 {
+			cp0, cp1 := &m.points[0], &m.points[1]
+			m.a.applyImpulsePairRaw(-px[0], -py[0], cp0.rAx, cp0.rAy, -px[1], -py[1], cp1.rAx, cp1.rAy)
+			m.b.applyImpulsePairRaw(px[0], py[0], cp0.rBx, cp0.rBy, px[1], py[1], cp1.rBx, cp1.rBy)
+		} else if m.count == 1 {
+			cp0 := &m.points[0]
+			m.a.applyImpulseRaw(-px[0], -py[0], cp0.rAx, cp0.rAy)
+			m.b.applyImpulseRaw(px[0], py[0], cp0.rBx, cp0.rBy)
 		}
 	}
 }
 
-// storeContacts replaces the contact cache with this step's manifolds and their impulses, keeping the entries of pairs that are both asleep or static, which this step did not solve.
+// storeContacts replaces the contact cache with this step's manifolds and their full-step warm-start impulses, keeping the entries of pairs that are both asleep or static, which this step did not solve.
 func (w *RigidWorld) storeContacts(manifolds []rigidManifold, h float64) {
 	next := w.scratch.contacts[:0]
 	for mi := range manifolds {
 		m := &manifolds[mi]
 		c := rigidCachedManifold{key: rigidPairKey{a: m.a, b: m.b, sub: m.sub}, count: m.count}
 		for i := range m.count {
-			c.points[i] = rigidCachedPoint{id: m.points[i].id, pn: m.points[i].pn, pt: m.points[i].pt}
+			c.points[i] = rigidCachedPoint{id: m.points[i].id, pn: m.points[i].cachePn, pt: m.points[i].cachePt}
 		}
 		next = append(next, c)
 	}
@@ -484,6 +506,52 @@ func (w *RigidWorld) storeContacts(manifolds []rigidManifold, h float64) {
 	w.scratch.contacts = w.contacts
 	w.contacts = next
 	w.lastDt = h
+}
+
+// wakePostStep wakes any sleeping body overlapped at the end of a step by an awake dynamic body or a kinematic body that moved during the step, then wakes their islands.
+func (w *RigidWorld) wakePostStep(starts []rigidPose, ignoredPairs map[[2]*RigidBody]struct{}) {
+	anySleeping := false
+	for _, b := range w.Bodies {
+		if b != nil && b.sleeping {
+			anySleeping = true
+			break
+		}
+	}
+	if !anySleeping {
+		return
+	}
+	buf := w.scratch.pairManifolds[:0]
+	woke := false
+	for _, key := range w.broadphase() {
+		ia, ib := int(key>>32), int(uint32(key))
+		a, b := w.Bodies[ia], w.Bodies[ib]
+		if a.Sensor || b.Sensor {
+			continue
+		}
+		var sleeper *RigidBody
+		switch {
+		case a.sleeping && (b.awakeDynamic() || kinematicMovedFrom(b, starts[ib])):
+			sleeper = a
+		case b.sleeping && (a.awakeDynamic() || kinematicMovedFrom(a, starts[ia])):
+			sleeper = b
+		default:
+			continue
+		}
+		if ignoredPairs != nil {
+			if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
+				continue
+			}
+		}
+		buf = collideRigidPair(a, b, buf[:0])
+		if len(buf) > 0 {
+			sleeper.Wake()
+			woke = true
+		}
+	}
+	w.scratch.pairManifolds = buf
+	if woke {
+		w.wakeIslands()
+	}
 }
 
 // updateSleep advances each awake body's rest time and puts to sleep every island, linked by this step's contacts and joints, whose bodies have all rested for TimeToSleep.
@@ -506,12 +574,17 @@ func (w *RigidWorld) updateSleep(manifolds []rigidManifold, joints []Joint, area
 	linTolSq := float64(linTol * linTol)
 	angTolSq := float64(angTol * angTol)
 	candidate := false
-	for _, b := range w.Bodies {
+	const pushSleepTolSq = 0.04 // 0.2 px/s: do not freeze an island while soft push-out is still separating overlap
+	for i, b := range w.Bodies {
 		if !b.awakeDynamic() {
 			continue
 		}
 		vx, vy, av := float64(b.VX), float64(b.VY), float64(b.AngularVel)
-		if !(float64(vx*vx)+float64(vy*vy) <= linTolSq) || !(float64(av*av) <= angTolSq) {
+		d := &w.scratch.deltas[i]
+		px, py, pa := d.dx/h, d.dy/h, d.pav
+		if !(float64(vx*vx)+float64(vy*vy) <= linTolSq) || !(float64(av*av) <= angTolSq) ||
+			!(float64(px*px)+float64(py*py) <= linTolSq) || !(float64(pa*pa) <= angTolSq) ||
+			float64(d.pvx*d.pvx)+float64(d.pvy*d.pvy) > pushSleepTolSq {
 			b.sleepTime = 0
 			continue
 		}
@@ -548,6 +621,9 @@ func (w *RigidWorld) updateSleep(manifolds []rigidManifold, joints []Joint, area
 	parent := w.unionFind()
 	for mi := range manifolds {
 		w.union(parent, manifolds[mi].a, manifolds[mi].b)
+	}
+	for i := range w.touching {
+		w.union(parent, w.touching[i].a, w.touching[i].b)
 	}
 	for _, j := range joints {
 		a, b := jointPair(j)

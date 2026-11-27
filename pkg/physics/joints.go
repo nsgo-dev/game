@@ -31,6 +31,10 @@ type identifiableJoint interface {
 	setJointInternalID(uint64)
 }
 
+type stepReactionJoint interface {
+	resetStepReaction(dt float64)
+}
+
 // JointBreakEvent reports a joint that broke during RigidWorld.Step because its
 // reaction force or torque exceeded its BreakForce or BreakTorque threshold.
 type JointBreakEvent struct {
@@ -331,7 +335,6 @@ func (j *DistanceJoint) effectiveRange() (lo, hi float64, unilateral bool) {
 }
 
 func (j *DistanceJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	j.active = false
 	j.accImpulse = 0
 	j.mode = 0
@@ -543,7 +546,6 @@ func (j *SpringJoint) checkBreak() (JointBreakEvent, bool) {
 }
 
 func (j *SpringJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	if j.A == nil || j.B == nil || (j.A.Static && j.B.Static) {
 		return
 	}
@@ -690,7 +692,6 @@ func revoluteEffMass(a, b *RigidBody, rAx, rAy, rBx, rBy float64) (m11, m12, m22
 }
 
 func (j *RevoluteJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	j.active = false
 	j.dt = dt
 	j.motorMass = 0
@@ -972,7 +973,6 @@ func prismaticPerpEffMass(invMA, invIA, invMB, invIB, s1, s2 float64) (m11, m12,
 }
 
 func (j *PrismaticJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	j.active = false
 	j.dt = dt
 	j.motorMass = 0
@@ -1280,7 +1280,6 @@ func weldMassMatrix(a, b *RigidBody, rAx, rAy, rBx, rBy, gammaLin, gammaAng floa
 }
 
 func (j *WeldJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	j.active = false
 	j.soft = false
 	j.dt = dt
@@ -1518,7 +1517,6 @@ func (j *WheelJoint) JointSpeed() float32 {
 }
 
 func (j *WheelJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	j.active = false
 	j.dt = dt
 	j.perpMass = 0
@@ -1831,7 +1829,6 @@ func (j *MouseJoint) checkBreak() (JointBreakEvent, bool) {
 }
 
 func (j *MouseJoint) preStep(dt float64) {
-	j.resetStepReaction(dt)
 	j.active = false
 	j.dt = dt
 	j.gamma = 0
