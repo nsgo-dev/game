@@ -61,6 +61,15 @@ nodes:
     height: 14
     sprite: art/missing_heart.png
     spriteCount: 3
+  - id: boss_bar
+    type: image_progress
+    anchor: top_center
+    width: 300
+    height: 24
+    under: art/ui/bar_back.png
+    progress: art/missing_fill.png
+    fill: clockwise
+    startAngle: -90
 `
 	enTable := `version: 1
 locale: en
@@ -80,6 +89,7 @@ strings:
 		"screens/hud.screen.yaml": {Data: []byte(hudScreen)},
 		"locales/en.yaml":         {Data: []byte(enTable)},
 		"locales/zh.yaml":         {Data: []byte(zhTable)},
+		"art/ui/bar_back.png":     {Data: pngBytes(t, 16, 16)},
 	}
 
 	report, err := assetcheck.Check(fsys)
@@ -105,6 +115,7 @@ strings:
 		{"missing key in zh with file, line and node", `screens/hud.screen.yaml:33: node "only_en" (locale "zh"): textKey "hud.only_en" is missing from locale "zh"`},
 		{"low contrast with file, line and node", `screens/hud.screen.yaml:13: node "floor_label": text contrast`},
 		{"missing sprite file", `screens/hud.screen.yaml:51: sprite "art/missing_heart.png": not found`},
+		{"missing image_progress progress layer", `screens/hud.screen.yaml:59: progress "art/missing_fill.png": not found`},
 	}
 	for _, w := range wants {
 		if !strings.Contains(joined, w.sub) {

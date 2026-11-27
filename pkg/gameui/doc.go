@@ -1,7 +1,7 @@
 // Package gameui provides stylized in-canvas menus, spatial focus navigation, virtual-resolution scaling,
 // and world-anchored native NSGo overlays.
 //
-// Build a widget tree from containers (Panel, VBox, HBox) and widgets (Label, Button, Toggle, Slider, List, ProgressBar, Spacer), wrap it in a Root, and drive layout, input, and drawing from your game's Canvas:
+// Build a widget tree from containers (Panel, VBox, HBox) and widgets (Label, Button, Toggle, Slider, List, ProgressBar, ImageProgress, Spacer), wrap it in a Root, and drive layout, input, and drawing from your game's Canvas:
 //
 //   - Call Root.Layout(bounds) to compute exact non-overlapping widget rectangles with padding, spacing, fixed/flex sizing, and alignment.
 //   - Configure Root.Viewport (or Viewport.Draw / Viewport.WindowToVirtual) for virtual-resolution Fit/Letterbox/Fill/Stretch/Integer scaling and accurate pointer/touch hit-testing.

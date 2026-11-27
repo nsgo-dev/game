@@ -49,6 +49,8 @@ const (
 	NodeTouchButton ScreenNodeType = "touch_button"
 	// NodeContainer groups child nodes with optional device-class filtering or anchored sub-bounds.
 	NodeContainer ScreenNodeType = "container"
+	// NodeImageProgress displays a read-only progress meter built from layered under/progress/over images with a directional or radial fill.
+	NodeImageProgress ScreenNodeType = "image_progress"
 )
 
 // ScreenAnchor positions a node against one of nine reference points or fills its parent bounds.
@@ -158,7 +160,7 @@ type ScreenNodeDoc struct {
 	// ID uniquely identifies this node within the screen.
 	ID string `yaml:"id" schema:"required,minLength=1"`
 	// Type selects the widget or container kind.
-	Type ScreenNodeType `yaml:"type" schema:"required,enum=vbox|hbox|label|button|sprite_row|color_rect|touch_stick|touch_button|container"`
+	Type ScreenNodeType `yaml:"type" schema:"required,enum=vbox|hbox|label|button|sprite_row|color_rect|touch_stick|touch_button|container|image_progress"`
 	// Anchor positions the node relative to the screen or safe area: one of the nine anchor points or fill.
 	Anchor ScreenAnchor `yaml:"anchor,omitempty" schema:"enum=top_left|top_center|top_right|center_left|center|center_right|bottom_left|bottom_center|bottom_right|fill"`
 	// Offset shifts the node from its anchor in virtual points. For right and bottom anchors, positive values inset inward from that edge.
@@ -189,6 +191,24 @@ type ScreenNodeDoc struct {
 	SpriteFrame string `yaml:"spriteFrame,omitempty"`
 	// SpriteCount is the number of repeated icons in a sprite_row (defaults to 1 when Sprite is set).
 	SpriteCount int `yaml:"spriteCount,omitempty" schema:"minimum=0"`
+	// Under is a project-relative path to the image_progress background layer image, drawn in full first.
+	Under string `yaml:"under,omitempty"`
+	// Progress is a project-relative path to the image_progress fill layer image, revealed by the value along Fill.
+	Progress string `yaml:"progress,omitempty"`
+	// Over is a project-relative path to the image_progress foreground layer image, drawn in full last.
+	Over string `yaml:"over,omitempty"`
+	// Fill picks how an image_progress reveals its progress image: left_to_right (the default), right_to_left, top_to_bottom, bottom_to_top, center_h, center_v, clockwise, or counter_clockwise.
+	Fill string `yaml:"fill,omitempty" schema:"enum=left_to_right|right_to_left|top_to_bottom|bottom_to_top|center_h|center_v|clockwise|counter_clockwise"`
+	// StartAngle is the image_progress radial fill's starting angle in degrees (0 points right, positive is clockwise).
+	StartAngle float32 `yaml:"startAngle,omitempty"`
+	// Span is the image_progress radial fill's full sweep in degrees (0 defaults to 360).
+	Span float32 `yaml:"span,omitempty" schema:"minimum=0,maximum=360"`
+	// Min is the image_progress range's lower bound (defaults to 0).
+	Min float32 `yaml:"min,omitempty"`
+	// Max is the image_progress range's upper bound (defaults to 1 when both min and max are 0).
+	Max float32 `yaml:"max,omitempty"`
+	// Value is the image_progress node's initial value; game code updates the widget's Value at runtime.
+	Value float32 `yaml:"value,omitempty"`
 	// FontSize overrides the text font size in virtual points for text-bearing nodes.
 	FontSize float32 `yaml:"fontSize,omitempty" schema:"minimum=0"`
 	// TextColor is an optional CSS color string parsed with core.ParseColor for text.
@@ -402,7 +422,7 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 	seenIDs[n.ID] = true
 
 	if !isValidNodeType(n.Type) {
-		return loaderr.Errorf(fieldPath("type"), "use one of vbox, hbox, label, button, sprite_row, color_rect, touch_stick, touch_button, or container", "gameui: node %q has unknown type %q", n.ID, n.Type)
+		return loaderr.Errorf(fieldPath("type"), "use one of vbox, hbox, label, button, sprite_row, color_rect, touch_stick, touch_button, container, or image_progress", "gameui: node %q has unknown type %q", n.ID, n.Type)
 	}
 	if n.Anchor != "" && !isValidAnchor(n.Anchor) {
 		return loaderr.Errorf(fieldPath("anchor"), "use one of top_left, top_center, top_right, center_left, center, center_right, bottom_left, bottom_center, bottom_right, or fill", "gameui: node %q has unknown anchor %q", n.ID, n.Anchor)
@@ -480,6 +500,38 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 	if n.SpriteCount < 0 {
 		return loaderr.Errorf(fieldPath("spriteCount"), "set spriteCount to a non-negative integer", "gameui: node %q spriteCount must be non-negative, got %d", n.ID, n.SpriteCount)
 	}
+	for _, layer := range []struct {
+		name string
+		path string
+	}{
+		{"under", n.Under},
+		{"over", n.Over},
+		{"progress", n.Progress},
+	} {
+		if layer.path != "" && (strings.TrimSpace(layer.path) != layer.path || strings.IndexFunc(layer.path, unicode.IsControl) >= 0) {
+			return loaderr.Errorf(fieldPath(layer.name), "set %s to a project-relative path such as art/ui/bar_fill.png", "gameui: node %q has invalid %s path %q", n.ID, layer.name, layer.path)
+		}
+	}
+	if n.Fill != "" {
+		if _, ok := ParseFillMode(n.Fill); !ok {
+			return loaderr.Errorf(fieldPath("fill"), "use one of left_to_right, right_to_left, top_to_bottom, bottom_to_top, center_h, center_v, clockwise, or counter_clockwise", "gameui: node %q has unknown fill %q", n.ID, n.Fill)
+		}
+	}
+	if !isFinite32(n.StartAngle) {
+		return loaderr.Errorf(fieldPath("startAngle"), "set startAngle to a finite angle in degrees", "gameui: node %q startAngle must be finite, got %v", n.ID, n.StartAngle)
+	}
+	if !isNonNegFinite32(n.Span) || n.Span > 360 {
+		return loaderr.Errorf(fieldPath("span"), "set span to a sweep between 0 (the default 360) and 360 degrees", "gameui: node %q span must be in [0, 360], got %v", n.ID, n.Span)
+	}
+	if !isFinite32(n.Min) {
+		return loaderr.Errorf(fieldPath("min"), "set min to a finite number", "gameui: node %q min must be finite, got %v", n.ID, n.Min)
+	}
+	if !isFinite32(n.Max) {
+		return loaderr.Errorf(fieldPath("max"), "set max to a finite number", "gameui: node %q max must be finite, got %v", n.ID, n.Max)
+	}
+	if !isFinite32(n.Value) {
+		return loaderr.Errorf(fieldPath("value"), "set value to a finite number", "gameui: node %q value must be finite, got %v", n.ID, n.Value)
+	}
 	if !isNonNegFinite32(n.FontSize) {
 		return loaderr.Errorf(fieldPath("fontSize"), "set fontSize to a non-negative number", "gameui: node %q fontSize must be non-negative, got %v", n.ID, n.FontSize)
 	}
@@ -517,7 +569,7 @@ func (t ScreenNodeType) IsContainer() bool {
 
 func isValidNodeType(t ScreenNodeType) bool {
 	switch t {
-	case NodeVBox, NodeHBox, NodeLabel, NodeButton, NodeSpriteRow, NodeColorRect, NodeTouchStick, NodeTouchButton, NodeContainer:
+	case NodeVBox, NodeHBox, NodeLabel, NodeButton, NodeSpriteRow, NodeColorRect, NodeTouchStick, NodeTouchButton, NodeContainer, NodeImageProgress:
 		return true
 	default:
 		return false

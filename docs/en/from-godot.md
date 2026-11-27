@@ -14,6 +14,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | `get_tree().change_scene_to_file()` | `scene.Manager.Switch` with a transition | [scene](scene.md) |
 | `Node2D` tree, `CanvasLayer` | `scene.Scene` layers in world or screen space | [scene](scene.md) |
 | `Node3D` tree, groups | `scene3d.Node` tree, `FindByTag` | [scene3d](scene3d.md) |
+| `Control`, `TextureProgressBar` | [gameui](gameui.md) widgets; `gameui.ImageProgress` fills an under/progress/over image stack directionally or radially | [gameui](gameui.md) |
 | Instantiating a scene as a template | `entities.Prefab`, or a scene object's `prefab` field | [Entities](entities.md) |
 | `Resource`, `.tres`, `ResourceLoader` | YAML resource files in a `resource.Library`; images and sounds under `resources/`; data through `assets.Manager` with `WithFS` | [resource](resources.md), [assets](assets.md) |
 | Signals, `connect`, `emit` | `flow.Bus` with `Subscribe` and `Publish`; `core.Signal` for UI state | [flow](flow.md) |

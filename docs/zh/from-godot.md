@@ -14,6 +14,7 @@
 | `get_tree().change_scene_to_file()` | 带过渡效果的 `scene.Manager.Switch` | [scene](scene.md) |
 | `Node2D` 树、`CanvasLayer` | 世界空间或屏幕空间的 `scene.Scene` 图层 | [scene](scene.md) |
 | `Node3D` 树、分组 | `scene3d.Node` 树、`FindByTag` | [scene3d](scene3d.md) |
+| `Control`、`TextureProgressBar` | [gameui](gameui.md) 控件；`gameui.ImageProgress` 用 under/progress/over 三层图像按方向或径向填充进度 | [gameui](gameui.md) |
 | 把场景当模板实例化 | `entities.Prefab`，或场景对象的 `prefab` 字段 | [实体](entities.md) |
 | `Resource`、`.tres`、`ResourceLoader` | 放进 `resource.Library` 的 YAML 资源文件；`resources/` 下的图像和声音；数据通过带 `WithFS` 的 `assets.Manager` 读取 | [resource](resources.md)、[assets](assets.md) |
 | 信号、`connect`、`emit` | `flow.Bus` 的 `Subscribe` 与 `Publish`；界面状态用 `core.Signal` | [flow](flow.md) |

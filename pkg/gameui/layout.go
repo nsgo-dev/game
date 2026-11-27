@@ -180,6 +180,19 @@ func (p *ProgressBar) measure(theme *Theme) core.Size {
 	return applySizeConstraints(160, prefH, p.spec())
 }
 
+func (p *ImageProgress) measure(_ *Theme) core.Size {
+	prefW, prefH := float32(64), float32(16)
+	for _, ns := range []*NineSlice{p.Under, p.Progress, p.Over} {
+		if ns == nil {
+			continue
+		}
+		w, h := ns.prefSize()
+		prefW = max(prefW, w)
+		prefH = max(prefH, h)
+	}
+	return applySizeConstraints(prefW, prefH, p.spec())
+}
+
 func (s *Spacer) measure(_ *Theme) core.Size {
 	return applySizeConstraints(0, 0, s.spec())
 }
@@ -497,6 +510,9 @@ func (b *Button) layout(bounds core.Bounds, _ *Theme)      { b.bounds = bounds }
 func (t *Toggle) layout(bounds core.Bounds, _ *Theme)      { t.bounds = bounds }
 func (p *ProgressBar) layout(bounds core.Bounds, _ *Theme) { p.bounds = bounds }
 func (s *Spacer) layout(bounds core.Bounds, _ *Theme)      { s.bounds = bounds }
+func (p *ImageProgress) layout(bounds core.Bounds, _ *Theme) {
+	p.bounds = bounds
+}
 
 func (s *Slider) layout(bounds core.Bounds, theme *Theme) {
 	s.bounds = bounds

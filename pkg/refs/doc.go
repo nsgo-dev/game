@@ -11,7 +11,7 @@
 //   - YAML tilesets (tilemap.TilesetDoc), the files named *.tileset.yaml or *.tileset.yml: the grid image their tiles are cut from;
 //   - 3D grid maps (world3d), the files named *.gridmap.yaml or *.gridmap.yml and every other YAML file a scene names in gridMap: the glTF mesh library named in meshLibrary;
 //   - cutscenes (cutscene), the files named *.cutscene.yaml or *.cutscene.yml: the scene a timeline cutscene plays against, a video cutscene's project-relative source path, and the audio source paths on sound and music tracks;
-//   - screens (gameui), the files named *.screen.yaml or *.screen.yml: each node's sprite path (FieldScreenSprite) and localization textKey (FieldTextKey in Project.TextKeys);
+//   - screens (gameui), the files named *.screen.yaml or *.screen.yml: each node's sprite path and image_progress under/progress/over layer paths (FieldScreenSprite) and localization textKey (FieldTextKey in Project.TextKeys);
 //   - localization string tables (l10n), versioned YAML string tables holding locale and strings/plurals maps: each message key definition (FieldStringKey and FieldPluralKey in Project.TextKeys);
 //   - resource files (resource), YAML files whose header has a resource type: a material's texture;
 //   - Tiled maps (.tmj) and tilesets (.tsj, and .json files a map names as its external tileset): external tilesets, tileset and tile images and image layers;

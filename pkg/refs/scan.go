@@ -893,6 +893,9 @@ func (p *Project) screenRefs(f *File, nodes *yaml.Node, depth int) {
 	}
 	for _, n := range items(nodes) {
 		p.ref(f, field(n, "sprite"), FieldScreenSprite)
+		p.ref(f, field(n, "under"), FieldScreenSprite)
+		p.ref(f, field(n, "progress"), FieldScreenSprite)
+		p.ref(f, field(n, "over"), FieldScreenSprite)
 		var nodeID string
 		if idNode := field(n, "id"); idNode != nil && idNode.Kind == yaml.ScalarNode {
 			nodeID = idNode.Value
