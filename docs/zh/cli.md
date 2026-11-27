@@ -441,7 +441,7 @@ nsgo game mv materials/stone.material.yaml materials/rock.material.yaml
 nsgo game mv -dry-run art gfx
 ```
 
-移动或重命名一个文件或目录，并改写所有指向被移动内容的引用：包括 `game.yaml`、场景、资源文件以及 Tiled 和 LDtk 文件；Tiled 和 LDtk 文件本身被移动时，其中相对自身书写的路径也会改写。每个引用都原地修改，保留引号，文件其余部分（包括注释）逐字节不变。项目索引 `game.index.yaml` 会随之更新。路径从工作目录算起，且必须位于项目之内：即 `-in` 指定的目录，未指定时为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。每项修改都会打印出来；`-dry-run` 只打印而不执行，与 `release` 相同。会导致引用失效的移动会在做任何修改之前被拒绝，移动 `game.yaml` 或索引、移动到已存在的文件以及移出项目也会被拒绝。见[稳定引用](project.md#稳定引用)。
+移动或重命名一个文件或目录，并改写所有指向被移动内容的引用：包括 `game.yaml`（含已安装包在 `packs[].dir` 中的目录）、场景、资源文件以及 Tiled 和 LDtk 文件；Tiled 和 LDtk 文件本身被移动时，其中相对自身书写的路径也会改写。每个引用都原地修改，保留引号，文件其余部分（包括注释）逐字节不变。项目索引 `game.index.yaml` 会随之更新。路径从工作目录算起，且必须位于项目之内：即 `-in` 指定的目录，未指定时为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。每项修改都会打印出来；`-dry-run` 只打印而不执行，与 `release` 相同。会导致引用失效的移动会在做任何修改之前被拒绝，移动 `game.yaml` 或索引、移动到已存在的文件、移出项目，以及在不移动包目录的情况下单独移动已安装包 `files` 列表中的文件或子目录，也会被拒绝。见[稳定引用](project.md#稳定引用)。
 
 ### index
 

@@ -214,7 +214,7 @@ go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
 
 ## 稳定引用
 
-文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源，并从文件和文件夹构建资源，场景继承或实例化其他场景并引用材质、glTF 模型、Tiled 和 LDtk 地图以及 YAML 图块集，YAML 图块集引用它的图片，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片（Tiled 图块集可以是 `.tsj` 或 `.json`），`.gltf` 模型引用它存放在单独文件中的缓冲区和图片（按 glTF 的写法做百分号编码），精灵图集在 `meta.image` 中引用它的页面图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。它通过 `project` 包（`project.PathRefs`）读取 `game.yaml` 中的路径，因此无法通过校验的 `game.yaml` 会被报告，修好之前不会移动任何文件。
+文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源、从文件和文件夹构建资源，并记录已安装库包的目录（`packs[].dir`）；场景继承或实例化其他场景并引用材质、glTF 模型、Tiled 和 LDtk 地图以及 YAML 图块集，YAML 图块集引用它的图片，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片（Tiled 图块集可以是 `.tsj` 或 `.json`），`.gltf` 模型引用它存放在单独文件中的缓冲区和图片（按 glTF 的写法做百分号编码），精灵图集在 `meta.image` 中引用它的页面图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。它通过 `project` 包（`project.PathRefs`）读取 `game.yaml` 中的路径，因此无法通过校验的 `game.yaml` 会被报告，修好之前不会移动任何文件。
 
 每个场景文件和资源文件的文件头里都有一个稳定 ID，即 `uid`：只写入一次、此后不再改变，因此会跟着文件一起移动：
 
@@ -244,7 +244,7 @@ files:
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-引用是原地改写的：保留原有的引号，文件其余部分（包括注释和格式）逐字节不变，因此一次移动在代码审查中只显示它改动的那几行。会导致引用失效的移动会在做任何修改之前被拒绝：引用会指到项目根目录之外、引用跨多行书写，或者引用所在的场景无法解析。场景中的图集、图块集和预制体名称是由游戏的解析器查找的名称而不是路径，因此不会被改写；对象的 `mesh` 也不会被改写，它指代内置的基本形体；对象的 `modelNode` 和 `modelMesh` 同样不会被改写，它们指代模型文件内部的部件（[scenemodel](scenemodel.md)）。热重载着色器材质（`hotreload.MaterialDef`）中的着色器和纹理路径同样不会被改写，因为它们相对于游戏在运行时交给重载器的资源目录（在 `game dev` 下默认是 `resources`），而不是项目根目录。`game assets` 写出的路径（`assets` 目标的 `out`、`cache` 以及清单的 `in` 文件夹）在移动时会被改写，但可以暂不存在，也不会列入索引；文件夹同样不列入。只改变大小写的重命名（例如把 `a.png` 改为 `A.png`）在不区分大小写的文件系统上同样可用。
+引用是原地改写的：保留原有的引号，文件其余部分（包括注释和格式）逐字节不变，因此一次移动在代码审查中只显示它改动的那几行。会导致引用失效的移动会在做任何修改之前被拒绝：引用会指到项目根目录之外、引用跨多行书写、引用所在的场景无法解析，或在不移动包目录（`packs[].dir`）的情况下单独移动已安装包 `packs[].files` 中记录的文件或子目录。场景中的图集、图块集和预制体名称是由游戏的解析器查找的名称而不是路径，因此不会被改写；对象的 `mesh` 也不会被改写，它指代内置的基本形体；对象的 `modelNode` 和 `modelMesh` 同样不会被改写，它们指代模型文件内部的部件（[scenemodel](scenemodel.md)）。热重载着色器材质（`hotreload.MaterialDef`）中的着色器和纹理路径同样不会被改写，因为它们相对于游戏在运行时交给重载器的资源目录（在 `game dev` 下默认是 `resources`），而不是项目根目录。`game assets` 写出的路径（`assets` 目标的 `out`、`cache` 以及清单的 `in` 文件夹）在移动时会被改写，但可以暂不存在，也不会列入索引；文件夹（包括已安装包的目录）同样不列入。只改变大小写的重命名（例如把 `a.png` 改为 `A.png`）在不区分大小写的文件系统上同样可用。
 
 ## 起手模板与示例
 

@@ -218,6 +218,16 @@ type Project struct {
 	// pending are the YAML files Scan did not read as any kind of file, and pendingUIDs the files among them holding each uid, read when Moved first needs them.
 	pending     []string
 	pendingUIDs map[string][]string
+	// packs records installed library packs declared in scanned game.yaml files so PlanMove can refuse moving individual tracked files out of a pack folder.
+	packs []scannedPack
+}
+
+// scannedPack holds the scanned paths of one installed pack from a game.yaml file.
+type scannedPack struct {
+	file  string
+	name  string
+	dir   string
+	files []string
 }
 
 // Scan walks fsys, such as os.DirFS of a game's directory, and reads every file the package comment lists for its references, uids and project indexes. Directories whose names start with "." or "_", and those named testdata, are skipped, as the go command skips them. A file that does not parse is skipped; game check reports it. Scan returns an error only when fsys's root cannot be read.
@@ -529,9 +539,25 @@ func (p *Project) readProject(name string, data []byte) {
 		p.indexProblems = append(p.indexProblems, p.Problems[len(p.Problems)-1])
 		return
 	}
+	hasPack := false
 	for _, pr := range paths {
+		if pr.Field == project.FieldPackDir {
+			hasPack = true
+		}
 		if r := p.ref(f, pr.Node, pr.Field); r != nil {
 			r.Dir, r.Output = pr.Dir, pr.Output
+		}
+	}
+	if hasPack {
+		if proj, err := project.Parse(data); err == nil {
+			for _, pk := range proj.Packs {
+				dir := path.Join(f.Root, pk.Dir)
+				files := make([]string, len(pk.Files))
+				for i, rel := range pk.Files {
+					files[i] = path.Join(dir, rel)
+				}
+				p.packs = append(p.packs, scannedPack{file: name, name: pk.Name, dir: dir, files: files})
+			}
 		}
 	}
 }
