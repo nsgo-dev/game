@@ -20,6 +20,94 @@ import (
 // DefaultPlatforms are what game release builds when neither -target nor game.yaml's export presets say otherwise, as nsgo build -target names them: macos, windows, linux and android expand to their architectures, and ios and web are one target each.
 var DefaultPlatforms = []string{"macos", "windows", "linux", "web", "ios", "android"}
 
+// PlatformSupportURL is the English documentation anchor describing experimental targets and per-feature platform support.
+const PlatformSupportURL = "https://game.nsgo.dev/docs/platforms/#experimental-targets"
+
+// PlatformSupportURLZH is the Simplified Chinese documentation anchor describing experimental targets and per-feature platform support.
+const PlatformSupportURLZH = "https://game.nsgo.dev/zh/docs/platforms/#实验性目标平台"
+
+// ExperimentalInfo describes why an NSGo platform is marked experimental and where its support status and upstream tracking issue are documented.
+type ExperimentalInfo struct {
+	// Platform is the canonical NSGo platform name (such as "tvos", "watchos", "harmonyos", or "miniprogram").
+	Platform string
+	// Missing summarizes the core game capabilities unavailable on this platform in the current NSGo release.
+	Missing string
+	// IssueURL is the upstream nsgo-dev/nsgo tracking issue for this platform.
+	IssueURL string
+}
+
+// Experimental is the single source of truth for NSGo platforms accepted as experimental by game.yaml export presets, game release, and the scene editor. None of these platforms are built or vetted in CI, and NSGo disables audio and GPU views on all four. When NSGo enables audio and a GPU view on one of them, remove it from this set and add it to .github/workflows/check.yml in the same pull request.
+var Experimental = map[string]ExperimentalInfo{
+	"tvos": {
+		Platform: "tvos",
+		Missing:  "no audio, no GPU view, and not tested in CI",
+		IssueURL: "https://github.com/nsgo-dev/nsgo/issues/1317",
+	},
+	"watchos": {
+		Platform: "watchos",
+		Missing:  "no audio, no GPU view, no gamepad, and not tested in CI",
+		IssueURL: "https://github.com/nsgo-dev/nsgo/issues/1318",
+	},
+	"harmonyos": {
+		Platform: "harmonyos",
+		Missing:  "no audio, no GPU view, no gamepad, and not tested in CI",
+		IssueURL: "https://github.com/nsgo-dev/nsgo/issues/1521",
+	},
+	"miniprogram": {
+		Platform: "miniprogram",
+		Missing:  "no audio, no GPU view, no gamepad, and not tested in CI",
+		IssueURL: "https://github.com/nsgo-dev/nsgo/issues/1505",
+	},
+}
+
+// PlatformOf returns the NSGo platform name that target belongs to (the segment before the first underscore, or target itself when there is none).
+func PlatformOf(target string) string {
+	platform, _, _ := strings.Cut(target, "_")
+	return platform
+}
+
+// IsExperimental reports whether targetOrPlatform belongs to an experimental platform.
+func IsExperimental(targetOrPlatform string) bool {
+	_, ok := Experimental[PlatformOf(targetOrPlatform)]
+	return ok
+}
+
+// ExperimentalInfoFor returns the experimental metadata for targetOrPlatform, or false when it is not experimental.
+func ExperimentalInfoFor(targetOrPlatform string) (ExperimentalInfo, bool) {
+	info, ok := Experimental[PlatformOf(targetOrPlatform)]
+	return info, ok
+}
+
+// ExperimentalPlatforms returns the unique experimental platforms referenced by targets, preserving first-seen order.
+func ExperimentalPlatforms(targets []string) []ExperimentalInfo {
+	var out []ExperimentalInfo
+	seen := make(map[string]bool)
+	for _, t := range targets {
+		plat := PlatformOf(t)
+		if seen[plat] {
+			continue
+		}
+		if info, ok := Experimental[plat]; ok {
+			seen[plat] = true
+			out = append(out, info)
+		}
+	}
+	return out
+}
+
+// ExperimentalDocsURL returns the platform support documentation URL for lang ("zh" for Simplified Chinese, English otherwise).
+func ExperimentalDocsURL(lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		return PlatformSupportURLZH
+	}
+	return PlatformSupportURL
+}
+
+// FormatExperimentalWarning formats the single-line warning printed by game release and the editor's export log for an experimental platform.
+func FormatExperimentalWarning(info ExperimentalInfo) string {
+	return fmt.Sprintf("game release: warning: target platform %q is experimental (%s); see %s and %s", info.Platform, info.Missing, PlatformSupportURL, info.IssueURL)
+}
+
 // SteamPlatforms are what game release builds by default for the steam channel, whose depots nsgo build makes only of desktop targets.
 var SteamPlatforms = []string{"macos", "windows", "linux"}
 
@@ -34,6 +122,31 @@ const NoCreditsNote = "game release: note: game.yaml has no assets section, so n
 
 // ErrInvalidTarget is wrapped when Options.Targets contains an empty target entry.
 var ErrInvalidTarget = errors.New("invalid target")
+
+// ErrExperimentalTarget is wrapped when Options.Strict refuses one or more experimental target platforms.
+var ErrExperimentalTarget = errors.New("experimental target platform")
+
+// ExperimentalTargetsError is returned by Build when Options.Strict is true and the resolved build targets include one or more experimental platforms.
+type ExperimentalTargetsError struct {
+	Platforms []ExperimentalInfo
+}
+
+func (e *ExperimentalTargetsError) Error() string {
+	if len(e.Platforms) == 1 {
+		p := e.Platforms[0]
+		return fmt.Sprintf("experimental target platform %q refused by -strict (%s); see %s and %s", p.Platform, p.Missing, PlatformSupportURL, p.IssueURL)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "experimental target platforms refused by -strict (see %s):", PlatformSupportURL)
+	for _, p := range e.Platforms {
+		fmt.Fprintf(&b, "\n  - %s (%s; %s)", p.Platform, p.Missing, p.IssueURL)
+	}
+	return b.String()
+}
+
+func (e *ExperimentalTargetsError) Unwrap() error {
+	return ErrExperimentalTarget
+}
 
 // NSGoSettings are the parts of nsgo.yaml that game release reads.
 type NSGoSettings struct {
@@ -105,6 +218,32 @@ type Options struct {
 	Notes string
 	// Jobs is -jobs, how many targets build at once; 0 leaves nsgo's default.
 	Jobs int
+	// Strict is -strict, refusing experimental target platforms with *ExperimentalTargetsError instead of printing warnings.
+	Strict bool
+}
+
+// ResolveTargets resolves the ordered list of nsgo build targets from opts, settings, and nsgo.
+func ResolveTargets(opts Options, settings Settings, nsgo NSGoSettings) ([]string, error) {
+	targets := DefaultPlatforms
+	channel := opts.Channel
+	if channel == "" {
+		channel = nsgo.Channel
+	}
+	if channel == "steam" {
+		targets = SteamPlatforms
+	}
+	if settings.Targets != nil {
+		targets = settings.Targets
+	}
+	if opts.Targets != "" {
+		targets = strings.Split(opts.Targets, ",")
+		for _, t := range targets {
+			if t == "" {
+				return nil, fmt.Errorf("%w: -target %q names an empty target", ErrInvalidTarget, opts.Targets)
+			}
+		}
+	}
+	return append([]string(nil), targets...), nil
 }
 
 // OutputDir returns the absolute directory nsgo build writes the release to, as Args passes it and nsgo resolves it: -output, relative to the working directory, else game.yaml's export.output, else nsgo.yaml's build.output, else dist, these relative to dir.
@@ -125,24 +264,9 @@ func OutputDir(dir string, opts Options, settings Settings, nsgo NSGoSettings) (
 
 // Args returns the arguments of the go command that builds the project in dir: go -C dir tool nsgo build with the targets and output resolved from opts, then game.yaml's settings, then the defaults, the channel coming from opts, then nsgo.yaml. nsgo.yaml's build.targets is not a default: it is plain nsgo build's everyday list, which in the starter holds a simulator build and leaves out Linux. Paths in opts are relative to the working directory, and game.yaml's output to dir.
 func Args(dir string, opts Options, settings Settings, nsgo NSGoSettings) ([]string, error) {
-	targets := DefaultPlatforms
-	channel := opts.Channel
-	if channel == "" {
-		channel = nsgo.Channel
-	}
-	if channel == "steam" {
-		targets = SteamPlatforms
-	}
-	if settings.Targets != nil {
-		targets = settings.Targets
-	}
-	if opts.Targets != "" {
-		targets = strings.Split(opts.Targets, ",")
-		for _, t := range targets {
-			if t == "" {
-				return nil, fmt.Errorf("%w: -target %q names an empty target", ErrInvalidTarget, opts.Targets)
-			}
-		}
+	targets, err := ResolveTargets(opts, settings, nsgo)
+	if err != nil {
+		return nil, err
 	}
 	args := []string{"-C", dir, "tool", "nsgo", "build", "-target", strings.Join(targets, ",")}
 	switch {
@@ -190,6 +314,10 @@ func ShellQuote(args []string) string {
 type Plan struct {
 	// Dir is the absolute project directory.
 	Dir string
+	// Targets are the resolved nsgo build targets in build order.
+	Targets []string
+	// Experimental lists the unique experimental platforms referenced by Targets, in first-seen order.
+	Experimental []ExperimentalInfo
 	// Args are the arguments passed to the `go` command.
 	Args []string
 	// CommandLine is the POSIX-quoted `go ...` command printed by -dry-run.
@@ -204,7 +332,7 @@ type Plan struct {
 	CreditsPath string
 }
 
-// Build resolves nsgo.yaml, command arguments, output directory, and asset credits for a release build in dir. It fails before building when nsgo.yaml is missing, options are invalid, or any declared asset has no credit (*credits.MissingError).
+// Build resolves nsgo.yaml, command arguments, output directory, experimental target warnings, and asset credits for a release build in dir. It fails before building when nsgo.yaml is missing, options are invalid, Options.Strict refuses an experimental target (*ExperimentalTargetsError), or any declared asset has no credit (*credits.MissingError).
 func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
@@ -213,6 +341,14 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 	nsgo, err := ReadNSGoSettings(absDir)
 	if err != nil {
 		return nil, err
+	}
+	targets, err := ResolveTargets(opts, settings, nsgo)
+	if err != nil {
+		return nil, err
+	}
+	exp := ExperimentalPlatforms(targets)
+	if opts.Strict && len(exp) > 0 {
+		return nil, &ExperimentalTargetsError{Platforms: exp}
 	}
 	args, err := Args(absDir, opts, settings, nsgo)
 	if err != nil {
@@ -224,6 +360,8 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 	}
 	p := &Plan{
 		Dir:              absDir,
+		Targets:          targets,
+		Experimental:     exp,
 		Args:             args,
 		CommandLine:      ShellQuote(append([]string{"go"}, args...)),
 		OutputDir:        outDir,

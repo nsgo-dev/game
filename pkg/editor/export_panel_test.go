@@ -541,3 +541,125 @@ func TestExportPanelStreamingCancelFailureAndValidation(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+// #1309: Experimental export presets (tvos, watchos, harmonyos, miniprogram) show an Experimental badge and platform support link in the Export panel and Build & Release screen without blocking the build.
+func TestExportPanelExperimentalPresetsBadgeLinkAndNonBlockingBuild(t *testing.T) {
+	dir := writeEditorProject(t)
+	gameYAML := projectYAML + `export:
+  presets:
+    - platform: web
+    - platform: harmonyos
+    - platform: tvos
+    - platform: watchos
+    - platform: miniprogram
+`
+	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var openedURLs []string
+	ed.OpenBrowserURL = func(rawURL string) error {
+		openedURLs = append(openedURLs, rawURL)
+		return nil
+	}
+	var runnerArgs [][]string
+	ed.ExportCommandRunner = func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+		runnerArgs = append(runnerArgs, append([]string(nil), args...))
+		fmt.Fprintln(stdout, "built ok")
+		return nil
+	}
+	ed.OpenOutputFolder = func(string) error { return nil }
+
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify metadata helper covers all four experimental platforms and excludes primary platforms.
+	if _, ok := ed.ExportPresetExperimental("web"); ok {
+		t.Fatal("web must not be marked experimental")
+	}
+	for _, plat := range []string{"tvos", "watchos", "harmonyos", "miniprogram"} {
+		info, ok := ed.ExportPresetExperimental(plat)
+		if !ok {
+			t.Fatalf("ExportPresetExperimental(%q) = false, want true", plat)
+		}
+		if info.DocsURL != "https://game.nsgo.dev/docs/platforms/#experimental-targets" {
+			t.Fatalf("DocsURL(%q) = %q", plat, info.DocsURL)
+		}
+		if info.Missing == "" || !strings.HasPrefix(info.IssueURL, "https://github.com/nsgo-dev/nsgo/issues/") {
+			t.Fatalf("ExportPresetExperimental(%q) = %+v", plat, info)
+		}
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	// Open Export panel and verify Experimental badges and links appear on all four experimental presets but not on web.
+	runEditorCommand(t, app, ed, editor.CmdExport)
+	app.Settle()
+
+	if app.Exists("id:export-preset-experimental-web") {
+		t.Fatal("web preset must not display Experimental badge")
+	}
+	for _, plat := range []string{"harmonyos", "tvos", "watchos", "miniprogram"} {
+		badge := app.Find("id:export-preset-experimental-" + plat)
+		if got := strings.TrimSpace(allText(badge)); got != "Experimental" {
+			t.Fatalf("export-preset-experimental-%s text = %q, want Experimental", plat, got)
+		}
+		note := app.Find("id:export-preset-experimental-note-" + plat)
+		if got := allText(note); !strings.Contains(got, "https://game.nsgo.dev/docs/platforms/#experimental-targets") {
+			t.Fatalf("export-preset-experimental-note-%s text = %q, want platform support URL", plat, got)
+		}
+	}
+
+	// Clicking the Experimental badge opens the platform support page.
+	app.Press("id:export-preset-experimental-harmonyos")
+	app.Settle()
+	if want := []string{"https://game.nsgo.dev/docs/platforms/#experimental-targets"}; !reflect.DeepEqual(openedURLs, want) {
+		t.Fatalf("openedURLs = %v, want %v", openedURLs, want)
+	}
+
+	// Experimental status must not block building harmonyos; output log records the warning.
+	app.Press("id:export-scope-target-harmonyos")
+	app.Settle()
+	app.Press("id:export-build")
+	app.WaitUntil(5*time.Second, func() bool { return !ed.ExportRunning() })
+	app.Settle()
+
+	if err := ed.ExportLastError(); err != nil {
+		t.Fatalf("experimental export build failed: %v", err)
+	}
+	if len(runnerArgs) != 1 {
+		t.Fatalf("ExportCommandRunner calls = %d, want 1", len(runnerArgs))
+	}
+	if out := ed.ExportOutputText(); !strings.Contains(out, `target platform "harmonyos" is experimental`) || !strings.Contains(out, "https://game.nsgo.dev/docs/platforms/#experimental-targets") || !strings.Contains(out, "https://github.com/nsgo-dev/nsgo/issues/1521") {
+		t.Fatalf("export output log missing experimental warning:\n%s", out)
+	}
+
+	// Build & Release screen also marks experimental presets with an Experimental badge and detail banner without excluding them.
+	ed.SetExportPanelOpen(false)
+	ed.OpenBuildReleaseScreen()
+	app.Settle()
+
+	if app.Exists("id:build-preset-experimental-web") {
+		t.Fatal("build screen web preset must not show Experimental badge")
+	}
+	if !app.Exists("id:build-preset-experimental-harmonyos") {
+		t.Fatal("build screen harmonyos preset missing Experimental badge")
+	}
+	app.Press("id:build-preset-pick-harmonyos")
+	app.Settle()
+	if !app.Exists("id:build-detail-experimental-harmonyos") {
+		t.Fatal("build screen detail pane missing experimental banner for harmonyos")
+	}
+	app.Press("id:build-detail-experimental-harmonyos")
+	app.Settle()
+	if len(openedURLs) != 2 || openedURLs[1] != "https://game.nsgo.dev/docs/platforms/#experimental-targets" {
+		t.Fatalf("build detail banner openedURLs = %v, want platform support URL", openedURLs)
+	}
+}

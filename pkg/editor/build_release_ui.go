@@ -702,7 +702,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 					core.View{
 						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2, Overflow: core.Hidden},
 						Children: []core.Node{
-							core.Text{Content: entry.Name, Style: core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: p.TextPrimary}},
+							buildPresetTitleRow(p, ed, entry),
 							core.Text{Content: entry.Summary, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
@@ -736,6 +736,41 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 								Style:   core.Style{FontSize: 11, Color: p.TextFaint, FontVariant: core.FontTabularNums},
 							},
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func buildPresetTitleRow(p SpecPalette, ed *Editor, entry BuildPresetEntry) core.Node {
+	nameText := core.Text{
+		Content: entry.Name,
+		Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: p.TextPrimary},
+	}
+	if !entry.Experimental {
+		return nameText
+	}
+	return core.View{
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+		Children: []core.Node{
+			nameText,
+			core.View{
+				TestID: "build-preset-experimental-" + entry.Platform,
+				Style: core.Style{
+					Height:         core.Pt(18),
+					Padding:        core.Symmetric(0, 6),
+					CornerRadius:   9,
+					Background:     p.Warning.Fill,
+					BorderWidth:    1,
+					BorderColor:    p.Warning.Edge,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: ed.T("settings.metaExperimental"),
+						Style:   core.Style{FontSize: 10.5, FontWeight: core.FontWeightSemibold, Color: p.Warning.Fg},
 					},
 				},
 			},
@@ -1053,6 +1088,37 @@ func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 						},
 						Children: headerChildren,
 					},
+				}
+				if exp, ok := ed.ExportPresetExperimental(sel.Platform); ok {
+					children = append(children, core.View{
+						TestID: "build-detail-experimental-" + sel.Platform,
+						Role:   core.RoleButton,
+						Label:  ed.T("settings.metaExperimental") + " — " + exp.DocsURL,
+						Style: core.Style{
+							Direction:    core.Row,
+							Wrap:         core.Wrap,
+							AlignItems:   core.AlignCenter,
+							Gap:          8,
+							Padding:      core.Symmetric(8, 20),
+							Background:   p.Warning.Fill,
+							Borders:      core.Edges{Bottom: 1},
+							BorderColor:  p.Warning.Edge,
+							FocusVisible: p.FocusRing(-2),
+						},
+						OnPress: func(core.PressEvent) {
+							ed.report(ed.OpenExperimentalPlatformDocs())
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("settings.metaExperimental"),
+								Style:   core.Style{FontSize: 11.5, FontWeight: core.FontWeightSemibold, Color: p.Warning.Fg},
+							},
+							core.Text{
+								Content: exp.Missing + " · " + exp.DocsURL,
+								Style:   core.Style{FontSize: 11.5, Color: p.Warning.Fg},
+							},
+						},
+					})
 				}
 				if snap.EditingPreset {
 					children = append(children, buildInlinePresetEditor(p, ed, *sel, snap.Running))

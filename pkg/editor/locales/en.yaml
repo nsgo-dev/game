@@ -1271,6 +1271,7 @@ strings:
   settings.language: Language
   settings.languageHelp: Editor text; the agent answers in it too.
   settings.light: Light
+  settings.metaExperimental: Experimental
   settings.metaReady: Ready
   settings.metaSetUp: Set up
   settings.metaUnsaved: Unsaved

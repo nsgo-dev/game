@@ -1271,6 +1271,7 @@ strings:
   settings.language: 语言
   settings.languageHelp: 编辑器界面语言；智能体也会使用该语言回复。
   settings.light: 浅色
+  settings.metaExperimental: 实验性
   settings.metaReady: 就绪
   settings.metaSetUp: 需配置
   settings.metaUnsaved: 未保存
