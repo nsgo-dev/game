@@ -297,6 +297,57 @@ jobs:
       - name: Build and vet iOS
         run: go tool nsgo check -target ios,ios_simulator
 
+  # Every project game new makes from this tag starts from the github.com/nsgo-dev/game version its template's go.mod.tmpl pins, so a pseudo-version or a version the public proxy and checksum database cannot serve breaks game new for everyone (#1665). This refuses both before anything is published.
+  template-pins:
+    name: Check template pins
+    needs: meta
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check every template pins a published game version
+        env:
+          GOWORK: "off"
+          GOFLAGS: -mod=mod
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+        run: |
+          set -euo pipefail
+          unset GONOSUMDB GONOSUMCHECK GONOPROXY GOPRIVATE GOINSECURE
+          declare -A pins=()
+          status=0
+          while IFS= read -r file; do
+            version=$(awk '$1 == "require" && $2 == "github.com/nsgo-dev/game" { print $3; exit } $1 == "github.com/nsgo-dev/game" { print $2; exit }' "$file")
+            if [ -z "$version" ]; then
+              echo "::error file=$file::$file requires no version of github.com/nsgo-dev/game"
+              status=1
+            elif [[ "$version" =~ [0-9]{14}-[0-9a-f]{12}$ ]]; then
+              echo "::error file=$file::$file pins the pseudo-version $version of github.com/nsgo-dev/game; pin a released version"
+              status=1
+            else
+              pins[$version]+=" $file"
+            fi
+          done < <(git ls-files '*go.mod.tmpl')
+          # Outside the repository, whose own module is github.com/nsgo-dev/game, and through the public proxy and checksum database only, as a new project resolves it.
+          cd "$RUNNER_TEMP"
+          for version in "${!pins[@]}"; do
+            if go mod download "github.com/nsgo-dev/game@$version"; then
+              echo "github.com/nsgo-dev/game@$version resolves:${pins[$version]}"
+            else
+              echo "::error::github.com/nsgo-dev/game@$version is not on proxy.golang.org and sum.golang.org, but these pin it:${pins[$version]}"
+              status=1
+            fi
+          done
+          exit "$status"
+
   editor:
     name: Build Editor (${{ matrix.name }})
     needs: meta
@@ -511,10 +562,12 @@ jobs:
       - check
       - apple
       - editor
+      - template-pins
     if: >-
       always() &&
       needs.meta.result == 'success' &&
       needs.editor.result == 'success' &&
+      needs.template-pins.result == 'success' &&
       needs.test.result == 'success' &&
       needs.check.result == 'success' &&
       needs.apple.result == 'success' &&
@@ -629,3 +682,61 @@ jobs:
             prerelease=(--prerelease)
           fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/github-release-notes.md" "${prerelease[@]}" "$RUNNER_TEMP"/assets/*
+
+  # After publishing, makes a project from the tag's own game new as a newcomer does: no checkout, no workspace, and modules only from the public proxy and checksum database. The template tests in test.yml run inside the repository and cannot see a pin nobody can download, which shipped in v0.1.0 (#1665).
+  smoke:
+    name: Smoke-test game new (${{ matrix.template }})
+    needs:
+      - meta
+      - release
+    if: needs.release.result == 'success' && needs.meta.outputs.mode == 'release'
+    strategy:
+      fail-fast: false
+      matrix:
+        template:
+          - starter
+          - platformer2d
+          - visualnovel
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 30
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Create, test and check a project with the released game new
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+          TEMPLATE: ${{ matrix.template }}
+          GOWORK: "off"
+          GOFLAGS: -mod=mod
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+          GOTOOLCHAIN: auto
+        run: |
+          set -euo pipefail
+          unset GONOSUMDB GONOSUMCHECK GONOPROXY GOPRIVATE GOINSECURE
+          work="$RUNNER_TEMP/smoke"
+          mkdir -p "$work"
+          cd "$work"
+          # The proxy and checksum database fetch a new tag on its first request, which can lag the push by a few minutes; wait for the tag first, so a failure after this loop is the release's own.
+          for attempt in $(seq 1 12); do
+            if go mod download "github.com/nsgo-dev/game@$TAG"; then
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "::error::github.com/nsgo-dev/game@$TAG is still not on proxy.golang.org after 6 minutes"
+              exit 1
+            fi
+            sleep 30
+          done
+          go run "github.com/nsgo-dev/game/cmd/game@$TAG" new -template "$TEMPLATE" "${TEMPLATE}game"
+          cd "${TEMPLATE}game"
+          pinned=$(go list -m -f '{{.Version}}' github.com/nsgo-dev/game)
+          if [ "$pinned" != "$TAG" ]; then
+            echo "::error::game new@$TAG made a project requiring github.com/nsgo-dev/game $pinned, not $TAG"
+            exit 1
+          fi
+          go tool nsgo test ./...
+          go tool game check
