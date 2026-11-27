@@ -125,6 +125,7 @@
 | `game/pkg/online/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
 | `game/pkg/online/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/online/liveops` | 实验性 | [liveops](liveops.md) |
+| `game/pkg/online/liveops/crashreport` | 实验性 | [liveops](liveops.md) |
 | `game/pkg/online/netplay` | 实验性 | [netplay](netplay.md) |
 | `game/pkg/online/netplay/wire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |

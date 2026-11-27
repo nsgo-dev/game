@@ -36,6 +36,20 @@ defer stop()
 
 收到 SIGTERM/SIGINT 后 context 结束；runner 让当前 tick 完成，再调用 `OnStop`（例如通知对端、落盘状态）并返回。要让停止有界，`Update` 必须及时返回。
 
+某场比赛的 `Update` 发生 panic 不会拖垮整个进程。runner 会恢复它，通过 `OnPanic` 上报，并且——在默认的 `StopMatch` 动作下——只结束这一场比赛：它不再 tick（状态可能只更新了一半），其 `OnStop` 执行一次，其余比赛继续运行。若返回 `Crash`，则停止所有比赛、执行每个 `OnStop`，待它们全部返回后由 `Run` 重新抛出 panic。`OnStop` 内部的 panic 同样被恢复并上报，此时 `Tick` 为 0。
+
+```go
+r := &server.Runner{
+	Matches: matches,
+	OnPanic: func(p server.Panic) server.PanicAction {
+		save(p.Report()) // crashreport.CrashReport：与客户端一致的崩溃报告结构
+		return server.StopMatch
+	},
+}
+```
+
+`Panic` 携带所属比赛、recover 到的值、goroutine 栈、从 1 开始的 tick 序号和时间。`Panic.Report()` 构造 [`crashreport.CrashReport`](liveops.md#崩溃报告)，使服务端的 panic 文件与客户端的崩溃文件共用同一套 JSON 结构。
+
 可运行示例位于 `examples/dedicatedserver`：
 
 ```sh
