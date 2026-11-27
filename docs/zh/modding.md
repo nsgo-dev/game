@@ -31,35 +31,53 @@ Go 插件编译进程序而不是在运行时加载，是因为 Go 没有跨平�
 
 ## 模组清单（`mod.yaml`）与权限能力
 
-每个模组位于独立目录中，包含 `mod.yaml`（`ModManifest`）和入口脚本（`mod.tsx` 或 `mod.js`）。[`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) 中的示例模组就是本页展示的清单和脚本，包内测试会加载它：
+每个模组位于独立目录中，包含 `mod.yaml`（`ModManifest`）和入口脚本（`mod.tsx` 或 `mod.js`），或是版本 2 纯内容模组的一个或多个 `contributes` 目录。[`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/)（v1 脚本模组）和 [`pkg/modding/testdata/mods/slime-pack/`](../../pkg/modding/testdata/mods/slime-pack/)（v2 纯内容模组）中的示例模组均由包内测试加载。已发布的 JSON Schema 位于 `https://game.nsgo.dev/schemas/mod.v1.json` 和 `https://game.nsgo.dev/schemas/mod.v2.json`。
 
 ```yaml
-manifestVersion: 1
+manifestVersion: 2
 id: com.example.boss-rush
 name: Boss Rush
-version: 1.2.0
+version: 1.3.0
 author: Example Studio
 description: Spawns a slime every five seconds and shows a HUD badge while the rush runs.
 entry: mod.tsx
 gameVersion: '>=0.2.0'
 capabilities: [readState, spawnEntity, emitEvent, ui]
+dependencies:
+  com.example.core: ^1.0.0
+optionalDependencies:
+  com.example.music: '>=0.2.0'
+conflicts:
+  com.example.old-boss: '*'
+platforms: [linux, macos, windows]
+contributes:
+  assets: assets
+  scenes: scenes
+  l10n: locales
+  datatables: tables
 ```
 
 | 字段 | 必填 | 含义 |
 | --- | --- | --- |
-| `manifestVersion` | 是 | 文件的格式版本，目前为 `1`（`modding.ManifestVersion`） |
+| `manifestVersion` | 是 | 文件的格式版本：`1`（`modding.MinManifestVersion`）或 `2`（`modding.ManifestVersion`） |
 | `id` | 是 | 由字母、数字、`.`、`-` 和 `_` 组成的唯一 ID，例如 `com.example.boss-rush` |
 | `name` | 是 | 便于阅读的名称 |
 | `version` | 是 | 模组自身的语义化版本（`MAJOR.MINOR.PATCH[-prerelease][+build]`，可带可选前导 `v`） |
 | `author`、`description` | 否 | 自由文本 |
-| `entry` | 是 | 相对模组目录的入口脚本：`.tsx`、`.ts`、`.jsx`、`.js` 或 `.mjs` |
+| `entry` | v1：是；v2：声明了 `contributes` 时可选 | 相对模组目录的入口脚本：`.tsx`、`.ts`、`.jsx`、`.js` 或 `.mjs` |
 | `gameVersion` | 否 | 对宿主 `ManagerOptions.GameVersion` 的版本约束，例如 `'>=0.2.0'` |
 | `capabilities` | 否 | 模组申请的权限能力名称 |
-| `dependencies` | 否 | 模组 ID 到版本约束的映射，例如 `com.example.core-lib: ^1.0.0` |
+| `dependencies` | 否 | 必填依赖模组 ID 到版本约束的映射，例如 `com.example.core: ^1.0.0` |
+| `optionalDependencies` | 否（v2） | 可选依赖模组 ID 到版本约束的映射；对应模组存在时先加载并校验版本，缺席时忽略 |
+| `conflicts` | 否（v2） | 互斥模组 ID 到版本约束的映射；任意方向命中版本约束即拒绝同时加载（`ErrConflictingMods`） |
+| `platforms` | 否（v2） | 支持的目标平台列表（`macos`、`windows`、`linux`、`ios`、`tvos`、`watchos`、`android`、`harmonyos`、`web`、`miniprogram`）；省略表示全平台 |
+| `contributes` | 否（v2） | 相对模组目录的 `/` 分隔内容目录：`assets`、`scenes`、`l10n`、`datatables` |
 
 版本约束支持 `*`、`=`、`>=`、`>`、`<=`、`<`、`^` 和 `~`（或直接写版本号，等价于 `=`），多个条件用空格或逗号连接。子句支持可选前导 `v` 和省略后缀的版本号（`MAJOR` 或 `MAJOR.MINOR`）：`^1.2` 等价于 `>=1.2.0 <2.0.0`，`^0.2` 和 `^0.0` 以下一个次版本为上界，`~1.2` 和 `1.2` 等价于 `>=1.2.0 <1.3.0`，`<=1.2` 等价于 `<1.3.0`，`>1.2` 等价于 `>=1.3.0`。所有比较按纯粹的 SemVer 2.0.0 优先级求值：忽略构建元数据，预发布版本（包括 Go 伪版本）只要落在区间边界内就会匹配（`>=1.0.0` 匹配 `1.1.0-beta`，不匹配 `1.0.0-beta`），而 `<2.0.0`（包括 `^1.0.0` 的上界）会匹配 `2.0.0-alpha`，如需排除可写成 `<2.0.0-0`。以 `>` 或 `*` 开头的值要加引号（`'>=0.2.0'`、`'*'`），因为 YAML 会把值开头的这两个字符分别当作折叠块和别名。
 
-格式是严格的：`ParseManifest` 会拒绝未知或拼错的字段、重复的键、第二个 YAML 文档、未知或重复的权限能力名称，以及缺失、不受支持或没有写成普通整数 `1` 的 `manifestVersion`，统一返回 `ErrInvalidManifest`。`EncodeManifest` 以唯一的规范形式写出清单（字段按上表顺序，权限能力按下文顺序，依赖按 ID 的字节序排序），因此已经是这种形式的文件读入再写出不会变化。在 Go 代码中构造的 `ModManifest` 可以让 `ManifestVersion` 保持为 0：`Validate` 和 `ResolveOrder` 接受它，`EncodeManifest` 会写出 `manifestVersion: 1`。`Manager` 只读取 `mod.yaml`；仍然只有旧版 `mod.json` 的模组目录会被拒绝，并提示改用 `mod.yaml`。
+格式是严格的：`ParseManifest` 会拒绝未知或拼错的字段、重复的键、第二个 YAML 文档、未知或重复的权限能力与平台名称、`manifestVersion: 1` 文件中的版本 2 字段，以及缺失、不受支持或没有写成普通整数 `1` 或 `2` 的 `manifestVersion`，统一返回 `ErrInvalidManifest`。`EncodeManifest` 会原样写回读入的 `ManifestVersion`（保证版本 1 文件读写往返逐字节不变），并以唯一的规范形式输出：字段按上表顺序，权限能力按下文顺序，映射（`dependencies`、`optionalDependencies`、`conflicts`）按 ID 的字节序排序，`platforms` 以流式列表按字节序排序。在 Go 代码中构造的 `ModManifest` 可以让 `ManifestVersion` 保持为 0：`Validate` 和 `ResolveOrder` 接受它，`EncodeManifest` 会写出 `manifestVersion: 2`。`Manager` 只读取 `mod.yaml`；仍然只有旧版 `mod.json` 的模组目录会失败并提示改用 `mod.yaml`。
+
+`ResolveOrder` 会把必填 `dependencies` 和已安装的 `optionalDependencies` 都排在依赖方之前（忽略未安装的可选依赖），任意方向命中冲突时返回 `ErrConflictingMods`，并保持按 ID 字典序打破平局。
 
 权限由 `Capability` 位标志控制：`CapReadState`（`readState`）、`CapWriteState`（`writeState`）、`CapSpawnEntity`（`spawnEntity`）、`CapEmitEvent`（`emitEvent`）、`CapUI`（`ui`）、`CapAudio`（`audio`）和 `CapStorage`（`storage`）。超出授权范围的调用会返回 `*PermissionError`，不会导致宿主游戏崩溃。
 
@@ -171,7 +189,28 @@ _ = hudPanels
 
 运行时可通过 `Enable`、`Disable`、`Install`、`InstallFS`、`Uninstall`、`Load`、`Unload`、`Reload`、`SetGrant`、`Emit`、`Call`、`List`、`Info` 和 `Logs` 管理单个模组。异常抛错的模组会被标记为 `StateFailed`，不会影响宿主游戏或其他正常模组。
 
-`Reload` 会先校验更新后的 `mod.yaml`（语法、ID、游戏版本和依赖），再卸载任何内容，因此清单损坏时会返回错误，已加载的版本继续运行。
+`Discover` 与 `DiscoverFS` 会按模组隔离发现阶段的失败，不会因单个损坏模组中断整个目录扫描：清单损坏、缺少入口脚本或 `contributes` 目录、`gameVersion` 不兼容、平台不受支持（`ErrUnsupportedPlatform`，按 `ManagerOptions.Platform` 或当前运行平台校验）、ID 重复（两侧均以 `ErrDuplicateMod` 失败）、冲突（两侧均以 `ErrConflictingMods` 失败）、依赖缺失或依赖已失败模组（`ErrModFailed`）以及依赖环，都会在对应 `ModInfo` 上记录 `StateFailed`、`Error` 和 `Dir`（可通过 `List` 和 `Info` 查看），而其余健康模组仍按拓扑加载顺序注册，连同合并后的错误一并返回。
+
+### 内容叠加（`ContentFS`）
+
+版本 2 模组可以通过 `contributes`（`assets`、`scenes`、`l10n`、`datatables`）提供只读内容目录，既可配合入口脚本，也可省略 `entry` 作为纯内容模组。`Manager.ContentFS()` 返回并发安全的只读 `io/fs.FS`，按加载顺序叠加所有当前已加载模组的 `contributes` 目录，后加载的模组按路径覆盖先加载的模组：
+
+```go
+contentFS := mgr.ContentFS()
+
+// 将 assets 子树交给 pkg/assets：
+assetsFS, _ := fs.Sub(contentFS, "assets")
+assetMgr := assets.NewManager(cx, assets.WithFS(assetsFS))
+_ = assetMgr
+
+// 直接读取叠加后的本地化表、场景或数据表：
+enYAML, _ := fs.ReadFile(contentFS, "l10n/en.yaml")
+_ = enYAML
+```
+
+`ContentFS` 中的路径严格限制在各自模组目录内：路径穿越以及指向模组目录之外的符号链接（相对、绝对或循环链接）会在发现阶段和读取阶段以 `ErrUnsafePath` 拒绝，与 Steam 创意工坊同步的路径边界约束一致。卸载、禁用或重载模组后会立即更新 `ContentFS`。
+
+`Reload` 会先校验更新后的 `mod.yaml`（语法、ID、游戏版本、平台、文件以及依赖和冲突），再卸载任何内容，因此清单损坏时会返回错误，已加载的版本继续运行。
 
 对已加载的模组调用 `SetGrant` 会立即生效：`"game"` 模块从下一次调用起按新能力检查，收回 `CapUI` 会移除该模组已挂载的面板；当授权改变了沙箱自身执行的 `CapAudio` 或 `CapStorage` 时，模组会被卸载并在按新能力构建的沙箱中重新加载，入口脚本会再次运行。`Close` 卸载所有模组，之后 `Info` 把它们报告为 `StateDiscovered`（或 `StateDisabled`）；模组卸载后，它保留的 `onEvent` 或 `onStep` 取消订阅函数不再有任何作用。
 

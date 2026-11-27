@@ -119,6 +119,17 @@ func cutsceneV1Field(f reflect.StructField) jsonschema.Field {
 	return jsonschema.YAMLField(f)
 }
 
+// modV2Fields names the Go fields of ModManifest that manifestVersion 2 added; the version 1 schema leaves them out, since ParseManifest refuses them in a version 1 manifest.
+var modV2Fields = map[string]bool{"OptionalDependencies": true, "Conflicts": true, "Platforms": true, "Contributes": true}
+
+// modV1Field maps a ModManifest field as jsonschema.YAMLField does, skipping the fields manifestVersion 2 added.
+func modV1Field(f reflect.StructField) jsonschema.Field {
+	if modV2Fields[f.Name] {
+		return jsonschema.Field{Skip: true}
+	}
+	return jsonschema.YAMLField(f)
+}
+
 // formats lists every format gameschema writes a schema for. A format that gets a typed YAML loader adds its entry here, and a newer version of a format adds a new entry beside earlier ones, since files that name an old schema keep naming it.
 var formats = []format{
 	{
@@ -341,11 +352,23 @@ var formats = []format{
 		version: wire.CurrentVersion,
 	},
 	{
-		url:   modding.SchemaURL,
-		title: "NSGo game mod manifest (version 1)",
-		typ:   reflect.TypeFor[modding.ModManifest](),
-		pkg:   "modding",
-		types: modManifestTypes,
+		url:          modding.SchemaURL,
+		title:        "NSGo game mod manifest (version 1)",
+		typ:          reflect.TypeFor[modding.ModManifest](),
+		pkg:          "modding",
+		version:      modding.MinManifestVersion,
+		versionField: "manifestVersion",
+		fieldName:    modV1Field,
+		types:        modManifestTypes,
+	},
+	{
+		url:          modding.SchemaURLV2,
+		title:        "NSGo game mod manifest (version 2)",
+		typ:          reflect.TypeFor[modding.ModManifest](),
+		pkg:          "modding",
+		version:      modding.ManifestVersion,
+		versionField: "manifestVersion",
+		types:        modManifestTypes,
 	},
 	{
 		url:          pluginmanifest.SchemaURL,
@@ -493,6 +516,21 @@ func generate(root string) ([]schemaFile, error) {
 		if f.url == cutscene.SchemaURL {
 			if !slices.Contains(s.Required, "source") {
 				s.Required = append(s.Required, "source")
+			}
+		}
+		if f.url == modding.SchemaURL {
+			if !slices.Contains(s.Required, "entry") {
+				s.Required = append(s.Required, "entry")
+			}
+		}
+		if f.url == modding.SchemaURLV2 {
+			if plats := s.Property("platforms"); plats != nil && plats.Items != nil {
+				supported := modding.SupportedPlatforms()
+				enum := make([]any, len(supported))
+				for i, p := range supported {
+					enum[i] = p
+				}
+				plats.Items.Enum = enum
 			}
 		}
 		if f.url == ai.BTSchemaURL {

@@ -155,6 +155,7 @@ var formatVersions = map[string]string{
 	"online/liveops.RemindersVersion":               "online/liveops#reminders",
 	"loot.CurrentVersion":                           "loot",
 	"modding.ManifestVersion":                       "modding",
+	"modding.MinManifestVersion":                    "modding",
 	"modding.WorkshopMetadataVersion":               "modding#workshop",
 	"ai/navbake.FormatVersion":                      "ai/navbake",
 	"ai/navbake3d.FormatVersion":                    "ai/navbake3d",

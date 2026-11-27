@@ -15,6 +15,7 @@ func TestFormatConformance(t *testing.T) {
 			Files:        []string{"testdata/mods/*/mod.yaml"},
 			Doc:          "modding",
 			VersionField: "manifestVersion",
+			MaxVersion:   modding.ManifestVersion,
 		})
 	})
 	t.Run("workshop", func(t *testing.T) {

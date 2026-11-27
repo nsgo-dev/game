@@ -35,7 +35,8 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | Sprite state machine, version 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`, read by `animclip.ParseStateMachine` and `animclip.FSStates` |
 | Particle emitter (2D), version 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`, read by `particles.UnmarshalConfigYAML` and `particles.LoadConfigFS` |
 | Netplay wire message schema, version 1 | `https://game.nsgo.dev/schemas/wire.v1.json` | `*.wire.yaml`, read by `wire.Parse` and `cmd/gamewire` ([netplay/wire](netplay-wire.md)) |
-| Mod manifest, version 1 | `https://game.nsgo.dev/schemas/mod.v1.json` | `mod.yaml` at the root of a mod's directory, read by `modding.ParseManifest` ([modding](modding.md)) |
+| Mod manifest, version 1 | `https://game.nsgo.dev/schemas/mod.v1.json` | `mod.yaml` (version 1) at the root of a mod's directory, read by `modding.ParseManifest` ([modding](modding.md)) |
+| Mod manifest, version 2 | `https://game.nsgo.dev/schemas/mod.v2.json` | `mod.yaml` (version 2 with optional dependencies, conflicts, platforms and content overlay), read by `modding.ParseManifest` ([modding](modding.md)) |
 | Local reminders, version 1 | `https://game.nsgo.dev/schemas/reminders.v1.json` | `reminders.yaml`, read by `liveops.ParseReminders` and `liveops.LoadRemindersFS` ([liveops](liveops.md#local-reminders)) |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 

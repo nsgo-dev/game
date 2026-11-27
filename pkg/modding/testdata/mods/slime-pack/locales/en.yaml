@@ -1,0 +1,5 @@
+version: 1
+locale: en
+strings:
+  slime.name: Emerald Slime
+  slime.greeting: Bloop!

@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "manifestVersion": {
-      "description": "ManifestVersion is the schema version of the manifest file. A mod.yaml must state [ManifestVersion]; a manifest built in code may leave it 0, and [EncodeManifest] writes [ManifestVersion].",
+      "description": "ManifestVersion is the schema version of the manifest file (1 or 2). A mod.yaml must state [MinManifestVersion] or [ManifestVersion]; a manifest built in code may leave it 0, and [EncodeManifest] writes [ManifestVersion].",
       "type": "integer",
       "const": 1
     },
@@ -34,9 +34,8 @@
       "type": "string"
     },
     "entry": {
-      "description": "Entry is the entry script's slash-separated path relative to the mod's directory.",
-      "type": "string",
-      "minLength": 1
+      "description": "Entry is the entry script's slash-separated path relative to the mod's directory. Required in manifestVersion 1; optional in manifestVersion 2 when contributes declares at least one content directory.",
+      "type": "string"
     },
     "gameVersion": {
       "description": "GameVersion optionally constrains the host game versions the mod runs on, such as \">=0.2.0\".",

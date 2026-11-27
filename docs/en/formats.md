@@ -402,7 +402,7 @@ plurals:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `mod.yaml` at the root of a mod's directory | `manifestVersion: 1` | `modding.ParseManifest`, `modding.EncodeManifest` | [modding](modding.md); schema `https://game.nsgo.dev/schemas/mod.v1.json` |
+| `mod.yaml` at the root of a mod's directory | `manifestVersion: 1` or `manifestVersion: 2` | `modding.ParseManifest`, `modding.EncodeManifest` | [modding](modding.md); schemas `https://game.nsgo.dev/schemas/mod.v1.json`, `https://game.nsgo.dev/schemas/mod.v2.json` |
 
 ```yaml
 manifestVersion: 1
@@ -414,6 +414,28 @@ description: Spawns a slime every five seconds and shows a HUD badge while the r
 entry: mod.tsx
 gameVersion: '>=0.2.0'
 capabilities: [readState, spawnEntity, emitEvent, ui]
+```
+
+Version 2 adds `optionalDependencies`, `conflicts`, `platforms`, and `contributes` (and allows content-only mods without `entry`):
+
+```yaml
+manifestVersion: 2
+id: com.example.boss-rush
+name: Boss Rush
+version: 1.3.0
+entry: mod.tsx
+dependencies:
+  com.example.core: ^1.0.0
+optionalDependencies:
+  com.example.music: '>=0.2.0'
+conflicts:
+  com.example.old-boss: '*'
+platforms: [linux, macos, windows]
+contributes:
+  assets: assets
+  scenes: scenes
+  l10n: locales
+  datatables: tables
 ```
 
 <!-- format: modding#workshop -->

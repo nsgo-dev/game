@@ -1056,7 +1056,7 @@ func TestModManifestSchemaShapeAndValidation(t *testing.T) {
 	if s.Schema != jsonschema.Draft07 || s.ID != modding.SchemaURL {
 		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
 	}
-	if mv := s.Property("manifestVersion"); mv == nil || mv.Const != int64(modding.ManifestVersion) {
+	if mv := s.Property("manifestVersion"); mv == nil || mv.Const != int64(modding.MinManifestVersion) {
 		t.Fatalf("manifestVersion property = %+v", mv)
 	}
 	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {

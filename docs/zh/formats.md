@@ -402,7 +402,7 @@ plurals:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 模组目录根部的 `mod.yaml` | `manifestVersion: 1` | `modding.ParseManifest`、`modding.EncodeManifest` | [modding](modding.md)；Schema `https://game.nsgo.dev/schemas/mod.v1.json` |
+| 模组目录根部的 `mod.yaml` | `manifestVersion: 1` 或 `manifestVersion: 2` | `modding.ParseManifest`、`modding.EncodeManifest` | [modding](modding.md)；Schema `https://game.nsgo.dev/schemas/mod.v1.json`、`https://game.nsgo.dev/schemas/mod.v2.json` |
 
 ```yaml
 manifestVersion: 1
@@ -414,6 +414,28 @@ description: Spawns a slime every five seconds and shows a HUD badge while the r
 entry: mod.tsx
 gameVersion: '>=0.2.0'
 capabilities: [readState, spawnEntity, emitEvent, ui]
+```
+
+版本 2 新增了 `optionalDependencies`、`conflicts`、`platforms` 和 `contributes`（并允许不带 `entry` 的纯内容模组）：
+
+```yaml
+manifestVersion: 2
+id: com.example.boss-rush
+name: Boss Rush
+version: 1.3.0
+entry: mod.tsx
+dependencies:
+  com.example.core: ^1.0.0
+optionalDependencies:
+  com.example.music: '>=0.2.0'
+conflicts:
+  com.example.old-boss: '*'
+platforms: [linux, macos, windows]
+contributes:
+  assets: assets
+  scenes: scenes
+  l10n: locales
+  datatables: tables
 ```
 
 <!-- format: modding#workshop -->
