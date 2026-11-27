@@ -1647,12 +1647,12 @@ wall_jump_speed_y: 260
 wall_jump_lock: 150ms
 ```
 
-<!-- format: vehicle -->
+<!-- format: vehicle3d -->
 ### Vehicle
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| Any `.yaml` file the game loads, such as `car.yaml` | `version: 1` | `vehicle.ParseConfig`, `vehicle.EncodeConfig` | [vehicle](vehicle.md) |
+| Any `.yaml` file the game loads, such as `car.yaml` | `version: 1` | `vehicle3d.ParseConfig`, `vehicle3d.EncodeConfig` | [vehicle3d](vehicle3d.md) |
 
 ```yaml
 version: 1
@@ -2501,12 +2501,12 @@ steps:
   - {step: 130, release: [right], axes: {move_x: 0}}
 ```
 
-<!-- format: vehicle#ghost -->
+<!-- format: vehicle3d#ghost -->
 ### Ghost lap
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `*.ghost.yaml`, written from a `vehicle.GhostRecorder` | `version: 1` | `vehicle.ParseGhost`, `vehicle.EncodeGhost` | [vehicle](vehicle.md) |
+| `*.ghost.yaml`, written from a `vehicle3d.GhostRecorder` | `version: 1` | `vehicle3d.ParseGhost`, `vehicle3d.EncodeGhost` | [vehicle3d](vehicle3d.md) |
 
 ```yaml
 version: 1

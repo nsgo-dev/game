@@ -1,4 +1,4 @@
-package vehicle_test
+package vehicle3d_test
 
 import (
 	"math"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/game/pkg/replay"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 const (
@@ -21,9 +21,9 @@ const (
 // testTrack is the reference test track: a flat stadium circuit (two 40 m straights joined by 15 m hairpins) with four checkpoints and a speed bump on the back straight.
 type testTrack struct {
 	world     *physics3d.World
-	car       *vehicle.Vehicle
-	race      *vehicle.Race
-	racer     *vehicle.Racer
+	car       *vehicle3d.Vehicle
+	race      *vehicle3d.Race
+	racer     *vehicle3d.Racer
 	waypoints []physics3d.Vec3
 }
 
@@ -40,18 +40,18 @@ func newTestTrack(laps int) *testTrack {
 
 	gate := box(7, 2, 0.5)
 	cps := []*physics3d.Body{
-		vehicle.AddCheckpoint(w, gate, physics3d.Vec3{Y: 1, Z: 10}),
-		vehicle.AddCheckpoint(w, box(0.5, 2, 7), physics3d.Vec3{X: trackRadius, Y: 1, Z: -trackHalf - trackRadius}),
-		vehicle.AddCheckpoint(w, gate, physics3d.Vec3{X: 2 * trackRadius, Y: 1}),
-		vehicle.AddCheckpoint(w, box(0.5, 2, 7), physics3d.Vec3{X: trackRadius, Y: 1, Z: trackHalf + trackRadius}),
+		vehicle3d.AddCheckpoint(w, gate, physics3d.Vec3{Y: 1, Z: 10}),
+		vehicle3d.AddCheckpoint(w, box(0.5, 2, 7), physics3d.Vec3{X: trackRadius, Y: 1, Z: -trackHalf - trackRadius}),
+		vehicle3d.AddCheckpoint(w, gate, physics3d.Vec3{X: 2 * trackRadius, Y: 1}),
+		vehicle3d.AddCheckpoint(w, box(0.5, 2, 7), physics3d.Vec3{X: trackRadius, Y: 1, Z: trackHalf + trackRadius}),
 	}
-	race, err := vehicle.NewRace(laps, cps...)
+	race, err := vehicle3d.NewRace(laps, cps...)
 	if err != nil {
 		panic(err)
 	}
 	w.OnTrigger = race.Observe
 
-	car, err := vehicle.New(w, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 0.62, Z: 14}, physics3d.QuatIdentity())
+	car, err := vehicle3d.New(w, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 0.62, Z: 14}, physics3d.QuatIdentity())
 	if err != nil {
 		panic(err)
 	}
@@ -89,7 +89,7 @@ func stadium() []physics3d.Vec3 {
 
 // driver is the test's deterministic reference driver: a pure-pursuit steering law toward the next waypoint and a speed target that slows for the hairpins. It is a replay.ActionSource so a replay.Recorder can record it.
 type driver struct {
-	car       *vehicle.Vehicle
+	car       *vehicle3d.Vehicle
 	waypoints []physics3d.Vec3
 	next      int
 	axes      map[string]float64
@@ -97,7 +97,7 @@ type driver struct {
 
 var _ replay.ActionSource = (*driver)(nil)
 
-func newDriver(car *vehicle.Vehicle, waypoints []physics3d.Vec3) *driver {
+func newDriver(car *vehicle3d.Vehicle, waypoints []physics3d.Vec3) *driver {
 	return &driver{car: car, waypoints: waypoints, axes: map[string]float64{}}
 }
 
@@ -139,7 +139,7 @@ func (d *driver) Axis(name string) float64 { return d.axes[name] }
 // step runs one fixed step in the order a game.Loop Update would: read input, tick the race, step the car, then the world.
 func (tt *testTrack) step(src replay.ActionSource) {
 	src.Step()
-	tt.car.SetInput(vehicle.DefaultControls().Read(src))
+	tt.car.SetInput(vehicle3d.DefaultControls().Read(src))
 	tt.race.Tick()
 	tt.car.Step(tt.world, dt)
 	tt.world.Step(dt)

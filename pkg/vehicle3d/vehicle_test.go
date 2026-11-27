@@ -1,4 +1,4 @@
-package vehicle_test
+package vehicle3d_test
 
 import (
 	"math"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/physics3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -19,18 +19,18 @@ func approx(a, b, tol float32) bool {
 }
 
 // flatWorld returns a world with a large flat ground whose top is at y = 0, and the reference car resting on it at the origin facing -Z.
-func flatWorld(t testing.TB) (*physics3d.World, *vehicle.Vehicle) {
+func flatWorld(t testing.TB) (*physics3d.World, *vehicle3d.Vehicle) {
 	t.Helper()
 	w := physics3d.NewWorld()
 	w.AddBody(physics3d.NewStaticBody(box(2000, 1, 2000), physics3d.Vec3{Y: -1}))
-	car, err := vehicle.New(w, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
+	car, err := vehicle3d.New(w, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return w, car
 }
 
-func drive(w *physics3d.World, car *vehicle.Vehicle, in vehicle.Input, steps int) {
+func drive(w *physics3d.World, car *vehicle3d.Vehicle, in vehicle3d.Input, steps int) {
 	for range steps {
 		car.SetInput(in)
 		car.Step(w, dt)
@@ -39,16 +39,16 @@ func drive(w *physics3d.World, car *vehicle.Vehicle, in vehicle.Input, steps int
 }
 
 func TestNewRejectsInvalidConfig(t *testing.T) {
-	cfg := vehicle.ReferenceConfig()
+	cfg := vehicle3d.ReferenceConfig()
 	cfg.Mass = 0
-	if _, err := vehicle.New(physics3d.NewWorld(), cfg, physics3d.Vec3{}, physics3d.QuatIdentity()); err == nil {
+	if _, err := vehicle3d.New(physics3d.NewWorld(), cfg, physics3d.Vec3{}, physics3d.QuatIdentity()); err == nil {
 		t.Fatal("New accepted a zero mass")
 	}
 }
 
 func TestNewCopiesWheels(t *testing.T) {
-	cfg := vehicle.ReferenceConfig()
-	car, err := vehicle.New(physics3d.NewWorld(), cfg, physics3d.Vec3{}, physics3d.QuatIdentity())
+	cfg := vehicle3d.ReferenceConfig()
+	car, err := vehicle3d.New(physics3d.NewWorld(), cfg, physics3d.Vec3{}, physics3d.QuatIdentity())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestConfigReturnsACopy(t *testing.T) {
 func TestNewNormalizesRotation(t *testing.T) {
 	q := physics3d.QuatIdentity()
 	q.W = 3
-	car, err := vehicle.New(physics3d.NewWorld(), vehicle.ReferenceConfig(), physics3d.Vec3{}, q)
+	car, err := vehicle3d.New(physics3d.NewWorld(), vehicle3d.ReferenceConfig(), physics3d.Vec3{}, q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +82,13 @@ func TestNewNormalizesRotation(t *testing.T) {
 
 func TestHeldThrottleWakesSleepingCar(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{}, 4*rate)
+	drive(w, car, vehicle3d.Input{}, 4*rate)
 	if !car.Body.Sleeping {
 		t.Fatal("settled car is awake")
 	}
 
 	// A held handbrake does not move a resting car, so it may sleep.
-	car.SetInput(vehicle.Input{Handbrake: true})
+	car.SetInput(vehicle3d.Input{Handbrake: true})
 	car.Body.Sleeping = true
 	car.Step(w, dt)
 	if !car.Body.Sleeping {
@@ -96,7 +96,7 @@ func TestHeldThrottleWakesSleepingCar(t *testing.T) {
 	}
 
 	// Throttle set once stays in effect after the physics puts the chassis to sleep, such as against a wall.
-	car.SetInput(vehicle.Input{Throttle: 1})
+	car.SetInput(vehicle3d.Input{Throttle: 1})
 	car.Body.Sleeping = true
 	for range rate {
 		car.Step(w, dt)
@@ -109,7 +109,7 @@ func TestHeldThrottleWakesSleepingCar(t *testing.T) {
 
 func TestSuspensionSettlesAtStaticLoadAndSleeps(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{}, 4*rate)
+	drive(w, car, vehicle3d.Input{}, 4*rate)
 
 	cfg := car.Config()
 	// Each of the four springs carries a quarter of the weight: compression = m g / (4 k).
@@ -137,11 +137,11 @@ func TestSuspensionSettlesAtStaticLoadAndSleeps(t *testing.T) {
 		t.Fatalf("Grounded = %d, want 4", car.Grounded())
 	}
 
-	car.SetInput(vehicle.Input{Throttle: 1})
+	car.SetInput(vehicle3d.Input{Throttle: 1})
 	if car.Body.Sleeping {
 		t.Fatal("SetInput with throttle did not wake the car")
 	}
-	drive(w, car, vehicle.Input{Throttle: 1}, rate)
+	drive(w, car, vehicle3d.Input{Throttle: 1}, rate)
 	if car.Speed() <= 1 {
 		t.Fatalf("speed after 1 s of throttle = %v", car.Speed())
 	}
@@ -149,9 +149,9 @@ func TestSuspensionSettlesAtStaticLoadAndSleeps(t *testing.T) {
 
 func TestAccelerateBrakeAndReverse(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{}, rate/2)
+	drive(w, car, vehicle3d.Input{}, rate/2)
 
-	drive(w, car, vehicle.Input{Throttle: 1}, 3*rate)
+	drive(w, car, vehicle3d.Input{Throttle: 1}, 3*rate)
 	fast := car.Speed()
 	// About 0.5 g at standstill, fading with speed: 3 s should give 9-15 m/s.
 	if fast < 9 || fast > 15 {
@@ -171,7 +171,7 @@ func TestAccelerateBrakeAndReverse(t *testing.T) {
 
 	steps := 0
 	for car.Speed() > 0.05 && steps < 5*rate {
-		drive(w, car, vehicle.Input{Brake: 1}, 1)
+		drive(w, car, vehicle3d.Input{Brake: 1}, 1)
 		steps++
 	}
 	// 1 g of braking stops 9-15 m/s in about 1-1.5 s.
@@ -182,7 +182,7 @@ func TestAccelerateBrakeAndReverse(t *testing.T) {
 		t.Fatalf("brakes reversed the car: speed %v", s)
 	}
 
-	drive(w, car, vehicle.Input{Throttle: -1}, 6*rate)
+	drive(w, car, vehicle3d.Input{Throttle: -1}, 6*rate)
 	if s := car.Speed(); s >= 0 || s < -car.Config().MaxReverseSpeed-0.01 {
 		t.Fatalf("reverse speed = %v, want in [-%v, 0)", s, car.Config().MaxReverseSpeed)
 	}
@@ -190,7 +190,7 @@ func TestAccelerateBrakeAndReverse(t *testing.T) {
 
 func TestTopSpeedIsCapped(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{Throttle: 1}, 60*rate)
+	drive(w, car, vehicle3d.Input{Throttle: 1}, 60*rate)
 	if s := car.Speed(); s <= 25 || s > car.Config().MaxSpeed {
 		t.Fatalf("speed after a minute = %v, want in (25, %v]", s, car.Config().MaxSpeed)
 	}
@@ -198,8 +198,8 @@ func TestTopSpeedIsCapped(t *testing.T) {
 
 func TestSteerRightTurnsRight(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{Throttle: 0.5}, rate)
-	drive(w, car, vehicle.Input{Throttle: 0.3, Steer: 1}, rate)
+	drive(w, car, vehicle3d.Input{Throttle: 0.5}, rate)
+	drive(w, car, vehicle3d.Input{Throttle: 0.3, Steer: 1}, rate)
 
 	if a := car.Wheels[0].SteerAngle; !approx(a, -float32(30*math.Pi/180), 1e-4) {
 		t.Fatalf("front steer angle = %v, want -30 degrees (right)", a)
@@ -220,7 +220,7 @@ func TestSteerRightTurnsRight(t *testing.T) {
 
 func TestSteeringEasesAtSteerRate(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{Steer: -1}, 1)
+	drive(w, car, vehicle3d.Input{Steer: -1}, 1)
 	want := float32(car.Config().SteerRate*math.Pi/180) / rate
 	if a := car.Wheels[0].SteerAngle; !approx(a, want, 1e-6) {
 		t.Fatalf("steer angle after one step = %v, want %v", a, want)
@@ -229,8 +229,8 @@ func TestSteeringEasesAtSteerRate(t *testing.T) {
 
 func TestHandbrakeLocksRearWheels(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{Throttle: 1}, 2*rate)
-	drive(w, car, vehicle.Input{Handbrake: true}, 1)
+	drive(w, car, vehicle3d.Input{Throttle: 1}, 2*rate)
+	drive(w, car, vehicle3d.Input{Handbrake: true}, 1)
 	for _, wh := range car.Wheels {
 		locked := wh.Config.Handbrake
 		if locked && wh.SpinSpeed != 0 {
@@ -243,7 +243,7 @@ func TestHandbrakeLocksRearWheels(t *testing.T) {
 	if !car.Wheels[2].Sliding {
 		t.Fatal("a locked rear wheel at speed is not sliding")
 	}
-	drive(w, car, vehicle.Input{Handbrake: true}, 4*rate)
+	drive(w, car, vehicle3d.Input{Handbrake: true}, 4*rate)
 	if s := car.Speed(); math.Abs(float64(s)) > 0.1 {
 		t.Fatalf("speed after 4 s of handbrake = %v", s)
 	}
@@ -251,11 +251,11 @@ func TestHandbrakeLocksRearWheels(t *testing.T) {
 
 func TestAirborneCarFallsWithoutContact(t *testing.T) {
 	w := physics3d.NewWorld()
-	car, err := vehicle.New(w, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 10}, physics3d.QuatIdentity())
+	car, err := vehicle3d.New(w, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 10}, physics3d.QuatIdentity())
 	if err != nil {
 		t.Fatal(err)
 	}
-	drive(w, car, vehicle.Input{Throttle: 1}, rate/2)
+	drive(w, car, vehicle3d.Input{Throttle: 1}, rate/2)
 	if car.Grounded() != 0 {
 		t.Fatalf("Grounded = %d in mid-air", car.Grounded())
 	}
@@ -274,12 +274,12 @@ func TestAirborneCarFallsWithoutContact(t *testing.T) {
 
 func TestWheelRaysSkipTriggersAndChassis(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{}, 2*rate)
+	drive(w, car, vehicle3d.Input{}, 2*rate)
 	want := car.Body.Pos.Y
 
 	w2, car2 := flatWorld(t)
-	vehicle.AddCheckpoint(w2, box(5, 5, 5), physics3d.Vec3{})
-	drive(w2, car2, vehicle.Input{}, 2*rate)
+	vehicle3d.AddCheckpoint(w2, box(5, 5, 5), physics3d.Vec3{})
+	drive(w2, car2, vehicle3d.Input{}, 2*rate)
 	if car2.Body.Pos.Y != want {
 		t.Fatalf("ride height inside a trigger = %v, want %v", car2.Body.Pos.Y, want)
 	}
@@ -293,17 +293,17 @@ func TestRayMaskFiltersGround(t *testing.T) {
 	ground := physics3d.NewStaticBody(box(50, 1, 50), physics3d.Vec3{Y: -1})
 	ground.Layer = physics3d.LayerBit(3)
 	w.AddBody(ground)
-	car, err := vehicle.New(w, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
+	car, err := vehicle3d.New(w, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
 	if err != nil {
 		t.Fatal(err)
 	}
 	car.RayMask = physics3d.LayerBit(1)
-	drive(w, car, vehicle.Input{}, 1)
+	drive(w, car, vehicle3d.Input{}, 1)
 	if car.Grounded() != 0 {
 		t.Fatal("wheel rays hit a ground outside RayMask")
 	}
 	car.RayMask = physics3d.LayerBit(3)
-	drive(w, car, vehicle.Input{}, 1)
+	drive(w, car, vehicle3d.Input{}, 1)
 	if car.Grounded() != 4 {
 		t.Fatalf("Grounded = %d with the ground's layer in RayMask", car.Grounded())
 	}
@@ -315,7 +315,7 @@ func TestSuspensionPushesDynamicGround(t *testing.T) {
 	plate := w.AddBody(physics3d.NewDynamicBody(box(3, 0.1, 3), physics3d.Vec3{Y: 0.1}, 50))
 	plate.LockRotation = true
 	plate.InvInertia = 0
-	car, err := vehicle.New(w, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 0.85}, physics3d.QuatIdentity())
+	car, err := vehicle3d.New(w, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 0.85}, physics3d.QuatIdentity())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,12 +331,12 @@ func TestSuspensionPushesDynamicGround(t *testing.T) {
 func TestInputIsClamped(t *testing.T) {
 	_, car := flatWorld(t)
 	nan := float32(math.NaN())
-	car.SetInput(vehicle.Input{Throttle: 3, Brake: -2, Steer: nan})
-	if got := car.Input(); got != (vehicle.Input{Throttle: 1}) {
+	car.SetInput(vehicle3d.Input{Throttle: 3, Brake: -2, Steer: nan})
+	if got := car.Input(); got != (vehicle3d.Input{Throttle: 1}) {
 		t.Fatalf("Input = %+v, want throttle 1 and the rest 0", got)
 	}
-	car.SetInput(vehicle.Input{Throttle: -3, Brake: 4, Steer: -9})
-	if got := car.Input(); got != (vehicle.Input{Throttle: -1, Brake: 1, Steer: -1}) {
+	car.SetInput(vehicle3d.Input{Throttle: -3, Brake: 4, Steer: -9})
+	if got := car.Input(); got != (vehicle3d.Input{Throttle: -1, Brake: 1, Steer: -1}) {
 		t.Fatalf("Input = %+v", got)
 	}
 }
@@ -344,7 +344,7 @@ func TestInputIsClamped(t *testing.T) {
 func TestStepIgnoresNonPositiveDt(t *testing.T) {
 	w, car := flatWorld(t)
 	before := *car.Body
-	car.SetInput(vehicle.Input{Throttle: 1})
+	car.SetInput(vehicle3d.Input{Throttle: 1})
 	car.Step(w, 0)
 	car.Step(w, -dt)
 	if car.Body.Vel != before.Vel || car.Body.AngVel != before.AngVel {
@@ -354,13 +354,13 @@ func TestStepIgnoresNonPositiveDt(t *testing.T) {
 
 func TestResetStopsAndMovesCar(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{Throttle: 1, Steer: 1}, 2*rate)
+	drive(w, car, vehicle3d.Input{Throttle: 1, Steer: 1}, 2*rate)
 	rot := physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, math.Pi/2)
 	car.Reset(physics3d.Vec3{X: 5, Y: 0.65, Z: 5}, rot)
 	if car.Body.Vel != (physics3d.Vec3{}) || car.Body.AngVel != (physics3d.Vec3{}) {
 		t.Fatal("Reset left the chassis moving")
 	}
-	if car.Input() != (vehicle.Input{}) {
+	if car.Input() != (vehicle3d.Input{}) {
 		t.Fatal("Reset kept the input")
 	}
 	for _, wh := range car.Wheels {
@@ -372,7 +372,7 @@ func TestResetStopsAndMovesCar(t *testing.T) {
 	if f := car.Forward(); !approx(f.X, -1, 1e-5) {
 		t.Fatalf("forward after Reset = %+v", f)
 	}
-	drive(w, car, vehicle.Input{}, 1)
+	drive(w, car, vehicle3d.Input{}, 1)
 	if car.Wheels[0].SteerAngle != 0 {
 		t.Fatal("steering was not centered by Reset")
 	}
@@ -380,7 +380,7 @@ func TestResetStopsAndMovesCar(t *testing.T) {
 
 func TestWheelTransform(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{}, rate)
+	drive(w, car, vehicle3d.Input{}, rate)
 	wh := car.Wheels[0]
 	pos, rot := car.WheelTransform(0)
 	anchor := car.Body.Pos.Add(car.Body.Rot.RotateVec(physics3d.Vec3{X: wh.Config.Anchor[0], Y: wh.Config.Anchor[1], Z: wh.Config.Anchor[2]}))
@@ -395,7 +395,7 @@ func TestWheelTransform(t *testing.T) {
 		t.Fatalf("resting wheel rotation %+v differs from chassis %+v", rot, car.Body.Rot)
 	}
 
-	drive(w, car, vehicle.Input{Steer: -1}, rate)
+	drive(w, car, vehicle3d.Input{Steer: -1}, rate)
 	_, rot = car.WheelTransform(0)
 	axle := rot.RotateVec(physics3d.Vec3{X: 1})
 	// Steered left, the axle turns counter-clockwise from above: its -Z component grows.
@@ -406,7 +406,7 @@ func TestWheelTransform(t *testing.T) {
 
 func TestSpinAngleWraps(t *testing.T) {
 	w, car := flatWorld(t)
-	drive(w, car, vehicle.Input{Throttle: 1}, 5*rate)
+	drive(w, car, vehicle3d.Input{Throttle: 1}, 5*rate)
 	for _, wh := range car.Wheels {
 		if wh.SpinAngle < -math.Pi || wh.SpinAngle > math.Pi {
 			t.Fatalf("spin angle %v outside [-pi, pi]", wh.SpinAngle)
@@ -419,7 +419,7 @@ func TestVehicleInGameLoop(t *testing.T) {
 	w, car := flatWorld(t)
 	steps := 0
 	l := &game.Loop{Rate: rate, Update: func(d time.Duration) {
-		car.SetInput(vehicle.Input{Throttle: 1})
+		car.SetInput(vehicle3d.Input{Throttle: 1})
 		car.Step(w, d)
 		w.Step(d)
 		steps++
@@ -440,7 +440,7 @@ func TestVehicleInGameLoop(t *testing.T) {
 func TestVehicleBrakingPitchMatchesMassDistribution(t *testing.T) {
 	// 1. Verify the chassis body inherits the exact diagonal/shifted inertia
 	// tensor implied by Config's Mass, ChassisHalfExtents, and ChassisOffset.
-	cfg := vehicle.ReferenceConfig()
+	cfg := vehicle3d.ReferenceConfig()
 	w, car := flatWorld(t)
 	he := cfg.ChassisHalfExtents
 	off := cfg.ChassisOffset
@@ -463,11 +463,11 @@ func TestVehicleBrakingPitchMatchesMassDistribution(t *testing.T) {
 	// angular acceleration (alpha = tau / Ixx) and early nose-dive angle before
 	// suspension rebound are inversely proportional to Ixx.
 	measureBrakePitch := func(halfLenZ float32, comY float32) (earlyPitchRad, peakPitchRad, firstStepAngVelX float32) {
-		c := vehicle.ReferenceConfig()
+		c := vehicle3d.ReferenceConfig()
 		c.ChassisHalfExtents[2] = halfLenZ
 		world := physics3d.NewWorld()
 		world.AddBody(physics3d.NewStaticBody(box(2000, 1, 2000), physics3d.Vec3{Y: -1}))
-		v, err := vehicle.New(world, c, physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
+		v, err := vehicle3d.New(world, c, physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -475,11 +475,11 @@ func TestVehicleBrakingPitchMatchesMassDistribution(t *testing.T) {
 			v.Body.SetCenterOfMass(physics3d.Vec3{Y: comY})
 		}
 		// Let suspension settle cleanly, then impart identical cruising speed (-Z forward).
-		drive(world, v, vehicle.Input{}, rate)
+		drive(world, v, vehicle3d.Input{}, rate)
 		v.Body.Vel = physics3d.Vec3{Z: -20}
 		v.Body.AngVel = physics3d.Vec3{}
 		for step := range rate / 2 {
-			v.SetInput(vehicle.Input{Brake: 1})
+			v.SetInput(vehicle3d.Input{Brake: 1})
 			v.Step(world, dt)
 			world.Step(dt)
 			if step == 0 {
@@ -524,7 +524,7 @@ func TestVehicleBrakingPitchMatchesMassDistribution(t *testing.T) {
 
 func BenchmarkVehicleStep(b *testing.B) {
 	w, car := flatWorld(b)
-	car.SetInput(vehicle.Input{Throttle: 0.5, Steer: 0.3})
+	car.SetInput(vehicle3d.Input{Throttle: 0.5, Steer: 0.3})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {

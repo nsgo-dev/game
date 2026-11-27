@@ -1,4 +1,4 @@
-package vehicle
+package vehicle3d
 
 import (
 	"errors"
@@ -79,13 +79,13 @@ func (v *Vehicle) Save() Snapshot {
 // body ID against world.Bodies().
 func (v *Vehicle) Restore(snap Snapshot, world *physics3d.World) error {
 	if v == nil {
-		return errors.New("vehicle: cannot restore nil Vehicle")
+		return errors.New("vehicle3d: cannot restore nil Vehicle")
 	}
 	if snap.Version != SnapshotVersion {
-		return fmt.Errorf("vehicle: unsupported Snapshot version %d (want %d)", snap.Version, SnapshotVersion)
+		return fmt.Errorf("vehicle3d: unsupported Snapshot version %d (want %d)", snap.Version, SnapshotVersion)
 	}
 	if len(snap.Wheels) != len(v.Wheels) {
-		return fmt.Errorf("vehicle: snapshot has %d wheels (want %d)", len(snap.Wheels), len(v.Wheels))
+		return fmt.Errorf("vehicle3d: snapshot has %d wheels (want %d)", len(snap.Wheels), len(v.Wheels))
 	}
 
 	var bodyByID map[int]*physics3d.Body
@@ -132,6 +132,7 @@ func (v *Vehicle) Restore(snap Snapshot, world *physics3d.World) error {
 // velocities, steering, input, and all wheel states.
 func (v *Vehicle) Checksum() uint64 {
 	h := detmath.NewHasher()
+	// The domain keeps the name it had before the package was renamed vehicle3d: it versions the hash format, not the import path, and renaming it would only change every golden checksum.
 	h.WriteString("vehicle.Vehicle.v1")
 	if v == nil {
 		return h.Sum64()

@@ -1,4 +1,4 @@
-package vehicle_test
+package vehicle3d_test
 
 import (
 	"math"
@@ -7,16 +7,16 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/physics3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 func TestGhostRecorderInterval(t *testing.T) {
-	r := &vehicle.GhostRecorder{Interval: 3}
+	r := &vehicle3d.GhostRecorder{Interval: 3}
 	for i := range 10 {
 		r.Record(physics3d.Vec3{X: float32(i)}, physics3d.Quat{})
 	}
 	g := r.Ghost(60, 9)
-	if r.Steps() != 10 || len(g.Frames) != 4 || g.Steps() != 9 || g.Interval != 3 || g.Rate != 60 || g.LapSteps != 9 || g.Version != vehicle.GhostVersion {
+	if r.Steps() != 10 || len(g.Frames) != 4 || g.Steps() != 9 || g.Interval != 3 || g.Rate != 60 || g.LapSteps != 9 || g.Version != vehicle3d.GhostVersion {
 		t.Fatalf("ghost = %+v, recorder steps %d", g, r.Steps())
 	}
 	for i, f := range g.Frames {
@@ -33,7 +33,7 @@ func TestGhostRecorderInterval(t *testing.T) {
 	if g.Frames[0].P[0] != 0 || r.Steps() != 1 {
 		t.Fatal("Reset or Record changed an earlier ghost")
 	}
-	var every vehicle.GhostRecorder
+	var every vehicle3d.GhostRecorder
 	every.Record(physics3d.Vec3{}, physics3d.QuatIdentity())
 	every.Record(physics3d.Vec3{}, physics3d.QuatIdentity())
 	if g := every.Ghost(60, 0); len(g.Frames) != 2 || g.Interval != 1 {
@@ -44,7 +44,7 @@ func TestGhostRecorderInterval(t *testing.T) {
 func TestGhostRecorderFinishEndsOnTheLine(t *testing.T) {
 	frame := func(i int) physics3d.Vec3 { return physics3d.Vec3{X: float32(i)} }
 	// A 7-step lap sampled every 3 steps: frames at 0, 3 and 6 from Record, and the finish at 7 from Finish.
-	r := &vehicle.GhostRecorder{Interval: 3}
+	r := &vehicle3d.GhostRecorder{Interval: 3}
 	for i := range 7 {
 		r.Record(frame(i), physics3d.QuatIdentity())
 	}
@@ -79,7 +79,7 @@ func TestGhostRecorderFinishEndsOnTheLine(t *testing.T) {
 
 func TestGhostPoseInterpolates(t *testing.T) {
 	quarter := physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, math.Pi/2)
-	g := &vehicle.Ghost{Version: 1, Rate: 60, Interval: 2, Frames: []vehicle.GhostFrame{
+	g := &vehicle3d.Ghost{Version: 1, Rate: 60, Interval: 2, Frames: []vehicle3d.GhostFrame{
 		{P: [3]float32{0, 0, 0}, R: [4]float32{0, 0, 0, 1}},
 		{P: [3]float32{2, 4, -6}, R: [4]float32{quarter.X, quarter.Y, quarter.Z, quarter.W}},
 	}}
@@ -99,32 +99,32 @@ func TestGhostPoseInterpolates(t *testing.T) {
 	if p, _ := g.Pose(100); p != (physics3d.Vec3{X: 2, Y: 4, Z: -6}) {
 		t.Fatalf("after end = %+v", p)
 	}
-	var empty vehicle.Ghost
+	var empty vehicle3d.Ghost
 	if p, r := empty.Pose(3); p != (physics3d.Vec3{}) || r != physics3d.QuatIdentity() || empty.Steps() != 0 {
 		t.Fatal("empty ghost pose is not the origin")
 	}
 }
 
 func TestGhostRoundTrip(t *testing.T) {
-	g := &vehicle.Ghost{Version: 1, Name: "best", Rate: 60, Interval: 2, LapSteps: 1, Frames: []vehicle.GhostFrame{
+	g := &vehicle3d.Ghost{Version: 1, Name: "best", Rate: 60, Interval: 2, LapSteps: 1, Frames: []vehicle3d.GhostFrame{
 		{P: [3]float32{0.1, 0.65, -1e-8}, R: [4]float32{0, 0.70710677, 0, 0.70710677}},
 		{P: [3]float32{1e7, -3.25, 2}, R: [4]float32{0, 0, 0, -1}},
 	}}
-	a, err := vehicle.EncodeGhost(g)
+	a, err := vehicle3d.EncodeGhost(g)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(a), "- p: [0.1, 0.65, -1e-08]") {
 		t.Fatalf("frame positions are not flow-style lines:\n%s", a)
 	}
-	got, err := vehicle.ParseGhost(a)
+	got, err := vehicle3d.ParseGhost(a)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, g) {
 		t.Fatalf("round trip changed the ghost:\n%+v\n%+v", got, g)
 	}
-	b, err := vehicle.EncodeGhost(got)
+	b, err := vehicle3d.EncodeGhost(got)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,12 +152,12 @@ func TestParseGhostRejects(t *testing.T) {
 		"lap before last": "version: 1\nrate: 60\ninterval: 2\nlapSteps: 2\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n",
 		"lap no frames":   "version: 1\nrate: 60\ninterval: 1\nlapSteps: 3\nframes: []\n",
 	} {
-		if _, err := vehicle.ParseGhost([]byte(doc)); err == nil {
+		if _, err := vehicle3d.ParseGhost([]byte(doc)); err == nil {
 			t.Errorf("%s: ParseGhost accepted it", name)
 		}
 	}
-	var nilGhost *vehicle.Ghost
-	if _, err := vehicle.EncodeGhost(nilGhost); err == nil {
+	var nilGhost *vehicle3d.Ghost
+	if _, err := vehicle3d.EncodeGhost(nilGhost); err == nil {
 		t.Error("EncodeGhost accepted nil")
 	}
 }
@@ -167,16 +167,16 @@ func FuzzParseGhost(f *testing.F) {
 	f.Add([]byte("version: 1\nrate: 30\ninterval: 4\nlapSteps: 9\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [1, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [2, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [3, 0, 0], r: [0, 0, 0, 1]}\n"))
 	f.Add([]byte("version: 1\nrate: 10\ninterval: 1\nframes:\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		g, err := vehicle.ParseGhost(data)
+		g, err := vehicle3d.ParseGhost(data)
 		if err != nil {
 			return
 		}
 		g.Pose(float64(g.Steps()) / 2)
-		out, err := vehicle.EncodeGhost(g)
+		out, err := vehicle3d.EncodeGhost(g)
 		if err != nil {
 			t.Fatalf("parsed ghost does not encode: %v", err)
 		}
-		again, err := vehicle.ParseGhost(out)
+		again, err := vehicle3d.ParseGhost(out)
 		if err != nil {
 			t.Fatalf("encoded ghost does not parse: %v\n%s", err, out)
 		}
@@ -187,7 +187,7 @@ func FuzzParseGhost(f *testing.F) {
 }
 
 func BenchmarkGhostPose(b *testing.B) {
-	r := &vehicle.GhostRecorder{Interval: 2}
+	r := &vehicle3d.GhostRecorder{Interval: 2}
 	for i := range 1000 {
 		r.Record(physics3d.Vec3{X: float32(i)}, physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, float32(i)*0.01))
 	}

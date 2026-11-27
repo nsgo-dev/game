@@ -70,7 +70,7 @@ Import only what you need from `github.com/nsgo-dev/game`. Browse the full inter
 | Area | Key Packages |
 | --- | --- |
 | **Core 2D** | `game` ([Loop](docs/en/loop.md)), `sprite`, `tilemap`, `tilemap/tileshape`, `scene`, `sceneformat`, `screen`, `input`, `sound`, `text`, `assets`, `resource`, `save`, `math2d`, `random`, `loaderr` ([Errors](docs/en/errors.md)) |
-| **Physics & Navigation** | `physics` ([2D Rigid](docs/en/physics2d-rigid.md)), `physics3d`, `ai`, `ai/perception3d`, `ai/navbake`, `ai/navbake3d`, `vehicle` |
+| **Physics & Navigation** | `physics` ([2D Rigid](docs/en/physics2d-rigid.md)), `physics3d`, `ai`, `ai/perception3d`, `ai/navbake`, `ai/navbake3d`, `vehicle3d` |
 | **3D & Rendering** | `math3d`, `scene3d`, `render3d`, `gltf`, `ktx2`, `scenemodel`, `anim3d`, `world3d`, `voxel` ([Blender Guide](docs/en/3d-models-blender.md)) |
 | **Animation & Visual FX** | `tween`, `animclip`, `skeletal`, `particles`, `pixelfx`, `lights2d`, `effects`, `cutscene`, `quality` |
 | **Gameplay & Genre Kits** | `flow`, `entities`, `platformer`, `rooms`, `worldmap`, `fog`, `procgen`, `stats`, `inventory`, `ability`, `quest`, `loot`, `cards`, `bullets`, `fighting`, `framedata`, `rts`, `rhythm`, `idle`, `vn`, `undo` |

@@ -1,4 +1,4 @@
-# vehicle
+# vehicle3d
 
 ```go
 import "github.com/nsgo-dev/game/pkg/vehicle"
@@ -28,10 +28,10 @@ world.AddBody(physics3d.NewStaticBody(
 	physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 200, Y: 1, Z: 200}}),
 	physics3d.Vec3{Y: -1},
 ))
-car, err := vehicle.New(world, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
+car, err := vehicle3d.New(world, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
 if err != nil { ... }
 
-controls := vehicle.DefaultControls()
+controls := vehicle3d.DefaultControls()
 loop := &game.Loop{Update: func(dt time.Duration) {
 	actions.Step()
 	car.SetInput(controls.Read(actions))
@@ -108,7 +108,7 @@ wheels:
 | `friction` | 轮胎摩擦系数：轮胎合力不超过 `friction` 乘以车轮载荷 |
 | `steer`、`drive`、`brake`、`handbrake` | 车轮接收哪些输入 |
 
-`ReferenceConfig()` 返回参考车：一辆 1200 kg 的后驱两厢车，加速约 0.5 g，刹车约 1 g，极速 40 m/s。对应文件是 `vehicle/testdata/reference_car.yaml`。
+`ReferenceConfig()` 返回参考车：一辆 1200 kg 的后驱两厢车，加速约 0.5 g，刹车约 1 g，极速 40 m/s。对应文件是 `vehicle3d/testdata/reference_car.yaml`。
 
 ## 比赛与圈数
 
@@ -116,14 +116,14 @@ wheels:
 
 ```go
 gate := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 7, Y: 2, Z: 0.5}})
-race, err := vehicle.NewRace(3,
-	vehicle.AddCheckpoint(world, gate, start),
-	vehicle.AddCheckpoint(world, gate, sector1),
-	vehicle.AddCheckpoint(world, gate, sector2),
+race, err := vehicle3d.NewRace(3,
+	vehicle3d.AddCheckpoint(world, gate, start),
+	vehicle3d.AddCheckpoint(world, gate, sector1),
+	vehicle3d.AddCheckpoint(world, gate, sector2),
 )
 world.OnTrigger = race.Observe
 racer := race.AddRacer(car.Body, "player")
-race.OnLap = func(ev vehicle.LapEvent) { ... }
+race.OnLap = func(ev vehicle3d.LapEvent) { ... }
 
 // 每个固定步长：
 race.Tick()
@@ -140,10 +140,10 @@ world.Step(dt)
 `Ghost` 是一圈的录像：每隔 `Interval` 步采样一次车身姿态，回放时作为半透明的对手。它只是姿态数据，所以回放不需要物理模拟。
 
 ```go
-rec := &vehicle.GhostRecorder{Interval: 2}
+rec := &vehicle3d.GhostRecorder{Interval: 2}
 // 加入车手时，记录第一圈的第一帧：
 rec.Record(car.Body.Pos, car.Body.Rot)
-race.OnLap = func(ev vehicle.LapEvent) {
+race.OnLap = func(ev vehicle3d.LapEvent) {
 	rec.Finish(car.Body.Pos, car.Body.Rot) // 终点线，即使落在两次采样之间
 	if ev.Best {
 		best = rec.Ghost(60, ev.Steps)

@@ -1,4 +1,4 @@
-package vehicle_test
+package vehicle3d_test
 
 import (
 	"math"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/replay"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 type fixedSource struct {
@@ -21,30 +21,30 @@ func (s fixedSource) Axis(n string) float64    { return s.axes[n] }
 func (s fixedSource) Step()                    {}
 
 func TestControlsRead(t *testing.T) {
-	c := vehicle.DefaultControls()
+	c := vehicle3d.DefaultControls()
 	src := fixedSource{
 		axes:    map[string]float64{"throttle": 2, "brake": math.NaN(), "steer": -0.25},
 		pressed: map[string]bool{"handbrake": true},
 	}
-	if got := c.Read(src); got != (vehicle.Input{Throttle: 1, Steer: -0.25, Handbrake: true}) {
+	if got := c.Read(src); got != (vehicle3d.Input{Throttle: 1, Steer: -0.25, Handbrake: true}) {
 		t.Fatalf("Read = %+v", got)
 	}
-	if got := (vehicle.Controls{}).Read(src); got != (vehicle.Input{}) {
+	if got := (vehicle3d.Controls{}).Read(src); got != (vehicle3d.Input{}) {
 		t.Fatalf("empty Controls read %+v", got)
 	}
 	if !reflect.DeepEqual(c.Axes(), []string{"throttle", "brake", "steer"}) || !reflect.DeepEqual(c.Actions(), []string{"handbrake"}) {
 		t.Fatalf("Axes %v Actions %v", c.Axes(), c.Actions())
 	}
-	if a := (vehicle.Controls{Steer: "x"}).Axes(); !reflect.DeepEqual(a, []string{"x"}) {
+	if a := (vehicle3d.Controls{Steer: "x"}).Axes(); !reflect.DeepEqual(a, []string{"x"}) {
 		t.Fatalf("Axes skips empty names: %v", a)
 	}
-	if a := (vehicle.Controls{}).Actions(); a != nil {
+	if a := (vehicle3d.Controls{}).Actions(); a != nil {
 		t.Fatalf("Actions = %v", a)
 	}
 }
 
 func TestControlsReadPlayer(t *testing.T) {
-	c := vehicle.DefaultControls()
+	c := vehicle3d.DefaultControls()
 	rec := &replay.Recording{
 		Version: replay.FormatVersion, Rate: 60, TotalSteps: 2,
 		Actions: c.Actions(), Axes: c.Axes(),
@@ -55,11 +55,11 @@ func TestControlsReadPlayer(t *testing.T) {
 	}
 	p := replay.NewPlayer(rec)
 	p.Step()
-	if got := c.Read(p); got != (vehicle.Input{Throttle: 0.5, Steer: 1}) {
+	if got := c.Read(p); got != (vehicle3d.Input{Throttle: 0.5, Steer: 1}) {
 		t.Fatalf("step 0 = %+v", got)
 	}
 	p.Step()
-	if got := c.Read(p); got != (vehicle.Input{Throttle: 0.5, Brake: 1, Steer: 1, Handbrake: true}) {
+	if got := c.Read(p); got != (vehicle3d.Input{Throttle: 0.5, Brake: 1, Steer: 1, Handbrake: true}) {
 		t.Fatalf("step 1 = %+v", got)
 	}
 }

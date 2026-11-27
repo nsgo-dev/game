@@ -1,4 +1,4 @@
-package vehicle
+package vehicle3d
 
 import (
 	"fmt"
@@ -90,49 +90,49 @@ func frameQuat(f GhostFrame) physics3d.Quat {
 // Validate checks that g uses GhostVersion, has a positive rate and interval, at most an hour of frames at 60 Hz spanning at most math.MaxInt32 steps, a LapSteps that falls within the last Interval before the last frame when it is set, and finite poses with non-zero quaternions.
 func (g *Ghost) Validate() error {
 	if g == nil {
-		return loaderr.Errorf("", fixVehicleGhost, "vehicle: nil ghost")
+		return loaderr.Errorf("", fixVehicleGhost, "vehicle3d: nil ghost")
 	}
 	if g.Version != GhostVersion {
-		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", GhostVersion), "vehicle: unsupported ghost version %d (want %d)", g.Version, GhostVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", GhostVersion), "vehicle3d: unsupported ghost version %d (want %d)", g.Version, GhostVersion)
 	}
 	if g.Rate <= 0 {
-		return loaderr.Errorf("rate", "set rate to a positive steps-per-second integer such as 60", "vehicle: ghost rate %d must be > 0", g.Rate)
+		return loaderr.Errorf("rate", "set rate to a positive steps-per-second integer such as 60", "vehicle3d: ghost rate %d must be > 0", g.Rate)
 	}
 	if g.Interval < 1 {
-		return loaderr.Errorf("interval", "set interval to an integer >= 1", "vehicle: ghost interval %d must be >= 1", g.Interval)
+		return loaderr.Errorf("interval", "set interval to an integer >= 1", "vehicle3d: ghost interval %d must be >= 1", g.Interval)
 	}
 	if g.LapSteps < 0 {
-		return loaderr.Errorf("lapSteps", "set lapSteps to a non-negative integer", "vehicle: ghost lapSteps %d must be >= 0", g.LapSteps)
+		return loaderr.Errorf("lapSteps", "set lapSteps to a non-negative integer", "vehicle3d: ghost lapSteps %d must be >= 0", g.LapSteps)
 	}
 	if len(g.Frames) > maxGhostFrames {
-		return loaderr.Errorf("frames", fmt.Sprintf("keep at most %d frames", maxGhostFrames), "vehicle: ghost has %d frames (max %d)", len(g.Frames), maxGhostFrames)
+		return loaderr.Errorf("frames", fmt.Sprintf("keep at most %d frames", maxGhostFrames), "vehicle3d: ghost has %d frames (max %d)", len(g.Frames), maxGhostFrames)
 	}
 	// Divide rather than multiply so a huge interval cannot overflow the check itself.
 	if len(g.Frames) > 1 && g.Interval > math.MaxInt32/(len(g.Frames)-1) {
-		return loaderr.Errorf("interval", "reduce interval or frame count so total steps fit in int32", "vehicle: ghost frames every %d steps span more than %d steps", g.Interval, math.MaxInt32)
+		return loaderr.Errorf("interval", "reduce interval or frame count so total steps fit in int32", "vehicle3d: ghost frames every %d steps span more than %d steps", g.Interval, math.MaxInt32)
 	}
 	if g.LapSteps > 0 {
 		// The last frame is at LapSteps, so it must lie after the second-to-last frame's step and no later than the next Interval sample.
 		n := len(g.Frames)
 		if n < 2 || g.LapSteps <= (n-2)*g.Interval || g.LapSteps > (n-1)*g.Interval {
-			return loaderr.Errorf("lapSteps", "set lapSteps within the last interval before the final frame, or omit it", "vehicle: ghost lapSteps %d does not match %d frames every %d steps", g.LapSteps, n, g.Interval)
+			return loaderr.Errorf("lapSteps", "set lapSteps within the last interval before the final frame, or omit it", "vehicle3d: ghost lapSteps %d does not match %d frames every %d steps", g.LapSteps, n, g.Interval)
 		}
 	}
 	for i, f := range g.Frames {
 		for j, c := range f.P {
 			if !finite(c) {
-				return loaderr.Errorf(loaderr.Path("frames", i, "p", j), "set position coordinates to finite numbers", "vehicle: ghost frame %d has a non-finite position", i)
+				return loaderr.Errorf(loaderr.Path("frames", i, "p", j), "set position coordinates to finite numbers", "vehicle3d: ghost frame %d has a non-finite position", i)
 			}
 		}
 		var lenSq float32
 		for j, c := range f.R {
 			if !finite(c) {
-				return loaderr.Errorf(loaderr.Path("frames", i, "r", j), "set rotation quaternion components to finite numbers", "vehicle: ghost frame %d has a non-finite rotation", i)
+				return loaderr.Errorf(loaderr.Path("frames", i, "r", j), "set rotation quaternion components to finite numbers", "vehicle3d: ghost frame %d has a non-finite rotation", i)
 			}
 			lenSq += float32(c * c)
 		}
 		if lenSq < 1e-6 {
-			return loaderr.Errorf(loaderr.Path("frames", i, "r"), "set r to a non-zero unit quaternion such as [0, 0, 0, 1]", "vehicle: ghost frame %d has a zero rotation", i)
+			return loaderr.Errorf(loaderr.Path("frames", i, "r"), "set r to a non-zero unit quaternion such as [0, 0, 0, 1]", "vehicle3d: ghost frame %d has a zero rotation", i)
 		}
 	}
 	return nil
@@ -170,7 +170,7 @@ func EncodeGhost(g *Ghost) ([]byte, error) {
 	}
 	data, err := encodeYAML(g)
 	if err != nil {
-		return nil, fmt.Errorf("vehicle: ghost: %w", err)
+		return nil, fmt.Errorf("vehicle3d: ghost: %w", err)
 	}
 	return data, nil
 }

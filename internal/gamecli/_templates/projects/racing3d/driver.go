@@ -4,7 +4,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 // driver drives a car along the racing line: it steers toward a point ahead on the line (pure pursuit) and holds the line's planned speed scaled by its pace. The rivals use it, the player's car uses it after the finish, and the tests drive the player's car with it through the keyboard, a gamepad or the touch controls.
@@ -17,7 +17,7 @@ type driver struct {
 }
 
 // drive returns the input that keeps car on the line this step.
-func (d *driver) drive(car *vehicle.Vehicle) vehicle.Input {
+func (d *driver) drive(car *vehicle3d.Vehicle) vehicle3d.Input {
 	pos := fromPhys(car.Body.Pos)
 	i, _ := d.course.nearest(pos)
 	speed := car.Speed()
@@ -28,7 +28,7 @@ func (d *driver) drive(car *vehicle.Vehicle) vehicle.Input {
 	target := s.pos.Add(s.right.Scale(d.lane))
 	fwd := flat(fromPhys(car.Forward())).Norm()
 	to := flat(target.Sub(pos)).Norm()
-	// A positive angle means the target is to the left of where the car points; vehicle.Input steers right for positive values.
+	// A positive angle means the target is to the left of where the car points; vehicle3d.Input steers right for positive values.
 	angle := float32(math.Atan2(float64(fwd.Cross(to).Y), float64(fwd.Dot(to))))
 	steer := math3d.Clamp(-2.2*angle, -1, 1)
 
@@ -38,7 +38,7 @@ func (d *driver) drive(car *vehicle.Vehicle) vehicle.Input {
 		want = min(want, d.course.samples[d.course.wrap(i+k)].speed)
 	}
 	want *= d.pace
-	return vehicle.Input{
+	return vehicle3d.Input{
 		Throttle: math3d.Clamp((want-speed)*0.6, 0, 1),
 		Brake:    math3d.Clamp((speed-want-0.5)*0.4, 0, 1),
 		Steer:    steer,

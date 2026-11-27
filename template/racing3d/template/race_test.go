@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/physics3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 // maxRaceSteps bounds every simulated race: three minutes.
 const maxRaceSteps = 180 * stepRate
 
-func loadTestRace(t *testing.T, ghost *vehicle.Ghost) *Race {
+func loadTestRace(t *testing.T, ghost *vehicle3d.Ghost) *Race {
 	t.Helper()
 	track, cfg, err := LoadRace()
 	if err != nil {
@@ -26,7 +26,7 @@ func loadTestRace(t *testing.T, ghost *vehicle.Ghost) *Race {
 }
 
 // runRace steps r until it ends, the player driven by drive, and fails t if it runs out of time.
-func runRace(t *testing.T, r *Race, drive func() vehicle.Input) {
+func runRace(t *testing.T, r *Race, drive func() vehicle3d.Input) {
 	t.Helper()
 	for i := 0; r.Results() == nil; i++ {
 		if i >= maxRaceSteps {
@@ -40,7 +40,7 @@ func runRace(t *testing.T, r *Race, drive func() vehicle.Input) {
 func TestFastPlayerWins(t *testing.T) {
 	r := loadTestRace(t, nil)
 	pilot := &driver{course: r.course, pace: 1}
-	runRace(t, r, func() vehicle.Input { return pilot.drive(r.player.v) })
+	runRace(t, r, func() vehicle3d.Input { return pilot.drive(r.player.v) })
 	res := r.Results()
 	if !r.Won() || !res[0].Finished || res[0].Name != playerName {
 		t.Fatalf("results %+v, want the player first", res)
@@ -54,7 +54,7 @@ func TestFastPlayerWins(t *testing.T) {
 // TestIdlePlayerLoses leaves the player on the grid: the race ends when every rival has finished, with the player last and not finished.
 func TestIdlePlayerLoses(t *testing.T) {
 	r := loadTestRace(t, nil)
-	runRace(t, r, func() vehicle.Input { return vehicle.Input{} })
+	runRace(t, r, func() vehicle3d.Input { return vehicle3d.Input{} })
 	res := r.Results()
 	last := res[len(res)-1]
 	if r.Won() || !last.Player || last.Finished || last.Place != len(r.cars) {
@@ -70,8 +70,8 @@ func TestIdlePlayerLoses(t *testing.T) {
 // TestGhostRacesFlyingLaps checks the best lap's ghost: lap 1, a standing start from the grid, is never saved, the fastest later lap is, and the next race shows the ghost from its lap 2, starting at the line.
 func TestGhostRacesFlyingLaps(t *testing.T) {
 	r := loadTestRace(t, nil)
-	var saved []*vehicle.Ghost
-	r.onBestLap = func(g *vehicle.Ghost) { saved = append(saved, g) }
+	var saved []*vehicle3d.Ghost
+	r.onBestLap = func(g *vehicle3d.Ghost) { saved = append(saved, g) }
 	pilot := &driver{course: r.course, pace: 1}
 	for r.player.racer.Laps < 1 {
 		r.Step(pilot.drive(r.player.v), false)
@@ -79,7 +79,7 @@ func TestGhostRacesFlyingLaps(t *testing.T) {
 	if r.Ghost() != nil || len(saved) != 0 {
 		t.Fatalf("lap 1 from the grid was kept as the ghost")
 	}
-	runRace(t, r, func() vehicle.Input { return pilot.drive(r.player.v) })
+	runRace(t, r, func() vehicle3d.Input { return pilot.drive(r.player.v) })
 	ghost := r.Ghost()
 	if ghost == nil || len(saved) != 1 {
 		t.Fatalf("ghost %v after %d laps, %d saved", ghost, r.player.racer.Laps, len(saved))
@@ -90,7 +90,7 @@ func TestGhostRacesFlyingLaps(t *testing.T) {
 
 	next := loadTestRace(t, ghost)
 	for next.phase == phaseCountdown {
-		next.Step(vehicle.Input{}, false)
+		next.Step(vehicle3d.Input{}, false)
 	}
 	if _, _, shown := next.ghostPose(0); shown {
 		t.Fatal("the ghost shows on lap 1")
@@ -169,7 +169,7 @@ func TestLargeTrackStaysOnTheGround(t *testing.T) {
 	off := r.cars[0]
 	off.v.Reset(physics3d.Vec3{X: groundHalf + 20, Y: 1, Z: 0}, off.v.Body.Rot)
 	for range 2 * stepRate {
-		r.Step(vehicle.Input{}, false)
+		r.Step(vehicle3d.Input{}, false)
 	}
 	if p := off.v.Body.Pos; p.Y < 0 || abs(p.X) > groundHalf {
 		t.Fatalf("a car off the ground's edge is at %v, not back on the road", p)
@@ -178,11 +178,11 @@ func TestLargeTrackStaysOnTheGround(t *testing.T) {
 
 // TestRaceIsDeterministic runs the same race twice and compares every car's final pose and velocities bit for bit.
 func TestRaceIsDeterministic(t *testing.T) {
-	run := func() []vehicle.Racer {
+	run := func() []vehicle3d.Racer {
 		r := loadTestRace(t, nil)
 		pilot := &driver{course: r.course, pace: 0.95}
-		runRace(t, r, func() vehicle.Input { return pilot.drive(r.player.v) })
-		var out []vehicle.Racer
+		runRace(t, r, func() vehicle3d.Input { return pilot.drive(r.player.v) })
+		var out []vehicle3d.Racer
 		for _, c := range r.cars {
 			out = append(out, *c.racer)
 		}

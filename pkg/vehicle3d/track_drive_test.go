@@ -1,4 +1,4 @@
-package vehicle_test
+package vehicle3d_test
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/game/pkg/replay"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 const maxRaceSteps = 90 * rate
@@ -51,7 +51,7 @@ func TestReferenceCarDrivesTestTrackDeterministically(t *testing.T) {
 
 // TestRecordedDriveReplays records the reference driver's inputs with replay.Recorder, round-trips the recording through its file format, and plays it back with replay.Player into a fresh world: the replayed car must end bit-identical to the recorded one.
 func TestRecordedDriveReplays(t *testing.T) {
-	controls := vehicle.DefaultControls()
+	controls := vehicle3d.DefaultControls()
 	tt := newTestTrack(1)
 	rec := replay.NewRecorder(newDriver(tt.car, tt.waypoints), 7, rate, controls.Actions(), controls.Axes())
 	for i := 0; !tt.racer.Finished; i++ {
@@ -81,12 +81,12 @@ func TestBestLapGhost(t *testing.T) {
 	tt := newTestTrack(2)
 	d := newDriver(tt.car, tt.waypoints)
 	// An interval that does not divide the lap exercises Finish's off-grid last frame.
-	gr := &vehicle.GhostRecorder{Interval: 7}
-	var best *vehicle.Ghost
+	gr := &vehicle3d.GhostRecorder{Interval: 7}
+	var best *vehicle3d.Ghost
 	bestLap := 0
 	var lapStarts []physics3d.Vec3
 	record := func() { gr.Record(tt.car.Body.Pos, tt.car.Body.Rot) }
-	tt.race.OnLap = func(ev vehicle.LapEvent) {
+	tt.race.OnLap = func(ev vehicle3d.LapEvent) {
 		gr.Finish(tt.car.Body.Pos, tt.car.Body.Rot)
 		if ev.Best {
 			best = gr.Ghost(rate, ev.Steps)
@@ -110,15 +110,15 @@ func TestBestLapGhost(t *testing.T) {
 	if best.LapSteps != tt.racer.BestLap || best.Steps() != best.LapSteps {
 		t.Fatalf("ghost lap steps = %d, frames span %d, best lap %d", best.LapSteps, best.Steps(), tt.racer.BestLap)
 	}
-	data, err := vehicle.EncodeGhost(best)
+	data, err := vehicle3d.EncodeGhost(best)
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := vehicle.ParseGhost(data)
+	parsed, err := vehicle3d.ParseGhost(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := vehicle.EncodeGhost(parsed)
+	again, err := vehicle3d.EncodeGhost(parsed)
 	if err != nil {
 		t.Fatal(err)
 	}

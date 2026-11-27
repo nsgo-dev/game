@@ -48,7 +48,7 @@ func cubeMesh() render3d.Mesh {
 	return b.m
 }
 
-// wheelMesh is a wheel of radius 1 and width 1 whose axle is the X axis, as vehicle.Vehicle.WheelTransform expects; its tread has eight flat faces, so its spin shows.
+// wheelMesh is a wheel of radius 1 and width 1 whose axle is the X axis, as vehicle3d.Vehicle.WheelTransform expects; its tread has eight flat faces, so its spin shows.
 func wheelMesh() render3d.Mesh {
 	const sides = 8
 	var b meshBuilder

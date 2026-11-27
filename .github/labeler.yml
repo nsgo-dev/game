@@ -373,10 +373,10 @@ pkg/undo:
       - any-glob-to-any-file:
           - pkg/undo/**
 
-pkg/vehicle:
+pkg/vehicle3d:
   - changed-files:
       - any-glob-to-any-file:
-          - pkg/vehicle/**
+          - pkg/vehicle3d/**
 
 pkg/vn:
   - changed-files:

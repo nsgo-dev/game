@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -28,7 +28,7 @@ func startGame(t *testing.T, opts ...nsgotest.Option) (*nsgotest.App, *racingGam
 }
 
 // playRace advances app a step at a time until the race is over, calling press before each step with what the racing line asks of the player's car, which press turns into the keys, buttons or touches a player would use.
-func playRace(t *testing.T, app *nsgotest.App, g *racingGame, pace float32, press func(vehicle.Input)) {
+func playRace(t *testing.T, app *nsgotest.App, g *racingGame, pace float32, press func(vehicle3d.Input)) {
 	t.Helper()
 	pilot := &driver{course: g.race.course, pace: pace}
 	for i := 0; g.race.Results() == nil; i++ {
@@ -109,7 +109,7 @@ func TestGamepadPlaythroughWins(t *testing.T) {
 		}
 		app.SetGamepadButton(0, b, v)
 	}
-	playRace(t, app, g, 1, func(in vehicle.Input) {
+	playRace(t, app, g, 1, func(in vehicle3d.Input) {
 		app.SetGamepadAxis(0, gamepad.AxisLeftX, stickFor(in.Steer))
 		button(gamepad.ButtonRT, in.Throttle > 0.3)
 		button(gamepad.ButtonLT, in.Brake > 0.3)
@@ -129,7 +129,7 @@ func TestGamepadPlaythroughWins(t *testing.T) {
 	if !ok {
 		t.Fatal("no ghost saved")
 	}
-	ghost, err := vehicle.ParseGhost([]byte(saved))
+	ghost, err := vehicle3d.ParseGhost([]byte(saved))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestKeyboardPlaythroughLoses(t *testing.T) {
 		}
 		held[key] = on
 	}
-	playRace(t, app, g, 0.6, func(in vehicle.Input) {
+	playRace(t, app, g, 0.6, func(in vehicle3d.Input) {
 		hold("left", in.Steer < -0.25)
 		hold("right", in.Steer > 0.25)
 		hold("up", in.Throttle > 0.3)

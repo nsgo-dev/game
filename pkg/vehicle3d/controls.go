@@ -1,4 +1,4 @@
-package vehicle
+package vehicle3d
 
 import "github.com/nsgo-dev/game/pkg/replay"
 
