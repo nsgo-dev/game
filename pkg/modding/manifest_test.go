@@ -12,6 +12,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/modding"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -316,6 +317,108 @@ func TestManifestAcceptsPartialConstraintFromFixHint(t *testing.T) {
 	}
 	if ok, err := modding.CheckConstraint("2.0.0", m.GameVersion); err != nil || ok {
 		t.Fatalf("CheckConstraint(2.0.0, %q) = %v, %v; want false, nil", m.GameVersion, ok, err)
+	}
+}
+
+func TestConstraintFixHintExamplesAllPassValidateConstraint(t *testing.T) {
+	bad := modding.ModManifest{
+		ManifestVersion: modding.MinManifestVersion,
+		ID:              "a",
+		Name:            "A",
+		Version:         "1.0.0",
+		Entry:           "mod.js",
+		GameVersion:     "not-a-constraint",
+	}
+	err := bad.Validate()
+	var le *loaderr.Error
+	if !errors.As(err, &le) {
+		t.Fatalf("Validate error = %v, want *loaderr.Error", err)
+	}
+	// Extract every double-quoted constraint example from the fix hint so the hint can never drift from ValidateConstraint.
+	var examples []string
+	rest := le.Fix
+	for {
+		_, after, ok := strings.Cut(rest, `"`)
+		if !ok {
+			break
+		}
+		ex, tail, ok := strings.Cut(after, `"`)
+		if !ok {
+			t.Fatalf("unbalanced quote in fix hint %q", le.Fix)
+		}
+		examples = append(examples, ex)
+		rest = tail
+	}
+	wantExamples := []string{">=1.2.0", "^1.2", ">=1.0.0 <2.0.0"}
+	if !slices.Equal(examples, wantExamples) {
+		t.Fatalf("fix hint %q examples = %q, want %q", le.Fix, examples, wantExamples)
+	}
+	for _, ex := range examples {
+		if err := modding.ValidateConstraint(ex); err != nil {
+			t.Errorf("ValidateConstraint(%q) from fix hint failed: %v", ex, err)
+		}
+		good := bad
+		good.GameVersion = ex
+		if err := good.Validate(); err != nil {
+			t.Errorf("ModManifest.Validate with GameVersion %q failed: %v", ex, err)
+		}
+	}
+}
+
+func TestSemVerPrereleaseValidationAndPrecedence(t *testing.T) {
+	// SemVer 2.0.0 §9: numeric prerelease identifiers cannot have leading zeros,
+	// identifiers must be non-empty, and only [0-9A-Za-z-] are allowed.
+	invalid := []string{
+		"1.0.0-01",
+		"1.0.0-x.01",
+		"1.0.0-a..b",
+		"1.0.0-",
+		"1.0.0-.a",
+		"1.0.0-a.",
+		"1.0.0-a_b",
+		"1.0.0-x.+1",
+	}
+	for _, raw := range invalid {
+		t.Run("refuse/"+raw, func(t *testing.T) {
+			if got, err := modding.ParseSemVer(raw); err == nil {
+				t.Fatalf("ParseSemVer(%q) = %+v, want error", raw, got)
+			}
+			if err := modding.ValidateConstraint(">=" + raw); err == nil {
+				t.Fatalf("ValidateConstraint(%q) = nil, want error", ">="+raw)
+			}
+			m := modding.ModManifest{
+				ManifestVersion: modding.MinManifestVersion,
+				ID:              "a",
+				Name:            "A",
+				Version:         raw,
+				Entry:           "mod.js",
+			}
+			if err := m.Validate(); !errors.Is(err, modding.ErrInvalidManifest) {
+				t.Fatalf("ModManifest.Validate(version=%q) = %v, want ErrInvalidManifest", raw, err)
+			}
+		})
+	}
+
+	// SemVer 2.0.0 §11.4: identifiers with hyphens (like "-1") are alphanumeric and rank above all numeric identifiers.
+	hyphen, err := modding.ParseSemVer("1.0.0-x.-1")
+	if err != nil {
+		t.Fatalf("ParseSemVer(1.0.0-x.-1): %v", err)
+	}
+	numeric, err := modding.ParseSemVer("1.0.0-x.5")
+	if err != nil {
+		t.Fatalf("ParseSemVer(1.0.0-x.5): %v", err)
+	}
+	if got := hyphen.Compare(numeric); got <= 0 {
+		t.Fatalf("Compare(1.0.0-x.-1, 1.0.0-x.5) = %d, want > 0", got)
+	}
+	if got := numeric.Compare(hyphen); got >= 0 {
+		t.Fatalf("Compare(1.0.0-x.5, 1.0.0-x.-1) = %d, want < 0", got)
+	}
+	if ok, err := modding.CheckConstraint("1.0.0-x.-1", ">=1.0.0-x.5"); err != nil || !ok {
+		t.Fatalf("CheckConstraint(1.0.0-x.-1, >=1.0.0-x.5) = %v, %v; want true, nil", ok, err)
+	}
+	if ok, err := modding.CheckConstraint("1.0.0-x.5", ">=1.0.0-x.-1"); err != nil || ok {
+		t.Fatalf("CheckConstraint(1.0.0-x.5, >=1.0.0-x.-1) = %v, %v; want false, nil", ok, err)
 	}
 }
 
