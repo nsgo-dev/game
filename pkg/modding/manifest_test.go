@@ -220,6 +220,19 @@ func TestCapabilityYAMLAcceptsEmptyList(t *testing.T) {
 	}
 }
 
+func TestManifestAcceptsPartialConstraintFromFixHint(t *testing.T) {
+	m, err := modding.ParseManifest([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\ngameVersion: ^1.2\ndependencies:\n  b: ^1.2\n"))
+	if err != nil {
+		t.Fatalf("ParseManifest with ^1.2 constraint: %v", err)
+	}
+	if ok, err := modding.CheckConstraint("1.5.0", m.GameVersion); err != nil || !ok {
+		t.Fatalf("CheckConstraint(1.5.0, %q) = %v, %v; want true, nil", m.GameVersion, ok, err)
+	}
+	if ok, err := modding.CheckConstraint("2.0.0", m.GameVersion); err != nil || ok {
+		t.Fatalf("CheckConstraint(2.0.0, %q) = %v, %v; want false, nil", m.GameVersion, ok, err)
+	}
+}
+
 func TestDiscoverFSRefusesLegacyJSONManifest(t *testing.T) {
 	fsys := modFS(map[string]string{
 		"old/mod.json": `{"id":"old","name":"Old","version":"1.0.0","entry":"mod.js"}`,

@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/nsgo-dev/game/internal/semver"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -1240,10 +1241,13 @@ func ValidatePackName(name string) error {
 	return nil
 }
 
-// ValidatePackVersion reports whether v can be a pack's version: 1 to 64 characters with no spaces or control characters, such as 1.2.0.
+// ValidatePackVersion reports whether v is a valid semantic version (MAJOR.MINOR.PATCH[-prerelease][+build]) without a leading "v", such as 1.2.0.
 func ValidatePackVersion(v string) error {
-	if v == "" || len(v) > 64 || strings.IndexFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return fmt.Errorf("packVersion %q must be 1 to 64 characters without spaces", v)
+	if strings.HasPrefix(v, "v") {
+		return fmt.Errorf("packVersion %q must be a semantic version without a leading \"v\", such as 1.2.0", v)
+	}
+	if _, err := semver.Parse(v); err != nil {
+		return fmt.Errorf("packVersion %q must be a semantic version such as 1.2.0: %w", v, err)
 	}
 	return nil
 }

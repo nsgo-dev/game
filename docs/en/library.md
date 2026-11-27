@@ -77,7 +77,7 @@ packs:
 | `version` | The index schema version, `1`. |
 | `name` | The pack's name: 1 to 64 lower-case ASCII letters, digits and `-`, starting with a letter or digit; unique in the index. |
 | `kind` | `asset`, `plugin` or `template`. |
-| `packVersion` | The version of the pack the index offers. |
+| `packVersion` | The version of the pack the index offers: a strict semantic version (`MAJOR.MINOR.PATCH[-prerelease][+build]`) without a leading `v`, such as `1.0.0`. |
 | `description` | One line saying what the pack holds. |
 | `tags` | Lower-case words a search also matches. |
 | `license` | The license of the pack's files, as an SPDX expression such as `CC0-1.0` or `MIT OR Apache-2.0`. |

@@ -27,14 +27,14 @@ capabilities: [readState, spawnEntity, emitEvent, ui]
 | `manifestVersion` | 是 | 文件的格式版本，目前为 `1`（`modding.ManifestVersion`） |
 | `id` | 是 | 由字母、数字、`.`、`-` 和 `_` 组成的唯一 ID，例如 `com.example.boss-rush` |
 | `name` | 是 | 便于阅读的名称 |
-| `version` | 是 | 模组自身的语义化版本（`MAJOR.MINOR.PATCH[-prerelease]`） |
+| `version` | 是 | 模组自身的语义化版本（`MAJOR.MINOR.PATCH[-prerelease][+build]`，可带可选前导 `v`） |
 | `author`、`description` | 否 | 自由文本 |
 | `entry` | 是 | 相对模组目录的入口脚本：`.tsx`、`.ts`、`.jsx`、`.js` 或 `.mjs` |
 | `gameVersion` | 否 | 对宿主 `ManagerOptions.GameVersion` 的版本约束，例如 `'>=0.2.0'` |
 | `capabilities` | 否 | 模组申请的权限能力名称 |
 | `dependencies` | 否 | 模组 ID 到版本约束的映射，例如 `com.example.core-lib: ^1.0.0` |
 
-版本约束支持 `*`、`=`、`>=`、`>`、`<=`、`<`、`^` 和 `~`，多个条件用空格或逗号连接。以 `>` 或 `*` 开头的值要加引号（`'>=0.2.0'`、`'*'`），因为 YAML 会把值开头的这两个字符分别当作折叠块和别名。
+版本约束支持 `*`、`=`、`>=`、`>`、`<=`、`<`、`^` 和 `~`（或直接写版本号，等价于 `=`），多个条件用空格或逗号连接。子句支持可选前导 `v` 和省略后缀的版本号（`MAJOR` 或 `MAJOR.MINOR`）：`^1.2` 等价于 `>=1.2.0 <2.0.0`，`^0.2` 和 `^0.0` 以下一个次版本为上界，`~1.2` 和 `1.2` 等价于 `>=1.2.0 <1.3.0`，`<=1.2` 等价于 `<1.3.0`，`>1.2` 等价于 `>=1.3.0`。所有比较按纯粹的 SemVer 2.0.0 优先级求值：忽略构建元数据，预发布版本（包括 Go 伪版本）只要落在区间边界内就会匹配（`>=1.0.0` 匹配 `1.1.0-beta`，不匹配 `1.0.0-beta`），而 `<2.0.0`（包括 `^1.0.0` 的上界）会匹配 `2.0.0-alpha`，如需排除可写成 `<2.0.0-0`。以 `>` 或 `*` 开头的值要加引号（`'>=0.2.0'`、`'*'`），因为 YAML 会把值开头的这两个字符分别当作折叠块和别名。
 
 格式是严格的：`ParseManifest` 会拒绝未知或拼错的字段、重复的键、第二个 YAML 文档、未知或重复的权限能力名称，以及缺失、不受支持或没有写成普通整数 `1` 的 `manifestVersion`，统一返回 `ErrInvalidManifest`。`EncodeManifest` 以唯一的规范形式写出清单（字段按上表顺序，权限能力按下文顺序，依赖按 ID 的字节序排序），因此已经是这种形式的文件读入再写出不会变化。在 Go 代码中构造的 `ModManifest` 可以让 `ManifestVersion` 保持为 0：`Validate` 和 `ResolveOrder` 接受它，`EncodeManifest` 会写出 `manifestVersion: 1`。`Manager` 只读取 `mod.yaml`；仍然只有旧版 `mod.json` 的模组目录会被拒绝，并提示改用 `mod.yaml`。
 

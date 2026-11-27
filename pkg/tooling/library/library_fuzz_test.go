@@ -15,7 +15,7 @@ func FuzzParseIndex(f *testing.F) {
 		f.Add(data)
 	}
 	f.Add([]byte("version: 1\n"))
-	f.Add([]byte("version: 1\npacks: [{name: a, kind: plugin, packVersion: '1', description: A., tags: [x], license: MIT OR Apache-2.0, source: 'https://example.com/a', sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}]\n"))
+	f.Add([]byte("version: 1\npacks: [{name: a, kind: plugin, packVersion: 1.0.0, description: A., tags: [x], license: MIT OR Apache-2.0, source: 'https://example.com/a', sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}]\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		idx, err := library.ParseIndex(data)
 		if err != nil {
@@ -41,7 +41,7 @@ func FuzzParseManifest(f *testing.F) {
 	if data, err := os.ReadFile(filepath.Join(repoLibrary, "packs", "dungeon-tiles", library.ManifestFileName)); err == nil {
 		f.Add(data)
 	}
-	f.Add([]byte("version: 1\nname: p\nkind: plugin\npackVersion: '1'\ndescription: P.\nlicense: MIT\ninto: tools/p\nfiles: [a.yaml, b/c.yaml]\nautoload: {scenes: [{name: s, path: a.yaml}], resources: [{name: r, path: b/c.yaml}]}\nplugins: [p]\n"))
+	f.Add([]byte("version: 1\nname: p\nkind: plugin\npackVersion: 1.0.0\ndescription: P.\nlicense: MIT\ninto: tools/p\nfiles: [a.yaml, b/c.yaml]\nautoload: {scenes: [{name: s, path: a.yaml}], resources: [{name: r, path: b/c.yaml}]}\nplugins: [p]\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		m, err := library.ParseManifest(data)
 		if err != nil {

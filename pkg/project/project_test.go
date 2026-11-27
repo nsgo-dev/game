@@ -267,23 +267,26 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 		"plugin spaces":                head + "editor: {plugins: ['level tools']}\n",
 		"duplicate plugin":             head + "editor: {plugins: [health, health]}\n",
 		"unknown editor field":         head + "editor: {plugins: [health], theme: dark}\n",
-		"pack name":                    head + "packs: [{name: Tiles, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
-		"pack kind":                    head + "packs: [{name: t, kind: music, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack name":                    head + "packs: [{name: Tiles, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t}]\n",
+		"pack kind":                    head + "packs: [{name: t, kind: music, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t}]\n",
 		"pack version":                 head + "packs: [{name: t, kind: asset, packVersion: '1 0', sha256: " + sum + ", dir: packs/t}]\n",
-		"pack sha256":                  head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: ABC, dir: packs/t}]\n",
-		"pack dir":                     head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: ../t}]\n",
-		"pack root dir":                head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: .}]\n",
-		"pack file":                    head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [../x]}]\n",
-		"pack files unsorted":          head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [b, a]}]\n",
-		"pack files twice":             head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a, a]}]\n",
-		"duplicate pack":               head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}, {name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/u}]\n",
-		"shared pack file":             head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/a]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a]}]\n",
-		"pack missing resource":        head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, resources: [tiles]}]\n",
-		"pack missing scene":           head + "autoload: {resources: [{name: room, path: a.yaml}]}\npacks: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, scenes: [room]}]\n",
-		"pack missing plugin":          head + "packs: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}]\n",
-		"shared pack plugin":           head + "editor: {plugins: [paths]}\npacks: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}, {name: u, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/u, plugins: [paths]}]\n",
-		"unknown pack field":           head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, url: x}]\n",
-		"pack file case":               head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/A.png]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a.png]}]\n",
+		"pack version partial":         head + "packs: [{name: t, kind: asset, packVersion: '1.2', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack version non-semver":      head + "packs: [{name: t, kind: asset, packVersion: latest, sha256: " + sum + ", dir: packs/t}]\n",
+		"pack version leading v":       head + "packs: [{name: t, kind: asset, packVersion: v1.0.0, sha256: " + sum + ", dir: packs/t}]\n",
+		"pack sha256":                  head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: ABC, dir: packs/t}]\n",
+		"pack dir":                     head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: ../t}]\n",
+		"pack root dir":                head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: .}]\n",
+		"pack file":                    head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, files: [../x]}]\n",
+		"pack files unsorted":          head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, files: [b, a]}]\n",
+		"pack files twice":             head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, files: [a, a]}]\n",
+		"duplicate pack":               head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t}, {name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/u}]\n",
+		"shared pack file":             head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs, files: [t/a]}, {name: u, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, files: [a]}]\n",
+		"pack missing resource":        head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, resources: [tiles]}]\n",
+		"pack missing scene":           head + "autoload: {resources: [{name: room, path: a.yaml}]}\npacks: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, scenes: [room]}]\n",
+		"pack missing plugin":          head + "packs: [{name: t, kind: plugin, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, plugins: [paths]}]\n",
+		"shared pack plugin":           head + "editor: {plugins: [paths]}\npacks: [{name: t, kind: plugin, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, plugins: [paths]}, {name: u, kind: plugin, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/u, plugins: [paths]}]\n",
+		"unknown pack field":           head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, url: x}]\n",
+		"pack file case":               head + "packs: [{name: t, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs, files: [t/A.png]}, {name: u, kind: asset, packVersion: 1.0.0, sha256: " + sum + ", dir: packs/t, files: [a.png]}]\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -300,6 +303,19 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 	}
 	if _, err := project.Encode(&project.File{}); err == nil {
 		t.Fatal("Encode of an empty File succeeded")
+	}
+}
+
+func TestValidatePackVersion(t *testing.T) {
+	for _, good := range []string{"0.0.0", "1.0.0", "1.2.3-beta.1", "2.0.0+build.1"} {
+		if err := project.ValidatePackVersion(good); err != nil {
+			t.Errorf("ValidatePackVersion(%q) unexpected error: %v", good, err)
+		}
+	}
+	for _, bad := range []string{"", "1", "1.2", "latest", "v1.0.0", "V1.0.0", "1 0", " 1.0.0", "1.0.0 ", "01.0.0", "1.0.0-"} {
+		if err := project.ValidatePackVersion(bad); err == nil {
+			t.Errorf("ValidatePackVersion(%q) succeeded, want error", bad)
+		}
 	}
 }
 
