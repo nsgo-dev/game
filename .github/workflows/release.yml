@@ -3,12 +3,12 @@ name: Release
 # Runs the full test and cross-target check suite on release tags, builds signed desktop
 # installers for NSGo Game Editor (macOS signed & notarized with the org's Developer ID,
 # Linux .deb / .pkg.tar.gz / .AppImage + install scripts, Windows -setup.exe installers,
-# plus signed update appcasts via NSGO_UPDATES_KEY) and cross-platform nsgo-game CLI
-# archives, then publishes them on the GitHub Release with notes extracted from CHANGELOG.md.
+# plus signed update appcasts via NSGO_UPDATES_KEY), then publishes them on the GitHub
+# Release with a platform downloads table and notes extracted from CHANGELOG.md.
 #
 # Pull requests touching cmd/editor or this workflow build and sign (when org secrets are
 # available) without publishing. workflow_dispatch with an existing tag (for example v0.1.0)
-# builds and uploads the editor and CLI assets onto that release without moving the tag.
+# builds and uploads the editor assets onto that release without moving the tag.
 on:
   push:
     tags:
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Optional existing release tag (e.g. v0.1.0) to build and upload editor/CLI assets onto; leave empty to dry-run."
+        description: "Optional existing release tag (e.g. v0.1.0) to build and upload editor assets onto; leave empty to dry-run."
         required: false
         type: string
 
@@ -437,59 +437,6 @@ jobs:
           rm -f "$NOTARY_KEY"
           security delete-keychain "$KEYCHAIN"
 
-  cli:
-    name: Build nsgo-game CLI
-    needs: meta
-    runs-on: depot-ubuntu-24.04-4
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: go.sum
-      - name: Build and archive nsgo-game for all desktop platforms
-        env:
-          VERSION: ${{ needs.meta.outputs.version }}
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/cli"
-          mkdir -p "$out"
-          for pair in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
-            goos="${pair%/*}"
-            goarch="${pair#*/}"
-            os_label="$goos"
-            [ "$goos" = "darwin" ] && os_label="macos"
-            arch_label="$goarch"
-            [ "$goarch" = "amd64" ] && arch_label="x64"
-            bin="nsgo-game"
-            [ "$goos" = "windows" ] && bin="nsgo-game.exe"
-            stage="$RUNNER_TEMP/stage-${os_label}-${arch_label}"
-            mkdir -p "$stage"
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$stage/$bin" ./cmd/nsgo-game
-            base="nsgo-game-${VERSION}-${os_label}-${arch_label}"
-            if [ "$goos" = "windows" ]; then
-              (cd "$stage" && zip -q "$out/${base}.zip" "$bin")
-              (cd "$out" && sha256sum "${base}.zip" > "${base}.zip.sha256")
-            else
-              tar -C "$stage" -czf "$out/${base}.tar.gz" "$bin"
-              (cd "$out" && sha256sum "${base}.tar.gz" > "${base}.tar.gz.sha256")
-            fi
-          done
-          ls -lh "$out"
-      - name: Upload CLI archives
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: cli-binaries
-          path: ${{ runner.temp }}/cli/
-          retention-days: 7
-          if-no-files-found: error
-
   release:
     name: Publish release
     needs:
@@ -498,12 +445,10 @@ jobs:
       - check
       - apple
       - editor
-      - cli
     if: >-
       always() &&
       needs.meta.result == 'success' &&
       needs.editor.result == 'success' &&
-      needs.cli.result == 'success' &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
       (needs.check.result == 'success' || needs.check.result == 'skipped') &&
       (needs.apple.result == 'success' || needs.apple.result == 'skipped') &&
@@ -521,14 +466,14 @@ jobs:
       - name: Download release assets
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "*"
+          pattern: "editor-*"
           path: ${{ runner.temp }}/downloads
       - name: Assemble and verify asset checksums
         run: |
           set -euo pipefail
           assets="$RUNNER_TEMP/assets"
           mkdir -p "$assets"
-          for dir in "$RUNNER_TEMP"/downloads/editor-* "$RUNNER_TEMP"/downloads/cli-binaries; do
+          for dir in "$RUNNER_TEMP"/downloads/editor-*; do
             [ -d "$dir" ] || continue
             cp -- "$dir"/* "$assets/"
           done
@@ -550,7 +495,6 @@ jobs:
           set -euo pipefail
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           ed="nsgo-game-editor-${VERSION}"
-          cli="nsgo-game-${VERSION}"
 
           cat > "$RUNNER_TEMP/downloads-table.md" <<EOF
           ## Downloads
@@ -577,14 +521,6 @@ jobs:
           | **Linux** (Debian / Ubuntu) | \`x64\` / \`arm64\` | [\`.deb (x64)\`](${base}/${ed}-linux-x64.deb) · [\`.deb (arm64)\`](${base}/${ed}-linux-arm64.deb) | [\`x64\`](${base}/${ed}-linux-x64.deb.sha256) · [\`arm64\`](${base}/${ed}-linux-arm64.deb.sha256) |
           | **Linux** (Arch) | \`x64\` / \`arm64\` | [\`.pkg.tar.gz (x64)\`](${base}/${ed}-linux-x64.pkg.tar.gz) · [\`.pkg.tar.gz (arm64)\`](${base}/${ed}-linux-arm64.pkg.tar.gz) | [\`x64\`](${base}/${ed}-linux-x64.pkg.tar.gz.sha256) · [\`arm64\`](${base}/${ed}-linux-arm64.pkg.tar.gz.sha256) |
           | **Linux** (AppImage) | \`x64\` / \`arm64\` | [\`.AppImage (x64)\`](${base}/${ed}-linux-x64.AppImage) · [\`.AppImage (arm64)\`](${base}/${ed}-linux-arm64.AppImage) | [\`x64\`](${base}/${ed}-linux-x64.AppImage.sha256) · [\`arm64\`](${base}/${ed}-linux-arm64.AppImage.sha256) |
-
-          ### \`nsgo-game\` CLI
-
-          | Platform | Architecture | Download | SHA-256 |
-          | --- | --- | --- | --- |
-          | **macOS** | Apple Silicon (\`arm64\`) / Intel (\`x64\`) | [\`.tar.gz (arm64)\`](${base}/${cli}-macos-arm64.tar.gz) · [\`.tar.gz (x64)\`](${base}/${cli}-macos-x64.tar.gz) | [\`arm64\`](${base}/${cli}-macos-arm64.tar.gz.sha256) · [\`x64\`](${base}/${cli}-macos-x64.tar.gz.sha256) |
-          | **Windows** | \`x64\` / \`arm64\` | [\`.zip (x64)\`](${base}/${cli}-windows-x64.zip) · [\`.zip (arm64)\`](${base}/${cli}-windows-arm64.zip) | [\`x64\`](${base}/${cli}-windows-x64.zip.sha256) · [\`arm64\`](${base}/${cli}-windows-arm64.zip.sha256) |
-          | **Linux** | \`x64\` / \`arm64\` | [\`.tar.gz (x64)\`](${base}/${cli}-linux-x64.tar.gz) · [\`.tar.gz (arm64)\`](${base}/${cli}-linux-arm64.tar.gz) | [\`x64\`](${base}/${cli}-linux-x64.tar.gz.sha256) · [\`arm64\`](${base}/${cli}-linux-arm64.tar.gz.sha256) |
 
           ---
 

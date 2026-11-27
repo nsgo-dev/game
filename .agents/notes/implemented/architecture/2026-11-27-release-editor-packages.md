@@ -8,15 +8,15 @@ Tagged releases of `nsgo-dev/game` previously created text-only GitHub Releases 
 
 ## Decision
 
-Add a thin desktop application entrypoint in `cmd/editor` (`cmd/editor/main.go` + `cmd/editor/nsgo.yaml`) and extend `.github/workflows/release.yml` to build, sign, verify, and attach full desktop installers for **NSGo Game Editor** alongside prebuilt `nsgo-game` CLI archives on every release.
+Add a thin desktop application entrypoint in `cmd/editor` (`cmd/editor/main.go` + `cmd/editor/nsgo.yaml`) and extend `.github/workflows/release.yml` to build, sign, verify, and attach full desktop installers for **NSGo Game Editor** on every release (keeping CLI workflows integrated under `nsgo game` rather than publishing separate `nsgo-game` archives).
 
 ### Packaging and signing contract
 
 - `cmd/editor` delegates directly to `internal/gamecli.Run(editorArgs(os.Args[1:]))`, stripping macOS Finder's `-psn_*` flag so double-clicking the app opens the Start Screen while CLI invocations still accept project/scene/clip arguments.
 - `cmd/editor/nsgo.yaml` declares `id: dev.nsgo.game.editor`, `release.github: nsgo-dev/game`, and `updates.key` matching the organization-wide `NSGO_UPDATES_KEY` secret so `go tool nsgo build` emits signed `appcast-<target>.xml` feeds, `install.sh`, `install.ps1`, and `.AppImage.zsync` files alongside every installer.
-- `.github/workflows/release.yml` builds all six desktop targets on Depot runners (`depot-macos-15` for `macos_arm64`/`macos_x64` `.dmg`, `depot-ubuntu-24.04-4` for `linux_x64`/`linux_arm64` `.deb`/`.pkg.tar.gz`/`.AppImage` and `windows_x64`/`windows_arm64` `-setup.exe`), plus cross-compiled `nsgo-game` CLI archives for all six desktop OS/arch pairs.
+- `.github/workflows/release.yml` builds all six desktop targets on Depot runners (`depot-macos-15` for `macos_arm64`/`macos_x64` `.dmg`, `depot-ubuntu-24.04-4` for `linux_x64`/`linux_arm64` `.deb`/`.pkg.tar.gz`/`.AppImage` and `windows_x64`/`windows_arm64` `-setup.exe`) and prepends a per-platform Downloads table to the GitHub Release body while keeping `release-notes.md` clean for in-app update prompts.
 - macOS builds import the organization's Developer ID certificate (`MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `vars.MACOS_SIGNING_IDENTITY`) and App Store Connect API key (`APPSTORE_API_KEY_P8`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`), passing them to `go tool nsgo build` for hardened-runtime signing, notarization, and stapling, then verify every `.app` and `.dmg` with `codesign`, `xcrun stapler validate`, and `spctl --assess`. Non-release fork PRs without secrets fall back to ad hoc signing while tagged releases and `workflow_dispatch` uploads fail fast if signing or update secrets are missing.
-- `workflow_dispatch` with an optional existing `tag` input (`mode=upload`) allows building and attaching signed editor and CLI assets onto an already-published release (such as `v0.1.0`) via `gh release upload --clobber` without moving or recreating the immutable Go module tag.
+- `workflow_dispatch` with an optional existing `tag` input (`mode=upload`) allows building and attaching signed editor assets onto an already-published release (such as `v0.1.0`) via `gh release upload --clobber` without moving or recreating the immutable Go module tag.
 
 ## Alternatives considered
 
