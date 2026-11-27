@@ -679,7 +679,10 @@ func (p *VirtualPad) Reset() {
 func (p *VirtualPad) OnTouch(ev core.TouchEvent) {
 	p.handleTouch(ev, nil)
 	if p.actions != nil {
-		p.actions.syncRaw()
+		changed := p.actions.syncRaw()
+		if changed || len(ev.Touches) > 0 || ev.Phase == core.TouchCancel {
+			p.actions.wake()
+		}
 	}
 }
 

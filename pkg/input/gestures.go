@@ -147,6 +147,8 @@ type GestureRecognizer struct {
 	MapPoint func(core.Point) (core.Point, bool)
 	// OnGesture, when set, runs during Update for each gesture recognized on that step.
 	OnGesture func(GestureEvent)
+	// Wake, when set (for example to loop.MarkDirty on an OnDemand game.Loop), is called when touch input arrives on g so an idle loop wakes to run Update. When Wake is nil and g is bound to an Actions with Wake set, g wakes through Actions.
+	Wake func()
 
 	actions  *Actions
 	bindings map[GestureKind][]string
@@ -306,6 +308,8 @@ func (g *GestureRecognizer) Update(dt time.Duration) {
 // OnTouch records touch activity for gesture recognition.
 func (g *GestureRecognizer) OnTouch(ev core.TouchEvent) {
 	cfg := g.Config.resolved()
+	hadTouches := len(g.touches) > 0
+	wokeActions := false
 
 	switch ev.Phase {
 	case core.TouchStart:
@@ -348,7 +352,7 @@ func (g *GestureRecognizer) OnTouch(ev core.TouchEvent) {
 				existing.maxDist = d
 			}
 		}
-		g.checkPinchMove(cfg)
+		wokeActions = g.checkPinchMove(cfg)
 
 	case core.TouchEnd:
 		hasChanged := touchesHaveChanged(ev.Touches)
@@ -368,7 +372,9 @@ func (g *GestureRecognizer) OnTouch(ev core.TouchEvent) {
 			}
 			delete(g.touches, t.ID)
 			if !existing.usedInPinch && !existing.longPressed {
-				g.classifyRelease(existing, cfg)
+				if g.classifyRelease(existing, cfg) {
+					wokeActions = true
+				}
 			}
 		}
 		if len(g.touches) < 2 {
@@ -379,6 +385,9 @@ func (g *GestureRecognizer) OnTouch(ev core.TouchEvent) {
 		if len(ev.Touches) == 0 {
 			clear(g.touches)
 			g.pinchActive = false
+			if hadTouches {
+				g.notifyWake(false)
+			}
 			return
 		}
 		hasChanged := touchesHaveChanged(ev.Touches)
@@ -390,6 +399,10 @@ func (g *GestureRecognizer) OnTouch(ev core.TouchEvent) {
 		if len(g.touches) < 2 {
 			g.pinchActive = false
 		}
+	}
+
+	if len(ev.Touches) > 0 || (ev.Phase == core.TouchCancel && hadTouches) {
+		g.notifyWake(wokeActions)
 	}
 }
 
@@ -414,9 +427,9 @@ func (g *GestureRecognizer) syncPinchStart() {
 	}
 }
 
-func (g *GestureRecognizer) checkPinchMove(cfg GestureConfig) {
+func (g *GestureRecognizer) checkPinchMove(cfg GestureConfig) bool {
 	if !g.pinchActive || len(g.touches) != 2 {
-		return
+		return false
 	}
 	a, b := g.twoTouches()
 	dist := pointDist(a.pos, b.pos)
@@ -428,7 +441,7 @@ func (g *GestureRecognizer) checkPinchMove(cfg GestureConfig) {
 
 	delta := dist - g.pinchRefDist
 	if math.Abs(float64(delta)) < float64(cfg.PinchMinDelta) {
-		return
+		return false
 	}
 	g.pinchRefDist = dist
 	mid := core.Point{
@@ -439,22 +452,24 @@ func (g *GestureRecognizer) checkPinchMove(cfg GestureConfig) {
 	if delta < 0 {
 		kind = GesturePinchIn
 	}
-	g.emitPending(GestureEvent{Kind: kind, Position: mid, Scale: g.pinchScale})
+	return g.emitPending(GestureEvent{Kind: kind, Position: mid, Scale: g.pinchScale})
 }
 
-func (g *GestureRecognizer) classifyRelease(t *gestureTouch, cfg GestureConfig) {
+func (g *GestureRecognizer) classifyRelease(t *gestureTouch, cfg GestureConfig) bool {
 	dur := g.now - t.startTime
 	if dur <= cfg.TapMaxDuration && t.maxDist <= cfg.TapMaxDistance {
-		g.emitPending(GestureEvent{Kind: GestureTap, Position: t.pos})
+		woke := g.emitPending(GestureEvent{Kind: GestureTap, Position: t.pos})
 		if g.hasLastTap && g.now-g.lastTapTime <= cfg.DoubleTapMaxInterval && pointDist(g.lastTapPos, t.pos) <= cfg.DoubleTapMaxDistance {
 			g.hasLastTap = false
-			g.emitPending(GestureEvent{Kind: GestureDoubleTap, Position: t.pos})
+			if g.emitPending(GestureEvent{Kind: GestureDoubleTap, Position: t.pos}) {
+				woke = true
+			}
 		} else {
 			g.hasLastTap = true
 			g.lastTapTime = g.now
 			g.lastTapPos = t.pos
 		}
-		return
+		return woke
 	}
 
 	dx := float32(t.pos.X - t.startPos.X)
@@ -462,14 +477,14 @@ func (g *GestureRecognizer) classifyRelease(t *gestureTouch, cfg GestureConfig) 
 	dist := float32(math.Hypot(float64(dx), float64(dy)))
 	if dist < cfg.SwipeMinDistance {
 		g.hasLastTap = false
-		return
+		return false
 	}
 
 	if dur > 0 {
 		vel := dist / float32(dur.Seconds())
 		if vel < cfg.SwipeMinVelocity {
 			g.hasLastTap = false
-			return
+			return false
 		}
 	}
 
@@ -488,20 +503,32 @@ func (g *GestureRecognizer) classifyRelease(t *gestureTouch, cfg GestureConfig) 
 		}
 	}
 	g.hasLastTap = false
-	g.emitPending(GestureEvent{Kind: kind, Position: t.pos})
+	return g.emitPending(GestureEvent{Kind: kind, Position: t.pos})
 }
 
-func (g *GestureRecognizer) emitPending(ev GestureEvent) {
+func (g *GestureRecognizer) emitPending(ev GestureEvent) bool {
 	g.pending = append(g.pending, ev)
-	g.triggerBound(ev.Kind)
+	return g.triggerBound(ev.Kind)
 }
 
-func (g *GestureRecognizer) triggerBound(kind GestureKind) {
+func (g *GestureRecognizer) triggerBound(kind GestureKind) bool {
 	if g.actions == nil {
-		return
+		return false
 	}
+	triggered := false
 	for _, action := range g.bindings[kind] {
 		g.actions.Trigger(action)
+		triggered = true
+	}
+	return triggered
+}
+
+func (g *GestureRecognizer) notifyWake(wokeActions bool) {
+	if g.Wake != nil {
+		g.Wake()
+	}
+	if !wokeActions && g.actions != nil {
+		g.actions.wake()
 	}
 }
 

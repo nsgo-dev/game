@@ -21,14 +21,16 @@ type Loop struct {
 	MaxSteps int
 	// Paused stops Update from advancing with display time while Draw keeps running. Unpausing resumes from the current frame without a catch-up backlog.
 	Paused bool
-	// PausedAwake is how long the loop keeps the display awake (core.Scope.KeepAwake) after it is Paused (or while an OnDemand loop is idle with no MarkDirty or updates). Zero or negative releases the display hold at once.
+	// PausedAwake is how long the loop keeps the display awake (core.Scope.KeepAwake) after it is Paused or while an OnDemand loop is idle (Idle returns true with no MarkDirty or updates). Zero or negative releases the display hold at once.
 	PausedAwake time.Duration
 	// TimeScale scales simulated time, 1 when 0 or less (or not finite). Update still receives the fixed 1/Rate step, so 0.5 runs half as many updates a second and 2 runs twice as many.
 	TimeScale float64
 	// DrawRate caps Draw to at most DrawRate calls a second, uncapped when 0 or less. Update still runs at Rate.
 	DrawRate int
-	// OnDemand skips Draw on frames where no Update ran, unless MarkDirty has been called since the last Draw.
+	// OnDemand skips Draw on frames where no Update ran, unless MarkDirty has been called since the last Draw. When Idle is also set and returns true, OnDemand skips Update steps too until Idle returns false or MarkDirty wakes the loop.
 	OnDemand bool
+	// Idle, when set with OnDemand, reports whether the game currently has no ongoing work (such as animations, timers or typewriter reveals) that needs fixed-step updates. While OnDemand is true, Paused is false and Idle returns true, display frames skip both Update and Draw without accumulating time, and the display keep-awake hold is released after PausedAwake. Calling MarkDirty wakes an idle loop to run one fixed Update step and Draw on the next frame; if that Update makes Idle return false, fixed-step updates resume until Idle returns true again.
+	Idle func() bool
 	// Immersive hides a phone's system bars (mobile.Immersive) while the game plays, that is while the loop runs and is not Paused, and brings them back while it is Paused, as under a pause menu, and once it stops or its scope is disposed. The loop hides them as it starts or resumes in the foreground and applies a change to Immersive or Paused on its next frame, and leaves the bars as they are while the app is in the background. Desktop and web targets ignore it.
 	Immersive bool
 	// Update moves the game on by dt, which is always 1/Rate seconds.
@@ -42,6 +44,7 @@ type Loop struct {
 
 	pendingSteps int
 	dirty        bool
+	wakeStep     bool
 	lastPaused   bool
 	steps        uint64
 	segRate      int
@@ -53,7 +56,9 @@ type Loop struct {
 // SetPaused pauses or resumes the loop's updates without accumulating a catch-up backlog, calling OnPause if the paused state changed.
 func (l *Loop) SetPaused(paused bool) {
 	l.Paused = paused
-	if !paused {
+	if paused {
+		l.wakeStep = false
+	} else {
 		l.pendingSteps = 0
 	}
 	l.syncPause()
@@ -96,13 +101,20 @@ func (l *Loop) StepOnce() {
 	l.Step(1)
 }
 
-// MarkDirty requests a Draw on the next frame when OnDemand is true.
+// MarkDirty requests a Draw on the next frame when OnDemand is true. When an unpaused OnDemand loop is idle (Idle returns true), MarkDirty also queues one fixed Update step on the next frame so Update can sample newly arrived input and advance state.
 func (l *Loop) MarkDirty() {
 	l.dirty = true
+	if l.OnDemand && !l.Paused {
+		l.wakeStep = true
+	}
 	if r := l.activeRun; r != nil && l.OnDemand {
 		r.awakeIdle = 0
 		r.syncAwake(false)
 	}
+}
+
+func (l *Loop) isIdle() bool {
+	return l.OnDemand && l.Idle != nil && l.Idle()
 }
 
 // Steps returns the total number of fixed Update steps executed by l.
@@ -203,6 +215,7 @@ func (l *Loop) StepNow(n int) int {
 		r.syncImmersive()
 		r.syncAwake(false)
 	}
+	l.wakeStep = false
 	l.dirty = true
 	if l.Draw != nil {
 		l.dirty = false
@@ -232,7 +245,7 @@ func (l *Loop) recordStep(rate int) {
 
 // Run starts the loop on cx's display frames until cx is disposed or stop is called.
 //
-// The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates. While running in the foreground and not Paused it keeps the display awake (core.Scope.KeepAwake). It releases the display hold immediately on background, stop or scope disposal, and once the loop has been Paused (or an OnDemand loop has been idle with no MarkDirty or updates) for PausedAwake (at once when PausedAwake <= 0), taking it again on unpause and keeping it while pending Step updates or an OnDemand MarkDirty draw run.
+// The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates. While running in the foreground and active (not Paused and not idle under OnDemand and Idle) it keeps the display awake (core.Scope.KeepAwake). It releases the display hold immediately on background, stop or scope disposal, and once the loop has been Paused or OnDemand-idle (with no MarkDirty or updates) for PausedAwake (at once when PausedAwake <= 0), taking it again on unpause, when Idle returns false, and while pending Step updates or an OnDemand MarkDirty wake/draw run.
 //
 // A frame adds the time between its display time and the last frame's, as core.Scope.RequestAnimationFrame gives it: the display's own frame time where the platform stamps one, so the frame length is the display's rather than when the engine got to the frame, and the graph clock's otherwise. The first frame after the loop starts or resumes adds the time from then to its display time, which may lie a frame ahead where the display stamps a frame with when it will show, so the loop's time is the shown frame's. A frame stamped before the time the loop started or resumed adds nothing, and the next frame adds the time from then.
 //
@@ -313,10 +326,10 @@ func (r *loopRun) syncImmersive() {
 	}
 }
 
-// syncAwake acquires or releases the display keep-awake hold to match whether the run is active in the foreground (or within PausedAwake). active is true while the current frame is executing pending Step updates or an OnDemand dirty draw.
+// syncAwake acquires or releases the display keep-awake hold to match whether the run is active in the foreground (or within PausedAwake). active is true while the current frame is executing pending Step updates or an OnDemand dirty wake/draw.
 func (r *loopRun) syncAwake(active bool) {
 	want := !r.ended && r.cancel != nil && (active ||
-		!r.loop.Paused ||
+		(!r.loop.Paused && !r.loop.isIdle()) ||
 		r.loop.pendingSteps > 0 ||
 		(r.loop.OnDemand && r.loop.dirty) ||
 		r.awakeIdle < r.loop.PausedAwake)
@@ -397,6 +410,7 @@ func (r *loopRun) frame(at time.Time) {
 	steps := 0
 	stepped := false
 	if r.loop.Paused {
+		r.loop.wakeStep = false
 		if n := r.loop.pendingSteps; n > 0 {
 			stepped = true
 			r.awakeIdle = 0
@@ -417,9 +431,32 @@ func (r *loopRun) frame(at time.Time) {
 		} else if r.acc >= step {
 			r.acc %= step
 		}
+	} else if r.loop.isIdle() {
+		r.loop.pendingSteps = 0
+		if r.loop.wakeStep {
+			stepped = true
+			r.awakeIdle = 0
+			r.syncAwake(true)
+			r.loop.wakeStep = false
+			r.acc = 0
+			steps++
+			r.loop.recordStep(rate)
+			if r.loop.Update != nil {
+				r.loop.Update(step)
+			}
+			// Update may have stopped the loop.
+			if r.cancel == nil {
+				return
+			}
+			r.loop.wakeStep = false
+			r.acc = 0
+		} else {
+			r.acc = 0
+		}
 	} else {
 		r.awakeIdle = 0
 		r.loop.pendingSteps = 0
+		r.loop.wakeStep = false
 		add := scaleDuration(dt, r.loop.timeScale())
 		if add > math.MaxInt64-r.acc {
 			r.acc = math.MaxInt64
@@ -437,15 +474,16 @@ func (r *loopRun) frame(at time.Time) {
 			if r.loop.Update != nil {
 				r.loop.Update(step)
 			}
-			// Update may have stopped or paused the loop.
+			// Update may have stopped, paused or idled the loop.
 			if r.cancel == nil {
 				return
 			}
-			if r.loop.Paused {
+			if r.loop.Paused || r.loop.isIdle() {
 				r.acc = 0
 				break
 			}
 		}
+		r.loop.wakeStep = false
 	}
 	r.loop.syncPause()
 	if r.cancel == nil {
@@ -456,7 +494,8 @@ func (r *loopRun) frame(at time.Time) {
 		r.loop.dirty = true
 	}
 	wasDirty := r.loop.OnDemand && r.loop.dirty
-	if !r.loop.Paused || stepped || steps > 0 || r.loop.pendingSteps > 0 || wasDirty {
+	stillIdle := r.loop.isIdle()
+	if (!r.loop.Paused && !stillIdle) || stepped || steps > 0 || r.loop.pendingSteps > 0 || wasDirty {
 		r.awakeIdle = 0
 	} else if dt > math.MaxInt64-r.awakeIdle {
 		r.awakeIdle = math.MaxInt64

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
@@ -39,12 +40,110 @@ type gamepadAxisBinding struct {
 
 // WatchGamepads makes a read the game controllers connected to cx's app on every Step with gamepad.Pads, so GamepadButton inputs and BindGamepadAxis axes follow the physical controllers on every target that supports them.
 //
-// Step reads the controllers' state as of the current display frame, so call Step from game.Loop.Update as usual. A press and release that both happen between two Step calls are not seen. Reading stops once cx is disposed, and while cx's core.Access refuses core.AccessGamepad no controller is read. Passing nil stops reading and releases every controller input.
+// Step reads the controllers' state as of the current display frame, so call Step from game.Loop.Update as usual. When Wake is set and at least one controller is connected in the foreground, a also watches connected controllers on display frames and calls Wake when a button press/release or bound stick axis changes so an idle OnDemand loop wakes to step. Reading stops once cx is disposed, and while cx's core.Access refuses core.AccessGamepad no controller is read. Passing nil stops reading and releases every controller input.
 func (a *Actions) WatchGamepads(cx *core.Scope) {
+	a.stopGamepadWatch()
 	a.gpScope = cx
 	if cx == nil {
+		hadChange := a.gamepadWakeChanged(nil)
 		a.gpPads = nil
+		if a.syncRaw() || hadChange {
+			a.wake()
+		}
+		return
+	}
+	a.gpWatchGen++
+	gen := a.gpWatchGen
+	stopEffect := cx.Effect(func() {
+		bg := cx.Env().Lifecycle() == core.LifecycleBackground
+		pads := gamepad.Pads(cx)
+		cx.Untrack(func() {
+			if a.gpWatchGen != gen {
+				return
+			}
+			if bg || len(pads) == 0 {
+				a.stopGamepadWakeRAF()
+				if len(pads) == 0 && a.Wake != nil && a.gamepadWakeChanged(nil) {
+					a.setGamepads(nil)
+					a.syncRaw()
+					a.wake()
+				}
+				return
+			}
+			if a.Wake != nil {
+				a.unmuteReleasedButtonsFrom(pads)
+				if a.gamepadWakeChanged(pads) {
+					a.setGamepads(pads)
+					a.syncRaw()
+					a.wake()
+				}
+			}
+			a.scheduleGamepadWakeRAF(cx, gen)
+		})
+	})
+	a.gpWatchStop = stopEffect
+	cx.Cleanup(func() {
+		if a.gpWatchGen != gen {
+			return
+		}
+		hadChange := a.gamepadWakeChanged(nil)
+		a.stopGamepadWatch()
+		a.gpScope = nil
+		a.gpPads = a.gpPads[:0]
+		if a.syncRaw() || hadChange {
+			a.wake()
+		}
+	})
+}
+
+func (a *Actions) stopGamepadWatch() {
+	a.gpWatchGen++
+	a.stopGamepadWakeRAF()
+	if stop := a.gpWatchStop; stop != nil {
+		a.gpWatchStop = nil
+		stop()
+	}
+}
+
+func (a *Actions) stopGamepadWakeRAF() {
+	if cancel := a.gpWakeCancel; cancel != nil {
+		a.gpWakeCancel = nil
+		cancel()
+	}
+}
+
+func (a *Actions) scheduleGamepadWakeRAF(cx *core.Scope, gen uint64) {
+	if a.gpWakeCancel != nil || cx == nil || cx.Disposed() || a.gpWatchGen != gen {
+		return
+	}
+	cx.Run(func() {
+		a.gpWakeCancel = cx.RequestAnimationFrame(func(time.Time) {
+			a.pollGamepadWakeRAF(cx, gen)
+		})
+	})
+}
+
+func (a *Actions) pollGamepadWakeRAF(cx *core.Scope, gen uint64) {
+	a.gpWakeCancel = nil
+	if a.gpWatchGen != gen || a.gpScope != cx || cx == nil || cx.Disposed() {
+		return
+	}
+	if cx.Env().Lifecycle() == core.LifecycleBackground {
+		return
+	}
+	pads := core.Untracked(cx, func() []gamepad.Pad { return gamepad.Pads(cx) })
+	if len(pads) == 0 {
+		return
+	}
+	a.scheduleGamepadWakeRAF(cx, gen)
+	if a.Wake == nil {
+		return
+	}
+	a.unmuteReleasedButtonsFrom(pads)
+	if a.gamepadWakeChanged(pads) {
+		a.setGamepads(pads)
 		a.syncRaw()
+		a.wake()
 	}
 }
 
@@ -52,8 +151,12 @@ func (a *Actions) WatchGamepads(cx *core.Scope) {
 //
 // While WatchGamepads has a scope attached, the next Step replaces pads with the live controllers.
 func (a *Actions) OnGamepads(pads []gamepad.Pad) {
+	a.unmuteReleasedButtonsFrom(pads)
+	changed := a.gamepadWakeChanged(pads)
 	a.setGamepads(pads)
-	a.syncRaw()
+	if a.syncRaw() || changed {
+		a.wake()
+	}
 }
 
 // Gamepads returns a copy of the controller state a last read, sorted by controller ID.
@@ -155,11 +258,15 @@ func (a *Actions) muteHeldButtons() {
 
 // unmuteReleasedButtons stops ignoring each muted button once it is released or its controller is disconnected.
 func (a *Actions) unmuteReleasedButtons() {
+	a.unmuteReleasedButtonsFrom(a.gpPads)
+}
+
+func (a *Actions) unmuteReleasedButtonsFrom(pads []gamepad.Pad) {
 	for id, m := range a.gpMuted {
 		var held uint32
-		for i := range a.gpPads {
-			if a.gpPads[i].ID == id {
-				held = pressedButtons(&a.gpPads[i])
+		for i := range pads {
+			if pads[i].ID == id {
+				held = pressedButtons(&pads[i])
 				break
 			}
 		}
@@ -169,6 +276,73 @@ func (a *Actions) unmuteReleasedButtons() {
 			a.gpMuted[id] = m
 		}
 	}
+}
+
+func (a *Actions) gamepadWakeChanged(pads []gamepad.Pad) bool {
+	if a.gamepadButtonsChanged(pads) {
+		return true
+	}
+	for _, b := range a.gpAxes {
+		if gamepadAxisForPads(pads, a.gpOne, a.gpID, b) != gamepadAxisForPads(a.gpPads, a.gpOne, a.gpID, b) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Actions) gamepadButtonsChanged(pads []gamepad.Pad) bool {
+	for i := range pads {
+		p := &pads[i]
+		if a.gpOne && p.ID != a.gpID {
+			continue
+		}
+		now := pressedButtons(p) &^ a.gpMuted[p.ID]
+		var prev uint32
+		for j := range a.gpPads {
+			if a.gpPads[j].ID == p.ID {
+				prev = pressedButtons(&a.gpPads[j]) &^ a.gpMuted[p.ID]
+				break
+			}
+		}
+		if now != prev {
+			return true
+		}
+	}
+	for i := range a.gpPads {
+		p := &a.gpPads[i]
+		if a.gpOne && p.ID != a.gpID {
+			continue
+		}
+		prev := pressedButtons(p) &^ a.gpMuted[p.ID]
+		if prev == 0 {
+			continue
+		}
+		found := false
+		for j := range pads {
+			if pads[j].ID == p.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
+}
+
+func gamepadAxisForPads(pads []gamepad.Pad, one bool, id int, b gamepadAxisBinding) float64 {
+	var v float64
+	for i := range pads {
+		p := &pads[i]
+		if one && p.ID != id {
+			continue
+		}
+		if pv := gamepadAxisValue(p, b.axis, b.opts); math.Abs(pv) > math.Abs(v) {
+			v = pv
+		}
+	}
+	return v
 }
 
 // pressedButtons returns a bit mask of the buttons pressed on p, bit b for gamepad.Button b.

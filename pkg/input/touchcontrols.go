@@ -264,6 +264,8 @@ type TouchControls struct {
 	Style VirtualStyle
 	// Haptics, when set, plays a selection tick each time a finger presses a control.
 	Haptics *Haptics
+	// OnWake, when set (for example to loop.MarkDirty on an OnDemand game.Loop), is called when touch controls receive input or change visibility or layout so an idle loop wakes to step and redraw. When OnWake is nil and t is bound to an Actions with Wake set, t wakes through Actions.
+	OnWake func()
 
 	layout   TouchLayout
 	entries  []touchEntry
@@ -357,13 +359,18 @@ func (t *TouchControls) SetLayout(l TouchLayout) error {
 		return err
 	}
 	t.place()
+	t.notifyWake()
 	return nil
 }
 
 // SetMirrored swaps the controls between the left and right of the screen when mirrored is true, for left-handed play, and back when it is false.
 func (t *TouchControls) SetMirrored(mirrored bool) {
+	if t.layout.Mirrored == mirrored {
+		return
+	}
 	t.layout.Mirrored = mirrored
 	t.place()
+	t.notifyWake()
 }
 
 // Pad returns the VirtualPad t routes touches through, for a game that reads its controls directly.
@@ -388,9 +395,9 @@ func (t *TouchControls) Attach(v *core.View) {
 		return
 	}
 	if prev := v.OnTouch; prev != nil {
-		v.OnTouch = func(ev core.TouchEvent) { t.tracker.OnTouch(ev); prev(ev) }
+		v.OnTouch = func(ev core.TouchEvent) { t.onViewTouch(ev); prev(ev) }
 	} else {
-		v.OnTouch = t.tracker.OnTouch
+		v.OnTouch = t.onViewTouch
 	}
 	if prev := v.OnKeyDown; prev != nil {
 		v.OnKeyDown = func(ev core.KeyEvent) bool { t.tracker.OnKey(ev); return prev(ev) }
@@ -544,6 +551,7 @@ func (t *TouchControls) SetVisible(visible bool) {
 		t.alpha, t.idle = 1, 0
 		// The tracker hides the controls only when the device changes, so it must not still hold the keyboard or a controller.
 		t.tracker.SetDevice(DeviceTouch)
+		t.notifyWake()
 		return
 	}
 	if t.tracker.LastDeviceUntracked() == DeviceTouch {
@@ -551,11 +559,13 @@ func (t *TouchControls) SetVisible(visible bool) {
 	}
 	t.pad.releaseAll()
 	t.syncActions()
+	t.notifyWake()
 }
 
 // Wake makes the controls fully opaque and restarts the idle fade, as a press does. Call it when the controls come back into view after the game stopped drawing them, such as when play starts or resumes from a pause, so they do not first appear already faded by the time spent elsewhere.
 func (t *TouchControls) Wake() {
 	t.alpha, t.idle = 1, 0
+	t.notifyWake()
 }
 
 // Alpha returns the opacity t draws its controls with: 0 while hidden, and between IdleAlpha and 1 as they fade.
@@ -730,6 +740,22 @@ func (t *TouchControls) onDevice(d DeviceKind) {
 		t.SetVisible(true)
 	case d == DeviceKeyboard || d.IsGamepad():
 		t.SetVisible(false)
+	}
+}
+
+func (t *TouchControls) onViewTouch(ev core.TouchEvent) {
+	t.tracker.OnTouch(ev)
+	if t.OnWake != nil && (len(ev.Touches) > 0 || ev.Phase == core.TouchCancel) {
+		t.OnWake()
+	}
+}
+
+func (t *TouchControls) notifyWake() {
+	if t.OnWake != nil {
+		t.OnWake()
+	}
+	if t.actions != nil {
+		t.actions.wake()
 	}
 }
 

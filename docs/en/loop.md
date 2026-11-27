@@ -14,13 +14,28 @@ Displays run at different refresh rates (60 Hz, 90 Hz, 120 Hz, or variable). If 
 
 ```go
 type Loop struct {
-	Rate     int                    // updates a second, 60 when 0
-	MaxSteps int                    // most updates one frame runs, max(1, Rate/10) when 0
-	Update   func(dt time.Duration) // moves the game on by dt, always 1/Rate seconds
-	Draw     func(alpha float64)    // draws the frame, alpha in [0, 1)
+	Rate        int                    // updates a second, 60 when 0
+	MaxSteps    int                    // most updates one frame runs, max(1, Rate/10) when 0
+	Paused      bool                   // stops Update from advancing with display time
+	PausedAwake time.Duration          // how long to keep the display awake while paused or OnDemand-idle
+	TimeScale   float64                // simulated time multiplier, 1 when <= 0 or non-finite
+	DrawRate    int                    // caps Draw calls per second, uncapped when <= 0
+	OnDemand    bool                   // skips Draw on frames without Update unless MarkDirty was called
+	Idle        func() bool            // with OnDemand, skips both Update and Draw while returning true
+	Immersive   bool                   // hides phone system bars while unpaused
+	Update      func(dt time.Duration) // moves the game on by dt, always 1/Rate seconds
+	Draw        func(alpha float64)    // draws the frame, alpha in [0, 1)
+	FrameTime   func(dt time.Duration) // receives each frame's length before updates
+	OnPause     func(paused bool)      // runs whenever Paused changes
 }
 
 func (l *Loop) Run(cx *core.Scope) (stop func())
+func (l *Loop) SetPaused(paused bool)
+func (l *Loop) SetTimeScale(scale float64)
+func (l *Loop) Step(n int)
+func (l *Loop) StepOnce()
+func (l *Loop) StepNow(n int) int
+func (l *Loop) MarkDirty()
 ```
 
 On each display frame from NSGo's `RequestAnimationFrame`:
@@ -120,6 +135,60 @@ loop.Run(cx)
 - If `Paused` is already `true` when `Run` starts, `Run` calls `OnPause(true)`.
 - Backgrounding does not call `OnPause`; both `Loop.Run` and `sound.NewMixer` watch `core.Env.Lifecycle` directly so backgrounding pauses and resumes everything in sync without clearing an open pause menu.
 
+## Scaling time (`TimeScale`)
+
+`TimeScale` (or `SetTimeScale`) scales simulated time for slow-motion effects or fast-forward without changing the fixed `dt` passed to `Update`:
+
+- `0.5` runs half as many `Update` steps per second; `2.0` runs twice as many (still capped by `MaxSteps` per frame).
+- Values at or below `0` (as well as `NaN` and `±Inf`) default to `1`.
+
+```go
+loop.SetTimeScale(0.25) // bullet-time slow motion; Update still sees dt == 1/Rate
+```
+
+## Single-stepping while paused (`Step`, `StepOnce`, `StepNow`)
+
+While `Paused` is `true`, you can advance the simulation by an exact number of fixed steps without unpausing:
+
+- `Step(n)` queues `n` fixed `Update` steps to run on the next display frame, followed by a `Draw(0)` (non-positive values do nothing).
+- `StepOnce()` is shorthand for `Step(1)`.
+- `StepNow(n)` runs `n` fixed `Update` steps and a `Draw` synchronously right away (whether `Paused` is `true` or `false`) and returns how many steps ran, which suits deterministic tests and editor replay tools.
+
+## Capping the draw rate (`DrawRate`)
+
+Set `DrawRate` to cap how many times `Draw` runs per second while keeping `Update` at `Rate` (for example, 60 Hz physics with 30 fps rendering under low-power mode). Values at or below `0` leave `Draw` uncapped at the display's refresh rate.
+
+When `OnDemand` and `DrawRate` are both set, a `MarkDirty` request that arrives before the next draw interval is preserved and drawn once the interval elapses.
+
+## On-demand drawing and idling (`OnDemand`, `Idle`, `MarkDirty`)
+
+Menu-heavy, turn-based and narrative games often sit waiting for the player to tap or press a key. Set `OnDemand: true` together with `Idle` so the loop does zero update and draw work while nothing is animating:
+
+- **Without `Idle`**: `OnDemand: true` skips `Draw` on frames where no `Update` ran unless `MarkDirty()` was called (for example, a 30 Hz simulation on a 60 Hz display draws 30 times a second, and a `Paused: true` loop draws only on `Step` or `MarkDirty`).
+- **With `Idle`**: while `OnDemand` is `true`, `Paused` is `false` and `Idle()` returns `true`, the loop skips both `Update` and `Draw` on display frames without accumulating elapsed time (so waking later produces no catch-up backlog).
+- **Waking on input (`MarkDirty`)**: calling `MarkDirty()` requests a `Draw` on the next frame; when an unpaused `OnDemand` loop is idle, `MarkDirty()` also queues one fixed `Update` step on that frame so `Update` can sample input and advance state. Multiple `MarkDirty()` calls between frames coalesce into a single wake step. If that `Update` starts ongoing work (so `Idle()` returns `false`), fixed-step updates resume normally until `Idle()` returns `true` again.
+- **Wiring input**: assign `actions.Wake = loop.MarkDirty` on [`input.Actions`](input.md#waking-an-idle-ondemand-loop) (and `TouchControls.OnWake` or `GestureRecognizer.Wake` when used without a bound `Actions`), and call `loop.MarkDirty()` from view callbacks (such as button `OnPress`) that mutate state outside `Update`.
+
+```go
+loop := &game.Loop{
+	Rate:     60,
+	OnDemand: true,
+	Idle: func() bool {
+		return fadeLeft == 0 && typewriter.Done() && !autoMode
+	},
+	Update: func(dt time.Duration) {
+		actions.Step()
+		handleInput()
+		stepAnimations(dt)
+	},
+	Draw: func(float64) {
+		frame.Update(func(v uint64) uint64 { return v + 1 })
+	},
+}
+actions.Wake = loop.MarkDirty
+loop.Run(cx)
+```
+
 ## Background pause and stopping
 
 `Loop.Run` watches `cx.Env().Lifecycle()`:
@@ -151,12 +220,12 @@ stop = loop.Run(cx)
 
 ## Keeping the display awake
 
-While the loop runs in the foreground and is not `Paused`, `Loop.Run` holds a display keep-awake lock (`core.Scope.KeepAwake` with `Display: true`) so the device does not dim or auto-lock mid-game:
+While the loop runs in the foreground and is active (not `Paused`, and not idle under `OnDemand` and `Idle`), `Loop.Run` holds a display keep-awake lock (`core.Scope.KeepAwake` with `Display: true`) so the device does not dim or auto-lock mid-game:
 
 - **Background, `stop`, or scope disposal**: the display hold is released immediately.
-- **Paused or idle `OnDemand` loops**: once the loop is `Paused` (with no pending `Step` updates and, when `OnDemand` is set, no `MarkDirty` draw), the hold is released after `PausedAwake`. The default `0` (or any non-positive value) releases the hold immediately so the OS auto-lock timer runs normally on pause, title, and game-over screens.
-- **Grace period (`PausedAwake`)**: set `PausedAwake` (for example `30 * time.Second`) to keep the display awake briefly after pausing or after the last `Step` / `MarkDirty` before releasing the hold.
-- **Resuming and stepping**: calling `SetPaused(false)` takes the hold again immediately (changing `Paused = false` directly takes it on the next frame). Queuing `Step` updates while paused or calling `MarkDirty` on a paused `OnDemand` loop keeps the hold while those updates or draws run and resets the `PausedAwake` timer.
+- **Paused or idle `OnDemand` loops**: once the loop is `Paused` or `OnDemand`-idle (`Idle()` returns `true`, with no pending `Step` updates or `MarkDirty` wake/draw), the hold is released after `PausedAwake`. The default `0` (or any non-positive value) releases the hold immediately so the OS auto-lock timer runs normally on pause, title, waiting-dialogue, and game-over screens.
+- **Grace period (`PausedAwake`)**: set `PausedAwake` (for example `30 * time.Second`) to keep the display awake briefly after pausing, going idle, or after the last `Step` / `MarkDirty` before releasing the hold.
+- **Resuming and stepping**: calling `SetPaused(false)` takes the hold again immediately (changing `Paused = false` directly or having `Idle()` return `false` takes it on the next frame). Queuing `Step` updates while paused or calling `MarkDirty` on a paused or idle `OnDemand` loop keeps the hold while those updates or draws run and resets the `PausedAwake` timer.
 - **Cutscenes**: [`cutscene.Player`](cutscene.md) takes its own display hold while a cutscene plays, so pausing the game loop underneath a cutscene does not let the screen sleep.
 
 ```go
