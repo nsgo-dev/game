@@ -117,6 +117,9 @@ type CharacterBody struct {
 	GravityScale float32
 
 	gravityScaleSet bool
+	contactsBuf     []TileContact
+	collisionsBuf   []SlideCollision
+	excludeBuf      []*Body
 }
 
 // NewCharacterBody returns a CharacterBody wrapping body with DefaultMaxSlopeAngle and a default SnapDist of 8.
@@ -145,16 +148,18 @@ func (p *MovingPlatform) isOneWay() bool {
 	return p != nil && (p.OneWay || (p.Body != nil && p.Body.OneWay))
 }
 
-func platformBodies(platforms []*MovingPlatform) []*Body {
+func (c *CharacterBody) platformBodies(platforms []*MovingPlatform) []*Body {
 	if len(platforms) == 0 {
 		return nil
 	}
-	var out []*Body
+	clear(c.excludeBuf)
+	out := c.excludeBuf[:0]
 	for _, p := range platforms {
 		if p != nil && p.Body != nil {
 			out = append(out, p.Body)
 		}
 	}
+	c.excludeBuf = out
 	return out
 }
 
@@ -166,34 +171,94 @@ func platformBodies(platforms []*MovingPlatform) []*Body {
 // linear damping and fluid linear drag into Body.VX/Body.VY before moving, and also
 // collides against bodies (including OneWay bodies) and static RigidBody colliders in c.World
 // (using c.World.Tiles when grid is nil).
+//
+// The returned MoveResult.Contacts and MoveResult.Collisions slices reuse scratch storage owned by c
+// and are overwritten by the next Move or MoveWorld call on c; copy them or call MoveInto to retain
+// contacts across calls.
 func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration) MoveResult {
 	if c == nil {
 		return MoveResult{}
 	}
+	res := MoveResult{
+		Contacts:   c.contactsBuf,
+		Collisions: c.collisionsBuf,
+	}
+	c.MoveInto(grid, slopes, platforms, dt, &res)
+	c.contactsBuf = res.Contacts
+	c.collisionsBuf = res.Collisions
+	return res
+}
+
+// MoveInto is like Move but writes its result into res, reusing the backing arrays of res.Contacts and
+// res.Collisions so steady-state steps allocate nothing. When res is nil, c is moved and its flags are
+// updated without recording contacts or collisions.
+func (c *CharacterBody) MoveInto(grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration, res *MoveResult) {
+	if c == nil {
+		resetMoveResult(res)
+		return
+	}
 	if grid == nil && c.World != nil {
 		grid = c.World.Tiles
 	}
-	return c.move(c.World, grid, slopes, platforms, dt, c.World != nil)
+	c.moveInto(c.World, grid, slopes, platforms, dt, c.World != nil, res)
 }
 
 // MoveWorld advances c against world (its Bodies, Tiles, and static RigidBody colliders in
 // world.RigidWorld) together with slopes and platforms. Area gravity and damping are applied
 // only when c.World is set, so callers such as platformer.Controller that integrate their own
 // gravity can pass a World without double-applying gravity.
+//
+// The returned MoveResult.Contacts and MoveResult.Collisions slices reuse scratch storage owned by c
+// and are overwritten by the next Move or MoveWorld call on c; copy them or call MoveWorldInto to retain
+// contacts across calls.
 func (c *CharacterBody) MoveWorld(world *World, slopes []Slope, platforms []*MovingPlatform, dt time.Duration) MoveResult {
 	if c == nil {
 		return MoveResult{}
+	}
+	res := MoveResult{
+		Contacts:   c.contactsBuf,
+		Collisions: c.collisionsBuf,
+	}
+	c.MoveWorldInto(world, slopes, platforms, dt, &res)
+	c.contactsBuf = res.Contacts
+	c.collisionsBuf = res.Collisions
+	return res
+}
+
+// MoveWorldInto is like MoveWorld but writes its result into res, reusing the backing arrays of
+// res.Contacts and res.Collisions so steady-state steps allocate nothing. When res is nil, c is moved
+// and its flags are updated without recording contacts or collisions.
+func (c *CharacterBody) MoveWorldInto(world *World, slopes []Slope, platforms []*MovingPlatform, dt time.Duration, res *MoveResult) {
+	if c == nil {
+		resetMoveResult(res)
+		return
 	}
 	var grid TileGrid
 	if world != nil {
 		grid = world.Tiles
 	}
-	return c.move(world, grid, slopes, platforms, dt, c.World != nil)
+	c.moveInto(world, grid, slopes, platforms, dt, c.World != nil, res)
 }
 
-func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration, applyWorldArea bool) MoveResult {
+func resetMoveResult(res *MoveResult) ([]TileContact, []SlideCollision) {
+	if res == nil {
+		return nil, nil
+	}
+	clear(res.Collisions)
+	contacts := res.Contacts[:0]
+	collisions := res.Collisions[:0]
+	*res = MoveResult{
+		Contacts:   contacts,
+		Collisions: collisions,
+	}
+	return contacts, collisions
+}
+
+func (c *CharacterBody) moveInto(world *World, grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration, applyWorldArea bool, res *MoveResult) {
+	contacts, collisions := resetMoveResult(res)
+	record := res != nil
 	if c == nil || c.Body == nil {
-		return MoveResult{}
+		return
 	}
 	b := c.Body
 	wasGrounded := c.Grounded
@@ -209,7 +274,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 	b.OnRightWall = false
 
 	if b.Shape.Empty() || dt <= 0 {
-		return MoveResult{}
+		return
 	}
 
 	secs := dt.Seconds()
@@ -233,7 +298,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 		b.VY = float32(vy)
 	}
 
-	exclude := platformBodies(platforms)
+	exclude := c.platformBodies(platforms)
 	hasWorldColliders := world.worldHasBodyColliders(b, exclude)
 
 	// Fast path: when using World body/rigid colliders with no separate slopes or moving platforms,
@@ -243,7 +308,8 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 			FloorMaxAngle: c.MaxSlopeAngle,
 			Exclude:       exclude,
 		}
-		slideRes := world.moveAndSlideCore(b, dt, opts, grid)
+		slideRes := SlideResult{Collisions: collisions}
+		world.moveAndSlideCore(b, dt, opts, grid, &slideRes, record)
 		c.Grounded = slideRes.OnFloor
 		c.GroundNormal = slideRes.FloorNormal
 		if b.VY >= 0 && !c.Grounded {
@@ -257,27 +323,27 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 				}
 			}
 		}
-		var contacts []TileContact
-		for _, col := range slideRes.Collisions {
-			if col.Tile {
-				contacts = append(contacts, TileContact{
-					Col:     col.Col,
-					Row:     col.Row,
-					Flags:   col.TileFlags,
-					NormalX: col.NormalX,
-					NormalY: col.NormalY,
-				})
+		if record {
+			for _, col := range slideRes.Collisions {
+				if col.Tile {
+					contacts = append(contacts, TileContact{
+						Col:     col.Col,
+						Row:     col.Row,
+						Flags:   col.TileFlags,
+						NormalX: col.NormalX,
+						NormalY: col.NormalY,
+					})
+				}
 			}
+			res.Contacts = contacts
+			res.Collisions = slideRes.Collisions
+			res.Grounded = c.Grounded
+			res.OnWall = slideRes.OnWall
+			res.OnCeiling = slideRes.OnCeiling
+			res.OnLeftWall = slideRes.OnLeftWall
+			res.OnRightWall = slideRes.OnRightWall
 		}
-		return MoveResult{
-			Contacts:    contacts,
-			Collisions:  slideRes.Collisions,
-			Grounded:    c.Grounded,
-			OnWall:      slideRes.OnWall,
-			OnCeiling:   slideRes.OnCeiling,
-			OnLeftWall:  slideRes.OnLeftWall,
-			OnRightWall: slideRes.OnRightWall,
-		}
+		return
 	}
 
 	maxSlope := float64(c.MaxSlopeAngle)
@@ -317,29 +383,23 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 		Exclude:       exclude,
 	})
 
-	var contacts []TileContact
-	var collisions []SlideCollision
 	var onWall bool
 	addContact := func(tc TileContact) {
-		for _, existing := range contacts {
-			if existing.Col == tc.Col && existing.Row == tc.Row &&
-				existing.NormalX == tc.NormalX && existing.NormalY == tc.NormalY {
-				return
-			}
+		if !record {
+			return
 		}
-		contacts = append(contacts, tc)
+		contacts = appendUniqueTileContact(contacts, tc)
 	}
 
-	sweepWorldBodies := func(dx, dy float64) (float64, float64, SlideResult) {
+	sweepWorldBodies := func(dx, dy float64) (float64, float64, SlideResult, bool) {
 		if !hasWorldColliders || !hasBaseHull || (dx == 0 && dy == 0) {
-			return dx, dy, SlideResult{}
+			return dx, dy, SlideResult{}, false
 		}
 		cur := translateHull(&baseHull, x-startX, y-startY)
-		sres, ox, oy, _, _ := world.sweepAndSlide(b, &cur, dx, dy, float64(b.VX), float64(b.VY), bodySlideCfg, nil, nil, exclude)
-		if len(sres.Collisions) > 0 {
-			collisions = append(collisions, sres.Collisions...)
-		}
-		return ox, oy, sres
+		sres := SlideResult{Collisions: collisions}
+		ox, oy, _, _, hitAny := world.sweepAndSlide(b, &cur, dx, dy, float64(b.VX), float64(b.VY), bodySlideCfg, nil, nil, exclude, &sres, record)
+		collisions = sres.Collisions
+		return ox, oy, sres, hitAny
 	}
 
 	resolveTilesX := func(dx float64) bool {
@@ -479,14 +539,14 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 		cdx := float64(carriedPlatform.DeltaX)
 		cdy := float64(carriedPlatform.DeltaY)
 		if !math.IsNaN(cdx) && !math.IsInf(cdx, 0) && cdx != 0 {
-			mx, my, _ := sweepWorldBodies(cdx, 0)
+			mx, my, _, _ := sweepWorldBodies(cdx, 0)
 			x += mx
 			y += my
 			resolveTilesX(cdx)
 		}
 		if !math.IsNaN(cdy) && !math.IsInf(cdy, 0) && cdy != 0 {
 			prevBottom := y + h
-			mx, my, _ := sweepWorldBodies(0, cdy)
+			mx, my, _, _ := sweepWorldBodies(0, cdy)
 			x += mx
 			y += my
 			resolveTilesY(prevBottom, cdy)
@@ -642,7 +702,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 
 			if hasWorldColliders && hasBaseHull {
 				x = prevX
-				mx, my, sres := sweepWorldBodies(stepDX, 0)
+				mx, my, sres, hitAny := sweepWorldBodies(stepDX, 0)
 				x += mx
 				y += my
 				if sres.OnLeftWall {
@@ -670,7 +730,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 						stepDY = 0
 					}
 				}
-				if len(sres.Collisions) > 0 && !sres.OnFloor && math.Abs(mx) < math.Abs(stepDX)-1e-7 {
+				if hitAny && !sres.OnFloor && math.Abs(mx) < math.Abs(stepDX)-1e-7 {
 					b.VX = 0
 					stepDX = 0
 				}
@@ -817,7 +877,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 			prevTop := y
 			hitWorldFloor := false
 			if hasWorldColliders && hasBaseHull {
-				mx, my, sres := sweepWorldBodies(0, stepDY)
+				mx, my, sres, _ := sweepWorldBodies(0, stepDY)
 				x += mx
 				y += my
 				if sres.OnWall {
@@ -1093,13 +1153,13 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 	}
 	b.Grounded = c.Grounded
 
-	return MoveResult{
-		Contacts:    contacts,
-		Collisions:  collisions,
-		Grounded:    c.Grounded,
-		OnWall:      onWall || b.OnLeftWall || b.OnRightWall,
-		OnCeiling:   b.OnCeiling,
-		OnLeftWall:  b.OnLeftWall,
-		OnRightWall: b.OnRightWall,
+	if res != nil {
+		res.Contacts = contacts
+		res.Collisions = collisions
+		res.Grounded = c.Grounded
+		res.OnWall = onWall || b.OnLeftWall || b.OnRightWall
+		res.OnCeiling = b.OnCeiling
+		res.OnLeftWall = b.OnLeftWall
+		res.OnRightWall = b.OnRightWall
 	}
 }

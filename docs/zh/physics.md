@@ -59,7 +59,7 @@ if c := physics.TestShapes(hero, physics.PolygonShape(ramp)); c.Hit {
 
 ## MoveAndSlide 与 TileGrid
 
-`MoveAndSlide` 在每个 `game.Loop` 固定步长中按 `(VX*dt, VY*dt)` 推进 `*Body`，先解算 X 轴再解算 Y 轴，清零被阻挡方向的速度，并自动细分大位移，避免高速物体穿透单格墙壁或平台：
+`MoveAndSlide` 与 `MoveAndSlideInto` 在每个 `game.Loop` 固定步长中按 `(VX*dt, VY*dt)` 推进 `*Body`，先解算 X 轴再解算 Y 轴，清零被阻挡方向的速度，并自动细分大位移，避免高速物体穿透单格墙壁或平台。在每帧更新循环中，推荐复用 `MoveResult` 并调用 `MoveAndSlideInto`，复用 `Contacts` 与 `Collisions` 底层数组以实现稳态零分配（`MoveAndSlide` 是便捷包装函数，每次碰到瓦片都会分配新的 `Contacts` 切片；向 `MoveAndSlideInto` 传入 `nil` 可只更新位置与接触标志而不记录接触列表）：
 
 ```go
 grid := physics.NewGrid(40, 20, 16, 16)
@@ -68,18 +68,19 @@ grid.FillRect(10, 14, 6, 1, physics.TileOneWay)
 
 player := physics.NewBoxBody(32, 200, 12, 16)
 player.Tag = "player"
+var moveRes physics.MoveResult // 保存在游戏或实体结构体上，每步复用
 
 // 在 game.Loop.Update 中：
 player.VY += 900 * float32(dt.Seconds()) // 重力
 player.OneWayDrop = actions.Pressed("down") && actions.JustPressed("jump")
 
-res := physics.MoveAndSlide(player, grid, dt)
-if res.Grounded && actions.JustPressed("jump") {
+physics.MoveAndSlideInto(player, grid, dt, &moveRes)
+if moveRes.Grounded && actions.JustPressed("jump") {
 	player.VY = -320
 }
 ```
 
-- **接触标志**：`MoveAndSlide` 同时更新返回值 `MoveResult` 和物体自身的 `Grounded`、`OnCeiling`、`OnLeftWall`、`OnRightWall` 标志，并列出每次瓦片接触 `Contacts`（含 `Col`、`Row`、`Flags`、`NormalX`、`NormalY`）。
+- **接触标志**：`MoveAndSlide` 与 `MoveAndSlideInto` 同时更新 `MoveResult` 和物体自身的 `Grounded`、`OnCeiling`、`OnLeftWall`、`OnRightWall` 标志，并列出每次瓦片接触 `Contacts`（含 `Col`、`Row`、`Flags`、`NormalX`、`NormalY`）。
 - **单向平台**：标记为 `TileOneWay` 的瓦片以及设置了 `Body.OneWay = true` 的物体只在移动体从其朝上一侧进入且未设置 `Body.OneWayDrop` 时阻挡；将 `Body.OneWayDrop` 设为 `true` 可向下穿过。
 - **瓦片地图**：[`*tilemap.Tilemap`](tilemap.md)（以及 `*tilemap.WorldStream`）本身直接满足 `TileGrid` 和 `TileGridOrigin`，无需手写适配器即可直接传入 `MoveAndSlide`、`CharacterBody.Move`、`World` 和 `RigidWorld`。对于带有逐瓦片碰撞形状（斜坡、半格瓦片、倒角、圆角和光照遮挡体）的地图，可用 [`tileshape.View`](tileshape.md) 包装，它同样是 `TileGrid`，并会从逐瓦片形状推导出合并后的 `Slope` 线段和 `StaticShapes`（`Box`、凸 `Polygon` 与闭合 `Chain`）。
 - **自定义 `TileGrid`**：只需实现 `TileSize() (float32, float32)`、`GridSize() (int, int)` 和 `TileFlagsAt(col, row int) TileFlags`，即可将其他任意地图接入 `MoveAndSlide` 与 `World`。
@@ -113,6 +114,7 @@ _ = topDown.OnWall
 ```
 
 - **接触面分类**：`SlideResult` 返回 `OnFloor`、`OnWall`、`OnCeiling`、`OnLeftWall`、`OnRightWall`、`FloorNormal`、`WallNormal`、`CeilingNormal`、`Travel` 以及按碰撞顺序排列的 `Collisions`。可通过 `MoveOptions.UpX`/`UpY` 与 `FloorMaxAngle` 配置自定义重力方向或可行走坡度上限，或设为 `Mode: MotionFloating` 用于俯视角移动（所有接触均视作墙壁）。
+- **零分配缓冲复用**：`World.MoveAndSlide` 与 `World.MoveAndSlideWith` 复用 `World` 内部暂存切片（会在该 `World` 的下一次调用时覆盖），`CharacterBody.Move` 与 `CharacterBody.MoveWorld` 复用 `CharacterBody` 内部暂存切片。若需跨多次调用保留接触列表，请传入自有结果结构体调用 `World.MoveAndSlideInto`、`World.MoveAndSlideWithInto`、`CharacterBody.MoveInto` 或 `CharacterBody.MoveWorldInto`。
 - **单向物体**：任意 `Body` 均可设置 `Body.OneWay = true`（不限于瓦片或 `MovingPlatform`），允许角色从下方或侧面穿过、站在其朝上一侧表面，并在 `Body.OneWayDrop = true` 时向下穿过。`Body.OneWay` 会完整保存在 `WorldSnapshot` 与 `World.Checksum` 中。
 - **`CharacterBody` 集成**：设置 `CharacterBody.World = world` 或调用 `CharacterBody.MoveWorld(world, slopes, platforms, dt)` 后，平台角色会在保留斜坡与移动平台的同时，与门、方块、单向物体及静态刚体正常碰撞。
 

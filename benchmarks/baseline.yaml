@@ -1,5 +1,5 @@
 version: 1
-note: Performance baselines for game benchmarks. Update with go tool game bench -baseline benchmarks/baseline.yaml -update ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/ai/navbake3d
+note: Performance baselines for game benchmarks. Update with go tool game bench -baseline benchmarks/baseline.yaml -update ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/ai/navbake3d ./pkg/physics
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
 benchmarks:
   BenchmarkBakeReferenceLevel: {ns_per_op: 10000000, bytes_per_op: 3100000, allocs_per_op: 860}
@@ -15,6 +15,7 @@ benchmarks:
   BenchmarkFrame5000: {ns_per_op: 5000000, bytes_per_op: 200000, allocs_per_op: 3}
   BenchmarkLoadAtlas: {ns_per_op: 22147, bytes_per_op: 10336, allocs_per_op: 98}
   BenchmarkLoadTiled: {ns_per_op: 73627, bytes_per_op: 26437, allocs_per_op: 375}
+  BenchmarkMoveAndSlide: {ns_per_op: 800, bytes_per_op: 0, allocs_per_op: 0}
   BenchmarkNavMeshFromBake: {ns_per_op: 100000, bytes_per_op: 33000, allocs_per_op: 270}
   BenchmarkRaycast: {ns_per_op: 827.3, bytes_per_op: 0, allocs_per_op: 0}
   BenchmarkTilemapDrawVisible1000x1000: {ns_per_op: 61389, bytes_per_op: 92545, allocs_per_op: 964}

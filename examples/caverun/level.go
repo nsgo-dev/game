@@ -103,6 +103,7 @@ type levelState struct {
 
 	// Player state.
 	playerBody      *physics.Body
+	moveRes         physics.MoveResult
 	prevPlayerX     float32
 	prevPlayerY     float32
 	spawnX, spawnY  float32
@@ -459,7 +460,8 @@ func (l *levelState) update(dt time.Duration, in stepInput) {
 	}
 
 	wasAirborne := !l.wasGrounded
-	res := physics.MoveAndSlide(l.playerBody, l.tm, dt)
+	physics.MoveAndSlideInto(l.playerBody, l.tm, dt, &l.moveRes)
+	res := &l.moveRes
 	l.wasGrounded = res.Grounded
 	pb = l.playerBody.Bounds()
 

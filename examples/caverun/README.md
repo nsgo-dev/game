@@ -128,7 +128,7 @@ go tool nsgo test -run '^$' -bench BenchmarkLevel1000Sprites ./
 | Apple M1 Max, macOS arm64 | 19 µs, 1 allocation | 104 µs, 314 allocations |
 | AMD Ryzen 9 3900X, Linux amd64 | 26 µs, 1 allocation | 218 µs, 314 allocations |
 
-Both stay far below the 16.7 ms a 60 Hz frame allows, and the 8.3 ms of a 120 Hz one. The step's one allocation is the contact list `physics.MoveAndSlide` returns. The drawing's come from NSGo v0.3.0's `Drawing`, which copies the image of every tile it draws onto the heap; the swarm adds the copies for its own `DrawAtlas` and for the second run it splits the level's sprites into (it sits between the gems and the slimes and explorer), and `TestSwarmAddsNoAllocations` holds it to that.
+Both stay far below the 16.7 ms a 60 Hz frame allows, and the 8.3 ms of a 120 Hz one. Using `physics.MoveAndSlideInto` with a reused `MoveResult`, a fixed step allocates nothing (`0 allocs/op`), and `TestSwarmAddsNoAllocations` enforces that. The drawing's allocations come from NSGo v0.3.0's `Drawing`, which copies the image of every tile it draws onto the heap; the swarm adds the copies for its own `DrawAtlas` and for the second run it splits the level's sprites into (it sits between the gems and the slimes and explorer), and `TestSwarmAddsNoAllocations` holds it to that.
 
 The frame rate on each platform comes from NSGo's performance monitor: run the game with `go tool nsgo dev -fps` (or start a build with `--nsgo-fps`, or open the web build with `?nsgo-fps`), start a run, turn the swarm on, and read the monitor after the level has played for a minute.
 

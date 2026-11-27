@@ -50,7 +50,7 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Run benchmarks and check baselines
-        run: go tool game bench -baseline benchmarks/baseline.yaml ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/ai/navbake3d
+        run: go tool game bench -baseline benchmarks/baseline.yaml ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/ai/navbake3d ./pkg/physics
       - name: Check the self-hosted leaderboard's 50 ms query budget on a million entries
         run: go test -run='^$' -bench='Top|Around|Friends' -benchtime=50x ./pkg/online/leaderboard/selfhost
 
