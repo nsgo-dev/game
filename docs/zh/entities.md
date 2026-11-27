@@ -128,6 +128,34 @@ _ = wt
 - 销毁父节点时按层级的 `RemovePolicy`（`SetRemovePolicy`）处理子节点：`RemoveDetach`（默认）分离子节点并保留其局部变换，`RemoveDetachKeepWorld` 分离子节点并保留其世界变换，`RemoveCascade` 销毁整棵子树。`DestroyWithPolicy(e, policy)` 可为单次调用指定策略。
 - 快照只包含已注册的组件：调用 `RegisterCodec[entities.Transform2D](w, "transform2d")` 才会保存局部变换。`WorldTransform2D` 是派生数据，无需编解码器，层级会根据恢复后的局部变换重新建立。
 
+## 从 YAML 场景生成实体
+
+`game/sceneformat` 可将自包含的 YAML 场景直接生成到 `*World` 中：`SpawnEntities` 仅附加局部变换与 `ObjectRef`，而 `SpawnEntitiesWith` 还会通过 `ComponentRegistry` 中声明的 `ComponentType.Spawn` 附加强类型 ECS 组件：
+
+```go
+type Health struct{ HP, Max int }
+
+reg := sceneformat.NewComponentRegistry()
+reg.MustRegister(sceneformat.ComponentType{
+	Name: "health",
+	Fields: []sceneformat.Field{
+		{Name: "hp", Kind: sceneformat.FieldInt, Default: 10},
+		{Name: "max", Kind: sceneformat.FieldInt, Default: 10},
+	},
+	Spawn: func(w *entities.World, e entities.Entity, fields map[string]any) error {
+		entities.Set(w, e, Health{HP: fields["hp"].(int), Max: fields["max"].(int)})
+		return nil
+	},
+})
+
+spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})
+```
+
+- **生成前校验与默认值**：当 `SpawnOptions.Components` 非 nil 时，会在生成第一个实体之前校验每个对象上的所有组件并填充注册默认值（`ComponentRegistry.Resolve`）。仅用于校验文件的注册表可将 `ComponentType.Spawn` 留空。
+- **确定性顺序**：实体按深度优先的文档顺序生成（父对象先于子对象，写入 `Transform2D`、`ObjectRef` 并挂入 `Hierarchy2D`），同一对象内的组件按组件名升序执行 `Spawn`。隐藏图层的顶层对象会以隐藏状态生成（整棵子树在世界中不可见），但仍会正常运行 `Spawn`。
+- **出错回滚**：若任一 `ComponentType.Spawn` 返回错误，本次调用期间已创建的实体会按逆序全部销毁（不影响 `w` 中原有实体），并返回包含图层名、对象 ID 与组件名的错误。
+- **连接场景**：`sceneformat.SpawnConnected(doc, world, reg, ctx)` 会将 `reg` 传给 `SpawnEntitiesWith`，因此信号处理函数可以直接通过 `entities.Get` 读取强类型组件。
+
 ## 世界存档与加载
 
 世界可序列化为确定性的 `WorldSnapshot` JSON 结构，并直接与 `game/save` 协同工作。

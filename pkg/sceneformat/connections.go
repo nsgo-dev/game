@@ -215,7 +215,7 @@ func Connect(doc *SceneDoc, reg *ComponentRegistry, ctx any) (*Signals, error) {
 	return s, nil
 }
 
-// SpawnConnected checks doc as Connect does and spawns its objects into w as SpawnEntities does, and returns each object ID's entity and the Signals that runs doc's connections between those entities: EmitEntity and EnqueueEntity address an object by its entity, and every Call carries the entities at both ends. doc must be valid and refer to no other scene file (pass it through Resolve first, or use BuiltScene.Doc). Every check runs before the first entity is spawned, so a scene whose connections name a missing object, event, handler or Func, or whose components break their registered types, spawns nothing.
+// SpawnConnected checks doc as Connect does and spawns its objects into w via SpawnEntitiesWith with reg (so every registered ComponentType.Spawn runs on its entity and rolls back on error), and returns each object ID's entity and the Signals that runs doc's connections between those entities: EmitEntity and EnqueueEntity address an object by its entity, and every Call carries the entities at both ends. doc must be valid and refer to no other scene file (pass it through Resolve first, or use BuiltScene.Doc). Every check runs before the first entity is spawned, so a scene whose connections name a missing object, event, handler or Func, or whose components break their registered types, spawns nothing.
 //
 // Once an entity is destroyed, its object emits nothing: Emit, Enqueue and their entity forms refuse it, Flush drops the events it enqueued before, and the connections to it are skipped, a once connection staying connected.
 func SpawnConnected(doc *SceneDoc, w *entities.World, reg *ComponentRegistry, ctx any) (map[string]entities.Entity, *Signals, error) {
@@ -229,7 +229,7 @@ func SpawnConnected(doc *SceneDoc, w *entities.World, reg *ComponentRegistry, ct
 	if err != nil {
 		return nil, nil, err
 	}
-	spawned, err := SpawnEntities(doc, w)
+	spawned, err := SpawnEntitiesWith(doc, w, SpawnOptions{Components: reg})
 	if err != nil {
 		return nil, nil, err
 	}

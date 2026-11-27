@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/entities"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -101,6 +102,8 @@ type ComponentType struct {
 	Events []Event
 	// Handlers are what an object with this component can do when an event connected to it fires, such as a door's "open", in the order tools list them.
 	Handlers []Handler
+	// Spawn attaches the component's runtime state to e, the entity spawned for an object that sets this component. fields are the object's values with defaults filled in (ComponentRegistry.Resolve). A registry used only to check files may leave it nil.
+	Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error
 }
 
 // Field returns the field named name and whether the type has it.
@@ -183,7 +186,7 @@ func (r *ComponentRegistry) Register(t ComponentType) error {
 	if err != nil {
 		return err
 	}
-	ct := &ComponentType{Name: t.Name, Doc: t.Doc, Fields: fields}
+	ct := &ComponentType{Name: t.Name, Doc: t.Doc, Fields: fields, Spawn: t.Spawn}
 	if ct.Events, err = normalizeEvents(owner, t.Events); err != nil {
 		return err
 	}
@@ -471,7 +474,7 @@ func unknownFieldMsg(t *ComponentType, field string) string {
 }
 
 func cloneComponentType(t *ComponentType) ComponentType {
-	out := ComponentType{Name: t.Name, Doc: t.Doc, Fields: cloneFields(t.Fields), Events: slices.Clone(t.Events)}
+	out := ComponentType{Name: t.Name, Doc: t.Doc, Fields: cloneFields(t.Fields), Events: slices.Clone(t.Events), Spawn: t.Spawn}
 	if t.Handlers != nil {
 		out.Handlers = make([]Handler, len(t.Handlers))
 		for i, h := range t.Handlers {
