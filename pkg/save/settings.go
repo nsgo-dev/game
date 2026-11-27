@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/core"
@@ -28,6 +29,10 @@ const (
 	MinGameSpeed = 0.25
 	// MaxGameSpeed is the fastest allowed AccessibilitySettings.GameSpeed multiplier.
 	MaxGameSpeed = 2.0
+	// MaxMinPressMs is the maximum allowed InputAssistSettings.MinPressMs in milliseconds.
+	MaxMinPressMs = 2000
+	// MaxAcceptDelayMs is the maximum allowed InputAssistSettings.AcceptDelayMs in milliseconds.
+	MaxAcceptDelayMs = 2000
 )
 
 // AudioSettings holds player audio preferences stored independently of save slots.
@@ -276,10 +281,108 @@ func (a AccessibilitySettings) EffectiveCaptionScale(env *core.Env) float64 {
 	return 1.0
 }
 
+// InputAssistSettings holds player-chosen motor accessibility assists persisted alongside Bindings.
+type InputAssistSettings struct {
+	// Toggle lists action names that latch on the first accepted press and release on the next.
+	Toggle []string `json:"toggle,omitempty"`
+	// MashToHold lists action names whose rapid-press mechanics count a single hold as repeated presses.
+	MashToHold []string `json:"mash_to_hold,omitempty"`
+	// MinPressMs is the minimum hold duration in milliseconds before a press counts (slow keys); 0 disables it.
+	MinPressMs int `json:"min_press_ms,omitempty"`
+	// AcceptDelayMs is the post-acceptance cooldown in milliseconds during which further presses of the same action are ignored (bounce keys); 0 disables it.
+	AcceptDelayMs int `json:"accept_delay_ms,omitempty"`
+}
+
+// IsZero reports whether a enables no input motor assists.
+func (a InputAssistSettings) IsZero() bool {
+	return len(a.Toggle) == 0 && len(a.MashToHold) == 0 && a.MinPressMs == 0 && a.AcceptDelayMs == 0
+}
+
+// MinPress returns MinPressMs as a time.Duration (0 when non-positive).
+func (a InputAssistSettings) MinPress() time.Duration {
+	if a.MinPressMs <= 0 {
+		return 0
+	}
+	return time.Duration(a.MinPressMs) * time.Millisecond
+}
+
+// SetMinPress stores d in MinPressMs, clamped to [0, MaxMinPressMs].
+func (a *InputAssistSettings) SetMinPress(d time.Duration) {
+	a.MinPressMs = clampAssistMillis(d, MaxMinPressMs)
+}
+
+// AcceptDelay returns AcceptDelayMs as a time.Duration (0 when non-positive).
+func (a InputAssistSettings) AcceptDelay() time.Duration {
+	if a.AcceptDelayMs <= 0 {
+		return 0
+	}
+	return time.Duration(a.AcceptDelayMs) * time.Millisecond
+}
+
+// SetAcceptDelay stores d in AcceptDelayMs, clamped to [0, MaxAcceptDelayMs].
+func (a *InputAssistSettings) SetAcceptDelay(d time.Duration) {
+	a.AcceptDelayMs = clampAssistMillis(d, MaxAcceptDelayMs)
+}
+
+// Validate normalizes action name lists (trimmed, unique, sorted) and clamps millisecond timings in place.
+func (a *InputAssistSettings) Validate() {
+	a.Toggle = normalizeAssistActionNames(a.Toggle)
+	a.MashToHold = normalizeAssistActionNames(a.MashToHold)
+	if a.MinPressMs < 0 {
+		a.MinPressMs = 0
+	} else if a.MinPressMs > MaxMinPressMs {
+		a.MinPressMs = MaxMinPressMs
+	}
+	if a.AcceptDelayMs < 0 {
+		a.AcceptDelayMs = 0
+	} else if a.AcceptDelayMs > MaxAcceptDelayMs {
+		a.AcceptDelayMs = MaxAcceptDelayMs
+	}
+}
+
+func clampAssistMillis(d time.Duration, maxMs int) int {
+	if d <= 0 {
+		return 0
+	}
+	ms := int(math.Round(float64(d) / float64(time.Millisecond)))
+	if ms < 0 {
+		return 0
+	}
+	if ms > maxMs {
+		return maxMs
+	}
+	return ms
+}
+
+func normalizeAssistActionNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(names))
+	out := make([]string, 0, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Settings holds typed, versioned player preferences kept completely separate from save slots.
 type Settings struct {
 	Audio         AudioSettings              `json:"audio"`
 	Bindings      map[string][]string        `json:"bindings,omitempty"`
+	InputAssists  InputAssistSettings        `json:"input_assists,omitzero"`
 	Display       DisplaySettings            `json:"display"`
 	Locale        string                     `json:"locale,omitempty"`
 	Accessibility AccessibilitySettings      `json:"accessibility"`
@@ -360,6 +463,7 @@ func (s *Settings) Validate() {
 	}
 
 	s.Accessibility.Validate()
+	s.InputAssists.Validate()
 }
 
 // qualityAuto is quality.SettingAuto. save is stable and quality is experimental, so save keeps its own copy of the setting's names rather than importing quality; quality's tests check that the two agree.
@@ -431,6 +535,12 @@ func cloneSettings(s Settings) Settings {
 		for action, inputs := range s.Bindings {
 			out.Bindings[action] = slices.Clone(inputs)
 		}
+	}
+	if s.InputAssists.Toggle != nil {
+		out.InputAssists.Toggle = slices.Clone(s.InputAssists.Toggle)
+	}
+	if s.InputAssists.MashToHold != nil {
+		out.InputAssists.MashToHold = slices.Clone(s.InputAssists.MashToHold)
 	}
 	if s.Custom != nil {
 		out.Custom = make(map[string]json.RawMessage, len(s.Custom))
@@ -892,6 +1002,9 @@ type SettingsTargets struct {
 	// ApplyBindings receives a cloned map of action bindings.
 	ApplyBindings func(map[string][]string) error
 
+	// ApplyInputAssists receives the validated InputAssistSettings.
+	ApplyInputAssists func(InputAssistSettings) error
+
 	// ApplyDisplay receives the validated DisplaySettings.
 	ApplyDisplay func(DisplaySettings) error
 
@@ -953,6 +1066,11 @@ func Apply(s Settings, targets SettingsTargets) error {
 	if targets.ApplyBindings != nil {
 		if err := targets.ApplyBindings(s.Bindings); err != nil {
 			errs = append(errs, fmt.Errorf("save: apply bindings: %w", err))
+		}
+	}
+	if targets.ApplyInputAssists != nil {
+		if err := targets.ApplyInputAssists(s.InputAssists); err != nil {
+			errs = append(errs, fmt.Errorf("save: apply input assists: %w", err))
 		}
 	}
 	if targets.ApplyDisplay != nil {

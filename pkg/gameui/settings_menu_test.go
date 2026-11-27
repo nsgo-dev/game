@@ -1068,3 +1068,100 @@ func TestSettingsMenuAudioMonoAndBalanceControls(t *testing.T) {
 		t.Fatalf("after Reset: mono=%v bal=%v mixer=(%v, %v)", menu.Settings().Audio.Mono, menu.Settings().Audio.Balance, mixer.Mono(), mixer.Balance())
 	}
 }
+
+func TestSettingsMenuControlsTabMotorAssists(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	var appliedAssists save.InputAssistSettings
+	menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+		Store: store,
+		Actions: []gameui.SettingsAction{
+			{Name: "left", Label: "Move Left", Defaults: []string{"key:a"}},
+			{Name: "right", Label: "Move Right", Defaults: []string{"key:d"}},
+			{Name: "sprint", Label: "Sprint", Defaults: []string{"key:shift"}, AllowToggle: true},
+			{Name: "struggle", Label: "Struggle", Defaults: []string{"key:e"}, AllowToggle: true, AllowMash: true},
+			{Name: "pause", Label: "Pause", Defaults: []string{"key:escape"}},
+		},
+		Targets: save.SettingsTargets{
+			ApplyInputAssists: func(ia save.InputAssistSettings) error {
+				appliedAssists = ia
+				return nil
+			},
+		},
+	})
+	bounds := core.Bounds{Size: core.Size{Width: 960, Height: 540}}
+	menu.SetTab(gameui.SettingsTabControls)
+	menu.Layout(bounds)
+
+	// Controls layout: 5 action buttons + 2 toggle switches (sprint, struggle) + 1 mash switch (struggle) + MinPress + AcceptDelay + ResetControls = 11 controls.
+	controls := menu.TabControls(gameui.SettingsTabControls)
+	if len(controls) != 11 {
+		t.Fatalf("Controls tab control count = %d, want 11", len(controls))
+	}
+	// Verify zero overlap and full containment in 960x540 viewport.
+	for i, w := range controls {
+		b := w.Bounds()
+		if b.Size.Width <= 0 || b.Size.Height <= 0 || !boundsInside(b, bounds) {
+			t.Fatalf("control %d out of bounds: %+v", i, b)
+		}
+		for j := i + 1; j < len(controls); j++ {
+			if boundsOverlap(b, controls[j].Bounds()) {
+				t.Fatalf("controls %d and %d overlap: %+v vs %+v", i, j, b, controls[j].Bounds())
+			}
+		}
+	}
+
+	// Toggle Sprint Hold-to-Toggle ([5]), Struggle Hold-to-Mash ([7]), set MinPress=150ms ([8]), AcceptDelay=500ms ([9]).
+	menu.Navigator().SetFocus(controls[5]) // Sprint: Hold to Toggle
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	menu.Navigator().SetFocus(controls[7]) // Struggle: Hold to Mash
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	menu.Navigator().SetFocus(controls[8]) // Min Press Time: 3 steps * 50ms = 150ms
+	for range 3 {
+		pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	}
+	menu.Navigator().SetFocus(controls[9]) // Accept Delay: 10 steps * 50ms = 500ms
+	for range 10 {
+		pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	}
+
+	if err := menu.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+	if !slices.Equal(reloaded.InputAssists.Toggle, []string{"sprint"}) {
+		t.Fatalf("reloaded Toggle = %v, want [sprint]", reloaded.InputAssists.Toggle)
+	}
+	if !slices.Equal(reloaded.InputAssists.MashToHold, []string{"struggle"}) {
+		t.Fatalf("reloaded MashToHold = %v, want [struggle]", reloaded.InputAssists.MashToHold)
+	}
+	if reloaded.InputAssists.MinPressMs != 150 || reloaded.InputAssists.AcceptDelayMs != 500 {
+		t.Fatalf("reloaded timings = (%d, %d), want (150, 500)", reloaded.InputAssists.MinPressMs, reloaded.InputAssists.AcceptDelayMs)
+	}
+	if !slices.Equal(appliedAssists.Toggle, []string{"sprint"}) || appliedAssists.AcceptDelayMs != 500 {
+		t.Fatalf("ApplyInputAssists = %+v", appliedAssists)
+	}
+
+	// ApplyInputAssistsToActions transfers settings + HoldToToggle onto live Actions.
+	actions := input.NewActions()
+	actions.SetActionAssist("sprint", input.ActionAssist{Toggle: true})
+	actions.SetActionAssist("struggle", input.ActionAssist{Toggle: true, Mash: true})
+	actions.SetActionAssist("pause", input.ActionAssist{})
+	reloaded.Accessibility.HoldToToggle = true
+	gameui.ApplyInputAssistsToActions(actions, reloaded)
+	got := actions.Assists()
+	if !slices.Equal(got.Toggle, []string{"sprint", "struggle"}) || !slices.Equal(got.MashToHold, []string{"struggle"}) ||
+		got.MinPress != 150*time.Millisecond || got.AcceptDelay != 500*time.Millisecond {
+		t.Fatalf("ApplyInputAssistsToActions = %+v", got)
+	}
+
+	// ResetControls clears per-action and timing motor assists back to defaults.
+	menu.ResetControls()
+	if !menu.Settings().InputAssists.IsZero() {
+		t.Fatalf("ResetControls did not clear InputAssists: %+v", menu.Settings().InputAssists)
+	}
+}

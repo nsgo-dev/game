@@ -133,6 +133,54 @@ func (p *Player) HasDevice() bool {
 	return p.hasGamepad || p.usesKeyboard || p.usesPointer
 }
 
+// SetAssists sets the player-chosen motor assists applied to p's Actions during Step.
+func (p *Player) SetAssists(assists Assists) {
+	if p == nil {
+		return
+	}
+	p.actions.SetAssists(assists)
+}
+
+// Assists returns a copy of p's active motor assists.
+func (p *Player) Assists() Assists {
+	if p == nil {
+		return Assists{}
+	}
+	return p.actions.Assists()
+}
+
+// SetActionAssist declares which motor assists action name opts into for p.
+func (p *Player) SetActionAssist(name string, spec ActionAssist) {
+	if p == nil {
+		return
+	}
+	p.actions.SetActionAssist(name, spec)
+}
+
+// ActionAssist returns the declared ActionAssist specification for name on p.
+func (p *Player) ActionAssist(name string) ActionAssist {
+	if p == nil {
+		return ActionAssist{}
+	}
+	return p.actions.ActionAssist(name)
+}
+
+// ToggleActive reports whether action name is currently latched on by a Toggle assist for p.
+func (p *Player) ToggleActive(name string) bool {
+	if p == nil {
+		return false
+	}
+	return p.actions.ToggleActive(name)
+}
+
+// ReleaseToggles releases all latched toggles and active mash holds on p.
+func (p *Player) ReleaseToggles() {
+	if p == nil {
+		return
+	}
+	p.actions.ReleaseToggles()
+}
+
 // Players coordinates local multiplayer input across several player slots, routing each connected game controller to at most one player and sharing keyboard or pointer events among the players assigned to them, sampled once per fixed game.Loop step.
 //
 // Each player owns its own Actions (accessed via Player.Actions), so several players can share the same gamepad bindings on separate controllers, use disjoint key sets on one keyboard, or combine keyboard, pointer, and game controllers.
@@ -157,6 +205,8 @@ type Players struct {
 	stopKeys     func()
 	watchedKeys  []string
 	watchedCodes []string
+
+	stepRate int
 }
 
 // NewPlayers returns a Players group with count player slots (0 to count-1), each with an empty Actions and no assigned devices. A non-positive count returns an empty Players.
@@ -177,10 +227,14 @@ func NewPlayers(count int) *Players {
 
 // Add appends a new player slot with an empty Actions and no assigned devices, and returns it.
 func (m *Players) Add() *Player {
+	a := NewActions()
+	if m.stepRate > 0 {
+		a.SetStepRate(m.stepRate)
+	}
 	p := &Player{
 		players: m,
 		index:   len(m.players),
-		actions: NewActions(),
+		actions: a,
 	}
 	m.players = append(m.players, p)
 	return p
@@ -503,6 +557,41 @@ func (m *Players) Reset() {
 		p.actions.Reset()
 	}
 	m.gpPads = m.gpPads[:0]
+}
+
+// SetStepRate sets the fixed step rate in steps per second on every player's Actions
+// (and any players added later) for timed motor assists.
+func (m *Players) SetStepRate(rate int) {
+	if rate <= 0 {
+		m.stepRate = 0
+	} else {
+		m.stepRate = rate
+	}
+	for _, p := range m.players {
+		p.actions.SetStepRate(rate)
+	}
+}
+
+// StepRate returns the fixed step rate in steps per second configured on m (DefaultStepRate when unset).
+func (m *Players) StepRate() int {
+	if m == nil || m.stepRate <= 0 {
+		return DefaultStepRate
+	}
+	return m.stepRate
+}
+
+// ReleaseToggles releases all latched toggles and active mash holds on every player's Actions.
+func (m *Players) ReleaseToggles() {
+	for _, p := range m.players {
+		p.actions.ReleaseToggles()
+	}
+}
+
+// SetPaused forwards pause state to every player's Actions, releasing latched toggles when paused. Suitable for loop.OnPause.
+func (m *Players) SetPaused(paused bool) {
+	for _, p := range m.players {
+		p.actions.SetPaused(paused)
+	}
 }
 
 // Attach wires m's touch, press, mouse, context-menu, pointer-lock motion, and key handlers onto v, chaining any callbacks already set on v. Keyboard events are forwarded to players with AssignKeyboard; pointer and touch events are forwarded to players with AssignPointer.

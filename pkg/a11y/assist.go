@@ -2,10 +2,12 @@ package a11y
 
 import (
 	"math"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -65,13 +67,16 @@ type Assist struct {
 	hasStorage bool
 	storageKey string
 
-	mu      sync.RWMutex
-	version uint64
-	loaded  bool
-	cached  save.AccessibilitySettings
-	lastRaw string
-	hasLive bool
-	live    save.AccessibilitySettings
+	mu           sync.RWMutex
+	version      uint64
+	loaded       bool
+	cached       save.AccessibilitySettings
+	cachedInput  save.InputAssistSettings
+	lastRaw      string
+	hasLive      bool
+	live         save.AccessibilitySettings
+	hasLiveInput bool
+	liveInput    save.InputAssistSettings
 }
 
 // NewAssistFromSettings returns an Assist controller backed by store so
@@ -137,6 +142,7 @@ func newAssist(cx *core.Scope, store *save.DefaultSettingsStore, storage core.St
 		unsub := store.Subscribe(func() {
 			a.mu.Lock()
 			a.hasLive = false
+			a.hasLiveInput = false
 			a.loaded = false
 			a.lastRaw = ""
 			a.mu.Unlock()
@@ -281,15 +287,18 @@ func (a *Assist) load() save.AccessibilitySettings {
 	a.mu.RUnlock()
 
 	acc := save.DefaultSettings().Accessibility
+	var inp save.InputAssistSettings
 	if a.store != nil {
 		if s, err := a.store.Load(); err == nil {
 			acc = s.Accessibility
+			inp = cloneInputAssistSettings(s.InputAssists)
 		}
 	}
 
 	a.mu.Lock()
 	if !a.hasLive {
 		a.cached = acc
+		a.cachedInput = inp
 		a.loaded = true
 		if watchStorage {
 			a.lastRaw = curRaw
@@ -297,6 +306,63 @@ func (a *Assist) load() save.AccessibilitySettings {
 	}
 	a.mu.Unlock()
 	return acc
+}
+
+func cloneInputAssistSettings(in save.InputAssistSettings) save.InputAssistSettings {
+	return save.InputAssistSettings{
+		Toggle:        slices.Clone(in.Toggle),
+		MashToHold:    slices.Clone(in.MashToHold),
+		MinPressMs:    in.MinPressMs,
+		AcceptDelayMs: in.AcceptDelayMs,
+	}
+}
+
+func (a *Assist) loadInputAssists() save.InputAssistSettings {
+	if a.rev != nil {
+		_ = a.rev.Get()
+	}
+
+	var curRaw string
+	watchStorage := a.hasStorage && a.storageKey != ""
+	if watchStorage {
+		curRaw, _ = a.storage.GetItem(a.storageKey)
+	}
+
+	a.mu.RLock()
+	if a.hasLiveInput {
+		v := cloneInputAssistSettings(a.liveInput)
+		a.mu.RUnlock()
+		return v
+	}
+	if a.loaded && (!watchStorage || curRaw == a.lastRaw) {
+		v := cloneInputAssistSettings(a.cachedInput)
+		a.mu.RUnlock()
+		return v
+	}
+	a.mu.RUnlock()
+
+	acc := save.DefaultSettings().Accessibility
+	var inp save.InputAssistSettings
+	if a.store != nil {
+		if s, err := a.store.Load(); err == nil {
+			acc = s.Accessibility
+			inp = cloneInputAssistSettings(s.InputAssists)
+		}
+	}
+
+	a.mu.Lock()
+	if !a.hasLiveInput {
+		if !a.hasLive {
+			a.cached = acc
+		}
+		a.cachedInput = cloneInputAssistSettings(inp)
+		a.loaded = true
+		if watchStorage {
+			a.lastRaw = curRaw
+		}
+	}
+	a.mu.Unlock()
+	return inp
 }
 
 func (a *Assist) update(fn func(*save.AccessibilitySettings)) error {
@@ -354,11 +420,107 @@ func (a *Assist) ApplySettings(s save.AccessibilitySettings) error {
 	return nil
 }
 
+// ApplyInputAssists applies a live InputAssistSettings snapshot immediately without
+// writing to disk, notifying reactive consumers. It matches
+// save.SettingsTargets.ApplyInputAssists so SettingsMenu.Apply previews motor
+// assist changes before Save.
+func (a *Assist) ApplyInputAssists(s save.InputAssistSettings) error {
+	cp := cloneInputAssistSettings(s)
+	cp.Validate()
+	a.mu.Lock()
+	a.liveInput = cp
+	a.hasLiveInput = true
+	a.mu.Unlock()
+	a.bump()
+	return nil
+}
+
+// InputAssists returns the persisted per-action and timing motor assists
+// (Toggle, MashToHold, MinPress, AcceptDelay) stored in save.Settings.InputAssists.
+func (a *Assist) InputAssists() input.Assists {
+	s := a.loadInputAssists()
+	return input.Assists{
+		Toggle:      slices.Clone(s.Toggle),
+		MashToHold:  slices.Clone(s.MashToHold),
+		MinPress:    s.MinPress(),
+		AcceptDelay: s.AcceptDelay(),
+	}
+}
+
+// SetInputAssists validates and persists motor assists into save.Settings.InputAssists.
+func (a *Assist) SetInputAssists(assists input.Assists) error {
+	var next save.InputAssistSettings
+	next.Toggle = slices.Clone(assists.Toggle)
+	next.MashToHold = slices.Clone(assists.MashToHold)
+	next.SetMinPress(assists.MinPress)
+	next.SetAcceptDelay(assists.AcceptDelay)
+	next.Validate()
+
+	if a.store == nil {
+		a.mu.Lock()
+		a.liveInput = next
+		a.hasLiveInput = true
+		a.mu.Unlock()
+		a.bump()
+		return nil
+	}
+
+	s, err := a.store.Load()
+	if err != nil {
+		s = save.DefaultSettings()
+	}
+	a.mu.RLock()
+	if a.hasLive {
+		s.Accessibility = a.live
+	}
+	a.mu.RUnlock()
+	s.InputAssists = next
+	s.Validate()
+
+	a.mu.Lock()
+	a.hasLiveInput = false
+	a.mu.Unlock()
+	return a.store.Save(s)
+}
+
+// ApplyToActions applies the player's motor assists to actions. When HoldToToggle
+// is enabled, every action declared toggleable on actions (actions.ToggleableActions(),
+// such as game.yaml actions with assist: {toggle: true}) is merged into Assists.Toggle,
+// while undeclared actions (such as menu controls) are never latched.
+//
+// Calling ApplyToActions inside a cx.Effect keeps actions synchronized automatically
+// whenever settings are saved or previewed.
+func (a *Assist) ApplyToActions(actions *input.Actions) {
+	if a == nil || actions == nil {
+		return
+	}
+	assists := a.InputAssists()
+	if a.HoldToToggle() {
+		for _, name := range actions.ToggleableActions() {
+			if !slices.Contains(assists.Toggle, name) {
+				assists.Toggle = append(assists.Toggle, name)
+			}
+		}
+	}
+	actions.SetAssists(assists)
+}
+
+// ApplyToPlayers applies the player's motor assists to every player's Actions in players.
+func (a *Assist) ApplyToPlayers(players *input.Players) {
+	if a == nil || players == nil {
+		return
+	}
+	for _, p := range players.All() {
+		a.ApplyToActions(p.Actions())
+	}
+}
+
 // Reload discards any cached or previewed state and re-reads from the backing store,
 // notifying reactive subscribers.
 func (a *Assist) Reload() {
 	a.mu.Lock()
 	a.hasLive = false
+	a.hasLiveInput = false
 	a.loaded = false
 	a.lastRaw = ""
 	a.mu.Unlock()
@@ -595,6 +757,7 @@ func (a *Assist) Apply(opts AssistOptions) error {
 func (a *Assist) Reset() {
 	a.mu.Lock()
 	a.hasLive = false
+	a.hasLiveInput = false
 	a.loaded = false
 	a.lastRaw = ""
 	a.mu.Unlock()
@@ -605,6 +768,7 @@ func (a *Assist) Reset() {
 			s = save.DefaultSettings()
 		}
 		s.Accessibility = save.DefaultSettings().Accessibility
+		s.InputAssists = save.InputAssistSettings{}
 		_ = a.store.Save(s)
 		return
 	}

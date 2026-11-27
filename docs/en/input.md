@@ -359,7 +359,40 @@ loop := &game.Loop{
 
 - **Tap latching**: a brief tap that both starts and ends between two fixed steps is latched so `Pressed` and `JustPressed` still register for one step, followed by `JustReleased` on the next step.
 - **`Axis(name)`**: returns `-1` when only the negative action is pressed, `+1` when only the positive action is pressed, and `0` when neither or both are pressed. For an unbound axis name, it falls back to `1` if an action of that name is pressed, else `0`.
-- **`Reset()`**: clears active touches, held buttons, held keys, the last controller state read, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. A controller button held across `Reset` stays inactive until it is released, as a held mouse button does. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+- **`Reset()`**: clears active touches, held buttons, held keys, the last controller state read, pending latches, relative mouse motion, latched motor-assist toggles and the current snapshot, while keeping all bindings, assist configuration and any pointer lock, so mouselook survives a scene change. A controller button held across `Reset` stays inactive until it is released, as a held mouse button does. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+
+## Player motor assists
+
+Configure player-chosen motor accessibility assists on `Actions` (or per `Player` in local multiplayer) with `SetAssists`:
+
+```go
+// Declare which actions may be toggled or mashed (or declare assist: in game.yaml).
+actions.SetActionAssist("sprint", input.ActionAssist{Toggle: true})
+actions.SetActionAssist("struggle", input.ActionAssist{Toggle: true, Mash: true, MashRate: 12})
+actions.SetActionAssist("pause", input.ActionAssist{}) // menu action is never latched
+
+actions.SetStepRate(loop.StepRate())
+actions.SetAssists(input.Assists{
+	Toggle:      []string{"sprint"},
+	MashToHold:  []string{"struggle"},
+	MinPress:    100 * time.Millisecond,
+	AcceptDelay: 500 * time.Millisecond,
+})
+
+// Release latched toggles when the game pauses.
+loop.OnPause = actions.SetPaused
+```
+
+| `Assists` field | Behavior |
+| --- | --- |
+| `Toggle` | Actions that latch pressed on the first accepted press and release on the next accepted press (hold-to-toggle). |
+| `MashToHold` | Rapid-press actions that emit repeated 1-step presses at the action's declared `MashRate` (`DefaultMashRate`, 10 presses/sec when unset) while held, or continuously after a single press when also listed in `Toggle`. |
+| `MinPress` | Minimum continuous hold duration before a press counts (slow keys); brief accidental taps shorter than `MinPress` are ignored. |
+| `AcceptDelay` | Cooldown after an accepted press of an action during which further presses of that action are ignored (bounce keys), without interrupting an ongoing hold. |
+
+- **Allowlist via `ActionAssist` and `game.yaml`**: Actions declare `assist: {toggle: true, mash: true, mashRate: 12}` in `game.yaml` (applied by `project.File.BindInput`) or via `SetActionAssist`. Once any action declares assist metadata, `Toggle` and `MashToHold` apply only to actions that opt in, so menu or pause actions are never latched. Inspect declared actions with `ToggleableActions()` and `MashableActions()`.
+- **Fixed-step evaluation and replays**: All four assists run inside `Step()` using the fixed step rate (`SetStepRate`, defaulting to `DefaultStepRate`, 60 Hz). Synthetic `MashToHold` pulses always alternate through a released step between presses so `JustPressed` fires on every pulse and `replay.Recorder` / `replay.Player` reproduce identical snapshots.
+- **Pause, reset, and persistence**: Wire `loop.OnPause = actions.SetPaused` (or `players.SetPaused`) or call `ReleaseToggles()` to release latched toggles on pause; `Reset()` clears all latched toggles and assist timers on focus loss or scene change. `ToggleActive(name)` reports whether an action is currently latched on. `Actions.Save` and `Actions.Load` persist `Assists` alongside bindings, and `save.Settings.InputAssists` persists them with player settings (see [a11y](a11y.md#player-motor-assists)).
 
 ### Waking an idle `OnDemand` loop
 

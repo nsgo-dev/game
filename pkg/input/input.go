@@ -140,6 +140,14 @@ type Actions struct {
 	injectedHeld     map[string]bool
 	injectedAxes     map[string]float64
 	injectedAxisSnap map[string]float64
+
+	// Motor accessibility assists evaluated inside Step.
+	stepRate      int
+	actionAssists map[string]ActionAssist
+	assists       Assists
+	toggleSet     map[string]bool
+	mashSet       map[string]bool
+	assistState   map[string]actionAssistState
 }
 
 // NewActions returns an Actions with no bindings.
@@ -417,56 +425,61 @@ func (a *Actions) Step() {
 	clear(a.stepLatched)
 	clear(a.padAxes)
 	clear(a.injectedAxisSnap)
-	if (len(a.bindings) > 0 || len(a.latched) > 0 || len(a.pads) > 0 || len(a.injectedHeld) > 0) && a.curr == nil {
-		a.curr = make(map[string]bool, len(a.bindings)+len(a.latched)+len(a.injectedHeld))
-	}
-	for name := range a.bindings {
-		now := a.activeNow(name)
-		if a.rawActive != nil {
-			a.rawActive[name] = now
+
+	if a.hasAssists() || len(a.assistState) > 0 {
+		a.stepWithAssists()
+	} else {
+		if (len(a.bindings) > 0 || len(a.latched) > 0 || len(a.pads) > 0 || len(a.injectedHeld) > 0) && a.curr == nil {
+			a.curr = make(map[string]bool, len(a.bindings)+len(a.latched)+len(a.injectedHeld))
 		}
-		if now || a.latched[name] {
-			a.curr[name] = true
-		}
-	}
-	for _, pad := range a.pads {
-		pad.eachAction(func(name string) {
-			if name == "" {
-				return
-			}
-			if _, bound := a.bindings[name]; bound {
-				return
-			}
-			now := a.padPressed(name)
+		for name := range a.bindings {
+			now := a.activeNow(name)
 			if a.rawActive != nil {
 				a.rawActive[name] = now
 			}
 			if now || a.latched[name] {
 				a.curr[name] = true
 			}
-		})
-		pad.eachAxis(a.recordPadAxis)
-	}
-	// The step has sampled every tap, so a ButtonTap button is pressed for this step alone.
-	for _, pad := range a.pads {
-		pad.endStep()
-	}
-	for name, held := range a.injectedHeld {
-		if held {
-			a.curr[name] = true
 		}
-	}
-	if len(a.latched) > 0 {
-		if a.stepLatched == nil {
-			a.stepLatched = make(map[string]bool, len(a.latched))
+		for _, pad := range a.pads {
+			pad.eachAction(func(name string) {
+				if name == "" {
+					return
+				}
+				if _, bound := a.bindings[name]; bound {
+					return
+				}
+				now := a.padPressed(name)
+				if a.rawActive != nil {
+					a.rawActive[name] = now
+				}
+				if now || a.latched[name] {
+					a.curr[name] = true
+				}
+			})
+			pad.eachAxis(a.recordPadAxis)
 		}
-		for name, ok := range a.latched {
-			if ok {
+		// The step has sampled every tap, so a ButtonTap button is pressed for this step alone.
+		for _, pad := range a.pads {
+			pad.endStep()
+		}
+		for name, held := range a.injectedHeld {
+			if held {
 				a.curr[name] = true
-				a.stepLatched[name] = true
 			}
 		}
-		clear(a.latched)
+		if len(a.latched) > 0 {
+			if a.stepLatched == nil {
+				a.stepLatched = make(map[string]bool, len(a.latched))
+			}
+			for name, ok := range a.latched {
+				if ok {
+					a.curr[name] = true
+					a.stepLatched[name] = true
+				}
+			}
+			clear(a.latched)
+		}
 	}
 	if len(a.injectedAxes) > 0 {
 		if a.injectedAxisSnap == nil {
@@ -479,6 +492,81 @@ func (a *Actions) Step() {
 	a.stepMotion()
 	a.stepPointer()
 	a.stepGamepadAxes()
+}
+
+func (a *Actions) stepWithAssists() {
+	rate := a.StepRate()
+	minPressSteps := durationToSteps(a.assists.MinPress, rate)
+	acceptDelaySteps := durationToSteps(a.assists.AcceptDelay, rate)
+
+	// Collect every action that has a binding, virtual pad button, injected hold,
+	// pending latch, or live assist state.
+	rawHeld := make(map[string]bool, len(a.bindings)+len(a.injectedHeld)+len(a.latched)+len(a.assistState))
+	for name := range a.bindings {
+		now := a.activeNow(name)
+		if a.rawActive != nil {
+			a.rawActive[name] = now
+		}
+		rawHeld[name] = now
+	}
+	for _, pad := range a.pads {
+		pad.eachAction(func(name string) {
+			if name == "" {
+				return
+			}
+			if _, bound := a.bindings[name]; !bound {
+				now := a.padPressed(name)
+				if a.rawActive != nil {
+					a.rawActive[name] = now
+				}
+				if now {
+					rawHeld[name] = true
+				} else if _, exists := rawHeld[name]; !exists {
+					rawHeld[name] = false
+				}
+			}
+		})
+		pad.eachAxis(a.recordPadAxis)
+	}
+	for _, pad := range a.pads {
+		pad.endStep()
+	}
+	for name, held := range a.injectedHeld {
+		if held {
+			rawHeld[name] = true
+		} else if _, exists := rawHeld[name]; !exists {
+			rawHeld[name] = false
+		}
+	}
+	for name, ok := range a.latched {
+		if ok {
+			if _, exists := rawHeld[name]; !exists {
+				rawHeld[name] = false
+			}
+		}
+	}
+	for name := range a.assistState {
+		if _, exists := rawHeld[name]; !exists {
+			rawHeld[name] = false
+		}
+	}
+
+	if len(rawHeld) > 0 && a.curr == nil {
+		a.curr = make(map[string]bool, len(rawHeld))
+	}
+	for name, held := range rawHeld {
+		outPressed, outRising := a.evaluateAssistAction(name, held, a.latched[name], minPressSteps, acceptDelaySteps, rate)
+		if outPressed {
+			a.curr[name] = true
+		}
+		if outRising && outPressed {
+			if a.stepLatched == nil {
+				a.stepLatched = make(map[string]bool)
+			}
+			a.stepLatched[name] = true
+		}
+	}
+	clear(a.latched)
 }
 
 func (a *Actions) recordPadAxis(name string, v float64) {
@@ -515,6 +603,7 @@ func (a *Actions) Reset() {
 	clear(a.injectedHeld)
 	clear(a.injectedAxes)
 	clear(a.injectedAxisSnap)
+	clear(a.assistState)
 	for _, pad := range a.pads {
 		pad.Reset()
 	}

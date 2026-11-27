@@ -96,6 +96,10 @@ type SettingsAction struct {
 	Label string
 	// Defaults lists default binding tokens (for example "key:space", "gamepad:south") restored on Reset.
 	Defaults []string
+	// AllowToggle reports whether the Controls tab offers a per-action Hold to Toggle assist switch for this action.
+	AllowToggle bool
+	// AllowMash reports whether the Controls tab offers a per-action Hold to Mash assist switch for this action.
+	AllowMash bool
 }
 
 // SettingsLocale describes a selectable language entry in the Language tab.
@@ -142,6 +146,11 @@ type SettingsText struct {
 	CapturePrompt string
 	Unbound       string
 	ResetControls string
+	ActionToggle  string
+	ActionMash    string
+	MinPressTime  string
+	AcceptDelay   string
+	AssistOff     string
 
 	LanguageHint  string
 	SystemDefault string
@@ -205,6 +214,11 @@ func DefaultSettingsText() SettingsText {
 		CapturePrompt: "Press key or button...",
 		Unbound:       "Unbound",
 		ResetControls: "Reset Controls to Defaults",
+		ActionToggle:  "Hold to Toggle",
+		ActionMash:    "Hold to Mash",
+		MinPressTime:  "Min Press Time",
+		AcceptDelay:   "Accept Delay",
+		AssistOff:     "Off",
 
 		LanguageHint:  "Choose display language",
 		SystemDefault: "System Default",
@@ -269,6 +283,11 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.CapturePrompt, def.CapturePrompt)
 	fill(&in.Unbound, def.Unbound)
 	fill(&in.ResetControls, def.ResetControls)
+	fill(&in.ActionToggle, def.ActionToggle)
+	fill(&in.ActionMash, def.ActionMash)
+	fill(&in.MinPressTime, def.MinPressTime)
+	fill(&in.AcceptDelay, def.AcceptDelay)
+	fill(&in.AssistOff, def.AssistOff)
 	fill(&in.LanguageHint, def.LanguageHint)
 	fill(&in.SystemDefault, def.SystemDefault)
 	fill(&in.Subtitles, def.Subtitles)
@@ -559,10 +578,14 @@ type SettingsMenu struct {
 	frameCapBtn     *Button
 
 	// Controls widgets
-	controlsHintLabel *Label
-	actionButtons     []*Button
-	resetControlsBtn  *Button
-	capturingAction   string
+	controlsHintLabel  *Label
+	actionButtons      []*Button
+	actionToggleChecks []actionAssistToggle
+	actionMashChecks   []actionAssistToggle
+	minPressSlider     *Slider
+	acceptDelaySlider  *Slider
+	resetControlsBtn   *Button
+	capturingAction    string
 
 	// Language widgets
 	languageHintLabel *Label
@@ -815,7 +838,13 @@ func defaultSettingsActions(in []SettingsAction, initialBindings, defaultBinding
 			if len(defs) == 0 && len(defaultBindings[name]) > 0 {
 				defs = slices.Clone(defaultBindings[name])
 			}
-			out = append(out, SettingsAction{Name: name, Label: label, Defaults: defs})
+			out = append(out, SettingsAction{
+				Name:        name,
+				Label:       label,
+				Defaults:    defs,
+				AllowToggle: act.AllowToggle,
+				AllowMash:   act.AllowMash,
+			})
 		}
 		if len(out) > 0 {
 			return out
@@ -942,6 +971,12 @@ func cloneSaveSettings(s save.Settings) save.Settings {
 		for k, v := range s.Bindings {
 			out.Bindings[k] = slices.Clone(v)
 		}
+	}
+	if s.InputAssists.Toggle != nil {
+		out.InputAssists.Toggle = slices.Clone(s.InputAssists.Toggle)
+	}
+	if s.InputAssists.MashToHold != nil {
+		out.InputAssists.MashToHold = slices.Clone(s.InputAssists.MashToHold)
 	}
 	if s.Custom != nil {
 		out.Custom = make(map[string]json.RawMessage, len(s.Custom))
@@ -1347,21 +1382,66 @@ func (m *SettingsMenu) buildVideoTab() {
 	m.tabControls[SettingsTabVideo] = controls
 }
 
+type actionAssistToggle struct {
+	action string
+	label  string
+	toggle *Toggle
+}
+
+func toggleStringInSlice(list []string, value string, include bool) []string {
+	idx := slices.Index(list, value)
+	if include {
+		if idx >= 0 {
+			return list
+		}
+		return append(list, value)
+	}
+	if idx < 0 {
+		return list
+	}
+	out := slices.Delete(slices.Clone(list), idx, idx+1)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func (m *SettingsMenu) buildControlsTab() {
+	assistRows := 0
+	for _, act := range m.actions {
+		if act.AllowToggle {
+			assistRows++
+		}
+		if act.AllowMash {
+			assistRows++
+		}
+	}
+	totalRows := len(m.actions) + assistRows + 3 // minPressSlider + acceptDelaySlider + resetControlsBtn
+	var rowH float32 = 26
+	var spacing float32 = 4
+	if totalRows > 12 {
+		rowH = 20
+		spacing = 2
+	} else if totalRows > 10 {
+		rowH = 24
+		spacing = 3
+	}
+
 	m.controlsHintLabel = &Label{
 		Text:      m.text.ControlsHint,
 		Font:      core.Font{Size: 13},
 		TextAlign: core.TextAlignStart,
 		Height:    20,
 	}
-	children := []Widget{m.controlsHintLabel}
-	controls := make([]Widget, 0, len(m.actions)+1)
+	children := make([]Widget, 0, totalRows+1)
+	children = append(children, m.controlsHintLabel)
+	controls := make([]Widget, 0, totalRows)
 	m.actionButtons = make([]*Button, len(m.actions))
 
 	for i, act := range m.actions {
 		actionName := act.Name
 		btn := &Button{
-			Height: 30,
+			Height: rowH,
 			OnClick: func() {
 				if m.capturingAction == actionName {
 					m.CancelCapture()
@@ -1375,16 +1455,95 @@ func (m *SettingsMenu) buildControlsTab() {
 		controls = append(controls, btn)
 	}
 
+	m.actionToggleChecks = nil
+	m.actionMashChecks = nil
+	for _, act := range m.actions {
+		actionName := act.Name
+		actionLabel := act.Label
+		if act.AllowToggle {
+			tog := &Toggle{
+				Style:  ToggleSwitch,
+				Height: rowH,
+				OnChange: func(v bool) {
+					if m.suppressCallbacks {
+						return
+					}
+					m.settings.InputAssists.Toggle = toggleStringInSlice(m.settings.InputAssists.Toggle, actionName, v)
+					m.onSettingMutated()
+				},
+			}
+			m.actionToggleChecks = append(m.actionToggleChecks, actionAssistToggle{
+				action: actionName,
+				label:  actionLabel,
+				toggle: tog,
+			})
+			children = append(children, tog)
+			controls = append(controls, tog)
+		}
+		if act.AllowMash {
+			tog := &Toggle{
+				Style:  ToggleSwitch,
+				Height: rowH,
+				OnChange: func(v bool) {
+					if m.suppressCallbacks {
+						return
+					}
+					m.settings.InputAssists.MashToHold = toggleStringInSlice(m.settings.InputAssists.MashToHold, actionName, v)
+					m.onSettingMutated()
+				},
+			}
+			m.actionMashChecks = append(m.actionMashChecks, actionAssistToggle{
+				action: actionName,
+				label:  actionLabel,
+				toggle: tog,
+			})
+			children = append(children, tog)
+			controls = append(controls, tog)
+		}
+	}
+
+	m.minPressSlider = &Slider{
+		Min:    0,
+		Max:    float32(save.MaxMinPressMs),
+		Step:   50,
+		Height: rowH,
+		OnChange: func(v float32) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.InputAssists.MinPressMs = int(math.Round(float64(v)))
+			m.onSettingMutated()
+		},
+	}
+	children = append(children, m.minPressSlider)
+	controls = append(controls, m.minPressSlider)
+
+	m.acceptDelaySlider = &Slider{
+		Min:    0,
+		Max:    float32(save.MaxAcceptDelayMs),
+		Step:   50,
+		Height: rowH,
+		OnChange: func(v float32) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.InputAssists.AcceptDelayMs = int(math.Round(float64(v)))
+			m.onSettingMutated()
+		},
+	}
+	children = append(children, m.acceptDelaySlider)
+	controls = append(controls, m.acceptDelaySlider)
+
 	m.resetControlsBtn = &Button{
 		Text:    m.text.ResetControls,
-		Height:  30,
+		Height:  rowH,
 		OnClick: func() { m.ResetControls() },
 	}
 	children = append(children, m.resetControlsBtn)
 	controls = append(controls, m.resetControlsBtn)
 
 	m.tabPanels[SettingsTabControls] = &VBox{
-		Spacing:  6,
+		Spacing:  spacing,
 		Align:    AlignStretch,
 		Flex:     1,
 		Hidden:   true,
@@ -1789,6 +1948,30 @@ func (m *SettingsMenu) syncWidgets() {
 			m.actionButtons[i].Text = fmt.Sprintf("%s: %s", act.Label, strings.Join(labels, " / "))
 		}
 	}
+	for _, item := range m.actionToggleChecks {
+		item.toggle.Label = fmt.Sprintf("%s: %s", item.label, m.text.ActionToggle)
+		item.toggle.Checked = slices.Contains(m.settings.InputAssists.Toggle, item.action)
+	}
+	for _, item := range m.actionMashChecks {
+		item.toggle.Label = fmt.Sprintf("%s: %s", item.label, m.text.ActionMash)
+		item.toggle.Checked = slices.Contains(m.settings.InputAssists.MashToHold, item.action)
+	}
+	if m.minPressSlider != nil {
+		if m.settings.InputAssists.MinPressMs <= 0 {
+			m.minPressSlider.Label = fmt.Sprintf("%s: %s", m.text.MinPressTime, m.text.AssistOff)
+		} else {
+			m.minPressSlider.Label = fmt.Sprintf("%s: %d ms", m.text.MinPressTime, m.settings.InputAssists.MinPressMs)
+		}
+		m.minPressSlider.Value = float32(m.settings.InputAssists.MinPressMs)
+	}
+	if m.acceptDelaySlider != nil {
+		if m.settings.InputAssists.AcceptDelayMs <= 0 {
+			m.acceptDelaySlider.Label = fmt.Sprintf("%s: %s", m.text.AcceptDelay, m.text.AssistOff)
+		} else {
+			m.acceptDelaySlider.Label = fmt.Sprintf("%s: %d ms", m.text.AcceptDelay, m.settings.InputAssists.AcceptDelayMs)
+		}
+		m.acceptDelaySlider.Value = float32(m.settings.InputAssists.AcceptDelayMs)
+	}
 	m.resetControlsBtn.Text = m.text.ResetControls
 
 	// Language
@@ -2063,7 +2246,7 @@ func (m *SettingsMenu) CaptureBinding(token string) bool {
 	return true
 }
 
-// ResetControls restores all configured actions' bindings to their default values.
+// ResetControls restores all configured actions' bindings and motor assists to their default values.
 func (m *SettingsMenu) ResetControls() {
 	m.capturingAction = ""
 	if m.settings.Bindings == nil {
@@ -2077,6 +2260,12 @@ func (m *SettingsMenu) ResetControls() {
 		} else {
 			delete(m.settings.Bindings, act.Name)
 		}
+	}
+	m.settings.InputAssists = save.InputAssistSettings{
+		Toggle:        slices.Clone(m.defaults.InputAssists.Toggle),
+		MashToHold:    slices.Clone(m.defaults.InputAssists.MashToHold),
+		MinPressMs:    m.defaults.InputAssists.MinPressMs,
+		AcceptDelayMs: m.defaults.InputAssists.AcceptDelayMs,
 	}
 	m.onSettingMutated()
 	m.statusLabel.Text = m.text.ResetStatus

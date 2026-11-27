@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/sound"
@@ -1394,5 +1395,66 @@ func TestAudioSettingsMonoAndBalancePersistValidateAndApply(t *testing.T) {
 	}
 	if partial.Mono != nil || !near64(partial.Balance, -0.25) {
 		t.Fatalf("partial unmarshal = %+v, want mono=nil balance=-0.25", partial)
+	}
+}
+
+func TestInputAssistSettingsPersistenceValidateAndApply(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	// Default settings omit input_assists from JSON so default JSON stays compact.
+	def := save.DefaultSettings()
+	if !def.InputAssists.IsZero() {
+		t.Fatalf("default InputAssists should be zero: %+v", def.InputAssists)
+	}
+	if err := store.Save(def); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "input_assists") {
+		t.Fatalf("empty InputAssists should be omitted from JSON:\n%s", string(raw))
+	}
+
+	// Normalization, clamping, round-trip persistence, and ApplyInputAssists target.
+	s := save.DefaultSettings()
+	s.InputAssists.Toggle = []string{" sprint ", "aim", "sprint", ""}
+	s.InputAssists.MashToHold = []string{"struggle", " struggle"}
+	s.InputAssists.SetMinPress(150 * time.Millisecond)
+	s.InputAssists.SetAcceptDelay(500 * time.Millisecond)
+	if err := store.Save(s); err != nil {
+		t.Fatal(err)
+	}
+
+	var applied save.InputAssistSettings
+	loaded, err := store.LoadAndApply(save.SettingsTargets{
+		ApplyInputAssists: func(ia save.InputAssistSettings) error {
+			applied = ia
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(loaded.InputAssists.Toggle, []string{"aim", "sprint"}) {
+		t.Fatalf("Toggle = %v, want [aim sprint]", loaded.InputAssists.Toggle)
+	}
+	if !slices.Equal(loaded.InputAssists.MashToHold, []string{"struggle"}) {
+		t.Fatalf("MashToHold = %v, want [struggle]", loaded.InputAssists.MashToHold)
+	}
+	if loaded.InputAssists.MinPress() != 150*time.Millisecond || loaded.InputAssists.AcceptDelay() != 500*time.Millisecond {
+		t.Fatalf("durations = (%v, %v), want (150ms, 500ms)", loaded.InputAssists.MinPress(), loaded.InputAssists.AcceptDelay())
+	}
+	if !slices.Equal(applied.Toggle, loaded.InputAssists.Toggle) || applied.MinPressMs != 150 || applied.AcceptDelayMs != 500 {
+		t.Fatalf("ApplyInputAssists = %+v, want %+v", applied, loaded.InputAssists)
+	}
+
+	// Out-of-range durations clamp to [0, Max*Ms].
+	clamped := save.InputAssistSettings{MinPressMs: -10, AcceptDelayMs: 99999}
+	clamped.Validate()
+	if clamped.MinPressMs != 0 || clamped.AcceptDelayMs != save.MaxAcceptDelayMs {
+		t.Fatalf("clamped = %+v, want (0, %d)", clamped, save.MaxAcceptDelayMs)
 	}
 }

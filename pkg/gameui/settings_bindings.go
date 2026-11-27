@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 )
@@ -300,4 +301,32 @@ func ApplyBindingsToActions(a *input.Actions, bindings map[string][]string, pres
 			a.Unbind(action)
 		}
 	}
+}
+
+// InputAssistsFromSettings converts s.InputAssists (and s.Accessibility.HoldToToggle,
+// expanding toggleable actions when enabled) into an input.Assists value.
+func InputAssistsFromSettings(s save.Settings, toggleable ...string) input.Assists {
+	assists := input.Assists{
+		Toggle:      slices.Clone(s.InputAssists.Toggle),
+		MashToHold:  slices.Clone(s.InputAssists.MashToHold),
+		MinPress:    s.InputAssists.MinPress(),
+		AcceptDelay: s.InputAssists.AcceptDelay(),
+	}
+	if s.Accessibility.HoldToToggle {
+		for _, name := range toggleable {
+			if name != "" && !slices.Contains(assists.Toggle, name) {
+				assists.Toggle = append(assists.Toggle, name)
+			}
+		}
+	}
+	return assists
+}
+
+// ApplyInputAssistsToActions applies s.InputAssists and s.Accessibility.HoldToToggle
+// (expanding a.ToggleableActions() when HoldToToggle is true) onto a.
+func ApplyInputAssistsToActions(a *input.Actions, s save.Settings) {
+	if a == nil {
+		return
+	}
+	a.SetAssists(InputAssistsFromSettings(s, a.ToggleableActions()...))
 }

@@ -3,12 +3,14 @@ package a11y_test
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/a11y"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -750,5 +752,80 @@ func TestAssistFromSettingsReactsToStoreAndPreservesOtherSectionsOnReset(t *test
 	}
 	if afterReset.Locale != "zh-Hans" || math.Abs(afterReset.Audio.Master-0.4) > 1e-6 {
 		t.Fatalf("Assist.Reset clobbered non-a11y settings: locale=%q master=%v", afterReset.Locale, afterReset.Audio.Master)
+	}
+}
+
+func TestAssistInputAssistsAndHoldToToggleExpansion(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	actions := input.NewActions()
+	actions.SetStepRate(60)
+	actions.Bind("sprint", input.Key("shift"))
+	actions.Bind("struggle", input.Key("e"))
+	actions.Bind("pause", input.Key("escape"))
+	actions.SetActionAssist("sprint", input.ActionAssist{Toggle: true})
+	actions.SetActionAssist("struggle", input.ActionAssist{Mash: true, MashRate: 10})
+	actions.SetActionAssist("pause", input.ActionAssist{})
+
+	var assist *a11y.Assist
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		assist = a11y.NewAssistFromSettings(cx, store)
+		cx.Effect(func() {
+			assist.ApplyToActions(actions)
+		})
+		return core.View{}
+	})
+
+	// Persisting InputAssists and HoldToToggle updates actions reactively.
+	app.Post(func() {
+		if err := assist.SetInputAssists(input.Assists{
+			MashToHold:  []string{"struggle"},
+			MinPress:    50 * time.Millisecond,
+			AcceptDelay: 250 * time.Millisecond,
+		}); err != nil {
+			t.Errorf("SetInputAssists: %v", err)
+		}
+		if err := assist.SetHoldToToggle(true); err != nil {
+			t.Errorf("SetHoldToToggle: %v", err)
+		}
+	})
+	app.Settle()
+
+	got := actions.Assists()
+	if !slices.Equal(got.Toggle, []string{"sprint"}) {
+		t.Fatalf("HoldToToggle filled Toggle = %v, want [sprint] (not pause)", got.Toggle)
+	}
+	if !slices.Equal(got.MashToHold, []string{"struggle"}) {
+		t.Fatalf("MashToHold = %v, want [struggle]", got.MashToHold)
+	}
+	if got.MinPress != 50*time.Millisecond || got.AcceptDelay != 250*time.Millisecond {
+		t.Fatalf("timings = (%v, %v), want (50ms, 250ms)", got.MinPress, got.AcceptDelay)
+	}
+
+	// Verify live preview via ApplyInputAssists without writing to disk.
+	app.Post(func() {
+		if err := assist.ApplyInputAssists(save.InputAssistSettings{
+			MinPressMs:    100,
+			AcceptDelayMs: 500,
+		}); err != nil {
+			t.Errorf("ApplyInputAssists: %v", err)
+		}
+	})
+	app.Settle()
+	if got := actions.Assists(); got.MinPress != 100*time.Millisecond || got.AcceptDelay != 500*time.Millisecond {
+		t.Fatalf("live preview timings = (%v, %v), want (100ms, 500ms)", got.MinPress, got.AcceptDelay)
+	}
+
+	// ApplyToPlayers propagates assists to every player slot.
+	players := input.NewPlayers(2)
+	for _, p := range players.All() {
+		p.SetActionAssist("sprint", input.ActionAssist{Toggle: true})
+	}
+	assist.ApplyToPlayers(players)
+	for _, p := range players.All() {
+		if !slices.Equal(p.Assists().Toggle, []string{"sprint"}) {
+			t.Fatalf("player %d Toggle = %v, want [sprint]", p.Index(), p.Assists().Toggle)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
@@ -21,6 +22,14 @@ type savedBindings struct {
 	MotionAxes  map[string]savedMotionAxis  `json:"motion_axes,omitempty"`
 	PointerAxes map[string]savedPointerAxis `json:"pointer_axes,omitempty"`
 	GamepadAxes map[string]savedGamepadAxis `json:"gamepad_axes,omitempty"`
+	Assists     *savedAssists               `json:"assists,omitempty"`
+}
+
+type savedAssists struct {
+	Toggle        []string `json:"toggle,omitempty"`
+	MashToHold    []string `json:"mash_to_hold,omitempty"`
+	MinPressMs    int64    `json:"min_press_ms,omitempty"`
+	AcceptDelayMs int64    `json:"accept_delay_ms,omitempty"`
 }
 
 type savedPointerAxis struct {
@@ -162,6 +171,14 @@ func (a *Actions) Save(store core.Storage, key string) error {
 			doc.GamepadAxes[name] = savedGamepadAxis{Axis: "none"}
 		}
 	}
+	if !a.assists.IsZero() {
+		doc.Assists = &savedAssists{
+			Toggle:        slices.Clone(a.assists.Toggle),
+			MashToHold:    slices.Clone(a.assists.MashToHold),
+			MinPressMs:    a.assists.MinPress.Milliseconds(),
+			AcceptDelayMs: a.assists.AcceptDelay.Milliseconds(),
+		}
+	}
 	data, err := json.Marshal(doc)
 	if err != nil {
 		return fmt.Errorf("input: save %q: %w", key, err)
@@ -205,6 +222,8 @@ type decodedBindings struct {
 	unboundPointerAxes map[string]bool
 	gpAxes             map[string]gamepadAxisBinding
 	unboundGpAxes      map[string]bool
+	hasAssists         bool
+	assists            Assists
 }
 
 func allNoneInputs(list []Input) bool {
@@ -360,6 +379,21 @@ func decodeBindings(raw string) (decodedBindings, error) {
 			}
 		}
 	}
+	if doc.Assists != nil {
+		if doc.Assists.MinPressMs < 0 {
+			return decodedBindings{}, loaderr.Errorf(loaderr.Path("assists", "min_press_ms"), "use 0 or a positive number of milliseconds", "assists min_press_ms %d must not be negative", doc.Assists.MinPressMs)
+		}
+		if doc.Assists.AcceptDelayMs < 0 {
+			return decodedBindings{}, loaderr.Errorf(loaderr.Path("assists", "accept_delay_ms"), "use 0 or a positive number of milliseconds", "assists accept_delay_ms %d must not be negative", doc.Assists.AcceptDelayMs)
+		}
+		out.hasAssists = true
+		out.assists = normalizeAssists(Assists{
+			Toggle:      doc.Assists.Toggle,
+			MashToHold:  doc.Assists.MashToHold,
+			MinPress:    time.Duration(doc.Assists.MinPressMs) * time.Millisecond,
+			AcceptDelay: time.Duration(doc.Assists.AcceptDelayMs) * time.Millisecond,
+		})
+	}
 	return out, nil
 }
 
@@ -379,12 +413,20 @@ func (a *Actions) load(raw string, replace bool) (bool, error) {
 		a.unboundPointerAxes = d.unboundPointerAxes
 		a.gpAxes = d.gpAxes
 		a.unboundGpAxes = d.unboundGpAxes
+		if d.hasAssists {
+			a.SetAssists(d.assists)
+		} else {
+			a.SetAssists(Assists{})
+		}
 	} else {
 		mergeBindings(&a.bindings, &a.unboundActions, d.actions, d.unboundActions)
 		mergeBindings(&a.axes, &a.unboundAxes, d.axes, d.unboundAxes)
 		mergeBindings(&a.motionAxes, &a.unboundMotionAxes, d.motionAxes, d.unboundMotionAxes)
 		mergeBindings(&a.pointerAxes, &a.unboundPointerAxes, d.pointerAxes, d.unboundPointerAxes)
 		mergeBindings(&a.gpAxes, &a.unboundGpAxes, d.gpAxes, d.unboundGpAxes)
+		if d.hasAssists {
+			a.SetAssists(d.assists)
+		}
 	}
 	clear(a.gpSnap)
 	clear(a.motionSnap)
