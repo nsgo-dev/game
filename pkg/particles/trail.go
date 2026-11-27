@@ -89,6 +89,9 @@ type Trail struct {
 	cfg      TrailConfig
 	points   []TrailPoint
 	attachFn func() (float32, float32)
+	anchored bool
+	anchorX  float32
+	anchorY  float32
 
 	// Reusable draw scratch buffers.
 	left   []trailVec2
@@ -576,12 +579,33 @@ func (e *Emitter) acquireTrail(cfg TrailConfig) *Trail {
 	return NewTrail(cfg)
 }
 
+func (t *Trail) setAnchor(x, y float32, anchored bool) {
+	t.anchored = anchored
+	t.anchorX = x
+	t.anchorY = y
+}
+
+func (e *Emitter) hasAnchoredTrails() bool {
+	for _, tr := range e.fadingTrails {
+		if tr != nil && tr.anchored {
+			return true
+		}
+	}
+	for _, tr := range e.particleTrails {
+		if tr != nil && tr.anchored {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Emitter) releaseTrail(tr *Trail) {
 	if tr == nil {
 		return
 	}
 	tr.Clear()
 	tr.Detach()
+	tr.setAnchor(0, 0, false)
 	if len(e.trailPool) < e.maxParticles()*2 {
 		e.trailPool = append(e.trailPool, tr)
 	}

@@ -17,6 +17,7 @@ const (
 	// SpaceWorld simulates particles in world coordinates so they keep their positions when the emitter moves (default).
 	SpaceWorld SimulationSpace = iota
 	// SpaceLocal simulates particles in emitter-local coordinates and transforms them by the emitter's current X, Y, and Rotation at Draw time.
+	// On child sub-emitters, each trigger anchors its spawned local particles at the trigger point so subsequent triggers do not move earlier live children.
 	SpaceLocal
 )
 
@@ -239,20 +240,28 @@ func (e *Emitter) Follow(x, y float32) {
 }
 
 // ParticleWorldPos converts a particle's coordinates to world coordinates.
-// For SpaceWorld emitters this returns (p.X, p.Y) unchanged; for SpaceLocal emitters it applies X, Y, and Rotation.
+// For SpaceWorld emitters this returns (p.X, p.Y) unchanged; for SpaceLocal emitters it applies Rotation and the particle's sub-emitter trigger anchor (or the emitter's current X, Y for top-level emitters).
 func (e *Emitter) ParticleWorldPos(p Particle) (x, y float32) {
-	return e.localToWorld(p.X, p.Y)
+	return e.particleLocalToWorld(p, p.X, p.Y)
 }
 
-func (e *Emitter) localToWorld(lx, ly float32) (wx, wy float32) {
+func (e *Emitter) particleOrigin(p Particle) (ox, oy float32) {
+	if p.hasAnchor {
+		return p.anchorX, p.anchorY
+	}
+	return e.X, e.Y
+}
+
+func (e *Emitter) particleLocalToWorld(p Particle, lx, ly float32) (wx, wy float32) {
 	if e.Space != SpaceLocal {
 		return lx, ly
 	}
+	ox, oy := e.particleOrigin(p)
 	if e.Rotation == 0 {
-		return e.X + lx, e.Y + ly
+		return ox + lx, oy + ly
 	}
 	sin, cos := math.Sincos(float64(e.Rotation))
-	return e.X + float32(cos)*lx - float32(sin)*ly, e.Y + float32(sin)*lx + float32(cos)*ly
+	return ox + float32(cos)*lx - float32(sin)*ly, oy + float32(sin)*lx + float32(cos)*ly
 }
 
 func (e *Emitter) localVelToWorld(lvx, lvy float32) (wvx, wvy float32) {
@@ -263,11 +272,12 @@ func (e *Emitter) localVelToWorld(lvx, lvy float32) (wvx, wvy float32) {
 	return float32(cos)*lvx - float32(sin)*lvy, float32(sin)*lvx + float32(cos)*lvy
 }
 
-func (e *Emitter) worldToLocal(wx, wy float32) (lx, ly float32) {
+func (e *Emitter) particleWorldToLocal(p Particle, wx, wy float32) (lx, ly float32) {
 	if e.Space != SpaceLocal {
 		return wx, wy
 	}
-	dx, dy := wx-e.X, wy-e.Y
+	ox, oy := e.particleOrigin(p)
+	dx, dy := wx-ox, wy-oy
 	if e.Rotation == 0 {
 		return dx, dy
 	}

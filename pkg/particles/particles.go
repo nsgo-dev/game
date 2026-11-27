@@ -38,6 +38,9 @@ type Particle struct {
 
 	initialRotation float32
 	rotationSpeed   float32
+	anchorX         float32
+	anchorY         float32
+	hasAnchor       bool
 }
 
 // Burst schedules an automatic burst of particles during Emitter.Update.
@@ -200,7 +203,7 @@ func (e *Emitter) Update(dt time.Duration) {
 				}
 			}
 			if hasSubs {
-				wx, wy := e.localToWorld(p.X, p.Y)
+				wx, wy := e.particleLocalToWorld(p, p.X, p.Y)
 				wvx, wvy := e.localVelToWorld(p.VX, p.VY)
 				e.triggerSubEmitters(TriggerOnDeath, wx, wy, wvx, wvy)
 			}
@@ -217,8 +220,8 @@ func (e *Emitter) Update(dt time.Duration) {
 			wPrevX, wPrevY := prevPX, prevPY
 			wx, wy := p.X, p.Y
 			if isLocal {
-				wPrevX, wPrevY = e.localToWorld(prevPX, prevPY)
-				wx, wy = e.localToWorld(p.X, p.Y)
+				wPrevX, wPrevY = e.particleLocalToWorld(p, prevPX, prevPY)
+				wx, wy = e.particleLocalToWorld(p, p.X, p.Y)
 			}
 			hit, hitX, hitY, nx, ny := e.Collision.Collider.ResolveParticle(wPrevX, wPrevY, wx, wy, e.Collision.Radius)
 			if hit {
@@ -243,7 +246,7 @@ func (e *Emitter) Update(dt time.Duration) {
 					continue
 				case CollideStop:
 					if isLocal {
-						p.X, p.Y = e.worldToLocal(hitX, hitY)
+						p.X, p.Y = e.particleWorldToLocal(p, hitX, hitY)
 					} else {
 						p.X, p.Y = hitX, hitY
 					}
@@ -251,7 +254,7 @@ func (e *Emitter) Update(dt time.Duration) {
 				case CollideBounce:
 					lnx, lny := nx, ny
 					if isLocal {
-						p.X, p.Y = e.worldToLocal(hitX, hitY)
+						p.X, p.Y = e.particleWorldToLocal(p, hitX, hitY)
 						lnx, lny = e.worldDirToLocal(nx, ny)
 					} else {
 						p.X, p.Y = hitX, hitY
@@ -281,6 +284,7 @@ func (e *Emitter) Update(dt time.Duration) {
 		if hasTrails {
 			if tr == nil && e.Trail != nil {
 				tr = e.acquireTrail(*e.Trail)
+				tr.setAnchor(p.anchorX, p.anchorY, p.hasAnchor)
 				tr.AddPoint(prevPX, prevPY)
 			}
 			if tr != nil {
@@ -434,25 +438,50 @@ func (e *Emitter) Draw(d *core.Drawing) {
 
 	if len(e.fadingTrails) > 0 || len(e.particleTrails) > 0 {
 		localTrail := e.Space == SpaceLocal
-		if localTrail {
-			d.Save()
-			d.Translate(e.X, e.Y)
-			if e.Rotation != 0 {
-				d.Rotate(e.Rotation)
-			}
-		}
-		for _, tr := range e.fadingTrails {
-			if tr != nil {
+		if localTrail && e.hasAnchoredTrails() {
+			drawLocalTrail := func(tr *Trail) {
+				if tr == nil {
+					return
+				}
+				ax, ay := e.X, e.Y
+				if tr.anchored {
+					ax, ay = tr.anchorX, tr.anchorY
+				}
+				d.Save()
+				d.Translate(ax, ay)
+				if e.Rotation != 0 {
+					d.Rotate(e.Rotation)
+				}
 				tr.Draw(d)
+				d.Restore()
 			}
-		}
-		for _, tr := range e.particleTrails {
-			if tr != nil {
-				tr.Draw(d)
+			for _, tr := range e.fadingTrails {
+				drawLocalTrail(tr)
 			}
-		}
-		if localTrail {
-			d.Restore()
+			for _, tr := range e.particleTrails {
+				drawLocalTrail(tr)
+			}
+		} else {
+			if localTrail {
+				d.Save()
+				d.Translate(e.X, e.Y)
+				if e.Rotation != 0 {
+					d.Rotate(e.Rotation)
+				}
+			}
+			for _, tr := range e.fadingTrails {
+				if tr != nil {
+					tr.Draw(d)
+				}
+			}
+			for _, tr := range e.particleTrails {
+				if tr != nil {
+					tr.Draw(d)
+				}
+			}
+			if localTrail {
+				d.Restore()
+			}
 		}
 	}
 
@@ -489,13 +518,14 @@ func (e *Emitter) Draw(d *core.Drawing) {
 			}
 			sx, sy, srot := p.X, p.Y, p.Rotation
 			if isLocal {
+				ax, ay := e.particleOrigin(*p)
 				if hasLocalRot {
-					sx = e.X + cosR*p.X - sinR*p.Y
-					sy = e.Y + sinR*p.X + cosR*p.Y
+					sx = ax + cosR*p.X - sinR*p.Y
+					sy = ay + sinR*p.X + cosR*p.Y
 					srot = p.Rotation + e.Rotation
 				} else {
-					sx = e.X + p.X
-					sy = e.Y + p.Y
+					sx = ax + p.X
+					sy = ay + p.Y
 				}
 			}
 			e.sprites[i] = sprite.Sprite{
@@ -612,8 +642,14 @@ func (e *Emitter) spawnAt(originX, originY, ivx, ivy float32) {
 	angle := e.randFloat(e.AngleMin, e.AngleMax)
 
 	var px, py float32
+	var anchorX, anchorY float32
+	var hasAnchor bool
 	if e.Space == SpaceLocal {
 		px, py = dx, dy
+		if e.subDepth > 0 {
+			anchorX, anchorY = originX, originY
+			hasAnchor = true
+		}
 	} else {
 		if e.Rotation != 0 {
 			rsin, rcos := math.Sincos(float64(e.Rotation))
@@ -627,6 +663,9 @@ func (e *Emitter) spawnAt(originX, originY, ivx, ivy float32) {
 	vx := speed * float32(cos)
 	vy := speed * float32(sin)
 	if ivx != 0 || ivy != 0 {
+		if e.Space == SpaceLocal {
+			ivx, ivy = e.worldDirToLocal(ivx, ivy)
+		}
 		vx += ivx
 		vy += ivy
 	}
@@ -640,12 +679,16 @@ func (e *Emitter) spawnAt(originX, originY, ivx, ivy float32) {
 		Lifetime:        e.nextLifetime(),
 		initialRotation: e.randFloat(e.InitialRotationMin, e.InitialRotationMax),
 		rotationSpeed:   e.randFloat(e.RotationSpeedMin, e.RotationSpeedMax),
+		anchorX:         anchorX,
+		anchorY:         anchorY,
+		hasAnchor:       hasAnchor,
 	}
 	e.evalCurves(&p)
 	e.particles = append(e.particles, p)
 
 	if e.Trail != nil {
 		tr := e.acquireTrail(*e.Trail)
+		tr.setAnchor(p.anchorX, p.anchorY, p.hasAnchor)
 		tr.AddPoint(p.X, p.Y)
 		for len(e.particleTrails) < len(e.particles)-1 {
 			e.particleTrails = append(e.particleTrails, nil)
@@ -656,7 +699,7 @@ func (e *Emitter) spawnAt(originX, originY, ivx, ivy float32) {
 	}
 
 	if len(e.SubEmitters) > 0 && e.subDepth < maxSubEmitterDepth {
-		wx, wy := e.localToWorld(p.X, p.Y)
+		wx, wy := e.particleLocalToWorld(p, p.X, p.Y)
 		wvx, wvy := e.localVelToWorld(p.VX, p.VY)
 		e.triggerSubEmitters(TriggerOnBirth, wx, wy, wvx, wvy)
 	}
