@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/framedata"
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -60,6 +61,9 @@ func (*Overlay) Memory() *MemoryTracker { return &releaseMemoryTracker }
 
 // GC returns a no-op GCMonitor in release builds.
 func (*Overlay) GC() *GCMonitor { return &releaseGCMonitor }
+
+// Sound returns nil in release builds.
+func (*Overlay) Sound() *sound.Mixer { return nil }
 
 // SetDrawStats is a no-op in release builds.
 func (*Overlay) SetDrawStats(DrawStats) {}

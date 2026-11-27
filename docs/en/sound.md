@@ -71,6 +71,43 @@ if hit != nil {
 }
 ```
 
+## Concurrency groups, priority, retrigger time, and ducking
+
+Beyond a single `Effect.Limit`, `Mixer` supports named concurrency groups shared across multiple `Effect`s and `Cue`s, a global voice budget with cross-group priority stealing, minimum retrigger intervals, steal fade-outs, older-voice group ducking, and bus ducking:
+
+```go
+mixer.SetMaxVoices(28) // default: sound.DefaultMaxVoices (30, below the platform's 32)
+mixer.SetConcurrencyGroup("impacts", sound.ConcurrencyGroup{
+	Max:       4,
+	Resolve:   sound.ResolveQuietest, // ResolveRefuse (default), ResolveOldest, ResolveFarthest, ResolveQuietest, ResolveLowestPriority
+	Scope:     sound.ScopeGlobal,     // ScopeGlobal (default) or ScopeOwner
+	Retrigger: 40 * time.Millisecond,
+	StealFade: 30 * time.Millisecond,
+	Duck:      sound.DuckEnvelope{Amount: 0.25, Attack: 20 * time.Millisecond, Release: 150 * time.Millisecond},
+})
+mixer.SetBusDucking(sound.BusDuckRule{
+	Bus:     "music",
+	By:      "dialogue",
+	Amount:  0.4, // lowers music by 40% (to 0.6x) while dialogue plays
+	Attack:  100 * time.Millisecond,
+	Release: 500 * time.Millisecond,
+})
+
+hit.Concurrency = "impacts"
+hit.Priority = 10
+hit.PlayWith(audio.Voice{Volume: 0.9}, sound.PlayOptions{Owner: enemyID})
+```
+
+- **Shared concurrency groups**: set `Effect.Concurrency` (or `CueOptions.Concurrency` / `PlayOptions.Concurrency`) to assign many different sounds to one registered group. When `Max` active voices are already playing in the group, `Resolve` decides what happens: `ResolveRefuse` drops the new sound, `ResolveOldest` stops the oldest active voice, `ResolveFarthest` stops the farthest positional voice (or refuses if the new sound is farther), `ResolveQuietest` stops the quietest audible voice (or refuses if the new sound is quieter), and `ResolveLowestPriority` stops the lowest-priority voice (breaking ties by oldest, or refusing if the new sound has strictly lower priority).
+- **Owner scope**: with `Scope: sound.ScopeOwner`, `Max`, `Retrigger`, and `Duck` apply independently per `PlayOptions.Owner` (any comparable value such as an entity ID, string, or pointer) through `Effect.PlayWith`, `PlayAtWith`, `PlayAt3DWith`, `Play3DWith`, and the matching `Cue` methods.
+- **Retrigger time**: `Retrigger` rejects new starts in the group (or owner) arriving sooner than the cooldown after the last accepted start, without stopping voices already playing.
+- **Steal fade-out**: when `StealFade > 0`, voices stolen by a concurrency group are removed from active voice counts immediately and smoothly ramped to silence over `StealFade` before stopping.
+- **Group ducking**: `ConcurrencyGroup.Duck` lowers older active voices in the same concurrency scope as newer voices start (scaling each older voice by `(1 - Amount)^newer`), ramping in over `Attack` and recovering over `Release` automatically as newer voices finish.
+- **Bus ducking**: `SetBusDucking` / `AddBusDucking` lowers `Bus` by `Amount` (in `[0, 1]`, where `0.4` yields `0.6x` gain and `1` silences while keeping `Music` playheads advancing) whenever any `Effect` or `Music` plays on bus `By` (or in concurrency group `By`), with smooth `Attack` and `Release` envelopes. Multiple rules targeting the same bus stack multiplicatively.
+- **Global voice budget and priority**: `Mixer` caps total active voices at `MaxVoices()` (`DefaultMaxVoices`, `30`, by default) and steals the lowest-priority active voice across all groups (ties broken by oldest), refusing strictly lower-priority sounds so bursts of minor effects never cut important dialogue or player cues.
+- **Project configuration and validation**: declare `audio.maxVoices`, `audio.concurrency`, and `audio.duck` in [`game.yaml`](project.md) and install them with `File.ConfigureMixer(mixer)`. `go tool game check` validates `concurrency:` names referenced by `*.sound.yaml` files against `game.yaml`.
+- **Debug readout**: call `mixer.DebugSnapshot()` — or pass `Sound: mixer` to [`debug.Options`](debug.md) and [`mcp.Config`](mcp.md) (`game_sound_readout`) — to inspect active and fading voice counts, global budget, per-group counts and counters (`refused`, `stolen`, `retriggered`), and live bus duck gains.
+
 ## Bus effect chains
 
 `mixer.SetGroupEffects(group, ...)` gives a group a DSP chain of bus effects — `sound.LowPass`, `sound.HighPass`, `sound.Delay`, `sound.Reverb`, `sound.Gain` and `sound.Bitcrush` — run in order, and `mixer.GroupEffects(group)` reads it back. A project's `game.yaml` `audio.buses` `effects` install the same chains through [`project.File.ConfigureMixer`](project.md).

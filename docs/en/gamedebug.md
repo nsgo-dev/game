@@ -90,6 +90,10 @@ overlay := gamedebug.New(gamedebug.Options{
 
 `overlay.DrawStats()` returns the current values and `overlay.HasDrawStats()` reports whether either source is set; the line stays hidden until one is. [`game/mcp`](mcp.md)'s `game_perf_readout` reports the same values.
 
+## Sound voices and concurrency
+
+Pass `Sound: mixer` in `gamedebug.Options` to show live active/fading voice counts against the mixer's global voice budget, active counts per concurrency group, and any currently ducked buses in the overlay HUD. `overlay.Sound()` returns the attached `*sound.Mixer`, and [`game/mcp`](mcp.md)'s `game_sound_readout` reads the same snapshot.
+
 ## Resetting the readouts
 
 - `overlay.ResetStats()` clears the frame-time ring buffer and any pushed draw statistics and refreshes the HUD. An `Options.DrawStats` callback keeps reporting.

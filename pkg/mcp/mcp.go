@@ -24,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/game/pkg/scene"
 	"github.com/nsgo-dev/game/pkg/screen"
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
 	"github.com/nsgo-dev/nsgo/automation"
@@ -144,6 +145,12 @@ type Config struct {
 
 	// Memory is an asset memory tracker. When nil, performance tools fall back to Overlay.Memory().
 	Memory *gamedebug.MemoryTracker
+
+	// Sound is the game's sound.Mixer for live voice, concurrency group, and bus ducking readouts. When nil, game_sound_readout falls back to SoundFunc or Overlay.Sound().
+	Sound *sound.Mixer
+
+	// SoundFunc dynamically resolves the active sound.Mixer on each tool call. When non-nil and returning a non-nil mixer, it overrides Sound.
+	SoundFunc func() *sound.Mixer
 
 	// DrawStatsFunc dynamically supplies per-frame draw statistics (draw calls, sprites, batches, triangles, vertices). When nil, performance tools fall back to Overlay.DrawStats() or RenderStatsFunc.
 	DrawStatsFunc func() gamedebug.DrawStats
@@ -374,6 +381,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.editTools()...)
 	out = append(out, b.replayTools()...)
 	out = append(out, b.perfTools()...)
+	out = append(out, b.soundTools()...)
 	out = append(out, b.assetTools()...)
 	out = append(out, b.screenshotTools()...)
 	return out

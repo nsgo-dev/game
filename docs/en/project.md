@@ -67,6 +67,7 @@ input:
       deadZone: 0.15
 audio:
   master: 0.9
+  maxVoices: 28
   buses:
     - name: music
       volume: 0.8
@@ -76,6 +77,20 @@ audio:
     - name: sfx
       effects:
         - delay: {time: 250ms, feedback: 0.3, wet: 0.2}
+  concurrency:
+    - name: impacts
+      max: 4
+      resolve: quietest
+      scope: global
+      retrigger: 40ms
+      stealFade: 30ms
+      duck: {amount: 0.25, attack: 20ms, release: 150ms}
+  duck:
+    - bus: music
+      by: dialogue
+      amount: 0.4
+      attack: 100ms
+      release: 500ms
 physics:
   gravity2D:
     "y": 980
@@ -134,7 +149,7 @@ assets:
 | `window` | The main window's starting content size in points (`width`, `height`, both required), its resize limits (`minWidth`, `minHeight`, `maxWidth`, `maxHeight`; 0 is no limit), `resizable` (true when left out), an optional `title` and `appearance` (`light` or `dark`; left out, the app follows the system). |
 | `display` | The virtual resolution a `screen.Viewport` maps onto the window: `width`, `height`, `mode` (`fit` when left out, `fill`, `stretch` or `expand`), `integerScale`, `pixelSnap` and the CSS `barColor` of letterbox bars. Left out, the game draws at the window's size. |
 | `input` | Named `actions`, each with `bindings` of kind `touchRegion` (a `region`), `mouseButton` (a mouse `button`), `mouseRegion` (both), `key` (a layout key name `key`, such as `space` or `left`), `keyCode` (a physical key position `code`, such as `KeyW` or `ArrowLeft`), or `gamepadButton` (a W3C Standard Gamepad `button`: `south`, `east`, `west`, `north`, `leftShoulder`, `rightShoulder`, `leftTrigger`, `rightTrigger`, `back`, `start`, `leftStick`, `rightStick`, `dpadUp`, `dpadDown`, `dpadLeft`, `dpadRight` or `home`), and an optional `assist` block (`toggle`, `mash`, `mashRate` in presses per second, defaulting to 10; `mashRate` requires `mash: true`) declaring which player motor assists apply so menu actions are never latched. Mouse `button` is `left`, `right`, `middle`, `back` or `forward` and regions are in virtual coordinates. `axes` read -1 for their `negative` action and +1 for their `positive` one; `motionAxes` read `tiltX`, `tiltY`, `tiltZ`, `gyroX`, `gyroY` or `gyroZ` with `input.MotionAxisOptions`' fields; `gamepadAxes` read controller sticks (`leftX`, `leftY`, `rightX` or `rightY`) with `input.GamepadAxisOptions`' fields (`deadZone`, `axial`, `sensitivity`, `invert`). A motion axis or gamepad axis may share its name with an axis, and `Actions.Axis` sums all of them and clamps to `[-1, 1]`. An action without bindings is declared for code to bind or an axis to read. |
-| `audio` | The default `master` volume and the `buses`, each a `sound.Mixer` group with a default `volume` and its DSP `effects` in order: `lowPass` and `highPass` (`cutoffHz`, `q`), `delay` (`time`, `feedback`, `wet`), `reverb` (`roomSize`, `damping`, `wet`), `gain` (`factor`) and `bitcrush` (`bits`, `downsample`). |
+| `audio` | The default `master` volume, optional global voice budget `maxVoices` (0 uses `sound.DefaultMaxVoices`), the `buses` (each a `sound.Mixer` group with a default `volume` and its DSP `effects` in order: `lowPass` and `highPass` (`cutoffHz`, `q`), `delay` (`time`, `feedback`, `wet`), `reverb` (`roomSize`, `damping`, `wet`), `gain` (`factor`) and `bitcrush` (`bits`, `downsample`)), shared `concurrency` groups (`name`, `max`, `resolve` `refuse`/`oldest`/`farthest`/`quietest`/`lowestPriority`, `scope` `global`/`owner`, `retrigger`, `stealFade`, and older-voice `duck` `{amount, attack, release}`), and bus `duck` rules (`bus`, `by`, `amount`, `attack`, `release`). |
 | `physics` | Project-wide 2D and 3D physics defaults: `gravity2D` (`x`, `y`), `gravity3D` (`x`, `y`, `z`), `solverIterations2D`, `solverIterations3D`, named collision `layers` mapping human-readable `name`s (such as `player`, `walls`, `coins`) to unique bit indices `0..31` (`LayerMask`), and `ldtkIntGrid` rules mapping LDtk IntGrid identifiers/group names (`name`) or numeric values (`value`) to `solid`, `oneWay`, and custom `flags` bits (`File.LDtkOptions`, applied automatically by `project.Resolver` when `sceneformat.Build` loads `.ldtk` sources). |
 | `autoload` | The `scenes` (scene format YAML files) and other `resources` loaded at startup, each with a unique `name` and a slash-separated `path` inside the project, and the `mainScene` the game starts in. |
 | `export` | The build `output` directory and one preset per platform: primary targets (`macos`, `windows`, `linux`, `ios`, `android`, `web`) and experimental targets (`tvos`, `watchos`, `harmonyos`, `miniprogram`; see [Platform support](platforms.md#experimental-targets)), each with the NSGo build `targets` of that platform to build; a preset without targets builds the platform name, which NSGo expands to its default targets. `game release` prints one warning per experimental platform built (and `-strict` turns that warning into an error for CI), while the scene editor marks experimental presets with an Experimental badge without blocking the build. |

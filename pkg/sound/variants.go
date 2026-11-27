@@ -233,6 +233,14 @@ type CueOptions struct {
 	// Source optionally supplies an external deterministic random stream.
 	// When nil, Cue uses its internal Xoshiro256** generator seeded with seed.
 	Source RandSource
+
+	// Concurrency is the optional concurrency group name applied to Effects created by Mixer.Cue
+	// and used as a fallback when playing a Clip whose Effect leaves Concurrency empty.
+	Concurrency string
+
+	// Priority is the playback priority applied to Effects created by Mixer.Cue
+	// and used as a fallback when playing a Clip whose Effect leaves Priority at 0.
+	Priority int
 }
 
 // CuePick is the outcome of a single Cue.Pick call.
@@ -270,6 +278,8 @@ type Cue struct {
 	volumeMin      float64
 	volumeMax      float64
 	noRepeatWindow int
+	concurrency    string
+	priority       int
 
 	seed      uint64
 	rng       xoshiro256ss
@@ -333,6 +343,8 @@ func NewCue(seed uint64, opts CueOptions) *Cue {
 		volumeMin:      volumeMin,
 		volumeMax:      volumeMax,
 		noRepeatWindow: window,
+		concurrency:    opts.Concurrency,
+		priority:       opts.Priority,
 		seed:           seed,
 		rng:            newXoshiro256ss(seed),
 		src:            opts.Source,
@@ -537,9 +549,24 @@ func weightedDraw(src RandSource, indices []int, weights []float64, total float6
 	return indices[0]
 }
 
+func (c *Cue) mergePlayOptions(effect *Effect, opts PlayOptions) PlayOptions {
+	if opts.Concurrency == "" && (effect == nil || effect.Concurrency == "") && c.concurrency != "" {
+		opts.Concurrency = c.concurrency
+	}
+	if !opts.HasPriority && opts.Priority == 0 && (effect == nil || effect.Priority == 0) && c.priority != 0 {
+		opts.Priority = c.priority
+	}
+	return opts
+}
+
 // Play selects the next variant via Pick and plays its Effect with the sampled volume and pitch rate,
-// respecting the effect's mixer group volume, master volume, background mute, and voice limit.
+// respecting the effect's mixer group volume, master volume, background mute, concurrency group, and voice limit.
 func (c *Cue) Play() (CuePick, bool) {
+	return c.PlayWith(PlayOptions{})
+}
+
+// PlayWith behaves like Play while applying per-call concurrency, owner, and priority overrides from opts.
+func (c *Cue) PlayWith(opts PlayOptions) (CuePick, bool) {
 	if c == nil {
 		return CuePick{Index: -1}, false
 	}
@@ -551,10 +578,10 @@ func (c *Cue) Play() (CuePick, bool) {
 	if vol <= 0 {
 		return pick, false
 	}
-	played := pick.Clip.Effect.Play(audio.Voice{
+	played := pick.Clip.Effect.PlayWith(audio.Voice{
 		Volume: vol,
 		Rate:   float32(pick.Pitch),
-	})
+	}, c.mergePlayOptions(pick.Clip.Effect, opts))
 	return pick, played
 }
 
@@ -588,7 +615,10 @@ func (m *Mixer) Cue(group string, limit int, seed uint64, opts CueOptions, sound
 		if s == nil {
 			continue
 		}
-		clips = append(clips, EffectClip(m.Effect(s, group, limit)))
+		eff := m.Effect(s, group, limit)
+		eff.Concurrency = opts.Concurrency
+		eff.Priority = opts.Priority
+		clips = append(clips, EffectClip(eff))
 	}
 	opts.Clips = clips
 	return NewCue(seed, opts)

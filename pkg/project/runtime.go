@@ -272,13 +272,16 @@ func gamepadAxis(s string) gamepad.Axis {
 	}
 }
 
-// ConfigureMixer gives m the default master volume and each bus's default volume and DSP chain. Volumes the player kept in storage win over the defaults. A bus without effects leaves the chain the game set in code, as BindInput leaves the bindings of an action without any.
+// ConfigureMixer gives m the default master volume, global voice budget, each bus's default volume and DSP chain, shared concurrency groups, and bus ducking rules. Volumes the player kept in storage win over the defaults. A bus without effects leaves the chain the game set in code, as BindInput leaves the bindings of an action without any.
 func (f *File) ConfigureMixer(m *sound.Mixer) {
 	if f.Audio == nil {
 		return
 	}
 	if f.Audio.Master != nil {
 		m.SetDefaultMaster(*f.Audio.Master)
+	}
+	if f.Audio.MaxVoices > 0 {
+		m.SetMaxVoices(f.Audio.MaxVoices)
 	}
 	for _, b := range f.Audio.Buses {
 		if b.Volume != nil {
@@ -287,6 +290,70 @@ func (f *File) ConfigureMixer(m *sound.Mixer) {
 		if len(b.Effects) > 0 {
 			m.SetGroupEffects(b.Name, b.Chain()...)
 		}
+	}
+	for _, c := range f.Audio.Concurrency {
+		m.SetConcurrencyGroup(c.Name, c.SoundGroup())
+	}
+	if len(f.Audio.Duck) > 0 {
+		rules := make([]sound.BusDuckRule, len(f.Audio.Duck))
+		for i, d := range f.Audio.Duck {
+			rules[i] = d.Rule()
+		}
+		m.SetBusDucking(rules...)
+	}
+}
+
+// SoundGroup converts c into a sound.ConcurrencyGroup.
+func (c ConcurrencyGroup) SoundGroup() sound.ConcurrencyGroup {
+	g := sound.ConcurrencyGroup{
+		Max:       c.Max,
+		Resolve:   concurrencyResolve(c.Resolve),
+		Scope:     concurrencyScope(c.Scope),
+		Retrigger: c.Retrigger,
+		StealFade: c.StealFade,
+	}
+	if c.Duck != nil {
+		g.Duck = sound.DuckEnvelope{
+			Amount:  c.Duck.Amount,
+			Attack:  c.Duck.Attack,
+			Release: c.Duck.Release,
+		}
+	}
+	return g
+}
+
+// Rule converts d into a sound.BusDuckRule.
+func (d BusDuck) Rule() sound.BusDuckRule {
+	return sound.BusDuckRule{
+		Bus:     d.Bus,
+		By:      d.By,
+		Amount:  d.Amount,
+		Attack:  d.Attack,
+		Release: d.Release,
+	}
+}
+
+func concurrencyResolve(s string) sound.ConcurrencyResolve {
+	switch s {
+	case "oldest":
+		return sound.ResolveOldest
+	case "farthest":
+		return sound.ResolveFarthest
+	case "quietest":
+		return sound.ResolveQuietest
+	case "lowestPriority":
+		return sound.ResolveLowestPriority
+	default:
+		return sound.ResolveRefuse
+	}
+}
+
+func concurrencyScope(s string) sound.ConcurrencyScope {
+	switch s {
+	case "owner":
+		return sound.ScopeOwner
+	default:
+		return sound.ScopeGlobal
 	}
 }
 

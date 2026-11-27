@@ -87,6 +87,8 @@ type Report struct {
 	Screens int
 	// States counts the sprite animation state machine YAML files (*.states.yaml) that were checked.
 	States int
+	// Sounds counts the sound YAML files (*.sound.yaml / *.sound.yml) that were checked.
+	Sounds int
 	// Connections counts the scene connections encountered in checked scenes.
 	Connections int
 	// Problems are the problems found, sorted by file, then line, then message.
@@ -130,7 +132,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		sceneObjs:   make(map[string]map[string]bool),
 		l10nByRoot:  make(map[string]*l10nIndex),
 	}
-	var scenes, cutscenes, screens, statesFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
+	var scenes, cutscenes, screens, statesFiles, soundFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -157,6 +159,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			screens = append(screens, p)
 		case strings.HasSuffix(name, ".states.yaml"), strings.HasSuffix(name, ".states.yml"):
 			statesFiles = append(statesFiles, p)
+		case strings.HasSuffix(name, ".sound.yaml"), strings.HasSuffix(name, ".sound.yml"):
+			soundFiles = append(soundFiles, p)
 		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
 			gridMaps = append(gridMaps, p)
 		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
@@ -207,6 +211,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	for _, p := range statesFiles {
 		c.checkStates(p)
+	}
+	for _, p := range soundFiles {
+		c.checkSoundFile(p)
 	}
 	for _, p := range scenes {
 		c.checkScene(p)
@@ -280,6 +287,8 @@ type checker struct {
 	sceneObjs map[string]map[string]bool
 	// l10nByRoot caches discovered l10n string table keys per project root.
 	l10nByRoot map[string]*l10nIndex
+	// audioByRoot caches declared audio concurrency groups from game.yaml per project root.
+	audioByRoot map[string]*soundProjectAudio
 	// localeTables holds the parsed l10n YAML string tables discovered in each project root.
 	localeTables map[string]*projectLocales
 	// curObjectFile and curObject tag scene-object problems recorded against curObjectFile with Object.

@@ -249,12 +249,60 @@ type GamepadAxis struct {
 	Invert bool `yaml:"invert,omitempty"`
 }
 
-// Audio is the master volume and the buses (sound.Mixer groups) a game plays through.
+// Audio is the master volume, global voice budget, buses (sound.Mixer groups), concurrency groups, and bus ducking rules a game plays through.
 type Audio struct {
 	// Master is the default master volume in [0, 1]; nil leaves it at 1.
 	Master *float32 `yaml:"master,omitempty" schema:"minimum=0,maximum=1"`
+	// MaxVoices is the mixer's global concurrent voice budget; 0 uses sound.DefaultMaxVoices.
+	MaxVoices int `yaml:"maxVoices,omitempty" schema:"minimum=0"`
 	// Buses are the mixer groups in declaration order.
 	Buses []Bus `yaml:"buses,omitempty"`
+	// Concurrency lists shared concurrency groups limiting and resolving overlapping voices across sounds.
+	Concurrency []ConcurrencyGroup `yaml:"concurrency,omitempty"`
+	// Duck lists bus ducking rules that lower one bus while another bus or concurrency group plays.
+	Duck []BusDuck `yaml:"duck,omitempty"`
+}
+
+// ConcurrencyGroup defines a shared voice concurrency group under audio.concurrency.
+type ConcurrencyGroup struct {
+	// Name is the unique concurrency group name referenced by sounds.
+	Name string `yaml:"name" schema:"required"`
+	// Max is the maximum simultaneous active voices in this group (or per owner when scope is owner); 0 imposes no group cap.
+	Max int `yaml:"max,omitempty" schema:"minimum=0"`
+	// Resolve chooses which voice is dropped when max is reached: refuse (default), oldest, farthest, quietest, or lowestPriority.
+	Resolve string `yaml:"resolve,omitempty" schema:"enum=refuse|oldest|farthest|quietest|lowestPriority"`
+	// Scope chooses whether max, retrigger, and duck apply across the whole group ("global", default) or per sound owner ("owner").
+	Scope string `yaml:"scope,omitempty" schema:"enum=global|owner"`
+	// Retrigger is the minimum duration between accepted voice starts in this group (or owner).
+	Retrigger time.Duration `yaml:"retrigger,omitempty"`
+	// StealFade is the fade-out duration applied to voices stolen by this group's resolution rule.
+	StealFade time.Duration `yaml:"stealFade,omitempty"`
+	// Duck lowers older active voices in the same concurrency scope while newer voices play.
+	Duck *AudioDuck `yaml:"duck,omitempty,flow"`
+}
+
+// AudioDuck configures ducking reduction and attack/release envelope timing for a concurrency group.
+type AudioDuck struct {
+	// Amount is the volume reduction fraction in [0, 1] (0 disables ducking, 0.4 lowers by 40%, 1 silences).
+	Amount float32 `yaml:"amount" schema:"required,minimum=0,maximum=1"`
+	// Attack is how quickly ducking ramps in; 0 applies immediately.
+	Attack time.Duration `yaml:"attack,omitempty"`
+	// Release is how quickly volume recovers; 0 restores immediately.
+	Release time.Duration `yaml:"release,omitempty"`
+}
+
+// BusDuck lowers one mixer bus while another bus or concurrency group has active sounds.
+type BusDuck struct {
+	// Bus is the mixer bus whose volume is lowered.
+	Bus string `yaml:"bus" schema:"required"`
+	// By is the triggering mixer bus or concurrency group name.
+	By string `yaml:"by" schema:"required"`
+	// Amount is the volume reduction fraction in [0, 1] (0 disables ducking, 0.4 lowers by 40%, 1 silences).
+	Amount float32 `yaml:"amount" schema:"required,minimum=0,maximum=1"`
+	// Attack is how quickly bus fades down when by starts playing; 0 applies immediately.
+	Attack time.Duration `yaml:"attack,omitempty"`
+	// Release is how quickly bus recovers once by finishes playing; 0 restores immediately.
+	Release time.Duration `yaml:"release,omitempty"`
 }
 
 // Bus is one sound.Mixer group: its default volume and its DSP effect chain.
@@ -590,7 +638,10 @@ func (f *File) Clone() *File {
 		c.Input = &in
 	}
 	if f.Audio != nil {
-		a := Audio{Master: clonePtr(f.Audio.Master)}
+		a := Audio{
+			Master:    clonePtr(f.Audio.Master),
+			MaxVoices: f.Audio.MaxVoices,
+		}
 		if f.Audio.Buses != nil {
 			a.Buses = make([]Bus, len(f.Audio.Buses))
 			for i, b := range f.Audio.Buses {
@@ -610,6 +661,16 @@ func (f *File) Clone() *File {
 				}
 				a.Buses[i] = nb
 			}
+		}
+		if f.Audio.Concurrency != nil {
+			a.Concurrency = make([]ConcurrencyGroup, len(f.Audio.Concurrency))
+			for i, cg := range f.Audio.Concurrency {
+				cg.Duck = clonePtr(cg.Duck)
+				a.Concurrency[i] = cg
+			}
+		}
+		if f.Audio.Duck != nil {
+			a.Duck = append([]BusDuck(nil), f.Audio.Duck...)
 		}
 		c.Audio = &a
 	}
@@ -1043,9 +1104,17 @@ func validateRegion(r *Rect) error {
 	return nil
 }
 
+var (
+	concurrencyResolves = []string{"refuse", "oldest", "farthest", "quietest", "lowestPriority"}
+	concurrencyScopes   = []string{"global", "owner"}
+)
+
 func validateAudio(a *Audio) error {
 	if a.Master != nil && !unit32(*a.Master) {
 		return loaderr.Errorf("audio.master", "set audio.master to a number in [0, 1]", "project: audio master %v must be in [0, 1]", *a.Master)
+	}
+	if a.MaxVoices < 0 {
+		return loaderr.Errorf("audio.maxVoices", "set audio.maxVoices to 0 or a positive integer", "project: audio maxVoices %d must not be negative", a.MaxVoices)
 	}
 	buses := make(map[string]struct{}, len(a.Buses))
 	for i, b := range a.Buses {
@@ -1064,6 +1133,71 @@ func validateAudio(a *Audio) error {
 			if err := validateEffectAt(fmt.Sprintf("%s.effects[%d]", prefix, j), b.Name, j, e); err != nil {
 				return err
 			}
+		}
+	}
+	groups := make(map[string]struct{}, len(a.Concurrency))
+	for i, c := range a.Concurrency {
+		prefix := fmt.Sprintf("audio.concurrency[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("audio concurrency group %d", i), c.Name); err != nil {
+			return err
+		}
+		if _, dup := groups[c.Name]; dup {
+			return loaderr.Errorf(prefix+".name", "give each audio concurrency group a unique name", "project: duplicate audio concurrency group %q", c.Name)
+		}
+		groups[c.Name] = struct{}{}
+		if c.Max < 0 {
+			return loaderr.Errorf(prefix+".max", "set max to 0 or a positive integer", "project: audio concurrency group %q max %d must not be negative", c.Name, c.Max)
+		}
+		if c.Resolve != "" && !slices.Contains(concurrencyResolves, c.Resolve) {
+			return loaderr.Errorf(prefix+".resolve", "set resolve to one of "+strings.Join(concurrencyResolves, ", "), "project: audio concurrency group %q resolve %q must be one of %s", c.Name, c.Resolve, strings.Join(concurrencyResolves, ", "))
+		}
+		if c.Scope != "" && !slices.Contains(concurrencyScopes, c.Scope) {
+			return loaderr.Errorf(prefix+".scope", "set scope to one of "+strings.Join(concurrencyScopes, ", "), "project: audio concurrency group %q scope %q must be one of %s", c.Name, c.Scope, strings.Join(concurrencyScopes, ", "))
+		}
+		if c.Retrigger < 0 {
+			return loaderr.Errorf(prefix+".retrigger", "set retrigger to a non-negative duration such as 50ms", "project: audio concurrency group %q retrigger %v must not be negative", c.Name, c.Retrigger)
+		}
+		if c.StealFade < 0 {
+			return loaderr.Errorf(prefix+".stealFade", "set stealFade to a non-negative duration such as 30ms", "project: audio concurrency group %q stealFade %v must not be negative", c.Name, c.StealFade)
+		}
+		if c.Duck != nil {
+			if !unit32(c.Duck.Amount) {
+				return loaderr.Errorf(prefix+".duck.amount", "set duck.amount to a number in [0, 1]", "project: audio concurrency group %q duck amount %v must be in [0, 1]", c.Name, c.Duck.Amount)
+			}
+			if c.Duck.Attack < 0 {
+				return loaderr.Errorf(prefix+".duck.attack", "set duck.attack to a non-negative duration", "project: audio concurrency group %q duck attack %v must not be negative", c.Name, c.Duck.Attack)
+			}
+			if c.Duck.Release < 0 {
+				return loaderr.Errorf(prefix+".duck.release", "set duck.release to a non-negative duration", "project: audio concurrency group %q duck release %v must not be negative", c.Name, c.Duck.Release)
+			}
+		}
+	}
+	type duckPair struct{ bus, by string }
+	ducks := make(map[duckPair]struct{}, len(a.Duck))
+	for i, d := range a.Duck {
+		prefix := fmt.Sprintf("audio.duck[%d]", i)
+		if err := validateNameAt(prefix+".bus", fmt.Sprintf("audio duck %d bus", i), d.Bus); err != nil {
+			return err
+		}
+		if err := validateNameAt(prefix+".by", fmt.Sprintf("audio duck %d by", i), d.By); err != nil {
+			return err
+		}
+		if d.Bus == d.By {
+			return loaderr.Errorf(prefix+".by", "set bus and by to different names", "project: audio duck %d bus %q cannot duck itself", i, d.Bus)
+		}
+		pair := duckPair{d.Bus, d.By}
+		if _, dup := ducks[pair]; dup {
+			return loaderr.Errorf(prefix, "remove the duplicate audio.duck rule for the same bus and by pair", "project: duplicate audio duck rule for bus %q by %q", d.Bus, d.By)
+		}
+		ducks[pair] = struct{}{}
+		if !unit32(d.Amount) {
+			return loaderr.Errorf(prefix+".amount", "set amount to a number in [0, 1]", "project: audio duck %d amount %v must be in [0, 1]", i, d.Amount)
+		}
+		if d.Attack < 0 {
+			return loaderr.Errorf(prefix+".attack", "set attack to a non-negative duration", "project: audio duck %d attack %v must not be negative", i, d.Attack)
+		}
+		if d.Release < 0 {
+			return loaderr.Errorf(prefix+".release", "set release to a non-negative duration", "project: audio duck %d release %v must not be negative", i, d.Release)
 		}
 	}
 	return nil
