@@ -11,11 +11,13 @@ import (
 )
 
 // SnapshotVersion is the schema version stored in WorldSnapshot.
+// Version 3 added WorldSnapshot sleep settings (DisableSleep,
+// SleepLinearThreshold, SleepAngularThreshold, TimeToSleep) and
+// BodySnapshot.AllowSleep / AllowSleepSet.
 // Version 2 added WorldSnapshot.Materials and BodySnapshot.MaterialIndex so
 // shared *PhysicsMaterial identity survives Save and Restore. Restore still
-// reads version 1 snapshots (which store inline BodySnapshot.Material) and
-// refuses any other version.
-const SnapshotVersion = 2
+// reads version 1 and 2 snapshots and refuses any other version.
+const SnapshotVersion = 3
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
 const oldestSnapshotVersion = 1
@@ -48,6 +50,8 @@ type BodySnapshot struct {
 	Static             bool             `json:"static,omitempty"`
 	Kinematic          bool             `json:"kinematic,omitempty"`
 	Sleeping           bool             `json:"sleeping,omitempty"`
+	AllowSleep         bool             `json:"allowSleep,omitempty"`
+	AllowSleepSet      bool             `json:"allowSleepSet,omitempty"`
 	Layer              LayerMask        `json:"layer"`
 	Mask               LayerMask        `json:"mask"`
 	IsTrigger          bool             `json:"isTrigger,omitempty"`
@@ -320,22 +324,26 @@ type VoxelColliderSnapshot struct {
 // active contacts, contact/joint-break events, ignored pairs, joints and their
 // private solver state, and static colliders. It marshals cleanly with encoding/json.
 type WorldSnapshot struct {
-	Version          int                       `json:"version"`
-	Gravity          Vec3                      `json:"gravity"`
-	SolverIterations int                       `json:"solverIterations"`
-	NextID           int                       `json:"nextID"`
-	NextColliderID   int                       `json:"nextColliderID"`
-	Materials        []PhysicsMaterial         `json:"materials,omitempty"`
-	Bodies           []BodySnapshot            `json:"bodies,omitempty"`
-	WarmStartCache   []CachedImpulseSnapshot   `json:"warmStartCache,omitempty"`
-	ActiveContacts   []ActiveContactSnapshot   `json:"activeContacts,omitempty"`
-	ContactEvents    []ContactEventSnapshot    `json:"contactEvents,omitempty"`
-	JointBreakEvents []JointBreakEventSnapshot `json:"jointBreakEvents,omitempty"`
-	IgnoredPairs     []PairKeySnapshot         `json:"ignoredPairs,omitempty"`
-	Joints           []JointSnapshot           `json:"joints,omitempty"`
-	TriMeshes        []TriMeshSnapshot         `json:"triMeshes,omitempty"`
-	Heightfields     []HeightfieldSnapshot     `json:"heightfields,omitempty"`
-	Voxels           []VoxelColliderSnapshot   `json:"voxels,omitempty"`
+	Version               int                       `json:"version"`
+	Gravity               Vec3                      `json:"gravity"`
+	SolverIterations      int                       `json:"solverIterations"`
+	DisableSleep          bool                      `json:"disableSleep,omitempty"`
+	SleepLinearThreshold  float32                   `json:"sleepLinearThreshold,omitempty"`
+	SleepAngularThreshold float32                   `json:"sleepAngularThreshold,omitempty"`
+	TimeToSleep           float32                   `json:"timeToSleep,omitempty"`
+	NextID                int                       `json:"nextID"`
+	NextColliderID        int                       `json:"nextColliderID"`
+	Materials             []PhysicsMaterial         `json:"materials,omitempty"`
+	Bodies                []BodySnapshot            `json:"bodies,omitempty"`
+	WarmStartCache        []CachedImpulseSnapshot   `json:"warmStartCache,omitempty"`
+	ActiveContacts        []ActiveContactSnapshot   `json:"activeContacts,omitempty"`
+	ContactEvents         []ContactEventSnapshot    `json:"contactEvents,omitempty"`
+	JointBreakEvents      []JointBreakEventSnapshot `json:"jointBreakEvents,omitempty"`
+	IgnoredPairs          []PairKeySnapshot         `json:"ignoredPairs,omitempty"`
+	Joints                []JointSnapshot           `json:"joints,omitempty"`
+	TriMeshes             []TriMeshSnapshot         `json:"triMeshes,omitempty"`
+	Heightfields          []HeightfieldSnapshot     `json:"heightfields,omitempty"`
+	Voxels                []VoxelColliderSnapshot   `json:"voxels,omitempty"`
 }
 
 func bodyIDOrZero(b *Body) int {
@@ -372,6 +380,8 @@ func snapshotBody3D(b *Body, matIdx *int) BodySnapshot {
 		Static:             b.Static,
 		Kinematic:          b.Kinematic,
 		Sleeping:           b.Sleeping,
+		AllowSleep:         b.AllowSleep,
+		AllowSleepSet:      b.allowSleepSet,
 		Layer:              b.Layer,
 		Mask:               b.Mask,
 		IsTrigger:          b.IsTrigger,
@@ -385,8 +395,14 @@ func snapshotBody3D(b *Body, matIdx *int) BodySnapshot {
 	}
 }
 
-func applyBody3DSnapshot(dst *Body, src BodySnapshot, mat *PhysicsMaterial) {
+func applyBody3DSnapshot(dst *Body, src BodySnapshot, mat *PhysicsMaterial, snapVersion int) {
 	ud := dst.UserData
+	allowSleep := src.AllowSleep
+	allowSleepSet := src.AllowSleepSet
+	if snapVersion < 3 || (!allowSleep && !allowSleepSet) {
+		allowSleep = true
+		allowSleepSet = true
+	}
 	*dst = Body{
 		ID:                 src.ID,
 		Tag:                src.Tag,
@@ -410,12 +426,14 @@ func applyBody3DSnapshot(dst *Body, src BodySnapshot, mat *PhysicsMaterial) {
 		Static:             src.Static,
 		Kinematic:          src.Kinematic,
 		Sleeping:           src.Sleeping,
+		AllowSleep:         allowSleep,
 		Layer:              src.Layer,
 		Mask:               src.Mask,
 		IsTrigger:          src.IsTrigger,
 		Area:               src.Area,
 		UserData:           ud,
 		gravityScaleSet:    src.GravityScaleSet,
+		allowSleepSet:      allowSleepSet,
 		customCenterOfMass: src.CustomCenterOfMass,
 		customInertia:      src.CustomInertia,
 		sleepTimer:         src.SleepTimer,
@@ -884,11 +902,15 @@ func (w *World) Save() WorldSnapshot {
 		return WorldSnapshot{Version: SnapshotVersion}
 	}
 	snap := WorldSnapshot{
-		Version:          SnapshotVersion,
-		Gravity:          w.Gravity,
-		SolverIterations: w.SolverIterations,
-		NextID:           w.nextID,
-		NextColliderID:   w.nextColliderID,
+		Version:               SnapshotVersion,
+		Gravity:               w.Gravity,
+		SolverIterations:      w.SolverIterations,
+		DisableSleep:          w.DisableSleep,
+		SleepLinearThreshold:  w.SleepLinearThreshold,
+		SleepAngularThreshold: w.SleepAngularThreshold,
+		TimeToSleep:           w.TimeToSleep,
+		NextID:                w.nextID,
+		NextColliderID:        w.nextColliderID,
 	}
 
 	if len(w.bodies) > 0 {
@@ -1188,7 +1210,7 @@ func (w *World) Restore(snap WorldSnapshot) error {
 				mat = &m
 			}
 		}
-		applyBody3DSnapshot(dst, bs, mat)
+		applyBody3DSnapshot(dst, bs, mat, snap.Version)
 		restoredBodies[i] = dst
 		bodyByID[dst.ID] = dst
 	}
@@ -1404,6 +1426,10 @@ func (w *World) Restore(snap WorldSnapshot) error {
 
 	w.Gravity = snap.Gravity
 	w.SolverIterations = snap.SolverIterations
+	w.DisableSleep = snap.DisableSleep
+	w.SleepLinearThreshold = snap.SleepLinearThreshold
+	w.SleepAngularThreshold = snap.SleepAngularThreshold
+	w.TimeToSleep = snap.TimeToSleep
 	w.nextID = snap.NextID
 	w.nextColliderID = snap.NextColliderID
 	w.bodies = restoredBodies
@@ -1434,6 +1460,10 @@ func (w *World) Checksum() uint64 {
 	}
 	hashVec3(&h, w.Gravity)
 	h.WriteInt(w.SolverIterations)
+	h.WriteBool(w.DisableSleep)
+	h.WriteFloat32(w.SleepLinearThreshold)
+	h.WriteFloat32(w.SleepAngularThreshold)
+	h.WriteFloat32(w.TimeToSleep)
 	h.WriteInt(w.nextID)
 	h.WriteInt(w.nextColliderID)
 
@@ -1739,6 +1769,8 @@ func hashBody3D(h *detmath.Hasher, b *Body) {
 	h.WriteBool(b.Static)
 	h.WriteBool(b.Kinematic)
 	h.WriteBool(b.Sleeping)
+	h.WriteBool(b.AllowSleep)
+	h.WriteBool(b.allowSleepSet)
 	h.WriteUint32(uint32(b.Layer))
 	h.WriteUint32(uint32(b.Mask))
 	h.WriteBool(b.IsTrigger)

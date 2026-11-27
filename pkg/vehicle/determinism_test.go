@@ -111,7 +111,7 @@ func TestVehicleGoldenTrajectory(t *testing.T) {
 	// Cross-architecture golden trajectory hashes (must match identically on amd64 and arm64).
 	const (
 		wantCarGolden   uint64 = 0xb5b26bc2ed06e4b4
-		wantWorldGolden uint64 = 0x38332d9b6fa1fc83
+		wantWorldGolden uint64 = 0x6c0ed563b420b085
 	)
 
 	world, car := buildDeterministicVehicleScene(t)

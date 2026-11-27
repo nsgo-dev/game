@@ -163,7 +163,14 @@ loop := &game.Loop{
 
 可以将共享的 `*PhysicsMaterial`（`Friction`、`Restitution`、`LinearDamping`、`AngularDamping`）挂到 `Body.Material` 上，或调用 `Body.ApplyMaterial(mat)` 将其数值复制到刚体上。当 `Body.Material` 非空时，接触求解与速度阻尼直接读取材质经限幅后的表面属性（`Friction >= 0`、`Restitution` 在 `[0, 1]` 内、阻尼非负），因此修改共享材质会立即作用于所有引用它的刚体——跨 `World.Save` 与 `World.Restore` 亦保持一致。来自 [`game/resource`](resources.md#physicsmaterial) 的共享 `*.physics.yaml` 文件可通过 `mat.ApplyTo3D(body)` 应用到 3D 刚体。
 
-静止的刚体会进入休眠。以下情况会唤醒休眠刚体：运动中的动态刚体或运动学刚体（通过速度运动，或直接设置 `Pos`/`Rot`）碰到它；与它相连的关节另一端在运动；它的某个接触结束（支撑物移开）；附近的 `VoxelCollider` 方块改变实体性或脚下支撑方块消失；以及调用 `Wake`、`WakeInBox`、`ApplyImpulse` 或移除刚体、网格、体素碰撞体、关节时。
+### 岛屿休眠
+
+动态刚体按岛屿（island）整体休眠，而不是逐个单独休眠。每步都会依据实体接触与关节构建岛屿（静态、运动学与触发器刚体不会连接岛屿）；只有当整个岛屿中的每个刚体都允许休眠（`Body.AllowSleep`），且线速度与角速度分别保持在 `World.SleepLinearThreshold`（`DefaultSleepLinearThreshold`，0.05 m/s）和 `World.SleepAngularThreshold`（`DefaultSleepAngularThreshold`，0.05 rad/s）以下、残余穿透不超过 5 mm，并持续达到 `World.TimeToSleep`（`DefaultTimeToSleep`，0.4 s）时，整个岛屿才会一同进入休眠。`World` 上这些字段为零、负值、NaN 或无穷大时自动回退为默认值。
+
+清醒的动态刚体绝不会与休眠刚体直接求解：清醒动态刚体以任意速度与休眠刚体产生新接触或保持接触时，都会在速度积分与求解之前唤醒被触及的整个岛屿，并保留休眠堆叠的热启动接触冲量缓存。以下情况同样会唤醒整个休眠岛屿：运动学刚体（通过速度运动或直接修改 `Pos`/`Rot`）或发生移动的静态刚体碰到它或通过关节与它相连；岛内任一刚体被直接唤醒（`Wake`、`ApplyImpulse`、`ApplyAngularImpulse`、`ApplyImpulseAtPoint`、直接赋予非零速度或修改位姿、或将 `Body.AllowSleep` 设为 `false`）；主动关节马达/弹簧驱动它；某个接触结束（支撑物移开）；附近的 `VoxelCollider` 方块改变实体性或脚下支撑方块消失；以及调用 `WakeInBox` 或移除刚体、网格、高度场、体素碰撞体、关节时。
+
+- 设置 `World.DisableSleep = true` 可保持所有刚体清醒（并在下一次 `Step` 时唤醒已休眠的刚体）。
+- 设置 `Body.AllowSleep = false`（对零值初始化的 `Body` 字面量可在 `AddBody` 前调用 `Body.SetAllowSleep(false)`）可使单个动态刚体及其接触/关节岛屿保持清醒，而不影响其他独立岛屿休眠（`NewDynamicBody` 与 `AddBody` 默认将 `AllowSleep` 设为 `true`）。
 
 常规堆叠（例如 10 层等质量方块塔）仅凭多点接触流形与逐点热启动即可稳定静置且无残余漂移。冲击传播（shock propagation）仅限定作用于存在大质量比（上方质量超过下方动态刚体 `4` 倍，例如 100 kg 压在 1 kg 上）或堆叠层数超过 12 层的竖直支撑柱（接触法线与 `-Gravity` 夹角约 45° 以内），自下而上将下方刚体视为不可移动并把重叠维持在约 1 mm。仍陷入相邻刚体超过 5 mm 的刚体不会进入休眠，被压得深于 1 cm 的休眠刚体会被唤醒，因此休眠不会把穿透冻结下来。重力为零时没有"上"方向，冲击传播会自动跳过。
 
@@ -333,7 +340,7 @@ sw.Step(dt)
 
 `World` 支持完整的世界状态快照、确定性 64 位 FNV-1a 校验和，以及跨 amd64 与 arm64 CPU 架构的比特级确定性：
 
-- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion` 为 2；`Restore` 同时兼容读取版本 1 快照）中，包括重力与求解器/休眠配置、去重的 `Materials` 材质表及 `BodySnapshot.MaterialIndex` 引用（使共享 `*PhysicsMaterial` 的身份跨序列化保留）、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`、自定义质心/惯量覆写标记，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的多点（最多 4 点，含特征 ID 与局部坐标偏移）热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion` 为 3；`Restore` 同时兼容读取版本 1 与版本 2 快照）中，包括重力、求解器迭代次数与休眠配置（`DisableSleep`、`SleepLinearThreshold`、`SleepAngularThreshold`、`TimeToSleep`）、去重的 `Materials` 材质表及 `BodySnapshot.MaterialIndex` 引用（使共享 `*PhysicsMaterial` 的身份跨序列化保留）、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`、自定义质心/惯量覆写标记、`AllowSleep`、私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的多点（最多 4 点，含特征 ID 与局部坐标偏移）热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 支持直接使用 `encoding/json` 序列化与反序列化（不使用 `encoding/gob` 或自定义二进制布局）。
 - **原地保留指针、材质与回调**：`Restore` 尽可能按 `ID` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，确定性地重建宽相树，并在回滚期间保持游戏实体指针、`Body.UserData`（不写入快照也不参与 `Checksum()`，新分配刚体上为 `nil`）、数值仍与快照一致的共享 `*PhysicsMaterial` 指针（恢复到新 `World` 时同样保持共享材质的共享关系，且不会改写数值已偏离的调用方材质）以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
 - **跨架构确定性**：所有步进 3D 积分、宽相、窄相碰撞（GJK/EPA/SAT、OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。

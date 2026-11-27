@@ -135,11 +135,21 @@ func (w *World) AddJoint(j Joint3D) Joint3D {
 	}
 	w.joints = append(w.joints, j)
 	a, b := j.Bodies()
+	woke := false
 	if a != nil && !a.Static && !a.Kinematic {
+		if a.Sleeping {
+			woke = true
+		}
 		a.Wake()
 	}
 	if b != nil && !b.Static && !b.Kinematic {
+		if b.Sleeping {
+			woke = true
+		}
 		b.Wake()
+	}
+	if woke {
+		w.wakeIslands()
 	}
 	return j
 }
