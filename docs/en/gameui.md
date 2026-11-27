@@ -115,6 +115,7 @@ It persists through `save.DefaultSettingsStore` and dispatches validated updates
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
 menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 	Store: store,
+	Env:   cx.Env(),
 	Targets: save.SettingsTargets{
 		Sound:              mixer,
 		ApplyDisplay:       video.Apply,
@@ -139,6 +140,7 @@ menu.Draw(d, bounds)
 - Use `FormatBindingToken`, `ParseBindingToken`, `FormatBindingLabel`, `GamepadButtonToken`, and `ApplyBindingsToActions` to bridge `save.Settings.Bindings` with `input.Actions`.
 - Call `SetText` with a translated `SettingsText` struct when the player switches language, and omit `Theme` (or call `HighContrastTheme()`) to automatically switch to high-contrast styling when `Accessibility.HighContrast` is enabled.
 - Call `SyncGamepad` when opening the menu so any button held to open it does not immediately trigger inside the screen.
+- Pass `Env: cx.Env()` in `SettingsMenuConfig` so the Video tab hides Window Mode on platforms that cannot enter full screen (`screen.CanFullScreen`, such as iOS, Android, and phone web browsers) and keeps Window Mode synchronized with `Env.FullScreen()` on the web and after Escape or system window toggles.
 
 ## World-anchored native views (`AnchorOverlay`)
 

@@ -108,12 +108,19 @@ func Root(cx *core.Scope) core.Node {
 
 ```go
 loop := &game.Loop{Update: update, Draw: draw}
-video := &screen.Video{Loop: loop}
+video := &screen.Video{
+	Loop: loop,
+	OnWindowChanged: func(d save.DisplaySettings) {
+		// 玩家按 Escape 或使用浏览器/系统控件切换全屏后，同步设置界面或已保存设置。
+	},
+}
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
 
 loop.Run(cx)
 video.Run(cx)
 settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.Apply})
+// 在 Web 上挂载游戏输入视图（或在按下回调中调用 video.ApplyPending()），让启动时延后的全屏设置在首次按下时生效。
+video.Attach(&gameView)
 ```
 
 | 字段 | 作用 |
@@ -124,4 +131,4 @@ settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.App
 | `FrameCap` | 每秒最多绘制的帧数（即循环的 `DrawRate`），为 0 时不限制。更新仍按 `Loop.Rate` 进行。 |
 | `AutoDropLowPower` | 在 `cx.Env().LowPowerMode()` 开启或 `ThermalState()` 为严重、危急期间，把上限降到 `Video.LowPowerCap`（为 0 时取 30），更低的 `FrameCap` 保持不变；条件解除后恢复原上限。 |
 
-只有设置改变了全屏或显示器，或者首次 `Apply` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏的操作。在 `Run` 之前应用的设置会在 `Run` 启动时生效；释放调用 `Run` 的所有者与调用它返回的 `stop` 效果相同，都会恢复帧率上限并停止发送窗口请求。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低；在 `Run` 生效期间于组件或副作用中读取时，二者会随功耗状态变化而更新，设置的变化则通过设置界面自己调用的 `Apply` 传入；`screen.DisplayID` 与 `screen.Constrained` 向设置界面提供显示器选择与功耗判定规则。全屏在 macOS（以独立空间的原生全屏）、Windows 和 Linux 上生效。在 Web 上它会请求浏览器全屏，而浏览器只在用户手势（例如更改该设置的那次点击）期间允许全屏，因此启动时应用的已保存全屏设置在 Web 上仍保持窗口模式。Android 和 iOS 会忽略它。帧率上限在所有平台生效。
+只有设置改变了全屏或显示器，或者首次 `Apply` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏的操作。在 `Run` 之前应用的设置会在 `Run` 启动时生效；释放调用 `Run` 的所有者与调用它返回的 `stop` 效果相同，都会恢复帧率上限并停止发送窗口请求。`Run` 生效期间，`Video` 会监听 `cx.Env().FullScreen()`：当窗口在 `Video` 请求之外进入或退出全屏（例如玩家按 Escape 或使用浏览器/系统控件）时，`Video` 会更新 `Video.Settings()` 返回的设置并调用 `Video.OnWindowChanged`。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低；在 `Run` 生效期间于组件或副作用中读取时，二者会随功耗状态变化而更新，设置的变化则通过设置界面自己调用的 `Apply` 传入；`screen.DisplayID`、`screen.Constrained` 与 `screen.CanFullScreen` 向设置界面提供显示器选择、功耗判定规则以及当前平台是否支持全屏。全屏在 macOS（以独立空间的原生全屏）、Windows 和 Linux 上生效。在 Web 上，浏览器只在用户手势期间允许进入全屏，因此启动时应用的已保存全屏设置不会立即请求，而是标记为待生效（`Video.PendingFullScreen()`），待 `Video.Attach` 挂载的视图收到首次按下（或在按下回调中调用 `Video.ApplyPending()`）时再发送请求；在设置按钮中交互切换全屏则会立即请求。Android、iOS 以及手机浏览器（如 iPhone Safari）无法进入全屏（`screen.CanFullScreen(cx.Env())` 返回 `false`）。帧率上限在所有平台生效。

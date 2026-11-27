@@ -140,7 +140,18 @@ func (g *caveRun) syncLevelAccessibility() {
 func (g *caveRun) initSettings(cx *core.Scope) {
 	g.catalog = newCaveRunCatalog()
 	g.settingsStore = save.NewStorageSettingsStore(cx.Storage(), "caverun")
-	g.video = &screen.Video{Loop: &g.loop}
+	g.video = &screen.Video{
+		Loop: &g.loop,
+		OnWindowChanged: func(d save.DisplaySettings) {
+			if g.settingsMenu == nil {
+				return
+			}
+			cur := g.settingsMenu.Settings()
+			cur.Display.Fullscreen = d.Fullscreen
+			g.settingsMenu.SetSettings(cur)
+			g.bumpSettingsTick()
+		},
+	}
 	g.video.Run(cx)
 
 	sel, err := quality.NewSelector(quality.DefaultConfig(), quality.DeviceFromEnv(cx.Env()))
@@ -163,6 +174,7 @@ func (g *caveRun) initSettings(cx *core.Scope) {
 		Targets:  g.settingsTargets(),
 		Initial:  &initial,
 		Defaults: &defaults,
+		Env:      cx.Env(),
 		AudioBuses: []gameui.SettingsAudioBus{
 			{Name: soundGroupMusic, Label: "Music"},
 			{Name: soundGroupSFX, Label: "SFX"},

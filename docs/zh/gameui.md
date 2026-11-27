@@ -115,6 +115,7 @@ nav.StepActions(func(a gameui.NavAction) bool {
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
 menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 	Store: store,
+	Env:   cx.Env(),
 	Targets: save.SettingsTargets{
 		Sound:              mixer,
 		ApplyDisplay:       video.Apply,
@@ -139,6 +140,7 @@ menu.Draw(d, bounds)
 - 使用 `FormatBindingToken`、`ParseBindingToken`、`FormatBindingLabel`、`GamepadButtonToken` 与 `ApplyBindingsToActions` 在 `save.Settings.Bindings` 和 `input.Actions` 之间双向转换。
 - 在玩家切换语言后调用 `SetText` 传入翻译后的 `SettingsText`；未自定义 `Theme` 时（或调用 `HighContrastTheme()`），开启 `Accessibility.HighContrast` 会自动切换到高对比度配色。
 - 打开菜单时调用 `SyncGamepad`，避免用于打开设置界面的按键按住状态在菜单内立即触发。
+- 在 `SettingsMenuConfig` 中传入 `Env: cx.Env()`，可在无法进入全屏的平台（`screen.CanFullScreen`，如 iOS、Android 和手机浏览器）上隐藏“窗口模式”行，并在 Web 以及按 Escape 或系统控件切换全屏后使窗口模式与 `Env.FullScreen()` 保持一致。
 
 ## 世界坐标锚定原生视图（`AnchorOverlay`）
 

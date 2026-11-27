@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/nsgo/core"
@@ -394,4 +395,339 @@ func ExampleVideo() {
 	_ = v.Apply(s)
 	fmt.Println(l.DrawRate, v.FrameCap())
 	// Output: 30 30
+}
+
+func TestVideoDefersSavedFullScreenOnWebUntilFirstPress(t *testing.T) {
+	webEnv := core.Environment{
+		OS:       core.OSWeb,
+		Idiom:    core.IdiomDesktop,
+		Displays: twoDisplays.Displays,
+	}
+
+	t.Run("Attach sends on first press", func(t *testing.T) {
+		got := recordFullScreen(t)
+		v := &screen.Video{}
+		saved := save.DefaultSettings().Display
+		saved.Fullscreen = true
+		saved.DisplayID = "main"
+
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			v.Run(cx)
+			_ = v.Apply(saved)
+			view := core.View{
+				TestID: "game",
+				Style:  core.Style{Width: core.Pt(200), Height: core.Pt(100)},
+			}
+			v.Attach(&view)
+			return view
+		}, nsgotest.Environment(webEnv))
+
+		if len(*got) != 0 {
+			t.Fatalf("saved fullscreen on web requested at start: %v, want nothing", *got)
+		}
+		if !v.PendingFullScreen() {
+			t.Fatal("PendingFullScreen() = false at start on web, want true")
+		}
+
+		app.Press("id:game")
+		if want := []fullScreenRequest{{true, "main"}}; !slices.Equal(*got, want) {
+			t.Fatalf("requests after first press = %v, want %v", *got, want)
+		}
+		if v.PendingFullScreen() {
+			t.Fatal("PendingFullScreen() = true after first press, want false")
+		}
+
+		// A second press does not send another request.
+		app.Press("id:game")
+		if len(*got) != 1 {
+			t.Fatalf("requests after second press = %v, want 1", *got)
+		}
+	})
+
+	t.Run("ApplyPending in press handler sends on first press", func(t *testing.T) {
+		got := recordFullScreen(t)
+		v := &screen.Video{}
+		saved := save.DefaultSettings().Display
+		saved.Fullscreen = true
+		// Apply before Run to verify startup deferral in that order too.
+		_ = v.Apply(saved)
+
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			v.Run(cx)
+			return core.View{
+				TestID:  "play",
+				Style:   core.Style{Width: core.Pt(120), Height: core.Pt(40)},
+				OnPress: func(core.PressEvent) { v.ApplyPending() },
+			}
+		}, nsgotest.Environment(webEnv))
+
+		if len(*got) != 0 {
+			t.Fatalf("requests at start = %v, want nothing", *got)
+		}
+		if !v.PendingFullScreen() {
+			t.Fatal("PendingFullScreen() = false, want true")
+		}
+
+		app.Press("id:play")
+		if want := []fullScreenRequest{{true, "main"}}; !slices.Equal(*got, want) {
+			t.Fatalf("requests after press = %v, want %v", *got, want)
+		}
+	})
+
+	t.Run("Attach sends on first key press", func(t *testing.T) {
+		got := recordFullScreen(t)
+		v := &screen.Video{}
+		saved := save.DefaultSettings().Display
+		saved.Fullscreen = true
+
+		var ref core.Ref
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			v.Run(cx)
+			_ = v.Apply(saved)
+			view := core.View{
+				TestID:    "game",
+				Ref:       &ref,
+				Focusable: func() bool { return true },
+				Style:     core.Style{Width: core.Pt(200), Height: core.Pt(100)},
+			}
+			v.Attach(&view)
+			return view
+		}, nsgotest.Environment(webEnv))
+		app.Post(ref.Focus)
+		app.Settle()
+
+		if len(*got) != 0 {
+			t.Fatalf("requests at start = %v, want nothing", *got)
+		}
+		app.Key("a")
+		if want := []fullScreenRequest{{true, "main"}}; !slices.Equal(*got, want) {
+			t.Fatalf("requests after key press = %v, want %v", *got, want)
+		}
+	})
+}
+
+func TestVideoWebWindowedApplyClearsPendingFullScreen(t *testing.T) {
+	got := recordFullScreen(t)
+	v := &screen.Video{}
+	webEnv := core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop, Displays: twoDisplays.Displays}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		s := save.DefaultSettings().Display
+		s.Fullscreen = true
+		_ = v.Apply(s)
+		view := core.View{
+			TestID: "game",
+			Style:  core.Style{Width: core.Pt(100), Height: core.Pt(100)},
+		}
+		v.Attach(&view)
+		return view
+	}, nsgotest.Environment(webEnv))
+
+	if !v.PendingFullScreen() {
+		t.Fatal("expected PendingFullScreen() == true at start")
+	}
+	apply(app, v, save.DefaultSettings().Display) // Fullscreen: false
+	if v.PendingFullScreen() {
+		t.Fatal("expected windowed Apply to clear PendingFullScreen")
+	}
+	app.Press("id:game")
+	if len(*got) != 0 {
+		t.Fatalf("expected no fullscreen request after clearing pending, got %v", *got)
+	}
+}
+
+func TestVideoTracksExternalFullScreenChangesAndCallsOnWindowChanged(t *testing.T) {
+	got := recordFullScreen(t)
+	var changes []save.DisplaySettings
+	v := &screen.Video{
+		OnWindowChanged: func(d save.DisplaySettings) {
+			changes = append(changes, d)
+		},
+	}
+	webEnv := core.Environment{
+		OS:       core.OSWeb,
+		Idiom:    core.IdiomDesktop,
+		Displays: twoDisplays.Displays,
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		return core.View{}
+	}, nsgotest.Environment(webEnv))
+
+	// Apply windowed first, then enter full screen via a normal Apply.
+	s := save.DefaultSettings().Display
+	apply(app, v, s)
+	s.Fullscreen = true
+	apply(app, v, s)
+	if want := []fullScreenRequest{{true, "main"}}; !slices.Equal(*got, want) {
+		t.Fatalf("requests = %v, want %v", *got, want)
+	}
+
+	// Browser confirms entering full screen: our own request, so OnWindowChanged does not fire.
+	fullEnv := webEnv
+	fullEnv.FullScreen = true
+	app.SetEnvironment(fullEnv)
+	if len(changes) != 0 {
+		t.Fatalf("Video's own fullscreen entry fired OnWindowChanged: %+v", changes)
+	}
+
+	// Player leaves full screen outside the game (Escape / browser chrome).
+	app.SetEnvironment(webEnv)
+	if v.Settings().Fullscreen {
+		t.Fatal("Video.Settings().Fullscreen = true after external exit, want false")
+	}
+	if len(changes) != 1 || changes[0].Fullscreen {
+		t.Fatalf("OnWindowChanged = %+v, want single change with Fullscreen=false", changes)
+	}
+
+	// Re-applying Fullscreen: true requests full screen again in one shot (no stale lastFull).
+	apply(app, v, s)
+	if want := []fullScreenRequest{{true, "main"}, {true, "main"}}; !slices.Equal(*got, want) {
+		t.Fatalf("requests after re-enter = %v, want %v", *got, want)
+	}
+
+	// Browser confirms entry again; then external entry from windowed updates settings to true.
+	app.SetEnvironment(fullEnv)
+	s.Fullscreen = false
+	apply(app, v, s)
+	app.SetEnvironment(webEnv)
+	if len(changes) != 1 {
+		t.Fatalf("Video's own fullscreen exit fired OnWindowChanged: %+v", changes)
+	}
+	app.SetEnvironment(fullEnv)
+	if !v.Settings().Fullscreen {
+		t.Fatal("Video.Settings().Fullscreen = false after external entry, want true")
+	}
+	if len(changes) != 2 || !changes[1].Fullscreen {
+		t.Fatalf("OnWindowChanged = %+v, want second change with Fullscreen=true", changes)
+	}
+}
+
+func TestVideoWebMenuToggleEntersFullScreenInOnePress(t *testing.T) {
+	got := recordFullScreen(t)
+	webEnv := core.Environment{
+		OS:       core.OSWeb,
+		Idiom:    core.IdiomDesktop,
+		Displays: twoDisplays.Displays,
+	}
+
+	var (
+		v    *screen.Video
+		menu *gameui.SettingsMenu
+	)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		store := save.NewStorageSettingsStore(cx.Storage(), "web-fs-test")
+		saved := save.DefaultSettings()
+		saved.Display.Fullscreen = true
+		if err := store.Save(saved); err != nil {
+			t.Fatal(err)
+		}
+
+		v = &screen.Video{
+			OnWindowChanged: func(d save.DisplaySettings) {
+				if menu == nil {
+					return
+				}
+				cur := menu.Settings()
+				cur.Display = d
+				menu.SetSettings(cur)
+			},
+		}
+		v.Run(cx)
+		if _, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: v.Apply}); err != nil {
+			t.Fatal(err)
+		}
+
+		menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+			Store:     store,
+			Targets:   save.SettingsTargets{ApplyDisplay: v.Apply},
+			Env:       cx.Env(),
+			AutoApply: true,
+		})
+		menu.SetTab(gameui.SettingsTabVideo)
+		menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+
+		return core.View{
+			TestID: "menu-host",
+			Style:  core.Style{Width: core.Pt(960), Height: core.Pt(540)},
+			OnPressDown: func(ev core.PressEvent) {
+				menu.OnPointerDown(ev.Position)
+			},
+			OnPressUp: func(ev core.PressEvent) {
+				menu.OnPointerUp(ev.Position)
+			},
+		}
+	}, nsgotest.Size(960, 540), nsgotest.Environment(webEnv))
+
+	// At start on the web, nothing was requested and the menu reports Windowed.
+	if len(*got) != 0 {
+		t.Fatalf("requests at start = %v, want nothing", *got)
+	}
+	if menu.Settings().Display.Fullscreen {
+		t.Fatal("menu reported Fullscreen=true on windowed web page")
+	}
+
+	// Pressing the Window Mode toggle once enters full screen immediately.
+	winBtn := menu.TabControls(gameui.SettingsTabVideo)[0]
+	b := winBtn.Bounds()
+	center := core.Point{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y + b.Size.Height/2}
+	app.PressAt("id:menu-host", center)
+	if want := []fullScreenRequest{{true, "main"}}; !slices.Equal(*got, want) {
+		t.Fatalf("requests after one menu toggle = %v, want %v", *got, want)
+	}
+	if !menu.Settings().Display.Fullscreen {
+		t.Fatal("menu Fullscreen = false after toggle, want true")
+	}
+
+	// Browser enters full screen, then player exits via Escape.
+	fullEnv := webEnv
+	fullEnv.FullScreen = true
+	app.SetEnvironment(fullEnv)
+	app.SetEnvironment(webEnv)
+	if v.Settings().Fullscreen {
+		t.Fatal("Video.Settings().Fullscreen = true after Escape, want false")
+	}
+	if menu.Settings().Display.Fullscreen {
+		t.Fatal("menu Fullscreen = true after Escape, want false")
+	}
+
+	// Pressing Window Mode once enters full screen again.
+	app.PressAt("id:menu-host", center)
+	if want := []fullScreenRequest{{true, "main"}, {true, "main"}}; !slices.Equal(*got, want) {
+		t.Fatalf("requests after second menu toggle = %v, want %v", *got, want)
+	}
+}
+
+func TestCanFullScreen(t *testing.T) {
+	if !screen.CanFullScreen(nil) {
+		t.Fatal("CanFullScreen(nil) = false, want true")
+	}
+	cases := []struct {
+		name string
+		env  core.Environment
+		want bool
+	}{
+		{"unset OS", core.Environment{}, true},
+		{"macos", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, true},
+		{"windows", core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}, true},
+		{"linux", core.Environment{OS: core.OSLinux, Idiom: core.IdiomDesktop}, true},
+		{"web desktop", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, true},
+		{"web tablet", core.Environment{OS: core.OSWeb, Idiom: core.IdiomTablet}, true},
+		{"web phone", core.Environment{OS: core.OSWeb, Idiom: core.IdiomPhone}, false},
+		{"ios phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, false},
+		{"android phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				got = screen.CanFullScreen(cx.Env())
+				return core.View{}
+			}, nsgotest.Environment(tc.env))
+			if got != tc.want {
+				t.Fatalf("CanFullScreen(%s) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
 }

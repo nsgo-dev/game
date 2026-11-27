@@ -37,6 +37,9 @@ func (g *caveRun) render(cx *core.Scope) core.Node {
 	g.actions.Attach(&gameView)
 	// After the actions, so a touch shows the on-screen controls before they hear it.
 	g.touch.Attach(&gameView)
+	if g.video != nil {
+		g.video.Attach(&gameView)
+	}
 
 	return core.View{
 		Style: core.Style{
