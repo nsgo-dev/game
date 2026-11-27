@@ -1,11 +1,11 @@
 package editor
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -90,8 +90,8 @@ func layerTilemapSection(
 		if len(ed.atlasNames()) > 0 {
 			tilesetControl = ui.Select[string]{
 				TestID:      "inspector-layer-tilemap-add-tileset",
-				Label:       "Tileset Atlas",
-				Placeholder: "Choose atlas",
+				Label:       ed.T("tilemapSetup.tilesetAtlasLabel"),
+				Placeholder: ed.T("tilemapSetup.chooseAtlas"),
 				Searchable:  true,
 				Disabled:    disabled,
 				Style:       core.Style{Width: core.Pct(100)},
@@ -105,8 +105,8 @@ func layerTilemapSection(
 		} else {
 			tilesetControl = ui.Input{
 				TestID:      "inspector-layer-tilemap-add-tileset",
-				Label:       "Tileset Atlas",
-				Placeholder: "tiles",
+				Label:       ed.T("tilemapSetup.tilesetAtlasLabel"),
+				Placeholder: ed.T("tilemapSetup.tilesPlaceholder"),
 				Disabled:    disabled,
 				Value:       tileset.Get,
 				OnChange:    tileset.Set,
@@ -114,13 +114,13 @@ func layerTilemapSection(
 		}
 
 		return []core.Node{
-			sectionHeader("TILEMAP"),
-			fieldRow("Tileset", tilesetControl),
-			pairRow("Tile Size",
+			sectionHeader(ed.T("tilemapSetup.heading")),
+			fieldRow(ed.T("tilemapSetup.tileset"), tilesetControl),
+			pairRow(ed.T("tilemapSetup.tileSize"),
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-add-tile-w",
-					Label:       "Tile Width",
-					LeadingText: "W",
+					Label:       ed.T("tilemapSetup.tileWidth"),
+					LeadingText: ed.T("tilemapSetup.axisW"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -129,8 +129,8 @@ func layerTilemapSection(
 				},
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-add-tile-h",
-					Label:       "Tile Height",
-					LeadingText: "H",
+					Label:       ed.T("tilemapSetup.tileHeight"),
+					LeadingText: ed.T("tilemapSetup.axisH"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -138,11 +138,11 @@ func layerTilemapSection(
 					OnChange:    func(v float64) { tileH.Set(int(math.Round(v))) },
 				},
 			),
-			pairRow("Grid Size",
+			pairRow(ed.T("tilemapSetup.gridSize"),
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-add-width",
-					Label:       "Grid Width",
-					LeadingText: "W",
+					Label:       ed.T("tilemapSetup.gridWidth"),
+					LeadingText: ed.T("tilemapSetup.axisW"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -151,8 +151,8 @@ func layerTilemapSection(
 				},
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-add-height",
-					Label:       "Grid Height",
-					LeadingText: "H",
+					Label:       ed.T("tilemapSetup.gridHeight"),
+					LeadingText: ed.T("tilemapSetup.axisH"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -162,7 +162,7 @@ func layerTilemapSection(
 			),
 			ui.Button{
 				TestID:   "inspector-layer-tilemap-add",
-				Text:     "Add Tilemap",
+				Text:     ed.T("tilemapSetup.addTilemap"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonPrimary,
 				Disabled: disabled,
@@ -196,34 +196,52 @@ func layerTilemapSection(
 	}
 
 	nodes := []core.Node{
-		sectionHeader("TILEMAP"),
+		sectionHeader(ed.T("tilemapSetup.heading")),
 		core.Text{
 			TestID: "inspector-layer-tilemap-summary",
 			ContentFunc: func() string {
 				tm, ref := resolvedTM()
 				if tm == nil {
 					if ref != "" {
-						return "Ref: " + ref + " (missing)"
+						return ed.T("tilemapSetup.refMissing", l10n.Param("ref", ref))
 					}
-					return "No tilemap"
+					return ed.T("tilemapSetup.noTilemap")
 				}
-				prefix := "Inline"
+				prefix := ed.T("tilemapSetup.prefixInline")
 				if ref != "" {
-					prefix = "Ref: " + ref
+					prefix = ed.T("tilemapSetup.prefixRef", l10n.Param("ref", ref))
 				}
 				switch {
 				case tm.IsExternal():
-					return prefix + " · " + tm.Source
+					return ed.T("tilemapSetup.summaryExternal", l10n.Param("prefix", prefix), l10n.Param("source", tm.Source))
 				case tm.IsLayered():
-					s := fmt.Sprintf("%s · layered %dx%d (%dx%d)", prefix, tm.Width, tm.Height, tm.TileWidth, tm.TileHeight)
+					s := ed.T("tilemapSetup.summaryLayered",
+						l10n.Param("prefix", prefix),
+						l10n.Param("width", tm.Width),
+						l10n.Param("height", tm.Height),
+						l10n.Param("tileW", tm.TileWidth),
+						l10n.Param("tileH", tm.TileHeight),
+					)
 					if tm.OffsetX != 0 || tm.OffsetY != 0 {
-						s += fmt.Sprintf(" · offset (%g, %g)", tm.OffsetX, tm.OffsetY)
+						s += ed.T("tilemapSetup.summaryOffset",
+							l10n.Param("x", strconv.FormatFloat(float64(tm.OffsetX), 'g', -1, 32)),
+							l10n.Param("y", strconv.FormatFloat(float64(tm.OffsetY), 'g', -1, 32)),
+						)
 					}
 					return s
 				default:
-					s := fmt.Sprintf("%s · %dx%d (%dx%d)", prefix, tm.Width, tm.Height, tm.TileWidth, tm.TileHeight)
+					s := ed.T("tilemapSetup.summarySingle",
+						l10n.Param("prefix", prefix),
+						l10n.Param("width", tm.Width),
+						l10n.Param("height", tm.Height),
+						l10n.Param("tileW", tm.TileWidth),
+						l10n.Param("tileH", tm.TileHeight),
+					)
 					if tm.OffsetX != 0 || tm.OffsetY != 0 {
-						s += fmt.Sprintf(" · offset (%g, %g)", tm.OffsetX, tm.OffsetY)
+						s += ed.T("tilemapSetup.summaryOffset",
+							l10n.Param("x", strconv.FormatFloat(float64(tm.OffsetX), 'g', -1, 32)),
+							l10n.Param("y", strconv.FormatFloat(float64(tm.OffsetY), 'g', -1, 32)),
+						)
 					}
 					return s
 				}
@@ -244,10 +262,10 @@ func layerTilemapSection(
 	tmNow, refNow := tmSnap.tm, tmSnap.ref
 	if tmNow != nil && tmNow.IsInline() {
 		if !tmNow.IsLayered() {
-			nodes = append(nodes, fieldRow("Tileset", ui.Select[string]{
+			nodes = append(nodes, fieldRow(ed.T("tilemapSetup.tileset"), ui.Select[string]{
 				TestID:      "inspector-layer-tilemap-tileset",
-				Label:       "Tileset Atlas",
-				Placeholder: "Choose atlas",
+				Label:       ed.T("tilemapSetup.tilesetAtlasLabel"),
+				Placeholder: ed.T("tilemapSetup.chooseAtlas"),
 				Searchable:  true,
 				Disabled:    disabled,
 				Style:       core.Style{Width: core.Pct(100)},
@@ -272,11 +290,11 @@ func layerTilemapSection(
 		}
 
 		nodes = append(nodes,
-			pairRow("Tile Size",
+			pairRow(ed.T("tilemapSetup.tileSize"),
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-tile-w",
-					Label:       "Tile Width",
-					LeadingText: "W",
+					Label:       ed.T("tilemapSetup.tileWidth"),
+					LeadingText: ed.T("tilemapSetup.axisW"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -294,8 +312,8 @@ func layerTilemapSection(
 				},
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-tile-h",
-					Label:       "Tile Height",
-					LeadingText: "H",
+					Label:       ed.T("tilemapSetup.tileHeight"),
+					LeadingText: ed.T("tilemapSetup.axisH"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -331,12 +349,12 @@ func layerTilemapSection(
 		}
 
 		nodes = append(nodes,
-			sectionHeader("RESIZE EDGES"),
-			pairRow("L / R",
+			sectionHeader(ed.T("tilemapSetup.resizeEdgesHeading")),
+			pairRow(ed.T("tilemapSetup.leftRight"),
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-resize-left",
-					Label:       "Resize Left Edge",
-					LeadingText: "L",
+					Label:       ed.T("tilemapSetup.resizeLeftLabel"),
+					LeadingText: ed.T("tilemapSetup.edgeL"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -345,8 +363,8 @@ func layerTilemapSection(
 				},
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-resize-right",
-					Label:       "Resize Right Edge",
-					LeadingText: "R",
+					Label:       ed.T("tilemapSetup.resizeRightLabel"),
+					LeadingText: ed.T("tilemapSetup.edgeR"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -354,11 +372,11 @@ func layerTilemapSection(
 					OnChange:    func(v float64) { rightDelta.Set(int(math.Round(v))) },
 				},
 			),
-			pairRow("T / B",
+			pairRow(ed.T("tilemapSetup.topBottom"),
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-resize-top",
-					Label:       "Resize Top Edge",
-					LeadingText: "T",
+					Label:       ed.T("tilemapSetup.resizeTopLabel"),
+					LeadingText: ed.T("tilemapSetup.edgeT"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -367,8 +385,8 @@ func layerTilemapSection(
 				},
 				ui.NumberInput{
 					TestID:      "inspector-layer-tilemap-resize-bottom",
-					Label:       "Resize Bottom Edge",
-					LeadingText: "B",
+					Label:       ed.T("tilemapSetup.resizeBottomLabel"),
+					LeadingText: ed.T("tilemapSetup.edgeB"),
 					Step:        1,
 					Format:      formatInt,
 					Disabled:    disabled,
@@ -378,7 +396,7 @@ func layerTilemapSection(
 			),
 			ui.Button{
 				TestID:   "inspector-layer-tilemap-resize",
-				Text:     "Resize Grid",
+				Text:     ed.T("tilemapSetup.resizeGrid"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonSecondary,
 				Disabled: disabled,
@@ -389,8 +407,8 @@ func layerTilemapSection(
 
 	removeBtn := ui.Button{
 		TestID:   "inspector-layer-tilemap-remove",
-		Text:     "Remove",
-		Label:    "Remove Tilemap",
+		Text:     ed.T("tilemapSetup.remove"),
+		Label:    ed.T("tilemapSetup.removeLabel"),
 		Size:     ui.SizeSmall,
 		Variant:  ui.ButtonOutline,
 		Disabled: disabled,
@@ -402,9 +420,9 @@ func layerTilemapSection(
 	if refNow == "" {
 		refDraft := core.NewSignal(cx, ed.newTilemapRefName(layerName))
 		nodes = append(nodes,
-			fieldRow("Ref Name", ui.Input{
+			fieldRow(ed.T("tilemapSetup.refName"), ui.Input{
 				TestID:      "inspector-layer-tilemap-ref-name",
-				Label:       "Top-Level Tilemap Name",
+				Label:       ed.T("tilemapSetup.refNameLabel"),
 				Placeholder: layerName,
 				Disabled:    disabled,
 				Value:       refDraft.Get,
@@ -418,7 +436,7 @@ func layerTilemapSection(
 				Children: []core.Node{
 					ui.Button{
 						TestID:   "inspector-layer-tilemap-extract",
-						Text:     "Move to Top-Level",
+						Text:     ed.T("tilemapSetup.moveToTopLevel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -436,7 +454,7 @@ func layerTilemapSection(
 			Children: []core.Node{
 				ui.Button{
 					TestID:   "inspector-layer-tilemap-inline",
-					Text:     "Move Inline",
+					Text:     ed.T("tilemapSetup.moveInline"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonSecondary,
 					Disabled: disabled,

@@ -29,9 +29,16 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		_ = rev.Get()
 		return ed.RightRailTab()
 	})
-	darkMemo := core.NewMemo(cx, func() bool {
+	type railThemeKey struct {
+		dark bool
+		lang string
+	}
+	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return railThemeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 
 	return core.Show{
@@ -62,7 +69,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								},
 								Then: func(cx *core.Scope) core.Node {
 									return core.Dynamic(func(cx *core.Scope) core.Node {
-										p := SpecPaletteFor(darkMemo.Get())
+										p := SpecPaletteFor(darkMemo.Get().dark)
 										return core.View{
 											TestID: "right-rail-history-wrap",
 											Style: dockedStyle(cx, core.Style{
@@ -86,7 +93,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										return ed.workspaceStateKey()
 									})
 									return core.Dynamic(func(cx *core.Scope) core.Node {
-										p := SpecPaletteFor(darkMemo.Get())
+										p := SpecPaletteFor(darkMemo.Get().dark)
 										return core.View{
 											TestID: "right-rail-inspector-wrap",
 											Style: dockedStyle(cx, core.Style{
@@ -191,7 +198,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 						Then: func(cx *core.Scope) core.Node {
 							return core.View{
 								TestID: "agent-tab-review-dot",
-								Label:  "review waiting",
+								Label:  ed.T("agentTurn.reviewWaiting"),
 								Style: core.Style{
 									Width:        core.Pt(6),
 									Height:       core.Pt(6),
@@ -450,9 +457,16 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	reduceMotion := core.NewMemo(cx, func() bool {
 		return cx.Env().ReduceMotion()
 	})
-	darkMemo := core.NewMemo(cx, func() bool {
+	type railThemeKey struct {
+		dark bool
+		lang string
+	}
+	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return railThemeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 
 	cx.Effect(func() {
@@ -502,7 +516,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 	chipContent := core.Dynamic(func(cx *core.Scope) core.Node {
 		st := statusMemo.Get()
-		p := SpecPaletteFor(darkMemo.Get())
+		p := SpecPaletteFor(darkMemo.Get().dark)
 		switch st {
 		case AgentStatusConnected:
 			pill := core.View{
@@ -511,9 +525,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				LabelFunc: func() string {
 					_ = rev.Get()
 					if len(ed.AgentClients()) == 0 && (ed.AgentMode() == AgentModeAPIKey || ed.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
-						return fmt.Sprintf("Connected · API (%s)", ed.AgentStatusTooltip())
+						return ed.T("agentUI.connectedAPILabel", l10n.Param("tooltip", ed.AgentStatusTooltip()))
 					}
-					return fmt.Sprintf("Connected · MCP (%s)", ed.AgentStatusTooltip())
+					return ed.T("agentUI.connectedMCPLabel", l10n.Param("tooltip", ed.AgentStatusTooltip()))
 				},
 				Style: core.Style{
 					Direction:    core.Row,
@@ -547,9 +561,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						ContentFunc: func() string {
 							_ = rev.Get()
 							if len(ed.AgentClients()) == 0 && (ed.AgentMode() == AgentModeAPIKey || ed.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
-								return "Connected · API"
+								return ed.T("agentUI.connectedAPI")
 							}
-							return "Connected · MCP"
+							return ed.T("agentUI.connectedMCP")
 						},
 						Style: core.Style{
 							FontSize: 11.5,
@@ -623,9 +637,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								step = 1
 							}
 							if total > 0 {
-								return fmt.Sprintf("Working · step %d of %d", step, total)
+								return ed.T("agentUI.workingStepOf", l10n.Param("step", step), l10n.Param("total", total))
 							}
-							return fmt.Sprintf("Working · step %d", step)
+							return ed.T("agentUI.workingStep", l10n.Param("step", step))
 						},
 						Style: core.Style{
 							FontSize: 11.5,
@@ -642,7 +656,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				LabelFunc: func() string {
 					_ = rev.Get()
 					_ = elapsedTick.Get()
-					return fmt.Sprintf("Waiting for you, %s. Focus open request", ed.AgentWaitingElapsed())
+					return ed.T("agentUI.waitingFocusLabel", l10n.Param("elapsed", ed.AgentWaitingElapsed()))
 				},
 				Style: core.Style{
 					Direction:    core.Row,
@@ -676,7 +690,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						ContentFunc: func() string {
 							_ = rev.Get()
 							_ = elapsedTick.Get()
-							return fmt.Sprintf("Waiting for you · %s", ed.AgentWaitingElapsed())
+							return ed.T("agentUI.waitingElapsed", l10n.Param("elapsed", ed.AgentWaitingElapsed()))
 						},
 						Style: core.Style{
 							FontSize: 11.5,
@@ -714,7 +728,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						ContentFunc: func() string {
 							_ = rev.Get()
 							attempt, total := ed.AgentReconnectProgress()
-							return fmt.Sprintf("Reconnecting · try %d of %d", attempt, total)
+							return ed.T("agentUI.reconnectingTry", l10n.Param("attempt", attempt), l10n.Param("total", total))
 						},
 						Style: core.Style{
 							FontSize: 11.5,
@@ -757,7 +771,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							},
 							core.Text{
 								TestID:  "agent-status-text",
-								Content: "Disconnected",
+								Content: ed.T("agent.status.disconnected"),
 								Style: core.Style{
 									FontSize: 11.5,
 									Color:    p.Removed.Fg,
@@ -768,7 +782,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					core.View{
 						TestID: "agent-status-reconnect",
 						Role:   core.RoleButton,
-						Label:  "Reconnect",
+						Label:  ed.T("agentUI.reconnect"),
 						Style: core.Style{
 							Height:         core.Pt(specRowHeight),
 							MinHeight:      core.Pt(specRowHeight),
@@ -787,7 +801,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Reconnect",
+								Content: ed.T("agentUI.reconnect"),
 								Style: core.Style{
 									FontSize: 11.5,
 									Color:    p.TextSecondary,
@@ -798,7 +812,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					core.View{
 						TestID: "agent-status-troubleshoot",
 						Role:   core.RoleButton,
-						Label:  "Troubleshoot",
+						Label:  ed.T("agentUI.troubleshoot"),
 						Style: core.Style{
 							Height:         core.Pt(specRowHeight),
 							MinHeight:      core.Pt(specRowHeight),
@@ -814,7 +828,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Troubleshoot",
+								Content: ed.T("agentUI.troubleshoot"),
 								Style: core.Style{
 									FontSize: 11.5,
 									Color:    p.TextMuted,
@@ -859,7 +873,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								TestID: "agent-status-text",
 								ContentFunc: func() string {
 									_ = rev.Get()
-									return fmt.Sprintf("Limit reached · resets %s", ed.AgentUsageResetLabel())
+									return ed.T("agentUI.limitReachedResets", l10n.Param("reset", ed.AgentUsageResetLabel()))
 								},
 								Style: core.Style{
 									FontSize: 11.5,
@@ -870,8 +884,8 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					ui.Button{
 						TestID:  "agent-status-usage",
-						Text:    "Usage",
-						Label:   "Open Usage and privacy settings",
+						Text:    ed.T("agentUI.usage"),
+						Label:   ed.T("agentUI.openUsageSettings"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Color:   func() core.Color { return p.Panel },
@@ -919,7 +933,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					core.Text{
 						TestID:  "agent-status-text",
-						Content: "Disconnected · offline",
+						Content: ed.T("agentUI.disconnectedOffline"),
 						Style: core.Style{
 							FontSize: 11.5,
 							Color:    p.Removed.Fg,
@@ -931,7 +945,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			return core.View{
 				TestID: "agent-status-chip",
 				Role:   core.RoleButton,
-				Label:  "Connect an agent",
+				Label:  ed.T("agentUI.connectAnAgent"),
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
@@ -962,7 +976,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					core.Text{
 						TestID:  "agent-status-text",
-						Content: "Connect agent",
+						Content: ed.T("agentUI.connectAgent"),
 						Style: core.Style{
 							FontSize: 11.5,
 							Color:    p.TextSecondary,
@@ -1225,9 +1239,16 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return ed.AgentWorking()
 	})
 
-	darkMemo := core.NewMemo(cx, func() bool {
+	type railThemeKey struct {
+		dark bool
+		lang string
+	}
+	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return railThemeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 
 	osKind := cx.Env().OS()
@@ -1236,7 +1257,8 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return fmt.Sprintf("%v|%s", ed.SpecPalette(cx).Dark, ed.ResolvedLanguage())
 	})
 	tabBar := core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get())
+		_ = bannerThemeKey.Get()
+		p := SpecPaletteFor(darkMemo.Get().dark)
 		return rightRailTabBar(cx, ed, rev, p, true)
 	})
 
@@ -1343,7 +1365,8 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		When: workingMemo.Get,
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := SpecPaletteFor(darkMemo.Get())
+				_ = bannerThemeKey.Get()
+				p := SpecPaletteFor(darkMemo.Get().dark)
 				return agentWorkingFooterView(cx, ed, p, addDraft)
 			})
 		},
@@ -1353,13 +1376,16 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	}
 
 	return core.View{
-		TestID:    "agent-panel",
-		Ref:       panelRef,
-		Role:      core.RoleRegion,
-		Label:     "Agent panel",
+		TestID: "agent-panel",
+		Ref:    panelRef,
+		Role:   core.RoleRegion,
+		LabelFunc: func() string {
+			_ = rev.Get()
+			return ed.T("agentUI.agentPanelLabel")
+		},
 		Focusable: func() bool { return true },
 		StyleFunc: func() core.Style {
-			p := SpecPaletteFor(darkMemo.Get())
+			p := SpecPaletteFor(darkMemo.Get().dark)
 			return dockedStyle(cx, core.Style{
 				Width:       core.Pt(380),
 				FlexShrink:  0,
@@ -1452,7 +1478,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = bannerThemeKey.Get()
-				p := SpecPaletteFor(darkMemo.Get())
+				p := SpecPaletteFor(darkMemo.Get().dark)
 				return agentRewindBannerView(ed, rev, p)
 			}),
 			footer,
@@ -1498,11 +1524,11 @@ func agentReadyToReviewBanner(ed *Editor, p SpecPalette, count int) core.Node {
 
 func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	connected := ed.AgentStatus() == AgentStatusConnected
-	heading := "Ask the agent to edit this scene"
-	body := "Describe what you want to change. Every edit runs through the editor's MCP server so you can see it live and undo it in one step."
+	heading := ed.T("agentUI.emptyHeadingConnected")
+	body := ed.T("agentUI.emptyBodyConnected")
 	if !connected {
-		heading = "Connect an agent to start"
-		body = "Connect Claude Code, Codex, or any MCP client on this computer. Manual editing tools keep working in every state."
+		heading = ed.T("agentUI.emptyHeadingDisconnected")
+		body = ed.T("agentUI.emptyBodyDisconnected")
 	}
 	children := []core.Node{
 		core.Text{
@@ -1525,7 +1551,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 		children = append(children, core.View{
 			TestID: "agent-empty-connect",
 			Role:   core.RoleButton,
-			Label:  "Connect an agent",
+			Label:  ed.T("agentUI.connectAnAgent"),
 			Style: core.Style{
 				AlignSelf:      core.AlignStart,
 				Height:         core.Pt(30),
@@ -1541,7 +1567,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Connect an agent",
+					Content: ed.T("agentUI.connectAnAgent"),
 					Style: core.Style{
 						FontSize:   12.5,
 						FontWeight: 600,
@@ -1630,9 +1656,9 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 		}
 	}
 	if turn.External {
-		label := "Terminal MCP session"
+		label := ed.T("agentUI.terminalSession")
 		if turn.AgentName != "" {
-			label = fmt.Sprintf("From terminal · %s", turn.AgentName)
+			label = ed.T("agentUI.fromTerminal", l10n.Param("name", turn.AgentName))
 		}
 		children = append(children, core.Text{
 			TestID:  fmt.Sprintf("agent-turn-external-%d", turnIdx),
@@ -1868,7 +1894,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 	} else if turn.Stopped && (activePlan == nil || turn.Plan == nil || activePlan.ID != turn.Plan.PlanID) {
 		children = append(children, core.Text{
 			TestID:  fmt.Sprintf("agent-turn-stopped-%d", turnIdx),
-			Content: "Stopped · edits already made stay undoable.",
+			Content: ed.T("agentUI.stoppedUndoable"),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -1908,7 +1934,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 					Children: []core.Node{
 						core.View{
 							Role:  core.RoleButton,
-							Label: "Troubleshoot",
+							Label: ed.T("agentUI.troubleshoot"),
 							Style: core.Style{
 								Height:         core.Pt(28),
 								Padding:        core.Symmetric(0, 10),
@@ -1925,7 +1951,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "Troubleshoot",
+									Content: ed.T("agentUI.troubleshoot"),
 									Style: core.Style{
 										FontSize: 12,
 										Color:    p.TextSecondary,
@@ -2089,8 +2115,8 @@ func agentModelErrorCard(ed *Editor, turnIdx int, turnID string, me *AgentModelE
 	actions := []core.Node{
 		ui.Button{
 			TestID:  fmt.Sprintf("agent-turn-retry-%d", turnIdx),
-			Text:    "Retry now",
-			Label:   "Retry now",
+			Text:    ed.T("agentUI.retryNow"),
+			Label:   ed.T("agentUI.retryNow"),
 			Variant: ui.ButtonGhost,
 			Size:    ui.SizeSmall,
 			Color:   func() core.Color { return p.Raised },
@@ -2113,7 +2139,7 @@ func agentModelErrorCard(ed *Editor, turnIdx int, turnID string, me *AgentModelE
 		},
 	}
 	if me.AlternativeAgent != "" && me.AlternativeRoute != "" && me.AlternativeRoute != AgentRouteNone {
-		switchLabel := "Use " + me.AlternativeAgent
+		switchLabel := ed.T("agentUI.useAgent", l10n.Param("agent", me.AlternativeAgent))
 		actions = append(actions, ui.Button{
 			TestID:  fmt.Sprintf("agent-turn-switch-%d", turnIdx),
 			Text:    switchLabel,
@@ -2185,7 +2211,7 @@ func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
 	return core.View{
 		TestID: "agent-limit-card",
 		Role:   core.RoleRegion,
-		Label:  "Weekly limit reached",
+		Label:  ed.T("agentUI.weeklyLimitReached"),
 		Style: core.Style{
 			CornerRadius: 12,
 			Background:   p.Raised,
@@ -2212,7 +2238,7 @@ func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
 						},
 					},
 					core.Text{
-						Content: fmt.Sprintf("Limit reached · resets %s", ed.AgentUsageResetLabel()),
+						Content: ed.T("agentUI.limitReachedResets", l10n.Param("reset", ed.AgentUsageResetLabel())),
 						Style: core.Style{
 							FontSize:   13,
 							FontWeight: 600,
@@ -2222,7 +2248,7 @@ func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
 				},
 			},
 			core.Text{
-				Content: fmt.Sprintf("This week's limit (%d of %d requests) is used. Requests wait in the queue until the reset or until you raise the limit; only you can.", u.WeeklyRequests, limit),
+				Content: ed.T("agentUI.weeklyLimitBody", l10n.Param("used", u.WeeklyRequests), l10n.Param("limit", limit)),
 				Style: core.Style{
 					FontSize: 12.5,
 					Color:    p.TextSecondary,
@@ -2234,7 +2260,7 @@ func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
 					Gap:       8,
 				},
 				Children: []core.Node{
-					settingsSpecButton(p, "agent-limit-open-usage", "Usage and privacy", "Open Usage and privacy settings", false, nil, func() {
+					settingsSpecButton(p, "agent-limit-open-usage", ed.T("settings.page.usage"), ed.T("agentUI.openUsageSettings"), false, nil, func() {
 						ed.OpenSettingsPage(SettingsPageUsage)
 					}),
 				},
@@ -2247,7 +2273,7 @@ func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReach
 	rows := make([]core.Node, 0, len(queued)+2)
 	rows = append(rows, core.Text{
 		TestID:  "agent-queued-heading",
-		Content: fmt.Sprintf("QUEUED · %d", len(queued)),
+		Content: ed.T("agentUI.queuedHeading", l10n.Param("count", len(queued))),
 		Style: core.Style{
 			FontSize:      11,
 			FontWeight:    600,
@@ -2276,7 +2302,7 @@ func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReach
 						},
 					},
 					core.Text{
-						Content: fmt.Sprintf("queued %s", item.QueuedAt.Format("15:04")),
+						Content: ed.T("agentUI.queuedAt", l10n.Param("time", item.QueuedAt.Format("15:04"))),
 						Style: core.Style{
 							FontSize: 11.5,
 							Color:    p.TextFaint,
@@ -2286,13 +2312,13 @@ func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReach
 			},
 		}
 		if !limitReached {
-			rowChildren = append(rowChildren, settingsSpecButton(p, fmt.Sprintf("agent-queued-send-%d", idx), "Send", "Send queued request", true, nil, func() {
+			rowChildren = append(rowChildren, settingsSpecButton(p, fmt.Sprintf("agent-queued-send-%d", idx), ed.T("composer.send"), ed.T("agentUI.sendQueuedLabel"), true, nil, func() {
 				ed.report(ed.SendQueuedAgentRequest(item.ID))
 			}))
 		}
 		rowChildren = append(rowChildren, ui.Button{
 			TestID:  fmt.Sprintf("agent-queued-remove-%d", idx),
-			Label:   fmt.Sprintf("Remove %q from queue", item.Prompt),
+			Label:   ed.T("agentUI.removeFromQueue", l10n.Param("prompt", fmt.Sprintf("%q", item.Prompt))),
 			Variant: ui.ButtonGhost,
 			Size:    ui.SizeSmall,
 			Color:   func() core.Color { return p.Raised },
@@ -2323,7 +2349,7 @@ func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReach
 		})
 	}
 	rows = append(rows, core.Text{
-		Content: "When the limit resets or you raise it, each queued request waits for you to send it.",
+		Content: ed.T("agentUI.queuedLimitCaption"),
 		Style: core.Style{
 			FontSize: 12,
 			Color:    p.TextFaint,
@@ -2877,12 +2903,19 @@ func agentRewindBannerView(ed *Editor, rev *core.Signal[uint64], p SpecPalette) 
 // a live waiting state that turns to connected when the first MCP client attaches, four starting permission checkboxes,
 // Later, Done, and targeted step troubleshooting when reopened from Disconnected.
 func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	darkMemo := core.NewMemo(cx, func() bool {
+	type railThemeKey struct {
+		dark bool
+		lang string
+	}
+	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return railThemeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get())
+		p := SpecPaletteFor(darkMemo.Get().dark)
 		choiceCard := func(testID string, mode AgentMode, name, desc, badge string) core.Node {
 			return core.View{
 				TestID: testID,
@@ -3042,7 +3075,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					Children: []core.Node{
 						core.Text{
 							TestID:  "connect-dialog-title",
-							Content: "Connect an agent",
+							Content: ed.T("agentUI.connectAnAgent"),
 							Style: core.Style{
 								FontSize:   20,
 								FontWeight: 600,
@@ -3050,7 +3083,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							},
 						},
 						core.Text{
-							Content: "The editor serves this project over MCP: the agent reads and edits the scene, sees the viewport, runs checks and playtests. Pick how it reaches the agent; you can change this any time.",
+							Content: ed.T("agentUI.connectIntro"),
 							Style: core.Style{
 								FontSize: 13,
 								Color:    p.TextFaint,
@@ -3082,11 +3115,11 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 										_ = rev.Get()
 										switch ed.ConnectDialogStep() {
 										case ConnectStepInstall:
-											return "Troubleshooting · Step 1: Project MCP configuration"
+											return ed.T("agentUI.troubleshootInstall")
 										case ConnectStepAPIKey:
-											return "Troubleshooting · API key configuration"
+											return ed.T("agentUI.troubleshootAPIKey")
 										default:
-											return "Troubleshooting · Waiting for MCP connection"
+											return ed.T("agentUI.troubleshootWaiting")
 										}
 									},
 									Style: core.Style{
@@ -3102,9 +3135,9 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 											return cause
 										}
 										if ed.ConnectDialogStep() == ConnectStepAPIKey {
-											return "The built-in API key could not be verified. Check your key in the system keychain or paste a new key."
+											return ed.T("agentUI.troubleshootAPIKeyBody")
 										}
-										return "The MCP connection stopped answering. Confirm the project configuration and reconnect your agent."
+										return ed.T("agentUI.troubleshootMCPBody")
 									},
 									Style: core.Style{
 										FontSize: 12,
@@ -3119,12 +3152,12 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				core.View{
 					TestID: "connect-choices",
 					Role:   core.RoleRadioGroup,
-					Label:  "How the editor reaches the agent",
+					Label:  ed.T("agentUI.connectChoicesLabel"),
 					Style:  core.Style{Gap: 8},
 					Children: []core.Node{
-						choiceCard("connect-choice-local", AgentModeLocal, "An agent on this computer", "Claude Code, Codex or any MCP client you already use", "Recommended"),
-						choiceCard("connect-choice-key", AgentModeAPIKey, "Built in, with your API key", "The editor talks to the model itself", ""),
-						choiceCard("connect-choice-none", AgentModeNone, "No agent", "Edit by hand; the Agent panel stays closed", ""),
+						choiceCard("connect-choice-local", AgentModeLocal, ed.T("agentUI.choiceLocalTitle"), ed.T("agentUI.choiceLocalDesc"), ed.T("agentUI.recommended")),
+						choiceCard("connect-choice-key", AgentModeAPIKey, ed.T("agentUI.choiceKeyTitle"), ed.T("agentUI.choiceKeyDesc"), ""),
+						choiceCard("connect-choice-none", AgentModeNone, ed.T("agentUI.choiceNoneTitle"), ed.T("agentUI.choiceNoneDesc"), ""),
 					},
 				},
 				// Local MCP detail card
@@ -3195,7 +3228,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 									}
 									rowChildren := []core.Node{
 										core.Text{
-											Content: "Found on this computer:",
+											Content: ed.T("agentUI.foundOnComputer"),
 											Style: core.Style{
 												FontSize: 11.5,
 												Color:    p.TextFaint,
@@ -3207,7 +3240,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 									} else {
 										rowChildren = append(rowChildren, core.Text{
 											TestID:  "connect-detected-none",
-											Content: "None detected yet",
+											Content: ed.T("agentUI.noneDetected"),
 											Style: core.Style{
 												FontSize: 11.5,
 												Color:    p.TextMuted,
@@ -3218,8 +3251,8 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 										core.View{Style: core.Style{FlexGrow: 1}},
 										specPanelButton(p, specPanelButtonSpec{
 											TestID:  "connect-local-refresh",
-											Label:   "Re-detect local agents",
-											Tooltip: "Re-detect local agents",
+											Label:   ed.T("agentUI.redetectLocal"),
+											Tooltip: ed.T("agentUI.redetectLocal"),
 											Icon:    lucide.RefreshCw,
 											Variant: specBtnGhost,
 											Compact: true,
@@ -3240,7 +3273,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 									}
 								}),
 								core.Text{
-									Content: "Run this once in the project folder; the agent then finds the editor by itself:",
+									Content: ed.T("agentUI.installHint"),
 									Style: core.Style{
 										FontSize: 12.5,
 										Color:    p.TextMuted,
@@ -3280,7 +3313,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 										core.View{
 											TestID: "connect-copy-command",
 											Role:   core.RoleButton,
-											Label:  "Copy install command",
+											Label:  ed.T("agentUI.copyInstallCmd"),
 											Style: core.Style{
 												Height:         core.Pt(24),
 												Padding:        core.Symmetric(0, 10),
@@ -3298,9 +3331,9 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 													ContentFunc: func() string {
 														_ = rev.Get()
 														if ed.ConnectDialogCopied() {
-															return "Copied"
+															return ed.T("agentUI.copied")
 														}
-														return "Copy"
+														return ed.T("agentUI.copy")
 													},
 													Style: core.Style{
 														FontSize: 12,
@@ -3360,9 +3393,9 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 											ContentFunc: func() string {
 												_ = rev.Get()
 												if clients := ed.AgentClients(); len(clients) > 0 {
-													return fmt.Sprintf("Connected · %s", clients[0].HoverLabel())
+													return ed.T("agentUI.connectedClient", l10n.Param("client", clients[0].HoverLabel()))
 												}
-												return "Waiting for an agent to connect…"
+												return ed.T("agentUI.waitingForConnect")
 											},
 											StyleFunc: func() core.Style {
 												_ = rev.Get()
@@ -3401,7 +3434,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "API key",
+									Content: ed.T("agentUI.apiKey"),
 									Style: core.Style{
 										FontSize: 12.5,
 										Color:    p.TextMuted,
@@ -3409,8 +3442,8 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 								},
 								ui.Input{
 									TestID:      "connect-api-key-input",
-									Label:       "API key",
-									Placeholder: "Paste a key",
+									Label:       ed.T("agentUI.apiKey"),
+									Placeholder: ed.T("agentUI.pasteKey"),
 									Masked:      true,
 									Value: func() string {
 										_ = rev.Get()
@@ -3433,7 +3466,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 									},
 								},
 								core.Text{
-									Content: "Kept in the system keychain, never in the project files.",
+									Content: ed.T("agentUI.keychainHint"),
 									Style: core.Style{
 										FontSize: 12,
 										Color:    p.TextFaint,
@@ -3462,7 +3495,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 													},
 												},
 												core.Text{
-													Content: "Key stored in system keychain · leave blank to keep current key",
+													Content: ed.T("agentUI.keyStoredHint"),
 													Style: core.Style{
 														FontSize: 12,
 														Color:    p.Added.Fg,
@@ -3482,7 +3515,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					Style:  core.Style{Gap: 8},
 					Children: []core.Node{
 						core.Text{
-							Content: "THE AGENT MAY, WITHOUT ASKING",
+							Content: ed.T("agentUI.mayWithoutAsking"),
 							Style: core.Style{
 								FontSize:      11,
 								FontWeight:    600,
@@ -3493,10 +3526,10 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						core.View{
 							Style: core.Style{Direction: core.Row, Gap: 12},
 							Children: []core.Node{
-								permCheckbox("connect-perm-scenes", "Edit scenes and data (always reviewable)",
+								permCheckbox("connect-perm-scenes", ed.T("agentUI.permEditScenes"),
 									func(p AgentPermissions) bool { return p.EditScenesAndData },
 									func(p *AgentPermissions, v bool) { p.EditScenesAndData = v }),
-								permCheckbox("connect-perm-check", "Run game check",
+								permCheckbox("connect-perm-check", ed.T("agentUI.permRunCheck"),
 									func(p AgentPermissions) bool { return p.RunGameCheck },
 									func(p *AgentPermissions, v bool) { p.RunGameCheck = v }),
 							},
@@ -3504,10 +3537,10 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						core.View{
 							Style: core.Style{Direction: core.Row, Gap: 12},
 							Children: []core.Node{
-								permCheckbox("connect-perm-playtest", "Run headless playtests",
+								permCheckbox("connect-perm-playtest", ed.T("agentUI.permRunPlaytests"),
 									func(p AgentPermissions) bool { return p.RunHeadlessPlaytests },
 									func(p *AgentPermissions, v bool) { p.RunHeadlessPlaytests = v }),
-								permCheckbox("connect-perm-go", "Edit Go code",
+								permCheckbox("connect-perm-go", ed.T("agentUI.permEditGo"),
 									func(p AgentPermissions) bool { return p.EditGoCode },
 									func(p *AgentPermissions, v bool) { p.EditGoCode = v }),
 							},
@@ -3523,7 +3556,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "Anything not ticked asks first.",
+							Content: ed.T("agentUI.permFooterHint"),
 							Style: core.Style{
 								FontSize: 12,
 								Color:    p.TextFaint,
@@ -3533,7 +3566,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						core.View{
 							TestID: "connect-later",
 							Role:   core.RoleButton,
-							Label:  "Later",
+							Label:  ed.T("agent.notify.actionLater"),
 							Style: core.Style{
 								Height:         core.Pt(36),
 								Padding:        core.Symmetric(0, 16),
@@ -3547,7 +3580,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "Later",
+									Content: ed.T("agent.notify.actionLater"),
 									Style: core.Style{
 										FontSize: 13,
 										Color:    p.TextMuted,
@@ -3558,7 +3591,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						core.View{
 							TestID: "connect-done",
 							Role:   core.RoleButton,
-							Label:  "Done",
+							Label:  ed.T("settings.done"),
 							Style: core.Style{
 								Height:         core.Pt(36),
 								Padding:        core.Symmetric(0, 18),
@@ -3573,7 +3606,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "Done",
+									Content: ed.T("settings.done"),
 									Style: core.Style{
 										FontSize:   13,
 										FontWeight: 600,
@@ -3589,7 +3622,7 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 
 		return ui.Dialog{
 			TestID: "connect-agent-dialog",
-			Label:  "Connect an agent",
+			Label:  ed.T("agentUI.connectAnAgent"),
 			Bare:   true,
 			Open: func() bool {
 				_ = rev.Get()

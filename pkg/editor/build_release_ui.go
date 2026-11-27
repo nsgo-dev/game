@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/internal/qrcode"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -58,12 +59,18 @@ func BuildReleaseScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		}
 	})
 
+	langMemo := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		return ed.ResolvedLanguage()
+	})
+
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = langMemo.Get()
 		p := ed.SpecPalette(cx)
 		return core.View{
 			TestID: "build-release-screen",
 			Role:   core.RoleRegion,
-			Label:  "Build and release",
+			Label:  ed.T("buildRelease.screenLabel"),
 			Style: core.Style{
 				Position:   core.Relative,
 				Width:      core.Pct(100),
@@ -96,7 +103,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 		_ = brRev.Get()
 		name := ed.BuildReleaseSnapshot().ProjectName
 		if name == "" {
-			return "Project"
+			return ed.T("buildRelease.defaultProjectName")
 		}
 		return name
 	})
@@ -107,7 +114,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 	return core.View{
 		TestID: "build-release-header",
 		Role:   core.RoleRegion,
-		Label:  "Release header",
+		Label:  ed.T("buildRelease.headerLabel"),
 		Style: core.Style{
 			Height:      core.Pt(44),
 			FlexShrink:  0,
@@ -123,7 +130,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 			core.View{
 				TestID: "build-release-back",
 				Role:   core.RoleButton,
-				Label:  "Back to scene editor",
+				Label:  ed.T("buildRelease.backLabel"),
 				Style: core.Style{
 					Height:       core.Pt(28),
 					Direction:    core.Row,
@@ -158,13 +165,13 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 					core.Text{
-						Content: "Release",
+						Content: ed.T("buildRelease.releaseBreadcrumb"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
 				},
 			},
 			core.Text{
-				Content: "Version",
+				Content: ed.T("buildRelease.versionHeading"),
 				Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 			},
 			core.View{
@@ -172,7 +179,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 				Children: []core.Node{
 					ui.Input{
 						TestID:      "build-release-version",
-						Label:       "Release version",
+						Label:       ed.T("buildRelease.versionLabel"),
 						Placeholder: "0.1.0",
 						Disabled: func() bool {
 							_ = brRev.Get()
@@ -216,62 +223,60 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 					}
 				}
 
-				chipText := fmt.Sprintf("Ready · %d presets", includedCount)
+				chipText := ed.T("buildRelease.chipReady", l10n.Param("count", includedCount))
 				var chipBg core.Color
 				chipBorder := p.LineRaised
 				chipFg := p.TextMuted
 				dotColor := p.TextFaint
 				switch {
 				case snap.Running:
-					chipText = fmt.Sprintf("Building · %d of %d done", doneCount, includedCount)
+					chipText = ed.T("buildRelease.chipBuilding", l10n.Param("done", doneCount), l10n.Param("total", includedCount))
 					chipBg = p.Agent.Fill
 					chipBorder = p.Agent.Edge
 					chipFg = p.TextSecondary
 					dotColor = p.Agent.Fg
 				case snap.Stopped:
-					chipText = fmt.Sprintf("Stopped · %d of %d done", doneCount, includedCount)
+					chipText = ed.T("buildRelease.chipStopped", l10n.Param("done", doneCount), l10n.Param("total", includedCount))
 					chipBorder = p.LineRaised
 					chipFg = p.TextMuted
 					dotColor = p.TextFaint
 				case failedCount > 0:
-					chipText = fmt.Sprintf("%d of %d done · %d failed", doneCount, includedCount, failedCount)
+					chipText = ed.T("buildRelease.chipFailed", l10n.Param("done", doneCount), l10n.Param("total", includedCount), l10n.Param("failed", failedCount))
 					chipBg = p.Removed.Fill
 					chipBorder = p.Removed.Edge
 					chipFg = p.TextSecondary
 					dotColor = p.Removed.Fg
 				case doneCount > 0 && doneCount == includedCount:
-					chipText = fmt.Sprintf("Done · %d of %d built", doneCount, includedCount)
+					chipText = ed.T("buildRelease.chipDone", l10n.Param("done", doneCount), l10n.Param("total", includedCount))
 					chipBg = p.Added.Fill
 					chipBorder = p.Added.Edge
 					chipFg = p.TextSecondary
 					dotColor = p.Added.Fg
 				}
 
-				actionLabel := "Build"
+				actionLabel := ed.T("buildRelease.actionBuild")
 				actionBg := p.Accent.Fg
 				actionFg := p.Accent.OnFill
 				actionIcon := lucide.Play
 				if snap.Running {
-					actionLabel = "Stop"
+					actionLabel = ed.T("buildRelease.actionStop")
 					actionBg = p.LineRaised
 					actionFg = p.TextPrimary
 					actionIcon = lucide.Square
 				} else if snap.Stopped {
-					actionLabel = "Resume"
+					actionLabel = ed.T("buildRelease.actionResume")
 					actionBg = p.Accent.Fg
 					actionFg = p.Accent.OnFill
 					actionIcon = lucide.Play
 				}
 
-				commit := snap.GitCommit
-				if commit == "" {
-					commit = "local"
-				}
+				commit := localizedBuildCommit(ed, snap.GitCommit)
 				branch := snap.GitBranch
 				if branch == "" {
 					branch = "main"
 				}
-				metaText := fmt.Sprintf("from %s on %s · last release %s", commit, branch, snap.LastReleaseVersion)
+				lastRel := localizedBuildLastRelease(ed, snap.LastReleaseVersion)
+				metaText := ed.T("buildRelease.metaLine", l10n.Param("commit", commit), l10n.Param("branch", branch), l10n.Param("lastRelease", lastRel))
 
 				return core.View{
 					Style: core.Style{
@@ -288,7 +293,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 							Style:   core.Style{FontSize: 12, Color: p.TextFaint, FontVariant: core.FontTabularNums},
 						},
 						core.View{Style: core.Style{FlexGrow: 1}},
-						buildReleasePillButton(p, "build-release-dry-run", "Dry Run", snap.DryRun, snap.Running, func() {
+						buildReleasePillButton(p, "build-release-dry-run", ed.T("buildRelease.dryRun"), snap.DryRun, snap.Running, func() {
 							ed.SetReleaseDryRun(!snap.DryRun)
 						}),
 						core.View{
@@ -413,7 +418,7 @@ func buildReleaseLeftColumnView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 				_ = brRev.Get()
 				cur := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
-				return buildReleasePreflightSection(cur, snap.Preflight)
+				return buildReleasePreflightSection(cur, ed, snap.Preflight)
 			}),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
@@ -427,37 +432,31 @@ func buildReleaseLeftColumnView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 	}
 }
 
-func buildReleasePreflightSection(p SpecPalette, pf BuildPreflightSummary) core.Node {
+func buildReleasePreflightSection(p SpecPalette, ed *Editor, pf BuildPreflightSummary) core.Node {
 	checkIcon := lucide.Check()
 	checkColor := p.Added.Fg
-	checkDetail := "not run yet"
+	checkDetail := ed.T("buildRelease.preflightNotRun")
 	if pf.CheckRan {
 		elapsed := formatBuildDuration(pf.CheckElapsed)
 		if elapsed == "" {
-			elapsed = "<1 s"
+			elapsed = ed.T("buildRelease.lessThanOneSec")
 		}
 		if pf.CheckErr != "" {
 			checkIcon = lucide.CircleAlert()
 			checkColor = p.Removed.Fg
-			checkDetail = "error · " + elapsed
+			checkDetail = ed.T("buildRelease.preflightError", l10n.Param("elapsed", elapsed))
 		} else if pf.CheckProblems > 0 {
 			checkIcon = lucide.CircleAlert()
 			checkColor = p.Removed.Fg
-			checkDetail = fmt.Sprintf("%d problems · %s", pf.CheckProblems, elapsed)
+			checkDetail = ed.T("buildRelease.preflightProblems", l10n.Param("count", pf.CheckProblems), l10n.Param("elapsed", elapsed))
 		} else {
-			checkDetail = fmt.Sprintf("0 problems · %s", elapsed)
+			checkDetail = ed.T("buildRelease.preflightProblems", l10n.Param("count", 0), l10n.Param("elapsed", elapsed))
 		}
 	}
 
-	smokeDetail := pf.SmokeSummary
-	if smokeDetail == "" {
-		smokeDetail = "60 s per build, main scene"
-	}
+	smokeDetail := localizedBuildSmokeSummary(ed, pf.SmokeSummary)
 
-	profile := pf.QualityProfile
-	if profile == "" {
-		profile = "Low"
-	}
+	profile := localizedBuildQualityProfile(ed, pf.QualityProfile)
 	dlBudget := pf.DownloadSizeBudgetMB
 	if dlBudget <= 0 {
 		dlBudget = DefaultDownloadSizeBudgetMB
@@ -487,7 +486,7 @@ func buildReleasePreflightSection(p SpecPalette, pf BuildPreflightSummary) core.
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "BEFORE EVERY BUILD",
+				Content: ed.T("buildRelease.preflightHeading"),
 				Style: core.Style{
 					FontSize:      11,
 					FontWeight:    core.FontWeightSemibold,
@@ -506,7 +505,7 @@ func buildReleasePreflightSection(p SpecPalette, pf BuildPreflightSummary) core.
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 								Children: []core.Node{
 									buildSpecIcon(checkIcon, 13, checkColor),
-									core.Text{Content: "nsgo check", Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+									core.Text{Content: ed.T("buildRelease.preflightCheckTitle"), Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
 								},
 							},
 							core.Text{Content: checkDetail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
@@ -516,7 +515,7 @@ func buildReleasePreflightSection(p SpecPalette, pf BuildPreflightSummary) core.
 						TestID: "build-preflight-smoke",
 						Style:  cardStyle,
 						Children: []core.Node{
-							core.Text{Content: "Smoke playtest", Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+							core.Text{Content: ed.T("buildRelease.preflightSmokeTitle"), Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
 							core.Text{Content: smokeDetail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
@@ -524,7 +523,7 @@ func buildReleasePreflightSection(p SpecPalette, pf BuildPreflightSummary) core.
 						TestID: "build-preflight-budgets",
 						Style:  cardStyle,
 						Children: []core.Node{
-							core.Text{Content: fmt.Sprintf("Budgets · %s profile", profile), Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+							core.Text{Content: ed.T("buildRelease.preflightBudgetsTitle", l10n.Param("profile", profile)), Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
 							core.Text{Content: budgetDetail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
@@ -556,7 +555,7 @@ func buildReleasePresetsSection(p SpecPalette, ed *Editor, snap BuildReleaseSnap
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "EXPORT PRESETS · export/",
+						Content: ed.T("buildRelease.presetsHeading"),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
@@ -565,7 +564,7 @@ func buildReleasePresetsSection(p SpecPalette, ed *Editor, snap BuildReleaseSnap
 						},
 					},
 					core.Text{
-						Content: "size vs " + snap.LastReleaseVersion,
+						Content: ed.T("buildRelease.sizeVsVersion", l10n.Param("version", localizedBuildLastRelease(ed, snap.LastReleaseVersion))),
 						Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightMedium, Color: p.TextFaint},
 					},
 				},
@@ -625,7 +624,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 		})
 	}
 	chipChildren = append(chipChildren, core.Text{
-		Content: entry.StatusText,
+		Content: localizedBuildStatusText(ed, entry.StatusText),
 		Style:   core.Style{FontSize: 11.5, Color: chipFg},
 	})
 
@@ -648,7 +647,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 			core.View{
 				TestID: "build-preset-check-" + plat,
 				Role:   core.RoleCheckbox,
-				Label:  "Include " + entry.Name + " in this release",
+				Label:  ed.T("buildRelease.includePresetLabel", l10n.Param("name", entry.Name)),
 				Style: core.Style{
 					Width:          core.Pt(16),
 					Height:         core.Pt(16),
@@ -671,7 +670,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 			core.View{
 				TestID: "build-preset-pick-" + plat,
 				Role:   core.RoleButton,
-				Label:  "Select " + entry.Name + " preset",
+				Label:  ed.T("buildRelease.selectPresetLabel", l10n.Param("name", entry.Name)),
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
@@ -703,7 +702,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2, Overflow: core.Hidden},
 						Children: []core.Node{
 							buildPresetTitleRow(p, ed, entry),
-							core.Text{Content: entry.Summary, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
+							core.Text{Content: localizedBuildSummary(ed, entry.Summary), Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
 					core.View{
@@ -732,7 +731,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 							},
 							core.Text{
 								TestID:  "build-preset-delta-" + plat,
-								Content: entry.DeltaText,
+								Content: localizedBuildDeltaText(ed, entry.DeltaText),
 								Style:   core.Style{FontSize: 11, Color: p.TextFaint, FontVariant: core.FontTabularNums},
 							},
 						},
@@ -810,7 +809,7 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 				snap := ed.BuildReleaseSnapshot()
 				headerChildren := []core.Node{
 					core.Text{
-						Content: "RELEASE NOTES",
+						Content: ed.T("buildRelease.notesHeading"),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
@@ -825,11 +824,7 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 					if since == "" {
 						since = snap.LastReleaseVersion
 					}
-					unit := "commits"
-					if snap.CommitsSinceRelease == 1 {
-						unit = "commit"
-					}
-					provenance = fmt.Sprintf("Drafted from %d %s since %s", snap.CommitsSinceRelease, unit, since)
+					provenance = ed.Plural("buildRelease.notesDraftedFrom", snap.CommitsSinceRelease, l10n.Param("since", since))
 				}
 				if provenance != "" {
 					headerChildren = append(headerChildren, core.View{
@@ -868,9 +863,9 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 				Children: []core.Node{
 					ui.Input{
 						TestID:      "build-release-notes",
-						Label:       "Release notes",
+						Label:       ed.T("buildRelease.notesLabel"),
 						Multiline:   true,
-						Placeholder: "Summarize what changed in this release…",
+						Placeholder: ed.T("buildRelease.notesPlaceholder"),
 						Value:       notesDraft.Get,
 						OnChange: func(v string) {
 							notesDraft.Set(v)
@@ -903,13 +898,13 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 					Children: []core.Node{
 						core.Text{
 							TestID:  "build-release-notes-file",
-							Content: fmt.Sprintf("Saved to %s · game release -release-notes", notesFile),
+							Content: ed.T("buildRelease.notesSavedTo", l10n.Param("file", notesFile)),
 							Style:   core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 11, Color: p.TextFaint},
 						},
 						core.View{
 							TestID: "build-release-notes-redraft",
 							Role:   core.RoleButton,
-							Label:  "Redraft release notes",
+							Label:  ed.T("buildRelease.redraftLabel"),
 							Style: core.Style{
 								Height:       core.Pt(24),
 								FlexShrink:   0,
@@ -932,7 +927,7 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 							Children: []core.Node{
 								buildSpecIcon(lucide.RefreshCw(), 11, p.TextMuted),
 								core.Text{
-									Content: "Redraft",
+									Content: ed.T("buildRelease.redraft"),
 									Style:   core.Style{FontSize: 11, Color: p.TextMuted},
 								},
 							},
@@ -962,15 +957,15 @@ func buildReleasePublishFooter(p SpecPalette, ed *Editor) core.Node {
 			core.View{
 				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: "Publish to itch.io, Google Play internal, TestFlight", Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
-					core.Text{Content: "Each upload asks first, whatever the permission profile", Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
+					core.Text{Content: ed.T("buildRelease.publishTitle"), Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+					core.Text{Content: ed.T("buildRelease.publishSubtitle"), Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 				},
 			},
 			core.View{
 				Ref:    reviewBtnRef,
 				TestID: "build-release-review-uploads",
 				Role:   core.RoleButton,
-				Label:  "Review uploads…",
+				Label:  ed.T("buildRelease.reviewUploads"),
 				Style: core.Style{
 					Height:         core.Pt(30),
 					FlexShrink:     0,
@@ -990,7 +985,7 @@ func buildReleasePublishFooter(p SpecPalette, ed *Editor) core.Node {
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Review uploads…",
+						Content: ed.T("buildRelease.reviewUploads"),
 						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 					},
 				},
@@ -1025,7 +1020,7 @@ func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "No export presets configured yet.",
+								Content: ed.T("buildRelease.noPresets"),
 								Style:   core.Style{FontSize: 13, Color: p.TextFaint},
 							},
 						},
@@ -1047,13 +1042,13 @@ func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 				}
 				if sel.Status == BuildPresetDone {
 					plat := sel.Platform
-					headerChildren = append(headerChildren, buildReleaseSecondaryButtonSpec(p, "build-detail-show-finder", "Show in Finder", func() {
+					headerChildren = append(headerChildren, buildReleaseSecondaryButtonSpec(p, "build-detail-show-finder", ed.T("buildRelease.showInFinder"), func() {
 						ed.report(ed.ShowBuildArtifactInFinder(plat))
 					}))
 				}
-				editLabel := "Edit preset"
+				editLabel := ed.T("buildRelease.editPreset")
 				if snap.EditingPreset {
-					editLabel = "Done editing"
+					editLabel = ed.T("buildRelease.doneEditing")
 				}
 				headerChildren = append(headerChildren, buildReleaseSecondaryButtonSpec(p, "build-detail-edit-preset", editLabel, func() {
 					ed.SetReleaseEditingPreset(!snap.EditingPreset)
@@ -1170,7 +1165,7 @@ func buildInlinePresetEditor(p SpecPalette, ed *Editor, entry BuildPresetEntry, 
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "TARGETS FOR " + strings.ToUpper(entry.Name),
+				Content: ed.T("buildRelease.targetsFor", l10n.Param("name", strings.ToUpper(entry.Name))),
 				Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: p.TextFaint},
 			},
 			core.View{
@@ -1184,16 +1179,16 @@ func buildInlinePresetEditor(p SpecPalette, ed *Editor, entry BuildPresetEntry, 
 func buildDetailRunningView(p SpecPalette, ed *Editor, entry BuildPresetEntry, followLog bool) core.Node {
 	stepRows := make([]core.Node, 0, len(entry.Steps))
 	for _, st := range entry.Steps {
-		stepRows = append(stepRows, buildStepRowView(p, st))
+		stepRows = append(stepRows, buildStepRowView(p, ed, st))
 	}
 
 	logContent := strings.Join(entry.LogLines, "\n")
 	if logContent == "" {
-		logContent = "Waiting for build output…"
+		logContent = ed.T("buildRelease.waitingLog")
 	}
-	followLabel := "Following"
+	followLabel := ed.T("buildRelease.logFollowing")
 	if !followLog {
-		followLabel = "Paused"
+		followLabel = ed.T("buildRelease.logPaused")
 	}
 
 	return core.View{
@@ -1235,7 +1230,7 @@ func buildDetailRunningView(p SpecPalette, ed *Editor, entry BuildPresetEntry, f
 							BorderColor: p.Line,
 						},
 						Children: []core.Node{
-							core.Text{Content: "Log", Style: core.Style{FontSize: 12, Color: p.TextMuted}},
+							core.Text{Content: ed.T("buildRelease.logHeading"), Style: core.Style{FontSize: 12, Color: p.TextMuted}},
 							core.Text{TestID: "build-log-file", Content: entry.LogFile, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 							core.View{Style: core.Style{FlexGrow: 1}},
 							buildReleasePillButton(p, "build-log-follow", followLabel, followLog, false, func() {
@@ -1261,7 +1256,7 @@ func buildDetailRunningView(p SpecPalette, ed *Editor, entry BuildPresetEntry, f
 	}
 }
 
-func buildStepRowView(p SpecPalette, st BuildStep) core.Node {
+func buildStepRowView(p SpecPalette, ed *Editor, st BuildStep) core.Node {
 	var badge core.Node
 	var rowBg core.Color
 	labelColor := p.TextPrimary
@@ -1332,8 +1327,8 @@ func buildStepRowView(p SpecPalette, st BuildStep) core.Node {
 		},
 		Children: []core.Node{
 			badge,
-			core.Text{Content: st.Label, Style: core.Style{FontSize: 12.5, Color: labelColor}},
-			core.Text{Content: st.Detail, Style: core.Style{FontSize: 12, Color: p.TextFaint}},
+			core.Text{Content: localizedBuildStepLabel(ed, st.Label), Style: core.Style{FontSize: 12.5, Color: labelColor}},
+			core.Text{Content: localizedBuildStepDetail(ed, st.Detail), Style: core.Style{FontSize: 12, Color: p.TextFaint}},
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{
 				TestID:  "build-step-time-" + string(st.ID),
@@ -1348,20 +1343,20 @@ func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, sh
 	f := entry.Failure
 	if f == nil {
 		f = &BuildFailureInfo{
-			Headline:   "Build failed",
+			Headline:   ed.T("buildRelease.buildFailed"),
 			StepIndex:  1,
 			TotalSteps: len(entry.Steps),
-			StepLabel:  "Build",
-			Notice:     BuildFailureNotice,
+			StepLabel:  ed.T("buildRelease.actionBuild"),
+			Notice:     ed.T("buildRelease.failureNotice"),
 		}
 	}
 	notice := f.Notice
-	if notice == "" {
-		notice = BuildFailureNotice
+	if notice == "" || notice == BuildFailureNotice {
+		notice = ed.T("buildRelease.failureNotice")
 	}
-	stepMeta := fmt.Sprintf("step %d of %d · %s", f.StepIndex, f.TotalSteps, f.StepLabel)
+	stepMeta := ed.T("buildRelease.failureStepMeta", l10n.Param("step", f.StepIndex), l10n.Param("total", f.TotalSteps), l10n.Param("label", f.StepLabel))
 	if dur := formatBuildDuration(f.Elapsed); dur != "" {
-		stepMeta += " · after " + dur
+		stepMeta = ed.T("buildRelease.failureStepMetaAfter", l10n.Param("step", f.StepIndex), l10n.Param("total", f.TotalSteps), l10n.Param("label", f.StepLabel), l10n.Param("duration", dur))
 	}
 
 	var cmdNodes []core.Node
@@ -1476,8 +1471,9 @@ func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, sh
 		plat := entry.Platform
 		footnote := prop.Footnote
 		if footnote == "" && prop.FilePath != "" {
-			footnote = "Edits " + prop.FilePath
+			footnote = ed.T("buildRelease.fixEditsFile", l10n.Param("file", prop.FilePath))
 		}
+		applyRebuildLabel := ed.T("buildRelease.applyAndRebuild", l10n.Param("name", entry.Name))
 		fixCard := core.View{
 			TestID: "build-fix-card",
 			Style: core.Style{
@@ -1520,7 +1516,7 @@ func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, sh
 						core.View{
 							TestID: "build-apply-fix",
 							Role:   core.RoleButton,
-							Label:  "Apply and rebuild " + entry.Name,
+							Label:  applyRebuildLabel,
 							Style: core.Style{
 								Height:         core.Pt(32),
 								Padding:        core.Symmetric(0, 14),
@@ -1535,12 +1531,12 @@ func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, sh
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "Apply and rebuild " + entry.Name,
+									Content: applyRebuildLabel,
 									Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: p.Accent.OnFill},
 								},
 							},
 						},
-						buildReleaseSecondaryButtonSpec(p, "build-whole-log", "Whole log", func() {
+						buildReleaseSecondaryButtonSpec(p, "build-whole-log", ed.T("buildRelease.wholeLog"), func() {
 							ed.SetReleaseShowWholeLog(!showWholeLog)
 						}),
 						core.View{Style: core.Style{FlexGrow: 1}},
@@ -1600,10 +1596,10 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		color core.Color
 	}
 	parts := []part{
-		{"Code", res.Breakdown.CodeBytes, spec.Accent.Fg},
-		{"Textures", res.Breakdown.TexturesBytes, spec.Changed.Fg},
-		{"Audio", res.Breakdown.AudioBytes, spec.Added.Fg},
-		{"Other", res.Breakdown.OtherBytes, spec.TextFaint},
+		{ed.T("buildRelease.breakdownCode"), res.Breakdown.CodeBytes, spec.Accent.Fg},
+		{ed.T("buildRelease.breakdownTextures"), res.Breakdown.TexturesBytes, spec.Changed.Fg},
+		{ed.T("buildRelease.breakdownAudio"), res.Breakdown.AudioBytes, spec.Added.Fg},
+		{ed.T("buildRelease.breakdownOther"), res.Breakdown.OtherBytes, spec.TextFaint},
 	}
 
 	var barSegs []core.Node
@@ -1640,7 +1636,7 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 	}
 
 	deltaColor := spec.TextFaint
-	deltaText := "new"
+	deltaText := ed.T("buildRelease.deltaNew")
 	if res.HasLastRelease {
 		deltaText = formatDeltaMB(res.DeltaBytes)
 		if res.DeltaBytes > 0 {
@@ -1726,10 +1722,10 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		TestID: "build-result-budgets",
 		Style:  core.Style{Direction: core.Row, Gap: 12},
 		Children: []core.Node{
-			buildBudgetCard(spec, "build-budget-download", "Download size",
+			buildBudgetCard(spec, ed, "build-budget-download", ed.T("buildRelease.budgetDownloadSize"),
 				fmt.Sprintf("%s / %.0f MB", formatSizeMB(res.SizeBytes), dlBudget),
 				res.DownloadBudgetMet, sizePct),
-			buildBudgetCard(spec, "build-budget-frame", "Frame time p95",
+			buildBudgetCard(spec, ed, "build-budget-frame", ed.T("buildRelease.budgetFrameTime"),
 				fmt.Sprintf("%.1f / %.1f ms", res.FrameTimeP95Ms, frameBudget),
 				res.FrameTimeBudgetMet, framePct),
 		},
@@ -1750,7 +1746,7 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
 					buildSpecIcon(lucide.Check(), 13, spec.Added.Fg),
-					core.Text{Content: "Smoke playtest · 60 s", Style: core.Style{FontSize: 12.5, Color: spec.TextPrimary}},
+					core.Text{Content: ed.T("buildRelease.smokePlaytest60s"), Style: core.Style{FontSize: 12.5, Color: spec.TextPrimary}},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{Content: res.SmokePlaytestWhere, Style: core.Style{FontSize: 11.5, Color: spec.TextFaint}},
 				},
@@ -1843,7 +1839,7 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 				Style: core.Style{Height: core.Pt(26), JustifyContent: core.JustifyCenter, Padding: core.Symmetric(0, 8)},
 				Children: []core.Node{
 					core.Text{
-						Content: "RUN ON DEVICE",
+						Content: ed.T("buildRelease.runOnDevice"),
 						Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: spec.TextMuted},
 					},
 				},
@@ -1884,14 +1880,14 @@ func clampBudgetPct(v float64) float32 {
 	return float32(v)
 }
 
-func buildBudgetCard(p SpecPalette, testID, title, metric string, met bool, pct float32) core.Node {
-	badgeText := "Met"
+func buildBudgetCard(p SpecPalette, ed *Editor, testID, title, metric string, met bool, pct float32) core.Node {
+	badgeText := ed.T("buildRelease.budgetMet")
 	badgeBg := p.Added.Fill
 	badgeBorder := p.Added.Edge
 	badgeFg := p.Added.Fg
 	barColor := p.Added.Fg
 	if !met {
-		badgeText = "Missed"
+		badgeText = ed.T("buildRelease.budgetMissed")
 		badgeBg = p.Removed.Fill
 		badgeBorder = p.Removed.Edge
 		badgeFg = p.Removed.Fg
@@ -1956,9 +1952,9 @@ func joinNaturalList(items []string) string {
 
 func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry) core.Node {
 	_, totalIssues := countReadinessIssues(entry.Readiness)
-	heading := fmt.Sprintf("READINESS · %d to fix before %s can build", totalIssues, entry.Name)
+	heading := ed.T("buildRelease.readinessToFix", l10n.Param("count", totalIssues), l10n.Param("name", entry.Name))
 	if totalIssues == 0 {
-		heading = fmt.Sprintf("READINESS · %s is ready to build", entry.Name)
+		heading = ed.T("buildRelease.readinessReady", l10n.Param("name", entry.Name))
 	}
 
 	plat := entry.Platform
@@ -2023,23 +2019,29 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 		})
 	}
 
-	guidance := fmt.Sprintf("The agent can handle project-side setup for %s; account sign-in and store credentials require you.", entry.Name)
+	guidance := ed.T("buildRelease.readinessGuidanceDefault", l10n.Param("name", entry.Name))
 	if len(agentItems) > 0 && len(personItems) > 0 {
-		verb := "needs"
+		key := "buildRelease.readinessGuidanceBoth"
 		if len(personItems) > 1 {
-			verb = "need"
+			key = "buildRelease.readinessGuidanceBothPlural"
 		}
-		guidance = fmt.Sprintf("The agent can write %s from what the game uses. %s %s your account, so you complete sign-in directly.",
-			joinNaturalList(agentItems), capitalizeProfile(joinNaturalList(personItems)), verb)
+		guidance = ed.T(key,
+			l10n.Param("agentItems", joinNaturalList(agentItems)),
+			l10n.Param("personItems", capitalizeProfile(joinNaturalList(personItems))),
+		)
 	} else if len(agentItems) > 0 {
-		guidance = fmt.Sprintf("The agent can complete %s automatically.", joinNaturalList(agentItems))
+		guidance = ed.T("buildRelease.readinessGuidanceAgent", l10n.Param("agentItems", joinNaturalList(agentItems)))
 	} else if len(personItems) > 0 {
-		verb := "requires"
+		key := "buildRelease.readinessGuidancePerson"
 		if len(personItems) > 1 {
-			verb = "require"
+			key = "buildRelease.readinessGuidancePersonPlural"
 		}
-		guidance = fmt.Sprintf("%s %s your account sign-in before %s can build.", capitalizeProfile(joinNaturalList(personItems)), verb, entry.Name)
+		guidance = ed.T(key,
+			l10n.Param("personItems", capitalizeProfile(joinNaturalList(personItems))),
+			l10n.Param("name", entry.Name),
+		)
 	}
+	setupAgentLabel := ed.T("buildRelease.setupWithAgent", l10n.Param("name", entry.Name))
 
 	return ui.ScrollView{
 		TestID:       "build-detail-readiness",
@@ -2085,7 +2087,7 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 					core.View{
 						TestID: "build-readiness-agent-setup",
 						Role:   core.RoleButton,
-						Label:  "Set up " + entry.Name + " with the agent",
+						Label:  setupAgentLabel,
 						Style: core.Style{
 							Height:         core.Pt(32),
 							FlexShrink:     0,
@@ -2101,7 +2103,7 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Set up " + entry.Name + " with the agent",
+								Content: setupAgentLabel,
 								Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: p.Accent.OnFill},
 							},
 						},
@@ -2113,12 +2115,12 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 }
 
 func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot, entry BuildPresetEntry) core.Node {
-	title := "Queued"
+	title := ed.T("buildRelease.queued")
 	if snap.ActivePlatform != "" && snap.ActivePlatform != entry.Platform {
-		title = "Queued after " + platformDisplayName(snap.ActivePlatform)
+		title = ed.T("buildRelease.queuedAfter", l10n.Param("name", platformDisplayName(snap.ActivePlatform)))
 	}
-	subtitle := "Builds run one at a time so the editor stays responsive."
-	actionLabel := "Build " + entry.Name + " next"
+	subtitle := ed.T("buildRelease.queuedSubtitle")
+	actionLabel := ed.T("buildRelease.buildNext", l10n.Param("name", entry.Name))
 	actionID := "build-queued-next"
 	plat := entry.Platform
 	onAct := func() {
@@ -2126,9 +2128,9 @@ func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot,
 	}
 
 	if snap.Stopped || entry.StoppedAt {
-		title = entry.Name + " stopped"
-		subtitle = "Finished steps are kept; Resume continues from the step that was running."
-		actionLabel = "Resume"
+		title = ed.T("buildRelease.presetStopped", l10n.Param("name", entry.Name))
+		subtitle = ed.T("buildRelease.stoppedSubtitle")
+		actionLabel = ed.T("buildRelease.actionResume")
 		actionID = "build-queued-resume"
 		onAct = func() {
 			ed.report(ed.ResumeReleaseBuild())
@@ -2159,7 +2161,7 @@ func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot,
 	if len(entry.Steps) > 0 {
 		stepRows := make([]core.Node, 0, len(entry.Steps))
 		for _, st := range entry.Steps {
-			stepRows = append(stepRows, buildStepRowView(p, st))
+			stepRows = append(stepRows, buildStepRowView(p, ed, st))
 		}
 		children = append(children, core.View{
 			TestID:   "build-queued-steps",
@@ -2178,7 +2180,7 @@ func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot,
 }
 
 func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot, qrURL string) core.Node {
-	statusLabel := "LAN test link"
+	statusLabel := ed.T("buildRelease.lanTestLink")
 	statusDot := spec.Added.Fg
 	statusFg := spec.TextSecondary
 	statusBg := spec.Added.Fill
@@ -2186,19 +2188,19 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 	switch {
 	case ws.Serving && len(ws.ConnectedClients) > 0:
 		c := ws.ConnectedClients[len(ws.ConnectedClients)-1]
-		statusLabel = "MCP bridge · " + c.Device
+		statusLabel = ed.T("buildRelease.mcpBridgeDevice", l10n.Param("device", c.Device))
 		statusDot = spec.Agent.Fg
 		statusFg = spec.TextPrimary
 		statusBg = spec.Agent.Fill
 		statusBorder = spec.Agent.Edge
 	case ws.Serving:
-		statusLabel = "Serving on LAN"
+		statusLabel = ed.T("buildRelease.servingOnLan")
 		statusDot = spec.Added.Fg
 		statusFg = spec.TextPrimary
 		statusBg = spec.Added.Fill
 		statusBorder = spec.Added.Edge
 	case ws.StoppedByUser:
-		statusLabel = "Stopped"
+		statusLabel = ed.T("buildRelease.stopped")
 		statusDot = spec.TextMuted
 		statusFg = spec.TextMuted
 		statusBg = spec.Panel
@@ -2215,9 +2217,10 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 				qrBorderW = 1
 				qrBorderCol = spec.LineRaised
 			}
+			qrLabel := ed.T("buildRelease.qrCodeLabel", l10n.Param("url", qrURL))
 			qrNode = core.View{
 				Role:  core.RoleImage,
-				Label: "QR code for " + qrURL,
+				Label: qrLabel,
 				Style: core.Style{
 					Width:        core.Pt(160),
 					Height:       core.Pt(160),
@@ -2230,7 +2233,7 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 				Children: []core.Node{
 					core.Canvas{
 						TestID: "build-qr-canvas",
-						Label:  "QR code for " + qrURL,
+						Label:  qrLabel,
 						Style: core.Style{
 							Width:  core.Pt(160),
 							Height: core.Pt(160),
@@ -2261,7 +2264,7 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 			Children: []core.Node{
 				buildSpecIcon(lucide.WifiOff(), 20, spec.TextMuted),
 				core.Text{
-					Content: "Server stopped",
+					Content: ed.T("buildRelease.serverStopped"),
 					Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: spec.TextSecondary},
 				},
 			},
@@ -2298,9 +2301,9 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 		})
 	}
 
-	caption := "Scan on a phone on this Wi-Fi. Play mode there connects to the MCP bridge, so the agent can debug it too."
+	caption := ed.T("buildRelease.qrCaptionServing")
 	if ws.StoppedByUser {
-		caption = "Local server stopped and port released. Start serving again to test on a phone on this Wi-Fi."
+		caption = ed.T("buildRelease.qrCaptionStopped")
 	}
 	children = append(children, core.Text{
 		TestID:  "build-qr-caption",
@@ -2310,17 +2313,17 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 
 	var actions []core.Node
 	if !ws.StoppedByUser && qrURL != "" {
-		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-copy-url", "Copy URL", func() {
+		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-copy-url", ed.T("buildRelease.copyURL"), func() {
 			_, err := ed.CopyWebBuildURL()
 			ed.report(err)
 		}))
 	}
 	if ws.Serving {
-		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-toggle-serve", "Stop serving", func() {
+		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-toggle-serve", ed.T("buildRelease.stopServing"), func() {
 			ed.report(ed.StopWebBuildServer())
 		}))
 	} else if ws.ServeDir != "" {
-		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-toggle-serve", "Start serving", func() {
+		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-toggle-serve", ed.T("buildRelease.startServing"), func() {
 			_, err := ed.StartWebBuildServer("")
 			ed.report(err)
 		}))
@@ -2482,7 +2485,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 					Children: []core.Node{
 						core.Text{
 							TestID:  "build-review-uploads-title",
-							Content: "Review uploads",
+							Content: ed.T("buildRelease.reviewUploadsTitle"),
 							Style:   core.Style{FlexGrow: 1, FontSize: 14, FontWeight: core.FontWeightSemibold, Color: cur.TextPrimary},
 						},
 						core.View{
@@ -2501,7 +2504,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 							Children: []core.Node{
 								buildSpecIcon(lucide.Lock(), 12, cur.Warning.Fg),
 								core.Text{
-									Content: "Always asks first",
+									Content: ed.T("buildRelease.alwaysAsksFirst"),
 									Style:   core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: cur.Warning.Fg},
 								},
 							},
@@ -2509,12 +2512,12 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 					},
 				},
 				core.Text{
-					Content: "Check each artifact, store destination, and version before anything is sent.",
+					Content: ed.T("buildRelease.reviewUploadsSubtitle"),
 					Style:   core.Style{FontSize: 12, Color: cur.TextMuted},
 				},
 				core.Text{
 					TestID:  "build-review-uploads-policy",
-					Content: fmt.Sprintf("Permission profile: %s · Each upload asks first, whatever the permission profile.", rev.PermissionProfile.DisplayName()),
+					Content: ed.T("buildRelease.reviewUploadsPolicy", l10n.Param("profile", rev.PermissionProfile.DisplayName())),
 					Style:   core.Style{FontSize: 11.5, Color: cur.TextFaint},
 				},
 			},
@@ -2535,7 +2538,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 				Style: core.Style{Padding: core.All(16), AlignItems: core.AlignCenter},
 				Children: []core.Node{
 					core.Text{
-						Content: "No export presets are ready to upload yet. Build at least one preset first.",
+						Content: ed.T("buildRelease.noUploadsReady"),
 						Style:   core.Style{FontSize: 12, Color: cur.TextFaint},
 					},
 				},
@@ -2563,11 +2566,11 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 					},
 					Children: []core.Node{
 						core.View{Style: core.Style{Width: core.Pt(20), FlexShrink: 0}},
-						core.Text{Content: "ARTIFACT", Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
-						core.Text{Content: "DESTINATION", Style: core.Style{Width: core.Pt(184), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
-						core.Text{Content: "VERSION", Style: core.Style{Width: core.Pt(62), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
-						core.Text{Content: "SIZE", Style: core.Style{Width: core.Pt(68), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
-						core.Text{Content: "KEYCHAIN", Style: core.Style{Width: core.Pt(122), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: ed.T("buildRelease.colArtifact"), Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: ed.T("buildRelease.colDestination"), Style: core.Style{Width: core.Pt(184), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: ed.T("buildRelease.colVersion"), Style: core.Style{Width: core.Pt(62), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: ed.T("buildRelease.colSize"), Style: core.Style{Width: core.Pt(68), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
+						core.Text{Content: ed.T("buildRelease.colKeychain"), Style: core.Style{Width: core.Pt(122), FlexShrink: 0, FontSize: 10.5, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: cur.TextFaint}},
 					},
 				},
 			}, rows...),
@@ -2575,7 +2578,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 
 		notesPreview := rev.ReleaseNotesPreview
 		if notesPreview == "" {
-			notesPreview = "(empty)"
+			notesPreview = ed.T("buildRelease.notesEmpty")
 		}
 		children := []core.Node{
 			tableNode,
@@ -2592,7 +2595,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 					BorderColor:  cur.Line,
 				},
 				Children: []core.Node{
-					core.Text{Content: "Release notes:", Style: core.Style{FontSize: 11.5, Color: cur.TextFaint}},
+					core.Text{Content: ed.T("buildRelease.notesPrefix"), Style: core.Style{FontSize: 11.5, Color: cur.TextFaint}},
 					core.Text{Content: rev.ReleaseNotesFile, Style: core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: cur.TextSecondary}},
 					core.Text{Content: "·", Style: core.Style{FontSize: 11.5, Color: cur.TextFaint}},
 					core.Text{Content: notesPreview, Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), FontSize: 11.5, Color: cur.TextMuted}},
@@ -2657,12 +2660,12 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 							buildSpecIcon(lucide.Lock(), 13, cur.Warning.Fg),
 							core.Text{
 								ContentFunc: func() string {
-									return fmt.Sprintf("Store %s credential in system keychain", destMemo.Get().DisplayName())
+									return ed.T("buildRelease.keychainTitle", l10n.Param("dest", destMemo.Get().DisplayName()))
 								},
 								Style: core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: cur.TextPrimary, FlexGrow: 1},
 							},
 							core.Text{
-								Content: "Never written to project files",
+								Content: ed.T("buildRelease.neverInProjectFiles"),
 								Style:   core.Style{FontSize: 11, Color: cur.TextFaint},
 							},
 						},
@@ -2675,7 +2678,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 								Children: []core.Node{
 									specInputField(cx, ed, ui.Input{
 										TestID:      "build-keychain-account",
-										Label:       "Store account",
+										Label:       ed.T("buildRelease.keychainAccountLabel"),
 										Placeholder: keychainAccountPlaceholder(ed.BuildReleaseSnapshot().UploadReview.KeychainDest),
 										Value:       kcAccount.Get,
 										OnChange:    kcAccount.Set,
@@ -2697,7 +2700,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 								Children: []core.Node{
 									specInputField(cx, ed, ui.Input{
 										TestID:      "build-keychain-secret",
-										Label:       "API key or token",
+										Label:       ed.T("buildRelease.keychainSecretLabel"),
 										Placeholder: keychainSecretPlaceholder(ed.BuildReleaseSnapshot().UploadReview.KeychainDest),
 										Masked:      true,
 										Value:       kcSecret.Get,
@@ -2720,14 +2723,14 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 					core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyEnd, Gap: 8},
 						Children: []core.Node{
-							buildReleaseSecondaryButtonSpec(cur, "build-keychain-cancel", "Cancel", func() {
+							buildReleaseSecondaryButtonSpec(cur, "build-keychain-cancel", ed.T("buildRelease.cancel"), func() {
 								kcSecret.Set("")
 								ed.CloseKeychainCredentialEditor()
 							}),
 							core.View{
 								TestID: "build-keychain-save",
 								Role:   core.RoleButton,
-								Label:  "Save to keychain",
+								Label:  ed.T("buildRelease.saveToKeychain"),
 								Style: core.Style{
 									Height:         core.Pt(30),
 									Padding:        core.Symmetric(0, 12),
@@ -2746,7 +2749,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 								},
 								Children: []core.Node{
 									core.Text{
-										Content: "Save to keychain",
+										Content: ed.T("buildRelease.saveToKeychain"),
 										Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightSemibold, Color: cur.Accent.OnFill},
 									},
 								},
@@ -2768,16 +2771,13 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 				selectedCount++
 			}
 		}
-		cancelLabel := "Cancel"
+		cancelLabel := ed.T("buildRelease.cancel")
 		if rev.Completed {
-			cancelLabel = "Close"
+			cancelLabel = ed.T("buildRelease.close")
 		}
-		confirmLabel := fmt.Sprintf("Confirm and upload %d", selectedCount)
-		if selectedCount == 1 {
-			confirmLabel = "Confirm and upload 1"
-		}
+		confirmLabel := ed.T("buildRelease.confirmAndUpload", l10n.Param("count", selectedCount))
 		if rev.Running {
-			confirmLabel = "Uploading…"
+			confirmLabel = ed.T("buildRelease.uploading")
 		}
 		canConfirm := !rev.Running && rev.SessionID != 0 && selectedCount > 0
 		confirmBg := cur.Accent.Fg
@@ -2799,7 +2799,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Credentials stay in the system keychain · never in project files.",
+					Content: ed.T("buildRelease.keychainFooterNote"),
 					Style:   core.Style{FlexGrow: 1, FontSize: 11.5, Color: cur.TextFaint},
 				},
 				buildReleaseSecondaryButtonSpec(cur, "build-review-uploads-cancel", cancelLabel, func() {
@@ -2845,7 +2845,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 	dialogCard := core.View{
 		TestID: "build-review-uploads-dialog",
 		Role:   core.RoleDialog,
-		Label:  "Review uploads",
+		Label:  ed.T("buildRelease.reviewUploadsTitle"),
 		StyleFunc: func() core.Style {
 			cur := ed.SpecPalette(cx)
 			return core.Style{
@@ -2876,7 +2876,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 	return ui.Dialog{
 		TestID: "build-review-uploads-backdrop",
 		Bare:   true,
-		Label:  "Review uploads",
+		Label:  ed.T("buildRelease.reviewUploadsTitle"),
 		Open:   reviewOpen.Get,
 		OnOpenChange: func(open bool, _ base.Reason) {
 			if !open {
@@ -2975,7 +2975,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 				BorderColor:  p.Agent.Edge,
 			},
 			Children: []core.Node{
-				core.Text{Content: fmt.Sprintf("Uploading %d%%", pct), Style: core.Style{FontSize: 11, Color: p.TextSecondary}},
+				core.Text{Content: ed.T("buildRelease.uploadingPct", l10n.Param("pct", pct)), Style: core.Style{FontSize: 11, Color: p.TextSecondary}},
 			},
 		}
 	case it.Status == UploadStatusDone:
@@ -2993,7 +2993,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 			},
 			Children: []core.Node{
 				buildSpecIcon(lucide.Check(), 10, p.Added.Fg),
-				core.Text{Content: "Uploaded", Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
+				core.Text{Content: ed.T("buildRelease.uploaded"), Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
 			},
 		}
 	case it.Status == UploadStatusFailed:
@@ -3011,7 +3011,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 			},
 			Children: []core.Node{
 				buildSpecIcon(lucide.X(), 10, p.Removed.Fg),
-				core.Text{Content: "Failed", Style: core.Style{FontSize: 11, Color: p.Removed.Fg}},
+				core.Text{Content: ed.T("buildRelease.failed"), Style: core.Style{FontSize: 11, Color: p.Removed.Fg}},
 			},
 		}
 	default:
@@ -3031,14 +3031,14 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 				},
 				Children: []core.Node{
 					buildSpecIcon(lucide.Lock(), 10, p.Added.Fg),
-					core.Text{Content: "Key in keychain", Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
+					core.Text{Content: ed.T("buildRelease.keyInKeychain"), Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
 				},
 			}
 		} else {
 			statusNode = core.View{
 				TestID: "build-upload-key-" + plat,
 				Role:   core.RoleButton,
-				Label:  "Add keychain key for " + it.DestinationLabel,
+				Label:  ed.T("buildRelease.addKeyLabel", l10n.Param("dest", it.DestinationLabel)),
 				Style: core.Style{
 					Height:       core.Pt(24),
 					Direction:    core.Row,
@@ -3058,7 +3058,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 				},
 				Children: []core.Node{
 					buildSpecIcon(lucide.Lock(), 10, p.Warning.Fg),
-					core.Text{Content: "Add key…", Style: core.Style{FontSize: 11, Color: p.Warning.Fg}},
+					core.Text{Content: ed.T("buildRelease.addKey"), Style: core.Style{FontSize: 11, Color: p.Warning.Fg}},
 				},
 			}
 		}
@@ -3091,7 +3091,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 		checkNode = core.View{
 			TestID: "build-upload-check-" + plat,
 			Role:   core.RoleCheckbox,
-			Label:  "Upload " + it.ArtifactName + " to " + it.DestinationLabel,
+			Label:  ed.T("buildRelease.uploadItemLabel", l10n.Param("artifact", it.ArtifactName), l10n.Param("dest", it.DestinationLabel)),
 			Style: core.Style{
 				Width:          core.Pt(18),
 				Height:         core.Pt(18),
@@ -3155,7 +3155,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 
 	if it.Err != "" {
 		rowChildren = append(rowChildren, core.Text{
-			Content: "Error: " + it.Err,
+			Content: ed.T("buildRelease.uploadError", l10n.Param("error", it.Err)),
 			Style:   core.Style{FontSize: 11, Color: p.Removed.Fg, Padding: core.Edges{Left: 28}},
 		})
 	} else if it.Status == UploadStatusUploading && it.StatusMessage != "" {
@@ -3189,5 +3189,121 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 			BorderColor: p.Line,
 		},
 		Children: rowChildren,
+	}
+}
+
+func localizedBuildCommit(ed *Editor, commit string) string {
+	if commit == "" || commit == "local" {
+		return ed.T("buildRelease.commitLocal")
+	}
+	return commit
+}
+
+func localizedBuildLastRelease(ed *Editor, ver string) string {
+	if ver == "" || ver == "none" {
+		return ed.T("buildRelease.lastReleaseNone")
+	}
+	return ver
+}
+
+func localizedBuildQualityProfile(ed *Editor, profile string) string {
+	switch profile {
+	case "", "Low":
+		return ed.T("buildRelease.profileLow")
+	case "Medium":
+		return ed.T("buildRelease.profileMedium")
+	case "High":
+		return ed.T("buildRelease.profileHigh")
+	default:
+		return profile
+	}
+}
+
+func localizedBuildSmokeSummary(ed *Editor, summary string) string {
+	if summary == "" {
+		return ed.T("buildRelease.preflightSmokeDefault")
+	}
+	if scene, ok := strings.CutPrefix(summary, "60 s per build, "); ok {
+		return ed.T("buildRelease.preflightSmokeScene", l10n.Param("scene", scene))
+	}
+	return summary
+}
+
+func localizedBuildStatusText(ed *Editor, status string) string {
+	switch status {
+	case "Queued":
+		return ed.T("buildRelease.statusQueued")
+	case "Set up":
+		return ed.T("buildRelease.statusSetUp")
+	case "Building":
+		return ed.T("buildRelease.statusBuilding")
+	case "Notarizing":
+		return ed.T("buildRelease.statusNotarizing")
+	case "Done":
+		return ed.T("buildRelease.statusDone")
+	case "Failed":
+		return ed.T("buildRelease.statusFailed")
+	case "Stopped":
+		return ed.T("buildRelease.statusStopped")
+	default:
+		return status
+	}
+}
+
+func localizedBuildDeltaText(ed *Editor, delta string) string {
+	if countStr, ok := strings.CutSuffix(delta, " to fix"); ok {
+		return ed.T("buildRelease.deltaToFix", l10n.Param("count", countStr))
+	}
+	return delta
+}
+
+func localizedBuildSummary(ed *Editor, summary string) string {
+	switch summary {
+	case "universal · Developer ID · notarized":
+		return ed.T("buildRelease.summaryMacOS")
+	case "x64 · signed installer":
+		return ed.T("buildRelease.summaryWindows")
+	case "x64 · AppImage":
+		return ed.T("buildRelease.summaryLinux")
+	case "arm64 · TestFlight":
+		return ed.T("buildRelease.summaryIOS")
+	case "arm64 · AAB for Google Play":
+		return ed.T("buildRelease.summaryAndroid")
+	default:
+		return summary
+	}
+}
+
+func localizedBuildStepLabel(ed *Editor, label string) string {
+	switch label {
+	case "Check project":
+		return ed.T("buildRelease.stepCheckProject")
+	case "Compile Go":
+		return ed.T("buildRelease.stepCompileGo")
+	case "Pack assets":
+		return ed.T("buildRelease.stepPackAssets")
+	case "Sign":
+		return ed.T("buildRelease.stepSign")
+	case "Smoke playtest":
+		return ed.T("buildRelease.stepSmokePlaytest")
+	case "Measure":
+		return ed.T("buildRelease.stepMeasure")
+	default:
+		return label
+	}
+}
+
+func localizedBuildStepDetail(ed *Editor, detail string) string {
+	switch detail {
+	case "atlases, audio, and scenes":
+		return ed.T("buildRelease.stepDetailPackAssets")
+	case "Developer ID · notarized":
+		return ed.T("buildRelease.stepDetailSignMacOS")
+	case "60 s headless":
+		return ed.T("buildRelease.stepDetailSmokeHeadless")
+	case "size and frame time":
+		return ed.T("buildRelease.stepDetailMeasure")
+	default:
+		return detail
 	}
 }

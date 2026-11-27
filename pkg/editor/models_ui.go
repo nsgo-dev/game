@@ -161,7 +161,7 @@ func modelListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		for _, entry := range entries {
 			m := entry
 			id := modelTestID(m)
-			detail := "Primitive"
+			detail := ed.T("models.primitive")
 			if m.Path != "" {
 				detail = m.Path
 			}
@@ -257,7 +257,7 @@ func modelListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		Style:  core.Style{Gap: 6},
 		Children: []core.Node{
 			core.Text{
-				Content: "Models",
+				Content: ed.T("models.title"),
 				Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
 			},
 			list,
@@ -276,8 +276,8 @@ func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled fun
 	}
 	return ui.Select[string]{
 		TestID:      "inspector-model",
-		Label:       "Model",
-		Placeholder: "None",
+		Label:       ed.T("inspector.model"),
+		Placeholder: ed.T("inspector.none"),
 		Searchable:  true,
 		Style:       core.Style{Width: core.Pct(100)},
 		Disabled: func() bool {

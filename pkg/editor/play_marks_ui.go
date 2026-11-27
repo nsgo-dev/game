@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -46,7 +47,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				id := fmt.Sprintf("play-timescale-%g", scale)
 				return base.Button{
 					TestID: id,
-					Label:  fmt.Sprintf("Set play time scale to %s", label),
+					Label:  ed.T("playMarks.setTimeScaleLabel", l10n.Param("scale", label)),
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
 						bg := core.Color(0)
@@ -85,7 +86,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			return core.View{
 				TestID: "play-mode-bar",
 				Role:   core.RoleRegion,
-				Label:  "Play mode controls",
+				Label:  ed.T("playMarks.controlsLabel"),
 				Style: core.Style{
 					Direction:      core.Row,
 					Wrap:           core.Wrap,
@@ -152,15 +153,15 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									frameText := formatPlayFrameNumber(ed.PlaySteps())
 									if ed.PlayPaused() {
 										if ed.AskFrozenFrameOpen() {
-											return "Frozen for your question · frame " + frameText
+											return ed.T("playMarks.status.frozen", l10n.Param("frame", frameText))
 										}
-										return "Paused · frame " + frameText
+										return ed.T("playMarks.status.paused", l10n.Param("frame", frameText))
 									}
 									sc := ed.PlayTimeScale()
 									if math.Abs(sc-1) > 1e-6 {
-										return fmt.Sprintf("Playing · live · %g×", sc)
+										return ed.T("playMarks.status.playingScale", l10n.Param("scale", fmt.Sprintf("%g", sc)))
 									}
-									return "Playing · live"
+									return ed.T("playMarks.status.playing")
 								},
 								Style: core.Style{FontSize: 11.5, FontWeight: 500},
 								StyleFunc: func() core.Style {
@@ -199,9 +200,9 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								LabelFunc: func() string {
 									_ = rev.Get()
 									if ed.PlayPaused() {
-										return "Resume (" + cx.KeyLabel("mod+shift+p") + ")"
+										return ed.T("playMarks.resumeLabel", l10n.Param("key", cx.KeyLabel("mod+shift+p")))
 									}
-									return "Pause (" + cx.KeyLabel("mod+shift+p") + ")"
+									return ed.T("playMarks.pauseLabel", l10n.Param("key", cx.KeyLabel("mod+shift+p")))
 								},
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
@@ -212,7 +213,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							ui.Button{
 								TestID:  "play-step-1",
 								Icon:    lucide.StepForward,
-								Label:   "Step one frame (.)",
+								Label:   ed.T("playMarks.stepOneFrameLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								Disabled: func() bool {
@@ -246,7 +247,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							ui.Button{
 								TestID:  "play-mark-btn",
 								Icon:    lucide.Flag,
-								Label:   "Mark this moment without stopping (" + cx.KeyLabel("alt+f") + ")",
+								Label:   ed.T("playMarks.markLabel", l10n.Param("key", cx.KeyLabel("alt+f"))),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								TextFunc: func() string {
@@ -254,9 +255,9 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									n := len(ed.PlayMarks())
 									key := cx.KeyLabel("alt+f")
 									if n > 0 {
-										return fmt.Sprintf("Mark %s · %d", key, n)
+										return ed.T("playMarks.markWithCount", l10n.Param("key", key), l10n.Param("count", n))
 									}
-									return fmt.Sprintf("Mark %s", key)
+									return ed.T("playMarks.markWithKey", l10n.Param("key", key))
 								},
 								Color: func() core.Color { return pal.Raised },
 								Tint:  func() core.Color { return pal.TextSecondary },
@@ -282,8 +283,8 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							ui.Button{
 								TestID:  "play-ask-btn",
 								Icon:    lucide.Sparkles,
-								Text:    "Something looks wrong " + cx.KeyLabel("mod+l"),
-								Label:   "Pause and ask the agent about this frame (" + cx.KeyLabel("mod+l") + ")",
+								Text:    ed.T("playMarks.askButton", l10n.Param("key", cx.KeyLabel("mod+l"))),
+								Label:   ed.T("playMarks.askButtonLabel", l10n.Param("key", cx.KeyLabel("mod+l"))),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								Color:   func() core.Color { return pal.Raised },
@@ -309,8 +310,8 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							ui.Button{
 								TestID:  "play-stop-btn",
 								Icon:    lucide.Square,
-								Text:    "Stop",
-								Label:   "Stop Play mode",
+								Text:    ed.T("playMarks.stop"),
+								Label:   ed.T("playMarks.stopLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								Color:   func() core.Color { return pal.TextPrimary },
@@ -361,7 +362,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "REPLAY",
+						Content: ed.T("playMarks.replayTitle"),
 						Style: core.Style{
 							FontSize:   11,
 							FontWeight: core.FontWeightSemibold,
@@ -381,7 +382,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						},
 					},
 					core.Text{
-						Content: "Saved as an input recording when you mark or ask",
+						Content: ed.T("playMarks.replayHint"),
 						Style: core.Style{
 							FontSize: 11,
 							Color:    pal.TextFaint,
@@ -511,7 +512,10 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 									core.Text{
 										ContentFunc: func() string {
 											_ = rev.Get()
-											return fmt.Sprintf("Paused at frame %s · . steps one frame · %s resumes", formatPlayFrameNumber(ed.PlaySteps()), cx.KeyLabel("mod+shift+p"))
+											return ed.T("playMarks.pausedHint",
+												l10n.Param("frame", formatPlayFrameNumber(ed.PlaySteps())),
+												l10n.Param("key", cx.KeyLabel("mod+shift+p")),
+											)
 										},
 										Style: core.Style{
 											FontSize:    11.5,
@@ -584,7 +588,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			return core.View{
 				TestID: "play-ask-dialog",
 				Role:   core.RoleDialog,
-				Label:  "Ask about frozen frame",
+				Label:  ed.T("playMarks.askDialogLabel"),
 				Style: core.Style{
 					Position:     core.Absolute,
 					Right:        core.Pt(292),
@@ -611,7 +615,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								TestID: "play-ask-title",
 								ContentFunc: func() string {
 									_ = rev.Get()
-									return "Ask about frame " + formatPlayFrameNumber(ed.AskFrozenFrameNumber())
+									return ed.T("playMarks.askDialogTitle", l10n.Param("frame", formatPlayFrameNumber(ed.AskFrozenFrameNumber())))
 								},
 								Style: core.Style{
 									FontSize:   14,
@@ -620,7 +624,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								},
 							},
 							core.Text{
-								Content: "game frozen",
+								Content: ed.T("playMarks.gameFrozen"),
 								Style: core.Style{
 									FontSize: 11.5,
 									Color:    pal.TextFaint,
@@ -642,7 +646,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Children: []core.Node{
 							core.Canvas{
 								TestID: "play-ask-frame-canvas",
-								Label:  "Frozen frame image",
+								Label:  ed.T("playMarks.frozenFrameImageLabel"),
 								Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 								Draw: func(d *core.Drawing, size core.Size) {
 									_ = rev.Get()
@@ -681,25 +685,21 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							p := ed.SpecPalette(cx)
 							k := chipsMemo.Get()
 							sec := float64(k.rollingFrames) / float64(k.rate)
-							replayLabel := fmt.Sprintf("Replay · %s frames", formatPlayFrameNumber(k.rollingFrames))
+							replayLabel := ed.T("playMarks.chip.replayFrames", l10n.Param("frames", formatPlayFrameNumber(k.rollingFrames)))
 							if sec >= 1 {
-								replayLabel = fmt.Sprintf("Replay · last %.0f s", math.Round(sec))
+								replayLabel = ed.T("playMarks.chip.replaySeconds", l10n.Param("seconds", fmt.Sprintf("%.0f", math.Round(sec))))
 							}
 							chips := []core.Node{
-								chip(p, "Frame "+formatPlayFrameNumber(k.frame), p.TextMuted),
+								chip(p, ed.T("playMarks.chip.frame", l10n.Param("frame", formatPlayFrameNumber(k.frame))), p.TextMuted),
 								chip(p, replayLabel, p.TextMuted),
 							}
 							if k.selectedID != "" {
-								chips = append(chips, chip(p, k.selectedID+" · live state", p.Changed.Fg))
+								chips = append(chips, chip(p, ed.T("playMarks.chip.selectedLiveState", l10n.Param("id", k.selectedID)), p.Changed.Fg))
 							} else {
-								chips = append(chips, chip(p, "Live state", p.Added.Fg))
+								chips = append(chips, chip(p, ed.T("playMarks.chip.liveState"), p.Added.Fg))
 							}
 							if k.liveChanges > 0 {
-								unit := "live changes"
-								if k.liveChanges == 1 {
-									unit = "live change"
-								}
-								chips = append(chips, chip(p, fmt.Sprintf("%d %s", k.liveChanges, unit), p.Changed.Fg))
+								chips = append(chips, chip(p, ed.Plural("playMarks.chip.liveChanges", k.liveChanges), p.Changed.Fg))
 							}
 							return core.View{
 								Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
@@ -710,8 +710,8 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 					// Prompt field
 					ui.Input{
 						TestID:      "play-ask-input",
-						Label:       "What looks wrong?",
-						Placeholder: "What looks wrong? e.g. the slime walks through the wall",
+						Label:       ed.T("playMarks.askInputLabel"),
+						Placeholder: ed.T("playMarks.askInputPlaceholder"),
 						AutoFocus:   true,
 						Value: func() string {
 							_ = rev.Get()
@@ -743,7 +743,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Children: []core.Node{
 							core.Text{
 								TestID:  "play-ask-review-note",
-								Content: "A fix comes back as a review",
+								Content: ed.T("playMarks.askReviewNote"),
 								Style: core.Style{
 									FontSize: 11.5,
 									Color:    pal.TextFaint,
@@ -752,7 +752,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							},
 							ui.Button{
 								TestID:  "play-ask-cancel",
-								Text:    "Cancel",
+								Text:    ed.T("playMarks.cancel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								TextStyle: core.Style{
@@ -770,7 +770,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							},
 							ui.Button{
 								TestID:  "play-ask-submit",
-								Text:    "Ask",
+								Text:    ed.T("playMarks.ask"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								Color:   func() core.Color { return pal.Accent.Fg },
@@ -864,8 +864,8 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 			ui.HStack{
 				Gap: 2,
 				Children: []core.Node{
-					tabBtn("play-tab-inspector", "Inspector", PlayTabInspector),
-					tabBtn("play-tab-agent", "Agent", PlayTabAgent),
+					tabBtn("play-tab-inspector", ed.T("playMarks.tab.inspector"), PlayTabInspector),
+					tabBtn("play-tab-agent", ed.T("playMarks.tab.agent"), PlayTabAgent),
 				},
 			},
 			core.View{
@@ -1032,12 +1032,12 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			}
 			children = append(children, core.Text{
 				TestID:  "play-agent-pause-note",
-				Content: "The game stays paused while the agent steps through the replay. Resume whenever you like; its fix comes back as a review.",
+				Content: ed.T("playMarks.agentPauseNote"),
 				Style:   core.Style{FontSize: 11, Color: pal.TextFaint},
 			})
 		} else {
 			children = append(children, core.Text{
-				Content: "The agent sees the running game through the editor's MCP server: live entities, the last 60 s of replay and your marks. Ask with " + cx.KeyLabel("mod+l") + " to freeze the frame first.",
+				Content: ed.T("playMarks.agentEmptyHint", l10n.Param("key", cx.KeyLabel("mod+l"))),
 				Style:   core.Style{FontSize: 11.5, Color: pal.TextMuted},
 			})
 		}
@@ -1045,7 +1045,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		// MARKS · N section
 		children = append(children, core.Text{
 			TestID:  "play-marks-header",
-			Content: fmt.Sprintf("MARKS · %d", len(marks)),
+			Content: ed.T("playMarks.marksHeader", l10n.Param("count", len(marks))),
 			Style: core.Style{
 				FontSize:   11,
 				FontWeight: core.FontWeightSemibold,
@@ -1054,9 +1054,9 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 		})
 		for i, m := range marks {
-			statusText := "replay attached"
+			statusText := ed.T("playMarks.replayAttached")
 			if m.Sent {
-				statusText = "replay attached · sent"
+				statusText = ed.T("playMarks.replayAttachedSent")
 			}
 			children = append(children, core.View{
 				TestID: fmt.Sprintf("play-mark-row-%d", i),
@@ -1085,7 +1085,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						},
 					},
 					core.Text{
-						Content: "frame " + formatPlayFrameNumber(m.Frame),
+						Content: ed.T("playMarks.frameLabel", l10n.Param("frame", formatPlayFrameNumber(m.Frame))),
 						Style: core.Style{
 							FontSize:    11,
 							FontVariant: core.FontTabularNums,
@@ -1105,12 +1105,12 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 		children = append(children,
 			core.Text{
-				Content: "When you stop, all marks go to the agent as one thread.",
+				Content: ed.T("playMarks.marksFooterHint"),
 				Style:   core.Style{FontSize: 11, Color: pal.TextFaint},
 			},
 			ui.Button{
 				TestID:  "play-send-marks-btn",
-				Text:    "Send marks now",
+				Text:    ed.T("playMarks.sendMarksNow"),
 				Size:    ui.SizeSmall,
 				Variant: ui.ButtonGhost,
 				Disabled: func() bool {
@@ -1157,9 +1157,12 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 
 	headerMeta := p.Time.Format("15:04:05")
 	if p.Frame > 0 {
-		headerMeta += " · frame " + formatPlayFrameNumber(p.Frame)
+		headerMeta = ed.T("playMarks.panicMetaFrame",
+			l10n.Param("time", headerMeta),
+			l10n.Param("frame", formatPlayFrameNumber(p.Frame)),
+		)
 	}
-	runLabel := fmt.Sprintf("Run %d stopped on a panic", max(1, p.RunNumber))
+	runLabel := ed.T("playMarks.panicTitle", l10n.Param("run", max(1, p.RunNumber)))
 
 	var frameRows []core.Node
 	for i, f := range gameFrames {
@@ -1185,7 +1188,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 				ui.Button{
 					TestID:  fmt.Sprintf("output-panic-link-%d", i),
 					Text:    loc,
-					Label:   "Open " + loc,
+					Label:   ed.T("playMarks.panicOpenLocation", l10n.Param("loc", loc)),
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonGhost,
 					TextStyle: core.Style{
@@ -1209,13 +1212,12 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 	}
 
 	if len(rtFrames) > 0 {
-		foldText := fmt.Sprintf("%d frames in the game runtime", len(rtFrames))
-		if len(rtFrames) == 1 {
-			foldText = "1 frame in the game runtime"
-		}
-		toggleLabel := "Show"
+		foldText := ed.Plural("playMarks.panicRuntimeFrames", len(rtFrames))
+		toggleText := ed.T("playMarks.panicShow")
+		toggleA11yLabel := ed.T("playMarks.panicShowRuntimeLabel")
 		if runtimeExpanded {
-			toggleLabel = "Hide"
+			toggleText = ed.T("playMarks.panicHide")
+			toggleA11yLabel = ed.T("playMarks.panicHideRuntimeLabel")
 		}
 		frameRows = append(frameRows, core.View{
 			TestID: "output-panic-runtime-row",
@@ -1237,8 +1239,8 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 				},
 				ui.Button{
 					TestID:  "output-panic-runtime-toggle",
-					Text:    toggleLabel,
-					Label:   toggleLabel + " runtime stack frames",
+					Text:    toggleText,
+					Label:   toggleA11yLabel,
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonGhost,
 					TextStyle: core.Style{
@@ -1346,7 +1348,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "output-panic-ask-btn",
-						Text:    "Ask the agent to fix",
+						Text:    ed.T("playMarks.panicAskFix"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						Color:   func() core.Color { return pal.Accent.Fg },
@@ -1369,7 +1371,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 					},
 					ui.Button{
 						TestID:  "output-panic-replay-btn",
-						Text:    "Replay up to the panic",
+						Text:    ed.T("playMarks.panicReplay"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						Disabled: func() bool {

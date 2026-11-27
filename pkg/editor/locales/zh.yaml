@@ -118,6 +118,94 @@ strings:
   agentPanel.statusStopped: 已停止
   agentPanel.tab: 智能体
   agentPanel.viewportImage: 视口图像
+  agentRefExtra.errEmptyPath: 无法附加空文件路径：仅支持 PNG、JPEG 或 WebP 图片
+  agentRefExtra.errNotRegularFile: 无法附加 {name}（非常规文件）：仅支持 PNG、JPEG 或 WebP 图片
+  agentRefExtra.errTooMany: 单次请求最多只能附加 {max} 张参考图
+  agentRefExtra.errUnsupportedExt: 无法附加 {name}（{ext}）：仅支持 PNG、JPEG 或 WebP 图片
+  agentRefExtra.pickerButton: 附加
+  agentRefExtra.pickerTitle: 附加参考图
+  agentRefExtra.pickerTypesName: 图片（PNG、JPEG、WebP）
+  agentRefExtra.pinHistoryLabel: 将 {name} 固定到简报
+  agentRefExtra.statusAttached: 已为本次请求附加 {name}
+  agentRefExtra.statusPinned: 已将 {name} 固定到 brief.yaml
+  agentRefExtra.statusUndidPin: 已撤销固定 {name}
+  agentReview.closePanel: 关闭审查更改面板
+  agentReview.deleteCount: 删除 {count} 项
+  agentReview.deletionApplied: 已删除 · ⌘Z 可从检查点恢复
+  agentReview.deletionConfirmed: 已确认删除 · 将随“保留”一同执行
+  agentReview.deletionKept: 文件已保留 · 其余审查内容不变
+  agentReview.deletionPendingHint: 在你于此处确认删除前，“保留”不会删除此文件。⌘Z 可从检查点恢复它。
+  agentReview.keepAll: 全部保留
+  agentReview.keepAndDelete: 保留 {keep} 项并删除 {delete} 项
+  agentReview.keepOf: 保留 {unkept}/{active}
+  agentReview.kept: 已保留
+  agentReview.moreLines: '  还有 {count} 行'
+  agentReview.revertItem: 还原 {title}
+  agentReview.reverted: 已还原
+  agentReview.subheaderMany: '{count} 处更改 · {count} 个文件'
+  agentReview.subheaderManyFrom: '{count} 处更改 · {count} 个文件 · 来自“{prompt}”'
+  agentReview.subheaderOne: 1 处更改 · 1 个文件
+  agentReview.subheaderOneFrom: 1 处更改 · 1 个文件 · 来自“{prompt}”
+  agentReview.undoConfirmDeletion: 撤销确认删除
+  agentReview.undoKeepFile: 撤销保留文件
+  agentStates.askResumeLabel: 从第 {step} 步继续？
+  agentStates.askWhy: 询问原因
+  agentStates.changesOneFileMany: '{count} 处更改 · 1 个文件'
+  agentStates.changesOneFileOne: 1 处更改 · 1 个文件
+  agentStates.close: 关闭
+  agentStates.colReview: 审查
+  agentStates.colSummary: 摘要
+  agentStates.colWhat: 内容
+  agentStates.continueAtStep: 从第 {step} 步继续
+  agentStates.continueWithHint: 带着提示继续
+  agentStates.doneHeading: 已完成
+  agentStates.firstStepNotDone: 第一个未完成的步骤
+  agentStates.hintLabel: 给智能体的提示
+  agentStates.hintPlaceholder: 告诉智能体该使用什么…
+  agentStates.keepThese: 保留这些
+  agentStates.keptChanges: 已保留更改 · ⌘Z 可撤销
+  agentStates.keptCount: 已保留 {count} 处更改 · ⌘Z 可撤销
+  agentStates.keptCountLeftOut: 已保留 {count} 处更改 · 已略过 {target} · ⌘Z 可撤销
+  agentStates.keptLeftOut: 已保留更改 · 已略过 {target} · ⌘Z 可撤销
+  agentStates.letMePoint: 让我指出位置
+  agentStates.lostCaption: 重新连接后，智能体会在从第 {step} 步继续前先询问你。
+  agentStates.mismatchCaption: 编辑器会将每条摘要与实际差异核对。“保留”应用的是审查内容，而非摘要。
+  agentStates.notDoneHeading: 未完成
+  agentStates.notNow: 暂不
+  agentStates.nothingQueued: 暂无排队请求。
+  agentStates.offlineBody: 选择、移动、检视器、game check 与播放均可正常使用。请求会在此排队等待。
+  agentStates.offlineTitle: 你已离线
+  agentStates.openReview: 打开审查
+  agentStates.queueOfflineCaption: 恢复在线后不会自动运行：每条排队请求都会等待你手动发送。
+  agentStates.queuedHeading: 排队中 · {count}
+  agentStates.queuedMeta: 已排队
+  agentStates.queuedMetaAt: 排队于 {time}
+  agentStates.reconnect: 重新连接
+  agentStates.reconnectedPickUp: 已重新连接 · 从第 {step} 步继续？
+  agentStates.removeQueuedLabel: 从队列中移除“{prompt}”
+  agentStates.resume: 继续
+  agentStates.retryNow: 立即重试
+  agentStates.reviewChangesMany: 审查 {count} 处更改
+  agentStates.reviewChangesOne: 审查 1 处更改
+  agentStates.reviewDrawerTitle: 审查 · {file}（{count} 处更改）
+  agentStates.reviewNoChanges: 本次审查没有对象更改。
+  agentStates.sendQueuedLabel: 发送 {prompt}
+  agentStates.stepsAlreadyDone: 第 1–{done} 步已完成。是否从第 {next} 步继续？
+  agentStates.stopHere: 在此停止
+  agentStates.stoppedCaption: 继续执行将从“{step}”开始；已完成的步骤不会重复执行。
+  agentStates.stoppedCaptionUnkeptMany: 继续执行将从“{step}”开始；已完成的步骤不会重复执行。这 {count} 处更改在你审查前不会被保留。
+  agentStates.stoppedCaptionUnkeptOne: 继续执行将从“{step}”开始；已完成的步骤不会重复执行。这 1 处更改在你审查前不会被保留。
+  agentStates.stuckStoppedNothing: 已停止。未作任何更改；失败的编辑在触及文件前已被拒绝。
+  agentStates.stuckStoppedPartial: 已停止。失败的编辑在触及文件前已被拒绝；先前的更改保留在审查中。
+  agentStates.stuckTitle: 已暂停，不再继续猜测
+  agentStates.troubleshoot: 排查问题
+  agentStates.tryAnotherWay: 换一种方式
+  agentStates.useFallback: 使用 {agent}
+  agentSteps.changesAndSteps: '{changes} 处更改 · {steps} 个步骤'
+  agentSteps.keptUndoes: 已保留 · {undoKey} 可撤销
+  agentSteps.revertedRestored: 已还原 · 场景已恢复
+  agentSteps.stepsPendingMany: '{count} 个步骤待审查'
+  agentSteps.stepsPendingOne: 1 个步骤待审查
   agentTurn.cancel: 取消
   agentTurn.changeWord: 处更改
   agentTurn.changesWord: 处更改
@@ -147,6 +235,143 @@ strings:
   agentTurn.undo: 撤销
   agentTurn.whyPrefix: 原因：
   agentTurn.working: 智能体正在工作…
+  agentUI.agentPanelLabel: 智能体面板
+  agentUI.apiKey: API 密钥
+  agentUI.choiceKeyDesc: 由编辑器直接与模型通信
+  agentUI.choiceKeyTitle: 内置，使用你的 API 密钥
+  agentUI.choiceLocalDesc: Claude Code、Codex 或你已在使用的任意 MCP 客户端
+  agentUI.choiceLocalTitle: 本机上的智能体
+  agentUI.choiceNoneDesc: 纯手动编辑；智能体面板保持关闭
+  agentUI.choiceNoneTitle: 不使用智能体
+  agentUI.connectAgent: 连接智能体
+  agentUI.connectAnAgent: 连接智能体
+  agentUI.connectChoicesLabel: 编辑器连接智能体的方式
+  agentUI.connectIntro: 编辑器通过 MCP 提供此项目：智能体可读取和编辑场景、查看视口、运行检查与试玩。选择连接方式，之后可随时更改。
+  agentUI.connectedAPI: 已连接 · API
+  agentUI.connectedAPILabel: 已连接 · API（{tooltip}）
+  agentUI.connectedClient: 已连接 · {client}
+  agentUI.connectedMCP: 已连接 · MCP
+  agentUI.connectedMCPLabel: 已连接 · MCP（{tooltip}）
+  agentUI.copied: 已复制
+  agentUI.copy: 复制
+  agentUI.copyInstallCmd: 复制安装命令
+  agentUI.disconnectedOffline: 已断开 · 离线
+  agentUI.emptyBodyConnected: 描述你想做的修改。每次编辑都会通过编辑器的 MCP 服务器执行，你可以实时查看并一键撤销。
+  agentUI.emptyBodyDisconnected: 连接此计算机上的 Claude Code、Codex 或任意 MCP 客户端。手动编辑工具在任何状态下均可正常使用。
+  agentUI.emptyHeadingConnected: 让智能体编辑此场景
+  agentUI.emptyHeadingDisconnected: 连接智能体以开始
+  agentUI.foundOnComputer: 在此计算机上发现：
+  agentUI.fromTerminal: 来自终端 · {name}
+  agentUI.installHint: 在项目文件夹中运行一次此命令，之后智能体即可自动找到编辑器：
+  agentUI.keyStoredHint: 密钥已保存在系统钥匙串中 · 留空以保留当前密钥
+  agentUI.keychainHint: 保存在系统钥匙串中，绝不写入项目文件。
+  agentUI.limitReachedResets: 已达上限 · {reset}重置
+  agentUI.mayWithoutAsking: 智能体无需询问即可执行
+  agentUI.noneDetected: 尚未检测到
+  agentUI.openUsageSettings: 打开用量与隐私设置
+  agentUI.pasteKey: 粘贴密钥
+  agentUI.permEditGo: 编辑 Go 代码
+  agentUI.permEditScenes: 编辑场景与数据（始终可审查）
+  agentUI.permFooterHint: 未勾选的操作会先询问你。
+  agentUI.permRunCheck: 运行 game check
+  agentUI.permRunPlaytests: 运行无头试玩
+  agentUI.queuedAt: 排队于 {time}
+  agentUI.queuedHeading: 排队中 · {count}
+  agentUI.queuedLimitCaption: 上限重置或由你提高后，每条排队请求都会等待你手动发送。
+  agentUI.recommended: 推荐
+  agentUI.reconnect: 重新连接
+  agentUI.reconnectingTry: 正在重连 · 第 {attempt}/{total} 次尝试
+  agentUI.redetectLocal: 重新检测本地智能体
+  agentUI.removeFromQueue: 从队列中移除 {prompt}
+  agentUI.retryNow: 立即重试
+  agentUI.sendQueuedLabel: 发送排队请求
+  agentUI.stoppedUndoable: 已停止 · 已完成的编辑仍可撤销。
+  agentUI.terminalSession: 终端 MCP 会话
+  agentUI.troubleshoot: 排查问题
+  agentUI.troubleshootAPIKey: 排查问题 · API 密钥配置
+  agentUI.troubleshootAPIKeyBody: 无法验证内置 API 密钥。请检查系统钥匙串中的密钥，或粘贴新密钥。
+  agentUI.troubleshootInstall: 排查问题 · 第 1 步：项目 MCP 配置
+  agentUI.troubleshootMCPBody: MCP 连接已停止响应。请确认项目配置并重新连接智能体。
+  agentUI.troubleshootWaiting: 排查问题 · 等待 MCP 连接
+  agentUI.usage: 用量
+  agentUI.useAgent: 使用 {agent}
+  agentUI.waitingElapsed: 等待你确认 · {elapsed}
+  agentUI.waitingFocusLabel: 等待你确认，已等待 {elapsed}。聚焦当前请求
+  agentUI.waitingForConnect: 正在等待智能体连接…
+  agentUI.weeklyLimitBody: 本周配额已用完（已用 {used}/{limit} 次请求）。请求将在队列中等待重置，或等待你提高上限；仅你可以修改此上限。
+  agentUI.weeklyLimitReached: 已达每周上限
+  agentUI.workingStep: 处理中 · 第 {step} 步
+  agentUI.workingStepOf: 处理中 · 第 {step}/{total} 步
+  anim.addEvent: 添加事件
+  anim.addEventTooltip: 在当前播放头时间添加命名事件
+  anim.asepriteTag: Aseprite 标签
+  anim.clipLengthLabel: 片段时长（秒）
+  anim.clipNameLabel: 片段名称
+  anim.clipNamePlaceholder: 片段名称
+  anim.closeAnimation: 关闭动画
+  anim.currentFramePlaceholder: 当前帧
+  anim.deleteEvent: 删除事件
+  anim.deleteEventTooltip: 删除选中的事件标记
+  anim.deleteKey: 删除关键帧
+  anim.deleteKeyTooltip: 删除选中的关键帧
+  anim.emptyDesc: 在上方选择属性并点击「添加关键帧」，即可在播放头处插入关键帧。
+  anim.emptyTitle: 暂无轨道
+  anim.errorPrefix: 错误：{err}
+  anim.eventMarkerLabel: 事件 {name}
+  anim.eventNameLabel: 事件名称
+  anim.eventNamePlaceholder: 事件名称
+  anim.eventTip: 事件 {name} @ {time}s
+  anim.eventsSection: 事件
+  anim.flipbookSection: 帧动画
+  anim.frameLongerLabel: 延长 10 ms
+  anim.frameLongerTooltip: 将帧持续时间延长 10 ms
+  anim.frameMarkerLabel: '{track} 帧 {frame}'
+  anim.frameRateLabel: 帧率（FPS）
+  anim.frameShorterLabel: 缩短 10 ms
+  anim.frameShorterTooltip: 将帧持续时间缩短 10 ms
+  anim.fromFrames: 从帧序列创建
+  anim.fromFramesLabel: 从图集帧创建片段
+  anim.fromFramesTooltip: 按选定 FPS 从所有图集帧创建帧动画片段
+  anim.fromTag: 从标签创建
+  anim.fromTagLabel: 从 Aseprite 标签创建片段
+  anim.fromTagTooltip: 根据所选 Aseprite 标签生成帧动画
+  anim.interpLabel: 插值方式：{mode}
+  anim.interpLinear: 线性
+  anim.interpSmooth: 平滑
+  anim.interpStep: 阶跃
+  anim.interpTooltip: 将关键帧插值设为{mode}
+  anim.interpolation: 插值
+  anim.key: 添加关键帧
+  anim.keyFrameLabel: 关键帧图像
+  anim.keyLabel: 在播放头处为属性添加关键帧
+  anim.keyMarkerLabel: '{track} 关键帧 {index}'
+  anim.keyTimeLabel: 关键帧时间（秒）
+  anim.keyTooltip: 在播放头位置为所选属性插入关键帧
+  anim.keyValueLabel: 关键帧数值
+  anim.lengthSection: 时长
+  anim.loadingClip: 正在加载动画片段…
+  anim.loop: 循环
+  anim.loopLabel: 循环播放片段
+  anim.onTarget: 作用于 {target}
+  anim.pause: 暂停
+  anim.pauseLabel: 暂停片段预览
+  anim.play: 播放
+  anim.playLabel: 播放片段预览
+  anim.playPauseTooltip: 播放或暂停片段预览
+  anim.playhead: 播放头
+  anim.previewError: 预览：{err}
+  anim.propertyLabel: 要添加关键帧的属性
+  anim.propertyPlaceholder: 属性
+  anim.remove: 移除
+  anim.removeTrack: 移除轨道 {name}
+  anim.saveClip: 保存片段
+  anim.savedClip: 已保存片段
+  anim.secondsValue: '{value} 秒'
+  anim.spriteFrameLabel: 要添加关键帧的精灵帧
+  anim.timeReadout: '{current} / {total} 秒'
+  anim.timeSection: 时间
+  anim.title: 动画
+  anim.valueSection: 数值
   app.defaultName: NSGo 场景编辑器
   askInPlace.announceScene: 正在询问打开的场景 {scene}
   askInPlace.announceSelection: 已选中 {count} 项：{names}
@@ -173,6 +398,115 @@ strings:
   askInPlace.suggest.softenLight: 柔化光照半径
   askInPlace.suggest.spaceEvenly: 均匀排列它们
   askInPlace.suggested: 建议：
+  assetDrawer.askAgent: 询问智能体
+  assetDrawer.askAgentCreateAssets: 为 {folder} 创建资源
+  assetDrawer.askAgentRecreateMissing: 查找或重新创建缺失的资源 {path}
+  assetDrawer.assetsFallback: 资源
+  assetDrawer.audioChannels: '{count} 声道'
+  assetDrawer.audioMono: 单声道
+  assetDrawer.audioStereo: 立体声
+  assetDrawer.badgeGenerated: 已生成
+  assetDrawer.badgeMissing: 缺失
+  assetDrawer.badgeNew: 新
+  assetDrawer.badgeNotUsed: 未使用
+  assetDrawer.clearFilters: 清除筛选
+  assetDrawer.clipLabel: 片段 {name}
+  assetDrawer.dimsClipsFrames: '{w} × {h} · {clips} 个片段 · {frames} 帧'
+  assetDrawer.dimsFontCJKLatin: 字体 · 中文 + 拉丁
+  assetDrawer.dimsFontLatin: 字体 · 拉丁
+  assetDrawer.dimsFrames: '{w} × {h} · {frames} 帧'
+  assetDrawer.dimsNotOnDisk: 磁盘上不存在
+  assetDrawer.dimsTileset: 瓦片集
+  assetDrawer.dimsTilesetGrid: 16 px · {cols} × {rows} 瓦片
+  assetDrawer.dragNewDetail: 在 {layer} 上新建精灵 · 吸附至 {step} px
+  assetDrawer.dragSwapDetail: 替换 {name} 的精灵
+  assetDrawer.drawerLabel: 资源抽屉
+  assetDrawer.dropHint: 拖放文件到任意位置即可导入
+  assetDrawer.emptyAudioFolderHint: '{folder} 为空 · 拖放 .ogg 或 .wav 文件到此处，或询问智能体。'
+  assetDrawer.emptyFolderHint: '{folder} 为空 · 拖放文件到此处，或询问智能体。'
+  assetDrawer.emptyFolderTitle: '{folder} 为空'
+  assetDrawer.emptyMatchHint: 清除筛选条件以查看更多资源。
+  assetDrawer.emptyMatchTitle: 没有匹配项
+  assetDrawer.filterGenerated: 已生成
+  assetDrawer.filterMissing: 缺失文件
+  assetDrawer.filterProposed: 待确认
+  assetDrawer.filterUnused: 未使用
+  assetDrawer.folderAll: 全部资源
+  assetDrawer.footerCount: 共 {total} 个资源 · 显示 {shown} 个
+  assetDrawer.footerReimportsOnSave: 保存时自动重新导入
+  assetDrawer.frameLabel: 第 {num} 帧
+  assetDrawer.generate: 生成
+  assetDrawer.generateLabel: 使用 AI 生成资源
+  assetDrawer.import: 导入
+  assetDrawer.importAtlas: 图集
+  assetDrawer.importFilter: 过滤
+  assetDrawer.importFormat: 格式
+  assetDrawer.importLabel: 导入资源文件
+  assetDrawer.importPadding: 内边距
+  assetDrawer.importSampleRate: 采样率
+  assetDrawer.importSize: 字号
+  assetDrawer.inspectorEmpty: 选择一个资源以查看其预览与引用。
+  assetDrawer.inspectorFooter: 文件在磁盘上发生更改时自动重新导入
+  assetDrawer.inspectorLabel: 所选资源检查器
+  assetDrawer.keep: 保留
+  assetDrawer.kindAll: 全部
+  assetDrawer.kindAudio: 音频
+  assetDrawer.kindFonts: 字体
+  assetDrawer.kindLabelAsset: 资源
+  assetDrawer.kindLabelFont: 字体
+  assetDrawer.kindLabelSound: 音频
+  assetDrawer.kindLabelSprite: 精灵
+  assetDrawer.kindLabelTileset: 瓦片集
+  assetDrawer.kindSprites: 精灵
+  assetDrawer.kindTiles: 瓦片
+  assetDrawer.leftRailLabel: 资源文件夹与筛选器
+  assetDrawer.metaClipsCount: '{count} 个片段'
+  assetDrawer.metaFontCJKLatin: 中文 + 拉丁
+  assetDrawer.metaFontLatin: 拉丁
+  assetDrawer.metaFramesCount: '{count} 帧'
+  assetDrawer.metaMissingUsed: 缺失 · 已引用 {count} 次
+  assetDrawer.metaTilesCount: '{count} 块瓦片'
+  assetDrawer.metaUsedCount: 已引用 {count} 次
+  assetDrawer.missingCardDesc: 磁盘上找不到 {name}。{refs} 仍在引用它；在恢复或替换该文件前，构建将失败。
+  assetDrawer.missingRefMultiple: '{file} 及其他 {count} 个文件'
+  assetDrawer.missingRefProjectFiles: 项目文件
+  assetDrawer.modeAssets: 资源
+  assetDrawer.modeScene: 场景
+  assetDrawer.nextFrame: 下一帧
+  assetDrawer.pause: 暂停
+  assetDrawer.pickImportTitle: 导入资源
+  assetDrawer.pickReplaceTitle: 替换 {name}
+  assetDrawer.play: 播放
+  assetDrawer.prevFrame: 上一帧
+  assetDrawer.projectFallback: 项目
+  assetDrawer.proposedBannerSubtitle: · 保留前请检查导入设置
+  assetDrawer.replaceWithFile: 替换为文件
+  assetDrawer.revert: 还原
+  assetDrawer.searchLabel: 按名称或路径筛选资源
+  assetDrawer.searchPlaceholder: 名称或路径
+  assetDrawer.sectionAssets: 资源
+  assetDrawer.sectionFolders: 文件夹
+  assetDrawer.sectionImport: 导入
+  assetDrawer.sectionShowOnly: 仅显示
+  assetDrawer.sortName: 排序：名称
+  assetDrawer.sortRecent: 排序：最近修改
+  assetDrawer.statusAskedAgent: 已向智能体询问 {target}：{prompt}
+  assetDrawer.statusConnectGenerator: 生成资源：请在“设置 › 工具”中连接 MCP 生成器
+  assetDrawer.statusDragCancelled: 已取消资源拖放
+  assetDrawer.statusImported: 已导入 {count} 个资源
+  assetDrawer.statusPlacedSprite: 已在 {layer} 放置新精灵 {name} · 吸附至 {step} px
+  assetDrawer.statusPlaying: 正在播放 {name}
+  assetDrawer.statusProposalDismissed: 已忽略导入提议
+  assetDrawer.statusReplaceMissing: 替换缺失文件 {path}
+  assetDrawer.statusReplacedMissing: 已替换缺失的资源 {path}
+  assetDrawer.statusSelectImport: 选择要导入到 {dest} 的文件
+  assetDrawer.statusSelected: 已选中资源 {path}
+  assetDrawer.statusStoppedPreview: 已停止音频预览
+  assetDrawer.statusSwappedSprite: 已将 {target} 的精灵替换为 {name}
+  assetDrawer.usedByEmpty: 没有任何位置引用它。智能体可以提议删除它；删除文件前总会先征求你的确认。
+  assetDrawer.usedByHeader: 引用位置 · {count}
+  assetDrawer.viewportCamera: 相机 · {w} × {h}
+  assetDrawer.viewportDropHint: 拖放到对象上以替换其精灵 · 按 Esc 取消
   assetGen.back: 返回场景编辑器
   assetGen.cancel: 取消
   assetGen.commercialUse: 允许商业使用
@@ -196,19 +530,598 @@ strings:
   assetGen.undoPick: 撤销选用
   assetGen.untrustedNotice: 生成输出不受信任：仅作像素预览，选用前不会写入磁盘
   assetGen.varyThis: 生成变体
+  assetGenExtra.assetsCount: '{count} 个资源'
+  assetGenExtra.breadcrumbAssets: 资源
+  assetGenExtra.breadcrumbGenerated: 已生成
+  assetGenExtra.candidateTitle: 候选
+  assetGenExtra.candidateTitleID: 候选 {id}
+  assetGenExtra.candidatesSuffix: · {count} 个候选
+  assetGenExtra.defaultProjectName: 项目
+  assetGenExtra.headerLabel: 生成资源标题栏
+  assetGenExtra.kindImages: 图像
+  assetGenExtra.kindSound: 音频
+  assetGenExtra.licenseCommercialSuffix: '{license} · 允许商业使用'
+  assetGenExtra.licenseUnknownBlocksExport: 许可证未知 · 会阻止导出
+  assetGenExtra.pickWritesNote: 每次选用都会写入该文件及其 .source.yaml。
+  assetGenExtra.pillConnectServer: 在“设置 › 工具”中连接 MCP 生成服务器以生成候选
+  assetGenExtra.pillPicked: 已选用 {id} · 已写入 {file} 及其来源文件 · ⌘Z 可撤销
+  assetGenExtra.pillWaitingPick: '{generator} 返回了 {count} 个候选 · 等待你的选用'
+  assetGenExtra.playCandidateLabel: 播放候选 {id}
+  assetGenExtra.regenerateCount: 重新生成 {count} 个
+  assetGenExtra.sectionGenerated: 已生成
+  assetGenExtra.sectionGenerators: 生成器 · MCP
+  assetGenExtra.sectionSource: 来源
+  assetGenExtra.sectionStyleBrief: 与简报风格对比
+  assetGenExtra.seedRange: 种子 {first}–{last}
+  assetGenExtra.seedSingle: 种子 {seed}
+  assetGenExtra.seedSuffix: · 种子 {seed}
+  assetGenExtra.soundCandidatesSummary: · {count} 个候选 · “{prompt}”
+  assetGenExtra.statusInUse: 使用中
+  assetGenExtra.statusInUseRefs: 使用中 · {count} 处引用
+  assetGenExtra.statusLicenseUnknown: 许可证未知
+  assetGenExtra.statusPickOneOf: 从 {count} 个中选用 1 个
+  assetGenExtra.statusPickedIDWritten: 已选用 {id} · 已写入
+  assetGenExtra.statusPickedWritten: 已选用 · 已写入
+  assetImport.addPoint: 添加点位
+  assetImport.addPointBtn: 添加
+  assetImport.addPointBtnLabel: 添加命名图像点位
+  assetImport.addPointTooltip: 添加命名图像点位（如枪口、手部或脚部）并在预览中拖拽定位
+  assetImport.audio.bitrate: 比特率
+  assetImport.audio.bitrateLabel: 音频比特率
+  assetImport.audio.bitrateReset: 将比特率重置为目标默认值
+  assetImport.audio.bitrateTip: AAC/MP3 比特率（kbps）（目标默认：{default}）
+  assetImport.audio.channelMono: 单声道 (1)
+  assetImport.audio.channelSource: 原始声道
+  assetImport.audio.channelStereo: 立体声 (2)
+  assetImport.audio.channels: 声道
+  assetImport.audio.channelsLabel: 音频声道
+  assetImport.audio.channelsReset: 将声道重置为目标默认值
+  assetImport.audio.channelsTip: 声道数（目标默认：{default}）
+  assetImport.audio.format: 格式
+  assetImport.audio.formatLabel: 音频格式
+  assetImport.audio.formatReset: 将音频格式重置为目标默认值
+  assetImport.audio.formatTip: 输出格式（目标默认：{default}）
+  assetImport.audio.levelDB: 电平 dB
+  assetImport.audio.levelDBLabel: 标准化电平 (dBFS)
+  assetImport.audio.loop: 循环
+  assetImport.audio.loopEnd: 终点
+  assetImport.audio.loopEndLabel: 循环终点
+  assetImport.audio.loopLabel: 循环区间
+  assetImport.audio.loopReset: 重置音频循环
+  assetImport.audio.loopStart: 起点
+  assetImport.audio.loopStartLabel: 循环起点
+  assetImport.audio.loopTip: 以原始采样帧为单位的 WAV 循环点
+  assetImport.audio.normNone: 无
+  assetImport.audio.normPeak: 峰值 (dBFS)
+  assetImport.audio.normRMS: 均方根 (dBFS)
+  assetImport.audio.normalize: 响度标准化
+  assetImport.audio.normalizeLabel: 音频标准化
+  assetImport.audio.normalizeReset: 将响度标准化重置为目标默认值
+  assetImport.audio.normalizeTip: 以 dBFS 为单位的峰值或 RMS 响度标准化
+  assetImport.audio.rate: 采样率
+  assetImport.audio.rateLabel: 音频采样率
+  assetImport.audio.rateReset: 将采样率重置为目标默认值
+  assetImport.audio.rateTip: 采样率（Hz），0 表示保持原始值（目标默认：{default}）
+  assetImport.buildAssets: 构建资源
+  assetImport.buildAssetsLabel: 为整个项目运行 go tool game assets 并重新加载变更的图集与纹理
+  assetImport.clearCollision: 清除碰撞设置
+  assetImport.collisionHeading: 碰撞
+  assetImport.collisionMaxVerts: 最大顶点数
+  assetImport.collisionMaxVertsLabel: 碰撞最大顶点数
+  assetImport.collisionMaxVertsTooltip: 每个烘焙凸多边形的最大顶点数（3..8）
+  assetImport.collisionMode: 模式
+  assetImport.collisionModeLabel: 碰撞模式
+  assetImport.collisionModeTooltip: 根据透明通道、矩形、椭圆或显式多边形烘焙到图集元数据中的 2D 碰撞形状
+  assetImport.collisionSummaryMany: '{count} 个凸多边形 · {verts} 个顶点'
+  assetImport.collisionSummaryOne: 1 个凸多边形 · {verts} 个顶点
+  assetImport.collisionTolerance: 容差
+  assetImport.collisionToleranceLabel: 碰撞透明通道容差
+  assetImport.collisionToleranceTooltip: 透明度阈值 [0..255]：不透明度高于容差的像素视为实体
+  assetImport.credit.author: 作者
+  assetImport.credit.authorLabel: 署名作者
+  assetImport.credit.authorLicenseRequired: 署名信息必须同时填写作者和许可证
+  assetImport.credit.clear: 清除资源署名
+  assetImport.credit.license: 许可证
+  assetImport.credit.licenseLabel: 署名许可证
+  assetImport.credit.licensePlaceholder: CC-BY-4.0
+  assetImport.credit.notice: 声明
+  assetImport.credit.noticeLabel: 署名声明
+  assetImport.credit.noticePlaceholder: 可选声明
+  assetImport.credit.source: 来源
+  assetImport.credit.sourceLabel: 署名来源
+  assetImport.credit.sourcePlaceholder: 可选 URL
+  assetImport.font.chars: 字符集
+  assetImport.font.charsLabel: 字体字符集
+  assetImport.font.charsReset: 将字体字符集重置为目标默认值
+  assetImport.font.charsTip: 要烘焙到位图字体中的字符
+  assetImport.font.padding: 内边距
+  assetImport.font.paddingLabel: 字体内边距
+  assetImport.font.paddingReset: 将字体内边距重置为目标默认值
+  assetImport.font.paddingTip: 字形像素内边距（目标默认：{default}）
+  assetImport.font.size: 字号
+  assetImport.font.sizeLabel: 字体大小
+  assetImport.font.sizeReset: 将字体大小重置为目标默认值
+  assetImport.font.sizeTip: 烘焙像素大小（目标默认：{default}）
+  assetImport.image.filter: 过滤
+  assetImport.image.filterLabel: 图像过滤
+  assetImport.image.filterReset: 将图像过滤重置为默认值
+  assetImport.image.filterTip: 采样过滤方式（默认：{default}）
+  assetImport.image.format: 格式
+  assetImport.image.formatLabel: 图像格式
+  assetImport.image.formatReset: 将图像格式重置为目标默认值
+  assetImport.image.formatTip: KTX2 纹理格式（目标默认：{default}）
+  assetImport.image.mipmaps: 多级渐远纹理
+  assetImport.image.mipmapsReset: 将多级渐远纹理重置为目标默认值
+  assetImport.image.mipmapsTip: 生成多级渐远纹理（目标默认：{default}）
+  assetImport.image.previewCanvasLabel: 精灵表切片与轴心预览
+  assetImport.image.previewGrid: '{w}x{h} px · {cols}x{rows} 网格（{cells} 个单元）· 拖动调整轴心'
+  assetImport.image.previewGridLarge: '{w}x{h} px · {cols}x{rows} 网格（{cells} 个单元；仅显示所选单元）'
+  assetImport.image.previewInvalidSlice: '{w}x{h} px · 切片无效'
+  assetImport.image.previewUnavailable: 预览不可用
+  assetImport.image.previewUnsliced: '{w}x{h} px · 未切片 · 拖动调整轴心'
+  assetImport.image.slice: 切片
+  assetImport.image.sliceCount: 数量
+  assetImport.image.sliceCountLabel: 切片数量
+  assetImport.image.sliceHeight: 单元高
+  assetImport.image.sliceHeightLabel: 切片高度
+  assetImport.image.sliceLabel: 切片网格
+  assetImport.image.sliceMargin: 边距
+  assetImport.image.sliceMarginLabel: 切片边距
+  assetImport.image.sliceReset: 重置切片网格
+  assetImport.image.sliceSpacing: 间距
+  assetImport.image.sliceSpacingLabel: 切片间距
+  assetImport.image.sliceTip: 将精灵表按网格切分为图集帧
+  assetImport.image.sliceWidth: 单元宽
+  assetImport.image.sliceWidthLabel: 切片宽度
+  assetImport.image.srgb: sRGB
+  assetImport.image.srgbReset: 将 sRGB 重置为目标默认值
+  assetImport.image.srgbTip: sRGB 色彩空间（目标默认：{default}）
+  assetImport.imagePointsHeading: 图像锚点
+  assetImport.kind.audio: 音频
+  assetImport.kind.font: 字体
+  assetImport.kind.image: 图像
+  assetImport.kind.model: 模型
+  assetImport.model.animations: 动画
+  assetImport.model.animationsLabel: 保留动画
+  assetImport.model.animationsReset: 将模型动画重置为目标默认值
+  assetImport.model.animationsTip: 保留模型动画（目标默认：{default}）
+  assetImport.model.lodEntry: LOD{index} >= {ratio}
+  assetImport.model.lodHysteresis: LOD 滞后
+  assetImport.model.lodHysteresisLabel: LOD 滞后
+  assetImport.model.lodHysteresisReset: 重置 LOD 滞后
+  assetImport.model.lodHysteresisTip: 相对 LOD 切换滞后区间 [0, 0.5]，用于防止跳变
+  assetImport.model.lods: LOD 层级
+  assetImport.model.lodsAuto: 自动（_LOD1/_LOD2）
+  assetImport.model.lodsReset: 清除已声明的 LOD 层级
+  assetImport.model.lodsTip: 显式声明的 LOD 层级（未设置时自动按 _LOD1/_LOD2 约定识别）
+  assetImport.model.scale: 缩放
+  assetImport.model.scaleLabel: 模型缩放
+  assetImport.model.scaleReset: 将模型缩放重置为目标默认值
+  assetImport.model.scaleTip: 模型缩放倍率（目标默认：{default}）
+  assetImport.newPointNameLabel: 新点位名称
+  assetImport.newPointNamePlaceholder: 枪口
+  assetImport.noOpaquePixels: 当前帧没有不透明像素
+  assetImport.pivot.cell: 单元
+  assetImport.pivot.cellLabel: 轴心单元
+  assetImport.pivot.cellOption: 单元 {index}
+  assetImport.pivot.cellPivot: 单元轴心
+  assetImport.pivot.cellPivotTip: 所选单元的归一化 [x, y] 轴心覆盖值
+  assetImport.pivot.cellPivotX: 单元轴心 X
+  assetImport.pivot.cellPivotY: 单元轴心 Y
+  assetImport.pivot.cellTip: 选择要单独覆盖轴心的切片单元
+  assetImport.pivot.default: 默认
+  assetImport.pivot.defaultTip: 未裁剪帧尺寸的归一化 [x, y] 轴心比例（0,0 为左上角；0.5,1 为底部居中）
+  assetImport.pivot.defaultX: 默认轴心 X
+  assetImport.pivot.defaultY: 默认轴心 Y
+  assetImport.pivot.preset: 预设
+  assetImport.pivot.presetBottom: 底部
+  assetImport.pivot.presetBottomLabel: 将默认轴心设为底部居中 [0.5, 1]
+  assetImport.pivot.presetCenter: 居中
+  assetImport.pivot.presetCenterLabel: 将默认轴心设为居中 [0.5, 0.5]
+  assetImport.pivot.presetTL: 左上
+  assetImport.pivot.presetTLLabel: 将默认轴心设为左上角 [0, 0]
+  assetImport.pivot.presetTip: 常用默认轴心预设
+  assetImport.pivot.resetCell: 将所选单元的轴心重置为默认值
+  assetImport.pivot.resetDefault: 重置默认轴心
+  assetImport.reimport: 重新导入
+  assetImport.reimportLabel: 使用 go tool game assets 重新构建此资源并重新加载变更的图集与纹理
+  assetImport.section.audio: 音频导入
+  assetImport.section.credit: 署名
+  assetImport.section.font: 字体导入
+  assetImport.section.image: 图像导入
+  assetImport.section.model: 模型导入
+  assetImport.section.pivot: 轴心
+  assetImport.traceUnavailable: 无法追踪轮廓
+  assetImportModel.animOption: '{name} ({sec}s)'
+  assetImportModel.animPreviewHeader: 动画预览
+  assetImportModel.animRow: '{name} · {sec}s · {channels} 通道'
+  assetImportModel.animTime: '{cur}s / {dur}s'
+  assetImportModel.animTimeLabel: 动画时间
+  assetImportModel.animationsHeader: 动画（{count}）
+  assetImportModel.bounds: 边界：{x} × {y} × {z}
+  assetImportModel.boundsEmpty: 边界：空
+  assetImportModel.boundsEmptyShort: 空
+  assetImportModel.boundsScaled: '{base}（缩放后 {x} × {y} × {z}）'
+  assetImportModel.counts: '{nodes} 个节点 · {meshes} 个网格 · {materials} 种材质 · {animations} 段动画'
+  assetImportModel.loop: 循环
+  assetImportModel.loopLabel: 循环播放模型动画
+  assetImportModel.materialDoubleSided: 双面
+  assetImportModel.materialTex: 贴图
+  assetImportModel.materialUnlit: 无光照
+  assetImportModel.materialsHeader: 材质（{count}）
+  assetImportModel.meshMorphsSuffix: ' · {count} 个变形目标'
+  assetImportModel.meshRow: '{name} · {tris} 三角面 · {bounds}'
+  assetImportModel.meshesHeader: 网格（{count}）
+  assetImportModel.moreCount: 还有 +{count} 项
+  assetImportModel.nodesHeader: 节点（{count}）
+  assetImportModel.pause: 暂停
+  assetImportModel.play: 播放
+  assetImportModel.playAnimNamed: 播放动画 {name}
+  assetImportModel.playPauseLabel: 播放或暂停所选模型动画
+  assetImportModel.previewAnimLabel: 预览动画
+  assetImportModel.previewCanvasLabel: 3D 模型预览
+  assetImportModel.previewStats: '{tris} 三角面 · {verts} 顶点 · 拖动旋转视角'
+  assetImportModel.previewUnavailable: 预览不可用
+  assetImportModel.resetView: 重置视图
+  assetImportModel.resetViewLabel: 重新对准模型预览相机
+  assetImportModel.secondsValue: '{sec} 秒'
+  assetImportModel.skinIndex: 蒙皮 {index}
+  assetImportModel.stop: 停止
+  assetImportModel.stopLabel: 停止模型动画并恢复绑定姿态
+  assetImportModel.trisCount: '{count} 三角面'
   assets.empty: 未加载图集资源
   assets.placePrefab: 放置预制体
   assets.prefab: 预制体
   assets.prefabs: 预制体
   assets.title: 资源
+  audioMixer.addBus: 添加总线
+  audioMixer.addBusLabel: 添加音频总线
+  audioMixer.addEffect: 添加效果
+  audioMixer.addEffectLabel: 向总线添加 DSP 效果
+  audioMixer.audition: 试听
+  audioMixer.auditionFileLabel: 试听音频文件
+  audioMixer.auditionFilePlaceholder: 音频文件
+  audioMixer.auditionHeading: 试听
+  audioMixer.busHeading: 总线
+  audioMixer.busVolumeLabel: 总线 {bus} 音量
+  audioMixer.close: 关闭
+  audioMixer.closeLabel: 关闭音频总线
+  audioMixer.del: 删除
+  audioMixer.deleteBusLabel: 删除总线 {bus}
+  audioMixer.down: 下移
+  audioMixer.effect.bitcrush: 位深压碎
+  audioMixer.effect.delay: 延迟
+  audioMixer.effect.gain: 增益
+  audioMixer.effect.highPass: 高通
+  audioMixer.effect.lowPass: 低通
+  audioMixer.effect.reverb: 混响
+  audioMixer.effectParamLabel: 效果 {index} {param}
+  audioMixer.effectTypeLabel: 效果类型
+  audioMixer.emptyBuses: 暂无音频总线。添加一条总线即可混音和试听。
+  audioMixer.emptyEffects: 此总线上暂无效果。请选择效果类型并点击“添加效果”。
+  audioMixer.intoMaster: 输出至主总线
+  audioMixer.intoMasterFx: 输出至主总线 · {count} 个效果
+  audioMixer.loop: 循环
+  audioMixer.master: 主总线
+  audioMixer.masterVolumeLabel: 主音量
+  audioMixer.moveBusDownLabel: 下移总线 {bus}
+  audioMixer.moveBusUpLabel: 上移总线 {bus}
+  audioMixer.moveEffectDownLabel: 下移效果 {index}
+  audioMixer.moveEffectUpLabel: 上移效果 {index}
+  audioMixer.newBusNameLabel: 新总线名称
+  audioMixer.newBusNamePlaceholder: 总线名称（例如 music、effects、voice）
+  audioMixer.output: 输出
+  audioMixer.param.bits: 位数
+  audioMixer.param.cutoffHz: 截止频率 Hz
+  audioMixer.param.damping: 阻尼
+  audioMixer.param.downsample: 降采样
+  audioMixer.param.factor: 倍率
+  audioMixer.param.feedback: 反馈
+  audioMixer.param.q: Q 值
+  audioMixer.param.room: 空间
+  audioMixer.param.roomSize: 空间大小
+  audioMixer.param.timeMs: 时间 ms
+  audioMixer.param.wet: 湿声
+  audioMixer.remove: 移除
+  audioMixer.removeEffectLabel: 移除效果 {index}
+  audioMixer.rename: 重命名
+  audioMixer.renameBusLabel: 重命名总线
+  audioMixer.renameSelectedBusLabel: 重命名所选音频总线
+  audioMixer.selectBusLabel: 选择总线 {bus}
+  audioMixer.selectOrAddBus: 选择或添加一条总线以编辑其名称、音量、路由和效果链。
+  audioMixer.statusAuditioning: 正在通过总线“{bus}”试听 {file}
+  audioMixer.statusError: 错误：{error}
+  audioMixer.statusStopped: 已停止试听
+  audioMixer.stop: 停止
+  audioMixer.up: 上移
+  buildRelease.actionBuild: 构建
+  buildRelease.actionResume: 继续
+  buildRelease.actionStop: 停止
+  buildRelease.addKey: 添加密钥…
+  buildRelease.addKeyLabel: 为 {dest} 添加钥匙串密钥
+  buildRelease.alwaysAsksFirst: 始终先询问
+  buildRelease.applyAndRebuild: 应用并重新构建 {name}
+  buildRelease.backLabel: 返回场景编辑器
+  buildRelease.breakdownAudio: 音频
+  buildRelease.breakdownCode: 代码
+  buildRelease.breakdownOther: 其他
+  buildRelease.breakdownTextures: 纹理
+  buildRelease.budgetDownloadSize: 下载体积
+  buildRelease.budgetFrameTime: 帧耗时 p95
+  buildRelease.budgetMet: 达标
+  buildRelease.budgetMissed: 超标
+  buildRelease.buildFailed: 构建失败
+  buildRelease.buildNext: 优先构建 {name}
+  buildRelease.cancel: 取消
+  buildRelease.chipBuilding: 正在构建 · 已完成 {done}/{total}
+  buildRelease.chipDone: 已完成 · 已构建 {done}/{total}
+  buildRelease.chipFailed: 已完成 {done}/{total} · {failed} 项失败
+  buildRelease.chipReady: 就绪 · {count} 个预设
+  buildRelease.chipStopped: 已停止 · 已完成 {done}/{total}
+  buildRelease.close: 关闭
+  buildRelease.colArtifact: 产物
+  buildRelease.colDestination: 目标平台
+  buildRelease.colKeychain: 钥匙串
+  buildRelease.colSize: 体积
+  buildRelease.colVersion: 版本
+  buildRelease.commitLocal: 本地
+  buildRelease.confirmAndUpload: 确认并上传 {count} 项
+  buildRelease.copyURL: 复制链接
+  buildRelease.defaultProjectName: 项目
+  buildRelease.deltaNew: 新增
+  buildRelease.deltaToFix: '{count} 项待修复'
+  buildRelease.doneEditing: 完成编辑
+  buildRelease.dryRun: 空跑预览
+  buildRelease.editPreset: 编辑预设
+  buildRelease.failed: 失败
+  buildRelease.failureNotice: 其他平台将继续构建，不会上传任何内容。
+  buildRelease.failureStepMeta: 第 {step}/{total} 步 · {label}
+  buildRelease.failureStepMetaAfter: 第 {step}/{total} 步 · {label} · 耗时 {duration}
+  buildRelease.fixEditsFile: 将修改 {file}
+  buildRelease.headerLabel: 发布顶栏
+  buildRelease.includePresetLabel: 在本次发布中包含 {name}
+  buildRelease.keyInKeychain: 密钥已在钥匙串中
+  buildRelease.keychainAccountLabel: 商店账号
+  buildRelease.keychainAccountPlaceholder: 账号或发行商名称
+  buildRelease.keychainFooterNote: 凭据仅保存在系统钥匙串中 · 绝不写入项目文件。
+  buildRelease.keychainSecretLabel: API 密钥或令牌
+  buildRelease.keychainSecretPlaceholder: API 密钥 / 令牌
+  buildRelease.keychainTitle: 将 {dest} 凭据保存到系统钥匙串
+  buildRelease.lanTestLink: 局域网测试链接
+  buildRelease.lastReleaseNone: 无
+  buildRelease.lessThanOneSec: <1 秒
+  buildRelease.logFollowing: 跟随日志
+  buildRelease.logHeading: 日志
+  buildRelease.logPaused: 已暂停
+  buildRelease.mcpBridgeDevice: MCP 桥接 · {device}
+  buildRelease.metaLine: 基于 {branch} 分支的 {commit} · 上次发布 {lastRelease}
+  buildRelease.neverInProjectFiles: 绝不写入项目文件
+  buildRelease.noPresets: 尚未配置任何导出预设。
+  buildRelease.noUploadsReady: 尚无可供上传的导出预设。请先构建至少一个预设。
+  buildRelease.notesEmpty: （空）
+  buildRelease.notesHeading: 发布说明
+  buildRelease.notesLabel: 发布说明
+  buildRelease.notesPlaceholder: 概述本次发布的主要改动…
+  buildRelease.notesPrefix: 发布说明：
+  buildRelease.notesSavedTo: 已保存至 {file} · game release -release-notes
+  buildRelease.preflightBudgetsTitle: 性能预算 · {profile}档画质
+  buildRelease.preflightCheckTitle: nsgo check
+  buildRelease.preflightError: 出错 · {elapsed}
+  buildRelease.preflightHeading: 每次构建前
+  buildRelease.preflightNotRun: 尚未运行
+  buildRelease.preflightProblems: '{count} 个问题 · {elapsed}'
+  buildRelease.preflightSmokeDefault: 每次构建 60 秒，主场景
+  buildRelease.preflightSmokeScene: 每次构建 60 秒，{scene}
+  buildRelease.preflightSmokeTitle: 冒烟试玩
+  buildRelease.presetStopped: '{name} 已停止'
+  buildRelease.presetsHeading: 导出预设 · export/
+  buildRelease.profileHigh: 高
+  buildRelease.profileLow: 低
+  buildRelease.profileMedium: 中
+  buildRelease.publishSubtitle: 无论使用何种权限方案，每次上传前都会先向你确认
+  buildRelease.publishTitle: 发布至 itch.io、Google Play 内部测试、TestFlight
+  buildRelease.qrCaptionServing: 使用同一 Wi-Fi 下的手机扫码即可测试。那里的运行模式会连接到 MCP 桥接，智能体也能直接调试。
+  buildRelease.qrCaptionStopped: 本地服务已停止并释放端口。重新启动服务即可在同一 Wi-Fi 下的手机上测试。
+  buildRelease.qrCodeLabel: '{url} 的二维码'
+  buildRelease.queued: 排队中
+  buildRelease.queuedAfter: 排在 {name} 之后
+  buildRelease.queuedSubtitle: 每次只运行一个构建任务，以保持编辑器流畅响应。
+  buildRelease.readinessGuidanceAgent: 智能体可以自动完成 {agentItems}。
+  buildRelease.readinessGuidanceBoth: 智能体可以根据游戏内容自动写入 {agentItems}。{personItems} 需要使用你的账号，请直接完成登录。
+  buildRelease.readinessGuidanceBothPlural: 智能体可根据游戏内容自动填写 {agentItems}。{personItems} 需要你的账号，请直接完成登录。
+  buildRelease.readinessGuidanceDefault: 智能体可以处理 {name} 的项目侧配置；账号登录与商店凭据需要由你完成。
+  buildRelease.readinessGuidancePerson: 构建 {name} 之前，{personItems} 需要你登录账号。
+  buildRelease.readinessGuidancePersonPlural: 构建 {name} 前，{personItems} 需要登录你的账号。
+  buildRelease.readinessReady: 就绪检查 · {name} 已可构建
+  buildRelease.readinessToFix: 就绪检查 · 构建 {name} 前需修复 {count} 项
+  buildRelease.redraft: 重新起草
+  buildRelease.redraftLabel: 重新起草发布说明
+  buildRelease.releaseBreadcrumb: 发布
+  buildRelease.reviewUploads: 审查上传…
+  buildRelease.reviewUploadsPolicy: 权限方案：{profile} · 无论使用何种权限方案，每次上传前都会先向你确认。
+  buildRelease.reviewUploadsSubtitle: 在发送任何内容之前，请核对每个产物、商店目标与版本号。
+  buildRelease.reviewUploadsTitle: 审查上传
+  buildRelease.runOnDevice: 在设备上运行
+  buildRelease.saveToKeychain: 保存到钥匙串
+  buildRelease.screenLabel: 构建与发布
+  buildRelease.selectPresetLabel: 选择 {name} 预设
+  buildRelease.serverStopped: 服务已停止
+  buildRelease.servingOnLan: 局域网服务中
+  buildRelease.setupWithAgent: 由智能体配置 {name}
+  buildRelease.showInFinder: 在访达中显示
+  buildRelease.sizeVsVersion: 体积对比 {version}
+  buildRelease.smokePlaytest60s: 冒烟试玩 · 60 秒
+  buildRelease.startServing: 启动服务
+  buildRelease.statusBuilding: 构建中
+  buildRelease.statusDone: 已完成
+  buildRelease.statusFailed: 失败
+  buildRelease.statusNotarizing: 公证中
+  buildRelease.statusQueued: 排队中
+  buildRelease.statusSetUp: 待配置
+  buildRelease.statusStopped: 已停止
+  buildRelease.stepCheckProject: 检查项目
+  buildRelease.stepCompileGo: 编译 Go 代码
+  buildRelease.stepDetailMeasure: 体积与帧时间
+  buildRelease.stepDetailPackAssets: 图集、音频与场景
+  buildRelease.stepDetailSignMacOS: Developer ID · 已公证
+  buildRelease.stepDetailSmokeHeadless: 60 秒无头试玩
+  buildRelease.stepMeasure: 性能测量
+  buildRelease.stepPackAssets: 打包资源
+  buildRelease.stepSign: 签名
+  buildRelease.stepSmokePlaytest: 冒烟试玩
+  buildRelease.stopServing: 停止服务
+  buildRelease.stopped: 已停止
+  buildRelease.stoppedSubtitle: 已完成的步骤会保留；点击“继续”将从中断的步骤接着执行。
+  buildRelease.summaryAndroid: arm64 · Google Play AAB
+  buildRelease.summaryIOS: arm64 · TestFlight
+  buildRelease.summaryLinux: x64 · AppImage
+  buildRelease.summaryMacOS: 通用架构 · Developer ID · 已公证
+  buildRelease.summaryWindows: x64 · 已签名安装包
+  buildRelease.targetsFor: '{name} 的构建目标'
+  buildRelease.uploadError: 错误：{error}
+  buildRelease.uploadItemLabel: 将 {artifact} 上传至 {dest}
+  buildRelease.uploaded: 已上传
+  buildRelease.uploading: 正在上传…
+  buildRelease.uploadingPct: 正在上传 {pct}%
+  buildRelease.versionHeading: 版本
+  buildRelease.versionLabel: 发布版本
+  buildRelease.waitingLog: 等待构建输出…
+  buildRelease.wholeLog: 完整日志
+  changes.ahead: 领先 {count}
+  changes.allCommitted: 所有更改均已提交。
+  changes.audioNewFile: 新文件
+  changes.audioNotReferenced: 未被任何场景或资源引用
+  changes.audioPlay: 播放 {name}
+  changes.audioStop: 停止 {name}
+  changes.audioWaveformLabel: '{name} 的音频波形'
+  changes.backToDraft: 返回草稿
+  changes.backToEditor: 返回场景编辑器
+  changes.badgeAdded: 新增 · {name}
+  changes.badgeChanged: 已修改 · {name}
+  changes.badgeChangedSummary: 已修改 · {name}（{summary}）
+  changes.badgeRemoved: 已移除 · {name}
+  changes.behind: 落后 {count}
+  changes.category.assets: 资源
+  changes.category.code: 代码
+  changes.category.data: 数据
+  changes.category.scenes: 场景
+  changes.checkFailed: nsgo check 失败
+  changes.checkNotRun: nsgo check · 未运行
+  changes.commit: 提交
+  changes.commitAndPush: 提交并推送
+  changes.commitDescriptionLabel: 提交说明
+  changes.commitDescriptionPlaceholder: 细节、试玩记录与背景说明
+  changes.commitSummaryLabel: 提交摘要
+  changes.commitSummaryPlaceholder: 描述做了哪些更改
+  changes.committedAs: 已提交为 {sha}
+  changes.comparedWithHead: 与 HEAD 对比
+  changes.copyPRSubtitle: 包含提示词、计划、前后对比图与试玩数据
+  changes.copyPRTitle: 复制为 PR 说明
+  changes.descriptionLabel: 详细说明
+  changes.draftedFromFiles: 根据 {count} 个更改的文件起草
+  changes.includeFileLabel: 将 {file} 包含在提交中
+  changes.includedFilesMany: 已包含 {included}/{total} 个文件
+  changes.includedFilesOne: 已包含 {included}/1 个文件
+  changes.installGHHint: 安装 GitHub CLI (gh) 以直接创建拉取请求
+  changes.layerReadout: 图层 {layer}
+  changes.legendAdded: 新增 · {names}
+  changes.legendChanged: 已修改 · {names}
+  changes.legendRemoved: 已移除 · {names}
+  changes.milestoneCommit: 提交 {sha}
+  changes.milestoneDesc: 历史记录中的一个里程碑。可随时恢复至此，或与之后的任意步骤对比。
+  changes.noFileSelected: 未选择文件
+  changes.noLineDiffs: 没有可显示的逐行差异。
+  changes.noObjectDiffs: 与 HEAD 相比没有对象级差异
+  changes.noProblems: 没有问题
+  changes.nsgoCheck: nsgo check
+  changes.openInEditor: 在编辑器中打开
+  changes.openPRSubtitle: 使用 gh 将 {branch} 合并到 {base}，沿用同一说明
+  changes.openPRTitle: 创建拉取请求
+  changes.play: 播放
+  changes.pull: 拉取
+  changes.pushMany: 推送 {count} 次提交
+  changes.pushOne: 推送 1 次提交
+  changes.ranTime: 运行于 {time}
+  changes.redraft: 重新起草
+  changes.refreshLabel: 刷新更改
+  changes.runChecks: 运行检查
+  changes.sceneAtHead: '{scene} 位于 {sha}'
+  changes.sceneCardHead: HEAD
+  changes.sceneCardNow: 当前
+  changes.scenePreviewLabel: '{title} 场景预览'
+  changes.screenLabel: 更改与提交
+  changes.sectionChanges: 更改
+  changes.sectionHistory: 历史
+  changes.sectionShare: 分享
+  changes.selectFilesToCommit: 选择要提交的文件
+  changes.sinceHead: 自 {sha}
+  changes.statusChanges: 更改
+  changes.statusChangesCount: 更改 · {count}
+  changes.summaryLabel: 摘要
+  changes.switchBranchLabel: 切换分支，当前为 {branch}
+  changes.testFailed: nsgo test · 失败
+  changes.testNotRun: nsgo test · 未运行
+  changes.testPassed: nsgo test · 已通过
+  changes.testPassedCount: nsgo test · {count} 项通过
+  changes.viewHead: HEAD
+  changes.viewNow: 当前
+  changes.viewSideBySide: 并排对比
+  changes.workingTree: 工作区
+  changes.workingTreeClean: 工作区干净 — 自 {sha} 以来没有更改
+  chromeExtra.backToPlaytest: 返回试玩报告
+  chromeExtra.collider: 碰撞体
+  chromeExtra.gridMapBox: 框填
+  chromeExtra.gridMapErase: 擦除
+  chromeExtra.gridMapGroup: GridMap
+  chromeExtra.gridMapPaint: 绘制
+  chromeExtra.gridMapPick: 吸取
+  chromeExtra.hudLayoutLabel: 切换 HUD 与菜单布局界面
+  chromeExtra.lodLabel: 切换 3D 视口中的当前 LOD 指示器
+  chromeExtra.navMesh: 导航网格
+  chromeExtra.navMesh3dGroup: 3D 导航网格
+  chromeExtra.navMeshPanelLabel: 切换 3D 导航网格烘焙面板
+  chromeExtra.navOverlay: 导航叠加层
+  chromeExtra.navOverlayLabel: 切换视口中的 3D 导航网格叠加层
+  chromeExtra.newClip: 新建片段
+  chromeExtra.occluders: 遮挡体
+  chromeExtra.occludersLabel: 切换 3D 视口中的遮挡体体积可视化
+  chromeExtra.overlays3dGroup: 3D 叠加层
+  chromeExtra.particles: 粒子
+  chromeExtra.particlesLabel: 切换粒子发射器编辑器面板
+  chromeExtra.playtest: 试玩
+  chromeExtra.playtestMet: 试玩 · 已达标
+  chromeExtra.playtestMissed: 试玩 · {count} 项未达标
+  chromeExtra.profiler: 性能分析器
+  chromeExtra.profilerLabel: 切换性能分析器面板
+  chromeExtra.randomSuffix: ' | 随机：{count} 个瓦片（种子 {seed}）'
+  chromeExtra.sceneConflictMany: '{count} 个场景冲突'
+  chromeExtra.sceneConflictOne: 1 个场景冲突
+  chromeExtra.showAllShapesLabel: 显示全部组件形状
+  chromeExtra.sketchStatus: 草图图层 · 场景 {x}, {y} · 草图 · {tool}
+  chromeExtra.stampSuffix: ' | 图章：{w}×{h}'
+  chromeExtra.stats: 统计
+  chromeExtra.statsLabel: 切换 3D 视口中的 RenderStats 统计叠加层
+  chromeExtra.terrain: 地形
+  chromeExtra.watchingReplay: 正在观看回放 · 步骤 {step} / {total} · 种子 {seed} · {path}
+  chromeExtra.watchingRun: 正在观看第 {run} 次运行 · 步骤 {step} / {total} · 种子 {seed} · {path}
+  cmd.addLightProbeGrid.desc: 在当前世界图层上放置一个 3D 光照探针网格
+  cmd.addLightProbeGrid.label: 添加光照探针网格
+  cmd.addReflectionProbe.desc: 在当前世界图层上放置一个 3D 反射探针
+  cmd.addReflectionProbe.label: 添加反射探针
   cmd.agentPanel.desc: 在右侧栏的“智能体”与“检视器”面板之间切换
   cmd.agentPanel.label: 智能体面板
   cmd.agentTab.desc: 将右侧面板切换为智能体对话线程
   cmd.agentTab.label: 智能体面板
+  cmd.animate.desc: 为所选对象创建或打开动画片段
+  cmd.animate.label: 动画编辑
+  cmd.applyOverridesToSource.desc: 将所选场景实例的覆盖写回其源场景文件
+  cmd.applyOverridesToSource.label: 将覆盖应用到源场景
   cmd.askAgent.desc: 打开锚定就地输入框，向智能体询问选中对象或当前场景
   cmd.askAgent.label: 向智能体询问选中内容
   cmd.askFrozenFrame.desc: 暂停运行模式并携带回放与实时状态向智能体询问当前冻结帧
   cmd.askFrozenFrame.label: 画面看起来不对
+  cmd.assetBrowser.desc: 切换资源浏览器面板
+  cmd.assetBrowser.label: 资源浏览器
   cmd.assetDrawer.desc: 在左侧栏的“场景”与“资源抽屉”模式之间切换
   cmd.assetDrawer.label: 资源抽屉
   cmd.attachReferenceImage.desc: 为下一次智能体请求附加 PNG、JPEG 或 WebP 参考图
@@ -217,6 +1130,10 @@ strings:
   cmd.audioMixer.label: 音频总线混音器
   cmd.bakeNavMesh3d.desc: 从当前场景的静态几何体烘焙 3D 导航网格
   cmd.bakeNavMesh3d.label: 烘焙 3D 导航网格
+  cmd.bakeProbes3d.desc: 烘焙场景中的所有反射探针立方体贴图和光照探针网格
+  cmd.bakeProbes3d.label: 烘焙反射与光照探针
+  cmd.buildAssets.desc: 对当前打开的项目运行 go tool game assets 并重新加载变更的图集
+  cmd.buildAssets.label: 构建资源
   cmd.buildRelease.desc: 打开包含就绪检查、构建前校验与版本体积对比的构建与发布界面
   cmd.buildRelease.label: 构建与发布界面
   cmd.category.agent: 智能体
@@ -228,6 +1145,8 @@ strings:
   cmd.category.review: 审核
   cmd.category.tools: 工具
   cmd.category.view: 视图
+  cmd.changes.desc: 将修改过的场景、数据、代码和资源与 HEAD 对比并附带草拟消息提交
+  cmd.changes.label: 更改与提交
   cmd.checkProblems.desc: 重新运行资源与项目校验检查
   cmd.checkProblems.label: 检查问题
   cmd.closeTab.desc: 关闭当前场景标签页，若有未保存更改会先询问
@@ -238,20 +1157,34 @@ strings:
   cmd.connectAgent.label: 连接智能体
   cmd.copy.desc: 将选中的对象或瓦片区域拷贝到剪贴板
   cmd.copy.label: 拷贝
+  cmd.copyTileRegion.desc: 将选中的瓦片地图区域复制到瓦片剪贴板
+  cmd.copyTileRegion.label: 复制瓦片区域
   cmd.cut.desc: 将选中的对象或瓦片区域剪切到剪贴板
   cmd.cut.label: 剪切
+  cmd.cutTileRegion.desc: 将选中的瓦片地图区域剪切到瓦片剪贴板
+  cmd.cutTileRegion.label: 剪切瓦片区域
+  cmd.dataTable.desc: 打开或切换数据表编辑面板
+  cmd.dataTable.label: 数据表
   cmd.delete.desc: 从场景中移除当前选中的对象
   cmd.delete.label: 删除选中对象
   cmd.duplicate.desc: 在同一图层克隆当前选中的对象
   cmd.duplicate.label: 复制选中对象
   cmd.editorSettings.desc: 配置编辑器语言与外观
   cmd.editorSettings.label: 编辑器设置
+  cmd.environmentPanel.desc: 切换场景环境设置面板（天空、环境光、雾效、色调映射）
+  cmd.environmentPanel.label: 场景环境
   cmd.export.desc: 切换导出与发布构建面板
   cmd.export.label: 导出与发布
+  cmd.fileBrowser.desc: 切换完整的项目文件浏览器面板
+  cmd.fileBrowser.label: 项目文件浏览器
   cmd.findUsages.desc: 查找所选预制体、场景或文件的全部引用，并在同一审查中安全重命名
   cmd.findUsages.label: 查找用法
+  cmd.fitCollider3d.desc: 将所选对象的 3D 碰撞体贴合到其网格或 glTF 模型边界
+  cmd.fitCollider3d.label: 使 3D 碰撞体贴合模型边界
   cmd.frameSelection.desc: 将视口相机居中到选中对象或整个场景
   cmd.frameSelection.label: 聚焦选中
+  cmd.generatedAssets.desc: 通过 MCP 生成器服务器生成图像和音效候选，检查风格与许可证并择优选用
+  cmd.generatedAssets.label: 生成资源
   cmd.gizmoCollider.desc: 将 3D 操纵杆切换为碰撞体尺寸手柄
   cmd.gizmoCollider.label: 3D 操纵杆：碰撞体
   cmd.gizmoRotate.desc: 将 3D 变换操纵杆切换为旋转模式
@@ -276,16 +1209,24 @@ strings:
   cmd.historyPanel.label: 历史
   cmd.hudLayout.desc: 切换多尺寸、多语言 HUD 与菜单布局界面
   cmd.hudLayout.label: HUD 与菜单布局
+  cmd.inputMap.desc: 切换输入映射设置页面
+  cmd.inputMap.label: 输入映射
   cmd.inspectorTab.desc: 将右侧面板切换为属性检查器
   cmd.inspectorTab.label: 检查器面板
   cmd.keepAgentTurn.desc: 将当前待确认智能体回合中剩余的更改合并保留为单个撤销步骤
   cmd.keepAgentTurn.label: 保留智能体回合
+  cmd.layersPanel.desc: 切换用于管理场景图层的图层面板
+  cmd.layersPanel.label: 图层面板
+  cmd.libraryPanel.desc: 切换资源包素材库面板
+  cmd.libraryPanel.label: 素材库
   cmd.lightingPreview.desc: 在 2D 视口中显示或隐藏实时 2D 灯光、遮挡阴影与环境暗度
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
   cmd.localization.label: 本地化字符串
   cmd.lodOverlay.desc: 在 3D 视口中切换每个对象的活动 LOD 标签与颜色指示
   cmd.lodOverlay.label: 显示 3D LOD 叠加层
+  cmd.makeInstanceLocal.desc: 用解析后的本地对象副本替换所选场景实例
+  cmd.makeInstanceLocal.label: 将实例转为本地
   cmd.materialEditor.desc: 切换带 3D/2D 实时预览的材质编辑器面板
   cmd.materialEditor.label: 材质编辑器
   cmd.mergeConflicts.desc: 为当前进行的 Git 合并、变基、拣选、还原或储藏冲突打开逐对象场景冲突解决器
@@ -300,14 +1241,26 @@ strings:
   cmd.newAgentThread.label: 新建智能体线程
   cmd.newProject.desc: 打开开始界面并从模板创建新项目
   cmd.newProject.label: 新建项目…
+  cmd.nextTab.desc: 切换到下一个已打开的场景标签页
+  cmd.nextTab.label: 下一个场景标签页
   cmd.occludersOverlay.desc: 在 3D 视口中切换遮挡体体积线框显示
   cmd.occludersOverlay.label: 显示 3D 遮挡体
+  cmd.openBaseScene.desc: 在新标签页中打开当前场景继承的基础场景
+  cmd.openBaseScene.label: 打开基础场景
+  cmd.openInstancedScene.desc: 在新标签页中打开所选对象引用的实例化场景
+  cmd.openInstancedScene.label: 打开实例化场景
   cmd.openProject.desc: 选择要在编辑器中打开的项目目录
   cmd.openProject.label: 打开项目…
+  cmd.outputPanel.desc: 切换输出日志面板
+  cmd.outputPanel.label: 输出
+  cmd.particleEditor.desc: 切换带实时预览的粒子发射器编辑面板
+  cmd.particleEditor.label: 粒子发射器编辑器
   cmd.paste.desc: 将剪贴板中的对象粘贴到当前图层，或粘贴已复制的瓦片区域
   cmd.paste.label: 粘贴
   cmd.pasteInto.desc: 将剪贴板中的对象粘贴为当前选中对象的子级
   cmd.pasteInto.label: 粘贴为子级
+  cmd.pasteTileRegion.desc: 将瓦片剪贴板粘贴到悬停单元格，或将其激活为印章画笔
+  cmd.pasteTileRegion.label: 粘贴瓦片区域
   cmd.permissionsSettings.desc: 配置智能体 MCP 权限方案与首条匹配生效规则
   cmd.permissionsSettings.label: 权限
   cmd.placeAlign3d.desc: 切换放置 3D 模型时是否对齐表面法线
@@ -320,6 +1273,8 @@ strings:
   cmd.playStop.label: 播放 / 停止
   cmd.playtestReport.desc: 打开包含目标达成情况、图表与智能体解读的试玩报告界面
   cmd.playtestReport.label: 试玩报告
+  cmd.prevTab.desc: 切换到上一个已打开的场景标签页
+  cmd.prevTab.label: 上一个场景标签页
   cmd.problemsPanel.desc: 切换右侧栏的智能体问题修复面板
   cmd.problemsPanel.label: 智能体问题面板
   cmd.profiler.desc: 切换正在运行游戏的性能分析器面板
@@ -336,6 +1291,8 @@ strings:
   cmd.resetLayout.label: 重置布局
   cmd.revertAgentTurn.desc: 将当前待确认智能体回合触及的所有文件还原到请求前状态
   cmd.revertAgentTurn.label: 还原智能体回合
+  cmd.revertOverrides.desc: 清除所选场景实例、实例化对象或继承对象上的所有覆盖
+  cmd.revertOverrides.label: 还原全部覆盖
   cmd.reviewCode.desc: 打开逐文件确认的 Go 代码审查（含 nsgo check 与 nsgo test）
   cmd.reviewCode.label: 审查智能体 Go 更改
   cmd.reviewKeep.desc: 将当前打开审核中所有未撤回的更改合并保留为单个撤销步骤
@@ -354,6 +1311,8 @@ strings:
   cmd.reviewToggleRevert.label: 审核：撤回或恢复
   cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
   cmd.runGame.label: 运行游戏
+  cmd.runOpenScene.desc: 切换是否直接从当前打开的场景启动游戏
+  cmd.runOpenScene.label: 从当前场景运行
   cmd.save.desc: 保存当前打开的场景与项目更改
   cmd.save.label: 保存
   cmd.searchPanel.desc: 切换项目搜索与查找引用面板
@@ -406,8 +1365,24 @@ strings:
   cmd.startScreen.label: 开始界面
   cmd.stopAgentTurn.desc: 停止进行中的智能体回合；已完成的改动将保持待审查状态
   cmd.stopAgentTurn.label: 停止智能体
+  cmd.stopGame.desc: 停止正在运行的游戏进程
+  cmd.stopGame.label: 停止游戏
   cmd.tasks.desc: 切换智能体后台任务列表面板
   cmd.tasks.label: 后台任务
+  cmd.terrainEditor.desc: 切换 3D 地形雕刻与绘制面板
+  cmd.terrainEditor.label: 3D 地形编辑器
+  cmd.toggleAllShapes.desc: 切换是否在 2D 视口中绘制所有可见对象的组件形状字段
+  cmd.toggleAllShapes.label: 显示全部组件形状
+  cmd.toggleShowGrid.desc: 切换 2D 视口中的吸附网格叠加层
+  cmd.toggleShowGrid.label: 显示吸附网格
+  cmd.toggleSnapGrid.desc: 切换对象放置、拖拽、2D 手柄和 3D 平移操纵器的网格吸附
+  cmd.toggleSnapGrid.label: 吸附到网格
+  cmd.toggleSnapPixel.desc: 切换对象放置和拖拽时的整点（像素）吸附
+  cmd.toggleSnapPixel.label: 吸附到像素
+  cmd.toggleSnapRotation.desc: 切换 2D 和 3D 旋转拖拽时的角度步进吸附
+  cmd.toggleSnapRotation.label: 吸附旋转
+  cmd.toggleSnapScale.desc: 切换 2D 和 3D 缩放拖拽时的步进吸附
+  cmd.toggleSnapScale.label: 吸附缩放
   cmd.toolEraseTile.desc: 切换为擦除瓦片工具
   cmd.toolEraseTile.label: 工具：擦除瓦片
   cmd.toolFillTile.desc: 切换为区域填充瓦片工具
@@ -464,13 +1439,20 @@ strings:
   cmd.view3dRight.label: 3D 视图：右视
   cmd.view3dTop.desc: 从上方观察 3D 视口目标
   cmd.view3dTop.label: 3D 视图：顶视
+  cmd.viewportOverlays.desc: 打开或关闭 2D 视口叠加层弹出菜单（碰撞形状、触发器、连接、巡逻路径、导航、相机边界、标签）
+  cmd.viewportOverlays.label: 视口叠加层
+  codeReview.agentFixingPrefix: 智能体正在修复 · {status}
   codeReview.allGoConfirmed: 全部 {count} 个 Go 文件已确认
+  codeReview.applyConfirmedMany: 应用 {count} 个已确认更改
+  codeReview.applyConfirmedOne: 应用 1 个已确认更改
   codeReview.askFix: 让智能体修复
   codeReview.backLabel: 返回编辑器，审查保持打开 (Esc)
   codeReview.badgeNeedsOK: 待确认
   codeReview.badgeOK: 已确认
   codeReview.bothGoConfirmed: 两个 Go 文件均已确认
+  codeReview.checkFailed: nsgo check 失败
   codeReview.checksNotRun: 检查尚未运行
+  codeReview.confirmFile: 确认 {file}
   codeReview.confirmedUndo: 已确认 · 撤销
   codeReview.diffLayout: 差异布局
   codeReview.editor: 编辑器
@@ -480,22 +1462,48 @@ strings:
   codeReview.hintConfirmed: 已确认。它会随本次审查一同应用；⌘Z 可一并撤销。
   codeReview.hintTestFailed: 通过 nsgo test 后解锁确认。
   codeReview.hintWaiting: 正在等待 nsgo test。
+  codeReview.keepCount: 保留 {kept} / {total}
+  codeReview.liveCheckPassed: nsgo check 已通过，{test}
   codeReview.manyGoNeedOK: '{count} 个 Go 文件需要你确认'
+  codeReview.nsgoCheck: nsgo check
   codeReview.oneGoConfirmed: Go 文件已确认
   codeReview.oneGoNeedsOK: 1 个 Go 文件需要你确认
   codeReview.openExternalDefault: 在外部编辑器中打开
   codeReview.openTest: 打开测试
+  codeReview.pausedGoMany: '{count} 个 Go 文件等待你确认'
+  codeReview.pausedGoOne: 1 个 Go 文件等待你确认
+  codeReview.pausedGoZero: '{count} 个 Go 文件等待你确认'
+  codeReview.pausedTitleMany: 等待审查 · {count} 个文件
+  codeReview.pausedTitleOne: 等待审查 · 1 个文件
   codeReview.resumeReview: 继续审查
   codeReview.revertAll: 全部还原
   codeReview.reviewCode: 审查代码
+  codeReview.reviewFile: 审查 {file}
+  codeReview.round: 第 {round} 轮
   codeReview.runAgain: 重新运行
   codeReview.sectionGo: GO · 逐文件确认
   codeReview.sectionPrefabs: 预制体 · 随保留应用
   codeReview.split: 分栏
+  codeReview.tagAgentEdited: 智能体已编辑
+  codeReview.tagFailedHere: 此处失败
+  codeReview.tagFailsTest: 测试失败
+  codeReview.tagRound2: 第 2 轮
+  codeReview.testFailed: nsgo test · 失败
+  codeReview.testFailedCounts: nsgo test · {failed} 项失败，{passed} 项通过
+  codeReview.testNameFailed: '{name} 失败'
+  codeReview.testPassed: nsgo test · 已通过
+  codeReview.testPassedCount: nsgo test · {count} 项通过
+  codeReview.testRunning: 正在运行 nsgo test
+  codeReview.testRunningDone: 正在运行 nsgo test · 已完成 {done} 项
+  codeReview.testRunningOf: 正在运行 nsgo test · {done}/{total}
+  codeReview.testSkipped: nsgo test · 已跳过
   codeReview.title: 审查
   codeReview.unified: 统一
   codeReview.waitingDefaultImpact: 在你确认之前，运行模式仍使用旧代码。
   codeReview.waitingGoPrefix: Go 更改不会随其他更改一并保留。
+  codeReview.waitingManyFiles: '{count} 个 Go 文件正在等待你确认'
+  codeReview.waitingOneFile: '{file} 正在等待你确认'
+  codeReview.waitingTwoFiles: '{file1} 和 {file2} 正在等待你确认'
   codeReview.whyGoBody: 代码会影响全局行为，而不仅限于当前场景。保留与全部保留永远不包含代码；每个文件都需要通过检查并经你确认。
   codeReview.whyGoTitle: 为什么 Go 代码需要单独确认
   codeReview.yamlPartOfKeep: 随保留一同应用。
@@ -566,6 +1574,9 @@ strings:
   composer.viewportImage: 视口图像
   composer.viewportImageToggle: 在请求中包含视口图像
   composer.wholeScene: 整个场景
+  composerExtra.queue: 排队
+  composerExtra.queueRequestLabel: 排队发送请求
+  composerExtra.queueRequestPlaceholder: 输入要排队的请求…
   contextMenu.askAgent: 向智能体询问此项
   contextMenu.back: 返回
   contextMenu.copiedYAML: 已复制 {name} 为 YAML · {lines} 行
@@ -599,6 +1610,83 @@ strings:
   contextMenu.subtitle: '{kind} · 图层 {layer}'
   contextMenu.topLevelNote: 顶层
   contextMenu.unlock: 解锁
+  cutscene.after: 修改后
+  cutscene.before: 修改前
+  cutscene.beforeBanner: 当前显示本次请求前的过场动画
+  cutscene.breadcrumbCutscenes: 过场动画
+  cutscene.changeToggleLabel: '{action}：{title}'
+  cutscene.clipLabel: '{name}，{start} 至 {end}'
+  cutscene.close: 关闭
+  cutscene.defaultProject: 项目
+  cutscene.duration: 时长
+  cutscene.durationLonger: 延长 0.1 秒
+  cutscene.durationShorter: 缩短 0.1 秒
+  cutscene.easeHold: 保持
+  cutscene.easeIn: 缓入
+  cutscene.easeInOut: 缓入缓出
+  cutscene.easeLinear: 线性
+  cutscene.easeOut: 缓出
+  cutscene.easing: 缓动
+  cutscene.emptyInspector: 在时间轴上选择一个片段以查看其时间与缓动参数。
+  cutscene.keepCount: 保留 {kept}/{total}
+  cutscene.legendAdded: 新增
+  cutscene.legendChanged: 已修改
+  cutscene.legendSelected: 已选中
+  cutscene.lineNote: 文本保存在 {enPath} 和 {zhPath} 中；过场动画仅存储 ID。
+  cutscene.linesHeader: 台词 · {path}
+  cutscene.listItemLabel: 过场动画 {name}（{meta}）
+  cutscene.missingChinese: （缺少中文文本）
+  cutscene.missingEnglish: （缺少英文文本）
+  cutscene.noDialogueLines: 此过场动画中无对话台词
+  cutscene.pause: 暂停
+  cutscene.peekHint: 按住 B 预览修改前
+  cutscene.play: 播放
+  cutscene.playPauseLabel: 播放或暂停过场动画
+  cutscene.previewError: 预览：{err}
+  cutscene.restore: 恢复
+  cutscene.revert: 还原
+  cutscene.revertAll: 全部还原
+  cutscene.reviewEditedHint: 你的编辑已并入本次审查 · 按 ⌘Z 可撤销
+  cutscene.reviewFromPrompt: 来自“{prompt}”
+  cutscene.reviewHeader: '{count} 项更改 · {file}'
+  cutscene.save: 保存
+  cutscene.scrubHint: 点击缩略图条即可拖动进度
+  cutscene.scrubToLabel: 跳转到 {time}
+  cutscene.sectionCutscenes: 过场动画
+  cutscene.start: 开始
+  cutscene.startEarlier: 开始时间提前 0.1 秒
+  cutscene.startLater: 开始时间延后 0.1 秒
+  cutscene.videoInfoMeta: 适配：{fit} · 可跳过：{skippable}
+  cutscene.videoInfoTitle: 视频过场动画 · {source}
+  cutscene.videoKind: 视频
+  cutscene.videoMeta: 视频 · {duration}
+  datatable.addFirstRow: 添加第一行
+  datatable.addRow: 添加行
+  datatable.addRowTooltip: 向数据表添加新行
+  datatable.cellLabel: 第 {row} 行 {col}
+  datatable.clearFilter: 清除筛选
+  datatable.clearFilterLabel: 清除行筛选
+  datatable.closeTable: 关闭数据表
+  datatable.colRow: 行
+  datatable.deleteRow: 删除第 {row} 行
+  datatable.dismissError: 关闭错误提示
+  datatable.dismissErrorLabel: 关闭数据表错误提示
+  datatable.emptyDesc: 添加一行即可开始编辑此数据表。
+  datatable.emptyFilteredDesc: 清除筛选以显示所有行。
+  datatable.emptyFilteredTitle: 没有匹配的行
+  datatable.emptyTitle: 暂无数据行
+  datatable.filterLabel: 筛选行
+  datatable.filterPlaceholder: 筛选行…
+  datatable.loading: 正在加载数据表…
+  datatable.moveRowDown: 下移第 {row} 行
+  datatable.moveRowUp: 上移第 {row} 行
+  datatable.saveTable: 保存数据表
+  datatable.sortAsc: 升序
+  datatable.sortBy: 按 {col} 排序
+  datatable.sortByOrder: 按 {col} 排序（当前：{order}）
+  datatable.sortDesc: 降序
+  datatable.title: 数据表
+  datatable.untitled: 未命名
   dialog.cancel: 取消
   dialog.create: 创建
   dialog.discard: 放弃
@@ -620,10 +1708,14 @@ strings:
   disk.reload: 从磁盘重新加载
   disk.showDiff: 查看差异
   disk.useThese: 应用合并
+  dockExtra.closePanel: 关闭 {title}
+  dockExtra.noPanelsOpen: 未打开任何面板
+  dockExtra.resizePanel: 调整面板大小
   dtReview.agentCardTitle: 等待审查 · {changes} 处更改，{files} 个文件
   dtReview.agentCheck: 智能体核验
   dtReview.back: 编辑器
   dtReview.backLabel: 返回编辑器，审查保持打开（Esc）
+  dtReview.cellChangedLabel: '{name} {col} 由 {old} 改为 {new}'
   dtReview.chip.all: 全部
   dtReview.chip.changed: 已更改
   dtReview.chip.reverted: 已还原
@@ -631,8 +1723,11 @@ strings:
   dtReview.chip.yours: 你的编辑
   dtReview.colAction: 操作
   dtReview.colOrder: 顺序
+  dtReview.colSortLabel: '{col}，排序：{order}'
   dtReview.done: 完成
+  dtReview.dragRowLabel: 移动 {name}，第 {row}/{total} 行
   dtReview.dragToReorder: 拖动以重排
+  dtReview.editCellLabel: 编辑 {row} {col}
   dtReview.emptyFile: 暂无记录 — 请让智能体添加一些
   dtReview.fileMetaChanged: '{total} 条中更改了 {changed} 条'
   dtReview.fileMetaNew: 新建 · {count} 条记录
@@ -641,9 +1736,11 @@ strings:
   dtReview.hintEdit: 点击新值即可修改 · 拖动行即可重排顺序
   dtReview.hintJoin: 两者都会作为你的编辑加入本次审查。
   dtReview.keepCount: 保留 {kept} / {total}
+  dtReview.lowerCellLabel: 减小 {row} {col}
   dtReview.noMatch: 没有符合当前筛选条件的行。
   dtReview.outOfDate: 已过期
   dtReview.outOfDateHint: 你的修改已使指标过期 · 请让智能体重新核验
+  dtReview.raiseCellLabel: 增大 {row} {col}
   dtReview.restore: 恢复
   dtReview.resume: 继续
   dtReview.resumeReview: 继续审查
@@ -651,12 +1748,168 @@ strings:
   dtReview.revertAll: 全部还原
   dtReview.reviewWaiting: 等待审查
   dtReview.showRows: 显示行
+  dtReview.sortAsc: 升序
+  dtReview.sortDesc: 降序
+  dtReview.sortNone: 无
   dtReview.title: 审查
   dtReview.toastKept: 已保留 {kept} · 已还原 {reverted}
   dtReview.toastPaused: 审查已暂停 · 可在智能体面板继续
   dtReview.toastReverted: 已还原 {count} 条记录
   dtReview.toastYours: '{count} 处你的编辑'
   dtReview.was: 原为
+  envPanel.ambient: 环境光
+  envPanel.ambientColor: 环境光颜色
+  envPanel.ambientIntensityLabel: 环境光强度
+  envPanel.bakeProbes: 烘焙探针
+  envPanel.camera.add: 添加 3D 摄像机
+  envPanel.camera.current: 当前
+  envPanel.camera.currentLabel: 当前摄像机
+  envPanel.camera.far: 远裁剪面
+  envPanel.camera.farLabel: 远裁剪面
+  envPanel.camera.fov: 视场角
+  envPanel.camera.fovLabel: 视场角
+  envPanel.camera.lookThrough: 从此视角查看
+  envPanel.camera.near: 近裁剪面
+  envPanel.camera.nearLabel: 近裁剪面
+  envPanel.camera.orthoH: 正交高度
+  envPanel.camera.orthoHLabel: 正交高度
+  envPanel.camera.orthographic: 正交
+  envPanel.camera.perspective: 透视
+  envPanel.camera.projection: 投影
+  envPanel.camera.remove: 移除
+  envPanel.close: 关闭
+  envPanel.exposure: 曝光
+  envPanel.fog.exp: 指数
+  envPanel.fog.exp2: 指数²
+  envPanel.fog.linear: 线性
+  envPanel.fog.off: 关闭
+  envPanel.fogColor: 雾效颜色
+  envPanel.fogDensity: 密度
+  envPanel.fogDensityLabel: 雾效密度
+  envPanel.fogEnd: 结束距离
+  envPanel.fogEndLabel: 雾效结束距离
+  envPanel.fogMode: 模式
+  envPanel.fogModeLabel: 雾效模式
+  envPanel.fogStart: 起始距离
+  envPanel.fogStartLabel: 雾效起始距离
+  envPanel.ground: 地面
+  envPanel.groundLabel: 天空地面颜色
+  envPanel.hdrPath: HDR 路径
+  envPanel.hdrPathLabel: 天空 HDR 路径
+  envPanel.hdrPathPlaceholder: env/studio.hdr
+  envPanel.heightFog: 高度雾
+  envPanel.horizon: 地平线
+  envPanel.horizonLabel: 天空地平线颜色
+  envPanel.ibl: IBL
+  envPanel.iblIntensityLabel: IBL 强度
+  envPanel.light.add: 添加灯光
+  envPanel.light.color: 颜色
+  envPanel.light.colorLabel: 灯光颜色
+  envPanel.light.directional: 方向光
+  envPanel.light.innerCone: 内锥角
+  envPanel.light.innerConeLabel: 内锥角度数
+  envPanel.light.intensity: 强度
+  envPanel.light.intensityLabel: 灯光强度
+  envPanel.light.kind: 类型
+  envPanel.light.kindLabel: 灯光类型
+  envPanel.light.outerCone: 外锥角
+  envPanel.light.outerConeLabel: 外锥角度数
+  envPanel.light.point: 点光源
+  envPanel.light.range: 范围
+  envPanel.light.rangeLabel: 灯光范围
+  envPanel.light.remove: 移除灯光
+  envPanel.light.shadows: 阴影
+  envPanel.light.shadowsLabel: 投射阴影
+  envPanel.light.spot: 聚光灯
+  envPanel.none: 无
+  envPanel.reset: 重置
+  envPanel.section.fog: 雾效
+  envPanel.section.skyAmbient: 天空与环境光
+  envPanel.section.tonemapping: 色调映射
+  envPanel.sky: 天空
+  envPanel.sky.color: 纯色
+  envPanel.sky.gradient: 渐变
+  envPanel.sky.hdr: HDR 等距柱状投影
+  envPanel.skyColor: 天空颜色
+  envPanel.skyKindLabel: 天空类型
+  envPanel.title: 场景环境
+  envPanel.tonemap.aces: ACES
+  envPanel.tonemap.agx: AgX
+  envPanel.tonemap.neutral: 中性
+  envPanel.tonemap.reinhard: Reinhard
+  envPanel.tonemapOperator: 算子
+  envPanel.tonemapOperatorLabel: 色调映射算子
+  envPanel.zenith: 天顶
+  envPanel.zenithLabel: 天空天顶颜色
+  exportPanel.addPreset: 添加预设
+  exportPanel.addPresetLabel: 添加平台导出预设
+  exportPanel.allPlatformsAdded: 已添加全部平台
+  exportPanel.allPresets: 全部预设
+  exportPanel.build: 构建
+  exportPanel.buildTargetsHeading: 构建目标
+  exportPanel.cancel: 取消
+  exportPanel.cancelBuildLabel: 取消导出构建
+  exportPanel.channelDefault: （默认）
+  exportPanel.channelDirect: 直发
+  exportPanel.channelHeading: 渠道
+  exportPanel.channelLabel: 发布渠道
+  exportPanel.channelNone: 无
+  exportPanel.channelSteam: Steam
+  exportPanel.channelStore: 应用商店
+  exportPanel.clearLog: 清空
+  exportPanel.clearLogLabel: 清空导出构建输出
+  exportPanel.close: 关闭
+  exportPanel.closeLabel: 关闭导出设置
+  exportPanel.creditsError: 资源署名错误：{error}
+  exportPanel.creditsMissingItem: • {asset}（请在 {path} 中添加署名）
+  exportPanel.creditsOK: 资源署名通过：已署名 {count} 项资源
+  exportPanel.creditsUnconfigured: game.yaml 中没有 assets 配置（不会生成 CREDITS.md）
+  exportPanel.detailAndroid: Android arm64 / x64
+  exportPanel.detailDefault: 默认（{platform}）
+  exportPanel.detailLinux: Linux x64 / arm64
+  exportPanel.detailMacOS: 通用二进制，macOS 目标
+  exportPanel.detailWeb: WebAssembly，已压缩
+  exportPanel.detailWindows: Windows x64 / arm64
+  exportPanel.dryRun: 空跑预览
+  exportPanel.emptyPresets: 尚无导出预设。在添加预设前将构建默认平台。
+  exportPanel.moveDown: 下移
+  exportPanel.moveDownLabel: 下移 {platform} 预设
+  exportPanel.moveUp: 上移
+  exportPanel.moveUpLabel: 上移 {platform} 预设
+  exportPanel.navWarningCredits: 资源署名
+  exportPanel.needsAssetCredits: 需要资源署名
+  exportPanel.needsTeamID: 需要 Team ID
+  exportPanel.notesHeading: 说明
+  exportPanel.notesLabel: 发布说明文件
+  exportPanel.openOutput: 打开输出目录
+  exportPanel.openOutputLabel: 打开导出输出文件夹
+  exportPanel.outputDirLabel: 导出输出目录
+  exportPanel.outputDirPlaceholder: dist（默认）
+  exportPanel.outputHeading: 输出
+  exportPanel.outputPlaceholder: 构建输出将在此实时显示。
+  exportPanel.platformToAddLabel: 要添加的平台
+  exportPanel.refreshCredits: 刷新署名检查
+  exportPanel.refreshCreditsLabel: 刷新资源署名检查
+  exportPanel.remove: 移除
+  exportPanel.removeLabel: 移除 {platform} 预设
+  exportPanel.retry: 重试
+  exportPanel.runStatusDone: 已完成
+  exportPanel.runStatusFailed: 失败
+  exportPanel.runStatusIdle: 空闲
+  exportPanel.runStatusRunning: 运行中…
+  exportPanel.set: 设置
+  exportPanel.setOutputDirLabel: 应用导出输出目录
+  exportPanel.statusBlocked: 导出已阻止：{error}
+  exportPanel.statusBuilding: 正在构建发布版本…
+  exportPanel.statusBuilt: 发布版本已构建至 {dir}
+  exportPanel.statusBuiltOpenErr: 发布版本已构建至 {dir}（无法打开文件夹：{error}）
+  exportPanel.statusDryRun: 正在运行空跑发布…
+  exportPanel.statusDryRunComplete: 空跑发布已完成
+  exportPanel.statusFailed: 导出失败：{error}
+  exportPanel.toastExported: 已导出 {dir}
+  exportPanel.toastExporting: 正在导出 {project}
+  exportPanel.toastExportingFor: 正在为 {targets} 导出 {project}
+  exportPanel.toastFailed: 无法导出 {project}：{error}
   files.editMaterial: 编辑材质
   files.editMaterialLabel: 在材质编辑器中打开所选材质文件
   files.findRefs: 查找引用
@@ -678,11 +1931,122 @@ strings:
   files.searchLabel: 切换项目搜索与引用面板
   files.sectionTitle: 文件
   files.title: 文件
+  filesExtra.editTileset: 编辑瓦片集
+  filesExtra.editTilesetLabel: 在瓦片集编辑器中打开选中的瓦片集文件
+  filesExtra.openEmitter: 打开发射器
+  filesExtra.openEmitterLabel: 在粒子发射器编辑器中打开选中的 YAML 文件
+  filesExtra.openRig: 打开骨骼
+  filesExtra.openRigLabel: 在 2D 骨骼绑定编辑器中打开选中的 .skel.yaml 文件
+  filesExtra.terrain: 地形
+  filesExtra.terrainLabel: 在 3D 地形编辑器中打开选中的 *.terrain.yaml 文件
+  firstRun.after: 修改后
+  firstRun.agentGroupLabel: 智能体
+  firstRun.agentPanelTitle: 智能体
+  firstRun.apiKeyIdle: 粘贴 API 密钥以立即验证。
+  firstRun.apiKeyInvalid: 密钥未被接受 — 请检查是否已完整粘贴密钥。
+  firstRun.apiKeyInvalidBadge: 密钥无效
+  firstRun.apiKeyLabel: API 密钥
+  firstRun.apiKeyNoNetwork: 无网络连接 — 请重新联网后验证此 API 密钥。
+  firstRun.apiKeyNoNetworkBadge: 无网络
+  firstRun.apiKeyNoQuota: 此 API 密钥已无剩余额度。
+  firstRun.apiKeyNoQuotaBadge: 无剩余额度
+  firstRun.apiKeyPlaceholder: sk-…
+  firstRun.apiKeyValidBadge: 密钥有效
+  firstRun.apiKeyValidKeychain: 密钥有效 · 刚刚已验证 · 已保存在系统钥匙串中
+  firstRun.apiKeyValidMemory: 密钥有效 · 刚刚已验证 · 仅在本次会话中保存在内存中
+  firstRun.approveWithShortcut: 批准 {shortcut}
+  firstRun.askingForPlan: 正在向 {agent} 请求计划…
+  firstRun.backToStart: 返回开始界面
+  firstRun.before: 修改前
+  firstRun.beforeEmptyFolder: 修改前：空文件夹
+  firstRun.buildStage.check: 检查
+  firstRun.buildStage.firstScene: 首个场景
+  firstRun.buildStage.playtest: 试玩
+  firstRun.buildStage.project: 项目
+  firstRun.buildStage.template: 模板
+  firstRun.cancel: 取消
+  firstRun.connectFailedHeading: 无法连接到 {agent}
+  firstRun.connectSubtitle: 智能体通过本编辑器执行编辑。你可以使用已安装的本地智能体，或粘贴 API 密钥。
+  firstRun.connectTitle: 连接智能体
+  firstRun.connected: 已连接
+  firstRun.copied: 已复制
+  firstRun.copyDiagnostics: 复制诊断信息
+  firstRun.defaultIdeaSummary: 新建 AI 构建的游戏项目
+  firstRun.detected: 已检测到
+  firstRun.done: 完成
+  firstRun.edit: 编辑
+  firstRun.fixIt: 立即修复
+  firstRun.justDoIt: 直接执行
+  firstRun.keepBuilding: 继续构建
+  firstRun.keepOf: 保留 {kept} / {total}
+  firstRun.later: 稍后
+  firstRun.nothingWrittenBeforeApprove: 在你批准之前，不会向磁盘写入任何内容。
+  firstRun.planApprovedBuilding: 计划已批准 · 正在构建
+  firstRun.planErrorHeading: 无法从智能体获取计划
+  firstRun.planFailedStatus: 规划失败
+  firstRun.planHeading: 计划
+  firstRun.planNothingChanges: 在你批准之前不会做任何更改。
+  firstRun.planProgress: 计划：已完成 {done} / {total} 步
+  firstRun.planReadyWaiting: 计划已就绪 · 等待你确认
+  firstRun.planStats: '{steps} 个步骤 · {files} 个文件 · {objects} 个对象 · 约 {minutes} 分钟'
+  firstRun.planTitle: 新建项目：{name}
+  firstRun.plannedLegend: 计划新增
+  firstRun.planningStatus: 规划中…
+  firstRun.redetectAgents: 重新检测本地智能体
+  firstRun.replayTips: 重播提示
+  firstRun.restoreItemLabel: 恢复 {title}
+  firstRun.revertAll: 全部还原
+  firstRun.revertItemLabel: 还原 {title}
+  firstRun.reviewAsIs: 按现状审查
+  firstRun.reviewSubtitle: 首个场景
+  firstRun.reviewThem: 去审查
+  firstRun.reviewTitle: 审查
+  firstRun.skipTips: 跳过提示
+  firstRun.startBack: 开始
+  firstRun.step1Note: 仅需一次，约一分钟
+  firstRun.step1Title: 连接智能体
+  firstRun.step2Note: 批准前不会写入任何内容
+  firstRun.step2Title: 批准其计划
+  firstRun.step3Note: 逐项保留或还原更改
+  firstRun.step3Title: 审查第一个场景
+  firstRun.stopBuildingDeleteBody: '{path} 创建于 {seconds} 秒前，其中仅包含智能体生成的内容。'
+  firstRun.stopBuildingKeepBody: 你可以继续构建，或停止并审查目前已写入的文件。
+  firstRun.stopBuildingTitle: 停止构建？
+  firstRun.stopDeleteFolder: 停止并删除文件夹
+  firstRun.stopKeepFiles: 停止并保留文件
+  firstRun.stoppedDeletedBody: 已停止。{path} 已删除；你的游戏构想仍保留在开始界面中。
+  firstRun.stoppedKeptBody: 已停止。目前已构建的 {count} 个对象已准备好供你审查。
+  firstRun.templatePreviewReadOnly: 模板预览 · 只读
+  firstRun.timeoutHeading: 30 秒内未收到 {agent} 的响应
+  firstRun.timeoutInstructions: |-
+    1. 打开终端，运行一次 {bin} 并登录。
+    2. 出现提示时，信任文件夹 {path}。
+    3. 回到此处重试。
+  firstRun.tip1Body: 在此逐项保留或还原更改。在你确认保留之前，一切都尚未最终生效。
+  firstRun.tip2Body: 按住 B 键可查看这些更改之前的场景状态。
+  firstRun.tip3Body: 选中任意对象，然后按 {shortcut} 即可专门就此向智能体提问。
+  firstRun.tipGotIt: 知道了
+  firstRun.tipNext: 下一条
+  firstRun.tipStepOf: 第 {current} / {total} 条
+  firstRun.tryAgain: 重试
+  firstRun.whatHappensNext: 接下来会发生什么
   gizmo.rotate: 旋转
   gizmo.scale: 缩放
   gizmo.spaceGlobal: 全局
   gizmo.spaceLocal: 局部
   gizmo.translate: 平移
+  gridmap.emptyHint: 打开 .gridmap.yaml 文件或选择包含网格地图的对象以进行绘制
+  gridmap.emptyMeshLibrary: 网格库 {library} 中没有条目
+  gridmap.floorDownLabel: 降低楼层高度（[）
+  gridmap.floorLabel: 楼层 Y：{floor}
+  gridmap.floorUpLabel: 提高楼层高度（]）
+  gridmap.gridLabel: '{library} 的网格地图条目'
+  gridmap.noMeshLibrary: 网格地图没有网格库
+  gridmap.orientLabel: 朝向：{orient}/24
+  gridmap.rotXLabel: 绕 X 轴旋转条目（X）
+  gridmap.rotYLabel: 绕 Y 轴旋转条目（Y）
+  gridmap.rotZLabel: 绕 Z 轴旋转条目（Z）
+  gridmap.title: 网格地图
   history.back: 返回
   history.checkpoint: 检查点
   history.close: 关闭历史面板
@@ -701,6 +2065,193 @@ strings:
   history.title: 历史
   history.undone: 已撤销
   history.unsaved: 未保存
+  hudLayout.allSizes: 全部尺寸
+  hudLayout.anchor.bottomCenter: 底部居中
+  hudLayout.anchor.bottomLeft: 左下角
+  hudLayout.anchor.bottomRight: 右下角
+  hudLayout.anchor.center: 正中
+  hudLayout.anchor.centerLeft: 左侧居中
+  hudLayout.anchor.centerRight: 右侧居中
+  hudLayout.anchor.fill: 铺满整个屏幕
+  hudLayout.anchor.topCenter: 顶部居中
+  hudLayout.anchor.topLeft: 左上角
+  hudLayout.anchor.topRight: 右上角
+  hudLayout.anchorButtonLabel: 锚点：{anchor}
+  hudLayout.anchorFillLabel: 铺满锚点
+  hudLayout.anchorHeading: 锚点
+  hudLayout.anchorOfSafeArea: 安全区域的{anchor}
+  hudLayout.anchorOfScreen: 屏幕的{anchor}
+  hudLayout.askAgentFix: 让智能体修复这 {count} 项
+  hudLayout.backToSceneEditor: 返回场景编辑器
+  hudLayout.breadcrumbNone: 无
+  hudLayout.breadcrumbScreens: screens
+  hudLayout.centerRegionLabel: 全尺寸界面预览
+  hudLayout.composerLabel: 向智能体提问
+  hudLayout.composerPlaceholder: 例如：添加一个仅在第 3 层显示的 Boss 血条
+  hudLayout.decreaseSpacing: 减小间距
+  hudLayout.designCaption: 设计基准 {width} × {height} · 按高度等比缩放
+  hudLayout.emptyBody: 在 screens/ 下添加 *.screen.yaml 文件，或让智能体为你构建 HUD 与菜单界面。
+  hudLayout.emptyTitle: 暂无 HUD 或菜单界面
+  hudLayout.errorTitle: 无法打开 {file}
+  hudLayout.fill: 铺满
+  hudLayout.gameCheckHeading: 游戏检查 · {screen}
+  hudLayout.headerLabel: HUD 布局标题栏
+  hudLayout.increaseSpacing: 增大间距
+  hudLayout.inspectorEmptyHint: 选择或打开界面文件，以检查锚点、多语言文本宽度与游戏检查诊断。
+  hudLayout.inspectorRegionLabel: HUD 节点检查器
+  hudLayout.keepInSafeArea: 保持在安全区域内
+  hudLayout.language: 语言
+  hudLayout.languageItemLabel: 语言 {language}
+  hudLayout.leftRailLabel: 界面与节点
+  hudLayout.moveEarlier: 在容器中前移
+  hudLayout.moveLater: 在容器中后移
+  hudLayout.multiSizeCanvasLabel: 手机、平板、桌面与超宽屏尺寸下的 HUD 预览
+  hudLayout.noOffset: 无偏移
+  hudLayout.noProblems: 当前语言在所有尺寸下均无问题
+  hudLayout.noScreenSelected: 未选择界面
+  hudLayout.noScreens: 未找到界面文件
+  hudLayout.nodeHasProblem: 存在问题
+  hudLayout.nodesHeading: 节点
+  hudLayout.offsetFromAnchor: 相对锚点 x {x} · y {y}
+  hudLayout.order: 顺序
+  hudLayout.orderValue: '{index} / {total}'
+  hudLayout.overlay.anchors: 锚点
+  hudLayout.overlay.focusOrder: 焦点顺序
+  hudLayout.overlay.safeAreas: 安全区域
+  hudLayout.overlay.touchAreas: 触控区域
+  hudLayout.play: 运行
+  hudLayout.railFooterHint: 手动操作：调整容器内顺序、间距和拖拽触控控件。其余部分交由智能体构建。
+  hudLayout.screenError: 错误
+  hudLayout.screenItemLabel: 界面 {name} {meta}
+  hudLayout.screenLabel: HUD 与菜单布局
+  hudLayout.screenNodesCount: '{count} 个节点'
+  hudLayout.screensHeading: 界面
+  hudLayout.search: 搜索
+  hudLayout.searchButtonLabel: 搜索 · {key}
+  hudLayout.send: 发送
+  hudLayout.show: 定位
+  hudLayout.showNodeLabel: 定位到 {id}
+  hudLayout.size.byChildren: 由子项决定尺寸
+  hudLayout.size.fillsScreen: 铺满屏幕
+  hudLayout.size.fitText: 适应文本
+  hudLayout.size.fitsText: 适应文本 · {width}
+  hudLayout.size.fixed: 固定
+  hudLayout.size.fixedValue: 固定 {width}
+  hudLayout.size.withTouch: '{size} · 触控 {touch} pt'
+  hudLayout.sizeHeading: 尺寸
+  hudLayout.spacing: 间距
+  hudLayout.stop: 停止
+  hudLayout.textHeading: 文本
+  hudLayout.textMissing: （缺失）
+  hudLayout.textWidthBox: 容器
+  hudLayout.textWidthHeading: 文本宽度 (PX)
+  hudLayout.textWidthRegionLabel: 文本宽度（像素）
+  hudLayout.textWidthRowLabel: 文本宽度 {id}
+  hudLayout.treeNodeLabel: 节点 {name}
+  hudLayout.treeScreenLabel: 界面 {name}
+  hudLayout.width: 宽度
+  hudLayout.zoomCanvasLabel: '{id} 超出 {px} px 的 1.5 倍放大预览'
+  hudLayout.zoomOver: 超出容器 {px} px
+  hudLayout.zoomTitle: 手机 · {language} · 1.5×
+  inputMap.actionAxesHeading: 动作轴
+  inputMap.actionHeading: 动作
+  inputMap.add: 添加
+  inputMap.addActionLabel: 添加动作
+  inputMap.addAxisLabel: 添加轴
+  inputMap.addBinding: 添加绑定
+  inputMap.addBindingLabel: 添加输入绑定
+  inputMap.addGamepadLabel: 添加手柄轴
+  inputMap.addMotionLabel: 添加体感轴
+  inputMap.axial: 轴向
+  inputMap.axialGamepadLabel: 轴向手柄轴 {index}
+  inputMap.axisNegLabel: 轴 {index} 负向
+  inputMap.axisPosLabel: 轴 {index} 正向
+  inputMap.bindingCount: '{count} 个绑定'
+  inputMap.bindingGamepadButtonLabel: 绑定 {index} 手柄按键
+  inputMap.bindingKeyCodeLabel: 绑定 {index} 物理键码
+  inputMap.bindingKeyLabel: 绑定 {index} 按键
+  inputMap.bindingKindLabel: 绑定类型
+  inputMap.bindingMouseButtonLabel: 绑定 {index} 鼠标按键
+  inputMap.bindingRegionFieldLabel: 绑定 {index} {field}
+  inputMap.cancel: 取消
+  inputMap.cancelKeyCaptureLabel: 取消按键捕获
+  inputMap.close: 关闭
+  inputMap.closeLabel: 关闭输入映射
+  inputMap.deadZone: 死区
+  inputMap.deleteActionLabel: 删除动作 {action}
+  inputMap.deleteAxisLabel: 删除轴 {axis}
+  inputMap.deleteGamepadLabel: 删除手柄轴 {axis}
+  inputMap.deleteMotionLabel: 删除体感轴 {axis}
+  inputMap.editTriggersLabel: 编辑 {action} 的触发器
+  inputMap.emptyActions: 暂无动作。添加一个动作即可绑定按键、手柄或区域。
+  inputMap.emptyAxes: 暂无动作轴。
+  inputMap.emptyBindings: 暂无绑定。点击“按下按键”或添加一条绑定。
+  inputMap.emptyGamepadAxes: 暂无手柄摇杆轴。
+  inputMap.emptyMotion: 暂无体感轴。
+  inputMap.gamepadFieldLabel: 手柄轴 {index} {field}
+  inputMap.gamepadStickLabel: 手柄轴 {index} 摇杆
+  inputMap.gamepadSticksHeading: 手柄摇杆
+  inputMap.invertGamepadLabel: 反转手柄轴 {index}
+  inputMap.invertMotionLabel: 反转体感轴 {index}
+  inputMap.invertShort: 反转
+  inputMap.keyCapturePrompt: 请按下任意键以将 {kind} 绑定到“{action}”...
+  inputMap.keyCaptureTargetLabel: 按键捕获目标
+  inputMap.kind.gamepadButton: 手柄按键
+  inputMap.kind.key: 按键
+  inputMap.kind.keyCode: 物理键码
+  inputMap.kind.mouseButton: 鼠标按键
+  inputMap.kind.mouseRegion: 鼠标区域
+  inputMap.kind.touchRegion: 触屏区域
+  inputMap.motionAxesHeading: 体感轴
+  inputMap.motionFieldLabel: 体感 {index} {field}
+  inputMap.motionSensorLabel: 体感 {index} 轴
+  inputMap.negPlaceholder: 负向
+  inputMap.newActionNameLabel: 新动作名称
+  inputMap.newActionNamePlaceholder: 动作名称
+  inputMap.newAxisNameLabel: 新轴名称
+  inputMap.newAxisNamePlaceholder: 轴名称
+  inputMap.newAxisNegLabel: 新轴负向动作
+  inputMap.newAxisPosLabel: 新轴正向动作
+  inputMap.newGamepadNameLabel: 新手柄轴名称
+  inputMap.newGamepadNamePlaceholder: 摇杆
+  inputMap.newGamepadStickLabel: 新手柄摇杆轴
+  inputMap.newMotionNameLabel: 新体感轴名称
+  inputMap.newMotionNamePlaceholder: 体感
+  inputMap.newMotionSensorLabel: 新体感传感器轴
+  inputMap.noBindings: 无绑定
+  inputMap.noneOption: （无）
+  inputMap.posPlaceholder: 正向
+  inputMap.pressCode: 捕获键码
+  inputMap.pressCodeLabel: 捕获物理键码绑定
+  inputMap.pressKey: 按下按键
+  inputMap.pressKeyLabel: 捕获按键绑定
+  inputMap.regionCanvasHint: 拖动区域可移动，拖动角点可调整大小，在空白处拖动可绘制。
+  inputMap.regionCanvasLabel: 输入区域画布
+  inputMap.regionDrawMouse: 鼠标
+  inputMap.regionDrawMouseLabel: 绘制鼠标区域而非触屏区域
+  inputMap.regionHeight: 高度
+  inputMap.regionWidth: 宽度
+  inputMap.regionsHeading: 区域（{width}×{height}）
+  inputMap.remove: 移除
+  inputMap.removeBindingLabel: 移除绑定 {index}
+  inputMap.rename: 重命名
+  inputMap.renameActionLabel: 重命名动作
+  inputMap.renameSelectedActionLabel: 重命名所选动作
+  inputMap.selectActionLabel: 选择动作 {action}
+  inputMap.selectBindingLabel: 选择绑定 {index}
+  inputMap.selectOrAddAction: 选择或添加一个动作以编辑其绑定。
+  inputMap.sensitivity: 灵敏度
+  inputMap.smoothing: 平滑度
+  inputMap.statusBoundKey: 已将按键“{key}”绑定到“{action}”
+  inputMap.statusBoundKeyCode: 已将物理键码“{code}”绑定到“{action}”
+  inputMap.statusCaptureCancelled: 已取消按键捕获
+  inputMap.statusCapturePrompt: 请按下任意键以绑定到“{action}”...
+  inputMap.tab.actions: 动作
+  inputMap.tab.axes: 轴
+  inputMap.triggerMouseButton: 鼠标 {button}
+  inputMap.triggerMouseRegion: 鼠标区域
+  inputMap.triggerTouchRegion: 触屏区域
+  inputMap.triggersHelp: 键盘 · 手柄 · 触屏
   inspector.addComponent: 添加组件
   inspector.addProperty: 添加属性
   inspector.alpha: 不透明度
@@ -819,6 +2370,179 @@ strings:
   inspector.width: 宽度
   inspector.zOrder: Z 顺序
   inspector.zoom: 缩放
+  inspectorConn.args: 参数
+  inspectorConn.connect: 连接
+  inspectorConn.connectEvent: 连接 {event}
+  inspectorConn.editTitle: 编辑连接
+  inspectorConn.event: 事件
+  inspectorConn.eventPlaceholder: 事件
+  inspectorConn.events: 事件
+  inspectorConn.from: 来源
+  inspectorConn.handler: 处理器
+  inspectorConn.handlerPlaceholder: 处理器
+  inspectorConn.newTitle: 新建连接
+  inspectorConn.noEvents: 未声明事件
+  inspectorConn.noHandlersOn: '{id} 上没有处理器'
+  inspectorConn.noRegistry: 未设置组件注册表
+  inspectorConn.once: 仅一次
+  inspectorConn.onceTip: 事件首次触发后断开连接
+  inspectorConn.params: 参数
+  inspectorConn.pickEvent: 选择事件
+  inspectorConn.pickTarget: 选择目标
+  inspectorConn.pickTargetActiveTip: 在视口或场景树中点击对象（按 Esc 取消）
+  inspectorConn.pickTargetLabel: 从视口或场景树拾取目标
+  inspectorConn.pickTargetTip: 从视口或场景树拾取目标对象
+  inspectorConn.target: 目标
+  inspectorEditExtra.atlas: 图集
+  inspectorEditExtra.editEmitter: 编辑发射器
+  inspectorEditExtra.emitter: 发射器
+  inspectorEditExtra.none: 无
+  inspectorEditExtra.origin: 原点
+  inspectorEditExtra.particleAtlas: 粒子图集
+  inspectorEditExtra.particleEmitterFile: 粒子发射器文件
+  inspectorExtra.activeLOD: 当前 LOD
+  inspectorExtra.addVertex: + 添加顶点
+  inspectorExtra.clearFieldFilter: 清除字段筛选
+  inspectorExtra.cmdDeleteProperty: 删除属性 {key}
+  inspectorExtra.cmdRevertLayerField: 还原图层 {layer} 的 {field}
+  inspectorExtra.cmdSetComponentField: 设置 {component}.{field}
+  inspectorExtra.cmdSetProperty: 设置属性 {key}
+  inspectorExtra.convertToPolygon: 转为多边形
+  inspectorExtra.doubleSidedOccluder: 双面遮挡体
+  inspectorExtra.fieldHeight: 高度
+  inspectorExtra.fieldRadius: 半径
+  inspectorExtra.fieldWidth: 宽度
+  inspectorExtra.fitToModelBounds: 适配模型边界
+  inspectorExtra.gridMap: GridMap
+  inspectorExtra.inheritedLayerNote: 继承自基础场景；此处的修改将保存在 layerOverrides 中。
+  inspectorExtra.layerScreen: 图层 · 屏幕空间
+  inspectorExtra.layerSpace: 图层 · {space}
+  inspectorExtra.layerWorld: 图层 · 世界空间
+  inspectorExtra.lodCulled: 已剔除（{count} 级）
+  inspectorExtra.lodLevel: LOD {level} / {count}
+  inspectorExtra.lodOccluded: 已遮挡（{count} 级）
+  inspectorExtra.none: 无
+  inspectorExtra.occSizeX: 遮挡尺寸 X
+  inspectorExtra.occSizeY: 遮挡尺寸 Y
+  inspectorExtra.occSizeZ: 遮挡尺寸 Z
+  inspectorExtra.occluder: 遮挡体
+  inspectorExtra.occluderBox: 方盒
+  inspectorExtra.occluderMode: 遮挡体模式
+  inspectorExtra.occluderModel: 模型
+  inspectorExtra.parallaxX: 视差 X
+  inspectorExtra.parallaxY: 视差 Y
+  inspectorExtra.pointsCount: '{count} 个点'
+  inspectorExtra.repeat: 重复
+  inspectorExtra.repeatH: 重复高度
+  inspectorExtra.repeatHeight: 重复高度
+  inspectorExtra.repeatW: 重复宽度
+  inspectorExtra.repeatWidth: 重复宽度
+  inspectorExtra.screenSpaceNote: 屏幕空间图层会忽略相机视差与平铺重复设置。
+  inspectorExtra.section.camera3d: 3D 相机
+  inspectorExtra.section.light3d: 3D 光源
+  inspectorExtra.section.lightProbeGrid: 光照探针网格
+  inspectorExtra.section.parallax: 视差
+  inspectorExtra.section.particles: 粒子
+  inspectorExtra.section.reflectionProbe: 反射探针
+  inspectorExtra.section.repeat: 平铺重复
+  inspectorExtra.statusDeletedProperty: 已删除属性 {key}
+  inspectorExtra.statusUpdated: 已更新 {name}
+  inspectorExtra.stringListPlaceholder: 图层1, 图层2
+  inspectorExtra.tooltipDefault: ，默认 {value}
+  inspectorExtra.tooltipRange: ，范围 [{min}, {max}]
+  inspectorExtra.twoSided: 双面
+  inspectorExtra.verticesCount: '{count} 个顶点'
+  inspectorRoom.addRoom: 添加房间
+  inspectorRoom.badge: 房间
+  inspectorRoom.close: 关闭
+  inspectorRoom.color: 颜色
+  inspectorRoom.default: 默认
+  inspectorRoom.defaultFadeColor: 默认淡出颜色
+  inspectorRoom.defaultTransDuration: 默认过渡时长
+  inspectorRoom.defaultTransEasing: 默认过渡缓动
+  inspectorRoom.delete: 删除
+  inspectorRoom.drawRoom: 绘制房间
+  inspectorRoom.duration: 时长
+  inspectorRoom.durationPlaceholder: 例如 400ms
+  inspectorRoom.easing: 缓动
+  inspectorRoom.easingDefault: 默认
+  inspectorRoom.easingEase: 缓动
+  inspectorRoom.easingEaseIn: 缓入
+  inspectorRoom.easingEaseInOut: 缓入缓出
+  inspectorRoom.easingEaseOut: 缓出
+  inspectorRoom.easingLinear: 线性
+  inspectorRoom.fadeColor: 淡出颜色
+  inspectorRoom.gridSnap: 网格吸附
+  inspectorRoom.height: 高度
+  inspectorRoom.id: ID
+  inspectorRoom.name: 名称
+  inspectorRoom.namePlaceholder: 显示名称或键名
+  inspectorRoom.newRoomMap: 新建房间地图
+  inspectorRoom.noRoomMap: 当前场景旁未打开房间地图。
+  inspectorRoom.noRooms: 暂无房间——请在保存前添加或绘制一个房间。
+  inspectorRoom.returnToScene: 返回场景设置
+  inspectorRoom.roomHeight: 房间高度
+  inspectorRoom.roomID: 房间 ID
+  inspectorRoom.roomName: 房间名称
+  inspectorRoom.roomWidth: 房间宽度
+  inspectorRoom.roomX: 房间 X
+  inspectorRoom.roomY: 房间 Y
+  inspectorRoom.save: 保存
+  inspectorRoom.saveRooms: 保存房间
+  inspectorRoom.scene: 场景
+  inspectorRoom.section.bounds: 边界
+  inspectorRoom.section.room: 房间
+  inspectorRoom.section.roomMap: 房间地图
+  inspectorRoom.section.rooms: 房间
+  inspectorRoom.section.transition: 过渡
+  inspectorRoom.snapRoomEdges: 将房间边缘吸附到瓦片网格
+  inspectorRoom.transCut: 硬切
+  inspectorRoom.transDuration: 过渡时长
+  inspectorRoom.transEasing: 过渡缓动
+  inspectorRoom.transFade: 淡入淡出
+  inspectorRoom.transInherit: 继承
+  inspectorRoom.transNone: 无
+  inspectorRoom.transSlide: 滑动
+  inspectorRoom.width: 宽度
+  inspectorSceneExtra.ambient: 环境光
+  inspectorSceneExtra.ambientColor: 环境光颜色
+  inspectorSceneExtra.clearAmbientColor: 清除环境光颜色
+  inspectorSceneExtra.inherits: 继承自
+  inspectorSceneExtra.navMesh: 导航网格
+  inspectorSceneExtra.openBaseScene: 打开基础场景
+  inspectorSceneExtra.sceneNavMeshPath: 场景导航网格路径
+  inspectorSceneExtra.section.sceneLighting: 场景光照
+  l10nPanel.addKey: 添加键
+  l10nPanel.addKeyTooltip: 添加翻译键行
+  l10nPanel.addLocale: 添加语言区域
+  l10nPanel.addLocaleTooltip: 添加 BCP-47 语言区域列
+  l10nPanel.closeLabel: 关闭本地化
+  l10nPanel.colKey: 键
+  l10nPanel.dismissErrorLabel: 关闭本地化错误提示
+  l10nPanel.dismissErrorTooltip: 关闭错误
+  l10nPanel.emptyDesc: 请在上方添加语言区域和键以开始编辑翻译。
+  l10nPanel.emptyKeysDesc: 请在上方输入键名并点击“添加键”以开始翻译。
+  l10nPanel.emptyKeysTitle: 暂无翻译键
+  l10nPanel.emptyTitle: 暂无语言区域或键
+  l10nPanel.loading: 正在加载本地化表…
+  l10nPanel.missingTranslation: 缺少翻译
+  l10nPanel.newKeyLabel: 新键
+  l10nPanel.newKeyPlaceholder: menu.play
+  l10nPanel.newLocaleLabel: 新语言区域
+  l10nPanel.plural: 复数
+  l10nPanel.pluralBadge: 复数
+  l10nPanel.pluralLabel: CLDR 复数键
+  l10nPanel.pluralTooltip: 创建 CLDR 复数键（zero、one、two、few、many、other）
+  l10nPanel.remove: 移除
+  l10nPanel.removeKeyLabel: 移除键 {key}
+  l10nPanel.removeLocaleLabel: 移除语言区域 {locale}
+  l10nPanel.saveStrings: 保存文案
+  l10nPanel.statusClosedTable: 已关闭本地化表
+  l10nPanel.statusOpened: 已打开本地化文件
+  l10nPanel.statusOpenedDir: 已打开本地化目录 {dir}
+  l10nPanel.statusOpenedTable: 已打开本地化表
+  l10nPanel.statusSaved: 已将 {count} 个语言区域文件保存至 {dir}
+  l10nPanel.title: 本地化
   layers.add: 添加图层
   layers.empty: 暂无图层
   layers.hide: 隐藏图层
@@ -846,6 +2570,19 @@ strings:
   library.remove: 移除
   library.title: 资源库
   library.update: 更新
+  mainLayoutExtra.cameraCaption: 相机 · {w} × {h}
+  mainLayoutExtra.failedToOpen: 无法打开 {file}
+  mainLayoutExtra.gridMapStatus: '{view} · {tool} · 楼层 {floor} · {orient}/24'
+  mainLayoutExtra.playtest: 试玩
+  mainLayoutExtra.playtestMet: 试玩 · 已达标
+  mainLayoutExtra.playtestMissed: 试玩 · {count} 项未达标
+  mainLayoutExtra.playtestReportLabel: 试玩报告
+  mainLayoutExtra.randomSuffix: ' | 随机：{count} 个瓦片（种子 {seed}）'
+  mainLayoutExtra.sceneConflictMany: '{count} 个场景冲突'
+  mainLayoutExtra.sceneConflictOne: 1 个场景冲突
+  mainLayoutExtra.sceneOpenFix: 请检查场景文件是否存在且包含有效的 YAML。
+  mainLayoutExtra.sketchStatus: 草图图层 · 场景 {x}, {y} · 草图 · {tool}
+  mainLayoutExtra.stampSuffix: ' | 图章：{w}×{h}'
   material.close: 关闭
   material.field.baseColor: 基础颜色
   material.field.blend: 混合模式
@@ -866,6 +2603,13 @@ strings:
   material.shape.sphere: 球体
   material.shape.sprite: 精灵
   material.title: 材质编辑器
+  materialExtra.blendMode: 混合模式
+  materialExtra.clearColorLabel: 清除{label}
+  materialExtra.colorPickerLabel: '{label}颜色选择器'
+  materialExtra.none: 无
+  materialExtra.previewError: 预览出错
+  materialExtra.texture: 贴图
+  materialExtra.valueLabel: '{label}数值'
   menu.agentPanel: 智能体面板
   menu.applyOverridesToSource: 将覆盖应用到源场景
   menu.askAgent: 向智能体询问选中内容
@@ -981,17 +2725,79 @@ strings:
   menu.view2d: 2D 视图
   menu.view3d: 3D 视图
   menu.view3dCamera: 从场景相机查看
+  mergeConflict.applyYAML: 应用 YAML
+  mergeConflict.backToEditor: 返回编辑器
+  mergeConflict.cancel: 取消
+  mergeConflict.chip.agent: 智能体
+  mergeConflict.chip.custom: 自定义
+  mergeConflict.chip.mine: 我的
+  mergeConflict.chip.unresolved: 未解决
+  mergeConflict.conflictRowLabel: 冲突 {name}（{status}）：{summary}
+  mergeConflict.customTag: 自定义
+  mergeConflict.editYAMLByHand: 手动编辑结果 YAML
+  mergeConflict.handEditedYAML: 手动编辑的 YAML
+  mergeConflict.hideYAMLEditor: 隐藏 YAML 编辑器
+  mergeConflict.objectMany: '{count} 个对象'
+  mergeConflict.objectOne: 1 个对象
+  mergeConflict.optionLabel: 为 {name} 选择 {title}（{meta}）
+  mergeConflict.pickSideLabel: 选择 {title}（{branch}）
+  mergeConflict.resolvedCount: 已解决 {resolved}/{total}
+  mergeConflict.resultPreviewLabel: 合并结果场景预览
+  mergeConflict.resultYAMLLabel: '{name} 的结果 YAML'
+  mergeConflict.screenLabel: 场景合并冲突
+  mergeConflict.sectionConflicts: 冲突
+  mergeConflict.sectionMergedByID: 按 ID 自动合并
+  mergeConflict.sectionResult: 结果
+  mergeConflict.sidePreviewLabel: '{title} 场景预览'
+  mergeConflict.takeAllAgent: 全部采用智能体建议（共 {count} 项）
+  mergeConflict.unresolvedLegend: 未解决，同时显示双方位置
+  mergeConflict.verifyFailed: 合并校验失败
   mergeDriver.bannerMessage: 此 Git 克隆尚未配置场景合并驱动——Git 将按行合并 .scene.yaml 文件。
   mergeDriver.configuredStatus: 已配置 Git 场景合并驱动（nsgo-scene）
   mergeDriver.dismissButton: 忽略
   mergeDriver.setupButton: 启用合并驱动
+  models.align: 贴合
+  models.alignLabel: 将放置的模型贴合到表面
   models.askForOne: 或让智能体生成一个
   models.askForOneHint: 描述一个模型… 例如一个 1 × 0.5 米的矮石花盆，与围墙材质相同
   models.dragIn: 拖入视口
   models.dragTooltip: 拖入视口以放置 {name}
+  models.groundHeight: 地面高度
+  models.placeGroupLabel: 放置
+  models.placeLabel: 放置资源浏览器中所选的模型
+  models.primitive: 基础几何体
   models.promptClose: 关闭
   models.promptSend: 发送
+  models.snap: 吸附
+  models.snapLabel: 将放置的模型吸附到网格
   models.stripTitle: 模型
+  models.title: 模型
+  navmesh3d.agent: 代理
+  navmesh3d.agentLabel: 导航网格代理名称
+  navmesh3d.agentPlaceholder: default
+  navmesh3d.bake: 烘焙
+  navmesh3d.bakeLabel: 根据当前打开场景的静态几何体烘焙 3D 导航网格
+  navmesh3d.cellHeight: 体素高度
+  navmesh3d.cellHeightLabel: 体素单元格高度
+  navmesh3d.cellSize: 体素大小
+  navmesh3d.cellSizeLabel: 体素单元格大小
+  navmesh3d.close: 关闭
+  navmesh3d.height: 高度
+  navmesh3d.heightLabel: 代理高度
+  navmesh3d.maxSlope: 最大坡度 (°)
+  navmesh3d.maxSlopeLabel: 最大坡度
+  navmesh3d.notBaked: 尚未烘焙导航网格
+  navmesh3d.outputPath: 输出路径
+  navmesh3d.outputPathLabel: 导航网格输出路径
+  navmesh3d.overlay: 叠加层
+  navmesh3d.overlayLabel: 显示 3D 导航网格叠加层
+  navmesh3d.radius: 半径
+  navmesh3d.radiusLabel: 代理半径
+  navmesh3d.stepHeight: 步高
+  navmesh3d.stepHeightLabel: 代理步高
+  navmesh3d.summary: '{agent}：{polygons} 个多边形，{vertices} 个顶点'
+  navmesh3d.summaryWithPath: '{agent}：{polygons} 个多边形，{vertices} 个顶点（{path}）'
+  navmesh3d.title: 3D 导航网格
   output.clear: 清空
   output.clearLabel: 清空输出面板中的所有消息
   output.empty: 暂无输出
@@ -1024,6 +2830,7 @@ strings:
   overlays.triggers: 触发器
   overlays.zoomIn: 放大
   overlays.zoomOut: 缩小
+  overlaysExtra.buttonLabel: '{label}（{count}）'
   overrides.applyToSource: 应用到源场景
   overrides.baseScene: 基础场景
   overrides.inherited: 继承
@@ -1060,6 +2867,104 @@ strings:
   palette.pluginToolDesc: 插件工具（{plugin}）
   palette.projectFile: 项目文件
   palette.searchLabel: 搜索命令、节点与文件
+  particles.addBurst: + 添加爆发
+  particles.addStop: + 控制点
+  particles.addSubEmitter: + 添加子发射器
+  particles.angleMax: 最大角度
+  particles.angleMin: 最小角度
+  particles.backToRoot: 返回根发射器
+  particles.bounce: 弹性
+  particles.burst: 爆发
+  particles.burstCount: 数量
+  particles.burstCycles: 循环次数
+  particles.burstInterval: 间隔（秒）
+  particles.burstTime: 时间（秒）
+  particles.close: 关闭
+  particles.collideBounce: 反弹
+  particles.collideKill: 销毁
+  particles.collideNone: 无
+  particles.collideStop: 停止
+  particles.collisionModeLabel: 碰撞模式
+  particles.colorHex: 颜色（#rrggbbaa）
+  particles.colorStopTLabel: 色标 T
+  particles.colorStopsHint: '{count} 个色标（点击色条选择或添加）'
+  particles.curveAlpha: 透明度
+  particles.curveColor: 颜色
+  particles.curveRotation: 旋转
+  particles.curveSize: 大小
+  particles.curveTrailColor: 拖尾颜色
+  particles.curveTrailWidth: 拖尾宽度
+  particles.editChild: 编辑子发射器
+  particles.enableTrails: 启用条带拖尾
+  particles.enabled: 启用
+  particles.floatStopsHint: '{count} 个控制点（拖动手柄或点击曲线图添加）'
+  particles.floor: 地面
+  particles.friction: 摩擦
+  particles.gravityX: 重力 X
+  particles.gravityY: 重力 Y
+  particles.height: 高度
+  particles.initRotMax: 初始旋转最大
+  particles.initRotMin: 初始旋转最小
+  particles.lifeMax: 最大寿命（秒）
+  particles.lifeMin: 最小寿命（秒）
+  particles.maxParticles: 最大粒子数
+  particles.mode: 模式
+  particles.noAtlasFrames: 无可用图集帧（请选择预览图集或在资源解析器中加载图集）
+  particles.noAtlasPlaceholder: 无图集
+  particles.pause: 暂停
+  particles.play: 播放
+  particles.previewAtlasLabel: 预览图集
+  particles.previewStats: '{count} 个活跃 | {elapsed}s'
+  particles.radius: 半径
+  particles.rate: 发射速率（/秒）
+  particles.remove: 移除
+  particles.removeStop: '- 控制点'
+  particles.restart: 重播
+  particles.rotSpdMax: 角速度最大
+  particles.rotSpdMin: 角速度最小
+  particles.rotationRad: 旋转（rad）
+  particles.saveEmitter: 保存发射器
+  particles.sectionBursts: 定时爆发
+  particles.sectionCollision: 碰撞
+  particles.sectionCurves: 曲线
+  particles.sectionEmitterShape: 发射器与形状
+  particles.sectionFrames: 帧（图集选择器）
+  particles.sectionLifetimeMotion: 寿命与运动
+  particles.sectionSubEmitters: 子发射器
+  particles.sectionTrails: 拖尾
+  particles.seed: 随机种子
+  particles.shape: 形状
+  particles.shapeCircle: 圆形
+  particles.shapeKindLabel: 形状类型
+  particles.shapePoint: 点
+  particles.shapeRect: 矩形
+  particles.shapeRing: 环形
+  particles.space: 空间
+  particles.spaceLabel: 模拟空间
+  particles.spaceLocal: 局部
+  particles.spaceWorld: 世界
+  particles.speedMax: 最大速度
+  particles.speedMin: 最小速度
+  particles.step: 单步
+  particles.stopTLabel: 控制点 T
+  particles.stopValueLabel: 控制点数值
+  particles.subBurstCount: 爆发数量
+  particles.subInheritVel: 继承速度
+  particles.subTitlePart: '子发射器 #{index}'
+  particles.subTrigger: '子发射器 #{index} 触发器'
+  particles.subTriggerLabel: 子发射器触发条件
+  particles.textureURI: 纹理 URI
+  particles.title: 粒子发射器
+  particles.trailColorLabel: 拖尾颜色
+  particles.trailLifetime: 寿命（秒）
+  particles.trailMaxPoints: 最大点数
+  particles.trailMinDist: 最小间距
+  particles.trailTextureURILabel: 拖尾纹理 URI
+  particles.triggerBirth: 出生
+  particles.triggerCollision: 碰撞
+  particles.triggerDeath: 消亡
+  particles.width: 宽度
+  particles.zOrder: Z 序
   permissions.action.code: 代码
   permissions.action.create: 创建
   permissions.action.delete: 删除
@@ -1086,11 +2991,17 @@ strings:
   permissions.deleteToolOn: 工具（仅限用户）：game_delete_file 仍需在审查中逐个确认删除。
   permissions.deny: 拒绝
   permissions.draft.apply: 应用
+  permissions.draft.colDraft: 草案
+  permissions.draft.colNow: 当前
+  permissions.draft.colRule: 规则
   permissions.draft.descNoRequest: 请勾选你同意的每一条规则。⌘↵、全部保留和自动化均无法应用此草案，任何配置档也都不会自动放行。
+  permissions.draft.descWithRequest: 来自你的请求“{request}”。请勾选你同意的每条规则。⌘↵、“全部保留”和自动化均无法应用此草案，且没有任何权限配置会自动放行。
   permissions.draft.discard: 丢弃草案
   permissions.draft.historyHint: 已应用的规则在历史记录中归属于你。
   permissions.draft.noChangesTicked: 未勾选任何更改
+  permissions.draft.tickLabel: 应用 {action} {patterns}：从 {current} 改为 {draft}
   permissions.draft.title: 智能体起草了一项针对其自身权限的更改
+  permissions.draft.yamlHeader: '{file} · 应用后预览'
   permissions.emptyRules: 暂无规则；将按所选方案的默认策略决定。
   permissions.heldDesc: 磁盘中收紧的规则已立即生效；放宽的规则会暂挂，直到你逐条确认。
   permissions.heldTitle: 来自磁盘的放宽权限规则已暂挂
@@ -1159,6 +3070,134 @@ strings:
   plan.step.restore: 恢复
   plan.stopped.nothingWritten: 已在第 1 步前停止，未写入任何内容。
   plan.stopped.partial: 已在完成 {done}/{total} 步后停止。
+  planExtra.decreaseField: 减少 {field}
+  planExtra.fileTagDelete: 删除
+  planExtra.fileTagEdit: 修改
+  planExtra.fileTagNew: 新建
+  planExtra.increaseField: 增加 {field}
+  playMarks.agentEmptyHint: 智能体通过编辑器的 MCP 服务器查看运行中的游戏：实时实体、最近 60 秒回放以及你的标记。按 {key} 可先冻结当前帧再提问。
+  playMarks.agentPauseNote: 智能体逐步查看回放期间游戏会保持暂停。你可以随时继续运行，修复方案会以审查形式返回。
+  playMarks.ask: 提问
+  playMarks.askButton: 画面看起来不对 {key}
+  playMarks.askButtonLabel: 暂停并向智能体询问当前帧（{key}）
+  playMarks.askDialogLabel: 询问冻结帧
+  playMarks.askDialogTitle: 询问第 {frame} 帧
+  playMarks.askInputLabel: 哪里看起来不对？
+  playMarks.askInputPlaceholder: 哪里看起来不对？例如：史莱姆穿墙而过
+  playMarks.askReviewNote: 修复方案会以审查形式返回
+  playMarks.cancel: 取消
+  playMarks.chip.frame: 第 {frame} 帧
+  playMarks.chip.liveState: 实时状态
+  playMarks.chip.replayFrames: 回放 · {frames} 帧
+  playMarks.chip.replaySeconds: 回放 · 最近 {seconds} 秒
+  playMarks.chip.selectedLiveState: '{id} · 实时状态'
+  playMarks.controlsLabel: 运行模式控制栏
+  playMarks.frameLabel: 第 {frame} 帧
+  playMarks.frozenFrameImageLabel: 冻结帧画面
+  playMarks.gameFrozen: 游戏已冻结
+  playMarks.markLabel: 不停止运行直接标记此刻（{key}）
+  playMarks.markWithCount: 标记 {key} · {count}
+  playMarks.markWithKey: 标记 {key}
+  playMarks.marksFooterHint: 停止运行后，所有标记会作为一个线程一并发送给智能体。
+  playMarks.marksHeader: 标记 · {count}
+  playMarks.panicAskFix: 让智能体修复
+  playMarks.panicHide: 隐藏
+  playMarks.panicHideRuntimeLabel: 隐藏运行时栈帧
+  playMarks.panicMetaFrame: '{time} · 第 {frame} 帧'
+  playMarks.panicOpenLocation: 打开 {loc}
+  playMarks.panicReplay: 回放到 panic 发生前
+  playMarks.panicShow: 显示
+  playMarks.panicShowRuntimeLabel: 显示运行时栈帧
+  playMarks.panicTitle: 第 {run} 次运行因 panic 中止
+  playMarks.pauseLabel: 暂停（{key}）
+  playMarks.pausedHint: 已暂停在第 {frame} 帧 · . 单步一帧 · {key} 继续
+  playMarks.replayAttached: 已附带回放
+  playMarks.replayAttachedSent: 已附带回放 · 已发送
+  playMarks.replayHint: 在标记或提问时保存为输入录制
+  playMarks.replayTitle: 回放
+  playMarks.resumeLabel: 继续（{key}）
+  playMarks.sendMarksNow: 立即发送标记
+  playMarks.setTimeScaleLabel: 将运行时间缩放设为 {scale}
+  playMarks.status.frozen: 已为你的提问冻结 · 第 {frame} 帧
+  playMarks.status.paused: 已暂停 · 第 {frame} 帧
+  playMarks.status.playing: 运行中 · 实时
+  playMarks.status.playingScale: 运行中 · 实时 · {scale}×
+  playMarks.stepOneFrameLabel: 单步前进一帧（.）
+  playMarks.stop: 停止
+  playMarks.stopLabel: 停止运行模式
+  playMarks.tab.agent: 智能体
+  playMarks.tab.inspector: 检查器
+  playtestReport.agentsRead: 智能体解读
+  playtestReport.applyToFile: 应用到 {file}
+  playtestReport.askAgent: 询问智能体
+  playtestReport.askAgentToTune: 请智能体调优
+  playtestReport.backToSceneEditor: 返回场景编辑器
+  playtestReport.botProfileHeading: 机器人配置
+  playtestReport.botProfileItemLabel: 机器人配置 {profile}
+  playtestReport.botProfileLabel: 机器人配置
+  playtestReport.chart.aboveThreshold: 高于 {value}{unit}
+  playtestReport.chart.balanced: 平衡
+  playtestReport.chart.hotspotCluster: 热点聚类
+  playtestReport.chart.moderate: 中等
+  playtestReport.chart.noBarData: 暂无柱状图数据
+  playtestReport.chart.noData: 暂无图表数据
+  playtestReport.chart.noHeatMapData: 尚未记录带坐标的热力图事件
+  playtestReport.chart.noLineData: 暂无关卡进度曲线数据
+  playtestReport.chart.noMatrixData: 暂无胜率矩阵数据
+  playtestReport.chart.sameDeck: 镜像对局
+  playtestReport.chart.vs: 对阵 {label}
+  playtestReport.chart.watch: 关注
+  playtestReport.close: 关闭
+  playtestReport.closeReview: 关闭审查
+  playtestReport.configPreviewLabel: playtest.yaml 预览
+  playtestReport.defaultScope: 场景
+  playtestReport.dismiss: 忽略
+  playtestReport.emptyBody: 请通过 game_playtest 运行无头试玩测试，或在项目文件浏览器中打开 playtest.report.yaml。
+  playtestReport.emptyTitle: 未加载试玩测试报告
+  playtestReport.footnote: 每次运行都使用回放系统，因此可以逐帧回看或转为测试。指标与机器人配置来自 playtest.yaml；智能体可通过 playtest_define 提议新指标，并以审查形式呈现。
+  playtestReport.fromTemplate: 来自模板 {template}
+  playtestReport.headerLabel: 试玩测试报告标题栏
+  playtestReport.metricsLabel: 试玩测试指标
+  playtestReport.open: 打开
+  playtestReport.openFileLabel: 打开 {file}
+  playtestReport.proposedMetricLabel: 建议的试玩测试指标
+  playtestReport.requestSuggestionLabel: 请求建议：{text}
+  playtestReport.review: 审查
+  playtestReport.reviewProposalDrawerLabel: 审查建议的试玩测试指标
+  playtestReport.reviewProposalTitle: 审查 playtest_define · {metric}（{file}）
+  playtestReport.reviewProposedMetricLabel: 审查建议指标 {metric}
+  playtestReport.reviewRequested: 已请求审查
+  playtestReport.screenLabel: 试玩测试报告
+  playtestReport.strategy: 策略
+  playtestReport.title: 试玩测试 · {scope}
+  playtestReport.watchRunLabel: 在运行模式中{label}
+  probes3d.addLightProbeGrid: 添加光照探针网格
+  probes3d.addReflectionProbe: 添加反射探针
+  probes3d.bakeCubemap: 烘焙立方体贴图
+  probes3d.bakeProbes: 烘焙探针
+  probes3d.blend: 混合距离
+  probes3d.boxProj: 盒式投影
+  probes3d.boxProjectionLabel: 盒式投影
+  probes3d.center: 中心
+  probes3d.counts: 数量
+  probes3d.cubemap: 立方体贴图
+  probes3d.cubemapPathLabel: 烘焙立方体贴图路径
+  probes3d.cubemapPlaceholder: probes/room.hdr
+  probes3d.cubemapResolutionLabel: 立方体贴图分辨率
+  probes3d.data: 数据
+  probes3d.intensity: 强度
+  probes3d.lightProbeDataLabel: 烘焙光照探针路径
+  probes3d.lightProbeIntensityLabel: 光照探针网格强度
+  probes3d.priority: 优先级
+  probes3d.probeCountX: 探针数量 X
+  probes3d.probeCountY: 探针数量 Y
+  probes3d.probeCountZ: 探针数量 Z
+  probes3d.reflBlendLabel: 反射探针混合距离
+  probes3d.reflIntensityLabel: 反射探针强度
+  probes3d.reflPriorityLabel: 反射探针优先级
+  probes3d.remove: 移除
+  probes3d.resolution: 分辨率
+  probes3d.size: 尺寸
   problems.agentHeader: 智能体
   problems.agentNote: 文件一有改动就会立即发现问题，无论来自你还是智能体；智能体只提出修复方案，绝不会未经你同意自动应用。
   problems.applyFix: 应用修复
@@ -1183,16 +3222,501 @@ strings:
   problems.title: 问题（{count}）
   problems.titleChecking: 问题（检查中…）
   problems.warning: 警告
+  profiler.allocsEmpty: 0 次分配/帧
+  profiler.allocsValue: '{count} 次分配/帧'
+  profiler.avgEmpty: 均值 — ms
+  profiler.avgValue: 均值 {ms} ms
+  profiler.axis30s: −30 秒
+  profiler.axis60s: −60 秒
+  profiler.axisNow: 现在
+  profiler.axisPaused: 已暂停
+  profiler.chart.allocs: 分配
+  profiler.chart.allocsMax: 峰值 {max} 次分配/帧 · 堆 {heap}
+  profiler.chart.assetMemoryOverTime: 资源内存变化
+  profiler.chart.budget: 预算 {size}
+  profiler.chart.disconnected: 未连接 · 连接正在运行的游戏或点击运行以绘制实时指标
+  profiler.chart.draw: 绘制
+  profiler.chart.heap: 堆
+  profiler.chart.hitch: 卡顿
+  profiler.chart.update: 更新
+  profiler.chart.waiting: 等待帧采样…
+  profiler.chartMetricLabel: 查看 {metric} 图表
+  profiler.close: 关闭
+  profiler.closeLabel: 关闭性能分析器面板
+  profiler.col.avg: 均值
+  profiler.col.calls: 调用
+  profiler.col.last: 最近
+  profiler.col.max: 峰值
+  profiler.col.zone: 区域
+  profiler.connectedLive: 已连接 · 实时
+  profiler.disconnected: 未连接
+  profiler.errorPrefix: 错误：{error}
+  profiler.exportTrace: 导出追踪
+  profiler.exportTraceLabel: 将已记录帧导出为 Chrome/Perfetto 追踪 JSON
+  profiler.hideProfiler: 隐藏性能分析器
+  profiler.inspectCardLabel: 检查 {title}
+  profiler.kpi.allocsEmpty: 0 次/帧
+  profiler.kpi.allocsGC: 分配与 GC
+  profiler.kpi.allocsValue: '{count} 次/帧'
+  profiler.kpi.assetMemory: 资源内存
+  profiler.kpi.drawStats: '{calls} 次绘制 · {sprites} 个精灵'
+  profiler.kpi.fps: FPS
+  profiler.kpi.frame: 帧耗时
+  profiler.kpi.frameSub: 更新 {update} · 绘制 {draw} · p99 {p99}
+  profiler.kpi.frameSubEmpty: 更新 — · 绘制 — · p99 —
+  profiler.kpi.framesCount: '{count} 帧'
+  profiler.kpi.gcSub: 堆 {heap} · {gc} 次 GC · {hitches} 次卡顿
+  profiler.kpi.gcSubEmpty: 堆 — · 0 次 GC
+  profiler.kpi.memoryBudget: 预算 {budget} · {groups} 个分组
+  profiler.kpi.memoryGroups: '{groups} 个分组'
+  profiler.kpi.untracked: 未追踪
+  profiler.legendMissed: 超时 16.7 ms
+  profiler.legendOver: 超过 8.3 ms
+  profiler.mainChartLabel: 性能分析器时间序列图表
+  profiler.metric.allocsGC: 分配与 GC
+  profiler.metric.fps: FPS
+  profiler.metric.frame: 帧耗时
+  profiler.metric.memory: 内存
+  profiler.openPanelLabel: 打开完整性能分析器面板
+  profiler.p99Empty: p99 — ms
+  profiler.p99Value: p99 {ms} ms
+  profiler.panelTitle: 性能分析器
+  profiler.recordedFrames: 已记录 {count} 帧
+  profiler.reset: 重置
+  profiler.resetLabel: 重置性能分析器耗时、区域与 GC 历史记录
+  profiler.stripChartLabel: 最近 60 秒帧耗时图表
+  profiler.stripRegionLabel: 最近 60 秒帧耗时
+  profiler.stripTitle: 帧耗时 · 最近 60 秒
+  profiler.title: 性能分析器
+  profiler.zonesDisconnected: 连接正在运行的游戏或点击运行以查看性能区域
+  profiler.zonesEmpty: 尚未记录任何性能分析区域
+  profiler.zonesTitle: 性能区域 · {count}
+  projectSettings.autoload.addResource: 添加资源
+  projectSettings.autoload.addResourceLabel: 添加自动加载资源
+  projectSettings.autoload.addScene: 添加场景
+  projectSettings.autoload.addSceneLabel: 添加自动加载场景
+  projectSettings.autoload.entryNameLabel: 自动加载{kind} {index} 名称
+  projectSettings.autoload.entryPathLabel: 自动加载{kind} {index} 路径
+  projectSettings.autoload.entryRemoveLabel: 移除自动加载{kind} {index}
+  projectSettings.autoload.heading: 自动加载
+  projectSettings.autoload.kindResource: 资源
+  projectSettings.autoload.kindScene: 场景
+  projectSettings.autoload.mainSceneLabel: 主场景
+  projectSettings.autoload.newResourceNameLabel: 新自动加载资源名称
+  projectSettings.autoload.newResourcePathLabel: 新自动加载资源路径
+  projectSettings.autoload.newSceneNameLabel: 新自动加载场景名称
+  projectSettings.autoload.newScenePathLabel: 新自动加载场景路径
+  projectSettings.autoload.refreshFiles: 刷新文件
+  projectSettings.autoload.refreshFilesLabel: 刷新项目文件
+  projectSettings.autoload.resourceNamePlaceholder: 资源名称
+  projectSettings.autoload.resourcePathPlaceholder: 选择项目文件
+  projectSettings.autoload.resourcesEmpty: 未配置自动加载资源。
+  projectSettings.autoload.resourcesHeading: 资源
+  projectSettings.autoload.sceneNamePlaceholder: 场景名称
+  projectSettings.autoload.scenePathPlaceholder: 选择场景文件
+  projectSettings.autoload.scenesEmpty: 未配置自动加载场景。
+  projectSettings.autoload.scenesHeading: 场景
+  projectSettings.canonicalNotice: 保存时会以规范 YAML 格式写入 game.yaml，不会保留注释。
+  projectSettings.close: 关闭
+  projectSettings.closeLabel: 关闭项目设置
+  projectSettings.display.barColor: 黑边颜色
+  projectSettings.display.barColorHelp: '上下/左右黑边填充颜色，格式为 #RRGGBB'
+  projectSettings.display.barColorLabel: 显示黑边颜色
+  projectSettings.display.barColorPlaceholder: '#000000（默认黑色）'
+  projectSettings.display.enabled: 虚拟显示
+  projectSettings.display.enabledHelp: 以固定逻辑分辨率渲染并缩放至窗口
+  projectSettings.display.enabledLabel: 启用虚拟显示
+  projectSettings.display.heading: 显示
+  projectSettings.display.height: 虚拟高度
+  projectSettings.display.heightHelp: 逻辑帧缓冲区高度（像素）
+  projectSettings.display.heightLabel: 显示虚拟高度
+  projectSettings.display.integerScale: 整数缩放
+  projectSettings.display.integerScaleHelp: 按整数倍缩放以呈现清晰像素画
+  projectSettings.display.integerScaleLabel: 显示整数缩放
+  projectSettings.display.mode: 模式
+  projectSettings.display.modeDefault: 默认（适应）
+  projectSettings.display.modeExpand: 扩展
+  projectSettings.display.modeFill: 填充
+  projectSettings.display.modeFit: 适应
+  projectSettings.display.modeHelp: 虚拟显示适配宿主窗口的方式
+  projectSettings.display.modeLabel: 显示模式
+  projectSettings.display.modeStretch: 拉伸
+  projectSettings.display.pixelSnap: 像素吸附
+  projectSettings.display.pixelSnapHelp: 将渲染位置对齐到整数虚拟像素
+  projectSettings.display.pixelSnapLabel: 显示像素吸附
+  projectSettings.display.width: 虚拟宽度
+  projectSettings.display.widthHelp: 逻辑帧缓冲区宽度（像素）
+  projectSettings.display.widthLabel: 显示虚拟宽度
+  projectSettings.general.appVersion: 应用版本
+  projectSettings.general.appVersionHelp: 同步至 game.yaml 与 nsgo.yaml 的发布版本号
+  projectSettings.general.appVersionLabel: 应用版本
+  projectSettings.general.id: ID
+  projectSettings.general.idHelp: 应用包与标识符 ID
+  projectSettings.general.idLabel: 应用 ID
+  projectSettings.general.mainScene: 主场景
+  projectSettings.general.mainSceneHelp: 游戏启动时打开的场景
+  projectSettings.general.name: 名称
+  projectSettings.general.nameHelp: 显示在标题栏与应用商店中
+  projectSettings.general.nameLabel: 项目名称
+  projectSettings.general.namePlaceholder: 我的游戏
+  projectSettings.general.window: 窗口
+  projectSettings.general.windowHelp: 逻辑尺寸，按整像素缩放
+  projectSettings.noneOption: （无）
+  projectSettings.overview.mainSceneLabel: 项目主场景
+  projectSettings.overview.windowHeightLabel: 项目窗口高度
+  projectSettings.overview.windowWidthLabel: 项目窗口宽度
+  projectSettings.physics.addLayer: 添加
+  projectSettings.physics.addLayerLabel: 添加碰撞层
+  projectSettings.physics.gravity2DX: 2D 重力 X
+  projectSettings.physics.gravity2DXHelp: 2D 世界水平方向重力
+  projectSettings.physics.gravity2DY: 2D 重力 Y
+  projectSettings.physics.gravity2DYHelp: 2D 世界垂直方向重力
+  projectSettings.physics.gravity3DX: 3D 重力 X
+  projectSettings.physics.gravity3DXHelp: 3D 世界沿 X 轴重力
+  projectSettings.physics.gravity3DY: 3D 重力 Y
+  projectSettings.physics.gravity3DYHelp: 3D 世界沿 Y 轴重力
+  projectSettings.physics.gravity3DZ: 3D 重力 Z
+  projectSettings.physics.gravity3DZHelp: 3D 世界沿 Z 轴重力
+  projectSettings.physics.heading2D: 2D 物理
+  projectSettings.physics.heading3D: 3D 物理
+  projectSettings.physics.layerBitLabel: 位
+  projectSettings.physics.layerItem: 位 {bit}：{name}
+  projectSettings.physics.layerNameLabel: 层名称
+  projectSettings.physics.layerNamePlaceholder: player
+  projectSettings.physics.layersEmpty: 未声明具名碰撞层
+  projectSettings.physics.layersHeading: 碰撞层
+  projectSettings.physics.removeLayerLabel: 移除碰撞层 {name}
+  projectSettings.physics.solverIter2D: 2D 求解器迭代次数
+  projectSettings.physics.solverIter2DHelp: 每个 2D 物理步长的约束求解器迭代次数
+  projectSettings.physics.solverIter3D: 3D 求解器迭代次数
+  projectSettings.physics.solverIter3DHelp: 每个 3D 物理步长的约束求解器迭代次数
+  projectSettings.plugins.empty: 此编辑器二进制文件中未注册任何插件。
+  projectSettings.plugins.enableLabel: 启用插件 {name}
+  projectSettings.plugins.listSep: 、
+  projectSettings.plugins.missingHeading: 缺失的插件
+  projectSettings.plugins.missingNote: 已列在 game.yaml 中，但未编译进此编辑器二进制文件
+  projectSettings.plugins.noExtensions: 无 UI 扩展
+  projectSettings.plugins.registeredHeading: 已注册插件
+  projectSettings.plugins.removeMissingLabel: 移除缺失插件 {name}
+  projectSettings.remove: 移除
+  projectSettings.tab.autoload: 自动加载
+  projectSettings.tab.display: 显示
+  projectSettings.tab.overview: 概览
+  projectSettings.tab.physics: 物理
+  projectSettings.tab.plugins: 插件
+  projectSettings.tab.window: 窗口
+  projectSettings.unsavedChanges: 有未保存的更改
+  projectSettings.window.appearance: 外观
+  projectSettings.window.appearanceDark: 深色
+  projectSettings.window.appearanceHelp: 同步至 nsgo.yaml 的游戏窗口配色方案
+  projectSettings.window.appearanceLabel: 窗口外观
+  projectSettings.window.appearanceLight: 浅色
+  projectSettings.window.appearanceSystem: 跟随系统（默认）
+  projectSettings.window.heading: 窗口
+  projectSettings.window.height: 高度
+  projectSettings.window.heightHelp: 逻辑窗口高度（点）
+  projectSettings.window.heightLabel: 窗口高度
+  projectSettings.window.maxHeight: 最大高度
+  projectSettings.window.maxHeightHelp: 窗口可调整大小时的最大高度（0 = 不限）
+  projectSettings.window.maxHeightLabel: 窗口最大高度
+  projectSettings.window.maxWidth: 最大宽度
+  projectSettings.window.maxWidthHelp: 窗口可调整大小时的最大宽度（0 = 不限）
+  projectSettings.window.maxWidthLabel: 窗口最大宽度
+  projectSettings.window.minHeight: 最小高度
+  projectSettings.window.minHeightHelp: 窗口可调整大小时的最小高度（0 = 不限）
+  projectSettings.window.minHeightLabel: 窗口最小高度
+  projectSettings.window.minWidth: 最小宽度
+  projectSettings.window.minWidthHelp: 窗口可调整大小时的最小宽度（0 = 不限）
+  projectSettings.window.minWidthLabel: 窗口最小宽度
+  projectSettings.window.resizable: 可调整大小
+  projectSettings.window.resizableHelp: 允许玩家调整桌面窗口大小
+  projectSettings.window.resizableLabel: 窗口可调整大小
+  projectSettings.window.title: 标题
+  projectSettings.window.titleHelp: 窗口标题栏文字（默认为项目名称）
+  projectSettings.window.titleLabel: 窗口标题
+  projectSettings.window.titlePlaceholder: 默认为项目名称
+  projectSettings.window.width: 宽度
+  projectSettings.window.widthHelp: 逻辑窗口宽度（点）
+  projectSettings.window.widthLabel: 窗口宽度
   region.header: 顶栏
   region.inspector: 智能体与检查器
   region.sceneTree: 场景树
   region.statusBar: 状态栏
   region.toast: 通知
   region.viewport: 视口
+  remote.appliedWithoutRestart: 无需重启即生效
+  remote.askButton: 画面看起来不对
+  remote.askButtonLabel: 暂停并向智能体询问当前帧（{key}）
+  remote.autoConnect: 运行时自动连接
+  remote.autoConnectLabel: 向 go tool game dev 传递 -automation 参数并自动连接
+  remote.badge.live: 实时
+  remote.badge.spawned: 动态生成
+  remote.bar.entities: '{count} 个实体'
+  remote.bar.frame: 第 {frame} 帧
+  remote.bar.live: 实时
+  remote.bar.paused: 已暂停
+  remote.bar.remote: 远程
+  remote.bar.summary: 远程调试：{details}
+  remote.connect: 连接
+  remote.connectingHint: 正在通过 MCP 连接到运行中的游戏…
+  remote.consoleClear: 清空
+  remote.consoleEmpty: 输入并运行调试控制台命令
+  remote.consoleInputLabel: 控制台命令
+  remote.consolePlaceholder: set gravity 1200
+  remote.consoleRun: 运行
+  remote.consoleTitle: 控制台
+  remote.discard: 放弃
+  remote.disconnect: 断开连接
+  remote.disconnectedHint: 开启自动化后运行游戏，或通过 nsgo mcp 连接到运行中的游戏。
+  remote.entitiesHeader: 实时实体 · {count}
+  remote.entitiesHeaderSpawned: 实时实体 · {count} · {spawned} 个动态生成
+  remote.entitiesTreeLabel: 远程实体
+  remote.errorPrefix: 远程错误：{error}
+  remote.expand: 展开
+  remote.inspectorEmpty: 在远程调试标签页中选择一个实时实体以查看和编辑其组件。
+  remote.keepInScene: 保留到场景
+  remote.layerHidden: '{space} · 已隐藏'
+  remote.liveChangesEmpty: 在检查器中修改任意值，正在运行的游戏会立即生效。
+  remote.liveChangesNote: 停止运行后会保留此列表。在你点击保留前，不会写入文件。
+  remote.liveChangesTitle: 实时修改（{count}）
+  remote.mark: 标记
+  remote.markCount: 标记 · {count}
+  remote.markLabel: 不停止游戏直接标记此刻（{key}）
+  remote.pause: 暂停
+  remote.pauseLabel: 暂停运行中的游戏（{key}）
+  remote.readOnlyTag: 实时 · 只读
+  remote.refresh: 刷新
+  remote.resume: 继续
+  remote.resumeLabel: 继续运行中的游戏（{key}）
+  remote.rowLabel.layer: 图层 {layer}
+  remote.rowLabel.spawned: 运行时生成
+  remote.rowLabel.taken: 已移除 {id}
+  remote.sceneActiveHeader: 场景 · {scene}（{count}）
+  remote.scenesHeader: 场景 · {count}
+  remote.setTimeScaleLabel: 将远程时间缩放设为 {scale}
+  remote.spawnedHeader: 运行时生成
+  remote.spawnedNote: 运行时动态生成，不在当前打开的场景文件中。
+  remote.spawnedSubtitle: 运行时生成 · {ref}
+  remote.status.connectedLive: 已连接 · 实时
+  remote.status.connecting: 连接中…
+  remote.status.pausedFrame: 已暂停 · 第 {frame} 帧
+  remote.status.playingLive: 运行中 · 实时
+  remote.status.playingLiveScale: 运行中 · 实时 · {scale}×
+  remote.step: 单步
+  remote.stepCountLabel: 单步次数
+  remote.stepLabel: 单步执行一次固定更新（.）
+  remote.stepN: 单步 N 帧
+  remote.stepNLabel: 单步执行 N 次固定更新
+  remote.taken: 已移除
+  remote.takenAt: 已移除 @{step}
+  remote.timeScaleLabel: 时间缩放
+  remote.tunablesTitle: 可调参数（{count}）
+  remote.undo: 撤销
+  remote.undoLabel: 恢复为场景原值
+  remote.wasValue: 原为 {value}
   review.deleteThisFile: 删除此文件
   review.keepTheFile: 保留该文件
   review.revertAll: 全部还原
   review.title: 审查更改
+  reviewScreen.addNote: 添加批注
+  reviewScreen.backLabel: 返回编辑器，审查保持打开（Esc）
+  reviewScreen.before: 请求前
+  reviewScreen.beforeThisRequest: 本次请求前
+  reviewScreen.cancel: 取消
+  reviewScreen.cardFocusLabel: '{title}，{kind}，{detail}，{seen}'
+  reviewScreen.cardToggleLabel: '{action} {title}（X）'
+  reviewScreen.centerLabel: 更改预览
+  reviewScreen.chip.added: 新增
+  reviewScreen.chip.all: 全部
+  reviewScreen.chip.changed: 已修改
+  reviewScreen.chip.notes: 批注
+  reviewScreen.chip.removed: 已移除
+  reviewScreen.chip.unseen: 未查看
+  reviewScreen.chipLabel: 显示{label}（{count}）
+  reviewScreen.collapseFile: 折叠 {file}
+  reviewScreen.collapseKindInFile: 折叠 {file} 中的{kind}
+  reviewScreen.conflictAgent: 智能体的
+  reviewScreen.conflictBoth: 两者
+  reviewScreen.conflictChoiceLabel: 为 {title} 选择{choice}
+  reviewScreen.conflictGroupLabel: '{title} 上的冲突'
+  reviewScreen.conflictMergedAgent: 已合并：仅保留智能体的编辑
+  reviewScreen.conflictMergedBoth: 已合并双方，以你的优先
+  reviewScreen.conflictMergedMine: 已合并：仅保留你的编辑
+  reviewScreen.conflictMine: 我的
+  reviewScreen.conflictTitle: 你也编辑了 {title}
+  reviewScreen.done: 完成
+  reviewScreen.doneEditingYAML: 完成编辑 YAML
+  reviewScreen.edit: 编辑
+  reviewScreen.editNoteLabel: 编辑关于 {title} 的批注
+  reviewScreen.editYAMLHeading: 就地编辑 YAML
+  reviewScreen.editYAMLLabel: 编辑 {title} 的 YAML
+  reviewScreen.editedInReview: 在审查中编辑 · 已标记为你
+  reviewScreen.editing: 编辑中
+  reviewScreen.editor: 编辑器
+  reviewScreen.emptyRows: 这里没有剩余内容可查看。
+  reviewScreen.expandFile: 展开 {file}
+  reviewScreen.expandKindInFile: 展开 {file} 中的{kind}
+  reviewScreen.filterGroupLabel: 筛选更改
+  reviewScreen.filterLabel: 按名称、字段或文件筛选更改
+  reviewScreen.filterPlaceholder: 按名称、字段或文件筛选
+  reviewScreen.headerLabel: 审查顶栏
+  reviewScreen.hint.before: 请求前
+  reviewScreen.hint.keep: 保留
+  reviewScreen.hint.move: 移动
+  reviewScreen.hint.note: 批注
+  reviewScreen.hint.revert: 还原
+  reviewScreen.keepCount: 保留 {kept} / {total}
+  reviewScreen.keepTitle: 保留未还原的更改 · {key}
+  reviewScreen.kind.added: 新增
+  reviewScreen.kind.changed: 已修改
+  reviewScreen.kind.removed: 已移除
+  reviewScreen.kindHeading.added: 新增
+  reviewScreen.kindHeading.changed: 已修改
+  reviewScreen.kindHeading.removed: 已移除
+  reviewScreen.legend.added: 新增
+  reviewScreen.legend.changed: 已修改
+  reviewScreen.legend.removed: 已移除
+  reviewScreen.legend.selected: 已选中
+  reviewScreen.lineTag: 第 {line} 行
+  reviewScreen.nextChangeLabel: 下一项更改（J）
+  reviewScreen.notSeen: 未查看
+  reviewScreen.noteBtnAdd: 就 {title} 给智能体写批注（C）
+  reviewScreen.noteBtnEdit: 编辑关于 {title} 的批注（C）
+  reviewScreen.noteInputLabel: 就 {title} 给智能体写批注
+  reviewScreen.noteNotSent: 给智能体的批注 · 未发送
+  reviewScreen.notePlaceholder: 告诉智能体需要调整什么…
+  reviewScreen.peekBeforeLabel: 查看本次请求前的场景（按住 B）
+  reviewScreen.prefabDefaultImpact: 适用于引用此预制体的所有场景实例。
+  reviewScreen.prefabTag: 预制体
+  reviewScreen.prevChangeLabel: 上一项更改（K）
+  reviewScreen.remove: 移除
+  reviewScreen.removeNoteLabel: 移除关于 {title} 的批注
+  reviewScreen.restore: 恢复
+  reviewScreen.restoreCount: 恢复 {count} 项
+  reviewScreen.restoreFile: 恢复文件
+  reviewScreen.resumeReview: 继续审查
+  reviewScreen.revert: 还原
+  reviewScreen.revertAll: 全部还原
+  reviewScreen.revertAllAlertLabel: 还原全部 {count} 项更改？
+  reviewScreen.revertAllBodyMany: '{files} 将恢复到本次请求前的状态。{noteWarning}按 {undoKey} 可恢复全部内容。'
+  reviewScreen.revertAllBodyOne: '{files} 将恢复到本次请求前的状态。{noteWarning}按 {undoKey} 可恢复全部内容。'
+  reviewScreen.revertAllConfirm: 还原全部 {count} 项
+  reviewScreen.revertAllDialogLabel: 还原全部更改
+  reviewScreen.revertAllDropNoteMany: ' 你的 {count} 条批注将被丢弃。'
+  reviewScreen.revertAllDropNoteOne: ' 你的 1 条批注将被丢弃。'
+  reviewScreen.revertAllLabel: 全部还原 · {key}
+  reviewScreen.revertAllTitleMany: 还原全部 {count} 项更改？
+  reviewScreen.revertAllTitleOne: 还原全部 1 项更改？
+  reviewScreen.revertAndRedo: 还原并按此批注重做
+  reviewScreen.revertCount: 还原 {count} 项
+  reviewScreen.revertFile: 还原文件
+  reviewScreen.revertedBanner: 已还原 · 此更改不会被保留（按 X 恢复）。
+  reviewScreen.revisedInRound: 已在第 {round} 轮修订。你的批注：{note}
+  reviewScreen.rightPaneLabel: 原因与 YAML 差异
+  reviewScreen.rightTitleDiff: '{title} · 差异'
+  reviewScreen.rightTitleYAML: '{title} · YAML'
+  reviewScreen.round: 第 {round} 轮
+  reviewScreen.roundGroupLabel: 审查轮次
+  reviewScreen.scenePillMany: '{file} · {count} 项更改'
+  reviewScreen.scenePillOne: '{file} · 1 项更改'
+  reviewScreen.scenePillReadOnly: '{base} · 第 {round} 轮（只读）'
+  reviewScreen.screenLabel: 审查智能体回合更改
+  reviewScreen.seen: 已查看
+  reviewScreen.seenCounter: 已查看 {seen}/{total}
+  reviewScreen.selectToInspect: 选择一项更改以查看详情。
+  reviewScreen.sendNotesMany: 发送 {count} 条批注
+  reviewScreen.sendNotesOne: 发送 1 条批注
+  reviewScreen.sentForRound: 已发送到第 {round} 轮 · 等待智能体处理
+  reviewScreen.sidebarLabel: 更改列表
+  reviewScreen.tableSummaryMany: · 数据表 · {total} 条记录中更改了 {changed} 条
+  reviewScreen.tableSummaryOne: · 数据表 · 1 条记录中更改了 {changed} 条
+  reviewScreen.title: 审查
+  reviewScreen.toggleFileLabel: '{action} {file}'
+  reviewScreen.toggleKindInFile: '{action} {file} 中的{kind}'
+  reviewScreen.toggleOverlayLabel: 切换{label}叠加层
+  reviewScreen.undoTyping: 撤销我的输入
+  reviewScreen.valueNone: （无）
+  reviewScreen.valueRemoved: （已移除）
+  reviewScreen.waitingBlockerMany: '{sub} · {count} 项阻碍'
+  reviewScreen.waitingBlockerOne: '{sub} · 1 项阻碍'
+  reviewScreen.waitingRoundSuffix: '{title} · 第 {round} 轮'
+  reviewScreen.waitingSentMany: '{sub} · {count} 条批注已发送'
+  reviewScreen.waitingSentOne: '{sub} · 1 条批注已发送'
+  reviewScreen.waitingTitleManyMany: 等待审查 · {changes} 项更改，{files} 个文件
+  reviewScreen.waitingTitleManyOne: 等待审查 · {changes} 项更改，1 个文件
+  reviewScreen.waitingTitleOneMany: 等待审查 · 1 项更改，{files} 个文件
+  reviewScreen.waitingTitleOneOne: 等待审查 · 1 项更改，1 个文件
+  reviewScreen.waitingUnsentMany: '{sub} · {count} 条批注未发送'
+  reviewScreen.waitingUnsentOne: '{sub} · 1 条批注未发送'
+  reviewScreen.whyHeading: 原因
+  reviewScreen.yamlValidHint: 你的编辑已加入本次审查；智能体会在第 2 轮看到它。
+  rig.activeAnimationLabel: 当前动画
+  rig.addAnim: 添加动画
+  rig.addBone: 添加骨骼
+  rig.addSkin: 添加皮肤
+  rig.addSlot: 添加插槽
+  rig.atlasLabel: 骨骼绑定图集
+  rig.atlasPlaceholder: 图集
+  rig.bindPose: （绑定姿态）
+  rig.blend: 混合
+  rig.blendLabel: 交叉淡入到所选动画
+  rig.boneLengthLabel: 骨骼长度
+  rig.boneParentLabel: 父骨骼
+  rig.boneRotationLabel: 骨骼旋转
+  rig.boneXLabel: 骨骼 X
+  rig.boneYLabel: 骨骼 Y
+  rig.close: 关闭
+  rig.crossfadeDurationLabel: 混合时长（秒）
+  rig.crossfadeTargetLabel: 交叉淡入目标
+  rig.crossfadeTargetPlaceholder: 混合目标动画
+  rig.delete: 删除
+  rig.deleteSlot: 删除插槽
+  rig.frameSection: 帧
+  rig.hiddenOption: （隐藏）
+  rig.keyAttachFrameLabel: 关键帧附件图像
+  rig.keyR: 旋转帧
+  rig.keyRotateLabel: 关键帧旋转
+  rig.keyS: 缩放帧
+  rig.keySlotFrame: 插槽帧关键帧
+  rig.keySxLabel: 关键帧缩放 X
+  rig.keySyLabel: 关键帧缩放 Y
+  rig.keyT: 位移帧
+  rig.keyTxLabel: 关键帧位移 X
+  rig.keyTyLabel: 关键帧位移 Y
+  rig.lenSection: 长度
+  rig.nameLabel: 骨骼绑定名称
+  rig.newAnimNameLabel: 新动画名称
+  rig.newAnimNamePlaceholder: 新动画
+  rig.newBoneNameLabel: 新骨骼名称
+  rig.newBoneNamePlaceholder: 新骨骼
+  rig.newSkinNameLabel: 新皮肤名称
+  rig.newSkinNamePlaceholder: 新皮肤
+  rig.newSlotNameLabel: 新插槽名称
+  rig.newSlotNamePlaceholder: 新插槽
+  rig.originXLabel: 原点 X
+  rig.originYLabel: 原点 Y
+  rig.oxSection: 原点 X
+  rig.oySection: 原点 Y
+  rig.parentSection: 父骨骼
+  rig.pause: 暂停
+  rig.placeInScene: 放入场景
+  rig.play: 播放
+  rig.playheadLabel: 骨骼动画播放头
+  rig.rootOption: （根骨骼）
+  rig.rotSection: 旋转
+  rig.saveRig: 保存骨骼绑定
+  rig.skinLabel: 预览皮肤
+  rig.skinPlaceholder: 皮肤
+  rig.slotFrameLabel: 插槽帧
+  rig.slotFramePlaceholder: 插槽帧
+  rig.tabBones: 骨骼
+  rig.tabSlotsSkins: 插槽与皮肤
+  rig.tabTimeline: 时间轴
+  rig.timeReadout: '{current} / {total} 秒'
+  rig.title: 骨骼绑定编辑器
+  rig.tlBoneRow: 骨骼 {name}：位移({t}) 旋转({r}) 缩放({s})
+  rig.tlSlotRow: 插槽 {name}：附件({attach}) 透明度({alpha})
+  rig.viewportLabel: 骨骼绑定视口
   saveStatus.errDiskFull: 无法保存：磁盘已满
   saveStatus.errDiskFullFree: 无法保存：磁盘已满 · 剩余 {free}
   saveStatus.errOther: 无法保存：{reason}
@@ -1251,6 +3775,23 @@ strings:
   sceneTree.ungroup: 取消编组
   sceneTree.unlock: 解锁
   sceneTree.unlockNamed: 解锁 {id}
+  sceneTreeExtra.badgeNew: 新增
+  sceneTreeExtra.defaultLightName: 光源
+  sceneTreeExtra.defaultObjectName: 对象
+  sceneTreeExtra.defaultTriggerName: 触发器
+  sceneTreeExtra.layerKind.layer: 图层
+  sceneTreeExtra.layerKind.screen: 屏幕
+  sceneTreeExtra.layerKind.tiles: 瓦片
+  sceneTreeExtra.objKind.camera: 相机
+  sceneTreeExtra.objKind.group: 编组
+  sceneTreeExtra.objKind.light: 光源
+  sceneTreeExtra.objKind.mesh: 网格
+  sceneTreeExtra.objKind.node: 节点
+  sceneTreeExtra.objKind.prefab: 预制体
+  sceneTreeExtra.objKind.sprite: 精灵
+  sceneTreeExtra.objKind.trigger: 触发器
+  sceneTreeExtra.taskEditing: '{num} · 编辑中'
+  sceneTreeExtra.taskHolding: '{num} · 保持中'
   scope.agent: 智能体
   scope.animation: 动画
   scope.global: 全局
@@ -1292,11 +3833,23 @@ strings:
   settings.automations.agentNoteRunsOne: “{name}”本周已运行 1 次。每次运行开始前都会自动创建检查点。
   settings.automations.askLabel: 询问自动化设置
   settings.automations.askPlaceholder: 询问关于自动化的问题…
+  settings.automations.default.beforeExportInstruction: 在低端手机配置下检查帧时间与内存
+  settings.automations.default.beforeExportName: 导出前
+  settings.automations.default.levelCheckInstruction: 运行 game check 与 5 次试玩测试，仅报告问题
+  settings.automations.default.levelCheckName: 关卡文件变更时
+  settings.automations.default.newPrefabInstruction: 为其编写示例场景与测试
+  settings.automations.default.newPrefabName: 新增预制体时
+  settings.automations.default.nightlyBalanceInstruction: 试玩全部楼层 50 次并生成平衡性报告
+  settings.automations.default.nightlyBalanceName: 每晚
+  settings.automations.default.reviewBriefInstruction: 若更改回答了简报中的待定问题则自动更新
+  settings.automations.default.reviewBriefName: 保留审查更改后
   settings.automations.draftAction: 生成草稿
   settings.automations.draftEmptyError: 请描述自动化何时触发以及智能体应执行什么工作。
   settings.automations.draftHeading: 用一句话描述自动化
   settings.automations.draftInputLabel: 用自然语言新建自动化
   settings.automations.draftPlaceholder: 例如：导出前，在低端手机配置下检查帧耗时与内存
+  settings.automations.fileKindPrefab: 预制体
+  settings.automations.fileKindScene: 场景
   settings.automations.keepDraft: 保留
   settings.automations.loadErrorTitle: 无法加载 automations.yaml（已使用默认配置）
   settings.automations.metaOn: '{count} 项开启'
@@ -1339,12 +3892,22 @@ strings:
   settings.briefPlatforms: 平台
   settings.briefPlatformsPlaceholder: 添加平台…
   settings.briefPlaytestTargets: 试玩目标 · 来自手感与难度
+  settings.briefRemoveItem: 移除 {item}
+  settings.briefRemoveTarget: 移除目标 {metric}
   settings.briefSave: 保存简报
   settings.briefTags: 标签
   settings.briefTagsPlaceholder: 逗号分隔的标签（例如 dungeon, pixel-art）
+  settings.briefTargetMaxLabel: 最大值
   settings.briefTargetMaxNumErr: 目标最大值必须是数字。
+  settings.briefTargetMaxPlaceholder: 最大值
+  settings.briefTargetMetricLabel: 指标
+  settings.briefTargetMetricPlaceholder: 指标（例如 deaths）
   settings.briefTargetMetricReq: 必须填写目标指标名称。
+  settings.briefTargetMinLabel: 最小值
   settings.briefTargetMinNumErr: 目标最小值必须是数字。
+  settings.briefTargetMinPlaceholder: 最小值
+  settings.briefTargetSceneLabel: 场景
+  settings.briefTargetScenePlaceholder: 场景
   settings.briefToneAudio: 氛围与音频
   settings.briefTonePlaceholder: 情绪基调、音乐与音效方向…
   settings.connectAnother: + 连接其他智能体或模型
@@ -1380,18 +3943,22 @@ strings:
   settings.models.builtInMissing: 内置 · 尚未保存密钥
   settings.models.builtInStored: 内置 · 密钥存于系统钥匙串
   settings.models.localDefault: 此计算机 · MCP · 默认
+  settings.models.localDetected: 已在此电脑上检测到：{agents} · 可直接连接
   settings.models.localDisconnected: 已断开连接
   settings.models.localIdle: 尚未连接
   settings.models.localNone: 不使用智能体
   settings.models.localNoneDesc: 智能体面板保持关闭
   settings.models.localTitle: 本地 MCP 智能体
   settings.models.metaOn: '{n} 个已连接'
+  settings.models.notConnected: 未连接
   settings.models.routeArtSound: 美术与音效
   settings.models.routeArtSoundCost: 工具 → 添加服务器
   settings.models.routeArtSoundNote: 需要生成服务器
   settings.models.routeAskInPlace: 就地提问（⌘L）
   settings.models.routeAskInPlaceCost: 每次约 5 秒
   settings.models.routeAskInPlaceNote: 小型快速修改
+  settings.models.routeDefault: '{name} · 默认'
+  settings.models.routeFast: '{name} · 快速'
   settings.models.routePlaytest: 试玩分析
   settings.models.routePlaytestCost: 每份报告约 20 秒
   settings.models.routePlaytestNote: 分析回放与热力图
@@ -1485,6 +4052,7 @@ strings:
   settings.shortcutsSearchPlaceholder: 按命令名、按键或作用域搜索…
   settings.shortcutsSwap: 交换
   settings.shortcutsUnbound: 未绑定
+  settings.sidebarLabel: 设置页面
   settings.system: 跟随系统
   settings.thisComputer: 此计算机
   settings.title: 编辑器设置
@@ -1500,11 +4068,21 @@ strings:
   settings.tools.addName: 服务器名称
   settings.tools.addNamePlaceholder: sprite-gen
   settings.tools.addSubmit: 添加服务器
+  settings.tools.desc.deleteFiles: 删除文件
+  settings.tools.desc.gameCheck: 对项目运行 game check
+  settings.tools.desc.gamePlaytest: 无头试玩与回放
+  settings.tools.desc.sceneEdit: 添加、移动和修改对象；可审查
+  settings.tools.desc.sceneRead: 读取任意场景、预制体或数据文件
+  settings.tools.desc.selectionGet: 获取当前选中内容
+  settings.tools.desc.viewportImage: 获取视口画面截图
   settings.tools.editorServerHeader: 编辑器的 MCP 服务器 · {n} 个工具
   settings.tools.filterLabel: 筛选工具
   settings.tools.filterPlaceholder: 按工具名称筛选…
   settings.tools.otherServersHeader: 智能体可使用的其他 MCP 服务器
   settings.tools.removeServer: 移除
+  settings.tools.removeServerNamed: 移除 {name}
+  settings.tools.runningGameDesc: 检查并驱动运行中的游戏
+  settings.tools.runningGameTitle: 运行中的游戏 · nsgo dev
   settings.toolsHelp: 已配置的图像与音效生成 MCP 服务器。
   settings.toolsNone: 未配置
   settings.usage.keptCaption: 审查后保留的智能体改动比例
@@ -1549,6 +4127,41 @@ strings:
   sketch.tool.text: 文本
   sketch.toolbarLabel: 草图工具
   sketch.undoMark: 撤销上一个标记
+  sketchExtra.approvedNote: 已确认 · 智能体可以编辑场景。
+  sketchExtra.changeAdded: 新增
+  sketchExtra.changeChanged: 已修改
+  sketchExtra.changeRemoved: 已移除
+  sketchExtra.changesMany: '{count} 处更改'
+  sketchExtra.changesOne: 1 处更改
+  sketchExtra.chipShowSent: '{label}。查看发送内容'
+  sketchExtra.correctMark: 修正标记
+  sketchExtra.correctMarkItem: 修正标记 {num}：{mark}
+  sketchExtra.deleteMark: 删除标记 {num}
+  sketchExtra.goAhead: 继续执行
+  sketchExtra.keepAndClear: 保留修改并清空草图
+  sketchExtra.layerHeading: 草图层
+  sketchExtra.layerLabel: 草图层
+  sketchExtra.markCountMany: '{count} 个标记'
+  sketchExtra.markCountOne: 1 个标记
+  sketchExtra.markLabelInput: 标记 {num} 的标签
+  sketchExtra.markLabelPlaceholder: 添加标签（例如 3 个尖刺）…
+  sketchExtra.markRowLabel: 标记 {num} {kind}
+  sketchExtra.notSaved: 未保存
+  sketchExtra.panelEmpty: 使用画笔、箭头、方框或文本工具在视口上绘制草图。标记保持在场景坐标中，绝不会写入场景文件。
+  sketchExtra.panelLabel: 智能体草图
+  sketchExtra.promptPlaceholder: 按我画的草图搭建…
+  sketchExtra.removeFromRequest: 从请求中移除草图
+  sketchExtra.revertAndKeep: 还原修改并保留草图
+  sketchExtra.sceneCoordinates: 场景坐标
+  sketchExtra.sendToAgent: 将草图发送给智能体
+  sketchExtra.sentWithRequest: 随本次请求发送
+  sketchExtra.showInspector: 显示检查器
+  sketchExtra.sketchOnViewport: 在视口上绘制草图 · D
+  sketchExtra.sketchOverlay: 草图叠加层
+  sketchExtra.toggleSketchOverlay: 切换草图叠加层
+  sketchExtra.waitingReadingBody: 在智能体重述每个标记并由你选择“继续执行”前，场景编辑将保持暂停。
+  sketchExtra.waitingReadingTitle: 正在等待智能体解读你的草图
+  sketchExtra.yourSketch: 你的草图
   snap.auto: 自动
   snap.autoLabel: 跟随当前图层的瓦片尺寸
   snap.grid: 网格
@@ -1561,6 +4174,30 @@ strings:
   snap.scaleStep: 缩放步进
   snap.showGrid: 显示 2D 网格叠加层
   snap.title: 吸附设置
+  specFeedback.darkTheme: 深色主题
+  specFeedback.dismiss: 关闭
+  specFeedback.legend.addedDesc: 新增 · 1.5 px 虚线 · “+ name”胶囊。
+  specFeedback.legend.addedTitle: 新增
+  specFeedback.legend.agentDesc: 智能体 · 1.5 px 实线 · 脉冲紫罗兰色 · 智能体胶囊。
+  specFeedback.legend.agentTitle: 智能体工作中
+  specFeedback.legend.boardDesc: 每种颜色和线型只代表一种含义。每个叠加层还配有第二重视觉提示：手柄、标签胶囊、虚影或脉冲。
+  specFeedback.legend.boardTitle: 叠加层图例
+  specFeedback.legend.changedDesc: 已修改 · 1.5 px 虚线 · 字段 旧值 → 新值胶囊。
+  specFeedback.legend.changedTitle: 已修改
+  specFeedback.legend.focusedDesc: 沿用对应颜色与虚线 · 2.5 px · 描边胶囊 · 绝不使用强调色。
+  specFeedback.legend.focusedTitle: 审查中的聚焦更改
+  specFeedback.legend.pairedDesc: 选中框保留手柄 · 智能体轮廓向外偏移 3 px。
+  specFeedback.legend.pairedTitle: 选中 + 智能体
+  specFeedback.legend.problemDesc: 问题 · 实时对象上 2 px 实线 · 填充告警胶囊。
+  specFeedback.legend.problemTitle: 问题
+  specFeedback.legend.removedDesc: 已移除 · 25% 灰色虚影外框 1.5 px 实线 · 删除线名称。
+  specFeedback.legend.removedTitle: 已移除
+  specFeedback.legend.selectionDesc: 强调色 · 1.5 px 实线 · 四个手柄和名称标签。
+  specFeedback.legend.selectionTitle: 选中
+  specFeedback.lightTheme: 浅色主题
+  specFeedback.sample.doorMissing: door：缺少 lever_02
+  specFeedback.sample.placingSlime: 正在放置 slime_02
+  specFeedback.sample.tuningJump: 正在微调跳跃
   start.goToolchain.download: go.dev/dl
   start.goToolchain.downloadLabel: 打开 go.dev/dl 下载 Go
   start.goToolchain.errorDetail: 在 {path} 检测到 go，但检查版本失败：{err}。
@@ -1569,6 +4206,84 @@ strings:
   start.goToolchain.retryLabel: 重新检测 Go 工具链
   start.goToolchain.title: NSGo 游戏编辑器需要 Go {version} 或更高版本
   start.goToolchain.tooOldDetail: 在 {path} 检测到 Go {found}。请升级 Go 后再创建项目或运行游戏。
+  startScreen.agentConnected: 已连接 {name}
+  startScreen.back: 返回
+  startScreen.backLabel: 返回已打开的编辑器
+  startScreen.browse: 浏览…
+  startScreen.create: 创建
+  startScreen.creating: 正在创建…
+  startScreen.creatingProjectHeading: 正在创建项目…
+  startScreen.creationFailedHeading: 项目创建失败
+  startScreen.creationOutputHeading: 项目创建输出
+  startScreen.filterAll: 全部
+  startScreen.folderHeading: 文件夹
+  startScreen.ideaHeading: 你想做什么游戏？
+  startScreen.ideaLabel: 描述你的游戏
+  startScreen.ideaPlaceholder: 一款温馨的农场游戏：在洞穴里种植发光蘑菇，夜晚与飞蛾交易…
+  startScreen.missingBadge: 已缺失
+  startScreen.missingProjectError: 项目文件夹不存在：{path}
+  startScreen.moduleHeading: 模块路径（可选）
+  startScreen.moduleLabel: Go 模块路径
+  startScreen.modulePlaceholder: example.com/my-game
+  startScreen.nameHeading: 名称
+  startScreen.newProject: 新建项目
+  startScreen.noAgentConnected: 尚未连接智能体
+  startScreen.openDemo: 打开示例
+  startScreen.openExisting: 打开该项目
+  startScreen.openFolder: 打开文件夹…
+  startScreen.openRecentLabel: 打开最近项目 {name}
+  startScreen.parentFolderLabel: 上级文件夹
+  startScreen.parentFolderPlaceholder: ~/games
+  startScreen.pickedTemplate: 模板：{title}
+  startScreen.pickedTemplateDefault: 模板：Starter
+  startScreen.projectNameLabel: 项目名称
+  startScreen.projectNamePlaceholder: my-game
+  startScreen.recentHeading: 最近项目
+  startScreen.relTime.daysAgo: '{count} 天前'
+  startScreen.relTime.hoursAgo: '{count} 小时前'
+  startScreen.relTime.justNow: 刚刚
+  startScreen.relTime.lastWeek: 上周
+  startScreen.relTime.minsAgo: '{count} 分钟前'
+  startScreen.relTime.oneHourAgo: 1 小时前
+  startScreen.relTime.oneMinAgo: 1 分钟前
+  startScreen.relTime.yesterday: 昨天
+  startScreen.removeMissingLabel: 移除已缺失的最近项目 {name}
+  startScreen.selectTemplateLabel: 选择模板 {title}
+  startScreen.showAll: 显示全部
+  startScreen.startWithAI: 使用 AI 开始
+  startScreen.templatesEmpty: 没有符合当前筛选条件的模板。
+  startScreen.templatesHeading: 或从模板开始
+  startScreen.templatesSubtitle: 每个模板都是可运行的小游戏，你可以在此基础上逐步扩展。
+  startScreen.title: NSGo 编辑器
+  startScreen.useSuggested: 使用 {name}
+  startScreen.validation.alreadyExists: '{path} 已存在'
+  startScreen.validation.creates: 将创建 {path}
+  startScreen.validation.enterName: 请输入项目名称。
+  startScreen.validation.invalidChars: 仅限小写字母 a–z、数字 0–9 和连字符 -，且须以小写字母开头。
+  startScreen.validation.invalidModule: 无效的模块路径：{err}
+  startScreen.validation.noWriteAccess: 没有 {path} 的写入权限
+  states.anyState: 任意状态
+  states.clipEnds: 片段结束
+  states.close: 关闭
+  states.driveWithKeys: 按键驱动
+  states.entryBadge: 入口
+  states.keyAttackLabel: J：攻击
+  states.keyHurtLabel: H：受伤
+  states.keyJumpLabel: 空格：跳跃
+  states.keyMoveLabel: 按住左或右键：奔跑
+  states.keyRelease: 松开
+  states.keyReleaseLabel: 松开所有按键：待机
+  states.keySpace: 空格
+  states.leavingHeader: 离开 {state}
+  states.meta: · {states} 个状态 · {transitions} 条转换
+  states.noOutgoing: 无外向转换
+  states.pause: 暂停
+  states.play: 播放
+  states.previewError: 预览：{err}
+  states.previewFallback: 预览
+  states.save: 保存
+  states.stateNodeLabel: 状态 {name}
+  states.transitionLabel: 转换到 {to}：{detail}
   status.activeLayerLabel: 当前图层：{layer}
   status.buildError: 构建错误：{error}
   status.changes: 变更
@@ -1577,15 +4292,18 @@ strings:
   status.debuggerLabel: 切换调试器与性能分析面板
   status.layerReadout: 图层 {layer}
   status.mergeConflictsLabel: 打开场景合并冲突
+  status.missingPlugins: 此编辑器未内置的插件：{plugins}
   status.mode2d: 模式：{mode} | 视图：2D {zoom}% | 工具：{tool} | 图层：{layer}
   status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} · {space} | 图层：{layer}
   status.mode3dGridMap: 模式：{mode} | 视图：3D {view}（GridMap {tool}，Y={floor}，朝向={orient}/24）| 图层：{layer}
   status.modeEdit: 编辑
   status.modePlay: 运行
+  status.openedProject: 已打开项目 {path}
   status.ready: 就绪
   status.terrainSuffix: ' | 地形：{terrain}'
   status.tileSuffix: ' | 瓦片：{tile}'
   status.toolSuffix: ' | 工具：{tool}'
+  tabsExtra.closeTab: 关闭 {label}
   tasks.action.allowOnce: 允许一次
   tasks.action.cancel: 取消
   tasks.action.deny: 拒绝
@@ -1612,6 +4330,41 @@ strings:
   tasks.sectionTitle: 任务
   tasks.send: 发送
   tasks.whenToStart: 启动方式
+  tasksExtra.countFailed: '{count} 个失败'
+  tasksExtra.countNeedsYou: '{count} 个需要确认'
+  tasksExtra.countQueued: '{count} 项排队中'
+  tasksExtra.countRunning: '{count} 个运行中'
+  tasksExtra.countToReview: '{count} 个待审查'
+  tasksExtra.dismissCount: 忽略 {count}
+  tasksExtra.noTasks: 无任务
+  tasksExtra.oneRunningElapsed: 1 项运行中 · {elapsed}
+  tasksExtra.overlayEditing: 任务 {num} 正在编辑
+  tasksExtra.overlayHolding: 任务 {num} 等待中，尚未开始编辑
+  tasksExtra.selectTask: 选择 {title}
+  tasksExtra.showTasksLabel: '{summary}。显示任务'
+  terrain.brush.flatten: 平整
+  terrain.brush.lower: 压低
+  terrain.brush.off: 关闭
+  terrain.brush.paintFoliage: 绘制植被
+  terrain.brush.paintLayer: 绘制图层
+  terrain.brush.raise: 抬高
+  terrain.brush.setHeight: 设置高度
+  terrain.brush.smooth: 平滑
+  terrain.close: 关闭
+  terrain.density: 密度
+  terrain.falloff: 衰减
+  terrain.falloff.flat: 平坦
+  terrain.falloff.linear: 线性
+  terrain.falloff.smooth: 平滑
+  terrain.foliage: 植被：
+  terrain.labelWithDims: '{label}（{cols}×{rows}）'
+  terrain.layers: 图层：
+  terrain.radius: 半径
+  terrain.save: 保存地形
+  terrain.strength: 强度
+  terrain.targetY: 目标高度
+  terrain.title: 地形
+  terrain.untitled: 未命名地形
   threads.action.keep: 保留
   threads.action.revert: 还原
   threads.age.hoursAgo: '{count} 小时前'
@@ -1671,6 +4424,230 @@ strings:
   tilePalette.setupTilemap: 设置瓦片地图
   tilePalette.tileLabel: 瓦片 {number}
   tilePalette.title: 图块集
+  tilePaletteExtra.atlasNoResolver: 无法解析图块集 {tileset} 的图集 {atlas}：编辑器没有资源解析器
+  tilePaletteExtra.atlasResolveErr: 无法解析图块集 {tileset} 的图集 {atlas}：{err}
+  tilePaletteExtra.brushLine: 直线
+  tilePaletteExtra.brushLineLabel: 直线图块画笔（L）
+  tilePaletteExtra.brushRandom: 随机
+  tilePaletteExtra.brushRandomLabel: 随机图块画笔（N）
+  tilePaletteExtra.brushRect: 矩形
+  tilePaletteExtra.brushRectLabel: 矩形图块画笔（U）
+  tilePaletteExtra.brushStamp: 图章
+  tilePaletteExtra.brushStampLabel: 图章图块画笔（C）
+  tilePaletteExtra.cellCoords: 单元格 {col}, {row}
+  tilePaletteExtra.clear: 清除
+  tilePaletteExtra.clearLabel: 清除当前图章与选区
+  tilePaletteExtra.collNone: 无
+  tilePaletteExtra.collOneWayTop: 顶部单向
+  tilePaletteExtra.collShapes: 形状
+  tilePaletteExtra.collSolid: 实心
+  tilePaletteExtra.copy: 拷贝
+  tilePaletteExtra.copyLabel: 拷贝选中图块区域
+  tilePaletteExtra.cut: 剪切
+  tilePaletteExtra.cutLabel: 剪切选中图块区域
+  tilePaletteExtra.editTileset: 编辑图块集
+  tilePaletteExtra.editTilesetLabel: 在图块集编辑器中打开此图层的图块集
+  tilePaletteExtra.errInvalidSeed: 无效的随机种子 {value}
+  tilePaletteExtra.imageResolveErr: 无法解析图块集 {tileset} 的图像 {image}：{err}
+  tilePaletteExtra.mode4Bit: 4 位
+  tilePaletteExtra.mode8Bit: 8 位
+  tilePaletteExtra.noAtlasReturned: 解析器未返回图集
+  tilePaletteExtra.noInlineTilemap: 图层 {layer} 没有可绘制的内联瓦片地图
+  tilePaletteExtra.noLayerSelected: 未选择图层
+  tilePaletteExtra.noResolver: 无法解析图块集 {tileset}：编辑器没有资源解析器
+  tilePaletteExtra.noTerrains: 尚未定义地形集。点击“编辑图块集”以添加。
+  tilePaletteExtra.noTileFrames: 图块集 {tileset} 没有图块帧（帧名应为 1、2、…）
+  tilePaletteExtra.noTiles: 图块集 {tileset} 中没有图块
+  tilePaletteExtra.paintTerrainLabel: 绘制地形 {name}
+  tilePaletteExtra.paste: 粘贴
+  tilePaletteExtra.pasteLabel: 粘贴图块剪贴板
+  tilePaletteExtra.randomDecLabel: 降低图块 {tile} 的权重
+  tilePaletteExtra.randomEmpty: 点击下方图块以构建加权随机池
+  tilePaletteExtra.randomIncLabel: 提高图块 {tile} 的权重
+  tilePaletteExtra.randomRemoveLabel: 从随机池中移除图块 {tile}
+  tilePaletteExtra.readErr: 无法读取图块集 {tileset}：{err}
+  tilePaletteExtra.resolveErr: 无法解析图块集 {tileset}：{err}
+  tilePaletteExtra.rulesNote: 碰撞、地形与变体规则保存在图块集文件中。
+  tilePaletteExtra.seed: 种子
+  tilePaletteExtra.seedLabel: 随机画笔种子
+  tilePaletteExtra.stampDefault: 图章：1×1（右键拖动地图以选择）
+  tilePaletteExtra.stampRect: 框选
+  tilePaletteExtra.stampRectLabel: 下次点击图块时扩展图块面板图章矩形
+  tilePaletteExtra.stampSize: 图章：{width}×{height}
+  tilePaletteExtra.terrainItem: '{name}（{mode}）'
+  tilePaletteExtra.tileLabel: 图块 {number}
+  tileReview.after: 修改后
+  tileReview.before: 修改前
+  tileReview.headerCounts: '{regions} · {cells}'
+  tileReview.hold: 按住
+  tileReview.keepCount: 保留 {kept}/{total}
+  tileReview.keepLabel: 保留选中的图块区域
+  tileReview.legendErased: 已擦除
+  tileReview.legendPainted: 已绘制
+  tileReview.legendReplaced: 已替换
+  tileReview.panelLabel: 图块编辑审查
+  tileReview.regionTitle: '{title} · {cells}'
+  tileReview.restore: 恢复
+  tileReview.restoreRegionLabel: 恢复 {title}
+  tileReview.revert: 还原
+  tileReview.revertAll: 全部还原
+  tileReview.revertAllLabel: 还原全部图块编辑
+  tileReview.revertRegionLabel: 还原 {title}
+  tileReview.reviewing: 正在审查
+  tileReview.sketchOverlay: 草图叠加层
+  tileReview.sketchOverlayLabel: 切换草图叠加层
+  tilemapSetup.addTilemap: 添加瓦片地图
+  tilemapSetup.axisH: 高
+  tilemapSetup.axisW: 宽
+  tilemapSetup.chooseAtlas: 选择图集
+  tilemapSetup.edgeB: 下
+  tilemapSetup.edgeL: 左
+  tilemapSetup.edgeR: 右
+  tilemapSetup.edgeT: 上
+  tilemapSetup.gridHeight: 网格高度
+  tilemapSetup.gridSize: 网格尺寸
+  tilemapSetup.gridWidth: 网格宽度
+  tilemapSetup.heading: 瓦片地图
+  tilemapSetup.leftRight: 左 / 右
+  tilemapSetup.moveInline: 移为内联
+  tilemapSetup.moveToTopLevel: 移至顶层
+  tilemapSetup.noTilemap: 无瓦片地图
+  tilemapSetup.prefixInline: 内联
+  tilemapSetup.prefixRef: 引用：{ref}
+  tilemapSetup.refMissing: 引用：{ref}（缺失）
+  tilemapSetup.refName: 引用名称
+  tilemapSetup.refNameLabel: 顶层瓦片地图名称
+  tilemapSetup.remove: 移除
+  tilemapSetup.removeLabel: 移除瓦片地图
+  tilemapSetup.resizeBottomLabel: 调整下边界
+  tilemapSetup.resizeEdgesHeading: 调整边界
+  tilemapSetup.resizeGrid: 调整网格大小
+  tilemapSetup.resizeLeftLabel: 调整左边界
+  tilemapSetup.resizeRightLabel: 调整右边界
+  tilemapSetup.resizeTopLabel: 调整上边界
+  tilemapSetup.summaryExternal: '{prefix} · {source}'
+  tilemapSetup.summaryLayered: '{prefix} · 分层 {width}×{height}（{tileW}×{tileH}）'
+  tilemapSetup.summaryOffset: ' · 偏移（{x}, {y}）'
+  tilemapSetup.summarySingle: '{prefix} · {width}×{height}（{tileW}×{tileH}）'
+  tilemapSetup.tileHeight: 图块高度
+  tilemapSetup.tileSize: 图块尺寸
+  tilemapSetup.tileWidth: 图块宽度
+  tilemapSetup.tilesPlaceholder: tiles
+  tilemapSetup.tileset: 图块集
+  tilemapSetup.tilesetAtlasLabel: 图块集图集
+  tilemapSetup.topBottom: 上 / 下
+  tilesetEditor.addTerrain: + 添加
+  tilesetEditor.animAddFrame: + 添加帧
+  tilesetEditor.animDurationLabel: 帧时长
+  tilesetEditor.animEmpty: 静态图块。添加帧以制作动画。
+  tilesetEditor.animFrameRow: '#{index}  图块 {tile}  {duration}'
+  tilesetEditor.animHeading: 动画
+  tilesetEditor.animPause: 暂停
+  tilesetEditor.animPlay: 播放
+  tilesetEditor.animRemoveLabel: 移除动画帧 {index}
+  tilesetEditor.animStatus: 正在显示图块 {tile}（{frames} 帧）
+  tilesetEditor.animTileIDLabel: 帧图块 ID
+  tilesetEditor.animTileIDPlaceholder: 图块 ID
+  tilesetEditor.cancel: 取消
+  tilesetEditor.clear: 清除
+  tilesetEditor.clearTile: 清除图块
+  tilesetEditor.close: 关闭
+  tilesetEditor.collNone: 无
+  tilesetEditor.collOneWay: 单向
+  tilesetEditor.collSolid: 实心
+  tilesetEditor.collisionHeading: 碰撞
+  tilesetEditor.dataHeading: 图块数据
+  tilesetEditor.defaultMaskZero: 默认：掩码 0
+  tilesetEditor.defaultTile: 默认：图块 {tile}
+  tilesetEditor.delete: 删除
+  tilesetEditor.dir.c: 中
+  tilesetEditor.dir.e: 东
+  tilesetEditor.dir.n: 北
+  tilesetEditor.dir.ne: 东北
+  tilesetEditor.dir.nw: 西北
+  tilesetEditor.dir.s: 南
+  tilesetEditor.dir.se: 东南
+  tilesetEditor.dir.sw: 西南
+  tilesetEditor.dir.w: 西
+  tilesetEditor.editShapesAnimData: 编辑形状、动画与数据
+  tilesetEditor.errInvalidBool: 无效的布尔值 {value}（请使用 true 或 false）
+  tilesetEditor.errInvalidDuration: 无效的时长 {value}（例如 150ms）
+  tilesetEditor.errInvalidFlags: 无效的标志掩码 {value}
+  tilesetEditor.errInvalidFloat: 无效的浮点数 {value}
+  tilesetEditor.errInvalidFrameTileID: 无效的帧图块 ID {value}
+  tilesetEditor.errInvalidInt: 无效的整数 {value}
+  tilesetEditor.errInvalidWeight: 无效的权重 {value}
+  tilesetEditor.finish: 完成
+  tilesetEditor.flagBitLabel: 切换自定义标志位 {bit}
+  tilesetEditor.flagBitShort: 位{bit}
+  tilesetEditor.flagsInputLabel: 自定义标志掩码
+  tilesetEditor.inspectorNote: 智能体在切分图块集时推断了这些规则。你可以在此处修改单个规则，或让它修改整套规则。
+  tilesetEditor.listSep: 、
+  tilesetEditor.maskConflict: 已被图块 {tile} 占用
+  tilesetEditor.maskEmptyHint: 添加或选择一个地形以编辑图块的边缘和角点。
+  tilesetEditor.maskIsolated: 中心（孤立 / 掩码 0）
+  tilesetEditor.maskTitle: 图块 {id} — {terrain}
+  tilesetEditor.maskUnassigned: 未分配
+  tilesetEditor.mode4Bit: 4 位
+  tilesetEditor.mode8Bit: 8 位
+  tilesetEditor.modeBlob: 八向（8 位）
+  tilesetEditor.modeCardinal: 四向（4 位）
+  tilesetEditor.newTerrainLabel: 新建地形名称
+  tilesetEditor.newTerrainPlaceholder: 地形名称…
+  tilesetEditor.noTerrains: 暂无地形
+  tilesetEditor.propDeleteLabel: 删除属性 {key}
+  tilesetEditor.propEmpty: 暂无自定义属性。
+  tilesetEditor.propKeyLabel: 属性键
+  tilesetEditor.propKeyPlaceholder: 键
+  tilesetEditor.propRow: '{key}（{kind}）= {value}'
+  tilesetEditor.propSet: + 设置
+  tilesetEditor.propTypeBool: 布尔
+  tilesetEditor.propTypeFloat: 浮点
+  tilesetEditor.propTypeInt: 整数
+  tilesetEditor.propTypeNameBool: 布尔
+  tilesetEditor.propTypeNameFloat: 浮点
+  tilesetEditor.propTypeNameInt: 整数
+  tilesetEditor.propTypeNameString: 字符串
+  tilesetEditor.propTypeStr: 文本
+  tilesetEditor.propValLabel: 属性值
+  tilesetEditor.propValPlaceholder: 值
+  tilesetEditor.reassign: 重新分配
+  tilesetEditor.ruleCollision: 碰撞
+  tilesetEditor.ruleNone: 无
+  tilesetEditor.ruleOneWayTop: 顶部单向
+  tilesetEditor.ruleSolid: 实心
+  tilesetEditor.ruleTerrainSet: 地形集
+  tilesetEditor.rulesHeading: 规则
+  tilesetEditor.save: 保存图块集
+  tilesetEditor.setDefault: 设为默认
+  tilesetEditor.shapeAddFullRect: + 完整矩形
+  tilesetEditor.shapeAddSlope: + 斜坡
+  tilesetEditor.shapeCanvasLabel: 图块碰撞形状编辑画布
+  tilesetEditor.shapeDescBox: '{kind}（{x},{y} {w}×{h}）'
+  tilesetEditor.shapeDescPoly: '{kind}（{count} 个点）'
+  tilesetEditor.shapeDraftPts: '{count} 个点'
+  tilesetEditor.shapeKind.ellipse: 椭圆
+  tilesetEditor.shapeKind.polygon: 多边形
+  tilesetEditor.shapeKind.polyline: 折线
+  tilesetEditor.shapeKind.rect: 矩形
+  tilesetEditor.shapeRemoveLabel: 移除碰撞形状 {index}
+  tilesetEditor.shapeToolPolygon: 多边形
+  tilesetEditor.shapeToolRect: 矩形
+  tilesetEditor.tab.animation: 动画
+  tilesetEditor.tab.collision: 碰撞
+  tilesetEditor.tab.data: 数据
+  tilesetEditor.tab.terrain: 地形
+  tilesetEditor.terrainItem: '{name}（{mode}）'
+  tilesetEditor.terrainsHeading: 地形
+  tilesetEditor.tileLabel: 图块 {id}
+  tilesetEditor.tileNameLabel: 图块名称
+  tilesetEditor.tileNamePlaceholder: 名称（例如 moss）…
+  tilesetEditor.title: 图块集编辑器
+  tilesetEditor.toggleCenter: 切换图块地形归属
+  tilesetEditor.toggleNeighbor: 切换{dir}侧相邻
+  tilesetEditor.untitled: 未命名
+  tilesetEditor.variantWeightLabel: 变体权重
+  tilesetEditor.weightLabel: 权重
   tool.eraseTile: 擦除瓦片
   tool.fillTile: 填充瓦片
   tool.move: 移动
@@ -1755,6 +4732,144 @@ strings:
   toolbar.undo: 撤销
   toolbar.unsavedFailedLabel: 未保存的更改 · 保存失败
   toolbar.unsavedLabel: 未保存的更改
+  usages.agentFooterNote: 智能体也通过同一路径（refs_find 与 refactor_rename）查找与重命名，因此它的重命名会以相同的审查界面呈现。
+  usages.agentUpdatingGo: 智能体正在更新 {file}；编辑 Go 代码前会先征求你的同意
+  usages.applyRenameMany: 保留 · 重命名 {count} 个文件 ⌘↵
+  usages.applyRenameOne: 保留 · 重命名 1 个文件 ⌘↵
+  usages.askAgentUpdate: 请智能体更新它
+  usages.askedAgent: 已发送请求 · 智能体正在处理
+  usages.backLabel: 返回编辑器（Esc）
+  usages.backToScene: 返回 {scene}
+  usages.cancel: 取消
+  usages.constantMany: '{count} 个常量'
+  usages.constantOne: 1 个常量
+  usages.countManyMany: '{files} 个文件中的 {usages} 处引用'
+  usages.countManyOne: 1 个文件中的 {usages} 处引用
+  usages.countOneMany: '{files} 个文件中的 1 处引用'
+  usages.countOneOne: 1 个文件中的 1 处引用
+  usages.doneClean: 已重写 {files} 个文件 · game check：无问题
+  usages.doneManyProblems: 已重写 {files} 个文件 · game check：{problems} 个问题
+  usages.doneOneProblem: 已重写 {files} 个文件 · game check：{file} 中有 1 个问题
+  usages.editor: 编辑器
+  usages.enterNewName: 输入新名称
+  usages.fileMany: '{count} 个文件'
+  usages.fileOne: 1 个文件
+  usages.goNotRewrittenBody: 安全重命名仅重写 YAML 文件。该字符串常量仍保留旧路径，需要单独更新。
+  usages.goNotRewrittenTitle: Go 代码不会被自动重写
+  usages.gridNoteRename: 每个场景都会保留其实例与覆盖项；仅修改各行中的预制体路径。
+  usages.gridNoteUsages: 点击场景以查看其引用；在引用上按 ↵ 可打开场景并聚焦该对象。
+  usages.groupDataTables: 数据表
+  usages.groupGoCode: GO 代码
+  usages.groupMoved: 已移动
+  usages.groupOther: 其他
+  usages.groupScenes: 场景
+  usages.groupVariants: 预制体变体
+  usages.inheritCount: '{count} 个继承自它'
+  usages.inspect: 查看
+  usages.instanceMany: '{count} 个实例'
+  usages.instanceOne: 1 个实例
+  usages.instancesInScenesManyMany: '{scenes} 个场景中的 {instances} 个实例'
+  usages.instancesInScenesManyOne: 1 个场景中的 {instances} 个实例
+  usages.instancesInScenesOneMany: '{scenes} 个场景中的 1 个实例'
+  usages.instancesInScenesOneOne: 1 个场景中的 1 个实例
+  usages.lineMany: '{count} 行'
+  usages.lineNumber: 第 {line} 行
+  usages.lineOne: 1 行
+  usages.listMany: '{init} 和 {last}'
+  usages.listSep: 、
+  usages.listTwo: '{a} 和 {b}'
+  usages.movedTag: 已移动
+  usages.newFileNameLabel: 新文件名
+  usages.newNameHeading: 新名称
+  usages.noScenes: 没有场景文件实例化此目标。
+  usages.notRewritten: 未重写
+  usages.openFile: 打开 {file}
+  usages.overrideMany: '{count} 项覆盖'
+  usages.overrideOne: 1 项覆盖
+  usages.planGameCheck: 随后运行 game check；确保没有任何引用指向旧名称
+  usages.planMove: 将 {from} 移动到 {to}
+  usages.planOverridesKept: '{objects} 上的覆盖项将保持原样'
+  usages.planRewriteMany: 在场景、变体和数据中重写 {count} 处引用
+  usages.planRewriteOne: 在场景、变体和数据中重写 1 处引用
+  usages.refMany: '{count} 处引用'
+  usages.refOne: 1 处引用
+  usages.renameAction: 重命名…
+  usages.renameShortcutLabel: 重命名 · F2
+  usages.rowMany: '{count} 行'
+  usages.rowOne: 1 行
+  usages.screenLabel: 查找引用与安全重命名
+  usages.sidebarHint: ↑↓ 浏览引用 · ↵ 打开场景并聚焦该对象
+  usages.subtitleRename: 所有引用都会在一次审查与单个撤销步骤中重写
+  usages.subtitleWithSource: '{summary} · 在 {id} 上查找引用'
+  usages.titleRename: 重命名 {name}
+  usages.titleRenamed: 已重命名为 {name}
+  usages.titleUsages: '{name} 的引用'
+  usages.undo: 撤销 · ⌘Z
+  viewport3d.axisBack: 从 -Z（后方）查看
+  viewport3d.axisBottom: 从 -Y（底部）查看
+  viewport3d.axisFront: 从 +Z（前方）查看
+  viewport3d.axisLeft: 从 -X（左侧）查看
+  viewport3d.axisRight: 从 +X（右侧）查看
+  viewport3d.axisTop: 从 +Y（顶部）查看
+  viewport3d.camera: 相机
+  viewport3d.env: 环境
+  viewport3d.envLabel: 切换场景环境设置
+  viewport3d.focus: 聚焦
+  viewport3d.frameSelection: 聚焦选中对象
+  viewport3d.frameSelectionKey: 聚焦选中对象（{key}）
+  viewport3d.globalTransformSpace: 全局变换空间
+  viewport3d.gridmapBoxFill: 网格地图：框选填充
+  viewport3d.gridmapErase: 网格地图：擦除
+  viewport3d.gridmapGroup: 网格地图
+  viewport3d.gridmapPaint: 网格地图：绘制
+  viewport3d.gridmapPick: 网格地图：吸取
+  viewport3d.groundHeightLabel: 地面高度
+  viewport3d.helpBlender: 中键 环绕 · Shift+中键 平移 · 右键 WASD 飞行
+  viewport3d.helpDefault: 拖拽 环绕 · 中键 平移 · 右键 WASD 飞行
+  viewport3d.helpFly: 飞行
+  viewport3d.helpFocus: 聚焦
+  viewport3d.helpFocusSuffix: ' · {key} 聚焦'
+  viewport3d.helpMaya: Alt+拖拽 环绕 · 中键 平移 · 右键 WASD 飞行
+  viewport3d.helpOrbit: 环绕
+  viewport3d.helpPan: 平移
+  viewport3d.keyDrag: 拖拽
+  viewport3d.keyMiddle: 中键
+  viewport3d.keyRight: 右键
+  viewport3d.localTransformSpace: 局部变换空间
+  viewport3d.lookThroughCamera: 从场景相机查看
+  viewport3d.lookThroughCameraKey: 从场景相机查看（{key}）
+  viewport3d.orbitLeft: 向左环绕 15°
+  viewport3d.orbitRight: 向右环绕 15°
+  viewport3d.ortho: 正交
+  viewport3d.orthographic: 正交
+  viewport3d.orthographicKey: 正交（{key}）
+  viewport3d.overlays3d: 3D 叠加层
+  viewport3d.persp: 透视
+  viewport3d.perspective: 透视
+  viewport3d.perspectiveKey: 透视（{key}）
+  viewport3d.placeAlign: 对齐
+  viewport3d.placeAlignLabel: 将放置的模型对齐到表面
+  viewport3d.placeLabel: 放置
+  viewport3d.placeOptionsLabel: 3D 放置选项
+  viewport3d.placeSnap: 吸附
+  viewport3d.placeSnapLabel: 将放置的模型吸附到网格
+  viewport3d.projection: 投影
+  viewport3d.resetView: 重置视图
+  viewport3d.shadingLit: 光照
+  viewport3d.shadingMenuLabel: 3D 着色
+  viewport3d.shadingUnlit: 无光照
+  viewport3d.shadingWireframe: 线框
+  viewport3d.transformSpace: 变换空间
+  viewport3d.viewAxes: 视图坐标轴：{view}
+  viewport3d.viewBack: 后视图
+  viewport3d.viewBottom: 底视图
+  viewport3d.viewFront: 前视图
+  viewport3d.viewLeft: 左视图
+  viewport3d.viewOrientation: 视图方向
+  viewport3d.viewOrtho: '{view} · 正交'
+  viewport3d.viewRight: 右视图
+  viewport3d.viewTop: 顶视图
+  viewport3d.viewUserOrtho: 自定义 · 正交
   workspace.dismiss: 关闭
   workspace.loadingProject: 正在加载项目…
   workspace.loadingShort: 加载中…
@@ -1780,9 +4895,39 @@ plurals:
     other: '{count} 个任务待审查'
   agent.playDot.waiting:
     other: '{count} 个任务需要你处理'
+  assetDrawer.footerProblem:
+    other: '{count} 个问题 · 缺失 {name}'
+  assetDrawer.proposedBannerTitle:
+    other: 导入 {count} 个待确认文件
+  assetDrawer.statusKeptProposed:
+    other: 已保留 {count} 个导入的资源
+  buildRelease.notesDraftedFrom:
+    other: 基于自 {since} 以来的 {count} 次提交自动起草
+  exportPanel.creditsMissing:
+    other: 需要资源署名：{count} 项资源缺少署名（发布构建已被阻止）
+  hudLayout.screenProblems:
+    other: '{count} 个问题'
+  l10nPanel.missingCount:
+    other: 缺少 {count} 项
   output.errorCount:
     other: ' · {count} 个错误'
   overlays.count.regions:
     other: '{count} 个区域'
   overlays.count.shapes:
     other: '{count} 个形状'
+  permissions.draft.applyCount:
+    other: 应用 {count} 条规则
+  playMarks.chip.liveChanges:
+    other: '{count} 项实时修改'
+  playMarks.panicRuntimeFrames:
+    other: 游戏运行时中的 {count} 个栈帧
+  projectSettings.plugins.inspectorCount:
+    other: '{count} 个检查器'
+  projectSettings.plugins.panelCount:
+    other: '{count} 个面板'
+  projectSettings.plugins.toolCount:
+    other: '{count} 个工具'
+  tileReview.cellCount:
+    other: '{count} 个单元格'
+  tileReview.regionCount:
+    other: '{count} 个区域'

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -217,13 +218,13 @@ func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 				Gap:       8,
 			},
 			Children: []core.Node{
-				agentAccentButton(fmt.Sprintf("agent-partial-keep-%d", turnIdx), "Keep these", p, func() {
+				agentAccentButton(fmt.Sprintf("agent-partial-keep-%d", turnIdx), ed.T("agentStates.keepThese"), p, func() {
 					ed.KeepAgentPartial(turnID)
 				}),
-				agentSecondaryButton(fmt.Sprintf("agent-partial-point-%d", turnIdx), "Let me point", ps.Pointing, p, func() {
+				agentSecondaryButton(fmt.Sprintf("agent-partial-point-%d", turnIdx), ed.T("agentStates.letMePoint"), ps.Pointing, p, func() {
 					ed.ToggleAgentPointing(turnID)
 				}),
-				agentSecondaryButton(fmt.Sprintf("agent-partial-try-%d", turnIdx), "Try another way", false, p, func() {
+				agentSecondaryButton(fmt.Sprintf("agent-partial-try-%d", turnIdx), ed.T("agentStates.tryAnotherWay"), false, p, func() {
 					ed.report(ed.TryAnotherWayAgentTurn(turnID))
 				}),
 			},
@@ -247,13 +248,13 @@ func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 		if turn.Review != nil {
 			count = turn.Review.Count()
 		}
-		msg := "Kept changes · ⌘Z undoes"
+		msg := ed.T("agentStates.keptChanges")
 		if count > 0 && ps.Target != "" {
-			msg = fmt.Sprintf("Kept %d changes · %s left out · ⌘Z undoes", count, ps.Target)
+			msg = ed.T("agentStates.keptCountLeftOut", l10n.Param("count", count), l10n.Param("target", ps.Target))
 		} else if count > 0 {
-			msg = fmt.Sprintf("Kept %d changes · ⌘Z undoes", count)
+			msg = ed.T("agentStates.keptCount", l10n.Param("count", count))
 		} else if ps.Target != "" {
-			msg = fmt.Sprintf("Kept changes · %s left out · ⌘Z undoes", ps.Target)
+			msg = ed.T("agentStates.keptLeftOut", l10n.Param("target", ps.Target))
 		}
 		out = append(out, core.View{
 			TestID: fmt.Sprintf("agent-partial-kept-%d", turnIdx),
@@ -294,9 +295,9 @@ func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 
 func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTurnReview, p SpecPalette) core.Node {
 	n := rev.Count()
-	changesText := fmt.Sprintf("%d changes · 1 file", n)
+	changesText := ed.T("agentStates.changesOneFileMany", l10n.Param("count", n))
 	if n == 1 {
-		changesText = "1 change · 1 file"
+		changesText = ed.T("agentStates.changesOneFileOne")
 	}
 	return core.View{
 		TestID: fmt.Sprintf("agent-review-bar-%d", turnIdx),
@@ -348,7 +349,7 @@ func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTur
 			core.View{
 				TestID: fmt.Sprintf("agent-review-open-%d", turnIdx),
 				Role:   core.RoleButton,
-				Label:  "Review",
+				Label:  ed.T("agent.review"),
 				Style: core.Style{
 					Height:         core.Pt(24),
 					Padding:        core.Symmetric(0, 6),
@@ -362,7 +363,7 @@ func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTur
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Review",
+						Content: ed.T("agent.review"),
 						Style: core.Style{
 							FontSize:   12.5,
 							FontWeight: 500,
@@ -384,9 +385,9 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 	}
 	turnID := turn.ID
 	if st.Resolution == AgentStuckStopped {
-		msg := "Stopped. Nothing was changed; the failed edits were refused before they touched the file."
+		msg := ed.T("agentStates.stuckStoppedNothing")
 		if !st.NothingChanged {
-			msg = "Stopped. The failed edits were refused before they touched the file; earlier changes stay in review."
+			msg = ed.T("agentStates.stuckStoppedPartial")
 		}
 		return []core.Node{
 			core.Text{
@@ -432,7 +433,7 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 		core.View{
 			TestID: fmt.Sprintf("agent-stuck-card-%d", turnIdx),
 			Role:   core.RoleRegion,
-			Label:  "Paused instead of guessing again",
+			Label:  ed.T("agentStates.stuckTitle"),
 			Style: core.Style{
 				CornerRadius: 12,
 				Background:   p.Warning.Fill,
@@ -460,7 +461,7 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 						},
 						core.Text{
 							TestID:  fmt.Sprintf("agent-stuck-title-%d", turnIdx),
-							Content: "Paused instead of guessing again",
+							Content: ed.T("agentStates.stuckTitle"),
 							Style: core.Style{
 								FlexGrow:   1,
 								FlexShrink: 1,
@@ -486,7 +487,7 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 					Style: core.Style{Gap: 4},
 					Children: []core.Node{
 						core.Text{
-							Content: "Hint for the agent",
+							Content: ed.T("agentStates.hintLabel"),
 							Style: core.Style{
 								FontSize: 12,
 								Color:    p.TextSecondary,
@@ -494,8 +495,8 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 						},
 						ui.Input{
 							TestID:      fmt.Sprintf("agent-stuck-hint-%d", turnIdx),
-							Label:       "Hint for the agent",
-							Placeholder: "Tell the agent what to use…",
+							Label:       ed.T("agentStates.hintLabel"),
+							Placeholder: ed.T("agentStates.hintPlaceholder"),
 							Value: func() string {
 								_ = rev.Get()
 								if t := ed.findAgentTurn(turnID); t != nil && t.Stuck != nil {
@@ -532,10 +533,10 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 						Gap:       8,
 					},
 					Children: []core.Node{
-						agentAccentButton(fmt.Sprintf("agent-stuck-continue-%d", turnIdx), "Continue with hint", p, func() {
+						agentAccentButton(fmt.Sprintf("agent-stuck-continue-%d", turnIdx), ed.T("agentStates.continueWithHint"), p, func() {
 							ed.report(ed.ContinueAgentWithHint(turnID))
 						}),
-						agentSecondaryButton(fmt.Sprintf("agent-stuck-stop-%d", turnIdx), "Stop here", false, p, func() {
+						agentSecondaryButton(fmt.Sprintf("agent-stuck-stop-%d", turnIdx), ed.T("agentStates.stopHere"), false, p, func() {
 							ed.StopStuckAgentTurn(turnID)
 						}),
 					},
@@ -557,11 +558,11 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 
 	if lost.Kind == AgentLostModelError {
 		var btns []core.Node
-		btns = append(btns, agentSecondaryButton(fmt.Sprintf("agent-lost-retry-%d", turnIdx), "Retry now", false, p, func() {
+		btns = append(btns, agentSecondaryButton(fmt.Sprintf("agent-lost-retry-%d", turnIdx), ed.T("agentStates.retryNow"), false, p, func() {
 			ed.report(ed.RetryAgentModelErrorNow(turnID))
 		}))
 		if lost.FallbackAgent != "" {
-			btns = append(btns, agentQuietButton(fmt.Sprintf("agent-lost-fallback-%d", turnIdx), "Use "+lost.FallbackAgent, p, func() {
+			btns = append(btns, agentQuietButton(fmt.Sprintf("agent-lost-fallback-%d", turnIdx), ed.T("agentStates.useFallback", l10n.Param("agent", lost.FallbackAgent)), p, func() {
 				ed.report(ed.SwitchAgentFallback(turnID))
 			}))
 		}
@@ -614,20 +615,20 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 		reviewCount = turn.Review.Count()
 	}
 	btns := []core.Node{
-		agentAccentButton(fmt.Sprintf("agent-lost-reconnect-%d", turnIdx), "Reconnect", p, func() {
+		agentAccentButton(fmt.Sprintf("agent-lost-reconnect-%d", turnIdx), ed.T("agentStates.reconnect"), p, func() {
 			ed.ReconnectAgent()
 		}),
 	}
 	if reviewCount > 0 {
-		label := fmt.Sprintf("Review %d changes", reviewCount)
+		label := ed.T("agentStates.reviewChangesMany", l10n.Param("count", reviewCount))
 		if reviewCount == 1 {
-			label = "Review 1 change"
+			label = ed.T("agentStates.reviewChangesOne")
 		}
 		btns = append(btns, agentSecondaryButton(fmt.Sprintf("agent-lost-review-%d", turnIdx), label, false, p, func() {
 			ed.OpenAgentTurnReview(turnID)
 		}))
 	}
-	btns = append(btns, agentQuietButton(fmt.Sprintf("agent-lost-troubleshoot-%d", turnIdx), "Troubleshoot", p, func() {
+	btns = append(btns, agentQuietButton(fmt.Sprintf("agent-lost-troubleshoot-%d", turnIdx), ed.T("agentStates.troubleshoot"), p, func() {
 		ed.TroubleshootAgentConnection()
 	}))
 
@@ -680,7 +681,7 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 		out = append(out, core.View{
 			TestID: fmt.Sprintf("agent-lost-ask-resume-%d", turnIdx),
 			Role:   core.RoleRegion,
-			Label:  fmt.Sprintf("Pick up at step %d?", nextStep),
+			Label:  ed.T("agentStates.askResumeLabel", l10n.Param("step", nextStep)),
 			Style: core.Style{
 				CornerRadius: 12,
 				Background:   p.Warning.Fill,
@@ -691,7 +692,7 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: fmt.Sprintf("Reconnected · pick up at step %d?", nextStep),
+					Content: ed.T("agentStates.reconnectedPickUp", l10n.Param("step", nextStep)),
 					Style: core.Style{
 						FontSize:   12.5,
 						FontWeight: 600,
@@ -699,7 +700,7 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 					},
 				},
 				core.Text{
-					Content: fmt.Sprintf("Steps 1–%d are already done. Continue from step %d?", max(1, lost.AfterStep), nextStep),
+					Content: ed.T("agentStates.stepsAlreadyDone", l10n.Param("done", max(1, lost.AfterStep)), l10n.Param("next", nextStep)),
 					Style: core.Style{
 						FontSize: 12.5,
 						Color:    p.TextSecondary,
@@ -711,10 +712,10 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 						Gap:       8,
 					},
 					Children: []core.Node{
-						agentAccentButton(fmt.Sprintf("agent-lost-resume-confirm-%d", turnIdx), fmt.Sprintf("Continue at step %d", nextStep), p, func() {
+						agentAccentButton(fmt.Sprintf("agent-lost-resume-confirm-%d", turnIdx), ed.T("agentStates.continueAtStep", l10n.Param("step", nextStep)), p, func() {
 							ed.report(ed.ConfirmResumeLostAgentTurn(turnID))
 						}),
-						agentSecondaryButton(fmt.Sprintf("agent-lost-resume-dismiss-%d", turnIdx), "Not now", false, p, func() {
+						agentSecondaryButton(fmt.Sprintf("agent-lost-resume-dismiss-%d", turnIdx), ed.T("agentStates.notNow"), false, p, func() {
 							ed.DismissResumeLostAgentTurn(turnID)
 						}),
 					},
@@ -724,7 +725,7 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 	} else {
 		out = append(out, core.Text{
 			TestID:  fmt.Sprintf("agent-lost-caption-%d", turnIdx),
-			Content: fmt.Sprintf("After reconnecting, the agent asks before it picks up at step %d.", nextStep),
+			Content: ed.T("agentStates.lostCaption", l10n.Param("step", nextStep)),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -792,7 +793,7 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 	if len(doneNodes) > 0 {
 		cardKids = append(cardKids,
 			core.Text{
-				Content: "DONE",
+				Content: ed.T("agentStates.doneHeading"),
 				Style: core.Style{
 					FontSize:      11,
 					FontWeight:    600,
@@ -811,7 +812,7 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 	if len(todoNodes) > 0 {
 		cardKids = append(cardKids,
 			core.Text{
-				Content: "NOT DONE",
+				Content: ed.T("agentStates.notDoneHeading"),
 				Style: core.Style{
 					FontSize:      11,
 					FontWeight:    600,
@@ -835,14 +836,14 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 	if !st.Resumed {
 		var btns []core.Node
 		if len(todoNodes) > 0 {
-			btns = append(btns, agentAccentButton(fmt.Sprintf("agent-stopped-resume-%d", turnIdx), "Resume", p, func() {
+			btns = append(btns, agentAccentButton(fmt.Sprintf("agent-stopped-resume-%d", turnIdx), ed.T("agentStates.resume"), p, func() {
 				ed.report(ed.ResumeAgentTurn(turnID))
 			}))
 		}
 		if reviewCount > 0 {
-			label := fmt.Sprintf("Review %d changes", reviewCount)
+			label := ed.T("agentStates.reviewChangesMany", l10n.Param("count", reviewCount))
 			if reviewCount == 1 {
-				label = "Review 1 change"
+				label = ed.T("agentStates.reviewChangesOne")
 			}
 			btns = append(btns, agentSecondaryButton(fmt.Sprintf("agent-stopped-review-%d", turnIdx), label, false, p, func() {
 				ed.OpenAgentTurnReview(turnID)
@@ -860,16 +861,16 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 		}
 	}
 
-	startLabel := "the first step not done"
+	startLabel := ed.T("agentStates.firstStepNotDone")
 	if firstTodoTitle != "" {
 		startLabel = lowerFirstRune(firstTodoTitle)
 	}
-	caption := fmt.Sprintf("Resume starts at %s; steps already done are not redone.", startLabel)
+	caption := ed.T("agentStates.stoppedCaption", l10n.Param("step", startLabel))
 	if reviewCount > 0 && turn.Review != nil && !turn.Review.Kept {
 		if reviewCount == 1 {
-			caption += " The 1 change stays unkept until you review it."
+			caption = ed.T("agentStates.stoppedCaptionUnkeptOne", l10n.Param("step", startLabel))
 		} else {
-			caption += fmt.Sprintf(" The %d changes stay unkept until you review them.", reviewCount)
+			caption = ed.T("agentStates.stoppedCaptionUnkeptMany", l10n.Param("step", startLabel), l10n.Param("count", reviewCount))
 		}
 	}
 
@@ -917,7 +918,7 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "WHAT",
+					Content: ed.T("agentStates.colWhat"),
 					Style: core.Style{
 						FlexGrow:      1,
 						FlexBasis:     core.Pt(0),
@@ -928,7 +929,7 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 					},
 				},
 				core.Text{
-					Content: "SUMMARY",
+					Content: ed.T("agentStates.colSummary"),
 					Style: core.Style{
 						Width:         core.Pt(68),
 						FontSize:      11,
@@ -938,7 +939,7 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 					},
 				},
 				core.Text{
-					Content: "REVIEW",
+					Content: ed.T("agentStates.colReview"),
 					Style: core.Style{
 						Width:         core.Pt(68),
 						FontSize:      11,
@@ -1061,10 +1062,10 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 			Gap:       8,
 		},
 		Children: []core.Node{
-			agentSecondaryButton(fmt.Sprintf("agent-mismatch-ask-why-%d", turnIdx), "Ask why", false, p, func() {
+			agentSecondaryButton(fmt.Sprintf("agent-mismatch-ask-why-%d", turnIdx), ed.T("agentStates.askWhy"), false, p, func() {
 				ed.report(ed.AskAgentWhyMismatch(turnID))
 			}),
-			agentSecondaryButton(fmt.Sprintf("agent-mismatch-open-review-%d", turnIdx), "Open review", false, p, func() {
+			agentSecondaryButton(fmt.Sprintf("agent-mismatch-open-review-%d", turnIdx), ed.T("agentStates.openReview"), false, p, func() {
 				ed.OpenAgentTurnReview(turnID)
 			}),
 		},
@@ -1087,7 +1088,7 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 		},
 		core.Text{
 			TestID:  fmt.Sprintf("agent-mismatch-caption-%d", turnIdx),
-			Content: "The editor checks every summary against the actual diff. The review, not the summary, is what Keep applies.",
+			Content: ed.T("agentStates.mismatchCaption"),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -1115,7 +1116,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 		out = append(out, core.View{
 			TestID: "agent-offline-card",
 			Role:   core.RoleRegion,
-			Label:  "You're offline",
+			Label:  ed.T("agentStates.offlineTitle"),
 			Style: core.Style{
 				CornerRadius: 12,
 				Background:   p.Raised,
@@ -1127,7 +1128,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 			Children: []core.Node{
 				core.Text{
 					TestID:  "agent-offline-title",
-					Content: "You're offline",
+					Content: ed.T("agentStates.offlineTitle"),
 					Style: core.Style{
 						FontSize:   13,
 						FontWeight: 600,
@@ -1136,7 +1137,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 				},
 				core.Text{
 					TestID:  "agent-offline-body",
-					Content: "Select, move, the inspector, game check and Play all work. Requests wait here.",
+					Content: ed.T("agentStates.offlineBody"),
 					Style: core.Style{
 						FontSize: 12.5,
 						Color:    p.TextSecondary,
@@ -1148,7 +1149,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 
 	out = append(out, core.Text{
 		TestID:  "agent-queue-header",
-		Content: fmt.Sprintf("QUEUED · %d", len(queue)),
+		Content: ed.T("agentStates.queuedHeading", l10n.Param("count", len(queue))),
 		Style: core.Style{
 			FontSize:      11,
 			FontWeight:    600,
@@ -1160,7 +1161,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 	if len(queue) == 0 {
 		out = append(out, core.Text{
 			TestID:  "agent-queue-empty",
-			Content: "Nothing queued.",
+			Content: ed.T("agentStates.nothingQueued"),
 			Style: core.Style{
 				FontSize: 12.5,
 				Color:    p.TextFaint,
@@ -1170,9 +1171,9 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 		rowNodes := make([]core.Node, 0, len(queue))
 		for qi, q := range queue {
 			qid := q.ID
-			meta := "queued"
+			meta := ed.T("agentStates.queuedMeta")
 			if !q.QueuedAt.IsZero() {
-				meta = "queued " + q.QueuedAt.Format("15:04")
+				meta = ed.T("agentStates.queuedMetaAt", l10n.Param("time", q.QueuedAt.Format("15:04")))
 			}
 			rowKids := []core.Node{
 				core.View{
@@ -1206,7 +1207,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 				rowKids = append(rowKids, core.View{
 					TestID: fmt.Sprintf("agent-queue-send-%d", qi),
 					Role:   core.RoleButton,
-					Label:  fmt.Sprintf("Send %q", q.Prompt),
+					Label:  ed.T("agentStates.sendQueuedLabel", l10n.Param("prompt", fmt.Sprintf("%q", q.Prompt))),
 					Style: core.Style{
 						Height:         core.Pt(26),
 						Padding:        core.Symmetric(0, 10),
@@ -1222,7 +1223,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "Send",
+							Content: ed.T("composer.send"),
 							Style: core.Style{
 								FontSize:   11.5,
 								FontWeight: 600,
@@ -1235,7 +1236,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 			rowKids = append(rowKids, core.View{
 				TestID: fmt.Sprintf("agent-queue-remove-%d", qi),
 				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("Remove “%s” from the queue", q.Prompt),
+				Label:  ed.T("agentStates.removeQueuedLabel", l10n.Param("prompt", q.Prompt)),
 				Style: core.Style{
 					Width:          core.Pt(28),
 					Height:         core.Pt(28),
@@ -1283,7 +1284,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 
 	out = append(out, core.Text{
 		TestID:  "agent-queue-caption",
-		Content: "Back online, nothing runs on its own: each queued request waits for you to send it.",
+		Content: ed.T("agentStates.queueOfflineCaption"),
 		Style: core.Style{
 			FontSize: 12,
 			Color:    p.TextFaint,
@@ -1346,7 +1347,7 @@ func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p SpecPalette) c
 	}
 	if len(rows) == 0 {
 		rows = append(rows, core.Text{
-			Content: "No object changes in this review.",
+			Content: ed.T("agentStates.reviewNoChanges"),
 			Style: core.Style{
 				FontSize: 12,
 				Color:    p.TextFaint,
@@ -1357,22 +1358,22 @@ func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p SpecPalette) c
 	var actionBtns []core.Node
 	if !review.Kept && !review.Discarded {
 		actionBtns = append(actionBtns,
-			agentAccentButton("agent-review-keep", "Keep", p, func() {
+			agentAccentButton("agent-review-keep", ed.T("agent.keep"), p, func() {
 				ed.KeepAgentTurnDiffReview(turnID)
 			}),
-			agentSecondaryButton("agent-review-discard", "Discard", false, p, func() {
+			agentSecondaryButton("agent-review-discard", ed.T("dialog.discard"), false, p, func() {
 				ed.DiscardAgentTurnReview(turnID)
 			}),
 		)
 	}
-	actionBtns = append(actionBtns, agentQuietButton("agent-review-close", "Close", p, func() {
+	actionBtns = append(actionBtns, agentQuietButton("agent-review-close", ed.T("agentStates.close"), p, func() {
 		ed.CloseAgentTurnReview()
 	}))
 
 	return core.View{
 		TestID: "agent-review-drawer",
 		Role:   core.RoleRegion,
-		Label:  "Review changes",
+		Label:  ed.T("review.title"),
 		Style: core.Style{
 			CornerRadius: 12,
 			Background:   p.Raised,
@@ -1392,7 +1393,7 @@ func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p SpecPalette) c
 				Children: []core.Node{
 					core.Text{
 						TestID:  "agent-review-drawer-title",
-						Content: fmt.Sprintf("Review · %s (%d changes)", review.File, review.Count()),
+						Content: ed.T("agentStates.reviewDrawerTitle", l10n.Param("file", review.File), l10n.Param("count", review.Count())),
 						Style: core.Style{
 							FlexGrow:   1,
 							FlexShrink: 1,

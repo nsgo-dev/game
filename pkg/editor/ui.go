@@ -2,8 +2,8 @@ package editor
 
 import (
 	"errors"
-	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -660,9 +660,20 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 							}
 							runIdx := ed.PlayReplayRunIndex()
 							if runIdx > 0 {
-								return fmt.Sprintf("Watching run %d · step %d / %d · seed %d · %s", runIdx, p.StepIndex(), p.TotalSteps(), p.Seed(), ed.PlayReplayPath())
+								return ed.T("chromeExtra.watchingRun",
+									l10n.Param("run", runIdx),
+									l10n.Param("step", p.StepIndex()),
+									l10n.Param("total", p.TotalSteps()),
+									l10n.Param("seed", p.Seed()),
+									l10n.Param("path", ed.PlayReplayPath()),
+								)
 							}
-							return fmt.Sprintf("Watching replay · step %d / %d · seed %d · %s", p.StepIndex(), p.TotalSteps(), p.Seed(), ed.PlayReplayPath())
+							return ed.T("chromeExtra.watchingReplay",
+								l10n.Param("step", p.StepIndex()),
+								l10n.Param("total", p.TotalSteps()),
+								l10n.Param("seed", p.Seed()),
+								l10n.Param("path", ed.PlayReplayPath()),
+							)
 						},
 						Style: core.Style{
 							FontFamily: core.FontMonospace,
@@ -673,7 +684,7 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 					},
 					ui.Button{
 						TestID:  "play-replay-back-report",
-						Text:    "Back to Playtest",
+						Text:    ed.T("chromeExtra.backToPlaytest"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Color:   func() core.Color { return spec.Raised },

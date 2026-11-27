@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/base"
@@ -37,7 +38,11 @@ var reviewRegionOrder = []string{
 func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
-		return ed.reviewUIRev()
+		r := ed.reviewUIRev()
+		if ed.ResolvedLanguage() != "en" {
+			r ^= 1 << 63
+		}
+		return r
 	})
 	activeRegion := core.NewSignal(cx, "")
 	headerRef := &core.Ref{}
@@ -162,7 +167,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			}
 		},
 		OnClose: onRevertModalClose,
-		Label:   "Revert all changes",
+		Label:   ed.T("reviewScreen.revertAllDialogLabel"),
 		Style: core.Style{
 			CornerRadius: 18,
 			Background:   core.Transparent,
@@ -176,21 +181,25 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				fileList := ed.ReviewRevertAllFileList()
 				noteWarning := ""
 				if dropped := ed.ReviewUnsentOrPendingNoteCount(); dropped == 1 {
-					noteWarning = " Your 1 note is dropped."
+					noteWarning = ed.T("reviewScreen.revertAllDropNoteOne")
 				} else if dropped > 1 {
-					noteWarning = fmt.Sprintf(" Your %d notes are dropped.", dropped)
+					noteWarning = ed.T("reviewScreen.revertAllDropNoteMany", l10n.Param("count", dropped))
 				}
-				body := fmt.Sprintf("%s go back to how they were before this request.%s %s brings everything back.", fileList, noteWarning, undoKey)
+				body := ed.T("reviewScreen.revertAllBodyMany", l10n.Param("files", fileList), l10n.Param("noteWarning", noteWarning), l10n.Param("undoKey", undoKey))
 				if snap.FileCount == 1 {
-					body = fmt.Sprintf("%s goes back to how it was before this request.%s %s brings everything back.", fileList, noteWarning, undoKey)
+					body = ed.T("reviewScreen.revertAllBodyOne", l10n.Param("files", fileList), l10n.Param("noteWarning", noteWarning), l10n.Param("undoKey", undoKey))
 				}
 				shadowAlpha := float32(0.50)
 				if !p.Dark {
 					shadowAlpha = 0.20
 				}
+				revertTitle := ed.T("reviewScreen.revertAllTitleMany", l10n.Param("count", snap.TotalChanges))
+				if snap.TotalChanges == 1 {
+					revertTitle = ed.T("reviewScreen.revertAllTitleOne")
+				}
 				return core.View{
 					Role:  core.RoleAlertDialog,
-					Label: fmt.Sprintf("Revert all %d changes?", snap.TotalChanges),
+					Label: ed.T("reviewScreen.revertAllAlertLabel", l10n.Param("count", snap.TotalChanges)),
 					Style: core.Style{
 						Width:        core.Pt(440),
 						Padding:      core.All(24),
@@ -206,7 +215,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					Children: []core.Node{
 						core.Text{
 							TestID:  "review-revert-all-title",
-							Content: fmt.Sprintf("Revert all %d %s?", snap.TotalChanges, pluralWord(snap.TotalChanges, "change", "changes")),
+							Content: revertTitle,
 							Style: core.Style{
 								FontSize:   14,
 								FontWeight: 600,
@@ -229,10 +238,10 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								Margin:         core.Edges{Top: 8},
 							},
 							Children: []core.Node{
-								specReviewButton("review-revert-all-cancel", "Cancel", p.Panel, p.LineRaised, p.TextSecondary, p, func() {
+								specReviewButton("review-revert-all-cancel", ed.T("reviewScreen.cancel"), p.Panel, p.LineRaised, p.TextSecondary, p, func() {
 									ed.CancelReviewRevertAllDialog()
 								}),
-								specReviewButton("review-revert-all-confirm", fmt.Sprintf("Revert all %d", snap.TotalChanges), p.Removed.Fg, core.Transparent, p.Removed.OnFill, p, func() {
+								specReviewButton("review-revert-all-confirm", ed.T("reviewScreen.revertAllConfirm", l10n.Param("count", snap.TotalChanges)), p.Removed.Fg, core.Transparent, p.Removed.OnFill, p, func() {
 									ed.report(ed.ConfirmReviewRevertAll())
 								}),
 							},
@@ -246,7 +255,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	return core.View{
 		TestID: "review-screen",
 		Role:   core.RoleRegion,
-		Label:  "Review agent turn changes",
+		Label:  ed.T("reviewScreen.screenLabel"),
 		StyleFunc: func() core.Style {
 			p := ed.SpecPalette(cx)
 			return core.Style{
@@ -355,9 +364,9 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 		snap := ed.ReviewStatus()
 
 		keepTotal := snap.KeptCount + snap.RevertedCount
-		keepLabel := fmt.Sprintf("Keep %d of %d", snap.KeptCount, keepTotal)
+		keepLabel := ed.T("reviewScreen.keepCount", l10n.Param("kept", snap.KeptCount), l10n.Param("total", keepTotal))
 		blocked := len(snap.Blockers) > 0
-		keepTitle := "Keep the changes not reverted · " + ed.reviewShortcutHint(CmdReviewKeep, "mod+enter")
+		keepTitle := ed.T("reviewScreen.keepTitle", l10n.Param("key", ed.reviewShortcutHint(CmdReviewKeep, "mod+enter")))
 		if blocked {
 			keepTitle = snap.Blockers[0].Reason
 		}
@@ -366,7 +375,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			core.View{
 				TestID:    "review-back-to-editor",
 				Role:      core.RoleButton,
-				Label:     "Back to the editor, review stays open (Esc)",
+				Label:     ed.T("reviewScreen.backLabel"),
 				Focusable: func() bool { return true },
 				Style: core.Style{
 					Direction:    core.Row,
@@ -387,7 +396,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 						Style: core.Style{Width: core.Pt(15), Height: core.Pt(15), Color: p.TextMuted},
 					},
 					core.Text{
-						Content: "Editor",
+						Content: ed.T("reviewScreen.editor"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
 					specReviewKeycap("Esc", p),
@@ -398,7 +407,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			},
 			core.Text{
 				TestID:  "review-title",
-				Content: "Review",
+				Content: ed.T("reviewScreen.title"),
 				Style: core.Style{
 					FontSize:   14,
 					FontWeight: 600,
@@ -435,10 +444,11 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 					bg = p.LineRaised
 					fg = p.TextPrimary
 				}
+				roundText := ed.T("reviewScreen.round", l10n.Param("round", roundNum))
 				roundTabs = append(roundTabs, core.View{
 					TestID:    fmt.Sprintf("review-round-tab-%d", roundNum),
 					Role:      core.RoleButton,
-					Label:     fmt.Sprintf("Round %d", roundNum),
+					Label:     roundText,
 					Focusable: func() bool { return true },
 					Style: core.Style{
 						Height:         core.Pt(26),
@@ -455,7 +465,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: fmt.Sprintf("Round %d", roundNum),
+							Content: roundText,
 							Style:   core.Style{FontSize: 12, FontWeight: 500, Color: fg},
 						},
 					},
@@ -464,7 +474,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			headerChildren = append(headerChildren, core.View{
 				TestID: "review-round-tabs",
 				Role:   core.RoleGroup,
-				Label:  "Review round",
+				Label:  ed.T("reviewScreen.roundGroupLabel"),
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
@@ -528,7 +538,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 				Ref:       revertBtnRef,
 				TestID:    "review-revert-all",
 				Role:      core.RoleButton,
-				Label:     "Revert all · " + ed.reviewShortcutHint(CmdReviewRevertAll, "mod+backspace"),
+				Label:     ed.T("reviewScreen.revertAllLabel", l10n.Param("key", ed.reviewShortcutHint(CmdReviewRevertAll, "mod+backspace"))),
 				Focusable: func() bool { return true },
 				Style: core.Style{
 					Height:         core.Pt(32),
@@ -550,7 +560,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Revert all",
+						Content: ed.T("reviewScreen.revertAll"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 					},
 				},
@@ -609,7 +619,10 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 		})
 
 		if hasDraftNotes {
-			sendLabel := fmt.Sprintf("Send %d %s", snap.DraftNoteCount, pluralWord(snap.DraftNoteCount, "note", "notes"))
+			sendLabel := ed.T("reviewScreen.sendNotesMany", l10n.Param("count", snap.DraftNoteCount))
+			if snap.DraftNoteCount == 1 {
+				sendLabel = ed.T("reviewScreen.sendNotesOne")
+			}
 			headerChildren = append(headerChildren, core.View{
 				TestID:    "review-send-notes",
 				Role:      core.RoleButton,
@@ -661,7 +674,7 @@ func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			Ref:       headerRef,
 			TestID:    "review-header",
 			Role:      core.RoleRegion,
-			Label:     "Review header",
+			Label:     ed.T("reviewScreen.headerLabel"),
 			Focusable: func() bool { return true },
 			OnFocusIn: func() {
 				if activeRegion.GetUntracked() != "" && activeRegion.GetUntracked() != reviewRegionHeader {
@@ -732,8 +745,8 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 					specInputField(cx, ed, ui.Input{
 						Ref:         filterInputRef,
 						TestID:      "review-filter-input",
-						Label:       "Filter changes by name, field or file",
-						Placeholder: "Filter by name, field or file",
+						Label:       ed.T("reviewScreen.filterLabel"),
+						Placeholder: ed.T("reviewScreen.filterPlaceholder"),
 						Value:       searchSig.Get,
 						OnChange: func(v string) {
 							searchSig.Set(v)
@@ -761,7 +774,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				ContentFunc: func() string {
 					_ = reviewRev.Get()
 					st := ed.ReviewStatus()
-					return fmt.Sprintf("%d of %d seen", st.SeenCount, st.TotalChanges)
+					return ed.T("reviewScreen.seenCounter", l10n.Param("seen", st.SeenCount), l10n.Param("total", st.TotalChanges))
 				},
 				StyleFunc: func() core.Style {
 					p := ed.SpecPalette(cx)
@@ -775,7 +788,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			core.View{
 				TestID:    "review-prev-btn",
 				Role:      core.RoleButton,
-				Label:     "Previous change (K)",
+				Label:     ed.T("reviewScreen.prevChangeLabel"),
 				Focusable: func() bool { return true },
 				StyleFunc: func() core.Style {
 					p := ed.SpecPalette(cx)
@@ -808,7 +821,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			core.View{
 				TestID:    "review-next-btn",
 				Role:      core.RoleButton,
-				Label:     "Next change (J)",
+				Label:     ed.T("reviewScreen.nextChangeLabel"),
 				Focusable: func() bool { return true },
 				StyleFunc: func() core.Style {
 					p := ed.SpecPalette(cx)
@@ -849,12 +862,12 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			id    ReviewFilter
 			label string
 		}{
-			{ReviewFilterAll, "All"},
-			{ReviewFilterAdded, "Added"},
-			{ReviewFilterChanged, "Changed"},
-			{ReviewFilterRemoved, "Removed"},
-			{ReviewFilterUnseen, "Unseen"},
-			{ReviewFilterNotes, "Notes"},
+			{ReviewFilterAll, ed.T("reviewScreen.chip.all")},
+			{ReviewFilterAdded, ed.T("reviewScreen.chip.added")},
+			{ReviewFilterChanged, ed.T("reviewScreen.chip.changed")},
+			{ReviewFilterRemoved, ed.T("reviewScreen.chip.removed")},
+			{ReviewFilterUnseen, ed.T("reviewScreen.chip.unseen")},
+			{ReviewFilterNotes, ed.T("reviewScreen.chip.notes")},
 		}
 		chipNodes := make([]core.Node, 0, len(chipSpecs))
 		for _, cs := range chipSpecs {
@@ -874,7 +887,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			chipNodes = append(chipNodes, core.View{
 				TestID:    "review-chip-" + string(f),
 				Role:      core.RoleButton,
-				Label:     fmt.Sprintf("Show %s (%d)", cs.label, cnt),
+				Label:     ed.T("reviewScreen.chipLabel", l10n.Param("label", cs.label), l10n.Param("count", cnt)),
 				Focusable: func() bool { return true },
 				Style: core.Style{
 					Direction:    core.Row,
@@ -908,7 +921,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			Children: []core.Node{
 				core.View{
 					Role:  core.RoleGroup,
-					Label: "Filter changes",
+					Label: ed.T("reviewScreen.filterGroupLabel"),
 					Style: core.Style{
 						Direction: core.Row,
 						Wrap:      core.Wrap,
@@ -993,7 +1006,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				Style:  core.Style{Padding: core.Symmetric(24, 12), AlignItems: core.AlignCenter},
 				Children: []core.Node{
 					core.Text{
-						Content: "Nothing left to look at here.",
+						Content: ed.T("reviewScreen.emptyRows"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 				},
@@ -1041,11 +1054,11 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				FlexShrink:  0,
 			},
 			Children: []core.Node{
-				hint("J K", "move"),
-				hint("C", "note"),
-				hint("X", "revert"),
-				hint("B", "before"),
-				hint(ed.reviewShortcutHint(CmdReviewKeep, "mod+enter"), "keep"),
+				hint("J K", ed.T("reviewScreen.hint.move")),
+				hint("C", ed.T("reviewScreen.hint.note")),
+				hint("X", ed.T("reviewScreen.hint.revert")),
+				hint("B", ed.T("reviewScreen.hint.before")),
+				hint(ed.reviewShortcutHint(CmdReviewKeep, "mod+enter"), ed.T("reviewScreen.hint.keep")),
 			},
 		}
 	})
@@ -1054,7 +1067,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		Ref:       listRef,
 		TestID:    "review-sidebar",
 		Role:      core.RoleRegion,
-		Label:     "Changes list",
+		Label:     ed.T("reviewScreen.sidebarLabel"),
 		Focusable: func() bool { return true },
 		OnFocusIn: func() {
 			if activeRegion.GetUntracked() != "" && activeRegion.GetUntracked() != reviewRegionList {
@@ -1149,11 +1162,15 @@ func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 		borderW = 1
 	}
 
+	foldLabel := ed.T("reviewScreen.collapseFile", l10n.Param("file", filePath))
+	if r.Collapsed {
+		foldLabel = ed.T("reviewScreen.expandFile", l10n.Param("file", filePath))
+	}
 	rowChildren := []core.Node{
 		core.View{
 			TestID:    "review-file-fold-" + filePath,
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s %s", ternaryString(r.Collapsed, "Expand", "Collapse"), filePath),
+			Label:     foldLabel,
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				FlexGrow:     1,
@@ -1196,16 +1213,16 @@ func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 	}
 
 	if r.CanRevertGroup && !readOnlyRound {
-		toggleText := "Revert file"
+		toggleText := ed.T("reviewScreen.revertFile")
 		toggleColor := p.TextMuted
 		if r.AllReverted {
-			toggleText = "Restore file"
+			toggleText = ed.T("reviewScreen.restoreFile")
 			toggleColor = p.Accent.Fg
 		}
 		rowChildren = append(rowChildren, core.View{
 			TestID:    "review-file-toggle-" + filePath,
 			Role:      core.RoleButton,
-			Label:     toggleText + " " + r.FileName,
+			Label:     ed.T("reviewScreen.toggleFileLabel", l10n.Param("action", toggleText), l10n.Param("file", r.FileName)),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				Height:         core.Pt(24),
@@ -1242,6 +1259,32 @@ func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 	}
 }
 
+func reviewChangeKindHeading(ed *Editor, kind ReviewChangeKind) string {
+	switch kind {
+	case ReviewChangeAdded:
+		return ed.T("reviewScreen.kindHeading.added")
+	case ReviewChangeChanged:
+		return ed.T("reviewScreen.kindHeading.changed")
+	case ReviewChangeRemoved:
+		return ed.T("reviewScreen.kindHeading.removed")
+	default:
+		return strings.ToUpper(string(kind))
+	}
+}
+
+func reviewChangeKindName(ed *Editor, kind ReviewChangeKind) string {
+	switch kind {
+	case ReviewChangeAdded:
+		return ed.T("reviewScreen.kind.added")
+	case ReviewChangeChanged:
+		return ed.T("reviewScreen.kind.changed")
+	case ReviewChangeRemoved:
+		return ed.T("reviewScreen.kind.removed")
+	default:
+		return string(kind)
+	}
+}
+
 func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
 	filePath := r.File
 	kind := r.Kind
@@ -1249,11 +1292,12 @@ func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 	if r.Collapsed {
 		chev = lucide.ChevronRight()
 	}
-	kindLabel := strings.ToUpper(string(kind))
-	toggleText := fmt.Sprintf("Revert %d", r.Count)
+	kindLabel := reviewChangeKindHeading(ed, kind)
+	kindName := reviewChangeKindName(ed, kind)
+	toggleText := ed.T("reviewScreen.revertCount", l10n.Param("count", r.Count))
 	toggleColor := p.TextMuted
 	if r.AllReverted {
-		toggleText = fmt.Sprintf("Restore %d", r.Count)
+		toggleText = ed.T("reviewScreen.restoreCount", l10n.Param("count", r.Count))
 		toggleColor = p.Accent.Fg
 	}
 
@@ -1262,11 +1306,15 @@ func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 		bg = p.Raised
 	}
 
+	kindFoldLabel := ed.T("reviewScreen.collapseKindInFile", l10n.Param("kind", kindName), l10n.Param("file", filePath))
+	if r.Collapsed {
+		kindFoldLabel = ed.T("reviewScreen.expandKindInFile", l10n.Param("kind", kindName), l10n.Param("file", filePath))
+	}
 	kids := []core.Node{
 		core.View{
 			TestID:    fmt.Sprintf("review-kind-fold-%s-%s", filePath, kind),
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s %s in %s", ternaryString(r.Collapsed, "Expand", "Collapse"), kind, filePath),
+			Label:     kindFoldLabel,
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				Height:       core.Pt(24),
@@ -1304,7 +1352,7 @@ func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 		kids = append(kids, core.View{
 			TestID:    fmt.Sprintf("review-kind-toggle-%s-%s", filePath, kind),
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s %s in %s", toggleText, kind, filePath),
+			Label:     ed.T("reviewScreen.toggleKindInFile", l10n.Param("action", toggleText), l10n.Param("kind", kindName), l10n.Param("file", filePath)),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				Height:         core.Pt(24),
@@ -1389,18 +1437,22 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 		kindIcon = lucide.Minus()
 	}
 
-	toggleText := "Revert"
+	toggleText := ed.T("reviewScreen.revert")
 	toggleFg := p.TextSecondary
 	if ch.Reverted {
-		toggleText = "Restore"
+		toggleText = ed.T("reviewScreen.restore")
 		toggleFg = p.Accent.Fg
 	}
 
+	seenText := ed.T("reviewScreen.notSeen")
+	if ch.Seen {
+		seenText = ed.T("reviewScreen.seen")
+	}
 	rowKids := []core.Node{
 		core.View{
 			TestID:    "review-card-focus-" + id,
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s, %s, %s, %s", ch.Title, ch.Kind, ver.Detail, ternaryString(ch.Seen, "seen", "not seen")),
+			Label:     ed.T("reviewScreen.cardFocusLabel", l10n.Param("title", ch.Title), l10n.Param("kind", reviewChangeKindName(ed, ch.Kind)), l10n.Param("detail", ver.Detail), l10n.Param("seen", seenText)),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				FlexGrow:     1,
@@ -1472,9 +1524,9 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 			noteBtnBg = p.LineRaised
 			noteBtnFg = p.TextPrimary
 		}
-		noteBtnLabel := fmt.Sprintf("Note for the agent on %s (C)", ch.Title)
+		noteBtnLabel := ed.T("reviewScreen.noteBtnAdd", l10n.Param("title", ch.Title))
 		if hasDraftNote {
-			noteBtnLabel = fmt.Sprintf("Edit note on %s (C)", ch.Title)
+			noteBtnLabel = ed.T("reviewScreen.noteBtnEdit", l10n.Param("title", ch.Title))
 		}
 		rowKids = append(rowKids, core.View{
 			TestID:    "review-card-note-btn-" + id,
@@ -1508,7 +1560,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 		rowKids = append(rowKids, core.View{
 			TestID:    "review-card-toggle-" + id,
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s %s (X)", toggleText, ch.Title),
+			Label:     ed.T("reviewScreen.cardToggleLabel", l10n.Param("action", toggleText), l10n.Param("title", ch.Title)),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				Height:         core.Pt(26),
@@ -1548,7 +1600,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 	if hasDraftNote && !composing {
 		noteHeaderKids := []core.Node{
 			core.Text{
-				Content: "Note for the agent · not sent",
+				Content: ed.T("reviewScreen.noteNotSent"),
 				Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexGrow: 1},
 			},
 		}
@@ -1557,7 +1609,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 				core.View{
 					TestID:    "review-card-note-edit-" + id,
 					Role:      core.RoleButton,
-					Label:     "Edit note on " + ch.Title,
+					Label:     ed.T("reviewScreen.editNoteLabel", l10n.Param("title", ch.Title)),
 					Focusable: func() bool { return true },
 					Style: core.Style{
 						Height:         core.Pt(22),
@@ -1571,13 +1623,13 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 						ed.report(ed.OpenReviewNoteComposer(id))
 					},
 					Children: []core.Node{
-						core.Text{Content: "Edit", Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
+						core.Text{Content: ed.T("reviewScreen.edit"), Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
 					},
 				},
 				core.View{
 					TestID:    "review-card-note-remove-" + id,
 					Role:      core.RoleButton,
-					Label:     "Remove note on " + ch.Title,
+					Label:     ed.T("reviewScreen.removeNoteLabel", l10n.Param("title", ch.Title)),
 					Focusable: func() bool { return true },
 					Style: core.Style{
 						Height:         core.Pt(22),
@@ -1591,7 +1643,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 						ed.report(ed.RemoveReviewNote(id))
 					},
 					Children: []core.Node{
-						core.Text{Content: "Remove", Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
+						core.Text{Content: ed.T("reviewScreen.remove"), Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
 					},
 				},
 			)
@@ -1631,13 +1683,13 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Note for the agent · not sent",
+					Content: ed.T("reviewScreen.noteNotSent"),
 					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 				specInputField(cx, ed, ui.Input{
 					TestID:      "review-note-input",
-					Label:       "Note for the agent about " + ch.Title,
-					Placeholder: "Tell the agent what to adjust…",
+					Label:       ed.T("reviewScreen.noteInputLabel", l10n.Param("title", ch.Title)),
+					Placeholder: ed.T("reviewScreen.notePlaceholder"),
 					Multiline:   true,
 					Value:       noteDraftSig.Get,
 					OnChange: func(v string) {
@@ -1662,7 +1714,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 						core.View{
 							TestID:    "review-note-add",
 							Role:      core.RoleButton,
-							Label:     "Add note",
+							Label:     ed.T("reviewScreen.addNote"),
 							Focusable: func() bool { return true },
 							Style: core.Style{
 								Height:         core.Pt(28),
@@ -1677,13 +1729,13 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 								ed.report(ed.CommitReviewNote())
 							},
 							Children: []core.Node{
-								core.Text{Content: "Add note", Style: core.Style{FontSize: 12, FontWeight: 600, Color: p.Accent.OnFill}},
+								core.Text{Content: ed.T("reviewScreen.addNote"), Style: core.Style{FontSize: 12, FontWeight: 600, Color: p.Accent.OnFill}},
 							},
 						},
 						core.View{
 							TestID:    "review-note-revert-redo",
 							Role:      core.RoleButton,
-							Label:     "Revert and redo with this note",
+							Label:     ed.T("reviewScreen.revertAndRedo"),
 							Focusable: func() bool { return true },
 							Style: core.Style{
 								Height:         core.Pt(28),
@@ -1702,13 +1754,13 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 								}
 							},
 							Children: []core.Node{
-								core.Text{Content: "Revert and redo with this note", Style: core.Style{FontSize: 11.5, Color: p.TextSecondary}},
+								core.Text{Content: ed.T("reviewScreen.revertAndRedo"), Style: core.Style{FontSize: 11.5, Color: p.TextSecondary}},
 							},
 						},
 						core.View{
 							TestID:    "review-note-cancel",
 							Role:      core.RoleButton,
-							Label:     "Cancel",
+							Label:     ed.T("reviewScreen.cancel"),
 							Focusable: func() bool { return true },
 							Style: core.Style{
 								Height:         core.Pt(28),
@@ -1722,7 +1774,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 								ed.CancelReviewNoteComposer()
 							},
 							Children: []core.Node{
-								core.Text{Content: "Cancel", Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
+								core.Text{Content: ed.T("reviewScreen.cancel"), Style: core.Style{FontSize: 11.5, Color: p.TextMuted}},
 							},
 						},
 					},
@@ -1746,7 +1798,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: fmt.Sprintf("Sent for round %d · waiting for agent", snap.Round+1),
+					Content: ed.T("reviewScreen.sentForRound", l10n.Param("round", snap.Round+1)),
 					Style:   core.Style{FontSize: 11, Color: p.Accent.Fg},
 				},
 				core.Text{
@@ -1773,7 +1825,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 					Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.TextMuted, Margin: core.Edges{Top: 2}, FlexShrink: 0},
 				},
 				core.Text{
-					Content: fmt.Sprintf("Revised in round %d. Your note: %s", ch.RedoneInRound, ch.RedoneNote),
+					Content: ed.T("reviewScreen.revisedInRound", l10n.Param("round", ch.RedoneInRound), l10n.Param("note", ch.RedoneNote)),
 					Style: core.Style{
 						FontSize:  11.5,
 						Color:     p.TextMuted,
@@ -1825,7 +1877,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 			},
 			Children: []core.Node{
 				core.Icon{SVG: lucide.Pencil(), Style: core.Style{Width: core.Pt(11), Height: core.Pt(11), Color: p.TextMuted}},
-				core.Text{Content: "Edited in review · tagged you", Style: core.Style{FontSize: 11, Color: p.TextMuted}},
+				core.Text{Content: ed.T("reviewScreen.editedInReview"), Style: core.Style{FontSize: 11, Color: p.TextMuted}},
 			},
 		})
 	}
@@ -1877,7 +1929,7 @@ func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.No
 	headFg := p.Warning.Fg
 	headIcon := lucide.TriangleAlert()
 	headIconColor := p.Warning.Fg
-	headTitle := fmt.Sprintf("You also edited %s", ch.Title)
+	headTitle := ed.T("reviewScreen.conflictTitle", l10n.Param("title", ch.Title))
 	segBorder := p.Warning.Edge
 
 	if resolved {
@@ -1889,11 +1941,11 @@ func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.No
 		segBorder = p.LineRaised
 		switch ch.ConflictChoice {
 		case ReviewConflictBoth:
-			headTitle = "Merged both, yours first"
+			headTitle = ed.T("reviewScreen.conflictMergedBoth")
 		case ReviewConflictMine:
-			headTitle = "Merged: your edit only"
+			headTitle = ed.T("reviewScreen.conflictMergedMine")
 		case ReviewConflictAgent:
-			headTitle = "Merged: the agent’s edit only"
+			headTitle = ed.T("reviewScreen.conflictMergedAgent")
 		}
 	}
 
@@ -1918,7 +1970,7 @@ func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.No
 		return core.View{
 			TestID:    testID,
 			Role:      core.RoleButton,
-			Label:     fmt.Sprintf("%s for %s", label, ch.Title),
+			Label:     ed.T("reviewScreen.conflictChoiceLabel", l10n.Param("choice", label), l10n.Param("title", ch.Title)),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				FlexGrow:       1,
@@ -1950,7 +2002,7 @@ func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.No
 	return core.View{
 		TestID: "review-conflict-card-" + objID,
 		Role:   core.RoleGroup,
-		Label:  "Conflict on " + ch.Title,
+		Label:  ed.T("reviewScreen.conflictGroupLabel", l10n.Param("title", ch.Title)),
 		Style: core.Style{
 			Margin:       core.Edges{Right: 8, Bottom: 8, Left: 42},
 			Padding:      core.All(12),
@@ -1990,9 +2042,9 @@ func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.No
 					BorderColor:  segBorder,
 				},
 				Children: []core.Node{
-					segBtn("review-conflict-mine-"+objID, "Mine", ReviewConflictMine),
-					segBtn("review-conflict-agent-"+objID, "Agent's", ReviewConflictAgent),
-					segBtn("review-conflict-both-"+objID, "Both", ReviewConflictBoth),
+					segBtn("review-conflict-mine-"+objID, ed.T("reviewScreen.conflictMine"), ReviewConflictMine),
+					segBtn("review-conflict-agent-"+objID, ed.T("reviewScreen.conflictAgent"), ReviewConflictAgent),
+					segBtn("review-conflict-both-"+objID, ed.T("reviewScreen.conflictBoth"), ReviewConflictBoth),
 				},
 			},
 		},
@@ -2052,7 +2104,7 @@ func reviewCenterView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			content = core.View{
 				Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 				Children: []core.Node{
-					core.Text{Content: "Select a change to inspect.", Style: core.Style{FontSize: 13, Color: p.TextFaint}},
+					core.Text{Content: ed.T("reviewScreen.selectToInspect"), Style: core.Style{FontSize: 13, Color: p.TextFaint}},
 				},
 			}
 		} else {
@@ -2060,11 +2112,11 @@ func reviewCenterView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			case ReviewFileScene:
 				content = reviewSceneCenterView(ed, p, ch)
 			case ReviewFilePrefab:
-				content = reviewPrefabCenterView(p, ch)
+				content = reviewPrefabCenterView(ed, p, ch)
 			case ReviewFileData:
 				content = reviewDataTableCenterView(ed, p, ch)
 			default:
-				content = reviewGenericFileCenterView(p, ch)
+				content = reviewGenericFileCenterView(ed, p, ch)
 			}
 		}
 
@@ -2080,7 +2132,7 @@ func reviewCenterView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 			Ref:       centerRef,
 			TestID:    "review-center",
 			Role:      core.RoleRegion,
-			Label:     "Change preview",
+			Label:     ed.T("reviewScreen.centerLabel"),
 			Focusable: func() bool { return true },
 			OnFocusIn: func() {
 				if activeRegion.GetUntracked() != "" && activeRegion.GetUntracked() != reviewRegionCenter {
@@ -2119,7 +2171,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 		return core.View{
 			TestID:    "review-legend-" + id,
 			Role:      core.RoleSwitch,
-			Label:     fmt.Sprintf("Toggle %s overlays", label),
+			Label:     ed.T("reviewScreen.toggleOverlayLabel", l10n.Param("label", label)),
 			Focusable: func() bool { return true },
 			Style: core.Style{
 				Direction:    core.Row,
@@ -2210,10 +2262,10 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
-						legendToggle("added", "added", p.Added.Edge, true, ed.review.legend.Added),
-						legendToggle("changed", "changed", p.Changed.Edge, true, ed.review.legend.Changed),
-						legendToggle("removed", "removed", p.Removed.Edge, false, ed.review.legend.Removed),
-						legendToggle("selected", "selected", p.Accent.Edge, false, ed.review.legend.Selected),
+						legendToggle("added", ed.T("reviewScreen.legend.added"), p.Added.Edge, true, ed.review.legend.Added),
+						legendToggle("changed", ed.T("reviewScreen.legend.changed"), p.Changed.Edge, true, ed.review.legend.Changed),
+						legendToggle("removed", ed.T("reviewScreen.legend.removed"), p.Removed.Edge, false, ed.review.legend.Removed),
+						legendToggle("selected", ed.T("reviewScreen.legend.selected"), p.Accent.Edge, false, ed.review.legend.Selected),
 					},
 				},
 				core.View{
@@ -2234,9 +2286,12 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 							Children: []core.Node{
 								core.Text{
 									Content: func() string {
-										s := fmt.Sprintf("%s · %d %s", path.Base(focused.File), sceneChangeCount, pluralWord(sceneChangeCount, "change", "changes"))
+										s := ed.T("reviewScreen.scenePillMany", l10n.Param("file", path.Base(focused.File)), l10n.Param("count", sceneChangeCount))
+										if sceneChangeCount == 1 {
+											s = ed.T("reviewScreen.scenePillOne", l10n.Param("file", path.Base(focused.File)))
+										}
 										if readOnlyRound {
-											s += fmt.Sprintf(" · Round %d (read-only)", viewRound)
+											s = ed.T("reviewScreen.scenePillReadOnly", l10n.Param("base", s), l10n.Param("round", viewRound))
 										}
 										return s
 									}(),
@@ -2247,7 +2302,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 						core.View{
 							TestID:    "review-peek-before",
 							Role:      core.RoleButton,
-							Label:     "Show the scene before this request (hold B)",
+							Label:     ed.T("reviewScreen.peekBeforeLabel"),
 							Focusable: func() bool { return true },
 							Style: core.Style{
 								Height:       core.Pt(28),
@@ -2266,7 +2321,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 							},
 							Children: []core.Node{
 								core.Icon{SVG: lucide.Eye(), Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: peekFg}},
-								core.Text{Content: "Before", Style: core.Style{FontSize: 11.5, Color: peekFg}},
+								core.Text{Content: ed.T("reviewScreen.before"), Style: core.Style{FontSize: 11.5, Color: peekFg}},
 								specReviewKeycap("B", p),
 							},
 						},
@@ -2301,7 +2356,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 						JustifyContent: core.JustifyCenter,
 					},
 					Children: []core.Node{
-						core.Text{Content: "Before this request", Style: core.Style{FontSize: 12, FontWeight: 500, Color: p.TextPrimary}},
+						core.Text{Content: ed.T("reviewScreen.beforeThisRequest"), Style: core.Style{FontSize: 12, FontWeight: 500, Color: p.TextPrimary}},
 					},
 				},
 			},
@@ -2322,7 +2377,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 					},
 				},
 				core.Text{
-					Content: "removed",
+					Content: ed.T("reviewScreen.kind.removed"),
 					Style:   core.Style{FontSize: 11, Color: role.Fg},
 				},
 			}
@@ -2549,15 +2604,15 @@ func drawReviewObjectFallbackMarker(d *core.Drawing, bo *sceneformat.BuiltObject
 	}
 }
 
-func reviewPrefabCenterView(p SpecPalette, ch *ReviewChange) core.Node {
+func reviewPrefabCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.Node {
 	role := reviewKindSpecRole(p, ch.Kind)
 	oldText := ch.OldValue
 	newText := ch.NewValue
 	if oldText == "" {
-		oldText = "(none)"
+		oldText = ed.T("reviewScreen.valueNone")
 	}
 	if newText == "" {
-		newText = "(removed)"
+		newText = ed.T("reviewScreen.valueRemoved")
 	}
 	if ch.Reverted {
 		newText = oldText
@@ -2606,7 +2661,7 @@ func reviewPrefabCenterView(p SpecPalette, ch *ReviewChange) core.Node {
 
 	impact := ch.PrefabImpact
 	if impact == "" {
-		impact = "Applies to every scene instance referencing this prefab."
+		impact = ed.T("reviewScreen.prefabDefaultImpact")
 	}
 
 	return core.View{
@@ -2685,7 +2740,7 @@ func reviewPrefabCenterView(p SpecPalette, ch *ReviewChange) core.Node {
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween},
 								Children: []core.Node{
 									core.Text{Content: path.Base(ch.File), Style: core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary}},
-									core.Text{Content: "Prefab", Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
+									core.Text{Content: ed.T("reviewScreen.prefabTag"), Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 								},
 							},
 							core.View{
@@ -2719,7 +2774,7 @@ func reviewPrefabCenterView(p SpecPalette, ch *ReviewChange) core.Node {
 func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.Node {
 	tbl := ed.ReviewDataTablePreviewFor(ch.File)
 	if tbl == nil {
-		return reviewGenericFileCenterView(p, ch)
+		return reviewGenericFileCenterView(ed, p, ch)
 	}
 
 	headerCells := make([]core.Node, 0, len(tbl.Columns))
@@ -2868,6 +2923,10 @@ func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core
 		})
 	}
 
+	tableSummary := ed.T("reviewScreen.tableSummaryMany", l10n.Param("changed", tbl.ChangedCount), l10n.Param("total", tbl.TotalRows))
+	if tbl.TotalRows == 1 {
+		tableSummary = ed.T("reviewScreen.tableSummaryOne", l10n.Param("changed", tbl.ChangedCount))
+	}
 	return core.View{
 		TestID: "review-center-data",
 		Style: core.Style{
@@ -2884,7 +2943,7 @@ func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core
 				Children: []core.Node{
 					core.Text{Content: tbl.File, Style: core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary}},
 					core.Text{
-						Content: fmt.Sprintf("· table · %d of %d %s changed", tbl.ChangedCount, tbl.TotalRows, pluralWord(tbl.TotalRows, "record", "records")),
+						Content: tableSummary,
 						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 				},
@@ -2917,7 +2976,7 @@ func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core
 	}
 }
 
-func reviewGenericFileCenterView(p SpecPalette, ch *ReviewChange) core.Node {
+func reviewGenericFileCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.Node {
 	return core.View{
 		TestID: "review-center-file",
 		Style: core.Style{
@@ -2946,7 +3005,7 @@ func reviewGenericFileCenterView(p SpecPalette, ch *ReviewChange) core.Node {
 					BorderColor:  p.Line,
 					Padding:      core.Symmetric(8, 0),
 				},
-				Children: []core.Node{reviewYAMLDiffLinesView(p, ch.YAMLLines)},
+				Children: []core.Node{reviewYAMLDiffLinesView(ed, p, ch.YAMLLines)},
 			},
 		},
 	}
@@ -2978,9 +3037,9 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 		title := "YAML"
 		var headerActions []core.Node
 		if ch != nil {
-			title = ch.Title + " · YAML"
+			title = ed.T("reviewScreen.rightTitleYAML", l10n.Param("title", ch.Title))
 			if ch.FileKind == ReviewFileGo {
-				title = ch.Title + " · diff"
+				title = ed.T("reviewScreen.rightTitleDiff", l10n.Param("title", ch.Title))
 			}
 			changeID := ch.ID
 			editing := !readOnly && ch.EditingYAML
@@ -2991,7 +3050,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				headerActions = append(headerActions, core.View{
 					TestID:    "review-yaml-edit",
 					Role:      core.RoleButton,
-					Label:     "Edit YAML for " + ch.Title,
+					Label:     ed.T("reviewScreen.editYAMLLabel", l10n.Param("title", ch.Title)),
 					Focusable: func() bool { return true },
 					Style: core.Style{
 						Direction:    core.Row,
@@ -3015,7 +3074,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 							Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextSecondary},
 						},
 						core.Text{
-							Content: "Edit",
+							Content: ed.T("reviewScreen.edit"),
 							Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 						},
 					},
@@ -3038,13 +3097,13 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				headerActions = append(headerActions,
 					core.Text{
 						TestID:  "review-yaml-editing-label",
-						Content: "Editing",
+						Content: ed.T("reviewScreen.editing"),
 						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexShrink: 0},
 					},
 					core.View{
 						TestID:    "review-yaml-done",
 						Role:      core.RoleButton,
-						Label:     "Done editing YAML",
+						Label:     ed.T("reviewScreen.doneEditingYAML"),
 						Focusable: func() bool { return true },
 						Style:     doneStyle,
 						OnPress: func(core.PressEvent) {
@@ -3054,7 +3113,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Done",
+								Content: ed.T("reviewScreen.done"),
 								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.Accent.OnFill},
 							},
 						},
@@ -3131,7 +3190,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "WHY",
+						Content: ed.T("reviewScreen.whyHeading"),
 						Style: core.Style{
 							FontSize:      11,
 							FontWeight:    600,
@@ -3165,7 +3224,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Reverted · this change will not be kept (press X to restore).",
+						Content: ed.T("reviewScreen.revertedBanner"),
 						Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 					},
 				},
@@ -3191,7 +3250,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 		bodyKids = append(bodyKids, ui.ScrollView{
 			TestID:   "review-yaml-scroll",
 			Style:    scrollStyle,
-			Children: []core.Node{reviewYAMLDiffLinesView(p, ylines)},
+			Children: []core.Node{reviewYAMLDiffLinesView(ed, p, ylines)},
 		})
 
 		return core.View{
@@ -3232,7 +3291,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "EDIT YAML IN PLACE",
+					Content: ed.T("reviewScreen.editYAMLHeading"),
 					StyleFunc: func() core.Style {
 						p := ed.SpecPalette(cx)
 						return core.Style{
@@ -3246,7 +3305,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				specInputField(cx, ed, ui.Input{
 					Ref:       yamlInputRef,
 					TestID:    "review-yaml-input",
-					Label:     "Edit YAML for " + title,
+					Label:     ed.T("reviewScreen.editYAMLLabel", l10n.Param("title", title)),
 					Multiline: true,
 					Value:     draftSig.Get,
 					OnChange: func(v string) {
@@ -3319,7 +3378,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 			errActions = append(errActions, core.View{
 				TestID:    "review-yaml-undo",
 				Role:      core.RoleButton,
-				Label:     "Undo my typing",
+				Label:     ed.T("reviewScreen.undoTyping"),
 				Focusable: func() bool { return true },
 				Style: core.Style{
 					Height:         core.Pt(28),
@@ -3334,7 +3393,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Undo my typing",
+						Content: ed.T("reviewScreen.undoTyping"),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
 				},
@@ -3394,7 +3453,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				Children: []core.Node{
 					core.Text{
 						TestID:  "review-yaml-valid-hint",
-						Content: "Your edit joins this review; the agent sees it in round 2.",
+						Content: ed.T("reviewScreen.yamlValidHint"),
 						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
@@ -3407,7 +3466,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 		Ref:       rightRef,
 		TestID:    "review-right-pane",
 		Role:      core.RoleRegion,
-		Label:     "Why and YAML diff",
+		Label:     ed.T("reviewScreen.rightPaneLabel"),
 		Focusable: func() bool { return true },
 		OnFocusIn: func() {
 			if activeRegion.GetUntracked() != "" && activeRegion.GetUntracked() != reviewRegionRight {
@@ -3436,7 +3495,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 	}
 }
 
-func reviewYAMLDiffLinesView(p SpecPalette, lines []ReviewYAMLLine) core.Node {
+func reviewYAMLDiffLinesView(ed *Editor, p SpecPalette, lines []ReviewYAMLLine) core.Node {
 	nodes := make([]core.Node, 0, len(lines))
 	for _, l := range lines {
 		bg := core.Transparent
@@ -3474,7 +3533,7 @@ func reviewYAMLDiffLinesView(p SpecPalette, lines []ReviewYAMLLine) core.Node {
 		tagColor := p.TextFaint
 		if l.Error {
 			if tagText == "" && l.Line > 0 {
-				tagText = fmt.Sprintf("line %d", l.Line)
+				tagText = ed.T("reviewScreen.lineTag", l10n.Param("line", l.Line))
 			}
 			tagColor = p.Removed.Fg
 		}
@@ -3572,21 +3631,37 @@ func agentReviewPanelCards(ed *Editor, p SpecPalette, turns []AgentTurn) []core.
 
 	switch snap.Outcome {
 	case ReviewOutcomePending:
-		title := fmt.Sprintf("Review waiting · %d %s, %d %s",
-			snap.TotalChanges, pluralWord(snap.TotalChanges, "change", "changes"),
-			snap.FileCount, pluralWord(snap.FileCount, "file", "files"))
-		if snap.Round > 1 {
-			title += fmt.Sprintf(" · round %d", snap.Round)
+		var title string
+		switch {
+		case snap.TotalChanges == 1 && snap.FileCount == 1:
+			title = ed.T("reviewScreen.waitingTitleOneOne")
+		case snap.TotalChanges == 1:
+			title = ed.T("reviewScreen.waitingTitleOneMany", l10n.Param("files", snap.FileCount))
+		case snap.FileCount == 1:
+			title = ed.T("reviewScreen.waitingTitleManyOne", l10n.Param("changes", snap.TotalChanges))
+		default:
+			title = ed.T("reviewScreen.waitingTitleManyMany", l10n.Param("changes", snap.TotalChanges), l10n.Param("files", snap.FileCount))
 		}
-		sub := fmt.Sprintf("%d of %d seen", snap.SeenCount, snap.TotalChanges)
-		if snap.DraftNoteCount > 0 {
-			sub += fmt.Sprintf(" · %d %s not sent", snap.DraftNoteCount, pluralWord(snap.DraftNoteCount, "note", "notes"))
+		if snap.Round > 1 {
+			title = ed.T("reviewScreen.waitingRoundSuffix", l10n.Param("title", title), l10n.Param("round", snap.Round))
+		}
+		sub := ed.T("reviewScreen.seenCounter", l10n.Param("seen", snap.SeenCount), l10n.Param("total", snap.TotalChanges))
+		if snap.DraftNoteCount == 1 {
+			sub = ed.T("reviewScreen.waitingUnsentOne", l10n.Param("sub", sub))
+		} else if snap.DraftNoteCount > 1 {
+			sub = ed.T("reviewScreen.waitingUnsentMany", l10n.Param("sub", sub), l10n.Param("count", snap.DraftNoteCount))
 		}
 		if snap.PendingBatch != nil && len(snap.PendingBatch.Notes) > 0 {
-			sub += fmt.Sprintf(" · %d %s sent", len(snap.PendingBatch.Notes), pluralWord(len(snap.PendingBatch.Notes), "note", "notes"))
+			if len(snap.PendingBatch.Notes) == 1 {
+				sub = ed.T("reviewScreen.waitingSentOne", l10n.Param("sub", sub))
+			} else {
+				sub = ed.T("reviewScreen.waitingSentMany", l10n.Param("sub", sub), l10n.Param("count", len(snap.PendingBatch.Notes)))
+			}
 		}
-		if len(snap.Blockers) > 0 {
-			sub += fmt.Sprintf(" · %d %s", len(snap.Blockers), pluralWord(len(snap.Blockers), "blocker", "blockers"))
+		if len(snap.Blockers) == 1 {
+			sub = ed.T("reviewScreen.waitingBlockerOne", l10n.Param("sub", sub))
+		} else if len(snap.Blockers) > 1 {
+			sub = ed.T("reviewScreen.waitingBlockerMany", l10n.Param("sub", sub), l10n.Param("count", len(snap.Blockers)))
 		}
 		cards = append(cards, core.View{
 			TestID: "agent-review-waiting-card",
@@ -3604,7 +3679,7 @@ func agentReviewPanelCards(ed *Editor, p SpecPalette, turns []AgentTurn) []core.
 				core.View{
 					Style: core.Style{Direction: core.Row, Gap: 8},
 					Children: []core.Node{
-						specReviewButton("agent-resume-review", "Resume review", p.Accent.Fg, core.Transparent, p.Accent.OnFill, p, func() {
+						specReviewButton("agent-resume-review", ed.T("reviewScreen.resumeReview"), p.Accent.Fg, core.Transparent, p.Accent.OnFill, p, func() {
 							ed.report(ed.ResumeReview())
 						}),
 					},

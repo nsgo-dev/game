@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -326,8 +327,8 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 											},
 											specInputField(cx, ed, ui.Input{
 												TestID:      "sketch-mark-label-input",
-												Label:       fmt.Sprintf("Label for mark %d", m.Number),
-												Placeholder: "Add label (e.g. 3 spikes)...",
+												Label:       ed.T("sketchExtra.markLabelInput", l10n.Param("num", m.Number)),
+												Placeholder: ed.T("sketchExtra.markLabelPlaceholder"),
 												Value: func() string {
 													_ = rev.Get()
 													if cur, ok := ed.SketchMarkByNumber(num); ok {
@@ -346,7 +347,7 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 												TestID:   "sketch-mark-delete",
 												Icon:     lucide.Trash,
 												IconSize: 13,
-												Label:    fmt.Sprintf("Delete mark %d", m.Number),
+												Label:    ed.T("sketchExtra.deleteMark", l10n.Param("num", m.Number)),
 												Size:     ui.SizeSmall,
 												Variant:  ui.ButtonGhost,
 												Side:     26,
@@ -378,15 +379,22 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 		_ = rev.Get()
 		return !ed.Playing() && (ed.SketchActive() || ed.SketchMarkCount() > 0)
 	})
-	darkMemo := core.NewMemo(cx, func() bool {
+	type sketchTreeKey struct {
+		dark bool
+		lang string
+	}
+	darkMemo := core.NewMemo(cx, func() sketchTreeKey {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return sketchTreeKey{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 	return core.Show{
 		When: shown.Get,
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := SpecPaletteFor(darkMemo.Get())
+				p := SpecPaletteFor(darkMemo.Get().dark)
 				return core.View{
 					TestID: "scene-tree-sketch-section",
 					Style: core.Style{
@@ -397,7 +405,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "SKETCH LAYER",
+							Content: ed.T("sketchExtra.layerHeading"),
 							Style: core.Style{
 								FontSize:      11,
 								FontWeight:    600,
@@ -409,7 +417,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 						core.View{
 							TestID: "scene-tree-sketch-layer",
 							Role:   core.RoleButton,
-							Label:  "Sketch layer",
+							Label:  ed.T("sketchExtra.layerLabel"),
 							OnPress: func(core.PressEvent) {
 								ed.StartSketch()
 							},
@@ -429,9 +437,9 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 										_ = rev.Get()
 										n := ed.SketchMarkCount()
 										if n == 1 {
-											return "1 mark"
+											return ed.T("sketchExtra.markCountOne")
 										}
-										return fmt.Sprintf("%d marks", n)
+										return ed.T("sketchExtra.markCountMany", l10n.Param("count", n))
 									},
 									Style: core.Style{
 										FlexGrow: 1,
@@ -440,7 +448,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 									},
 								},
 								core.Text{
-									Content: "not saved",
+									Content: ed.T("sketchExtra.notSaved"),
 									Style: core.Style{
 										FontSize: 11,
 										Color:    p.TextFaint,
@@ -531,7 +539,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		return core.View{
 			TestID: "sketch-agent-panel",
 			Role:   core.RoleRegion,
-			Label:  "Agent Sketch",
+			Label:  ed.T("sketchExtra.panelLabel"),
 			Style: dockedStyle(cx, core.Style{
 				Width:       core.Pt(360),
 				FlexShrink:  0,
@@ -555,7 +563,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: "Agent",
+							Content: ed.T("agent.tab"),
 							Style: core.Style{
 								FontSize:   13,
 								FontWeight: 600,
@@ -591,7 +599,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						ui.Button{
 							TestID:  "sketch-panel-close",
 							Icon:    lucide.X,
-							Label:   "Show Inspector",
+							Label:   ed.T("sketchExtra.showInspector"),
 							Size:    ui.SizeSmall,
 							Variant: ui.ButtonGhost,
 							Side:    28,
@@ -640,11 +648,11 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									},
 									Children: []core.Node{
 										core.Text{
-											Content: "Waiting for the agent to read your sketch",
+											Content: ed.T("sketchExtra.waitingReadingTitle"),
 											Style:   core.Style{FontSize: 12, FontWeight: 600, Color: pal.Warning.Fg},
 										},
 										core.Text{
-											Content: "Scene edits are held until the agent restates each mark and you choose Go ahead.",
+											Content: ed.T("sketchExtra.waitingReadingBody"),
 											Style:   core.Style{FontSize: 11.5, Color: pal.TextSecondary},
 										},
 									},
@@ -667,7 +675,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									rows = append(rows, core.View{
 										TestID: fmt.Sprintf("sketch-panel-mark-%d", m.Number),
 										Role:   core.RoleButton,
-										Label:  fmt.Sprintf("Mark %d %s", m.Number, m.Kind.String()),
+										Label:  ed.T("sketchExtra.markRowLabel", l10n.Param("num", m.Number), l10n.Param("kind", m.Kind.String())),
 										OnPress: func(core.PressEvent) {
 											ed.SelectSketchMark(m.Number)
 											if !ed.SketchActive() {
@@ -743,7 +751,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							if len(items) == 0 {
 								items = append(items, core.Text{
 									TestID:  "sketch-panel-empty",
-									Content: "Draw on the viewport with Pen, Arrow, Box or Text. Marks stay in scene coordinates and are never written to the scene file.",
+									Content: ed.T("sketchExtra.panelEmpty"),
 									Style: core.Style{
 										FontSize:   12,
 										LineHeight: 18,
@@ -808,7 +816,7 @@ func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.No
 		children = append(children, core.View{
 			TestID: fmt.Sprintf("sketch-reading-item-%d", it.Number),
 			Role:   core.RoleButton,
-			Label:  fmt.Sprintf("Correct mark %d: %s", it.Number, it.Mark),
+			Label:  ed.T("sketchExtra.correctMarkItem", l10n.Param("num", it.Number), l10n.Param("mark", it.Mark)),
 			OnPress: func(core.PressEvent) {
 				ed.report(ed.CorrectSketchMark(it.Number))
 			},
@@ -894,8 +902,8 @@ func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.No
 			Children: []core.Node{
 				ui.Button{
 					TestID:  "sketch-reading-go-ahead",
-					Text:    "Go ahead",
-					Label:   "Go ahead",
+					Text:    ed.T("sketchExtra.goAhead"),
+					Label:   ed.T("sketchExtra.goAhead"),
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonGhost,
 					Color:   func() core.Color { return p.TextPrimary },
@@ -916,8 +924,8 @@ func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.No
 				},
 				ui.Button{
 					TestID:  "sketch-reading-correct",
-					Text:    "Correct a mark",
-					Label:   "Correct a mark",
+					Text:    ed.T("sketchExtra.correctMark"),
+					Label:   ed.T("sketchExtra.correctMark"),
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonGhost,
 					Color:   func() core.Color { return p.LineRaised },
@@ -941,7 +949,7 @@ func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.No
 	} else if ed.SketchApproved() {
 		children = append(children, core.Text{
 			TestID:  "sketch-reading-approved-note",
-			Content: "Approved · agent may edit the scene.",
+			Content: ed.T("sketchExtra.approvedNote"),
 			Style:   core.Style{FontSize: 11.5, Color: p.Added.Fg},
 		})
 	}
@@ -962,9 +970,9 @@ func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.No
 
 func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 	changes := ed.SketchReviewChanges()
-	countLabel := fmt.Sprintf("%d changes", len(changes))
+	countLabel := ed.T("sketchExtra.changesMany", l10n.Param("count", len(changes)))
 	if len(changes) == 1 {
-		countLabel = "1 change"
+		countLabel = ed.T("sketchExtra.changesOne")
 	}
 	overlayOn := ed.SketchReviewOverlayVisible()
 	overlayBg := core.Transparent
@@ -977,13 +985,13 @@ func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 	var rows []core.Node
 	for i, ch := range changes {
 		swatchCol := p.Changed.Fg
-		prefix := "changed"
+		prefix := ed.T("sketchExtra.changeChanged")
 		if ch.Kind == SketchChangeAdded {
 			swatchCol = p.Added.Fg
-			prefix = "added"
+			prefix = ed.T("sketchExtra.changeAdded")
 		} else if ch.Kind == SketchChangeRemoved {
 			swatchCol = p.Removed.Fg
-			prefix = "removed"
+			prefix = ed.T("sketchExtra.changeRemoved")
 		}
 		rows = append(rows, core.View{
 			TestID: fmt.Sprintf("sketch-review-change-%d", i),
@@ -1023,7 +1031,7 @@ func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 					},
 				},
 				core.Text{
-					Content: "your sketch",
+					Content: ed.T("sketchExtra.yourSketch"),
 					Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 				},
 			},
@@ -1060,8 +1068,8 @@ func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 						TestID:   "sketch-review-overlay-toggle",
 						Icon:     lucide.Pencil,
 						IconSize: 13,
-						Text:     "Sketch overlay",
-						Label:    "Toggle sketch overlay",
+						Text:     ed.T("sketchExtra.sketchOverlay"),
+						Label:    ed.T("sketchExtra.toggleSketchOverlay"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonGhost,
 						Color:    func() core.Color { return overlayBg },
@@ -1098,8 +1106,8 @@ func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "sketch-review-keep",
-						Text:    "Keep",
-						Label:   "Keep changes and clear sketch",
+						Text:    ed.T("agent.keep"),
+						Label:   ed.T("sketchExtra.keepAndClear"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						Color:   func() core.Color { return p.Accent.Fg },
@@ -1120,8 +1128,8 @@ func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 					},
 					ui.Button{
 						TestID:  "sketch-review-revert",
-						Text:    "Revert",
-						Label:   "Revert changes and keep sketch",
+						Text:    ed.T("agent.revert"),
+						Label:   ed.T("sketchExtra.revertAndKeep"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						Color:   func() core.Color { return p.LineRaised },
@@ -1210,11 +1218,11 @@ func sketchPreviewCardView(ed *Editor, p SpecPalette) core.Node {
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween},
 				Children: []core.Node{
 					core.Text{
-						Content: "Sent with this request",
+						Content: ed.T("sketchExtra.sentWithRequest"),
 						Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
-						Content: "scene coordinates",
+						Content: ed.T("sketchExtra.sceneCoordinates"),
 						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
@@ -1301,7 +1309,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p 
 												},
 												LabelFunc: func() string {
 													_ = rev.Get()
-													return ed.SketchChipLabel() + ". Show what is sent"
+													return ed.T("sketchExtra.chipShowSent", l10n.Param("label", ed.SketchChipLabel()))
 												},
 												IconSize: 12,
 												Tint:     func() core.Color { return pal.TextPrimary },
@@ -1324,7 +1332,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p 
 												TestID:   "sketch-chip-remove",
 												Icon:     lucide.X,
 												IconSize: 11,
-												Label:    "Remove the sketch from the request",
+												Label:    ed.T("sketchExtra.removeFromRequest"),
 												Size:     ui.SizeSmall,
 												Variant:  ui.ButtonGhost,
 												Side:     20,
@@ -1345,8 +1353,8 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p 
 					},
 					specInputField(cx, ed, ui.Input{
 						TestID:      "sketch-composer-input",
-						Label:       "Ask the agent",
-						Placeholder: "Build what I sketched...",
+						Label:       ed.T("agent.composerLabel"),
+						Placeholder: ed.T("sketchExtra.promptPlaceholder"),
 						Value: func() string {
 							_ = rev.Get()
 							return ed.SketchPromptDraft()
@@ -1369,7 +1377,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p 
 								TestID:   "sketch-composer-sketch-btn",
 								Icon:     lucide.Pencil,
 								IconSize: 14,
-								Label:    "Sketch on the viewport · D",
+								Label:    ed.T("sketchExtra.sketchOnViewport"),
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonGhost,
 								Side:     28,
@@ -1400,7 +1408,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p 
 								TestID:   "sketch-composer-send",
 								Icon:     lucide.ArrowUp,
 								IconSize: 14,
-								Label:    "Send sketch to agent",
+								Label:    ed.T("sketchExtra.sendToAgent"),
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonGhost,
 								Side:     30,

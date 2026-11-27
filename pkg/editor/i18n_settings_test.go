@@ -2,6 +2,8 @@ package editor_test
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -13,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/l10n"
@@ -636,4 +639,282 @@ func TestEditorAppearanceDarkOnLightSystemSurvivesRestart(t *testing.T) {
 	if !restartedDark || !restarted.Dark() || restartedAppearance != core.AppearanceSystem {
 		t.Fatalf("system appearance on dark system failed: dark=%v ed.Dark=%v appearance=%v", restartedDark, restarted.Dark(), restartedAppearance)
 	}
+}
+
+func isAllowedChineseScreenText(s string, fixtureWords map[string]bool) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" || isAllowedUILiteral(trimmed) {
+		return true
+	}
+	// Strip file paths/globs (e.g. /var/folders/..., ~/games/my-game, scenes/**, export/),
+	// email/domain-like identifiers (e.g. dev.nsgo.demo, example.com/my-game),
+	// snake_case MCP tool identifiers (e.g. viewport_image, game_delete_file),
+	// and CLI invocations (e.g. "go tool nsgo mcp", "nsgo check", "game check", "game release -release-notes").
+	nonProseRe := regexp.MustCompile(`(~?/[A-Za-z0-9_.*-]+|[A-Za-z0-9_-]+/(?:[A-Za-z0-9_.*-]+)?|[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+(?:/[A-Za-z0-9_./-]+)?|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|\b(?:go tool nsgo mcp|nsgo check|nsgo dev|game check|game release(?:\s+-[a-z-]+)*)\b)`)
+	cleaned := nonProseRe.ReplaceAllString(trimmed, " ")
+	words := englishWordRe.FindAllString(cleaned, -1)
+	if len(words) == 0 {
+		return true
+	}
+	for _, w := range words {
+		lw := strings.ToLower(w)
+		if uiLiteralAllowedWords[lw] || fixtureWords[lw] {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func collectEnglishLabelsInView(v *nsgotest.View, fixtureWords map[string]bool, out *[]string) {
+	if v == nil {
+		return
+	}
+	// Skip editable user-drafted release-notes text (content of release-notes.md, not editor chrome).
+	if v.Props.TestID == "build-release-notes" {
+		return
+	}
+	check := func(kind, val string) {
+		if val == "" {
+			return
+		}
+		if !isAllowedChineseScreenText(val, fixtureWords) {
+			*out = append(*out, fmt.Sprintf("%s(id=%q): %q", kind, v.Props.TestID, val))
+		}
+	}
+	check("Text", v.Text)
+	check("Label", v.Props.Label)
+	check("Hint", v.Props.Hint)
+	for _, child := range v.Children {
+		collectEnglishLabelsInView(child, fixtureWords, out)
+	}
+}
+
+// #1503 Acceptance 1: With the language set to Chinese, mount the Start screen, Build and release,
+// every Settings page, Profiler, and Remote, and verify no English label leaks outside the allowlist.
+func TestEditorChineseScreensHaveNoEnglishLabels(t *testing.T) {
+	// Fixture-specific user data (project/scene/entity/action/bus/file/command names from test fixtures).
+	fixtureWords := map[string]bool{
+		// Fixture project/scene/object/component/input/audio/export names
+		"demo":       true,
+		"hero":       true,
+		"world":      true,
+		"title":      true,
+		"main":       true,
+		"level":      true,
+		"slime":      true,
+		"knight":     true,
+		"coin":       true,
+		"player":     true,
+		"enemy":      true,
+		"boss":       true,
+		"bg":         true,
+		"fg":         true,
+		"actors":     true,
+		"tiles":      true,
+		"props":      true,
+		"jump":       true,
+		"move":       true,
+		"attack":     true,
+		"pause":      true,
+		"master":     true,
+		"music":      true,
+		"sfx":        true,
+		"effects":    true,
+		"voice":      true,
+		"speed":      true,
+		"health":     true,
+		"hp":         true,
+		"transform":  true,
+		"sprite":     true,
+		"collider":   true,
+		"rigidbody":  true,
+		"body":       true,
+		"pos":        true,
+		"vel":        true,
+		"rot":        true,
+		"scale":      true,
+		"my":         true,
+		"game":       true,
+		"starter":    true,
+		"example":    true,
+		"com":        true,
+		"dev":        true,
+		"var":        true,
+		"tmp":        true,
+		"users":      true,
+		"folders":    true,
+		"games":      true,
+		"scenes":     true,
+		"assets":     true,
+		"art":        true,
+		"data":       true,
+		"build":      true,
+		"dist":       true,
+		"space":      true,
+		"south":      true,
+		"west":       true,
+		"start":      true,
+		"dpadleft":   true,
+		"escape":     true,
+		"left":       true,
+		"right":      true,
+		"up":         true,
+		"down":       true,
+		"ctrl":       true,
+		"meta":       true,
+		"super":      true,
+		"backspace":  true,
+		"delete":     true,
+		"home":       true,
+		"end":        true,
+		"pageup":     true,
+		"pagedown":   true,
+		"arm":        true,
+		"amd":        true,
+		"universal":  true,
+		"macos":      true,
+		"sonnet":     true,
+		"opus":       true,
+		"haiku":      true,
+		"gpt":        true,
+		"o3":         true,
+		"mini":       true,
+		"llama":      true,
+		"qwen":       true,
+		"deepseek":   true,
+		"mcp":        true,
+		"gamecheck":  true,
+		"playtest":   true,
+		"playtests":  true,
+		"dungeon":    true,
+		"run":        true,
+		"dungeonrun": true,
+		"default":    true,
+		"code":       true,
+		"fast":       true,
+		"room":       true,
+		"overlay":    true,
+		"entity":     true,
+		"airborne":   true,
+		"sword":      true,
+		"prefabs":    true,
+	}
+
+	assertNoEnglish := func(t *testing.T, name string, v *nsgotest.View) {
+		t.Helper()
+		if v == nil {
+			t.Fatalf("%s: root view not found", name)
+		}
+		var leaks []string
+		collectEnglishLabelsInView(v, fixtureWords, &leaks)
+		if len(leaks) > 0 {
+			limit := min(len(leaks), 30)
+			t.Errorf("%s: found %d English label(s) while language=zh:\n  %s", name, len(leaks), strings.Join(leaks[:limit], "\n  "))
+		}
+	}
+
+	// 1. Start screen.
+	t.Run("StartScreen", func(t *testing.T) {
+		ed, err := editor.New(nil, testResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = ed.SetLanguage(editor.LanguageChinese)
+		ed.SetStartScreenOpen(true)
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			return editor.EditorView(cx, ed)
+		}, nsgotest.Size(1440, 900))
+		app.Settle()
+		assertNoEnglish(t, "StartScreen", app.Find("id:editor-start-screen"))
+	})
+
+	// Shared project fixture for Build & Release, all Settings pages, and Profiler.
+	// Keep all app.Post/Settle calls on the goroutine that owns the nsgotest.App reactive graph.
+	dir := writeProjectSettingsFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ed.SetLanguage(editor.LanguageChinese)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	// 2. Build and release screen.
+	app.Post(func() {
+		if err := ed.OpenBuildReleaseScreen(); err != nil {
+			t.Errorf("OpenBuildReleaseScreen: %v", err)
+		}
+	})
+	app.Settle()
+	assertNoEnglish(t, "BuildAndRelease", app.Find("id:build-release-screen"))
+	app.Post(func() { ed.CloseBuildReleaseScreen() })
+	app.Settle()
+
+	// 3. Every Settings page (Agent, Project, and Editor pages).
+	settingsPages := []struct {
+		name string
+		page editor.SettingsPage
+	}{
+		{"Settings/General", editor.SettingsPageGeneral},
+		{"Settings/Viewport", editor.SettingsPageViewport},
+		{"Settings/Shortcuts", editor.SettingsPageShortcuts},
+		{"Settings/Models", editor.SettingsPageModels},
+		{"Settings/Permissions", editor.SettingsPagePermissions},
+		{"Settings/Brief", editor.SettingsPageBrief},
+		{"Settings/Rules", editor.SettingsPageRules},
+		{"Settings/Tools", editor.SettingsPageTools},
+		{"Settings/Automations", editor.SettingsPageAutomations},
+		{"Settings/Usage", editor.SettingsPageUsage},
+		{"Settings/Project", editor.SettingsPageProject},
+		{"Settings/Input", editor.SettingsPageInput},
+		{"Settings/Audio", editor.SettingsPageAudio},
+		{"Settings/Export", editor.SettingsPageExport},
+	}
+	for _, sp := range settingsPages {
+		app.Post(func() { ed.OpenSettingsPage(sp.page) })
+		app.Settle()
+		assertNoEnglish(t, sp.name, app.Find("id:settings-view"))
+	}
+	app.Post(func() { ed.CloseSettings() })
+	app.Settle()
+
+	// 4. Profiler panel.
+	app.Post(func() { ed.SetProfilerOpen(true) })
+	app.Settle()
+	assertNoEnglish(t, "Profiler", app.Find("id:profiler-panel"))
+	app.Post(func() { ed.SetProfilerOpen(false) })
+	app.Settle()
+
+	// 5. Remote play bar, Remote scene tree, and Remote inspector.
+	t.Run("Remote", func(t *testing.T) {
+		fg, doc := newFixtureRemoteGame(t)
+		remEd, err := editor.New(doc, testResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = remEd.SetLanguage(editor.LanguageChinese)
+		remEd.RemoteRefreshInterval = 5 * time.Second
+		t.Cleanup(func() { _ = remEd.Close() })
+
+		remApp := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			return editor.EditorView(cx, remEd)
+		}, nsgotest.Size(1440, 900))
+		if err := remEd.ConnectRemote(context.Background(), fg.startInMemoryServer(t)); err != nil {
+			t.Fatalf("ConnectRemote: %v", err)
+		}
+		remApp.Settle()
+		assertNoEnglish(t, "Remote/PlayBar", remApp.Find("id:remote-play-bar"))
+		assertNoEnglish(t, "Remote/SceneTree", remApp.Find("id:remote-scene-tree-panel"))
+		if remApp.Exists("id:remote-inspector-panel") {
+			assertNoEnglish(t, "Remote/Inspector", remApp.Find("id:remote-inspector-panel"))
+		}
+	})
 }

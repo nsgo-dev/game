@@ -20,6 +20,7 @@ import (
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/image/webp"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -443,7 +444,7 @@ func (e *Editor) AttachAgentReferenceBytes(name string, data []byte) (AgentRefer
 		return AgentReferenceImage{}, errors.New("editor: agent is disabled")
 	}
 	if len(e.agent.attachedImages) >= maxAgentAttachedImages {
-		err := fmt.Errorf("cannot attach more than %d reference images to one request", maxAgentAttachedImages)
+		err := errors.New(e.T("agentRefExtra.errTooMany", l10n.Param("max", maxAgentAttachedImages)))
 		e.agent.attachErr = err.Error()
 		e.Status = err.Error()
 		e.notify()
@@ -466,7 +467,7 @@ func (e *Editor) AttachAgentReferenceBytes(name string, data []byte) (AgentRefer
 	}
 	e.agent.attachedImages = append(e.agent.attachedImages, img)
 	e.agent.attachErr = ""
-	e.Status = fmt.Sprintf("Attached %s for this request", img.Name)
+	e.Status = e.T("agentRefExtra.statusAttached", l10n.Param("name", img.Name))
 	e.notify()
 	return img.clone(), nil
 }
@@ -485,7 +486,7 @@ func (e *Editor) AttachAgentReferenceFile(pathOrURI string) (AgentReferenceImage
 	}
 	raw := strings.TrimSpace(pathOrURI)
 	if raw == "" {
-		err := errors.New("cannot attach empty file path: only PNG, JPEG, or WebP images are supported")
+		err := errors.New(e.T("agentRefExtra.errEmptyPath"))
 		e.agent.attachErr = err.Error()
 		e.notify()
 		return AgentReferenceImage{}, err
@@ -500,7 +501,7 @@ func (e *Editor) AttachAgentReferenceFile(pathOrURI string) (AgentReferenceImage
 	base := filepath.Base(localPath)
 	// Fast-fail clearly on obviously unsupported extensions before reading huge files, while still validating magic bytes for image extensions.
 	if ext := strings.ToLower(path.Ext(base)); ext != "" && ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".webp" {
-		err := formatRefAttachError(base, ext, "only PNG, JPEG, or WebP images are supported")
+		err := errors.New(e.T("agentRefExtra.errUnsupportedExt", l10n.Param("name", quoteDisplayName(base)), l10n.Param("ext", ext)))
 		e.agent.attachErr = err.Error()
 		e.Status = err.Error()
 		e.notify()
@@ -516,7 +517,7 @@ func (e *Editor) AttachAgentReferenceFile(pathOrURI string) (AgentReferenceImage
 		return AgentReferenceImage{}, refErr
 	}
 	if !info.Mode().IsRegular() {
-		refErr := formatRefAttachError(base, "not a regular file", "only PNG, JPEG, or WebP images are supported")
+		refErr := errors.New(e.T("agentRefExtra.errNotRegularFile", l10n.Param("name", quoteDisplayName(base))))
 		e.agent.attachErr = refErr.Error()
 		e.Status = refErr.Error()
 		e.notify()
@@ -743,9 +744,9 @@ func (e *Editor) PickAndAttachAgentReferenceImages() {
 	cx.PickFiles(core.PickFilesOptions{
 		Multiple:  true,
 		Types:     []string{"image/png", "image/jpeg", "image/webp", ".png", ".jpg", ".jpeg", ".webp"},
-		TypesName: "Images (PNG, JPEG, WebP)",
-		Title:     "Attach reference image",
-		Button:    "Attach",
+		TypesName: e.T("agentRefExtra.pickerTypesName"),
+		Title:     e.T("agentRefExtra.pickerTitle"),
+		Button:    e.T("agentRefExtra.pickerButton"),
 		Start:     startDir,
 	}, func(files []core.File, err error) {
 		if err != nil || len(files) == 0 || cx.Disposed() || e.playing || e.agent.mode == AgentModeNone || e.agentProjectRoot() != startDir {
@@ -1097,7 +1098,7 @@ func (e *Editor) PinAgentReferenceImage(id, note string) (BriefPinNotice, error)
 	cmd := &pinReferenceImageCmd{
 		ed:            e,
 		rootDir:       root,
-		label:         fmt.Sprintf("Pin %s to brief", notice.Name),
+		label:         e.T("agentRefExtra.pinHistoryLabel", l10n.Param("name", notice.Name)),
 		imageID:       id,
 		relPath:       relPath,
 		absImagePath:  absImagePath,
@@ -1407,7 +1408,7 @@ func (c *pinReferenceImageCmd) do() error {
 	noticeCopy.Diff = slices.Clone(c.notice.Diff)
 	c.ed.agent.lastPinNotice = &noticeCopy
 	c.ed.agent.lastPinCmd = c
-	c.ed.Status = fmt.Sprintf("Pinned %s to brief.yaml", c.notice.Name)
+	c.ed.Status = c.ed.T("agentRefExtra.statusPinned", l10n.Param("name", c.notice.Name))
 	c.refreshProjectAfterPin()
 	return nil
 }
@@ -1442,7 +1443,7 @@ func (c *pinReferenceImageCmd) undo() error {
 		c.ed.agent.lastPinNotice = nil
 		c.ed.agent.lastPinCmd = nil
 	}
-	c.ed.Status = fmt.Sprintf("Undid pin of %s", c.notice.Name)
+	c.ed.Status = c.ed.T("agentRefExtra.statusUndidPin", l10n.Param("name", c.notice.Name))
 	c.refreshProjectAfterPin()
 	return nil
 }

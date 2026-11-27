@@ -141,12 +141,12 @@ func (e *Editor) TilePalette() TilePalette {
 	p := TilePalette{Layer: e.ActiveLayer}
 	li := e.layerIndex(e.ActiveLayer)
 	if e.Doc == nil || li < 0 {
-		p.Message = "No layer is selected"
+		p.Message = e.T("tilePaletteExtra.noLayerSelected")
 		return p
 	}
 	tm := e.inlineTilemapForLayer(&e.Doc.Layers[li])
 	if tm == nil {
-		p.Message = fmt.Sprintf("Layer %q has no inline tilemap to paint", e.ActiveLayer)
+		p.Message = e.T("tilePaletteExtra.noInlineTilemap", l10n.Param("layer", strconv.Quote(e.ActiveLayer)))
 		return p
 	}
 	if tm.HasTilesetFile() || tm.IsLayered() {
@@ -154,15 +154,15 @@ func (e *Editor) TilePalette() TilePalette {
 	}
 	p.Tileset, p.TileWidth, p.TileHeight = tm.Tileset, tm.TileWidth, tm.TileHeight
 	if e.Resolver == nil {
-		p.Message = fmt.Sprintf("Tileset %q cannot be resolved: the editor has no asset resolver", tm.Tileset)
+		p.Message = e.T("tilePaletteExtra.noResolver", l10n.Param("tileset", strconv.Quote(tm.Tileset)))
 		return p
 	}
 	atlas, err := e.Resolver.Atlas(tm.Tileset)
 	if err != nil || atlas == nil {
 		if err == nil {
-			err = fmt.Errorf("the resolver returned no atlas")
+			err = fmt.Errorf("%s", e.T("tilePaletteExtra.noAtlasReturned"))
 		}
-		p.Message = fmt.Sprintf("Tileset %q cannot be resolved: %v", tm.Tileset, err)
+		p.Message = e.T("tilePaletteExtra.resolveErr", l10n.Param("tileset", strconv.Quote(tm.Tileset)), l10n.Param("err", err))
 		return p
 	}
 	for name, f := range atlas.Frames {
@@ -182,7 +182,7 @@ func (e *Editor) TilePalette() TilePalette {
 	}
 	slices.SortFunc(p.Tiles, func(a, b PaletteTile) int { return a.ID - b.ID })
 	if len(p.Tiles) == 0 {
-		p.Message = fmt.Sprintf("Tileset %q has no tile frames (frames named 1, 2, ...)", tm.Tileset)
+		p.Message = e.T("tilePaletteExtra.noTileFrames", l10n.Param("tileset", strconv.Quote(tm.Tileset)))
 		return p
 	}
 	p.Columns = paletteWrapColumns(p.TileWidth, len(p.Tiles))
@@ -198,7 +198,7 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 	p.TileLayer = e.tileLayerName(tm)
 	doc, err := e.loadTilesetDoc(tm.TilesetFile)
 	if err != nil {
-		p.Message = fmt.Sprintf("Tileset %q cannot be read: %v", tm.TilesetFile, err)
+		p.Message = e.T("tilePaletteExtra.readErr", l10n.Param("tileset", strconv.Quote(tm.TilesetFile)), l10n.Param("err", err))
 		return p
 	}
 	for _, td := range doc.Terrains {
@@ -214,20 +214,20 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 	var atlas *sprite.Atlas
 	if doc.Atlas != "" {
 		if e.Resolver == nil {
-			p.Message = fmt.Sprintf("Tileset %q atlas %q cannot be resolved: the editor has no asset resolver", tm.TilesetFile, doc.Atlas)
+			p.Message = e.T("tilePaletteExtra.atlasNoResolver", l10n.Param("tileset", strconv.Quote(tm.TilesetFile)), l10n.Param("atlas", strconv.Quote(doc.Atlas)))
 			return p
 		}
 		if atlas, err = e.Resolver.Atlas(doc.Atlas); err == nil && atlas == nil {
-			err = fmt.Errorf("the resolver returned no atlas")
+			err = fmt.Errorf("%s", e.T("tilePaletteExtra.noAtlasReturned"))
 		}
 		if err != nil {
-			p.Message = fmt.Sprintf("Tileset %q atlas %q cannot be resolved: %v", tm.TilesetFile, doc.Atlas, err)
+			p.Message = e.T("tilePaletteExtra.atlasResolveErr", l10n.Param("tileset", strconv.Quote(tm.TilesetFile)), l10n.Param("atlas", strconv.Quote(doc.Atlas)), l10n.Param("err", err))
 			return p
 		}
 		img = atlas.Image
 	} else if ir, ok := e.Resolver.(sceneformat.ImageResolver); ok {
 		if img, err = ir.Image(doc.Image); err != nil {
-			p.Message = fmt.Sprintf("Tileset %q image %q cannot be resolved: %v", tm.TilesetFile, doc.Image, err)
+			p.Message = e.T("tilePaletteExtra.imageResolveErr", l10n.Param("tileset", strconv.Quote(tm.TilesetFile)), l10n.Param("image", strconv.Quote(doc.Image)), l10n.Param("err", err))
 			return p
 		}
 	} else if fr, ok := e.Resolver.(sceneformat.FileResolver); ok {
@@ -280,7 +280,7 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 		}
 	}
 	if len(p.Tiles) == 0 {
-		p.Message = fmt.Sprintf("Tileset %q has no tiles", tm.TilesetFile)
+		p.Message = e.T("tilePaletteExtra.noTiles", l10n.Param("tileset", strconv.Quote(tm.TilesetFile)))
 		return p
 	}
 	if doc.Columns > 0 {
@@ -447,7 +447,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				}
 				tiles = append(tiles, base.Button{
 					TestID: fmt.Sprintf("tile-palette-%d", tile.ID),
-					Label:  fmt.Sprintf("Tile %d", tile.Number),
+					Label:  ed.T("tilePaletteExtra.tileLabel", l10n.Param("number", tile.Number)),
 					OnPress: func(ev core.PressEvent) {
 						if mode == ToolRandomTile {
 							ed.ToggleRandomBrushTile(tile.ID)
@@ -623,10 +623,10 @@ func tileBrushBar(ed *Editor, rev *core.Signal[uint64]) core.Node {
 		Style:  core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
 		Children: []core.Node{
 			brushBtn("tool-pick", ed.T("toolbar.pick"), ed.T("cmd.toolPickTile.label"), ToolPickTile),
-			brushBtn("tool-rect", "Rect", "Rectangle tile brush (U)", ToolRectTile),
-			brushBtn("tool-line", "Line", "Line tile brush (L)", ToolLineTile),
-			brushBtn("tool-stamp", "Stamp", "Stamp tile brush (C)", ToolStampTile),
-			brushBtn("tool-random", "Random", "Random tile brush (N)", ToolRandomTile),
+			brushBtn("tool-rect", ed.T("tilePaletteExtra.brushRect"), ed.T("tilePaletteExtra.brushRectLabel"), ToolRectTile),
+			brushBtn("tool-line", ed.T("tilePaletteExtra.brushLine"), ed.T("tilePaletteExtra.brushLineLabel"), ToolLineTile),
+			brushBtn("tool-stamp", ed.T("tilePaletteExtra.brushStamp"), ed.T("tilePaletteExtra.brushStampLabel"), ToolStampTile),
+			brushBtn("tool-random", ed.T("tilePaletteExtra.brushRandom"), ed.T("tilePaletteExtra.brushRandomLabel"), ToolRandomTile),
 		},
 	}
 }
@@ -642,9 +642,9 @@ func tileStampControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ran
 				ContentFunc: func() string {
 					_ = rev.Get()
 					if s, ok := ed.TileStamp(); ok {
-						return fmt.Sprintf("Stamp: %dx%d", s.Width, s.Height)
+						return ed.T("tilePaletteExtra.stampSize", l10n.Param("width", s.Width), l10n.Param("height", s.Height))
 					}
-					return "Stamp: 1x1 (right-drag map to select)"
+					return ed.T("tilePaletteExtra.stampDefault")
 				},
 				Style: core.Style{FontSize: 11, Color: colors.Muted()},
 			},
@@ -653,8 +653,8 @@ func tileStampControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ran
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "tile-stamp-copy",
-						Text:    "Copy",
-						Label:   "Copy selected tile region",
+						Text:    ed.T("tilePaletteExtra.copy"),
+						Label:   ed.T("tilePaletteExtra.copyLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -669,8 +669,8 @@ func tileStampControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ran
 					},
 					ui.Button{
 						TestID:  "tile-stamp-cut",
-						Text:    "Cut",
-						Label:   "Cut selected tile region",
+						Text:    ed.T("tilePaletteExtra.cut"),
+						Label:   ed.T("tilePaletteExtra.cutLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -685,8 +685,8 @@ func tileStampControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ran
 					},
 					ui.Button{
 						TestID:  "tile-stamp-paste",
-						Text:    "Paste",
-						Label:   "Paste tile clipboard",
+						Text:    ed.T("tilePaletteExtra.paste"),
+						Label:   ed.T("tilePaletteExtra.pasteLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -701,8 +701,8 @@ func tileStampControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ran
 					},
 					ui.ToggleButton{
 						TestID: "tile-stamp-range",
-						Text:   "Rect",
-						Label:  "Extend palette stamp rectangle on next tile press",
+						Text:   ed.T("tilePaletteExtra.stampRect"),
+						Label:  ed.T("tilePaletteExtra.stampRectLabel"),
 						On:     rangeSelect.Get,
 						OnChange: func(on bool) {
 							rangeSelect.Set(on)
@@ -710,8 +710,8 @@ func tileStampControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ran
 					},
 					ui.Button{
 						TestID:  "tile-stamp-clear",
-						Text:    "Clear",
-						Label:   "Clear active stamp and selection",
+						Text:    ed.T("tilePaletteExtra.clear"),
+						Label:   ed.T("tilePaletteExtra.clearLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						Disabled: func() bool {
@@ -745,7 +745,7 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 		v, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil {
-			ed.report(fmt.Errorf("editor: invalid random seed %q", raw))
+			ed.report(fmt.Errorf("%s", ed.T("tilePaletteExtra.errInvalidSeed", l10n.Param("value", strconv.Quote(raw)))))
 			seedDraft.Set(strconv.FormatUint(ed.RandomBrushSeed(), 10))
 			return
 		}
@@ -767,12 +767,12 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				Gap: 6,
 				Children: []core.Node{
 					core.Text{
-						Content: "Seed",
+						Content: ed.T("tilePaletteExtra.seed"),
 						Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 					},
 					ui.Input{
 						TestID:   "tile-random-seed",
-						Label:    "Random brush seed",
+						Label:    ed.T("tilePaletteExtra.seedLabel"),
 						Value:    seedDraft.Get,
 						OnChange: func(v string) { seedDraft.Set(v) },
 						OnSubmit: commitSeed,
@@ -787,7 +787,7 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				if len(pool) == 0 {
 					return core.Text{
 						TestID:  "tile-random-empty",
-						Content: "Click tiles below to build weighted pool",
+						Content: ed.T("tilePaletteExtra.randomEmpty"),
 						Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 					}
 				}
@@ -806,7 +806,7 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							ui.Button{
 								TestID:  fmt.Sprintf("tile-random-dec-%d", tid),
 								Text:    "-",
-								Label:   fmt.Sprintf("Decrease weight for tile %d", tid),
+								Label:   ed.T("tilePaletteExtra.randomDecLabel", l10n.Param("tile", tid)),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								OnPress: func() {
@@ -817,7 +817,7 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							ui.Button{
 								TestID:  fmt.Sprintf("tile-random-inc-%d", tid),
 								Text:    "+",
-								Label:   fmt.Sprintf("Increase weight for tile %d", tid),
+								Label:   ed.T("tilePaletteExtra.randomIncLabel", l10n.Param("tile", tid)),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								OnPress: func() {
@@ -827,7 +827,7 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							ui.Button{
 								TestID:  fmt.Sprintf("tile-random-remove-%d", tid),
 								Text:    "×",
-								Label:   fmt.Sprintf("Remove tile %d from random pool", tid),
+								Label:   ed.T("tilePaletteExtra.randomRemoveLabel", l10n.Param("tile", tid)),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								OnPress: func() {
@@ -902,8 +902,8 @@ func tileLayerControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p T
 	}
 	rowChildren = append(rowChildren, ui.Button{
 		TestID:  "tile-palette-edit-tileset",
-		Text:    "Edit Tileset",
-		Label:   "Open this layer's tileset in the Tileset Editor",
+		Text:    ed.T("tilePaletteExtra.editTileset"),
+		Label:   ed.T("tilePaletteExtra.editTilesetLabel"),
 		Size:    ui.SizeSmall,
 		Variant: ui.ButtonSecondary,
 		Disabled: func() bool {
@@ -922,14 +922,14 @@ func tileLayerControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p T
 		tBtns := make([]core.Node, 0, len(p.Terrains))
 		for _, t := range p.Terrains {
 			terrain := t
-			modeTag := "4-bit"
+			modeTag := ed.T("tilePaletteExtra.mode4Bit")
 			if terrain.Mode == "blob" {
-				modeTag = "8-bit"
+				modeTag = ed.T("tilePaletteExtra.mode8Bit")
 			}
 			tBtns = append(tBtns, ui.ToggleButton{
 				TestID: "tile-terrain-" + terrain.Name,
-				Text:   fmt.Sprintf("%s (%s)", terrain.Name, modeTag),
-				Label:  "Paint terrain " + terrain.Name,
+				Text:   ed.T("tilePaletteExtra.terrainItem", l10n.Param("name", terrain.Name), l10n.Param("mode", modeTag)),
+				Label:  ed.T("tilePaletteExtra.paintTerrainLabel", l10n.Param("name", terrain.Name)),
 				On: func() bool {
 					return p.ActiveTerrain == terrain.Name
 				},
@@ -948,19 +948,34 @@ func tileLayerControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p T
 	} else if ed.Tool == ToolTerrain {
 		children = append(children, core.Text{
 			TestID:  "tile-terrain-empty",
-			Content: "No terrain sets defined. Press Edit Tileset to add one.",
+			Content: ed.T("tilePaletteExtra.noTerrains"),
 			Style:   core.Style{FontSize: 11, Color: spec.TextFaint},
 		})
 	}
 	children = append(children, core.Text{
 		TestID:  "tile-palette-rules-note",
-		Content: "Rules for collision, terrain and variants live in the tileset file.",
+		Content: ed.T("tilePaletteExtra.rulesNote"),
 		Style:   core.Style{FontSize: 11, Color: spec.TextFaint},
 	})
 	return core.View{
 		TestID:   "tile-layer-controls",
 		Style:    core.Style{Gap: 6},
 		Children: children,
+	}
+}
+
+func localizedPaletteCollision(ed *Editor, coll string) string {
+	switch coll {
+	case "none":
+		return ed.T("tilePaletteExtra.collNone")
+	case "solid":
+		return ed.T("tilePaletteExtra.collSolid")
+	case "one-way top":
+		return ed.T("tilePaletteExtra.collOneWayTop")
+	case "shapes":
+		return ed.T("tilePaletteExtra.collShapes")
+	default:
+		return coll
 	}
 }
 
@@ -975,12 +990,12 @@ func tilePaletteSelectedCard(cx *core.Scope, ed *Editor, palette *core.Memo[Tile
 		spec := ed.SpecPalette(cx)
 		name := tile.Name
 		if name == "" {
-			name = fmt.Sprintf("Tile %d", tile.Number)
+			name = ed.T("tilePaletteExtra.tileLabel", l10n.Param("number", tile.Number))
 		}
 		var parts []string
-		parts = append(parts, fmt.Sprintf("cell %d, %d", tile.Col, tile.Row))
+		parts = append(parts, ed.T("tilePaletteExtra.cellCoords", l10n.Param("col", tile.Col), l10n.Param("row", tile.Row)))
 		if tile.Collision != "" {
-			parts = append(parts, tile.Collision)
+			parts = append(parts, localizedPaletteCollision(ed, tile.Collision))
 		}
 		if tile.Terrain != "" {
 			parts = append(parts, tile.Terrain)

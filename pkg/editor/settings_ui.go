@@ -420,7 +420,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	navFontSize := settingsScaledFont(12.5, scale)
 	metaFontSize := settingsScaledFont(11, scale)
 
-	navRowWithIDs := func(page SettingsPage, btnTestID, metaTestID, labelKey, fallbackLabel string, metaFunc func() (string, bool), disabled func() bool) core.Node {
+	navRowWithIDs := func(page SettingsPage, btnTestID, metaTestID, labelKey string, metaFunc func() (string, bool), disabled func() bool) core.Node {
 		if btnTestID == "" {
 			btnTestID = "settings-nav-" + string(page)
 		}
@@ -459,10 +459,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							Disabled: disabled,
 							TextFunc: func() string {
 								_ = langMemo.Get()
-								label := fallbackLabel
-								if labelKey != "" {
-									label = ed.T(labelKey)
-								}
+								label := ed.T(labelKey)
 								if page == SettingsPageShortcuts {
 									_ = rev.Get()
 									if n := len(ed.Settings().Shortcuts); n > 0 {
@@ -473,10 +470,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							LabelFunc: func() string {
 								_ = langMemo.Get()
-								lbl := fallbackLabel
-								if labelKey != "" {
-									lbl = ed.T(labelKey)
-								}
+								lbl := ed.T(labelKey)
 								if page == SettingsPageShortcuts {
 									_ = rev.Get()
 									if n := len(ed.Settings().Shortcuts); n > 0 {
@@ -551,8 +545,8 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		}
 	}
 
-	navRow := func(page SettingsPage, labelKey, fallbackLabel string, metaFunc func() (string, bool), disabled func() bool) core.Node {
-		return navRowWithIDs(page, "", "", labelKey, fallbackLabel, metaFunc, disabled)
+	navRow := func(page SettingsPage, labelKey string, metaFunc func() (string, bool), disabled func() bool) core.Node {
+		return navRowWithIDs(page, "", "", labelKey, metaFunc, disabled)
 	}
 
 	noProject := func() bool {
@@ -571,7 +565,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	sidebar := core.View{
 		TestID: "settings-sidebar",
 		Role:   core.RoleNavigation,
-		Label:  "Settings pages",
+		Label:  ed.T("settings.sidebarLabel"),
 		Style: core.Style{
 			Width:       settingsScaledLen(248, scale),
 			FlexShrink:  0,
@@ -648,12 +642,12 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								_ = langMemo.Get()
 								return ed.T("settings.sectionAgent")
 							}),
-							navRow(SettingsPageModels, "settings.page.models", "Models and connections", func() (string, bool) {
+							navRow(SettingsPageModels, "settings.page.models", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								return ed.T("settings.models.metaOn", l10n.Param("n", ed.AgentActiveConnectionCount())), false
 							}, nil),
-							navRow(SettingsPagePermissions, "permissions.title", "Permissions", func() (string, bool) {
+							navRow(SettingsPagePermissions, "permissions.title", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								perms := ed.Permissions()
@@ -663,7 +657,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								}
 								return meta, false
 							}, nil),
-							navRowWithIDs(SettingsPageBrief, "editor-settings-tab-brief", "editor-settings-tab-brief-meta", "settings.brief", "Game brief", func() (string, bool) {
+							navRowWithIDs(SettingsPageBrief, "editor-settings-tab-brief", "editor-settings-tab-brief-meta", "settings.brief", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								if !ed.BriefExists() {
@@ -678,19 +672,19 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								}
 								return ed.T("settings.briefManyGaps", l10n.Param("count", gaps)), true
 							}, nil),
-							navRowWithIDs(SettingsPageRules, "editor-settings-tab-rules", "editor-settings-tab-rules-meta", "settings.rules", "Project rules", func() (string, bool) {
+							navRowWithIDs(SettingsPageRules, "editor-settings-tab-rules", "editor-settings-tab-rules-meta", "settings.rules", func() (string, bool) {
 								_ = rev.Get()
 								if n := ed.ProjectRulesCount(); n > 0 {
 									return fmt.Sprintf("%d", n), false
 								}
 								return "", false
 							}, nil),
-							navRow(SettingsPageTools, "settings.page.tools", "Tools", func() (string, bool) {
+							navRow(SettingsPageTools, "settings.page.tools", func() (string, bool) {
 								_ = rev.Get()
 								en, total := ed.EnabledMCPToolCount()
 								return fmt.Sprintf("%d / %d", en, total), false
 							}, nil),
-							navRow(SettingsPageAutomations, "settings.page.automations", "Automations", func() (string, bool) {
+							navRow(SettingsPageAutomations, "settings.page.automations", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								if ed.AutomationsPausedToday() {
@@ -701,7 +695,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								}
 								return "", false
 							}, nil),
-							navRow(SettingsPageUsage, "settings.page.usage", "Usage and privacy", nil, nil),
+							navRow(SettingsPageUsage, "settings.page.usage", nil, nil),
 						},
 					}
 				},
@@ -721,7 +715,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								_ = langMemo.Get()
 								return ed.T("settings.sectionProject")
 							}),
-							navRow(SettingsPageProject, "settings.page.project", "Project", func() (string, bool) {
+							navRow(SettingsPageProject, "settings.page.project", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								if ed.ProjectDirty() {
@@ -729,21 +723,21 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								}
 								return "", false
 							}, noProject),
-							navRow(SettingsPageInput, "settings.page.input", "Input map", func() (string, bool) {
+							navRow(SettingsPageInput, "settings.page.input", func() (string, bool) {
 								_ = rev.Get()
 								if n := len(ed.InputActions()); n > 0 {
 									return fmt.Sprintf("%d", n), false
 								}
 								return "", false
 							}, noProject),
-							navRow(SettingsPageAudio, "settings.page.audio", "Audio buses", func() (string, bool) {
+							navRow(SettingsPageAudio, "settings.page.audio", func() (string, bool) {
 								_ = rev.Get()
 								if n := len(ed.AudioBuses()); n > 0 {
 									return fmt.Sprintf("%d", n), false
 								}
 								return "", false
 							}, noProject),
-							navRow(SettingsPageExport, "settings.page.export", "Export", func() (string, bool) {
+							navRow(SettingsPageExport, "settings.page.export", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								if warn := ed.ExportNavWarningMeta(); warn != "" {
@@ -772,7 +766,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								_ = langMemo.Get()
 								return ed.T("settings.sectionEditor")
 							}),
-							navRow(SettingsPageGeneral, "settings.page.general", "General", func() (string, bool) {
+							navRow(SettingsPageGeneral, "settings.page.general", func() (string, bool) {
 								_ = rev.Get()
 								_ = langMemo.Get()
 								switch ed.Appearance() {
@@ -784,13 +778,13 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									return ed.T("settings.system"), false
 								}
 							}, nil),
-							navRow(SettingsPageViewport, "settings.page.viewport", "Viewport", func() (string, bool) {
+							navRow(SettingsPageViewport, "settings.page.viewport", func() (string, bool) {
 								_ = rev.Get()
 								step := ed.EffectiveGridSize()
 								deg := ed.EffectiveRotationSnapDeg()
 								return fmt.Sprintf("%s px · %s°", formatSettingsStep(step), formatSettingsStep(deg)), false
 							}, nil),
-							navRowWithIDs(SettingsPageShortcuts, "editor-settings-tab-shortcuts", "settings-nav-shortcuts-meta", "settings.shortcuts", "Shortcuts", nil, nil),
+							navRowWithIDs(SettingsPageShortcuts, "editor-settings-tab-shortcuts", "settings-nav-shortcuts-meta", "settings.shortcuts", nil, nil),
 						},
 					}
 				},
@@ -1231,7 +1225,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	return core.View{
 		TestID: "settings-view",
 		Role:   core.RoleRegion,
-		Label:  "Settings",
+		Label:  ed.T("settings.navTitle"),
 		Style: core.Style{
 			Position:   core.Absolute,
 			Top:        core.Pt(0),
@@ -2031,18 +2025,11 @@ func settingsSectionLabelDynamic(p SpecPalette, textFunc func() string) core.Nod
 }
 
 func settingsPolicyBadge(p SpecPalette, ed *Editor, policy settingsAgentPolicy) core.Node {
-	text := "You only"
+	text := ed.T("settings.policyYouOnly")
 	color := p.TextFaint
 	if policy == policyAgentMayChange {
-		text = "Agent may change"
+		text = ed.T("settings.policyAgent")
 		color = p.Agent.Fg
-	}
-	if ed != nil {
-		if policy == policyAgentMayChange {
-			text = ed.T("settings.policyAgent")
-		} else {
-			text = ed.T("settings.policyYouOnly")
-		}
 	}
 	return core.Text{
 		Content: text,

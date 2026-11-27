@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -48,6 +49,8 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		} else {
 			b.WriteString("|L")
 		}
+		b.WriteByte('|')
+		b.WriteString(ed.ResolvedLanguage())
 		if ed.table.loading {
 			b.WriteString("|loading")
 		}
@@ -70,14 +73,14 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	})
 
 	header := specPanelHeader(p,
-		specPanelTitle(p, "", lucide.Table2, "Data Table", nil),
+		specPanelTitle(p, "", lucide.Table2, ed.T("datatable.title"), nil),
 		core.Text{
 			TestID: "datatable-path",
 			ContentFunc: func() string {
 				_ = rev.Get()
 				path := ed.DataTablePath()
 				if path == "" {
-					return "Untitled"
+					return ed.T("datatable.untitled")
 				}
 				name := filepath.Base(path)
 				if rt := ed.DataTableRowType(); rt != nil {
@@ -95,8 +98,8 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			Style: core.Style{Width: core.Pt(188)},
 			Children: []core.Node{ui.Input{
 				TestID:      "datatable-filter",
-				Label:       "Filter rows",
-				Placeholder: "Filter rows…",
+				Label:       ed.T("datatable.filterLabel"),
+				Placeholder: ed.T("datatable.filterPlaceholder"),
 				Style:       specInputStyle(p),
 				Value: func() string {
 					_ = rev.Get()
@@ -110,10 +113,10 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		core.View{Style: core.Style{FlexGrow: 1}},
 		specPanelButton(p, specPanelButtonSpec{
 			TestID:   "datatable-add-row",
-			Text:     "Add Row",
+			Text:     ed.T("datatable.addRow"),
 			Icon:     lucide.Plus,
-			Label:    "Add Row",
-			Tooltip:  "Add a new row to the data table",
+			Label:    ed.T("datatable.addRow"),
+			Tooltip:  ed.T("datatable.addRowTooltip"),
 			Variant:  specBtnSecondary,
 			Compact:  true,
 			Disabled: disabled,
@@ -123,10 +126,10 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		}),
 		specPanelButton(p, specPanelButtonSpec{
 			TestID:   "datatable-save",
-			Text:     "Save Table",
+			Text:     ed.T("datatable.saveTable"),
 			Icon:     lucide.Save,
-			Label:    "Save Table",
-			Tooltip:  specShortcutTip("Save Table", saveShortcut),
+			Label:    ed.T("datatable.saveTable"),
+			Tooltip:  specShortcutTip(ed.T("datatable.saveTable"), saveShortcut),
 			Variant:  specBtnQuiet,
 			Compact:  true,
 			Disabled: disabled,
@@ -137,8 +140,8 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		specPanelButton(p, specPanelButtonSpec{
 			TestID:   "datatable-close",
 			Icon:     lucide.X,
-			Label:    "Close Data Table",
-			Tooltip:  specShortcutTip("Close Data Table", "Esc"),
+			Label:    ed.T("datatable.closeTable"),
+			Tooltip:  specShortcutTip(ed.T("datatable.closeTable"), "Esc"),
 			Variant:  specBtnGhost,
 			Compact:  true,
 			Disabled: disabled,
@@ -158,8 +161,8 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			dismissBtn := specPanelButton(p, specPanelButtonSpec{
 				TestID:  "datatable-error-dismiss",
 				Icon:    lucide.X,
-				Label:   "Dismiss data table error",
-				Tooltip: "Dismiss error",
+				Label:   ed.T("datatable.dismissErrorLabel"),
+				Tooltip: ed.T("datatable.dismissError"),
 				Variant: specBtnGhost,
 				Compact: true,
 				OnPress: ed.ClearDataTableError,
@@ -191,7 +194,7 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			p := ed.SpecPalette(cx)
 			if ed.DataTableLoading() {
-				return specLoadingState(p, "datatable-loading", "Loading data table…")
+				return specLoadingState(p, "datatable-loading", ed.T("datatable.loading"))
 			}
 			cols := ed.DataTableColumns()
 			viewRows := ed.DataTableViewRows()
@@ -201,10 +204,10 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				if strings.TrimSpace(ed.DataTableFilter()) != "" {
 					clearBtn := specPanelButton(p, specPanelButtonSpec{
 						TestID:     "datatable-clear-filter",
-						Text:       "Clear Filter",
+						Text:       ed.T("datatable.clearFilter"),
 						Icon:       lucide.X,
-						Label:      "Clear row filter",
-						Tooltip:    "Clear row filter",
+						Label:      ed.T("datatable.clearFilterLabel"),
+						Tooltip:    ed.T("datatable.clearFilterLabel"),
 						Variant:    specBtnQuiet,
 						Compact:    true,
 						InsetFocus: true,
@@ -212,14 +215,14 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							ed.SetDataTableFilter("")
 						},
 					})
-					rows = append(rows, specEmptyState(p, "datatable-empty", lucide.SearchX, p.TextFaint, "No matching rows", "Clear the filter to show all rows.", clearBtn))
+					rows = append(rows, specEmptyState(p, "datatable-empty", lucide.SearchX, p.TextFaint, ed.T("datatable.emptyFilteredTitle"), ed.T("datatable.emptyFilteredDesc"), clearBtn))
 				} else {
 					addBtn := specPanelButton(p, specPanelButtonSpec{
 						TestID:     "datatable-empty-add",
-						Text:       "Add Row",
+						Text:       ed.T("datatable.addRow"),
 						Icon:       lucide.Plus,
-						Label:      "Add first row",
-						Tooltip:    "Add a new row to the data table",
+						Label:      ed.T("datatable.addFirstRow"),
+						Tooltip:    ed.T("datatable.addRowTooltip"),
 						Variant:    specBtnSecondary,
 						Compact:    true,
 						InsetFocus: true,
@@ -228,7 +231,7 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							_, _ = ed.AddDataTableRow()
 						},
 					})
-					rows = append(rows, specEmptyState(p, "datatable-empty", lucide.Table, p.TextFaint, "No rows yet", "Add a row to begin editing this data table.", addBtn))
+					rows = append(rows, specEmptyState(p, "datatable-empty", lucide.Table, p.TextFaint, ed.T("datatable.emptyTitle"), ed.T("datatable.emptyDesc"), addBtn))
 				}
 			} else {
 				for _, docRow := range viewRows {
@@ -239,7 +242,18 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		})},
 	}
 
-	return specPanelContainer(cx, p, "datatable-panel", "Data Table", 256, header, errorBanner, grid)
+	return specPanelContainer(cx, p, "datatable-panel", ed.T("datatable.title"), 256, header, errorBanner, grid)
+}
+
+func dataTableSortOrderLabel(ed *Editor, order SortOrder) string {
+	switch order {
+	case SortAsc:
+		return ed.T("datatable.sortAsc")
+	case SortDesc:
+		return ed.T("datatable.sortDesc")
+	default:
+		return order.String()
+	}
 }
 
 func dataTableHeaderRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], cols []DataTableColumn) core.Node {
@@ -247,7 +261,7 @@ func dataTableHeaderRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Sig
 	cells = append(cells, core.View{
 		Style: core.Style{Width: core.Pt(120), JustifyContent: core.JustifyCenter},
 		Children: []core.Node{
-			specSectionLabel(p, "ROW"),
+			specSectionLabel(p, ed.T("datatable.colRow")),
 		},
 	})
 	for _, col := range cols {
@@ -283,11 +297,11 @@ func dataTableHeaderRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Sig
 					},
 					LabelFunc: func() string {
 						if order := colOrder.Get(); order != SortNone {
-							return fmt.Sprintf("Sort by %s (currently %s)", c.Name, order.String())
+							return ed.T("datatable.sortByOrder", l10n.Param("col", c.Name), l10n.Param("order", dataTableSortOrderLabel(ed, order)))
 						}
-						return "Sort by " + c.Name
+						return ed.T("datatable.sortBy", l10n.Param("col", c.Name))
 					},
-					Tooltip:    "Sort by " + c.Name,
+					Tooltip:    ed.T("datatable.sortBy", l10n.Param("col", c.Name)),
 					Variant:    specBtnGhost,
 					Compact:    true,
 					InsetFocus: true,
@@ -361,8 +375,8 @@ func dataTableDataRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signa
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("datatable-row-%d-up", docRow),
 				Icon:       lucide.ChevronUp,
-				Label:      fmt.Sprintf("Move row %d up", docRow+1),
-				Tooltip:    fmt.Sprintf("Move row %d up", docRow+1),
+				Label:      ed.T("datatable.moveRowUp", l10n.Param("row", docRow+1)),
+				Tooltip:    ed.T("datatable.moveRowUp", l10n.Param("row", docRow+1)),
 				Variant:    specBtnGhost,
 				Compact:    true,
 				InsetFocus: true,
@@ -376,8 +390,8 @@ func dataTableDataRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signa
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("datatable-row-%d-down", docRow),
 				Icon:       lucide.ChevronDown,
-				Label:      fmt.Sprintf("Move row %d down", docRow+1),
-				Tooltip:    fmt.Sprintf("Move row %d down", docRow+1),
+				Label:      ed.T("datatable.moveRowDown", l10n.Param("row", docRow+1)),
+				Tooltip:    ed.T("datatable.moveRowDown", l10n.Param("row", docRow+1)),
 				Variant:    specBtnGhost,
 				Compact:    true,
 				InsetFocus: true,
@@ -394,8 +408,8 @@ func dataTableDataRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signa
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("datatable-row-%d-delete", docRow),
 				Icon:       lucide.Trash,
-				Label:      fmt.Sprintf("Delete row %d", docRow+1),
-				Tooltip:    fmt.Sprintf("Delete row %d", docRow+1),
+				Label:      ed.T("datatable.deleteRow", l10n.Param("row", docRow+1)),
+				Tooltip:    ed.T("datatable.deleteRow", l10n.Param("row", docRow+1)),
 				Variant:    specBtnGhost,
 				Compact:    true,
 				InsetFocus: true,
@@ -440,7 +454,7 @@ func currentCellText(ed *Editor, docRow int, col string) string {
 
 func dataTableCellControl(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], docRow int, col DataTableColumn, disabled func() bool) core.Node {
 	testID := fmt.Sprintf("datatable-cell-%d-%s", docRow, col.Name)
-	label := fmt.Sprintf("Row %d %s", docRow+1, col.Name)
+	label := ed.T("datatable.cellLabel", l10n.Param("row", docRow+1), l10n.Param("col", col.Name))
 
 	if col.Kind == datatable.KindBool {
 		return ui.Checkbox{
@@ -461,7 +475,7 @@ func dataTableCellControl(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 						}
 					}
 				}
-				return "false"
+				return strconv.FormatBool(false)
 			},
 			Checked: func() bool {
 				_ = rev.Get()

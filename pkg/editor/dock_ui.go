@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base/dock"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
@@ -77,7 +78,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						Panels: map[string]dock.PanelOptions{
 							PanelViewport: {NoClose: true},
 						},
-						HandleLabel: "Resize panel",
+						HandleLabel: ed.T("dockExtra.resizePanel"),
 						HandleStyleFunc: func() core.Style {
 							return core.Style{Background: ed.SpecPalette(cx).Line}
 						},
@@ -114,7 +115,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 										title := titleMemo.Get()
 										closeLabel := ""
 										if tab.Key != PanelViewport {
-											closeLabel = "Close " + title
+											closeLabel = ed.T("dockExtra.closePanel", l10n.Param("title", title))
 										}
 										return ui.DockTabLabel{
 											Tab:        tab,
@@ -175,7 +176,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 								},
 								Children: []core.Node{
 									core.Text{
-										Content: "No panels open",
+										Content: ed.T("dockExtra.noPanelsOpen"),
 										Style:   core.Style{FontSize: 12},
 										StyleFunc: func() core.Style {
 											return core.Style{Color: ed.SpecPalette(cx).TextMuted}

@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -48,7 +49,7 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	return core.View{
 		TestID: "playtest-report-screen",
 		Role:   core.RoleRegion,
-		Label:  "Playtest report",
+		Label:  ed.T("playtestReport.screenLabel"),
 		StyleFunc: func() core.Style {
 			p := ed.SpecPalette(cx)
 			return core.Style{
@@ -100,16 +101,16 @@ func playtestEmptyStateView(ed *Editor, p SpecPalette) core.Node {
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "No playtest report loaded",
+				Content: ed.T("playtestReport.emptyTitle"),
 				Style:   core.Style{FontSize: 16, FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
-				Content: "Run a headless playtest via game_playtest or open playtest.report.yaml from the project file browser.",
+				Content: ed.T("playtestReport.emptyBody"),
 				Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 			},
 			ui.Button{
 				TestID:  "playtest-empty-back",
-				Text:    "Back to scene editor",
+				Text:    ed.T("playtestReport.backToSceneEditor"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return p.Raised },
@@ -138,7 +139,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 	rep := entry.Report
 	scope := rep.Scope.Scene
 	if scope == "" {
-		scope = "scene"
+		scope = ed.T("playtestReport.defaultScope")
 	}
 	subParts := []string{}
 	if rep.Scope.Project != "" {
@@ -155,7 +156,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 	return core.View{
 		TestID: "playtest-header",
 		Role:   core.RoleRegion,
-		Label:  "Playtest report header",
+		Label:  ed.T("playtestReport.headerLabel"),
 		Style: core.Style{
 			Direction:   core.Row,
 			AlignItems:  core.AlignCenter,
@@ -171,7 +172,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 			ui.Button{
 				TestID:  "playtest-back",
 				Icon:    lucide.ArrowLeft,
-				Label:   "Back to scene editor",
+				Label:   ed.T("playtestReport.backToSceneEditor"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return p.Raised },
@@ -190,7 +191,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 			},
 			core.Text{
 				TestID:  "playtest-title",
-				Content: "Playtest · " + scope,
+				Content: ed.T("playtestReport.title", l10n.Param("scope", scope)),
 				Style: core.Style{
 					FontSize:   14,
 					FontWeight: 600,
@@ -209,7 +210,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 			ui.Button{
 				TestID:   "playtest-watch-run",
 				Text:     entry.WatchLabel,
-				Label:    entry.WatchLabel + " in Play mode",
+				Label:    ed.T("playtestReport.watchRunLabel", l10n.Param("label", entry.WatchLabel)),
 				Variant:  ui.ButtonGhost,
 				Size:     ui.SizeSmall,
 				Disabled: func() bool { return !hasRecording },
@@ -233,7 +234,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 			},
 			ui.Button{
 				TestID:  "playtest-ask-tune",
-				Text:    "Ask the agent to tune it",
+				Text:    ed.T("playtestReport.askAgentToTune"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return p.Accent.Fg },
@@ -264,7 +265,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 	}
 	templateText := ""
 	if strings.TrimSpace(rep.Scope.Template) != "" {
-		templateText = "from template " + rep.Scope.Template
+		templateText = ed.T("playtestReport.fromTemplate", l10n.Param("template", rep.Scope.Template))
 	}
 	strategy := BotProfileDefaultStrategy(rep.Bot)
 
@@ -283,7 +284,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 		profileButtons = append(profileButtons, ui.Button{
 			TestID:  fmt.Sprintf("playtest-profile-%d", idx),
 			Text:    label,
-			Label:   "Bot profile " + label,
+			Label:   ed.T("playtestReport.botProfileItemLabel", l10n.Param("profile", label)),
 			Variant: ui.ButtonGhost,
 			Size:    ui.SizeSmall,
 			Color:   func() core.Color { return bg },
@@ -307,7 +308,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 	topRowChildren := []core.Node{
 		core.Text{
 			TestID:  "playtest-bot-profile-label",
-			Content: "BOT PROFILE",
+			Content: ed.T("playtestReport.botProfileHeading"),
 			Style: core.Style{
 				FontSize:      11,
 				FontWeight:    600,
@@ -318,7 +319,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 		core.View{
 			TestID: "playtest-profile-group",
 			Role:   core.RoleGroup,
-			Label:  "Bot profile",
+			Label:  ed.T("playtestReport.botProfileLabel"),
 			Style: core.Style{
 				Direction:    core.Row,
 				AlignItems:   core.AlignCenter,
@@ -354,8 +355,8 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 	}
 	topRowChildren = append(topRowChildren, ui.Button{
 		TestID:  "playtest-open-config",
-		Text:    "Open",
-		Label:   "Open " + configFile,
+		Text:    ed.T("playtestReport.open"),
+		Label:   ed.T("playtestReport.openFileLabel", l10n.Param("file", configFile)),
 		Variant: ui.ButtonGhost,
 		Size:    ui.SizeSmall,
 		Color:   func() core.Color { return p.Raised },
@@ -379,7 +380,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 
 	strategyRowChildren := []core.Node{
 		core.Text{
-			Content: "Strategy",
+			Content: ed.T("playtestReport.strategy"),
 			Style: core.Style{
 				FontSize: 12.5,
 				Color:    p.TextFaint,
@@ -403,7 +404,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 		strategyRowChildren = append(strategyRowChildren, core.View{
 			TestID: "playtest-proposal-banner",
 			Role:   core.RoleRegion,
-			Label:  "Proposed playtest metric",
+			Label:  ed.T("playtestReport.proposedMetricLabel"),
 			Style: core.Style{
 				Direction:    core.Row,
 				AlignItems:   core.AlignCenter,
@@ -435,8 +436,8 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 				},
 				ui.Button{
 					TestID:  "playtest-proposal-review",
-					Text:    "Review",
-					Label:   "Review proposed metric " + prop.MetricName,
+					Text:    ed.T("playtestReport.review"),
+					Label:   ed.T("playtestReport.reviewProposedMetricLabel", l10n.Param("metric", prop.MetricName)),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color:   func() core.Color { return p.Raised },
@@ -465,7 +466,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 	return core.View{
 		TestID: "playtest-bot-profile",
 		Role:   core.RoleRegion,
-		Label:  "Bot profile",
+		Label:  ed.T("playtestReport.botProfileLabel"),
 		Style: core.Style{
 			FlexShrink:  0,
 			Padding:     core.Symmetric(12, 16),
@@ -535,7 +536,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 			return core.View{
 				TestID: "playtest-proposal-drawer",
 				Role:   core.RoleRegion,
-				Label:  "Review proposed playtest metric",
+				Label:  ed.T("playtestReport.reviewProposalDrawerLabel"),
 				Style: core.Style{
 					FlexShrink:  0,
 					Padding:     core.Symmetric(12, 16),
@@ -561,13 +562,16 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 								},
 							},
 							core.Text{
-								Content: fmt.Sprintf("Review playtest_define · %s (%s)", prop.MetricName, prop.File),
-								Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
+								Content: ed.T("playtestReport.reviewProposalTitle",
+									l10n.Param("metric", prop.MetricName),
+									l10n.Param("file", prop.File),
+								),
+								Style: core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 							},
 							core.View{Style: core.Style{FlexGrow: 1}},
 							ui.Button{
 								TestID:  "playtest-proposal-dismiss",
-								Text:    "Dismiss",
+								Text:    ed.T("playtestReport.dismiss"),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.LineRaised },
@@ -588,7 +592,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 							},
 							ui.Button{
 								TestID:  "playtest-proposal-apply",
-								Text:    "Apply to " + prop.File,
+								Text:    ed.T("playtestReport.applyToFile", l10n.Param("file", prop.File)),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.Accent.Fg },
@@ -610,7 +614,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 							ui.Button{
 								TestID:  "playtest-proposal-close",
 								Icon:    lucide.X,
-								Label:   "Close review",
+								Label:   ed.T("playtestReport.closeReview"),
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
 								Color:   func() core.Color { return p.Panel },
@@ -660,7 +664,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 		return core.View{
 			TestID: "playtest-config-drawer",
 			Role:   core.RoleRegion,
-			Label:  "playtest.yaml preview",
+			Label:  ed.T("playtestReport.configPreviewLabel"),
 			Style: core.Style{
 				FlexShrink:  0,
 				Padding:     core.Symmetric(12, 16),
@@ -689,7 +693,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 						core.View{Style: core.Style{FlexGrow: 1}},
 						ui.Button{
 							TestID:  "playtest-config-close",
-							Text:    "Close",
+							Text:    ed.T("playtestReport.close"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
 							Color:   func() core.Color { return p.LineRaised },
@@ -753,7 +757,7 @@ func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestRe
 			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
-			playtestMetricCardsRowView(entry.Cards, p),
+			playtestMetricCardsRowView(ed, entry.Cards, p),
 			core.View{
 				Style: core.Style{
 					Direction: core.Row,
@@ -771,7 +775,7 @@ func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestRe
 	}
 }
 
-func playtestMetricCardsRowView(cards []PlaytestMetricCard, p SpecPalette) core.Node {
+func playtestMetricCardsRowView(ed *Editor, cards []PlaytestMetricCard, p SpecPalette) core.Node {
 	displayCards := cards
 	if len(displayCards) > 4 {
 		displayCards = displayCards[:4]
@@ -783,7 +787,7 @@ func playtestMetricCardsRowView(cards []PlaytestMetricCard, p SpecPalette) core.
 	return core.View{
 		TestID: "playtest-metric-cards",
 		Role:   core.RoleRegion,
-		Label:  "Playtest metrics",
+		Label:  ed.T("playtestReport.metricsLabel"),
 		Style: core.Style{
 			Direction:  core.Row,
 			Height:     core.Pt(132),
@@ -996,7 +1000,7 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec, p SpecPalette) co
 							Height: core.Pct(100),
 						},
 						Draw: func(d *core.Drawing, size core.Size) {
-							drawPlaytestChartWithPalette(d, size, spec, doc, p)
+							drawPlaytestChartWithPalette(d, size, spec, doc, p, ed)
 						},
 					},
 				},
@@ -1011,18 +1015,18 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 		idx := i
 		borderCol := p.LineRaised
 		bgCol := p.Raised
-		statusText := "Ask agent"
+		statusText := ed.T("playtestReport.askAgent")
 		statusCol := p.TextFaint
 		if sg.Requested {
 			borderCol = specAlpha(p.Agent.Fg, 0.50)
 			bgCol = specAlpha(p.Agent.Fg, 0.10)
-			statusText = "Review requested"
+			statusText = ed.T("playtestReport.reviewRequested")
 			statusCol = p.Agent.Fg
 		}
 		suggestionNodes = append(suggestionNodes, core.View{
 			TestID: fmt.Sprintf("playtest-suggestion-%d", idx),
 			Role:   core.RoleButton,
-			Label:  "Request suggestion: " + sg.Text,
+			Label:  ed.T("playtestReport.requestSuggestionLabel", l10n.Param("text", sg.Text)),
 			Style: core.Style{
 				Padding:      core.Symmetric(8, 12),
 				Gap:          4,
@@ -1060,7 +1064,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 	children := []core.Node{
 		core.Text{
 			TestID:  "playtest-agent-read-title",
-			Content: "Agent's read",
+			Content: ed.T("playtestReport.agentsRead"),
 			Style: core.Style{
 				FontSize:   13,
 				FontWeight: 600,
@@ -1120,7 +1124,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 		core.View{Style: core.Style{FlexGrow: 1}},
 		core.Text{
 			TestID:  "playtest-footnote",
-			Content: "Runs use the replay system, so any run can be watched frame by frame or turned into a test. Metrics and the bot come from playtest.yaml; the agent proposes new ones with playtest_define and they arrive as a review.",
+			Content: ed.T("playtestReport.footnote"),
 			Style: core.Style{
 				FontSize: 11.5,
 				Color:    p.TextFaint,
@@ -1131,7 +1135,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 	return core.View{
 		TestID: "playtest-agent-read-card",
 		Role:   core.RoleRegion,
-		Label:  "Agent's read",
+		Label:  ed.T("playtestReport.agentsRead"),
 		Style: core.Style{
 			FlexGrow:     1,
 			FlexBasis:    core.Pt(0),
@@ -1150,10 +1154,10 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 // DrawPlaytestChart renders spec onto d using exclusively Spec.dc.html color tokens.
 // Exported so tests can verify all 4 chart kinds directly against core.Drawing as well as through EditorView.
 func DrawPlaytestChart(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc) {
-	drawPlaytestChartWithPalette(d, size, spec, scene, DarkSpecPalette())
+	drawPlaytestChartWithPalette(d, size, spec, scene, DarkSpecPalette(), nil)
 }
 
-func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc, p SpecPalette) {
+func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc, p SpecPalette, ed *Editor) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1165,22 +1169,22 @@ func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec Playtest
 
 	switch spec.Kind {
 	case PlaytestChartHeatMap:
-		drawPlaytestHeatMapChart(d, w, h, spec.HeatMap, scene, p)
+		drawPlaytestHeatMapChart(d, w, h, spec.HeatMap, scene, p, ed)
 	case PlaytestChartBars:
-		drawPlaytestBarChart(d, w, h, spec.Bars, p)
+		drawPlaytestBarChart(d, w, h, spec.Bars, p, ed)
 	case PlaytestChartLine:
-		drawPlaytestLineChart(d, w, h, spec.Line, p)
+		drawPlaytestLineChart(d, w, h, spec.Line, p, ed)
 	case PlaytestChartMatrix:
-		drawPlaytestMatrixChart(d, w, h, spec.Matrix, p)
+		drawPlaytestMatrixChart(d, w, h, spec.Matrix, p, ed)
 	default:
-		d.SetFillColor(p.TextFaint).FillText("No chart data available", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noData"), 16, h/2, core.Font{Size: 12})
 	}
 	d.Restore()
 }
 
-func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeatChart, scene *sceneformat.SceneDoc, p SpecPalette) {
+func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeatChart, scene *sceneformat.SceneDoc, p SpecPalette, ed *Editor) {
 	if chart == nil || len(chart.Points) == 0 {
-		d.SetFillColor(p.TextFaint).FillText("No positioned events recorded for heat map", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noHeatMapData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
@@ -1336,14 +1340,14 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 	d.SetFillColor(bgOverlay).BeginPath().RoundRect(legX-8, legY-13, 190, 20, 6).Fill()
 	d.SetStrokeColor(p.Line).SetLineWidth(1).BeginPath().RoundRect(legX-8, legY-13, 190, 20, 6).Stroke()
 	d.SetFillColor(p.Changed.Fg).BeginPath().Arc(legX+4, legY-3, 4, 0, float32(2*math.Pi), false).Fill()
-	d.SetFillColor(p.TextMuted).FillText("Moderate", legX+14, legY+1, legFont)
+	d.SetFillColor(p.TextMuted).FillText(ed.T("playtestReport.chart.moderate"), legX+14, legY+1, legFont)
 	d.SetFillColor(p.Removed.Fg).BeginPath().Arc(legX+82, legY-3, 4, 0, float32(2*math.Pi), false).Fill()
-	d.SetFillColor(p.TextMuted).FillText("Hotspot cluster", legX+92, legY+1, legFont)
+	d.SetFillColor(p.TextMuted).FillText(ed.T("playtestReport.chart.hotspotCluster"), legX+92, legY+1, legFont)
 }
 
-func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette) {
+func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette, ed *Editor) {
 	if chart == nil || len(chart.Entries) == 0 {
-		d.SetFillColor(p.TextFaint).FillText("No bar series entries to chart", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noBarData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
@@ -1450,9 +1454,9 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 	}
 }
 
-func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette) {
+func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette, ed *Editor) {
 	if chart == nil || len(chart.Entries) == 0 {
-		d.SetFillColor(p.TextFaint).FillText("No level progression entries to chart", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noLineData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
@@ -1580,9 +1584,9 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 	}
 }
 
-func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatrixChart, p SpecPalette) {
+func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatrixChart, p SpecPalette, ed *Editor) {
 	if chart == nil || len(chart.Labels) == 0 {
-		d.SetFillColor(p.TextFaint).FillText("No win-rate matrix data to chart", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noMatrixData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
@@ -1613,13 +1617,16 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 	// Column headers ("vs <label>").
 	for c, lbl := range chart.Labels {
 		cx := originX + rowHeaderW + gap + float32(c)*(cellW+gap)
-		text := "vs " + lbl
+		text := ed.T("playtestReport.chart.vs", l10n.Param("label", lbl))
 		tw := float32(len(text)) * 6.4
 		d.SetFillColor(p.TextFaint).FillText(text, cx+(cellW-tw)/2, originY+20, headFont)
 	}
 
 	// Rows + cells.
-	flagThresholdText := fmt.Sprintf("above %s%s", formatCleanNumber(chart.FlagAbove, 0), chart.Unit)
+	flagThresholdText := ed.T("playtestReport.chart.aboveThreshold",
+		l10n.Param("value", formatCleanNumber(chart.FlagAbove, 0)),
+		l10n.Param("unit", chart.Unit),
+	)
 	for r, rowLbl := range chart.Labels {
 		ry := originY + colHeaderH + gap + float32(r)*(cellH+gap)
 		rw := float32(len(rowLbl)) * 7.0
@@ -1637,7 +1644,7 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 			borderW := float32(1)
 			valText := "—"
 			valCol := p.TextFaint
-			noteText := "same deck"
+			noteText := ed.T("playtestReport.chart.sameDeck")
 			noteCol := p.TextFaint
 
 			if cell != nil && !isFinite64(*cell) {
@@ -1657,12 +1664,12 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 				case v > chart.FlagAbove-5:
 					fill = p.Warning.Fill
 					border = p.Warning.Edge
-					noteText = "watch"
+					noteText = ed.T("playtestReport.chart.watch")
 					noteCol = p.Warning.Fg
 				default:
 					fill = p.Raised
 					border = p.LineRaised
-					noteText = "balanced"
+					noteText = ed.T("playtestReport.chart.balanced")
 					noteCol = p.TextFaint
 				}
 			}

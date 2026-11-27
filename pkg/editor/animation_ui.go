@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/animclip"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -43,7 +44,7 @@ func (e *Editor) report(err error) {
 	if err == nil {
 		return
 	}
-	e.reportStatusError("Error: " + err.Error())
+	e.reportStatusError(e.T("anim.errorPrefix", l10n.Param("err", err.Error())))
 }
 
 func durationOfSeconds(s float64) time.Duration {
@@ -102,12 +103,12 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	})
 
 	header := specPanelHeader(p,
-		specPanelTitle(p, "", lucide.Film, "Animation", nil),
+		specPanelTitle(p, "", lucide.Film, ed.T("anim.title"), nil),
 		core.Text{
 			TestID: "anim-target",
 			ContentFunc: func() string {
 				_ = rev.Get()
-				return "on " + ed.ClipTarget()
+				return ed.T("anim.onTarget", l10n.Param("target", ed.ClipTarget()))
 			},
 			Style: core.Style{
 				FontSize: 12.5,
@@ -118,8 +119,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			Style: core.Style{Width: core.Pt(144)},
 			Children: []core.Node{ui.Input{
 				TestID:      "anim-name",
-				Label:       "Clip Name",
-				Placeholder: "Clip name",
+				Label:       ed.T("anim.clipNameLabel"),
+				Placeholder: ed.T("anim.clipNamePlaceholder"),
 				Style:       specInputStyle(p),
 				Disabled:    disabled,
 				Value: func() string {
@@ -132,12 +133,12 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				OnChange: func(text string) { ed.report(ed.SetClipName(text)) },
 			}},
 		},
-		specSectionLabel(p, "LENGTH"),
+		specSectionLabel(p, ed.T("anim.lengthSection")),
 		core.View{
 			Style: core.Style{Width: core.Pt(104)},
 			Children: []core.Node{ui.NumberInput{
 				TestID:   "anim-length",
-				Label:    "Clip Length (seconds)",
+				Label:    ed.T("anim.clipLengthLabel"),
 				Min:      0.01,
 				Step:     0.1,
 				Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) },
@@ -152,10 +153,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		},
 		specPanelToggle(p, specPanelToggleSpec{
 			TestID:   "anim-loop",
-			Text:     "Loop",
+			Text:     ed.T("anim.loop"),
 			Icon:     lucide.Repeat,
-			Label:    "Loop clip playback",
-			Tooltip:  "Loop clip playback",
+			Label:    ed.T("anim.loopLabel"),
+			Tooltip:  ed.T("anim.loopLabel"),
 			Disabled: disabled,
 			On: func() bool {
 				_ = rev.Get()
@@ -175,17 +176,17 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			TextFunc: func() string {
 				if clipPlaying.Get() {
-					return "Pause"
+					return ed.T("anim.pause")
 				}
-				return "Play"
+				return ed.T("anim.play")
 			},
 			LabelFunc: func() string {
 				if clipPlaying.Get() {
-					return "Pause clip preview"
+					return ed.T("anim.pauseLabel")
 				}
-				return "Play clip preview"
+				return ed.T("anim.playLabel")
 			},
-			Tooltip:  "Play or pause clip preview",
+			Tooltip:  ed.T("anim.playPauseTooltip"),
 			Disabled: disabled,
 			OnPress: func() {
 				if ed.ClipPlaying() {
@@ -199,7 +200,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			TestID: "anim-time",
 			ContentFunc: func() string {
 				_ = rev.Get()
-				return fmt.Sprintf("%.2f / %.2f s", ed.ClipTime().Seconds(), ed.clipLengthSeconds())
+				return ed.T("anim.timeReadout",
+					l10n.Param("current", strconv.FormatFloat(ed.ClipTime().Seconds(), 'f', 2, 64)),
+					l10n.Param("total", strconv.FormatFloat(ed.clipLengthSeconds(), 'f', 2, 64)),
+				)
 			},
 			Style: core.Style{
 				FontFamily:  core.FontMonospace,
@@ -212,10 +216,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		core.View{Style: core.Style{FlexGrow: 1}},
 		specPanelButton(p, specPanelButtonSpec{
 			TestID:   "anim-save",
-			Text:     "Save Clip",
+			Text:     ed.T("anim.saveClip"),
 			Icon:     lucide.Save,
-			Label:    "Save Clip",
-			Tooltip:  specShortcutTip("Save Clip", saveShortcut),
+			Label:    ed.T("anim.saveClip"),
+			Tooltip:  specShortcutTip(ed.T("anim.saveClip"), saveShortcut),
 			Variant:  specBtnQuiet,
 			Compact:  true,
 			Disabled: disabled,
@@ -224,8 +228,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		specPanelButton(p, specPanelButtonSpec{
 			TestID:   "anim-close",
 			Icon:     lucide.X,
-			Label:    "Close Animation",
-			Tooltip:  specShortcutTip("Close Animation", "Esc"),
+			Label:    ed.T("anim.closeAnimation"),
+			Tooltip:  specShortcutTip(ed.T("anim.closeAnimation"), "Esc"),
 			Variant:  specBtnGhost,
 			Compact:  true,
 			Disabled: disabled,
@@ -235,7 +239,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 	scrubber := ui.Slider{
 		TestID:   "anim-scrub",
-		Label:    "Playhead",
+		Label:    ed.T("anim.playhead"),
 		Style:    core.Style{FocusVisible: p.FocusRing(-2)},
 		Disabled: disabled,
 		MinFunc:  func() float64 { return 0 },
@@ -248,8 +252,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			_ = rev.Get()
 			return ed.ClipTime().Seconds()
 		},
-		ValueText: func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) + " seconds" },
-		OnChange:  func(v float64) { ed.SeekClip(durationOfSeconds(v)) },
+		ValueText: func(v float64) string {
+			return ed.T("anim.secondsValue", l10n.Param("value", strconv.FormatFloat(v, 'f', 2, 64)))
+		},
+		OnChange: func(v float64) { ed.SeekClip(durationOfSeconds(v)) },
 	}
 
 	keyBar := core.View{
@@ -264,8 +270,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				Style: core.Style{Width: core.Pt(180)},
 				Children: []core.Node{ui.Select[string]{
 					TestID:      "anim-property",
-					Label:       "Property to key",
-					Placeholder: "Property",
+					Label:       ed.T("anim.propertyLabel"),
+					Placeholder: ed.T("anim.propertyPlaceholder"),
 					Searchable:  true,
 					Style:       specSelectStyle(p),
 					Disabled:    disabled,
@@ -290,8 +296,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						Style: core.Style{Width: core.Pt(160)},
 						Children: []core.Node{ui.Select[string]{
 							TestID:      "anim-frame-picker",
-							Label:       "Sprite frame to key",
-							Placeholder: "Current frame",
+							Label:       ed.T("anim.spriteFrameLabel"),
+							Placeholder: ed.T("anim.currentFramePlaceholder"),
 							Searchable:  true,
 							Style:       specSelectStyle(p),
 							Disabled:    disabled,
@@ -313,10 +319,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:  "anim-key",
-				Text:    "Key",
+				Text:    ed.T("anim.key"),
 				Icon:    lucide.KeyRound,
-				Label:   "Key property at playhead",
-				Tooltip: "Insert a keyframe for the chosen property at the playhead",
+				Label:   ed.T("anim.keyLabel"),
+				Tooltip: ed.T("anim.keyTooltip"),
 				Variant: specBtnSecondary,
 				Compact: true,
 				Disabled: func() bool {
@@ -355,7 +361,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					Gap:        specSpace8,
 				},
 				Children: []core.Node{
-					specSectionLabel(p, "FLIPBOOK"),
+					specSectionLabel(p, ed.T("anim.flipbookSection")),
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
@@ -370,8 +376,8 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 										Style: core.Style{Width: core.Pt(152)},
 										Children: []core.Node{ui.Select[string]{
 											TestID:      "anim-aseprite-tag",
-											Label:       "Aseprite tag",
-											Placeholder: "Aseprite tag",
+											Label:       ed.T("anim.asepriteTag"),
+											Placeholder: ed.T("anim.asepriteTag"),
 											Searchable:  true,
 											Style:       specSelectStyle(p),
 											Disabled:    disabled,
@@ -390,10 +396,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 									},
 									specPanelButton(p, specPanelButtonSpec{
 										TestID:  "anim-from-tag",
-										Text:    "From Tag",
+										Text:    ed.T("anim.fromTag"),
 										Icon:    lucide.Tag,
-										Label:   "Create clip from Aseprite tag",
-										Tooltip: "Build flipbook frames from the selected Aseprite tag",
+										Label:   ed.T("anim.fromTagLabel"),
+										Tooltip: ed.T("anim.fromTagTooltip"),
 										Variant: specBtnQuiet,
 										Compact: true,
 										Disabled: func() bool {
@@ -413,7 +419,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						Style: core.Style{Width: core.Pt(84)},
 						Children: []core.Node{ui.NumberInput{
 							TestID:   "anim-run-fps",
-							Label:    "Frame rate (FPS)",
+							Label:    ed.T("anim.frameRateLabel"),
 							Min:      1,
 							Step:     1,
 							Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) },
@@ -425,10 +431,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					},
 					specPanelButton(p, specPanelButtonSpec{
 						TestID:   "anim-from-frames",
-						Text:     "From Frames",
+						Text:     ed.T("anim.fromFrames"),
 						Icon:     lucide.Film,
-						Label:    "Create clip from atlas frames",
-						Tooltip:  "Create a flipbook clip from all atlas frames at the chosen FPS",
+						Label:    ed.T("anim.fromFramesLabel"),
+						Tooltip:  ed.T("anim.fromFramesTooltip"),
 						Variant:  specBtnQuiet,
 						Compact:  true,
 						Disabled: disabled,
@@ -462,7 +468,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				if ed.clipErr == nil {
 					return ""
 				}
-				return "Preview: " + ed.clipErr.Error()
+				return ed.T("anim.previewError", l10n.Param("err", ed.clipErr.Error()))
 			}, nil)
 		},
 	}
@@ -479,11 +485,11 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}
 			p := ed.SpecPalette(cx)
 			if ed.ClipLoading() {
-				return specLoadingState(p, "anim-loading", "Loading animation clip…")
+				return specLoadingState(p, "anim-loading", ed.T("anim.loadingClip"))
 			}
 			var rows []core.Node
 			if len(ed.clip.Tracks) == 0 && len(ed.clip.Events) == 0 {
-				rows = append(rows, specEmptyState(p, "anim-empty", lucide.KeyRound, p.TextFaint, "No tracks yet", "Choose a property above and press Key to add keyframes at the playhead.", nil))
+				rows = append(rows, specEmptyState(p, "anim-empty", lucide.KeyRound, p.TextFaint, ed.T("anim.emptyTitle"), ed.T("anim.emptyDesc"), nil))
 			}
 			for ti, tr := range ed.clip.Tracks {
 				rows = append(rows, trackLane(cx, p, ed, rev, ti, tr, disabled))
@@ -507,7 +513,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		},
 	}
 
-	return specPanelContainer(cx, p, "anim-panel", "Animation", 284, header, controls, lanes)
+	return specPanelContainer(cx, p, "anim-panel", ed.T("anim.title"), 284, header, controls, lanes)
 }
 
 // keyTarget is the track target the Key button writes: the selected object when it is not the one the clip plays on, and empty (the clip's target) otherwise.
@@ -528,7 +534,7 @@ func (e *Editor) saveClipFromPanel() error {
 			return err
 		}
 		e.clipSaved = append([]byte(nil), data...)
-		e.Status = "Saved clip"
+		e.Status = e.T("anim.savedClip")
 		e.notify()
 		return nil
 	}
@@ -570,8 +576,8 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 		return specPanelToggle(p, specPanelToggleSpec{
 			TestID:   id,
 			Text:     text,
-			Label:    "Interpolation " + text,
-			Tooltip:  "Set keyframe interpolation to " + text,
+			Label:    ed.T("anim.interpLabel", l10n.Param("mode", text)),
+			Tooltip:  ed.T("anim.interpTooltip", l10n.Param("mode", text)),
 			Disabled: disabled,
 			On: func() bool {
 				k, _, _, ok := selectedNumeric()
@@ -596,12 +602,12 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			Gap:        specSpace8,
 		},
 		Children: []core.Node{
-			specSectionLabel(p, "TIME"),
+			specSectionLabel(p, ed.T("anim.timeSection")),
 			core.View{
 				Style: core.Style{Width: core.Pt(96)},
 				Children: []core.Node{ui.NumberInput{
 					TestID:   "anim-key-time",
-					Label:    "Key Time (seconds)",
+					Label:    ed.T("anim.keyTimeLabel"),
 					Min:      0,
 					Step:     1 / 60.0,
 					Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) },
@@ -633,7 +639,7 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 								Style: core.Style{Width: core.Pt(152)},
 								Children: []core.Node{ui.Select[string]{
 									TestID:     "anim-key-frame",
-									Label:      "Key Frame",
+									Label:      ed.T("anim.keyFrameLabel"),
 									Searchable: true,
 									Style:      specSelectStyle(p),
 									Disabled:   disabled,
@@ -669,8 +675,8 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 								TestID:   "anim-frame-shorter",
 								Text:     "-10ms",
 								Icon:     lucide.Minus,
-								Label:    "Shorter by 10 ms",
-								Tooltip:  "Shorten frame duration by 10 ms",
+								Label:    ed.T("anim.frameShorterLabel"),
+								Tooltip:  ed.T("anim.frameShorterTooltip"),
 								Variant:  specBtnQuiet,
 								Compact:  true,
 								Disabled: disabled,
@@ -706,8 +712,8 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 								TestID:   "anim-frame-longer",
 								Text:     "+10ms",
 								Icon:     lucide.Plus,
-								Label:    "Longer by 10 ms",
-								Tooltip:  "Extend frame duration by 10 ms",
+								Label:    ed.T("anim.frameLongerLabel"),
+								Tooltip:  ed.T("anim.frameLongerTooltip"),
 								Variant:  specBtnQuiet,
 								Compact:  true,
 								Disabled: disabled,
@@ -730,12 +736,12 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 					return core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 						Children: []core.Node{
-							specSectionLabel(p, "VALUE"),
+							specSectionLabel(p, ed.T("anim.valueSection")),
 							core.View{
 								Style: core.Style{Width: core.Pt(96)},
 								Children: []core.Node{ui.NumberInput{
 									TestID:   "anim-key-value",
-									Label:    "Key Value",
+									Label:    ed.T("anim.keyValueLabel"),
 									Step:     0.1,
 									Format:   func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) },
 									Style:    specNumberInputStyle(p),
@@ -752,10 +758,10 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 								}},
 							},
 							specPanelToggleGroup(p,
-								"Interpolation",
-								interpBtn(p, "anim-interp-linear", "Linear", resource.InterpLinear),
-								interpBtn(p, "anim-interp-smooth", "Smooth", resource.InterpSmooth),
-								interpBtn(p, "anim-interp-step", "Step", resource.InterpStep),
+								ed.T("anim.interpolation"),
+								interpBtn(p, "anim-interp-linear", ed.T("anim.interpLinear"), resource.InterpLinear),
+								interpBtn(p, "anim-interp-smooth", ed.T("anim.interpSmooth"), resource.InterpSmooth),
+								interpBtn(p, "anim-interp-step", ed.T("anim.interpStep"), resource.InterpStep),
 							),
 						},
 					}
@@ -763,10 +769,10 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			},
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:   "anim-key-delete",
-				Text:     "Delete Key",
+				Text:     ed.T("anim.deleteKey"),
 				Icon:     lucide.Trash,
-				Label:    "Delete Key",
-				Tooltip:  "Delete the selected keyframe",
+				Label:    ed.T("anim.deleteKey"),
+				Tooltip:  ed.T("anim.deleteKeyTooltip"),
 				Variant:  specBtnDanger,
 				Compact:  true,
 				Disabled: disabled,
@@ -816,7 +822,7 @@ func trackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 		tip := fmt.Sprintf("%s @ %.2fs = %g", name, animclip.KeyValue(k.Time), animclip.KeyValue(k.Value))
 		markers = append(markers, base.Button{
 			TestID:  fmt.Sprintf("anim-key-%d-%d", ti, keyIdx),
-			Label:   fmt.Sprintf("%s key %d", name, keyIdx+1),
+			Label:   ed.T("anim.keyMarkerLabel", l10n.Param("track", name), l10n.Param("index", keyIdx+1)),
 			Tooltip: specTooltipNode(p, tip),
 			Selected: func() bool {
 				_ = rev.Get()
@@ -901,10 +907,10 @@ func trackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			},
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("anim-track-%d-remove", ti),
-				Text:       "Remove",
+				Text:       ed.T("anim.remove"),
 				Icon:       lucide.Trash,
-				Label:      "Remove track " + name,
-				Tooltip:    "Remove track " + name,
+				Label:      ed.T("anim.removeTrack", l10n.Param("name", name)),
+				Tooltip:    ed.T("anim.removeTrack", l10n.Param("name", name)),
 				Variant:    specBtnGhost,
 				Compact:    true,
 				InsetFocus: true,
@@ -964,7 +970,7 @@ func frameTrackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[
 		}
 		cells = append(cells, base.Button{
 			TestID:  fmt.Sprintf("anim-key-%d-%d", ti, frameIdx),
-			Label:   fmt.Sprintf("%s frame %s", name, frameKey.Frame),
+			Label:   ed.T("anim.frameMarkerLabel", l10n.Param("track", name), l10n.Param("frame", frameKey.Frame)),
 			Tooltip: specTooltipNode(p, tip),
 			Selected: func() bool {
 				_ = rev.Get()
@@ -1054,10 +1060,10 @@ func frameTrackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[
 			},
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     fmt.Sprintf("anim-track-%d-remove", ti),
-				Text:       "Remove",
+				Text:       ed.T("anim.remove"),
 				Icon:       lucide.Trash,
-				Label:      "Remove track " + name,
-				Tooltip:    "Remove track " + name,
+				Label:      ed.T("anim.removeTrack", l10n.Param("name", name)),
+				Tooltip:    ed.T("anim.removeTrack", l10n.Param("name", name)),
 				Variant:    specBtnGhost,
 				Compact:    true,
 				InsetFocus: true,
@@ -1075,10 +1081,13 @@ func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 	for i, ev := range ed.clip.Events {
 		evIdx := i
 		evCopy := ev
-		tip := fmt.Sprintf("Event %s @ %.2fs", evCopy.Name, animclip.KeyValue(evCopy.Time))
+		tip := ed.T("anim.eventTip",
+			l10n.Param("name", evCopy.Name),
+			l10n.Param("time", strconv.FormatFloat(animclip.KeyValue(evCopy.Time), 'f', 2, 64)),
+		)
 		markers = append(markers, base.Button{
 			TestID:  fmt.Sprintf("anim-event-%d", evIdx),
-			Label:   "Event " + evCopy.Name,
+			Label:   ed.T("anim.eventMarkerLabel", l10n.Param("name", evCopy.Name)),
 			Tooltip: specTooltipNode(p, tip),
 			Selected: func() bool {
 				return selEvent.Get() == evIdx
@@ -1136,7 +1145,7 @@ func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 				},
 				Children: []core.Node{
 					specIcon(lucide.Sparkles, 13, p.Warning.Fg),
-					specSectionLabel(p, "EVENTS"),
+					specSectionLabel(p, ed.T("anim.eventsSection")),
 				},
 			},
 			core.View{
@@ -1155,8 +1164,8 @@ func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 				Style: core.Style{Width: core.Pt(120)},
 				Children: []core.Node{ui.Input{
 					TestID:      "anim-event-name",
-					Label:       "Event Name",
-					Placeholder: "Event name",
+					Label:       ed.T("anim.eventNameLabel"),
+					Placeholder: ed.T("anim.eventNamePlaceholder"),
 					Style:       specInputStyle(p),
 					Disabled:    disabled,
 					Value:       eventName.Get,
@@ -1165,10 +1174,10 @@ func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			},
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     "anim-event-add",
-				Text:       "Add Event",
+				Text:       ed.T("anim.addEvent"),
 				Icon:       lucide.Plus,
-				Label:      "Add Event",
-				Tooltip:    "Add named event at the current playhead time",
+				Label:      ed.T("anim.addEvent"),
+				Tooltip:    ed.T("anim.addEventTooltip"),
 				Variant:    specBtnSecondary,
 				Compact:    true,
 				InsetFocus: true,
@@ -1180,10 +1189,10 @@ func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			}),
 			specPanelButton(p, specPanelButtonSpec{
 				TestID:     "anim-event-delete",
-				Text:       "Delete Event",
+				Text:       ed.T("anim.deleteEvent"),
 				Icon:       lucide.Trash,
-				Label:      "Delete Event",
-				Tooltip:    "Delete the selected event marker",
+				Label:      ed.T("anim.deleteEvent"),
+				Tooltip:    ed.T("anim.deleteEventTooltip"),
 				Variant:    specBtnGhost,
 				Compact:    true,
 				InsetFocus: true,

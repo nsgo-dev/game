@@ -1,9 +1,9 @@
 package editor
 
 import (
-	"fmt"
 	"strconv"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -75,7 +75,7 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								Gap: 10,
 								Children: []core.Node{
 									core.Text{
-										Content: "3D NavMesh",
+										Content: ed.T("navmesh3d.title"),
 										Style: core.Style{
 											FontSize:   13,
 											FontWeight: 700,
@@ -88,12 +88,21 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 											_ = rev.Get()
 											m := ed.NavMesh3DMesh()
 											if m == nil {
-												return "No navmesh baked"
+												return ed.T("navmesh3d.notBaked")
 											}
 											if ed.navMesh3D.lastPath != "" {
-												return fmt.Sprintf("%s: %d polygons, %d vertices (%s)", m.Agent.Name, len(m.Polygons), len(m.Vertices), ed.navMesh3D.lastPath)
+												return ed.T("navmesh3d.summaryWithPath",
+													l10n.Param("agent", m.Agent.Name),
+													l10n.Param("polygons", len(m.Polygons)),
+													l10n.Param("vertices", len(m.Vertices)),
+													l10n.Param("path", ed.navMesh3D.lastPath),
+												)
 											}
-											return fmt.Sprintf("%s: %d polygons, %d vertices", m.Agent.Name, len(m.Polygons), len(m.Vertices))
+											return ed.T("navmesh3d.summary",
+												l10n.Param("agent", m.Agent.Name),
+												l10n.Param("polygons", len(m.Polygons)),
+												l10n.Param("vertices", len(m.Vertices)),
+											)
 										},
 										Style: core.Style{
 											FontSize: 11,
@@ -109,7 +118,7 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 										Gap: 4,
 										Children: []core.Node{
 											core.Text{
-												Content: "Overlay",
+												Content: ed.T("navmesh3d.overlay"),
 												Style: core.Style{
 													FontSize: 11,
 													Color:    colors.Text(),
@@ -117,7 +126,7 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 											},
 											SpecSwitch{
 												TestID: "navmesh-overlay-toggle",
-												Label:  "Show 3D NavMesh Overlay",
+												Label:  ed.T("navmesh3d.overlayLabel"),
 												Checked: func() bool {
 													_ = rev.Get()
 													return ed.ShowNavMesh3D
@@ -130,8 +139,8 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									},
 									ui.Button{
 										TestID:   "navmesh-bake",
-										Text:     "Bake",
-										Label:    "Bake 3D navigation mesh from the open scene's static geometry",
+										Text:     ed.T("navmesh3d.bake"),
+										Label:    ed.T("navmesh3d.bakeLabel"),
 										Size:     ui.SizeSmall,
 										Variant:  ui.ButtonPrimary,
 										Disabled: disabled,
@@ -142,7 +151,7 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									},
 									ui.Button{
 										TestID:  "navmesh-close",
-										Text:    "Close",
+										Text:    ed.T("navmesh3d.close"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonGhost,
 										OnPress: func() {
@@ -163,10 +172,10 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 							Gap:        8,
 						},
 						Children: []core.Node{
-							field("Agent", 112, ui.Input{
+							field(ed.T("navmesh3d.agent"), 112, ui.Input{
 								TestID:      "navmesh-agent-name",
-								Label:       "NavMesh Agent Name",
-								Placeholder: "default",
+								Label:       ed.T("navmesh3d.agentLabel"),
+								Placeholder: ed.T("navmesh3d.agentPlaceholder"),
 								Disabled:    disabled,
 								Value: func() string {
 									_ = rev.Get()
@@ -176,9 +185,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.AgentName = text })
 								},
 							}),
-							field("Radius", 88, ui.NumberInput{
+							field(ed.T("navmesh3d.radius"), 88, ui.NumberInput{
 								TestID:   "navmesh-agent-radius",
-								Label:    "Agent Radius",
+								Label:    ed.T("navmesh3d.radiusLabel"),
 								Min:      0.01,
 								Step:     0.1,
 								Format:   floatFormat,
@@ -191,9 +200,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.Radius = float32(v) })
 								},
 							}),
-							field("Height", 88, ui.NumberInput{
+							field(ed.T("navmesh3d.height"), 88, ui.NumberInput{
 								TestID:   "navmesh-agent-height",
-								Label:    "Agent Height",
+								Label:    ed.T("navmesh3d.heightLabel"),
 								Min:      0.01,
 								Step:     0.1,
 								Format:   floatFormat,
@@ -206,9 +215,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.Height = float32(v) })
 								},
 							}),
-							field("Step Height", 88, ui.NumberInput{
+							field(ed.T("navmesh3d.stepHeight"), 88, ui.NumberInput{
 								TestID:   "navmesh-agent-max-climb",
-								Label:    "Agent Step Height",
+								Label:    ed.T("navmesh3d.stepHeightLabel"),
 								Min:      0.01,
 								Step:     0.1,
 								Format:   floatFormat,
@@ -221,9 +230,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.MaxClimb = float32(v) })
 								},
 							}),
-							field("Max Slope (°)", 92, ui.NumberInput{
+							field(ed.T("navmesh3d.maxSlope"), 92, ui.NumberInput{
 								TestID:   "navmesh-agent-max-slope",
-								Label:    "Max Slope",
+								Label:    ed.T("navmesh3d.maxSlopeLabel"),
 								Min:      1,
 								Max:      89,
 								Step:     1,
@@ -237,9 +246,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.MaxSlope = float32(v) })
 								},
 							}),
-							field("Cell Size", 88, ui.NumberInput{
+							field(ed.T("navmesh3d.cellSize"), 88, ui.NumberInput{
 								TestID:   "navmesh-cell-size",
-								Label:    "Voxel Cell Size",
+								Label:    ed.T("navmesh3d.cellSizeLabel"),
 								Min:      0.01,
 								Step:     0.05,
 								Format:   floatFormat,
@@ -252,9 +261,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.CellSize = float32(v) })
 								},
 							}),
-							field("Cell Height", 88, ui.NumberInput{
+							field(ed.T("navmesh3d.cellHeight"), 88, ui.NumberInput{
 								TestID:   "navmesh-cell-height",
-								Label:    "Voxel Cell Height",
+								Label:    ed.T("navmesh3d.cellHeightLabel"),
 								Min:      0.01,
 								Step:     0.05,
 								Format:   floatFormat,
@@ -267,9 +276,9 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									updateCfg(func(c *NavMeshBakeConfig) { c.CellHeight = float32(v) })
 								},
 							}),
-							field("Output Path", 220, ui.Input{
+							field(ed.T("navmesh3d.outputPath"), 220, ui.Input{
 								TestID:      "navmesh-output-path",
-								Label:       "NavMesh Output Path",
+								Label:       ed.T("navmesh3d.outputPathLabel"),
 								Placeholder: "levels/level.navmesh.yaml",
 								Disabled:    disabled,
 								Value: func() string {

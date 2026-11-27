@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/animclip"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -106,7 +107,10 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								if ed.states.doc == nil {
 									return ""
 								}
-								return fmt.Sprintf("· %d states · %d transitions", len(ed.states.doc.States), len(ed.states.doc.Transitions))
+								return ed.T("states.meta",
+									l10n.Param("states", len(ed.states.doc.States)),
+									l10n.Param("transitions", len(ed.states.doc.Transitions)),
+								)
 							},
 							Style: core.Style{FontSize: 12, Color: p.TextFaint},
 						},
@@ -143,7 +147,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								return ui.HStack{
 									Gap: 4,
 									Children: []core.Node{
-										driveKeyPill(cx, ed, "states-key-move", "← →", "Hold left or right: run", func() bool {
+										driveKeyPill(cx, ed, "states-key-move", "← →", ed.T("states.keyMoveLabel"), func() bool {
 											_ = rev.Get()
 											return ed.StatesActionHeld("move_right") || ed.StatesActionHeld("move_left")
 										}, func() {
@@ -156,25 +160,25 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 												ed.PressStatesAction("move_right")
 											}
 										}),
-										driveKeyPill(cx, ed, "states-key-jump", "Space", "Space: jump", func() bool { return false }, func() {
+										driveKeyPill(cx, ed, "states-key-jump", ed.T("states.keySpace"), ed.T("states.keyJumpLabel"), func() bool { return false }, func() {
 											if ed.Playing() {
 												return
 											}
 											ed.TriggerStatesAction("jump")
 										}),
-										driveKeyPill(cx, ed, "states-key-attack", "J", "J: attack", func() bool { return false }, func() {
+										driveKeyPill(cx, ed, "states-key-attack", "J", ed.T("states.keyAttackLabel"), func() bool { return false }, func() {
 											if ed.Playing() {
 												return
 											}
 											ed.TriggerStatesAction("attack")
 										}),
-										driveKeyPill(cx, ed, "states-key-hurt", "H", "H: hurt", func() bool { return false }, func() {
+										driveKeyPill(cx, ed, "states-key-hurt", "H", ed.T("states.keyHurtLabel"), func() bool { return false }, func() {
 											if ed.Playing() {
 												return
 											}
 											ed.TriggerStatesAction("hurt")
 										}),
-										driveKeyPill(cx, ed, "states-key-release", "Release", "Release all keys: idle", func() bool { return false }, func() {
+										driveKeyPill(cx, ed, "states-key-release", ed.T("states.keyRelease"), ed.T("states.keyReleaseLabel"), func() bool { return false }, func() {
 											if ed.Playing() {
 												return
 											}
@@ -188,7 +192,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						core.View{
 							TestID: "states-drive-toggle",
 							Role:   core.RoleSwitch,
-							Label:  "Drive with keys",
+							Label:  ed.T("states.driveWithKeys"),
 							OnPress: func(core.PressEvent) {
 								if ed.Playing() {
 									return
@@ -257,7 +261,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									},
 								},
 								core.Text{
-									Content: "Drive with keys",
+									Content: ed.T("states.driveWithKeys"),
 									Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 								},
 							},
@@ -265,9 +269,9 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						specButton(p, "states-play", func() string {
 							_ = rev.Get()
 							if ed.StatesPlaying() {
-								return "Pause"
+								return ed.T("states.pause")
 							}
-							return "Play"
+							return ed.T("states.play")
 						}, true, func() bool {
 							_ = rev.Get()
 							return ed.Playing()
@@ -278,13 +282,13 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							}
 							ed.report(ed.PlayStates())
 						}),
-						specButton(p, "states-save", func() string { return "Save" }, false, func() bool {
+						specButton(p, "states-save", func() string { return ed.T("states.save") }, false, func() bool {
 							_ = rev.Get()
 							return ed.Playing()
 						}, func() {
 							ed.report(ed.saveStatesFromPanel())
 						}),
-						specButton(p, "states-close", func() string { return "Close" }, false, func() bool {
+						specButton(p, "states-close", func() string { return ed.T("states.close") }, false, func() bool {
 							_ = rev.Get()
 							return ed.Playing()
 						}, func() {
@@ -376,7 +380,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 										if ed.states.err == nil {
 											return ""
 										}
-										return "Preview: " + ed.states.err.Error()
+										return ed.T("states.previewError", l10n.Param("err", ed.states.err.Error()))
 									},
 									Style: core.Style{FontSize: 11.5, Color: curPal.Removed.Fg},
 								},
@@ -712,7 +716,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 			if tr.When != "" {
 				labelText = tr.When
 			} else if tr.OnEnd {
-				labelText = "clip ends"
+				labelText = ed.T("states.clipEnds")
 			}
 		}
 		if labelText == "" {
@@ -812,7 +816,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "Any state",
+					Content: ed.T("states.anyState"),
 					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 			},
@@ -853,7 +857,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 		children = append(children, core.View{
 			TestID: "states-node-" + stateName,
 			Role:   core.RoleButton,
-			Label:  "State " + stateName,
+			Label:  ed.T("states.stateNodeLabel", l10n.Param("name", stateName)),
 			OnPress: func(core.PressEvent) {
 				ed.SelectStatesNode(stateName)
 			},
@@ -910,7 +914,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 									Then: func(cx *core.Scope) core.Node {
 										curPal := ed.SpecPalette(cx)
 										return core.Text{
-											Content: "ENTRY",
+											Content: ed.T("states.entryBadge"),
 											Style:   core.Style{FontSize: 9, FontWeight: 600, Color: curPal.Added.Fg},
 										}
 									},
@@ -996,7 +1000,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 							if t := ed.StatesTarget(); t != "" {
 								return t
 							}
-							return "preview"
+							return ed.T("states.previewFallback")
 						},
 						Style: core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
@@ -1026,7 +1030,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 		if len(outs) == 0 {
 			return core.Text{
 				TestID:  "states-leaving-empty",
-				Content: "No outgoing transitions",
+				Content: ed.T("states.noOutgoing"),
 				Style:   core.Style{FontSize: 12, Color: curPal.TextFaint},
 			}
 		}
@@ -1036,7 +1040,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 			rows = append(rows, core.View{
 				TestID: fmt.Sprintf("states-leaving-%d", i),
 				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("Transition to %s: %s", o.To, o.Detail),
+				Label:  ed.T("states.transitionLabel", l10n.Param("to", o.To), l10n.Param("detail", o.Detail)),
 				OnPress: func(core.PressEvent) {
 					ed.SelectStatesNode(toState)
 				},
@@ -1075,7 +1079,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 				TestID: "states-leaving-header",
 				ContentFunc: func() string {
 					_ = rev.Get()
-					return "LEAVING " + strings.ToUpper(ed.StatesCurrentState())
+					return ed.T("states.leavingHeader", l10n.Param("state", strings.ToUpper(ed.StatesCurrentState())))
 				},
 				Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 			},

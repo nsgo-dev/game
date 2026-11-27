@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -124,7 +125,7 @@ func assetImportInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							TestID: "import-asset-kind",
 							Children: []core.Node{
 								ui.Badge{
-									Text:    string(kind),
+									Text:    localizedImportKind(ed, kind),
 									Variant: ui.BadgeNeutral,
 								},
 							},
@@ -149,8 +150,8 @@ func assetImportInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			Children: []core.Node{
 				ui.Button{
 					TestID:   "import-reimport",
-					Text:     "Reimport",
-					Label:    "Rebuild this asset with go tool game assets and reload changed atlases and textures",
+					Text:     ed.T("assetImport.reimport"),
+					Label:    ed.T("assetImport.reimportLabel"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonPrimary,
 					Disabled: buildDisabled,
@@ -160,8 +161,8 @@ func assetImportInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 				},
 				ui.Button{
 					TestID:   "import-build-assets",
-					Text:     "Build Assets",
-					Label:    "Run go tool game assets for the whole project and reload changed atlases and textures",
+					Text:     ed.T("assetImport.buildAssets"),
+					Label:    ed.T("assetImport.buildAssetsLabel"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonSecondary,
 					Disabled: buildDisabled,
@@ -190,16 +191,16 @@ func assetImportInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 
 	switch kind {
 	case AssetImportImage:
-		nodes = append(nodes, sectionHeader("IMAGE IMPORT"))
+		nodes = append(nodes, sectionHeader(ed.T("assetImport.section.image")))
 		nodes = append(nodes, imageImportFields(cx, ed, rev, relPath, readInfo, disabled, fieldRow, resetBtn)...)
 	case AssetImportAudio:
-		nodes = append(nodes, sectionHeader("AUDIO IMPORT"))
+		nodes = append(nodes, sectionHeader(ed.T("assetImport.section.audio")))
 		nodes = append(nodes, audioImportFields(cx, ed, rev, relPath, readInfo, disabled, fieldRow, resetBtn)...)
 	case AssetImportFont:
-		nodes = append(nodes, sectionHeader("FONT IMPORT"))
+		nodes = append(nodes, sectionHeader(ed.T("assetImport.section.font")))
 		nodes = append(nodes, fontImportFields(cx, ed, rev, relPath, readInfo, disabled, fieldRow, resetBtn)...)
 	case AssetImportModel:
-		nodes = append(nodes, sectionHeader("MODEL IMPORT"))
+		nodes = append(nodes, sectionHeader(ed.T("assetImport.section.model")))
 		nodes = append(nodes, modelImportFields(cx, ed, rev, relPath, readInfo, disabled, fieldRow, resetBtn)...)
 	}
 
@@ -419,7 +420,7 @@ func imageImportFields(
 				Children: []core.Node{
 					core.Canvas{
 						TestID: "import-image-preview-canvas",
-						Label:  "Sprite Sheet Slice and Pivot Preview",
+						Label:  ed.T("assetImport.image.previewCanvasLabel"),
 						Style: core.Style{
 							Width:  core.Pct(100),
 							Height: core.Pct(100),
@@ -442,19 +443,31 @@ func imageImportFields(
 				ContentFunc: func() string {
 					info := readInfo()
 					if info.ImageWidth <= 0 || info.ImageHeight <= 0 {
-						return "Preview unavailable"
+						return ed.T("assetImport.image.previewUnavailable")
 					}
 					if _, hasSlice := info.EffectiveImageSlice(); hasSlice {
 						g := readGrid()
 						if g.errMsg != "" {
-							return fmt.Sprintf("%dx%d px · invalid slice", info.ImageWidth, info.ImageHeight)
+							return ed.T("assetImport.image.previewInvalidSlice", l10n.Param("w", info.ImageWidth), l10n.Param("h", info.ImageHeight))
 						}
 						if g.cellCount > maxImportPreviewCells {
-							return fmt.Sprintf("%dx%d px · %dx%d grid (%d cells; showing selected cell)", info.ImageWidth, info.ImageHeight, g.cols, g.rows, g.cellCount)
+							return ed.T("assetImport.image.previewGridLarge",
+								l10n.Param("w", info.ImageWidth),
+								l10n.Param("h", info.ImageHeight),
+								l10n.Param("cols", g.cols),
+								l10n.Param("rows", g.rows),
+								l10n.Param("cells", g.cellCount),
+							)
 						}
-						return fmt.Sprintf("%dx%d px · %dx%d grid (%d cells) · drag pivots", info.ImageWidth, info.ImageHeight, g.cols, g.rows, g.cellCount)
+						return ed.T("assetImport.image.previewGrid",
+							l10n.Param("w", info.ImageWidth),
+							l10n.Param("h", info.ImageHeight),
+							l10n.Param("cols", g.cols),
+							l10n.Param("rows", g.rows),
+							l10n.Param("cells", g.cellCount),
+						)
 					}
-					return fmt.Sprintf("%dx%d px · unsliced · drag pivot", info.ImageWidth, info.ImageHeight)
+					return ed.T("assetImport.image.previewUnsliced", l10n.Param("w", info.ImageWidth), l10n.Param("h", info.ImageHeight))
 				},
 				Style: core.Style{FontSize: 10, Color: colors.Muted()},
 			},
@@ -477,15 +490,15 @@ func imageImportFields(
 
 	pivotSection := []core.Node{
 		core.Text{
-			Content: "PIVOT",
+			Content: ed.T("assetImport.section.pivot"),
 			Style: core.Style{
 				FontSize:   11,
 				FontWeight: 700,
 				Color:      colors.Muted(),
 			},
 		},
-		fieldRow("Default", func() string {
-			return "Normalized [x, y] pivot fraction of untrimmed frame size (0,0 top-left; 0.5,1 bottom-center)"
+		fieldRow(ed.T("assetImport.pivot.default"), func() string {
+			return ed.T("assetImport.pivot.defaultTip")
 		},
 			ui.HStack{
 				Gap: 4,
@@ -495,7 +508,7 @@ func imageImportFields(
 						Children: []core.Node{
 							ui.NumberInput{
 								TestID:   "import-image-pivot-default-x",
-								Label:    "Default Pivot X",
+								Label:    ed.T("assetImport.pivot.defaultX"),
 								Step:     0.05,
 								Format:   formatPivotNum,
 								Disabled: disabled,
@@ -519,7 +532,7 @@ func imageImportFields(
 						Children: []core.Node{
 							ui.NumberInput{
 								TestID:   "import-image-pivot-default-y",
-								Label:    "Default Pivot Y",
+								Label:    ed.T("assetImport.pivot.defaultY"),
 								Step:     0.05,
 								Format:   formatPivotNum,
 								Disabled: disabled,
@@ -540,21 +553,21 @@ func imageImportFields(
 					},
 				},
 			},
-			resetBtn("import-image-pivot-default-reset", "Reset default pivot", func() bool {
+			resetBtn("import-image-pivot-default-reset", ed.T("assetImport.pivot.resetDefault"), func() bool {
 				_, over := readInfo().EffectiveDefaultImagePivot()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "pivot.default"))
 			}),
 		),
-		fieldRow("Preset", func() string { return "Quick default pivot presets" },
+		fieldRow(ed.T("assetImport.pivot.preset"), func() string { return ed.T("assetImport.pivot.presetTip") },
 			ui.HStack{
 				Gap: 4,
 				Children: []core.Node{
 					ui.Button{
 						TestID:   "import-image-pivot-preset-tl",
-						Text:     "TL",
-						Label:    "Set default pivot to top-left [0, 0]",
+						Text:     ed.T("assetImport.pivot.presetTL"),
+						Label:    ed.T("assetImport.pivot.presetTLLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -565,8 +578,8 @@ func imageImportFields(
 					},
 					ui.Button{
 						TestID:   "import-image-pivot-preset-center",
-						Text:     "Center",
-						Label:    "Set default pivot to center [0.5, 0.5]",
+						Text:     ed.T("assetImport.pivot.presetCenter"),
+						Label:    ed.T("assetImport.pivot.presetCenterLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -577,8 +590,8 @@ func imageImportFields(
 					},
 					ui.Button{
 						TestID:   "import-image-pivot-preset-bottom",
-						Text:     "Bottom",
-						Label:    "Set default pivot to bottom-center [0.5, 1]",
+						Text:     ed.T("assetImport.pivot.presetBottom"),
+						Label:    ed.T("assetImport.pivot.presetBottomLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -600,7 +613,7 @@ func imageImportFields(
 				return core.View{
 					Style: core.Style{Gap: 6},
 					Children: []core.Node{
-						fieldRow("Cell", func() string { return "Selected slice cell for per-cell pivot override" },
+						fieldRow(ed.T("assetImport.pivot.cell"), func() string { return ed.T("assetImport.pivot.cellTip") },
 							core.Dynamic(func(cx *core.Scope) core.Node {
 								key := cellSelectKey.Get()
 								if key == "" {
@@ -611,7 +624,7 @@ func imageImportFields(
 								if n > maxImportPreviewCells {
 									return ui.NumberInput{
 										TestID:   "import-image-pivot-cell-select",
-										Label:    "Pivot Cell",
+										Label:    ed.T("assetImport.pivot.cellLabel"),
 										Min:      0,
 										Max:      float64(n - 1),
 										Step:     1,
@@ -638,7 +651,7 @@ func imageImportFields(
 								}
 								opts := make([]ui.Option[int], n)
 								for i := range n {
-									lbl := fmt.Sprintf("Cell %d", i)
+									lbl := ed.T("assetImport.pivot.cellOption", l10n.Param("index", i))
 									if overridden[i] {
 										lbl += " *"
 									}
@@ -646,7 +659,7 @@ func imageImportFields(
 								}
 								return ui.Select[int]{
 									TestID:   "import-image-pivot-cell-select",
-									Label:    "Pivot Cell",
+									Label:    ed.T("assetImport.pivot.cellLabel"),
 									Options:  opts,
 									Disabled: disabled,
 									Style:    core.Style{Width: core.Pct(100)},
@@ -659,7 +672,7 @@ func imageImportFields(
 									},
 								}
 							}),
-							resetBtn("import-image-pivot-cell-reset", "Reset selected cell pivot to default", func() bool {
+							resetBtn("import-image-pivot-cell-reset", ed.T("assetImport.pivot.resetCell"), func() bool {
 								info := readInfo()
 								sel, n := activeCell()
 								if n == 0 {
@@ -674,8 +687,8 @@ func imageImportFields(
 								}
 							}),
 						),
-						fieldRow("Cell Pivot", func() string {
-							return "Normalized [x, y] pivot override for the selected cell"
+						fieldRow(ed.T("assetImport.pivot.cellPivot"), func() string {
+							return ed.T("assetImport.pivot.cellPivotTip")
 						},
 							ui.HStack{
 								Gap: 4,
@@ -685,7 +698,7 @@ func imageImportFields(
 										Children: []core.Node{
 											ui.NumberInput{
 												TestID:   "import-image-pivot-cell-x",
-												Label:    "Cell Pivot X",
+												Label:    ed.T("assetImport.pivot.cellPivotX"),
 												Step:     0.05,
 												Format:   formatPivotNum,
 												Disabled: disabled,
@@ -716,7 +729,7 @@ func imageImportFields(
 										Children: []core.Node{
 											ui.NumberInput{
 												TestID:   "import-image-pivot-cell-y",
-												Label:    "Cell Pivot Y",
+												Label:    ed.T("assetImport.pivot.cellPivotY"),
 												Step:     0.05,
 												Format:   formatPivotNum,
 												Disabled: disabled,
@@ -754,10 +767,12 @@ func imageImportFields(
 
 	nodes := []core.Node{
 		previewSection,
-		fieldRow("Filter", func() string { return "Sampling filter (default: " + readInfo().DefaultImageFilter + ")" },
+		fieldRow(ed.T("assetImport.image.filter"), func() string {
+			return ed.T("assetImport.image.filterTip", l10n.Param("default", readInfo().DefaultImageFilter))
+		},
 			ui.Select[string]{
 				TestID:   "import-image-filter",
-				Label:    "Image Filter",
+				Label:    ed.T("assetImport.image.filterLabel"),
 				Options:  filterOpts,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pct(100)},
@@ -769,17 +784,19 @@ func imageImportFields(
 					ed.report(ed.SetImageImportFilter(relPath, v))
 				},
 			},
-			resetBtn("import-image-filter-reset", "Reset image filter to default", func() bool {
+			resetBtn("import-image-filter-reset", ed.T("assetImport.image.filterReset"), func() bool {
 				_, over := readInfo().EffectiveImageFilter()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "filter"))
 			}),
 		),
-		fieldRow("Format", func() string { return "KTX2 texture format (target default: " + readInfo().DefaultImageFormat + ")" },
+		fieldRow(ed.T("assetImport.image.format"), func() string {
+			return ed.T("assetImport.image.formatTip", l10n.Param("default", readInfo().DefaultImageFormat))
+		},
 			ui.Select[string]{
 				TestID:   "import-image-format",
-				Label:    "Image Format",
+				Label:    ed.T("assetImport.image.formatLabel"),
 				Options:  formatOpts,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pct(100)},
@@ -791,19 +808,19 @@ func imageImportFields(
 					ed.report(ed.SetImageImportFormat(relPath, v))
 				},
 			},
-			resetBtn("import-image-format-reset", "Reset image format to target default", func() bool {
+			resetBtn("import-image-format-reset", ed.T("assetImport.image.formatReset"), func() bool {
 				_, over := readInfo().EffectiveImageFormat()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "format"))
 			}),
 		),
-		fieldRow("Mipmaps", func() string {
-			return fmt.Sprintf("Generate mipmaps (target default: %v)", readInfo().DefaultImageMipmaps)
+		fieldRow(ed.T("assetImport.image.mipmaps"), func() string {
+			return ed.T("assetImport.image.mipmapsTip", l10n.Param("default", readInfo().DefaultImageMipmaps))
 		},
 			ui.Checkbox{
 				TestID:   "import-image-mipmaps",
-				Label:    "Mipmaps",
+				Label:    ed.T("assetImport.image.mipmaps"),
 				Disabled: disabled,
 				Checked: func() bool {
 					v, _ := readInfo().EffectiveImageMipmaps()
@@ -813,19 +830,19 @@ func imageImportFields(
 					ed.report(ed.SetImageImportMipmaps(relPath, &on))
 				},
 			},
-			resetBtn("import-image-mipmaps-reset", "Reset mipmaps to target default", func() bool {
+			resetBtn("import-image-mipmaps-reset", ed.T("assetImport.image.mipmapsReset"), func() bool {
 				_, over := readInfo().EffectiveImageMipmaps()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "mipmaps"))
 			}),
 		),
-		fieldRow("sRGB", func() string {
-			return fmt.Sprintf("sRGB color space (target default: %v)", readInfo().DefaultImageSRGB)
+		fieldRow(ed.T("assetImport.image.srgb"), func() string {
+			return ed.T("assetImport.image.srgbTip", l10n.Param("default", readInfo().DefaultImageSRGB))
 		},
 			ui.Checkbox{
 				TestID:   "import-image-srgb",
-				Label:    "sRGB",
+				Label:    ed.T("assetImport.image.srgb"),
 				Disabled: disabled,
 				Checked: func() bool {
 					v, _ := readInfo().EffectiveImageSRGB()
@@ -835,17 +852,17 @@ func imageImportFields(
 					ed.report(ed.SetImageImportSRGB(relPath, &on))
 				},
 			},
-			resetBtn("import-image-srgb-reset", "Reset sRGB to target default", func() bool {
+			resetBtn("import-image-srgb-reset", ed.T("assetImport.image.srgbReset"), func() bool {
 				_, over := readInfo().EffectiveImageSRGB()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "srgb"))
 			}),
 		),
-		fieldRow("Slice", func() string { return "Cut sprite sheet into grid frames for an atlas" },
+		fieldRow(ed.T("assetImport.image.slice"), func() string { return ed.T("assetImport.image.sliceTip") },
 			ui.Checkbox{
 				TestID:   "import-image-slice-enabled",
-				Label:    "Slice Grid",
+				Label:    ed.T("assetImport.image.sliceLabel"),
 				Disabled: disabled,
 				Checked: func() bool {
 					_, over := readInfo().EffectiveImageSlice()
@@ -859,7 +876,7 @@ func imageImportFields(
 					ed.report(ed.SetImageImportSlice(relPath, &importsettings.Slice{Width: 16, Height: 16}))
 				},
 			},
-			resetBtn("import-image-slice-reset", "Reset slice grid", func() bool {
+			resetBtn("import-image-slice-reset", ed.T("assetImport.image.sliceReset"), func() bool {
 				_, over := readInfo().EffectiveImageSlice()
 				return over
 			}, func() {
@@ -875,9 +892,9 @@ func imageImportFields(
 				return core.View{
 					Style: core.Style{Gap: 6},
 					Children: []core.Node{
-						fieldRow("Cell W", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.image.sliceWidth"), nil, ui.NumberInput{
 							TestID:   "import-image-slice-width",
-							Label:    "Slice Width",
+							Label:    ed.T("assetImport.image.sliceWidthLabel"),
 							Min:      1,
 							Step:     1,
 							Disabled: disabled,
@@ -891,9 +908,9 @@ func imageImportFields(
 								updateSlice(func(s *importsettings.Slice) { s.Width = roundInt(v, 1) })
 							},
 						}, nil),
-						fieldRow("Cell H", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.image.sliceHeight"), nil, ui.NumberInput{
 							TestID:   "import-image-slice-height",
-							Label:    "Slice Height",
+							Label:    ed.T("assetImport.image.sliceHeightLabel"),
 							Min:      1,
 							Step:     1,
 							Disabled: disabled,
@@ -907,9 +924,9 @@ func imageImportFields(
 								updateSlice(func(s *importsettings.Slice) { s.Height = roundInt(v, 1) })
 							},
 						}, nil),
-						fieldRow("Margin", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.image.sliceMargin"), nil, ui.NumberInput{
 							TestID:   "import-image-slice-margin",
-							Label:    "Slice Margin",
+							Label:    ed.T("assetImport.image.sliceMarginLabel"),
 							Min:      0,
 							Step:     1,
 							Disabled: disabled,
@@ -923,9 +940,9 @@ func imageImportFields(
 								updateSlice(func(s *importsettings.Slice) { s.Margin = roundInt(v, 0) })
 							},
 						}, nil),
-						fieldRow("Spacing", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.image.sliceSpacing"), nil, ui.NumberInput{
 							TestID:   "import-image-slice-spacing",
-							Label:    "Slice Spacing",
+							Label:    ed.T("assetImport.image.sliceSpacingLabel"),
 							Min:      0,
 							Step:     1,
 							Disabled: disabled,
@@ -939,9 +956,9 @@ func imageImportFields(
 								updateSlice(func(s *importsettings.Slice) { s.Spacing = roundInt(v, 0) })
 							},
 						}, nil),
-						fieldRow("Count", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.image.sliceCount"), nil, ui.NumberInput{
 							TestID:   "import-image-slice-count",
-							Label:    "Slice Count",
+							Label:    ed.T("assetImport.image.sliceCountLabel"),
 							Min:      0,
 							Step:     1,
 							Disabled: disabled,
@@ -979,19 +996,19 @@ func imageImportFields(
 
 	collisionSection := []core.Node{
 		core.Text{
-			Content: "COLLISION",
+			Content: ed.T("assetImport.collisionHeading"),
 			Style: core.Style{
 				FontSize:   11,
 				FontWeight: 700,
 				Color:      colors.Muted(),
 			},
 		},
-		fieldRow("Mode", func() string {
-			return "2D collision shape baked into atlas metadata from alpha, box, ellipse, or explicit polygon"
+		fieldRow(ed.T("assetImport.collisionMode"), func() string {
+			return ed.T("assetImport.collisionModeTooltip")
 		},
 			ui.Select[string]{
 				TestID:   "import-image-collision-mode",
-				Label:    "Collision Mode",
+				Label:    ed.T("assetImport.collisionModeLabel"),
 				Options:  collisionModeOpts,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pct(100)},
@@ -1032,7 +1049,7 @@ func imageImportFields(
 					ed.report(ed.SetImageImportDefaultCollision(relPath, v, tol, maxV, pts))
 				},
 			},
-			resetBtn("import-image-collision-reset", "Clear collision settings", func() bool {
+			resetBtn("import-image-collision-reset", ed.T("assetImport.clearCollision"), func() bool {
 				_, over := readInfo().EffectiveImageCollision()
 				return over
 			}, func() {
@@ -1045,12 +1062,12 @@ func imageImportFields(
 				return ok && col != nil && (col.Mode == "alpha" || col.Mode == "box" || col.Mode == "ellipse")
 			},
 			Then: func(cx *core.Scope) core.Node {
-				return fieldRow("Tolerance", func() string {
-					return "Alpha cutoff [0..255]: pixels with alpha above tolerance are solid"
+				return fieldRow(ed.T("assetImport.collisionTolerance"), func() string {
+					return ed.T("assetImport.collisionToleranceTooltip")
 				},
 					ui.NumberInput{
 						TestID:   "import-image-collision-tolerance",
-						Label:    "Collision Alpha Tolerance",
+						Label:    ed.T("assetImport.collisionToleranceLabel"),
 						Min:      0,
 						Max:      255,
 						Step:     1,
@@ -1080,12 +1097,12 @@ func imageImportFields(
 				return ok && col != nil && (col.Mode == "alpha" || col.Mode == "ellipse" || col.Mode == "polygon")
 			},
 			Then: func(cx *core.Scope) core.Node {
-				return fieldRow("Max Verts", func() string {
-					return "Maximum vertices per baked convex polygon (3..8)"
+				return fieldRow(ed.T("assetImport.collisionMaxVerts"), func() string {
+					return ed.T("assetImport.collisionMaxVertsTooltip")
 				},
 					ui.NumberInput{
 						TestID:   "import-image-collision-max-vertices",
-						Label:    "Collision Max Vertices",
+						Label:    ed.T("assetImport.collisionMaxVertsLabel"),
 						Min:      importsettings.MinCollisionVertices,
 						Max:      importsettings.MaxCollisionVertices,
 						Step:     1,
@@ -1122,20 +1139,19 @@ func imageImportFields(
 						cell := activeCollisionCell()
 						polys, err := ed.PreviewImageCollisionPolygons(relPath, cell)
 						if err != nil {
-							return "Trace unavailable"
+							return ed.T("assetImport.traceUnavailable")
 						}
 						if len(polys) == 0 {
-							return "No opaque pixels in frame"
+							return ed.T("assetImport.noOpaquePixels")
 						}
 						verts := 0
 						for _, p := range polys {
 							verts += len(p)
 						}
-						noun := "polygons"
 						if len(polys) == 1 {
-							noun = "polygon"
+							return ed.T("assetImport.collisionSummaryOne", l10n.Param("verts", verts))
 						}
-						return fmt.Sprintf("%d convex %s · %d vertices", len(polys), noun, verts)
+						return ed.T("assetImport.collisionSummaryMany", l10n.Param("count", len(polys)), l10n.Param("verts", verts))
 					},
 					Style: core.Style{FontSize: 10, Color: colors.Muted()},
 				}
@@ -1179,15 +1195,15 @@ func imageImportFields(
 
 	pointsSection := []core.Node{
 		core.Text{
-			Content: "IMAGE POINTS",
+			Content: ed.T("assetImport.imagePointsHeading"),
 			Style: core.Style{
 				FontSize:   11,
 				FontWeight: 700,
 				Color:      colors.Muted(),
 			},
 		},
-		fieldRow("Add Point", func() string {
-			return "Add a named image point (such as muzzle, hand, or feet) and drag it on the preview"
+		fieldRow(ed.T("assetImport.addPoint"), func() string {
+			return ed.T("assetImport.addPointTooltip")
 		},
 			ui.HStack{
 				Gap: 4,
@@ -1197,8 +1213,8 @@ func imageImportFields(
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "import-image-point-add-name",
-								Label:       "New Point Name",
-								Placeholder: "muzzle",
+								Label:       ed.T("assetImport.newPointNameLabel"),
+								Placeholder: ed.T("assetImport.newPointNamePlaceholder"),
 								Disabled:    disabled,
 								Value:       func() string { return newPointName.Get() },
 								OnChange:    func(v string) { newPointName.Set(v) },
@@ -1208,8 +1224,8 @@ func imageImportFields(
 					},
 					ui.Button{
 						TestID:   "import-image-point-add-btn",
-						Text:     "Add",
-						Label:    "Add named image point",
+						Text:     ed.T("assetImport.addPointBtn"),
+						Label:    ed.T("assetImport.addPointBtnLabel"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonSecondary,
 						Disabled: disabled,
@@ -1343,14 +1359,14 @@ func audioImportFields(
 		formatOpts[i] = ui.Option[string]{Value: f, Label: f}
 	}
 	channelOpts := []ui.Option[int]{
-		{Value: 0, Label: "Source"},
-		{Value: 1, Label: "Mono (1)"},
-		{Value: 2, Label: "Stereo (2)"},
+		{Value: 0, Label: ed.T("assetImport.audio.channelSource")},
+		{Value: 1, Label: ed.T("assetImport.audio.channelMono")},
+		{Value: 2, Label: ed.T("assetImport.audio.channelStereo")},
 	}
 	normOpts := []ui.Option[string]{
-		{Value: "none", Label: "None"},
-		{Value: "peakDB", Label: "Peak (dBFS)"},
-		{Value: "rmsDB", Label: "RMS (dBFS)"},
+		{Value: "none", Label: ed.T("assetImport.audio.normNone")},
+		{Value: "peakDB", Label: ed.T("assetImport.audio.normPeak")},
+		{Value: "rmsDB", Label: ed.T("assetImport.audio.normRMS")},
 	}
 
 	updateLoop := func(mutate func(l *importsettings.Loop)) {
@@ -1363,10 +1379,12 @@ func audioImportFields(
 	}
 
 	return []core.Node{
-		fieldRow("Format", func() string { return "Output format (target default: " + readInfo().DefaultAudioFormat + ")" },
+		fieldRow(ed.T("assetImport.audio.format"), func() string {
+			return ed.T("assetImport.audio.formatTip", l10n.Param("default", readInfo().DefaultAudioFormat))
+		},
 			ui.Select[string]{
 				TestID:   "import-audio-format",
-				Label:    "Audio Format",
+				Label:    ed.T("assetImport.audio.formatLabel"),
 				Options:  formatOpts,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pct(100)},
@@ -1378,19 +1396,19 @@ func audioImportFields(
 					ed.report(ed.SetAudioImportFormat(relPath, v))
 				},
 			},
-			resetBtn("import-audio-format-reset", "Reset audio format to target default", func() bool {
+			resetBtn("import-audio-format-reset", ed.T("assetImport.audio.formatReset"), func() bool {
 				_, over := readInfo().EffectiveAudioFormat()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "format"))
 			}),
 		),
-		fieldRow("Rate", func() string {
-			return fmt.Sprintf("Sample rate in Hz, 0 keeps source (target default: %d)", readInfo().DefaultAudioRate)
+		fieldRow(ed.T("assetImport.audio.rate"), func() string {
+			return ed.T("assetImport.audio.rateTip", l10n.Param("default", readInfo().DefaultAudioRate))
 		},
 			ui.NumberInput{
 				TestID:   "import-audio-rate",
-				Label:    "Audio Rate",
+				Label:    ed.T("assetImport.audio.rateLabel"),
 				Min:      0,
 				Step:     100,
 				Disabled: disabled,
@@ -1402,19 +1420,19 @@ func audioImportFields(
 					ed.report(ed.SetAudioImportRate(relPath, roundInt(v, 0)))
 				},
 			},
-			resetBtn("import-audio-rate-reset", "Reset sample rate to target default", func() bool {
+			resetBtn("import-audio-rate-reset", ed.T("assetImport.audio.rateReset"), func() bool {
 				_, over := readInfo().EffectiveAudioRate()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "rate"))
 			}),
 		),
-		fieldRow("Channels", func() string {
-			return fmt.Sprintf("Channel count (target default: %d)", readInfo().DefaultAudioChannels)
+		fieldRow(ed.T("assetImport.audio.channels"), func() string {
+			return ed.T("assetImport.audio.channelsTip", l10n.Param("default", readInfo().DefaultAudioChannels))
 		},
 			ui.Select[int]{
 				TestID:   "import-audio-channels",
-				Label:    "Audio Channels",
+				Label:    ed.T("assetImport.audio.channelsLabel"),
 				Options:  channelOpts,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pct(100)},
@@ -1426,19 +1444,19 @@ func audioImportFields(
 					ed.report(ed.SetAudioImportChannels(relPath, v))
 				},
 			},
-			resetBtn("import-audio-channels-reset", "Reset channels to target default", func() bool {
+			resetBtn("import-audio-channels-reset", ed.T("assetImport.audio.channelsReset"), func() bool {
 				_, over := readInfo().EffectiveAudioChannels()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "channels"))
 			}),
 		),
-		fieldRow("Bitrate", func() string {
-			return fmt.Sprintf("AAC/MP3 bitrate in kbps (target default: %d)", readInfo().DefaultAudioBitrate)
+		fieldRow(ed.T("assetImport.audio.bitrate"), func() string {
+			return ed.T("assetImport.audio.bitrateTip", l10n.Param("default", readInfo().DefaultAudioBitrate))
 		},
 			ui.NumberInput{
 				TestID:   "import-audio-bitrate",
-				Label:    "Audio Bitrate",
+				Label:    ed.T("assetImport.audio.bitrateLabel"),
 				Min:      0,
 				Step:     16,
 				Disabled: disabled,
@@ -1450,17 +1468,17 @@ func audioImportFields(
 					ed.report(ed.SetAudioImportBitrate(relPath, roundInt(v, 0)))
 				},
 			},
-			resetBtn("import-audio-bitrate-reset", "Reset bitrate to target default", func() bool {
+			resetBtn("import-audio-bitrate-reset", ed.T("assetImport.audio.bitrateReset"), func() bool {
 				_, over := readInfo().EffectiveAudioBitrate()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "bitrate"))
 			}),
 		),
-		fieldRow("Normalize", func() string { return "Peak or RMS loudness normalization in dBFS" },
+		fieldRow(ed.T("assetImport.audio.normalize"), func() string { return ed.T("assetImport.audio.normalizeTip") },
 			ui.Select[string]{
 				TestID:   "import-audio-norm-mode",
-				Label:    "Audio Normalization",
+				Label:    ed.T("assetImport.audio.normalizeLabel"),
 				Options:  normOpts,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pct(100)},
@@ -1481,7 +1499,7 @@ func audioImportFields(
 					}
 				},
 			},
-			resetBtn("import-audio-norm-reset", "Reset normalization to target default", func() bool {
+			resetBtn("import-audio-norm-reset", ed.T("assetImport.audio.normalizeReset"), func() bool {
 				_, _, over := readInfo().EffectiveAudioNormalization()
 				return over
 			}, func() {
@@ -1494,9 +1512,9 @@ func audioImportFields(
 				return mode == "peakDB" || mode == "rmsDB"
 			},
 			Then: func(cx *core.Scope) core.Node {
-				return fieldRow("Level dB", nil, ui.NumberInput{
+				return fieldRow(ed.T("assetImport.audio.levelDB"), nil, ui.NumberInput{
 					TestID:   "import-audio-norm-db",
-					Label:    "Normalization Level (dBFS)",
+					Label:    ed.T("assetImport.audio.levelDBLabel"),
 					Step:     0.5,
 					Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
 					Disabled: disabled,
@@ -1515,10 +1533,10 @@ func audioImportFields(
 				}, nil)
 			},
 		},
-		fieldRow("Loop", func() string { return "WAV loop points in source sample frames" },
+		fieldRow(ed.T("assetImport.audio.loop"), func() string { return ed.T("assetImport.audio.loopTip") },
 			ui.Checkbox{
 				TestID:   "import-audio-loop-enabled",
-				Label:    "Loop Region",
+				Label:    ed.T("assetImport.audio.loopLabel"),
 				Disabled: disabled,
 				Checked: func() bool {
 					_, over := readInfo().EffectiveAudioLoop()
@@ -1532,7 +1550,7 @@ func audioImportFields(
 					ed.report(ed.SetAudioImportLoop(relPath, &importsettings.Loop{Start: 0, End: 0}))
 				},
 			},
-			resetBtn("import-audio-loop-reset", "Reset audio loop", func() bool {
+			resetBtn("import-audio-loop-reset", ed.T("assetImport.audio.loopReset"), func() bool {
 				_, over := readInfo().EffectiveAudioLoop()
 				return over
 			}, func() {
@@ -1548,9 +1566,9 @@ func audioImportFields(
 				return core.View{
 					Style: core.Style{Gap: 6},
 					Children: []core.Node{
-						fieldRow("Start", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.audio.loopStart"), nil, ui.NumberInput{
 							TestID:   "import-audio-loop-start",
-							Label:    "Loop Start",
+							Label:    ed.T("assetImport.audio.loopStartLabel"),
 							Min:      0,
 							Step:     1,
 							Disabled: disabled,
@@ -1564,9 +1582,9 @@ func audioImportFields(
 								updateLoop(func(l *importsettings.Loop) { l.Start = roundInt(v, 0) })
 							},
 						}, nil),
-						fieldRow("End", nil, ui.NumberInput{
+						fieldRow(ed.T("assetImport.audio.loopEnd"), nil, ui.NumberInput{
 							TestID:   "import-audio-loop-end",
-							Label:    "Loop End",
+							Label:    ed.T("assetImport.audio.loopEndLabel"),
 							Min:      0,
 							Step:     1,
 							Disabled: disabled,
@@ -1623,10 +1641,12 @@ func fontImportFields(
 	}
 
 	return []core.Node{
-		fieldRow("Size", func() string { return fmt.Sprintf("Baked pixel size (target default: %d)", readInfo().DefaultFontSize) },
+		fieldRow(ed.T("assetImport.font.size"), func() string {
+			return ed.T("assetImport.font.sizeTip", l10n.Param("default", readInfo().DefaultFontSize))
+		},
 			ui.NumberInput{
 				TestID:   "import-font-size",
-				Label:    "Font Size",
+				Label:    ed.T("assetImport.font.sizeLabel"),
 				Min:      1,
 				Max:      float64(project.MaxFontSize),
 				Step:     1,
@@ -1639,19 +1659,19 @@ func fontImportFields(
 					ed.report(ed.SetFontImportSize(relPath, roundInt(v, 1)))
 				},
 			},
-			resetBtn("import-font-size-reset", "Reset font size to target default", func() bool {
+			resetBtn("import-font-size-reset", ed.T("assetImport.font.sizeReset"), func() bool {
 				_, over := readInfo().EffectiveFontSize()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "size"))
 			}),
 		),
-		fieldRow("Padding", func() string {
-			return fmt.Sprintf("Glyph padding in pixels (target default: %d)", readInfo().DefaultFontPadding)
+		fieldRow(ed.T("assetImport.font.padding"), func() string {
+			return ed.T("assetImport.font.paddingTip", l10n.Param("default", readInfo().DefaultFontPadding))
 		},
 			ui.NumberInput{
 				TestID:   "import-font-padding",
-				Label:    "Font Padding",
+				Label:    ed.T("assetImport.font.paddingLabel"),
 				Min:      0,
 				Step:     1,
 				Disabled: disabled,
@@ -1664,17 +1684,17 @@ func fontImportFields(
 					ed.report(ed.SetFontImportPadding(relPath, &p))
 				},
 			},
-			resetBtn("import-font-padding-reset", "Reset font padding to target default", func() bool {
+			resetBtn("import-font-padding-reset", ed.T("assetImport.font.paddingReset"), func() bool {
 				_, over := readInfo().EffectiveFontPadding()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "padding"))
 			}),
 		),
-		fieldRow("Chars", func() string { return "Characters to bake into bitmap font" },
+		fieldRow(ed.T("assetImport.font.chars"), func() string { return ed.T("assetImport.font.charsTip") },
 			ui.Input{
 				TestID:   "import-font-chars",
-				Label:    "Font Characters",
+				Label:    ed.T("assetImport.font.charsLabel"),
 				Disabled: disabled,
 				Value:    charsVal,
 				OnChange: func(v string) {
@@ -1688,7 +1708,7 @@ func fontImportFields(
 					}
 				},
 			},
-			resetBtn("import-font-chars-reset", "Reset font characters to target default", func() bool {
+			resetBtn("import-font-chars-reset", ed.T("assetImport.font.charsReset"), func() bool {
 				_, over := readInfo().EffectiveFontChars()
 				return over
 			}, func() {
@@ -1711,12 +1731,12 @@ func modelImportFields(
 ) []core.Node {
 	nodes := modelImportPreviewSection(cx, ed, rev, relPath, disabled)
 	return append(nodes,
-		fieldRow("Scale", func() string {
-			return fmt.Sprintf("Model scale multiplier (target default: %g)", readInfo().DefaultModelScale)
+		fieldRow(ed.T("assetImport.model.scale"), func() string {
+			return ed.T("assetImport.model.scaleTip", l10n.Param("default", fmt.Sprintf("%g", readInfo().DefaultModelScale)))
 		},
 			ui.NumberInput{
 				TestID:   "import-model-scale",
-				Label:    "Model Scale",
+				Label:    ed.T("assetImport.model.scaleLabel"),
 				Min:      0,
 				Step:     0.1,
 				Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
@@ -1729,19 +1749,19 @@ func modelImportFields(
 					ed.report(ed.SetModelImportScale(relPath, v))
 				},
 			},
-			resetBtn("import-model-scale-reset", "Reset model scale to target default", func() bool {
+			resetBtn("import-model-scale-reset", ed.T("assetImport.model.scaleReset"), func() bool {
 				_, over := readInfo().EffectiveModelScale()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "scale"))
 			}),
 		),
-		fieldRow("Animations", func() string {
-			return fmt.Sprintf("Keep model animations (target default: %v)", readInfo().DefaultModelAnimations)
+		fieldRow(ed.T("assetImport.model.animations"), func() string {
+			return ed.T("assetImport.model.animationsTip", l10n.Param("default", readInfo().DefaultModelAnimations))
 		},
 			ui.Checkbox{
 				TestID:   "import-model-animations",
-				Label:    "Keep Animations",
+				Label:    ed.T("assetImport.model.animationsLabel"),
 				Disabled: disabled,
 				Checked: func() bool {
 					v, _ := readInfo().EffectiveModelAnimations()
@@ -1751,19 +1771,19 @@ func modelImportFields(
 					ed.report(ed.SetModelImportAnimations(relPath, &on))
 				},
 			},
-			resetBtn("import-model-animations-reset", "Reset model animations to target default", func() bool {
+			resetBtn("import-model-animations-reset", ed.T("assetImport.model.animationsReset"), func() bool {
 				_, over := readInfo().EffectiveModelAnimations()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "animations"))
 			}),
 		),
-		fieldRow("LOD Hyst.", func() string {
-			return "Relative LOD transition deadband [0, 0.5] to prevent popping"
+		fieldRow(ed.T("assetImport.model.lodHysteresis"), func() string {
+			return ed.T("assetImport.model.lodHysteresisTip")
 		},
 			ui.NumberInput{
 				TestID:   "import-model-lod-hysteresis",
-				Label:    "LOD Hysteresis",
+				Label:    ed.T("assetImport.model.lodHysteresisLabel"),
 				Min:      0,
 				Max:      0.5,
 				Step:     0.01,
@@ -1777,32 +1797,32 @@ func modelImportFields(
 					ed.report(ed.SetModelImportLODHysteresis(relPath, float32(v)))
 				},
 			},
-			resetBtn("import-model-lod-hysteresis-reset", "Reset LOD hysteresis", func() bool {
+			resetBtn("import-model-lod-hysteresis-reset", ed.T("assetImport.model.lodHysteresisReset"), func() bool {
 				_, over := readInfo().EffectiveModelLODHysteresis()
 				return over
 			}, func() {
 				ed.report(ed.ResetAssetImportField(relPath, "lodHysteresis"))
 			}),
 		),
-		fieldRow("LODs", func() string {
-			return "Declared LOD levels (or automatic _LOD1/_LOD2 convention when unset)"
+		fieldRow(ed.T("assetImport.model.lods"), func() string {
+			return ed.T("assetImport.model.lodsTip")
 		},
 			core.Text{
 				TestID: "import-model-lods",
 				ContentFunc: func() string {
 					lods, ok := readInfo().EffectiveModelLODs()
 					if !ok {
-						return "Auto (_LOD1/_LOD2)"
+						return ed.T("assetImport.model.lodsAuto")
 					}
 					parts := make([]string, len(lods))
 					for i, lv := range lods {
-						parts[i] = fmt.Sprintf("LOD%d >= %.2g", i, lv.MinScreenRatio)
+						parts[i] = ed.T("assetImport.model.lodEntry", l10n.Param("index", i), l10n.Param("ratio", fmt.Sprintf("%.2g", lv.MinScreenRatio)))
 					}
 					return strings.Join(parts, ", ")
 				},
 				Style: core.Style{FontSize: 11, Color: ui.ColorsOf(cx).Muted()},
 			},
-			resetBtn("import-model-lods-reset", "Clear declared LOD levels", func() bool {
+			resetBtn("import-model-lods-reset", ed.T("assetImport.model.lodsReset"), func() bool {
 				_, over := readInfo().EffectiveModelLODs()
 				return over
 			}, func() {
@@ -1878,7 +1898,7 @@ func creditImportSection(
 			return
 		}
 		if c.Author == "" || c.License == "" {
-			creditErr.Set("Author and license are both required for credit")
+			creditErr.Set(ed.T("assetImport.credit.authorLicenseRequired"))
 			return
 		}
 		if err := ed.SetAssetImportCredit(relPath, &c); err != nil {
@@ -1921,7 +1941,7 @@ func creditImportSection(
 				Gap: 6,
 				Children: []core.Node{
 					core.Text{
-						Content: "CREDIT",
+						Content: ed.T("assetImport.section.credit"),
 						Style: core.Style{
 							FontSize:   11,
 							FontWeight: 700,
@@ -1932,7 +1952,7 @@ func creditImportSection(
 					ui.IconButton{
 						TestID: "import-credit-reset",
 						Icon:   lucide.RotateCcw,
-						Label:  "Clear asset credit",
+						Label:  ed.T("assetImport.credit.clear"),
 						Disabled: func() bool {
 							if disabled() {
 								return true
@@ -1949,40 +1969,40 @@ func creditImportSection(
 					},
 				},
 			},
-			row("Author", ui.Input{
+			row(ed.T("assetImport.credit.author"), ui.Input{
 				TestID:      "import-credit-author",
-				Label:       "Credit Author",
-				Placeholder: "Author",
+				Label:       ed.T("assetImport.credit.authorLabel"),
+				Placeholder: ed.T("assetImport.credit.author"),
 				Disabled:    disabled,
 				Value:       func() string { return currentCredit().Author },
 				OnChange:    func(v string) { setField(func(c *importsettings.Credit) { c.Author = v }) },
 				OnSubmit:    func(string) { commit() },
 				OnBlur:      commit,
 			}),
-			row("License", ui.Input{
+			row(ed.T("assetImport.credit.license"), ui.Input{
 				TestID:      "import-credit-license",
-				Label:       "Credit License",
-				Placeholder: "CC-BY-4.0",
+				Label:       ed.T("assetImport.credit.licenseLabel"),
+				Placeholder: ed.T("assetImport.credit.licensePlaceholder"),
 				Disabled:    disabled,
 				Value:       func() string { return currentCredit().License },
 				OnChange:    func(v string) { setField(func(c *importsettings.Credit) { c.License = v }) },
 				OnSubmit:    func(string) { commit() },
 				OnBlur:      commit,
 			}),
-			row("Source", ui.Input{
+			row(ed.T("assetImport.credit.source"), ui.Input{
 				TestID:      "import-credit-source",
-				Label:       "Credit Source",
-				Placeholder: "Optional URL",
+				Label:       ed.T("assetImport.credit.sourceLabel"),
+				Placeholder: ed.T("assetImport.credit.sourcePlaceholder"),
 				Disabled:    disabled,
 				Value:       func() string { return currentCredit().Source },
 				OnChange:    func(v string) { setField(func(c *importsettings.Credit) { c.Source = v }) },
 				OnSubmit:    func(string) { commit() },
 				OnBlur:      commit,
 			}),
-			row("Notice", ui.Input{
+			row(ed.T("assetImport.credit.notice"), ui.Input{
 				TestID:      "import-credit-notice",
-				Label:       "Credit Notice",
-				Placeholder: "Optional notice",
+				Label:       ed.T("assetImport.credit.noticeLabel"),
+				Placeholder: ed.T("assetImport.credit.noticePlaceholder"),
 				Disabled:    disabled,
 				Value:       func() string { return currentCredit().Notice },
 				OnChange:    func(v string) { setField(func(c *importsettings.Credit) { c.Notice = v }) },
@@ -2000,6 +2020,21 @@ func creditImportSection(
 				},
 			},
 		},
+	}
+}
+
+func localizedImportKind(ed *Editor, kind AssetImportKind) string {
+	switch kind {
+	case AssetImportImage:
+		return ed.T("assetImport.kind.image")
+	case AssetImportAudio:
+		return ed.T("assetImport.kind.audio")
+	case AssetImportFont:
+		return ed.T("assetImport.kind.font")
+	case AssetImportModel:
+		return ed.T("assetImport.kind.model")
+	default:
+		return string(kind)
 	}
 }
 

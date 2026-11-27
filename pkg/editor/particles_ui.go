@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -71,7 +72,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						TestID: "particles-title",
 						ContentFunc: func() string {
 							_ = rev.Get()
-							title := "Particle Emitter"
+							title := ed.T("particles.title")
 							if p := ed.ParticleEmitterPath(); p != "" {
 								title += " (" + filepath.Base(p) + ")"
 							}
@@ -81,7 +82,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							if tp := ed.ParticleTargetPath(); len(tp) > 0 {
 								var parts []string
 								for _, i := range tp {
-									parts = append(parts, fmt.Sprintf("Sub #%d", i+1))
+									parts = append(parts, ed.T("particles.subTitlePart", l10n.Param("index", i+1)))
 								}
 								title += " > " + strings.Join(parts, " > ")
 							}
@@ -97,7 +98,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Then: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:   "particles-target-root",
-								Text:     "Back to Root",
+								Text:     ed.T("particles.backToRoot"),
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonSecondary,
 								Disabled: disabled,
@@ -119,9 +120,9 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						TextFunc: func() string {
 							_ = rev.Get()
 							if ed.ParticlePreviewPlaying() {
-								return "Pause"
+								return ed.T("particles.pause")
 							}
-							return "Play"
+							return ed.T("particles.play")
 						},
 						OnPress: func() {
 							if ed.ParticlePreviewPlaying() {
@@ -133,14 +134,14 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					ui.Button{
 						TestID:  "particles-preview-restart",
-						Text:    "Restart",
+						Text:    ed.T("particles.restart"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						OnPress: func() { ed.RestartParticlePreview() },
 					},
 					ui.Button{
 						TestID:  "particles-preview-step",
-						Text:    "Step",
+						Text:    ed.T("particles.step"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						OnPress: func() {
@@ -153,7 +154,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					ui.Button{
 						TestID:  "particles-preview-burst",
-						Text:    "Burst",
+						Text:    ed.T("particles.burst"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						OnPress: func() { ed.BurstParticlePreview(12) },
@@ -167,13 +168,16 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							if em != nil {
 								count = em.TotalCount()
 							}
-							return fmt.Sprintf("%d live | %.2fs", count, ed.ParticlePreviewElapsed().Seconds())
+							return ed.T("particles.previewStats",
+								l10n.Param("count", count),
+								l10n.Param("elapsed", strconv.FormatFloat(ed.ParticlePreviewElapsed().Seconds(), 'f', 2, 64)),
+							)
 						},
 						Style: core.Style{FontSize: 11, Color: colors.Muted()},
 					},
 					ui.Button{
 						TestID:   "particles-save",
-						Text:     "Save Emitter",
+						Text:     ed.T("particles.saveEmitter"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonOutline,
 						Disabled: disabled,
@@ -181,7 +185,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					ui.Button{
 						TestID:   "particles-close",
-						Text:     "Close",
+						Text:     ed.T("particles.close"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonGhost,
 						Disabled: disabled,
@@ -222,8 +226,8 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Children: []core.Node{
 							ui.Select[string]{
 								TestID:      "particles-preview-atlas",
-								Label:       "Preview Atlas",
-								Placeholder: "No Atlas",
+								Label:       ed.T("particles.previewAtlasLabel"),
+								Placeholder: ed.T("particles.noAtlasPlaceholder"),
 								OptionsFunc: func() []ui.Option[string] {
 									_ = rev.Get()
 									names := ed.ParticleAtlasNames()
@@ -244,7 +248,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					ui.ToggleButton{
 						TestID: "particles-preview-floor",
-						Text:   "Floor",
+						Text:   ed.T("particles.floor"),
 						On: func() bool {
 							_ = rev.Get()
 							return ed.ParticlePreviewFloor()
@@ -423,16 +427,16 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		core.View{
 			Style: core.Style{Width: core.Pt(118), Gap: 2},
 			Children: []core.Node{
-				core.Text{Content: "Shape", Style: core.Style{FontSize: 10, Color: colors.Muted()}},
+				core.Text{Content: ed.T("particles.shape"), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
 				ui.Select[string]{
 					TestID:   "particles-shape-kind",
-					Label:    "Shape Kind",
+					Label:    ed.T("particles.shapeKindLabel"),
 					Disabled: disabled,
 					Options: []ui.Option[string]{
-						{Value: "point", Label: "point"},
-						{Value: "circle", Label: "circle"},
-						{Value: "ring", Label: "ring"},
-						{Value: "rect", Label: "rect"},
+						{Value: "point", Label: ed.T("particles.shapePoint")},
+						{Value: "circle", Label: ed.T("particles.shapeCircle")},
+						{Value: "ring", Label: ed.T("particles.shapeRing")},
+						{Value: "rect", Label: ed.T("particles.shapeRect")},
 					},
 					Value: func() string { return activeCfg().Shape.Kind() },
 					OnChange: func(kind string) {
@@ -469,7 +473,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	}
 	switch cfg.Shape.Kind() {
 	case "circle", "ring":
-		shapeNodes = append(shapeNodes, numField("particles-shape-radius", "Radius", 0, 10000, 1,
+		shapeNodes = append(shapeNodes, numField("particles-shape-radius", ed.T("particles.radius"), 0, 10000, 1,
 			func() float64 { return float64(activeCfg().Shape.Radius()) },
 			func(v float64) {
 				if activeCfg().Shape.Kind() == "ring" {
@@ -481,13 +485,13 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		))
 	case "rect":
 		shapeNodes = append(shapeNodes,
-			numField("particles-shape-width", "Width", 0, 10000, 1,
+			numField("particles-shape-width", ed.T("particles.width"), 0, 10000, 1,
 				func() float64 { return float64(activeCfg().Shape.Width()) },
 				func(v float64) {
 					ed.report(ed.SetParticleShape(particles.Rect(float32(v), activeCfg().Shape.Height())))
 				},
 			),
-			numField("particles-shape-height", "Height", 0, 10000, 1,
+			numField("particles-shape-height", ed.T("particles.height"), 0, 10000, 1,
 				func() float64 { return float64(activeCfg().Shape.Height()) },
 				func(v float64) { ed.report(ed.SetParticleShape(particles.Rect(activeCfg().Shape.Width(), float32(v)))) },
 			),
@@ -501,14 +505,14 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 			core.View{
 				Style: core.Style{Width: core.Pt(104), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: "Space", Style: core.Style{FontSize: 10, Color: colors.Muted()}},
+					core.Text{Content: ed.T("particles.space"), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
 					ui.Select[string]{
 						TestID:   "particles-space",
-						Label:    "Simulation Space",
+						Label:    ed.T("particles.spaceLabel"),
 						Disabled: disabled,
 						Options: []ui.Option[string]{
-							{Value: "world", Label: "world"},
-							{Value: "local", Label: "local"},
+							{Value: "world", Label: ed.T("particles.spaceWorld")},
+							{Value: "local", Label: ed.T("particles.spaceLocal")},
 						},
 						Value: func() string { return activeCfg().Space.String() },
 						OnChange: func(v string) {
@@ -521,11 +525,11 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					},
 				},
 			},
-			numField("particles-rate", "Rate (/s)", 0, 100000, 5,
+			numField("particles-rate", ed.T("particles.rate"), 0, 100000, 5,
 				func() float64 { return float64(activeCfg().Rate) },
 				func(v float64) { ed.report(ed.SetParticleRate(float32(v))) },
 			),
-			numField("particles-max-particles", "Max Particles", 0, 100000, 16,
+			numField("particles-max-particles", ed.T("particles.maxParticles"), 0, 100000, 16,
 				func() float64 { return float64(activeCfg().MaxParticles) },
 				func(v float64) { ed.report(ed.SetParticleMaxParticles(int(math.Round(v)))) },
 			),
@@ -537,15 +541,15 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 				func() float64 { return float64(activeCfg().Y) },
 				func(v float64) { ed.report(ed.SetParticlePosition(activeCfg().X, float32(v))) },
 			),
-			numField("particles-rotation", "Rotation (rad)", -100, 100, 0.1,
+			numField("particles-rotation", ed.T("particles.rotationRad"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().Rotation) },
 				func(v float64) { ed.report(ed.SetParticleRotation(float32(v))) },
 			),
-			numField("particles-z", "Z Order", -10000, 10000, 1,
+			numField("particles-z", ed.T("particles.zOrder"), -10000, 10000, 1,
 				func() float64 { return float64(activeCfg().Z) },
 				func(v float64) { ed.report(ed.SetParticleZ(int(math.Round(v)))) },
 			),
-			numField("particles-seed", "Seed", 0, 1e15, 1,
+			numField("particles-seed", ed.T("particles.seed"), 0, 1e15, 1,
 				func() float64 { return float64(activeCfg().Seed) },
 				func(v float64) {
 					if v < 0 {
@@ -564,7 +568,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		burstRows = append(burstRows, ui.HStack{
 			Gap: 6,
 			Children: []core.Node{
-				numField(fmt.Sprintf("particles-burst-time-%d", idx), "Time (s)", 0, 3600, 0.1,
+				numField(fmt.Sprintf("particles-burst-time-%d", idx), ed.T("particles.burstTime"), 0, 3600, 0.1,
 					func() float64 {
 						c := activeCfg()
 						if idx >= len(c.Bursts) {
@@ -582,7 +586,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 						ed.report(ed.SetParticleBurst(idx, b))
 					},
 				),
-				numField(fmt.Sprintf("particles-burst-count-%d", idx), "Count", 0, 10000, 1,
+				numField(fmt.Sprintf("particles-burst-count-%d", idx), ed.T("particles.burstCount"), 0, 10000, 1,
 					func() float64 {
 						c := activeCfg()
 						if idx >= len(c.Bursts) {
@@ -600,7 +604,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 						ed.report(ed.SetParticleBurst(idx, b))
 					},
 				),
-				numField(fmt.Sprintf("particles-burst-cycles-%d", idx), "Cycles", -1, 1000, 1,
+				numField(fmt.Sprintf("particles-burst-cycles-%d", idx), ed.T("particles.burstCycles"), -1, 1000, 1,
 					func() float64 {
 						c := activeCfg()
 						if idx >= len(c.Bursts) {
@@ -618,7 +622,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 						ed.report(ed.SetParticleBurst(idx, b))
 					},
 				),
-				numField(fmt.Sprintf("particles-burst-interval-%d", idx), "Interval (s)", 0, 3600, 0.1,
+				numField(fmt.Sprintf("particles-burst-interval-%d", idx), ed.T("particles.burstInterval"), 0, 3600, 0.1,
 					func() float64 {
 						c := activeCfg()
 						if idx >= len(c.Bursts) {
@@ -638,7 +642,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 				),
 				ui.Button{
 					TestID:   fmt.Sprintf("particles-burst-remove-%d", idx),
-					Text:     "Remove",
+					Text:     ed.T("particles.remove"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonGhost,
 					Disabled: disabled,
@@ -649,7 +653,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	}
 	burstRows = append(burstRows, ui.Button{
 		TestID:   "particles-burst-add",
-		Text:     "+ Add Burst",
+		Text:     ed.T("particles.addBurst"),
 		Size:     ui.SizeSmall,
 		Variant:  ui.ButtonSecondary,
 		Disabled: disabled,
@@ -662,51 +666,51 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	motionRow := core.View{
 		Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignEnd, Gap: 8},
 		Children: []core.Node{
-			numField("particles-lifetime-min", "Life Min (s)", 0, 3600, 0.05,
+			numField("particles-lifetime-min", ed.T("particles.lifeMin"), 0, 3600, 0.05,
 				func() float64 { return activeCfg().LifetimeMin.Seconds() },
 				func(v float64) { ed.report(ed.SetParticleLifetime(durationOfSeconds(v), activeCfg().LifetimeMax)) },
 			),
-			numField("particles-lifetime-max", "Life Max (s)", 0, 3600, 0.05,
+			numField("particles-lifetime-max", ed.T("particles.lifeMax"), 0, 3600, 0.05,
 				func() float64 { return activeCfg().LifetimeMax.Seconds() },
 				func(v float64) { ed.report(ed.SetParticleLifetime(activeCfg().LifetimeMin, durationOfSeconds(v))) },
 			),
-			numField("particles-speed-min", "Speed Min", -10000, 10000, 5,
+			numField("particles-speed-min", ed.T("particles.speedMin"), -10000, 10000, 5,
 				func() float64 { return float64(activeCfg().SpeedMin) },
 				func(v float64) { ed.report(ed.SetParticleSpeed(float32(v), activeCfg().SpeedMax)) },
 			),
-			numField("particles-speed-max", "Speed Max", -10000, 10000, 5,
+			numField("particles-speed-max", ed.T("particles.speedMax"), -10000, 10000, 5,
 				func() float64 { return float64(activeCfg().SpeedMax) },
 				func(v float64) { ed.report(ed.SetParticleSpeed(activeCfg().SpeedMin, float32(v))) },
 			),
-			numField("particles-angle-min", "Angle Min", -100, 100, 0.1,
+			numField("particles-angle-min", ed.T("particles.angleMin"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().AngleMin) },
 				func(v float64) { ed.report(ed.SetParticleAngle(float32(v), activeCfg().AngleMax)) },
 			),
-			numField("particles-angle-max", "Angle Max", -100, 100, 0.1,
+			numField("particles-angle-max", ed.T("particles.angleMax"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().AngleMax) },
 				func(v float64) { ed.report(ed.SetParticleAngle(activeCfg().AngleMin, float32(v))) },
 			),
-			numField("particles-gravity-x", "Gravity X", -10000, 10000, 5,
+			numField("particles-gravity-x", ed.T("particles.gravityX"), -10000, 10000, 5,
 				func() float64 { return float64(activeCfg().GravityX) },
 				func(v float64) { ed.report(ed.SetParticleGravity(float32(v), activeCfg().GravityY)) },
 			),
-			numField("particles-gravity-y", "Gravity Y", -10000, 10000, 5,
+			numField("particles-gravity-y", ed.T("particles.gravityY"), -10000, 10000, 5,
 				func() float64 { return float64(activeCfg().GravityY) },
 				func(v float64) { ed.report(ed.SetParticleGravity(activeCfg().GravityX, float32(v))) },
 			),
-			numField("particles-init-rot-min", "Init Rot Min", -100, 100, 0.1,
+			numField("particles-init-rot-min", ed.T("particles.initRotMin"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().InitialRotationMin) },
 				func(v float64) { ed.report(ed.SetParticleInitialRotation(float32(v), activeCfg().InitialRotationMax)) },
 			),
-			numField("particles-init-rot-max", "Init Rot Max", -100, 100, 0.1,
+			numField("particles-init-rot-max", ed.T("particles.initRotMax"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().InitialRotationMax) },
 				func(v float64) { ed.report(ed.SetParticleInitialRotation(activeCfg().InitialRotationMin, float32(v))) },
 			),
-			numField("particles-rot-speed-min", "Rot Spd Min", -100, 100, 0.1,
+			numField("particles-rot-speed-min", ed.T("particles.rotSpdMin"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().RotationSpeedMin) },
 				func(v float64) { ed.report(ed.SetParticleRotationSpeed(float32(v), activeCfg().RotationSpeedMax)) },
 			),
-			numField("particles-rot-speed-max", "Rot Spd Max", -100, 100, 0.1,
+			numField("particles-rot-speed-max", ed.T("particles.rotSpdMax"), -100, 100, 0.1,
 				func() float64 { return float64(activeCfg().RotationSpeedMax) },
 				func(v float64) { ed.report(ed.SetParticleRotationSpeed(activeCfg().RotationSpeedMin, float32(v))) },
 			),
@@ -733,7 +737,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		}
 	} else if len(cfg.FrameNames) == 0 {
 		frameChips = append(frameChips, core.Text{
-			Content: "No atlas frames available (select a Preview Atlas or load an atlas in the resolver)",
+			Content: ed.T("particles.noAtlasFrames"),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		})
 	}
@@ -759,8 +763,8 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		Children: []core.Node{
 			ui.Checkbox{
 				TestID:   "particles-collision-enabled",
-				Text:     "Enabled",
-				Label:    "Enabled",
+				Text:     ed.T("particles.enabled"),
+				Label:    ed.T("particles.enabled"),
 				Disabled: disabled,
 				Checked:  func() bool { return activeCfg().Collision.Enabled },
 				OnChange: func(on bool) {
@@ -775,16 +779,16 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 			core.View{
 				Style: core.Style{Width: core.Pt(110), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: "Mode", Style: core.Style{FontSize: 10, Color: colors.Muted()}},
+					core.Text{Content: ed.T("particles.mode"), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
 					ui.Select[string]{
 						TestID:   "particles-collision-mode",
-						Label:    "Collision Mode",
+						Label:    ed.T("particles.collisionModeLabel"),
 						Disabled: disabled,
 						Options: []ui.Option[string]{
-							{Value: "none", Label: "none"},
-							{Value: "stop", Label: "stop"},
-							{Value: "bounce", Label: "bounce"},
-							{Value: "kill", Label: "kill"},
+							{Value: "none", Label: ed.T("particles.collideNone")},
+							{Value: "stop", Label: ed.T("particles.collideStop")},
+							{Value: "bounce", Label: ed.T("particles.collideBounce")},
+							{Value: "kill", Label: ed.T("particles.collideKill")},
 						},
 						Value: func() string { return activeCfg().Collision.Mode.String() },
 						OnChange: func(mode string) {
@@ -804,7 +808,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					},
 				},
 			},
-			numField("particles-collision-bounce", "Bounce", 0, 2, 0.05,
+			numField("particles-collision-bounce", ed.T("particles.bounce"), 0, 2, 0.05,
 				func() float64 { return float64(activeCfg().Collision.Bounce) },
 				func(v float64) {
 					col := activeCfg().Collision
@@ -812,7 +816,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					ed.report(ed.SetParticleCollision(col))
 				},
 			),
-			numField("particles-collision-friction", "Friction", 0, 1, 0.05,
+			numField("particles-collision-friction", ed.T("particles.friction"), 0, 1, 0.05,
 				func() float64 { return float64(activeCfg().Collision.Friction) },
 				func(v float64) {
 					col := activeCfg().Collision
@@ -820,7 +824,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					ed.report(ed.SetParticleCollision(col))
 				},
 			),
-			numField("particles-collision-radius", "Radius", 0, 500, 0.5,
+			numField("particles-collision-radius", ed.T("particles.radius"), 0, 500, 0.5,
 				func() float64 { return float64(activeCfg().Collision.Radius) },
 				func(v float64) {
 					col := activeCfg().Collision
@@ -835,8 +839,8 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	trailChildren := []core.Node{
 		ui.Checkbox{
 			TestID:   "particles-trail-enabled",
-			Text:     "Enable Ribbon Trails",
-			Label:    "Enable Ribbon Trails",
+			Text:     ed.T("particles.enableTrails"),
+			Label:    ed.T("particles.enableTrails"),
 			Disabled: disabled,
 			Checked:  func() bool { return activeCfg().Trail != nil },
 			OnChange: func(on bool) { ed.report(ed.SetParticleTrailEnabled(on)) },
@@ -844,7 +848,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	}
 	if cfg.Trail != nil {
 		trailChildren = append(trailChildren,
-			numField("particles-trail-max-points", "Max Points", 0, 512, 4,
+			numField("particles-trail-max-points", ed.T("particles.trailMaxPoints"), 0, 512, 4,
 				func() float64 {
 					if tr := activeCfg().Trail; tr != nil {
 						return float64(tr.MaxPoints)
@@ -858,7 +862,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					}
 				},
 			),
-			numField("particles-trail-lifetime", "Lifetime (s)", 0, 60, 0.05,
+			numField("particles-trail-lifetime", ed.T("particles.trailLifetime"), 0, 60, 0.05,
 				func() float64 {
 					if tr := activeCfg().Trail; tr != nil {
 						return float64(tr.Lifetime)
@@ -872,7 +876,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					}
 				},
 			),
-			numField("particles-trail-min-distance", "Min Dist", 0, 500, 0.5,
+			numField("particles-trail-min-distance", ed.T("particles.trailMinDist"), 0, 500, 0.5,
 				func() float64 {
 					if tr := activeCfg().Trail; tr != nil {
 						return float64(tr.MinDistance)
@@ -886,7 +890,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 					}
 				},
 			),
-			numField("particles-trail-width", "Width", 0, 500, 0.5,
+			numField("particles-trail-width", ed.T("particles.width"), 0, 500, 0.5,
 				func() float64 {
 					if tr := activeCfg().Trail; tr != nil {
 						return float64(tr.Width)
@@ -903,10 +907,10 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 			core.View{
 				Style: core.Style{Width: core.Pt(118), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: "Color (#rrggbbaa)", Style: core.Style{FontSize: 10, Color: colors.Muted()}},
+					core.Text{Content: ed.T("particles.colorHex"), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
 					ui.Input{
 						TestID:   "particles-trail-color",
-						Label:    "Trail Color",
+						Label:    ed.T("particles.trailColorLabel"),
 						Disabled: disabled,
 						Value: func() string {
 							if tr := activeCfg().Trail; tr != nil && tr.Color != 0 {
@@ -938,10 +942,10 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 			core.View{
 				Style: core.Style{Width: core.Pt(150), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: "Texture URI", Style: core.Style{FontSize: 10, Color: colors.Muted()}},
+					core.Text{Content: ed.T("particles.textureURI"), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
 					ui.Input{
 						TestID:   "particles-trail-texture",
-						Label:    "Trail Texture URI",
+						Label:    ed.T("particles.trailTextureURILabel"),
 						Disabled: disabled,
 						Value: func() string {
 							if tr := activeCfg().Trail; tr != nil {
@@ -971,15 +975,15 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 				core.View{
 					Style: core.Style{Width: core.Pt(104), Gap: 2},
 					Children: []core.Node{
-						core.Text{Content: fmt.Sprintf("Sub #%d Trigger", idx+1), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
+						core.Text{Content: ed.T("particles.subTrigger", l10n.Param("index", idx+1)), Style: core.Style{FontSize: 10, Color: colors.Muted()}},
 						ui.Select[string]{
 							TestID:   fmt.Sprintf("particles-sub-trigger-%d", idx),
-							Label:    "Sub-Emitter Trigger",
+							Label:    ed.T("particles.subTriggerLabel"),
 							Disabled: disabled,
 							Options: []ui.Option[string]{
-								{Value: "birth", Label: "birth"},
-								{Value: "death", Label: "death"},
-								{Value: "collision", Label: "collision"},
+								{Value: "birth", Label: ed.T("particles.triggerBirth")},
+								{Value: "death", Label: ed.T("particles.triggerDeath")},
+								{Value: "collision", Label: ed.T("particles.triggerCollision")},
 							},
 							Value: func() string {
 								c := activeCfg()
@@ -1006,7 +1010,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 						},
 					},
 				},
-				numField(fmt.Sprintf("particles-sub-burst-%d", idx), "Burst Count", 0, 1000, 1,
+				numField(fmt.Sprintf("particles-sub-burst-%d", idx), ed.T("particles.subBurstCount"), 0, 1000, 1,
 					func() float64 {
 						c := activeCfg()
 						if idx >= len(c.SubEmitters) {
@@ -1023,7 +1027,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 						ed.report(ed.SetParticleSubEmitter(idx, sub.Trigger, int(math.Round(v)), sub.InheritVelocity))
 					},
 				),
-				numField(fmt.Sprintf("particles-sub-inherit-%d", idx), "Inherit Vel", -10, 10, 0.1,
+				numField(fmt.Sprintf("particles-sub-inherit-%d", idx), ed.T("particles.subInheritVel"), -10, 10, 0.1,
 					func() float64 {
 						c := activeCfg()
 						if idx >= len(c.SubEmitters) {
@@ -1042,7 +1046,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 				),
 				ui.Button{
 					TestID:   fmt.Sprintf("particles-sub-edit-%d", idx),
-					Text:     "Edit Child",
+					Text:     ed.T("particles.editChild"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonSecondary,
 					Disabled: disabled,
@@ -1053,7 +1057,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 				},
 				ui.Button{
 					TestID:   fmt.Sprintf("particles-sub-remove-%d", idx),
-					Text:     "Remove",
+					Text:     ed.T("particles.remove"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonGhost,
 					Disabled: disabled,
@@ -1064,7 +1068,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	}
 	subRows = append(subRows, ui.Button{
 		TestID:   "particles-sub-add",
-		Text:     "+ Add Sub-Emitter",
+		Text:     ed.T("particles.addSubEmitter"),
 		Size:     ui.SizeSmall,
 		Variant:  ui.ButtonSecondary,
 		Disabled: disabled,
@@ -1089,21 +1093,21 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	return core.View{
 		Style: core.Style{Gap: 10},
 		Children: []core.Node{
-			secTitle("EMITTER & SHAPE"),
+			secTitle(ed.T("particles.sectionEmitterShape")),
 			generalRow,
-			secTitle("SCHEDULED BURSTS"),
+			secTitle(ed.T("particles.sectionBursts")),
 			core.View{Style: core.Style{Gap: 6}, Children: burstRows},
-			secTitle("LIFETIME & MOTION"),
+			secTitle(ed.T("particles.sectionLifetimeMotion")),
 			motionRow,
-			secTitle("CURVES"),
+			secTitle(ed.T("particles.sectionCurves")),
 			curveSection,
-			secTitle("FRAMES (ATLAS PICKER)"),
+			secTitle(ed.T("particles.sectionFrames")),
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: frameChips},
-			secTitle("COLLISION"),
+			secTitle(ed.T("particles.sectionCollision")),
 			collisionRow,
-			secTitle("TRAILS"),
+			secTitle(ed.T("particles.sectionTrails")),
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignEnd, Gap: 8}, Children: trailChildren},
-			secTitle("SUB-EMITTERS"),
+			secTitle(ed.T("particles.sectionSubEmitters")),
 			core.View{Style: core.Style{Gap: 6}, Children: subRows},
 		},
 	}
@@ -1161,15 +1165,15 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		}
 	}
 	tabs := []core.Node{
-		tabBtn(ParticleCurveSize, "particles-curve-tab-size", "Size"),
-		tabBtn(ParticleCurveAlpha, "particles-curve-tab-alpha", "Alpha"),
-		tabBtn(ParticleCurveRotation, "particles-curve-tab-rotation", "Rotation"),
-		tabBtn(ParticleCurveColor, "particles-curve-tab-color", "Color"),
+		tabBtn(ParticleCurveSize, "particles-curve-tab-size", ed.T("particles.curveSize")),
+		tabBtn(ParticleCurveAlpha, "particles-curve-tab-alpha", ed.T("particles.curveAlpha")),
+		tabBtn(ParticleCurveRotation, "particles-curve-tab-rotation", ed.T("particles.curveRotation")),
+		tabBtn(ParticleCurveColor, "particles-curve-tab-color", ed.T("particles.curveColor")),
 	}
 	if cfg.Trail != nil {
 		tabs = append(tabs,
-			tabBtn(ParticleCurveTrailWidth, "particles-curve-tab-trail-width", "Trail Width"),
-			tabBtn(ParticleCurveTrailColor, "particles-curve-tab-trail-color", "Trail Color"),
+			tabBtn(ParticleCurveTrailWidth, "particles-curve-tab-trail-width", ed.T("particles.curveTrailWidth")),
+			tabBtn(ParticleCurveTrailColor, "particles-curve-tab-trail-color", ed.T("particles.curveTrailColor")),
 		)
 	}
 
@@ -1400,7 +1404,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	stopControls := []core.Node{
 		ui.Button{
 			TestID:   "particles-curve-add",
-			Text:     "+ Stop",
+			Text:     ed.T("particles.addStop"),
 			Size:     ui.SizeSmall,
 			Variant:  ui.ButtonSecondary,
 			Disabled: disabled,
@@ -1426,7 +1430,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		},
 		ui.Button{
 			TestID:  "particles-curve-remove",
-			Text:    "- Stop",
+			Text:    ed.T("particles.removeStop"),
 			Size:    ui.SizeSmall,
 			Variant: ui.ButtonGhost,
 			Disabled: func() bool {
@@ -1453,7 +1457,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Style: core.Style{Width: core.Pt(92)},
 					Children: []core.Node{ui.NumberInput{
 						TestID:   "particles-curve-stop-t",
-						Label:    "Stop T",
+						Label:    ed.T("particles.stopTLabel"),
 						Min:      0,
 						Max:      1,
 						Step:     0.05,
@@ -1480,7 +1484,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Style: core.Style{Width: core.Pt(98)},
 					Children: []core.Node{ui.NumberInput{
 						TestID:   "particles-curve-stop-value",
-						Label:    "Stop Value",
+						Label:    ed.T("particles.stopValueLabel"),
 						Step:     0.1,
 						Disabled: disabled,
 						Value: func() float64 {
@@ -1510,7 +1514,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Style: core.Style{Width: core.Pt(92)},
 					Children: []core.Node{ui.NumberInput{
 						TestID:   "particles-curve-stop-t",
-						Label:    "Color Stop T",
+						Label:    ed.T("particles.colorStopTLabel"),
 						Min:      0,
 						Max:      1,
 						Step:     0.05,
@@ -1537,7 +1541,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Style: core.Style{Width: core.Pt(112)},
 					Children: []core.Node{ui.Input{
 						TestID:   "particles-curve-stop-color",
-						Label:    "Color (#rrggbbaa)",
+						Label:    ed.T("particles.colorHex"),
 						Disabled: disabled,
 						Value: func() string {
 							c := activeCfg()
@@ -1586,11 +1590,11 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									c := activeCfg()
 									if isColor {
 										if r, e := colorCurveRef(&c, kind); e == nil {
-											return strconv.Itoa(len(*r)) + " color stops (click bar to select/add)"
+											return ed.T("particles.colorStopsHint", l10n.Param("count", len(*r)))
 										}
 									} else {
 										if r, e := floatCurveRef(&c, kind); e == nil {
-											return strconv.Itoa(len(*r)) + " stops (drag handles or click graph to add)"
+											return ed.T("particles.floatStopsHint", l10n.Param("count", len(*r)))
 										}
 									}
 									return ""

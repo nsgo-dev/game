@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/audio"
@@ -59,6 +60,25 @@ func (k AudioEffectKind) Label() string {
 		return "Bitcrush"
 	default:
 		return string(k)
+	}
+}
+
+func (e *Editor) localizedAudioEffectKind(k AudioEffectKind) string {
+	switch k {
+	case AudioEffectLowPass:
+		return e.T("audioMixer.effect.lowPass")
+	case AudioEffectHighPass:
+		return e.T("audioMixer.effect.highPass")
+	case AudioEffectDelay:
+		return e.T("audioMixer.effect.delay")
+	case AudioEffectReverb:
+		return e.T("audioMixer.effect.reverb")
+	case AudioEffectGain:
+		return e.T("audioMixer.effect.gain")
+	case AudioEffectBitcrush:
+		return e.T("audioMixer.effect.bitcrush")
+	default:
+		return k.Label()
 	}
 }
 
@@ -677,7 +697,7 @@ func (e *Editor) AuditionAudioBus(bus, relPath string) error {
 	e.audioMixer.auditionRaw = raw
 	e.audioMixer.auditionChain = audioBusEffectsKey(e.Project.Audio.Buses[idx].Effects)
 	e.audioMixer.auditionSource = processed
-	e.Status = fmt.Sprintf("Auditioning %s through bus %q", relPath, bus)
+	e.Status = e.T("audioMixer.statusAuditioning", l10n.Param("file", relPath), l10n.Param("bus", bus))
 	e.notify()
 	return nil
 }
@@ -690,7 +710,7 @@ func (e *Editor) StopAudition() {
 	was := e.audioMixer.auditioning
 	e.stopAudioAudition()
 	if was {
-		e.Status = "Stopped audition"
+		e.Status = e.T("audioMixer.statusStopped")
 		e.notify()
 	}
 }
@@ -806,7 +826,7 @@ func (e *Editor) syncAudioMixer() {
 	processed, err := e.audioMixer.mixer.ProcessSource(b.Name, audio.Source{Data: e.audioMixer.auditionRaw})
 	if err != nil {
 		e.stopAudioAudition()
-		e.Status = "Error: " + err.Error()
+		e.Status = e.T("audioMixer.statusError", l10n.Param("error", err.Error()))
 		return
 	}
 	e.audioMixer.auditionChain = fp
@@ -965,8 +985,8 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		pal,
 		ed,
 		"mixer-master-row",
-		"Master",
-		"Output",
+		ed.T("audioMixer.master"),
+		ed.T("audioMixer.output"),
 		ui.HStack{
 			Gap: 8,
 			Children: []core.Node{
@@ -975,7 +995,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					Children: []core.Node{
 						ui.Slider{
 							TestID:   "mixer-master-slider",
-							Label:    "Master Volume",
+							Label:    ed.T("audioMixer.masterVolumeLabel"),
 							Min:      0,
 							Max:      1,
 							Step:     0.01,
@@ -1034,14 +1054,14 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			BorderColor:  pal.Line,
 		},
 		Children: []core.Node{
-			label("AUDITION"),
+			label(ed.T("audioMixer.auditionHeading")),
 			core.View{
 				Style: core.Style{Width: core.Pt(220)},
 				Children: []core.Node{
 					ui.Select[string]{
 						TestID:      "mixer-audition-file",
-						Label:       "Audition Audio File",
-						Placeholder: "Audio file",
+						Label:       ed.T("audioMixer.auditionFileLabel"),
+						Placeholder: ed.T("audioMixer.auditionFilePlaceholder"),
 						Searchable:  true,
 						Disabled:    disabled,
 						OptionsFunc: func() []ui.Option[string] {
@@ -1064,7 +1084,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			},
 			ui.ToggleButton{
 				TestID:   "mixer-audition-loop",
-				Text:     "Loop",
+				Text:     ed.T("audioMixer.loop"),
 				Disabled: disabled,
 				On: func() bool {
 					_ = rev.Get()
@@ -1089,9 +1109,9 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				TextFunc: func() string {
 					_ = rev.Get()
 					if ed.Auditioning() {
-						return "Stop"
+						return ed.T("audioMixer.stop")
 					}
-					return "Audition"
+					return ed.T("audioMixer.audition")
 				},
 				Color: func() core.Color { return pal.Accent.Fg },
 				TextStyle: core.Style{
@@ -1114,7 +1134,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			settingsSpecButton(pal, "mixer-close", "Close", "Close Audio buses", false, nil, func() {
+			settingsSpecButton(pal, "mixer-close", ed.T("audioMixer.close"), ed.T("audioMixer.closeLabel"), false, nil, func() {
 				ed.SetAudioMixerOpen(false)
 			}),
 		},
@@ -1140,15 +1160,15 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "mixer-new-bus-name",
-								Label:       "New Bus Name",
-								Placeholder: "Bus name (e.g. music, effects, voice)",
+								Label:       ed.T("audioMixer.newBusNameLabel"),
+								Placeholder: ed.T("audioMixer.newBusNamePlaceholder"),
 								Disabled:    disabled,
 								Value:       newBusName.Get,
 								OnChange:    newBusName.Set,
 							},
 						},
 					},
-					settingsSpecButton(pal, "mixer-add-bus", "Add Bus", "Add Audio Bus", false, disabled, func() {
+					settingsSpecButton(pal, "mixer-add-bus", ed.T("audioMixer.addBus"), ed.T("audioMixer.addBusLabel"), false, disabled, func() {
 						name := strings.TrimSpace(newBusName.Get())
 						if name == "" {
 							name = ed.nextDefaultBusName()
@@ -1169,7 +1189,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						if busListKey.Get() == "" {
 							return core.Text{
 								TestID:  "mixer-empty-buses",
-								Content: "No audio buses yet. Add a bus to mix and audition.",
+								Content: ed.T("audioMixer.emptyBuses"),
 								Style:   core.Style{FontSize: 12, Color: pal.TextFaint, Padding: core.Symmetric(12, 0)},
 							}
 						}
@@ -1187,7 +1207,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 
 	effectOpts := make([]ui.Option[AudioEffectKind], len(AudioEffectKinds))
 	for i, k := range AudioEffectKinds {
-		effectOpts[i] = ui.Option[AudioEffectKind]{Value: k, Label: k.Label()}
+		effectOpts[i] = ui.Option[AudioEffectKind]{Value: k, Label: ed.localizedAudioEffectKind(k)}
 	}
 
 	detailColumn := core.View{
@@ -1213,20 +1233,20 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									Gap:        8,
 								},
 								Children: []core.Node{
-									label("BUS"),
+									label(ed.T("audioMixer.busHeading")),
 									core.View{
 										Style: core.Style{Width: core.Pt(140)},
 										Children: []core.Node{
 											ui.Input{
 												TestID:   "mixer-bus-rename-input",
-												Label:    "Rename Bus",
+												Label:    ed.T("audioMixer.renameBusLabel"),
 												Disabled: disabled,
 												Value:    renameText.Get,
 												OnChange: renameText.Set,
 											},
 										},
 									},
-									settingsSpecButton(pal, "mixer-bus-rename", "Rename", "Rename selected audio bus", false, func() bool {
+									settingsSpecButton(pal, "mixer-bus-rename", ed.T("audioMixer.rename"), ed.T("audioMixer.renameSelectedBusLabel"), false, func() bool {
 										if disabled() {
 											return true
 										}
@@ -1242,7 +1262,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 										Children: []core.Node{
 											ui.Select[AudioEffectKind]{
 												TestID:   "mixer-add-effect-kind",
-												Label:    "Effect Type",
+												Label:    ed.T("audioMixer.effectTypeLabel"),
 												Disabled: disabled,
 												Options:  effectOpts,
 												Value:    addEffectKind.Get,
@@ -1251,7 +1271,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											},
 										},
 									},
-									settingsSpecButton(pal, "mixer-add-effect", "Add Effect", "Add DSP effect to bus", false, disabled, func() {
+									settingsSpecButton(pal, "mixer-add-effect", ed.T("audioMixer.addEffect"), ed.T("audioMixer.addEffectLabel"), false, disabled, func() {
 										_, err := ed.AddAudioBusEffectKind(selectedBus.Get(), addEffectKind.Get())
 										ed.report(err)
 									}),
@@ -1274,7 +1294,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 										if len(effects) == 0 {
 											return core.Text{
 												TestID:  "mixer-empty-effects",
-												Content: "No effects on this bus. Choose an effect type and press Add Effect.",
+												Content: ed.T("audioMixer.emptyEffects"),
 												Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint, Padding: core.Symmetric(8, 0)},
 											}
 										}
@@ -1291,7 +1311,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 				Else: func(cx *core.Scope) core.Node {
 					return core.Text{
-						Content: "Select or add a bus to edit its name, volume, routing and effect chain.",
+						Content: ed.T("audioMixer.selectOrAddBus"),
 						Style:   core.Style{FontSize: 12, Color: pal.TextFaint},
 					}
 				},
@@ -1351,7 +1371,7 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecP
 					ui.Button{
 						TestID:  fmt.Sprintf("mixer-bus-%d-select", idx),
 						Text:    busName,
-						Label:   "Select Bus " + busName,
+						Label:   ed.T("audioMixer.selectBusLabel", l10n.Param("bus", busName)),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Flex:    1,
@@ -1382,19 +1402,19 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecP
 							_ = rev.Get()
 							bi := ed.findAudioBusIndex(busName)
 							if bi >= 0 && len(ed.Project.Audio.Buses[bi].Effects) > 0 {
-								return fmt.Sprintf("Into Master · %d fx", len(ed.Project.Audio.Buses[bi].Effects))
+								return ed.T("audioMixer.intoMasterFx", l10n.Param("count", len(ed.Project.Audio.Buses[bi].Effects)))
 							}
-							return "Into Master"
+							return ed.T("audioMixer.intoMaster")
 						},
 						Style: core.Style{FontSize: 11, Color: pal.TextFaint},
 					},
-					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-up", idx), "Up", "Move Bus "+busName+" Up", false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-up", idx), ed.T("audioMixer.up"), ed.T("audioMixer.moveBusUpLabel", l10n.Param("bus", busName)), false, func() bool {
 						return disabled() || idx == 0
 					}, func() { ed.report(ed.MoveAudioBus(idx, idx-1)) }),
-					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-down", idx), "Down", "Move Bus "+busName+" Down", false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-down", idx), ed.T("audioMixer.down"), ed.T("audioMixer.moveBusDownLabel", l10n.Param("bus", busName)), false, func() bool {
 						return disabled() || idx >= total-1
 					}, func() { ed.report(ed.MoveAudioBus(idx, idx+1)) }),
-					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-delete", idx), "Del", "Delete Bus "+busName, false, disabled, func() {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-bus-%d-delete", idx), ed.T("audioMixer.del"), ed.T("audioMixer.deleteBusLabel", l10n.Param("bus", busName)), false, disabled, func() {
 						ed.report(ed.DeleteAudioBus(busName))
 					}),
 				},
@@ -1407,7 +1427,7 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecP
 						Children: []core.Node{
 							ui.Slider{
 								TestID:   fmt.Sprintf("mixer-bus-%d-volume", idx),
-								Label:    "Bus " + busName + " Volume",
+								Label:    ed.T("audioMixer.busVolumeLabel", l10n.Param("bus", busName)),
 								Min:      0,
 								Max:      1,
 								Step:     0.01,
@@ -1512,7 +1532,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 	switch kind {
 	case AudioEffectLowPass:
 		params = []core.Node{
-			paramField(fmt.Sprintf("mixer-effect-%d-cutoff", ei), fmt.Sprintf("Effect %d Cutoff Hz", ei), "Cutoff Hz", 1, 48000, 10,
+			paramField(fmt.Sprintf("mixer-effect-%d-cutoff", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.cutoffHz"))), ed.T("audioMixer.param.cutoffHz"), 1, 48000, 10,
 				func(fx project.Effect) float64 {
 					if fx.LowPass == nil {
 						return 1200
@@ -1525,7 +1545,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-q", ei), fmt.Sprintf("Effect %d Q", ei), "Q", 0, 100, 0.05,
+			paramField(fmt.Sprintf("mixer-effect-%d-q", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.q"))), ed.T("audioMixer.param.q"), 0, 100, 0.05,
 				func(fx project.Effect) float64 {
 					if fx.LowPass == nil {
 						return 0
@@ -1541,7 +1561,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 		}
 	case AudioEffectHighPass:
 		params = []core.Node{
-			paramField(fmt.Sprintf("mixer-effect-%d-cutoff", ei), fmt.Sprintf("Effect %d Cutoff Hz", ei), "Cutoff Hz", 1, 48000, 10,
+			paramField(fmt.Sprintf("mixer-effect-%d-cutoff", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.cutoffHz"))), ed.T("audioMixer.param.cutoffHz"), 1, 48000, 10,
 				func(fx project.Effect) float64 {
 					if fx.HighPass == nil {
 						return 400
@@ -1554,7 +1574,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-q", ei), fmt.Sprintf("Effect %d Q", ei), "Q", 0, 100, 0.05,
+			paramField(fmt.Sprintf("mixer-effect-%d-q", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.q"))), ed.T("audioMixer.param.q"), 0, 100, 0.05,
 				func(fx project.Effect) float64 {
 					if fx.HighPass == nil {
 						return 0
@@ -1570,7 +1590,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 		}
 	case AudioEffectDelay:
 		params = []core.Node{
-			paramField(fmt.Sprintf("mixer-effect-%d-time", ei), fmt.Sprintf("Effect %d Time ms", ei), "Time ms", 1, 10000, 10,
+			paramField(fmt.Sprintf("mixer-effect-%d-time", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.timeMs"))), ed.T("audioMixer.param.timeMs"), 1, 10000, 10,
 				func(fx project.Effect) float64 {
 					if fx.Delay == nil {
 						return 250
@@ -1583,7 +1603,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-feedback", ei), fmt.Sprintf("Effect %d Feedback", ei), "Feedback", 0, 0.99, 0.01,
+			paramField(fmt.Sprintf("mixer-effect-%d-feedback", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.feedback"))), ed.T("audioMixer.param.feedback"), 0, 0.99, 0.01,
 				func(fx project.Effect) float64 {
 					if fx.Delay == nil {
 						return 0
@@ -1596,7 +1616,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-wet", ei), fmt.Sprintf("Effect %d Wet", ei), "Wet", 0, 1, 0.01,
+			paramField(fmt.Sprintf("mixer-effect-%d-wet", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.wet"))), ed.T("audioMixer.param.wet"), 0, 1, 0.01,
 				func(fx project.Effect) float64 {
 					if fx.Delay == nil {
 						return 0
@@ -1612,7 +1632,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 		}
 	case AudioEffectReverb:
 		params = []core.Node{
-			paramField(fmt.Sprintf("mixer-effect-%d-room", ei), fmt.Sprintf("Effect %d Room Size", ei), "Room", 0, 1, 0.01,
+			paramField(fmt.Sprintf("mixer-effect-%d-room", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.roomSize"))), ed.T("audioMixer.param.room"), 0, 1, 0.01,
 				func(fx project.Effect) float64 {
 					if fx.Reverb == nil {
 						return 0
@@ -1625,7 +1645,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-damping", ei), fmt.Sprintf("Effect %d Damping", ei), "Damping", 0, 1, 0.01,
+			paramField(fmt.Sprintf("mixer-effect-%d-damping", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.damping"))), ed.T("audioMixer.param.damping"), 0, 1, 0.01,
 				func(fx project.Effect) float64 {
 					if fx.Reverb == nil {
 						return 0
@@ -1638,7 +1658,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-wet", ei), fmt.Sprintf("Effect %d Wet", ei), "Wet", 0, 1, 0.01,
+			paramField(fmt.Sprintf("mixer-effect-%d-wet", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.wet"))), ed.T("audioMixer.param.wet"), 0, 1, 0.01,
 				func(fx project.Effect) float64 {
 					if fx.Reverb == nil {
 						return 0
@@ -1654,7 +1674,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 		}
 	case AudioEffectGain:
 		params = []core.Node{
-			paramField(fmt.Sprintf("mixer-effect-%d-factor", ei), fmt.Sprintf("Effect %d Factor", ei), "Factor", 0, 100, 0.05,
+			paramField(fmt.Sprintf("mixer-effect-%d-factor", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.factor"))), ed.T("audioMixer.param.factor"), 0, 100, 0.05,
 				func(fx project.Effect) float64 {
 					if fx.Gain == nil {
 						return 1
@@ -1670,7 +1690,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 		}
 	case AudioEffectBitcrush:
 		params = []core.Node{
-			paramField(fmt.Sprintf("mixer-effect-%d-bits", ei), fmt.Sprintf("Effect %d Bits", ei), "Bits", 1, 15, 1,
+			paramField(fmt.Sprintf("mixer-effect-%d-bits", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.bits"))), ed.T("audioMixer.param.bits"), 1, 15, 1,
 				func(fx project.Effect) float64 {
 					if fx.Bitcrush == nil {
 						return 8
@@ -1683,7 +1703,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 					}
 				},
 			),
-			paramField(fmt.Sprintf("mixer-effect-%d-downsample", ei), fmt.Sprintf("Effect %d Downsample", ei), "Downsample", 0, 1024, 1,
+			paramField(fmt.Sprintf("mixer-effect-%d-downsample", ei), ed.T("audioMixer.effectParamLabel", l10n.Param("index", ei), l10n.Param("param", ed.T("audioMixer.param.downsample"))), ed.T("audioMixer.param.downsample"), 0, 1024, 1,
 				func(fx project.Effect) float64 {
 					if fx.Bitcrush == nil {
 						return 0
@@ -1715,16 +1735,16 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal Sp
 				Children: []core.Node{
 					core.Text{
 						TestID:  fmt.Sprintf("mixer-effect-%d-title", ei),
-						Content: fmt.Sprintf("%d. %s", ei+1, kind.Label()),
+						Content: fmt.Sprintf("%d. %s", ei+1, ed.localizedAudioEffectKind(kind)),
 						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: pal.TextPrimary, FlexGrow: 1},
 					},
-					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-up", ei), "Up", fmt.Sprintf("Move Effect %d Up", ei), false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-up", ei), ed.T("audioMixer.up"), ed.T("audioMixer.moveEffectUpLabel", l10n.Param("index", ei)), false, func() bool {
 						return disabled() || ei == 0
 					}, func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei-1)) }),
-					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-down", ei), "Down", fmt.Sprintf("Move Effect %d Down", ei), false, func() bool {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-down", ei), ed.T("audioMixer.down"), ed.T("audioMixer.moveEffectDownLabel", l10n.Param("index", ei)), false, func() bool {
 						return disabled() || ei >= total-1
 					}, func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei+1)) }),
-					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-remove", ei), "Remove", fmt.Sprintf("Remove Effect %d", ei), false, disabled, func() {
+					settingsSpecButton(pal, fmt.Sprintf("mixer-effect-%d-remove", ei), ed.T("audioMixer.remove"), ed.T("audioMixer.removeEffectLabel", l10n.Param("index", ei)), false, disabled, func() {
 						ed.report(ed.RemoveAudioBusEffect(busName, ei))
 					}),
 				},

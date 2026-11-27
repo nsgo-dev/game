@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -142,7 +143,7 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										Icon:     lucide.X,
 										Size:     18,
 										IconSize: 11,
-										Label:    "Close " + t.Label,
+										Label:    ed.T("tabsExtra.closeTab", l10n.Param("label", t.Label)),
 										Disabled: playing,
 										OnPress: func() {
 											if !ed.Playing() {

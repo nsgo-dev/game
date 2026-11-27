@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -144,7 +145,7 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Children: []core.Node{
 								core.Dynamic(func(cx *core.Scope) core.Node {
 									_ = genRev.Get()
-									return assetGenRightInspectorHeader(ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+									return assetGenRightInspectorHeader(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
 								}),
 								ui.ScrollView{
 									Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
@@ -199,7 +200,7 @@ type assetGenViewSnapshot struct {
 }
 
 func (e *Editor) snapshotAssetGenView() assetGenViewSnapshot {
-	projName := "project"
+	projName := e.T("assetGenExtra.defaultProjectName")
 	if e.Project != nil && strings.TrimSpace(e.Project.Name) != "" {
 		projName = e.Project.Name
 	} else if e.ProjectPath != "" {
@@ -322,7 +323,7 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) co
 	pillBg := specAlpha(p.Agent.Fg, 0.14)
 	pillBorder := specAlpha(p.Agent.Fg, 0.42)
 	pillTextColor := p.TextSecondary
-	pillText := "Connect an MCP generator server in Settings › Tools to generate candidates"
+	pillText := ed.T("assetGenExtra.pillConnectServer")
 
 	if snap.busy && snap.busyLabel != "" {
 		pillText = snap.busyLabel
@@ -332,16 +333,22 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) co
 			pillBg = p.Raised
 			pillBorder = p.LineRaised
 			pillTextColor = p.TextMuted
-			pillText = fmt.Sprintf("Picked %s · %s and its source file written · ⌘Z undoes", r.PickedCandidateID, path.Base(r.TargetPath))
+			pillText = ed.T("assetGenExtra.pillPicked",
+				l10n.Param("id", r.PickedCandidateID),
+				l10n.Param("file", path.Base(r.TargetPath)),
+			)
 		} else {
-			pillText = fmt.Sprintf("%s returned %d candidates · waiting for your pick", r.Generator, len(r.Candidates))
+			pillText = ed.T("assetGenExtra.pillWaitingPick",
+				l10n.Param("generator", r.Generator),
+				l10n.Param("count", len(r.Candidates)),
+			)
 		}
 	}
 
 	return core.View{
 		TestID: "asset-gen-header",
 		Role:   core.RoleRegion,
-		Label:  "Generated assets header",
+		Label:  ed.T("assetGenExtra.headerLabel"),
 		Style: core.Style{
 			Direction:   core.Row,
 			AlignItems:  core.AlignCenter,
@@ -396,9 +403,9 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) co
 					},
 					core.Text{Content: snap.projectName, Style: core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary}},
 					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
-					core.Text{Content: "Assets", Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
+					core.Text{Content: ed.T("assetGenExtra.breadcrumbAssets"), Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
 					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
-					core.Text{Content: "Generated", Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
+					core.Text{Content: ed.T("assetGenExtra.breadcrumbGenerated"), Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
@@ -484,7 +491,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 	for i := range snap.requests {
 		r := &snap.requests[i]
 		seenPaths[r.TargetPath] = true
-		stText, stCol := assetGenStatusDisplay(r, p)
+		stText, stCol := assetGenStatusDisplay(ed, r, p)
 		var pix *image.RGBA
 		var wave []float32
 		if len(r.Candidates) > 0 {
@@ -516,10 +523,10 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 		if seenPaths[lic.Asset] {
 			continue
 		}
-		stText := "In use"
+		stText := ed.T("assetGenExtra.statusInUse")
 		stCol := p.TextFaint
 		if lic.UnknownLicense {
-			stText = "License unknown"
+			stText = ed.T("assetGenExtra.statusLicenseUnknown")
 			stCol = p.Removed.Fg
 		}
 		isImg := inferAssetGenKind(lic.Asset, "") == AssetGenImages
@@ -622,7 +629,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dotCol}},
 					core.Text{Content: srv.Config.Name, Style: core.Style{FlexGrow: 1, FontSize: 12.5, Color: p.TextSecondary}},
-					core.Text{Content: string(srv.Config.Kind), Style: core.Style{FontSize: 12, Color: p.TextFaint}},
+					core.Text{Content: localizedAssetGenKind(ed, srv.Config.Kind), Style: core.Style{FontSize: 12, Color: p.TextFaint}},
 				},
 			})
 		}
@@ -648,8 +655,8 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 					Padding:        core.Symmetric(0, 14),
 				},
 				Children: []core.Node{
-					core.Text{Content: "GENERATED", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
-					core.Text{Content: fmt.Sprintf("%d assets", len(rows)), Style: core.Style{FontSize: 11, FontWeight: 500, Color: p.TextFaint}},
+					core.Text{Content: ed.T("assetGenExtra.sectionGenerated"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+					core.Text{Content: ed.T("assetGenExtra.assetsCount", l10n.Param("count", len(rows))), Style: core.Style{FontSize: 11, FontWeight: 500, Color: p.TextFaint}},
 				},
 			},
 			core.View{
@@ -659,7 +666,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 			core.View{
 				Style: core.Style{Padding: core.Edges{Top: 16, Left: 14, Right: 14, Bottom: 6}},
 				Children: []core.Node{
-					core.Text{Content: "GENERATORS · MCP", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+					core.Text{Content: ed.T("assetGenExtra.sectionGenerators"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				},
 			},
 			core.View{
@@ -677,7 +684,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Each pick writes the file and its .source.yaml.",
+						Content: ed.T("assetGenExtra.pickWritesNote"),
 						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 					ui.Button{
@@ -706,22 +713,33 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) 
 	}
 }
 
-func assetGenStatusDisplay(r *AssetGenerationRequest, p SpecPalette) (string, core.Color) {
+func localizedAssetGenKind(ed *Editor, kind AssetGeneratorKind) string {
+	switch kind {
+	case AssetGenImages:
+		return ed.T("assetGenExtra.kindImages")
+	case AssetGenSound:
+		return ed.T("assetGenExtra.kindSound")
+	default:
+		return string(kind)
+	}
+}
+
+func assetGenStatusDisplay(ed *Editor, r *AssetGenerationRequest, p SpecPalette) (string, core.Color) {
 	switch r.Status {
 	case AssetGenLicenseUnknown:
-		return "License unknown", p.Removed.Fg
+		return ed.T("assetGenExtra.statusLicenseUnknown"), p.Removed.Fg
 	case AssetGenInUse:
 		if r.UsageCount > 0 {
-			return fmt.Sprintf("In use · %d refs", r.UsageCount), p.TextFaint
+			return ed.T("assetGenExtra.statusInUseRefs", l10n.Param("count", r.UsageCount)), p.TextFaint
 		}
-		return "In use", p.TextFaint
+		return ed.T("assetGenExtra.statusInUse"), p.TextFaint
 	case AssetGenPicked:
 		if r.PickedCandidateID != "" {
-			return fmt.Sprintf("Picked %s · written", r.PickedCandidateID), p.Added.Fg
+			return ed.T("assetGenExtra.statusPickedIDWritten", l10n.Param("id", r.PickedCandidateID)), p.Added.Fg
 		}
-		return "Picked · written", p.Added.Fg
+		return ed.T("assetGenExtra.statusPickedWritten"), p.Added.Fg
 	default:
-		return fmt.Sprintf("Pick 1 of %d", len(r.Candidates)), p.Agent.Fg
+		return ed.T("assetGenExtra.statusPickOneOf", l10n.Param("count", len(r.Candidates))), p.Agent.Fg
 	}
 }
 
@@ -866,7 +884,7 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 						},
 						ui.Button{
 							TestID:   "asset-gen-regen-btn",
-							Text:     fmt.Sprintf("Regenerate %d", candCount),
+							Text:     ed.T("assetGenExtra.regenerateCount", l10n.Param("count", candCount)),
 							Icon:     lucide.RefreshCw,
 							Variant:  ui.ButtonGhost,
 							Size:     ui.SizeSmall,
@@ -933,7 +951,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 
 	// Metadata line: generator · model · seeds ... · elapsed
-	metaLine := formatRequestMetaLine(req)
+	metaLine := formatRequestMetaLine(ed, req)
 
 	// Candidate cards row (up to 4 columns)
 	candCards := make([]core.Node, 0, len(req.Candidates))
@@ -962,7 +980,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 									Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 								},
 								core.Text{
-									Content: fmt.Sprintf("· %d candidates", len(req.Candidates)),
+									Content: ed.T("assetGenExtra.candidatesSuffix", l10n.Param("count", len(req.Candidates))),
 									Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 								},
 							},
@@ -1297,7 +1315,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 				ui.Button{
 					TestID:   "asset-gen-sound-play-" + cand.ID,
 					Icon:     playSym,
-					Label:    "Play candidate " + cand.ID,
+					Label:    ed.T("assetGenExtra.playCandidateLabel", l10n.Param("id", cand.ID)),
 					Variant:  ui.ButtonGhost,
 					Size:     ui.SizeSmall,
 					Disabled: func() bool { return actionDisabled },
@@ -1387,12 +1405,15 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 						Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
-						Content:  fmt.Sprintf("· %d candidates · “%s”", len(req.Candidates), firstNonEmpty(req.UserPrompt, req.Prompt)),
+						Content: ed.T("assetGenExtra.soundCandidatesSummary",
+							l10n.Param("count", len(req.Candidates)),
+							l10n.Param("prompt", firstNonEmpty(req.UserPrompt, req.Prompt)),
+						),
 						MaxLines: 1,
 						Style:    core.Style{FlexGrow: 1, FlexShrink: 1, FontSize: 12, Color: p.TextFaint},
 					},
 					core.Text{
-						Content: formatSeedRangeMeta(req),
+						Content: formatSeedRangeMeta(ed, req),
 						Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextFaint},
 					},
 				},
@@ -1401,13 +1422,13 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenRightInspectorHeader(snap assetGenViewSnapshot, p SpecPalette) core.Node {
-	headerTitle := "Candidate"
+func assetGenRightInspectorHeader(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+	headerTitle := ed.T("assetGenExtra.candidateTitle")
 	headerSub := ""
 	if snap.selectedCand != nil {
-		headerTitle = "Candidate " + snap.selectedCand.ID
+		headerTitle = ed.T("assetGenExtra.candidateTitleID", l10n.Param("id", snap.selectedCand.ID))
 		if snap.selectedCand.Seed != nil {
-			headerSub = fmt.Sprintf("· seed %d", *snap.selectedCand.Seed)
+			headerSub = ed.T("assetGenExtra.seedSuffix", l10n.Param("seed", *snap.selectedCand.Seed))
 		}
 	}
 	return core.View{
@@ -1438,7 +1459,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 		core.View{
 			Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween, AlignItems: core.AlignCenter},
 			Children: []core.Node{
-				core.Text{Content: "STYLE AGAINST THE BRIEF", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+				core.Text{Content: ed.T("assetGenExtra.sectionStyleBrief"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				core.Text{Content: "brief.yaml", Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: p.TextFaint}},
 			},
 		},
@@ -1561,14 +1582,14 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 		rowBorderW := core.Points(0)
 		noteText := lc.License
 		if lc.CommercialUse {
-			noteText += " · commercial use allowed"
+			noteText = ed.T("assetGenExtra.licenseCommercialSuffix", l10n.Param("license", lc.License))
 		}
 		noteCol := p.TextFaint
 		if lc.UnknownLicense {
 			rowBg = p.Raised
 			rowBorder = p.Removed.Fg
 			rowBorderW = core.Points(1.5)
-			noteText = "License unknown · blocks export"
+			noteText = ed.T("assetGenExtra.licenseUnknownBlocksExport")
 			noteCol = p.Removed.Fg
 		}
 		rowChildren := []core.Node{
@@ -1636,7 +1657,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 					core.View{
 						Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween, AlignItems: core.AlignCenter},
 						Children: []core.Node{
-							core.Text{Content: "SOURCE", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+							core.Text{Content: ed.T("assetGenExtra.sectionSource"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 							core.Text{Content: sourceFileName, Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: p.TextFaint}},
 						},
 					},
@@ -1821,7 +1842,7 @@ func (e *Editor) setAssetGenRefineDraft(v string) {
 	e.assetGen.mu.Unlock()
 }
 
-func formatRequestMetaLine(req *AssetGenerationRequest) string {
+func formatRequestMetaLine(ed *Editor, req *AssetGenerationRequest) string {
 	var parts []string
 	if req.Generator != "" {
 		parts = append(parts, req.Generator)
@@ -1829,7 +1850,7 @@ func formatRequestMetaLine(req *AssetGenerationRequest) string {
 	if req.Model != "" {
 		parts = append(parts, req.Model)
 	}
-	if sr := formatSeedsOnly(req); sr != "" {
+	if sr := formatSeedsOnly(ed, req); sr != "" {
 		parts = append(parts, sr)
 	}
 	if req.Elapsed > 0 {
@@ -1843,18 +1864,18 @@ func formatRequestMetaLine(req *AssetGenerationRequest) string {
 	return strings.Join(parts, " · ")
 }
 
-func formatSeedRangeMeta(req *AssetGenerationRequest) string {
+func formatSeedRangeMeta(ed *Editor, req *AssetGenerationRequest) string {
 	var parts []string
 	if req.Generator != "" {
 		parts = append(parts, req.Generator)
 	}
-	if sr := formatSeedsOnly(req); sr != "" {
+	if sr := formatSeedsOnly(ed, req); sr != "" {
 		parts = append(parts, sr)
 	}
 	return strings.Join(parts, " · ")
 }
 
-func formatSeedsOnly(req *AssetGenerationRequest) string {
+func formatSeedsOnly(ed *Editor, req *AssetGenerationRequest) string {
 	var first, last *int64
 	for _, c := range req.Candidates {
 		if c.Seed != nil {
@@ -1868,9 +1889,9 @@ func formatSeedsOnly(req *AssetGenerationRequest) string {
 		return ""
 	}
 	if *first == *last {
-		return fmt.Sprintf("seed %d", *first)
+		return ed.T("assetGenExtra.seedSingle", l10n.Param("seed", *first))
 	}
-	return fmt.Sprintf("seeds %d–%d", *first, *last)
+	return ed.T("assetGenExtra.seedRange", l10n.Param("first", *first), l10n.Param("last", *last))
 }
 
 func formatLoudnessLabel(dbfs float64) string {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -530,7 +531,7 @@ func (e *Editor) BeginKeyCapture(action, kind string) error {
 	e.inputMap.capturingKey = true
 	e.inputMap.captureAction = action
 	e.inputMap.captureKind = kind
-	e.Status = fmt.Sprintf("Press a key to bind to %q...", action)
+	e.Status = e.T("inputMap.statusCapturePrompt", l10n.Param("action", action))
 	e.notify()
 	return nil
 }
@@ -543,7 +544,7 @@ func (e *Editor) CancelKeyCapture() {
 	e.inputMap.capturingKey = false
 	e.inputMap.captureAction = ""
 	e.inputMap.captureKind = ""
-	e.Status = "Key capture cancelled"
+	e.Status = e.T("inputMap.statusCaptureCancelled")
 	e.notify()
 }
 
@@ -583,9 +584,9 @@ func (e *Editor) CaptureKeyEvent(ev core.KeyEvent) (bool, error) {
 		return true, err
 	}
 	if b.Kind == project.KindKey {
-		e.Status = fmt.Sprintf("Bound key %q to %q", b.Key, action)
+		e.Status = e.T("inputMap.statusBoundKey", l10n.Param("key", b.Key), l10n.Param("action", action))
 	} else {
-		e.Status = fmt.Sprintf("Bound keyCode %q to %q", b.Code, action)
+		e.Status = e.T("inputMap.statusBoundKeyCode", l10n.Param("code", b.Code), l10n.Param("action", action))
 	}
 	e.notify()
 	return true, nil
@@ -1061,20 +1062,20 @@ func roundDisplay(v float32) float32 {
 	return float32(math.Round(float64(v)))
 }
 
-func bindingKindLabel(kind string) string {
+func bindingKindLabel(ed *Editor, kind string) string {
 	switch kind {
 	case project.KindKey:
-		return "Key"
+		return ed.T("inputMap.kind.key")
 	case project.KindKeyCode:
-		return "Key Code"
+		return ed.T("inputMap.kind.keyCode")
 	case project.KindGamepadButton:
-		return "Gamepad Button"
+		return ed.T("inputMap.kind.gamepadButton")
 	case project.KindMouseButton:
-		return "Mouse Button"
+		return ed.T("inputMap.kind.mouseButton")
 	case project.KindTouchRegion:
-		return "Touch Region"
+		return ed.T("inputMap.kind.touchRegion")
 	case project.KindMouseRegion:
-		return "Mouse Region"
+		return ed.T("inputMap.kind.mouseRegion")
 	default:
 		return kind
 	}
@@ -1093,9 +1094,9 @@ func InputMapPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
-func formatInputActionTriggers(act project.Action) string {
+func formatInputActionTriggers(ed *Editor, act project.Action) string {
 	if len(act.Bindings) == 0 {
-		return "No bindings"
+		return ed.T("inputMap.noBindings")
 	}
 	var keys, pads, touches []string
 	for _, b := range act.Bindings {
@@ -1114,12 +1115,12 @@ func formatInputActionTriggers(act project.Action) string {
 			}
 		case project.KindMouseButton:
 			if b.Button != "" {
-				keys = append(keys, "mouse "+b.Button)
+				keys = append(keys, ed.T("inputMap.triggerMouseButton", l10n.Param("button", b.Button)))
 			}
 		case project.KindTouchRegion:
-			touches = append(touches, "touch region")
+			touches = append(touches, ed.T("inputMap.triggerTouchRegion"))
 		case project.KindMouseRegion:
-			touches = append(touches, "mouse region")
+			touches = append(touches, ed.T("inputMap.triggerMouseRegion"))
 		}
 	}
 	var groups []string
@@ -1133,7 +1134,7 @@ func formatInputActionTriggers(act project.Action) string {
 		groups = append(groups, strings.Join(touches, " "))
 	}
 	if len(groups) == 0 {
-		return fmt.Sprintf("%d binding(s)", len(act.Bindings))
+		return ed.T("inputMap.bindingCount", l10n.Param("count", len(act.Bindings)))
 	}
 	return strings.Join(groups, " · ")
 }
@@ -1163,7 +1164,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		}
 		var b strings.Builder
 		for i, a := range ed.Project.Input.Actions {
-			fmt.Fprintf(&b, "%d:%s:%d:%s|", i, a.Name, len(a.Bindings), formatInputActionTriggers(a))
+			fmt.Fprintf(&b, "%d:%s:%d:%s|", i, a.Name, len(a.Bindings), formatInputActionTriggers(ed, a))
 		}
 		return b.String()
 	})
@@ -1200,7 +1201,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		Children: []core.Node{
 			ui.ToggleButton{
 				TestID: "input-tab-actions",
-				Text:   "Actions",
+				Text:   ed.T("inputMap.tab.actions"),
 				On: func() bool {
 					_ = rev.Get()
 					return ed.InputMapTab() == InputMapTabActions
@@ -1213,7 +1214,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			},
 			ui.ToggleButton{
 				TestID: "input-tab-axes",
-				Text:   "Axes",
+				Text:   ed.T("inputMap.tab.axes"),
 				On: func() bool {
 					_ = rev.Get()
 					return ed.InputMapTab() == InputMapTabAxes
@@ -1225,7 +1226,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			settingsSpecButton(pal, "input-map-close", "Close", "Close Input map", false, nil, func() {
+			settingsSpecButton(pal, "input-map-close", ed.T("inputMap.close"), ed.T("inputMap.closeLabel"), false, nil, func() {
 				ed.SetInputMapOpen(false)
 			}),
 		},
@@ -1241,7 +1242,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		for i, act := range actions {
 			actName := act.Name
 			idx := i
-			summary := formatInputActionTriggers(act)
+			summary := formatInputActionTriggers(ed, act)
 			policy := policyAgentMayChange
 			if strings.EqualFold(actName, "pause") {
 				policy = policyYouOnly
@@ -1251,11 +1252,11 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				ed,
 				fmt.Sprintf("settings-input-row-%d", idx),
 				actName,
-				"Keyboard · gamepad · touch",
+				ed.T("inputMap.triggersHelp"),
 				ui.Button{
 					TestID:  fmt.Sprintf("settings-input-row-%d-edit", idx),
 					Text:    summary,
-					Label:   "Edit triggers for " + actName,
+					Label:   ed.T("inputMap.editTriggersLabel", l10n.Param("action", actName)),
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
 					Color: func() core.Color {
@@ -1350,7 +1351,7 @@ func inputActionsTab(
 
 	kindOpts := make([]ui.Option[string], len(project.BindingKinds))
 	for i, k := range project.BindingKinds {
-		kindOpts[i] = ui.Option[string]{Value: k, Label: bindingKindLabel(k)}
+		kindOpts[i] = ui.Option[string]{Value: k, Label: bindingKindLabel(ed, k)}
 	}
 
 	actionsColumn := core.View{
@@ -1372,8 +1373,8 @@ func inputActionsTab(
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "input-new-action-name",
-								Label:       "New Action Name",
-								Placeholder: "Action name",
+								Label:       ed.T("inputMap.newActionNameLabel"),
+								Placeholder: ed.T("inputMap.newActionNamePlaceholder"),
 								Disabled:    disabled,
 								Value:       newActionName.Get,
 								OnChange:    newActionName.Set,
@@ -1381,7 +1382,7 @@ func inputActionsTab(
 							},
 						},
 					},
-					settingsSpecButton(pal, "input-add-action", "Add", "Add Action", false, disabled, func() {
+					settingsSpecButton(pal, "input-add-action", ed.T("inputMap.add"), ed.T("inputMap.addActionLabel"), false, disabled, func() {
 						name := strings.TrimSpace(newActionName.Get())
 						if name == "" {
 							name = ed.nextDefaultActionName()
@@ -1402,7 +1403,7 @@ func inputActionsTab(
 						if actionListKey.Get() == "" {
 							return core.Text{
 								TestID:  "input-empty-actions",
-								Content: "No actions yet. Add an action to bind keys, gamepad or regions.",
+								Content: ed.T("inputMap.emptyActions"),
 								Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 							}
 						}
@@ -1436,7 +1437,7 @@ func inputActionsTab(
 									ui.Button{
 										TestID:  fmt.Sprintf("input-action-%d-select", idx),
 										Text:    fmt.Sprintf("%s (%d)", actName, bindCount),
-										Label:   "Select Action " + actName,
+										Label:   ed.T("inputMap.selectActionLabel", l10n.Param("action", actName)),
 										Variant: ui.ButtonGhost,
 										Size:    ui.SizeSmall,
 										Flex:    1,
@@ -1462,7 +1463,7 @@ func inputActionsTab(
 											ed.SelectInputAction(actName)
 										},
 									},
-									settingsSpecButton(pal, fmt.Sprintf("input-action-%d-delete", idx), "×", "Delete Action "+actName, false, disabled, func() {
+									settingsSpecButton(pal, fmt.Sprintf("input-action-%d-delete", idx), "×", ed.T("inputMap.deleteActionLabel", l10n.Param("action", actName)), false, disabled, func() {
 										ed.report(ed.DeleteInputAction(actName))
 									}),
 								},
@@ -1500,20 +1501,20 @@ func inputActionsTab(
 									Gap:        8,
 								},
 								Children: []core.Node{
-									label("ACTION"),
+									label(ed.T("inputMap.actionHeading")),
 									core.View{
 										Style: core.Style{Width: core.Pt(120)},
 										Children: []core.Node{
 											ui.Input{
 												TestID:   "input-action-rename-input",
-												Label:    "Rename Action",
+												Label:    ed.T("inputMap.renameActionLabel"),
 												Disabled: disabled,
 												Value:    renameText.Get,
 												OnChange: renameText.Set,
 											},
 										},
 									},
-									settingsSpecButton(pal, "input-action-rename", "Rename", "Rename selected action", false, func() bool {
+									settingsSpecButton(pal, "input-action-rename", ed.T("inputMap.rename"), ed.T("inputMap.renameSelectedActionLabel"), false, func() bool {
 										if disabled() {
 											return true
 										}
@@ -1523,10 +1524,10 @@ func inputActionsTab(
 									}, func() {
 										ed.report(ed.RenameInputAction(selectedAction.Get(), strings.TrimSpace(renameText.Get())))
 									}),
-									settingsSpecButton(pal, "input-capture-key", "Press a key", "Capture key binding", true, disabled, func() {
+									settingsSpecButton(pal, "input-capture-key", ed.T("inputMap.pressKey"), ed.T("inputMap.pressKeyLabel"), true, disabled, func() {
 										ed.report(ed.BeginKeyCapture(selectedAction.Get(), project.KindKey))
 									}),
-									settingsSpecButton(pal, "input-capture-keycode", "Press code", "Capture physical keyCode binding", false, disabled, func() {
+									settingsSpecButton(pal, "input-capture-keycode", ed.T("inputMap.pressCode"), ed.T("inputMap.pressCodeLabel"), false, disabled, func() {
 										ed.report(ed.BeginKeyCapture(selectedAction.Get(), project.KindKeyCode))
 									}),
 									core.View{
@@ -1534,7 +1535,7 @@ func inputActionsTab(
 										Children: []core.Node{
 											ui.Select[string]{
 												TestID:   "input-add-binding-kind",
-												Label:    "Binding Kind",
+												Label:    ed.T("inputMap.bindingKindLabel"),
 												Disabled: disabled,
 												Options:  kindOpts,
 												Value:    addBindingKind.Get,
@@ -1543,7 +1544,7 @@ func inputActionsTab(
 											},
 										},
 									},
-									settingsSpecButton(pal, "input-add-binding", "Add Binding", "Add input binding", false, disabled, func() {
+									settingsSpecButton(pal, "input-add-binding", ed.T("inputMap.addBinding"), ed.T("inputMap.addBindingLabel"), false, disabled, func() {
 										b, err := ed.DefaultInputBinding(addBindingKind.Get())
 										if err != nil {
 											ed.report(err)
@@ -1580,7 +1581,7 @@ func inputActionsTab(
 										if len(binds) == 0 {
 											return core.Text{
 												TestID:  "input-empty-bindings",
-												Content: "No bindings yet. Press \"Press a key\" or add a binding.",
+												Content: ed.T("inputMap.emptyBindings"),
 												Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 											}
 										}
@@ -1597,7 +1598,7 @@ func inputActionsTab(
 				},
 				Else: func(cx *core.Scope) core.Node {
 					return core.Text{
-						Content: "Select or add an action to edit its bindings.",
+						Content: ed.T("inputMap.selectOrAddAction"),
 						Style:   core.Style{FontSize: 12, Color: pal.TextFaint},
 					}
 				},
@@ -1661,7 +1662,7 @@ func keyCaptureBanner(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	pal := ed.SpecPalette(cx)
 	return core.View{
 		TestID:    "input-key-capture-target",
-		Label:     "Key Capture Target",
+		Label:     ed.T("inputMap.keyCaptureTargetLabel"),
 		Ref:       captureRef,
 		Focusable: func() bool { return true },
 		OnKeyDown: func(ev core.KeyEvent) bool {
@@ -1685,11 +1686,11 @@ func keyCaptureBanner(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				TestID: "input-key-capture-prompt",
 				ContentFunc: func() string {
 					_ = rev.Get()
-					return fmt.Sprintf("Press a key to bind %s to %q...", ed.CaptureKeyKind(), ed.CaptureKeyAction())
+					return ed.T("inputMap.keyCapturePrompt", l10n.Param("kind", ed.CaptureKeyKind()), l10n.Param("action", ed.CaptureKeyAction()))
 				},
 				Style: core.Style{FontSize: 12, FontWeight: 600, Color: pal.TextPrimary, FlexGrow: 1},
 			},
-			settingsSpecButton(pal, "input-key-capture-cancel", "Cancel", "Cancel key capture", false, nil, func() {
+			settingsSpecButton(pal, "input-key-capture-cancel", ed.T("inputMap.cancel"), ed.T("inputMap.cancelKeyCaptureLabel"), false, nil, func() {
 				ed.CancelKeyCapture()
 			}),
 		},
@@ -1730,7 +1731,7 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 			Children: []core.Node{
 				ui.Input{
 					TestID:   fmt.Sprintf("input-binding-%d-key", bi),
-					Label:    fmt.Sprintf("Binding %d Key", bi),
+					Label:    ed.T("inputMap.bindingKeyLabel", l10n.Param("index", bi)),
 					Disabled: disabled,
 					Value:    draft.Get,
 					OnChange: draft.Set,
@@ -1762,7 +1763,7 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 			Children: []core.Node{
 				ui.Input{
 					TestID:   fmt.Sprintf("input-binding-%d-code", bi),
-					Label:    fmt.Sprintf("Binding %d KeyCode", bi),
+					Label:    ed.T("inputMap.bindingKeyCodeLabel", l10n.Param("index", bi)),
 					Disabled: disabled,
 					Value:    draft.Get,
 					OnChange: draft.Set,
@@ -1781,7 +1782,7 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 			Children: []core.Node{
 				ui.Select[string]{
 					TestID:   fmt.Sprintf("input-binding-%d-gamepad-button", bi),
-					Label:    fmt.Sprintf("Binding %d Gamepad Button", bi),
+					Label:    ed.T("inputMap.bindingGamepadButtonLabel", l10n.Param("index", bi)),
 					Disabled: disabled,
 					Options:  opts,
 					Value: func() string {
@@ -1815,8 +1816,8 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 	rowChildren = append(rowChildren,
 		ui.Button{
 			TestID:  fmt.Sprintf("input-binding-%d-select", bi),
-			Text:    bindingKindLabel(kind),
-			Label:   fmt.Sprintf("Select Binding %d", bi),
+			Text:    bindingKindLabel(ed, kind),
+			Label:   ed.T("inputMap.selectBindingLabel", l10n.Param("index", bi)),
 			Variant: ui.ButtonGhost,
 			Size:    ui.SizeSmall,
 			Color: func() core.Color {
@@ -1847,7 +1848,7 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 	rowChildren = append(rowChildren, editorControls...)
 	rowChildren = append(rowChildren,
 		core.View{Style: core.Style{FlexGrow: 1}},
-		settingsSpecButton(pal, fmt.Sprintf("input-binding-%d-remove", bi), "Remove", fmt.Sprintf("Remove Binding %d", bi), false, disabled, func() {
+		settingsSpecButton(pal, fmt.Sprintf("input-binding-%d-remove", bi), ed.T("inputMap.remove"), ed.T("inputMap.removeBindingLabel", l10n.Param("index", bi)), false, disabled, func() {
 			ed.report(ed.RemoveInputBinding(actName, bi))
 		}),
 	)
@@ -1888,7 +1889,7 @@ func mouseButtonSelect(ed *Editor, rev *core.Signal[uint64], actName string, bi 
 		Children: []core.Node{
 			ui.Select[string]{
 				TestID:   fmt.Sprintf("input-binding-%d-mouse-button", bi),
-				Label:    fmt.Sprintf("Binding %d Mouse Button", bi),
+				Label:    ed.T("inputMap.bindingMouseButtonLabel", l10n.Param("index", bi)),
 				Disabled: disabled,
 				Options:  opts,
 				Value: func() string {
@@ -1914,7 +1915,7 @@ func regionFields(ed *Editor, rev *core.Signal[uint64], actName string, bi int, 
 			Children: []core.Node{
 				ui.NumberInput{
 					TestID:   fmt.Sprintf("input-binding-%d-%s", bi, suffix),
-					Label:    fmt.Sprintf("Binding %d %s", bi, label),
+					Label:    ed.T("inputMap.bindingRegionFieldLabel", l10n.Param("index", bi), l10n.Param("field", label)),
 					Min:      minVal,
 					Max:      100000,
 					Step:     1,
@@ -1945,8 +1946,8 @@ func regionFields(ed *Editor, rev *core.Signal[uint64], actName string, bi int, 
 	return []core.Node{
 		numField("x", "X", -100000, func(r project.Rect) float32 { return r.X }, func(r *project.Rect, v float32) { r.X = v }),
 		numField("y", "Y", -100000, func(r project.Rect) float32 { return r.Y }, func(r *project.Rect, v float32) { r.Y = v }),
-		numField("w", "Width", 1, func(r project.Rect) float32 { return r.Width }, func(r *project.Rect, v float32) { r.Width = max(float32(1), v) }),
-		numField("h", "Height", 1, func(r project.Rect) float32 { return r.Height }, func(r *project.Rect, v float32) { r.Height = max(float32(1), v) }),
+		numField("w", ed.T("inputMap.regionWidth"), 1, func(r project.Rect) float32 { return r.Width }, func(r *project.Rect, v float32) { r.Width = max(float32(1), v) }),
+		numField("h", ed.T("inputMap.regionHeight"), 1, func(r project.Rect) float32 { return r.Height }, func(r *project.Rect, v float32) { r.Height = max(float32(1), v) }),
 	}
 }
 
@@ -1982,14 +1983,14 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 						ContentFunc: func() string {
 							_ = rev.Get()
 							dw, dh := ed.InputMapDisplaySize()
-							return fmt.Sprintf("Regions (%g×%g)", dw, dh)
+							return ed.T("inputMap.regionsHeading", l10n.Param("width", fmt.Sprintf("%g", dw)), l10n.Param("height", fmt.Sprintf("%g", dh)))
 						},
 						Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: pal.TextFaint, FlexGrow: 1},
 					},
 					ui.ToggleButton{
 						TestID:   "input-region-draw-mouse",
-						Text:     "Mouse",
-						Label:    "Draw mouse regions instead of touch regions",
+						Text:     ed.T("inputMap.regionDrawMouse"),
+						Label:    ed.T("inputMap.regionDrawMouseLabel"),
 						Disabled: disabled,
 						On: func() bool {
 							_ = rev.Get()
@@ -2087,7 +2088,7 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Children: []core.Node{
 						core.Canvas{
 							TestID: "input-region-canvas-draw",
-							Label:  "Input Region Canvas",
+							Label:  ed.T("inputMap.regionCanvasLabel"),
 							Style: core.Style{
 								Width:  core.Pt(core.Points(cw)),
 								Height: core.Pt(core.Points(ch)),
@@ -2101,7 +2102,7 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 				}
 			}),
 			core.Text{
-				Content: "Drag a region to move, its corner to resize, or empty space to draw.",
+				Content: ed.T("inputMap.regionCanvasHint"),
 				Style:   core.Style{FontSize: 11, Color: pal.TextFaint},
 			},
 		},
@@ -2121,7 +2122,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 
 	actionOptions := func() []ui.Option[string] {
 		_ = rev.Get()
-		opts := []ui.Option[string]{{Value: "", Label: "(none)"}}
+		opts := []ui.Option[string]{{Value: "", Label: ed.T("inputMap.noneOption")}}
 		if ed.Project != nil && ed.Project.Input != nil {
 			for _, a := range ed.Project.Input.Actions {
 				opts = append(opts, ui.Option[string]{Value: a.Name, Label: a.Name})
@@ -2190,7 +2191,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 			BorderColor: pal.Line,
 		},
 		Children: []core.Node{
-			sectionHeader("ACTION AXES"),
+			sectionHeader(ed.T("inputMap.actionAxesHeading")),
 			ui.HStack{
 				Gap: 4,
 				Children: []core.Node{
@@ -2199,8 +2200,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "input-new-axis-name",
-								Label:       "New Axis Name",
-								Placeholder: "Axis",
+								Label:       ed.T("inputMap.newAxisNameLabel"),
+								Placeholder: ed.T("inputMap.newAxisNamePlaceholder"),
 								Disabled:    disabled,
 								Value:       newAxisName.Get,
 								OnChange:    newAxisName.Set,
@@ -2212,8 +2213,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Select[string]{
 								TestID:      "input-new-axis-neg",
-								Label:       "New Axis Negative Action",
-								Placeholder: "Neg",
+								Label:       ed.T("inputMap.newAxisNegLabel"),
+								Placeholder: ed.T("inputMap.negPlaceholder"),
 								Disabled:    disabled,
 								OptionsFunc: actionOptions,
 								Value:       newAxisNeg.Get,
@@ -2226,8 +2227,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Select[string]{
 								TestID:      "input-new-axis-pos",
-								Label:       "New Axis Positive Action",
-								Placeholder: "Pos",
+								Label:       ed.T("inputMap.newAxisPosLabel"),
+								Placeholder: ed.T("inputMap.posPlaceholder"),
 								Disabled:    disabled,
 								OptionsFunc: actionOptions,
 								Value:       newAxisPos.Get,
@@ -2235,7 +2236,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							},
 						},
 					},
-					settingsSpecButton(pal, "input-add-axis", "Add", "Add Axis", false, disabled, func() {
+					settingsSpecButton(pal, "input-add-axis", ed.T("inputMap.add"), ed.T("inputMap.addAxisLabel"), false, disabled, func() {
 						name := strings.TrimSpace(newAxisName.Get())
 						if name == "" {
 							used := make([]string, 0)
@@ -2266,7 +2267,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						if axesKey.Get() == "" {
 							return core.Text{
 								TestID:  "input-empty-axes",
-								Content: "No action axes.",
+								Content: ed.T("inputMap.emptyAxes"),
 								Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 							}
 						}
@@ -2298,7 +2299,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 										Children: []core.Node{
 											ui.Select[string]{
 												TestID:      fmt.Sprintf("input-axis-%d-neg", idx),
-												Label:       fmt.Sprintf("Axis %d Negative", idx),
+												Label:       ed.T("inputMap.axisNegLabel", l10n.Param("index", idx)),
 												Disabled:    disabled,
 												OptionsFunc: actionOptions,
 												Value: func() string {
@@ -2324,7 +2325,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 										Children: []core.Node{
 											ui.Select[string]{
 												TestID:      fmt.Sprintf("input-axis-%d-pos", idx),
-												Label:       fmt.Sprintf("Axis %d Positive", idx),
+												Label:       ed.T("inputMap.axisPosLabel", l10n.Param("index", idx)),
 												Disabled:    disabled,
 												OptionsFunc: actionOptions,
 												Value: func() string {
@@ -2345,7 +2346,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 											},
 										},
 									},
-									settingsSpecButton(pal, fmt.Sprintf("input-axis-%d-delete", idx), "×", "Delete Axis "+axName, false, disabled, func() {
+									settingsSpecButton(pal, fmt.Sprintf("input-axis-%d-delete", idx), "×", ed.T("inputMap.deleteAxisLabel", l10n.Param("axis", axName)), false, disabled, func() {
 										ed.report(ed.DeleteInputAxis(idx))
 									}),
 								},
@@ -2369,7 +2370,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 			BorderColor: pal.Line,
 		},
 		Children: []core.Node{
-			sectionHeader("MOTION AXES"),
+			sectionHeader(ed.T("inputMap.motionAxesHeading")),
 			ui.HStack{
 				Gap: 4,
 				Children: []core.Node{
@@ -2378,8 +2379,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "input-new-motion-name",
-								Label:       "New Motion Axis Name",
-								Placeholder: "Motion",
+								Label:       ed.T("inputMap.newMotionNameLabel"),
+								Placeholder: ed.T("inputMap.newMotionNamePlaceholder"),
 								Disabled:    disabled,
 								Value:       newMotionName.Get,
 								OnChange:    newMotionName.Set,
@@ -2391,7 +2392,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Select[string]{
 								TestID:   "input-new-motion-axis",
-								Label:    "New Motion Sensor Axis",
+								Label:    ed.T("inputMap.newMotionSensorLabel"),
 								Disabled: disabled,
 								Options:  motionOpts,
 								Value:    newMotionAxis.Get,
@@ -2399,7 +2400,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							},
 						},
 					},
-					settingsSpecButton(pal, "input-add-motion", "Add", "Add Motion Axis", false, disabled, func() {
+					settingsSpecButton(pal, "input-add-motion", ed.T("inputMap.add"), ed.T("inputMap.addMotionLabel"), false, disabled, func() {
 						name := strings.TrimSpace(newMotionName.Get())
 						if name == "" {
 							used := make([]string, 0)
@@ -2424,7 +2425,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						if motionKey.Get() == "" {
 							return core.Text{
 								TestID:  "input-empty-motion",
-								Content: "No motion axes.",
+								Content: ed.T("inputMap.emptyMotion"),
 								Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 							}
 						}
@@ -2456,7 +2457,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 												Children: []core.Node{
 													ui.Select[string]{
 														TestID:   fmt.Sprintf("input-motion-%d-axis", idx),
-														Label:    fmt.Sprintf("Motion %d Axis", idx),
+														Label:    ed.T("inputMap.motionSensorLabel", l10n.Param("index", idx)),
 														Disabled: disabled,
 														Options:  motionOpts,
 														Value: func() string {
@@ -2479,8 +2480,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 											},
 											ui.ToggleButton{
 												TestID:   fmt.Sprintf("input-motion-%d-invert", idx),
-												Text:     "Inv",
-												Label:    fmt.Sprintf("Invert Motion %d", idx),
+												Text:     ed.T("inputMap.invertShort"),
+												Label:    ed.T("inputMap.invertMotionLabel", l10n.Param("index", idx)),
 												Disabled: disabled,
 												On: func() bool {
 													_ = rev.Get()
@@ -2498,7 +2499,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 													ed.report(ed.SetInputMotionAxis(idx, next))
 												},
 											},
-											settingsSpecButton(pal, fmt.Sprintf("input-motion-%d-delete", idx), "×", "Delete Motion Axis "+mName, false, disabled, func() {
+											settingsSpecButton(pal, fmt.Sprintf("input-motion-%d-delete", idx), "×", ed.T("inputMap.deleteMotionLabel", l10n.Param("axis", mName)), false, disabled, func() {
 												ed.report(ed.DeleteInputMotionAxis(idx))
 											}),
 										},
@@ -2506,13 +2507,13 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 									ui.HStack{
 										Gap: 4,
 										Children: []core.Node{
-											motionNumberInput(ed, rev, idx, "dz", "DeadZone", 0, 0.99, 0.05, disabled,
+											motionNumberInput(ed, rev, idx, "dz", ed.T("inputMap.deadZone"), 0, 0.99, 0.05, disabled,
 												func(m project.MotionAxis) float64 { return m.DeadZone },
 												func(m *project.MotionAxis, v float64) { m.DeadZone = clampFiniteRange(v, 0, 0.99) }),
-											motionNumberInput(ed, rev, idx, "sens", "Sensitivity", 0, 100, 0.1, disabled,
+											motionNumberInput(ed, rev, idx, "sens", ed.T("inputMap.sensitivity"), 0, 100, 0.1, disabled,
 												func(m project.MotionAxis) float64 { return m.Sensitivity },
 												func(m *project.MotionAxis, v float64) { m.Sensitivity = max(0, v) }),
-											motionNumberInput(ed, rev, idx, "smooth", "Smoothing", 0, 0.99, 0.05, disabled,
+											motionNumberInput(ed, rev, idx, "smooth", ed.T("inputMap.smoothing"), 0, 0.99, 0.05, disabled,
 												func(m project.MotionAxis) float64 { return m.Smoothing },
 												func(m *project.MotionAxis, v float64) { m.Smoothing = clampFiniteRange(v, 0, 0.99) }),
 										},
@@ -2536,7 +2537,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 			Padding:   core.Edges{Left: 12},
 		},
 		Children: []core.Node{
-			sectionHeader("GAMEPAD STICKS"),
+			sectionHeader(ed.T("inputMap.gamepadSticksHeading")),
 			ui.HStack{
 				Gap: 4,
 				Children: []core.Node{
@@ -2545,8 +2546,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "input-new-gamepad-axis-name",
-								Label:       "New Gamepad Axis Name",
-								Placeholder: "Stick",
+								Label:       ed.T("inputMap.newGamepadNameLabel"),
+								Placeholder: ed.T("inputMap.newGamepadNamePlaceholder"),
 								Disabled:    disabled,
 								Value:       newGamepadName.Get,
 								OnChange:    newGamepadName.Set,
@@ -2558,7 +2559,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						Children: []core.Node{
 							ui.Select[string]{
 								TestID:   "input-new-gamepad-axis",
-								Label:    "New Gamepad Stick Axis",
+								Label:    ed.T("inputMap.newGamepadStickLabel"),
 								Disabled: disabled,
 								Options:  gamepadAxisOpts,
 								Value:    newGamepadAxis.Get,
@@ -2566,7 +2567,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							},
 						},
 					},
-					settingsSpecButton(pal, "input-add-gamepad-axis", "Add", "Add Gamepad Axis", false, disabled, func() {
+					settingsSpecButton(pal, "input-add-gamepad-axis", ed.T("inputMap.add"), ed.T("inputMap.addGamepadLabel"), false, disabled, func() {
 						name := strings.TrimSpace(newGamepadName.Get())
 						if name == "" {
 							used := make([]string, 0)
@@ -2591,7 +2592,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 						if gamepadAxesKey.Get() == "" {
 							return core.Text{
 								TestID:  "input-empty-gamepad-axes",
-								Content: "No gamepad stick axes.",
+								Content: ed.T("inputMap.emptyGamepadAxes"),
 								Style:   core.Style{FontSize: 11.5, Color: pal.TextFaint},
 							}
 						}
@@ -2623,7 +2624,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 												Children: []core.Node{
 													ui.Select[string]{
 														TestID:   fmt.Sprintf("input-gamepad-axis-%d-axis", idx),
-														Label:    fmt.Sprintf("Gamepad Axis %d Stick", idx),
+														Label:    ed.T("inputMap.gamepadStickLabel", l10n.Param("index", idx)),
 														Disabled: disabled,
 														Options:  gamepadAxisOpts,
 														Value: func() string {
@@ -2646,8 +2647,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 											},
 											ui.ToggleButton{
 												TestID:   fmt.Sprintf("input-gamepad-axis-%d-axial", idx),
-												Text:     "Axial",
-												Label:    fmt.Sprintf("Axial Gamepad Axis %d", idx),
+												Text:     ed.T("inputMap.axial"),
+												Label:    ed.T("inputMap.axialGamepadLabel", l10n.Param("index", idx)),
 												Disabled: disabled,
 												On: func() bool {
 													_ = rev.Get()
@@ -2667,8 +2668,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 											},
 											ui.ToggleButton{
 												TestID:   fmt.Sprintf("input-gamepad-axis-%d-invert", idx),
-												Text:     "Inv",
-												Label:    fmt.Sprintf("Invert Gamepad Axis %d", idx),
+												Text:     ed.T("inputMap.invertShort"),
+												Label:    ed.T("inputMap.invertGamepadLabel", l10n.Param("index", idx)),
 												Disabled: disabled,
 												On: func() bool {
 													_ = rev.Get()
@@ -2686,7 +2687,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 													ed.report(ed.SetInputGamepadAxis(idx, next))
 												},
 											},
-											settingsSpecButton(pal, fmt.Sprintf("input-gamepad-axis-%d-delete", idx), "×", "Delete Gamepad Axis "+gName, false, disabled, func() {
+											settingsSpecButton(pal, fmt.Sprintf("input-gamepad-axis-%d-delete", idx), "×", ed.T("inputMap.deleteGamepadLabel", l10n.Param("axis", gName)), false, disabled, func() {
 												ed.report(ed.DeleteInputGamepadAxis(idx))
 											}),
 										},
@@ -2694,10 +2695,10 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 									ui.HStack{
 										Gap: 4,
 										Children: []core.Node{
-											gamepadAxisNumberInput(ed, rev, idx, "dz", "DeadZone", -1, 0.99, 0.05, disabled,
+											gamepadAxisNumberInput(ed, rev, idx, "dz", ed.T("inputMap.deadZone"), -1, 0.99, 0.05, disabled,
 												func(g project.GamepadAxis) float64 { return g.DeadZone },
 												func(g *project.GamepadAxis, v float64) { g.DeadZone = clampFiniteRange(v, -1, 0.99) }),
-											gamepadAxisNumberInput(ed, rev, idx, "sens", "Sensitivity", 0, 100, 0.1, disabled,
+											gamepadAxisNumberInput(ed, rev, idx, "sens", ed.T("inputMap.sensitivity"), 0, 100, 0.1, disabled,
 												func(g project.GamepadAxis) float64 { return g.Sensitivity },
 												func(g *project.GamepadAxis, v float64) { g.Sensitivity = max(0, v) }),
 										},
@@ -2738,7 +2739,7 @@ func motionNumberInput(
 		Children: []core.Node{
 			ui.NumberInput{
 				TestID:   fmt.Sprintf("input-motion-%d-%s", idx, suffix),
-				Label:    fmt.Sprintf("Motion %d %s", idx, label),
+				Label:    ed.T("inputMap.motionFieldLabel", l10n.Param("index", idx), l10n.Param("field", label)),
 				Min:      minVal,
 				Max:      maxVal,
 				Step:     step,
@@ -2780,7 +2781,7 @@ func gamepadAxisNumberInput(
 		Children: []core.Node{
 			ui.NumberInput{
 				TestID:   fmt.Sprintf("input-gamepad-axis-%d-%s", idx, suffix),
-				Label:    fmt.Sprintf("Gamepad Axis %d %s", idx, label),
+				Label:    ed.T("inputMap.gamepadFieldLabel", l10n.Param("index", idx), l10n.Param("field", label)),
 				Min:      minVal,
 				Max:      maxVal,
 				Step:     step,

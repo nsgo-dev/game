@@ -45,7 +45,7 @@ func EnvironmentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						Children: []core.Node{
 							core.Text{
 								TestID:  "environment-panel-title",
-								Content: "Scene Environment",
+								Content: ed.T("envPanel.title"),
 								Style: core.Style{
 									FontSize:   13,
 									FontWeight: 700,
@@ -57,7 +57,7 @@ func EnvironmentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								Children: []core.Node{
 									ui.Button{
 										TestID:  "env-bake-probes",
-										Text:    "Bake Probes",
+										Text:    ed.T("envPanel.bakeProbes"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonPrimary,
 										Disabled: func() bool {
@@ -71,7 +71,7 @@ func EnvironmentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 									},
 									ui.Button{
 										TestID:  "env-clear",
-										Text:    "Reset",
+										Text:    ed.T("envPanel.reset"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonGhost,
 										Disabled: func() bool {
@@ -84,7 +84,7 @@ func EnvironmentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 									},
 									ui.Button{
 										TestID:  "env-close",
-										Text:    "Close",
+										Text:    ed.T("envPanel.close"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonGhost,
 										OnPress: func() {
@@ -194,16 +194,16 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 
 	skyChildren := []core.Node{
-		sectionTitle("SKY & AMBIENT"),
-		row("Sky", ui.Select[string]{
+		sectionTitle(ed.T("envPanel.section.skyAmbient")),
+		row(ed.T("envPanel.sky"), ui.Select[string]{
 			TestID:   "env-sky-kind",
-			Label:    "Sky Kind",
+			Label:    ed.T("envPanel.skyKindLabel"),
 			Disabled: disabled,
 			Options: []ui.Option[string]{
-				{Value: "", Label: "None"},
-				{Value: string(sceneformat.SkyColor), Label: "Solid Color"},
-				{Value: string(sceneformat.SkyGradient), Label: "Gradient"},
-				{Value: string(sceneformat.SkyHDR), Label: "HDR Equirectangular"},
+				{Value: "", Label: ed.T("envPanel.none")},
+				{Value: string(sceneformat.SkyColor), Label: ed.T("envPanel.sky.color")},
+				{Value: string(sceneformat.SkyGradient), Label: ed.T("envPanel.sky.gradient")},
+				{Value: string(sceneformat.SkyHDR), Label: ed.T("envPanel.sky.hdr")},
 			},
 			Value: func() string {
 				_ = rev.Get()
@@ -240,9 +240,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 
 	switch curSky {
 	case sceneformat.SkyColor:
-		skyChildren = append(skyChildren, row("Sky Color", ui.Input{
+		skyChildren = append(skyChildren, row(ed.T("envPanel.skyColor"), ui.Input{
 			TestID:      "env-sky-color",
-			Label:       "Sky Color",
+			Label:       ed.T("envPanel.skyColor"),
 			Placeholder: "#2b4263",
 			Disabled:    disabled,
 			Value: func() string {
@@ -263,9 +263,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		}))
 	case sceneformat.SkyGradient:
 		skyChildren = append(skyChildren,
-			row("Zenith", ui.Input{
+			row(ed.T("envPanel.zenith"), ui.Input{
 				TestID:      "env-sky-zenith",
-				Label:       "Sky Zenith Color",
+				Label:       ed.T("envPanel.zenithLabel"),
 				Placeholder: "#3d6194",
 				Disabled:    disabled,
 				Value: func() string {
@@ -284,9 +284,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					})
 				},
 			}),
-			row("Horizon", ui.Input{
+			row(ed.T("envPanel.horizon"), ui.Input{
 				TestID:      "env-sky-horizon",
-				Label:       "Sky Horizon Color",
+				Label:       ed.T("envPanel.horizonLabel"),
 				Placeholder: "#a8b8c7",
 				Disabled:    disabled,
 				Value: func() string {
@@ -305,9 +305,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					})
 				},
 			}),
-			row("Ground", ui.Input{
+			row(ed.T("envPanel.ground"), ui.Input{
 				TestID:      "env-sky-ground",
-				Label:       "Sky Ground Color",
+				Label:       ed.T("envPanel.groundLabel"),
 				Placeholder: "#2b2b2e",
 				Disabled:    disabled,
 				Value: func() string {
@@ -328,10 +328,10 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			}),
 		)
 	case sceneformat.SkyHDR:
-		skyChildren = append(skyChildren, row("HDR Path", ui.Input{
+		skyChildren = append(skyChildren, row(ed.T("envPanel.hdrPath"), ui.Input{
 			TestID:      "env-sky-hdr",
-			Label:       "Sky HDR Path",
-			Placeholder: "env/studio.hdr",
+			Label:       ed.T("envPanel.hdrPathLabel"),
+			Placeholder: ed.T("envPanel.hdrPathPlaceholder"),
 			Disabled:    disabled,
 			Value: func() string {
 				_ = rev.Get()
@@ -352,9 +352,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 
 	skyChildren = append(skyChildren,
-		row("Ambient Color", ui.Input{
+		row(ed.T("envPanel.ambientColor"), ui.Input{
 			TestID:      "env-ambient-color",
-			Label:       "Ambient Color",
+			Label:       ed.T("envPanel.ambientColor"),
 			Placeholder: "#ffffff",
 			Disabled:    disabled,
 			Value: func() string {
@@ -370,9 +370,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				})
 			},
 		}),
-		row("Ambient", ui.NumberInput{
+		row(ed.T("envPanel.ambient"), ui.NumberInput{
 			TestID:   "env-ambient-intensity",
-			Label:    "Ambient Intensity",
+			Label:    ed.T("envPanel.ambientIntensityLabel"),
 			Min:      0,
 			Step:     0.05,
 			Format:   formatFloat,
@@ -393,9 +393,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				})
 			},
 		}),
-		row("IBL", ui.NumberInput{
+		row(ed.T("envPanel.ibl"), ui.NumberInput{
 			TestID:   "env-ibl-intensity",
-			Label:    "IBL Intensity",
+			Label:    ed.T("envPanel.iblIntensityLabel"),
 			Min:      0,
 			Step:     0.1,
 			Format:   formatFloat,
@@ -419,16 +419,16 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	)
 
 	fogChildren := []core.Node{
-		sectionTitle("FOG"),
-		row("Mode", ui.Select[string]{
+		sectionTitle(ed.T("envPanel.section.fog")),
+		row(ed.T("envPanel.fogMode"), ui.Select[string]{
 			TestID:   "env-fog-mode",
-			Label:    "Fog Mode",
+			Label:    ed.T("envPanel.fogModeLabel"),
 			Disabled: disabled,
 			Options: []ui.Option[string]{
-				{Value: string(sceneformat.FogOff), Label: "Off"},
-				{Value: string(sceneformat.FogLinear), Label: "Linear"},
-				{Value: string(sceneformat.FogExp), Label: "Exponential"},
-				{Value: string(sceneformat.FogExp2), Label: "Exponential²"},
+				{Value: string(sceneformat.FogOff), Label: ed.T("envPanel.fog.off")},
+				{Value: string(sceneformat.FogLinear), Label: ed.T("envPanel.fog.linear")},
+				{Value: string(sceneformat.FogExp), Label: ed.T("envPanel.fog.exp")},
+				{Value: string(sceneformat.FogExp2), Label: ed.T("envPanel.fog.exp2")},
 			},
 			Value: func() string {
 				_ = rev.Get()
@@ -461,9 +461,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 
 	if curFog != "" && curFog != sceneformat.FogOff || heightFog {
-		fogChildren = append(fogChildren, row("Fog Color", ui.Input{
+		fogChildren = append(fogChildren, row(ed.T("envPanel.fogColor"), ui.Input{
 			TestID:      "env-fog-color",
-			Label:       "Fog Color",
+			Label:       ed.T("envPanel.fogColor"),
 			Placeholder: "#9eb3c7",
 			Disabled:    disabled,
 			Value: func() string {
@@ -485,9 +485,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 	if curFog == sceneformat.FogLinear {
 		fogChildren = append(fogChildren,
-			row("Start", ui.NumberInput{
+			row(ed.T("envPanel.fogStart"), ui.NumberInput{
 				TestID:   "env-fog-start",
-				Label:    "Fog Start",
+				Label:    ed.T("envPanel.fogStartLabel"),
 				Min:      0,
 				Step:     1,
 				Format:   formatFloat,
@@ -514,9 +514,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					})
 				},
 			}),
-			row("End", ui.NumberInput{
+			row(ed.T("envPanel.fogEnd"), ui.NumberInput{
 				TestID:   "env-fog-end",
-				Label:    "Fog End",
+				Label:    ed.T("envPanel.fogEndLabel"),
 				Min:      0,
 				Step:     1,
 				Format:   formatFloat,
@@ -545,9 +545,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			}),
 		)
 	} else if curFog == sceneformat.FogExp || curFog == sceneformat.FogExp2 {
-		fogChildren = append(fogChildren, row("Density", ui.NumberInput{
+		fogChildren = append(fogChildren, row(ed.T("envPanel.fogDensity"), ui.NumberInput{
 			TestID:   "env-fog-density",
-			Label:    "Fog Density",
+			Label:    ed.T("envPanel.fogDensityLabel"),
 			Min:      0,
 			Step:     0.005,
 			Format:   formatFloat,
@@ -573,9 +573,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		}))
 	}
 
-	fogChildren = append(fogChildren, row("Height Fog", SpecSwitch{
+	fogChildren = append(fogChildren, row(ed.T("envPanel.heightFog"), SpecSwitch{
 		TestID:   "env-fog-height",
-		Label:    "Height Fog",
+		Label:    ed.T("envPanel.heightFog"),
 		Disabled: disabled,
 		Checked: func() bool {
 			_ = rev.Get()
@@ -599,17 +599,17 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}))
 
 	postChildren := []core.Node{
-		sectionTitle("TONEMAPPING"),
-		row("Operator", ui.Select[string]{
+		sectionTitle(ed.T("envPanel.section.tonemapping")),
+		row(ed.T("envPanel.tonemapOperator"), ui.Select[string]{
 			TestID:   "env-tonemapping",
-			Label:    "Tonemapping Operator",
+			Label:    ed.T("envPanel.tonemapOperatorLabel"),
 			Disabled: disabled,
 			Options: []ui.Option[string]{
-				{Value: string(sceneformat.TonemapNone), Label: "None"},
-				{Value: string(sceneformat.TonemapReinhard), Label: "Reinhard"},
-				{Value: string(sceneformat.TonemapACES), Label: "ACES"},
-				{Value: string(sceneformat.TonemapNeutral), Label: "Neutral"},
-				{Value: string(sceneformat.TonemapAgX), Label: "AgX"},
+				{Value: string(sceneformat.TonemapNone), Label: ed.T("envPanel.none")},
+				{Value: string(sceneformat.TonemapReinhard), Label: ed.T("envPanel.tonemap.reinhard")},
+				{Value: string(sceneformat.TonemapACES), Label: ed.T("envPanel.tonemap.aces")},
+				{Value: string(sceneformat.TonemapNeutral), Label: ed.T("envPanel.tonemap.neutral")},
+				{Value: string(sceneformat.TonemapAgX), Label: ed.T("envPanel.tonemap.agx")},
 			},
 			Value: func() string {
 				_ = rev.Get()
@@ -624,9 +624,9 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				})
 			},
 		}),
-		row("Exposure", ui.NumberInput{
+		row(ed.T("envPanel.exposure"), ui.NumberInput{
 			TestID:   "env-exposure",
-			Label:    "Exposure",
+			Label:    ed.T("envPanel.exposure"),
 			Min:      0,
 			Step:     0.1,
 			Format:   formatFloat,
@@ -667,7 +667,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 		return []core.Node{
 			ui.Button{
 				TestID:   "inspector-light-add",
-				Text:     "Add Light",
+				Text:     ed.T("envPanel.light.add"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -694,14 +694,14 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 	}
 
 	rows := []core.Node{
-		fieldRow("Kind", ui.Select[string]{
+		fieldRow(ed.T("envPanel.light.kind"), ui.Select[string]{
 			TestID:   "inspector-light-kind",
-			Label:    "Light Kind",
+			Label:    ed.T("envPanel.light.kindLabel"),
 			Disabled: disabled,
 			Options: []ui.Option[string]{
-				{Value: string(sceneformat.LightDirectional), Label: "Directional"},
-				{Value: string(sceneformat.LightPoint), Label: "Point"},
-				{Value: string(sceneformat.LightSpot), Label: "Spot"},
+				{Value: string(sceneformat.LightDirectional), Label: ed.T("envPanel.light.directional")},
+				{Value: string(sceneformat.LightPoint), Label: ed.T("envPanel.light.point")},
+				{Value: string(sceneformat.LightSpot), Label: ed.T("envPanel.light.spot")},
 			},
 			Value: func() string {
 				_ = rev.Get()
@@ -738,9 +738,9 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 				})
 			},
 		}),
-		fieldRow("Color", ui.Input{
+		fieldRow(ed.T("envPanel.light.color"), ui.Input{
 			TestID:      "inspector-light-color",
-			Label:       "Light Color",
+			Label:       ed.T("envPanel.light.colorLabel"),
 			Placeholder: "#ffffff",
 			Disabled:    disabled,
 			Value: func() string {
@@ -754,9 +754,9 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 				mutate(func(l *sceneformat.LightDoc) { l.Color = strings.TrimSpace(text) })
 			},
 		}),
-		fieldRow("Intensity", ui.NumberInput{
+		fieldRow(ed.T("envPanel.light.intensity"), ui.NumberInput{
 			TestID:   "inspector-light-intensity",
-			Label:    "Light Intensity",
+			Label:    ed.T("envPanel.light.intensityLabel"),
 			Min:      0,
 			Step:     0.25,
 			Format:   formatFloat,
@@ -777,9 +777,9 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 		}),
 	}
 	if obj.Light.Kind == sceneformat.LightPoint || obj.Light.Kind == sceneformat.LightSpot {
-		rows = append(rows, fieldRow("Range", ui.NumberInput{
+		rows = append(rows, fieldRow(ed.T("envPanel.light.range"), ui.NumberInput{
 			TestID:   "inspector-light-range",
-			Label:    "Light Range",
+			Label:    ed.T("envPanel.light.rangeLabel"),
 			Min:      0,
 			Step:     0.5,
 			Format:   formatFloat,
@@ -801,9 +801,9 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 	}
 	if obj.Light.Kind == sceneformat.LightSpot {
 		rows = append(rows,
-			fieldRow("Inner Cone", ui.NumberInput{
+			fieldRow(ed.T("envPanel.light.innerCone"), ui.NumberInput{
 				TestID:   "inspector-light-inner-cone",
-				Label:    "Inner Cone Degrees",
+				Label:    ed.T("envPanel.light.innerConeLabel"),
 				Min:      0,
 				Max:      89.5,
 				Step:     1,
@@ -829,9 +829,9 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 					})
 				},
 			}),
-			fieldRow("Outer Cone", ui.NumberInput{
+			fieldRow(ed.T("envPanel.light.outerCone"), ui.NumberInput{
 				TestID:   "inspector-light-outer-cone",
-				Label:    "Outer Cone Degrees",
+				Label:    ed.T("envPanel.light.outerConeLabel"),
 				Min:      1,
 				Max:      89.5,
 				Step:     1,
@@ -862,9 +862,9 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 		)
 	}
 	rows = append(rows,
-		fieldRow("Shadows", SpecSwitch{
+		fieldRow(ed.T("envPanel.light.shadows"), SpecSwitch{
 			TestID:   "inspector-light-shadows",
-			Label:    "Cast Shadows",
+			Label:    ed.T("envPanel.light.shadowsLabel"),
 			Disabled: disabled,
 			Checked: func() bool {
 				_ = rev.Get()
@@ -877,7 +877,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 		}),
 		ui.Button{
 			TestID:   "inspector-light-remove",
-			Text:     "Remove Light",
+			Text:     ed.T("envPanel.light.remove"),
 			Size:     ui.SizeSmall,
 			Variant:  ui.ButtonGhost,
 			Disabled: disabled,
@@ -896,7 +896,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 		return []core.Node{
 			ui.Button{
 				TestID:   "inspector-cam3d-add",
-				Text:     "Add 3D Camera",
+				Text:     ed.T("envPanel.camera.add"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
@@ -924,13 +924,13 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 	}
 
 	rows := []core.Node{
-		fieldRow("Projection", ui.Select[string]{
+		fieldRow(ed.T("envPanel.camera.projection"), ui.Select[string]{
 			TestID:   "inspector-cam3d-projection",
-			Label:    "Projection",
+			Label:    ed.T("envPanel.camera.projection"),
 			Disabled: disabled,
 			Options: []ui.Option[string]{
-				{Value: string(sceneformat.ProjectionPerspective), Label: "Perspective"},
-				{Value: string(sceneformat.ProjectionOrthographic), Label: "Orthographic"},
+				{Value: string(sceneformat.ProjectionPerspective), Label: ed.T("envPanel.camera.perspective")},
+				{Value: string(sceneformat.ProjectionOrthographic), Label: ed.T("envPanel.camera.orthographic")},
 			},
 			Value: func() string {
 				_ = rev.Get()
@@ -958,9 +958,9 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 		}),
 	}
 	if obj.Camera.EffectiveProjection() == sceneformat.ProjectionOrthographic {
-		rows = append(rows, fieldRow("Ortho H", ui.NumberInput{
+		rows = append(rows, fieldRow(ed.T("envPanel.camera.orthoH"), ui.NumberInput{
 			TestID:   "inspector-cam3d-ortho-height",
-			Label:    "Orthographic Height",
+			Label:    ed.T("envPanel.camera.orthoHLabel"),
 			Min:      0.1,
 			Step:     0.5,
 			Format:   formatFloat,
@@ -980,9 +980,9 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			},
 		}))
 	} else {
-		rows = append(rows, fieldRow("FOV", ui.NumberInput{
+		rows = append(rows, fieldRow(ed.T("envPanel.camera.fov"), ui.NumberInput{
 			TestID:   "inspector-cam3d-fov",
-			Label:    "Field of View",
+			Label:    ed.T("envPanel.camera.fovLabel"),
 			Min:      5,
 			Max:      170,
 			Step:     1,
@@ -1008,9 +1008,9 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 	}
 
 	rows = append(rows,
-		fieldRow("Near", ui.NumberInput{
+		fieldRow(ed.T("envPanel.camera.near"), ui.NumberInput{
 			TestID:   "inspector-cam3d-near",
-			Label:    "Near Clip",
+			Label:    ed.T("envPanel.camera.nearLabel"),
 			Min:      0.001,
 			Step:     0.1,
 			Format:   formatFloat,
@@ -1034,9 +1034,9 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 				})
 			},
 		}),
-		fieldRow("Far", ui.NumberInput{
+		fieldRow(ed.T("envPanel.camera.far"), ui.NumberInput{
 			TestID:   "inspector-cam3d-far",
-			Label:    "Far Clip",
+			Label:    ed.T("envPanel.camera.farLabel"),
 			Min:      0.1,
 			Step:     5,
 			Format:   formatFloat,
@@ -1058,9 +1058,9 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 				})
 			},
 		}),
-		fieldRow("Current", SpecSwitch{
+		fieldRow(ed.T("envPanel.camera.current"), SpecSwitch{
 			TestID:   "inspector-cam3d-current",
-			Label:    "Current Camera",
+			Label:    ed.T("envPanel.camera.currentLabel"),
 			Disabled: disabled,
 			Checked: func() bool {
 				_ = rev.Get()
@@ -1076,7 +1076,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			Children: []core.Node{
 				ui.ToggleButton{
 					TestID: "inspector-cam3d-look",
-					Text:   "Look Through",
+					Text:   ed.T("envPanel.camera.lookThrough"),
 					On: func() bool {
 						_ = rev.Get()
 						return ed.LookThroughCamera3D()
@@ -1087,7 +1087,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 				},
 				ui.Button{
 					TestID:   "inspector-cam3d-remove",
-					Text:     "Remove",
+					Text:     ed.T("envPanel.camera.remove"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonGhost,
 					Disabled: disabled,

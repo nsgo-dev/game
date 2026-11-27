@@ -775,9 +775,10 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 			}
 		} else if ed.AgentOffline() {
+			queueLabel := ed.T("composerExtra.queue")
 			actionBtn = base.Button{
 				TestID: "agent-composer-queue",
-				Label:  "Queue",
+				Label:  queueLabel,
 				Style: core.Style{
 					Height:         core.Pt(specButtonHeight),
 					FlexShrink:     0,
@@ -794,7 +795,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "Queue",
+						Content: queueLabel,
 						Style: core.Style{
 							FontSize:   12.5,
 							FontWeight: core.FontWeightMedium,
@@ -910,14 +911,14 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		LabelFunc: func() string {
 			_ = rev.Get()
 			if ed.AgentOffline() {
-				return "Queue a request"
+				return ed.T("composerExtra.queueRequestLabel")
 			}
 			return ed.T("composer.inputLabel")
 		},
 		PlaceholderFunc: func() string {
 			_ = rev.Get()
 			if ed.AgentOffline() {
-				return "Queue a request…"
+				return ed.T("composerExtra.queueRequestPlaceholder")
 			}
 			return ed.T("composer.placeholder")
 		},

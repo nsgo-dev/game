@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -179,7 +180,7 @@ func modelImportPreviewSection(
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "import-model-preview-canvas",
-				Label:  "3D Model Preview",
+				Label:  ed.T("assetImportModel.previewCanvasLabel"),
 				Style: core.Style{
 					Width:  core.Pct(100),
 					Height: core.Pct(100),
@@ -203,16 +204,19 @@ func modelImportPreviewSection(
 				ContentFunc: func() string {
 					s := readModel()
 					if s.err != nil {
-						return "Preview unavailable"
+						return ed.T("assetImportModel.previewUnavailable")
 					}
-					return fmt.Sprintf("%d tris · %d verts · drag to orbit", s.info.TotalTriangles, s.info.TotalVertices)
+					return ed.T("assetImportModel.previewStats",
+						l10n.Param("tris", s.info.TotalTriangles),
+						l10n.Param("verts", s.info.TotalVertices),
+					)
 				},
 				Style: core.Style{FontSize: 10, Color: colors.Muted(), FlexGrow: 1},
 			},
 			ui.Button{
 				TestID:  "import-model-reset-view",
-				Text:    "Reset View",
-				Label:   "Re-frame the model preview camera",
+				Text:    ed.T("assetImportModel.resetView"),
+				Label:   ed.T("assetImportModel.resetViewLabel"),
 				Size:    ui.SizeSmall,
 				Variant: ui.ButtonSecondary,
 				OnPress: func() {
@@ -253,13 +257,22 @@ func modelImportPreviewSection(
 						ContentFunc: func() string {
 							s := readModel()
 							if s.info.Bounds.Empty() {
-								return "Bounds: empty"
+								return ed.T("assetImportModel.boundsEmpty")
 							}
 							sz := s.info.Bounds.Size()
-							base := fmt.Sprintf("Bounds: %.2g × %.2g × %.2g", sz.X, sz.Y, sz.Z)
+							base := ed.T("assetImportModel.bounds",
+								l10n.Param("x", fmt.Sprintf("%.2g", sz.X)),
+								l10n.Param("y", fmt.Sprintf("%.2g", sz.Y)),
+								l10n.Param("z", fmt.Sprintf("%.2g", sz.Z)),
+							)
 							if s.info.Scale > 0 && math.Abs(s.info.Scale-1) > 1e-6 {
 								ssz := s.info.ScaledBounds.Size()
-								return fmt.Sprintf("%s (scaled %.2g × %.2g × %.2g)", base, ssz.X, ssz.Y, ssz.Z)
+								return ed.T("assetImportModel.boundsScaled",
+									l10n.Param("base", base),
+									l10n.Param("x", fmt.Sprintf("%.2g", ssz.X)),
+									l10n.Param("y", fmt.Sprintf("%.2g", ssz.Y)),
+									l10n.Param("z", fmt.Sprintf("%.2g", ssz.Z)),
+								)
 							}
 							return base
 						},
@@ -269,8 +282,12 @@ func modelImportPreviewSection(
 						TestID: "import-model-counts",
 						ContentFunc: func() string {
 							s := readModel()
-							return fmt.Sprintf("%d nodes · %d meshes · %d materials · %d animations",
-								len(s.info.Nodes), len(s.info.Meshes), len(s.info.Materials), len(s.info.Animations))
+							return ed.T("assetImportModel.counts",
+								l10n.Param("nodes", len(s.info.Nodes)),
+								l10n.Param("meshes", len(s.info.Meshes)),
+								l10n.Param("materials", len(s.info.Materials)),
+								l10n.Param("animations", len(s.info.Animations)),
+							)
 						},
 						Style: core.Style{FontSize: 11, Color: colors.Muted()},
 					},
@@ -290,7 +307,10 @@ func modelImportPreviewSection(
 		for i, a := range snap.info.Animations {
 			opts[i] = ui.Option[int]{
 				Value: a.Index,
-				Label: fmt.Sprintf("%s (%.2fs)", a.DisplayName(), a.Duration.Seconds()),
+				Label: ed.T("assetImportModel.animOption",
+					l10n.Param("name", a.DisplayName()),
+					l10n.Param("sec", fmt.Sprintf("%.2f", a.Duration.Seconds())),
+				),
 			}
 		}
 
@@ -306,7 +326,7 @@ func modelImportPreviewSection(
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "ANIMATION PREVIEW",
+					Content: ed.T("assetImportModel.animPreviewHeader"),
 					Style: core.Style{
 						FontSize:   10,
 						FontWeight: 700,
@@ -315,7 +335,7 @@ func modelImportPreviewSection(
 				},
 				ui.Select[int]{
 					TestID:   "import-model-anim-select",
-					Label:    "Preview Animation",
+					Label:    ed.T("assetImportModel.previewAnimLabel"),
 					Options:  opts,
 					Disabled: disabled,
 					Style:    core.Style{Width: core.Pct(100)},
@@ -339,11 +359,11 @@ func modelImportPreviewSection(
 							TextFunc: func() string {
 								_ = rev.Get()
 								if ed.ModelPreviewPlaying() {
-									return "Pause"
+									return ed.T("assetImportModel.pause")
 								}
-								return "Play"
+								return ed.T("assetImportModel.play")
 							},
-							Label:    "Play or pause the selected model animation",
+							Label:    ed.T("assetImportModel.playPauseLabel"),
 							Size:     ui.SizeSmall,
 							Variant:  ui.ButtonPrimary,
 							Disabled: disabled,
@@ -357,8 +377,8 @@ func modelImportPreviewSection(
 						},
 						ui.Button{
 							TestID:   "import-model-anim-stop",
-							Text:     "Stop",
-							Label:    "Stop model animation and restore bind pose",
+							Text:     ed.T("assetImportModel.stop"),
+							Label:    ed.T("assetImportModel.stopLabel"),
 							Size:     ui.SizeSmall,
 							Variant:  ui.ButtonSecondary,
 							Disabled: disabled,
@@ -368,8 +388,8 @@ func modelImportPreviewSection(
 						},
 						ui.ToggleButton{
 							TestID:   "import-model-anim-loop",
-							Text:     "Loop",
-							Label:    "Loop model animation playback",
+							Text:     ed.T("assetImportModel.loop"),
+							Label:    ed.T("assetImportModel.loopLabel"),
 							Disabled: disabled,
 							On: func() bool {
 								_ = rev.Get()
@@ -383,7 +403,10 @@ func modelImportPreviewSection(
 							TestID: "import-model-anim-time",
 							ContentFunc: func() string {
 								_ = rev.Get()
-								return fmt.Sprintf("%.2fs / %.2fs", ed.ModelPreviewTime().Seconds(), ed.ModelPreviewDuration().Seconds())
+								return ed.T("assetImportModel.animTime",
+									l10n.Param("cur", fmt.Sprintf("%.2f", ed.ModelPreviewTime().Seconds())),
+									l10n.Param("dur", fmt.Sprintf("%.2f", ed.ModelPreviewDuration().Seconds())),
+								)
 							},
 							Style: core.Style{
 								FontSize: 10,
@@ -395,7 +418,7 @@ func modelImportPreviewSection(
 				},
 				ui.Slider{
 					TestID: "import-model-anim-scrub",
-					Label:  "Animation Time",
+					Label:  ed.T("assetImportModel.animTimeLabel"),
 					Disabled: func() bool {
 						_ = rev.Get()
 						return disabled() || ed.ModelPreviewDuration() <= 0
@@ -415,7 +438,7 @@ func modelImportPreviewSection(
 						return ed.ModelPreviewTime().Seconds()
 					},
 					ValueText: func(v float64) string {
-						return strconv.FormatFloat(v, 'f', 2, 64) + " seconds"
+						return ed.T("assetImportModel.secondsValue", l10n.Param("sec", strconv.FormatFloat(v, 'f', 2, 64)))
 					},
 					OnChange: func(v float64) {
 						t := secondsToDurationClamped(v)
@@ -440,7 +463,7 @@ func modelImportPreviewSection(
 			rows := make([]core.Node, 0, min(len(info.Animations), maxModelPreviewListItems)+1)
 			for i, a := range info.Animations {
 				if i >= maxModelPreviewListItems {
-					rows = append(rows, mutedOverflowText(colors, len(info.Animations)-maxModelPreviewListItems))
+					rows = append(rows, mutedOverflowText(ed, colors, len(info.Animations)-maxModelPreviewListItems))
 					break
 				}
 				anim := a
@@ -454,19 +477,23 @@ func modelImportPreviewSection(
 					},
 					Children: []core.Node{
 						core.Text{
-							Content: fmt.Sprintf("%s · %.2fs · %d ch", anim.DisplayName(), anim.Duration.Seconds(), anim.Channels),
-							Style:   core.Style{FontSize: 11, Color: colors.Text(), FlexGrow: 1},
+							Content: ed.T("assetImportModel.animRow",
+								l10n.Param("name", anim.DisplayName()),
+								l10n.Param("sec", fmt.Sprintf("%.2f", anim.Duration.Seconds())),
+								l10n.Param("channels", anim.Channels),
+							),
+							Style: core.Style{FontSize: 11, Color: colors.Text(), FlexGrow: 1},
 						},
 						ui.Button{
 							TestID: fmt.Sprintf("import-model-anim-play-%d", anim.Index),
 							TextFunc: func() string {
 								_ = rev.Get()
 								if ed.ModelPreviewPlaying() && ed.ModelPreviewAnimation() == anim.Index {
-									return "Pause"
+									return ed.T("assetImportModel.pause")
 								}
-								return "Play"
+								return ed.T("assetImportModel.play")
 							},
-							Label:    "Play animation " + anim.DisplayName(),
+							Label:    ed.T("assetImportModel.playAnimNamed", l10n.Param("name", anim.DisplayName())),
 							Size:     ui.SizeSmall,
 							Variant:  ui.ButtonSecondary,
 							Disabled: disabled,
@@ -481,7 +508,7 @@ func modelImportPreviewSection(
 					},
 				})
 			}
-			sections = append(sections, modelDetailGroup(colors, "import-model-animations-list", fmt.Sprintf("ANIMATIONS (%d)", len(info.Animations)), rows))
+			sections = append(sections, modelDetailGroup(colors, "import-model-animations-list", ed.T("assetImportModel.animationsHeader", l10n.Param("count", len(info.Animations))), rows))
 		}
 
 		// Nodes list
@@ -489,16 +516,16 @@ func modelImportPreviewSection(
 			rows := make([]core.Node, 0, min(len(info.Nodes), maxModelPreviewListItems)+1)
 			for i, n := range info.Nodes {
 				if i >= maxModelPreviewListItems {
-					rows = append(rows, mutedOverflowText(colors, len(info.Nodes)-maxModelPreviewListItems))
+					rows = append(rows, mutedOverflowText(ed, colors, len(info.Nodes)-maxModelPreviewListItems))
 					break
 				}
 				var detail []string
 				if n.Mesh >= 0 {
 					detail = append(detail, n.MeshName)
-					detail = append(detail, fmt.Sprintf("%d tris", n.Triangles))
+					detail = append(detail, ed.T("assetImportModel.trisCount", l10n.Param("count", n.Triangles)))
 				}
 				if n.Skin >= 0 {
-					detail = append(detail, fmt.Sprintf("skin %d", n.Skin))
+					detail = append(detail, ed.T("assetImportModel.skinIndex", l10n.Param("index", n.Skin)))
 				}
 				label := n.DisplayName()
 				if len(detail) > 0 {
@@ -515,7 +542,7 @@ func modelImportPreviewSection(
 					},
 				})
 			}
-			sections = append(sections, modelDetailGroup(colors, "import-model-nodes-list", fmt.Sprintf("NODES (%d)", len(info.Nodes)), rows))
+			sections = append(sections, modelDetailGroup(colors, "import-model-nodes-list", ed.T("assetImportModel.nodesHeader", l10n.Param("count", len(info.Nodes))), rows))
 		}
 
 		// Meshes list
@@ -523,12 +550,16 @@ func modelImportPreviewSection(
 			rows := make([]core.Node, 0, min(len(info.Meshes), maxModelPreviewListItems)+1)
 			for i, m := range info.Meshes {
 				if i >= maxModelPreviewListItems {
-					rows = append(rows, mutedOverflowText(colors, len(info.Meshes)-maxModelPreviewListItems))
+					rows = append(rows, mutedOverflowText(ed, colors, len(info.Meshes)-maxModelPreviewListItems))
 					break
 				}
-				text := fmt.Sprintf("%s · %d tris · %s", m.DisplayName(), m.Triangles, formatBoundsExtent(m.Bounds))
+				text := ed.T("assetImportModel.meshRow",
+					l10n.Param("name", m.DisplayName()),
+					l10n.Param("tris", m.Triangles),
+					l10n.Param("bounds", formatBoundsExtent(ed, m.Bounds)),
+				)
 				if m.MorphTargets > 0 {
-					text += fmt.Sprintf(" · %d morphs", m.MorphTargets)
+					text += ed.T("assetImportModel.meshMorphsSuffix", l10n.Param("count", m.MorphTargets))
 				}
 				rows = append(rows, core.Text{
 					TestID:  fmt.Sprintf("import-model-mesh-row-%d", m.Index),
@@ -536,7 +567,7 @@ func modelImportPreviewSection(
 					Style:   core.Style{FontSize: 11, Color: colors.Text()},
 				})
 			}
-			sections = append(sections, modelDetailGroup(colors, "import-model-meshes-list", fmt.Sprintf("MESHES (%d)", len(info.Meshes)), rows))
+			sections = append(sections, modelDetailGroup(colors, "import-model-meshes-list", ed.T("assetImportModel.meshesHeader", l10n.Param("count", len(info.Meshes))), rows))
 		}
 
 		// Materials list
@@ -544,20 +575,20 @@ func modelImportPreviewSection(
 			rows := make([]core.Node, 0, min(len(info.Materials), maxModelPreviewListItems)+1)
 			for i, mat := range info.Materials {
 				if i >= maxModelPreviewListItems {
-					rows = append(rows, mutedOverflowText(colors, len(info.Materials)-maxModelPreviewListItems))
+					rows = append(rows, mutedOverflowText(ed, colors, len(info.Materials)-maxModelPreviewListItems))
 					break
 				}
 				var tags []string
 				tags = append(tags, string(mat.AlphaMode))
 				tags = append(tags, fmt.Sprintf("M:%.2g R:%.2g", mat.Metallic, mat.Roughness))
 				if mat.HasBaseColorTexture {
-					tags = append(tags, "tex")
+					tags = append(tags, ed.T("assetImportModel.materialTex"))
 				}
 				if mat.DoubleSided {
-					tags = append(tags, "2-sided")
+					tags = append(tags, ed.T("assetImportModel.materialDoubleSided"))
 				}
 				if mat.Unlit {
-					tags = append(tags, "unlit")
+					tags = append(tags, ed.T("assetImportModel.materialUnlit"))
 				}
 				rows = append(rows, core.Text{
 					TestID:  fmt.Sprintf("import-model-material-row-%d", mat.Index),
@@ -565,7 +596,7 @@ func modelImportPreviewSection(
 					Style:   core.Style{FontSize: 11, Color: colors.Text()},
 				})
 			}
-			sections = append(sections, modelDetailGroup(colors, "import-model-materials-list", fmt.Sprintf("MATERIALS (%d)", len(info.Materials)), rows))
+			sections = append(sections, modelDetailGroup(colors, "import-model-materials-list", ed.T("assetImportModel.materialsHeader", l10n.Param("count", len(info.Materials))), rows))
 		}
 
 		if len(sections) == 0 {
@@ -618,16 +649,16 @@ func modelDetailGroup(colors ui.Colors, testID, title string, rows []core.Node) 
 	}
 }
 
-func mutedOverflowText(colors ui.Colors, remaining int) core.Node {
+func mutedOverflowText(ed *Editor, colors ui.Colors, remaining int) core.Node {
 	return core.Text{
-		Content: fmt.Sprintf("+%d more", remaining),
+		Content: ed.T("assetImportModel.moreCount", l10n.Param("count", remaining)),
 		Style:   core.Style{FontSize: 10, Color: colors.Muted()},
 	}
 }
 
-func formatBoundsExtent(b math3d.AABB) string {
+func formatBoundsExtent(ed *Editor, b math3d.AABB) string {
 	if b.Empty() {
-		return "empty"
+		return ed.T("assetImportModel.boundsEmptyShort")
 	}
 	sz := b.Size()
 	return fmt.Sprintf("%.2g×%.2g×%.2g", sz.X, sz.Y, sz.Z)

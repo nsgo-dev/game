@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	gamemcp "github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -58,7 +59,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				return ui.ToggleButton{
 					TestID: id,
 					Text:   label,
-					Label:  fmt.Sprintf("Set remote time scale to %s", label),
+					Label:  ed.T("remote.setTimeScaleLabel", l10n.Param("scale", label)),
 					Disabled: func() bool {
 						snap := snapMemo.Get()
 						return !snap.Connected || snap.Loop == nil
@@ -144,18 +145,18 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 										ContentFunc: func() string {
 											snap := snapMemo.Get()
 											if snap.Connecting && !snap.Connected {
-												return "Connecting…"
+												return ed.T("remote.status.connecting")
 											}
 											if snap.Loop == nil {
-												return "Connected · live"
+												return ed.T("remote.status.connectedLive")
 											}
 											if snap.Loop.Paused {
-												return fmt.Sprintf("Paused · frame %d", snap.Loop.Steps)
+												return ed.T("remote.status.pausedFrame", l10n.Param("frame", snap.Loop.Steps))
 											}
 											if math.Abs(snap.Loop.TimeScale-1) > 1e-6 {
-												return fmt.Sprintf("Playing · live · %g×", snap.Loop.TimeScale)
+												return ed.T("remote.status.playingLiveScale", l10n.Param("scale", fmt.Sprintf("%g", snap.Loop.TimeScale)))
 											}
-											return "Playing · live"
+											return ed.T("remote.status.playingLive")
 										},
 										Style: core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text()},
 									},
@@ -171,16 +172,16 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								TextFunc: func() string {
 									snap := snapMemo.Get()
 									if snap.Loop != nil && snap.Loop.Paused {
-										return "Resume"
+										return ed.T("remote.resume")
 									}
-									return "Pause"
+									return ed.T("remote.pause")
 								},
 								LabelFunc: func() string {
 									snap := snapMemo.Get()
 									if snap.Loop != nil && snap.Loop.Paused {
-										return "Resume running game (" + cx.KeyLabel("mod+shift+p") + ")"
+										return ed.T("remote.resumeLabel", l10n.Param("key", cx.KeyLabel("mod+shift+p")))
 									}
-									return "Pause running game (" + cx.KeyLabel("mod+shift+p") + ")"
+									return ed.T("remote.pauseLabel", l10n.Param("key", cx.KeyLabel("mod+shift+p")))
 								},
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
@@ -201,8 +202,8 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.Button{
 								TestID:  "remote-step-1",
-								Text:    "Step",
-								Label:   "Step one fixed update (.)",
+								Text:    ed.T("remote.step"),
+								Label:   ed.T("remote.stepLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -218,7 +219,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.NumberInput{
 								TestID: "remote-step-count",
-								Label:  "Step Count",
+								Label:  ed.T("remote.stepCountLabel"),
 								Min:    1,
 								Max:    float64(gamemcp.MaxLoopSteps),
 								Step:   1,
@@ -237,8 +238,8 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.Button{
 								TestID:  "remote-step-n",
-								Text:    "Step N",
-								Label:   "Step N fixed updates",
+								Text:    ed.T("remote.stepN"),
+								Label:   ed.T("remote.stepNLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -255,7 +256,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.ToggleGroup{
 								TestID: "remote-timescale-group",
-								Label:  "Time Scale",
+								Label:  ed.T("remote.timeScaleLabel"),
 								Children: []core.Node{
 									scaleBtn(0.25, "0.25×"),
 									scaleBtn(0.5, "0.5×"),
@@ -271,15 +272,15 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							ui.Button{
 								TestID:  "remote-mark-btn",
 								Icon:    lucide.Flag,
-								Label:   "Mark this moment without stopping (" + cx.KeyLabel("alt+f") + ")",
+								Label:   ed.T("remote.markLabel", l10n.Param("key", cx.KeyLabel("alt+f"))),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								TextFunc: func() string {
 									_ = rev.Get()
 									if n := len(ed.PlayMarks()); n > 0 {
-										return fmt.Sprintf("Mark · %d", n)
+										return ed.T("remote.markCount", l10n.Param("count", n))
 									}
-									return "Mark"
+									return ed.T("remote.mark")
 								},
 								Disabled: func() bool {
 									return !snapMemo.Get().Connected
@@ -292,8 +293,8 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							ui.Button{
 								TestID:  "remote-ask-btn",
 								Icon:    lucide.Sparkles,
-								Text:    "Something looks wrong",
-								Label:   "Pause and ask the agent about this frame (" + cx.KeyLabel("mod+l") + ")",
+								Text:    ed.T("remote.askButton"),
+								Label:   ed.T("remote.askButtonLabel", l10n.Param("key", cx.KeyLabel("mod+l"))),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -305,7 +306,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.Button{
 								TestID:  "remote-refresh",
-								Text:    "Refresh",
+								Text:    ed.T("remote.refresh"),
 								Icon:    lucide.RefreshCw,
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
@@ -320,7 +321,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 							ui.Button{
 								TestID:  "remote-disconnect",
-								Text:    "Disconnect",
+								Text:    ed.T("remote.disconnect"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonOutline,
 								OnPress: func() {
@@ -579,7 +580,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							ContentFunc: func() string {
 								if l, ok := treeIdx.Get().layerByName[k.layer]; ok {
 									if !l.Visible {
-										return l.Space + " · hidden"
+										return ed.T("remote.layerHidden", l10n.Param("space", l.Space))
 									}
 									return l.Space
 								}
@@ -592,7 +593,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			case remoteNodeSpawnedHeader:
 				return core.Text{
 					TestID:  "remote-spawned-header",
-					Content: "SPAWNED AT RUNTIME",
+					Content: ed.T("remote.spawnedHeader"),
 					Style:   core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
 				}
 			case remoteNodeTaken:
@@ -607,9 +608,9 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						core.Text{
 							ContentFunc: func() string {
 								if t, ok := treeIdx.Get().takenByID[k.id]; ok {
-									return fmt.Sprintf("taken @%d", t.TakenAtStep)
+									return ed.T("remote.takenAt", l10n.Param("step", t.TakenAtStep))
 								}
-								return "taken"
+								return ed.T("remote.taken")
 							},
 							Style: core.Style{FontSize: 10, Color: colors.Muted()},
 						},
@@ -669,19 +670,19 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								ContentFunc: func() string {
 									snap := snapMemo.Get()
 									if snap.Connecting {
-										return "Connecting to running game over MCP…"
+										return ed.T("remote.connectingHint")
 									}
 									if snap.Error != "" {
-										return "Remote error: " + snap.Error
+										return ed.T("remote.errorPrefix", l10n.Param("error", snap.Error))
 									}
-									return "Run the game with Automation enabled, or connect to a running game over nsgo mcp."
+									return ed.T("remote.disconnectedHint")
 								},
 								Style: core.Style{FontSize: 11, Color: colors.Muted()},
 							},
 							ui.ToggleButton{
 								TestID: "remote-run-automation",
-								Text:   "Auto-connect on Run",
-								Label:  "Pass -automation to go tool game dev and connect automatically",
+								Text:   ed.T("remote.autoConnect"),
+								Label:  ed.T("remote.autoConnectLabel"),
 								Disabled: func() bool {
 									_ = rev.Get()
 									return ed.Project == nil || ed.GameRunning()
@@ -696,7 +697,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							},
 							ui.Button{
 								TestID:  "remote-connect-btn",
-								Text:    "Connect",
+								Text:    ed.T("remote.connect"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -723,9 +724,12 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 										ContentFunc: func() string {
 											snap := snapMemo.Get()
 											if snap.ActiveScene != "" {
-												return fmt.Sprintf("SCENE · %s (%d)", snap.ActiveScene, len(snap.Scenes.Scenes))
+												return ed.T("remote.sceneActiveHeader",
+													l10n.Param("scene", snap.ActiveScene),
+													l10n.Param("count", len(snap.Scenes.Scenes)),
+												)
 											}
-											return fmt.Sprintf("SCENES · %d", len(snap.Scenes.Scenes))
+											return ed.T("remote.scenesHeader", l10n.Param("count", len(snap.Scenes.Scenes)))
 										},
 										Style: core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
 									},
@@ -766,15 +770,18 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								ContentFunc: func() string {
 									idx := treeIdx.Get()
 									if len(idx.spawned) > 0 {
-										return fmt.Sprintf("LIVE ENTITIES · %d · %d spawned", len(idx.snap.Entities), len(idx.spawned))
+										return ed.T("remote.entitiesHeaderSpawned",
+											l10n.Param("count", len(idx.snap.Entities)),
+											l10n.Param("spawned", len(idx.spawned)),
+										)
 									}
-									return fmt.Sprintf("LIVE ENTITIES · %d", len(idx.snap.Entities))
+									return ed.T("remote.entitiesHeader", l10n.Param("count", len(idx.snap.Entities)))
 								},
 								Style: core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
 							},
 							ui.Tree{
 								TestID:   "remote-entity-tree",
-								Label:    "Remote Entities",
+								Label:    ed.T("remote.entitiesTreeLabel"),
 								Roots:    roots,
 								Children: func(key any) []any { k, _ := key.(remoteTreeKey); return children(k) },
 								Expanded: func(key any) bool { k, _ := key.(remoteTreeKey); return expanded(k) },
@@ -787,16 +794,16 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									k, _ := key.(remoteTreeKey)
 									switch k.kind {
 									case remoteNodeLayer:
-										return "Layer " + k.layer
+										return ed.T("remote.rowLabel.layer", l10n.Param("layer", k.layer))
 									case remoteNodeSpawnedHeader:
-										return "Spawned at runtime"
+										return ed.T("remote.rowLabel.spawned")
 									case remoteNodeTaken:
-										return "Taken " + k.id
+										return ed.T("remote.rowLabel.taken", l10n.Param("id", k.id))
 									default:
 										return k.id
 									}
 								},
-								ToggleLabel: "Expand",
+								ToggleLabel: ed.T("remote.expand"),
 								Selection:   selection,
 								Row:         row,
 								Style:       core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
@@ -984,12 +991,12 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween},
 								Children: []core.Node{
 									core.Text{
-										Content: "CONSOLE",
+										Content: ed.T("remote.consoleTitle"),
 										Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()},
 									},
 									ui.Button{
 										TestID:  "remote-console-clear",
-										Text:    "Clear",
+										Text:    ed.T("remote.consoleClear"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonGhost,
 										OnPress: func() { ed.ClearRemoteConsole() },
@@ -1001,8 +1008,8 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Children: []core.Node{
 									ui.Input{
 										TestID:      "remote-console-input",
-										Label:       "Console command",
-										Placeholder: "set gravity 1200",
+										Label:       ed.T("remote.consoleInputLabel"),
+										Placeholder: ed.T("remote.consolePlaceholder"),
 										Value:       consoleDraft.Get,
 										OnChange:    func(s string) { consoleDraft.Set(s) },
 										OnSubmit:    func(s string) { consoleDraft.Set(s); runConsole() },
@@ -1010,7 +1017,7 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									},
 									ui.Button{
 										TestID:  "remote-console-run",
-										Text:    "Run",
+										Text:    ed.T("remote.consoleRun"),
 										Size:    ui.SizeSmall,
 										Variant: ui.ButtonSecondary,
 										OnPress: runConsole,
@@ -1033,7 +1040,7 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 										hist := ed.RemoteConsoleHistory()
 										if len(hist) == 0 {
 											return core.Text{
-												Content: "Run a debug console command",
+												Content: ed.T("remote.consoleEmpty"),
 												Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 											}
 										}
@@ -1107,7 +1114,7 @@ func remoteInspectorDynamicBody(
 		if snap.Inspected == nil {
 			nodes = append(nodes, core.Text{
 				TestID:  "remote-inspector-empty",
-				Content: "Select a live entity in the Remote tab to inspect and edit its components.",
+				Content: ed.T("remote.inspectorEmpty"),
 				Style:   core.Style{FontSize: 12, Color: colors.Muted()},
 			})
 		} else {
@@ -1120,16 +1127,16 @@ func remoteInspectorDynamicBody(
 			docIDs := ed.remoteDocObjectIDs()
 			_, inDoc := docIDs[ins.Name]
 			isSpawned := objectID == "" && !inDoc
-			badgeText := "live"
+			badgeText := ed.T("remote.badge.live")
 			if isSpawned {
-				badgeText = "spawned"
+				badgeText = ed.T("remote.badge.spawned")
 			}
 			sub := ins.Ref
 			if ins.Layer != "" {
 				sub = ins.Layer + " · " + ins.Ref
 			}
 			if isSpawned {
-				sub = "Spawned at runtime · " + ins.Ref
+				sub = ed.T("remote.spawnedSubtitle", l10n.Param("ref", ins.Ref))
 			}
 			nodes = append(nodes, core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween, Gap: 6},
@@ -1167,7 +1174,7 @@ func remoteInspectorDynamicBody(
 				readOnlyComp := isRemoteComponentReadOnly(compName)
 				tag := "game_component_set"
 				if readOnlyComp {
-					tag = "live · read only"
+					tag = ed.T("remote.readOnlyTag")
 				}
 				nodes = append(nodes, sectionHeader(strings.ToUpper(compName), tag))
 
@@ -1187,7 +1194,7 @@ func remoteInspectorDynamicBody(
 
 			if isSpawned {
 				nodes = append(nodes, core.Text{
-					Content: "Spawned while running; not in the open scene file.",
+					Content: ed.T("remote.spawnedNote"),
 					Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 				})
 			}
@@ -1236,7 +1243,7 @@ func remoteFieldRow(
 	wasText := func() string {
 		if d := dataMemo.Get(); d.changesByKey != nil {
 			if c, ok := d.changesByKey[changeKey]; ok {
-				return "was " + formatRemoteValue(c.From)
+				return ed.T("remote.wasValue", l10n.Param("value", formatRemoteValue(c.From)))
 			}
 		}
 		return ""
@@ -1435,11 +1442,11 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween, Gap: 6},
 			Children: []core.Node{
 				core.Text{
-					Content: fmt.Sprintf("LIVE CHANGES (%d)", len(changes)),
+					Content: ed.T("remote.liveChangesTitle", l10n.Param("count", len(changes))),
 					Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()},
 				},
 				core.Text{
-					Content: "applied without restart",
+					Content: ed.T("remote.appliedWithoutRestart"),
 					Style:   core.Style{FontSize: 10, Color: colors.Muted()},
 				},
 			},
@@ -1449,7 +1456,7 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 	if len(changes) == 0 {
 		children = append(children, core.Text{
 			TestID:  "remote-live-changes-empty",
-			Content: "Change a value in the inspector and the running game picks it up at once.",
+			Content: ed.T("remote.liveChangesEmpty"),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		})
 	} else {
@@ -1488,8 +1495,8 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 					},
 					ui.Button{
 						TestID:  fmt.Sprintf("remote-change-revert-%d", idx),
-						Text:    "Undo",
-						Label:   "Put back the scene value",
+						Text:    ed.T("remote.undo"),
+						Label:   ed.T("remote.undoLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						OnPress: func() {
@@ -1506,7 +1513,7 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 			Children: []core.Node{
 				ui.Button{
 					TestID:  "remote-changes-keep",
-					Text:    "Keep in scene",
+					Text:    ed.T("remote.keepInScene"),
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonPrimary,
 					Style:   core.Style{FlexGrow: 1},
@@ -1517,7 +1524,7 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 				},
 				ui.Button{
 					TestID:  "remote-changes-discard",
-					Text:    "Discard",
+					Text:    ed.T("remote.discard"),
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonOutline,
 					OnPress: func() {
@@ -1529,7 +1536,7 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 			},
 		})
 		children = append(children, core.Text{
-			Content: "Stopping keeps this list. Nothing is written until you keep it.",
+			Content: ed.T("remote.liveChangesNote"),
 			Style:   core.Style{FontSize: 10, Color: colors.Muted()},
 		})
 	}
@@ -1550,7 +1557,7 @@ func remoteTunablesSection(cx *core.Scope, ed *Editor, dataMemo *core.Memo[*remo
 	colors := ui.ColorsOf(cx)
 	rows := []core.Node{
 		core.Text{
-			Content: fmt.Sprintf("TUNABLES (%d)", len(tunables)),
+			Content: ed.T("remote.tunablesTitle", l10n.Param("count", len(tunables))),
 			Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()},
 		},
 	}
@@ -1715,20 +1722,20 @@ func remoteStatusView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					var parts []string
 					if snap.Loop != nil {
 						if snap.Loop.Paused {
-							parts = append(parts, "paused")
+							parts = append(parts, ed.T("remote.bar.paused"))
 						} else if snap.HasFPS {
 							parts = append(parts, fmt.Sprintf("%.0f fps", snap.FPS))
 						} else {
-							parts = append(parts, "live")
+							parts = append(parts, ed.T("remote.bar.live"))
 						}
-						parts = append(parts, fmt.Sprintf("frame %d", snap.Loop.Steps))
+						parts = append(parts, ed.T("remote.bar.frame", l10n.Param("frame", snap.Loop.Steps)))
 						parts = append(parts, fmt.Sprintf("%.2fs", snap.Loop.GameTimeSeconds))
 						parts = append(parts, fmt.Sprintf("%g×", snap.Loop.TimeScale))
 					} else {
-						parts = append(parts, "remote")
+						parts = append(parts, ed.T("remote.bar.remote"))
 					}
-					parts = append(parts, fmt.Sprintf("%d entities", len(snap.Entities)))
-					return "Remote: " + strings.Join(parts, " · ")
+					parts = append(parts, ed.T("remote.bar.entities", l10n.Param("count", len(snap.Entities))))
+					return ed.T("remote.bar.summary", l10n.Param("details", strings.Join(parts, " · ")))
 				},
 				Style: core.Style{FontSize: 11, Color: colors.Muted()},
 			}
