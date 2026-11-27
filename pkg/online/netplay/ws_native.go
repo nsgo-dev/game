@@ -627,9 +627,9 @@ func normalizeOrigins(origins []string) ([]string, error) {
 	return out, nil
 }
 
-// originAllowed reports whether a browser Origin may upgrade.
-func (s *WebSocketServer) originAllowed(origin string) bool {
-	if len(s.origins) == 0 || strings.TrimSpace(origin) == "" {
+// originAllowed reports whether a browser Origin matches the normalized allow-list.
+func originAllowed(origins []string, origin string) bool {
+	if len(origins) == 0 || strings.TrimSpace(origin) == "" {
 		return true
 	}
 	u, err := url.Parse(origin)
@@ -637,12 +637,17 @@ func (s *WebSocketServer) originAllowed(origin string) bool {
 		return false
 	}
 	normalized := strings.ToLower(u.Scheme + "://" + u.Host)
-	for _, allowed := range s.origins {
+	for _, allowed := range origins {
 		if allowed == "*" || allowed == normalized {
 			return true
 		}
 	}
 	return false
+}
+
+// originAllowed reports whether a browser Origin may upgrade.
+func (s *WebSocketServer) originAllowed(origin string) bool {
+	return originAllowed(s.origins, origin)
 }
 
 // Addr returns the listener's network address.

@@ -1,6 +1,6 @@
 # netplay
 
-`game/online/netplay` provides cross-target multiplayer networking for NSGo games: a unified `Transport` across WebSocket (native + WebAssembly), native UDP, and simulated loopback; server-authoritative delta snapshot replication with client prediction and interpolation; and deterministic lockstep and rollback netcode.
+`game/online/netplay` provides cross-target multiplayer networking for NSGo games: a unified `Transport` across WebTransport (HTTP/3 QUIC, native + WebAssembly), WebSocket (native + WebAssembly), native UDP, and simulated loopback; server-authoritative delta snapshot replication with client prediction and interpolation; and deterministic lockstep and rollback netcode.
 
 ```go
 import "github.com/nsgo-dev/game/pkg/online/netplay"
@@ -12,13 +12,14 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 
 | Transport | Constructor | Targets & use case |
 | --- | --- | --- |
-| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs and web builds. Clients authenticate with a token and the server assigns their IDs (see below). |
+| `WebTransportServer` / `WebTransportTransport` | `ListenWebTransport`, `ListenWebTransportFiles`, `DialWebTransport` | Native + browser (`js/wasm`); sends `ChannelUnreliable` as QUIC datagrams (no TCP head-of-line blocking) and `ChannelReliableOrdered` over one bidirectional QUIC stream, encrypted with TLS 1.3. |
+| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `ListenWebSocketTLS`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs, TCP-only networks, and older browsers. Both channels share one ordered TCP stream. Clients authenticate with a token and the server assigns their IDs (see below). |
 | `UDPServer` / `UDPClient` | `ListenUDPServer`, `DialUDP` | Native targets (desktop/mobile) for low-latency encrypted datagrams to a server, using a Noise NK key exchange (handshake version 2) and ChaCha20-Poly1305 AEAD. |
 | `UDPTransport` | `ListenUDP` + `AddPeerKey` / `AddPeer` | Native peer-to-peer datagrams between endpoints that know each other's addresses: `AddPeerKey` authenticates and encrypts with a pre-shared key; plain `AddPeer` is unauthenticated for LAN use and tests. |
-| `Relay` / `RelayTransport` | `NewRelay`, `NewRelayTransport` | Peer-to-peer sessions between players who cannot reach each other: each connects to a relay over WebSocket or UDP, and the relay forwards between members of the same session (see [the server guide](server.md#peer-to-peer-relay)). |
+| `Relay` / `RelayTransport` | `NewRelay`, `NewRelayTransport` | Peer-to-peer sessions between players who cannot reach each other: each connects to a relay over WebTransport, WebSocket, or UDP, and the relay forwards between members of the same session (see [the server guide](server.md#peer-to-peer-relay)). |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | In-memory deterministic tests with configurable `Latency`, `Jitter`, `LossRate`, and `Seed`. |
 
-UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport, or a `RelayTransport`, which retransmits end to end and so runs them over UDP too.
+UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebTransport, WebSocket, or loopback transport, or a `RelayTransport`, which retransmits end to end and so runs them over UDP too.
 
 `DialWebSocket` speaks netplay's own handshake and framing, so it connects only to a `WebSocketServer`. To talk to a WebSocket server that is not part of this repository — a third-party backend, a chat service, a custom protocol — use [wsclient](wsclient.md) instead.
 
@@ -41,11 +42,68 @@ pkt, ok := clientTx.Recv()
 _, _ = pkt, ok
 ```
 
+### WebTransport (unreliable browser transport)
+
+Over WebSocket, `ChannelUnreliable` still rides on TCP, so a single lost packet stalls every newer snapshot or rollback input behind it until TCP retransmits. `WebTransportServer` and `WebTransportTransport` run over HTTP/3 and QUIC:
+
+- `ChannelUnreliable` packets travel as independent QUIC datagrams (RFC 9221 / RFC 9297), so a lost packet never blocks newer unreliable updates and stale datagrams are not retransmitted. Each unreliable payload must fit inside the QUIC datagram MTU (typically ~1100–1200 bytes; `Send` returns `ErrPayloadTooLarge` past it). When replicating over WebTransport, keep `ServerWorld.SetMaxSnapshotSize` around 1000 bytes.
+- `ChannelReliableOrdered` packets and the connection handshake travel on one client-opened bidirectional QUIC stream using 4-byte big-endian length-prefixed frames (up to 4 MiB each). Both channels work side by side without a relay, and `WebTransportServer` implements `RelayServer` so a `Relay` can serve browser players over QUIC datagrams too.
+- On `js/wasm`, `WebTransportTransport` calls the browser's `WebTransport` API directly through `syscall/js` and does not link `quic-go` or `webtransport-go` into the WebAssembly binary.
+
+#### Browser support
+
+WebTransport reached Baseline Newly Available across all major engines in March 2026:
+
+| Browser | Minimum version |
+| --- | --- |
+| Chrome / Chromium | 97+ |
+| Edge | 98+ |
+| Firefox | 114+ |
+| Safari / iOS Safari | 26.4+ |
+
+Older Safari releases, embedded WebViews, and corporate networks that block UDP port 443 still need WebSocket as a fallback.
+
+#### Certificates and local development
+
+WebTransport always encrypts with TLS 1.3 (`https://`), so the handshake token and resume secret are protected in transit.
+
+- **Production**: pass a CA-signed certificate (for example from Let's Encrypt) to `ListenWebTransport` or `ListenWebTransportFiles`, and leave `WebTransportOptions.ServerCertificateHashes` empty.
+- **Local development**: browsers accept self-signed certificates when `WebTransportOptions.ServerCertificateHashes` carries the 32-byte SHA-256 digest (`sha256.Sum256(leafCertDER)`) of the server's leaf X.509 certificate. Per the W3C WebTransport specification, self-signed pinned certificates must use an ECDSA (such as P-256) or Ed25519 key (or RSA) and have a validity period of at most 14 days.
+
+```go
+srv, err := netplay.ListenWebTransportFiles(":4433", 1, auth, "cert.pem", "key.pem",
+	[]string{"https://play.example.com"})
+```
+
+```go
+// Local dev with a pinned self-signed cert hash (leave ServerCertificateHashes empty in production):
+cli, err := netplay.DialWebTransport("https://localhost:4433/game", token, netplay.WebTransportOptions{
+	ServerCertificateHashes: [][]byte{certSHA256[:]},
+})
+```
+
+#### Fallback to WebSocket
+
+Use `WebTransportSupported` or `DialWebTransportWithFallback` to feature-detect WebTransport and fall back to WebSocket automatically:
+
+```go
+tx, err := netplay.DialWebTransportWithFallback(
+	"https://play.example.com:4433/game",
+	"wss://play.example.com/game",
+	token,
+	netplay.WebTransportOptions{},
+)
+```
+
+- When `WebTransportSupported()` is false (such as an older browser), `DialWebTransportWithFallback` dials `wsURL` with `DialWebSocket` immediately.
+- On native targets, a connection failure (other than `ErrRejected` or `ErrTokenTooLarge`) falls back to `DialWebSocket`.
+- In browsers, `DialWebTransport` returns immediately with `State() == ConnConnecting`. If UDP/443 is blocked by a firewall, the session moves to `ConnDisconnected` with `LocalID() == 0` and an error that does not match `ErrRejected`; close it and call `DialWebSocket(wsURL, token)` as a runtime fallback.
+
 ### Inbox limits
 
 A transport keeps each packet that arrives until `Recv` takes it, and bounds what it keeps by channel and by peer. Each peer's `ChannelUnreliable` packets are capped at `DefaultUnreliableInbox` (4096): when one arrives from a peer that already has that many queued, that peer's oldest queued unreliable packet is dropped, so a game that falls behind keeps the newest state, a peer that floods a server evicts only its own packets, and `InboxStats().UnreliableDropped` counts the loss.
 
-`ChannelReliableOrdered` packets are never dropped, since that would break the channel's guarantee. A transport whose peers cannot be trusted caps each peer's reliable packets at `DefaultReliableInbox` (16384) instead and refuses the one that goes past it, counting it in `InboxStats().ReliableRefused`: a `WebSocketServer` ends that client's session, as if it had left, so the packets it did deliver stay in order, and a `RelayTransport` stops acknowledging that peer, which resends its messages once `Recv` has made room. The other transports receive reliable packets only from their server or from the same process and keep them all. Every transport also counts `InboxStats().ReliableWarnings` once each time its whole reliable backlog passes `DefaultReliableInboxWarning` (4096), and `ReliableBacklog` stays true until the backlog falls to half of it, so a queue hovering at the threshold does not warn on every packet. `Recv` still returns packets in arrival order across both channels and every peer. `UDPTransport` never sends reliable packets, so it drops a datagram that claims to be one.
+`ChannelReliableOrdered` packets are never dropped, since that would break the channel's guarantee. A transport whose peers cannot be trusted caps each peer's reliable packets at `DefaultReliableInbox` (16384) instead and refuses the one that goes past it, counting it in `InboxStats().ReliableRefused`: a `WebSocketServer` or `WebTransportServer` ends that client's session, as if it had left, so the packets it did deliver stay in order, and a `RelayTransport` stops acknowledging that peer, which resends its messages once `Recv` has made room. The other transports receive reliable packets only from their server or from the same process and keep them all. Every transport also counts `InboxStats().ReliableWarnings` once each time its whole reliable backlog passes `DefaultReliableInboxWarning` (4096), and `ReliableBacklog` stays true until the backlog falls to half of it, so a queue hovering at the threshold does not warn on every packet. `Recv` still returns packets in arrival order across both channels and every peer. `UDPTransport` never sends reliable packets, so it drops a datagram that claims to be one.
 
 Every transport implements `InboxReporter`: `SetInboxLimits` changes the limits at any time (lowering the unreliable cap drops each peer's oldest unreliable packets at once), and `InboxStats` reads the counters, which only grow, so a game or a debug overlay compares them with the previous frame's. `LoopbackConfig.Inbox` sets the limits of the peers a hub adds, and `RelayTransportConfig.Inbox` those of a `RelayTransport`. In `InboxLimits`, zero uses the default and a negative value removes the cap or turns the warning off. A `RelayTransport`'s inner transport has its own limits, and every relayed peer arrives on it from the relay, so they share its per-peer cap; a reliable message it drops there is sent again.
 
@@ -67,7 +125,7 @@ lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 
 ## Connection handshake and reconnect
 
-`WebSocketServer` and `UDPServer` admit a client only after a handshake: the client presents an app-defined token, `Auth.Verify` checks it, and the server assigns the client's `PeerID` and sends it back, or refuses with a reason. A refused client never reaches `Recv` or `Peers`.
+`WebSocketServer`, `WebTransportServer`, and `UDPServer` admit a client only after a handshake: the client presents an app-defined token, `Auth.Verify` checks it, and the server assigns the client's `PeerID` and sends it back, or refuses with a reason. A refused client never reaches `Recv` or `Peers`.
 
 ```go
 auth := netplay.Auth{
@@ -111,7 +169,8 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 - `WebSocketServer.Kick(peer, reason)` and `UDPServer.Kick(peer, reason)` end one peer's session now and report `PeerLeft` with the reason in `PeerEvent.Reason`: the session's resume secret is gone, so the client's `Reconnect` cannot resume it and joins as a new peer only if `Verify` accepts its token again. A connected WebSocket client receives a close frame with the application close code 4001 and the reason, a connected UDP client an encrypted kick datagram sent three times (UDP may drop one); both then report a `*KickError`, matching `netplay.ErrKicked`, from `Err` — in the browser too. A peer inside its grace period gets no message; its next handshake simply cannot resume. `Kick` returns `ErrUnknownPeer` for an ID with no session.
 - A server holds at most `Auth.MaxPeers` sessions (1024 by default), counting peers inside their grace period; past it, clients are rejected with the reason `server full`. Without `Verify` anyone may join, so set it on any server reachable from the internet.
 - A resume proves itself with a secret from the previous welcome, which the server replaces on every handshake; an ID alone cannot take over a session. Past the grace period, `Reconnect` joins again as a new peer when the token is still valid.
-- In the browser, `DialWebSocket` returns at once: `State` is `ConnConnecting` and `LocalID` is 0 until the welcome arrives, and packets sent before then are queued. A refusal moves it to `ConnDisconnected` with the `*RejectError` in `Err`.
+- In the browser, `DialWebSocket` and `DialWebTransport` return at once: `State` is `ConnConnecting` and `LocalID` is 0 until the welcome arrives, and packets sent before then are queued. A refusal moves them to `ConnDisconnected` with the `*RejectError` in `Err`.
+- A `WebTransportServer` derives its QUIC `MaxIdleTimeout` from `Auth.IdleTimeout` (10 seconds by default, never less than 3) and sends QUIC keepalive pings every third of it; a native `WebTransportTransport` pings every 2 seconds with a 10-second idle timeout. Closing with `Close` sends a goodbye (`PeerLeft` at once); `Reconnect` closes with code `4000` so the server keeps the session for `Auth.GracePeriod`.
 - A `WebSocketServer` pings each client every third of `Auth.IdleTimeout` (10 seconds by default, never less than 3) and drops a client from which no byte arrives, not even a pong, for that long, so a client whose network vanished without closing the TCP connection does not hold its session and ID forever. Browsers answer pings on their own. A native `WebSocketTransport` pings the server every 2 seconds and moves to `ConnDisconnected` when no byte arrives for 10 seconds. A large frame that arrives slowly is read whole as long as its bytes keep coming. These timeouts use the wall clock, not `Auth.Now`. `WebSocketServer.Close` sends every client its close frame at once and waits at most a second for clients that do not read.
 - A WebSocket frame's payload is read as it arrives rather than allocated from the length the frame announces, and a hello may be no longer than a valid one, so a client that announces a large frame and then trickles it cannot reserve memory it has not sent. Control frames (`Close`, `Ping`, `Pong`) follow RFC 6455 §5.5: fragmented control frames, control frames over 125 payload bytes, and reserved control opcodes (`0xB`–`0xF`) are rejected.
 - UDP sessions run handshake version 2 using `Noise_NK_25519_ChaChaPoly_SHA256`: `DialUDP(addr, serverKey, token)` authenticates the server against its static X25519 public key without certificates, encrypts the client's token and resume secret in message 1, and receives the assigned ID and fresh resume secret encrypted in message 2 (the welcome carries no packet key). Version-1 hellos receive the existing version rejection.

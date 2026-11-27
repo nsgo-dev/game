@@ -132,7 +132,7 @@ type RelayTransportConfig struct {
 	Inbox InboxLimits
 }
 
-// RelayTransport is a peer-to-peer Transport whose packets travel through a Relay, so peers that cannot reach each other, behind NAT or in a browser, still exchange packets. It wraps a client transport connected to the relay: a WebSocketTransport (native or browser) or a UDPClient.
+// RelayTransport is a peer-to-peer Transport whose packets travel through a Relay, so peers that cannot reach each other, behind NAT or in a browser, still exchange packets. It wraps a client transport connected to the relay: a WebSocketTransport (native or browser), a WebTransportTransport (native or browser), or a UDPClient.
 //
 // Peers reports the other members of the relay session the client joined, and Send addresses them by the IDs the relay assigned. ChannelReliableOrdered is reliable and ordered end to end: the transport numbers each peer's messages, the receiver acknowledges them, and lost ones are sent again, so it works over UDP, which drops datagrams, and survives the relay dropping a packet for a peer that is reconnecting. ChannelUnreliable packets are sent once and may be lost.
 //

@@ -45,7 +45,7 @@ type RelayStats struct {
 	Dropped uint64
 }
 
-// RelayServer is a server transport a Relay serves: WebSocketServer or UDPServer.
+// RelayServer is a server transport a Relay serves: WebSocketServer, WebTransportServer, or UDPServer.
 type RelayServer interface {
 	Transport
 	PeerEvents

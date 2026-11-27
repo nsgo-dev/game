@@ -532,6 +532,9 @@ func TestNewProjectBuildsAndPassesItsTests(t *testing.T) {
 				return string(out)
 			}
 			goCmd("mod", "edit", "-replace="+gameModule+"="+gameDir, "-tool="+gameTool)
+			// Pointing the generated project at this checkout of game replaces the network go get -tool, so bring over this checkout's go.sum entries and resolve gameTool's indirect requirements with -mod=mod (unlike go mod tidy, go list does not walk unrelated test dependencies of nsgo).
+			mergeGoSum(t, filepath.Join(dir, "go.sum"), filepath.Join(gameDir, "go.sum"))
+			goCmd("list", gameTool)
 			exe := filepath.Join(t.TempDir(), "mygame")
 			if runtime.GOOS == "windows" {
 				exe += ".exe"
@@ -542,5 +545,43 @@ func TestNewProjectBuildsAndPassesItsTests(t *testing.T) {
 			}
 			goCmd("tool", "nsgo", "test", "./...")
 		})
+	}
+}
+
+// mergeGoSum appends lines from src that are not already in dst so an offline test that replaces github.com/nsgo-dev/game with the local checkout has checksums for dependencies added since the template's pinned release.
+func mergeGoSum(t *testing.T, dst, src string) {
+	t.Helper()
+	dstBytes, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcBytes, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[string]struct{})
+	for line := range strings.SplitSeq(string(dstBytes), "\n") {
+		if line != "" {
+			seen[line] = struct{}{}
+		}
+	}
+	var out bytes.Buffer
+	out.Write(dstBytes)
+	if len(dstBytes) > 0 && dstBytes[len(dstBytes)-1] != '\n' {
+		out.WriteByte('\n')
+	}
+	for line := range strings.SplitSeq(string(srcBytes), "\n") {
+		if line == "" {
+			continue
+		}
+		if _, ok := seen[line]; ok {
+			continue
+		}
+		seen[line] = struct{}{}
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
+	if err := os.WriteFile(dst, out.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

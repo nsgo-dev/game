@@ -137,7 +137,7 @@ peerTx := netplay.NewRelayTransport(cli, netplay.RelayTransportConfig{})
 session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, Sim: sim})
 ```
 
-- The relay runs on a `WebSocketServer` or `UDPServer`, so every player passes [the connection handshake](netplay.md#connection-handshake-and-reconnect) first. `relay.Auth` runs the base `Auth.Verify`, when set, and then `Join`; an empty session name is rejected with `no session`, and a session that already holds `MaxSessionPeers` (8 by default) with `session full`.
+- The relay runs on a `WebSocketServer`, `WebTransportServer`, or `UDPServer`, so every player passes [the connection handshake](netplay.md#connection-handshake-and-reconnect) first. `relay.Auth` runs the base `Auth.Verify`, when set, and then `Join`; an empty session name is rejected with `no session`, and a session that already holds `MaxSessionPeers` (8 by default) with `session full`.
 - Frames go only between members of one session. A frame addressed to another session's peer, to the relay, to its sender, or malformed is dropped and counted in `Stats().Dropped`; `RelayTransport.Send` refuses an ID outside the session with `ErrUnknownPeer`.
 - `Peers` lists the other members, including members inside the grace period, so a session does not lose a player who is reconnecting. The relay sends the membership again every second, so a client whose update was lost on UDP catches up.
 - A player who joins the relay session while a match runs takes part once the match's host admits them with `AddPeer`, and one who leaves is no longer waited for once the host calls `RemovePeer` (see [the netplay guide](netplay.md#players-joining-and-leaving-mid-match)).
@@ -177,7 +177,7 @@ Revisit it when measurements show players near each other but far from every rel
 
 ## TLS, origins, health and metrics
 
-A browser on an HTTPS page needs `wss://`. `netplay.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade; `ListenWebSocketTLSFiles` loads a PEM certificate and key. Both take the same `Auth` as `ListenWebSocket` (see [the connection handshake](netplay.md#connection-handshake-and-reconnect)):
+A browser on an HTTPS page needs `wss://` (WebSocket) or `https://` over HTTP/3 QUIC (WebTransport). `netplay.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade, `ListenWebSocketTLSFiles` loads a PEM certificate and key, and `ListenWebTransport` / `ListenWebTransportFiles` expose the same Origin policy over QUIC/HTTP/3. All take the same `Auth` as `ListenWebSocket` (see [the connection handshake](netplay.md#connection-handshake-and-reconnect)):
 
 ```go
 srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
