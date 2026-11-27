@@ -8,7 +8,7 @@ import "github.com/nsgo-dev/game/pkg/text"
 
 ## 位图字体（AngelCode BMFont）
 
-`LoadBMFont` 和 `LoadBMFontImage` 支持解析 **纯文本** 和 **XML** 两种格式的 AngelCode BMFont `.fnt` 文件，为每张纹理页构建一个 `*sprite.Atlas` 并索引字形度量与字距对。`game assets` 可以用字体目标从 TrueType 或 OpenType 文件烘焙出这样的字体，字号和字符由 `game.yaml` 中的条目或字体的导入设置附属文件指定（见[命令行](cli.md#assets)）：
+`LoadBMFont` 和 `LoadBMFontImage` 支持解析 **纯文本** 和 **XML** 两种格式的 AngelCode BMFont `.fnt` 文件，为每张纹理页构建一个 `*sprite.Atlas` 并索引字形度量与字距对。`game assets` 可以用字体目标从 TrueType 或 OpenType 文件、或从 PNG 字形图片目录（如记分数字、伤害数字）烘焙出这样的字体（见[命令行](cli.md#assets)）：
 
 ```go
 //go:embed resources/pixel.fnt
