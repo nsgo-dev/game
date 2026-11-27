@@ -65,6 +65,7 @@ type rigidScratch struct {
 	pinchSecond   []int
 	pinchPairs    [][3]int // {m0, m1, sharedBodyIndex}
 	statics       []int
+	movers        []int
 	ccdContacts   []ccdContact
 	ccdCandidates []ccdCandidate
 	ccdSupports   []ccdSupport

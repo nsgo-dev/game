@@ -274,3 +274,166 @@ func TestRigidFastBodyStillStopsAtWallOnTiledFloor(t *testing.T) {
 		}
 	}
 }
+
+func TestRigidBulletStopsAtThinDynamicWall(t *testing.T) {
+	cases := []struct {
+		name      string
+		wallAngle float32
+		wallVX    float32
+		bulletVY  float32
+		speed     float32
+		rest      float32
+	}{
+		{"stationary_2000", 0, 0, 0, 2000, 0},
+		{"stationary_5000", 0, 0, 0, 5000, 0},
+		{"stationary_20000", 0, 0, 0, 20000, 0},
+		{"elastic_5000", 0, 0, 0, 5000, 1},
+		{"rotated_5000", 0.25, 0, 0, 5000, 0},
+		{"oblique_5000", 0, 0, 1200, 5000, 0},
+		{"moving_head_on_5000", 0, -600, 0, 5000, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &physics.RigidWorld{}
+			wall := physics.NewRigidBox(400, 100, 4, 200, 10)
+			wall.Angle = tc.wallAngle
+			wall.VX = tc.wallVX
+			wall.Restitution = tc.rest
+			bullet := physics.NewRigidCircle(100, 100, 2, 1)
+			bullet.Bullet = true
+			bullet.VX = tc.speed
+			bullet.VY = tc.bulletVY
+			bullet.Restitution = tc.rest
+			w.AddBody(wall, bullet)
+
+			gotBegin := false
+			w.OnContact = func(ev physics.ContactEvent) {
+				if ev.Kind == physics.ContactBegin && ((ev.BodyA == wall && ev.BodyB == bullet) || (ev.BodyA == bullet && ev.BodyB == wall)) {
+					gotBegin = true
+				}
+			}
+
+			for i := range 20 {
+				w.Step(step)
+				// Transform bullet center into wall's local frame (+X is through the wall, Y is along its 200 px span).
+				sinA, cosA := math.Sincos(float64(wall.Angle))
+				dx := float64(bullet.X) - float64(wall.X)
+				dy := float64(bullet.Y) - float64(wall.Y)
+				localX := dx*cosA + dy*sinA
+				localY := -dx*sinA + dy*cosA
+				if math.Abs(localY) <= 100 && localX > 0 {
+					t.Fatalf("bullet tunneled past dynamic wall at step %d: bullet=(%v,%v) wall=(%v,%v) angle=%v local=(%v,%v)",
+						i, bullet.X, bullet.Y, wall.X, wall.Y, wall.Angle, localX, localY)
+				}
+			}
+			if !gotBegin {
+				t.Fatal("expected ContactBegin event for bullet vs dynamic wall")
+			}
+			if wall.VX <= tc.wallVX {
+				t.Fatalf("expected bullet impact to transfer +X momentum to dynamic wall: wall.VX=%v, initial=%v", wall.VX, tc.wallVX)
+			}
+			if tc.rest == 1 && bullet.VX >= 0 {
+				t.Fatalf("expected elastic bullet to rebound: bullet.VX=%v", bullet.VX)
+			}
+		})
+	}
+}
+
+func TestRigidNonBulletStillPassesThinDynamicWall(t *testing.T) {
+	w := &physics.RigidWorld{}
+	wall := physics.NewRigidBox(400, 100, 4, 200, 10)
+	ball := physics.NewRigidCircle(100, 100, 2, 1)
+	ball.Bullet = false
+	ball.VX = 20000
+	w.AddBody(wall, ball)
+	for range 4 {
+		w.Step(step)
+	}
+	if ball.X <= wall.X+10 {
+		t.Fatalf("non-bullet fast ball stopped at x=%v (wall x=%v); expected non-bullets to keep passing dynamic bodies", ball.X, wall.X)
+	}
+}
+
+func TestRigidBulletStopsAtMovingKinematicPaddle(t *testing.T) {
+	w := &physics.RigidWorld{}
+	paddle := physics.NewRigidBox(400, 100, 6, 160, 1)
+	paddle.Kinematic = true
+	bullet := physics.NewRigidCircle(100, 100, 3, 1)
+	bullet.Bullet = true
+	bullet.VX = 6000
+	w.AddBody(paddle, bullet)
+
+	for i := range 10 {
+		paddle.SetTargetPose(400-float32(i+1)*20, 100, 0)
+		w.Step(step)
+		if bullet.X > paddle.X {
+			t.Fatalf("bullet tunneled past moving kinematic paddle at step %d: bullet.X=%v paddle.X=%v", i, bullet.X, paddle.X)
+		}
+	}
+}
+
+func TestRigidBulletNearMissDynamicBodyDoesNotStop(t *testing.T) {
+	w := &physics.RigidWorld{}
+	target := physics.NewRigidBox(400, 140, 20, 20, 10)
+	bullet := physics.NewRigidCircle(100, 100, 4, 1)
+	bullet.Bullet = true
+	bullet.VX = 6000
+	w.AddBody(target, bullet)
+
+	for range 10 {
+		w.Step(step)
+	}
+	if bullet.X < 900 {
+		t.Fatalf("bullet flying clear of dynamic target stopped early at x=%v", bullet.X)
+	}
+}
+
+func TestRigidBulletDynamicDeterminismAndSnapshot(t *testing.T) {
+	run := func(saveStep int) uint64 {
+		w := &physics.RigidWorld{}
+		wall := physics.NewRigidBox(400, 100, 4, 200, 10)
+		wall.VX = -200
+		bullet := physics.NewRigidCircle(100, 100, 2, 1)
+		bullet.Bullet = true
+		bullet.VX = 5000
+		bullet.Restitution = 0.6
+		w.AddBody(wall, bullet)
+		for i := range 15 {
+			if i == saveStep {
+				snap := w.Save()
+				w = &physics.RigidWorld{}
+				if err := w.Restore(snap); err != nil {
+					t.Fatalf("Restore: %v", err)
+				}
+			}
+			w.Step(step)
+		}
+		return w.Checksum()
+	}
+	want := run(-1)
+	if got := run(2); got != want {
+		t.Fatalf("restored checksum = %#x, want %#x", got, want)
+	}
+}
+
+func BenchmarkRigidCCDFastBody(b *testing.B) {
+	w := &physics.RigidWorld{}
+	w.AddBody(physics.NewStaticRigidBox(500, 100, 4, 200))
+	dyn := physics.NewRigidBox(300, 100, 4, 200, 10)
+	bullet := physics.NewRigidCircle(0, 100, 2, 1)
+	bullet.Bullet = true
+	w.AddBody(dyn, bullet)
+	// Warm scratch buffers.
+	bullet.VX = 20000
+	w.Step(step)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		bullet.X, bullet.Y = 0, 100
+		bullet.VX, bullet.VY, bullet.AngularVel = 20000, 0, 0
+		dyn.X, dyn.Y = 300, 100
+		dyn.VX, dyn.VY, dyn.AngularVel = 0, 0, 0
+		w.Step(step)
+	}
+}

@@ -11,13 +11,15 @@ import (
 )
 
 // SnapshotVersion is the schema version stored in WorldSnapshot.
+// Version 4 added BodySnapshot.Bullet for per-body continuous collision against
+// dynamic bodies.
 // Version 3 added WorldSnapshot sleep settings (DisableSleep,
 // SleepLinearThreshold, SleepAngularThreshold, TimeToSleep) and
 // BodySnapshot.AllowSleep / AllowSleepSet.
 // Version 2 added WorldSnapshot.Materials and BodySnapshot.MaterialIndex so
 // shared *PhysicsMaterial identity survives Save and Restore. Restore still
-// reads version 1 and 2 snapshots and refuses any other version.
-const SnapshotVersion = 3
+// reads version 1 through 3 snapshots and refuses any other version.
+const SnapshotVersion = 4
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
 const oldestSnapshotVersion = 1
@@ -55,6 +57,7 @@ type BodySnapshot struct {
 	Layer              LayerMask        `json:"layer"`
 	Mask               LayerMask        `json:"mask"`
 	IsTrigger          bool             `json:"isTrigger,omitempty"`
+	Bullet             bool             `json:"bullet,omitempty"`
 	Area               AreaSettings     `json:"area"`
 
 	SleepTimer     float32 `json:"sleepTimer,omitempty"`
@@ -385,6 +388,7 @@ func snapshotBody3D(b *Body, matIdx *int) BodySnapshot {
 		Layer:              b.Layer,
 		Mask:               b.Mask,
 		IsTrigger:          b.IsTrigger,
+		Bullet:             b.Bullet,
 		Area:               b.Area,
 		SleepTimer:         b.sleepTimer,
 		ResidualDepth:      b.residualDepth,
@@ -430,6 +434,7 @@ func applyBody3DSnapshot(dst *Body, src BodySnapshot, mat *PhysicsMaterial, snap
 		Layer:              src.Layer,
 		Mask:               src.Mask,
 		IsTrigger:          src.IsTrigger,
+		Bullet:             src.Bullet,
 		Area:               src.Area,
 		UserData:           ud,
 		gravityScaleSet:    src.GravityScaleSet,
@@ -1799,6 +1804,9 @@ func hashBody3D(h *detmath.Hasher, b *Body) {
 	}
 	if b.customInertia {
 		h.WriteUint8(4)
+	}
+	if b.Bullet {
+		h.WriteUint8(5)
 	}
 }
 

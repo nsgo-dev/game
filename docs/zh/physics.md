@@ -55,7 +55,7 @@ if c := physics.TestShapes(hero, physics.PolygonShape(ramp)); c.Hit {
 
 `MoveAndSlide` 用物体的包围盒与瓦片求解，因此多边形或胶囊体 `Body` 按其包围盒移动并保持自身形状。`World.MoveAndSlide` 与 `World.MoveAndSlideWith` 则会按物体的真实形状（`Box`、`Circle`、`Polygon` 或 `Capsule`）对物体、瓦片和静态刚体做连续扫掠滑动。`DrawShape` 以 `PolygonColor`、`CapsuleColor` 与 `SegmentColor` 绘制多边形（含圆角）、带中轴的胶囊体、线段与链的轮廓。
 
-`RigidWorld` 会把高速动态刚体对各种形状的静态刚体（包括线段和链）做扫掠，因此在一步之内会越过它们的刚体会停在表面上（见 [2D 刚体](physics2d-rigid.md)）。高速动态刚体之间不做扫掠。
+`RigidWorld` 会把高速动态刚体对各种形状的静态刚体（包括线段和链）做扫掠，并把 `RigidBody.Bullet` 刚体额外对动态与运动学刚体做扫掠，因此在一步之内会越过薄表面的刚体会停在表面上（见 [2D 刚体](physics2d-rigid.md)）。非 `Bullet` 的动态刚体之间不做扫掠。
 
 ## MoveAndSlide 与 TileGrid
 

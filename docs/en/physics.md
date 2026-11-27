@@ -55,7 +55,7 @@ A chain reports its deepest segment contact. At an interior vertex it only uses 
 
 `MoveAndSlide` resolves tiles against a body's bounding box, so a polygon or capsule `Body` moves as its bounds do and keeps its shape. `World.MoveAndSlide` and `World.MoveAndSlideWith` sweep the body's full shape (`Box`, `Circle`, `Polygon` or `Capsule`) against bodies, tiles and static rigid bodies. `DrawShape` outlines polygons (with rounded corners), capsules with their axis, segments and chains, in `PolygonColor`, `CapsuleColor` and `SegmentColor`.
 
-`RigidWorld` sweeps fast dynamic bodies against static bodies of every shape, segments and chains included, so a body that would cross one within a step stops at it ([2D rigid bodies](physics2d-rigid.md)). Fast dynamic bodies are not swept against each other.
+`RigidWorld` sweeps fast dynamic bodies against static bodies of every shape, segments and chains included, and sweeps `RigidBody.Bullet` bodies against dynamic and kinematic bodies too, so a body that would cross a thin surface within a step stops at it ([2D rigid bodies](physics2d-rigid.md)). Non-bullet dynamic bodies are not swept against each other.
 
 ## MoveAndSlide and TileGrid
 

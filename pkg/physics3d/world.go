@@ -109,6 +109,15 @@ type Body struct {
 	// IsTrigger marks a sensor volume that emits trigger ContactEvents without
 	// applying impulse or positional resolution.
 	IsTrigger bool
+	// Bullet enables continuous collision detection on every step against static,
+	// kinematic, sleeping, and awake dynamic bodies (plus triangle meshes,
+	// heightfields, and voxel colliders), stopping the body at the first surface
+	// it reaches instead of tunnelling through thin dynamic or static geometry.
+	// Without Bullet, a dynamic body is swept only when a point of it moves
+	// farther than half its smallest dimension in one step, and only against
+	// static, kinematic, sleeping bodies, triangle meshes, heightfields, and
+	// voxel colliders.
+	Bullet bool
 	// Area configures optional gravity, damping, and buoyancy/fluid drag overrides
 	// applied to overlapping dynamic bodies when IsTrigger is true.
 	Area AreaSettings
@@ -452,6 +461,7 @@ type World struct {
 	islandParent          []int
 	islandRest            []float32
 	islandAwake           []uint8
+	ccd                   ccdScratch3D
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
@@ -747,8 +757,11 @@ func (w *World) Step(dt time.Duration) {
 	// Positions are integrated after the velocity solver so resting stacks cancel
 	// gravity before moving, eliminating per-step floor penetration waves (#810).
 	for di, pid := range w.bp.dynamicList {
-		b := w.bp.proxies[pid].body
+		p := &w.bp.proxies[pid]
+		b := p.body
 		prevPos[di] = b.Pos
+		p.prevPos = b.Pos
+		p.prevRot = b.Rot
 		if b.Static || b.Kinematic || b.Sleeping {
 			continue
 		}
@@ -1389,13 +1402,15 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// 4d. Sweep fast bodies so they cannot tunnel through thin static geometry.
-	for di, pid := range w.bp.dynamicList {
-		b := w.bp.proxies[pid].body
+	// 4d. Sweep fast bodies against static, kinematic, sleeping, and static collider geometry,
+	// and Bullet bodies against awake dynamic bodies too.
+	for _, pid := range w.bp.dynamicList {
+		p := &w.bp.proxies[pid]
+		b := p.body
 		if b.Static || b.Kinematic || b.Sleeping || b.IsTrigger {
 			continue
 		}
-		w.sweepFastBody(b, prevPos[di], jointIgnored)
+		w.sweepFastBody(b, p.prevPos, p.prevRot, dtSec, contacts, currentPairs, jointIgnored)
 	}
 
 	// 5. Non-linear Gauss-Seidel positional/angular correction (zero velocity injection).
