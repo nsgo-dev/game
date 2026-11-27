@@ -980,6 +980,8 @@ func TestLightAndClusteredWGSLNoForwardCalls(t *testing.T) {
 		{"ClusteredLitWGSL", render3d.ClusteredLitWGSL},
 		{"ClusteredFallbackBindingsWGSL", render3d.ClusteredFallbackBindingsWGSL},
 		{"ClusteredFallbackWGSL", render3d.ClusteredFallbackWGSL},
+		{"ClusteredLocalBindingsWGSL", render3d.LightWGSL + render3d.ClusteredLocalBindingsWGSL(1, 12)},
+		{"ClusteredFallbackLocalBindingsWGSL", render3d.LightWGSL + render3d.ClusteredFallbackLocalBindingsWGSL(1, 12)},
 	}
 	for _, m := range modules {
 		matches := fnDecl.FindAllStringSubmatchIndex(m.src, -1)

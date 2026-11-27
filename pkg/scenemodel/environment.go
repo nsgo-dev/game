@@ -1,9 +1,11 @@
 package scenemodel
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/render3d"
@@ -121,17 +123,180 @@ func (b *Built) ActiveCamera(aspect float32) (*scene3d.Camera, bool) {
 	return c.SceneCamera(aspect), true
 }
 
-// LightRig evaluates every visible, enabled light node in b at its current world transform and returns a render3d.LightRig combining b.Environment.Ambient with the scene's directional, point and spot lights. Within each category, shadow-casting lights come first so slot 0 matches render3d's shadow sampling slots.
+// LightRig evaluates every visible, enabled light node in b at its current world transform and returns a render3d.LightRig combining b.Environment.Ambient with the scene's directional, point and spot lights. Within each category, shadow-casting lights come first so slot 0 matches render3d's shadow sampling slots. When point or spot lights exceed render3d.MaxPointLights or render3d.MaxSpotLights, slot 0 keeps the first shadow caster and the remaining slots pick the lights nearest the active 3D camera (or the world origin when the scene has no active 3D camera); use [Built.LightRigNear] to pass a specific camera position, or [Built.SceneLights] for clustered forward lighting.
 func (b *Built) LightRig() render3d.LightRig {
+	if b == nil {
+		return render3d.LightRig{}
+	}
+	var camPos math3d.Vec3
+	if cam, ok := b.ActiveCameraObject(); ok && cam != nil && cam.Node != nil {
+		camPos = cam.Node.WorldTransform().Pos
+	}
+	return b.LightRigNear(camPos)
+}
+
+// LightRigNear is [Built.LightRig] using cameraPos to choose the nearest point and spot lights whenever a category exceeds render3d.MaxPointLights (16) or render3d.MaxSpotLights (8). When a category fits within its cap, lights keep document order with shadow casters first.
+func (b *Built) LightRigNear(cameraPos math3d.Vec3) render3d.LightRig {
 	if b == nil {
 		return render3d.LightRig{}
 	}
 	rig := render3d.LightRig{
 		Ambient: b.Environment.Ambient,
 	}
+	type rankedPoint struct {
+		light  render3d.PointLight
+		shadow bool
+		order  int
+		distSq float32
+	}
+	type rankedSpot struct {
+		light  render3d.SpotLight
+		shadow bool
+		order  int
+		distSq float32
+	}
 	var dirShadow, dirOther []render3d.DirectionalLight
-	var ptShadow, ptOther []render3d.PointLight
-	var spotShadow, spotOther []render3d.SpotLight
+	var ptShadow, ptOther []rankedPoint
+	var spotShadow, spotOther []rankedSpot
+
+	for idx, l := range b.Lights {
+		if l == nil || l.Node == nil || !l.Node.EffectiveVisible() || !l.Node.EffectiveEnabled() {
+			continue
+		}
+		wt := l.Node.WorldTransform()
+		dir := wt.Rot.Norm().RotateVec3(math3d.Vec3Forward())
+		if dir.LenSq() <= 1e-12 {
+			dir = math3d.Vec3Forward()
+		}
+		col := parseCSSLinearRGB(l.Doc.EffectiveColor())
+		intensity := l.Doc.EffectiveIntensity()
+
+		switch l.Doc.Kind {
+		case sceneformat.LightDirectional:
+			dl := render3d.DirectionalLight{
+				Direction: dir,
+				Color:     col,
+				Intensity: intensity,
+			}
+			if l.Doc.Shadows {
+				dirShadow = append(dirShadow, dl)
+			} else {
+				dirOther = append(dirOther, dl)
+			}
+		case sceneformat.LightPoint:
+			pl := render3d.PointLight{
+				Position:  wt.Pos,
+				Color:     col,
+				Intensity: intensity,
+				Range:     l.Doc.Range,
+			}
+			rp := rankedPoint{light: pl, shadow: l.Doc.Shadows, order: idx, distSq: wt.Pos.Sub(cameraPos).LenSq()}
+			if l.Doc.Shadows {
+				ptShadow = append(ptShadow, rp)
+			} else {
+				ptOther = append(ptOther, rp)
+			}
+		case sceneformat.LightSpot:
+			sl := render3d.SpotLight{
+				Position:       wt.Pos,
+				Direction:      dir,
+				Color:          col,
+				Intensity:      intensity,
+				Range:          l.Doc.Range,
+				InnerConeAngle: math3d.DegToRad(l.Doc.InnerCone),
+				OuterConeAngle: math3d.DegToRad(l.Doc.EffectiveOuterCone()),
+			}
+			rs := rankedSpot{light: sl, shadow: l.Doc.Shadows, order: idx, distSq: wt.Pos.Sub(cameraPos).LenSq()}
+			if l.Doc.Shadows {
+				spotShadow = append(spotShadow, rs)
+			} else {
+				spotOther = append(spotOther, rs)
+			}
+		}
+	}
+
+	dirAll := append(dirShadow, dirOther...)
+	if len(dirAll) > render3d.MaxDirectionalLights {
+		dirAll = dirAll[:render3d.MaxDirectionalLights]
+	}
+	rig.Directional = dirAll
+
+	ptAll := append(ptShadow, ptOther...)
+	if len(ptAll) > render3d.MaxPointLights {
+		start := 0
+		if len(ptShadow) > 0 {
+			// Keep slot 0 on the first shadow caster so ShadowLights() matches rig.Point[0].
+			start = 1
+		}
+		slices.SortFunc(ptAll[start:], func(a, b rankedPoint) int {
+			if c := cmp.Compare(a.distSq, b.distSq); c != 0 {
+				return c
+			}
+			if a.shadow != b.shadow {
+				if a.shadow {
+					return -1
+				}
+				return 1
+			}
+			return cmp.Compare(a.order, b.order)
+		})
+		ptAll = ptAll[:render3d.MaxPointLights]
+	}
+	if len(ptAll) > 0 {
+		rig.Point = make([]render3d.PointLight, len(ptAll))
+		for i, rp := range ptAll {
+			rig.Point[i] = rp.light
+		}
+	}
+
+	spotAll := append(spotShadow, spotOther...)
+	if len(spotAll) > render3d.MaxSpotLights {
+		start := 0
+		if len(spotShadow) > 0 {
+			// Keep slot 0 on the first shadow caster so ShadowLights() matches rig.Spot[0].
+			start = 1
+		}
+		slices.SortFunc(spotAll[start:], func(a, b rankedSpot) int {
+			if c := cmp.Compare(a.distSq, b.distSq); c != 0 {
+				return c
+			}
+			if a.shadow != b.shadow {
+				if a.shadow {
+					return -1
+				}
+				return 1
+			}
+			return cmp.Compare(a.order, b.order)
+		})
+		spotAll = spotAll[:render3d.MaxSpotLights]
+	}
+	if len(spotAll) > 0 {
+		rig.Spot = make([]render3d.SpotLight, len(spotAll))
+		for i, rs := range spotAll {
+			rig.Spot[i] = rs.light
+		}
+	}
+	return rig
+}
+
+// SceneLights evaluates every visible, enabled light node in b at its current world transform and splits them for clustered forward lighting (render3d.ClusteredLightSystem): rig keeps b.Environment.Ambient, up to render3d.MaxDirectionalLights directional lights (shadow casters first), and at most one shadow-casting point light and one shadow-casting spot light in slot 0 (matching ShadowLights); local holds every other visible point and spot light as a render3d.ClusterLight without truncating at 16 or 8.
+func (b *Built) SceneLights() (rig render3d.LightRig, local []render3d.ClusterLight) {
+	rig, local, _ = b.appendSceneLights(nil)
+	return rig, local
+}
+
+// appendSceneLights is SceneLights appending local lights onto dst[:0] and returning any validation error from converting a mutated LightDoc.
+func (b *Built) appendSceneLights(dst []render3d.ClusterLight) (render3d.LightRig, []render3d.ClusterLight, error) {
+	dst = dst[:0]
+	if b == nil {
+		return render3d.LightRig{}, dst, nil
+	}
+	rig := render3d.LightRig{
+		Ambient: b.Environment.Ambient,
+	}
+	var dirShadow, dirOther []render3d.DirectionalLight
+	var firstErr error
+	hasShadowPt, hasShadowSpot := false, false
 
 	for _, l := range b.Lights {
 		if l == nil || l.Node == nil || !l.Node.EffectiveVisible() || !l.Node.EffectiveEnabled() {
@@ -164,11 +329,19 @@ func (b *Built) LightRig() render3d.LightRig {
 				Intensity: intensity,
 				Range:     l.Doc.Range,
 			}
-			if l.Doc.Shadows {
-				ptShadow = append(ptShadow, pl)
-			} else {
-				ptOther = append(ptOther, pl)
+			if l.Doc.Shadows && !hasShadowPt {
+				rig.Point = append(rig.Point, pl)
+				hasShadowPt = true
+				continue
 			}
+			cl, err := render3d.ClusterLightFromPoint(pl)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("light %q: %w", l.Object, err)
+				}
+				continue
+			}
+			dst = append(dst, cl)
 		case sceneformat.LightSpot:
 			sl := render3d.SpotLight{
 				Position:       wt.Pos,
@@ -179,11 +352,19 @@ func (b *Built) LightRig() render3d.LightRig {
 				InnerConeAngle: math3d.DegToRad(l.Doc.InnerCone),
 				OuterConeAngle: math3d.DegToRad(l.Doc.EffectiveOuterCone()),
 			}
-			if l.Doc.Shadows {
-				spotShadow = append(spotShadow, sl)
-			} else {
-				spotOther = append(spotOther, sl)
+			if l.Doc.Shadows && !hasShadowSpot {
+				rig.Spot = append(rig.Spot, sl)
+				hasShadowSpot = true
+				continue
 			}
+			cl, err := render3d.ClusterLightFromSpot(sl)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("light %q: %w", l.Object, err)
+				}
+				continue
+			}
+			dst = append(dst, cl)
 		}
 	}
 
@@ -192,19 +373,7 @@ func (b *Built) LightRig() render3d.LightRig {
 		dirAll = dirAll[:render3d.MaxDirectionalLights]
 	}
 	rig.Directional = dirAll
-
-	ptAll := append(ptShadow, ptOther...)
-	if len(ptAll) > render3d.MaxPointLights {
-		ptAll = ptAll[:render3d.MaxPointLights]
-	}
-	rig.Point = ptAll
-
-	spotAll := append(spotShadow, spotOther...)
-	if len(spotAll) > render3d.MaxSpotLights {
-		spotAll = spotAll[:render3d.MaxSpotLights]
-	}
-	rig.Spot = spotAll
-	return rig
+	return rig, dst, firstErr
 }
 
 // ShadowLights returns the first visible shadow-casting directional, point and spot lights in b, matching slot 0 of each LightRig slice.

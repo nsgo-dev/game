@@ -157,3 +157,34 @@ func TestCheckReportsChineseScreenOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckReportsSceneAboveFallbackLightCap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("version: 4\nname: Torch Corridor\nlayers:\n  - name: world\n    objects:\n")
+	for i := range 30 {
+		b.WriteString("      - id: torch_")
+		b.WriteString(strings.Repeat("0", 2-len(string(rune('0'+i/10))+string(rune('0'+i%10)))))
+		b.WriteByte(byte('0' + i/10))
+		b.WriteByte(byte('0' + i%10))
+		b.WriteString("\n        light:\n          kind: point\n          range: 4\n")
+	}
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"scenes/corridor.scene.yaml": b.String(),
+	})
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"check", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+	}
+	got := stderr.String()
+	for _, want := range []string{
+		filepath.Join(dir, "scenes", "corridor.scene.yaml") + ":",
+		"warning: scene has 30 local lights",
+		"16-light fallback cap",
+		"14 dropped",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stderr = %q, want substring %q", got, want)
+		}
+	}
+}

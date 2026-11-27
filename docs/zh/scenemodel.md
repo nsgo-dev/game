@@ -73,7 +73,7 @@ if err != nil {
 
 `Build` 像 `sceneformat.BuildNodes3D` 一样构建图层和对象，然后为每个对象补上外观、光源、相机与场景环境。它通过 `ModelResolver` 加载模型，就像 `sceneformat.Build` 通过 `MaterialResolver` 加载材质；有对象指定 `gridMap` 文件时，解析器还必须是 `GridMapResolver`；有对象指定材质文件时，还必须是 `sceneformat.MaterialResolver`；材质文件指定纹理时还必须是 `ImageResolver`；读取模型 LOD 边车时还可使用 `ImportSettingsResolver`；当 `environment.sky.kind` 为 `hdr` 时还必须是 `HDRResolver`。`Assets` 基于项目的文件同时实现这六者：模型用 `gltf.LoadFS` 加载，网格地图用 `world3d.ParseGridMapWith` 加载，材质文件通过 `resource.Library` 加载，图片按 PNG 或 JPEG 解码，边车用 `importsettings.Parse` 解析，Radiance HDR 天空通过 `render3d.DecodeHDR` 解码，每个只加载一次。实例化或继承了其他场景的场景必须先经过 `sceneformat.Resolve`。出现任何错误时（例如模型无法加载、HDR 天空解码失败、模型里没有 `modelNode` 指定的节点，或网格地图引用了不存在的瓦片），`Build` 返回带有图层和对象的错误，并且不改动父节点。
 
-结果 `Built` 包含图层和对象的节点（`Layers`、`Objects`）、按对象 ID 索引的已构建 `*world3d.GridMap`（`GridMaps`）、已构建的遮挡体（`Occluders`）、`Drawables`，以及 3D 光源（`Lights`）、3D 相机（`Cameras`）和构建好的场景环境（`Environment`：天空立方体贴图或清屏色、预滤波 IBL 与球谐辐照度、雾效、曝光与色调映射）：每个会绘制内容的节点，可能是对象的节点、为其模型的某个节点创建的节点，或为其网格地图的瓦片实例创建的子节点。`Built.ActiveCamera(aspect)` 为当前可见的 3D 相机（`current: true`，或第一个可见 3D 相机）生成 `scene3d.Camera`，`Built.LightRig()` 收集可见光源当前的世界位置与局部 `-Z` 方向为 `render3d.LightRig`，`Built.HasSceneLighting()` 报告场景是否定义了自己的光源或环境。每个 drawable 列出它的 `Parts`，每个 glTF 三角形图元一个，基本形体则只有一个，包含节点空间中的三角形 `Mesh` 和它的 `Material`。绘制相同几何体的部件共用一个 `MeshID`，材质相同的部件共用一个 `MaterialID`，因此渲染器只需上传一次。每个绘制节点的 `LocalBounds` 由它的几何体设置，它的 `*Drawable` 存放在附件 `scenemodel.AttachmentKey` 下，拾取或编辑器可以借此找到节点画的是什么。
+结果 `Built` 包含图层和对象的节点（`Layers`、`Objects`）、按对象 ID 索引的已构建 `*world3d.GridMap`（`GridMaps`）、已构建的遮挡体（`Occluders`）、`Drawables`，以及 3D 光源（`Lights`）、3D 相机（`Cameras`）和构建好的场景环境（`Environment`：天空立方体贴图或清屏色、预滤波 IBL 与球谐辐照度、雾效、曝光与色调映射）：每个会绘制内容的节点，可能是对象的节点、为其模型的某个节点创建的节点，或为其网格地图的瓦片实例创建的子节点。`Built.ActiveCamera(aspect)` 为当前可见的 3D 相机（`current: true`，或第一个可见 3D 相机）生成 `scene3d.Camera`，`Built.SceneLights()` 将可见光源拆分为 `render3d.LightRig`（环境光、方向光以及位于 0 号槽位的阴影点光/聚光）与其余所有可见点光/聚光的 `[]render3d.ClusterLight` 切片，`Built.LightRig()` 与 `Built.LightRigNear(cameraPos)` 将可见光源打包进单个 `render3d.LightRig`（保留 0 号阴影光源，超出上限时优先选取距离相机最近的光源），`Built.HasSceneLighting()` 报告场景是否定义了自己的光源或环境。每个 drawable 列出它的 `Parts`，每个 glTF 三角形图元一个，基本形体则只有一个，包含节点空间中的三角形 `Mesh` 和它的 `Material`。绘制相同几何体的部件共用一个 `MeshID`，材质相同的部件共用一个 `MaterialID`，因此渲染器只需上传一次。每个绘制节点的 `LocalBounds` 由它的几何体设置，它的 `*Drawable` 存放在附件 `scenemodel.AttachmentKey` 下，拾取或编辑器可以借此找到节点画的是什么。
 
 模型以绑定姿势绘制，并应用网格的默认变形权重。三角形带和三角形扇会展开成三角形列表，没有法线的图元按 glTF 的规定做平直着色，基础色纹理的 UV 集和 `KHR_texture_transform` 会应用到 UV 上。蒙皮、相机、灯光、动画、顶点颜色、点和线不会被使用。
 
@@ -81,7 +81,7 @@ if err != nil {
 
 `Built.AppendDrawItems` 为每个可见且启用的节点的每个部件追加一个 `render3d.DrawItem`，带有节点的世界矩阵、部件的世界包围盒，以及它的网格、材质和管线 ID，供游戏自己的 `render3d.Queue` 使用。`Built.Part` 把条目的 ID 映射回它的 drawable 和部件。
 
-`Renderer` 在 `gpu.Device` 上绘制一个 `Built`：它把每个网格、纹理、天空立方体贴图、IBL 预滤波贴图与阴影贴图上传一次。每帧调用 `PrepareScene(cam)` 上传相机、场景光源（`Built.LightRig`）、阴影、雾效、IBL 和色调映射（或调用 `Prepare(cam, lights)` 覆盖为自定义 `render3d.LightRig`），在开启阴影时于主渲染通道前调用 `RecordShadows(frame)`，以 `ClearColor(fallback)` 清屏，并在主通道中依次调用 `DrawSky(pass)` 与 `Draw(pass)`：
+`Renderer` 在 `gpu.Device` 上绘制一个 `Built`：它把每个网格、纹理、天空立方体贴图、IBL 预滤波贴图与阴影贴图上传一次，并通过 `render3d.ClusteredLightSystem` 进行集群前向光照。每帧调用 `PrepareScene(cam)` 上传相机、场景光源（`Built.SceneLights`）、阴影、雾效、IBL 和色调映射（或调用 `Prepare(cam, lights)` 覆盖为自定义 `render3d.LightRig`），在开启阴影时于主渲染通道前调用 `RecordShadows(frame)`，以 `ClearColor(fallback)` 清屏，并在主通道中依次调用 `DrawSky(pass)` 与 `Draw(pass)`。当绘制目标尺寸与 `dev.SurfaceSize()` 不同时，在 `PrepareScene` 前调用 `SetViewport(width, height)`；`ClusteredLights()` 暴露底层 `*render3d.ClusteredLightSystem` 以便查询运行模式与每帧统计，`RendererOptions.ClusterConfig` 可覆盖默认配置：
 
 ```go
 r, err := scenemodel.NewRenderer(cx, dev, built, scenemodel.RendererOptions{})
@@ -107,9 +107,20 @@ pass.End()
 
 `SetShading` 切换 `Draw` 对部件的着色方式：默认的 `ShadingLit`，或 `ShadingUnlit`，后者以每个表面带纹理的基础色加自发光色绘制、不考虑光源，就像编辑器的无光照视图那样；它的管线在第一次切换到它时创建。
 
+### 各目标平台光源上限
+
+`Renderer.PrepareScene` 将方向光与首个投射阴影的点光和聚光保留在 `render3d.LightRig` uniform 块中，其余所有可见点光与聚光均通过 `render3d.ClusteredLightSystem` 着色：
+
+| 目标平台 / GPU 配置 | 方向光 | 阴影局部光（0 号槽位） | 其余局部光（点光 + 聚光） | 超限行为 |
+| --- | --- | --- | --- | --- |
+| Metal（macOS / iOS）、WebGPU、Vulkan、Direct3D 11、无头软件渲染器 | 4 | 1 个点光 + 1 个聚光 | 每帧最多 512 个可见局部光（每集群单元 64 个） | 视锥体集群裁剪；超过 512 的部分按序截断 |
+| WebGL 2、OpenGL ES 3.0、Linux GtkGLArea、`nsgotest.NoGPUCompute` | 4 | 1 个点光 + 1 个聚光 | 每帧最多 16 个优先可见局部光 | 视锥体裁剪后按光功率、作用半径与相机距离排序选取 |
+| 直接调用 `Built.LightRig()` / `Built.LightRigNear(pos)`（非集群 uniform 灯光组） | 4 | 1 个点光 + 1 个聚光 | 共 16 个点光 + 8 个聚光（含 0 号槽位） | 保留 0 号阴影光源，其余按距相机由近到远选取 |
+
 ## 检查与移动
 
 - `game check` 会在指定模型、网格地图或天空的场景文件和行号处，报告缺失或无法加载的模型或网格地图、模型中没有的 `modelNode` 或 `modelMesh`，以及缺失或无法解码的 `environment.sky.hdr` 图像，覆盖项对被实例化或被继承的场景做的改动则报告在该覆盖项处；模型的加载错误、`.gltf` 文件引用的缓冲区或图片缺失，以及 `.gridmap.yaml` 中无效的 `meshLibrary` 或未知瓦片，则报告在对应资源文件上（[CLI](cli.md)）。
+- 当场景中的无阴影局部光源（点光与聚光）超过无存储缓冲目标的 16 光源回退上限，或方向光超过 4 个时，`game check`（以及编辑器的问题面板）会以文件与行号发出警告，并说明被舍弃的光源数量。
 - `game mv`、`game index` 和编辑器的 `MoveFile` 把 `model`、`gridMap`、网格地图的 `meshLibrary` 和 `environment.sky.hdr` 当作引用：移动模型、网格地图或 HDR 天空会改写所有指定它的场景、覆盖项和 `.gridmap.yaml` 文件，移动 `.gltf` 文件的缓冲区或图片会改写该 `.gltf` 文件，并按 glTF 的要求对新名字做百分号编码（[项目文件](project.md)）。
 
 ## 示例

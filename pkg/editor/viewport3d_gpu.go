@@ -185,6 +185,7 @@ func (r *viewport3DRenderer) render(enc renderPassEncoder, w, h int) (bool, erro
 		if err := r.scene.SetShading(shading); err != nil {
 			return fail(err)
 		}
+		r.scene.SetViewport(float32(w), float32(h))
 		if useSceneLighting {
 			if _, err := r.scene.PrepareScene(cam); err != nil {
 				return fail(err)

@@ -138,3 +138,13 @@ decalRenderer.DrawWithCamera(pass, camBuf.BindGroup())
 ```
 
 在 `gpu.View` 的 `OnReady` 中通过 `NewGPUDecalRenderer(cx, dev, opts)` 创建一次渲染器即可。传入 `render3d.CameraBuffer.Layout()` 作为 `CameraLayout` 可直接共享帧相机绑定组（`DrawWithCamera`），留空则使用内部相机缓冲（`WriteCamera` + `Draw`）。通过 `SetTexture` 或 `UploadTextureRGBA` 按 `Decal.TextureID` 绑定贴图；相邻使用同一贴图的批次会自动合并为单次 `DrawIndexed` 调用。
+
+## 各目标平台场景光源上限
+
+通过 [`scenemodel.Renderer`](scenemodel.md#各目标平台光源上限) 构建并渲染 3D 场景文件时，可见方向光（最多 4 个）与首个投射阴影的点光和聚光保留在 `render3d.LightRig` uniform 块中，其余所有可见点光与聚光均经由 `render3d.ClusteredLightSystem` 着色：
+
+- **支持存储缓冲的目标**（macOS/iOS Metal、WebGPU、Vulkan、Direct3D 11 与无头软件测试）：每帧最多 **512** 个可见无阴影局部光源（点光 + 聚光，每个视锥体集群单元最多 `64` 个），另加 `4` 个方向光与 `1` 个阴影点光 + `1` 个阴影聚光。
+- **无存储缓冲的回退目标**（WebGL 2、OpenGL ES 3.0、Linux GtkGLArea、`nsgotest.NoGPUCompute`）：每帧最多 **16** 个优先可见无阴影局部光源（经视锥体裁剪后按光功率、作用半径与相机距离排序），另加 `4` 个方向光与 `1` 个阴影点光 + `1` 个阴影聚光。
+- **非集群 `render3d.LightRig`**（`Built.LightRig()` / `Built.LightRigNear`）：最多 `4` 个方向光、`16` 个点光与 `8` 个聚光；超出时保留 0 号阴影光源并优先选取距相机最近的光源。
+
+运行 `game check` 会在场景无阴影局部光源数量超过 16 光源回退上限时报告文件、行号与被舍弃的光源数。

@@ -244,6 +244,7 @@ func (pb *probeSceneBaker) captureCubemap(pos math3d.Vec3) (*render3d.HDRCubemap
 	for f := range render3d.ProbeCubeFaceCount {
 		face := gpu.CubeFace(f)
 		cam := probeFaceSceneCamera(pos, face, pb.near, pb.far)
+		pb.renderer.SetViewport(float32(pb.size), float32(pb.size))
 		if pb.useFallback {
 			if _, err := pb.renderer.Prepare(cam, pb.fallbackRig); err != nil {
 				return nil, err

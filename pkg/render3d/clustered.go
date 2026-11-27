@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
@@ -989,17 +990,33 @@ func DeviceSupportsClusteredLighting(dev *gpu.Device) bool {
 		caps.Limits.MaxStorageBufferBindingSize >= clusterMinStorageBindingBytes
 }
 
-// ClusteredBindingsWGSL is [LightWGSL] (the [LightRig] block at [LightGroup] binding 0 and its PBR helpers) plus the clustered forward bindings at bindings 1 to 4 of the same group and this helper:
+// ClusteredBindingsWGSL is [LightWGSL] (the [LightRig] block at [LightGroup] binding 0 and its PBR helpers) plus the clustered forward bindings at bindings 1 to 4 of the same group and these helpers:
 //
 //   - shade_pbr_clustered(world_pos, normal, view_dir, base_color, metallic, roughness, frag_pos) -> vec3<f32>
+//   - shade_pbr_clustered_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, directional0_vis, point0_vis, spot0_vis, frag_pos) -> vec3<f32>
 //
-// It returns shade_pbr for the rig plus every local light binned into the cluster that holds the fragment, each shaded with pbr_brdf, point_light_attenuation and spot_cone_attenuation, so it matches [ShadeClusteredGridPoint]. frag_pos is the fragment's @builtin(position). Prepend [CameraWGSL], which supplies camera.view for the depth slice, and pair it with a [ClusteredLightSystem] in clustered mode; [ClusteredFallbackBindingsWGSL] declares the same helper for the fallback path.
+// They return shade_pbr / shade_pbr_visibility for the rig plus every local light binned into the cluster that holds the fragment, each shaded with pbr_brdf, point_light_attenuation and spot_cone_attenuation, so it matches [ShadeClusteredGridPoint]. frag_pos is the fragment's @builtin(position). Prepend [CameraWGSL], which supplies camera.view for the depth slice, and pair it with a [ClusteredLightSystem] in clustered mode; [ClusteredFallbackBindingsWGSL] declares the same helpers for the fallback path.
 //
 // Depth slicing is a 6-step binary search over the uniform split-depth table rather than log2 and exp, because NSGo v0.3.0's software GPU VM has no log, log2, exp or exp2 builtin and silently evaluates them to zero (internal/driver/gpu_software.go, evalCall) (nsgo-dev/nsgo#2334).
 const ClusteredBindingsWGSL = LightWGSL + clusteredStorageWGSL
 
-// ClusteredFallbackBindingsWGSL is [LightWGSL] plus the fallback uniform block at [LightGroup] binding 1 and shade_pbr_clustered with the same signature as in [ClusteredBindingsWGSL], using no storage buffers or compute, for WebGL 2 and OpenGL ES 3.0 targets. frag_pos is ignored: every uploaded light is evaluated for every fragment.
+// ClusteredFallbackBindingsWGSL is [LightWGSL] plus the fallback uniform block at [LightGroup] binding 1 and shade_pbr_clustered / shade_pbr_clustered_visibility with the same signatures as in [ClusteredBindingsWGSL], using no storage buffers or compute, for WebGL 2 and OpenGL ES 3.0 targets. frag_pos is ignored: every uploaded light is evaluated for every fragment.
 const ClusteredFallbackBindingsWGSL = LightWGSL + clusteredFallbackWGSL
+
+// ClusteredLocalBindingsWGSL returns the clustered local-light WGSL declarations (after [LightWGSL]) with bindings placed at @group(group) starting at baseBinding (params at baseBinding, lights at baseBinding+1, cells at baseBinding+2, indices at baseBinding+3), declaring shade_pbr_clustered and shade_pbr_clustered_visibility.
+func ClusteredLocalBindingsWGSL(group, baseBinding uint32) string {
+	return strings.NewReplacer(
+		"@group(1) @binding(1)", fmt.Sprintf("@group(%d) @binding(%d)", group, baseBinding),
+		"@group(1) @binding(2)", fmt.Sprintf("@group(%d) @binding(%d)", group, baseBinding+1),
+		"@group(1) @binding(3)", fmt.Sprintf("@group(%d) @binding(%d)", group, baseBinding+2),
+		"@group(1) @binding(4)", fmt.Sprintf("@group(%d) @binding(%d)", group, baseBinding+3),
+	).Replace(clusteredStorageWGSL)
+}
+
+// ClusteredFallbackLocalBindingsWGSL returns the fallback local-light WGSL declarations (after [LightWGSL]) with the fallback uniform block placed at @group(group) @binding(baseBinding), declaring shade_pbr_clustered and shade_pbr_clustered_visibility.
+func ClusteredFallbackLocalBindingsWGSL(group, baseBinding uint32) string {
+	return strings.Replace(clusteredFallbackWGSL, "@group(1) @binding(1)", fmt.Sprintf("@group(%d) @binding(%d)", group, baseBinding), 1)
+}
 
 // clusterLightRadianceWGSL declares the light record both paths upload and cluster_light_radiance, the outgoing radiance one local light adds, matching clusterLightRadiance.
 const clusterLightRadianceWGSL = `
@@ -1075,8 +1092,8 @@ fn cluster_find_slice(view_z: f32) -> u32 {
 	return min(lo, slices - 1u);
 }
 
-fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, frag_pos: vec4<f32>) -> vec3<f32> {
-	var lo = shade_pbr(world_pos, normal, view_dir, base_color, metallic, roughness);
+fn shade_pbr_clustered_visibility(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, shadow_vis: f32, point0_vis: f32, spot0_vis: f32, frag_pos: vec4<f32>) -> vec3<f32> {
+	var lo = shade_pbr_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, shadow_vis, point0_vis, spot0_vis);
 	let tiles_x = cluster_params.grid_info.x;
 	let tiles_y = cluster_params.grid_info.y;
 	if (tiles_x == 0u || tiles_y == 0u) {
@@ -1097,6 +1114,10 @@ fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f
 	}
 	return lo;
 }
+
+fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, frag_pos: vec4<f32>) -> vec3<f32> {
+	return shade_pbr_clustered_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, 1.0, 1.0, 1.0, frag_pos);
+}
 `
 
 // clusteredFallbackWGSL is the uniform-buffer half of [ClusteredFallbackBindingsWGSL], after [LightWGSL].
@@ -1108,8 +1129,8 @@ struct FallbackLightUniform {
 
 @group(1) @binding(1) var<uniform> fallback_lights: FallbackLightUniform;
 
-fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, frag_pos: vec4<f32>) -> vec3<f32> {
-	var lo = shade_pbr(world_pos, normal, view_dir, base_color, metallic, roughness);
+fn shade_pbr_clustered_visibility(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, shadow_vis: f32, point0_vis: f32, spot0_vis: f32, frag_pos: vec4<f32>) -> vec3<f32> {
+	var lo = shade_pbr_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, shadow_vis, point0_vis, spot0_vis);
 	let n = normalize(normal);
 	let v = normalize(view_dir);
 	let count = min(fallback_lights.info.x, 16u);
@@ -1117,6 +1138,10 @@ fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f
 		lo = lo + cluster_light_radiance(fallback_lights.local[i], world_pos, n, v, base_color, metallic, roughness);
 	}
 	return lo;
+}
+
+fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, frag_pos: vec4<f32>) -> vec3<f32> {
+	return shade_pbr_clustered_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, 1.0, 1.0, 1.0, frag_pos);
 }
 `
 
@@ -1362,6 +1387,58 @@ func (s *ClusteredLightSystem) BindingsWGSL() string {
 		return ClusteredFallbackBindingsWGSL
 	}
 	return ClusteredBindingsWGSL
+}
+
+// LocalBindingsWGSL returns the local-light WGSL declarations matching s's active path ([ClusteredLocalBindingsWGSL] or [ClusteredFallbackLocalBindingsWGSL]) placed at @group(group) starting at baseBinding, for composite bind groups that already include [LightWGSL] alongside fog, shadows or other scene uniforms.
+func (s *ClusteredLightSystem) LocalBindingsWGSL(group, baseBinding uint32) string {
+	if s.IsFallback() {
+		return ClusteredFallbackLocalBindingsWGSL(group, baseBinding)
+	}
+	return ClusteredLocalBindingsWGSL(group, baseBinding)
+}
+
+// RigBuffer returns the uniform buffer holding the [LightRig] block (size [LightUniformSize]), so a composite scene bind group can share s's rig upload at binding 0.
+func (s *ClusteredLightSystem) RigBuffer() *gpu.Buffer {
+	if s == nil {
+		return nil
+	}
+	return s.rigBuf
+}
+
+// AppendLocalLayoutEntries appends the bind group layout entries for s's local-light buffers starting at baseBinding (1 uniform buffer in fallback mode; 1 uniform buffer plus 3 read-only storage buffers in clustered mode), matching [ClusteredLightSystem.LocalBindingsWGSL].
+func (s *ClusteredLightSystem) AppendLocalLayoutEntries(dst []gpu.BindGroupLayoutEntry, baseBinding uint32) []gpu.BindGroupLayoutEntry {
+	if s == nil {
+		return dst
+	}
+	dst = append(dst, gpu.BindGroupLayoutEntry{Binding: baseBinding, Visibility: gpu.StageFragment, Type: gpu.BindingUniform})
+	if !s.fallback {
+		dst = append(dst,
+			gpu.BindGroupLayoutEntry{Binding: baseBinding + 1, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
+			gpu.BindGroupLayoutEntry{Binding: baseBinding + 2, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
+			gpu.BindGroupLayoutEntry{Binding: baseBinding + 3, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
+		)
+	}
+	return dst
+}
+
+// AppendLocalBindGroupEntries appends the bind group entries for s's local-light buffers starting at baseBinding, matching [ClusteredLightSystem.AppendLocalLayoutEntries].
+func (s *ClusteredLightSystem) AppendLocalBindGroupEntries(dst []gpu.BindGroupEntry, baseBinding uint32) []gpu.BindGroupEntry {
+	if s == nil {
+		return dst
+	}
+	paramsSize := uint64(ClusterParamsUniformSize)
+	if s.fallback {
+		paramsSize = ClusteredFallbackUniformSize
+	}
+	dst = append(dst, gpu.BindGroupEntry{Binding: baseBinding, Buffer: s.paramsBuf, Size: paramsSize})
+	if !s.fallback {
+		dst = append(dst,
+			gpu.BindGroupEntry{Binding: baseBinding + 1, Buffer: s.lightsBuf, Size: s.lightsBuf.Size()},
+			gpu.BindGroupEntry{Binding: baseBinding + 2, Buffer: s.cellsBuf, Size: s.cellsBuf.Size()},
+			gpu.BindGroupEntry{Binding: baseBinding + 3, Buffer: s.indicesBuf, Size: s.indicesBuf.Size()},
+		)
+	}
+	return dst
 }
 
 // FallbackLights returns the prioritized lights uploaded on the most recent update in fallback mode (nil in clustered mode).

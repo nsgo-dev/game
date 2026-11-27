@@ -56,6 +56,7 @@ func (c *checker) checkScene(p string) {
 		}
 		s.objects(l.Objects, "layers", li, "objects")
 	}
+	ownLocalWarn, ownDirWarn := s.checkSceneLights(doc)
 	registry := c.components
 	if registry != nil {
 		// Parse has accepted the file, so what the registry adds can only be a component or connection error, which names its line. Its connections are not checked against components that break their types.
@@ -65,7 +66,7 @@ func (c *checker) checkScene(p string) {
 		}
 	}
 	if doc.RefersToScenes() {
-		s.sceneRefs(doc, registry)
+		s.sceneRefs(doc, registry, ownLocalWarn, ownDirWarn)
 	}
 }
 
@@ -126,7 +127,7 @@ func connectionErrorObject(ce *sceneformat.ConnectionError) string {
 }
 
 // sceneRefs checks doc, a scene that instances or inherits other scenes: that it resolves, that its own connections name objects of the resolved scene and, given component types reg, that the components its overrides change keep their types and that every connection of the resolved scene, its own and those the scenes it instances and inherits bring, names events, handlers and arguments its objects declare. A fault a scene brings unchanged from a file it instances or inherits is reported on that file, which is checked on its own; one this scene's overrides cause is reported at the override, so each fault is reported once.
-func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.ComponentRegistry) {
+func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.ComponentRegistry, ownLocalWarn, ownDirWarn bool) {
 	projectFS := s.fsys
 	if s.project != "." {
 		sub, err := fs.Sub(s.fsys, s.project)
@@ -171,6 +172,9 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 				s.lightProbeGridData(ov.lightProbeGrid.Data, append(slices.Clip(ov.steps), "lightProbeGrid", "data")...)
 			}
 		})
+	}
+	if !ownLocalWarn || !ownDirWarn {
+		s.checkResolvedSceneLights(doc, resolved, ownLocalWarn, ownDirWarn)
 	}
 	missing := false
 	for i, c := range conns {
@@ -375,6 +379,115 @@ func (r *sceneFiles) Scene(p string) (*sceneformat.SceneDoc, error) {
 		r.failed = true
 	}
 	return doc, err
+}
+
+// sceneLightSummary counts directional and unshadowed local (point/spot) lights in visible layers of a scene, matching scenemodel.Built.SceneLights (at most one shadow-casting point light and one shadow-casting spot light live in rig slot 0, and every other point and spot light goes through render3d.ClusteredLightSystem).
+type sceneLightSummary struct {
+	directional     int
+	firstExcessDir  []string
+	firstExcessDirO string
+	local           int
+	firstExcessLoc  []string
+	firstExcessLocO string
+}
+
+func countSceneLights(doc *sceneformat.SceneDoc) sceneLightSummary {
+	var sum sceneLightSummary
+	hasShadowPt, hasShadowSpot := false, false
+	var walk func(objs []sceneformat.ObjectDoc, steps []string)
+	walk = func(objs []sceneformat.ObjectDoc, steps []string) {
+		for j := range objs {
+			o := &objs[j]
+			op := append(slices.Clip(steps), strconv.Itoa(j))
+			if o.Light != nil {
+				switch o.Light.Kind {
+				case sceneformat.LightDirectional:
+					sum.directional++
+					if sum.directional == render3d.MaxDirectionalLights+1 {
+						sum.firstExcessDir = append(slices.Clip(op), "light")
+						sum.firstExcessDirO = o.ID
+					}
+				case sceneformat.LightPoint:
+					if o.Light.Shadows && !hasShadowPt {
+						hasShadowPt = true
+					} else {
+						sum.local++
+						if sum.local == render3d.DefaultFallbackMaxLights+1 {
+							sum.firstExcessLoc = append(slices.Clip(op), "light")
+							sum.firstExcessLocO = o.ID
+						}
+					}
+				case sceneformat.LightSpot:
+					if o.Light.Shadows && !hasShadowSpot {
+						hasShadowSpot = true
+					} else {
+						sum.local++
+						if sum.local == render3d.DefaultFallbackMaxLights+1 {
+							sum.firstExcessLoc = append(slices.Clip(op), "light")
+							sum.firstExcessLocO = o.ID
+						}
+					}
+				}
+			}
+			walk(o.Children, append(slices.Clip(op), "children"))
+		}
+	}
+	for li := range doc.Layers {
+		l := &doc.Layers[li]
+		if l.Visible != nil && !*l.Visible {
+			continue
+		}
+		walk(l.Objects, []string{"layers", strconv.Itoa(li), "objects"})
+	}
+	return sum
+}
+
+func (s *sceneCheck) reportLightCapWarnings(sum sceneLightSummary, locSteps, dirSteps []string, locObj, dirObj string, reportLocal, reportDir bool) (warnedLocal, warnedDir bool) {
+	if reportLocal && sum.local > render3d.DefaultFallbackMaxLights {
+		warnedLocal = true
+		line, col := 1, 0
+		if len(locSteps) > 0 {
+			line, col = s.pos(locSteps...)
+		}
+		fallbackDrop := sum.local - render3d.DefaultFallbackMaxLights
+		if sum.local > render3d.DefaultClusterMaxLights {
+			clusterDrop := sum.local - render3d.DefaultClusterMaxLights
+			s.problemOnObject(s.path, line, col, locObj, "warning: scene has %d local lights (point/spot), exceeding the %d-light fallback cap (%d dropped on targets without storage buffers) and the %d-light clustered cap (%d dropped on clustered targets)", sum.local, render3d.DefaultFallbackMaxLights, fallbackDrop, render3d.DefaultClusterMaxLights, clusterDrop)
+		} else {
+			s.problemOnObject(s.path, line, col, locObj, "warning: scene has %d local lights (point/spot), exceeding the %d-light fallback cap on targets without storage buffers (%d dropped per frame on WebGL 2 / OpenGL ES 3.0; clustered targets support up to %d)", sum.local, render3d.DefaultFallbackMaxLights, fallbackDrop, render3d.DefaultClusterMaxLights)
+		}
+	}
+	if reportDir && sum.directional > render3d.MaxDirectionalLights {
+		warnedDir = true
+		line, col := 1, 0
+		if len(dirSteps) > 0 {
+			line, col = s.pos(dirSteps...)
+		}
+		dropped := sum.directional - render3d.MaxDirectionalLights
+		s.problemOnObject(s.path, line, col, dirObj, "warning: scene has %d directional lights, exceeding the %d-light cap (%d dropped)", sum.directional, render3d.MaxDirectionalLights, dropped)
+	}
+	return warnedLocal, warnedDir
+}
+
+func (s *sceneCheck) checkSceneLights(doc *sceneformat.SceneDoc) (warnedLocal, warnedDir bool) {
+	sum := countSceneLights(doc)
+	return s.reportLightCapWarnings(sum, sum.firstExcessLoc, sum.firstExcessDir, sum.firstExcessLocO, sum.firstExcessDirO, true, true)
+}
+
+func (s *sceneCheck) checkResolvedSceneLights(doc, resolved *sceneformat.SceneDoc, ownLocalWarn, ownDirWarn bool) {
+	sum := countSceneLights(resolved)
+	var refSteps []string
+	var refObj string
+	walkInstances(doc, func(o *sceneformat.ObjectDoc, steps []string) {
+		if len(refSteps) == 0 {
+			refSteps = append(slices.Clip(steps), "scene")
+			refObj = o.ID
+		}
+	})
+	if len(refSteps) == 0 && doc.Inherits != "" {
+		refSteps = []string{"inherits"}
+	}
+	s.reportLightCapWarnings(sum, refSteps, refSteps, refObj, refObj, !ownLocalWarn, !ownDirWarn)
 }
 
 // objects checks the sprites and materials of objs, found at steps in the scene, and of their descendants.
