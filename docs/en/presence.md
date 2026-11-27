@@ -88,6 +88,7 @@ Frames use Discord's v1 little-endian header (`[opcode uint32][length uint32][js
 - Keys removed between consecutive `Set` calls are deleted via `SetRichPresence(key, "")` without calling `ClearRichPresence()`, while unchanged keys are skipped.
 - Keys are validated against Steamworks limits (`SteamMaxKeys = 30`, `SteamMaxKeyLength = 63` bytes; invalid keys return `ErrSteamKeyInvalid` or `ErrSteamTooManyKeys`). Values longer than `SteamMaxValueLength` (255 bytes) are truncated on UTF-8 rune boundaries.
 - On web, iOS, Android, or when the Steamworks library or client is absent, `Set` and `Clear` return `ErrUnavailable`.
+- For bundling the Steamworks redistributable library with `nsgo-natives.yaml` and uploading the Steamworks localization VDF that `steam_display` tokens require, see [Shipping on Steam](steam.md#rich-presence-localization).
 
 ## Graceful degradation
 
