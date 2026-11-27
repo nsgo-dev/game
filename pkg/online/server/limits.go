@@ -26,7 +26,7 @@ const (
 	LimitThrottle LimitPolicy = iota
 	// LimitDrop silently drops over-limit packets without a disconnect.
 	LimitDrop
-	// LimitDisconnect drops the packet and refuses the peer from then on.
+	// LimitDisconnect drops the packet and refuses the peer from then on. The transport session is left for the caller to end, with netplay.WebSocketServer.Kick or netplay.UDPServer.Kick, so the peer does not keep its slot while every packet is refused.
 	LimitDisconnect
 )
 

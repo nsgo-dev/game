@@ -344,6 +344,13 @@ func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop 
 		case wsOpPong:
 			continue
 		case wsOpClose:
+			if wsCloseCode(payload) == wsCloseKicked {
+				reason := ""
+				if len(payload) > 2 {
+					reason = string(payload[2:])
+				}
+				cause = &KickError{Reason: reason}
+			}
 			wt.writeMu.Lock()
 			_ = writeWSFrameDeadline(conn, &wt.closing, wsOpClose, true, nil)
 			wt.writeMu.Unlock()
@@ -877,6 +884,15 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 	}
 }
 
+// wsClosePayload builds a close frame's payload: the status code followed by the reason, truncated so the payload fits a control frame.
+func wsClosePayload(code uint16, reason string) []byte {
+	reason = truncateReason(reason, wsMaxControlPayload-2)
+	payload := make([]byte, 2+len(reason))
+	binary.BigEndian.PutUint16(payload, code)
+	copy(payload[2:], reason)
+	return payload
+}
+
 // wsCloseCode returns the status code of a close frame's payload, or 0 when it has none.
 func wsCloseCode(payload []byte) uint16 {
 	if len(payload) < 2 {
@@ -952,6 +968,38 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 	}
 	return firstErr
+}
+
+// Kick ends peer's session now: a connected client receives a close frame with the wsCloseKicked code and the reason, and the session's resume secret is gone, so the client's Reconnect cannot resume it and joins as a new peer only if Auth.Verify accepts its token again. NextEvent reports PeerLeft with the reason. It returns ErrUnknownPeer for an ID with no session (including a handshake still in Verify) and ErrClosed once the server is closed.
+func (s *WebSocketServer) Kick(peer PeerID, reason string) error {
+	reason = truncateReason(reason, hsMaxReason)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrClosed
+	}
+	sess := s.table.sessions[peer]
+	if sess == nil || sess.pending {
+		s.mu.Unlock()
+		return ErrUnknownPeer
+	}
+	link, _ := sess.link.(*wsClientConn)
+	s.table.leaveReason(sess, reason)
+	s.mu.Unlock()
+	s.notify()
+	if link == nil {
+		// The peer was inside its grace period: nothing to notify it on; it learns the kick as a new handshake when it reconnects.
+		return nil
+	}
+	// Break a Send or ping already blocked on a client that does not read before taking the write lock, then send the close frame with its own short deadline.
+	link.closing.Store(true)
+	_ = link.conn.SetWriteDeadline(time.Now())
+	link.writeMu.Lock()
+	_ = link.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = writeWSFrame(link.conn, wsOpClose, false, wsClosePayload(wsCloseKicked, reason))
+	link.writeMu.Unlock()
+	_ = link.conn.Close()
+	return nil
 }
 
 // SetInboxLimits bounds the packets the server keeps until Recv takes them (see InboxLimits). A client whose queued reliable packets would pass InboxLimits.Reliable has its session ended, as if it had left.

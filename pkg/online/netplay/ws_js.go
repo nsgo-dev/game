@@ -105,8 +105,18 @@ func (wt *WebSocketTransport) openLocked() error {
 	onClose := js.FuncOf(func(this js.Value, args []js.Value) any {
 		wt.mu.Lock()
 		if wt.ws.Equal(ws) && wt.state != ConnClosed {
+			// A kick's close frame carries the wsCloseKicked code and the reason as the close event's text.
+			code, reason := 0, ""
+			if len(args) > 0 {
+				code = args[0].Get("code").Int()
+				reason = args[0].Get("reason").String()
+			}
 			if wt.state == ConnOpen || wt.err == nil {
-				wt.err = ErrDisconnected
+				if code == wsCloseKicked {
+					wt.err = &KickError{Reason: reason}
+				} else {
+					wt.err = ErrDisconnected
+				}
 			}
 			wt.state = ConnDisconnected
 		}

@@ -49,6 +49,7 @@ const (
 	udpPong       = 0xB4 // server to client keepalive reply
 	udpBye        = 0xB5 // client to server goodbye
 	udpPeerData   = 0xB6 // UDPTransport pre-shared key peer datagram
+	udpKick       = 0xB7 // server to client session removal, payload is the reason
 
 	udpDirClientToServer uint32 = 1
 	udpDirServerToClient uint32 = 2

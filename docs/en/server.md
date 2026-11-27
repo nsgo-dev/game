@@ -101,9 +101,12 @@ g := server.NewGuard(server.Limits{
 }, server.LimitDisconnect)
 g.Validate = func(peer netplay.PeerID, p netplay.Packet) error { return checkInput(p) }
 action, err := g.Check(peer, packet)
+if action == server.GuardDisconnect {
+	_ = srv.Kick(peer, err.Error()) // end the transport session for good
+}
 ```
 
-- Token buckets for packets and bytes with optional bursts; `LimitThrottle`/`LimitDrop` refuse the packet and keep the peer connected, `LimitDisconnect` refuses the peer from then on (`GuardDisconnect`).
+- Token buckets for packets and bytes with optional bursts; `LimitThrottle`/`LimitDrop` refuse the packet and keep the peer connected, `LimitDisconnect` refuses the peer from then on (`GuardDisconnect`). `GuardDisconnect` only flips the guard's own flag, so act on it with `Kick` on the `WebSocketServer` or `UDPServer`, which removes the session for good and tells the client why (see [the netplay guide](netplay.md#connection-handshake-and-reconnect)).
 - `MaxMessageSize` rejects an oversized packet before it is buffered; `ReserveReliable`/`ReleaseReliable` bound reserved reliable bytes.
 - `Validate` runs only for an admitted packet; a non-nil error drops it with `ErrInvalidInput`, increments that peer's `Violations`, and never reaches the simulation.
 - `Stats(peer)` reports packets, bytes, dropped, violations and pending reliable bytes per peer; `Reset` forgets a reconnecting peer. Per-peer state and O(1) checks leave other peers' ticks unaffected.

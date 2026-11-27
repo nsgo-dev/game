@@ -101,9 +101,12 @@ g := server.NewGuard(server.Limits{
 }, server.LimitDisconnect)
 g.Validate = func(peer netplay.PeerID, p netplay.Packet) error { return checkInput(p) }
 action, err := g.Check(peer, packet)
+if action == server.GuardDisconnect {
+	_ = srv.Kick(peer, err.Error()) // 彻底结束传输层会话
+}
 ```
 
-- 包与字节使用令牌桶，可配 burst；`LimitThrottle`/`LimitDrop` 拒绝该包但保持连接，`LimitDisconnect` 之后拒绝该 peer（返回 `GuardDisconnect`）。
+- 包与字节使用令牌桶，可配 burst；`LimitThrottle`/`LimitDrop` 拒绝该包但保持连接，`LimitDisconnect` 之后拒绝该 peer（返回 `GuardDisconnect`）。`GuardDisconnect` 只翻转 guard 自己的标志，因此要配合 `WebSocketServer` 或 `UDPServer` 的 `Kick` 来彻底移除会话并告知客户端原因（见 [netplay 指南](netplay.md#连接握手与重连)）。
 - `MaxMessageSize` 在缓冲前拒绝超大包；`ReserveReliable`/`ReleaseReliable` 限制待处理可靠字节。
 - `Validate` 只对已通过的包运行；返回非 nil 错误时丢弃该包、返回 `ErrInvalidInput`、累加该 peer 的 `Violations`，且绝不会进入模拟。
 - `Stats(peer)` 返回该 peer 的包数、字节数、丢弃数、违规数与待处理可靠字节；`Reset` 用于重连 peer。状态按 peer 隔离、检查 O(1)，不影响其他 peer 的 tick。

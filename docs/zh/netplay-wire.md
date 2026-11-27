@@ -186,7 +186,7 @@ CI 会运行 `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/
 | Schema 文件 | 字节序 | 协议与消息 |
 | --- | --- | --- |
 | `transport.wire.yaml` | `be` | `Channel`、`TransportFrame`（`channel(1) seq(4) payload`）、`UDPPeerFrame`（`from(4) channel(1) seq(4) payload`） |
-| `udp_sealed.wire.yaml` | `be` | `UDPDatagramType`（`0xB1`..`0xB6`）、`UDPSealedDatagram`（`type(1) peer(4) seq(4) channel(1) sealed`，ChaCha20-Poly1305 密文 + 16 字节认证标签） |
+| `udp_sealed.wire.yaml` | `be` | `UDPDatagramType`（`0xB1`..`0xB7`）、`UDPSealedDatagram`（`type(1) peer(4) seq(4) channel(1) sealed`，ChaCha20-Poly1305 密文 + 16 字节认证标签） |
 | `handshake.wire.yaml` | `be` | `HandshakeMessage`（`0xA1` `HandshakeHello`、`0xA2` `HandshakeWelcome`、`0xA3` `HandshakeReject`，版本 1） |
 | `relay.wire.yaml` | `be` | `RelayFrame`（版本 1）、`RelayMembers`（`0x01`）、`RelayBody`（`0x01` `RelayUnreliable`、`0x02` `RelayReliable`、`0x03` `RelayAck`） |
 | `replication.wire.yaml` | `le` | `EntityRecord`（增量位掩码字段）、`ReplicationMessage`（半字节版本 2 + 类型 `1..5`：`SnapshotFull`、`SnapshotDelta`、`SnapshotAck`、`ResyncRequest`、`SnapshotFullPart`） |

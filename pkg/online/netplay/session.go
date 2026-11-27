@@ -8,6 +8,7 @@ import (
 	"errors"
 	"slices"
 	"time"
+	"unicode/utf8"
 )
 
 // Auth configures the connection handshake that ListenWebSocket and ListenUDPServer run before a peer may send or receive game packets.
@@ -64,6 +65,8 @@ func (k PeerEventKind) String() string {
 type PeerEvent struct {
 	Kind PeerEventKind
 	Peer PeerID
+	// Reason is why a server removed the peer with WebSocketServer.Kick or UDPServer.Kick; it is empty for every other event.
+	Reason string
 }
 
 // PeerEvents is implemented by the server transports that run the connection handshake. NextEvent pops the next session change without blocking; grace periods and idle timeouts are checked when it is called, so a server polls it every tick alongside Recv.
@@ -115,6 +118,8 @@ var (
 	ErrInvalidKey = errors.New("net: invalid key")
 	// ErrSequenceExhausted is returned when a UDP session or keyed peer reaches the end of its 32-bit sequence space and cannot send without reusing an AEAD nonce. Call Reconnect (or re-register the peer with a new key) to rekey.
 	ErrSequenceExhausted = errors.New("net: session sequence exhausted")
+	// ErrKicked matches (with errors.Is) the *KickError a client gets when the server ends its session with WebSocketServer.Kick or UDPServer.Kick.
+	ErrKicked = errors.New("net: kicked by server")
 )
 
 // RejectError is the reason a server gave for refusing a client's handshake.
@@ -130,6 +135,33 @@ func (e *RejectError) Error() string {
 // Is reports whether target is ErrRejected.
 func (e *RejectError) Is(target error) bool {
 	return target == ErrRejected
+}
+
+// KickError is the reason a server gave for removing a client's session with WebSocketServer.Kick or UDPServer.Kick.
+type KickError struct {
+	Reason string
+}
+
+// Error returns the kick with its reason.
+func (e *KickError) Error() string {
+	return "net: kicked by server: " + e.Reason
+}
+
+// Is reports whether target is ErrKicked.
+func (e *KickError) Is(target error) bool {
+	return target == ErrKicked
+}
+
+// truncateReason caps a kick or rejection reason at limit bytes, cutting on a rune boundary so a truncated reason stays valid UTF-8.
+func truncateReason(reason string, limit int) string {
+	if len(reason) <= limit {
+		return reason
+	}
+	reason = reason[:limit]
+	for !utf8.ValidString(reason) {
+		reason = reason[:len(reason)-1]
+	}
+	return reason
 }
 
 // Handshake wire format, version 1. Every message starts with its type and the version, and the server echoes the client's nonce so a client can match a reply to its hello.
@@ -160,6 +192,8 @@ const (
 
 	// wsCloseReconnect is the WebSocket close code (from the range RFC 6455 leaves to applications) a client sends when it closes a socket to reconnect. The server counts it as a drop that keeps the session for the grace period, not as a goodbye.
 	wsCloseReconnect = 4000
+	// wsCloseKicked is the WebSocket close code a WebSocketServer sends when Kick removes a client, followed by the reason as the close frame's text.
+	wsCloseKicked = 4001
 
 	hsHelloHeader   = 2 + hsNonceSize + 4 + hsSecretSize + 2
 	hsWelcomeSize   = 2 + hsNonceSize + 4 + 4 + 1 + hsSecretSize + hsKeySize
@@ -432,13 +466,18 @@ func (t *sessionTable) drop(s *session, at time.Time) {
 
 // leave removes a session for good.
 func (t *sessionTable) leave(s *session) {
+	t.leaveReason(s, "")
+}
+
+// leaveReason removes a session for good, recording reason on the PeerLeft event when the removal is a kick.
+func (t *sessionTable) leaveReason(s *session, reason string) {
 	if t.sessions[s.id] != s {
 		return
 	}
 	delete(t.sessions, s.id)
 	s.connected = false
 	s.link = nil
-	t.events.push(PeerEvent{Kind: PeerLeft, Peer: s.id})
+	t.events.push(PeerEvent{Kind: PeerLeft, Peer: s.id, Reason: reason})
 }
 
 // expire drops UDP sessions that went silent and removes dropped sessions whose grace period has passed, in ID order so events are deterministic.
