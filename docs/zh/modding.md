@@ -40,7 +40,7 @@ capabilities: [readState, spawnEntity, emitEvent, ui]
 
 权限由 `Capability` 位标志控制：`CapReadState`（`readState`）、`CapWriteState`（`writeState`）、`CapSpawnEntity`（`spawnEntity`）、`CapEmitEvent`（`emitEvent`）、`CapUI`（`ui`）、`CapAudio`（`audio`）和 `CapStorage`（`storage`）。超出授权范围的调用会返回 `*PermissionError`，不会导致宿主游戏崩溃。
 
-NSGo 为每个沙箱提供 `"nsgo"` 模块的 `Storage`，使用沙箱自己的分区，且没有可以收回它的权限能力。因此没有 `CapStorage` 的模组得到的分区配额是 1 字节，即 NSGo 接受的最小值，它最多只能保存一条键和值合计 1 字节的条目（例如 `setItem("a", "")`），更大的 `Storage.setItem` 调用都会失败；读取仍能看到分区中已有的内容，例如该模组在拥有此能力时写入的数据。
+没有 `CapStorage` 的模组在启用 `tsx.Sandbox.DisableStorage` 的沙箱中运行，因此 `"nsgo"` 模块的 `Storage` 上的所有方法（`getItem`、`setItem`、`removeItem`、`clear`、`keys`）都会以 `tsx: Storage is disabled for this sandbox` 拒绝，同时 `"game"` 模块的 `storageGet`、`storageSet` 和 `storageRemove` 也会返回 `*PermissionError`。禁用存储不会删除该模组分区中已有的数据，再次授予 `CapStorage` 后仍可读取。
 
 ## `"game"` TSX 模块
 
