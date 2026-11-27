@@ -155,6 +155,15 @@ func settingsModelsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					if ed.AgentStatus() == AgentStatusDisconnected {
 						return ed.T("settings.models.localDisconnected")
 					}
+					var detected []string
+					for _, opt := range ed.DetectedLocalAgents() {
+						if opt.Kind != "apikey" && opt.Detected {
+							detected = append(detected, opt.Name)
+						}
+					}
+					if len(detected) > 0 {
+						return fmt.Sprintf("Detected on this computer: %s · ready to connect", strings.Join(detected, ", "))
+					}
 					return ed.T("settings.models.localIdle")
 				},
 				Style: core.Style{

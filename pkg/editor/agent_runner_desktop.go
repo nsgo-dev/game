@@ -87,6 +87,7 @@ func (r *CLIAgentRunner) Run(ctx context.Context, req AgentRequest, emit func(Ag
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = nil
+	cmd.Env = enrichedAgentEnv(os.Environ(), bin)
 	if req.ProjectRoot != "" {
 		cmd.Dir = req.ProjectRoot
 	}
@@ -147,25 +148,25 @@ func (r *CLIAgentRunner) resolveCLI(kind ExternalAgentKind) (ExternalAgentKind, 
 	}
 	switch kind {
 	case ExternalAgentCodex:
-		path, err := exec.LookPath(codexBin)
-		if err != nil {
-			return "", "", fmt.Errorf("codex CLI not found in PATH: install Codex or connect an agent")
+		path, ok := resolveLocalAgentBinary(codexBin)
+		if !ok {
+			return "", "", fmt.Errorf("codex CLI not found in PATH or standard install locations: install Codex or connect an agent")
 		}
 		return ExternalAgentCodex, path, nil
 	case ExternalAgentClaudeCode:
-		path, err := exec.LookPath(claudeBin)
-		if err != nil {
-			return "", "", fmt.Errorf("claude CLI not found in PATH: install Claude Code or connect an agent")
+		path, ok := resolveLocalAgentBinary(claudeBin)
+		if !ok {
+			return "", "", fmt.Errorf("claude CLI not found in PATH or standard install locations: install Claude Code or connect an agent")
 		}
 		return ExternalAgentClaudeCode, path, nil
 	default:
-		if path, err := exec.LookPath(claudeBin); err == nil {
+		if path, ok := resolveLocalAgentBinary(claudeBin); ok {
 			return ExternalAgentClaudeCode, path, nil
 		}
-		if path, err := exec.LookPath(codexBin); err == nil {
+		if path, ok := resolveLocalAgentBinary(codexBin); ok {
 			return ExternalAgentCodex, path, nil
 		}
-		return "", "", fmt.Errorf("no supported external agent CLI (claude or codex) found in PATH")
+		return "", "", fmt.Errorf("no supported external agent CLI (claude or codex) found in PATH or standard install locations")
 	}
 }
 

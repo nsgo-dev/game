@@ -2921,13 +2921,17 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							_ = rev.Get()
 							selected := ed.ConnectDialogChoice() == mode
 							if selected {
+								dotBg := p.TextPrimary
+								if !p.Dark {
+									dotBg = p.Panel
+								}
 								return core.Style{
 									Width:        core.Pt(16),
 									Height:       core.Pt(16),
 									CornerRadius: 8,
 									BorderWidth:  5,
 									BorderColor:  p.Accent.Fg,
-									Background:   p.Panel,
+									Background:   dotBg,
 									FlexShrink:   0,
 								}
 							}
@@ -3148,6 +3152,93 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 								}
 							},
 							Children: []core.Node{
+								core.Dynamic(func(cx *core.Scope) core.Node {
+									_ = rev.Get()
+									opts := ed.DetectedLocalAgents()
+									var chips []core.Node
+									for _, opt := range opts {
+										if opt.Kind == "apikey" || !opt.Detected {
+											continue
+										}
+										chips = append(chips, core.View{
+											TestID: "connect-detected-" + opt.Kind,
+											Style: core.Style{
+												Direction:    core.Row,
+												AlignItems:   core.AlignCenter,
+												Gap:          5,
+												Height:       core.Pt(22),
+												Padding:      core.Symmetric(0, 8),
+												CornerRadius: 11,
+												Background:   p.Added.Fill,
+												BorderWidth:  1,
+												BorderColor:  p.Added.Edge,
+											},
+											Children: []core.Node{
+												core.View{
+													Style: core.Style{
+														Width:        core.Pt(6),
+														Height:       core.Pt(6),
+														CornerRadius: 3,
+														Background:   p.Added.Fg,
+													},
+												},
+												core.Text{
+													Content: opt.Name,
+													Style: core.Style{
+														FontSize:   11,
+														FontWeight: 500,
+														Color:      p.Added.Fg,
+													},
+												},
+											},
+										})
+									}
+									rowChildren := []core.Node{
+										core.Text{
+											Content: "Found on this computer:",
+											Style: core.Style{
+												FontSize: 11.5,
+												Color:    p.TextFaint,
+											},
+										},
+									}
+									if len(chips) > 0 {
+										rowChildren = append(rowChildren, chips...)
+									} else {
+										rowChildren = append(rowChildren, core.Text{
+											TestID:  "connect-detected-none",
+											Content: "None detected yet",
+											Style: core.Style{
+												FontSize: 11.5,
+												Color:    p.TextMuted,
+											},
+										})
+									}
+									rowChildren = append(rowChildren,
+										core.View{Style: core.Style{FlexGrow: 1}},
+										specPanelButton(p, specPanelButtonSpec{
+											TestID:  "connect-local-refresh",
+											Label:   "Re-detect local agents",
+											Tooltip: "Re-detect local agents",
+											Icon:    lucide.RefreshCw,
+											Variant: specBtnGhost,
+											Compact: true,
+											OnPress: func() {
+												ed.RefreshDetectedLocalAgents()
+											},
+										}),
+									)
+									return core.View{
+										TestID: "connect-local-detected",
+										Style: core.Style{
+											Direction:  core.Row,
+											AlignItems: core.AlignCenter,
+											Wrap:       core.Wrap,
+											Gap:        6,
+										},
+										Children: rowChildren,
+									}
+								}),
 								core.Text{
 									Content: "Run this once in the project folder; the agent then finds the editor by itself:",
 									Style: core.Style{

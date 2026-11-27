@@ -324,6 +324,11 @@ func specPanelButton(p SpecPalette, b specPanelButtonSpec) core.Node {
 		})
 	}
 
+	var borderWidth core.Points
+	if border != 0 {
+		borderWidth = 1
+	}
+
 	baseStyle := core.Style{
 		Height:         core.Pt(height),
 		MinHeight:      core.Pt(specRowHeight),
@@ -337,7 +342,7 @@ func specPanelButton(p SpecPalette, b specPanelButtonSpec) core.Node {
 		Padding:        pad,
 		CornerRadius:   specRadiusButton,
 		Background:     bg,
-		BorderWidth:    1,
+		BorderWidth:    borderWidth,
 		BorderColor:    border,
 		Cursor:         core.CursorPointer,
 		Hover:          &core.Style{Background: hoverBg},

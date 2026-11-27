@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -695,8 +694,8 @@ func firstRunAgentDisplayName(kind string) string {
 func detectLocalAgents() []FirstRunAgentOption {
 	var claudePath, codexPath string
 	if canRunGameDesktop {
-		claudePath, _ = exec.LookPath("claude")
-		codexPath, _ = exec.LookPath("codex")
+		claudePath, _ = resolveLocalAgentBinary("claude")
+		codexPath, _ = resolveLocalAgentBinary("codex")
 	}
 	claudeDesc := "Not installed"
 	if claudePath != "" {
@@ -728,6 +727,75 @@ func detectLocalAgents() []FirstRunAgentOption {
 			Detected:    true,
 		},
 	}
+}
+
+// DetectedLocalAgents returns the cached list of local agent detection results (Claude Code, Codex, API key),
+// running detection lazily on first call without notifying listeners (safe to read inside render closures).
+// Call RefreshDetectedLocalAgents to re-scan the machine and notify UI listeners.
+func (e *Editor) DetectedLocalAgents() []FirstRunAgentOption {
+	if e == nil {
+		return nil
+	}
+	e.firstRun.mu.Lock()
+	if len(e.firstRun.agentOptions) > 0 {
+		out := slices.Clone(e.firstRun.agentOptions)
+		e.firstRun.mu.Unlock()
+		return out
+	}
+	e.firstRun.mu.Unlock()
+
+	detector := e.FirstRunDetectAgents
+	if detector == nil {
+		detector = detectLocalAgents
+	}
+	opts := detector()
+	if len(opts) == 0 {
+		opts = detectLocalAgents()
+	}
+	e.firstRun.mu.Lock()
+	if len(e.firstRun.agentOptions) == 0 {
+		e.firstRun.agentOptions = slices.Clone(opts)
+	}
+	out := slices.Clone(e.firstRun.agentOptions)
+	e.firstRun.mu.Unlock()
+	return out
+}
+
+// RefreshDetectedLocalAgents re-scans locally installed agent CLIs (respecting FirstRunDetectAgents if set),
+// caches the result, and if Step 2 Connect is currently active with "apikey" selected only because no local
+// agent was previously found, auto-selects the first newly detected local agent.
+func (e *Editor) RefreshDetectedLocalAgents() []FirstRunAgentOption {
+	if e == nil {
+		return nil
+	}
+	detector := e.FirstRunDetectAgents
+	if detector == nil {
+		detector = detectLocalAgents
+	}
+	opts := detector()
+	if len(opts) == 0 {
+		opts = detectLocalAgents()
+	}
+
+	var autoSelect string
+	e.firstRun.mu.Lock()
+	e.firstRun.agentOptions = slices.Clone(opts)
+	if e.firstRun.stage == FirstRunStageConnect && (e.firstRun.selectedAgent == "" || (e.firstRun.selectedAgent == "apikey" && strings.TrimSpace(e.firstRun.apiKey) == "")) {
+		for _, o := range opts {
+			if o.Kind != "apikey" && o.Detected {
+				autoSelect = o.Kind
+				break
+			}
+		}
+	}
+	e.firstRun.mu.Unlock()
+
+	if autoSelect != "" {
+		_ = e.SelectFirstRunAgent(autoSelect)
+	} else {
+		e.notify()
+	}
+	return slices.Clone(opts)
 }
 
 // StartWithAI begins the Start with AI journey from the Start Screen.
@@ -1009,8 +1077,8 @@ func defaultFirstRunConnectAgent(ctx context.Context, kind, _ string) (int, erro
 	if kind == "codex" {
 		bin = "codex"
 	}
-	if _, err := exec.LookPath(bin); err != nil {
-		return 0, fmt.Errorf("%s not found on PATH", bin)
+	if _, ok := resolveLocalAgentBinary(bin); !ok {
+		return 0, fmt.Errorf("%s not found on PATH or standard install locations", bin)
 	}
 	return 18, nil
 }

@@ -994,7 +994,7 @@ func (e *Editor) OpenConnectDialog() {
 	e.agent.connectTroubled = false
 	e.agent.connectCopied = false
 	e.agent.connectPermsDraft = e.agent.permissions
-	e.notify()
+	e.RefreshDetectedLocalAgents()
 }
 
 // OpenConnectDialogForMode opens the Connect an agent dialog pre-selected on mode (for example AgentModeAPIKey).
