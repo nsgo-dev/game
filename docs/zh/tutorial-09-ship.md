@@ -110,7 +110,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 go tool nsgo check -target ios,ios_simulator   # on a Mac with Xcode
 ```
 
-仓库的 CI 在每次改动时为每一章运行这两条检查，并在 Linux 和 macOS 上运行每一章的测试，见 `.github/workflows/examples.yml`。
+仓库的 CI 在每次改动时为每一章运行这两条检查，并在 Linux、macOS 和 Windows 上运行每一章的测试，见 `.github/workflows/examples.yml`。
 
 ## 构建发布包
 

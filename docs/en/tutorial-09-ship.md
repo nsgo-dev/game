@@ -110,7 +110,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 go tool nsgo check -target ios,ios_simulator   # on a Mac with Xcode
 ```
 
-The repository's CI runs both for every chapter on each change, with every chapter's tests on Linux and macOS, as `.github/workflows/examples.yml` shows.
+The repository's CI runs both for every chapter on each change, with every chapter's tests on Linux, macOS and Windows, as `.github/workflows/examples.yml` shows.
 
 ## Build release packages
 

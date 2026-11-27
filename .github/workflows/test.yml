@@ -1,6 +1,6 @@
 name: Test
 
-# Tests every package headless with the nsgo tool on Linux and macOS, and the Postgres account store against a Postgres service.
+# Tests every package headless with the nsgo tool on Linux, macOS and Windows, and the Postgres account store against a Postgres service.
 on:
   push:
     branches:
@@ -24,6 +24,7 @@ jobs:
         os:
           - depot-ubuntu-24.04-4
           - depot-macos-15
+          - depot-windows-2025-4
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:

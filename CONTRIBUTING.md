@@ -49,7 +49,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 go tool nsgo check -target ios,ios_simulator
 ```
 
-CI runs `gofmt -l`, `go tool nsgo test ./...` on Linux and macOS, `go tool nsgo check -target macos,windows,linux,android,web` on Linux, and `go tool nsgo check -target ios,ios_simulator` on macOS.
+CI runs `gofmt -l`, `go tool nsgo test ./...` on Linux, macOS and Windows, `go tool nsgo check -target macos,windows,linux,android,web` on Linux, and `go tool nsgo check -target ios,ios_simulator` on macOS.
 
 ### Running the website
 
