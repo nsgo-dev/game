@@ -1,6 +1,7 @@
 package netplay
 
 import (
+	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
@@ -25,6 +26,8 @@ type Auth struct {
 	MaxPeers int
 	// Now is the clock for grace periods and idle timeouts; nil uses time.Now.
 	Now func() time.Time
+	// StaticKey is the server's static X25519 private key for ListenUDPServer's Noise NK handshake. When nil, ListenUDPServer generates a fresh X25519 key pair (available via UDPServer.PublicKey); set a persistent key when clients know it from configuration rather than a matchmaking ticket, or must reconnect across server restarts. A non-X25519 key makes ListenUDPServer return ErrInvalidKey. Ignored by WebSocket servers, which use TLS.
+	StaticKey *ecdh.PrivateKey
 }
 
 // PeerEventKind is what happened to a peer's session.
@@ -108,6 +111,10 @@ var (
 	ErrDisconnected = errors.New("net: peer disconnected")
 	// ErrTokenTooLarge is returned when a token exceeds MaxTokenSize.
 	ErrTokenTooLarge = errors.New("net: token too large")
+	// ErrInvalidKey is returned when a Noise X25519 key is missing or uses another curve, or when AddPeerKey receives an all-zero key.
+	ErrInvalidKey = errors.New("net: invalid key")
+	// ErrSequenceExhausted is returned when a UDP session or keyed peer reaches the end of its 32-bit sequence space and cannot send without reusing an AEAD nonce. Call Reconnect (or re-register the peer with a new key) to rekey.
+	ErrSequenceExhausted = errors.New("net: session sequence exhausted")
 )
 
 // RejectError is the reason a server gave for refusing a client's handshake.
@@ -312,11 +319,10 @@ type session struct {
 	pending   bool // reserved while Verify runs
 	connected bool
 	secret    [hsSecretSize]byte
-	key       [hsKeySize]byte
 	droppedAt time.Time
 	lastSeen  time.Time
 
-	// The transport's link to the peer: the WebSocket connection, or the UDP address with its handshake reply and packet counters.
+	// The transport's link to the peer: the WebSocket connection, or the UDP address with its handshake reply, AEAD ciphers and packet counters.
 	link any
 }
 
@@ -353,10 +359,9 @@ func (t *sessionTable) now() time.Time {
 	return time.Now()
 }
 
-// rotate gives s fresh secrets, so a resume token or packet key seen on an old connection is useless afterwards.
+// rotate gives s a fresh resume secret, so a resume token seen on an old connection is useless afterwards.
 func (s *session) rotate() {
 	_, _ = rand.Read(s.secret[:])
-	_, _ = rand.Read(s.key[:])
 }
 
 // resume returns the live or dropped session that h proves it owns, marked connected with fresh secrets, or nil.
@@ -488,7 +493,7 @@ func (t *sessionTable) popEvent() (PeerEvent, bool) {
 
 // welcomeFor builds the welcome that tells the client its session.
 func (t *sessionTable) welcomeFor(s *session, nonce [hsNonceSize]byte, resumed bool) welcome {
-	return welcome{nonce: nonce, peer: s.id, server: t.serverID, resumed: resumed, secret: s.secret, key: s.key}
+	return welcome{nonce: nonce, peer: s.id, server: t.serverID, resumed: resumed, secret: s.secret}
 }
 
 // verify runs Auth.Verify and turns its error into a reason for the client.

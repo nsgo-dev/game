@@ -13,8 +13,8 @@ import "github.com/nsgo-dev/game/pkg/online/netplay"
 | 传输实现 | 构造函数 | 适用平台与场景 |
 | --- | --- | --- |
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建与跨 NAT 联机。客户端用令牌认证，ID 由服务端分配（见下文）。 |
-| `UDPServer` / `UDPClient` | `ListenUDPServer`、`DialUDP` | 原生平台（桌面/移动）与服务端之间的低延迟数据报通信，握手与 WebSocket 相同，每个数据报都绑定到其会话。 |
-| `UDPTransport` | `ListenUDP` + `AddPeer` | 原生平台点对点数据报，双方事先知道彼此地址：只接受来自其所声称 ID 已登记地址的数据报。 |
+| `UDPServer` / `UDPClient` | `ListenUDPServer`、`DialUDP` | 原生平台（桌面/移动）与服务端之间的低延迟加密数据报通信，使用 Noise NK 密钥交换（第 2 版握手）与 ChaCha20-Poly1305 AEAD。 |
+| `UDPTransport` | `ListenUDP` + `AddPeerKey` / `AddPeer` | 原生平台点对点数据报，双方事先知道彼此地址：`AddPeerKey` 使用预共享密钥做认证加密，普通 `AddPeer` 不加密、不认证，仅用于局域网与测试。 |
 | `Relay` / `RelayTransport` | `NewRelay`、`NewRelayTransport` | 彼此无法直连的玩家之间的点对点会话：每人通过 WebSocket 或 UDP 连接中继，中继只在同一会话的成员之间转发（见[服务端指南](server.md#点对点中继)）。 |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
@@ -94,7 +94,7 @@ for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
 ```
 
 ```go
-cli, err := netplay.DialWebSocket("wss://play.example.com/game", token) // or netplay.DialUDP(addr, token)
+cli, err := netplay.DialWebSocket("wss://play.example.com/game", token) // 或 netplay.DialUDP(addr, serverPubKey, token)
 if errors.Is(err, netplay.ErrRejected) {
 	// err is a *netplay.RejectError carrying the server's reason
 }
@@ -111,8 +111,11 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 - 在浏览器中 `DialWebSocket` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
 - `WebSocketServer` 每隔 `Auth.IdleTimeout` 的三分之一（默认 10 秒，最少 3 秒）向每个客户端发送一次 ping，在这段时间内没有收到客户端的任何字节（连 pong 都没有）就会把它判为掉线，这样网络消失却没有关闭 TCP 连接的客户端不会永远占着会话和 ID。浏览器会自动回应 ping。原生 `WebSocketTransport` 每 2 秒向服务端发送一次 ping，10 秒内没有收到任何字节就转为 `ConnDisconnected`。只要字节持续到达，慢慢传来的大帧也会被完整读取。这些超时使用墙上时钟，而不是 `Auth.Now`。`WebSocketServer.Close` 会同时向所有客户端发送关闭帧，对不读取数据的客户端最多等待一秒。
 - WebSocket 帧的负载按实际到达的字节读取，而不是按帧头声明的长度预先分配，握手请求也不能超过合法请求的长度，因此客户端声明一个很大的帧后再慢慢发送，也无法占用它尚未发送的内存。控制帧（`Close`、`Ping`、`Pong`）遵循 RFC 6455 §5.5：分片控制帧、负载超过 125 字节的控制帧以及保留控制操作码（`0xB`–`0xF`）会被拒绝。
-- UDP 握手之后，每个客户端都绑定到完成握手时的地址和一把会话密钥：每个数据报携带截断的 HMAC-SHA256 标签和一个按重放窗口检查的序号，伪造或重放的数据报会被丢弃，也无法改变该 peer 的地址。数据报经过认证但不加密。`UDPClient` 空闲时每秒发送一次心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒，最少 3 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
-- 握手不加密：握手请求携带令牌，欢迎消息携带恢复密钥，UDP 的欢迎消息还携带会话密钥。生产环境的 WebSocket 请使用 `wss://`。UDP 没有这样一层加密，它的地址与密钥绑定只能防住看不到流量的攻击者：任何能观察到握手的人（共享 Wi-Fi、路径上的任一跳）都能伪造该会话的数据报，并从自己的地址恢复该会话。UDP 令牌应短期有效且只能使用一次；若需防范路径上的窃听者，优先使用 `wss://` 上的 WebSocket。
+- UDP 会话运行基于 `Noise_NK_25519_ChaChaPoly_SHA256` 的第 2 版握手：`DialUDP(addr, serverKey, token)` 依据服务端的静态 X25519 公钥在无需证书的情况下认证服务端，在消息 1 中加密传输客户端令牌与恢复密钥，并在加密的消息 2 中接收服务端分配的 ID 与新的恢复密钥（欢迎消息不再携带数据包密钥）。第 1 版握手请求会收到既有的版本拒绝。
+- 服务端的静态 X25519 公钥需通过带外渠道分发：若客户端从配置文件读取公钥或需要在服务端重启后重连，请设置持久化的 `Auth.StaticKey`（`ecdh.X25519()` 私钥）；若将 `Auth.StaticKey` 留空，每次监听会生成新的 X25519 密钥对，可通过匹配票据分发 `srv.PublicKey().Bytes()`（客户端用 `ecdh.X25519().NewPublicKey` 解析）。缺失或非 X25519 密钥会返回 `ErrInvalidKey`。
+- UDP 握手之后，每个数据报都使用 Noise split 派生的两把方向性密钥做 ChaCha20-Poly1305 认证加密：10 字节明文头部（`type`、`peer`、`seq`、`channel`）作为关联数据参与认证，后接密文与 16 字节 Poly1305 标签（总开销 26 字节），使用隐式的 `direction || peer || seq` nonce 与 64 项重放窗口。发送和接收都会在 32 位序号即将回绕时拒绝继续使用（返回 `ErrSequenceExhausted`）；调用 `Reconnect` 会执行一次新的 Noise NK 握手来更换会话密钥并重置序号。`UDPClient` 空闲时每秒发送一次心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒，最少 3 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
+- 在 `UDPTransport` 上，`AddPeerKey(id, addr, key)` 用 32 字节预共享密钥为点对点数据报提供相同的 26 字节 ChaCha20-Poly1305 封装、重放窗口、防反射保护与序号回绕拒绝（使用新密钥再次调用 `AddPeerKey` 即可换钥）；声称来自已设密钥对端的明文数据报会被丢弃。普通 `AddPeer` 保持无认证、无加密，仅适用于受信任的局域网环境与测试。
+- WebSocket 握手（第 1 版）在应用层不加密，生产环境请使用 `wss://`（`ListenWebSocketTLS` / `ListenWebSocketTLSFiles`）。
 
 ## 服务端权威增量复制
 

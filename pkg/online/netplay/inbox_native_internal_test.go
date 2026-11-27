@@ -171,7 +171,7 @@ func TestWebSocketServerInboxLimitsPerClient(t *testing.T) {
 func TestUDPServerAndClientInboxLimits(t *testing.T) {
 	srv := listenUDPServer(t, Auth{})
 	srv.SetInboxLimits(InboxLimits{Unreliable: 3})
-	cli, err := DialUDP(srv.Addr().String(), nil)
+	cli, err := DialUDP(srv.Addr().String(), srv.PublicKey(), nil)
 	if err != nil {
 		t.Fatalf("DialUDP: %v", err)
 	}
