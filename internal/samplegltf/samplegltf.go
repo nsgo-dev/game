@@ -768,7 +768,11 @@ func padBytes(src []byte, pad byte) []byte {
 	if rem == 0 {
 		return src
 	}
-	out := make([]byte, len(src)+(4-rem))
+	extra := 4 - rem
+	if len(src) > math.MaxInt-extra {
+		panic("samplegltf: buffer too large to pad")
+	}
+	out := make([]byte, len(src)+extra)
 	copy(out, src)
 	for i := len(src); i < len(out); i++ {
 		out[i] = pad
