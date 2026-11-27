@@ -41,6 +41,7 @@ particles := streams.Stream("particles")
 ```
 
 - Every `Stream` runs a self-contained SplitMix64 + Xoshiro256\*\* generator with fixed rejection sampling (`Intn`, `IntRange`, `Float64`, `Float32`, `Range`, `Range32`, `Bool`, `Chance`, `Pick`, `WeightedIndex`, `Shuffle`). The output sequence is bit-for-bit identical across Go versions, operating systems and CPU architectures (32-bit, 64-bit, ARM64, x64 and WebAssembly).
+- Beyond uniform draws, `Normal(mean, stddev)` draws from a normal distribution as a fixed 12-draw Irwin-Hall sum, and `InCircle(r)`, `OnCircle()` and `InRect(x, y, w, h)` return uniformly distributed 2D points inside a circle, on the unit circle (a random direction) and inside a rectangle. They deliberately avoid `math.Sin`, `math.Cos`, `math.Log` and `math.Exp` (which round differently across architectures), so their results are bit-for-bit identical everywhere too.
 - Forking by purpose (`root.Fork("loot")`, `root.Fork("level-1").Fork("spawns")`, or `streams.Stream("loot")`) derives independent child streams without advancing the parent or perturbing siblings. Adding particle effects or reordering stream creation will not change enemy AI or loot drops.
 - Keep cosmetic randomness (particles, camera shake, sound pitch variation) on its own stream so visual tweaks never alter gameplay.
 
