@@ -646,12 +646,14 @@
         "version": {
           "description": "Component schema version (1).",
           "type": "integer",
+          "default": 1,
           "minimum": 1,
           "maximum": 1
         },
         "mode": {
           "description": "Region role: \"walkable\" (adds walkable area) or \"obstacle\" (cuts a hole out of walkable regions).",
           "type": "string",
+          "default": "walkable",
           "enum": [
             "walkable",
             "obstacle"
@@ -671,19 +673,23 @@
         },
         "offsetX": {
           "description": "Local horizontal offset from the object origin.",
-          "type": "number"
+          "type": "number",
+          "default": 0
         },
         "offsetY": {
           "description": "Local vertical offset from the object origin.",
-          "type": "number"
+          "type": "number",
+          "default": 0
         },
         "subtractTileCollision": {
           "description": "When true, subtracts solid tile collision geometry from the scene's tilemaps when baking the 2D navigation mesh.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "tileLayer": {
           "description": "Scene layer whose tilemap provides subtracted collision (empty uses this object's layer or all visible world-space tilemap layers).",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "tileLayers": {
           "description": "Optional tile layer names inside the tilemap whose solid collision is subtracted (empty uses all tile layers).",
@@ -695,11 +701,13 @@
         "agentRadius": {
           "description": "Agent clearance radius in world units (>= 0) used to shrink walkable edges and inflate obstacles during baking.",
           "type": "number",
+          "default": 0,
           "minimum": 0
         },
         "enabled": {
           "description": "Includes this navigation region in the built 2D navigation mesh when true.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false

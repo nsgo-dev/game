@@ -338,6 +338,18 @@ nsgo game merge [flags] <base> <ours> <theirs> [path] | -setup [dir]
 | `-out string` |  | file to write the merged scene or conflict report to (default: overwrite \<ours> in place, as Git expects) |
 | `-setup` |  | register the nsgo-scene merge driver in local Git config and .gitattributes |
 
+## game schema
+
+Write the project's scene JSON Schema, including its registered components and plugins, or the built-in scene schema when the project has no editor command of its own.
+
+```sh
+nsgo game schema [flags] [project-dir | game.yaml]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-out file` |  | write the JSON Schema to file instead of stdout |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

@@ -434,3 +434,39 @@ func TestPackageDocs(t *testing.T) {
 		t.Fatal("PackageDocs of a missing directory succeeded")
 	}
 }
+
+func TestDefaultMarshaling(t *testing.T) {
+	s := &jsonschema.Schema{
+		Types: []jsonschema.Type{jsonschema.TypeObject},
+		Properties: []jsonschema.Property{
+			{Name: "flag", Schema: &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean}, Default: false}},
+			{Name: "count", Schema: &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeInteger}, Default: 0}},
+			{Name: "label", Schema: &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeString}, Default: ""}},
+			{Name: "tags", Schema: &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeArray}, Default: []string{"a"}}},
+			{Name: "unset", Schema: &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeString}}},
+		},
+	}
+	raw, err := s.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	got := string(raw)
+	for _, want := range []string{
+		`"default": false`,
+		`"default": 0`,
+		`"default": ""`,
+		"\"default\": [\n        \"a\"\n      ]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Marshal missing %q:\n%s", want, got)
+		}
+	}
+	// unset has nil Default so it must not emit a default keyword.
+	if strings.Count(got, `"default"`) != 4 {
+		t.Errorf("expected 4 default entries, got %d:\n%s", strings.Count(got, `"default"`), got)
+	}
+	// Default is an annotation keyword and does not restrict validation.
+	if err := s.Validate(map[string]any{"flag": true, "count": 5, "label": "hi"}); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}

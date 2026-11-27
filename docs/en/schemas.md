@@ -111,6 +111,23 @@ For each file, the checks require that:
 
 `TestFormatPackagesRunConformance` in `internal/repocheck` fails when a package decodes YAML with `go.yaml.in/yaml/v3`, however leniently, and none of its tests calls `formattest.Run`, so `go tool nsgo test` in CI fails a new format that skips the checks. A package that decodes YAML without defining a format of its own, such as `loaderr`, is listed in the test's `notFormats` with the reason. The test looks at whole packages, so a package with a second format must run the checks on that one too; one call satisfies it. A hand-written fixture whose comments or layout other tests rely on stays as it is, and its canonical form goes in a file of its own, such as `testdata/canonical/`, for the checks. A format whose version is under another key, such as a mod manifest's `manifestVersion`, sets `VersionField`, and one that reads several versions sets `MaxVersion`. To add a testdata file, write the document, then run the test once with `FORMATTEST_UPDATE=1`, which rewrites each file with what the format saves for it before checking it; comments the encoder does not write are dropped.
 
+## Project scene schemas
+
+The published `scene.v*.json` schemas know only the engine's fixed scene fields and `navregion2d`, leaving every other component free-form. A game with its own components (and plugins) can generate a per-project scene schema that validates every registered component type and field:
+
+```sh
+nsgo game schema -out schemas/scene.json
+```
+
+When the project has its own editor command (`cmd/editor` importing `pkg/editor/editorcmd`, or a `-tags gameeditor` entry point written by `game generate editor`), `game schema` runs it with `-schema`, which prints the JSON Schema for `editorcmd.Options.Components` (with built-in physics and skeletal components added) and exits without opening a window. A project without its own editor command gets the built-in scene schema. Output is deterministic (component names sorted, fields in declaration order, no timestamps), so the generated file can be checked into version control or regenerated in CI.
+
+In Go, `pkg/sceneformat` provides the building blocks directly:
+
+- `(*ComponentRegistry).Merge(other)` registers every component type from `other` into the receiver in an all-or-nothing step, failing with an error naming the colliding component and both definitions if any name is already registered.
+- `ComponentTypeSchema(t)` builds a draft-07 JSON Schema for one `ComponentType`, covering every `FieldKind` (`FieldBool`, `FieldInt`, `FieldFloat`, `FieldString`, `FieldStringList`, `FieldPointList`, `FieldPoint`, `FieldRect`, `FieldCircle`, `FieldPolygon`), `default`, `enum`, numeric bounds, descriptions and `additionalProperties: false`.
+- `(*ComponentRegistry).JSONSchema()` builds the schema of a scene object's `components` map in ascending `Names()` order, refusing unregistered component names when the registry is non-nil.
+- `SceneSchema(reg)` builds the full scene document schema (accepting versions `MinVersion` through `CurrentVersion`) using `reg.JSONSchema()` for `ObjectDoc.components` and `ObjectOverride.components` (or the built-in components with `additionalProperties: {}` when `reg` is nil).
+
 ## Data table schemas
 
 A data table's rows are a game's own Go type, so `datatable.Schema[T]` builds the schema for it, for the game to write next to its tables:

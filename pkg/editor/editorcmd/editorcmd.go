@@ -38,6 +38,8 @@ type Options struct {
 	WindowWidth, WindowHeight core.Points
 	// RequirePlugins makes Run refuse a project whose game.yaml lists an editor plugin that Plugins lacks (editor.Editor.MissingPlugins), for a command that should not edit the project's scenes without them.
 	RequirePlugins bool
+	// Stdout is where -schema writes the project's scene JSON Schema; nil uses os.Stdout.
+	Stdout io.Writer
 }
 
 // New returns an editor on an empty scene with opts' component types, plugins, name and library, and ProjectAssets set, so the project Open opens supplies the scenes' assets. A scene opened outside any project resolves no atlases.
@@ -94,6 +96,24 @@ func withPhysicsComponents(reg *sceneformat.ComponentRegistry) (*sceneformat.Com
 		}
 	}
 	return out, nil
+}
+
+// writeSchema writes the deterministic draft-07 scene JSON Schema for reg (after adding built-in physics and skeletal components) to w.
+func writeSchema(w io.Writer, reg *sceneformat.ComponentRegistry) error {
+	components, err := withPhysicsComponents(reg)
+	if err != nil {
+		return err
+	}
+	s, err := sceneformat.SceneSchema(components)
+	if err != nil {
+		return err
+	}
+	data, err := s.Marshal()
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
 }
 
 // Open opens in ed what an editor command's arguments name, as Usage gives them. args[0] is a project, as its directory or its game.yaml, which opens the project and its main scene (editor.Editor.OpenProject), or a scene file, which opens with the project whose directory holds it, when one does (editor.Editor.OpenProjectScene, which sets ScenePath), and on its own otherwise (editor.Editor.OpenFile). args[1] is an animation clip file the animation panel opens on the object named by args[2], or on the scene's first object; that object is selected, so when the clip file does not exist yet the toolbar's Animate button starts a clip on it, and the panel's Save Clip button writes the clip to args[1]. No arguments open nothing.
@@ -243,17 +263,31 @@ func Serve(cx *core.Scope, ed *editor.Editor, stderr io.Writer) *editormcp.Serve
 // errUsage marks an error in an editor command's command line.
 var errUsage = errors.New("usage")
 
-// Run is an editor command run with args, its command line after the program's name: it parses the -library flag into opts.Library and the arguments Usage gives, builds the editor with New, opens the arguments with Open, or the project in the working directory without any, refuses a project listing plugins the editor lacks when opts.RequirePlugins is set, and shows the editor with launch, or when launch is nil as Show does, in a window of opts.WindowWidth by opts.WindowHeight. Usage and flag errors are reported on stderr and wrap a usage error that Main exits 2 for.
+// Run is an editor command run with args, its command line after the program's name: it parses the -library and -schema flags and the arguments Usage gives. With -schema it writes the project's scene JSON Schema (using opts.Components after adding built-in physics and skeletal components) to opts.Stdout (or os.Stdout) and returns without opening a window. Otherwise it builds the editor with New, opens the arguments with Open, or the project in the working directory without any, refuses a project listing plugins the editor lacks when opts.RequirePlugins is set, and shows the editor with launch, or when launch is nil as Show does, in a window of opts.WindowWidth by opts.WindowHeight. Usage and flag errors are reported on stderr and wrap a usage error that Main exits 2 for.
 func Run(args []string, opts Options, stderr io.Writer, launch func(*editor.Editor)) error {
 	fs := flag.NewFlagSet("editor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "usage: editor [-library index] %s\n", Usage)
+		fmt.Fprintf(stderr, "usage: editor [-library index] [-schema] %s\n", Usage)
 		fs.PrintDefaults()
 	}
 	lib := fs.String("library", opts.Library, "show the library panel, which installs packs into the open project, for this library index: an https URL such as "+library.DefaultIndex+", an index file, or a directory holding index.yaml")
+	schemaFlag := fs.Bool("schema", false, "write the project's scene JSON Schema to stdout and exit without opening a window")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("%w: %w", errUsage, err)
+	}
+	if *schemaFlag {
+		if fs.NArg() > 0 {
+			err := fmt.Errorf("-schema takes no arguments, got %d", fs.NArg())
+			fmt.Fprintf(stderr, "editor: %v\n", err)
+			fs.Usage()
+			return fmt.Errorf("%w: %w", errUsage, err)
+		}
+		out := opts.Stdout
+		if out == nil {
+			out = os.Stdout
+		}
+		return writeSchema(out, opts.Components)
 	}
 	if fs.NArg() > 3 {
 		err := fmt.Errorf("expected at most a project or scene file, a clip file and an object ID, got %d arguments", fs.NArg())

@@ -427,7 +427,7 @@ func generate(root string) ([]schemaFile, error) {
 					if s.Definitions == nil {
 						s.Definitions = make(map[string]*jsonschema.Schema)
 					}
-					s.Definitions["NavRegion2DComponent"] = componentTypeSchema(sceneformat.NavRegion2DComponent())
+					s.Definitions["NavRegion2DComponent"] = sceneformat.ComponentTypeSchema(sceneformat.NavRegion2DComponent())
 					comps.Properties = append(comps.Properties, jsonschema.Property{
 						Name: sceneformat.NavRegion2DComponentName,
 						Schema: &jsonschema.Schema{
@@ -531,52 +531,6 @@ func generate(root string) ([]schemaFile, error) {
 		files = append(files, schemaFile{name: path.Base(f.url), schema: s, data: data})
 	}
 	return files, nil
-}
-
-func componentTypeSchema(ct sceneformat.ComponentType) *jsonschema.Schema {
-	props := make([]jsonschema.Property, 0, len(ct.Fields))
-	for _, f := range ct.Fields {
-		fs := &jsonschema.Schema{Description: f.Doc}
-		switch f.Kind {
-		case sceneformat.FieldBool:
-			fs.Types = []jsonschema.Type{jsonschema.TypeBoolean}
-		case sceneformat.FieldInt:
-			fs.Types = []jsonschema.Type{jsonschema.TypeInteger}
-			fs.Minimum = f.Min
-			fs.Maximum = f.Max
-		case sceneformat.FieldFloat:
-			fs.Types = []jsonschema.Type{jsonschema.TypeNumber}
-			fs.Minimum = f.Min
-			fs.Maximum = f.Max
-		case sceneformat.FieldString:
-			fs.Types = []jsonschema.Type{jsonschema.TypeString}
-			if len(f.Enum) > 0 {
-				fs.Enum = make([]any, len(f.Enum))
-				for i, v := range f.Enum {
-					fs.Enum[i] = v
-				}
-			}
-		case sceneformat.FieldStringList:
-			fs.Types = []jsonschema.Type{jsonschema.TypeArray}
-			fs.Items = &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeString}}
-		case sceneformat.FieldPointList:
-			fs.Types = []jsonschema.Type{jsonschema.TypeArray}
-			two := 2
-			fs.Items = &jsonschema.Schema{
-				Types:    []jsonschema.Type{jsonschema.TypeArray},
-				MinItems: &two,
-				MaxItems: &two,
-				Items:    &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeNumber}},
-			}
-		}
-		props = append(props, jsonschema.Property{Name: f.Name, Schema: fs})
-	}
-	return &jsonschema.Schema{
-		Description:          ct.Doc,
-		Types:                []jsonschema.Type{jsonschema.TypeObject},
-		Properties:           props,
-		AdditionalProperties: jsonschema.False(),
-	}
 }
 
 func run(args []string, stdout, stderr io.Writer) error {

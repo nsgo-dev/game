@@ -2,6 +2,7 @@ package editorcmd_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -211,5 +212,78 @@ func TestRunRequirePluginsRefusesAProjectListingPluginsItLacks(t *testing.T) {
 	var shown *editor.Editor
 	if err := editorcmd.Run([]string{dir}, editorcmd.Options{}, &stderr, func(ed *editor.Editor) { shown = ed }); err != nil || shown == nil {
 		t.Fatalf("Run without RequirePlugins = %v, showed %v", err, shown)
+	}
+}
+
+func TestRunSchemaFlagWritesSceneSchemaWithoutWindow(t *testing.T) {
+	reg := healthComponents()
+	// Also override a physics component name to confirm game's type wins in withPhysicsComponents.
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "body2d",
+		Doc:    "Custom body2d.",
+		Fields: []sceneformat.Field{{Name: "customMass", Kind: sceneformat.FieldFloat, Default: 2.0}},
+	})
+
+	var stdout, stderr bytes.Buffer
+	opts := editorcmd.Options{Components: reg, Stdout: &stdout}
+	if err := editorcmd.Run([]string{"-schema"}, opts, &stderr, func(*editor.Editor) {
+		t.Error("launch called when -schema was passed")
+	}); err != nil {
+		t.Fatalf("Run(-schema): %v (stderr: %s)", err, &stderr)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("invalid JSON from -schema: %v\n%s", err, &stdout)
+	}
+	defs := doc["definitions"].(map[string]any)
+	comps := defs["Components"].(map[string]any)
+	props := comps["properties"].(map[string]any)
+	for _, want := range []string{"health", "body2d", "collider2d", "skeletal"} {
+		if _, ok := props[want]; !ok {
+			t.Errorf("-schema missing component %q", want)
+		}
+	}
+	bodyProps := props["body2d"].(map[string]any)["properties"].(map[string]any)
+	if _, ok := bodyProps["customMass"]; !ok {
+		t.Errorf("body2d did not keep game's custom type: %#v", bodyProps)
+	}
+	if comps["additionalProperties"] != false {
+		t.Errorf("Components.additionalProperties = %v, want false", comps["additionalProperties"])
+	}
+
+	// Deterministic output across repeated runs.
+	var second bytes.Buffer
+	if err := editorcmd.Run([]string{"-schema"}, editorcmd.Options{Components: reg, Stdout: &second}, &stderr, func(*editor.Editor) {
+		t.Error("launch called")
+	}); err != nil {
+		t.Fatalf("second Run(-schema): %v", err)
+	}
+	if !bytes.Equal(stdout.Bytes(), second.Bytes()) {
+		t.Fatal("-schema output is not deterministic")
+	}
+
+	// Nil Components produces the built-in free-form schema.
+	var builtin bytes.Buffer
+	if err := editorcmd.Run([]string{"-schema"}, editorcmd.Options{Stdout: &builtin}, &stderr, func(*editor.Editor) {
+		t.Error("launch called")
+	}); err != nil {
+		t.Fatalf("Run(-schema) with nil Components: %v", err)
+	}
+	var builtinDoc map[string]any
+	if err := json.Unmarshal(builtin.Bytes(), &builtinDoc); err != nil {
+		t.Fatalf("invalid JSON from builtin -schema: %v", err)
+	}
+	builtinComps := builtinDoc["definitions"].(map[string]any)["Components"].(map[string]any)
+	if _, isMap := builtinComps["additionalProperties"].(map[string]any); !isMap {
+		t.Errorf("builtin Components.additionalProperties = %#v, want empty object", builtinComps["additionalProperties"])
+	}
+
+	// Extra arguments with -schema return a usage error.
+	stderr.Reset()
+	if err := editorcmd.Run([]string{"-schema", "extra"}, editorcmd.Options{Stdout: &builtin}, &stderr, func(*editor.Editor) {
+		t.Error("launch called")
+	}); err == nil || !strings.Contains(stderr.String(), "-schema takes no arguments") {
+		t.Fatalf("Run(-schema extra) = %v, stderr %q; want usage error", err, &stderr)
 	}
 }

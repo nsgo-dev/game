@@ -111,6 +111,23 @@ func TestFormatConformance(t *testing.T) {
 
 `internal/repocheck` 中的 `TestFormatPackagesRunConformance` 会在某个包用 `go.yaml.in/yaml/v3` 解码 YAML（无论是否宽松）、却没有任何测试调用 `formattest.Run` 时失败，因此跳过检查的新格式会让 CI 中的 `go tool nsgo test` 失败。解码 YAML 但不定义自己格式的包（例如 `loaderr`）列在该测试的 `notFormats` 中并写明理由。该测试以包为单位检查，调用一次即可满足，所以包含第二种格式的包必须自己为它也运行这些检查。其他测试依赖其注释或排版的手写 fixture 保持原样，它的规范形式另存为单独的文件（例如放在 `testdata/canonical/` 下）供这些检查使用。版本号放在其他键下的格式（例如 mod 清单的 `manifestVersion`）设置 `VersionField`，能读取多个版本的格式设置 `MaxVersion`。新增 testdata 文件时，先写好文档，再用 `FORMATTEST_UPDATE=1` 运行一次测试：它会在检查前用格式为每个文件保存出的内容重写该文件，编码器不会写出的注释会被丢弃。
 
+## 项目场景 Schema
+
+已发布的 `scene.v*.json` 只了解引擎固定的场景字段和 `navregion2d`，其余组件都保持自由格式。拥有自定义组件（及插件）的游戏可以生成项目专属的场景 Schema，校验每一个已注册的组件类型和字段：
+
+```sh
+nsgo game schema -out schemas/scene.json
+```
+
+当项目有自己的编辑器命令时（`cmd/editor` 中导入 `pkg/editor/editorcmd` 的命令，或 `game generate editor` 写出的 `-tags gameeditor` 入口），`game schema` 会以 `-schema` 运行它，直接输出 `editorcmd.Options.Components`（附加内置物理和骨骼组件后）的场景 JSON Schema 并退出，不打开窗口。没有自己编辑器命令的项目会获得内置场景 Schema。输出是完全确定的（组件名升序排列、字段保持声明顺序、无时间戳），可以提交进版本控制或在 CI 中检查。
+
+在 Go 中，`pkg/sceneformat` 直接提供相应的构建能力：
+
+- `(*ComponentRegistry).Merge(other)` 将 `other` 中的所有组件类型以原子方式（全有或全无）合并到接收者中；若存在同名冲突，保持接收者不变，并在错误中列出冲突组件名与双方定义。
+- `ComponentTypeSchema(t)` 为单个 `ComponentType` 构建 draft-07 JSON Schema，覆盖全部 `FieldKind`（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString`、`FieldStringList`、`FieldPointList`、`FieldPoint`、`FieldRect`、`FieldCircle`、`FieldPolygon`），并输出 `default`、`enum`、数值范围、说明和 `additionalProperties: false`。
+- `(*ComponentRegistry).JSONSchema()` 按 `Names()` 升序生成场景对象 `components` 映射的 Schema，注册表非空时拒绝未注册的组件名。
+- `SceneSchema(reg)` 构建完整的场景文档 Schema（接受 `MinVersion` 至 `CurrentVersion` 的版本），为 `ObjectDoc.components` 和 `ObjectOverride.components` 应用 `reg.JSONSchema()`（`reg` 为 nil 时为内置组件生成类型定义并保留 `additionalProperties: {}`）。
+
 ## 数据表的 Schema
 
 数据表的行是游戏自己的 Go 类型，因此由 `datatable.Schema[T]` 为其构建 Schema，游戏把它写在数据表旁边：

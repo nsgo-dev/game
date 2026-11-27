@@ -47,6 +47,7 @@ nsgo game new mygame
 | `pixelfx` | 把 pixelfx 特效或其表演版本渲染为 PNG 精灵表和供 `sprite.LoadAtlas` 读取的 Aseprite JSON |
 | `navmesh` | 把场景的 glTF 关卡几何体为 `game.yaml` 声明的每种代理类型烘焙成导航网格，写入场景的 `navMesh` 指定的文件 |
 | `merge` | 为 Git 按对象合并场景 YAML 文件，或在项目中配置 `nsgo-scene` Git 合并驱动 |
+| `schema` | 输出项目的场景 JSON Schema（含项目注册的组件与插件），项目没有自己的编辑器命令时输出内置场景 Schema |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
@@ -531,6 +532,16 @@ go tool game merge -out merged.scene.yaml base.scene.yaml ours.scene.yaml theirs
 Git 用 `<base> <ours> <theirs> [path]` 调用驱动时，无冲突合并会用规范的场景 YAML 覆盖 `<ours>`（或写入 `-out`）并以 0 退出。空的 `<base>` 文件（Git 的双侧新增冲突）会以空祖先为基准合并 `<ours>` 与 `<theirs>`。当双方把同一字段改为不同值、一方删除而另一方修改、双方以相同 ID 新增不同对象、重设父节点冲突或形成环，或合并结果无法通过 `sceneformat.Validate` 时，驱动会写出带版本号、确定性的[场景合并冲突报告](formats.md#场景合并冲突报告)（`version: 1` YAML，列出每个冲突的对象、字段以及 `base`、`ours` 和 `theirs` 三个值）到 `<ours>`（或 `-conflict-out` / `-out`），并以 1 退出，让 Git 将该路径标记为未合并。
 
 `-setup [dir]` 在仓库的本地 Git 配置中注册 `merge.nsgo-scene.name` 和 `merge.nsgo-scene.driver`（`go tool game merge %O %A %B %P`），并确保 `.gitattributes` 将 `*.scene.yaml` 和 `*.scene.yml` 指向 `merge=nsgo-scene`。用 `game new` 创建的新项目已包含 `.gitattributes`，在已有的 Git 仓库中创建时还会自动完成本地驱动配置。
+
+### schema
+
+```sh
+nsgo game schema
+nsgo game schema -out schemas/scene.json
+nsgo game schema -out schemas/scene.json path/to/project
+```
+
+把项目的 draft-07 场景 JSON Schema 输出到标准输出或写入 `-out`，组件名按升序排列、属性顺序稳定、输出完全确定（见 [YAML 文件的 Schema](schemas.md#项目场景-schema)）。由于 `game` CLI 无法直接看到项目的 Go 类型，当项目拥有自己的编辑器命令时（`cmd/editor` 中导入 `pkg/editor/editorcmd` 的 `main` 包，或由 `game generate editor` 写出、用 `-tags gameeditor` 构建的 `main`），`game schema` 会以 `-schema` 运行该命令，直接输出 `editorcmd.Options.Components`（包含插件以及内置物理和骨骼组件）的场景 Schema 并退出，不打开窗口。没有自己编辑器命令的项目会得到内置场景 Schema，其中内置物理、骨骼和 2D 导航区域组件带有完整类型定义，而自定义组件保持自由格式。
 
 ### completion
 
