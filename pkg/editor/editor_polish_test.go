@@ -1,6 +1,7 @@
 package editor_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -266,6 +267,15 @@ func TestFirstRunConnectStepWrapsInsideCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	ed.SetStartProjectParentDir(parent)
+	// StartWithAI picks the first detected agent CLI and falls back to an API key, which has no connect steps, so the test fixes what it detects and never starts a real agent on a host that has one.
+	ed.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
+		return []editor.FirstRunAgentOption{
+			{Kind: "claude", Name: "Claude Code", Description: "Found on this computer", Detected: true, ExecutablePath: "/usr/local/bin/claude"},
+			{Kind: "codex", Name: "Codex", Description: "Not installed", Detected: false},
+			{Kind: "apikey", Name: "An API key", Description: "The editor calls the model itself", Detected: true},
+		}
+	}
+	ed.FirstRunConnectAgent = func(context.Context, string, string) (int, error) { return 18, nil }
 	if err := ed.StartWithAI(); err != nil {
 		t.Fatalf("StartWithAI: %v", err)
 	}
