@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )

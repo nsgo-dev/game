@@ -1,4 +1,4 @@
-package world3d
+package pathfind3d
 
 import (
 	"math"
@@ -122,7 +122,7 @@ func isFiniteVec3(v math3d.Vec3) bool {
 	return isFinite32(v.X) && isFinite32(v.Y) && isFinite32(v.Z)
 }
 
-// NavAgent navigates a 3D world3d.NavMesh by maintaining an active polygon corridor,
+// NavAgent navigates a 3D NavMesh by maintaining an active polygon corridor,
 // steering smoothly along XZ toward the next funnel corner while tracking exact 3D surface
 // height across sloped ramps and multi-level bridges, repairing its corridor locally when pushed
 // or when the target shifts, and invoking callbacks for off-mesh or flagged links.

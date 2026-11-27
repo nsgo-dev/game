@@ -68,7 +68,7 @@ if err != nil {
 | `entities` | `LoadWorld`、`World.Restore` | 实体索引、父实体和组件，按字段 |
 | `assets` | `ParsePackManifest`、`Manager.LoadAtlas`、`Group` 中的图集 | 解码错误；图集给出其 URI |
 | `world3d`、`voxel`、`render3d` | `LoadMeshLibraryFromGLTF`、`world3d.Parse*`、`voxel.Parse`、`ParseLightProbeGrid`、`LoadLightProbeGridFS` | 版本、包围盒、计数、网格、体素块和探针系数，按字段；`render3d.ErrInvalidProbe` 仍在错误链中 |
-| `ai`、`pathfind/navbake`、`ai/navbake3d` | `ParseGOAP`、`ParseUtility`、`navbake.Parse`、`navbake3d.Parse` | 事实、动作、目标、曲线、多边形和跨网格链接，按字段 |
+| `ai`、`pathfind/navbake`、`pathfind3d/navbake3d` | `ParseGOAP`、`ParseUtility`、`navbake.Parse`、`navbake3d.Parse` | 事实、动作、目标、曲线、多边形和跨网格链接，按字段 |
 | `quest`、`rooms`、`loot`、`inventory`、`ability`、`stats`、`cards`、`worldmap`、`cutscene`、`vn`、`bullets`、`framedata`、`fighting`、`platformer`、`vehicle`、`rts`、`rhythm`、`idle`、`procgen`、`quality` | 各包的 YAML `Parse*` 和 `Load*` 入口 | 解码错误、自定义时长/范围以及每条校验规则，按字段；`quest.ErrInvalidBook`、`rooms.ErrInvalidMap` 和 `stats.Err*` 等哨兵错误仍在错误链中 |
 | `online/accounts`、`online/accounts/authtoken`、`online/achievements`、`online/cloudsave`、`online/leaderboard`、`online/leaderboard/selfhost`、`online/liveops`、`online/netplay/wire` | 各包的 YAML `Parse*` 和 `Load*` 入口 | 服务配置、密钥集、目录、提醒和线协议模式，按字段 |
 | `tooling/playtest` | `ParseConfig`、`LoadConfigFile`、`ParseReport`、`LoadReportFile` | 范围、运行配置、机器人配置、指标、目标和报告各节，按字段 |

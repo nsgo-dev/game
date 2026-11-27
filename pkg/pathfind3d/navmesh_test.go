@@ -1,4 +1,4 @@
-package world3d_test
+package pathfind3d_test
 
 import (
 	"math"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 )
 
 func assertPath3D(t *testing.T, got, want []math3d.Vec3, tol float32) {
@@ -27,20 +27,20 @@ func TestNavMesh3DAreaCostsPreferRoadOverGrass(t *testing.T) {
 	// - Poly 1 (grass strip): [2, 18] x [0, 5]   (direct geometric line for (1,0,2) -> (19,0,2))
 	// - Poly 2 (road strip):  [2, 18] x [5, 10]  (cheaper area cost: 0.5 vs grass 1.0)
 	// - Poly 3 (east grass):  [18, 20] x [0, 10]
-	nm := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
-		{Vertices: quadXZ(0, 0, 2, 10, 0), Area: world3d.NavAreaGrass},
-		{Vertices: quadXZ(2, 0, 18, 5, 0), Area: world3d.NavAreaGrass},
-		{Vertices: quadXZ(2, 5, 18, 10, 0), Area: world3d.NavAreaRoad},
-		{Vertices: quadXZ(18, 0, 20, 10, 0), Area: world3d.NavAreaGrass},
+	nm := pathfind3d.BuildNavMeshWithAreas([]pathfind3d.NavPolygonInput{
+		{Vertices: quadXZ(0, 0, 2, 10, 0), Area: pathfind3d.NavAreaGrass},
+		{Vertices: quadXZ(2, 0, 18, 5, 0), Area: pathfind3d.NavAreaGrass},
+		{Vertices: quadXZ(2, 5, 18, 10, 0), Area: pathfind3d.NavAreaRoad},
+		{Vertices: quadXZ(18, 0, 20, 10, 0), Area: pathfind3d.NavAreaGrass},
 	}, math3d.DegToRad(45))
 
 	if nm.PolygonCount() != 4 {
 		t.Fatalf("PolygonCount = %d, want 4", nm.PolygonCount())
 	}
-	if nm.PolygonArea(1) != world3d.NavAreaGrass || nm.PolygonArea(2) != world3d.NavAreaRoad {
+	if nm.PolygonArea(1) != pathfind3d.NavAreaGrass || nm.PolygonArea(2) != pathfind3d.NavAreaRoad {
 		t.Fatalf("unexpected areas: grass=%d road=%d", nm.PolygonArea(1), nm.PolygonArea(2))
 	}
-	if nm.PolygonFlags(2) != world3d.NavFlagWalk {
+	if nm.PolygonFlags(2) != pathfind3d.NavFlagWalk {
 		t.Fatalf("zero input flags should default to NavFlagWalk, got %v", nm.PolygonFlags(2))
 	}
 
@@ -54,7 +54,7 @@ func TestNavMesh3DAreaCostsPreferRoadOverGrass(t *testing.T) {
 	}
 	assertPath3D(t, defaultPath, []math3d.Vec3{start, goal}, 1e-3)
 
-	// Shared pathfind.NavFilter works directly with world3d.NavMesh (type alias).
+	// Shared pathfind.NavFilter works directly with pathfind3d.NavMesh (type alias).
 	filter := pathfind.DefaultNavFilter()
 	filter.SetAreaCost(pathfind.NavAreaRoad, 0.5)
 	filter.SetAreaCost(pathfind.NavAreaGrass, 1.0)
@@ -81,8 +81,8 @@ func TestNavMesh3DAreaCostsPreferRoadOverGrass(t *testing.T) {
 	}
 
 	// Mutating road polygon to mud at runtime restores the straight grass route without rebuilding.
-	nm.SetPolygonArea(2, world3d.NavAreaMud)
-	filter.SetAreaCost(world3d.NavAreaMud, 2.5)
+	nm.SetPolygonArea(2, pathfind3d.NavAreaMud)
+	filter.SetAreaCost(pathfind3d.NavAreaMud, 2.5)
 	afterMud, ok := nm.FindPathWithFilter(start, goal, filter)
 	if !ok {
 		t.Fatal("expected path after runtime area change")
@@ -92,20 +92,20 @@ func TestNavMesh3DAreaCostsPreferRoadOverGrass(t *testing.T) {
 
 func TestNavMesh3DExcludeWaterAndSwimmingAgent(t *testing.T) {
 	// Ring around a central water basin [4, 16] x [2, 8] at Y=0:
-	nm := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
-		{Vertices: quadXZ(0, 0, 4, 10, 0), Area: world3d.NavAreaGrass, Flags: world3d.NavFlagWalk},
-		{Vertices: quadXZ(16, 0, 20, 10, 0), Area: world3d.NavAreaGrass, Flags: world3d.NavFlagWalk},
-		{Vertices: quadXZ(4, 2, 16, 8, 0), Area: world3d.NavAreaWater, Flags: world3d.NavFlagSwim},
-		{Vertices: quadXZ(4, 8, 16, 10, 0), Area: world3d.NavAreaGrass, Flags: world3d.NavFlagWalk},
-		{Vertices: quadXZ(4, 0, 16, 2, 0), Area: world3d.NavAreaGrass, Flags: world3d.NavFlagWalk},
+	nm := pathfind3d.BuildNavMeshWithAreas([]pathfind3d.NavPolygonInput{
+		{Vertices: quadXZ(0, 0, 4, 10, 0), Area: pathfind3d.NavAreaGrass, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: quadXZ(16, 0, 20, 10, 0), Area: pathfind3d.NavAreaGrass, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: quadXZ(4, 2, 16, 8, 0), Area: pathfind3d.NavAreaWater, Flags: pathfind3d.NavFlagSwim},
+		{Vertices: quadXZ(4, 8, 16, 10, 0), Area: pathfind3d.NavAreaGrass, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: quadXZ(4, 0, 16, 2, 0), Area: pathfind3d.NavAreaGrass, Flags: pathfind3d.NavFlagWalk},
 	}, math3d.DegToRad(45))
 
 	start := math3d.Vec3{X: 2, Y: 0, Z: 3}
 	goal := math3d.Vec3{X: 18, Y: 0, Z: 3}
 
 	// Land filter excludes water flag: detours around south edge (4,0,2) -> (16,0,2).
-	landFilter := world3d.DefaultNavFilter()
-	landFilter.ExcludeFlags |= world3d.NavFlagSwim
+	landFilter := pathfind3d.DefaultNavFilter()
+	landFilter.ExcludeFlags |= pathfind3d.NavFlagSwim
 	landPath, ok := nm.FindPathWithFilter(start, goal, landFilter)
 	if !ok {
 		t.Fatal("expected 3D land path around water")
@@ -118,9 +118,9 @@ func TestNavMesh3DExcludeWaterAndSwimmingAgent(t *testing.T) {
 	}, 1e-3)
 
 	// Swimming agent crosses water directly.
-	swimFilter := world3d.NavFilter{
-		IncludeFlags: world3d.NavFlagWalk | world3d.NavFlagSwim,
-		ExcludeFlags: world3d.NavFlagDisabled,
+	swimFilter := pathfind3d.NavFilter{
+		IncludeFlags: pathfind3d.NavFlagWalk | pathfind3d.NavFlagSwim,
+		ExcludeFlags: pathfind3d.NavFlagDisabled,
 	}
 	swimPath, ok := nm.FindPathWithFilter(start, goal, swimFilter)
 	if !ok {
@@ -149,11 +149,11 @@ func TestNavMesh3DRuntimeDoorToggleWithoutRebuild(t *testing.T) {
 	// West hall [0,4]x[0,10], East hall [8,12]x[0,10],
 	// Direct doorway [4,8]x[4,6] (Poly 2, NavAreaDoor, NavFlagWalk|NavFlagDoor),
 	// Northern bypass [4,8]x[8,10] (Poly 3, NavFlagWalk).
-	nm := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
-		{Vertices: quadXZ(0, 0, 4, 10, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagWalk},
-		{Vertices: quadXZ(8, 0, 12, 10, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagWalk},
-		{Vertices: quadXZ(4, 4, 8, 6, 0), Area: world3d.NavAreaDoor, Flags: world3d.NavFlagWalk | world3d.NavFlagDoor},
-		{Vertices: quadXZ(4, 8, 8, 10, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagWalk},
+	nm := pathfind3d.BuildNavMeshWithAreas([]pathfind3d.NavPolygonInput{
+		{Vertices: quadXZ(0, 0, 4, 10, 0), Area: pathfind3d.NavAreaDefault, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: quadXZ(8, 0, 12, 10, 0), Area: pathfind3d.NavAreaDefault, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: quadXZ(4, 4, 8, 6, 0), Area: pathfind3d.NavAreaDoor, Flags: pathfind3d.NavFlagWalk | pathfind3d.NavFlagDoor},
+		{Vertices: quadXZ(4, 8, 8, 10, 0), Area: pathfind3d.NavAreaDefault, Flags: pathfind3d.NavFlagWalk},
 	}, math3d.DegToRad(45))
 
 	start := math3d.Vec3{X: 2, Y: 0, Z: 5}
@@ -168,7 +168,7 @@ func TestNavMesh3DRuntimeDoorToggleWithoutRebuild(t *testing.T) {
 	assertPath3D(t, openPath, []math3d.Vec3{start, goal}, 1e-3)
 
 	// Close door at runtime -> detours via northern bypass (4,0,8)->(8,0,8).
-	nm.AddPolygonFlags(doorPoly, world3d.NavFlagDisabled)
+	nm.AddPolygonFlags(doorPoly, pathfind3d.NavFlagDisabled)
 	closedPath, ok := nm.FindPath(start, goal)
 	if !ok {
 		t.Fatal("expected 3D detour when door is closed")
@@ -181,7 +181,7 @@ func TestNavMesh3DRuntimeDoorToggleWithoutRebuild(t *testing.T) {
 	}, 1e-3)
 
 	// Reopen door -> restores straight shortcut immediately without rebuilding.
-	nm.ClearPolygonFlags(doorPoly, world3d.NavFlagDisabled)
+	nm.ClearPolygonFlags(doorPoly, pathfind3d.NavFlagDisabled)
 	reopenedPath, ok := nm.FindPath(start, goal)
 	if !ok {
 		t.Fatal("expected straight 3D path after reopening door")
@@ -216,13 +216,13 @@ func TestNavMesh3DMultiLevelRampWithAreasAndFilter(t *testing.T) {
 		{X: 12, Y: 0, Z: 6},
 		{X: 12, Y: 0, Z: 2},
 	}
-	nm := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
-		{Vertices: quadXZ(0, -2, 12, 2, 0), Area: world3d.NavAreaGrass},
-		{Vertices: quadXZ(12, -2, 16, 2, 0), Area: world3d.NavAreaGrass},
-		{Vertices: quadXZ(12, 2, 16, 6, 0), Area: world3d.NavAreaGrass},
-		{Vertices: ramp, Area: world3d.NavAreaDoor, Flags: world3d.NavFlagWalk | world3d.NavFlagDoor},
-		{Vertices: quadXZ(2, 2, 6, 6, 3), Area: world3d.NavAreaRoad},
-		{Vertices: quadXZ(2, -2, 10, 2, 3), Area: world3d.NavAreaRoad},
+	nm := pathfind3d.BuildNavMeshWithAreas([]pathfind3d.NavPolygonInput{
+		{Vertices: quadXZ(0, -2, 12, 2, 0), Area: pathfind3d.NavAreaGrass},
+		{Vertices: quadXZ(12, -2, 16, 2, 0), Area: pathfind3d.NavAreaGrass},
+		{Vertices: quadXZ(12, 2, 16, 6, 0), Area: pathfind3d.NavAreaGrass},
+		{Vertices: ramp, Area: pathfind3d.NavAreaDoor, Flags: pathfind3d.NavFlagWalk | pathfind3d.NavFlagDoor},
+		{Vertices: quadXZ(2, 2, 6, 6, 3), Area: pathfind3d.NavAreaRoad},
+		{Vertices: quadXZ(2, -2, 10, 2, 3), Area: pathfind3d.NavAreaRoad},
 	}, math3d.DegToRad(45))
 	nm.VerticalTolerance = 1.2
 
@@ -235,26 +235,26 @@ func TestNavMesh3DMultiLevelRampWithAreasAndFilter(t *testing.T) {
 	}
 
 	// Disable ramp at runtime -> bridge becomes unreachable from ground floor.
-	nm.AddPolygonFlags(3, world3d.NavFlagDisabled)
+	nm.AddPolygonFlags(3, pathfind3d.NavFlagDisabled)
 	if _, ok := nm.FindPath(start, goal); ok {
 		t.Fatal("expected bridge to be unreachable while ramp is disabled")
 	}
 
 	// Re-enable ramp -> climb succeeds again.
-	nm.ClearPolygonFlags(3, world3d.NavFlagDisabled)
+	nm.ClearPolygonFlags(3, pathfind3d.NavFlagDisabled)
 	if _, ok := nm.FindPath(start, goal); !ok {
 		t.Fatal("expected climb path after re-enabling ramp")
 	}
 
 	// Nil/out-of-range safety and invalid cost filtering.
-	var nilMesh *world3d.NavMesh
-	if nilMesh.PolygonCount() != 0 || nilMesh.PolygonArea(0) != world3d.NavAreaDefault || nilMesh.PolygonFlags(0) != 0 {
+	var nilMesh *pathfind3d.NavMesh
+	if nilMesh.PolygonCount() != 0 || nilMesh.PolygonArea(0) != pathfind3d.NavAreaDefault || nilMesh.PolygonFlags(0) != 0 {
 		t.Fatal("nil NavMesh getters returned unexpected values")
 	}
-	nilMesh.SetPolygonArea(0, world3d.NavAreaRoad)
-	nilMesh.SetPolygonFlags(0, world3d.NavFlagDisabled)
-	badFilter := world3d.DefaultNavFilter()
-	badFilter.SetAreaCost(world3d.NavAreaRoad, math.NaN())
+	nilMesh.SetPolygonArea(0, pathfind3d.NavAreaRoad)
+	nilMesh.SetPolygonFlags(0, pathfind3d.NavFlagDisabled)
+	badFilter := pathfind3d.DefaultNavFilter()
+	badFilter.SetAreaCost(pathfind3d.NavAreaRoad, math.NaN())
 	if _, ok := nm.FindPathWithFilter(start, goal, badFilter); ok {
 		t.Fatal("NaN area cost on destination polygon should forbid path")
 	}

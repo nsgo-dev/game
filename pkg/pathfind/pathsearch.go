@@ -56,7 +56,7 @@ func (s SearchStatus) String() string {
 
 // IncrementalSearch is a deterministic path search that advances in bounded expansion steps.
 //
-// *AStarSearch, *NavMeshSearch, and *world3d.NavMeshSearch all implement IncrementalSearch
+// *AStarSearch, *NavMeshSearch, and *pathfind3d.NavMeshSearch all implement IncrementalSearch
 // so a single PathQueue can service mixed 2D grid, 2D NavMesh, and 3D NavMesh requests
 // within one shared per-step expansion budget.
 type IncrementalSearch interface {

@@ -1,4 +1,4 @@
-package world3d_test
+package pathfind3d_test
 
 import (
 	"slices"
@@ -6,10 +6,10 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 )
 
-func buildGridNavMesh3D(cols, rows int, blocked map[[2]int]bool) *world3d.NavMesh {
+func buildGridNavMesh3D(cols, rows int, blocked map[[2]int]bool) *pathfind3d.NavMesh {
 	var polys [][]math3d.Vec3
 	const cellSize = 4.0
 	for r := range rows {
@@ -22,10 +22,10 @@ func buildGridNavMesh3D(cols, rows int, blocked map[[2]int]bool) *world3d.NavMes
 			polys = append(polys, quadXZ(x0, z0, x0+cellSize, z0+cellSize, 0))
 		}
 	}
-	return world3d.BuildNavMesh(polys, math3d.DegToRad(45))
+	return pathfind3d.BuildNavMesh(polys, math3d.DegToRad(45))
 }
 
-func assertNav3DResultEqual(t *testing.T, label string, got, want world3d.NavPathResult) {
+func assertNav3DResultEqual(t *testing.T, label string, got, want pathfind3d.NavPathResult) {
 	t.Helper()
 	if got.Found != want.Found || got.Partial != want.Partial || got.Exhausted != want.Exhausted || got.Expansions != want.Expansions {
 		t.Fatalf("%s metadata mismatch:\ngot  = {Found:%v Partial:%v Exhausted:%v Expansions:%d}\nwant = {Found:%v Partial:%v Exhausted:%v Expansions:%d}",
@@ -52,7 +52,7 @@ func TestNavMesh3DPartialAndBudgeted(t *testing.T) {
 	bridgeDeck := quadXZ(2, -2, 10, 2, 3)
 	island := quadXZ(20, -2, 24, 2, 3)
 
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		ground,
 		eastLanding,
 		northApproach,
@@ -150,7 +150,7 @@ func TestNavMesh3DIncrementalMatchesSingleShot(t *testing.T) {
 
 	scenarios := []struct {
 		name string
-		mesh *world3d.NavMesh
+		mesh *pathfind3d.NavMesh
 		opts pathfind.PathOptions
 	}{
 		{"complete", nm, pathfind.PathOptions{AllowPartial: true}},
@@ -184,7 +184,7 @@ func TestNavMesh3DIncrementalMatchesSingleShot(t *testing.T) {
 		}
 	}
 	// Multi-level ramp/bridge incremental equivalence (1 expansion per step).
-	rampNM := world3d.BuildNavMesh([][]math3d.Vec3{
+	rampNM := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		quadXZ(0, -2, 12, 2, 0),
 		quadXZ(12, -2, 16, 2, 0),
 		quadXZ(12, 2, 16, 6, 0),
@@ -211,12 +211,12 @@ func TestNavMesh3DWithPathQueueAndDeterminism(t *testing.T) {
 	}
 	nm := buildGridNavMesh3D(10, 10, blocked)
 
-	runOnce := func() ([]int, []world3d.NavPathResult) {
+	runOnce := func() ([]int, []pathfind3d.NavPathResult) {
 		q := pathfind.NewPathQueue(pathfind.PathQueueConfig{
 			Policy:    pathfind.PathQueueRoundRobin,
 			SliceSize: 4,
 		})
-		searches := make([]*world3d.NavMeshSearch, 12)
+		searches := make([]*pathfind3d.NavMeshSearch, 12)
 		for i := range 12 {
 			start := math3d.Vec3{X: float32(2 + (i%3)*4), Y: 0, Z: float32(2 + (i%9)*4)}
 			goal := math3d.Vec3{X: float32(30 + (i%3)*4), Y: 0, Z: float32(2 + ((i*3)%9)*4)}
@@ -232,7 +232,7 @@ func TestNavMesh3DWithPathQueueAndDeterminism(t *testing.T) {
 			}
 			perStep = append(perStep, used)
 		}
-		out := make([]world3d.NavPathResult, len(searches))
+		out := make([]pathfind3d.NavPathResult, len(searches))
 		for i, s := range searches {
 			out[i] = s.Result()
 		}

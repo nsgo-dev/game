@@ -1,4 +1,4 @@
-package world3d
+package pathfind3d
 
 import (
 	"math"

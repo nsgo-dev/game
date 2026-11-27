@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -25,7 +26,7 @@ func floorBox(w *physics3d.World) {
 	box(w, 0, -0.2, 0, 10, 0, 10, 0)
 }
 
-func bakeSmall(t *testing.T, g *navbake3d.Geometry) *world3d.NavMesh {
+func bakeSmall(t *testing.T, g *navbake3d.Geometry) *pathfind3d.NavMesh {
 	t.Helper()
 	m, err := navbake3d.BakeMesh(g, smallSettings, smallAgent)
 	if err != nil {
@@ -35,7 +36,7 @@ func bakeSmall(t *testing.T, g *navbake3d.Geometry) *world3d.NavMesh {
 }
 
 // onFloor reports whether nm has a polygon at floor height under (x, z).
-func onFloor(nm *world3d.NavMesh, x, z float32) bool {
+func onFloor(nm *pathfind3d.NavMesh, x, z float32) bool {
 	i, ok := nm.FindPolygon(v3(x, 0, z))
 	return ok && nm.Polys[i].HeightAt(x, z) < 0.2
 }
@@ -302,8 +303,8 @@ func TestSceneFileBakesOffMeshLinksIntoNavMeshYAML(t *testing.T) {
 								"endZ":          0.0,
 								"radius":        0.5,
 								"bidirectional": false,
-								"area":          int(world3d.NavAreaJump),
-								"flags":         int(world3d.NavFlagJump),
+								"area":          int(pathfind3d.NavAreaJump),
+								"flags":         int(pathfind3d.NavFlagJump),
 								"linkID":        44,
 								"userData":      "drop",
 							},

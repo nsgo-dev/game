@@ -1,4 +1,4 @@
-package world3d_test
+package pathfind3d_test
 
 import (
 	"math"
@@ -7,24 +7,24 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 )
 
 func TestNavMesh3DOffMeshOneWayLedgeDropNeverReversed(t *testing.T) {
 	// Upper ledge at y=4 covering [0,10]x[0,10], lower floor at y=0 covering [12,24]x[0,10].
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		quadXZ(0, 0, 10, 10, 4),  // 0: ledge
 		quadXZ(12, 0, 24, 10, 0), // 1: floor
 	}, math3d.DegToRad(45))
 
-	if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+	if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 		Start:         math3d.Vec3{X: 9, Y: 4, Z: 5},
 		End:           math3d.Vec3{X: 13, Y: 0, Z: 5},
 		Radius:        0.5,
 		Bidirectional: false,
-		Flags:         uint32(world3d.NavFlagJump),
+		Flags:         uint32(pathfind3d.NavFlagJump),
 		ID:            7,
-		Area:          world3d.NavAreaJump,
+		Area:          pathfind3d.NavAreaJump,
 		UserData:      "drop",
 	}) {
 		t.Fatal("AddOffMeshLink returned false")
@@ -56,7 +56,7 @@ func TestNavMesh3DOffMeshOneWayLedgeDropNeverReversed(t *testing.T) {
 		t.Fatalf("path[%d]=%v path[%d]=%v mismatch link %v->%v",
 			link.StartIndex, res.Path[link.StartIndex], link.EndIndex, res.Path[link.EndIndex], link.Start, link.End)
 	}
-	if link.Radius != 0.5 || link.Area != world3d.NavAreaJump || link.LinkID != 7 || link.UserData != "drop" {
+	if link.Radius != 0.5 || link.Area != pathfind3d.NavAreaJump || link.LinkID != 7 || link.UserData != "drop" {
 		t.Fatalf("link metadata mismatch: %+v", link)
 	}
 	if _, ok := res.LinkAt(0); ok {
@@ -84,28 +84,28 @@ func TestNavMesh3DOffMeshOneWayLedgeDropNeverReversed(t *testing.T) {
 		t.Fatalf("incremental search mismatch: got %+v, want %+v", incRes, res)
 	}
 
-	q := world3d.NewNavMeshQuery(nm)
-	qRes := q.FindPathWithFilterAndOptionsInto(nil, start, goal, world3d.DefaultNavFilter(), pathfind.PathOptions{})
+	q := pathfind3d.NewNavMeshQuery(nm)
+	qRes := q.FindPathWithFilterAndOptionsInto(nil, start, goal, pathfind3d.DefaultNavFilter(), pathfind.PathOptions{})
 	if !qRes.Found || len(qRes.Links) != 1 || qRes.Links[0] != link {
 		t.Fatalf("query result mismatch: got %+v, want %+v", qRes, res)
 	}
-	if qRev := q.FindPathWithFilterAndOptionsInto(nil, goal, start, world3d.DefaultNavFilter(), pathfind.PathOptions{}); qRev.Found {
+	if qRev := q.FindPathWithFilterAndOptionsInto(nil, goal, start, pathfind3d.DefaultNavFilter(), pathfind.PathOptions{}); qRev.Found {
 		t.Fatalf("query reverse unexpectedly succeeded: %+v", qRev)
 	}
 }
 
 func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 	// 1. Disconnected 3D islands connected by a teleport link.
-	disc := world3d.BuildNavMesh([][]math3d.Vec3{
+	disc := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		quadXZ(0, 0, 10, 10, 0),
 		quadXZ(100, 0, 110, 10, 5),
 	}, math3d.DegToRad(45))
-	if !disc.AddOffMeshLink(world3d.NavOffMeshLink{
+	if !disc.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 		Start:    math3d.Vec3{X: 8, Y: 0, Z: 5},
 		End:      math3d.Vec3{X: 102, Y: 5, Z: 5},
 		Cost:     4,
-		Area:     world3d.NavAreaTeleport,
-		Flags:    uint32(world3d.NavFlagTeleport),
+		Area:     pathfind3d.NavAreaTeleport,
+		Flags:    uint32(pathfind3d.NavFlagTeleport),
 		ID:       12,
 		UserData: "teleport",
 	}) {
@@ -117,19 +117,19 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 	}
 
 	// 2. Connected 3D islands with a walking bridge AND a teleporter placed behind start.
-	makeConnected := func(teleportCost float32) *world3d.NavMesh {
-		nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	makeConnected := func(teleportCost float32) *pathfind3d.NavMesh {
+		nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 			quadXZ(-10, 0, 0, 10, 0),   // 0: alcove behind start
 			quadXZ(0, 0, 10, 10, 0),    // 1: start island
 			quadXZ(10, 0, 100, 10, 0),  // 2: long bridge
 			quadXZ(100, 0, 110, 10, 0), // 3: goal island
 		}, math3d.DegToRad(45))
-		if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+		if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 			Start:    math3d.Vec3{X: -5, Y: 0, Z: 5},
 			End:      math3d.Vec3{X: 105, Y: 0, Z: 5},
 			Cost:     teleportCost,
-			Area:     world3d.NavAreaTeleport,
-			Flags:    uint32(world3d.NavFlagTeleport),
+			Area:     pathfind3d.NavAreaTeleport,
+			Flags:    uint32(pathfind3d.NavFlagTeleport),
 			ID:       55,
 			UserData: "teleport",
 		}) {
@@ -144,8 +144,8 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 	if !cheapRes.Found || len(cheapRes.Links) != 1 || cheapRes.Links[0].LinkID != 55 {
 		t.Fatalf("expected cheap 3D teleport to beat walking route, got %+v", cheapRes)
 	}
-	qCheap := world3d.NewNavMeshQuery(cheap).FindPathWithFilterAndOptionsInto(
-		nil, math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, world3d.DefaultNavFilter(), pathfind.PathOptions{},
+	qCheap := pathfind3d.NewNavMeshQuery(cheap).FindPathWithFilterAndOptionsInto(
+		nil, math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, pathfind3d.DefaultNavFilter(), pathfind.PathOptions{},
 	)
 	if !qCheap.Found || len(qCheap.Links) != 1 || qCheap.Links[0].LinkID != 55 {
 		t.Fatalf("query expected cheap 3D teleport, got %+v", qCheap)
@@ -159,8 +159,8 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 	}
 
 	// Area cost scaling via NavFilter can flip preference at runtime.
-	costlyTeleport := world3d.DefaultNavFilter()
-	costlyTeleport.SetAreaCost(world3d.NavAreaTeleport, 40) // 5 * 40 = 200 > 108
+	costlyTeleport := pathfind3d.DefaultNavFilter()
+	costlyTeleport.SetAreaCost(pathfind3d.NavAreaTeleport, 40) // 5 * 40 = 200 > 108
 	scaledRes := cheap.FindPathWithFilterAndOptions(
 		math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, costlyTeleport, pathfind.PathOptions{},
 	)
@@ -171,20 +171,20 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 
 func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 	// Vertically stacked floors: lower floor at y=0, upper balcony directly above at y=5.
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		quadXZ(0, 0, 10, 10, 0), // 0: ground floor
 		quadXZ(0, 0, 10, 10, 5), // 1: upper balcony
 	}, math3d.DegToRad(45))
 
 	// Invalid radii rejected.
-	if nm.AddOffMeshLink(world3d.NavOffMeshLink{
+	if nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 		Start:  math3d.Vec3{X: 10.4, Y: 0, Z: 5},
 		End:    math3d.Vec3{X: 10.4, Y: 5, Z: 5},
 		Radius: -0.5,
 	}) {
 		t.Fatal("negative radius should fail")
 	}
-	if nm.AddOffMeshLink(world3d.NavOffMeshLink{
+	if nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 		Start:  math3d.Vec3{X: 10.4, Y: 0, Z: 5},
 		End:    math3d.Vec3{X: 10.4, Y: 5, Z: 5},
 		Radius: float32(math.NaN()),
@@ -194,13 +194,13 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 
 	// Vertical ladder slightly off the edge at x=10.4 snaps to ground (10,0,5) and upper (10,5,5)
 	// cleanly keeping stacked levels separated.
-	if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+	if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 		Start:         math3d.Vec3{X: 10.4, Y: 0, Z: 5},
 		End:           math3d.Vec3{X: 10.4, Y: 5, Z: 5},
 		Radius:        0.75,
 		Bidirectional: true,
-		Area:          world3d.NavAreaClimb,
-		Flags:         uint32(world3d.NavFlagClimb),
+		Area:          pathfind3d.NavAreaClimb,
+		Flags:         uint32(pathfind3d.NavFlagClimb),
 		ID:            33,
 		UserData:      "ladder",
 	}) {
@@ -226,20 +226,20 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 	}
 
 	// Filter excludes ladder by area or flag.
-	noClimb := world3d.DefaultNavFilter()
-	noClimb.ExcludeArea(world3d.NavAreaClimb)
+	noClimb := pathfind3d.DefaultNavFilter()
+	noClimb.ExcludeArea(pathfind3d.NavAreaClimb)
 	if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, noClimb, pathfind.PathOptions{}); r.Found {
 		t.Fatalf("expected ExcludeArea to block ladder, got %+v", r)
 	}
 
 	// 3D NavAgent receives Radius, Area, UserData in OnLink.
-	var sawEv world3d.NavLinkEvent
+	var sawEv pathfind3d.NavLinkEvent
 	var sawLink bool
-	agent := world3d.NewNavAgent(nm, math3d.Vec3{X: 2, Y: 0, Z: 5}, world3d.NavAgentConfig{
+	agent := pathfind3d.NewNavAgent(nm, math3d.Vec3{X: 2, Y: 0, Z: 5}, pathfind3d.NavAgentConfig{
 		MaxSpeed:         6,
 		MaxAcceleration:  30,
 		StoppingDistance: 0.3,
-		OnLink: func(a *world3d.NavAgent, ev world3d.NavLinkEvent, dt time.Duration) bool {
+		OnLink: func(a *pathfind3d.NavAgent, ev pathfind3d.NavLinkEvent, dt time.Duration) bool {
 			sawEv = ev
 			sawLink = true
 			a.SetPosition(ev.End)
@@ -250,14 +250,14 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 	const dt = time.Second / 60
 	for range 400 {
 		agent.Step(dt)
-		if agent.State() == world3d.NavAgentArrived {
+		if agent.State() == pathfind3d.NavAgentArrived {
 			break
 		}
 	}
-	if agent.State() != world3d.NavAgentArrived || !sawLink {
+	if agent.State() != pathfind3d.NavAgentArrived || !sawLink {
 		t.Fatalf("3D agent failed ladder traversal: state=%v sawLink=%v", agent.State(), sawLink)
 	}
-	if sawEv.Radius != 0.75 || sawEv.Area != world3d.NavAreaClimb || sawEv.UserData != "ladder" || sawEv.LinkID != 33 {
+	if sawEv.Radius != 0.75 || sawEv.Area != pathfind3d.NavAreaClimb || sawEv.UserData != "ladder" || sawEv.LinkID != 33 {
 		t.Fatalf("3D NavLinkEvent metadata mismatch: %+v", sawEv)
 	}
 
@@ -273,26 +273,26 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 }
 
 func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
-	walkOnly := world3d.NavFilter{
-		IncludeFlags: world3d.NavFlagWalk,
-		ExcludeFlags: world3d.NavFlagDisabled,
+	walkOnly := pathfind3d.NavFilter{
+		IncludeFlags: pathfind3d.NavFlagWalk,
+		ExcludeFlags: pathfind3d.NavFlagDisabled,
 	}
 
 	for _, tc := range []struct {
 		name string
-		area world3d.NavArea
-		flag world3d.NavFlags
+		area pathfind3d.NavArea
+		flag pathfind3d.NavFlags
 	}{
-		{"jump", world3d.NavAreaJump, world3d.NavFlagJump},
-		{"climb", world3d.NavAreaClimb, world3d.NavFlagClimb},
-		{"teleport", world3d.NavAreaTeleport, world3d.NavFlagTeleport},
+		{"jump", pathfind3d.NavAreaJump, pathfind3d.NavFlagJump},
+		{"climb", pathfind3d.NavAreaClimb, pathfind3d.NavFlagClimb},
+		{"teleport", pathfind3d.NavAreaTeleport, pathfind3d.NavFlagTeleport},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			nm := world3d.BuildNavMesh([][]math3d.Vec3{
+			nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 				quadXZ(0, 0, 10, 10, 0),
 				quadXZ(20, 0, 30, 10, 0),
 			}, math.Pi/4)
-			if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+			if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 				Start: math3d.Vec3{X: 9, Y: 0, Z: 5},
 				End:   math3d.Vec3{X: 21, Y: 0, Z: 5},
 				Area:  tc.area,
@@ -306,14 +306,14 @@ func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
 			if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, pathfind.PathOptions{}); r.Found {
 				t.Fatalf("walk-only filter traversed 3D %s link: %+v", tc.name, r)
 			}
-			q := world3d.NewNavMeshQuery(nm)
+			q := pathfind3d.NewNavMeshQuery(nm)
 			if r := q.FindPathWithFilterAndOptionsInto(nil, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, pathfind.PathOptions{}); r.Found {
 				t.Fatalf("walk-only 3D NavMeshQuery traversed %s link: %+v", tc.name, r)
 			}
 
 			// Default filter traverses the link and preserves NavLinkOffMesh on NavPathLink.Flags.
 			def := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, pathfind.PathOptions{})
-			if !def.Found || len(def.Links) != 1 || def.Links[0].Flags&world3d.NavLinkOffMesh == 0 {
+			if !def.Found || len(def.Links) != 1 || def.Links[0].Flags&pathfind3d.NavLinkOffMesh == 0 {
 				t.Fatalf("default filter failed 3D %s link: %+v", tc.name, def)
 			}
 		})
@@ -322,28 +322,28 @@ func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
 	// Non-walking agent (IncludeFlags: NavFlagTeleport, ExcludeFlags: NavFlagWalk) must still
 	// traverse a NavFlagTeleport link even though NavLinkOffMesh shares bit 0 with NavFlagWalk.
 	t.Run("exclude_walk_allows_teleport", func(t *testing.T) {
-		nm := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
-			{Vertices: quadXZ(0, 0, 10, 10, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagTeleport},
-			{Vertices: quadXZ(20, 0, 30, 10, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagTeleport},
+		nm := pathfind3d.BuildNavMeshWithAreas([]pathfind3d.NavPolygonInput{
+			{Vertices: quadXZ(0, 0, 10, 10, 0), Area: pathfind3d.NavAreaDefault, Flags: pathfind3d.NavFlagTeleport},
+			{Vertices: quadXZ(20, 0, 30, 10, 0), Area: pathfind3d.NavAreaDefault, Flags: pathfind3d.NavFlagTeleport},
 		}, math.Pi/4)
-		if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+		if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 			Start: math3d.Vec3{X: 9, Y: 0, Z: 5},
 			End:   math3d.Vec3{X: 21, Y: 0, Z: 5},
-			Area:  world3d.NavAreaTeleport,
-			Flags: uint32(world3d.NavFlagTeleport),
+			Area:  pathfind3d.NavAreaTeleport,
+			Flags: uint32(pathfind3d.NavFlagTeleport),
 			ID:    200,
 		}) {
 			t.Fatal("AddOffMeshLink(teleport) failed")
 		}
-		tpOnly := world3d.NavFilter{
-			IncludeFlags: world3d.NavFlagTeleport,
-			ExcludeFlags: world3d.NavFlagWalk,
+		tpOnly := pathfind3d.NavFilter{
+			IncludeFlags: pathfind3d.NavFlagTeleport,
+			ExcludeFlags: pathfind3d.NavFlagWalk,
 		}
 		res := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, tpOnly, pathfind.PathOptions{})
-		if !res.Found || len(res.Links) != 1 || res.Links[0].LinkID != 200 || res.Links[0].Flags&world3d.NavLinkOffMesh == 0 {
+		if !res.Found || len(res.Links) != 1 || res.Links[0].LinkID != 200 || res.Links[0].Flags&pathfind3d.NavLinkOffMesh == 0 {
 			t.Fatalf("3D teleport-only filter blocked by NavLinkOffMesh bit collision: %+v", res)
 		}
-		q := world3d.NewNavMeshQuery(nm)
+		q := pathfind3d.NewNavMeshQuery(nm)
 		qres := q.FindPathWithFilterAndOptionsInto(nil, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, tpOnly, pathfind.PathOptions{})
 		if !qres.Found || len(qres.Links) != 1 || qres.Links[0].LinkID != 200 {
 			t.Fatalf("3D teleport-only NavMeshQuery failed: %+v", qres)
@@ -352,11 +352,11 @@ func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
 
 	// Untagged off-mesh links (Flags == 0) default to NavFlagWalk so DefaultNavFilter and walk-only allow them.
 	t.Run("untagged_defaults_to_walk", func(t *testing.T) {
-		nm := world3d.BuildNavMesh([][]math3d.Vec3{
+		nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 			quadXZ(0, 0, 10, 10, 0),
 			quadXZ(20, 0, 30, 10, 0),
 		}, math.Pi/4)
-		if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+		if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 			Start: math3d.Vec3{X: 9, Y: 0, Z: 5},
 			End:   math3d.Vec3{X: 21, Y: 0, Z: 5},
 		}) {

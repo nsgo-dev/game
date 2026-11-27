@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/cutscene"
 	"github.com/nsgo-dev/game/pkg/editor"
@@ -31,6 +30,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 	pluginmanifest "github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
@@ -225,7 +225,7 @@ var formats = []format{
 		url:     navbake3d.SchemaURL,
 		title:   "NSGo game navigation mesh (version 1)",
 		typ:     reflect.TypeFor[navbake3d.File](),
-		pkg:     "ai/navbake3d",
+		pkg:     "pathfind3d/navbake3d",
 		version: navbake3d.FormatVersion,
 	},
 	{

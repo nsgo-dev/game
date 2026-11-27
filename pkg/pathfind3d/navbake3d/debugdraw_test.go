@@ -6,8 +6,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

@@ -102,8 +102,9 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `math3d` | `github.com/nsgo-dev/game/pkg/math3d` | [math3d](math3d.md) | 3D 向量、矩阵、四元数、变换、包围体、射线、视锥体与统一数学约定 |
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D 节点树、插槽/附件、动态胖 AABB/SAH BVH、轨道/FPS/第三人称相机与 3D 拾取 |
 | `anim3d` | `github.com/nsgo-dev/game/pkg/anim3d` | [anim3d](anim3d.md) | 3D 姿态状态机、1D/2D 混合空间、骨骼遮罩与叠加层、帧事件、IK 与根骨骼运动 |
-| `world3d` | `github.com/nsgo-dev/game/pkg/world3d` | [world3d](world3d.md) | 高度图地形、多层 3D 导航网格、3D `GridMap`、程序化植被与浮点原点区块流式加载 |
-| `ai/navbake3d` | `github.com/nsgo-dev/game/pkg/ai/navbake3d` | [navbake3d](navbake3d.md) | 按代理类型从 glTF、地形、`GridMap` 和物理关卡几何体烘焙导航网格，保存为场景引用的 YAML，附调试绘制和 `game navmesh` |
+| `world3d` | `github.com/nsgo-dev/game/pkg/world3d` | [world3d](world3d.md) | 高度图地形、3D `GridMap`、程序化植被与浮点原点区块流式加载 |
+| `pathfind3d` | `github.com/nsgo-dev/game/pkg/pathfind3d` | [pathfind3d](pathfind3d.md) | 带区域、离网连接与可复用查询的多层 3D `NavMesh`，`NavAgent` 群组，以及随 `world3d` 区块流式加载、支持动态障碍物的分块网格 |
+| `pathfind3d/navbake3d` | `github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d` | [navbake3d](navbake3d.md) | 按代理类型从 glTF、地形、`GridMap` 和物理关卡几何体烘焙导航网格，保存为场景引用的 YAML，附调试绘制和 `game navmesh` |
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | 分块 3D 体素世界：贪婪网格合并、跨区块剔除与 AO、脏区块局部重建、DDA 射线拾取与 YAML 存档 |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU 网格缓冲、纹理与采样器、相机 uniform、CPU 视锥裁剪、绘制排序、零分配实例化、LOD 滞回、调试线框/手柄、公告板、3D 条带拖尾与 GPU 预算 |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | 在 3D 中绘制场景文件的对象：内置基本形体和可替换材质的 glTF 模型，构建成带包围盒的 `scene3d` 节点树，并由带光照和纹理的渲染器绘制 |

@@ -8,8 +8,8 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
-	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -193,7 +193,7 @@ layers:
 	if len(links3D) != 1 {
 		t.Fatalf("got %d 3D links, want 1", len(links3D))
 	}
-	nav3D := world3d.BuildNavMesh([][]math3d.Vec3{
+	nav3D := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		{{X: 0, Y: 0, Z: 0}, {X: 0, Y: 0, Z: 10}, {X: 10, Y: 0, Z: 10}, {X: 10, Y: 0, Z: 0}},
 		{{X: 0, Y: 4, Z: 0}, {X: 0, Y: 4, Z: 10}, {X: 10, Y: 4, Z: 10}, {X: 10, Y: 4, Z: 0}},
 	}, math3d.DegToRad(45))

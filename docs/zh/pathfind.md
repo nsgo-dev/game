@@ -358,7 +358,7 @@ _, _ = detour, watchID
 
 ## 有界、部分路径与增量寻路
 
-点击不可达目标时单位应尽量走近目标，同时大量并发长寻路也不应拖垮单帧预算。`AStar`、2D `NavMesh` 以及 [world3d](world3d.md) 的 3D `NavMesh` 共享 `PathOptions{MaxExpansions, AllowPartial}` 与 `IncrementalSearch` 接口：
+点击不可达目标时单位应尽量走近目标，同时大量并发长寻路也不应拖垮单帧预算。`AStar`、2D `NavMesh` 以及 [pathfind3d](pathfind3d.md) 的 3D `NavMesh` 共享 `PathOptions{MaxExpansions, AllowPartial}` 与 `IncrementalSearch` 接口：
 
 ```go
 // 单次有界搜索，并启用部分路径回退：
@@ -382,7 +382,7 @@ _ = navRes
 
 - **部分路径**：开启 `AllowPartial: true` 后，当目标被墙围死、位于障碍格或网格外部、或超出 `MaxExpansions` 预算时，`FindWithOptions` / `FindWithOptionsInto`（预热后零堆分配）以及 `NavMesh.FindPathWithOptions` 会返回通往已探索范围内最近格子或最近多边形边界点的合法路径，并标记 `Partial: true`。设置 `AStar.MaxExpansions > 0` 也会限制 `Find` / `FindInto`，并在 `PathOptions.MaxExpansions == 0` 时作为默认预算（传入负值 `PathOptions.MaxExpansions` 可显式覆盖为不限步数）。
 - **确定性增量步进**：通过 `astar.StartSearch(grid, start, goal, opts)`（`*AStarSearch`，支持 `Reset` 复用缓冲区）或 `mesh.StartSearch(start, goal, opts)`（`*NavMeshSearch`）启动跨帧搜索，并每帧调用 `Step(maxExpansions)` 推进。无论按任意正数步长切分（哪怕每次仅展开 1 个节点），最终得到的路径、代价、`Partial` 标记与展开次数均与单次搜索完全一致。
-- **预算化寻路请求队列（`PathQueue`）**：使用 `NewPathQueue`、`Submit` / `SubmitGrid` / `SubmitNavMesh`、`Cancel` 和 `Step(budget)` / `StepDefault()`，在严格的单步节点展开预算内统一调度网格、2D `NavMesh` 与 `world3d.NavMesh` 寻路请求：
+- **预算化寻路请求队列（`PathQueue`）**：使用 `NewPathQueue`、`Submit` / `SubmitGrid` / `SubmitNavMesh`、`Cancel` 和 `Step(budget)` / `StepDefault()`，在严格的单步节点展开预算内统一调度网格、2D `NavMesh` 与 `pathfind3d.NavMesh` 寻路请求：
 
 ```go
 queue := pathfind.NewPathQueue(pathfind.PathQueueConfig{

@@ -82,8 +82,9 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/scenemodel` | Experimental | Scene file objects drawn in 3D: built-in primitives (`mesh`) and glTF models (`model`, `modelNode`, `modelMesh`) with material overrides, built into a `scene3d` tree with bounds, and a lit, textured `Renderer` |
 | `game/pkg/anim3d` | Experimental | 3D pose state machines, 1D/2D blend spaces, bone masks, clip events, IK, root motion |
 | `game/pkg/physics3d` | Experimental | 3D rigid bodies, shapes, raycasts, sweeps and character movement |
-| `game/pkg/world3d` | Experimental | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, foliage, floating-origin streaming |
-| `game/pkg/ai/navbake3d` | Experimental | Recast-style navigation mesh baking from glTF, scenes, terrain, GridMaps and static colliders, one mesh per agent type, versioned YAML output, debug draw |
+| `game/pkg/world3d` | Experimental | Heightmap terrain, 3D `GridMap`, foliage, floating-origin chunk streaming |
+| `game/pkg/pathfind3d` | Experimental | Multi-level 3D navmeshes with areas, off-mesh links and reusable queries, navigation agents, tiled meshes with dynamic obstacles streamed with `world3d` chunks |
+| `game/pkg/pathfind3d/navbake3d` | Experimental | Recast-style navigation mesh baking from glTF, scenes, terrain, GridMaps and static colliders, one mesh per agent type, versioned YAML output, debug draw |
 | `game/pkg/voxel` | Experimental | Chunked 3D voxel worlds, greedy meshing, cross-chunk AO, DDA raycasting, YAML saves |
 | `game/pkg/gltf` | Experimental | glTF 2.0 (`.gltf`/`.glb`) loader for meshes, materials, skins and animations |
 | `game/pkg/vehicle3d` | Experimental | Raycast cars on `physics3d`, suspension, tire friction, checkpoints, laps and YAML lap ghosts |

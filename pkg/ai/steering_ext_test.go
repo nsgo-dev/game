@@ -9,7 +9,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -736,8 +736,8 @@ func TestSteering3DBehaviorsTable(t *testing.T) {
 }
 
 func TestSteering3DFollowsWorld3DNavMeshPath(t *testing.T) {
-	// Build a real sloped 3D world3d.NavMesh: lower floor -> sloped ramp -> upper floor.
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	// Build a real sloped 3D pathfind3d.NavMesh: lower floor -> sloped ramp -> upper floor.
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		// Lower floor (y = 0), x in [0, 20], z in [0, 10]
 		{{X: 0, Y: 0, Z: 0}, {X: 0, Y: 0, Z: 10}, {X: 20, Y: 0, Z: 10}, {X: 20, Y: 0, Z: 0}},
 		// Sloped ramp (y from 0 to 4), x in [20, 40], z in [0, 10]
@@ -750,7 +750,7 @@ func TestSteering3DFollowsWorld3DNavMeshPath(t *testing.T) {
 	goal := math3d.Vec3{X: 55, Y: 4, Z: 16}
 	rawPath, ok := nm.FindPath(start, goal)
 	if !ok || len(rawPath) < 2 {
-		t.Fatalf("world3d.NavMesh.FindPath failed: ok=%v path=%v", ok, rawPath)
+		t.Fatalf("pathfind3d.NavMesh.FindPath failed: ok=%v path=%v", ok, rawPath)
 	}
 
 	// Zero-cost field-compatible conversion from math3d.Vec3 to ai.Vec3.
@@ -782,7 +782,7 @@ func TestSteering3DFollowsWorld3DNavMeshPath(t *testing.T) {
 	}
 
 	if !st.Done {
-		t.Fatalf("3D agent did not finish world3d.NavMesh path: pos=%v state=%+v", agent.Pos, st)
+		t.Fatalf("3D agent did not finish pathfind3d.NavMesh path: pos=%v state=%+v", agent.Pos, st)
 	}
 	if d := v3DistXZ(agent.Pos, ai.Vec3(goal)); d > 2.0 {
 		t.Fatalf("3D agent stopped too far from goal: pos=%v goal=%v distXZ=%.3f", agent.Pos, goal, d)

@@ -1,4 +1,4 @@
-package world3d
+package pathfind3d
 
 import (
 	"math"
@@ -889,7 +889,7 @@ func (nm *NavMesh) findCornerBridge3D(
 	return -1, outChain, 0
 }
 
-// NavMoveResult describes the outcome of sliding a 3D position across a world3d.NavMesh surface.
+// NavMoveResult describes the outcome of sliding a 3D position across a NavMesh surface.
 type NavMoveResult struct {
 	// Point is the final 3D position clamped onto the mesh surface.
 	Point math3d.Vec3
@@ -1504,7 +1504,7 @@ func (nm *NavMesh) randomPointAround(center math3d.Vec3, radius float32, rng *ra
 }
 
 // NavMeshQuery holds reusable generation-stamped scratch buffers for zero-allocation
-// 3D pathfinding and spatial queries over a world3d.NavMesh.
+// 3D pathfinding and spatial queries over a NavMesh.
 //
 // Create one NavMeshQuery per worker or system with NewNavMeshQuery(mesh) when running
 // repeated queries or querying a shared read-only NavMesh from separate goroutines.

@@ -72,7 +72,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
 | `game/pkg/ai` | Stable | [ai](ai.md) |
-| `game/pkg/ai/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
 | `game/pkg/ai/perception3d` | Experimental | [ai](ai.md) |
 | `game/pkg/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | Experimental | [animclip](animclip.md) |
@@ -134,6 +133,8 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/particles` | Experimental | [particles](particles.md) |
 | `game/pkg/pathfind` | Stable | [pathfind](pathfind.md) |
 | `game/pkg/pathfind/navbake` | Experimental | [navbake](navbake.md) |
+| `game/pkg/pathfind3d` | Experimental | [pathfind3d](pathfind3d.md) |
+| `game/pkg/pathfind3d/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
 | `game/pkg/physics` | Stable | [physics](physics.md) |
 | `game/pkg/physics3d` | Experimental | [physics3d](physics3d.md) |
 | `game/pkg/pixelfx` | Experimental | [pixelfx](pixelfx.md) |

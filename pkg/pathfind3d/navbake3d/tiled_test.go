@@ -3,8 +3,9 @@ package navbake3d_test
 import (
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -34,7 +35,7 @@ func TestBakeTileAndTiledNavMesh(t *testing.T) {
 		t.Fatalf("expected non-empty baked tiles, got %d and %d", tile0.BasePolygonCount(), tile1.BasePolygonCount())
 	}
 
-	tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: tileSize})
+	tm := pathfind3d.NewTiledNavMesh(pathfind3d.TiledNavMeshConfig{TileSize: tileSize})
 	tm.AddTile(world3d.ChunkCoord{X: 0, Z: 0}, tile0)
 	tm.AddTile(world3d.ChunkCoord{X: 1, Z: 0}, tile1)
 

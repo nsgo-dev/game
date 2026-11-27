@@ -47,22 +47,6 @@ func ExampleHeightmap() {
 	// true (10.0, 2.0, 10.0)
 }
 
-// A NavMesh joins walkable polygons that share edges and finds a path across them.
-func ExampleNavMesh() {
-	floor := [][]math3d.Vec3{
-		{{X: 0, Z: 0}, {X: 0, Z: 10}, {X: 10, Z: 10}, {X: 10, Z: 0}},
-		{{X: 10, Z: 0}, {X: 10, Z: 10}, {X: 20, Z: 10}, {X: 20, Z: 0}},
-	}
-	nm := world3d.BuildNavMesh(floor, math3d.DegToRad(45))
-	path, ok := nm.FindPath(math3d.Vec3{X: 2, Z: 5}, math3d.Vec3{X: 18, Z: 5})
-	fmt.Println(ok, show(path...))
-	_, ok = nm.FindPolygon(math3d.Vec3{X: 30, Z: 5})
-	fmt.Println(ok)
-	// Output:
-	// true (2.0, 0.0, 5.0) (18.0, 0.0, 5.0)
-	// false
-}
-
 // A FloatingOrigin keeps positions near zero in float32 by moving the origin when the player wanders far, while WorldPos64 keeps the true position in float64.
 func ExampleFloatingOrigin() {
 	fo := world3d.NewFloatingOrigin(1000)
