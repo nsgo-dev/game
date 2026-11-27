@@ -5,7 +5,7 @@ Create an NSGo game, run it on desktop, web, iOS and Android, draw an animated s
 ## Requirements
 
 - **Go 1.27** or later.
-- **NSGo `v0.3.4`** or later, which a new project requires and runs as the `nsgo` tool, and the `nsgo` command installed to run `nsgo game` ([Command Line](cli.md#install)).
+- **NSGo `v0.3.4`** or later, which a new project requires and runs as `go tool nsgo` ([Command Line](cli.md#install)).
 - For iOS builds: macOS with Xcode.
 - For running on Android devices or emulators: `adb` (Android SDK Platform-Tools). Building an `android_arm64` APK needs only Go.
 
@@ -13,15 +13,15 @@ Run `go tool nsgo doctor` inside a project to check what toolchains this machine
 
 ## Create a project
 
-Create the project with the `game` command's `new` subcommand, run as `nsgo game` ([Command Line](cli.md#install)). It writes the starter into a new directory and has Go add the game layer and the `game` tool to its `go.mod`, beside the `nsgo` tool the starter already has:
+Create the project with the `game` command's `new` subcommand ([Command Line](cli.md#install)). It writes the starter into a new directory and has Go add the game layer and the `game` tool to its `go.mod`, beside the `nsgo` tool the starter already has:
 
 ```sh
-nsgo game new mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new mygame
 cd mygame
 go tool nsgo dev
 ```
 
-`nsgo game` outside a project uses the `nsgo-game` extension binary on `PATH` (install once with `go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`), or `go run github.com/nsgo-dev/game/cmd/game@latest new mygame` does the same directly with nothing to install. Inside the created project, `nsgo game` automatically runs the module's pinned `game` tool.
+Inside the created project, `go tool game <command>` runs the module's pinned `game` tool (for example `go tool game check` or `go tool game generate`).
 
 The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md), which `nsgo.yaml` mirrors. `new` names the game after its directory in both files' `name` and `id` and in the module path; `-name` and `-module` choose others, such as `-module example.com/mygame`. [Command Line](cli.md#new) describes every flag, and `-template` starts from another of the [templates](templates.md), which `new -list` lists. Change the identifier to your own before you ship the game: edit the game's name and identifier in `game.yaml`, then run `go run github.com/nsgo-dev/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
 
@@ -82,7 +82,7 @@ go tool nsgo dev -target android
 
 Add `-fps` to any `nsgo dev` command to show NSGo's performance monitor over the running game.
 
-To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `nsgo game dev` (after `go get -tool github.com/nsgo-dev/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
+To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `go tool game dev` (after `go get -tool github.com/nsgo-dev/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
 
 ## Draw a sprite on a fixed-step loop
 

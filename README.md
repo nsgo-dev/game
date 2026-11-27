@@ -27,7 +27,7 @@ Your game draws into one NSGo view (`Canvas`, pixel buffer, shader, or GPU view)
 - **Pure Go, six build targets**: Ship one Go codebase to **macOS, iOS, Windows, Linux, Android and Web**—zero hand-written C or `cgo` ([Platform Support](docs/en/platforms.md)).
 - **Drawn game, native UI**: Render your world at 60 fps or display refresh rate in a single view while keeping scores, menus and dialogs native NSGo views.
 - **2D & 3D on one shared foundation**: Fixed-step `game.Loop`, input actions, sound mixer, assets, saves and scene transitions are shared between 2D and 3D—mix both freely in one game.
-- **Visual 2D & 3D scene editor**: Run `game editor` for a live viewport, scene hierarchy, inspector, transform gizmos, asset browser and Go plugin API ([Editor Guide](docs/en/editor.md)).
+- **Visual 2D & 3D scene editor**: Run `go tool game editor` for a live viewport, scene hierarchy, inspector, transform gizmos, asset browser and Go plugin API ([Editor Guide](docs/en/editor.md)).
 - **Plain-text YAML everything**: Scenes, prefabs, materials, animations, data tables, bullet patterns, quests, input maps and project settings are versioned, schema-validated YAML—clean to review in Git and easy for both humans and AI agents to edit ([File Formats](docs/en/formats.md)).
 - **Built for AI coding agents**: Ships `llms.txt` / `llms-full.txt`, JSON Schemas, runtime scene inspection via [`game/mcp`](docs/en/mcp.md), deterministic [`statedump`](docs/en/statedump.md) diffs and an installable [Agent Skill](docs/en/agent-skill.md).
 - **141 modular packages & 16 starter templates**: From sprites, tilemaps and rigid-body physics to glTF PBR rendering, dedicated servers and self-hosted leaderboards—every package documented and marked `stable` or `experimental` ([API Stability](docs/en/stability.md)).
@@ -80,7 +80,7 @@ Import only what you need from `github.com/nsgo-dev/game`. Browse the full inter
 
 ## Starter Templates
 
-Scaffold a working, tested game in any of 16 genres with `game new -template <name> mygame` (or `nsgo init -template github.com/nsgo-dev/game/template/<name>`). Run `game new -list` or read [Templates](docs/en/templates.md) ([中文](docs/zh/templates.md)) for details.
+Scaffold a working, tested game in any of 16 genres with `go run github.com/nsgo-dev/game/cmd/game@latest new -template <name> mygame` (or `nsgo init -template github.com/nsgo-dev/game/template/<name>`). Run `go run github.com/nsgo-dev/game/cmd/game@latest new -list` or read [Templates](docs/en/templates.md) ([中文](docs/zh/templates.md)) for details.
 
 | 2D Templates | Description | 3D & Specialty Templates | Description |
 | --- | --- | --- | --- |

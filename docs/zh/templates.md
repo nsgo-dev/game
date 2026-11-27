@@ -23,7 +23,7 @@
 | `towerdefense2d` | 一个 2D 塔防游戏：在敌人沿着行进的道路旁建造可升级的防御塔，波次写在 YAML 里，有金钱和生命，可用键盘、手柄或触摸操作；[塔防模板](template-towerdefense2d.md)介绍了它。 | `github.com/nsgo-dev/game/template/towerdefense2d` |
 | `visualnovel` | 一部分支短篇视觉小说：两个角色、代码绘制的背景、改变结局的选项、对话记录、自动与快进模式、存档槽和两种语言。 | `github.com/nsgo-dev/game/template/visualnovel` |
 
-`nsgo game new -list` 由命令自身打印同样的列表，默认模板排在最前。
+`go run github.com/nsgo-dev/game/cmd/game@latest new -list` 由命令自身打印同样的列表，默认模板排在最前。
 
 ### puzzle2d
 
@@ -68,11 +68,11 @@
 ## 用模板创建项目
 
 ```sh
-nsgo game new -list
-nsgo game new -template starter mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -list
+go run github.com/nsgo-dev/game/cmd/game@latest new -template starter mygame
 ```
 
-在项目之外，安装一次 `nsgo-game`（`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`）即可使用 `nsgo game`（见[命令行](cli.md#安装)）；也可以直接运行 `go run github.com/nsgo-dev/game/cmd/game@latest new`，无需预先安装。
+在创建好的项目内，使用 `go tool game <command>` 运行各个子命令（见[命令行](cli.md#安装)）。
 
 不加 `-template` 时，`game new` 使用 `starter`。不在列表中的名称会被拒绝，并列出现有的模板名。`game` 的 shell 补全（见[命令行](cli.md#completion)）会用同样的名称补全 `-template`。其他参数见[命令行](cli.md#new)。
 

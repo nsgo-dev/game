@@ -91,7 +91,7 @@ Set `View: func(progress float64, err error) core.Node` on `LoadingScreen` (or `
 
 ## Reloading on save
 
-Run the game with [`nsgo game dev`](cli.md#dev) and start a watcher on the asset directory it names, and every atlas, image and raw-bytes asset the manager has loaded changes in the running game within a second of its file being saved:
+Run the game with [`go tool game dev`](cli.md#dev) and start a watcher on the asset directory it names, and every atlas, image and raw-bytes asset the manager has loaded changes in the running game within a second of its file being saved:
 
 ```go
 var opts []assets.Option

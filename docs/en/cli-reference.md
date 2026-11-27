@@ -2,14 +2,14 @@
 
 <!-- Code generated from the game command's definitions by `go tool nsgo test ./internal/gamecli -- -run TestReference -update` from the repository root. DO NOT EDIT. -->
 
-Every subcommand of `nsgo game`, which `go tool game` runs alike, with its usage line and flags, generated from the commands' definitions so it always matches `game help`. [Command Line](cli.md) shows how to install the command, what each subcommand is for and how to set up shell completion.
+Every subcommand of `go tool game` (or `go run github.com/nsgo-dev/game/cmd/game@latest` outside a project), with its usage line and flags, generated from the commands' definitions so it always matches `game help`. [Command Line](cli.md) shows how to add the command as a tool, what each subcommand is for and how to set up shell completion.
 
 ## game pack
 
 Pack a folder of PNG images into sprite atlas pages and TexturePacker JSON for sprite.LoadAtlas.
 
 ```sh
-nsgo game pack [flags]
+go tool game pack [flags]
 ```
 
 | Flag | Default | Description |
@@ -29,7 +29,7 @@ nsgo game pack [flags]
 Normalize, resample and convert a WAV file to WAV, AAC or MP3.
 
 ```sh
-nsgo game audio [flags]
+go tool game audio [flags]
 ```
 
 | Flag | Default | Description |
@@ -48,7 +48,7 @@ nsgo game audio [flags]
 Generate a typed Go asset manifest from a directory of assets, so a missing asset fails the build.
 
 ```sh
-nsgo game manifest [flags]
+go tool game manifest [flags]
 ```
 
 | Flag | Default | Description |
@@ -67,7 +67,7 @@ nsgo game manifest [flags]
 Encode a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps.
 
 ```sh
-nsgo game tex [flags] [input.png|input.jpg]
+go tool game tex [flags] [input.png|input.jpg]
 ```
 
 | Flag | Default | Description |
@@ -84,7 +84,7 @@ nsgo game tex [flags] [input.png|input.jpg]
 Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on the start screen when none is named.
 
 ```sh
-nsgo game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
+go tool game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
 ```
 
 | Flag | Default | Description |
@@ -96,7 +96,7 @@ nsgo game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.
 Serve the editor's MCP tools on stdio, or run \`mcp install\` to configure Claude Code and Codex for this project.
 
 ```sh
-nsgo game mcp [flags] [install]
+go tool game mcp [flags] [install]
 ```
 
 | Flag | Default | Description |
@@ -108,7 +108,7 @@ nsgo game mcp [flags] [install]
 Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build, with a credits file of its assets' licenses.
 
 ```sh
-nsgo game release [flags] [dir]
+go tool game release [flags] [dir]
 ```
 
 | Flag | Default | Description |
@@ -126,7 +126,7 @@ nsgo game release [flags] [dir]
 Check the input recordings under the directories and play them headless through their replay tests, failing on a mismatch.
 
 ```sh
-nsgo game replay [flags] [directory ...]
+go tool game replay [flags] [directory ...]
 ```
 
 | Flag | Default | Description |
@@ -138,7 +138,7 @@ nsgo game replay [flags] [directory ...]
 Validate playtest.yaml, run headless bot playtests with replays, write a YAML report and fail on missed goals.
 
 ```sh
-nsgo game playtest [flags] [directory ...]
+go tool game playtest [flags] [directory ...]
 ```
 
 | Flag | Default | Description |
@@ -156,7 +156,7 @@ nsgo game playtest [flags] [directory ...]
 Run the benchmarks headless and fail when one regresses past its stored baseline, or update the baseline.
 
 ```sh
-nsgo game bench [flags] [directory ...]
+go tool game bench [flags] [directory ...]
 ```
 
 | Flag | Default | Description |
@@ -173,7 +173,7 @@ nsgo game bench [flags] [directory ...]
 Create a game project in a directory from a template, with its go.mod requiring the game layer and the game and nsgo tools.
 
 ```sh
-nsgo game new [flags] <dir>
+go tool game new [flags] <dir>
 ```
 
 | Flag | Default | Description |
@@ -189,7 +189,7 @@ nsgo game new [flags] <dir>
 Run the game with nsgo dev, reloading its assets in the running game when they are saved.
 
 ```sh
-nsgo game dev [flags] [dir] [nsgo dev flags]
+go tool game dev [flags] [dir] [nsgo dev flags]
 ```
 
 | Flag | Default | Description |
@@ -205,7 +205,7 @@ nsgo game dev [flags] [dir] [nsgo dev flags]
 Check the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to.
 
 ```sh
-nsgo game check [flags] [dir]
+go tool game check [flags] [dir]
 ```
 
 | Flag | Default | Description |
@@ -217,7 +217,7 @@ nsgo game check [flags] [dir]
 Pack atlases, encode textures, convert audio, bake fonts, pack models and generate the manifest from game.yaml, rebuilding only what changed.
 
 ```sh
-nsgo game assets [flags]
+go tool game assets [flags]
 ```
 
 | Flag | Default | Description |
@@ -232,7 +232,7 @@ nsgo game assets [flags]
 Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration; or the project's editor command, which checks the project's components and builds in its editor plugins.
 
 ```sh
-nsgo game generate [flags] component|system|scene|prefab <name> | editor
+go tool game generate [flags] component|system|scene|prefab <name> | editor
 ```
 
 | Flag | Default | Description |
@@ -246,7 +246,7 @@ nsgo game generate [flags] component|system|scene|prefab <name> | editor
 Move or rename a file, directory, or text key (-text-key) and rewrite every reference to it, keeping the project index up to date.
 
 ```sh
-nsgo game mv [flags] <from> <to>
+go tool game mv [flags] <from> <to>
 ```
 
 | Flag | Default | Description |
@@ -260,7 +260,7 @@ nsgo game mv [flags] <from> <to>
 Give every scene and resource file a uid, point references at files moved without the tools, and write the project index.
 
 ```sh
-nsgo game index [flags] [dir]
+go tool game index [flags] [dir]
 ```
 
 | Flag | Default | Description |
@@ -273,7 +273,7 @@ nsgo game index [flags] [dir]
 Find asset, editor plugin and template packs in a library and install them into a project, remove them, or print a pack's digest for the library's index.
 
 ```sh
-nsgo game library [flags] list [words] | install <pack>... | remove <pack>... | digest <pack-dir>
+go tool game library [flags] list [words] | install <pack>... | remove <pack>... | digest <pack-dir>
 ```
 
 | Flag | Default | Description |
@@ -288,7 +288,7 @@ nsgo game library [flags] list [words] | install <pack>... | remove <pack>... | 
 List every asset's author and license from its import settings sidecar as the credits file game release ships, failing when an asset has none.
 
 ```sh
-nsgo game credits [flags]
+go tool game credits [flags]
 ```
 
 | Flag | Default | Description |
@@ -301,7 +301,7 @@ nsgo game credits [flags]
 Render a pixelfx effect, or the effect acted out, to a PNG sprite sheet and Aseprite JSON for sprite.LoadAtlas.
 
 ```sh
-nsgo game pixelfx [flags] <category/name>
+go tool game pixelfx [flags] <category/name>
 ```
 
 | Flag | Default | Description |
@@ -319,7 +319,7 @@ nsgo game pixelfx [flags] <category/name>
 Bake a scene's glTF level geometry into a navigation mesh per agent type of game.yaml's navigation section, written to the file the scene's navMesh names.
 
 ```sh
-nsgo game navmesh [flags] <scene.yaml>
+go tool game navmesh [flags] <scene.yaml>
 ```
 
 | Flag | Default | Description |
@@ -332,7 +332,7 @@ nsgo game navmesh [flags] <scene.yaml>
 Merge scene YAML files object by object for Git, or set up and check the Git merge driver in a project.
 
 ```sh
-nsgo game merge [flags] <base> <ours> <theirs> [path] | -setup [dir] | -check [dir]
+go tool game merge [flags] <base> <ours> <theirs> [path] | -setup [dir] | -check [dir]
 ```
 
 | Flag | Default | Description |
@@ -347,7 +347,7 @@ nsgo game merge [flags] <base> <ours> <theirs> [path] | -setup [dir] | -check [d
 Write the project's scene JSON Schema, including its registered components and plugins, or the built-in scene schema when the project has no editor command of its own.
 
 ```sh
-nsgo game schema [flags] [project-dir | game.yaml]
+go tool game schema [flags] [project-dir | game.yaml]
 ```
 
 | Flag | Default | Description |
@@ -359,7 +359,7 @@ nsgo game schema [flags] [project-dir | game.yaml]
 Decode packet captures layer by layer using wire schemas, or print traffic statistics per message type and peer.
 
 ```sh
-nsgo game net [flags] decode [flags] <capture.jsonl | -> | stats [flags] <capture.jsonl | ->
+go tool game net [flags] decode [flags] <capture.jsonl | -> | stats [flags] <capture.jsonl | ->
 ```
 
 | Flag | Default | Description |
@@ -373,7 +373,7 @@ nsgo game net [flags] decode [flags] <capture.jsonl | -> | stats [flags] <captur
 Write a shell completion script for zsh, bash or fish.
 
 ```sh
-nsgo game completion [flags] zsh|bash|fish
+go tool game completion [flags] zsh|bash|fish
 ```
 
 No flags.
@@ -383,7 +383,7 @@ No flags.
 Show the commands, or one command's flags.
 
 ```sh
-nsgo game help [command]
+go tool game help [command]
 ```
 
 No flags.

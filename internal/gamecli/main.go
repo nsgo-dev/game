@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/nsgo-dev/game/pkg/editor"
@@ -33,6 +35,8 @@ type app struct {
 	recentProjectsPath string
 	// layoutPath overrides the per-user editor dock layout YAML file path used by `game editor` (tests set it inside t.TempDir()).
 	layoutPath string
+	// readBuildInfo reads the running binary's build info to warn if the CLI was built from a module other than github.com/nsgo-dev/game.
+	readBuildInfo func() (*debug.BuildInfo, bool)
 }
 
 // command is one subcommand of game.
@@ -76,19 +80,25 @@ func Main() {
 // Run runs the game CLI with args (the arguments after the command name) using the standard OS streams and returns the exit code: 0 on success or help, 1 when a command fails, 2 on usage errors.
 func Run(args []string) int {
 	return run(args, &app{
-		stdin:   os.Stdin,
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
-		audio:   &audioconv.Encoder{},
-		launch:  editorcmd.Show,
-		nsgo:    runGoToolNSGo,
-		nsgoEnv: runGoToolNSGoEnv,
-		goRun:   runGoIn,
+		stdin:         os.Stdin,
+		stdout:        os.Stdout,
+		stderr:        os.Stderr,
+		audio:         &audioconv.Encoder{},
+		launch:        editorcmd.Show,
+		nsgo:          runGoToolNSGo,
+		nsgoEnv:       runGoToolNSGoEnv,
+		goRun:         runGoIn,
+		readBuildInfo: debug.ReadBuildInfo,
 	})
 }
 
 // run runs game with args, the arguments after its name, and returns the exit code: 0 on success or help asked for, 1 when a command fails, 2 when it is called wrongly.
 func run(args []string, a *app) int {
+	if a.readBuildInfo != nil {
+		if info, ok := a.readBuildInfo(); ok {
+			warnUnexpectedModule(a.stderr, info)
+		}
+	}
 	if len(args) == 0 {
 		printUsage(a.stderr)
 		return 2
@@ -209,4 +219,50 @@ func inFlag(fs *flag.FlagSet, value, usage string) *string {
 // outFlag adds the -out flag the commands share for what they write.
 func outFlag(fs *flag.FlagSet, value, usage string) *string {
 	return fs.String("out", value, usage)
+}
+
+// cliModulePath returns the module path that contains the CLI main package recorded in info, matching info.Path against info.Main and info.Deps by longest module-path prefix on a '/' boundary, or info.Main.Path when info.Path is empty. It returns "" when no module path can be determined.
+func cliModulePath(info *debug.BuildInfo) string {
+	if info == nil {
+		return ""
+	}
+	if info.Path == "command-line-arguments" {
+		return ""
+	}
+	if info.Path == "" {
+		if info.Main.Path == "" || info.Main.Path == "command-line-arguments" {
+			return ""
+		}
+		return info.Main.Path
+	}
+	best := ""
+	consider := func(modPath string) {
+		if modPath == "" || modPath == "command-line-arguments" {
+			return
+		}
+		if info.Path == modPath || strings.HasPrefix(info.Path, modPath+"/") {
+			if len(modPath) > len(best) {
+				best = modPath
+			}
+		}
+	}
+	consider(info.Main.Path)
+	for _, dep := range info.Deps {
+		if dep != nil {
+			consider(dep.Path)
+		}
+	}
+	return best
+}
+
+// warnUnexpectedModule writes a one-line warning to w when info shows this CLI was built from a module path other than github.com/nsgo-dev/game (for example, the pre-migration github.com/nsgo-dev/game/packages/game module).
+func warnUnexpectedModule(w io.Writer, info *debug.BuildInfo) {
+	if w == nil {
+		return
+	}
+	modPath := cliModulePath(info)
+	if modPath == "" || modPath == gameModule {
+		return
+	}
+	fmt.Fprintf(w, "game: warning: running from module %s instead of %s (use go run %s@latest or go tool game)\n", modPath, gameModule, gameTool)
 }

@@ -188,7 +188,7 @@ Every tool above is always registered once the Bridge is attached. A tool whose 
 
 ## The editor's own server
 
-The tools above reach a running game. The NSGo Game Editor has its own MCP server, `game/editor/editormcp`, for editing the project it has open: an agent reads and edits through the same commands as the inspector, scene tree and viewport, so each edit is an undo step the person sees. Connect it with `claude mcp add game-editor -- nsgo game mcp` in the project directory, with the editor open on the project (`nsgo game editor .`). Its tools:
+The tools above reach a running game. The NSGo Game Editor has its own MCP server, `game/editor/editormcp`, for editing the project it has open: an agent reads and edits through the same commands as the inspector, scene tree and viewport, so each edit is an undo step the person sees. Connect it with `go tool game mcp install` (or `claude mcp add game-editor -- go tool game mcp`) in the project directory, with the editor open on the project (`go tool game editor .`). Its tools:
 
 - `scene_read` `{file?, offset?, limit?}`: a scene, prefab, data or project file with line numbers; the open scene and `game.yaml` as the editor holds them while they have unsaved edits (line numbers then differ from disk), otherwise every file from disk, comments included.
 - `scene_edit` `{file?, label?, edits}`: edits of the open scene (`add`, `remove`, `move`, `set`, `add_component`, `remove_component`, `set_property`, `remove_property`, `reparent`, `move_to_layer`), applied as one undo step, or none when the editor refuses one; the error names the file, the edit, the object, the field and the fix.

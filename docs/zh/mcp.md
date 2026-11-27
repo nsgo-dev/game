@@ -270,7 +270,7 @@ import "github.com/nsgo-dev/game/pkg/editor/editormcp"
 
 ### 连接智能体
 
-`nsgo game editor .` 会在项目自己的本地端点上提供所打开的项目：一个只有当前用户能打开的 Unix 域套接字，以项目路径的哈希命名，位于用户缓存目录下的 `nsgo-game/editor` 中（设置了 `$NSGO_GAME_EDITOR_ENDPOINTS` 时位于该目录）。它从不是网络端口。编辑器打开另一个项目时，端点随之切换；在同一项目上再开一个编辑器，第一个编辑器继续提供服务，第二个会在 stderr 上说明原因。
+`go tool game editor .` 会在项目自己的本地端点上提供所打开的项目：一个只有当前用户能打开的 Unix 域套接字，以项目路径的哈希命名，位于用户缓存目录下的 `nsgo-game/editor` 中（设置了 `$NSGO_GAME_EDITOR_ENDPOINTS` 时位于该目录）。它从不是网络端口。编辑器打开另一个项目时，端点随之切换；在同一项目上再开一个编辑器，第一个编辑器继续提供服务，第二个会在 stderr 上说明原因。
 
 在项目目录中运行一次 `go tool game mcp install`，即可写出 Claude Code（`.mcp.json`）与 Codex（`.codex/config.toml`）自动读取的项目级 MCP 配置：
 
@@ -278,13 +278,13 @@ import "github.com/nsgo-dev/game/pkg/editor/editormcp"
 go tool game mcp install
 ```
 
-`go tool game mcp install` 是幂等的：重复运行会保留两个文件中其他不相关的 MCP 服务器或 Codex 配置，生成逐字节相同的文件，并打印每个文件是新写入还是未变更。在项目目录之外也可以传入 `-project <dir>`，或手动注册 `nsgo game mcp`：
+`go tool game mcp install` 是幂等的：重复运行会保留两个文件中其他不相关的 MCP 服务器或 Codex 配置，生成逐字节相同的文件，并打印每个文件是新写入还是未变更。在项目目录之外也可以传入 `-project <dir>`，或手动注册 `go tool game mcp`：
 
 ```sh
-claude mcp add game-editor -- nsgo game mcp
+claude mcp add game-editor -- go tool game mcp
 ```
 
-`nsgo game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它，并将客户端名称与传输方式（例如 `Claude Code over stdio`）上报给编辑器的连接对话框与状态胶囊。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：`no editor has the project open at /path/to/game: open it with nsgo game editor /path/to/game and try again`。
+`go tool game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它，并将客户端名称与传输方式（例如 `Claude Code over stdio`）上报给编辑器的连接对话框与状态胶囊。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：`no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`。
 
 ### 工具
 

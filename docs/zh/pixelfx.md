@@ -83,10 +83,10 @@ pixelfx.View{Source: src.Get, Scale: 4}
 `Render` 按 pixelfx 渲染精灵表的方式渲染特效的每一帧：使用特效自己的帧率（或给定的帧率），共 round(时长 × 帧率) 帧，一次性特效多一帧以便最后一帧就是结尾；除非特效铺满整个屏幕，否则每条边最外 8 个像素内的光会渐隐。`Frames.Sheet` 把这些帧排成网格，并写出 `sprite.LoadAtlas` 能读取的 Aseprite JSON（json-array）：每帧的矩形、时长（1000 / 帧率 毫秒，取整）和位于特效原点的轴心，一个帧标签（循环特效循环播放，一次性特效只播一次），以及 pixelfx 自己的元数据（`id`、`fps`、`loop`、`frameSize`、`pivot`、`columns`，有表演时还有其时间信息）。精灵表与 PNG 一样存储非预乘的透明度。
 
 ```sh
-nsgo game pixelfx -out assets/fx fire/torch
-nsgo game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -out assets/fx -name frost-torch fire/torch
-nsgo game pixelfx -act -out assets/fx moves/ground-pound
-nsgo game pixelfx -list
+go tool game pixelfx -out assets/fx fire/torch
+go tool game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -out assets/fx -name frost-torch fire/torch
+go tool game pixelfx -act -out assets/fx moves/ground-pound
+go tool game pixelfx -list
 ```
 
 `game pixelfx` 把 `<name>.png` 和 `<name>.json` 写入 `-out`（名字默认取特效名，例如 `torch`，可用 `-name` 指定）。`-set name=value` 设置特效的一个选项：数字、`true` 或 `false`、颜色（如 `#4a3f69`）、用逗号分隔的一串颜色，或文本；`-list` 列出所有特效及其选项和默认值。`-act` 渲染由内置角色表演、带有靶子的版本，除非用 `-fps` 指定，否则帧率为 60。

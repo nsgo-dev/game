@@ -127,7 +127,7 @@ NSGo Game has six primary build targets—macOS, iOS, Windows, Linux, Android an
 
 Consoles (Nintendo Switch, PlayStation and Xbox) are out of scope: their SDKs are under NDA and need C toolchains, and NSGo and this repository are Go only, with no hand-written C.
 
-See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six build targets, and [Command Line](cli.md) for `nsgo game`, which packs atlases, converts audio, generates asset manifests, encodes textures, opens the scene editor, and builds all of a game's assets from `game.yaml`, rebuilding only what changed.
+See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six build targets, and [Command Line](cli.md) for `go tool game`, which packs atlases, converts audio, generates asset manifests, encodes textures, opens the scene editor, and builds all of a game's assets from `game.yaml`, rebuilding only what changed.
 
 ### VR and AR
 

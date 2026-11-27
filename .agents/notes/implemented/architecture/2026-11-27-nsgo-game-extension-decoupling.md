@@ -22,7 +22,7 @@ Extract the entire CLI implementation (including `_templates/` and `testdata/`) 
 
 `packages/game/internal/gamecli` sits at the exact same directory depth below the repository root (4 levels) as `packages/game/cmd/game`, so all relative repository paths in tests (`reference_test.go`, `templates_test.go`, `library_test.go`, `skill_e2e_test.go`, `navmesh_test.go`, `playtest_test.go`, `replay_test.go`) remain unchanged. `packages/game/conformance_test.go`'s `notFormats` allowlist moves from `cmd/game` to `internal/gamecli`, and `docs/{en,zh}/stability.md` plus `skills/nsgo-game/references/packages.md` register `game/cmd/nsgo-game` as `Experimental`.
 
-This partly supersedes the built-in dispatch mechanism recorded in [nsgo game as the documented form](../../implemented/process/2026-11-25-nsgo-game-main-form.md): `nsgo game` stays the documented CLI form, while dispatch now relies exclusively on NSGo's generic extension mechanism rather than a hardcoded built-in in `nsgo`.
+This partly supersedes the built-in dispatch mechanism recorded in [nsgo game as the documented form](../../implemented/process/2026-11-25-nsgo-game-main-form.md): `nsgo game` stays the long-term extension form once an NSGo release ships without the hardcoded built-in, while [Document `go run .../cmd/game@latest` and `go tool game` while templates pin NSGo v0.3.4](../../implemented/process/2026-11-28-cli-docs-go-tool-game-until-nsgo-release.md) switches user-facing docs to `go run .../cmd/game@latest` and `go tool game` until templates move past NSGo v0.3.4.
 
 ## Alternatives considered
 

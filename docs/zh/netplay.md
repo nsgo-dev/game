@@ -352,20 +352,20 @@ tr := netplay.NewCaptureTransport(inner, f, netplay.CaptureOptions{
 
 ```sh
 # 按 YAML 或 JSON 逐层解析抓包文件
-nsgo game net decode session.capture.jsonl
-nsgo game net decode --format json session.capture.jsonl
+go tool game net decode session.capture.jsonl
+go tool game net decode --format json session.capture.jsonl
 
 # 使用游戏自定义的 *.wire.yaml Schema 解析 EntityState.Props 等消息
-nsgo game net decode --schema ./proto session.capture.jsonl
+go tool game net decode --schema ./proto session.capture.jsonl
 
 # 跟踪每个对等端的复制基线，在 SnapshotDelta 中同时输出完整实体状态
-nsgo game net decode --resolve-deltas session.capture.jsonl
+go tool game net decode --resolve-deltas session.capture.jsonl
 
 # 从标准输入解析单帧十六进制或 Base64 数据
-echo "230100000001" | nsgo game net decode -
+echo "230100000001" | go tool game net decode -
 
 # 按消息类型与对等端统计包数、字节数以及平均增量大小
-nsgo game net stats session.capture.jsonl
+go tool game net stats session.capture.jsonl
 ```
 
 ### 实时网络调试浮层

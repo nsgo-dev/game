@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -186,5 +187,140 @@ func TestMCPInstallHelpAndUsage(t *testing.T) {
 		if strings.Contains(got, "Usage of ") {
 			t.Errorf("%v printed Go's default usage:\n%s", tc.args, got)
 		}
+	}
+}
+
+func TestCLIModulePathAndWarning(t *testing.T) {
+	cases := []struct {
+		name     string
+		info     *debug.BuildInfo
+		wantMod  string
+		wantWarn bool
+	}{
+		{
+			name:     "nil info",
+			info:     nil,
+			wantMod:  "",
+			wantWarn: false,
+		},
+		{
+			name:     "command-line-arguments",
+			info:     &debug.BuildInfo{Path: "command-line-arguments", Main: debug.Module{Path: "command-line-arguments"}},
+			wantMod:  "",
+			wantWarn: false,
+		},
+		{
+			name: "root module go run",
+			info: &debug.BuildInfo{
+				Path: "github.com/nsgo-dev/game/cmd/game",
+				Main: debug.Module{Path: gameModule, Version: "v0.1.1"},
+			},
+			wantMod:  gameModule,
+			wantWarn: false,
+		},
+		{
+			name: "root module nsgo-game",
+			info: &debug.BuildInfo{
+				Path: "github.com/nsgo-dev/game/cmd/nsgo-game",
+				Main: debug.Module{Path: gameModule, Version: "v0.1.1"},
+			},
+			wantMod:  gameModule,
+			wantWarn: false,
+		},
+		{
+			name: "go tool game inside user module",
+			info: &debug.BuildInfo{
+				Path: "github.com/nsgo-dev/game/cmd/game",
+				Main: debug.Module{Path: "example.com/mygame", Version: "(devel)"},
+				Deps: []*debug.Module{
+					{Path: "github.com/nsgo-dev/nsgo", Version: "v0.3.4"},
+					{Path: gameModule, Version: "v0.1.1"},
+				},
+			},
+			wantMod:  gameModule,
+			wantWarn: false,
+		},
+		{
+			name: "go tool game with local replace",
+			info: &debug.BuildInfo{
+				Path: "github.com/nsgo-dev/game/cmd/game",
+				Main: debug.Module{Path: "example.com/mygame", Version: "(devel)"},
+				Deps: []*debug.Module{
+					{Path: gameModule, Version: "v0.1.1", Replace: &debug.Module{Path: "../game"}},
+				},
+			},
+			wantMod:  gameModule,
+			wantWarn: false,
+		},
+		{
+			name: "legacy packages/game module via go run",
+			info: &debug.BuildInfo{
+				Path: "github.com/nsgo-dev/game/packages/game/cmd/game",
+				Main: debug.Module{Path: "github.com/nsgo-dev/game/packages/game", Version: "v0.1.0"},
+			},
+			wantMod:  "github.com/nsgo-dev/game/packages/game",
+			wantWarn: true,
+		},
+		{
+			name: "legacy packages/game module alongside root module in deps",
+			info: &debug.BuildInfo{
+				Path: "github.com/nsgo-dev/game/packages/game/cmd/game",
+				Main: debug.Module{Path: "example.com/mygame", Version: "(devel)"},
+				Deps: []*debug.Module{
+					{Path: gameModule, Version: "v0.1.1"},
+					{Path: "github.com/nsgo-dev/game/packages/game", Version: "v0.1.0"},
+				},
+			},
+			wantMod:  "github.com/nsgo-dev/game/packages/game",
+			wantWarn: true,
+		},
+		{
+			name: "forked module",
+			info: &debug.BuildInfo{
+				Path: "example.com/game-fork/cmd/game",
+				Main: debug.Module{Path: "example.com/game-fork", Version: "v0.1.0"},
+			},
+			wantMod:  "example.com/game-fork",
+			wantWarn: true,
+		},
+		{
+			name: "empty path falls back to Main.Path",
+			info: &debug.BuildInfo{
+				Main: debug.Module{Path: "github.com/nsgo-dev/game/packages/game", Version: "v0.1.0"},
+			},
+			wantMod:  "github.com/nsgo-dev/game/packages/game",
+			wantWarn: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cliModulePath(tc.info); got != tc.wantMod {
+				t.Errorf("cliModulePath = %q, want %q", got, tc.wantMod)
+			}
+
+			a, stdout, stderr := newTestApp(t)
+			a.readBuildInfo = func() (*debug.BuildInfo, bool) { return tc.info, tc.info != nil }
+			if code := run([]string{"help"}, a); code != 0 {
+				t.Fatalf("help exit %d, want 0 (stderr: %s)", code, stderr)
+			}
+			if !strings.Contains(stdout.String(), "usage: game <command>") {
+				t.Errorf("stdout missing usage:\n%s", stdout)
+			}
+			if strings.Contains(stdout.String(), "warning:") {
+				t.Errorf("warning leaked to stdout:\n%s", stdout)
+			}
+			errText := stderr.String()
+			if tc.wantWarn {
+				if !strings.Contains(errText, "game: warning:") || !strings.Contains(errText, tc.wantMod) || !strings.Contains(errText, gameModule) {
+					t.Errorf("stderr = %q, want one-line warning naming %q and %q", errText, tc.wantMod, gameModule)
+				}
+				if lines := strings.Split(strings.TrimSuffix(errText, "\n"), "\n"); len(lines) != 1 {
+					t.Errorf("warning spanned %d lines, want 1:\n%s", len(lines), errText)
+				}
+			} else if errText != "" {
+				t.Errorf("unexpected stderr: %q", errText)
+			}
+		})
 	}
 }

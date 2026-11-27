@@ -1,6 +1,6 @@
 # Asset and Plugin Library
 
-`github.com/nsgo-dev/game/pkg/tooling/library` finds shared asset packs, editor plugin packs and templates in a library and installs them into a game project. A library is a text index anyone can add a pack to with a pull request; installing a pack writes its files into the project and records them, and the references they add, in `game.yaml`. `nsgo game library` runs it from the command line and the scene editor's library panel runs it from the editor.
+`github.com/nsgo-dev/game/pkg/tooling/library` finds shared asset packs, editor plugin packs and templates in a library and installs them into a game project. A library is a text index anyone can add a pack to with a pull request; installing a pack writes its files into the project and records them, and the references they add, in `game.yaml`. `go tool game library` runs it from the command line and the scene editor's library panel runs it from the editor.
 
 ## Mods, plugins and packs (#1268)
 
@@ -28,11 +28,11 @@ A Go plugin is compiled into the binary rather than loaded at run time because G
 ## Finding and installing packs
 
 ```sh
-nsgo game library list
-nsgo game library list tiles
-nsgo game library -kind plugin list
-nsgo game library install dungeon-tiles
-nsgo game library remove dungeon-tiles
+go tool game library list
+go tool game library list tiles
+go tool game library -kind plugin list
+go tool game library install dungeon-tiles
+go tool game library remove dungeon-tiles
 ```
 
 `list` prints the packs whose name, description or tags hold every word given, with the version the project in the working directory (or `-project`) has installed:
@@ -78,7 +78,7 @@ Installing a pack the project already has updates it, in the directory the insta
 
 ## In the editor
 
-`nsgo game editor -library <index> <project>` shows a library panel beside the asset browser listing every pack in the library with its kind, version and description and the version the open project has installed. Install, Update and Remove do what the command does and then save `game.yaml`, so they are refused while the project has unsaved edits; save or undo them first. Installing writes files the undo history cannot take back, so it empties the history, as opening a project does. A pack from a library over https is fetched without blocking the editor; the panel's buttons wait until it arrives, and opening another project cancels the fetch. In Go, set `Editor.Library` to a `*library.Library` and call `Editor.InstallPack` and `Editor.RemovePack`.
+`go tool game editor -library <index> <project>` shows a library panel beside the asset browser listing every pack in the library with its kind, version and description and the version the open project has installed. Install, Update and Remove do what the command does and then save `game.yaml`, so they are refused while the project has unsaved edits; save or undo them first. Installing writes files the undo history cannot take back, so it empties the history, as opening a project does. A pack from a library over https is fetched without blocking the editor; the panel's buttons wait until it arrives, and opening another project cancels the fetch. In Go, set `Editor.Library` to a `*library.Library` and call `Editor.InstallPack` and `Editor.RemovePack`.
 
 ## The index
 
@@ -138,7 +138,7 @@ autoload:
 | `autoload` | The `scenes` (`.yaml` or `.yml`) and `resources` among `files` that installing adds to `game.yaml`'s autoload section, each with the `name` it is autoloaded under. |
 | `plugins` | The editor plugins a plugin pack turns on; a plugin pack names at least one, and the other kinds none. |
 
-A pack's digest is the SHA-256 of the listing `sha256sum` prints for its files, `pack.yaml` included, named in byte order: one line per file of its SHA-256 in lower-case hexadecimal, two spaces and its path. `nsgo game library digest <pack-dir>` prints it.
+A pack's digest is the SHA-256 of the listing `sha256sum` prints for its files, `pack.yaml` included, named in byte order: one line per file of its SHA-256 in lower-case hexadecimal, two spaces and its path. `go tool game library digest <pack-dir>` prints it.
 
 ## Adding a pack to the shared library
 

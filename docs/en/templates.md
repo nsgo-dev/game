@@ -23,7 +23,7 @@ A new project starts from a template: a small, complete game that builds, runs a
 | `towerdefense2d` | A 2D tower defense game: towers with upgrades beside a road enemies follow, waves defined in YAML, money and lives, played with keyboard, gamepad or touch; [Tower defense template](template-towerdefense2d.md) describes it. | `github.com/nsgo-dev/game/template/towerdefense2d` |
 | `visualnovel` | A short branching visual novel: two characters, drawn backgrounds, choices that change the ending, a backlog, auto and skip modes, save slots and two languages. | `github.com/nsgo-dev/game/template/visualnovel` |
 
-`nsgo game new -list` prints the same list from the command itself, the default first.
+`go run github.com/nsgo-dev/game/cmd/game@latest new -list` prints the same list from the command itself, the default first.
 
 ### puzzle2d
 
@@ -68,11 +68,11 @@ To make the template your own, write a story in `story/story.yarn` and run its t
 ## Create a project from a template
 
 ```sh
-nsgo game new -list
-nsgo game new -template starter mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -list
+go run github.com/nsgo-dev/game/cmd/game@latest new -template starter mygame
 ```
 
-Outside a project, install `nsgo-game` once (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) for `nsgo game` ([Command Line](cli.md#install)), or run `go run github.com/nsgo-dev/game/cmd/game@latest new` directly with nothing to install.
+Inside the created project, run subcommands with `go tool game <command>` ([Command Line](cli.md#install)).
 
 Without `-template`, `game new` uses `starter`. A name that is not in the list is refused with the names that are. Shell completion for `game` ([Command Line](cli.md#completion)) completes `-template` with the same names. [Command Line](cli.md#new) describes the other flags.
 

@@ -1086,7 +1086,7 @@ if violations := render3d.CheckBudget(plan.Stats, render3d.MobileBudget()); len(
 
 ## Hot-reloading shaders and materials
 
-Run the game with [`nsgo game dev`](cli.md#dev) and attach `hotreload.ShaderReloader` and `hotreload.MaterialReloader` (from `github.com/nsgo-dev/game/pkg/tooling/hotreload`) to `hotreload.NewDevWatcher` so edited WGSL (`.wgsl`), Kage (`.kage`), and material YAML (`.material.yaml`, `.mat.yaml`, `.material.yml`, `.mat.yml`) files reload within a second without restarting:
+Run the game with [`go tool game dev`](cli.md#dev) and attach `hotreload.ShaderReloader` and `hotreload.MaterialReloader` (from `github.com/nsgo-dev/game/pkg/tooling/hotreload`) to `hotreload.NewDevWatcher` so edited WGSL (`.wgsl`), Kage (`.kage`), and material YAML (`.material.yaml`, `.mat.yaml`, `.material.yml`, `.mat.yml`) files reload within a second without restarting:
 
 ```go
 w := hotreload.NewDevWatcher(cx) // nil outside game dev and in release builds

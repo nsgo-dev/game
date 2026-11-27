@@ -1,6 +1,6 @@
 ---
 name: nsgo-game
-description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `nsgo game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
+description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `go run github.com/nsgo-dev/game/cmd/game@latest new` or running `go tool game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
 ---
 
 # NSGo Game
@@ -31,10 +31,10 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
 
 ## Quick-start workflow
 
-1. **Scaffold a project:** `nsgo game` runs through NSGo's extension mechanism (NSGo v0.3.3 or later; install `nsgo` with `brew install nsgo-dev/tap/nsgo`, `curl -fsSL https://nsgo.dev/install.sh | sh` or `go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`; the game layer and its templates require NSGo v0.3.4): inside a module whose `go.mod` declares `tool github.com/nsgo-dev/game/cmd/game`, `nsgo game` automatically runs that module's pinned `game` tool (`go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/cmd/game@latest new my-game` directly with nothing to install.
+1. **Scaffold a project:** Create a project from outside a module with `go run github.com/nsgo-dev/game/cmd/game@latest new my-game` (nothing to install; templates require NSGo v0.3.4). Inside the created module, `go.mod` declares `tool github.com/nsgo-dev/game/cmd/game` and `tool github.com/nsgo-dev/nsgo/cmd/nsgo`, so run the pinned CLI with `go tool game <command>` and NSGo with `go tool nsgo <command>`:
 
    ```sh
-   nsgo game new my-game
+   go run github.com/nsgo-dev/game/cmd/game@latest new my-game
    cd my-game
    ```
 
@@ -43,24 +43,24 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
 2. **Generate gameplay building blocks:**
 
    ```sh
-   nsgo game generate -main scene arena
-   nsgo game generate prefab player
-   nsgo game generate component velocity
-   nsgo game generate system movement
+   go tool game generate -main scene arena
+   go tool game generate prefab player
+   go tool game generate component velocity
+   go tool game generate system movement
    ```
 
 3. **Build assets and validate references:**
 
    ```sh
-   nsgo game assets            # packs atlases, encodes KTX2, converts audio, writes typed manifest
-   nsgo game index             # assigns stable file UIDs and updates the project index
-   nsgo game check             # checks scenes, Tiled/LDtk maps, atlases, and all file references
+   go tool game assets            # packs atlases, encodes KTX2, converts audio, writes typed manifest
+   go tool game index             # assigns stable file UIDs and updates the project index
+   go tool game check             # checks scenes, Tiled/LDtk maps, atlases, and all file references
    ```
 
 4. **Run, test, and verify through MCP:**
 
    ```sh
-   nsgo game dev                                  # runs nsgo dev with live asset hot reload
+   go tool game dev                                  # runs nsgo dev with live asset hot reload
    go tool nsgo test ./...                           # headless deterministic tests via nsgotest
    go tool nsgo dev -automation                      # exposes built-in + game/mcp tools for nsgo mcp
    claude mcp add nsgo -- go tool nsgo mcp           # connects an MCP client to the running app
@@ -69,8 +69,8 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
 5. **Package for release:**
 
    ```sh
-   nsgo game credits                              # verifies asset license sidecars
-   nsgo game release                              # builds export presets from game.yaml via nsgo build
+   go tool game credits                              # verifies asset license sidecars
+   go tool game release                              # builds export presets from game.yaml via nsgo build
    ```
 
 ## Minimal game with `game.Loop` and `game/mcp`
@@ -122,12 +122,12 @@ When testing or debugging a game over `nsgo mcp` (or headlessly via `nsgotest.St
 2. **Make runs deterministic:** call `game_loop_pause`, then `game_loop_seed` with a fixed unsigned 64-bit seed.
 3. **Drive gameplay:** inject actions/axes/pointer events (`game_input_action`, `game_input_axis`, `game_input_pointer`) or spawn/edit entities (`game_entity_spawn`, `game_component_set`) and advance an exact step count synchronously with `game_loop_step` (60 steps at 60 Hz advances exactly `1.0` second).
 4. **Assert state & visuals:** read updated component values with `game_entity_inspect` / `game_component_get`, check performance with `game_perf_readout`, and capture aligned debug screenshots with `game_screenshot` (`bounds: true`, `collision_shapes: true`).
-5. **Reproduce & regress:** record sequences with `game_replay_record_start` / `game_replay_record_stop` to save editable YAML recordings, then replay them deterministically with `game_replay_play` or `nsgo game replay`.
+5. **Reproduce & regress:** record sequences with `game_replay_record_start` / `game_replay_record_stop` to save editable YAML recordings, then replay them deterministically with `game_replay_play` or `go tool game replay`.
 
 ## References
 
 Load on demand for exact APIs, flags, schemas, and tool arguments:
 
 - [references/packages.md](references/packages.md) — complete catalog of `pkg/*` packages grouped by stage and domain, with import paths and stability status.
-- [references/cli-and-formats.md](references/cli-and-formats.md) — `nsgo game` subcommands, companion tools, YAML file format contract, schemas, and external tool formats.
+- [references/cli-and-formats.md](references/cli-and-formats.md) — `go tool game` subcommands, companion tools, YAML file format contract, schemas, and external tool formats.
 - [references/mcp-tools.md](references/mcp-tools.md) — full `game/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.

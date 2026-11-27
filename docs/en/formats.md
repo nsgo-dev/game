@@ -2439,7 +2439,7 @@ targets:
 
 ```yaml
 version: 1
-note: Update with nsgo game bench -update.
+note: Update with go tool game bench -update.
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 30, allocs_per_op: 12.5}
 benchmarks:
   BenchmarkBatchDraw1000: {ns_per_op: 3500000, bytes_per_op: 80128, allocs_per_op: 1000}
@@ -2570,7 +2570,7 @@ entities:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `playtest.yaml`, read by `nsgo game playtest` and `game_playtest` | `version: 1` | `playtest.ParseConfig`, `playtest.EncodeConfig` | [playtest](playtest.md) |
+| `playtest.yaml`, read by `go tool game playtest` and `game_playtest` | `version: 1` | `playtest.ParseConfig`, `playtest.EncodeConfig` | [playtest](playtest.md) |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json
@@ -2614,7 +2614,7 @@ metrics:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `playtest.report.yaml`, written by `nsgo game playtest` and `playtest.SaveReportFile` | `version: 1` | `playtest.ParseReport`, `playtest.EncodeReport` | [playtest](playtest.md) |
+| `playtest.report.yaml`, written by `go tool game playtest` and `playtest.SaveReportFile` | `version: 1` | `playtest.ParseReport`, `playtest.EncodeReport` | [playtest](playtest.md) |
 
 ```yaml
 version: 1

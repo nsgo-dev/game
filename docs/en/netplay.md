@@ -352,20 +352,20 @@ The `game net` CLI subcommand uses the [wire schemas](netplay-wire.md) to decode
 
 ```sh
 # Decode a capture log layer by layer as YAML or JSON
-nsgo game net decode session.capture.jsonl
-nsgo game net decode --format json session.capture.jsonl
+go tool game net decode session.capture.jsonl
+go tool game net decode --format json session.capture.jsonl
 
 # Decode custom EntityState.Props using your game's *.wire.yaml schemas
-nsgo game net decode --schema ./proto session.capture.jsonl
+go tool game net decode --schema ./proto session.capture.jsonl
 
 # Track per-peer replication baselines so SnapshotDelta frames also print full resolved entity state
-nsgo game net decode --resolve-deltas session.capture.jsonl
+go tool game net decode --resolve-deltas session.capture.jsonl
 
 # Decode a single hex or base64 frame from standard input
-echo "230100000001" | nsgo game net decode -
+echo "230100000001" | go tool game net decode -
 
 # Print packet and byte totals per message type, per peer, and mean delta size
-nsgo game net stats session.capture.jsonl
+go tool game net stats session.capture.jsonl
 ```
 
 ### Live network debug overlay

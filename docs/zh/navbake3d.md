@@ -144,7 +144,7 @@ navbake3d.DrawDebug(d, viewProj, viewport, mesh, navbake3d.DefaultDebugStyle())
 ## 命令行
 
 ```sh
-nsgo game navmesh scenes/level1.scene.yaml
+go tool game navmesh scenes/level1.scene.yaml
 ```
 
 [`game navmesh`](cli.md#navmesh) 为[项目文件](project.md)中 `navigation` 部分的每种代理类型烘焙场景的静态 3D 几何体（glTF 模型、内置基本形体和静态 `collider3d` 形状），并写入场景的 `navMesh` 指定的文件。

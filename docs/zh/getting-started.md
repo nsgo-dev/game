@@ -5,7 +5,7 @@
 ## 环境要求
 
 - **Go 1.27** 或更高版本。
-- **NSGo `v0.3.4`** 或更新版本，新项目依赖它，并把它作为 `nsgo` 工具运行；另需安装 `nsgo` 命令来运行 `nsgo game`（[命令行](cli.md#安装)）。
+- **NSGo `v0.3.4`** 或更新版本，新项目依赖它，并通过 `go tool nsgo` 运行（[命令行](cli.md#安装)）。
 - 构建 iOS 目标：需要 macOS 和 Xcode。
 - 在 Android 真机或模拟器上运行：需要 `adb`（Android SDK Platform-Tools）。仅构建 `android_arm64` 的 APK 只需要 Go。
 
@@ -13,15 +13,15 @@
 
 ## 创建项目
 
-用 `game` 命令的 `new` 子命令创建项目，以 `nsgo game` 运行（见[命令行](cli.md#安装)）。它把起手模板写入一个新目录，再让 Go 把游戏层和 `game` 工具加入它的 `go.mod`，与模板自带的 `nsgo` 工具并列：
+用 `game` 命令的 `new` 子命令创建项目（见[命令行](cli.md#安装)）。它把起手模板写入一个新目录，再让 Go 把游戏层和 `game` 工具加入它的 `go.mod`，与模板自带的 `nsgo` 工具并列：
 
 ```sh
-nsgo game new mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new mygame
 cd mygame
 go tool nsgo dev
 ```
 
-在项目之外，`nsgo game` 使用 `PATH` 上的 `nsgo-game` 扩展二进制（用 `go install github.com/nsgo-dev/game/cmd/nsgo-game@latest` 安装一次），也可以直接运行 `go run github.com/nsgo-dev/game/cmd/game@latest new mygame`，无需预先安装。在创建好的项目内，`nsgo game` 会自动运行模块固定的 `game` 工具。
+在创建好的项目内，使用 `go tool game <command>` 运行模块固定的 `game` 工具（例如 `go tool game check` 或 `go tool game generate`）。
 
 起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 
@@ -82,7 +82,7 @@ go tool nsgo dev -target android
 
 给任意 `nsgo dev` 命令加上 `-fps`，可以在运行中的游戏画面上叠加 NSGo 的性能监视器。
 
-如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `nsgo game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
+如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `go tool game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
 
 ## 用 Loop 和 sprite.Batch 绘制精灵
 

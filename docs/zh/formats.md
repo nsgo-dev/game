@@ -2439,7 +2439,7 @@ targets:
 
 ```yaml
 version: 1
-note: Update with nsgo game bench -update.
+note: Update with go tool game bench -update.
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 30, allocs_per_op: 12.5}
 benchmarks:
   BenchmarkBatchDraw1000: {ns_per_op: 3500000, bytes_per_op: 80128, allocs_per_op: 1000}
@@ -2570,7 +2570,7 @@ entities:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `playtest.yaml`，由 `nsgo game playtest` 与 `game_playtest` 读取 | `version: 1` | `playtest.ParseConfig`、`playtest.EncodeConfig` | [playtest](playtest.md) |
+| `playtest.yaml`，由 `go tool game playtest` 与 `game_playtest` 读取 | `version: 1` | `playtest.ParseConfig`、`playtest.EncodeConfig` | [playtest](playtest.md) |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json
@@ -2614,7 +2614,7 @@ metrics:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `playtest.report.yaml`，由 `nsgo game playtest` 与 `playtest.SaveReportFile` 写出 | `version: 1` | `playtest.ParseReport`、`playtest.EncodeReport` | [playtest](playtest.md) |
+| `playtest.report.yaml`，由 `go tool game playtest` 与 `playtest.SaveReportFile` 写出 | `version: 1` | `playtest.ParseReport`、`playtest.EncodeReport` | [playtest](playtest.md) |
 
 ```yaml
 version: 1
