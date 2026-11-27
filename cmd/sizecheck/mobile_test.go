@@ -505,7 +505,7 @@ func TestCLIExitCodesAndOutputModes(t *testing.T) {
 		t.Fatalf("write wasm: %v", err)
 	}
 	wasmBudgetPath := filepath.Join(dir, "web-budget.json")
-	if err := os.WriteFile(wasmBudgetPath, []byte(`{"target":"./cmd/wasmprobe","max_raw_bytes":16384,"max_gzip_bytes":16384}`), 0o644); err != nil {
+	if err := os.WriteFile(wasmBudgetPath, []byte(`{"target":"./internal/sizeprobe","max_raw_bytes":16384,"max_gzip_bytes":16384}`), 0o644); err != nil {
 		t.Fatalf("write wasm budget: %v", err)
 	}
 

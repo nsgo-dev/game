@@ -8,7 +8,7 @@ Contributions are welcome: bug fixes, new packages, examples, documentation, and
 game/
 ├─ go.mod / go.work  Go module github.com/nsgo-dev/game (entry package game at root)
 ├─ cmd/              CLI binaries (game, nsgo-game, gameproject, sizecheck, ...)
-├─ internal/         internal shared helpers and CLI implementation
+├─ internal/         internal shared helpers, CLI implementation and the sizeprobe CI fixture
 ├─ pkg/              library subpackages (github.com/nsgo-dev/game/pkg/<name>)
 ├─ examples/         playable sample games built on the game layer
 ├─ template/         Go modules publishing the game new templates: starter from template/template/, the others from template/<name>/template/

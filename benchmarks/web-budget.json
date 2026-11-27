@@ -1,7 +1,7 @@
 {
-  "target": "./cmd/wasmprobe",
+  "target": "./internal/sizeprobe",
   "ldflags": "-s -w",
   "max_raw_bytes": 8388608,
   "max_gzip_bytes": 2359296,
-  "note": "WebAssembly size budget for ./cmd/wasmprobe importing game, sprite, sound, and tilemap (GOOS=js GOARCH=wasm -trimpath -ldflags=\"-s -w\"). Baseline measured ~6.53 MiB raw / ~1.74 MiB gzipped; budget allows 8.00 MiB raw and 2.25 MiB gzipped."
+  "note": "WebAssembly size budget for ./internal/sizeprobe importing game, sprite, sound, and tilemap (GOOS=js GOARCH=wasm -trimpath -ldflags=\"-s -w\"). Baseline measured ~6.53 MiB raw / ~1.74 MiB gzipped; budget allows 8.00 MiB raw and 2.25 MiB gzipped."
 }

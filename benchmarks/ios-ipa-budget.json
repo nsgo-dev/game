@@ -5,5 +5,5 @@
     "frameworks": 2097152,
     "resources": 1048576
   },
-  "note": "iOS IPA size budget for ./cmd/wasmprobe (go tool nsgo build -target ios). Baseline measured ~1.33 MiB archive (~1.33 MiB executable compressed / ~3.25 MiB uncompressed); budget allows 6.00 MiB total and 4.00 MiB executable."
+  "note": "iOS IPA size budget for ./internal/sizeprobe (go tool nsgo build -target ios). Baseline measured ~1.33 MiB archive (~1.33 MiB executable compressed / ~3.25 MiB uncompressed); budget allows 6.00 MiB total and 4.00 MiB executable."
 }

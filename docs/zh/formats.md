@@ -2715,11 +2715,11 @@ runs:
 
 ```json
 {
-  "target": "./cmd/wasmprobe",
+  "target": "./internal/sizeprobe",
   "ldflags": "-s -w",
   "max_raw_bytes": 8388608,
   "max_gzip_bytes": 2359296,
-  "note": "WebAssembly size budget for ./cmd/wasmprobe"
+  "note": "WebAssembly size budget for ./internal/sizeprobe"
 }
 ```
 

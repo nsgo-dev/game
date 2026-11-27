@@ -22,7 +22,7 @@ Built-in defaults in `cmd/sizecheck` target typical 2D NSGo games and can be ove
 | Android APK (`.apk`) | `DefaultAndroidAPKBudget` | 40 MiB | 20 MiB | `native_libs` 30 MiB, `dex` 5 MiB, `assets` 20 MiB, `resources` 15 MiB, `manifest_meta` 2 MiB |
 | iOS IPA (`.ipa`) | `DefaultIOSIPABudget` | 50 MiB | - | `executable` 25 MiB, `frameworks` 15 MiB, `assets_car` 15 MiB, `resources` 25 MiB, `lproj` 5 MiB, `code_signature` 2 MiB |
 
-For this repository's minimal `./cmd/wasmprobe` CI probe, tighter baseline files live in [`benchmarks/`](../../benchmarks/):
+For this repository's minimal `./internal/sizeprobe` CI probe, tighter baseline files live in [`benchmarks/`](../../benchmarks/):
 
 - [`benchmarks/web-budget.json`](../../benchmarks/web-budget.json): 8 MiB raw / 2.25 MiB gzipped `.wasm`
 - [`benchmarks/android-aab-budget.json`](../../benchmarks/android-aab-budget.json): 6 MiB total `.aab` / 4 MiB per ABI
@@ -113,9 +113,9 @@ Any omitted or `<= 0` field is left unbounded.
 
 [`.github/workflows/quality.yml`](../../.github/workflows/quality.yml) runs three dedicated size budget jobs on every push to `main` and every pull request:
 
-1. **`web-size-budget`** (`ubuntu-24.04`): builds `./cmd/wasmprobe` for `GOOS=js GOARCH=wasm` and checks `benchmarks/web-budget.json`.
-2. **`android-size-budget`** (`ubuntu-24.04`): runs `go tool nsgo build -target android -channel store ./cmd/wasmprobe`, inspects the generated `.aab` against `benchmarks/android-aab-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
-3. **`ios-size-budget`** (`macos-15`): runs `go tool nsgo build -target ios ./cmd/wasmprobe`, inspects the generated `.ipa` against `benchmarks/ios-ipa-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
+1. **`web-size-budget`** (`ubuntu-24.04`): builds `./internal/sizeprobe` for `GOOS=js GOARCH=wasm` and checks `benchmarks/web-budget.json`.
+2. **`android-size-budget`** (`ubuntu-24.04`): runs `go tool nsgo build -target android -channel store ./internal/sizeprobe`, inspects the generated `.aab` against `benchmarks/android-aab-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
+3. **`ios-size-budget`** (`macos-15`): runs `go tool nsgo build -target ios ./internal/sizeprobe`, inspects the generated `.ipa` against `benchmarks/ios-ipa-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
 
 When a budget fails, `sizecheck` still renders the full violation list, category table, per-ABI table, and top-10 largest files into the job summary before exiting with code `1`.
 
