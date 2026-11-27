@@ -25,6 +25,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | 3D 植被层，版本 1 | `https://game.nsgo.dev/schemas/foliage.v1.json` | `*.foliage.yaml`，由 `world3d.ParseFoliage` 和 `world3d.LoadFoliageFS` 读取 |
 | 导航网格，版本 1 | `https://game.nsgo.dev/schemas/navmesh.v1.json` | `game navmesh` 烘焙、场景 `navMesh` 指定的 `*.navmesh.yaml`，由 `navbake3d.Parse` 和 `navbake3d.LoadFS` 读取（见 [navbake3d](navbake3d.md)） |
 | 项目文件，版本 1 | `https://game.nsgo.dev/schemas/game.v1.json` | 项目根目录的 `game.yaml`，由 `project.Parse` 读取 |
+| 插件清单，版本 1 | `https://game.nsgo.dev/schemas/plugin.v1.json` | Go 插件模块根目录的 `plugin.yaml`，由 `manifest.Parse` 和 `manifest.ParseFS` 读取（见[插件](plugins.md)） |
 | 行为树，版本 1 | `https://game.nsgo.dev/schemas/bt.v1.json` | `*.bt.yaml`，由 `ai.ParseBehaviorTree` 和 `ai.LoadBehaviorTreeFS` 读取 |
 | 过场动画，版本 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` 视频过场动画，由 `cutscene.Parse` 读取 |
 | 过场动画，版本 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` 视频或时间轴过场动画，由 `cutscene.Parse` 读取 |

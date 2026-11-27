@@ -158,6 +158,7 @@ var formatVersions = map[string]string{
 	"platformer.CurrentVersion":                 "platformer",
 	"playtest.CurrentVersion":                   "playtest",
 	"playtest.ReportVersion":                    "playtest#report",
+	"plugin/manifest.ManifestVersion":           "plugin/manifest",
 	"procgen.RoomTemplatesVersion":              "procgen#rooms",
 	"procgen.RulesVersion":                      "procgen",
 	"project.BriefVersion":                      "project#brief",

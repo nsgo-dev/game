@@ -25,6 +25,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | 3D foliage layers, version 1 | `https://game.nsgo.dev/schemas/foliage.v1.json` | `*.foliage.yaml`, read by `world3d.ParseFoliage` and `world3d.LoadFoliageFS` |
 | Navigation mesh, version 1 | `https://game.nsgo.dev/schemas/navmesh.v1.json` | `*.navmesh.yaml` that `game navmesh` bakes and a scene's `navMesh` names, read by `navbake3d.Parse` and `navbake3d.LoadFS` ([navbake3d](navbake3d.md)) |
 | Project file, version 1 | `https://game.nsgo.dev/schemas/game.v1.json` | `game.yaml` at the project's root, read by `project.Parse` |
+| Plugin manifest, version 1 | `https://game.nsgo.dev/schemas/plugin.v1.json` | `plugin.yaml` at the root of a Go plugin module, read by `manifest.Parse` and `manifest.ParseFS` ([Plugins](plugins.md)) |
 | Behavior tree, version 1 | `https://game.nsgo.dev/schemas/bt.v1.json` | `*.bt.yaml`, read by `ai.ParseBehaviorTree` and `ai.LoadBehaviorTreeFS` |
 | Cutscene, version 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` video cutscenes, read by `cutscene.Parse` |
 | Cutscene, version 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` video or timeline cutscenes, read by `cutscene.Parse` |

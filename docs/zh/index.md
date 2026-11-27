@@ -80,6 +80,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `loot` | `github.com/nsgo-dev/game/pkg/loot` | [loot](loot.md) | YAML 编写的可嵌套加权掉落表，支持保底掉落与基于种子随机流的硬/软保底计数 |
 | `vn` | `github.com/nsgo-dev/game/pkg/vn` | [vn](vn.md) | 视觉小说演出：YAML 角色表的立绘与表情、名牌、打字机文本框、选项、回看记录、自动/快进模式与语音 |
 | `modding` | `github.com/nsgo-dev/game/pkg/modding` | [modding](modding.md) | 能力沙箱隔离的 TSX `"game"` 模组 API 与 `mod.yaml` 依赖/生命周期管理器 |
+| `plugin/manifest` | `github.com/nsgo-dev/game/pkg/plugin/manifest` | [插件](plugins.md) | Go 插件 `plugin.yaml` 清单的严格解析器、校验器与确定性 YAML 编码器 |
 | `math3d` | `github.com/nsgo-dev/game/pkg/math3d` | [math3d](math3d.md) | 3D 向量、矩阵、四元数、变换、包围体、射线、视锥体与统一数学约定 |
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D 节点树、插槽/附件、动态胖 AABB/SAH BVH、轨道/FPS/第三人称相机与 3D 拾取 |
 | `anim3d` | `github.com/nsgo-dev/game/pkg/anim3d` | [anim3d](anim3d.md) | 3D 姿态状态机、1D/2D 混合空间、骨骼遮罩与叠加层、帧事件、IK 与根骨骼运动 |

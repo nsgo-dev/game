@@ -434,6 +434,42 @@ visibility: public
 preview: preview.png
 ```
 
+<!-- format: plugin/manifest -->
+### 插件清单
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| Go 插件模块根目录的 `plugin.yaml` | `manifestVersion: 1` | `manifest.Parse`、`manifest.ParseFS`、`manifest.Encode` | [插件](plugins.md) |
+
+```yaml
+manifestVersion: 1
+name: healthkit
+module: example.com/healthkit
+description: Health component, ward panel and admit tool
+license: MIT
+authors: [Jane Doe]
+repository: https://github.com/example/healthkit
+engine: '>=0.4.0 <0.5.0'
+api: 1
+platforms: [all]
+entries:
+  runtime: example.com/healthkit/health
+  editor: example.com/healthkit/healtheditor
+  cli:
+    - name: healthkit
+      package: example.com/healthkit/cmd/game-healthkit
+requires:
+  example.com/navkit: ^0.3.0
+conflicts: [example.com/oldhealth]
+contributes:
+  components: [health]
+  editor:
+    panels: [ward]
+    tools: [admit]
+    commands: [heal-all]
+  agentTools: [plugin.healthkit.heal_all]
+```
+
 <!-- format: tooling/hotreload -->
 ### 3D 着色器材质
 
