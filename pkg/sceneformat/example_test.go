@@ -177,6 +177,48 @@ connections:
 	// <nil>
 }
 
+// SpawnEntitiesWith validates a scene's components against a registry, resolves defaults, and runs each registered ComponentType.Spawn factory to attach typed ECS components to the spawned entities.
+func ExampleSpawnEntitiesWith() {
+	type Health struct {
+		HP, Max int
+	}
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "health",
+		Fields: []sceneformat.Field{
+			{Name: "hp", Kind: sceneformat.FieldInt, Default: 10},
+			{Name: "max", Kind: sceneformat.FieldInt, Default: 10},
+		},
+		Spawn: func(w *entities.World, e entities.Entity, fields map[string]any) error {
+			entities.Set(w, e, Health{HP: fields["hp"].(int), Max: fields["max"].(int)})
+			return nil
+		},
+	})
+	doc, err := sceneformat.ParseWith([]byte(`version: 1
+layers:
+  - name: actors
+    objects:
+      - id: hero
+        components:
+          health:
+            hp: 7
+`), sceneformat.ParseOptions{Components: reg})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	world := entities.NewWorld()
+	spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	h, _ := entities.Get[Health](world, spawned["hero"])
+	fmt.Println(h.HP, h.Max)
+	// Output:
+	// 7 10
+}
+
 // A layered tilemap places the tiles of a YAML tileset in named tile layers. FSAssets reads the tileset from the project's files, and Build makes the layer a tilemap.Tilemap that answers collision queries.
 func ExampleFSAssets() {
 	project := fstest.MapFS{

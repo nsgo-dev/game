@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
+	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -50,9 +51,10 @@ type Ward struct {
 	start []Patient
 }
 
-// LoadWard parses a scene file, checking its components against health.Components, and returns the ward its patients make. file names the scene in errors. A scene without patients is refused.
+// LoadWard parses a scene file, spawns its objects into an entities.World with health.Components so each health component populates its typed health.Stats store, and returns the ward its top-level patients make. file names the scene in errors. A scene without patients is refused.
 func LoadWard(data []byte, file string) (*Ward, error) {
-	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: health.Components()})
+	reg := health.Components()
+	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: reg})
 	if err != nil {
 		return nil, err
 	}
@@ -65,21 +67,27 @@ func LoadWard(data []byte, file string) (*Ward, error) {
 	if w.Width <= 0 || w.Height <= 0 {
 		return nil, fmt.Errorf("%s: the scene needs a virtualWidth and virtualHeight", file)
 	}
+	world := entities.NewWorld()
+	spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", file, err)
+	}
+	stats := entities.Component[health.Stats](world)
+	transforms := entities.Component[entities.Transform2D](world)
 	for _, layer := range doc.Layers {
 		for i := range layer.Objects {
 			o := &layer.Objects[i]
-			s, ok, err := health.Read(o)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", file, err)
-			}
+			e := spawned[o.ID]
+			s, ok := stats.Get(e)
 			if !ok {
 				continue
 			}
+			tr, _ := transforms.Get(e)
 			name := o.Name
 			if name == "" {
 				name = o.ID
 			}
-			w.start = append(w.start, Patient{ID: o.ID, Name: name, X: o.X, Y: o.Y, HP: s.HP, Max: s.Max})
+			w.start = append(w.start, Patient{ID: o.ID, Name: name, X: tr.X, Y: tr.Y, HP: s.HP, Max: s.Max})
 		}
 	}
 	if len(w.start) == 0 {

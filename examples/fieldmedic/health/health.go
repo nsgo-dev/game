@@ -4,6 +4,7 @@ package health
 import (
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
@@ -23,7 +24,7 @@ const (
 	Limit      = 99
 )
 
-// Type returns the health component type: hp from 0 to Limit, and max from 1 to Limit.
+// Type returns the health component type: hp from 0 to Limit, and max from 1 to Limit, with a Spawn factory that attaches typed Stats to the spawned entity with hp clamped to max.
 func Type() sceneformat.ComponentType {
 	return sceneformat.ComponentType{
 		Name: Name,
@@ -32,7 +33,21 @@ func Type() sceneformat.ComponentType {
 			{Name: FieldHP, Kind: sceneformat.FieldInt, Default: DefaultHP, Min: sceneformat.Float64(0), Max: sceneformat.Float64(Limit), Doc: "Hit points left; a patient at 0 is lost."},
 			{Name: FieldMax, Kind: sceneformat.FieldInt, Default: DefaultMax, Min: sceneformat.Float64(1), Max: sceneformat.Float64(Limit), Doc: "The most hit points healing brings the patient to."},
 		},
+		Spawn: spawn,
 	}
+}
+
+func spawn(w *entities.World, e entities.Entity, fields map[string]any) error {
+	hp, ok := fields[FieldHP].(int)
+	if !ok {
+		return fmt.Errorf("health: field %q must be int, got %T", FieldHP, fields[FieldHP])
+	}
+	maxHP, ok := fields[FieldMax].(int)
+	if !ok {
+		return fmt.Errorf("health: field %q must be int, got %T", FieldMax, fields[FieldMax])
+	}
+	entities.Set(w, e, Stats{HP: min(hp, maxHP), Max: maxHP})
+	return nil
 }
 
 // Components returns a registry holding the health component, the component types Field Medic's scenes use, for sceneformat.ParseWith and the editor's SetComponentRegistry.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
+	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
@@ -67,5 +68,40 @@ func TestObjectsListsTopLevelPatientsInDocumentOrder(t *testing.T) {
 	}
 	if got := health.Objects(nil); got != nil {
 		t.Fatalf("Objects(nil) = %v", got)
+	}
+}
+
+func TestSpawnAttachesStatsToWorld(t *testing.T) {
+	reg := health.Components()
+	doc, err := sceneformat.ParseWith([]byte(`version: 1
+layers:
+  - name: patients
+    objects:
+      - id: defaults
+        components:
+          health: {}
+      - id: clamped
+        components:
+          health:
+            hp: 20
+            max: 12
+      - id: rock
+`), sceneformat.ParseOptions{Components: reg})
+	if err != nil {
+		t.Fatalf("ParseWith: %v", err)
+	}
+	w := entities.NewWorld()
+	spawned, err := sceneformat.SpawnEntitiesWith(doc, w, sceneformat.SpawnOptions{Components: reg})
+	if err != nil {
+		t.Fatalf("SpawnEntitiesWith: %v", err)
+	}
+	if s, ok := entities.Get[health.Stats](w, spawned["defaults"]); !ok || *s != (health.Stats{HP: health.DefaultHP, Max: health.DefaultMax}) {
+		t.Fatalf("defaults stats = %+v, %v", s, ok)
+	}
+	if s, ok := entities.Get[health.Stats](w, spawned["clamped"]); !ok || *s != (health.Stats{HP: 12, Max: 12}) {
+		t.Fatalf("clamped stats = %+v, %v", s, ok)
+	}
+	if entities.Has[health.Stats](w, spawned["rock"]) {
+		t.Fatal("rock unexpectedly got a health.Stats component")
 	}
 }
