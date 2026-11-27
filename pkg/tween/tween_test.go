@@ -735,3 +735,238 @@ func TestCameraMovesExactTargetsAndBoundsOnGameLoop(t *testing.T) {
 		}
 	})
 }
+
+func TestCameraTweenResetRecapturesCurrentState(t *testing.T) {
+	const ms = time.Millisecond
+
+	t.Run("CameraPan", func(t *testing.T) {
+		cam := &tilemap.Camera{X: 0, Y: 0, Zoom: 1}
+		pan := tween.CameraPan(cam, 100, 200, time.Second, core.Linear)
+
+		if !pan.Update(time.Second) || cam.X != 100 || cam.Y != 200 {
+			t.Fatalf("first run: done=%v cam=(%g, %g), want true (100, 200)", pan.Done(), cam.X, cam.Y)
+		}
+
+		// Move camera elsewhere, reset, and replay: must start from (500, -100), not (0, 0).
+		cam.X, cam.Y = 500, -100
+		pan.Reset()
+		if pan.Done() {
+			t.Fatal("Reset should clear Done")
+		}
+		pan.Update(ms)
+		wantX := 500 + (100-500)*0.001
+		wantY := -100 + (200-(-100))*0.001
+		if !near(float64(cam.X), wantX, 1e-3) || !near(float64(cam.Y), wantY, 1e-3) {
+			t.Fatalf("after Reset+1ms: cam=(%g, %g), want (%g, %g)", cam.X, cam.Y, wantX, wantY)
+		}
+		if !pan.Update(999*ms) || cam.X != 100 || cam.Y != 200 {
+			t.Fatalf("second run end: done=%v cam=(%g, %g), want true (100, 200)", pan.Done(), cam.X, cam.Y)
+		}
+	})
+
+	t.Run("CameraZoom", func(t *testing.T) {
+		cam := &tilemap.Camera{Zoom: 1}
+		zoom := tween.CameraZoom(cam, 2, 200*ms, core.Linear)
+
+		if !zoom.Update(200*ms) || cam.Zoom != 2 {
+			t.Fatalf("first run: done=%v zoom=%g, want true 2", zoom.Done(), cam.Zoom)
+		}
+
+		// Move zoom to 4, reset, and check midpoint (4 -> 2 => 3).
+		cam.Zoom = 4
+		zoom.Reset()
+		zoom.Update(100 * ms)
+		if !near(float64(cam.Zoom), 3, 1e-5) {
+			t.Fatalf("after Reset+100ms: zoom=%g, want 3", cam.Zoom)
+		}
+		if !zoom.Update(100*ms) || cam.Zoom != 2 {
+			t.Fatalf("second run end: done=%v zoom=%g, want true 2", zoom.Done(), cam.Zoom)
+		}
+
+		// Resetting when cam.Zoom <= 0 re-captures effective zoom 1 (1 -> 2 => 1.5 at midpoint).
+		cam.Zoom = 0
+		zoom.Reset()
+		zoom.Update(100 * ms)
+		if !near(float64(cam.Zoom), 1.5, 1e-5) {
+			t.Fatalf("after Reset with Zoom=0: midpoint zoom=%g, want 1.5", cam.Zoom)
+		}
+	})
+
+	t.Run("CameraRotate", func(t *testing.T) {
+		cam := &tilemap.Camera{Rotation: 0}
+		rot := tween.CameraRotate(cam, 1, 200*ms, core.Linear)
+
+		if !rot.Update(200*ms) || cam.Rotation != 1 {
+			t.Fatalf("first run: done=%v rot=%g, want true 1", rot.Done(), cam.Rotation)
+		}
+
+		// Move rotation to 3, reset, and check midpoint (3 -> 1 => 2).
+		cam.Rotation = 3
+		rot.Reset()
+		rot.Update(100 * ms)
+		if !near(float64(cam.Rotation), 2, 1e-5) {
+			t.Fatalf("after Reset+100ms: rot=%g, want 2", cam.Rotation)
+		}
+		if !rot.Update(100*ms) || cam.Rotation != 1 {
+			t.Fatalf("second run end: done=%v rot=%g, want true 1", rot.Done(), cam.Rotation)
+		}
+	})
+
+	t.Run("CameraMove", func(t *testing.T) {
+		cam := &tilemap.Camera{X: 0, Y: 0, Zoom: 1, Rotation: 0}
+		mv := tween.CameraMove(cam, 100, 200, 2, 1, 200*ms, core.Linear)
+
+		if !mv.Update(200*ms) || cam.X != 100 || cam.Y != 200 || cam.Zoom != 2 || cam.Rotation != 1 {
+			t.Fatalf("first run: done=%v cam=(%g, %g, zoom=%g, rot=%g)",
+				mv.Done(), cam.X, cam.Y, cam.Zoom, cam.Rotation)
+		}
+
+		// Move all four properties, reset, and check midpoint.
+		cam.X, cam.Y, cam.Zoom, cam.Rotation = 500, -100, 4, 3
+		mv.Reset()
+		mv.Update(100 * ms)
+		if !near(float64(cam.X), 300, 1e-4) ||
+			!near(float64(cam.Y), 50, 1e-4) ||
+			!near(float64(cam.Zoom), 3, 1e-4) ||
+			!near(float64(cam.Rotation), 2, 1e-4) {
+			t.Fatalf("after Reset+100ms: cam=(%g, %g, zoom=%g, rot=%g), want (300, 50, 3, 2)",
+				cam.X, cam.Y, cam.Zoom, cam.Rotation)
+		}
+		if !mv.Update(100*ms) || cam.X != 100 || cam.Y != 200 || cam.Zoom != 2 || cam.Rotation != 1 {
+			t.Fatalf("second run end: done=%v cam=(%g, %g, zoom=%g, rot=%g)",
+				mv.Done(), cam.X, cam.Y, cam.Zoom, cam.Rotation)
+		}
+	})
+
+	t.Run("CameraFollowTransition", func(t *testing.T) {
+		cam := &tilemap.Camera{X: 0, Y: 0, Zoom: 1}
+		target := core.Point{X: 100, Y: 200}
+		ft := tween.CameraFollowTransition(cam, func() core.Point { return target }, 200*ms, core.Linear)
+
+		if !ft.Update(200*ms) || cam.X != 100 || cam.Y != 200 {
+			t.Fatalf("first run: done=%v cam=(%g, %g), want true (100, 200)", ft.Done(), cam.X, cam.Y)
+		}
+
+		// Move both camera and target, reset, and check midpoint ((500, -100) -> (300, 300) => (400, 100)).
+		cam.X, cam.Y = 500, -100
+		target = core.Point{X: 300, Y: 300}
+		ft.Reset()
+		ft.Update(100 * ms)
+		if !near(float64(cam.X), 400, 1e-4) || !near(float64(cam.Y), 100, 1e-4) {
+			t.Fatalf("after Reset+100ms: cam=(%g, %g), want (400, 100)", cam.X, cam.Y)
+		}
+		target = core.Point{X: 350, Y: 350}
+		if !ft.Update(100*ms) || cam.X != 350 || cam.Y != 350 {
+			t.Fatalf("second run end: done=%v cam=(%g, %g), want true (350, 350)", ft.Done(), cam.X, cam.Y)
+		}
+	})
+
+	t.Run("Delay captures after delay and Seek(0) keeps captured start", func(t *testing.T) {
+		cam := &tilemap.Camera{X: 0, Y: 0, Zoom: 1}
+		pan := tween.CameraPan(cam, 100, 0, 200*ms, core.Linear).Delay(50 * ms)
+
+		pan.Update(150 * ms) // 50ms delay + 100ms active -> halfway (50)
+		if !near(float64(cam.X), 50, 1e-4) {
+			t.Fatalf("first run midpoint: cam.X=%g, want 50", cam.X)
+		}
+
+		// Seek(0) scrubs back to the captured start (0) rather than re-capturing 50.
+		pan.Seek(0)
+		if cam.X != 0 {
+			t.Fatalf("Seek(0) = %g, want original captured start 0", cam.X)
+		}
+
+		// Reset clears the captured start; movement during the delay is captured when active play starts.
+		pan.Reset()
+		cam.X = 200
+		pan.Update(30 * ms) // still in delay
+		cam.X = 500
+		pan.Update(120 * ms) // 20ms remaining delay + 100ms active (50%) -> halfway 500 -> 100 = 300
+		if !near(float64(cam.X), 300, 1e-4) {
+			t.Fatalf("after Reset+Delay midpoint: cam.X=%g, want 300", cam.X)
+		}
+	})
+
+	t.Run("Group replay after Reset", func(t *testing.T) {
+		cam := &tilemap.Camera{X: 0, Y: 0, Zoom: 1}
+		pan := tween.CameraPan(cam, 100, 0, 200*ms, core.Linear)
+		zoom := tween.CameraZoom(cam, 2, 200*ms, core.Linear)
+
+		var g tween.Group
+		g.Add(pan, zoom)
+		g.Update(200 * ms)
+		if g.Len() != 0 || cam.X != 100 || cam.Zoom != 2 {
+			t.Fatalf("first group run: len=%d cam=(%g, zoom=%g), want 0 (100, 2)", g.Len(), cam.X, cam.Zoom)
+		}
+
+		// Move camera, Reset both tweens, re-add to group, and verify midpoint from new state.
+		cam.X, cam.Zoom = 500, 4
+		pan.Reset()
+		zoom.Reset()
+		g.Add(pan, zoom)
+		g.Update(100 * ms)
+		if !near(float64(cam.X), 300, 1e-4) || !near(float64(cam.Zoom), 3, 1e-4) {
+			t.Fatalf("replayed group midpoint: cam=(%g, zoom=%g), want (300, 3)", cam.X, cam.Zoom)
+		}
+
+		// Mid-run Reset while still active in the group also re-captures current camera state.
+		cam.X, cam.Zoom = 900, 6
+		pan.Reset()
+		zoom.Reset()
+		g.Update(100 * ms)
+		if !near(float64(cam.X), 500, 1e-4) || !near(float64(cam.Zoom), 4, 1e-4) {
+			t.Fatalf("mid-run Reset group midpoint: cam=(%g, zoom=%g), want (500, 4)", cam.X, cam.Zoom)
+		}
+		g.Update(100 * ms)
+		if g.Len() != 0 || cam.X != 100 || cam.Zoom != 2 {
+			t.Fatalf("replayed group end: len=%d cam=(%g, zoom=%g), want 0 (100, 2)", g.Len(), cam.X, cam.Zoom)
+		}
+	})
+
+	t.Run("Sequence replay after Reset", func(t *testing.T) {
+		cam := &tilemap.Camera{X: 0, Y: 0, Zoom: 1}
+		pan1 := tween.CameraPan(cam, 100, 0, 200*ms, core.Linear)
+		zoom := tween.CameraZoom(cam, 2, 200*ms, core.Linear)
+		pan2 := tween.CameraPan(cam, 300, 0, 200*ms, core.Linear)
+
+		seq := tween.Sequence().
+			Then(pan1).
+			With(zoom).
+			Then(pan2).
+			Build()
+
+		seq.Play()
+		seq.Update(400 * ms)
+		if !seq.Done() || cam.X != 300 || cam.Zoom != 2 {
+			t.Fatalf("first sequence run: done=%v cam=(%g, zoom=%g), want true (300, 2)", seq.Done(), cam.X, cam.Zoom)
+		}
+
+		// Move camera, reset the camera tweens, and restart the sequence:
+		// step 1 must pan from 500 -> 100 while zooming 4 -> 2, then step 2 pans 100 -> 300.
+		cam.X, cam.Zoom = 500, 4
+		pan1.Reset()
+		zoom.Reset()
+		pan2.Reset()
+		seq.Restart()
+		if cam.X != 500 || cam.Zoom != 4 {
+			t.Fatalf("after Restart at t=0: cam=(%g, zoom=%g), want (500, 4)", cam.X, cam.Zoom)
+		}
+
+		seq.Update(100 * ms)
+		if !near(float64(cam.X), 300, 1e-4) || !near(float64(cam.Zoom), 3, 1e-4) {
+			t.Fatalf("replayed sequence step 1 midpoint: cam=(%g, zoom=%g), want (300, 3)", cam.X, cam.Zoom)
+		}
+		seq.Update(100 * ms)
+		if !near(float64(cam.X), 100, 1e-4) || !near(float64(cam.Zoom), 2, 1e-4) {
+			t.Fatalf("replayed sequence step 1 end: cam=(%g, zoom=%g), want (100, 2)", cam.X, cam.Zoom)
+		}
+		seq.Update(100 * ms)
+		if !near(float64(cam.X), 200, 1e-4) || !near(float64(cam.Zoom), 2, 1e-4) {
+			t.Fatalf("replayed sequence step 2 midpoint: cam=(%g, zoom=%g), want (200, 2)", cam.X, cam.Zoom)
+		}
+		seq.Update(100 * ms)
+		if !seq.Done() || cam.X != 300 || cam.Zoom != 2 {
+			t.Fatalf("replayed sequence end: done=%v cam=(%g, zoom=%g), want true (300, 2)", seq.Done(), cam.X, cam.Zoom)
+		}
+	})
+}

@@ -118,9 +118,13 @@ func (t *Tween) Duration() time.Duration {
 func (t *Tween) Done() bool { return t.done }
 
 // Reset rewinds the tween to its start so it can play again from elapsed 0.
+// For tweens that capture their start lazily (To, By, FromCurrent, and the
+// camera helpers), Reset clears the captured start so the next run reads the
+// current value again.
 func (t *Tween) Reset() {
 	t.elapsed = 0
 	t.done = false
+	t.started = false
 	if t.onRewind != nil {
 		t.onRewind()
 	}
@@ -145,6 +149,7 @@ func (t *Tween) Update(dt time.Duration) bool {
 }
 
 // Seek moves the tween to timestamp at and applies the value it holds there without firing OnComplete callbacks.
+// Unlike Reset, Seek(0) keeps any already-captured start value so scrubbing and timeline restarts remain deterministic.
 func (t *Tween) Seek(at time.Duration) {
 	if at < 0 {
 		at = 0

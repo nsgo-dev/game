@@ -30,7 +30,7 @@ group.Update(dt) // finished tweens are removed automatically
 
 - **Easing**: a zero `core.Curve` defaults to `core.Linear`.
 - **`Repeat(count, yoyo)`**: runs `count` extra passes after the first (`0` plays once; `tween.RepeatForever` or any negative value repeats forever). When `yoyo` is `true`, alternating passes run back from `to` to `from`.
-- **Seeking and resetting**: `tw.Seek(at)` jumps to timestamp `at` and applies that exact value without firing `OnComplete`; `tw.Reset()` rewinds to `0`. Inspect `tw.Done()` and `tw.Duration()`.
+- **Seeking and resetting**: `tw.Seek(at)` jumps to timestamp `at` and applies that exact value without firing `OnComplete`; `tw.Reset()` rewinds to `0` and clears lazily captured start state (so `To`, `By`, `FromCurrent`, and camera tweens re-read their current starting value on the next run, whereas `Seek(0)` keeps the captured start for deterministic scrubbing). Inspect `tw.Done()` and `tw.Duration()`.
 - **Custom types**: use `tween.New[T](from, to, d, curve, lerp, set)` for vectors, transforms, or domain structs.
 
 ## Named eases, and reading the start value late
@@ -125,3 +125,5 @@ Available camera tweens:
 | `CameraRotate(cam, toRot, d, curve)` | `cam.Rotation` (in radians) to `toRot`. |
 | `CameraMove(cam, toX, toY, toZoom, toRot, d, curve)` | Position, zoom, and rotation simultaneously. |
 | `CameraFollowTransition(cam, targetFn, d, curve)` | Blends smoothly from the camera's starting position onto a live moving `targetFn()`, ending directly on `targetFn()`. |
+
+Each camera tween captures the camera's starting position, zoom, or rotation when it first runs. Calling `Reset()` clears that captured start so replaying the tween starts from the camera's current state, whereas `Seek(0)` keeps the captured start so scrubbing and timeline restarts stay deterministic.
