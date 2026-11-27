@@ -29,7 +29,7 @@ type shopItemSeed struct {
 	d1    string
 }
 
-// 40 shop items matching docs/design/editor/ReviewData.dc.html (27 of 40 changed).
+// 40 shop items matching design/editor/ReviewData.dc.html (27 of 40 changed).
 var reviewShopItems = []shopItemSeed{
 	{"rusty_sword", "Rusty sword", "weapon", 1, 40, 40, 2, 2, "6", "6"},
 	{"dagger", "Dagger", "weapon", 1, 60, 60, 3, 3, "5", "5"},

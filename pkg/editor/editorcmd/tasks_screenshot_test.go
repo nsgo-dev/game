@@ -46,7 +46,7 @@ func TestBackgroundTasksMacOSScreenshots(t *testing.T) {
 	_ = ed.SetAppearance(editor.AppearanceDark)
 	_ = ed.SetLanguage(editor.LanguageEnglish)
 
-	// Populate the exact five groups shown in docs/design/editor/Tasks.dc.html.
+	// Populate the exact five groups shown in design/editor/Tasks.dc.html.
 	for _, req := range []editor.TaskRequest{
 		{
 			ID:               "t3",

@@ -12,7 +12,7 @@ import (
 )
 
 // viewportOverlaysBarView renders the floating 2D viewport bar at bottom-center matching
-// docs/design/editor/Inspector.dc.html and docs/design/editor/Spec.dc.html:
+// design/editor/Inspector.dc.html and design/editor/Spec.dc.html:
 // Zoom (− / % / +), Snap, Fit, and the Overlays N button opening a ui.Popover titled
 // "SHOW IN VIEWPORT" with a switch and live count per overlay plus the agent screenshot note.
 func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {

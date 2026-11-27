@@ -18,7 +18,7 @@ const (
 	policyAgentMayChange
 )
 
-// SettingsView renders the unified Settings screen matching docs/design/editor/Settings.dc.html
+// SettingsView renders the unified Settings screen matching design/editor/Settings.dc.html
 // and strictly using SpecPalette color, spacing, radius, type, and contrast tokens in both Dark
 // and Light appearances. It hosts AGENT (Models and connections, Permissions, Game brief,
 // Project rules, Tools, Automations, Usage and privacy), PROJECT · game.yaml (Project, Input map,
@@ -634,7 +634,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 				},
 			},
-			// AGENT group (matching docs/design/editor/Settings.dc.html) — first group.
+			// AGENT group (matching design/editor/Settings.dc.html) — first group.
 			core.Show{
 				When: func() bool {
 					return anyMatches(SettingsPageModels, SettingsPagePermissions, SettingsPageBrief, SettingsPageRules, SettingsPageTools, SettingsPageAutomations, SettingsPageUsage)
@@ -2057,7 +2057,7 @@ func settingsPolicyBadge(p SpecPalette, ed *Editor, policy settingsAgentPolicy) 
 	}
 }
 
-// settingsRow renders one Settings row in the docs/design/editor/Settings.dc.html layout:
+// settingsRow renders one Settings row in the design/editor/Settings.dc.html layout:
 // label + help on the left, value control in the middle/right, "Agent may change" or "You only" policy column on the right, and optional inline error text underneath.
 func settingsRow(p SpecPalette, ed *Editor, testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
 	return settingsRowScaled(p, 1.0, ed, testID, label, help, control, policy, errNode)

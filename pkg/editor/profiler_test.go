@@ -474,7 +474,7 @@ func TestProfilerScopeClientAndPlayModeStrip(t *testing.T) {
 }
 
 // TestProfilerScreenshots renders the Play-mode frame time strip and full Profiler panel
-// with realistic fixture data mirroring docs/design/editor/PlayMode.dc.html so
+// with realistic fixture data mirroring design/editor/PlayMode.dc.html so
 // `go tool nsgo test -target macos -run TestProfilerScreenshots ./editor` captures real macOS screenshots.
 func TestProfilerScreenshots(t *testing.T) {
 	now := time.Unix(40000, 0)

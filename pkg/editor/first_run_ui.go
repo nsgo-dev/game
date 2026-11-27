@@ -10,7 +10,7 @@ import (
 )
 
 // FirstRunScreenView renders the active full-window First Run stage (Step 3 Plan, Step 4 Building, or Step 5 Review)
-// using exclusively SpecPalette tokens (Dark & Light) matching docs/design/editor/FirstRun.dc.html.
+// using exclusively SpecPalette tokens (Dark & Light) matching design/editor/FirstRun.dc.html.
 func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.SettingsOpen() || ed.ShortcutsSheetOpen() {

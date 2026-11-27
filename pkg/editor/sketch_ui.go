@@ -372,7 +372,7 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 }
 
 // sceneTreeSketchSectionView renders the compact "SKETCH LAYER · N marks · not saved" row at the bottom
-// of the Scene Tree panel when sketch mode is active or marks exist, matching docs/design/editor/Sketch.dc.html.
+// of the Scene Tree panel when sketch mode is active or marks exist, matching design/editor/Sketch.dc.html.
 func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	shown := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
@@ -455,7 +455,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	}
 }
 
-// SketchPanelView renders the right-side Agent / Sketch panel matching docs/design/editor/Sketch.dc.html
+// SketchPanelView renders the right-side Agent / Sketch panel matching design/editor/Sketch.dc.html
 // using exclusively Spec tokens: Agent header, post-sketch Review card (with Sketch overlay toggle, Keep, Revert),
 // Agent Reading card ("I read your sketch as:" with numbered items, assumptions warning box, Go ahead, Correct a mark),
 // "Sent with this request" scene-coordinate preview, and composer with the "Sketch · N marks" chip.

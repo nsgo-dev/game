@@ -360,7 +360,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 }
 
 // ProblemAgentPanelView renders the right-hand Agent problem card matching
-// docs/design/editor/Problem.dc.html and Spec.dc.html when ProblemAgentPanelOpen
+// design/editor/Problem.dc.html and Spec.dc.html when ProblemAgentPanelOpen
 // is true: problem location card (file:line:col), agent explanation, before/after
 // diff card with Apply fix, Show me and Ignore, footer note, and the
 // "Ask about this problem…" composer. Styled exclusively with SpecPalette tokens.

@@ -18,7 +18,7 @@ import (
 // TestAgentComposerMacOSScreenshots renders the @-mentions picker, context chips,
 // chip hover YAML preview, and context meter ring + breakdown popover on the real
 // macOS host (Dark and Light appearances) for visual verification beside
-// docs/design/editor/Threads.dc.html.
+// design/editor/Threads.dc.html.
 func TestAgentComposerMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	for _, sub := range []string{"scenes", "prefabs", "art/enemies", "audio/sfx", "rules"} {

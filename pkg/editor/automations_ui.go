@@ -11,7 +11,7 @@ import (
 )
 
 // automationsSettingsPageView renders the Settings › Automations page matching
-// docs/design/editor/Settings.dc.html (Automations) using strictly SpecPalette tokens
+// design/editor/Settings.dc.html (Automations) using strictly SpecPalette tokens
 // in both Spec Dark and Spec Light appearances.
 //
 // Inputs (automations-draft-input and automations-agent-ask) are kept outside dynamic
@@ -465,7 +465,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 			},
 		}
 
-		// Right-hand "Agent on this page" rail matching docs/design/editor/Settings.dc.html.
+		// Right-hand "Agent on this page" rail matching design/editor/Settings.dc.html.
 		suggestAddText := ed.T("settings.automations.suggestAdd")
 		agentCard := core.View{
 			TestID: "settings-agent-card",

@@ -11,7 +11,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// ProfilerStripView renders the Play-mode "FRAME TIME · LAST 60 S" strip directly below the game view while Play mode is active or a running game is connected to the profiler, matching docs/design/editor/PlayMode.dc.html. Pressing the strip's Profiler button opens the full Profiler panel.
+// ProfilerStripView renders the Play-mode "FRAME TIME · LAST 60 S" strip directly below the game view while Play mode is active or a running game is connected to the profiler, matching design/editor/PlayMode.dc.html. Pressing the strip's Profiler button opens the full Profiler panel.
 func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	visible := core.NewMemo(cx, func() bool {
 		_ = rev.Get()

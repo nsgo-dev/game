@@ -112,7 +112,7 @@ func renderDemoWAV(t *testing.T, sampleRate int, durSec float64, freq float64) [
 }
 
 // TestAssetDrawerMacOSScreenshots renders the Asset Drawer screen on the real native macOS host
-// beside docs/design/editor/Assets.dc.html (screen 1) for visual inspection of tokens, layout,
+// beside design/editor/Assets.dc.html (screen 1) for visual inspection of tokens, layout,
 // drag preview pill, missing-file inspector, and empty-folder state.
 func TestAssetDrawerMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()

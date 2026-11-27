@@ -12,7 +12,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// ToastKind identifies the visual tone and semantic icon of an editor toast (docs/design/editor/Toasts.dc.html).
+// ToastKind identifies the visual tone and semantic icon of an editor toast (design/editor/Toasts.dc.html).
 type ToastKind string
 
 const (
@@ -24,7 +24,7 @@ const (
 )
 
 // FeedbackChannel identifies the canonical home of an editor feedback event in
-// docs/design/editor/Spec.dc.html ("Feedback channels"). Decisions never go in a toast.
+// design/editor/Spec.dc.html ("Feedback channels"). Decisions never go in a toast.
 type FeedbackChannel string
 
 const (
@@ -37,7 +37,7 @@ const (
 )
 
 // FeedbackChannelEntry describes one row of the Spec Feedback channels table
-// (docs/design/editor/Spec.dc.html).
+// (design/editor/Spec.dc.html).
 type FeedbackChannelEntry struct {
 	Event     string
 	Channel   FeedbackChannel
@@ -66,7 +66,7 @@ func SpecFeedbackChannels() []FeedbackChannelEntry {
 }
 
 // ToastEventKind identifies a canonical passing-feedback event from the Spec's Feedback
-// channels table (docs/design/editor/Spec.dc.html). Screens emit events through
+// channels table (design/editor/Spec.dc.html). Screens emit events through
 // Editor.EmitToastEvent instead of inventing ad-hoc tones, durations, or queue keys.
 type ToastEventKind string
 
@@ -111,7 +111,7 @@ type ToastEvent struct {
 }
 
 // Toast describes a transient feedback message shown at the bottom center of the editor viewport
-// (or bottom center of the window when no viewport is on screen, per docs/design/editor/Toasts.dc.html).
+// (or bottom center of the window when no viewport is on screen, per design/editor/Toasts.dc.html).
 // Decisions never go in a toast; at most one action button is shown.
 type Toast struct {
 	// ID optionally deduplicates repeated identical events in the toast queue.
@@ -149,7 +149,7 @@ func clampToastProgress(p float32) float32 {
 	return p
 }
 
-// ToastDuration returns the Spec auto-dismiss timeout for t (docs/design/editor/Toasts.dc.html):
+// ToastDuration returns the Spec auto-dismiss timeout for t (design/editor/Toasts.dc.html):
 //   - ToastSuccess and ToastInfo: 4 s without an action, 6 s with an action
 //   - ToastWarning: 8 s
 //   - ToastError and ToastProgress: 0 (stays until retried, dismissed, canceled, or completed)

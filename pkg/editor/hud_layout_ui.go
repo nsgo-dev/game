@@ -11,8 +11,8 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// HUDLayoutView renders the full-window HUD and menu layout screen matching docs/design/editor/HUDLayout.dc.html
-// using exclusively Spec color, spacing, radius, type, and focus-ring tokens from docs/design/editor/Spec.dc.html.
+// HUDLayoutView renders the full-window HUD and menu layout screen matching design/editor/HUDLayout.dc.html
+// using exclusively Spec color, spacing, radius, type, and focus-ring tokens from design/editor/Spec.dc.html.
 func HUDLayoutView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	promptDraft := core.NewSignal(cx, "")
 	canvasW := core.NewSignal(cx, float32(848))

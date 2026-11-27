@@ -15,7 +15,7 @@ import (
 
 // TestPlaytestReportMacOSScreenshots renders the Playtest Report screen on the real native macOS host
 // across all 4 chart kinds (heat map, bars per wave against goal line, line per level, win-rate matrix)
-// for visual verification beside docs/design/editor/Playtest.dc.html and Spec.dc.html.
+// for visual verification beside design/editor/Playtest.dc.html and Spec.dc.html.
 func TestPlaytestReportMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	recRel := "recordings/run_007_seed_7.replay.yaml"

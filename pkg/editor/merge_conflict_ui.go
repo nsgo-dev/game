@@ -12,7 +12,7 @@ import (
 )
 
 // MergeConflictView renders the full-window Scene Merge Conflict screen matching
-// docs/design/editor/VersionControl.dc.html (screen 2) and using only Spec.dc.html tokens.
+// design/editor/VersionControl.dc.html (screen 2) and using only Spec.dc.html tokens.
 func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	keyOpt := core.KeyOptions{When: core.KeyNotEditing}
 	cx.OnKeyWith("up", keyOpt, func() {

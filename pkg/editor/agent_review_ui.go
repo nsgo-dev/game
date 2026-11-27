@@ -9,7 +9,7 @@ import (
 )
 
 // AgentReviewPanelView renders the Review changes panel including proposed file deletions
-// that Keep all never applies (matching docs/design/editor/Permissions.dc.html "Proposed deletion")
+// that Keep all never applies (matching design/editor/Permissions.dc.html "Proposed deletion")
 // using strictly SpecPalette tokens in both Dark and Light appearances.
 func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type reviewKey struct {

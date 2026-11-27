@@ -11,12 +11,14 @@ on:
     paths-ignore:
       - '**/*.md'
       - docs/**
+      - design/**
   pull_request:
     branches:
       - main
     paths-ignore:
       - '**/*.md'
       - docs/**
+      - design/**
   schedule:
     # Every day at 00:00 Asia/Tokyo (UTC+09:00).
     - cron: '0 15 * * *'

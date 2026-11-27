@@ -25,7 +25,7 @@ func FocusTheme() *core.Theme {
 }
 
 // EditorRegion identifies a fixed-order keyboard landmark region in the editor,
-// cycled with F6 (next) and Shift-F6 (previous) per docs/design/editor/Spec.dc.html.
+// cycled with F6 (next) and Shift-F6 (previous) per design/editor/Spec.dc.html.
 type EditorRegion string
 
 const (

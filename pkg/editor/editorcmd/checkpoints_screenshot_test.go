@@ -15,7 +15,7 @@ import (
 // TestHistoryCheckpointsMacOSScreenshots renders the Project History & Checkpoints panel
 // (previewing a checkpoint, restored state, and light theme) on the real native macOS host
 // (`env -u GOROOT TMPDIR=/tmp go tool nsgo test -target macos -run TestHistoryCheckpointsMacOSScreenshots ./editor/editorcmd`)
-// for visual verification beside docs/design/editor/Checkpoints.dc.html and Spec.dc.html.
+// for visual verification beside design/editor/Checkpoints.dc.html and Spec.dc.html.
 func TestHistoryCheckpointsMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	for _, sub := range []string{"scenes", "prefabs", "scripts", "playtests"} {

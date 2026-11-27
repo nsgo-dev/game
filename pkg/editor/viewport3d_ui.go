@@ -490,7 +490,7 @@ func helpGroup3D(p SpecPalette, keys []string, text string) core.Node {
 }
 
 // viewport3DOverlay renders the 3D viewport HUD strictly with SpecPalette tokens (Dark & Light),
-// matching docs/design/editor/Viewport3D.dc.html:
+// matching design/editor/Viewport3D.dc.html:
 //   - Top-left: Persp/Ortho segmented control, Shading menu (Lit/Unlit/Wireframe), view name, Reset view, Camera/Env toggles, and the keycap help line below it.
 //   - Top-right: 88×88 circular orientation widget with clickable, keyboard-focusable axis buttons (+X/-X/+Y/-Y/+Z/-Z) and Orbit 15° left/right buttons.
 //   - Bottom-center: Local/Global space segmented control, Snap settings popover, and Focus button.

@@ -12,7 +12,7 @@ import (
 // TestReviewNotesAndRoundsMacOSScreenshots renders the Review screen's note composer,
 // viewport pins, Round 1 / Round 2 switcher, Round 2 banner, paused Agent panel card,
 // and Spec Dark/Light appearances on the real native macOS host for visual inspection
-// beside docs/design/editor/Review.dc.html and docs/design/editor/Spec.dc.html.
+// beside design/editor/Review.dc.html and design/editor/Spec.dc.html.
 func TestReviewNotesAndRoundsMacOSScreenshots(t *testing.T) {
 	beforeDoc := &sceneformat.SceneDoc{
 		Version:         sceneformat.CurrentVersion,

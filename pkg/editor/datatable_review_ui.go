@@ -25,7 +25,7 @@ type dtReviewDropHint struct {
 }
 
 // DataTableReviewView renders the full-window row-by-row Data Table review screen matching
-// docs/design/editor/ReviewData.dc.html using exclusively SpecPalette tokens (Dark & Light).
+// design/editor/ReviewData.dc.html using exclusively SpecPalette tokens (Dark & Light).
 func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewShortcutsActive := func() bool {
 		return ed.DataTableReviewOpen() &&

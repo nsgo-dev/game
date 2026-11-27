@@ -680,7 +680,7 @@ func TestFocusStabilityDuringDragTypingAndAgentPrompt(t *testing.T) {
 // showing the 6 Spec "Focus ring" controls (button, icon button, switch, tree row,
 // field / composer card, and region via F6) plus the live editor with an F6 region ring.
 func TestFocusRingGalleryScreenshots(t *testing.T) {
-	// 1. Spec "Focus ring" 6-card gallery matching docs/design/editor/Spec.dc.html tokens only.
+	// 1. Spec "Focus ring" 6-card gallery matching design/editor/Spec.dc.html tokens only.
 	var (
 		bg           = core.RGB(0x101216)
 		panel        = core.RGB(0x12141A)

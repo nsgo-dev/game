@@ -26,8 +26,8 @@ func buildSpecIcon(svg *core.SVG, size core.Points, color core.Color) core.Node 
 }
 
 // BuildReleaseScreenView renders the full-window Build and Release screen matching
-// docs/design/editor/Build.dc.html using exclusively Spec color, spacing, radius,
-// typography, and focus-ring tokens from docs/design/editor/Spec.dc.html.
+// design/editor/Build.dc.html using exclusively Spec color, spacing, radius,
+// typography, and focus-ring tokens from design/editor/Spec.dc.html.
 func BuildReleaseScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	brRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()

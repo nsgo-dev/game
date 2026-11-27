@@ -123,7 +123,7 @@ func TestSlimeKeepsPatrolBounds(t *testing.T) {
 
 // TestCodeReviewMacOSScreenshots renders the Go code review states (failed unified, fixing/running,
 // passed round 2 split, light theme parity, and Agent panel waiting card after Keep with unconfirmed Go)
-// on the real native macOS host for visual review beside docs/design/editor/ReviewCode.dc.html.
+// on the real native macOS host for visual review beside design/editor/ReviewCode.dc.html.
 func TestCodeReviewMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	for _, sub := range []string{"scenes", "prefabs", "gameplay"} {

@@ -81,7 +81,7 @@ func specDecisionBadge(p SpecPalette, dec PermissionDecision, muted bool) core.N
 }
 
 // PermissionsDraftCardView renders the You-only permissions draft modal card matching
-// docs/design/editor/Permissions.dc.html ("You only · A draft the agent cannot approve")
+// design/editor/Permissions.dc.html ("You only · A draft the agent cannot approve")
 // inside a real ui.Dialog / core.Modal with Tab/Shift-Tab focus trapping and opener focus restoration,
 // using strictly SpecPalette tokens in both Dark and Light appearances.
 // Nothing is ticked by default; ⌘↵, Keep all, automations, and every profile cannot apply it.

@@ -542,7 +542,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	}
 }
 
-// drawViewportDotGrid draws the Spec 16x16 neutral dot-grid surround matching docs/design/editor/Main.dc.html
+// drawViewportDotGrid draws the Spec 16x16 neutral dot-grid surround matching design/editor/Main.dc.html
 // whenever the 2D edit viewport has no explicit scene clear color.
 // Uses a single dashed-stroke path (1.2px dash every 16px) so a 1440×900 canvas emits ~50 line
 // segments and one Stroke op instead of thousands of individual FillRect ops per frame.

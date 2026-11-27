@@ -10,7 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec toast motion tokens (docs/design/editor/Toasts.dc.html):
+// Spec toast motion tokens (design/editor/Toasts.dc.html):
 // 180 ms in, fading and rising 8 px; 120 ms out. Reduced motion skips both.
 var (
 	toastEnterMotion = core.MotionSpec{
@@ -50,14 +50,14 @@ func (e *Editor) SetOverlayLegendOpen(open bool) {
 
 // ToastView renders the editor's active toast at the bottom center of the viewport (8 px above
 // the viewport bar in edit mode, never over the scene tree, inspector, or agent panel) while
-// the viewport is on screen, using exclusively SpecPalette tokens (docs/design/editor/Toasts.dc.html).
+// the viewport is on screen, using exclusively SpecPalette tokens (design/editor/Toasts.dc.html).
 func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return toastHostView(cx, ed, rev, true)
 }
 
 // WindowToastView renders the editor's active toast at the bottom center of the window, 24 px up,
 // whenever no viewport is on screen (Start screen, Settings, Export, and other full-window screens),
-// using exclusively SpecPalette tokens (docs/design/editor/Toasts.dc.html).
+// using exclusively SpecPalette tokens (design/editor/Toasts.dc.html).
 func WindowToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return toastHostView(cx, ed, rev, false)
 }

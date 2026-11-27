@@ -357,7 +357,7 @@ func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled fun
 	}
 }
 
-// Viewport3DModelsStripView renders the bottom MODELS strip along the 3D viewport (docs/design/editor/Viewport3D.dc.html),
+// Viewport3DModelsStripView renders the bottom MODELS strip along the 3D viewport (design/editor/Viewport3D.dc.html),
 // showing offscreen-rendered thumbnails of the project's models and built-in primitives with drag-into-viewport placement,
 // tooltips, an "Or ask for one" button, and an inline agent prompt bar when opened. All surfaces, borders, text, focus rings,
 // and icons come strictly from SpecPalette tokens.

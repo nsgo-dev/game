@@ -13,7 +13,7 @@ import (
 //go:embed spec_theme.yaml
 var specThemeYAML []byte
 
-// Typography tokens from docs/design/editor/Spec.dc.html ("Type, space, shape").
+// Typography tokens from design/editor/Spec.dc.html ("Type, space, shape").
 const (
 	SpecFontFamilySans = "Inter"
 	SpecFontFamilyMono = "JetBrains Mono"
@@ -29,7 +29,7 @@ const (
 	SpecFontCodeWeight    core.FontWeight = core.FontWeightNormal // 400
 )
 
-// Spacing scale tokens from docs/design/editor/Spec.dc.html: 4, 8, 12, 16, 24 px only.
+// Spacing scale tokens from design/editor/Spec.dc.html: 4, 8, 12, 16, 24 px only.
 const (
 	SpecSpace4  core.Points = 4
 	SpecSpace8  core.Points = 8
@@ -38,7 +38,7 @@ const (
 	SpecSpace24 core.Points = 24
 )
 
-// Corner radius tokens from docs/design/editor/Spec.dc.html.
+// Corner radius tokens from design/editor/Spec.dc.html.
 const (
 	SpecRadiusControl core.Points = 6  // Controls, inputs, tree rows, pills
 	SpecRadiusButton  core.Points = 8  // Buttons
@@ -46,7 +46,7 @@ const (
 	SpecRadiusDialog  core.Points = 18 // Dialogs
 )
 
-// Height, border, and icon geometry tokens from docs/design/editor/Spec.dc.html.
+// Height, border, and icon geometry tokens from design/editor/Spec.dc.html.
 const (
 	SpecRowHeight        core.Points = 28 // Rows and tool buttons
 	SpecMinHitSize       core.Points = 28 // Minimum interactive hit area (28 x 28)
@@ -58,7 +58,7 @@ const (
 	SpecIconStrokeWidth  float32     = 1.8
 )
 
-// Motion tokens from docs/design/editor/Spec.dc.html ("Motion").
+// Motion tokens from design/editor/Spec.dc.html ("Motion").
 // All durations drop to 0 under Env.ReduceMotion (see SpecMotionDuration).
 const (
 	SpecMotionHover      = 120 * time.Millisecond  // Hover and press transitions
@@ -121,7 +121,7 @@ type SpecRole struct {
 	OnFill core.Color
 }
 
-// SpecPalette holds every color token defined by docs/design/editor/Spec.dc.html
+// SpecPalette holds every color token defined by design/editor/Spec.dc.html
 // in either the Dark or Light appearance.
 type SpecPalette struct {
 	// Dark reports whether this palette is the dark appearance.
@@ -155,7 +155,7 @@ type SpecPalette struct {
 	Removed SpecRole // Deleted objects and problems/errors; solid.
 	Warning SpecRole // Permission asks, waiting, warning toasts (with dedicated Fill and Edge).
 
-	// Surface interaction overlays and 3D viewport / axis tokens (docs/design/editor/Viewport3D.dc.html).
+	// Surface interaction overlays and 3D viewport / axis tokens (design/editor/Viewport3D.dc.html).
 	HoverOverlay     core.Color // Subtle hover wash over surfaces (`surfaceHover`).
 	ActiveOverlay    core.Color // Subtle pressed wash over surfaces (`surfacePressed`).
 	PrimaryHover     core.Color // Hover fill for solid TextPrimary buttons (`specPrimaryHover`).
@@ -191,7 +191,7 @@ func SpecTheme() *core.Theme {
 	return parsedSpecTheme.Clone()
 }
 
-// DarkSpecPalette returns the dark Spec token palette from docs/design/editor/Spec.dc.html.
+// DarkSpecPalette returns the dark Spec token palette from design/editor/Spec.dc.html.
 func DarkSpecPalette() SpecPalette {
 	return darkSpecPalette
 }
@@ -353,7 +353,7 @@ func (p SpecContrastPair) Ratio() float64 {
 }
 
 // SpecContrastTable returns every foreground/background and overlay contrast pair required by
-// docs/design/editor/Spec.dc.html for palette p (Dark or Light), with its WCAG 2.2 minimum threshold.
+// design/editor/Spec.dc.html for palette p (Dark or Light), with its WCAG 2.2 minimum threshold.
 func SpecContrastTable(p SpecPalette) []SpecContrastPair {
 	return []SpecContrastPair{
 		// Core text levels on surfaces (Spec Contrast table).
@@ -416,7 +416,7 @@ func SpecContrastTable(p SpecPalette) []SpecContrastPair {
 		{Name: "changed edge on viewport", Foreground: p.Changed.Edge, Background: p.Viewport, MinRatio: 3.0, Usage: "Changed dashed outline on viewport surround"},
 		{Name: "removed edge on viewport", Foreground: p.Removed.Edge, Background: p.Viewport, MinRatio: 3.0, Usage: "Removed/problem outline on viewport surround"},
 
-		// 3D viewport axis tokens from docs/design/editor/Viewport3D.dc.html (WCAG 2.2 3:1).
+		// 3D viewport axis tokens from design/editor/Viewport3D.dc.html (WCAG 2.2 3:1).
 		{Name: "3D axis X on viewport", Foreground: p.AxisX, Background: p.Viewport, MinRatio: 3.0, Usage: "3D X gizmo, axis widget, and transform X label"},
 		{Name: "3D axis Y on viewport", Foreground: p.AxisY, Background: p.Viewport, MinRatio: 3.0, Usage: "3D Y gizmo, axis widget, and transform Y label"},
 		{Name: "3D axis Z on viewport", Foreground: p.AxisZ, Background: p.Viewport, MinRatio: 3.0, Usage: "3D Z gizmo, axis widget, and transform Z label"},

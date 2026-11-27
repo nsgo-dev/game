@@ -562,7 +562,7 @@ func TestAgentRewindContinuesSessionRebuildsOpenSceneAndGuards(t *testing.T) {
 }
 
 // TestAgentRewindScreenshots captures real macOS screenshots of the Rewind popover and post-rewind state
-// in both Dark and Light Spec appearances for visual inspection beside docs/design/editor/Checkpoints.dc.html.
+// in both Dark and Light Spec appearances for visual inspection beside design/editor/Checkpoints.dc.html.
 func TestAgentRewindScreenshots(t *testing.T) {
 	_, ed, sceneFile, coinFile, sparkleFile := setupRewindProject(t)
 	defer ed.Close()

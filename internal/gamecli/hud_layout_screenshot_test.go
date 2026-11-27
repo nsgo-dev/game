@@ -13,7 +13,7 @@ import (
 )
 
 // TestEditorHUDLayoutScreenshots mounts the real NSGo Game Editor on macOS with the dungeon-run
-// HUD and pause screens matching docs/design/editor/HUDLayout.dc.html and captures screenshots
+// HUD and pause screens matching design/editor/HUDLayout.dc.html and captures screenshots
 // for side-by-side visual review against the artboard.
 func TestEditorHUDLayoutScreenshots(t *testing.T) {
 	dir := t.TempDir()

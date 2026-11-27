@@ -295,7 +295,7 @@ func tileReviewSegButton(cx *core.Scope, ed *Editor, testID, text string, active
 }
 
 // TileReviewPanelView renders the region-based tile edit review panel right of the viewport while a tile review is active in 2D,
-// styled exclusively with Spec.dc.html tokens and matching docs/design/editor/Tiles.dc.html.
+// styled exclusively with Spec.dc.html tokens and matching design/editor/Tiles.dc.html.
 func TileReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	shown := core.NewMemo(cx, func() bool {
 		_ = rev.Get()

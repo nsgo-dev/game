@@ -14,7 +14,7 @@ import (
 
 // TestYouOnlyAndProposedDeletionsMacOSScreenshots captures real native macOS screenshots
 // of the You-only Permissions Draft card, Proposed Deletion review panel, and Settings › Permissions
-// with held external loosenings beside docs/design/editor/Permissions.dc.html and Settings.dc.html.
+// with held external loosenings beside design/editor/Permissions.dc.html and Settings.dc.html.
 //
 // Run: env -u GOROOT TMPDIR=/tmp go tool nsgo test -target macos -run TestYouOnlyAndProposedDeletionsMacOSScreenshots ./editor/editorcmd
 func TestYouOnlyAndProposedDeletionsMacOSScreenshots(t *testing.T) {

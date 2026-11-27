@@ -160,7 +160,7 @@ func TestSpecContrastTableDarkAndLight(t *testing.T) {
 		})
 	}
 
-	// Verify exact WCAG 2.2 dark ratios published in docs/design/editor/Spec.dc.html.
+	// Verify exact WCAG 2.2 dark ratios published in design/editor/Spec.dc.html.
 	dark := editor.DarkSpecPalette()
 	wantPublished := []struct {
 		name  string
@@ -660,7 +660,7 @@ func TestSpecDesignTokenConstantsAndReducedMotion(t *testing.T) {
 			editor.SpecMotionHover, editor.SpecMotionPanel, editor.SpecMotionOverlay, editor.SpecMotionAgentPulse)
 	}
 
-	// Verify 3D axis tokens match docs/design/editor/Viewport3D.dc.html.
+	// Verify 3D axis tokens match design/editor/Viewport3D.dc.html.
 	dark := editor.DarkSpecPalette()
 	if dark.AxisX != core.RGB(0xFF6B6B) || dark.AxisY != core.RGB(0x4FD38A) || dark.AxisZ != core.RGB(0x3B7BFF) {
 		t.Fatalf("dark 3D axes = (#%06X, #%06X, #%06X), want (#FF6B6B, #4FD38A, #3B7BFF)",

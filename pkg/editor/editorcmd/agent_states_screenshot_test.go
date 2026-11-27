@@ -24,7 +24,7 @@ func postOnUI(ctx context.Context, ed *editor.Editor, fn func()) {
 }
 
 // TestAgentFailureStatesMacOSScreenshots renders each of the six Agent failure states from
-// docs/design/editor/AgentStates.dc.html on the real native macOS host for visual inspection
+// design/editor/AgentStates.dc.html on the real native macOS host for visual inspection
 // beside the artboard: Partial (ask + pointing), Stuck, Lost, Stopped, Mismatch, and Offline.
 func TestAgentFailureStatesMacOSScreenshots(t *testing.T) {
 	newSceneEditor := func(t *testing.T) *editor.Editor {

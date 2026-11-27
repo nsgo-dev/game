@@ -21,7 +21,7 @@ const (
 	cutscenePreviewH float32 = 324
 )
 
-// CutscenePanelView renders the full-workspace cutscene timeline and agent review screen (matching docs/design/editor/Animation.dc.html Screen 2 and Spec.dc.html tokens) whenever a cutscene is open and Play mode is not active.
+// CutscenePanelView renders the full-workspace cutscene timeline and agent review screen (matching design/editor/Animation.dc.html Screen 2 and Spec.dc.html tokens) whenever a cutscene is open and Play mode is not active.
 func CutscenePanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Show{
 		When: func() bool {

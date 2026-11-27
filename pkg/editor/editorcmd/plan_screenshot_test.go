@@ -14,7 +14,7 @@ func f32Ptr(v float32) *float32 { return &v }
 
 // TestAgentPlanMacOSScreenshots renders the Plan card, clarifying questions, inline step editor,
 // planned agent-violet viewport ghosts, Scene Tree planned nodes + FILES IN THIS PLAN, Running state,
-// and Stopped state on macOS in both Dark and Light Spec appearances beside docs/design/editor/Plan.dc.html.
+// and Stopped state on macOS in both Dark and Light Spec appearances beside design/editor/Plan.dc.html.
 func TestAgentPlanMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {

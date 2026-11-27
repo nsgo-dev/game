@@ -19,7 +19,7 @@ import (
 
 func boolPtr(v bool) *bool { return &v }
 
-// makeHUDFixtureProject writes a complete dungeon-run project matching docs/design/editor/HUDLayout.dc.html
+// makeHUDFixtureProject writes a complete dungeon-run project matching design/editor/HUDLayout.dc.html
 // with four screens (title, hud, pause, game_over) and English + Chinese (zh-Hans) locale tables.
 func makeHUDFixtureProject(t *testing.T) string {
 	t.Helper()

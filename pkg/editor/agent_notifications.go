@@ -16,7 +16,7 @@ import (
 )
 
 // AgentWaitingNotifyDelay is how long an unanswered Waiting-for-you permission or question request
-// stays open in the foreground before also sending a system notification (docs/design/editor/AgentStates.dc.html).
+// stays open in the foreground before also sending a system notification (design/editor/AgentStates.dc.html).
 const AgentWaitingNotifyDelay = 30 * time.Second
 
 const (
@@ -57,7 +57,7 @@ func (c AgentTaskCounts) BadgeCount() int {
 }
 
 // PlayTaskDotState describes the single corner dot shown during Play mode
-// (docs/design/editor/Tasks.dc.html: "Nothing pops over a running game. One dot in the corner,
+// (design/editor/Tasks.dc.html: "Nothing pops over a running game. One dot in the corner,
 // in the color of the most urgent state; the label shows only on hover.").
 type PlayTaskDotState struct {
 	// Visible reports whether any attention-needing task (failed, waiting, or ready to review) exists.

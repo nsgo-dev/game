@@ -64,7 +64,7 @@ func renderReferenceArtPNG(t *testing.T, w, h int, accent color.RGBA) []byte {
 
 // TestAgentReferenceImagesMacOSScreenshots captures real macOS screenshots of the Agent composer's
 // reference image drop overlay, attached chip with hover preview, Pin to brief YAML diff card,
-// and unsupported-type refusal banner beside docs/design/editor/Sketch.dc.html and Spec.dc.html.
+// and unsupported-type refusal banner beside design/editor/Sketch.dc.html and Spec.dc.html.
 func TestAgentReferenceImagesMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: dungeon-run\nid: dev.example.dungeon\nversion: 0.1.0\n"), 0o644); err != nil {

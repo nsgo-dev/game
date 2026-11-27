@@ -19,7 +19,7 @@ type shortcutConflictState struct {
 }
 
 // shortcutsSettingsPageView renders the Settings › Shortcuts page inside EditorSettingsDialogView,
-// styled strictly with Spec color tokens from docs/design/editor/Spec.dc.html.
+// styled strictly with Spec color tokens from design/editor/Spec.dc.html.
 func shortcutsSettingsPageView(
 	cx *core.Scope,
 	ed *Editor,
@@ -525,7 +525,7 @@ func shortcutsSettingsPageView(
 }
 
 // ShortcutsSheetView renders the ⌘/ Keyboard Shortcuts reference sheet grouped by keyboard scope,
-// styled strictly with Spec color tokens from docs/design/editor/Spec.dc.html.
+// styled strictly with Spec color tokens from design/editor/Spec.dc.html.
 func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	langMemo := core.NewMemo(cx, func() string {
 		_ = rev.Get()

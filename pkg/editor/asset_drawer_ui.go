@@ -47,7 +47,7 @@ func sanitizeAssetTestID(s string) string {
 }
 
 // LeftRailSwitchView renders the Scene / Assets segmented switch at the top of the left rail,
-// matching docs/design/editor/Assets.dc.html screen 1 with Spec.dc.html tokens.
+// matching design/editor/Assets.dc.html screen 1 with Spec.dc.html tokens.
 func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	sceneTabRef := &core.Ref{}
 	if ed.focus.ctrl != nil {

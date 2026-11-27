@@ -16,7 +16,7 @@ import (
 // TestSettingsProjectPagesMacOSScreenshots renders the four PROJECT · game.yaml
 // Settings pages (Project, Input map, Audio buses, Export) on the real native macOS
 // host (`env -u GOROOT TMPDIR=/tmp go tool nsgo test -target macos -run TestSettingsProjectPagesMacOSScreenshots ./editor/editorcmd`)
-// for visual verification beside docs/design/editor/Settings.dc.html and Spec.dc.html.
+// for visual verification beside design/editor/Settings.dc.html and Spec.dc.html.
 func TestSettingsProjectPagesMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	sceneDir := filepath.Join(dir, "scenes")
@@ -137,7 +137,7 @@ func TestSettingsProjectPagesMacOSScreenshots(t *testing.T) {
 // TestSettingsAgentPagesMacOSScreenshots renders the three AGENT Settings pages
 // (Models and connections, Tools, Usage and privacy) on native macOS in both Dark and Light
 // appearances (`env -u GOROOT TMPDIR=/tmp go tool nsgo test -target macos -run TestSettingsAgentPagesMacOSScreenshots ./editor/editorcmd`)
-// for visual review beside docs/design/editor/Settings.dc.html and Spec.dc.html.
+// for visual review beside design/editor/Settings.dc.html and Spec.dc.html.
 func TestSettingsAgentPagesMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	sceneDir := filepath.Join(dir, "scenes")

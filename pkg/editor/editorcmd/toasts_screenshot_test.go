@@ -11,7 +11,7 @@ import (
 
 // TestToastsMacOSScreenshots renders all five Spec toast kinds, the completed export state,
 // viewport-anchored placement with the +N waiting badge, and window-anchored placement on
-// full-window Settings on the real native macOS host beside docs/design/editor/Toasts.dc.html.
+// full-window Settings on the real native macOS host beside design/editor/Toasts.dc.html.
 //
 // Run: go tool nsgo test -target macos -run TestToastsMacOSScreenshots ./editor/editorcmd
 func TestToastsMacOSScreenshots(t *testing.T) {

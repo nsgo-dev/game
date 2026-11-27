@@ -15,7 +15,7 @@ import (
 
 // TestSettingsAutomationsMacOSScreenshots renders Settings › Automations (Dark and Light,
 // plus Agent panel Ready to review) on the real native macOS host for visual inspection
-// beside docs/design/editor/Settings.dc.html and Spec.dc.html.
+// beside design/editor/Settings.dc.html and Spec.dc.html.
 func TestSettingsAutomationsMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	sceneDir := filepath.Join(dir, "scenes")

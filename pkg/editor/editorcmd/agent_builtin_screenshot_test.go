@@ -19,7 +19,7 @@ import (
 // TestBuiltInAgentModelsAndUsageMacOSScreenshots renders Settings › Models and connections,
 // Settings › Usage and privacy, Connect dialog API key step, Agent panel 529 Model error card,
 // and Agent panel Limit reached + Queue on real macOS (`-target macos`) in Dark and Light themes
-// for visual inspection beside docs/design/editor/Settings.dc.html, AgentStates.dc.html, and Connect.dc.html.
+// for visual inspection beside design/editor/Settings.dc.html, AgentStates.dc.html, and Connect.dc.html.
 func TestBuiltInAgentModelsAndUsageMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	sceneDir := filepath.Join(dir, "scenes")

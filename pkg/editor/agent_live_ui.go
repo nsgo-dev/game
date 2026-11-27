@@ -14,7 +14,7 @@ type canvasRect struct {
 }
 
 // drawAgentLiveOverlays draws the live Spec change and agent-working overlays in the 2D viewport
-// (docs/design/editor/Spec.dc.html, Working.dc.html, Main.dc.html):
+// (design/editor/Spec.dc.html, Working.dc.html, Main.dc.html):
 //   - Added: 1.5 px dashed added outline + "+ name" pill
 //   - Changed: 1.5 px dashed changed outline + "field old → new" pill
 //   - Removed: grey 25% ghost + 1.5 px solid removed outline + struck-through "name removed" pill
@@ -410,7 +410,7 @@ func drawProblemOverlayPill(d *core.Drawing, centerX, bottomY, canvasW float32, 
 }
 
 // toolbarAgentPillView renders the header pill following the agent's live state
-// (docs/design/editor/Working.dc.html):
+// (design/editor/Working.dc.html):
 //   - Working: violet pill with pulsing dot and "Agent is <activity> · manual edits stay available"
 //   - Waiting: warning pill with clock icon and "Waiting for you · <detail>"
 //   - Pending review: raised pill showing change count with Keep and Revert buttons

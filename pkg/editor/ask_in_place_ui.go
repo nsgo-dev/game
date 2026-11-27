@@ -11,7 +11,7 @@ import (
 )
 
 // AskInPlaceComposerView renders the anchored ⌘L in-place agent composer inside the editor viewport
-// using exclusively SpecPalette tokens (matching docs/design/editor/AskInPlace.dc.html and Spec.dc.html).
+// using exclusively SpecPalette tokens (matching design/editor/AskInPlace.dc.html and Spec.dc.html).
 func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	openMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()

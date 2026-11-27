@@ -143,7 +143,7 @@ func encodeDungeonSheetPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-// buildDungeonTileRows builds a 24x20 grid modeled on docs/design/editor/Tiles.dc.html.
+// buildDungeonTileRows builds a 24x20 grid modeled on design/editor/Tiles.dc.html.
 // When withPlaceholders is true, three contiguous placeholder cells sit at (6,13), (7,13), (8,13);
 // when false, the 11x5 pocket at columns 2..12, rows 12..16 is completely empty.
 func buildDungeonTileRows(withPlaceholders bool) []string {

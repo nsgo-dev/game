@@ -39,7 +39,7 @@ type permissionsOverlayMemoKey struct {
 }
 
 // PermissionsSettingsView renders the standalone full-window Settings › Permissions screen matching
-// docs/design/editor/Settings.dc.html and docs/design/editor/Permissions.dc.html using SpecPalette tokens.
+// design/editor/Settings.dc.html and design/editor/Permissions.dc.html using SpecPalette tokens.
 func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.PermissionsSettingsOpen() {

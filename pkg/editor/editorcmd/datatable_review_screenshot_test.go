@@ -91,7 +91,7 @@ func buildShotItemsYAML(proposed bool) []byte {
 }
 
 // TestDataTableReviewMacOSScreenshots renders the full-window row-by-row Data Table review screen
-// on native macOS in Dark and Light appearances beside docs/design/editor/ReviewData.dc.html (#1033).
+// on native macOS in Dark and Light appearances beside design/editor/ReviewData.dc.html (#1033).
 func TestDataTableReviewMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	scenesDir := filepath.Join(dir, "scenes")

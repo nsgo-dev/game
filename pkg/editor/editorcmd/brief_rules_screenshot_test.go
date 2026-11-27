@@ -15,7 +15,7 @@ import (
 // TestBriefAndRulesMacOSScreenshots captures real macOS nsgotest screenshots of
 // Settings › Game brief (empty & filled with 1 gap) and Settings › Project rules
 // (with reverted-review rule suggestion, inline review diff, and "Agent on this page" card)
-// beside docs/design/editor/Settings.dc.html (#1026).
+// beside design/editor/Settings.dc.html (#1026).
 func TestBriefAndRulesMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	gameYAML := "version: 1\nname: Dungeon Run\nid: dev.nsgo.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\n"
