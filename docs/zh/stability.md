@@ -72,6 +72,7 @@
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
 | `game/pkg/ability` | 实验性 | [ability](ability.md) |
 | `game/pkg/ai` | 稳定 | [ai](ai.md) |
+| `game/pkg/ai/cover3d` | 实验性 | [ai](ai.md) |
 | `game/pkg/ai/perception3d` | 实验性 | [ai](ai.md) |
 | `game/pkg/anim3d` | 实验性 | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | 实验性 | [animclip](animclip.md) |

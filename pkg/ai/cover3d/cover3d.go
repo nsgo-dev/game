@@ -1,17 +1,20 @@
-package physics3d
+// Package cover3d generates ai.CoverPoint values from the colliders of a physics3d world, projecting the vertical faces of 3D obstacles onto the XZ ground plane.
+//
+// It lives apart from pkg/ai so that ai does not depend on the 3D physics engine and physics3d does not depend on ai.
+package cover3d
 
 import (
 	"math"
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
-// CoverOptions configures 3D collider-edge cover point generation projected onto the XZ ground plane.
+// Options configures 3D collider-edge cover point generation projected onto the XZ ground plane.
 //
-// Generated ai.CoverPoint values store (X, Z) in Pos, the obstacle's floor Y in Elevation,
-// and the horizontal XZ unit direction into the obstacle in Facing.
-type CoverOptions struct {
+// Generated ai.CoverPoint values store (X, Z) in Pos, the obstacle's floor Y in Elevation, and the horizontal XZ unit direction into the obstacle in Facing.
+type Options struct {
 	// Spacing is the horizontal distance between cover samples along each collider face (defaults to 1.0 when <= 0).
 	Spacing float32
 	// Standoff offsets each cover point outward from the collider face into open space (defaults to 0.5 when <= 0).
@@ -20,30 +23,28 @@ type CoverOptions struct {
 	EdgeInset float32
 	// MinEdgeLength skips horizontal faces shorter than this length (<= 0 allows any positive face).
 	MinEdgeLength float32
-	// HalfCoverMinHeight is the minimum obstacle vertical height for CoverHalf (defaults to 0.7 when <= 0).
-	// Shorter obstacles (such as floor slabs) do not generate cover.
+	// HalfCoverMinHeight is the minimum obstacle vertical height for ai.CoverHalf (defaults to 0.7 when <= 0). Shorter obstacles (such as floor slabs) do not generate cover.
 	HalfCoverMinHeight float32
-	// FullCoverMinHeight is the minimum obstacle vertical height for CoverFull (defaults to 1.6 when <= 0).
+	// FullCoverMinHeight is the minimum obstacle vertical height for ai.CoverFull (defaults to 1.6 when <= 0).
 	FullCoverMinHeight float32
-	// LayerMask filters bodies considered as cover obstacles (0 defaults to LayerAll).
-	LayerMask LayerMask
+	// LayerMask filters bodies considered as cover obstacles (0 defaults to physics3d.LayerAll).
+	LayerMask physics3d.LayerMask
 	// IncludeDynamic includes non-static bodies when true; by default only static level geometry generates cover.
 	IncludeDynamic bool
-	// StartID is the first CoverPoint.ID assigned (defaults to 1 when 0).
+	// StartID is the first ai.CoverPoint.ID assigned (defaults to 1 when 0).
 	StartID uint64
 }
 
-// GenerateCoverPoints generates deterministic XZ-plane cover points along the vertical faces of
-// matching colliders in w, discarding points that overlap any other matching collider.
-func (w *World) GenerateCoverPoints(opts CoverOptions) []ai.CoverPoint {
+// FromWorld generates deterministic XZ-plane cover points along the vertical faces of matching colliders in w, discarding points that overlap any other matching collider.
+func FromWorld(w *physics3d.World, opts Options) []ai.CoverPoint {
 	if w == nil {
 		return nil
 	}
-	return GenerateCoverPointsFromBodies(w.bodies, opts)
+	return FromBodies(w.Bodies(), opts)
 }
 
-// GenerateCoverPointsFromBodies generates deterministic XZ-plane cover points from the given 3D bodies: axis-aligned or oriented boxes, spheres, vertical capsules, and cylinders standing on an end (their axis within about 25 degrees of vertical). Convex hulls and cylinders lying on their side generate no cover.
-func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.CoverPoint {
+// FromBodies generates deterministic XZ-plane cover points from the given 3D bodies: axis-aligned or oriented boxes, spheres, vertical capsules, and cylinders standing on an end (their axis within about 25 degrees of vertical). Convex hulls and cylinders lying on their side generate no cover.
+func FromBodies(bodies []*physics3d.Body, opts Options) []ai.CoverPoint {
 	if len(bodies) == 0 {
 		return nil
 	}
@@ -72,10 +73,10 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 	}
 	layerMask := opts.LayerMask
 	if layerMask == 0 {
-		layerMask = LayerAll
+		layerMask = physics3d.LayerAll
 	}
 
-	bodyMatches := func(b *Body) bool {
+	bodyMatches := func(b *physics3d.Body) bool {
 		if b == nil || b.IsTrigger {
 			return false
 		}
@@ -84,20 +85,20 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 		}
 		l := b.Layer
 		if l == 0 {
-			l = LayerAll
+			l = physics3d.LayerAll
 		}
 		return l&layerMask != 0
 	}
 
 	// Precompute world shapes for matching bodies once so overlap pruning is fast and deterministic.
 	type worldBody struct {
-		body  *Body
-		shape Shape
+		body  *physics3d.Body
+		shape physics3d.Shape
 	}
 	active := make([]worldBody, 0, len(bodies))
-	var appendShape func(b *Body, s Shape)
-	appendShape = func(b *Body, s Shape) {
-		if s.Kind == ShapeCompound {
+	var appendShape func(b *physics3d.Body, s physics3d.Shape)
+	appendShape = func(b *physics3d.Body, s physics3d.Shape) {
+		if s.Kind == physics3d.ShapeCompound {
 			for _, child := range s.Children {
 				if child.Trigger || (child.EffectiveLayer(b.Layer)&layerMask) == 0 {
 					continue
@@ -115,7 +116,7 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 		if !opts.IncludeDynamic && !b.Static {
 			continue
 		}
-		if b.Shape.Kind == ShapeCompound {
+		if b.Shape.Kind == physics3d.ShapeCompound {
 			appendShape(b, b.WorldShape())
 			continue
 		}
@@ -132,12 +133,12 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 		probeRadius = 0.05
 	}
 	isOpen3D := func(posXZ math2d.Vec2, elevY float32) bool {
-		probe := SphereShape(Sphere{
-			Center: Vec3{X: posXZ.X, Y: elevY + halfMin*0.5, Z: posXZ.Y},
+		probe := physics3d.SphereShape(physics3d.Sphere{
+			Center: physics3d.Vec3{X: posXZ.X, Y: elevY + halfMin*0.5, Z: posXZ.Y},
 			Radius: probeRadius,
 		})
 		for i := range active {
-			if TestShapes(probe, active[i].shape).Hit {
+			if physics3d.TestShapes(probe, active[i].shape).Hit {
 				return false
 			}
 		}
@@ -169,8 +170,8 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 		}
 
 		switch ws.Kind {
-		case ShapeBox:
-			rot, _ := ws.orientedBox()
+		case physics3d.ShapeBox:
+			rot := boxRotation(ws)
 			axes := boxAxes(rot)
 			he := ws.Box.HalfExtents
 			// Inspect the 6 faces of the OBB in fixed order and keep near-vertical side faces.
@@ -234,16 +235,16 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 					}
 				}
 			}
-		case ShapeSphere, ShapeCapsule, ShapeCylinder:
+		case physics3d.ShapeSphere, physics3d.ShapeCapsule, physics3d.ShapeCylinder:
 			var cx, cz, rad float32
 			switch ws.Kind {
-			case ShapeSphere:
+			case physics3d.ShapeSphere:
 				cx, cz, rad = ws.Sphere.Center.X, ws.Sphere.Center.Z, ws.Sphere.Radius
-			case ShapeCapsule:
+			case physics3d.ShapeCapsule:
 				cx = (ws.Capsule.A.X + ws.Capsule.B.X) * 0.5
 				cz = (ws.Capsule.A.Z + ws.Capsule.B.Z) * 0.5
 				rad = ws.Capsule.Radius
-			case ShapeCylinder:
+			case physics3d.ShapeCylinder:
 				// A pillar or a barrel standing on an end; one lying on its side is not round seen from above.
 				c := ws.Cylinder
 				if h := c.Height(); h <= 0 || abs32(c.B.Y-c.A.Y) < 0.9*h {
@@ -285,4 +286,35 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 	}
 
 	return out
+}
+
+// boxRotation reports the unit rotation of a box shape, as physics3d's narrow phase interprets Shape.Rot.
+func boxRotation(s physics3d.Shape) physics3d.Quat {
+	if s.Rot.IsIdentity() {
+		return physics3d.QuatIdentity()
+	}
+	return s.Rot.Norm()
+}
+
+// boxAxes returns the world-space unit axes of an oriented box.
+func boxAxes(rot physics3d.Quat) [3]physics3d.Vec3 {
+	return [3]physics3d.Vec3{rot.RotateVec(physics3d.Vec3{X: 1}), rot.RotateVec(physics3d.Vec3{Y: 1}), rot.RotateVec(physics3d.Vec3{Z: 1})}
+}
+
+func vecComp(v physics3d.Vec3, i int) float32 {
+	switch i {
+	case 0:
+		return v.X
+	case 1:
+		return v.Y
+	default:
+		return v.Z
+	}
+}
+
+func abs32(x float32) float32 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

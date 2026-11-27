@@ -94,6 +94,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `game/pkg/ai` | Stable | Steering behaviors, ORCA avoidance, behavior trees, utility AI, GOAP, tactical queries and perception (sight, hearing, memory) |
+| `game/pkg/ai/cover3d` | Experimental | `ai` cover points generated from the colliders of a `physics3d` world on the XZ plane |
 | `game/pkg/ai/perception3d` | Experimental | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
 | `game/pkg/pathfind` | Stable | Grid `AStar`, HPA*, JPS, graph and waypoint search, 2D `NavMesh` with `NavAgent`, tiled meshes and budgeted path queues |
 | `game/pkg/pathfind/navbake` | Experimental | Bakes 2D navmeshes from obstacles or tilemaps with an agent radius, versioned YAML meshes, debug drawing |

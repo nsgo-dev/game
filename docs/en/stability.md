@@ -72,6 +72,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
 | `game/pkg/ai` | Stable | [ai](ai.md) |
+| `game/pkg/ai/cover3d` | Experimental | [ai](ai.md) |
 | `game/pkg/ai/perception3d` | Experimental | [ai](ai.md) |
 | `game/pkg/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | Experimental | [animclip](animclip.md) |
