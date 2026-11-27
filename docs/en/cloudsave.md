@@ -25,15 +25,34 @@ if err != nil {
 	return err
 }
 syncer, err := liveops.NewCloudSyncer(liveops.CloudSyncOptions{
-	Local:  save.StorageBackend(cx.Storage(), "mygame"),
-	Cloud:  cloud,
-	State:  cx.Storage(),
-	Device: deviceID,
-	Policy: liveops.PolicyKeepBoth,
+	Local:       save.StorageBackend(cx.Storage(), "mygame"),
+	Cloud:       cloud,
+	State:       cx.Storage(),
+	Device:      deviceID,
+	SaveVersion: 2, // the Store.Version this build writes
+	Policy:      liveops.PolicyKeepBoth,
 })
 ```
 
-Save through `save.NewStore(syncer.Backend())` and call `syncer.Sync(ctx)` when the game starts, after a save and when it returns to the foreground; see [liveops](liveops.md#cloud-saves) for how the syncer detects and resolves conflicts.
+Save through `save.NewStore(syncer.Backend(), save.WithVersion(2), ...)` and call `syncer.Sync(ctx)` when the game starts, after a save and when it returns to the foreground; see [liveops](liveops.md#cloud-saves) for how the syncer detects and resolves conflicts.
+
+## Mixed client versions
+
+When a player plays on a newer build (for example save version 3) and then opens an older build (save version 2), setting `CloudSyncOptions.SaveVersion` to the build's `save.Store.Version` keeps the older client from overwriting either side:
+
+- Before writing a cloud copy locally, `CloudSyncer` checks its save envelope version (`save.EnvelopeVersion`). When it exceeds `SaveVersion`, the syncer leaves the local slot and sync state untouched and reports `liveops.OutcomeNeedsUpdate` with `SlotResult.LocalVersion` and `SlotResult.CloudVersion` (collected by `res.NeedsUpdate()`), so the game can prompt the player to update while keeping the local save loadable.
+- If the player keeps playing or starts fresh on the older build, the next sync sees both sides diverged and never uploads over the newer-version cloud copy.
+- In conflicts where both copies carry different envelope versions, `CloudSyncer` never resolves in favour of the older envelope version; it falls back to keeping both (and when the cloud copy still exceeds `SaveVersion`, forks the local copy without overwriting the local slot and reports `OutcomeNeedsUpdate`). `Conflict.Local.EnvelopeVersion` and `Conflict.Cloud.EnvelopeVersion` expose both versions so `PolicyAsk` dialogs can tell the player a copy was saved by a newer game version.
+
+```go
+res, err := syncer.Sync(ctx)
+if err != nil {
+	return err
+}
+for _, slot := range res.NeedsUpdate() {
+	showUpdatePrompt(slot.Slot, slot.LocalVersion, slot.CloudVersion)
+}
+```
 
 `CloudClient` needs an `https` URL; `http` is accepted only on a loopback host (`localhost`, `127.0.0.1`, `::1`) for development. It uses `net/http`, so it works on every target: on the web its requests go through the browser's `fetch`, and the page's origin must be in the service's `allowedOrigins`; an Android app needs the `INTERNET` permission. Its errors wrap the `liveops` sentinels:
 

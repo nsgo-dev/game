@@ -63,7 +63,9 @@ store := save.NewFileStore(cx.DataDir(),
 
 `Load` 读取到旧版本存档时，会按 `1 -> 2 -> 3 ...` 逐步迁移 JSON，再反序列化到 `dst`。`Load` 不会把迁移结果写回，因此在该槽位再次保存之前，每次 `Load` 都会重新运行迁移：每个迁移函数都必须是只依赖输入的纯函数，每次运行结果相同。
 
-信封中出现 `version` 与 `data` 以外的字段，或任一字段重复出现，均视为 `ErrCorrupt`。
+信封中出现 `version` 与 `data` 以外的字段，或任一字段重复出现，均视为 `ErrCorrupt`。`save.EnvelopeVersion(payload)` 可以在不解码正文的情况下读取存档信封的模式版本（包括较新构建写入、带有额外未知字段的信封）。
+
+搭配 `liveops.CloudSyncer` 跨设备同步槽位时，请将存储的 `Version` 传入 `CloudSyncOptions.SaveVersion`。在把云端副本写入本地之前，同步器会检查 `save.EnvelopeVersion`；若云端副本版本更新，它会保持本地槽位不变，并报告 `liveops.OutcomeNeedsUpdate`（附带 `LocalVersion` 和 `CloudVersion`），让游戏提示玩家更新，而不是把会导致 `Load` 返回 `ErrFutureVersion` 的未来版本信封写入本地、进而冒险让新存档覆盖云端副本。详见 [cloudsave](cloudsave.md#混合客户端版本)。
 
 可用 `errors.Is` 判断的哨兵错误：
 

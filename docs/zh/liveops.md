@@ -164,13 +164,13 @@ if errors.Is(err, liveops.ErrConflictChanged) {
 - 每次写云端前，同步器都会重新读取云端副本；如果其间另一台设备已上传，该槽位以 `ErrCloudChanged` 失败，不写入任何内容，下次同步会看到新副本。当 `Cloud` 实现了 `ConditionalCloudSync`（`CloudClient` 和 `DirCloud` 皆是）时，写入本身以该副本为条件，因此在重新读取之后才落地的上传也会以同样方式失败，而不会被覆盖。
 - 失败的槽位（损坏的负载、不安全的槽位名、`Ask` 返回错误）会被跳过，错误合并进返回值，其余槽位照常同步；`ErrCloudUnavailable` 或已结束的 context 会中止同步。
 
-每个 `Conflict` 为两端各带一个 `SaveVersion`：是否存在（某一端可能删除了该槽位）、修订号、哈希、修改时间、写入设备、游戏 `Summarize` 给出的摘要以及原始数据。各策略如下：
+每个 `Conflict` 为两端各带一个 `SaveVersion`：是否存在（某一端可能删除了该槽位）、修订号、哈希、修改时间、写入设备、存档 `EnvelopeVersion`、游戏 `Summarize` 给出的摘要以及原始数据。将 `CloudSyncOptions.SaveVersion` 设为当前构建写入的 `save.Store.Version`，可保证较新游戏版本写入的云端副本绝不会覆盖本地槽位（返回 `OutcomeNeedsUpdate`，附带 `SlotResult.LocalVersion`、`SlotResult.CloudVersion` 及 `SyncResult.NeedsUpdate()`），也不会被旧版本客户端覆盖。各策略如下：
 
 | 策略 | 行为 |
 | --- | --- |
-| `PolicyNewest`（默认） | 保留修改时间较晚的副本并覆盖另一份（`OutcomeKeptLocal` 或 `OutcomeKeptCloud`）。任一时间未知（例如未经 `Backend()` 写入的本地副本；记下的时间只对应记录时的那份副本）或两者相等时保留两份。一端删除、另一端修改时保留修改后的副本。 |
-| `PolicyKeepBoth` | 槽位中保留云端副本，把本地副本在两端都移到 `<slot>.conflict-<device>`（依次再用 `-2`、`-3`……）（`OutcomeKeptBoth`，`SlotResult.Fork`）。该名称超过 200 字节的槽位名上限时，槽位部分会被截短，并在其后加上 `~` 和槽位名 SHA-256 的 8 位十六进制。在覆盖任何内容之前，先在本地写好分叉副本及其同步状态，因此上传失败时，下次同步会上传同一个分叉，而不是再建一个。删除对修改时保留修改。 |
-| `PolicyAsk` | 用冲突调用 `Ask` 并执行其 `Choice`：`ChoiceLocal`、`ChoiceCloud`、`ChoiceBoth`（同 `PolicyKeepBoth`）或 `ChoiceDefer`；`ChoiceDefer` 不写入任何内容，下次同步再次询问。`Ask` 返回错误时两份副本都保持不变。 |
+| `PolicyNewest`（默认） | 保留修改时间较晚的副本并覆盖另一份（`OutcomeKeptLocal` 或 `OutcomeKeptCloud`）。任一时间未知（例如未经 `Backend()` 写入的本地副本；记下的时间只对应记录时的那份副本）或两者相等时保留两份。一端删除、另一端修改时保留修改后的副本。两端存档信封版本不同时，绝不偏向较旧的信封版本，而是回退为保留两份。 |
+| `PolicyKeepBoth` | 槽位中保留云端副本，把本地副本在两端都移到 `<slot>.conflict-<device>`（依次再用 `-2`、`-3`……）（`OutcomeKeptBoth`，`SlotResult.Fork`）。云端副本高于 `SaveVersion` 时，本地副本会在两端分叉保留，但本地与云端主槽位均保持不动（`OutcomeNeedsUpdate`）。该名称超过 200 字节的槽位名上限时，槽位部分会被截短，并在其后加上 `~` 和槽位名 SHA-256 的 8 位十六进制。在覆盖任何内容之前，先在本地写好分叉副本及其同步状态，因此上传失败时，下次同步会上传同一个分叉，而不是再建一个。删除对修改时保留修改。 |
+| `PolicyAsk` | 用冲突（含两端 `EnvelopeVersion`）调用 `Ask` 并执行其 `Choice`：`ChoiceLocal`、`ChoiceCloud`、`ChoiceBoth`（同 `PolicyKeepBoth`）或 `ChoiceDefer`；`ChoiceDefer` 不写入任何内容，下次同步再次询问。`Ask` 返回错误时两份副本都保持不变。偏向较旧信封版本的决议会回退为保留两份，应用高于 `SaveVersion` 的云端副本会返回 `OutcomeNeedsUpdate` 而不覆盖本地槽位。 |
 
 `Ask` 在同步过程中、在应用线程上运行，因此不能等待玩家作答。要通过对话框询问，就保存 `Conflict`、返回 `ChoiceDefer`、展示两份摘要，再用 `Resolve(ctx, conflict, choice)` 执行玩家的选择，如上例所示。`Resolve` 会重新读取两端，只有两端仍持有玩家看到的那两份副本（是否存在、哈希和云端修订号都相同）时才执行选择；否则不写入任何内容并返回 `ErrConflictChanged`。它在任何策略下都可用。
 

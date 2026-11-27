@@ -786,6 +786,7 @@ func TestCloudSyncErrors(t *testing.T) {
 		"no device":    func(o *liveops.CloudSyncOptions) { o.Device = "" },
 		"ask, no func": func(o *liveops.CloudSyncOptions) { o.Policy = liveops.PolicyAsk },
 		"bad policy":   func(o *liveops.CloudSyncOptions) { o.Policy = 9 },
+		"neg version":  func(o *liveops.CloudSyncOptions) { o.SaveVersion = -1 },
 	} {
 		o := base
 		mutate(&o)
@@ -944,4 +945,397 @@ func BenchmarkCloudSyncUpToDate(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func newVersionedDevice(t *testing.T, id string, cloud liveops.CloudSync, saveVer int, mutate func(*liveops.CloudSyncOptions)) *device {
+	t.Helper()
+	d := &device{now: epoch}
+	d.app = nsgotest.Start(t, func(cx *core.Scope) core.Node { return core.View{} })
+	reconfigureDevice(t, d, id, cloud, saveVer, mutate)
+	return d
+}
+
+func reconfigureDevice(t *testing.T, d *device, id string, cloud liveops.CloudSync, saveVer int, mutate func(*liveops.CloudSyncOptions)) {
+	t.Helper()
+	opts := liveops.CloudSyncOptions{
+		Local:       save.StorageBackend(d.app.Storage(), "save"),
+		Cloud:       cloud,
+		State:       d.app.Storage(),
+		Device:      id,
+		SaveVersion: saveVer,
+		Now:         func() time.Time { return d.now },
+		Summarize: func(slot string, data []byte) string {
+			var env struct {
+				Data progress `json:"data"`
+			}
+			if err := json.Unmarshal(data, &env); err != nil {
+				return "unreadable"
+			}
+			return fmt.Sprintf("Level %d (%s)", env.Data.Level, env.Data.Note)
+		},
+	}
+	if mutate != nil {
+		mutate(&opts)
+	}
+	s, err := liveops.NewCloudSyncer(opts)
+	if err != nil {
+		t.Fatalf("NewCloudSyncer(v%d): %v", saveVer, err)
+	}
+	d.syncer = s
+	storeOpts := []save.Option{save.WithVersion(saveVer)}
+	for v := 1; v < saveVer; v++ {
+		storeOpts = append(storeOpts, save.WithMigration(v, func(raw json.RawMessage) (json.RawMessage, error) {
+			return raw, nil
+		}))
+	}
+	d.store = save.NewStore(s.Backend(), storeOpts...)
+}
+
+func TestCloudSyncNewerVersionPreservesLocalAndCloud(t *testing.T) {
+	// Issue #1538: phone updates from 1.2 (v2) to 1.3 (v3) while tablet stays on 1.2 (v2).
+	cloud := newMemCloud()
+	phone := newVersionedDevice(t, "phone", cloud, 2, nil)
+	tablet := newVersionedDevice(t, "tablet", cloud, 2, nil)
+
+	// Both devices start in step at save version 2.
+	phone.save(t, "main", progress{Level: 4, Note: "shared-v2"}, 0)
+	if got := outcomeOf(t, phone.sync(t), "main").Outcome; got != liveops.OutcomeUploaded {
+		t.Fatalf("initial upload = %v", got)
+	}
+	if got := outcomeOf(t, tablet.sync(t), "main").Outcome; got != liveops.OutcomeDownloaded {
+		t.Fatalf("initial download = %v", got)
+	}
+
+	// Step 1: Phone updates to 1.3 (save version 3), saves, and syncs.
+	reconfigureDevice(t, phone, "phone", cloud, 3, nil)
+	phone.save(t, "main", progress{Level: 10, Note: "phone-v3"}, time.Hour)
+	if got := outcomeOf(t, phone.sync(t), "main").Outcome; got != liveops.OutcomeUploaded {
+		t.Fatalf("phone v3 upload = %v", got)
+	}
+	if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 10 {
+		t.Fatalf("cloud after phone upload = env v%d %+v", v.EnvelopeVersion, p)
+	}
+
+	// Step 2: Tablet (still on v2) syncs: must not overwrite its local v2 copy with v3, and must report OutcomeNeedsUpdate with both versions.
+	res := tablet.sync(t)
+	r := outcomeOf(t, res, "main")
+	if r.Outcome != liveops.OutcomeNeedsUpdate || r.Outcome.String() != "needs-update" {
+		t.Fatalf("tablet sync = %+v, want OutcomeNeedsUpdate", r)
+	}
+	if r.LocalVersion != 2 || r.CloudVersion != 3 || r.Conflict != nil {
+		t.Fatalf("tablet versions = local %d cloud %d conflict %+v, want 2, 3, nil", r.LocalVersion, r.CloudVersion, r.Conflict)
+	}
+	if nu := res.NeedsUpdate(); len(nu) != 1 || nu[0].Slot != "main" {
+		t.Fatalf("NeedsUpdate() = %+v", nu)
+	}
+
+	// Step 3: Store.Load on the tablet still loads its v2 save cleanly (never ErrFutureVersion).
+	if got := tablet.load(t, "main"); got.Level != 4 || got.Note != "shared-v2" {
+		t.Fatalf("tablet local save after needs-update = %+v", got)
+	}
+
+	// Step 4: Even if the tablet starts fresh (or plays on) and saves a newer-timestamp v2 save,
+	// the next sync must never upload over the cloud's v3 save, and must keep both copies safely.
+	tablet.save(t, "main", progress{Level: 1, Note: "tablet-fresh-v2"}, 2*time.Hour)
+	r = outcomeOf(t, tablet.sync(t), "main")
+	if r.Outcome != liveops.OutcomeNeedsUpdate || r.LocalVersion != 2 || r.CloudVersion != 3 {
+		t.Fatalf("tablet post-fresh sync = %+v", r)
+	}
+	if r.Conflict == nil || r.Conflict.Local.EnvelopeVersion != 2 || r.Conflict.Cloud.EnvelopeVersion != 3 {
+		t.Fatalf("conflict versions = %+v", r.Conflict)
+	}
+	if r.Fork != "main.conflict-tablet" {
+		t.Fatalf("fork = %q, want main.conflict-tablet", r.Fork)
+	}
+	// Cloud "main" is still the phone's v3 save.
+	if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 10 || p.Note != "phone-v3" {
+		t.Fatalf("cloud main was clobbered: env v%d %+v", v.EnvelopeVersion, p)
+	}
+	// Cloud fork holds the tablet's v2 save.
+	if v, p := cloudProgress(t, cloud, r.Fork); v.EnvelopeVersion != 2 || p.Level != 1 || p.Note != "tablet-fresh-v2" {
+		t.Fatalf("cloud fork = env v%d %+v", v.EnvelopeVersion, p)
+	}
+	// Tablet's local "main" is still its loadable v2 save (not overwritten with v3).
+	if got := tablet.load(t, "main"); got.Level != 1 || got.Note != "tablet-fresh-v2" {
+		t.Fatalf("tablet local main = %+v", got)
+	}
+
+	// Repeated sync on tablet reuses the fork without creating "-2" and still protects cloud v3.
+	r = outcomeOf(t, tablet.sync(t), "main")
+	if r.Outcome != liveops.OutcomeNeedsUpdate || r.Fork != "main.conflict-tablet" {
+		t.Fatalf("repeat tablet sync = %+v", r)
+	}
+	if _, ok := cloud.slots["main.conflict-tablet-2"]; ok {
+		t.Fatal("repeat sync created duplicate fork")
+	}
+
+	// Phone sees untouched v3 in main and downloads the tablet's v2 fork (migrated on load).
+	phoneRes := phone.sync(t)
+	if got := outcomeOf(t, phoneRes, "main").Outcome; got != liveops.OutcomeUpToDate {
+		t.Fatalf("phone main = %v", got)
+	}
+	if got := outcomeOf(t, phoneRes, "main.conflict-tablet").Outcome; got != liveops.OutcomeDownloaded {
+		t.Fatalf("phone fork = %v", got)
+	}
+	if got := phone.load(t, "main.conflict-tablet"); got.Level != 1 || got.Note != "tablet-fresh-v2" {
+		t.Fatalf("phone loaded tablet fork = %+v", got)
+	}
+
+	// Once the tablet updates to 1.3 (v3), syncing converges cleanly: main becomes v3 and both slots settle.
+	reconfigureDevice(t, tablet, "tablet", cloud, 3, nil)
+	r = outcomeOf(t, tablet.sync(t), "main")
+	if r.Outcome != liveops.OutcomeKeptBoth || r.Fork != "main.conflict-tablet" {
+		t.Fatalf("tablet upgraded sync = %+v", r)
+	}
+	if got := tablet.load(t, "main"); got.Level != 10 || got.Note != "phone-v3" {
+		t.Fatalf("tablet upgraded main = %+v", got)
+	}
+	if got := tablet.load(t, "main.conflict-tablet"); got.Level != 1 || got.Note != "tablet-fresh-v2" {
+		t.Fatalf("tablet upgraded fork = %+v", got)
+	}
+	for _, sr := range tablet.sync(t).Slots {
+		if sr.Outcome != liveops.OutcomeUpToDate {
+			t.Fatalf("tablet not up to date after upgrade: %+v", sr)
+		}
+	}
+}
+
+func TestCloudSyncNewerVersionEdgeCases(t *testing.T) {
+	t.Run("fresh older device does not write newer cloud save while syncing compatible slots", func(t *testing.T) {
+		cloud := newMemCloud()
+		phone := newVersionedDevice(t, "phone", cloud, 3, nil)
+		phone.save(t, "future", progress{Level: 12, Note: "v3"}, time.Hour)
+		phone.sync(t)
+
+		// Also place a v2 slot and a v3 envelope with an unknown future field in the cloud.
+		v2Raw, _ := json.Marshal(map[string]any{"version": 2, "data": progress{Level: 2, Note: "v2"}})
+		cloud.slots["compat"] = v2Raw
+		cloud.slots["extra"] = []byte(`{"version":3,"checksum":"abc","data":{"level":9,"note":"extra"}}`)
+
+		tablet := newVersionedDevice(t, "tablet", cloud, 2, nil)
+		res := tablet.sync(t)
+
+		if r := outcomeOf(t, res, "compat"); r.Outcome != liveops.OutcomeDownloaded {
+			t.Fatalf("compat slot = %+v", r)
+		}
+		if got := tablet.load(t, "compat"); got.Level != 2 {
+			t.Fatalf("compat loaded = %+v", got)
+		}
+		for _, slot := range []string{"future", "extra"} {
+			r := outcomeOf(t, res, slot)
+			if r.Outcome != liveops.OutcomeNeedsUpdate || r.LocalVersion != 2 || r.CloudVersion != 3 {
+				t.Fatalf("%s slot = %+v, want needs-update (2 vs 3)", slot, r)
+			}
+			if tablet.store.Exists(slot) {
+				t.Fatalf("%s was written locally on older client", slot)
+			}
+		}
+		if len(res.NeedsUpdate()) != 2 {
+			t.Fatalf("NeedsUpdate() = %+v, want 2 slots", res.NeedsUpdate())
+		}
+	})
+
+	t.Run("downgraded client cannot overwrite or delete newer cloud save", func(t *testing.T) {
+		cloud := newMemCloud()
+		dev := newVersionedDevice(t, "tablet", cloud, 3, nil)
+		dev.save(t, "main", progress{Level: 20, Note: "v3"}, time.Hour)
+		dev.save(t, "del", progress{Level: 21, Note: "v3-del"}, time.Hour)
+		dev.sync(t)
+
+		// Device downgrades to v2; sync state still points at v3 hash (ch == st.Hash).
+		reconfigureDevice(t, dev, "tablet", cloud, 2, nil)
+		dev.save(t, "main", progress{Level: 1, Note: "fresh-v2"}, 2*time.Hour)
+		if err := dev.store.Delete("del"); err != nil {
+			t.Fatal(err)
+		}
+
+		res := dev.sync(t)
+		rm := outcomeOf(t, res, "main")
+		if rm.Outcome != liveops.OutcomeNeedsUpdate || rm.Fork != "main.conflict-tablet" {
+			t.Fatalf("downgraded main = %+v", rm)
+		}
+		if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 20 {
+			t.Fatalf("downgraded client overwrote cloud main: v%d %+v", v.EnvelopeVersion, p)
+		}
+		rd := outcomeOf(t, res, "del")
+		if rd.Outcome != liveops.OutcomeNeedsUpdate || rd.LocalVersion != 2 || rd.CloudVersion != 3 {
+			t.Fatalf("downgraded del = %+v", rd)
+		}
+		if v, p := cloudProgress(t, cloud, "del"); v.EnvelopeVersion != 3 || p.Level != 21 {
+			t.Fatalf("downgraded client deleted cloud del: v%d %+v", v.EnvelopeVersion, p)
+		}
+	})
+}
+
+func TestCloudSyncMixedVersionConflicts(t *testing.T) {
+	t.Run("PolicyNewest never resolves in favour of older local envelope", func(t *testing.T) {
+		cloud := newMemCloud()
+		phone := newVersionedDevice(t, "phone", cloud, 2, nil)
+		laptop := newVersionedDevice(t, "laptop", cloud, 2, nil)
+		phone.save(t, "main", progress{Level: 1, Note: "base"}, 0)
+		phone.sync(t)
+		laptop.sync(t)
+
+		// Phone upgrades to v3 and saves at +1h; laptop writes v2 locally at +2h, then upgrades to v3 before syncing (so local is still unmigrated v2, cloud is v3).
+		reconfigureDevice(t, phone, "phone", cloud, 3, nil)
+		phone.save(t, "main", progress{Level: 5, Note: "phone-v3"}, time.Hour)
+		phone.sync(t)
+		laptop.save(t, "main", progress{Level: 7, Note: "laptop-v2"}, 2*time.Hour)
+		reconfigureDevice(t, laptop, "laptop", cloud, 3, nil)
+
+		r := outcomeOf(t, laptop.sync(t), "main")
+		if r.Outcome != liveops.OutcomeKeptBoth || r.Fork != "main.conflict-laptop" || r.Conflict == nil {
+			t.Fatalf("laptop sync = %+v, want OutcomeKeptBoth", r)
+		}
+		if r.Conflict.Local.EnvelopeVersion != 2 || r.Conflict.Cloud.EnvelopeVersion != 3 {
+			t.Fatalf("conflict envelope versions = local %d cloud %d", r.Conflict.Local.EnvelopeVersion, r.Conflict.Cloud.EnvelopeVersion)
+		}
+		if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 5 {
+			t.Fatalf("cloud main = v%d %+v", v.EnvelopeVersion, p)
+		}
+		if v, p := cloudProgress(t, cloud, r.Fork); v.EnvelopeVersion != 2 || p.Level != 7 {
+			t.Fatalf("cloud fork = v%d %+v", v.EnvelopeVersion, p)
+		}
+		if got := laptop.load(t, "main"); got.Level != 5 {
+			t.Fatalf("laptop main = %+v", got)
+		}
+		if got := laptop.load(t, r.Fork); got.Level != 7 {
+			t.Fatalf("laptop fork = %+v", got)
+		}
+	})
+
+	t.Run("PolicyNewest never resolves in favour of older cloud envelope", func(t *testing.T) {
+		cloud := newMemCloud()
+		phone := newVersionedDevice(t, "phone", cloud, 2, nil)
+		tablet := newVersionedDevice(t, "tablet", cloud, 2, nil)
+		phone.save(t, "main", progress{Level: 1, Note: "base"}, 0)
+		phone.sync(t)
+		tablet.sync(t)
+
+		// Phone upgrades to v3 and saves offline at +1h; tablet stays on v2, saves at +2h and uploads.
+		reconfigureDevice(t, phone, "phone", cloud, 3, nil)
+		phone.save(t, "main", progress{Level: 8, Note: "phone-v3"}, time.Hour)
+		tablet.save(t, "main", progress{Level: 6, Note: "tablet-v2"}, 2*time.Hour)
+		tablet.sync(t)
+
+		// Phone syncs: cloud has newer timestamp (+2h) but older envelope version (v2 < v3), so keep both.
+		r := outcomeOf(t, phone.sync(t), "main")
+		if r.Outcome != liveops.OutcomeKeptBoth || r.Fork != "main.conflict-phone" || r.Conflict == nil {
+			t.Fatalf("phone sync = %+v, want OutcomeKeptBoth", r)
+		}
+		if r.Conflict.Local.EnvelopeVersion != 3 || r.Conflict.Cloud.EnvelopeVersion != 2 {
+			t.Fatalf("conflict envelope versions = local %d cloud %d", r.Conflict.Local.EnvelopeVersion, r.Conflict.Cloud.EnvelopeVersion)
+		}
+		if v, p := cloudProgress(t, cloud, r.Fork); v.EnvelopeVersion != 3 || p.Level != 8 {
+			t.Fatalf("phone v3 fork = v%d %+v", v.EnvelopeVersion, p)
+		}
+		if got := phone.load(t, "main"); got.Level != 6 {
+			t.Fatalf("phone main (migrated v2) = %+v", got)
+		}
+		if got := phone.load(t, r.Fork); got.Level != 8 {
+			t.Fatalf("phone fork (v3) = %+v", got)
+		}
+	})
+
+	t.Run("PolicyNewest lets newer version with newer time win", func(t *testing.T) {
+		cloud := newMemCloud()
+		phone := newVersionedDevice(t, "phone", cloud, 2, nil)
+		tablet := newVersionedDevice(t, "tablet", cloud, 2, nil)
+		phone.save(t, "main", progress{Level: 1, Note: "base"}, 0)
+		phone.sync(t)
+		tablet.sync(t)
+
+		tablet.save(t, "main", progress{Level: 3, Note: "tablet-v2"}, time.Hour)
+		tablet.sync(t)
+		reconfigureDevice(t, phone, "phone", cloud, 3, nil)
+		phone.save(t, "main", progress{Level: 9, Note: "phone-v3"}, 2*time.Hour)
+
+		r := outcomeOf(t, phone.sync(t), "main")
+		if r.Outcome != liveops.OutcomeKeptLocal || r.Discarded == nil || r.Discarded.EnvelopeVersion != 2 {
+			t.Fatalf("phone sync = %+v, want OutcomeKeptLocal", r)
+		}
+		if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 9 {
+			t.Fatalf("cloud main = v%d %+v", v.EnvelopeVersion, p)
+		}
+	})
+
+	t.Run("PolicyNewest on older client with newer cloud timestamp keeps local and reports needs-update", func(t *testing.T) {
+		cloud := newMemCloud()
+		phone := newVersionedDevice(t, "phone", cloud, 2, nil)
+		tablet := newVersionedDevice(t, "tablet", cloud, 2, nil)
+		phone.save(t, "main", progress{Level: 1, Note: "base"}, 0)
+		phone.sync(t)
+		tablet.sync(t)
+
+		tablet.save(t, "main", progress{Level: 4, Note: "tablet-v2"}, time.Hour)
+		reconfigureDevice(t, phone, "phone", cloud, 3, nil)
+		phone.save(t, "main", progress{Level: 9, Note: "phone-v3"}, 2*time.Hour)
+		phone.sync(t)
+
+		r := outcomeOf(t, tablet.sync(t), "main")
+		if r.Outcome != liveops.OutcomeNeedsUpdate || r.LocalVersion != 2 || r.CloudVersion != 3 || r.Conflict == nil {
+			t.Fatalf("tablet sync = %+v", r)
+		}
+		if r.Conflict.Local.EnvelopeVersion != 2 || r.Conflict.Cloud.EnvelopeVersion != 3 {
+			t.Fatalf("conflict = %+v", r.Conflict)
+		}
+		if got := tablet.load(t, "main"); got.Level != 4 {
+			t.Fatalf("tablet local overwritten: %+v", got)
+		}
+		if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 9 {
+			t.Fatalf("cloud main overwritten: v%d %+v", v.EnvelopeVersion, p)
+		}
+	})
+
+	t.Run("PolicyAsk reports envelope versions and Resolve guards mixed versions", func(t *testing.T) {
+		cloud := newMemCloud()
+		phone := newVersionedDevice(t, "phone", cloud, 2, nil)
+		var pending []liveops.Conflict
+		tablet := newVersionedDevice(t, "tablet", cloud, 2, func(o *liveops.CloudSyncOptions) {
+			o.Policy = liveops.PolicyAsk
+			o.Ask = func(_ context.Context, c liveops.Conflict) (liveops.Choice, error) {
+				pending = append(pending, c)
+				return liveops.ChoiceDefer, nil
+			}
+		})
+		phone.save(t, "main", progress{Level: 1, Note: "base"}, 0)
+		phone.sync(t)
+		tablet.sync(t)
+
+		reconfigureDevice(t, phone, "phone", cloud, 3, nil)
+		phone.save(t, "main", progress{Level: 10, Note: "phone-v3"}, time.Hour)
+		phone.sync(t)
+		tablet.save(t, "main", progress{Level: 5, Note: "tablet-v2"}, 2*time.Hour)
+
+		r := outcomeOf(t, tablet.sync(t), "main")
+		if r.Outcome != liveops.OutcomeDeferred || len(pending) != 1 {
+			t.Fatalf("tablet ask sync = %+v, pending=%d", r, len(pending))
+		}
+		c := pending[0]
+		if c.Local.EnvelopeVersion != 2 || c.Cloud.EnvelopeVersion != 3 {
+			t.Fatalf("Ask conflict versions = local %d cloud %d, want 2 and 3", c.Local.EnvelopeVersion, c.Cloud.EnvelopeVersion)
+		}
+
+		// Choosing Cloud on older client refuses to write v3 locally and reports OutcomeNeedsUpdate.
+		ctx := context.Background()
+		rc, err := tablet.syncer.Resolve(ctx, c, liveops.ChoiceCloud)
+		if err != nil || rc.Outcome != liveops.OutcomeNeedsUpdate || rc.LocalVersion != 2 || rc.CloudVersion != 3 {
+			t.Fatalf("Resolve(ChoiceCloud) = %+v, %v", rc, err)
+		}
+		if got := tablet.load(t, "main"); got.Level != 5 {
+			t.Fatalf("local overwritten after Resolve(ChoiceCloud): %+v", got)
+		}
+
+		// Choosing Local refuses to overwrite cloud v3; forks local v2 and reports OutcomeNeedsUpdate.
+		rl, err := tablet.syncer.Resolve(ctx, c, liveops.ChoiceLocal)
+		if err != nil || rl.Outcome != liveops.OutcomeNeedsUpdate || rl.Fork != "main.conflict-tablet" {
+			t.Fatalf("Resolve(ChoiceLocal) = %+v, %v", rl, err)
+		}
+		if v, p := cloudProgress(t, cloud, "main"); v.EnvelopeVersion != 3 || p.Level != 10 {
+			t.Fatalf("cloud v3 overwritten by Resolve(ChoiceLocal): v%d %+v", v.EnvelopeVersion, p)
+		}
+		if v, p := cloudProgress(t, cloud, rl.Fork); v.EnvelopeVersion != 2 || p.Level != 5 {
+			t.Fatalf("fork after Resolve(ChoiceLocal) = v%d %+v", v.EnvelopeVersion, p)
+		}
+	})
 }

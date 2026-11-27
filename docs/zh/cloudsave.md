@@ -25,15 +25,34 @@ if err != nil {
 	return err
 }
 syncer, err := liveops.NewCloudSyncer(liveops.CloudSyncOptions{
-	Local:  save.StorageBackend(cx.Storage(), "mygame"),
-	Cloud:  cloud,
-	State:  cx.Storage(),
-	Device: deviceID,
-	Policy: liveops.PolicyKeepBoth,
+	Local:       save.StorageBackend(cx.Storage(), "mygame"),
+	Cloud:       cloud,
+	State:       cx.Storage(),
+	Device:      deviceID,
+	SaveVersion: 2, // 当前构建写入的 Store.Version
+	Policy:      liveops.PolicyKeepBoth,
 })
 ```
 
-通过 `save.NewStore(syncer.Backend())` 保存，并在游戏启动、保存之后以及回到前台时调用 `syncer.Sync(ctx)`；同步器如何发现和解决冲突，见 [liveops](liveops.md#云存档)。
+通过 `save.NewStore(syncer.Backend(), save.WithVersion(2), ...)` 保存，并在游戏启动、保存之后以及回到前台时调用 `syncer.Sync(ctx)`；同步器如何发现和解决冲突，见 [liveops](liveops.md#云存档)。
+
+## 混合客户端版本
+
+当玩家在较新版本（例如存档版本 3）游玩后，又打开较旧版本的客户端（存档版本 2）时，将 `CloudSyncOptions.SaveVersion` 设为当前构建的 `save.Store.Version`，即可避免旧客户端覆盖任一侧的存档：
+
+- 写入云端副本到本地前，`CloudSyncer` 会检查其存档信封版本（`save.EnvelopeVersion`）。当版本号高于 `SaveVersion` 时，同步器不会改动本地槽位和同步状态，而是报告 `liveops.OutcomeNeedsUpdate` 并填充 `SlotResult.LocalVersion` 与 `SlotResult.CloudVersion`（可通过 `res.NeedsUpdate()` 获取），游戏据此提示玩家更新，同时本地存档仍可正常加载。
+- 即使玩家在旧版本上继续游玩或重新开始并保存，下一次同步也会看到两端分叉，绝不会把旧版本存档上传覆盖云端较新版本的存档。
+- 在两端存档信封版本不同的冲突中，`CloudSyncer` 绝不会偏向较旧信封版本的副本，而是回退为保留两份（当云端副本仍高于 `SaveVersion` 时，把本地副本分叉保留而不覆盖本地槽位，并报告 `OutcomeNeedsUpdate`）。`Conflict.Local.EnvelopeVersion` 与 `Conflict.Cloud.EnvelopeVersion` 会同时给出两端版本号，便于 `PolicyAsk` 对话框向玩家说明该副本由更新的游戏版本保存。
+
+```go
+res, err := syncer.Sync(ctx)
+if err != nil {
+	return err
+}
+for _, slot := range res.NeedsUpdate() {
+	showUpdatePrompt(slot.Slot, slot.LocalVersion, slot.CloudVersion)
+}
+```
 
 `CloudClient` 要求 `https` URL；`http` 只在回环主机（`localhost`、`127.0.0.1`、`::1`）上用于开发。它使用 `net/http`，因此在所有目标平台上都能工作：在网页上，请求经由浏览器的 `fetch` 发出，页面的 origin 必须列在服务的 `allowedOrigins` 中；Android 应用需要 `INTERNET` 权限。它的错误包装了 `liveops` 的哨兵错误：
 
