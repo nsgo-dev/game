@@ -336,11 +336,8 @@ func decodeEnvelopeData(payload []byte, target int, migrations map[int]Migration
 	env, err := parseEnvelope(payload)
 	if err != nil {
 		// An envelope a newer build wrote may carry fields this one does not know; report it as a future version rather than as corrupt, so Load does not fall back to an older backup.
-		var lenient struct {
-			Version int `json:"version"`
-		}
-		if json.Unmarshal(payload, &lenient) == nil && lenient.Version > target {
-			return futureVersion(lenient.Version, target)
+		if v, ok := EnvelopeVersion(payload); ok && v > target {
+			return futureVersion(v, target)
 		}
 		return err
 	}
@@ -502,6 +499,26 @@ func unmarshalClean(data []byte, dst any) error {
 	}
 	rv.Elem().Set(tmp.Elem())
 	return nil
+}
+
+// EnvelopeVersion returns the schema version recorded in a save envelope payload, or (0, false) when payload does not carry a positive integer "version" field.
+//
+// Like Store.Load, it reads a JSON object carrying unknown fields so a save written by a newer build with extra envelope fields still reports its version.
+func EnvelopeVersion(payload []byte) (int, bool) {
+	if env, err := parseEnvelope(payload); err == nil {
+		return env.Version, true
+	}
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return 0, false
+	}
+	var lenient struct {
+		Version int `json:"version"`
+	}
+	if json.Unmarshal(trimmed, &lenient) == nil && lenient.Version >= 1 {
+		return lenient.Version, true
+	}
+	return 0, false
 }
 
 // ValidateSlot reports whether slot is a name a Store accepts, returning an error wrapping ErrInvalidSlot when it is not. Code that takes slot names from outside the game, such as a cloud listing, checks them with it before handing them to a Backend.

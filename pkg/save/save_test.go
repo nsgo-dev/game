@@ -810,3 +810,34 @@ func TestStorageBackendSlotsReturnsSlotNames(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvelopeVersion(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload []byte
+		want    int
+		ok      bool
+	}{
+		{"v1 object", []byte(`{"version":1,"data":{"name":"A"}}`), 1, true},
+		{"v3 array", []byte(`{"version":3,"data":[1,2]}`), 3, true},
+		{"future extra field", []byte(`{"version":4,"data":{"name":"Future"},"checksum":"abc"}`), 4, true},
+		{"empty", nil, 0, false},
+		{"binary", []byte{0xff, 0x00, 0xfe}, 0, false},
+		{"null", []byte(`null`), 0, false},
+		{"array", []byte(`[1,2,3]`), 0, false},
+		{"no version", []byte(`{"data":{"name":"A"}}`), 0, false},
+		{"zero version", []byte(`{"version":0,"data":{}}`), 0, false},
+		{"negative version", []byte(`{"version":-2,"data":{}}`), 0, false},
+		{"string version", []byte(`{"version":"2","data":{}}`), 0, false},
+		{"float version", []byte(`{"version":2.5,"data":{}}`), 0, false},
+		{"trailing garbage", []byte(`{"version":2,"data":{}} {}`), 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := save.EnvelopeVersion(tc.payload)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("EnvelopeVersion(%q) = (%d, %v), want (%d, %v)", tc.payload, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}

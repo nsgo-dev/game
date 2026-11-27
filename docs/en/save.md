@@ -63,7 +63,9 @@ store := save.NewFileStore(cx.DataDir(),
 
 When `Load` reads an older version, it upgrades the JSON one version at a time (`1 -> 2 -> 3 ...`) before unmarshaling into `dst`. `Load` does not write the migrated save back, so migrations run again on every `Load` until the slot is saved: each one must be a pure function of its input that gives the same result every time.
 
-An envelope with any field besides `version` and `data`, or with either field given twice, is `ErrCorrupt`.
+An envelope with any field besides `version` and `data`, or with either field given twice, is `ErrCorrupt`. `save.EnvelopeVersion(payload)` reads a payload's schema version without decoding its body (including envelopes written by a newer build that carry extra fields).
+
+When syncing slots across devices with `liveops.CloudSyncer`, pass the store's `Version` as `CloudSyncOptions.SaveVersion`. Before writing a cloud copy locally, the syncer checks `save.EnvelopeVersion`; if the cloud copy is newer, it keeps the local slot intact and reports `liveops.OutcomeNeedsUpdate` with `LocalVersion` and `CloudVersion` so the game can ask the player to update instead of writing a future-version envelope that `Load` would refuse with `ErrFutureVersion` and risking a fresh save overwriting the cloud copy. See [cloudsave](cloudsave.md#mixed-client-versions).
 
 Sentinel errors to check with `errors.Is`:
 
