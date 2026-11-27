@@ -108,7 +108,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `jsonschema` | `github.com/nsgo-dev/game/pkg/jsonschema` | [Schemas for YAML files](schemas.md) | JSON Schemas built from Go types for editors and AI tools, the published scene schema and validation with JSON Pointer paths |
 | `tooling/library` | `github.com/nsgo-dev/game/pkg/tooling/library` | [Asset and Plugin Library](library.md) | A YAML index of shared asset, editor plugin and template packs, checked by digest and installed into a project with their files and `game.yaml` references recorded |
 | `framedata` | `github.com/nsgo-dev/game/pkg/framedata` | [framedata](framedata.md) | Fighting game hitboxes, hurtboxes, hitstun and cancel windows per frame in YAML, resolved deterministically each step |
-| `vehicle` | `github.com/nsgo-dev/game/pkg/vehicle` | [vehicle](vehicle.md) | Raycast cars on `physics3d`: wheel suspension, tire friction and a car controller, race checkpoints and laps, and YAML car files and lap ghosts |
+| `vehicle3d` | `github.com/nsgo-dev/game/pkg/vehicle3d` | [vehicle3d](vehicle3d.md) | Raycast cars on `physics3d`: wheel suspension, tire friction and a car controller, race checkpoints and laps, and YAML car files and lap ghosts |
 
 For a single-page summary of the core APIs, see [Packages](packages.md). Every loader reports a file it cannot use with the file, line, field and a fix; see [Errors](errors.md). [File Formats](formats.md) lists every file a game reads or writes, with its version and an example.
 

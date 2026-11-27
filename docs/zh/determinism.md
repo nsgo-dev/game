@@ -72,7 +72,7 @@ IEEE-754 浮点加法和乘法不满足结合律：`(a + b) + c` 与 `a + (b + c
 
 - 累加力、速度、得分等浮点值时，始终按固定、确定的实体顺序执行。
 - 在要求跨 amd64 与 arm64 比特完全一致的自定义模拟代码中，用显式类型转换包裹乘积（`float32(a*b) + c` 或 `float64(a*b) + c`）——Go 规范保证显式转换会禁止 FMA 收缩——并避免在步进路径中直接调用在 arm64 上会生成 FMA 的标准库超越函数（`math.Sin`、`math.Cos`、`math.Atan2`、`math.Hypot`），以及 `math.Pow`、`math.Exp` 和 `math.Log`——它们在两种架构上走不同的实现（`math.Exp` 在 amd64 与 arm64 上各有一份汇编，`math.Log` 只在 amd64 上是汇编），舍入结果不同。
-- `pkg/physics`、`pkg/physics3d` 和 `pkg/vehicle` 已在步进模拟路径中全面消除 arm64 FMA 指令，并在 CI 中同时于 Ubuntu amd64 与 macOS arm64 上验证跨架构黄金轨迹哈希。在 `pkg/physics` 中，这覆盖刚体世界、XPBD `SoftWorld`、角色控制器与瓦片碰撞；在 arm64 上，它的测试还会用 `go tool objdump` 反汇编整个包，只要调试绘制代码之外出现任何 `FMADD`、`FMSUB`、`FNMADD` 或 `FNMSUB` 就会失败。
+- `pkg/physics`、`pkg/physics3d` 和 `pkg/vehicle3d` 已在步进模拟路径中全面消除 arm64 FMA 指令，并在 CI 中同时于 Ubuntu amd64 与 macOS arm64 上验证跨架构黄金轨迹哈希。在 `pkg/physics` 中，这覆盖刚体世界、XPBD `SoftWorld`、角色控制器与瓦片碰撞；在 arm64 上，它的测试还会用 `go tool objdump` 反汇编整个包，只要调试绘制代码之外出现任何 `FMADD`、`FMSUB`、`FNMADD` 或 `FNMSUB` 就会失败。
 - 避免在不同路径中混用 `float32` 和 `float64`。
 - 计数器、计时器、网格坐标和资源数量优先使用整数或定点表示。
 
@@ -93,7 +93,7 @@ if err := json.Unmarshal(data, &saved); err == nil {
 
 对于单个流，使用 `s.State()` 和 `s.SetState(state)`。回放或重开关卡时，调用 `s.Reset()` 或 `streams.Reset()` 即可把流重置回初始种子起点。
 
-对于物理世界，`physics.World`、`physics.RigidWorld`、`physics3d.World` 以及 `vehicle.Vehicle` 均提供 `Save()`、`Restore(snap)` 和 `Checksum()`，完整捕获所有私有求解器状态（热启动冲量缓存、休眠计时器、上一帧插值姿态、活跃接触/触发器对集合以及关节状态）。快照支持纯文本 JSON 序列化，可直接接入 `netplay.RollbackSession`（`netplay.SimState`）：
+对于物理世界，`physics.World`、`physics.RigidWorld`、`physics3d.World` 以及 `vehicle3d.Vehicle` 均提供 `Save()`、`Restore(snap)` 和 `Checksum()`，完整捕获所有私有求解器状态（热启动冲量缓存、休眠计时器、上一帧插值姿态、活跃接触/触发器对集合以及关节状态）。快照支持纯文本 JSON 序列化，可直接接入 `netplay.RollbackSession`（`netplay.SimState`）：
 
 ```go
 // 在 netplay.SimState 实现中：

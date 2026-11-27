@@ -7,7 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/physics3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
 const (
@@ -50,8 +50,8 @@ const (
 type car struct {
 	name  string
 	color math3d.Vec3
-	v     *vehicle.Vehicle
-	racer *vehicle.Racer
+	v     *vehicle3d.Vehicle
+	racer *vehicle3d.Racer
 	// ai drives a rival all race, and the player's car after the finish.
 	ai *driver
 	// prevPos and prevRot are the chassis pose before the last step, which drawing interpolates from.
@@ -82,7 +82,7 @@ type Race struct {
 	track  *Track
 	course *course
 	world  *physics3d.World
-	race   *vehicle.Race
+	race   *vehicle3d.Race
 	// cars holds the rivals in grid order, then the player's car, which is player.
 	cars   []*car
 	player *car
@@ -92,15 +92,15 @@ type Race struct {
 	results []Result
 
 	// ghost is the fastest lap the player has driven, played back each lap; it outlives the race through newRace and the game's storage.
-	ghost    *vehicle.Ghost
-	ghostRec vehicle.GhostRecorder
+	ghost    *vehicle3d.Ghost
+	ghostRec vehicle3d.GhostRecorder
 	// onBestLap, when set, hears every new fastest lap, so the game can save its ghost.
-	onBestLap func(*vehicle.Ghost)
+	onBestLap func(*vehicle3d.Ghost)
 }
 
 // newRace builds a race on t with every car tuned as cfg, the player's car at the back of the grid. ghost is the fastest lap so far, or nil.
-func newRace(t *Track, cfg vehicle.Config, ghost *vehicle.Ghost) (*Race, error) {
-	r := &Race{track: t, course: newCourse(t, cfg.MaxSpeed), world: physics3d.NewWorld(), ghost: ghost, ghostRec: vehicle.GhostRecorder{Interval: ghostInterval}}
+func newRace(t *Track, cfg vehicle3d.Config, ghost *vehicle3d.Ghost) (*Race, error) {
+	r := &Race{track: t, course: newCourse(t, cfg.MaxSpeed), world: physics3d.NewWorld(), ghost: ghost, ghostRec: vehicle3d.GhostRecorder{Interval: ghostInterval}}
 
 	// The ground: one flat box wider than any circuit Validate accepts, its top at y = 0.
 	ground := r.world.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: groundHalf, Y: 1, Z: groundHalf}}), physics3d.Vec3{Y: -1}))
@@ -111,10 +111,10 @@ func newRace(t *Track, cfg vehicle.Config, ghost *vehicle.Ghost) (*Race, error) 
 	cps := make([]*physics3d.Body, t.Checkpoints)
 	for i := range cps {
 		p := r.course.checkpoint(i)
-		cps[i] = vehicle.AddCheckpoint(r.world, physics3d.SphereShape(physics3d.Sphere{Radius: t.Width/2 + 1}), physics3d.Vec3{X: p.X, Y: 1, Z: p.Z})
+		cps[i] = vehicle3d.AddCheckpoint(r.world, physics3d.SphereShape(physics3d.Sphere{Radius: t.Width/2 + 1}), physics3d.Vec3{X: p.X, Y: 1, Z: p.Z})
 		cps[i].Layer, cps[i].Mask = layerCheckpoint, layerCar
 	}
-	race, err := vehicle.NewRace(t.Laps, cps...)
+	race, err := vehicle3d.NewRace(t.Laps, cps...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func newRace(t *Track, cfg vehicle.Config, ghost *vehicle.Ghost) (*Race, error) 
 	add := func(slot int, name string, color math3d.Vec3, ai *driver) (*car, error) {
 		pos, fwd := r.course.slot(slot)
 		pos.Y = rideHeight(cfg)
-		v, err := vehicle.New(r.world, cfg, toPhys(pos), heading(fwd))
+		v, err := vehicle3d.New(r.world, cfg, toPhys(pos), heading(fwd))
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +149,7 @@ func newRace(t *Track, cfg vehicle.Config, ghost *vehicle.Ghost) (*Race, error) 
 }
 
 // rideHeight is how high above the ground a car of tuning cfg starts: its wheels just touching, so it settles onto its springs during the countdown.
-func rideHeight(cfg vehicle.Config) float32 {
+func rideHeight(cfg vehicle3d.Config) float32 {
 	h := float32(0)
 	for _, w := range cfg.Wheels {
 		h = max(h, w.RestLength+w.Radius-w.Anchor[1])
@@ -158,7 +158,7 @@ func rideHeight(cfg vehicle.Config) float32 {
 }
 
 // Step advances the race by one fixed step. in is the player's input and respawn asks to put the player's car back on the road; both are ignored outside the race itself.
-func (r *Race) Step(in vehicle.Input, respawn bool) {
+func (r *Race) Step(in vehicle3d.Input, respawn bool) {
 	r.steps++
 	for _, c := range r.cars {
 		c.prevPos, c.prevRot = c.v.Body.Pos, c.v.Body.Rot
@@ -166,7 +166,7 @@ func (r *Race) Step(in vehicle.Input, respawn bool) {
 	if r.phase == phaseCountdown {
 		// The cars sit on the grid with the brakes on while the suspension settles.
 		for _, c := range r.cars {
-			c.v.SetInput(vehicle.Input{Brake: 1})
+			c.v.SetInput(vehicle3d.Input{Brake: 1})
 			c.v.Step(r.world, stepDur)
 		}
 		r.world.Step(stepDur)
@@ -180,7 +180,7 @@ func (r *Race) Step(in vehicle.Input, respawn bool) {
 
 	r.race.Tick()
 	for _, c := range r.cars {
-		var ci vehicle.Input
+		var ci vehicle3d.Input
 		switch {
 		case c.ai != nil:
 			ci = c.ai.drive(c.v)
@@ -209,7 +209,7 @@ func (r *Race) Step(in vehicle.Input, respawn bool) {
 }
 
 // assist turns the player's raw input into what the car is told: holding brake at a standstill reverses.
-func (r *Race) assist(c *car, in vehicle.Input) vehicle.Input {
+func (r *Race) assist(c *car, in vehicle3d.Input) vehicle3d.Input {
 	if in.Brake > 0 && in.Throttle <= 0 && c.v.Speed() < 1 {
 		in.Throttle, in.Brake = -in.Brake, 0
 	}
@@ -217,7 +217,7 @@ func (r *Race) assist(c *car, in vehicle.Input) vehicle.Input {
 }
 
 // keepOnRoad slows a car on the grass and puts one that has rolled over, or fallen off the ground, back on the road.
-func (r *Race) keepOnRoad(c *car, in *vehicle.Input) {
+func (r *Race) keepOnRoad(c *car, in *vehicle3d.Input) {
 	_, side := r.course.nearest(fromPhys(c.v.Body.Pos))
 	if abs(side) > r.track.Width/2 && c.v.Speed() > grassSpeed {
 		in.Throttle = min(in.Throttle, 0.2)
@@ -245,7 +245,7 @@ func (r *Race) respawn(c *car) {
 }
 
 // lapDone keeps the player's fastest flying lap as the ghost. Lap 1 is timed from the lights with the car standing on the grid behind the line, while every later lap runs from the line at speed, so only laps after the first are compared and saved; a one-lap race never records a ghost.
-func (r *Race) lapDone(ev vehicle.LapEvent) {
+func (r *Race) lapDone(ev vehicle3d.LapEvent) {
 	if ev.Racer != r.player.racer {
 		return
 	}
@@ -353,7 +353,7 @@ func (r *Race) Results() []Result { return r.results }
 func (r *Race) Won() bool { return len(r.results) > 0 && r.results[0].Player }
 
 // Ghost returns the fastest lap the player has driven, or nil.
-func (r *Race) Ghost() *vehicle.Ghost { return r.ghost }
+func (r *Race) Ghost() *vehicle3d.Ghost { return r.ghost }
 
 // ghostPose returns where the ghost is alpha of the way into the next step and whether it shows: only while the player is racing a flying lap, any lap after the first, and a ghost exists. The ghost is a flying lap from the line, so racing it on lap 1, which starts on the grid, would put it ahead from the lights.
 func (r *Race) ghostPose(alpha float32) (physics3d.Vec3, physics3d.Quat, bool) {

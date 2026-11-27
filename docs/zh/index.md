@@ -108,7 +108,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `jsonschema` | `github.com/nsgo-dev/game/pkg/jsonschema` | [YAML 文件的 Schema](schemas.md) | 由 Go 类型生成供编辑器和 AI 工具使用的 JSON Schema、已发布的场景 Schema，以及带 JSON Pointer 路径的校验 |
 | `tooling/library` | `github.com/nsgo-dev/game/pkg/tooling/library` | [资源与插件库](library.md) | 共享资源、编辑器插件和模板包的 YAML 索引，按摘要校验后安装到项目中，并记录其文件和 `game.yaml` 引用 |
 | `framedata` | `github.com/nsgo-dev/game/pkg/framedata` | [framedata](framedata.md) | 以 YAML 编写的格斗游戏逐帧攻击框、受击框、硬直与取消窗口，每步确定性解析 |
-| `vehicle` | `github.com/nsgo-dev/game/pkg/vehicle` | [vehicle](vehicle.md) | 基于 `physics3d` 的射线车辆：车轮悬挂、轮胎摩擦与车辆控制器，比赛检查点与圈数，以及 YAML 车辆文件和单圈幽灵 |
+| `vehicle3d` | `github.com/nsgo-dev/game/pkg/vehicle3d` | [vehicle3d](vehicle3d.md) | 基于 `physics3d` 的射线车辆：车轮悬挂、轮胎摩擦与车辆控制器，比赛检查点与圈数，以及 YAML 车辆文件和单圈幽灵 |
 
 核心包 API 的单页速查见[包](packages.md)。每个加载器在文件无法使用时都会给出文件、行号、字段和修复方法，见[错误](errors.md)。游戏读写的每种文件及其版本和示例见[文件格式](formats.md)。
 

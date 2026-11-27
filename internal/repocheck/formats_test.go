@@ -212,9 +212,9 @@ var formatVersions = map[string]string{
 	"tooling/library.IndexVersion":                  "tooling/library#index",
 	"tooling/library.ManifestVersion":               "tooling/library",
 	"undo.LogVersion":                               "undo",
-	"vehicle.ConfigVersion":                         "vehicle",
-	"vehicle.GhostVersion":                          "vehicle#ghost",
-	"vehicle.SnapshotVersion":                       "",
+	"vehicle3d.ConfigVersion":                       "vehicle3d",
+	"vehicle3d.GhostVersion":                        "vehicle3d#ghost",
+	"vehicle3d.SnapshotVersion":                     "",
 	"vn.CastVersion":                                "vn",
 	"voxel.FormatVersion":                           "voxel",
 	"world3d.FoliageFormatVersion":                  "world3d#foliage",
@@ -240,7 +240,7 @@ var notFormatVersions = map[string]string{
 	"physics.SnapshotVersion":                       "the version of in-memory/JSON 2D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics.md documents it",
 	"physics3d.SnapshotVersion":                     "the version of in-memory/JSON 3D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics3d.md documents it",
 	"plugin.APIVersion":                             "the Go API contract version of runtime and editor plugins rather than a standalone file format; docs/en/plugins.md documents it",
-	"vehicle.SnapshotVersion":                       "the version of in-memory/JSON vehicle simulation snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/determinism.md documents it",
+	"vehicle3d.SnapshotVersion":                     "the version of in-memory/JSON vehicle simulation snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/determinism.md documents it",
 }
 
 // readStrict loads data as a T, refusing unknown fields and trailing data, for a type whose own UnmarshalJSON is the format's reader or that a save slot holds as it is.

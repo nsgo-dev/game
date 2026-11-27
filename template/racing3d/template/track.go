@@ -9,7 +9,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -21,7 +21,7 @@ const TrackVersion = 1
 //go:embed data/track.yaml
 var trackYAML []byte
 
-// carYAML is the tuning every car in the race drives with, a vehicle.Config file.
+// carYAML is the tuning every car in the race drives with, a vehicle3d.Config file.
 //
 //go:embed data/car.yaml
 var carYAML []byte
@@ -181,14 +181,14 @@ func (t *Track) Validate() error {
 }
 
 // LoadRace parses the embedded track and car files.
-func LoadRace() (*Track, vehicle.Config, error) {
+func LoadRace() (*Track, vehicle3d.Config, error) {
 	t, err := ParseTrack(trackYAML)
 	if err != nil {
-		return nil, vehicle.Config{}, err
+		return nil, vehicle3d.Config{}, err
 	}
-	car, err := vehicle.ParseConfig(carYAML)
+	car, err := vehicle3d.ParseConfig(carYAML)
 	if err != nil {
-		return nil, vehicle.Config{}, err
+		return nil, vehicle3d.Config{}, err
 	}
 	return t, car, nil
 }

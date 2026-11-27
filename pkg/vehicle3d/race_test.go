@@ -1,27 +1,27 @@
-package vehicle_test
+package vehicle3d_test
 
 import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/physics3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
-func newSyntheticRace(t *testing.T, laps int) (*vehicle.Race, []*physics3d.Body, *physics3d.World) {
+func newSyntheticRace(t *testing.T, laps int) (*vehicle3d.Race, []*physics3d.Body, *physics3d.World) {
 	t.Helper()
 	w := physics3d.NewWorld()
 	var cps []*physics3d.Body
 	for i := range 3 {
-		cps = append(cps, vehicle.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{X: float32(10 * i)}))
+		cps = append(cps, vehicle3d.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{X: float32(10 * i)}))
 	}
-	r, err := vehicle.NewRace(laps, cps...)
+	r, err := vehicle3d.NewRace(laps, cps...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return r, cps, w
 }
 
-func enter(r *vehicle.Race, body, cp *physics3d.Body) {
+func enter(r *vehicle3d.Race, body, cp *physics3d.Body) {
 	a, b := body, cp
 	if b.ID < a.ID {
 		a, b = b, a
@@ -31,18 +31,18 @@ func enter(r *vehicle.Race, body, cp *physics3d.Body) {
 
 func TestNewRaceValidates(t *testing.T) {
 	w := physics3d.NewWorld()
-	trig := vehicle.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{})
-	other := vehicle.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{X: 5})
+	trig := vehicle3d.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{})
+	other := vehicle3d.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{X: 5})
 	solid := w.AddBody(physics3d.NewStaticBody(box(1, 1, 1), physics3d.Vec3{}))
 	if !trig.IsTrigger || !trig.Static {
 		t.Fatalf("AddCheckpoint made %+v", trig)
 	}
 	for name, f := range map[string]func() error{
-		"zero laps":   func() error { _, err := vehicle.NewRace(0, trig, other); return err },
-		"one cp":      func() error { _, err := vehicle.NewRace(1, trig); return err },
-		"nil cp":      func() error { _, err := vehicle.NewRace(1, trig, nil); return err },
-		"non-trigger": func() error { _, err := vehicle.NewRace(1, trig, solid); return err },
-		"duplicate":   func() error { _, err := vehicle.NewRace(1, trig, other, trig); return err },
+		"zero laps":   func() error { _, err := vehicle3d.NewRace(0, trig, other); return err },
+		"one cp":      func() error { _, err := vehicle3d.NewRace(1, trig); return err },
+		"nil cp":      func() error { _, err := vehicle3d.NewRace(1, trig, nil); return err },
+		"non-trigger": func() error { _, err := vehicle3d.NewRace(1, trig, solid); return err },
+		"duplicate":   func() error { _, err := vehicle3d.NewRace(1, trig, other, trig); return err },
 	} {
 		if f() == nil {
 			t.Errorf("%s: NewRace accepted it", name)
@@ -53,8 +53,8 @@ func TestNewRaceValidates(t *testing.T) {
 func TestRaceCountsLapsInOrder(t *testing.T) {
 	r, cps, w := newSyntheticRace(t, 2)
 	car := w.AddBody(physics3d.NewDynamicBody(box(1, 1, 1), physics3d.Vec3{}, 1))
-	var events []vehicle.LapEvent
-	r.OnLap = func(ev vehicle.LapEvent) { events = append(events, ev) }
+	var events []vehicle3d.LapEvent
+	r.OnLap = func(ev vehicle3d.LapEvent) { events = append(events, ev) }
 	rc := r.AddRacer(car, "a")
 
 	tick := func(n int) {
@@ -89,7 +89,7 @@ func TestRaceCountsLapsInOrder(t *testing.T) {
 	if !rc.Finished || rc.FinishStep != 26 || rc.Laps != 2 || rc.LastLap != 6 || rc.BestLap != 6 {
 		t.Fatalf("after lap 2: %+v", rc)
 	}
-	want := []vehicle.LapEvent{
+	want := []vehicle3d.LapEvent{
 		{Racer: rc, Lap: 1, Steps: 20, Best: true},
 		{Racer: rc, Lap: 2, Steps: 6, Best: true, Finished: true},
 	}
@@ -133,7 +133,7 @@ func TestRaceStandings(t *testing.T) {
 		return w.AddBody(physics3d.NewDynamicBody(box(1, 1, 1), physics3d.Vec3{}, 1))
 	}
 	slow, fast, mid, idle, tie := r.AddRacer(body(), "slow"), r.AddRacer(body(), "fast"), r.AddRacer(body(), "mid"), r.AddRacer(body(), "idle"), r.AddRacer(body(), "tie")
-	lap := func(rc *vehicle.Racer) {
+	lap := func(rc *vehicle3d.Racer) {
 		enter(r, rc.Body, cps[1])
 		enter(r, rc.Body, cps[2])
 		enter(r, rc.Body, cps[0])
@@ -145,7 +145,7 @@ func TestRaceStandings(t *testing.T) {
 	enter(r, mid.Body, cps[1])
 	enter(r, mid.Body, cps[2])
 	got := r.Standings()
-	want := []*vehicle.Racer{fast, slow, mid, idle, tie}
+	want := []*vehicle3d.Racer{fast, slow, mid, idle, tie}
 	for i := range want {
 		if got[i] != want[i] {
 			names := ""

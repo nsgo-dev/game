@@ -74,11 +74,11 @@ Every file authored by a human or coding agent is plain-text YAML:
 | `playtest.yaml` | `tooling/playtest` | Headless bot playtest configuration (scope, seeded runs, bot profile/parameters, metrics and sourced goals; `version: 1`, schema `playtest.v1.json`) |
 | Any `.yaml` or `.yml` file, such as `weapons.yaml` | `datatable` | Typed game data tables (`version: 1`); `.csv` and `.json` exports load too, without a version |
 | `mod.yaml` | `modding` | Mod metadata, capabilities and dependencies (`manifestVersion: 1`) |
-| Gameplay YAML configs | `particles`, `skeletal`, `cutscene`, `rooms`, `worldmap`, `cards`, `stats`, `ability`, `inventory`, `quest`, `loot`, `online/achievements`, `online/leaderboard`, `fighting`, `framedata`, `platformer`, `vehicle`, `bullets`, `rts`, `procgen`, `vn`, `rhythm`, `idle`, `quality`, `voxel` | Domain-specific versioned YAML assets validated by each package's `Parse`/`Encode` |
+| Gameplay YAML configs | `particles`, `skeletal`, `cutscene`, `rooms`, `worldmap`, `cards`, `stats`, `ability`, `inventory`, `quest`, `loot`, `online/achievements`, `online/leaderboard`, `fighting`, `framedata`, `platformer`, `vehicle3d`, `bullets`, `rts`, `procgen`, `vn`, `rhythm`, `idle`, `quality`, `voxel` | Domain-specific versioned YAML assets validated by each package's `Parse`/`Encode` |
 
 ### Program-written text formats (YAML / JSON)
 
-- **YAML**: asset build cache (`tooling/assetbuild`), benchmark baselines (`tooling/bench`), achievement progress (`online/achievements`), latency calibrations (`rhythm`), ghost laps (`vehicle`), undo logs (`undo`), headless state dumps (`statedump`), project index (`tooling/refs`).
+- **YAML**: asset build cache (`tooling/assetbuild`), benchmark baselines (`tooling/bench`), achievement progress (`online/achievements`), latency calibrations (`rhythm`), ghost laps (`vehicle3d`), undo logs (`undo`), headless state dumps (`statedump`), project index (`tooling/refs`).
 - **JSON**: versioned save slots & player settings (`save`), world map discovery (`worldmap`), quest snapshots (`quest`), fog state (`fog`), ECS world snapshots (`entities`), persisted input bindings (`input`), debug console tunables (`tooling/gamedebug`), dev session state (`tooling/devstate`), cloud sync (`online/liveops`), string tables (`l10n`).
 
 ### External tool exports read directly

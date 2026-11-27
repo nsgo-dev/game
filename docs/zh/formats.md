@@ -1647,12 +1647,12 @@ wall_jump_speed_y: 260
 wall_jump_lock: 150ms
 ```
 
-<!-- format: vehicle -->
+<!-- format: vehicle3d -->
 ### 载具
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 游戏加载的任意 `.yaml` 文件，如 `car.yaml` | `version: 1` | `vehicle.ParseConfig`、`vehicle.EncodeConfig` | [vehicle](vehicle.md) |
+| 游戏加载的任意 `.yaml` 文件，如 `car.yaml` | `version: 1` | `vehicle3d.ParseConfig`、`vehicle3d.EncodeConfig` | [vehicle3d](vehicle3d.md) |
 
 ```yaml
 version: 1
@@ -2501,12 +2501,12 @@ steps:
   - {step: 130, release: [right], axes: {move_x: 0}}
 ```
 
-<!-- format: vehicle#ghost -->
+<!-- format: vehicle3d#ghost -->
 ### 幽灵圈
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `*.ghost.yaml`，由 `vehicle.GhostRecorder` 的录制结果写出 | `version: 1` | `vehicle.ParseGhost`、`vehicle.EncodeGhost` | [vehicle](vehicle.md) |
+| `*.ghost.yaml`，由 `vehicle3d.GhostRecorder` 的录制结果写出 | `version: 1` | `vehicle3d.ParseGhost`、`vehicle3d.EncodeGhost` | [vehicle3d](vehicle3d.md) |
 
 ```yaml
 version: 1

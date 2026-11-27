@@ -1,4 +1,4 @@
-# vehicle
+# vehicle3d
 
 ```go
 import "github.com/nsgo-dev/game/pkg/vehicle"
@@ -28,10 +28,10 @@ world.AddBody(physics3d.NewStaticBody(
 	physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 200, Y: 1, Z: 200}}),
 	physics3d.Vec3{Y: -1},
 ))
-car, err := vehicle.New(world, vehicle.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
+car, err := vehicle3d.New(world, vehicle3d.ReferenceConfig(), physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
 if err != nil { ... }
 
-controls := vehicle.DefaultControls()
+controls := vehicle3d.DefaultControls()
 loop := &game.Loop{Update: func(dt time.Duration) {
 	actions.Step()
 	car.SetInput(controls.Read(actions))
@@ -108,7 +108,7 @@ wheels:
 | `friction` | Tire friction coefficient: the combined tire force stays within `friction` times the wheel's load |
 | `steer`, `drive`, `brake`, `handbrake` | Which inputs the wheel receives |
 
-`ReferenceConfig()` returns the reference car: a 1200 kg rear-wheel-drive hatchback with about 0.5 g of acceleration, 1 g of braking and a 40 m/s top speed. Its file is `vehicle/testdata/reference_car.yaml`.
+`ReferenceConfig()` returns the reference car: a 1200 kg rear-wheel-drive hatchback with about 0.5 g of acceleration, 1 g of braking and a 40 m/s top speed. Its file is `vehicle3d/testdata/reference_car.yaml`.
 
 ## Races and laps
 
@@ -116,14 +116,14 @@ A race is an ordered list of checkpoint triggers. `AddCheckpoint` adds a static 
 
 ```go
 gate := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 7, Y: 2, Z: 0.5}})
-race, err := vehicle.NewRace(3,
-	vehicle.AddCheckpoint(world, gate, start),
-	vehicle.AddCheckpoint(world, gate, sector1),
-	vehicle.AddCheckpoint(world, gate, sector2),
+race, err := vehicle3d.NewRace(3,
+	vehicle3d.AddCheckpoint(world, gate, start),
+	vehicle3d.AddCheckpoint(world, gate, sector1),
+	vehicle3d.AddCheckpoint(world, gate, sector2),
 )
 world.OnTrigger = race.Observe
 racer := race.AddRacer(car.Body, "player")
-race.OnLap = func(ev vehicle.LapEvent) { ... }
+race.OnLap = func(ev vehicle3d.LapEvent) { ... }
 
 // Each fixed step:
 race.Tick()
@@ -140,10 +140,10 @@ Each `Racer` reports `Laps`, `Next`, `LastLap`, `BestLap`, `Finished` and `Finis
 A `Ghost` is a recorded lap: the chassis pose sampled every `Interval` steps, played back as a translucent rival. It is pose data, so playing it needs no physics.
 
 ```go
-rec := &vehicle.GhostRecorder{Interval: 2}
+rec := &vehicle3d.GhostRecorder{Interval: 2}
 // When the racer is added, the first lap's first frame:
 rec.Record(car.Body.Pos, car.Body.Rot)
-race.OnLap = func(ev vehicle.LapEvent) {
+race.OnLap = func(ev vehicle3d.LapEvent) {
 	rec.Finish(car.Body.Pos, car.Body.Rot) // the finish line, even between samples
 	if ev.Best {
 		best = rec.Ghost(60, ev.Steps)

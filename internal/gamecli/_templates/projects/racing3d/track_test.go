@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 )
 
-// TestTrackFileIsCanonical checks data/track.yaml is in the form EncodeTrack writes, so a load and save changes nothing, and that data/car.yaml is in the form vehicle.EncodeConfig writes.
+// TestTrackFileIsCanonical checks data/track.yaml is in the form EncodeTrack writes, so a load and save changes nothing, and that data/car.yaml is in the form vehicle3d.EncodeConfig writes.
 func TestTrackFileIsCanonical(t *testing.T) {
 	track, cfg, err := LoadRace()
 	if err != nil {
@@ -21,12 +21,12 @@ func TestTrackFileIsCanonical(t *testing.T) {
 	if !bytes.Equal(out, trackYAML) {
 		t.Fatalf("data/track.yaml is not canonical; EncodeTrack writes:\n%s", out)
 	}
-	carOut, err := vehicle.EncodeConfig(cfg)
+	carOut, err := vehicle3d.EncodeConfig(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(carOut, carYAML) {
-		t.Fatalf("data/car.yaml is not canonical; vehicle.EncodeConfig writes:\n%s", carOut)
+		t.Fatalf("data/car.yaml is not canonical; vehicle3d.EncodeConfig writes:\n%s", carOut)
 	}
 }
 

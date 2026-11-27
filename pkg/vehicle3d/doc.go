@@ -1,4 +1,4 @@
-// Package vehicle simulates raycast cars on a physics3d.World: wheel colliders cast from the chassis, spring-damper suspension, longitudinal and lateral tire friction inside a friction circle, and engine, brake, steering and handbrake input. It also tracks race checkpoints and laps on trigger bodies and records ghost replays of a lap as YAML.
+// Package vehicle3d simulates raycast cars on a physics3d.World: wheel colliders cast from the chassis, spring-damper suspension, longitudinal and lateral tire friction inside a friction circle, and engine, brake, steering and handbrake input. It also tracks race checkpoints and laps on trigger bodies and records ghost replays of a lap as YAML.
 //
 // # Model
 //
@@ -13,4 +13,4 @@
 // # Determinism
 //
 // Vehicle.Step uses no maps, wall clock or randomness and visits wheels in Config order, so the same Config, start pose and per-step Input on the same World produce bit-identical poses, lap times and ghosts across runs. Feeding Input from a replay.Player (through Controls.Read) reproduces a recorded drive.
-package vehicle
+package vehicle3d

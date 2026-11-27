@@ -4,13 +4,13 @@ A small 3D racing game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [
 
 It shows:
 
-- Raycast cars from `vehicle` on a `physics3d` world: suspension, tire grip, steering and brakes, with every car's tuning in one YAML file.
-- Lap and checkpoint counting with `vehicle.Race`: a lap counts only when a car passes every checkpoint in order, so cutting the track does not pay.
+- Raycast cars from `vehicle3d` on a `physics3d` world: suspension, tire grip, steering and brakes, with every car's tuning in one YAML file.
+- Lap and checkpoint counting with `vehicle3d.Race`: a lap counts only when a car passes every checkpoint in order, so cutting the track does not pay.
 - A three-second countdown, a position and lap clock in a native HUD, and a results screen that ends in a win (first place) or a loss (any other place, or not finishing before both rivals do).
 - Rivals that follow a racing line: pure-pursuit steering toward a point ahead on the line and a speed plan that brakes for each corner, scaled by each rival's pace.
-- A ghost of your best flying lap, recorded with `vehicle.GhostRecorder`, raced against on every lap after the first and saved between launches as the YAML `vehicle.EncodeGhost` writes. Lap 1 starts on the grid behind the line, so it is neither saved as the ghost nor raced against one; a one-lap race has no ghost. The ghost is kept only for the exact track it was driven on: editing anything in `data/track.yaml` retires it.
+- A ghost of your best flying lap, recorded with `vehicle3d.GhostRecorder`, raced against on every lap after the first and saved between launches as the YAML `vehicle3d.EncodeGhost` writes. Lap 1 starts on the grid behind the line, so it is neither saved as the ghost nor raced against one; a one-lap race has no ghost. The ghost is kept only for the exact track it was driven on: editing anything in `data/track.yaml` retires it.
 - A scene drawn on a `gpu.View` with `render3d`'s lit PBR pipeline: the road, curbs, checkpoint posts and cars are meshes built in code, and the trackside crates are the placeholder pack's `crate.glb` read with `gltf`.
-- Keyboard, gamepad and touch from one input map in `game.yaml`, read with `input.Actions` and `vehicle.Controls`, and an `input.VirtualPad` for the on-screen stick and pedals.
+- Keyboard, gamepad and touch from one input map in `game.yaml`, read with `input.Actions` and `vehicle3d.Controls`, and an `input.VirtualPad` for the on-screen stick and pedals.
 - Headless tests with `nsgotest` that play whole races with each kind of input and reach both a win and a loss.
 
 ## Controls
@@ -46,7 +46,7 @@ go run github.com/nsgo-dev/game/cmd/game project check
 
 - `game.yaml`: the project file, with the window and the input map: the actions `throttle`, `brake`, `steerLeft`, `steerRight`, `handbrake`, `respawn` and `confirm`, and the `steer` axis over the keys and the left stick.
 - `data/track.yaml`: the circuit: its centerline points, width, laps, checkpoints, starting grid and the rivals' names, colors, pace and lanes. `ParseTrack` in `track.go` reads it and refuses unknown fields.
-- `data/car.yaml`: the car's tuning, a `vehicle.Config`.
+- `data/car.yaml`: the car's tuning, a `vehicle3d.Config`.
 - `track.go`: the track file's format. `course.go`: the track turned into geometry, samples along the centerline and the racing line's speed at each.
 - `race.go`: the race itself, with no drawing: the physics world, the cars, the countdown, the laps, the standings, the results and the ghost.
 - `driver.go`: the racing-line driver the rivals use.
@@ -59,7 +59,7 @@ go run github.com/nsgo-dev/game/cmd/game project check
 
 - A new circuit: edit `points`, `width` and `start` in `data/track.yaml`, keeping every point within 300 m of the origin, where the ground is. The road, curbs, checkpoints, grid and racing line all follow the points; `TestCourseGeometry` checks the result still makes sense.
 - Harder or easier rivals: raise or lower each rival's `pace`, or add rivals (up to seven). More laps: `laps`.
-- A different car: edit `data/car.yaml`. `vehicle.ReferenceConfig` documents each field; a heavier car needs stiffer springs.
+- A different car: edit `data/car.yaml`. `vehicle3d.ReferenceConfig` documents each field; a heavier car needs stiffer springs.
 - Cars that collide with each other: add `layerCar` to the chassis mask in `newRace`, in `race.go`. They pass through each other by default so a crowded corner never wrecks the race.
 - Other controls: change the bindings in `game.yaml`; the game reads only action and axis names.
 - Your own models: load a glTF file with `gltf.LoadFS` in `sceneMeshes` and add its primitives as parts, as the crates are.

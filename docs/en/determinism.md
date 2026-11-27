@@ -72,7 +72,7 @@ IEEE-754 floating-point addition and multiplication are not associative: `(a + b
 
 - Accumulate forces, velocities and scores in a fixed, deterministic entity order.
 - In custom simulation code that must match bit-for-bit across amd64 and arm64, wrap multiply-add products in an explicit conversion (`float32(a*b) + c` or `float64(a*b) + c`), which the Go specification guarantees forbids FMA contraction, and avoid standard library transcendentals (`math.Sin`, `math.Cos`, `math.Atan2`, `math.Hypot`) whose arm64 implementations emit FMA, and `math.Pow`, `math.Exp` and `math.Log`, which take different code on each architecture (`math.Exp` has its own assembly on amd64 and on arm64, `math.Log` is assembly on amd64 only) and round differently.
-- `pkg/physics`, `pkg/physics3d`, and `pkg/vehicle` already eliminate arm64 FMA instructions across their stepped simulation paths and verify cross-architecture golden trajectory hashes in CI on both Ubuntu amd64 and macOS arm64. In `pkg/physics` that covers the rigid world, the XPBD `SoftWorld`, the character controller and tile collision, and on arm64 its tests also disassemble the package with `go tool objdump` and fail on any `FMADD`, `FMSUB`, `FNMADD` or `FNMSUB` outside the debug drawing code.
+- `pkg/physics`, `pkg/physics3d`, and `pkg/vehicle3d` already eliminate arm64 FMA instructions across their stepped simulation paths and verify cross-architecture golden trajectory hashes in CI on both Ubuntu amd64 and macOS arm64. In `pkg/physics` that covers the rigid world, the XPBD `SoftWorld`, the character controller and tile collision, and on arm64 its tests also disassemble the package with `go tool objdump` and fail on any `FMADD`, `FMSUB`, `FNMADD` or `FNMSUB` outside the debug drawing code.
 - Avoid mixing `float32` and `float64` inconsistently across code paths.
 - Use integer ticks or fixed-point values for exact counters, timers, grids and resource totals.
 
@@ -93,7 +93,7 @@ if err := json.Unmarshal(data, &saved); err == nil {
 
 For a single stream, use `s.State()` and `s.SetState(state)`. Call `s.Reset()` or `streams.Reset()` to rewind to the start of a seed for replays or level restarts.
 
-For physics worlds, `physics.World`, `physics.RigidWorld`, `physics3d.World`, and `vehicle.Vehicle` all provide `Save()`, `Restore(snap)`, and `Checksum()` capturing every piece of private solver state (warm-start impulse caches, sleep timers, previous poses, active contact/trigger pair sets, and joint state). Snapshots marshal cleanly to plain-text JSON and pair directly with `netplay.RollbackSession` (`netplay.SimState`):
+For physics worlds, `physics.World`, `physics.RigidWorld`, `physics3d.World`, and `vehicle3d.Vehicle` all provide `Save()`, `Restore(snap)`, and `Checksum()` capturing every piece of private solver state (warm-start impulse caches, sleep timers, previous poses, active contact/trigger pair sets, and joint state). Snapshots marshal cleanly to plain-text JSON and pair directly with `netplay.RollbackSession` (`netplay.SimState`):
 
 ```go
 // Inside a netplay.SimState implementation:

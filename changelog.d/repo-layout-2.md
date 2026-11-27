@@ -13,6 +13,7 @@
 - `tooling/pack`, the atlas packer behind `game pack` and `game assets`, is renamed `atlaspack` so it no longer reads as the asset packs of `tooling/library` and `placeholder`: import `github.com/nsgo-dev/game/pkg/tooling/atlaspack` and write `atlaspack.PackImages`, `atlaspack.PackDir` and so on. Its errors start with `atlaspack:` instead of `pack:`. The `game pack` command keeps its name.
 - Package size checks exit with 1, not 2, when the budget file, the package or its ZIP archive cannot be read, as every `game` command does for a failure; 2 is left for a wrong call. Their errors start with `game size:` instead of `sizecheck:`, and the File Formats entries of the size budgets are now `tooling/sizecheck` and `tooling/sizecheck#mobile`.
 - Project file checks exit with 2, not 1, when they are called wrongly, such as with an unknown verb, more than one directory or `-check` where it does not apply, and print the usage of `game project`; their errors start with `game project:` instead of `gameproject:`.
+- `vehicle` is renamed `vehicle3d` so its name says it is the 3D raycast car on `physics3d`, as `physics3d` and `world3d` do: import `github.com/nsgo-dev/game/pkg/vehicle3d` and write `vehicle3d.New`, `vehicle3d.Config`, `vehicle3d.Race` and so on. Its errors start with `vehicle3d:` instead of `vehicle:`, and its File Formats entries are now `vehicle3d` and `vehicle3d#ghost`. Car files, ghost laps and snapshot checksums are unchanged. The guide moves to `vehicle3d.md`.
 
 ### Removed
 

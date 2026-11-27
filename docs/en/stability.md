@@ -201,7 +201,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tooling/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/pkg/tween` | Stable | [tween](tween.md) |
 | `game/pkg/undo` | Experimental | [undo](undo.md) |
-| `game/pkg/vehicle` | Experimental | [vehicle](vehicle.md) |
+| `game/pkg/vehicle3d` | Experimental | [vehicle3d](vehicle3d.md) |
 | `game/pkg/vn` | Experimental | [vn](vn.md) |
 | `game/pkg/voxel` | Experimental | [voxel](voxel.md) |
 | `game/pkg/world3d` | Experimental | [world3d](world3d.md) |

@@ -201,7 +201,7 @@
 | `game/pkg/tooling/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/pkg/tween` | 稳定 | [tween](tween.md) |
 | `game/pkg/undo` | 实验性 | [undo](undo.md) |
-| `game/pkg/vehicle` | 实验性 | [vehicle](vehicle.md) |
+| `game/pkg/vehicle3d` | 实验性 | [vehicle3d](vehicle3d.md) |
 | `game/pkg/vn` | 实验性 | [vn](vn.md) |
 | `game/pkg/voxel` | 实验性 | [voxel](voxel.md) |
 | `game/pkg/world3d` | 实验性 | [world3d](world3d.md) |

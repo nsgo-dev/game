@@ -1,4 +1,4 @@
-package vehicle
+package vehicle3d
 
 import (
 	"cmp"
@@ -73,18 +73,18 @@ type Race struct {
 // NewRace returns a Race over checkpoints for laps laps. It needs at least two checkpoints, each a distinct trigger body, and at least one lap; a track that passes the same place twice, such as a figure eight's crossing, needs a trigger body for each pass.
 func NewRace(laps int, checkpoints ...*physics3d.Body) (*Race, error) {
 	if laps < 1 {
-		return nil, errors.New("vehicle: race needs at least one lap")
+		return nil, errors.New("vehicle3d: race needs at least one lap")
 	}
 	if len(checkpoints) < 2 {
-		return nil, errors.New("vehicle: race needs at least two checkpoints")
+		return nil, errors.New("vehicle3d: race needs at least two checkpoints")
 	}
 	for i, cp := range checkpoints {
 		if cp == nil || !cp.IsTrigger {
-			return nil, errors.New("vehicle: every checkpoint must be a trigger body")
+			return nil, errors.New("vehicle3d: every checkpoint must be a trigger body")
 		}
 		// A body listed twice could only ever match its first index, leaving racers stuck before the second.
 		if slices.Contains(checkpoints[:i], cp) {
-			return nil, fmt.Errorf("vehicle: checkpoint %d repeats an earlier checkpoint; use a separate trigger body for each pass", i)
+			return nil, fmt.Errorf("vehicle3d: checkpoint %d repeats an earlier checkpoint; use a separate trigger body for each pass", i)
 		}
 	}
 	return &Race{Checkpoints: slices.Clone(checkpoints), Laps: laps}, nil

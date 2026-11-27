@@ -9,26 +9,26 @@ import (
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
-	"github.com/nsgo-dev/game/pkg/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle3d"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// ghostKey is the storage key the best lap's ghost is saved under, as the YAML vehicle.EncodeGhost writes.
+// ghostKey is the storage key the best lap's ghost is saved under, as the YAML vehicle3d.EncodeGhost writes.
 const ghostKey = "racing.bestLap"
 
 // racingGame is the running game: the race, the input that drives it, the chase camera and the signals the HUD reads.
 type racingGame struct {
 	track    *Track
-	cfg      vehicle.Config
+	cfg      vehicle3d.Config
 	race     *Race
 	renderer *renderer
 	store    core.Storage
 
 	actions  *input.Actions
-	controls vehicle.Controls
+	controls vehicle3d.Controls
 	pad      *input.VirtualPad
 	stick    *input.VirtualStick
 	buttons  []*input.VirtualButton
@@ -97,7 +97,7 @@ func newRacingGame(cx *core.Scope) (*racingGame, error) {
 		cfg:       cfg,
 		store:     cx.Storage(),
 		actions:   input.NewActions(),
-		controls:  vehicle.DefaultControls(),
+		controls:  vehicle3d.DefaultControls(),
 		lap:       core.NewSignal(cx, ""),
 		place:     core.NewSignal(cx, ""),
 		lapTime:   core.NewSignal(cx, ""),
@@ -133,12 +133,12 @@ func newRacingGame(cx *core.Scope) (*racingGame, error) {
 }
 
 // loadGhost returns the best lap saved for this exact track at this step rate, or nil when there is none, it does not parse, or it was recorded on a different layout or rate.
-func (g *racingGame) loadGhost() *vehicle.Ghost {
+func (g *racingGame) loadGhost() *vehicle3d.Ghost {
 	data, ok := g.store.GetItem(ghostKey)
 	if !ok {
 		return nil
 	}
-	ghost, err := vehicle.ParseGhost([]byte(data))
+	ghost, err := vehicle3d.ParseGhost([]byte(data))
 	if err != nil || ghost.Name != trackID(g.track) || ghost.Rate != stepRate {
 		return nil
 	}
@@ -146,8 +146,8 @@ func (g *racingGame) loadGhost() *vehicle.Ghost {
 }
 
 // saveGhost keeps a new best lap for the next race and the next launch.
-func (g *racingGame) saveGhost(ghost *vehicle.Ghost) {
-	data, err := vehicle.EncodeGhost(ghost)
+func (g *racingGame) saveGhost(ghost *vehicle3d.Ghost) {
+	data, err := vehicle3d.EncodeGhost(ghost)
 	if err == nil {
 		err = g.store.SetItem(ghostKey, string(data))
 	}

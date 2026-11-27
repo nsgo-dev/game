@@ -1,5 +1,5 @@
 // Package detmath provides FMA-free deterministic math helpers and canonical
-// state hashing shared by physics, physics3d, and vehicle.
+// state hashing shared by physics, physics3d, and vehicle3d.
 //
 // Go's arm64 compiler automatically contracts x*y+z into single-rounding FMADD
 // instructions unless an explicit float32/float64 conversion separates the
