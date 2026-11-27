@@ -57,6 +57,28 @@ func ExamplePathFollower() {
 	// true
 }
 
+// A Sequence chains steps without computing start times by hand: Then appends, With runs
+// in parallel with the last step, Wait inserts an interval, and Loops repeats the run.
+func ExampleSequence() {
+	var scale, y float32
+	seq := tween.Sequence().
+		Then(tween.To(&scale, 1.4, 80*time.Millisecond, tween.BackOut)).
+		With(tween.By(&y, -40, 300*time.Millisecond, tween.QuadOut, nil, nil)).
+		Wait(100 * time.Millisecond).
+		Then(tween.To(&scale, 0.5, 200*time.Millisecond, tween.ElasticOut)).
+		Build()
+	fmt.Println(seq.Duration())
+	seq.Play()
+	seq.Update(300 * time.Millisecond)
+	fmt.Println(scale, y)
+	seq.Update(300 * time.Millisecond)
+	fmt.Println(scale, seq.Done())
+	// Output:
+	// 600ms
+	// 1.4 -40
+	// 0.5 true
+}
+
 // A Group updates many independent tweens together and drops them as they finish.
 func ExampleGroup() {
 	var g tween.Group

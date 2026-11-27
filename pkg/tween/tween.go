@@ -11,17 +11,18 @@ import (
 // RepeatForever repeats a tween indefinitely when passed to Tween.Repeat.
 const RepeatForever = -1
 
-// Tween interpolates a value over a fixed duration using a core.Curve easing function, advancing deterministically via Update(dt) on game.Loop steps.
+// Tween interpolates a value over a fixed duration using an easing function, advancing deterministically via Update(dt) on game.Loop steps.
 type Tween struct {
 	dur        time.Duration
 	delay      time.Duration
 	repeat     int // 0 plays once, >0 additional repeats, <0 repeats forever
 	yoyo       bool
-	curve      core.Curve
+	ease       func(u float64) float64
 	apply      func(t float64)
 	onStart    func()
 	started    bool
 	onComplete []func()
+	onRewind   func() // clears lazily captured state so the start value is read again
 
 	elapsed time.Duration
 	done    bool
@@ -35,8 +36,8 @@ func New[T any](from, to T, d time.Duration, curve core.Curve, lerp func(a, b T,
 		d = 0
 	}
 	return &Tween{
-		dur:   d,
-		curve: curve,
+		dur:  d,
+		ease: curve.At,
 		apply: func(t float64) {
 			if set == nil {
 				return
@@ -120,6 +121,9 @@ func (t *Tween) Done() bool { return t.done }
 func (t *Tween) Reset() {
 	t.elapsed = 0
 	t.done = false
+	if t.onRewind != nil {
+		t.onRewind()
+	}
 }
 
 // Update advances the tween by dt, applies the value at the new time, and reports whether the tween has finished.
@@ -151,10 +155,16 @@ func (t *Tween) Seek(at time.Duration) {
 	t.eval(eased)
 }
 
-// seekBefore puts the tween in its pre-start state for a timeline timestamp earlier than the track's start.
+// seekBefore puts the tween in its pre-start state for a timeline timestamp earlier than
+// the track's start. A lazy tween (To, By, FromCurrent) applies nothing here: its start
+// value is read when the step starts, and rewinding clears it to be read again.
 func (t *Tween) seekBefore() {
 	t.elapsed = 0
 	t.done = false
+	if t.onRewind != nil {
+		t.onRewind()
+		return
+	}
 	if t.onStart != nil && !t.started {
 		return
 	}
@@ -215,12 +225,20 @@ func (t *Tween) progress(at time.Duration) (eased float64, done bool) {
 	if t.yoyo && pass%2 == 1 {
 		u = 1 - u
 	}
-	return t.curve.At(u), false
+	if t.ease == nil {
+		return u, false
+	}
+	return t.ease(u), false
 }
 
-// Group steps a collection of active tweens together and removes each once it finishes. Its zero value is ready to use.
+// Group steps a collection of active tweens and timelines together and removes each once
+// it finishes. Its zero value is ready to use.
 type Group struct {
-	tweens []*Tween
+	tweens    []*Tween
+	timelines []*Timeline
+	paused    bool
+	speed     float64
+	speedSet  bool
 }
 
 // Add registers one or more non-nil tweens to be stepped by Update.
@@ -228,6 +246,15 @@ func (g *Group) Add(tweens ...*Tween) {
 	for _, tw := range tweens {
 		if tw != nil {
 			g.tweens = append(g.tweens, tw)
+		}
+	}
+}
+
+// AddTimeline registers one or more non-nil timelines to be stepped by Update.
+func (g *Group) AddTimeline(tls ...*Timeline) {
+	for _, tl := range tls {
+		if tl != nil {
+			g.timelines = append(g.timelines, tl)
 		}
 	}
 }
@@ -244,17 +271,66 @@ func (g *Group) Remove(tw *Tween) {
 	}
 }
 
-// Clear removes all tweens from the group.
+// Clear removes all tweens and timelines from the group.
 func (g *Group) Clear() {
 	clear(g.tweens)
 	g.tweens = g.tweens[:0]
+	clear(g.timelines)
+	g.timelines = g.timelines[:0]
 }
 
 // Len returns the number of active tweens currently in the group.
 func (g *Group) Len() int { return len(g.tweens) }
 
-// Update advances every active tween in the group by dt and removes any that finish.
+// SetPaused suspends the whole group without stopping any tween or timeline, so a game
+// can freeze tweens while its pause menu is up.
+func (g *Group) SetPaused(paused bool) { g.paused = paused }
+
+// Paused reports whether the group is suspended.
+func (g *Group) Paused() bool { return g.paused }
+
+// SetSpeed scales every step by s, so the whole group runs in slow motion (0.25) or fast
+// forward. A scale of 0 stops advancement; negative values and NaN are treated as 1.
+func (g *Group) SetSpeed(s float64) {
+	if math.IsNaN(s) || s < 0 {
+		s = 1
+	}
+	g.speed = s
+	g.speedSet = true
+}
+
+// Bind clears the group when the scope ends, using the scope's cleanup.
+func (g *Group) Bind(cx *core.Scope) {
+	if cx == nil {
+		return
+	}
+	cx.Cleanup(g.Clear)
+}
+
+// Update advances every active tween and timeline in the group by dt and removes any that finish.
 func (g *Group) Update(dt time.Duration) {
+	if g.paused {
+		return
+	}
+	if g.speedSet {
+		dt = time.Duration(float64(dt) * g.speed)
+	}
+	if dt <= 0 {
+		return
+	}
+	if len(g.timelines) != 0 {
+		batch := make([]*Timeline, len(g.timelines))
+		copy(batch, g.timelines)
+		for _, tl := range batch {
+			if !g.containsTimeline(tl) {
+				continue
+			}
+			tl.Update(dt)
+			if tl.Done() {
+				g.removeTimeline(tl)
+			}
+		}
+	}
 	if len(g.tweens) == 0 {
 		return
 	}
@@ -266,6 +342,26 @@ func (g *Group) Update(dt time.Duration) {
 		}
 		if tw.Update(dt) {
 			g.Remove(tw)
+		}
+	}
+}
+
+func (g *Group) containsTimeline(tl *Timeline) bool {
+	for _, cur := range g.timelines {
+		if cur == tl {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Group) removeTimeline(tl *Timeline) {
+	for i, cur := range g.timelines {
+		if cur == tl {
+			copy(g.timelines[i:], g.timelines[i+1:])
+			g.timelines[len(g.timelines)-1] = nil
+			g.timelines = g.timelines[:len(g.timelines)-1]
+			return
 		}
 	}
 }
