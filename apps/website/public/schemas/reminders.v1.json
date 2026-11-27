@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/reminders.v1.json",
+  "title": "NSGo game local reminders (version 1)",
+  "description": "RemindersConfig is the root of a versioned YAML reminders file (reminders.yaml).",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal RemindersVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "quietHours": {
+      "description": "QuietHours is the optional default daily local-time window during which reminders are deferred until the window ends.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/QuietHours"
+        }
+      ]
+    },
+    "reminders": {
+      "description": "Reminders lists the game's local re-engagement reminder definitions in declaration order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ReminderDef"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "QuietHours": {
+      "description": "QuietHours defines a daily local-time window [Start, End) during which reminders are not delivered. Any reminder that would fire inside QuietHours is deferred to End (on the same day, or the following morning when Start is later than End).",
+      "type": "object",
+      "properties": {
+        "start": {
+          "description": "Start is the inclusive local start time in 24-hour \"HH:MM\" form, such as \"22:00\".",
+          "type": "string",
+          "minLength": 5
+        },
+        "end": {
+          "description": "End is the exclusive local end time in 24-hour \"HH:MM\" form, such as \"08:00\".",
+          "type": "string",
+          "minLength": 5
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "additionalProperties": false
+    },
+    "ReminderDef": {
+      "description": "ReminderDef declares one local re-engagement reminder in a RemindersConfig file.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely names the reminder: 1 to 128 ASCII letters, digits, '.', '_' or '-'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "Title is the localization key for the notification title.",
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "description": "Body is the optional localization key for the notification body.",
+          "type": "string"
+        },
+        "delay": {
+          "description": "Delay schedules the reminder this positive Go duration after Schedule is called, such as \"4h0m0s\" or \"30m0s\". Mutually exclusive with At.",
+          "type": "string"
+        },
+        "at": {
+          "description": "At schedules the reminder at the next occurrence of this 24-hour local wall-clock time (\"HH:MM\"), such as \"09:00\". Mutually exclusive with Delay.",
+          "type": "string"
+        },
+        "weekday": {
+          "description": "Weekday restricts an At-based reminder to a specific day of the week (sunday through saturday); requires At and cannot be paired with daily repeat.",
+          "type": "string",
+          "enum": [
+            "sunday",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday"
+          ]
+        },
+        "repeat": {
+          "description": "Repeat sets how often the reminder repeats after its first firing: omitted for once, \"daily\", or \"weekly\".",
+          "type": "string",
+          "enum": [
+            "daily",
+            "weekly"
+          ]
+        },
+        "onOpen": {
+          "description": "OnOpen controls what happens to this reminder when the app comes to the front: \"cancel\" (default when omitted), \"reschedule\", or \"keep\".",
+          "type": "string",
+          "enum": [
+            "cancel",
+            "reschedule",
+            "keep"
+          ]
+        },
+        "silent": {
+          "description": "Silent delivers the notification without the system's sound or vibration.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

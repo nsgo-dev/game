@@ -14,6 +14,8 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **Analytics** ([#198](https://github.com/nsgo-dev/game/issues/198)) | In scope | Provider-agnostic, strictly consent-gated event API backed by `core.Storage`. Zero events are sent or buffered before explicit opt-in consent. |
 | **Cloud saves** ([#196](https://github.com/nsgo-dev/game/issues/196)) | In scope | Provider-agnostic `CloudSync` interface, `PlatformCloud` over NSGo's `cloud` package (iCloud on macOS/iOS, Google Play Games Saved Games on Android, in-memory store in `nsgotest`), `DirCloud` for Steam Auto-Cloud and other synced directories, `CloudClient` for the self-hosted [cloudsave](cloudsave.md) service ([#557](https://github.com/nsgo-dev/game/issues/557)), and `CloudSyncer` conflict resolution ([#539](https://github.com/nsgo-dev/game/issues/539)). |
 | **In-app purchases** ([#369](https://github.com/nsgo-dev/game/issues/369)) | In scope | `Purchases` over NSGo's purchase services: consumables credited into the save exactly once, unlocks and subscriptions from the store's entitlements, restore, Ask to Buy and an optional server check. |
+| **Local reminders** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | In scope | `Reminders` over NSGo's `core.Scope.ShowNotification`: versioned YAML definitions (`RemindersConfig`), permission prompted only on first `Schedule` or explicit `RequestPermission`, persisted player toggle, local-time `QuietHours`, and foreground cancel/reschedule/keep rules. |
+| **Remote push** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | Pending upstream | Waiting on NSGo remote push ([nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)) and its design decisions ([nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)). Remote push is currently unavailable everywhere. |
 | **Ads** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need ads embed native SDK views directly via NSGo. |
 
 ## Crash reports
@@ -219,3 +221,42 @@ showNoAds := !shop.Owned("com.example.noads")
 Tests drive purchases through `nsgotest`: start the app with `nsgotest.Environment(core.Environment{Purchases: true})`, set `app.Products`, and use `app.PurchaseAnswer` for a cancel or Ask to Buy, `app.UpdatePurchase` for an approval or a refund, `nsgotest.UnfinishedTransactions` together with `nsgotest.Storage` for a run killed before it finished a transaction, and `app.Entitlements` with `Restore` for a reinstall. `liveops/purchases_test.go` covers each.
 
 To check a restore by hand under StoreKit Testing, add a StoreKit configuration file with a non-consumable to the iOS app's Xcode scheme, build with `apple.purchases: true`, buy the product in the simulator, delete and reinstall the app, then press the game's Restore Purchases button: `Owned` reports the product again. Android has no store in NSGo v0.3.0 (Google Play Billing waits on [nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)).
+
+## Local reminders
+
+`Reminders` schedules, cancels and reschedules local re-engagement notifications over NSGo's `core.Scope.ShowNotification`. It works natively (including after the app closes) on macOS, iOS, watchOS, Android and Windows, and while the app or page runs on Linux and the web — anywhere `cx.Env().CanScheduleNotifications()` is true.
+
+- **Versioned YAML definitions**: declare reminders in a `reminders.yaml` file (schema `https://game.nsgo.dev/schemas/reminders.v1.json`) loaded with `ParseReminders` or `LoadRemindersFS` and written deterministically with `EncodeReminders`. Each `ReminderDef` carries a unique `id`, localization keys `title` and optional `body`, either a positive `delay` or a 24-hour local wall-clock `at` (optionally paired with `weekday` for weekly schedules), optional `repeat` (`daily` or `weekly`), optional `onOpen` (`cancel`, `reschedule`, or `keep`; defaults to `cancel`), and optional `silent`. Unknown keys, duplicate keys, anchors/aliases and unsupported versions are refused.
+- **Permission timing**: `NewReminders` never queries or prompts for notification permission at launch. Permission is requested only when the game first calls `Schedule` / `ScheduleWith` (while reminders are enabled and supported) or an explicit `RequestPermission`. Concurrent calls coalesce into one prompt, and `Permission()` exposes the last observed `core.NotificationPermission` reactively.
+- **Player setting & quiet hours**: `Enabled()` / `SetEnabled(bool)` persists the player's toggle in `core.Storage`; turning reminders off immediately cancels every active reminder and stops future `Schedule` calls from prompting. `QuietHours` defines a daily local-time window `[Start, End)` (including overnight ranges such as `"22:00"` to `"08:00"`); any reminder landing inside quiet hours is deferred to `End`. `SetQuietHours` persists player overrides (`nil` saves `"off"` so config defaults do not return on restart) and defers any already-scheduled reminder that now falls inside the new window without prompting.
+- **Foreground reconciliation**: `Reminders` observes `cx.Env().Lifecycle()` and reconciles active reminders on launch and whenever the app returns to the front — cancelling `onOpen: cancel`, rescheduling `onOpen: reschedule` from the current `WallTime()` without prompting, and leaving `onOpen: keep` untouched.
+- **Platform capability & presses**: `CanScheduleNotifications()` reactively forwards `cx.Env().CanScheduleNotifications()` so a game can hide its reminders toggle where scheduled notifications do nothing (such as tvOS). `RemindersOptions.OnPress` receives a `ReminderPress{ID}` when the player taps a delivered reminder notification, using a dedicated ID prefix (`DefaultReminderPrefix`) so `CancelAll` and press routing never interfere with the app's other notifications.
+
+```go
+cfg, err := liveops.LoadRemindersFS(assetsFS, "reminders.yaml")
+if err != nil {
+	return err
+}
+reminders, err := liveops.NewReminders(cx, liveops.RemindersOptions{
+	Config:   cfg,
+	Localize: func(key string) string { return loc.T(key) },
+	OnPress: func(ev liveops.ReminderPress) {
+		openReminderDestination(ev.ID)
+	},
+})
+if err != nil {
+	return err
+}
+
+// Hide the toggle on platforms that cannot schedule notifications:
+showReminderToggle := reminders.CanScheduleNotifications()
+
+// Ask permission and schedule only at a natural moment (never at launch):
+_ = reminders.Schedule("daily_reward", func(scheduled bool) { /* update UI */ })
+```
+
+Tests drive reminders headlessly through `nsgotest`: start the app with `nsgotest.Environment(core.Environment{ScheduledNotifications: true})` and `nsgotest.WallTime(...)`, advance the clock with `app.FastForward(...)`, test background/foreground transitions with `app.SetEnvironment(...)`, simulate notification taps with `app.PressNotification(...)`, and check persistence across restarts with `nsgotest.Storage(...)`. `liveops/reminders_test.go` covers each path.
+
+### Remote push (pending upstream)
+
+Remote push notifications (`liveops.Push`) are currently unavailable everywhere and are intentionally not shipped yet. The game-layer wrapper — registering device tokens with a game server, routing push payloads to live-event handlers and delivering remote notification presses alongside `ReminderPress` — waits on NSGo implementing remote push ([nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)) and resolving its open API design decisions ([nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)).

@@ -1509,6 +1509,41 @@ leaderboards:
     playGames: CgkI6v7z8vQREAIQAQ
 ```
 
+<!-- format: online/liveops#reminders -->
+### Local reminders
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Any `.yaml` file the game embeds, such as `reminders.yaml` | `version: 1` | `liveops.ParseReminders`, `liveops.LoadRemindersFS`, `liveops.EncodeReminders` | [liveops](liveops.md#local-reminders); schema `https://game.nsgo.dev/schemas/reminders.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/reminders.v1.json
+version: 1
+quietHours:
+  start: "22:00"
+  end: "08:00"
+reminders:
+  - id: energy_full
+    title: reminder.energy.title
+    body: reminder.energy.body
+    delay: 2h0m0s
+    onOpen: keep
+  - id: daily_reward
+    title: reminder.daily.title
+    body: reminder.daily.body
+    at: "09:00"
+    repeat: daily
+    onOpen: cancel
+  - id: weekend_event
+    title: reminder.weekend.title
+    body: reminder.weekend.body
+    at: "18:00"
+    weekday: friday
+    repeat: weekly
+    onOpen: reschedule
+    silent: true
+```
+
 <!-- format: fighting -->
 ### Move set
 

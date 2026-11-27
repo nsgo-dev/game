@@ -36,6 +36,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | Particle emitter (2D), version 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`, read by `particles.UnmarshalConfigYAML` and `particles.LoadConfigFS` |
 | Netplay wire message schema, version 1 | `https://game.nsgo.dev/schemas/wire.v1.json` | `*.wire.yaml`, read by `wire.Parse` and `cmd/gamewire` ([netplay/wire](netplay-wire.md)) |
 | Mod manifest, version 1 | `https://game.nsgo.dev/schemas/mod.v1.json` | `mod.yaml` at the root of a mod's directory, read by `modding.ParseManifest` ([modding](modding.md)) |
+| Local reminders, version 1 | `https://game.nsgo.dev/schemas/reminders.v1.json` | `reminders.yaml`, read by `liveops.ParseReminders` and `liveops.LoadRemindersFS` ([liveops](liveops.md#local-reminders)) |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), skeletal rigs (#475) and localization tables (#473).

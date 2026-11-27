@@ -148,6 +148,7 @@ var formatVersions = map[string]string{
 	"online/leaderboard.CurrentVersion":             "online/leaderboard",
 	"online/leaderboard/selfhost.ConfigVersion":     "online/leaderboard/selfhost",
 	"online/liveops.CloudSaveVersion":               "online/liveops",
+	"online/liveops.RemindersVersion":               "online/liveops#reminders",
 	"loot.CurrentVersion":                           "loot",
 	"modding.ManifestVersion":                       "modding",
 	"modding.WorkshopMetadataVersion":               "modding#workshop",
