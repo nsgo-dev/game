@@ -28,7 +28,7 @@ joints, err := player.SkinMatrices(0) // 计算蒙皮渲染用的关节矩阵
 _ = joints
 ```
 
-`Player` 直接按 glTF 轨道求值 `STEP`、`LINEAR`（四元数最短路径球面线性插值）与 `CUBICSPLINE`（带归一化旋转的 Hermite 样条）三种插值模式，并保留未被动画驱动的矩阵节点（例如 COLLADA 导出的 `Z_UP` 根节点）。支持 `Play`、`PlayByName`、`Crossfade`、`CrossfadeByName`、`Pause`、`Stop`、`Seek`、`SetLoop`、`SetSpeed`（支持负值倒放）、`Time`、`Duration`、`Playing`、`LocalTransforms`、`WorldTransforms`、`MorphWeights`、`SkinMatrices`、`SkinMatricesForNode`、`ApplyToScene` 与 `ApplyToNodes`，并通过 `Update` 和 `Pose` 实现 `PoseSampler`。
+`Player` 直接按 glTF 轨道求值 `STEP`、`LINEAR`（四元数最短路径球面线性插值）与 `CUBICSPLINE`（带归一化旋转的 Hermite 样条）三种插值模式，并保留未被动画驱动的矩阵节点（例如 COLLADA 导出的 `Z_UP` 根节点）。支持 `Play`、`PlayByName`、`Crossfade`、`CrossfadeByName`、`Pause`、`Stop`、`Seek`、`SetLoop`、`SetSpeed`（支持负值倒放；当 `Loop` 为 `false` 且速度为负时，`Play` 与 `Crossfade` 从片段的 `Duration` 起倒放至 `0`，播放中在被钳制的端点处翻转速度正负号时会跳到另一端）、`Time`、`Duration`、`Playing`、`LocalTransforms`、`WorldTransforms`、`MorphWeights`、`SkinMatrices`、`SkinMatricesForNode`、`ApplyToScene` 与 `ApplyToNodes`，并通过 `Update` 和 `Pose` 实现 `PoseSampler`。
 
 `SkinMatrices(skinIndex)` 按 glTF 2.0 规范以蒙皮网格节点的世界变换逆矩阵归一化关节矩阵（`inverse(worldMatrix[meshNode]) * worldMatrix[joint] * inverseBindMatrix[i]`），因此即使骨架位于带旋转的根节点之下，绑定姿态下的关节矩阵也严格为单位矩阵。
 
@@ -69,7 +69,7 @@ _ = pose
 
 片段 `Loop: true` 的样本随共享相位循环；`Loop: false` 的片段自混合空间上次 `Reset` 起只播放一遍，随后停在最后一帧，其事件也只触发一次。参数相同（或二维坐标相同）的多个样本平分该位置的权重，不会有样本被遮蔽。
 
-`StateMachine.Update(0)` 视为暂停：返回当前姿态，既不推进时间也不触发条件过渡。`Speed` 为负的状态倒放，并按倒放顺序触发经过的事件。交叉淡化的两个状态共用同一个混合空间或采样器时，每步只推进一次。
+`StateMachine.Update(0)` 视为暂停：返回当前姿态，既不推进时间也不触发条件过渡。`Speed` 为负的状态倒放，并按倒放顺序触发经过的事件：进入非循环片段状态（`Loop: false`）且 `Speed` 为负时，会从 `Duration` 开始倒放至 `0`（循环片段仍从 `0` 开始向后回绕）；在被钳制的端点处以相反正负号的 `Speed` 替换当前非循环片段状态时，会跳到另一端继续播放。交叉淡化的两个状态共用同一个混合空间或采样器时，每步只推进一次。
 
 ## 骨骼遮罩层与叠加片段
 
