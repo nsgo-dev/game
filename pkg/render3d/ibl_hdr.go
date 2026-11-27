@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"io/fs"
 	"math"
 	"strconv"
 	"strings"
@@ -295,9 +296,22 @@ func EvaluateMaterialIBL(in MaterialEvalInput, sh IrradianceSH, prefilter *HDRCu
 // --- Radiance .hdr (RGBE) linear floating-point images ---
 
 const (
-	maxHDRImageDim    = 16384
-	maxHDRImagePixels = 64 * 1024 * 1024
+	maxHDRImageDim         = 16384
+	maxHDRImagePixels      = 64 * 1024 * 1024
+	maxHDRHeaderLineBytes  = 8 * 1024
+	maxHDRHeaderBytes      = 64 * 1024
+	hdrInitialPixelCap     = 4096
+	hdrMaxExpansionRatio   = 256
+	hdrExpansionFloorBytes = 1 << 20
+	hdrPixelBytes          = 12
 )
+
+func validateHDRDimensions(width, height int) error {
+	if width <= 0 || height <= 0 || width > maxHDRImageDim || height > maxHDRImageDim || int64(width)*int64(height) > maxHDRImagePixels {
+		return fmt.Errorf("%w: invalid HDR image dimensions %dx%d", ErrInvalidCubemap, width, height)
+	}
+	return nil
+}
 
 // HDRImage holds a 2D linear floating-point RGB image (such as a decoded Radiance .hdr equirectangular environment map) in row-major order, top row first.
 type HDRImage struct {
@@ -308,8 +322,8 @@ type HDRImage struct {
 
 // NewHDRImage allocates a zeroed linear RGB HDRImage of dimensions width x height. Non-positive dimensions return an error wrapping [ErrInvalidCubemap].
 func NewHDRImage(width, height int) (*HDRImage, error) {
-	if width <= 0 || height <= 0 || width > maxHDRImageDim || height > maxHDRImageDim || int64(width)*int64(height) > maxHDRImagePixels {
-		return nil, fmt.Errorf("%w: invalid HDR image dimensions %dx%d", ErrInvalidCubemap, width, height)
+	if err := validateHDRDimensions(width, height); err != nil {
+		return nil, err
 	}
 	return &HDRImage{
 		Width:  width,
@@ -323,8 +337,8 @@ func (img *HDRImage) Validate() error {
 	if img == nil {
 		return fmt.Errorf("%w: nil HDR image", ErrInvalidCubemap)
 	}
-	if img.Width <= 0 || img.Height <= 0 || img.Width > maxHDRImageDim || img.Height > maxHDRImageDim || int64(img.Width)*int64(img.Height) > maxHDRImagePixels {
-		return fmt.Errorf("%w: invalid HDR image dimensions %dx%d", ErrInvalidCubemap, img.Width, img.Height)
+	if err := validateHDRDimensions(img.Width, img.Height); err != nil {
+		return err
 	}
 	if len(img.RGB) != img.Width*img.Height {
 		return fmt.Errorf("%w: HDR image pixel count %d does not match %dx%d", ErrInvalidCubemap, len(img.RGB), img.Width, img.Height)
@@ -353,14 +367,73 @@ func (img *HDRImage) Set(x, y int, rgb [3]float32) {
 	img.RGB[y*img.Width+x] = rgb
 }
 
-// DecodeHDR decodes a Radiance RGBE (.hdr / .pic) image stream into linear floating-point RGB radiance values. It supports standard adaptive RLE, old-style RLE, and uncompressed scanlines, as well as the standard Radiance EXPOSURE header and +/-Y +/-X scanline orientations. Malformed streams return an error wrapping [ErrInvalidCubemap].
+type hdrCountingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *hdrCountingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// minHDRScanlineBytes returns the smallest byte count any valid Radiance RGBE scanline
+// (uncompressed, adaptive RLE, or old-style RLE) of the given width can occupy.
+func minHDRScanlineBytes(width int) int64 {
+	switch {
+	case width <= 1:
+		return 4
+	case width <= 256:
+		return 8
+	default:
+		return 12
+	}
+}
+
+func remainingReaderBytes(r io.Reader, br *bufio.Reader) (int64, bool) {
+	buffered := int64(br.Buffered())
+	if lr, ok := r.(interface{ Len() int }); ok {
+		rem := int64(lr.Len())
+		if rem < 0 {
+			return 0, false
+		}
+		return buffered + rem, true
+	}
+	if sr, ok := r.(*io.SectionReader); ok {
+		pos, err := sr.Seek(0, io.SeekCurrent)
+		if err != nil || pos < 0 || pos > sr.Size() {
+			return 0, false
+		}
+		return buffered + (sr.Size() - pos), true
+	}
+	if f, ok := r.(interface {
+		Stat() (fs.FileInfo, error)
+		io.Seeker
+	}); ok {
+		fi, err := f.Stat()
+		if err != nil || !fi.Mode().IsRegular() {
+			return 0, false
+		}
+		pos, err := f.Seek(0, io.SeekCurrent)
+		if err != nil || pos < 0 || pos > fi.Size() {
+			return 0, false
+		}
+		return buffered + (fi.Size() - pos), true
+	}
+	return 0, false
+}
+
+// DecodeHDR decodes a Radiance RGBE (.hdr / .pic) image stream into linear floating-point RGB radiance values. It supports standard adaptive RLE, old-style RLE, and uncompressed scanlines, as well as the standard Radiance EXPOSURE header and +/-Y +/-X scanline orientations. Malformed or truncated streams return an error wrapping [ErrInvalidCubemap] without pre-allocating the full declared resolution.
 func DecodeHDR(r io.Reader) (*HDRImage, error) {
 	if r == nil {
 		return nil, fmt.Errorf("%w: nil HDR reader", ErrInvalidCubemap)
 	}
-	br := bufio.NewReader(r)
+	cr := &hdrCountingReader{r: r}
+	br := bufio.NewReader(cr)
+	headerRem := maxHDRHeaderBytes
 
-	firstLine, err := readHDRLine(br)
+	firstLine, err := readHDRLine(br, &headerRem)
 	if err != nil {
 		return nil, fmt.Errorf("%w: read HDR signature: %w", ErrInvalidCubemap, err)
 	}
@@ -371,7 +444,7 @@ func DecodeHDR(r io.Reader) (*HDRImage, error) {
 	exposure := 1.0
 	hasFormat := false
 	for {
-		line, err := readHDRLine(br)
+		line, err := readHDRLine(br, &headerRem)
 		if err != nil {
 			return nil, fmt.Errorf("%w: read HDR header: %w", ErrInvalidCubemap, err)
 		}
@@ -396,8 +469,12 @@ func DecodeHDR(r io.Reader) (*HDRImage, error) {
 	if !hasFormat {
 		return nil, fmt.Errorf("%w: missing FORMAT=32-bit_rle_rgbe in HDR header", ErrInvalidCubemap)
 	}
+	invExposure := 1.0 / exposure
+	if invExposure <= 0 || math.IsInf(invExposure, 0) || math.IsNaN(invExposure) {
+		return nil, fmt.Errorf("%w: invalid HDR exposure %g", ErrInvalidCubemap, exposure)
+	}
 
-	resLine, err := readHDRLine(br)
+	resLine, err := readHDRLine(br, &headerRem)
 	if err != nil {
 		return nil, fmt.Errorf("%w: read HDR resolution line: %w", ErrInvalidCubemap, err)
 	}
@@ -432,23 +509,44 @@ func DecodeHDR(r io.Reader) (*HDRImage, error) {
 		return nil, fmt.Errorf("%w: invalid HDR width %q", ErrInvalidCubemap, fields[3])
 	}
 	width, height = wVal, hVal
-
-	img, err := NewHDRImage(width, height)
-	if err != nil {
+	if err := validateHDRDimensions(width, height); err != nil {
 		return nil, err
 	}
 
+	minPayload := int64(height) * minHDRScanlineBytes(width)
+	if rem, ok := remainingReaderBytes(r, br); ok && rem < minPayload {
+		return nil, fmt.Errorf("%w: truncated HDR payload: need at least %d bytes for %dx%d image, have %d", ErrInvalidCubemap, minPayload, width, height, rem)
+	}
+	if _, err := br.Peek(4); err != nil {
+		return nil, fmt.Errorf("%w: scanline 0: %w", ErrInvalidCubemap, err)
+	}
+
 	scan := make([]byte, width*4)
-	invExposure := 1.0 / exposure
+	totalPixels := width * height
+	var rgb [][3]float32
 	for row := range height {
 		if err := readHDRScanline(br, scan, width); err != nil {
 			return nil, fmt.Errorf("%w: scanline %d: %w", ErrInvalidCubemap, row, err)
 		}
-		dstY := row
-		if flipY {
-			dstY = height - 1 - row
+		need := (row + 1) * width
+		decodedBytes := int64(need) * hdrPixelBytes
+		consumedBytes := cr.n - int64(br.Buffered())
+		if decodedBytes > hdrExpansionFloorBytes && decodedBytes > consumedBytes*hdrMaxExpansionRatio {
+			return nil, fmt.Errorf("%w: scanline %d: HDR expansion ratio exceeds %dx (%d bytes decoded from %d bytes)", ErrInvalidCubemap, row, hdrMaxExpansionRatio, decodedBytes, consumedBytes)
 		}
-		rowOff := dstY * width
+		if need > cap(rgb) {
+			var newCap int
+			if cap(rgb) == 0 {
+				newCap = min(totalPixels, max(need, hdrInitialPixelCap))
+			} else {
+				newCap = min(totalPixels, max(need, cap(rgb)*2))
+			}
+			next := make([][3]float32, len(rgb), newCap)
+			copy(next, rgb)
+			rgb = next
+		}
+		rowOff := row * width
+		rgb = rgb[:need]
 		for col := range width {
 			dstX := col
 			if flipX {
@@ -458,10 +556,23 @@ func DecodeHDR(r io.Reader) (*HDRImage, error) {
 			gB := scan[col*4+1]
 			bB := scan[col*4+2]
 			eB := scan[col*4+3]
-			img.RGB[rowOff+dstX] = rgbeToLinearRGB(rB, gB, bB, eB, invExposure)
+			rgb[rowOff+dstX] = rgbeToLinearRGB(rB, gB, bB, eB, invExposure)
 		}
 	}
-	return img, nil
+	if flipY {
+		for y := range height / 2 {
+			top := rgb[y*width : (y+1)*width]
+			bot := rgb[(height-1-y)*width : (height-y)*width]
+			for x := range width {
+				top[x], bot[x] = bot[x], top[x]
+			}
+		}
+	}
+	return &HDRImage{
+		Width:  width,
+		Height: height,
+		RGB:    rgb,
+	}, nil
 }
 
 // EncodeHDR writes img in Radiance RGBE (.hdr) format (using adaptive RLE for widths in [8, 32767] and uncompressed scanlines otherwise). Invalid images return an error wrapping [ErrInvalidCubemap].
@@ -523,14 +634,37 @@ func EncodeHDR(w io.Writer, img *HDRImage) error {
 	return bw.Flush()
 }
 
-func readHDRLine(br *bufio.Reader) (string, error) {
-	line, err := br.ReadString('\n')
-	if err != nil {
-		return "", err
+func readHDRLine(br *bufio.Reader, remaining *int) (string, error) {
+	if *remaining <= 0 {
+		return "", fmt.Errorf("HDR header exceeds %d bytes", maxHDRHeaderBytes)
 	}
-	line = strings.TrimSuffix(line, "\n")
-	line = strings.TrimSuffix(line, "\r")
-	return line, nil
+	limit := min(maxHDRHeaderLineBytes, *remaining)
+	var buf []byte
+	for {
+		frag, err := br.ReadSlice('\n')
+		if len(frag) > 0 {
+			if len(buf)+len(frag) > limit {
+				if *remaining < maxHDRHeaderLineBytes {
+					return "", fmt.Errorf("HDR header exceeds %d bytes", maxHDRHeaderBytes)
+				}
+				return "", fmt.Errorf("HDR header line exceeds %d bytes", maxHDRHeaderLineBytes)
+			}
+			if buf == nil && err == nil {
+				*remaining -= len(frag)
+				line := strings.TrimSuffix(string(frag), "\n")
+				return strings.TrimSuffix(line, "\r"), nil
+			}
+			buf = append(buf, frag...)
+		}
+		if err == nil {
+			*remaining -= len(buf)
+			line := strings.TrimSuffix(string(buf), "\n")
+			return strings.TrimSuffix(line, "\r"), nil
+		}
+		if err != bufio.ErrBufferFull {
+			return "", err
+		}
+	}
 }
 
 func readHDRScanline(br *bufio.Reader, dst []byte, width int) error {
@@ -593,8 +727,11 @@ func readHDRScanline(br *bufio.Reader, dst []byte, width int) error {
 			return err
 		}
 		if p[0] == 1 && p[1] == 1 && p[2] == 1 {
+			if rleShift >= 24 {
+				return fmt.Errorf("invalid old-style RLE shift %d at x=%d (width %d)", rleShift, x, width)
+			}
 			count := int(p[3]) << rleShift
-			if count <= 0 || x+count > width {
+			if count <= 0 || count > width-x {
 				return fmt.Errorf("invalid old-style RLE run length %d at x=%d (width %d)", count, x, width)
 			}
 			prev := dst[(x-1)*4 : x*4]
@@ -657,10 +794,20 @@ func rgbeToLinearRGB(r, g, b, e byte, invExposure float64) [3]float32 {
 	}
 	scale := math.Ldexp(1.0, int(e)-(128+8)) * invExposure
 	return [3]float32{
-		float32(float64(r) * scale),
-		float32(float64(g) * scale),
-		float32(float64(b) * scale),
+		clampFiniteFloat32(float64(r) * scale),
+		clampFiniteFloat32(float64(g) * scale),
+		clampFiniteFloat32(float64(b) * scale),
 	}
+}
+
+func clampFiniteFloat32(v float64) float32 {
+	if !(v > 0) {
+		return 0
+	}
+	if v > math.MaxFloat32 {
+		return math.MaxFloat32
+	}
+	return float32(v)
 }
 
 func linearRGBToRGBE(c [3]float32) [4]byte {
