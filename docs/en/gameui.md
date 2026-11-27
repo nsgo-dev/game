@@ -107,7 +107,7 @@ Customize focus outlines with `FocusRingStyle` on `Root.FocusRing`, `Theme.Focus
 
 ## Ready settings menu (`SettingsMenu`)
 
-`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, and configurable bus volumes), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, SFX captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, game speed, invincibility, auto-aim, and hold-to-toggle).
+`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, configurable bus volumes, mono audio, and left/right balance), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, SFX captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, game speed, invincibility, auto-aim, and hold-to-toggle).
 
 It persists through `save.DefaultSettingsStore` (shared directly with `a11y.NewAssistFromSettings(cx, store)`) and dispatches validated updates through `save.SettingsTargets` (`save.Apply`) and `SettingsMenuConfig.Video` (`screen.Video.ApplyResolution`):
 

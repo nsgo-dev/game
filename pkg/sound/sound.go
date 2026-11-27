@@ -38,18 +38,40 @@ type Mixer struct {
 	defaults map[string]float32
 	// listener3D is the active 3D listener used by Effect.Play3D and Cue.Play3D; SetListener3D refreshes live Playback3D volumes.
 	listener3D Listener3D
+	// mono holds an explicit SetMono override when monoSet is true; otherwise systemMono applies.
+	mono       bool
+	monoSet    bool
+	systemMono bool
+	// balance offsets stereo voice panning in [-1, 1] when mono is off.
+	balance float32
 }
 
 // NewMixer returns a mixer that keeps its volumes in cx's storage under keys starting with key, such as "sound", and lives as long as cx.
 //
 // The mixer mutes everything while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone: it silences the effects playing, pauses the music and, as the window shows again, restores the effects still playing and plays the music on from there.
+//
+// Until SetMono is called, the mixer follows the platform's mono audio setting once NSGo exposes it on core.Env (nsgo-dev/nsgo#2677; false on NSGo v0.3.4).
 func NewMixer(cx *core.Scope, key string) *Mixer {
 	m := &Mixer{cx: cx, store: cx.Storage(), key: key, sounds: map[*Effect]struct{}{}}
 	cx.Effect(func() {
-		m.background = cx.Env().Lifecycle() == core.LifecycleBackground
+		env := cx.Env()
+		m.background = env.Lifecycle() == core.LifecycleBackground
+		m.systemMono = envMonoAudio(env)
 		m.apply()
 	})
 	return m
+}
+
+// envMonoAudio reads the platform's mono audio switch from env once NSGo exposes
+// Env.MonoAudio (nsgo-dev/nsgo#2677); on NSGo v0.3.4 it returns false.
+func envMonoAudio(env *core.Env) bool {
+	if env == nil {
+		return false
+	}
+	if m, ok := any(env).(interface{ MonoAudio() bool }); ok {
+		return m.MonoAudio()
+	}
+	return false
 }
 
 // SetDefaultMaster sets the master volume the mixer has until SetMaster keeps one, clamped to 0 to 1, such as a project file's. It keeps nothing in the storage, so a volume the player set wins; set it before the game reads volumes, as it changes no subscribed computation.
@@ -167,6 +189,97 @@ func (m *Mixer) Suspend() (resume func()) {
 // Suspended reports whether a Suspend has not been resumed yet.
 func (m *Mixer) Suspended() bool { return m.suspends > 0 }
 
+// SetMono explicitly enables or disables mono voice panning on the mixer, overriding the platform's mono audio switch.
+//
+// While mono is active, every voice the mixer starts (via Effect.Play, Effect.PlayAt, Effect.PlayAt3D, Effect.Play3D, and Cue variants) or updates plays centered at pan 0 while keeping distance, rear, and cone attenuation unchanged, so distance cues remain and listeners still report the true direction for directional captions.
+//
+// Stereo audio files (such as stereo music or ambiences) keep their channels until NSGo supports mixing the output down to mono (nsgo-dev/nsgo#2676). Call FollowSystemMono to clear the override and follow the platform setting again.
+func (m *Mixer) SetMono(mono bool) {
+	if m == nil {
+		return
+	}
+	if m.monoSet && m.mono == mono {
+		return
+	}
+	m.mono = mono
+	m.monoSet = true
+	m.apply()
+}
+
+// Mono reports whether mono voice panning is currently active on the mixer, either from SetMono or from the platform's mono audio switch (nsgo-dev/nsgo#2677).
+func (m *Mixer) Mono() bool {
+	if m == nil {
+		return false
+	}
+	if m.monoSet {
+		return m.mono
+	}
+	return m.systemMono
+}
+
+// FollowSystemMono clears any explicit SetMono override so the mixer follows the platform's mono audio setting (nsgo-dev/nsgo#2677; false on NSGo v0.3.4).
+func (m *Mixer) FollowSystemMono() {
+	if m == nil || !m.monoSet {
+		return
+	}
+	m.mono = false
+	m.monoSet = false
+	m.apply()
+}
+
+// SetBalance sets the stereo left/right balance offset in [-1, 1] (-1 full left, 0 centered, +1 full right). Values outside [-1, 1] clamp, and NaN resets to 0.
+//
+// When mono is off, every voice the mixer starts or updates adds balance to its pan and clamps to [-1, 1]. While mono is on, every voice plays at pan 0 while the configured balance is kept for when mono is turned off.
+func (m *Mixer) SetBalance(balance float32) {
+	if m == nil {
+		return
+	}
+	b := clampPan(balance)
+	if m.balance == b {
+		return
+	}
+	m.balance = b
+	m.apply()
+}
+
+// Balance returns the mixer's stereo left/right balance offset in [-1, 1], 0 until set.
+func (m *Mixer) Balance() float32 {
+	if m == nil {
+		return 0
+	}
+	return m.balance
+}
+
+func clampPan(v float32) float32 {
+	if v != v {
+		return 0
+	}
+	p := min(max(v, -1), 1)
+	if p == 0 {
+		return 0
+	}
+	return p
+}
+
+// effectivePan resolves a voice's requested stereo pan against the mixer's mono and balance settings.
+func (m *Mixer) effectivePan(pan float32) float32 {
+	if m.Mono() {
+		return 0
+	}
+	return clampPan(clampPan(pan) + m.balance)
+}
+
+// panSetter matches NSGo's audio.Playback.SetPan once available (nsgo-dev/nsgo#2676; absent on NSGo v0.3.4).
+type panSetter interface {
+	SetPan(float32)
+}
+
+func setPlaybackPan(p *audio.Playback, pan float32) {
+	if ps, ok := any(p).(panSetter); ok {
+		ps.SetPan(pan)
+	}
+}
+
 // Unblock retries any music tracks whose playback was refused with audio.NotAllowed, such as tracks started before the page's first user gesture on the web. Blocked tracks keep their group volume, crossfade level, loop settings and any armed intro handoff, starting from position 0 once audible; tracks in a silent, paused, suspended or backgrounded mixer clear their blocked state and start as soon as the group becomes audible. Calling Unblock when no track is blocked does nothing.
 //
 // Call Unblock from a press, touch or key handler, or assign the mixer to input.Actions.Mixer so the first press, touch or key press retries automatically until NSGo reports audio unlock directly (nsgo-dev/nsgo#2675).
@@ -193,7 +306,7 @@ func (m *Mixer) gain(group string) float32 {
 	return core.Untracked(m.cx, func() float32 { return m.Master() * m.Volume(group) })
 }
 
-// apply sets the effects and the music playing to the volumes.
+// apply sets the effects and the music playing to the volumes and updates pan where supported.
 func (m *Mixer) apply() {
 	for s := range m.sounds {
 		if s.prune() == 0 {
@@ -203,6 +316,7 @@ func (m *Mixer) apply() {
 		g := m.gain(s.Group)
 		for _, p := range s.live {
 			p.playback.SetVolume(p.effectiveVolume(g))
+			setPlaybackPan(p.playback, m.effectivePan(p.basePan()))
 		}
 	}
 	for _, mu := range m.music {
@@ -222,11 +336,12 @@ type Effect struct {
 	live []playback
 }
 
-// playback is a playback of an effect and its voice's own volume, which the mixer's volumes scale.
-// When spatial is non-nil, the playback is tracked in 3D and spatial.spatial.Gain further scales its volume.
+// playback is a playback of an effect and its voice's own volume and base pan, which the mixer's volumes, mono mode, and balance transform.
+// When spatial is non-nil, the playback is tracked in 3D and spatial.spatial provides its live Gain and base Pan.
 type playback struct {
 	playback *audio.Playback
 	volume   float32
+	pan      float32
 	spatial  *Playback3D
 }
 
@@ -235,6 +350,13 @@ func (p playback) effectiveVolume(groupGain float32) float32 {
 		return p.volume * p.spatial.spatial.Gain * groupGain
 	}
 	return p.volume * groupGain
+}
+
+func (p playback) basePan() float32 {
+	if p.spatial != nil {
+		return p.spatial.spatial.Pan
+	}
+	return p.pan
 }
 
 // Effect returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.
@@ -255,7 +377,7 @@ func (m *Mixer) LoadEffect(src audio.Source, group string, limit int, done func(
 	})
 }
 
-// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, suspended, or the effect's group is paused, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
+// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. Its pan is centered to 0 when the mixer is in mono mode (SetMono) and otherwise offset by the mixer's balance (SetBalance) and clamped to [-1, 1]. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, suspended, or the effect's group is paused, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
 func (s *Effect) Play(v audio.Voice) bool {
 	volume := voiceVolume(v.Volume)
 	if v.Muted {
@@ -266,13 +388,15 @@ func (s *Effect) Play(v audio.Voice) bool {
 		return false
 	}
 	s.prune()
+	basePan := clampPan(v.Pan)
 	v.Volume = g
+	v.Pan = s.m.effectivePan(basePan)
 	p := s.sound.Play(v)
 	if ended(s.m.cx, p) {
 		// The playback never started, so it takes no place and the ones already playing keep it.
 		return true
 	}
-	s.live = append(s.live, playback{playback: p, volume: volume})
+	s.live = append(s.live, playback{playback: p, volume: volume, pan: basePan})
 	// Only a playback that started makes room, so a backend that refuses one never costs an older sound.
 	if s.Limit > 0 && len(s.live) > s.Limit {
 		oldest := len(s.live) - s.Limit

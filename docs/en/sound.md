@@ -138,6 +138,21 @@ engine.SetPosition(sound.Vec3(nextShipPos))
 - **Live `Playback3D` tracking**: `Mixer.SetListener3D(l)` refreshes every active `Playback3D` started by `Effect.Play3D` or `Cue.Play3D`, and `Playback3D.SetPosition` / `SetOptions` refresh a single source. Live distance, rear, and source-cone attenuation update immediately through `audio.Playback.SetVolume` while honoring master/group volumes, `SetPaused`, `SetPauseExempt`, `Suspend`, and background muting. Because NSGo's `audio.Playback` cannot change stereo pan after starting, `Playback3D.Pan()` tracks the latest computed pan while the backend playback keeps its initial pan.
 - **Pose helpers & cues**: `Listener3D.SetPose(pos, forward, up)` and `Listener3D.LookAt(target, up)` update orientation without altering attenuation settings. `Cue.PlayAt3D` and `Cue.Play3D` position randomized sound cues in 3D.
 
+## Mono audio and left/right balance
+
+Players with hearing in one ear can miss sounds panned to the other side. `Mixer` supports mono voice panning and a stereo left/right balance offset across every effect it plays (`Effect.Play`, `Effect.PlayAt`, `Effect.PlayAt3D`, `Effect.Play3D`, and `Cue` variants):
+
+```go
+mixer.SetMono(true)      // center every voice to pan 0, keeping distance/rear/cone attenuation
+mixer.FollowSystemMono() // return to following the platform's mono audio switch
+mixer.SetBalance(-0.3)   // shift stereo panning left by 0.3 when mono is off (clamped to [-1, 1])
+```
+
+- **Mono mode**: when `mixer.Mono()` is `true`, every voice the mixer starts (or updates once NSGo exposes live `Playback.SetPan`) uses pan `0` while keeping distance, rear head-shadow, and source-cone attenuation unchanged, so distance cues still work. `Listener2D.Pan`, `Listener3D.Pan`, and `Playback3D.Pan()` still report the listener's geometric direction, so directional captions (`a11y.CaptionTrack.ShowSFXAt`) keep the direction the sound would have had.
+- **Left/right balance**: `SetBalance(float32)` sets an offset in `[-1, 1]` (`-1` full left, `0` centered, `+1` full right; out-of-range values clamp and `NaN` resets to `0`). When mono is off, each voice adds `Balance()` to its pan and clamps to `[-1, 1]`. While mono is on, every voice plays at pan `0` and the configured balance is retained for when mono is turned off.
+- **Platform switch and settings**: `NewMixer` follows the platform's mono audio switch until `SetMono` is called, and `FollowSystemMono()` restores follow-system mode. Persist both preferences in `save.AudioSettings` (`Mono *bool`, `nil` to follow system; `Balance float64` in `[-1, 1]`), which `save.Apply` applies to `SettingsTargets.Sound` and `gameui.SettingsMenu`'s Audio tab exposes as **Mono Audio** and **Balance** rows.
+- **Stereo assets and NSGo follow-ups**: stereo audio files (such as stereo music or ambience tracks) keep their channels until NSGo supports mixing the output down to mono (`nsgo-dev/nsgo#2676`), and following the OS mono audio switch automatically activates once NSGo exposes `Env.MonoAudio` (`nsgo-dev/nsgo#2677`; defaults to `false` on NSGo v0.3.4).
+
 ## Music and crossfades
 
 `mixer.Music(group)` plays streaming tracks through `audio.Player`, one active track at a time, with smooth crossfades:

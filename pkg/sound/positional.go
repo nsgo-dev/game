@@ -153,7 +153,7 @@ func (l Listener2D) toView(pos math2d.Vec2) (x, y float64) {
 	return dx*cos + dy*sin, -dx*sin + dy*cos
 }
 
-// PlayAt plays the effect at pos in the world as l hears it: panned by l.Pan and at v's volume times l.Gain, then the group's and the master volume, as Play does, and reports whether it played. It plays nothing where the effect is silent, beyond l's Far, and replaces v's pan. The pan and volume hold for the playback's whole length, as audio's playbacks cannot change their pan once started.
+// PlayAt plays the effect at pos in the world as l hears it: panned by l.Pan (adjusted by the mixer's mono and balance settings) and at v's volume times l.Gain, then the group's and the master volume, as Play does, and reports whether it played. It plays nothing where the effect is silent, beyond l's Far, and replaces v's pan. The pan and volume hold for the playback's whole length, as audio's playbacks cannot change their pan once started.
 func (s *Effect) PlayAt(l Listener2D, pos math2d.Vec2, v audio.Voice) bool {
 	v = l.Voice(pos, v)
 	if !(v.Volume > 0) {

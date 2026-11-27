@@ -138,6 +138,21 @@ engine.SetPosition(sound.Vec3(nextShipPos))
 - **实时 `Playback3D` 跟踪**：`Mixer.SetListener3D(l)` 会刷新所有通过 `Effect.Play3D` 或 `Cue.Play3D` 启动的活跃 `Playback3D`，`Playback3D.SetPosition` / `SetOptions` 会刷新单个声源。距离、后方头影与定向声源锥衰减都会通过 `audio.Playback.SetVolume` 实时更新，同时完整遵循主音量、分组音量、`SetPaused`、`SetPauseExempt`、`Suspend` 与后台静音。由于 NSGo 的 `audio.Playback` 在起播后无法修改立体声声像，`Playback3D.Pan()` 记录最新计算的声像，底层播放保持起播时的声像。
 - **姿态辅助与 Cue**：`Listener3D.SetPose(pos, forward, up)` 和 `Listener3D.LookAt(target, up)` 在保留衰减参数的前提下更新姿态；`Cue.PlayAt3D` 和 `Cue.Play3D` 可在 3D 空间中播放随机化音效变体。
 
+## 单声道音频与左右平衡
+
+单耳听力玩家可能会漏掉偏向另一声道的定位音效。`Mixer` 为通过它播放的所有音效（`Effect.Play`、`Effect.PlayAt`、`Effect.PlayAt3D`、`Effect.Play3D` 及对应 `Cue` 方法）提供单声道居中与立体声左右平衡控制：
+
+```go
+mixer.SetMono(true)      // 将所有发声的声像居中为 0，同时保留距离、后方与声源锥衰减
+mixer.FollowSystemMono() // 恢复跟随操作系统的单声道音频开关
+mixer.SetBalance(-0.3)   // 关闭单声道时将立体声声像向左偏移 0.3（截断在 [-1, 1]）
+```
+
+- **单声道模式**：当 `mixer.Mono()` 为 `true` 时，混音器启动（以及未来 NSGo 提供实时 `Playback.SetPan` 后更新）的每个声音都会以声像 `0` 播放，同时完整保留距离、后方头影和定向声源锥衰减，确保距离线索不丢失。`Listener2D.Pan`、`Listener3D.Pan` 与 `Playback3D.Pan()` 仍返回听者计算出的真实几何方向，因此方向性字幕（`a11y.CaptionTrack.ShowSFXAt`）仍能保留声音原本的方向。
+- **左右平衡**：`SetBalance(float32)` 设置 `[-1, 1]` 内的平衡偏移（`-1` 极左、`0` 居中、`+1` 极右；越界值会被截断，`NaN` 归 `0`）。未开启单声道时，每个声音的声像会叠加 `Balance()` 并截断到 `[-1, 1]`；开启单声道时声音始终以声像 `0` 播放，但已设置的平衡值会保留，待关闭单声道后继续生效。
+- **系统开关与玩家设置**：在显式调用 `SetMono` 之前，`NewMixer` 会跟随平台的单声道音频开关，调用 `FollowSystemMono()` 可重新恢复跟随系统。两项偏好均保存在 `save.AudioSettings`（`Mono *bool`，`nil` 表示跟随系统；`Balance float64` 范围 `[-1, 1]`）中，由 `save.Apply` 应用到 `SettingsTargets.Sound`，并在 `gameui.SettingsMenu` 的音频标签页中提供 **Mono Audio** 与 **Balance** 两行控件。
+- **立体声资源与 NSGo 后续能力**：在 NSGo 支持将最终输出混音为单声道（`nsgo-dev/nsgo#2676`）之前，立体声音频文件（如立体声配乐或环境音）仍保持原有声道；跟随系统单声道开关会在 NSGo 为 `Env` 暴露 `MonoAudio`（`nsgo-dev/nsgo#2677`）后自动生效（NSGo v0.3.4 上默认为 `false`）。
+
 ## Music 与交叉淡化
 
 `mixer.Music(group)` 通过 `audio.Player` 播放较长的流式音轨，同一时间只播一首，并支持平滑的交叉淡化（crossfade）：

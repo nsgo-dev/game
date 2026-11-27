@@ -421,11 +421,12 @@ func offset3(dx, dy, dz float64) (dist float64, dir vec3f64, hasDir, isInf bool)
 	return m * n, vec3f64{sx / n, sy / n, sz / n}, true, false
 }
 
-// PlayAt3D plays the effect at pos in the 3D world as l hears it: panned by l.Pan and at v's
-// volume times l.Gain, then the group's and the master volume, as Play does, and reports whether
-// it played. It plays nothing where the effect is silent, beyond l's Far, and replaces v's pan.
-// The pan and volume hold for the playback's whole length; use Effect.Play3D with Mixer.SetListener3D
-// for playbacks whose spatial gain tracks a moving camera or moving source.
+// PlayAt3D plays the effect at pos in the 3D world as l hears it: panned by l.Pan (adjusted by the
+// mixer's mono and balance settings) and at v's volume times l.Gain, then the group's and the master
+// volume, as Play does, and reports whether it played. It plays nothing where the effect is silent,
+// beyond l's Far, and replaces v's pan. The pan and volume hold for the playback's whole length;
+// use Effect.Play3D with Mixer.SetListener3D for playbacks whose spatial gain tracks a moving camera
+// or moving source.
 func (s *Effect) PlayAt3D(l Listener3D, pos Vec3, v audio.Voice) bool {
 	if s == nil {
 		return false
@@ -478,6 +479,7 @@ func (m *Mixer) SetListener3D(l Listener3D) {
 			}
 			p.spatial.spatial = l.Spatialize(p.spatial.pos, p.spatial.opts)
 			p.playback.SetVolume(p.effectiveVolume(g))
+			setPlaybackPan(p.playback, m.effectivePan(p.spatial.spatial.Pan))
 		}
 	}
 }
@@ -528,7 +530,7 @@ func (s *Effect) Play3D(pos Vec3, v audio.Voice, opts Spatial3DOptions) *Playbac
 	}
 	s.prune()
 	v.Volume = g
-	v.Pan = sp.Pan
+	v.Pan = s.m.effectivePan(sp.Pan)
 	p := s.sound.Play(v)
 	pb.playback = p
 	if ended(s.m.cx, p) {
@@ -661,4 +663,5 @@ func (p *Playback3D) refresh() {
 	}
 	g := p.effect.m.gain(p.effect.Group)
 	p.playback.SetVolume(p.baseVolume * p.spatial.Gain * g)
+	setPlaybackPan(p.playback, p.effect.m.effectivePan(p.spatial.Pan))
 }
