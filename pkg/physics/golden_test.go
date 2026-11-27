@@ -148,7 +148,7 @@ func softWorldChecksum(sw *physics.SoftWorld, rw *physics.RigidWorld) uint64 {
 }
 
 func TestGoldenTrajectorySoftWorld2D(t *testing.T) {
-	const want uint64 = 0xdaeb4e28f865c09b
+	const want uint64 = 0x2ec32113b43c7f69
 
 	const dt = time.Second / 60
 	sw, rw := goldenSoftWorld2D()

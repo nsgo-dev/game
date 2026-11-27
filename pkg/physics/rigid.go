@@ -11,8 +11,21 @@ import (
 // speculativeDistance is how far apart a contact point of an overlapping pair may be and still join its manifold. A box resting a hair off level keeps both of its corners in the manifold, so the solver and warm starting see the same two points every step instead of rocking between one corner and the other.
 const speculativeDistance = 1.0
 
-// DefaultSolverIterations is the default number of sequential impulse iterations per RigidWorld.Step.
+// DefaultSolverIterations is the default solver iteration budget per RigidWorld.Step.
 const DefaultSolverIterations = 10
+
+// DefaultSubsteps is the default number of substeps per RigidWorld.Step.
+const DefaultSubsteps = 4
+
+const (
+	// contactSubstepHertzFraction and contactDampingRatio configure the implicit-Euler soft contact push-out derived from the substep duration subH.
+	contactSubstepHertzFraction = 0.5
+	contactDampingRatio         = 2.0
+	// contactSlop is the tiny overlap in pixels below which push-out rests so stacked contacts stay persistent across steps for warm starting.
+	contactSlop = 0.01
+	// contactMaxPushSpeed caps the soft contact push-out velocity in pixels per second so deep initial overlaps separate smoothly without launching bodies.
+	contactMaxPushSpeed = 300.0
+)
 
 // RigidBody is a 2D dynamic or static rigid body simulated by RigidWorld.
 //
@@ -337,6 +350,21 @@ func (b *RigidBody) applyImpulseRaw(ix, iy, rx, ry float64) {
 	b.AngularVel = float32(float64(b.AngularVel) + float64(cross*invI))
 }
 
+func (b *RigidBody) applyImpulsePairRaw(ix0, iy0, rx0, ry0, ix1, iy1, rx1, ry1 float64) {
+	if b.fixed() {
+		return
+	}
+	invM := float64(b.InvMass)
+	invI := float64(b.InvInertia)
+	ix := ix0 + ix1
+	iy := iy0 + iy1
+	b.VX = float32(float64(b.VX) + float64(ix*invM))
+	b.VY = float32(float64(b.VY) + float64(iy*invM))
+	cross0 := float64(rx0*iy0) - float64(ry0*ix0)
+	cross1 := float64(rx1*iy1) - float64(ry1*ix1)
+	b.AngularVel = float32(float64(b.AngularVel) + float64((cross0+cross1)*invI))
+}
+
 func (b *RigidBody) prepareMass() {
 	if b.Shape.Kind == ShapeSegment || b.Shape.Kind == ShapeChain {
 		b.Static = true
@@ -443,7 +471,7 @@ func CanCollideRigid(a, b *RigidBody) bool {
 	return layersInteract(a.Layer, a.Mask, b.Layer, b.Mask)
 }
 
-// RigidWorld simulates 2D rigid bodies and joints with deterministic symplectic Euler integration, a sort-and-sweep broadphase, warm-started sequential impulse contact resolution with friction, positional slop correction, island sleeping and continuous collision of fast bodies against static ones.
+// RigidWorld simulates 2D rigid bodies and joints with deterministic substepped symplectic Euler integration, a sort-and-sweep broadphase, warm-started soft-constraint sequential impulse contact resolution with friction and relaxation, island sleeping and continuous collision of fast bodies against static ones.
 //
 // A dynamic body that moves slower than SleepLinearThreshold and turns slower than SleepAngularThreshold for TimeToSleep seconds is ready to sleep, and the island of bodies connected to it by contacts and joints falls asleep together once every body in it is ready. A sleeping body costs no integration or solving; see RigidBody.Sleeping for what wakes it.
 //
@@ -455,6 +483,8 @@ type RigidWorld struct {
 	GravityX         float32
 	GravityY         float32
 	SolverIterations int
+	// Substeps is the number of solver substeps per Step; zero or negative means DefaultSubsteps.
+	Substeps int
 	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping when it is set.
 	DisableSleep bool
 	// SleepLinearThreshold is the speed in pixels per second below which a body counts as resting; zero, a negative value, NaN or an infinity means DefaultSleepLinearThreshold.
@@ -618,26 +648,35 @@ type rigidContactPoint struct {
 	rBx, rBy    float64
 	massNormal  float64
 	massTangent float64
-	bounceBias  float64
-	// speculativeBias is the approach speed a point still apart by -depth may close in this step, so the solver pushes only once the gap would close.
-	speculativeBias float64
-	pn              float64
-	pt              float64
+	// approachVn is the pre-solve relative normal velocity (vB - vA)·n captured before substeps, used to apply restitution once after the last substep.
+	approachVn float64
+	pn         float64
+	pt         float64
+	warmPn     float64
+	warmPt     float64
+	pushPn     float64
+	totalPn    float64
+	cachePn    float64
+	cachePt    float64
 }
 
 type rigidManifold struct {
 	a, b *RigidBody
 	// sub numbers the manifolds of one pair: the chain segment index against a Chain, 0 otherwise.
-	sub      int
-	nx, ny   float64 // unit normal pointing from A toward B
-	friction float64
+	sub         int
+	nx, ny      float64 // unit normal pointing from A toward B
+	friction    float64
+	restitution float64
 	// approach is the fastest any point of the manifold closed along the normal before this step's solve, in pixels per second, and 0 when none did.
-	approach float64
-	count    int
-	points   [2]rigidContactPoint
+	approach     float64
+	biasRate     float64
+	massScale    float64
+	impulseScale float64
+	count        int
+	points       [2]rigidContactPoint
 }
 
-// Step advances all bodies and joints in w by dt using symplectic Euler integration, deterministic warm-started sequential impulse solving against other bodies and Tiles, continuous collision for fast bodies and positional slop correction, then puts resting islands to sleep and reports the contacts and sensor overlaps that began or ended (ContactEvents, SensorEvents).
+// Step advances all bodies and joints in w by dt using substepped symplectic Euler integration, deterministic warm-started soft-constraint sequential impulse solving with relaxation against other bodies and Tiles, restitution applied once after the last substep, and continuous collision for fast bodies, then puts resting islands to sleep and reports the contacts and sensor overlaps that began or ended (ContactEvents, SensorEvents).
 func (w *RigidWorld) Step(dt time.Duration) {
 	if w == nil || dt <= 0 {
 		return
@@ -647,10 +686,20 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		return
 	}
 
+	substeps := w.Substeps
+	if substeps <= 0 {
+		substeps = DefaultSubsteps
+	}
 	iters := w.SolverIterations
 	if iters <= 0 {
 		iters = DefaultSolverIterations
 	}
+	subH := h / float64(substeps)
+	invSubH := float64(substeps) / h
+	velIters := max(1, (iters+substeps-1)/substeps)
+	pushIters := 2
+	relaxIters := 1
+	jointIters := velIters
 
 	// 1. Prepare body mass/inertia, then wake the islands that were disturbed since the last step.
 	w.stamp++
@@ -668,182 +717,205 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	activeAreas := collectActiveTriggers(w.Triggers)
 	w.wakeDisturbed(activeAreas)
 
-	// 2. Integrate forces + gravity/areas into the velocities of awake bodies.
+	// Record start poses and reset per-body substep deltas (used to update contact separations without re-running collision detection).
+	starts := w.scratch.starts[:0]
+	deltas := w.scratch.deltas[:0]
+	for _, b := range w.Bodies {
+		if b == nil || b.Static || b.sleeping {
+			starts = append(starts, rigidPose{})
+		} else {
+			starts = append(starts, rigidPose{x: b.X, y: b.Y, angle: b.Angle})
+		}
+		deltas = append(deltas, rigidBodyDelta{cosDA: 1})
+	}
+	w.scratch.starts = starts
+	w.scratch.deltas = deltas
+
+	w.jointBreakEvents = w.jointBreakEvents[:0]
+	ignoredPairs := w.buildJointIgnoredPairs()
+
+	// 2. Find candidate pairs with the broadphase once per step, wake sleeping bodies an awake one touches, and detect contact manifolds in deterministic pair order.
 	gx, gy := float64(w.GravityX), float64(w.GravityY)
+	restitutionThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
+	pairs := w.broadphase()
+	w.wakeTouched(pairs)
+	manifolds := w.detectContacts(pairs, h, subH, ignoredPairs)
+	w.updateContactEvents(manifolds, ignoredPairs)
+
+	// 3. Collect awake joints and pinched high-mass-ratio contact pairs, and reset full-step reaction accumulators once before substeps.
+	joints := w.awakeJoints()
+	for _, j := range joints {
+		if rj, ok := j.(stepReactionJoint); ok {
+			rj.resetStepReaction(h)
+		}
+	}
+	pinchPairs := w.findPinchPairs(manifolds)
+
+	// 4. Solve in substeps: integrate velocities, warm-start contacts, solve velocity constraints without penetration bias, solve soft contact push-out into pseudo-velocities at the contact points, integrate positions, then relax velocities without bias.
+	for sub := range substeps {
+		w.integrateSubstepVelocities(activeAreas, gx, gy, subH)
+		if sub == 0 {
+			w.warmStart(manifolds, subH)
+			for mi := range manifolds {
+				m := &manifolds[mi]
+				for k := range m.count {
+					m.points[k].warmPn = m.points[k].pn
+					m.points[k].warmPt = m.points[k].pt
+				}
+			}
+		} else {
+			for mi := range manifolds {
+				applyManifoldWarmStart(&manifolds[mi], deltas)
+			}
+		}
+		for _, j := range joints {
+			j.preStep(subH)
+		}
+		for iter := range velIters {
+			if (sub+iter)&1 == 0 {
+				for mi := range manifolds {
+					solveManifoldVelocitySubstep(&manifolds[mi], deltas, invSubH)
+				}
+			} else {
+				for mi := len(manifolds) - 1; mi >= 0; mi-- {
+					solveManifoldVelocitySubstep(&manifolds[mi], deltas, invSubH)
+				}
+			}
+			for _, pp := range pinchPairs {
+				solvePinchPairVelocity(&manifolds[pp[0]], &manifolds[pp[1]], w.Bodies[pp[2]], deltas, invSubH)
+			}
+			if iter < jointIters {
+				for _, j := range joints {
+					j.solveVelocity()
+				}
+			}
+		}
+		for iter := velIters; iter < jointIters; iter++ {
+			for _, j := range joints {
+				j.solveVelocity()
+			}
+		}
+
+		// Reset push-out pseudo-velocities and push impulses for this substep, then solve soft contact push-out at contact points (linear + angular, zero velocity injection).
+		for i := range deltas {
+			deltas[i].pvx = 0
+			deltas[i].pvy = 0
+			deltas[i].pav = 0
+		}
+		for mi := range manifolds {
+			m := &manifolds[mi]
+			m.points[0].pushPn = 0
+			m.points[1].pushPn = 0
+		}
+		for iter := range pushIters {
+			if (sub+iter)&1 == 0 {
+				for mi := range manifolds {
+					solveManifoldPushOut(&manifolds[mi], deltas)
+				}
+			} else {
+				for mi := len(manifolds) - 1; mi >= 0; mi-- {
+					solveManifoldPushOut(&manifolds[mi], deltas)
+				}
+			}
+			for _, pp := range pinchPairs {
+				solvePinchPairPushOut(&manifolds[pp[0]], &manifolds[pp[1]], w.Bodies[pp[2]], deltas)
+			}
+		}
+
+		// Integrate positions for this substep using velocity + soft push-out pseudo-velocity, and update per-body deltas from start poses.
+		lastSub := sub == substeps-1
+		for i, b := range w.Bodies {
+			if b == nil || b.Static || b.sleeping {
+				continue
+			}
+			if b.Kinematic && b.targetPending && lastSub {
+				// A target lands the body exactly on its pose, which integrating the velocity that leads there may miss by rounding.
+				b.X, b.Y, b.Angle = b.target.x, b.target.y, b.target.angle
+				b.targetPending = false
+			} else {
+				d := &deltas[i]
+				b.X = float32(float64(b.X) + float64((float64(b.VX)+d.pvx)*subH))
+				b.Y = float32(float64(b.Y) + float64((float64(b.VY)+d.pvy)*subH))
+				b.Angle = float32(float64(b.Angle) + float64((float64(b.AngularVel)+d.pav)*subH))
+			}
+			updateBodyDelta(&deltas[i], b, starts[i])
+		}
+
+		// Project rigid joint positions and refresh their bodies' deltas so subsequent substeps see the corrected poses.
+		for _, j := range joints {
+			j.solvePosition()
+			a, b := jointPair(j)
+			if w.inWorld(a) && !a.Static && !a.sleeping {
+				updateBodyDelta(&deltas[a.index], a, starts[a.index])
+			}
+			if w.inWorld(b) && !b.Static && !b.sleeping {
+				updateBodyDelta(&deltas[b.index], b, starts[b.index])
+			}
+		}
+
+		// Relaxation iterations without bias in alternating manifold order so velocities stay consistent with the updated poses and stacks settle cleanly.
+		for iter := range relaxIters {
+			if (sub+iter)&1 == 0 {
+				for mi := len(manifolds) - 1; mi >= 0; mi-- {
+					solveManifoldVelocitySubstep(&manifolds[mi], deltas, invSubH)
+				}
+			} else {
+				for mi := range manifolds {
+					solveManifoldVelocitySubstep(&manifolds[mi], deltas, invSubH)
+				}
+			}
+			for _, pp := range pinchPairs {
+				solvePinchPairVelocity(&manifolds[pp[0]], &manifolds[pp[1]], w.Bodies[pp[2]], deltas, invSubH)
+			}
+		}
+
+		for mi := range manifolds {
+			m := &manifolds[mi]
+			for k := range m.count {
+				m.points[k].totalPn += m.points[k].pn
+				if sub > 0 {
+					m.points[k].warmPn = m.points[k].pn
+					m.points[k].warmPt = m.points[k].pt
+				}
+			}
+		}
+	}
+
+	// Clear accumulated external forces once after all substeps have integrated them.
 	for _, b := range w.Bodies {
 		if b == nil || b.fixed() || b.sleeping {
 			continue
 		}
-		invM := float64(b.InvMass)
-		invI := float64(b.InvInertia)
-		gScale := float64(b.EffectiveGravityScale())
-
-		var vx, vy, av float64
-		if len(activeAreas) == 0 {
-			ax := float64(gx*gScale) + float64(b.forceX*invM)
-			ay := float64(gy*gScale) + float64(b.forceY*invM)
-			vx = float64(b.VX) + float64(ax*h)
-			vy = float64(b.VY) + float64(ay*h)
-			av = float64(b.AngularVel) + float64(float64(b.torque*invI)*h)
-
-			if b.LinearDamping > 0 {
-				factor := 1.0 / (1.0 + float64(float64(b.LinearDamping)*h))
-				vx *= factor
-				vy *= factor
-			}
-			if b.AngularDamping > 0 {
-				factor := 1.0 / (1.0 + float64(float64(b.AngularDamping)*h))
-				av *= factor
-			}
-		} else {
-			eff := w.evaluateRigidBodyAreas(b, activeAreas)
-			effGX := float64((float64(eff.GravityX) + float64(eff.BuoyancyAccelX)) * gScale)
-			effGY := float64((float64(eff.GravityY) + float64(eff.BuoyancyAccelY)) * gScale)
-			ax := effGX + float64(b.forceX*invM)
-			ay := effGY + float64(b.forceY*invM)
-			vx = float64(b.VX) + float64(ax*h)
-			vy = float64(b.VY) + float64(ay*h)
-			av = float64(b.AngularVel) + float64(float64(b.torque*invI)*h)
-
-			if eff.FluidLinearDrag > 0 {
-				fvx, fvy := float64(eff.FluidVelX), float64(eff.FluidVelY)
-				factor := 1.0 / (1.0 + float64(float64(eff.FluidLinearDrag)*h))
-				vx = fvx + float64((vx-fvx)*factor)
-				vy = fvy + float64((vy-fvy)*factor)
-			}
-			if eff.LinearDamping > 0 {
-				factor := 1.0 / (1.0 + float64(float64(eff.LinearDamping)*h))
-				vx *= factor
-				vy *= factor
-			}
-			angDamp := float64(eff.AngularDamping) + float64(eff.FluidAngularDrag)
-			if angDamp > 0 {
-				factor := 1.0 / (1.0 + float64(angDamp*h))
-				av *= factor
-			}
-		}
-
-		b.VX = float32(vx)
-		b.VY = float32(vy)
-		b.AngularVel = float32(av)
 		b.forceX = 0
 		b.forceY = 0
 		b.torque = 0
 	}
 
-	w.jointBreakEvents = w.jointBreakEvents[:0]
-	ignoredPairs := w.buildJointIgnoredPairs()
-
-	// 3. Find candidate pairs with the broadphase, wake sleeping bodies an awake one touches, and detect contact manifolds in deterministic pair order.
-	restitutionThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
-	pairs := w.broadphase()
-	w.wakeTouched(pairs)
-	manifolds := w.detectContacts(pairs, restitutionThresh, h, ignoredPairs)
-	w.updateContactEvents(manifolds, ignoredPairs)
-	w.warmStart(manifolds, h)
-
-	// 4. Pre-step the joints of awake bodies (applies spring forces and prepares rigid joint constraint matrices).
-	joints := w.awakeJoints()
-	for _, j := range joints {
-		j.preStep(h)
-	}
-
-	// 5. Sequential impulse velocity solver.
-	for range iters {
-		for mi := range manifolds {
-			solveManifoldVelocity(&manifolds[mi])
-		}
-		for _, j := range joints {
-			j.solveVelocity()
+	// Scale the final substep's relaxed impulses back to full-step length h for the contact cache.
+	subScale := float64(substeps)
+	for mi := range manifolds {
+		m := &manifolds[mi]
+		for k := range m.count {
+			m.points[k].cachePn = m.points[k].pn * subScale
+			m.points[k].cachePt = m.points[k].pt * subScale
 		}
 	}
+
+	// 5. Store warm-start impulses (before restitution), then apply restitution once after the last substep.
 	w.storeContacts(manifolds, h)
+	for mi := range manifolds {
+		applyManifoldRestitution(&manifolds[mi], deltas, restitutionThresh)
+	}
 
-	// 5b. Evaluate break thresholds and remove broken joints before positional correction.
+	// 6. Evaluate break thresholds and remove broken joints deterministically.
 	if w.evaluateBreakableJoints() {
 		ignoredPairs = w.buildJointIgnoredPairs()
 		joints = w.awakeJoints()
 	}
 
-	// 6. Integrate positions (symplectic Euler), then sweep fast bodies against static ones.
-	starts := w.scratch.starts[:0]
-	for _, b := range w.Bodies {
-		if b == nil || b.Static || b.sleeping {
-			starts = append(starts, rigidPose{})
-			continue
-		}
-		starts = append(starts, rigidPose{x: b.X, y: b.Y, angle: b.Angle})
-		if b.Kinematic && b.targetPending {
-			// A target lands the body exactly on its pose, which integrating the velocity that leads there may miss by rounding.
-			b.X, b.Y, b.Angle = b.target.x, b.target.y, b.target.angle
-			b.targetPending = false
-			continue
-		}
-		b.X = float32(float64(b.X) + float64(float64(b.VX)*h))
-		b.Y = float32(float64(b.Y) + float64(float64(b.VY)*h))
-		b.Angle = float32(float64(b.Angle) + float64(float64(b.AngularVel)*h))
-	}
-	w.scratch.starts = starts
+	// 7. Sweep fast bodies against static ones, and wake any sleeping body overlapped by a moved body.
 	w.sweepFastBodies(starts, manifolds, restitutionThresh, ignoredPairs)
-
-	// 7. Positional slop correction (projection without injecting artificial bounce velocity).
-	const (
-		posIterations = 4
-		posSlop       = 0.01
-		posPercent    = 0.5
-	)
-	// Each iteration takes its pairs from a fresh broadphase pass, so a pair that the previous iteration's corrections pushed together is corrected too.
-	pairManifolds := w.scratch.pairManifolds[:0]
-	for range posIterations {
-		for _, key := range w.broadphase() {
-			ia, ib := int(key>>32), int(uint32(key))
-			a, b := w.Bodies[ia], w.Bodies[ib]
-			// A kinematic body that moved into a sleeping one this step wakes it here, because a body that stops where its target landed it has neither a velocity nor a hand-made move for the next step's wakeTouched to notice.
-			if (!a.awakeDynamic() && !b.awakeDynamic() && !(b.sleeping && kinematicMovedFrom(a, starts[ia])) && !(a.sleeping && kinematicMovedFrom(b, starts[ib]))) || a.Sensor || b.Sensor {
-				continue
-			}
-			if ignoredPairs != nil {
-				if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
-					continue
-				}
-			}
-			pairManifolds = collideRigidPair(a, b, pairManifolds[:0])
-			for _, m := range pairManifolds {
-				maxDepth := 0.0
-				for k := range m.count {
-					if m.points[k].depth > maxDepth {
-						maxDepth = m.points[k].depth
-					}
-				}
-				if maxDepth <= posSlop {
-					continue
-				}
-				// An awake body pushed into a sleeping one this step wakes it, so the pair separates and both are solved from the next step on.
-				a.wakeIfSleeping()
-				b.wakeIfSleeping()
-				invMassSum := float64(a.InvMass) + float64(b.InvMass)
-				if invMassSum <= 0 {
-					continue
-				}
-				corr := (maxDepth - posSlop) * posPercent / invMassSum
-				cx := m.nx * corr
-				cy := m.ny * corr
-				if !a.fixed() {
-					a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
-					a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
-				}
-				if !b.fixed() {
-					b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
-					b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
-				}
-			}
-		}
-		pairManifolds = w.correctTilePositions(pairManifolds, posSlop, posPercent)
-		for _, j := range joints {
-			j.solvePosition()
-		}
-	}
-	w.scratch.pairManifolds = pairManifolds
+	w.wakePostStep(starts, ignoredPairs)
 
 	// 8. Synchronize Shape geometry to updated centers.
 	for _, b := range w.Bodies {
@@ -879,6 +951,78 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		for _, ev := range w.sensorEvents {
 			w.OnSensor(ev)
 		}
+	}
+}
+
+func updateBodyDelta(d *rigidBodyDelta, b *RigidBody, start rigidPose) {
+	d.dx = float64(b.X) - float64(start.x)
+	d.dy = float64(b.Y) - float64(start.y)
+	da := float64(b.Angle) - float64(start.angle)
+	if da == 0 || b.Shape.Kind == ShapeCircle {
+		d.sinDA = 0
+		d.cosDA = 1
+	} else {
+		d.sinDA, d.cosDA = detmath.Sincos(da)
+	}
+}
+
+func (w *RigidWorld) integrateSubstepVelocities(activeAreas []activeAreaEntry, gx, gy, subH float64) {
+	for _, b := range w.Bodies {
+		if b == nil || b.fixed() || b.sleeping {
+			continue
+		}
+		invM := float64(b.InvMass)
+		invI := float64(b.InvInertia)
+		gScale := float64(b.EffectiveGravityScale())
+
+		var vx, vy, av float64
+		if len(activeAreas) == 0 {
+			ax := float64(gx*gScale) + float64(b.forceX*invM)
+			ay := float64(gy*gScale) + float64(b.forceY*invM)
+			vx = float64(b.VX) + float64(ax*subH)
+			vy = float64(b.VY) + float64(ay*subH)
+			av = float64(b.AngularVel) + float64(float64(b.torque*invI)*subH)
+
+			if b.LinearDamping > 0 {
+				factor := 1.0 / (1.0 + float64(float64(b.LinearDamping)*subH))
+				vx *= factor
+				vy *= factor
+			}
+			if b.AngularDamping > 0 {
+				factor := 1.0 / (1.0 + float64(float64(b.AngularDamping)*subH))
+				av *= factor
+			}
+		} else {
+			eff := w.evaluateRigidBodyAreas(b, activeAreas)
+			effGX := float64((float64(eff.GravityX) + float64(eff.BuoyancyAccelX)) * gScale)
+			effGY := float64((float64(eff.GravityY) + float64(eff.BuoyancyAccelY)) * gScale)
+			ax := effGX + float64(b.forceX*invM)
+			ay := effGY + float64(b.forceY*invM)
+			vx = float64(b.VX) + float64(ax*subH)
+			vy = float64(b.VY) + float64(ay*subH)
+			av = float64(b.AngularVel) + float64(float64(b.torque*invI)*subH)
+
+			if eff.FluidLinearDrag > 0 {
+				fvx, fvy := float64(eff.FluidVelX), float64(eff.FluidVelY)
+				factor := 1.0 / (1.0 + float64(float64(eff.FluidLinearDrag)*subH))
+				vx = fvx + float64((vx-fvx)*factor)
+				vy = fvy + float64((vy-fvy)*factor)
+			}
+			if eff.LinearDamping > 0 {
+				factor := 1.0 / (1.0 + float64(float64(eff.LinearDamping)*subH))
+				vx *= factor
+				vy *= factor
+			}
+			angDamp := float64(eff.AngularDamping) + float64(eff.FluidAngularDrag)
+			if angDamp > 0 {
+				factor := 1.0 / (1.0 + float64(angDamp*subH))
+				av *= factor
+			}
+		}
+
+		b.VX = float32(vx)
+		b.VY = float32(vy)
+		b.AngularVel = float32(av)
 	}
 }
 
@@ -934,7 +1078,7 @@ func (w *RigidWorld) evaluateBreakableJoints() bool {
 }
 
 // detectContacts returns the contact manifolds of the candidate pairs in which at least one body is awake and dynamic, neither is a sensor and no joint in ignoredPairs keeps them apart, in pair order, followed by those of each awake dynamic body with Tiles in body order, all prepared for solving.
-func (w *RigidWorld) detectContacts(pairs []uint64, restitutionThresh, h float64, ignoredPairs map[[2]*RigidBody]struct{}) []rigidManifold {
+func (w *RigidWorld) detectContacts(pairs []uint64, h, subH float64, ignoredPairs map[[2]*RigidBody]struct{}) []rigidManifold {
 	manifolds := w.scratch.manifolds[:0]
 	for _, key := range pairs {
 		a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
@@ -949,18 +1093,37 @@ func (w *RigidWorld) detectContacts(pairs []uint64, restitutionThresh, h float64
 		first := len(manifolds)
 		manifolds = collideRigidPair(a, b, manifolds)
 		for k := first; k < len(manifolds); k++ {
-			prepareManifold(&manifolds[k], restitutionThresh, h)
+			prepareManifold(&manifolds[k], h, subH)
 		}
 	}
-	manifolds = w.detectTileContacts(manifolds, restitutionThresh, h)
+	manifolds = w.detectTileContacts(manifolds, h, subH)
 	w.scratch.manifolds = manifolds
 	return manifolds
 }
 
-func prepareManifold(m *rigidManifold, restitutionThresh, h float64) {
+// makeContactSoftness returns the implicit-Euler soft-constraint parameters (biasRate, massScale, impulseScale) for natural frequency hertz, damping ratio zeta and substep subH.
+func makeContactSoftness(hertz, zeta, subH float64) (biasRate, massScale, impulseScale float64) {
+	if hertz <= 0 || subH <= 0 {
+		return 0, 1, 0
+	}
+	omega := float64(float64(2.0*math.Pi) * hertz)
+	hOmega := float64(subH * omega)
+	a1 := float64(2.0*zeta) + hOmega
+	a2 := float64(hOmega * a1)
+	a3 := 1.0 / (1.0 + a2)
+	return omega / a1, a2 * a3, a3
+}
+
+func prepareManifold(m *rigidManifold, h, subH float64) {
 	a, b := m.a, m.b
 	m.friction = math.Sqrt(max(0, float64(a.Friction)) * max(0, float64(b.Friction)))
-	e := max(0, max(float64(a.Restitution), float64(b.Restitution)))
+	m.restitution = max(0, max(float64(a.Restitution), float64(b.Restitution)))
+	if subH > 0 {
+		hertz := contactSubstepHertzFraction / subH
+		m.biasRate, m.massScale, m.impulseScale = makeContactSoftness(hertz, contactDampingRatio, subH)
+	} else {
+		m.biasRate, m.massScale, m.impulseScale = 0, 1, 0
+	}
 
 	nx, ny := m.nx, m.ny
 	tx, ty := -ny, nx
@@ -988,56 +1151,595 @@ func prepareManifold(m *rigidManifold, restitutionThresh, h float64) {
 			cp.massTangent = 1.0 / kTangent
 		}
 
-		// Relative velocity of B with respect to A at contact point.
+		// Relative velocity of B with respect to A at contact point before solving.
 		vAx := float64(a.VX) - float64(float64(a.AngularVel)*cp.rAy)
 		vAy := float64(a.VY) + float64(float64(a.AngularVel)*cp.rAx)
 		vBx := float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
 		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
 		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
+		cp.approachVn = vn
 		m.approach = max(m.approach, -vn)
-
-		cp.speculativeBias = 0
-		if e > 0 && -vn > restitutionThresh {
-			cp.bounceBias = e * vn // negative, so -(vn + bounceBias) boosts separation impulse
-		} else {
-			cp.bounceBias = 0
-			if cp.depth < 0 {
-				cp.speculativeBias = -cp.depth / h
-			}
-		}
 	}
 }
 
-func solveManifoldVelocity(m *rigidManifold) {
+// applyManifoldWarmStart re-applies the current per-substep impulses of m at the bodies' updated lever arms for substeps after the first.
+func applyManifoldWarmStart(m *rigidManifold, deltas []rigidBodyDelta) {
 	a, b := m.a, m.b
 	nx, ny := m.nx, m.ny
 	tx, ty := -ny, nx
 
+	var dA, dB rigidBodyDelta
+	if a.Static {
+		dA.cosDA = 1
+	} else {
+		dA = deltas[a.index]
+	}
+	if b.Static {
+		dB.cosDA = 1
+	} else {
+		dB = deltas[b.index]
+	}
+	rotA := dA.sinDA != 0 || dA.cosDA != 1
+	rotB := dB.sinDA != 0 || dB.cosDA != 1
+
+	if m.count == 2 {
+		cp0, cp1 := &m.points[0], &m.points[1]
+		cp0.pn, cp0.pt = cp0.warmPn, cp0.warmPt
+		cp1.pn, cp1.pt = cp1.warmPn, cp1.warmPt
+		if cp0.pn != 0 || cp0.pt != 0 || cp1.pn != 0 || cp1.pt != 0 {
+			rAx0, rAy0 := cp0.rAx, cp0.rAy
+			rAx1, rAy1 := cp1.rAx, cp1.rAy
+			if rotA {
+				rAx0 = float64(cp0.rAx*dA.cosDA) - float64(cp0.rAy*dA.sinDA)
+				rAy0 = float64(cp0.rAx*dA.sinDA) + float64(cp0.rAy*dA.cosDA)
+				rAx1 = float64(cp1.rAx*dA.cosDA) - float64(cp1.rAy*dA.sinDA)
+				rAy1 = float64(cp1.rAx*dA.sinDA) + float64(cp1.rAy*dA.cosDA)
+			}
+			rBx0, rBy0 := cp0.rBx, cp0.rBy
+			rBx1, rBy1 := cp1.rBx, cp1.rBy
+			if rotB {
+				rBx0 = float64(cp0.rBx*dB.cosDA) - float64(cp0.rBy*dB.sinDA)
+				rBy0 = float64(cp0.rBx*dB.sinDA) + float64(cp0.rBy*dB.cosDA)
+				rBx1 = float64(cp1.rBx*dB.cosDA) - float64(cp1.rBy*dB.sinDA)
+				rBy1 = float64(cp1.rBx*dB.sinDA) + float64(cp1.rBy*dB.cosDA)
+			}
+			px0 := float64(cp0.pn*nx) + float64(cp0.pt*tx)
+			py0 := float64(cp0.pn*ny) + float64(cp0.pt*ty)
+			px1 := float64(cp1.pn*nx) + float64(cp1.pt*tx)
+			py1 := float64(cp1.pn*ny) + float64(cp1.pt*ty)
+			a.applyImpulsePairRaw(-px0, -py0, rAx0, rAy0, -px1, -py1, rAx1, rAy1)
+			b.applyImpulsePairRaw(px0, py0, rBx0, rBy0, px1, py1, rBx1, rBy1)
+		}
+		return
+	}
 	for i := range m.count {
 		cp := &m.points[i]
+		cp.pn = cp.warmPn
+		cp.pt = cp.warmPt
+		if cp.pn == 0 && cp.pt == 0 {
+			continue
+		}
+		rAx, rAy := cp.rAx, cp.rAy
+		if rotA {
+			rAx = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			rAy = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		rBx, rBy := cp.rBx, cp.rBy
+		if rotB {
+			rBx = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			rBy = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+		px := float64(cp.pn*nx) + float64(cp.pt*tx)
+		py := float64(cp.pn*ny) + float64(cp.pt*ty)
+		a.applyImpulseRaw(-px, -py, rAx, rAy)
+		b.applyImpulseRaw(px, py, rBx, rBy)
+	}
+}
 
-		// Normal impulse.
-		vAx := float64(a.VX) - float64(float64(a.AngularVel)*cp.rAy)
-		vAy := float64(a.VY) + float64(float64(a.AngularVel)*cp.rAx)
-		vBx := float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
-		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
-		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
+// findPinchPairs finds dynamic bodies pinched between two opposing contacts whose partner inverse masses sum to less than half the body's own inverse mass (high mass ratio sandwiches such as 100:1 or 1000:1 on a static or heavy support). Solving each pair as a 2-manifold block eliminates the ill-conditioned Gauss-Seidel spectral radius in one pass without modifying masses or freezing bodies.
+func (w *RigidWorld) findPinchPairs(manifolds []rigidManifold) [][3]int {
+	pairs := w.scratch.pinchPairs[:0]
+	if len(manifolds) < 2 {
+		w.scratch.pinchPairs = pairs
+		return pairs
+	}
+	n := len(w.Bodies)
+	best := w.scratch.pinchBest[:0]
+	second := w.scratch.pinchSecond[:0]
+	for range n {
+		best = append(best, -1)
+		second = append(second, -1)
+	}
+	otherInvM := func(m *rigidManifold, body *RigidBody) float64 {
+		if m.a == body {
+			return float64(m.b.InvMass)
+		}
+		return float64(m.a.InvMass)
+	}
+	considerBest := func(body *RigidBody, mi int, invMO float64) {
+		if body.fixed() || body.sleeping {
+			return
+		}
+		bi := body.index
+		prev := best[bi]
+		if prev < 0 || invMO < otherInvM(&manifolds[prev], body) {
+			best[bi] = mi
+		}
+	}
+	for mi := range manifolds {
+		m := &manifolds[mi]
+		if m.count == 0 {
+			continue
+		}
+		considerBest(m.a, mi, float64(m.b.InvMass))
+		considerBest(m.b, mi, float64(m.a.InvMass))
+	}
+	normalOn := func(m *rigidManifold, body *RigidBody) (float64, float64) {
+		if m.b == body {
+			return m.nx, m.ny
+		}
+		return -m.nx, -m.ny
+	}
+	considerSecond := func(body *RigidBody, mi int, invMO float64) {
+		if body.fixed() || body.sleeping {
+			return
+		}
+		bi := body.index
+		b0 := best[bi]
+		if b0 < 0 || b0 == mi {
+			return
+		}
+		n0x, n0y := normalOn(&manifolds[b0], body)
+		n1x, n1y := normalOn(&manifolds[mi], body)
+		if float64(n0x*n1x)+float64(n0y*n1y) > -0.5 {
+			return
+		}
+		prev := second[bi]
+		if prev < 0 || invMO < otherInvM(&manifolds[prev], body) {
+			second[bi] = mi
+		}
+	}
+	for mi := range manifolds {
+		m := &manifolds[mi]
+		if m.count == 0 {
+			continue
+		}
+		considerSecond(m.a, mi, float64(m.b.InvMass))
+		considerSecond(m.b, mi, float64(m.a.InvMass))
+	}
+	for bi, b := range w.Bodies {
+		if b == nil || b.fixed() || b.sleeping {
+			continue
+		}
+		m0, m1 := best[bi], second[bi]
+		if m0 < 0 || m1 < 0 {
+			continue
+		}
+		invM0 := otherInvM(&manifolds[m0], b)
+		invM1 := otherInvM(&manifolds[m1], b)
+		if invM0+invM1 > 0 && invM0+invM1 < float64(0.5*float64(b.InvMass)) {
+			pairs = append(pairs, [3]int{m0, m1, bi})
+		}
+	}
+	w.scratch.pinchBest = best
+	w.scratch.pinchSecond = second
+	w.scratch.pinchPairs = pairs
+	return pairs
+}
 
-		dPn := float64(cp.massNormal * (-(vn + cp.bounceBias + cp.speculativeBias)))
-		oldPn := cp.pn
-		cp.pn = max(oldPn+dPn, 0)
-		dPn = cp.pn - oldPn
+func bodyDeltaFor(b *RigidBody, deltas []rigidBodyDelta) *rigidBodyDelta {
+	if b.Static {
+		return nil
+	}
+	return &deltas[b.index]
+}
 
-		px, py := dPn*nx, dPn*ny
-		a.applyImpulseRaw(-px, -py, cp.rAx, cp.rAy)
-		b.applyImpulseRaw(px, py, cp.rBx, cp.rBy)
+func manifoldAvgArmsAndSep(m *rigidManifold, deltas []rigidBodyDelta) (rAx, rAy, rBx, rBy, sep float64) {
+	dA := bodyDeltaFor(m.a, deltas)
+	dB := bodyDeltaFor(m.b, deltas)
+	rotA := dA != nil && (dA.sinDA != 0 || dA.cosDA != 1)
+	rotB := dB != nil && (dB.sinDA != 0 || dB.cosDA != 1)
+	var dAx, dAy, dBx, dBy float64
+	if dA != nil {
+		dAx, dAy = dA.dx, dA.dy
+	}
+	if dB != nil {
+		dBx, dBy = dB.dx, dB.dy
+	}
+	invCount := 1.0 / float64(m.count)
+	for i := range m.count {
+		cp := &m.points[i]
+		ax, ay := cp.rAx, cp.rAy
+		if rotA {
+			ax = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			ay = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		bx, by := cp.rBx, cp.rBy
+		if rotB {
+			bx = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			by = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+		rAx += ax
+		rAy += ay
+		rBx += bx
+		rBy += by
+		dpX := (dBx + (bx - cp.rBx)) - (dAx + (ax - cp.rAx))
+		dpY := (dBy + (by - cp.rBy)) - (dAy + (ay - cp.rAy))
+		sep += -cp.depth + float64(dpX*m.nx) + float64(dpY*m.ny)
+	}
+	return rAx * invCount, rAy * invCount, rBx * invCount, rBy * invCount, sep * invCount
+}
 
-		// Friction impulse.
-		if m.friction > 0 {
-			vAx = float64(a.VX) - float64(float64(a.AngularVel)*cp.rAy)
-			vAy = float64(a.VY) + float64(float64(a.AngularVel)*cp.rAx)
-			vBx = float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
-			vBy = float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
+func distributeManifoldNormalImpulse(m *rigidManifold, deltas []rigidBodyDelta, newTotal float64) {
+	oldTotal := m.points[0].pn
+	if m.count == 2 {
+		oldTotal += m.points[1].pn
+	}
+	dTotal := newTotal - oldTotal
+	if dTotal == 0 {
+		return
+	}
+	dA := bodyDeltaFor(m.a, deltas)
+	dB := bodyDeltaFor(m.b, deltas)
+	rotA := dA != nil && (dA.sinDA != 0 || dA.cosDA != 1)
+	rotB := dB != nil && (dB.sinDA != 0 || dB.cosDA != 1)
+	var dP [2]float64
+	if m.count == 1 {
+		dP[0] = dTotal
+		m.points[0].pn = newTotal
+	} else if dTotal >= 0 || oldTotal <= 0 {
+		half := float64(dTotal * 0.5)
+		dP[0], dP[1] = half, half
+		m.points[0].pn = max(0, m.points[0].pn+half)
+		m.points[1].pn = max(0, m.points[1].pn+half)
+	} else {
+		scale := newTotal / oldTotal
+		n0 := float64(m.points[0].pn * scale)
+		n1 := float64(m.points[1].pn * scale)
+		dP[0] = n0 - m.points[0].pn
+		dP[1] = n1 - m.points[1].pn
+		m.points[0].pn = n0
+		m.points[1].pn = n1
+	}
+	if m.count == 2 {
+		cp0, cp1 := &m.points[0], &m.points[1]
+		rAx0, rAy0 := cp0.rAx, cp0.rAy
+		rAx1, rAy1 := cp1.rAx, cp1.rAy
+		if rotA {
+			rAx0 = float64(cp0.rAx*dA.cosDA) - float64(cp0.rAy*dA.sinDA)
+			rAy0 = float64(cp0.rAx*dA.sinDA) + float64(cp0.rAy*dA.cosDA)
+			rAx1 = float64(cp1.rAx*dA.cosDA) - float64(cp1.rAy*dA.sinDA)
+			rAy1 = float64(cp1.rAx*dA.sinDA) + float64(cp1.rAy*dA.cosDA)
+		}
+		rBx0, rBy0 := cp0.rBx, cp0.rBy
+		rBx1, rBy1 := cp1.rBx, cp1.rBy
+		if rotB {
+			rBx0 = float64(cp0.rBx*dB.cosDA) - float64(cp0.rBy*dB.sinDA)
+			rBy0 = float64(cp0.rBx*dB.sinDA) + float64(cp0.rBy*dB.cosDA)
+			rBx1 = float64(cp1.rBx*dB.cosDA) - float64(cp1.rBy*dB.sinDA)
+			rBy1 = float64(cp1.rBx*dB.sinDA) + float64(cp1.rBy*dB.cosDA)
+		}
+		px0, py0 := dP[0]*m.nx, dP[0]*m.ny
+		px1, py1 := dP[1]*m.nx, dP[1]*m.ny
+		m.a.applyImpulsePairRaw(-px0, -py0, rAx0, rAy0, -px1, -py1, rAx1, rAy1)
+		m.b.applyImpulsePairRaw(px0, py0, rBx0, rBy0, px1, py1, rBx1, rBy1)
+		return
+	}
+	if dP[0] != 0 {
+		cp := &m.points[0]
+		rAx, rAy := cp.rAx, cp.rAy
+		if rotA {
+			rAx = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			rAy = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		rBx, rBy := cp.rBx, cp.rBy
+		if rotB {
+			rBx = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			rBy = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+		px, py := dP[0]*m.nx, dP[0]*m.ny
+		m.a.applyImpulseRaw(-px, -py, rAx, rAy)
+		m.b.applyImpulseRaw(px, py, rBx, rBy)
+	}
+}
+
+func distributeManifoldPushImpulse(m *rigidManifold, deltas []rigidBodyDelta, newTotal float64) {
+	oldTotal := m.points[0].pushPn
+	if m.count == 2 {
+		oldTotal += m.points[1].pushPn
+	}
+	dTotal := newTotal - oldTotal
+	if dTotal == 0 {
+		return
+	}
+	dA := bodyDeltaFor(m.a, deltas)
+	dB := bodyDeltaFor(m.b, deltas)
+	rotA := dA != nil && (dA.sinDA != 0 || dA.cosDA != 1)
+	rotB := dB != nil && (dB.sinDA != 0 || dB.cosDA != 1)
+	var dP [2]float64
+	if m.count == 1 {
+		dP[0] = dTotal
+		m.points[0].pushPn = newTotal
+	} else if dTotal >= 0 || oldTotal <= 0 {
+		half := float64(dTotal * 0.5)
+		dP[0], dP[1] = half, half
+		m.points[0].pushPn = max(0, m.points[0].pushPn+half)
+		m.points[1].pushPn = max(0, m.points[1].pushPn+half)
+	} else {
+		scale := newTotal / oldTotal
+		n0 := float64(m.points[0].pushPn * scale)
+		n1 := float64(m.points[1].pushPn * scale)
+		dP[0] = n0 - m.points[0].pushPn
+		dP[1] = n1 - m.points[1].pushPn
+		m.points[0].pushPn = n0
+		m.points[1].pushPn = n1
+	}
+	applyPush := func(body *RigidBody, d *rigidBodyDelta, ix, iy, rx, ry float64) {
+		if body.fixed() || d == nil {
+			return
+		}
+		invM := float64(body.InvMass)
+		invI := float64(body.InvInertia)
+		d.pvx += float64(ix * invM)
+		d.pvy += float64(iy * invM)
+		cross := float64(rx*iy) - float64(ry*ix)
+		d.pav += float64(cross * invI)
+	}
+	for i := range m.count {
+		if dP[i] == 0 {
+			continue
+		}
+		cp := &m.points[i]
+		rAx, rAy := cp.rAx, cp.rAy
+		if rotA {
+			rAx = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			rAy = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		rBx, rBy := cp.rBx, cp.rBy
+		if rotB {
+			rBx = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			rBy = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+		px, py := dP[i]*m.nx, dP[i]*m.ny
+		applyPush(m.a, dA, -px, -py, rAx, rAy)
+		applyPush(m.b, dB, px, py, rBx, rBy)
+	}
+}
+
+func pinchPairMatrix(m0, m1 *rigidManifold, shared *RigidBody, deltas []rigidBodyDelta) (k00, k01, k11, det float64, rA0x, rA0y, rB0x, rB0y, sep0, rA1x, rA1y, rB1x, rB1y, sep1 float64, ok bool) {
+	rA0x, rA0y, rB0x, rB0y, sep0 = manifoldAvgArmsAndSep(m0, deltas)
+	rA1x, rA1y, rB1x, rB1y, sep1 = manifoldAvgArmsAndSep(m1, deltas)
+
+	rnA0 := float64(rA0x*m0.ny) - float64(rA0y*m0.nx)
+	rnB0 := float64(rB0x*m0.ny) - float64(rB0y*m0.nx)
+	rnA1 := float64(rA1x*m1.ny) - float64(rA1y*m1.nx)
+	rnB1 := float64(rB1x*m1.ny) - float64(rB1y*m1.nx)
+
+	k00 = float64(m0.a.InvMass) + float64(m0.b.InvMass) + float64(float64(float64(m0.a.InvInertia)*rnA0)*rnA0) + float64(float64(float64(m0.b.InvInertia)*rnB0)*rnB0)
+	k11 = float64(m1.a.InvMass) + float64(m1.b.InvMass) + float64(float64(float64(m1.a.InvInertia)*rnA1)*rnA1) + float64(float64(float64(m1.b.InvInertia)*rnB1)*rnB1)
+
+	s0, rL0n := -1.0, rnA0
+	if m0.b == shared {
+		s0, rL0n = 1.0, rnB0
+	}
+	s1, rL1n := -1.0, rnA1
+	if m1.b == shared {
+		s1, rL1n = 1.0, rnB1
+	}
+	sign := s0 * s1
+	nDot := float64(m0.nx*m1.nx) + float64(m0.ny*m1.ny)
+	k01 = sign * (float64(float64(shared.InvMass)*nDot) + float64(float64(float64(shared.InvInertia)*rL0n)*rL1n))
+	det = float64(k00*k11) - float64(k01*k01)
+	ok = det > 1e-12
+	return
+}
+
+func solvePinchPairVelocity(m0, m1 *rigidManifold, shared *RigidBody, deltas []rigidBodyDelta, invSubH float64) {
+	k00, k01, k11, det, rA0x, rA0y, rB0x, rB0y, sep0, rA1x, rA1y, rB1x, rB1y, sep1, ok := pinchPairMatrix(m0, m1, shared, deltas)
+	if !ok {
+		return
+	}
+	relVn := func(m *rigidManifold, rAx, rAy, rBx, rBy float64) float64 {
+		vAx := float64(m.a.VX) - float64(float64(m.a.AngularVel)*rAy)
+		vAy := float64(m.a.VY) + float64(float64(m.a.AngularVel)*rAx)
+		vBx := float64(m.b.VX) - float64(float64(m.b.AngularVel)*rBy)
+		vBy := float64(m.b.VY) + float64(float64(m.b.AngularVel)*rBx)
+		return float64((vBx-vAx)*m.nx) + float64((vBy-vAy)*m.ny)
+	}
+	vn0 := relVn(m0, rA0x, rA0y, rB0x, rB0y)
+	vn1 := relVn(m1, rA1x, rA1y, rB1x, rB1y)
+	var bias0, bias1 float64
+	if sep0 > 0 {
+		bias0 = sep0 * invSubH
+	}
+	if sep1 > 0 {
+		bias1 = sep1 * invSubH
+	}
+	p0 := m0.points[0].pn
+	if m0.count == 2 {
+		p0 += m0.points[1].pn
+	}
+	p1 := m1.points[0].pn
+	if m1.count == 2 {
+		p1 += m1.points[1].pn
+	}
+	b0 := (vn0 + bias0) - (float64(k00*p0) + float64(k01*p1))
+	b1 := (vn1 + bias1) - (float64(k01*p0) + float64(k11*p1))
+	x0, x1, solved := solve2x2LCP(k00, k01, k11, det, b0, b1)
+	if !solved {
+		return
+	}
+	distributeManifoldNormalImpulse(m0, deltas, x0)
+	distributeManifoldNormalImpulse(m1, deltas, x1)
+}
+
+func solvePinchPairPushOut(m0, m1 *rigidManifold, shared *RigidBody, deltas []rigidBodyDelta) {
+	k00, k01, k11, det, rA0x, rA0y, rB0x, rB0y, sep0, rA1x, rA1y, rB1x, rB1y, sep1, ok := pinchPairMatrix(m0, m1, shared, deltas)
+	if !ok {
+		return
+	}
+	var bias0, bias1 float64
+	if pen0 := sep0 + contactSlop; pen0 < 0 {
+		bias0 = max(float64(m0.biasRate*pen0), -contactMaxPushSpeed)
+	}
+	if pen1 := sep1 + contactSlop; pen1 < 0 {
+		bias1 = max(float64(m1.biasRate*pen1), -contactMaxPushSpeed)
+	}
+	if bias0 == 0 && bias1 == 0 {
+		return
+	}
+	relPv := func(m *rigidManifold, rAx, rAy, rBx, rBy float64) float64 {
+		var vAx, vAy, vBx, vBy float64
+		if dA := bodyDeltaFor(m.a, deltas); dA != nil {
+			vAx = dA.pvx - float64(dA.pav*rAy)
+			vAy = dA.pvy + float64(dA.pav*rAx)
+		}
+		if dB := bodyDeltaFor(m.b, deltas); dB != nil {
+			vBx = dB.pvx - float64(dB.pav*rBy)
+			vBy = dB.pvy + float64(dB.pav*rBx)
+		}
+		return float64((vBx-vAx)*m.nx) + float64((vBy-vAy)*m.ny)
+	}
+	vn0 := relPv(m0, rA0x, rA0y, rB0x, rB0y)
+	vn1 := relPv(m1, rA1x, rA1y, rB1x, rB1y)
+	p0 := m0.points[0].pushPn
+	if m0.count == 2 {
+		p0 += m0.points[1].pushPn
+	}
+	p1 := m1.points[0].pushPn
+	if m1.count == 2 {
+		p1 += m1.points[1].pushPn
+	}
+	b0 := (vn0 + bias0) - (float64(k00*p0) + float64(k01*p1))
+	b1 := (vn1 + bias1) - (float64(k01*p0) + float64(k11*p1))
+	x0, x1, solved := solve2x2LCP(k00, k01, k11, det, b0, b1)
+	if !solved {
+		return
+	}
+	distributeManifoldPushImpulse(m0, deltas, x0)
+	distributeManifoldPushImpulse(m1, deltas, x1)
+}
+
+// solveManifoldVelocitySubstep solves the non-penetration and Coulomb friction velocity constraints for m without injecting position push-out bias.
+func solveManifoldVelocitySubstep(m *rigidManifold, deltas []rigidBodyDelta, invSubH float64) {
+	if m.count == 0 {
+		return
+	}
+	a, b := m.a, m.b
+	nx, ny := m.nx, m.ny
+	tx, ty := -ny, nx
+
+	var dA, dB rigidBodyDelta
+	if a.Static {
+		dA.cosDA = 1
+	} else {
+		dA = deltas[a.index]
+	}
+	if b.Static {
+		dB.cosDA = 1
+	} else {
+		dB = deltas[b.index]
+	}
+	rotA := dA.sinDA != 0 || dA.cosDA != 1
+	rotB := dB.sinDA != 0 || dB.cosDA != 1
+
+	var rAx, rAy, rBx, rBy [2]float64
+	var specBias [2]float64
+	for i := range m.count {
+		cp := &m.points[i]
+		rAx[i], rAy[i] = cp.rAx, cp.rAy
+		if rotA {
+			rAx[i] = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			rAy[i] = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		rBx[i], rBy[i] = cp.rBx, cp.rBy
+		if rotB {
+			rBx[i] = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			rBy[i] = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+		dpX := (dB.dx + (rBx[i] - cp.rBx)) - (dA.dx + (rAx[i] - cp.rAx))
+		dpY := (dB.dy + (rBy[i] - cp.rBy)) - (dA.dy + (rAy[i] - cp.rAy))
+		sep := -cp.depth + float64(dpX*nx) + float64(dpY*ny)
+		if sep > 0 {
+			specBias[i] = sep * invSubH
+		}
+	}
+
+	// Normal impulses: solve 2-point contacts simultaneously with a 2x2 block LCP so flat stacks stay symmetric without tipping from sequential point order.
+	solvedBlock := false
+	if m.count == 2 {
+		invMA, invIA := float64(a.InvMass), float64(a.InvInertia)
+		invMB, invIB := float64(b.InvMass), float64(b.InvInertia)
+		invM := invMA + invMB
+		rnA0 := float64(rAx[0]*ny) - float64(rAy[0]*nx)
+		rnB0 := float64(rBx[0]*ny) - float64(rBy[0]*nx)
+		rnA1 := float64(rAx[1]*ny) - float64(rAy[1]*nx)
+		rnB1 := float64(rBx[1]*ny) - float64(rBy[1]*nx)
+
+		k11 := invM + float64(float64(invIA*rnA0)*rnA0) + float64(float64(invIB*rnB0)*rnB0)
+		k22 := invM + float64(float64(invIA*rnA1)*rnA1) + float64(float64(invIB*rnB1)*rnB1)
+		k12 := invM + float64(float64(invIA*rnA0)*rnA1) + float64(float64(invIB*rnB0)*rnB1)
+		det := float64(k11*k22) - float64(k12*k12)
+		if det > 1e-12 && float64(k11*k11) < float64(1000.0*det) {
+			cp0, cp1 := &m.points[0], &m.points[1]
+			vAx0 := float64(a.VX) - float64(float64(a.AngularVel)*rAy[0])
+			vAy0 := float64(a.VY) + float64(float64(a.AngularVel)*rAx[0])
+			vBx0 := float64(b.VX) - float64(float64(b.AngularVel)*rBy[0])
+			vBy0 := float64(b.VY) + float64(float64(b.AngularVel)*rBx[0])
+			vn0 := float64((vBx0-vAx0)*nx) + float64((vBy0-vAy0)*ny)
+
+			vAx1 := float64(a.VX) - float64(float64(a.AngularVel)*rAy[1])
+			vAy1 := float64(a.VY) + float64(float64(a.AngularVel)*rAx[1])
+			vBx1 := float64(b.VX) - float64(float64(b.AngularVel)*rBy[1])
+			vBy1 := float64(b.VY) + float64(float64(b.AngularVel)*rBx[1])
+			vn1 := float64((vBx1-vAx1)*nx) + float64((vBy1-vAy1)*ny)
+
+			p0, p1 := cp0.pn, cp1.pn
+			b0 := (vn0 + specBias[0]) - (float64(k11*p0) + float64(k12*p1))
+			b1 := (vn1 + specBias[1]) - (float64(k12*p0) + float64(k22*p1))
+
+			x0, x1, ok := solve2x2LCP(k11, k12, k22, det, b0, b1)
+			if ok {
+				solvedBlock = true
+				dP0 := x0 - p0
+				dP1 := x1 - p1
+				cp0.pn = x0
+				cp1.pn = x1
+				px0, py0 := dP0*nx, dP0*ny
+				px1, py1 := dP1*nx, dP1*ny
+				a.applyImpulsePairRaw(-px0, -py0, rAx[0], rAy[0], -px1, -py1, rAx[1], rAy[1])
+				b.applyImpulsePairRaw(px0, py0, rBx[0], rBy[0], px1, py1, rBx[1], rBy[1])
+			}
+		}
+	}
+	if !solvedBlock {
+		for i := range m.count {
+			cp := &m.points[i]
+			vAx := float64(a.VX) - float64(float64(a.AngularVel)*rAy[i])
+			vAy := float64(a.VY) + float64(float64(a.AngularVel)*rAx[i])
+			vBx := float64(b.VX) - float64(float64(b.AngularVel)*rBy[i])
+			vBy := float64(b.VY) + float64(float64(b.AngularVel)*rBx[i])
+			vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
+
+			dPn := float64(cp.massNormal * (-(vn + specBias[i])))
+			oldPn := cp.pn
+			cp.pn = max(oldPn+dPn, 0)
+			dPn = cp.pn - oldPn
+
+			px, py := dPn*nx, dPn*ny
+			a.applyImpulseRaw(-px, -py, rAx[i], rAy[i])
+			b.applyImpulseRaw(px, py, rBx[i], rBy[i])
+		}
+	}
+
+	// Friction impulses.
+	if m.friction > 0 {
+		for i := range m.count {
+			cp := &m.points[i]
+			vAx := float64(a.VX) - float64(float64(a.AngularVel)*rAy[i])
+			vAy := float64(a.VY) + float64(float64(a.AngularVel)*rAx[i])
+			vBx := float64(b.VX) - float64(float64(b.AngularVel)*rBy[i])
+			vBy := float64(b.VY) + float64(float64(b.AngularVel)*rBx[i])
 			vt := float64((vBx-vAx)*tx) + float64((vBy-vAy)*ty)
 
 			dPt := float64(cp.massTangent * (-vt))
@@ -1047,9 +1749,224 @@ func solveManifoldVelocity(m *rigidManifold) {
 			dPt = cp.pt - oldPt
 
 			ftx, fty := dPt*tx, dPt*ty
-			a.applyImpulseRaw(-ftx, -fty, cp.rAx, cp.rAy)
-			b.applyImpulseRaw(ftx, fty, cp.rBx, cp.rBy)
+			a.applyImpulseRaw(-ftx, -fty, rAx[i], rAy[i])
+			b.applyImpulseRaw(ftx, fty, rBx[i], rBy[i])
 		}
+	}
+}
+
+// solveManifoldPushOut resolves overlap softly at the contact points into per-body pseudo-velocities (deltas[i].pvx/pvy/pav), applying both linear and angular correction without injecting bounce into body velocities.
+func solveManifoldPushOut(m *rigidManifold, deltas []rigidBodyDelta) {
+	if m.count == 0 {
+		return
+	}
+	a, b := m.a, m.b
+	nx, ny := m.nx, m.ny
+
+	var dA, dB *rigidBodyDelta
+	var zeroA, zeroB rigidBodyDelta
+	zeroA.cosDA, zeroB.cosDA = 1, 1
+	if a.Static {
+		dA = &zeroA
+	} else {
+		dA = &deltas[a.index]
+	}
+	if b.Static {
+		dB = &zeroB
+	} else {
+		dB = &deltas[b.index]
+	}
+	rotA := dA.sinDA != 0 || dA.cosDA != 1
+	rotB := dB.sinDA != 0 || dB.cosDA != 1
+
+	var rAx, rAy, rBx, rBy [2]float64
+	var bias [2]float64
+	anyPen := false
+	for i := range m.count {
+		cp := &m.points[i]
+		rAx[i], rAy[i] = cp.rAx, cp.rAy
+		if rotA {
+			rAx[i] = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			rAy[i] = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		rBx[i], rBy[i] = cp.rBx, cp.rBy
+		if rotB {
+			rBx[i] = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			rBy[i] = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+		dpX := (dB.dx + (rBx[i] - cp.rBx)) - (dA.dx + (rAx[i] - cp.rAx))
+		dpY := (dB.dy + (rBy[i] - cp.rBy)) - (dA.dy + (rAy[i] - cp.rAy))
+		sep := -cp.depth + float64(dpX*nx) + float64(dpY*ny)
+		pen := sep + contactSlop
+		if pen < 0 {
+			bias[i] = max(float64(m.biasRate*pen), -contactMaxPushSpeed)
+			anyPen = true
+		}
+	}
+	if !anyPen && m.points[0].pushPn == 0 && (m.count < 2 || m.points[1].pushPn == 0) {
+		return
+	}
+
+	applyPush := func(body *RigidBody, d *rigidBodyDelta, ix, iy, rx, ry float64) {
+		if body.fixed() {
+			return
+		}
+		invM := float64(body.InvMass)
+		invI := float64(body.InvInertia)
+		d.pvx += float64(ix * invM)
+		d.pvy += float64(iy * invM)
+		cross := float64(rx*iy) - float64(ry*ix)
+		d.pav += float64(cross * invI)
+	}
+
+	solvedBlock := false
+	if m.count == 2 {
+		invMA, invIA := float64(a.InvMass), float64(a.InvInertia)
+		invMB, invIB := float64(b.InvMass), float64(b.InvInertia)
+		invM := invMA + invMB
+		rnA0 := float64(rAx[0]*ny) - float64(rAy[0]*nx)
+		rnB0 := float64(rBx[0]*ny) - float64(rBy[0]*nx)
+		rnA1 := float64(rAx[1]*ny) - float64(rAy[1]*nx)
+		rnB1 := float64(rBx[1]*ny) - float64(rBy[1]*nx)
+
+		k11 := invM + float64(float64(invIA*rnA0)*rnA0) + float64(float64(invIB*rnB0)*rnB0)
+		k22 := invM + float64(float64(invIA*rnA1)*rnA1) + float64(float64(invIB*rnB1)*rnB1)
+		k12 := invM + float64(float64(invIA*rnA0)*rnA1) + float64(float64(invIB*rnB0)*rnB1)
+		a11 := k11 / m.massScale
+		a22 := k22 / m.massScale
+		det := float64(a11*a22) - float64(k12*k12)
+		if det > 1e-12 && float64(a11*a11) < float64(1000.0*det) {
+			cp0, cp1 := &m.points[0], &m.points[1]
+			vAx0 := dA.pvx - float64(dA.pav*rAy[0])
+			vAy0 := dA.pvy + float64(dA.pav*rAx[0])
+			vBx0 := dB.pvx - float64(dB.pav*rBy[0])
+			vBy0 := dB.pvy + float64(dB.pav*rBx[0])
+			vn0 := float64((vBx0-vAx0)*nx) + float64((vBy0-vAy0)*ny)
+
+			vAx1 := dA.pvx - float64(dA.pav*rAy[1])
+			vAy1 := dA.pvy + float64(dA.pav*rAx[1])
+			vBx1 := dB.pvx - float64(dB.pav*rBy[1])
+			vBy1 := dB.pvy + float64(dB.pav*rBx[1])
+			vn1 := float64((vBx1-vAx1)*nx) + float64((vBy1-vAy1)*ny)
+
+			p0, p1 := cp0.pushPn, cp1.pushPn
+			b0 := (vn0 + bias[0]) - (float64(k11*p0) + float64(k12*p1))
+			b1 := (vn1 + bias[1]) - (float64(k12*p0) + float64(k22*p1))
+
+			x0, x1, ok := solve2x2LCP(a11, k12, a22, det, b0, b1)
+			if ok {
+				solvedBlock = true
+				dP0 := x0 - p0
+				dP1 := x1 - p1
+				cp0.pushPn = x0
+				cp1.pushPn = x1
+				px0, py0 := dP0*nx, dP0*ny
+				px1, py1 := dP1*nx, dP1*ny
+				applyPush(a, dA, -px0, -py0, rAx[0], rAy[0])
+				applyPush(b, dB, px0, py0, rBx[0], rBy[0])
+				applyPush(a, dA, -px1, -py1, rAx[1], rAy[1])
+				applyPush(b, dB, px1, py1, rBx[1], rBy[1])
+			}
+		}
+	}
+	if !solvedBlock {
+		for i := range m.count {
+			cp := &m.points[i]
+			vAx := dA.pvx - float64(dA.pav*rAy[i])
+			vAy := dA.pvy + float64(dA.pav*rAx[i])
+			vBx := dB.pvx - float64(dB.pav*rBy[i])
+			vBy := dB.pvy + float64(dB.pav*rBx[i])
+			vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
+
+			dPn := float64(float64(-m.massScale*cp.massNormal)*(vn+bias[i])) - float64(m.impulseScale*cp.pushPn)
+			oldPn := cp.pushPn
+			cp.pushPn = max(oldPn+dPn, 0)
+			dPn = cp.pushPn - oldPn
+
+			px, py := dPn*nx, dPn*ny
+			applyPush(a, dA, -px, -py, rAx[i], rAy[i])
+			applyPush(b, dB, px, py, rBx[i], rBy[i])
+		}
+	}
+}
+
+func solve2x2LCP(a11, a12, a22, det, b0, b1 float64) (x0, x1 float64, ok bool) {
+	invDet := 1.0 / det
+	x0 = -(float64(a22*b0) - float64(a12*b1)) * invDet
+	x1 = -(float64(-a12*b0) + float64(a11*b1)) * invDet
+	if x0 >= 0 && x1 >= 0 {
+		return x0, x1, true
+	}
+	x0 = -b0 / a11
+	x1 = 0
+	if x0 >= 0 && float64(a12*x0)+b1 >= 0 {
+		return x0, x1, true
+	}
+	x0 = 0
+	x1 = -b1 / a22
+	if x1 >= 0 && float64(a12*x1)+b0 >= 0 {
+		return x0, x1, true
+	}
+	if b0 >= 0 && b1 >= 0 {
+		return 0, 0, true
+	}
+	return 0, 0, false
+}
+
+func applyManifoldRestitution(m *rigidManifold, deltas []rigidBodyDelta, restitutionThresh float64) {
+	if !(m.restitution > 0) {
+		return
+	}
+	a, b := m.a, m.b
+	nx, ny := m.nx, m.ny
+
+	var dA, dB rigidBodyDelta
+	if a.Static {
+		dA.cosDA = 1
+	} else {
+		dA = deltas[a.index]
+	}
+	if b.Static {
+		dB.cosDA = 1
+	} else {
+		dB = deltas[b.index]
+	}
+	rotA := dA.sinDA != 0 || dA.cosDA != 1
+	rotB := dB.sinDA != 0 || dB.cosDA != 1
+
+	for i := range m.count {
+		cp := &m.points[i]
+		if !(-cp.approachVn > restitutionThresh) {
+			continue
+		}
+		if cp.depth < 0 && cp.totalPn <= 0 {
+			continue
+		}
+		rAx, rAy := cp.rAx, cp.rAy
+		if rotA {
+			rAx = float64(cp.rAx*dA.cosDA) - float64(cp.rAy*dA.sinDA)
+			rAy = float64(cp.rAx*dA.sinDA) + float64(cp.rAy*dA.cosDA)
+		}
+		rBx, rBy := cp.rBx, cp.rBy
+		if rotB {
+			rBx = float64(cp.rBx*dB.cosDA) - float64(cp.rBy*dB.sinDA)
+			rBy = float64(cp.rBx*dB.sinDA) + float64(cp.rBy*dB.cosDA)
+		}
+
+		vAx := float64(a.VX) - float64(float64(a.AngularVel)*rAy)
+		vAy := float64(a.VY) + float64(float64(a.AngularVel)*rAx)
+		vBx := float64(b.VX) - float64(float64(b.AngularVel)*rBy)
+		vBy := float64(b.VY) + float64(float64(b.AngularVel)*rBx)
+		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
+
+		targetVn := float64(-m.restitution * cp.approachVn)
+		if vn >= targetVn {
+			continue
+		}
+		dPn := cp.massNormal * (targetVn - vn)
+		px, py := dPn*nx, dPn*ny
+		a.applyImpulseRaw(-px, -py, rAx, rAy)
+		b.applyImpulseRaw(px, py, rBx, rBy)
 	}
 }
 

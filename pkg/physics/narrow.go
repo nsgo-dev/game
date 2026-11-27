@@ -534,7 +534,20 @@ func chainSegmentManifold(c *Chain, i int, o *hull, margin float64) (hullManifol
 	nSeg := seg.n[0]
 	mn := vec2{m.nx, m.ny}
 	side, faceEdge := 1.0, 0
-	if dot2(mn, nSeg) < 0 {
+	mnDot := dot2(mn, nSeg)
+	if math.Abs(mnDot) < 0.5 {
+		var cx, cy float64
+		for k := range o.count {
+			cx += o.v[k].x
+			cy += o.v[k].y
+		}
+		invC := 1.0 / float64(o.count)
+		cx = float64(cx * invC)
+		cy = float64(cy * invC)
+		if dot2(vec2{cx - p0.x, cy - p0.y}, nSeg) < 0 {
+			side, faceEdge = -1, 1
+		}
+	} else if mnDot < 0 {
 		side, faceEdge = -1, 1
 	}
 	nF := vec2{nSeg.x * side, nSeg.y * side}

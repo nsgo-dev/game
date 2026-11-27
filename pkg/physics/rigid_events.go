@@ -106,7 +106,7 @@ func (w *RigidWorld) updateContactEvents(manifolds []rigidManifold, ignoredPairs
 		// The manifold approaching fastest, and its deepest point, name the contact; ties keep the first.
 		best := i
 		for k := i + 1; k < j; k++ {
-			if manifolds[k].approach > manifolds[best].approach {
+			if manifolds[k].count > 0 && (manifolds[best].count == 0 || manifolds[k].approach > manifolds[best].approach) {
 				best = k
 			}
 		}
