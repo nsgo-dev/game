@@ -242,3 +242,7 @@ YAML 场景还可以设置 `ambientColor`，并在对象上附加内置的 `ligh
 ## 场景文件中的 2D 导航区域
 
 YAML 场景可以在对象上直接声明可行走或障碍物 `navregion2d` 多边形，并可选扣除瓦片地图的实心碰撞几何（`subtractTileCollision: true`）。`sceneformat.Build` 会通过 [`game/ai/navbake`](navbake.md) 将其烘焙为 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`），从而使编辑器的 2D 导航网格叠加层和 **Test Path** 工具得到与游戏完全一致的寻路结果（[`game/editor`](editor.md#内置-2d-导航区域组件888)）。
+
+## 将场景组件生成到 ECS
+
+`sceneformat.ComponentType` 可以声明可选的 `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` 工厂函数，将 YAML 组件转换为 `game/entities` 中的强类型 ECS 组件状态（[实体](entities.md#从-yaml-场景生成实体)）。将组件注册表传入 `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})`（或传入 `sceneformat.SpawnConnected`，它会自动转发注册表）即可启用。在生成第一个实体之前，所有组件都会先按注册表校验并填充默认值；随后实体按深度优先的文档顺序生成，同一对象上的组件按组件名升序执行 `Spawn`。若任一 `Spawn` 返回错误，已生成的实体会全部销毁回滚，并返回包含图层名、对象 ID 与组件名的错误。`SpawnEntities(doc, world)` 仍等价于 `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`。

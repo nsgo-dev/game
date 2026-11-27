@@ -128,6 +128,34 @@ _ = wt
 - Destroying a parent applies the hierarchy's `RemovePolicy` (`SetRemovePolicy`): `RemoveDetach` (default) detaches the children keeping their local transforms, `RemoveDetachKeepWorld` detaches them keeping their world transforms, and `RemoveCascade` destroys the whole subtree. `DestroyWithPolicy(e, policy)` overrides it for one call.
 - Snapshots only include registered components: call `RegisterCodec[entities.Transform2D](w, "transform2d")` to save local transforms. `WorldTransform2D` is derived, so it does not need a codec; the hierarchy reseeds from the restored local transforms.
 
+## Spawning from YAML scenes
+
+`game/sceneformat` spawns a self-contained YAML scene directly into a `*World` with `SpawnEntities` (transforms and `ObjectRef` only) or `SpawnEntitiesWith` (also attaching typed ECS components declared on a `ComponentRegistry` via `ComponentType.Spawn`):
+
+```go
+type Health struct{ HP, Max int }
+
+reg := sceneformat.NewComponentRegistry()
+reg.MustRegister(sceneformat.ComponentType{
+	Name: "health",
+	Fields: []sceneformat.Field{
+		{Name: "hp", Kind: sceneformat.FieldInt, Default: 10},
+		{Name: "max", Kind: sceneformat.FieldInt, Default: 10},
+	},
+	Spawn: func(w *entities.World, e entities.Entity, fields map[string]any) error {
+		entities.Set(w, e, Health{HP: fields["hp"].(int), Max: fields["max"].(int)})
+		return nil
+	},
+})
+
+spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})
+```
+
+- **Pre-spawn validation & defaults**: when `SpawnOptions.Components` is non-nil, every component on every object is validated and resolved with its defaults (`ComponentRegistry.Resolve`) before the first entity is spawned. Registries that only check files may leave `ComponentType.Spawn` nil.
+- **Deterministic order**: entities spawn in depth-first document order (parents before children, linked into `Hierarchy2D` with `Transform2D` and `ObjectRef`), and within each object components run in ascending component-name order. Hidden layers spawn top-level objects hidden so their subtrees are not world-visible while still running `Spawn`.
+- **Rollback on error**: if any `ComponentType.Spawn` returns an error, every entity created during the call is destroyed in reverse order (leaving pre-existing entities in `w` untouched) and the error names the layer, object ID and component.
+- **Connected scenes**: `sceneformat.SpawnConnected(doc, world, reg, ctx)` passes `reg` through `SpawnEntitiesWith`, so connection handlers can immediately read typed components with `entities.Get`.
+
 ## Saving and loading a world
 
 Worlds serialize to deterministic `WorldSnapshot` JSON values and integrate directly with `game/save`.

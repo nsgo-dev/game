@@ -3,6 +3,8 @@ package sceneformat
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/math3d"
@@ -20,10 +22,30 @@ type ObjectRef struct {
 	Layer string
 }
 
+// SpawnOptions configures SpawnEntitiesWith.
+type SpawnOptions struct {
+	// Components validates every object's components, resolves defaults, and invokes each registered ComponentType.Spawn factory on its spawned entity. When nil, SpawnEntitiesWith behaves like SpawnEntities and ignores object components.
+	Components *ComponentRegistry
+}
+
+// resolvedSpawn pairs a registered component's Spawn factory with its resolved fields for one scene object.
+type resolvedSpawn struct {
+	name   string
+	spawn  func(w *entities.World, e entities.Entity, fields map[string]any) error
+	fields map[string]any
+}
+
 // SpawnEntities validates doc and spawns one entity per object into w, children included, linked into w's 2D transform hierarchy (entities.Hierarchy2D) the way the objects nest in the document. Each entity's local entities.Transform2D holds the object's X, Y, Rotation, ScaleX and ScaleY, and each carries an ObjectRef component. The top-level objects of a hidden layer are spawned hidden, so their subtrees are not world-visible. Entities are spawned in depth-first document order, each parent before its children, and the result maps every object ID to its entity.
 //
-// SpawnEntities returns an error and spawns nothing when doc is invalid, still instances or inherits other scene files (pass it through Resolve first), or w is nil or disposed.
+// SpawnEntities returns an error and spawns nothing when doc is invalid, still instances or inherits other scene files (pass it through Resolve first), or w is nil or disposed. It is equivalent to SpawnEntitiesWith(doc, w, SpawnOptions{}).
 func SpawnEntities(doc *SceneDoc, w *entities.World) (map[string]entities.Entity, error) {
+	return SpawnEntitiesWith(doc, w, SpawnOptions{})
+}
+
+// SpawnEntitiesWith spawns doc's objects into w as SpawnEntities does, and when opts.Components is non-nil validates and resolves every object's components against opts.Components before the first entity is spawned, then runs each registered ComponentType.Spawn factory on its entity. Objects are spawned in depth-first document order (each parent before its children), and within each object its components run in ascending component-name order.
+//
+// If any ComponentType.Spawn returns an error, SpawnEntitiesWith destroys every entity it created so far (leaving pre-existing entities in w untouched) and returns the error naming the layer, object ID and component.
+func SpawnEntitiesWith(doc *SceneDoc, w *entities.World, opts SpawnOptions) (map[string]entities.Entity, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
 	}
@@ -36,16 +58,35 @@ func SpawnEntities(doc *SceneDoc, w *entities.World) (map[string]entities.Entity
 	if w.Disposed() {
 		return nil, fmt.Errorf("sceneformat: spawn entities: %w", entities.ErrWorldDisposed)
 	}
+	var plan map[string][]resolvedSpawn
+	if opts.Components != nil {
+		var err error
+		plan, err = planComponentSpawns(doc, opts.Components)
+		if err != nil {
+			return nil, err
+		}
+	}
 	h := w.Hierarchy2D()
 	refs := entities.Component[ObjectRef](w)
 	spawned := make(map[string]entities.Entity)
-	var linkErr error
+	var created []entities.Entity
+	rollback := func() {
+		for i := len(created) - 1; i >= 0; i-- {
+			w.Destroy(created[i])
+		}
+	}
+	var spawnErr error
 	for li := range doc.Layers {
 		l := &doc.Layers[li]
 		hidden := !l.IsVisible()
 		WalkObjects(l.Objects, func(o, parent *ObjectDoc) bool {
 			e := w.Spawn()
+			if e == entities.Zero {
+				spawnErr = fmt.Errorf("sceneformat: layer %q object %q: %w", l.Name, o.ID, entities.ErrWorldDisposed)
+				return false
+			}
 			spawned[o.ID] = e
+			created = append(created, e)
 			h.SetLocal(e, entities.Transform2D{
 				X:        o.X,
 				Y:        o.Y,
@@ -56,19 +97,77 @@ func SpawnEntities(doc *SceneDoc, w *entities.World) (map[string]entities.Entity
 			})
 			refs.Set(e, ObjectRef{ID: o.ID, Layer: l.Name})
 			if parent != nil {
-				// Both entities were just spawned alive and the child is new, so SetParent cannot fail with a cycle or a dead entity; it is checked anyway so a change in entities cannot pass silently.
+				// Both entities were just spawned alive and the child is new, so SetParent cannot fail unless a ComponentType.Spawn destroyed the parent or disposed w.
 				if err := h.SetParent(e, spawned[parent.ID], false); err != nil {
-					linkErr = fmt.Errorf("sceneformat: layer %q object %q: parent %q: %w", l.Name, o.ID, parent.ID, err)
+					spawnErr = fmt.Errorf("sceneformat: layer %q object %q: parent %q: %w", l.Name, o.ID, parent.ID, err)
+					return false
+				}
+			}
+			for _, task := range plan[o.ID] {
+				if err := task.spawn(w, e, task.fields); err != nil {
+					spawnErr = fmt.Errorf("sceneformat: layer %q object %q component %q: %w", l.Name, o.ID, task.name, err)
 					return false
 				}
 			}
 			return true
 		})
-		if linkErr != nil {
-			return nil, linkErr
+		if spawnErr != nil {
+			rollback()
+			return nil, spawnErr
 		}
 	}
 	return spawned, nil
+}
+
+// planComponentSpawns checks and resolves every component on every object of doc against reg in depth-first document order with component names sorted per object, returning the Spawn tasks to run once entities are created.
+func planComponentSpawns(doc *SceneDoc, reg *ComponentRegistry) (map[string][]resolvedSpawn, error) {
+	var plan map[string][]resolvedSpawn
+	var firstErr error
+	for li := range doc.Layers {
+		WalkObjects(doc.Layers[li].Objects, func(o, _ *ObjectDoc) bool {
+			if len(o.Components) == 0 {
+				return true
+			}
+			for _, name := range slices.Sorted(maps.Keys(o.Components)) {
+				raw := o.Components[name]
+				if err := reg.CheckComponent(name, raw); err != nil {
+					var ce *ComponentError
+					if errors.As(err, &ce) {
+						ce.Object = o.ID
+					}
+					firstErr = err
+					return false
+				}
+				ct := reg.lookup(name)
+				if ct == nil || ct.Spawn == nil {
+					continue
+				}
+				data, _ := raw.(map[string]any)
+				fields, err := reg.Resolve(name, data)
+				if err != nil {
+					var ce *ComponentError
+					if errors.As(err, &ce) {
+						ce.Object = o.ID
+					}
+					firstErr = err
+					return false
+				}
+				if plan == nil {
+					plan = make(map[string][]resolvedSpawn)
+				}
+				plan[o.ID] = append(plan[o.ID], resolvedSpawn{
+					name:   name,
+					spawn:  ct.Spawn,
+					fields: fields,
+				})
+			}
+			return true
+		})
+		if firstErr != nil {
+			return nil, firstErr
+		}
+	}
+	return plan, nil
 }
 
 // Nodes3D is the 3D node tree BuildNodes3D builds from a scene.
