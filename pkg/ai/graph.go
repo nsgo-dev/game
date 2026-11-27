@@ -1,7 +1,9 @@
 package ai
 
 import (
+	"cmp"
 	"math"
+	"slices"
 )
 
 // GraphEdge is a directed outgoing edge from a graph node with a finite non-negative step cost.
@@ -345,6 +347,8 @@ func (s *GraphSearch[N]) RangeInto(dst *GraphRange[N], g Graph[N], start N, budg
 
 	expansions := 0
 	maxExp := s.MaxExpansions
+	prevID := int32(-1)
+	needsSort := false
 
 	for len(s.open) > 0 {
 		if maxExp > 0 && expansions >= maxExp {
@@ -357,6 +361,10 @@ func (s *GraphSearch[N]) RangeInto(dst *GraphRange[N], g Graph[N], start N, budg
 		}
 		expansions++
 		s.nodes[curID].closed = true
+		if prevID >= 0 && !needsSort && s.lessID(curID, prevID, order) {
+			needsSort = true
+		}
+		prevID = curID
 		s.nodes[curID].outIdx = int32(len(s.reached))
 		s.reached = append(s.reached, curID)
 
@@ -390,6 +398,23 @@ func (s *GraphSearch[N]) RangeInto(dst *GraphRange[N], g Graph[N], start N, budg
 					s.heapPush(nid, order)
 				}
 			}
+		}
+	}
+
+	if needsSort {
+		slices.SortFunc(s.reached, func(aID, bID int32) int {
+			a := &s.nodes[aID]
+			b := &s.nodes[bID]
+			if c := cmp.Compare(a.g, b.g); c != 0 {
+				return c
+			}
+			if c := order.compare(a.node, b.node); c != 0 {
+				return c
+			}
+			return cmp.Compare(aID, bID)
+		})
+		for i, id := range s.reached {
+			s.nodes[id].outIdx = int32(i)
 		}
 	}
 
