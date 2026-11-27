@@ -12,7 +12,57 @@ import (
 const (
 	defaultFalloff = 2.0
 	twoPi          = 2 * math.Pi
+	// spotlightBands is the number of equal-step smoothstep bands used to
+	// approximate angular cone falloff in Scene.Draw (max angular error <= 1/(2*spotlightBands)).
+	spotlightBands = 16
 )
+
+var (
+	// spotlightAdditiveFractions holds the normalized half-angle u in (0, 1)
+	// for each concentric wedge, solving smoothstepCone(u) = (i+0.5)/N.
+	spotlightAdditiveFractions [spotlightBands]float32
+)
+
+func init() {
+	for i := range spotlightBands {
+		w := (float64(i) + 0.5) / float64(spotlightBands)
+		spotlightAdditiveFractions[i] = float32(invSmoothstepCone(w))
+	}
+}
+
+// smoothstepCone returns the spotlight angular falloff factor in [0, 1] for
+// normalized off-axis angle u = |angle - ConeAngle| / (ConeSpread / 2).
+func smoothstepCone(u float64) float64 {
+	if u <= 0 {
+		return 1
+	}
+	if u >= 1 {
+		return 0
+	}
+	return 1 - u*u*(3-2*u)
+}
+
+// invSmoothstepCone returns u in [0, 1] satisfying smoothstepCone(u) == w.
+// Writing u = 0.5 - sin(theta) turns 1 - u^2*(3 - 2*u) into (1 + sin(3*theta))/2.
+func invSmoothstepCone(w float64) float64 {
+	if w <= 0 {
+		return 1
+	}
+	if w >= 1 {
+		return 0
+	}
+	return 0.5 - math.Sin(math.Asin(2*w-1)/3)
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
 
 // Light is a 2D point light or directional spotlight.
 type Light struct {
@@ -91,8 +141,7 @@ func (l *Light) AttenuationAt(x, y float32) float32 {
 		}
 		u := diff / half
 		// Smoothstep angular falloff: 1 at center of beam, 0 at cone edge.
-		cone := 1 - u*u*(3-2*u)
-		atten *= cone
+		atten *= smoothstepCone(u)
 	}
 	return float32(atten)
 }
@@ -192,8 +241,8 @@ func (s *Scene) Draw(d *core.Drawing, bounds core.Bounds) {
 		if l.X+l.Radius < bx || l.X-l.Radius > bMaxX || l.Y+l.Radius < by || l.Y-l.Radius > bMaxY {
 			continue
 		}
-		grad := lightGradient(l)
-		if grad == nil {
+		_, _, _, la := l.Color.Components()
+		if la <= 0 {
 			continue
 		}
 
@@ -215,18 +264,15 @@ func (s *Scene) Draw(d *core.Drawing, bounds core.Bounds) {
 			d.Clip()
 		}
 
-		d.SetFillGradient(grad)
-		d.BeginPath()
 		if l.isSpotlight() {
-			half := l.ConeSpread * 0.5
-			d.MoveTo(l.X, l.Y)
-			d.Arc(l.X, l.Y, l.Radius, l.ConeAngle-half, l.ConeAngle+half, false)
-			d.ClosePath()
-		} else {
+			drawSpotlight(d, l, comp)
+		} else if grad := lightGradient(l); grad != nil {
+			d.SetFillGradient(grad)
+			d.BeginPath()
 			d.Arc(l.X, l.Y, l.Radius, 0, twoPi, false)
 			d.ClosePath()
+			d.Fill()
 		}
-		d.Fill()
 		d.Restore()
 	}
 
@@ -277,7 +323,10 @@ func (s *Scene) EvaluateAt(x, y float32) (r, g, b float32) {
 	return r, g, b
 }
 
-var gradientOffsets = [6]float32{0.0, 0.2, 0.4, 0.6, 0.8, 1.0}
+var (
+	gradientOffsets        = [6]float32{0.0, 0.2, 0.4, 0.6, 0.8, 1.0}
+	spotlightRadialOffsets = [9]float32{0.0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0}
+)
 
 func lightGradient(l *Light) *core.CanvasGradient {
 	_, _, _, la := l.Color.Components()
@@ -291,13 +340,7 @@ func lightGradient(l *Light) *core.CanvasGradient {
 		var alpha float64
 		if off < 1.0 {
 			atten := math.Pow(1-float64(off), falloff)
-			alpha = la * float64(l.Intensity) * atten
-			if alpha > 1 {
-				alpha = 1
-			}
-			if alpha < 0 {
-				alpha = 0
-			}
+			alpha = clamp01(la * float64(l.Intensity) * atten)
 		}
 		stops[i] = core.GradientStop{
 			Offset: off,
@@ -305,4 +348,161 @@ func lightGradient(l *Light) *core.CanvasGradient {
 		}
 	}
 	return core.CanvasRadial(l.X, l.Y, 0, l.X, l.Y, l.Radius, stops...)
+}
+
+// spotlightDeltaGradient builds the radial gradient for one concentric additive
+// spotlight wedge transitioning the cumulative angular weight from wPrev to wNext.
+// Stop alphas are quantized cumulatively to 8-bit steps so summing any prefix of
+// wedges stays within 0.5/255 of the target smoothstep intensity without losing
+// dim tails or prematurely clamping intensities above 1.
+func spotlightDeltaGradient(l *Light, wPrev, wNext float64) *core.CanvasGradient {
+	_, _, _, la := l.Color.Components()
+	if la <= 0 || wNext <= wPrev {
+		return nil
+	}
+	rgb := uint32(l.Color) >> 8
+	falloff := l.effectiveFalloff()
+	stops := make([]core.GradientStop, len(spotlightRadialOffsets))
+	anyNonZero := false
+	for i, off := range spotlightRadialOffsets {
+		var qDelta uint32
+		if off < 1.0 {
+			radial := la * float64(l.Intensity) * math.Pow(1-float64(off), falloff)
+			qPrev := uint32(clamp01(radial*wPrev)*255 + 0.5)
+			qNext := uint32(clamp01(radial*wNext)*255 + 0.5)
+			if qNext > qPrev {
+				qDelta = qNext - qPrev
+				anyNonZero = true
+			}
+		}
+		stops[i] = core.GradientStop{
+			Offset: off,
+			Color:  core.Color(rgb<<8 | qDelta),
+		}
+	}
+	if !anyNonZero {
+		return nil
+	}
+	return core.CanvasRadial(l.X, l.Y, 0, l.X, l.Y, l.Radius, stops...)
+}
+
+// spotlightOverGradient builds one concentric wedge gradient whose telescoping
+// source-over composition transitions cumulative alpha from T(wPrev) to T(wNext):
+// a = (T_next - T_prev) / (1 - T_prev).
+func spotlightOverGradient(l *Light, wPrev, wNext float64) *core.CanvasGradient {
+	_, _, _, la := l.Color.Components()
+	if la <= 0 || wNext <= wPrev {
+		return nil
+	}
+	rgb := uint32(l.Color) >> 8
+	falloff := l.effectiveFalloff()
+	stops := make([]core.GradientStop, len(spotlightRadialOffsets))
+	anyNonZero := false
+	for i, off := range spotlightRadialOffsets {
+		var alpha float64
+		if off < 1.0 {
+			radial := la * float64(l.Intensity) * math.Pow(1-float64(off), falloff)
+			tPrev := clamp01(radial * wPrev)
+			tNext := clamp01(radial * wNext)
+			if tNext > tPrev && tPrev < 1.0 {
+				alpha = clamp01((tNext - tPrev) / (1.0 - tPrev))
+			}
+		}
+		c := core.RGBA(rgb, float32(alpha))
+		if c&0xff != 0 {
+			anyNonZero = true
+		}
+		stops[i] = core.GradientStop{
+			Offset: off,
+			Color:  c,
+		}
+	}
+	if !anyNonZero {
+		return nil
+	}
+	return core.CanvasRadial(l.X, l.Y, 0, l.X, l.Y, l.Radius, stops...)
+}
+
+// spotlightScreenGradient builds one concentric wedge gradient whose telescoping
+// screen composition transitions each channel from L_c*T(wPrev) to L_c*T(wNext):
+// src_c = L_c*(T_next - T_prev) / (1 - L_c*T_prev).
+func spotlightScreenGradient(l *Light, wPrev, wNext float64) *core.CanvasGradient {
+	lr, lg, lb, la := l.Color.Components()
+	if la <= 0 || wNext <= wPrev {
+		return nil
+	}
+	falloff := l.effectiveFalloff()
+	stops := make([]core.GradientStop, len(spotlightRadialOffsets))
+	anyNonZero := false
+	for i, off := range spotlightRadialOffsets {
+		c := core.Color(uint32(l.Color) &^ 0xff)
+		if off < 1.0 {
+			radial := la * float64(l.Intensity) * math.Pow(1-float64(off), falloff)
+			tPrev := clamp01(radial * wPrev)
+			tNext := clamp01(radial * wNext)
+			if tNext > tPrev {
+				step := func(ch float64) float64 {
+					p := clamp01(ch * tPrev)
+					n := clamp01(ch * tNext)
+					if n <= p || p >= 1.0 {
+						return 0
+					}
+					return clamp01((n - p) / (1.0 - p))
+				}
+				sr, sg, sb := step(lr), step(lg), step(lb)
+				alpha := max(sr, max(sg, sb))
+				if alpha > 0 {
+					ur := uint32(clamp01(sr/alpha)*255 + 0.5)
+					ug := uint32(clamp01(sg/alpha)*255 + 0.5)
+					ub := uint32(clamp01(sb/alpha)*255 + 0.5)
+					ua := uint32(clamp01(alpha)*255 + 0.5)
+					if ua > 0 {
+						anyNonZero = true
+					}
+					c = core.Color(ur<<24 | ug<<16 | ub<<8 | ua)
+				}
+			}
+		}
+		stops[i] = core.GradientStop{
+			Offset: off,
+			Color:  c,
+		}
+	}
+	if !anyNonZero {
+		return nil
+	}
+	return core.CanvasRadial(l.X, l.Y, 0, l.X, l.Y, l.Radius, stops...)
+}
+
+// drawSpotlight renders a directional spotlight as spotlightBands concentric
+// nested wedges whose angular widths invert smoothstepCone into equal-height
+// steps. Concentric wedges avoid radial anti-aliasing seams, and each composite
+// mode uses its telescoping per-wedge gradient so the combined result matches
+// a single smoothstep-modulated light pass.
+func drawSpotlight(d *core.Drawing, l *Light, comp core.CompositeOp) {
+	half := l.ConeSpread * 0.5
+	invN := 1.0 / float64(spotlightBands)
+	for i := range spotlightBands {
+		wPrev := float64(i) * invN
+		wNext := float64(i+1) * invN
+		var grad *core.CanvasGradient
+		switch comp {
+		case core.CompositeLighter:
+			grad = spotlightDeltaGradient(l, wPrev, wNext)
+		case core.CompositeScreen:
+			grad = spotlightScreenGradient(l, wPrev, wNext)
+		default:
+			grad = spotlightOverGradient(l, wPrev, wNext)
+		}
+		if grad == nil {
+			continue
+		}
+		halfW := half * spotlightAdditiveFractions[i]
+		d.SetFillGradient(grad)
+		d.BeginPath()
+		d.MoveTo(l.X, l.Y)
+		d.Arc(l.X, l.Y, l.Radius, l.ConeAngle-halfW, l.ConeAngle+halfW, false)
+		d.ClosePath()
+		d.Fill()
+	}
 }

@@ -29,7 +29,7 @@ lighting.Draw(d, worldBounds)
 ```
 
 - `NewLight(x, y, radius, color)` creates an enabled omnidirectional light with `Intensity: 1` and quadratic `Falloff: 2`.
-- Setting `ConeSpread` in `(0, 2*math.Pi)` turns a light into a directional spotlight with smoothstep angular falloff around `ConeAngle`.
+- Setting `ConeSpread` in `(0, 2*math.Pi)` turns a light into a directional spotlight with smoothstep angular falloff around `ConeAngle`. `Scene.Draw` approximates that angular smoothstep with 16 concentric nested radial-gradient wedges (within about 3% of `AttenuationAt` / `EvaluateAt` across the cone).
 - Light glows default to additive `core.CompositeLighter` when `Scene.LightComposite` is unset (`0`). Assign a non-zero blend such as `core.CompositeScreen` for softer lights, or call `lighting.SetLightComposite(core.CompositeSourceOver)` for alpha-over glows (since `core.CompositeSourceOver` is the zero value). Query the active mode with `lighting.EffectiveLightComposite()`.
 - Query exact CPU illumination at any world coordinate with `light.AttenuationAt(x, y)` or `scene.EvaluateAt(x, y)`.
 
