@@ -225,10 +225,13 @@ strings:
   cmd.category.gizmo3d: 3D Gizmo
   cmd.category.help: Help
   cmd.category.project: Project
+  cmd.category.review: Review
   cmd.category.tools: Tools
   cmd.category.view: View
   cmd.checkProblems.desc: Re-run asset and project validation checks
   cmd.checkProblems.label: Check Problems
+  cmd.closeTab.desc: Close the active scene tab, asking first if it has unsaved changes
+  cmd.closeTab.label: Close Scene Tab
   cmd.commandPalette.desc: Search and run editor commands, plugin tools, panels, and project files
   cmd.commandPalette.label: Command Palette
   cmd.connectAgent.desc: Connect Claude Code, Codex, or another MCP client to this project
@@ -249,6 +252,8 @@ strings:
   cmd.findUsages.label: Find Usages
   cmd.frameSelection.desc: Center the viewport camera on the selected object or scene
   cmd.frameSelection.label: Frame Selection
+  cmd.gizmoCollider.desc: Switch the 3D gizmo to Collider size handles
+  cmd.gizmoCollider.label: '3D Gizmo: Collider'
   cmd.gizmoRotate.desc: Switch the 3D transform gizmo to Rotate mode
   cmd.gizmoRotate.label: '3D Gizmo: Rotate'
   cmd.gizmoScale.desc: Switch the 3D transform gizmo to Scale mode
@@ -261,6 +266,8 @@ strings:
   cmd.group.label: Group Selected Objects
   cmd.historyPanel.desc: Toggle the unified History timeline of your edits, agent turns, and saved points
   cmd.historyPanel.label: History
+  cmd.hudLayout.desc: Toggle the multi-size, multi-language HUD and menu layout screen
+  cmd.hudLayout.label: HUD & Menu Layout
   cmd.inspectorTab.desc: Switch the right panel to the Property Inspector
   cmd.inspectorTab.label: Inspector Panel
   cmd.keepAgentTurn.desc: Keep the remaining changes in the open agent turn as one undo step
@@ -295,6 +302,10 @@ strings:
   cmd.playMark.label: Mark Play Moment
   cmd.playStop.desc: Toggle play-in-editor simulation
   cmd.playStop.label: Play / Stop
+  cmd.playtestReport.desc: Open the Playtest Report screen with goals met or missed, charts, and the agent's read
+  cmd.playtestReport.label: Playtest Report
+  cmd.problemsPanel.desc: Toggle the right-rail Agent problem-fix panel
+  cmd.problemsPanel.label: Agent Problem Panel
   cmd.profiler.desc: Toggle the Profiler panel for the running game
   cmd.profiler.label: Profiler
   cmd.projectSettings.desc: Toggle the Project Settings panel
@@ -309,10 +320,26 @@ strings:
   cmd.revertAgentTurn.label: Revert Agent Turn
   cmd.reviewCode.desc: Open the file-by-file Go code review with nsgo check and nsgo test
   cmd.reviewCode.label: Review Agent Go Changes
+  cmd.reviewKeep.desc: Keep all non-reverted changes in the open review as one undo step
+  cmd.reviewKeep.label: 'Review: Keep Changes'
+  cmd.reviewNext.desc: Move to the next change in the open agent review and frame it
+  cmd.reviewNext.label: 'Review: Next Change'
+  cmd.reviewNote.desc: Open the inline note composer on the focused change in Review
+  cmd.reviewNote.label: 'Review: Note for the Agent'
+  cmd.reviewPeekBefore.desc: Hold B to peek at the scene as it was before the agent request
+  cmd.reviewPeekBefore.label: 'Review: Peek Before Request'
+  cmd.reviewPrev.desc: Move to the previous change in the open agent review and frame it
+  cmd.reviewPrev.label: 'Review: Previous Change'
+  cmd.reviewRevertAll.desc: Open confirmation to revert all changes in the open review
+  cmd.reviewRevertAll.label: 'Review: Revert All'
+  cmd.reviewToggleRevert.desc: Revert or restore the focused change or file group in Review
+  cmd.reviewToggleRevert.label: 'Review: Revert or Restore'
   cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
   cmd.runGame.label: Run Game
   cmd.save.desc: Save the open scene and project changes
   cmd.save.label: Save
+  cmd.searchPanel.desc: Toggle the Project Search and References panel
+  cmd.searchPanel.label: Project Search & References
   cmd.shadingLit.desc: Light the 3D viewport's geometry with the scene's lights
   cmd.shadingLit.label: '3D Shading: Lit'
   cmd.shadingUnlit.desc: Draw the 3D viewport's geometry at its base colors, without lights
@@ -365,16 +392,32 @@ strings:
   cmd.toolEraseTile.label: 'Tool: Erase Tile'
   cmd.toolFillTile.desc: Switch to the Flood Fill Tile tool
   cmd.toolFillTile.label: 'Tool: Fill Tile'
+  cmd.toolLineTile.desc: Switch to the Line Tile brush (Bresenham line; right-drag to erase)
+  cmd.toolLineTile.label: 'Tool: Line Tile'
   cmd.toolMove.desc: Switch to the Move viewport tool
   cmd.toolMove.label: 'Tool: Move'
   cmd.toolNavTestPath.desc: Press start and end points in the 2D viewport to preview the path ai.NavMesh finds
   cmd.toolNavTestPath.label: 'Tool: Test Nav Path'
   cmd.toolPaintTile.desc: Switch to the Paint Tile brush
   cmd.toolPaintTile.label: 'Tool: Paint Tile'
+  cmd.toolPan.desc: Switch to the Pan viewport camera tool (or hold Space)
+  cmd.toolPan.label: 'Tool: Pan'
   cmd.toolPlace.desc: Switch to the Place object viewport tool
   cmd.toolPlace.label: 'Tool: Place'
+  cmd.toolRandomTile.desc: Switch to the Random Tile brush (deterministic weighted tile pick)
+  cmd.toolRandomTile.label: 'Tool: Random Tile'
+  cmd.toolRectTile.desc: Switch to the Rectangle Tile brush (drag to fill, right-drag to erase)
+  cmd.toolRectTile.label: 'Tool: Rectangle Tile'
+  cmd.toolRotate.desc: Switch to the Rotate viewport tool
+  cmd.toolRotate.label: 'Tool: Rotate'
+  cmd.toolScale.desc: Switch to the Scale viewport tool
+  cmd.toolScale.label: 'Tool: Scale'
   cmd.toolSelect.desc: Switch to the Select viewport tool
   cmd.toolSelect.label: 'Tool: Select'
+  cmd.toolStampTile.desc: Switch to the Stamp Tile brush (paint patterns, right-drag to select region)
+  cmd.toolStampTile.label: 'Tool: Stamp Tile'
+  cmd.toolTerrain.desc: Switch to the Terrain autotile brush
+  cmd.toolTerrain.label: 'Tool: Terrain'
   cmd.undo.desc: Undo the last edit
   cmd.undo.label: Undo
   cmd.ungroup.desc: Lift the selected object's children out while keeping their world transforms
@@ -383,8 +426,22 @@ strings:
   cmd.view2d.label: Switch to 2D View
   cmd.view3d.desc: Show the 3D orbit and gizmo viewport
   cmd.view3d.label: Switch to 3D View
+  cmd.view3dBack.desc: Look at the 3D viewport's target from the back
+  cmd.view3dBack.label: '3D View: Back'
+  cmd.view3dBottom.desc: Look at the 3D viewport's target from the bottom
+  cmd.view3dBottom.label: '3D View: Bottom'
+  cmd.view3dCamera.desc: Look through the scene's active 3D camera
+  cmd.view3dCamera.label: '3D View: Scene Camera'
+  cmd.view3dFront.desc: Look at the 3D viewport's target from the front
+  cmd.view3dFront.label: '3D View: Front'
+  cmd.view3dLeft.desc: Look at the 3D viewport's target from the left
+  cmd.view3dLeft.label: '3D View: Left'
   cmd.view3dOrtho.desc: Switch the 3D viewport between perspective and orthographic projection
   cmd.view3dOrtho.label: '3D View: Orthographic'
+  cmd.view3dRight.desc: Look at the 3D viewport's target from the right
+  cmd.view3dRight.label: '3D View: Right'
+  cmd.view3dTop.desc: Look at the 3D viewport's target from the top
+  cmd.view3dTop.label: '3D View: Top'
   codeReview.allGoConfirmed: All {count} Go files confirmed
   codeReview.askFix: Ask the agent to fix
   codeReview.backLabel: Back to the editor, review stays open (Esc)

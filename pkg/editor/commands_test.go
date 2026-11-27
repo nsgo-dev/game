@@ -679,3 +679,144 @@ func TestPluginCommandShortcutClashRefused(t *testing.T) {
 	// Unused project import guard (project is used via writePluginProject / FileName checks).
 	_ = project.FileName
 }
+
+// #1612: In 2D with no tile tool active (Select), e selects ToolRotate and r selects ToolScale
+// (ScopeViewport outranks inactive ScopeTile). Once any tile tool is active, ScopeTile takes
+// precedence and e switches to ToolEraseTile.
+func Test2DShortcutEPicksRotateFromSelectAndEraseTileWhilePainting(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SetViewMode(editor.ViewMode2D)
+	ed.SetTool(editor.ToolSelect)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+	// Starting from Select in 2D, e activates Rotate, r activates Scale, and w activates Move.
+	app.Key("e")
+	if ed.Tool != editor.ToolRotate {
+		t.Fatalf("pressing e in 2D from Select: Tool = %v, want ToolRotate", ed.Tool)
+	}
+	app.Key("r")
+	if ed.Tool != editor.ToolScale {
+		t.Fatalf("pressing r in 2D from Rotate: Tool = %v, want ToolScale", ed.Tool)
+	}
+	app.Key("w")
+	if ed.Tool != editor.ToolMove {
+		t.Fatalf("pressing w in 2D from Scale: Tool = %v, want ToolMove", ed.Tool)
+	}
+
+	// Entering any tile tool raises ScopeTile above ScopeViewport, so e activates Erase Tile.
+	tileEntries := []struct {
+		key  string
+		tool editor.Tool
+	}{
+		{"b", editor.ToolPaintTile},
+		{"g", editor.ToolFillTile},
+		{"t", editor.ToolTerrain},
+		{"u", editor.ToolRectTile},
+		{"l", editor.ToolLineTile},
+		{"c", editor.ToolStampTile},
+		{"n", editor.ToolRandomTile},
+	}
+	for _, tc := range tileEntries {
+		app.Key("v")
+		if ed.Tool != editor.ToolSelect {
+			t.Fatalf("v did not return to ToolSelect (got %v)", ed.Tool)
+		}
+		app.Key(tc.key)
+		if ed.Tool != tc.tool {
+			t.Fatalf("key %q from Select in 2D: Tool = %v, want %v", tc.key, ed.Tool, tc.tool)
+		}
+		app.Key("e")
+		if ed.Tool != editor.ToolEraseTile {
+			t.Fatalf("key e while %v is active: Tool = %v, want ToolEraseTile", tc.tool, ed.Tool)
+		}
+	}
+
+	// Returning to Select lowers ScopeTile again so e goes back to ToolRotate.
+	app.Key("v")
+	app.Key("e")
+	if ed.Tool != editor.ToolRotate {
+		t.Fatalf("pressing e after returning to Select: Tool = %v, want ToolRotate", ed.Tool)
+	}
+}
+
+// #1612: mod+n opens Start Screen (File > New Project...) outside the Agent tab,
+// and starts a new agent thread (ScopeAgent) while the Agent tab is active.
+func TestModNResolvesByAgentTabScope(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SetRightRailTab(editor.RightTabInspector)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+	// Outside the Agent tab, mod+n runs CmdNewProject (opens Start Screen).
+	app.Key("meta+n")
+	if !ed.StartScreenOpen() {
+		t.Fatal("meta+n with Inspector tab active did not open Start Screen (CmdNewProject)")
+	}
+	app.Post(func() {
+		ed.SetStartScreenOpen(false)
+		ed.SetRightRailTab(editor.RightTabAgent)
+	})
+	app.Settle()
+
+	// With the Agent tab active, ScopeAgent takes mod+n for CmdNewAgentThread.
+	app.Key("meta+n")
+	if ed.StartScreenOpen() {
+		t.Fatal("meta+n with Agent tab active opened Start Screen instead of starting a new agent thread")
+	}
+}
+
+// #1612: CmdProblemsPanel's label and description match the right-rail Agent problem-fix panel
+// it toggles (SetProblemAgentPanelOpen), rather than the bottom Problems dock panel.
+func TestCmdProblemsPanelLabelMatchesBehavior(t *testing.T) {
+	dir := writePluginProject(t, "health")
+	ed := newPluginEditor(t, dir)
+
+	ed.SetLanguage(editor.LanguageEnglish)
+	cmdEN, ok := ed.Command(editor.CmdProblemsPanel)
+	if !ok {
+		t.Fatal("CmdProblemsPanel not registered")
+	}
+	if !strings.Contains(strings.ToLower(cmdEN.Label), "agent") || !strings.Contains(strings.ToLower(cmdEN.Label), "problem") {
+		t.Fatalf("English CmdProblemsPanel label = %q, want Agent problem panel label", cmdEN.Label)
+	}
+	if !strings.Contains(strings.ToLower(cmdEN.Description), "agent") {
+		t.Fatalf("English CmdProblemsPanel description = %q, want Agent panel description", cmdEN.Description)
+	}
+
+	ed.SetLanguage(editor.LanguageChinese)
+	cmdZH, ok := ed.Command(editor.CmdProblemsPanel)
+	if !ok {
+		t.Fatal("CmdProblemsPanel not registered in Chinese")
+	}
+	if !strings.Contains(cmdZH.Label, "智能体") || !strings.Contains(cmdZH.Label, "问题") {
+		t.Fatalf("Chinese CmdProblemsPanel label = %q, want 智能体问题面板", cmdZH.Label)
+	}
+
+	dockBefore := ed.PanelVisible(editor.PanelProblems)
+	if ed.ProblemAgentPanelOpen() {
+		t.Fatal("ProblemAgentPanelOpen should start closed")
+	}
+	if err := ed.ExecuteCommand(editor.CmdProblemsPanel); err != nil {
+		t.Fatalf("ExecuteCommand(CmdProblemsPanel): %v", err)
+	}
+	if !ed.ProblemAgentPanelOpen() {
+		t.Fatal("CmdProblemsPanel did not open ProblemAgentPanelOpen")
+	}
+	if !cmdEN.Checked() {
+		t.Fatal("CmdProblemsPanel.Checked() = false while ProblemAgentPanelOpen is true")
+	}
+	if ed.PanelVisible(editor.PanelProblems) != dockBefore {
+		t.Fatalf("CmdProblemsPanel unexpectedly changed PanelProblems visibility: got %v, want %v", ed.PanelVisible(editor.PanelProblems), dockBefore)
+	}
+	if err := ed.ExecuteCommand(editor.CmdProblemsPanel); err != nil {
+		t.Fatalf("second ExecuteCommand(CmdProblemsPanel): %v", err)
+	}
+	if ed.ProblemAgentPanelOpen() {
+		t.Fatal("second CmdProblemsPanel did not close ProblemAgentPanelOpen")
+	}
+}

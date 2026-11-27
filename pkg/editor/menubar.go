@@ -8,7 +8,7 @@ import (
 	"github.com/nsgo-dev/nsgo/desktop"
 )
 
-// ApplicationMenu builds the desktop application menu bar (File, Edit, View, Project)
+// ApplicationMenu builds the desktop application menu bar (File, Edit, View, Project, Help)
 // directly from the editor's unified command registry, keeping labels, shortcuts,
 // enabled/checked states, and actions identical to keyboard shortcuts and the command palette.
 // Every shortcut uses core.MenuNotEditing so text fields never lose editing keys.
