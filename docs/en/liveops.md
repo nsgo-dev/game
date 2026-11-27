@@ -15,6 +15,7 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **Cloud saves** ([#196](https://github.com/nsgo-dev/game/issues/196)) | In scope | Provider-agnostic `CloudSync` interface, `PlatformCloud` over NSGo's `cloud` package (iCloud on macOS/iOS, Google Play Games Saved Games on Android, in-memory store in `nsgotest`), `DirCloud` for Steam Auto-Cloud and other synced directories, `CloudClient` for the self-hosted [cloudsave](cloudsave.md) service ([#557](https://github.com/nsgo-dev/game/issues/557)), and `CloudSyncer` conflict resolution ([#539](https://github.com/nsgo-dev/game/issues/539)). |
 | **In-app purchases** ([#369](https://github.com/nsgo-dev/game/issues/369)) | In scope | `Purchases` over NSGo's purchase services: consumables credited into the save exactly once, unlocks and subscriptions from the store's entitlements, restore, Ask to Buy and an optional server check. |
 | **Local reminders** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | In scope | `Reminders` over NSGo's `core.Scope.ShowNotification`: versioned YAML definitions (`RemindersConfig`), permission prompted only on first `Schedule` or explicit `RequestPermission`, persisted player toggle, local-time `QuietHours`, and foreground cancel/reschedule/keep rules. |
+| **Review prompts** ([#1767](https://github.com/nsgo-dev/game/issues/1767)) | In scope | `ReviewPrompt` over `core.Storage` and `core.Scope.RequestReview`: gates store rating requests on sessions, elapsed days, positive moments, cooldown and once-per-version rules, suppresses prompts after negative moments, and fails closed on corrupt state or unsupported platforms. |
 | **Remote push** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | Pending upstream | Waiting on NSGo remote push ([nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)) and its design decisions ([nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)). Remote push is currently unavailable everywhere. |
 | **Ads** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need ads embed native SDK views directly via NSGo. |
 
@@ -261,3 +262,36 @@ Tests drive reminders headlessly through `nsgotest`: start the app with `nsgotes
 ### Remote push (pending upstream)
 
 Remote push notifications (`liveops.Push`) are currently unavailable everywhere and are intentionally not shipped yet. The game-layer wrapper — registering device tokens with a game server, routing push payloads to live-event handlers and delivering remote notification presses alongside `ReminderPress` — waits on NSGo implementing remote push ([nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)) and resolving its open API design decisions ([nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)).
+
+## Review prompts
+
+`ReviewPrompt` decides when to call NSGo's `core.Scope.RequestReview` so a game asks for a store rating only after positive moments, at most once per app version, and never at a frustrating time.
+
+### Store guidelines
+
+- **Apple App Store (StoreKit)**: shows the system rating prompt at most three times in any 365-day period per app, regardless of version updates. Never trigger `RequestReview` from a button or direct user tap, and never interrupt gameplay or active modals; ask at a natural pause after a completed task or positive milestone.
+- **Google Play (In-App Review API)**: enforces its own opaque quota without reporting whether the dialog appeared. Wait until the player has used the game enough to give meaningful feedback, and never show a leading pre-prompt ("Are you enjoying the game?") before calling the store API.
+
+### Policy and persistence
+
+- **Thresholds and defaults**: `NewReviewPrompt(store, opts)` increments the session count on launch and gates `MaybeAsk(cx)` on `MinSessions` (`DefaultReviewMinSessions` = 3, never prompting in the first session), `MinDays` since first launch (`DefaultReviewMinDays` = 3), `MinPositiveMoments` in the current `AppVersion` (`DefaultReviewMinPositiveMoments` = 3), `Cooldown` between requests across versions (`DefaultReviewCooldown` = 122 days, keeping requests within Apple's 3-per-365-day cap), and once per `AppVersion`.
+- **Moments and suppression**: call `Moment(MomentPositive)` after rewarding milestones (such as clearing a level or setting a record) and `Moment(MomentNegative)` after losses or errors. Any `MomentNegative` suppresses prompts for the rest of the current session; a new launch or `RecordSession()` starts a fresh session. Set `Suppress` to block prompts while a purchase sheet, ad flow or modal dialog is open.
+- **Versioned JSON state and fail-closed safety**: state is stored as deterministic versioned JSON text (`ReviewPromptStateVersion` = 1) in `core.Storage` under `StorageKey` (`DefaultReviewPromptKey` when empty). Any unrecognised field, trailing token, invalid timestamp, negative counter or unknown/future schema version fails closed (`Eligible()` and `MaybeAsk(cx)` return `false` without overwriting stored data). When `AppVersion` changes, per-version `positiveMoments` resets to 0 while `firstLaunch`, `sessions`, and `lastPromptedAt` stay intact so cooldown still protects store quotas across hotfixes. `MaybeAsk` persists the prompt record before calling `cx.RequestReview()`, failing closed if storage cannot be written.
+- **Platform no-op**: on targets where `cx.Env().CanRequestReview()` is false (Windows, Linux, the web), `MaybeAsk(cx)` is a no-op returning `false` without marking the version as prompted, so games call it unconditionally.
+
+```go
+review := liveops.NewReviewPrompt(cx.Storage(), liveops.ReviewPromptOptions{
+	AppVersion: Project.AppVersion,
+	Now:        cx.WallTime,
+	Suppress:   func() bool { return purchaseOpen },
+})
+
+// After clearing a level, at a natural pause (for example when the result card appears):
+review.Moment(liveops.MomentPositive)
+review.MaybeAsk(cx)
+
+// After a defeat or frustrating failure:
+review.Moment(liveops.MomentNegative)
+```
+
+Tests drive review prompts headlessly through `nsgotest` with `nsgotest.Environment(core.Environment{OS: core.OSIOS, CanRequestReview: true})`, `nsgotest.WallTime(...)`, `app.FastForward(...)`, `nsgotest.Storage(...)`, and `app.ReviewRequests`; `liveops/review_test.go` covers every rule.
