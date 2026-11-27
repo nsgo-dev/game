@@ -159,3 +159,25 @@ image:
 ```
 
 运行 `go tool game assets` 或 `go tool game pack` 打包图集时，工具会用 marching squares 追踪像素透明通道、简化轮廓并将凹轮廓拆分为顶点数不超过 `maxVertices` 的凸多边形，然后把 `shapes` 和 `points` 写入打包后的图集 JSON。伴随文件拒绝未知字段并按 `import.v1.json` 校验。在编辑器文件浏览器中选中图片后，检查器预览会直接叠加显示追踪出的碰撞轮廓与命名点，并支持在预览画布上拖拽调整命名点位置。
+
+## 远程资源
+
+对于托管在 CDN 上的散装资源文件（例如为了留在小游戏或 Web 包体上限内而移出主包的音乐或关卡美术），可在 `game.yaml` 中配置 [`assets.remote`](cli.md#assets)，让 `go tool game assets` 将文件复制为内容哈希路径（`<name>.<hash8>.<ext>`）并写出带版本号且按 URI 排序的 `remote.yaml` 清单，然后在创建 `Manager` 时传入 `assets.WithRemote`：
+
+```go
+manifest, err := assets.ParseRemoteManifest(remoteManifestYAML)
+if err != nil {
+	return err
+}
+cache := assets.NewDirRemoteCache(cacheDir) // 默认 200 MiB 配额
+mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
+	Manifest: manifest,
+	Cache:    cache,
+}))
+```
+
+- 凡在 `Manifest` 中列出的 URI（原始字节、自定义资源、图片、图集 JSON/图片与音效）都会通过 `Base`（省略时取 `Manifest.Base`）拼接内容哈希路径拉取，严格校验字节大小与 SHA-256（`ErrSizeMismatch` / `ErrHashMismatch`）并写入 `Cache`。未列入 `Manifest` 的 URI 会继续回退到本地来源（`WithReadAsset`、`WithFS` 或应用打包的 `resources/`）。
+- 缓存中已存在且大小与 SHA-256 相符的文件无需发起网络请求，因此缓存预热后可支持离线启动；损坏或截断的缓存条目会被自动清理并重新拉取。
+- 对同一内容哈希的并发加载会合并为单次在途请求；取消其中一个等待者不影响其他等待者，只有最后一个等待者取消时才会中止底层请求。
+- `RemoteOptions.Fetch`（`func(ctx context.Context, url string) (io.ReadCloser, int64, error)`）是传输扩展点，默认使用 `net/http`，小游戏等不使用 `net/http` 的目标可直接接入宿主请求接口。
+- `DirRemoteCache` 按 `Quota`（默认 200 MiB，对齐小游戏本地文件系统上限）执行最近最少使用（LRU）淘汰，且绝不移除正在加载或已加载的 `Group` 所固定的文件；它通过临时文件原子写入，将访问时间持久化在紧凑的 `index.yaml` 文本索引中，并提供 `Usage()`（`Bytes`、`Quota`、`Files`、`PinnedBytes`）与 `Clear()` 供设置界面展示与清理。在没有本地磁盘的目标（如 Web）上可使用 `MemoryRemoteCache`。

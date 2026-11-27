@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"net/url"
 	"path"
 	"slices"
 	"strings"
@@ -48,6 +49,8 @@ type Assets struct {
 	Models []ModelTarget `yaml:"models,omitempty"`
 	// Manifest, when set, is the typed Go asset manifest generated after every other target is built.
 	Manifest *ManifestTarget `yaml:"manifest,omitempty"`
+	// Remote, when set, copies loose assets to content-hashed filenames (<name>.<hash8>.<ext>) under its out folder and writes remote.yaml for CDN hosting.
+	Remote *RemoteTarget `yaml:"remote,omitempty"`
 }
 
 // AtlasTarget is one sprite atlas packed from a folder of PNG images, as game pack packs it.
@@ -192,6 +195,20 @@ type ManifestTarget struct {
 	EmbedDir string `yaml:"embedDir,omitempty"`
 }
 
+// RemoteTarget publishes loose assets into Out under content-hashed filenames (<name>.<hash8>.<ext>) and writes a remote.yaml manifest mapping each asset URI to its hashed path, byte size and SHA-256 digest.
+type RemoteTarget struct {
+	// In is the folder of assets to publish remotely; when empty, Manifest.In is used, or the outputs built by the other targets when no manifest is configured.
+	In string `yaml:"in,omitempty"`
+	// Out is the directory written with content-hashed files and remote.yaml, such as "dist/cdn".
+	Out string `yaml:"out"`
+	// Base is the default origin URL prefix written into remote.yaml, such as "https://cdn.example.com/game/".
+	Base string `yaml:"base,omitempty"`
+	// Prefix is prepended to each published file's relative path to form its URI in remote.yaml; empty is "asset:".
+	Prefix string `yaml:"prefix,omitempty"`
+	// Include, when non-empty, limits published files to those matching at least one slash-separated path prefix (ending in "/"), exact relative path, or path.Match glob pattern.
+	Include []string `yaml:"include,omitempty"`
+}
+
 // CachePath returns the build cache's slash-separated path relative to the project root: Cache, or DefaultAssetsCache when a is nil or Cache is empty.
 func (a *Assets) CachePath() string {
 	if a == nil || a.Cache == "" {
@@ -232,6 +249,12 @@ func (a *Assets) IsOutput(p string) bool {
 	}
 	if a.Manifest != nil && p == path.Clean(a.Manifest.Out) {
 		return true
+	}
+	if a.Remote != nil {
+		out := path.Clean(a.Remote.Out)
+		if p == out || strings.HasPrefix(p, out+"/") {
+			return true
+		}
 	}
 	for _, at := range a.Atlases {
 		if path.Dir(p) == path.Clean(at.Out) && isPage(at.Name, path.Base(p)) {
@@ -347,6 +370,28 @@ func (a *Assets) Validate() error {
 			return loaderr.Errorf("assets.cache", "move assets.cache outside assets.manifest.in or into a dot-prefixed folder", "project: assets cache %s is inside the manifest's folder %s; move it out or into a folder whose name starts with a dot", a.CachePath(), m.In)
 		}
 	}
+	if r := a.Remote; r != nil {
+		if err := validateRemoteTarget(*r); err != nil {
+			return loaderr.Errorf("assets.remote", "fix the remote target settings in game.yaml", "project: assets remote: %w", err)
+		}
+		if err := claim("assets.remote.out", path.Join(r.Out, "remote.yaml"), "remote"); err != nil {
+			return err
+		}
+		if r.In != "" && scannedUnder(a.CachePath(), r.In) {
+			return loaderr.Errorf("assets.cache", "move assets.cache outside assets.remote.in or into a dot-prefixed folder", "project: assets cache %s is inside remote's folder %s; move it out or into a folder whose name starts with a dot", a.CachePath(), r.In)
+		}
+		if r.In != "" && scannedUnder(r.Out, r.In) {
+			return loaderr.Errorf("assets.remote.out", "write assets.remote.out outside assets.remote.in or into a dot-prefixed folder", "project: assets remote writes to %s, inside its own input folder %s; write it elsewhere or to a folder whose name starts with a dot", r.Out, r.In)
+		}
+		if a.Manifest != nil && scannedUnder(r.Out, a.Manifest.In) {
+			return loaderr.Errorf("assets.remote.out", "write assets.remote.out outside assets.manifest.in or into a dot-prefixed folder", "project: assets remote writes to %s, inside the manifest's folder %s; write it elsewhere or to a folder whose name starts with a dot", r.Out, a.Manifest.In)
+		}
+		for i, at := range a.Atlases {
+			if scannedUnder(r.Out, at.In) {
+				return loaderr.Errorf("assets.remote.out", "write assets.remote.out outside every atlas input directory or into a dot-prefixed folder", "project: assets remote writes to %s, inside atlases[%d]'s images in %s; write it elsewhere or to a folder whose name starts with a dot", r.Out, i, at.In)
+			}
+		}
+	}
 	// reads maps each path a target reads, file or folder, to the first target that reads it.
 	reads := map[string]string{}
 	read := func(in, owner string) {
@@ -371,6 +416,9 @@ func (a *Assets) Validate() error {
 	}
 	if m := a.Manifest; m != nil {
 		read(m.In, "manifest")
+	}
+	if r := a.Remote; r != nil && r.In != "" {
+		read(r.In, "remote")
 	}
 	// Fonts build after the textures and models, so one of those reading a font's page would encode the page of the previous run, or fail on a fresh checkout, and the font would overwrite an image written by hand under that name.
 	for in, reader := range reads {
@@ -421,6 +469,9 @@ func (a *Assets) normalize() {
 	if len(a.Models) == 0 {
 		a.Models = nil
 	}
+	if a.Remote != nil && len(a.Remote.Include) == 0 {
+		a.Remote.Include = nil
+	}
 }
 
 // clone returns a deep copy of a.
@@ -429,6 +480,11 @@ func (a *Assets) clone() *Assets {
 		return nil
 	}
 	c := Assets{Cache: a.Cache, Manifest: clonePtr(a.Manifest)}
+	if a.Remote != nil {
+		r := *a.Remote
+		r.Include = slices.Clone(a.Remote.Include)
+		c.Remote = &r
+	}
 	if a.Atlases != nil {
 		c.Atlases = make([]AtlasTarget, len(a.Atlases))
 		for i, at := range a.Atlases {
@@ -685,6 +741,48 @@ func validateManifestTarget(m ManifestTarget) error {
 	}
 	if m.EmbedDir != "" && m.EmbedDir != "." && !fs.ValidPath(m.EmbedDir) {
 		return fmt.Errorf("embedDir %q must be a slash-separated relative path", m.EmbedDir)
+	}
+	return nil
+}
+
+func validateRemoteTarget(r RemoteTarget) error {
+	if err := validateAssetFile(r.Out); err != nil {
+		return fmt.Errorf("out: %w", err)
+	}
+	if r.In != "" {
+		if err := validateAssetPath(r.In); err != nil {
+			return fmt.Errorf("in: %w", err)
+		}
+	}
+	if r.Base != "" {
+		u, err := url.Parse(r.Base)
+		if err != nil {
+			return fmt.Errorf("base: invalid URL %q: %w", r.Base, err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("base: URL %q must use http or https", r.Base)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("base: URL %q must include a host", r.Base)
+		}
+		if u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("base: URL %q must not contain a query or fragment", r.Base)
+		}
+	}
+	for i, pat := range r.Include {
+		if pat == "" {
+			return fmt.Errorf("include[%d]: pattern must not be empty", i)
+		}
+		if strings.Contains(pat, `\`) {
+			return fmt.Errorf("include[%d]: pattern %q must use forward slashes", i, pat)
+		}
+		trimmed := strings.TrimSuffix(pat, "/")
+		if trimmed == "" || trimmed == "." || !fs.ValidPath(trimmed) {
+			return fmt.Errorf("include[%d]: pattern %q must be relative, clean and inside the project", i, pat)
+		}
+		if _, err := path.Match(trimmed, "a"); err != nil {
+			return fmt.Errorf("include[%d]: invalid pattern %q: %w", i, pat, err)
+		}
 	}
 	return nil
 }

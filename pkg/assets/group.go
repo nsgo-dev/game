@@ -63,6 +63,7 @@ type Group struct {
 	loaded     int
 	loadCancel context.CancelFunc
 	waiters    []func(error)
+	remotePins []string
 
 	atlases  map[string]*sprite.Atlas
 	sounds   map[string]*audio.Sound
@@ -346,13 +347,77 @@ func (g *Group) Load(onDone func(error)) {
 		g.errSig.Set(nil)
 	})
 
+	if g.m.remote != nil && g.m.remote.initErr != nil {
+		g.failLoad(gen, g.m.remote.initErr)
+		return
+	}
+
+	ratio := core.Untracked(g.m.cx, func() float32 { return g.m.cx.Env().PixelRatio() })
+	g.pinRemote(ratio)
+
 	readFn := g.readAssetFunc()
 	specs := make([]assetSpec, len(g.specs))
 	copy(specs, g.specs)
 
 	for _, spec := range specs {
-		g.startSpec(gen, loadCtx, readFn, spec)
+		g.startSpec(gen, loadCtx, readFn, ratio, spec)
 	}
+}
+
+func (g *Group) pinRemote(ratio float32) {
+	if g.m.remote == nil || g.m.remote.cache == nil {
+		return
+	}
+	seen := map[string]bool{}
+	pinEntry := func(e RemoteEntry) {
+		if e.SHA256 == "" || seen[e.SHA256] {
+			return
+		}
+		seen[e.SHA256] = true
+		g.m.remote.cache.Pin(e.SHA256)
+		g.remotePins = append(g.remotePins, e.SHA256)
+	}
+	for _, spec := range g.specs {
+		switch spec.kind {
+		case kindBytes, kindCustom:
+			if !g.readsFromPack(spec.uri) {
+				if e, ok := g.m.remote.lookup(spec.uri); ok {
+					pinEntry(e)
+				}
+			}
+		case kindAtlas:
+			if !g.readsFromPack(spec.uri) {
+				if e, ok := g.m.remote.lookup(spec.uri); ok {
+					pinEntry(e)
+				}
+			}
+			if _, e, ok := g.m.remote.resolveImageURI(spec.img, ratio); ok {
+				pinEntry(e)
+			}
+		case kindImage:
+			if _, e, ok := g.m.remote.resolveImageURI(spec.img, ratio); ok {
+				pinEntry(e)
+			}
+		case kindSound:
+			if len(spec.sound.Data) == 0 && spec.sound.URI != "" {
+				if e, ok := g.m.remote.lookup(spec.sound.URI); ok {
+					pinEntry(e)
+				}
+			}
+		}
+	}
+}
+
+func (g *Group) unpinRemote() {
+	if len(g.remotePins) == 0 {
+		return
+	}
+	if g.m.remote != nil && g.m.remote.cache != nil {
+		for _, hash := range g.remotePins {
+			g.m.remote.cache.Unpin(hash)
+		}
+	}
+	g.remotePins = nil
 }
 
 func (g *Group) readAssetFunc() func(context.Context, string) ([]byte, error) {
@@ -375,14 +440,14 @@ func (g *Group) readAssetFunc() func(context.Context, string) ([]byte, error) {
 	}
 }
 
-func (g *Group) startSpec(gen uint64, loadCtx context.Context, readFn func(context.Context, string) ([]byte, error), spec assetSpec) {
+func (g *Group) startSpec(gen uint64, loadCtx context.Context, readFn func(context.Context, string) ([]byte, error), ratio float32, spec assetSpec) {
 	switch spec.kind {
 	case kindAtlas:
-		g.startAtlas(gen, loadCtx, readFn, spec)
+		g.startAtlas(gen, loadCtx, readFn, ratio, spec)
 	case kindSound:
-		g.startSound(gen, spec)
+		g.startSound(gen, loadCtx, spec)
 	case kindImage:
-		g.startImage(gen, spec)
+		g.startImage(gen, loadCtx, ratio, spec)
 	case kindBytes:
 		g.startBytes(gen, loadCtx, readFn, spec)
 	case kindCustom:
@@ -390,8 +455,9 @@ func (g *Group) startSpec(gen uint64, loadCtx context.Context, readFn func(conte
 	}
 }
 
-func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(context.Context, string) ([]byte, error), spec assetSpec) {
-	prefetch := needsPrefetch(spec.img)
+func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(context.Context, string) ([]byte, error), ratio float32, spec assetSpec) {
+	remoteImgURI, _, remoteImg := g.m.remote.resolveImageURI(spec.img, ratio)
+	prefetch := needsPrefetch(spec.img) && !remoteImg
 	var (
 		parsed    *sprite.Atlas
 		parsedLen int64
@@ -429,6 +495,17 @@ func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(cont
 	}
 
 	go func() {
+		resolvedImg := spec.img
+		if remoteImg {
+			imgData, err := g.m.remote.fetchBytes(loadCtx, remoteImgURI)
+			if err != nil {
+				g.m.postWithCleanup(nil, func() {
+					finish(fmt.Errorf("assets: atlas %q: read image %q: %w", spec.name, remoteImgURI, err))
+				})
+				return
+			}
+			resolvedImg.Data = imgData
+		}
 		data, err := readFn(loadCtx, spec.uri)
 		if err != nil {
 			g.m.postWithCleanup(nil, func() {
@@ -436,7 +513,7 @@ func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(cont
 			})
 			return
 		}
-		atlas, err := sprite.LoadAtlas(spec.img, data)
+		atlas, err := sprite.LoadAtlas(resolvedImg, data)
 		if err != nil {
 			g.m.postWithCleanup(nil, func() {
 				finish(loaderr.WithFile(err, spec.uri))
@@ -453,9 +530,35 @@ func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(cont
 	}()
 }
 
-func (g *Group) startSound(gen uint64, spec assetSpec) {
+func (g *Group) startSound(gen uint64, loadCtx context.Context, spec assetSpec) {
+	if len(spec.sound.Data) == 0 && spec.sound.URI != "" && g.m.remote != nil && g.m.remote.has(spec.sound.URI) {
+		uri := spec.sound.URI
+		go func() {
+			data, err := g.m.remote.fetchBytes(loadCtx, uri)
+			if err != nil {
+				g.m.postWithCleanup(nil, func() {
+					if !g.isActive(gen) {
+						return
+					}
+					g.failLoad(gen, fmt.Errorf("assets: sound %q: read %q: %w", spec.name, uri, err))
+				})
+				return
+			}
+			g.m.postWithCleanup(nil, func() {
+				if !g.isActive(gen) {
+					return
+				}
+				g.loadSoundSpec(gen, spec.name, audio.Source{Data: data})
+			})
+		}()
+		return
+	}
+	g.loadSoundSpec(gen, spec.name, spec.sound)
+}
+
+func (g *Group) loadSoundSpec(gen uint64, name string, src audio.Source) {
 	g.m.cx.Run(func() {
-		audio.LoadSound(g.m.cx, spec.sound, func(s *audio.Sound, err error) {
+		audio.LoadSound(g.m.cx, src, func(s *audio.Sound, err error) {
 			if !g.isActive(gen) {
 				if s != nil {
 					s.Close()
@@ -466,16 +569,41 @@ func (g *Group) startSound(gen uint64, spec assetSpec) {
 				if s != nil {
 					s.Close()
 				}
-				g.failLoad(gen, fmt.Errorf("assets: sound %q: %w", spec.name, err))
+				g.failLoad(gen, fmt.Errorf("assets: sound %q: %w", name, err))
 				return
 			}
-			g.sounds[spec.name] = s
+			g.sounds[name] = s
 			g.completeItem(gen)
 		})
 	})
 }
 
-func (g *Group) startImage(gen uint64, spec assetSpec) {
+func (g *Group) startImage(gen uint64, loadCtx context.Context, ratio float32, spec assetSpec) {
+	if remoteImgURI, _, ok := g.m.remote.resolveImageURI(spec.img, ratio); ok {
+		go func() {
+			data, err := g.m.remote.fetchBytes(loadCtx, remoteImgURI)
+			if err != nil {
+				g.m.postWithCleanup(nil, func() {
+					if !g.isActive(gen) {
+						return
+					}
+					g.failLoad(gen, fmt.Errorf("assets: image %q (%s): %w", spec.name, remoteImgURI, err))
+				})
+				return
+			}
+			resolved := spec.img
+			resolved.Data = data
+			g.m.postWithCleanup(nil, func() {
+				if !g.isActive(gen) {
+					return
+				}
+				g.images[spec.name] = resolved
+				g.rawBytes[spec.name] = int64(len(data))
+				g.completeItem(gen)
+			})
+		}()
+		return
+	}
 	if needsPrefetch(spec.img) {
 		g.m.cx.Run(func() {
 			g.m.cx.PrefetchImage(spec.img, func(ok bool) {
@@ -619,6 +747,7 @@ func (g *Group) failLoad(gen uint64, err error) {
 	}
 	waiters := g.waiters
 	g.waiters = nil
+	g.unpinRemote()
 	g.releaseLoadedValues()
 	g.state = stateFailed
 	g.loaded = 0
@@ -666,6 +795,7 @@ func (g *Group) releaseResources(updateSignals bool) {
 		g.loadCancel = nil
 	}
 	g.waiters = nil
+	g.unpinRemote()
 	g.releaseLoadedValues()
 	g.state = stateIdle
 	g.loaded = 0

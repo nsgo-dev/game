@@ -124,6 +124,7 @@ var formatVersions = map[string]string{
 	"ai.UtilityVersion":                             "ai",
 	"anim3d.EventsSidecarVersion":                   "anim3d",
 	"animclip.StateMachineVersion":                  "animclip",
+	"assets.RemoteManifestVersion":                  "assets#remote",
 	"bullets.FormatVersion":                         "bullets",
 	"cards.FormatVersion":                           "cards",
 	"online/cloudsave.ConfigVersion":                "online/cloudsave",

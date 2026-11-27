@@ -24,6 +24,8 @@ const (
 	FieldModelOut         = "assets model out"
 	FieldManifestIn       = "assets manifest in"
 	FieldManifestOut      = "assets manifest out"
+	FieldRemoteIn         = "assets remote in"
+	FieldRemoteOut        = "assets remote out"
 	FieldPackDir          = "pack dir"
 )
 
@@ -88,6 +90,10 @@ func pathFields(f *File) []pathField {
 		if m := a.Manifest; m != nil {
 			add(FieldManifestIn, true, true, &m.In, "assets", "manifest", "in")
 			add(FieldManifestOut, false, true, &m.Out, "assets", "manifest", "out")
+		}
+		if r := a.Remote; r != nil {
+			add(FieldRemoteIn, true, true, &r.In, "assets", "remote", "in")
+			add(FieldRemoteOut, true, true, &r.Out, "assets", "remote", "out")
 		}
 	}
 	for i := range f.Packs {

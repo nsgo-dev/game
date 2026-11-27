@@ -218,6 +218,14 @@
               "$ref": "#/definitions/ManifestTarget"
             }
           ]
+        },
+        "remote": {
+          "description": "Remote, when set, copies loose assets to content-hashed filenames (<name>.<hash8>.<ext>) under its out folder and writes remote.yaml for CDN hosting.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RemoteTarget"
+            }
+          ]
         }
       },
       "additionalProperties": false
@@ -1440,6 +1448,36 @@
         "width",
         "height"
       ],
+      "additionalProperties": false
+    },
+    "RemoteTarget": {
+      "description": "RemoteTarget publishes loose assets into Out under content-hashed filenames (<name>.<hash8>.<ext>) and writes a remote.yaml manifest mapping each asset URI to its hashed path, byte size and SHA-256 digest.",
+      "type": "object",
+      "properties": {
+        "in": {
+          "description": "In is the folder of assets to publish remotely; when empty, Manifest.In is used, or the outputs built by the other targets when no manifest is configured.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the directory written with content-hashed files and remote.yaml, such as \"dist/cdn\".",
+          "type": "string"
+        },
+        "base": {
+          "description": "Base is the default origin URL prefix written into remote.yaml, such as \"https://cdn.example.com/game/\".",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "Prefix is prepended to each published file's relative path to form its URI in remote.yaml; empty is \"asset:\".",
+          "type": "string"
+        },
+        "include": {
+          "description": "Include, when non-empty, limits published files to those matching at least one slash-separated path prefix (ending in \"/\"), exact relative path, or path.Match glob pattern.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
       "additionalProperties": false
     },
     "Reverb": {

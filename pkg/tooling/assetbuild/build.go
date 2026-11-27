@@ -42,6 +42,8 @@ const (
 	KindModel Kind = "model"
 	// KindManifest generates the Go asset manifest.
 	KindManifest Kind = "manifest"
+	// KindRemote copies loose assets to content-hashed files and writes remote.yaml.
+	KindRemote Kind = "remote"
 )
 
 // Status is what a build did with a target.
@@ -282,10 +284,14 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		}
 	}
 
+	remoteID := ""
+	if a.Remote != nil {
+		remoteID = "remote " + a.Remote.Out
+	}
 	if runErr == nil && !b.Check {
 		// A target renamed, moved or removed from game.yaml leaves its cache entry behind; its files go before the manifest scans for assets, so neither the output folders nor the manifest keep them.
 		for _, e := range prev.Targets {
-			if slices.ContainsFunc(steps, func(s step) bool { return s.id == e.Target }) {
+			if e.Target == remoteID || slices.ContainsFunc(steps, func(s step) bool { return s.id == e.Target }) {
 				continue
 			}
 			if err := b.remove(e.paths(), written); err != nil {
@@ -303,6 +309,20 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		}
 		if err != nil {
 			runErr = fmt.Errorf("assetbuild: %s: %w", t.ID, err)
+		} else {
+			r.Targets = append(r.Targets, t)
+		}
+	}
+
+	if runErr == nil && a.Remote != nil {
+		builtOutputs := make([]string, 0, len(written))
+		for o := range written {
+			builtOutputs = append(builtOutputs, o)
+		}
+		slices.Sort(builtOutputs)
+		t, err := b.runRemoteStep(a, builtOutputs, prev, next, written, r.Count(Stale) > 0)
+		if err != nil {
+			runErr = err
 		} else {
 			r.Targets = append(r.Targets, t)
 		}
@@ -1154,6 +1174,14 @@ func redirectAssets(a *project.Assets, dir string) (*project.Assets, error) {
 		m.Embed = false
 		m.EmbedDir = ""
 		out.Manifest = &m
+	}
+	if a.Remote != nil {
+		r := *a.Remote
+		r.Include = slices.Clone(a.Remote.Include)
+		if r.In != "" {
+			r.In = redirectOutputPath(r.In, dir)
+		}
+		out.Remote = &r
 	}
 	return out, nil
 }
