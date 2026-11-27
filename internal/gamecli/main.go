@@ -60,6 +60,9 @@ type usageError struct{ msg string }
 
 func (e *usageError) Error() string { return e.msg }
 
+// errUsageReported is returned when a subcommand already printed its flag parse error and usage and only needs exit code 2.
+var errUsageReported = errors.New("usage reported")
+
 // usagef returns a usageError with a formatted message.
 func usagef(format string, args ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, args...)}
@@ -109,6 +112,12 @@ func run(args []string, a *app) int {
 		return 2
 	}
 	if err := exec(); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		if errors.Is(err, errUsageReported) {
+			return 2
+		}
 		fmt.Fprintf(a.stderr, "game %s: %v\n", c.name, err)
 		if _, ok := errors.AsType[*usageError](err); ok {
 			fs.Usage()

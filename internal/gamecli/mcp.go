@@ -2,6 +2,7 @@ package gamecli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -31,7 +32,16 @@ func defineMCP(a *app, fs *flag.FlagSet) func() error {
 	return func() error {
 		if fs.NArg() > 0 {
 			if fs.Arg(0) == "install" {
-				return runMCPInstall(a, *dir, fs.Args()[1:])
+				if err := fs.Parse(fs.Args()[1:]); err != nil {
+					if errors.Is(err, flag.ErrHelp) {
+						return flag.ErrHelp
+					}
+					return errUsageReported
+				}
+				if fs.NArg() > 0 {
+					return usagef("expected no arguments after install, got %d", fs.NArg())
+				}
+				return runMCPInstall(a, *dir)
 			}
 			return usagef("unknown subcommand %q (expected none or install)", fs.Arg(0))
 		}
@@ -45,23 +55,14 @@ func defineMCP(a *app, fs *flag.FlagSet) func() error {
 	}
 }
 
-func runMCPInstall(a *app, defaultDir string, args []string) error {
-	sub := flag.NewFlagSet("game mcp install", flag.ContinueOnError)
-	sub.SetOutput(a.stderr)
-	dir := sub.String("project", defaultDir, "the project: its directory, a directory inside it, or its game.yaml")
-	if err := sub.Parse(args); err != nil {
-		return usagef("%v", err)
-	}
-	if sub.NArg() > 0 {
-		return usagef("expected no arguments after install, got %d", sub.NArg())
-	}
+func runMCPInstall(a *app, dir string) error {
 	var extra []editor.AgentMCPServer
 	if settingsPath, perr := editor.DefaultSettingsPath(); perr == nil {
 		if s, serr := editor.LoadEditorSettings(settingsPath); serr == nil && s.Agent != nil && len(s.Agent.MCPServers) > 0 {
 			extra = s.Agent.MCPServers
 		}
 	}
-	res, err := editormcp.InstallWithServers(*dir, extra)
+	res, err := editormcp.InstallWithServers(dir, extra)
 	if err != nil {
 		return err
 	}

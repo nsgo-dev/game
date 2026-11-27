@@ -273,6 +273,17 @@ func TestGameMCPWithoutAnEditor(t *testing.T) {
 	}
 }
 
+func TestGameMCPInstallProjectFlagBeforeInstall(t *testing.T) {
+	dir := writeMCPFixture(t)
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"mcp", "-project", dir, "install"}, a); code != 0 {
+		t.Fatalf("mcp -project <dir> install exit %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout.String(), "Wrote .mcp.json") || !strings.Contains(stdout.String(), "Wrote .codex/config.toml") {
+		t.Fatalf("stdout:\n%s", stdout)
+	}
+}
+
 // Acceptance tests for #1009:
 // 1. `go tool game mcp install` run twice in a fixture project produces identical files, and a client started from that configuration connects to the open editor.
 // 2. Connect an MCP client -> Connected, drop the connection -> Reconnecting with retry schedule (1, 2, 4, 8, 16 s), then Disconnected after five failures; Troubleshoot opens Connect at the failed step.
