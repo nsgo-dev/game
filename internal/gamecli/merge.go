@@ -22,9 +22,15 @@ const (
 	sceneMergeDriverTitle = scenemerge.DriverTitle
 	// sceneMergeDriverCmd is the command Git invokes with ancestor (%O), current (%A), other (%B) and path (%P).
 	sceneMergeDriverCmd = scenemerge.DriverCommand
-	// sceneGitAttributesContent is the default .gitattributes written by templates and game merge -setup.
-	sceneGitAttributesContent = scenemerge.GitAttributesContent
 )
+
+// binaryMediaPatterns are the binary media extensions marked binary in .gitattributes.
+var binaryMediaPatterns = scenemerge.BinaryMediaPatterns
+
+// defaultGitAttributesContent returns the canonical .gitattributes written by templates and game merge -setup.
+func defaultGitAttributesContent() string {
+	return scenemerge.GitAttributesContent
+}
 
 // mergeCommand runs the object-by-object scene Git merge driver or registers and checks it in a project's Git config and .gitattributes.
 var mergeCommand = &command{
@@ -49,7 +55,7 @@ var runGit = func(dir string, args ...string) (string, error) {
 func defineMerge(a *app, fs *flag.FlagSet) func() error {
 	out := outFlag(fs, "", "file to write the merged scene or conflict report to (default: overwrite <ours> in place, as Git expects)")
 	conflictOut := fs.String("conflict-out", "", "file to write the YAML conflict report to instead of overwriting the output file on conflict")
-	setup := fs.Bool("setup", false, "register the nsgo-scene merge driver in local Git config and .gitattributes")
+	setup := fs.Bool("setup", false, "register the nsgo-scene merge driver in local Git config and ensure .gitattributes has LF line-ending, binary media, and scene merge rules")
 	check := fs.Bool("check", false, "verify that merge.nsgo-scene.driver is configured when .gitattributes names nsgo-scene")
 
 	return func() error {
@@ -236,8 +242,9 @@ func configureGitMergeDriver(dir string) error {
 	return scenemerge.ConfigureDriver(dir, runGit)
 }
 
-// ensureSceneGitAttributes ensures path contains merge=nsgo-scene rules for
-// *.scene.yaml and *.scene.yml without duplicating existing entries.
+// ensureSceneGitAttributes ensures path contains * text=auto eol=lf (before any
+// pattern-specific rules), binary rules for media extensions, and merge=nsgo-scene
+// rules for *.scene.yaml and *.scene.yml without duplicating existing entries.
 func ensureSceneGitAttributes(path string) (bool, error) {
 	return scenemerge.EnsureGitAttributes(path)
 }

@@ -102,6 +102,7 @@ template/
       ├─ main.go
       ├─ …_test.go
       ├─ README.md
+      ├─ .gitattributes
       └─ .gitignore
 internal/gamecli/
 ├─ templates.go               注册表：每个模板一条
@@ -127,9 +128,9 @@ internal/gamecli/
 - `go.mod.tmpl` 以 `module {{.Module}}` 开头，依赖一个已发布的、包含模板所用全部包的 `github.com/nsgo-dev/game` 版本，并带有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`。它是唯一含模板动作的文件：`game new` 和 `nsgo init` 也会渲染 `nsgo.yaml`、`main.go` 和其他 `.tmpl` 文件，但 CI 只渲染 `go.mod.tmpl`，模板还必须在工作区中原样构建，所以这些文件渲染后必须与原文相同，`main.go` 中也不能出现 `{{`（例如 `[]T{{...}}` 这样的复合字面量），这类代码放到其他 Go 文件中。其余文件按原样复制，内容不限。名为 `go.mod` 的文件会让该目录成为独立模块，`go:embed` 和工作区都无法包含它。
 - `go.sum` 记录所固定模块的校验和。生成方法：在仓库外复制一份模板，把其中的 `go.mod.tmpl` 变成 `go.mod`，然后在那里运行 `GOWORK=off go mod tidy`。
 - `game.yaml` 是规范格式（`go run github.com/nsgo-dev/game/cmd/gameproject check` 会检查），`nsgo.yaml` 与它一致；`game new` 会替换两者的 `name` 和 `id`。
-- 包含 `main.go`、`README.md`、`.gitignore` 和测试，并且在仓库根目录运行 `go run ./cmd/game index template` 无事可做。
+- 包含 `main.go`、`README.md`、`.gitattributes`、`.gitignore` 和测试，并且在仓库根目录运行 `go run ./cmd/game index template` 无事可做。`.gitattributes` 设置 `* text=auto eol=lf` 使文本文件在不同操作系统下都保持 LF（即使 Windows 版 Git 默认开启 `core.autocrlf=true`），随后将二进制媒体扩展名标记为 `binary`，并把 `*.scene.yaml` / `*.scene.yml` 指向 `merge=nsgo-scene`；`.gitignore` 忽略 `.nsgo/`、`.game/` 和 `dist/`。
 - 模板作者编写的每个文件都是文本，与本仓库中的任何项目一样。
 
-缺少上述任何一步时，`internal/gamecli` 的测试都会失败：`_templates/projects` 下的副本与模块的 `template` 目录有任何一个字节不同；某个 `template/*/template` 目录没有注册；某条注册没有副本、模块或 `go.work` 条目；本页或其英文版中没有写明模板及其模块的那一行。测试还会用每个模板创建项目，用本地游戏层构建并运行它的测试。
+缺少上述任何一步时，`internal/gamecli` 的测试都会失败：`_templates/projects` 下的副本与模块的 `template` 目录有任何一个字节不同；某个 `template/*/template` 目录没有注册；某条注册没有副本、模块或 `go.work` 条目；某个模板的 `.gitattributes` 或 `.gitignore` 缺少必需规则；本页或其英文版中没有写明模板及其模块的那一行。测试还会用每个模板创建项目，用本地游戏层构建并运行它的测试。
 
-新增模板无需修改 CI：`templates` 任务列出 `template/template` 和每个 `template/*/template` 目录，并以开发者拿到项目的方式测试每个模板：把模板复制到工作区之外，为 `example.com/<name>game` 渲染 `go.mod`，并在 `GOWORK=off` 下运行 `go tool nsgo test ./...`，因此项目依赖的是 `go.mod.tmpl` 固定的游戏层版本，而不是当前检出的代码。如果模板需要尚未发布的包，等该包合入 `main` 后再提升这个固定版本。
+新增模板无需修改 CI：`templates` 任务列出 `template/template` 和每个 `template/*/template` 目录，并以开发者拿到项目的方式测试每个模板：把模板复制到工作区之外，为 `example.com/<name>game` 渲染 `go.mod`，并在 `GOWORK=off` 下运行 `go tool nsgo test ./...`，因此项目依赖的是 `go.mod.tmpl` 固定的游戏层版本，而不是当前检出的代码。Windows CI 任务（`templates-windows`）还会在开启 `core.autocrlf=true` 的情况下克隆模板并运行其测试，以验证 `.gitattributes` 的 LF 规则能让规范 YAML 检查持续通过。如果模板需要尚未发布的包，等该包合入 `main` 后再提升这个固定版本。

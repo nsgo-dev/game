@@ -223,3 +223,52 @@ func TestCheckAttributesEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+func TestEnsureGitAttributes(t *testing.T) {
+	t.Run("creates_full_default_idempotently", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), ".gitattributes")
+		changed, err := EnsureGitAttributes(p)
+		if err != nil || !changed {
+			t.Fatalf("first EnsureGitAttributes: changed=%v err=%v, want true, nil", changed, err)
+		}
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != GitAttributesContent {
+			t.Errorf("got:\n%s\nwant:\n%s", got, GitAttributesContent)
+		}
+		changed, err = EnsureGitAttributes(p)
+		if err != nil || changed {
+			t.Fatalf("second EnsureGitAttributes: changed=%v err=%v, want false, nil", changed, err)
+		}
+	})
+
+	t.Run("upgrades_legacy_and_prepends_lf_before_custom_rules", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), ".gitattributes")
+		if err := os.WriteFile(p, []byte("*.png binary\n*.bat text eol=crlf\n*.scene.yaml merge=nsgo-scene\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		changed, err := EnsureGitAttributes(p)
+		if err != nil || !changed {
+			t.Fatalf("EnsureGitAttributes: changed=%v err=%v", changed, err)
+		}
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(got)
+		if strings.Index(s, "* text=auto eol=lf\n") > strings.Index(s, "*.png binary\n") {
+			t.Errorf("expected * text=auto eol=lf before *.png binary:\n%s", s)
+		}
+		if strings.Count(s, "*.png binary") != 1 || strings.Count(s, "*.scene.yaml merge=nsgo-scene") != 1 {
+			t.Errorf("duplicate rules in:\n%s", s)
+		}
+		if !strings.Contains(s, "*.scene.yml merge=nsgo-scene\n") {
+			t.Errorf("missing *.scene.yml rule in:\n%s", s)
+		}
+		if changed, err := EnsureGitAttributes(p); err != nil || changed {
+			t.Fatalf("second EnsureGitAttributes: changed=%v err=%v, want false, nil", changed, err)
+		}
+	})
+}

@@ -323,6 +323,121 @@ func TestIndexOfProject(t *testing.T) {
 	}
 }
 
+func TestIndexNormalizesCRLFForTextFiles(t *testing.T) {
+	actorsLF := "version: 1\nactors:\n  - id: hero\n    hp: 100\n"
+	actorsCRLF := strings.ReplaceAll(actorsLF, "\n", "\r\n")
+	gameLF := gameHead + "autoload:\n  resources:\n    - name: actors\n      path: data/actors.yaml\n"
+	gameCRLF := strings.ReplaceAll(gameLF, "\n", "\r\n")
+
+	lfFS := fstest.MapFS{
+		"game.yaml":        {Data: []byte(gameLF)},
+		"data/actors.yaml": {Data: []byte(actorsLF)},
+	}
+	crlfFS := fstest.MapFS{
+		"game.yaml":        {Data: []byte(gameCRLF)},
+		"data/actors.yaml": {Data: []byte(actorsCRLF)},
+	}
+
+	plLF, err := refs.PlanIndex(lfFS, refs.IndexOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plCRLF, err := refs.PlanIndex(crlfFS, refs.IndexOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plLF.Writes) != 1 || len(plCRLF.Writes) != 1 {
+		t.Fatalf("writes: LF=%d CRLF=%d, want 1 each", len(plLF.Writes), len(plCRLF.Writes))
+	}
+	if !bytes.Equal(plLF.Writes[0].Data, plCRLF.Writes[0].Data) {
+		t.Fatalf("LF and CRLF YAML produced different indexes:\nLF:\n%s\nCRLF:\n%s", plLF.Writes[0].Data, plCRLF.Writes[0].Data)
+	}
+
+	// Committing the LF index and running PlanIndex on a CRLF checkout plans nothing.
+	crlfFS[refs.IndexFileName] = &fstest.MapFile{Data: plLF.Writes[0].Data}
+	plNoop, err := refs.PlanIndex(crlfFS, refs.IndexOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plNoop.Empty() {
+		t.Fatalf("PlanIndex on CRLF checkout with LF index planned %s", describe(plNoop))
+	}
+
+	// Moved finds a YAML file moved on a CRLF checkout against an LF index.
+	rename(crlfFS, "data/actors.yaml", "data/npcs.yaml")
+	p := scan(t, crlfFS)
+	if to, ok := p.Moved("data/actors.yaml"); !ok || to != "data/npcs.yaml" {
+		t.Fatalf("Moved(data/actors.yaml) = %q, %v; want data/npcs.yaml, true", to, ok)
+	}
+
+	// PlanMove rewriting an edited CRLF text file (Tiled .tmj) still records the LF-normalized SHA-256.
+	mapLF := "{\n  \"layers\": [\n    {\"type\": \"imagelayer\", \"image\": \"../art/sky.png\"}\n  ]\n}\n"
+	mapCRLF := strings.ReplaceAll(mapLF, "\n", "\r\n")
+	moveLF := fstest.MapFS{
+		"game.yaml":      {Data: []byte(gameHead)},
+		"maps/level.tmj": {Data: []byte(mapLF)},
+		"art/sky.png":    {Data: []byte("\x89PNG\r\n\x1a\nsky")},
+	}
+	moveCRLF := fstest.MapFS{
+		"game.yaml":      {Data: []byte(gameHead)},
+		"maps/level.tmj": {Data: []byte(mapCRLF)},
+		"art/sky.png":    {Data: []byte("\x89PNG\r\n\x1a\nsky")},
+	}
+	for _, fsys := range []fstest.MapFS{moveLF, moveCRLF} {
+		fsys["scenes/room.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\nuid: scene00000001\ntilemaps:\n  grid:\n    source: maps/level.tmj\n")}
+	}
+	pmLF, err := refs.PlanMove(moveLF, "art/sky.png", "art/bg/sky.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pmCRLF, err := refs.PlanMove(moveCRLF, "art/sky.png", "art/bg/sky.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	findIndex := func(pl *refs.Plan) []byte {
+		for _, w := range pl.Writes {
+			if w.Path == refs.IndexFileName {
+				return w.Data
+			}
+		}
+		return nil
+	}
+	if ixLF, ixCRLF := findIndex(pmLF), findIndex(pmCRLF); !bytes.Equal(ixLF, ixCRLF) {
+		t.Fatalf("PlanMove index differs between LF and CRLF .tmj:\nLF:\n%s\nCRLF:\n%s", ixLF, ixCRLF)
+	}
+}
+
+func TestIndexPreservesBinaryBytes(t *testing.T) {
+	// Even a binary-extension file whose bytes happen to be ASCII, or an unknown-extension binary file containing NUL/non-UTF-8 bytes, must hash its exact bytes rather than normalizing CRLF.
+	for _, tc := range []struct {
+		name string
+		path string
+		a, b []byte
+	}{
+		{"png_header", "art/pic.png", []byte("\x89PNG\r\n\x1a\nrest"), []byte("\x89PNG\n\x1a\nrest")},
+		{"png_ascii", "art/stub.png", []byte("line1\r\nline2\r\n"), []byte("line1\nline2\n")},
+		{"bin_ascii", "data/buf.bin", []byte("ab\r\ncd"), []byte("ab\ncd")},
+		{"unknown_ext_binary", "data/raw.dat", []byte("\x00\xff\r\nbin"), []byte("\x00\xff\nbin")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mk := func(data []byte) []byte {
+				fsys := fstest.MapFS{
+					"game.yaml": {Data: []byte(gameHead + "autoload:\n  resources:\n    - name: res\n      path: " + tc.path + "\n")},
+					tc.path:     {Data: data},
+				}
+				pl, err := refs.PlanIndex(fsys, refs.IndexOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return pl.Writes[0].Data
+			}
+			if bytes.Equal(mk(tc.a), mk(tc.b)) {
+				t.Errorf("%s: binary bytes with CRLF and LF hashed identically", tc.path)
+			}
+		})
+	}
+}
+
 // describe returns what pl moves and writes, for failure messages.
 func describe(pl *refs.Plan) string {
 	if pl == nil {

@@ -3,8 +3,6 @@ package refs
 import (
 	"bytes"
 	"cmp"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1268,7 +1266,7 @@ func RelPath(dir, target string) string {
 	return strings.Repeat("../", len(d)-i) + strings.Join(t[i:], "/")
 }
 
-// sha returns the SHA-256 of the file at name, reading it once.
+// sha returns the SHA-256 of the file at name, reading it once, with CRLF normalized to LF for text files.
 func (p *Project) sha(name string) (string, error) {
 	if h, ok := p.hashes[name]; ok {
 		return h, nil
@@ -1277,8 +1275,7 @@ func (p *Project) sha(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(data)
-	h := hex.EncodeToString(sum[:])
+	h := hashContent(name, data)
 	p.hashes[name] = h
 	return h, nil
 }

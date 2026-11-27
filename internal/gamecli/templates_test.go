@@ -114,6 +114,65 @@ func TestTemplateRegistry(t *testing.T) {
 	}
 }
 
+// TestTemplateGitFiles checks that every template's .gitattributes keeps text files on LF, marks binary media extensions as binary after the wildcard rule, and configures the scene merge driver, and that every template's .gitignore ignores .nsgo/, .game/, and dist/.
+func TestTemplateGitFiles(t *testing.T) {
+	wantAttrs := defaultGitAttributesContent()
+	for _, tmpl := range projectTemplates {
+		t.Run(tmpl.name, func(t *testing.T) {
+			attrs, err := fs.ReadFile(tmpl.files, ".gitattributes")
+			if err != nil {
+				t.Fatalf(".gitattributes: %v", err)
+			}
+			if bytes.ContainsRune(attrs, '\r') {
+				t.Error(".gitattributes contains CR bytes; use LF line endings")
+			}
+			if string(attrs) != wantAttrs {
+				t.Errorf(".gitattributes differs from defaultGitAttributesContent()")
+			}
+			s := string(attrs)
+			lfIdx := strings.Index(s, "* text=auto eol=lf\n")
+			if lfIdx < 0 {
+				t.Error(".gitattributes missing `* text=auto eol=lf`")
+			}
+			for _, pat := range binaryMediaPatterns {
+				idx := strings.Index(s, pat+" binary\n")
+				if idx < 0 {
+					t.Errorf(".gitattributes missing `%s binary`", pat)
+				} else if lfIdx >= 0 && idx < lfIdx {
+					t.Errorf(".gitattributes places `%s binary` before `* text=auto eol=lf`", pat)
+				}
+			}
+			for _, rule := range []string{"*.scene.yaml merge=" + sceneMergeDriverName, "*.scene.yml merge=" + sceneMergeDriverName} {
+				if !strings.Contains(s, rule+"\n") {
+					t.Errorf(".gitattributes missing %q", rule)
+				}
+			}
+			// ensureSceneGitAttributes must treat every template's .gitattributes as already up to date.
+			tmpAttr := filepath.Join(t.TempDir(), ".gitattributes")
+			if err := os.WriteFile(tmpAttr, attrs, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if changed, err := ensureSceneGitAttributes(tmpAttr); err != nil || changed {
+				t.Errorf("ensureSceneGitAttributes reported changed=%v, err=%v on template .gitattributes", changed, err)
+			}
+
+			ignore, err := fs.ReadFile(tmpl.files, ".gitignore")
+			if err != nil {
+				t.Fatalf(".gitignore: %v", err)
+			}
+			if bytes.ContainsRune(ignore, '\r') {
+				t.Error(".gitignore contains CR bytes; use LF line endings")
+			}
+			lines := strings.Split(strings.TrimSuffix(string(ignore), "\n"), "\n")
+			for _, want := range []string{".nsgo/", ".game/", "dist/"} {
+				if !slices.Contains(lines, want) {
+					t.Errorf(".gitignore missing %q:\n%s", want, ignore)
+				}
+			}
+		})
+	}
+}
+
 // rendered reports whether renderProject renders the template file name with text/template rather than copying it as it is.
 func rendered(name string) bool {
 	return strings.HasSuffix(name, ".tmpl") || name == "nsgo.yaml" || name == "main.go"

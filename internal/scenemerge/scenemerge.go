@@ -19,9 +19,62 @@ const (
 	DriverTitle = "NSGo scene merge driver"
 	// DriverCommand is the command Git invokes with ancestor (%O), current (%A), other (%B), and path (%P).
 	DriverCommand = "go tool game merge %O %A %B %P"
-	// GitAttributesContent is the default .gitattributes written by templates and game merge -setup.
-	GitAttributesContent = "# Merge NSGo scene files object by object instead of line by line.\n# Enable the driver once per clone with: go tool game merge -setup\n*.scene.yaml merge=nsgo-scene\n*.scene.yml merge=nsgo-scene\n"
+	// defaultLineEndingHeader sets LF line endings for text files in .gitattributes so canonical YAML checks and project indexes agree across operating systems.
+	defaultLineEndingHeader = "# Keep text files on LF line endings across operating systems so canonical YAML\n# checks and project indexes agree regardless of Git's core.autocrlf setting.\n* text=auto eol=lf\n"
+	// defaultBinaryHeader introduces the binary media rules in .gitattributes.
+	defaultBinaryHeader = "# Keep binary media untouched by line-ending conversion.\n"
+	// defaultSceneMergeHeader introduces the scene merge driver rules in .gitattributes.
+	defaultSceneMergeHeader = "# Merge NSGo scene files object by object instead of line by line.\n# Enable the driver once per clone with: go tool game merge -setup\n"
 )
+
+// BinaryMediaPatterns are the binary media file extensions the engine loads,
+// marked binary in .gitattributes so Git never alters their bytes.
+var BinaryMediaPatterns = []string{
+	"*.png",
+	"*.jpg",
+	"*.jpeg",
+	"*.webp",
+	"*.gif",
+	"*.bmp",
+	"*.ktx2",
+	"*.dds",
+	"*.hdr",
+	"*.pic",
+	"*.wav",
+	"*.ogg",
+	"*.mp3",
+	"*.m4a",
+	"*.aac",
+	"*.flac",
+	"*.opus",
+	"*.mp4",
+	"*.webm",
+	"*.ttf",
+	"*.otf",
+	"*.woff",
+	"*.woff2",
+	"*.glb",
+	"*.bin",
+}
+
+// GitAttributesContent is the default .gitattributes written by templates and game merge -setup.
+var GitAttributesContent = buildDefaultGitAttributes()
+
+func buildDefaultGitAttributes() string {
+	var b strings.Builder
+	b.WriteString(defaultLineEndingHeader)
+	b.WriteByte('\n')
+	b.WriteString(defaultBinaryHeader)
+	for _, pat := range BinaryMediaPatterns {
+		b.WriteString(pat)
+		b.WriteString(" binary\n")
+	}
+	b.WriteByte('\n')
+	b.WriteString(defaultSceneMergeHeader)
+	b.WriteString("*.scene.yaml merge=" + DriverName + "\n")
+	b.WriteString("*.scene.yml merge=" + DriverName + "\n")
+	return b.String()
+}
 
 // GitRunner executes git with args in dir and returns its trimmed combined output.
 type GitRunner func(dir string, args ...string) (string, error)
@@ -119,8 +172,9 @@ func ConfigureDriver(dir string, runGit GitRunner) error {
 	return nil
 }
 
-// EnsureGitAttributes ensures path contains merge=nsgo-scene rules for
-// *.scene.yaml and *.scene.yml without duplicating existing entries.
+// EnsureGitAttributes ensures path contains * text=auto eol=lf (before any
+// pattern-specific rules), binary rules for media extensions, and merge=nsgo-scene
+// rules for *.scene.yaml and *.scene.yml without duplicating existing entries.
 func EnsureGitAttributes(path string) (bool, error) {
 	existing, err := os.ReadFile(path)
 	if err != nil {
@@ -133,37 +187,77 @@ func EnsureGitAttributes(path string) (bool, error) {
 		return false, err
 	}
 
+	haveLF := false
+	haveBinary := make(map[string]bool, len(BinaryMediaPatterns))
 	haveYAML, haveYML := false, false
 	for _, line := range strings.Split(string(existing), "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") {
 			continue
 		}
-		for _, attr := range fields[1:] {
-			if attr == "merge="+DriverName {
-				switch fields[0] {
-				case "*.scene.yaml":
-					haveYAML = true
-				case "*.scene.yml":
-					haveYML = true
-				}
+		pat := fields[0]
+		attrs := fields[1:]
+		if pat == "*" && slices.Contains(attrs, "eol=lf") {
+			haveLF = true
+		}
+		if slices.Contains(attrs, "binary") || slices.Contains(attrs, "-text") {
+			haveBinary[pat] = true
+		}
+		if slices.Contains(attrs, "merge="+DriverName) {
+			switch pat {
+			case "*.scene.yaml":
+				haveYAML = true
+			case "*.scene.yml":
+				haveYML = true
 			}
 		}
 	}
-	if haveYAML && haveYML {
+	var missingBinary []string
+	for _, pat := range BinaryMediaPatterns {
+		if !haveBinary[pat] {
+			missingBinary = append(missingBinary, pat)
+		}
+	}
+	if haveLF && len(missingBinary) == 0 && haveYAML && haveYML {
 		return false, nil
 	}
 
 	var buf bytes.Buffer
+	if !haveLF {
+		buf.WriteString(defaultLineEndingHeader)
+		if len(bytes.TrimSpace(existing)) > 0 {
+			buf.WriteByte('\n')
+		}
+	}
 	buf.Write(existing)
 	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
 		buf.WriteByte('\n')
 	}
-	if !haveYAML {
-		buf.WriteString("*.scene.yaml merge=" + DriverName + "\n")
+	if len(missingBinary) > 0 {
+		if buf.Len() > 0 && !bytes.HasSuffix(buf.Bytes(), []byte("\n\n")) {
+			buf.WriteByte('\n')
+		}
+		if len(missingBinary) == len(BinaryMediaPatterns) {
+			buf.WriteString(defaultBinaryHeader)
+		}
+		for _, pat := range missingBinary {
+			buf.WriteString(pat)
+			buf.WriteString(" binary\n")
+		}
 	}
-	if !haveYML {
-		buf.WriteString("*.scene.yml merge=" + DriverName + "\n")
+	if !haveYAML || !haveYML {
+		if buf.Len() > 0 && !bytes.HasSuffix(buf.Bytes(), []byte("\n\n")) {
+			buf.WriteByte('\n')
+		}
+		if !haveYAML && !haveYML {
+			buf.WriteString(defaultSceneMergeHeader)
+		}
+		if !haveYAML {
+			buf.WriteString("*.scene.yaml merge=" + DriverName + "\n")
+		}
+		if !haveYML {
+			buf.WriteString("*.scene.yml merge=" + DriverName + "\n")
+		}
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		return false, err

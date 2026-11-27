@@ -2,9 +2,12 @@ package refs
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -226,4 +229,34 @@ func jsonStrings(data []byte, visit func(path []string, s span, value string)) e
 		return errors.New("refs: trailing data after the JSON value")
 	}
 	return nil
+}
+
+// isBinaryExt reports whether name has an extension of a binary media or archive
+// format whose bytes must always be hashed verbatim.
+func isBinaryExt(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ktx2", ".dds", ".hdr", ".pic",
+		".ase", ".aseprite", ".ico", ".icns",
+		".wav", ".ogg", ".mp3", ".m4a", ".aac", ".flac", ".opus",
+		".mp4", ".webm",
+		".ttf", ".otf", ".woff", ".woff2",
+		".glb", ".bin",
+		".zip", ".gz", ".tar", ".wasm", ".exe", ".dll", ".so", ".dylib":
+		return true
+	default:
+		return false
+	}
+}
+
+// hashContent returns the lower-case hexadecimal SHA-256 of data for the file at
+// name. For text files (not a binary extension, containing no NUL byte, and
+// valid UTF-8), CRLF line endings are normalized to LF before hashing so
+// game.index.yaml agrees across operating systems regardless of Git's
+// core.autocrlf setting.
+func hashContent(name string, data []byte) string {
+	if !isBinaryExt(name) && bytes.Contains(data, []byte("\r\n")) && bytes.IndexByte(data, 0) < 0 && utf8.Valid(data) {
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
