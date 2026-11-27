@@ -21,11 +21,6 @@ input:
           code: KeyW
         - kind: gamepadButton
           button: dpadUp
-        - kind: touchRegion
-          region: {x: 44, "y": 170, width: 36, height: 32}
-        - kind: mouseRegion
-          button: left
-          region: {x: 44, "y": 170, width: 36, height: 32}
     - name: down
       bindings:
         - kind: key
@@ -34,11 +29,6 @@ input:
           code: KeyS
         - kind: gamepadButton
           button: dpadDown
-        - kind: touchRegion
-          region: {x: 44, "y": 234, width: 36, height: 32}
-        - kind: mouseRegion
-          button: left
-          region: {x: 44, "y": 234, width: 36, height: 32}
     - name: left
       bindings:
         - kind: key
@@ -47,11 +37,6 @@ input:
           code: KeyA
         - kind: gamepadButton
           button: dpadLeft
-        - kind: touchRegion
-          region: {x: 8, "y": 202, width: 36, height: 32}
-        - kind: mouseRegion
-          button: left
-          region: {x: 8, "y": 202, width: 36, height: 32}
     - name: right
       bindings:
         - kind: key
@@ -60,11 +45,6 @@ input:
           code: KeyD
         - kind: gamepadButton
           button: dpadRight
-        - kind: touchRegion
-          region: {x: 80, "y": 202, width: 36, height: 32}
-        - kind: mouseRegion
-          button: left
-          region: {x: 80, "y": 202, width: 36, height: 32}
     - name: confirm
       bindings:
         - kind: key
@@ -75,11 +55,6 @@ input:
           code: KeyE
         - kind: gamepadButton
           button: south
-        - kind: touchRegion
-          region: {x: 420, "y": 198, width: 52, height: 52}
-        - kind: mouseRegion
-          button: left
-          region: {x: 420, "y": 198, width: 52, height: 52}
     - name: cancel
       bindings:
         - kind: key
@@ -88,11 +63,6 @@ input:
           key: backspace
         - kind: gamepadButton
           button: east
-        - kind: touchRegion
-          region: {x: 364, "y": 222, width: 44, height: 40}
-        - kind: mouseRegion
-          button: left
-          region: {x: 364, "y": 222, width: 44, height: 40}
     - name: menu
       bindings:
         - kind: key
@@ -104,13 +74,14 @@ input:
       negative: left
       positive: right
     - name: moveY
-      negative: up
-      positive: down
+      negative: down
+      positive: up
   gamepadAxes:
     - name: moveX
       axis: leftX
     - name: moveY
       axis: leftY
+      invert: true
 export:
   output: dist
   presets:

@@ -1,0 +1,3 @@
+### Changed
+
+- `template/platformer2d`, `template/roguelike2d`, and `template/rpg2d`: replaced fixed `touchRegion`/`mouseRegion` bindings, hand-drawn on-screen controls, and manual `showTouchControls`/`touch` visibility flags with `input.TouchControls` loaded from `controls.touch.yaml` in view coordinates (bottom-left d-pad and JUMP button in `platformer2d`; 4-way d-pad and WAIT, QUAFF, and CLEAVE buttons in `roguelike2d`; floating stick on `moveX`/`moveY` with up-positive `moveY` and A/B buttons in `rpg2d`), respecting safe areas, 44pt minimum touch targets, desktop auto-hide until touched, and keyboard/gamepad hiding (#1295).

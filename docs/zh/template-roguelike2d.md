@@ -19,26 +19,27 @@ go tool nsgo dev
 - 来自 [`stats`](stats.md) 的属性：生命、攻击和防御，武器和护甲各占一个装备槽，由 `Sheet.Refresh` 替换；限时药剂的修饰符由 `Sheet.Step` 每回合倒数一次；升级会提高基础值。
 - 来自 [`ability`](ability.md) 的技能：消耗一瓶药水的饮药，以及打击所有相邻敌人的横扫，受条件和冷却约束。施法器以每秒一步运行，所以 `data/abilities.yaml` 里的每个时长都按回合计。
 - 基于 [`save`](save.md) 的永久死亡：玩家每到达一层以及每走完一回合都会保存这一局，其中包括以 `entities` 快照保存的楼层角色世界和各随机流的状态，所以关掉应用再打开，这一局会从离开时的那一刻原样继续。在一击落下前退出不会撤销任何事；这一局胜利或失败时存档被删除。记录存档统计每一局，一局结束时的面板显示本局总结和记录。
-- `game.yaml` 里的一份输入映射，同时覆盖键盘、手柄、触屏和鼠标；在手机和平板上，以及任何设备在游戏被触摸或点击过之后，会画出屏幕按键；320×180 的虚拟屏幕在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。
+- `game.yaml` 里的一份输入映射覆盖键盘和手柄，并配合来自 `controls.touch.yaml` 的 `input.TouchControls`，在视图坐标的安全区内绘制屏幕触控控件；320×180 的虚拟屏幕在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。
 - 测试分别用键盘、手柄和触屏把游戏玩到获胜，再玩到死亡，检查这一局的存档已删除、记录计入了这一局，从存储中恢复一局打到一半的楼层，并检查它之后的进程与从未关闭过的那一局完全相同，拒绝数值超出范围的对局存档，生成四十个种子的每一层，用两个机器人在这些种子上检查平衡，逐条检查规则，并检查每个数据文件都是规范格式。
 
 ## 操作
 
 | | 键盘 | 手柄 | 触屏 |
 | --- | --- | --- | --- |
-| 移动，或攻击挡路的怪物 | 方向键、WASD | 左摇杆、方向键 | 左下角的箭头 |
-| 等待一回合 | 空格、`.` | 下方按键 | 箭头中间的圆点 |
-| 喝一瓶药水 | Q | 左方按键 | 右下角的 `!` |
-| 横扫身边所有敌人 | E | 上方按键 | 右下角的 `C` |
+| 移动，或攻击挡路的怪物 | 方向键、WASD | 左摇杆、方向键 | 左下角的四向方向盘 |
+| 等待一回合 | 空格、`.` | 下方按键 | 右下角的 WAIT 按钮 |
+| 喝一瓶药水 | Q | 左方按键 | 右下角的 QUAFF 按钮 |
+| 横扫身边所有敌人 | E | 上方按键 | 右下角的 CLEAVE 按钮 |
 | 一局结束后再来一局 | R、回车 | Start | “Play again”按钮 |
 
-按住一个方向会持续行走：先走一步，之后每隔几帧再走一步。在屏幕按键上按住鼠标左键，效果和触摸它一样。
+按住一个方向会持续行走：先走一步，之后每隔几帧再走一步。屏幕触控控件在手机和平板上一开始就会显示，在桌面上默认隐藏直到屏幕被触摸，再次按下键盘或使用手柄时会重新隐藏。
 
 ## 项目结构
 
 | 文件 | 内容 |
 | --- | --- |
 | `game.yaml` | 项目文件：窗口、320×180 的虚拟屏幕、输入映射和导出预设。 |
+| `controls.touch.yaml` | 屏幕触控布局：四向方向盘以及 WAIT、QUAFF、CLEAVE 按钮，由 `input.TouchControls` 读取。 |
 | `data/dungeon.yaml` | 玩家的成长、楼层、怪物和物品，格式见下文。 |
 | `data/stats.yaml` | 玩家的属性，以及武器、护甲和药剂施加的效果，格式见 [`stats`](stats.md)。 |
 | `data/loot.yaml` | 楼层和怪物掷的掉落表，格式见 [`loot`](loot.md)。 |
@@ -111,6 +112,6 @@ items:
 - **新的怪物或物品**：在 `data/dungeon.yaml` 加一条，装备和药剂在 `data/stats.yaml` 加它的属性效果，物品还要在掉落表里加一行。新的物品种类需要在 `run.take` 里加一个分支。
 - **新的技能**：在 `data/abilities.yaml` 加一条带 `action` 的技能，在 `game.yaml` 为这个动作加绑定，并在 `run.abilityEvent` 里加它的效果。`roguelikeGame.update` 按每条技能写明的 `action` 激活它，`run.act` 使用动作携带的那个技能。新的条件或资源还需要在 `run.condition` 或 `draughtPool` 里加一个分支，并把名称加进数据检查。
 - **更聪明的怪物**：`actors.go` 里的追猎系统沿一张距离图行走。新的行为就是一个新组件，再在 `run.newMonsterTurn` 构建的调度器上加一个系统，用 `entities.Before` 和 `entities.After` 排定顺序；[`ai`](ai.md) 提供行为树、[`pathfind`](pathfind.md) 提供寻路，可以做会逃跑、保持距离或巡逻的怪物。
-- **操作**：`game.yaml` 的 `input` 部分；触屏区域以虚拟屏幕的点为单位。`game.go` 里的 `repeatDelay` 和 `repeatEvery` 决定按住方向时走多快。
+- **操作**：键盘和手柄在 `game.yaml` 的 `input` 部分，屏幕触控控件在 `controls.touch.yaml`。`game.go` 里的 `repeatDelay` 和 `repeatEvery` 决定按住方向时走多快。
 - **美术**：`draw.go` 绘制字母和图形；可以改用 `sprite.LoadAtlas` 加载图集，并绘制用 `procgen.Grid.Paint` 填好的 `tilemap.Tilemap`。
 - **存档**：`records.go` 里的 `runSave` 就是对局存档，其中组件的名称由 `newActors` 注册的编解码器给出。两者任一结构改变时，提高 `saveVersion` 并给 `newSaveStore` 加上 `save.WithMigration`。

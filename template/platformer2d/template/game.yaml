@@ -22,11 +22,6 @@ input:
           code: KeyA
         - kind: gamepadButton
           button: dpadLeft
-        - kind: touchRegion
-          region: {"y": 116, width: 64, height: 64}
-        - kind: mouseRegion
-          button: left
-          region: {"y": 116, width: 64, height: 64}
     - name: right
       bindings:
         - kind: key
@@ -35,11 +30,6 @@ input:
           code: KeyD
         - kind: gamepadButton
           button: dpadRight
-        - kind: touchRegion
-          region: {x: 64, "y": 116, width: 64, height: 64}
-        - kind: mouseRegion
-          button: left
-          region: {x: 64, "y": 116, width: 64, height: 64}
     - name: jump
       bindings:
         - kind: key
@@ -50,11 +40,6 @@ input:
           code: KeyW
         - kind: gamepadButton
           button: south
-        - kind: touchRegion
-          region: {x: 240, "y": 116, width: 80, height: 64}
-        - kind: mouseRegion
-          button: left
-          region: {x: 240, "y": 116, width: 80, height: 64}
     - name: restart
       bindings:
         - kind: key

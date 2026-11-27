@@ -26,11 +26,9 @@ type platformerGame struct {
 	world    *world
 	painter  *painter
 	actions  *input.Actions
+	touch    *input.TouchControls
 	viewport screen.Viewport
 	env      *core.Env
-	viewSize core.Size
-	// pointerSeen turns the on-screen controls on once the game view has been touched or clicked, so a player on a desktop sees the regions the mouse plays through.
-	pointerSeen bool
 
 	sparks *core.Signal[int]
 	lives  *core.Signal[int]
@@ -49,9 +47,15 @@ func newRoot(cx *core.Scope, hook func(*platformerGame)) core.Node {
 	// The 320x180 playfield is wide: a phone turns sideways while the game runs.
 	cx.RequestOrientation(core.OrientationLandscape)
 	viewport, _ := Project.Viewport()
+	touch, err := input.NewTouchControls(cx, TouchLayout)
+	if err != nil {
+		// controls.touch.yaml is embedded and checked by the tests, so this only happens after an invalid edit.
+		panic(err)
+	}
 	g := &platformerGame{
 		data:     mustLoadData(),
 		actions:  input.NewActions(),
+		touch:    touch,
 		viewport: viewport,
 		env:      cx.Env(),
 		sparks:   core.NewSignal(cx, 0),
@@ -59,15 +63,13 @@ func newRoot(cx *core.Scope, hook func(*platformerGame)) core.Node {
 		state:    core.NewSignal(cx, running),
 		frame:    core.NewSignal(cx, uint64(0)),
 	}
-	g.restart()
-
-	// Keyboard, controller and touch bindings all come from game.yaml's input map; touch and mouse regions are in the virtual screen, which MapPoint maps view points into.
+	// Keyboard and controller bindings come from game.yaml's input map; touch drives the same actions through controls.touch.yaml.
 	Project.BindInput(g.actions)
-	g.actions.MapPoint = func(p core.Point) (core.Point, bool) {
-		return g.viewport.ViewToGame(g.currentViewSize(), p)
-	}
+	g.touch.BindActions(g.actions)
+	g.touch.Haptics = input.NewHaptics(cx)
 	g.actions.WatchKeys(cx)
 	g.actions.WatchGamepads(cx)
+	g.restart()
 
 	loop := &game.Loop{
 		Rate:   60,
@@ -91,12 +93,14 @@ func (g *platformerGame) restart() {
 	g.world = w
 	g.painter = newPainter(w)
 	g.actions.Reset()
+	g.touch.Wake()
 	g.syncHUD()
 }
 
 // update runs one fixed step: it samples the actions, steps the run and updates the HUD. Once the run has ended, restart starts another.
 func (g *platformerGame) update(dt time.Duration) {
 	g.actions.Step()
+	g.touch.Update(dt)
 	if g.world.state != running && g.actions.JustPressed(actionRestart) {
 		g.restart()
 		return
@@ -117,24 +121,6 @@ func (g *platformerGame) syncHUD() {
 	g.state.Set(g.world.state)
 }
 
-// currentViewSize returns the game view's size, or the window's before the view is laid out.
-func (g *platformerGame) currentViewSize() core.Size {
-	if g.viewSize.Width > 0 && g.viewSize.Height > 0 {
-		return g.viewSize
-	}
-	return g.env.Window()
-}
-
-// showTouchControls reports whether to draw the on-screen controls: on phones and tablets, and anywhere once the game view has been touched or clicked.
-func (g *platformerGame) showTouchControls() bool {
-	switch g.env.Idiom() {
-	case core.IdiomDesktop, core.IdiomMac, core.IdiomTV:
-		return g.pointerSeen
-	default:
-		return true
-	}
-}
-
 // view lays out the game view, which hears the input and draws the level, under the HUD and the end-of-run panel.
 func (g *platformerGame) view() core.Node {
 	gameView := core.View{
@@ -146,10 +132,8 @@ func (g *platformerGame) view() core.Node {
 			Bottom:   core.Pt(0),
 			Left:     core.Pt(0),
 		},
-		Focusable:   func() bool { return true },
-		OnLayout:    func(b core.Bounds) { g.viewSize = b.Size },
-		OnTouch:     func(core.TouchEvent) { g.pointerSeen = true },
-		OnPressDown: func(core.PressEvent) { g.pointerSeen = true },
+		Focusable: func() bool { return true },
+		OnLayout:  func(b core.Bounds) { g.touch.Resize(b.Size, g.env.SafeArea()) },
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "game-canvas",
@@ -165,15 +149,18 @@ func (g *platformerGame) view() core.Node {
 					_ = g.frame.Get()
 					g.viewport.Draw(d, size, func(d *core.Drawing, virtual core.Size) {
 						g.painter.draw(d, g.world, virtual)
-						if g.showTouchControls() {
-							g.painter.drawTouchControls(d, g.actions)
-						}
 					})
+					g.touch.Resize(size, g.env.SafeArea())
+					if g.state.Get() == running {
+						g.touch.Draw(d)
+					}
 				},
 			},
 		},
 	}
 	g.actions.Attach(&gameView)
+	// After Actions.Attach so a touch shows the on-screen controls before they hear it.
+	g.touch.Attach(&gameView)
 
 	return core.View{
 		Style: core.Style{FlexGrow: 1, Background: core.RGB(0x10162b)},

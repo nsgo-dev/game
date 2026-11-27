@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/procgen"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -124,30 +123,4 @@ func pick(cond bool, a, b uint32) uint32 {
 		return a
 	}
 	return b
-}
-
-// touchControls are the actions game.yaml gives an on-screen region, each with the symbol drawn on it.
-var touchControls = []struct{ action, symbol string }{
-	{"up", "▲"}, {"left", "◀"}, {actionWait, "·"}, {"right", "▶"}, {"down", "▼"},
-	{actionCleave, "C"}, {actionQuaff, "!"},
-}
-
-// drawTouchControls draws the regions game.yaml binds to the directions, waiting and the abilities, brighter while held.
-func drawTouchControls(d *core.Drawing, a *input.Actions) {
-	font := core.Font{Size: 11, Weight: core.FontWeightBold}
-	d.SetTextAlign(core.TextAlignCenter).SetTextBaseline(core.BaselineMiddle)
-	for _, c := range touchControls {
-		r, ok := Project.Region(c.action)
-		if !ok {
-			continue
-		}
-		x, y := float32(r.Origin.X)+1.5, float32(r.Origin.Y)+1.5
-		w, h := float32(r.Size.Width)-3, float32(r.Size.Height)-3
-		alpha := float32(0.18)
-		if a.Pressed(c.action) {
-			alpha = 0.42
-		}
-		d.SetFillColor(core.RGBA(0xf8fafc, alpha)).BeginPath().RoundRect(x, y, w, h, 5).Fill()
-		d.SetFillColor(core.RGBA(0xf8fafc, 0.85)).FillText(c.symbol, x+w/2, y+h/2, font)
-	}
 }

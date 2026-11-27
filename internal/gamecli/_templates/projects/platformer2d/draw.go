@@ -4,13 +4,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// painter draws a run: the sky, the tiles through the camera, the sparks, lamps and beacon, the player's sprite, the room fade and the on-screen controls.
+// painter draws a run: the sky, the tiles through the camera, the sparks, lamps and beacon, the player's sprite and the room fade.
 type painter struct {
 	tiles *tilemap.Tilemap
 	atlas *sprite.Atlas
@@ -123,32 +122,4 @@ func drawBeacon(d *core.Drawing, x, bottom, tile, t float32, lit bool) {
 	d.SetFillColor(core.RGBA(0xff9f43, 0.35)).BeginPath().Ellipse(cx, bottom-13-flame/2, flame, flame).Fill()
 	d.SetFillColor(core.RGB(0xffd14d)).BeginPath().
 		MoveTo(cx, bottom-13-flame*1.4).QuadTo(cx+5, bottom-15, cx, bottom-13).QuadTo(cx-5, bottom-15, cx, bottom-13-flame*1.4).Fill()
-}
-
-// drawTouchControls draws the regions game.yaml binds left, right and jump to, brighter while held.
-func (p *painter) drawTouchControls(d *core.Drawing, a *input.Actions) {
-	for _, name := range []string{"left", "right", actionJump} {
-		r, ok := Project.Region(name)
-		if !ok {
-			continue
-		}
-		x, y := float32(r.Origin.X)+4, float32(r.Origin.Y)+4
-		w, h := float32(r.Size.Width)-8, float32(r.Size.Height)-8
-		alpha := float32(0.22)
-		if a.Pressed(name) {
-			alpha = 0.45
-		}
-		d.SetFillColor(core.RGBA(0xf8fafc, alpha)).BeginPath().RoundRect(x, y, w, h, 8).Fill()
-		cx, cy := x+w/2, y+h/2
-		d.SetFillColor(core.RGBA(0xf8fafc, 0.85)).BeginPath()
-		switch name {
-		case "left":
-			d.MoveTo(cx+5, cy-8).LineTo(cx-6, cy).LineTo(cx+5, cy+8)
-		case "right":
-			d.MoveTo(cx-5, cy-8).LineTo(cx+6, cy).LineTo(cx-5, cy+8)
-		default:
-			d.MoveTo(cx-9, cy+5).LineTo(cx, cy-7).LineTo(cx+9, cy+5)
-		}
-		d.ClosePath().Fill()
-	}
 }

@@ -71,15 +71,18 @@ type hudState struct {
 type app struct {
 	g        *Game
 	actions  *input.Actions
+	touch    *input.TouchControls
 	viewport screen.Viewport
 	scenes   *scene.Manager
-	// size is the stage's size in the window; touch is whether to draw the on-screen pad, from the start on phones and tablets and from the first press on the stage elsewhere, since game.yaml binds the pad's regions to the mouse as well as to touch.
-	size  core.Size
-	touch bool
+	env      *core.Env
+	// size is the stage's size in the window.
+	size core.Size
 	// prev is the direction read last step; tap is a press on the stage waiting for the next step.
 	prev  dir
 	tap   *core.Point
 	shown string
+	// prevMode tracks when the game returns to modeField so the touch controls wake at full opacity.
+	prevMode mode
 	// steps counts the fixed steps run.
 	steps uint64
 
@@ -91,21 +94,27 @@ type app struct {
 
 // newApp binds game.yaml's input map, starts the scenes on the title and runs the game loop under cx.
 func newApp(cx *core.Scope, g *Game) *app {
+	touch, err := input.NewTouchControls(cx, TouchLayout)
+	if err != nil {
+		// controls.touch.yaml is embedded and checked by the tests, so this only happens after an invalid edit.
+		panic(err)
+	}
 	a := &app{
-		g:       g,
-		actions: input.NewActions(),
-		scenes:  scene.NewManager(cx),
-		frame:   core.NewSignal(cx, uint64(0)),
-		rev:     core.NewSignal(cx, g.rev),
-		sel:     core.NewSignal(cx, g.sel),
+		g:        g,
+		actions:  input.NewActions(),
+		touch:    touch,
+		scenes:   scene.NewManager(cx),
+		env:      cx.Env(),
+		prevMode: g.mode,
+		frame:    core.NewSignal(cx, uint64(0)),
+		rev:      core.NewSignal(cx, g.rev),
+		sel:      core.NewSignal(cx, g.sel),
 	}
 	a.hud = core.NewSignal(cx, a.hudState())
 	a.viewport, _ = Project.Viewport()
-	idiom := cx.Env().Idiom()
-	a.touch = idiom == core.IdiomPhone || idiom == core.IdiomTablet
 	Project.BindInput(a.actions)
-	// The touch pad's regions are in game points, so presses are mapped from the window to the canvas first.
-	a.actions.MapPoint = func(p core.Point) (core.Point, bool) { return a.viewport.ViewToGame(a.size, p) }
+	a.touch.BindActions(a.actions)
+	a.touch.Haptics = input.NewHaptics(cx)
 	a.actions.WatchKeys(cx)
 	a.actions.WatchGamepads(cx)
 	cx.Effect(func() {
@@ -124,10 +133,15 @@ func newApp(cx *core.Scope, g *Game) *app {
 func (a *app) update(dt time.Duration) {
 	a.steps++
 	a.actions.Step()
+	a.touch.Update(dt)
 	in := readIntent(a.actions, a.prev)
 	a.prev = in.dir
 	in.tap, a.tap = a.tap, nil
 	a.g.update(dt, in)
+	if a.g.mode == modeField && a.prevMode != modeField {
+		a.touch.Wake()
+	}
+	a.prevMode = a.g.mode
 	if s := sceneOf(a.g.mode); s != a.shown {
 		a.shown = s
 		a.scenes.Switch(a.controller(s), scene.Fade(250*time.Millisecond, core.RGB(0x0b0d17)))
@@ -176,7 +190,7 @@ func (a *app) controller(name string) *scene.Controller {
 		case "won":
 			a.g.drawShade(d, core.RGBA(0xf2d14b, 0.25))
 		default:
-			a.g.drawField(d, a.touch)
+			a.g.drawField(d)
 		}
 	}}
 }
@@ -184,12 +198,17 @@ func (a *app) controller(name string) *scene.Controller {
 // node builds the window's content: the stage with the canvas, the HUD and the menu over it.
 func (a *app) node() core.Node {
 	stage := core.View{
-		TestID:   "stage",
-		NoFocus:  true,
-		OnLayout: func(b core.Bounds) { a.size = b.Size },
-		// A tap or click picks a conversation's option or moves the conversation on, and shows the on-screen pad for playing on.
+		TestID:  "stage",
+		NoFocus: true,
+		OnLayout: func(b core.Bounds) {
+			a.size = b.Size
+			a.touch.Resize(b.Size, a.env.SafeArea())
+		},
+		// A tap or click picks a conversation's option or moves the conversation on.
 		OnPressDown: func(ev core.PressEvent) {
-			a.touch = true
+			if a.g.mode != modeTalk {
+				return
+			}
 			if p, ok := a.viewport.ViewToGame(a.size, ev.Position); ok {
 				a.tap = &p
 			}
@@ -205,11 +224,17 @@ func (a *app) node() core.Node {
 					a.viewport.Draw(d, size, func(d *core.Drawing, vsize core.Size) {
 						a.scenes.Draw(d, vsize, 0)
 					})
+					a.touch.Resize(size, a.env.SafeArea())
+					if a.g.mode == modeField {
+						a.touch.Draw(d)
+					}
 				},
 			},
 		},
 	}
 	a.actions.Attach(&stage)
+	// After Actions.Attach so a touch shows the on-screen controls before they hear it.
+	a.touch.Attach(&stage)
 	return core.View{
 		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Background: core.RGB(0x0b0d17)},
 		Children: []core.Node{

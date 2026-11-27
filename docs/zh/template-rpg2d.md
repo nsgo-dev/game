@@ -26,15 +26,16 @@ Hollowbrook 神龛里的灯熄灭了。治疗师 Mira 需要从 Whisper Meadow �
 | 存档 | 应用存储中的三个槽位，保存背包、装备、任务、对话状态和所在地图 | [save](save.md) |
 | 画面 | 标题、地图、战斗、失败和胜利场景，之间以淡入淡出切换 | [scene](scene.md) |
 
-所有操作都绑定在 `game.yaml` 的输入映射里：键盘上的方向键、WASD、Enter、Escape 和 Tab；手柄上的十字键、左摇杆、South、East 和 Start；以及供触摸和鼠标使用的屏幕方向盘和 A、B 按钮：在手机和平板上一开始就绘制，在其他设备上点按或点击地图后绘制。菜单是原生按钮，点一下即可选中条目，键盘和手柄则移动其上的选中框。根作用域为 480×270 的虚拟分辨率在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。
+键盘和手柄操作绑定在 `game.yaml` 的输入映射里：键盘上的方向键、WASD、Enter、Escape 和 Tab，手柄上的十字键、左摇杆、South、East 和 Start。屏幕触控控件由 `input.TouchControls` 从 `controls.touch.yaml` 读取：左下角驱动 `moveX`/`moveY` 的浮动摇杆，以及右下角的 A（确认）和 B（取消）按钮，以视图坐标布局在安全区内。它们在手机和平板上一开始就显示，在桌面上默认隐藏直到屏幕被触摸，再次使用键盘或手柄时会重新隐藏。菜单是原生按钮，点一下即可选中条目，键盘和手柄则移动其上的选中框。根作用域为 480×270 的虚拟分辨率在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。
 
-测试通过应用完整地玩这个游戏：用键盘玩到胜利画面，用手柄和触摸方向盘玩到失败画面，途中还会存档和读档。
+测试通过应用完整地玩这个游戏：用键盘玩到胜利画面，用手柄和屏幕触控控件玩到失败画面，途中还会存档和读档。
 
 ## 它的组织方式
 
 | 文件 | 内容 |
 | --- | --- |
 | `game.yaml` | 项目文件：窗口、480×270 的虚拟分辨率、输入映射和导出预设 |
+| `controls.touch.yaml` | 屏幕触控布局：驱动 `moveX`/`moveY` 的浮动摇杆以及 A、B 按钮，由 `input.TouchControls` 读取 |
 | `data/world.yaml` | 图块、敌人的属性、新游戏的起点，以及每张地图的字符行、出口、人物、带巡逻路线的敌人和物品。格式定义在 `world.go` 中：带版本号，拒绝未知字段，读入再写回不会有任何改变 |
 | `data/items.yaml`、`data/stats.yaml`、`data/quests.yaml` | 物品目录、玩家属性与装备效果，以及任务书 |
 | `data/cast.yaml`、`data/dialogue.yarn` | 人物的名字、颜色和立绘，以及他们说的话 |
@@ -52,5 +53,5 @@ Hollowbrook 神龛里的灯熄灭了。治疗师 Mira 需要从 Whisper Meadow �
 - **物品**：加到 `data/items.yaml`。装备还需要在 `data/stats.yaml` 中有一个同名效果。
 - **任务**：加到 `data/quests.yaml`，并在对话中用 `<<start id>>` 开始它。`data.go` 中的 `mainQuest` 是完成即获胜的任务。
 - **平衡**：敌人的属性在 `data/world.yaml` 中，玩家的在 `data/stats.yaml` 中。`TestThornhideNeedsTheIronSword` 检查整个游戏围绕的那场战斗。
-- **操作**：编辑 `game.yaml` 中的输入映射；触摸方向盘画在其区域所在的位置。
+- **操作**：键盘和手柄编辑 `game.yaml` 中的输入映射，屏幕触控控件编辑 `controls.touch.yaml`。
 - **美术**：把 `art.go` 中的 `newAtlas` 换成 `sprite.LoadAtlas`，保留数据文件使用的帧名。

@@ -13,7 +13,7 @@ import (
 	"github.com/nsgo-dev/nsgo/desktop"
 )
 
-// The actions and axes game.yaml's input map declares. The game reads the movement axes, wait and restart itself; an ability's action is the one data/abilities.yaml names, which update looks up there, and the touch controls draw quaff and cleave.
+// The actions and axes game.yaml's input map declares. The game reads the movement axes, wait and restart itself; an ability's action is the one data/abilities.yaml names, which update looks up there, and controls.touch.yaml binds the touch controls to them.
 const (
 	axisMoveX     = "moveX"
 	axisMoveY     = "moveY"
@@ -37,17 +37,15 @@ type roguelikeGame struct {
 	data     *gameData
 	run      *run
 	actions  *input.Actions
+	touch    *input.TouchControls
 	viewport screen.Viewport
 	env      *core.Env
-	viewSize core.Size
 	store    *save.Store
 	records  records
 	// keepRecords and keepRun are set when a slot was written by a newer version of the game, which this one leaves alone.
 	keepRecords, keepRun bool
 	// newSeed picks each new run's seed.
 	newSeed func() uint64
-	// pointerSeen turns the on-screen controls on once the game view has been touched or clicked.
-	pointerSeen bool
 
 	// held is the direction being held and repeat the loop steps until it steps again.
 	held   cell
@@ -78,9 +76,15 @@ func newRoot(cx *core.Scope, opts options) core.Node {
 	// The 320x180 viewport is wide: a phone turns sideways while the game runs.
 	cx.RequestOrientation(core.OrientationLandscape)
 	viewport, _ := Project.Viewport()
+	touch, err := input.NewTouchControls(cx, TouchLayout)
+	if err != nil {
+		// controls.touch.yaml is embedded and checked by the tests, so this only happens after an invalid edit.
+		panic(err)
+	}
 	g := &roguelikeGame{
 		data:     mustLoadData(),
 		actions:  input.NewActions(),
+		touch:    touch,
 		viewport: viewport,
 		env:      cx.Env(),
 		store:    newSaveStore(cx.Storage()),
@@ -92,16 +96,15 @@ func newRoot(cx *core.Scope, opts options) core.Node {
 	if g.newSeed == nil {
 		g.newSeed = func() uint64 { return uint64(time.Now().UnixNano()) }
 	}
-	g.records, g.keepRecords = loadRecords(g.store)
-	g.start()
-
-	// Keyboard, controller, touch and mouse bindings all come from game.yaml's input map; touch and mouse regions are in the virtual screen, which MapPoint maps view points into.
+	// Keyboard and controller bindings come from game.yaml's input map; touch drives the same actions through controls.touch.yaml.
 	Project.BindInput(g.actions)
-	g.actions.MapPoint = func(p core.Point) (core.Point, bool) {
-		return g.viewport.ViewToGame(g.currentViewSize(), p)
-	}
+	g.touch.BindActions(g.actions)
+	g.touch.Haptics = input.NewHaptics(cx)
 	g.actions.WatchKeys(cx)
 	g.actions.WatchGamepads(cx)
+
+	g.records, g.keepRecords = loadRecords(g.store)
+	g.start()
 
 	loop := &game.Loop{
 		Rate:   60,
@@ -142,6 +145,7 @@ func (g *roguelikeGame) newRun() {
 func (g *roguelikeGame) setRun(r *run) {
 	g.run = r
 	g.actions.Reset()
+	g.touch.Wake()
 	g.held, g.repeat = cell{}, 0
 	g.state.Set(r.state)
 	g.turn.Update(func(n int) int { return n + 1 })
@@ -172,8 +176,9 @@ func (g *roguelikeGame) finish() {
 }
 
 // update runs one fixed step: it samples the actions, turns them into at most one of the player's actions and plays it. Once the run has ended, restart starts another.
-func (g *roguelikeGame) update(time.Duration) {
+func (g *roguelikeGame) update(dt time.Duration) {
 	g.actions.Step()
+	g.touch.Update(dt)
 	if g.run.state != playing {
 		if g.actions.JustPressed(actionRestart) {
 			g.newRun()
@@ -246,24 +251,6 @@ func sign64(v float64) float64 {
 	return 1
 }
 
-// currentViewSize returns the game view's size, or the window's before the view is laid out.
-func (g *roguelikeGame) currentViewSize() core.Size {
-	if g.viewSize.Width > 0 && g.viewSize.Height > 0 {
-		return g.viewSize
-	}
-	return g.env.Window()
-}
-
-// showTouchControls reports whether to draw the on-screen controls: on phones and tablets, and anywhere once the game view has been touched or clicked.
-func (g *roguelikeGame) showTouchControls() bool {
-	switch g.env.Idiom() {
-	case core.IdiomDesktop, core.IdiomMac, core.IdiomTV:
-		return g.pointerSeen
-	default:
-		return true
-	}
-}
-
 // view lays out the game view, which hears the input and draws the run, under the HUD and the end-of-run panel.
 func (g *roguelikeGame) view() core.Node {
 	gameView := core.View{
@@ -275,10 +262,8 @@ func (g *roguelikeGame) view() core.Node {
 			Bottom:   core.Pt(0),
 			Left:     core.Pt(0),
 		},
-		Focusable:   func() bool { return true },
-		OnLayout:    func(b core.Bounds) { g.viewSize = b.Size },
-		OnTouch:     func(core.TouchEvent) { g.pointerSeen = true },
-		OnPressDown: func(core.PressEvent) { g.pointerSeen = true },
+		Focusable: func() bool { return true },
+		OnLayout:  func(b core.Bounds) { g.touch.Resize(b.Size, g.env.SafeArea()) },
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "game-canvas",
@@ -294,15 +279,18 @@ func (g *roguelikeGame) view() core.Node {
 					_ = g.frame.Get()
 					g.viewport.Draw(d, size, func(d *core.Drawing, virtual core.Size) {
 						drawRun(d, g.run, virtual)
-						if g.showTouchControls() {
-							drawTouchControls(d, g.actions)
-						}
 					})
+					g.touch.Resize(size, g.env.SafeArea())
+					if g.state.Get() == playing {
+						g.touch.Draw(d)
+					}
 				},
 			},
 		},
 	}
 	g.actions.Attach(&gameView)
+	// After Actions.Attach so a touch shows the on-screen controls before they hear it.
+	g.touch.Attach(&gameView)
 
 	return core.View{
 		Style: core.Style{FlexGrow: 1, Background: core.RGB(colorVoid)},
