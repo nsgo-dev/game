@@ -23,7 +23,7 @@ export interface LlmsPage {
   markdown: string
 }
 
-// llmsTxt adds llms.txt and llms-full.txt to the client build, from the docs in ../../docs/en, with their links absolute below origin and the site's base path.
+// llmsTxt adds llms.txt and llms-full.txt to the client build, from the docs in ../docs/en, with their links absolute below origin and the site's base path.
 export function llmsTxt({ origin }: { origin: string }): Plugin {
   let docsDir = ''
   let site = ''
@@ -31,7 +31,7 @@ export function llmsTxt({ origin }: { origin: string }): Plugin {
   return {
     name: 'game-site-llms',
     configResolved(config) {
-      docsDir = path.resolve(config.root, '../../docs/en')
+      docsDir = path.resolve(config.root, '../docs/en')
       base = config.base
       site = `${origin.replace(/\/+$/, '')}${config.base}`
     },

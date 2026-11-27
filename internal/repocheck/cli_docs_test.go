@@ -92,10 +92,10 @@ var newcomerEntryPoints = []string{
 	"docs/en/templates.md",
 	"docs/zh/templates.md",
 	"skills/nsgo-game/SKILL.md",
-	"apps/website/src/pages/Home.tsx",
+	"website/src/pages/Home.tsx",
 }
 
-// checkCLIDocs scans README, docs/en, docs/zh, skills/nsgo-game, and apps/website/src for "nsgo game" commands and verifies every newcomer entry point leads with `go run github.com/nsgo-dev/game/cmd/game@latest new`.
+// checkCLIDocs scans README, docs/en, docs/zh, skills/nsgo-game, and website/src for "nsgo game" commands and verifies every newcomer entry point leads with `go run github.com/nsgo-dev/game/cmd/game@latest new`.
 func checkCLIDocs(root string) ([]string, error) {
 	var files []string
 	readme := filepath.Join(root, "README.md")
@@ -109,7 +109,7 @@ func checkCLIDocs(root string) ([]string, error) {
 		{filepath.Join(root, "docs", "en"), []string{".md"}},
 		{filepath.Join(root, "docs", "zh"), []string{".md"}},
 		{filepath.Join(root, "skills", "nsgo-game"), []string{".md"}},
-		{filepath.Join(root, "apps", "website", "src"), []string{".ts", ".tsx"}},
+		{filepath.Join(root, "website", "src"), []string{".ts", ".tsx"}},
 	}
 	for _, wr := range walkRoots {
 		if _, err := os.Stat(wr.dir); os.IsNotExist(err) {
@@ -302,7 +302,7 @@ func TestCheckCLIDocsDetectsDrift(t *testing.T) {
 	t.Run("nsgo game in skill or website fails", func(t *testing.T) {
 		dir := makeClean(t)
 		write(dir, "skills/nsgo-game/SKILL.md", newcomerNewCommand+" mygame\nnsgo game dev\n")
-		write(dir, "apps/website/src/pages/Home.tsx", "const NEW_GAME = '"+newcomerNewCommand+" mygame'\nconst ALT = 'nsgo game dev'\n")
+		write(dir, "website/src/pages/Home.tsx", "const NEW_GAME = '"+newcomerNewCommand+" mygame'\nconst ALT = 'nsgo game dev'\n")
 		problems, err := checkCLIDocs(dir)
 		if err != nil {
 			t.Fatal(err)

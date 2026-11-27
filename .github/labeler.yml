@@ -270,7 +270,7 @@ area/template:
 area/website:
   - changed-files:
       - any-glob-to-any-file:
-          - apps/website/**
+          - website/**
 
 area/tools:
   - changed-files:

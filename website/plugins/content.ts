@@ -68,11 +68,11 @@ export function siteContent(): Plugin {
       ctx = {
         root: config.root,
         base: config.base,
-        docsDir: path.resolve(config.root, '../../docs'),
+        docsDir: path.resolve(config.root, '../docs'),
         snippetsDir: path.resolve(config.root, 'snippets'),
-        examplesDir: path.resolve(config.root, '../../examples'),
+        examplesDir: path.resolve(config.root, '../examples'),
         publicDir: config.publicDir,
-        goModule: path.resolve(config.root, '../..'),
+        goModule: path.resolve(config.root, '..'),
       }
     },
     configureServer(server) {

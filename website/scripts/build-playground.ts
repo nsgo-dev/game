@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { PLAYGROUND_BUILDS, PLAYGROUND_IDS, type PlaygroundId, isPlaygroundId } from '../src/content/playground.ts'
 
 const website = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const examples = path.resolve(website, '../../examples')
+const examples = path.resolve(website, '../examples')
 const builds = path.join(website, 'public', PLAYGROUND_BUILDS)
 // OUTPUT is where in an example's directory its web build goes, under dist/, which Git ignores; it is emptied first, so the one site in it is this build's.
 const OUTPUT = path.join('dist', 'playground')

@@ -20,7 +20,7 @@ function relativeUrls(markdown: string): string[] {
 }
 
 const SITE = 'https://game.example/game/'
-const DOCS_EN = new URL('../../../docs/en/', import.meta.url).pathname
+const DOCS_EN = new URL('../../docs/en/', import.meta.url).pathname
 
 describe('llmsPage', () => {
   test('takes the title and description and makes links absolute', () => {

@@ -2,15 +2,15 @@
   "name": "game-monorepo",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "website"
   ],
   "scripts": {
-    "dev": "bun run --cwd apps/website dev",
-    "build": "bun run --cwd apps/website build",
-    "preview": "bun run --cwd apps/website preview",
-    "test": "bun run --cwd apps/website test",
-    "typecheck": "bun run --cwd apps/website typecheck",
-    "playground": "bun run --cwd apps/website playground",
+    "dev": "bun run --cwd website dev",
+    "build": "bun run --cwd website build",
+    "preview": "bun run --cwd website preview",
+    "test": "bun run --cwd website test",
+    "typecheck": "bun run --cwd website typecheck",
+    "playground": "bun run --cwd website playground",
     "verify-agent-note-tree": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts",
     "verify-agent-note-format": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts",
     "verify-archived": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts",

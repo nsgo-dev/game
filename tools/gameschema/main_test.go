@@ -30,7 +30,7 @@ import (
 // root is the repository root, and published the directory the website serves the schemas from, both relative to this package.
 var (
 	root      = filepath.Join("..", "..")
-	published = filepath.Join("..", "..", "apps", "website", "public", "schemas")
+	published = filepath.Join("..", "..", "website", "public", "schemas")
 )
 
 // sceneSchema returns the generated version 1 scene schema.

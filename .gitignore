@@ -6,12 +6,12 @@
 
 # The website's dependencies and build output
 node_modules/
-/apps/website/dist/
-/apps/website/.output/
-/apps/website/.tanstack/
-/apps/website/src/routeTree.gen.ts
+/website/dist/
+/website/.output/
+/website/.tanstack/
+/website/src/routeTree.gen.ts
 # The playground's web builds of the examples (bun run playground)
-/apps/website/public/play/
+/website/public/play/
 # The agent notes board (bun run init-board, bun run bundle-board)
 /board.html
 /demo.html
