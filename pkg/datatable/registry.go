@@ -308,7 +308,7 @@ func (r *Registry) Register(pattern string, rt *RowType) error {
 	if norm == "" || norm == "." {
 		return errors.New("datatable: file pattern must not be empty")
 	}
-	if _, err := MatchPattern(norm, "test.yaml"); err != nil {
+	if err := validatePattern(norm); err != nil {
 		return fmt.Errorf("datatable: invalid file pattern %q: %w", pattern, err)
 	}
 	for i := range r.entries {
@@ -327,7 +327,11 @@ func (r *Registry) Match(filePath string) *RowType {
 		return nil
 	}
 	for _, e := range r.entries {
-		if ok, err := MatchPattern(e.pattern, filePath); err == nil && ok {
+		ok, err := MatchPattern(e.pattern, filePath)
+		if err != nil {
+			panic(fmt.Sprintf("datatable: registered pattern %q failed to match %q: %v", e.pattern, filePath, err))
+		}
+		if ok {
 			return e.rowType
 		}
 	}
@@ -342,6 +346,9 @@ func MatchPattern(pattern, filePath string) (bool, error) {
 	if pat == "" {
 		return false, errors.New("empty pattern")
 	}
+	if err := validatePattern(pat); err != nil {
+		return false, err
+	}
 	target := normalizePattern(filePath)
 	if !strings.Contains(pat, "/") {
 		return path.Match(pat, path.Base(target))
@@ -351,15 +358,28 @@ func MatchPattern(pattern, filePath string) (bool, error) {
 	return matchSegments(patParts, targetParts)
 }
 
+func validatePattern(norm string) error {
+	for _, seg := range strings.Split(norm, "/") {
+		if seg == "**" {
+			continue
+		}
+		if _, err := path.Match(seg, ""); err != nil {
+			return fmt.Errorf("segment %q: %w", seg, err)
+		}
+	}
+	return nil
+}
+
 func normalizePattern(p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return ""
 	}
 	p = filepath.ToSlash(p)
-	p = strings.TrimPrefix(p, "./")
 	p = path.Clean(p)
-	if p == "." {
+	p = strings.TrimPrefix(p, "./")
+	p = strings.TrimSpace(p)
+	if p == "." || p == "" {
 		return ""
 	}
 	return p
@@ -388,10 +408,6 @@ func matchSegments(pat, target []string) (bool, error) {
 			return false, nil
 		}
 		if len(target) == 0 {
-			// Validate remaining pattern syntax even when target is exhausted.
-			if _, err := path.Match(pat[0], ""); err != nil {
-				return false, err
-			}
 			return false, nil
 		}
 		ok, err := path.Match(pat[0], target[0])
