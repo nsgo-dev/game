@@ -8,7 +8,7 @@ import "github.com/nsgo-dev/game/pkg/gameui"
 
 ## 布局容器、控件与 `Root`
 
-用布局容器（`Panel`、`VBox`、`HBox`）和控件（`Label`、`Button`、`Toggle`、`Slider`、`List`、`ProgressBar`、`Spacer`）组装控件树，再用 `Root` 包装：
+用布局容器（`Panel`、`VBox`、`HBox`）和控件（`Label`、`Button`、`Toggle`、`Slider`、`List`、`ProgressBar`、`ImageProgress`、`Spacer`）组装控件树，再用 `Root` 包装：
 
 ```go
 theme := gameui.DefaultTheme()
@@ -39,6 +39,22 @@ uiRoot.Theme = &theme
 在 `Canvas.Draw` 中调用 `uiRoot.Draw(d, bounds)`（内部自动执行 `Layout` 并包裹在 `Save`/`Restore` 中，不会污染调用方的画布状态）。指针与键盘事件通过 `OnPointerMove`、`OnPointerDown`、`OnPointerUp`、`OnPress` 和 `OnKeyDown` 派发。
 
 可通过 `Theme`、`NineSlice` 九宫格边框（`NineSlice.FrameDrawer()`、`NineSliceStateFrame`）以及自定义的 `TextDrawer` / `TextMeasurer` 钩子接入位图字体与自定义皮肤。
+
+### 图像填充进度条（`ImageProgress`）
+
+`ImageProgress` 是一个只读进度表，由最多三层图像按 under → progress → over 的顺序叠加绘制，适合扁平 `ProgressBar` 无法表达的 Boss 血条和华丽仪表。每一层都是 `NineSlice`，因此进度图像在任意数值、任意控件尺寸下都能保持四角盖帽不变形；某一层为 nil 时退回纯色填充（under 层用 `TrackColor`，progress 层用 `FillColor`）。`Fill` 决定数值如何显露 progress 层：`left_to_right`（默认）、`right_to_left`、`top_to_bottom`、`bottom_to_top`、`center_h`、`center_v`，以及径向扇形的 `clockwise` 与 `counter_clockwise`——扇形从 `StartAngle` 度开始（0 指向右侧，正值为顺时针），扫过 `Span` 度（0 默认 360）。
+
+```go
+bossBar := &gameui.ImageProgress{
+	Under:      &gameui.NineSlice{Image: core.Src("asset:ui/bar_back.png"), Src: core.Bounds{Size: core.Size{Width: 96, Height: 24}}, Left: 8, Right: 8},
+	Progress:   &gameui.NineSlice{Image: core.Src("asset:ui/bar_fill.png"), Src: core.Bounds{Size: core.Size{Width: 96, Height: 24}}, Left: 8, Right: 8},
+	Over:       &gameui.NineSlice{Image: core.Src("asset:ui/bar_frame.png"), Src: core.Bounds{Size: core.Size{Width: 96, Height: 24}}, Left: 8, Right: 8},
+	Fill:       gameui.FillLeftToRight,
+	Min:        0,
+	Max:        100,
+	Value:      bossHP,
+}
+```
 
 ## 虚拟分辨率缩放（`Viewport`）
 
@@ -154,11 +170,12 @@ overlay.Sync(proj)
 
 可将 HUD 与菜单编写为带版本号的纯文本 YAML 文件（`*.screen.yaml`，已发布 Schema 为 `https://game.nsgo.dev/schemas/screen.v1.json`），而不必在 Go 代码中手写所有控件。`ParseScreen`、`LoadScreenFS` 与 `EncodeScreen` 会拒绝未知字段、重复的节点 ID 或焦点顺序、YAML 锚点/别名以及不支持的版本号，并以规范的 2 空格缩进 YAML 无损往返。
 
-屏幕文件声明 `designWidth` × `designHeight` 设计画布尺寸（例如 `640 × 360`）、可选的 `scaleMode`（`fit`、`fill`、`stretch`、`integer`）以及节点树（`vbox`、`hbox`、`label`、`button`、`sprite_row`、`color_rect`、`touch_stick`、`touch_button`、`container`）：
+屏幕文件声明 `designWidth` × `designHeight` 设计画布尺寸（例如 `640 × 360`）、可选的 `scaleMode`（`fit`、`fill`、`stretch`、`integer`）以及节点树（`vbox`、`hbox`、`label`、`button`、`sprite_row`、`color_rect`、`touch_stick`、`touch_button`、`container`、`image_progress`）：
 
 - **锚点与安全区**：通过 `anchor` 指定九宫格锚点（`top_left`、`top_center`、`top_right`、`center_left`、`center`、`center_right`、`bottom_left`、`bottom_center`、`bottom_right`）或 `fill`，通过 `offset`（右侧/底部锚点的正值向内缩进）设置偏移，并用 `safeArea` 控制是否保持在安全区内（非 `fill` 默认为 `true`，`fill` 默认为 `false`）。
 - **尺寸与本地化文本**：在 `textKey` 中存放本地化键而非字面文本，使用 `sizeMode: fixed` 搭配 `width` 或 `sizeMode: fit_text` 随翻译文本自适应宽度，并支持 `padding`、`spacing`、`fontSize`、`textColor`、`background` 与 `cornerRadius`。
 - **焦点顺序、触控热区与设备类别**：使用从 1 开始的 `focusOrder` 声明键盘/手柄焦点遍历顺序，使用 `touchHitSize` 设置扩展圆形触控热区（`TouchButton`、`TouchStick`、`Button`），并使用 `deviceClasses`（`phone`、`tablet`、`desktop`、`ultrawide`）按设备类别条件显示控件。
+- **图像填充进度条**：`image_progress` 节点将 `under`、`progress`、`over` 三个图像路径叠加为 `ImageProgress`，支持 `fill`（`left_to_right`、`right_to_left`、`top_to_bottom`、`bottom_to_top`、`center_h`、`center_v`、`clockwise`、`counter_clockwise`）、径向填充的 `startAngle` 与 `span`，以及初始量程 `min`/`max`/`value`。游戏代码在运行时更新控件的 `Value`。
 
 运行时调用 `BuildScreen` 将屏幕文件构建为 `gameui.Root` 与 `SpatialNavigator`：
 
@@ -193,6 +210,7 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 - 本地化文本（含全角中文字符宽度）在四个参考尺寸（`Phone 19.5:9 (notch)`、`Tablet 4:3`、`Desktop 16:9`、`Ultrawide 21:9`）下超出固定框或安全区；
 - `textKey` 在项目的任意语言字符串表中缺失；
 - 文本与其填充背景的 WCAG 对比度低于 `4.5:1`；
-- 引用的 `sprite` 图片或图集帧缺失。
+- 引用的 `sprite` 图片或图集帧缺失；
+- `image_progress` 节点引用的 `under`、`progress` 或 `over` 图片缺失。
 
-`refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。
+`refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径、`image_progress` 图层路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。

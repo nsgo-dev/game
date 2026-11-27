@@ -477,6 +477,124 @@ func (p *ProgressBar) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 
 func (s *Spacer) draw(_ *core.Drawing, _ *Theme, _ WidgetState) {}
 
+// clipRect returns the rectangle of b that a linear fill of fraction f reveals, from the mode's edge or center outward.
+func (m FillMode) clipRect(b core.Bounds, f float32) core.Bounds {
+	x, y := float32(b.Origin.X), float32(b.Origin.Y)
+	w, h := float32(b.Size.Width), float32(b.Size.Height)
+	f = clampf(f, 0, 1)
+	switch m {
+	case FillRightToLeft:
+		fw := w * f
+		return core.Bounds{
+			Origin: core.Point{X: core.Points(x + w - fw), Y: core.Points(y)},
+			Size:   core.Size{Width: core.Points(fw), Height: core.Points(h)},
+		}
+	case FillTopToBottom:
+		return core.Bounds{
+			Origin: core.Point{X: core.Points(x), Y: core.Points(y)},
+			Size:   core.Size{Width: core.Points(w), Height: core.Points(h * f)},
+		}
+	case FillBottomToTop:
+		fh := h * f
+		return core.Bounds{
+			Origin: core.Point{X: core.Points(x), Y: core.Points(y + h - fh)},
+			Size:   core.Size{Width: core.Points(w), Height: core.Points(fh)},
+		}
+	case FillCenterHorizontal:
+		fw := w * f
+		return core.Bounds{
+			Origin: core.Point{X: core.Points(x + (w-fw)/2), Y: core.Points(y)},
+			Size:   core.Size{Width: core.Points(fw), Height: core.Points(h)},
+		}
+	case FillCenterVertical:
+		fh := h * f
+		return core.Bounds{
+			Origin: core.Point{X: core.Points(x), Y: core.Points(y + (h-fh)/2)},
+			Size:   core.Size{Width: core.Points(w), Height: core.Points(fh)},
+		}
+	default: // FillLeftToRight and the radial modes, which clip to a pie instead
+		return core.Bounds{
+			Origin: core.Point{X: core.Points(x), Y: core.Points(y)},
+			Size:   core.Size{Width: core.Points(w * f), Height: core.Points(h)},
+		}
+	}
+}
+
+// piePath returns the wedge of b that a radial fill of fraction f reveals: the center, a ray along StartAngle degrees (0 points right, positive is clockwise), and an arc sweeping Span degrees (0 defaults to 360) scaled by f. The radius reaches the corners so the wedge covers the whole rectangle.
+func (p *ImageProgress) piePath(b core.Bounds, f float32) *core.Path {
+	w, h := float32(b.Size.Width), float32(b.Size.Height)
+	cx, cy := float32(b.Origin.X)+w/2, float32(b.Origin.Y)+h/2
+	r := float32(math.Hypot(float64(w), float64(h))) / 2
+	span := p.Span
+	if span == 0 {
+		span = 360
+	}
+	ccw := p.Fill == FillCounterClockwise
+	a0 := float64(p.StartAngle) * math.Pi / 180
+	sweep := float64(span) * float64(clampf(f, 0, 1)) * math.Pi / 180
+	a1 := a0 + sweep
+	if ccw {
+		a1 = a0 - sweep
+	}
+	path := new(core.Path)
+	if sweep <= 0 {
+		return path
+	}
+	path.MoveTo(cx, cy)
+	path.LineTo(cx+r*float32(math.Cos(a0)), cy+r*float32(math.Sin(a0)))
+	path.Arc(cx, cy, r, float32(a0), float32(a1), ccw)
+	path.ClosePath()
+	return path
+}
+
+func (p *ImageProgress) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
+	rect := p.bounds
+	w, h := float32(rect.Size.Width), float32(rect.Size.Height)
+	if w <= 0 || h <= 0 {
+		return
+	}
+	x, y := float32(rect.Origin.X), float32(rect.Origin.Y)
+
+	if p.Under != nil {
+		p.Under.Draw(d, rect)
+	} else {
+		track := p.TrackColor
+		if track == 0 {
+			track = theme.Track
+		}
+		d.SetFillColor(track).FillPath(rectPath(x, y, w, h, 0), core.NonZero)
+	}
+
+	frac := p.Fraction()
+	if frac > 0 {
+		var clip *core.Path
+		if p.Fill.radial() {
+			clip = p.piePath(rect, frac)
+		} else {
+			cr := p.Fill.clipRect(rect, frac)
+			clip = rectPath(
+				float32(cr.Origin.X), float32(cr.Origin.Y),
+				float32(cr.Size.Width), float32(cr.Size.Height), 0)
+		}
+		d.Save()
+		d.ClipPath(clip, core.NonZero)
+		if p.Progress != nil {
+			p.Progress.Draw(d, rect)
+		} else {
+			fill := p.FillColor
+			if fill == 0 {
+				fill = theme.Accent
+			}
+			d.SetFillColor(fill).FillPath(rectPath(x, y, w, h, 0), core.NonZero)
+		}
+		d.Restore()
+	}
+
+	if p.Over != nil {
+		p.Over.Draw(d, rect)
+	}
+}
+
 func (l *List) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	rect := l.bounds
 	w, h := float32(rect.Size.Width), float32(rect.Size.Height)

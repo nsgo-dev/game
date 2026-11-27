@@ -78,7 +78,8 @@
             "color_rect",
             "touch_stick",
             "touch_button",
-            "container"
+            "container",
+            "image_progress"
           ]
         },
         "anchor": {
@@ -185,6 +186,62 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9223372036854776000
+        },
+        "under": {
+          "description": "Under is a project-relative path to the image_progress background layer image, drawn in full first.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "Progress is a project-relative path to the image_progress fill layer image, revealed by the value along Fill.",
+          "type": "string"
+        },
+        "over": {
+          "description": "Over is a project-relative path to the image_progress foreground layer image, drawn in full last.",
+          "type": "string"
+        },
+        "fill": {
+          "description": "Fill picks how an image_progress reveals its progress image: left_to_right (the default), right_to_left, top_to_bottom, bottom_to_top, center_h, center_v, clockwise, or counter_clockwise.",
+          "type": "string",
+          "enum": [
+            "left_to_right",
+            "right_to_left",
+            "top_to_bottom",
+            "bottom_to_top",
+            "center_h",
+            "center_v",
+            "clockwise",
+            "counter_clockwise"
+          ]
+        },
+        "startAngle": {
+          "description": "StartAngle is the image_progress radial fill's starting angle in degrees (0 points right, positive is clockwise).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "span": {
+          "description": "Span is the image_progress radial fill's full sweep in degrees (0 defaults to 360).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 360
+        },
+        "min": {
+          "description": "Min is the image_progress range's lower bound (defaults to 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "max": {
+          "description": "Max is the image_progress range's upper bound (defaults to 1 when both min and max are 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "value": {
+          "description": "Value is the image_progress node's initial value; game code updates the widget's Value at runtime.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
         },
         "fontSize": {
           "description": "FontSize overrides the text font size in virtual points for text-bearing nodes.",

@@ -8,7 +8,7 @@ import "github.com/nsgo-dev/game/pkg/gameui"
 
 ## Layout containers, widgets, and `Root`
 
-Compose a widget tree from layout containers (`Panel`, `VBox`, `HBox`) and widgets (`Label`, `Button`, `Toggle`, `Slider`, `List`, `ProgressBar`, `Spacer`), then wrap it in a `Root`:
+Compose a widget tree from layout containers (`Panel`, `VBox`, `HBox`) and widgets (`Label`, `Button`, `Toggle`, `Slider`, `List`, `ProgressBar`, `ImageProgress`, `Spacer`), then wrap it in a `Root`:
 
 ```go
 theme := gameui.DefaultTheme()
@@ -39,6 +39,22 @@ uiRoot.Theme = &theme
 Inside your `Canvas.Draw`, call `uiRoot.Draw(d, bounds)` (which runs `Layout` and draws inside `Save`/`Restore` so caller canvas state stays untouched). Route pointer and keyboard events with `OnPointerMove`, `OnPointerDown`, `OnPointerUp`, `OnPress`, and `OnKeyDown`.
 
 Customize visuals with `Theme` fields, `NineSlice` frames (`NineSlice.FrameDrawer()`, `NineSliceStateFrame`), or custom `TextDrawer` and `TextMeasurer` hooks for bitmap fonts.
+
+### Image-filled progress (`ImageProgress`)
+
+`ImageProgress` is a read-only meter built from up to three layered images, drawn under → progress → over, for boss bars and ornate meters a flat `ProgressBar` cannot express. Each layer is a `NineSlice`, so a progress image keeps its corner caps at any value and any widget size; a nil layer falls back to a flat fill (`TrackColor` for the under layer, `FillColor` for the progress layer). `Fill` picks how the value reveals the progress layer: `left_to_right` (the default), `right_to_left`, `top_to_bottom`, `bottom_to_top`, `center_h`, `center_v`, or a radial pie with `clockwise` and `counter_clockwise`, which starts at `StartAngle` degrees (0 points right, positive is clockwise) and sweeps `Span` degrees (0 defaults to 360).
+
+```go
+bossBar := &gameui.ImageProgress{
+	Under:      &gameui.NineSlice{Image: core.Src("asset:ui/bar_back.png"), Src: core.Bounds{Size: core.Size{Width: 96, Height: 24}}, Left: 8, Right: 8},
+	Progress:   &gameui.NineSlice{Image: core.Src("asset:ui/bar_fill.png"), Src: core.Bounds{Size: core.Size{Width: 96, Height: 24}}, Left: 8, Right: 8},
+	Over:       &gameui.NineSlice{Image: core.Src("asset:ui/bar_frame.png"), Src: core.Bounds{Size: core.Size{Width: 96, Height: 24}}, Left: 8, Right: 8},
+	Fill:       gameui.FillLeftToRight,
+	Min:        0,
+	Max:        100,
+	Value:      bossHP,
+}
+```
 
 ## Virtual-resolution scaling (`Viewport`)
 
@@ -154,11 +170,12 @@ Mount `overlay.View(cx)` above your `Canvas` inside a `core.Stack`. Anchors that
 
 Author HUDs and menus as plain-text versioned YAML files (`*.screen.yaml`, published schema `https://game.nsgo.dev/schemas/screen.v1.json`) rather than hand-coding every widget in Go. `ParseScreen`, `LoadScreenFS`, and `EncodeScreen` refuse unknown fields, duplicate node IDs or focus orders, YAML anchors/aliases, and unsupported versions, and round-trip losslessly in canonical 2-space YAML.
 
-A screen defines a `designWidth` × `designHeight` reference canvas (such as `640 × 360`), an optional `scaleMode` (`fit`, `fill`, `stretch`, or `integer`), and a tree of nodes (`vbox`, `hbox`, `label`, `button`, `sprite_row`, `color_rect`, `touch_stick`, `touch_button`, `container`):
+A screen defines a `designWidth` × `designHeight` reference canvas (such as `640 × 360`), an optional `scaleMode` (`fit`, `fill`, `stretch`, or `integer`), and a tree of nodes (`vbox`, `hbox`, `label`, `button`, `sprite_row`, `color_rect`, `touch_stick`, `touch_button`, `container`, `image_progress`):
 
 - **Anchors and safe areas:** set `anchor` to one of nine points (`top_left`, `top_center`, `top_right`, `center_left`, `center`, `center_right`, `bottom_left`, `bottom_center`, `bottom_right`) or `fill`, `offset` (`x`, `y` inset inward from right/bottom edges), and `safeArea` (defaults to `true` for non-fill anchors and `false` for `fill`).
 - **Sizing and localized text:** store localization keys in `textKey` (never literal strings), use `sizeMode: fixed` with `width` or `sizeMode: fit_text` to grow with localized text, and set `padding`, `spacing`, `fontSize`, `textColor`, `background`, and `cornerRadius`.
 - **Focus order, touch areas, and device classes:** declare explicit 1-based `focusOrder` for keyboard/gamepad traversal, `touchHitSize` for expanded circular touch targets (`TouchButton`, `TouchStick`, `Button`), and `deviceClasses` (`phone`, `tablet`, `desktop`, `ultrawide`) to show controls only on matching devices.
+- **Image-filled progress:** an `image_progress` node layers `under`, `progress`, and `over` image paths into an `ImageProgress`, with `fill` (`left_to_right`, `right_to_left`, `top_to_bottom`, `bottom_to_top`, `center_h`, `center_v`, `clockwise`, `counter_clockwise`), `startAngle` and `span` for the radial fills, and `min`/`max`/`value` as the starting range. Game code updates the widget's `Value` at runtime.
 
 Build a parsed screen into a `gameui.Root` and `SpatialNavigator` at runtime with `BuildScreen`:
 
@@ -193,6 +210,7 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 - localized text that overflows its box in any project locale at the four reference sizes (`Phone 19.5:9 (notch)`, `Tablet 4:3`, `Desktop 16:9`, `Ultrawide 21:9`), accounting for full-width CJK glyphs;
 - a `textKey` missing from any project locale string table;
 - text under `4.5:1` WCAG contrast against its fill;
-- missing `sprite` images or atlas frames.
+- missing `sprite` images or atlas frames;
+- missing `under`, `progress`, or `over` images on `image_progress` nodes.
 
-`refs` and `game mv` follow `sprite` paths and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.
+`refs` and `game mv` follow `sprite` paths, `image_progress` layer paths, and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.

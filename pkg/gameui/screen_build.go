@@ -494,6 +494,40 @@ func BuildScreen(doc *ScreenDoc, opts ScreenBuildOptions) (*BuiltScreen, error) 
 				Hidden:       hidden,
 			}
 
+		case NodeImageProgress:
+			ip := &ImageProgress{
+				Value:      n.Value,
+				Min:        n.Min,
+				Max:        n.Max,
+				StartAngle: n.StartAngle,
+				Span:       n.Span,
+				Width:      width,
+				Height:     n.Height,
+				Hidden:     hidden,
+			}
+			if fill, ok := ParseFillMode(n.Fill); ok {
+				ip.Fill = fill
+			}
+			if opts.Sprites != nil {
+				layers := []struct {
+					path string
+					out  **NineSlice
+				}{
+					{n.Under, &ip.Under},
+					{n.Progress, &ip.Progress},
+					{n.Over, &ip.Over},
+				}
+				for _, layer := range layers {
+					if layer.path == "" {
+						continue
+					}
+					if img, src, ok := opts.Sprites(layer.path, ""); ok {
+						*layer.out = &NineSlice{Image: img, Src: src}
+					}
+				}
+			}
+			w = ip
+
 		case NodeTouchStick:
 			w = &TouchStick{
 				HitSize:   n.TouchHitSize,
@@ -641,6 +675,8 @@ func setWidgetHidden(w Widget, hidden bool) {
 	case *ColorRect:
 		v.Hidden = hidden
 	case *SpriteRow:
+		v.Hidden = hidden
+	case *ImageProgress:
 		v.Hidden = hidden
 	case *TouchStick:
 		v.Hidden = hidden

@@ -138,6 +138,19 @@ func (c *checker) checkScreen(p string) {
 					c.imageRef(p, spriteLine, proj, n.Sprite, "sprite")
 				}
 			}
+			for _, layer := range []struct {
+				field string
+				ref   string
+			}{
+				{"under", n.Under},
+				{"over", n.Over},
+				{"progress", n.Progress},
+			} {
+				if layer.ref != "" {
+					layerLine := min(yamlLine(&root, append(np, layer.field)), lines)
+					c.imageRef(p, layerLine, proj, layer.ref, layer.field)
+				}
+			}
 			if len(n.Children) > 0 {
 				cp := make([]string, 0, len(np)+1)
 				cp = append(cp, np...)

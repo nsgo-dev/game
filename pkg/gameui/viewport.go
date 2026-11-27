@@ -327,6 +327,18 @@ type NineSlice struct {
 	Bottom float32
 }
 
+// prefSize returns the nine-slice's natural size in points: its source rectangle when set, else the image's declared size.
+func (ns NineSlice) prefSize() (w, h float32) {
+	w, h = float32(ns.Src.Size.Width), float32(ns.Src.Size.Height)
+	if w <= 0 {
+		w = float32(ns.Image.Size.Width)
+	}
+	if h <= 0 {
+		h = float32(ns.Image.Size.Height)
+	}
+	return w, h
+}
+
 // Draw renders the 9-patch image stretched into dst.
 // Corner insets clamp proportionally if dst is smaller than Left+Right or Top+Bottom.
 func (ns NineSlice) Draw(d *core.Drawing, dst core.Bounds) {

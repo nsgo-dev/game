@@ -417,17 +417,7 @@ func (p *ProgressBar) Bounds() core.Bounds { return p.bounds }
 
 // Fraction returns Value normalized into [0, 1].
 func (p *ProgressBar) Fraction() float32 {
-	minV, maxV := p.Min, p.Max
-	if minV == 0 && maxV == 0 {
-		minV, maxV = 0, 1
-	} else if maxV < minV {
-		minV, maxV = maxV, minV
-	}
-	span := maxV - minV
-	if span <= 0 {
-		return 0
-	}
-	return clampf((p.Value-minV)/span, 0, 1)
+	return progressFraction(p.Value, p.Min, p.Max)
 }
 
 func (p *ProgressBar) spec() layoutSpec {
@@ -444,6 +434,149 @@ func (p *ProgressBar) spec() layoutSpec {
 func (p *ProgressBar) focusable() bool         { return false }
 func (p *ProgressBar) childWidgets() []Widget  { return nil }
 func (p *ProgressBar) setBounds(r core.Bounds) { p.bounds = r }
+
+// FillMode picks how an ImageProgress reveals its progress image as the value grows.
+type FillMode uint8
+
+const (
+	// FillLeftToRight reveals the progress image from the left edge to the right (the default).
+	FillLeftToRight FillMode = iota
+	// FillRightToLeft reveals the progress image from the right edge to the left.
+	FillRightToLeft
+	// FillTopToBottom reveals the progress image from the top edge to the bottom.
+	FillTopToBottom
+	// FillBottomToTop reveals the progress image from the bottom edge to the top.
+	FillBottomToTop
+	// FillCenterHorizontal reveals the progress image from the horizontal center outward to both sides.
+	FillCenterHorizontal
+	// FillCenterVertical reveals the progress image from the vertical center outward to both edges.
+	FillCenterVertical
+	// FillClockwise reveals the progress image along a clockwise pie sweep from StartAngle.
+	FillClockwise
+	// FillCounterClockwise reveals the progress image along a counter-clockwise pie sweep from StartAngle.
+	FillCounterClockwise
+)
+
+// String returns the screen-file name of m (such as "clockwise"), or "left_to_right" for an unknown mode.
+func (m FillMode) String() string {
+	switch m {
+	case FillRightToLeft:
+		return "right_to_left"
+	case FillTopToBottom:
+		return "top_to_bottom"
+	case FillBottomToTop:
+		return "bottom_to_top"
+	case FillCenterHorizontal:
+		return "center_h"
+	case FillCenterVertical:
+		return "center_v"
+	case FillClockwise:
+		return "clockwise"
+	case FillCounterClockwise:
+		return "counter_clockwise"
+	default:
+		return "left_to_right"
+	}
+}
+
+// ParseFillMode maps a screen-file fill name (such as "clockwise") to its FillMode, reporting whether s was recognized.
+func ParseFillMode(s string) (FillMode, bool) {
+	switch s {
+	case "left_to_right":
+		return FillLeftToRight, true
+	case "right_to_left":
+		return FillRightToLeft, true
+	case "top_to_bottom":
+		return FillTopToBottom, true
+	case "bottom_to_top":
+		return FillBottomToTop, true
+	case "center_h":
+		return FillCenterHorizontal, true
+	case "center_v":
+		return FillCenterVertical, true
+	case "clockwise":
+		return FillClockwise, true
+	case "counter_clockwise":
+		return FillCounterClockwise, true
+	default:
+		return 0, false
+	}
+}
+
+// radial reports whether m is one of the pie-sweep fill modes.
+func (m FillMode) radial() bool {
+	return m == FillClockwise || m == FillCounterClockwise
+}
+
+// ImageProgress displays a read-only progress meter in [Min, Max] (or [0, 1] when both Min and Max are 0)
+// built from up to three layered images: Under drawn in full first, Progress revealed by the value along Fill,
+// and Over drawn in full last (such as an ornate frame over a boss bar).
+//
+// Each layer is a NineSlice: a plain image when its insets are zero, or a nine-patch that keeps its cap sizes
+// when the widget is wider or taller than the source. Linear fills clip the progress layer to the revealed
+// rectangle, so a nine-slice progress image keeps its caps at any value; radial fills (FillClockwise and
+// FillCounterClockwise) clip it to a pie from StartAngle degrees (0 points right, positive is clockwise)
+// sweeping Span degrees (0 defaults to 360). When a layer is nil the widget falls back to a flat fill:
+// TrackColor (or Theme.Track) for Under and FillColor (or Theme.Accent) for Progress.
+type ImageProgress struct {
+	Value      float32
+	Min        float32
+	Max        float32
+	Under      *NineSlice
+	Progress   *NineSlice
+	Over       *NineSlice
+	Fill       FillMode
+	StartAngle float32 // degrees, 0 = right, positive clockwise; radial fills only
+	Span       float32 // degrees, 0 defaults to 360; radial fills only
+	FillColor  core.Color
+	TrackColor core.Color
+	Width      float32
+	Height     float32
+	MinWidth   float32
+	MinHeight  float32
+	Flex       float32
+	Align      Align
+	Hidden     bool
+
+	bounds core.Bounds
+}
+
+// Bounds returns the image progress's laid-out rectangle.
+func (p *ImageProgress) Bounds() core.Bounds { return p.bounds }
+
+// Fraction returns Value normalized into [0, 1].
+func (p *ImageProgress) Fraction() float32 {
+	return progressFraction(p.Value, p.Min, p.Max)
+}
+
+func (p *ImageProgress) spec() layoutSpec {
+	return layoutSpec{
+		Width:     p.Width,
+		Height:    p.Height,
+		MinWidth:  p.MinWidth,
+		MinHeight: p.MinHeight,
+		Flex:      p.Flex,
+		Align:     p.Align,
+		Hidden:    p.Hidden,
+	}
+}
+func (p *ImageProgress) focusable() bool         { return false }
+func (p *ImageProgress) childWidgets() []Widget  { return nil }
+func (p *ImageProgress) setBounds(r core.Bounds) { p.bounds = r }
+
+// progressFraction normalizes value into [0, 1] over [min, max], defaulting a zero range to [0, 1] and swapping an inverted range.
+func progressFraction(value, min, max float32) float32 {
+	if min == 0 && max == 0 {
+		min, max = 0, 1
+	} else if max < min {
+		min, max = max, min
+	}
+	span := max - min
+	if span <= 0 {
+		return 0
+	}
+	return clampf((value-min)/span, 0, 1)
+}
 
 // Spacer reserves empty space inside a VBox or HBox.
 // A zero-value Spacer defaults to Flex: 1 so it expands to push siblings apart; setting Width or Height without Flex creates a fixed gap.
