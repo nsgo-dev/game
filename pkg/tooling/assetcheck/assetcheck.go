@@ -87,6 +87,8 @@ type Report struct {
 	Screens int
 	// States counts the sprite animation state machine YAML files (*.states.yaml) that were checked.
 	States int
+	// Connections counts the scene connections encountered in checked scenes.
+	Connections int
 	// Problems are the problems found, sorted by file, then line, then message.
 	Problems []Problem
 }

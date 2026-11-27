@@ -33,9 +33,11 @@ func (c *checker) checkScene(p string) {
 	}
 	doc, err := sceneformat.Parse(data)
 	if err != nil {
+		c.report.Connections += yamlConnectionsCount(data)
 		c.yamlError(p, data, err)
 		return
 	}
+	c.report.Connections += len(doc.Connections)
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		c.yamlError(p, data, err) // Parse read it, so this does not happen.
@@ -148,6 +150,9 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 			s.unresolved(own, files, err)
 		}
 		return
+	}
+	if len(resolved.Connections) > 0 && s.report.Connections == 0 {
+		s.report.Connections += len(resolved.Connections)
 	}
 	byID := make(map[string]*sceneformat.ObjectDoc)
 	for li := range resolved.Layers {
@@ -905,6 +910,24 @@ func (c *checker) loadParticles(p string) *particles.Config {
 	}
 	c.particles[p] = &cfg
 	return &cfg
+}
+
+// yamlConnectionsCount returns the number of items in a scene's top-level connections sequence, or 0 when data is not valid YAML or has none.
+func yamlConnectionsCount(data []byte) int {
+	var root yaml.Node
+	if yaml.Unmarshal(data, &root) != nil || len(root.Content) == 0 {
+		return 0
+	}
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return 0
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		if doc.Content[i].Value == "connections" && doc.Content[i+1].Kind == yaml.SequenceNode {
+			return len(doc.Content[i+1].Content)
+		}
+	}
+	return 0
 }
 
 // yamlLineRE finds the "line N: " that yaml's errors carry.

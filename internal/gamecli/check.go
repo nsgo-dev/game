@@ -4,14 +4,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/build"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/editorcmd"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 )
 
-// checkCommand checks the scenes, maps and atlases under a directory and the references between them, printing each problem with its file and line.
+// checkCommand checks the scenes, maps and atlases under a directory and the references between them, printing each problem with its file and line. When the directory is a project with its own editor command (a main package in cmd/editor importing editorcmd, or a main built with the gameeditor tag), it runs that command with -check so the project's component types, events, handlers and handler arguments are checked too.
 var checkCommand = &command{
 	name:    "check",
 	args:    "[dir]",
@@ -44,6 +47,20 @@ func defineCheck(a *app, fs *flag.FlagSet) func() error {
 		if !info.IsDir() {
 			return fmt.Errorf("%s is not a directory", dir)
 		}
+		var nonEditorCmdNote bool
+		if root, inProject := editorcmd.ProjectRoot(dir); inProject {
+			run, ok, err := projectEditor(root)
+			if err != nil {
+				return err
+			}
+			if ok {
+				return runOwnEditorCheck(a, root, run, dir)
+			}
+			if p, err := build.ImportDir(filepath.Join(root, "cmd", "editor"), 0); err == nil && p.Name == "main" {
+				nonEditorCmdNote = true
+				fmt.Fprintf(a.stderr, "check: %s does not use package editorcmd, so it may not support -check; checking connection objects only without the project's component registry\n", filepath.Join(root, "cmd", "editor"))
+			}
+		}
 		report, err := assetcheck.Check(os.DirFS(dir))
 		if err != nil {
 			return err
@@ -52,6 +69,9 @@ func defineCheck(a *app, fs *flag.FlagSet) func() error {
 			// Name each file from the working directory, so editors and terminals can open it.
 			p.File = filepath.Join(dir, filepath.FromSlash(p.File))
 			fmt.Fprintln(a.stderr, p)
+		}
+		if !nonEditorCmdNote && report.Connections > 0 {
+			fmt.Fprintln(a.stderr, "check: note: connection events and handlers were not checked without a project editor command; run `game generate editor` to enable it")
 		}
 		switch n := len(report.Problems); n {
 		case 0:
@@ -63,4 +83,23 @@ func defineCheck(a *app, fs *flag.FlagSet) func() error {
 		fmt.Fprintln(a.stdout, report.Summary())
 		return nil
 	}
+}
+
+// runOwnEditorCheck runs the project in root's own editor command with -check on dir, so its registered component types (plus built-in physics and skeletal components) are checked against scenes and connections.
+func runOwnEditorCheck(a *app, root string, run []string, dir string) error {
+	target := dir
+	if filepath.Clean(target) == "." {
+		target = "."
+	} else {
+		abs, err := filepath.Abs(target)
+		if err != nil {
+			return err
+		}
+		target = abs
+	}
+	cmd := append(slices.Clone(run), "-check", target)
+	if err := a.goRun(root, cmd, a.stdout, a.stderr); err != nil {
+		return fmt.Errorf("the project's editor (go %s in %s): %w", strings.Join(run, " "), root, err)
+	}
+	return nil
 }

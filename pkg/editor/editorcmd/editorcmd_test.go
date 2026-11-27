@@ -287,3 +287,154 @@ func TestRunSchemaFlagWritesSceneSchemaWithoutWindow(t *testing.T) {
 		t.Fatalf("Run(-schema extra) = %v, stderr %q; want usage error", err, &stderr)
 	}
 }
+
+func TestRunCheckFlagChecksConnectionsAndBuiltins(t *testing.T) {
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "button",
+		Events: []sceneformat.Event{{Name: "pressed"}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "door",
+		Handlers: []sceneformat.Handler{{
+			Name:   "open",
+			Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0, Min: sceneformat.Float64(0)}},
+		}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "switch",
+		Events: []sceneformat.Event{{Name: "pressed"}},
+	})
+
+	pairScene := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: button
+        components:
+          button: {}
+      - id: door
+        components:
+          door: {}
+          body2d: {kind: static}
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+`
+	levelScene := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: west
+        scene: scenes/pair.scene.yaml
+      - id: lever
+        components:
+          button: {}
+connections:
+  - from: lever
+    event: pressed
+    to: west/door
+    handler: open
+    args:
+      speed: 2
+`
+	derivedScene := `version: 2
+inherits: scenes/pair.scene.yaml
+layers:
+  - name: actors
+    objects:
+      - id: lever
+        components:
+          button: {}
+connections:
+  - from: lever
+    event: pressed
+    to: door
+    handler: open
+`
+
+	dir := writeProject(t, map[string]string{
+		"game.yaml":                 gameYAML,
+		"scenes/room.scene.yaml":    "version: 2\nname: Room\nlayers: []\n",
+		"scenes/pair.scene.yaml":    pairScene,
+		"scenes/level.scene.yaml":   levelScene,
+		"scenes/derived.scene.yaml": derivedScene,
+	})
+
+	// Clean project passes, prints summary to stdout, and never launches a window.
+	var stdout, stderr bytes.Buffer
+	if err := editorcmd.Run([]string{"-check", dir}, editorcmd.Options{Components: reg, Stdout: &stdout}, &stderr, func(*editor.Editor) {
+		t.Error("launch called when -check was passed")
+	}); err != nil {
+		t.Fatalf("Run(-check) clean: %v (stderr: %s)", err, &stderr)
+	}
+	if !strings.Contains(stdout.String(), "4 scenes, 0 maps, 0 tilesets, 0 atlases: no problems") {
+		t.Fatalf("stdout = %q, want summary", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr not empty on clean check: %q", stderr.String())
+	}
+
+	// Missing event, missing handler, unknown handler argument, and an override breaking a brought connection all fail with file and line.
+	badPair := strings.Replace(pairScene, "handler: open", "handler: slam", 1)
+	badLevel := strings.Replace(levelScene, "event: pressed", "event: held", 1)
+	badDerived := strings.Replace(derivedScene, "handler: open\n", "handler: open\n    args:\n      force: 2\n", 1)
+	badOverride := `version: 2
+inherits: scenes/pair.scene.yaml
+overrides:
+  button:
+    components:
+      switch: {}
+`
+	badDir := writeProject(t, map[string]string{
+		"game.yaml":                  gameYAML,
+		"scenes/room.scene.yaml":     "version: 2\nname: Room\nlayers: []\n",
+		"scenes/pair.scene.yaml":     pairScene,
+		"scenes/own.scene.yaml":      badPair,
+		"scenes/level.scene.yaml":    badLevel,
+		"scenes/derived.scene.yaml":  badDerived,
+		"scenes/override.scene.yaml": badOverride,
+	})
+	stdout.Reset()
+	stderr.Reset()
+	err := editorcmd.Run([]string{"-check", badDir}, editorcmd.Options{Components: reg, Stdout: &stdout}, &stderr, func(*editor.Editor) {
+		t.Error("launch called when -check was passed")
+	})
+	if err == nil || err.Error() != "4 problems" {
+		t.Fatalf("Run(-check) bad = %v, want 4 problems (stderr: %s)", err, &stderr)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout not empty on failed check: %q", stdout.String())
+	}
+	got := stderr.String()
+	for _, want := range []string{
+		filepath.Join(badDir, "scenes", "own.scene.yaml") + `:16: sceneformat: connection 0 ("button" pressed -> "door" slam): no registered component of object "door" declares handler "slam"`,
+		filepath.Join(badDir, "scenes", "level.scene.yaml") + `:12: sceneformat: connection 0 ("lever" held -> "west/door" open): no registered component of object "lever" declares event "held"`,
+		filepath.Join(badDir, "scenes", "derived.scene.yaml") + `:15: sceneformat: connection 0 ("lever" pressed -> "door" open) argument "force": unknown argument`,
+		filepath.Join(badDir, "scenes", "override.scene.yaml") + `:4: sceneformat: the override of object "button" breaks connection ("button" pressed -> "door" open)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stderr missing %q:\n%s", want, got)
+		}
+	}
+
+	// Usage and path errors.
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-schema", "-check", dir}, "cannot be used together"},
+		{[]string{"-check", dir, "extra"}, "-check takes no extra arguments"},
+		{[]string{"-check", filepath.Join(dir, "game.yaml")}, "is not a directory"},
+	} {
+		stderr.Reset()
+		err := editorcmd.Run(tc.args, editorcmd.Options{Components: reg, Stdout: &stdout}, &stderr, func(*editor.Editor) {
+			t.Error("launch called")
+		})
+		if err == nil || (!strings.Contains(err.Error(), tc.want) && !strings.Contains(stderr.String(), tc.want)) {
+			t.Errorf("Run(%q) = %v, stderr %q; want %q", tc.args, err, &stderr, tc.want)
+		}
+	}
+}
