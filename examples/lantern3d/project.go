@@ -2,7 +2,9 @@ package main
 
 import (
 	"embed"
+	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
 )
 
@@ -13,6 +15,22 @@ var gameYAML []byte
 
 // gameProject is the parsed game.yaml.
 var gameProject = project.MustParse(gameYAML)
+
+// touchLayoutYAML is Lantern 3D's 2D courtyard touch layout: a floating stick on the left half and a contextual USE button on the right.
+//
+//go:embed controls.touch.yaml
+var touchLayoutYAML []byte
+
+// touchLayout is the parsed controls.touch.yaml.
+var touchLayout = mustParseTouchLayout(touchLayoutYAML)
+
+func mustParseTouchLayout(data []byte) input.TouchLayout {
+	l, err := input.ParseTouchLayout(data)
+	if err != nil {
+		panic(fmt.Sprintf("lantern3d: controls.touch.yaml: %v", err))
+	}
+	return l
+}
 
 // levelScenePath is the scene file the 3D level is built from, by its path from the project root.
 const levelScenePath = "assets/shrine.scene.yaml"

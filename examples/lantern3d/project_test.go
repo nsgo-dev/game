@@ -6,6 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -25,6 +26,14 @@ func TestProjectFileIsValidAndCanonical(t *testing.T) {
 	canonical, err := project.Encode(gameProject)
 	if err != nil || !bytes.Equal(canonical, gameYAML) {
 		t.Fatalf("game.yaml is not canonical (%v):\n%s", err, canonical)
+	}
+}
+
+// TestTouchLayoutIsCanonical checks that controls.touch.yaml is in the form input.EncodeTouchLayout writes, so a layout the game saves for the player starts from the same text.
+func TestTouchLayoutIsCanonical(t *testing.T) {
+	canonical, err := input.EncodeTouchLayout(touchLayout)
+	if err != nil || !bytes.Equal(canonical, touchLayoutYAML) {
+		t.Fatalf("controls.touch.yaml is not canonical (%v); write it as input.EncodeTouchLayout does:\n%s", err, canonical)
 	}
 }
 
