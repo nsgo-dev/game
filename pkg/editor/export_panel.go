@@ -1257,8 +1257,14 @@ func (e *Editor) postExportUI(scope *core.Scope, fn func()) {
 	fn()
 }
 
-func defaultExportCommandRunner(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func newExportCommand(ctx context.Context, args, baseEnv []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Env = releaseplan.WithReleaseEnv(baseEnv)
+	return cmd
+}
+
+func defaultExportCommandRunner(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	cmd := newExportCommand(ctx, args, os.Environ())
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()

@@ -53,10 +53,10 @@ go tool nsgo test ./...
 go tool nsgo check -target macos,windows,linux,android,web
 ```
 
-Build release artifacts into `dist/`:
+Build release artifacts into `dist/` (`go tool game release` sets `GOFLAGS=-tags=release` automatically to strip debug code):
 
 ```sh
-go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
+GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
 
 ## Layout

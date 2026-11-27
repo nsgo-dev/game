@@ -51,11 +51,13 @@ go tool nsgo check -target macos,windows,linux,android,web
 go tool nsgo check -target ios,ios_simulator   # on macOS with Xcode
 ```
 
-Build release artifacts (output goes to `dist/`):
+Build release artifacts (output goes to `dist/`, with `-tags=release` to strip development-only debug code):
 
 ```sh
-go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
-go tool nsgo build -target ios,android_arm64
+go tool game release
+# or invoke nsgo build directly with GOFLAGS=-tags=release:
+GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
+GOFLAGS=-tags=release go tool nsgo build -target ios,android_arm64
 ```
 
 ## Layout

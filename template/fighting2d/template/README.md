@@ -38,7 +38,10 @@ go tool nsgo dev -target ios_simulator
 go tool nsgo dev -target android
 go tool nsgo test ./...               # headless tests
 go tool nsgo check -target macos,windows,linux,android,web
+go tool game release                  # release builds (passes GOFLAGS=-tags=release to strip F1 hitboxes)
 ```
+
+If you invoke `nsgo build` directly, pass `GOFLAGS=-tags=release go tool nsgo build ...` so release builds compile out the F1 hitbox overlay.
 
 Edit the name and identifier in `game.yaml` before shipping, then write them into `nsgo.yaml` and check the project:
 

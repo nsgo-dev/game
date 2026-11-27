@@ -66,12 +66,16 @@ var exportTargets = []string{
 	"miniprogram_wechat", "miniprogram_qq", "miniprogram_alipay", "miniprogram_douyin",
 }
 
-// runNSGo runs the go command with args, writing its output to stdout and stderr; tests replace it.
-var runNSGo = func(args []string, stdout, stderr io.Writer) error {
+// runNSGo runs the go command with args and env overrides, writing its output to stdout and stderr; tests replace it.
+var runNSGo = func(args, env []string, stdout, stderr io.Writer) error {
 	cmd := exec.Command("go", args...)
+	cmd.Env = releaseplan.ApplyEnv(os.Environ(), env)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	return cmd.Run()
 }
+
+// verifyRelease checks built desktop release binaries for the release build tag and absence of debug symbols; tests replace it when runNSGo is mocked.
+var verifyRelease = releaseplan.VerifyDesktopRelease
 
 // releaseSettings are the parts of game.yaml that game release reads: the build output directory, the build targets of the export presets and the assets section, whose assets the credits file lists.
 type releaseSettings = releaseplan.Settings
@@ -381,8 +385,11 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 			releaseplan.WriteDryRun(a.stdout, plan)
 			return nil
 		}
-		if err := runNSGo(plan.Args, a.stdout, a.stderr); err != nil {
+		if err := runNSGo(plan.Args, plan.Env, a.stdout, a.stderr); err != nil {
 			return fmt.Errorf("nsgo build: %w", err)
+		}
+		if err := verifyRelease(plan); err != nil {
+			return fmt.Errorf("verify release: %w", err)
 		}
 		if plan.CreditsPath != "" {
 			name, err := credits.Write(plan.OutputDir, plan.Credits)

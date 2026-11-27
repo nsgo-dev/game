@@ -178,7 +178,7 @@ jobs:
         working-directory: examples/tutorial
         run: |
           for chapter in ch*/; do
-            go tool nsgo build -target web -output "$GITHUB_WORKSPACE/dist/tutorial/${chapter%/}" "./${chapter%/}"
+            GOFLAGS=-tags=release go tool nsgo build -target web -output "$GITHUB_WORKSPACE/dist/tutorial/${chapter%/}" "./${chapter%/}"
           done
       - name: Upload the finished game's web artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -186,3 +186,45 @@ jobs:
           name: starcatcher-web
           path: dist/tutorial/ch09-ship
           if-no-files-found: error
+
+  release-build-tag:
+    name: Verify release build tag strips debug code
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/fieldmedic/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/fieldmedic/go.sum
+            go.sum
+      # Builds an example that imports pkg/debug for the host desktop target via game release, verifying both GOFLAGS=-tags=release propagation and pkg/debug's release stub.
+      - name: Build Field Medic for the host desktop target with game release
+        run: |
+          set -euo pipefail
+          arch=$(go env GOARCH)
+          case "$arch" in
+            amd64) target="linux_x64" ;;
+            arm64) target="linux_arm64" ;;
+            *) echo "unsupported host arch: $arch" >&2; exit 1 ;;
+          esac
+          out="$RUNNER_TEMP/fieldmedic-release"
+          go run ./cmd/game release -target "$target" -output "$out" examples/fieldmedic
+          bin="$out/Field Medic-0.1.0-$target/Field Medic"
+          test -f "$bin"
+          go version -m "$bin" | grep -E '^\s*build\s+-tags=(.*,)?release(,|$)'
+      - name: Verify pkg/debug and tooling release stubs under -tags release
+        run: |
+          set -euo pipefail
+          for pkg in ./pkg/debug ./pkg/tooling/hotreload ./pkg/tooling/devstate; do
+            GOFLAGS=-tags=release go tool nsgo test "$pkg"
+          done
+          for pkg in ./pkg/physics ./pkg/physics3d; do
+            GOFLAGS=-tags=release go tool nsgo test "$pkg" -- -run Release
+          done

@@ -135,7 +135,7 @@ func runWasm(opts wasmOptions, stdout, stderr io.Writer) int {
 		defer os.RemoveAll(tmpDir)
 
 		targetFile = filepath.Join(tmpDir, "game.wasm")
-		buildArgs := []string{"build", "-trimpath"}
+		buildArgs := []string{"build", "-trimpath", "-tags=release"}
 		if budget.LDFlags != "" {
 			buildArgs = append(buildArgs, "-ldflags="+budget.LDFlags)
 		}

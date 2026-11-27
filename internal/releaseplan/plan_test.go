@@ -42,13 +42,55 @@ export:
 	if !reflect.DeepEqual(plan.Args, wantArgs) {
 		t.Fatalf("Args = %q, want %q", plan.Args, wantArgs)
 	}
+	wantEnv := []string{"GOFLAGS=-tags=release"}
+	if !reflect.DeepEqual(plan.Env, wantEnv) {
+		t.Fatalf("Env = %q, want %q", plan.Env, wantEnv)
+	}
+	if plan.AppName != "Demo" || plan.AppVersion != "1.0.0" {
+		t.Fatalf("AppName/AppVersion = (%q, %q), want (Demo, 1.0.0)", plan.AppName, plan.AppVersion)
+	}
 	if plan.OutputDir != filepath.Join(dir, "build", "out") {
 		t.Fatalf("OutputDir = %q", plan.OutputDir)
 	}
 	var buf bytes.Buffer
 	WriteDryRun(&buf, plan)
-	if want := ShellQuote(append([]string{"go"}, wantArgs...)) + "\n"; buf.String() != want {
+	if want := "GOFLAGS=-tags=release " + ShellQuote(append([]string{"go"}, wantArgs...)) + "\n"; buf.String() != want {
 		t.Fatalf("WriteDryRun = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestReleaseBuildTagEnvMerging(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		want     string
+	}{
+		{name: "empty", existing: "", want: "-tags=release"},
+		{name: "other flag preserved", existing: "-mod=mod", want: "-mod=mod -tags=release"},
+		{name: "existing tag merged", existing: "-tags=custom", want: "-tags=custom,release"},
+		{name: "existing tags and other flags", existing: "-mod=mod -tags=foo,bar -race", want: "-mod=mod -race -tags=foo,bar,release"},
+		{name: "double dash tags", existing: "--tags=custom", want: "-tags=custom,release"},
+		{name: "already has release", existing: "-mod=mod -tags=foo,release", want: "-mod=mod -tags=foo,release"},
+		{name: "later tags replaces earlier per Go rules", existing: "-tags=old --tags=active", want: "-tags=active,release"},
+		{name: "empty tags value", existing: "-tags=", want: "-tags=release"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := GOFLAGSWithReleaseTag(tc.existing); got != tc.want {
+				t.Fatalf("GOFLAGSWithReleaseTag(%q) = %q, want %q", tc.existing, got, tc.want)
+			}
+		})
+	}
+
+	env := WithReleaseEnv([]string{"PATH=/usr/bin", "GOFLAGS=-mod=mod -tags=custom", "HOME=/tmp"})
+	want := []string{"PATH=/usr/bin", "HOME=/tmp", "GOFLAGS=-mod=mod -tags=custom,release"}
+	if !reflect.DeepEqual(env, want) {
+		t.Fatalf("WithReleaseEnv = %q, want %q", env, want)
+	}
+
+	// Empty non-nil base env produces only GOFLAGS=-tags=release.
+	if got := WithReleaseEnv([]string{}); !reflect.DeepEqual(got, []string{"GOFLAGS=-tags=release"}) {
+		t.Fatalf("WithReleaseEnv(empty) = %q", got)
 	}
 }
 

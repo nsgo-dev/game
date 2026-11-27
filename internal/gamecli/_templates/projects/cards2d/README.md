@@ -51,10 +51,10 @@ go tool nsgo dev -target ios_simulator
 go tool nsgo dev -target android
 go tool nsgo test ./...
 go tool nsgo check -target macos,windows,linux,android,web
-go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
+GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
 
-Builds go to `dist/`.
+Builds go to `dist/` (or run `go tool game release`, which sets `GOFLAGS=-tags=release` automatically).
 
 ## Git setup
 
