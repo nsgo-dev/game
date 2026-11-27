@@ -3,7 +3,9 @@ package editor
 import (
 	"fmt"
 	"image"
+	"maps"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -958,7 +960,372 @@ func imageImportFields(
 			},
 		},
 	}
-	return append(nodes, pivotSection...)
+	collisionModeOpts := []ui.Option[string]{
+		{Value: "", Label: "None"},
+		{Value: "alpha", Label: "Alpha (traced)"},
+		{Value: "box", Label: "Box"},
+		{Value: "ellipse", Label: "Ellipse"},
+		{Value: "polygon", Label: "Polygon"},
+	}
+
+	activeCollisionCell := func() int {
+		g := readGrid()
+		if g.cellCount <= 0 || g.errMsg != "" {
+			return -1
+		}
+		sel, _ := activeCell()
+		return sel
+	}
+
+	collisionSection := []core.Node{
+		core.Text{
+			Content: "COLLISION",
+			Style: core.Style{
+				FontSize:   11,
+				FontWeight: 700,
+				Color:      colors.Muted(),
+			},
+		},
+		fieldRow("Mode", func() string {
+			return "2D collision shape baked into atlas metadata from alpha, box, ellipse, or explicit polygon"
+		},
+			ui.Select[string]{
+				TestID:   "import-image-collision-mode",
+				Label:    "Collision Mode",
+				Options:  collisionModeOpts,
+				Disabled: disabled,
+				Style:    core.Style{Width: core.Pct(100)},
+				Value: func() string {
+					if col, ok := readInfo().EffectiveImageCollision(); ok && col != nil {
+						if col.Mode == "none" {
+							return ""
+						}
+						return col.Mode
+					}
+					return ""
+				},
+				OnChange: func(v string) {
+					if v == "" {
+						ed.report(ed.SetImageImportDefaultCollision(relPath, "", 0, 0, nil))
+						return
+					}
+					var tol, maxV int
+					var pts []importsettings.Point2D
+					if col, ok := readInfo().EffectiveImageCollision(); ok && col != nil {
+						tol = col.Tolerance
+						maxV = col.MaxVertices
+						pts = col.Points
+					}
+					if v == "polygon" && len(pts) < importsettings.MinCollisionVertices {
+						info := readInfo()
+						w := float64(max(info.ImageWidth, 16))
+						h := float64(max(info.ImageHeight, 16))
+						if s, ok := info.EffectiveImageSlice(); ok && s != nil {
+							w, h = float64(s.Width), float64(s.Height)
+						}
+						pts = []importsettings.Point2D{{0, 0}, {w, 0}, {w, h}, {0, h}}
+						tol = 0
+					}
+					if v != "polygon" {
+						pts = nil
+					}
+					ed.report(ed.SetImageImportDefaultCollision(relPath, v, tol, maxV, pts))
+				},
+			},
+			resetBtn("import-image-collision-reset", "Clear collision settings", func() bool {
+				_, over := readInfo().EffectiveImageCollision()
+				return over
+			}, func() {
+				ed.report(ed.ResetAssetImportField(relPath, "collision"))
+			}),
+		),
+		core.Show{
+			When: func() bool {
+				col, ok := readInfo().EffectiveImageCollision()
+				return ok && col != nil && (col.Mode == "alpha" || col.Mode == "box" || col.Mode == "ellipse")
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return fieldRow("Tolerance", func() string {
+					return "Alpha cutoff [0..255]: pixels with alpha above tolerance are solid"
+				},
+					ui.NumberInput{
+						TestID:   "import-image-collision-tolerance",
+						Label:    "Collision Alpha Tolerance",
+						Min:      0,
+						Max:      255,
+						Step:     1,
+						Disabled: disabled,
+						Value: func() float64 {
+							if col, ok := readInfo().EffectiveImageCollision(); ok && col != nil {
+								return float64(col.Tolerance)
+							}
+							return 0
+						},
+						OnChange: func(v float64) {
+							col, ok := readInfo().EffectiveImageCollision()
+							if !ok || col == nil || col.Mode == "" {
+								return
+							}
+							tol := min(max(roundInt(v, 0), 0), 255)
+							ed.report(ed.SetImageImportDefaultCollision(relPath, col.Mode, tol, col.MaxVertices, col.Points))
+						},
+					},
+					nil,
+				)
+			},
+		},
+		core.Show{
+			When: func() bool {
+				col, ok := readInfo().EffectiveImageCollision()
+				return ok && col != nil && (col.Mode == "alpha" || col.Mode == "ellipse" || col.Mode == "polygon")
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return fieldRow("Max Verts", func() string {
+					return "Maximum vertices per baked convex polygon (3..8)"
+				},
+					ui.NumberInput{
+						TestID:   "import-image-collision-max-vertices",
+						Label:    "Collision Max Vertices",
+						Min:      importsettings.MinCollisionVertices,
+						Max:      importsettings.MaxCollisionVertices,
+						Step:     1,
+						Disabled: disabled,
+						Value: func() float64 {
+							if col, ok := readInfo().EffectiveImageCollision(); ok && col != nil && col.MaxVertices > 0 {
+								return float64(col.MaxVertices)
+							}
+							return importsettings.DefaultCollisionMaxVertices
+						},
+						OnChange: func(v float64) {
+							col, ok := readInfo().EffectiveImageCollision()
+							if !ok || col == nil || col.Mode == "" {
+								return
+							}
+							mv := min(max(roundInt(v, importsettings.MinCollisionVertices), importsettings.MinCollisionVertices), importsettings.MaxCollisionVertices)
+							ed.report(ed.SetImageImportDefaultCollision(relPath, col.Mode, col.Tolerance, mv, col.Points))
+						},
+					},
+					nil,
+				)
+			},
+		},
+		core.Show{
+			When: func() bool {
+				_, _, active := readInfo().EffectiveCellImageCollision(activeCollisionCell())
+				return active
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return core.Text{
+					TestID: "import-image-collision-summary",
+					ContentFunc: func() string {
+						_ = rev.Get()
+						cell := activeCollisionCell()
+						polys, err := ed.PreviewImageCollisionPolygons(relPath, cell)
+						if err != nil {
+							return "Trace unavailable"
+						}
+						if len(polys) == 0 {
+							return "No opaque pixels in frame"
+						}
+						verts := 0
+						for _, p := range polys {
+							verts += len(p)
+						}
+						noun := "polygons"
+						if len(polys) == 1 {
+							noun = "polygon"
+						}
+						return fmt.Sprintf("%d convex %s · %d vertices", len(polys), noun, verts)
+					},
+					Style: core.Style{FontSize: 10, Color: colors.Muted()},
+				}
+			},
+		},
+	}
+
+	newPointName := core.NewSignal(cx, "")
+	pointsListKey := core.NewMemo(cx, func() string {
+		cell := activeCollisionCell()
+		pts, over := readInfo().EffectiveCellImagePoints(cell)
+		if len(pts) == 0 {
+			return fmt.Sprintf("c=%d:", cell)
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "c=%d:", cell)
+		for _, name := range slices.Sorted(maps.Keys(pts)) {
+			fmt.Fprintf(&b, "%s:%v,", name, over[name])
+		}
+		return b.String()
+	})
+
+	addNamedPoint := func() {
+		name := strings.TrimSpace(newPointName.Get())
+		if name == "" {
+			return
+		}
+		info := readInfo()
+		w, h := float64(info.ImageWidth), float64(info.ImageHeight)
+		cell := activeCollisionCell()
+		if s, ok := info.EffectiveImageSlice(); ok && s != nil && cell >= 0 {
+			w, h = float64(s.Width), float64(s.Height)
+		}
+		pt := importsettings.Point2D{roundPointCoord(w * 0.5), roundPointCoord(h * 0.5)}
+		if err := ed.SetImageImportPoint(relPath, name, &pt); err != nil {
+			ed.report(err)
+			return
+		}
+		newPointName.Set("")
+	}
+
+	pointsSection := []core.Node{
+		core.Text{
+			Content: "IMAGE POINTS",
+			Style: core.Style{
+				FontSize:   11,
+				FontWeight: 700,
+				Color:      colors.Muted(),
+			},
+		},
+		fieldRow("Add Point", func() string {
+			return "Add a named image point (such as muzzle, hand, or feet) and drag it on the preview"
+		},
+			ui.HStack{
+				Gap: 4,
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Children: []core.Node{
+							ui.Input{
+								TestID:      "import-image-point-add-name",
+								Label:       "New Point Name",
+								Placeholder: "muzzle",
+								Disabled:    disabled,
+								Value:       func() string { return newPointName.Get() },
+								OnChange:    func(v string) { newPointName.Set(v) },
+								OnSubmit:    func(string) { addNamedPoint() },
+							},
+						},
+					},
+					ui.Button{
+						TestID:   "import-image-point-add-btn",
+						Text:     "Add",
+						Label:    "Add named image point",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonSecondary,
+						Disabled: disabled,
+						OnPress:  addNamedPoint,
+					},
+				},
+			},
+			resetBtn("import-image-points-reset", "Clear all image points", func() bool {
+				pts, _ := readInfo().EffectiveCellImagePoints(activeCollisionCell())
+				return len(pts) > 0
+			}, func() {
+				ed.report(ed.ResetAssetImportField(relPath, "points"))
+			}),
+		),
+		core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = pointsListKey.Get()
+			cell := core.Untracked(cx, activeCollisionCell)
+			info := core.Untracked(cx, readInfo)
+			pts, over := info.EffectiveCellImagePoints(cell)
+			if len(pts) == 0 {
+				return nil
+			}
+			rows := make([]core.Node, 0, len(pts))
+			for _, name := range slices.Sorted(maps.Keys(pts)) {
+				ptName := name
+				isCellOverride := over[ptName]
+				label := ptName
+				if isCellOverride {
+					label += " *"
+				}
+				updatePoint := func(mutate func(p *importsettings.Point2D)) {
+					c := activeCollisionCell()
+					curPts, _ := readInfo().EffectiveCellImagePoints(c)
+					p := curPts[ptName]
+					mutate(&p)
+					if c >= 0 {
+						ed.report(ed.SetImageImportCellPoint(relPath, c, ptName, &p))
+					} else {
+						ed.report(ed.SetImageImportPoint(relPath, ptName, &p))
+					}
+				}
+				rows = append(rows, fieldRow(label, func() string {
+					return fmt.Sprintf("Frame pixel coordinates [x, y] for point %q", ptName)
+				},
+					ui.HStack{
+						Gap: 4,
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+								Children: []core.Node{
+									ui.NumberInput{
+										TestID:   "import-image-point-" + ptName + "-x",
+										Label:    ptName + " X",
+										Step:     1,
+										Format:   formatPivotNum,
+										Disabled: disabled,
+										Value: func() float64 {
+											curPts, _ := readInfo().EffectiveCellImagePoints(activeCollisionCell())
+											return curPts[ptName][0]
+										},
+										OnChange: func(v float64) {
+											if math.IsNaN(v) || math.IsInf(v, 0) {
+												return
+											}
+											updatePoint(func(p *importsettings.Point2D) { p[0] = roundPointCoord(v) })
+										},
+									},
+								},
+							},
+							core.View{
+								Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+								Children: []core.Node{
+									ui.NumberInput{
+										TestID:   "import-image-point-" + ptName + "-y",
+										Label:    ptName + " Y",
+										Step:     1,
+										Format:   formatPivotNum,
+										Disabled: disabled,
+										Value: func() float64 {
+											curPts, _ := readInfo().EffectiveCellImagePoints(activeCollisionCell())
+											return curPts[ptName][1]
+										},
+										OnChange: func(v float64) {
+											if math.IsNaN(v) || math.IsInf(v, 0) {
+												return
+											}
+											updatePoint(func(p *importsettings.Point2D) { p[1] = roundPointCoord(v) })
+										},
+									},
+								},
+							},
+						},
+					},
+					resetBtn("import-image-point-"+ptName+"-remove", "Remove or reset point "+ptName, func() bool {
+						return true
+					}, func() {
+						c := activeCollisionCell()
+						_, curOver := readInfo().EffectiveCellImagePoints(c)
+						if c >= 0 && curOver[ptName] {
+							ed.report(ed.SetImageImportCellPoint(relPath, c, ptName, nil))
+						} else {
+							ed.report(ed.SetImageImportPoint(relPath, ptName, nil))
+						}
+					}),
+				))
+			}
+			return core.View{
+				Style:    core.Style{Gap: 4},
+				Children: rows,
+			}
+		}),
+	}
+
+	nodes = append(nodes, pivotSection...)
+	nodes = append(nodes, collisionSection...)
+	return append(nodes, pointsSection...)
 }
 
 func audioImportFields(

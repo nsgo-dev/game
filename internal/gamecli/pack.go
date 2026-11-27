@@ -88,18 +88,27 @@ func loadPackInputs(inDir string) ([]pack.Input, error) {
 		if err != nil {
 			return nil, err
 		}
-		var sl *importsettings.Slice
-		var pv *importsettings.Pivot
-		if side != nil && side.Image != nil {
-			sl = side.Image.Slice
-			pv = side.Image.Pivot
+		var im *importsettings.Image
+		if side != nil {
+			im = side.Image
 		}
-		if sl == nil {
+		if im == nil || im.Slice == nil {
 			var framePivot *pack.Pivot
-			if pt, ok := pv.ForImage(); ok {
-				framePivot = &pack.Pivot{X: pt[0], Y: pt[1]}
+			var shapes []pack.Polygon
+			var pts map[string]pack.Point
+			if im != nil {
+				if pt, ok := im.Pivot.ForImage(); ok {
+					framePivot = &pack.Pivot{X: pt[0], Y: pt[1]}
+				}
+				if spec, ok := im.Collision.ForImage(); ok {
+					shapes, err = pack.TraceCollision(img, packCollisionOptions(spec))
+					if err != nil {
+						return nil, fmt.Errorf("%s: %w", importsettings.Path(full), err)
+					}
+				}
+				pts = packPointsMap(im.PointsForImage())
 			}
-			inputs = append(inputs, pack.Input{Name: rel, Image: img, Pivot: framePivot})
+			inputs = append(inputs, pack.Input{Name: rel, Image: img, Pivot: framePivot, Shapes: shapes, Points: pts})
 			continue
 		}
 		sub, ok := img.(interface {
@@ -109,25 +118,46 @@ func loadPackInputs(inDir string) ([]pack.Input, error) {
 			return nil, fmt.Errorf("%s: cannot cut a %T image into frames", importsettings.Path(full), img)
 		}
 		bounds := img.Bounds()
-		rects, _, _, err := sl.Cells(bounds)
+		rects, _, _, err := im.Slice.Cells(bounds)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", importsettings.Path(full), err)
 		}
-		if pv != nil {
-			for _, c := range pv.Cells {
+		if im.Pivot != nil {
+			for _, c := range im.Pivot.Cells {
 				if c.Cell >= len(rects) {
 					return nil, fmt.Errorf("%s: pivot: cell %d is out of range for the %d cells that fit the %dx%d image", importsettings.Path(full), c.Cell, len(rects), bounds.Dx(), bounds.Dy())
 				}
 			}
 		}
+		if im.Collision != nil {
+			for _, c := range im.Collision.Cells {
+				if c.Cell >= len(rects) {
+					return nil, fmt.Errorf("%s: collision: cell %d is out of range for the %d cells that fit the %dx%d image", importsettings.Path(full), c.Cell, len(rects), bounds.Dx(), bounds.Dy())
+				}
+			}
+		}
+		for _, cp := range im.CellPoints {
+			if cp.Cell >= len(rects) {
+				return nil, fmt.Errorf("%s: cellPoints: cell %d is out of range for the %d cells that fit the %dx%d image", importsettings.Path(full), cp.Cell, len(rects), bounds.Dx(), bounds.Dy())
+			}
+		}
 		ext := path.Ext(rel)
 		stem := strings.TrimSuffix(rel, ext)
 		for i, r := range rects {
+			cellImg := sub.SubImage(r)
 			var framePivot *pack.Pivot
-			if pt, ok := pv.ForCell(i); ok {
+			if pt, ok := im.Pivot.ForCell(i); ok {
 				framePivot = &pack.Pivot{X: pt[0], Y: pt[1]}
 			}
-			inputs = append(inputs, pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: sub.SubImage(r), Pivot: framePivot})
+			var shapes []pack.Polygon
+			if spec, ok := im.Collision.ForCell(i); ok {
+				shapes, err = pack.TraceCollision(cellImg, packCollisionOptions(spec))
+				if err != nil {
+					return nil, fmt.Errorf("%s: cell %d: %w", importsettings.Path(full), i, err)
+				}
+			}
+			pts := packPointsMap(im.PointsForCell(i))
+			inputs = append(inputs, pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: cellImg, Pivot: framePivot, Shapes: shapes, Points: pts})
 		}
 	}
 	seen := make(map[string]bool, len(inputs))
@@ -138,4 +168,30 @@ func loadPackInputs(inDir string) ([]pack.Input, error) {
 		seen[in.Name] = true
 	}
 	return inputs, nil
+}
+
+func packCollisionOptions(spec importsettings.CollisionSpec) pack.CollisionOptions {
+	opts := pack.CollisionOptions{
+		Mode:        pack.CollisionMode(spec.Mode),
+		Tolerance:   spec.Tolerance,
+		MaxVertices: spec.MaxVertices,
+	}
+	if len(spec.Points) > 0 {
+		opts.Points = make([]pack.Point, len(spec.Points))
+		for i, p := range spec.Points {
+			opts.Points[i] = pack.Point{X: p[0], Y: p[1]}
+		}
+	}
+	return opts
+}
+
+func packPointsMap(pts map[string]importsettings.Point2D) map[string]pack.Point {
+	if len(pts) == 0 {
+		return nil
+	}
+	out := make(map[string]pack.Point, len(pts))
+	for name, p := range pts {
+		out[name] = pack.Point{X: p[0], Y: p[1]}
+	}
+	return out
 }

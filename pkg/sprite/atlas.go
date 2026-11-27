@@ -45,6 +45,19 @@ type Frame struct {
 	Width, Height float32
 	// PivotX and PivotY are the frame's pivot in the untrimmed picture, in points from its top left: TexturePacker's per-frame pivot, or 0 when the export gives none. NewSprite puts the sprite's origin here.
 	PivotX, PivotY float32
+	// Shapes are the frame's convex collision polygons in untrimmed frame points from the top left, wound clockwise on screen (positive signed area in Y-down space).
+	Shapes [][]math2d.Vec2
+	// Points are the frame's named image points (such as "muzzle", "hand", or "feet") in untrimmed frame points from the top left.
+	Points map[string]math2d.Vec2
+}
+
+// Point returns the named image point in untrimmed frame coordinates, or false when the frame has no point with that name.
+func (f Frame) Point(name string) (math2d.Vec2, bool) {
+	if f.Points == nil {
+		return math2d.Vec2{}, false
+	}
+	p, ok := f.Points[name]
+	return p, ok
 }
 
 // Rect returns the frame's source rectangle in the atlas image.
@@ -87,9 +100,10 @@ func loadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 			Slices []struct {
 				Name string `json:"name"`
 				Keys []struct {
-					Frame  int   `json:"frame"`
-					Bounds rect  `json:"bounds"`
-					Center *rect `json:"center"`
+					Frame  int    `json:"frame"`
+					Bounds rect   `json:"bounds"`
+					Center *rect  `json:"center"`
+					Pivot  *point `json:"pivot"`
 				} `json:"keys"`
 			} `json:"slices"`
 		} `json:"meta"`
@@ -129,8 +143,87 @@ func loadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 			fr.Width, fr.Height = f.SourceSize.W/scale, f.SourceSize.H/scale
 		}
 		fr.PivotX, fr.PivotY = f.Pivot.X*fr.Width, f.Pivot.Y*fr.Height
+		if len(f.Shapes) > 0 {
+			fr.Shapes = make([][]math2d.Vec2, len(f.Shapes))
+			for si, poly := range f.Shapes {
+				if len(poly) < 3 {
+					return nil, loaderr.Errorf(loaderr.Join(framePath(frames, i, byName), loaderr.Path("shapes", si)), "give each collision polygon at least 3 vertices", "frame %q shape %d has %d vertices", f.Name, si, len(poly))
+				}
+				pts := make([]math2d.Vec2, len(poly))
+				for vi, p := range poly {
+					if !finite(p.X) || !finite(p.Y) {
+						return nil, loaderr.Errorf(loaderr.Join(framePath(frames, i, byName), loaderr.Path("shapes", si, vi)), "write polygon vertices as finite numbers", "frame %q shape %d vertex %d is not finite", f.Name, si, vi)
+					}
+					pts[vi] = math2d.Vec2{X: p.X / scale, Y: p.Y / scale}
+				}
+				fr.Shapes[si] = pts
+			}
+		}
+		if len(f.Points) > 0 {
+			fr.Points = make(map[string]math2d.Vec2, len(f.Points))
+			for name, p := range f.Points {
+				if name == "" {
+					return nil, loaderr.Errorf(loaderr.Join(framePath(frames, i, byName), "points"), "give each named point a non-empty name", "frame %q has a point with an empty name", f.Name)
+				}
+				if !finite(p.X) || !finite(p.Y) {
+					return nil, loaderr.Errorf(loaderr.Join(framePath(frames, i, byName), loaderr.Path("points", name)), "write point coordinates as finite numbers", "frame %q point %q is not finite", f.Name, name)
+				}
+				fr.Points[name] = math2d.Vec2{X: p.X / scale, Y: p.Y / scale}
+			}
+		}
 		a.Frames[f.Name] = fr
 		ordered[i] = fr
+	}
+
+	// Process Aseprite meta.slices before building Animations so AnimationFrame copies inherit slice pivot points.
+	for si, sl := range file.Meta.Slices {
+		if len(sl.Keys) == 0 {
+			continue
+		}
+		if sl.Keys[0].Center != nil {
+			b, c := sl.Keys[0].Bounds, sl.Keys[0].Center
+			if c.X < 0 || c.Y < 0 || c.W < 0 || c.H < 0 || c.X+c.W > b.W || c.Y+c.H > b.H {
+				return nil, loaderr.Errorf(loaderr.Path("meta", "slices", si, "keys", 0, "center"), "redraw the slice in Aseprite so its center lies inside its bounds", "slice %q center falls outside its bounds", sl.Name)
+			}
+			if a.Slices == nil {
+				a.Slices = make(map[string]Insets)
+			}
+			a.Slices[sl.Name] = Insets{
+				Left:   c.X / scale,
+				Top:    c.Y / scale,
+				Right:  (b.W - c.X - c.W) / scale,
+				Bottom: (b.H - c.Y - c.H) / scale,
+			}
+		}
+		if sl.Name == "" {
+			continue
+		}
+		// Aseprite slice keys with a pivot define named image points from key.frame until the next key's frame.
+		for ki, key := range sl.Keys {
+			if key.Pivot == nil {
+				continue
+			}
+			if key.Frame < 0 || key.Frame >= len(ordered) {
+				return nil, loaderr.Errorf(loaderr.Path("meta", "slices", si, "keys", ki, "frame"), fmt.Sprintf("use a frame number with 0 <= frame < %d, the atlas's frame count", len(ordered)), "slice %q key %d names frame %d of %d", sl.Name, ki, key.Frame, len(ordered))
+			}
+			end := len(ordered)
+			if ki+1 < len(sl.Keys) && sl.Keys[ki+1].Frame > key.Frame && sl.Keys[ki+1].Frame < end {
+				end = sl.Keys[ki+1].Frame
+			}
+			pt := math2d.Vec2{
+				X: (key.Bounds.X + key.Pivot.X) / scale,
+				Y: (key.Bounds.Y + key.Pivot.Y) / scale,
+			}
+			for fi := key.Frame; fi < end; fi++ {
+				if ordered[fi].Points == nil {
+					ordered[fi].Points = make(map[string]math2d.Vec2)
+				}
+				if _, exists := ordered[fi].Points[sl.Name]; !exists {
+					ordered[fi].Points[sl.Name] = pt
+				}
+				a.Frames[ordered[fi].Name] = ordered[fi]
+			}
+		}
 	}
 
 	if len(file.Meta.FrameTags) > 0 {
@@ -161,25 +254,6 @@ func loadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 		}
 		a.Animations[tag.Name] = anim
 	}
-
-	for si, sl := range file.Meta.Slices {
-		if len(sl.Keys) == 0 || sl.Keys[0].Center == nil {
-			continue
-		}
-		b, c := sl.Keys[0].Bounds, sl.Keys[0].Center
-		if c.X < 0 || c.Y < 0 || c.W < 0 || c.H < 0 || c.X+c.W > b.W || c.Y+c.H > b.H {
-			return nil, loaderr.Errorf(loaderr.Path("meta", "slices", si, "keys", 0, "center"), "redraw the slice in Aseprite so its center lies inside its bounds", "slice %q center falls outside its bounds", sl.Name)
-		}
-		if a.Slices == nil {
-			a.Slices = make(map[string]Insets)
-		}
-		a.Slices[sl.Name] = Insets{
-			Left:   c.X / scale,
-			Top:    c.Y / scale,
-			Right:  (b.W - c.X - c.W) / scale,
-			Bottom: (b.H - c.Y - c.H) / scale,
-		}
-	}
 	return a, nil
 }
 
@@ -195,6 +269,10 @@ type packedFrame struct {
 	Pivot point `json:"pivot"`
 	// Duration is Aseprite's, in milliseconds.
 	Duration int `json:"duration"`
+	// Shapes are convex collision polygons in untrimmed frame pixels, written by game assets / game pack.
+	Shapes [][]point `json:"shapes"`
+	// Points are named image points in untrimmed frame pixels, written by game assets / game pack.
+	Points map[string]point `json:"points"`
 }
 
 // framePath is where frame i of frames is in the export, for errors: "frames[3]" in an array, `frames["hero.png"]` in an object of frames by name.

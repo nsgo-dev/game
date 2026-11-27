@@ -7,13 +7,16 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/tooling/pack"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -36,18 +39,31 @@ type imageImportPreviewState struct {
 	cachedW       int
 	cachedH       int
 
+	collisionCache imageCollisionPreviewCache
+
 	selectedCell    int
 	hasSelectedCell bool
 
 	drag imagePivotDragState
 }
 
+type imageCollisionPreviewCache struct {
+	path    string
+	modTime time.Time
+	size    int64
+	specKey string
+	cells   map[int][]pack.Polygon
+}
+
 type imagePivotDragState struct {
 	active    bool
 	relPath   string
-	cell      int // -1 for unsliced default pivot, >= 0 for sliced cell override
+	cell      int // -1 for unsliced default, >= 0 for sliced cell override
 	origPivot importsettings.PivotPoint
 	livePivot importsettings.PivotPoint
+	pointName string // non-empty when dragging a named image point instead of a pivot
+	origPoint importsettings.Point2D
+	livePoint importsettings.Point2D
 	moved     bool
 	canvasW   float32
 	canvasH   float32
@@ -153,9 +169,14 @@ func (e *Editor) SelectImportSliceCell(cell int) {
 	e.notify()
 }
 
-// ImagePivotDragging reports whether an interactive pivot drag on the image import preview is currently active.
+// ImagePivotDragging reports whether an interactive pivot or image point drag on the image import preview is currently active.
 func (e *Editor) ImagePivotDragging() bool {
 	return e != nil && e.importPreview.drag.active
+}
+
+// ImagePointDragging reports whether an interactive named image point drag on the image import preview is currently active.
+func (e *Editor) ImagePointDragging() bool {
+	return e != nil && e.importPreview.drag.active && e.importPreview.drag.pointName != ""
 }
 
 // imagePreviewLayout computes the aspect-preserving origin and pixel-to-point scale fitting imgW x imgH inside canvasW x canvasH.
@@ -212,6 +233,171 @@ func roundPivotCoord(v float64) float64 {
 		return 0
 	}
 	return r
+}
+
+func previewPointCanvasPos(ox, oy, scale float32, cell image.Rectangle, pt importsettings.Point2D) (float32, float32) {
+	px := float64(cell.Min.X) + pt[0]
+	py := float64(cell.Min.Y) + pt[1]
+	return ox + float32(px)*scale, oy + float32(py)*scale
+}
+
+func previewCanvasToPoint2D(ox, oy, scale float32, cell image.Rectangle, cx, cy float32) importsettings.Point2D {
+	if cell.Dx() <= 0 || cell.Dy() <= 0 || scale <= 0 {
+		return importsettings.Point2D{0, 0}
+	}
+	imgX := float64(cx-ox)/float64(scale) - float64(cell.Min.X)
+	imgY := float64(cy-oy)/float64(scale) - float64(cell.Min.Y)
+	imgX = roundPointCoord(clampRange(imgX, 0, float64(cell.Dx())))
+	imgY = roundPointCoord(clampRange(imgY, 0, float64(cell.Dy())))
+	return importsettings.Point2D{imgX, imgY}
+}
+
+func clampRange(v, lo, hi float64) float64 {
+	if math.IsNaN(v) || v <= lo {
+		return lo
+	}
+	if v >= hi {
+		return hi
+	}
+	return v
+}
+
+func roundPointCoord(v float64) float64 {
+	r := math.Round(v*100) / 100
+	if r == 0 {
+		return 0
+	}
+	return r
+}
+
+// ImageImportPreviewPointPos maps a frame-pixel image point pt inside cell (-1 for the whole image, or 0..n-1 for a sliced cell) of relPath to canvas coordinates within canvasW x canvasH.
+func (e *Editor) ImageImportPreviewPointPos(relPath string, cell int, pt importsettings.Point2D, canvasW, canvasH float32) (x, y float32, ok bool) {
+	if e == nil || e.Project == nil || e.ProjectPath == "" {
+		return 0, 0, false
+	}
+	info, err := e.InspectAssetImport(relPath)
+	if err != nil || info.Kind != AssetImportImage {
+		return 0, 0, false
+	}
+	ox, oy, scale, ok := imagePreviewLayout(canvasW, canvasH, info.ImageWidth, info.ImageHeight)
+	if !ok {
+		return 0, 0, false
+	}
+	bounds := image.Rect(0, 0, info.ImageWidth, info.ImageHeight)
+	if cell < 0 {
+		x, y = previewPointCanvasPos(ox, oy, scale, bounds, pt)
+		return x, y, true
+	}
+	s, hasSlice := info.EffectiveImageSlice()
+	if !hasSlice {
+		return 0, 0, false
+	}
+	n, cols, _, err := s.GridCounts(bounds)
+	if err != nil || cell >= n {
+		return 0, 0, false
+	}
+	r, ok := s.CellRect(bounds, cols, cell)
+	if !ok {
+		return 0, 0, false
+	}
+	x, y = previewPointCanvasPos(ox, oy, scale, r, pt)
+	return x, y, true
+}
+
+// PreviewImageCollisionPolygons returns the traced convex collision polygons for relPath at cell (-1 for unsliced image, 0..n-1 for a sliced cell), cached across redraws.
+func (e *Editor) PreviewImageCollisionPolygons(relPath string, cell int) ([]pack.Polygon, error) {
+	if e == nil || e.Project == nil || e.ProjectPath == "" {
+		return nil, ErrNoProject
+	}
+	rgba, imgW, imgH, err := e.loadImportPreviewImage(relPath)
+	if err != nil || rgba == nil {
+		return nil, err
+	}
+	info, err := e.InspectAssetImport(relPath)
+	if err != nil || info.Kind != AssetImportImage {
+		return nil, err
+	}
+	return e.cachedCellCollision(rgba, imgW, imgH, info, cell), nil
+}
+
+func (e *Editor) cachedCellCollision(rgba *image.RGBA, imgW, imgH int, info AssetImportInfo, cell int) []pack.Polygon {
+	if rgba == nil || info.Sidecar == nil || info.Sidecar.Image == nil || info.Sidecar.Image.Collision == nil {
+		return nil
+	}
+	specKey := collisionPreviewCacheKey(info.Sidecar.Image.Slice, info.Sidecar.Image.Collision)
+	p := &e.importPreview
+	if p.collisionCache.path != p.cachedPath ||
+		!p.collisionCache.modTime.Equal(p.cachedModTime) ||
+		p.collisionCache.size != p.cachedSize ||
+		p.collisionCache.specKey != specKey {
+		p.collisionCache = imageCollisionPreviewCache{
+			path:    p.cachedPath,
+			modTime: p.cachedModTime,
+			size:    p.cachedSize,
+			specKey: specKey,
+			cells:   make(map[int][]pack.Polygon),
+		}
+	}
+	if polys, ok := p.collisionCache.cells[cell]; ok {
+		return polys
+	}
+	spec, _, active := info.EffectiveCellImageCollision(cell)
+	if !active {
+		p.collisionCache.cells[cell] = nil
+		return nil
+	}
+	bounds := image.Rect(0, 0, imgW, imgH)
+	var target image.Image = rgba
+	if cell >= 0 {
+		s, hasSlice := info.EffectiveImageSlice()
+		if !hasSlice {
+			p.collisionCache.cells[cell] = nil
+			return nil
+		}
+		n, cols, _, err := s.GridCounts(bounds)
+		if err != nil || cell >= n {
+			p.collisionCache.cells[cell] = nil
+			return nil
+		}
+		r, ok := s.CellRect(bounds, cols, cell)
+		if !ok {
+			p.collisionCache.cells[cell] = nil
+			return nil
+		}
+		target = rgba.SubImage(r)
+	}
+	opts := pack.CollisionOptions{
+		Mode:        pack.CollisionMode(spec.Mode),
+		Tolerance:   spec.Tolerance,
+		MaxVertices: spec.MaxVertices,
+	}
+	if len(spec.Points) > 0 {
+		opts.Points = make([]pack.Point, len(spec.Points))
+		for i, pt := range spec.Points {
+			opts.Points[i] = pack.Point{X: pt[0], Y: pt[1]}
+		}
+	}
+	polys, err := pack.TraceCollision(target, opts)
+	if err != nil {
+		p.collisionCache.cells[cell] = nil
+		return nil
+	}
+	p.collisionCache.cells[cell] = polys
+	return polys
+}
+
+func collisionPreviewCacheKey(s *importsettings.Slice, c *importsettings.Collision) string {
+	var b strings.Builder
+	if s != nil {
+		fmt.Fprintf(&b, "s:%d,%d,%d,%d,%d|", s.Width, s.Height, s.Margin, s.Spacing, s.Count)
+	}
+	if c != nil {
+		fmt.Fprintf(&b, "c:%s,%d,%d,%v|", c.Mode, c.Tolerance, c.MaxVertices, c.Points)
+		for _, cc := range c.Cells {
+			fmt.Fprintf(&b, "%d:%s,%d,%d,%v;", cc.Cell, cc.Mode, cc.Tolerance, cc.MaxVertices, cc.Points)
+		}
+	}
+	return b.String()
 }
 
 // ImageImportPreviewCellPoint maps a normalized pivot pt inside cell (-1 for the whole image, or 0..n-1 for a sliced cell) of relPath to canvas coordinates within canvasW x canvasH.
@@ -275,6 +461,29 @@ func (e *Editor) BeginImagePivotDrag(relPath string, canvasX, canvasY, canvasW, 
 		sel := e.SelectedImportSliceCell()
 		if sel < 0 || sel >= n {
 			sel = 0
+		}
+		// Check named image point markers on the selected cell (and visible cells when small) first so points can be dragged directly.
+		if sr, ok := s.CellRect(bounds, cols, sel); ok {
+			if name, orig, hit := hitNamedPointMarker(ox, oy, scale, sr, info, sel, canvasX, canvasY); hit {
+				e.importPreview.selectedCell = sel
+				e.importPreview.hasSelectedCell = true
+				e.importPreview.drag = imagePivotDragState{
+					active:    true,
+					relPath:   info.Path,
+					cell:      sel,
+					pointName: name,
+					origPoint: orig,
+					livePoint: orig,
+					moved:     false,
+					canvasW:   canvasW,
+					canvasH:   canvasH,
+					imgW:      info.ImageWidth,
+					imgH:      info.ImageHeight,
+					cellRect:  sr,
+				}
+				e.notify()
+				return true
+			}
 		}
 		if n > maxImportPreviewCells {
 			// For dense grids, hit-test the selected cell's pivot marker first, then locate the clicked cell in O(1).
@@ -393,6 +602,26 @@ func (e *Editor) BeginImagePivotDrag(relPath string, canvasX, canvasY, canvasW, 
 		return false
 	}
 
+	// Unsliced image: check named image point markers first, then fall back to dragging the default pivot.
+	if name, origPt, hit := hitNamedPointMarker(ox, oy, scale, bounds, info, -1, canvasX, canvasY); hit {
+		e.importPreview.drag = imagePivotDragState{
+			active:    true,
+			relPath:   info.Path,
+			cell:      -1,
+			pointName: name,
+			origPoint: origPt,
+			livePoint: origPt,
+			moved:     false,
+			canvasW:   canvasW,
+			canvasH:   canvasH,
+			imgW:      info.ImageWidth,
+			imgH:      info.ImageHeight,
+			cellRect:  bounds,
+		}
+		e.notify()
+		return true
+	}
+
 	// Unsliced image: drag the image's default pivot.
 	orig, _ := info.EffectiveDefaultImagePivot()
 	mx, my := previewPivotCanvasPos(ox, oy, scale, bounds, orig)
@@ -457,7 +686,33 @@ func hitSliceCellO1(s importsettings.Slice, bounds image.Rectangle, cols, rows, 
 	return idx, r, true
 }
 
-// UpdateImagePivotDrag moves the active dragged pivot marker to canvas coordinates (canvasX, canvasY) without writing the sidecar until EndImagePivotDrag.
+func hitNamedPointMarker(ox, oy, scale float32, cellRect image.Rectangle, info AssetImportInfo, cell int, canvasX, canvasY float32) (string, importsettings.Point2D, bool) {
+	pts, _ := info.EffectiveCellImagePoints(cell)
+	if len(pts) == 0 {
+		return "", importsettings.Point2D{}, false
+	}
+	names := slices.Sorted(maps.Keys(pts))
+	bestName := ""
+	var bestPt importsettings.Point2D
+	bestDist := float32(importPivotHitRadius * importPivotHitRadius)
+	for _, name := range names {
+		pt := pts[name]
+		mx, my := previewPointCanvasPos(ox, oy, scale, cellRect, pt)
+		dx, dy := canvasX-mx, canvasY-my
+		d2 := dx*dx + dy*dy
+		if d2 <= bestDist && (bestName == "" || d2 < bestDist) {
+			bestDist = d2
+			bestName = name
+			bestPt = pt
+		}
+	}
+	if bestName == "" {
+		return "", importsettings.Point2D{}, false
+	}
+	return bestName, bestPt, true
+}
+
+// UpdateImagePivotDrag moves the active dragged pivot or named point marker to canvas coordinates (canvasX, canvasY) without writing the sidecar until EndImagePivotDrag.
 func (e *Editor) UpdateImagePivotDrag(canvasX, canvasY float32) {
 	if e == nil || !e.importPreview.drag.active || !finite32(canvasX) || !finite32(canvasY) {
 		return
@@ -465,6 +720,16 @@ func (e *Editor) UpdateImagePivotDrag(canvasX, canvasY float32) {
 	d := &e.importPreview.drag
 	ox, oy, scale, ok := imagePreviewLayout(d.canvasW, d.canvasH, d.imgW, d.imgH)
 	if !ok {
+		return
+	}
+	if d.pointName != "" {
+		next := previewCanvasToPoint2D(ox, oy, scale, d.cellRect, canvasX, canvasY)
+		if d.moved && next == d.livePoint {
+			return
+		}
+		d.livePoint = next
+		d.moved = true
+		e.notify()
 		return
 	}
 	next := previewCanvasToPivot(ox, oy, scale, d.cellRect, canvasX, canvasY)
@@ -476,13 +741,24 @@ func (e *Editor) UpdateImagePivotDrag(canvasX, canvasY float32) {
 	e.notify()
 }
 
-// EndImagePivotDrag commits an active pivot drag to the image's *.import.yaml sidecar as one undoable History step.
+// EndImagePivotDrag commits an active pivot or named point drag to the image's *.import.yaml sidecar as one undoable History step.
 func (e *Editor) EndImagePivotDrag() error {
 	if e == nil || !e.importPreview.drag.active {
 		return nil
 	}
 	d := e.importPreview.drag
 	e.importPreview.drag = imagePivotDragState{}
+	if d.pointName != "" {
+		if !d.moved || d.livePoint == d.origPoint {
+			e.notify()
+			return nil
+		}
+		pt := d.livePoint
+		if d.cell >= 0 {
+			return e.SetImageImportCellPoint(d.relPath, d.cell, d.pointName, &pt)
+		}
+		return e.SetImageImportPoint(d.relPath, d.pointName, &pt)
+	}
 	if !d.moved || d.livePivot == d.origPivot {
 		e.notify()
 		return nil
@@ -560,6 +836,8 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 		if n > maxImportPreviewCells {
 			// Dense grids skip drawing millions of cell outlines/markers and show only the selected cell.
 			if sr, ok := s.CellRect(bounds, cols, sel); ok {
+				polys := e.cachedCellCollision(rgba, imgW, imgH, info, sel)
+				drawCollisionPolygons(d, spec, ox, oy, scale, sr, polys)
 				d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5).StrokeRect(
 					ox+float32(sr.Min.X)*scale,
 					oy+float32(sr.Min.Y)*scale,
@@ -567,18 +845,24 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 					float32(sr.Dy())*scale,
 				)
 				pt, overridden, _ := info.EffectiveCellImagePivot(sel)
-				draggingCell := dragForThis && drag.cell == sel
+				draggingCell := dragForThis && drag.pointName == "" && drag.cell == sel
 				if draggingCell {
 					pt = drag.livePivot
 				}
 				mx, my := previewPivotCanvasPos(ox, oy, scale, sr, pt)
 				drawPivotMarker(d, spec, mx, my, overridden, true, draggingCell)
+				drawCellImagePoints(d, spec, ox, oy, scale, sr, info, sel, true, dragForThis, drag)
 			}
 			return
 		}
 		rects, _, _, err := s.Cells(bounds)
 		if err != nil || len(rects) == 0 {
 			return
+		}
+		// Draw traced collision overlays beneath cell borders and markers.
+		for i, r := range rects {
+			polys := e.cachedCellCollision(rgba, imgW, imgH, info, i)
+			drawCollisionPolygons(d, spec, ox, oy, scale, r, polys)
 		}
 		// Draw slice cell outlines first so the selected cell border and pivot markers sit on top.
 		for i, r := range rects {
@@ -599,27 +883,121 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 			float32(sr.Dy())*scale,
 		)
 
-		// Draw pivot markers for every sliced cell.
+		// Draw pivot markers and named image points for every sliced cell.
 		for i, r := range rects {
 			pt, overridden, _ := info.EffectiveCellImagePivot(i)
-			draggingCell := dragForThis && drag.cell == i
+			draggingCell := dragForThis && drag.pointName == "" && drag.cell == i
 			if draggingCell {
 				pt = drag.livePivot
 			}
 			mx, my := previewPivotCanvasPos(ox, oy, scale, r, pt)
 			drawPivotMarker(d, spec, mx, my, overridden, i == sel, draggingCell)
+			drawCellImagePoints(d, spec, ox, oy, scale, r, info, i, i == sel, dragForThis, drag)
 		}
 		return
 	}
 
-	// Unsliced image: draw its single default pivot marker.
+	// Unsliced image: draw traced collision polygons, default pivot, and named image points.
+	polys := e.cachedCellCollision(rgba, imgW, imgH, info, -1)
+	drawCollisionPolygons(d, spec, ox, oy, scale, bounds, polys)
+
 	pt, explicit := info.EffectiveDefaultImagePivot()
-	draggingDefault := dragForThis && drag.cell < 0
+	draggingDefault := dragForThis && drag.pointName == "" && drag.cell < 0
 	if draggingDefault {
 		pt = drag.livePivot
 	}
 	mx, my := previewPivotCanvasPos(ox, oy, scale, bounds, pt)
 	drawPivotMarker(d, spec, mx, my, explicit, true, draggingDefault)
+	drawCellImagePoints(d, spec, ox, oy, scale, bounds, info, -1, true, dragForThis, drag)
+}
+
+func drawCollisionPolygons(d *core.Drawing, spec SpecPalette, ox, oy, scale float32, cell image.Rectangle, polys []pack.Polygon) {
+	if len(polys) == 0 {
+		return
+	}
+	fill := specAlpha(spec.Added.Fg, 0.22)
+	stroke := spec.Added.Fg
+	for _, poly := range polys {
+		if len(poly) < 3 {
+			continue
+		}
+		p := d.BeginPath()
+		for i, v := range poly {
+			x := ox + (float32(cell.Min.X)+float32(v.X))*scale
+			y := oy + (float32(cell.Min.Y)+float32(v.Y))*scale
+			if i == 0 {
+				p.MoveTo(x, y)
+			} else {
+				p.LineTo(x, y)
+			}
+		}
+		p.ClosePath()
+		d.SetFillColor(fill).Fill()
+		p = d.BeginPath()
+		for i, v := range poly {
+			x := ox + (float32(cell.Min.X)+float32(v.X))*scale
+			y := oy + (float32(cell.Min.Y)+float32(v.Y))*scale
+			if i == 0 {
+				p.MoveTo(x, y)
+			} else {
+				p.LineTo(x, y)
+			}
+		}
+		p.ClosePath()
+		d.SetStrokeColor(stroke).SetLineWidth(1.5).Stroke()
+		d.SetFillColor(stroke)
+		for _, v := range poly {
+			x := ox + (float32(cell.Min.X)+float32(v.X))*scale
+			y := oy + (float32(cell.Min.Y)+float32(v.Y))*scale
+			d.BeginPath().Arc(x, y, 2.2, 0, float32(2*math.Pi), false).Fill()
+		}
+	}
+}
+
+func drawCellImagePoints(d *core.Drawing, spec SpecPalette, ox, oy, scale float32, cell image.Rectangle, info AssetImportInfo, cellIdx int, showLabels, dragForThis bool, drag imagePivotDragState) {
+	pts, overridden := info.EffectiveCellImagePoints(cellIdx)
+	if len(pts) == 0 {
+		return
+	}
+	for _, name := range slices.Sorted(maps.Keys(pts)) {
+		pt := pts[name]
+		dragging := dragForThis && drag.pointName == name && drag.cell == cellIdx
+		if dragging {
+			pt = drag.livePoint
+		}
+		mx, my := previewPointCanvasPos(ox, oy, scale, cell, pt)
+		drawImagePointMarker(d, spec, mx, my, name, overridden[name], showLabels, dragging)
+	}
+}
+
+func drawImagePointMarker(d *core.Drawing, spec SpecPalette, x, y float32, name string, overridden, showLabel, dragging bool) {
+	fill := spec.Accent.Fg
+	if overridden {
+		fill = spec.Warning.Fg
+	}
+	if dragging {
+		fill = spec.Removed.Fg
+	}
+	const r float32 = 4.5
+	// Contrast dark diamond halo, then filled diamond + crisp stroke.
+	d.SetStrokeColor(specAlpha(spec.Bg, 0.92)).SetLineWidth(2.5)
+	d.BeginPath().MoveTo(x, y-r).LineTo(x+r, y).LineTo(x, y+r).LineTo(x-r, y).ClosePath().Stroke()
+	d.SetFillColor(fill)
+	d.BeginPath().MoveTo(x, y-r).LineTo(x+r, y).LineTo(x, y+r).LineTo(x-r, y).ClosePath().Fill()
+	stroke := spec.TextPrimary
+	if !dragging {
+		stroke = spec.Bg
+	}
+	d.SetStrokeColor(stroke).SetLineWidth(1.1)
+	d.BeginPath().MoveTo(x, y-r).LineTo(x+r, y).LineTo(x, y+r).LineTo(x-r, y).ClosePath().Stroke()
+
+	if showLabel && name != "" {
+		lx := x + r + 3
+		ly := y - 5
+		tw := float32(len(name))*5.8 + 6
+		d.SetFillColor(specAlpha(spec.Bg, 0.78)).FillRect(lx-2, ly-1, tw, 12)
+		d.SetFillColor(spec.TextPrimary).FillText(name, lx+1, ly+8, core.Font{Size: 9})
+	}
 }
 
 func drawPivotMarker(d *core.Drawing, spec SpecPalette, x, y float32, overridden, selected, dragging bool) {

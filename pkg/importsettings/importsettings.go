@@ -7,6 +7,7 @@ import (
 	"image"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
 	"path"
 	"slices"
@@ -72,7 +73,7 @@ type Credit struct {
 	Notice string `yaml:"notice,omitempty"`
 }
 
-// Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice and Pivot. Each field left out keeps the target's setting in game.yaml.
+// Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice, Pivot, Collision, Points and CellPoints. Each field left out keeps the target's setting in game.yaml.
 type Image struct {
 	// Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey, which render3d.LoadKTX2 sets the sampler's filters from: "linear" or "nearest".
 	Filter string `yaml:"filter,omitempty" schema:"enum=linear|nearest"`
@@ -86,6 +87,12 @@ type Image struct {
 	Slice *Slice `yaml:"slice,omitempty"`
 	// Pivot sets the normalized pivot point(s) written to TexturePacker JSON when an atlas packs the image, as a default for every frame and optional per-cell overrides for a sliced sheet.
 	Pivot *Pivot `yaml:"pivot,omitempty"`
+	// Collision configures per-frame 2D collision shapes baked into packed atlas metadata when an atlas packs the image, as a default for every frame and optional per-cell overrides for a sliced sheet.
+	Collision *Collision `yaml:"collision,omitempty"`
+	// Points maps named image points (such as "muzzle" or "feet") to [x, y] pixel coordinates in the untrimmed frame, applied to an unsliced image and as defaults for every cell of a sliced sheet.
+	Points map[string]Point2D `yaml:"points,omitempty"`
+	// CellPoints overrides or adds named image points for individual 0-based cells of a sliced sprite sheet, in ascending cell index order.
+	CellPoints []CellPoints `yaml:"cellPoints,omitempty"`
 }
 
 // PivotPoint is a normalized [x, y] pivot coordinate as fractions of the untrimmed frame's width and height: [0, 0] is the top-left corner, [0.5, 0.5] is the center, and [0.5, 1] is bottom-center.
@@ -447,17 +454,28 @@ func Encode(f *File) ([]byte, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
-	if f.Image != nil && f.Image.Pivot != nil {
+	if f.Image != nil && (f.Image.Pivot != nil || f.Image.Collision != nil || len(f.Image.Points) > 0 || len(f.Image.CellPoints) > 0) {
 		c, im := *f, *f.Image
-		pv := *f.Image.Pivot
-		if pv.Default != nil {
-			d := *pv.Default
-			pv.Default = &d
+		if f.Image.Pivot != nil {
+			pv := *f.Image.Pivot
+			if pv.Default != nil {
+				d := *pv.Default
+				pv.Default = &d
+			}
+			if len(pv.Cells) > 0 {
+				pv.Cells = slices.Clone(pv.Cells)
+			}
+			im.Pivot = &pv
 		}
-		if len(pv.Cells) > 0 {
-			pv.Cells = slices.Clone(pv.Cells)
+		if f.Image.Collision != nil {
+			im.Collision = cloneCollision(f.Image.Collision)
 		}
-		im.Pivot = &pv
+		if len(f.Image.Points) > 0 {
+			im.Points = maps.Clone(f.Image.Points)
+		}
+		if len(f.Image.CellPoints) > 0 {
+			im.CellPoints = cloneCellPoints(f.Image.CellPoints)
+		}
 		im.normalize()
 		c.Image = &im
 		f = &c
@@ -582,6 +600,76 @@ func (im *Image) validate() error {
 			}
 		}
 	}
+	if col := im.Collision; col != nil {
+		if col.Mode == "" && len(col.Cells) == 0 {
+			return errors.New("collision: must set mode or at least one cell")
+		}
+		if col.Mode == "" {
+			if col.Tolerance != 0 || col.MaxVertices != 0 || len(col.Points) > 0 {
+				return errors.New("collision: tolerance, maxVertices and points require mode")
+			}
+		} else {
+			if err := validateCollisionSpec("default", col.Mode, col.Tolerance, col.MaxVertices, col.Points); err != nil {
+				return err
+			}
+		}
+		if len(col.Cells) > 0 && im.Slice == nil {
+			return errors.New("collision: cells require image.slice")
+		}
+		for i, c := range col.Cells {
+			if c.Cell < 0 {
+				return fmt.Errorf("collision: cell %d must not be negative", c.Cell)
+			}
+			if i > 0 {
+				prev := col.Cells[i-1].Cell
+				if c.Cell == prev {
+					return fmt.Errorf("collision: duplicate cell %d", c.Cell)
+				}
+				if c.Cell < prev {
+					return fmt.Errorf("collision: cells must be in ascending cell order (%d before %d)", prev, c.Cell)
+				}
+			}
+			if im.Slice != nil && im.Slice.Count > 0 && c.Cell >= im.Slice.Count {
+				return fmt.Errorf("collision: cell %d is out of range for slice count %d", c.Cell, im.Slice.Count)
+			}
+			if err := validateCollisionSpec(fmt.Sprintf("cell %d", c.Cell), c.Mode, c.Tolerance, c.MaxVertices, c.Points); err != nil {
+				return err
+			}
+		}
+	}
+	if len(im.Points) > 0 {
+		if err := validatePointMap("points", im.Points); err != nil {
+			return err
+		}
+	}
+	if len(im.CellPoints) > 0 {
+		if im.Slice == nil {
+			return errors.New("cellPoints: require image.slice")
+		}
+		for i, cp := range im.CellPoints {
+			if cp.Cell < 0 {
+				return fmt.Errorf("cellPoints: cell %d must not be negative", cp.Cell)
+			}
+			if i > 0 {
+				prev := im.CellPoints[i-1].Cell
+				if cp.Cell == prev {
+					return fmt.Errorf("cellPoints: duplicate cell %d", cp.Cell)
+				}
+				if cp.Cell < prev {
+					return fmt.Errorf("cellPoints: cells must be in ascending cell order (%d before %d)", prev, cp.Cell)
+				}
+			}
+			if im.Slice != nil && im.Slice.Count > 0 && cp.Cell >= im.Slice.Count {
+				return fmt.Errorf("cellPoints: cell %d is out of range for slice count %d", cp.Cell, im.Slice.Count)
+			}
+			if len(cp.Points) == 0 {
+				return fmt.Errorf("cellPoints: cell %d must define at least one point", cp.Cell)
+			}
+			if err := validatePointMap(fmt.Sprintf("cellPoints[%d]", cp.Cell), cp.Points); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -594,27 +682,46 @@ func validatePivotPoint(label string, pt PivotPoint) error {
 	return nil
 }
 
-// normalize replaces negative zero pivot coordinates with zero so Encode writes the same bytes Parse reads back.
+// normalize replaces negative zero coordinates with zero so Encode writes the same bytes Parse reads back.
 func (im *Image) normalize() {
-	if im.Pivot == nil {
-		return
+	if im.Pivot != nil {
+		if im.Pivot.Default != nil {
+			d := *im.Pivot.Default
+			if d[0] == 0 {
+				d[0] = 0
+			}
+			if d[1] == 0 {
+				d[1] = 0
+			}
+			im.Pivot.Default = &d
+		}
+		for i := range im.Pivot.Cells {
+			if im.Pivot.Cells[i].Pivot[0] == 0 {
+				im.Pivot.Cells[i].Pivot[0] = 0
+			}
+			if im.Pivot.Cells[i].Pivot[1] == 0 {
+				im.Pivot.Cells[i].Pivot[1] = 0
+			}
+		}
 	}
-	if im.Pivot.Default != nil {
-		d := *im.Pivot.Default
-		if d[0] == 0 {
-			d[0] = 0
+	if im.Collision != nil {
+		for i := range im.Collision.Points {
+			normalizePoint2D(&im.Collision.Points[i])
 		}
-		if d[1] == 0 {
-			d[1] = 0
+		for i := range im.Collision.Cells {
+			for j := range im.Collision.Cells[i].Points {
+				normalizePoint2D(&im.Collision.Cells[i].Points[j])
+			}
 		}
-		im.Pivot.Default = &d
 	}
-	for i := range im.Pivot.Cells {
-		if im.Pivot.Cells[i].Pivot[0] == 0 {
-			im.Pivot.Cells[i].Pivot[0] = 0
-		}
-		if im.Pivot.Cells[i].Pivot[1] == 0 {
-			im.Pivot.Cells[i].Pivot[1] = 0
+	for k, pt := range im.Points {
+		normalizePoint2D(&pt)
+		im.Points[k] = pt
+	}
+	for i := range im.CellPoints {
+		for k, pt := range im.CellPoints[i].Points {
+			normalizePoint2D(&pt)
+			im.CellPoints[i].Points[k] = pt
 		}
 	}
 }

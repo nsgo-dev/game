@@ -133,3 +133,29 @@ group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 - A spec that could never verify (a malformed `sha256` or `signature`, or a negative `size`) is refused before the cache is touched, so it cannot delete a good cached pack. A cached pack is deleted only when its bytes do not match the spec's size or hash; one whose bytes match but whose signature or contents are refused stays, since downloading it again would fetch the same bytes.
 - A resumed download that gets `206 Partial Content` without a `Content-Range` header starts over from the first byte rather than appending a body whose range it cannot check.
 - `ParsePackManifest` refuses fields it does not define, such as a misspelt `sha265`, a key given twice in one object, and anything after the manifest, with the line and a fix.
+
+## Image collision and named points
+
+An atlas source PNG may carry a `*.import.yaml` sidecar configuring baked 2D collision shapes (`image.collision`) and named image points (`image.points`, with optional per-cell overrides in `image.cellPoints` for sliced sheets):
+
+```yaml
+version: 1
+image:
+  slice: {width: 16, height: 16}
+  collision:
+    mode: alpha        # alpha, box, ellipse, polygon, or none
+    tolerance: 0       # alpha cutoff [0..255]; pixels with alpha > tolerance are solid
+    maxVertices: 8     # max vertices per convex polygon (3..8, default 8)
+    cells:
+      - cell: 1
+        mode: box
+  points:
+    muzzle: [14, 6]
+    feet: [8, 16]
+  cellPoints:
+    - cell: 1
+      points:
+        muzzle: [15, 5]
+```
+
+When `go tool game assets` or `go tool game pack` builds the atlas, it traces pixel alpha silhouettes with marching squares, simplifies contours, splits concave outlines into convex polygons of at most `maxVertices` vertices, and writes `shapes` and `points` into each frame of the packed JSON. Sidecars refuse unknown fields and validate against `import.v1.json`. In the editor, selecting the image in the file browser overlays the traced collision outline and named points over the sprite and lets you drag points directly on the preview canvas.

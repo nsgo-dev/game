@@ -58,16 +58,64 @@ func (s Sprite) Scale() math2d.Vec2 { return math2d.Vec2{X: s.ScaleX, Y: s.Scale
 // Transform returns the 2D affine transform taking a point of the untrimmed frame to the drawing:
 // mirrored in the frame's box when flipped, moved so the origin is at (0, 0), scaled, turned and moved to (X, Y).
 func (s Sprite) Transform() math2d.Affine {
+	w, h := s.Frame.Width, s.Frame.Height
+	if w == 0 && h == 0 {
+		w, h = s.Frame.W, s.Frame.H
+	}
 	var fx, tx float32 = 1, 0
 	if s.FlipX {
-		fx, tx = -1, s.Frame.Width
+		fx, tx = -1, w
 	}
 	var fy, ty float32 = 1, 0
 	if s.FlipY {
-		fy, ty = -1, s.Frame.Height
+		fy, ty = -1, h
 	}
 	local := math2d.Affine{A: fx, D: fy, Tx: tx - s.OriginX, Ty: ty - s.OriginY}
 	return math2d.TRS(s.Pos(), s.Rotation, s.Scale()).Mul(local)
+}
+
+// PointWorld returns the named image point of s.Frame transformed into world (drawing) coordinates,
+// with FlipX, FlipY, OriginX, OriginY, ScaleX, ScaleY, Rotation, and (X, Y) applied.
+// It returns (zero, false) when s.Frame has no point with that name.
+func (s Sprite) PointWorld(name string) (math2d.Vec2, bool) {
+	p, ok := s.Frame.Point(name)
+	if !ok {
+		return math2d.Vec2{}, false
+	}
+	return s.Transform().TransformPoint(p), true
+}
+
+// ShapesWorld returns s.Frame.Shapes transformed into world (drawing) coordinates with FlipX, FlipY,
+// OriginX, OriginY, ScaleX, ScaleY, Rotation, and (X, Y) applied. When the transform mirrors the sprite
+// (negative determinant), each polygon's vertices are reversed so every polygon keeps clockwise winding
+// in Y-down screen space. It returns nil when s.Frame has no shapes, scale is zero, or the transform is non-finite.
+func (s Sprite) ShapesWorld() [][]math2d.Vec2 {
+	if len(s.Frame.Shapes) == 0 || s.ScaleX == 0 || s.ScaleY == 0 {
+		return nil
+	}
+	if !finite(s.X) || !finite(s.Y) || !finite(s.OriginX) || !finite(s.OriginY) || !finite(s.Rotation) || !finite(s.ScaleX) || !finite(s.ScaleY) {
+		return nil
+	}
+	m := s.Transform()
+	mirrored := m.A*m.D-m.B*m.C < 0
+	out := make([][]math2d.Vec2, 0, len(s.Frame.Shapes))
+	for _, poly := range s.Frame.Shapes {
+		if len(poly) < 3 {
+			continue
+		}
+		pts := make([]math2d.Vec2, len(poly))
+		for i, p := range poly {
+			pts[i] = m.TransformPoint(p)
+		}
+		if mirrored {
+			slices.Reverse(pts)
+		}
+		out = append(out, pts)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Bounds returns the axis-aligned bounding rectangle of the sprite's untrimmed frame in the drawing,

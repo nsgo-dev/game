@@ -51,16 +51,40 @@ sheet := &sprite.Atlas{
 
 Packers often trim transparent borders around each frame to pack more pictures into one image. `Frame` keeps both the trimmed rectangle in the atlas and its untrimmed box:
 
+`Frame` also carries optional baked 2D collision polygons (`Shapes`) and named image points (`Points`), both in untrimmed frame points from the top left:
+
 ```go
 type Frame struct {
 	Name             string
-	X, Y, W, H       float32 // trimmed rectangle in the atlas image, in points
-	OffsetX, OffsetY float32 // position of the trimmed rectangle inside the untrimmed box
-	Width, Height    float32 // untrimmed frame size (W, H when untrimmed)
+	X, Y, W, H       float32               // trimmed rectangle in the atlas image, in points
+	OffsetX, OffsetY float32               // position of the trimmed rectangle inside the untrimmed box
+	Width, Height    float32               // untrimmed frame size (W, H when untrimmed)
+	PivotX, PivotY   float32               // pivot in untrimmed frame points from the top left
+	Shapes           [][]math2d.Vec2       // convex collision polygons, wound CW in Y-down space
+	Points           map[string]math2d.Vec2 // named image points (muzzle, hand, feet, ...)
 }
 ```
 
-`Sprite` always aligns `OriginX`, `OriginY`, `FlipX`, `FlipY`, rotation and scaling to the untrimmed box (`Width`, `Height`). Trimming never shifts a character's feet or hitbox as animations change from frame to frame.
+`Sprite` always aligns `OriginX`, `OriginY`, `FlipX`, `FlipY`, rotation and scaling to the untrimmed box (`Width`, `Height`). Trimming never shifts a character's feet, named points, or collision polygons as animations change from frame to frame.
+
+## Collision polygons and named image points
+
+Configure `image.collision`, `image.points`, and `image.cellPoints` in an image's `.import.yaml` sidecar (see [assets](assets.md#image-collision-and-named-points)) so `go tool game assets` and `go tool game pack` trace alpha silhouettes with marching squares, simplify each convex part to at most `maxVertices` (default `8`), split concave outlines into convex polygons, and bake `shapes` and `points` directly into the packed atlas JSON. The runtime never traces images.
+
+`LoadAtlas` reads:
+
+- Packed `frames.<name>.shapes` and `frames.<name>.points`, dividing every coordinate by `meta.scale`.
+- Aseprite `meta.slices` entries whose keys carry a `pivot`, mapping each slice's `bounds + pivot` into `Frame.Points[slice.name]` across the key's frame span (and into `Atlas.Animations`).
+
+Use `Sprite.PointWorld(name)` and `Sprite.ShapesWorld()` to read them in world (drawing) coordinates with `FlipX`, `FlipY`, `OriginX`/`OriginY`, `ScaleX`/`ScaleY`, `Rotation`, and `(X, Y)` applied:
+
+```go
+if muzzle, ok := hero.PointWorld("muzzle"); ok {
+	spawnBullet(muzzle.X, muzzle.Y, hero.FlipX)
+}
+```
+
+When a sprite is mirrored (`FlipX`, `FlipY`, or negative scale), `ShapesWorld()` reverses polygon vertex order so every polygon retains clockwise winding in Y-down space. In scene files, set `collider2d` (or `trigger2d`) `shape: sprite` so 2D physics takes the current frame's `Shapes` and automatically follows frame changes, flips, scale, and rotation on `PhysicsScene.Step` (or `PhysicsScene.SyncSpriteColliders`).
 
 ## Animation
 

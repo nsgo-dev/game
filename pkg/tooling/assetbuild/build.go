@@ -417,8 +417,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		return prepared{}, err
 	}
 	files := make([][]byte, len(names))
-	sheets := make([]*importsettings.Slice, len(names))
-	pivots := make([]*importsettings.Pivot, len(names))
+	images := make([]*importsettings.Image, len(names))
 	for i, name := range names {
 		data, err := os.ReadFile(filepath.Join(inDir, filepath.FromSlash(name)))
 		if err != nil {
@@ -433,10 +432,9 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		}
 		if im != nil {
 			if set := textureSettings(im); len(set) > 0 && b.readers[rel]&readByTexture == 0 {
-				return prepared{}, fmt.Errorf("%s: %s %s for a texture target, and none reads %s; an atlas packs it into its pages, so only slice and pivot apply", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), rel)
+				return prepared{}, fmt.Errorf("%s: %s %s for a texture target, and none reads %s; an atlas packs it into its pages, so only slice, pivot, collision and points apply", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), rel)
 			}
-			sheets[i] = im.Slice
-			pivots[i] = im.Pivot
+			images[i] = im
 		}
 		if sc != nil {
 			k.input(importsettings.Path(name), sc)
@@ -449,15 +447,27 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 			if err != nil {
 				return nil, fmt.Errorf("decode %s: %w", path.Join(a.In, name), err)
 			}
-			if sheets[i] == nil {
+			im := images[i]
+			if im == nil || im.Slice == nil {
 				var pv *pack.Pivot
-				if pt, ok := pivots[i].ForImage(); ok {
-					pv = &pack.Pivot{X: pt[0], Y: pt[1]}
+				var shapes []pack.Polygon
+				var pts map[string]pack.Point
+				if im != nil {
+					if pt, ok := im.Pivot.ForImage(); ok {
+						pv = &pack.Pivot{X: pt[0], Y: pt[1]}
+					}
+					if spec, ok := im.Collision.ForImage(); ok {
+						shapes, err = pack.TraceCollision(img, packCollisionOptions(spec))
+						if err != nil {
+							return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
+						}
+					}
+					pts = packPointsMap(im.PointsForImage())
 				}
-				inputs = append(inputs, pack.Input{Name: name, Image: img, Pivot: pv})
+				inputs = append(inputs, pack.Input{Name: name, Image: img, Pivot: pv, Shapes: shapes, Points: pts})
 				continue
 			}
-			frames, err := sliceFrames(name, img, *sheets[i], pivots[i])
+			frames, err := sliceFrames(name, img, im)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
 			}
@@ -492,6 +502,12 @@ func (b *Builder) texture(t project.TextureTarget) (prepared, error) {
 			}
 			if im.Pivot != nil {
 				return prepared{}, fmt.Errorf("%s: pivot sets an atlas frame's pivot, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
+			}
+			if im.Collision != nil {
+				return prepared{}, fmt.Errorf("%s: collision sets an atlas frame's collision shapes, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
+			}
+			if len(im.Points) > 0 || len(im.CellPoints) > 0 {
+				return prepared{}, fmt.Errorf("%s: points set an atlas frame's named points, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
 			}
 		}
 		if im.Format != "" {
@@ -860,8 +876,8 @@ func are(n int) string {
 	return "are"
 }
 
-// sliceFrames cuts img into the frames s describes, row by row from the top left, naming frame i of name.png name_i.png and attaching any default or per-cell pivot from p.
-func sliceFrames(name string, img image.Image, s importsettings.Slice, p *importsettings.Pivot) ([]pack.Input, error) {
+// sliceFrames cuts img into the frames im.Slice describes, row by row from the top left, naming frame i of name.png name_i.png and attaching any default or per-cell pivot, collision shapes, and named image points from im.
+func sliceFrames(name string, img image.Image, im *importsettings.Image) ([]pack.Input, error) {
 	sub, ok := img.(interface {
 		SubImage(image.Rectangle) image.Image
 	})
@@ -869,28 +885,75 @@ func sliceFrames(name string, img image.Image, s importsettings.Slice, p *import
 		return nil, fmt.Errorf("cannot cut a %T image into frames", img)
 	}
 	bounds := img.Bounds()
-	rects, _, _, err := s.Cells(bounds)
+	rects, _, _, err := im.Slice.Cells(bounds)
 	if err != nil {
 		return nil, err
 	}
-	if p != nil {
-		for _, c := range p.Cells {
+	if im.Pivot != nil {
+		for _, c := range im.Pivot.Cells {
 			if c.Cell >= len(rects) {
 				return nil, fmt.Errorf("pivot: cell %d is out of range for the %d cells that fit the %dx%d image", c.Cell, len(rects), bounds.Dx(), bounds.Dy())
 			}
+		}
+	}
+	if im.Collision != nil {
+		for _, c := range im.Collision.Cells {
+			if c.Cell >= len(rects) {
+				return nil, fmt.Errorf("collision: cell %d is out of range for the %d cells that fit the %dx%d image", c.Cell, len(rects), bounds.Dx(), bounds.Dy())
+			}
+		}
+	}
+	for _, cp := range im.CellPoints {
+		if cp.Cell >= len(rects) {
+			return nil, fmt.Errorf("cellPoints: cell %d is out of range for the %d cells that fit the %dx%d image", cp.Cell, len(rects), bounds.Dx(), bounds.Dy())
 		}
 	}
 	ext := path.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
 	frames := make([]pack.Input, len(rects))
 	for i, r := range rects {
+		cellImg := sub.SubImage(r)
 		var pv *pack.Pivot
-		if pt, ok := p.ForCell(i); ok {
+		if pt, ok := im.Pivot.ForCell(i); ok {
 			pv = &pack.Pivot{X: pt[0], Y: pt[1]}
 		}
-		frames[i] = pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: sub.SubImage(r), Pivot: pv}
+		var shapes []pack.Polygon
+		if spec, ok := im.Collision.ForCell(i); ok {
+			shapes, err = pack.TraceCollision(cellImg, packCollisionOptions(spec))
+			if err != nil {
+				return nil, fmt.Errorf("cell %d: %w", i, err)
+			}
+		}
+		pts := packPointsMap(im.PointsForCell(i))
+		frames[i] = pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: cellImg, Pivot: pv, Shapes: shapes, Points: pts}
 	}
 	return frames, nil
+}
+
+func packCollisionOptions(spec importsettings.CollisionSpec) pack.CollisionOptions {
+	opts := pack.CollisionOptions{
+		Mode:        pack.CollisionMode(spec.Mode),
+		Tolerance:   spec.Tolerance,
+		MaxVertices: spec.MaxVertices,
+	}
+	if len(spec.Points) > 0 {
+		opts.Points = make([]pack.Point, len(spec.Points))
+		for i, p := range spec.Points {
+			opts.Points[i] = pack.Point{X: p[0], Y: p[1]}
+		}
+	}
+	return opts
+}
+
+func packPointsMap(pts map[string]importsettings.Point2D) map[string]pack.Point {
+	if len(pts) == 0 {
+		return nil
+	}
+	out := make(map[string]pack.Point, len(pts))
+	for name, p := range pts {
+		out[name] = pack.Point{X: p[0], Y: p[1]}
+	}
+	return out
 }
 
 // manifest generates the manifest and writes it only when it differs from the file there; it has no cache entry, because generating it reads no file's content and costs less than hashing.

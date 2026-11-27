@@ -69,6 +69,10 @@ type Input struct {
 	Image image.Image
 	// Pivot is the optional normalized pivot written into the frame's TexturePacker JSON pivot field; nil omits it so sprite.LoadAtlas uses (0, 0).
 	Pivot *Pivot
+	// Shapes are optional convex collision polygons in untrimmed frame pixel coordinates written to the frame's shapes field; empty omits it.
+	Shapes []Polygon
+	// Points are optional named image points (such as "muzzle" or "feet") in untrimmed frame pixel coordinates written to the frame's points field; empty omits it.
+	Points map[string]Point
 }
 
 // Frame describes where one input image landed in a packed atlas page.
@@ -87,6 +91,10 @@ type Frame struct {
 	Page int
 	// Pivot is the normalized frame pivot when set on the input, or nil when omitted.
 	Pivot *Pivot
+	// Shapes are the convex collision polygons in untrimmed frame pixel coordinates when set on the input.
+	Shapes []Polygon
+	// Points are the named image points in untrimmed frame pixel coordinates when set on the input.
+	Points map[string]Point
 }
 
 // Page is one packed atlas image and its TexturePacker JSON-hash metadata.
@@ -239,12 +247,46 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 			pivot = &Pivot{X: px, Y: py}
 		}
 
+		var shapes []Polygon
+		if len(in.Shapes) > 0 {
+			shapes = make([]Polygon, len(in.Shapes))
+			for si, poly := range in.Shapes {
+				if len(poly) < minCollisionVertices {
+					return nil, fmt.Errorf("pack: input %q shape %d has %d vertices, want at least %d", in.Name, si, len(poly), minCollisionVertices)
+				}
+				cp := make(Polygon, len(poly))
+				for vi, pt := range poly {
+					if math.IsNaN(pt.X) || math.IsInf(pt.X, 0) || math.IsNaN(pt.Y) || math.IsInf(pt.Y, 0) {
+						return nil, fmt.Errorf("pack: input %q shape %d vertex %d (%v, %v) must be finite", in.Name, si, vi, pt.X, pt.Y)
+					}
+					cp[vi] = Point{X: roundCoord4(pt.X), Y: roundCoord4(pt.Y)}
+				}
+				shapes[si] = cp
+			}
+		}
+
+		var points map[string]Point
+		if len(in.Points) > 0 {
+			points = make(map[string]Point, len(in.Points))
+			for name, pt := range in.Points {
+				if strings.TrimSpace(name) == "" {
+					return nil, fmt.Errorf("pack: input %q has an empty point name", in.Name)
+				}
+				if math.IsNaN(pt.X) || math.IsInf(pt.X, 0) || math.IsNaN(pt.Y) || math.IsInf(pt.Y, 0) {
+					return nil, fmt.Errorf("pack: input %q point %q (%v, %v) must be finite", in.Name, name, pt.X, pt.Y)
+				}
+				points[name] = Point{X: roundCoord4(pt.X), Y: roundCoord4(pt.Y)}
+			}
+		}
+
 		item := preparedInput{
 			name:    in.Name,
 			img:     in.Image,
 			srcSize: srcSize,
 			trim:    image.Rect(0, 0, srcSize.X, srcSize.Y),
 			pivot:   pivot,
+			shapes:  shapes,
+			points:  points,
 		}
 		if cfg.Trim {
 			trimRect, hasPixels := trimBounds(in.Image)
@@ -362,6 +404,8 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 				Trimmed:          pl.item.trimmed,
 				Page:             i,
 				Pivot:            pl.item.pivot,
+				Shapes:           pl.item.shapes,
+				Points:           pl.item.points,
 			})
 		}
 		slices.SortFunc(frames, func(a, b Frame) int { return cmp.Compare(a.Name, b.Name) })
@@ -397,6 +441,8 @@ type preparedInput struct {
 	trimmed bool
 	empty   bool
 	pivot   *Pivot
+	shapes  []Polygon
+	points  map[string]Point
 }
 
 type placedItem struct {
@@ -548,12 +594,14 @@ type jsonAtlas struct {
 }
 
 type jsonFrame struct {
-	Frame            jsonRect   `json:"frame"`
-	Rotated          bool       `json:"rotated"`
-	Trimmed          bool       `json:"trimmed"`
-	SpriteSourceSize jsonRect   `json:"spriteSourceSize"`
-	SourceSize       jsonSize   `json:"sourceSize"`
-	Pivot            *jsonPivot `json:"pivot,omitempty"`
+	Frame            jsonRect         `json:"frame"`
+	Rotated          bool             `json:"rotated"`
+	Trimmed          bool             `json:"trimmed"`
+	SpriteSourceSize jsonRect         `json:"spriteSourceSize"`
+	SourceSize       jsonSize         `json:"sourceSize"`
+	Pivot            *jsonPivot       `json:"pivot,omitempty"`
+	Shapes           []Polygon        `json:"shapes,omitempty"`
+	Points           map[string]Point `json:"points,omitempty"`
 }
 
 type jsonPivot struct {
@@ -618,7 +666,9 @@ func encodeAtlasJSON(imageName string, size image.Point, scale int, frames []Fra
 				W: f.SourceSize.X,
 				H: f.SourceSize.Y,
 			},
-			Pivot: jp,
+			Pivot:  jp,
+			Shapes: f.Shapes,
+			Points: f.Points,
 		}
 	}
 	data, err := json.MarshalIndent(doc, "", "  ")

@@ -1,6 +1,7 @@
 package sprite_test
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func TestAnAnimationOfNoTimeOrNoFramesStaysPut(t *testing.T) {
 	}
 	var none sprite.Animation
 	none.Update(10 * ms)
-	if none.Frame() != (sprite.Frame{}) || none.Done() {
+	if !reflect.DeepEqual(none.Frame(), sprite.Frame{}) || none.Done() {
 		t.Fatalf("an animation of no frames shows %+v, done %v", none.Frame(), none.Done())
 	}
 }

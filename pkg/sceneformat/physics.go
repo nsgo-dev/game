@@ -46,7 +46,7 @@ type PhysicsMaterialResolver interface {
 
 var physicsBodyKinds = []string{"static", "kinematic", "dynamic"}
 var physicsBody3DKinds = []string{"static", "kinematic", "dynamic", "trigger"}
-var physicsShapes2D = []string{"box", "circle"}
+var physicsShapes2D = []string{"box", "circle", "sprite"}
 var physicsShapes3D = []string{"box", "sphere", "capsule", "cylinder", "convex", "trimesh", "heightfield"}
 var physicsTriggerShapes3D = []string{"box", "sphere", "capsule", "cylinder", "convex"}
 
@@ -108,10 +108,10 @@ func Body2DComponent() ComponentType {
 func Collider2DComponent() ComponentType {
 	return ComponentType{
 		Name: Collider2DComponentName,
-		Doc:  "2D collision shape (box or circle) with named collision layer and mask.",
+		Doc:  "2D collision shape (box, circle, or sprite) with named collision layer and mask.",
 		Fields: []Field{
 			{Name: "version", Kind: FieldInt, Default: PhysicsComponentVersion, Min: Float64(PhysicsComponentVersion), Max: Float64(PhysicsComponentVersion), Step: 1, Doc: "Component schema version (1)."},
-			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes2D, Doc: `Collider shape: "box" or "circle".`},
+			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes2D, Doc: `Collider shape: "box", "circle", or "sprite" (follows the current sprite frame's baked collision polygons).`},
 			{Name: "width", Kind: FieldFloat, Default: 16.0, Min: Float64(0), Step: 1, Doc: "Box width in points."},
 			{Name: "height", Kind: FieldFloat, Default: 16.0, Min: Float64(0), Step: 1, Doc: "Box height in points."},
 			{Name: "radius", Kind: FieldFloat, Default: 8.0, Min: Float64(0), Step: 1, Doc: "Circle radius in points."},
@@ -133,10 +133,10 @@ func Collider2DComponent() ComponentType {
 func Trigger2DComponent() ComponentType {
 	return ComponentType{
 		Name: Trigger2DComponentName,
-		Doc:  "2D non-solid trigger sensor (box or circle) that fires enter, stay, and exit events.",
+		Doc:  "2D non-solid trigger sensor (box, circle, or sprite) that fires enter, stay, and exit events.",
 		Fields: []Field{
 			{Name: "version", Kind: FieldInt, Default: PhysicsComponentVersion, Min: Float64(PhysicsComponentVersion), Max: Float64(PhysicsComponentVersion), Step: 1, Doc: "Component schema version (1)."},
-			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes2D, Doc: `Trigger shape: "box" or "circle".`},
+			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes2D, Doc: `Trigger shape: "box", "circle", or "sprite" (follows the current sprite frame's baked collision polygons).`},
 			{Name: "width", Kind: FieldFloat, Default: 16.0, Min: Float64(0), Step: 1, Doc: "Box width in points."},
 			{Name: "height", Kind: FieldFloat, Default: 16.0, Min: Float64(0), Step: 1, Doc: "Box height in points."},
 			{Name: "radius", Kind: FieldFloat, Default: 8.0, Min: Float64(0), Step: 1, Doc: "Circle radius in points."},
@@ -666,6 +666,22 @@ type physicsBinding2D struct {
 	isTrigger   bool
 	trigger     *physics.Trigger
 	triggerComp string
+
+	spriteShape    bool
+	baseOffsetX    float32
+	baseOffsetY    float32
+	lastFrameName  string
+	lastShapePtr   *math2d.Vec2
+	lastShapeCount int
+	lastTransform  math2d.Affine
+	lastOffX       float32
+	lastOffY       float32
+	extraBodies    []*physics.Body
+	extraRigids    []*physics.RigidBody
+	extraTriggers  []*physics.Trigger
+	triggerGroup   *spriteTriggerGroup
+	centroidLocalX float32
+	centroidLocalY float32
 }
 
 type physicsBinding3D struct {
@@ -864,26 +880,51 @@ func (ps *PhysicsScene) buildObject2D(
 		if err != nil {
 			return err
 		}
-		shape, offX, offY, err := buildShape2D(o.ID, Trigger2DComponentName, resolved, wx, wy, asx, asy)
-		if err != nil {
-			return err
-		}
 		layerMask, maskBits, err := resolveLayerMask2D(o.ID, Trigger2DComponentName, resolved, layers)
 		if err != nil {
 			return err
 		}
-		tr := ps.makeTrigger2D(o.ID, Trigger2DComponentName, shape, layerMask, maskBits)
-		ps.World2D.AddTrigger(tr)
-		ps.Rigid2D.Triggers = append(ps.Rigid2D.Triggers, tr)
-		ps.Triggers2D[o.ID] = tr
-		ps.bindings2D = append(ps.bindings2D, &physicsBinding2D{
-			bo:          bo,
-			offsetX:     offX,
-			offsetY:     offY,
-			isTrigger:   true,
-			trigger:     tr,
-			triggerComp: Trigger2DComponentName,
-		})
+		if resolved["shape"].(string) == "sprite" {
+			if bo.Sprite == nil {
+				return &ComponentError{Object: o.ID, Component: Trigger2DComponentName, Field: "shape", Msg: `shape "sprite" requires a sprite on the object`}
+			}
+			baseOffX := float32(resolved["offsetX"].(float64))
+			baseOffY := float32(resolved["offsetY"].(float64))
+			grp := newSpriteTriggerGroup(ps, o.ID, Trigger2DComponentName, layerMask, maskBits)
+			tr := grp.makePart(physics.Shape{})
+			ps.World2D.AddTrigger(tr)
+			ps.Rigid2D.AddTrigger(tr)
+			ps.Triggers2D[o.ID] = tr
+			b2 := &physicsBinding2D{
+				bo:           bo,
+				isTrigger:    true,
+				trigger:      tr,
+				triggerComp:  Trigger2DComponentName,
+				spriteShape:  true,
+				baseOffsetX:  baseOffX,
+				baseOffsetY:  baseOffY,
+				triggerGroup: grp,
+			}
+			ps.applySpriteShapes2D(b2)
+			ps.bindings2D = append(ps.bindings2D, b2)
+		} else {
+			shape, offX, offY, err := buildShape2D(o.ID, Trigger2DComponentName, resolved, wx, wy, asx, asy)
+			if err != nil {
+				return err
+			}
+			tr := ps.makeTrigger2D(o.ID, Trigger2DComponentName, shape, layerMask, maskBits)
+			ps.World2D.AddTrigger(tr)
+			ps.Rigid2D.Triggers = append(ps.Rigid2D.Triggers, tr)
+			ps.Triggers2D[o.ID] = tr
+			ps.bindings2D = append(ps.bindings2D, &physicsBinding2D{
+				bo:          bo,
+				offsetX:     offX,
+				offsetY:     offY,
+				isTrigger:   true,
+				trigger:     tr,
+				triggerComp: Trigger2DComponentName,
+			})
+		}
 	}
 
 	if !hasBody && !hasCol {
@@ -902,16 +943,53 @@ func (ps *PhysicsScene) buildObject2D(
 		colResolved, _ = builtinPhysicsReg.Resolve(Collider2DComponentName, nil)
 	}
 
-	shape, offX, offY, err := buildShape2D(o.ID, Collider2DComponentName, colResolved, wx, wy, asx, asy)
-	if err != nil {
-		return err
-	}
 	layerMask, maskBits, err := resolveLayerMask2D(o.ID, Collider2DComponentName, colResolved, layers)
 	if err != nil {
 		return err
 	}
 
+	isSpriteShape := colResolved["shape"].(string) == "sprite"
+	var shape physics.Shape
+	var spriteShapes []physics.Shape
+	var offX, offY float32
+	baseOffX := float32(colResolved["offsetX"].(float64))
+	baseOffY := float32(colResolved["offsetY"].(float64))
+	if isSpriteShape {
+		if bo.Sprite == nil {
+			return &ComponentError{Object: o.ID, Component: Collider2DComponentName, Field: "shape", Msg: `shape "sprite" requires a sprite on the object`}
+		}
+		spriteShapes, offX, offY = buildSpriteWorldShapes(bo, baseOffX, baseOffY)
+		if len(spriteShapes) > 0 {
+			shape = spriteShapes[0]
+		}
+	} else {
+		shape, offX, offY, err = buildShape2D(o.ID, Collider2DComponentName, colResolved, wx, wy, asx, asy)
+		if err != nil {
+			return err
+		}
+	}
+
 	if hasCol && colResolved["isTrigger"].(bool) && !hasBody {
+		if isSpriteShape {
+			grp := newSpriteTriggerGroup(ps, o.ID, Collider2DComponentName, layerMask, maskBits)
+			tr := grp.makePart(physics.Shape{})
+			ps.World2D.AddTrigger(tr)
+			ps.Rigid2D.AddTrigger(tr)
+			ps.Triggers2D[o.ID] = tr
+			b2 := &physicsBinding2D{
+				bo:           bo,
+				isTrigger:    true,
+				trigger:      tr,
+				triggerComp:  Collider2DComponentName,
+				spriteShape:  true,
+				baseOffsetX:  baseOffX,
+				baseOffsetY:  baseOffY,
+				triggerGroup: grp,
+			}
+			ps.applySpriteShapes2D(b2)
+			ps.bindings2D = append(ps.bindings2D, b2)
+			return nil
+		}
 		tr := ps.makeTrigger2D(o.ID, Collider2DComponentName, shape, layerMask, maskBits)
 		ps.World2D.AddTrigger(tr)
 		ps.Rigid2D.Triggers = append(ps.Rigid2D.Triggers, tr)
@@ -950,11 +1028,23 @@ func (ps *PhysicsScene) buildObject2D(
 	}
 
 	var rb *physics.RigidBody
-	switch shape.Kind {
-	case physics.ShapeCircle:
-		rb = physics.NewRigidCircle(cx, cy, shape.Circle.R, mass)
-	default:
-		rb = physics.NewRigidBox(cx, cy, shape.Box.W, shape.Box.H, mass)
+	var centroidLocalX, centroidLocalY float32
+	if isSpriteShape {
+		rigidShape := shape
+		if kind == "dynamic" {
+			rigidShape = dynamicHullShape(spriteShapes)
+		}
+		rb = physics.NewRigidBody(rigidShape, mass)
+		if kind == "dynamic" && !rigidShape.Empty() {
+			centroidLocalX, centroidLocalY = computeLocalCentroid(bo.Sprite.X, bo.Sprite.Y, bo.Sprite.Rotation, rb.X, rb.Y)
+		}
+	} else {
+		switch shape.Kind {
+		case physics.ShapeCircle:
+			rb = physics.NewRigidCircle(cx, cy, shape.Circle.R, mass)
+		default:
+			rb = physics.NewRigidBox(cx, cy, shape.Box.W, shape.Box.H, mass)
+		}
 	}
 	rb.Tag = o.ID
 	rb.Angle = wrot
@@ -993,14 +1083,29 @@ func (ps *PhysicsScene) buildObject2D(
 	ps.Rigid2D.AddBody(rb)
 	ps.Bodies2D[o.ID] = b
 	ps.RigidBodies2D[o.ID] = rb
-	ps.bindings2D = append(ps.bindings2D, &physicsBinding2D{
-		bo:      bo,
-		kind:    kind,
-		body:    b,
-		rigid:   rb,
-		offsetX: offX,
-		offsetY: offY,
-	})
+	b2 := &physicsBinding2D{
+		bo:             bo,
+		kind:           kind,
+		body:           b,
+		rigid:          rb,
+		offsetX:        offX,
+		offsetY:        offY,
+		spriteShape:    isSpriteShape,
+		baseOffsetX:    baseOffX,
+		baseOffsetY:    baseOffY,
+		centroidLocalX: centroidLocalX,
+		centroidLocalY: centroidLocalY,
+	}
+	if isSpriteShape {
+		if len(spriteShapes) > 1 {
+			ps.syncExtraBodies(b2, spriteShapes[1:])
+			if kind != "dynamic" {
+				ps.syncExtraRigids(b2, spriteShapes[1:])
+			}
+		}
+		b2.recordSpriteSnapshot(offX, offY)
+	}
+	ps.bindings2D = append(ps.bindings2D, b2)
 	return nil
 }
 
@@ -1507,6 +1612,12 @@ func (ps *PhysicsScene) Step(dt time.Duration) {
 		return
 	}
 	ps.triggerEvents = ps.triggerEvents[:0]
+	for _, b2 := range ps.bindings2D {
+		if b2.triggerGroup != nil {
+			b2.triggerGroup.beginStep()
+		}
+	}
+	ps.SyncSpriteColliders()
 
 	// 1. Step 2D kinematic bodies against solid 2D bodies.
 	dtSec := float32(dt.Seconds())
@@ -1524,10 +1635,24 @@ func (ps *PhysicsScene) Step(dt time.Duration) {
 			if b2.isTrigger || b2.kind != "dynamic" || b2.rigid == nil {
 				continue
 			}
-			syncShape2DToCenter(b2.body, b2.rigid.X, b2.rigid.Y)
 			b2.body.VX = b2.rigid.VX
 			b2.body.VY = b2.rigid.VY
-			syncBuiltObject2D(b2.bo, b2.rigid.X-b2.offsetX, b2.rigid.Y-b2.offsetY, b2.rigid.Angle)
+			if b2.spriteShape {
+				wx, wy := originFromCentroid(b2.rigid.X, b2.rigid.Y, b2.rigid.Angle, b2.centroidLocalX, b2.centroidLocalY)
+				syncBuiltObject2D(b2.bo, wx, wy, b2.rigid.Angle)
+				shapes, offX, offY := buildSpriteWorldShapes(b2.bo, b2.baseOffsetX, b2.baseOffsetY)
+				if len(shapes) > 0 {
+					b2.body.Shape = shapes[0]
+					ps.syncExtraBodies(b2, shapes[1:])
+				} else {
+					b2.body.Shape = physics.Shape{}
+					ps.syncExtraBodies(b2, nil)
+				}
+				b2.recordSpriteSnapshot(offX, offY)
+			} else {
+				syncShape2DToCenter(b2.body, b2.rigid.X, b2.rigid.Y)
+				syncBuiltObject2D(b2.bo, b2.rigid.X-b2.offsetX, b2.rigid.Y-b2.offsetY, b2.rigid.Angle)
+			}
 		}
 	}
 
@@ -1604,6 +1729,18 @@ func (ps *PhysicsScene) stepKinematic2D(b2 *physicsBinding2D, dtSec float32) {
 	if dx == 0 && dy == 0 {
 		return
 	}
+	parts := make([]*physics.Body, 0, 1+len(b2.extraBodies))
+	parts = append(parts, b)
+	parts = append(parts, b2.extraBodies...)
+	isSelf := func(other *physics.Body) bool {
+		return slices.Contains(parts, other)
+	}
+	translateAll := func(tx, ty float32) {
+		for _, p := range parts {
+			p.Translate(tx, ty)
+		}
+	}
+
 	bounds := b.Shape.Bounds()
 	minExtent := min(bounds.W, bounds.H)
 	steps := 1
@@ -1617,38 +1754,79 @@ func (ps *PhysicsScene) stepKinematic2D(b2 *physicsBinding2D, dtSec float32) {
 	}
 	stepDX := dx / float32(steps)
 	stepDY := dy / float32(steps)
+	var movedX, movedY float32
 
 	for range steps {
 		if stepDX != 0 {
-			b.Translate(stepDX, 0)
-			for _, other := range ps.World2D.Bodies {
-				if other == nil || other == b || !physics.CanCollide(b, other) {
+			translateAll(stepDX, 0)
+			movedX += stepDX
+			for _, p := range parts {
+				if p.Shape.Empty() {
 					continue
 				}
-				if c := physics.TestShapes(b.Shape, other.Shape); c.Hit {
-					b.Translate(c.NormalX*c.Depth, 0)
-					if (stepDX > 0 && c.NormalX < 0) || (stepDX < 0 && c.NormalX > 0) {
-						b.VX = 0
-						stepDX = 0
+				for _, other := range ps.World2D.Bodies {
+					if other == nil || isSelf(other) || !physics.CanCollide(p, other) {
+						continue
+					}
+					if c := physics.TestShapes(p.Shape, other.Shape); c.Hit {
+						push := c.NormalX * c.Depth
+						translateAll(push, 0)
+						movedX += push
+						if (stepDX > 0 && c.NormalX < 0) || (stepDX < 0 && c.NormalX > 0) {
+							b.VX = 0
+							stepDX = 0
+						}
 					}
 				}
 			}
 		}
 		if stepDY != 0 {
-			b.Translate(0, stepDY)
-			for _, other := range ps.World2D.Bodies {
-				if other == nil || other == b || !physics.CanCollide(b, other) {
+			translateAll(0, stepDY)
+			movedY += stepDY
+			for _, p := range parts {
+				if p.Shape.Empty() {
 					continue
 				}
-				if c := physics.TestShapes(b.Shape, other.Shape); c.Hit {
-					b.Translate(0, c.NormalY*c.Depth)
-					if (stepDY > 0 && c.NormalY < 0) || (stepDY < 0 && c.NormalY > 0) {
-						b.VY = 0
-						stepDY = 0
+				for _, other := range ps.World2D.Bodies {
+					if other == nil || isSelf(other) || !physics.CanCollide(p, other) {
+						continue
+					}
+					if c := physics.TestShapes(p.Shape, other.Shape); c.Hit {
+						push := c.NormalY * c.Depth
+						translateAll(0, push)
+						movedY += push
+						if (stepDY > 0 && c.NormalY < 0) || (stepDY < 0 && c.NormalY > 0) {
+							b.VY = 0
+							stepDY = 0
+						}
 					}
 				}
 			}
 		}
+	}
+
+	if b2.spriteShape {
+		wx, wy, wrot, _, _, ok := decomposeTRS(b2.bo.World)
+		if !ok {
+			wx, wy, wrot = b2.bo.Doc.X, b2.bo.Doc.Y, b2.bo.Doc.Rotation
+		}
+		syncBuiltObject2D(b2.bo, wx+movedX, wy+movedY, wrot)
+		if b2.rigid != nil {
+			b2.rigid.Shape = b.Shape
+			if !b.Shape.Empty() {
+				b2.rigid.X, b2.rigid.Y = b.Shape.Centroid()
+			}
+		}
+		for i, eb := range b2.extraBodies {
+			if i < len(b2.extraRigids) {
+				b2.extraRigids[i].Shape = eb.Shape
+				if !eb.Shape.Empty() {
+					b2.extraRigids[i].X, b2.extraRigids[i].Y = eb.Shape.Centroid()
+				}
+			}
+		}
+		b2.recordSpriteSnapshot(b2.offsetX, b2.offsetY)
+		return
 	}
 
 	cx, cy := shapeCenter2D(b.Shape)
@@ -1722,6 +1900,8 @@ func shapeCenter2D(s physics.Shape) (float32, float32) {
 		return s.Circle.X, s.Circle.Y
 	case physics.ShapeBox:
 		return s.Box.Center()
+	case physics.ShapePolygon:
+		return s.Polygon.Bounds().Center()
 	default:
 		return 0, 0
 	}
@@ -1738,6 +1918,9 @@ func syncShape2DToCenter(b *physics.Body, cx, cy float32) {
 	case physics.ShapeCircle:
 		b.Shape.Circle.X = cx
 		b.Shape.Circle.Y = cy
+	case physics.ShapePolygon:
+		ox, oy := b.Shape.Centroid()
+		b.Shape = b.Shape.Translated(cx-ox, cy-oy)
 	}
 }
 
@@ -1749,6 +1932,9 @@ func syncRigidShape2D(rb *physics.RigidBody) {
 	case physics.ShapeCircle:
 		rb.Shape.Circle.X = rb.X
 		rb.Shape.Circle.Y = rb.Y
+	case physics.ShapePolygon:
+		ox, oy := rb.Shape.Centroid()
+		rb.Shape = rb.Shape.Translated(rb.X-ox, rb.Y-oy)
 	}
 }
 

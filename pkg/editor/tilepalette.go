@@ -317,8 +317,15 @@ func samePalette(a, b TilePalette) bool {
 		slices.EqualFunc(a.Tiles, b.Tiles, func(x, y PaletteTile) bool {
 			return x.ID == y.ID && x.Name == y.Name && x.Col == y.Col && x.Row == y.Row &&
 				x.Collision == y.Collision && x.Terrain == y.Terrain &&
-				x.Frame == y.Frame && sameImage(x.Image, y.Image)
+				sameFrame(x.Frame, y.Frame) && sameImage(x.Image, y.Image)
 		})
+}
+
+func sameFrame(a, b sprite.Frame) bool {
+	return a.Name == b.Name && a.X == b.X && a.Y == b.Y && a.W == b.W && a.H == b.H &&
+		a.OffsetX == b.OffsetX && a.OffsetY == b.OffsetY &&
+		a.Width == b.Width && a.Height == b.Height &&
+		a.PivotX == b.PivotX && a.PivotY == b.PivotY
 }
 
 // sameImage reports whether a and b are the same image source: the same URI, version, pixels or canvas, and the same encoded bytes by identity rather than content.
