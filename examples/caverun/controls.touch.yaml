@@ -8,8 +8,8 @@ controls:
   - id: move
     kind: dpad
     anchor: bottomLeft
-    offset: {x: 10, "y": 8}
-    size: {width: 120, height: 120}
+    offset: {x: 4, "y": 8}
+    size: {width: 104, height: 104}
     label: Move
     ways: 8
     left: left
@@ -17,8 +17,8 @@ controls:
   - id: jump
     kind: button
     anchor: bottomRight
-    offset: {x: 36, "y": 32}
-    size: {width: 110, height: 110}
+    offset: {x: 20, "y": 16}
+    size: {width: 96, height: 96}
     label: Jump
     action: jump
     text: JUMP
