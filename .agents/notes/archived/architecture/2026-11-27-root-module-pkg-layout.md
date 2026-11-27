@@ -1,6 +1,7 @@
 # Agent Note: Root Go module with pkg/ subpackages
 
 Status: implemented
+Archived: 2026-11-27
 
 ## Problem
 

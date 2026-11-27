@@ -6,11 +6,13 @@ Contributions are welcome: bug fixes, new packages, examples, documentation, and
 
 ```
 game/
-├─ go.mod / go.work  Go module github.com/nsgo-dev/game (entry package game at root)
-├─ cmd/              CLI binaries (game, nsgo-game, gameproject, sizecheck, ...)
-├─ internal/         internal shared helpers, CLI implementation and the sizeprobe CI fixture
-├─ pkg/              library subpackages (github.com/nsgo-dev/game/pkg/<name>)
-├─ examples/         playable sample games built on the game layer
+├─ go.mod / go.work  Go module github.com/nsgo-dev/game (root package game: loop.go and its tests)
+├─ cmd/              binaries shipped to users: game, nsgo-game, gameproject, sizecheck, and the service daemons accountsd, cloudsaved, leaderboardd
+├─ internal/         shared helpers and the CLI implementation, repocheck/ (repo-wide checks) and sizeprobe/ (the CI size fixture)
+├─ pkg/              every other library package (github.com/nsgo-dev/game/pkg/<name>)
+│  ├─ online/        service and netcode packages (accounts, cloudsave, leaderboard, liveops, netplay, server, ...)
+│  └─ tooling/       build, editor and dev-time tooling that a release build does not link
+├─ examples/         playable sample games, one Go module each, including dedicatedserver and vnsample
 ├─ template/         Go modules publishing the game new templates: starter from template/template/, the others from template/<name>/template/
 ├─ docs/
 │  ├─ en/            site documentation in English
@@ -18,7 +20,7 @@ game/
 ├─ design/editor/    the editor's design artboards (Spec.dc.html and the per-panel .dc.html files) that pkg/editor implements
 ├─ apps/website/     the site at https://game.nsgo.dev
 ├─ changelog.d/      changelog fragments, folded into CHANGELOG.md at release
-└─ tools/            one Go module of contributor tooling: changelog/ checks and folds the fragments, agenteval/ is the agent evaluation suite, gameschema/ writes and checks the published JSON Schemas, gameapi/ generates the API reference
+└─ tools/            one Go module of contributor tooling: changelog/ checks and folds the fragments, agenteval/ is the agent evaluation suite, gameschema/ writes and checks the published JSON Schemas, gameapi/ generates the API reference; pixelfxref/ is a Node script that renders the pixelfx reference images
 ```
 
 The root `go.work` links the root module, starter templates, examples and the tools module together. The `nsgo` CLI is declared as a `tool` dependency in the root `go.mod`, so run `go tool nsgo ...` directly from the repository root (just as CI does).

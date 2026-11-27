@@ -2,6 +2,7 @@
   "version": 1,
   "files": {
     "archived/architecture/2026-11-24-website-multilingual-i18n.md": "sha256:a817821476844b7e520c4c4c29397a093ecfcb212ec63c38d2a7d47136b0062a",
-    "archived/architecture/2026-11-24-website-on-nsgo-website.md": "sha256:1f1ec5e92b401b2c3298b0ba60ac0d83e057cb6d07d38f76d7dabaae61df7c38"
+    "archived/architecture/2026-11-24-website-on-nsgo-website.md": "sha256:1f1ec5e92b401b2c3298b0ba60ac0d83e057cb6d07d38f76d7dabaae61df7c38",
+    "archived/architecture/2026-11-27-root-module-pkg-layout.md": "sha256:910ab3ab8a4c0996c70ff31204b6478e801fa781e951e08b76a1c4af904cbfce"
   }
 }

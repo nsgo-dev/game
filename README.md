@@ -129,19 +129,21 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 
 ```text
 game/
-├─ go.mod / go.work     Go module github.com/nsgo-dev/game (entry package game at root)
-├─ cmd/                 CLI binaries (game, nsgo-game, gameproject, sizecheck, ...)
-├─ internal/            internal shared helpers, CLI implementation and the sizeprobe CI fixture
-├─ pkg/                 library subpackages (github.com/nsgo-dev/game/pkg/<name>)
+├─ go.mod / go.work     Go module github.com/nsgo-dev/game (root package game at root)
+├─ cmd/                 binaries shipped to users (game, nsgo-game, gameproject, sizecheck, and the service daemons)
+├─ internal/            shared helpers, CLI implementation, repo-wide checks and the sizeprobe CI fixture
+├─ pkg/                 library packages (github.com/nsgo-dev/game/pkg/<name>)
+│  ├─ online/           online services and netplay
+│  └─ tooling/          build, editor and dev-time tooling
 ├─ template/            16 Go-module starter templates for game new / nsgo init
-├─ examples/            8 playable sample games and the 9-chapter tutorial
+├─ examples/            playable sample games, the dedicated server and visual-novel samples, and the 9-chapter tutorial
 ├─ library/             shared asset, plugin and template library index
 ├─ skills/              Agent Skills package (bunx skills add nsgo-dev/game)
 ├─ docs/                bilingual site documentation (en/ and zh/)
 ├─ design/editor/       editor design artboards that pkg/editor implements
 ├─ apps/website/        official site at https://game.nsgo.dev (TanStack Start + React)
 ├─ benchmarks/          bench baseline and package size budgets
-├─ tools/               contributor tooling module (changelog, agenteval, gameschema, gameapi)
+├─ tools/               contributor tooling module (changelog, agenteval, gameschema, gameapi, pixelfxref)
 └─ changelog.d/         release changelog fragments
 ```
 
