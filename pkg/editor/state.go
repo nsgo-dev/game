@@ -1053,6 +1053,8 @@ type Editor struct {
 	proposedNewObjects map[string]bool
 	// plan holds the active agent-proposed plan, clarifying question answers, step edits, ghosts, and MCP waiters.
 	plan agentPlanState
+	// headless serializes all scope-less Editor callbacks and RunHeadless calls and drains on AttachScope.
+	headless editorHeadless
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1194,7 +1196,22 @@ func (e *Editor) Subscribe(fn func()) func() {
 }
 
 // AttachScope binds a core.Scope to the editor so Play() can launch game.Loop from UI controls and background checks or game runs can post updates to the UI goroutine.
+// When attaching a non-nil scope, AttachScope first publishes cx and drains any in-flight headless work (forwarding queued headless callbacks to cx.Post in FIFO order) before touching UI-owned state.
 func (e *Editor) AttachScope(cx *core.Scope) {
+	if e == nil {
+		return
+	}
+	if cx != nil {
+		e.headless.attachScope(cx)
+		e.applyScope(cx)
+		return
+	}
+	e.headless.detachScope(func() {
+		e.applyScope(nil)
+	})
+}
+
+func (e *Editor) applyScope(cx *core.Scope) {
 	e.scope = cx
 	e.problems.setScope(cx)
 	e.gameRun.setScope(cx)
@@ -1208,7 +1225,6 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.startScreen.setScope(cx)
 	e.firstRun.setScope(cx)
 	e.remote.setScope(cx)
-	e.agent.setScope(cx)
 	e.settingsMu.Lock()
 	e.agent.builtInKeyChecked = false
 	e.settingsMu.Unlock()

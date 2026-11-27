@@ -603,7 +603,7 @@ func (e *Editor) agentSecretsStore() AgentSecretStore {
 	if e.Keychain != nil {
 		return nil
 	}
-	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+	if cx := e.headless.getScope(); cx != nil && !cx.Disposed() {
 		return cx.Secrets()
 	}
 	return nil

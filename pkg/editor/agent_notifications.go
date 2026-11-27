@@ -452,7 +452,7 @@ func (e *Editor) windowInBackground() bool {
 	if e == nil {
 		return false
 	}
-	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+	if cx := e.headless.getScope(); cx != nil && !cx.Disposed() {
 		lc := core.Untracked(cx, func() core.Lifecycle { return cx.Env().Lifecycle() })
 		e.agent.notify.mu.Lock()
 		e.agent.notify.lifecycle = lc
@@ -535,7 +535,7 @@ func (e *Editor) closeTaskSystemNotification(taskID string) {
 	if !shown {
 		return
 	}
-	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+	if cx := e.headless.getScope(); cx != nil && !cx.Disposed() {
 		cx.CloseNotification(notifID)
 	}
 }
@@ -574,7 +574,7 @@ func (e *Editor) resetTaskNotificationTrackingForTasks() {
 	e.agent.notify.heldNotifications = nil
 	e.agent.notify.pendingPermNotifications = nil
 	e.agent.notify.mu.Unlock()
-	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+	if cx := e.headless.getScope(); cx != nil && !cx.Disposed() {
 		for _, notifID := range shown {
 			cx.CloseNotification(notifID)
 		}
@@ -598,7 +598,7 @@ func (e *Editor) syncDockBadgeIfAttached() {
 	if e == nil {
 		return
 	}
-	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+	if cx := e.headless.getScope(); cx != nil && !cx.Disposed() {
 		e.syncDockBadge(cx)
 	}
 }
@@ -1088,7 +1088,7 @@ func (e *Editor) dispatchTaskNotification(task AgentTask) {
 	if !ok {
 		return
 	}
-	cx := e.agent.getScope()
+	cx := e.headless.getScope()
 	if cx == nil || cx.Disposed() {
 		return
 	}
@@ -1122,7 +1122,7 @@ func (e *Editor) dispatchTaskNotification(task AgentTask) {
 			if p != core.NotificationsGranted || stale {
 				return
 			}
-			curScope := e.agent.getScope()
+			curScope := e.headless.getScope()
 			if curScope == nil || curScope != cx || curScope.Disposed() {
 				return
 			}

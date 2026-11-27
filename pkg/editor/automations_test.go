@@ -352,34 +352,36 @@ func TestAutomationsAllFiveTriggers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(prefabDir, "goblin.prefab.yaml"), []byte("version: 1\nname: Goblin\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ed.PollDiskChanges()
+	ed.RunHeadless(func() {
+		ed.PollDiskChanges()
 
-	// 2. review_kept.
-	ed.BeginReview()
-	ed.KeepReview()
+		// 2. review_kept.
+		ed.BeginReview()
+		ed.KeepReview()
 
-	// 3. before_export.
-	ed.TriggerBeforeExportAutomations("ios")
+		// 3. before_export.
+		ed.TriggerBeforeExportAutomations("ios")
 
-	// 4. daily: 01:55 is before 02:00 -> must NOT fire yet.
-	if n := ed.StepAutomations(); n != 0 {
-		t.Fatalf("StepAutomations at 01:55 = %d, want 0", n)
-	}
-	// Advance to 02:00 -> fires once.
-	setTime(time.Date(2026, 11, 26, 2, 0, 0, 0, time.UTC))
-	if n := ed.StepAutomations(); n != 1 {
-		t.Fatalf("StepAutomations at 02:00 = %d, want 1", n)
-	}
-	// Calling again same day at 02:10 -> must NOT fire a second time.
-	setTime(time.Date(2026, 11, 26, 2, 10, 0, 0, time.UTC))
-	if n := ed.StepAutomations(); n != 0 {
-		t.Fatalf("StepAutomations repeat same day = %d, want 0", n)
-	}
-	// Advance to next day 02:00 -> fires again.
-	setTime(time.Date(2026, 11, 27, 2, 0, 0, 0, time.UTC))
-	if n := ed.StepAutomations(); n != 1 {
-		t.Fatalf("StepAutomations next day 02:00 = %d, want 1", n)
-	}
+		// 4. daily: 01:55 is before 02:00 -> must NOT fire yet.
+		if n := ed.StepAutomations(); n != 0 {
+			t.Fatalf("StepAutomations at 01:55 = %d, want 0", n)
+		}
+		// Advance to 02:00 -> fires once.
+		setTime(time.Date(2026, 11, 26, 2, 0, 0, 0, time.UTC))
+		if n := ed.StepAutomations(); n != 1 {
+			t.Fatalf("StepAutomations at 02:00 = %d, want 1", n)
+		}
+		// Calling again same day at 02:10 -> must NOT fire a second time.
+		setTime(time.Date(2026, 11, 26, 2, 10, 0, 0, time.UTC))
+		if n := ed.StepAutomations(); n != 0 {
+			t.Fatalf("StepAutomations repeat same day = %d, want 0", n)
+		}
+		// Advance to next day 02:00 -> fires again.
+		setTime(time.Date(2026, 11, 27, 2, 0, 0, 0, time.UTC))
+		if n := ed.StepAutomations(); n != 1 {
+			t.Fatalf("StepAutomations next day 02:00 = %d, want 1", n)
+		}
+	})
 
 	if !ed.WaitAutomations(3 * time.Second) {
 		t.Fatal("automations did not finish")
@@ -477,18 +479,20 @@ func TestAutomationsPauseAllForTodayUntilNextDay(t *testing.T) {
 
 	// Next calendar day: pause automatically lifts and triggers resume.
 	setTime(time.Date(2026, 11, 27, 2, 0, 0, 0, time.UTC))
-	if ed.AutomationsPausedToday() {
-		t.Fatal("expected AutomationsPausedToday() == false on next calendar day")
-	}
-	if n := ed.StepAutomations(); n != 1 {
-		t.Fatalf("StepAutomations next day = %d, want 1", n)
-	}
-	if err := ed.SetSceneName("Next Day Edit"); err != nil {
-		t.Fatal(err)
-	}
-	if err := ed.Save(); err != nil {
-		t.Fatal(err)
-	}
+	ed.RunHeadless(func() {
+		if ed.AutomationsPausedToday() {
+			t.Fatal("expected AutomationsPausedToday() == false on next calendar day")
+		}
+		if n := ed.StepAutomations(); n != 1 {
+			t.Fatalf("StepAutomations next day = %d, want 1", n)
+		}
+		if err := ed.SetSceneName("Next Day Edit"); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.Save(); err != nil {
+			t.Fatal(err)
+		}
+	})
 	if !ed.WaitAutomations(3 * time.Second) {
 		t.Fatal("next-day automations did not finish")
 	}

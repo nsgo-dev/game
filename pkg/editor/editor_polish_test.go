@@ -276,9 +276,11 @@ func TestFirstRunConnectStepWrapsInsideCard(t *testing.T) {
 		}
 	}
 	ed.FirstRunConnectAgent = func(context.Context, string, string) (int, error) { return 18, nil }
-	if err := ed.StartWithAI(); err != nil {
-		t.Fatalf("StartWithAI: %v", err)
-	}
+	ed.RunHeadless(func() {
+		if err := ed.StartWithAI(); err != nil {
+			t.Fatalf("StartWithAI: %v", err)
+		}
+	})
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)

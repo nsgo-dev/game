@@ -415,7 +415,7 @@ _ = s.AddTool(editormcp.Tool{
 _ = s.Open()
 ```
 
-`Options.Run` 把函数交给编辑器的 goroutine（窗口中的编辑器用 `cx.Post`）；不设置时，服务器在调用者的 goroutine 上逐个执行，适用于没有窗口驱动的编辑器。`Server.Connect` 在任意 MCP 传输上提供一个会话，测试中可配合 `mcp.NewInMemoryTransports` 使用。
+`Options.Run` 把函数交给编辑器的 goroutine（窗口中的编辑器用 `cx.Post`）；不设置时，服务器会通过编辑器统一的无窗口执行器（`Editor.PostOrRunHeadless`）串行调度工具调用与会话通知，与 `Editor.Post`、`Editor.RunHeadless` 共享同一归属并在 `Editor.AttachScope` 时排空，适用于没有窗口驱动的编辑器。在服务器运行期间，测试或脚本若直接操作同一个无 `Scope` 的 `Editor`，必须将编辑器调用包裹在 `Editor.RunHeadless` 中。`Server.Connect` 在任意 MCP 传输上提供一个会话，测试中可配合 `mcp.NewInMemoryTransports` 使用。
 
 ### 为什么有自己的服务器
 
