@@ -167,7 +167,7 @@ peerTx := netplay.NewRelayTransport(cli, netplay.RelayTransportConfig{})
 session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, Sim: sim})
 ```
 
-- 中继运行在 `WebSocketServer` 或 `UDPServer` 之上，因此每个玩家都要先通过[连接握手](netplay.md#连接握手与重连)。`relay.Auth` 先运行基础 `Auth.Verify`（如果设置了），再运行 `Join`；会话名为空时以 `no session` 拒绝，会话已有 `MaxSessionPeers`（默认 8）名成员时以 `session full` 拒绝。
+- 中继运行在 `WebSocketServer`、`WebTransportServer` 或 `UDPServer` 之上，因此每个玩家都要先通过[连接握手](netplay.md#连接握手与重连)。`relay.Auth` 先运行基础 `Auth.Verify`（如果设置了），再运行 `Join`；会话名为空时以 `no session` 拒绝，会话已有 `MaxSessionPeers`（默认 8）名成员时以 `session full` 拒绝。
 - 帧只在同一会话的成员之间转发。发往其他会话成员、发往中继本身、发给发送者自己或格式错误的帧会被丢弃，并计入 `Stats().Dropped`；`RelayTransport.Send` 对会话外的 ID 返回 `ErrUnknownPeer`。
 - `Peers` 列出其他成员，包括处于宽限期内的成员，因此会话不会因为某个玩家正在重连而失去他。中继每秒重发一次成员列表，在 UDP 上丢失了更新的客户端也能跟上。
 - 对局进行中加入中继会话的玩家，在对局主机用 `AddPeer` 接纳之后参与对局；离开的玩家在主机调用 `RemovePeer` 之后不再被等待（见 [netplay 指南](netplay.md#对局中途加入与离开的玩家)）。
@@ -207,7 +207,7 @@ go tool nsgo test ./net -run '^$' -bench BenchmarkRelayRoundTrip
 
 ## TLS、Origin、健康检查与指标
 
-HTTPS 页面里的浏览器需要 `wss://`。`netplay.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听，并在升级时检查浏览器 Origin；`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥。两者都接受与 `ListenWebSocket` 相同的 `Auth`（见[连接握手与重连](netplay.md#连接握手与重连)）：
+HTTPS 页面里的浏览器需要 `wss://`（WebSocket）或 HTTP/3 QUIC 上的 `https://`（WebTransport）。`netplay.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听并在升级时检查浏览器 Origin，`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥，`ListenWebTransport` 与 `ListenWebTransportFiles` 则在 QUIC/HTTP/3 上提供同样的 Origin 校验策略。它们都接受与 `ListenWebSocket` 相同的 `Auth`（见[连接握手与重连](netplay.md#连接握手与重连)）：
 
 ```go
 srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",

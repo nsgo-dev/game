@@ -1,0 +1,35 @@
+# Agent Note: Unreliable browser transport over WebTransport in netplay
+
+Status: implemented
+
+## Problem
+
+Browser builds previously had only one transport: `WebSocketTransport` over the browser WebSocket API (`pkg/online/netplay/ws_js.go`). Both `ChannelReliableOrdered` and `ChannelUnreliable` multiplexed onto one ordered TCP stream, so any lost TCP segment stalled every later replication snapshot or rollback input behind it for at least one round trip. Browser peers behind `Relay` faced the same head-of-line blocking because `RelayTransport` ran over WebSocket in the browser. Native UDP transports (`udp_native.go`, `udp_session_native.go`) are `!js` only and refuse `ChannelReliableOrdered`.
+
+## Decision
+
+- `pkg/online/netplay/webtransport.go` defines cross-target `WebTransportOptions` (carrying `ServerCertificateHashes` for pinned 32-byte SHA-256 digests of self-signed local development certificates), `ErrWebTransportUnavailable`, close codes (`0` for goodbye, `4000` for reconnect), URL and hash validators, and a 4-byte big-endian length-prefixed stream framer and incremental `wtStreamDecoder` for the bidirectional reliable stream.
+- Channel mapping separates delivery guarantees at the QUIC layer:
+  - `ChannelReliableOrdered` and the existing version-1 connection handshake (`hello`/`welcome`/`reject` from `session.go`) travel on one client-opened bidirectional QUIC stream using 4-byte length-prefixed frames (capped at `wtMaxHelloFrame` before admission and 4 MiB after, using incremental payload growth above 64 KiB to prevent slow-loris memory reservation). Because the stream is reliable and ordered, lockstep and rollback sessions work directly over WebTransport without needing a relay.
+  - `ChannelUnreliable` travels as independent QUIC datagrams (RFC 9221 / RFC 9297) carrying the standard 5-byte `channel + seq` header with no extra framing overhead. A lost packet never blocks newer unreliable updates, and payloads exceeding the QUIC datagram MTU return `ErrPayloadTooLarge`.
+- `pkg/online/netplay/webtransport_native.go` (`//go:build !js`) implements `WebTransportServer` (`ListenWebTransport`, `ListenWebTransportFiles`) and native `WebTransportTransport` (`DialWebTransport`) on top of `github.com/quic-go/quic-go` (v0.66.0) and `github.com/quic-go/webtransport-go` (v0.13.0). `WebTransportServer` reuses `sessionTable`, `normalizeOrigins`/`originAllowed`, `packetQueue` (`InboxReporter`), and implements `RelayServer` plus `relayWaker` so `Relay` forwards peer-to-peer browser sessions over QUIC datagrams without polling. On native `Close()`, the client writes an explicit 0-length goodbye frame and stream FIN and briefly awaits server session closure before closing the QUIC connection so `CONNECTION_CLOSE` cannot race ahead of the goodbye and turn `PeerLeft` into `PeerDropped`.
+- `pkg/online/netplay/webtransport_js.go` (`//go:build js && wasm`) implements `WebTransportTransport` using `syscall/js` against the browser's W3C `WebTransport` API, with zero third-party QUIC dependencies linked into WebAssembly builds. It mirrors `ws_js.go`: `DialWebTransport` returns immediately in `ConnConnecting`, queues early `Send` calls until the welcome arrives, uses dedicated non-blocking write queues so `Send` never blocks on JS promises or triggers unhandled rejections, reuses the handshake `wtStreamDecoder` after the welcome so coalesced stream bytes are never lost, and sends `closeCode: 4000` on `Reconnect()` so the server retains the session for `Auth.GracePeriod`.
+- `WebTransportSupported` and `DialWebTransportWithFallback` provide feature detection and automatic fallback to `DialWebSocket` for older browsers, WebViews, or networks blocking UDP/443, while surfacing `ErrRejected` and `ErrTokenTooLarge` directly without masking authentication errors.
+
+## Alternatives considered
+
+- **WebRTC DataChannel first (`pion/webrtc/v4`)** — supported in older Safari releases and capable of peer-to-peer NAT traversal via ICE/STUN. Rejected for this issue: it requires a signaling channel, ICE/STUN/TURN, DTLS, and SCTP, adds a much larger native dependency footprint, and still needs a TURN relay behind symmetric NATs. WebTransport reached Baseline Newly Available across Chrome, Edge, Firefox, and Safari 26.4+ in March 2026 and maps directly onto client-server and relay architectures with a single HTTPS/QUIC endpoint. WebRTC remains a possible future follow-up if direct browser P2P without a relay becomes necessary.
+- **WebSocket only** — zero new server dependencies and universal network compatibility. Rejected: TCP enforces in-order byte delivery, so 1–2% packet loss on real Wi-Fi and mobile links causes severe head-of-line stalls for action replication and rollback netcode.
+- **One QUIC stream per reliable packet instead of one long-lived bidirectional stream** — avoids intra-stream head-of-line blocking between unrelated reliable messages. Rejected: `ChannelReliableOrdered` explicitly promises strict send-order delivery across all reliable packets on a transport, which maps 1-to-1 onto a single bidirectional stream and keeps stream creation overhead at zero per packet.
+- **`golang.org/x/net/quic` without `quic-go`/`webtransport-go`** — avoids third-party dependencies. Rejected: `golang.org/x/net/quic` is experimental and has no HTTP/3 or WebTransport layer.
+
+## Consequences
+
+- **Benefits**: browser games get genuine unreliable datagram delivery without TCP head-of-line blocking, TLS 1.3 encryption by default, unified `Transport` / `InboxReporter` / `RelayServer` semantics, and zero WebAssembly binary bloat (`quic-go` and `webtransport-go` remain strictly behind `!js`).
+- **Costs and known limits**: native builds that import `pkg/online/netplay` now pull in `github.com/quic-go/quic-go` and `github.com/quic-go/webtransport-go`. Unreliable payloads are bounded by the QUIC datagram MTU (~1100–1200 bytes), so games replicating large worlds over WebTransport must configure `ServerWorld.SetMaxSnapshotSize` accordingly. Networks blocking UDP/443 still require the WebSocket fallback path.
+
+## Verification
+
+- `go test -race -count=10 -run TestWebTransport ./pkg/online/netplay` passes handshake, rejection, `MaxPeers`, resume/grace period, both channels, broadcast, Origin checks, PEM file loading, `InboxLimits`, `Relay` + `RollbackSession`, packet-loss no-HOL blocking (both unreliable-behind-lost-reliable and unreliable-behind-lost-unreliable), and WebSocket fallback.
+- `GOOS=js GOARCH=wasm go list -deps ./pkg/online/netplay` confirms neither `quic-go` nor `webtransport-go` is linked into WebAssembly builds, and `go run ./cmd/sizecheck -budget benchmarks/web-budget.json` passes for `./internal/sizeprobe`.
+- End-to-end headless Chrome (`js/wasm`) verification against a local `ListenWebTransport` server with a self-signed 7-day ECDSA P-256 certificate hash confirmed rejection, handshake, reliable stream echo, unreliable datagram echo, `Reconnect` resume (`PeerDropped` -> `PeerResumed`), and `Close` (`PeerLeft`).

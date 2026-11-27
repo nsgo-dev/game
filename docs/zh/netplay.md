@@ -1,6 +1,6 @@
 # netplay
 
-`game/online/netplay` 为 NSGo 游戏提供跨平台多人联机能力：横跨 WebSocket（原生 + WebAssembly）、原生 UDP 与仿真回环的统一 `Transport` 接口；带客户端预测与插值的服务端权威增量状态复制；以及确定性锁步（lockstep）与回滚（rollback）网络同步。
+`game/online/netplay` 为 NSGo 游戏提供跨平台多人联机能力：横跨 WebTransport（HTTP/3 QUIC，原生 + WebAssembly）、WebSocket（原生 + WebAssembly）、原生 UDP 与仿真回环的统一 `Transport` 接口；带客户端预测与插值的服务端权威增量状态复制；以及确定性锁步（lockstep）与回滚（rollback）网络同步。
 
 ```go
 import "github.com/nsgo-dev/game/pkg/online/netplay"
@@ -12,13 +12,14 @@ import "github.com/nsgo-dev/game/pkg/online/netplay"
 
 | 传输实现 | 构造函数 | 适用平台与场景 |
 | --- | --- | --- |
-| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建与跨 NAT 联机。客户端用令牌认证，ID 由服务端分配（见下文）。 |
+| `WebTransportServer` / `WebTransportTransport` | `ListenWebTransport`、`ListenWebTransportFiles`、`DialWebTransport` | 原生 + 浏览器（`js/wasm`）；用 QUIC 数据报发送 `ChannelUnreliable`（无 TCP 队头阻塞），用一条双向 QUIC 流发送 `ChannelReliableOrdered`，全程 TLS 1.3 加密。 |
+| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`ListenWebSocketTLS`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建、仅允许 TCP 的网络及旧版浏览器。两条通道共用同一条有序 TCP 流。客户端用令牌认证，ID 由服务端分配（见下文）。 |
 | `UDPServer` / `UDPClient` | `ListenUDPServer`、`DialUDP` | 原生平台（桌面/移动）与服务端之间的低延迟加密数据报通信，使用 Noise NK 密钥交换（第 2 版握手）与 ChaCha20-Poly1305 AEAD。 |
 | `UDPTransport` | `ListenUDP` + `AddPeerKey` / `AddPeer` | 原生平台点对点数据报，双方事先知道彼此地址：`AddPeerKey` 使用预共享密钥做认证加密，普通 `AddPeer` 不加密、不认证，仅用于局域网与测试。 |
-| `Relay` / `RelayTransport` | `NewRelay`、`NewRelayTransport` | 彼此无法直连的玩家之间的点对点会话：每人通过 WebSocket 或 UDP 连接中继，中继只在同一会话的成员之间转发（见[服务端指南](server.md#点对点中继)）。 |
+| `Relay` / `RelayTransport` | `NewRelay`、`NewRelayTransport` | 彼此无法直连的玩家之间的点对点会话：每人通过 WebTransport、WebSocket 或 UDP 连接中继，中继只在同一会话的成员之间转发（见[服务端指南](server.md#点对点中继)）。 |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
-UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输，或者 `RelayTransport`：它做端到端重传，因此在 UDP 上也能运行锁步与回滚。
+UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebTransport、WebSocket 或回环传输，或者 `RelayTransport`：它做端到端重传，因此在 UDP 上也能运行锁步与回滚。
 
 `DialWebSocket` 说 netplay 自己的握手与分帧协议，只能连接 `WebSocketServer`。要连接不属于本仓库的 WebSocket 服务器——第三方后端、聊天服务、自定义协议——请改用 [wsclient](wsclient.md)。
 
@@ -41,11 +42,68 @@ pkt, ok := clientTx.Recv()
 _, _ = pkt, ok
 ```
 
+### WebTransport（浏览器不可靠传输）
+
+在 WebSocket 上，`ChannelUnreliable` 依然走 TCP，一个丢包就会把后面所有更新的快照或回滚输入卡住，直到 TCP 完成重传。`WebTransportServer` 与 `WebTransportTransport` 运行在 HTTP/3 与 QUIC 之上：
+
+- `ChannelUnreliable` 包作为独立的 QUIC 数据报（RFC 9221 / RFC 9297）发送，单个丢包不会阻塞后续不可靠更新，过期数据报也不会重传。每条不可靠负载必须能装进 QUIC 数据报 MTU（通常约 1100–1200 字节；超出时 `Send` 返回 `ErrPayloadTooLarge`）。经 WebTransport 做状态复制时，建议把 `ServerWorld.SetMaxSnapshotSize` 设为约 1000 字节。
+- `ChannelReliableOrdered` 包与连接握手共用一条由客户端打开的双向 QUIC 流，采用 4 字节大端长度前缀分帧（单帧上限 4 MiB）。两条通道可同时使用且无需中继；`WebTransportServer` 实现了 `RelayServer`，因此 `Relay` 也能通过 QUIC 数据报服务浏览器玩家。
+- 在 `js/wasm` 上，`WebTransportTransport` 通过 `syscall/js` 直接调用浏览器原生 `WebTransport` API，不会把 `quic-go` 或 `webtransport-go` 链接进 WebAssembly 产物。
+
+#### 浏览器支持
+
+WebTransport 已于 2026 年 3 月成为跨所有主流浏览器引擎的 Baseline Newly Available 特性：
+
+| 浏览器 | 最低版本 |
+| --- | --- |
+| Chrome / Chromium | 97+ |
+| Edge | 98+ |
+| Firefox | 114+ |
+| Safari / iOS Safari | 26.4+ |
+
+较旧的 Safari、内嵌 WebView，以及封禁 UDP 443 端口的企业网络仍需要回退到 WebSocket。
+
+#### 证书与本地开发
+
+WebTransport 强制使用 TLS 1.3（`https://`）加密，因此握手令牌与恢复密钥在传输中均有加密保护。
+
+- **生产环境**：把受信任 CA 签发的证书（例如 Let's Encrypt）传给 `ListenWebTransport` 或 `ListenWebTransportFiles`，客户端将 `WebTransportOptions.ServerCertificateHashes` 留空即可。
+- **本地开发**：把服务端叶子 X.509 证书的 32 字节 SHA-256 摘要（`sha256.Sum256(leafCertDER)`）填入 `WebTransportOptions.ServerCertificateHashes`，浏览器就会接受自签名证书而无需安装根 CA。按 W3C WebTransport 规范，用于哈希固定的自签名证书须使用 ECDSA（如 P-256）、Ed25519 或 RSA 密钥，且有效期不得超过 14 天。
+
+```go
+srv, err := netplay.ListenWebTransportFiles(":4433", 1, auth, "cert.pem", "key.pem",
+	[]string{"https://play.example.com"})
+```
+
+```go
+// 本地开发固定自签名证书哈希（生产环境将 ServerCertificateHashes 留空）：
+cli, err := netplay.DialWebTransport("https://localhost:4433/game", token, netplay.WebTransportOptions{
+	ServerCertificateHashes: [][]byte{certSHA256[:]},
+})
+```
+
+#### 回退到 WebSocket
+
+使用 `WebTransportSupported` 或 `DialWebTransportWithFallback` 做特性检测并自动回退到 WebSocket：
+
+```go
+tx, err := netplay.DialWebTransportWithFallback(
+	"https://play.example.com:4433/game",
+	"wss://play.example.com/game",
+	token,
+	netplay.WebTransportOptions{},
+)
+```
+
+- 当 `WebTransportSupported()` 为 false（例如旧版浏览器）时，`DialWebTransportWithFallback` 会立即用 `DialWebSocket` 连接 `wsURL`。
+- 在原生平台上，除 `ErrRejected` 或 `ErrTokenTooLarge` 之外的连接失败会自动回退到 `DialWebSocket`。
+- 在浏览器中，`DialWebTransport` 会立即返回且 `State() == ConnConnecting`。若防火墙封禁了 UDP 443，会话会以 `LocalID() == 0` 和不匹配 `ErrRejected` 的错误转为 `ConnDisconnected`；此时关闭它并调用 `DialWebSocket(wsURL, token)` 即可完成运行时回退。
+
 ### 收件队列上限
 
 传输会保留每一个到达的包，直到 `Recv` 取走它，并按通道和对端限制保留的数量。每个对端的 `ChannelUnreliable` 包最多保留 `DefaultUnreliableInbox`（4096）个：某个对端已排队这么多不可靠包时再到达一个，就丢弃该对端最旧的不可靠包，因此落后的游戏保留的是最新的状态，向服务端狂发包的对端只会挤掉自己的包，`InboxStats().UnreliableDropped` 记录丢弃的数量。
 
-`ChannelReliableOrdered` 的包从不丢弃，否则会破坏这个通道的保证。对端不可信任的传输改为把每个对端的可靠包限制在 `DefaultReliableInbox`（16384）个，并拒收超出的那个包，记入 `InboxStats().ReliableRefused`：`WebSocketServer` 会结束该客户端的会话，如同它主动离开，因此它已送达的包仍保持顺序；`RelayTransport` 则不再确认该对端的消息，对端会在 `Recv` 腾出空间后重发。其他传输只从自己的服务端或同一进程接收可靠包，会全部保留。每个传输在全部可靠包的积压每次超过 `DefaultReliableInboxWarning`（4096）时，`InboxStats().ReliableWarnings` 记一次，`ReliableBacklog` 一直为 true，直到积压降到阈值的一半，所以在阈值附近徘徊的队列不会每个包都告警一次。`Recv` 仍按所有通道和对端合起来的到达顺序返回包。`UDPTransport` 从不发送可靠包，因此会丢弃自称可靠的数据报。
+`ChannelReliableOrdered` 的包从不丢弃，否则会破坏这个通道的保证。对端不可信任的传输改为把每个对端的可靠包限制在 `DefaultReliableInbox`（16384）个，并拒收超出的那个包，记入 `InboxStats().ReliableRefused`：`WebSocketServer` 或 `WebTransportServer` 会结束该客户端的会话，如同它主动离开，因此它已送达的包仍保持顺序；`RelayTransport` 则不再确认该对端的消息，对端会在 `Recv` 腾出空间后重发。其他传输只从自己的服务端或同一进程接收可靠包，会全部保留。每个传输在全部可靠包的积压每次超过 `DefaultReliableInboxWarning`（4096）时，`InboxStats().ReliableWarnings` 记一次，`ReliableBacklog` 一直为 true，直到积压降到阈值的一半，所以在阈值附近徘徊的队列不会每个包都告警一次。`Recv` 仍按所有通道和对端合起来的到达顺序返回包。`UDPTransport` 从不发送可靠包，因此会丢弃自称可靠的数据报。
 
 每个传输都实现 `InboxReporter`：`SetInboxLimits` 随时修改上限（调低不可靠包上限会立即丢弃每个对端最旧的不可靠包），`InboxStats` 读取计数器。计数器只增不减，游戏或调试叠加层把它们与上一帧的值比较即可。`LoopbackConfig.Inbox` 设置集线器之后添加的对端的上限，`RelayTransportConfig.Inbox` 设置 `RelayTransport` 的上限。`InboxLimits` 中零表示使用默认值，负值表示取消上限或关闭告警。`RelayTransport` 的内层传输有自己的上限，所有经中继转发的对端都从中继到达内层传输，因此共用它的单个对端上限；在那里被丢弃的可靠消息会被重发。
 
@@ -67,7 +125,7 @@ lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 
 ## 连接握手与重连
 
-`WebSocketServer` 和 `UDPServer` 只在握手之后接纳客户端：客户端出示应用自定义的令牌，由 `Auth.Verify` 校验，服务端分配该客户端的 `PeerID` 并回传给它，或附带原因拒绝。被拒绝的客户端永远不会出现在 `Recv` 或 `Peers` 中。
+`WebSocketServer`、`WebTransportServer` 和 `UDPServer` 只在握手之后接纳客户端：客户端出示应用自定义的令牌，由 `Auth.Verify` 校验，服务端分配该客户端的 `PeerID` 并回传给它，或附带原因拒绝。被拒绝的客户端永远不会出现在 `Recv` 或 `Peers` 中。
 
 ```go
 auth := netplay.Auth{
@@ -111,7 +169,8 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 - `WebSocketServer.Kick(peer, reason)` 与 `UDPServer.Kick(peer, reason)` 立即结束指定 peer 的会话，并在 `PeerEvent.Reason` 中携带原因报告 `PeerLeft`：会话的恢复密钥随之销毁，客户端的 `Reconnect` 无法恢复该会话，只有在 `Verify` 再次接受其令牌时才能作为新 peer 加入。已连接的 WebSocket 客户端会收到一个带应用关闭码 4001 和原因的关闭帧，已连接的 UDP 客户端会收到一个加密的踢出数据报（发送三次，因为 UDP 可能丢包）；随后两者的 `Err` 都会返回 `*KickError`（与 `netplay.ErrKicked` 匹配）——在浏览器中同样如此。处于宽限期内的 peer 不会收到消息，它的下一次握手只是无法恢复而已。`Kick` 对没有会话的 ID 返回 `ErrUnknownPeer`。
 - 服务端最多保留 `Auth.MaxPeers` 个会话（默认 1024），处于宽限期内的 peer 也计算在内；超出后客户端会以原因 `server full` 被拒绝。不设置 `Verify` 时任何人都能加入，因此可从互联网访问的服务端务必设置它。
 - 恢复会话需要出示上一次欢迎消息中的密钥，服务端每次握手都会更换该密钥；仅凭 ID 无法接管会话。超过宽限期后，只要令牌仍然有效，`Reconnect` 会作为新 peer 重新加入。
-- 在浏览器中 `DialWebSocket` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
+- 在浏览器中 `DialWebSocket` 与 `DialWebTransport` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
+- `WebTransportServer` 按 `Auth.IdleTimeout`（默认 10 秒，最少 3 秒）设置 QUIC 的 `MaxIdleTimeout`，并每隔其三分之一发送一次 QUIC 心跳；原生 `WebTransportTransport` 每 2 秒发送一次心跳，空闲超时 10 秒。`Close` 会发送告别信号（服务端立即报告 `PeerLeft`）；`Reconnect` 以关闭码 `4000` 关闭旧会话，服务端会按 `Auth.GracePeriod` 保留会话。
 - `WebSocketServer` 每隔 `Auth.IdleTimeout` 的三分之一（默认 10 秒，最少 3 秒）向每个客户端发送一次 ping，在这段时间内没有收到客户端的任何字节（连 pong 都没有）就会把它判为掉线，这样网络消失却没有关闭 TCP 连接的客户端不会永远占着会话和 ID。浏览器会自动回应 ping。原生 `WebSocketTransport` 每 2 秒向服务端发送一次 ping，10 秒内没有收到任何字节就转为 `ConnDisconnected`。只要字节持续到达，慢慢传来的大帧也会被完整读取。这些超时使用墙上时钟，而不是 `Auth.Now`。`WebSocketServer.Close` 会同时向所有客户端发送关闭帧，对不读取数据的客户端最多等待一秒。
 - WebSocket 帧的负载按实际到达的字节读取，而不是按帧头声明的长度预先分配，握手请求也不能超过合法请求的长度，因此客户端声明一个很大的帧后再慢慢发送，也无法占用它尚未发送的内存。控制帧（`Close`、`Ping`、`Pong`）遵循 RFC 6455 §5.5：分片控制帧、负载超过 125 字节的控制帧以及保留控制操作码（`0xB`–`0xF`）会被拒绝。
 - UDP 会话运行基于 `Noise_NK_25519_ChaChaPoly_SHA256` 的第 2 版握手：`DialUDP(addr, serverKey, token)` 依据服务端的静态 X25519 公钥在无需证书的情况下认证服务端，在消息 1 中加密传输客户端令牌与恢复密钥，并在加密的消息 2 中接收服务端分配的 ID 与新的恢复密钥（欢迎消息不再携带数据包密钥）。第 1 版握手请求会收到既有的版本拒绝。

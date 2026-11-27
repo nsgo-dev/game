@@ -1,11 +1,12 @@
 // Package netplay provides cross-target multiplayer primitives for NSGo games:
 //   - Transport abstraction with deterministic in-memory loopback, pure-Go RFC 6455
-//     WebSocket (native + browser WebAssembly), and native UDP transports.
+//     WebSocket (native + browser WebAssembly), HTTP/3 QUIC WebTransport (native +
+//     browser WebAssembly), and native UDP transports.
 //   - Server-authoritative state replication with bitmask delta compression,
 //     snapshot interpolation, and client-side prediction/reconciliation.
 //   - Deterministic lockstep and GGPO-style rollback netcode with periodic
 //     checksum verification and desync detection.
-//   - A Relay that forwards peer-to-peer sessions between RelayTransports over WebSocket or UDP for players who cannot reach each other directly.
+//   - A Relay that forwards peer-to-peer sessions between RelayTransports over WebSocket, WebTransport, or UDP for players who cannot reach each other directly.
 package netplay
 
 import (
@@ -111,7 +112,7 @@ func decodeWireFrame(frame []byte) (ch Channel, seq uint32, payload []byte, err 
 const (
 	// DefaultUnreliableInbox is the most ChannelUnreliable packets a transport's inbox holds from one peer when InboxLimits.Unreliable is zero.
 	DefaultUnreliableInbox = 4096
-	// DefaultReliableInbox is the most ChannelReliableOrdered packets a WebSocketServer's or RelayTransport's inbox holds from one peer when InboxLimits.Reliable is zero.
+	// DefaultReliableInbox is the most ChannelReliableOrdered packets a WebSocketServer's, WebTransportServer's, or RelayTransport's inbox holds from one peer when InboxLimits.Reliable is zero.
 	DefaultReliableInbox = 16384
 	// DefaultReliableInboxWarning is the ChannelReliableOrdered backlog that raises a warning when InboxLimits.ReliableWarning is zero.
 	DefaultReliableInboxWarning = 4096
@@ -169,7 +170,7 @@ type InboxStats struct {
 	ReliableBacklog bool
 }
 
-// InboxReporter is implemented by every transport in this package: LoopbackTransport, WebSocketTransport, WebSocketServer, UDPTransport, UDPServer, UDPClient and RelayTransport. SetInboxLimits changes the inbox's limits at any time; lowering the unreliable cap below what a peer has queued drops that peer's oldest unreliable packets at once and counts them, and lowering the reliable cap refuses only the packets that arrive afterwards. InboxStats reads the inbox's counters.
+// InboxReporter is implemented by every transport in this package: LoopbackTransport, WebSocketTransport, WebSocketServer, WebTransportTransport, WebTransportServer, UDPTransport, UDPServer, UDPClient and RelayTransport. SetInboxLimits changes the inbox's limits at any time; lowering the unreliable cap below what a peer has queued drops that peer's oldest unreliable packets at once and counts them, and lowering the reliable cap refuses only the packets that arrive afterwards. InboxStats reads the inbox's counters.
 type InboxReporter interface {
 	SetInboxLimits(InboxLimits)
 	InboxStats() InboxStats

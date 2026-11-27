@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-// Auth configures the connection handshake that ListenWebSocket and ListenUDPServer run before a peer may send or receive game packets.
+// Auth configures the connection handshake that ListenWebSocket, ListenWebTransport, and ListenUDPServer run before a peer may send or receive game packets.
 //
 // The zero value accepts every client, assigns its ID and treats a dropped connection as a leave. A server reachable from the internet should set Verify: without it anyone may join, up to MaxPeers.
 type Auth struct {
