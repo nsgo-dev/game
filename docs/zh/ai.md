@@ -352,7 +352,8 @@ _, _ = detour, watchID
 - **动态障碍物形状与模式**：支持 `NavBoxObstacle`、`NavOrientedBoxObstacle`、`NavCircleObstacle` 与 `NavPolygonObstacle`（兼容凸/凹多边形及可选 `Margin` 膨胀）；默认采用 `NavObstacleCarve`（精确凸多边形挖空，让路径平滑绕行），也可选 `NavObstacleMark` 沿障碍轮廓切分多边形并赋予 `NavFlagDisabled` 或自定义 `Area`/`Flags`（如 `NavAreaMud`）。同一帧内有多处改动时，可用 `tm.Batch(func() { ... })` 合并批量更新，确保每个受影响瓦片最多重建一次。
 - **两级空间索引**：`FindPolygon`、`NearestPoint`、`NearestPolygon` 与 `Raycast` 结合 O(1) 瓦片网格定位（大范围/无界查询走粗粒度瓦片 BVH 分支定界）与单瓦片扁平 AABB BVH，无需扫描整张导航网格。
 - **按瓦片精准路径失效**：`TiledNavPathResult.Tiles` 记录路径经过的每个瓦片及其版本号，`tm.IsPathValid(res)` 按经过瓦片数 O(K) 判断有效性；`WatchPath` 按瓦片建立反向索引，仅通知经过变更或卸载瓦片的路径（`AddTileListener` 可监听所有瓦片事件）。
-- **烘焙桥接**：调用 `navbake.Mesh.TiledNavMesh(tileSize)` 可直接将 2D 烘焙网格转为支持动态障碍物的分块导航网格。
+- **跨瓦片离网连接**：通过 `AddOffMeshLink(NavOffMeshLink)`（以及 `OffMeshLinks`、`ClearOffMeshLinks`）在 `TiledNavMesh` 上注册单向或双向跳跃、跌落、梯子与传送门，支持端点 `Radius` 吸附、`NavFilter` 区域/标志过滤与代价缩放、捷径感知 A\*，并通过 `TiledNavPathResult.Links`（`HasLinks`、`LinkAt`）返回带 `NavPolyRef` 端点的连接段。连接按候选端点瓦片索引，在端点被障碍物覆盖或瓦片卸载时自动解绑，并在瓦片替换、重建或移除障碍物后自动重新挂接。
+- **烘焙桥接**：调用 `navbake.Mesh.TiledNavMesh(tileSize)` 可直接将 2D 烘焙网格转为支持动态障碍物的分块导航网格，并自动注册所有已烘焙的 `Links`。
 
 ## 有界、部分路径与增量寻路
 

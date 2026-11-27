@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	defaultNavTileSize2D  float32 = 64
-	minNavTileCoord2D     int32   = math.MinInt32 + 1
-	maxNavTileCoord2D     int32   = math.MaxInt32 - 1
-	maxNavObstacleTiles2D int64   = 65536
+	defaultNavTileSize2D   float32 = 64
+	minNavTileCoord2D      int32   = math.MinInt32 + 1
+	maxNavTileCoord2D      int32   = math.MaxInt32 - 1
+	maxNavObstacleTiles2D  int64   = 65536
+	maxOffMeshWatchTiles2D int64   = 256
 )
 
 func clampTileCoord2D(v float64) int32 {
@@ -318,16 +319,65 @@ type TiledNavMeshConfig struct {
 	Origin core.Point
 }
 
+// TiledNavPathLink marks a segment in TiledNavPathResult.Path that traverses an off-mesh link.
+// Path[StartIndex] is the link's entry point on the mesh and Path[EndIndex] is its exit point
+// (with EndIndex == StartIndex + 1).
+type TiledNavPathLink struct {
+	// StartIndex is the index in TiledNavPathResult.Path where the off-mesh link begins.
+	StartIndex int
+	// EndIndex is the index in TiledNavPathResult.Path where the off-mesh link ends (StartIndex + 1).
+	EndIndex int
+	// FromPoly and ToPoly are the source and destination polygon references connected by the link.
+	FromPoly NavPolyRef
+	ToPoly   NavPolyRef
+	// Start and End are the world-space entry and exit positions of the traversed link direction.
+	Start core.Point
+	End   core.Point
+	// Radius is the link's configured connection/entry radius.
+	Radius float32
+	// Area is the link's navigation area.
+	Area NavArea
+	// Flags are the link's flags (including NavLinkOffMesh).
+	Flags uint32
+	// LinkID is the link's configured identifier.
+	LinkID int
+	// UserData is the link's configured custom metadata.
+	UserData any
+}
+
 // TiledNavPathResult is the outcome of a 2D TiledNavMesh path search, including
 // the tile footprint and tile versions crossed so callers can detect invalidation.
 type TiledNavPathResult struct {
-	Path       []core.Point
-	Corridor   []NavPolyRef
-	Tiles      []NavTileVersion
+	Path     []core.Point
+	Corridor []NavPolyRef
+	Tiles    []NavTileVersion
+	// Links lists each segment of Path that traverses an off-mesh link, in path order.
+	// For each link, Path[link.StartIndex] is the entry point and Path[link.EndIndex]
+	// (with EndIndex == StartIndex + 1) is the exit point.
+	Links      []TiledNavPathLink
 	Found      bool
 	Partial    bool
 	Exhausted  bool
 	Expansions int
+}
+
+// HasLinks reports whether r traverses at least one off-mesh link.
+func (r TiledNavPathResult) HasLinks() bool {
+	return len(r.Links) > 0
+}
+
+// LinkAt returns the off-mesh link traversed by path segment segmentIndex (from Path[segmentIndex]
+// to Path[segmentIndex+1]), or (zero, false) when that segment is ordinary walking movement.
+func (r TiledNavPathResult) LinkAt(segmentIndex int) (TiledNavPathLink, bool) {
+	for _, l := range r.Links {
+		if l.StartIndex == segmentIndex {
+			return l, true
+		}
+		if l.StartIndex > segmentIndex {
+			break
+		}
+	}
+	return TiledNavPathLink{}, false
 }
 
 // CrossesTile reports whether r's corridor passes through coord.
@@ -372,12 +422,39 @@ var tileDir2D = [4]NavTileCoord{
 var tileOppDir2D = [4]int{1, 0, 3, 2}
 
 type tiledPortal2D struct {
-	fromPoly int32
-	toSlot   int32
-	toPoly   int32
-	left     vec2
-	right    vec2
-	cross    bool
+	fromPoly   int32
+	toSlot     int32
+	toPoly     int32
+	left       vec2
+	right      vec2
+	endPos     vec2
+	cost       float64
+	flags      uint32
+	offMeshIdx int32 // 1-based index into tm.offMeshLinks (0 for shared-edge portals)
+	linkID     int
+	cross      bool
+	offMesh    bool
+}
+
+type tiledOffMeshEntry2D struct {
+	idx         int32
+	rawStart    core.Point
+	rawEnd      core.Point
+	link        NavOffMeshLink
+	filterFlags NavFlags
+	watchTiles  []NavTileCoord
+	globalWatch bool
+
+	attached  bool
+	fromCoord NavTileCoord
+	fromSlot  int32
+	fromPoly  int32
+	toCoord   NavTileCoord
+	toSlot    int32
+	toPoly    int32
+	sVec      vec2
+	eVec      vec2
+	cost      float64
 }
 
 type navTileSlot2D struct {
@@ -453,6 +530,11 @@ type TiledNavMesh struct {
 	obstacles      map[NavObstacleID]*obstacleEntry2D
 	tileObstacles  map[NavTileCoord][]NavObstacleID
 
+	// Off-mesh links indexed by insertion order and by candidate endpoint tile coordinates.
+	offMeshLinks       []*tiledOffMeshEntry2D
+	tileOffMeshLinks   map[NavTileCoord][]int32
+	globalOffMeshLinks []int32
+
 	// Tile change listeners & path-invalidation watchers.
 	nextListenerID NavListenerID
 	listeners      []tileListener2D
@@ -479,16 +561,17 @@ func NewTiledNavMesh(cfg TiledNavMeshConfig) *TiledNavMesh {
 		oy = 0
 	}
 	return &TiledNavMesh{
-		tileSize:      ts,
-		originX:       ox,
-		originY:       oy,
-		tiles:         make(map[NavTileCoord]*navTileSlot2D),
-		tileVersions:  make(map[NavTileCoord]uint64),
-		obstacles:     make(map[NavObstacleID]*obstacleEntry2D),
-		tileObstacles: make(map[NavTileCoord][]NavObstacleID),
-		watches:       make(map[NavPathWatchID]*pathWatch2D),
-		tileWatches:   make(map[NavTileCoord][]NavPathWatchID),
-		revision:      1,
+		tileSize:         ts,
+		originX:          ox,
+		originY:          oy,
+		tiles:            make(map[NavTileCoord]*navTileSlot2D),
+		tileVersions:     make(map[NavTileCoord]uint64),
+		obstacles:        make(map[NavObstacleID]*obstacleEntry2D),
+		tileObstacles:    make(map[NavTileCoord][]NavObstacleID),
+		tileOffMeshLinks: make(map[NavTileCoord][]int32),
+		watches:          make(map[NavPathWatchID]*pathWatch2D),
+		tileWatches:      make(map[NavTileCoord][]NavPathWatchID),
+		revision:         1,
 	}
 }
 
@@ -750,12 +833,14 @@ func (tm *TiledNavMesh) RemoveTile(coord NavTileCoord) bool {
 	if !exists {
 		return false
 	}
+	affectedLinks := tm.detachOffMeshLinksForCoords([]NavTileCoord{coord})
 	tm.unlinkNeighborsOf(slot)
 	tm.polyCount -= len(slot.polys)
 	delete(tm.tiles, coord)
 	tm.slots[slot.slotID] = nil
 	tm.freeSlots = append(tm.freeSlots, slot.slotID)
 	tm.tileBVHDirty.Store(true)
+	tm.attachOffMeshLinks(affectedLinks)
 
 	tm.revision++
 	tm.tileVersions[coord]++
@@ -778,7 +863,9 @@ func (tm *TiledNavMesh) RebuildTile(coord NavTileCoord) bool {
 	if !exists {
 		return false
 	}
+	affectedLinks := tm.detachOffMeshLinksForCoords([]NavTileCoord{coord})
 	tm.rebuildSlot(slot)
+	tm.attachOffMeshLinks(affectedLinks)
 	tm.revision++
 	tm.tileVersions[coord]++
 	ver := tm.tileVersions[coord]
@@ -852,7 +939,9 @@ func (tm *TiledNavMesh) installTile(coord NavTileCoord, tile *NavTile, kind NavT
 		tm.markDirtyBatch(coord, kind)
 		return
 	}
+	affectedLinks := tm.detachOffMeshLinksForCoords([]NavTileCoord{coord})
 	tm.rebuildSlot(slot)
+	tm.attachOffMeshLinks(affectedLinks)
 	tm.revision++
 	tm.tileVersions[coord]++
 	tm.notifyChanges([]NavTileChange{{Coord: coord, Kind: kind, Version: tm.tileVersions[coord]}})
@@ -1077,7 +1166,7 @@ func (tm *TiledNavMesh) unlinkNeighborsOf(slot *navTileSlot2D) {
 func (s *navTileSlot2D) removePortalsTo(targetSlot int32) {
 	hasAny := false
 	for _, p := range s.portals {
-		if p.cross && p.toSlot == targetSlot {
+		if p.cross && !p.offMesh && p.toSlot == targetSlot {
 			hasAny = true
 			break
 		}
@@ -1090,7 +1179,33 @@ func (s *navTileSlot2D) removePortalsTo(targetSlot int32) {
 	}
 	kept := s.portals[:0]
 	for _, p := range s.portals {
-		if p.cross && p.toSlot == targetSlot {
+		if p.cross && !p.offMesh && p.toSlot == targetSlot {
+			continue
+		}
+		pid := len(kept)
+		kept = append(kept, p)
+		s.polys[p.fromPoly].outPortals = append(s.polys[p.fromPoly].outPortals, pid)
+	}
+	s.portals = kept
+}
+
+func (s *navTileSlot2D) removeOffMeshPortal(offMeshIdx int32) {
+	hasAny := false
+	for _, p := range s.portals {
+		if p.offMesh && p.offMeshIdx == offMeshIdx {
+			hasAny = true
+			break
+		}
+	}
+	if !hasAny {
+		return
+	}
+	for i := range s.polys {
+		s.polys[i].outPortals = s.polys[i].outPortals[:0]
+	}
+	kept := s.portals[:0]
+	for _, p := range s.portals {
+		if p.offMesh && p.offMeshIdx == offMeshIdx {
 			continue
 		}
 		pid := len(kept)
@@ -1197,6 +1312,7 @@ func (tm *TiledNavMesh) flushBatch() {
 	}
 	slices.SortFunc(coords, compareNavTileCoord2D)
 
+	affectedLinks := tm.detachOffMeshLinksForCoords(coords)
 	changes := make([]NavTileChange, 0, len(coords))
 	for _, c := range coords {
 		kind := tm.dirtyTiles[c]
@@ -1208,6 +1324,7 @@ func (tm *TiledNavMesh) flushBatch() {
 			changes = append(changes, NavTileChange{Coord: c, Kind: NavTileRemoved, Version: tm.tileVersions[c]})
 		}
 	}
+	tm.attachOffMeshLinks(affectedLinks)
 	clear(tm.dirtyTiles)
 	if len(changes) > 0 {
 		tm.revision++
@@ -1410,6 +1527,7 @@ func (tm *TiledNavMesh) rebuildAffectedTiles(coords []NavTileCoord) {
 		}
 		return
 	}
+	affectedLinks := tm.detachOffMeshLinksForCoords(coords)
 	var changes []NavTileChange
 	for _, c := range coords {
 		slot, exists := tm.tiles[c]
@@ -1420,10 +1538,430 @@ func (tm *TiledNavMesh) rebuildAffectedTiles(coords []NavTileCoord) {
 		tm.tileVersions[c]++
 		changes = append(changes, NavTileChange{Coord: c, Kind: NavTileUpdated, Version: tm.tileVersions[c]})
 	}
+	tm.attachOffMeshLinks(affectedLinks)
 	if len(changes) > 0 {
 		tm.revision++
 		tm.notifyChanges(changes)
 	}
+}
+
+// --- Off-mesh links (jumps, drops, ladders, teleports) ---
+
+func (tm *TiledNavMesh) resolveLinkEndpoint(p core.Point, radius float32) (*navTileSlot2D, int32, vec2, bool) {
+	v := toVec2(p)
+	if !isFiniteVec2(v) {
+		return nil, -1, vec2{}, false
+	}
+	if ref, ok := tm.FindPolygon(p); ok {
+		slot := tm.tiles[ref.Tile]
+		if slot != nil {
+			return slot, ref.Poly, v, true
+		}
+	}
+	if radius <= 0 {
+		return nil, -1, vec2{}, false
+	}
+	ext := core.Point{X: core.Points(radius), Y: core.Points(radius)}
+	snapped, ref, ok := tm.NearestPointWithFilter(p, ext, NavFilter{})
+	if !ok {
+		return nil, -1, vec2{}, false
+	}
+	sv := toVec2(snapped)
+	if dist(v, sv) > float64(radius)+portalEps {
+		return nil, -1, vec2{}, false
+	}
+	slot := tm.tiles[ref.Tile]
+	if slot == nil {
+		return nil, -1, vec2{}, false
+	}
+	return slot, ref.Poly, sv, true
+}
+
+func (tm *TiledNavMesh) offMeshWatchCoords(start, end core.Point, radius float32) ([]NavTileCoord, bool) {
+	r := float64(radius) + portalEps*2
+	var coords []NavTileCoord
+	for _, p := range [2]core.Point{start, end} {
+		v := toVec2(p)
+		fMinX := math.Floor((v.x - r - tm.originX) / tm.tileSize)
+		fMaxX := math.Floor((v.x + r - tm.originX) / tm.tileSize)
+		fMinY := math.Floor((v.y - r - tm.originY) / tm.tileSize)
+		fMaxY := math.Floor((v.y + r - tm.originY) / tm.tileSize)
+		if fMinX < float64(minNavTileCoord2D) || fMaxX > float64(maxNavTileCoord2D) ||
+			fMinY < float64(minNavTileCoord2D) || fMaxY > float64(maxNavTileCoord2D) {
+			return nil, true
+		}
+		spanX := int64(fMaxX) - int64(fMinX) + 1
+		spanY := int64(fMaxY) - int64(fMinY) + 1
+		if spanX <= 0 || spanY <= 0 || spanX > maxOffMeshWatchTiles2D || spanY > maxOffMeshWatchTiles2D || spanX*spanY > maxOffMeshWatchTiles2D {
+			return nil, true
+		}
+		for tx := int64(fMinX); tx <= int64(fMaxX); tx++ {
+			for ty := int64(fMinY); ty <= int64(fMaxY); ty++ {
+				coords = append(coords, NavTileCoord{X: int32(tx), Y: int32(ty)})
+			}
+		}
+	}
+	slices.SortFunc(coords, compareNavTileCoord2D)
+	coords = slices.Compact(coords)
+	if int64(len(coords)) > maxOffMeshWatchTiles2D {
+		return nil, true
+	}
+	return coords, false
+}
+
+func (tm *TiledNavMesh) addTileOffMeshRef(coord NavTileCoord, idx int32) {
+	ids := tm.tileOffMeshLinks[coord]
+	pos, found := slices.BinarySearch(ids, idx)
+	if found {
+		return
+	}
+	tm.tileOffMeshLinks[coord] = slices.Insert(ids, pos, idx)
+}
+
+func (tm *TiledNavMesh) detachOffMeshEntry(e *tiledOffMeshEntry2D) {
+	if e == nil || !e.attached {
+		return
+	}
+	if int(e.fromSlot) >= 0 && int(e.fromSlot) < len(tm.slots) {
+		if s := tm.slots[e.fromSlot]; s != nil {
+			s.removeOffMeshPortal(e.idx)
+		}
+	}
+	if e.link.Bidirectional && e.toSlot != e.fromSlot && int(e.toSlot) >= 0 && int(e.toSlot) < len(tm.slots) {
+		if s := tm.slots[e.toSlot]; s != nil {
+			s.removeOffMeshPortal(e.idx)
+		}
+	}
+	e.attached = false
+}
+
+func (tm *TiledNavMesh) attachOffMeshEntry(e *tiledOffMeshEntry2D) bool {
+	if e == nil || len(tm.tiles) == 0 {
+		return false
+	}
+	if e.attached {
+		tm.detachOffMeshEntry(e)
+	}
+	fromSlot, fromPoly, sVec, okFrom := tm.resolveLinkEndpoint(e.rawStart, e.link.Radius)
+	toSlot, toPoly, eVec, okTo := tm.resolveLinkEndpoint(e.rawEnd, e.link.Radius)
+	if !okFrom || !okTo {
+		return false
+	}
+	if fromSlot.slotID == toSlot.slotID && fromPoly == toPoly && vequal(sVec, eVec) {
+		return false
+	}
+	cost := float64(e.link.Cost)
+	if !(cost > 0) || math.IsInf(cost, 0) {
+		cost = dist(sVec, eVec)
+	}
+	pid := len(fromSlot.portals)
+	fromSlot.portals = append(fromSlot.portals, tiledPortal2D{
+		fromPoly:   fromPoly,
+		toSlot:     toSlot.slotID,
+		toPoly:     toPoly,
+		left:       sVec,
+		right:      sVec,
+		endPos:     eVec,
+		cost:       cost,
+		flags:      e.link.Flags,
+		offMeshIdx: e.idx,
+		linkID:     e.link.ID,
+		offMesh:    true,
+	})
+	fromSlot.polys[fromPoly].outPortals = append(fromSlot.polys[fromPoly].outPortals, pid)
+
+	if e.link.Bidirectional {
+		rpid := len(toSlot.portals)
+		toSlot.portals = append(toSlot.portals, tiledPortal2D{
+			fromPoly:   toPoly,
+			toSlot:     fromSlot.slotID,
+			toPoly:     fromPoly,
+			left:       eVec,
+			right:      eVec,
+			endPos:     sVec,
+			cost:       cost,
+			flags:      e.link.Flags,
+			offMeshIdx: e.idx,
+			linkID:     e.link.ID,
+			offMesh:    true,
+		})
+		toSlot.polys[toPoly].outPortals = append(toSlot.polys[toPoly].outPortals, rpid)
+	}
+
+	e.attached = true
+	e.fromCoord = fromSlot.coord
+	e.fromSlot = fromSlot.slotID
+	e.fromPoly = fromPoly
+	e.toCoord = toSlot.coord
+	e.toSlot = toSlot.slotID
+	e.toPoly = toPoly
+	e.sVec = sVec
+	e.eVec = eVec
+	e.cost = cost
+	e.link.Start = toPoint(sVec)
+	e.link.End = toPoint(eVec)
+	return true
+}
+
+func (tm *TiledNavMesh) detachOffMeshLinksForCoords(coords []NavTileCoord) []int32 {
+	if len(tm.offMeshLinks) == 0 || len(coords) == 0 {
+		return nil
+	}
+	var ids []int32
+	for _, c := range coords {
+		ids = append(ids, tm.tileOffMeshLinks[c]...)
+	}
+	if len(tm.globalOffMeshLinks) > 0 {
+		ids = append(ids, tm.globalOffMeshLinks...)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	for _, idx := range ids {
+		if int(idx) > 0 && int(idx) <= len(tm.offMeshLinks) {
+			tm.detachOffMeshEntry(tm.offMeshLinks[idx-1])
+		}
+	}
+	return ids
+}
+
+func (tm *TiledNavMesh) attachOffMeshLinks(ids []int32) {
+	for _, idx := range ids {
+		if int(idx) > 0 && int(idx) <= len(tm.offMeshLinks) {
+			tm.attachOffMeshEntry(tm.offMeshLinks[idx-1])
+		}
+	}
+}
+
+// AddOffMeshLink connects the polygons containing (or within link.Radius of) link.Start and link.End
+// with a directed (or bidirectional) off-mesh portal and automatically re-attaches it whenever touched
+// tiles are replaced, rebuilt, or carved by dynamic obstacles.
+// Returns false if tm is nil or empty, link coordinates or Radius are invalid, either endpoint cannot
+// attach to the mesh, or both endpoints collapse to the same point on the same polygon.
+func (tm *TiledNavMesh) AddOffMeshLink(link NavOffMeshLink) bool {
+	if tm == nil || len(tm.tiles) == 0 {
+		return false
+	}
+	if !isFinite32(link.Radius) || link.Radius < 0 {
+		return false
+	}
+	if !isFiniteVec2(toVec2(link.Start)) || !isFiniteVec2(toVec2(link.End)) {
+		return false
+	}
+	filterFlags := offMeshFilterFlags(link.Flags)
+	stored := link
+	stored.Flags = link.Flags | NavLinkOffMesh
+	idx := int32(len(tm.offMeshLinks) + 1)
+	entry := &tiledOffMeshEntry2D{
+		idx:         idx,
+		rawStart:    link.Start,
+		rawEnd:      link.End,
+		link:        stored,
+		filterFlags: filterFlags,
+	}
+	if !tm.attachOffMeshEntry(entry) {
+		return false
+	}
+	watchTiles, globalWatch := tm.offMeshWatchCoords(link.Start, link.End, link.Radius)
+	entry.watchTiles = watchTiles
+	entry.globalWatch = globalWatch
+	tm.offMeshLinks = append(tm.offMeshLinks, entry)
+	if globalWatch {
+		tm.globalOffMeshLinks = append(tm.globalOffMeshLinks, idx)
+	} else {
+		for _, c := range watchTiles {
+			tm.addTileOffMeshRef(c, idx)
+		}
+	}
+
+	touched := []NavTileCoord{entry.fromCoord}
+	if entry.toCoord != entry.fromCoord {
+		touched = append(touched, entry.toCoord)
+		slices.SortFunc(touched, compareNavTileCoord2D)
+	}
+	if tm.batchDepth > 0 {
+		for _, c := range touched {
+			tm.markDirtyBatch(c, NavTileUpdated)
+		}
+		return true
+	}
+	tm.revision++
+	changes := make([]NavTileChange, len(touched))
+	for i, c := range touched {
+		tm.tileVersions[c]++
+		changes[i] = NavTileChange{Coord: c, Kind: NavTileUpdated, Version: tm.tileVersions[c]}
+	}
+	tm.notifyChanges(changes)
+	return true
+}
+
+// OffMeshLinks returns a copy of all off-mesh links registered on tm in insertion order.
+func (tm *TiledNavMesh) OffMeshLinks() []NavOffMeshLink {
+	if tm == nil || len(tm.offMeshLinks) == 0 {
+		return nil
+	}
+	out := make([]NavOffMeshLink, len(tm.offMeshLinks))
+	for i, e := range tm.offMeshLinks {
+		out[i] = e.link
+	}
+	return out
+}
+
+// ClearOffMeshLinks removes all off-mesh links from tm and bumps the mesh revision when any were present.
+func (tm *TiledNavMesh) ClearOffMeshLinks() {
+	if tm == nil || len(tm.offMeshLinks) == 0 {
+		return
+	}
+	var touched []NavTileCoord
+	for _, e := range tm.offMeshLinks {
+		if e.attached {
+			touched = append(touched, e.fromCoord)
+			if e.toCoord != e.fromCoord {
+				touched = append(touched, e.toCoord)
+			}
+			tm.detachOffMeshEntry(e)
+		}
+	}
+	tm.offMeshLinks = nil
+	clear(tm.tileOffMeshLinks)
+	tm.globalOffMeshLinks = nil
+
+	slices.SortFunc(touched, compareNavTileCoord2D)
+	touched = slices.Compact(touched)
+	if tm.batchDepth > 0 {
+		if len(touched) == 0 {
+			tm.revision++
+			return
+		}
+		for _, c := range touched {
+			tm.markDirtyBatch(c, NavTileUpdated)
+		}
+		return
+	}
+	tm.revision++
+	if len(touched) == 0 {
+		return
+	}
+	changes := make([]NavTileChange, len(touched))
+	for i, c := range touched {
+		tm.tileVersions[c]++
+		changes[i] = NavTileChange{Coord: c, Kind: NavTileUpdated, Version: tm.tileVersions[c]}
+	}
+	tm.notifyChanges(changes)
+}
+
+func (tm *TiledNavMesh) offMeshMeta(p tiledPortal2D) (radius float32, area NavArea, filterFlags NavFlags, userData any) {
+	if p.offMeshIdx > 0 && int(p.offMeshIdx) <= len(tm.offMeshLinks) {
+		e := tm.offMeshLinks[p.offMeshIdx-1]
+		return e.link.Radius, e.link.Area, e.filterFlags, e.link.UserData
+	}
+	return 0, NavAreaDefault, offMeshFilterFlags(p.flags), nil
+}
+
+func (tm *TiledNavMesh) offMeshPortalCost2D(p tiledPortal2D, filter NavFilter) (float64, bool) {
+	_, area, filterFlags, _ := tm.offMeshMeta(p)
+	if !filter.Allows(area, filterFlags) {
+		return 0, false
+	}
+	mult := filter.AreaCost(area)
+	if mult <= 0 || math.IsNaN(mult) || math.IsInf(mult, 0) {
+		return 0, false
+	}
+	c := p.cost * mult
+	if math.IsNaN(c) || math.IsInf(c, 0) {
+		return 0, false
+	}
+	return c, true
+}
+
+func (tm *TiledNavMesh) buildTiledNavShortcuts2D(gVec vec2, minCost float64, filter NavFilter) ([]navShortcut2D, bool) {
+	if len(tm.offMeshLinks) == 0 {
+		return nil, false
+	}
+	var dst []navShortcut2D
+	for _, e := range tm.offMeshLinks {
+		if !e.attached {
+			continue
+		}
+		if !filter.Allows(e.link.Area, e.filterFlags) {
+			continue
+		}
+		mult := filter.AreaCost(e.link.Area)
+		if mult <= 0 || math.IsNaN(mult) || math.IsInf(mult, 0) {
+			continue
+		}
+		effCost := e.cost * mult
+		if math.IsNaN(effCost) || math.IsInf(effCost, 0) {
+			continue
+		}
+		if effCost >= float64(dist(e.sVec, e.eVec)*minCost)-1e-9 {
+			continue
+		}
+		if toSlot := tm.slots[e.toSlot]; toSlot != nil && int(e.toPoly) < len(toSlot.polys) {
+			tp := &toSlot.polys[e.toPoly]
+			if filter.Allows(tp.area, tp.flags) {
+				tc := filter.AreaCost(tp.area)
+				if tc > 0 && !math.IsNaN(tc) && !math.IsInf(tc, 0) {
+					if len(dst) >= 64 {
+						return nil, true
+					}
+					dst = append(dst, navShortcut2D{
+						start:  e.sVec,
+						end:    e.eVec,
+						cost:   effCost,
+						toGoal: float64(dist(e.eVec, gVec) * minCost),
+					})
+				}
+			}
+		}
+		if e.link.Bidirectional {
+			if fromSlot := tm.slots[e.fromSlot]; fromSlot != nil && int(e.fromPoly) < len(fromSlot.polys) {
+				fp := &fromSlot.polys[e.fromPoly]
+				if filter.Allows(fp.area, fp.flags) {
+					fc := filter.AreaCost(fp.area)
+					if fc > 0 && !math.IsNaN(fc) && !math.IsInf(fc, 0) {
+						if len(dst) >= 64 {
+							return nil, true
+						}
+						dst = append(dst, navShortcut2D{
+							start:  e.eVec,
+							end:    e.sVec,
+							cost:   effCost,
+							toGoal: float64(dist(e.sVec, gVec) * minCost),
+						})
+					}
+				}
+			}
+		}
+	}
+	k := len(dst)
+	if k <= 1 {
+		return dst, false
+	}
+	for pass := 0; pass < k-1; pass++ {
+		changed := false
+		for i := range k {
+			best := dst[i].toGoal
+			endI := dst[i].end
+			for j := range k {
+				if i == j {
+					continue
+				}
+				cand := float64(dist(endI, dst[j].start)*minCost) + dst[j].cost + dst[j].toGoal
+				if cand < best-1e-12 {
+					best = cand
+					changed = true
+				}
+			}
+			dst[i].toGoal = best
+		}
+		if !changed {
+			break
+		}
+	}
+	return dst, false
 }
 
 // AddTileListener registers fn to be invoked whenever any tile is added, updated, or removed.
@@ -2337,6 +2875,9 @@ func (tm *TiledNavMesh) raycastWithFilterInternal(start, target core.Point, filt
 		reached := false
 		for _, pid := range poly.outPortals {
 			tp := slot.portals[pid]
+			if tp.offMesh {
+				continue
+			}
 			cand := polyLoc2D{slot: tp.toSlot, poly: tp.toPoly}
 			if visited[cand] {
 				continue
@@ -2417,6 +2958,9 @@ func (tm *TiledNavMesh) findCornerBridgeTiled2D(start polyLoc2D, exitPt, sVec, t
 		poly := &slot.polys[cur.poly]
 		for _, pid := range poly.outPortals {
 			tp := slot.portals[pid]
+			if tp.offMesh {
+				continue
+			}
 			nb := polyLoc2D{slot: tp.toSlot, poly: tp.toPoly}
 			if seen[nb] {
 				continue
@@ -2516,6 +3060,7 @@ type tiledAStarNode2D struct {
 	tiePoly   int32
 	tieToTile NavTileCoord
 	tieToPoly int32
+	tieLink   int32
 }
 
 func tiledAStarLess2D(a, b tiledAStarNode2D) bool {
@@ -2534,7 +3079,10 @@ func tiledAStarLess2D(a, b tiledAStarNode2D) bool {
 	if c := compareNavTileCoord2D(a.tieToTile, b.tieToTile); c != 0 {
 		return c < 0
 	}
-	return a.tieToPoly < b.tieToPoly
+	if a.tieToPoly != b.tieToPoly {
+		return a.tieToPoly < b.tieToPoly
+	}
+	return a.tieLink < b.tieLink
 }
 
 func tiledHeapPush2D(open *[]tiledAStarNode2D, heapPos []int, n tiledAStarNode2D) {
@@ -2626,6 +3174,7 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 	}
 
 	minCost := minFilterCost(filter)
+	shortcuts, zeroH := tm.buildTiledNavShortcuts2D(gVec, minCost, filter)
 
 	// Check direct single-polygon path.
 	directPossible := false
@@ -2652,7 +3201,7 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			}
 		}
 	}
-	if directPossible && directCost <= dist(sVec, gVec)*minCost+1e-9 {
+	if directPossible && directCost <= heuristic2D(sVec, gVec, minCost, shortcuts, zeroH)+1e-9 {
 		slot := tm.slots[directLoc.slot]
 		ref := NavPolyRef{Tile: slot.coord, Poly: directLoc.poly, Salt: slot.salt}
 		return TiledNavPathResult{
@@ -2688,7 +3237,7 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 		return (uint64(uint32(slotID)) << 32) | uint64(uint32(pid))
 	}
 
-	pushOrUpdate := func(slotID, pid int32, g, h float64, parent int, pt, apex, fLeft, fRight vec2, apexG, areaCost float64, tieTile NavTileCoord, tiePoly int32, tieToTile NavTileCoord, tieToPoly int32) {
+	pushOrUpdate := func(slotID, pid int32, g, h float64, parent int, pt, apex, fLeft, fRight vec2, apexG, areaCost float64, tieTile NavTileCoord, tiePoly int32, tieToTile NavTileCoord, tieToPoly, tieLink int32) {
 		f := g + h
 		var idx int
 		if slotID < 0 {
@@ -2716,7 +3265,7 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 				heapPos = append(heapPos, -1)
 				tiledHeapPush2D(&open, heapPos, tiledAStarNode2D{
 					idx: idx, f: f, h: h,
-					tieTile: tieTile, tiePoly: tiePoly, tieToTile: tieToTile, tieToPoly: tieToPoly,
+					tieTile: tieTile, tiePoly: tiePoly, tieToTile: tieToTile, tieToPoly: tieToPoly, tieLink: tieLink,
 				})
 				return
 			}
@@ -2743,7 +3292,7 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 		}
 		tiledHeapPush2D(&open, heapPos, tiledAStarNode2D{
 			idx: idx, f: f, h: h,
-			tieTile: tieTile, tiePoly: tiePoly, tieToTile: tieToTile, tieToPoly: tieToPoly,
+			tieTile: tieTile, tiePoly: tiePoly, tieToTile: tieToTile, tieToPoly: tieToPoly, tieLink: tieLink,
 		})
 	}
 
@@ -2771,7 +3320,7 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 
 	maxCoord := NavTileCoord{X: math.MaxInt32, Y: math.MaxInt32}
 	if directPossible {
-		pushOrUpdate(-1, -1, directCost, 0, -1, gVec, sVec, gVec, gVec, 0, minCost, maxCoord, math.MaxInt32, maxCoord, math.MaxInt32)
+		pushOrUpdate(-1, -1, directCost, 0, -1, gVec, sVec, gVec, gVec, 0, minCost, maxCoord, math.MaxInt32, maxCoord, math.MaxInt32, math.MaxInt32)
 	}
 
 	for _, sl := range startLocs {
@@ -2792,10 +3341,30 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			if dc <= 0 || math.IsNaN(dc) || math.IsInf(dc, 0) {
 				continue
 			}
-			exitPt := bestPortalPoint(sVec, gVec, tp.left, tp.right)
-			g := dist(sVec, exitPt) * spCost
-			h := dist(exitPt, gVec) * minCost
-			pushOrUpdate(sl.slot, int32(pid), g, h, -1, exitPt, sVec, tp.left, tp.right, 0, spCost, slot.coord, sl.poly, dst.coord, tp.toPoly)
+			var g, h, apexG, areaCost float64
+			var exitPt, apex, fLeft, fRight vec2
+			if tp.offMesh {
+				linkCost, ok := tm.offMeshPortalCost2D(tp, filter)
+				if !ok {
+					continue
+				}
+				g = float64(dist(sVec, tp.left)*spCost) + linkCost
+				exitPt = tp.endPos
+				apex = tp.endPos
+				fLeft = tp.endPos
+				fRight = tp.endPos
+				apexG = g
+				areaCost = dc
+				h = heuristic2D(exitPt, gVec, minCost, shortcuts, zeroH)
+			} else {
+				apex = sVec
+				fLeft = tp.left
+				fRight = tp.right
+				apexG = 0
+				areaCost = spCost
+				exitPt, g, h = bestPortalPointAndHeuristic2D(sVec, tp.left, tp.right, gVec, tp.left, tp.right, false, 0, 0, spCost, minCost, shortcuts, zeroH)
+			}
+			pushOrUpdate(sl.slot, int32(pid), g, h, -1, exitPt, apex, fLeft, fRight, apexG, areaCost, slot.coord, sl.poly, dst.coord, tp.toPoly, tp.offMeshIdx)
 		}
 	}
 
@@ -2848,12 +3417,12 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			} else {
 				ng = vp.gScore + dist(vp.entryPt, gVec)*toCost
 			}
-			pushOrUpdate(-1, -1, ng, 0, cur.idx, gVec, vp.apex, vp.fLeft, vp.fRight, vp.apexG, toCost, maxCoord, math.MaxInt32, maxCoord, math.MaxInt32)
+			pushOrUpdate(-1, -1, ng, 0, cur.idx, gVec, vp.apex, vp.fLeft, vp.fRight, vp.apexG, toCost, maxCoord, math.MaxInt32, maxCoord, math.MaxInt32, math.MaxInt32)
 		}
 
 		for _, npid := range toPoly.outPortals {
 			ntp := toSlot.portals[npid]
-			if ntp.toSlot == vp.slotID && ntp.toPoly == tp.fromPoly {
+			if !ntp.offMesh && ntp.toSlot == vp.slotID && ntp.toPoly == tp.fromPoly {
 				continue
 			}
 			ndst := tm.slots[ntp.toSlot]
@@ -2868,22 +3437,41 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			if ndc <= 0 || math.IsNaN(ndc) || math.IsInf(ndc, 0) {
 				continue
 			}
-			var ng, newApexG float64
+			var ng, h, newApexG, nextAreaCost float64
 			var exitPt, newApex, newLeft, newRight vec2
-			if math.Abs(toCost-vp.areaCost) <= 1e-12 {
-				newApex, newLeft, newRight, newApexG = advanceFunnel2D(vp.apex, vp.fLeft, vp.fRight, ntp.left, ntp.right, vp.apexG, toCost)
-				exitPt = funnelPortalPoint2D(newApex, newLeft, newRight, gVec, ntp.left, ntp.right)
-				ng = funnelPointDist2D(newApex, newLeft, newRight, exitPt, newApexG, toCost)
+			if ntp.offMesh {
+				linkCost, ok := tm.offMeshPortalCost2D(ntp, filter)
+				if !ok {
+					continue
+				}
+				var walkToLink float64
+				if math.Abs(toCost-vp.areaCost) <= 1e-12 {
+					walkToLink = funnelPointDist2D(vp.apex, vp.fLeft, vp.fRight, ntp.left, vp.apexG, toCost)
+				} else {
+					walkToLink = vp.gScore + dist(vp.entryPt, ntp.left)*toCost
+				}
+				ng = walkToLink + linkCost
+				exitPt = ntp.endPos
+				newApex = ntp.endPos
+				newLeft = ntp.endPos
+				newRight = ntp.endPos
+				newApexG = ng
+				nextAreaCost = ndc
+				h = heuristic2D(exitPt, gVec, minCost, shortcuts, zeroH)
 			} else {
-				exitPt = bestPortalPoint(vp.entryPt, gVec, ntp.left, ntp.right)
-				ng = vp.gScore + dist(vp.entryPt, exitPt)*toCost
-				newApex = vp.entryPt
-				newApexG = vp.gScore
-				newLeft = ntp.left
-				newRight = ntp.right
+				if math.Abs(toCost-vp.areaCost) <= 1e-12 {
+					newApex, newLeft, newRight, newApexG = advanceFunnel2D(vp.apex, vp.fLeft, vp.fRight, ntp.left, ntp.right, vp.apexG, toCost)
+					exitPt, ng, h = bestPortalPointAndHeuristic2D(newApex, newLeft, newRight, gVec, ntp.left, ntp.right, true, newApexG, vp.gScore, toCost, minCost, shortcuts, zeroH)
+				} else {
+					newApex = vp.entryPt
+					newApexG = vp.gScore
+					newLeft = ntp.left
+					newRight = ntp.right
+					exitPt, ng, h = bestPortalPointAndHeuristic2D(vp.entryPt, ntp.left, ntp.right, gVec, ntp.left, ntp.right, false, vp.gScore, vp.gScore, toCost, minCost, shortcuts, zeroH)
+				}
+				nextAreaCost = toCost
 			}
-			h := dist(exitPt, gVec) * minCost
-			pushOrUpdate(tp.toSlot, int32(npid), ng, h, cur.idx, exitPt, newApex, newLeft, newRight, newApexG, toCost, toSlot.coord, tp.toPoly, ndst.coord, ntp.toPoly)
+			pushOrUpdate(tp.toSlot, int32(npid), ng, h, cur.idx, exitPt, newApex, newLeft, newRight, newApexG, nextAreaCost, toSlot.coord, tp.toPoly, ndst.coord, ntp.toPoly, ntp.offMeshIdx)
 		}
 	}
 
@@ -2924,8 +3512,9 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			corridor[i+1] = NavPolyRef{Tile: dst.coord, Poly: tp.toPoly, Salt: dst.salt}
 		}
 		res.Corridor = corridor
-		tightPath, extraTiles := tm.tightenTiledPath2D(stringPullTiled2D(sVec, gVec, chain), corridor, filter)
+		tightPath, pathLinks, extraTiles := tm.finalizeTiledCorridor2D(sVec, gVec, chain, corridor, filter)
 		res.Path = tightPath
+		res.Links = pathLinks
 		res.Tiles = tm.collectTileVersions(corridor, extraTiles)
 		return res
 	}
@@ -2963,13 +3552,82 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			corridor[i+1] = NavPolyRef{Tile: dst.coord, Poly: tp.toPoly, Salt: dst.salt}
 		}
 		res.Corridor = corridor
-		tightPath, extraTiles := tm.tightenTiledPath2D(stringPullTiled2D(sVec, bestPt, chain), corridor, filter)
+		tightPath, pathLinks, extraTiles := tm.finalizeTiledCorridor2D(sVec, bestPt, chain, corridor, filter)
 		res.Path = tightPath
+		res.Links = pathLinks
 		res.Tiles = tm.collectTileVersions(corridor, extraTiles)
 		return res
 	}
 
 	return res
+}
+
+func (tm *TiledNavMesh) finalizeTiledCorridor2D(start, end vec2, chain []tiledPortal2D, corridor []NavPolyRef, filter NavFilter) ([]core.Point, []TiledNavPathLink, []NavTileCoord) {
+	hasOffMesh := false
+	for _, tp := range chain {
+		if tp.offMesh {
+			hasOffMesh = true
+			break
+		}
+	}
+	if !hasOffMesh {
+		tightPath, extraTiles := tm.tightenTiledPath2D(stringPullTiled2D(start, end, chain), corridor, filter)
+		return tightPath, nil, extraTiles
+	}
+
+	var pts []core.Point
+	var links []TiledNavPathLink
+	var extraTiles []NavTileCoord
+	segStart := start
+	segBegin := 0
+	for i, tp := range chain {
+		if !tp.offMesh {
+			continue
+		}
+		segPts, segExtra := tm.tightenTiledPath2D(stringPullTiled2D(segStart, tp.left, chain[segBegin:i]), corridor[segBegin:i+1], filter)
+		extraTiles = append(extraTiles, segExtra...)
+		for _, pt := range segPts {
+			if len(pts) == 0 || !vequal(toVec2(pts[len(pts)-1]), toVec2(pt)) {
+				pts = append(pts, pt)
+			}
+		}
+		linkStartPt := toPoint(tp.left)
+		if len(pts) == 0 {
+			pts = append(pts, linkStartPt)
+		} else if !vequal(toVec2(pts[len(pts)-1]), tp.left) {
+			pts = append(pts, linkStartPt)
+		} else {
+			pts[len(pts)-1] = linkStartPt
+		}
+		startIdx := len(pts) - 1
+		linkEndPt := toPoint(tp.endPos)
+		pts = append(pts, linkEndPt)
+		endIdx := len(pts) - 1
+		radius, area, _, userData := tm.offMeshMeta(tp)
+		links = append(links, TiledNavPathLink{
+			StartIndex: startIdx,
+			EndIndex:   endIdx,
+			FromPoly:   corridor[i],
+			ToPoly:     corridor[i+1],
+			Start:      linkStartPt,
+			End:        linkEndPt,
+			Radius:     radius,
+			Area:       area,
+			Flags:      tp.flags,
+			LinkID:     tp.linkID,
+			UserData:   userData,
+		})
+		segStart = tp.endPos
+		segBegin = i + 1
+	}
+	tailPts, tailExtra := tm.tightenTiledPath2D(stringPullTiled2D(segStart, end, chain[segBegin:]), corridor[segBegin:], filter)
+	extraTiles = append(extraTiles, tailExtra...)
+	for _, pt := range tailPts {
+		if len(pts) == 0 || !vequal(toVec2(pts[len(pts)-1]), toVec2(pt)) {
+			pts = append(pts, pt)
+		}
+	}
+	return pts, links, extraTiles
 }
 
 func (tm *TiledNavMesh) collectTileVersions(corridor []NavPolyRef, extra []NavTileCoord) []NavTileVersion {
@@ -3035,6 +3693,38 @@ func funnelPointDist2D(apex, fLeft, fRight, target vec2, apexG, cost float64) fl
 		return apexG + (dist(apex, fRight)+dist(fRight, target))*cost
 	}
 	return apexG + dist(apex, target)*cost
+}
+
+// bestPortalPointAndHeuristic2D chooses the crossing point on [pLeft, pRight] that minimizes
+// g(pt) + h(pt) across the direct goal and any admissible off-mesh shortcut targets, so crossing
+// tile borders on the way to a shortcut link never overestimates f-score.
+func bestPortalPointAndHeuristic2D(apex, fLeft, fRight, gVec, pLeft, pRight vec2, useFunnel bool, apexG, baseG, toCost, minCost float64, shortcuts []navShortcut2D, zeroH bool) (exitPt vec2, g, h float64) {
+	evalTarget := func(target vec2) (vec2, float64, float64) {
+		var pt vec2
+		var cg float64
+		if useFunnel {
+			pt = funnelPortalPoint2D(apex, fLeft, fRight, target, pLeft, pRight)
+			cg = funnelPointDist2D(apex, fLeft, fRight, pt, apexG, toCost)
+		} else {
+			pt = bestPortalPoint(apex, target, pLeft, pRight)
+			cg = baseG + dist(apex, pt)*toCost
+		}
+		ch := heuristic2D(pt, gVec, minCost, shortcuts, zeroH)
+		return pt, cg, ch
+	}
+	exitPt, g, h = evalTarget(gVec)
+	if len(shortcuts) == 0 || zeroH {
+		return exitPt, g, h
+	}
+	bestF := g + h
+	for i := range shortcuts {
+		pt, cg, ch := evalTarget(shortcuts[i].start)
+		if cf := cg + ch; cf < bestF-1e-12 {
+			bestF = cf
+			exitPt, g, h = pt, cg, ch
+		}
+	}
+	return exitPt, g, h
 }
 
 // tightenTiledPath2D removes any artificial bends at interior tile-grid vertices on uniform-cost

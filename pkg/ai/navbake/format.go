@@ -35,7 +35,7 @@ type Mesh struct {
 	Radius float32 `yaml:"radius"`
 	// Polygons are the mesh's convex polygons.
 	Polygons []Polygon `yaml:"polygons"`
-	// Links are optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) applied by NavMesh.
+	// Links are optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) applied by NavMesh and TiledNavMesh.
 	Links []OffMeshLink `yaml:"links,omitempty"`
 }
 
@@ -115,6 +115,24 @@ func noNegZero32(f float32) float32 {
 	return f
 }
 
+func (l OffMeshLink) navOffMeshLink() ai.NavOffMeshLink {
+	var ud any
+	if l.UserData != "" {
+		ud = l.UserData
+	}
+	return ai.NavOffMeshLink{
+		Start:         l.Start.CorePoint(),
+		End:           l.End.CorePoint(),
+		Radius:        l.Radius,
+		Bidirectional: l.Bidirectional,
+		Flags:         l.Flags,
+		ID:            l.ID,
+		Cost:          l.Cost,
+		Area:          l.Area,
+		UserData:      ud,
+	}
+}
+
 // NavMesh builds the ai.NavMesh of m, ready for FindPath; polygons that touch along an edge are connected there,
 // and any OffMeshLinks stored in m.Links are registered via AddOffMeshLink.
 func (m *Mesh) NavMesh() *ai.NavMesh {
@@ -127,27 +145,14 @@ func (m *Mesh) NavMesh() *ai.NavMesh {
 	}
 	nav := ai.BuildNavMesh(polys)
 	for _, l := range m.Links {
-		var ud any
-		if l.UserData != "" {
-			ud = l.UserData
-		}
-		nav.AddOffMeshLink(ai.NavOffMeshLink{
-			Start:         l.Start.CorePoint(),
-			End:           l.End.CorePoint(),
-			Radius:        l.Radius,
-			Bidirectional: l.Bidirectional,
-			Flags:         l.Flags,
-			ID:            l.ID,
-			Cost:          l.Cost,
-			Area:          l.Area,
-			UserData:      ud,
-		})
+		nav.AddOffMeshLink(l.navOffMeshLink())
 	}
 	return nav
 }
 
 // TiledNavMesh builds an ai.TiledNavMesh partitioned into fixed square tiles of size tileSize
-// from m's baked polygons, ready for runtime tile replacement and dynamic obstacle carving.
+// from m's baked polygons, ready for runtime tile replacement and dynamic obstacle carving;
+// any OffMeshLinks stored in m.Links are registered via AddOffMeshLink.
 func (m *Mesh) TiledNavMesh(tileSize float32) *ai.TiledNavMesh {
 	if m == nil {
 		return ai.BuildTiledNavMesh(nil, tileSize)
@@ -156,7 +161,11 @@ func (m *Mesh) TiledNavMesh(tileSize float32) *ai.TiledNavMesh {
 	for i, p := range m.Polygons {
 		polys[i] = p
 	}
-	return ai.BuildTiledNavMesh(polys, tileSize)
+	tm := ai.BuildTiledNavMesh(polys, tileSize)
+	for _, l := range m.Links {
+		tm.AddOffMeshLink(l.navOffMeshLink())
+	}
+	return tm
 }
 
 // Parse decodes and validates a baked mesh file. Unknown fields, a second YAML document and any value Validate refuses are errors.
