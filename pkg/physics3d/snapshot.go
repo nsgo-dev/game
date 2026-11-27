@@ -11,7 +11,14 @@ import (
 )
 
 // SnapshotVersion is the schema version stored in WorldSnapshot.
-const SnapshotVersion = 1
+// Version 2 added WorldSnapshot.Materials and BodySnapshot.MaterialIndex so
+// shared *PhysicsMaterial identity survives Save and Restore. Restore still
+// reads version 1 snapshots (which store inline BodySnapshot.Material) and
+// refuses any other version.
+const SnapshotVersion = 2
+
+// oldestSnapshotVersion is the oldest snapshot version Restore reads.
+const oldestSnapshotVersion = 1
 
 // BodySnapshot captures the complete public and private simulation state of a physics3d.Body.
 type BodySnapshot struct {
@@ -35,6 +42,7 @@ type BodySnapshot struct {
 	LinearDamping      float32          `json:"linearDamping"`
 	AngularDamping     float32          `json:"angularDamping"`
 	Material           *PhysicsMaterial `json:"material,omitempty"`
+	MaterialIndex      *int             `json:"materialIndex,omitempty"`
 	GravityScale       float32          `json:"gravityScale"`
 	GravityScaleSet    bool             `json:"gravityScaleSet,omitempty"`
 	Static             bool             `json:"static,omitempty"`
@@ -317,6 +325,7 @@ type WorldSnapshot struct {
 	SolverIterations int                       `json:"solverIterations"`
 	NextID           int                       `json:"nextID"`
 	NextColliderID   int                       `json:"nextColliderID"`
+	Materials        []PhysicsMaterial         `json:"materials,omitempty"`
 	Bodies           []BodySnapshot            `json:"bodies,omitempty"`
 	WarmStartCache   []CachedImpulseSnapshot   `json:"warmStartCache,omitempty"`
 	ActiveContacts   []ActiveContactSnapshot   `json:"activeContacts,omitempty"`
@@ -336,12 +345,7 @@ func bodyIDOrZero(b *Body) int {
 	return b.ID
 }
 
-func snapshotBody3D(b *Body) BodySnapshot {
-	var mat *PhysicsMaterial
-	if b.Material != nil {
-		m := *b.Material
-		mat = &m
-	}
+func snapshotBody3D(b *Body, matIdx *int) BodySnapshot {
 	return BodySnapshot{
 		ID:                 b.ID,
 		Tag:                b.Tag,
@@ -362,7 +366,7 @@ func snapshotBody3D(b *Body) BodySnapshot {
 		Friction:           b.Friction,
 		LinearDamping:      b.LinearDamping,
 		AngularDamping:     b.AngularDamping,
-		Material:           mat,
+		MaterialIndex:      matIdx,
 		GravityScale:       b.GravityScale,
 		GravityScaleSet:    b.gravityScaleSet,
 		Static:             b.Static,
@@ -381,12 +385,8 @@ func snapshotBody3D(b *Body) BodySnapshot {
 	}
 }
 
-func applyBody3DSnapshot(dst *Body, src BodySnapshot) {
-	var mat *PhysicsMaterial
-	if src.Material != nil {
-		m := *src.Material
-		mat = &m
-	}
+func applyBody3DSnapshot(dst *Body, src BodySnapshot, mat *PhysicsMaterial) {
+	ud := dst.UserData
 	*dst = Body{
 		ID:                 src.ID,
 		Tag:                src.Tag,
@@ -414,6 +414,7 @@ func applyBody3DSnapshot(dst *Body, src BodySnapshot) {
 		Mask:               src.Mask,
 		IsTrigger:          src.IsTrigger,
 		Area:               src.Area,
+		UserData:           ud,
 		gravityScaleSet:    src.GravityScaleSet,
 		customCenterOfMass: src.CustomCenterOfMass,
 		customInertia:      src.CustomInertia,
@@ -892,10 +893,23 @@ func (w *World) Save() WorldSnapshot {
 
 	if len(w.bodies) > 0 {
 		snap.Bodies = make([]BodySnapshot, 0, len(w.bodies))
+		matIndexByPtr := make(map[*PhysicsMaterial]int)
 		for _, b := range w.bodies {
-			if b != nil {
-				snap.Bodies = append(snap.Bodies, snapshotBody3D(b))
+			if b == nil {
+				continue
 			}
+			var matIdx *int
+			if b.Material != nil {
+				idx, ok := matIndexByPtr[b.Material]
+				if !ok {
+					idx = len(snap.Materials)
+					matIndexByPtr[b.Material] = idx
+					snap.Materials = append(snap.Materials, *b.Material)
+				}
+				i := idx
+				matIdx = &i
+			}
+			snap.Bodies = append(snap.Bodies, snapshotBody3D(b, matIdx))
 		}
 	}
 
@@ -1084,14 +1098,21 @@ func (w *World) Save() WorldSnapshot {
 
 // Restore replaces w's state from snap. Existing *Body, Joint3D, and collider
 // pointers are reused in place by ID/slot when possible so external handles
-// (such as vehicle chassis pointers) and World callbacks stay valid across
-// rollback restores.
+// (such as vehicle chassis pointers), Body.UserData, shared *PhysicsMaterial
+// pointers whose values still match snap, and World callbacks stay valid across
+// rollback restores. Shared materials snapshotted in snap.Materials also remain
+// shared when restoring into a fresh World.
 func (w *World) Restore(snap WorldSnapshot) error {
 	if w == nil {
 		return errors.New("physics3d: cannot restore nil World")
 	}
-	if snap.Version != SnapshotVersion {
-		return fmt.Errorf("physics3d: unsupported WorldSnapshot version %d (want %d)", snap.Version, SnapshotVersion)
+	if snap.Version < oldestSnapshotVersion || snap.Version > SnapshotVersion {
+		return fmt.Errorf("physics3d: unsupported WorldSnapshot version %d (want %d to %d)", snap.Version, oldestSnapshotVersion, SnapshotVersion)
+	}
+	for i, bs := range snap.Bodies {
+		if bs.MaterialIndex != nil && (*bs.MaterialIndex < 0 || *bs.MaterialIndex >= len(snap.Materials)) {
+			return fmt.Errorf("physics3d: bodies[%d] has out-of-range materialIndex %d (materials len %d)", i, *bs.MaterialIndex, len(snap.Materials))
+		}
 	}
 	for i, js := range snap.Joints {
 		switch js.Kind {
@@ -1110,21 +1131,64 @@ func (w *World) Restore(snap WorldSnapshot) error {
 		}
 	}
 
-	// Reuse existing *Body pointers by ID so external handles stay valid.
+	// Reuse existing *Body pointers by ID so external handles and UserData stay valid.
 	existingByID := make(map[int]*Body, len(w.bodies))
 	for _, b := range w.bodies {
 		if b != nil {
 			existingByID[b.ID] = b
 		}
 	}
+
+	// Resolve shared material slots: keep an unclaimed existing *PhysicsMaterial
+	// pointer when a matching body still points to it with identical values, and
+	// allocate one shared *PhysicsMaterial per remaining slot so shared materials
+	// stay shared (including into a fresh World) without mutating caller-owned
+	// materials whose values diverged.
+	resolvedMaterials := make([]*PhysicsMaterial, len(snap.Materials))
+	claimedMaterials := make(map[*PhysicsMaterial]bool, len(snap.Materials))
+	for _, bs := range snap.Bodies {
+		if bs.MaterialIndex == nil {
+			continue
+		}
+		idx := *bs.MaterialIndex
+		if resolvedMaterials[idx] != nil {
+			continue
+		}
+		existing := existingByID[bs.ID]
+		if existing != nil && existing.Material != nil && !claimedMaterials[existing.Material] && *existing.Material == snap.Materials[idx] {
+			resolvedMaterials[idx] = existing.Material
+			claimedMaterials[existing.Material] = true
+		}
+	}
+	for i := range resolvedMaterials {
+		if resolvedMaterials[i] == nil {
+			m := snap.Materials[i]
+			resolvedMaterials[i] = &m
+		}
+	}
+
 	restoredBodies := make([]*Body, len(snap.Bodies))
 	bodyByID := make(map[int]*Body, len(snap.Bodies))
 	for i, bs := range snap.Bodies {
-		dst := existingByID[bs.ID]
+		existing := existingByID[bs.ID]
+		dst := existing
 		if dst == nil {
 			dst = new(Body)
+		} else {
+			delete(existingByID, bs.ID)
 		}
-		applyBody3DSnapshot(dst, bs)
+		var mat *PhysicsMaterial
+		if bs.MaterialIndex != nil {
+			mat = resolvedMaterials[*bs.MaterialIndex]
+		} else if bs.Material != nil {
+			if existing != nil && existing.Material != nil && !claimedMaterials[existing.Material] && *existing.Material == *bs.Material {
+				mat = existing.Material
+			} else {
+				m := *bs.Material
+				mat = &m
+			}
+		}
+		applyBody3DSnapshot(dst, bs, mat)
 		restoredBodies[i] = dst
 		bodyByID[dst.ID] = dst
 	}
