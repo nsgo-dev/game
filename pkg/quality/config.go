@@ -2,12 +2,12 @@ package quality
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -139,42 +139,43 @@ var knownOS = []core.OS{core.OSMacOS, core.OSIOS, core.OSAndroid, core.OSWindows
 // Validate reports the first way c breaks the schema: a version other than FormatVersion, a preset scale outside (0, 1], a device rule with no model, an unknown OS or level or the same model and OS twice, or an adapt field out of range.
 func (c Config) Validate() error {
 	if c.Version != FormatVersion {
-		return fmt.Errorf("quality: unsupported version %d (want %d)", c.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the quality config", FormatVersion), "quality: unsupported version %d (want %d)", c.Version, FormatVersion)
 	}
 	for _, l := range Levels() {
-		if err := c.Presets.For(l).Validate(); err != nil {
-			return fmt.Errorf("quality: presets.%s: %w", l, err)
+		if err := c.Presets.For(l).validateAt("presets." + l.String()); err != nil {
+			return err
 		}
 	}
 	seen := make(map[string]bool, len(c.Devices))
 	for i, r := range c.Devices {
+		dPath := fmt.Sprintf("devices[%d]", i)
 		if strings.TrimSpace(r.Model) == "" {
-			return fmt.Errorf("quality: devices[%d]: empty model", i)
+			return loaderr.Errorf(dPath+".model", "set model to a device model prefix such as \"Google Pixel 8\" or \"iPhone12,\"", "quality: devices[%d]: empty model", i)
 		}
 		if strings.TrimSpace(r.Model) != r.Model {
-			return fmt.Errorf("quality: devices[%d]: model %q has leading or trailing spaces, so it would never match a device", i, r.Model)
+			return loaderr.Errorf(dPath+".model", "trim leading and trailing spaces from the device model prefix", "quality: devices[%d]: model %q has leading or trailing spaces, so it would never match a device", i, r.Model)
 		}
 		if r.OS != "" && !isKnownOS(r.OS) {
-			return fmt.Errorf("quality: devices[%d]: unknown os %q", i, r.OS)
+			return loaderr.Errorf(dPath+".os", "set os to macos, ios, android, windows, linux or web, or omit it to match any OS", "quality: devices[%d]: unknown os %q", i, r.OS)
 		}
 		if !r.Level.Valid() {
-			return fmt.Errorf("quality: devices[%d]: invalid level %d", i, uint8(r.Level))
+			return loaderr.Errorf(dPath+".level", "set level to low, medium or high", "quality: devices[%d]: invalid level %d", i, uint8(r.Level))
 		}
 		key := string(r.OS) + "\x00" + strings.ToLower(r.Model)
 		if seen[key] {
-			return fmt.Errorf("quality: devices[%d]: duplicate model %q", i, r.Model)
+			return loaderr.Errorf(dPath+".model", "remove or merge the duplicate device rule for this model and OS", "quality: devices[%d]: duplicate model %q", i, r.Model)
 		}
 		seen[key] = true
 	}
 	a := c.Adapt
 	if a.TargetFPS != 0 && (a.TargetFPS < minTargetFPS || a.TargetFPS > 240) {
-		return fmt.Errorf("quality: adapt.target_fps %d outside [%d, 240]", a.TargetFPS, minTargetFPS)
+		return loaderr.Errorf("adapt.target_fps", fmt.Sprintf("set adapt.target_fps to an integer in [%d, 240] or omit it for the default (%d)", minTargetFPS, DefaultTargetFPS), "quality: adapt.target_fps %d outside [%d, 240]", a.TargetFPS, minTargetFPS)
 	}
 	if a.WindowFrames != 0 && (a.WindowFrames < 10 || a.WindowFrames > 3600) {
-		return fmt.Errorf("quality: adapt.window_frames %d outside [10, 3600]", a.WindowFrames)
+		return loaderr.Errorf("adapt.window_frames", fmt.Sprintf("set adapt.window_frames to an integer in [10, 3600] or omit it for the default (%d)", DefaultWindowFrames), "quality: adapt.window_frames %d outside [10, 3600]", a.WindowFrames)
 	}
 	if a.UpgradeWindows != 0 && (a.UpgradeWindows < 1 || a.UpgradeWindows > 100) {
-		return fmt.Errorf("quality: adapt.upgrade_windows %d outside [1, 100]", a.UpgradeWindows)
+		return loaderr.Errorf("adapt.upgrade_windows", fmt.Sprintf("set adapt.upgrade_windows to an integer in [1, 100] or omit it for the default (%d)", DefaultUpgradeWindows), "quality: adapt.upgrade_windows %d outside [1, 100]", a.UpgradeWindows)
 	}
 	return nil
 }
@@ -191,23 +192,23 @@ func isKnownOS(os core.OS) bool {
 // ParseConfig decodes a quality YAML document and validates it. Unknown fields, a missing or other version, and trailing documents are refused.
 func ParseConfig(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return Config{}, errors.New("quality: empty config document")
+		return Config{}, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a quality config starting with version: %d and a presets block", FormatVersion), "quality: empty config document"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var c Config
 	if err := dec.Decode(&c); err != nil {
-		return Config{}, fmt.Errorf("quality: decode: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("quality: decode: %w", err), "", data, "check the YAML syntax and field names in the quality config")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Config{}, errors.New("quality: unexpected trailing YAML document")
+			return Config{}, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the quality config and remove any --- separator", "quality: unexpected trailing YAML document"), "", data, "")
 		}
-		return Config{}, fmt.Errorf("quality: decode: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("quality: decode: %w", err), "", data, "remove trailing YAML content after the quality config")
 	}
 	if err := c.Validate(); err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Locate(err, "", data, "")
 	}
 	yamlzero.Normalize(&c)
 	return c, nil

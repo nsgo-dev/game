@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
 // DefaultAssetsCache is where game assets keeps its build cache, relative to the project root, when Assets.Cache is empty. Its directory starts with a dot, so the manifest's scan of an assets directory never lists it.
@@ -246,21 +248,23 @@ func (a *Assets) Validate() error {
 	}
 	if a.Cache != "" {
 		if err := validateAssetFile(a.Cache); err != nil {
-			return fmt.Errorf("project: assets cache: %w", err)
+			return loaderr.Errorf("assets.cache", "set assets.cache to a slash-separated relative file path inside the project", "project: assets cache: %w", err)
 		}
 	}
 	// files maps each single file a target writes to the target; atlas and font pages are checked against it by name, since how many pages a target writes is known only when it is packed.
 	files := map[string]string{}
+	fileFields := map[string]string{}
 	var order []string
-	claim := func(out, owner string) error {
+	claim := func(field, out, owner string) error {
 		if other, dup := files[out]; dup {
-			return fmt.Errorf("project: assets %s writes %s, which %s also writes", owner, out, other)
+			return loaderr.Errorf(field, "choose distinct output paths for every asset target", "project: assets %s writes %s, which %s also writes", owner, out, other)
 		}
 		files[out] = owner
+		fileFields[out] = field
 		order = append(order, out)
 		return nil
 	}
-	if err := claim(a.CachePath(), "the cache"); err != nil {
+	if err := claim("assets.cache", a.CachePath(), "the cache"); err != nil {
 		return err
 	}
 	// pagers are the targets that write a number of pages known only once they are packed: atlases and fonts.
@@ -268,14 +272,14 @@ func (a *Assets) Validate() error {
 	for i, at := range a.Atlases {
 		where := fmt.Sprintf("atlases[%d]", i)
 		if err := validateAtlasTarget(at); err != nil {
-			return fmt.Errorf("project: assets %s: %w", where, err)
+			return loaderr.Errorf("assets."+where, "fix the atlas target settings in game.yaml", "project: assets %s: %w", where, err)
 		}
 		pagers = append(pagers, pager{name: at.Name, dir: at.Out, owner: where})
 	}
 	for i, f := range a.Fonts {
 		where := fmt.Sprintf("fonts[%d]", i)
 		if err := validateFontTarget(f); err != nil {
-			return fmt.Errorf("project: assets %s: %w", where, err)
+			return loaderr.Errorf("assets."+where, "fix the font target settings in game.yaml", "project: assets %s: %w", where, err)
 		}
 		dir, name := f.FontPages()
 		pagers = append(pagers, pager{name: name, dir: dir, owner: where, font: true})
@@ -286,7 +290,7 @@ func (a *Assets) Validate() error {
 				continue
 			}
 			if page, clash := pagesClash(prev.name, pg.name); clash {
-				return fmt.Errorf("project: assets %s writes %s, which %s also writes", pg.owner, path.Join(pg.dir, page), prev.owner)
+				return loaderr.Errorf("assets."+pg.owner, "use distinct output names or folders for atlas and font targets", "project: assets %s writes %s, which %s also writes", pg.owner, path.Join(pg.dir, page), prev.owner)
 			}
 		}
 	}
@@ -294,52 +298,53 @@ func (a *Assets) Validate() error {
 	for _, pg := range pagers {
 		for j, src := range a.Atlases {
 			if scannedUnder(pg.dir, src.In) {
-				return fmt.Errorf("project: assets %s writes its pages to %s, inside atlases[%d]'s images in %s; write them elsewhere or to a folder whose name starts with a dot", pg.owner, pg.dir, j, src.In)
+				return loaderr.Errorf("assets."+pg.owner, "write pages outside every atlas input directory or into a dot-prefixed directory", "project: assets %s writes its pages to %s, inside atlases[%d]'s images in %s; write them elsewhere or to a folder whose name starts with a dot", pg.owner, pg.dir, j, src.In)
 			}
 		}
 	}
 	for i, f := range a.Fonts {
-		if err := claim(f.Out, fmt.Sprintf("fonts[%d]", i)); err != nil {
+		where := fmt.Sprintf("fonts[%d]", i)
+		if err := claim("assets."+where+".out", f.Out, where); err != nil {
 			return err
 		}
 	}
 	for i, t := range a.Textures {
 		where := fmt.Sprintf("textures[%d]", i)
 		if err := validateTextureTarget(t); err != nil {
-			return fmt.Errorf("project: assets %s: %w", where, err)
+			return loaderr.Errorf("assets."+where, "fix the texture target settings in game.yaml", "project: assets %s: %w", where, err)
 		}
-		if err := claim(t.Out, where); err != nil {
+		if err := claim("assets."+where+".out", t.Out, where); err != nil {
 			return err
 		}
 	}
 	for i, au := range a.Audio {
 		where := fmt.Sprintf("audio[%d]", i)
 		if err := validateAudioTarget(au); err != nil {
-			return fmt.Errorf("project: assets %s: %w", where, err)
+			return loaderr.Errorf("assets."+where, "fix the audio target settings in game.yaml", "project: assets %s: %w", where, err)
 		}
-		if err := claim(au.Out, where); err != nil {
+		if err := claim("assets."+where+".out", au.Out, where); err != nil {
 			return err
 		}
 	}
 	for i, m := range a.Models {
 		where := fmt.Sprintf("models[%d]", i)
 		if err := validateModelTarget(m); err != nil {
-			return fmt.Errorf("project: assets %s: %w", where, err)
+			return loaderr.Errorf("assets."+where, "fix the model target settings in game.yaml", "project: assets %s: %w", where, err)
 		}
-		if err := claim(m.Out, where); err != nil {
+		if err := claim("assets."+where+".out", m.Out, where); err != nil {
 			return err
 		}
 	}
 	if m := a.Manifest; m != nil {
 		if err := validateManifestTarget(*m); err != nil {
-			return fmt.Errorf("project: assets manifest: %w", err)
+			return loaderr.Errorf("assets.manifest", "fix the manifest target settings in game.yaml", "project: assets manifest: %w", err)
 		}
-		if err := claim(m.Out, "manifest"); err != nil {
+		if err := claim("assets.manifest.out", m.Out, "manifest"); err != nil {
 			return err
 		}
 		// The cache is saved after the manifest is generated, so a cache the manifest's scan reaches would be listed as an asset one run later.
 		if scannedUnder(a.CachePath(), m.In) {
-			return fmt.Errorf("project: assets cache %s is inside the manifest's folder %s; move it out or into a folder whose name starts with a dot", a.CachePath(), m.In)
+			return loaderr.Errorf("assets.cache", "move assets.cache outside assets.manifest.in or into a dot-prefixed folder", "project: assets cache %s is inside the manifest's folder %s; move it out or into a folder whose name starts with a dot", a.CachePath(), m.In)
 		}
 	}
 	// reads maps each path a target reads, file or folder, to the first target that reads it.
@@ -371,27 +376,28 @@ func (a *Assets) Validate() error {
 	for in, reader := range reads {
 		for _, pg := range pagers {
 			if pg.font && path.Dir(in) == pg.dir && path.Ext(in) == ".png" && isPage(pg.name, path.Base(in)) {
-				return fmt.Errorf("project: assets %s reads %s, a page %s writes", reader, in, pg.owner)
+				return loaderr.Errorf("assets."+reader, "do not read a font target's generated page as another target's input", "project: assets %s reads %s, a page %s writes", reader, in, pg.owner)
 			}
 		}
 	}
 	for _, f := range order {
+		field := fileFields[f]
 		// A file written over game.yaml or over a target's input destroys what the next run reads, so that run fails or never settles.
 		if f == FileName {
-			return fmt.Errorf("project: assets %s writes %s, the project file", files[f], f)
+			return loaderr.Errorf(field, "write asset outputs to a file other than "+FileName, "project: assets %s writes %s, the project file", files[f], f)
 		}
 		if reader, ok := reads[f]; ok {
-			return fmt.Errorf("project: assets %s writes %s, which %s reads", files[f], f, reader)
+			return loaderr.Errorf(field, "write asset outputs to a path not read as another target's input", "project: assets %s writes %s, which %s reads", files[f], f, reader)
 		}
 		for _, pg := range pagers {
 			if path.Dir(f) == pg.dir && isPage(pg.name, path.Base(f)) {
-				return fmt.Errorf("project: assets %s writes %s, which %s also writes", files[f], f, pg.owner)
+				return loaderr.Errorf(field, "choose an output path that does not collide with generated pages", "project: assets %s writes %s, which %s also writes", files[f], f, pg.owner)
 			}
 		}
 		for i, at := range a.Atlases {
 			// game pack packs every .png file its scan reaches, in any letter case, so a PNG written there would be packed on the next run.
 			if strings.EqualFold(path.Ext(f), ".png") && scannedUnder(f, at.In) {
-				return fmt.Errorf("project: assets %s writes %s, inside atlases[%d]'s images in %s; write it elsewhere or to a folder whose name starts with a dot", files[f], f, i, at.In)
+				return loaderr.Errorf(field, "write generated PNG files outside every atlas input directory or into a dot-prefixed folder", "project: assets %s writes %s, inside atlases[%d]'s images in %s; write it elsewhere or to a folder whose name starts with a dot", files[f], f, i, at.In)
 			}
 		}
 	}

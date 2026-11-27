@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"slices"
 	"sync"
+
+	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
 // Library loads resource files from a file system and shares them: every Load of one path returns the same pointer, so the scenes and code that use a resource all see one value, and Reload changes that value in place.
@@ -43,11 +45,11 @@ func (l *Library) Load(path string) (Resource, error) {
 	}
 	data, err := fs.ReadFile(l.fsys, path)
 	if err != nil {
-		return nil, fmt.Errorf("resource: load %s: %w", path, err)
+		return nil, loaderr.Locate(fmt.Errorf("resource: load %s: %w", path, err), path, nil, "check that the resource file exists and is readable")
 	}
 	r, err := Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("resource: load %s: %w", path, err)
+		return nil, loaderr.WithFile(err, path)
 	}
 	l.items[path] = r
 	return r, nil
@@ -93,10 +95,10 @@ func (l *Library) Reload(path string, data []byte) (bool, error) {
 	}
 	r, err := Parse(data)
 	if err != nil {
-		return true, fmt.Errorf("resource: reload %s: %w", path, err)
+		return true, loaderr.WithFile(err, path)
 	}
 	if r.Kind() != old.Kind() {
-		return true, fmt.Errorf("resource: reload %s: type changed from %s to %s", path, old.Kind(), r.Kind())
+		return true, loaderr.Locate(loaderr.Errorf("type", fmt.Sprintf("keep type: %s when reloading %s", old.Kind(), path), "resource: reload %s: type changed from %s to %s", path, old.Kind(), r.Kind()), path, data, "")
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -163,7 +165,7 @@ func (l *Library) ReloadFile(path string) (int64, bool, error) {
 	}
 	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
-		return 0, true, fmt.Errorf("resource: reload %s: %w", path, err)
+		return 0, true, loaderr.Locate(fmt.Errorf("resource: reload %s: %w", path, err), path, nil, "check that the resource file exists and is readable")
 	}
 	loaded, err := l.Reload(path, data)
 	return int64(len(data)), loaded, err

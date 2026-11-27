@@ -8,9 +8,12 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixBoardDoc = "write the board document as version: 1 YAML with card_size and valid slots"
 
 // FormatVersion is the BoardDoc schema version this package reads and writes.
 const FormatVersion = 1
@@ -120,8 +123,16 @@ var ErrCustomLayout = errors.New("cards: a custom layout cannot be written to a 
 
 // ParseBoardDoc decodes one YAML BoardDoc and validates it. Unknown fields and trailing documents are refused.
 func ParseBoardDoc(data []byte) (*BoardDoc, error) {
+	doc, err := parseBoardDoc(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixBoardDoc)
+	}
+	return doc, nil
+}
+
+func parseBoardDoc(data []byte) (*BoardDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("cards: empty board document")
+		return nil, loaderr.Errorf("", fixBoardDoc, "cards: empty board document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -132,7 +143,7 @@ func ParseBoardDoc(data []byte) (*BoardDoc, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("cards: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the board file; remove the trailing --- document", "cards: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("cards: decode board: %w", err)
 	}
@@ -167,53 +178,62 @@ func EncodeBoardDoc(doc *BoardDoc) ([]byte, error) {
 // Validate checks doc against the version 1 schema: positive finite sizes, finite coordinates, unique non-empty slot IDs, exactly one layout per slot with non-negative counts and a Fan arc under 360 degrees, unique non-empty tags, a non-negative capacity and a known grab rule.
 func (doc *BoardDoc) Validate() error {
 	if doc.Version != FormatVersion {
-		return fmt.Errorf("cards: unsupported board version %d (want %d)", doc.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormatVersion), "cards: unsupported board version %d (want %d)", doc.Version, FormatVersion)
 	}
 	if !positive(doc.CardSize.W) || !positive(doc.CardSize.H) {
-		return fmt.Errorf("cards: card_size must be positive and finite, got %gx%g", doc.CardSize.W, doc.CardSize.H)
+		return loaderr.Errorf("card_size", "set card_size w and h to positive finite numbers", "cards: card_size must be positive and finite, got %gx%g", doc.CardSize.W, doc.CardSize.H)
 	}
 	seen := make(map[string]bool, len(doc.Slots))
 	for i := range doc.Slots {
 		s := &doc.Slots[i]
+		sPath := loaderr.Path("slots", i)
 		if s.ID == "" {
-			return fmt.Errorf("cards: slots[%d] has no id", i)
+			return loaderr.Errorf(loaderr.Join(sPath, "id"), "give the slot a non-empty id", "cards: slots[%d] has no id", i)
 		}
 		if seen[s.ID] {
-			return fmt.Errorf("cards: duplicate slot id %q", s.ID)
+			return loaderr.Errorf(loaderr.Join(sPath, "id"), "give each slot a unique id", "cards: duplicate slot id %q", s.ID)
 		}
 		seen[s.ID] = true
-		if err := s.validate(); err != nil {
-			return fmt.Errorf("cards: slot %q: %w", s.ID, err)
+		if err := s.validateAt(sPath); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (s *SlotDoc) validate() error {
+func (s *SlotDoc) validateAt(sPath string) error {
 	r := s.Rect
 	if !finite(r.X) || !finite(r.Y) || !positive(r.W) || !positive(r.H) {
-		return fmt.Errorf("rect must have finite coordinates and a positive size, got %+v", r)
+		return loaderr.Errorf(loaderr.Join(sPath, "rect"), "set rect x, y to finite numbers and w, h to positive finite numbers", "cards: slot %q: rect must have finite coordinates and a positive size, got %+v", s.ID, r)
 	}
-	if _, err := s.Layout.layout(); err != nil {
+	if _, err := s.Layout.layoutAt(loaderr.Join(sPath, "layout"), s.ID); err != nil {
 		return err
 	}
 	tags := make(map[string]bool, len(s.Accepts))
-	for _, t := range s.Accepts {
+	for ti, t := range s.Accepts {
 		if t == "" || tags[t] {
-			return fmt.Errorf("accepts has an empty or repeated tag %q", t)
+			return loaderr.Errorf(loaderr.Join(sPath, "accepts", ti), "use unique non-empty tag names in accepts", "cards: slot %q: accepts has an empty or repeated tag %q", s.ID, t)
 		}
 		tags[t] = true
 	}
 	if s.Capacity < 0 {
-		return fmt.Errorf("capacity %d is negative", s.Capacity)
+		return loaderr.Errorf(loaderr.Join(sPath, "capacity"), "set capacity to a non-negative integer, or omit it for unlimited", "cards: slot %q: capacity %d is negative", s.ID, s.Capacity)
 	}
 	if _, err := parseGrab(s.Grab); err != nil {
-		return err
+		return loaderr.Errorf(loaderr.Join(sPath, "grab"), "set grab to top or none, or omit it for any", "cards: slot %q: %v", s.ID, err)
 	}
 	return nil
 }
 
 func (l LayoutDoc) layout() (Layout, error) {
+	return l.layoutAt("layout", "")
+}
+
+func (l LayoutDoc) layoutAt(lPath, slotID string) (Layout, error) {
+	prefix := ""
+	if slotID != "" {
+		prefix = fmt.Sprintf("cards: slot %q: ", slotID)
+	}
 	set := 0
 	for _, ok := range []bool{l.Fan != nil, l.Stack != nil, l.Grid != nil} {
 		if ok {
@@ -221,25 +241,25 @@ func (l LayoutDoc) layout() (Layout, error) {
 		}
 	}
 	if set != 1 {
-		return nil, fmt.Errorf("layout must name exactly one of fan, stack or grid, got %d", set)
+		return nil, loaderr.Errorf(lPath, "set exactly one of fan, stack or grid under layout", "%slayout must name exactly one of fan, stack or grid, got %d", prefix, set)
 	}
 	switch {
 	case l.Fan != nil:
 		f := l.Fan
 		if !finite(f.Spacing) || f.Spacing < 0 || !finite(f.Arc) || f.Arc < 0 || f.Arc >= 360 || !finite(f.Sag) {
-			return nil, fmt.Errorf("fan needs a finite non-negative spacing, an arc in [0, 360) and a finite sag, got %+v", *f)
+			return nil, loaderr.Errorf(loaderr.Join(lPath, "fan"), "set non-negative spacing, arc in [0, 360) and finite sag", "%sfan needs a finite non-negative spacing, an arc in [0, 360) and a finite sag, got %+v", prefix, *f)
 		}
 		return Fan{Spacing: f.Spacing, Arc: f.Arc, Sag: f.Sag}, nil
 	case l.Stack != nil:
 		s := l.Stack
 		if !finite(s.Offset.X) || !finite(s.Offset.Y) || s.Depth < 0 {
-			return nil, fmt.Errorf("stack needs a finite offset and a non-negative depth, got %+v", *s)
+			return nil, loaderr.Errorf(loaderr.Join(lPath, "stack"), "set a finite offset and non-negative depth", "%sstack needs a finite offset and a non-negative depth, got %+v", prefix, *s)
 		}
 		return Stack{Offset: math2d.Vec2(s.Offset), Depth: s.Depth}, nil
 	default:
 		g := l.Grid
 		if g.Columns < 0 || !finite(g.Gap.X) || !finite(g.Gap.Y) || g.Gap.X < 0 || g.Gap.Y < 0 {
-			return nil, fmt.Errorf("grid needs non-negative columns and a finite non-negative gap, got %+v", *g)
+			return nil, loaderr.Errorf(loaderr.Join(lPath, "grid"), "set non-negative columns and finite non-negative gap", "%sgrid needs non-negative columns and a finite non-negative gap, got %+v", prefix, *g)
 		}
 		return Grid{Columns: g.Columns, Gap: math2d.Vec2(g.Gap)}, nil
 	}

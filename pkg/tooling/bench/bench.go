@@ -4,7 +4,6 @@ package bench
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -69,26 +68,35 @@ func NewBaseline() *Baseline {
 // Validate checks that b has the supported version, positive finite limits, and benchmark names starting with "Benchmark" whose metrics are finite and not negative.
 func (b *Baseline) Validate() error {
 	if b == nil {
-		return errors.New("bench: baseline is nil")
+		return loaderr.Errorf("", "pass a non-nil *bench.Baseline to Validate", "bench: baseline is nil")
 	}
 	if b.Version != FormatVersion {
-		return fmt.Errorf("bench: unsupported version %d (want %d)", b.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the baseline (or regenerate with game bench -update)", FormatVersion), "bench: unsupported version %d (want %d)", b.Version, FormatVersion)
 	}
 	for _, l := range []struct {
 		name  string
 		value float64
 	}{{"ns_per_op", b.Limits.NsPerOp}, {"bytes_per_op", b.Limits.BytesPerOp}, {"allocs_per_op", b.Limits.AllocsPerOp}} {
 		if !(l.value > 0) || math.IsInf(l.value, 0) {
-			return fmt.Errorf("bench: max_regression_pct %s must be a positive number, not %v", l.name, l.value)
+			return loaderr.Errorf("max_regression_pct."+l.name, fmt.Sprintf("set max_regression_pct.%s to a finite positive percentage such as %d", l.name, DefaultLimit), "bench: max_regression_pct %s must be a positive number, not %v", l.name, l.value)
 		}
 	}
-	for name, m := range b.Benchmarks {
+	names := make([]string, 0, len(b.Benchmarks))
+	for name := range b.Benchmarks {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		m := b.Benchmarks[name]
 		if !strings.HasPrefix(name, "Benchmark") || strings.ContainsAny(name, " \t\r\n") {
-			return fmt.Errorf("bench: %q is not a benchmark name", name)
+			return loaderr.Errorf("benchmarks."+name, "use a Go benchmark function name starting with Benchmark and no whitespace", "bench: %q is not a benchmark name", name)
 		}
-		for _, v := range []float64{m.NsPerOp, m.BytesPerOp, m.AllocsPerOp} {
-			if !(v >= 0) || math.IsInf(v, 0) {
-				return fmt.Errorf("bench: benchmark %s has a metric that is not a finite number of at least 0", name)
+		for _, f := range []struct {
+			key string
+			v   float64
+		}{{"ns_per_op", m.NsPerOp}, {"bytes_per_op", m.BytesPerOp}, {"allocs_per_op", m.AllocsPerOp}} {
+			if !(f.v >= 0) || math.IsInf(f.v, 0) {
+				return loaderr.Errorf("benchmarks."+name+"."+f.key, "set each benchmark metric to a finite number >= 0", "bench: benchmark %s has a metric that is not a finite number of at least 0", name)
 			}
 		}
 	}
@@ -143,17 +151,17 @@ func docOf(m Metrics) *metricsDoc {
 	return &metricsDoc{NsPerOp: &ns, BytesPerOp: &bytes, AllocsPerOp: &allocs}
 }
 
-func (m *metricsDoc) metrics(where string) (Metrics, error) {
+func (m *metricsDoc) metrics(fieldPrefix, where string) (Metrics, error) {
 	if m == nil {
-		return Metrics{}, fmt.Errorf("%s is empty", where)
+		return Metrics{}, loaderr.Errorf(fieldPrefix, fmt.Sprintf("set %s to {ns_per_op, bytes_per_op, allocs_per_op}", fieldPrefix), "bench: decode: %s is empty", where)
 	}
 	switch {
 	case m.NsPerOp == nil:
-		return Metrics{}, fmt.Errorf("%s has no ns_per_op", where)
+		return Metrics{}, loaderr.Errorf(fieldPrefix, fmt.Sprintf("add ns_per_op to %s", fieldPrefix), "bench: decode: %s has no ns_per_op", where)
 	case m.BytesPerOp == nil:
-		return Metrics{}, fmt.Errorf("%s has no bytes_per_op", where)
+		return Metrics{}, loaderr.Errorf(fieldPrefix, fmt.Sprintf("add bytes_per_op to %s", fieldPrefix), "bench: decode: %s has no bytes_per_op", where)
 	case m.AllocsPerOp == nil:
-		return Metrics{}, fmt.Errorf("%s has no allocs_per_op", where)
+		return Metrics{}, loaderr.Errorf(fieldPrefix, fmt.Sprintf("add allocs_per_op to %s", fieldPrefix), "bench: decode: %s has no allocs_per_op", where)
 	}
 	return Metrics{NsPerOp: *m.NsPerOp, BytesPerOp: *m.BytesPerOp, AllocsPerOp: *m.AllocsPerOp}, nil
 }
@@ -196,35 +204,36 @@ func (b *Baseline) Encode() ([]byte, error) {
 
 // Decode reads a Baseline from the YAML text Encode writes, including text a person has edited, and validates it. Unknown keys, a missing limit or metric, and trailing YAML documents are refused, and a file of another version is refused with an error naming that version.
 func Decode(data []byte) (*Baseline, error) {
+	const fixBaseline = "write the baseline again with game bench -update, or correct the YAML"
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("bench: decode: empty baseline")
+		return nil, loaderr.Locate(loaderr.Errorf("", fixBaseline, "bench: decode: empty baseline"), "", data, "")
 	}
 	// Check the version before the strict decode so a file of another version reports its version instead of its first unknown key.
 	var probe struct {
 		Version int `yaml:"version"`
 	}
 	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return nil, fmt.Errorf("bench: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("bench: decode: %w", err), "", data, fixBaseline)
 	}
 	if probe.Version != FormatVersion {
-		return nil, fmt.Errorf("bench: unsupported version %d (want %d)", probe.Version, FormatVersion)
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the baseline (or regenerate with game bench -update)", FormatVersion), "bench: unsupported version %d (want %d)", probe.Version, FormatVersion), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var doc baselineDoc
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("bench: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("bench: decode: %w", err), "", data, fixBaseline)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("bench: decode: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the benchmark baseline and remove any --- separator", "bench: decode: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("bench: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("bench: decode: %w", err), "", data, fixBaseline)
 	}
-	limits, err := doc.Limits.metrics("max_regression_pct")
+	limits, err := doc.Limits.metrics("max_regression_pct", "max_regression_pct")
 	if err != nil {
-		return nil, fmt.Errorf("bench: decode: %w", err)
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	b := &Baseline{
 		Version:    doc.Version,
@@ -232,15 +241,21 @@ func Decode(data []byte) (*Baseline, error) {
 		Limits:     Limits(limits),
 		Benchmarks: make(map[string]Metrics, len(doc.Benchmarks)),
 	}
-	for name, md := range doc.Benchmarks {
-		m, err := md.metrics("benchmark " + name)
+	names := make([]string, 0, len(doc.Benchmarks))
+	for name := range doc.Benchmarks {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		md := doc.Benchmarks[name]
+		m, err := md.metrics("benchmarks."+name, "benchmark "+name)
 		if err != nil {
-			return nil, fmt.Errorf("bench: decode: %w", err)
+			return nil, loaderr.Locate(err, "", data, "")
 		}
 		b.Benchmarks[name] = m
 	}
 	if err := b.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return b, nil
 }
@@ -253,7 +268,7 @@ func LoadFile(path string) (*Baseline, error) {
 	}
 	b, err := Decode(data)
 	if err != nil {
-		return nil, loaderr.Locate(fmt.Errorf("bench: load: %w", err), path, data, "write the baseline again with game bench -update, or correct the YAML")
+		return nil, loaderr.WithFile(err, path)
 	}
 	return b, nil
 }

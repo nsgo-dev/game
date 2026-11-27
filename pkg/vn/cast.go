@@ -10,10 +10,13 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixCast = "write the cast file as version: 1 YAML with valid slots and characters"
 
 // CastVersion is the cast file schema version this package reads and writes.
 const CastVersion = 1
@@ -152,8 +155,16 @@ func (ch *Character) Expression(name string) (Expression, bool) {
 
 // ParseCast decodes a YAML cast file and validates it. Unknown fields and trailing YAML documents are refused.
 func ParseCast(data []byte) (*Cast, error) {
+	c, err := parseCast(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixCast)
+	}
+	return c, nil
+}
+
+func parseCast(data []byte) (*Cast, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("vn: empty cast document")
+		return nil, loaderr.Errorf("", fixCast, "vn: empty cast document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -164,7 +175,7 @@ func ParseCast(data []byte) (*Cast, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("vn: unexpected trailing YAML document in cast")
+			return nil, loaderr.Errorf("", "keep one YAML document in the cast file; remove the trailing --- document", "vn: unexpected trailing YAML document in cast")
 		}
 		return nil, fmt.Errorf("vn: decode cast: %w", err)
 	}
@@ -196,68 +207,71 @@ func EncodeCast(c *Cast) ([]byte, error) {
 // Validate checks c against the version 1 schema: unique, non-empty slot names with X from 0 to 1; unique character IDs without whitespace; parseable colors; slots and default expressions that exist; and at least one expression per character, each with a frame and a unique name that no slot has, so that <<show>> reads its arguments one way.
 func (c *Cast) Validate() error {
 	if c == nil {
-		return errors.New("vn: nil cast")
+		return loaderr.Errorf("", fixCast, "vn: nil cast")
 	}
 	if c.Version != CastVersion {
-		return fmt.Errorf("vn: unsupported cast version %d (want %d)", c.Version, CastVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", CastVersion), "vn: unsupported cast version %d (want %d)", c.Version, CastVersion)
 	}
 	slots := make(map[string]bool, len(c.Slots))
 	for i, s := range c.Slots {
+		sPath := loaderr.Path("slots", i)
 		if !isToken(s.Name) {
-			return fmt.Errorf("vn: slot %d: name %q must be non-empty without whitespace", i, s.Name)
+			return loaderr.Errorf(loaderr.Join(sPath, "name"), "give the slot a non-empty name without whitespace", "vn: slot %d: name %q must be non-empty without whitespace", i, s.Name)
 		}
 		if slots[s.Name] {
-			return fmt.Errorf("vn: duplicate slot %q", s.Name)
+			return loaderr.Errorf(loaderr.Join(sPath, "name"), "give each slot a unique name", "vn: duplicate slot %q", s.Name)
 		}
 		slots[s.Name] = true
 		if math.IsNaN(float64(s.X)) || s.X < 0 || s.X > 1 {
-			return fmt.Errorf("vn: slot %q: x %v must be from 0 to 1", s.Name, s.X)
+			return loaderr.Errorf(loaderr.Join(sPath, "x"), "set x to a number from 0 to 1", "vn: slot %q: x %v must be from 0 to 1", s.Name, s.X)
 		}
 	}
 	if len(c.Characters) == 0 {
-		return errors.New("vn: cast has no characters")
+		return loaderr.Errorf("characters", "add at least one character under characters", "vn: cast has no characters")
 	}
 	ids := make(map[string]bool, len(c.Characters))
 	for i := range c.Characters {
 		ch := &c.Characters[i]
+		cPath := loaderr.Path("characters", i)
 		if !isToken(ch.ID) {
-			return fmt.Errorf("vn: character %d: id %q must be non-empty without whitespace", i, ch.ID)
+			return loaderr.Errorf(loaderr.Join(cPath, "id"), "give the character a non-empty id without whitespace", "vn: character %d: id %q must be non-empty without whitespace", i, ch.ID)
 		}
 		if ids[ch.ID] {
-			return fmt.Errorf("vn: duplicate character %q", ch.ID)
+			return loaderr.Errorf(loaderr.Join(cPath, "id"), "give each character a unique id", "vn: duplicate character %q", ch.ID)
 		}
 		ids[ch.ID] = true
 		if ch.Color != "" {
 			if _, err := core.ParseColor(ch.Color); err != nil {
-				return fmt.Errorf("vn: character %q: color %q: %w", ch.ID, ch.Color, err)
+				return loaderr.Errorf(loaderr.Join(cPath, "color"), `set color to a CSS color such as "#e06c75"`, "vn: character %q: color %q: %w", ch.ID, ch.Color, err)
 			}
 		}
 		if ch.Slot != "" {
 			if _, ok := c.Slot(ch.Slot); !ok {
-				return fmt.Errorf("vn: character %q: unknown slot %q", ch.ID, ch.Slot)
+				return loaderr.Errorf(loaderr.Join(cPath, "slot"), "set slot to a declared slot name (or left, center, right for defaults)", "vn: character %q: unknown slot %q", ch.ID, ch.Slot)
 			}
 		}
 		if len(ch.Expressions) == 0 {
-			return fmt.Errorf("vn: character %q has no expressions", ch.ID)
+			return loaderr.Errorf(loaderr.Join(cPath, "expressions"), "add at least one expression to the character", "vn: character %q has no expressions", ch.ID)
 		}
 		exprs := make(map[string]bool, len(ch.Expressions))
-		for _, e := range ch.Expressions {
+		for j, e := range ch.Expressions {
+			ePath := loaderr.Join(cPath, "expressions", j)
 			if !isToken(e.Name) {
-				return fmt.Errorf("vn: character %q: expression name %q must be non-empty without whitespace", ch.ID, e.Name)
+				return loaderr.Errorf(loaderr.Join(ePath, "name"), "give the expression a non-empty name without whitespace", "vn: character %q: expression name %q must be non-empty without whitespace", ch.ID, e.Name)
 			}
 			if exprs[e.Name] {
-				return fmt.Errorf("vn: character %q: duplicate expression %q", ch.ID, e.Name)
+				return loaderr.Errorf(loaderr.Join(ePath, "name"), "give each expression of the character a unique name", "vn: character %q: duplicate expression %q", ch.ID, e.Name)
 			}
 			exprs[e.Name] = true
 			if _, ok := c.Slot(e.Name); ok {
-				return fmt.Errorf("vn: character %q: expression %q has the name of a slot", ch.ID, e.Name)
+				return loaderr.Errorf(loaderr.Join(ePath, "name"), "rename the expression so it does not collide with a stage slot name", "vn: character %q: expression %q has the name of a slot", ch.ID, e.Name)
 			}
 			if strings.TrimSpace(e.Frame) == "" {
-				return fmt.Errorf("vn: character %q: expression %q has no frame", ch.ID, e.Name)
+				return loaderr.Errorf(loaderr.Join(ePath, "frame"), "set frame to the portrait atlas frame name", "vn: character %q: expression %q has no frame", ch.ID, e.Name)
 			}
 		}
 		if ch.DefaultExpression != "" && !exprs[ch.DefaultExpression] {
-			return fmt.Errorf("vn: character %q: unknown default expression %q", ch.ID, ch.DefaultExpression)
+			return loaderr.Errorf(loaderr.Join(cPath, "defaultExpression"), "set defaultExpression to one of this character's expression names", "vn: character %q: unknown default expression %q", ch.ID, ch.DefaultExpression)
 		}
 	}
 	return nil

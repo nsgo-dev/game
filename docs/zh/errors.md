@@ -45,27 +45,41 @@ if err != nil {
 
 | 包 | 加载器 | 行号 |
 | --- | --- | --- |
-| `sceneformat` | `Parse`、`ParseWith` | 解码错误和每条模式规则，按字段；`Validate` 返回的 `*FieldError` 仍在错误链中，`ParseWith` 给出 `ParseOptions.File` |
+| `sceneformat` | `Parse`、`ParseWith`、`ParseConflict` | 解码错误和每条模式规则，按字段；`Validate` 返回的 `*FieldError` 仍在错误链中，`ParseWith` 给出 `ParseOptions.File` |
+| `project` | `Parse`、`ParseBrief`、`LoadFile` | 项目和简报的模式规则，按字段 |
+| `resource` | `Parse`、`ParseAs`、`Library.Load`、`Library.Reload`、`Library.ReloadFile` | 头部、材质、曲线、渐变、动画、主题、音频总线布局和物理材质规则，按字段；`Library` 给出资源路径 |
+| `importsettings` | `Parse`、`ParseAssetSource` | 伴随配置节、枢轴点、切片、署名和生成资产来源字段，按字段 |
+| `refs` | `ParseIndex` | 项目索引路径、排序、UID 和 SHA-256 摘要，按字段 |
 | `particles` | `UnmarshalConfigYAML`、`UnmarshalConfigJSON`、`LoadConfigFile`、`LoadConfigFS`、`HotConfig` | 解码错误、时长、颜色和枚举值，按字段或按值所在的行 |
 | `skeletal` | `Load` | 骨骼、插槽、皮肤和关键帧，按字段 |
-| `anim3d` | `LoadEventsSidecar`、`LoadEventsFromGLTFExtras` | 解码错误 |
+| `anim3d` | `LoadEventsSidecar`、`LoadEventsFromGLTFExtras` | 解码错误和伴随事件模式规则，按字段 |
+| `animclip` | `ParseStateMachine` | 状态机状态、转换和参数，按字段；`*StateMachineError` 仍在错误链中 |
 | `sprite` | `LoadAtlas` | 帧、帧标签和九宫格切片，按字段 |
 | `tilemap` | `LoadTiled`、`LoadLDtk`、`LoadLDtkAll` | 地图、图块集（外部图块集给出它自己的文件）、图层、对象和属性，按字段 |
 | `l10n` | `Catalog.LoadJSON`、`ParseAssetManifest`、`AssetCatalog.LoadAssetManifestYAML` | 键、资源变体和资源组，按字段 |
 | `input` | `Actions.Load`、`Haptics.Load` | 存储的绑定，按字段，以存储键为文件名 |
 | `modding` | `ParseManifest`、`ModManifest.Validate`、`Manager.Discover`、`Manager.DiscoverFS`、`Manager.Reload` | 清单的每个字段、模组不支持的游戏版本和重复的 id，给出 `<mod>/mod.yaml` |
+| `plugin/manifest` | `Parse` | 插件清单字段和能力声明，按字段 |
+| `gameui` | `ParseScreen` | 界面布局树、设备类别和控件，按字段 |
 | `replay` | `Decode`、`LoadFile` | 头部和各步，按字段，例如 `steps[3].press[0]` |
+| `statedump` | `Parse`、`ReadFile` | 头部、场景状态、值、实体和与 JSON 不兼容的 YAML 节点，按字段或节点所在行 |
+| `undo` | `DecodeLog` | 版本、计数、必需键和移动记录，按字段 |
 | `save` | `Store.Load`、`Store.LoadChecked`、`SettingsStore.Load` | 外层封装、数据和检查，给出副本的文件或存储键（自定义 `Backend` 的副本以槽位名表示，备份副本为 `slot (backup)`） |
 | `entities` | `LoadWorld`、`World.Restore` | 实体索引、父实体和组件，按字段 |
 | `assets` | `ParsePackManifest`、`Manager.LoadAtlas`、`Group` 中的图集 | 解码错误；图集给出其 URI |
-| `world3d` | `LoadMeshLibraryFromGLTF` | 版本、节点网格和访问器，按字段 |
+| `world3d`、`voxel`、`render3d` | `LoadMeshLibraryFromGLTF`、`world3d.Parse*`、`voxel.Parse`、`ParseLightProbeGrid`、`LoadLightProbeGridFS` | 版本、包围盒、计数、网格、体素块和探针系数，按字段；`render3d.ErrInvalidProbe` 仍在错误链中 |
+| `ai`、`ai/navbake`、`ai/navbake3d` | `ParseGOAP`、`ParseUtility`、`navbake.Parse`、`navbake3d.Parse` | 事实、动作、目标、曲线、多边形和跨网格链接，按字段 |
+| `quest`、`rooms`、`loot`、`inventory`、`ability`、`stats`、`cards`、`worldmap`、`cutscene`、`vn`、`bullets`、`framedata`、`fighting`、`platformer`、`vehicle`、`rts`、`rhythm`、`idle`、`procgen`、`quality` | 各包的 YAML `Parse*` 和 `Load*` 入口 | 解码错误、自定义时长/范围以及每条校验规则，按字段；`quest.ErrInvalidBook`、`rooms.ErrInvalidMap` 和 `stats.Err*` 等哨兵错误仍在错误链中 |
+| `online/accounts`、`online/accounts/token`、`online/achievements`、`online/cloudsave`、`online/leaderboard`、`online/leaderboard/selfhost`、`online/liveops`、`online/netplay/wire` | 各包的 YAML `Parse*` 和 `Load*` 入口 | 服务配置、密钥集、目录、提醒和线协议模式，按字段 |
+| `playtest` | `ParseConfig`、`LoadConfigFile`、`ParseReport`、`LoadReportFile` | 范围、运行配置、机器人配置、指标、目标和报告各节，按字段 |
+| `editor` | `OpenFile`、`ParseEditorSettings`、`ParsePermissions`、`ParseAutomations`、`ParseLayout`、`ParseRecentProjects`、`ParseCheckpointManifest`、`ParseAgentThread`、`ParseAgentThreadYAML`、`parseViewState` | 编辑器配置、布局、检查点、线程和视图状态，按字段 |
 | `gltf` | `Load`、`LoadFS` | 出错的顶层条目，例如 `nodes[3]` |
 | `text` | `LoadBMFont`、`LoadBMFontImage` | 出错的记录，文本和 XML 字体均可 |
 | `flow` | `ParseYarn` | 出错的脚本行 |
 | `datatable` | `LoadCSV`、`LoadJSON`、`LoadYAML`、`LoadFile` | 出错的单元格；`CellError` 仍在错误链中 |
-| `tooling/devstate` | `Store.LoadSnapshot` | 快照文件中的解码错误 |
+| `tooling/devstate`、`tooling/hotreload`、`tooling/library`、`tooling/assetbuild` | `Store.LoadSnapshot`、`ParseMaterial`、`ParseIndex`、`ParseManifest`、`parseCache` | 解码错误以及清单、索引和材质规则，按字段 |
 | `debug` | `Console.LoadTunables` | 出错的调试参数，以存储键为文件名 |
-| `tooling/bench`、`cmd/sizecheck` | `bench.LoadFile`、`LoadBudget`、`LoadMobileBudget` | 解码错误 |
+| `tooling/bench`、`cmd/sizecheck` | `bench.Decode`、`bench.LoadFile`、`LoadBudget`、`LoadMobileBudget` | 解码错误、回归阈值和基准指标，按字段 |
 
 无法读取的文件没有行号：它的错误给出文件名，把读取错误保留在 `Err` 中，同样给出修复方法。
 
@@ -76,6 +90,6 @@ if err != nil {
 3. 对既非 YAML 也非 JSON 的按行格式，例如 BMFont 文本和 Yarn，直接设置 `Line`。
 4. 把修复方法写成指令：写什么、写在哪里，或者用哪个工具重新导出。“把 space 设为 world 或 screen”有用；“值无效”没用。
 5. 按排序后的键遍历映射，这样文件中有多处问题时，每次运行报告的都是同一处。
-6. 用 `internal/loaderrtest` 测试：`Expect(t, err, file, line)` 检查错误给出了文件和行号且有修复方法，`ExpectField(t, err, file, data, field)` 还会检查字段。
+6. 用 `internal/loaderrtest` 测试：`Expect(t, err, file, line)` 检查错误给出了文件和行号且有修复方法，`ExpectField(t, err, file, data, field)` 还会检查字段。对于 YAML 格式，`internal/formattest.Run` 会验证未知字段以及缺失、为零或未来版本都返回带对应行号和修复方法的 `*loaderr.Error`，而 `internal/repocheck` 会强制要求每个解码 YAML 的包同时运行 `formattest.Run` 和 `loaderrtest`。
 
 自定义的 `UnmarshalYAML` 知道它收到的节点：返回带有该节点 `Line` 和 `Column` 的 `*loaderr.Error`，就像 `particles` 对时长和颜色所做的那样，`Locate` 会保留它们。自定义的 `UnmarshalJSON` 无法说明在哪里失败：`nsgo build` 链接的 `encoding/json` 返回它的错误时不带字段路径，所以应保留它拒绝的值，再由校验器带着字段报告。

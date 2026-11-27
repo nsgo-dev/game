@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -117,10 +118,10 @@ func (s *Set) Clone() *Set {
 func Parse(data []byte) (*Set, error) {
 	var set Set
 	if err := decodeStrict(data, &set, "achievements file"); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "check the YAML syntax and field names in the achievements file")
 	}
 	if err := Validate(&set); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &set, nil
 }
@@ -136,36 +137,40 @@ func Encode(set *Set) ([]byte, error) {
 // Validate checks that set follows the version 1 schema: known version, valid unique IDs, step counts in range, and well-formed platform IDs that no two achievements share on the same service.
 func Validate(set *Set) error {
 	if set == nil {
-		return errors.New("achievements: nil achievements file")
+		return loaderr.Errorf("", "pass a non-nil *achievements.Set to Validate", "achievements: nil achievements file")
 	}
 	if set.Version != CurrentVersion {
-		return fmt.Errorf("achievements: unsupported version %d (want %d)", set.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the achievements file", CurrentVersion), "achievements: unsupported version %d (want %d)", set.Version, CurrentVersion)
 	}
 	ids := make(map[string]struct{}, len(set.Achievements))
 	platformIDs := make(map[Service]map[string]string, len(services))
 	for i, d := range set.Achievements {
-		where := fmt.Sprintf("achievements[%d]", i)
+		aPath := fmt.Sprintf("achievements[%d]", i)
 		if err := validateID(d.ID); err != nil {
-			return fmt.Errorf("achievements: %s: %w", where, err)
+			return loaderr.Errorf(aPath+".id", "set id to 1..128 ASCII letters, digits, '.', '_' or '-'", "achievements: %s: %w", aPath, err)
 		}
-		where = fmt.Sprintf("achievement %q", d.ID)
+		where := fmt.Sprintf("achievement %q", d.ID)
 		if _, dup := ids[d.ID]; dup {
-			return fmt.Errorf("achievements: %s is declared more than once", where)
+			return loaderr.Errorf(aPath+".id", "give each achievement a unique id", "achievements: %s is declared more than once", where)
 		}
 		ids[d.ID] = struct{}{}
 		if d.Steps < 0 || d.Steps > MaxSteps {
-			return fmt.Errorf("achievements: %s: steps %d must be between 1 and %d", where, d.Steps, MaxSteps)
+			return loaderr.Errorf(aPath+".steps", fmt.Sprintf("set steps to an integer between 1 and %d, or omit it for a one-shot achievement", MaxSteps), "achievements: %s: steps %d must be between 1 and %d", where, d.Steps, MaxSteps)
 		}
-		if !utf8.ValidString(d.Title) || !utf8.ValidString(d.Description) {
-			return fmt.Errorf("achievements: %s: title and description must be valid UTF-8", where)
+		if !utf8.ValidString(d.Title) {
+			return loaderr.Errorf(aPath+".title", "use valid UTF-8 text for title", "achievements: %s: title and description must be valid UTF-8", where)
+		}
+		if !utf8.ValidString(d.Description) {
+			return loaderr.Errorf(aPath+".description", "use valid UTF-8 text for description", "achievements: %s: title and description must be valid UTF-8", where)
 		}
 		for _, s := range services {
 			pid := d.Platforms.ID(s)
 			if pid == "" {
 				continue
 			}
+			pField := aPath + ".platforms." + string(s)
 			if err := validatePlatformID(pid); err != nil {
-				return fmt.Errorf("achievements: %s: %s ID: %w", where, s, err)
+				return loaderr.Errorf(pField, fmt.Sprintf("set %s to a valid UTF-8 identifier of at most %d bytes without spaces or control characters", s, maxPlatformIDLength), "achievements: %s: %s ID: %w", where, s, err)
 			}
 			seen := platformIDs[s]
 			if seen == nil {
@@ -173,7 +178,7 @@ func Validate(set *Set) error {
 				platformIDs[s] = seen
 			}
 			if other, dup := seen[pid]; dup {
-				return fmt.Errorf("achievements: %s: %s ID %q is also used by %q", where, s, pid, other)
+				return loaderr.Errorf(pField, fmt.Sprintf("assign a unique %s ID to each achievement", s), "achievements: %s: %s ID %q is also used by %q", where, s, pid, other)
 			}
 			seen[pid] = d.ID
 		}
@@ -203,10 +208,10 @@ type Record struct {
 func ParseProgress(data []byte) (*Progress, error) {
 	var p Progress
 	if err := decodeStrict(data, &p, "progress document"); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "check the YAML syntax and field names in the achievements progress document")
 	}
 	if err := ValidateProgress(&p); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &p, nil
 }
@@ -224,29 +229,38 @@ func EncodeProgress(p *Progress) ([]byte, error) {
 // ValidateProgress checks that p follows the version 1 schema: known version, valid unique IDs, non-negative steps, and acknowledged steps for known services between 0 and the record's steps.
 func ValidateProgress(p *Progress) error {
 	if p == nil {
-		return errors.New("achievements: nil progress document")
+		return loaderr.Errorf("", "pass a non-nil *achievements.Progress to ValidateProgress", "achievements: nil progress document")
 	}
 	if p.Version != CurrentVersion {
-		return fmt.Errorf("achievements: unsupported progress version %d (want %d)", p.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the progress document", CurrentVersion), "achievements: unsupported progress version %d (want %d)", p.Version, CurrentVersion)
 	}
 	ids := make(map[string]struct{}, len(p.Achievements))
 	for i, r := range p.Achievements {
+		rPath := fmt.Sprintf("achievements[%d]", i)
 		if err := validateID(r.ID); err != nil {
-			return fmt.Errorf("achievements: progress record %d: %w", i, err)
+			return loaderr.Errorf(rPath+".id", "set id to 1..128 ASCII letters, digits, '.', '_' or '-'", "achievements: progress record %d: %w", i, err)
 		}
 		if _, dup := ids[r.ID]; dup {
-			return fmt.Errorf("achievements: progress for %q is recorded more than once", r.ID)
+			return loaderr.Errorf(rPath+".id", "merge duplicate progress records so each achievement id appears once", "achievements: progress for %q is recorded more than once", r.ID)
 		}
 		ids[r.ID] = struct{}{}
 		if r.Steps < 0 || r.Steps > MaxSteps {
-			return fmt.Errorf("achievements: progress for %q: steps %d must be between 0 and %d", r.ID, r.Steps, MaxSteps)
+			return loaderr.Errorf(rPath+".steps", fmt.Sprintf("set steps to an integer between 0 and %d", MaxSteps), "achievements: progress for %q: steps %d must be between 0 and %d", r.ID, r.Steps, MaxSteps)
 		}
-		for s, n := range r.Reported {
-			if !s.Valid() {
-				return fmt.Errorf("achievements: progress for %q: unknown service %q", r.ID, s)
+		if len(r.Reported) > 0 {
+			svcs := make([]Service, 0, len(r.Reported))
+			for s := range r.Reported {
+				svcs = append(svcs, s)
 			}
-			if n < 0 || n > r.Steps {
-				return fmt.Errorf("achievements: progress for %q: %s acknowledged %d steps, want 0 to %d", r.ID, s, n, r.Steps)
+			slices.Sort(svcs)
+			for _, s := range svcs {
+				n := r.Reported[s]
+				if !s.Valid() {
+					return loaderr.Errorf(rPath+".reported."+string(s), "use gameCenter or playGames as keys under reported", "achievements: progress for %q: unknown service %q", r.ID, s)
+				}
+				if n < 0 || n > r.Steps {
+					return loaderr.Errorf(rPath+".reported."+string(s), fmt.Sprintf("set reported.%s to an integer in [0, %d]", s, r.Steps), "achievements: progress for %q: %s acknowledged %d steps, want 0 to %d", r.ID, s, n, r.Steps)
+				}
 			}
 		}
 	}

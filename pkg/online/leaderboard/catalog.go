@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -69,23 +70,23 @@ func (c *Catalog) Board(name string) (Board, bool) {
 // Parse decodes a YAML leaderboard catalog and validates it. Unknown fields, duplicate keys and trailing YAML documents are refused.
 func Parse(data []byte) (*Catalog, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("leaderboard: empty catalog")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a leaderboard catalog starting with version: %d and a leaderboards list", CurrentVersion), "leaderboard: empty catalog"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var c Catalog
 	if err := dec.Decode(&c); err != nil {
-		return nil, fmt.Errorf("leaderboard: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("leaderboard: decode: %w", err), "", data, "check the YAML syntax and field names in the leaderboard catalog")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("leaderboard: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the leaderboard catalog and remove any --- separator", "leaderboard: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("leaderboard: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("leaderboard: decode: %w", err), "", data, "remove trailing YAML content after the leaderboard catalog")
 	}
 	if err := c.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &c, nil
 }
@@ -111,40 +112,41 @@ func (c *Catalog) Encode() ([]byte, error) {
 // Validate checks c against the version 1 schema: a supported version, at least one board, unique non-empty names without control characters or surrounding whitespace, at least one well-formed platform ID per board, and no two boards sharing a Game Center or Play Games ID.
 func (c *Catalog) Validate() error {
 	if c == nil {
-		return errors.New("leaderboard: nil catalog")
+		return loaderr.Errorf("", "pass a non-nil *leaderboard.Catalog to Validate", "leaderboard: nil catalog")
 	}
 	if c.Version != CurrentVersion {
-		return fmt.Errorf("leaderboard: unsupported version %d (want %d)", c.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the leaderboard catalog", CurrentVersion), "leaderboard: unsupported version %d (want %d)", c.Version, CurrentVersion)
 	}
 	if len(c.Leaderboards) == 0 {
-		return errors.New("leaderboard: catalog declares no leaderboards")
+		return loaderr.Errorf("leaderboards", "declare at least one board entry under leaderboards", "leaderboard: catalog declares no leaderboards")
 	}
 	seen := make(map[string]struct{}, len(c.Leaderboards))
 	seenGC := make(map[string]string, len(c.Leaderboards))
 	seenPG := make(map[string]string, len(c.Leaderboards))
 	for i, b := range c.Leaderboards {
+		bPath := fmt.Sprintf("leaderboards[%d]", i)
 		if err := validateName(b.Name); err != nil {
-			return fmt.Errorf("leaderboard: board %d: %w", i, err)
+			return loaderr.Errorf(bPath+".name", "set name to a non-empty UTF-8 string without control characters or surrounding spaces", "leaderboard: board %d: %w", i, err)
 		}
 		if _, dup := seen[b.Name]; dup {
-			return fmt.Errorf("leaderboard: duplicate board name %q", b.Name)
+			return loaderr.Errorf(bPath+".name", "give each leaderboard a unique name", "leaderboard: duplicate board name %q", b.Name)
 		}
 		seen[b.Name] = struct{}{}
 		if b.GameCenter == "" && b.PlayGames == "" {
-			return fmt.Errorf("leaderboard: board %q declares no platform ID (set gameCenter, playGames or both)", b.Name)
+			return loaderr.Errorf(bPath, "set gameCenter, playGames, or both on the leaderboard entry", "leaderboard: board %q declares no platform ID (set gameCenter, playGames or both)", b.Name)
 		}
 		if err := validateID(b.GameCenter); err != nil {
-			return fmt.Errorf("leaderboard: board %q gameCenter: %w", b.Name, err)
+			return loaderr.Errorf(bPath+".gameCenter", fmt.Sprintf("set gameCenter to up to %d ASCII letters, digits, '.', '_' or '-'", MaxIDLength), "leaderboard: board %q gameCenter: %w", b.Name, err)
 		}
 		if err := validateID(b.PlayGames); err != nil {
-			return fmt.Errorf("leaderboard: board %q playGames: %w", b.Name, err)
+			return loaderr.Errorf(bPath+".playGames", fmt.Sprintf("set playGames to up to %d ASCII letters, digits, '.', '_' or '-'", MaxIDLength), "leaderboard: board %q playGames: %w", b.Name, err)
 		}
 		checkID := func(provider string, ids map[string]string, id string) error {
 			if id == "" {
 				return nil
 			}
 			if other, dup := ids[id]; dup {
-				return fmt.Errorf("leaderboard: board %q reuses the %s ID %q of board %q", b.Name, provider, id, other)
+				return loaderr.Errorf(bPath+"."+provider, fmt.Sprintf("assign a unique %s ID to each leaderboard", provider), "leaderboard: board %q reuses the %s ID %q of board %q", b.Name, provider, id, other)
 			}
 			ids[id] = b.Name
 			return nil

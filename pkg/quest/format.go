@@ -8,7 +8,13 @@ import (
 	"io/fs"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixBook     = "write the quest book as version: 1 YAML with valid quests, objectives and rewards"
+	fixReadBook = "check that the quest book file exists and is readable"
 )
 
 // FormatVersion is the quest book schema version this package reads and writes.
@@ -126,22 +132,32 @@ func (b *Book) Quest(id string) *Quest {
 }
 
 // Parse decodes a YAML quest book and validates it. Unknown fields and trailing YAML documents are refused. An empty list, such as `requires: []`, decodes the same as an omitted one (nil), so a parsed book equals Parse(Encode(book)).
+//
+// Errors are *loaderr.Error values wrapping ErrInvalidBook with line, field and fix; callers that read from a file name it with loaderr.WithFile.
 func Parse(data []byte) (*Book, error) {
+	b, err := parseBook(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixBook)
+	}
+	return b, nil
+}
+
+func parseBook(data []byte) (*Book, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("%w: empty document", ErrInvalidBook)
+		return nil, loaderr.Errorf("", fixBook, "%w: empty document", ErrInvalidBook)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var b Book
 	if err := dec.Decode(&b); err != nil {
-		return nil, fmt.Errorf("%w: decode: %v", ErrInvalidBook, err)
+		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidBook, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("%w: unexpected trailing YAML document", ErrInvalidBook)
+			return nil, loaderr.Errorf("", "keep one YAML document in the quest book; remove the trailing --- document", "%w: unexpected trailing YAML document", ErrInvalidBook)
 		}
-		return nil, fmt.Errorf("%w: decode: %v", ErrInvalidBook, err)
+		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidBook, err)
 	}
 	if err := Validate(&b); err != nil {
 		return nil, err
@@ -170,11 +186,11 @@ func normalize(b *Book) {
 func LoadFS(fsys fs.FS, name string) (*Book, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
-		return nil, fmt.Errorf("quest: read %s: %w", name, err)
+		return nil, loaderr.Locate(fmt.Errorf("quest: read %s: %w", name, err), name, nil, fixReadBook)
 	}
 	b, err := Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, loaderr.WithFile(err, name)
 	}
 	return b, nil
 }
@@ -200,80 +216,84 @@ func Encode(b *Book) ([]byte, error) {
 // Validate checks b against the schema: the version, unique non-empty IDs, known objective kinds with targets, non-negative counts and amounts, prerequisites that name other quests in the book, and no prerequisite cycles. Errors wrap ErrInvalidBook.
 func Validate(b *Book) error {
 	if b == nil {
-		return fmt.Errorf("%w: nil book", ErrInvalidBook)
+		return loaderr.Errorf("", fixBook, "%w: nil book", ErrInvalidBook)
 	}
 	if b.Version != FormatVersion {
-		return fmt.Errorf("%w: unsupported version %d (want %d)", ErrInvalidBook, b.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormatVersion), "%w: unsupported version %d (want %d)", ErrInvalidBook, b.Version, FormatVersion)
 	}
 	index := make(map[string]int, len(b.Quests))
 	for i := range b.Quests {
 		q := &b.Quests[i]
 		if err := validID(q.ID); err != nil {
-			return fmt.Errorf("%w: quest %d id: %v", ErrInvalidBook, i, err)
+			return loaderr.Errorf(loaderr.Path("quests", i, "id"), "give the quest a non-empty id without leading or trailing spaces", "%w: quest %d id: %v", ErrInvalidBook, i, err)
 		}
 		if _, dup := index[q.ID]; dup {
-			return fmt.Errorf("%w: duplicate quest id %q", ErrInvalidBook, q.ID)
+			return loaderr.Errorf(loaderr.Path("quests", i, "id"), "give each quest a unique id", "%w: duplicate quest id %q", ErrInvalidBook, q.ID)
 		}
 		index[q.ID] = i
 	}
 	for i := range b.Quests {
-		if err := validateQuest(&b.Quests[i], index); err != nil {
+		if err := validateQuest(i, &b.Quests[i], index); err != nil {
 			return err
 		}
 	}
 	return checkCycles(b, index)
 }
 
-func validateQuest(q *Quest, index map[string]int) error {
+func validateQuest(qi int, q *Quest, index map[string]int) error {
+	qPath := loaderr.Path("quests", qi)
 	seen := make(map[string]struct{}, len(q.Requires))
-	for _, req := range q.Requires {
+	for ri, req := range q.Requires {
+		rPath := loaderr.Join(qPath, "requires", ri)
 		if req == q.ID {
-			return fmt.Errorf("%w: quest %q requires itself", ErrInvalidBook, q.ID)
+			return loaderr.Errorf(rPath, "remove the quest's own id from requires", "%w: quest %q requires itself", ErrInvalidBook, q.ID)
 		}
 		if _, ok := index[req]; !ok {
-			return fmt.Errorf("%w: quest %q requires unknown quest %q", ErrInvalidBook, q.ID, req)
+			return loaderr.Errorf(rPath, "name a quest id declared in this book or remove the prerequisite", "%w: quest %q requires unknown quest %q", ErrInvalidBook, q.ID, req)
 		}
 		if _, dup := seen[req]; dup {
-			return fmt.Errorf("%w: quest %q requires %q twice", ErrInvalidBook, q.ID, req)
+			return loaderr.Errorf(rPath, "remove the duplicate prerequisite id", "%w: quest %q requires %q twice", ErrInvalidBook, q.ID, req)
 		}
 		seen[req] = struct{}{}
 	}
 	if len(q.Objectives) == 0 {
-		return fmt.Errorf("%w: quest %q has no objectives", ErrInvalidBook, q.ID)
+		return loaderr.Errorf(loaderr.Join(qPath, "objectives"), "add at least one required objective to the quest", "%w: quest %q has no objectives", ErrInvalidBook, q.ID)
 	}
 	required := 0
 	objIDs := make(map[string]struct{}, len(q.Objectives))
 	for j := range q.Objectives {
 		o := &q.Objectives[j]
+		oPath := loaderr.Join(qPath, "objectives", j)
 		if err := validID(o.ID); err != nil {
-			return fmt.Errorf("%w: quest %q objective %d id: %v", ErrInvalidBook, q.ID, j, err)
+			return loaderr.Errorf(loaderr.Join(oPath, "id"), "give the objective a non-empty id without leading or trailing spaces", "%w: quest %q objective %d id: %v", ErrInvalidBook, q.ID, j, err)
 		}
 		if _, dup := objIDs[o.ID]; dup {
-			return fmt.Errorf("%w: quest %q has duplicate objective id %q", ErrInvalidBook, q.ID, o.ID)
+			return loaderr.Errorf(loaderr.Join(oPath, "id"), "give each objective in the quest a unique id", "%w: quest %q has duplicate objective id %q", ErrInvalidBook, q.ID, o.ID)
 		}
 		objIDs[o.ID] = struct{}{}
 		if !o.Kind.Valid() {
-			return fmt.Errorf("%w: quest %q objective %q has unknown kind %q (want collect, reach, defeat or talk)", ErrInvalidBook, q.ID, o.ID, o.Kind)
+			return loaderr.Errorf(loaderr.Join(oPath, "kind"), "set kind to collect, reach, defeat or talk", "%w: quest %q objective %q has unknown kind %q (want collect, reach, defeat or talk)", ErrInvalidBook, q.ID, o.ID, o.Kind)
 		}
 		if err := validID(o.Target); err != nil {
-			return fmt.Errorf("%w: quest %q objective %q target: %v", ErrInvalidBook, q.ID, o.ID, err)
+			return loaderr.Errorf(loaderr.Join(oPath, "target"), "give the objective a non-empty target id without leading or trailing spaces", "%w: quest %q objective %q target: %v", ErrInvalidBook, q.ID, o.ID, err)
 		}
 		if o.Count < 0 {
-			return fmt.Errorf("%w: quest %q objective %q has negative count %d", ErrInvalidBook, q.ID, o.ID, o.Count)
+			return loaderr.Errorf(loaderr.Join(oPath, "count"), "set count to a non-negative integer, or omit it for 1", "%w: quest %q objective %q has negative count %d", ErrInvalidBook, q.ID, o.ID, o.Count)
 		}
 		if !o.Optional {
 			required++
 		}
 	}
 	if required == 0 {
-		return fmt.Errorf("%w: quest %q has only optional objectives", ErrInvalidBook, q.ID)
+		return loaderr.Errorf(loaderr.Join(qPath, "objectives"), "make at least one objective non-optional", "%w: quest %q has only optional objectives", ErrInvalidBook, q.ID)
 	}
 	for k, r := range q.Rewards {
+		rwPath := loaderr.Join(qPath, "rewards", k)
 		if err := validID(r.ID); err != nil {
-			return fmt.Errorf("%w: quest %q reward %d id: %v", ErrInvalidBook, q.ID, k, err)
+			return loaderr.Errorf(loaderr.Join(rwPath, "id"), "give the reward a non-empty id without leading or trailing spaces", "%w: quest %q reward %d id: %v", ErrInvalidBook, q.ID, k, err)
 		}
 		if r.Amount < 0 {
-			return fmt.Errorf("%w: quest %q reward %q has negative amount %d", ErrInvalidBook, q.ID, r.ID, r.Amount)
+			return loaderr.Errorf(loaderr.Join(rwPath, "amount"), "set amount to a non-negative integer, or omit it for 1", "%w: quest %q reward %q has negative amount %d", ErrInvalidBook, q.ID, r.ID, r.Amount)
 		}
 	}
 	return nil
@@ -301,7 +321,7 @@ func checkCycles(b *Book, index map[string]int) error {
 	visit = func(i int) error {
 		switch state[i] {
 		case visiting:
-			return fmt.Errorf("%w: prerequisite cycle through quest %q", ErrInvalidBook, b.Quests[i].ID)
+			return loaderr.Errorf(loaderr.Path("quests", i, "requires"), "break the prerequisite cycle by removing one of the requires entries", "%w: prerequisite cycle through quest %q", ErrInvalidBook, b.Quests[i].ID)
 		case done:
 			return nil
 		}

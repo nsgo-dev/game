@@ -2,13 +2,18 @@ package vehicle
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixVehicleConfig = "write the vehicle config as version: 1 YAML with valid chassis and wheel settings"
+	fixVehicleGhost  = "write the vehicle ghost as version: 1 YAML with valid rate, interval and frames"
 )
 
 // ConfigVersion is the Config schema version written by EncodeConfig and accepted by ParseConfig.
@@ -135,22 +140,22 @@ func ReferenceConfig() Config {
 // Validate checks that cfg uses ConfigVersion and that every value is finite and within the range its field documents.
 func (cfg *Config) Validate() error {
 	if cfg == nil {
-		return errors.New("vehicle: nil config")
+		return loaderr.Errorf("", fixVehicleConfig, "vehicle: nil config")
 	}
 	if cfg.Version != ConfigVersion {
-		return fmt.Errorf("vehicle: unsupported config version %d (want %d)", cfg.Version, ConfigVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", ConfigVersion), "vehicle: unsupported config version %d (want %d)", cfg.Version, ConfigVersion)
 	}
-	if err := positive("mass", cfg.Mass); err != nil {
+	if err := positive("mass", "mass", cfg.Mass); err != nil {
 		return err
 	}
 	for i, e := range cfg.ChassisHalfExtents {
-		if err := positive(fmt.Sprintf("chassisHalfExtents[%d]", i), e); err != nil {
+		if err := positive(loaderr.Path("chassisHalfExtents", i), fmt.Sprintf("chassisHalfExtents[%d]", i), e); err != nil {
 			return err
 		}
 	}
 	for i, o := range cfg.ChassisOffset {
 		if !finite(o) {
-			return fmt.Errorf("vehicle: chassisOffset[%d] must be finite", i)
+			return loaderr.Errorf(loaderr.Path("chassisOffset", i), "set chassisOffset components to finite numbers", "vehicle: chassisOffset[%d] must be finite", i)
 		}
 	}
 	for _, f := range []struct {
@@ -164,7 +169,7 @@ func (cfg *Config) Validate() error {
 		{"rollingResistance", cfg.RollingResistance},
 		{"angularDamping", cfg.AngularDamping},
 	} {
-		if err := nonNegative(f.name, f.v); err != nil {
+		if err := nonNegative(f.name, f.name, f.v); err != nil {
 			return err
 		}
 	}
@@ -176,7 +181,7 @@ func (cfg *Config) Validate() error {
 		{"maxReverseSpeed", cfg.MaxReverseSpeed},
 		{"steerRate", cfg.SteerRate},
 	} {
-		if err := positive(f.name, f.v); err != nil {
+		if err := positive(f.name, f.name, f.v); err != nil {
 			return err
 		}
 	}
@@ -190,39 +195,40 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 	if len(cfg.Wheels) == 0 {
-		return errors.New("vehicle: config has no wheels")
+		return loaderr.Errorf("wheels", "add at least one wheel under wheels", "vehicle: config has no wheels")
 	}
 	if len(cfg.Wheels) > maxWheels {
-		return fmt.Errorf("vehicle: config has %d wheels (max %d)", len(cfg.Wheels), maxWheels)
+		return loaderr.Errorf("wheels", fmt.Sprintf("reduce wheels to at most %d entries", maxWheels), "vehicle: config has %d wheels (max %d)", len(cfg.Wheels), maxWheels)
 	}
 	seen := make(map[string]struct{}, len(cfg.Wheels))
 	for i := range cfg.Wheels {
 		w := &cfg.Wheels[i]
+		wPath := loaderr.Path("wheels", i)
 		if w.Name == "" {
-			return fmt.Errorf("vehicle: wheel %d has an empty name", i)
+			return loaderr.Errorf(loaderr.Join(wPath, "name"), "give the wheel a non-empty name", "vehicle: wheel %d has an empty name", i)
 		}
 		if _, dup := seen[w.Name]; dup {
-			return fmt.Errorf("vehicle: duplicate wheel name %q", w.Name)
+			return loaderr.Errorf(loaderr.Join(wPath, "name"), "give each wheel a unique name", "vehicle: duplicate wheel name %q", w.Name)
 		}
 		seen[w.Name] = struct{}{}
-		if err := w.validate(); err != nil {
-			return fmt.Errorf("vehicle: wheel %q: %w", w.Name, err)
+		if err := w.validateAt(wPath); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (w *WheelConfig) validate() error {
+func (w *WheelConfig) validateAt(wPath string) error {
 	for i, a := range w.Anchor {
 		if !finite(a) {
-			return fmt.Errorf("anchor[%d] must be finite", i)
+			return loaderr.Errorf(loaderr.Join(wPath, "anchor", i), "set anchor components to finite numbers", "vehicle: wheel %q: anchor[%d] must be finite", w.Name, i)
 		}
 	}
-	if err := positive("radius", w.Radius); err != nil {
-		return err
+	if !finite(w.Radius) || w.Radius <= 0 {
+		return loaderr.Errorf(loaderr.Join(wPath, "radius"), "set radius to a finite number > 0", "vehicle: wheel %q: radius must be finite and > 0, got %v", w.Name, w.Radius)
 	}
-	if err := positive("stiffness", w.Stiffness); err != nil {
-		return err
+	if !finite(w.Stiffness) || w.Stiffness <= 0 {
+		return loaderr.Errorf(loaderr.Join(wPath, "stiffness"), "set stiffness to a finite number > 0", "vehicle: wheel %q: stiffness must be finite and > 0, got %v", w.Name, w.Stiffness)
 	}
 	for _, f := range []struct {
 		name string
@@ -233,8 +239,8 @@ func (w *WheelConfig) validate() error {
 		{"maxForce", w.MaxForce},
 		{"friction", w.Friction},
 	} {
-		if err := nonNegative(f.name, f.v); err != nil {
-			return err
+		if !finite(f.v) || f.v < 0 {
+			return loaderr.Errorf(loaderr.Join(wPath, f.name), fmt.Sprintf("set %s to a finite number >= 0", f.name), "vehicle: wheel %q: %s must be finite and >= 0, got %v", w.Name, f.name, f.v)
 		}
 	}
 	return nil
@@ -244,32 +250,40 @@ func finite(v float32) bool {
 	return !math.IsNaN(float64(v)) && !math.IsInf(float64(v), 0)
 }
 
-func positive(name string, v float32) error {
+func positive(field, name string, v float32) error {
 	if !finite(v) || v <= 0 {
-		return fmt.Errorf("vehicle: %s must be finite and > 0, got %v", name, v)
+		return loaderr.Errorf(field, fmt.Sprintf("set %s to a finite number > 0", name), "vehicle: %s must be finite and > 0, got %v", name, v)
 	}
 	return nil
 }
 
-func nonNegative(name string, v float32) error {
+func nonNegative(field, name string, v float32) error {
 	if !finite(v) || v < 0 {
-		return fmt.Errorf("vehicle: %s must be finite and >= 0, got %v", name, v)
+		return loaderr.Errorf(field, fmt.Sprintf("set %s to a finite number >= 0", name), "vehicle: %s must be finite and >= 0, got %v", name, v)
 	}
 	return nil
 }
 
 func inRange(name string, v, lo, hi float32) error {
 	if !finite(v) || v < lo || v > hi {
-		return fmt.Errorf("vehicle: %s must be in [%v, %v], got %v", name, lo, hi, v)
+		return loaderr.Errorf(name, fmt.Sprintf("set %s to a finite number in [%v, %v]", name, lo, hi), "vehicle: %s must be in [%v, %v], got %v", name, lo, hi, v)
 	}
 	return nil
 }
 
 // ParseConfig decodes a YAML car Config and validates it. Unknown fields and trailing YAML documents are rejected.
 func ParseConfig(data []byte) (Config, error) {
+	cfg, err := parseConfig(data)
+	if err != nil {
+		return Config{}, loaderr.Locate(err, "", data, fixVehicleConfig)
+	}
+	return cfg, nil
+}
+
+func parseConfig(data []byte) (Config, error) {
 	var cfg Config
-	if err := decodeStrict(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("vehicle: config: %w", err)
+	if err := decodeStrict(data, &cfg, fixVehicleConfig); err != nil {
+		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -290,21 +304,21 @@ func EncodeConfig(cfg Config) ([]byte, error) {
 	return data, nil
 }
 
-func decodeStrict(data []byte, out any) error {
+func decodeStrict(data []byte, out any, fix string) error {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return errors.New("empty document")
+		return loaderr.Errorf("", fix, "vehicle: empty document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(out); err != nil {
-		return fmt.Errorf("decode: %w", err)
+		return fmt.Errorf("vehicle: decode: %w", err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return errors.New("unexpected trailing YAML document")
+			return loaderr.Errorf("", "keep one YAML document in the file; remove the trailing --- document", "vehicle: unexpected trailing YAML document")
 		}
-		return fmt.Errorf("decode: %w", err)
+		return fmt.Errorf("vehicle: decode: %w", err)
 	}
 	return nil
 }

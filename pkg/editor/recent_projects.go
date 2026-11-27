@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"go.yaml.in/yaml/v3"
 )
@@ -63,17 +64,17 @@ func DefaultRecentProjectsPath() (string, error) {
 // refusing unknown fields, duplicate keys, trailing YAML documents, and unsupported versions.
 func ParseRecentProjects(data []byte) (*RecentProjectsFile, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("editor: recent projects: empty document (missing version)")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a recent-projects YAML document starting with version: %d", RecentProjectsVersion), "editor: recent projects: empty document (missing version)"), "", data, "")
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("editor: recent projects: parse: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: recent projects: parse: %w", err), "", data, "check the YAML syntax in recent-projects.yaml")
 	}
 	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("editor: recent projects: document must be a YAML mapping with version")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("write recent-projects.yaml as a YAML mapping starting with version: %d", RecentProjectsVersion), "editor: recent projects: document must be a YAML mapping with version"), "", data, "")
 	}
 	if err := checkDuplicateYAMLKeys(root.Content[0]); err != nil {
-		return nil, fmt.Errorf("editor: recent projects: %w", err)
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	hasVersion := false
 	for i := 0; i+1 < len(root.Content[0].Content); i += 2 {
@@ -83,24 +84,24 @@ func ParseRecentProjects(data []byte) (*RecentProjectsFile, error) {
 		}
 	}
 	if !hasVersion {
-		return nil, errors.New("editor: recent projects: missing required field version")
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("add version: %d at the top of recent-projects.yaml", RecentProjectsVersion), "editor: recent projects: missing required field version"), "", data, "")
 	}
 
 	var f RecentProjectsFile
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("editor: recent projects: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: recent projects: decode: %w", err), "", data, "check the YAML syntax and field names in recent-projects.yaml")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("editor: recent projects: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in recent-projects.yaml and remove any --- separator", "editor: recent projects: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("editor: recent projects: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: recent projects: decode: %w", err), "", data, "remove trailing YAML content after recent-projects.yaml")
 	}
 	if err := ValidateRecentProjects(&f); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &f, nil
 }
@@ -116,7 +117,13 @@ func checkDuplicateYAMLKeys(n *yaml.Node) error {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i].Value
 			if seen[k] {
-				return fmt.Errorf("line %d: duplicate key %q", n.Content[i].Line, k)
+				return &loaderr.Error{
+					Line:    n.Content[i].Line,
+					Column:  n.Content[i].Column,
+					Field:   k,
+					Problem: fmt.Sprintf("line %d: duplicate key %q", n.Content[i].Line, k),
+					Fix:     fmt.Sprintf("remove the duplicate %q key", k),
+				}
 			}
 			seen[k] = true
 			if err := checkDuplicateYAMLKeys(n.Content[i+1]); err != nil {
@@ -136,28 +143,29 @@ func checkDuplicateYAMLKeys(n *yaml.Node) error {
 // ValidateRecentProjects checks that f conforms to version 1 of the recent projects schema.
 func ValidateRecentProjects(f *RecentProjectsFile) error {
 	if f == nil {
-		return errors.New("editor: recent projects: nil document")
+		return loaderr.Errorf("", "pass a non-nil *editor.RecentProjectsFile to ValidateRecentProjects", "editor: recent projects: nil document")
 	}
 	if f.Version != RecentProjectsVersion {
-		return fmt.Errorf("editor: recent projects: unsupported version %d (want %d)", f.Version, RecentProjectsVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of recent-projects.yaml", RecentProjectsVersion), "editor: recent projects: unsupported version %d (want %d)", f.Version, RecentProjectsVersion)
 	}
 	seen := make(map[string]bool, len(f.Projects))
 	for i, p := range f.Projects {
+		pPath := fmt.Sprintf("projects[%d]", i)
 		if err := validateRecentText("name", p.Name); err != nil {
-			return fmt.Errorf("editor: recent projects: projects[%d]: %w", i, err)
+			return loaderr.Errorf(pPath+".name", "set name to a non-empty project name without surrounding spaces or control characters", "editor: recent projects: projects[%d]: %w", i, err)
 		}
 		if err := validateRecentText("path", p.Path); err != nil {
-			return fmt.Errorf("editor: recent projects: projects[%d]: %w", i, err)
+			return loaderr.Errorf(pPath+".path", "set path to the project directory path without surrounding spaces or control characters", "editor: recent projects: projects[%d]: %w", i, err)
 		}
 		if seen[p.Path] {
-			return fmt.Errorf("editor: recent projects: duplicate path %q", p.Path)
+			return loaderr.Errorf(pPath+".path", "remove the duplicate project path entry", "editor: recent projects: duplicate path %q", p.Path)
 		}
 		seen[p.Path] = true
 		if p.LastOpened == "" {
-			return fmt.Errorf("editor: recent projects: projects[%d]: lastOpened is required", i)
+			return loaderr.Errorf(pPath+".lastOpened", "set lastOpened to an RFC3339 UTC timestamp such as 2026-01-02T15:04:05Z", "editor: recent projects: projects[%d]: lastOpened is required", i)
 		}
 		if _, err := time.Parse(time.RFC3339, p.LastOpened); err != nil {
-			return fmt.Errorf("editor: recent projects: projects[%d]: lastOpened %q must be RFC3339: %w", i, p.LastOpened, err)
+			return loaderr.Errorf(pPath+".lastOpened", "format lastOpened as an RFC3339 timestamp such as 2026-01-02T15:04:05Z", "editor: recent projects: projects[%d]: lastOpened %q must be RFC3339: %w", i, p.LastOpened, err)
 		}
 	}
 	return nil
@@ -201,7 +209,11 @@ func LoadRecentProjectsFile(path string) (*RecentProjectsFile, error) {
 		}
 		return nil, err
 	}
-	return ParseRecentProjects(data)
+	f, err := ParseRecentProjects(data)
+	if err != nil {
+		return nil, loaderr.WithFile(err, path)
+	}
+	return f, nil
 }
 
 // SaveRecentProjectsFile encodes f and atomically writes it to path, creating parent directories if needed.

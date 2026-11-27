@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
 	"github.com/nsgo-dev/game/pkg/tooling/manifest"
@@ -200,7 +201,7 @@ func Collect(root string, a *project.Assets) ([]Entry, error) {
 		}
 		f, err := importsettings.Parse(data)
 		if err != nil {
-			return nil, fmt.Errorf("credits: %s: %w", sidecar, err)
+			return nil, fmt.Errorf("credits: %w", loaderr.WithFile(err, sidecar))
 		}
 		if f.Credit == nil {
 			if ent, ok := creditFromSource(asset); ok {

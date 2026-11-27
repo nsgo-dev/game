@@ -2,7 +2,6 @@ package cutscene
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -10,8 +9,14 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixCutscene = "write the cutscene as version 1 (video) or version 2 (video or timeline) YAML"
+	fixDuration = `write a Go duration string such as "1.5s" or "250ms"`
 )
 
 const (
@@ -288,11 +293,11 @@ func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(),
 // UnmarshalYAML reads a duration time.ParseDuration takes, refusing any other value.
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.ScalarNode || n.Tag != "!!str" {
-		return fmt.Errorf("line %d: a duration is a string such as \"1.5s\", not %q", n.Line, n.Value)
+		return &loaderr.Error{Line: n.Line, Column: n.Column, Problem: fmt.Sprintf("a duration is a string such as \"1.5s\", not %q", n.Value), Fix: fixDuration}
 	}
 	v, err := time.ParseDuration(n.Value)
 	if err != nil {
-		return fmt.Errorf("line %d: %w", n.Line, err)
+		return &loaderr.Error{Line: n.Line, Column: n.Column, Problem: err.Error(), Fix: fixDuration, Err: err}
 	}
 	*d = Duration(v)
 	return nil
@@ -300,8 +305,16 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 
 // Parse reads a cutscene file and checks it as Validate does. It refuses unknown keys, more than one document and a version outside [MinVersion, CurrentVersion].
 func Parse(data []byte) (Cutscene, error) {
+	c, err := parseCutscene(data)
+	if err != nil {
+		return Cutscene{}, loaderr.Locate(err, "", data, fixCutscene)
+	}
+	return c, nil
+}
+
+func parseCutscene(data []byte) (Cutscene, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return Cutscene{}, errors.New("cutscene: empty document")
+		return Cutscene{}, loaderr.Errorf("", fixCutscene, "cutscene: empty document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -315,7 +328,7 @@ func Parse(data []byte) (Cutscene, error) {
 	var extra yaml.Node
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Cutscene{}, errors.New("cutscene: more than one YAML document")
+			return Cutscene{}, loaderr.Errorf("", "keep one YAML document in the cutscene file; remove the trailing --- document", "cutscene: more than one YAML document")
 		}
 		return Cutscene{}, fmt.Errorf("cutscene: decode: %w", err)
 	}
@@ -338,7 +351,13 @@ func checkVersionTag(data []byte) error {
 	m := doc.Content[0]
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		if k, v := m.Content[i], m.Content[i+1]; k.Value == "version" && (v.Kind != yaml.ScalarNode || v.ShortTag() != "!!int") {
-			return fmt.Errorf("cutscene: line %d: version is an integer, not %q", v.Line, v.Value)
+			return &loaderr.Error{
+				Line:    v.Line,
+				Column:  v.Column,
+				Field:   "version",
+				Problem: fmt.Sprintf("cutscene: line %d: version is an integer, not %q", v.Line, v.Value),
+				Fix:     fmt.Sprintf("write version as an integer (%d or %d)", MinVersion, CurrentVersion),
+			}
 		}
 	}
 	return nil
@@ -367,14 +386,20 @@ func Encode(c Cutscene) ([]byte, error) {
 // Validate checks c as a cutscene file: its version is in [MinVersion, CurrentVersion], version 1 uses only video fields, and the cutscene is valid for playback.
 func Validate(c Cutscene) error {
 	if c.Version < MinVersion || c.Version > CurrentVersion {
-		return fmt.Errorf("cutscene: unsupported version %d (want %d..%d)", c.Version, MinVersion, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d or %d", MinVersion, CurrentVersion), "cutscene: unsupported version %d (want %d..%d)", c.Version, MinVersion, CurrentVersion)
 	}
 	if c.Version == 1 {
 		if c.Kind != "" {
-			return fmt.Errorf("cutscene: version 1 does not support kind %q (use version %d)", c.Kind, CurrentVersion)
+			return loaderr.Errorf("kind", fmt.Sprintf("set version to %d to use kind, or remove kind", CurrentVersion), "cutscene: version 1 does not support kind %q (use version %d)", c.Kind, CurrentVersion)
 		}
 		if c.Scene != "" || c.Length != 0 || len(c.Tracks) > 0 {
-			return fmt.Errorf("cutscene: version 1 does not support timeline fields (use version %d)", CurrentVersion)
+			field := "tracks"
+			if c.Scene != "" {
+				field = "scene"
+			} else if c.Length != 0 {
+				field = "length"
+			}
+			return loaderr.Errorf(field, fmt.Sprintf("set version to %d to use timeline fields, or remove scene, length and tracks", CurrentVersion), "cutscene: version 1 does not support timeline fields (use version %d)", CurrentVersion)
 		}
 	}
 	return check(c)
@@ -383,12 +408,12 @@ func Validate(c Cutscene) error {
 // check checks what playback needs of c, for either a video or timeline cutscene.
 func check(c Cutscene) error {
 	if c.SkipAfter < 0 {
-		return fmt.Errorf("cutscene: negative skipAfter %v", time.Duration(c.SkipAfter))
+		return loaderr.Errorf("skipAfter", "set skipAfter to a non-negative duration such as 1.5s", "cutscene: negative skipAfter %v", time.Duration(c.SkipAfter))
 	}
 	switch c.Kind {
 	case "", KindVideo, KindTimeline:
 	default:
-		return fmt.Errorf("cutscene: unknown kind %q (want %q or %q)", c.Kind, KindVideo, KindTimeline)
+		return loaderr.Errorf("kind", fmt.Sprintf("set kind to %q or %q", KindVideo, KindTimeline), "cutscene: unknown kind %q (want %q or %q)", c.Kind, KindVideo, KindTimeline)
 	}
 	switch c.EffectiveKind() {
 	case KindVideo:
@@ -396,34 +421,46 @@ func check(c Cutscene) error {
 	case KindTimeline:
 		return checkTimeline(c)
 	default:
-		return fmt.Errorf("cutscene: unknown kind %q", c.Kind)
+		return loaderr.Errorf("kind", fmt.Sprintf("set kind to %q or %q", KindVideo, KindTimeline), "cutscene: unknown kind %q", c.Kind)
 	}
 }
 
 func checkVideo(c Cutscene) error {
 	if strings.TrimSpace(c.Source) == "" {
-		return errors.New("cutscene: no source")
+		return loaderr.Errorf("source", "set source to a video path or asset URI", "cutscene: no source")
 	}
 	if c.Scene != "" || c.Length != 0 || len(c.Tracks) > 0 {
-		return errors.New("cutscene: video cutscene cannot set scene, length or tracks")
+		field := "tracks"
+		if c.Scene != "" {
+			field = "scene"
+		} else if c.Length != 0 {
+			field = "length"
+		}
+		return loaderr.Errorf(field, "remove scene, length and tracks from a video cutscene, or change kind to timeline", "cutscene: video cutscene cannot set scene, length or tracks")
 	}
 	switch c.Fit {
 	case "", FitContain, FitCover, FitStretch:
 	default:
-		return fmt.Errorf("cutscene: unknown fit %q (want %q, %q or %q)", c.Fit, FitContain, FitCover, FitStretch)
+		return loaderr.Errorf("fit", fmt.Sprintf("set fit to %q, %q or %q", FitContain, FitCover, FitStretch), "cutscene: unknown fit %q (want %q, %q or %q)", c.Fit, FitContain, FitCover, FitStretch)
 	}
 	return nil
 }
 
 func checkTimeline(c Cutscene) error {
 	if strings.TrimSpace(c.Source) != "" || c.Fit != "" || c.Transparent {
-		return errors.New("cutscene: timeline cutscene cannot set video fields (source, fit or transparent)")
+		field := "transparent"
+		if strings.TrimSpace(c.Source) != "" {
+			field = "source"
+		} else if c.Fit != "" {
+			field = "fit"
+		}
+		return loaderr.Errorf(field, "remove source, fit and transparent from a timeline cutscene", "cutscene: timeline cutscene cannot set video fields (source, fit or transparent)")
 	}
 	if c.Length <= 0 {
-		return fmt.Errorf("cutscene: timeline length must be positive, got %v", time.Duration(c.Length))
+		return loaderr.Errorf("length", "set length to a positive duration such as 12s", "cutscene: timeline length must be positive, got %v", time.Duration(c.Length))
 	}
 	if c.Scene != "" && strings.TrimSpace(c.Scene) == "" {
-		return errors.New("cutscene: scene path cannot be blank")
+		return loaderr.Errorf("scene", "set scene to a project-relative scene path or omit it", "cutscene: scene path cannot be blank")
 	}
 	trackIDs := make(map[string]bool)
 	clipIDs := make(map[string]bool)
@@ -438,33 +475,34 @@ func checkTimeline(c Cutscene) error {
 }
 
 func checkTrack(ti int, tr *Track, length time.Duration, trackIDs, clipIDs, actorTargets map[string]bool) error {
+	tPath := loaderr.Path("tracks", ti)
 	if tr.ID != "" {
 		if strings.TrimSpace(tr.ID) == "" {
-			return fmt.Errorf("cutscene: track %d: id cannot be blank", ti)
+			return loaderr.Errorf(loaderr.Join(tPath, "id"), "set a non-blank track id or omit it", "cutscene: track %d: id cannot be blank", ti)
 		}
 		if trackIDs[tr.ID] {
-			return fmt.Errorf("cutscene: track %d: duplicate track id %q", ti, tr.ID)
+			return loaderr.Errorf(loaderr.Join(tPath, "id"), "give each track a unique id", "cutscene: track %d: duplicate track id %q", ti, tr.ID)
 		}
 		trackIDs[tr.ID] = true
 	}
 	switch tr.Kind {
 	case TrackCamera, TrackActor, TrackDialogue, TrackSound, TrackMusic:
 	default:
-		return fmt.Errorf("cutscene: track %d: unknown kind %q (want camera, actor, dialogue, sound or music)", ti, tr.Kind)
+		return loaderr.Errorf(loaderr.Join(tPath, "kind"), "set kind to camera, actor, dialogue, sound or music", "cutscene: track %d: unknown kind %q (want camera, actor, dialogue, sound or music)", ti, tr.Kind)
 	}
 	if tr.Kind == TrackActor {
 		if strings.TrimSpace(tr.Target) == "" {
-			return fmt.Errorf("cutscene: track %d: actor track requires target", ti)
+			return loaderr.Errorf(loaderr.Join(tPath, "target"), "set target to the scene object id this actor track drives", "cutscene: track %d: actor track requires target", ti)
 		}
 		if actorTargets[tr.Target] {
-			return fmt.Errorf("cutscene: track %d: duplicate actor track for target %q", ti, tr.Target)
+			return loaderr.Errorf(loaderr.Join(tPath, "target"), "keep one actor track per target object id", "cutscene: track %d: duplicate actor track for target %q", ti, tr.Target)
 		}
 		actorTargets[tr.Target] = true
 	} else if tr.Target != "" {
-		return fmt.Errorf("cutscene: track %d (%s): target is only valid on actor tracks", ti, tr.Kind)
+		return loaderr.Errorf(loaderr.Join(tPath, "target"), "remove target from non-actor tracks", "cutscene: track %d (%s): target is only valid on actor tracks", ti, tr.Kind)
 	}
 	if tr.Group != "" && tr.Kind != TrackSound && tr.Kind != TrackMusic {
-		return fmt.Errorf("cutscene: track %d (%s): group is only valid on sound and music tracks", ti, tr.Kind)
+		return loaderr.Errorf(loaderr.Join(tPath, "group"), "remove group from non-audio tracks", "cutscene: track %d (%s): group is only valid on sound and music tracks", ti, tr.Kind)
 	}
 
 	var prevStart, prevEnd time.Duration
@@ -476,11 +514,12 @@ func checkTrack(ti int, tr *Track, length time.Duration, trackIDs, clipIDs, acto
 		start := time.Duration(cl.Start)
 		end := start + time.Duration(cl.Duration)
 		if ci > 0 {
+			cStartPath := loaderr.Join(tPath, "clips", ci, "start")
 			if start < prevStart {
-				return fmt.Errorf("cutscene: track %d clip %d: start %v is earlier than previous clip start %v", ti, ci, start, prevStart)
+				return loaderr.Errorf(cStartPath, "order clips in non-decreasing start order", "cutscene: track %d clip %d: start %v is earlier than previous clip start %v", ti, ci, start, prevStart)
 			}
 			if tr.Kind != TrackSound && start < prevEnd {
-				return fmt.Errorf("cutscene: track %d clip %d: start %v overlaps previous clip ending at %v", ti, ci, start, prevEnd)
+				return loaderr.Errorf(cStartPath, "move start to at or after the previous clip's end, or shorten the previous clip", "cutscene: track %d clip %d: start %v overlaps previous clip ending at %v", ti, ci, start, prevEnd)
 			}
 		}
 		prevStart, prevEnd = start, end
@@ -489,207 +528,212 @@ func checkTrack(ti int, tr *Track, length time.Duration, trackIDs, clipIDs, acto
 }
 
 func checkClip(ti, ci int, kind TrackKind, cl *Clip, length time.Duration, clipIDs map[string]bool) error {
+	cPath := loaderr.Path("tracks", ti, "clips", ci)
 	prefix := fmt.Sprintf("cutscene: track %d clip %d", ti, ci)
 	if cl.ID != "" {
 		if strings.TrimSpace(cl.ID) == "" {
-			return fmt.Errorf("%s: id cannot be blank", prefix)
+			return loaderr.Errorf(loaderr.Join(cPath, "id"), "set a non-blank clip id or omit it", "%s: id cannot be blank", prefix)
 		}
 		if clipIDs[cl.ID] {
-			return fmt.Errorf("%s: duplicate clip id %q", prefix, cl.ID)
+			return loaderr.Errorf(loaderr.Join(cPath, "id"), "give each clip a unique id", "%s: duplicate clip id %q", prefix, cl.ID)
 		}
 		clipIDs[cl.ID] = true
 	}
 	start := time.Duration(cl.Start)
 	dur := time.Duration(cl.Duration)
 	if start < 0 {
-		return fmt.Errorf("%s: negative start %v", prefix, start)
+		return loaderr.Errorf(loaderr.Join(cPath, "start"), "set start to a non-negative duration", "%s: negative start %v", prefix, start)
 	}
 	if dur < 0 {
-		return fmt.Errorf("%s: negative duration %v", prefix, dur)
+		return loaderr.Errorf(loaderr.Join(cPath, "duration"), "set duration to a non-negative duration", "%s: negative duration %v", prefix, dur)
 	}
 	if kind != TrackSound && dur == 0 {
-		return fmt.Errorf("%s (%s): duration must be positive", prefix, kind)
+		return loaderr.Errorf(loaderr.Join(cPath, "duration"), "set duration to a positive duration", "%s (%s): duration must be positive", prefix, kind)
 	}
 	if start > length || dur > length-start {
-		return fmt.Errorf("%s: clip [%v, %v] extends past cutscene length %v", prefix, start, start+dur, length)
+		return loaderr.Errorf(loaderr.Join(cPath, "duration"), "keep start + duration within the cutscene length, or increase length", "%s: clip [%v, %v] extends past cutscene length %v", prefix, start, start+dur, length)
 	}
 	switch cl.Easing {
 	case "", EaseLinear, EaseIn, EaseOut, EaseInOut, EaseHold:
 	default:
-		return fmt.Errorf("%s: unknown easing %q (want linear, easeIn, easeOut, easeInOut or hold)", prefix, cl.Easing)
+		return loaderr.Errorf(loaderr.Join(cPath, "easing"), "set easing to linear, easeIn, easeOut, easeInOut or hold", "%s: unknown easing %q (want linear, easeIn, easeOut, easeInOut or hold)", prefix, cl.Easing)
 	}
-	if err := checkFinitePtr(prefix, "fromX", cl.FromX); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "fromX", cl.FromX); err != nil {
 		return err
 	}
-	if err := checkFinitePtr(prefix, "fromY", cl.FromY); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "fromY", cl.FromY); err != nil {
 		return err
 	}
-	if err := checkFinitePtr(prefix, "toX", cl.ToX); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "toX", cl.ToX); err != nil {
 		return err
 	}
-	if err := checkFinitePtr(prefix, "toY", cl.ToY); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "toY", cl.ToY); err != nil {
 		return err
 	}
-	if err := checkFinite(prefix, "offsetX", cl.OffsetX); err != nil {
+	if err := checkFinite(cPath, prefix, "offsetX", cl.OffsetX); err != nil {
 		return err
 	}
-	if err := checkFinite(prefix, "offsetY", cl.OffsetY); err != nil {
+	if err := checkFinite(cPath, prefix, "offsetY", cl.OffsetY); err != nil {
 		return err
 	}
-	if err := checkFinitePtr(prefix, "zoom", cl.Zoom); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "zoom", cl.Zoom); err != nil {
 		return err
 	}
-	if err := checkFinitePtr(prefix, "speed", cl.Speed); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "speed", cl.Speed); err != nil {
 		return err
 	}
-	if err := checkFinitePtr(prefix, "volume", cl.Volume); err != nil {
+	if err := checkFinitePtr(cPath, prefix, "volume", cl.Volume); err != nil {
 		return err
 	}
 
 	switch kind {
 	case TrackCamera:
-		return checkCameraClip(prefix, cl)
+		return checkCameraClip(cPath, prefix, cl)
 	case TrackActor:
-		return checkActorClip(prefix, cl)
+		return checkActorClip(cPath, prefix, cl)
 	case TrackDialogue:
-		return checkDialogueClip(prefix, cl)
+		return checkDialogueClip(cPath, prefix, cl)
 	case TrackSound:
-		return checkSoundClip(prefix, cl)
+		return checkSoundClip(cPath, prefix, cl)
 	case TrackMusic:
-		return checkMusicClip(prefix, cl)
+		return checkMusicClip(cPath, prefix, cl)
 	}
 	return nil
 }
 
-func checkCameraClip(prefix string, cl *Clip) error {
+func checkCameraClip(cPath, prefix string, cl *Clip) error {
 	if cl.State != "" || cl.Speed != nil || cl.Line != "" || cl.Speaker != "" || cl.Source != "" || cl.Group != "" || cl.Volume != nil || cl.FadeIn != 0 || cl.FadeOut != 0 || cl.Loop {
-		return fmt.Errorf("%s (camera): uses fields belonging to another track kind", prefix)
+		return loaderr.Errorf(cPath, "remove fields that do not belong on a camera clip", "%s (camera): uses fields belonging to another track kind", prefix)
 	}
 	if cl.Zoom != nil && *cl.Zoom <= 0 {
-		return fmt.Errorf("%s (camera): zoom must be positive, got %v", prefix, *cl.Zoom)
+		return loaderr.Errorf(loaderr.Join(cPath, "zoom"), "set zoom to a positive number", "%s (camera): zoom must be positive, got %v", prefix, *cl.Zoom)
 	}
 	switch cl.Action {
 	case ActionHold:
 		if cl.FromX != nil || cl.FromY != nil {
-			return fmt.Errorf("%s (camera hold): fromX and fromY are only valid on pan", prefix)
+			field := "fromX"
+			if cl.FromX == nil {
+				field = "fromY"
+			}
+			return loaderr.Errorf(loaderr.Join(cPath, field), "remove fromX and fromY from a hold clip, or change action to pan", "%s (camera hold): fromX and fromY are only valid on pan", prefix)
 		}
 		if strings.TrimSpace(cl.Target) == "" && cl.ToX == nil && cl.ToY == nil {
-			return fmt.Errorf("%s (camera hold): requires target or toX/toY", prefix)
+			return loaderr.Errorf(cPath, "set target or toX/toY on the camera hold clip", "%s (camera hold): requires target or toX/toY", prefix)
 		}
 	case ActionPan:
 		if strings.TrimSpace(cl.Target) == "" && cl.ToX == nil && cl.ToY == nil && cl.Zoom == nil {
-			return fmt.Errorf("%s (camera pan): requires target, toX/toY or zoom", prefix)
+			return loaderr.Errorf(cPath, "set target, toX/toY or zoom on the camera pan clip", "%s (camera pan): requires target, toX/toY or zoom", prefix)
 		}
 	case ActionFollow:
 		if cl.FromX != nil || cl.FromY != nil || cl.ToX != nil || cl.ToY != nil {
-			return fmt.Errorf("%s (camera follow): coordinate fields are not valid on follow", prefix)
+			return loaderr.Errorf(cPath, "remove fromX, fromY, toX and toY from a follow clip", "%s (camera follow): coordinate fields are not valid on follow", prefix)
 		}
 		if strings.TrimSpace(cl.Target) == "" {
-			return fmt.Errorf("%s (camera follow): requires target", prefix)
+			return loaderr.Errorf(loaderr.Join(cPath, "target"), "set target to the scene object id to follow", "%s (camera follow): requires target", prefix)
 		}
 	default:
-		return fmt.Errorf("%s (camera): unknown action %q (want hold, pan or follow)", prefix, cl.Action)
+		return loaderr.Errorf(loaderr.Join(cPath, "action"), "set action to hold, pan or follow", "%s (camera): unknown action %q (want hold, pan or follow)", prefix, cl.Action)
 	}
 	return nil
 }
 
-func checkActorClip(prefix string, cl *Clip) error {
+func checkActorClip(cPath, prefix string, cl *Clip) error {
 	if cl.Target != "" || cl.OffsetX != 0 || cl.OffsetY != 0 || cl.Zoom != nil || cl.Line != "" || cl.Speaker != "" || cl.Source != "" || cl.Group != "" || cl.Volume != nil || cl.FadeIn != 0 || cl.FadeOut != 0 || cl.Loop {
-		return fmt.Errorf("%s (actor): uses fields belonging to another track kind", prefix)
+		return loaderr.Errorf(cPath, "remove fields that do not belong on an actor clip", "%s (actor): uses fields belonging to another track kind", prefix)
 	}
 	if cl.Speed != nil && *cl.Speed <= 0 {
-		return fmt.Errorf("%s (actor): speed must be positive, got %v", prefix, *cl.Speed)
+		return loaderr.Errorf(loaderr.Join(cPath, "speed"), "set speed to a positive number", "%s (actor): speed must be positive, got %v", prefix, *cl.Speed)
 	}
 	switch cl.Action {
 	case ActionWalk:
 		if cl.Speed != nil {
-			return fmt.Errorf("%s (actor walk): speed is only valid on patrol", prefix)
+			return loaderr.Errorf(loaderr.Join(cPath, "speed"), "remove speed from a walk clip, or change action to patrol", "%s (actor walk): speed is only valid on patrol", prefix)
 		}
 		if cl.ToX == nil && cl.ToY == nil {
-			return fmt.Errorf("%s (actor walk): requires toX or toY", prefix)
+			return loaderr.Errorf(cPath, "set toX or toY on the actor walk clip", "%s (actor walk): requires toX or toY", prefix)
 		}
 	case ActionState:
 		if cl.FromX != nil || cl.FromY != nil || cl.ToX != nil || cl.ToY != nil || cl.Speed != nil {
-			return fmt.Errorf("%s (actor state): motion fields are not valid on state", prefix)
+			return loaderr.Errorf(cPath, "remove motion fields (fromX, fromY, toX, toY, speed) from a state clip", "%s (actor state): motion fields are not valid on state", prefix)
 		}
 		if strings.TrimSpace(cl.State) == "" {
-			return fmt.Errorf("%s (actor state): requires state", prefix)
+			return loaderr.Errorf(loaderr.Join(cPath, "state"), "set state to an animation state name", "%s (actor state): requires state", prefix)
 		}
 	case ActionDrop:
 		if cl.Speed != nil {
-			return fmt.Errorf("%s (actor drop): speed is only valid on patrol", prefix)
+			return loaderr.Errorf(loaderr.Join(cPath, "speed"), "remove speed from a drop clip, or change action to patrol", "%s (actor drop): speed is only valid on patrol", prefix)
 		}
 		if cl.ToY == nil {
-			return fmt.Errorf("%s (actor drop): requires toY", prefix)
+			return loaderr.Errorf(loaderr.Join(cPath, "toY"), "set toY on the actor drop clip", "%s (actor drop): requires toY", prefix)
 		}
 	case ActionPatrol:
 		if cl.ToX == nil && cl.ToY == nil {
-			return fmt.Errorf("%s (actor patrol): requires toX or toY", prefix)
+			return loaderr.Errorf(cPath, "set toX or toY on the actor patrol clip", "%s (actor patrol): requires toX or toY", prefix)
 		}
 	default:
-		return fmt.Errorf("%s (actor): unknown action %q (want walk, state, drop or patrol)", prefix, cl.Action)
+		return loaderr.Errorf(loaderr.Join(cPath, "action"), "set action to walk, state, drop or patrol", "%s (actor): unknown action %q (want walk, state, drop or patrol)", prefix, cl.Action)
 	}
 	return nil
 }
 
-func checkDialogueClip(prefix string, cl *Clip) error {
+func checkDialogueClip(cPath, prefix string, cl *Clip) error {
 	if cl.Easing != "" || cl.Action != "" || cl.Target != "" || cl.FromX != nil || cl.FromY != nil || cl.ToX != nil || cl.ToY != nil || cl.OffsetX != 0 || cl.OffsetY != 0 || cl.Zoom != nil || cl.State != "" || cl.Speed != nil || cl.Source != "" || cl.Group != "" || cl.Volume != nil || cl.FadeIn != 0 || cl.FadeOut != 0 || cl.Loop {
-		return fmt.Errorf("%s (dialogue): uses fields belonging to another track kind", prefix)
+		return loaderr.Errorf(cPath, "remove fields that do not belong on a dialogue clip", "%s (dialogue): uses fields belonging to another track kind", prefix)
 	}
 	if strings.TrimSpace(cl.Line) == "" {
-		return fmt.Errorf("%s (dialogue): requires line id", prefix)
+		return loaderr.Errorf(loaderr.Join(cPath, "line"), "set line to a non-empty localization key", "%s (dialogue): requires line id", prefix)
 	}
 	return nil
 }
 
-func checkSoundClip(prefix string, cl *Clip) error {
+func checkSoundClip(cPath, prefix string, cl *Clip) error {
 	if cl.Easing != "" || cl.Action != "" || cl.Target != "" || cl.FromX != nil || cl.FromY != nil || cl.ToX != nil || cl.ToY != nil || cl.OffsetX != 0 || cl.OffsetY != 0 || cl.Zoom != nil || cl.State != "" || cl.Speed != nil || cl.Line != "" || cl.Speaker != "" || cl.FadeIn != 0 || cl.FadeOut != 0 || cl.Loop {
-		return fmt.Errorf("%s (sound): uses fields belonging to another track kind", prefix)
+		return loaderr.Errorf(cPath, "remove fields that do not belong on a sound clip", "%s (sound): uses fields belonging to another track kind", prefix)
 	}
 	if strings.TrimSpace(cl.Source) == "" {
-		return fmt.Errorf("%s (sound): requires source", prefix)
+		return loaderr.Errorf(loaderr.Join(cPath, "source"), "set source to an audio file path or URI", "%s (sound): requires source", prefix)
 	}
 	if cl.Volume != nil && (*cl.Volume < 0 || *cl.Volume > 1) {
-		return fmt.Errorf("%s (sound): volume %v must be in [0, 1]", prefix, *cl.Volume)
+		return loaderr.Errorf(loaderr.Join(cPath, "volume"), "set volume to a number in [0, 1]", "%s (sound): volume %v must be in [0, 1]", prefix, *cl.Volume)
 	}
 	return nil
 }
 
-func checkMusicClip(prefix string, cl *Clip) error {
+func checkMusicClip(cPath, prefix string, cl *Clip) error {
 	if cl.Easing != "" || cl.Action != "" || cl.Target != "" || cl.FromX != nil || cl.FromY != nil || cl.ToX != nil || cl.ToY != nil || cl.OffsetX != 0 || cl.OffsetY != 0 || cl.Zoom != nil || cl.State != "" || cl.Speed != nil || cl.Line != "" || cl.Speaker != "" {
-		return fmt.Errorf("%s (music): uses fields belonging to another track kind", prefix)
+		return loaderr.Errorf(cPath, "remove fields that do not belong on a music clip", "%s (music): uses fields belonging to another track kind", prefix)
 	}
 	if strings.TrimSpace(cl.Source) == "" {
-		return fmt.Errorf("%s (music): requires source", prefix)
+		return loaderr.Errorf(loaderr.Join(cPath, "source"), "set source to an audio file path or URI", "%s (music): requires source", prefix)
 	}
 	if cl.Volume != nil && (*cl.Volume < 0 || *cl.Volume > 1) {
-		return fmt.Errorf("%s (music): volume %v must be in [0, 1]", prefix, *cl.Volume)
+		return loaderr.Errorf(loaderr.Join(cPath, "volume"), "set volume to a number in [0, 1]", "%s (music): volume %v must be in [0, 1]", prefix, *cl.Volume)
 	}
 	if cl.FadeIn < 0 {
-		return fmt.Errorf("%s (music): negative fadeIn %v", prefix, time.Duration(cl.FadeIn))
+		return loaderr.Errorf(loaderr.Join(cPath, "fadeIn"), "set fadeIn to a non-negative duration", "%s (music): negative fadeIn %v", prefix, time.Duration(cl.FadeIn))
 	}
 	if cl.FadeOut < 0 {
-		return fmt.Errorf("%s (music): negative fadeOut %v", prefix, time.Duration(cl.FadeOut))
+		return loaderr.Errorf(loaderr.Join(cPath, "fadeOut"), "set fadeOut to a non-negative duration", "%s (music): negative fadeOut %v", prefix, time.Duration(cl.FadeOut))
 	}
 	dur := time.Duration(cl.Duration)
 	fadeIn := time.Duration(cl.FadeIn)
 	fadeOut := time.Duration(cl.FadeOut)
 	if fadeIn > dur || fadeOut > dur-fadeIn {
-		return fmt.Errorf("%s (music): fadeIn (%v) + fadeOut (%v) exceeds duration (%v)", prefix, fadeIn, fadeOut, dur)
+		return loaderr.Errorf(loaderr.Join(cPath, "fadeOut"), "shorten fadeIn and fadeOut so their sum does not exceed duration", "%s (music): fadeIn (%v) + fadeOut (%v) exceeds duration (%v)", prefix, fadeIn, fadeOut, dur)
 	}
 	return nil
 }
 
-func checkFinite(prefix, field string, v float32) error {
+func checkFinite(cPath, prefix, field string, v float32) error {
 	if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
-		return fmt.Errorf("%s: %s must be finite", prefix, field)
+		return loaderr.Errorf(loaderr.Join(cPath, field), fmt.Sprintf("set %s to a finite number", field), "%s: %s must be finite", prefix, field)
 	}
 	return nil
 }
 
-func checkFinitePtr(prefix, field string, p *float32) error {
+func checkFinitePtr(cPath, prefix, field string, p *float32) error {
 	if p == nil {
 		return nil
 	}
-	return checkFinite(prefix, field, *p)
+	return checkFinite(cPath, prefix, field, *p)
 }

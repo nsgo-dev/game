@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/physics3d"
@@ -104,34 +105,35 @@ func clonePhysics(p *Physics) *Physics {
 func validatePhysics(p *Physics) error {
 	if p.Gravity2D != nil {
 		if !isFinite32(p.Gravity2D.X) || !isFinite32(p.Gravity2D.Y) {
-			return fmt.Errorf("project: physics gravity2D (%v, %v) must be finite", p.Gravity2D.X, p.Gravity2D.Y)
+			return loaderr.Errorf("physics.gravity2D", "set physics.gravity2D x and y to finite numbers", "project: physics gravity2D (%v, %v) must be finite", p.Gravity2D.X, p.Gravity2D.Y)
 		}
 	}
 	if p.Gravity3D != nil {
 		if !isFinite32(p.Gravity3D.X) || !isFinite32(p.Gravity3D.Y) || !isFinite32(p.Gravity3D.Z) {
-			return fmt.Errorf("project: physics gravity3D (%v, %v, %v) must be finite", p.Gravity3D.X, p.Gravity3D.Y, p.Gravity3D.Z)
+			return loaderr.Errorf("physics.gravity3D", "set physics.gravity3D x, y, and z to finite numbers", "project: physics gravity3D (%v, %v, %v) must be finite", p.Gravity3D.X, p.Gravity3D.Y, p.Gravity3D.Z)
 		}
 	}
 	if p.SolverIterations2D < 0 {
-		return fmt.Errorf("project: physics solverIterations2D %d must not be negative", p.SolverIterations2D)
+		return loaderr.Errorf("physics.solverIterations2D", "set physics.solverIterations2D to 0 or more", "project: physics solverIterations2D %d must not be negative", p.SolverIterations2D)
 	}
 	if p.SolverIterations3D < 0 {
-		return fmt.Errorf("project: physics solverIterations3D %d must not be negative", p.SolverIterations3D)
+		return loaderr.Errorf("physics.solverIterations3D", "set physics.solverIterations3D to 0 or more", "project: physics solverIterations3D %d must not be negative", p.SolverIterations3D)
 	}
 	names := make(map[string]struct{}, len(p.Layers))
 	bits := make(map[int]string, len(p.Layers))
 	for i, l := range p.Layers {
-		if err := validateName(fmt.Sprintf("physics layer %d", i), l.Name); err != nil {
+		prefix := fmt.Sprintf("physics.layers[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("physics layer %d", i), l.Name); err != nil {
 			return err
 		}
 		if _, dup := names[l.Name]; dup {
-			return fmt.Errorf("project: duplicate physics layer %q", l.Name)
+			return loaderr.Errorf(prefix+".name", "give each physics layer a unique name", "project: duplicate physics layer %q", l.Name)
 		}
 		if l.Bit < 0 || l.Bit > 31 {
-			return fmt.Errorf("project: physics layer %q bit %d must be in [0, 31]", l.Name, l.Bit)
+			return loaderr.Errorf(prefix+".bit", "set bit to an integer in [0, 31]", "project: physics layer %q bit %d must be in [0, 31]", l.Name, l.Bit)
 		}
 		if prev, dup := bits[l.Bit]; dup {
-			return fmt.Errorf("project: physics layer %q reuses bit %d (already used by %q)", l.Name, l.Bit, prev)
+			return loaderr.Errorf(prefix+".bit", "assign each physics layer a unique bit in [0, 31]", "project: physics layer %q reuses bit %d (already used by %q)", l.Name, l.Bit, prev)
 		}
 		names[l.Name] = struct{}{}
 		bits[l.Bit] = l.Name
@@ -139,31 +141,32 @@ func validatePhysics(p *Physics) error {
 	intGridNames := make(map[string]struct{}, len(p.LDtkIntGrid))
 	intGridValues := make(map[int]struct{}, len(p.LDtkIntGrid))
 	for i, r := range p.LDtkIntGrid {
+		prefix := fmt.Sprintf("physics.ldtkIntGrid[%d]", i)
 		hasName := r.Name != ""
 		hasValue := r.Value != 0
 		if hasName && hasValue {
-			return fmt.Errorf("project: physics ldtkIntGrid[%d] cannot set both name %q and value %d", i, r.Name, r.Value)
+			return loaderr.Errorf(prefix, "set either name or value, not both", "project: physics ldtkIntGrid[%d] cannot set both name %q and value %d", i, r.Name, r.Value)
 		}
 		if !hasName && !hasValue {
-			return fmt.Errorf("project: physics ldtkIntGrid[%d] must set name or a positive value", i)
+			return loaderr.Errorf(prefix, "set either name or a positive value", "project: physics ldtkIntGrid[%d] must set name or a positive value", i)
 		}
 		if r.Value < 0 {
-			return fmt.Errorf("project: physics ldtkIntGrid[%d] value %d must be positive", i, r.Value)
+			return loaderr.Errorf(prefix+".value", "set value to a positive integer", "project: physics ldtkIntGrid[%d] value %d must be positive", i, r.Value)
 		}
 		if hasName {
 			trimmed := strings.TrimSpace(r.Name)
 			if trimmed == "" || trimmed != r.Name {
-				return fmt.Errorf("project: physics ldtkIntGrid[%d] name %q must not be empty or have leading/trailing whitespace", i, r.Name)
+				return loaderr.Errorf(prefix+".name", "remove leading and trailing whitespace from name", "project: physics ldtkIntGrid[%d] name %q must not be empty or have leading/trailing whitespace", i, r.Name)
 			}
 			key := strings.ToLower(trimmed)
 			if _, dup := intGridNames[key]; dup {
-				return fmt.Errorf("project: duplicate physics ldtkIntGrid name %q", r.Name)
+				return loaderr.Errorf(prefix+".name", "give each ldtkIntGrid rule a unique name", "project: duplicate physics ldtkIntGrid name %q", r.Name)
 			}
 			intGridNames[key] = struct{}{}
 		}
 		if hasValue {
 			if _, dup := intGridValues[r.Value]; dup {
-				return fmt.Errorf("project: duplicate physics ldtkIntGrid value %d", r.Value)
+				return loaderr.Errorf(prefix+".value", "give each ldtkIntGrid rule a unique value", "project: duplicate physics ldtkIntGrid value %d", r.Value)
 			}
 			intGridValues[r.Value] = struct{}{}
 		}

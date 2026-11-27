@@ -45,27 +45,41 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 
 | Package | Loader | Lines |
 | --- | --- | --- |
-| `sceneformat` | `Parse`, `ParseWith` | Decode errors and every schema rule, by field; the `*FieldError` `Validate` returns stays in the chain, and `ParseWith` names `ParseOptions.File` |
+| `sceneformat` | `Parse`, `ParseWith`, `ParseConflict` | Decode errors and every schema rule, by field; the `*FieldError` `Validate` returns stays in the chain, and `ParseWith` names `ParseOptions.File` |
+| `project` | `Parse`, `ParseBrief`, `LoadFile` | Project and brief schema rules, by field |
+| `resource` | `Parse`, `ParseAs`, `Library.Load`, `Library.Reload`, `Library.ReloadFile` | Header, material, curve, gradient, animation, theme, bus layout and physics material rules, by field; `Library` names the resource path |
+| `importsettings` | `Parse`, `ParseAssetSource` | Sidecar sections, pivots, slices, credits and asset provenance fields, by field |
+| `refs` | `ParseIndex` | Project index paths, ordering, UIDs and SHA-256 digests, by field |
 | `particles` | `UnmarshalConfigYAML`, `UnmarshalConfigJSON`, `LoadConfigFile`, `LoadConfigFS`, `HotConfig` | Decode errors, durations, colors and enumerations, by field or at the value's line |
 | `skeletal` | `Load` | Bones, slots, skins and keyframes, by field |
-| `anim3d` | `LoadEventsSidecar`, `LoadEventsFromGLTFExtras` | Decode errors |
+| `anim3d` | `LoadEventsSidecar`, `LoadEventsFromGLTFExtras` | Decode errors and sidecar schema rules, by field |
+| `animclip` | `ParseStateMachine` | State machine states, transitions and parameters, by field; `*StateMachineError` stays in the chain |
 | `sprite` | `LoadAtlas` | Frames, frame tags and nine-slices, by field |
 | `tilemap` | `LoadTiled`, `LoadLDtk`, `LoadLDtkAll` | Map, tilesets (an external tileset names its own file), layers, objects and properties, by field |
 | `l10n` | `Catalog.LoadJSON`, `ParseAssetManifest`, `AssetCatalog.LoadAssetManifestYAML` | Keys, asset variants and groups, by field |
 | `input` | `Actions.Load`, `Haptics.Load` | Stored bindings, by field, under the storage key |
 | `modding` | `ParseManifest`, `ModManifest.Validate`, `Manager.Discover`, `Manager.DiscoverFS`, `Manager.Reload` | Each manifest field, a game version the mod does not support and a duplicate id, naming `<mod>/mod.yaml` |
+| `plugin/manifest` | `Parse` | Plugin manifest fields and capabilities, by field |
+| `gameui` | `ParseScreen` | Screen layout tree, device classes and widgets, by field |
 | `replay` | `Decode`, `LoadFile` | Header and steps, by field, such as `steps[3].press[0]` |
+| `statedump` | `Parse`, `ReadFile` | Header, scene state, values, entities and JSON-incompatible YAML nodes, by field or node line |
+| `undo` | `DecodeLog` | Version, counts, required keys and moves, by field |
 | `save` | `Store.Load`, `Store.LoadChecked`, `SettingsStore.Load` | Envelope, data and checks, naming the copy's file or storage key (a custom `Backend`'s copies by slot, `slot (backup)` for the backup) |
 | `entities` | `LoadWorld`, `World.Restore` | Entity indices, parents and components, by field |
 | `assets` | `ParsePackManifest`, `Manager.LoadAtlas`, `Group` atlases | Decode errors; atlases name their URI |
-| `world3d` | `LoadMeshLibraryFromGLTF` | Version, node meshes and accessors, by field |
+| `world3d`, `voxel`, `render3d` | `LoadMeshLibraryFromGLTF`, `world3d.Parse*`, `voxel.Parse`, `ParseLightProbeGrid`, `LoadLightProbeGridFS` | Version, bounds, counts, meshes, chunks and probe coefficients, by field; `render3d.ErrInvalidProbe` stays in the chain |
+| `ai`, `ai/navbake`, `ai/navbake3d` | `ParseGOAP`, `ParseUtility`, `navbake.Parse`, `navbake3d.Parse` | Facts, actions, goals, curves, polygons and off-mesh links, by field |
+| `quest`, `rooms`, `loot`, `inventory`, `ability`, `stats`, `cards`, `worldmap`, `cutscene`, `vn`, `bullets`, `framedata`, `fighting`, `platformer`, `vehicle`, `rts`, `rhythm`, `idle`, `procgen`, `quality` | Each package's YAML `Parse*` and `Load*` entry points | Decode errors, custom durations/ranges and every validation rule, by field; sentinels such as `quest.ErrInvalidBook`, `rooms.ErrInvalidMap` and `stats.Err*` stay in the chain |
+| `online/accounts`, `online/accounts/token`, `online/achievements`, `online/cloudsave`, `online/leaderboard`, `online/leaderboard/selfhost`, `online/liveops`, `online/netplay/wire` | Each package's YAML `Parse*` and `Load*` entry points | Service configs, key sets, catalogs, reminders and wire schemas, by field |
+| `playtest` | `ParseConfig`, `LoadConfigFile`, `ParseReport`, `LoadReportFile` | Scope, runs, bot config, metrics, goals and report sections, by field |
+| `editor` | `OpenFile`, `ParseEditorSettings`, `ParsePermissions`, `ParseAutomations`, `ParseLayout`, `ParseRecentProjects`, `ParseCheckpointManifest`, `ParseAgentThread`, `ParseAgentThreadYAML`, `parseViewState` | Editor configs, layouts, checkpoints, threads and view state, by field |
 | `gltf` | `Load`, `LoadFS` | The top-level item at fault, such as `nodes[3]` |
 | `text` | `LoadBMFont`, `LoadBMFontImage` | The record at fault, in text and XML fonts |
 | `flow` | `ParseYarn` | The script line at fault |
 | `datatable` | `LoadCSV`, `LoadJSON`, `LoadYAML`, `LoadFile` | The cell at fault; `CellError` stays in the chain |
-| `tooling/devstate` | `Store.LoadSnapshot` | Decode errors in the snapshot file |
+| `tooling/devstate`, `tooling/hotreload`, `tooling/library`, `tooling/assetbuild` | `Store.LoadSnapshot`, `ParseMaterial`, `ParseIndex`, `ParseManifest`, `parseCache` | Decode errors and manifest, index and material rules, by field |
 | `debug` | `Console.LoadTunables` | The tunable at fault, under the storage key |
-| `tooling/bench`, `cmd/sizecheck` | `bench.LoadFile`, `LoadBudget`, `LoadMobileBudget` | Decode errors |
+| `tooling/bench`, `cmd/sizecheck` | `bench.Decode`, `bench.LoadFile`, `LoadBudget`, `LoadMobileBudget` | Decode errors, limits and benchmark metrics, by field |
 
 A file that cannot be read has no line: its error names the file, keeps the read error in `Err` and still gives a fix.
 
@@ -76,6 +90,6 @@ A file that cannot be read has no line: its error names the file, keeps the read
 3. For a line-based format that is neither YAML nor JSON, such as BMFont text or Yarn, set `Line` directly.
 4. Write a fix as an instruction: what to write, where, or which tool to export from again. "Set space to world or screen" helps; "invalid value" does not.
 5. Walk maps in sorted key order, so the same problem is reported on every run when a file has several.
-6. Test with `internal/loaderrtest`: `Expect(t, err, file, line)` checks that the error names the file and line and has a fix, and `ExpectField(t, err, file, data, field)` also checks the field.
+6. Test with `internal/loaderrtest`: `Expect(t, err, file, line)` checks that the error names the file and line and has a fix, and `ExpectField(t, err, file, data, field)` also checks the field. For YAML formats, `internal/formattest.Run` verifies that unknown fields and missing, zero or future versions return a `*loaderr.Error` with the matching line and a fix, and `internal/repocheck` enforces that every YAML-decoding package runs both `formattest.Run` and `loaderrtest`.
 
 A custom `UnmarshalYAML` knows the node it was handed: return a `*loaderr.Error` with the node's `Line` and `Column`, as `particles` does for durations and colors, and `Locate` keeps them. A custom `UnmarshalJSON` cannot say where it failed: the `encoding/json` that `nsgo build` links returns its error without the field's path, so keep the value it refuses and report it from the validator with the field instead.

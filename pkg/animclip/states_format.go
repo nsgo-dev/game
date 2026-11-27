@@ -11,9 +11,12 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixStateMachine = "write the state machine as version: 1 YAML with entry, states and valid transitions"
 
 // StateMachineVersion is the schema version of *.states.yaml files this package reads and writes.
 const StateMachineVersion = 1
@@ -114,11 +117,35 @@ func (e *StateMachineError) Error() string {
 }
 
 func smErr(msg string, path ...string) error {
-	return &StateMachineError{Path: path, Message: msg}
+	se := &StateMachineError{Path: path, Message: msg}
+	parts := make([]any, len(path))
+	for i, p := range path {
+		if n, err := strconv.Atoi(p); err == nil && n >= 0 {
+			parts[i] = n
+		} else {
+			parts[i] = p
+		}
+	}
+	return &loaderr.Error{
+		Field:   loaderr.Path(parts...),
+		Problem: se.Error(),
+		Fix:     fixStateMachine,
+		Err:     se,
+	}
 }
 
 // ParseStateMachine decodes data as a *.states.yaml document, refusing unknown fields, trailing documents, unsupported versions and invalid states, parameters or transition expressions.
+//
+// Errors are *loaderr.Error values with line, field and fix; validation errors keep *StateMachineError in the chain.
 func ParseStateMachine(data []byte) (*StateMachineDoc, error) {
+	doc, err := parseStateMachine(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixStateMachine)
+	}
+	return doc, nil
+}
+
+func parseStateMachine(data []byte) (*StateMachineDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, smErr("empty state machine document")
 	}

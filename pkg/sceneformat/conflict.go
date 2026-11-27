@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -85,24 +86,24 @@ type MergeConflict struct {
 // Unknown fields, unsupported versions and trailing YAML documents are refused.
 func ParseConflict(data []byte) (*ConflictDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("sceneformat: empty conflict document")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("provide a scene conflict YAML document starting with version: %d", ConflictVersion), "sceneformat: empty conflict document"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 
 	var doc ConflictDoc
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("sceneformat: decode conflict: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("sceneformat: decode conflict: %w", err), "", data, "check the YAML syntax and field names in the scene conflict document")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("sceneformat: conflict document has an unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the conflict file and remove any --- separator", "sceneformat: conflict document has an unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("sceneformat: decode conflict: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("sceneformat: decode conflict: %w", err), "", data, "remove trailing YAML content after the scene conflict document")
 	}
 	if err := ValidateConflict(&doc); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &doc, nil
 }
@@ -110,37 +111,39 @@ func ParseConflict(data []byte) (*ConflictDoc, error) {
 // ValidateConflict checks that doc conforms to ConflictVersion's schema.
 func ValidateConflict(doc *ConflictDoc) error {
 	if doc == nil {
-		return fmt.Errorf("sceneformat: nil conflict document")
+		return loaderr.Errorf("", "pass a non-nil *sceneformat.ConflictDoc to ValidateConflict", "sceneformat: nil conflict document")
 	}
 	if doc.Version != ConflictVersion {
-		return fmt.Errorf("sceneformat: unsupported conflict version %d (want %d)", doc.Version, ConflictVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the conflict document", ConflictVersion), "sceneformat: unsupported conflict version %d (want %d)", doc.Version, ConflictVersion)
 	}
 	if len(doc.Conflicts) == 0 {
-		return fmt.Errorf("sceneformat: conflict document must list at least one conflict")
+		return loaderr.Errorf("conflicts", "list at least one unresolved conflict under conflicts", "sceneformat: conflict document must list at least one conflict")
 	}
 	for i, m := range doc.Merged {
+		mPath := fmt.Sprintf("merged[%d]", i)
 		if !validConflictScope(m.Scope) {
-			return fmt.Errorf("sceneformat: merged[%d] has invalid scope %q", i, m.Scope)
+			return loaderr.Errorf(mPath+".scope", "set scope to scene, layer, object, connection, tilemap, override, or layerOverride", "sceneformat: merged[%d] has invalid scope %q", i, m.Scope)
 		}
 		switch m.Side {
 		case "ours", "theirs", "both":
 		default:
-			return fmt.Errorf("sceneformat: merged[%d] has invalid side %q", i, m.Side)
+			return loaderr.Errorf(mPath+".side", "set side to ours, theirs, or both", "sceneformat: merged[%d] has invalid side %q", i, m.Side)
 		}
 		switch m.Action {
 		case "added", "changed", "deleted", "moved":
 		default:
-			return fmt.Errorf("sceneformat: merged[%d] has invalid action %q", i, m.Action)
+			return loaderr.Errorf(mPath+".action", "set action to added, changed, deleted, or moved", "sceneformat: merged[%d] has invalid action %q", i, m.Action)
 		}
 	}
 	for i, c := range doc.Conflicts {
+		cPath := fmt.Sprintf("conflicts[%d]", i)
 		switch c.Kind {
 		case ConflictField, ConflictDeleteModify, ConflictAddAdd, ConflictMove, ConflictValidation:
 		default:
-			return fmt.Errorf("sceneformat: conflicts[%d] has invalid kind %q", i, c.Kind)
+			return loaderr.Errorf(cPath+".kind", "set kind to field, delete-modify, add-add, move, or validation", "sceneformat: conflicts[%d] has invalid kind %q", i, c.Kind)
 		}
 		if !validConflictScope(c.Scope) {
-			return fmt.Errorf("sceneformat: conflicts[%d] has invalid scope %q", i, c.Scope)
+			return loaderr.Errorf(cPath+".scope", "set scope to scene, layer, object, connection, tilemap, override, or layerOverride", "sceneformat: conflicts[%d] has invalid scope %q", i, c.Scope)
 		}
 	}
 	return nil

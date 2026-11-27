@@ -684,7 +684,7 @@ func TestParseErrors(t *testing.T) {
 		name, doc, want string
 	}{
 		{"empty", "  \n", "empty"},
-		{"unknown field", strings.Replace(base, "    priority: 5\n", "    priority: 5\n    speed: 3\n", 1), "field speed not found"},
+		{"unknown field", strings.Replace(base, "    priority: 5\n", "    priority: 5\n    speed: 3\n", 1), `unknown field "speed"`},
 		{"version", strings.Replace(base, "version: 1", "version: 2", 1), "unsupported version 2"},
 		{"trailing document", base + "---\nversion: 1\n", "trailing"},
 		{"no input", strings.Replace(base, "input:\n  up: up\n  down: down\n  left: left\n  right: right\n  axisX: move_x\n  axisY: move_y\n", "input: {}\n", 1), "input names no actions"},

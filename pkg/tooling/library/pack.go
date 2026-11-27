@@ -3,7 +3,6 @@ package library
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 )
 
@@ -66,10 +66,10 @@ func DefaultDir(name string) string { return "packs/" + name }
 func ParseManifest(data []byte) (*Manifest, error) {
 	var m Manifest
 	if err := decodeStrict(data, &m); err != nil {
-		return nil, fmt.Errorf("library: %s: %w", ManifestFileName, err)
+		return nil, loaderr.Locate(fmt.Errorf("library: %s: %w", ManifestFileName, err), "", data, "check the YAML syntax and field names in pack.yaml")
 	}
 	if err := ValidateManifest(&m); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &m, nil
 }
@@ -85,71 +85,69 @@ func EncodeManifest(m *Manifest) ([]byte, error) {
 // ValidateManifest checks that m conforms to the version 1 schema.
 func ValidateManifest(m *Manifest) error {
 	if m == nil {
-		return errors.New("library: nil manifest")
+		return loaderr.Errorf("", "pass a non-nil *library.Manifest to ValidateManifest", "library: nil manifest")
 	}
-	if err := validateManifest(m); err != nil {
-		return fmt.Errorf("library: %s: %w", ManifestFileName, err)
-	}
-	return nil
+	return validateManifest(m)
 }
 
 func validateManifest(m *Manifest) error {
 	if m.Version != ManifestVersion {
-		return fmt.Errorf("unsupported version %d (want %d)", m.Version, ManifestVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of %s", ManifestVersion, ManifestFileName), "library: %s: unsupported version %d (want %d)", ManifestFileName, m.Version, ManifestVersion)
 	}
 	if err := project.ValidatePackName(m.Name); err != nil {
-		return err
+		return loaderr.Errorf("name", "set name to a valid lowercase pack name (letters, digits, hyphens)", "library: %s: %w", ManifestFileName, err)
 	}
 	if err := validateKind(m.Kind); err != nil {
-		return err
+		return loaderr.Errorf("kind", fmt.Sprintf("set kind to one of %s", strings.Join(project.PackKinds, ", ")), "library: %s: %w", ManifestFileName, err)
 	}
 	if err := project.ValidatePackVersion(m.PackVersion); err != nil {
-		return err
+		return loaderr.Errorf("packVersion", "set packVersion to a semantic version such as 1.0.0", "library: %s: %w", ManifestFileName, err)
 	}
 	if err := validateLine("description", m.Description, true); err != nil {
-		return err
+		return loaderr.Errorf("description", "set description to a non-empty single-line summary without surrounding spaces", "library: %s: %w", ManifestFileName, err)
 	}
 	if err := validateLicense(m.License); err != nil {
-		return err
+		return loaderr.Errorf("license", "set license to an SPDX license expression such as CC0-1.0 or MIT", "library: %s: %w", ManifestFileName, err)
 	}
 	if m.Into != "" {
 		if err := validateInstallDir(m.Into); err != nil {
-			return fmt.Errorf("into: %w", err)
+			return loaderr.Errorf("into", "set into to a portable slash-separated relative directory inside the project", "library: %s: into: %w", ManifestFileName, err)
 		}
 	}
 	if len(m.Files) > MaxFiles {
-		return fmt.Errorf("lists %d files, more than %d", len(m.Files), MaxFiles)
+		return loaderr.Errorf("files", fmt.Sprintf("list at most %d files in %s", MaxFiles, ManifestFileName), "library: %s: lists %d files, more than %d", ManifestFileName, len(m.Files), MaxFiles)
 	}
 	files := make(map[string]struct{}, len(m.Files))
 	// folded maps each file's path folded to lower case to the file, so that two names one file on a case-insensitive file system are refused.
 	folded := make(map[string]string, len(m.Files)+1)
 	folded[ManifestFileName] = ManifestFileName
-	for _, f := range m.Files {
+	for i, f := range m.Files {
+		fPath := fmt.Sprintf("files[%d]", i)
 		if !isPackPath(f) {
-			return fmt.Errorf("file %q must be a slash-separated path inside the pack", f)
+			return loaderr.Errorf(fPath, "set each file entry to a slash-separated path inside the pack", "library: %s: file %q must be a slash-separated path inside the pack", ManifestFileName, f)
 		}
 		if f == ManifestFileName {
-			return fmt.Errorf("lists %s, which every pack has", ManifestFileName)
+			return loaderr.Errorf(fPath, fmt.Sprintf("remove %s from files; it is included automatically", ManifestFileName), "library: %s: lists %s, which every pack has", ManifestFileName, ManifestFileName)
 		}
 		if _, dup := files[f]; dup {
-			return fmt.Errorf("file %q is listed twice", f)
+			return loaderr.Errorf(fPath, "remove the duplicate file entry", "library: %s: file %q is listed twice", ManifestFileName, f)
 		}
 		if err := validatePortablePath(f); err != nil {
-			return fmt.Errorf("file %q: %w", f, err)
+			return loaderr.Errorf(fPath, "use portable path elements without leading dots, reserved Windows names, or invalid characters", "library: %s: file %q: %w", ManifestFileName, f, err)
 		}
 		if isCodeFile(f) {
-			return fmt.Errorf("file %q is Go source or a file the Go toolchain builds, which a pack may not install into a project", f)
+			return loaderr.Errorf(fPath, "remove Go or native source files from the pack; packs carry only assets and data", "library: %s: file %q is Go source or a file the Go toolchain builds, which a pack may not install into a project", ManifestFileName, f)
 		}
 		if other, clash := folded[strings.ToLower(f)]; clash {
-			return fmt.Errorf("files %q and %q differ only in case, which is one file on macOS and Windows", other, f)
+			return loaderr.Errorf(fPath, "rename one of the colliding files so names remain distinct on case-insensitive file systems", "library: %s: files %q and %q differ only in case, which is one file on macOS and Windows", ManifestFileName, other, f)
 		}
 		folded[strings.ToLower(f)] = f
 		files[f] = struct{}{}
 	}
-	for f := range files {
+	for i, f := range m.Files {
 		for dir := path.Dir(f); dir != "."; dir = path.Dir(dir) {
 			if other, ok := folded[strings.ToLower(dir)]; ok {
-				return fmt.Errorf("file %q is inside %q, which is the file %q", f, dir, other)
+				return loaderr.Errorf(fmt.Sprintf("files[%d]", i), "move or rename the file so no file path is a directory prefix of another", "library: %s: file %q is inside %q, which is the file %q", ManifestFileName, f, dir, other)
 			}
 		}
 	}
@@ -157,38 +155,41 @@ func validateManifest(m *Manifest) error {
 		names := map[string]struct{}{}
 		for _, list := range []struct {
 			kind    string
+			field   string
 			entries []project.Entry
-		}{{"scene", a.Scenes}, {"resource", a.Resources}} {
-			for _, e := range list.entries {
+		}{{"scene", "autoload.scenes", a.Scenes}, {"resource", "autoload.resources", a.Resources}} {
+			for i, e := range list.entries {
+				ePath := fmt.Sprintf("%s[%d]", list.field, i)
 				if e.Name == "" || strings.IndexFunc(e.Name, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-					return fmt.Errorf("autoload %s name %q must be non-empty without spaces or control characters", list.kind, e.Name)
+					return loaderr.Errorf(ePath+".name", "set name to a non-empty identifier without spaces or control characters", "library: %s: autoload %s name %q must be non-empty without spaces or control characters", ManifestFileName, list.kind, e.Name)
 				}
 				if _, dup := names[list.kind+" "+e.Name]; dup {
-					return fmt.Errorf("autoload %s %q is listed twice", list.kind, e.Name)
+					return loaderr.Errorf(ePath+".name", fmt.Sprintf("give each autoload %s a unique name", list.kind), "library: %s: autoload %s %q is listed twice", ManifestFileName, list.kind, e.Name)
 				}
 				names[list.kind+" "+e.Name] = struct{}{}
 				if _, ok := files[e.Path]; !ok {
-					return fmt.Errorf("autoload %s %q path %q is not one of the pack's files", list.kind, e.Name, e.Path)
+					return loaderr.Errorf(ePath+".path", "set path to a file listed under files in pack.yaml", "library: %s: autoload %s %q path %q is not one of the pack's files", ManifestFileName, list.kind, e.Name, e.Path)
 				}
 				if list.kind == "scene" && !strings.HasSuffix(e.Path, ".yaml") && !strings.HasSuffix(e.Path, ".yml") {
-					return fmt.Errorf("autoload scene %q path %q must be a .yaml or .yml file", e.Name, e.Path)
+					return loaderr.Errorf(ePath+".path", "point autoload scene entries to a .yaml or .yml scene file", "library: %s: autoload scene %q path %q must be a .yaml or .yml file", ManifestFileName, e.Name, e.Path)
 				}
 			}
 		}
 	}
 	if m.Kind == project.PackPlugin && len(m.Plugins) == 0 {
-		return errors.New("a plugin pack must name the editor plugins it turns on under plugins")
+		return loaderr.Errorf("plugins", "list at least one editor plugin name under plugins for a plugin pack", "library: %s: a plugin pack must name the editor plugins it turns on under plugins", ManifestFileName)
 	}
 	if m.Kind != project.PackPlugin && len(m.Plugins) > 0 {
-		return fmt.Errorf("only a plugin pack may turn on editor plugins, and this is a %s pack", m.Kind)
+		return loaderr.Errorf("plugins", fmt.Sprintf("remove plugins or change kind to %s", project.PackPlugin), "library: %s: only a plugin pack may turn on editor plugins, and this is a %s pack", ManifestFileName, m.Kind)
 	}
 	seen := make(map[string]struct{}, len(m.Plugins))
-	for _, p := range m.Plugins {
+	for i, p := range m.Plugins {
+		pPath := fmt.Sprintf("plugins[%d]", i)
 		if p == "" || strings.IndexFunc(p, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-			return fmt.Errorf("plugin %q must be non-empty without spaces or control characters", p)
+			return loaderr.Errorf(pPath, "set each plugin entry to a non-empty plugin name without spaces or control characters", "library: %s: plugin %q must be non-empty without spaces or control characters", ManifestFileName, p)
 		}
 		if _, dup := seen[p]; dup {
-			return fmt.Errorf("plugin %q is listed twice", p)
+			return loaderr.Errorf(pPath, "remove the duplicate plugin name", "library: %s: plugin %q is listed twice", ManifestFileName, p)
 		}
 		seen[p] = struct{}{}
 	}
@@ -302,7 +303,7 @@ func readPack(read func(name string) ([]byte, error)) (*Pack, error) {
 	}
 	m, err := ParseManifest(data)
 	if err != nil {
-		return nil, err
+		return nil, loaderr.WithFile(err, ManifestFileName)
 	}
 	p := &Pack{Manifest: m, Files: map[string][]byte{ManifestFileName: data}}
 	for _, name := range m.Files {

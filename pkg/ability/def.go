@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixAbility = "write the ability set as version: 1 YAML with valid ability definitions"
 
 // CurrentVersion is the ability set schema version this package reads and writes.
 const CurrentVersion = 1
@@ -101,8 +104,16 @@ func (d *Def) EffectiveTrigger() Trigger {
 
 // Parse decodes a YAML ability set and validates it. Unknown fields, duplicate keys and trailing YAML documents are refused.
 func Parse(data []byte) (*Set, error) {
+	set, err := parseSet(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixAbility)
+	}
+	return set, nil
+}
+
+func parseSet(data []byte) (*Set, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("ability: empty ability set")
+		return nil, loaderr.Errorf("", fixAbility, "ability: empty ability set")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -113,7 +124,7 @@ func Parse(data []byte) (*Set, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("ability: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the ability set; remove the trailing --- document", "ability: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("ability: decode: %w", err)
 	}
@@ -158,61 +169,63 @@ func Encode(set *Set) ([]byte, error) {
 // Validate checks set against the version 1 schema rules and the package limits.
 func Validate(set *Set) error {
 	if set == nil {
-		return errors.New("ability: nil ability set")
+		return loaderr.Errorf("", fixAbility, "ability: nil ability set")
 	}
 	if set.Version != CurrentVersion {
-		return fmt.Errorf("ability: unsupported version %d (want %d)", set.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", CurrentVersion), "ability: unsupported version %d (want %d)", set.Version, CurrentVersion)
 	}
 	if len(set.Abilities) > MaxAbilities {
-		return fmt.Errorf("ability: %d abilities, more than %d", len(set.Abilities), MaxAbilities)
+		return loaderr.Errorf("abilities", fmt.Sprintf("reduce abilities to at most %d entries", MaxAbilities), "ability: %d abilities, more than %d", len(set.Abilities), MaxAbilities)
 	}
 	ids := make(map[string]struct{}, len(set.Abilities))
 	for i := range set.Abilities {
 		d := &set.Abilities[i]
 		if err := checkName(d.ID); err != nil {
-			return fmt.Errorf("ability: ability %d id: %w", i, err)
+			return loaderr.Errorf(loaderr.Path("abilities", i, "id"), "give the ability a valid id of ASCII letters, digits, '_', '-' and '.'", "ability: ability %d id: %w", i, err)
 		}
 		if _, dup := ids[d.ID]; dup {
-			return fmt.Errorf("ability: duplicate ability id %q", d.ID)
+			return loaderr.Errorf(loaderr.Path("abilities", i, "id"), "give each ability a unique id", "ability: duplicate ability id %q", d.ID)
 		}
 		ids[d.ID] = struct{}{}
-		if err := validateDef(d); err != nil {
-			return fmt.Errorf("ability: ability %q: %w", d.ID, err)
+		if err := validateDef(i, d); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func validateDef(d *Def) error {
+func validateDef(idx int, d *Def) error {
+	base := loaderr.Path("abilities", idx)
 	if d.Action != "" {
 		if err := checkName(d.Action); err != nil {
-			return fmt.Errorf("action: %w", err)
+			return loaderr.Errorf(loaderr.Join(base, "action"), "set action to ASCII letters, digits, '_', '-' and '.', or omit it", "ability: ability %q: action: %w", d.ID, err)
 		}
 	}
 	switch d.Trigger {
 	case "", TriggerPress:
 	case TriggerHold:
 		if d.Action == "" {
-			return errors.New("trigger hold needs an action")
+			return loaderr.Errorf(loaderr.Join(base, "trigger"), "set an action for a hold trigger, or change trigger to press", "ability: ability %q: trigger hold needs an action", d.ID)
 		}
 	default:
-		return fmt.Errorf("trigger %q is not %q or %q", d.Trigger, TriggerPress, TriggerHold)
+		return loaderr.Errorf(loaderr.Join(base, "trigger"), fmt.Sprintf("set trigger to %q or %q, or omit it for %q", TriggerPress, TriggerHold, TriggerPress), "ability: ability %q: trigger %q is not %q or %q", d.ID, d.Trigger, TriggerPress, TriggerHold)
 	}
 	resources := make(map[string]struct{}, len(d.Costs))
 	for i, c := range d.Costs {
+		cPath := loaderr.Join(base, "costs", i)
 		if err := checkName(c.Resource); err != nil {
-			return fmt.Errorf("cost %d resource: %w", i, err)
+			return loaderr.Errorf(loaderr.Join(cPath, "resource"), "set resource to ASCII letters, digits, '_', '-' and '.'", "ability: ability %q: cost %d resource: %w", d.ID, i, err)
 		}
 		if _, dup := resources[c.Resource]; dup {
-			return fmt.Errorf("resource %q is costed twice", c.Resource)
+			return loaderr.Errorf(loaderr.Join(cPath, "resource"), "combine duplicate resource costs into one entry", "ability: ability %q: resource %q is costed twice", d.ID, c.Resource)
 		}
 		resources[c.Resource] = struct{}{}
 		if math.IsNaN(c.Amount) || math.IsInf(c.Amount, 0) || c.Amount <= 0 {
-			return fmt.Errorf("cost of %q is %v, want a finite positive amount", c.Resource, c.Amount)
+			return loaderr.Errorf(loaderr.Join(cPath, "amount"), "set amount to a finite positive number", "ability: ability %q: cost of %q is %v, want a finite positive amount", d.ID, c.Resource, c.Amount)
 		}
 	}
 	if d.Charges < 0 || d.Charges > MaxCharges {
-		return fmt.Errorf("charges %d is outside 0..%d", d.Charges, MaxCharges)
+		return loaderr.Errorf(loaderr.Join(base, "charges"), fmt.Sprintf("set charges to an integer in 0..%d", MaxCharges), "ability: ability %q: charges %d is outside 0..%d", d.ID, d.Charges, MaxCharges)
 	}
 	for _, f := range []struct {
 		name string
@@ -225,28 +238,28 @@ func validateDef(d *Def) error {
 		{"tickInterval", d.TickInterval},
 	} {
 		if f.d < 0 || f.d > MaxDuration {
-			return fmt.Errorf("%s %v is outside 0..%v", f.name, f.d, MaxDuration)
+			return loaderr.Errorf(loaderr.Join(base, f.name), fmt.Sprintf("set %s to a duration in 0..%v", f.name, MaxDuration), "ability: ability %q: %s %v is outside 0..%v", d.ID, f.name, f.d, MaxDuration)
 		}
 	}
 	if d.Charges > 1 && d.Recharge == 0 {
-		return fmt.Errorf("%d charges need a recharge", d.Charges)
+		return loaderr.Errorf(loaderr.Join(base, "recharge"), "set a positive recharge duration when charges > 1", "ability: ability %q: %d charges need a recharge", d.ID, d.Charges)
 	}
 	if d.TickInterval > 0 {
 		if d.ChannelTime == 0 {
-			return errors.New("tickInterval needs a channelTime")
+			return loaderr.Errorf(loaderr.Join(base, "tickInterval"), "set channelTime alongside tickInterval, or remove tickInterval", "ability: ability %q: tickInterval needs a channelTime", d.ID)
 		}
 		if d.TickInterval > d.ChannelTime {
-			return fmt.Errorf("tickInterval %v is longer than channelTime %v", d.TickInterval, d.ChannelTime)
+			return loaderr.Errorf(loaderr.Join(base, "tickInterval"), "set tickInterval to at most channelTime", "ability: ability %q: tickInterval %v is longer than channelTime %v", d.ID, d.TickInterval, d.ChannelTime)
 		}
 	}
 	seen := make(map[string]struct{}, len(d.Conditions))
-	for _, cond := range d.Conditions {
+	for j, cond := range d.Conditions {
 		name, _ := splitCondition(cond)
 		if err := checkName(name); err != nil {
-			return fmt.Errorf("condition %q: %w", cond, err)
+			return loaderr.Errorf(loaderr.Join(base, "conditions", j), "write each condition as an optional '!' followed by ASCII letters, digits, '_', '-' and '.'", "ability: ability %q: condition %q: %w", d.ID, cond, err)
 		}
 		if _, dup := seen[name]; dup {
-			return fmt.Errorf("condition %q appears twice", name)
+			return loaderr.Errorf(loaderr.Join(base, "conditions", j), "remove the duplicate condition", "ability: ability %q: condition %q appears twice", d.ID, name)
 		}
 		seen[name] = struct{}{}
 	}

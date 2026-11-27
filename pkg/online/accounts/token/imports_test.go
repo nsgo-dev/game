@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestImportsStayLight checks that the package imports only the standard library and the YAML package, so a game server that verifies tokens links none of the account service's password hashing or database drivers. The standard library and go.yaml.in/yaml/v3 import nothing outside themselves, so the package's direct imports decide its whole dependency graph.
+// TestImportsStayLight checks that the package imports only the standard library, go.yaml.in/yaml/v3, and pkg/loaderr (which itself imports only the standard library and go.yaml.in/yaml/v3), so a game server that verifies tokens links none of the account service's password hashing or database drivers.
 func TestImportsStayLight(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -34,8 +34,8 @@ func TestImportsStayLight(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
-			if path != "go.yaml.in/yaml/v3" && strings.Contains(first, ".") {
-				t.Errorf("%s imports %s; the token package may import only the standard library and go.yaml.in/yaml/v3", name, path)
+			if path != "go.yaml.in/yaml/v3" && path != "github.com/nsgo-dev/game/pkg/loaderr" && strings.Contains(first, ".") {
+				t.Errorf("%s imports %s; the token package may import only the standard library, go.yaml.in/yaml/v3, and github.com/nsgo-dev/game/pkg/loaderr", name, path)
 			}
 		}
 	}

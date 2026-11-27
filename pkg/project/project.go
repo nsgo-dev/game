@@ -16,6 +16,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/semver"
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -466,10 +467,20 @@ func Bool(v bool) *bool { return &v }
 // Float32 returns a pointer to v for optional fields such as Bus.Volume and Audio.Master.
 func Float32(v float32) *float32 { return &v }
 
+const fixProject = "check game.yaml against the project schema (version: 1 with name, id, appVersion, and window)"
+
 // Parse decodes a YAML project file and validates it. Unknown fields and trailing YAML documents are refused.
 func Parse(data []byte) (*File, error) {
+	f, err := parse(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixProject)
+	}
+	return f, nil
+}
+
+func parse(data []byte) (*File, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("project: empty project file")
+		return nil, loaderr.Errorf("", fixProject, "project: empty project file")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -480,7 +491,7 @@ func Parse(data []byte) (*File, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("project: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in game.yaml", "project: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("project: decode: %w", err)
 	}
@@ -509,7 +520,11 @@ func ReadFS(fsys fs.FS) (*File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("project: %w", err)
 	}
-	return Parse(data)
+	f, err := Parse(data)
+	if err != nil {
+		return nil, loaderr.WithFile(err, FileName)
+	}
+	return f, nil
 }
 
 // Encode validates f and serializes it as deterministic 2-space YAML that Parse reads back unchanged.
@@ -640,19 +655,19 @@ func clonePtr[T any](p *T) *T {
 // Validate checks that f conforms to the version 1 schema.
 func Validate(f *File) error {
 	if f == nil {
-		return errors.New("project: nil project file")
+		return loaderr.Errorf("", fixProject, "project: nil project file")
 	}
 	if f.Version != CurrentVersion {
-		return fmt.Errorf("project: unsupported version %d (want %d)", f.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d", CurrentVersion), "project: unsupported version %d (want %d)", f.Version, CurrentVersion)
 	}
-	if err := validateText("name", f.Name, true); err != nil {
+	if err := validateText("name", "name", f.Name, true); err != nil {
 		return err
 	}
 	if err := validateID(f.ID); err != nil {
 		return err
 	}
 	if f.AppVersion == "" || strings.IndexFunc(f.AppVersion, unicode.IsSpace) >= 0 || strings.IndexFunc(f.AppVersion, unicode.IsControl) >= 0 {
-		return fmt.Errorf("project: appVersion %q must be non-empty without spaces", f.AppVersion)
+		return loaderr.Errorf("appVersion", "set appVersion to a non-empty version string without spaces", "project: appVersion %q must be non-empty without spaces", f.AppVersion)
 	}
 	if err := validateWindow(&f.Window); err != nil {
 		return err
@@ -714,22 +729,23 @@ func validateNavigation(n *Navigation) error {
 		{"detailSampleDistance", n.DetailSampleDistance}, {"detailSampleMaxError", n.DetailSampleMaxError},
 	} {
 		if !isFinite32(v.v) || v.v < 0 {
-			return fmt.Errorf("project: navigation %s %v must be a finite number, 0 or more", v.field, v.v)
+			return loaderr.Errorf("navigation."+v.field, fmt.Sprintf("set navigation.%s to a finite number >= 0", v.field), "project: navigation %s %v must be a finite number, 0 or more", v.field, v.v)
 		}
 	}
 	if n.DetailSampleDistance != 0 && n.DetailSampleDistance < n.CellSize {
-		return fmt.Errorf("project: navigation detailSampleDistance %v must be at least cellSize %v", n.DetailSampleDistance, n.CellSize)
+		return loaderr.Errorf("navigation.detailSampleDistance", "set navigation.detailSampleDistance to 0 or at least navigation.cellSize", "project: navigation detailSampleDistance %v must be at least cellSize %v", n.DetailSampleDistance, n.CellSize)
 	}
 	if n.MaxVertsPerPoly != 0 && (n.MaxVertsPerPoly < 3 || n.MaxVertsPerPoly > MaxNavVertsPerPoly) {
-		return fmt.Errorf("project: navigation maxVertsPerPoly %d must be 0 or from 3 to %d", n.MaxVertsPerPoly, MaxNavVertsPerPoly)
+		return loaderr.Errorf("navigation.maxVertsPerPoly", fmt.Sprintf("set navigation.maxVertsPerPoly to 0 or between 3 and %d", MaxNavVertsPerPoly), "project: navigation maxVertsPerPoly %d must be 0 or from 3 to %d", n.MaxVertsPerPoly, MaxNavVertsPerPoly)
 	}
 	seen := make(map[string]struct{}, len(n.Agents))
 	for i, a := range n.Agents {
-		if err := validateName(fmt.Sprintf("navigation agent %d", i), a.Name); err != nil {
+		prefix := fmt.Sprintf("navigation.agents[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("navigation agent %d", i), a.Name); err != nil {
 			return err
 		}
 		if _, dup := seen[a.Name]; dup {
-			return fmt.Errorf("project: navigation agent %q is listed twice", a.Name)
+			return loaderr.Errorf(prefix+".name", "give each navigation agent a unique name", "project: navigation agent %q is listed twice", a.Name)
 		}
 		seen[a.Name] = struct{}{}
 		for _, v := range []struct {
@@ -737,44 +753,45 @@ func validateNavigation(n *Navigation) error {
 			v     float32
 		}{{"radius", a.Radius}, {"height", a.Height}, {"maxSlope", a.MaxSlope}, {"maxClimb", a.MaxClimb}} {
 			if !isFinite32(v.v) || v.v < 0 {
-				return fmt.Errorf("project: navigation agent %q %s %v must be a finite number, 0 or more", a.Name, v.field, v.v)
+				return loaderr.Errorf(prefix+"."+v.field, fmt.Sprintf("set %s to a finite number >= 0", v.field), "project: navigation agent %q %s %v must be a finite number, 0 or more", a.Name, v.field, v.v)
 			}
 		}
 		if a.MaxSlope >= 90 {
-			return fmt.Errorf("project: navigation agent %q maxSlope %v must be below 90 degrees", a.Name, a.MaxSlope)
+			return loaderr.Errorf(prefix+".maxSlope", "set maxSlope below 90 degrees", "project: navigation agent %q maxSlope %v must be below 90 degrees", a.Name, a.MaxSlope)
 		}
 	}
 	return nil
 }
 
 // validateText refuses control characters and surrounding spaces, and an empty value when required.
-func validateText(field, s string, required bool) error {
+func validateText(pathField, label, s string, required bool) error {
 	if s == "" {
 		if required {
-			return fmt.Errorf("project: %s is required", field)
+			return loaderr.Errorf(pathField, fmt.Sprintf("set %s to a non-empty string", pathField), "project: %s is required", label)
 		}
 		return nil
 	}
 	if strings.TrimSpace(s) != s || strings.IndexFunc(s, unicode.IsControl) >= 0 {
-		return fmt.Errorf("project: %s %q must have no surrounding spaces or control characters", field, s)
+		return loaderr.Errorf(pathField, fmt.Sprintf("remove surrounding spaces and control characters from %s", pathField), "project: %s %q must have no surrounding spaces or control characters", label, s)
 	}
 	return nil
 }
 
 // validateID accepts a reverse-DNS identifier: two or more dot-separated segments of ASCII letters, digits, '_' and '-', each starting with a letter.
 func validateID(id string) error {
+	const fixID = "set id to a reverse-DNS identifier such as dev.example.game"
 	segments := strings.Split(id, ".")
 	if len(segments) < 2 {
-		return fmt.Errorf("project: id %q must be a reverse-DNS identifier such as dev.example.game", id)
+		return loaderr.Errorf("id", fixID, "project: id %q must be a reverse-DNS identifier such as dev.example.game", id)
 	}
 	for _, seg := range segments {
 		if seg == "" || !isASCIILetter(seg[0]) {
-			return fmt.Errorf("project: id %q must be a reverse-DNS identifier such as dev.example.game", id)
+			return loaderr.Errorf("id", fixID, "project: id %q must be a reverse-DNS identifier such as dev.example.game", id)
 		}
 		for i := range len(seg) {
 			c := seg[i]
 			if !isASCIILetter(c) && (c < '0' || c > '9') && c != '_' && c != '-' {
-				return fmt.Errorf("project: id %q has invalid character %q", id, c)
+				return loaderr.Errorf("id", fixID, "project: id %q has invalid character %q", id, c)
 			}
 		}
 	}
@@ -784,27 +801,35 @@ func validateID(id string) error {
 func isASCIILetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
 
 func validateWindow(w *Window) error {
-	if err := validateText("window title", w.Title, false); err != nil {
+	if err := validateText("window.title", "window title", w.Title, false); err != nil {
 		return err
 	}
 	if !positive(w.Width) || !positive(w.Height) {
-		return fmt.Errorf("project: window size (%v, %v) must be finite and positive", w.Width, w.Height)
+		return loaderr.Errorf("window", "set window.width and window.height to positive numbers", "project: window size (%v, %v) must be finite and positive", w.Width, w.Height)
 	}
-	for _, v := range []float32{w.MinWidth, w.MinHeight, w.MaxWidth, w.MaxHeight} {
-		if !isFinite32(v) || v < 0 {
-			return errors.New("project: window limits must be finite and non-negative")
+	for _, lim := range []struct {
+		field string
+		v     float32
+	}{
+		{"window.minWidth", w.MinWidth},
+		{"window.minHeight", w.MinHeight},
+		{"window.maxWidth", w.MaxWidth},
+		{"window.maxHeight", w.MaxHeight},
+	} {
+		if !isFinite32(lim.v) || lim.v < 0 {
+			return loaderr.Errorf(lim.field, "set window size limits to finite numbers >= 0", "project: window limits must be finite and non-negative")
 		}
 	}
 	if w.MaxWidth > 0 && w.MaxWidth < w.MinWidth || w.MaxHeight > 0 && w.MaxHeight < w.MinHeight {
-		return errors.New("project: window maximum size must be at least its minimum")
+		return loaderr.Errorf("window", "make window maxWidth/maxHeight at least minWidth/minHeight", "project: window maximum size must be at least its minimum")
 	}
 	if w.Width < w.MinWidth || w.Height < w.MinHeight || w.MaxWidth > 0 && w.Width > w.MaxWidth || w.MaxHeight > 0 && w.Height > w.MaxHeight {
-		return fmt.Errorf("project: window size (%v, %v) must lie within its limits", w.Width, w.Height)
+		return loaderr.Errorf("window", "choose window width and height within min/max limits", "project: window size (%v, %v) must lie within its limits", w.Width, w.Height)
 	}
 	switch w.Appearance {
 	case "", "light", "dark":
 	default:
-		return fmt.Errorf("project: window appearance %q must be light, dark or empty", w.Appearance)
+		return loaderr.Errorf("window.appearance", `set window.appearance to "light", "dark", or omit it`, "project: window appearance %q must be light, dark or empty", w.Appearance)
 	}
 	return nil
 }
@@ -814,14 +839,14 @@ var displayModes = []string{"fit", "fill", "stretch", "expand"}
 
 func validateDisplay(d *Display) error {
 	if !positive(d.Width) || !positive(d.Height) {
-		return fmt.Errorf("project: display size (%v, %v) must be finite and positive", d.Width, d.Height)
+		return loaderr.Errorf("display", "set display.width and display.height to positive numbers", "project: display size (%v, %v) must be finite and positive", d.Width, d.Height)
 	}
 	if d.Mode != "" && !slices.Contains(displayModes, d.Mode) {
-		return fmt.Errorf("project: display mode %q must be one of %s", d.Mode, strings.Join(displayModes, ", "))
+		return loaderr.Errorf("display.mode", "set display.mode to one of "+strings.Join(displayModes, ", "), "project: display mode %q must be one of %s", d.Mode, strings.Join(displayModes, ", "))
 	}
 	if d.BarColor != "" {
 		if _, err := core.ParseColor(d.BarColor); err != nil {
-			return fmt.Errorf("project: display barColor %q: %w", d.BarColor, err)
+			return loaderr.Errorf("display.barColor", "set display.barColor to a valid CSS color such as #000000", "project: display barColor %q: %w", d.BarColor, err)
 		}
 	}
 	return nil
@@ -830,120 +855,137 @@ func validateDisplay(d *Display) error {
 func validateInput(in *Input) error {
 	actions := make(map[string]struct{}, len(in.Actions))
 	for i, a := range in.Actions {
-		if err := validateName(fmt.Sprintf("input action %d", i), a.Name); err != nil {
+		prefix := fmt.Sprintf("input.actions[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("input action %d", i), a.Name); err != nil {
 			return err
 		}
 		if _, dup := actions[a.Name]; dup {
-			return fmt.Errorf("project: duplicate input action %q", a.Name)
+			return loaderr.Errorf(prefix+".name", "give each input action a unique name", "project: duplicate input action %q", a.Name)
 		}
 		actions[a.Name] = struct{}{}
 		for j, b := range a.Bindings {
-			if err := validateBinding(b); err != nil {
-				return fmt.Errorf("project: input action %q binding %d: %w", a.Name, j, err)
+			if err := validateBindingAt(fmt.Sprintf("%s.bindings[%d]", prefix, j), a.Name, j, b); err != nil {
+				return err
 			}
 		}
 	}
 	axes := make(map[string]struct{}, len(in.Axes))
 	for i, ax := range in.Axes {
-		if err := validateName(fmt.Sprintf("input axis %d", i), ax.Name); err != nil {
+		prefix := fmt.Sprintf("input.axes[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("input axis %d", i), ax.Name); err != nil {
 			return err
 		}
 		if _, dup := axes[ax.Name]; dup {
-			return fmt.Errorf("project: duplicate input axis %q", ax.Name)
+			return loaderr.Errorf(prefix+".name", "give each input axis a unique name", "project: duplicate input axis %q", ax.Name)
 		}
 		axes[ax.Name] = struct{}{}
 		if ax.Negative == "" && ax.Positive == "" {
-			return fmt.Errorf("project: input axis %q needs a negative or a positive action", ax.Name)
+			return loaderr.Errorf(prefix, "set negative and/or positive to a declared input action", "project: input axis %q needs a negative or a positive action", ax.Name)
 		}
-		for _, name := range []string{ax.Negative, ax.Positive} {
-			if _, ok := actions[name]; name != "" && !ok {
-				return fmt.Errorf("project: input axis %q reads undeclared action %q", ax.Name, name)
+		for _, ref := range []struct {
+			field string
+			name  string
+		}{{"negative", ax.Negative}, {"positive", ax.Positive}} {
+			if _, ok := actions[ref.name]; ref.name != "" && !ok {
+				return loaderr.Errorf(prefix+"."+ref.field, "reference a declared action name from input.actions", "project: input axis %q reads undeclared action %q", ax.Name, ref.name)
 			}
 		}
 	}
 	// A motion axis may share its name with an axis: input.Actions.Axis sums both, as input.Actions.BindMotionAxis documents.
 	motion := make(map[string]struct{}, len(in.MotionAxes))
 	for i, m := range in.MotionAxes {
-		if err := validateName(fmt.Sprintf("input motion axis %d", i), m.Name); err != nil {
+		prefix := fmt.Sprintf("input.motionAxes[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("input motion axis %d", i), m.Name); err != nil {
 			return err
 		}
 		if _, dup := motion[m.Name]; dup {
-			return fmt.Errorf("project: duplicate input motion axis %q", m.Name)
+			return loaderr.Errorf(prefix+".name", "give each motion axis a unique name", "project: duplicate input motion axis %q", m.Name)
 		}
 		motion[m.Name] = struct{}{}
 		if !slices.Contains(MotionAxes, m.Axis) {
-			return fmt.Errorf("project: input motion axis %q axis %q must be one of %s", m.Name, m.Axis, strings.Join(MotionAxes, ", "))
+			return loaderr.Errorf(prefix+".axis", "set axis to one of "+strings.Join(MotionAxes, ", "), "project: input motion axis %q axis %q must be one of %s", m.Name, m.Axis, strings.Join(MotionAxes, ", "))
 		}
 		if !isFinite64(m.DeadZone) || m.DeadZone < 0 || m.DeadZone >= 1 {
-			return fmt.Errorf("project: input motion axis %q deadZone %v must be in [0, 1)", m.Name, m.DeadZone)
+			return loaderr.Errorf(prefix+".deadZone", "set deadZone to a number in [0, 1)", "project: input motion axis %q deadZone %v must be in [0, 1)", m.Name, m.DeadZone)
 		}
 		if !isFinite64(m.Smoothing) || m.Smoothing < 0 || m.Smoothing >= 1 {
-			return fmt.Errorf("project: input motion axis %q smoothing %v must be in [0, 1)", m.Name, m.Smoothing)
+			return loaderr.Errorf(prefix+".smoothing", "set smoothing to a number in [0, 1)", "project: input motion axis %q smoothing %v must be in [0, 1)", m.Name, m.Smoothing)
 		}
 		if !isFinite64(m.Sensitivity) || m.Sensitivity < 0 || !isFinite64(m.MaxRange) || m.MaxRange < 0 {
-			return fmt.Errorf("project: input motion axis %q sensitivity and maxRange must be finite and non-negative", m.Name)
+			return loaderr.Errorf(prefix, "set sensitivity and maxRange to finite numbers >= 0", "project: input motion axis %q sensitivity and maxRange must be finite and non-negative", m.Name)
 		}
 	}
 	// A gamepad axis may share its name with an axis or motion axis: input.Actions.Axis sums all of them and clamps to [-1, 1].
 	gpAxes := make(map[string]struct{}, len(in.GamepadAxes))
 	for i, g := range in.GamepadAxes {
-		if err := validateName(fmt.Sprintf("input gamepad axis %d", i), g.Name); err != nil {
+		prefix := fmt.Sprintf("input.gamepadAxes[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("input gamepad axis %d", i), g.Name); err != nil {
 			return err
 		}
 		if _, dup := gpAxes[g.Name]; dup {
-			return fmt.Errorf("project: duplicate input gamepad axis %q", g.Name)
+			return loaderr.Errorf(prefix+".name", "give each gamepad axis a unique name", "project: duplicate input gamepad axis %q", g.Name)
 		}
 		gpAxes[g.Name] = struct{}{}
 		if !slices.Contains(GamepadAxes, g.Axis) {
-			return fmt.Errorf("project: input gamepad axis %q axis %q must be one of %s", g.Name, g.Axis, strings.Join(GamepadAxes, ", "))
+			return loaderr.Errorf(prefix+".axis", "set axis to one of "+strings.Join(GamepadAxes, ", "), "project: input gamepad axis %q axis %q must be one of %s", g.Name, g.Axis, strings.Join(GamepadAxes, ", "))
 		}
 		if !isFinite64(g.DeadZone) || g.DeadZone >= 1 {
-			return fmt.Errorf("project: input gamepad axis %q deadZone %v must be finite and less than 1", g.Name, g.DeadZone)
+			return loaderr.Errorf(prefix+".deadZone", "set deadZone to a finite number less than 1", "project: input gamepad axis %q deadZone %v must be finite and less than 1", g.Name, g.DeadZone)
 		}
 		if !isFinite64(g.Sensitivity) || g.Sensitivity < 0 {
-			return fmt.Errorf("project: input gamepad axis %q sensitivity %v must be finite and non-negative", g.Name, g.Sensitivity)
+			return loaderr.Errorf(prefix+".sensitivity", "set sensitivity to a finite number >= 0", "project: input gamepad axis %q sensitivity %v must be finite and non-negative", g.Name, g.Sensitivity)
 		}
 	}
 	return nil
 }
 
-func validateBinding(b Binding) error {
+func validateBindingAt(pathField, action string, index int, b Binding) error {
+	wrap := func(subField, fix string, err error) error {
+		if err == nil {
+			return nil
+		}
+		f := pathField
+		if subField != "" {
+			f = pathField + "." + subField
+		}
+		return loaderr.Errorf(f, fix, "project: input action %q binding %d: %w", action, index, err)
+	}
 	switch b.Kind {
 	case KindTouchRegion:
 		if b.Button != "" || b.Key != "" || b.Code != "" {
-			return errors.New("touchRegion takes only region")
+			return wrap("", "remove button, key, and code from touchRegion bindings", errors.New("touchRegion takes only region"))
 		}
-		return validateRegion(b.Region)
+		return wrap("region", "set region with positive width and height", validateRegion(b.Region))
 	case KindMouseButton:
 		if b.Region != nil || b.Key != "" || b.Code != "" {
-			return errors.New("mouseButton takes only button")
+			return wrap("", "remove region, key, and code from mouseButton bindings", errors.New("mouseButton takes only button"))
 		}
-		return validateButton(b.Button)
+		return wrap("button", "set button to one of "+strings.Join(MouseButtons, ", "), validateButton(b.Button))
 	case KindMouseRegion:
 		if b.Key != "" || b.Code != "" {
-			return errors.New("mouseRegion takes only button and region")
+			return wrap("", "remove key and code from mouseRegion bindings", errors.New("mouseRegion takes only button and region"))
 		}
 		if err := validateButton(b.Button); err != nil {
-			return err
+			return wrap("button", "set button to one of "+strings.Join(MouseButtons, ", "), err)
 		}
-		return validateRegion(b.Region)
+		return wrap("region", "set region with positive width and height", validateRegion(b.Region))
 	case KindKey:
 		if b.Button != "" || b.Code != "" || b.Region != nil {
-			return errors.New("key takes only key")
+			return wrap("", "remove button, code, and region from key bindings", errors.New("key takes only key"))
 		}
-		return validateKeyToken("key", b.Key)
+		return wrap("key", "set key to a non-empty key name without spaces", validateKeyToken("key", b.Key))
 	case KindKeyCode:
 		if b.Button != "" || b.Key != "" || b.Region != nil {
-			return errors.New("keyCode takes only code")
+			return wrap("", "remove button, key, and region from keyCode bindings", errors.New("keyCode takes only code"))
 		}
-		return validateKeyToken("code", b.Code)
+		return wrap("code", "set code to a non-empty key code without spaces", validateKeyToken("code", b.Code))
 	case KindGamepadButton:
 		if b.Key != "" || b.Code != "" || b.Region != nil {
-			return errors.New("gamepadButton takes only button")
+			return wrap("", "remove key, code, and region from gamepadButton bindings", errors.New("gamepadButton takes only button"))
 		}
-		return validateGamepadButton(b.Button)
+		return wrap("button", "set button to one of "+strings.Join(GamepadButtons, ", "), validateGamepadButton(b.Button))
 	default:
-		return fmt.Errorf("kind %q must be one of %s", b.Kind, strings.Join(BindingKinds, ", "))
+		return wrap("kind", "set kind to one of "+strings.Join(BindingKinds, ", "), fmt.Errorf("kind %q must be one of %s", b.Kind, strings.Join(BindingKinds, ", ")))
 	}
 }
 
@@ -983,30 +1025,41 @@ func validateRegion(r *Rect) error {
 
 func validateAudio(a *Audio) error {
 	if a.Master != nil && !unit32(*a.Master) {
-		return fmt.Errorf("project: audio master %v must be in [0, 1]", *a.Master)
+		return loaderr.Errorf("audio.master", "set audio.master to a number in [0, 1]", "project: audio master %v must be in [0, 1]", *a.Master)
 	}
 	buses := make(map[string]struct{}, len(a.Buses))
 	for i, b := range a.Buses {
-		if err := validateName(fmt.Sprintf("audio bus %d", i), b.Name); err != nil {
+		prefix := fmt.Sprintf("audio.buses[%d]", i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("audio bus %d", i), b.Name); err != nil {
 			return err
 		}
 		if _, dup := buses[b.Name]; dup {
-			return fmt.Errorf("project: duplicate audio bus %q", b.Name)
+			return loaderr.Errorf(prefix+".name", "give each audio bus a unique name", "project: duplicate audio bus %q", b.Name)
 		}
 		buses[b.Name] = struct{}{}
 		if b.Volume != nil && !unit32(*b.Volume) {
-			return fmt.Errorf("project: audio bus %q volume %v must be in [0, 1]", b.Name, *b.Volume)
+			return loaderr.Errorf(prefix+".volume", "set volume to a number in [0, 1]", "project: audio bus %q volume %v must be in [0, 1]", b.Name, *b.Volume)
 		}
 		for j, e := range b.Effects {
-			if err := validateEffect(e); err != nil {
-				return fmt.Errorf("project: audio bus %q effect %d: %w", b.Name, j, err)
+			if err := validateEffectAt(fmt.Sprintf("%s.effects[%d]", prefix, j), b.Name, j, e); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
 }
 
-func validateEffect(e Effect) error {
+func validateEffectAt(pathField, bus string, index int, e Effect) error {
+	wrap := func(subField, fix string, err error) error {
+		if err == nil {
+			return nil
+		}
+		f := pathField
+		if subField != "" {
+			f = pathField + "." + subField
+		}
+		return loaderr.Errorf(f, fix, "project: audio bus %q effect %d: %w", bus, index, err)
+	}
 	set := 0
 	for _, isSet := range []bool{e.LowPass != nil, e.HighPass != nil, e.Delay != nil, e.Reverb != nil, e.Gain != nil, e.Bitcrush != nil} {
 		if isSet {
@@ -1014,40 +1067,40 @@ func validateEffect(e Effect) error {
 		}
 	}
 	if set != 1 {
-		return errors.New("must set exactly one of lowPass, highPass, delay, reverb, gain and bitcrush")
+		return wrap("", "set exactly one of lowPass, highPass, delay, reverb, gain, or bitcrush", errors.New("must set exactly one of lowPass, highPass, delay, reverb, gain and bitcrush"))
 	}
 	switch {
 	case e.LowPass != nil:
-		return validateFilter(e.LowPass)
+		return wrap("lowPass", "set cutoffHz > 0 and q >= 0", validateFilter(e.LowPass))
 	case e.HighPass != nil:
-		return validateFilter(e.HighPass)
+		return wrap("highPass", "set cutoffHz > 0 and q >= 0", validateFilter(e.HighPass))
 	case e.Delay != nil:
 		d := e.Delay
 		if d.Time <= 0 {
-			return fmt.Errorf("delay time %v must be positive", d.Time)
+			return wrap("delay.time", "set delay.time to a positive duration such as 250ms", fmt.Errorf("delay time %v must be positive", d.Time))
 		}
 		if !isFinite64(d.Feedback) || d.Feedback < 0 || d.Feedback > 0.99 {
-			return fmt.Errorf("delay feedback %v must be in [0, 0.99]", d.Feedback)
+			return wrap("delay.feedback", "set delay.feedback to a number in [0, 0.99]", fmt.Errorf("delay feedback %v must be in [0, 0.99]", d.Feedback))
 		}
 		if !unit64(d.Wet) {
-			return fmt.Errorf("delay wet %v must be in [0, 1]", d.Wet)
+			return wrap("delay.wet", "set delay.wet to a number in [0, 1]", fmt.Errorf("delay wet %v must be in [0, 1]", d.Wet))
 		}
 	case e.Reverb != nil:
 		r := e.Reverb
 		if !unit64(r.RoomSize) || !unit64(r.Damping) || !unit64(r.Wet) {
-			return errors.New("reverb roomSize, damping and wet must be in [0, 1]")
+			return wrap("reverb", "set reverb roomSize, damping, and wet to numbers in [0, 1]", errors.New("reverb roomSize, damping and wet must be in [0, 1]"))
 		}
 	case e.Gain != nil:
 		if !isFinite64(e.Gain.Factor) || e.Gain.Factor < 0 {
-			return fmt.Errorf("gain factor %v must be finite and non-negative", e.Gain.Factor)
+			return wrap("gain.factor", "set gain.factor to a finite number >= 0", fmt.Errorf("gain factor %v must be finite and non-negative", e.Gain.Factor))
 		}
 	case e.Bitcrush != nil:
 		b := e.Bitcrush
 		if b.Bits < 1 || b.Bits > 15 {
-			return fmt.Errorf("bitcrush bits %d must be in [1, 15]", b.Bits)
+			return wrap("bitcrush.bits", "set bitcrush.bits between 1 and 15", fmt.Errorf("bitcrush bits %d must be in [1, 15]", b.Bits))
 		}
 		if b.Downsample < 0 {
-			return fmt.Errorf("bitcrush downsample %d must not be negative", b.Downsample)
+			return wrap("bitcrush.downsample", "set bitcrush.downsample to 0 or more", fmt.Errorf("bitcrush downsample %d must not be negative", b.Downsample))
 		}
 	}
 	return nil
@@ -1064,36 +1117,37 @@ func validateFilter(f *Filter) error {
 }
 
 func validateAutoload(a *Autoload) error {
-	scenes, err := validateEntries("scene", a.Scenes)
+	scenes, err := validateEntries("autoload.scenes", "scene", a.Scenes)
 	if err != nil {
 		return err
 	}
-	if _, err := validateEntries("resource", a.Resources); err != nil {
+	if _, err := validateEntries("autoload.resources", "resource", a.Resources); err != nil {
 		return err
 	}
-	for _, s := range a.Scenes {
+	for i, s := range a.Scenes {
 		if !strings.HasSuffix(s.Path, ".yaml") && !strings.HasSuffix(s.Path, ".yml") {
-			return fmt.Errorf("project: autoload scene %q path %q must be a .yaml or .yml file", s.Name, s.Path)
+			return loaderr.Errorf(fmt.Sprintf("autoload.scenes[%d].path", i), "point each autoload scene to a .yaml or .yml file", "project: autoload scene %q path %q must be a .yaml or .yml file", s.Name, s.Path)
 		}
 	}
 	if _, ok := scenes[a.MainScene]; a.MainScene != "" && !ok {
-		return fmt.Errorf("project: autoload mainScene %q is not an autoloaded scene", a.MainScene)
+		return loaderr.Errorf("autoload.mainScene", "set autoload.mainScene to a scene name listed in autoload.scenes", "project: autoload mainScene %q is not an autoloaded scene", a.MainScene)
 	}
 	return nil
 }
 
-func validateEntries(kind string, entries []Entry) (map[string]struct{}, error) {
+func validateEntries(listPath, kind string, entries []Entry) (map[string]struct{}, error) {
 	names := make(map[string]struct{}, len(entries))
 	for i, e := range entries {
-		if err := validateName(fmt.Sprintf("autoload %s %d", kind, i), e.Name); err != nil {
+		prefix := fmt.Sprintf("%s[%d]", listPath, i)
+		if err := validateNameAt(prefix+".name", fmt.Sprintf("autoload %s %d", kind, i), e.Name); err != nil {
 			return nil, err
 		}
 		if _, dup := names[e.Name]; dup {
-			return nil, fmt.Errorf("project: duplicate autoload %s %q", kind, e.Name)
+			return nil, loaderr.Errorf(prefix+".name", fmt.Sprintf("give each autoload %s a unique name", kind), "project: duplicate autoload %s %q", kind, e.Name)
 		}
 		names[e.Name] = struct{}{}
 		if e.Path == "." || !fs.ValidPath(e.Path) || strings.Contains(e.Path, `\`) {
-			return nil, fmt.Errorf("project: autoload %s %q path %q must be a slash-separated path inside the project", kind, e.Name, e.Path)
+			return nil, loaderr.Errorf(prefix+".path", "use a slash-separated relative path inside the project", "project: autoload %s %q path %q must be a slash-separated path inside the project", kind, e.Name, e.Path)
 		}
 	}
 	return names, nil
@@ -1101,37 +1155,39 @@ func validateEntries(kind string, entries []Entry) (map[string]struct{}, error) 
 
 func validateExport(e *Export) error {
 	if e.Output != "" && (e.Output == "." || !fs.ValidPath(e.Output) || strings.Contains(e.Output, `\`)) {
-		return fmt.Errorf("project: export output %q must be a slash-separated directory inside the project", e.Output)
+		return loaderr.Errorf("export.output", "set export.output to a slash-separated directory inside the project", "project: export output %q must be a slash-separated directory inside the project", e.Output)
 	}
 	if e.Budgets != nil {
 		if e.Budgets.QualityProfile != "" {
-			if err := validateName("export budgets qualityProfile", e.Budgets.QualityProfile); err != nil {
+			if err := validateNameAt("export.budgets.qualityProfile", "export budgets qualityProfile", e.Budgets.QualityProfile); err != nil {
 				return err
 			}
 		}
 		if math.IsNaN(e.Budgets.DownloadSizeMB) || math.IsInf(e.Budgets.DownloadSizeMB, 0) || e.Budgets.DownloadSizeMB < 0 {
-			return fmt.Errorf("project: export budgets downloadSizeMB %v must be finite and >= 0", e.Budgets.DownloadSizeMB)
+			return loaderr.Errorf("export.budgets.downloadSizeMB", "set downloadSizeMB to a finite number >= 0", "project: export budgets downloadSizeMB %v must be finite and >= 0", e.Budgets.DownloadSizeMB)
 		}
 		if math.IsNaN(e.Budgets.FrameTimeP95Ms) || math.IsInf(e.Budgets.FrameTimeP95Ms, 0) || e.Budgets.FrameTimeP95Ms < 0 {
-			return fmt.Errorf("project: export budgets frameTimeP95Ms %v must be finite and >= 0", e.Budgets.FrameTimeP95Ms)
+			return loaderr.Errorf("export.budgets.frameTimeP95Ms", "set frameTimeP95Ms to a finite number >= 0", "project: export budgets frameTimeP95Ms %v must be finite and >= 0", e.Budgets.FrameTimeP95Ms)
 		}
 	}
 	platforms := make(map[string]struct{}, len(e.Presets))
-	for _, p := range e.Presets {
+	for i, p := range e.Presets {
+		prefix := fmt.Sprintf("export.presets[%d]", i)
 		if !slices.Contains(Platforms, p.Platform) {
-			return fmt.Errorf("project: export platform %q must be one of %s", p.Platform, strings.Join(Platforms, ", "))
+			return loaderr.Errorf(prefix+".platform", "set platform to one of "+strings.Join(Platforms, ", "), "project: export platform %q must be one of %s", p.Platform, strings.Join(Platforms, ", "))
 		}
 		if _, dup := platforms[p.Platform]; dup {
-			return fmt.Errorf("project: duplicate export preset for platform %q", p.Platform)
+			return loaderr.Errorf(prefix+".platform", "keep only one export preset per platform", "project: duplicate export preset for platform %q", p.Platform)
 		}
 		platforms[p.Platform] = struct{}{}
 		seen := make(map[string]struct{}, len(p.Targets))
-		for _, t := range p.Targets {
+		for j, t := range p.Targets {
+			tPath := fmt.Sprintf("%s.targets[%d]", prefix, j)
 			if !slices.Contains(nsgoTargets, t) || platformOf(t) != p.Platform {
-				return fmt.Errorf("project: export platform %q target %q must be one of %s", p.Platform, t, strings.Join(TargetsOf(p.Platform), ", "))
+				return loaderr.Errorf(tPath, "choose targets from "+strings.Join(TargetsOf(p.Platform), ", "), "project: export platform %q target %q must be one of %s", p.Platform, t, strings.Join(TargetsOf(p.Platform), ", "))
 			}
 			if _, dup := seen[t]; dup {
-				return fmt.Errorf("project: export platform %q lists target %q twice", p.Platform, t)
+				return loaderr.Errorf(tPath, "remove duplicate target entries", "project: export platform %q lists target %q twice", p.Platform, t)
 			}
 			seen[t] = struct{}{}
 		}
@@ -1142,11 +1198,12 @@ func validateExport(e *Export) error {
 func validateEditor(e *Editor) error {
 	seen := make(map[string]struct{}, len(e.Plugins))
 	for i, name := range e.Plugins {
-		if err := validateName(fmt.Sprintf("editor plugin %d", i), name); err != nil {
+		field := fmt.Sprintf("editor.plugins[%d]", i)
+		if err := validateNameAt(field, fmt.Sprintf("editor plugin %d", i), name); err != nil {
 			return err
 		}
 		if _, dup := seen[name]; dup {
-			return fmt.Errorf("project: editor plugin %q is listed twice", name)
+			return loaderr.Errorf(field, "remove duplicate editor plugin names", "project: editor plugin %q is listed twice", name)
 		}
 		seen[name] = struct{}{}
 	}
@@ -1157,62 +1214,66 @@ func validatePacks(f *File) error {
 	names := make(map[string]struct{}, len(f.Packs))
 	// owner maps each file, autoload entry and plugin a pack claims to that pack, so no two packs claim one. A file's path is folded to lower case, as a case-insensitive file system such as macOS's or Windows's sees it.
 	owner := map[string]string{}
-	claim := func(pack, key, what string) error {
+	claim := func(field, pack, key, what string) error {
 		if other, ok := owner[key]; ok {
-			return fmt.Errorf("project: packs %q and %q both claim %s", other, pack, what)
+			return loaderr.Errorf(field, "ensure each file, autoload entry, and plugin is claimed by at most one pack", "project: packs %q and %q both claim %s", other, pack, what)
 		}
 		owner[key] = pack
 		return nil
 	}
 	for i := range f.Packs {
 		p := &f.Packs[i]
+		prefix := fmt.Sprintf("packs[%d]", i)
 		if err := ValidatePackName(p.Name); err != nil {
-			return fmt.Errorf("project: pack %d: %w", i, err)
+			return loaderr.Errorf(prefix+".name", "use 1 to 64 lower-case ASCII letters, digits, or '-' starting with a letter or digit", "project: pack %d: %w", i, err)
 		}
 		if _, dup := names[p.Name]; dup {
-			return fmt.Errorf("project: pack %q is listed twice", p.Name)
+			return loaderr.Errorf(prefix+".name", "remove the duplicate pack entry", "project: pack %q is listed twice", p.Name)
 		}
 		names[p.Name] = struct{}{}
 		where := fmt.Sprintf("project: pack %q", p.Name)
 		if !slices.Contains(PackKinds, p.Kind) {
-			return fmt.Errorf("%s: kind %q must be one of %s", where, p.Kind, strings.Join(PackKinds, ", "))
+			return loaderr.Errorf(prefix+".kind", "set kind to one of "+strings.Join(PackKinds, ", "), "%s: kind %q must be one of %s", where, p.Kind, strings.Join(PackKinds, ", "))
 		}
 		if err := ValidatePackVersion(p.PackVersion); err != nil {
-			return fmt.Errorf("%s: %w", where, err)
+			return loaderr.Errorf(prefix+".packVersion", "set packVersion to a semantic version such as 1.2.0", "%s: %w", where, err)
 		}
 		if !IsSHA256(p.SHA256) {
-			return fmt.Errorf("%s: sha256 %q must be 64 lower-case hexadecimal digits", where, p.SHA256)
+			return loaderr.Errorf(prefix+".sha256", "set sha256 to 64 lower-case hexadecimal digits", "%s: sha256 %q must be 64 lower-case hexadecimal digits", where, p.SHA256)
 		}
 		if !isProjectPath(p.Dir) {
-			return fmt.Errorf("%s: dir %q must be a slash-separated directory inside the project", where, p.Dir)
+			return loaderr.Errorf(prefix+".dir", "set dir to a slash-separated relative path inside the project", "%s: dir %q must be a slash-separated directory inside the project", where, p.Dir)
 		}
 		for j, file := range p.Files {
+			fPath := fmt.Sprintf("%s.files[%d]", prefix, j)
 			if !isProjectPath(file) {
-				return fmt.Errorf("%s: file %q must be a slash-separated path inside its dir", where, file)
+				return loaderr.Errorf(fPath, "use a slash-separated relative path inside the pack dir", "%s: file %q must be a slash-separated path inside its dir", where, file)
 			}
 			if j > 0 && p.Files[j-1] >= file {
-				return fmt.Errorf("%s: files must be sorted and unique, but %q follows %q", where, file, p.Files[j-1])
+				return loaderr.Errorf(fPath, "sort files in ascending order without duplicates", "%s: files must be sorted and unique, but %q follows %q", where, file, p.Files[j-1])
 			}
 			what := "file " + path.Join(p.Dir, file)
-			if err := claim(p.Name, strings.ToLower(what), what); err != nil {
+			if err := claim(fPath, p.Name, strings.ToLower(what), what); err != nil {
 				return err
 			}
 		}
 		for _, ref := range []struct {
+			field string
 			kind  string
 			names []string
 			has   func(string) bool
 		}{
-			{"autoload scene", p.Scenes, func(n string) bool { return f.Autoload != nil && hasEntry(f.Autoload.Scenes, n) }},
-			{"autoload resource", p.Resources, func(n string) bool { return f.Autoload != nil && hasEntry(f.Autoload.Resources, n) }},
-			{"editor plugin", p.Plugins, func(n string) bool { return f.Editor != nil && slices.Contains(f.Editor.Plugins, n) }},
+			{"scenes", "autoload scene", p.Scenes, func(n string) bool { return f.Autoload != nil && hasEntry(f.Autoload.Scenes, n) }},
+			{"resources", "autoload resource", p.Resources, func(n string) bool { return f.Autoload != nil && hasEntry(f.Autoload.Resources, n) }},
+			{"plugins", "editor plugin", p.Plugins, func(n string) bool { return f.Editor != nil && slices.Contains(f.Editor.Plugins, n) }},
 		} {
-			for _, n := range ref.names {
+			for j, n := range ref.names {
+				rPath := fmt.Sprintf("%s.%s[%d]", prefix, ref.field, j)
 				if !ref.has(n) {
-					return fmt.Errorf("%s: added %s %q, which the project does not have", where, ref.kind, n)
+					return loaderr.Errorf(rPath, fmt.Sprintf("list only %s entries present in game.yaml", ref.kind), "%s: added %s %q, which the project does not have", where, ref.kind, n)
 				}
 				what := ref.kind + " " + strconv.Quote(n)
-				if err := claim(p.Name, what, what); err != nil {
+				if err := claim(rPath, p.Name, what, what); err != nil {
 					return err
 				}
 			}
@@ -1267,13 +1328,13 @@ func IsSHA256(s string) bool {
 	return true
 }
 
-// validateName refuses empty names and names with spaces or control characters, which input actions, axes, buses, autoload entries and editor plugins are looked up by.
-func validateName(where, name string) error {
+// validateNameAt refuses empty names and names with spaces or control characters, which input actions, axes, buses, autoload entries and editor plugins are looked up by.
+func validateNameAt(pathField, where, name string) error {
 	if name == "" {
-		return fmt.Errorf("project: %s has an empty name", where)
+		return loaderr.Errorf(pathField, fmt.Sprintf("set %s to a non-empty name", pathField), "project: %s has an empty name", where)
 	}
 	if strings.IndexFunc(name, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return fmt.Errorf("project: %s name %q must have no spaces or control characters", where, name)
+		return loaderr.Errorf(pathField, fmt.Sprintf("remove spaces and control characters from %s", pathField), "project: %s name %q must have no spaces or control characters", where, name)
 	}
 	return nil
 }

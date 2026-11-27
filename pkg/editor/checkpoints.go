@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"go.yaml.in/yaml/v3"
@@ -136,20 +137,20 @@ type checkpointState struct {
 // refusing empty documents, duplicate keys, unknown fields, trailing documents, and unsupported versions.
 func ParseCheckpointManifest(data []byte) (*CheckpointManifest, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("editor: checkpoint manifest: empty document (missing version)")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("provide a checkpoint manifest starting with version: %d", CheckpointVersion), "editor: checkpoint manifest: empty document (missing version)"), "", data, "")
 	}
 	if int64(len(data)) > maxCheckpointManifestBytes {
-		return nil, fmt.Errorf("editor: checkpoint manifest: document exceeds maximum size (%d bytes)", maxCheckpointManifestBytes)
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("keep checkpoint manifests under %d bytes", maxCheckpointManifestBytes), "editor: checkpoint manifest: document exceeds maximum size (%d bytes)", maxCheckpointManifestBytes), "", data, "")
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("editor: checkpoint manifest: parse: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: checkpoint manifest: parse: %w", err), "", data, "check the YAML syntax in the checkpoint manifest")
 	}
 	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("editor: checkpoint manifest: document must be a YAML mapping with version")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("write the checkpoint manifest as a YAML mapping starting with version: %d", CheckpointVersion), "editor: checkpoint manifest: document must be a YAML mapping with version"), "", data, "")
 	}
 	if err := checkDuplicateYAMLKeys(root.Content[0]); err != nil {
-		return nil, fmt.Errorf("editor: checkpoint manifest: %w", err)
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	hasVersion := false
 	for i := 0; i+1 < len(root.Content[0].Content); i += 2 {
@@ -159,24 +160,24 @@ func ParseCheckpointManifest(data []byte) (*CheckpointManifest, error) {
 		}
 	}
 	if !hasVersion {
-		return nil, errors.New("editor: checkpoint manifest: missing required field version")
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("add version: %d at the top of the checkpoint manifest", CheckpointVersion), "editor: checkpoint manifest: missing required field version"), "", data, "")
 	}
 
 	var m CheckpointManifest
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("editor: checkpoint manifest: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: checkpoint manifest: decode: %w", err), "", data, "check the YAML syntax and field names in the checkpoint manifest")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("editor: checkpoint manifest: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the checkpoint manifest and remove any --- separator", "editor: checkpoint manifest: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("editor: checkpoint manifest: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: checkpoint manifest: decode: %w", err), "", data, "remove trailing YAML content after the checkpoint manifest")
 	}
 	if err := ValidateCheckpointManifest(&m); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &m, nil
 }
@@ -184,70 +185,71 @@ func ParseCheckpointManifest(data []byte) (*CheckpointManifest, error) {
 // ValidateCheckpointManifest checks that m conforms to version 1 of the checkpoint manifest schema.
 func ValidateCheckpointManifest(m *CheckpointManifest) error {
 	if m == nil {
-		return errors.New("editor: checkpoint manifest: nil document")
+		return loaderr.Errorf("", "pass a non-nil *editor.CheckpointManifest to ValidateCheckpointManifest", "editor: checkpoint manifest: nil document")
 	}
 	if m.Version != CheckpointVersion {
-		return fmt.Errorf("editor: checkpoint manifest: unsupported version %d (want %d)", m.Version, CheckpointVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the checkpoint manifest", CheckpointVersion), "editor: checkpoint manifest: unsupported version %d (want %d)", m.Version, CheckpointVersion)
 	}
 	if err := validateCheckpointID(m.ID); err != nil {
-		return fmt.Errorf("editor: checkpoint manifest: %w", err)
+		return loaderr.Errorf("id", "set id to 1..128 ASCII letters, digits, '-' or '_' without '..'", "editor: checkpoint manifest: %w", err)
 	}
 	if m.CreatedAt == "" {
-		return errors.New("editor: checkpoint manifest: createdAt is required")
+		return loaderr.Errorf("createdAt", "set createdAt to an RFC3339 UTC timestamp such as 2026-01-02T15:04:05Z", "editor: checkpoint manifest: createdAt is required")
 	}
 	if _, err := time.Parse(time.RFC3339, m.CreatedAt); err != nil {
-		return fmt.Errorf("editor: checkpoint manifest: createdAt %q must be RFC3339: %w", m.CreatedAt, err)
+		return loaderr.Errorf("createdAt", "format createdAt as an RFC3339 timestamp such as 2026-01-02T15:04:05Z", "editor: checkpoint manifest: createdAt %q must be RFC3339: %w", m.CreatedAt, err)
 	}
 	switch m.Who {
 	case HistoryAuthorAgent, HistoryAuthorYou, HistoryAuthorGit:
 	default:
-		return fmt.Errorf("editor: checkpoint manifest: invalid who %q (want agent, you, or git)", m.Who)
+		return loaderr.Errorf("who", "set who to agent, you, or git", "editor: checkpoint manifest: invalid who %q (want agent, you, or git)", m.Who)
 	}
 	switch m.Kind {
 	case CheckpointKindTurn, CheckpointKindTask, CheckpointKindAutomation:
 	default:
-		return fmt.Errorf("editor: checkpoint manifest: invalid kind %q (want turn, task, or automation)", m.Kind)
+		return loaderr.Errorf("kind", "set kind to turn, task, or automation", "editor: checkpoint manifest: invalid kind %q (want turn, task, or automation)", m.Kind)
 	}
 	if err := validateCheckpointText("title", m.Title, true); err != nil {
-		return fmt.Errorf("editor: checkpoint manifest: %w", err)
+		return loaderr.Errorf("title", "set title to a non-empty single-line summary without surrounding spaces or control characters", "editor: checkpoint manifest: %w", err)
 	}
 	if err := validateCheckpointText("detail", m.Detail, false); err != nil {
-		return fmt.Errorf("editor: checkpoint manifest: %w", err)
+		return loaderr.Errorf("detail", "set detail to a single-line string without surrounding spaces or control characters", "editor: checkpoint manifest: %w", err)
 	}
 	if len(m.Files) > maxCheckpointFilesPerTurn {
-		return fmt.Errorf("editor: checkpoint manifest: too many files (%d > %d)", len(m.Files), maxCheckpointFilesPerTurn)
+		return loaderr.Errorf("files", fmt.Sprintf("record at most %d files in a single checkpoint manifest", maxCheckpointFilesPerTurn), "editor: checkpoint manifest: too many files (%d > %d)", len(m.Files), maxCheckpointFilesPerTurn)
 	}
 	seen := make(map[string]bool, len(m.Files))
 	for i, f := range m.Files {
+		fPath := fmt.Sprintf("files[%d]", i)
 		clean, err := cleanCheckpointRelPath(f.Path)
 		if err != nil || clean != f.Path {
 			if err != nil {
-				return fmt.Errorf("editor: checkpoint manifest: files[%d]: %w", i, err)
+				return loaderr.Errorf(fPath+".path", "set path to a canonical relative slash-separated project file path", "editor: checkpoint manifest: files[%d]: %w", i, err)
 			}
-			return fmt.Errorf("editor: checkpoint manifest: files[%d].path %q must be canonical slash-separated relative path %q", i, f.Path, clean)
+			return loaderr.Errorf(fPath+".path", fmt.Sprintf("normalize files[%d].path to %q", i, clean), "editor: checkpoint manifest: files[%d].path %q must be canonical slash-separated relative path %q", i, f.Path, clean)
 		}
 		if seen[f.Path] {
-			return fmt.Errorf("editor: checkpoint manifest: duplicate file path %q", f.Path)
+			return loaderr.Errorf(fPath+".path", "remove the duplicate file entry from files", "editor: checkpoint manifest: duplicate file path %q", f.Path)
 		}
 		seen[f.Path] = true
 		if f.Size < 0 {
-			return fmt.Errorf("editor: checkpoint manifest: files[%d].size %d must not be negative", i, f.Size)
+			return loaderr.Errorf(fPath+".size", "set size to a non-negative byte count", "editor: checkpoint manifest: files[%d].size %d must not be negative", i, f.Size)
 		}
 		if f.Existed {
 			if f.Size > maxCheckpointFileBytes {
-				return fmt.Errorf("editor: checkpoint manifest: files[%d].size %d exceeds maximum %d", i, f.Size, maxCheckpointFileBytes)
+				return loaderr.Errorf(fPath+".size", fmt.Sprintf("keep captured file size at or below %d bytes", maxCheckpointFileBytes), "editor: checkpoint manifest: files[%d].size %d exceeds maximum %d", i, f.Size, maxCheckpointFileBytes)
 			}
 			if !validSHA256Hex(f.SHA256) {
-				return fmt.Errorf("editor: checkpoint manifest: files[%d].sha256 %q must be 64 lowercase hex characters", i, f.SHA256)
+				return loaderr.Errorf(fPath+".sha256", "set sha256 to 64 lowercase hexadecimal characters", "editor: checkpoint manifest: files[%d].sha256 %q must be 64 lowercase hex characters", i, f.SHA256)
 			}
 			if f.Mode != "" {
 				if _, err := parseOctalFileMode(f.Mode); err != nil {
-					return fmt.Errorf("editor: checkpoint manifest: files[%d].mode: %w", i, err)
+					return loaderr.Errorf(fPath+".mode", "set mode to a 4-digit octal permission string such as 0755 or omit it", "editor: checkpoint manifest: files[%d].mode: %w", i, err)
 				}
 			}
 		} else {
 			if f.Size != 0 || f.SHA256 != "" || f.Mode != "" {
-				return fmt.Errorf("editor: checkpoint manifest: files[%d]: non-existent file must not set size, sha256, or mode", i)
+				return loaderr.Errorf(fPath, "omit size, sha256, and mode when existed is false", "editor: checkpoint manifest: files[%d]: non-existent file must not set size, sha256, or mode", i)
 			}
 		}
 	}

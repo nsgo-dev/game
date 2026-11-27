@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -26,10 +27,10 @@ func decodeTeam(data []byte) (team, error) {
 	dec.KnownFields(true)
 	var tm team
 	if err := dec.Decode(&tm); err != nil {
-		return team{}, err
+		return team{}, loaderr.Locate(err, "", data, "fix the team YAML")
 	}
 	if tm.Version != 1 {
-		return team{}, fmt.Errorf("unsupported version %d (want 1)", tm.Version)
+		return team{}, loaderr.Locate(loaderr.Errorf("version", "set version to 1", "unsupported version %d (want 1)", tm.Version), "", data, "fix the team YAML")
 	}
 	return tm, nil
 }
@@ -125,10 +126,10 @@ func TestLenientLoadersFail(t *testing.T) {
 			decode: func(data []byte) (team, error) {
 				var tm team
 				if err := yaml.Unmarshal(data, &tm); err != nil {
-					return team{}, err
+					return team{}, loaderr.Locate(err, "", data, "fix the team YAML")
 				}
 				if tm.Version != 1 {
-					return team{}, errors.New("unsupported version")
+					return team{}, loaderr.Locate(loaderr.Errorf("version", "set version to 1", "unsupported version"), "", data, "fix the team YAML")
 				}
 				return tm, nil
 			},
@@ -143,10 +144,10 @@ func TestLenientLoadersFail(t *testing.T) {
 					tm.Version = 1
 				}
 				if err == nil && bytes.Contains(data, []byte(unknownField)) {
-					err = errors.New("unknown field " + unknownField)
+					err = loaderr.Locate(loaderr.Errorf(unknownField, "remove the unknown field", "unknown field "+unknownField), "", data, "fix the team YAML")
 				}
 				if err == nil && tm.Version != 1 {
-					err = errors.New("unsupported version")
+					err = loaderr.Locate(loaderr.Errorf("version", "set version to 1", "unsupported version"), "", data, "fix the team YAML")
 				}
 				return tm, err
 			},
@@ -169,6 +170,22 @@ func TestLenientLoadersFail(t *testing.T) {
 				tm, err := decodeTeam(data)
 				if err != nil {
 					return team{}, errors.New("bad file")
+				}
+				return tm, nil
+			},
+			want: []string{"unknown_field", "missing_version", "zero_version", "future_version"},
+		},
+		{
+			name: "plain errors instead of loaderr.Error",
+			decode: func(data []byte) (team, error) {
+				dec := yaml.NewDecoder(bytes.NewReader(data))
+				dec.KnownFields(true)
+				var tm team
+				if err := dec.Decode(&tm); err != nil {
+					return team{}, err
+				}
+				if tm.Version != 1 {
+					return team{}, fmt.Errorf("unsupported version %d (want 1)", tm.Version)
 				}
 				return tm, nil
 			},
@@ -237,10 +254,10 @@ func TestVersionField(t *testing.T) {
 			dec.KnownFields(true)
 			var m manifest
 			if err := dec.Decode(&m); err != nil {
-				return manifest{}, err
+				return manifest{}, loaderr.Locate(err, "", data, "fix manifest")
 			}
 			if m.ManifestVersion != 1 {
-				return manifest{}, fmt.Errorf("unsupported manifestVersion %d", m.ManifestVersion)
+				return manifest{}, loaderr.Locate(loaderr.Errorf("manifestVersion", "set manifestVersion to 1", "unsupported manifestVersion %d", m.ManifestVersion), "", data, "fix manifest")
 			}
 			return m, nil
 		},
@@ -277,10 +294,10 @@ func TestMaxVersion(t *testing.T) {
 		dec.KnownFields(true)
 		var tm team
 		if err := dec.Decode(&tm); err != nil {
-			return team{}, err
+			return team{}, loaderr.Locate(err, "", data, "fix the team YAML")
 		}
 		if tm.Version != 1 && tm.Version != 2 {
-			return team{}, fmt.Errorf("unsupported version %d (want 1 or 2)", tm.Version)
+			return team{}, loaderr.Locate(loaderr.Errorf("version", "set version to 1 or 2", "unsupported version %d (want 1 or 2)", tm.Version), "", data, "fix the team YAML")
 		}
 		return tm, nil
 	}

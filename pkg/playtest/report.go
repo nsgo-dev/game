@@ -409,24 +409,24 @@ func ValidateReport(r *Report) error {
 // ParseReport decodes and validates a YAML playtest report, refusing unknown fields, missing or unsupported versions and trailing YAML documents.
 func ParseReport(data []byte) (*Report, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, loaderr.Errorf("", "provide a playtest report YAML document", "playtest report is empty")
+		return nil, loaderr.Locate(loaderr.Errorf("", "provide a playtest report YAML document", "playtest report is empty"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var rep Report
 	if err := dec.Decode(&rep); err != nil {
-		return nil, fmt.Errorf("playtest: decode report: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("playtest: decode report: %w", err), "", data, "check the YAML syntax and field names in the playtest report")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, loaderr.Errorf("", "keep one YAML document per report file", "unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep one YAML document per report file", "unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("playtest: decode report: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("playtest: decode report: %w", err), "", data, "remove trailing YAML content after the playtest report")
 	}
 	normalizeReport(&rep)
 	if err := ValidateReport(&rep); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &rep, nil
 }
@@ -517,11 +517,11 @@ func EncodeReport(r *Report) ([]byte, error) {
 func LoadReportFile(path string) (*Report, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("playtest: read report %q: %w", path, err)
+		return nil, loaderr.Locate(fmt.Errorf("playtest: read report %q: %w", path, err), path, nil, "check that the playtest report file exists and is readable")
 	}
 	rep, err := ParseReport(data)
 	if err != nil {
-		return nil, fmt.Errorf("playtest: read report %q: %w", path, err)
+		return nil, loaderr.WithFile(err, path)
 	}
 	return rep, nil
 }

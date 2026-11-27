@@ -3,6 +3,8 @@ package loot
 import (
 	"errors"
 	"fmt"
+
+	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
 // ErrUnknownTable is returned by Roller.Roll for a table name the Library does not hold.
@@ -116,13 +118,13 @@ func satAdd(a, b int) int {
 
 func compile(doc *Document) (*Library, error) {
 	if doc == nil {
-		return nil, errors.New("loot: nil document")
+		return nil, loaderr.Errorf("", fixLoot, "loot: nil document")
 	}
 	if doc.Version != CurrentVersion {
-		return nil, fmt.Errorf("loot: unsupported version %d (want %d)", doc.Version, CurrentVersion)
+		return nil, loaderr.Errorf("version", fmt.Sprintf("set version to %d", CurrentVersion), "loot: unsupported version %d (want %d)", doc.Version, CurrentVersion)
 	}
 	if len(doc.Tables) == 0 {
-		return nil, errors.New("loot: a document needs at least one table")
+		return nil, loaderr.Errorf("tables", "add at least one table under tables", "loot: a document needs at least one table")
 	}
 	lib := &Library{
 		tables: make([]compiledTable, len(doc.Tables)),
@@ -131,26 +133,27 @@ func compile(doc *Document) (*Library, error) {
 	for i := range doc.Tables {
 		name := doc.Tables[i].Name
 		if !validName(name) {
-			return nil, fmt.Errorf("loot: tables[%d]: name %q must be non-empty without surrounding spaces", i, name)
+			return nil, loaderr.Errorf(loaderr.Path("tables", i, "name"), "give the table a non-empty name without surrounding spaces", "loot: tables[%d]: name %q must be non-empty without surrounding spaces", i, name)
 		}
 		if _, dup := lib.byName[name]; dup {
-			return nil, fmt.Errorf("loot: tables[%d]: duplicate table name %q", i, name)
+			return nil, loaderr.Errorf(loaderr.Path("tables", i, "name"), "give each table a unique name", "loot: tables[%d]: duplicate table name %q", i, name)
 		}
 		lib.byName[name] = i
 	}
 
 	for i := range doc.Tables {
 		t := &doc.Tables[i]
+		tPath := loaderr.Path("tables", i)
 		where := fmt.Sprintf("table %q", t.Name)
 		ct := &lib.tables[i]
 		ct.name = t.Name
 		if len(t.Entries) == 0 && len(t.Guaranteed) == 0 {
-			return nil, fmt.Errorf("loot: %s: a table needs entries or guaranteed entries", where)
+			return nil, loaderr.Errorf(tPath, "add at least one entry under entries or guaranteed", "loot: %s: a table needs entries or guaranteed entries", where)
 		}
 		if len(t.Entries) == 0 && t.Rolls != nil {
-			return nil, fmt.Errorf("loot: %s: rolls needs entries", where)
+			return nil, loaderr.Errorf(loaderr.Join(tPath, "rolls"), "remove rolls or add weighted entries", "loot: %s: rolls needs entries", where)
 		}
-		if err := validateRange(where+": rolls", t.Rolls, MaxRolls); err != nil {
+		if err := validateRange(loaderr.Join(tPath, "rolls"), where+": rolls", t.Rolls, MaxRolls); err != nil {
 			return nil, err
 		}
 		ct.rollsMin, ct.rollsMax = rangeOf(t.Rolls)
@@ -159,10 +162,10 @@ func compile(doc *Document) (*Library, error) {
 		}
 
 		var err error
-		if ct.guaranteed, err = lib.compileEntries(where+": guaranteed", t.Guaranteed, true); err != nil {
+		if ct.guaranteed, err = lib.compileEntries(loaderr.Join(tPath, "guaranteed"), where+": guaranteed", t.Guaranteed, true); err != nil {
 			return nil, err
 		}
-		if ct.entries, err = lib.compileEntries(where+": entries", t.Entries, false); err != nil {
+		if ct.entries, err = lib.compileEntries(loaderr.Join(tPath, "entries"), where+": entries", t.Entries, false); err != nil {
 			return nil, err
 		}
 		ct.weights = make([]float64, len(t.Entries))
@@ -174,12 +177,12 @@ func compile(doc *Document) (*Library, error) {
 			switch {
 			case e.Item != "":
 				if _, dup := items[e.Item]; dup {
-					return nil, fmt.Errorf("loot: %s: entries[%d]: item %q is already an entry", where, j, e.Item)
+					return nil, loaderr.Errorf(loaderr.Join(tPath, "entries", j, "item"), "merge duplicate item entries into one entry", "loot: %s: entries[%d]: item %q is already an entry", where, j, e.Item)
 				}
 				items[e.Item] = j
 			case e.Table != "":
 				if _, dup := tables[e.Table]; dup {
-					return nil, fmt.Errorf("loot: %s: entries[%d]: table %q is already an entry", where, j, e.Table)
+					return nil, loaderr.Errorf(loaderr.Join(tPath, "entries", j, "table"), "merge duplicate table entries into one entry", "loot: %s: entries[%d]: table %q is already an entry", where, j, e.Table)
 				}
 				tables[e.Table] = j
 			}
@@ -189,23 +192,26 @@ func compile(doc *Document) (*Library, error) {
 		names := make(map[string]struct{}, len(t.Pity))
 		for j := range t.Pity {
 			p := &t.Pity[j]
+			pPath := loaderr.Join(tPath, "pity", j)
 			pwhere := fmt.Sprintf("%s: pity[%d]", where, j)
-			if err := validatePity(pwhere, p); err != nil {
+			if err := validatePity(pPath, pwhere, p); err != nil {
 				return nil, err
 			}
 			if _, dup := names[p.Name]; dup {
-				return nil, fmt.Errorf("loot: %s: duplicate pity name %q", pwhere, p.Name)
+				return nil, loaderr.Errorf(loaderr.Join(pPath, "name"), "give each pity rule in the table a unique name", "loot: %s: duplicate pity name %q", pwhere, p.Name)
 			}
 			names[p.Name] = struct{}{}
 			var target int
 			var ok bool
+			targetField := "item"
 			if p.Item != "" {
 				target, ok = items[p.Item]
 			} else {
+				targetField = "table"
 				target, ok = tables[p.Table]
 			}
 			if !ok {
-				return nil, fmt.Errorf("loot: %s: target is not one of the table's entries", pwhere)
+				return nil, loaderr.Errorf(loaderr.Join(pPath, targetField), "name an item or table declared in this table's entries", "loot: %s: target is not one of the table's entries", pwhere)
 			}
 			ct.pity = append(ct.pity, compiledPity{
 				name:        p.Name,
@@ -228,15 +234,16 @@ func compile(doc *Document) (*Library, error) {
 	return lib, nil
 }
 
-func (l *Library) compileEntries(where string, entries []Entry, guaranteed bool) ([]compiledEntry, error) {
+func (l *Library) compileEntries(listPath, where string, entries []Entry, guaranteed bool) ([]compiledEntry, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
 	out := make([]compiledEntry, len(entries))
 	for i := range entries {
 		e := &entries[i]
+		ePath := loaderr.Join(listPath, i)
 		ewhere := fmt.Sprintf("%s[%d]", where, i)
-		if err := validateEntry(ewhere, e, guaranteed); err != nil {
+		if err := validateEntry(ePath, ewhere, e, guaranteed); err != nil {
 			return nil, err
 		}
 		ce := compiledEntry{}
@@ -250,7 +257,7 @@ func (l *Library) compileEntries(where string, entries []Entry, guaranteed bool)
 		default:
 			ti, ok := l.byName[e.Table]
 			if !ok {
-				return nil, fmt.Errorf("loot: %s: unknown table %q", ewhere, e.Table)
+				return nil, loaderr.Errorf(loaderr.Join(ePath, "table"), "name a table declared in this document", "loot: %s: unknown table %q", ewhere, e.Table)
 			}
 			ce.kind, ce.table = kindTable, ti
 		}
@@ -273,7 +280,7 @@ func (l *Library) computeSteps() error {
 		case done:
 			return nil
 		case visiting:
-			return fmt.Errorf("loot: table reference cycle: %v -> %s", path, l.tables[i].name)
+			return loaderr.Errorf(loaderr.Path("tables", i), "remove the cyclic table reference", "loot: table reference cycle: %v -> %s", path, l.tables[i].name)
 		}
 		state[i] = visiting
 		path = append(path, l.tables[i].name)
@@ -310,7 +317,7 @@ func (l *Library) computeSteps() error {
 		pickCost := len(t.entries) + len(t.pity)
 		steps = satAdd(steps, satMul(t.rollsMax, satAdd(pickCost, worst)))
 		if steps > MaxRollSteps {
-			return fmt.Errorf("loot: table %q: a roll can take more than %d steps; lower its rolls or counts", t.name, MaxRollSteps)
+			return loaderr.Errorf(loaderr.Path("tables", i), "lower rolls, counts or nested table references so worst-case steps stay within MaxRollSteps", "loot: table %q: a roll can take more than %d steps; lower its rolls or counts", t.name, MaxRollSteps)
 		}
 		t.steps = steps
 		state[i] = done

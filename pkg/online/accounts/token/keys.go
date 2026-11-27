@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -57,28 +58,32 @@ func (k PublicKey) publicKey() (ed25519.PublicKey, error) {
 // Validate checks that ks is a version 1 key set with an issuer, an audience and at least one well-formed key, each under its own KeyID once.
 func (ks *KeySet) Validate() error {
 	if ks == nil {
-		return errors.New("token: nil key set")
+		return loaderr.Errorf("", "pass a non-nil *token.KeySet to Validate", "token: nil key set")
 	}
 	if ks.Version != KeySetVersion {
-		return fmt.Errorf("token: unsupported key set version %d (want %d)", ks.Version, KeySetVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the key set", KeySetVersion), "token: unsupported key set version %d (want %d)", ks.Version, KeySetVersion)
 	}
-	if ks.Issuer == "" || ks.Audience == "" {
-		return errors.New("token: key set needs an issuer and an audience")
+	if ks.Issuer == "" {
+		return loaderr.Errorf("issuer", "set issuer to the account service identifier such as its URL", "token: key set needs an issuer and an audience")
+	}
+	if ks.Audience == "" {
+		return loaderr.Errorf("audience", "set audience to the game identifier the tokens are issued for", "token: key set needs an issuer and an audience")
 	}
 	if len(ks.Keys) == 0 {
-		return errors.New("token: key set has no keys")
+		return loaderr.Errorf("keys", "add at least one Ed25519 public key entry under keys", "token: key set has no keys")
 	}
 	seen := make(map[string]bool, len(ks.Keys))
-	for _, k := range ks.Keys {
+	for i, k := range ks.Keys {
+		kPath := fmt.Sprintf("keys[%d]", i)
 		pub, err := k.publicKey()
 		if err != nil {
-			return err
+			return loaderr.Errorf(kPath+".key", "set key to a 32-byte Ed25519 public key encoded in standard base64", "%s", err.Error())
 		}
 		if id := KeyID(pub); k.ID != id {
-			return fmt.Errorf("token: key id %q does not match its key (want %q)", k.ID, id)
+			return loaderr.Errorf(kPath+".id", fmt.Sprintf("set id to %q to match the public key", id), "token: key id %q does not match its key (want %q)", k.ID, id)
 		}
 		if seen[k.ID] {
-			return fmt.Errorf("token: key %q listed twice", k.ID)
+			return loaderr.Errorf(kPath+".id", "remove the duplicate public key entry", "token: key %q listed twice", k.ID)
 		}
 		seen[k.ID] = true
 	}
@@ -89,10 +94,10 @@ func (ks *KeySet) Validate() error {
 func ParseKeySet(data []byte) (*KeySet, error) {
 	var ks KeySet
 	if err := decodeYAML(data, &ks); err != nil {
-		return nil, fmt.Errorf("token: key set: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("token: key set: %w", err), "", data, "check the YAML syntax and field names in the key set")
 	}
 	if err := ks.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &ks, nil
 }

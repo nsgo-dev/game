@@ -77,8 +77,8 @@ func TestParseRejectsInvalidDocuments(t *testing.T) {
 		{"unknown type", "type: shader\nversion: 1\n", "unknown type"},
 		{"future version", "type: material\nversion: 2\n", "unsupported version 2"},
 		{"missing version", "type: material\n", "unsupported version 0"},
-		{"unknown field", "type: material\nversion: 1\nshininess: 3\n", "field shininess not found"},
-		{"field of another type", "type: material\nversion: 1\nkeys: []\n", "field keys not found"},
+		{"unknown field", "type: material\nversion: 1\nshininess: 3\n", `unknown field "shininess"`},
+		{"field of another type", "type: material\nversion: 1\nkeys: []\n", `unknown field "keys"`},
 		{"trailing document", "type: material\nversion: 1\n---\ntype: material\nversion: 1\n", "trailing"},
 		{"bad base color", "type: material\nversion: 1\nbaseColor: notacolor\n", "baseColor"},
 		{"opacity out of range", "type: material\nversion: 1\nopacity: 1.5\n", "opacity"},
@@ -113,7 +113,7 @@ func TestParseRejectsInvalidDocuments(t *testing.T) {
 		{"bus filter cutoff", "type: busLayout\nversion: 1\nbuses:\n  - name: music\n    effects:\n      - {highPass: {cutoffHz: 0}}\n", "cutoffHz"},
 		{"physics restitution", "type: physicsMaterial\nversion: 1\nrestitution: 1.5\n", "restitution"},
 		{"physics negative friction", "type: physicsMaterial\nversion: 1\nfriction: -0.1\n", "friction"},
-		{"not a mapping", "- type: material\n", "decode header"},
+		{"not a mapping", "- type: material\n", "cannot use a !!seq"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

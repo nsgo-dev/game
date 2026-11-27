@@ -2,7 +2,6 @@ package navbake
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -10,9 +9,12 @@ import (
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixNavMesh = "write the baked mesh as version: 1 YAML with finite radius and convex counter-clockwise polygons"
 
 // FormatVersion is the baked mesh file schema version this package reads and writes.
 const FormatVersion = 1
@@ -171,8 +173,16 @@ func (m *Mesh) TiledNavMesh(tileSize float32) *ai.TiledNavMesh {
 
 // Parse decodes and validates a baked mesh file. Unknown fields, a second YAML document and any value Validate refuses are errors.
 func Parse(data []byte) (*Mesh, error) {
+	m, err := parseMesh(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixNavMesh)
+	}
+	return m, nil
+}
+
+func parseMesh(data []byte) (*Mesh, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("navbake: empty mesh file")
+		return nil, loaderr.Errorf("", fixNavMesh, "navbake: empty mesh file")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -183,7 +193,7 @@ func Parse(data []byte) (*Mesh, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("navbake: unexpected trailing YAML document in mesh file")
+			return nil, loaderr.Errorf("", "keep one YAML document in the mesh file; remove the trailing --- document", "navbake: unexpected trailing YAML document in mesh file")
 		}
 		return nil, fmt.Errorf("navbake: decode mesh: %w", err)
 	}
@@ -215,54 +225,58 @@ func (m *Mesh) Encode() ([]byte, error) {
 // Validate reports the first problem with m: a version other than FormatVersion, a radius that is negative or not finite, or a polygon with fewer than three vertices, a coordinate that is not finite, or a shape that is not convex, wound counter-clockwise in a y-up frame with a positive area.
 func (m *Mesh) Validate() error {
 	if m == nil {
-		return errors.New("navbake: nil mesh")
+		return loaderr.Errorf("", fixNavMesh, "navbake: nil mesh")
 	}
 	if m.Version != FormatVersion {
-		return fmt.Errorf("navbake: unsupported mesh file version %d (want %d)", m.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormatVersion), "navbake: unsupported mesh file version %d (want %d)", m.Version, FormatVersion)
 	}
 	if !(m.Radius >= 0) || math.IsInf(float64(m.Radius), 0) {
-		return fmt.Errorf("navbake: radius %v is not a finite number of 0 or more", m.Radius)
+		return loaderr.Errorf("radius", "set radius to a finite number >= 0", "navbake: radius %v is not a finite number of 0 or more", m.Radius)
 	}
 	for i, p := range m.Polygons {
-		if err := p.validate(); err != nil {
-			return fmt.Errorf("navbake: polygon %d: %w", i, err)
+		if err := p.validateAt(loaderr.Path("polygons", i), i); err != nil {
+			return err
 		}
 	}
 	for i, l := range m.Links {
-		if err := l.validate(); err != nil {
-			return fmt.Errorf("navbake: link %d: %w", i, err)
+		if err := l.validateAt(loaderr.Path("links", i), i); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func (l OffMeshLink) validate() error {
+	return l.validateAt("link", 0)
+}
+
+func (l OffMeshLink) validateAt(lPath string, i int) error {
 	if !finite(core.Points(l.Start[0])) || !finite(core.Points(l.Start[1])) {
-		return errors.New("start is not finite")
+		return loaderr.Errorf(loaderr.Join(lPath, "start"), "set start to two finite [x, y] coordinates", "navbake: link %d: start is not finite", i)
 	}
 	if !finite(core.Points(l.End[0])) || !finite(core.Points(l.End[1])) {
-		return errors.New("end is not finite")
+		return loaderr.Errorf(loaderr.Join(lPath, "end"), "set end to two finite [x, y] coordinates", "navbake: link %d: end is not finite", i)
 	}
 	if !(l.Radius >= 0) || math.IsInf(float64(l.Radius), 0) {
-		return fmt.Errorf("radius %v is not a finite number of 0 or more", l.Radius)
+		return loaderr.Errorf(loaderr.Join(lPath, "radius"), "set radius to a finite number >= 0", "navbake: link %d: radius %v is not a finite number of 0 or more", i, l.Radius)
 	}
 	if !(l.Cost >= 0) || math.IsInf(float64(l.Cost), 0) {
-		return fmt.Errorf("cost %v is not a finite number of 0 or more", l.Cost)
+		return loaderr.Errorf(loaderr.Join(lPath, "cost"), "set cost to a finite number >= 0", "navbake: link %d: cost %v is not a finite number of 0 or more", i, l.Cost)
 	}
 	return nil
 }
 
-// validate checks that p is a convex polygon wound counter-clockwise in a y-up frame: every turn goes left or straight, the area is positive, and every vertex lies on or left of every edge, which also refuses star polygons whose turns all go the same way.
-func (p Polygon) validate() error {
+// validateAt checks that p is a convex polygon wound counter-clockwise in a y-up frame: every turn goes left or straight, the area is positive, and every vertex lies on or left of every edge, which also refuses star polygons whose turns all go the same way.
+func (p Polygon) validateAt(pPath string, idx int) error {
 	n := len(p)
 	if n < 3 {
-		return fmt.Errorf("has %d vertices, want at least 3", n)
+		return loaderr.Errorf(pPath, "provide at least 3 [x, y] vertices", "navbake: polygon %d: has %d vertices, want at least 3", idx, n)
 	}
 	var area float64
 	turn := 0
 	for i, a := range p {
 		if !finite(a.X) || !finite(a.Y) {
-			return fmt.Errorf("vertex %d is not finite", i)
+			return loaderr.Errorf(loaderr.Join(pPath, i), "set vertex coordinates to finite numbers", "navbake: polygon %d: vertex %d is not finite", idx, i)
 		}
 		b, c := p[(i+1)%n], p[(i+2)%n]
 		area += float64(a.X)*float64(b.Y) - float64(b.X)*float64(a.Y)
@@ -274,13 +288,13 @@ func (p Polygon) validate() error {
 		}
 	}
 	if turn == 3 {
-		return errors.New("is not convex")
+		return loaderr.Errorf(pPath, "split or re-bake the polygon so it is convex", "navbake: polygon %d: is not convex", idx)
 	}
 	if area == 0 {
-		return errors.New("has no area")
+		return loaderr.Errorf(pPath, "remove the degenerate polygon or give it non-zero area", "navbake: polygon %d: has no area", idx)
 	}
 	if area < 0 {
-		return errors.New("is wound clockwise, want counter-clockwise in a y-up frame")
+		return loaderr.Errorf(pPath, "reverse the polygon's vertex order so it winds counter-clockwise in a y-up frame", "navbake: polygon %d: is wound clockwise, want counter-clockwise in a y-up frame", idx)
 	}
 	for i, a := range p {
 		next := (i + 1) % n
@@ -290,7 +304,7 @@ func (p Polygon) validate() error {
 				continue
 			}
 			if cross(a, b, c) < 0 {
-				return fmt.Errorf("is not convex: vertex %d lies right of edge %d", k, i)
+				return loaderr.Errorf(pPath, "split or re-bake the polygon so it is convex", "navbake: polygon %d: is not convex: vertex %d lies right of edge %d", idx, k, i)
 			}
 		}
 	}
@@ -335,7 +349,12 @@ func (p *Polygon) UnmarshalYAML(node *yaml.Node) error {
 	out := make(Polygon, len(raw))
 	for i, v := range raw {
 		if len(v) != 2 {
-			return fmt.Errorf("line %d: vertex %d has %d coordinates, want 2", node.Line, i, len(v))
+			return &loaderr.Error{
+				Line:    node.Line,
+				Column:  node.Column,
+				Problem: fmt.Sprintf("line %d: vertex %d has %d coordinates, want 2", node.Line, i, len(v)),
+				Fix:     "write each vertex as a 2-element [x, y] coordinate pair",
+			}
 		}
 		out[i] = core.Point{X: core.Points(v[0]), Y: core.Points(v[1])}
 	}

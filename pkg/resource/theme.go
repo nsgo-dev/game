@@ -1,9 +1,8 @@
 package resource
 
 import (
-	"fmt"
-
 	"github.com/nsgo-dev/game/pkg/gameui"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -104,7 +103,7 @@ func (t *Theme) Kind() Kind { return KindTheme }
 // Validate checks the header, every color, the sizes and the font.
 func (t *Theme) Validate() error {
 	if t == nil {
-		return fmt.Errorf("resource: nil theme")
+		return loaderr.Errorf("", "pass a non-nil *resource.Theme to Validate", "resource: nil theme")
 	}
 	if err := t.Header.validate(KindTheme); err != nil {
 		return err
@@ -114,7 +113,7 @@ func (t *Theme) Validate() error {
 			continue
 		}
 		if _, err := core.ParseColor(f.src); err != nil {
-			return fmt.Errorf("resource: theme color %s %q: %w", f.name, f.src, err)
+			return loaderr.Errorf("colors."+f.name, "set the color to a valid CSS color such as #1a1d24 or rgba(26, 29, 36, 1)", "resource: theme color %s %q: %w", f.name, f.src, err)
 		}
 	}
 	for _, s := range []struct {
@@ -122,18 +121,18 @@ func (t *Theme) Validate() error {
 		v    *float32
 	}{{"padding", t.Padding}, {"cornerRadius", t.CornerRadius}, {"borderWidth", t.BorderWidth}, {"focusWidth", t.FocusWidth}} {
 		if s.v != nil {
-			if err := checkNonNegative("theme "+s.name, *s.v); err != nil {
+			if err := checkNonNegative(s.name, "theme "+s.name, *s.v); err != nil {
 				return err
 			}
 		}
 	}
 	if f := t.Font; f != nil {
-		if err := checkNonNegative("theme font size", f.Size); err != nil {
+		if err := checkNonNegative("font.size", "theme font size", f.Size); err != nil {
 			return err
 		}
 		if f.Weight != "" {
 			if _, ok := fontWeights[f.Weight]; !ok {
-				return fmt.Errorf("resource: theme font weight %q must be light, normal, medium, semibold or bold", f.Weight)
+				return loaderr.Errorf("font.weight", "set font.weight to light, normal, medium, semibold, or bold", "resource: theme font weight %q must be light, normal, medium, semibold or bold", f.Weight)
 			}
 		}
 	}

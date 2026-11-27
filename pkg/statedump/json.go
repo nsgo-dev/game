@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -137,23 +138,51 @@ func numberTag(s string) string {
 func nodeToJSON(n *yaml.Node) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := writeJSON(&buf, n, 0); err != nil {
-		return nil, fmt.Errorf("statedump: line %d: %w", n.Line, err)
+		if le, ok := loaderr.As(err); ok {
+			if le.Line == 0 {
+				le.Line = n.Line
+				le.Column = n.Column
+			}
+			return nil, le
+		}
+		return nil, &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("statedump: line %d: %v", n.Line, err),
+			Fix:     "replace the value with JSON-compatible YAML (strings, finite numbers, booleans, null, arrays, or string-keyed maps)",
+			Err:     err,
+		}
 	}
 	return buf.Bytes(), nil
 }
 
 func writeJSON(buf *bytes.Buffer, n *yaml.Node, depth int) error {
 	if depth > maxDepth {
-		return fmt.Errorf("nesting deeper than %d", maxDepth)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("statedump: nesting deeper than %d", maxDepth),
+			Fix:     fmt.Sprintf("reduce YAML nesting depth to at most %d levels", maxDepth),
+		}
 	}
 	// yaml.v3 hands an unmarshaler the anchored node in place of an alias, so refusing anchors refuses aliases too.
 	if n.Anchor != "" {
-		return fmt.Errorf("line %d: anchors and aliases are not allowed in data", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("statedump: line %d: anchors and aliases are not allowed in data", n.Line),
+			Fix:     "expand YAML anchors and aliases inline instead of using & or *",
+		}
 	}
 	switch n.Kind {
 	case yaml.DocumentNode:
 		if len(n.Content) != 1 {
-			return errors.New("empty document")
+			return &loaderr.Error{
+				Line:    n.Line,
+				Column:  n.Column,
+				Problem: "statedump: empty document",
+				Fix:     "provide a non-empty YAML value",
+			}
 		}
 		return writeJSON(buf, n.Content[0], depth)
 	case yaml.MappingNode:
@@ -162,10 +191,20 @@ func writeJSON(buf *bytes.Buffer, n *yaml.Node, depth int) error {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i]
 			if k.Kind != yaml.ScalarNode || k.Tag != tagStr {
-				return fmt.Errorf("line %d: mapping key must be a string (quote it)", k.Line)
+				return &loaderr.Error{
+					Line:    k.Line,
+					Column:  k.Column,
+					Problem: fmt.Sprintf("statedump: line %d: mapping key must be a string (quote it)", k.Line),
+					Fix:     "quote the mapping key so YAML parses it as a string",
+				}
 			}
 			if _, dup := seen[k.Value]; dup {
-				return fmt.Errorf("line %d: duplicate mapping key %q", k.Line, k.Value)
+				return &loaderr.Error{
+					Line:    k.Line,
+					Column:  k.Column,
+					Problem: fmt.Sprintf("statedump: line %d: duplicate mapping key %q", k.Line, k.Value),
+					Fix:     "remove or rename the duplicate mapping key",
+				}
 			}
 			seen[k.Value] = struct{}{}
 			if i > 0 {
@@ -196,9 +235,19 @@ func writeJSON(buf *bytes.Buffer, n *yaml.Node, depth int) error {
 	case yaml.ScalarNode:
 		return writeScalar(buf, n)
 	case yaml.AliasNode:
-		return fmt.Errorf("line %d: aliases are not allowed in data", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("statedump: line %d: aliases are not allowed in data", n.Line),
+			Fix:     "expand YAML aliases inline instead of using *",
+		}
 	}
-	return fmt.Errorf("line %d: unexpected YAML node kind %d", n.Line, n.Kind)
+	return &loaderr.Error{
+		Line:    n.Line,
+		Column:  n.Column,
+		Problem: fmt.Sprintf("statedump: line %d: unexpected YAML node kind %d", n.Line, n.Kind),
+		Fix:     "use standard JSON-compatible YAML values",
+	}
 }
 
 func writeScalar(buf *bytes.Buffer, n *yaml.Node) error {
@@ -211,7 +260,13 @@ func writeScalar(buf *bytes.Buffer, n *yaml.Node) error {
 	case tagBool:
 		var b bool
 		if err := n.Decode(&b); err != nil {
-			return fmt.Errorf("line %d: %w", n.Line, err)
+			return &loaderr.Error{
+				Line:    n.Line,
+				Column:  n.Column,
+				Problem: fmt.Sprintf("statedump: line %d: %v", n.Line, err),
+				Fix:     "use true or false for boolean values",
+				Err:     err,
+			}
 		}
 		buf.WriteString(strconv.FormatBool(b))
 		return nil
@@ -222,19 +277,41 @@ func writeScalar(buf *bytes.Buffer, n *yaml.Node) error {
 		}
 		var v any
 		if err := n.Decode(&v); err != nil {
-			return fmt.Errorf("line %d: %w", n.Line, err)
+			return &loaderr.Error{
+				Line:    n.Line,
+				Column:  n.Column,
+				Problem: fmt.Sprintf("statedump: line %d: %v", n.Line, err),
+				Fix:     "write a valid finite decimal number",
+				Err:     err,
+			}
 		}
 		if f, ok := v.(float64); ok && (math.IsNaN(f) || math.IsInf(f, 0)) {
-			return fmt.Errorf("line %d: %s is not a JSON number", n.Line, n.Value)
+			return &loaderr.Error{
+				Line:    n.Line,
+				Column:  n.Column,
+				Problem: fmt.Sprintf("statedump: line %d: %s is not a JSON number", n.Line, n.Value),
+				Fix:     "replace NaN or Inf with a finite JSON number",
+			}
 		}
 		data, err := json.Marshal(v)
 		if err != nil {
-			return fmt.Errorf("line %d: %w", n.Line, err)
+			return &loaderr.Error{
+				Line:    n.Line,
+				Column:  n.Column,
+				Problem: fmt.Sprintf("statedump: line %d: %v", n.Line, err),
+				Fix:     "write a valid finite JSON number",
+				Err:     err,
+			}
 		}
 		buf.Write(data)
 		return nil
 	}
-	return fmt.Errorf("line %d: tag %s is not allowed in data", n.Line, n.Tag)
+	return &loaderr.Error{
+		Line:    n.Line,
+		Column:  n.Column,
+		Problem: fmt.Sprintf("statedump: line %d: tag %s is not allowed in data", n.Line, n.Tag),
+		Fix:     "remove the YAML tag and use a JSON-compatible value",
+	}
 }
 
 func writeString(buf *bytes.Buffer, s string) error {

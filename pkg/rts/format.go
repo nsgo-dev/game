@@ -2,14 +2,16 @@ package rts
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixFormations = "write the formations file as version: 1 YAML with valid formations"
 
 // FormationsVersion is the formation file schema version this package reads and writes.
 const FormationsVersion = 1
@@ -47,8 +49,16 @@ func (fs *Formations) Get(name string) (Formation, bool) {
 
 // ParseFormations decodes and validates a formation file. Unknown fields, a second YAML document and any value Validate refuses are errors.
 func ParseFormations(data []byte) (*Formations, error) {
+	fs, err := parseFormations(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixFormations)
+	}
+	return fs, nil
+}
+
+func parseFormations(data []byte) (*Formations, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("rts: empty formation file")
+		return nil, loaderr.Errorf("", fixFormations, "rts: empty formation file")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -59,7 +69,7 @@ func ParseFormations(data []byte) (*Formations, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("rts: unexpected trailing YAML document in formation file")
+			return nil, loaderr.Errorf("", "keep one YAML document in the formation file; remove the trailing --- document", "rts: unexpected trailing YAML document in formation file")
 		}
 		return nil, fmt.Errorf("rts: decode formations: %w", err)
 	}
@@ -91,21 +101,22 @@ func (fs *Formations) Encode() ([]byte, error) {
 // Validate reports the first problem with fs: a version other than FormationsVersion, a formation with an empty or repeated name, an unknown shape, a spacing that is not a positive finite number, or a negative width.
 func (fs *Formations) Validate() error {
 	if fs == nil {
-		return errors.New("rts: nil formation file")
+		return loaderr.Errorf("", fixFormations, "rts: nil formation file")
 	}
 	if fs.Version != FormationsVersion {
-		return fmt.Errorf("rts: unsupported formation file version %d (want %d)", fs.Version, FormationsVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormationsVersion), "rts: unsupported formation file version %d (want %d)", fs.Version, FormationsVersion)
 	}
 	seen := make(map[string]bool, len(fs.Formations))
 	for i, f := range fs.Formations {
+		fPath := loaderr.Path("formations", i)
 		if f.Name == "" {
-			return fmt.Errorf("rts: formation %d has no name", i)
+			return loaderr.Errorf(loaderr.Join(fPath, "name"), "give the formation a non-empty name", "rts: formation %d has no name", i)
 		}
 		if seen[f.Name] {
-			return fmt.Errorf("rts: formation %q is defined twice", f.Name)
+			return loaderr.Errorf(loaderr.Join(fPath, "name"), "give each formation a unique name", "rts: formation %q is defined twice", f.Name)
 		}
 		seen[f.Name] = true
-		if err := f.Validate(); err != nil {
+		if err := f.validateAt(fPath); err != nil {
 			return err
 		}
 	}
@@ -114,16 +125,20 @@ func (fs *Formations) Validate() error {
 
 // Validate reports whether f has a known shape, a positive finite spacing and a non-negative width.
 func (f Formation) Validate() error {
+	return f.validateAt("")
+}
+
+func (f Formation) validateAt(base string) error {
 	switch f.Shape {
 	case ShapeLine, ShapeColumn, ShapeBox, ShapeWedge:
 	default:
-		return fmt.Errorf("rts: formation %q has unknown shape %q (want line, column, box or wedge)", f.Name, f.Shape)
+		return loaderr.Errorf(loaderr.Join(base, "shape"), "set shape to line, column, box or wedge", "rts: formation %q has unknown shape %q (want line, column, box or wedge)", f.Name, f.Shape)
 	}
 	if !(f.Spacing > 0) || math.IsInf(float64(f.Spacing), 0) {
-		return fmt.Errorf("rts: formation %q needs a positive finite spacing, got %v", f.Name, f.Spacing)
+		return loaderr.Errorf(loaderr.Join(base, "spacing"), "set spacing to a positive finite number", "rts: formation %q needs a positive finite spacing, got %v", f.Name, f.Spacing)
 	}
 	if f.Width < 0 {
-		return fmt.Errorf("rts: formation %q has negative width %d", f.Name, f.Width)
+		return loaderr.Errorf(loaderr.Join(base, "width"), "set width to a non-negative integer", "rts: formation %q has negative width %d", f.Name, f.Width)
 	}
 	return nil
 }

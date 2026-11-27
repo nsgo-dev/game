@@ -2,15 +2,17 @@ package bullets
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"time"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixBullets = "write the bullet pattern file as version: 1 YAML with valid patterns"
 
 // FormatVersion is the pattern file schema version that Parse accepts and Encode writes.
 const FormatVersion = 1
@@ -85,8 +87,16 @@ type Pattern struct {
 
 // Parse decodes and validates a YAML pattern file. Unknown fields, trailing YAML documents and invalid patterns are refused.
 func Parse(data []byte) (*File, error) {
+	f, err := parseFile(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixBullets)
+	}
+	return f, nil
+}
+
+func parseFile(data []byte) (*File, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("bullets: empty pattern file")
+		return nil, loaderr.Errorf("", fixBullets, "bullets: empty pattern file")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -97,7 +107,7 @@ func Parse(data []byte) (*File, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("bullets: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the pattern file; remove the trailing --- document", "bullets: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("bullets: decode: %w", err)
 	}
@@ -129,19 +139,20 @@ func Encode(f *File) ([]byte, error) {
 // Validate checks the file's version, that its pattern names are unique and that each pattern is valid.
 func (f *File) Validate() error {
 	if f == nil {
-		return errors.New("bullets: nil pattern file")
+		return loaderr.Errorf("", fixBullets, "bullets: nil pattern file")
 	}
 	if f.Version != FormatVersion {
-		return fmt.Errorf("bullets: unsupported version %d (want %d)", f.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormatVersion), "bullets: unsupported version %d (want %d)", f.Version, FormatVersion)
 	}
 	seen := make(map[string]bool, len(f.Patterns))
 	for i := range f.Patterns {
 		p := &f.Patterns[i]
-		if err := p.Validate(); err != nil {
-			return fmt.Errorf("bullets: patterns[%d]: %w", i, err)
+		pPath := loaderr.Path("patterns", i)
+		if err := p.validateAt(pPath, fmt.Sprintf("bullets: patterns[%d]: ", i)); err != nil {
+			return err
 		}
 		if seen[p.Name] {
-			return fmt.Errorf("bullets: patterns[%d]: duplicate name %q", i, p.Name)
+			return loaderr.Errorf(loaderr.Join(pPath, "name"), "give each pattern a unique name", "bullets: patterns[%d]: duplicate name %q", i, p.Name)
 		}
 		seen[p.Name] = true
 	}
@@ -160,16 +171,20 @@ func (f *File) Pattern(name string) (*Pattern, bool) {
 
 // Validate checks that p names itself, has a known kind, fires 1 to MaxCount bullets a shot, has finite numbers in range, and times its shots so that they end or repeat after an interval of at least MinInterval.
 func (p *Pattern) Validate() error {
+	return p.validateAt("", "")
+}
+
+func (p *Pattern) validateAt(base, prefix string) error {
 	if p.Name == "" {
-		return errors.New("pattern has no name")
+		return loaderr.Errorf(loaderr.Join(base, "name"), "give the pattern a non-empty name", "%spattern has no name", prefix)
 	}
 	switch p.Kind {
 	case Ring, Spiral, Aimed:
 	default:
-		return fmt.Errorf("pattern %q: unknown kind %q (want ring, spiral or aimed)", p.Name, p.Kind)
+		return loaderr.Errorf(loaderr.Join(base, "kind"), "set kind to ring, spiral or aimed", "%spattern %q: unknown kind %q (want ring, spiral or aimed)", prefix, p.Name, p.Kind)
 	}
 	if p.Count < 1 || p.Count > MaxCount {
-		return fmt.Errorf("pattern %q: count %d out of range [1, %d]", p.Name, p.Count, MaxCount)
+		return loaderr.Errorf(loaderr.Join(base, "count"), fmt.Sprintf("set count to an integer in [1, %d]", MaxCount), "%spattern %q: count %d out of range [1, %d]", prefix, p.Name, p.Count, MaxCount)
 	}
 	for _, v := range []struct {
 		name     string
@@ -187,35 +202,41 @@ func (p *Pattern) Validate() error {
 		{"radius", p.Radius, true},
 	} {
 		if !finite(v.value) {
-			return fmt.Errorf("pattern %q: %s %v is not finite", p.Name, v.name, v.value)
+			return loaderr.Errorf(loaderr.Join(base, v.name), fmt.Sprintf("set %s to a finite number", v.name), "%spattern %q: %s %v is not finite", prefix, p.Name, v.name, v.value)
 		}
 		if v.positive && v.value < 0 {
-			return fmt.Errorf("pattern %q: %s %v is negative", p.Name, v.name, v.value)
+			return loaderr.Errorf(loaderr.Join(base, v.name), fmt.Sprintf("set %s to a non-negative number", v.name), "%spattern %q: %s %v is negative", prefix, p.Name, v.name, v.value)
 		}
 	}
 	if p.Spread > 360 {
-		return fmt.Errorf("pattern %q: spread %v is above 360", p.Name, p.Spread)
+		return loaderr.Errorf(loaderr.Join(base, "spread"), "set spread to at most 360 degrees", "%spattern %q: spread %v is above 360", prefix, p.Name, p.Spread)
 	}
 	if p.Kind != Aimed && p.Spread != 0 {
-		return fmt.Errorf("pattern %q: spread applies to aimed patterns only", p.Name)
+		return loaderr.Errorf(loaderr.Join(base, "spread"), "remove spread or change kind to aimed", "%spattern %q: spread applies to aimed patterns only", prefix, p.Name)
 	}
 	if p.Kind == Aimed && p.Count > 1 && p.Spread == 0 {
-		return fmt.Errorf("pattern %q: an aimed pattern of %d bullets needs a spread above 0", p.Name, p.Count)
+		return loaderr.Errorf(loaderr.Join(base, "spread"), "set spread above 0 for a multi-bullet aimed pattern", "%spattern %q: an aimed pattern of %d bullets needs a spread above 0", prefix, p.Name, p.Count)
 	}
 	if p.Kind == Spiral && p.Spin == 0 {
-		return fmt.Errorf("pattern %q: a spiral needs a spin other than 0", p.Name)
+		return loaderr.Errorf(loaderr.Join(base, "spin"), "set spin to a non-zero number of degrees for a spiral pattern", "%spattern %q: a spiral needs a spin other than 0", prefix, p.Name)
 	}
 	if p.Shots < 0 {
-		return fmt.Errorf("pattern %q: shots %d is negative", p.Name, p.Shots)
+		return loaderr.Errorf(loaderr.Join(base, "shots"), "set shots to 0 (unlimited) or a positive integer", "%spattern %q: shots %d is negative", prefix, p.Name, p.Shots)
 	}
-	if p.Delay < 0 || p.Interval < 0 || p.Lifetime < 0 {
-		return fmt.Errorf("pattern %q: delay, interval and lifetime must not be negative", p.Name)
+	if p.Delay < 0 {
+		return loaderr.Errorf(loaderr.Join(base, "delay"), "set delay to a non-negative duration", "%spattern %q: delay, interval and lifetime must not be negative", prefix, p.Name)
+	}
+	if p.Interval < 0 {
+		return loaderr.Errorf(loaderr.Join(base, "interval"), "set interval to a non-negative duration", "%spattern %q: delay, interval and lifetime must not be negative", prefix, p.Name)
+	}
+	if p.Lifetime < 0 {
+		return loaderr.Errorf(loaderr.Join(base, "lifetime"), "set lifetime to a non-negative duration", "%spattern %q: delay, interval and lifetime must not be negative", prefix, p.Name)
 	}
 	if p.Shots != 1 && p.Interval == 0 {
-		return fmt.Errorf("pattern %q: %s shots need an interval above 0", p.Name, shotsName(p.Shots))
+		return loaderr.Errorf(loaderr.Join(base, "interval"), fmt.Sprintf("set interval to at least %v, or set shots to 1", MinInterval), "%spattern %q: %s shots need an interval above 0", prefix, p.Name, shotsName(p.Shots))
 	}
 	if p.Interval != 0 && p.Interval < MinInterval {
-		return fmt.Errorf("pattern %q: interval %v is below the minimum of %v", p.Name, p.Interval, MinInterval)
+		return loaderr.Errorf(loaderr.Join(base, "interval"), fmt.Sprintf("set interval to at least %v", MinInterval), "%spattern %q: interval %v is below the minimum of %v", prefix, p.Name, p.Interval, MinInterval)
 	}
 	return nil
 }

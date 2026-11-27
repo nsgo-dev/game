@@ -2,10 +2,10 @@ package undo
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -38,20 +38,20 @@ func (h *History[S, M]) Log() Log[M] {
 // Validate reports whether l has a supported version, an applied count within its moves and no forgotten moves a version 1 log cannot hold.
 func (l Log[M]) Validate() error {
 	if l.Version < 1 || l.Version > LogVersion {
-		return fmt.Errorf("undo: unsupported log version %d (want %d)", l.Version, LogVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to 1 or %d at the top of the undo log", LogVersion), "undo: unsupported log version %d (want %d)", l.Version, LogVersion)
 	}
 	if l.Forgotten < 0 {
-		return fmt.Errorf("undo: log forgets %d moves", l.Forgotten)
+		return loaderr.Errorf("forgotten", "set forgotten to a non-negative integer", "undo: log forgets %d moves", l.Forgotten)
 	}
 	if l.Version == 1 && l.Forgotten > 0 {
-		return fmt.Errorf("undo: log version 1 records %d forgotten moves, which version 2 introduced", l.Forgotten)
+		return loaderr.Errorf("forgotten", fmt.Sprintf("set version: %d or set forgotten: 0 for a version 1 log", LogVersion), "undo: log version 1 records %d forgotten moves, which version 2 introduced", l.Forgotten)
 	}
 	if l.Applied < 0 || l.Applied > len(l.Moves) {
-		return fmt.Errorf("undo: log applies %d of %d moves", l.Applied, len(l.Moves))
+		return loaderr.Errorf("applied", fmt.Sprintf("set applied to an integer in [0, %d]", len(l.Moves)), "undo: log applies %d of %d moves", l.Applied, len(l.Moves))
 	}
 	for i, m := range l.Moves {
 		if isNil(m) {
-			return fmt.Errorf("undo: log move %d is nil", i)
+			return loaderr.Errorf(fmt.Sprintf("moves[%d]", i), "replace the nil move entry with a concrete move value", "undo: log move %d is nil", i)
 		}
 	}
 	return nil
@@ -101,28 +101,28 @@ func EncodeLog[M any](log Log[M]) ([]byte, error) {
 func DecodeLog[M any](data []byte) (Log[M], error) {
 	var log Log[M]
 	if len(bytes.TrimSpace(data)) == 0 {
-		return log, errors.New("undo: empty log")
+		return log, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add an undo log starting with version: %d, applied: 0, and moves: []", LogVersion), "undo: empty log"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&log); err != nil {
-		return Log[M]{}, fmt.Errorf("undo: decode log: %w", err)
+		return Log[M]{}, loaderr.Locate(fmt.Errorf("undo: decode log: %w", err), "", data, "check the YAML syntax and field names in the undo log")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Log[M]{}, errors.New("undo: unexpected trailing YAML document")
+			return Log[M]{}, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the undo log and remove any --- separator", "undo: unexpected trailing YAML document"), "", data, "")
 		}
-		return Log[M]{}, fmt.Errorf("undo: decode log: %w", err)
+		return Log[M]{}, loaderr.Locate(fmt.Errorf("undo: decode log: %w", err), "", data, "remove trailing YAML content after the undo log")
 	}
 	if err := requireLogKeys(data); err != nil {
-		return Log[M]{}, err
+		return Log[M]{}, loaderr.Locate(err, "", data, "")
 	}
 	if log.Moves == nil {
 		log.Moves = []M{}
 	}
 	if err := log.Validate(); err != nil {
-		return Log[M]{}, err
+		return Log[M]{}, loaderr.Locate(err, "", data, "")
 	}
 	return log, nil
 }
@@ -134,7 +134,7 @@ func requireLogKeys(data []byte) error {
 		return fmt.Errorf("undo: decode log: %w", err)
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return errors.New("undo: log is not a YAML mapping")
+		return loaderr.Errorf("", "write the undo log as a YAML mapping with version, applied and moves keys", "undo: log is not a YAML mapping")
 	}
 	root := doc.Content[0]
 	values := map[string]*yaml.Node{}
@@ -143,11 +143,17 @@ func requireLogKeys(data []byte) error {
 	}
 	for _, key := range []string{"version", "applied", "moves"} {
 		if values[key] == nil {
-			return fmt.Errorf("undo: log has no %s", key)
+			return loaderr.Errorf(key, fmt.Sprintf("add the required %s field to the undo log", key), "undo: log has no %s", key)
 		}
 	}
 	if values["moves"].Kind != yaml.SequenceNode {
-		return errors.New("undo: log moves is not a list")
+		return &loaderr.Error{
+			Line:    values["moves"].Line,
+			Column:  values["moves"].Column,
+			Field:   "moves",
+			Problem: "undo: log moves is not a list",
+			Fix:     "set moves to a YAML list (use [] for an empty list)",
+		}
 	}
 	return nil
 }

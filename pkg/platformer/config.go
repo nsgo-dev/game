@@ -2,15 +2,17 @@ package platformer
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"time"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixConfig = "write the platformer config as version: 1 YAML with non-negative finite tunables"
 
 // CurrentVersion is the controller config schema version this package reads and writes.
 const CurrentVersion = 1
@@ -82,7 +84,7 @@ func DefaultConfig() Config {
 // Validate reports whether c is a version 1 config with finite, non-negative values and JumpCut in [0, 1].
 func (c Config) Validate() error {
 	if c.Version != CurrentVersion {
-		return fmt.Errorf("platformer: unsupported config version %d (want %d)", c.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", CurrentVersion), "platformer: unsupported config version %d (want %d)", c.Version, CurrentVersion)
 	}
 	durations := []struct {
 		name string
@@ -95,7 +97,7 @@ func (c Config) Validate() error {
 	}
 	for _, d := range durations {
 		if d.v < 0 {
-			return fmt.Errorf("platformer: %s is negative (%v)", d.name, d.v)
+			return loaderr.Errorf(d.name, fmt.Sprintf("set %s to a non-negative duration such as 100ms", d.name), "platformer: %s is negative (%v)", d.name, d.v)
 		}
 	}
 	values := []struct {
@@ -118,22 +120,30 @@ func (c Config) Validate() error {
 	for _, f := range values {
 		v := float64(f.v)
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return fmt.Errorf("platformer: %s is not finite", f.name)
+			return loaderr.Errorf(f.name, fmt.Sprintf("set %s to a finite non-negative number", f.name), "platformer: %s is not finite", f.name)
 		}
 		if v < 0 {
-			return fmt.Errorf("platformer: %s is negative (%v)", f.name, f.v)
+			return loaderr.Errorf(f.name, fmt.Sprintf("set %s to a non-negative number", f.name), "platformer: %s is negative (%v)", f.name, f.v)
 		}
 	}
 	if c.JumpCut > 1 {
-		return fmt.Errorf("platformer: jump_cut %v is above 1", c.JumpCut)
+		return loaderr.Errorf("jump_cut", "set jump_cut to a number in [0, 1]", "platformer: jump_cut %v is above 1", c.JumpCut)
 	}
 	return nil
 }
 
 // ParseConfig decodes and validates a YAML controller config. Unknown fields, a missing or unsupported version, and trailing YAML documents are refused.
 func ParseConfig(data []byte) (Config, error) {
+	c, err := parseConfig(data)
+	if err != nil {
+		return Config{}, loaderr.Locate(err, "", data, fixConfig)
+	}
+	return c, nil
+}
+
+func parseConfig(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return Config{}, errors.New("platformer: empty config document")
+		return Config{}, loaderr.Errorf("", fixConfig, "platformer: empty config document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -144,7 +154,7 @@ func ParseConfig(data []byte) (Config, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Config{}, errors.New("platformer: unexpected trailing YAML document")
+			return Config{}, loaderr.Errorf("", "keep one YAML document in the config; remove the trailing --- document", "platformer: unexpected trailing YAML document")
 		}
 		return Config{}, fmt.Errorf("platformer: decode: %w", err)
 	}

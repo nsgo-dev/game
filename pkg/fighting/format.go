@@ -2,13 +2,18 @@ package fighting
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixMoveSet     = "write the move set as version: 1 YAML with input bindings and valid moves"
+	fixReadMoveSet = "check that the move set file exists and is readable"
 )
 
 // FormatVersion is the move set schema version written by Encode and required by Parse.
@@ -98,8 +103,16 @@ type Combo struct {
 
 // Parse decodes a YAML move set and validates it. Unknown fields and trailing YAML documents are refused.
 func Parse(data []byte) (*MoveSet, error) {
+	set, err := parseMoveSet(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixMoveSet)
+	}
+	return set, nil
+}
+
+func parseMoveSet(data []byte) (*MoveSet, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("fighting: empty move set document")
+		return nil, loaderr.Errorf("", fixMoveSet, "fighting: empty move set document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -110,7 +123,7 @@ func Parse(data []byte) (*MoveSet, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("fighting: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the move set; remove the trailing --- document", "fighting: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("fighting: decode: %w", err)
 	}
@@ -124,9 +137,13 @@ func Parse(data []byte) (*MoveSet, error) {
 func LoadFile(path string) (*MoveSet, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("fighting: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("fighting: %w", err), path, nil, fixReadMoveSet)
 	}
-	return Parse(data)
+	set, err := Parse(data)
+	if err != nil {
+		return nil, loaderr.WithFile(err, path)
+	}
+	return set, nil
 }
 
 // Encode validates set and serializes it as deterministic 2-space YAML with fields in schema order, so Parse followed by Encode reproduces Encode's output byte for byte.
@@ -150,128 +167,135 @@ func Encode(set *MoveSet) ([]byte, error) {
 // Validate checks set against the schema: the version, input names, at least one move, unique non-empty names, well-formed motions and charges, step counts within [0, MaxSteps], at most MaxButtons buttons and combos that reference existing moves.
 func (set *MoveSet) Validate() error {
 	if set == nil {
-		return errors.New("fighting: nil move set")
+		return loaderr.Errorf("", fixMoveSet, "fighting: nil move set")
 	}
 	if set.Version != FormatVersion {
-		return fmt.Errorf("fighting: unsupported version %d (want %d)", set.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormatVersion), "fighting: unsupported version %d (want %d)", set.Version, FormatVersion)
 	}
 	in := set.Input
 	if in.Up == "" && in.Down == "" && in.Left == "" && in.Right == "" && in.AxisX == "" && in.AxisY == "" {
-		return errors.New("fighting: input names no actions or axes")
+		return loaderr.Errorf("input", "set at least one direction action (up, down, left, right) or axis (axisX, axisY)", "fighting: input names no actions or axes")
 	}
 	if math.IsNaN(in.Deadzone) || in.Deadzone < 0 || in.Deadzone > 1 {
-		return fmt.Errorf("fighting: input deadzone %v outside [0, 1]", in.Deadzone)
+		return loaderr.Errorf(loaderr.Path("input", "deadzone"), "set deadzone to a finite number in [0, 1]", "fighting: input deadzone %v outside [0, 1]", in.Deadzone)
 	}
 	if len(set.Moves) == 0 {
-		return errors.New("fighting: move set has no moves")
+		return loaderr.Errorf("moves", "add at least one move under moves", "fighting: move set has no moves")
 	}
 	names := make(map[string]bool, len(set.Moves)+len(set.Combos))
 	for i := range set.Moves {
 		m := &set.Moves[i]
+		mPath := loaderr.Path("moves", i)
 		if m.Name == "" {
-			return fmt.Errorf("fighting: move %d has no name", i)
+			return loaderr.Errorf(loaderr.Join(mPath, "name"), "give the move a non-empty name", "fighting: move %d has no name", i)
 		}
 		if names[m.Name] {
-			return fmt.Errorf("fighting: duplicate name %q", m.Name)
+			return loaderr.Errorf(loaderr.Join(mPath, "name"), "give each move and combo a unique name", "fighting: duplicate name %q", m.Name)
 		}
 		names[m.Name] = true
-		if err := validateMove(m); err != nil {
+		if err := validateMove(mPath, m); err != nil {
 			return err
 		}
 	}
 	if n := len(set.Buttons()); n > MaxButtons {
-		return fmt.Errorf("fighting: %d buttons (max %d)", n, MaxButtons)
+		return loaderr.Errorf("moves", fmt.Sprintf("use at most %d distinct press button actions across all moves", MaxButtons), "fighting: %d buttons (max %d)", n, MaxButtons)
 	}
 	for i := range set.Combos {
 		c := &set.Combos[i]
+		cPath := loaderr.Path("combos", i)
 		if c.Name == "" {
-			return fmt.Errorf("fighting: combo %d has no name", i)
+			return loaderr.Errorf(loaderr.Join(cPath, "name"), "give the combo a non-empty name", "fighting: combo %d has no name", i)
 		}
 		if names[c.Name] {
-			return fmt.Errorf("fighting: duplicate name %q", c.Name)
+			return loaderr.Errorf(loaderr.Join(cPath, "name"), "give each move and combo a unique name", "fighting: duplicate name %q", c.Name)
 		}
 		names[c.Name] = true
 		if len(c.Sequence) < 2 {
-			return fmt.Errorf("fighting: combo %q needs at least 2 moves", c.Name)
+			return loaderr.Errorf(loaderr.Join(cPath, "sequence"), "list at least 2 move names in sequence", "fighting: combo %q needs at least 2 moves", c.Name)
 		}
-		for _, step := range c.Sequence {
+		for j, step := range c.Sequence {
 			if !set.hasMove(step) {
-				return fmt.Errorf("fighting: combo %q references unknown move %q", c.Name, step)
+				return loaderr.Errorf(loaderr.Join(cPath, "sequence", j), "name a move declared under moves", "fighting: combo %q references unknown move %q", c.Name, step)
 			}
 		}
 		if c.Gap < 1 || c.Gap > MaxSteps {
-			return fmt.Errorf("fighting: combo %q gap %d outside [1, %d]", c.Name, c.Gap, MaxSteps)
+			return loaderr.Errorf(loaderr.Join(cPath, "gap"), fmt.Sprintf("set gap to an integer in [1, %d]", MaxSteps), "fighting: combo %q gap %d outside [1, %d]", c.Name, c.Gap, MaxSteps)
 		}
 	}
 	return nil
 }
 
-func validateMove(m *Move) error {
+func validateMove(mPath string, m *Move) error {
 	if len(m.Motion) == 0 && len(m.Press) == 0 {
-		return fmt.Errorf("fighting: move %q has neither motion nor press", m.Name)
+		return loaderr.Errorf(mPath, "set motion, press or both on the move", "fighting: move %q has neither motion nor press", m.Name)
 	}
-	for _, entry := range m.Motion {
+	for i, entry := range m.Motion {
 		if _, ok := parseDirSet(entry); !ok {
-			return fmt.Errorf("fighting: move %q motion entry %q is not a set of distinct digits 1-9", m.Name, entry)
+			return loaderr.Errorf(loaderr.Join(mPath, "motion", i), `write a string of distinct numpad digits 1-9 such as "2", "3", "6" or "23"`, "fighting: move %q motion entry %q is not a set of distinct digits 1-9", m.Name, entry)
 		}
 	}
-	if err := checkSteps(m.Name, "window", m.Window); err != nil {
+	if err := checkSteps(loaderr.Join(mPath, "window"), m.Name, "window", m.Window); err != nil {
 		return err
 	}
 	if len(m.Motion) < 2 && m.Window > 0 {
-		return fmt.Errorf("fighting: move %q window needs at least 2 motion entries", m.Name)
+		return loaderr.Errorf(loaderr.Join(mPath, "window"), "remove window or add at least 2 motion entries", "fighting: move %q window needs at least 2 motion entries", m.Name)
 	}
 	if len(m.Motion) > 0 && m.Window < len(m.Motion)-1 {
-		return fmt.Errorf("fighting: move %q window %d is shorter than its %d motion entries need", m.Name, m.Window, len(m.Motion))
+		return loaderr.Errorf(loaderr.Join(mPath, "window"), fmt.Sprintf("set window to at least %d", len(m.Motion)-1), "fighting: move %q window %d is shorter than its %d motion entries need", m.Name, m.Window, len(m.Motion))
 	}
-	if err := checkSteps(m.Name, "buffer", m.Buffer); err != nil {
+	if err := checkSteps(loaderr.Join(mPath, "buffer"), m.Name, "buffer", m.Buffer); err != nil {
 		return err
 	}
-	if err := checkSteps(m.Name, "pressWindow", m.PressWindow); err != nil {
+	if err := checkSteps(loaderr.Join(mPath, "pressWindow"), m.Name, "pressWindow", m.PressWindow); err != nil {
 		return err
 	}
 	if m.Charge != nil {
+		cPath := loaderr.Join(mPath, "charge")
 		if len(m.Motion) == 0 {
-			return fmt.Errorf("fighting: move %q has a charge but no motion", m.Name)
+			return loaderr.Errorf(cPath, "add a motion sequence or remove charge", "fighting: move %q has a charge but no motion", m.Name)
 		}
 		if _, ok := parseDirSet(m.Charge.Dirs); !ok {
-			return fmt.Errorf("fighting: move %q charge dirs %q is not a set of distinct digits 1-9", m.Name, m.Charge.Dirs)
+			return loaderr.Errorf(loaderr.Join(cPath, "dirs"), `write distinct numpad digits 1-9 such as "147"`, "fighting: move %q charge dirs %q is not a set of distinct digits 1-9", m.Name, m.Charge.Dirs)
 		}
 		if m.Charge.Steps < 1 || m.Charge.Steps > MaxSteps {
-			return fmt.Errorf("fighting: move %q charge steps %d outside [1, %d]", m.Name, m.Charge.Steps, MaxSteps)
+			return loaderr.Errorf(loaderr.Join(cPath, "steps"), fmt.Sprintf("set charge steps to an integer in [1, %d]", MaxSteps), "fighting: move %q charge steps %d outside [1, %d]", m.Name, m.Charge.Steps, MaxSteps)
 		}
-		if err := checkSteps(m.Name, "charge grace", m.Charge.Grace); err != nil {
+		if err := checkSteps(loaderr.Join(cPath, "grace"), m.Name, "charge grace", m.Charge.Grace); err != nil {
 			return err
 		}
 	}
 	if (m.PressAll || m.PressWindow > 0) && len(m.Press) < 2 {
-		return fmt.Errorf("fighting: move %q pressAll and pressWindow need at least 2 press buttons", m.Name)
+		field := "pressAll"
+		if !m.PressAll {
+			field = "pressWindow"
+		}
+		return loaderr.Errorf(loaderr.Join(mPath, field), "list at least 2 buttons in press, or remove pressAll and pressWindow", "fighting: move %q pressAll and pressWindow need at least 2 press buttons", m.Name)
 	}
 	if m.PressWindow > 0 && !m.PressAll {
-		return fmt.Errorf("fighting: move %q pressWindow needs pressAll", m.Name)
+		return loaderr.Errorf(loaderr.Join(mPath, "pressWindow"), "set pressAll: true alongside pressWindow, or remove pressWindow", "fighting: move %q pressWindow needs pressAll", m.Name)
 	}
 	if m.Buffer > 0 && len(m.Press) == 0 {
-		return fmt.Errorf("fighting: move %q buffer needs press buttons", m.Name)
+		return loaderr.Errorf(loaderr.Join(mPath, "buffer"), "add press buttons alongside buffer, or remove buffer", "fighting: move %q buffer needs press buttons", m.Name)
 	}
 	if m.Buffer > 0 && len(m.Motion) == 0 {
-		return fmt.Errorf("fighting: move %q buffer needs a motion", m.Name)
+		return loaderr.Errorf(loaderr.Join(mPath, "buffer"), "add a motion sequence alongside buffer, or remove buffer", "fighting: move %q buffer needs a motion", m.Name)
 	}
 	seen := make(map[string]bool, len(m.Press))
-	for _, b := range m.Press {
+	for i, b := range m.Press {
 		if b == "" {
-			return fmt.Errorf("fighting: move %q has an empty press button", m.Name)
+			return loaderr.Errorf(loaderr.Join(mPath, "press", i), "name a non-empty button action or remove the entry", "fighting: move %q has an empty press button", m.Name)
 		}
 		if seen[b] {
-			return fmt.Errorf("fighting: move %q presses %q twice", m.Name, b)
+			return loaderr.Errorf(loaderr.Join(mPath, "press", i), "remove the duplicate button from press", "fighting: move %q presses %q twice", m.Name, b)
 		}
 		seen[b] = true
 	}
 	return nil
 }
 
-func checkSteps(move, field string, v int) error {
+func checkSteps(path, move, field string, v int) error {
 	if v < 0 || v > MaxSteps {
-		return fmt.Errorf("fighting: move %q %s %d outside [0, %d]", move, field, v, MaxSteps)
+		return loaderr.Errorf(path, fmt.Sprintf("set %s to an integer in [0, %d]", field, MaxSteps), "fighting: move %q %s %d outside [0, %d]", move, field, v, MaxSteps)
 	}
 	return nil
 }

@@ -3,13 +3,13 @@ package refs
 import (
 	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"go.yaml.in/yaml/v3"
 )
@@ -44,23 +44,23 @@ type IndexEntry struct {
 // ParseIndex decodes a YAML project index and validates it. Unknown fields and trailing YAML documents are refused.
 func ParseIndex(data []byte) (*Index, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("refs: empty index")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a project index starting with version: %d (or regenerate it with game index)", IndexVersion), "refs: empty index"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var ix Index
 	if err := dec.Decode(&ix); err != nil {
-		return nil, fmt.Errorf("refs: decode index: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("refs: decode index: %w", err), "", data, "check the YAML syntax and field names in the project index")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("refs: unexpected trailing YAML document in the index")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the project index and remove any --- separator", "refs: unexpected trailing YAML document in the index"), "", data, "")
 		}
-		return nil, fmt.Errorf("refs: decode index: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("refs: decode index: %w", err), "", data, "remove trailing YAML content after the project index")
 	}
 	if err := ix.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &ix, nil
 }
@@ -87,36 +87,37 @@ func EncodeIndex(ix *Index) ([]byte, error) {
 // Validate checks that ix conforms to the version 1 schema: valid relative paths in strictly increasing order, and for each exactly one of a valid UID and a SHA-256 of 64 lower-case hexadecimal digits, with no UID used twice.
 func (ix *Index) Validate() error {
 	if ix == nil {
-		return errors.New("refs: nil index")
+		return loaderr.Errorf("", "pass a non-nil *refs.Index to Validate", "refs: nil index")
 	}
 	if ix.Version != IndexVersion {
-		return fmt.Errorf("refs: unsupported index version %d (want %d)", ix.Version, IndexVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the project index", IndexVersion), "refs: unsupported index version %d (want %d)", ix.Version, IndexVersion)
 	}
 	uids := make(map[string]string, len(ix.Files))
 	for i, e := range ix.Files {
+		fPath := fmt.Sprintf("files[%d]", i)
 		if !validPath(e.Path) {
-			return fmt.Errorf("refs: index file %d path %q must be a slash-separated path inside the project", i, e.Path)
+			return loaderr.Errorf(fPath+".path", "set path to a slash-separated path relative to the project root", "refs: index file %d path %q must be a slash-separated path inside the project", i, e.Path)
 		}
 		if i > 0 && ix.Files[i-1].Path >= e.Path {
-			return fmt.Errorf("refs: index file %q must come after %q: files are sorted by path, each once", ix.Files[i-1].Path, e.Path)
+			return loaderr.Errorf(fPath+".path", "sort files in strictly increasing path order with no duplicates (or regenerate with game index)", "refs: index file %q must come after %q: files are sorted by path, each once", ix.Files[i-1].Path, e.Path)
 		}
 		switch {
 		case e.UID != "" && e.SHA256 != "":
-			return fmt.Errorf("refs: index file %q has both a uid and a sha256", e.Path)
+			return loaderr.Errorf(fPath, "keep either uid or sha256 on each index entry, not both", "refs: index file %q has both a uid and a sha256", e.Path)
 		case e.UID != "":
 			if !resource.ValidUID(e.UID) {
-				return fmt.Errorf("refs: index file %q uid %q is not a uid", e.Path, e.UID)
+				return loaderr.Errorf(fPath+".uid", fmt.Sprintf("set uid to %d characters of 0-9 and a-z without i, l, o and u", resource.UIDLength), "refs: index file %q uid %q is not a uid", e.Path, e.UID)
 			}
 			if other, dup := uids[e.UID]; dup {
-				return fmt.Errorf("refs: index files %q and %q have the same uid %q", other, e.Path, e.UID)
+				return loaderr.Errorf(fPath+".uid", "give each indexed file its own unique uid", "refs: index files %q and %q have the same uid %q", other, e.Path, e.UID)
 			}
 			uids[e.UID] = e.Path
 		case e.SHA256 != "":
 			if !validSHA256(e.SHA256) {
-				return fmt.Errorf("refs: index file %q sha256 %q must be 64 lower-case hexadecimal digits", e.Path, e.SHA256)
+				return loaderr.Errorf(fPath+".sha256", "set sha256 to 64 lower-case hexadecimal digits", "refs: index file %q sha256 %q must be 64 lower-case hexadecimal digits", e.Path, e.SHA256)
 			}
 		default:
-			return fmt.Errorf("refs: index file %q needs a uid or a sha256", e.Path)
+			return loaderr.Errorf(fPath, "set either uid or sha256 on the index entry", "refs: index file %q needs a uid or a sha256", e.Path)
 		}
 	}
 	return nil

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -375,7 +376,7 @@ func (f Format[T]) deterministic(data []byte) error {
 	return same("saving a load of the saved output", out, err)
 }
 
-// refusesUnknownField fails unless Decode refuses data with an extra top-level key, naming it.
+// refusesUnknownField fails unless Decode refuses data with an extra top-level key, naming it as a *loaderr.Error at its line with a fix.
 func (f Format[T]) refusesUnknownField(data []byte) error {
 	edited, err := editRoot(data, func(root *yaml.Node) error {
 		root.Content = append(root.Content,
@@ -387,10 +388,11 @@ func (f Format[T]) refusesUnknownField(data []byte) error {
 	if err != nil {
 		return err
 	}
-	return f.refuses(edited, "a document with the unknown field "+unknownField, unknownField)
+	wantLine, _ := loaderr.FindField(edited, unknownField)
+	return f.refuses(edited, "a document with the unknown field "+unknownField, unknownField, wantLine)
 }
 
-// refusesMissingVersion fails unless Decode refuses data without its version field, naming the field.
+// refusesMissingVersion fails unless Decode refuses data without its version field, naming the field as a *loaderr.Error at line 1 (or the root mapping's line) with a fix.
 func (f Format[T]) refusesMissingVersion(data []byte) error {
 	field := f.versionField()
 	edited, err := editRoot(data, func(root *yaml.Node) error {
@@ -404,10 +406,11 @@ func (f Format[T]) refusesMissingVersion(data []byte) error {
 	if err != nil {
 		return err
 	}
-	return f.refuses(edited, "a document without "+field, field)
+	wantLine, _ := loaderr.FindField(edited, field)
+	return f.refuses(edited, "a document without "+field, field, wantLine)
 }
 
-// refusesZeroVersion fails unless Decode refuses data whose version is 0, naming the version field.
+// refusesZeroVersion fails unless Decode refuses data whose version is 0, naming the version field as a *loaderr.Error at its line with a fix.
 func (f Format[T]) refusesZeroVersion(data []byte) error {
 	field := f.versionField()
 	edited, err := editRoot(data, func(root *yaml.Node) error {
@@ -430,10 +433,11 @@ func (f Format[T]) refusesZeroVersion(data []byte) error {
 	if err != nil {
 		return err
 	}
-	return f.refuses(edited, fmt.Sprintf("a document with %s: 0", field), field)
+	wantLine, _ := loaderr.FindField(edited, field)
+	return f.refuses(edited, fmt.Sprintf("a document with %s: 0", field), field, wantLine)
 }
 
-// refusesFutureVersion fails unless Decode refuses data whose version is one more than the newest supported version, naming the version field.
+// refusesFutureVersion fails unless Decode refuses data whose version is one more than the newest supported version, naming the version field as a *loaderr.Error at its line with a fix.
 func (f Format[T]) refusesFutureVersion(data []byte) error {
 	field := f.versionField()
 	var future int
@@ -456,17 +460,28 @@ func (f Format[T]) refusesFutureVersion(data []byte) error {
 	if err != nil {
 		return err
 	}
-	return f.refuses(edited, fmt.Sprintf("a document with %s: %d", field, future), field)
+	wantLine, _ := loaderr.FindField(edited, field)
+	return f.refuses(edited, fmt.Sprintf("a document with %s: %d", field, future), field, wantLine)
 }
 
-// refuses fails unless Decode returns an error for data that names word; what describes data in the failure.
-func (f Format[T]) refuses(data []byte, what, word string) error {
+// refuses fails unless Decode returns a *loaderr.Error for data that names word, points at wantLine and gives a fix; what describes data in the failure.
+func (f Format[T]) refuses(data []byte, what, word string, wantLine int) error {
 	_, err := f.Decode(data)
 	if err == nil {
 		return fmt.Errorf("load accepted %s:\n%s", what, data)
 	}
 	if !strings.Contains(err.Error(), word) {
 		return fmt.Errorf("load refused %s with an error that does not name %s: %v", what, word, err)
+	}
+	e, ok := loaderr.As(err)
+	if !ok {
+		return fmt.Errorf("load refused %s with %T instead of *loaderr.Error: %v", what, err, err)
+	}
+	if wantLine > 0 && e.Line != wantLine {
+		return fmt.Errorf("load refused %s at line %d, want line %d: %v", what, e.Line, wantLine, err)
+	}
+	if e.Fix == "" {
+		return fmt.Errorf("load refused %s with an empty Fix: %v", what, err)
 	}
 	return nil
 }

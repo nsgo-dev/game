@@ -144,7 +144,7 @@ func TestGameYAMLThatDoesNotParse(t *testing.T) {
 	fsys := project()
 	fsys["game.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nautoload:\n  scenes:\n    - name: room\n      path: scenes/room.scene.yaml\n")}
 	p := scan(t, fsys)
-	if got := checkList(p); len(got) != 1 || !strings.HasPrefix(got[0], "game.yaml: project: ") {
+	if got := checkList(p); len(got) != 1 || !strings.HasPrefix(got[0], "game.yaml:1: project: ") {
 		t.Fatalf("problems: %v", got)
 	}
 	for _, r := range p.Refs {
@@ -155,7 +155,7 @@ func TestGameYAMLThatDoesNotParse(t *testing.T) {
 	if _, err := refs.PlanMove(fsys, "scenes/room.scene.yaml", "scenes/hall.scene.yaml"); err == nil || !strings.Contains(err.Error(), "fix these first") {
 		t.Fatalf("PlanMove = %v", err)
 	}
-	if _, err := refs.PlanIndex(fsys, refs.IndexOptions{}); err == nil || !strings.Contains(err.Error(), "game.yaml: project: ") {
+	if _, err := refs.PlanIndex(fsys, refs.IndexOptions{}); err == nil || !strings.Contains(err.Error(), "game.yaml:1: project: ") {
 		t.Fatalf("PlanIndex = %v", err)
 	}
 }

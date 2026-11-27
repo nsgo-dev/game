@@ -95,8 +95,8 @@ func TestParseRefusesInvalidCatalogs(t *testing.T) {
 		want string
 	}{
 		"empty":           {"  \n", "empty catalog"},
-		"unknown field":   {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n    steam: y\n", "field steam not found"},
-		"unknown top":     {"version: 1\nboards: []\n", "field boards not found"},
+		"unknown field":   {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n    steam: y\n", `unknown field "steam"`},
+		"unknown top":     {"version: 1\nboards: []\n", `unknown field "boards"`},
 		"missing version": {"leaderboards:\n  - name: a\n    gameCenter: x\n", "unsupported version 0"},
 		"future version":  {"version: 2\nleaderboards:\n  - name: a\n    gameCenter: x\n", "unsupported version 2"},
 		"no boards":       {"version: 1\nleaderboards: []\n", "no leaderboards"},
@@ -111,7 +111,7 @@ func TestParseRefusesInvalidCatalogs(t *testing.T) {
 		"long id":         {"version: 1\nleaderboards:\n  - name: a\n    playGames: " + long + "\n", "at most 100"},
 		"duplicate key":   {"version: 1\nversion: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n", "already defined"},
 		"trailing doc":    {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n---\nversion: 1\n", "trailing"},
-		"not a mapping":   {"- 1\n", "decode"},
+		"not a mapping":   {"- 1\n", "cannot use a !!seq"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -8,8 +8,11 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixStats = "write the stats file as version: 1 YAML with valid stats and effects"
 
 // CurrentVersion is the version of the stats file schema this package reads and writes.
 const CurrentVersion = 1
@@ -98,8 +101,16 @@ func (f *File) NewSheet() (*Sheet, error) {
 
 // Parse decodes a YAML stats file and validates it. Unknown fields and trailing YAML documents are refused.
 func Parse(data []byte) (*File, error) {
+	f, err := parseFile(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixStats)
+	}
+	return f, nil
+}
+
+func parseFile(data []byte) (*File, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("stats: empty stats file")
+		return nil, loaderr.Errorf("", fixStats, "stats: empty stats file")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -110,7 +121,7 @@ func Parse(data []byte) (*File, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("stats: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the stats file; remove the trailing --- document", "stats: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("stats: decode: %w", err)
 	}
@@ -142,45 +153,79 @@ func Encode(f *File) ([]byte, error) {
 // Validate checks f against the version 1 schema: the version, unique non-empty names, finite numbers, Min not above Max, non-negative Steps, known ops, and modifiers that name defined stats.
 func Validate(f *File) error {
 	if f == nil {
-		return errors.New("stats: nil file")
+		return loaderr.Errorf("", fixStats, "stats: nil file")
 	}
 	if f.Version != CurrentVersion {
-		return fmt.Errorf("stats: unsupported version %d (want %d)", f.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", CurrentVersion), "stats: unsupported version %d (want %d)", f.Version, CurrentVersion)
 	}
 	defined := make(map[string]bool, len(f.Stats))
 	for i, d := range f.Stats {
-		if err := validateDef(d); err != nil {
-			return fmt.Errorf("stats: stats[%d]: %w", i, err)
+		if err := validateDefAt(loaderr.Path("stats", i), d); err != nil {
+			return err
 		}
 		if defined[d.Name] {
-			return fmt.Errorf("stats: stats[%d]: %w %q", i, ErrDuplicateStat, d.Name)
+			return loaderr.Errorf(loaderr.Path("stats", i, "name"), "give each stat a unique name", "stats: stats[%d]: %w %q", i, ErrDuplicateStat, d.Name)
 		}
 		defined[d.Name] = true
 	}
 	effects := make(map[string]bool, len(f.Effects))
 	for i, e := range f.Effects {
+		ePath := loaderr.Path("effects", i)
 		where := fmt.Sprintf("stats: effects[%d]", i)
 		if e.Name == "" {
-			return fmt.Errorf("%s: empty name", where)
+			return loaderr.Errorf(loaderr.Join(ePath, "name"), "give the effect a non-empty name", "%s: empty name", where)
 		}
 		if effects[e.Name] {
-			return fmt.Errorf("%s: duplicate effect %q", where, e.Name)
+			return loaderr.Errorf(loaderr.Join(ePath, "name"), "give each effect a unique name", "%s: duplicate effect %q", where, e.Name)
 		}
 		effects[e.Name] = true
 		if e.Steps < 0 {
-			return fmt.Errorf("%s (%s): %w %d", where, e.Name, ErrInvalidSteps, e.Steps)
+			return loaderr.Errorf(loaderr.Join(ePath, "steps"), "set steps to a non-negative integer, or omit it for permanent", "%s (%s): %w %d", where, e.Name, ErrInvalidSteps, e.Steps)
 		}
 		if len(e.Modifiers) == 0 {
-			return fmt.Errorf("%s (%s): no modifiers", where, e.Name)
+			return loaderr.Errorf(loaderr.Join(ePath, "modifiers"), "add at least one modifier to the effect", "%s (%s): no modifiers", where, e.Name)
 		}
 		for j, m := range e.Modifiers {
-			if err := validateModifier(m); err != nil {
-				return fmt.Errorf("%s (%s): modifiers[%d]: %w", where, e.Name, j, err)
+			mPath := loaderr.Join(ePath, "modifiers", j)
+			if err := validateModifierAt(mPath, fmt.Sprintf("%s (%s): modifiers[%d]", where, e.Name, j), m); err != nil {
+				return err
 			}
 			if !defined[m.Stat] {
-				return fmt.Errorf("%s (%s): modifiers[%d]: %w %q", where, e.Name, j, ErrUnknownStat, m.Stat)
+				return loaderr.Errorf(loaderr.Join(mPath, "stat"), "name a stat declared under stats", "%s (%s): modifiers[%d]: %w %q", where, e.Name, j, ErrUnknownStat, m.Stat)
 			}
 		}
+	}
+	return nil
+}
+
+func validateDefAt(base string, d Def) error {
+	if d.Name == "" {
+		return loaderr.Errorf(loaderr.Join(base, "name"), "give the stat a non-empty name", "stats: %s: empty name", base)
+	}
+	if !finite(d.Base) {
+		return loaderr.Errorf(loaderr.Join(base, "base"), "set base to a finite number", "stats: %s: stat %q: base: %w: %v", base, d.Name, ErrInvalidValue, d.Base)
+	}
+	if d.Min != nil && !finite(*d.Min) {
+		return loaderr.Errorf(loaderr.Join(base, "min"), "set min to a finite number", "stats: %s: stat %q: min: %w: %v", base, d.Name, ErrInvalidValue, *d.Min)
+	}
+	if d.Max != nil && !finite(*d.Max) {
+		return loaderr.Errorf(loaderr.Join(base, "max"), "set max to a finite number", "stats: %s: stat %q: max: %w: %v", base, d.Name, ErrInvalidValue, *d.Max)
+	}
+	if d.Min != nil && d.Max != nil && *d.Min > *d.Max {
+		return loaderr.Errorf(loaderr.Join(base, "max"), "set max to at least min", "stats: %s: stat %q: min %v is above max %v", base, d.Name, *d.Min, *d.Max)
+	}
+	return nil
+}
+
+func validateModifierAt(base, where string, m Modifier) error {
+	if m.Stat == "" {
+		return loaderr.Errorf(loaderr.Join(base, "stat"), "set stat to a defined stat name", "%s: empty stat", where)
+	}
+	if !m.Op.Valid() {
+		return loaderr.Errorf(loaderr.Join(base, "op"), "set op to add, mul or override", "%s: %w %q", where, ErrInvalidOp, m.Op)
+	}
+	if !finite(m.Value) {
+		return loaderr.Errorf(loaderr.Join(base, "value"), "set value to a finite number", "%s: %w: %v", where, ErrInvalidValue, m.Value)
 	}
 	return nil
 }

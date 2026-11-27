@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -77,69 +78,80 @@ func (d *Dump) Snapshot() entities.WorldSnapshot {
 // Validate checks that d uses FormatVersion, has non-negative counts, a finite scene progress that is 0 unless a transition runs, non-empty value names with valid JSON, and entities in strictly ascending slot order with non-zero generations, parents present in the dump, and components with non-empty names in strictly ascending order holding valid JSON.
 func Validate(d *Dump) error {
 	if d == nil {
-		return errors.New("statedump: nil dump")
+		return loaderr.Errorf("", "pass a non-nil *statedump.Dump to Validate", "statedump: nil dump")
 	}
 	if d.Version != FormatVersion {
-		return fmt.Errorf("statedump: unsupported version %d (want %d)", d.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the state dump", FormatVersion), "statedump: unsupported version %d (want %d)", d.Version, FormatVersion)
 	}
 	if d.Rate < 0 {
-		return fmt.Errorf("statedump: invalid rate %d", d.Rate)
+		return loaderr.Errorf("rate", "set rate to a non-negative integer", "statedump: invalid rate %d", d.Rate)
 	}
 	if d.Steps < 0 {
-		return fmt.Errorf("statedump: invalid steps %d", d.Steps)
+		return loaderr.Errorf("steps", "set steps to a non-negative integer", "statedump: invalid steps %d", d.Steps)
 	}
 	if s := d.Scene; s != nil {
 		if s.Depth < 0 {
-			return fmt.Errorf("statedump: invalid scene depth %d", s.Depth)
+			return loaderr.Errorf("scene.depth", "set scene.depth to a non-negative integer", "statedump: invalid scene depth %d", s.Depth)
 		}
 		if math.IsNaN(s.Progress) || math.IsInf(s.Progress, 0) {
-			return fmt.Errorf("statedump: scene progress %v is not finite", s.Progress)
+			return loaderr.Errorf("scene.progress", "set scene.progress to a finite number", "statedump: scene progress %v is not finite", s.Progress)
 		}
 		if !s.Transitioning && s.Progress != 0 {
-			return fmt.Errorf("statedump: scene progress %v without a transition (want 0)", s.Progress)
+			return loaderr.Errorf("scene.progress", "set scene.progress to 0 when scene.transitioning is false", "statedump: scene progress %v without a transition (want 0)", s.Progress)
 		}
 	}
-	for name, data := range d.Values {
-		if name == "" {
-			return errors.New("statedump: empty value name")
+	if len(d.Values) > 0 {
+		names := make([]string, 0, len(d.Values))
+		for name := range d.Values {
+			names = append(names, name)
 		}
-		if !json.Valid(data) {
-			return fmt.Errorf("statedump: value %q is not valid JSON", name)
+		slices.Sort(names)
+		for _, name := range names {
+			data := d.Values[name]
+			if name == "" {
+				return loaderr.Errorf("values", "use a non-empty string key for every entry in values", "statedump: empty value name")
+			}
+			if !json.Valid(data) {
+				return loaderr.Errorf("values."+name, "encode the value as valid JSON", "statedump: value %q is not valid JSON", name)
+			}
 		}
 	}
 	indices := make(map[uint32]struct{}, len(d.Entities))
 	for i, e := range d.Entities {
+		ePath := fmt.Sprintf("entities[%d]", i)
 		if i > 0 && e.Index <= d.Entities[i-1].Index {
-			return fmt.Errorf("statedump: entity %d is not after entity %d", e.Index, d.Entities[i-1].Index)
+			return loaderr.Errorf(ePath+".index", "order entities in strictly ascending index order without duplicates", "statedump: entity %d is not after entity %d", e.Index, d.Entities[i-1].Index)
 		}
 		if e.Generation == 0 {
-			return fmt.Errorf("statedump: entity %d has zero generation", e.Index)
+			return loaderr.Errorf(ePath+".generation", "set generation to a positive integer (at least 1)", "statedump: entity %d has zero generation", e.Index)
 		}
 		indices[e.Index] = struct{}{}
 		for j, c := range e.Components {
+			cPath := fmt.Sprintf("%s.components[%d]", ePath, j)
 			if c.Type == "" {
-				return fmt.Errorf("statedump: entity %d component %d has an empty type", e.Index, j)
+				return loaderr.Errorf(cPath+".type", "set type to a non-empty component type name", "statedump: entity %d component %d has an empty type", e.Index, j)
 			}
 			if j > 0 && c.Type <= e.Components[j-1].Type {
-				return fmt.Errorf("statedump: entity %d component %q is not after %q", e.Index, c.Type, e.Components[j-1].Type)
+				return loaderr.Errorf(cPath+".type", "order entity components in strictly ascending type name order without duplicates", "statedump: entity %d component %q is not after %q", e.Index, c.Type, e.Components[j-1].Type)
 			}
 			if len(c.Data) == 0 {
-				return fmt.Errorf("statedump: entity %d component %q has no data", e.Index, c.Type)
+				return loaderr.Errorf(cPath+".data", "provide component data for this component", "statedump: entity %d component %q has no data", e.Index, c.Type)
 			}
 			if !json.Valid(c.Data) {
-				return fmt.Errorf("statedump: entity %d component %q is not valid JSON", e.Index, c.Type)
+				return loaderr.Errorf(cPath+".data", "encode component data as valid JSON", "statedump: entity %d component %q is not valid JSON", e.Index, c.Type)
 			}
 		}
 	}
-	for _, e := range d.Entities {
+	for i, e := range d.Entities {
 		if e.Parent == nil {
 			continue
 		}
+		ePath := fmt.Sprintf("entities[%d].parent", i)
 		if *e.Parent == e.Index {
-			return fmt.Errorf("statedump: entity %d is its own parent", e.Index)
+			return loaderr.Errorf(ePath, "remove the self-referencing parent or point it to another live entity", "statedump: entity %d is its own parent", e.Index)
 		}
 		if _, ok := indices[*e.Parent]; !ok {
-			return fmt.Errorf("statedump: entity %d has unknown parent %d", e.Index, *e.Parent)
+			return loaderr.Errorf(ePath, "set parent to the index of an entity present in entities or omit it", "statedump: entity %d has unknown parent %d", e.Index, *e.Parent)
 		}
 	}
 	return nil
@@ -194,19 +206,40 @@ func parseValues(n *yaml.Node) (map[string]json.RawMessage, error) {
 	case n.Kind == 0, n.Kind == yaml.ScalarNode && n.Tag == tagNull:
 		return nil, nil
 	case n.Kind != yaml.MappingNode || n.Anchor != "":
-		return nil, fmt.Errorf("statedump: line %d: values must be a mapping", n.Line)
+		return nil, &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Field:   "values",
+			Problem: fmt.Sprintf("statedump: line %d: values must be a mapping", n.Line),
+			Fix:     "write values as a YAML mapping of string names to JSON-compatible values without anchors",
+		}
 	}
 	values := make(map[string]json.RawMessage, len(n.Content)/2)
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k := n.Content[i]
 		if k.Kind != yaml.ScalarNode || k.Tag != tagStr || k.Anchor != "" {
-			return nil, fmt.Errorf("statedump: line %d: value name must be a string (quote it)", k.Line)
+			return nil, &loaderr.Error{
+				Line:    k.Line,
+				Column:  k.Column,
+				Field:   "values",
+				Problem: fmt.Sprintf("statedump: line %d: value name must be a string (quote it)", k.Line),
+				Fix:     "quote the value name so YAML parses it as a string without anchors",
+			}
 		}
 		if _, dup := values[k.Value]; dup {
-			return nil, fmt.Errorf("statedump: line %d: duplicate value %q", k.Line, k.Value)
+			return nil, &loaderr.Error{
+				Line:    k.Line,
+				Column:  k.Column,
+				Field:   "values." + k.Value,
+				Problem: fmt.Sprintf("statedump: line %d: duplicate value %q", k.Line, k.Value),
+				Fix:     "remove or rename the duplicate key under values",
+			}
 		}
 		data, err := nodeToJSON(n.Content[i+1])
 		if err != nil {
+			if le, ok := loaderr.As(err); ok && le.Field == "" {
+				le.Field = "values." + k.Value
+			}
 			return nil, err
 		}
 		values[k.Value] = data
@@ -267,20 +300,20 @@ func Encode(d *Dump) ([]byte, error) {
 // Parse reads a version 1 YAML dump, refusing unknown fields, trailing documents, and data JSON cannot hold (aliases, non-string keys, binary, NaN and infinities), then runs Validate.
 func Parse(data []byte) (*Dump, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("statedump: empty dump")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a state dump starting with version: %d", FormatVersion), "statedump: empty dump"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var doc fileDoc
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("statedump: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("statedump: decode: %w", err), "", data, "check the YAML syntax and field names in the state dump")
 	}
 	var extra yaml.Node
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("statedump: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the state dump and remove any --- separator", "statedump: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("statedump: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("statedump: decode: %w", err), "", data, "remove trailing YAML content after the state dump")
 	}
 	d := &Dump{
 		Version: doc.Version,
@@ -291,7 +324,7 @@ func Parse(data []byte) (*Dump, error) {
 	}
 	values, err := parseValues(&doc.Values)
 	if err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	if len(values) > 0 {
 		d.Values = values
@@ -303,20 +336,23 @@ func Parse(data []byte) (*Dump, error) {
 			if len(fe.Components) > 0 {
 				e.Components = make([]entities.ComponentSnapshot, len(fe.Components))
 				for j, c := range fe.Components {
-					var data json.RawMessage
+					var raw json.RawMessage
 					if c.Data.Kind != 0 {
-						if data, err = nodeToJSON(&c.Data); err != nil {
-							return nil, err
+						if raw, err = nodeToJSON(&c.Data); err != nil {
+							if le, ok := loaderr.As(err); ok && le.Field == "" {
+								le.Field = fmt.Sprintf("entities[%d].components[%d].data", i, j)
+							}
+							return nil, loaderr.Locate(err, "", data, "")
 						}
 					}
-					e.Components[j] = entities.ComponentSnapshot{Type: c.Type, Data: data}
+					e.Components[j] = entities.ComponentSnapshot{Type: c.Type, Data: raw}
 				}
 			}
 			d.Entities[i] = e
 		}
 	}
 	if err := Validate(d); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return d, nil
 }
@@ -337,11 +373,11 @@ func WriteFile(path string, d *Dump) error {
 func ReadFile(path string) (*Dump, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("statedump: read %q: %w", path, err)
+		return nil, loaderr.Locate(fmt.Errorf("statedump: read %q: %w", path, err), path, nil, "check that the state dump file exists and is readable")
 	}
 	d, err := Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("statedump: read %q: %w", path, err)
+		return nil, loaderr.WithFile(err, path)
 	}
 	return d, nil
 }

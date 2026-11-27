@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -74,12 +75,15 @@ func loadCache(name string) *cache {
 
 // parseCache decodes a cache file, refusing unknown fields, trailing documents and a version other than cacheVersion.
 func parseCache(data []byte) (*cache, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("delete the cache file to rebuild it or start it with version: %d", cacheVersion), "assetbuild: cache: empty file"), "", data, "")
+	}
 	var c cache
 	if err := decodeStrict(data, &c); err != nil {
-		return nil, fmt.Errorf("assetbuild: cache: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("assetbuild: cache: %w", err), "", data, "delete the build cache file so assetbuild regenerates it")
 	}
 	if c.Version != cacheVersion {
-		return nil, fmt.Errorf("assetbuild: cache: unsupported version %d (want %d)", c.Version, cacheVersion)
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("set version: %d or delete the build cache file to regenerate it", cacheVersion), "assetbuild: cache: unsupported version %d (want %d)", c.Version, cacheVersion), "", data, "")
 	}
 	return &c, nil
 }

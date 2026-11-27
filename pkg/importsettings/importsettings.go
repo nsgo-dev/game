@@ -2,7 +2,6 @@ package importsettings
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"go.yaml.in/yaml/v3"
 )
@@ -94,18 +94,39 @@ type PivotPoint [2]float64
 // UnmarshalYAML decodes a [x, y] sequence of two finite numbers into p.
 func (p *PivotPoint) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.SequenceNode || len(value.Content) != 2 {
-		return fmt.Errorf("pivot must be a [x, y] sequence of 2 numbers")
+		return &loaderr.Error{
+			Line:    value.Line,
+			Column:  value.Column,
+			Problem: "pivot must be a [x, y] sequence of 2 numbers",
+			Fix:     "write pivot as a two-number flow list such as [0.5, 0.5]",
+		}
 	}
 	for i, item := range value.Content {
 		if item.Kind != yaml.ScalarNode || (item.ShortTag() != "!!int" && item.ShortTag() != "!!float") {
-			return fmt.Errorf("pivot[%d] must be a number", i)
+			return &loaderr.Error{
+				Line:    item.Line,
+				Column:  item.Column,
+				Problem: fmt.Sprintf("pivot[%d] must be a number", i),
+				Fix:     "set each pivot coordinate to a finite number such as 0.5",
+			}
 		}
 		var v float64
 		if err := item.Decode(&v); err != nil {
-			return fmt.Errorf("pivot[%d]: %w", i, err)
+			return &loaderr.Error{
+				Line:    item.Line,
+				Column:  item.Column,
+				Problem: fmt.Sprintf("pivot[%d]: %v", i, err),
+				Fix:     "set each pivot coordinate to a finite number such as 0.5",
+				Err:     err,
+			}
 		}
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return fmt.Errorf("pivot[%d] must be a finite number", i)
+			return &loaderr.Error{
+				Line:    item.Line,
+				Column:  item.Column,
+				Problem: fmt.Sprintf("pivot[%d] must be a finite number", i),
+				Fix:     "replace NaN or Inf with a finite number such as 0.5",
+			}
 		}
 		if v == 0 {
 			v = 0
@@ -153,7 +174,12 @@ type CellPivot struct {
 // UnmarshalYAML decodes a CellPivot mapping, requiring both cell and pivot keys and refusing unknown or repeated keys.
 func (c *CellPivot) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.MappingNode {
-		return errors.New("cell pivot must be a mapping with cell and pivot")
+		return &loaderr.Error{
+			Line:    value.Line,
+			Column:  value.Column,
+			Problem: "cell pivot must be a mapping with cell and pivot",
+			Fix:     "write each cell pivot entry as a mapping with cell and pivot fields",
+		}
 	}
 	var hasCell, hasPivot bool
 	for i := 0; i+1 < len(value.Content); i += 2 {
@@ -161,32 +187,85 @@ func (c *CellPivot) UnmarshalYAML(value *yaml.Node) error {
 		switch k.Value {
 		case "cell":
 			if hasCell {
-				return errors.New("duplicate field \"cell\" in cell pivot")
+				return &loaderr.Error{
+					Line:    k.Line,
+					Column:  k.Column,
+					Field:   "cell",
+					Problem: "duplicate field \"cell\" in cell pivot",
+					Fix:     "remove the duplicate cell key",
+				}
 			}
 			if v.Kind != yaml.ScalarNode || v.ShortTag() != "!!int" {
-				return errors.New("cell must be an integer")
+				return &loaderr.Error{
+					Line:    v.Line,
+					Column:  v.Column,
+					Field:   "cell",
+					Problem: "cell must be an integer",
+					Fix:     "set cell to a non-negative integer index such as 0",
+				}
 			}
 			if err := v.Decode(&c.Cell); err != nil {
-				return fmt.Errorf("cell: %w", err)
+				return &loaderr.Error{
+					Line:    v.Line,
+					Column:  v.Column,
+					Field:   "cell",
+					Problem: fmt.Sprintf("cell: %v", err),
+					Fix:     "set cell to a non-negative integer index such as 0",
+					Err:     err,
+				}
 			}
 			hasCell = true
 		case "pivot":
 			if hasPivot {
-				return errors.New("duplicate field \"pivot\" in cell pivot")
+				return &loaderr.Error{
+					Line:    k.Line,
+					Column:  k.Column,
+					Field:   "pivot",
+					Problem: "duplicate field \"pivot\" in cell pivot",
+					Fix:     "remove the duplicate pivot key",
+				}
 			}
 			if err := v.Decode(&c.Pivot); err != nil {
-				return fmt.Errorf("pivot: %w", err)
+				if le, ok := loaderr.As(err); ok {
+					return le
+				}
+				return &loaderr.Error{
+					Line:    v.Line,
+					Column:  v.Column,
+					Field:   "pivot",
+					Problem: fmt.Sprintf("pivot: %v", err),
+					Fix:     "write pivot as a two-number sequence [x, y]",
+					Err:     err,
+				}
 			}
 			hasPivot = true
 		default:
-			return fmt.Errorf("field %s not found in type importsettings.CellPivot", k.Value)
+			return &loaderr.Error{
+				Line:    k.Line,
+				Column:  k.Column,
+				Field:   k.Value,
+				Problem: fmt.Sprintf("field %s not found in type importsettings.CellPivot", k.Value),
+				Fix:     "remove the unknown key; cell pivot entries accept only cell and pivot",
+			}
 		}
 	}
 	if !hasCell {
-		return errors.New("cell is required in cell pivot")
+		return &loaderr.Error{
+			Line:    value.Line,
+			Column:  value.Column,
+			Field:   "cell",
+			Problem: "cell is required in cell pivot",
+			Fix:     "add cell: <index> to the cell pivot entry",
+		}
 	}
 	if !hasPivot {
-		return errors.New("pivot is required in cell pivot")
+		return &loaderr.Error{
+			Line:    value.Line,
+			Column:  value.Column,
+			Field:   "pivot",
+			Problem: "pivot is required in cell pivot",
+			Fix:     "add pivot: [x, y] to the cell pivot entry",
+		}
 	}
 	return nil
 }
@@ -412,23 +491,23 @@ func (f *File) Sections() []string {
 // Parse decodes a sidecar and validates it.
 func Parse(data []byte) (*File, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("importsettings: empty sidecar")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add an import sidecar starting with version: %d and at least one section", CurrentVersion), "importsettings: empty sidecar"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var f File
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("importsettings: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("importsettings: decode: %w", err), "", data, "check the YAML syntax and field names in the import sidecar")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("importsettings: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the import sidecar and remove any --- separator", "importsettings: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("importsettings: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("importsettings: decode: %w", err), "", data, "remove trailing YAML content after the import sidecar")
 	}
 	if err := f.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	if f.Image != nil {
 		f.Image.normalize()
@@ -492,38 +571,38 @@ func Encode(f *File) ([]byte, error) {
 // Validate checks f: the version, at least one section and at most one of image, audio, font and model, known formats and filters, values in range, and a credit with an author and a valid SPDX license expression.
 func (f *File) Validate() error {
 	if f == nil {
-		return errors.New("importsettings: nil sidecar")
+		return loaderr.Errorf("", "pass a non-nil *importsettings.File to Validate", "importsettings: nil sidecar")
 	}
 	if f.Version != CurrentVersion {
-		return fmt.Errorf("importsettings: version %d is not supported; want %d", f.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the import sidecar", CurrentVersion), "importsettings: version %d is not supported; want %d", f.Version, CurrentVersion)
 	}
 	if f.Credit != nil {
 		if err := f.Credit.validate(); err != nil {
-			return fmt.Errorf("importsettings: credit: %w", err)
+			return err
 		}
 	}
 	switch sections := f.Sections(); {
 	case len(sections) == 0:
 		if f.Credit == nil {
-			return errors.New("importsettings: a sidecar needs an image, an audio, a font, a model or a credit section")
+			return loaderr.Errorf("", "add an image, audio, font, model, or credit section to the sidecar", "importsettings: a sidecar needs an image, an audio, a font, a model or a credit section")
 		}
 	case len(sections) > 1:
-		return fmt.Errorf("importsettings: a sidecar holds one of the image, audio, font and model sections, not %s", strings.Join(sections, " and "))
+		return loaderr.Errorf(sections[1], fmt.Sprintf("keep only one import section (image, audio, font, or model) per sidecar and remove %s", sections[1]), "importsettings: a sidecar holds one of the image, audio, font and model sections, not %s", strings.Join(sections, " and "))
 	case f.Image != nil:
 		if err := f.Image.validate(); err != nil {
-			return fmt.Errorf("importsettings: image: %w", err)
+			return err
 		}
 	case f.Audio != nil:
 		if err := f.Audio.validate(); err != nil {
-			return fmt.Errorf("importsettings: audio: %w", err)
+			return err
 		}
 	case f.Font != nil:
 		if err := f.Font.validate(); err != nil {
-			return fmt.Errorf("importsettings: font: %w", err)
+			return err
 		}
 	default:
 		if err := f.Model.validate(); err != nil {
-			return fmt.Errorf("importsettings: model: %w", err)
+			return err
 		}
 	}
 	return nil
@@ -531,53 +610,58 @@ func (f *File) Validate() error {
 
 func (im *Image) validate() error {
 	if im.Filter != "" && !slices.Contains(Filters, im.Filter) {
-		return fmt.Errorf("filter %q must be %s", im.Filter, strings.Join(Filters, " or "))
+		return loaderr.Errorf("image.filter", fmt.Sprintf("set image.filter to %s", strings.Join(Filters, " or ")), "importsettings: image: filter %q must be %s", im.Filter, strings.Join(Filters, " or "))
 	}
 	if im.Format != "" && !slices.Contains(project.TextureFormats, im.Format) {
-		return fmt.Errorf("format %q must be %s", im.Format, strings.Join(project.TextureFormats, ", "))
+		return loaderr.Errorf("image.format", fmt.Sprintf("set image.format to one of %s", strings.Join(project.TextureFormats, ", ")), "importsettings: image: format %q must be %s", im.Format, strings.Join(project.TextureFormats, ", "))
 	}
 	if s := im.Slice; s != nil {
 		if s.Width <= 0 || s.Height <= 0 {
-			return fmt.Errorf("slice: width %d and height %d must be positive", s.Width, s.Height)
+			field := "image.slice.width"
+			if s.Width > 0 {
+				field = "image.slice.height"
+			}
+			return loaderr.Errorf(field, "set both image.slice.width and image.slice.height to positive pixel counts", "importsettings: image: slice: width %d and height %d must be positive", s.Width, s.Height)
 		}
 		for _, v := range []struct {
 			name string
 			n    int
 		}{{"margin", s.Margin}, {"spacing", s.Spacing}, {"count", s.Count}} {
 			if v.n < 0 {
-				return fmt.Errorf("slice: %s %d must not be negative", v.name, v.n)
+				return loaderr.Errorf("image.slice."+v.name, fmt.Sprintf("set image.slice.%s to 0 or a positive integer", v.name), "importsettings: image: slice: %s %d must not be negative", v.name, v.n)
 			}
 		}
 	}
 	if p := im.Pivot; p != nil {
 		if p.Default == nil && len(p.Cells) == 0 {
-			return errors.New("pivot: must set default or at least one cell")
+			return loaderr.Errorf("image.pivot", "set image.pivot.default or at least one entry in image.pivot.cells", "importsettings: image: pivot: must set default or at least one cell")
 		}
 		if p.Default != nil {
-			if err := validatePivotPoint("default", *p.Default); err != nil {
+			if err := validatePivotPoint("image.pivot.default", "default", *p.Default); err != nil {
 				return err
 			}
 		}
 		if len(p.Cells) > 0 && im.Slice == nil {
-			return errors.New("pivot: cells require image.slice")
+			return loaderr.Errorf("image.pivot.cells", "add an image.slice grid or remove image.pivot.cells", "importsettings: image: pivot: cells require image.slice")
 		}
 		for i, c := range p.Cells {
+			cPath := fmt.Sprintf("image.pivot.cells[%d]", i)
 			if c.Cell < 0 {
-				return fmt.Errorf("pivot: cell %d must not be negative", c.Cell)
+				return loaderr.Errorf(cPath+".cell", "set cell to a non-negative integer index", "importsettings: image: pivot: cell %d must not be negative", c.Cell)
 			}
 			if i > 0 {
 				prev := p.Cells[i-1].Cell
 				if c.Cell == prev {
-					return fmt.Errorf("pivot: duplicate cell %d", c.Cell)
+					return loaderr.Errorf(cPath+".cell", "remove the duplicate cell pivot entry", "importsettings: image: pivot: duplicate cell %d", c.Cell)
 				}
 				if c.Cell < prev {
-					return fmt.Errorf("pivot: cells must be in ascending cell order (%d before %d)", prev, c.Cell)
+					return loaderr.Errorf(cPath+".cell", "sort image.pivot.cells in ascending cell index order", "importsettings: image: pivot: cells must be in ascending cell order (%d before %d)", prev, c.Cell)
 				}
 			}
 			if im.Slice != nil && im.Slice.Count > 0 && c.Cell >= im.Slice.Count {
-				return fmt.Errorf("pivot: cell %d is out of range for slice count %d", c.Cell, im.Slice.Count)
+				return loaderr.Errorf(cPath+".cell", fmt.Sprintf("set cell to an index less than image.slice.count (%d)", im.Slice.Count), "importsettings: image: pivot: cell %d is out of range for slice count %d", c.Cell, im.Slice.Count)
 			}
-			if err := validatePivotPoint(fmt.Sprintf("cell %d", c.Cell), c.Pivot); err != nil {
+			if err := validatePivotPoint(cPath+".pivot", fmt.Sprintf("cell %d", c.Cell), c.Pivot); err != nil {
 				return err
 			}
 		}
@@ -585,10 +669,10 @@ func (im *Image) validate() error {
 	return nil
 }
 
-func validatePivotPoint(label string, pt PivotPoint) error {
+func validatePivotPoint(field, label string, pt PivotPoint) error {
 	for i, v := range pt {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return fmt.Errorf("pivot: %s[%d] must be a finite number", label, i)
+			return loaderr.Errorf(fmt.Sprintf("%s[%d]", field, i), "replace NaN or Inf with a finite pivot coordinate such as 0.5", "importsettings: image: pivot: %s[%d] must be a finite number", label, i)
 		}
 	}
 	return nil
@@ -621,53 +705,57 @@ func (im *Image) normalize() {
 
 func (fo *Font) validate() error {
 	if err := project.ValidateFontSize(fo.Size); err != nil {
-		return err
+		return loaderr.Errorf("font.size", "set font.size to 0 (inherit target) or an integer in [1, 2048]", "importsettings: font: %w", err)
 	}
 	if fo.Padding != nil && *fo.Padding < 0 {
-		return fmt.Errorf("padding %d must not be negative", *fo.Padding)
+		return loaderr.Errorf("font.padding", "set font.padding to 0 or a positive integer", "importsettings: font: padding %d must not be negative", *fo.Padding)
 	}
-	return project.ValidateFontChars(fo.Chars)
+	if err := project.ValidateFontChars(fo.Chars); err != nil {
+		return loaderr.Errorf("font.chars", "remove duplicate or invalid characters from font.chars", "importsettings: font: %w", err)
+	}
+	return nil
 }
 
 func (m *Model) validate() error {
 	if err := project.ValidateModelScale(m.Scale); err != nil {
-		return err
+		return loaderr.Errorf("model.scale", "set model.scale to 0 (inherit target) or a finite positive number", "importsettings: model: %w", err)
 	}
 	if math.IsNaN(float64(m.LODHysteresis)) || math.IsInf(float64(m.LODHysteresis), 0) || m.LODHysteresis < 0 || m.LODHysteresis > 0.5 {
-		return fmt.Errorf("lodHysteresis %v must be finite and in [0, 0.5]", m.LODHysteresis)
+		return loaderr.Errorf("model.lodHysteresis", "set model.lodHysteresis to a finite number in [0, 0.5]", "importsettings: model: lodHysteresis %v must be finite and in [0, 0.5]", m.LODHysteresis)
 	}
 	for i, lv := range m.LODs {
+		lPath := fmt.Sprintf("model.lods[%d]", i)
 		if lv.Model != "" {
 			if !fs.ValidPath(lv.Model) || lv.Model == "." {
-				return fmt.Errorf("lods[%d]: model %q must be a slash-separated path relative to the project root", i, lv.Model)
+				return loaderr.Errorf(lPath+".model", "set model to a slash-separated path relative to the project root", "importsettings: model: lods[%d]: model %q must be a slash-separated path relative to the project root", i, lv.Model)
 			}
 			ext := strings.ToLower(path.Ext(lv.Model))
 			if ext != ".gltf" && ext != ".glb" {
-				return fmt.Errorf("lods[%d]: model %q must be a glTF file ending in .gltf or .glb", i, lv.Model)
+				return loaderr.Errorf(lPath+".model", "point model to a .gltf or .glb file", "importsettings: model: lods[%d]: model %q must be a glTF file ending in .gltf or .glb", i, lv.Model)
 			}
 		}
 		if lv.Node != "" && lv.Mesh != "" {
-			return fmt.Errorf("lods[%d]: node %q and mesh %q may not both be set", i, lv.Node, lv.Mesh)
+			return loaderr.Errorf(lPath, "set either node or mesh on the LOD entry, not both", "importsettings: model: lods[%d]: node %q and mesh %q may not both be set", i, lv.Node, lv.Mesh)
 		}
 		if math.IsNaN(float64(lv.MinScreenRatio)) || math.IsInf(float64(lv.MinScreenRatio), 0) || lv.MinScreenRatio < 0 || lv.MinScreenRatio > 1 {
-			return fmt.Errorf("lods[%d]: minScreenRatio %v must be finite and in [0, 1]", i, lv.MinScreenRatio)
+			return loaderr.Errorf(lPath+".minScreenRatio", "set minScreenRatio to a finite number in [0, 1]", "importsettings: model: lods[%d]: minScreenRatio %v must be finite and in [0, 1]", i, lv.MinScreenRatio)
 		}
 		if math.IsNaN(float64(lv.MaxDistance)) || math.IsInf(float64(lv.MaxDistance), 0) || lv.MaxDistance < 0 {
-			return fmt.Errorf("lods[%d]: maxDistance %v must be finite and non-negative", i, lv.MaxDistance)
+			return loaderr.Errorf(lPath+".maxDistance", "set maxDistance to 0 or a finite positive distance", "importsettings: model: lods[%d]: maxDistance %v must be finite and non-negative", i, lv.MaxDistance)
 		}
 		if i < len(m.LODs)-1 && lv.MinScreenRatio == 0 && lv.MaxDistance == 0 {
-			return fmt.Errorf("lods[%d]: only the coarsest (last) LOD level may leave both minScreenRatio and maxDistance zero", i)
+			return loaderr.Errorf(lPath, "set a positive minScreenRatio or maxDistance on every LOD level before the last", "importsettings: model: lods[%d]: only the coarsest (last) LOD level may leave both minScreenRatio and maxDistance zero", i)
 		}
 		if i > 0 {
 			prev := m.LODs[i-1]
 			if prev.MinScreenRatio > 0 && lv.MinScreenRatio > 0 && lv.MinScreenRatio >= prev.MinScreenRatio {
-				return fmt.Errorf("lods[%d]: minScreenRatio %v must be less than lods[%d] (%v)", i, lv.MinScreenRatio, i-1, prev.MinScreenRatio)
+				return loaderr.Errorf(lPath+".minScreenRatio", fmt.Sprintf("order LOD levels from finest to coarsest so minScreenRatio is less than %v", prev.MinScreenRatio), "importsettings: model: lods[%d]: minScreenRatio %v must be less than lods[%d] (%v)", i, lv.MinScreenRatio, i-1, prev.MinScreenRatio)
 			}
 			if prev.MinScreenRatio == 0 && lv.MinScreenRatio > 0 {
-				return fmt.Errorf("lods[%d]: minScreenRatio %v cannot follow lods[%d] with minScreenRatio 0", i, lv.MinScreenRatio, i-1)
+				return loaderr.Errorf(lPath+".minScreenRatio", "set minScreenRatio on earlier LOD levels or set this level's minScreenRatio to 0", "importsettings: model: lods[%d]: minScreenRatio %v cannot follow lods[%d] with minScreenRatio 0", i, lv.MinScreenRatio, i-1)
 			}
 			if prev.MaxDistance > 0 && lv.MaxDistance > 0 && lv.MaxDistance <= prev.MaxDistance {
-				return fmt.Errorf("lods[%d]: maxDistance %v must be greater than lods[%d] (%v)", i, lv.MaxDistance, i-1, prev.MaxDistance)
+				return loaderr.Errorf(lPath+".maxDistance", fmt.Sprintf("order LOD levels from nearest to farthest so maxDistance is greater than %v", prev.MaxDistance), "importsettings: model: lods[%d]: maxDistance %v must be greater than lods[%d] (%v)", i, lv.MaxDistance, i-1, prev.MaxDistance)
 			}
 		}
 	}
@@ -701,37 +789,41 @@ func (a *Audio) normalize() {
 
 func (a *Audio) validate() error {
 	if a.Format != "" && !slices.Contains(project.AudioFormats, a.Format) {
-		return fmt.Errorf("format %q must be %s", a.Format, strings.Join(project.AudioFormats, ", "))
+		return loaderr.Errorf("audio.format", fmt.Sprintf("set audio.format to one of %s", strings.Join(project.AudioFormats, ", ")), "importsettings: audio: format %q must be %s", a.Format, strings.Join(project.AudioFormats, ", "))
 	}
 	if a.Rate < 0 {
-		return fmt.Errorf("rate %d must not be negative", a.Rate)
+		return loaderr.Errorf("audio.rate", "set audio.rate to 0 (inherit target) or a positive sample rate in Hz", "importsettings: audio: rate %d must not be negative", a.Rate)
 	}
 	if a.Channels < 0 || a.Channels > 2 {
-		return fmt.Errorf("channels %d must be 1, 2, or 0 to keep the target's", a.Channels)
+		return loaderr.Errorf("audio.channels", "set audio.channels to 1 (mono), 2 (stereo), or 0 (inherit target)", "importsettings: audio: channels %d must be 1, 2, or 0 to keep the target's", a.Channels)
 	}
 	if a.Bitrate < 0 {
-		return fmt.Errorf("bitrate %d must not be negative", a.Bitrate)
+		return loaderr.Errorf("audio.bitrate", "set audio.bitrate to 0 (inherit target) or a positive kbps value", "importsettings: audio: bitrate %d must not be negative", a.Bitrate)
 	}
 	if a.PeakDB != nil && a.RMSDB != nil {
-		return errors.New("peakDB and rmsDB may not both be set")
+		return loaderr.Errorf("audio", "set either audio.peakDB or audio.rmsDB, not both", "importsettings: audio: peakDB and rmsDB may not both be set")
 	}
 	for _, v := range []struct {
 		name string
 		v    *float64
 	}{{"peakDB", a.PeakDB}, {"rmsDB", a.RMSDB}} {
 		if v.v != nil && (math.IsNaN(*v.v) || math.IsInf(*v.v, 0)) {
-			return fmt.Errorf("%s must be a finite number", v.name)
+			return loaderr.Errorf("audio."+v.name, fmt.Sprintf("set audio.%s to a finite decibel value", v.name), "importsettings: audio: %s must be a finite number", v.name)
 		}
 	}
 	if l := a.Loop; l != nil {
 		if l.Start < 0 || l.End < 0 {
-			return fmt.Errorf("loop: start %d and end %d must not be negative", l.Start, l.End)
+			field := "audio.loop.start"
+			if l.Start >= 0 {
+				field = "audio.loop.end"
+			}
+			return loaderr.Errorf(field, "set audio.loop.start and audio.loop.end to non-negative sample frame indices", "importsettings: audio: loop: start %d and end %d must not be negative", l.Start, l.End)
 		}
 		if l.End != 0 && l.End <= l.Start {
-			return fmt.Errorf("loop: end %d must be after start %d, or 0 for the end of the sound", l.End, l.Start)
+			return loaderr.Errorf("audio.loop.end", "set audio.loop.end greater than audio.loop.start, or 0 for the end of the sound", "importsettings: audio: loop: end %d must be after start %d, or 0 for the end of the sound", l.End, l.Start)
 		}
 		if a.Format != "" && a.Format != "wav" {
-			return fmt.Errorf("loop: %s carries no loop points; convert a looping sound to wav", a.Format)
+			return loaderr.Errorf("audio.format", "set audio.format to wav (or omit it) when using audio.loop", "importsettings: audio: loop: %s carries no loop points; convert a looping sound to wav", a.Format)
 		}
 	}
 	return nil

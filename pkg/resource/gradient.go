@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -30,23 +31,24 @@ func (g *Gradient) Kind() Kind { return KindGradient }
 // Validate checks the header and that the stops are in order with valid colors.
 func (g *Gradient) Validate() error {
 	if g == nil {
-		return fmt.Errorf("resource: nil gradient")
+		return loaderr.Errorf("", "pass a non-nil *resource.Gradient to Validate", "resource: nil gradient")
 	}
 	if err := g.Header.validate(KindGradient); err != nil {
 		return err
 	}
 	if len(g.Stops) == 0 {
-		return fmt.Errorf("resource: gradient needs at least one stop")
+		return loaderr.Errorf("stops", "add at least one color stop under stops", "resource: gradient needs at least one stop")
 	}
 	for i, s := range g.Stops {
-		if err := checkUnit(fmt.Sprintf("gradient stop %d offset", i), s.Offset); err != nil {
+		sPath := fmt.Sprintf("stops[%d]", i)
+		if err := checkUnit(sPath+".offset", fmt.Sprintf("gradient stop %d offset", i), s.Offset); err != nil {
 			return err
 		}
 		if i > 0 && s.Offset < g.Stops[i-1].Offset {
-			return fmt.Errorf("resource: gradient stop %d offset %v is before the previous stop's %v", i, s.Offset, g.Stops[i-1].Offset)
+			return loaderr.Errorf(sPath+".offset", fmt.Sprintf("order gradient stops in non-decreasing offset order (at or after %v)", g.Stops[i-1].Offset), "resource: gradient stop %d offset %v is before the previous stop's %v", i, s.Offset, g.Stops[i-1].Offset)
 		}
 		if _, err := core.ParseColor(s.Color); err != nil {
-			return fmt.Errorf("resource: gradient stop %d color %q: %w", i, s.Color, err)
+			return loaderr.Errorf(sPath+".color", "set color to a valid CSS color such as #ff8800 or rgba(255, 136, 0, 1)", "resource: gradient stop %d color %q: %w", i, s.Color, err)
 		}
 	}
 	return nil

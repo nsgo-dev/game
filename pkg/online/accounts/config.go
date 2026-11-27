@@ -2,7 +2,6 @@ package accounts
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
@@ -74,23 +74,26 @@ func DefaultConfig(issuer, audience string) Config {
 // Validate checks that c is a complete version 1 configuration.
 func (c Config) Validate() error {
 	if c.Version != ConfigVersion {
-		return fmt.Errorf("accounts: unsupported config version %d (want %d)", c.Version, ConfigVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the accounts config", ConfigVersion), "accounts: unsupported config version %d (want %d)", c.Version, ConfigVersion)
 	}
-	if c.Issuer == "" || c.Audience == "" {
-		return errors.New("accounts: config needs an issuer and an audience")
+	if c.Issuer == "" {
+		return loaderr.Errorf("issuer", "set issuer to the service identifier such as its URL", "accounts: config needs an issuer and an audience")
+	}
+	if c.Audience == "" {
+		return loaderr.Errorf("audience", "set audience to the game name tokens are issued for", "accounts: config needs an issuer and an audience")
 	}
 	ttl := time.Duration(c.TokenTTL)
 	if ttl < time.Second || ttl > 24*time.Hour || ttl%time.Second != 0 {
-		return fmt.Errorf("accounts: tokenTTL %v must be whole seconds from 1s to 24h", ttl)
+		return loaderr.Errorf("tokenTTL", "set tokenTTL to whole seconds between 1s and 24h such as 15m", "accounts: tokenTTL %v must be whole seconds from 1s to 24h", ttl)
 	}
 	if c.Password.MinLength < 8 || c.Password.MinLength > MaxPasswordBytes {
-		return fmt.Errorf("accounts: password minLength %d must be from 8 to %d", c.Password.MinLength, MaxPasswordBytes)
+		return loaderr.Errorf("password.minLength", fmt.Sprintf("set password.minLength to an integer from 8 to %d", MaxPasswordBytes), "accounts: password minLength %d must be from 8 to %d", c.Password.MinLength, MaxPasswordBytes)
 	}
-	if err := c.Password.Argon2id.Validate(); err != nil {
+	if err := c.Password.Argon2id.validateAt("password.argon2id"); err != nil {
 		return err
 	}
 	if err := cors.ValidateOrigins(c.AllowedOrigins); err != nil {
-		return fmt.Errorf("accounts: %w", err)
+		return loaderr.Errorf("allowedOrigins", "set each allowedOrigins entry to an origin such as https://play.example.com with no path, query or fragment", "accounts: %w", err)
 	}
 	return nil
 }
@@ -99,25 +102,25 @@ func (c Config) Validate() error {
 func ParseConfig(data []byte) (Config, error) {
 	var c Config
 	if len(bytes.TrimSpace(data)) == 0 {
-		return Config{}, errors.New("accounts: empty config")
+		return Config{}, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add an accounts config starting with version: %d", ConfigVersion), "accounts: empty config"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil {
-		return Config{}, fmt.Errorf("accounts: config: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("accounts: config: %w", err), "", data, "check the YAML syntax and field names in the accounts config")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Config{}, errors.New("accounts: config: unexpected trailing YAML document")
+			return Config{}, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the accounts config and remove any --- separator", "accounts: config: unexpected trailing YAML document"), "", data, "")
 		}
-		return Config{}, fmt.Errorf("accounts: config: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("accounts: config: %w", err), "", data, "remove trailing YAML content after the accounts config")
 	}
 	if len(c.AllowedOrigins) == 0 {
 		c.AllowedOrigins = nil
 	}
 	if err := c.Validate(); err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Locate(err, "", data, "")
 	}
 	return c, nil
 }
@@ -158,11 +161,22 @@ func (d Duration) MarshalYAML() (any, error) {
 // UnmarshalYAML reads Go duration text.
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.ScalarNode || n.ShortTag() != "!!str" {
-		return fmt.Errorf("line %d: want a duration such as 15m", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("line %d: want a duration such as 15m", n.Line),
+			Fix:     "write the duration as a Go duration string such as 15m or 1h",
+		}
 	}
 	v, err := time.ParseDuration(n.Value)
 	if err != nil {
-		return fmt.Errorf("line %d: %w", n.Line, err)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("line %d: %v", n.Line, err),
+			Fix:     "write a valid Go duration string such as 15m or 1h30m",
+			Err:     err,
+		}
 	}
 	*d = Duration(v)
 	return nil

@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"go.yaml.in/yaml/v3"
 )
@@ -232,34 +233,37 @@ func (d *LightProbeGridDoc) ToGrid() (*LightProbeGrid, error) {
 // Every error wraps [ErrInvalidProbe].
 func ValidateLightProbeGridDoc(d *LightProbeGridDoc) error {
 	if d == nil {
-		return fmt.Errorf("%w: nil light probe grid document", ErrInvalidProbe)
+		return loaderr.Errorf("", "pass a non-nil *render3d.LightProbeGridDoc to ValidateLightProbeGridDoc", "%w: nil light probe grid document", ErrInvalidProbe)
 	}
 	if d.Version != LightProbeGridVersion {
-		return fmt.Errorf("%w: unsupported light probe grid version %d (want %d)", ErrInvalidProbe, d.Version, LightProbeGridVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the light probe grid file", LightProbeGridVersion), "%w: unsupported light probe grid version %d (want %d)", ErrInvalidProbe, d.Version, LightProbeGridVersion)
 	}
 	for axis := range 3 {
-		if !finite(d.BoundsMin[axis]) || !finite(d.BoundsMax[axis]) {
-			return fmt.Errorf("%w: light probe grid bounds must be finite", ErrInvalidProbe)
+		if !finite(d.BoundsMin[axis]) {
+			return loaderr.Errorf(fmt.Sprintf("boundsMin[%d]", axis), "set boundsMin coordinates to finite numbers", "%w: light probe grid bounds must be finite", ErrInvalidProbe)
+		}
+		if !finite(d.BoundsMax[axis]) {
+			return loaderr.Errorf(fmt.Sprintf("boundsMax[%d]", axis), "set boundsMax coordinates to finite numbers", "%w: light probe grid bounds must be finite", ErrInvalidProbe)
 		}
 		if d.BoundsMin[axis] > d.BoundsMax[axis] {
-			return fmt.Errorf("%w: light probe grid boundsMin[%d] (%v) exceeds boundsMax[%d] (%v)", ErrInvalidProbe, axis, d.BoundsMin[axis], axis, d.BoundsMax[axis])
+			return loaderr.Errorf(fmt.Sprintf("boundsMin[%d]", axis), "set each boundsMin coordinate less than or equal to the matching boundsMax coordinate", "%w: light probe grid boundsMin[%d] (%v) exceeds boundsMax[%d] (%v)", ErrInvalidProbe, axis, d.BoundsMin[axis], axis, d.BoundsMax[axis])
 		}
 	}
 	total, ok := probeGridCellCount(d.Counts[0], d.Counts[1], d.Counts[2])
 	if !ok {
-		return fmt.Errorf("%w: light probe grid counts %v must be positive", ErrInvalidProbe, d.Counts)
+		return loaderr.Errorf("counts", "set counts to three positive integers [nx, ny, nz]", "%w: light probe grid counts %v must be positive", ErrInvalidProbe, d.Counts)
 	}
 	if total > MaxLightProbeGridProbes {
-		return fmt.Errorf("%w: light probe grid count %d exceeds maximum %d", ErrInvalidProbe, total, MaxLightProbeGridProbes)
+		return loaderr.Errorf("counts", fmt.Sprintf("reduce counts so nx*ny*nz is at most %d", MaxLightProbeGridProbes), "%w: light probe grid count %d exceeds maximum %d", ErrInvalidProbe, total, MaxLightProbeGridProbes)
 	}
 	if len(d.Probes) != total {
-		return fmt.Errorf("%w: light probe grid has %d probes, want %d for counts %v", ErrInvalidProbe, len(d.Probes), total, d.Counts)
+		return loaderr.Errorf("probes", fmt.Sprintf("provide exactly %d probe entries to match counts %v", total, d.Counts), "%w: light probe grid has %d probes, want %d for counts %v", ErrInvalidProbe, len(d.Probes), total, d.Counts)
 	}
 	for i, p := range d.Probes {
 		for k := range 9 {
 			for ch := range 3 {
 				if !finite(p.SH[k][ch]) {
-					return fmt.Errorf("%w: probe %d SH coefficient %d channel %d is not finite", ErrInvalidProbe, i, k, ch)
+					return loaderr.Errorf(fmt.Sprintf("probes[%d].sh[%d][%d]", i, k, ch), "replace NaN or Inf SH coefficients with finite numbers (or rebake the probe grid)", "%w: probe %d SH coefficient %d channel %d is not finite", ErrInvalidProbe, i, k, ch)
 				}
 			}
 		}
@@ -271,23 +275,23 @@ func ValidateLightProbeGridDoc(d *LightProbeGridDoc) error {
 // refusing unknown fields, trailing documents, invalid versions, and non-finite coefficients.
 func ParseLightProbeGrid(data []byte) (*LightProbeGridDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("%w: empty light probe grid document", ErrInvalidProbe)
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a light probe grid YAML document starting with version: %d", LightProbeGridVersion), "%w: empty light probe grid document", ErrInvalidProbe), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var doc LightProbeGridDoc
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("%w: decode light probe grid: %w", ErrInvalidProbe, err)
+		return nil, loaderr.Locate(fmt.Errorf("%w: decode light probe grid: %w", ErrInvalidProbe, err), "", data, "check the YAML syntax and field names in the light probe grid file")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("%w: unexpected trailing YAML document in light probe grid", ErrInvalidProbe)
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the light probe grid file and remove any --- separator", "%w: unexpected trailing YAML document in light probe grid", ErrInvalidProbe), "", data, "")
 		}
-		return nil, fmt.Errorf("%w: decode light probe grid: %w", ErrInvalidProbe, err)
+		return nil, loaderr.Locate(fmt.Errorf("%w: decode light probe grid: %w", ErrInvalidProbe, err), "", data, "remove trailing YAML content after the light probe grid")
 	}
 	if err := ValidateLightProbeGridDoc(&doc); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	yamlzero.Normalize(&doc)
 	return &doc, nil
@@ -318,15 +322,15 @@ func EncodeLightProbeGrid(d *LightProbeGridDoc) ([]byte, error) {
 // a runtime [*LightProbeGrid].
 func LoadLightProbeGridFS(fsys fs.FS, name string) (*LightProbeGrid, error) {
 	if fsys == nil {
-		return nil, errors.New("render3d: nil file system")
+		return nil, loaderr.Locate(errors.New("render3d: nil file system"), name, nil, "pass a non-nil fs.FS containing the light probe grid file")
 	}
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
-		return nil, fmt.Errorf("render3d: read light probe grid %q: %w", name, err)
+		return nil, loaderr.Locate(fmt.Errorf("render3d: read light probe grid %q: %w", name, err), name, nil, "check that the light probe grid file exists and is readable")
 	}
 	doc, err := ParseLightProbeGrid(data)
 	if err != nil {
-		return nil, fmt.Errorf("render3d: %s: %w", name, err)
+		return nil, loaderr.WithFile(err, name)
 	}
 	return doc.ToGrid()
 }

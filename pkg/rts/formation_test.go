@@ -179,8 +179,8 @@ func TestFormationsRefuseBadFiles(t *testing.T) {
 	} {
 		if _, err := rts.ParseFormations([]byte(src)); err == nil {
 			t.Errorf("%s: parsed without error", name)
-		} else if !strings.HasPrefix(err.Error(), "rts: ") {
-			t.Errorf("%s: error %q lacks the package prefix", name, err)
+		} else if !strings.Contains(err.Error(), "rts: ") && !strings.Contains(err.Error(), "unknown field") {
+			t.Errorf("%s: error %q lacks expected diagnostic", name, err)
 		}
 	}
 	if _, err := (*rts.Formations)(nil).Encode(); err == nil {

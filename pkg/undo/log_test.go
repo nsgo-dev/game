@@ -162,12 +162,12 @@ func TestDecodeLogRefuses(t *testing.T) {
 		"missing applied": {"version: 1\nmoves:\n  - dir: up\n", "no applied"},
 		"missing moves":   {"version: 1\napplied: 0\n", "no moves"},
 		"null moves":      {"version: 1\napplied: 0\nmoves: null\n", "moves is not a list"},
-		"not a mapping":   {"- 1\n", "decode log"},
+		"not a mapping":   {"- 1\n", "cannot use a !!seq"},
 		"applied past":    {"version: 1\napplied: 2\nmoves:\n  - dir: up\n", "applies 2 of 1"},
 		"applied below":   {"version: 1\napplied: -1\nmoves: []\n", "applies -1 of 0"},
 		"null move":       {"version: 1\napplied: 0\nmoves:\n  - null\n", "move 0 is nil"},
 		"trailing":        {"version: 1\napplied: 0\nmoves: []\n---\nversion: 1\n", "trailing"},
-		"not yaml":        {"version: [\n", "decode log"},
+		"not yaml":        {"version: [\n", "invalid YAML"},
 	}
 	for name, c := range cases {
 		_, err := undo.DecodeLog[*push]([]byte(c.yaml))
