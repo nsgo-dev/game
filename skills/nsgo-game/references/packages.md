@@ -9,6 +9,8 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game` | Stable | Fixed-step `Loop` (`Rate`, `Update`, `Draw`, `Paused`, `TimeScale`, `Step`, `StepNow`, `Steps`, `ElapsedSeconds`) |
 | `game/pkg/math2d` | Stable | Shared 2D `Vec2`, `Rect`, `Circle`, `Affine` types with lossless `core` conversions |
 | `game/pkg/random` | Stable | Seeded deterministic `Stream` and named `Streams` with `SetSeed` |
+| `game/pkg/mempool` | Experimental | Zero-alloc object pools: `Pool`, `Arena` with generational `Handle`s and `SlicePool` |
+| `game/pkg/spatial` | Experimental | 2D broad phase with `Hash` and `Quadtree`, and viewport culling with `Cull` and `CullBatch` |
 | `game/pkg/screen` | Stable | Virtual resolution `Viewport` scaling, pixel snapping, safe areas, video settings |
 | `game/pkg/flow` | Stable | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race`, typed event `Bus`, Yarn dialogue |
 | `game/pkg/tween` | Stable | Fixed-step `Tween`, `Timeline`, easing functions and camera choreography |
@@ -154,7 +156,6 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/tooling/playtest` | Experimental | `playtest.yaml` parser/encoder, headless seeded bot runner with replays, metrics collector, `platformer-runner` profile and YAML report |
 | `game/pkg/statedump` | Experimental | Headless deterministic YAML state dumps and line diffs between runs |
 | `game/pkg/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
-| `game/pkg/perf` | Experimental | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
 | `game/pkg/editor` | Experimental | Visual scene and animation clip editor embedded behind `go tool game editor` |
 | `game/pkg/editor/editorcmd` | Experimental | The scene editor's command line, shared by `go tool game editor` and a game's own editor command from `game generate editor` |
 | `game/pkg/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define` on the open project, served on a per-project local endpoint that `go tool game mcp` forwards to |

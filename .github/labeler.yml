@@ -178,6 +178,11 @@ pkg/mcp:
       - any-glob-to-any-file:
           - pkg/mcp/**
 
+pkg/mempool:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/mempool/**
+
 pkg/modding:
   - changed-files:
       - any-glob-to-any-file:
@@ -196,11 +201,6 @@ pkg/particles:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/particles/**
-
-pkg/perf:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/perf/**
 
 pkg/physics:
   - changed-files:
@@ -331,6 +331,11 @@ pkg/sound:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/sound/**
+
+pkg/spatial:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/spatial/**
 
 pkg/sprite:
   - changed-files:

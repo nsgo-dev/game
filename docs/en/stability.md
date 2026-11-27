@@ -107,6 +107,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/math2d` | Stable | [math2d](math2d.md) |
 | `game/pkg/math3d` | Experimental | [math3d](math3d.md) |
 | `game/pkg/mcp` | Experimental | [mcp](mcp.md) |
+| `game/pkg/mempool` | Experimental | [mempool](mempool.md) |
 | `game/pkg/modding` | Experimental | [modding](modding.md) |
 | `game/pkg/online/accounts` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/authtoken` | Experimental | [accounts](accounts.md) |
@@ -131,7 +132,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/online/presence` | Experimental | [presence](presence.md) |
 | `game/pkg/online/wsclient` | Experimental | [wsclient](wsclient.md) |
 | `game/pkg/particles` | Experimental | [particles](particles.md) |
-| `game/pkg/perf` | Experimental | [perf](perf.md) |
 | `game/pkg/physics` | Stable | [physics](physics.md) |
 | `game/pkg/physics3d` | Experimental | [physics3d](physics3d.md) |
 | `game/pkg/pixelfx` | Experimental | [pixelfx](pixelfx.md) |
@@ -181,6 +181,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/screen` | Stable | [screen](screen.md) |
 | `game/pkg/skeletal` | Experimental | [skeletal](skeletal.md) |
 | `game/pkg/sound` | Stable | [sound](sound.md) |
+| `game/pkg/spatial` | Experimental | [spatial](spatial.md) |
 | `game/pkg/sprite` | Stable | [sprite](sprite.md) |
 | `game/pkg/statedump` | Experimental | [statedump](statedump.md) |
 | `game/pkg/stats` | Experimental | [stats](stats.md) |

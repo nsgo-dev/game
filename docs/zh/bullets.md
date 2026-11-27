@@ -1,6 +1,6 @@
 # bullets
 
-`game/bullets` 为射击游戏生成、移动并绘制弹幕：用 YAML 定义的环形、螺旋和瞄准连发，子弹取自 `perf.Pool`，通过一个 `sprite.Batch` 绘制。
+`game/bullets` 为射击游戏生成、移动并绘制弹幕：用 YAML 定义的环形、螺旋和瞄准连发，子弹取自 `mempool.Pool`，通过一个 `sprite.Batch` 绘制。
 
 ```go
 import "github.com/nsgo-dev/game/pkg/bullets"
