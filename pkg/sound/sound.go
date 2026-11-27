@@ -1,6 +1,7 @@
 package sound
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"time"
@@ -166,6 +167,21 @@ func (m *Mixer) Suspend() (resume func()) {
 // Suspended reports whether a Suspend has not been resumed yet.
 func (m *Mixer) Suspended() bool { return m.suspends > 0 }
 
+// Unblock retries any music tracks whose playback was refused with audio.NotAllowed, such as tracks started before the page's first user gesture on the web. Blocked tracks keep their group volume, crossfade level, loop settings and any armed intro handoff, starting from position 0 once audible; tracks in a silent, paused, suspended or backgrounded mixer clear their blocked state and start as soon as the group becomes audible. Calling Unblock when no track is blocked does nothing.
+//
+// Call Unblock from a press, touch or key handler, or assign the mixer to input.Actions.Mixer so the first press, touch or key press retries automatically until NSGo reports audio unlock directly (nsgo-dev/nsgo#2675).
+func (m *Mixer) Unblock() {
+	if m == nil {
+		return
+	}
+	for _, mu := range m.music {
+		if mu.unblock() {
+			mu.syncBlocked()
+			mu.apply()
+		}
+	}
+}
+
 // gain is what group plays at: its volume times the master volume, 0 in the background, while suspended, or while paused unless group is exempt from game pause.
 func (m *Mixer) gain(group string) float32 {
 	if m.background || m.suspends > 0 {
@@ -316,6 +332,8 @@ type Music struct {
 	out     []*track
 	// stopFade stops the fade running, nil when none does.
 	stopFade func()
+	// blocked mirrors whether current is currently blocked by audio.NotAllowed for reactive views calling Blocked.
+	blocked *core.Signal[bool]
 }
 
 // track is a player of music and how loud it plays within its group.
@@ -323,8 +341,8 @@ type track struct {
 	p *audio.Player
 	// level is from 0 to 1, and from is where a fade out started.
 	level, from float32
-	// playing says the track was asked to play and not to pause since; done that it ended or failed, so it plays no more.
-	playing, done bool
+	// playing says the track was asked to play and not to pause since; done that it ended or failed permanently, so it plays no more; blocked that playback was refused with audio.NotAllowed and waits for Mixer.Unblock.
+	playing, done, blocked bool
 	// next is the armed loop track handed off to when an intro track finishes, nil for a single track; preloaded says Preload was called on this track.
 	next      *track
 	preloaded bool
@@ -336,24 +354,72 @@ type track struct {
 
 // Music returns music played through the mixer in group, which plays nothing until Play.
 func (m *Mixer) Music(group string) *Music {
-	mu := &Music{Group: group, m: m}
+	mu := &Music{Group: group, m: m, blocked: core.NewSignal(m.cx, false)}
 	m.music = append(m.music, mu)
 	return mu
 }
 
-// Play plays src, fading it in over fade as the tracks playing fade out, by the display's frames (core.Scope.Animate), and closing them as they reach silence; it switches at once when fade is 0. A track that fails, such as one the platform cannot decode, plays nothing.
+// Blocked reports whether the current track is waiting to retry after the platform refused playback with audio.NotAllowed (such as browser autoplay before the page's first user gesture). Read in a computation, it subscribes it to changes, so a game can show a "tap for sound" hint until Mixer.Unblock retries the track or the track is stopped or replaced.
+func (mu *Music) Blocked() bool {
+	if mu == nil || mu.blocked == nil {
+		return false
+	}
+	return mu.blocked.Get()
+}
+
+func (mu *Music) syncBlocked() {
+	if mu == nil || mu.blocked == nil {
+		return
+	}
+	blocked := mu.current != nil && mu.current.blocked
+	if mu.blocked.GetUntracked() != blocked {
+		mu.blocked.Set(blocked)
+	}
+}
+
+func (mu *Music) unblock() bool {
+	any := false
+	clearBlocked := func(t *track) {
+		for ; t != nil; t = t.prev {
+			if t.blocked {
+				t.blocked = false
+				any = true
+			}
+			if t.next != nil && t.next.blocked {
+				t.next.blocked = false
+				any = true
+			}
+		}
+	}
+	clearBlocked(mu.current)
+	for _, o := range mu.out {
+		clearBlocked(o)
+	}
+	return any
+}
+
+func (mu *Music) handleError(t *track, err error, isIntro bool) {
+	if errors.Is(err, audio.NotAllowed) {
+		t.playing = false
+		t.blocked = true
+		t.cancelHandoff()
+		mu.syncBlocked()
+		return
+	}
+	t.playing, t.blocked, t.done = false, false, true
+	if isIntro {
+		t.cancelNext()
+		mu.finishPrev(t)
+	}
+	mu.syncBlocked()
+}
+
+// Play plays src, fading it in over fade as the tracks playing fade out, by the display's frames (core.Scope.Animate), and closing them as they reach silence; it switches at once when fade is 0. A track that fails with audio.NotAllowed stays current and blocked until Mixer.Unblock retries it; any other failure, such as a track the platform cannot decode, ends the track and plays nothing.
 //
 // When the music's group has a bus effect chain (SetGroupEffects), a src holding in-memory 16-bit PCM WAV data is processed through the chain before playing, as ProcessSource does; any other source, such as an MP3 or AAC file or a URI, plays unchanged, with one log line per group saying its effects are skipped for it.
 func (mu *Music) Play(src audio.Source, fade time.Duration) {
 	src = mu.m.process(mu.Group, src)
-	var t *track
-	mu.m.cx.Run(func() {
-		t = &track{}
-		end := func() { t.playing, t.done = false, true }
-		t.p = audio.NewPlayer(mu.m.cx, src, audio.PlayerOptions{OnEnd: end, OnError: func(error) { end() }})
-	})
-	t.p.SetLoop(mu.Loop)
-	mu.fadeTo(t, fade)
+	mu.playSingle(src, mu.Loop, 0, fade)
 }
 
 // Stop fades the music out over fade, closing its tracks as they reach silence; at once when fade is 0.
@@ -374,6 +440,7 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 		mu.out = append(mu.out, mu.current)
 	}
 	mu.current = t
+	mu.syncBlocked()
 	for _, o := range mu.out {
 		o.from = o.level
 	}
@@ -444,6 +511,9 @@ func (t *track) apply(gain float32) (started bool) {
 	t.p.SetMuted(v <= 0)
 	if v > 0 {
 		t.p.SetVolume(v)
+	}
+	if t.blocked {
+		return false
 	}
 	if !t.playing {
 		t.p.Play(nil)

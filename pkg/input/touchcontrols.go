@@ -744,6 +744,9 @@ func (t *TouchControls) onDevice(d DeviceKind) {
 }
 
 func (t *TouchControls) onViewTouch(ev core.TouchEvent) {
+	if t.actions != nil && (ev.Phase == core.TouchStart || ev.Phase == core.TouchEnd) {
+		t.actions.unblockMixer()
+	}
 	t.tracker.OnTouch(ev)
 	if t.OnWake != nil && (len(ev.Touches) > 0 || ev.Phase == core.TouchCancel) {
 		t.OnWake()

@@ -187,7 +187,22 @@ music.PlayWithIntro(sound.SectionedTrack{
 - If `intro` is empty, `loop` plays directly with looping enabled; if `loop` is empty, `intro` plays once without looping; if both are empty, `PlaySections` stops the music over `fade`.
 - Because two-file playback coordinates two separate `audio.Player` instances across engine turns, it may still leave a slight seam or overlap under load or on the web. Prefer a single file with `PlayLooped` whenever you control the asset.
 
-On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAllowed`) until the user interacts with the page; start music from a button press or first tap/click.
+### Web autoplay and gesture unlock
+
+On the web, browsers refuse audio playback (`audio.NotAllowed`) until the page has received a user gesture. You can still call `music.Play` (or `PlayLooped` / `PlaySections`) during setup as on native targets:
+
+- When a music player fails with `audio.NotAllowed`, the track stays current at position `0` with its group volume, crossfade level, loop settings and any armed intro handoff intact, and `music.Blocked()` reports `true`. Other failures (such as a decode error) still end the track.
+- Call `mixer.Unblock()` once audio is allowed — assign `actions.Mixer = mixer` on [`input.Actions`](input.md) so the first press, touch or key press retries automatically, and call `mixer.Unblock()` from any standalone press handler (such as a HUD button) that does not route through `input.Actions`.
+- `music.Blocked()` is reactive, so reading it inside a view lets you show a "Tap for sound" hint that disappears as soon as playback unblocks:
+
+```go
+core.Show{
+	When: music.Blocked,
+	Then: func(*core.Scope) core.Node {
+		return core.Text{Content: "Tap for sound"}
+	},
+}
+```
 
 ## Pausing with the game
 

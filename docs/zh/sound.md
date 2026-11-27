@@ -187,7 +187,22 @@ music.PlayWithIntro(sound.SectionedTrack{
 - `intro` 为空时直接循环播放 `loop`；`loop` 为空时仅播一次 `intro`；两者都为空时在 `fade` 内停止音乐。
 - 由于双文件播放需要跨引擎事件轮次协调两个独立的 `audio.Player`，在高负载或 Web 平台上仍可能留下细微接缝或重叠。只要能控制音频资源，优先使用单文件配合 `PlayLooped`。
 
-在 Web 平台上，浏览器有自动播放策略，在首次用户交互前会拒绝播放（`audio.NotAllowed`）；请在按钮点击或玩家首次操作时启动音乐。
+### Web 自动播放与首次交互解锁
+
+在 Web 平台上，浏览器在页面收到首次用户交互前会拒绝播放音频（`audio.NotAllowed`）。你仍可以像在原生平台上一样在初始化阶段直接调用 `music.Play`（或 `PlayLooped` / `PlaySections`）：
+
+- 当音乐播放器因 `audio.NotAllowed` 失败时，该音轨会保持为当前音轨并停在位置 `0`，完整保留其分组音量、交叉淡化进度、循环设置以及已就绪的前奏衔接，`music.Blocked()` 会返回 `true`。其他错误（如解码失败）仍会照常结束该音轨。
+- 在浏览器允许播放后调用 `mixer.Unblock()` 重试受阻音轨——把混音器赋给 [`input.Actions`](input.md) 的 `actions.Mixer = mixer`，即可在玩家首次点击、触摸或按键时自动重试；对于不经过 `input.Actions` 的独立按压回调（如 HUD 按钮），也可以直接调用 `mixer.Unblock()`。
+- `music.Blocked()` 是响应式的，在视图中读取它即可展示“点击开启声音”提示，并在解锁后自动隐藏：
+
+```go
+core.Show{
+	When: music.Blocked,
+	Then: func(*core.Scope) core.Node {
+		return core.Text{Content: "点击开启声音"}
+	},
+}
+```
 
 ## 随游戏暂停
 

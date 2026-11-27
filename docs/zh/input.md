@@ -69,6 +69,7 @@ actions.Attach(&view)
 - `OnPressDown` 会忽略键盘按压以及有触摸手指处于活动状态时系统合成的指针按压，确保触摸只触发 `TouchRegion`。
 - `OnContextMenu` 将右键点击记录为 `ev.Position` 处持续一个步长的 `core.MouseButtonRight` 脉冲。
 - `OnMouseLeave` 在指针离开视图时清空按住的鼠标按键。
+- 将 `actions.Mixer` 指向游戏的 [`sound.Mixer`](sound.md#web-自动播放与首次交互解锁)，即可在 Web 平台上于首次点击、触摸或按键时自动调用 `Mixer.Unblock()`，重试因浏览器自动播放策略受阻的音乐音轨。
 
 ### 将视图坐标映射到虚拟画布
 

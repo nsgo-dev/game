@@ -104,8 +104,16 @@ func NewAudio(cx *core.Scope) (*Audio, error) {
 	return a, nil
 }
 
+// Unblock retries ambient music playback if the browser refused it before the page's first user gesture.
+func (a *Audio) Unblock() {
+	if a != nil && a.Mixer != nil {
+		a.Mixer.Unblock()
+	}
+}
+
 // PlaySwitch plays the temple chime SFX when switching between 2D and 3D scenes.
 func (a *Audio) PlaySwitch() {
+	a.Unblock()
 	if a != nil && a.SwitchSFX != nil {
 		a.SwitchSFX.Play(audio.Voice{Volume: 0.9})
 	}
@@ -113,6 +121,7 @@ func (a *Audio) PlaySwitch() {
 
 // PlayAction plays a subtle click SFX for gameplay/UI toggles.
 func (a *Audio) PlayAction() {
+	a.Unblock()
 	if a != nil && a.ActionSFX != nil {
 		a.ActionSFX.Play(audio.Voice{Volume: 0.6})
 	}
@@ -137,6 +146,7 @@ func (a *Audio) ToggleMute() {
 	} else {
 		_ = a.Mixer.SetMaster(1)
 	}
+	a.Unblock()
 	a.mutedSig.Set(next)
 }
 
