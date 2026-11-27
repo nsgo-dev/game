@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dock"
 	"github.com/nsgo-dev/nsgo/core"
@@ -269,6 +270,7 @@ func ParseLayout(data []byte) (*LayoutFile, error) {
 	if err := ValidateLayout(&f); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&f)
 	return &f, nil
 }
 
@@ -418,7 +420,7 @@ func EncodeLayout(f *LayoutFile) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(canon); err != nil {
+	if err := enc.Encode(yamlzero.Clean(canon)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("editor: layout: encode: %w", err)
 	}

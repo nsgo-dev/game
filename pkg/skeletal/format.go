@@ -12,6 +12,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
@@ -172,6 +173,9 @@ type AttachmentKeyframe struct {
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func Load(data []byte) (*SkeletonData, error) {
 	sd, err := load(data)
+	if err == nil {
+		yamlzero.Normalize(sd)
+	}
 	return sd, loaderr.Locate(err, "", data, "correct the rig to match the version 1 format in docs/en/skeletal.md")
 }
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -359,6 +360,7 @@ func ParseTileset(data []byte) (*TilesetDoc, error) {
 	if err != nil {
 		return nil, loaderr.Locate(err, "", data, fixTilesetDoc)
 	}
+	yamlzero.Normalize(doc)
 	return doc, nil
 }
 
@@ -428,7 +430,7 @@ func EncodeTileset(doc *TilesetDoc) ([]byte, error) {
 	buf.WriteString(TilesetSchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(tilesetFloatKinds(doc)); err != nil {
+	if err := enc.Encode(tilesetFloatKinds(yamlzero.Clean(doc))); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("tilemap: tileset: encode yaml: %w", err)
 	}
@@ -888,6 +890,10 @@ func floatProps(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
 		if f, ok := v.(float64); ok {
+			if f == 0 {
+				f = 0
+				v = f
+			}
 			if s := strconv.FormatFloat(f, 'g', -1, 64); strings.TrimLeft(strings.TrimPrefix(s, "-"), "0123456789") == "" {
 				v = wholeFloat(s)
 			}

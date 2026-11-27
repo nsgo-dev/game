@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -273,6 +274,7 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
+	yamlzero.Normalize(&cfg)
 	return cfg, nil
 }
 
@@ -311,7 +313,7 @@ func encodeYAML(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(v); err != nil {
+	if err := enc.Encode(yamlzero.Clean(v)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("encode: %w", err)
 	}

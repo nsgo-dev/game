@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -111,6 +112,7 @@ func parseViewState(data []byte) (*viewState, error) {
 			return nil, fmt.Errorf("editor: view state: %w", err)
 		}
 	}
+	yamlzero.Normalize(&v)
 	return &v, nil
 }
 
@@ -126,7 +128,7 @@ func encodeViewState(v *viewState) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(&sorted); err != nil {
+	if err := enc.Encode(yamlzero.Clean(&sorted)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("editor: view state: %w", err)
 	}

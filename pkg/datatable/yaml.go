@@ -13,6 +13,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
@@ -204,6 +205,7 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 				}).located(kNode.Line, kNode.Column, loaderr.Path(yamlRowsKey, i, fieldName), fixCell(fb.typ))
 			}
 		}
+		yamlzero.Normalize(&elem)
 		rows = append(rows, elem)
 	}
 	return rows, nil
@@ -316,6 +318,9 @@ func yamlNodeFromValue(fv reflect.Value, depth int) (*yaml.Node, error) {
 		f := fv.Float()
 		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, fmt.Errorf("non-finite %s value %v", fv.Type(), f)
+		}
+		if f == 0 {
+			f = 0
 		}
 		// Untagged so an integral value such as 3 is written plain rather than as "!!float 3"; LoadYAML parses it by the field's type.
 		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatFloat(f, 'g', -1, fv.Type().Bits())}, nil

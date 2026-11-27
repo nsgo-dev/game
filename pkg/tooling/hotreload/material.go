@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
@@ -163,6 +164,7 @@ func ParseMaterialFile(filePath string, data []byte) (*MaterialDef, error) {
 	if err := m.Validate(); err != nil {
 		return nil, loaderr.Locate(err, cleanPath, data, defaultFix)
 	}
+	yamlzero.Normalize(&m)
 	return &m, nil
 }
 
@@ -179,7 +181,7 @@ func EncodeMaterial(m *MaterialDef) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(m); err != nil {
+	if err := enc.Encode(yamlzero.Clean(m)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("hotreload: encode material: %w", err)
 	}

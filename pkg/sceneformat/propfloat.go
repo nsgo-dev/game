@@ -62,13 +62,21 @@ func floatMap(m map[string]any) map[string]any {
 func floatValue(v any) any {
 	switch x := v.(type) {
 	case float64:
+		if x == 0 {
+			x = 0
+		}
 		if s := strconv.FormatFloat(x, 'g', -1, 64); isWholeNumber(s) {
 			return wholeFloat(s)
 		}
+		return x
 	case float32:
+		if x == 0 {
+			x = 0
+		}
 		if s := strconv.FormatFloat(float64(x), 'g', -1, 32); isWholeNumber(s) {
 			return wholeFloat(s)
 		}
+		return x
 	case map[string]any:
 		return floatMap(x)
 	case map[any]any:

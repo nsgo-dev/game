@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -65,6 +66,7 @@ func ParseFormations(data []byte) (*Formations, error) {
 	if err := fs.Validate(); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&fs)
 	return &fs, nil
 }
 
@@ -76,7 +78,7 @@ func (fs *Formations) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(fs); err != nil {
+	if err := enc.Encode(yamlzero.Clean(fs)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("rts: encode formations: %w", err)
 	}

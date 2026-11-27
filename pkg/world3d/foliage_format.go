@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"go.yaml.in/yaml/v3"
@@ -239,6 +240,7 @@ func ParseFoliageWith(data []byte, file string) (*FoliageDoc, error) {
 	if err != nil {
 		return nil, loaderr.Locate(err, file, data, fixFoliageDoc)
 	}
+	yamlzero.Normalize(doc)
 	return doc, nil
 }
 
@@ -477,7 +479,7 @@ func EncodeFoliage(doc *FoliageDoc) ([]byte, error) {
 	buf.WriteString(FoliageSchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(yamlzero.Clean(doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("world3d: encode foliage: %w", err)
 	}

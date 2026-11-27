@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/resource"
@@ -907,6 +908,7 @@ func parse(data []byte, reg *ComponentRegistry, layers *PhysicsLayerTable) (*Sce
 			return nil, err
 		}
 	}
+	yamlzero.Normalize(&doc)
 	return &doc, nil
 }
 
@@ -936,7 +938,7 @@ func Encode(doc *SceneDoc) ([]byte, error) {
 	buf.WriteString(SchemaCommentFor(doc.Version) + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(canonicalComponents(canonicalTilemaps(floatKinds(doc)))); err != nil {
+	if err := enc.Encode(canonicalComponents(canonicalTilemaps(floatKinds(yamlzero.Clean(doc))))); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("sceneformat: encode: %w", err)
 	}

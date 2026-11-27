@@ -861,3 +861,120 @@ export:
 		t.Fatal("Validate accepted NaN FrameTimeP95Ms")
 	}
 }
+
+func TestNegativeZeroRoundTrip(t *testing.T) {
+	const raw = `version: 1
+name: Game
+id: dev.example.game
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+  minWidth: -0.0
+input:
+  actions:
+    - name: tap
+      bindings:
+        - kind: touchRegion
+          region: {x: -0.0, y: -0.0, width: 100, height: 100}
+audio:
+  master: -0.0
+  buses:
+    - name: sfx
+      volume: -0.0
+      effects:
+        - gain: {factor: -0.0}
+        - delay: {time: 200ms, feedback: -0.0, wet: -0.0}
+        - reverb: {roomSize: -0.0, damping: -0.0, wet: -0.0}
+        - lowPass: {cutoffHz: 1000, q: -0.0}
+physics:
+  gravity2D: {x: -0.0, y: -0.0}
+  gravity3D: {x: -0.0, y: -0.0, z: -0.0}
+export:
+  budgets:
+    downloadSizeMB: -0.0
+    frameTimeP95Ms: -0.0
+assets:
+  audio:
+    - in: raw/a.wav
+      out: built/a.wav
+      peakDB: -0.0
+navigation:
+  cellSize: -0.0
+`
+	parsed, err := project.Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if math.Signbit(float64(*parsed.Audio.Master)) {
+		t.Fatal("parsed Audio.Master kept negative zero")
+	}
+	if math.Signbit(float64(*parsed.Audio.Buses[0].Volume)) {
+		t.Fatal("parsed Bus.Volume kept negative zero")
+	}
+	if math.Signbit(parsed.Audio.Buses[0].Effects[0].Gain.Factor) {
+		t.Fatal("parsed Gain.Factor kept negative zero")
+	}
+	if math.Signbit(*parsed.Assets.Audio[0].PeakDB) {
+		t.Fatal("parsed Assets.Audio[0].PeakDB kept negative zero")
+	}
+
+	first, err := project.Encode(parsed)
+	if err != nil {
+		t.Fatalf("Encode 1: %v", err)
+	}
+	if strings.Contains(string(first), "-0") {
+		t.Fatalf("Encode wrote negative zero:\n%s", first)
+	}
+	again, err := project.Parse(first)
+	if err != nil {
+		t.Fatalf("Parse 2: %v\n%s", err, first)
+	}
+	second, err := project.Encode(again)
+	if err != nil {
+		t.Fatalf("Encode 2: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatalf("round trip changed bytes:\n--- first\n%s\n--- second\n%s", first, second)
+	}
+
+	// Also test encoding a Go-constructed File carrying -0.0 directly without mutating caller.
+	nz32 := float32(math.Copysign(0, -1))
+	nz64 := math.Copysign(0, -1)
+	inMem := &project.File{
+		Version:    project.CurrentVersion,
+		Name:       "Game",
+		ID:         "dev.example.game",
+		AppVersion: "1.0.0",
+		Window:     project.Window{Width: 640, Height: 360},
+		Audio: &project.Audio{
+			Master: project.Float32(nz32),
+			Buses: []project.Bus{{
+				Name:    "sfx",
+				Volume:  project.Float32(nz32),
+				Effects: []project.Effect{{Gain: &project.Gain{Factor: nz64}}},
+			}},
+		},
+	}
+	mFirst, err := project.Encode(inMem)
+	if err != nil {
+		t.Fatalf("Encode in-memory: %v", err)
+	}
+	if strings.Contains(string(mFirst), "-0") {
+		t.Fatalf("Encode in-memory wrote negative zero:\n%s", mFirst)
+	}
+	if !math.Signbit(float64(*inMem.Audio.Master)) || !math.Signbit(inMem.Audio.Buses[0].Effects[0].Gain.Factor) {
+		t.Fatal("Encode mutated caller File")
+	}
+	mAgain, err := project.Parse(mFirst)
+	if err != nil {
+		t.Fatalf("Parse in-memory: %v", err)
+	}
+	mSecond, err := project.Encode(mAgain)
+	if err != nil {
+		t.Fatalf("Encode in-memory 2: %v", err)
+	}
+	if !bytes.Equal(mFirst, mSecond) {
+		t.Fatalf("in-memory round trip changed bytes:\n--- first\n%s\n--- second\n%s", mFirst, mSecond)
+	}
+}

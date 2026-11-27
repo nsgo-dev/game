@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/internal/semver"
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -489,6 +490,7 @@ func Parse(data []byte) (*File, error) {
 	if f.Assets != nil {
 		f.Assets.normalize()
 	}
+	yamlzero.Normalize(&f)
 	return &f, nil
 }
 
@@ -518,7 +520,7 @@ func Encode(f *File) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(f); err != nil {
+	if err := enc.Encode(yamlzero.Clean(f)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("project: encode: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"math"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"go.yaml.in/yaml/v3"
 )
@@ -288,6 +289,7 @@ func ParseLightProbeGrid(data []byte) (*LightProbeGridDoc, error) {
 	if err := ValidateLightProbeGridDoc(&doc); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&doc)
 	return &doc, nil
 }
 

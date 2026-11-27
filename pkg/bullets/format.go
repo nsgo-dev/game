@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -103,6 +104,7 @@ func Parse(data []byte) (*File, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&f)
 	return &f, nil
 }
 
@@ -114,7 +116,7 @@ func Encode(f *File) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(f); err != nil {
+	if err := enc.Encode(yamlzero.Clean(f)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("bullets: encode: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -127,6 +128,7 @@ func Parse(data []byte) (*Catalog, error) {
 	if err := refuseExplicitZeroStack(data); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&doc)
 	return newCatalog(doc.Items)
 }
 
@@ -158,7 +160,7 @@ func (c *Catalog) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
+	if err := enc.Encode(yamlzero.Clean(&doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("inventory: encode item catalog: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -196,6 +197,7 @@ func Parse(data []byte) (*Doc, error) {
 			m.Cancels = nil
 		}
 	}
+	yamlzero.Normalize(&doc)
 	return &doc, nil
 }
 
@@ -207,7 +209,7 @@ func Encode(doc *Doc) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(yamlzero.Clean(doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("framedata: encode: %w", err)
 	}

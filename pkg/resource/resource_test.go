@@ -495,11 +495,136 @@ func TestLibraryReloadsEveryKind(t *testing.T) {
 	}
 }
 
+func TestNegativeZeroRoundTrip(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "material",
+			yaml: "type: material\nversion: 1\nopacity: -0.0\nmetallic: -0.0\nroughness: -0.0\n",
+		},
+		{
+			name: "curve",
+			yaml: "type: curve\nversion: 1\nkeys:\n  - time: -0.0\n    value: -0.0\n",
+		},
+		{
+			name: "gradient",
+			yaml: "type: gradient\nversion: 1\nstops:\n  - offset: -0.0\n    color: '#ffffff'\n",
+		},
+		{
+			name: "animation",
+			yaml: "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: x\n    keys:\n      - time: -0.0\n        value: -0.0\n  - property: sprite.frame\n    frames:\n      - time: -0.0\n        frame: idle\nevents:\n  - time: -0.0\n    name: start\n",
+		},
+		{
+			name: "theme",
+			yaml: "type: theme\nversion: 1\npadding: -0.0\ncornerRadius: -0.0\nborderWidth: -0.0\nfocusWidth: -0.0\nfont:\n  size: -0.0\n",
+		},
+		{
+			name: "busLayout",
+			yaml: "type: busLayout\nversion: 1\nbuses:\n  - name: sfx\n    effects:\n      - lowPass:\n          cutoffHz: 800\n          q: -0.0\n      - delay:\n          seconds: 0.25\n          feedback: -0.0\n          wet: -0.0\n      - reverb:\n          roomSize: -0.0\n          damping: -0.0\n          wet: -0.0\n      - gain:\n          factor: -0.0\n",
+		},
+		{
+			name: "physicsMaterial",
+			yaml: "type: physicsMaterial\nversion: 1\nfriction: -0.0\nrestitution: -0.0\nlinearDamping: -0.0\nangularDamping: -0.0\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run("yaml/"+tc.name, func(t *testing.T) {
+			r, err := resource.Parse([]byte(tc.yaml))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			first, err := resource.Encode(r)
+			if err != nil {
+				t.Fatalf("Encode 1: %v", err)
+			}
+			if strings.Contains(string(first), "-0") {
+				t.Fatalf("Encode wrote negative zero:\n%s", first)
+			}
+			again, err := resource.Parse(first)
+			if err != nil {
+				t.Fatalf("Parse 2: %v\n%s", err, first)
+			}
+			second, err := resource.Encode(again)
+			if err != nil {
+				t.Fatalf("Encode 2: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("round trip changed bytes:\n--- first\n%s\n--- second\n%s", first, second)
+			}
+		})
+	}
+
+	t.Run("in_memory_negzero", func(t *testing.T) {
+		nz32 := float32(math.Copysign(0, -1))
+		nz64 := math.Copysign(0, -1)
+		op := nz32
+		m := &resource.Material{
+			Header:    resource.NewHeader(resource.KindMaterial),
+			Opacity:   &op,
+			Metallic:  nz32,
+			Roughness: &op,
+		}
+		first, err := resource.Encode(m)
+		if err != nil {
+			t.Fatalf("Encode material: %v", err)
+		}
+		if strings.Contains(string(first), "-0") {
+			t.Fatalf("Encode wrote negative zero:\n%s", first)
+		}
+		if !math.Signbit(float64(*m.Opacity)) {
+			t.Fatal("Encode mutated caller Material")
+		}
+		parsed, err := resource.Parse(first)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		second, err := resource.Encode(parsed)
+		if err != nil {
+			t.Fatalf("Encode 2: %v", err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Fatalf("round trip changed bytes:\n%s\n---\n%s", first, second)
+		}
+
+		bl := &resource.BusLayout{
+			Header: resource.NewHeader(resource.KindBusLayout),
+			Buses: []resource.Bus{{
+				Name:    "sfx",
+				Effects: []resource.BusEffect{{Gain: &resource.GainEffect{Factor: nz64}}},
+			}},
+		}
+		bFirst, err := resource.Encode(bl)
+		if err != nil {
+			t.Fatalf("Encode busLayout: %v", err)
+		}
+		if strings.Contains(string(bFirst), "-0") {
+			t.Fatalf("Encode busLayout wrote negative zero:\n%s", bFirst)
+		}
+		bParsed, err := resource.Parse(bFirst)
+		if err != nil {
+			t.Fatalf("Parse busLayout: %v", err)
+		}
+		bSecond, err := resource.Encode(bParsed)
+		if err != nil {
+			t.Fatalf("Encode busLayout 2: %v", err)
+		}
+		if !bytes.Equal(bFirst, bSecond) {
+			t.Fatalf("busLayout round trip changed bytes:\n%s\n---\n%s", bFirst, bSecond)
+		}
+	})
+}
+
 func FuzzParseRoundTrip(f *testing.F) {
 	for name := range testdataKinds {
 		f.Add(readTestdata(f, name))
 	}
 	f.Add([]byte("type: curve\nversion: 1\nkeys: [{time: 0, value: 1}]\n"))
+	f.Add([]byte("type: material\nversion: 1\nopacity: -0.0\nmetallic: -0.0\nroughness: -0.0\n"))
+	f.Add([]byte("type: curve\nversion: 1\nkeys: [{time: -0.0, value: -0.0}]\n"))
+	f.Add([]byte("type: busLayout\nversion: 1\nbuses: [{name: sfx, effects: [{gain: {factor: -0.0}}]}]\n"))
+	f.Add([]byte("type: physicsMaterial\nversion: 1\nfriction: -0.0\nrestitution: -0.0\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r, err := resource.Parse(data)
 		if err != nil {

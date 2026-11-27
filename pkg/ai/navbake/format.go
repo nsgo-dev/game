@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
@@ -180,6 +181,7 @@ func Parse(data []byte) (*Mesh, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&m)
 	return &m, nil
 }
 
@@ -191,7 +193,7 @@ func (m *Mesh) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(m); err != nil {
+	if err := enc.Encode(yamlzero.Clean(m)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("navbake: encode mesh: %w", err)
 	}
