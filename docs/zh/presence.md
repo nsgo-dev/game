@@ -88,6 +88,7 @@ _ = mgr.Clear(ctx)
 - 连续调用 `Set` 时，已移除的旧键会通过 `SetRichPresence(key, "")` 逐个删除而无需 `ClearRichPresence()`，未变化的键则跳过，避免好友列表闪烁。
 - 键名与键数遵循 Steamworks 限制（`SteamMaxKeys = 30`、`SteamMaxKeyLength = 63` 字节，超限或非法键返回 `ErrSteamKeyInvalid` 或 `ErrSteamTooManyKeys`）；超过 `SteamMaxValueLength`（255 字节）的值按 UTF-8 字符边界截断。
 - 在 Web、iOS、Android 上，或缺少 Steamworks 共享库 / Steam 客户端未运行时，`Set` 和 `Clear` 返回 `ErrUnavailable`。
+- 通过 `nsgo-natives.yaml` 打包 Steamworks 动态库以及上传 `steam_display` 令牌所需的 Steamworks 本地化 VDF 文件，见[发布到 Steam](steam.md#丰富状态本地化)。
 
 ## 优雅降级
 

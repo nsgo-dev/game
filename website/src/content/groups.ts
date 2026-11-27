@@ -30,6 +30,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'errors',
       'platforms',
       'shipping',
+      'steam',
       'accessibility-guide',
       'cli',
       'cli-reference',

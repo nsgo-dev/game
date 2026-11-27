@@ -103,6 +103,7 @@ GOFLAGS=-tags=release go tool nsgo build -channel store -target macos,windows,li
 
 - **`direct`** (default): direct-download installers and archives (`.dmg`, NSIS `.exe`, `.deb`/Arch/`.AppImage`, `.apk`, `.ipa`, web `.zip`).
 - **`store`**: store submission packages (Mac App Store `.pkg`, Microsoft Store `.msix`, Flathub `.tar.gz` + Flatpak manifest, Google Play `.aab`, iOS `.ipa`).
+- **`steam`**: unpacked desktop depot directories for macOS, Windows and Linux (with `steam-launch.sh` and bundled GTK 4 on `linux_x64`), without installers, self-updaters or `steam_appid.txt`. See [Shipping on Steam](steam.md) for Steamworks setup, `nsgo-natives.yaml`, SteamPipe uploads, Steam Cloud paths and the Steam Deck checklist.
 - **`none`**: skips auto-update feeds while keeping direct packaging.
 
 Pass `-installers=false` if you only want the raw unpacked app directories on desktop targets. Pass `-run` to launch a built package immediately on this machine, a connected device, or a local web server.

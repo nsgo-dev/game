@@ -284,3 +284,4 @@ if _, err := ws.SyncSubscribed(ctx); err != nil {
 
 - `Publish` 会在创建或更新任何创意工坊条目之前校验 `mod.yaml`、入口脚本、预览图路径和 `workshop.yaml`。如果 Steamworks 要求作者先接受 Steam 创意工坊订户协议，`Publish` 仍会将 `publishedFileId` 写入 `workshop.yaml`，并返回包含 `NeedsLegalAgreement: true` 和 `LegalAgreementURL: WorkshopLegalAgreementURL` 的 `PublishResult` 以及 `ErrWorkshopLegalAgreementRequired` 错误。
 - `SyncSubscribed` 会卸载并移除已取消订阅的模组，下载缺失或有更新的条目，校验路径边界（通过 `WorkshopOptions.AllowedRoots` 和逃逸符号链接检查返回 `ErrWorkshopUnsafePath`），并按依赖拓扑顺序安装有效模组，同时隔离单个损坏条目的错误。`InstallSubscribed` 用于按需安装单个已订阅条目。
+- 通过 `nsgo-natives.yaml` 打包 Steamworks 动态库、在 macOS 上传入 `SteamWorkshopOptions.LibraryPath` 以及在 Steamworks 合作伙伴门户启用创意工坊的步骤，见[发布到 Steam](steam.md#steam-创意工坊)。

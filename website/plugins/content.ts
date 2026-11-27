@@ -179,6 +179,7 @@ const DOC_ORDER = [
   '3d-models-blender.md',
   'platforms.md',
   'shipping.md',
+  'steam.md',
   'cli.md',
   'cli-reference.md',
 ] as const

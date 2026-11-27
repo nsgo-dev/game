@@ -157,6 +157,37 @@ jobs:
           path: examples/caverun/dist
           if-no-files-found: error
 
+  caverun-steam-depots:
+    name: Build Steam desktop depots (Cave Run)
+    runs-on: depot-macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/caverun/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/caverun/go.sum
+            go.sum
+      # Exercises the Steam depot build command documented in docs/en/steam.md without uploading to SteamPipe.
+      - name: Build Cave Run Steam desktop depots with game release
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/caverun-steam"
+          go run ./cmd/game release -channel steam -target macos_universal,windows_x64,linux_x64 -output "$out" examples/caverun
+          test -d "$out/Cave Run-0.1.0-macos_universal/Cave Run.app"
+          test -f "$out/Cave Run-0.1.0-windows_x64/Cave Run.exe"
+          test -f "$out/Cave Run-0.1.0-windows_x64/THIRD_PARTY_NOTICES.txt"
+          test -f "$out/Cave Run-0.1.0-linux_x64/Cave Run"
+          test -x "$out/Cave Run-0.1.0-linux_x64/steam-launch.sh"
+          test -f "$out/Cave Run-0.1.0-linux_x64/nsgo-gtk/licenses/NOTICE"
+          test -z "$(find "$out" -iname 'steam_appid.txt')"
+
   tutorial-web:
     name: Build web (tutorial)
     runs-on: depot-ubuntu-24.04-4

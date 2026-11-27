@@ -103,6 +103,7 @@ GOFLAGS=-tags=release go tool nsgo build -channel store -target macos,windows,li
 
 - **`direct`**（默认）：直接分发安装器与压缩包（`.dmg`、NSIS `.exe`、`.deb`/Arch/`.AppImage`、`.apk`、`.ipa`、Web `.zip`）。
 - **`store`**：应用商店提交包（Mac App Store `.pkg`、Microsoft Store `.msix`、Flathub `.tar.gz` + Flatpak 清单、Google Play `.aab`、iOS `.ipa`）。
+- **`steam`**：用于 macOS、Windows 和 Linux 的未打包桌面端 Depot 目录（`linux_x64` 附带 `steam-launch.sh` 与内置 GTK 4），不含安装器、自更新器或 `steam_appid.txt`。Steamworks 配置、`nsgo-natives.yaml`、SteamPipe 上传、Steam 云存档路径与 Steam Deck 验证清单见[发布到 Steam](steam.md)。
 - **`none`**：跳过自动更新源配置，保留直接分发格式。
 
 如果桌面端只需要未打包的应用目录，传入 `-installers=false`。传入 `-run` 可在构建完成后立刻在本机、连接的设备或本地 Web 服务器上运行产物。
