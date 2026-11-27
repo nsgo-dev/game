@@ -86,7 +86,7 @@ rs.Tick()                                 // close rooms empty for EmptyTimeout
 - `Join` on a running match calls `Snapshot` and returns it with the current epoch and tick; the joiner applies that full state before deltas.
 - `Start` after `End` advances the epoch and resets the tick, so clients can drop the old match's tick state without waiting for the counter to wrap.
 - A private room's `Code` is accepted by `JoinCode`; a full room returns `ErrRoomFull`, an unknown code `ErrRoomNotFound`.
-- A room that loses its last member closes after `EmptyTimeout` when `Tick` runs.
+- An empty room — whether nobody joined it or its last member left — closes after `EmptyTimeout` when `Tick` runs, releasing its ID and private code.
 
 ## Rate limits and input validation
 

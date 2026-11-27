@@ -72,9 +72,10 @@ type Room struct {
 	capacity int
 	private  bool
 	created  time.Time
-	emptyAt  time.Time // when the last member left; zero while occupied
 
 	mu      sync.Mutex
+	closed  bool
+	emptyAt time.Time // when the room became empty (created or last member left); zero while occupied
 	state   RoomState
 	epoch   uint64
 	tick    uint64
@@ -138,7 +139,7 @@ func (r *Room) Members() []netplay.PeerID {
 func (r *Room) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.members) == 0 {
+	if r.closed || len(r.members) == 0 {
 		return ErrRoomNotFound
 	}
 	r.state = RoomRunning
@@ -200,6 +201,9 @@ type Rooms struct {
 	// Now is the clock for empty-room timeouts; nil uses time.Now.
 	Now func() time.Time
 
+	// beforeJoin is a test-only hook invoked between lookup and locking r.mu.
+	beforeJoin func(*Room)
+
 	mu     sync.Mutex
 	nextID uint64
 	rooms  map[uint64]*Room
@@ -224,11 +228,13 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 		rs.codes = make(map[string]*Room)
 	}
 	rs.nextID++
+	now := rs.now()
 	r := &Room{
 		id:       rs.nextID,
 		capacity: capacity,
 		private:  private,
-		created:  rs.now(),
+		created:  now,
+		emptyAt:  now,
 		state:    RoomWaiting,
 		members:  make(map[netplay.PeerID]struct{}),
 		inbox:    make(map[netplay.PeerID][]netplay.Packet),
@@ -279,7 +285,14 @@ func (rs *Rooms) JoinCode(code string, peer netplay.PeerID) (Join, error) {
 }
 
 func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
+	if rs.beforeJoin != nil {
+		rs.beforeJoin(r)
+	}
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return Join{}, ErrRoomNotFound
+	}
 	if r.state == RoomEnded {
 		r.mu.Unlock()
 		return Join{}, ErrRoomEnded
@@ -348,7 +361,10 @@ func (rs *Rooms) Tick() []uint64 {
 	var closed []uint64
 	for id, r := range rs.rooms {
 		r.mu.Lock()
-		empty := len(r.members) == 0 && !r.emptyAt.IsZero() && now.Sub(r.emptyAt) >= rs.EmptyTimeout
+		empty := len(r.members) == 0 && now.Sub(r.emptyAt) >= rs.EmptyTimeout
+		if empty {
+			r.closed = true
+		}
 		r.mu.Unlock()
 		if !empty {
 			continue

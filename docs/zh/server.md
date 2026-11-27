@@ -86,7 +86,7 @@ rs.Tick()                                 // 关闭空置超过 EmptyTimeout 的
 - 对运行中房间 `Join` 会调用 `Snapshot`，连同当前 epoch 与 tick 返回；加入者先应用完整状态，再处理增量。
 - `End` 后 `Start` 会推进 epoch 并清零 tick，客户端无需等待计数器越过旧值即可丢弃上一场比赛的 tick 状态。
 - 私有房间的 `Code` 可由 `JoinCode` 使用；满员返回 `ErrRoomFull`，未知房间码返回 `ErrRoomNotFound`。
-- 最后一个成员离开后，房间在 `Tick` 运行且空置超过 `EmptyTimeout` 时关闭。
+- 空房间（无论是从未有人加入，还是最后一个成员已经离开）会在空置满 `EmptyTimeout` 后于 `Tick` 运行时关闭，并释放其 ID 与私有房间码。
 
 ## 速率限制与输入校验
 

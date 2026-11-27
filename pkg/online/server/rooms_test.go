@@ -2,6 +2,8 @@ package server_test
 
 import (
 	"errors"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -158,5 +160,218 @@ func TestEmptyRoomClosesAfterTimeout(t *testing.T) {
 	}
 	if _, err := rs.Join(room.ID(), 2); !errors.Is(err, server.ErrRoomNotFound) {
 		t.Fatalf("join after close = %v, want ErrRoomNotFound", err)
+	}
+}
+
+func TestNeverJoinedRoomClosesAfterTimeout(t *testing.T) {
+	rs := server.NewRooms()
+	now := time.Unix(100, 0)
+	rs.Now = func() time.Time { return now }
+	rs.EmptyTimeout = time.Second
+	rs.CodeGenerator = func() string { return "IDLE42" }
+
+	pub, err := rs.Create(4, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv, err := rs.Create(4, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed := rs.Tick(); len(closed) != 0 {
+		t.Fatalf("closed immediately: %v", closed)
+	}
+	now = now.Add(999 * time.Millisecond)
+	if closed := rs.Tick(); len(closed) != 0 {
+		t.Fatalf("closed before timeout: %v", closed)
+	}
+	if got := rs.List(); len(got) != 2 {
+		t.Fatalf("listed rooms before timeout = %d, want 2", len(got))
+	}
+
+	now = now.Add(time.Millisecond)
+	closed := rs.Tick()
+	slices.Sort(closed)
+	want := []uint64{pub.ID(), priv.ID()}
+	if !slices.Equal(closed, want) {
+		t.Fatalf("closed = %v, want %v", closed, want)
+	}
+	if got := rs.List(); len(got) != 0 {
+		t.Fatalf("listed rooms after close = %v, want empty", got)
+	}
+	if _, err := rs.Join(pub.ID(), 1); !errors.Is(err, server.ErrRoomNotFound) {
+		t.Fatalf("Join(pub) after close = %v, want ErrRoomNotFound", err)
+	}
+	if _, err := rs.JoinCode("IDLE42", 1); !errors.Is(err, server.ErrRoomNotFound) {
+		t.Fatalf("JoinCode after close = %v, want ErrRoomNotFound", err)
+	}
+	// Closing released the private code so a new room can allocate it.
+	recreated, err := rs.Create(4, true)
+	if err != nil {
+		t.Fatalf("recreate private room with released code: %v", err)
+	}
+	if recreated.Code() != "IDLE42" {
+		t.Fatalf("recreated code = %q, want IDLE42", recreated.Code())
+	}
+}
+
+func TestNeverJoinedRoomClosesImmediatelyWithZeroTimeout(t *testing.T) {
+	rs := server.NewRooms()
+	rs.CodeGenerator = func() string { return "ZERO01" }
+
+	room, err := rs.Create(4, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := rs.Tick()
+	if !slices.Equal(closed, []uint64{room.ID()}) {
+		t.Fatalf("closed = %v, want [%d]", closed, room.ID())
+	}
+	if got := rs.List(); len(got) != 0 {
+		t.Fatalf("listed rooms = %v, want empty", got)
+	}
+	if _, err := rs.JoinCode("ZERO01", 1); !errors.Is(err, server.ErrRoomNotFound) {
+		t.Fatalf("JoinCode after close = %v, want ErrRoomNotFound", err)
+	}
+}
+
+func TestJoinedRoomCancelsIdleCloseAndReemptyingClosesAfterTimeout(t *testing.T) {
+	rs := server.NewRooms()
+	now := time.Unix(0, 0)
+	rs.Now = func() time.Time { return now }
+	rs.EmptyTimeout = time.Second
+
+	room, err := rs.Create(2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(800 * time.Millisecond)
+	if _, err := rs.Join(room.ID(), 1); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	if closed := rs.Tick(); len(closed) != 0 {
+		t.Fatalf("occupied room closed: %v", closed)
+	}
+	if !rs.Leave(room.ID(), 1) {
+		t.Fatal("Leave(1) = false, want true")
+	}
+	now = now.Add(500 * time.Millisecond)
+	if closed := rs.Tick(); len(closed) != 0 {
+		t.Fatalf("closed before post-leave timeout: %v", closed)
+	}
+	// A non-member Leave must not reset the empty timer.
+	now = now.Add(300 * time.Millisecond)
+	if rs.Leave(room.ID(), 99) {
+		t.Fatal("Leave(non-member) = true, want false")
+	}
+	now = now.Add(200 * time.Millisecond)
+	if closed := rs.Tick(); !slices.Equal(closed, []uint64{room.ID()}) {
+		t.Fatalf("closed = %v, want [%d]", closed, room.ID())
+	}
+}
+
+func TestEndedEmptyRoomClosesAfterTimeout(t *testing.T) {
+	rs := server.NewRooms()
+	now := time.Unix(0, 0)
+	rs.Now = func() time.Time { return now }
+	rs.EmptyTimeout = time.Second
+
+	room, err := rs.Create(2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rs.Join(room.ID(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := room.Start(); err != nil {
+		t.Fatal(err)
+	}
+	room.End()
+	if !rs.Leave(room.ID(), 1) {
+		t.Fatal("Leave(1) = false, want true")
+	}
+	now = now.Add(time.Second)
+	if closed := rs.Tick(); !slices.Equal(closed, []uint64{room.ID()}) {
+		t.Fatalf("closed = %v, want [%d]", closed, room.ID())
+	}
+	if _, err := rs.Join(room.ID(), 2); !errors.Is(err, server.ErrRoomNotFound) {
+		t.Fatalf("Join after close = %v, want ErrRoomNotFound", err)
+	}
+	if err := room.Start(); !errors.Is(err, server.ErrRoomNotFound) {
+		t.Fatalf("Start after close = %v, want ErrRoomNotFound", err)
+	}
+}
+
+func TestConcurrentJoinAndTickNeverStrandsPeer(t *testing.T) {
+	rs := server.NewRooms()
+	for round := range 200 {
+		room, err := rs.Create(4, true)
+		if err != nil {
+			t.Fatalf("round %d Create: %v", round, err)
+		}
+		code := room.Code()
+		id := room.ID()
+
+		start := make(chan struct{})
+		var (
+			errByID   error
+			errByCode error
+			closedIDs []uint64
+			wg        sync.WaitGroup
+		)
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errByID = rs.Join(id, 1)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errByCode = rs.JoinCode(code, 2)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			closedIDs = rs.Tick()
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = rs.List()
+		}()
+		close(start)
+		wg.Wait()
+
+		tickClosed := slices.Contains(closedIDs, id)
+		if tickClosed {
+			if !errors.Is(errByID, server.ErrRoomNotFound) {
+				t.Fatalf("round %d: room closed by Tick, but Join returned %v", round, errByID)
+			}
+			if !errors.Is(errByCode, server.ErrRoomNotFound) {
+				t.Fatalf("round %d: room closed by Tick, but JoinCode returned %v", round, errByCode)
+			}
+			if members := room.Members(); len(members) != 0 {
+				t.Fatalf("round %d: closed room still has members %v", round, members)
+			}
+			if _, err := rs.JoinCode(code, 3); !errors.Is(err, server.ErrRoomNotFound) {
+				t.Fatalf("round %d: JoinCode after close = %v, want ErrRoomNotFound", round, err)
+			}
+			continue
+		}
+
+		if errByID != nil && errByCode != nil {
+			t.Fatalf("round %d: Tick did not close room, yet both joins failed (%v, %v)", round, errByID, errByCode)
+		}
+		if errByID == nil && !rs.Leave(id, 1) {
+			t.Fatalf("round %d: peer 1 admitted by Join was stranded (Leave returned false)", round)
+		}
+		if errByCode == nil && !rs.Leave(id, 2) {
+			t.Fatalf("round %d: peer 2 admitted by JoinCode was stranded (Leave returned false)", round)
+		}
+		if cleanup := rs.Tick(); !slices.Contains(cleanup, id) {
+			t.Fatalf("round %d: emptied room %d did not close on follow-up Tick (%v)", round, id, cleanup)
+		}
 	}
 }
