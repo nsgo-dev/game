@@ -82,7 +82,7 @@ Schema 一次只看一个文件，因此跨越整个文档的规则仍由 `Parse
 
 ## 在 CI 中检查 Schema
 
-`tools/gameschema` 把已发布的 Schema 写入 `apps/website/public/schemas`，网站在 `https://game.nsgo.dev/schemas/` 提供这些文件。修改某种格式的 Go 类型或文档注释后，在仓库根目录重新生成：
+`tools/gameschema` 把已发布的 Schema 写入 `website/public/schemas`，网站在 `https://game.nsgo.dev/schemas/` 提供这些文件。修改某种格式的 Go 类型或文档注释后，在仓库根目录重新生成：
 
 ```sh
 go run ./tools/gameschema

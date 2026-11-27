@@ -82,7 +82,7 @@ The import settings schema likewise checks each field on its own: known keys, th
 
 ## Checking schemas in CI
 
-`tools/gameschema` writes the published schemas into `apps/website/public/schemas`, which the website serves at `https://game.nsgo.dev/schemas/`. After changing a format's Go types or doc comments, regenerate them from the repository root:
+`tools/gameschema` writes the published schemas into `website/public/schemas`, which the website serves at `https://game.nsgo.dev/schemas/`. After changing a format's Go types or doc comments, regenerate them from the repository root:
 
 ```sh
 go run ./tools/gameschema

@@ -1,6 +1,6 @@
 // Command gameschema writes the JSON Schema of every YAML format the game packages define, for editors and AI tools to validate and complete the files a game's author writes, and with -check verifies that the committed schemas match the Go types.
 //
-// Run it from the repository root: with no flags it rewrites apps/website/public/schemas, which the website publishes at https://game.nsgo.dev/schemas/; CI runs it with -check.
+// Run it from the repository root: with no flags it rewrites website/public/schemas, which the website publishes at https://game.nsgo.dev/schemas/; CI runs it with -check.
 package main
 
 import (
@@ -617,7 +617,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("gameschema", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	root := fs.String("root", ".", "the repository root directory, whose pkg/ sources describe the schemas")
-	out := fs.String("out", filepath.Join("apps", "website", "public", "schemas"), "directory the schemas are written to")
+	out := fs.String("out", filepath.Join("website", "public", "schemas"), "directory the schemas are written to")
 	check := fs.Bool("check", false, "verify that -out holds exactly the generated schemas without modifying it")
 	if err := fs.Parse(args); err != nil {
 		return err

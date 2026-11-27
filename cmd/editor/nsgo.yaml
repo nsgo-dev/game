@@ -5,7 +5,7 @@ build_number: 1
 copyright: "© 2026 NSGo authors"
 
 icon:
-  png: ../../apps/website/public/icon.png
+  png: ../../website/public/icon.png
 
 # Public key matching the organization's NSGO_UPDATES_KEY secret so releases write signed appcasts.
 updates:

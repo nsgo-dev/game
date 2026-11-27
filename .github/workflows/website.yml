@@ -1,12 +1,12 @@
 name: Website
 
-# Builds the site in apps/website, every page prerendered to static HTML, with the playground's web builds of the examples and the API reference generated from the root Go module's doc comments, and deploys it to GitHub Pages.
+# Builds the site in website/, every page prerendered to static HTML, with the playground's web builds of the examples and the API reference generated from the root Go module's doc comments, and deploys it to GitHub Pages.
 on:
   push:
     branches:
       - main
     paths:
-      - "apps/website/**"
+      - "website/**"
       - "docs/**"
       - "examples/**"
       - "*.go"
@@ -24,7 +24,7 @@ on:
       - ".github/workflows/website.yml"
   pull_request:
     paths:
-      - "apps/website/**"
+      - "website/**"
       - "docs/**"
       - "examples/**"
       - "*.go"
@@ -94,7 +94,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: apps/website/dist/client
+          path: website/dist/client
 
   deploy:
     name: Deploy

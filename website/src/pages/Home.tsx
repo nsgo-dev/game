@@ -26,7 +26,7 @@ const READOUTS = ['60 Hz', '320×180', '< 8.3 ms']
 const REEL: FeaturedId[] = ['caverun', 'cryptquest', 'starburst']
 const REEL_MS = 6000
 
-// The code the home page shows, a tab per snippet under apps/website/snippets/.
+// The code the home page shows, a tab per snippet under website/snippets/.
 const CODE: { id: Snippet['id']; file: string }[] = [
   { id: 'game', file: 'game.go' },
   { id: 'loop', file: 'loop.go' },

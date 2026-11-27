@@ -12,7 +12,7 @@ Fixes #
 - [ ] `go tool nsgo test ./...` passes from the repository root
 - [ ] `go tool nsgo check -target macos,windows,linux,android,web` passes from the repository root
 - [ ] `go tool nsgo check -target ios,ios_simulator` passes (if on macOS with Xcode)
-- [ ] `bun run build` passes (for `docs/` or `apps/website/` changes)
+- [ ] `bun run build` passes (for `docs/` or `website/` changes)
 - [ ] Both `docs/en/` and `docs/zh/` updated (when applicable)
 
 ## Screenshots

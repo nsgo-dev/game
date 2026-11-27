@@ -6,7 +6,7 @@ import { describe, test } from 'node:test'
 import { FEATURED_IDS } from '../src/content/featured.ts'
 import { category, firstSentence, loadSite, parseIndexTable, parseStability, parseTutorial, plainText, toTraditional } from './site.ts'
 
-const repo = (p: string) => new URL(`../../../${p}`, import.meta.url).pathname
+const repo = (p: string) => new URL(`../../${p}`, import.meta.url).pathname
 
 describe('parsing', () => {
   test('plainText drops links, emphasis and code marks', () => {

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestOpenAPISpecsPublished verifies that each service's embedded OpenAPI 3.1 description is published byte-for-byte under apps/website/public/schemas/ and linked from both the English and Chinese service guides.
+// TestOpenAPISpecsPublished verifies that each service's embedded OpenAPI 3.1 description is published byte-for-byte under website/public/schemas/ and linked from both the English and Chinese service guides.
 func TestOpenAPISpecsPublished(t *testing.T) {
 	specs := []struct {
 		source    string
@@ -17,13 +17,13 @@ func TestOpenAPISpecsPublished(t *testing.T) {
 	}{
 		{
 			source:    "pkg/online/cloudsave/openapi.yaml",
-			published: "apps/website/public/schemas/cloudsave-openapi.v1.yaml",
+			published: "website/public/schemas/cloudsave-openapi.v1.yaml",
 			url:       "https://game.nsgo.dev/schemas/cloudsave-openapi.v1.yaml",
 			docs:      []string{"docs/en/cloudsave.md", "docs/zh/cloudsave.md"},
 		},
 		{
 			source:    "pkg/online/leaderboard/selfhost/openapi.yaml",
-			published: "apps/website/public/schemas/leaderboard-selfhost-openapi.v1.yaml",
+			published: "website/public/schemas/leaderboard-selfhost-openapi.v1.yaml",
 			url:       "https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml",
 			docs:      []string{"docs/en/leaderboard-selfhost.md", "docs/zh/leaderboard-selfhost.md"},
 		},
