@@ -191,3 +191,5 @@ jobs:
         run: go test -run=^$ -fuzz=^FuzzCheckScene$ -fuzztime=10s ./pkg/tooling/assetcheck
       - name: Fuzz game check on Tiled maps
         run: go test -run=^$ -fuzz=^FuzzCheckTiledMap$ -fuzztime=10s ./pkg/tooling/assetcheck
+      - name: Fuzz DecodeHDR
+        run: go test -run=^$ -fuzz=^FuzzDecodeHDR$ -fuzztime=10s ./pkg/render3d
