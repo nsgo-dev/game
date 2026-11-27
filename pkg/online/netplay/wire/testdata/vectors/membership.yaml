@@ -1,0 +1,85 @@
+version: 1
+schema: membership.wire.yaml
+vectors:
+  - name: match_member_active
+    type: MatchMember
+    hex: "00000001000000000000000000"
+    value:
+      id: 1
+      from: 0
+      hasLeave: false
+      until: 0
+  - name: match_member_left
+    type: MatchMember
+    hex: "000000020000000a01000001f4"
+    value:
+      id: 2
+      from: 10
+      hasLeave: true
+      until: 500
+  - name: join_state_full
+    type: JoinState
+    hex: "0000012c00020000000100000000000000000000000002000000320100000122000000020000000000000001002000000000000180007fffffffffff80000001ffffffffffffffffffff0000cafebabe"
+    value:
+      tick: 300
+      members:
+        - id: 1
+          from: 0
+          hasLeave: false
+          until: 0
+        - id: 2
+          from: 50
+          hasLeave: true
+          until: 290
+      inputs:
+        - tick: 0
+          peer: 1
+          bits: "9007199254740993"
+          axes:
+            - -32768
+            - 32767
+        - tick: 4294967295
+          peer: 2147483649
+          bits: "18446744073709551615"
+          axes:
+            - -1
+            - 0
+      state: "cafebabe"
+  - name: msg_change_leave
+    type: MembershipMessage
+    hex: "0d02000000020000019000010000000000000001002000000000000180007fff"
+    value:
+      tag: 13
+      change:
+        kind: 2
+        peer: 2
+        tick: 400
+        inputs:
+          - tick: 0
+            peer: 1
+            bits: "9007199254740993"
+            axes:
+              - -32768
+              - 32767
+  - name: msg_join_state_part
+    type: MembershipMessage
+    hex: "0e00000002165627f0b528e3e08c972aafb8a06102"
+    value:
+      tag: 14
+      joinStatePart:
+        part: 0
+        parts: 2
+        data: "165627f0b528e3e08c972aafb8a06102"
+invalid:
+  - name: member_bad_bool
+    type: MatchMember
+    hex: "00000001000000020200000003"
+    error: invalid_bool
+  - name: change_bad_kind
+    type: MembershipMessage
+    hex: "0d0300000001000000020000"
+    error: invalid_enum
+  - name: membership_bad_tag
+    type: MembershipMessage
+    hex: "0f00"
+    error: invalid_tag

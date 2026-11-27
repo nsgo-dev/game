@@ -50,7 +50,9 @@ jobs:
       - name: Check the published JSON Schemas match the Go types
         run: go run ./tools/gameschema -check
       - name: Check the generated netplay wire codecs match their YAML schemas
-        run: go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check
+        run: |
+          go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check
+          go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check
       - name: Check the service OpenAPI descriptions match the HTTP handlers
         run: |
           go tool nsgo test ./pkg/online/cloudsave -- -run TestOpenAPI

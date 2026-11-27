@@ -1,0 +1,3 @@
+### Added
+
+- `game/pkg/online/netplay/wire`, `game/cmd/gamewire`: TypeScript codec backend (`-lang ts`, `wire.GenerateTS`, `wire.GenerateTSRuntime`) generating deterministic, zero-dependency `encodeX`/`decodeX` and delta `diffX`/`applyX` codecs over caller-owned `Uint8Array`/`DataView` with `bigint` 64-bit integers and pure-`BigInt` `qfloat`/`fixed` quantization, shared cross-language YAML golden vectors under `pkg/online/netplay/wire/testdata/vectors/`, a Go `ServerWorld` to TypeScript end-to-end test, and a TypeScript replication stream client example under `examples/ts-replication-client/` (#1304).

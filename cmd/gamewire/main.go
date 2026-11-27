@@ -1,9 +1,11 @@
-// Command gamewire generates deterministic, zero-allocation codecs from *.wire.yaml schemas, and with -check verifies that committed generated files match their schemas.
+// Command gamewire generates deterministic, zero-allocation Go and TypeScript codecs from *.wire.yaml schemas, and with -check verifies that committed generated files match their schemas.
 //
 // Run it directly or through go generate:
 //
 //	go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self
 //	go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check
+//	go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts
+//	go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check
 package main
 
 import (
@@ -42,17 +44,17 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("gamewire", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	inPath := fs.String("in", ".", "input *.wire.yaml file or directory containing *.wire.yaml files")
-	outPath := fs.String("out", "", "output directory (or .go file for a single input); defaults to the input directory")
+	outPath := fs.String("out", "", "output directory (or .go/.ts file for a single input); defaults to the input directory")
 	pkgName := fs.String("pkg", "", "override Go package name (defaults to each schema's package field)")
-	lang := fs.String("lang", "go", "target language for code generation (go)")
-	self := fs.Bool("self", false, "omit the pkg/net/wire runtime import (used when generating inside pkg/net/wire)")
+	lang := fs.String("lang", "go", "target language for code generation (go, ts)")
+	self := fs.Bool("self", false, "omit the pkg/online/netplay/wire runtime import (used when generating Go inside pkg/online/netplay/wire)")
 	check := fs.Bool("check", false, "verify that generated files in -out are up to date without writing")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	if *lang != "go" {
-		return fmt.Errorf("unsupported -lang %q (supported: go)", *lang)
+	if *lang != "go" && *lang != "ts" {
+		return fmt.Errorf("unsupported -lang %q (supported: go, ts)", *lang)
 	}
 
 	inputPaths, defaultOutDir, err := collectInputs(*inPath, fs.Args())
@@ -67,9 +69,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if out == "" {
 		out = defaultOutDir
 	}
-	singleFileOut := strings.HasSuffix(out, ".go")
+	singleFileOut := (*lang == "go" && strings.HasSuffix(out, ".go")) || (*lang == "ts" && strings.HasSuffix(out, ".ts"))
 	if singleFileOut && len(inputPaths) != 1 {
-		return fmt.Errorf("-out %q targets a single .go file, but %d input schemas were given", out, len(inputPaths))
+		return fmt.Errorf("-out %q targets a single file, but %d input schemas were given", out, len(inputPaths))
 	}
 
 	loaded, err := loadSchemasWithImports(inputPaths)
@@ -86,30 +88,73 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	files := make([]generatedFile, 0, len(loaded.targets))
-	for _, target := range loaded.targets {
-		var extras []*wire.Schema
-		for _, ls := range loaded.all {
-			if ls.path != target.path {
-				extras = append(extras, ls.schema)
+	var files []generatedFile
+	switch *lang {
+	case "go":
+		files = make([]generatedFile, 0, len(loaded.targets))
+		for _, target := range loaded.targets {
+			var extras []*wire.Schema
+			for _, ls := range loaded.all {
+				if ls.path != target.path {
+					extras = append(extras, ls.schema)
+				}
 			}
+			code, err := wire.GenerateGo(target.schema, wire.GenerateOptions{
+				Package:      *pkgName,
+				SourceName:   target.name,
+				Self:         *self,
+				ExtraSchemas: extras,
+			})
+			if err != nil {
+				return fmt.Errorf("%s: %w", target.path, err)
+			}
+			var dstPath string
+			if singleFileOut {
+				dstPath = out
+			} else {
+				dstPath = filepath.Join(out, outputFileName(target.name))
+			}
+			files = append(files, generatedFile{path: dstPath, data: code})
 		}
-		code, err := wire.GenerateGo(target.schema, wire.GenerateOptions{
-			Package:      *pkgName,
-			SourceName:   target.name,
-			Self:         *self,
-			ExtraSchemas: extras,
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", target.path, err)
+	case "ts":
+		files = make([]generatedFile, 0, len(loaded.targets)+2)
+		if !singleFileOut {
+			files = append(files, generatedFile{
+				path: filepath.Join(out, "runtime.ts"),
+				data: wire.GenerateTSRuntime(),
+			})
 		}
-		var dstPath string
-		if singleFileOut {
-			dstPath = out
-		} else {
-			dstPath = filepath.Join(out, outputFileName(target.name))
+		targetNames := make([]string, 0, len(loaded.targets))
+		for _, target := range loaded.targets {
+			var extras []wire.NamedSchema
+			for _, ls := range loaded.all {
+				if ls.path != target.path {
+					extras = append(extras, wire.NamedSchema{Name: ls.name, Schema: ls.schema})
+				}
+			}
+			code, err := wire.GenerateTS(target.schema, wire.TSGenerateOptions{
+				SourceName:   target.name,
+				EmbedRuntime: singleFileOut,
+				ExtraSchemas: extras,
+			})
+			if err != nil {
+				return fmt.Errorf("%s: %w", target.path, err)
+			}
+			var dstPath string
+			if singleFileOut {
+				dstPath = out
+			} else {
+				dstPath = filepath.Join(out, wire.TSOutputFileName(target.name))
+			}
+			files = append(files, generatedFile{path: dstPath, data: code})
+			targetNames = append(targetNames, target.name)
 		}
-		files = append(files, generatedFile{path: dstPath, data: code})
+		if !singleFileOut {
+			files = append(files, generatedFile{
+				path: filepath.Join(out, "index.ts"),
+				data: wire.GenerateTSIndex(targetNames),
+			})
+		}
 	}
 
 	if *check {

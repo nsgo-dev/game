@@ -1,0 +1,75 @@
+version: 1
+schema: relay.wire.yaml
+vectors:
+  - name: frame_empty
+    type: RelayFrame
+    hex: "0100000000"
+    value:
+      peer: 0
+      body: ""
+  - name: frame_payload
+    type: RelayFrame
+    hex: "01010203045effc6256af9ca9975bac6c03ae25b5a258e09"
+    value:
+      peer: 16909060
+      body: "5effc6256af9ca9975bac6c03ae25b5a258e09"
+  - name: members_empty
+    type: RelayMembers
+    hex: "01000000010000"
+    value:
+      epoch: 1
+      peers: []
+  - name: members_three
+    type: RelayMembers
+    hex: "010000006300030000000100000002ffffffff"
+    value:
+      epoch: 99
+      peers:
+        - 1
+        - 2
+        - 4294967295
+  - name: body_unreliable
+    type: RelayBody
+    hex: "010000000c010203"
+    value:
+      tag: 1
+      unreliable:
+        seq: 12
+        payload: "010203"
+  - name: body_reliable
+    type: RelayBody
+    hex: "02ffffffff"
+    value:
+      tag: 2
+      reliable:
+        seq: 4294967295
+        payload: ""
+  - name: body_ack_above_2p53
+    type: RelayBody
+    hex: "030000004dfedcba9876543211"
+    value:
+      tag: 3
+      ack:
+        next: 77
+        mask: "18364758544493064721"
+  - name: body_ack_max_u64
+    type: RelayBody
+    hex: "0300000000ffffffffffffffff"
+    value:
+      tag: 3
+      ack:
+        next: 0
+        mask: "18446744073709551615"
+invalid:
+  - name: frame_bad_version
+    type: RelayFrame
+    hex: "0200000001"
+    error: invalid_const
+  - name: members_bad_kind
+    type: RelayMembers
+    hex: "09000000010000"
+    error: invalid_const
+  - name: body_bad_tag
+    type: RelayBody
+    hex: "0400000001"
+    error: invalid_tag

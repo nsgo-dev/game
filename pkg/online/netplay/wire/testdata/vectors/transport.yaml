@@ -1,0 +1,42 @@
+version: 1
+schema: transport.wire.yaml
+vectors:
+  - name: transport_empty
+    type: TransportFrame
+    hex: "0000000000"
+    value:
+      channel: 0
+      seq: 0
+      payload: ""
+  - name: transport_unreliable_max_seq
+    type: TransportFrame
+    hex: "01ffffffffdeadbeef"
+    value:
+      channel: 1
+      seq: 4294967295
+      payload: "deadbeef"
+  - name: udp_peer_empty
+    type: UDPPeerFrame
+    hex: "00000001000000002a"
+    value:
+      from: 1
+      channel: 0
+      seq: 42
+      payload: ""
+  - name: udp_peer_fuzz
+    type: UDPPeerFrame
+    hex: "b015400a011fb895d8ce21637cfdea4383d857af0a0a2740399d27bfd3400e9048"
+    value:
+      from: 2954182666
+      channel: 1
+      seq: 532190680
+      payload: "ce21637cfdea4383d857af0a0a2740399d27bfd3400e9048"
+invalid:
+  - name: transport_short_buffer
+    type: TransportFrame
+    hex: "00000001"
+    error: short_buffer
+  - name: transport_invalid_channel
+    type: TransportFrame
+    hex: "0200000001"
+    error: invalid_enum

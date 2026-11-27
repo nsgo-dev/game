@@ -1,0 +1,80 @@
+version: 1
+schema: rollback.wire.yaml
+vectors:
+  - name: input_above_2p53
+    type: InputFrame
+    hex: "0000000000000001002000000000000180007fff"
+    value:
+      tick: 0
+      peer: 1
+      bits: "9007199254740993"
+      axes:
+        - -32768
+        - 32767
+  - name: input_max_u64
+    type: InputFrame
+    hex: "ffffffff80000001ffffffffffffffffffff0000"
+    value:
+      tick: 4294967295
+      peer: 2147483649
+      bits: "18446744073709551615"
+      axes:
+        - -1
+        - 0
+  - name: single_input
+    type: RollbackMessage
+    hex: "0a0000000000000001002000000000000180007fff"
+    value:
+      tag: 10
+      singleInput:
+        input:
+          tick: 0
+          peer: 1
+          bits: "9007199254740993"
+          axes:
+            - -32768
+            - 32767
+  - name: bundle_empty
+    type: RollbackMessage
+    hex: "0b00"
+    value:
+      tag: 11
+      inputBundle:
+        inputs: []
+  - name: bundle_two
+    type: RollbackMessage
+    hex: "0b020000000000000001002000000000000180007fffffffffff80000001ffffffffffffffffffff0000"
+    value:
+      tag: 11
+      inputBundle:
+        inputs:
+          - tick: 0
+            peer: 1
+            bits: "9007199254740993"
+            axes:
+              - -32768
+              - 32767
+          - tick: 4294967295
+            peer: 2147483649
+            bits: "18446744073709551615"
+            axes:
+              - -1
+              - 0
+  - name: checksum_above_2p53
+    type: RollbackMessage
+    hex: "0c00000078000000020123456789abcdef"
+    value:
+      tag: 12
+      checksum:
+        tick: 120
+        peer: 2
+        checksum: "81985529216486895"
+invalid:
+  - name: rollback_bad_tag
+    type: RollbackMessage
+    hex: "0900000000"
+    error: invalid_tag
+  - name: rollback_short_input
+    type: InputFrame
+    hex: "0000000100000002"
+    error: short_buffer
