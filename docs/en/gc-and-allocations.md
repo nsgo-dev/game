@@ -27,7 +27,7 @@ func configureGC() {
 
 Keep `Loop.Update`, `Loop.Draw`, and `Canvas.Draw` callbacks free of steady-state heap allocations:
 
-1. **Pre-allocate and reuse slices and pools.** Keep slice backing arrays on structs and reset with `s = s[:0]` instead of allocating fresh slices each frame.
+1. **Pre-allocate and reuse slices and pools.** Keep slice backing arrays on structs and reset with `s = s[:0]` instead of allocating fresh slices each frame. In physics movement loops, call `physics.MoveAndSlideInto(body, grid, dt, &moveRes)` (or `World.MoveAndSlideInto` / `CharacterBody.MoveInto`) with a reused result struct instead of `physics.MoveAndSlide`, which allocates a new `Contacts` slice whenever a tile is hit.
 2. **Avoid `fmt.Sprintf` and string concatenation in hot loops.** Format HUD strings only when the underlying value changes, or inside reactive text callbacks gated on changed state.
 3. **Avoid per-frame closure captures and interface boxing.** Prefer methods on pre-allocated structs and typed value tokens (such as `debug.ScopeToken`) over allocating closures or `any` wrappers per frame.
 4. **Reuse `sprite.Batch` and fixed-size ring buffers.** Keep particle, bullet, and telemetry buffers fixed-capacity rather than growing/shrinking every tick.

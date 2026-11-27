@@ -72,9 +72,10 @@ type World struct {
 	GravityX  float32
 	GravityY  float32
 
-	triggerActive map[*Trigger][]*Body
-	nextBodyID    uint64
-	nextTriggerID uint64
+	triggerActive   map[*Trigger][]*Body
+	slideCollisions []SlideCollision
+	nextBodyID      uint64
+	nextTriggerID   uint64
 }
 
 func (w *World) ensureBodyID(b *Body) {

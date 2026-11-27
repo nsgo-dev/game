@@ -104,23 +104,58 @@ type SlideResult struct {
 // solid and one-way tiles in w.Tiles, and static RigidBody colliders in w.RigidWorld, filtered by Layer and Mask.
 // It slides along each contact normal for up to DefaultMaxSlides iterations, updates body's position, velocity
 // and contact flags (Grounded, OnCeiling, OnLeftWall, OnRightWall), and returns the collisions and surface state.
+//
+// When w is non-nil, the returned SlideResult.Collisions slice reuses scratch storage owned by w and is overwritten
+// by the next MoveAndSlide or MoveAndSlideWith call on w; copy it or call MoveAndSlideInto to retain collisions across calls.
 func (w *World) MoveAndSlide(body *Body, dt time.Duration) SlideResult {
 	return w.MoveAndSlideWith(body, dt, MoveOptions{})
 }
 
+// MoveAndSlideInto is like MoveAndSlide but writes its result into res, reusing res.Collisions[:0] so steady-state steps allocate nothing and do not share scratch storage on w. When res is nil, body is moved and its flags updated without recording collisions.
+func (w *World) MoveAndSlideInto(body *Body, dt time.Duration, res *SlideResult) {
+	w.MoveAndSlideWithInto(body, dt, MoveOptions{}, res)
+}
+
 // MoveAndSlideWith is like MoveAndSlide with configurable motion mode, up direction, floor angle,
 // slide iteration limit, query mask, extra static rigid bodies and exclusions.
+//
+// When w is non-nil, the returned SlideResult.Collisions slice reuses scratch storage owned by w and is overwritten
+// by the next MoveAndSlide or MoveAndSlideWith call on w; copy it or call MoveAndSlideWithInto to retain collisions across calls.
 func (w *World) MoveAndSlideWith(body *Body, dt time.Duration, opts MoveOptions) SlideResult {
+	var res SlideResult
+	if w != nil {
+		clear(w.slideCollisions)
+		res.Collisions = w.slideCollisions[:0]
+	}
 	var grid TileGrid
 	if w != nil {
 		grid = w.Tiles
 	}
-	return w.moveAndSlideCore(body, dt, opts, grid)
+	w.moveAndSlideCore(body, dt, opts, grid, &res, true)
+	if w != nil {
+		w.slideCollisions = res.Collisions
+	}
+	return res
 }
 
-func (w *World) moveAndSlideCore(body *Body, dt time.Duration, opts MoveOptions, grid TileGrid) SlideResult {
+// MoveAndSlideWithInto is like MoveAndSlideWith but writes its result into res, reusing res.Collisions[:0] so steady-state steps allocate nothing and do not share scratch storage on w. When res is nil, body is moved and its flags updated without recording collisions.
+func (w *World) MoveAndSlideWithInto(body *Body, dt time.Duration, opts MoveOptions, res *SlideResult) {
+	var grid TileGrid
+	if w != nil {
+		grid = w.Tiles
+	}
+	w.moveAndSlideCore(body, dt, opts, grid, res, res != nil)
+}
+
+func (w *World) moveAndSlideCore(body *Body, dt time.Duration, opts MoveOptions, grid TileGrid, res *SlideResult, recordCollisions bool) {
+	var collisions []SlideCollision
+	if res != nil {
+		clear(res.Collisions)
+		collisions = res.Collisions[:0]
+		*res = SlideResult{Collisions: collisions}
+	}
 	if body == nil {
-		return SlideResult{}
+		return
 	}
 	body.Grounded = false
 	body.OnCeiling = false
@@ -128,50 +163,58 @@ func (w *World) moveAndSlideCore(body *Body, dt time.Duration, opts MoveOptions,
 	body.OnRightWall = false
 
 	if body.Shape.Empty() || dt <= 0 {
-		return SlideResult{}
+		return
 	}
 	secs := dt.Seconds()
 	if math.IsNaN(secs) || math.IsInf(secs, 0) || secs <= 0 {
-		return SlideResult{}
+		return
 	}
 	vx := float64(body.VX)
 	vy := float64(body.VY)
 	if math.IsNaN(vx) || math.IsInf(vx, 0) || math.IsNaN(vy) || math.IsInf(vy, 0) {
-		return SlideResult{}
+		return
 	}
 	totalDX := float64(vx * secs)
 	totalDY := float64(vy * secs)
 	if math.IsNaN(totalDX) || math.IsInf(totalDX, 0) || math.IsNaN(totalDY) || math.IsInf(totalDY, 0) {
-		return SlideResult{}
+		return
 	}
 
 	if w == nil && len(opts.RigidBodies) == 0 && grid == nil {
 		translateBodyExact(body, totalDX, totalDY)
-		return SlideResult{
-			Travel: core.Point{X: core.Points(totalDX), Y: core.Points(totalDY)},
+		if res != nil {
+			res.Travel = core.Point{X: core.Points(totalDX), Y: core.Points(totalDY)}
 		}
+		return
 	}
 
 	baseHull, ok := shapeHull(body.Shape)
 	if !ok || !baseHull.hasArea() {
 		translateBodyExact(body, totalDX, totalDY)
-		return SlideResult{
-			Travel: core.Point{X: core.Points(totalDX), Y: core.Points(totalDY)},
+		if res != nil {
+			res.Travel = core.Point{X: core.Points(totalDX), Y: core.Points(totalDY)}
 		}
+		return
 	}
 
 	cfg := resolveSlideConfig(opts)
-	res, offX, offY, outVX, outVY := w.sweepAndSlide(body, &baseHull, totalDX, totalDY, vx, vy, cfg, grid, opts.RigidBodies, opts.Exclude)
+	var scratch SlideResult
+	dst := res
+	if dst == nil {
+		dst = &scratch
+	}
+	offX, offY, outVX, outVY, _ := w.sweepAndSlide(body, &baseHull, totalDX, totalDY, vx, vy, cfg, grid, opts.RigidBodies, opts.Exclude, dst, recordCollisions)
 
 	translateBodyExact(body, offX, offY)
 	body.VX = float32(outVX)
 	body.VY = float32(outVY)
-	body.Grounded = res.OnFloor
-	body.OnCeiling = res.OnCeiling
-	body.OnLeftWall = res.OnLeftWall
-	body.OnRightWall = res.OnRightWall
-	res.Travel = core.Point{X: core.Points(offX), Y: core.Points(offY)}
-	return res
+	body.Grounded = dst.OnFloor
+	body.OnCeiling = dst.OnCeiling
+	body.OnLeftWall = dst.OnLeftWall
+	body.OnRightWall = dst.OnRightWall
+	if res != nil {
+		res.Travel = core.Point{X: core.Points(offX), Y: core.Points(offY)}
+	}
 }
 
 type slideConfig struct {
@@ -334,7 +377,9 @@ func (w *World) sweepAndSlide(
 	grid TileGrid,
 	extraRigid []*RigidBody,
 	exclude []*Body,
-) (res SlideResult, offX, offY, outVX, outVY float64) {
+	res *SlideResult,
+	recordCollisions bool,
+) (offX, offY, outVX, outVY float64, hitAny bool) {
 	outVX, outVY = vx, vy
 
 	// 1. Pre-sweep depenetration against solid (non-one-way) colliders so float32 rounding
@@ -355,7 +400,11 @@ func (w *World) sweepAndSlide(
 	}
 
 	remX, remY := totalDX, totalDY
-	planes := make([]vec2, 0, cfg.maxSlides)
+	var planesBuf [8]vec2
+	planes := planesBuf[:0]
+	if cfg.maxSlides > len(planesBuf) {
+		planes = make([]vec2, 0, cfg.maxSlides)
+	}
 
 	for range cfg.maxSlides {
 		remLen := detmath.Hypot(remX, remY)
@@ -369,6 +418,7 @@ func (w *World) sweepAndSlide(
 			offY += remY
 			break
 		}
+		hitAny = true
 
 		// Advance to the exact time of impact (plus any tiny one-way top recovery if grazing).
 		if hit.t > 0 {
@@ -384,19 +434,21 @@ func (w *World) sweepAndSlide(
 		remX = float64(remX * leftFrac)
 		remY = float64(remY * leftFrac)
 
-		res.Collisions = append(res.Collisions, SlideCollision{
-			Body:      hit.body,
-			RigidBody: hit.rigid,
-			Tile:      hit.tile,
-			Col:       hit.col,
-			Row:       hit.row,
-			TileFlags: hit.tileFlags,
-			NormalX:   float32(hit.nx),
-			NormalY:   float32(hit.ny),
-			Position:  core.Point{X: core.Points(hit.posX), Y: core.Points(hit.posY)},
-			Remainder: core.Point{X: core.Points(remX), Y: core.Points(remY)},
-		})
-		cfg.classify(&res, hit.nx, hit.ny)
+		if recordCollisions {
+			res.Collisions = append(res.Collisions, SlideCollision{
+				Body:      hit.body,
+				RigidBody: hit.rigid,
+				Tile:      hit.tile,
+				Col:       hit.col,
+				Row:       hit.row,
+				TileFlags: hit.tileFlags,
+				NormalX:   float32(hit.nx),
+				NormalY:   float32(hit.ny),
+				Position:  core.Point{X: core.Points(hit.posX), Y: core.Points(hit.posY)},
+				Remainder: core.Point{X: core.Points(remX), Y: core.Points(remY)},
+			})
+		}
+		cfg.classify(res, hit.nx, hit.ny)
 
 		// Slide remaining displacement along the hit tangent.
 		dot := float64(remX*hit.nx) + float64(remY*hit.ny)
@@ -434,7 +486,7 @@ func (w *World) sweepAndSlide(
 		}
 	}
 
-	return res, offX, offY, outVX, outVY
+	return offX, offY, outVX, outVY, hitAny
 }
 
 type overlapRes struct {

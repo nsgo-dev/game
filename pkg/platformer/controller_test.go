@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/platformer"
 )
@@ -684,4 +685,43 @@ func TestControllerStepWorldDoorOneWayAndSlopes(t *testing.T) {
 	if c.Body.Body.Shape.Box.X <= 110 {
 		t.Fatalf("controller did not walk through removed door: X=%v", c.Body.Body.Shape.Box.X)
 	}
+}
+
+func TestControllerStepZeroAllocs(t *testing.T) {
+	const dt = time.Second / 60
+
+	grid := physics.NewGrid(20, 12, 16, 16)
+	grid.FillRect(0, 10, 20, 2, physics.TileSolid) // floor top at Y=160
+	grid.FillRect(19, 0, 1, 12, physics.TileSolid) // right wall X=304..320
+
+	t.Run("Step", func(t *testing.T) {
+		c := newController(t, platformer.DefaultConfig(), 64, 144)
+		run := func() {
+			c.Body.Body.Shape.Box.X = 64
+			c.Body.Body.Shape.Box.Y = 144
+			c.Step(platformer.Input{Move: 1}, grid, nil, nil, dt)
+		}
+		run()
+		if !c.Body.Grounded {
+			t.Fatal("expected grounded after warm-up step")
+		}
+		debug.AssertZeroAllocs(t, 100, run)
+	})
+
+	t.Run("StepWorld", func(t *testing.T) {
+		w := &physics.World{Tiles: grid}
+		door := physics.NewBoxBody(160, 80, 16, 80)
+		c := newController(t, platformer.DefaultConfig(), 148, 144)
+		w.Add(door, c.Body.Body)
+		run := func() {
+			c.Body.Body.Shape.Box.X = 148
+			c.Body.Body.Shape.Box.Y = 144
+			c.StepWorld(platformer.Input{Move: 1}, w, nil, nil, dt)
+		}
+		run()
+		if !c.Body.Grounded || !c.Body.Body.OnRightWall {
+			t.Fatalf("expected grounded and right wall after warm-up, got grounded=%v wall=%v", c.Body.Grounded, c.Body.Body.OnRightWall)
+		}
+		debug.AssertZeroAllocs(t, 100, run)
+	})
 }

@@ -208,6 +208,7 @@ type Game struct {
 
 	astar        *ai.AStar
 	store        *save.Store
+	moveRes      physics.MoveResult
 	keyMoveX     float32
 	keyMoveY     float32
 	keyMoveTimer time.Duration
@@ -537,7 +538,7 @@ func (g *Game) updatePlayer(dt time.Duration) {
 		g.PlayerFacingY = dirY
 		g.Player.VX = dirX * speed
 		g.Player.VY = dirY * speed
-		physics.MoveAndSlide(g.Player, g.World.Physics, dt)
+		physics.MoveAndSlideInto(g.Player, g.World.Physics, dt, &g.moveRes)
 		g.PlayerAnim.Update(dt)
 	} else {
 		g.Player.VX = 0
@@ -815,7 +816,7 @@ func (g *Game) followEnemyPath(e *Enemy, speed float32, dt time.Duration) {
 	}
 	e.Body.VX = vx
 	e.Body.VY = vy
-	physics.MoveAndSlide(e.Body, g.World.Physics, dt)
+	physics.MoveAndSlideInto(e.Body, g.World.Physics, dt, &g.moveRes)
 }
 
 func (g *Game) checkEnemyContact(e *Enemy) {

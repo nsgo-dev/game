@@ -133,12 +133,12 @@ func TestSwarmAddsNoAllocations(t *testing.T) {
 	if allocs := testing.AllocsPerRun(60, func() { l.swarm.update(fixedStep) }); allocs != 0 {
 		t.Fatalf("moving %d fireflies allocated %v times per step, want 0", swarmSize, allocs)
 	}
-	// physics.MoveAndSlide returns its tile contacts in a new slice, so a step allocates as much as it does without the swarm, and no more.
-	stepWith := testing.AllocsPerRun(60, func() { l.update(fixedStep, stepInput{}) })
+	if allocs := testing.AllocsPerRun(60, func() { l.update(fixedStep, stepInput{}) }); allocs != 0 {
+		t.Fatalf("a fixed step with the swarm allocated %v times, want 0", allocs)
+	}
 	l.setSwarm(false)
-	stepWithout := testing.AllocsPerRun(60, func() { l.update(fixedStep, stepInput{}) })
-	if stepWith != stepWithout {
-		t.Fatalf("a fixed step allocated %v times with the swarm and %v without, want the same", stepWith, stepWithout)
+	if allocs := testing.AllocsPerRun(60, func() { l.update(fixedStep, stepInput{}) }); allocs != 0 {
+		t.Fatalf("a fixed step without the swarm allocated %v times, want 0", allocs)
 	}
 
 	// NSGo v0.3.0's Drawing copies the image source of every DrawImageFrom and DrawAtlas, and the sprite data of every DrawAtlas, onto the heap (internal/driver/canvas.go:995, internal/driver/atlas.go:34 and :52), so the tilemap's tiles allocate on every frame. The swarm adds only its own DrawAtlas's copies, however many fireflies it holds (nsgo-dev/nsgo#2269).

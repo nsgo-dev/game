@@ -27,7 +27,7 @@ func configureGC() {
 
 保持 `Loop.Update`、`Loop.Draw` 和 `Canvas.Draw` 回调在稳态下不发生堆分配：
 
-1. **预分配并复用切片与对象池。** 将切片保存在结构体字段中，每帧通过 `s = s[:0]` 清空复用，避免重复 `make`。
+1. **预分配并复用切片与对象池。** 将切片保存在结构体字段中，每帧通过 `s = s[:0]` 清空复用，避免重复 `make`。在物理移动循环中，请保留可复用的结果结构体并调用 `physics.MoveAndSlideInto(body, grid, dt, &moveRes)`（或 `World.MoveAndSlideInto` / `CharacterBody.MoveInto`），不要在每帧热路径中调用每次碰到瓦片都会分配新 `Contacts` 切片的 `physics.MoveAndSlide`。
 2. **避免在热循环中调用 `fmt.Sprintf` 或拼接字符串。** 仅在数值变化时格式化 HUD 文本，或在受状态变化驱动的响应式文本回调中格式化。
 3. **避免每帧创建捕获变量的闭包和接口装箱。** 优先使用预分配结构体的方法及值类型令牌（例如 `debug.ScopeToken`），避免每帧分配闭包或装箱为 `any`。
 4. **复用 `sprite.Batch` 与定长环形缓冲区。** 粒子、弹幕与采样数据应使用固定容量缓冲区，而非每帧动态扩容缩容。

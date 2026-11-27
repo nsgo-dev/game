@@ -182,9 +182,29 @@ type MoveResult struct {
 // MoveAndSlide advances b by (VX*dt, VY*dt) and resolves axis-aligned collisions against grid, resolving X before Y. It zeroes velocity along blocked axes, updates b's Grounded, OnCeiling, OnLeftWall and OnRightWall flags, and subdivides large displacements so fast bodies do not tunnel through single-tile walls or platforms.
 //
 // Tiles are resolved against the bounding box of b's shape, so a Polygon or Capsule body moves as its bounds do and keeps its shape; the whole shape is translated by the resolved movement.
+//
+// MoveAndSlide allocates a new MoveResult.Contacts slice whenever b contacts a tile. In per-frame update loops, prefer MoveAndSlideInto with a reused *MoveResult to avoid steady-state heap allocations.
 func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
+	var res MoveResult
+	MoveAndSlideInto(b, grid, dt, &res)
+	return res
+}
+
+// MoveAndSlideInto is like MoveAndSlide but writes its result into res, reusing the backing arrays of res.Contacts and res.Collisions so steady-state steps allocate nothing. When res is nil, b is moved and its contact flags are updated without recording contacts.
+func MoveAndSlideInto(b *Body, grid TileGrid, dt time.Duration, res *MoveResult) {
+	var contacts []TileContact
+	var collisions []SlideCollision
+	if res != nil {
+		clear(res.Collisions)
+		contacts = res.Contacts[:0]
+		collisions = res.Collisions[:0]
+		*res = MoveResult{
+			Contacts:   contacts,
+			Collisions: collisions,
+		}
+	}
 	if b == nil {
-		return MoveResult{}
+		return
 	}
 	b.Grounded = false
 	b.OnCeiling = false
@@ -192,25 +212,25 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 	b.OnRightWall = false
 
 	if b.Shape.Empty() || dt <= 0 {
-		return MoveResult{}
+		return
 	}
 
 	secs := dt.Seconds()
 	totalDX := float64(b.VX) * secs
 	totalDY := float64(b.VY) * secs
 	if math.IsNaN(totalDX) || math.IsInf(totalDX, 0) || math.IsNaN(totalDY) || math.IsInf(totalDY, 0) {
-		return MoveResult{}
+		return
 	}
 
 	if grid == nil {
 		b.Translate(float32(totalDX), float32(totalDY))
-		return MoveResult{}
+		return
 	}
 	tileW, tileH := grid.TileSize()
 	cols, rows := grid.GridSize()
 	if tileW <= 0 || tileH <= 0 || cols <= 0 || rows <= 0 {
 		b.Translate(float32(totalDX), float32(totalDY))
-		return MoveResult{}
+		return
 	}
 
 	tw, th := float64(tileW), float64(tileH)
@@ -230,17 +250,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 
 	stepDX := totalDX / float64(steps)
 	stepDY := totalDY / float64(steps)
-
-	var contacts []TileContact
-	addContact := func(c TileContact) {
-		for _, existing := range contacts {
-			if existing.Col == c.Col && existing.Row == c.Row &&
-				existing.NormalX == c.NormalX && existing.NormalY == c.NormalY {
-				return
-			}
-		}
-		contacts = append(contacts, c)
-	}
+	record := res != nil
 
 	for range steps {
 		// 1. Move and resolve horizontally against TileSolid cells.
@@ -260,7 +270,9 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 						for row := minRow; row <= maxRow; row++ {
 							if flags := grid.TileFlagsAt(col, row); flags&TileSolid != 0 {
 								hitCol = col
-								addContact(TileContact{Col: col, Row: row, Flags: flags, NormalX: -1})
+								if record {
+									contacts = appendUniqueTileContact(contacts, TileContact{Col: col, Row: row, Flags: flags, NormalX: -1})
+								}
 							}
 						}
 						if hitCol >= 0 {
@@ -277,7 +289,9 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 						for row := minRow; row <= maxRow; row++ {
 							if flags := grid.TileFlagsAt(col, row); flags&TileSolid != 0 {
 								hitCol = col
-								addContact(TileContact{Col: col, Row: row, Flags: flags, NormalX: 1})
+								if record {
+									contacts = appendUniqueTileContact(contacts, TileContact{Col: col, Row: row, Flags: flags, NormalX: 1})
+								}
 							}
 						}
 						if hitCol >= 0 {
@@ -315,7 +329,9 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							oneWay := flags&TileOneWay != 0 && !b.OneWayDrop && prevBottom <= tileTop+oneWayEps
 							if solid || oneWay {
 								hitRow = row
-								addContact(TileContact{Col: col, Row: row, Flags: flags, NormalY: -1})
+								if record {
+									contacts = appendUniqueTileContact(contacts, TileContact{Col: col, Row: row, Flags: flags, NormalY: -1})
+								}
 							}
 						}
 						if hitRow >= 0 {
@@ -332,7 +348,9 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 						for col := minCol; col <= maxCol; col++ {
 							if flags := grid.TileFlagsAt(col, row); flags&TileSolid != 0 {
 								hitRow = row
-								addContact(TileContact{Col: col, Row: row, Flags: flags, NormalY: 1})
+								if record {
+									contacts = appendUniqueTileContact(contacts, TileContact{Col: col, Row: row, Flags: flags, NormalY: 1})
+								}
 							}
 						}
 						if hitRow >= 0 {
@@ -363,14 +381,25 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 		b.Shape = b.Shape.Translated(float32(x-float64(box.X)), float32(y-float64(box.Y)))
 	}
 
-	return MoveResult{
-		Contacts:    contacts,
-		Grounded:    b.Grounded,
-		OnWall:      b.OnLeftWall || b.OnRightWall,
-		OnCeiling:   b.OnCeiling,
-		OnLeftWall:  b.OnLeftWall,
-		OnRightWall: b.OnRightWall,
+	if res != nil {
+		res.Contacts = contacts
+		res.Collisions = collisions
+		res.Grounded = b.Grounded
+		res.OnWall = b.OnLeftWall || b.OnRightWall
+		res.OnCeiling = b.OnCeiling
+		res.OnLeftWall = b.OnLeftWall
+		res.OnRightWall = b.OnRightWall
 	}
+}
+
+func appendUniqueTileContact(contacts []TileContact, c TileContact) []TileContact {
+	for _, existing := range contacts {
+		if existing.Col == c.Col && existing.Row == c.Row &&
+			existing.NormalX == c.NormalX && existing.NormalY == c.NormalY {
+			return contacts
+		}
+	}
+	return append(contacts, c)
 }
 
 // spanEpsilon returns a small inward tolerance so a body resting flush on a tile seam does not snag on adjacent tiles due to float32 rounding.

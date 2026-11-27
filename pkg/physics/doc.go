@@ -11,14 +11,16 @@
 // RigidBody. Zero values default to LayerAll so unfiltered code stays backwards-compatible.
 //
 
-// MoveAndSlide advances a Body over a fixed game.Loop step against any TileGrid (or the
+// MoveAndSlide and MoveAndSlideInto advance a Body over a fixed game.Loop step against any TileGrid (or the
 // concrete Grid), resolving solid walls, floors, ceilings and one-way platforms without
-// tunneling at high speeds. World.MoveAndSlide and World.MoveAndSlideWith sweep the body's
+// tunneling at high speeds; MoveAndSlideInto reuses a caller-supplied MoveResult so steady-state
+// steps allocate nothing. World.MoveAndSlide, World.MoveAndSlideWith, and their Into variants sweep the body's
 // full shape against static and kinematic bodies (including OneWay bodies), solid and one-way
 // tiles, and static RigidBody colliders, sliding along contact normals for a bounded number
 // of iterations with configurable up direction and floor angle. CharacterBody builds on this
 // for platformer characters with walkable and steep Slope segments, downhill snapping, and
-// MovingPlatform riding.
+// MovingPlatform riding, reusing scratch buffers across steps (with MoveInto and MoveWorldInto
+// for caller-owned result storage).
 //
 // World groups bodies, Trigger areas, an optional TileGrid and an optional RigidWorld for
 // deterministic overlap, point, raycast, layer-filtered queries, MoveAndSlide, and

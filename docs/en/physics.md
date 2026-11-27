@@ -59,7 +59,7 @@ A chain reports its deepest segment contact. At an interior vertex it only uses 
 
 ## MoveAndSlide and TileGrid
 
-`MoveAndSlide` advances a `*Body` by `(VX*dt, VY*dt)` against any `TileGrid` on each fixed `game.Loop` step, resolving X before Y, zeroing velocity along blocked axes, and subdividing large displacements so fast bodies cannot tunnel through single-tile walls or platforms:
+`MoveAndSlide` and `MoveAndSlideInto` advance a `*Body` by `(VX*dt, VY*dt)` against any `TileGrid` on each fixed `game.Loop` step, resolving X before Y, zeroing velocity along blocked axes, and subdividing large displacements so fast bodies cannot tunnel through single-tile walls or platforms. In per-frame update loops, prefer `MoveAndSlideInto` with a reused `MoveResult` so `Contacts` and `Collisions` keep their backing arrays and steady-state steps allocate nothing (`MoveAndSlide` is a convenience wrapper that allocates a new `Contacts` slice whenever a tile is hit; passing `nil` as `res` moves the body and updates its flags without recording contacts):
 
 ```go
 grid := physics.NewGrid(40, 20, 16, 16)
@@ -68,18 +68,19 @@ grid.FillRect(10, 14, 6, 1, physics.TileOneWay)
 
 player := physics.NewBoxBody(32, 200, 12, 16)
 player.Tag = "player"
+var moveRes physics.MoveResult // keep on your game or entity struct and reuse every step
 
 // Inside game.Loop.Update:
 player.VY += 900 * float32(dt.Seconds()) // gravity
 player.OneWayDrop = actions.Pressed("down") && actions.JustPressed("jump")
 
-res := physics.MoveAndSlide(player, grid, dt)
-if res.Grounded && actions.JustPressed("jump") {
+physics.MoveAndSlideInto(player, grid, dt, &moveRes)
+if moveRes.Grounded && actions.JustPressed("jump") {
 	player.VY = -320
 }
 ```
 
-- **Contact flags**: `MoveAndSlide` updates both the returned `MoveResult` and the body's `Grounded`, `OnCeiling`, `OnLeftWall`, and `OnRightWall` flags, plus per-tile `Contacts` (`Col`, `Row`, `Flags`, `NormalX`, `NormalY`).
+- **Contact flags**: `MoveAndSlide` and `MoveAndSlideInto` update both the `MoveResult` and the body's `Grounded`, `OnCeiling`, `OnLeftWall`, and `OnRightWall` flags, plus per-tile `Contacts` (`Col`, `Row`, `Flags`, `NormalX`, `NormalY`).
 - **One-way platforms**: tiles marked `TileOneWay` and bodies with `Body.OneWay = true` block movement only from their upward-facing side when the mover starts on that side, unless `Body.OneWayDrop` is `true`.
 - **Tilemaps**: a [`*tilemap.Tilemap`](tilemap.md) (and `*tilemap.WorldStream`) satisfies `TileGrid` and `TileGridOrigin` directly, so pass a loaded tilemap straight to `MoveAndSlide`, `CharacterBody.Move`, `World`, and `RigidWorld` with no adapter. For maps with per-tile collision shapes (slopes, half tiles, bevels, rounded corners, and light occluders), wrap it in a [`tileshape.View`](tileshape.md), which is also a `TileGrid` and derives merged `Slope` segments and `StaticShapes` (`Box`, convex `Polygon`, and closed `Chain`) from per-tile shapes.
 - **Custom `TileGrid`**: implement `TileSize() (float32, float32)`, `GridSize() (int, int)`, and `TileFlagsAt(col, row int) TileFlags` to plug any other map into `MoveAndSlide` and `World`.
@@ -113,6 +114,7 @@ _ = topDown.OnWall
 ```
 
 - **Surface classification**: `SlideResult` reports `OnFloor`, `OnWall`, `OnCeiling`, `OnLeftWall`, `OnRightWall`, `FloorNormal`, `WallNormal`, `CeilingNormal`, `Travel`, and the ordered `Collisions` list. Configure `MoveOptions.UpX`/`UpY` and `FloorMaxAngle` for custom gravity directions or steeper walkable floors, or set `Mode: MotionFloating` for top-down movement where every contact is a wall.
+- **Zero-allocation buffer reuse**: `World.MoveAndSlide` and `World.MoveAndSlideWith` reuse scratch collision storage owned by `World` (overwritten by the next call on that `World`), and `CharacterBody.Move` and `CharacterBody.MoveWorld` reuse scratch storage owned by the `CharacterBody`. Use `World.MoveAndSlideInto`, `World.MoveAndSlideWithInto`, `CharacterBody.MoveInto`, or `CharacterBody.MoveWorldInto` with a caller-owned result struct when you need to retain contacts across multiple calls.
 - **One-way bodies**: set `Body.OneWay = true` on any body (not only tiles or `MovingPlatform`) so movers pass up or sideways through it, land on its upward-facing surface, and drop through it when `Body.OneWayDrop = true`. `Body.OneWay` is preserved in `WorldSnapshot` and `World.Checksum`.
 - **`CharacterBody` integration**: assign `CharacterBody.World = world` or call `CharacterBody.MoveWorld(world, slopes, platforms, dt)` so platformer characters collide with doors, blocks, one-way bodies and static rigid bodies while keeping slopes and moving platforms.
 
