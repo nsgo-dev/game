@@ -10,12 +10,14 @@ import (
 	"context"
 	"errors"
 	"runtime/debug"
+	"strconv"
 	"time"
 )
 
 // Match is one game simulation stepped at Rate ticks per second.
 type Match struct {
-	// Name identifies the match in overrun reports; optional.
+	// Name identifies the match in overrun reports and per-match metrics; a
+	// Runner replaces an empty name with match_<index> when it starts.
 	Name string
 	// Rate is how many updates run a second, 60 when 0 or negative.
 	Rate int
@@ -32,6 +34,10 @@ type Match struct {
 type Runner struct {
 	// Matches are the matches to run. A nil Update is an error.
 	Matches []*Match
+	// Health, when set, records every match tick's duration in the health's
+	// nsgo_server_match_tick_seconds histogram. Wrap OnOverrun with the
+	// health's OnOverrun to count overruns and missed ticks per match too.
+	Health *Health
 	// OnOverrun, when set, reports a tick that finished past the next tick's
 	// deadline. lag is the time past the deadline and missed is how many whole
 	// intervals that covers (at least 1). The runner does not catch up the
@@ -73,6 +79,11 @@ func (r *Runner) Run(ctx context.Context) error {
 			return errors.New("server: a match has no Update function")
 		}
 	}
+	for i, m := range r.Matches {
+		if m.Name == "" {
+			m.Name = "match_" + strconv.Itoa(i)
+		}
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -112,8 +123,12 @@ func (r *Runner) runMatch(ctx context.Context, m *Match, cancel context.CancelFu
 			return
 		}
 		tick++
+		start := time.Now()
 		if !r.guardUpdate(m, step, tick, cancel, ps) {
 			return
+		}
+		if r.Health != nil {
+			r.Health.ObserveMatchTick(m.Name, time.Since(start))
 		}
 		now := time.Now()
 		next = next.Add(step)
