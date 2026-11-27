@@ -37,4 +37,4 @@ The editor main window (`packages/game/editor/main_layout_ui.go`, `ui.go`, `agen
   - All five `F6` regions, radio groups, switches, and `>= 28 × 28` hit targets work consistently with keyboard navigation.
 - **Costs**:
   - Tests and muscle memory that previously clicked legacy top-toolbar panel toggles now invoke the corresponding commands (`CmdSave`, `CmdUndo`, `CmdAudioMixer`, etc.) or status-bar/drawer controls.
-  - Legacy helper functions still referenced only by dead code paths should be pruned once no remaining callers depend on them.
+  - Legacy toolbar builders (`toolbarView`, `view2DToolsView`, `place3DToolsView`, `statusBarView`, `sceneFileButtons`) were later removed and their remaining unreachable controls restored in [unreachable toolbar controls fix](../bug-fix/2026-11-28-editor-unreachable-toolbar-controls.md).

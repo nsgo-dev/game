@@ -106,7 +106,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		},
 	}
 
-	// View > Tools submenu (built-in 2D tools + active plugin tools)
+	// View > Tools submenu (built-in 2D/3D tools + active plugin tools)
 	toolItems := []desktop.MenuItem{
 		cmdItem(CmdToolSelect, e.T("menu.select"), true),
 		cmdItem(CmdToolMove, e.T("menu.move"), true),
@@ -117,12 +117,21 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdToolPaintTile, e.T("menu.paintTile"), true),
 		cmdItem(CmdToolEraseTile, e.T("menu.eraseTile"), true),
 		cmdItem(CmdToolFillTile, e.T("menu.fillTile"), true),
+		cmdItem(CmdToolPickTile, e.T("menu.pickTile"), true),
 		cmdItem(CmdToolTerrain, e.T("menu.terrain"), true),
 		cmdItem(CmdToolRectTile, e.T("menu.rectTile"), true),
 		cmdItem(CmdToolLineTile, e.T("menu.lineTile"), true),
 		cmdItem(CmdToolStampTile, e.T("menu.stampTile"), true),
 		cmdItem(CmdToolRandomTile, e.T("menu.randomTile"), true),
 		cmdItem(CmdToolNavTestPath, e.T("menu.navTestPath"), true),
+		sep,
+		cmdItem(CmdGridMapPaint, e.T("menu.gridMapPaint"), false),
+		cmdItem(CmdGridMapErase, e.T("menu.gridMapErase"), false),
+		cmdItem(CmdGridMapPick, e.T("menu.gridMapPick"), false),
+		cmdItem(CmdGridMapBoxFill, e.T("menu.gridMapBoxFill"), false),
+		sep,
+		cmdItem(CmdTogglePlaceSnap3D, e.T("menu.placeSnap3d"), false),
+		cmdItem(CmdTogglePlaceAlign3D, e.T("menu.placeAlign3d"), false),
 	}
 	var pluginToolItems []desktop.MenuItem
 	for _, p := range e.activePlugins() {
@@ -168,7 +177,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdShadingWire, e.T("menu.shadingWireframe"), true),
 	}
 
-	// View > Overlays submenu
+	// View > Overlays submenu (2D overlays + 3D viewport overlays)
 	var overlayMenuItems []desktop.MenuItem
 	for _, ov := range e.ViewportOverlays() {
 		ovID := ov.ID
@@ -186,6 +195,12 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			},
 		})
 	}
+	overlayMenuItems = append(overlayMenuItems,
+		sep,
+		cmdItem(CmdToggleLODOverlay, e.T("menu.lodOverlay"), false),
+		cmdItem(CmdToggleOccluders, e.T("menu.occludersOverlay"), false),
+		cmdItem(CmdToggleRenderStats, e.T("menu.renderStatsOverlay"), false),
+	)
 
 	// View > Panels submenu (show/hide built-in panels, active plugin panels, and Reset Layout)
 	dockHidden := e.StartScreenOpen() ||
@@ -288,6 +303,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdToggleSnapPixel, e.T("menu.toggleSnapPixel"), false),
 			cmdItem(CmdToggleSnapRotation, e.T("menu.toggleSnapRotation"), false),
 			cmdItem(CmdToggleSnapScale, e.T("menu.toggleSnapScale"), false),
+			cmdItem(CmdSnapSettings, e.T("menu.snapSettings"), false),
 			sep,
 			{Label: e.T("menu.tools"), Items: toolItems},
 			{Label: e.T("menu.gizmo3d"), Items: gizmoItems},
@@ -370,7 +386,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%v|%v|%v|%v",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -398,6 +414,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			canUngroup,
 			e.ViewMode,
 			e.Tool,
+			e.GridMapTool(),
 			e.GizmoMode,
 			e.GizmoSpace3D,
 			e.Shading3D,
@@ -415,6 +432,13 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ShowLightingPreview,
 			e.ShowNavMesh2D,
 			e.ShowNavMesh3D,
+			e.ShowLODOverlay,
+			e.ShowOccluders,
+			e.ShowRenderStats,
+			e.PlaceSnap3D,
+			e.PlaceAlign3D,
+			e.OverlaysPopoverOpen(),
+			e.SnapSettingsPopoverOpen(),
 			e.NavMeshPanelOpen(),
 			e.ShowAllShapes,
 			e.ShowGrid,

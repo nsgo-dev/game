@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -619,10 +620,39 @@ func (e *Editor) drawSnapGridOverlay(d *core.Drawing) {
 	d.Restore()
 }
 
+// SnapSettingsPopoverOpen reports whether the viewport Snap Settings popover is currently open.
+func (e *Editor) SnapSettingsPopoverOpen() bool {
+	return e != nil && !e.playing && e.snapSettingsPopoverOpen
+}
+
+// SetSnapSettingsPopoverOpen opens or closes the viewport Snap Settings popover.
+func (e *Editor) SetSnapSettingsPopoverOpen(open bool) {
+	if e == nil {
+		return
+	}
+	if e.playing {
+		open = false
+	}
+	if e.snapSettingsPopoverOpen == open {
+		return
+	}
+	e.snapSettingsPopoverOpen = open
+	e.notify()
+}
+
+// ToggleSnapSettingsPopover toggles the viewport Snap Settings popover open or closed.
+func (e *Editor) ToggleSnapSettingsPopover() {
+	if e == nil {
+		return
+	}
+	e.SetSnapSettingsPopoverOpen(!e.SnapSettingsPopoverOpen())
+}
+
 // snapSettingsPopover renders a compact icon trigger button that opens a popover with all snapping controls
 // (grid overlay, grid snap & step with auto tile-size reset, pixel snap, rotation snap & step, scale snap & step).
 func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID string, disabled func() bool) core.Node {
 	colors := ui.ColorsOf(cx)
+	p := ed.SpecPalette(cx)
 	rowStyle := core.Style{
 		Direction:      core.Row,
 		AlignItems:     core.AlignCenter,
@@ -632,18 +662,50 @@ func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], t
 	return ui.Popover{
 		TestID: testID,
 		Label:  ed.T("toolbar.snapSettingsLabel"),
-		Trigger: ui.Button{
-			Icon:    lucide.Grid3x3,
-			Label:   ed.T("toolbar.snapSettingsLabel"),
-			Size:    ui.SizeSmall,
-			Variant: ui.ButtonGhost,
+		Open: func() bool {
+			_ = rev.Get()
+			return ed.SnapSettingsPopoverOpen()
 		},
-		Placement: core.PlaceBottom,
-		Align:     core.AlignEnd,
+		OnOpenChange: func(open bool, _ base.Reason) {
+			ed.SetSnapSettingsPopoverOpen(open)
+		},
+		Trigger: ui.Button{
+			Icon:     lucide.Grid3x3,
+			IconSize: 13,
+			Side:     28,
+			Label:    ed.T("toolbar.snapSettingsLabel"),
+			Size:     ui.SizeSmall,
+			Variant:  ui.ButtonGhost,
+			Disabled: disabled,
+			Color: func() core.Color {
+				_ = rev.Get()
+				if ed.SnapSettingsPopoverOpen() {
+					return p.LineRaised
+				}
+				return core.Transparent
+			},
+			Tint: func() core.Color {
+				_ = rev.Get()
+				if ed.SnapSettingsPopoverOpen() {
+					return p.TextPrimary
+				}
+				return p.TextMuted
+			},
+			Style: core.Style{
+				CornerRadius: 6,
+				FocusVisible: p.FocusRing(2),
+			},
+		},
+		Placement: core.PlaceTop,
+		Align:     core.AlignCenter,
 		Style: core.Style{
-			Width:   core.Pt(256),
-			Padding: core.All(10),
-			Gap:     8,
+			Width:        core.Pt(256),
+			Padding:      core.All(10),
+			Gap:          8,
+			CornerRadius: 12,
+			Background:   p.Raised,
+			BorderWidth:  1,
+			BorderColor:  p.LineRaised,
 		},
 		Children: []core.Node{
 			core.Text{

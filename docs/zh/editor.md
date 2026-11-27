@@ -418,7 +418,7 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 
 - **具名碰撞层**：`layer` 与 `mask` 直接引用 [`game.yaml`](project.md) 中 `physics.layers` 声明的易读层名，而非原始位掩码（适用于 `collider2d`、`trigger2d`、`body3d`、`collider3d` 和 `trigger3d`）。向 `sceneformat.ParseWith` 传入 `ParseOptions{File: ..., PhysicsLayers: proj.PhysicsLayerTable()}`（`project.File.LoadAutoloads` 与 `Editor.OpenProject` 会自动传入）：任何拼错或未知的层名都会加载失败，并返回带有精确文件路径、从 1 开始的行号、列号、字段路径及合法层列表的 `*loaderr.Error`。
 - **构建与步进（`BuildPhysics`）**：`ps, err := sceneformat.BuildPhysics(built, proj.PhysicsSettings(), lib)` 会构造匹配的 `physics.World`、`physics.RigidWorld` 和 `physics3d.World`（应用项目重力、求解器迭代次数、具名 `Layer`/`Mask` 位掩码、通过 `PhysicsMaterialResolver` 解析的 `*.physics.yaml` 资源、通过 `ModelResolver` 或 `FileResolver` 加载的 `convex`/静态 `trimesh` 模型网格以及通过 `TerrainResolver` 或 `FileResolver` 加载的静态 `*.terrain.yaml` 高度场，并记录到 `ps.Bodies3D`、`ps.TriMeshes3D` 和 `ps.Heightfields3D`）。调用 `ps.Step(dt)` 会推进 2D 运动学与刚体、2D 触发器以及 3D 刚体与触发器，将更新后的局部坐标位姿写回 `BuiltObject.Doc`，并把 `PhysicsTriggerEvent`（`TriggerEnter`、`TriggerStay`、`TriggerExit`）派发到 `ps.OnTrigger` 及已连接的 `ps.Signals`（`enter` / `stay` / `exit`）。
-- **编辑器内运行、视口调试线框、3D 碰撞体手柄与贴合模型包围盒（#902）**：`Editor.PlayIn` 会自动构建并步进 `PhysicsScene`（`Editor.PlayPhysics`、`Editor.PlayTriggerEvents`、`Editor.OnPlayTrigger`），因此包含玩家刚体、墙壁碰撞体与金币触发器的场景无需编写碰撞 Go 代码即可直接在编辑器中运行并触发碰撞与触发事件。`Editor.ShowPhysicsDebug` 开启时（默认开启，可用 `SetShowPhysicsDebug` 切换），2D 与 3D 视口均会绘制每个 `collider2d`、`trigger2d`、`collider3d` 和 `trigger3d` 的线框轮廓（包含圆柱、凸包、三角网格与地形高度场）。将 3D 变换控件切换为 `Gizmo3DCollider`（工具栏 **Collider**、`View > 3D Gizmo > Collider` 或快捷键 `shift+c`）即可通过 3D 控件 API 拖拽碰撞体尺寸手柄（`ColliderHandles3D`、`PickGizmo3D`、`BeginGizmoDrag3D`、`UpdateGizmoDrag3D`、`EndGizmoDrag3D`），每次拖拽作为单个撤销步骤提交；点击检查器中的 **Fit to Model Bounds** 按钮（或调用 `Editor.FitCollider3DToBounds`）即可在单个撤销步骤中将碰撞体尺寸和局部偏移贴合到对象网格或 glTF 模型的包围盒。
+- **编辑器内运行、视口调试线框、3D 碰撞体手柄与贴合模型包围盒（#902）**：`Editor.PlayIn` 会自动构建并步进 `PhysicsScene`（`Editor.PlayPhysics`、`Editor.PlayTriggerEvents`、`Editor.OnPlayTrigger`），因此包含玩家刚体、墙壁碰撞体与金币触发器的场景无需编写碰撞 Go 代码即可直接在编辑器中运行并触发碰撞与触发事件。`Editor.ShowPhysicsDebug` 开启时（默认开启，可用 `SetShowPhysicsDebug` 切换），2D 与 3D 视口均会绘制每个 `collider2d`、`trigger2d`、`collider3d` 和 `trigger3d` 的线框轮廓（包含圆柱、凸包、三角网格与地形高度场）。将 3D 变换控件切换为 `Gizmo3DCollider`（`View > 3D Gizmo > Collider`、命令面板或快捷键 `shift+c`）即可通过 3D 控件 API 拖拽碰撞体尺寸手柄（`ColliderHandles3D`、`PickGizmo3D`、`BeginGizmoDrag3D`、`UpdateGizmoDrag3D`、`EndGizmoDrag3D`），每次拖拽作为单个撤销步骤提交；点击检查器中的 **Fit to Model Bounds** 按钮（或调用 `Editor.FitCollider3DToBounds`）即可在单个撤销步骤中将碰撞体尺寸和局部偏移贴合到对象网格或 glTF 模型的包围盒。
 
 ### 内置 2D 光照与遮挡体组件（#887）
 
@@ -430,7 +430,7 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 | `occluder2d` | `version`（`1`）、`shape`（`rect`、`polygon`、`tilemap`）、`width`、`height`、`offsetX`、`offsetY`、`points`（`[][2]float64`，流式 YAML `[[x, y], ...]`）、`layer`、`tileLayers`（`[]string`）、`enabled` |
 
 - **自动构建 `lights2d.Scene`**：`sceneformat.Build` 会把 `SceneDoc.AmbientColor`、可见世界空间图层上的所有 `light2d` 与 `occluder2d`，以及 `shape: "tilemap"` 遮挡体（通过 [`tileshape.View`](tileshape.md) 从瓦片地图碰撞形状提取）组装为 `BuiltScene.Lights2D`（`*lights2d.Scene`）。除非设置了 `SkipLights2D`，`BuiltScene.Draw` 会在场景相机变换下将 `Lights2D` 绘制在世界空间图层之上（屏幕空间 HUD 图层之下）；运行时移动光源或遮挡体后调用 `BuiltScene.SyncLights2D()` 同步。
-- **2D 光照预览与交互手柄**：2D 视口工具栏提供 **Lighting** 切换按钮（`Editor.ShowLightingPreview`、`SetShowLightingPreview`、命令 `CmdToggleLightingPreview`），在编辑模式下实时预览与游戏完全一致的 `lights2d.Scene` 阴影与环境暗场。选中 `light2d` 对象时会显示半径（`Handle2DLightRadius`）、聚光灯张角（`Handle2DLightSpotAngle`）与聚光灯方向（`Handle2DLightSpotDirection`）手柄；选中 `occluder2d` 对象时，矩形遮挡体显示四边缩放手柄（`Handle2DOccluderRectN/E/S/W`），多边形遮挡体显示可拖动顶点手柄（`Handle2DOccluderVertex`）与边中点插点手柄（`Handle2DOccluderEdgeMid`，以及 `SetOccluderPolygonPoints`、`InsertOccluderVertex`、`RemoveOccluderVertex`、`ConvertOccluderToPolygon`）。每次拖动记录为一个可撤销步骤，按 Escape 可取消；`SetAmbientColor`（或检查器中的 Scene Lighting 区域）可撤销地编辑 `ambientColor`。
+- **2D 光照预览与交互手柄**：通过 **View > 2D Lighting Preview** 或命令面板（`Editor.ShowLightingPreview`、`SetShowLightingPreview`、命令 `CmdToggleLightingPreview`）可在编辑模式下实时预览与游戏完全一致的 `lights2d.Scene` 阴影与环境暗场。选中 `light2d` 对象时会显示半径（`Handle2DLightRadius`）、聚光灯张角（`Handle2DLightSpotAngle`）与聚光灯方向（`Handle2DLightSpotDirection`）手柄；选中 `occluder2d` 对象时，矩形遮挡体显示四边缩放手柄（`Handle2DOccluderRectN/E/S/W`），多边形遮挡体显示可拖动顶点手柄（`Handle2DOccluderVertex`）与边中点插点手柄（`Handle2DOccluderEdgeMid`，以及 `SetOccluderPolygonPoints`、`InsertOccluderVertex`、`RemoveOccluderVertex`、`ConvertOccluderToPolygon`）。每次拖动记录为一个可撤销步骤，按 Escape 可取消；`SetAmbientColor`（或检查器中的 Scene Lighting 区域）可撤销地编辑 `ambientColor`。
 
 ### 内置 2D 导航区域组件（#888）
 
@@ -441,7 +441,7 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 | `navregion2d` | `version`（`1`）、`mode`（`walkable`、`obstacle`）、`points`（`[][2]float64`，流式 YAML `[[x, y], ...]`）、`offsetX`、`offsetY`、`subtractTileCollision`（`bool`）、`tileLayer`（`string`）、`tileLayers`（`[]string`）、`agentRadius`（`float`，`>= 0`）、`enabled`（`bool`） |
 
 - **自动构建 `ai.NavMesh`（`BuildNavMesh2D`）**：`sceneformat.Build` 会收集可见世界空间图层上所有启用的 `navregion2d` 组件（统一绕序，确保重叠的可行走区域求并、障碍物区域挖洞），按需通过 [`tileshape.View`](tileshape.md) 及非矩形实心瓦片形状扣除场景瓦片地图中的实心碰撞，附加场景中声明的 2D `nav_link` 离网连接，并调用 [`game/ai/navbake`](navbake.md) 烘焙凸多边形，填充 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`）。不含 `navregion2d` 的场景会将两字段保持为 `nil`；运行时修改后可调用 `BuiltScene.SyncNavMesh2D()` 重新同步。
-- **2D 导航网格叠加层、多边形手柄与路径测试工具**：开启 `Editor.ShowNavMesh2D`（默认开启，可通过工具栏 `view-navmesh2d-overlay`、`SetShowNavMesh2D` 或 `CmdToggleNavMesh2D` 切换）时，2D 视口会绘制已构建 `NavBake2D` 的凸多边形、相邻门户以及作者编辑的 `navregion2d` 轮廓。选中 `navregion2d` 对象会显示可拖动顶点手柄（`Handle2DNavRegionVertex`）与边中点插点手柄（`Handle2DNavRegionEdgeMid`），并提供 `PlaceNavRegion2D`、`InitNavRegionPolygon`、`SetNavRegionPoints`、`InsertNavRegionVertex` 与 `RemoveNavRegionVertex`；拖动顶点时叠加层实时刷新，松手后记录为单个可撤销步骤（按 Escape 取消）。选择 **Test Path** 工具（`ToolNavTestPath`，工具栏 `tool-nav-test-path`，命令 `CmdToolNavTestPath`）后，在视口依次点选起点与终点即可绘制 `BuiltScene.NavMesh2D.FindPath` 找到的路径（随顶点或瓦片修改实时重算，按 Escape 或调用 `ClearNavPathPreview2D` 清除）。
+- **2D 导航网格叠加层、多边形手柄与路径测试工具**：开启 `Editor.ShowNavMesh2D`（默认开启，可通过 **View > 2D NavMesh Overlay**、2D 视口栏 **Overlays** 弹出面板、`CmdToggleNavMesh2D` 或 `SetShowNavMesh2D` 切换）时，2D 视口会绘制已构建 `NavBake2D` 的凸多边形、相邻门户以及作者编辑的 `navregion2d` 轮廓。选中 `navregion2d` 对象会显示可拖动顶点手柄（`Handle2DNavRegionVertex`）与边中点插点手柄（`Handle2DNavRegionEdgeMid`），并提供 `PlaceNavRegion2D`、`InitNavRegionPolygon`、`SetNavRegionPoints`、`InsertNavRegionVertex` 与 `RemoveNavRegionVertex`；拖动顶点时叠加层实时刷新，松手后记录为单个可撤销步骤（按 Escape 取消）。选择 **Test Path** 工具（`ToolNavTestPath`，**View > Tools > Test Nav Path** 或命令 `CmdToolNavTestPath`）后，在视口依次点选起点与终点即可绘制 `BuiltScene.NavMesh2D.FindPath` 找到的路径（随顶点或瓦片修改实时重算，按 Escape 或调用 `ClearNavPathPreview2D` 清除）。
 
 ### 内置计时器组件（#1362）
 
@@ -652,7 +652,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 ### 2D 组件形状手柄（#882）
 
-在 2D 编辑模式下，视口会在对象的局部坐标系中绘制选中对象的每一个已注册形状字段（`FieldPoint`、`FieldRect`、`FieldCircle` 和 `FieldPolygon`，自动计入父对象变换、旋转、缩放、图层空间与视差）。切换 2D 视图工具栏中的 **Shapes** 按钮（`SetShowAllShapes`、`CmdToggleAllShapes`、`Editor.ShowAllShapes`）可同时绘制场景中所有可见对象的形状字段，并保持选中对象高亮显示在最上层。
+在 2D 编辑模式下，视口会在对象的局部坐标系中绘制选中对象的每一个已注册形状字段（`FieldPoint`、`FieldRect`、`FieldCircle` 和 `FieldPolygon`，自动计入父对象变换、旋转、缩放、图层空间与视差）。切换 **View > Show All Component Shapes**（或命令面板、`SetShowAllShapes`、`CmdToggleAllShapes`、`Editor.ShowAllShapes`）可同时绘制场景中所有可见对象的形状字段，并保持选中对象高亮显示在最上层。
 
 使用 Select 或 Move 工具时，选中对象的形状字段会显示可交互手柄：
 
@@ -660,7 +660,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **矩形（Rect）**：拖动 4 个角手柄或 4 个边中点手柄缩放尺寸（拖过对边时平滑翻转并保持 `width >= 0`、`height >= 0`）；当中心手柄不与对象原点移动方块重叠时，拖动中心手柄可整体平移矩形。
 - **圆（Circle）**：拖动 4 个正交圆周手柄调整 `radius`（限制 `>= 0`）；当圆心偏离对象原点时，拖动圆心手柄可平移圆。
 - **多边形（Polygon）**：拖动任意顶点手柄移动顶点；点击或拖动边中点手柄插入新顶点（`AddPolygonVertex`）；右键点击或 Alt+点击顶点手柄删除顶点（`RemovePolygonVertex`，至少保留 3 个顶点）。
-- **网格吸附**：切换 2D 视图工具栏中的 **Snap** 按钮（`SetSnapToGrid`、`CmdToggleSnapGrid`、`Editor.SnapToGrid`）或在吸附设置弹出面板（`view-snap-settings`）中配置，可将手柄拖动与插入顶点吸附到 `EffectiveGridStep`（开启像素吸附时吸附到整点；拖动期间按住 `Ctrl` / `Cmd` 可临时反转吸附）。
+- **网格吸附**：切换 2D 视口栏中的 **Snap** 开关（`viewport-bar-snap`、**View > Snap to Grid**、`SetSnapToGrid`、`CmdToggleSnapGrid`、`Editor.SnapToGrid`）或在吸附设置弹出面板（`view-snap-settings`、**View > Snap Settings...**、`CmdSnapSettings`）中配置，可将手柄拖动与插入顶点吸附到 `EffectiveGridStep`（开启像素吸附时吸附到整点；拖动期间按住 `Ctrl` / `Cmd` 可临时反转吸附）。
 
 每次拖动、添加顶点和删除顶点均通过 `SetComponentField` 提交为一个可撤销步骤；按 Escape、手势取消、双指介入、撤销/重做、Play、保存或切换工具会取消进行中的拖动并无损恢复字段原值。在 Go 中，可通过 `VisibleShapes2D`、`ShapeHandles2D`、`PickShapeHandle2D`、`BeginShapeDrag2D`、`UpdateShapeDrag2D`、`EndShapeDrag2D`、`CancelShapeDrag2D`、`DraggingShape2D`、`ActiveShapeHandle2D`、`AddPolygonVertex`、`RemovePolygonVertex` 和 `HandleCanvasSecondaryPress` 驱动同一流程，检查器也为每种形状字段提供对应的可编辑控件。
 
@@ -668,7 +668,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 编辑器在对象放置、拖动、2D 手柄（变换控件、组件形状、2D 灯光/遮挡体与 2D 导航区域）以及 3D 操纵杆（平移、旋转与缩放）中提供统一的吸附支持：
 
-- **工具栏吸附设置**：可直接点击磁铁按钮（`view-snap-grid`、`SetSnapToGrid`、`CmdToggleSnapGrid`）切换网格吸附，或打开紧凑的吸附设置弹出面板（2D 中为 `view-snap-settings`，3D 中为 `view3d-snap-settings`）分别开关各项设置：
+- **视口栏与菜单中的吸附设置**：通过 2D 视口栏中的 **Snap** 开关（`viewport-bar-snap`）、**View > Snap to Grid** 或 `CmdToggleSnapGrid`（`SetSnapToGrid`）切换网格吸附，或打开紧凑的吸附设置弹出面板（2D 视口栏中的 `view-snap-settings`、3D 底部栏中的 `view3d-snap-settings`、**View > Snap Settings...** 或 `CmdSnapSettings`）分别开关各项设置：
   - **网格吸附**（`SnapToGrid`、`SetSnapToGrid`）：将位置吸附到 `EffectiveGridStep()`；当 `GridSize` 为 `0` 时默认跟随当前活动图层的瓦片地图瓦片尺寸（支持非正方形瓦片），图层无瓦片地图时回退为 `8`。设置显式步长（`SetGridSize`）会覆盖瓦片尺寸，点击 **自动**（`ResetGridSize`）可恢复自动跟随。
   - **像素吸附**（`SnapToPixel`、`SetSnapToPixel`、`CmdToggleSnapPixel`）：关闭网格吸附时将位置吸附到整点（1 单位步长）。
   - **旋转吸附**（`SnapRotation`、`SetSnapRotation`、`CmdToggleSnapRotation`）：将 2D 与 3D 旋转拖动吸附到 `RotationSnapDeg` 度对应的弧度倍数（`SetRotationSnapDeg`，默认 `15°`）。
@@ -683,7 +683,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 在 3D 模式下，视口按游戏绘制的样子显示场景：一个 `gpu.View` 填满面板，用 render3d 绘制场景的 3D 构建结果，叠在它上面的画布绘制地面网格、原点坐标轴、选中轮廓和变换控件。构建结果来自 `scenemodel.Build`（`Scene3D`）：每个对象的内置图元（`mesh`）或 glTF 模型（`model`、`modelNode`、`modelMesh`）及其材质和纹理，包括实例化场景加入的对象。编辑器的 `Resolver` 实现了 `scenemodel.ModelResolver`、`sceneformat.MaterialResolver` 或 `scenemodel.ImageResolver` 时，模型、材质文件和图片通过它加载，否则从打开的项目的文件中加载。场景无法构建时（例如它引用的模型加载失败），视口角落会有一行文字说明原因（`Viewport3DError`），每个对象仍然显示包围盒。
 
 - **光照与天空**：当版本 4 场景定义了光源或 `environment` 时，视口通过 `scenemodel.Renderer`（`PrepareScene`、`RecordShadows`、`DrawSky`、`ClearColor`）直接渲染场景自身的光源、阴影、天空（纯色、渐变或经由 `scenemodel.HDRResolver` 加载的 HDR 立方体贴图）、环境光/IBL、雾效、色调映射与曝光，与游戏渲染路径逐像素一致。场景既无光源也无环境时，视口回退到渐变天空与 `DefaultLights3D`。基于本包构建的编辑器仍可用 `SetLights3D`（`Editor.Lights3D`）覆盖光照，此时背景为场景的 `backgroundColor`。
-- **着色**：工具栏的 3D Shading 组、`View > 3D Shading` 以及命令 `view.shading.lit`、`view.shading.unlit`、`view.shading.wireframe` 切换 `Shading3D`（`SetShading3D`）：Lit（受光）、Unlit（每个表面带纹理的基础色加自发光色，不受光照）和 Wireframe（受光，并在上面画出三角形的边）。着色是视图设置，不可撤销，也不会保存。
+- **着色**：3D 视口栏的着色菜单（`view3d-shading`）、`View > 3D Shading` 以及命令 `view.shading.lit`、`view.shading.unlit`、`view.shading.wireframe` 切换 `Shading3D`（`SetShading3D`）：Lit（受光）、Unlit（每个表面带纹理的基础色加自发光色，不受光照）和 Wireframe（受光，并在上面画出三角形的边）。着色是视图设置，不可撤销，也不会保存。
 - **拾取与嵌套子对象（#894）**：每一层嵌套对象（最深 64 层，包括实例化场景与继承场景加入的子对象）都按与 `BuildNodes3D` 一致的组合世界变换（沿父链组合 `ObjectLocalTransform3D`）绘制，覆盖网格、线框包围盒、光源/相机/探针图标、物理调试线框、遮挡体与组件控件。按下会选中指针下最深层的命中对象：绘制网格或模型的对象经由构建结果上的 `scene3d` 拾取按三角形命中；没有几何体的对象只在未命中几何体时按世界空间包围盒命中（同一射线同时命中祖先与后代时优先选中更深层的后代）。再次点击已选中的嵌套子对象会逐级向上选中其父对象（直至所属场景实例根节点），到达顶层后循环回最深层子对象；按住 `Alt`/`Option` 点击（`Select3DAtWithModifiers`、`HandleViewport3DPressWithModifiers`、`HandleCanvasPressWithModifiers`）会直接选中实例化子对象所属的场景实例根节点或本地嵌套子对象的直接父对象（并可与 `Shift` 加选、`Mod` 切换组合）。隐藏和锁定的对象及其后代照旧被跳过。
 - **父空间变换控件与实例覆盖（#894）**：选中嵌套子对象时，3D 变换控件（`Translate`、`Rotate`、`Scale`，单选与多选均支持）绘制在子对象的组合世界位置与朝向上；拖拽时对象在世界空间内紧随指针移动或旋转，同时对父链求逆写回子对象在父空间中的局部变换。拖拽来自实例化场景或基础场景的对象时，会在所属实例的 `overrides`（或继承场景的 `SceneDoc.Overrides`）中记录覆盖项而不改动源场景文件，可无损往返 YAML，并作为单个可撤销步骤提交。
 - **实时编辑**：只有场景的外观变化时（对象的外观、它在树中的位置、实例化的场景或覆盖项，或者项目文件）才会重新构建。变换控件拖动、撤销移动、打开的动画片段在播放头处的姿态，以及运行中游戏的改动，都直接移动已构建的节点，所以拖动时不会重新构建或上传任何网格。对象有几何体时，`ObjectCorners3D` 和 `ObjectAABB3D` 给出的包围盒是其几何体的边界，聚焦选中对象（`f`）也按这个边界取景，所以一米大小的模型会充满视图。
@@ -712,7 +712,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
   - **默认（`Navigation3DDefault`）**：左键拖动空白处环绕（落在操纵杆或工具上时拖动它们），Shift+左键拖动或中键拖动平移，右键拖动飞行，滚轮推拉缩放。
   - **Blender（`Navigation3DBlender`）**：中键拖动环绕，Shift+中键拖动平移，右键拖动飞行，滚轮推拉缩放，左键拖动保留给选择、工具和操纵杆。
   - **Maya（`Navigation3DMaya`）**：Alt+左键拖动环绕，中键拖动（或 Alt+中键拖动）平移，Alt+右键拖动或滚轮推拉缩放，普通右键拖动飞行，普通左键拖动保留给选择、工具和操纵杆。
-- **视口叠加栏与状态栏**采用编辑器设计规范色板：左上角视图栏包含 Persp/Ortho 分段切换、着色菜单（`Lit`、`Unlit`、`Wireframe`）、当前视图名称（`ViewName3D`：轴向视图名或 `Perspective`，正交时附加 ` · ortho`，偏离坐标轴的正交视图为 `User · ortho`）、Reset view 以及 Camera/Env 切换，正下方显示带键帽的操作提示条（随当前 3D 导航映射实时更新，默认模式下为 `Drag orbit · Middle pan · Right WASD fly · F focus`）。右上角圆形方向控件在“向左/向右环绕 15°”按钮上方提供全部六个轴向端点的可点击、可键盘聚焦按钮。底部栏提供 `Local` / `Global` 变换空间切换（`GizmoSpace3D`、`SetGizmoSpace3D`）、吸附设置弹出框与 `Focus F` 按钮。状态栏同时显示以度为单位的偏航角与俯仰角（` · yaw N° · pitch M°`）以及当前操纵杆空间（` · Local` / ` · Global`，中文界面显示 ` · 局部` / ` · 全局`）。
+- **视口叠加栏与状态栏**采用编辑器设计规范色板：左上角视图栏包含 Persp/Ortho 分段切换、着色菜单（`Lit`、`Unlit`、`Wireframe`）、当前视图名称（`ViewName3D`：轴向视图名或 `Perspective`，正交时附加 ` · ortho`，偏离坐标轴的正交视图为 `User · ortho`）、Reset view 以及 Camera/Env 切换，正下方显示带键帽的操作提示条（随当前 3D 导航映射实时更新，默认模式下为 `Drag orbit · Middle pan · Right WASD fly · F focus`）。右上角圆形方向控件在“向左/向右环绕 15°”按钮上方提供全部六个轴向端点的可点击、可键盘聚焦按钮。底部栏提供 `Local` / `Global` 变换空间切换（`GizmoSpace3D`、`SetGizmoSpace3D`）、吸附设置弹出框（`view3d-snap-settings`）、3D 叠加层弹出面板（`view3d-overlays`：LOD、Occluders、Render Stats、3D NavMesh）、GridMap 工具（`Paint`、`Erase`、`Pick`、`Box`）与 `Focus F` 按钮。状态栏同时显示以度为单位的偏航角与俯仰角（` · yaw N° · pitch M°`）以及当前操纵杆空间（` · Local` / ` · Global`，中文界面显示 ` · 局部` / ` · 全局`）。
 - **正交**（`SetOrthographic3D`、`OrbitCamera3D.Orthographic`）以平行投影显示。视图高度为 `OrthoHeight`，即透视视图在注视点处显示的高度，因此切换时位于注视点的物体大小不变，缩放会改变这个高度。`Project`、`ScreenRay`、`SceneCamera`、拾取和变换控件在两种投影下行为一致：正交时每个像素的射线都沿视线方向，因此按下会选中其下方的物体，拖动变换控件时对象沿轴移动的距离等于指针沿该轴移动的距离。正交下的轴向视图就是真正的平面图或立面图。
 - **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、A、S、D、Q、E（无论是否按住 Shift）移动相机，而不执行它们平时的快捷键（变换控件的 W 和 E、旋转与擦除瓦片的 E）；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视；既没有转动也没有移动相机的一次右键点击会保持正交。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
 - **轴向视图**（`SetView3D`，命令 `view.3d.front`、`view.3d.back`、`view.3d.right`、`view.3d.left`、`view.3d.top`、`view.3d.bottom`，以及切换投影的 `view.3d.orthographic`）保持注视点和距离不变。前视沿 -Z 方向看，右视沿 -X 方向看，顶视垂直向下看，视图上方为 -Z。
@@ -722,7 +722,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 3D 视口的变换操纵杆复用 `render3d.Gizmo` 完成**全局**（世界）或**局部**坐标空间下的绘制、拾取与约束拖拽：
 
-- **模式与快捷键**：在 3D 视口下按 `w`（平移，`Gizmo3DTranslate`）、`e`（旋转，`Gizmo3DRotate`）与 `r`（缩放，`Gizmo3DScale`）（属于 `ScopeViewport3D` 作用域，不与 2D 瓦片工具的 `e` 冲突），也可在 3D 工具栏或 `View > 3D Gizmo` 中切换。
+- **模式与快捷键**：在 3D 视口下按 `w`（平移，`Gizmo3DTranslate`）、`e`（旋转，`Gizmo3DRotate`）与 `r`（缩放，`Gizmo3DScale`）（属于 `ScopeViewport3D` 作用域，不与 2D 瓦片工具的 `e` 冲突），也可在顶栏工具组、`View > 3D Gizmo` 或命令面板中切换。
 - **全局 / 局部空间切换**：通过 3D 底部视图栏中的 **Local** / **Global** 切换（`view3d-space-local` / `view3d-space-global`）、快捷键 `t`（`CmdGizmoSpace3D`）、`View > 3D Gizmo > 3D 操纵杆：局部 / 全局空间` 或 `SetGizmoSpace3D` / `ToggleGizmoSpace3D` 在 `GizmoSpaceGlobal` 与 `GizmoSpaceLocal` 间切换（`Editor.GizmoSpace3D`）。局部模式下手柄对齐选中对象经 Gram-Schmidt 正交归一化后的世界朝向——对嵌套子对象包含其所有祖先的旋转（`GizmoOrientation3D`）。
 - **绕所绘轴的精确旋转**：拖拽任意旋转圆环（X、Y 或 Z）时，按所绘圆环对应的精确世界轴复合旋转，再把子级局部结果（`RParentᵀ · RDeltaWorld · RWorldStart`）转换回场景欧拉角 XYZ（`Rz·Ry·Rx`），因此即使对象已绕多个轴旋转或嵌套在已旋转、缩放的父级下，每个圆环也严格绕所绘轴旋转。
 - **平面手柄、屏幕空间中心手柄与等比缩放**：平移提供 `Axis3DXY`、`Axis3DXZ`、`Axis3DYZ` 平面方块（严格在对应的双轴平面内移动，并带掠射角保护）与中心 `Axis3DAll` 手柄（在相机视平面内平移）；缩放提供中心 `Axis3DAll` 立方体手柄，按比例同时缩放三个轴。
@@ -732,8 +732,8 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 资源浏览器在图集下方列出可放到 3D 中的模型（`Models`）：先是内置基本形体，然后按路径列出当前打开项目的 glTF 模型，`game assets` 模型目标的输出即使尚未构建也会列出（`ModelEntry.Output`）。每个模型都有一张离屏渲染的缩略图（`ModelThumbnail`）：只有模型本身，从前上方取景，由 `DefaultLights3D` 照明，经由 scenemodel 在 NSGo 的软件 GPU 上绘制。每个模型在其缩略图第一次绘制时于 UI goroutine 上加载，与编辑器 `Resolver` 提供的一切资源相同，且不进入场景自身的模型缓存；渲染在 UI goroutine 之外进行，所以列表立即显示，图片随后补上。无法加载的模型没有缩略图。
 
-- **放置工具**：按下一个模型会选中它（`SelectModel`、`SelectedModel`），在 3D 中还会启用放置工具，3D 工具栏在 Select 旁边显示 Place。之后在 3D 中按下，就会添加一个绘制该模型、以它命名的对象：位置是指针射线命中场景几何体的地方；没有命中时，是射线与地平面（高度为 `PlaceHeight3D` 的水平面）相交的地方（`PlacementAt3D`、`PlaceModelAt3D`）。对象落在该点上：它沿表面法线抬高其几何体在原点以下延伸的距离，所以放在地面上的单位立方体是立在地面上，而不是一半埋在地下。隐藏和锁定的对象会被跳过，与拾取相同。
-- **吸附与对齐**：工具栏的 Snap 让地平面上的点的 X 和 Z 吸附到视口所绘网格的间距（`PlaceSnap3D`）；场景几何体上的点不吸附，因为网格间距可能比指针下的对象还宽；Align 让放在场景几何体上的模型转动，使其 +Y 轴与表面法线一致（`PlaceAlign3D`），地面高度字段设置 `PlaceHeight3D`。它们是视图设置，不是编辑（`SetPlaceOptions3D`）。
+- **放置工具**：按下一个模型会选中它（`SelectModel`、`SelectedModel`），在 3D 中还会启用放置工具（也可通过 `p`、`View > Tools > Place` 或 `CmdToolPlace` 切换）。之后在 3D 中按下，就会添加一个绘制该模型、以它命名的对象：位置是指针射线命中场景几何体的地方；没有命中时，是射线与地平面（高度为 `PlaceHeight3D` 的水平面）相交的地方（`PlacementAt3D`、`PlaceModelAt3D`）。对象落在该点上：它沿表面法线抬高其几何体在原点以下延伸的距离，所以放在地面上的单位立方体是立在地面上，而不是一半埋在地下。隐藏和锁定的对象会被跳过，与拾取相同。
+- **吸附与对齐**：在 3D 中启用放置工具时，上下文放置选项栏（`view3d-place-bar`）以及 `View > Tools` 和命令面板（`CmdTogglePlaceSnap3D`、`CmdTogglePlaceAlign3D`）提供 **Snap**（`place3d-snap`，让地平面上的点的 X 和 Z 吸附到视口所绘网格的间距，`PlaceSnap3D`；场景几何体上的点不吸附，因为网格间距可能比指针下的对象还宽）、**Align**（`place3d-align`，让放在场景几何体上的模型转动，使其 +Y 轴与表面法线一致，`PlaceAlign3D`）以及地面高度字段（`place3d-height`，设置 `PlaceHeight3D`）。它们是视图设置，不是编辑（`SetPlaceOptions3D`）。
 - **拖放**：把模型从资源浏览器拖到 3D 视口上，会按放置工具的规则把它放在落下的位置，不论当前是哪个工具。从其他应用拖到视口上的 `.gltf` 或 `.glb` 文件，只要位于项目文件夹内、且不在资源浏览器略过的文件夹中（名称以 `.` 或 `_` 开头的文件夹，以及 `testdata`），就会被放置（`DropModelFiles`），多个文件算作一步；项目之外的文件、其他类型的文件以及来自网页、没有路径的文件会被拒绝，原因显示在状态栏中。文件拖放不带位置，所以拖入的文件落在视图中心所指的地方。
 - **底部 MODELS 条**：在 3D 视图（非资源抽屉模式）下，3D 视口底部显示 **MODELS** 模型条（`Viewport3DModelsStripView`、`StripModels`，附提示“拖入视口”），按顺序先展示当前项目的离屏渲染模型缩略图再展示内置基本形体，每张卡片附“拖入视口以放置 `<name>`”工具提示，支持点击选中或直接拖入 3D 视口放置；右侧固定 **或让智能体生成一个** 按钮（`OpenModelAgentPrompt`），点击后展开内联提示词栏（“描述一个模型… 例如一个 1 × 0.5 米的矮石花盆，与围墙材质相同”），提交时通过 `SubmitViewport3DAgentPrompt` 向 `Editor.OnAskAgent3D` 分发 `Viewport3DAgentRequest`。
 - **一步操作**：每次放置都是一个可撤销的步骤，撤销会取回，重做会再次放置。播放时、当前图层被锁定或位于屏幕空间时，以及模型无法加载时，放置会被拒绝；在版本 1 的场景中放置模型会把场景提升到当前版本，与 `PlaceObject` 相同。
@@ -775,7 +775,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 启用瓦片工具时，鼠标下的格子会显示对齐网格的轮廓：Paint 和 Fill 在格子里半透明地显示所选瓦片，Terrain 以翠绿轮廓半透明预览自动匹配的地形瓦片，Erase 把格子染成红色，按下会拾取时轮廓为琥珀色。
 
-拾取会把某个格子里的瓦片设为要绘制的瓦片，调色板也会选中它：在任何瓦片工具下 Alt+单击（或 Alt+拖动），或使用 Pick 工具，拾取后会切换到 Paint。拾取空格子时所选瓦片保持不变。拾取不算编辑，不进入撤销历史。
+拾取会把某个格子里的瓦片设为要绘制的瓦片，调色板也会选中它：在任何瓦片工具下 Alt+单击（或 Alt+拖动），或使用 **Pick** 工具（`ToolPickTile`，可通过瓦片调色板的 **Pick** 按钮、`View > Tools > Pick Tile` 或 `CmdToolPickTile` 启用），拾取后会切换到 Paint。拾取空格子时所选瓦片保持不变。拾取不算编辑，不进入撤销历史。
 
 在 Go 中，`BeginTileStroke(mode, x, y)`、`ContinueTileStroke` 和 `EndTileStroke` 在画布坐标上画一笔（`TileStrokePaint`、`TileStrokeErase`、`TileStrokePick`、`TileStrokeTerrain` 或 `TileStrokeEraseTerrain`），`CancelTileStroke` 撤回这一笔，`TileStrokeActive` 报告是否有一笔正在进行；绘制与擦除会拒绝锁定或隐藏的图层，选择工具或图层、修改图层、切换视图、保存、Undo、Redo 和 Play 都会先结束正在进行的一笔（Revert 则会取消它）。`PickTile(layer, col, row)` 拾取瓦片，`SetTileHover` 和 `ClearTileHover` 移动轮廓，`HoveredTile` 返回轮廓所在的格子。
 
@@ -795,7 +795,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 3D 视图（`ViewMode3D`）下，编辑器可以直接打开并在可调高度的地板网格上绘制模块化 3D [`*.gridmap.yaml`](world3d.md#模块化-3d-gridmap) 文件：
 
-- **打开与关联**：在检查器中设置对象的 `gridMap` 字段（`SetObjectGridMap`），或直接打开一个 `*.gridmap.yaml` 文件（`OpenGridMap`、`OpenGridMapFS`、`OpenGridMapDoc`、`NewGridMap`）。在 3D 工具栏中切换到任一 GridMap 工具（**Paint**、**Erase**、**Pick** 或 **Box**）时，若尚未打开网格地图则会自动打开所选对象引用的 `gridMap`；`MoveFile` 也会同步跟踪打开的 GridMap 路径及其 `meshLibrary` 引用。
+- **打开与关联**：在检查器中设置对象的 `gridMap` 字段（`SetObjectGridMap`），或直接打开一个 `*.gridmap.yaml` 文件（`OpenGridMap`、`OpenGridMapFS`、`OpenGridMapDoc`、`NewGridMap`）。在 3D 底部视口栏中切换到任一 GridMap 工具（**Paint**、**Erase**、**Pick** 或 **Box**）、**View > Tools** 或命令面板（`CmdGridMapPaint`、`CmdGridMapErase`、`CmdGridMapPick`、`CmdGridMapBoxFill`）时，若尚未打开网格地图则会自动打开所选对象引用的 `gridMap`；`MoveFile` 也会同步跟踪打开的 GridMap 路径及其 `meshLibrary` 引用。
 - **带 3D 缩略图的调色板**：在 3D 视图启用 GridMap 工具时，视口右侧会显示 `GridMapPaletteView`（`GridMapPalette()`），为 glTF `meshLibrary` 中的每个瓦片渲染等轴测着色 3D 缩略图，并提供当前层高与 24 朝向控制按钮。
 - **层高与 24 种朝向**：按 `]` / `PageUp` 与 `[` / `PageDown`（`SetGridMapFloor`、`StepGridMapFloor`）将当前水平绘制平面上下移动一格。按 `X`、`Y`、`Z`（配合 `Shift` 反向旋转）或 `Q` / `Shift+Q`（`RotateGridMapOrientation`、`StepGridMapOrientation`、`SetGridMapOrientation`）在全部 24 种立方体正交朝向之间旋转当前瓦片（`world3d.RotateGridOrientation`）。
 - **绘制、擦除、拾取与矩形填充**：指针悬停在 3D 视口上时会将视线射线投射到当前层高平面（`ScreenToGridMapCell`），并实时绘制悬停格预览（拖动 **Box** 填充时绘制虚线矩形预览）。单击或拖动会把经过的所有格子作为单个可撤销笔画绘制或擦除（`BeginGridMapStroke`、`ContinueGridMapStroke`、`EndGridMapStroke`、`CancelGridMapStroke`，按 `Escape` 取消）；**Pick**（或 Alt+单击）拾取指针下格子的瓦片与朝向；**Box** 在当前层高上拖出填充矩形（`FillGridMapBox`）。
@@ -863,9 +863,9 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 3D 视图模式下，编辑器可直接从当前打开场景的静态几何体烘焙 Recast 风格的 3D 导航网格（`navbake3d`），并在 3D 视口上实时预览：
 
-- **NavMesh 烘焙面板**（`NavMeshPanelView`，可通过 3D 工具栏的 **NavMesh** 按钮、**View > 3D NavMesh Bake...**、命令 `CmdNavMeshPanel` 或 `SetNavMeshPanelOpen` 开关）：配置代理名称、半径、身高、可攀爬高度（`MaxClimb`）、最大可行走坡度（`MaxSlope`）、体素单元尺寸（`CellSize`）、单元高度（`CellHeight`）和输出 `.navmesh.yaml` 路径（`NavMeshBakeConfig` / `SetNavMeshBakeConfig`）。打开包含 `navigation` 配置的项目时，面板会自动以 `game.yaml` 中的设置为初始值。
+- **NavMesh 烘焙面板**（`NavMeshPanelView`，可通过 **View > 3D NavMesh Bake...**、命令面板 `CmdNavMeshPanel` 或 `SetNavMeshPanelOpen` 开关）：配置代理名称、半径、身高、可攀爬高度（`MaxClimb`）、最大可行走坡度（`MaxSlope`）、体素单元尺寸（`CellSize`）、单元高度（`CellHeight`）和输出 `.navmesh.yaml` 路径（`NavMeshBakeConfig` / `SetNavMeshBakeConfig`）。打开包含 `navigation` 配置的项目时，面板会自动以 `game.yaml` 中的设置为初始值。
 - **烘焙与场景关联**（**Bake** 按钮、`CmdBakeNavMesh3D` 或 `BakeNavMesh3D`）：从当前打开场景的 glTF 模型（支持 `modelNode` 与 `modelMesh`）、内置 `mesh` 基本形体、静态非触发器 `collider3d` 形状（跳过动态/运动学 `body3d`、触发器与屏幕空间图层）以及可选回调 `Editor.OnBakeNavMesh3DGeometry` 提供的地形高度图、`GridMap` 或物理碰撞体收集静态 3D 几何体；以原子方式写出确定性的 `.navmesh.yaml`，在未设置或路径变化时以单步可撤销操作更新 `SceneDoc.NavMesh`（`SetSceneNavMesh`，亦可在场景设置检查器中编辑），并立即加载烘焙结果到视口预览。重新打开已关联 `.navmesh.yaml` 的场景时会自动加载预览（`LoadNavMesh3D`）。
-- **3D 视口叠加层**（工具栏 **Nav Overlay** 按钮、面板 **Overlay** 开关、**View > Show 3D NavMesh**、命令 `CmdNavMeshOverlay` 或 `ShowNavMesh3D` / `SetShowNavMesh3D`）：通过 `Camera3D` 在 3D 场景视口上绘制半透明青色可行走多边形填充、细节边和清晰的多边形外轮廓。
+- **3D 视口叠加层**（3D 视口栏 **Overlays** 弹出面板、面板 **Overlay** 开关、**View > Show 3D NavMesh**、命令面板 `CmdNavMeshOverlay` 或 `ShowNavMesh3D` / `SetShowNavMesh3D`）：通过 `Camera3D` 在 3D 场景视口上绘制半透明青色可行走多边形填充、细节边和清晰的多边形外轮廓。
 
 ## 场景标签页、场景文件与未保存的修改（#866，#873）
 
@@ -876,9 +876,9 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **保存时实时重建依赖标签页**：保存场景（`Save`、`SaveFile`、`SaveSceneAs`、`SaveTab`、`SaveAll`）后，会自动重建其他所有实例化或继承了场景的打开标签页（包括 `BuiltScene` 与 `Scene3D`），因此实例与继承对象无需重新打开就能立刻显示最新改动。`MoveFile` 也会同步更新所有打开标签页的路径和引用。
 - **共享项目、插件、Play 与关闭标签页**：项目文件（`game.yaml`）、插件与 Play 模式在所有标签页之间共享，插件与 Play 作用于当前活动标签页（Play 运行期间禁止切换或关闭标签页）。关闭未修改的标签页（`CloseTab`、`RequestCloseTab`、`CmdCloseTab` / `mod+w` 或标签页关闭按钮）会立即关闭；关闭有未保存修改的标签页会弹出提示：Save（仅保存该标签页并重建依赖它的标签页）、Discard（仅丢弃该标签页的修改，保留共享项目文件的修改）或 Cancel。关闭最后一个标签页后会替换为一个干净的无标题场景。
 
-工具栏的“File”菜单包含：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径并在新标签页打开（`NewScene`）；“Save As”，把当前场景另存到另一个路径，并让该文件成为当前标签页的文件（`SaveSceneAs`）；“Revert”，把当前场景恢复为其文件中保存的样子（`RevertScene`）；以及“Open Instanced Scene”、“Open Base Scene”和“Close Tab”。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。
+顶栏的场景文件菜单（`toolbar-file`）包含：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径并在新标签页打开（`NewScene`）；“Save”；“Save As”，把当前场景另存到另一个路径，并让该文件成为当前标签页的文件（`SaveSceneAs`）；“Revert”，把当前场景恢复为其文件中保存的样子（`RevertScene`）；以及“Open Instanced Scene”、“Open Base Scene”、设置与“Close Tab”。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。
 
-`SceneDirty` 报告当前活动场景是否与打开时或上次保存时的内容不同，它像 `ProjectDirty` 对 `game.yaml`、`ClipDirty` 对打开的动画片段那样比较编码结果，所以撤销回到已保存的状态后，场景、项目或动画片段又会变为未修改；`TabDirty` 检查指定标签页，`AnySceneDirty` 报告是否存在任何有未保存修改的标签页。若 `MoveFile` 改写了打开的场景的文件，场景保持原来的已修改或未修改状态；若它只改写了打开的场景中的引用而没有改写其文件（例如 `game mv` 不读取的场景：名称不是 `.scene.yaml`，也没有任何文件引用它），场景会变为已修改，保存后即可保留新的路径。每个有未保存修改的标签页都会显示 `*` 标记，工具栏显示当前活动场景的路径（`SceneLabel`），只要任意打开的标签页、项目、动画片段或其他辅助文档有未保存的修改（`HasUnsavedChanges`）就会显示 `*`，窗口标题也随之变化（`WindowTitle`）。窗口标题由 `EditorView` 设置，因此基于本包构建的编辑器（例如游戏自己的编辑器）应通过 `Editor.AppName` 给出自己的名称，而不是自行设置标题；标题以该名称结尾（为空时为“NSGo Scene Editor”）。“Save”按钮、菜单栏的 File > Save、命令面板中的 Save 和 Mod+S（`Save`，即 `CmdSave` 命令）只保存当前活动场景与共享项目中修改过的内容；未修改的文件保持原样，注释也会保留。有任意打开的标签页、项目或动画片段存在未保存修改时，切换项目（`RequestOpenProject`）、退出编辑器和关闭窗口都会先询问：“Save”保存所有已修改的标签页和项目（`SaveAll`）后继续，“Discard”丢弃修改后继续，“Cancel”保留修改并停留。丢弃项目的修改时，由项目决定的状态也会像撤销这些修改时一样恢复，例如通过这些修改新增的音频总线进行的试听会停止。强制退出（如注销时）无法等待回答，不会询问。
+`SceneDirty` 报告当前活动场景是否与打开时或上次保存时的内容不同，它像 `ProjectDirty` 对 `game.yaml`、`ClipDirty` 对打开的动画片段那样比较编码结果，所以撤销回到已保存的状态后，场景、项目或动画片段又会变为未修改；`TabDirty` 检查指定标签页，`AnySceneDirty` 报告是否存在任何有未保存修改的标签页。若 `MoveFile` 改写了打开的场景的文件，场景保持原来的已修改或未修改状态；若它只改写了打开的场景中的引用而没有改写其文件（例如 `game mv` 不读取的场景：名称不是 `.scene.yaml`，也没有任何文件引用它），场景会变为已修改，保存后即可保留新的路径。每个有未保存修改的标签页都会显示 `*` 标记，顶栏显示当前活动场景的面包屑名称，并在任意打开的标签页、项目、动画片段或其他辅助文档有未保存修改（`HasUnsavedChanges`）时显示未保存圆点（`toolbar-unsaved`），窗口标题也随之变化（`WindowTitle`）。窗口标题由 `EditorView` 设置，因此基于本包构建的编辑器（例如游戏自己的编辑器）应通过 `Editor.AppName` 给出自己的名称，而不是自行设置标题；标题以该名称结尾（为空时为“NSGo Scene Editor”）。顶栏或桌面菜单栏的 **File > Save**、命令面板中的 Save 和 Mod+S（`Save`，即 `CmdSave` 命令）只保存当前活动场景与共享项目中修改过的内容；未修改的文件保持原样，注释也会保留。有任意打开的标签页、项目或动画片段存在未保存修改时，切换项目（`RequestOpenProject`）、退出编辑器和关闭窗口都会先询问：“Save”保存所有已修改的标签页和项目（`SaveAll`）后继续，“Discard”丢弃修改后继续，“Cancel”保留修改并停留。丢弃项目的修改时，由项目决定的状态也会像撤销这些修改时一样恢复，例如通过这些修改新增的音频总线进行的试听会停止。强制退出（如注销时）无法等待回答，不会询问。
 
 ### 重载磁盘上被修改的文件与保存冲突保护（#906）
 
@@ -906,7 +906,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 编辑器的动画面板在时间轴上为任何已注册属性打关键帧，并把片段保存为 [`animation` 资源文件](resources.md#animation)，由 [animclip](animclip.md) 在游戏中播放（相当于 AnimationPlayer）。打开片段时，面板显示在视口下方。
 
-- **打开片段**：工具栏的 Animate 按钮为选中的对象新建一个一秒长的片段。在 Go 中，`NewClip(target, name, length)` 作用相同；`NewClipFromAsepriteTag(target, tag)` 根据目标对象图集中的 Aseprite 标签生成匹配帧序列、精确时长和循环设置的片段；`NewClipFromFrames(target, name, frames, fps, loop)` 按固定帧率从一组图集帧生成逐帧片段；`OpenClipFile(path, target)` 和 `OpenClipYAML(data, target)` 打开片段文件，并按组件注册表检查（拼错的属性会带着文件名打开失败）；`CloseClip` 关闭片段。当目标对象有精灵图集时，面板的 Flipbook 行也可以直接选择 Aseprite 标签（From Tag）或帧率（From Frames）创建片段。`go tool game editor scene.yaml clip.animation.yaml [object-id]` 打开一个场景并选中对象 `object-id`（省略时为场景中的第一个对象），片段文件存在时在该对象上打开片段，面板的 Save Clip 按钮会写回该文件。
+- **打开片段**：命令面板的 **Animate** 命令（`CmdAnimate`）为选中的对象新建一个一秒长的片段。在 Go 中，`NewClip(target, name, length)` 作用相同；`NewClipFromAsepriteTag(target, tag)` 根据目标对象图集中的 Aseprite 标签生成匹配帧序列、精确时长和循环设置的片段；`NewClipFromFrames(target, name, frames, fps, loop)` 按固定帧率从一组图集帧生成逐帧片段；`OpenClipFile(path, target)` 和 `OpenClipYAML(data, target)` 打开片段文件，并按组件注册表检查（拼错的属性会带着文件名打开失败）；`CloseClip` 关闭片段。当目标对象有精灵图集时，面板的 Flipbook 行也可以直接选择 Aseprite 标签（From Tag）或帧率（From Frames）创建片段。`go tool game editor scene.yaml clip.animation.yaml [object-id]` 打开一个场景并选中对象 `object-id`（省略时为场景中的第一个对象），片段文件存在时在该对象上打开片段，面板的 Save Clip 按钮会写回该文件。
 - **打关键帧**：选择一个属性（对象字段，如 `x`、`alpha` 或 `sprite.frame`，或已注册的组件字段，如 `body.speed`），按 Key 在播放头处以该属性在场景中的当前值打关键帧；`KeyProperty(target, property, at)` 作用相同。选择 `sprite.frame` 时会出现帧选择器，列出目标对象图集中的帧（`ClipTargetFrames`），可直接为任意帧打关键帧（`KeySpriteFrame(target, frame, at)`）。选中的是其他对象时，关键帧会进入以该对象为目标的轨道。显式指定片段所属对象的轨道与目标为空的轨道视为同一条轨道，两条轨道驱动同一对象同一属性的片段会被拒绝。布尔关键帧保持其值直到下一个关键帧，`sprite.frame` 始终离散步进且不做插值。
 - **编辑关键帧**：每条轨道是一行显示其关键帧的通道；`sprite.frame` 轨道以跨越各自持续时间的帧缩略图格显示每个关键帧（`ClipFrameEntry`）。按下关键帧即选中它并把播放头移到该处，然后可以编辑数值轨道的时间、值和插值方式（`linear`、`smooth` 或 `step`），或编辑 `sprite.frame` 轨道的图集帧（`SetKeyFrame`）和帧时长（`-10ms` / `+10ms`，`FrameDuration`、`SetFrameDuration`），或删除它；在 Go 中对应 `SetKeyValue`、`MoveKey`、`SetKeyInterp`、`DeleteKey` 和 `RemoveClipTrack`。值会按属性检查：布尔为 0 或 1，整数为整数值，并且在字段范围内；`sprite.frame` 帧名必须存在于目标对象的图集中。
 - **片段设置与事件**：面板可编辑片段的名称、长度和循环（`SetClipName`、`SetClipLength`、`SetClipLoop`），并在播放头处添加具名事件（`AddClipEvent`、`DeleteClipEvent`）。
@@ -975,15 +975,15 @@ func main() {
 
 - **面板**（`Panel`）：停靠在视口左侧（`DockLeft`，位于资源浏览器之后）、检查器右侧（`DockRight`）或视口下方（`DockBottom`）的视图，上方显示其 `Title`。`View(cx, ed, rev)` 在面板出现时构建一次，只要其插件处于启用状态，面板就保持挂载并保留其状态，不受其他面板增减的影响；与编辑器自带的面板一样，它在响应式函数中读取 `rev`，以跟随编辑器状态的每一次变化。没有面板的停靠区不占空间。
 - **检查器**（`Inspector`）：检查器用 `View(cx, ed, rev, objectID)` 在组件标题下方绘制 `Component` 指定的组件，取代该组件的通用字段。`Editor.ComponentField` 读取一个字段；场景未设置该字段时返回其注册的默认值，对象没有该组件时返回 false。与通用字段一样，检查器的控件应在 `Playing` 返回 true 时禁用，编辑器拒绝的编辑应通过 `Editor.Report` 显示在状态栏中。两个已启用的插件绘制同一个组件时，`editor.plugins` 中排在前面的插件生效。
-- **工具**（`PluginTool`）：根据所实现的钩子，出现在 2D 和/或 3D 视口工具栏中的按钮。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`）：
+- **工具**（`PluginTool`）：在 **View > Tools** 与 **命令面板（`⌘K`）** 中列出的自定义工具，根据所实现的钩子在 2D 和/或 3D 视口中生效。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`）：
   - **2D 钩子**：在 2D 视口上按下会以画布坐标调用 `Press(ed, x, y)`（用 `CanvasToWorld` 转换为世界坐标，用 `CanvasToScreen` 转换为屏幕空间图层的坐标），拖动会依次调用 `OnDragBegin(ed, x, y)`（返回 `true` 接管拖动）、`OnDragMove(ed, x, y)`、`OnDragEnd(ed, x, y)` 与 `OnDragCancel(ed)`（`BeginPluginDrag2D`、`UpdatePluginDrag2D`、`EndPluginDrag2D`、`CancelPluginDrag2D`、`PluginDragging2D`），指针移动会调用 `OnHover(ed, x, y, active)`（`SetPluginHover2D`、`ClearPluginHover2D`），设置了 `Draw` 时它会在编辑模式下绘制在 2D 场景之上。
   - **3D 钩子（#898）**：在 3D 视口上按下会以编辑器 3D 相机的世界空间拾取射线 `math3d.Ray`（`PickRay3D`）调用 `Press3D(ed, ray)`，拖动会依次调用 `OnDragBegin3D(ed, ray)`（返回 `true` 接管拖动而不旋转相机）、`OnDragMove3D(ed, ray)`、`OnDragEnd3D(ed, ray)` 与 `OnDragCancel3D(ed)`（`BeginPluginDrag3D`、`UpdatePluginDrag3D`、`EndPluginDrag3D`、`CancelPluginDrag3D`、`PluginDragging3D`），指针移动会调用 `OnHover3D(ed, ray, active)`（`SetPluginHover3D`、`ClearPluginHover3D`），设置了 `Draw3D(ed, d, proj)` 时它会通过 `Projection3D`（提供 `Camera`、`Width`、`Height`、`ViewProj`、`Project`、`ProjectSegment`、`ScreenRay`、`GizmoLength`、`DrawPoint`、`DrawLine`、`DrawBox`）在 3D 视口之上绘制。
-  - 工具至少需要提供 `Press`、`OnDragBegin`、`Press3D` 或 `OnDragBegin3D` 之一。仅含 2D 钩子的工具只出现在 2D 工具栏并在 3D 中保持空闲；含 3D 钩子的工具出现在 3D 工具栏中，从命令面板或菜单栏触发仅支持 3D 的工具时会自动切换到 3D 视图。选择其他工具或关闭插件都会结束该工具。
+  - 工具至少需要提供 `Press`、`OnDragBegin`、`Press3D` 或 `OnDragBegin3D` 之一。仅含 2D 钩子的工具在 3D 中保持空闲；含 3D 钩子的工具从命令面板或 **View > Tools** 触发时会自动切换到 3D 视图。选择其他工具或关闭插件都会结束该工具。
 - **3D 组件操纵杆**（`Gizmos3D []ComponentGizmo3D`，#898）：按组件类型注册对象空间中的 3D 手柄（点 `GizmoHandlePoint3D`、线段 `GizmoHandleLine3D`、线框盒 `GizmoHandleBox3D`，可标记为 `DisplayOnly`），由 `Handles(ed, objectID)` 返回，并配以 `Drag(ed, drag GizmoDrag3D) error` 拖拽回调。编辑器自动沿完整父子层级将对象空间手柄变换到世界空间并执行屏幕空间拾取（`PickComponentGizmo3D`、`BeginComponentGizmoDrag3D`、`UpdateComponentGizmoDrag3D`、`EndComponentGizmoDrag3D`、`CancelComponentGizmoDrag3D`），并向 `Drag` 传入 `GizmoDrag3D`（含世界与对象空间射线以及 `AxisDelta`、`PlanePoint`、`PlaneDelta`、`ViewPlaneDelta` 辅助方法）。在 `Drag` 中通过 `Editor`（例如 `SetComponentField` 或 `Editor.History`）执行的修改会在每次指针移动时实时预览，按 `Escape` 或取消时干净回滚且不写入历史，松手结束时合并为**单个撤销步骤**提交到 `Editor.History`。两个已启用插件为同一组件注册 3D 操纵杆时，`editor.plugins` 中排在前面的插件生效。编辑器自带的 3D 变换操纵杆（平移、旋转、缩放）与内置 `collider3d` / `trigger3d` 手柄均复用这套共享 3D 手柄 API。
 
 插件只通过编辑器的方法修改场景，例如 `SetComponentField`、`PlaceObject` 和 `MoveObject`，或者在 `Editor.History` 上执行自己的 `Command`，因此它的每一次编辑都与其他编辑一起撤销和重做。`History.Group(label, fn)` 把 `fn` 做的编辑记录为一个步骤，按一次撤销即可撤回；`fn` 失败时撤销这些编辑且不记录任何步骤。编辑器的 MCP 服务器（[mcp](mcp.md#编辑器工具)）就这样应用智能体的每次请求。`RegisterPlugin` 会拒绝没有名称或名称已注册的插件、缺少 ID、标题、标签、组件或函数的面板、检查器或工具、含控制字符的 ID 或组件名、未知的停靠位置，以及 ID 或组件重复的面板、检查器或工具。测试 ID 用 `-` 连接插件名和 ID（`plugin-panel-<plugin>-<id>`、`tool-<plugin>-<id>`、`inspector-plugin-<plugin>-<component>`），因此一起使用的插件，其名称和 ID 不应连接成相同的字符串。
 
-`SetPluginEnabled(name, on)` 把已注册的插件加入 `editor.plugins` 或从中移除，作为项目的一次可撤销编辑，由工具栏的“Save”按钮写入；移除最后一个插件时，如果 `editor` 小节中已没有其他内容，就会一并移除该小节（包括作者自己写的 `editor: {}`），撤销会将其恢复。`RegisteredPlugins`、`ActivePlugins` 和 `PluginEnabled` 报告程序包含哪些插件、哪些已启用。
+`SetPluginEnabled(name, on)` 把已注册的插件加入 `editor.plugins` 或从中移除，作为项目的一次可撤销编辑，由 **File > Save**（`mod+s`）写入；移除最后一个插件时，如果 `editor` 小节中已没有其他内容，就会一并移除该小节（包括作者自己写的 `editor: {}`），撤销会将其恢复。`RegisteredPlugins`、`ActivePlugins` 和 `PluginEnabled` 报告程序包含哪些插件、哪些已启用。
 
 ### 随游戏发布带插件的编辑器
 
@@ -1020,7 +1020,7 @@ func main() {
 
 ### 项目设置页（#907、#1060）
 
-打开项目后，工具栏的 **Settings** 按钮（`ProjectSettingsOpen` / `SetProjectSettingsOpen` 或 `OpenSettingsPage(SettingsPageProject)`）会在 `SettingsView` 中打开 **Project** 页面（`ProjectSettingsPanelView`），完全通过 `EditProject` 编辑 `game.yaml`：每一次修改都经过 `project.Validate` 校验，纳入撤销/重做历史，并在点击 **Save**（`SaveProject`）时同时写回 `game.yaml` 与同步更新的 `nsgo.yaml`：
+打开项目后，通过 **Project > Project Settings**、`mod+shift+,` 或命令面板（`CmdProjectSettings`、`ProjectSettingsOpen` / `SetProjectSettingsOpen` 或 `OpenSettingsPage(SettingsPageProject)`）会在 `SettingsView` 中打开 **Project** 页面（`ProjectSettingsPanelView`），完全通过 `EditProject` 编辑 `game.yaml`：每一次修改都经过 `project.Validate` 校验，纳入撤销/重做历史，并在点击 **Save**（`SaveProject`）时同时写回 `game.yaml` 与同步更新的 `nsgo.yaml`：
 
 - **常规（General）**：在概览页直接编辑 `name`、`id`、`window` 宽高、`autoload.mainScene` 与 `appVersion`（`SetProjectName`、`SetProjectID`、`SetProjectWindowSize`、`SetProjectMainScene`、`SetProjectAppVersion`）。
 - **窗口（Window）**：编辑 `window.title`、`width`/`height`、`minWidth`/`minHeight`/`maxWidth`/`maxHeight` 尺寸限制、`resizable` 和 `appearance`（`SetProjectWindowTitle`、`SetProjectWindowSize`、`SetProjectWindowLimits`、`SetProjectWindowResizable`、`SetProjectWindowAppearance`）。
@@ -1033,7 +1033,7 @@ func main() {
 
 ### 音频总线页（#909、#1060）
 
-打开项目后，工具栏的 **Audio** 按钮（`AudioMixerOpen` / `SetAudioMixerOpen` 或 `OpenSettingsPage(SettingsPageAudio)`）会在 `SettingsView` 中打开 **Audio buses** 设置页（`AudioMixerPanelView`），通过 `EditProject` 直接编辑 `game.yaml` 的 `audio` 小节：每一次修改都经过 `project.Validate` 校验，纳入编辑器的撤销/重做历史，并在点击 **Save**（`SaveProject`）时写回文件：
+打开项目后，通过 **Project > Audio Bus Mixer**、命令面板（`CmdAudioMixer`）或 **设置 › Audio buses**（`AudioMixerOpen` / `SetAudioMixerOpen` 或 `OpenSettingsPage(SettingsPageAudio)`）会在 `SettingsView` 中打开 **Audio buses** 设置页（`AudioMixerPanelView`），通过 `EditProject` 直接编辑 `game.yaml` 的 `audio` 小节：每一次修改都经过 `project.Validate` 校验，纳入编辑器的撤销/重做历史，并在点击 **Save**（`SaveProject`）时写回文件：
 
 - **主音量与总线**：调节带分贝读数的主音量滑块（`SetAudioMasterVolume`），新增总线（`AddAudioBus`）、重命名（`RenameAudioBus`）、删除（`DeleteAudioBus`）、调整顺序（`MoveAudioBus`），查看并调节每条总线的路由（`Into Master`）与音量滑块（`SetAudioBusVolume`）。在未设置主音量时删除最后一条总线会一并移除空的 `audio` 小节，撤销可将其恢复。
 - **单总线 DSP 效果链**：为每条总线添加（`AddAudioBusEffect` / `AddAudioBusEffectKind`）、移除（`RemoveAudioBusEffect`）、重排（`MoveAudioBusEffect`）和编辑（`SetAudioBusEffect`）`project.Effect` 支持的全部六种效果（`lowPass`、`highPass`、`delay`、`reverb`、`gain`、`bitcrush`）。数值控件将参数约束在 `project.Validate` 允许的范围内（配合 `ClampAudioEffect`），Go API 则会拒绝越界值且不改动项目或历史。
@@ -1041,7 +1041,7 @@ func main() {
 
 ### 输入映射页（#908、#1060）
 
-打开项目后，工具栏的 **Input** 按钮（`InputMapOpen` / `SetInputMapOpen` 或 `OpenSettingsPage(SettingsPageInput)`）会在 `SettingsView` 中打开 **Input map** 设置页（`InputMapPanelView`），通过 `EditProject` 直接编辑 `game.yaml` 的 `input` 小节，提供完整的撤销/重做与 `project.Validate` 校验：
+打开项目后，通过命令面板（`CmdInputMap`）或 **设置 › Input map**（`InputMapOpen` / `SetInputMapOpen` 或 `OpenSettingsPage(SettingsPageInput)`）会在 `SettingsView` 中打开 **Input map** 设置页（`InputMapPanelView`），通过 `EditProject` 直接编辑 `game.yaml` 的 `input` 小节，提供完整的撤销/重做与 `project.Validate` 校验：
 
 - **动作概览与编辑**：列出每个已配置动作及其键盘、手柄与触控触发方式，并提供按钮直接跳转到该动作的编辑视图。支持新增（`AddInputAction`）、重命名（`RenameInputAction`）和删除（`DeleteInputAction`）动作，以及添加（`AddInputBinding`）、编辑（`SetInputBinding`）或移除（`RemoveInputBinding`）`game/input` 支持的全部绑定类型：`key`、`keyCode`、`gamepadButton`、`mouseButton`、`touchRegion` 与 `mouseRegion`。重命名动作时会在同一步可撤销操作中原子更新 `input.axes` 中所有引用该动作的轴，撤销与重做也会保持一致。
 - **按键捕获**：点击 **Press a key**（`BeginKeyCapture`，`project.KindKey`）或 **Press code**（`project.KindKeyCode`）进入捕获模式，将下一次硬件按键（`CaptureKeyEvent`）直接绑定到当前动作，点击 **Cancel**（`CancelKeyCapture`）可退出而不改动项目。
@@ -1052,7 +1052,7 @@ func main() {
 
 本地化面板（`LocalizationPanelView`）在视口下方以表格形式并排编辑各语言的 YAML 字符串表：行为消息键，列为项目语言。
 
-- **打开**：点击工具栏的 **Strings** 按钮（打开项目时加载 `<项目>/locales`，否则创建含 `en` 语言的内存表），或在 Go 中调用 `OpenLocalizations(dir)` / `NewLocalizations(dir, locales...)`。`CloseLocalizations` 关闭面板。
+- **打开**：选择 **Project > Localization Strings** 或命令面板中的 **Localization Strings**（`CmdLocalization`，打开项目时加载 `<项目>/locales`，否则创建含 `en` 语言的内存表），或在 Go 中调用 `OpenLocalizations(dir)` / `NewLocalizations(dir, locales...)`。`CloseLocalizations` 关闭面板。
 - **键与语言**：支持增删语言列（`AddLocalizationLocale`、`RemoveLocalizationLocale`）和消息键行（`AddLocalizationKey`、`RemoveLocalizationKey`），并自动将语言标签规范化为 BCP-47 形式（例如 `zh_hans` -> `zh-Hans`）。
 - **普通文本与 CLDR 复数**：可将键设为复数模式（`SetLocalizationKeyPlural`），编辑全部六个 CLDR 复数类别（`zero`、`one`、`two`、`few`、`many`、`other`，对应 `SetLocalizationPlural` / `SetLocalizationPluralForm`），或用 `SetLocalizationString` 编辑普通字符串。
 - **缺失翻译高亮**：译文为空（或复数键缺少 `other` 回退形式）的单元格会以警告边框和 `Missing` 标记高亮；可通过 `LocalizationMissing`、`LocalizationMissingCount` 和 `LocalizationIsMissing` 查询。未翻译的键在保存时会被省略，以便运行时 `l10n.Catalog` 沿 BCP-47 链自动回退。
@@ -1071,7 +1071,7 @@ func main() {
 
 ## 导出与发布构建（#916、#1060）
 
-打开项目后，工具栏的 **Export** 按钮（`ExportPanelOpen` / `SetExportPanelOpen` 或 `OpenSettingsPage(SettingsPageExport)`）会在 `SettingsView` 中打开 **Export** 设置页（`ExportPanelView`），用于在编辑器中直接编辑 `game.yaml` 的 `export` 小节并执行发布构建：
+打开项目后，通过 **File > Export & Release...**、`mod+shift+e`、命令面板（`CmdExport`）或 **设置 › Export**（`ExportPanelOpen` / `SetExportPanelOpen` 或 `OpenSettingsPage(SettingsPageExport)`）会在 `SettingsView` 中打开 **Export** 设置页（`ExportPanelView`），用于在编辑器中直接编辑 `game.yaml` 的 `export` 小节并执行发布构建：
 
 - **预设、就绪状态与输出目录**：带行内校验地编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。每个预设行都会显示就绪状态（`ExportPresetReadiness`：**Ready**，或在缺少签名/团队配置或资源鸣谢时显示 **Set up**）与权限徽章，左侧导航的 **Export** 条目在存在待配置预设时也会显示警告徽章（`ExportNavWarningMeta`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
@@ -1110,8 +1110,8 @@ func main() {
 
 在保留原有编辑器内 **Play** 预览（`Play`、`PlayIn`、`Stop`，通过 `mod+p` / **F5** 切换）的同时，编辑器可以在桌面端直接通过 `go tool game dev` 运行打开的项目，并将输出实时显示在视口下方停靠的输出面板（`OutputPanelView`）中：
 
-- **运行与停止**：点击工具栏的 **Run** 按钮（或按 `mod+r` / **Project > Run Game**）即可在打开的项目目录中启动 `go tool game dev`（`RunGame` / `RunGameWith`）。开启 **Current Scene** 开关（`SetRunStartAtOpenScene`）或传入 `RunGameOptions{StartAtOpenScene: true}` 时，会将当前打开的场景作为 `-scene <路径>` 与 `NSGO_GAME_SCENE`（`hotreload.SceneEnv`）传给游戏。游戏运行期间按钮切换为 **Stop Game (Running)**（**Shift+F5** / `StopGame`），停止时会干净地结束子进程及其启动的全部进程树（Unix 上通过独立进程组结束，Windows 上通过 `taskkill /T /F` 结束）。卸载 `EditorView`、切换项目（`OpenProject`）或调用 `Close()` 也会自动停止正在运行的游戏。自定义工具和测试可注入 `Editor.RunGameCommand`。
-- **输出 / 日志面板**：停靠在视口下方（`OutputPanelView`，可通过工具栏 **Output** 按钮或 `SetOutputPanelOpen` 开关），在 UI 协程之外实时流式显示运行中游戏的标准输出（`OutputStdout`）和标准错误（`OutputStderr`），并保留编辑器自身带时间戳的状态与错误历史（`OutputEditor`）。连续多条编辑器错误都会保留在日志中，不会被下一条覆盖。
+- **运行与停止**：选择 **Project > Run Game**、`mod+r` 或命令面板（`CmdRunGame`）即可在打开的项目目录中启动 `go tool game dev`（`RunGame` / `RunGameWith`）。开启 **Run From Open Scene**（`CmdRunOpenScene`、`SetRunStartAtOpenScene`）或传入 `RunGameOptions{StartAtOpenScene: true}` 时，会将当前打开的场景作为 `-scene <路径>` 与 `NSGO_GAME_SCENE`（`hotreload.SceneEnv`）传给游戏。游戏运行期间，**Stop Game**（`CmdStopGame`、**Shift+F5** / `StopGame`）会干净地结束子进程及其启动的全部进程树（Unix 上通过独立进程组结束，Windows 上通过 `taskkill /T /F` 结束）。卸载 `EditorView`、切换项目（`OpenProject`）或调用 `Close()` 也会自动停止正在运行的游戏。自定义工具和测试可注入 `Editor.RunGameCommand`。
+- **输出 / 日志面板**：停靠在视口下方（`OutputPanelView`，可通过状态栏 **Output** 按钮、**View > Panels > Output**、命令面板 `CmdOutputPanel` 或 `SetOutputPanelOpen` 开关），在 UI 协程之外实时流式显示运行中游戏的标准输出（`OutputStdout`）和标准错误（`OutputStderr`），并保留编辑器自身带时间戳的状态与错误历史（`OutputEditor`）。连续多条编辑器错误都会保留在日志中，不会被下一条覆盖。
 - **筛选、清空与 `file:line` 跳转**：切换 **Errors**（`SetOutputErrorsOnly`）只看错误日志，点击 **Clear**（`ClearOutput`）清空日志，点击包含 `file:line` 的日志行（`OpenOutputEntry`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则在编辑器中打开，否则在文件浏览器中选中该文件。
 ## 快捷键、菜单栏与命令面板（#920）
 
@@ -1130,7 +1130,7 @@ func main() {
   - **智能体**：`mod+n`（新建智能体线程）。
   <!-- END GENERATED EDITOR SHORTCUTS -->
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`、`Help`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下，`Help` 菜单包含重播提示（`Replay tips`）与键盘快捷键（`Keyboard Shortcuts`）。
-- **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
+- **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击顶栏的 **搜索 `⌘K`** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
 - **插件命令**：插件可通过 `Commands []PluginCommand` 声明带可选 `Shortcut` 的命令。`RegisterPlugin` 会规范化快捷键（`NormalizeShortcut`），并在改动编辑器状态之前拒绝任何在 macOS 或 Windows/Linux 上与内置命令、自定义命令或其他已注册插件冲突的快捷键。
 ## 资源导入设置与重建（#915）
 
@@ -1140,7 +1140,7 @@ func main() {
 - **交互式精灵表切分网格与帧枢轴预览（#880）**：选中图片时，导入面板会在透明棋盘格上渲染实时预览画布（`DrawImageImportPreview`），叠加显示切分网格（`width`、`height`、`margin`、`spacing`、`count`）以及每个切分格子（或未切分整图）的可拖拽枢轴标记。作者可以直接在预览画布上拖拽枢轴（`BeginImagePivotDrag` / `UpdateImagePivotDrag` / `EndImagePivotDrag` / `CancelImagePivotDrag`）、点击默认枢轴预设（`TL`、`Center`、`Bottom`），或按数值编辑/重置 `pivot.default` 与单格 `pivot.cells`（`SelectImportSliceCell`、`SetImageImportPivot`、`SetImageImportDefaultPivot`、`SetImageImportCellPivot`）。每次拖拽在松手时作为单个可撤销步骤写入确定性边车；点击 **Reimport** 或 **Build Assets** 后，打包出的 TexturePacker JSON 会写入对应枢轴并由 `sprite.LoadAtlas` 精确加载为 `Frame.PivotX` 与 `Frame.PivotY`。
 - **交互式 glTF/GLB 模型预览与动画播放（#897）**：在文件浏览器中选中 `.gltf` 或 `.glb` 模型时，导入面板会使用轨道相机渲染该模型（`DrawModelPreview`、`RenderModelPreview`、`OrbitModelPreview`、`PanModelPreview`、`ZoomModelPreview`、`ResetModelPreviewCamera`），实时反映当前生效的导入 `scale`，并展示模型的结构与统计信息（`InspectModelImport`）：原始与缩放后的包围盒、总三角形与顶点数，以及节点、网格、材质与动画列表。每个动画都可以选择、播放、暂停、停止、循环或拖动时间轴定位（`SelectModelPreviewAnimation`、`PlayModelPreviewAnimation`、`PauseModelPreviewAnimation`、`StopModelPreviewAnimation`、`SeekModelPreviewAnimation`、`StepModelPreviewAnimation`），同时支持节点 TRS 变换、骨骼蒙皮与变形目标动画。修改 `scale`、`animations`、`lodHysteresis` 或 `credit` 会通过 `importsettings.Encode` 写入确定性边车并显示读取该文件的 `game.yaml` 模型目标，使下一次 `game assets` 运行仅重建该模型。
 - **校验写入、撤销与单字段重置**：每次编辑都通过 `importsettings.Encode` 严格校验并原子写入边车文件，作为单个可撤销步骤进入 `Editor.History`（`EditAssetImportSettings`、`SetImageImport*` / `SetAudioImport*` / `SetFontImport*` / `SetModelImport*` 以及 `SetAssetImportCredit`）。**撤销（Undo）** 会逐字节恢复编辑前的边车内容（若此前无边车则删除新建文件）；**重置（Reset）**（`ResetAssetImportField`）将单个覆盖项恢复为 `game.yaml` 目标默认值，当不再有任何覆盖项或鸣谢时自动删除空边车文件。
-- **Reimport、Build Assets 与热重载**：检查器中的 **Reimport** 按钮（`ReimportAsset`）与工具栏中的 **Build Assets** 按钮（`BuildAssets` / `BuildAssetsWith`）会在 UI 协程之外运行 `go tool game assets`，并将标准输出和标准错误实时流式写入停靠的 **Output** 面板（`OutputPanelView`）。构建完成后，`ReloadAssets` 会从磁盘重新加载发生变化的图集与纹理到 `Editor.Resolver`（就地更新 `sceneformat.AtlasMap` 或已有 `*sprite.Atlas`，并在实现或配置了 `AssetReloader` / `OnReloadAssets` 时回调通知），无需重启编辑器即可在资源浏览器和视口中立即生效，并自动重新运行问题检查。自定义工具与测试可注入 `Editor.AssetsCommandRunner`。
+- **Reimport、Build Assets 与热重载**：检查器中的 **Reimport** 按钮（`ReimportAsset`）与命令面板中的 **Build Assets** 命令（`CmdBuildAssets`、`BuildAssets` / `BuildAssetsWith`）会在 UI 协程之外运行 `go tool game assets`，并将标准输出和标准错误实时流式写入停靠的 **Output** 面板（`OutputPanelView`）。构建完成后，`ReloadAssets` 会从磁盘重新加载发生变化的图集与纹理到 `Editor.Resolver`（就地更新 `sceneformat.AtlasMap` 或已有 `*sprite.Atlas`，并在实现或配置了 `AssetReloader` / `OnReloadAssets` 时回调通知），无需重启编辑器即可在资源浏览器和视口中立即生效，并自动重新运行问题检查。自定义工具与测试可注入 `Editor.AssetsCommandRunner`。
 
 ## 性能分析器面板与帧耗时条（#912）
 
@@ -1148,7 +1148,7 @@ func main() {
 
 - **运行模式 `FRAME TIME · LAST 60 S` 帧耗时条（`ProfilerStripView`）**：在编辑器内 Play 模式或已连接远程游戏（`ConnectProfiler`）期间始终显示在游戏视口下方。显示来自 `game_perf_readout` 的 `avg`、`p99` 与 `allocs/frame`，绘制 `8.3 ms`（`over 8.3 ms`）与 `16.7 ms`（`missed 16.7 ms`）阈值线及图例、`−60 s` / `−30 s` / `now` 时间轴，并在游戏通过 `debug.Overlay.NoteFrameCause` 标注了原因（或发生 GC 卡顿标记为 `"GC pause"`）时以徽章标出尖峰及其原因。点击耗时条上的 **Profiler** 按钮即可打开完整性能分析器面板。
 - **连接运行中的游戏**：可通过 `ConnectProfilerMCP`（基于官方 MCP Go SDK 的任意 `mcp.Transport`）、`ConnectProfilerCommand`（启动 `go tool nsgo mcp`）、`ConnectProfilerScope`（已挂载 `mcp.Bridge` 的进程内 `*core.Scope`）或 `NewBridgeProfilerClient` 创建客户端并传给 `Editor.ConnectProfiler`。挂载作用域后，编辑器会按 `Editor.ProfilerPollInterval`（默认 `250 ms`）轮询 `game_perf_readout` 和 `game_perf_zones`，也可通过 `Editor.PollProfiler` 按需轮询。未连接外部客户端时，内置 Play 模式（`Play` / `PlayIn`）也会自动使用 `debug.Overlay`、`debug.Profiler` 和 `debug.GCMonitor` 采集帧耗时与区间数据。
-- **完整性能分析器面板（`ProfilerPanelView`）**：可通过耗时条、工具栏 **Profiler** 按钮、`Project > Profiler`、命令面板或 `mod+shift+m`（`CmdProfiler` / `SetProfilerOpen`）开关。面板提供实时指标卡片与可切换的时间序列图表（`SetProfilerMetric`），涵盖 **Frame**（叠加 Update、Draw、总耗时与 GC 卡顿标记及 8.3 ms / 16.7 ms 参考线）、**FPS**、**Allocs & GC**（每帧分配次数、实时堆内存与 GC 卡顿）与 **Memory**（受跟踪资源内存与预算对比及分组统计），右侧列出按耗时排序的 `game_perf_zones` 命名计时区间表。
+- **完整性能分析器面板（`ProfilerPanelView`）**：可通过耗时条、状态栏 **Debugger** 按钮、`Project > Profiler`、命令面板或 `mod+shift+m`（`CmdProfiler` / `SetProfilerOpen`）开关。面板提供实时指标卡片与可切换的时间序列图表（`SetProfilerMetric`），涵盖 **Frame**（叠加 Update、Draw、总耗时与 GC 卡顿标记及 8.3 ms / 16.7 ms 参考线）、**FPS**、**Allocs & GC**（每帧分配次数、实时堆内存与 GC 卡顿）与 **Memory**（受跟踪资源内存与预算对比及分组统计），右侧列出按耗时排序的 `game_perf_zones` 命名计时区间表。
 - **重置与 Chrome/Perfetto Trace 导出**：点击 **Reset**（`Editor.ResetProfiler`）会向已连接的游戏调用 `game_perf_reset` 并清空编辑器已记录的历史帧与区间表。点击 **Export Trace**（或调用 `Editor.ExportProfilerTrace` / `Editor.ExportProfilerTraceFile`，或通过 `Editor.OnExportProfilerTrace` 接管输出）会通过 `debug.Profiler.WriteChromeTrace` 将已记录的帧与区间导出为合法的 Chrome/Perfetto Trace Event Format JSON。
 ## 开始界面（#922）
 
@@ -1171,7 +1171,7 @@ func main() {
 
 - **LOD 叠加层（`ShowLODOverlay` / `SetShowLODOverlay`）**：按当前选中的 LOD 级别为每个多级 LOD 对象着色，并在视口中绘制 `LOD<n>` 标签；3D 检查器同时显示选中对象当前的活动 LOD（`ObjectLOD3D`、`ObjectLODCount3D`）。在资源导入检查器中修改模型的 `lods` 或 `lodHysteresis` 会立即使 3D 构建缓存失效，切换效果即时可见。
 - **遮挡体可视化与编辑（`ShowOccluders` / `SetShowOccluders`、`SetObjectOccluder`）**：为每个可见遮挡体绘制品红色线框及 `OCC` / `OCC BOX` 标签（包括显式 `box` 遮挡体与 `model` 遮挡体），以弱化虚线标示被遮挡体剔除的对象（`ObjectOccluded3D`），并在 3D 检查器中提供可撤销的 Occluder 模式（`none` / `model` / `box`）、盒体尺寸和双面开关控件（必要时自动将版本 1 场景升级为版本 2）。
-- **RenderStats 叠加层（`ShowRenderStats` / `SetShowRenderStats`、`RenderStats3D`）**：在 3D 视口右上角实时显示 `render3d.RenderStats`（`Draws`、`Visible`、`Occluded`、`Tris`、`Verts` 及各多级 LOD 对象当前选中的 `LOD` 级别），并可在 3D 工具栏中与 LOD、Occluders 叠加层一同独立开关。
+- **RenderStats 叠加层（`ShowRenderStats` / `SetShowRenderStats`、`RenderStats3D`）**：在 3D 视口右下角实时显示 `render3d.RenderStats`（`Draws`、`Visible`、`Occluded`、`Tris`、`Verts` 及各多级 LOD 对象当前选中的 `LOD` 级别），并可通过 3D 视口栏的 **Overlays** 弹出面板（`view3d-overlays`）、`View > Overlays` 或命令面板（`CmdToggleLODOverlay`、`CmdToggleOccluders`、`CmdToggleRenderStats`）与 LOD、Occluders 叠加层一同独立开关。
 
 ## 远程场景树与实时检查器（#911）
 
@@ -1183,14 +1183,14 @@ func main() {
 - **实时控制栏、可调参数与控制台**：连接期间顶部会显示实时控制栏，提供 **Pause / Resume**（`mod+shift+p`、`RemotePause` / `RemoteResume`）、单步 **Step**（暂停时按 `.`）与 **Step N** 固定步进（`RemoteStep`）、时间倍率 **Time Scale**（`0.25×`、`0.5×`、`1×`、`2×`、`RemoteSetTimeScale`），并在状态栏显示实时帧数、模拟时间与实体数量。若游戏配置了 `debug.Console`，远程检查器还会展示实时 **Tunables**（`game_tunables_list` / `RemoteSetTunable`）与 **Console** 命令行（`RemoteExecConsole` / `game_console_exec`）。
 ## 3D 地形雕刻与绘制工具（#900）
 
-在 3D 视图（`ViewMode3D`）中，点击工具栏的 **Terrain** 按钮（或在文件浏览器中双击 / 点击 **Terrain** 打开 `*.terrain.yaml`，或在 Go 代码中调用 `NewTerrain`、`OpenTerrainFile`、`OpenTerrainProjectFile`、`OpenTerrain`），即可在 3D 视口中直接雕刻和绘制 `world3d` 地形，并在视口下方显示停靠的 `TerrainPanelView` 面板：
+在 3D 视图（`ViewMode3D`）中，选择 **Project > 3D Terrain Editor** 或命令面板（`CmdTerrainEditor`）——或在文件浏览器中双击 / 点击 **Terrain** 打开 `*.terrain.yaml`，或在 Go 代码中调用 `NewTerrain`、`OpenTerrainFile`、`OpenTerrainProjectFile`、`OpenTerrain`——即可在 3D 视口中直接雕刻和绘制 `world3d` 地形，并在视口下方显示停靠的 `TerrainPanelView` 面板：
 
 - **雕刻与绘制画笔**：支持 `TerrainBrushRaise`（抬高）、`TerrainBrushLower`（压低）、`TerrainBrushSmooth`（平滑）、`TerrainBrushFlatten`（整平至起笔处高度，或启用 `UseTargetHeight` 时整平至 `TargetHeight`）、`TerrainBrushSetHeight`（设定高度 `TargetHeight`）、`TerrainBrushPaintLayer`（绘制纹理材质层权重并自动保持各层权重之和归一化为 1）以及 `TerrainBrushPaintFoliage`（将选中植被层的密度向 `[0, 1]` 内的 `TargetDensity` 过渡，`0` 为擦除）。可通过 `SetTerrainBrush` 或面板控件配置半径 `Radius`、强度 `Strength` 和衰减曲线 `Falloff`（`TerrainFalloffSmooth`、`TerrainFalloffLinear`、`TerrainFalloffFlat`）。
 - **3D 射线笔触与单步撤销/重做**：在 3D 视口中点击或拖拽会对实时 `world3d.Heightmap` 执行射线检测（`RaycastTerrain3D`、`BeginTerrainStrokeAt` / `ContinueTerrainStrokeAt` / `EndTerrainStroke`，或直接传入世界坐标的 `BeginTerrainStroke` / `ContinueTerrainStroke`），在快速拖拽路径上自动插值平滑落笔，在地形表面投射贴地画笔半径环，并将一整次拖拽笔触作为 **单步撤销记录** 存入 `Editor.History`（按 `Escape` 或调用 `CancelTerrainStroke` 可中止当前笔触并还原）。撤销与重做会精确恢复高度图、材质权重和植被密度数据，并同步更新 `TerrainDirty()` / `HasUnsavedChanges()`。
 - **16 位无损保存**：点击 **Save Terrain**（`SaveTerrain`、`SaveTerrainTo` 或脏状态下的 `Save`）会原子写出 16 位灰度 PNG 高度图（`*image.Gray16`，消除 8 位斜坡阶梯伪影）、逐层灰度权重图 PNG（或打包 RGBA `splatMaps`）、植被密度图 PNG 以及确定性 `*.terrain.yaml`，使游戏侧通过 `world3d.LoadTerrainFS`、`TerrainDoc.ScatterFoliage` 与 `render3d.TerrainMaterialFromDoc` 加载并绘制出完全一致的地形。
 ## 粒子发射器编辑器（#883）
 
-粒子发射器编辑器（`ParticleEditorPanelView`）可通过工具栏的 **Particles** 按钮（`CmdParticleEditor`）、在文件浏览器中双击 `*.particles.yaml` / `*.emitter.yaml` 或点击 **Open Emitter**，或在检查器中点击带有 `particles` 对象的 **Edit Emitter** 按钮打开，支持带实时预览与完整撤销/重做地编辑 2D `particles.Config` 的全部字段：
+粒子发射器编辑器（`ParticleEditorPanelView`）可通过 **Project > Particle Emitter Editor**、命令面板（`CmdParticleEditor`）、在文件浏览器中双击 `*.particles.yaml` / `*.emitter.yaml` 或点击 **Open Emitter**，或在检查器中点击带有 `particles` 对象的 **Edit Emitter** 按钮打开，支持带实时预览与完整撤销/重做地编辑 2D `particles.Config` 的全部字段：
 
 - **不重启的实时预览**：面板在预览画布上运行实时的 `*particles.Emitter`（`ParticlePreview`），提供 **Play/Pause**（`PlayParticlePreview` / `PauseParticlePreview`）、**Restart**（`RestartParticlePreview`）、**Step**（`StepParticlePreview`）、**Burst**（`BurstParticlePreview`）、**Preview Atlas**（`SetParticlePreviewAtlas`）以及用于测试反弹/停止/销毁碰撞的可选 **Floor** 地板碰撞体（`SetParticlePreviewFloor`）。修改发射速率、曲线、运动等参数时通过 `Emitter.ReloadConfig` 立即生效，不会重启或清除当前存活粒子；未绑定图集或帧时，预览会以彩色圆点回退绘制，便于随时调参。
 - **全字段编辑与交互式曲线控件**：覆盖 `space`、位置、旋转、`z`、`seed`、`shape`（`point`、`circle`、`ring`、`rect`）、`rate`、`maxParticles`、定时爆发 `bursts`（增删改 `time`、`count`、`cycles`、`interval`）、`lifetimeMin`/`Max`、`speedMin`/`Max`、`angleMin`/`Max`、`gravityX`/`Y`、`initialRotationMin`/`Max`、`rotationSpeedMin`/`Max`、`collision`、`trail` 与递归 `subEmitters`（通过 `SetParticleTargetPath` / **Edit Child** 进入编辑子发射器配置）。曲线控件在交互画布上绘制 `sizeCurve`、`alphaCurve`、`rotationCurve`、`colorCurve`、`trail.widthCurve` 与 `trail.colorGradient`，支持拖拽控制点、点击新增控制点及数值微调；图集帧选择器可直接切换解析器图集中的 `frameNames`。
@@ -1230,15 +1230,12 @@ func main() {
   - **通用 › 自动保存（`Editor.AutoSave`、`Editor.SetAutoSave`）**：默认启用，并以 `autoSave` 字段保存在 `EditorSettings` 中。对有对应文件的场景与 `game.yaml` 的已保留更改会在 2 秒防抖延迟后自动保存（`DefaultAutoSaveDelay`，可通过 `Editor.AutoSaveDelay` 覆盖）。处于打开审查中的编辑（`Editor.HasOpenReview()`，涵盖 `BeginReview` / `KeepReview`、过场审查、试玩指标提案审查、安全重命名审查、合并冲突与未解决的外部磁盘冲突）尚未保留，在确认保留前不会自动保存。
   - **状态栏保存状态项（`Editor.SaveStatus`，`SaveStatusSaved` / `SaveStatusSaving` / `SaveStatusFailed`）**：已保存时以柔和 Spec 样式显示 `已保存`（悬停提示显示上次保存时间）；仅当保存耗时超过 300 毫秒（`DefaultSavingIndicatorDelay`，可通过 `Editor.SavingIndicatorDelay` 配置）后才显示 `正在保存…`，避免快速保存闪烁；自动保存失败时会持续停留在状态栏中（从不以 toast 弹出），显示可读原因（如 `无法保存：文件夹为只读` 或 `无法保存：磁盘已满 · 剩余 12 MB`）以及**重试**（`Editor.RetrySave`）和**另存为…**操作，直到问题解决。
   - **保存失败期间**：场景名称及失败标签页旁的未保存圆点变为 Spec 问题红（`#FF6B6B`），退出前会先询问（`Editor.HasUnsavedChanges()` 保持为 `true`），且 `editormcp` 会在后续每次工具结果中警告智能体当前更改未落盘，直到保存成功。
-- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
+- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过 `文件 > 编辑器设置…`、命令面板 `CmdEditorSettings` 或 `mod+,` 打开）中切换语言后，顶栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
 - **外观（`core.Scope.SetAppearance`）与 Spec 深/浅色主题（#1062）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`EditorView` 会在根作用域挂载内嵌的 YAML 规范主题（`spec_theme.yaml`，经由 `core.ParseTheme` 解析并通过 `SpecTheme`、`DarkSpecPalette`、`LightSpecPalette`、`SpecPaletteFor` 与 `Editor.SpecPalette` 暴露），使所有 NSGo `ui` 组件、面板、视口叠加层、叠加图例（`SpecOverlayLegendView` / `SetOverlayLegendOpen`）与轻提示 Toast（`ShowToast` / `DismissToast` / `ToastView`）在深色与浅色外观下都严格遵循 Spec 令牌，不再回退到 NSGo 默认主题。深浅两套调色板中的每一组前景/背景、强调按钮文字、警告卡片与视口叠加层均按同一张 WCAG 2.2 对比度表进行校验（`ContrastRatio`、`SpecContrastTable`：正文、胶囊文字及强调/智能体/问题填充上的文字均 >= 4.5:1 AA；焦点环与视口叠加层描边 >= 3:1 UI 对比度）。当设置为 `AppearanceSystem` 时，系统外观变化会实时重绘编辑器而无需重启；显式选择的 `AppearanceLight` 或 `AppearanceDark` 会持久化到 `Editor.SettingsPath` 并在重启后保持生效。
 - **快捷键：按作用域搜索与重绑（#1061）**：
   - **命令作用域**：每个 `EditorCommand` 和 `PluginCommand` 都带有 `Scope`（`ScopeGlobal`、`ScopeViewport`、`ScopeViewport2D`、`ScopeViewport3D`、`ScopeSceneTree`、`ScopeTile`、`ScopeAnimation`、`ScopePlay`，未指定时默认为 `ScopeGlobal`）。
   - **设置 › 快捷键（`EditorSettingsTabShortcuts`、`OpenShortcutsSettings`、`CmdShortcutsSettings`）**：列出所有已注册的内置、自定义与已启用插件命令及其作用域和当前按键，支持按命令名称、按键或作用域搜索（`FilterShortcutCommands`）。点击命令的按键按钮即可进入按键录制模式（`ShortcutFromKeyEvent`，按 `Escape` 可取消录制而不关闭设置对话框）。若按键在**同一作用域**中已被占用（`ShortcutConflict` / `*ShortcutConflictError`），会在行内原地提示并提供**交换**按钮（`SwapShortcut`，交换后两条命令互换按键且均保持绑定）；若按键仅在**不同作用域**中被使用（`RebindShortcut`），则会立即绑定而不弹出冲突提示。支持单行**重置**（`ResetShortcut`）与顶部**全部重置**（`ResetAllShortcuts`）。
-  - **持久化与全界面即时同步**：自定义按键保存在 `EditorSettings` 的 `shortcuts` 字段（`editor.yaml`，位于所有项目之外），重绑后立即同步到 `EffectiveShortcut`、工具栏提示与无障碍标签、桌面菜单栏（`ApplicationMenu`）、命令面板（`CommandPaletteView`）、实时按键调度以及 **`⌘/` 快捷键速查表**（`ShortcutsSheetView`、`CmdShortcutsSheet` / `mod+/`）。
-
-- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
-- **外观（`core.Scope.SetAppearance`）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`Editor.SetAppearance` 会立即通过 NSGo 的 `core.Scope.SetAppearance` 生效（即使系统为浅色也可保持深色，反之亦然），并在设置了 `Editor.SettingsPath` 时自动持久化，重启后保持不变。
+  - **持久化与全界面即时同步**：自定义按键保存在 `EditorSettings` 的 `shortcuts` 字段（`editor.yaml`，位于所有项目之外），重绑后立即同步到 `EffectiveShortcut`、顶栏提示与无障碍标签、桌面菜单栏（`ApplicationMenu`）、命令面板（`CommandPaletteView`）、实时按键调度以及 **`⌘/` 快捷键速查表**（`ShortcutsSheetView`、`CmdShortcutsSheet` / `mod+/`）。
 - **插件本地化**：插件可提供 `Catalog *l10n.Catalog` 或带版本号的 `LocaleYAML [][]byte` 字符串表（`RegisterPlugin` 会严格校验），并在面板、工具和命令上设置可选的 `TitleKey` / `LabelKey` / `DescriptionKey` / `CategoryKey`。在 `Panel.View` 和 `Inspector.View` 中，插件可调用 `Editor.PluginT(pluginName, key, args...)` 与 `Editor.PluginPlural(...)`，使插件界面实时跟随编辑器当前语言。
 
 ## 2D 骨骼绑定编辑器（#886）
@@ -1258,7 +1255,7 @@ func main() {
 
 ## HUD 与菜单布局界面（#1047）
 
-可通过工具栏 **HUD** 按钮、`Project > HUD & Menu Layout`、命令面板（`mod+shift+u` / `CmdHUDLayout`）、在文件浏览器中双击或打开任意 `*.screen.yaml` 文件，或点击问题面板中的界面诊断条目打开 HUD 与菜单布局界面（`HUDLayoutView`、`OpenHUDScreen` / `OpenHUDScreenFile` / `OpenHUDScreenDoc`）。界面严格遵循编辑器设计规范令牌（`design/editor/HUDLayout.dc.html` 与 `Spec.dc.html`），在所选语言下同时呈现所有屏幕尺寸，并将手动编辑聚焦在高频微调上：
+可通过 `Project > HUD & Menu Layout`、命令面板（`mod+shift+u` / `CmdHUDLayout`）、在文件浏览器中双击或打开任意 `*.screen.yaml` 文件，或点击问题面板中的界面诊断条目打开 HUD 与菜单布局界面（`HUDLayoutView`、`OpenHUDScreen` / `OpenHUDScreenFile` / `OpenHUDScreenDoc`）。界面严格遵循编辑器设计规范令牌（`design/editor/HUDLayout.dc.html` 与 `Spec.dc.html`），在所选语言下同时呈现所有屏幕尺寸，并将手动编辑聚焦在高频微调上：
 
 - **顶栏与语言切换**：左侧展示 `<项目名> / screens / <文件名>` 面包屑（点击可返回场景编辑器），中间为读取自 `locales/*.yaml`（并叠加未保存的 `Editor.l10n` 编辑）的 **Language** 分段语言切换器（`SetHUDLocale`），右侧为 **Search ⌘K** 与 **Play**。切换语言会立即重绘全部四个设备尺寸、更新文本宽度表、检查器多语言文本与溢出放大预览以及 **GAME CHECK** 诊断。
 - **左侧栏（`SCREENS` 与 `NODES`）**：列出项目中所有 `*.screen.yaml` 文件（`HUDScreens`）及其节点数与当前语言的问题数；下方展示当前界面的层级节点树（`HUDTree`），附带等宽锚点标记（`TL`、`TC`、`TR`、`CL`、`C`、`CR`、`BL`、`BC`、`BR`、`FILL`）与红色问题圆点。

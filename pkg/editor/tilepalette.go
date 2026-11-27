@@ -615,6 +615,7 @@ func tileBrushBar(ed *Editor, rev *core.Signal[uint64]) core.Node {
 		TestID: "tile-brush-bar",
 		Style:  core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
 		Children: []core.Node{
+			brushBtn("tool-pick", ed.T("toolbar.pick"), ed.T("cmd.toolPickTile.label"), ToolPickTile),
 			brushBtn("tool-rect", "Rect", "Rectangle tile brush (U)", ToolRectTile),
 			brushBtn("tool-line", "Line", "Line tile brush (L)", ToolLineTile),
 			brushBtn("tool-stamp", "Stamp", "Stamp tile brush (C)", ToolStampTile),

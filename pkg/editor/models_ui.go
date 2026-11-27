@@ -265,57 +265,6 @@ func modelListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 }
 
-// place3DToolsView is the 3D toolbar's Place group: Select and Place, which places the model selected in the asset browser, snapping to the grid, aligning to the surface and the ground plane's height.
-func place3DToolsView(rev *core.Signal[uint64], ed *Editor, notPlaying func() bool) core.Node {
-	placing := func() bool {
-		_ = rev.Get()
-		return ed.Tool == ToolPlace
-	}
-	return ui.ToolbarGroup{
-		Label: "Place",
-		Children: []core.Node{
-			ui.ToggleButton{TestID: "tool3d-select", Text: "Select", Disabled: notPlaying, On: func() bool {
-				_ = rev.Get()
-				return !placing() && !(ed.Tool == ToolPlugin && ed.activePluginToolSupports3D())
-			}, OnChange: func(on bool) {
-				if on {
-					ed.SetTool(ToolSelect)
-				}
-			}},
-			ui.ToggleButton{TestID: "tool3d-place", Text: "Place", Label: "Place the model selected in the asset browser", Disabled: notPlaying, On: placing, OnChange: func(on bool) {
-				if on {
-					ed.SetTool(ToolPlace)
-				}
-			}},
-			ui.ToggleButton{TestID: "place3d-snap", Text: "Snap", Label: "Snap placed models to the grid", On: func() bool {
-				_ = rev.Get()
-				return ed.PlaceSnap3D
-			}, OnChange: func(on bool) {
-				ed.report(ed.SetPlaceOptions3D(ed.PlaceHeight3D, on, ed.PlaceAlign3D))
-			}},
-			ui.ToggleButton{TestID: "place3d-align", Text: "Align", Label: "Align placed models to the surface", On: func() bool {
-				_ = rev.Get()
-				return ed.PlaceAlign3D
-			}, OnChange: func(on bool) {
-				ed.report(ed.SetPlaceOptions3D(ed.PlaceHeight3D, ed.PlaceSnap3D, on))
-			}},
-			ui.NumberInput{
-				TestID: "place3d-height",
-				Label:  "Ground height",
-				Step:   0.5,
-				Style:  core.Style{Width: core.Pt(72)},
-				Value: func() float64 {
-					_ = rev.Get()
-					return float64(ed.PlaceHeight3D)
-				},
-				OnChange: func(v float64) {
-					ed.report(ed.SetPlaceOptions3D(float32(v), ed.PlaceSnap3D, ed.PlaceAlign3D))
-				},
-			},
-		},
-	}
-}
-
 // modelField is the 3D inspector's Model field for objID: it picks one of the open project's glTF models (ProjectModels), searchable, and its clear button names none. It is disabled on an object that draws a built-in primitive, which SetObjectModel refuses.
 func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool) core.Node {
 	current := func() string {

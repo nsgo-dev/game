@@ -258,6 +258,10 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									},
 								},
 							},
+							snapSettingsPopover(cx, ed, rev, "view-snap-settings", func() bool {
+								_ = rev.Get()
+								return ed.Playing()
+							}),
 							ui.Button{
 								TestID: "viewport-bar-fit",
 								TextFunc: func() string {
