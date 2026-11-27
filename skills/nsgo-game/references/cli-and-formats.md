@@ -21,7 +21,7 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 | `game index` | `game index [-dry-run -in] [dir]` | Assign stable UIDs to scene/resource files and update the project index |
 | `game mv` | `game mv [-dry-run -in] <from> <to>` | Move/rename a file or folder and rewrite every reference in the project |
 | `game library` | `game library [-dir -index -kind -project] list\|install\|remove\|digest ...` | Browse and install digest-checked asset, plugin or template packs into `game.yaml` |
-| `game merge` | `game merge [-out -conflict-out] <base> <ours> <theirs> [path]` / `game merge -setup [dir]` | Git merge driver that merges `*.scene.yaml` files object by object by ID, or sets up `.gitattributes` and Git config |
+| `game merge` | `game merge [-out -conflict-out] <base> <ours> <theirs> [path]` / `game merge -setup [dir]` / `game merge -check [dir]` | Git merge driver that merges `*.scene.yaml` files object by object by ID, sets up `.gitattributes` and local Git config, or checks that the driver is configured |
 | `game schema` | `game schema [-out file] [project-dir \| game.yaml]` | Write the project's deterministic draft-07 scene JSON Schema (including registered components and plugins via `editorcmd -schema`, or the built-in scene schema) |
 | `game net` | `game net decode\|stats [-schema -format -resolve-deltas] <capture.jsonl \| ->` | Decode `pkg/online/netplay` packet captures layer by layer using wire schemas, or print traffic statistics per message type and peer |
 

@@ -106,7 +106,7 @@ func TestNewCreatesStarter(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "go.mod.tmpl")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("go.mod.tmpl was copied: %v", err)
 	}
-	want := strings.Join(listed, "\n") + "\n\ncd " + shellWord(dir, runtime.GOOS) + " && go tool nsgo dev\n"
+	want := strings.Join(listed, "\n") + "\n\ncd " + shellWord(dir, runtime.GOOS) + " && go tool nsgo dev\nAfter git init, run: go tool game merge -setup\n"
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
@@ -272,7 +272,7 @@ func TestNewIntoEmptyDirectory(t *testing.T) {
 		t.Errorf("name = %v", cfg["name"])
 	}
 	// The closing hint quotes the directory, so it can be pasted into a shell.
-	if want := "\ncd " + shellWord(filepath.Join(dir, "My Game"), runtime.GOOS) + " && go tool nsgo dev\n"; !strings.HasSuffix(stdout.String(), want) || !strings.ContainsAny(want, `'"`) {
+	if want := "\ncd " + shellWord(filepath.Join(dir, "My Game"), runtime.GOOS) + " && go tool nsgo dev\nAfter git init, run: go tool game merge -setup\n"; !strings.HasSuffix(stdout.String(), want) || !strings.ContainsAny(want, `'"`) {
 		t.Errorf("stdout = %q, want it to end with %q", stdout, want)
 	}
 }

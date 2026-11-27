@@ -95,3 +95,11 @@ The levels are played in the order the file lists them. `TestLevelsAreSolvableAt
 - `project.go`, `main.go`: the parsed `game.yaml` and the entry point.
 - `*_test.go`: the tests. `game_test.go` plays the game through `nsgotest`; `levels_test.go` checks the levels and fuzzes their format; `board_test.go` tests the rules and benchmarks a move.
 - `nsgo.yaml`: NSGo app metadata and dev settings; its name, id, version and build output and targets follow `game.yaml`.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

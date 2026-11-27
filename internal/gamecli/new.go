@@ -166,13 +166,19 @@ func createProject(opts createProjectOptions, stdout, stderr io.Writer) error {
 			return fmt.Errorf("go %s in %s: %w; the project's files are written, so run %s there once it can succeed", strings.Join(args, " "), opts.dir, err, strings.Join(rest, " && "))
 		}
 	}
-	// If the project directory is already a Git repository, register the scene merge driver in its local config.
-	if _, err := os.Stat(filepath.Join(opts.dir, ".git")); err == nil {
+	// If the new directory lies inside a Git repository (including a parent repo or monorepo),
+	// register the scene merge driver in its local config; otherwise tell the author how to enable it after git init.
+	inGitRepo := false
+	if root, err := runGit(opts.dir, "rev-parse", "--show-toplevel"); err == nil && root != "" {
+		inGitRepo = true
 		if err := configureGitMergeDriver(opts.dir); err != nil {
 			fmt.Fprintf(stderr, "game new: warning: could not configure git scene merge driver: %v\n", err)
 		}
 	}
 	fmt.Fprintf(stdout, "\ncd %s && go tool nsgo dev\n", shellWord(opts.dir, runtime.GOOS))
+	if !inGitRepo {
+		fmt.Fprintln(stdout, "After git init, run: go tool game merge -setup")
+	}
 	return nil
 }
 

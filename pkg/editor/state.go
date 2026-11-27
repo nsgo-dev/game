@@ -940,6 +940,8 @@ type Editor struct {
 	envPanelOpen bool
 	// merge holds the object-by-object Scene Merge Conflict resolution screen state.
 	merge mergeConflictState
+	// mergeDriver tracks whether the open Git repository needs one-click nsgo-scene merge driver setup.
+	mergeDriver mergeDriverState
 	// contextMenu holds the unified viewport/keyboard object context menu, inline rename request, toast, and last agent prompt draft.
 	contextMenu objectContextMenuState
 	// clipboardText holds an in-memory copy of the last scene YAML copied when no UI scope or clipboard hook is attached.

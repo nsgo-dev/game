@@ -333,6 +333,10 @@ func TestMergeUsageErrors(t *testing.T) {
 		{"merge", "-setup", "-out", "x"},
 		{"merge", "-setup", "-conflict-out", "x"},
 		{"merge", "-setup", "a", "b"},
+		{"merge", "-check", "-out", "x"},
+		{"merge", "-check", "-conflict-out", "x"},
+		{"merge", "-check", "a", "b"},
+		{"merge", "-setup", "-check"},
 	}
 	for _, args := range cases {
 		a, stdout, stderr := newTestApp(t)
@@ -402,9 +406,12 @@ func TestMergeSetupAndNewInGitRepo(t *testing.T) {
 		}
 		gitCmd(dir, "init")
 
-		a, _, stderr := newTestApp(t)
+		a, stdout, stderr := newTestApp(t)
 		if code := run([]string{"new", dir}, a); code != 0 {
 			t.Fatalf("game new exit %d: %s", code, stderr)
+		}
+		if strings.Contains(stdout.String(), "After git init") {
+			t.Errorf("unexpected git init hint when already in repo:\n%s", stdout)
 		}
 		if got := gitCmd(dir, "config", "--local", "merge.nsgo-scene.driver"); got != sceneMergeDriverCmd {
 			t.Errorf("game new did not configure merge driver: got %q, want %q", got, sceneMergeDriverCmd)
@@ -415,6 +422,86 @@ func TestMergeSetupAndNewInGitRepo(t *testing.T) {
 		}
 		if !strings.Contains(string(attrs), "*.scene.yaml merge=nsgo-scene") {
 			t.Errorf(".gitattributes missing merge rule:\n%s", attrs)
+		}
+	})
+
+	t.Run("new_in_parent_git_repo_configures_driver", func(t *testing.T) {
+		stubGo(t, nil)
+		repo := t.TempDir()
+		gitCmd(repo, "init")
+		dir := filepath.Join(repo, "games", "mygame")
+
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"new", dir}, a); code != 0 {
+			t.Fatalf("game new in parent repo exit %d: %s", code, stderr)
+		}
+		if strings.Contains(stdout.String(), "After git init") {
+			t.Errorf("unexpected git init hint inside parent repo:\n%s", stdout)
+		}
+		if got := gitCmd(repo, "config", "--local", "merge.nsgo-scene.driver"); got != sceneMergeDriverCmd {
+			t.Errorf("parent repo merge driver = %q, want %q", got, sceneMergeDriverCmd)
+		}
+		if got := gitCmd(repo, "config", "--local", "merge.nsgo-scene.name"); got != sceneMergeDriverTitle {
+			t.Errorf("parent repo merge driver name = %q, want %q", got, sceneMergeDriverTitle)
+		}
+
+		// -check passes immediately in the nested project.
+		a, stdout, stderr = newTestApp(t)
+		if code := run([]string{"merge", "-check", dir}, a); code != 0 {
+			t.Fatalf("merge -check exit %d: %s", code, stderr)
+		}
+		if !strings.Contains(stdout.String(), "merge.nsgo-scene.driver is configured") {
+			t.Errorf("stdout = %q", stdout)
+		}
+	})
+
+	t.Run("check_fails_without_driver_and_passes_after_setup", func(t *testing.T) {
+		dir := t.TempDir()
+		gitCmd(dir, "init")
+		if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte(sceneGitAttributesContent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"merge", "-check", dir}, a); code != 1 {
+			t.Fatalf("merge -check without config exit %d, want 1 (stdout=%q stderr=%q)", code, stdout, stderr)
+		}
+		if !strings.Contains(stderr.String(), "merge.nsgo-scene.driver is not set") || !strings.Contains(stderr.String(), "go tool game merge -setup") {
+			t.Errorf("stderr = %q, want missing-driver message with setup command", stderr)
+		}
+
+		a, _, stderr = newTestApp(t)
+		if code := run([]string{"merge", "-setup", dir}, a); code != 0 {
+			t.Fatalf("merge -setup exit %d: %s", code, stderr)
+		}
+
+		a, stdout, stderr = newTestApp(t)
+		if code := run([]string{"merge", "-check", dir}, a); code != 0 {
+			t.Fatalf("merge -check after setup exit %d: %s", code, stderr)
+		}
+		if !strings.Contains(stdout.String(), sceneMergeDriverCmd) {
+			t.Errorf("stdout = %q, want driver command", stdout)
+		}
+	})
+
+	t.Run("check_passes_when_no_gitattributes_and_fails_outside_git", func(t *testing.T) {
+		repo := t.TempDir()
+		gitCmd(repo, "init")
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"merge", "-check", repo}, a); code != 0 {
+			t.Fatalf("merge -check without .gitattributes exit %d: %s", code, stderr)
+		}
+		if !strings.Contains(stdout.String(), "no .gitattributes rule") {
+			t.Errorf("stdout = %q", stdout)
+		}
+
+		nonGit := t.TempDir()
+		a, _, stderr = newTestApp(t)
+		if code := run([]string{"merge", "-check", nonGit}, a); code != 1 {
+			t.Fatalf("merge -check outside git exit %d, want 1 (stderr=%q)", code, stderr)
+		}
+		if !strings.Contains(stderr.String(), "not inside a Git repository") {
+			t.Errorf("stderr = %q", stderr)
 		}
 	})
 }

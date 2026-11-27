@@ -62,3 +62,11 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 - A new enemy behavior: add a branch to the selector in `newEnemy` (`enemy.go`), such as a flee when hurt, ahead of the patrol.
 - Controls: rebind actions in `game.yaml`'s input map; the touch layout is `layoutTouchPad` in `controls.go`.
 - Looks: materials and lights are at the top of `render.go`; replace `unitCube` with meshes from `gltf` for real models.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

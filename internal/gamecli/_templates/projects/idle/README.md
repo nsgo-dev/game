@@ -77,3 +77,11 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 - Pace: `TestBalanceReachesTheGoal` plays the game with a simple strategy and fails when the goal comes too early or too late, so it tells you what a change to `hearth.yaml` did.
 - New saved state: add a field to `savedGame`, raise `saveVersion` and register a migration with `save.WithMigration`.
 - Art: replace `drawFlame` in `shop.go`, or the `gameui` theme in `newShop`.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

@@ -372,6 +372,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																														mainHeaderView(cx, ed, rev, dirty, pathMode, pathTarget),
 																														remotePlayBarView(cx, ed, rev),
 																														playModeBarView(cx, ed, rev),
+																														mergeDriverBannerView(cx, ed, rev),
 																														diskWatchBannerView(cx, ed, rev),
 																														core.Show{
 																															When: func() bool {

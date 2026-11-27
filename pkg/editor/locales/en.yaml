@@ -948,6 +948,10 @@ strings:
   menu.view2d: 2D View
   menu.view3d: 3D View
   menu.view3dCamera: Look Through Scene Camera
+  mergeDriver.bannerMessage: Scene merge driver is not configured in this Git clone — Git will merge .scene.yaml files line by line.
+  mergeDriver.configuredStatus: Configured Git scene merge driver (nsgo-scene)
+  mergeDriver.dismissButton: Dismiss
+  mergeDriver.setupButton: Enable merge driver
   models.askForOne: Or ask for one
   models.askForOneHint: Describe a model… e.g. a low stone planter, 1 × 0.5 m, same stone as the walls
   models.dragIn: drag in

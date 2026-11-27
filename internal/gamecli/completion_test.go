@@ -146,7 +146,7 @@ var gameCompletionCases = []completionCase{
 	{"game library -project ", []string{"a.png", "scene.yaml", "sub/"}},
 	{"game pixelfx explosions/sm", []string{"explosions/small-explosion", "explosions/smoke-bomb"}},
 	{"game pixelfx -f", []string{"-flip", "-fps"}},
-	{"game merge -", []string{"-conflict-out", "-out", "-setup"}},
+	{"game merge -", []string{"-check", "-conflict-out", "-out", "-setup"}},
 	{"game help t", []string{"tex"}},
 	{"game new -", []string{"-list", "-module", "-name", "-template", "-version"}},
 }

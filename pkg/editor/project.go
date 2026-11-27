@@ -305,6 +305,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.merge.session = nil
 	e.merge.rev++
 	e.refreshDetectedMergeConflicts()
+	e.resetMergeDriverForProject()
+	e.RefreshSceneMergeDriverStatus()
 	e.resetChangesState()
 	e.RefreshChangesCount()
 	if conflictedScene != "" {

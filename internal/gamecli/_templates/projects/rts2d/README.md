@@ -71,3 +71,11 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 - Art: everything is drawn by code in `draw.go`; swap a kind of thing at a time for sprites from `game/sprite`.
 - A larger map than the screen: draw under a camera (`tilemap.Camera`) and center it where a control group recalled twice is, where `focus` highlights it now.
 - Sound, a title screen, saves and replays: the world steps deterministically on fixed steps, so `game/sound`, `game/scene`, `game/save` and `game/replay` fit around `skirmish.update` without changing the simulation.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```
