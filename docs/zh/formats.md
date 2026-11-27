@@ -3077,12 +3077,12 @@ runs:
 | --- | --- | --- |
 | Chrome 的跟踪事件 JSON，可在 Perfetto 或 `chrome://tracing` 中打开 | `gamedebug.Profiler.WriteChromeTrace` | `gamedebug.Profiler` |
 
-<!-- format: flow -->
+<!-- format: dialogue -->
 ### Yarn 对话脚本
 
 | 文件 | 读取函数 | 指南 |
 | --- | --- | --- |
-| 手写的 Yarn Spinner 脚本（`.yarn`）：由台词、`->` 选项和 `<<命令>>` 组成的节点，每个节点以 `title:` 头开始，位于 `---` 和 `===` 之间 | `flow.ParseYarn`；由 `vn.Presenter` 播放 | [vn](vn.md) |
+| 手写的 Yarn Spinner 脚本（`.yarn`）：由台词、`->` 选项和 `<<命令>>` 组成的节点，每个节点以 `title:` 头开始，位于 `---` 和 `===` 之间 | `dialogue.ParseYarn`；由 `vn.Presenter` 播放 | [dialogue](dialogue.md) |
 
 ```yarn
 title: Start

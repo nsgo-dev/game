@@ -75,7 +75,7 @@ if err != nil {
 | `editor` | `OpenFile`、`ParseEditorSettings`、`ParsePermissions`、`ParseAutomations`、`ParseLayout`、`ParseRecentProjects`、`ParseCheckpointManifest`、`ParseAgentThread`、`ParseAgentThreadYAML`、`parseViewState` | 编辑器配置、布局、检查点、线程和视图状态，按字段 |
 | `gltf` | `Load`、`LoadFS` | 出错的顶层条目，例如 `nodes[3]` |
 | `text` | `LoadBMFont`、`LoadBMFontImage` | 出错的记录，文本和 XML 字体均可 |
-| `flow` | `ParseYarn` | 出错的脚本行 |
+| `dialogue` | `ParseYarn` | 出错的脚本行 |
 | `datatable` | `LoadCSV`、`LoadJSON`、`LoadYAML`、`LoadFile` | 出错的单元格；`CellError` 仍在错误链中 |
 | `tooling/devstate`、`tooling/hotreload`、`tooling/library`、`tooling/assetbuild` | `Store.LoadSnapshot`、`ParseMaterial`、`ParseIndex`、`ParseManifest`、`parseCache` | 解码错误以及清单、索引和材质规则，按字段 |
 | `tooling/gamedebug` | `Console.LoadTunables` | 出错的调试参数，以存储键为文件名 |

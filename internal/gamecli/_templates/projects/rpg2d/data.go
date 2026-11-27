@@ -4,7 +4,7 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/inventory"
 	"github.com/nsgo-dev/game/pkg/quest"
 	"github.com/nsgo-dev/game/pkg/sprite"
@@ -37,7 +37,7 @@ type content struct {
 	stats    *stats.File
 	quests   *quest.Book
 	cast     *vn.Cast
-	dialogue *flow.DialogueScript
+	dialogue *dialogue.Script
 	atlas    *sprite.Atlas
 }
 
@@ -80,7 +80,7 @@ func loadContent() (*content, error) {
 		return nil, fmt.Errorf("%s: %w", castFile, err)
 	}
 	if data, err = dataFS.ReadFile(dialogueFile); err == nil {
-		c.dialogue, err = flow.ParseYarn(string(data))
+		c.dialogue, err = dialogue.ParseYarn(string(data))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", dialogueFile, err)

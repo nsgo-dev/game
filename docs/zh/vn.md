@@ -2,7 +2,7 @@
 
 `github.com/nsgo-dev/game/pkg/vn` 把对话脚本演成视觉小说：带表情的角色立绘、带名牌与打字机效果的文本框、选项、回看记录（backlog）、自动与快进模式，以及语音。
 
-`Presenter` 用 [`flow`](flow.md) 的 `DialogueRunner` 运行 Yarn Spinner 脚本，并配合从 YAML 角色表文件读入的角色表。`Update` 按 [`game.Loop`](loop.md) 的固定步长推进，`Draw` 绘制到 `Canvas` 中，所以每次播放结果一致，在 `nsgotest` 下也一样。
+`Presenter` 用 [`dialogue`](dialogue.md) 的 `Runner` 运行 Yarn Spinner 脚本，并配合从 YAML 角色表文件读入的角色表。`Update` 按 [`game.Loop`](loop.md) 的固定步长推进，`Draw` 绘制到 `Canvas` 中，所以每次播放结果一致，在 `nsgotest` 下也一样。
 
 ## 角色表文件
 
@@ -50,7 +50,7 @@ characters:
 
 角色表中的角色说话时，其立绘会上台并标为正在说话，其余立绘变暗。旁白没有名牌。不在角色表中的说话人按脚本原样显示名字，不能带 `#expr:` 或 `#at:` 标签。
 
-有三个命令由 Presenter 自己处理；其他命令照旧交给 `DialogueOptions.OnCommand`，所有命令也都会发到 `DialogueOptions.Bus`：
+有三个命令由 Presenter 自己处理；其他命令照旧交给 `dialogue.Options.OnCommand`，所有命令也都会发到 `dialogue.Options.Bus`：
 
 ```text
 <<show aiko>>                 // 以默认表情在自己的槽位登场
@@ -92,12 +92,12 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 }}
 ```
 
-- `Advance` 是玩家的点击：台词还在逐字出现时显示其余部分，否则继续。它会停止快进模式；有选项等待时返回 `flow.ErrChoiceRequired`。
+- `Advance` 是玩家的点击：台词还在逐字出现时显示其余部分，否则继续。它会停止快进模式；有选项等待时返回 `dialogue.ErrChoiceRequired`。
 - `Choices` 列出等待中的选项，`Choose(index)` 选择其中一个。
 - `Line` 是当前显示的台词，含名牌的 `Name` 与 `Color`、语音 `Voice`，以及 `Read`：玩家此前是否读过。
 - `Portraits` 按绘制顺序列出台上的立绘，每个都有槽位、表情、帧，以及其角色是否正在说话。
-- `Runner` 返回 `flow.DialogueRunner`，用于变量与存档状态。
-- 对脚本中不存在的节点调用 `Start` 会返回 `flow.ErrUnknownNode`，舞台与当前台词保持原样。
+- `Runner` 返回 `dialogue.Runner`，用于变量与存档状态。
+- 对脚本中不存在的节点调用 `Start` 会返回 `dialogue.ErrUnknownNode`，舞台与当前台词保持原样。
 
 `Options.CharsPerSecond` 设置打字机速度（为 0 时 40；为负时一次显示整句）。
 

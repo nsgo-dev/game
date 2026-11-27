@@ -49,7 +49,7 @@ Its `README.md` lists the controls and where to change the stage, the patterns, 
 
 *Lantern Crossing*: a cartographer has to get her map across a foggy river before dawn, and the ferryman decides how far to trust her. Two choices earn or lose his trust and the third, at a fork in the river, reaches the harbor or the fog, so the story has a good ending and a lost one.
 
-It is built on [`vn`](vn.md), which presents the script: portraits with expressions, a text box with name plates and a typewriter, choices, the backlog, and auto and skip modes; [`flow`](flow.md), whose dialogue runner plays the [Yarn Spinner](https://www.yarnspinner.dev/) script and keeps its variables; [`save`](save.md), for three save slots and the player's settings; and [`l10n`](l10n.md), for English and Simplified Chinese string tables. The backgrounds and portraits are drawn in code, so it needs no image files. The keyboard, a controller and touch each play all of it, from the input map in `game.yaml`.
+It is built on [`vn`](vn.md), which presents the script: portraits with expressions, a text box with name plates and a typewriter, choices, the backlog, and auto and skip modes; [`dialogue`](dialogue.md), whose `Runner` plays the [Yarn Spinner](https://www.yarnspinner.dev/) script and keeps its variables; [`save`](save.md), for three save slots and the player's settings; and [`l10n`](l10n.md), for English and Simplified Chinese string tables. The backgrounds and portraits are drawn in code, so it needs no image files. The keyboard, a controller and touch each play all of it, from the input map in `game.yaml`.
 
 | File | What it holds |
 | --- | --- |

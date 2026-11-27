@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/text"
 )
 
@@ -32,7 +32,7 @@ const (
 	TagOffstage = "offstage"
 )
 
-// Commands a Presenter runs itself rather than passing to DialogueOptions.OnCommand. Each still reaches DialogueOptions.Bus.
+// Commands a Presenter runs itself rather than passing to dialogue.Options.OnCommand. Each still reaches dialogue.Options.Bus.
 const (
 	// CommandShow shows a character's portrait: <<show aiko>>, <<show aiko left>>, <<show aiko smile>> or <<show aiko left smile>>, the slot and expression in either order.
 	CommandShow = "show"
@@ -44,8 +44,8 @@ const (
 
 // Options configures a Presenter.
 type Options struct {
-	// Dialogue configures the presenter's flow.DialogueRunner. Its OnCommand receives every command but CommandShow, CommandHide and CommandExpression.
-	Dialogue flow.DialogueOptions
+	// Dialogue configures the presenter's dialogue.Runner. Its OnCommand receives every command but CommandShow, CommandHide and CommandExpression.
+	Dialogue dialogue.Options
 	// Voices plays voice lines; nil plays none.
 	Voices VoicePlayer
 	// VoiceFromLineID plays a line's #line: id as its voice line when it has no #voice: tag.
@@ -82,8 +82,8 @@ type Portrait struct {
 
 // Line is the dialogue line a Presenter shows.
 type Line struct {
-	// DialogueLine is the line as the runner produced it, tags included.
-	flow.DialogueLine
+	// Line is the line as the runner produced it, tags included.
+	dialogue.Line
 	// Character is the speaking cast member's ID, empty for a speaker not in the cast and for narration.
 	Character string
 	// Name is the name plate's text: the cast member's display name, the speaker as the script writes it for a speaker not in the cast, or empty for narration.
@@ -114,20 +114,20 @@ type BacklogEntry struct {
 	Choice bool
 }
 
-// Presenter plays a dialogue script as a visual novel: it runs the script with a flow.DialogueRunner and keeps the portraits on the stage, the line in the text box with its name plate, the typewriter revealing it, the choices, the backlog and the lines read, and plays voice lines. Auto mode goes on by itself after each line, and skip mode runs through lines quickly.
+// Presenter plays a dialogue script as a visual novel: it runs the script with a dialogue.Runner and keeps the portraits on the stage, the line in the text box with its name plate, the typewriter revealing it, the choices, the backlog and the lines read, and plays voice lines. Auto mode goes on by itself after each line, and skip mode runs through lines quickly.
 //
 // It reads no clock: Update moves it on by the fixed step a game.Loop passes, so a scene plays alike every time and under nsgotest. Its methods are called on one goroutine.
 type Presenter struct {
 	cast   *Cast
-	script *flow.DialogueScript
-	runner *flow.DialogueRunner
+	script *dialogue.Script
+	runner *dialogue.Runner
 	opts   Options
 
-	kind      flow.StepKind
+	kind      dialogue.StepKind
 	hasLine   bool
 	line      Line
 	tw        *text.Typewriter
-	choices   []flow.DialogueChoice
+	choices   []dialogue.Choice
 	portraits []Portrait
 	backlog   []BacklogEntry
 	read      map[string]bool
@@ -141,11 +141,11 @@ type Presenter struct {
 }
 
 // New returns a presenter that plays script with cast. Call Start to begin a node.
-func New(script *flow.DialogueScript, cast *Cast, opts Options) *Presenter {
+func New(script *dialogue.Script, cast *Cast, opts Options) *Presenter {
 	p := &Presenter{cast: cast, script: script, opts: opts, read: map[string]bool{}}
 	dopts := opts.Dialogue
 	user := dopts.OnCommand
-	dopts.OnCommand = func(ev flow.DialogueEvent) {
+	dopts.OnCommand = func(ev dialogue.Event) {
 		switch ev.Command {
 		case CommandShow, CommandHide, CommandExpression:
 			if err := p.command(ev); err != nil && p.cmdErr == nil {
@@ -157,17 +157,17 @@ func New(script *flow.DialogueScript, cast *Cast, opts Options) *Presenter {
 			}
 		}
 	}
-	p.runner = flow.NewDialogueRunner(script, dopts)
+	p.runner = dialogue.NewRunner(script, dopts)
 	return p
 }
 
 // Runner returns the presenter's dialogue runner, for its variables and save state. Advance it through the presenter, not directly.
-func (p *Presenter) Runner() *flow.DialogueRunner { return p.runner }
+func (p *Presenter) Runner() *dialogue.Runner { return p.runner }
 
 // Cast returns the presenter's cast.
 func (p *Presenter) Cast() *Cast { return p.cast }
 
-// Start clears the stage and the line shown and begins the script at node. The backlog and the lines read stay. A node the script lacks fails with flow.ErrUnknownNode and leaves the presenter as it was.
+// Start clears the stage and the line shown and begins the script at node. The backlog and the lines read stay. A node the script lacks fails with dialogue.ErrUnknownNode and leaves the presenter as it was.
 func (p *Presenter) Start(node string) error {
 	if !p.script.HasNode(node) {
 		// Check before clearing: the runner refuses an unknown node without resetting, so clearing first would show an empty stage over the old node's script.
@@ -206,7 +206,7 @@ func (p *Presenter) Update(dt time.Duration) error {
 		return p.skipStep(dt)
 	}
 	// A line that finished appearing during this dt starts its auto delay on the next Update, as before.
-	if p.kind != flow.StepLine || !revealed {
+	if p.kind != dialogue.StepLine || !revealed {
 		return nil
 	}
 	if !p.auto || p.voiceLeft > 0 {
@@ -219,13 +219,13 @@ func (p *Presenter) Update(dt time.Duration) error {
 	return p.next()
 }
 
-// Advance is the player's tap or key to go on: it stops skip mode, shows the rest of a line still appearing, or goes on to the next line. It fails with flow.ErrChoiceRequired while choices wait and does nothing once the script has ended.
+// Advance is the player's tap or key to go on: it stops skip mode, shows the rest of a line still appearing, or goes on to the next line. It fails with dialogue.ErrChoiceRequired while choices wait and does nothing once the script has ended.
 func (p *Presenter) Advance() error {
 	p.skip = false
 	switch p.kind {
-	case flow.StepChoices:
-		return flow.ErrChoiceRequired
-	case flow.StepEnded:
+	case dialogue.StepChoices:
+		return dialogue.ErrChoiceRequired
+	case dialogue.StepEnded:
 		return nil
 	}
 	if p.tw != nil && !p.tw.Done() {
@@ -237,10 +237,10 @@ func (p *Presenter) Advance() error {
 
 // Choose picks the option whose Index is index, adds it to the backlog and goes on.
 func (p *Presenter) Choose(index int) error {
-	if p.kind != flow.StepChoices {
-		return flow.ErrNoPendingChoice
+	if p.kind != dialogue.StepChoices {
+		return dialogue.ErrNoPendingChoice
 	}
-	var chosen *flow.DialogueChoice
+	var chosen *dialogue.Choice
 	for i := range p.choices {
 		if p.choices[i].Index == index {
 			chosen = &p.choices[i]
@@ -292,15 +292,15 @@ func (p *Presenter) Line() (Line, bool) {
 func (p *Presenter) Typewriter() *text.Typewriter { return p.tw }
 
 // Choices returns the options waiting for Choose, nil when none wait.
-func (p *Presenter) Choices() []flow.DialogueChoice {
-	if p.kind != flow.StepChoices {
+func (p *Presenter) Choices() []dialogue.Choice {
+	if p.kind != dialogue.StepChoices {
 		return nil
 	}
 	return slices.Clone(p.choices)
 }
 
 // Ended reports whether the script has ended or not started.
-func (p *Presenter) Ended() bool { return p.kind == flow.StepEnded }
+func (p *Presenter) Ended() bool { return p.kind == dialogue.StepEnded }
 
 // Portraits returns the portraits on the stage in the order they entered, which is the order to draw them in.
 func (p *Presenter) Portraits() []Portrait { return slices.Clone(p.portraits) }
@@ -347,7 +347,7 @@ func (p *Presenter) autoDelay() time.Duration {
 }
 
 func (p *Presenter) skipStep(dt time.Duration) error {
-	if p.kind != flow.StepLine || (!p.opts.SkipUnread && !p.line.Read) {
+	if p.kind != dialogue.StepLine || (!p.opts.SkipUnread && !p.line.Read) {
 		p.skip = false
 		return nil
 	}
@@ -368,19 +368,19 @@ func (p *Presenter) next() error {
 }
 
 // apply takes the step a runner call produced, returning the call's error or the first stage command's.
-func (p *Presenter) apply(step flow.DialogueStep, err error) error {
+func (p *Presenter) apply(step dialogue.Step, err error) error {
 	if err != nil {
 		return err
 	}
 	p.kind = step.Kind
 	p.autoWait = 0
 	switch step.Kind {
-	case flow.StepLine:
+	case dialogue.StepLine:
 		p.choices = nil
 		if lerr := p.showLine(step.Line); lerr != nil && p.cmdErr == nil {
 			p.cmdErr = lerr
 		}
-	case flow.StepChoices:
+	case dialogue.StepChoices:
 		p.choices = step.Choices
 		p.skip = false
 	default:
@@ -394,7 +394,7 @@ func (p *Presenter) apply(step flow.DialogueStep, err error) error {
 }
 
 // showLine shows dl in the text box, places its speaker's portrait and plays its voice line.
-func (p *Presenter) showLine(dl flow.DialogueLine) error {
+func (p *Presenter) showLine(dl dialogue.Line) error {
 	var expr, slot, voice string
 	offstage := false
 	for _, tag := range dl.Tags {
@@ -413,7 +413,7 @@ func (p *Presenter) showLine(dl flow.DialogueLine) error {
 		voice = dl.LineID
 	}
 
-	line := Line{DialogueLine: dl, Name: dl.Speaker, Voice: voice}
+	line := Line{Line: dl, Name: dl.Speaker, Voice: voice}
 	var err error
 	if ch, ok := p.cast.Speaker(dl.Speaker); ok {
 		line.Character, line.Name, line.Color = ch.ID, ch.DisplayName(), ch.Color
@@ -453,7 +453,7 @@ func (p *Presenter) showLine(dl flow.DialogueLine) error {
 }
 
 // readKey is the key the read set keeps dl under.
-func (p *Presenter) readKey(dl flow.DialogueLine) string {
+func (p *Presenter) readKey(dl dialogue.Line) string {
 	if dl.LineID != "" {
 		return dl.LineID
 	}
@@ -532,7 +532,7 @@ func (p *Presenter) place(ch *Character, slot, expr string) error {
 }
 
 // command runs a stage command.
-func (p *Presenter) command(ev flow.DialogueEvent) error {
+func (p *Presenter) command(ev dialogue.Event) error {
 	switch ev.Command {
 	case CommandHide:
 		switch len(ev.Args) {

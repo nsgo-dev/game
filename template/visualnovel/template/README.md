@@ -4,7 +4,7 @@ A short branching visual novel built with [NSGo](https://github.com/nsgo-dev/nsg
 
 It shows:
 
-- A [Yarn Spinner](https://www.yarnspinner.dev/) script played by `vn.Presenter` on `flow`'s dialogue runner: portraits with expressions in stage slots, a text box with name plates and a typewriter, choices, variables that change the ending, a backlog, and auto and skip modes that skip only the lines already read.
+- A [Yarn Spinner](https://www.yarnspinner.dev/) script played by `vn.Presenter` on `dialogue.Runner`: portraits with expressions in stage slots, a text box with name plates and a typewriter, choices, variables that change the ending, a backlog, and auto and skip modes that skip only the lines already read.
 - Backgrounds and portraits drawn in code, so the project needs no image files.
 - Three save slots that keep the path to the line shown and replay it on load, and player settings (language, lines read, endings found) kept apart from them with `save` and saved again when the app leaves the front or quits.
 - English and Simplified Chinese through YAML string tables (`l10n`): the lines, the options, the name plates and the menus.

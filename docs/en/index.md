@@ -45,6 +45,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `tooling/gamedebug` | `github.com/nsgo-dev/game/pkg/tooling/gamedebug` | [gamedebug](gamedebug.md) | Frame-time graph, wireframe shapes, scene inspector and `-tags release` stripping |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | MCP tools registered through `nsgo/automation` to inspect running scenes, layers, entities and components |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race` and typed event `Bus` |
+| `dialogue` | `github.com/nsgo-dev/game/pkg/dialogue` | [dialogue](dialogue.md) | Yarn Spinner scripts run line by line and choice by choice, with variables, conditions, game commands and saved `State` |
 | `entities` | `github.com/nsgo-dev/game/pkg/entities` | [entities](entities.md) | Zero-reflection ECS: generational entities, typed sparse-set components, allocation-free queries, ordered systems, prefabs and JSON snapshots |
 | `stats` | `github.com/nsgo-dev/game/pkg/stats` | [stats](stats.md) | Base stats with add/mul/override modifiers from sources, recomputed on change, timed modifiers on the fixed step and a YAML stats file |
 | `tween` | `github.com/nsgo-dev/game/pkg/tween` | [tween](tween.md) | Fixed-step `Tween`, `Timeline` and camera choreography helpers |

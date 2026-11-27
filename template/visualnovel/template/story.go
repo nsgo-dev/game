@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/vn"
@@ -62,14 +62,14 @@ var lineIDPattern = regexp.MustCompile(`#line:([A-Za-z0-9_]+)`)
 
 // story is the parsed script, cast and strings every playthrough shares.
 type story struct {
-	script  *flow.DialogueScript
+	script  *dialogue.Script
 	cast    *vn.Cast
 	catalog *l10n.Catalog
 }
 
 // loadStory parses the embedded story files.
 func loadStory() (*story, error) {
-	script, err := flow.ParseYarn(storyYarn)
+	script, err := dialogue.ParseYarn(storyYarn)
 	if err != nil {
 		return nil, loaderr.WithFile(err, "story/story.yarn")
 	}
@@ -106,8 +106,8 @@ func (s *story) chapterOf(node string) string {
 	return s.script.NodeHeaders(node)[chapterHeader]
 }
 
-// resolver returns the flow.StringResolver that shows the script's lines in the language locale returns: the string table's line.<id> where it has one, and the script's own text otherwise.
-func (s *story) resolver(locale func() string) flow.StringResolver {
+// resolver returns the dialogue.StringResolver that shows the script's lines in the language locale returns: the string table's line.<id> where it has one, and the script's own text otherwise.
+func (s *story) resolver(locale func() string) dialogue.StringResolver {
 	return func(lineID, fallback string, _ map[string]any) string {
 		if lineID == "" {
 			return fallback

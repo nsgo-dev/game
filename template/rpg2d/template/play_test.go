@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -539,6 +539,6 @@ func TestRequestsOrientation(t *testing.T) {
 var onDesktop = nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop})
 
 // dialogueEvent is a dialogue script command, as the script runs it.
-func dialogueEvent(command string, args ...string) flow.DialogueEvent {
-	return flow.DialogueEvent{Command: command, Args: args}
+func dialogueEvent(command string, args ...string) dialogue.Event {
+	return dialogue.Event{Command: command, Args: args}
 }

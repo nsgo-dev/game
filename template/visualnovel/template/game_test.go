@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -640,7 +640,7 @@ func TestLinesReadOutlastALoadAndTheBackground(t *testing.T) {
 // TestLoadFindsALineShownTwice saves on the second showing of a line a jump shows again with no choice between: loading comes back to the second showing, with the variable the first one's pass set.
 func TestLoadFindsALineShownTwice(t *testing.T) {
 	app, n := startNovel(t)
-	script, err := flow.ParseYarn(`title: Start
+	script, err := dialogue.ParseYarn(`title: Start
 chapter: dock
 ---
 <<declare $n = 0>>

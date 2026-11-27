@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/inventory"
 	"github.com/nsgo-dev/game/pkg/quest"
 	"github.com/nsgo-dev/game/pkg/save"
@@ -215,7 +215,7 @@ func (g *Game) newProgress() progress {
 		taken:    map[string]bool{},
 	}
 	p.quests.OnUpdate = g.onQuest
-	p.talk = vn.New(c.dialogue, c.cast, vn.Options{Dialogue: flow.DialogueOptions{OnCommand: g.onCommand}, CharsPerSecond: 60})
+	p.talk = vn.New(c.dialogue, c.cast, vn.Options{Dialogue: dialogue.Options{OnCommand: g.onCommand}, CharsPerSecond: 60})
 	check(p.bag.AddAll(itemCoin, startCoins))
 	check(p.bag.AddAll(startWeapon, 1))
 	check(p.gear.Equip(slotWeapon, p.bag, slices.IndexFunc(p.bag.Slots(), func(s inventory.Stack) bool { return s.Item == startWeapon })))
@@ -506,7 +506,7 @@ func (g *Game) updateTalk(dt time.Duration, in intent) {
 }
 
 // nextChoice returns the available option after (or, with down false, before) the one at i, wrapping around.
-func nextChoice(choices []flow.DialogueChoice, i int, down bool) int {
+func nextChoice(choices []dialogue.Choice, i int, down bool) int {
 	step := len(choices) - 1
 	if down {
 		step = 1
@@ -529,7 +529,7 @@ func (g *Game) endTalk() {
 }
 
 // onCommand runs a command of the dialogue script; dialogue.yarn lists them.
-func (g *Game) onCommand(ev flow.DialogueEvent) {
+func (g *Game) onCommand(ev dialogue.Event) {
 	arg := func(i int) string {
 		if i < len(ev.Args) {
 			return ev.Args[i]

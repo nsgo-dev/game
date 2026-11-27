@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/vn"
@@ -58,7 +58,7 @@ func newSample(cx *core.Scope) (*sample, core.Node) {
 	if err != nil {
 		panic(err)
 	}
-	script, err := flow.ParseYarn(sceneYarn)
+	script, err := dialogue.ParseYarn(sceneYarn)
 	if err != nil {
 		panic(err)
 	}

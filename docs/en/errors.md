@@ -75,7 +75,7 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 | `editor` | `OpenFile`, `ParseEditorSettings`, `ParsePermissions`, `ParseAutomations`, `ParseLayout`, `ParseRecentProjects`, `ParseCheckpointManifest`, `ParseAgentThread`, `ParseAgentThreadYAML`, `parseViewState` | Editor configs, layouts, checkpoints, threads and view state, by field |
 | `gltf` | `Load`, `LoadFS` | The top-level item at fault, such as `nodes[3]` |
 | `text` | `LoadBMFont`, `LoadBMFontImage` | The record at fault, in text and XML fonts |
-| `flow` | `ParseYarn` | The script line at fault |
+| `dialogue` | `ParseYarn` | The script line at fault |
 | `datatable` | `LoadCSV`, `LoadJSON`, `LoadYAML`, `LoadFile` | The cell at fault; `CellError` stays in the chain |
 | `tooling/devstate`, `tooling/hotreload`, `tooling/library`, `tooling/assetbuild` | `Store.LoadSnapshot`, `ParseMaterial`, `ParseIndex`, `ParseManifest`, `parseCache` | Decode errors and manifest, index and material rules, by field |
 | `tooling/gamedebug` | `Console.LoadTunables` | The tunable at fault, under the storage key |

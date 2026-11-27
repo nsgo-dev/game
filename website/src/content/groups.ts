@@ -84,6 +84,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'gamedebug',
       'mcp',
       'flow',
+      'dialogue',
       'tween',
       'animclip',
       'skeletal',

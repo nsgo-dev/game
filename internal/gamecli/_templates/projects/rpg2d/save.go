@@ -6,7 +6,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/inventory"
 	"github.com/nsgo-dev/game/pkg/quest"
 )
@@ -26,7 +26,7 @@ type saveFile struct {
 	Bag      inventory.ContainerState `json:"bag"`
 	Gear     inventory.EquipmentState `json:"gear"`
 	Quests   quest.Snapshot           `json:"quests"`
-	Dialogue flow.DialogueState       `json:"dialogue"`
+	Dialogue dialogue.State           `json:"dialogue"`
 	Defeated []string                 `json:"defeated,omitempty"`
 	Taken    []string                 `json:"taken,omitempty"`
 }
