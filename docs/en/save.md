@@ -101,3 +101,13 @@ err := store.LoadChecked("slot1", &snap, func() error {
 	return nil
 })
 ```
+
+## Player settings (`SettingsStore` & `AccessibilitySettings`)
+
+`NewDefaultSettingsStore` (`NewFileSettingsStore` / `NewStorageSettingsStore`) persists `Settings` (`Audio`, `Bindings`, `Display`, `Locale`, `Accessibility`, `Custom`) outside save slots with the same versioned envelope and backup recovery. Call `store.Subscribe(fn)` to react whenever `Save`, `Reset`, or `Delete` succeeds (used by `a11y.NewAssistFromSettings` to keep captions, menus, and effects synchronized with `gameui.SettingsMenu`).
+
+`AccessibilitySettings` is the single model for accessibility and gameplay-assist preferences:
+
+- **Ranges & canonical names**: `CaptionScale` clamps to `[MinCaptionScale, MaxCaptionScale]` (`0.5`–`3.0`), `GameSpeed` to `[MinGameSpeed, MaxGameSpeed]` (`0.25`–`2.0`), and `ScreenShake` to `[0, 1]`. `NormalizeColorBlindMode` accepts both `"none"` and `"normal"` (normalizing both to `"none"`), `"protanopia"`, `"deuteranopia"`, `"tritanopia"`, and `"high-contrast"` (including `"highcontrast"` / `"high_contrast"`).
+- **Assist fields & migration**: holds `Captions`, `SFXCaptions`, `ReduceFlashes`, `Invincibility`, `AutoAim`, and `HoldToToggle` as typed fields; loading an older file with `Custom["reduce_flashes"]` migrates it into `Accessibility.ReduceFlashes` automatically.
+- **Follow-platform defaults**: `EffectiveReduceMotion(env)`, `EffectiveHighContrast(env)`, and `EffectiveCaptionScale(env)` fall back to `env.ReduceMotion()`, `env.IncreaseContrast()`, and `env.FontScale()` while unset; call `SetReduceMotion`, `SetHighContrast`, or `SetCaptionScale` to record an explicit override (including `false` or `1.0`), and `ClearReduceMotion`, `ClearHighContrast`, or `ClearCaptionScale` to follow the platform again.

@@ -107,22 +107,23 @@ Customize focus outlines with `FocusRingStyle` on `Root.FocusRing`, `Theme.Focus
 
 ## Ready settings menu (`SettingsMenu`)
 
-`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, and configurable bus volumes), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, and game speed).
+`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, and configurable bus volumes), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, SFX captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, game speed, invincibility, auto-aim, and hold-to-toggle).
 
-It persists through `save.DefaultSettingsStore` and dispatches validated updates through `save.SettingsTargets` (`save.Apply`) and `SettingsMenuConfig.Video` (`screen.Video.ApplyResolution`):
+It persists through `save.DefaultSettingsStore` (shared directly with `a11y.NewAssistFromSettings(cx, store)`) and dispatches validated updates through `save.SettingsTargets` (`save.Apply`) and `SettingsMenuConfig.Video` (`screen.Video.ApplyResolution`):
 
 ```go
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
+assist := a11y.NewAssistFromSettings(cx, store)
 menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 	Store: store,
-	Env:   cx.Env(), // hides unsupported Window Mode / Resolution rows and syncs FullScreen
+	Env:   cx.Env(), // hides unsupported Window Mode / Resolution rows and syncs FullScreen & OS accessibility defaults
 	Video: video,    // applies windowed Resolution via video.ApplyResolution on Apply/Save
 	Targets: save.SettingsTargets{
 		Sound:              mixer,
 		ApplyDisplay:       video.Apply,
 		ApplyBindings:      func(b map[string][]string) error { gameui.ApplyBindingsToActions(actions, b, true); return nil },
 		ApplyLocale:        setLocale,
-		ApplyAccessibility: setAccessibility,
+		ApplyAccessibility: assist.ApplySettings,
 	},
 	OnBack: closeSettings,
 })
@@ -137,9 +138,10 @@ menu.Draw(d, bounds)
 // - Gamepad:  menu.StepGamepad(gamepad.Pads(cx)) (D-pad / left stick, A confirm, B back, LB/RB tabs, button capture)
 ```
 
-- Use `SettingsResolutionFrom` / `SetSettingsResolution`, `ParseSettingsResolution`, `ApplySettingsResolution`, and `SettingsReduceFlashesFrom` / `SetSettingsReduceFlashes` to read, write, and apply the resolution and flash-reduction entries stored in `save.Settings.Custom`. Pass `Env: cx.Env()` so Resolution is hidden automatically on phones, tablets, and the web (or set `HideResolution: true`), and set `ShowVSync: true` only when wiring `save.DisplaySettings.VSync` to a real backend control.
+- Use `SettingsResolutionFrom` / `SetSettingsResolution`, `ParseSettingsResolution`, and `ApplySettingsResolution` to read, write, and apply the resolution entry stored in `save.Settings.Custom`. Flash reduction now lives on `save.AccessibilitySettings.ReduceFlashes` (migrated automatically from legacy `Custom["reduce_flashes"]`; `SettingsReduceFlashesFrom` and `SetSettingsReduceFlashes` are kept as deprecated wrappers). Pass `Env: cx.Env()` so Resolution is hidden automatically on phones, tablets, and the web (or set `HideResolution: true`), and set `ShowVSync: true` only when wiring `save.DisplaySettings.VSync` to a real backend control.
+- Pass `Env: cx.Env()` so unset Reduced Motion, High Contrast, and Text Scale controls follow the OS accessibility settings (`Env.ReduceMotion()`, `Env.IncreaseContrast()`, `Env.FontScale()`) until the player explicitly changes them, and return to following the OS on Reset.
 - Use `FormatBindingToken`, `ParseBindingToken`, `FormatBindingLabel`, `GamepadButtonToken`, and `ApplyBindingsToActions` to bridge `save.Settings.Bindings` with `input.Actions`.
-- Call `SetText` with a translated `SettingsText` struct when the player switches language, and omit `Theme` (or call `HighContrastTheme()`) to automatically switch to high-contrast styling when `Accessibility.HighContrast` is enabled.
+- Call `SetText` with a translated `SettingsText` struct when the player switches language, and omit `Theme` (or call `HighContrastTheme()`) to automatically switch to high-contrast styling when effective high contrast is enabled.
 - Call `SyncGamepad` when opening the menu so any button held to open it does not immediately trigger inside the screen.
 - Pass `Env: cx.Env()` in `SettingsMenuConfig` so the Video tab hides Window Mode on platforms that cannot enter full screen (`screen.CanFullScreen`, such as iOS, Android, and phone web browsers) and keeps Window Mode synchronized with `Env.FullScreen()` on the web and after Escape or system window toggles.
 

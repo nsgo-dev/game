@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/core"
@@ -19,10 +20,14 @@ const (
 	// outside the save-slot namespace.
 	settingsKey = "settings"
 
-	minCaptionScale = 0.5
-	maxCaptionScale = 3.0
-	minGameSpeed    = 0.25
-	maxGameSpeed    = 2.0
+	// MinCaptionScale is the minimum allowed AccessibilitySettings.CaptionScale multiplier.
+	MinCaptionScale = 0.5
+	// MaxCaptionScale is the maximum allowed AccessibilitySettings.CaptionScale multiplier.
+	MaxCaptionScale = 3.0
+	// MinGameSpeed is the slowest allowed AccessibilitySettings.GameSpeed multiplier.
+	MinGameSpeed = 0.25
+	// MaxGameSpeed is the fastest allowed AccessibilitySettings.GameSpeed multiplier.
+	MaxGameSpeed = 2.0
 )
 
 // AudioSettings holds player audio preferences stored independently of save slots.
@@ -88,18 +93,155 @@ type DisplaySettings struct {
 	Quality string `json:"quality,omitempty"`
 }
 
-// AccessibilitySettings holds player accessibility preferences.
+// AccessibilitySettings holds player accessibility and gameplay-assist preferences.
 type AccessibilitySettings struct {
 	Captions bool `json:"captions"`
-	// CaptionScale is the subtitle/caption scale factor in [0.5, 3.0] (1.0 by default).
-	CaptionScale   float64 `json:"caption_scale"`
-	ColorBlindMode string  `json:"color_blind_mode,omitempty"`
-	ReduceMotion   bool    `json:"reduce_motion"`
-	HighContrast   bool    `json:"high_contrast"`
+	// SFXCaptions enables captions for non-speech sound effects (footsteps, explosions, directional cues).
+	SFXCaptions bool `json:"sfx_captions,omitempty"`
+	// CaptionScale is the subtitle/UI text scale factor in [MinCaptionScale, MaxCaptionScale] (1.0 by default).
+	// When CaptionScaleSet is false and CaptionScale is 0 or 1.0, EffectiveCaptionScale follows core.Env.FontScale.
+	CaptionScale float64 `json:"caption_scale"`
+	// CaptionScaleSet reports whether CaptionScale was chosen explicitly (including 1.0) rather than following core.Env.FontScale.
+	CaptionScaleSet bool `json:"caption_scale_set,omitempty"`
+	// ColorBlindMode is the canonical color-vision mode ("none", "protanopia", "deuteranopia", "tritanopia", or "high-contrast").
+	// "normal" is accepted on load and normalized to "none".
+	ColorBlindMode string `json:"color_blind_mode,omitempty"`
+	ReduceMotion   bool   `json:"reduce_motion"`
+	// ReduceMotionSet reports whether ReduceMotion was chosen explicitly (including false) rather than following core.Env.ReduceMotion.
+	ReduceMotionSet bool `json:"reduce_motion_set,omitempty"`
+	HighContrast    bool `json:"high_contrast"`
+	// HighContrastSet reports whether HighContrast was chosen explicitly (including false) rather than following core.Env.IncreaseContrast.
+	HighContrastSet bool `json:"high_contrast_set,omitempty"`
+	// ReduceFlashes disables full-screen flash effects independently of ReduceMotion.
+	ReduceFlashes bool `json:"reduce_flashes,omitempty"`
 	// ScreenShake is the camera shake intensity in [0, 1] (1.0 by default, 0 disables shake).
 	ScreenShake float64 `json:"screen_shake"`
-	// GameSpeed is the gameplay speed multiplier in [0.25, 2.0] (1.0 by default).
+	// GameSpeed is the gameplay speed multiplier in [MinGameSpeed, MaxGameSpeed] (1.0 by default).
 	GameSpeed float64 `json:"game_speed"`
+	// Invincibility disables player damage when supported by the game.
+	Invincibility bool `json:"invincibility,omitempty"`
+	// AutoAim enables aim assistance when supported by the game.
+	AutoAim bool `json:"auto_aim,omitempty"`
+	// HoldToToggle turns held inputs into toggles when supported by the game.
+	HoldToToggle bool `json:"hold_to_toggle,omitempty"`
+}
+
+// NormalizeColorBlindMode returns the canonical color-vision mode name for mode,
+// accepting both "none" and "normal" (and empty string) as "none", and normalizing
+// "high-contrast", "highcontrast", and "high_contrast" to "high-contrast".
+// Known names are lowercased; unknown non-empty names are trimmed and preserved.
+func NormalizeColorBlindMode(mode string) string {
+	trimmed := strings.TrimSpace(mode)
+	switch strings.ToLower(trimmed) {
+	case "", "none", "normal":
+		return "none"
+	case "protanopia":
+		return "protanopia"
+	case "deuteranopia":
+		return "deuteranopia"
+	case "tritanopia":
+		return "tritanopia"
+	case "high-contrast", "highcontrast", "high_contrast":
+		return "high-contrast"
+	default:
+		return trimmed
+	}
+}
+
+// Validate clamps out-of-range numeric fields and normalizes ColorBlindMode in place.
+func (a *AccessibilitySettings) Validate() {
+	a.CaptionScale = clampPositiveRange(a.CaptionScale, MinCaptionScale, MaxCaptionScale, 1.0)
+	a.ColorBlindMode = NormalizeColorBlindMode(a.ColorBlindMode)
+	a.ScreenShake = clampUnit(a.ScreenShake, 1.0)
+	a.GameSpeed = clampPositiveRange(a.GameSpeed, MinGameSpeed, MaxGameSpeed, 1.0)
+}
+
+// SetReduceMotion records an explicit reduced-motion preference so it overrides
+// the platform setting even when v is false.
+func (a *AccessibilitySettings) SetReduceMotion(v bool) {
+	a.ReduceMotion = v
+	a.ReduceMotionSet = true
+}
+
+// ClearReduceMotion clears the explicit reduced-motion override so
+// EffectiveReduceMotion follows the platform setting again.
+func (a *AccessibilitySettings) ClearReduceMotion() {
+	a.ReduceMotion = false
+	a.ReduceMotionSet = false
+}
+
+// EffectiveReduceMotion reports whether reduced motion is active, using the
+// player's explicit choice when ReduceMotion or ReduceMotionSet is true and
+// otherwise falling back to env.ReduceMotion when env is non-nil.
+func (a AccessibilitySettings) EffectiveReduceMotion(env *core.Env) bool {
+	if a.ReduceMotion || a.ReduceMotionSet {
+		return a.ReduceMotion
+	}
+	if env != nil {
+		return env.ReduceMotion()
+	}
+	return false
+}
+
+// SetHighContrast records an explicit high-contrast preference so it overrides
+// the platform setting even when v is false.
+func (a *AccessibilitySettings) SetHighContrast(v bool) {
+	a.HighContrast = v
+	a.HighContrastSet = true
+}
+
+// ClearHighContrast clears the explicit high-contrast override so
+// EffectiveHighContrast follows the platform setting again.
+func (a *AccessibilitySettings) ClearHighContrast() {
+	a.HighContrast = false
+	a.HighContrastSet = false
+}
+
+// EffectiveHighContrast reports whether high contrast is active, using the
+// player's explicit choice when HighContrast or HighContrastSet is true and
+// otherwise falling back to env.IncreaseContrast when env is non-nil.
+func (a AccessibilitySettings) EffectiveHighContrast(env *core.Env) bool {
+	if a.HighContrast || a.HighContrastSet {
+		return a.HighContrast
+	}
+	if env != nil {
+		return env.IncreaseContrast()
+	}
+	return false
+}
+
+// SetCaptionScale clamps v into [MinCaptionScale, MaxCaptionScale] (defaulting
+// NaN/Inf/0 to 1.0) and marks CaptionScaleSet so it overrides core.Env.FontScale
+// even when set to 1.0.
+func (a *AccessibilitySettings) SetCaptionScale(v float64) {
+	if math.IsInf(v, 0) {
+		v = 1.0
+	}
+	a.CaptionScale = clampPositiveRange(v, MinCaptionScale, MaxCaptionScale, 1.0)
+	a.CaptionScaleSet = true
+}
+
+// ClearCaptionScale clears the explicit scale override so EffectiveCaptionScale
+// follows core.Env.FontScale again.
+func (a *AccessibilitySettings) ClearCaptionScale() {
+	a.CaptionScale = 1.0
+	a.CaptionScaleSet = false
+}
+
+// EffectiveCaptionScale returns the active text/caption scale factor in
+// [MinCaptionScale, MaxCaptionScale]. When CaptionScaleSet is false and
+// CaptionScale is 0 or 1.0, it adopts env.FontScale (clamped to the valid
+// range) when env is non-nil and reports a positive scale.
+func (a AccessibilitySettings) EffectiveCaptionScale(env *core.Env) float64 {
+	if a.CaptionScaleSet || (a.CaptionScale != 0 && a.CaptionScale != 1.0) {
+		return clampPositiveRange(a.CaptionScale, MinCaptionScale, MaxCaptionScale, 1.0)
+	}
+	if env != nil {
+		if fs := float64(env.FontScale()); fs > 0 && !math.IsNaN(fs) && !math.IsInf(fs, 0) {
+			return clampPositiveRange(fs, MinCaptionScale, MaxCaptionScale, 1.0)
+		}
+	}
+	return 1.0
 }
 
 // Settings holds typed, versioned player preferences kept completely separate from save slots.
@@ -170,13 +312,21 @@ func (s *Settings) Validate() {
 
 	s.Locale = strings.TrimSpace(s.Locale)
 
-	s.Accessibility.CaptionScale = clampPositiveRange(s.Accessibility.CaptionScale, minCaptionScale, maxCaptionScale, 1.0)
-	s.Accessibility.ColorBlindMode = strings.TrimSpace(s.Accessibility.ColorBlindMode)
-	if s.Accessibility.ColorBlindMode == "" {
-		s.Accessibility.ColorBlindMode = "none"
+	// Migrate legacy Custom["reduce_flashes"] (used before ReduceFlashes became a typed field).
+	if raw, ok := s.Custom["reduce_flashes"]; ok {
+		if !s.Accessibility.ReduceFlashes {
+			var v bool
+			if err := json.Unmarshal(raw, &v); err == nil {
+				s.Accessibility.ReduceFlashes = v
+			}
+		}
+		delete(s.Custom, "reduce_flashes")
+		if len(s.Custom) == 0 {
+			s.Custom = nil
+		}
 	}
-	s.Accessibility.ScreenShake = clampUnit(s.Accessibility.ScreenShake, 1.0)
-	s.Accessibility.GameSpeed = clampPositiveRange(s.Accessibility.GameSpeed, minGameSpeed, maxGameSpeed, 1.0)
+
+	s.Accessibility.Validate()
 }
 
 // qualityAuto is quality.SettingAuto. save is stable and quality is experimental, so save keeps its own copy of the setting's names rather than importing quality; quality's tests check that the two agree.
@@ -425,6 +575,52 @@ type SettingsStore[T any] struct {
 
 	backend  settingsBackend
 	defaults func() T
+
+	subMu  sync.Mutex
+	nextID uint64
+	subs   map[uint64]func()
+}
+
+// Subscribe registers fn to run whenever Save, Reset, or Delete succeeds on s.
+// Call the returned function to remove the subscription. A nil fn is a no-op.
+func (s *SettingsStore[T]) Subscribe(fn func()) func() {
+	if s == nil || fn == nil {
+		return func() {}
+	}
+	s.subMu.Lock()
+	if s.subs == nil {
+		s.subs = make(map[uint64]func())
+	}
+	s.nextID++
+	id := s.nextID
+	s.subs[id] = fn
+	s.subMu.Unlock()
+	return func() {
+		s.subMu.Lock()
+		delete(s.subs, id)
+		s.subMu.Unlock()
+	}
+}
+
+func (s *SettingsStore[T]) notify() {
+	s.subMu.Lock()
+	if len(s.subs) == 0 {
+		s.subMu.Unlock()
+		return
+	}
+	ids := make([]uint64, 0, len(s.subs))
+	for id := range s.subs {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	fns := make([]func(), 0, len(ids))
+	for _, id := range ids {
+		fns = append(fns, s.subs[id])
+	}
+	s.subMu.Unlock()
+	for _, fn := range fns {
+		fn()
+	}
 }
 
 // NewSettingsStore returns a SettingsStore for T backed by backend.
@@ -557,7 +753,11 @@ func (s *SettingsStore[T]) Save(value T) error {
 	if err != nil {
 		return fmt.Errorf("save: encode %q: %w", settingsKey, err)
 	}
-	return s.backend.write(payload)
+	if err := s.backend.write(payload); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 // Reset restores and saves the store's default settings.
@@ -570,7 +770,11 @@ func (s *SettingsStore[T]) Delete() error {
 	if s.backend == nil {
 		return errors.New("save: settings store has no backend")
 	}
-	return s.backend.delete()
+	if err := s.backend.delete(); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 // Exists reports whether a primary or backup settings payload exists.

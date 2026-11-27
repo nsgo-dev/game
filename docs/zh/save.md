@@ -101,3 +101,13 @@ err := store.LoadChecked("slot1", &snap, func() error {
 	return nil
 })
 ```
+
+## 玩家设置（`SettingsStore` 与 `AccessibilitySettings`）
+
+`NewDefaultSettingsStore`（`NewFileSettingsStore` / `NewStorageSettingsStore`）在存档槽之外独立保存 `Settings`（包含 `Audio`、`Bindings`、`Display`、`Locale`、`Accessibility`、`Custom`），同样具备版本信封与备份恢复。调用 `store.Subscribe(fn)` 可在每次 `Save`、`Reset` 或 `Delete` 成功时收到通知（`a11y.NewAssistFromSettings` 借此与 `gameui.SettingsMenu` 实时同步字幕、菜单与特效）。
+
+`AccessibilitySettings` 是无障碍与玩法辅助偏好的唯一数据模型：
+
+- **统一范围与规范名称**：`CaptionScale` 裁剪在 `[MinCaptionScale, MaxCaptionScale]`（`0.5`–`3.0`），`GameSpeed` 裁剪在 `[MinGameSpeed, MaxGameSpeed]`（`0.25`–`2.0`），`ScreenShake` 裁剪在 `[0, 1]`。`NormalizeColorBlindMode` 同时接受 `"none"` 与 `"normal"`（统一规范为 `"none"`），以及 `"protanopia"`、`"deuteranopia"`、`"tritanopia"` 和 `"high-contrast"`（含 `"highcontrast"` / `"high_contrast"`）。
+- **辅助字段与旧文件迁移**：提供 `Captions`、`SFXCaptions`、`ReduceFlashes`、`Invincibility`、`AutoAim` 与 `HoldToToggle` 强类型字段；加载包含旧版 `Custom["reduce_flashes"]` 的设置文件时会自动迁移到 `Accessibility.ReduceFlashes`。
+- **跟随系统默认值**：未显式覆盖时，`EffectiveReduceMotion(env)`、`EffectiveHighContrast(env)` 与 `EffectiveCaptionScale(env)` 会跟随 `env.ReduceMotion()`、`env.IncreaseContrast()` 和 `env.FontScale()`；调用 `SetReduceMotion`、`SetHighContrast` 或 `SetCaptionScale` 可记录显式覆盖值（包括 `false` 或 `1.0`），调用对应的 `Clear*` 方法可恢复跟随系统。
