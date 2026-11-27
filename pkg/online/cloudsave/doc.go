@@ -14,7 +14,7 @@
 //
 // # Storage
 //
-// The service keeps its records in a Store: NewMemoryStore for tests and prototypes, or the SQL store of package sqlstore on SQLite or Postgres. Package storetest checks any Store against the contract.
+// The service keeps its records in a Store: NewMemoryStore for tests and prototypes, or the SQL store of package sqlstore, opened on SQLite by package sqlitestore or on Postgres by package pgstore. Package storetest checks any Store against the contract.
 //
 // # Configuration
 //

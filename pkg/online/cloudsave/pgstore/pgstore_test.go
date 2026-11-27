@@ -1,6 +1,6 @@
 //go:build !js && !wasip1
 
-package sqlstore_test
+package pgstore_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
-	"github.com/nsgo-dev/game/pkg/online/cloudsave/sqlstore"
+	"github.com/nsgo-dev/game/pkg/online/cloudsave/pgstore"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave/storetest"
 )
 
@@ -27,7 +27,7 @@ func openSchema(t *testing.T) cloudsave.Store {
 		t.Skipf("set %s to a Postgres URL to run the Postgres store tests", dsnEnv)
 	}
 	ctx := context.Background()
-	admin, err := sqlstore.OpenPostgres(ctx, dsn)
+	admin, err := pgstore.Open(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func openSchema(t *testing.T) cloudsave.Store {
 	q := u.Query()
 	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
-	s, err := sqlstore.OpenPostgres(ctx, u.String())
+	s, err := pgstore.Open(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,9 +61,9 @@ func TestPostgresContract(t *testing.T) {
 	storetest.Run(t, openSchema)
 }
 
-func TestOpenPostgresHidesBadDSN(t *testing.T) {
-	_, err := sqlstore.OpenPostgres(context.Background(), "postgres://user:secret@[bad")
+func TestOpenHidesBadDSN(t *testing.T) {
+	_, err := pgstore.Open(context.Background(), "postgres://user:secret@[bad")
 	if err == nil || strings.Contains(err.Error(), "secret") {
-		t.Fatalf("OpenPostgres with a bad DSN = %v", err)
+		t.Fatalf("Open with a bad DSN = %v", err)
 	}
 }

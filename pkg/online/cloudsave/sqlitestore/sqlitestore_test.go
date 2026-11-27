@@ -1,6 +1,6 @@
 //go:build !js && !wasip1
 
-package sqlstore_test
+package sqlitestore_test
 
 import (
 	"context"
@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
+	"github.com/nsgo-dev/game/pkg/online/cloudsave/sqlitestore"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave/sqlstore"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave/storetest"
 )
 
 func openSQLite(t *testing.T) *sqlstore.Store {
 	t.Helper()
-	s, err := sqlstore.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "saves.db"))
+	s, err := sqlitestore.Open(context.Background(), filepath.Join(t.TempDir(), "saves.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +30,7 @@ func TestSQLiteContract(t *testing.T) {
 }
 
 func TestSQLiteInMemory(t *testing.T) {
-	s, err := sqlstore.OpenSQLite(context.Background(), ":memory:")
+	s, err := sqlitestore.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestSQLiteInMemory(t *testing.T) {
 func TestSQLiteReopenKeepsSlots(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "saves.db")
-	s, err := sqlstore.OpenSQLite(ctx, path)
+	s, err := sqlitestore.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestSQLiteReopenKeepsSlots(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err = sqlstore.OpenSQLite(ctx, path)
+	s, err = sqlitestore.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,10 +74,10 @@ func TestSQLiteRefusesNewerSchema(t *testing.T) {
 	}
 }
 
-func TestOpenSQLiteRefusesBadPaths(t *testing.T) {
+func TestOpenRefusesBadPaths(t *testing.T) {
 	for _, p := range []string{"", "saves.db?mode=ro", "saves#1"} {
-		if _, err := sqlstore.OpenSQLite(context.Background(), p); err == nil {
-			t.Errorf("OpenSQLite(%q) succeeded", p)
+		if _, err := sqlitestore.Open(context.Background(), p); err == nil {
+			t.Errorf("Open(%q) succeeded", p)
 		}
 	}
 	if _, err := sqlstore.New(context.Background(), (*sql.DB)(nil), sqlstore.SQLite); err == nil {

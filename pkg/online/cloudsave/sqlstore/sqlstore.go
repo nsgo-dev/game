@@ -1,4 +1,4 @@
-// Package sqlstore is a cloudsave.Store over database/sql, for SQLite (OpenSQLite, with the pure-Go modernc.org/sqlite driver) and Postgres (OpenPostgres, with github.com/jackc/pgx/v5).
+// Package sqlstore is a cloudsave.Store over database/sql, written once for SQLite and Postgres and opened through a driver package: sqlitestore (with the pure-Go modernc.org/sqlite driver) or pgstore (with github.com/jackc/pgx/v5). It imports no driver itself, so New works with any *sql.DB of a supported dialect.
 //
 // The schema is two tables, created by New when missing and versioned in cloudsave_schema:
 //   - cloudsave_slots: account_id and slot (the key), and the newest version's number, deleted flag, hash, size and created_at
@@ -38,7 +38,7 @@ type Dialect struct {
 	LockAccount string
 }
 
-// SQLite is SQLite's dialect. A SQLite store uses one connection with immediate transactions (OpenSQLite), which serializes writes without an account lock.
+// SQLite is SQLite's dialect. A SQLite store uses one connection with immediate transactions (sqlitestore.Open), which serializes writes without an account lock.
 var SQLite = Dialect{Name: "sqlite", Blob: "BLOB"}
 
 // Postgres is Postgres's dialect. Its locks use the arbitrary class key 1668051830 ("clsv" in ASCII).

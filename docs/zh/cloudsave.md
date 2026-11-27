@@ -7,7 +7,9 @@
 | 包 | 内容 |
 | --- | --- |
 | `cloudsave` | `Service`、`Config`、`Store` 接口、`MemoryStore` 与 HTTP `Handler` |
-| `cloudsave/sqlstore` | 存放在 SQLite（`OpenSQLite`，纯 Go，除网页外的所有目标平台）或 Postgres（`OpenPostgres`，可由多个服务进程共享）中的 `Store` |
+| `cloudsave/sqlitestore` | 存于 SQLite 文件的 `Store`（纯 Go，无 cgo）；除网页外的所有目标平台 |
+| `cloudsave/pgstore` | 存于 Postgres 的 `Store`，可由多个服务进程共享 |
+| `cloudsave/sqlstore` | 两种存储共用的 SQL 模式和查询 |
 | `cloudsave/storetest` | `Store` 契约测试，供自定义存储使用 |
 | `cmd/cloudsaved` | 独立运行的 HTTP 服务器 |
 | `liveops` | `CloudClient`，游戏这一侧 |
@@ -119,8 +121,8 @@ allowedOrigins:
 `Store` 保存版本。它的 `Append` 是原子的：基于同一版本的两次写入，至多一次提交成功。
 
 ```go
-store, err := sqlstore.OpenSQLite(ctx, "saves.db")                     // 单个服务进程
-store, err := sqlstore.OpenPostgres(ctx, os.Getenv("CLOUDSAVE_POSTGRES_DSN")) // 多个进程
+store, err := sqlitestore.Open(ctx, "saves.db")                      // 单个服务进程
+store, err := pgstore.Open(ctx, os.Getenv("CLOUDSAVE_POSTGRES_DSN")) // 多个进程
 svc, err := cloudsave.New(cfg, cloudsave.Options{Store: store, Tokens: verifier, Logger: slog.Default()})
 ```
 
