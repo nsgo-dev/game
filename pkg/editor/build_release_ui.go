@@ -2655,7 +2655,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 									specInputField(cx, ed, ui.Input{
 										TestID:      "build-keychain-account",
 										Label:       "Store account",
-										Placeholder: "Account or publisher name",
+										Placeholder: keychainAccountPlaceholder(ed.BuildReleaseSnapshot().UploadReview.KeychainDest),
 										Value:       kcAccount.Get,
 										OnChange:    kcAccount.Set,
 										Style: core.Style{
@@ -2677,7 +2677,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 									specInputField(cx, ed, ui.Input{
 										TestID:      "build-keychain-secret",
 										Label:       "API key or token",
-										Placeholder: "API key / token",
+										Placeholder: keychainSecretPlaceholder(ed.BuildReleaseSnapshot().UploadReview.KeychainDest),
 										Masked:      true,
 										Value:       kcSecret.Get,
 										OnChange:    kcSecret.Set,
@@ -2875,24 +2875,71 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 	}
 }
 
+func keychainAccountPlaceholder(dest PublishDestination) string {
+	switch dest {
+	case PublishDestItchIO:
+		return "itch.io user (optional)"
+	case PublishDestGooglePlay:
+		return "Service account label (optional)"
+	case PublishDestTestFlight:
+		return "Key ID:Issuer ID (or leave blank if in JSON)"
+	default:
+		return "Account or publisher name"
+	}
+}
+
+func keychainSecretPlaceholder(dest PublishDestination) string {
+	switch dest {
+	case PublishDestItchIO:
+		return "BUTLER_API_KEY"
+	case PublishDestGooglePlay:
+		return "Service account JSON or file path"
+	case PublishDestTestFlight:
+		return "App Store Connect .p8 key or JSON {key,key_id,issuer}"
+	default:
+		return "API key / token"
+	}
+}
+
 func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, running, isLast bool) core.Node {
 	plat := it.Platform
 	dest := it.Destination
+	manual := it.ManualOnly || !dest.Valid()
 
 	var boxBg core.Color
 	boxBorder := p.TextFaint
 	var boxBorderW core.Points = 1.5
 	var checkChildren []core.Node
-	if it.Included {
+	if it.Included && !manual {
 		boxBg = p.Accent.Fg
 		boxBorder = p.Accent.Fg
 		boxBorderW = 0
 		checkChildren = []core.Node{buildSpecIcon(lucide.Check(), 10, p.Accent.OnFill)}
+	} else if manual {
+		boxBorder = p.LineRaised
 	}
 
 	var statusNode core.Node
-	switch it.Status {
-	case UploadStatusUploading:
+	switch {
+	case manual:
+		statusNode = core.View{
+			TestID: "build-upload-manual-" + plat,
+			Style: core.Style{
+				Height:       core.Pt(22),
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          5,
+				Padding:      core.Symmetric(0, 8),
+				CornerRadius: 11,
+				Background:   p.Raised,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+			},
+			Children: []core.Node{
+				core.Text{Content: "SteamPipe", Style: core.Style{FontSize: 11, Color: p.TextFaint}},
+			},
+		}
+	case it.Status == UploadStatusUploading:
 		pct := int(math.Round(clampUploadFraction(it.Progress) * 100))
 		statusNode = core.View{
 			Style: core.Style{
@@ -2910,7 +2957,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 				core.Text{Content: fmt.Sprintf("Uploading %d%%", pct), Style: core.Style{FontSize: 11, Color: p.TextSecondary}},
 			},
 		}
-	case UploadStatusDone:
+	case it.Status == UploadStatusDone:
 		statusNode = core.View{
 			Style: core.Style{
 				Height:       core.Pt(22),
@@ -2928,7 +2975,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 				core.Text{Content: "Uploaded", Style: core.Style{FontSize: 11, Color: p.Added.Fg}},
 			},
 		}
-	case UploadStatusFailed:
+	case it.Status == UploadStatusFailed:
 		statusNode = core.View{
 			Style: core.Style{
 				Height:       core.Pt(22),
@@ -3006,33 +3053,55 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 		borderBottom = 0
 	}
 
+	var checkNode core.Node
+	if manual {
+		checkNode = core.View{
+			TestID: "build-upload-check-" + plat,
+			Style: core.Style{
+				Width:        core.Pt(18),
+				Height:       core.Pt(18),
+				FlexShrink:   0,
+				CornerRadius: 4,
+				BorderWidth:  boxBorderW,
+				BorderColor:  boxBorder,
+			},
+		}
+	} else {
+		checkNode = core.View{
+			TestID: "build-upload-check-" + plat,
+			Role:   core.RoleCheckbox,
+			Label:  "Upload " + it.ArtifactName + " to " + it.DestinationLabel,
+			Style: core.Style{
+				Width:          core.Pt(18),
+				Height:         core.Pt(18),
+				FlexShrink:     0,
+				CornerRadius:   4,
+				Background:     boxBg,
+				BorderWidth:    boxBorderW,
+				BorderColor:    boxBorder,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FocusVisible:   p.FocusRing(2),
+			},
+			OnPress: func(core.PressEvent) {
+				if !running {
+					ed.report(ed.SetReleaseUploadItemIncluded(plat, !it.Included))
+				}
+			},
+			Children: checkChildren,
+		}
+	}
+
+	destColor := p.TextSecondary
+	if manual {
+		destColor = p.TextMuted
+	}
+
 	rowChildren := []core.Node{
 		core.View{
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10},
 			Children: []core.Node{
-				core.View{
-					TestID: "build-upload-check-" + plat,
-					Role:   core.RoleCheckbox,
-					Label:  "Upload " + it.ArtifactName + " to " + it.DestinationLabel,
-					Style: core.Style{
-						Width:          core.Pt(18),
-						Height:         core.Pt(18),
-						FlexShrink:     0,
-						CornerRadius:   4,
-						Background:     boxBg,
-						BorderWidth:    boxBorderW,
-						BorderColor:    boxBorder,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-						FocusVisible:   p.FocusRing(2),
-					},
-					OnPress: func(core.PressEvent) {
-						if !running {
-							ed.report(ed.SetReleaseUploadItemIncluded(plat, !it.Included))
-						}
-					},
-					Children: checkChildren,
-				},
+				checkNode,
 				core.View{
 					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2, Overflow: core.Hidden},
 					Children: []core.Node{
@@ -3043,7 +3112,7 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 				core.View{
 					Style: core.Style{Width: core.Pt(184), FlexShrink: 0, Gap: 2},
 					Children: []core.Node{
-						core.Text{Content: it.DestinationLabel, Style: core.Style{FontSize: 12, Color: p.TextSecondary}},
+						core.Text{Content: it.DestinationLabel, Style: core.Style{FontSize: 12, Color: destColor}},
 						core.Text{Content: it.Track, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 					},
 				},
@@ -3068,9 +3137,24 @@ func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, r
 			Content: "Error: " + it.Err,
 			Style:   core.Style{FontSize: 11, Color: p.Removed.Fg, Padding: core.Edges{Left: 28}},
 		})
+	} else if it.Status == UploadStatusUploading && it.StatusMessage != "" {
+		rowChildren = append(rowChildren, core.Text{
+			Content: it.StatusMessage,
+			Style:   core.Style{FontSize: 11, Color: p.TextMuted, Padding: core.Edges{Left: 28}},
+		})
+	} else if it.ResultURL != "" && it.StatusMessage != "" && it.StatusMessage != "Uploaded" {
+		rowChildren = append(rowChildren, core.Text{
+			Content: it.StatusMessage + " · " + it.ResultURL,
+			Style:   core.Style{FontSize: 11, Color: p.TextFaint, Padding: core.Edges{Left: 28}},
+		})
 	} else if it.ResultURL != "" {
 		rowChildren = append(rowChildren, core.Text{
 			Content: it.ResultURL,
+			Style:   core.Style{FontSize: 11, Color: p.TextFaint, Padding: core.Edges{Left: 28}},
+		})
+	} else if it.Status == UploadStatusDone && it.StatusMessage != "" && it.StatusMessage != "Uploaded" {
+		rowChildren = append(rowChildren, core.Text{
+			Content: it.StatusMessage,
 			Style:   core.Style{FontSize: 11, Color: p.TextFaint, Padding: core.Edges{Left: 28}},
 		})
 	}

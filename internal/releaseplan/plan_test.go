@@ -259,3 +259,37 @@ func TestBuildStrictRefusesExperimentalTargets(t *testing.T) {
 		t.Fatalf("strict Build on primary targets: %v", err)
 	}
 }
+
+func TestReadNSGoSettingsItchConfig(t *testing.T) {
+	dir := t.TempDir()
+	yamlText := `name: Demo
+id: dev.example.demo
+version: 1.0.0
+updates:
+  channel: none
+build:
+  output: out/rel
+itch:
+  project: studio/demo-game
+  channels:
+    macos_arm64: osx-arm64-beta
+    web: html5-demo
+`
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte(yamlText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadNSGoSettings(dir)
+	if err != nil {
+		t.Fatalf("ReadNSGoSettings: %v", err)
+	}
+	if got.Channel != "none" || got.Output != "out/rel" || got.ItchProject != "studio/demo-game" {
+		t.Fatalf("ReadNSGoSettings = %+v", got)
+	}
+	wantChannels := map[string]string{
+		"macos_arm64": "osx-arm64-beta",
+		"web":         "html5-demo",
+	}
+	if !reflect.DeepEqual(got.ItchChannels, wantChannels) {
+		t.Fatalf("ItchChannels = %v, want %v", got.ItchChannels, wantChannels)
+	}
+}

@@ -450,7 +450,8 @@ type Editor struct {
 	// kept reviews, and changelog fragments; when nil, DefaultReleaseNotesDraft is used.
 	ReleaseNotesDrafter func(ctx context.Context, req ReleaseNotesDraftRequest) (ReleaseNotesDraft, error)
 	// ReleaseUploader uploads a single user-confirmed artifact to a store destination (itch.io, Google Play internal testing, or TestFlight).
-	// It is never invoked until the person confirms in Review uploads, whatever the permission profile.
+	// When nil, the editor invokes `go tool nsgo publish` in the project directory (or `nsgo publish` on PATH when the project has no go.mod nsgo tool),
+	// passing the keychain credential solely via NSGo's environment variables. It is never invoked until the person confirms in Review uploads, whatever the permission profile.
 	ReleaseUploader ReleaseUploader
 	// Keychain stores and retrieves store upload credentials and built-in agent API keys outside project files; when nil, DefaultKeychain() is used.
 	Keychain Keychain

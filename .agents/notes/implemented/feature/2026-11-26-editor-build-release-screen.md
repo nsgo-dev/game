@@ -36,7 +36,7 @@ The existing docked Export panel ([editor export presets](2026-11-25-editor-expo
   - Signing or step failures isolate cleanly to the failing platform while remaining checked platforms finish, and agent fix diffs apply and rebuild in one action.
   - Finished builds surface artifact paths, size deltas against the last release, `code`/`textures`/`audio`/`other` breakdowns, and budget Met/Missed badges.
 - **Costs and known limits**:
-  - Real notarization, emulator-backed mobile smoke playtests, and live store uploads rely on injectable hooks (`ReleaseStepRunner`, `ReleasePlaytestRunner`, `ReleaseMeasureRunner`, `OnReviewReleaseUploads`) until dedicated platform runners land; default local fallbacks provide deterministic checks, file-size measurement, and safety guarantees (nothing is uploaded automatically).
+  - Real notarization and emulator-backed mobile smoke playtests rely on injectable hooks (`ReleaseStepRunner`, `ReleasePlaytestRunner`, `ReleaseMeasureRunner`) until dedicated platform runners land; default store uploads now run `go tool nsgo publish` with environment-only keychain credentials ([editor review uploads publish](../bug-fix/2026-11-28-editor-review-uploads-publish.md)).
   - Adding `export.budgets` updates `apps/website/public/schemas/game.v1.json`, so any downstream schema consumer picks up the optional `budgets` object under `export`.
 
 ## Verification
