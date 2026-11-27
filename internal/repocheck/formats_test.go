@@ -191,6 +191,7 @@ var formatVersions = map[string]string{
 	"sceneformat.Lights2DComponentVersion":          "sceneformat",
 	"sceneformat.MinVersion":                        "sceneformat",
 	"sceneformat.NavRegion2DComponentVersion":       "sceneformat",
+	"sceneformat.OnScreenComponentVersion":          "sceneformat",
 	"sceneformat.PhysicsComponentVersion":           "sceneformat",
 	"sceneformat.SkeletalComponentVersion":          "sceneformat",
 	"skeletal.FormatVersion":                        "skeletal",

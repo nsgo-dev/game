@@ -243,6 +243,33 @@ YAML scenes can also set `ambientColor` and attach built-in `light2d` and `occlu
 
 YAML scenes can declare walkable and obstacle `navregion2d` polygons directly on objects, optionally subtracting solid tilemap collision geometry (`subtractTileCollision: true`). `sceneformat.Build` bakes them via [`game/ai/navbake`](navbake.md) into `BuiltScene.NavBake2D` (`*navbake.Mesh`) and `BuiltScene.NavMesh2D` (`*ai.NavMesh`), so the editor's 2D NavMesh overlay and **Test Path** tool produce the exact same path as the game ([`game/editor`](editor.md#built-in-2d-navigation-region-components-888)).
 
+## On-screen notifiers in scene files
+
+An object's built-in `on_screen` component watches a rectangle in the object's local space against the camera views and reports when it enters or leaves the screen, like Godot's `VisibleOnScreenNotifier2D`:
+
+```yaml
+objects:
+  - id: torch
+    x: 100
+    y: 50
+    particles: {file: fx/fire.particles.yaml, atlas: fx}
+    components:
+      on_screen:
+        x: -16          # watched rectangle in local space (defaults to a 16x16 at the origin)
+        y: -16
+        width: 32
+        height: 32
+        margin: 32      # hysteresis band: exited fires only after leaving a view by more than this
+        pause: [particles]   # parts BuiltScene.Update skips while off-screen: particles, skeleton
+connections:
+  - {from: torch, event: on_screen.entered, to: hud, handler: show_torch}
+  - {from: torch, event: on_screen.exited, to: hud, handler: hide_torch}
+```
+
+`sceneformat.Build` collects the notifiers into `BuiltScene.Notifiers` and `BuiltScene.Update` steps them against the scene's camera view (its virtual viewport through `BuiltScene.Camera`): `entered` fires when the rectangle starts overlapping a view (or the first update sees it inside one), and `exited` fires when it stops overlapping every view, `margin` included. A rotated or scaled object rectangle is covered by the axis-aligned rectangle holding its corners, and a rotated or zoomed camera's visible bounds are computed the same way, so the tests stay cheap rectangles. The events go through the scene's `connections`: set `BuiltScene.ScreenSignals` to the `Signals` `Connect` made, and the wired handlers run as the notifier flips. An object is on screen when any view sees it, so a split-screen game passes every viewport's camera to `BuiltScene.UpdateWithViews(dt, views...)`. A part named in `pause` (`particles` for the object's emitter, `skeleton` for its rig) is not updated while the notifier is off-screen and resumes where it stopped when the object comes back, the job of Godot's `VisibleOnScreenEnabler2D`.
+
+Games that do not use scene files get the same behavior from `scene.ScreenNotifier`, a Go value with a world `Rect`, a `Margin`, `OnEnter` and `OnExit` callbacks and a `Step(views ...*tilemap.Camera)` method to call once per update.
+
 ## Spawning scene components into ECS
 
 A `sceneformat.ComponentType` can declare an optional `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` factory that turns a YAML component into typed ECS state in `game/entities` ([Entities](entities.md#spawning-from-yaml-scenes)). Pass the registry to `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})` (or to `sceneformat.SpawnConnected`, which forwards its registry automatically). Every component is validated and resolved with its registered defaults before the first entity is spawned; entities spawn in depth-first document order and each object's components run in sorted component-name order. If any `Spawn` returns an error, all entities created so far are destroyed and the error names the layer, object ID and component. `SpawnEntities(doc, world)` remains equivalent to `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`.

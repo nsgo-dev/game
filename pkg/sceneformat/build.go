@@ -98,11 +98,18 @@ type BuiltScene struct {
 	// Objects indexes every built object in the scene, children included, by its unique ID.
 	Objects map[string]*BuiltObject
 
+	// Notifiers are the runtime states of the scene's built-in "on_screen" components, in document order, or nil when the scene defines none. Update steps them against the camera views and pauses the parts each one's pause list names while it is off-screen.
+	Notifiers []*ScreenNotifier
+	// ScreenSignals, when non-nil, receives the "on_screen.entered" and "on_screen.exited" events the Notifiers fire during Update. Set it to the Signals Connect made for the scene's connections to run their handlers.
+	ScreenSignals *Signals
+
 	// DrawAllTiles makes Draw draw every tile of the layers' maps (BuiltLayer.Map). By default Draw culls them to the scene's view, its virtual viewport through the camera, which a view that shows more of the world, such as an editor's panned past the camera, sets it to avoid.
 	DrawAllTiles bool
 
 	// materialed are the sprite objects with a material, in build order, which SyncMaterials updates.
 	materialed []*BuiltObject
+	// notifierByObject indexes Notifiers by their object, for the paused lookups of Update.
+	notifierByObject map[*BuiltObject]*ScreenNotifier
 }
 
 // BuiltLayer is one resolved layer of a BuiltScene.
@@ -369,6 +376,18 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 	}
 	built.NavBake2D = navBake
 	built.NavMesh2D = navMesh
+
+	notifiers, err := extractScreenNotifiers(built)
+	if err != nil {
+		return nil, err
+	}
+	built.Notifiers = notifiers
+	if len(notifiers) > 0 {
+		built.notifierByObject = make(map[*BuiltObject]*ScreenNotifier, len(notifiers))
+		for _, n := range notifiers {
+			built.notifierByObject[n.Object] = n
+		}
+	}
 
 	return built, nil
 }
@@ -986,22 +1005,34 @@ func (s *BuiltScene) tileView(space Space, vw, vh float32) *tilemap.Camera {
 	return &tilemap.Camera{X: vw / 2, Y: vh / 2, Zoom: 1, Width: vw, Height: vh}
 }
 
-// Update advances the animated tiles of every layer's map (BuiltLayer.Map), every placed particle emitter (BuiltLayer.Emitters), and every placed 2D skeletal rig (BuiltLayer.Skeletons) by dt, so the next Draw shows their current frames and poses.
+// Update advances the animated tiles of every layer's map (BuiltLayer.Map), every placed particle emitter (BuiltLayer.Emitters), and every placed 2D skeletal rig (BuiltLayer.Skeletons) by dt, so the next Draw shows their current frames and poses. An emitter or rig whose object carries an "on_screen" component pausing it is skipped while the notifier is off-screen and resumes where it stopped when the object comes back into view.
 func (s *BuiltScene) Update(dt time.Duration) {
+	s.UpdateWithViews(dt)
+}
+
+// UpdateWithViews is Update with extra camera views counting toward the "on_screen" notifiers' visibility, such as every scene.SplitScreen viewport's camera; an object is on screen when any view sees it. The scene's own camera view (its virtual viewport through BuiltScene.Camera) always counts, nil views are ignored, and a scene with no virtual size and no extra views treats every notifier as on-screen.
+func (s *BuiltScene) UpdateWithViews(dt time.Duration, views ...*tilemap.Camera) {
 	if s == nil {
 		return
+	}
+	if len(s.Notifiers) > 0 {
+		vs := s.notifierViews(views)
+		for _, n := range s.Notifiers {
+			n.syncRect()
+			n.Step(vs...)
+		}
 	}
 	for _, l := range s.Layers {
 		if l.Map != nil {
 			l.Map.Update(dt)
 		}
 		for _, bo := range l.Emitters {
-			if bo.Emitter != nil {
+			if bo.Emitter != nil && !s.paused(s.notifierByObject, bo, onScreenPauseParticles) {
 				bo.Emitter.Update(dt)
 			}
 		}
 		for _, bo := range l.Skeletons {
-			if bo.Skeleton != nil {
+			if bo.Skeleton != nil && !s.paused(s.notifierByObject, bo, onScreenPauseSkeleton) {
 				bo.Skeleton.Update(dt)
 			}
 		}
