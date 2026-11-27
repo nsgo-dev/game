@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/nsgo-dev/game/internal/releaseplan"
 )
 
 // newGameDir returns a project directory with an nsgo.yaml and, when gameYAML is not empty, a game.yaml holding it.
@@ -378,6 +380,167 @@ func TestShellQuote(t *testing.T) {
 	if got != want {
 		t.Fatalf("shellQuote = %s, want %s", got, want)
 	}
+}
+
+func TestReleaseWarnsOncePerExperimentalPlatform(t *testing.T) {
+	t.Run("game.yaml presets deduplicate sub-targets per platform", func(t *testing.T) {
+		dir := newGameDir(t, `version: 1
+export:
+  presets:
+    - platform: web
+    - platform: tvos
+      targets: [tvos, tvos_simulator]
+    - platform: miniprogram
+      targets: [miniprogram_wechat, miniprogram_qq]
+`)
+		calls := recordNSGo(t, nil)
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"release", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		wantCalls := [][]string{{"-C", dir, "tool", "nsgo", "build", "-target", "web,tvos,tvos_simulator,miniprogram_wechat,miniprogram_qq"}}
+		if !reflect.DeepEqual(*calls, wantCalls) {
+			t.Fatalf("ran %q, want %q", *calls, wantCalls)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+		errText := stderr.String()
+		if got := strings.Count(errText, `target platform "tvos" is experimental`); got != 1 {
+			t.Errorf("tvos warning count = %d, want 1\nstderr:\n%s", got, errText)
+		}
+		if got := strings.Count(errText, `target platform "miniprogram" is experimental`); got != 1 {
+			t.Errorf("miniprogram warning count = %d, want 1\nstderr:\n%s", got, errText)
+		}
+		if strings.Contains(errText, `target platform "web"`) {
+			t.Errorf("web must not trigger experimental warning:\n%s", errText)
+		}
+		for _, want := range []string{
+			"no audio",
+			"no GPU view",
+			releaseplan.PlatformSupportURL,
+			"https://github.com/nsgo-dev/nsgo/issues/1317",
+			"https://github.com/nsgo-dev/nsgo/issues/1505",
+		} {
+			if !strings.Contains(errText, want) {
+				t.Errorf("stderr missing %q:\n%s", want, errText)
+			}
+		}
+	})
+
+	t.Run("-target flag warns for harmonyos and watchos", func(t *testing.T) {
+		dir := newGameDir(t, "")
+		calls := recordNSGo(t, nil)
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"release", "-target", "harmonyos,watchos,watchos_simulator", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		if len(*calls) != 1 {
+			t.Fatalf("calls = %q, want 1", *calls)
+		}
+		errText := stderr.String()
+		if got := strings.Count(errText, `target platform "harmonyos" is experimental`); got != 1 {
+			t.Errorf("harmonyos warning count = %d, want 1\nstderr:\n%s", got, errText)
+		}
+		if got := strings.Count(errText, `target platform "watchos" is experimental`); got != 1 {
+			t.Errorf("watchos warning count = %d, want 1\nstderr:\n%s", got, errText)
+		}
+		for _, want := range []string{
+			releaseplan.PlatformSupportURL,
+			"https://github.com/nsgo-dev/nsgo/issues/1521",
+			"https://github.com/nsgo-dev/nsgo/issues/1318",
+		} {
+			if !strings.Contains(errText, want) {
+				t.Errorf("stderr missing %q:\n%s", want, errText)
+			}
+		}
+	})
+
+	t.Run("-dry-run warns on stderr and keeps stdout clean", func(t *testing.T) {
+		dir := newGameDir(t, "")
+		calls := recordNSGo(t, errors.New("must not run"))
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"release", "-dry-run", "-target", "tvos", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		if len(*calls) != 0 {
+			t.Fatalf("-dry-run ran %q", *calls)
+		}
+		wantStdout := "go -C " + shellQuote([]string{dir}) + " tool nsgo build -target tvos\n"
+		if stdout.String() != wantStdout {
+			t.Fatalf("stdout = %q, want %q", stdout, wantStdout)
+		}
+		if !strings.Contains(stderr.String(), `target platform "tvos" is experimental`) {
+			t.Fatalf("stderr = %q, want tvos warning", stderr)
+		}
+	})
+}
+
+func TestReleaseStrictFailsOnExperimentalPlatforms(t *testing.T) {
+	t.Run("preset experimental platform fails before running nsgo", func(t *testing.T) {
+		dir := newGameDir(t, "version: 1\nexport:\n  presets:\n    - platform: harmonyos\n")
+		calls := recordNSGo(t, nil)
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"release", "-strict", dir}, a); code != 1 {
+			t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+		}
+		if len(*calls) != 0 || stdout.Len() != 0 {
+			t.Fatalf("ran %q, stdout %q; want nothing", *calls, stdout)
+		}
+		errText := stderr.String()
+		for _, want := range []string{
+			"game release: ",
+			"harmonyos",
+			"-strict",
+			"no audio",
+			"no GPU view",
+			releaseplan.PlatformSupportURL,
+			"https://github.com/nsgo-dev/nsgo/issues/1521",
+		} {
+			if !strings.Contains(errText, want) {
+				t.Errorf("stderr missing %q:\n%s", want, errText)
+			}
+		}
+	})
+
+	t.Run("multiple experimental targets with -dry-run and -strict fail", func(t *testing.T) {
+		dir := newGameDir(t, "")
+		calls := recordNSGo(t, nil)
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"release", "-strict", "-dry-run", "-target", "tvos,tvos_simulator,miniprogram_wechat", dir}, a); code != 1 {
+			t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+		}
+		if len(*calls) != 0 || stdout.Len() != 0 {
+			t.Fatalf("ran %q, stdout %q; want nothing", *calls, stdout)
+		}
+		errText := stderr.String()
+		for _, want := range []string{
+			"tvos",
+			"miniprogram",
+			releaseplan.PlatformSupportURL,
+			"https://github.com/nsgo-dev/nsgo/issues/1317",
+			"https://github.com/nsgo-dev/nsgo/issues/1505",
+		} {
+			if !strings.Contains(errText, want) {
+				t.Errorf("stderr missing %q:\n%s", want, errText)
+			}
+		}
+	})
+
+	t.Run("-strict succeeds for primary platforms", func(t *testing.T) {
+		dir := newGameDir(t, "")
+		calls := recordNSGo(t, nil)
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"release", "-strict", dir}, a); code != 0 {
+			t.Fatalf("exit %d, want 0 (stderr: %s)", code, stderr)
+		}
+		if len(*calls) != 1 {
+			t.Fatalf("calls = %q, want 1", *calls)
+		}
+		if strings.Contains(stderr.String(), "experimental") {
+			t.Fatalf("unexpected experimental message on primary platforms:\n%s", stderr)
+		}
+	})
 }
 
 func FuzzParseReleaseSettings(f *testing.F) {

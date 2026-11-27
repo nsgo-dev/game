@@ -228,6 +228,7 @@ type BuildDeviceEntry struct {
 type BuildPresetEntry struct {
 	Platform     string                   `json:"platform"`
 	Name         string                   `json:"name"`
+	Experimental bool                     `json:"experimental,omitempty"`
 	IconKind     string                   `json:"iconKind"` // "desktop", "web", "phone"
 	File         string                   `json:"file"`
 	Summary      string                   `json:"summary"`
@@ -2704,6 +2705,7 @@ func (e *Editor) syncBuildReleasePresets() {
 			summary = defaultPresetSummary(sp.Platform, sp.Targets)
 		}
 		if cur, ok := existing[sp.Platform]; ok {
+			cur.Experimental = releaseplan.IsExperimental(sp.Platform)
 			cur.Targets = slices.Clone(sp.Targets)
 			cur.Summary = summary
 			cur.Signing = signing
@@ -2723,21 +2725,22 @@ func (e *Editor) syncBuildReleasePresets() {
 			included = false
 		}
 		next = append(next, BuildPresetEntry{
-			Platform:   sp.Platform,
-			Name:       platformDisplayName(sp.Platform),
-			IconKind:   platformIconKind(sp.Platform),
-			File:       fmt.Sprintf("export/%s.export.yaml", sp.Platform),
-			Summary:    summary,
-			Targets:    slices.Clone(sp.Targets),
-			Included:   included,
-			Status:     status,
-			StatusText: statusText,
-			SizeText:   "—",
-			DeltaText:  deltaText,
-			Steps:      defaultStepsForPreset(sp.Platform, sp.Targets, signing),
-			LogFile:    fmt.Sprintf("build/%s.log", sp.Platform),
-			Signing:    signing,
-			Readiness:  readiness,
+			Platform:     sp.Platform,
+			Name:         platformDisplayName(sp.Platform),
+			Experimental: releaseplan.IsExperimental(sp.Platform),
+			IconKind:     platformIconKind(sp.Platform),
+			File:         fmt.Sprintf("export/%s.export.yaml", sp.Platform),
+			Summary:      summary,
+			Targets:      slices.Clone(sp.Targets),
+			Included:     included,
+			Status:       status,
+			StatusText:   statusText,
+			SizeText:     "—",
+			DeltaText:    deltaText,
+			Steps:        defaultStepsForPreset(sp.Platform, sp.Targets, signing),
+			LogFile:      fmt.Sprintf("build/%s.log", sp.Platform),
+			Signing:      signing,
+			Readiness:    readiness,
 		})
 	}
 	e.buildRelease.presets = next

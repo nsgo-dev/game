@@ -117,6 +117,7 @@ nsgo game release [flags] [dir]
 | `-jobs int` |  | how many targets build at once (default: nsgo's) |
 | `-output directory` |  | the output directory (default: game.yaml's export.output, else nsgo.yaml's build.output) |
 | `-release-notes file` |  | a Markdown file of the release's notes for the update prompts |
+| `-strict` |  | fail with an error instead of warning when building an experimental target platform |
 | `-target targets` |  | comma-separated nsgo build targets (default: game.yaml's export presets, else macos,windows,linux,web,ios,android, or macos,windows,linux for the steam channel) |
 
 ## game replay

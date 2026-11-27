@@ -114,6 +114,46 @@ func (e *Editor) SetExportPanelOpen(open bool) {
 	}
 }
 
+// ExportExperimentalInfo describes an experimental export preset's missing capabilities and documentation links.
+type ExportExperimentalInfo struct {
+	Platform string
+	Missing  string
+	DocsURL  string
+	IssueURL string
+}
+
+// ExportPresetExperimental returns experimental platform metadata for platform, or false when platform is a primary target.
+func (e *Editor) ExportPresetExperimental(platform string) (ExportExperimentalInfo, bool) {
+	info, ok := releaseplan.ExperimentalInfoFor(platform)
+	if !ok {
+		return ExportExperimentalInfo{}, false
+	}
+	lang := "en"
+	if e != nil {
+		lang = e.ResolvedLanguage()
+	}
+	return ExportExperimentalInfo{
+		Platform: info.Platform,
+		Missing:  info.Missing,
+		DocsURL:  releaseplan.ExperimentalDocsURL(lang),
+		IssueURL: info.IssueURL,
+	}, true
+}
+
+// OpenExperimentalPlatformDocs opens the platform support documentation's experimental targets section in the host browser (via OpenBrowserURL when set).
+func (e *Editor) OpenExperimentalPlatformDocs() error {
+	lang := "en"
+	if e != nil {
+		lang = e.ResolvedLanguage()
+	}
+	targetURL := releaseplan.ExperimentalDocsURL(lang)
+	opener := defaultOpenBrowserURL
+	if e != nil && e.OpenBrowserURL != nil {
+		opener = e.OpenBrowserURL
+	}
+	return opener(targetURL)
+}
+
 // ExportPresetReadiness reports whether a platform export preset is ready to build ("Ready") or needs setup ("Set up"), along with a concise detail string matching design/editor/Settings.dc.html.
 func (e *Editor) ExportPresetReadiness(platform string) (ready bool, detail string) {
 	switch platform {
@@ -824,6 +864,9 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 	}
 
 	var initialLines []string
+	for _, exp := range plan.Experimental {
+		initialLines = append(initialLines, releaseplan.FormatExperimentalWarning(exp))
+	}
 	if !plan.AssetsConfigured {
 		initialLines = append(initialLines, releaseplan.NoCreditsNote)
 	}
@@ -1547,7 +1590,11 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									avail := ed.AvailableExportPlatforms()
 									opts := make([]ui.Option[string], len(avail))
 									for i, p := range avail {
-										opts[i] = ui.Option[string]{Value: p, Label: p}
+										lbl := p
+										if releaseplan.IsExperimental(p) {
+											lbl = p + " (" + ed.T("settings.metaExperimental") + ")"
+										}
+										opts[i] = ui.Option[string]{Value: p, Label: lbl}
 									}
 									return opts
 								},
@@ -1837,6 +1884,161 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal S
 	if plat == "web" {
 		policy = policyAgentMayChange
 	}
+	expInfo, isExp := ed.ExportPresetExperimental(plat)
+
+	headerChildren := []core.Node{
+		core.View{
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+			Children: []core.Node{
+				core.Text{
+					Content: exportPlatformDisplayName(plat),
+					Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: pal.TextPrimary},
+				},
+				core.Text{
+					TestID: "export-preset-summary-" + plat,
+					ContentFunc: func() string {
+						_ = rev.Get()
+						_, detail := ed.ExportPresetReadiness(plat)
+						return detail
+					},
+					StyleFunc: func() core.Style {
+						_ = rev.Get()
+						ready, _ := ed.ExportPresetReadiness(plat)
+						c := pal.TextFaint
+						if !ready {
+							c = pal.Warning.Fg
+						}
+						return core.Style{FontSize: 11.5, Color: c}
+					},
+				},
+			},
+		},
+	}
+	if isExp {
+		headerChildren = append(headerChildren, core.View{
+			TestID: "export-preset-experimental-" + plat,
+			Role:   core.RoleButton,
+			Label:  ed.T("settings.metaExperimental") + " — " + expInfo.DocsURL,
+			Style: core.Style{
+				Height:         core.Pt(24),
+				Padding:        core.Symmetric(0, 10),
+				CornerRadius:   6,
+				Background:     pal.Warning.Fill,
+				BorderWidth:    1,
+				BorderColor:    pal.Warning.Edge,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FocusVisible:   pal.FocusRing(2),
+			},
+			OnPress: func(core.PressEvent) {
+				ed.report(ed.OpenExperimentalPlatformDocs())
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: ed.T("settings.metaExperimental"),
+					Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: pal.Warning.Fg},
+				},
+			},
+		})
+	}
+	headerChildren = append(headerChildren,
+		core.View{
+			TestID: "export-preset-readiness-" + plat,
+			StyleFunc: func() core.Style {
+				_ = rev.Get()
+				ready, _ := ed.ExportPresetReadiness(plat)
+				bg, border := pal.Added.Fill, pal.Added.Edge
+				if !ready {
+					bg, border = pal.Warning.Fill, pal.Warning.Edge
+				}
+				return core.Style{
+					Height:         core.Pt(24),
+					Padding:        core.Symmetric(0, 10),
+					CornerRadius:   6,
+					Background:     bg,
+					BorderWidth:    1,
+					BorderColor:    border,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+				}
+			},
+			Children: []core.Node{
+				core.Text{
+					ContentFunc: func() string {
+						_ = rev.Get()
+						if ready, _ := ed.ExportPresetReadiness(plat); ready {
+							return ed.T("settings.metaReady")
+						}
+						return ed.T("settings.metaSetUp")
+					},
+					StyleFunc: func() core.Style {
+						_ = rev.Get()
+						c := pal.Added.Fg
+						if ready, _ := ed.ExportPresetReadiness(plat); !ready {
+							c = pal.Warning.Fg
+						}
+						return core.Style{FontSize: 11.5, FontWeight: 600, Color: c}
+					},
+				},
+			},
+		},
+		settingsPolicyBadge(pal, ed, policy),
+	)
+
+	rowChildren := []core.Node{
+		core.View{
+			Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12},
+			Children: headerChildren,
+		},
+	}
+	if isExp {
+		rowChildren = append(rowChildren, core.View{
+			TestID: "export-preset-experimental-note-" + plat,
+			Role:   core.RoleButton,
+			Label:  expInfo.DocsURL,
+			Style: core.Style{
+				Direction:    core.Row,
+				Wrap:         core.Wrap,
+				AlignItems:   core.AlignCenter,
+				Gap:          6,
+				Padding:      core.Symmetric(4, 8),
+				CornerRadius: 6,
+				Background:   pal.Warning.Fill,
+				BorderWidth:  1,
+				BorderColor:  pal.Warning.Edge,
+				FocusVisible: pal.FocusRing(2),
+			},
+			OnPress: func(core.PressEvent) {
+				ed.report(ed.OpenExperimentalPlatformDocs())
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: expInfo.Missing + " · " + expInfo.DocsURL,
+					Style:   core.Style{FontSize: 11, Color: pal.Warning.Fg},
+				},
+			},
+		})
+	}
+	rowChildren = append(rowChildren, core.View{
+		Style: core.Style{
+			Direction:  core.Row,
+			Wrap:       core.Wrap,
+			AlignItems: core.AlignCenter,
+			Gap:        4,
+		},
+		Children: append(targetBtns,
+			core.View{Style: core.Style{FlexGrow: 1}},
+			settingsSpecButton(pal, "export-preset-up-"+plat, "Up", "Move "+plat+" preset up", false, func() bool {
+				return disabled() || idx == 0
+			}, func() { ed.report(ed.MoveExportPreset(plat, -1)) }),
+			settingsSpecButton(pal, "export-preset-down-"+plat, "Down", "Move "+plat+" preset down", false, func() bool {
+				return disabled() || idx >= total-1
+			}, func() { ed.report(ed.MoveExportPreset(plat, 1)) }),
+			settingsSpecButton(pal, "export-preset-remove-"+plat, "Remove", "Remove "+plat+" preset", false, disabled, func() {
+				ed.report(ed.RemoveExportPreset(plat))
+			}),
+		),
+	})
 
 	return core.View{
 		TestID: "export-preset-" + plat,
@@ -1848,100 +2050,7 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal S
 			BorderColor:  pal.Line,
 			Background:   pal.Panel,
 		},
-		Children: []core.Node{
-			core.View{
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12},
-				Children: []core.Node{
-					core.View{
-						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
-						Children: []core.Node{
-							core.Text{
-								Content: exportPlatformDisplayName(plat),
-								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: pal.TextPrimary},
-							},
-							core.Text{
-								TestID: "export-preset-summary-" + plat,
-								ContentFunc: func() string {
-									_ = rev.Get()
-									_, detail := ed.ExportPresetReadiness(plat)
-									return detail
-								},
-								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									ready, _ := ed.ExportPresetReadiness(plat)
-									c := pal.TextFaint
-									if !ready {
-										c = pal.Warning.Fg
-									}
-									return core.Style{FontSize: 11.5, Color: c}
-								},
-							},
-						},
-					},
-					core.View{
-						TestID: "export-preset-readiness-" + plat,
-						StyleFunc: func() core.Style {
-							_ = rev.Get()
-							ready, _ := ed.ExportPresetReadiness(plat)
-							bg, border := pal.Added.Fill, pal.Added.Edge
-							if !ready {
-								bg, border = pal.Warning.Fill, pal.Warning.Edge
-							}
-							return core.Style{
-								Height:         core.Pt(24),
-								Padding:        core.Symmetric(0, 10),
-								CornerRadius:   6,
-								Background:     bg,
-								BorderWidth:    1,
-								BorderColor:    border,
-								AlignItems:     core.AlignCenter,
-								JustifyContent: core.JustifyCenter,
-							}
-						},
-						Children: []core.Node{
-							core.Text{
-								ContentFunc: func() string {
-									_ = rev.Get()
-									if ready, _ := ed.ExportPresetReadiness(plat); ready {
-										return ed.T("settings.metaReady")
-									}
-									return ed.T("settings.metaSetUp")
-								},
-								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									c := pal.Added.Fg
-									if ready, _ := ed.ExportPresetReadiness(plat); !ready {
-										c = pal.Warning.Fg
-									}
-									return core.Style{FontSize: 11.5, FontWeight: 600, Color: c}
-								},
-							},
-						},
-					},
-					settingsPolicyBadge(pal, ed, policy),
-				},
-			},
-			core.View{
-				Style: core.Style{
-					Direction:  core.Row,
-					Wrap:       core.Wrap,
-					AlignItems: core.AlignCenter,
-					Gap:        4,
-				},
-				Children: append(targetBtns,
-					core.View{Style: core.Style{FlexGrow: 1}},
-					settingsSpecButton(pal, "export-preset-up-"+plat, "Up", "Move "+plat+" preset up", false, func() bool {
-						return disabled() || idx == 0
-					}, func() { ed.report(ed.MoveExportPreset(plat, -1)) }),
-					settingsSpecButton(pal, "export-preset-down-"+plat, "Down", "Move "+plat+" preset down", false, func() bool {
-						return disabled() || idx >= total-1
-					}, func() { ed.report(ed.MoveExportPreset(plat, 1)) }),
-					settingsSpecButton(pal, "export-preset-remove-"+plat, "Remove", "Remove "+plat+" preset", false, disabled, func() {
-						ed.report(ed.RemoveExportPreset(plat))
-					}),
-				),
-			},
-		},
+		Children: rowChildren,
 	}
 }
 

@@ -129,3 +129,91 @@ window: {width: 640, height: 360}
 		t.Fatalf("Build after resolving license: %v", err)
 	}
 }
+
+func TestExperimentalPlatformsAndDeduplication(t *testing.T) {
+	for _, plat := range DefaultPlatforms {
+		if IsExperimental(plat) {
+			t.Errorf("default platform %q must not be experimental", plat)
+		}
+	}
+	for _, target := range []string{
+		"tvos", "tvos_simulator",
+		"watchos", "watchos_simulator",
+		"harmonyos",
+		"miniprogram", "miniprogram_wechat", "miniprogram_qq", "miniprogram_alipay", "miniprogram_douyin",
+	} {
+		info, ok := ExperimentalInfoFor(target)
+		if !ok {
+			t.Errorf("ExperimentalInfoFor(%q) = false, want true", target)
+			continue
+		}
+		if info.Missing == "" || !strings.HasPrefix(info.IssueURL, "https://github.com/nsgo-dev/nsgo/issues/") {
+			t.Errorf("ExperimentalInfoFor(%q) = %+v, want missing capabilities and upstream issue URL", target, info)
+		}
+	}
+
+	got := ExperimentalPlatforms([]string{"macos", "tvos", "tvos_simulator", "miniprogram_wechat", "web", "miniprogram_qq", "harmonyos", "watchos_simulator"})
+	wantPlats := []string{"tvos", "miniprogram", "harmonyos", "watchos"}
+	if len(got) != len(wantPlats) {
+		t.Fatalf("ExperimentalPlatforms returned %d entries (%+v), want %d", len(got), got, len(wantPlats))
+	}
+	for i, want := range wantPlats {
+		if got[i].Platform != want {
+			t.Errorf("ExperimentalPlatforms[%d] = %q, want %q", i, got[i].Platform, want)
+		}
+		w := FormatExperimentalWarning(got[i])
+		if !strings.Contains(w, want) || !strings.Contains(w, PlatformSupportURL) || !strings.Contains(w, got[i].IssueURL) {
+			t.Errorf("FormatExperimentalWarning(%q) = %q, want platform, docs URL, and issue URL", want, w)
+		}
+	}
+	if u := ExperimentalDocsURL("en"); u != PlatformSupportURL {
+		t.Errorf("ExperimentalDocsURL(en) = %q, want %q", u, PlatformSupportURL)
+	}
+	if u := ExperimentalDocsURL("zh"); u != PlatformSupportURLZH {
+		t.Errorf("ExperimentalDocsURL(zh) = %q, want %q", u, PlatformSupportURLZH)
+	}
+}
+
+func TestBuildStrictRefusesExperimentalTargets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: Demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settings := Settings{Targets: []string{"web", "tvos", "tvos_simulator"}}
+
+	// Non-strict builds succeed and report unique experimental platforms.
+	plan, err := Build(dir, Options{}, settings)
+	if err != nil {
+		t.Fatalf("non-strict Build: %v", err)
+	}
+	if len(plan.Experimental) != 1 || plan.Experimental[0].Platform != "tvos" {
+		t.Fatalf("plan.Experimental = %+v, want [tvos]", plan.Experimental)
+	}
+
+	// Strict fails with *ExperimentalTargetsError wrapping ErrExperimentalTarget.
+	_, err = Build(dir, Options{Strict: true}, settings)
+	if !errors.Is(err, ErrExperimentalTarget) {
+		t.Fatalf("strict Build err = %v, want ErrExperimentalTarget", err)
+	}
+	var expErr *ExperimentalTargetsError
+	if !errors.As(err, &expErr) || len(expErr.Platforms) != 1 || expErr.Platforms[0].Platform != "tvos" {
+		t.Fatalf("strict Build expErr = %+v, want [tvos]", expErr)
+	}
+	if !strings.Contains(err.Error(), PlatformSupportURL) || !strings.Contains(err.Error(), Experimental["tvos"].IssueURL) {
+		t.Fatalf("strict Build error %q missing links", err.Error())
+	}
+
+	// Multiple experimental platforms are all listed in strict error.
+	_, err = Build(dir, Options{Targets: "harmonyos,miniprogram_wechat,miniprogram_qq", Strict: true}, Settings{})
+	if !errors.Is(err, ErrExperimentalTarget) {
+		t.Fatalf("multi strict Build err = %v, want ErrExperimentalTarget", err)
+	}
+	if !strings.Contains(err.Error(), "harmonyos") || !strings.Contains(err.Error(), "miniprogram") || !strings.Contains(err.Error(), PlatformSupportURL) {
+		t.Fatalf("multi strict Build error %q missing platforms or link", err.Error())
+	}
+
+	// Strict succeeds when only primary targets are built.
+	if _, err := Build(dir, Options{Strict: true}, Settings{Targets: []string{"macos", "web"}}); err != nil {
+		t.Fatalf("strict Build on primary targets: %v", err)
+	}
+}

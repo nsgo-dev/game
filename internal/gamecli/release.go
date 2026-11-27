@@ -283,8 +283,7 @@ func field(n *yaml.Node, key string) *yaml.Node {
 
 // platformOf is the platform an NSGo build target belongs to.
 func platformOf(target string) string {
-	platform, _, _ := strings.Cut(target, "_")
-	return platform
+	return releaseplan.PlatformOf(target)
 }
 
 // targetsOf returns the build targets a preset for platform may list.
@@ -342,6 +341,7 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 	fs.StringVar(&opts.Channel, "channel", "", "the `channel` the packages are handed out through: direct, store, steam or none (default: nsgo.yaml's updates.channel)")
 	fs.StringVar(&opts.Notes, "release-notes", "", "a Markdown `file` of the release's notes for the update prompts")
 	fs.IntVar(&opts.Jobs, "jobs", 0, "how many targets build at once (default: nsgo's)")
+	fs.BoolVar(&opts.Strict, "strict", false, "fail with an error instead of warning when building an experimental target platform")
 	dryRun := fs.Bool("dry-run", false, "print the nsgo build command instead of running it")
 
 	return func() error {
@@ -369,6 +369,9 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 		}
 		if err != nil {
 			return err
+		}
+		for _, exp := range plan.Experimental {
+			fmt.Fprintln(a.stderr, releaseplan.FormatExperimentalWarning(exp))
 		}
 		if !plan.AssetsConfigured {
 			// Without an assets section the command knows of no asset, so it says so rather than leave the credits out silently.

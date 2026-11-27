@@ -141,6 +141,8 @@ export:
 
 命令读取 `game.yaml` 的 `version`（必须是整数 1）、`export` 部分，以及为署名文件读取的 `assets` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload`、`export`、`editor`、`assets` 和 `navigation`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
 
+四个实验性平台（`tvos`、`watchos`、`harmonyos` 和 `miniprogram`，以及它们的子目标如 `tvos_simulator`、`watchos_simulator` 和各小程序宿主）仍可在 `game.yaml` 预设与 `-target` 中使用，但本仓库 CI 不会为它们执行构建检查，且 NSGo 在这些平台上禁用了音频与 GPU 视图（见[平台支持](platforms.md#实验性目标平台)）。`game release` 会为本次构建涉及的每个实验性平台在标准错误上打印一次警告，列出缺失能力并附上平台支持页面与上游 NSGo issue 链接；传入 `-strict` 会将实验性平台警告转为错误（在运行 `nsgo build` 前以退出码 1 失败），便于在 CI 中使用。
+
 `game.yaml` 有 `assets` 部分时（此时整个文件都必须通过[项目文件](project.md)的校验），发布会附带一份署名文件：`nsgo build` 成功后，命令把 `CREDITS.md` 写入输出目录、与各个包放在一起，列出该部分涉及的每个资源的作者、许可证和来源，以及许可证要求随资源附带的每段声明，内容取自每个资源的[导入设置附属文件](#资源旁的导入设置)中的 `credit` 部分，与 [`game credits`](#credits) 写出的相同。这些资源是每个图集打包的图片、每个纹理、音频、字体和模型目标的输入、每个模型以相对路径引用并嵌入其 GLB 的缓冲区和图片，以及资源清单在其文件夹里列出的每个文件（例如字体、地图和模型），但不含各目标写出的文件，因为它们由这些输入生成。只要有资源缺少署名，发布就会在构建任何东西之前停止，并列出需要写的附属文件；资源清单列出的文件如果是某个目标在输出改变之前写出的，在 `game assets` 删除它之前仍算作资源。`-dry-run` 同样检查署名，并给出它会写出的文件。没有 `assets` 部分的游戏不生成署名文件，命令会在标准错误上提示这一点。游戏从别处加载的文件，例如 `autoload` 资源或嵌入在资源清单文件夹之外的文件，不会被列出，需要自行署名。
 
 署名文件写在各个包旁边，而不是包里面，因为包里装什么由 `nsgo build` 决定：它供发布者放到商店页面或下载页面上。若还要让每个包内都带上它，在发布之前把它写进 NSGo 的 `resources` 文件夹，`nsgo build` 会把该文件夹复制进每个包：`nsgo game credits -out resources/CREDITS.md`。
