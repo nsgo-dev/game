@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: zh
+strings:
+  a11y.captions.importantPrefix: ！
+  a11y.captions.musicPrefix: '♪ '
+  a11y.captions.regionLabel: 字幕
+  a11y.menu.checked: 已勾选
+  a11y.menu.closed: '{label}已关闭'
+  a11y.menu.defaultLabel: 菜单
+  a11y.menu.off: 关
+  a11y.menu.on: 开
+  a11y.menu.opened: '{label}已打开，{items}'
+  a11y.menu.openedWithItem: '{label}已打开，{items}。{item}'
+  a11y.menu.position: '{item}，第 {index} 项，共 {count} 项'
+  a11y.menu.selected: 已选择{label}
+  a11y.menu.separator: ，
+  a11y.menu.unchecked: 未勾选
+plurals:
+  a11y.menu.items:
+    other: 共 {count} 项

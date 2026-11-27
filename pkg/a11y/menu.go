@@ -2,6 +2,7 @@ package a11y
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -55,6 +56,9 @@ type MenuProps struct {
 	Palette Palette
 	// Assist optionally scales text and supplies a live reactive Palette.
 	Assist *Assist
+	// Text customizes screen-reader announcements and visible toggle labels.
+	// Unset fields fall back to DefaultMenuText (English).
+	Text MenuText
 	// InitialIndex selects the starting focused item (clamped to the first enabled item).
 	InitialIndex int
 	// SuppressOpenAnnouncement disables the automatic cx.Announce call on menu mount.
@@ -67,19 +71,32 @@ type MenuProps struct {
 	Style core.Style
 }
 
+// roleReportsChecked reports whether NSGo's native accessibility backends
+// expose Checked directly on views with role, so a focus announcement need not
+// repeat the checked/unchecked word.
+func roleReportsChecked(role core.Role) bool {
+	switch role {
+	case core.RoleCheckbox, core.RoleSwitch, core.RoleRadio, core.RoleMenuItemCheckbox, core.RoleMenuItemRadio:
+		return true
+	default:
+		return false
+	}
+}
+
 // AccessibleMenu renders a screen-reader- and keyboard-accessible native NSGo
 // menu with RoleMenu / RoleMenuItem (or RoleMenuItemCheckbox), full ARIA/a11y
 // metadata, keyboard navigation (Up/Down/Home/End/Return/Space/Escape via
 // OnKeyDown), and live screen-reader announcements via cx.Announce on open,
 // focus change, toggle, and close.
 func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
+	text := resolveMenuText(props.Text)
 	testID := props.TestID
 	if testID == "" {
 		testID = "a11y-menu"
 	}
 	menuLabel := props.Label
 	if menuLabel == "" {
-		menuLabel = "Menu"
+		menuLabel = text.DefaultLabel
 	}
 
 	items := props.Items
@@ -96,6 +113,20 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		return items[i].Disabled != nil && items[i].Disabled()
 	}
 
+	itemRole := func(i int) core.Role {
+		if i < 0 || i >= len(items) {
+			return core.RoleNone
+		}
+		role := items[i].Role
+		if role == core.RoleNone {
+			if items[i].Checked != nil {
+				return core.RoleMenuItemCheckbox
+			}
+			return core.RoleMenuItem
+		}
+		return role
+	}
+
 	itemLabel := func(i int) string {
 		if i < 0 || i >= len(items) {
 			return ""
@@ -106,7 +137,7 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		return items[i].Label
 	}
 
-	itemStatusText := func(i int) string {
+	itemStatusText := func(i int, includeChecked bool) string {
 		if i < 0 || i >= len(items) {
 			return ""
 		}
@@ -115,11 +146,11 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		if lbl := itemLabel(i); lbl != "" {
 			parts = append(parts, lbl)
 		}
-		if it.Checked != nil {
+		if includeChecked && it.Checked != nil {
 			if it.Checked() {
-				parts = append(parts, "checked")
+				parts = append(parts, text.Checked)
 			} else {
-				parts = append(parts, "unchecked")
+				parts = append(parts, text.Unchecked)
 			}
 		}
 		if it.AccessibilityValue != nil {
@@ -134,7 +165,7 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 				parts = append(parts, v)
 			}
 		}
-		return strings.Join(parts, ", ")
+		return strings.Join(parts, text.Separator)
 	}
 
 	findEnabled := func(start, dir int) int {
@@ -157,10 +188,21 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 	activeIdx := core.NewSignal(cx, initial)
 
 	if !props.SuppressOpenAnnouncement {
+		itemsText := text.formatItems(len(items))
+		countStr := strconv.Itoa(len(items))
 		if initial >= 0 {
-			cx.Announce(fmt.Sprintf("%s opened, %d items. %s", menuLabel, len(items), itemStatusText(initial)))
+			cx.Announce(interpolateTemplate(text.OpenedWithItem,
+				"label", menuLabel,
+				"items", itemsText,
+				"count", countStr,
+				"item", itemStatusText(initial, true),
+			))
 		} else {
-			cx.Announce(fmt.Sprintf("%s opened, %d items", menuLabel, len(items)))
+			cx.Announce(interpolateTemplate(text.Opened,
+				"label", menuLabel,
+				"items", itemsText,
+				"count", countStr,
+			))
 		}
 	}
 
@@ -172,7 +214,12 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		itemRefs[idx].Focus()
 		itemRefs[idx].SetAccessibilityFocus()
 		if announce {
-			cx.Announce(fmt.Sprintf("%s, %d of %d", itemStatusText(idx), idx+1, len(items)))
+			includeChecked := !roleReportsChecked(itemRole(idx))
+			cx.Announce(interpolateTemplate(text.Position,
+				"item", itemStatusText(idx, includeChecked),
+				"index", strconv.Itoa(idx+1),
+				"count", strconv.Itoa(len(items)),
+			))
 		}
 	}
 
@@ -187,11 +234,11 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		}
 		switch {
 		case it.Checked != nil:
-			cx.Announce(itemStatusText(idx))
+			cx.Announce(itemStatusText(idx, true))
 		case it.Value != nil || it.AccessibilityValue != nil:
-			cx.Announce(itemStatusText(idx))
+			cx.Announce(itemStatusText(idx, true))
 		default:
-			cx.Announce(fmt.Sprintf("%s selected", itemLabel(idx)))
+			cx.Announce(interpolateTemplate(text.Selected, "label", itemLabel(idx)))
 		}
 	}
 
@@ -200,7 +247,7 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 			return false
 		}
 		props.OnClose()
-		cx.Announce(fmt.Sprintf("%s closed", menuLabel))
+		cx.Announce(interpolateTemplate(text.Closed, "label", menuLabel))
 		return true
 	}
 
@@ -271,14 +318,7 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		idx := i
 		it := items[i]
 
-		role := it.Role
-		if role == core.RoleNone {
-			if it.Checked != nil {
-				role = core.RoleMenuItemCheckbox
-			} else {
-				role = core.RoleMenuItem
-			}
-		}
+		role := itemRole(idx)
 
 		itemTestID := it.TestID
 		if itemTestID == "" {
@@ -322,9 +362,9 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 				ContentFunc: func() string {
 					if it.Checked != nil {
 						if it.Checked() {
-							return "On"
+							return text.On
 						}
-						return "Off"
+						return text.Off
 					}
 					if it.Value != nil {
 						return it.Value()
