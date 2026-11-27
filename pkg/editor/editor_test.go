@@ -16,6 +16,9 @@ import (
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
+
+	// The blank import links NSGo's test host, so `go tool nsgo test -target macos ./pkg/editor` runs the *_screenshot_test.go tests on the native host and saves their screenshots; without it the tool runs this package headless as a library and App.Screenshot saves nothing.
+	_ "github.com/nsgo-dev/nsgo"
 )
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
