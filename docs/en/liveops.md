@@ -16,6 +16,7 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **In-app purchases** ([#369](https://github.com/nsgo-dev/game/issues/369)) | In scope | `Purchases` over NSGo's purchase services: consumables credited into the save exactly once, unlocks and subscriptions from the store's entitlements, restore, Ask to Buy and an optional server check. |
 | **Local reminders** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | In scope | `Reminders` over NSGo's `core.Scope.ShowNotification`: versioned YAML definitions (`RemindersConfig`), permission prompted only on first `Schedule` or explicit `RequestPermission`, persisted player toggle, local-time `QuietHours`, and foreground cancel/reschedule/keep rules. |
 | **Review prompts** ([#1767](https://github.com/nsgo-dev/game/issues/1767)) | In scope | `ReviewPrompt` over `core.Storage` and `core.Scope.RequestReview`: gates store rating requests on sessions, elapsed days, positive moments, cooldown and once-per-version rules, suppresses prompts after negative moments, and fails closed on corrupt state or unsupported platforms. |
+| **Share cards and invites** ([#1738](https://github.com/nsgo-dev/game/issues/1738)) | In scope | `Invites` over `ShareHost`: bounded canonical `key=value&…` payloads with optional HMAC-SHA256 signing, at-most-once cold-launch and warm-resume delivery, native/web `PlatformShareHost`, mini-game `MiniGameShareHost` (ready for [nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)), and 5:4 frame snapshot helpers. |
 | **Remote push** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | Pending upstream | Waiting on NSGo remote push ([nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)) and its design decisions ([nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)). Remote push is currently unavailable everywhere. |
 | **Ads** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need ads embed native SDK views directly via NSGo. |
 
@@ -295,3 +296,70 @@ review.Moment(liveops.MomentNegative)
 ```
 
 Tests drive review prompts headlessly through `nsgotest` with `nsgotest.Environment(core.Environment{OS: core.OSIOS, CanRequestReview: true})`, `nsgotest.WallTime(...)`, `app.FastForward(...)`, `nsgotest.Storage(...)`, and `app.ReviewRequests`; `liveops/review_test.go` covers every rule.
+
+## Share cards and invites
+
+`Invites` shares payload-carrying cards and invite links over a small `ShareHost` interface and reads incoming invite payloads back when another player opens or resumes the game from one.
+
+### Payload format and HMAC verification
+
+- **Canonical wire encoding**: payloads are encoded as sorted `key=value&…` query strings (`EncodeInvitePayload` / `DecodeInvitePayload`) using URL query escaping. Keys must be 1–64 bytes of ASCII `[A-Za-z0-9._-]`, values must be valid UTF-8 free of ASCII control characters, and payloads carry at most `MaxInvitePayloadKeys` (32) keys within the host's byte cap (`DefaultMaxInvitePayloadBytes` = 1024). Unknown keys that satisfy validation are kept.
+- **Pre-share enforcement and safe rejection**: `Invites.Share` validates and encodes the card before calling `ShareHost.Share`; oversized (`ErrInvitePayloadTooLarge`) or malformed (`ErrInvalidInvitePayload`, `ErrInvalidCard`) cards are refused immediately without opening the platform share UI. Malformed, duplicate-key, oversized or tampered incoming payloads are rejected safely and reported to `InvitesOptions.OnError` without delivering an invite.
+- **Optional HMAC-SHA256 signing**: when `HMACKey` is configured, `EncodeInvitePayload` computes a base64url raw HMAC-SHA256 tag over the canonical sorted unsigned query and appends it under `InviteSigKey` (`"sig"`). Because decoding canonicalizes parameter order and space escaping (`+` vs `%20`) before verifying with `hmac.Equal`, signatures survive URL re-encoding by chat apps and browsers. Set `RequireSignature: true` to reject unsigned invites.
+- **Server-side verification and reward idempotency**: keep production reward-grant signing secrets on the game server when possible — mint signatures on the server with `SignInvitePayload` (passed to clients via `Card.Signature`), and have the recipient client send `Invite.RawQuery` to the server to verify with `VerifyInvitePayload`. Use `Invite.ID` (carried under `InviteIDKey` = `"id"`, set via `Card.InviteID`) as the server's idempotency key for invite reward grants ([#1643](https://github.com/nsgo-dev/game/issues/1643)), and pass room or party parameters from `Invite.Payload` to your party/room join flow ([#1688](https://github.com/nsgo-dev/game/issues/1688)).
+
+### Launch, resume and menu cards
+
+- **Cold launch (`Opened`)**: `Opened() (Invite, bool)` returns the invite that cold-started the game and consumes it so subsequent calls return `false`.
+- **Warm resume (`Consume`, `Incoming`, `OnInvite`)**: invites that arrive while the game is already running (mobile/desktop deep links, web URL/hash edits, or mini-game `onShow`) are delivered at most once through `Consume() (Invite, bool)` (reactive inside `core.Effect`) and to `InvitesOptions.OnInvite` / `OnInvite(...)` listeners. `Incoming()` and `PendingCount()` reactively inspect the unconsumed queue.
+- **Menu share card (`SetMenuCard`)**: registers a dynamic `func() Card` callback for platforms with a built-in share menu (such as WeChat mini games' Forward button); every returned card passes through the same size, validation and signing checks before reaching the host. Passing `nil` clears and disables the menu card.
+
+### Platform hosts and 5:4 card snapshots
+
+| Host | Targets | Mechanism |
+| --- | --- | --- |
+| `PlatformShareHost` (default when `InvitesOptions.Host` is nil) | Mobile (iOS, Android), desktop (macOS, Windows, Linux) | Builds a link from `BaseURL` (such as `mygame://invite`), shares text and attached image bytes through `core.Scope.Share`, and receives launch/resume links through `core.Scope.AppURL` and `core.Scope.OnOpenLinks`. |
+| `PlatformShareHost` on `core.OSWeb` | Web | Auto-derives `BaseURL` from `cx.AppURL()` when omitted, supports query (`InviteEncodeQuery`) or fragment (`InviteEncodeFragment`) payloads, shares via `core.Scope.Share` (with optional `FallbackToClipboard` when `navigator.share` is unavailable), and reads launch/navigation payloads via `cx.AppURL()` and `cx.OnAppURLChange`. |
+| `MiniGameShareHost` | WeChat and other mini games | Wraps a `MiniGameShareDriver` (`ShareAppMessage`, `ShowShareMenu` with `WithShareTicket`, `OnShareAppMessage`, `LaunchOptions`, `OnShow`), preserving `Invite.Scene` and `Invite.ShareTicket`. Passing a `nil` driver yields a safe unavailable host (`ErrShareUnavailable`) until NSGo ships native mini-game share-card APIs ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). |
+
+Use `CaptureCardSnapshot(cx, target, opts, done)` (or `CropCardSnapshot` / `EncodeCardSnapshotPNG` on any `image.Image`) to center-crop and scale the current game frame into a 5:4 PNG (`DefaultCardSnapshotWidth` = 500, `DefaultCardSnapshotHeight` = 400) returned as a `core.ImageSource` ready for `Card.Image`.
+
+```go
+invites, err := liveops.NewInvites(cx, liveops.InvitesOptions{
+	Platform: liveops.PlatformShareHostOptions{
+		BaseURL:             "mygame://invite",
+		FallbackToClipboard: true,
+	},
+})
+if err != nil {
+	return err
+}
+
+// Cold-start invite (consumed once):
+if inv, ok := invites.Opened(); ok {
+	handleInvite(inv) // verify inv.RawQuery on server; use inv.ID as grant idempotency key
+}
+
+// Warm resume invites (reactive, consumed once each):
+cx.Effect(func() {
+	for {
+		inv, ok := invites.Consume()
+		if !ok {
+			break
+		}
+		handleInvite(inv)
+	}
+})
+
+// Capture a 5:4 frame snapshot and share an invite card:
+liveops.CaptureCardSnapshot(cx, gameCanvasRef, liveops.CardSnapshotOptions{}, func(img core.ImageSource, err error) {
+	invites.Share(liveops.Card{
+		Title:    "Join my squad!",
+		Image:    img,
+		InviteID: inviteID,
+		Payload:  map[string]string{"room": roomCode},
+	}, func(shown bool, err error) { /* handle result */ })
+})
+```
+
+Tests cover fake `ShareHost` round-trips, size boundaries, malformed-input rejection, HMAC verification, at-most-once launch/resume delivery, `MiniGameShareHost`, `PlatformShareHost` (native & web via `nsgotest`), and 5:4 snapshots in `liveops/invites_test.go`.

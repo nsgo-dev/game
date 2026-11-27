@@ -16,6 +16,7 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **应用内购买**（[#369](https://github.com/nsgo-dev/game/issues/369)） | 纳入范围 | 基于 NSGo 购买服务的 `Purchases`：消耗型商品恰好一次入账到存档，解锁项与订阅来自商店权益，支持恢复购买、“询问后购买”和可选的服务器校验。 |
 | **本地提醒**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 纳入范围 | 基于 NSGo `core.Scope.ShowNotification` 的 `Reminders`：带版本号的 YAML 声明（`RemindersConfig`）、仅在首次 `Schedule` 或显式 `RequestPermission` 时申请权限、持久化玩家开关、本地时间 `QuietHours` 免打扰时段，以及应用回到前台时的取消/重排/保留规则。 |
 | **商店评分提示**（[#1767](https://github.com/nsgo-dev/game/issues/1767)） | 纳入范围 | 基于 `core.Storage` 与 `core.Scope.RequestReview` 的 `ReviewPrompt`：按会话数、距首次启动天数、正向时刻、冷却期和每个版本最多一次的策略控制商店评分请求，负向时刻后在本会话内抑制提示，状态损坏或平台不支持时默认关闭。 |
+| **分享卡片与邀请**（[#1738](https://github.com/nsgo-dev/game/issues/1738)） | 纳入范围 | 基于 `ShareHost` 接口的 `Invites`：有界规范 `key=value&…` 负载、可选 HMAC-SHA256 签名校验、冷启动与运行期重入各至多一次投递、原生/Web 适配器 `PlatformShareHost`、小游戏适配器 `MiniGameShareHost`（等待 [nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）以及 5:4 画面截图助手。 |
 | **远程推送**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 等待上游 | 等待 NSGo 落地远程推送（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)）并确定开放设计决策（[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。在此之前，远程推送在所有平台上均不可用。 |
 | **广告**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要广告的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
 
@@ -295,3 +296,70 @@ review.Moment(liveops.MomentNegative)
 ```
 
 测试可通过 `nsgotest` 无头驱动评分策略：搭配 `nsgotest.Environment(core.Environment{OS: core.OSIOS, CanRequestReview: true})`、`nsgotest.WallTime(...)`、`app.FastForward(...)`、`nsgotest.Storage(...)` 与 `app.ReviewRequests`；`liveops/review_test.go` 覆盖了全部规则。
+
+## 分享卡片与邀请
+
+`Invites` 基于精简的 `ShareHost` 接口发送携带负载的分享卡片与邀请链接，并在其他玩家通过卡片冷启动或热切回游戏时读回邀请负载。
+
+### 负载格式与 HMAC 校验
+
+- **规范编码格式**：负载按字典序编码为 `key=value&…` 查询字符串（`EncodeInvitePayload` / `DecodeInvitePayload`），使用 URL 查询转义。键名限 1–64 字节 ASCII `[A-Za-z0-9._-]`，值须为不含 ASCII 控制字符的合法 UTF-8，单个负载最多 `MaxInvitePayloadKeys`（32）个键，且总字节数不超过宿主上限（默认 `DefaultMaxInvitePayloadBytes` = 1024）。满足校验规则的未知键会被保留。
+- **分享前拦截与畸形负载安全拒绝**：`Invites.Share` 在调用 `ShareHost.Share` 之前完成校验与编码；超长（`ErrInvitePayloadTooLarge`）或非法（`ErrInvalidInvitePayload`、`ErrInvalidCard`）卡片会直接拒绝，不会唤起平台分享界面。畸形、重复键、超长或被篡改的入站负载会被安全拒绝并通过 `InvitesOptions.OnError` 报告，绝不交付无效邀请。
+- **可选 HMAC-SHA256 签名**：配置 `HMACKey` 后，`EncodeInvitePayload` 对按字典序规范化的无签名串计算 base64url raw HMAC-SHA256 签名并附加到 `InviteSigKey`（`"sig"`）。解码端在常量时间比对（`hmac.Equal`）前会重新规范化键顺序与空格转义（`+` 与 `%20`），确保签名在聊天软件和浏览器改写参数顺序后仍能通过校验。设置 `RequireSignature: true` 可拒绝所有未签名邀请。
+- **服务端验签与奖励幂等**：生产环境中建议将邀请奖励签名密钥留在游戏服务器——由服务端调用 `SignInvitePayload` 生成签名（客户端通过 `Card.Signature` 携带），被邀请客户端将收到的 `Invite.RawQuery` 上报给服务端调用 `VerifyInvitePayload` 验签；用 `Invite.ID`（对应 `InviteIDKey` = `"id"`，由 `Card.InviteID` 设置）作为邀请奖励发放的幂等键（[#1643](https://github.com/nsgo-dev/game/issues/1643)），并将 `Invite.Payload` 中的房间/队伍参数交给组队加入流程（[#1688](https://github.com/nsgo-dev/game/issues/1688)）。
+
+### 启动读回、运行期重入与菜单转发
+
+- **冷启动读回（`Opened`）**：`Opened() (Invite, bool)` 返回冷启动携带的邀请并立即消费，后续调用一律返回 `false`。
+- **运行期重入（`Consume`、`Incoming`、`OnInvite`）**：游戏运行期间到达的邀请（移动端/桌面端深度链接、Web 地址或片段变更、小游戏 `onShow`）通过 `Consume() (Invite, bool)`（可在 `core.Effect` 中响应式消费）与 `InvitesOptions.OnInvite` / `OnInvite(...)` 监听各投递一次；`Incoming()` 与 `PendingCount()` 响应式查看待消费队列。
+- **菜单转发卡片（`SetMenuCard`）**：为带系统转发菜单的宿主（如微信小游戏右上角菜单的“转发”）注册动态 `func() Card` 回调；返回的卡片同样经过长度、合法性与签名检查后再交给宿主，传入 `nil` 可关闭菜单转发。
+
+### 平台宿主与 5:4 截图助手
+
+| 宿主适配器 | 目标平台 | 实现方式 |
+| --- | --- | --- |
+| `PlatformShareHost`（`InvitesOptions.Host` 为空时的默认宿主） | 移动端（iOS、Android）、桌面端（macOS、Windows、Linux） | 基于 `BaseURL`（如 `mygame://invite`）拼接邀请链接，经 `core.Scope.Share` 分享文案与附加图片字节，并通过 `core.Scope.AppURL` 与 `core.Scope.OnOpenLinks` 接收冷启动和运行期链接。 |
+| `PlatformShareHost`（`core.OSWeb`） | Web | 未显式设置 `BaseURL` 时自动从 `cx.AppURL()` 推导（去掉查询串与片段），支持查询串（`InviteEncodeQuery`）或片段（`InviteEncodeFragment`）编码，经 `core.Scope.Share` 分享（不支持 `navigator.share` 时可选 `FallbackToClipboard` 复制到剪贴板），并通过 `cx.AppURL()` 与 `cx.OnAppURLChange` 接收邀请。 |
+| `MiniGameShareHost` | 微信等小游戏 | 包装 `MiniGameShareDriver`（`ShareAppMessage`、带 `WithShareTicket` 的 `ShowShareMenu`、`OnShareAppMessage`、`LaunchOptions`、`OnShow`），完整保留 `Invite.Scene` 与 `Invite.ShareTicket`。在 NSGo 落地小游戏原生分享卡片与启动参数 API（[nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）前，传入 `nil` 驱动会安全退化为不可用宿主（返回 `ErrShareUnavailable`）。 |
+
+使用 `CaptureCardSnapshot(cx, target, opts, done)`（或对任意 `image.Image` 调用 `CropCardSnapshot` / `EncodeCardSnapshotPNG`）可将当前游戏画面居中裁剪并缩放为 5:4 PNG（默认 `DefaultCardSnapshotWidth` = 500、`DefaultCardSnapshotHeight` = 400），直接返回可用于 `Card.Image` 的 `core.ImageSource`。
+
+```go
+invites, err := liveops.NewInvites(cx, liveops.InvitesOptions{
+	Platform: liveops.PlatformShareHostOptions{
+		BaseURL:             "mygame://invite",
+		FallbackToClipboard: true,
+	},
+})
+if err != nil {
+	return err
+}
+
+// 冷启动邀请（消费一次）：
+if inv, ok := invites.Opened(); ok {
+	handleInvite(inv) // 将 inv.RawQuery 交服务端验签，用 inv.ID 作为发奖幂等键
+}
+
+// 运行期重入邀请（响应式，每条消费一次）：
+cx.Effect(func() {
+	for {
+		inv, ok := invites.Consume()
+		if !ok {
+			break
+		}
+		handleInvite(inv)
+	}
+})
+
+// 截取 5:4 画面并分享邀请卡片：
+liveops.CaptureCardSnapshot(cx, gameCanvasRef, liveops.CardSnapshotOptions{}, func(img core.ImageSource, err error) {
+	invites.Share(liveops.Card{
+		Title:    "来和我一起组队！",
+		Image:    img,
+		InviteID: inviteID,
+		Payload:  map[string]string{"room": roomCode},
+	}, func(shown bool, err error) { /* 处理分享结果 */ })
+})
+```
+
+`liveops/invites_test.go` 覆盖了假 `ShareHost` 往返编解码、字节上限、畸形负载拒绝、HMAC 校验、冷启动与重入各一次投递、`MiniGameShareHost`、基于 `nsgotest` 的原生与 Web `PlatformShareHost` 以及 5:4 截图裁剪测试。
