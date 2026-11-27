@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/touchlayout.v1.json",
+  "title": "NSGo game touch layout (version 1)",
+  "description": "TouchLayout is the root of a versioned YAML document that declares a game's on-screen touch controls, which NewTouchControls builds.\n\nLengths are in points on a screen of Reference size. TouchControls scales them by the smaller of the safe area's width and height over Reference's, so the layout keeps its proportions on any screen, and never makes a control smaller than MinTouchTarget.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal TouchLayoutVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "reference": {
+      "description": "Reference is the screen size, in points, the layout's offsets and sizes are written for, such as a landscape phone's 844 by 390.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/TouchSize"
+        }
+      ]
+    },
+    "maxScale": {
+      "description": "MaxScale caps how much the layout grows on a screen larger than Reference, such as a tablet's; 0 leaves it uncapped.",
+      "type": "number",
+      "minimum": 0
+    },
+    "idleAfter": {
+      "description": "IdleAfter is how long the controls stay fully opaque after the last touch on them before fading to IdleAlpha, as a Go duration such as \"3s\"; 0 never fades them.",
+      "type": "string"
+    },
+    "idleAlpha": {
+      "description": "IdleAlpha is the opacity in [0, 1] the controls fade to once idle.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "mirrored": {
+      "description": "Mirrored swaps every control between the left and right of the screen, for left-handed play.",
+      "type": "boolean"
+    },
+    "controls": {
+      "description": "Controls lists the controls, drawn in order; a later control draws over an earlier one.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TouchControlSpec"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "reference"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "TouchControlSpec": {
+      "description": "TouchControlSpec declares one control of a TouchLayout. The fields a kind does not take are refused for the kinds this package registers; a kind a plugin registers reads the fields it documents, and Options for anything else.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID names the control uniquely within the layout, for TouchControls.Control and for a player's saved edits.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "Kind is the control's kind: button, dpad, stick, or a name registered with RegisterTouchControlKind.",
+          "type": "string",
+          "minLength": 1
+        },
+        "anchor": {
+          "description": "Anchor is the point of the safe area the control is placed against.",
+          "type": "string",
+          "enum": [
+            "topLeft",
+            "top",
+            "topRight",
+            "left",
+            "center",
+            "right",
+            "bottomLeft",
+            "bottom",
+            "bottomRight"
+          ]
+        },
+        "offset": {
+          "description": "Offset moves the control from its anchor toward the inside of the screen.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TouchOffset"
+            }
+          ]
+        },
+        "size": {
+          "description": "Size is the control's width and height; a round control fits a circle inside it.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TouchSize"
+            }
+          ]
+        },
+        "label": {
+          "description": "Label is the control's accessibility label, read by screen readers and shown by TouchControls.Controls.",
+          "type": "string"
+        },
+        "action": {
+          "description": "Action is the action a button presses.",
+          "type": "string"
+        },
+        "text": {
+          "description": "Text is the caption drawn on a button.",
+          "type": "string"
+        },
+        "icon": {
+          "description": "Icon names a glyph registered with RegisterTouchIcon that a button draws in place of Text.",
+          "type": "string"
+        },
+        "mode": {
+          "description": "Mode is a button's behavior: hold (the default), toggle or tap.",
+          "type": "string",
+          "enum": [
+            "hold",
+            "toggle",
+            "tap"
+          ]
+        },
+        "shape": {
+          "description": "Shape is a button's shape: circle (the default) or rect.",
+          "type": "string",
+          "enum": [
+            "circle",
+            "rect"
+          ]
+        },
+        "ways": {
+          "description": "Ways is 4 (the default) or 8 for a d-pad that also selects diagonals.",
+          "type": "integer",
+          "enum": [
+            4,
+            8
+          ]
+        },
+        "up": {
+          "description": "Up, Down, Left and Right are the actions a d-pad's directions press.",
+          "type": "string"
+        },
+        "down": {
+          "description": "Up, Down, Left and Right are the actions a d-pad's directions press.",
+          "type": "string"
+        },
+        "left": {
+          "description": "Up, Down, Left and Right are the actions a d-pad's directions press.",
+          "type": "string"
+        },
+        "right": {
+          "description": "Up, Down, Left and Right are the actions a d-pad's directions press.",
+          "type": "string"
+        },
+        "axisX": {
+          "description": "AxisX and AxisY are the axes a d-pad or stick drives, AxisY positive up.",
+          "type": "string"
+        },
+        "axisY": {
+          "description": "AxisX and AxisY are the axes a d-pad or stick drives, AxisY positive up.",
+          "type": "string"
+        },
+        "deadZone": {
+          "description": "DeadZone is the fraction of a d-pad's or stick's radius in [0, 1) that reads as rest; 0 keeps the control's default.",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "floating": {
+          "description": "Floating makes a stick re-center on the finger that touches down anywhere in its frame.",
+          "type": "boolean"
+        },
+        "radius": {
+          "description": "Radius is a stick's knob travel in reference points; 0 uses half the smaller side of Size.",
+          "type": "number",
+          "minimum": 0
+        },
+        "options": {
+          "description": "Options holds settings for a kind a plugin registers, as strings: a value the YAML would read as a number, boolean or null is written quoted, such as speed: \"3\", so it reads back the same. The kinds this package registers refuse it.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "anchor",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "TouchOffset": {
+      "description": "TouchOffset moves a control from its anchor, in reference points, toward the inside of the screen: X from a left or right anchor's edge and Y from a top or bottom anchor's edge, and right and down from a centered anchor.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TouchSize": {
+      "description": "TouchSize is a width and a height in reference points.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,10 @@
+### Added
+
+- `game/input`: `TouchControls` builds a layer of on-screen controls from a `TouchLayout`, a versioned YAML document (`ParseTouchLayout`, `EncodeTouchLayout`, schema `touchlayout.v1.json`): controls anchored in the safe area that scale with the screen and never shrink below 44 points, drive the same actions and axes as the keyboard and controllers, show on the first touch and hide on keyboard or controller use, start visible on coarse-pointer devices, fade when idle, mirror for left-handed play, tick through `Haptics` on press, carry accessibility labels as canvas nodes, and save a player's edited layout in `core.Storage`.
+- `game/input`: `RegisterTouchControlKind` and `RegisterTouchIcon` let a plugin add control kinds and button icons a touch layout names; a kind implements `TouchControl`, a `VirtualControl` that `TouchControls` places, and optionally `ButtonControl`, so the pad treats a control built on a `VirtualButton` as one of its buttons, and `AccessibleControl`, to report its own accessibility role. `TouchControls.Wake` restores full opacity when the controls come back into view.
+- `game/input`: `VirtualDPad`, a 4- or 8-way d-pad one finger owns and rocks between directions, driving actions and an optional up-positive axis pair; `VirtualPad.Controls`, `AddControl`, `SlideBetweenButtons` (a finger sliding onto another button presses it) and `OnPress`.
+- `game/input`: `VirtualButton.Mode` (`ButtonHold`, `ButtonToggle`, `ButtonTap`), `VirtualButton.Icon` and `Held`, and `VirtualStick.UpPositive`, which reads pushing up as a positive `AxisY` like a game controller's inverted stick; the default stays screen-down positive.
+
+### Changed
+
+- Cave Run: an on-screen d-pad and jump button built with `input.TouchControls` from `controls.touch.yaml` replace the native `<`, `>` and `JUMP` pills and the invisible touch and mouse regions in `game.yaml`, so touch and pointer input have one path; they show from the start on phones and on a desktop once the screen is touched. `nsgo.yaml` and `game.yaml` now list iOS.

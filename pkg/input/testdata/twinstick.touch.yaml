@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.35
+controls:
+  - id: move
+    kind: stick
+    anchor: bottomLeft
+    size: {width: 300, height: 300}
+    label: Move
+    axisX: move_x
+    axisY: move_y
+    deadZone: 0.15
+    floating: true
+    radius: 56
+  - id: dash
+    kind: dpad
+    anchor: left
+    offset: {x: 24}
+    size: {width: 120, height: 120}
+    label: Dash
+    ways: 8
+    up: dash_up
+    down: dash_down
+    left: dash_left
+    right: dash_right
+  - id: fire
+    kind: button
+    anchor: bottomRight
+    offset: {x: 32, "y": 32}
+    size: {width: 96, height: 96}
+    label: Fire
+    action: fire
+    text: FIRE
+  - id: shield
+    kind: button
+    anchor: bottomRight
+    offset: {x: 140, "y": 40}
+    size: {width: 72, height: 72}
+    label: Shield
+    action: shield
+    icon: arrowUp
+    mode: toggle
+  - id: pause
+    kind: button
+    anchor: topRight
+    offset: {x: 16, "y": 16}
+    size: {width: 48, height: 48}
+    label: Pause
+    action: pause
+    text: II
+    mode: tap
+    shape: rect

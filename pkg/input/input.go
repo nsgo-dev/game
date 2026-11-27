@@ -274,11 +274,7 @@ func (a *Actions) ActionNames() []string {
 		add(ax.positive)
 	}
 	for _, pad := range a.pads {
-		for _, btn := range pad.Buttons {
-			if btn != nil {
-				add(btn.Action)
-			}
-		}
+		pad.eachAction(add)
 	}
 	for name, held := range a.injectedHeld {
 		if held {
@@ -330,12 +326,7 @@ func (a *Actions) AxisNames() []string {
 		add(name)
 	}
 	for _, pad := range a.pads {
-		for _, stick := range pad.Sticks {
-			if stick != nil {
-				add(stick.axisXKey())
-				add(stick.axisYKey())
-			}
-		}
+		pad.eachAxis(func(name string, _ float64) { add(name) })
 	}
 	for name := range a.injectedAxes {
 		add(name)
@@ -400,28 +391,26 @@ func (a *Actions) Step() {
 		}
 	}
 	for _, pad := range a.pads {
-		for _, btn := range pad.Buttons {
-			if btn == nil || btn.Action == "" {
-				continue
+		pad.eachAction(func(name string) {
+			if name == "" {
+				return
 			}
-			if _, bound := a.bindings[btn.Action]; bound {
-				continue
+			if _, bound := a.bindings[name]; bound {
+				return
 			}
-			now := a.padPressed(btn.Action)
+			now := a.padPressed(name)
 			if a.rawActive != nil {
-				a.rawActive[btn.Action] = now
+				a.rawActive[name] = now
 			}
-			if now || a.latched[btn.Action] {
-				a.curr[btn.Action] = true
+			if now || a.latched[name] {
+				a.curr[name] = true
 			}
-		}
-		for _, stick := range pad.Sticks {
-			if stick == nil {
-				continue
-			}
-			a.recordPadAxis(stick.axisXKey(), stick.AxisX)
-			a.recordPadAxis(stick.axisYKey(), stick.AxisY)
-		}
+		})
+		pad.eachAxis(a.recordPadAxis)
+	}
+	// The step has sampled every tap, so a ButtonTap button is pressed for this step alone.
+	for _, pad := range a.pads {
+		pad.endStep()
 	}
 	for name, held := range a.injectedHeld {
 		if held {
@@ -717,22 +706,22 @@ func (a *Actions) syncRaw() {
 		a.rawActive[name] = now
 	}
 	for _, pad := range a.pads {
-		for _, btn := range pad.Buttons {
-			if btn == nil || btn.Action == "" {
-				continue
+		pad.eachAction(func(name string) {
+			if name == "" {
+				return
 			}
-			if _, bound := a.bindings[btn.Action]; bound {
-				continue
+			if _, bound := a.bindings[name]; bound {
+				return
 			}
-			now := a.padPressed(btn.Action)
-			if now && !a.rawActive[btn.Action] {
+			now := a.padPressed(name)
+			if now && !a.rawActive[name] {
 				if a.latched == nil {
 					a.latched = make(map[string]bool)
 				}
-				a.latched[btn.Action] = true
+				a.latched[name] = true
 			}
-			a.rawActive[btn.Action] = now
-		}
+			a.rawActive[name] = now
+		})
 	}
 }
 

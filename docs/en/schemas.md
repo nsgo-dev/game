@@ -29,6 +29,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | Cutscene, version 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` video cutscenes, read by `cutscene.Parse` |
 | Cutscene, version 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` video or timeline cutscenes, read by `cutscene.Parse` |
 | Playtest configuration, version 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`, read by `playtest.ParseConfig`, `nsgo game playtest` and `game_playtest` ([playtest](playtest.md)) |
+| Touch control layout, version 1 | `https://game.nsgo.dev/schemas/touchlayout.v1.json` | `*.touch.yaml`, read by `input.ParseTouchLayout` and `input.TouchControls.Load` ([input](input.md#on-screen-touch-controls)) |
 | Game UI screen, version 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`, read by `gameui.ParseScreen` and `gameui.LoadScreenFS` |
 | Sprite state machine, version 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`, read by `animclip.ParseStateMachine` and `animclip.FSStates` |
 | Particle emitter (2D), version 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`, read by `particles.UnmarshalConfigYAML` and `particles.LoadConfigFS` |

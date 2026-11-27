@@ -104,8 +104,10 @@ type VirtualStick struct {
 	DeadZone float32
 	// Floating, when true, re-centers the stick's base on the touch-down point inside Zone and returns it to Center on release.
 	Floating bool
+	// UpPositive, when true, makes AxisY positive while the knob is pushed up, as a game controller's stick reads with GamepadAxisOptions.Invert. By default AxisY follows screen coordinates and is positive while the knob is pushed down.
+	UpPositive bool
 
-	// AxisX and AxisY hold the stick's current normalized outputs in [-1, 1].
+	// AxisX and AxisY hold the stick's current normalized outputs in [-1, 1]. AxisX is positive to the right; AxisY is positive downward, or upward with UpPositive.
 	AxisX float64
 	AxisY float64
 
@@ -302,7 +304,25 @@ func (s *VirtualStick) update(pos core.Point) {
 	scaled := (norm - dz) / (1 - dz)
 	s.AxisX = (dx / dist) * scaled
 	s.AxisY = (dy / dist) * scaled
+	if s.UpPositive {
+		s.AxisY = -s.AxisY
+	}
 }
+
+// VirtualButtonMode selects how a VirtualButton turns the fingers on it into its pressed state.
+type VirtualButtonMode uint8
+
+const (
+	// ButtonHold presses the button while at least one finger is on it. It is the zero value.
+	ButtonHold VirtualButtonMode = iota
+	// ButtonToggle flips the button between pressed and released on each touch-down, and keeps that state after the finger lifts until the next touch-down or Reset.
+	ButtonToggle
+	// ButtonTap presses the button once per touch-down, however long the finger stays: through Actions its action is pressed for exactly one Step. A finger sliding onto it from another button in a VirtualPad with SlideBetweenButtons counts as a touch-down.
+	ButtonTap
+)
+
+// VirtualIcon draws a glyph into frame, the area inside a control it decorates, in color. It runs inside the control's Draw, so the drawing state it changes is restored afterwards.
+type VirtualIcon func(d *core.Drawing, frame core.Bounds, color core.Color)
 
 // VirtualButton is a circular or rectangular on-screen button with multi-touch finger tracking.
 type VirtualButton struct {
@@ -313,14 +333,32 @@ type VirtualButton struct {
 	Bounds core.Bounds
 	// Label is optional text drawn centered inside the button.
 	Label string
+	// Icon, when set, is drawn centered inside the button in place of Label.
+	Icon VirtualIcon
 	// Action is the action name driven by this button in VirtualPad and Actions.
 	Action string
+	// Mode selects hold (the default), toggle or tap behavior.
+	Mode VirtualButtonMode
 
 	fingers map[int]struct{}
+	toggled bool
+	tapped  bool
 }
 
-// Pressed reports whether at least one finger is currently pressing the button.
+// Pressed reports whether the button is pressed: while a finger is on it in ButtonHold mode, while toggled on in ButtonToggle mode, and from a touch-down until the next Actions.Step in ButtonTap mode.
 func (b *VirtualButton) Pressed() bool {
+	switch b.Mode {
+	case ButtonToggle:
+		return b.toggled
+	case ButtonTap:
+		return b.tapped
+	default:
+		return len(b.fingers) > 0
+	}
+}
+
+// Held reports whether at least one finger is on the button, whatever its Mode.
+func (b *VirtualButton) Held() bool {
 	return len(b.fingers) > 0
 }
 
@@ -335,9 +373,11 @@ func (b *VirtualButton) Contains(p core.Point) bool {
 	return false
 }
 
-// Reset releases all fingers tracked by the button.
+// Reset releases all fingers tracked by the button, turns a toggled button off and drops a pending tap.
 func (b *VirtualButton) Reset() {
 	clear(b.fingers)
+	b.toggled = false
+	b.tapped = false
 }
 
 // OnTouch feeds a touch event directly to the button when used standalone without a VirtualPad.
@@ -350,7 +390,7 @@ func (b *VirtualButton) OnTouch(ev core.TouchEvent) {
 				continue
 			}
 			if b.Contains(t.Position) {
-				b.pressFinger(t.ID)
+				b.touchDown(t.ID)
 			}
 		}
 	case core.TouchMove:
@@ -363,7 +403,7 @@ func (b *VirtualButton) OnTouch(ev core.TouchEvent) {
 		}
 	case core.TouchEnd, core.TouchCancel:
 		if ev.Phase == core.TouchCancel && len(ev.Touches) == 0 {
-			b.Reset()
+			b.releaseFingers()
 			return
 		}
 		hasChanged := touchesHaveChanged(ev.Touches)
@@ -372,6 +412,20 @@ func (b *VirtualButton) OnTouch(ev core.TouchEvent) {
 				delete(b.fingers, t.ID)
 			}
 		}
+	}
+}
+
+// touchDown records finger id going down on the button: it holds the button, flips a toggle and starts a tap.
+func (b *VirtualButton) touchDown(id int) {
+	if _, ok := b.fingers[id]; ok {
+		return
+	}
+	b.pressFinger(id)
+	switch b.Mode {
+	case ButtonToggle:
+		b.toggled = !b.toggled
+	case ButtonTap:
+		b.tapped = true
 	}
 }
 
@@ -394,14 +448,28 @@ func (b *VirtualButton) releaseFinger(id int) {
 	delete(b.fingers, id)
 }
 
-// Draw draws the button and its optional label into d, leaving d's state unchanged.
+// releaseFingers lifts every finger, keeping a toggle's state and a pending tap.
+func (b *VirtualButton) releaseFingers() {
+	clear(b.fingers)
+}
+
+// frame returns the square or rectangle the button's hit area fills.
+func (b *VirtualButton) frame() core.Bounds {
+	if b.Radius > 0 {
+		r := core.Points(b.Radius)
+		return core.Bounds{Origin: core.Point{X: b.Center.X - r, Y: b.Center.Y - r}, Size: core.Size{Width: 2 * r, Height: 2 * r}}
+	}
+	return b.Bounds
+}
+
+// Draw draws the button and its optional icon or label into d, leaving d's state unchanged.
 func (b *VirtualButton) Draw(d *core.Drawing, style VirtualStyle) {
 	if d == nil {
 		return
 	}
 	st := style.resolved()
 	fill := st.ButtonFill
-	if b.Pressed() {
+	if b.Held() || (b.Mode == ButtonToggle && b.toggled) {
 		fill = st.ButtonPressedFill
 	}
 
@@ -438,7 +506,12 @@ func (b *VirtualButton) Draw(d *core.Drawing, style VirtualStyle) {
 			SetLineWidth(st.ButtonStrokeWidth).
 			Stroke()
 	}
-	if b.Label != "" {
+	switch {
+	case b.Icon != nil:
+		d.Save()
+		b.Icon(d, insetFrame(b.frame(), 0.25), st.LabelColor)
+		d.Restore()
+	case b.Label != "":
 		d.SetFillColor(st.LabelColor).
 			SetTextAlign(core.TextAlignCenter).
 			SetTextBaseline(core.BaselineMiddle).
@@ -447,12 +520,57 @@ func (b *VirtualButton) Draw(d *core.Drawing, style VirtualStyle) {
 	d.Restore()
 }
 
-// VirtualPad owns a collection of VirtualSticks and VirtualButtons, routes multi-touch fingers without controls stealing each other's touches, optionally wires into Actions, and draws all controls into a core.Drawing.
+// insetFrame shrinks f by fraction of its width and height on each side.
+func insetFrame(f core.Bounds, fraction float32) core.Bounds {
+	dx := f.Size.Width * core.Points(fraction)
+	dy := f.Size.Height * core.Points(fraction)
+	return core.Bounds{
+		Origin: core.Point{X: f.Origin.X + dx, Y: f.Origin.Y + dy},
+		Size:   core.Size{Width: f.Size.Width - 2*dx, Height: f.Size.Height - 2*dy},
+	}
+}
+
+// VirtualControl is an on-screen control a VirtualPad routes touches to beside its sticks and buttons, such as a VirtualDPad or a control kind a plugin registers with RegisterTouchControlKind.
+//
+// The pad hands each new finger to the first control whose Claim takes it and keeps sending that finger to the same control, wherever it moves, until it lifts.
+type VirtualControl interface {
+	// Claim reports whether finger id, touching down at p, starts the control; a control that returns true owns the finger until Release.
+	Claim(id int, p core.Point) bool
+	// Move reports that owned finger id moved to p.
+	Move(id int, p core.Point)
+	// Release reports that owned finger id lifted or was cancelled.
+	Release(id int)
+	// Reset releases every finger and returns the control to rest.
+	Reset()
+	// ActionNames returns the names of the actions the control drives.
+	ActionNames() []string
+	// ActionPressed reports whether the control currently presses action name.
+	ActionPressed(name string) bool
+	// AxisValues calls yield with the name and current value in [-1, 1] of every axis the control drives, zero values included.
+	AxisValues(yield func(name string, value float64))
+	// Draw draws the control into d, leaving d's state unchanged.
+	Draw(d *core.Drawing, style VirtualStyle)
+}
+
+// ButtonControl is a VirtualControl that is a VirtualButton underneath, such as a plugin's custom-drawn or cooldown button that wraps one. A VirtualPad treats it as one of its buttons: a finger touching down on it is claimed before sticks and other controls, follows it and, with SlideBetweenButtons, slides onto and off it; its ButtonTap press ends after one Actions.Step; and TouchControls names it as a button for assistive technology. The pad drives the VirtualButton itself, so the control's Claim, Move and Release are not called for its fingers.
+type ButtonControl interface {
+	VirtualControl
+	// Button returns the VirtualButton the control presses, the same one on every call.
+	Button() *VirtualButton
+}
+
+// VirtualPad owns a collection of VirtualSticks, VirtualButtons and other VirtualControls, routes multi-touch fingers without controls stealing each other's touches, optionally wires into Actions, and draws all controls into a core.Drawing.
 type VirtualPad struct {
 	// MapPoint, when set, transforms touch positions from view coordinates before hit-testing and updating sticks and buttons. Returning false ignores the touch point.
 	MapPoint func(core.Point) (core.Point, bool)
 	Sticks   []*VirtualStick
 	Buttons  []*VirtualButton
+	// Controls holds the pad's other controls, such as VirtualDPads.
+	Controls []VirtualControl
+	// SlideBetweenButtons, when true, hands a finger that slides off one button onto another to that button, so a thumb can rock between neighbouring buttons without lifting. A ButtonToggle button is never entered this way. Fingers owned by sticks and other controls never move to a button.
+	SlideBetweenButtons bool
+	// OnPress, when set, is called each time a finger presses something: touching down on a button, sliding onto another button, or a control whose Claim or Move newly presses one of its actions. It suits a haptic tick.
+	OnPress func()
 
 	owners  map[int]any
 	actions *Actions
@@ -479,6 +597,14 @@ func (p *VirtualPad) AddButton(b *VirtualButton) *VirtualButton {
 	return b
 }
 
+// AddControl adds c to p and returns c.
+func (p *VirtualPad) AddControl(c VirtualControl) VirtualControl {
+	if c != nil {
+		p.Controls = append(p.Controls, c)
+	}
+	return c
+}
+
 // BindActions connects p to a (or disconnects from any previous Actions when a is nil).
 func (p *VirtualPad) BindActions(a *Actions) {
 	if p.actions != nil && p.actions != a {
@@ -489,7 +615,7 @@ func (p *VirtualPad) BindActions(a *Actions) {
 	}
 }
 
-// Pressed reports whether any button in p bound to action is currently pressed.
+// Pressed reports whether any button or control in p bound to action is currently pressing it.
 func (p *VirtualPad) Pressed(action string) bool {
 	if action == "" {
 		return false
@@ -499,29 +625,27 @@ func (p *VirtualPad) Pressed(action string) bool {
 			return true
 		}
 	}
+	for _, c := range p.Controls {
+		if c != nil && c.ActionPressed(action) {
+			return true
+		}
+	}
 	return false
 }
 
-// Axis returns the current axis value in [-1, 1] for name from p's sticks (or 1 if a button with Action == name is pressed).
+// Axis returns the current axis value in [-1, 1] for name from p's sticks and controls (or 1 if a button with Action == name is pressed).
 func (p *VirtualPad) Axis(name string) float64 {
 	if name == "" {
 		return 0
 	}
 	var sum float64
 	var matched bool
-	for _, s := range p.Sticks {
-		if s == nil {
-			continue
-		}
-		if s.axisXKey() == name {
-			sum += s.AxisX
+	p.eachAxis(func(axis string, v float64) {
+		if axis == name {
+			sum += v
 			matched = true
 		}
-		if s.axisYKey() == name {
-			sum += s.AxisY
-			matched = true
-		}
-	}
+	})
 	if matched {
 		return clampAxis(sum)
 	}
@@ -531,7 +655,7 @@ func (p *VirtualPad) Axis(name string) float64 {
 	return 0
 }
 
-// Reset releases all active sticks, buttons, and tracked finger ownership.
+// Reset releases all active sticks, buttons and controls, turns toggled buttons off and clears tracked finger ownership.
 func (p *VirtualPad) Reset() {
 	clear(p.owners)
 	for _, s := range p.Sticks {
@@ -544,9 +668,14 @@ func (p *VirtualPad) Reset() {
 			b.Reset()
 		}
 	}
+	for _, c := range p.Controls {
+		if c != nil {
+			c.Reset()
+		}
+	}
 }
 
-// OnTouch routes ev to p's buttons and sticks so each touch finger stays owned by the control that captured it.
+// OnTouch routes ev to p's buttons, controls and sticks so each touch finger stays owned by the control that captured it.
 func (p *VirtualPad) OnTouch(ev core.TouchEvent) {
 	p.handleTouch(ev, nil)
 	if p.actions != nil {
@@ -566,7 +695,7 @@ func (p *VirtualPad) Attach(v *core.View) {
 	}
 }
 
-// Draw draws all sticks and buttons in p into d.
+// Draw draws all sticks, controls and buttons in p into d.
 func (p *VirtualPad) Draw(d *core.Drawing, style VirtualStyle) {
 	if d == nil {
 		return
@@ -576,10 +705,71 @@ func (p *VirtualPad) Draw(d *core.Drawing, style VirtualStyle) {
 			s.Draw(d, style)
 		}
 	}
+	for _, c := range p.Controls {
+		if c != nil {
+			c.Draw(d, style)
+		}
+	}
 	for _, b := range p.Buttons {
 		if b != nil {
 			b.Draw(d, style)
 		}
+	}
+}
+
+// eachAction calls fn with the action name of every button and control in p; a name may repeat and may be empty.
+func (p *VirtualPad) eachAction(fn func(string)) {
+	for _, b := range p.Buttons {
+		if b != nil {
+			fn(b.Action)
+		}
+	}
+	for _, c := range p.Controls {
+		if c != nil {
+			for _, name := range c.ActionNames() {
+				fn(name)
+			}
+		}
+	}
+}
+
+// eachAxis calls fn with the name and value of every axis p's sticks and controls drive; a name may repeat and may be empty.
+func (p *VirtualPad) eachAxis(fn func(string, float64)) {
+	for _, s := range p.Sticks {
+		if s != nil {
+			fn(s.axisXKey(), s.AxisX)
+			fn(s.axisYKey(), s.AxisY)
+		}
+	}
+	for _, c := range p.Controls {
+		if c != nil {
+			c.AxisValues(fn)
+		}
+	}
+}
+
+// endStep ends the taps the step just sampled, so a ButtonTap button is pressed for one Actions.Step per touch-down.
+func (p *VirtualPad) endStep() {
+	for _, b := range p.Buttons {
+		if b != nil {
+			b.tapped = false
+		}
+	}
+	for _, c := range p.Controls {
+		if bc, ok := c.(ButtonControl); ok {
+			bc.Button().tapped = false
+		}
+	}
+}
+
+// active reports whether any finger is on one of p's controls.
+func (p *VirtualPad) active() bool {
+	return len(p.owners) > 0
+}
+
+func (p *VirtualPad) pressed() {
+	if p.OnPress != nil {
+		p.OnPress()
 	}
 }
 
@@ -630,12 +820,24 @@ func (p *VirtualPad) handleTouch(ev core.TouchEvent, fallbackMap func(core.Point
 			case *VirtualStick:
 				c.update(pos)
 			case *VirtualButton:
-				c.updateOwnedFinger(t.ID, pos)
+				p.moveButtonFinger(t.ID, c, pos)
+			case ButtonControl:
+				p.moveButtonFinger(t.ID, c.Button(), pos)
+			case VirtualControl:
+				if p.OnPress == nil {
+					c.Move(t.ID, pos)
+					continue
+				}
+				before := pressedMask(c)
+				c.Move(t.ID, pos)
+				if pressedMask(c)&^before != 0 {
+					p.pressed()
+				}
 			}
 		}
 	case core.TouchEnd, core.TouchCancel:
 		if ev.Phase == core.TouchCancel && len(ev.Touches) == 0 {
-			p.Reset()
+			p.releaseAll()
 			return
 		}
 		hasChanged := touchesHaveChanged(ev.Touches)
@@ -647,23 +849,111 @@ func (p *VirtualPad) handleTouch(ev core.TouchEvent, fallbackMap func(core.Point
 			if !ok {
 				continue
 			}
-			switch c := owner.(type) {
-			case *VirtualStick:
-				c.Reset()
-			case *VirtualButton:
-				c.releaseFinger(t.ID)
-			}
+			releaseOwner(owner, t.ID)
 			delete(p.owners, t.ID)
 		}
 	}
 }
 
+// releaseAll lifts every finger, as a cancel of all touches does, keeping toggled buttons and pending taps.
+func (p *VirtualPad) releaseAll() {
+	for id, owner := range p.owners {
+		releaseOwner(owner, id)
+	}
+	clear(p.owners)
+	for _, s := range p.Sticks {
+		if s != nil {
+			s.Reset()
+		}
+	}
+	for _, b := range p.Buttons {
+		if b != nil {
+			b.releaseFingers()
+		}
+	}
+}
+
+func releaseOwner(owner any, id int) {
+	switch c := owner.(type) {
+	case *VirtualStick:
+		c.Reset()
+	case *VirtualButton:
+		c.releaseFinger(id)
+	case ButtonControl:
+		c.Button().releaseFinger(id)
+	case VirtualControl:
+		c.Release(id)
+	}
+}
+
+// moveButtonFinger follows finger id, owned by button b, to pos: it holds b while the finger is inside it and, with SlideBetweenButtons, hands the finger to another button it slides onto.
+func (p *VirtualPad) moveButtonFinger(id int, b *VirtualButton, pos core.Point) {
+	if b.Contains(pos) {
+		b.pressFinger(id)
+		return
+	}
+	b.releaseFinger(id)
+	if !p.SlideBetweenButtons {
+		return
+	}
+	next, owner := p.buttonAt(pos, b)
+	if next == nil {
+		return
+	}
+	next.touchDown(id)
+	p.owners[id] = owner
+	p.pressed()
+}
+
+// buttonAt returns the first button other than except that contains pos and accepts a sliding finger, and the value p.owners records for it.
+func (p *VirtualPad) buttonAt(pos core.Point, except *VirtualButton) (*VirtualButton, any) {
+	for _, b := range p.Buttons {
+		if b != nil && b != except && b.Mode != ButtonToggle && b.Contains(pos) {
+			return b, b
+		}
+	}
+	for _, c := range p.Controls {
+		if bc, ok := c.(ButtonControl); ok {
+			if b := bc.Button(); b != except && b.Mode != ButtonToggle && b.Contains(pos) {
+				return b, bc
+			}
+		}
+	}
+	return nil, nil
+}
+
 func (p *VirtualPad) claimFinger(id int, pos core.Point) any {
-	// Buttons take priority over broader stick activation zones.
+	// Buttons take priority over broader stick activation zones and other controls.
 	for _, b := range p.Buttons {
 		if b != nil && b.Contains(pos) {
-			b.pressFinger(id)
+			b.touchDown(id)
+			p.pressed()
 			return b
+		}
+	}
+	for _, c := range p.Controls {
+		if bc, ok := c.(ButtonControl); ok && bc.Button().Contains(pos) {
+			bc.Button().touchDown(id)
+			p.pressed()
+			return bc
+		}
+	}
+	for _, c := range p.Controls {
+		if c == nil {
+			continue
+		}
+		if _, ok := c.(ButtonControl); ok {
+			continue
+		}
+		var before uint64
+		if p.OnPress != nil {
+			before = pressedMask(c)
+		}
+		if c.Claim(id, pos) {
+			if p.OnPress != nil && pressedMask(c)&^before != 0 {
+				p.pressed()
+			}
+			return c
 		}
 	}
 	for _, s := range p.Sticks {
@@ -673,6 +963,20 @@ func (p *VirtualPad) claimFinger(id int, pos core.Point) any {
 		}
 	}
 	return nil
+}
+
+// pressedMask returns a bit for each of the first 64 of c's actions that c currently presses.
+func pressedMask(c VirtualControl) uint64 {
+	var m uint64
+	for i, name := range c.ActionNames() {
+		if i >= 64 {
+			break
+		}
+		if name != "" && c.ActionPressed(name) {
+			m |= 1 << i
+		}
+	}
+	return m
 }
 
 func touchesHaveChanged(touches []core.Touch) bool {
