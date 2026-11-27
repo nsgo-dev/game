@@ -16,26 +16,27 @@ go tool game playtest                 # automated bot playtest and report
 go tool nsgo check -target macos,windows,linux,android,web
 ```
 
-The tests play the game through to the victory screen with the keyboard and to the defeat screen with a gamepad and with the touch pad, so a change that breaks the quest, the balance or a control fails them.
+The tests play the game through to the victory screen with the keyboard and to the defeat screen with a gamepad and with the on-screen touch controls, so a change that breaks the quest, the balance or a control fails them.
 
 ## Controls
 
-Every control is in `game.yaml`'s input map, so rebinding one is an edit there.
+Keyboard and gamepad controls live in `game.yaml`'s input map, and on-screen touch controls live in `controls.touch.yaml` (`input.TouchControls`).
 
-| Action | Keyboard | Gamepad | Touch and mouse |
+| Action | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
-| Walk, move through menus | Arrows or WASD | D-pad or left stick | The arrows of the on-screen pad |
+| Walk, move through menus | Arrows or WASD | D-pad or left stick | The floating stick at the bottom left |
 | Talk, go on, pick | Enter, Space or E | South (A) | The A button, or a tap on the conversation |
 | Back, open the pack | Escape or Backspace | East (B) | The B button |
 | Open and close the pack | Tab | Start | The Pack button |
 
-The on-screen pad is drawn on phones and tablets, and on other devices once the map is touched or clicked. Menus are buttons, so a tap or a click picks an entry too.
+The on-screen controls appear from the start on phones and tablets, stay hidden on desktop until the screen is touched, and hide again when a key or controller is used. Menus are native buttons, so a tap or a click picks an entry too.
 
 ## How it is organised
 
 | File | What it holds |
 | --- | --- |
 | `game.yaml` | The project file: name, window, the 480×270 virtual resolution, the input map and the export presets. |
+| `controls.touch.yaml` | The on-screen touch layout (a floating stick on `moveX`/`moveY` and A and B buttons) read by `input.TouchControls`. |
 | `data/world.yaml` | The maps, drawn as rows of characters, with their exits, people, foes, patrols and items, and the foes' stats. Its format is defined in `world.go`. |
 | `data/items.yaml` | The items, read by `inventory`: coins, potions, glowcaps and equipment. |
 | `data/stats.yaml` | The player's stats and each piece of equipment's bonuses, read by `stats`. |

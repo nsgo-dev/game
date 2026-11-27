@@ -26,15 +26,16 @@ The shrine lamp of Hollowbrook has gone out. Mira the healer needs three glowcap
 | Saves | Three slots in the app's storage holding the bag, equipment, quest, dialogue state and the map | [save](save.md) |
 | Screens | Title, map, battle, defeat and victory scenes with fades between them | [scene](scene.md) |
 
-Every control is bound in `game.yaml`'s input map: the arrows, WASD, Enter, Escape and Tab on a keyboard; the D-pad, left stick, South, East and Start on a gamepad; and an on-screen pad with A and B buttons for touch and the mouse, drawn on phones and tablets and, on other devices, once the map is touched or clicked. Menus are native buttons, so a tap or a click picks an entry, and the keyboard and gamepad move an outline through them. Its root scope requests landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`) for the 480×270 virtual display.
+Keyboard and gamepad controls are bound in `game.yaml`'s input map: the arrows, WASD, Enter, Escape and Tab on a keyboard; the D-pad, left stick, South, East and Start on a gamepad. On-screen touch controls come from `controls.touch.yaml` via `input.TouchControls`: a floating stick on `moveX`/`moveY` at the bottom left and A (confirm) and B (cancel) buttons at the bottom right, placed inside the safe area in view coordinates. They appear from the start on phones and tablets, stay hidden on desktop until the screen is touched, and hide again when a key or controller is used. Menus are native buttons, so a tap or a click picks an entry, and the keyboard and gamepad move an outline through them. Its root scope requests landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`) for the 480×270 virtual display.
 
-The tests play the game through the app: to the victory screen with the keyboard, and to the defeat screen with a gamepad and with the touch pad, saving and loading on the way.
+The tests play the game through the app: to the victory screen with the keyboard, and to the defeat screen with a gamepad and with the on-screen touch controls, saving and loading on the way.
 
 ## How it is organised
 
 | File | What it holds |
 | --- | --- |
 | `game.yaml` | The project file: the window, the 480×270 virtual resolution, the input map and the export presets |
+| `controls.touch.yaml` | The on-screen touch layout: a floating stick on `moveX`/`moveY` and A and B buttons, read by `input.TouchControls` |
 | `data/world.yaml` | The tiles, the foes' stats, where a new game starts, and each map's rows, exits, people, foes with their patrols, and items. The format is defined in `world.go`: it has a version, refuses unknown fields and is written back unchanged |
 | `data/items.yaml`, `data/stats.yaml`, `data/quests.yaml` | The item catalog, the player's stats and the equipment's effects, and the quest book |
 | `data/cast.yaml`, `data/dialogue.yarn` | The people's names, colors and portraits, and what they say |
@@ -52,5 +53,5 @@ A data file that does not load shows its error in the window instead of the game
 - **An item**: add it to `data/items.yaml`. A piece of equipment also needs an effect of the same name in `data/stats.yaml`.
 - **A quest**: add it to `data/quests.yaml` and start it from a conversation with `<<start id>>`. `mainQuest` in `data.go` is the quest whose completion wins the game.
 - **Balance**: the foes' stats are in `data/world.yaml`, the player's in `data/stats.yaml`. `TestThornhideNeedsTheIronSword` checks the fight the game is built around.
-- **Controls**: edit the input map in `game.yaml`; the touch pad is drawn where its regions are.
+- **Controls**: edit the `input` map in `game.yaml` for keyboard and gamepad, and `controls.touch.yaml` for the on-screen touch controls.
 - **Art**: replace `newAtlas` in `art.go` with `sprite.LoadAtlas`, keeping the frame names the data files use.

@@ -19,26 +19,27 @@ go tool nsgo dev
 - Stats from [`stats`](stats.md): health, attack and defense with an equipment slot each for a weapon and armor, which `Sheet.Refresh` swaps, timed tonic modifiers that `Sheet.Step` counts down once a turn, and levels that raise the bases.
 - Abilities from [`ability`](ability.md): a quaff that spends a draught and a cleave that strikes every neighbour, gated by conditions and cooldowns. The caster runs at one step a second, so every duration in `data/abilities.yaml` counts turns.
 - Permadeath with [`save`](save.md): the run is saved as the player arrives on each floor and after every turn, with the floor's world of actors as an `entities` snapshot and the state of its random streams, so closing the app and opening it again resumes the run exactly where it stood. Quitting before a blow lands undoes nothing, and the slot is deleted when the run is won or lost. A records slot counts every run, and the end-of-run panel shows the summary and the records.
-- One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, with on-screen controls on phones and tablets, and anywhere once the game has been touched or clicked, on a 320 by 180 virtual screen that requests landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`).
+- One input map in `game.yaml` for the keyboard and game controllers, paired with `input.TouchControls` from `controls.touch.yaml` so on-screen touch controls sit inside the safe area in view coordinates, on a 320 by 180 virtual screen that requests landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`).
 - Tests that play the game through to a win with the keyboard, a controller and touch, and to a death, check that the run slot is gone and the records count it, resume a run from storage mid-floor and play it out the same as the run that was never closed, refuse run slots with numbers out of range, generate every floor of forty seeds, check the balance with two bots over those seeds, check the rules one by one and check that every data file is canonical.
 
 ## Controls
 
 | | Keyboard | Controller | Touch |
 | --- | --- | --- | --- |
-| Move, or attack what is in the way | Arrows, WASD | Left stick, d-pad | The arrows at the bottom left |
-| Wait a turn | Space, `.` | South button | The dot between the arrows |
-| Quaff a draught | Q | West button | `!` at the bottom right |
-| Cleave everything next to you | E | North button | `C` at the bottom right |
+| Move, or attack what is in the way | Arrows, WASD | Left stick, d-pad | The 4-way d-pad at the bottom left |
+| Wait a turn | Space, `.` | South button | The WAIT button at the bottom right |
+| Quaff a draught | Q | West button | The QUAFF button at the bottom right |
+| Cleave everything next to you | E | North button | The CLEAVE button at the bottom right |
 | Play again after the run ends | R, Enter | Start | The Play again button |
 
-Holding a direction keeps walking, one step and then one every few frames. Holding the left mouse button over an on-screen control plays like touching it.
+Holding a direction keeps walking, one step and then one every few frames. The on-screen controls appear from the start on phones and tablets, stay hidden on desktop until the screen is touched, and hide again when a key or controller is used.
 
 ## How it is organised
 
 | File | What it holds |
 | --- | --- |
 | `game.yaml` | The project file: the window, the 320 by 180 virtual screen, the input map and the export presets. |
+| `controls.touch.yaml` | The on-screen touch layout: a 4-way d-pad and WAIT, QUAFF and CLEAVE buttons, read by `input.TouchControls`. |
 | `data/dungeon.yaml` | The player's progression, the floors, the monsters and the items, in the format below. |
 | `data/stats.yaml` | The player's stats and the effects weapons, armor and tonics apply, in the format of [`stats`](stats.md). |
 | `data/loot.yaml` | The drop tables floors and monsters roll, in the format of [`loot`](loot.md). |
@@ -111,6 +112,6 @@ Unknown fields, unknown kinds and generators, names that are not defined, and a 
 - **A new monster or item**: an entry in `data/dungeon.yaml`, its stats effect in `data/stats.yaml` for gear and tonics, and a line in a loot table for items. A new item kind needs a case in `run.take`.
 - **A new ability**: an entry in `data/abilities.yaml` with an `action`, a binding for that action in `game.yaml`, and a case in `run.abilityEvent` for its effect. `roguelikeGame.update` activates every ability by the `action` its entry names, and `run.act` uses whichever ability the action carries. A new condition or resource also needs a case in `run.condition` or `draughtPool` and its name in the data check.
 - **Smarter monsters**: the hunt system in `actors.go` walks down one distance map. A new behaviour is a new component and one more system on the scheduler `run.newMonsterTurn` builds, ordered with `entities.Before` and `entities.After`; [`ai`](ai.md) has behaviour trees and [`pathfind`](pathfind.md) has pathfinding for monsters that flee, keep their distance or patrol.
-- **Controls**: the `input` section of `game.yaml`; touch regions are in virtual screen points. `repeatDelay` and `repeatEvery` in `game.go` set how fast a held direction walks.
+- **Controls**: the `input` section of `game.yaml` for keyboard and controller, and `controls.touch.yaml` for the on-screen touch controls. `repeatDelay` and `repeatEvery` in `game.go` set how fast a held direction walks.
 - **Art**: `draw.go` draws letters and shapes; load an atlas with `sprite.LoadAtlas` and draw a `tilemap.Tilemap` painted with `procgen.Grid.Paint` instead.
 - **Saving**: `runSave` in `records.go` is the run slot, and the codecs `newActors` registers name the components in it. When either changes shape, raise `saveVersion` and give `newSaveStore` a `save.WithMigration`.

@@ -2,7 +2,9 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
 )
 
@@ -13,3 +15,19 @@ var gameYAML []byte
 
 // Project is the game's parsed project file.
 var Project = project.MustParse(gameYAML)
+
+// touchLayoutYAML is the game's on-screen touch controls: a d-pad at the bottom left and a jump button at the bottom right.
+//
+//go:embed controls.touch.yaml
+var touchLayoutYAML []byte
+
+// TouchLayout is the parsed controls.touch.yaml.
+var TouchLayout = mustParseTouchLayout(touchLayoutYAML)
+
+func mustParseTouchLayout(data []byte) input.TouchLayout {
+	l, err := input.ParseTouchLayout(data)
+	if err != nil {
+		panic(fmt.Sprintf("platformer2d: controls.touch.yaml: %v", err))
+	}
+	return l
+}

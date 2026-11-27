@@ -9,7 +9,7 @@ It demonstrates:
 - Monsters and items as entities in each floor's [`entities`](https://github.com/nsgo-dev/game/blob/main/docs/en/entities.md) world, with the monsters' turn played by a notice system and a hunt system on an `entities.Scheduler`.
 - Weighted floor loot and monster drops with pity counters from [`loot`](https://github.com/nsgo-dev/game/blob/main/docs/en/loot.md), player stats with equipment and timed tonic modifiers from [`stats`](https://github.com/nsgo-dev/game/blob/main/docs/en/stats.md), and a quaff and a cleave from [`ability`](https://github.com/nsgo-dev/game/blob/main/docs/en/ability.md), whose cooldowns count turns.
 - Permadeath with [`save`](https://github.com/nsgo-dev/game/blob/main/docs/en/save.md): the run is saved as the player arrives on each floor and after every turn, so it resumes exactly where it stood, and deleted when it ends, and the records slot counts every run.
-- One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, with on-screen controls on phones and tablets.
+- One input map in `game.yaml` for the keyboard and game controllers, paired with `input.TouchControls` from `controls.touch.yaml` for on-screen touch controls inside the safe area.
 - Headless tests that play the game to a win with the keyboard, a controller and touch, and to a death.
 
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
@@ -23,13 +23,13 @@ go run github.com/nsgo-dev/game/cmd/game project check
 
 | | Keyboard | Controller | Touch |
 | --- | --- | --- | --- |
-| Move, or attack what is in the way | Arrows, WASD | Left stick, d-pad | The arrows at the bottom left |
-| Wait a turn | Space, `.` | South button | The dot between the arrows |
-| Quaff a draught | Q | West button | `!` at the bottom right |
-| Cleave everything next to you | E | North button | `C` at the bottom right |
+| Move, or attack what is in the way | Arrows, WASD | Left stick, d-pad | The 4-way d-pad at the bottom left |
+| Wait a turn | Space, `.` | South button | The WAIT button at the bottom right |
+| Quaff a draught | Q | West button | The QUAFF button at the bottom right |
+| Cleave everything next to you | E | North button | The CLEAVE button at the bottom right |
 | Play again after the run ends | R, Enter | Start | The Play again button |
 
-Holding a direction keeps walking. Holding the left mouse button over an on-screen control plays like touching it.
+Holding a direction keeps walking. The on-screen controls appear from the start on phones and tablets, stay hidden on desktop until the screen is touched, and hide again when a key or controller is used.
 
 ## Running and Testing
 
@@ -62,6 +62,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 ## Layout
 
 - `game.yaml`: the project file, with the window, the 320 by 180 virtual screen, the input map and the export presets.
+- `controls.touch.yaml`: the on-screen touch layout (a 4-way d-pad and WAIT, QUAFF and CLEAVE buttons) read by `input.TouchControls`.
 - `data/dungeon.yaml`: the player's progression, the floors, the monsters and the items, in the format `dungeon.go` describes.
 - `data/stats.yaml`, `data/loot.yaml`, `data/abilities.yaml`: the player's stats and item effects, the drop tables, and the abilities, in the formats of `stats`, `loot` and `ability`.
 - `data.go`, `dungeon.go`: loading the data files and checking the names they use from each other.

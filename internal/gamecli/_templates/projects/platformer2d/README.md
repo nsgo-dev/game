@@ -7,7 +7,7 @@ It shows:
 - A `platformer.Controller` over a `physics.CharacterBody`: run, variable-height jumps, coyote time, jump buffering, one-way ledges, wall slides and wall jumps, tuned by `data/player.yaml`.
 - A level drawn as text in `data/level.yaml`, built into a `physics.Grid` to collide with, a `tilemap.Tilemap` to draw and `physics.Trigger` sensors for spikes, sparks, the lamp and the beacon.
 - Rooms with their own camera bounds from `data/rooms.yaml`: a `rooms.Director` slides a `tilemap.Camera` between them and the player waits while it does.
-- One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, bound into an `input.Actions` with `Project.BindInput`; on-screen controls are drawn where the touch regions are.
+- One input map in `game.yaml` for the keyboard and game controllers, bound into an `input.Actions` with `Project.BindInput`, paired with `input.TouchControls` from `controls.touch.yaml` so on-screen touch controls sit inside the safe area in view coordinates.
 - A 320 by 180 virtual screen scaled by whole multiples, a native HUD and end-of-run panel over the canvas, and art drawn by code.
 - Tests that play the level through with the keyboard, a controller and touch to a win, run into the spikes to a loss, and check the data files, the rules and the controller's timing.
 
@@ -15,11 +15,11 @@ It shows:
 
 | | Keyboard | Controller | Touch |
 | --- | --- | --- | --- |
-| Run | Left and right arrows, A and D | Left stick, d-pad | The left and right arrows at the bottom left |
-| Jump (hold to jump higher) | Space, up arrow, W | South button (A on Xbox, Cross on PlayStation) | The arrow at the bottom right |
+| Run | Left and right arrows, A and D | Left stick, d-pad | The d-pad at the bottom left (slide between left and right) |
+| Jump (hold to jump higher) | Space, up arrow, W | South button (A on Xbox, Cross on PlayStation) | The JUMP button at the bottom right |
 | Play again after the run ends | R, Enter | Start | The Play again button |
 
-The mouse plays like touch: hold the left button over an on-screen control. The controls are drawn on phones and tablets, and anywhere once the game view has been touched or clicked.
+The on-screen controls appear from the start on phones and tablets, stay hidden on desktop until the screen is touched, and hide again when a key or controller is used.
 
 ## Running and testing
 
@@ -44,6 +44,7 @@ go run github.com/nsgo-dev/game/cmd/game project check
 ## Layout
 
 - `game.yaml`: the project file, with the window, the virtual screen, the input map and the export presets.
+- `controls.touch.yaml`: the on-screen touch layout (a bottom-left d-pad and a bottom-right jump button) read by `input.TouchControls`.
 - `data/level.yaml`: the level, one character per tile (the legend is on `Level` in `level.go`), its tile size and the lives a run starts with.
 - `data/rooms.yaml`: the rooms, in world points, and the camera transition into them.
 - `data/player.yaml`: the controller's tuning.
@@ -62,7 +63,7 @@ go run github.com/nsgo-dev/game/cmd/game project check
 - Change how the player feels: `data/player.yaml`. Raise `coyote_time` and `jump_buffer` for a more forgiving jump, set `wall_jump_speed_y: 0` to turn wall jumps off.
 - Add a tile kind: a glyph in `level.go`, a case in `newWorld` for what it does and one in `newTilemap` for how it looks.
 - Add enemies or moving platforms: give each a `physics.Body`, move it in `world.step`, pass moving platforms to `Controller.Step` and add a sensor that sets `w.hurt`.
-- Rebind a control: the `input` section of `game.yaml`; the touch regions are in virtual screen points.
+- Rebind a control: the `input` section of `game.yaml` for keyboard and controller, and `controls.touch.yaml` for the on-screen touch controls.
 - Replace the art: load an atlas with `sprite.LoadAtlas` in `newPlayerAtlas` and a tileset image in `newTilemap`, or load the whole level from a Tiled map with `tilemap.LoadTiled`.
 - Add sound with `sound.Mixer`, configured from an `audio` section in `game.yaml`.
 

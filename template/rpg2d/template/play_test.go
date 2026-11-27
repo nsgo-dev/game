@@ -14,7 +14,7 @@ import (
 // TestMain gives the platform the main thread under nsgo test -target.
 func TestMain(m *testing.M) { nsgotest.Main(m) }
 
-// These tests play the game through the app as a player would, with the keyboard, a gamepad or the touch pad: each walks the maps with the input map's bindings, talks to people and fights, and reaches the victory screen or the defeat screen.
+// These tests play the game through the app as a player would, with the keyboard, a gamepad or the on-screen touch controls: each walks the maps with the input map's bindings, talks to people and fights, and reaches the victory screen or the defeat screen.
 
 // controls is one input device.
 type controls interface {
@@ -64,8 +64,9 @@ var actionButtons = map[string]gamepad.Button{actionConfirm: gamepad.ButtonSouth
 func (p *pad) down(action string) { p.app.SetGamepadButton(1, actionButtons[action], 1) }
 func (p *pad) up(action string)   { p.app.SetGamepadButton(1, actionButtons[action], 0) }
 
-// touch plays with fingers on the on-screen pad, at the regions game.yaml gives its actions.
+// touch plays with fingers on the floating stick and the A and B buttons from controls.touch.yaml.
 type touch struct {
+	t      *testing.T
 	app    *nsgotest.App
 	a      *app
 	held   dir
@@ -73,32 +74,49 @@ type touch struct {
 	press  *nsgotest.Finger
 }
 
-// at returns the middle of action's touch region in the stage's coordinates.
-func (tc *touch) at(action string) core.Point {
-	r, ok := Project.Region(action)
-	if !ok {
-		panic("no touch region for " + action)
+func controlFrame(t *testing.T, a *app, id string) core.Bounds {
+	t.Helper()
+	for _, c := range a.touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
 	}
-	mid := core.Point{X: r.Origin.X + r.Size.Width/2, Y: r.Origin.Y + r.Size.Height/2}
-	return tc.a.viewport.GameToView(tc.a.size, mid)
+	t.Fatalf("no touch control %q", id)
+	return core.Bounds{}
+}
+
+func centerOf(f core.Bounds) core.Point {
+	return core.Point{X: f.Origin.X + f.Size.Width/2, Y: f.Origin.Y + f.Size.Height/2}
 }
 
 func (tc *touch) hold(d dir) {
 	if d == tc.held {
 		return
 	}
-	if tc.finger != nil {
-		tc.finger.Lift()
-		tc.finger = nil
+	if d == dirNone {
+		if tc.finger != nil {
+			tc.finger.Lift()
+			tc.finger = nil
+		}
+		tc.held = dirNone
+		return
 	}
-	if name := map[dir]string{dirUp: actionUp, dirDown: actionDown, dirLeft: actionLeft, dirRight: actionRight}[d]; name != "" {
-		tc.finger = tc.app.Touch("id:stage", tc.at(name))
+	stick := tc.a.touch.Stick("move")
+	center := stick.Center
+	if tc.finger == nil {
+		tc.finger = tc.app.Touch("id:stage", center)
 	}
+	dx, dy := d.delta()
+	r := core.Points(stick.Radius)
+	tc.finger.Move(core.Point{X: center.X + core.Points(dx)*r, Y: center.Y + core.Points(dy)*r})
 	tc.held = d
 }
 
-func (tc *touch) down(action string) { tc.press = tc.app.Touch("id:stage", tc.at(action)) }
-func (tc *touch) up(string)          { tc.press.Lift() }
+func (tc *touch) down(action string) {
+	tc.press = tc.app.Touch("id:stage", centerOf(controlFrame(tc.t, tc.a, action)))
+}
+
+func (tc *touch) up(string) { tc.press.Lift() }
 
 // player drives the app through one input device and reads the game to decide what to do next.
 type player struct {
@@ -462,17 +480,22 @@ func TestLoseToThornhideWithGamepad(t *testing.T) {
 	}
 }
 
-// TestPlayWithTouch walks with the touch pad, talks with the A button and taps, saves and loads through the pack's buttons and loses to Thornhide pressing Attack.
+// TestPlayWithTouch walks with the floating stick, talks with the A button and taps, opens the pack with B, saves and loads through the pack's buttons and loses to Thornhide pressing Attack.
 func TestPlayWithTouch(t *testing.T) {
-	p := startApp(t, func(app *nsgotest.App, a *app) controls { return &touch{app: app, a: a} },
-		nsgotest.Environment(core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}))
+	p := startApp(t, func(app *nsgotest.App, a *app) controls { return &touch{t: t, app: app, a: a} },
+		nsgotest.Environment(core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone, SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
 	p.app.Press("id:menu-new")
 	p.step()
 	if p.g.mode != modeField {
 		t.Fatalf("mode %v after pressing New game", p.g.mode)
 	}
+	for _, id := range []string{"touch-move", "touch-confirm", "touch-cancel"} {
+		if !p.app.Exists("id:" + id) {
+			t.Fatalf("%s is not visible on a phone", id)
+		}
+	}
 
-	// Talk to Pell: the A pad starts the conversation and taps anywhere move it on.
+	// Talk to Pell: the A button starts the conversation and taps anywhere move it on.
 	p.walkTo(Cell{31, 6})
 	p.tapMove(dirUp)
 	p.press(actionConfirm)
@@ -489,8 +512,11 @@ func TestPlayWithTouch(t *testing.T) {
 		t.Fatalf("mode %v, %d potions after talking to Pell", p.g.mode, p.g.bag.Count(itemPotion))
 	}
 
-	p.app.Press("id:hud-pack")
-	p.step()
+	// The B button opens the pack on the field.
+	p.press(actionCancel)
+	if p.g.mode != modeMenu {
+		t.Fatalf("mode %v after pressing B", p.g.mode)
+	}
 	p.app.Press("id:menu-save")
 	p.step()
 	p.app.Press("id:menu-slot1")
@@ -518,13 +544,13 @@ func TestTitleShowsTheGameAndPadsOnlyOnTouchScreens(t *testing.T) {
 	if len(desk.app.Find("id:game-canvas").Ops) == 0 {
 		t.Fatal("the title screen draws nothing")
 	}
-	if desk.a.touch {
-		t.Fatal("a desktop shows the touch pad")
+	if desk.a.touch.Visible() {
+		t.Fatal("a desktop shows the touch controls")
 	}
-	phone := startApp(t, func(app *nsgotest.App, a *app) controls { return &touch{app: app, a: a} },
+	phone := startApp(t, func(app *nsgotest.App, a *app) controls { return &touch{t: t, app: app, a: a} },
 		nsgotest.Environment(core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}))
-	if !phone.a.touch {
-		t.Fatal("a phone hides the touch pad")
+	if !phone.a.touch.Visible() {
+		t.Fatal("a phone hides the touch controls")
 	}
 }
 
@@ -533,6 +559,92 @@ func TestRequestsOrientation(t *testing.T) {
 	if app.Orientation != core.OrientationLandscape {
 		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
 	}
+}
+
+func TestTouchControlsHideOnDesktopUntilTouched(t *testing.T) {
+	p := startApp(t, func(app *nsgotest.App, _ *app) controls { return &keyboard{app: app} }, onDesktop)
+	p.newGame()
+	if p.a.touch.Visible() || p.app.Exists("id:touch-move") {
+		t.Fatal("the touch controls show on a desktop before any touch")
+	}
+
+	// Clicking the mouse on the stage neither shows the controls nor moves or opens the pack.
+	startPos := p.g.pos
+	for _, at := range []core.Point{centerOf(controlFrame(t, p.a, "move")), centerOf(controlFrame(t, p.a, "confirm")), centerOf(controlFrame(t, p.a, "cancel"))} {
+		p.app.PressDown("id:stage")
+		p.app.HoverAt("id:stage", at)
+		p.steps(3)
+		p.app.PressUp("id:stage")
+		p.step()
+	}
+	if p.a.touch.Visible() || p.app.Exists("id:touch-move") {
+		t.Fatal("a mouse click showed the touch controls")
+	}
+	if p.g.pos != startPos || p.g.mode != modeField {
+		t.Fatalf("a mouse click changed state: pos %v (want %v), mode %v", p.g.pos, startPos, p.g.mode)
+	}
+
+	// Touching the floating stick off-center inside its frame shows the controls and walks.
+	frame := controlFrame(t, p.a, "move")
+	start := core.Point{X: frame.Origin.X + frame.Size.Width*0.35, Y: frame.Origin.Y + frame.Size.Height*0.4}
+	finger := p.app.Touch("id:stage", start)
+	r := core.Points(p.a.touch.Stick("move").Radius)
+	finger.Move(core.Point{X: start.X + r, Y: start.Y})
+	p.steps(12)
+	finger.Lift()
+	p.step()
+	if !p.a.touch.Visible() || !p.app.Exists("id:touch-move") || !p.app.Exists("id:touch-confirm") || !p.app.Exists("id:touch-cancel") {
+		t.Fatal("a touch did not show the touch controls")
+	}
+	if p.g.pos == startPos {
+		t.Fatal("dragging the floating stick did not walk the player")
+	}
+
+	// Pressing a key hides them again.
+	p.tapMove(dirLeft)
+	if p.a.touch.Visible() || p.app.Exists("id:touch-move") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
+}
+
+func TestTouchControlsStayInsideSafeAreaAndOutsideLetterbox(t *testing.T) {
+	overlaps := func(a, b core.Bounds) bool {
+		return a.Origin.X < b.Origin.X+b.Size.Width && b.Origin.X < a.Origin.X+a.Size.Width &&
+			a.Origin.Y < b.Origin.Y+b.Size.Height && b.Origin.Y < a.Origin.Y+a.Size.Height
+	}
+	checkLayout := func(t *testing.T, size core.Size, safe core.Edges, checkLetterbox bool) {
+		t.Helper()
+		p := startApp(t, func(app *nsgotest.App, a *app) controls { return &touch{t: t, app: app, a: a} },
+			nsgotest.Size(size.Width, size.Height),
+			nsgotest.Environment(core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone, SafeArea: safe}))
+		p.app.Press("id:menu-new")
+		p.step()
+		controls := p.a.touch.Controls()
+		playfieldBottom := p.a.viewport.GameToView(size, core.Point{X: core.Points(p.a.viewport.Width), Y: core.Points(p.a.viewport.Height)}).Y
+		for i, c := range controls {
+			if c.Frame.Size.Width < 44 || c.Frame.Size.Height < 44 {
+				t.Errorf("%s is smaller than 44pt: %+v", c.ID, c.Frame.Size)
+			}
+			if c.Frame.Origin.X < safe.Left || c.Frame.Origin.X+c.Frame.Size.Width > size.Width-safe.Right ||
+				c.Frame.Origin.Y < safe.Top || c.Frame.Origin.Y+c.Frame.Size.Height > size.Height-safe.Bottom {
+				t.Errorf("%s is outside the safe area: %+v", c.ID, c.Frame)
+			}
+			if checkLetterbox && c.Frame.Origin.Y < playfieldBottom {
+				t.Errorf("%s (%+v) overlaps the letterboxed playfield (bottom %.1f)", c.ID, c.Frame, playfieldBottom)
+			}
+			for j := i + 1; j < len(controls); j++ {
+				if overlaps(c.Frame, controls[j].Frame) {
+					t.Errorf("%s (%+v) overlaps %s (%+v)", c.ID, c.Frame, controls[j].ID, controls[j].Frame)
+				}
+			}
+		}
+	}
+	t.Run("landscape phone", func(t *testing.T) {
+		checkLayout(t, core.Size{Width: 844, Height: 390}, core.Edges{Left: 47, Right: 47, Bottom: 21}, false)
+	})
+	t.Run("portrait phone", func(t *testing.T) {
+		checkLayout(t, core.Size{Width: 390, Height: 844}, core.Edges{Top: 59, Bottom: 34}, true)
+	})
 }
 
 // onDesktop runs a test on a desktop, where nsgotest would otherwise use a phone.

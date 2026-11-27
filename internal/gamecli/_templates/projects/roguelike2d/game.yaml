@@ -22,11 +22,6 @@ input:
           code: KeyW
         - kind: gamepadButton
           button: dpadUp
-        - kind: touchRegion
-          region: {x: 26, "y": 102, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 26, "y": 102, width: 22, height: 22}
     - name: down
       bindings:
         - kind: key
@@ -35,11 +30,6 @@ input:
           code: KeyS
         - kind: gamepadButton
           button: dpadDown
-        - kind: touchRegion
-          region: {x: 26, "y": 146, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 26, "y": 146, width: 22, height: 22}
     - name: left
       bindings:
         - kind: key
@@ -48,11 +38,6 @@ input:
           code: KeyA
         - kind: gamepadButton
           button: dpadLeft
-        - kind: touchRegion
-          region: {x: 4, "y": 124, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 4, "y": 124, width: 22, height: 22}
     - name: right
       bindings:
         - kind: key
@@ -61,11 +46,6 @@ input:
           code: KeyD
         - kind: gamepadButton
           button: dpadRight
-        - kind: touchRegion
-          region: {x: 48, "y": 124, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 48, "y": 124, width: 22, height: 22}
     - name: wait
       bindings:
         - kind: key
@@ -74,33 +54,18 @@ input:
           code: Period
         - kind: gamepadButton
           button: south
-        - kind: touchRegion
-          region: {x: 26, "y": 124, width: 22, height: 22}
-        - kind: mouseRegion
-          button: left
-          region: {x: 26, "y": 124, width: 22, height: 22}
     - name: quaff
       bindings:
         - kind: key
           key: q
         - kind: gamepadButton
           button: west
-        - kind: touchRegion
-          region: {x: 288, "y": 136, width: 30, height: 30}
-        - kind: mouseRegion
-          button: left
-          region: {x: 288, "y": 136, width: 30, height: 30}
     - name: cleave
       bindings:
         - kind: key
           key: e
         - kind: gamepadButton
           button: north
-        - kind: touchRegion
-          region: {x: 254, "y": 136, width: 30, height: 30}
-        - kind: mouseRegion
-          button: left
-          region: {x: 254, "y": 136, width: 30, height: 30}
     - name: restart
       bindings:
         - kind: key

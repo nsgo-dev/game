@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/pkg/text"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/game/pkg/vn"
 	"github.com/nsgo-dev/nsgo/core"
@@ -84,8 +83,8 @@ func (g *Game) drawMap(d *core.Drawing) {
 	d.Restore()
 }
 
-// drawField draws the map, the on-screen pad when touch is set and, during a conversation, its text box, portraits and options.
-func (g *Game) drawField(d *core.Drawing, touch bool) {
+// drawField draws the map and, during a conversation, its text box, portraits and options.
+func (g *Game) drawField(d *core.Drawing) {
 	g.drawMap(d)
 	if g.mode == modeTalk {
 		st := talkStyle(g.c)
@@ -96,29 +95,6 @@ func (g *Game) drawField(d *core.Drawing, touch bool) {
 			d.SetStrokeColor(core.RGB(0xf2d14b)).SetLineWidth(2).BeginPath().
 				RoundRect(float32(b.Origin.X), float32(b.Origin.Y), float32(b.Size.Width), float32(b.Size.Height), 10).Stroke()
 		}
-		return
-	}
-	if touch && g.mode == modeField {
-		drawPads(d)
-	}
-}
-
-// drawPads draws the on-screen pad where game.yaml's touch regions are: arrows for the four directions, A to confirm and B to cancel.
-func drawPads(d *core.Drawing) {
-	labels := map[string]string{actionUp: "▲", actionDown: "▼", actionLeft: "◀", actionRight: "▶", actionConfirm: "A", actionCancel: "B"}
-	for _, name := range padActions {
-		r, ok := Project.Region(name)
-		if !ok {
-			continue
-		}
-		x, y, w, h := float32(r.Origin.X), float32(r.Origin.Y), float32(r.Size.Width), float32(r.Size.Height)
-		d.SetFillColor(core.RGBA(0x0f172a, 0.45)).BeginPath().RoundRect(x+2, y+2, w-4, h-4, 8).Fill()
-		text.DrawPlatform(d, labels[name], x+w/2, y+h/2, text.PlatformStyle{
-			Font:     core.Font{Size: 14, Weight: core.FontWeightBold},
-			Color:    core.RGBA(0xffffff, 0.85),
-			Align:    text.AlignCenter,
-			Baseline: core.BaselineMiddle,
-		})
 	}
 }
 

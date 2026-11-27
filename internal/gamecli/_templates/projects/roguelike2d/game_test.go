@@ -97,29 +97,47 @@ func (c controller) perform(a action) {
 
 // touchscreen taps the on-screen controls.
 type touchscreen struct {
+	t   *testing.T
 	app *nsgotest.App
 	g   *roguelikeGame
 }
 
-func (s touchscreen) perform(a action) {
-	name := map[string]string{abilityQuaff: actionQuaff, abilityCleave: actionCleave}[a.ability]
-	switch a.kind {
-	case actWait:
-		name = actionWait
-	case actMove:
-		name = map[cell]string{{Y: -1}: "up", {Y: 1}: "down", {X: -1}: "left", {X: 1}: "right"}[a.dir]
+func controlFrame(t *testing.T, g *roguelikeGame, id string) core.Bounds {
+	t.Helper()
+	for _, c := range g.touch.Controls() {
+		if c.ID == id {
+			return c.Frame
+		}
 	}
-	var finger *nsgotest.Finger
-	press(s.app, func() { finger = s.app.Touch("game-view", regionCenter(s.g, name)) }, func() { finger.Lift() })
+	t.Fatalf("no touch control %q", id)
+	return core.Bounds{}
 }
 
-// regionCenter returns the middle of the region game.yaml binds to action, in the game view's points.
-func regionCenter(g *roguelikeGame, action string) core.Point {
-	r, ok := Project.Region(action)
-	if !ok {
-		panic("game.yaml binds no region to " + action)
+func centerOf(f core.Bounds) core.Point {
+	return core.Point{X: f.Origin.X + f.Size.Width/2, Y: f.Origin.Y + f.Size.Height/2}
+}
+
+func dpadPoint(t *testing.T, g *roguelikeGame, dir cell) core.Point {
+	t.Helper()
+	f := controlFrame(t, g, "move")
+	c := centerOf(f)
+	r := min(f.Size.Width, f.Size.Height) / 2
+	return core.Point{X: c.X + core.Points(dir.X)*r*0.65, Y: c.Y + core.Points(dir.Y)*r*0.65}
+}
+
+func (s touchscreen) perform(a action) {
+	var at core.Point
+	switch a.kind {
+	case actWait:
+		at = centerOf(controlFrame(s.t, s.g, "wait"))
+	case actMove:
+		at = dpadPoint(s.t, s.g, a.dir)
+	case actAbility:
+		id := map[string]string{abilityQuaff: "quaff", abilityCleave: "cleave"}[a.ability]
+		at = centerOf(controlFrame(s.t, s.g, id))
 	}
-	return g.viewport.GameToView(g.currentViewSize(), core.Point{X: r.Origin.X + r.Size.Width/2, Y: r.Origin.Y + r.Size.Height/2})
+	var finger *nsgotest.Finger
+	press(s.app, func() { finger = s.app.Touch("game-view", at) }, func() { finger.Lift() })
 }
 
 // play performs the bot's actions with dev until the run ends, failing when an action takes no turn or limit turns pass.
@@ -175,12 +193,86 @@ func TestGamepadPlaythroughWins(t *testing.T) {
 }
 
 func TestTouchPlaythroughWins(t *testing.T) {
-	app, g := startGame(t, []uint64{winSeed})
-	play(t, g, touchscreen{app, g}, botClear, 5000)
+	app, g := startGame(t, []uint64{winSeed}, nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
+	for _, id := range []string{"touch-move", "touch-wait", "touch-quaff", "touch-cleave"} {
+		if !app.Exists("id:" + id) {
+			t.Fatalf("%s is not visible on a phone", id)
+		}
+	}
+	play(t, g, touchscreen{t, app, g}, botClear, 5000)
 	checkWin(t, app, g)
-	if !g.showTouchControls() {
+	if !g.touch.Visible() {
 		t.Error("the on-screen controls are hidden after the screen was touched")
 	}
+}
+
+func TestTouchControlsHideOnDesktopUntilTouched(t *testing.T) {
+	app, g := startGame(t, []uint64{winSeed}, nsgotest.Idiom(core.IdiomDesktop))
+	if g.touch.Visible() || app.Exists("id:touch-move") {
+		t.Fatal("the touch controls show on a desktop before any touch")
+	}
+
+	// Clicking the mouse where the d-pad or wait button sits neither shows the controls nor takes a turn.
+	for _, at := range []core.Point{dpadPoint(t, g, openStep(g.run)), centerOf(controlFrame(t, g, "wait"))} {
+		press(app, func() { app.PressDown("game-view"); app.HoverAt("game-view", at) }, func() { app.PressUp("game-view") })
+	}
+	if g.touch.Visible() || app.Exists("id:touch-move") {
+		t.Fatal("a mouse click showed the touch controls")
+	}
+	if g.run.turns != 0 {
+		t.Fatalf("mouse clicks took %d turns, want 0", g.run.turns)
+	}
+
+	// Touching the wait button shows the controls and takes a turn.
+	touchscreen{t, app, g}.perform(action{kind: actWait})
+	if !g.touch.Visible() || !app.Exists("id:touch-move") || !app.Exists("id:touch-wait") {
+		t.Fatal("a touch did not show the touch controls")
+	}
+	if g.run.turns != 1 {
+		t.Fatalf("touching wait took %d turns, want 1", g.run.turns)
+	}
+
+	// Using the keyboard hides them again.
+	keyboard{app}.perform(action{kind: actWait})
+	if g.touch.Visible() || app.Exists("id:touch-move") {
+		t.Fatal("the keyboard did not hide the touch controls")
+	}
+}
+
+func TestTouchControlsStayInsideSafeAreaAndOutsideLetterbox(t *testing.T) {
+	overlaps := func(a, b core.Bounds) bool {
+		return a.Origin.X < b.Origin.X+b.Size.Width && b.Origin.X < a.Origin.X+a.Size.Width &&
+			a.Origin.Y < b.Origin.Y+b.Size.Height && b.Origin.Y < a.Origin.Y+a.Size.Height
+	}
+	checkLayout := func(t *testing.T, size core.Size, safe core.Edges, checkLetterbox bool) {
+		t.Helper()
+		_, g := startGame(t, []uint64{winSeed}, nsgotest.Size(size.Width, size.Height), nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: safe}))
+		controls := g.touch.Controls()
+		playfieldBottom := g.viewport.GameToView(size, core.Point{X: core.Points(g.viewport.Width), Y: core.Points(g.viewport.Height)}).Y
+		for i, c := range controls {
+			if c.Frame.Size.Width < 44 || c.Frame.Size.Height < 44 {
+				t.Errorf("%s is smaller than 44pt: %+v", c.ID, c.Frame.Size)
+			}
+			if c.Frame.Origin.X < safe.Left || c.Frame.Origin.X+c.Frame.Size.Width > size.Width-safe.Right ||
+				c.Frame.Origin.Y < safe.Top || c.Frame.Origin.Y+c.Frame.Size.Height > size.Height-safe.Bottom {
+				t.Errorf("%s is outside the safe area: %+v", c.ID, c.Frame)
+			}
+			if checkLetterbox && c.Frame.Origin.Y < playfieldBottom {
+				t.Errorf("%s (%+v) overlaps the letterboxed playfield (bottom %.1f)", c.ID, c.Frame, playfieldBottom)
+			}
+			for j := i + 1; j < len(controls); j++ {
+				if overlaps(c.Frame, controls[j].Frame) {
+					t.Errorf("%s (%+v) overlaps %s (%+v)", c.ID, c.Frame, controls[j].ID, controls[j].Frame)
+				}
+			}
+		}
+	}
+	t.Run("landscape phone", func(t *testing.T) {
+		checkLayout(t, core.Size{Width: 844, Height: 390}, core.Edges{Left: 47, Right: 47, Bottom: 21}, false)
+	})
+	t.Run("portrait phone", func(t *testing.T) {
+		checkLayout(t, core.Size{Width: 390, Height: 844}, core.Edges{Top: 59, Bottom: 34}, true)
+	})
 }
 
 // TestDivingIsFatalAndPermanent loses a run, checks the summary and the records, checks that permadeath deleted the run slot, and starts another run with Play again.
@@ -292,7 +384,7 @@ func TestUnreadableSlotsStartAfresh(t *testing.T) {
 	}
 }
 
-// TestEachBindingActs checks every binding of the movement and wait actions takes a turn: keys, physical keys, the d-pad, the stick, touch and the mouse over the on-screen controls.
+// TestEachBindingActs checks every binding of the movement and wait actions takes a turn: keys, physical keys, the d-pad, the stick and touch over the on-screen controls.
 func TestEachBindingActs(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -317,12 +409,7 @@ func TestEachBindingActs(t *testing.T) {
 			controller{app}.perform(action{kind: actMove, dir: openStep(g.run)})
 		}},
 		{"touch", func(app *nsgotest.App, g *roguelikeGame) {
-			touchscreen{app, g}.perform(action{kind: actMove, dir: openStep(g.run)})
-		}},
-		{"click", func(app *nsgotest.App, g *roguelikeGame) {
-			name := map[cell]string{{Y: -1}: "up", {Y: 1}: "down", {X: -1}: "left", {X: 1}: "right"}[openStep(g.run)]
-			at := regionCenter(g, name)
-			press(app, func() { app.PressDown("game-view"); app.HoverAt("game-view", at) }, func() { app.PressUp("game-view") })
+			touchscreen{t, app, g}.perform(action{kind: actMove, dir: openStep(g.run)})
 		}},
 		{"period", func(app *nsgotest.App, _ *roguelikeGame) {
 			press(app, func() { app.KeyCodeDown("Period") }, func() { app.KeyCodeUp("Period") })

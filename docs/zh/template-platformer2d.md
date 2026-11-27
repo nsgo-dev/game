@@ -16,7 +16,7 @@ go tool game playtest
 - 基于 `physics.CharacterBody` 的 [`platformer.Controller`](platformer.md)：可变高度跳跃、土狼时间、跳跃缓冲、单向平台、贴墙下滑和蹬墙跳，全部由 `data/player.yaml` 调校。
 - 在 `data/level.yaml` 里用文本画出的关卡，构建为用于碰撞的 `physics.Grid`、用于绘制的 `tilemap.Tilemap`，以及尖刺、火花、灯和信标的 `physics.Trigger` 感应区。
 - 来自 `data/rooms.yaml`、各有相机边界的房间：[`rooms.Director`](rooms.md) 把相机从一个房间滑到下一个房间，玩家等相机停稳后再继续。
-- `game.yaml` 里的一份输入映射，同时覆盖键盘、手柄、触屏和鼠标，用 `Project.BindInput` 绑定；在手机和平板上，以及任何设备在游戏视图被触摸或点击过之后，触屏区域上会画出屏幕按键。
+- `game.yaml` 里的一份输入映射覆盖键盘和手柄，用 `Project.BindInput` 绑定，并配合来自 `controls.touch.yaml` 的 `input.TouchControls`，在视图坐标的安全区内绘制屏幕触控控件。
 - 按整数倍缩放的 320×180 虚拟屏幕，画布上方是原生 HUD 和一局结束时的面板，在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。
 - 测试分别用键盘、手柄和双指触屏把关卡玩到获胜，一直撞向尖刺直到输掉，并检查规则、控制器的时序以及每个数据文件都是规范格式。
 
@@ -24,17 +24,18 @@ go tool game playtest
 
 | | 键盘 | 手柄 | 触屏 |
 | --- | --- | --- | --- |
-| 奔跑 | 左右方向键、A 和 D | 左摇杆、方向键 | 左下角的左右箭头 |
-| 跳跃（按住跳得更高） | 空格、上方向键、W | 下方按键 | 右下角的箭头 |
+| 奔跑 | 左右方向键、A 和 D | 左摇杆、方向键 | 左下角的方向盘（手指可在左右之间滑动） |
+| 跳跃（按住跳得更高） | 空格、上方向键、W | 下方按键 | 右下角的 JUMP 按钮 |
 | 一局结束后再来一局 | R、回车 | Start | “Play again”按钮 |
 
-在屏幕按键上按住鼠标左键，效果和触摸它一样；在桌面上，第一次在游戏视图里点击后屏幕按键就会出现。
+屏幕触控控件在手机和平板上一开始就会显示，在桌面上默认隐藏直到屏幕被触摸，再次按下键盘或使用手柄时会重新隐藏。
 
 ## 组织方式
 
 | 文件 | 内容 |
 | --- | --- |
 | `game.yaml` | 项目文件：窗口、虚拟屏幕、输入映射和导出预设。 |
+| `controls.touch.yaml` | 屏幕触控布局：左下角方向盘和右下角跳跃按钮，由 `input.TouchControls` 读取。 |
 | `data/level.yaml` | 关卡：每个字符一个图块，以及图块大小和一局开始时的命数。 |
 | `data/rooms.yaml` | 以世界坐标表示的房间，以及进入房间时的相机过渡，格式见 [`rooms`](rooms.md#房间地图)。 |
 | `data/player.yaml` | 控制器的调校参数，格式见 [`platformer`](platformer.md)。 |
@@ -77,6 +78,6 @@ tiles: |
 - **跳跃手感**：`data/player.yaml`。更长的 `coyote_time` 或 `jump_buffer` 能容忍按晚了或按早了，`wall_jump_speed_y: 0` 关闭蹬墙跳。
 - **新的图块种类**：在 `level.go` 里加一个字符，在 `newWorld` 里加一个分支决定它的作用，在 `newTilemap` 里加一个分支决定它的样子。
 - **敌人和移动平台**：给每个对象一个 `physics.Body`，在 `world.step` 里移动它，把移动平台传给 `Controller.Step`，再加一个设置 `hurt` 的感应区。
-- **操作**：`game.yaml` 的 `input` 部分；触屏区域以虚拟屏幕坐标表示。
+- **操作**：键盘和手柄在 `game.yaml` 的 `input` 部分，屏幕触控控件在 `controls.touch.yaml`。
 - **美术**：在 `newPlayerAtlas` 里用 `sprite.LoadAtlas` 加载图集，在 `newTilemap` 里加载图块集图片，或者用 `tilemap.LoadTiled` 从 Tiled 地图加载整个关卡。
 - **声音**：用 `game.yaml` 里 `audio` 部分配置的 `sound.Mixer`。

@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: dpad
+    anchor: bottomLeft
+    offset: {x: 16, "y": 16}
+    size: {width: 132, height: 132}
+    label: Move
+    ways: 4
+    up: up
+    down: down
+    left: left
+    right: right
+  - id: wait
+    kind: button
+    anchor: bottomRight
+    offset: {x: 16, "y": 16}
+    size: {width: 78, height: 78}
+    label: Wait
+    action: wait
+    text: WAIT
+  - id: quaff
+    kind: button
+    anchor: bottomRight
+    offset: {x: 124, "y": 16}
+    size: {width: 78, height: 78}
+    label: Quaff
+    action: quaff
+    text: QUAFF
+  - id: cleave
+    kind: button
+    anchor: bottomRight
+    offset: {x: 16, "y": 124}
+    size: {width: 78, height: 78}
+    label: Cleave
+    action: cleave
+    text: CLEAVE
