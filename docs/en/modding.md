@@ -40,7 +40,7 @@ The format is strict: `ParseManifest` refuses unknown or misspelled fields, dupl
 
 Capabilities are bitflags on `Capability`: `CapReadState` (`readState`), `CapWriteState` (`writeState`), `CapSpawnEntity` (`spawnEntity`), `CapEmitEvent` (`emitEvent`), `CapUI` (`ui`), `CapAudio` (`audio`), and `CapStorage` (`storage`). Calls outside a mod's granted capabilities fail with `*PermissionError` without crashing the host.
 
-NSGo gives every sandbox the `"nsgo"` module's `Storage`, in a partition of its own, with no capability to withhold it. A mod without `CapStorage` therefore gets a partition quota of one byte, the smallest NSGo accepts, so it can keep at most one entry whose key and value total one byte (such as `setItem("a", "")`) and every larger `Storage.setItem` call fails; reading still sees what the partition already holds, such as what the mod wrote while it had the capability.
+A mod without `CapStorage` runs with `tsx.Sandbox.DisableStorage` set, so every method on the `"nsgo"` module's `Storage` (`getItem`, `setItem`, `removeItem`, `clear`, `keys`) rejects with `tsx: Storage is disabled for this sandbox`, in addition to the `"game"` module's `storageGet`, `storageSet`, and `storageRemove` failing with `*PermissionError`. Disabling storage leaves any data already in the mod's partition in place, so granting `CapStorage` again exposes it once more.
 
 ## The `"game"` TSX module
 

@@ -113,60 +113,107 @@ export function trySpawn() { return spawn("goblin", 1, 2); }`,
 	}
 }
 
-// storageProbe tries the "nsgo" module's Storage, which every sandbox exposes, and records the outcome in game state.
+// storageProbe exports helpers around the "nsgo" module's Storage so tests can check setItem, getItem, and removeItem directly.
 const storageProbe = `import { Storage } from "nsgo";
-import { setState } from "game";
-Storage.setItem("score", "999").then(
-	() => setState("wrote", "yes"),
-	() => setState("wrote", "no"),
-);`
-
-func TestModWithoutStorageCannotPersistThroughNSGoStorage(t *testing.T) {
-	for _, tc := range []struct {
-		caps, want string
-	}{
-		{"[writeState]", "no"},
-		{"[writeState, storage]", "yes"},
-	} {
-		t.Run(tc.caps, func(t *testing.T) {
-			_, mgr := startMods(t, map[string]string{
-				"probe/mod.yaml": "manifestVersion: 1\nid: probe\nname: Probe\nversion: 1.0.0\nentry: mod.js\ncapabilities: " + tc.caps + "\n",
-				"probe/mod.js":   storageProbe,
-			})
-			if got, _ := mgr.GetState("wrote"); got != tc.want {
-				t.Fatalf("Storage.setItem from a mod with %s: wrote = %v, want %q", tc.caps, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSetGrantRevokingStorageRebuildsTheSandbox(t *testing.T) {
-	// Each load writes a new value: setting the value a key already holds is not a write.
-	app, mgr := startMods(t, map[string]string{
-		"probe/mod.yaml": "manifestVersion: 1\nid: probe\nname: Probe\nversion: 1.0.0\nentry: mod.js\ncapabilities: [readState, writeState, storage]\n",
-		"probe/mod.js": `import { Storage } from "nsgo";
 import { getState, setState } from "game";
 const loads = (getState("loads") || 0) + 1;
 setState("loads", loads);
-Storage.setItem("score", "load " + loads).then(
-	() => setState("wrote", "yes"),
-	() => setState("wrote", "no"),
-);`,
+export function setItem(k, v) { return Storage.setItem(k, v); }
+export function getItem(k) { return Storage.getItem(k); }
+export function removeItem(k) { return Storage.removeItem(k); }`
+
+func callMod(app *nsgotest.App, mgr *modding.Manager, id, fn string, args ...any) (any, error) {
+	var res any
+	var err error
+	app.Post(func() {
+		mgr.Call(id, fn, args, func(r any, e error) {
+			res = r
+			err = e
+		})
 	})
-	if got, _ := mgr.GetState("wrote"); got != "yes" {
-		t.Fatalf("wrote = %v before SetGrant, want yes", got)
+	app.Settle()
+	return res, err
+}
+
+const storageDisabledMsg = "tsx: Storage is disabled for this sandbox"
+
+func TestModWithoutStorageCannotPersistThroughNSGoStorage(t *testing.T) {
+	t.Run("[readState, writeState]", func(t *testing.T) {
+		app, mgr := startMods(t, map[string]string{
+			"probe/mod.yaml": "manifestVersion: 1\nid: probe\nname: Probe\nversion: 1.0.0\nentry: mod.js\ncapabilities: [readState, writeState]\n",
+			"probe/mod.js":   storageProbe,
+		})
+		for _, tc := range []struct {
+			fn   string
+			args []any
+		}{
+			{"setItem", []any{"a", ""}},
+			{"setItem", []any{"score", "999"}},
+			{"getItem", []any{"score"}},
+			{"removeItem", []any{"score"}},
+		} {
+			if _, err := callMod(app, mgr, "probe", tc.fn, tc.args...); err == nil || !strings.Contains(err.Error(), storageDisabledMsg) {
+				t.Fatalf("Storage.%s(%v) without CapStorage = %v, want error containing %q", tc.fn, tc.args, err, storageDisabledMsg)
+			}
+		}
+	})
+
+	t.Run("[readState, writeState, storage]", func(t *testing.T) {
+		app, mgr := startMods(t, map[string]string{
+			"probe/mod.yaml": "manifestVersion: 1\nid: probe\nname: Probe\nversion: 1.0.0\nentry: mod.js\ncapabilities: [readState, writeState, storage]\n",
+			"probe/mod.js":   storageProbe,
+		})
+		if _, err := callMod(app, mgr, "probe", "setItem", "a", ""); err != nil {
+			t.Fatalf("setItem(a, \"\") with CapStorage: %v", err)
+		}
+		if _, err := callMod(app, mgr, "probe", "setItem", "score", "999"); err != nil {
+			t.Fatalf("setItem(score, 999) with CapStorage: %v", err)
+		}
+		if got, err := callMod(app, mgr, "probe", "getItem", "score"); err != nil || got != "999" {
+			t.Fatalf("getItem(score) with CapStorage = (%v, %v), want (\"999\", nil)", got, err)
+		}
+		if _, err := callMod(app, mgr, "probe", "removeItem", "score"); err != nil {
+			t.Fatalf("removeItem(score) with CapStorage: %v", err)
+		}
+		if got, err := callMod(app, mgr, "probe", "getItem", "score"); err != nil || got != nil {
+			t.Fatalf("getItem(score) after removeItem = (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+}
+
+func TestSetGrantRevokingStorageRebuildsTheSandbox(t *testing.T) {
+	app, mgr := startMods(t, map[string]string{
+		"probe/mod.yaml": "manifestVersion: 1\nid: probe\nname: Probe\nversion: 1.0.0\nentry: mod.js\ncapabilities: [readState, writeState, storage]\n",
+		"probe/mod.js":   storageProbe,
+	})
+	if _, err := callMod(app, mgr, "probe", "setItem", "score", "saved"); err != nil {
+		t.Fatalf("setItem before SetGrant: %v", err)
 	}
+	if got, err := callMod(app, mgr, "probe", "getItem", "score"); err != nil || got != "saved" {
+		t.Fatalf("getItem before SetGrant = (%v, %v), want (\"saved\", nil)", got, err)
+	}
+
+	// Revoke CapStorage: the sandbox rebuilds with DisableStorage and rejects reads, writes (including 1-byte keys), and deletes.
 	var grantErr error
 	app.Post(func() { grantErr = mgr.SetGrant("probe", modding.CapReadState|modding.CapWriteState) })
 	app.Settle()
 	if grantErr != nil {
-		t.Fatalf("SetGrant: %v", grantErr)
-	}
-	if got, _ := mgr.GetState("wrote"); got != "no" {
-		t.Fatalf("wrote = %v after revoking storage, want no", got)
+		t.Fatalf("SetGrant revoke: %v", grantErr)
 	}
 	if info, _ := mgr.Info("probe"); info.State != modding.StateLoaded {
-		t.Fatalf("state after SetGrant = %v, want loaded", info.State)
+		t.Fatalf("state after revoking storage = %v, want loaded", info.State)
+	}
+	for _, tc := range []struct {
+		fn   string
+		args []any
+	}{
+		{"setItem", []any{"a", ""}},
+		{"getItem", []any{"score"}},
+		{"removeItem", []any{"score"}},
+	} {
+		if _, err := callMod(app, mgr, "probe", tc.fn, tc.args...); err == nil || !strings.Contains(err.Error(), storageDisabledMsg) {
+			t.Fatalf("Storage.%s(%v) after revoking CapStorage = %v, want error containing %q", tc.fn, tc.args, err, storageDisabledMsg)
+		}
 	}
 	api, ok := mgr.API("probe")
 	if !ok {
@@ -174,6 +221,33 @@ Storage.setItem("score", "load " + loads).then(
 	}
 	if _, _, err := api.StorageGet("score"); !errors.Is(err, modding.ErrPermission) {
 		t.Fatalf("StorageGet after revoking storage = %v, want ErrPermission", err)
+	}
+
+	// Restore CapStorage: the sandbox rebuilds with Storage enabled again and still sees the partition's prior data.
+	app.Post(func() {
+		grantErr = mgr.SetGrant("probe", modding.CapReadState|modding.CapWriteState|modding.CapStorage)
+	})
+	app.Settle()
+	if grantErr != nil {
+		t.Fatalf("SetGrant restore: %v", grantErr)
+	}
+	if info, _ := mgr.Info("probe"); info.State != modding.StateLoaded {
+		t.Fatalf("state after restoring storage = %v, want loaded", info.State)
+	}
+	if got, err := callMod(app, mgr, "probe", "getItem", "score"); err != nil || got != "saved" {
+		t.Fatalf("getItem(score) after restoring CapStorage = (%v, %v), want (\"saved\", nil)", got, err)
+	}
+	if _, err := callMod(app, mgr, "probe", "setItem", "a", ""); err != nil {
+		t.Fatalf("setItem(a, \"\") after restoring CapStorage: %v", err)
+	}
+	if _, err := callMod(app, mgr, "probe", "removeItem", "score"); err != nil {
+		t.Fatalf("removeItem(score) after restoring CapStorage: %v", err)
+	}
+	if got, err := callMod(app, mgr, "probe", "getItem", "score"); err != nil || got != nil {
+		t.Fatalf("getItem(score) after removeItem = (%v, %v), want (nil, nil)", got, err)
+	}
+	if loads, _ := mgr.GetState("loads"); loads != int64(3) && loads != float64(3) && loads != 3 {
+		t.Fatalf("loads = %v (%T), want 3 (initial + revoke + restore)", loads, loads)
 	}
 }
 

@@ -461,9 +461,6 @@ func (m *Manager) SetGrant(id string, caps Capability) error {
 // sandboxCapabilities are the capabilities the tsx sandbox enforces itself, which loadSingle bakes into a mod's sandbox: changing them needs a new sandbox.
 const sandboxCapabilities = CapAudio | CapStorage
 
-// noStorageQuota is the partition quota a mod without CapStorage gets: the smallest NSGo accepts, since 0 means unlimited. NSGo's sandboxes always expose the "nsgo" module's Storage, with no capability to withhold it, so without this a mod could persist data in its partition whatever its capabilities say (#546). NSGo counts each key (less the partition prefix) and value against the quota, so a mod without CapStorage can still keep one entry whose key and value total one byte, and can read what its partition already holds; withholding Storage entirely needs NSGo support (nsgo-dev/nsgo#2299).
-const noStorageQuota = 1
-
 // Enable marks mod id as enabled and persists the preference when StorageKey is configured.
 func (m *Manager) Enable(id string) error {
 	mod, ok := m.mods[id]
@@ -619,14 +616,12 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	if m.opts.Limits != nil {
 		limits = *m.opts.Limits
 	}
-	if !effCaps.Has(CapStorage) {
-		limits.Storage = noStorageQuota
-	}
 	sandbox := tsx.Sandbox{
-		Limits:        &limits,
-		Modules:       []string{GameModule},
-		Storage:       m.sandboxStoragePartition(mod.manifest.ID),
-		WebUnisolated: m.opts.WebUnisolated,
+		Limits:         &limits,
+		Modules:        []string{GameModule},
+		Storage:        m.sandboxStoragePartition(mod.manifest.ID),
+		DisableStorage: !effCaps.Has(CapStorage),
+		WebUnisolated:  m.opts.WebUnisolated,
 	}
 
 	var plugin *tsx.Plugin
