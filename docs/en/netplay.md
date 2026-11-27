@@ -226,3 +226,53 @@ leaveTick, err := session.RemovePeer(oldPeer)
 - `Members` lists the peers taking part in the current tick. Only the host may call `AddPeer` and `RemovePeer` (`ErrNotHost` elsewhere), the host cannot leave (`ErrHostLeave`), and a peer that left comes back under a new ID (`ErrPeerRejoin`, however long ago it left), as relays and servers assign one. `RemovePeer` of a peer that left returns its leave tick.
 - A message the transport cannot deliver yet, because a relay has not told the sender of the newcomer or a peer is reconnecting, waits in the session and is sent again by the next `Poll`, in order with the messages that follow it. A session keeps up to 4096 such messages per peer; past that the peer has missed part of the match, every later message to it is dropped, and the next `SubmitInput` (lockstep) or `Step` or `Poll` (rollback) returns `ErrSessionBacklog` once for it, so the host removes it or the match ends.
 - A joining session finds its host in `Host`, or else as the lowest other ID in `Peers`; when neither names another peer it takes the lowest other ID its transport reports, on each `Poll`, until its join state arrives. Over a relay, whose peer list may still be empty or include other newcomers, set `Host` explicitly.
+
+## Packet capture and inspection
+
+`netplay.NewCaptureTransport(inner, w, opts)` wraps any `Transport` and records each successful `Send` and each packet returned by `Recv` as one versioned JSON line (`version: 1`):
+
+```json
+{"version":1,"t":16000000,"dir":"send","peer":2,"ch":1,"seq":1,"payload":"IwEAAAAB"}
+```
+
+```go
+f, _ := os.Create("session.capture.jsonl")
+defer f.Close()
+
+tr := netplay.NewCaptureTransport(inner, f, netplay.CaptureOptions{
+	Channels:    []netplay.Channel{netplay.ChannelUnreliable},
+	Peers:       []netplay.PeerID{2},
+	SampleEvery: 1,
+})
+```
+
+- **Plaintext above encryption.** Because `NewCaptureTransport` wraps the `Transport` interface, wrapping a `UDPClient` or `UDPServer` captures plaintext payloads after authentication and decryption, so offline inspection never needs session keys.
+- **Filtering and sampling.** `CaptureOptions` can restrict capture to specific `Channels` or `Peers`, stride-sample one in every `SampleEvery` matching packets, or deterministically sample with `SampleRate` and `SampleSeed`. Capture write errors are reported via `OnError` and never fail `Send` or `Recv`.
+- **InboxReporter passthrough.** The wrapper forwards `SetInboxLimits` and `InboxStats` to the underlying transport.
+- **Privacy warning.** A packet capture contains raw player inputs, entity positions, and game state. Never ship capture files, commit player sessions, or collect captures from players without explicit consent.
+
+### Decoding captures with `game net`
+
+The `game net` CLI subcommand uses the [wire schemas](netplay-wire.md) to decode capture logs layer by layer (transport header, relay frame and control body, then replication, lockstep/rollback, membership, handshake, or custom game messages) and to compute traffic summaries:
+
+```sh
+# Decode a capture log layer by layer as YAML or JSON
+nsgo game net decode session.capture.jsonl
+nsgo game net decode --format json session.capture.jsonl
+
+# Decode custom EntityState.Props using your game's *.wire.yaml schemas
+nsgo game net decode --schema ./proto session.capture.jsonl
+
+# Track per-peer replication baselines so SnapshotDelta frames also print full resolved entity state
+nsgo game net decode --resolve-deltas session.capture.jsonl
+
+# Decode a single hex or base64 frame from standard input
+echo "230100000001" | nsgo game net decode -
+
+# Print packet and byte totals per message type, per peer, and mean delta size
+nsgo game net stats session.capture.jsonl
+```
+
+### Live network debug overlay
+
+For live in-game inspection without per-frame allocations, wrap your transport with `debug.NewNetMonitor` and pass `mon.Snapshot` to `debug.Options.Net`. The overlay panel displays bytes/s and packets/s per channel and per peer, `InboxStats` counters (queued, dropped, refused, warnings), and the most recent decoded message types using reused `wire` codec buffers. See [debug](debug.md#network-inspector).

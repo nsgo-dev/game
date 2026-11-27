@@ -13,8 +13,6 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/chacha20poly1305"
-
-	"github.com/nsgo-dev/game/pkg/debug"
 )
 
 // TestNoiseNKMatchesSpecStepByStep independently recomputes every Noise_NK_25519_ChaChaPoly_SHA256 Revision 34 step from raw RFC 7748 X25519, RFC 8439 ChaCha20-Poly1305, and SHA-256/HMAC-SHA256 equations, confirming exact protocol conformance and transcript binding.
@@ -268,20 +266,24 @@ func TestUDPCipherSealOpenZeroAllocs(t *testing.T) {
 	plain := make([]byte, 0, len(payload))
 	var seq uint32
 
-	debug.AssertZeroAllocs(t, 1000, func() {
+	if allocs := testing.AllocsPerRun(1000, func() {
 		seq++
 		dgram = sealer.seal(dgram[:0], udpDirClientToServer, udpData, 2, seq, ChannelUnreliable, payload)
-	})
+	}); allocs != 0 {
+		t.Fatalf("seal allocated %.2f allocs/run, want 0", allocs)
+	}
 	if len(dgram) != udpSealedHeader+len(payload) {
 		t.Fatalf("sealed len = %d, want %d", len(dgram), udpSealedHeader+len(payload))
 	}
-	debug.AssertZeroAllocs(t, 1000, func() {
+	if allocs := testing.AllocsPerRun(1000, func() {
 		var ok bool
 		plain, ok = opener.open(plain[:0], udpDirClientToServer, dgram)
 		if !ok {
 			t.Fatal("open failed")
 		}
-	})
+	}); allocs != 0 {
+		t.Fatalf("open allocated %.2f allocs/run, want 0", allocs)
+	}
 	if !bytes.Equal(plain, payload) {
 		t.Fatalf("decrypted payload mismatch")
 	}

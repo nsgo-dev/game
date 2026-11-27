@@ -144,3 +144,20 @@ go build -tags release ./...
 ```
 
 Under `-tags release`, `debug.Enabled()` returns `false`, `Overlay.View(cx)` returns `nil`, and every `Overlay`, `FrameStats`, and `ShapeOverlay` method compiles to an empty no-op — so none of the overlay UI, frame graph, or wireframe drawing code is linked into your shipping binary.
+
+## Network inspector
+
+Pass `Options.Net func() NetSnapshot` (or push snapshots with `Overlay.SetNet`) to show a live network panel inside the overlay. The panel displays per-channel and per-peer bytes/s and packets/s, the transport's `netplay.InboxStats` counters (highlighting dropped unreliable packets, refused reliable packets, or an active reliable backlog), and the most recent decoded wire message types.
+
+To feed the panel without per-frame heap allocations, wrap your `netplay.Transport` with `debug.NewNetMonitor` and call `SampleFrame(dt)` once per frame:
+
+```go
+netMon := debug.NewNetMonitor(12)
+transport = netMon.Wrap(transport)
+
+overlay := debug.New(debug.Options{
+	Net: netMon.Snapshot,
+})
+```
+
+`NetMonitor` decodes sent and received packets using the generated `pkg/online/netplay/wire` codecs into reused struct buffers, so steady-state packet observation, rate sampling, and `Overlay.RecordFrame` perform zero heap allocations. Under `-tags release`, `NewNetMonitor` returns a no-op stub and `Wrap` returns the inner transport unchanged.

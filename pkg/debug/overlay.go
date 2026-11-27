@@ -31,6 +31,10 @@ type Overlay struct {
 	aiSnap       AISnapshot
 	hasAI        bool
 	lastAI       AISnapshot
+	netTick      uint64
+	netSnap      NetSnapshot
+	hasNet       bool
+	lastNet      NetSnapshot
 	drawStats    DrawStats
 	hasDrawStats bool
 	pendingCause string
@@ -40,6 +44,7 @@ type Overlay struct {
 	frameSig  *core.Signal[uint64]
 	scenesSig *core.Signal[uint64]
 	aiSig     *core.Signal[uint64]
+	netSig    *core.Signal[uint64]
 }
 
 // New returns a configured debug overlay.
@@ -61,6 +66,7 @@ func (o *Overlay) Attach(cx *core.Scope) {
 	o.frameSig = core.NewSignal(cx, o.frameTick)
 	o.scenesSig = core.NewSignal(cx, o.scenesTick)
 	o.aiSig = core.NewSignal(cx, o.aiTick)
+	o.netSig = core.NewSignal(cx, o.netTick)
 
 	key := strings.ToLower(strings.TrimSpace(o.opts.ToggleKey))
 	if key == "" {
@@ -74,6 +80,7 @@ func (o *Overlay) Attach(cx *core.Scope) {
 			o.frameSig = nil
 			o.scenesSig = nil
 			o.aiSig = nil
+			o.netSig = nil
 		}
 	})
 }
@@ -103,6 +110,9 @@ func (o *Overlay) SetVisible(v bool) {
 	}
 	if v && o.opts.AI != nil && o.aiSig != nil {
 		o.lastAI = cloneAISnapshot(o.opts.AI())
+	}
+	if v && o.opts.Net != nil && o.netSig != nil {
+		copyNetSnapshot(&o.lastNet, o.opts.Net())
 	}
 }
 
@@ -155,6 +165,16 @@ func (o *Overlay) RecordFrame(total, update, draw time.Duration) {
 			o.lastAI = cloneAISnapshot(snap)
 			o.aiTick++
 			o.aiSig.Set(o.aiTick)
+		}
+	}
+	if o.opts.Net != nil {
+		snap := o.opts.Net()
+		if !netSnapshotsEqual(o.lastNet, snap) {
+			copyNetSnapshot(&o.lastNet, snap)
+			o.netTick++
+			if o.netSig != nil {
+				o.netSig.Set(o.netTick)
+			}
 		}
 	}
 }
@@ -473,6 +493,7 @@ func (o *Overlay) View(cx *core.Scope) core.Node {
 				children = append(children, o.memorySummaryView())
 			}
 			children = append(children, o.aiInspectorView())
+			children = append(children, o.netInspectorView())
 			children = append(children, o.sceneInspectorView())
 
 			hud := core.View{

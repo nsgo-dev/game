@@ -545,6 +545,19 @@ nsgo game schema -out schemas/scene.json path/to/project
 
 把项目的 draft-07 场景 JSON Schema 输出到标准输出或写入 `-out`，组件名按升序排列、属性顺序稳定、输出完全确定（见 [YAML 文件的 Schema](schemas.md#项目场景-schema)）。由于 `game` CLI 无法直接看到项目的 Go 类型，当项目拥有自己的编辑器命令时（`cmd/editor` 中导入 `pkg/editor/editorcmd` 的 `main` 包，或由 `game generate editor` 写出、用 `-tags gameeditor` 构建的 `main`），`game schema` 会以 `-schema` 运行该命令，直接输出 `editorcmd.Options.Components`（包含插件以及内置物理和骨骼组件）的场景 Schema 并退出，不打开窗口。没有自己编辑器命令的项目会得到内置场景 Schema，其中内置物理、骨骼和 2D 导航区域组件带有完整类型定义，而自定义组件保持自由格式。
 
+### net
+
+```sh
+nsgo game net decode session.capture.jsonl
+nsgo game net decode --schema ./proto --format json --resolve-deltas session.capture.jsonl
+echo "230100000001" | nsgo game net decode -
+nsgo game net stats session.capture.jsonl
+```
+
+由 `pkg/online/netplay/wire` Schema 驱动，检查 `netplay.NewCaptureTransport` 写出的 `pkg/online/netplay` 抓包日志（`*.capture.jsonl`）或标准输入上的单帧十六进制/Base64 线协议数据（见 [netplay](netplay.md#抓包与协议检查)、[netplay/wire](netplay-wire.md)）。
+
+- `decode` 将每一帧按 YAML（默认）或 JSON（`-format json`）逐层打印：传输帧头（`channel`、`seq`）、可选的中继帧与控制体，以及由线协议判别字段选出的复制、锁步/回滚、成员变更、握手或游戏自定义消息。传入 `-schema <目录或文件>` 可解码游戏自定义的 `*.wire.yaml` 消息（包括 `EntityState.Props`）；传入 `-resolve-deltas` 会跟踪每个对等端的复制基线，让 `SnapshotDelta` 同时打印合并后的完整实体状态；传入 `-` 可从标准输入读取 JSONL 抓包流或单帧十六进制/Base64 数据。
+- `stats` 读取 JSONL 抓包（文件或 `-`），按对齐文本（默认）、YAML 或 JSON（`-format text|yaml|json`）打印总包数、总字节数、时长、平均 `SnapshotDelta` 大小，以及按消息类型和按对等端的明细统计。
 ### completion
 
 ```sh

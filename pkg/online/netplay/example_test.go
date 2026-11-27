@@ -1,6 +1,7 @@
 package netplay_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"time"
@@ -223,4 +224,34 @@ func ExampleRollbackSession() {
 	// Output:
 	// 6 106 106
 	// true true 0
+}
+
+// NewCaptureTransport wraps any Transport and records each Send and Recv as one versioned JSON line for offline inspection with `game net decode`.
+func ExampleNewCaptureTransport() {
+	hub := netplay.NewLoopbackHub(netplay.LoopbackConfig{})
+	p1 := hub.AddPeer(1)
+	p2 := hub.AddPeer(2)
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var capture bytes.Buffer
+	wrapped := netplay.NewCaptureTransport(p1, &capture, netplay.CaptureOptions{
+		Now: func() time.Time { return now },
+	})
+
+	_ = wrapped.Send(2, netplay.ChannelReliableOrdered, []byte("ping"))
+	now = now.Add(16 * time.Millisecond)
+	_ = p2.Send(1, netplay.ChannelUnreliable, []byte("pong"))
+	hub.Advance(time.Millisecond)
+	_, _ = wrapped.Recv()
+
+	records, err := netplay.ReadCapture(&capture)
+	if err != nil {
+		panic(err)
+	}
+	for _, r := range records {
+		fmt.Printf("v=%d t=%dms dir=%s peer=%d ch=%s payload=%s\n", r.Version, r.T/1e6, r.Dir, r.Peer, r.Ch, string(r.Payload))
+	}
+	// Output:
+	// v=1 t=0ms dir=send peer=2 ch=reliable-ordered payload=ping
+	// v=1 t=16ms dir=recv peer=2 ch=unreliable payload=pong
 }

@@ -226,3 +226,53 @@ leaveTick, err := session.RemovePeer(oldPeer)
 - `Members` 列出参与当前 tick 的对等端。只有主机可以调用 `AddPeer` 与 `RemovePeer`（其他对等端调用返回 `ErrNotHost`），主机不能离开（`ErrHostLeave`），离开过的对等端要以新的 ID 回来（`ErrPeerRejoin`，无论离开了多久），中继和服务端本来也会分配新 ID。对已经离开的对等端调用 `RemovePeer` 会返回其离开 tick。
 - 传输暂时无法投递的消息（中继尚未把新玩家告知发送方，或某个对等端正在重连）会留在会话中，由下一次 `Poll` 重新发送，并与其后的消息保持顺序。会话为每个对等端最多保留 4096 条这样的消息；超过之后该对等端已错过对局的一部分，此后发给它的消息一律丢弃，下一次 `SubmitInput`（锁步）或 `Step`、`Poll`（回滚）会为它返回一次 `ErrSessionBacklog`，由主机移除它或结束对局。
 - 加入中的会话从 `Host` 得知主机，否则取 `Peers` 中最小的其他 ID；两者都没有指明其他对等端时，它在收到加入状态之前的每次 `Poll` 中取传输报告的最小的其他 ID。通过中继加入时，中继的对等端列表可能仍为空或包含其他新玩家，请显式设置 `Host`。
+
+## 抓包与协议检查
+
+`netplay.NewCaptureTransport(inner, w, opts)` 可以包装任意 `Transport`，对每次成功的 `Send` 以及 `Recv` 返回的每个数据包写入一行带版本号的 JSON Lines 记录（`version: 1`）：
+
+```json
+{"version":1,"t":16000000,"dir":"send","peer":2,"ch":1,"seq":1,"payload":"IwEAAAAB"}
+```
+
+```go
+f, _ := os.Create("session.capture.jsonl")
+defer f.Close()
+
+tr := netplay.NewCaptureTransport(inner, f, netplay.CaptureOptions{
+	Channels:    []netplay.Channel{netplay.ChannelUnreliable},
+	Peers:       []netplay.PeerID{2},
+	SampleEvery: 1,
+})
+```
+
+- **解密后的明文捕获。** 因为 `NewCaptureTransport` 位于 `Transport` 接口层，包装 `UDPClient` 或 `UDPServer` 时捕获的是认证与解密后的明文载荷，离线解析无需会话密钥。
+- **过滤与采样。** `CaptureOptions` 支持按 `Channels` 和 `Peers` 过滤，并支持按固定间隔 `SampleEvery` 或基于 `SampleRate` 与 `SampleSeed` 的确定性采样。写入抓包流出错时会通过 `OnError` 回调通知，不会让 `Send` 或 `Recv` 失败。
+- **透传 `InboxReporter`。** 包装器会将 `SetInboxLimits` 与 `InboxStats` 转发到底层传输。
+- **隐私与安全警示。** 抓包文件包含原始玩家输入、实体位置与游戏状态。切勿随游戏分发抓包文件、提交真实玩家对局数据，或在未征得明确同意的情况下收集玩家抓包。
+
+### 用 `game net` 解析抓包
+
+`game net` 子命令由 [线协议 Schema](netplay-wire.md) 驱动，可逐层解析抓包文件（传输层帧头、中继帧与控制体，以及复制、锁步/回滚、成员变更、握手或自定义游戏消息），并输出流量统计：
+
+```sh
+# 按 YAML 或 JSON 逐层解析抓包文件
+nsgo game net decode session.capture.jsonl
+nsgo game net decode --format json session.capture.jsonl
+
+# 使用游戏自定义的 *.wire.yaml Schema 解析 EntityState.Props 等消息
+nsgo game net decode --schema ./proto session.capture.jsonl
+
+# 跟踪每个对等端的复制基线，在 SnapshotDelta 中同时输出完整实体状态
+nsgo game net decode --resolve-deltas session.capture.jsonl
+
+# 从标准输入解析单帧十六进制或 Base64 数据
+echo "230100000001" | nsgo game net decode -
+
+# 按消息类型与对等端统计包数、字节数以及平均增量大小
+nsgo game net stats session.capture.jsonl
+```
+
+### 实时网络调试浮层
+
+如需在游戏运行时以零每帧分配的方式查看实时流量，可用 `debug.NewNetMonitor` 包装传输并将 `mon.Snapshot` 传入 `debug.Options.Net`。浮层面板会借助复用的 `wire` 编解码缓冲区展示各通道与各对等端的字节率与包率、`InboxStats` 计数器以及最近解码的若干消息类型。详见 [debug](debug.md#网络检查面板)。

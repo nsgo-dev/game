@@ -144,3 +144,20 @@ go build -tags release ./...
 ```
 
 启用 `-tags release` 后，`debug.Enabled()` 返回 `false`，`Overlay.View(cx)` 返回 `nil`，`Overlay`、`FrameStats` 和 `ShapeOverlay` 的所有方法均替换为空实现，浮层 UI、帧耗时图与线框绘制代码不会被链接进发布包。
+
+## 网络检查面板
+
+传入 `Options.Net func() NetSnapshot`（或通过 `Overlay.SetNet` 推送快照）可在调试浮层中显示实时网络面板，展示各通道与各对等端的字节/秒与包/秒速率、传输层的 `netplay.InboxStats` 计数器（并在出现不可靠丢包、可靠拒收或可靠积压告警时高亮），以及最近解码的线协议消息类型。
+
+如需在不增加每帧堆分配的前提下驱动该面板，可用 `debug.NewNetMonitor` 包装 `netplay.Transport` 并在每帧调用 `SampleFrame(dt)`：
+
+```go
+netMon := debug.NewNetMonitor(12)
+transport = netMon.Wrap(transport)
+
+overlay := debug.New(debug.Options{
+	Net: netMon.Snapshot,
+})
+```
+
+`NetMonitor` 使用 `pkg/online/netplay/wire` 生成的编解码器解码到复用的结构体缓冲区中，因此稳态下的收发观测、速率采样以及 `Overlay.RecordFrame` 均为零堆分配。在 `-tags release` 构建下，`NewNetMonitor` 返回空实现，`Wrap` 直接返回原始传输。

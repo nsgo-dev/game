@@ -5,6 +5,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/online/netplay"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -38,6 +39,9 @@ type Options struct {
 	// AI, when set, supplies the chosen agent's behavior tree or state machine snapshot shown in the AI inspector panel.
 	// If it reads NSGo signals, the panel updates reactively; otherwise it refreshes on recorded frames and RefreshAI.
 	AI func() AISnapshot
+	// Net, when set, supplies live network traffic rates, InboxStats counters, and recent decoded message types shown in the network inspector panel.
+	// Callers can build NetSnapshot without per-frame allocations using NetMonitor.
+	Net func() NetSnapshot
 }
 
 // DrawStats captures per-frame draw submission counts for overlay display and MCP performance readouts.
@@ -267,4 +271,66 @@ type SteeringDebug struct {
 	VelocityScale float32
 	// Colors overrides default colors for any non-zero color field.
 	Colors SteeringColors
+}
+
+// NetChannelStats reports live throughput rates for one netplay.Channel.
+type NetChannelStats struct {
+	// Channel is the transport delivery channel (ChannelReliableOrdered or ChannelUnreliable).
+	Channel netplay.Channel
+	// BytesPerSec is the combined send and receive byte rate on this channel.
+	BytesPerSec float64
+	// PacketsPerSec is the combined send and receive packet rate on this channel.
+	PacketsPerSec float64
+	// SendBytesPerSec is the outbound byte rate on this channel.
+	SendBytesPerSec float64
+	// RecvBytesPerSec is the inbound byte rate on this channel.
+	RecvBytesPerSec float64
+	// SendPacketsPerSec is the outbound packet rate on this channel.
+	SendPacketsPerSec float64
+	// RecvPacketsPerSec is the inbound packet rate on this channel.
+	RecvPacketsPerSec float64
+}
+
+// NetPeerStats reports live throughput rates for one remote peer.
+type NetPeerStats struct {
+	// Peer identifies the remote peer (or netplay.PeerBroadcast for broadcast sends).
+	Peer netplay.PeerID
+	// BytesPerSec is the combined send and receive byte rate with this peer.
+	BytesPerSec float64
+	// PacketsPerSec is the combined send and receive packet rate with this peer.
+	PacketsPerSec float64
+	// SendBytesPerSec is the outbound byte rate to this peer.
+	SendBytesPerSec float64
+	// RecvBytesPerSec is the inbound byte rate from this peer.
+	RecvBytesPerSec float64
+	// SendPacketsPerSec is the outbound packet rate to this peer.
+	SendPacketsPerSec float64
+	// RecvPacketsPerSec is the inbound packet rate from this peer.
+	RecvPacketsPerSec float64
+}
+
+// NetMessageEvent records one recently sent or received packet's decoded wire message type.
+type NetMessageEvent struct {
+	// Dir is netplay.CaptureSend ("send") or netplay.CaptureRecv ("recv").
+	Dir netplay.CaptureDirection
+	// Peer is the remote peer ID.
+	Peer netplay.PeerID
+	// Channel is the transport delivery channel.
+	Channel netplay.Channel
+	// Type is the decoded wire message type (such as "replication.delta", "rollback.single_input", "relay.members", or "raw").
+	Type string
+	// Bytes is the payload size in bytes.
+	Bytes int
+}
+
+// NetSnapshot describes live network traffic rates, inbox counters, and recent message types for the debug overlay panel.
+type NetSnapshot struct {
+	// Inbox holds the transport's InboxStats counters.
+	Inbox netplay.InboxStats
+	// Channels holds per-channel throughput rates.
+	Channels []NetChannelStats
+	// Peers holds per-peer throughput rates.
+	Peers []NetPeerStats
+	// Recent holds the most recent N decoded message events, oldest to newest.
+	Recent []NetMessageEvent
 }

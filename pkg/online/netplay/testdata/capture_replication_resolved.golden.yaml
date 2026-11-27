@@ -1,0 +1,210 @@
+- index: 0
+  t: 0
+  dir: send
+  peer: 2
+  size: 43
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 1
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: full
+      tag: 1
+      message: SnapshotFull
+      fields:
+        epoch: 1
+        tick: 1
+        entities:
+          - id: 1
+            fields:
+              mask: 239
+              kind: 1
+              x: 10
+              y: 20
+              vx: 5
+              rotation: 0.5
+              flags: 1
+              props: aGVybw==
+          - id: 2
+            fields:
+              mask: 7
+              kind: 2
+              x: 100
+              y: 50
+- index: 1
+  t: 32000000
+  dir: recv
+  peer: 2
+  size: 6
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 1
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: ack
+      tag: 3
+      message: SnapshotAck
+      fields:
+        epoch: 1
+        tick: 1
+- index: 2
+  t: 32000000
+  dir: send
+  peer: 2
+  size: 15
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 2
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: delta
+      tag: 2
+      message: SnapshotDelta
+      fields:
+        epoch: 1
+        tick: 2
+        baseline_tick: 1
+        despawns: []
+        updates:
+          - id: 1
+            fields:
+              mask: 2
+              x: 15
+      resolved:
+        - id: 1
+          kind: 1
+          x: 15
+          y: 20
+          vx: 5
+          vy: 0
+          rotation: 0.5
+          flags: 1
+          props: aGVybw==
+        - id: 2
+          kind: 2
+          x: 100
+          y: 50
+          vx: 0
+          vy: 0
+          rotation: 0
+          flags: 0
+          props: ""
+- index: 3
+  t: 64000000
+  dir: recv
+  peer: 2
+  size: 6
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 2
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: ack
+      tag: 3
+      message: SnapshotAck
+      fields:
+        epoch: 1
+        tick: 2
+- index: 4
+  t: 64000000
+  dir: send
+  peer: 2
+  size: 10
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 3
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: delta
+      tag: 2
+      message: SnapshotDelta
+      fields:
+        epoch: 1
+        tick: 3
+        baseline_tick: 2
+        despawns:
+          - 2
+        updates: []
+      resolved:
+        - id: 1
+          kind: 1
+          x: 15
+          y: 20
+          vx: 5
+          vy: 0
+          rotation: 0.5
+          flags: 1
+          props: aGVybw==
+- index: 5
+  t: 96000000
+  dir: recv
+  peer: 2
+  size: 6
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 3
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: ack
+      tag: 3
+      message: SnapshotAck
+      fields:
+        epoch: 1
+        tick: 3
+- index: 6
+  t: 96000000
+  dir: send
+  peer: 2
+  size: 9
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 4
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: delta
+      tag: 2
+      message: SnapshotDelta
+      fields:
+        epoch: 1
+        tick: 4
+        baseline_tick: 3
+        despawns: []
+        updates: []
+      resolved:
+        - id: 1
+          kind: 1
+          x: 15
+          y: 20
+          vx: 5
+          vy: 0
+          rotation: 0.5
+          flags: 1
+          props: aGVybw==
