@@ -123,11 +123,11 @@ func (s InterfaceSize) Scale() float32 {
 type Navigation3D string
 
 const (
-	// Navigation3DDefault orbits on left-drag, pans on Shift+left-drag or middle-drag, and flies on right-drag.
+	// Navigation3DDefault orbits on left-drag, pans on Shift+left-drag or middle-drag, flies on right-drag, and dollies on the mouse wheel.
 	Navigation3DDefault Navigation3D = "default"
-	// Navigation3DBlender orbits on middle-drag, pans on Shift+middle-drag, and flies on right-drag.
+	// Navigation3DBlender orbits on middle-drag, pans on Shift+middle-drag, flies on right-drag, dollies on the mouse wheel, and leaves left-drag to selection and gizmos.
 	Navigation3DBlender Navigation3D = "blender"
-	// Navigation3DMaya orbits on Alt+left-drag, pans on middle-drag (or Alt+middle-drag), and flies on right-drag.
+	// Navigation3DMaya orbits on Alt+left-drag, pans on middle-drag (or Alt+middle-drag), dollies on Alt+right-drag or the mouse wheel, flies on plain right-drag, and leaves plain left-drag to selection and gizmos.
 	Navigation3DMaya Navigation3D = "maya"
 )
 

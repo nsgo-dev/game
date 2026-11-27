@@ -240,7 +240,7 @@ func TestViewport3DTwoFingerTouchPans(t *testing.T) {
 	ed.SetViewMode(ViewMode3D)
 	ed.SetCanvasSize(640, 360)
 	var g viewport3DGestures
-	noShift := func() bool { return false }
+	noMod := func() bool { return false }
 	one := func(phase core.TouchPhase, p core.Point) core.TouchEvent {
 		return core.TouchEvent{Phase: phase, Touches: []core.Touch{{ID: 1, Position: p, Changed: true}}}
 	}
@@ -248,7 +248,7 @@ func TestViewport3DTwoFingerTouchPans(t *testing.T) {
 		return core.TouchEvent{Phase: phase, Touches: []core.Touch{{ID: 1, Position: a}, {ID: 2, Position: b, Changed: true}}}
 	}
 	g.touch(ed, one(core.TouchStart, core.Point{X: 100, Y: 100}))
-	g.pan(ed, core.PanEvent{Phase: core.GestureBegan, Translation: core.Point{X: 10}}, noShift)
+	g.pan(ed, core.PanEvent{Phase: core.GestureBegan, Translation: core.Point{X: 10}}, noMod, noMod)
 	if ed.drag3D.kind != drag3DOrbit {
 		t.Fatalf("a one-finger drag began %v, want an orbit", ed.drag3D.kind)
 	}
@@ -257,7 +257,7 @@ func TestViewport3DTwoFingerTouchPans(t *testing.T) {
 		t.Fatalf("a second finger left the %v drag on", ed.drag3D.kind)
 	}
 	cam := ed.Camera3D
-	g.pan(ed, core.PanEvent{Phase: core.GestureChanged, Translation: core.Point{X: 40, Y: 30}}, noShift)
+	g.pan(ed, core.PanEvent{Phase: core.GestureChanged, Translation: core.Point{X: 40, Y: 30}}, noMod, noMod)
 	if ed.Camera3D != cam {
 		t.Fatal("the first finger's pan moved the camera while two fingers were down")
 	}
@@ -267,6 +267,128 @@ func TestViewport3DTwoFingerTouchPans(t *testing.T) {
 	sx, sy, _, _ := ed.Camera3D.Project(target, 640, 360)
 	if math.Abs(float64(sx-320-20)) > 0.05 || math.Abs(float64(sy-180+10)) > 0.05 {
 		t.Fatalf("the old target is at (%v, %v) after the fingers moved (20, -10), want (340, 170)", sx, sy)
+	}
+}
+
+// Navigation3D.Resolve selects the exact camera action across Default, Blender, and Maya modes
+// for every mouse gesture and Shift/Alt modifier combination.
+func TestNavigation3DResolve(t *testing.T) {
+	none := core.Modifiers{}
+	shift := core.Modifiers{Shift: true}
+	alt := core.Modifiers{Alt: true}
+	shiftAlt := core.Modifiers{Shift: true, Alt: true}
+
+	cases := []struct {
+		name  string
+		mode  Navigation3D
+		input Navigation3DInput
+		mods  core.Modifiers
+		want  Navigation3DAction
+	}{
+		// Default mode
+		{"default/primary", Navigation3DDefault, Navigation3DInputPrimaryDrag, none, Navigation3DActionOrbit},
+		{"default/shift+primary", Navigation3DDefault, Navigation3DInputPrimaryDrag, shift, Navigation3DActionPan},
+		{"default/alt+primary", Navigation3DDefault, Navigation3DInputPrimaryDrag, alt, Navigation3DActionOrbit},
+		{"default/shift+alt+primary", Navigation3DDefault, Navigation3DInputPrimaryDrag, shiftAlt, Navigation3DActionPan},
+		{"default/middle", Navigation3DDefault, Navigation3DInputMiddleDrag, none, Navigation3DActionPan},
+		{"default/shift+middle", Navigation3DDefault, Navigation3DInputMiddleDrag, shift, Navigation3DActionPan},
+		{"default/alt+middle", Navigation3DDefault, Navigation3DInputMiddleDrag, alt, Navigation3DActionPan},
+		{"default/shift+alt+middle", Navigation3DDefault, Navigation3DInputMiddleDrag, shiftAlt, Navigation3DActionPan},
+		{"default/right", Navigation3DDefault, Navigation3DInputRightDrag, none, Navigation3DActionFly},
+		{"default/shift+right", Navigation3DDefault, Navigation3DInputRightDrag, shift, Navigation3DActionFly},
+		{"default/alt+right", Navigation3DDefault, Navigation3DInputRightDrag, alt, Navigation3DActionFly},
+		{"default/shift+alt+right", Navigation3DDefault, Navigation3DInputRightDrag, shiftAlt, Navigation3DActionFly},
+		{"default/wheel", Navigation3DDefault, Navigation3DInputWheel, none, Navigation3DActionDolly},
+		{"default/shift+wheel", Navigation3DDefault, Navigation3DInputWheel, shift, Navigation3DActionDolly},
+		{"default/alt+wheel", Navigation3DDefault, Navigation3DInputWheel, alt, Navigation3DActionDolly},
+
+		// Empty mode falls back to Default
+		{"empty/primary", Navigation3D(""), Navigation3DInputPrimaryDrag, none, Navigation3DActionOrbit},
+		{"empty/shift+primary", Navigation3D(""), Navigation3DInputPrimaryDrag, shift, Navigation3DActionPan},
+		{"empty/middle", Navigation3D(""), Navigation3DInputMiddleDrag, none, Navigation3DActionPan},
+		{"empty/right", Navigation3D(""), Navigation3DInputRightDrag, none, Navigation3DActionFly},
+		{"empty/wheel", Navigation3D(""), Navigation3DInputWheel, none, Navigation3DActionDolly},
+
+		// Blender mode
+		{"blender/primary", Navigation3DBlender, Navigation3DInputPrimaryDrag, none, Navigation3DActionNone},
+		{"blender/shift+primary", Navigation3DBlender, Navigation3DInputPrimaryDrag, shift, Navigation3DActionNone},
+		{"blender/alt+primary", Navigation3DBlender, Navigation3DInputPrimaryDrag, alt, Navigation3DActionNone},
+		{"blender/shift+alt+primary", Navigation3DBlender, Navigation3DInputPrimaryDrag, shiftAlt, Navigation3DActionNone},
+		{"blender/middle", Navigation3DBlender, Navigation3DInputMiddleDrag, none, Navigation3DActionOrbit},
+		{"blender/shift+middle", Navigation3DBlender, Navigation3DInputMiddleDrag, shift, Navigation3DActionPan},
+		{"blender/alt+middle", Navigation3DBlender, Navigation3DInputMiddleDrag, alt, Navigation3DActionOrbit},
+		{"blender/shift+alt+middle", Navigation3DBlender, Navigation3DInputMiddleDrag, shiftAlt, Navigation3DActionPan},
+		{"blender/right", Navigation3DBlender, Navigation3DInputRightDrag, none, Navigation3DActionFly},
+		{"blender/shift+right", Navigation3DBlender, Navigation3DInputRightDrag, shift, Navigation3DActionFly},
+		{"blender/alt+right", Navigation3DBlender, Navigation3DInputRightDrag, alt, Navigation3DActionFly},
+		{"blender/shift+alt+right", Navigation3DBlender, Navigation3DInputRightDrag, shiftAlt, Navigation3DActionFly},
+		{"blender/wheel", Navigation3DBlender, Navigation3DInputWheel, none, Navigation3DActionDolly},
+		{"blender/shift+wheel", Navigation3DBlender, Navigation3DInputWheel, shift, Navigation3DActionDolly},
+		{"blender/alt+wheel", Navigation3DBlender, Navigation3DInputWheel, alt, Navigation3DActionDolly},
+
+		// Maya mode
+		{"maya/primary", Navigation3DMaya, Navigation3DInputPrimaryDrag, none, Navigation3DActionNone},
+		{"maya/shift+primary", Navigation3DMaya, Navigation3DInputPrimaryDrag, shift, Navigation3DActionNone},
+		{"maya/alt+primary", Navigation3DMaya, Navigation3DInputPrimaryDrag, alt, Navigation3DActionOrbit},
+		{"maya/shift+alt+primary", Navigation3DMaya, Navigation3DInputPrimaryDrag, shiftAlt, Navigation3DActionOrbit},
+		{"maya/middle", Navigation3DMaya, Navigation3DInputMiddleDrag, none, Navigation3DActionPan},
+		{"maya/shift+middle", Navigation3DMaya, Navigation3DInputMiddleDrag, shift, Navigation3DActionPan},
+		{"maya/alt+middle", Navigation3DMaya, Navigation3DInputMiddleDrag, alt, Navigation3DActionPan},
+		{"maya/shift+alt+middle", Navigation3DMaya, Navigation3DInputMiddleDrag, shiftAlt, Navigation3DActionPan},
+		{"maya/right", Navigation3DMaya, Navigation3DInputRightDrag, none, Navigation3DActionFly},
+		{"maya/shift+right", Navigation3DMaya, Navigation3DInputRightDrag, shift, Navigation3DActionFly},
+		{"maya/alt+right", Navigation3DMaya, Navigation3DInputRightDrag, alt, Navigation3DActionDolly},
+		{"maya/shift+alt+right", Navigation3DMaya, Navigation3DInputRightDrag, shiftAlt, Navigation3DActionDolly},
+		{"maya/wheel", Navigation3DMaya, Navigation3DInputWheel, none, Navigation3DActionDolly},
+		{"maya/shift+wheel", Navigation3DMaya, Navigation3DInputWheel, shift, Navigation3DActionDolly},
+		{"maya/alt+wheel", Navigation3DMaya, Navigation3DInputWheel, alt, Navigation3DActionDolly},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.mode.Resolve(tc.input, tc.mods); got != tc.want {
+				t.Fatalf("Navigation3D(%q).Resolve(%v, %+v) = %v, want %v", tc.mode, tc.input, tc.mods, got, tc.want)
+			}
+		})
+	}
+}
+
+// Two-finger touch pan and touchpad scroll remain unchanged in Blender and Maya modes.
+func TestViewport3DTouchAndTouchpadUnchangedAcrossModes(t *testing.T) {
+	for _, mode := range []Navigation3D{Navigation3DDefault, Navigation3DBlender, Navigation3DMaya} {
+		t.Run(string(mode), func(t *testing.T) {
+			ed, err := New(nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ed.SetViewMode(ViewMode3D)
+			ed.SetCanvasSize(640, 360)
+			if err := ed.SetNavigation3D(mode); err != nil {
+				t.Fatal(err)
+			}
+			var g viewport3DGestures
+
+			// Touchpad scroll pans.
+			target := ed.Camera3D.Target
+			g.wheel(ed, core.WheelEvent{Touchpad: true, Delta: core.Point{X: 24, Y: -12}})
+			sx, sy, _, _ := ed.Camera3D.Project(target, 640, 360)
+			if math.Abs(float64(sx-320-24)) > 0.05 || math.Abs(float64(sy-180+12)) > 0.05 {
+				t.Fatalf("touchpad scroll in %s put target at (%v, %v), want (344, 168)", mode, sx, sy)
+			}
+
+			// Two-finger touch pans.
+			two := func(phase core.TouchPhase, a, b core.Point) core.TouchEvent {
+				return core.TouchEvent{Phase: phase, Touches: []core.Touch{{ID: 1, Position: a}, {ID: 2, Position: b, Changed: true}}}
+			}
+			g.touch(ed, two(core.TouchStart, core.Point{X: 100, Y: 100}, core.Point{X: 200, Y: 100}))
+			g.touch(ed, two(core.TouchMove, core.Point{X: 100, Y: 100}, core.Point{X: 200, Y: 100}))
+			target = ed.Camera3D.Target
+			g.touch(ed, two(core.TouchMove, core.Point{X: 115, Y: 110}, core.Point{X: 215, Y: 110}))
+			sx, sy, _, _ = ed.Camera3D.Project(target, 640, 360)
+			if math.Abs(float64(sx-320-15)) > 0.05 || math.Abs(float64(sy-180-10)) > 0.05 {
+				t.Fatalf("two-finger touch in %s put target at (%v, %v), want (335, 190)", mode, sx, sy)
+			}
+		})
 	}
 }
 

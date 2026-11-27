@@ -1042,6 +1042,7 @@ const (
 	drag3DPlugin
 	drag3DOrbit
 	drag3DPan
+	drag3DDolly
 	drag3DTerrain
 )
 
@@ -2057,10 +2058,22 @@ func (e *Editor) HandleViewport3DPressWithModifiers(sx, sy, w, h float32, shift,
 
 // BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), an active 3D plugin tool drag (if OnDragBegin3D claims it and !pan), a light/camera handle drag, a 3D component gizmo handle drag, a 3D transform gizmo drag, or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
 func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
-	if e == nil || e.fly3D {
+	if pan {
+		e.beginViewport3DDragAction(sx, sy, w, h, Navigation3DActionPan, false)
 		return
 	}
-	if !pan && !e.playing && e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone {
+	e.beginViewport3DDragAction(sx, sy, w, h, Navigation3DActionOrbit, true)
+}
+
+// beginViewport3DDragAction starts a 3D viewport drag for action. When allowTools is true,
+// active tools, handles, and gizmos under (sx, sy) claim the drag first; otherwise or on a miss,
+// action determines whether a camera orbit, pan, or dolly drag starts (Navigation3DActionNone
+// leaves drag3D idle). It reports whether any drag began.
+func (e *Editor) beginViewport3DDragAction(sx, sy, w, h float32, action Navigation3DAction, allowTools bool) bool {
+	if e == nil || e.fly3D {
+		return false
+	}
+	if allowTools && !e.playing && e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone {
 		if e.BeginTerrainStrokeAt(sx, sy, w, h) {
 			e.drag3D = drag3DState{
 				kind:    drag3DTerrain,
@@ -2071,29 +2084,36 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 				vpW:     w,
 				vpH:     h,
 			}
-			return
+			return true
 		}
 	}
-	if !pan && !e.playing && e.Tool == ToolPlugin && e.BeginPluginDrag3D(sx, sy, w, h) {
-		return
+	if allowTools && !e.playing && e.Tool == ToolPlugin && e.BeginPluginDrag3D(sx, sy, w, h) {
+		return true
 	}
-	if !pan && !e.playing {
+	if allowTools && !e.playing {
 		if handle := e.BeginHandleDrag3D(sx, sy, w, h); handle != Handle3DNone {
-			return
+			return true
 		}
 		if _, ok := e.BeginComponentGizmoDrag3D(sx, sy, w, h); ok {
-			return
+			return true
 		}
 		if axis := e.BeginGizmoDrag3D(sx, sy, w, h); axis != Axis3DNone {
-			return
+			return true
 		}
+	}
+	var kind drag3DKind
+	switch action {
+	case Navigation3DActionOrbit:
+		kind = drag3DOrbit
+	case Navigation3DActionPan:
+		kind = drag3DPan
+	case Navigation3DActionDolly:
+		kind = drag3DDolly
+	default:
+		return false
 	}
 	if e.lookThroughCamera3D {
 		e.lookThroughCamera3D = false
-	}
-	kind := drag3DOrbit
-	if pan {
-		kind = drag3DPan
 	}
 	e.drag3D = drag3DState{
 		kind:    kind,
@@ -2104,9 +2124,10 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 		vpW:     w,
 		vpH:     h,
 	}
+	return true
 }
 
-// UpdateViewport3DDrag advances the active terrain brush stroke, 3D plugin tool drag, 3D handle drag, 3D component gizmo drag, 3D transform gizmo drag, or camera orbit/pan drag.
+// UpdateViewport3DDrag advances the active terrain brush stroke, 3D plugin tool drag, 3D handle drag, 3D component gizmo drag, 3D transform gizmo drag, or camera orbit/pan/dolly drag.
 func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	if e == nil {
 		return
@@ -2137,6 +2158,14 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 		e.drag3D.lastSX = sx
 		e.drag3D.lastSY = sy
 		e.PanView3D(dx, dy, e.drag3D.vpH)
+	case drag3DDolly:
+		dx := sx - e.drag3D.lastSX
+		dy := sy - e.drag3D.lastSY
+		e.drag3D.lastSX = sx
+		e.drag3D.lastSY = sy
+		if delta := dx + dy; delta != 0 && isFiniteFloat32(delta) {
+			e.ZoomView3D(float32(math.Exp(float64(delta) * 0.005)))
+		}
 	}
 }
 

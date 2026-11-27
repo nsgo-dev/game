@@ -11,17 +11,26 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// viewport3DGestures is the 3D viewport's navigation in progress: a drag that orbits, pans or moves the gizmo, a middle-button pan, a right-button flight, a two-finger touch pan and a pinch.
+// viewport3DGestures is the 3D viewport's navigation in progress: a drag that orbits, pans, dollies or moves the gizmo, a middle-button camera drag, a right-button flight or dolly, a two-finger touch pan and a pinch.
 type viewport3DGestures struct {
 	// pressPos is where the finger or pointer went down: a pan event carries only its translation, so the down point is tracked from the frame's touch events.
 	pressPos core.Point
 	hasPress bool
+	// leftMods records the modifiers held when MouseButtonLeft went down so primary drags combine OS event flags with live held keys.
+	leftMods    core.Modifiers
+	hasLeftMods bool
 	// began says a pan that began with a press owns a 3D drag to finish; the touch that ends may be reported before the pan's end event.
-	began   bool
-	lastPan core.Point
-	// middle is a middle-button pan under way, from middleLast.
+	began bool
+	// panAction is the resolved camera action for a primary drag started without a recorded press position.
+	panAction Navigation3DAction
+	lastPan   core.Point
+	// middle is a middle-button camera drag under way, from middleLast.
 	middle     bool
 	middleLast core.Point
+	// rightDolly is a right-button camera drag (such as Maya Alt+right-drag dolly) under way, from rightLast.
+	rightDolly      bool
+	rightDollyMoved bool
+	rightLast       core.Point
 	// fly is a right-button flight under way: unlock releases the pointer lock it took, nil where the platform cannot lock the pointer, and flyLast is where the pointer was, which its movement turns the view by without a lock.
 	fly     bool
 	unlock  func()
@@ -35,18 +44,55 @@ type viewport3DGestures struct {
 	snapInvert    func() bool
 }
 
-// wheel zooms the view by a mouse wheel's turn or a touchpad scroll with Control or Command held, pans it by a touchpad's scroll, and while flying changes the fly speed.
+// mouseEventModifiers combines the modifiers carried on a mouse button event with live held keys from cx.
+func mouseEventModifiers(cx *core.Scope, mods core.Modifiers) core.Modifiers {
+	if cx == nil {
+		return mods
+	}
+	return core.Modifiers{
+		Shift:    mods.Shift || core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }),
+		Control:  mods.Control || core.Untracked(cx, func() bool { return core.KeyHeld(cx, "ctrl") }),
+		Alt:      mods.Alt || core.Untracked(cx, func() bool { return core.KeyHeld(cx, "alt") }),
+		Platform: mods.Platform || core.Untracked(cx, func() bool { return core.KeyHeld(cx, "mod") }),
+	}
+}
+
+func (g *viewport3DGestures) primaryModifiers(shiftHeld, altHeld func() bool) core.Modifiers {
+	var mods core.Modifiers
+	if g.hasLeftMods {
+		mods = g.leftMods
+	}
+	if shiftHeld != nil && shiftHeld() {
+		mods.Shift = true
+	}
+	if altHeld != nil && altHeld() {
+		mods.Alt = true
+	}
+	return mods
+}
+
+// wheel zooms the view by a mouse wheel's turn (routed through Navigation3D.Resolve) or a touchpad scroll with Control or Command held, pans it by a touchpad's scroll, and while flying changes the fly speed.
 func (g *viewport3DGestures) wheel(ed *Editor, ev core.WheelEvent) {
 	if ed.Flying3D() {
 		ed.AdjustFlySpeed3D(float32(ev.Delta.Y))
 		return
 	}
-	if ev.Touchpad && !ev.Modifiers.Control && !ev.Modifiers.Platform {
-		_, ch := ed.CanvasSize()
-		ed.PanView3D(float32(ev.Delta.X), float32(ev.Delta.Y), ch)
+	if ev.Touchpad {
+		if !ev.Modifiers.Control && !ev.Modifiers.Platform {
+			_, ch := ed.CanvasSize()
+			ed.PanView3D(float32(ev.Delta.X), float32(ev.Delta.Y), ch)
+			return
+		}
+		ed.HandleViewport3DWheel(float32(ev.Delta.Y))
 		return
 	}
-	ed.HandleViewport3DWheel(float32(ev.Delta.Y))
+	switch ed.Navigation3D().Resolve(Navigation3DInputWheel, ev.Modifiers) {
+	case Navigation3DActionDolly:
+		ed.HandleViewport3DWheel(float32(ev.Delta.Y))
+	case Navigation3DActionPan:
+		_, ch := ed.CanvasSize()
+		ed.PanView3D(float32(ev.Delta.X), float32(ev.Delta.Y), ch)
+	}
 }
 
 // pinch zooms the view by how much the pinch scaled since its last report.
@@ -67,32 +113,54 @@ func (g *viewport3DGestures) pinch(ed *Editor, ev core.GestureEvent) {
 	}
 }
 
-// mouseDown starts a middle-button pan or, with the right button, a flight that locks the pointer to frame where the platform can.
+// mouseDown routes middle- and right-button presses through Navigation3D.Resolve (and records left-button modifiers for primary drags).
 func (g *viewport3DGestures) mouseDown(cx *core.Scope, ed *Editor, frame *core.Ref, ev core.MouseButtonEvent) {
+	mods := mouseEventModifiers(cx, ev.Modifiers)
 	switch ev.Button {
+	case core.MouseButtonLeft:
+		g.suppressPress = false
+		g.leftMods = mods
+		g.hasLeftMods = true
 	case core.MouseButtonMiddle:
-		if g.fly || ed.PickingConnectionTarget() {
+		if g.fly || g.rightDolly || ed.PickingConnectionTarget() {
 			return
 		}
-		cw, ch := ed.CanvasSize()
-		pan := true
-		if ed.Navigation3D() == Navigation3DBlender {
-			pan = core.KeyHeld(cx, "shift")
+		action := ed.Navigation3D().Resolve(Navigation3DInputMiddleDrag, mods)
+		switch action {
+		case Navigation3DActionOrbit, Navigation3DActionPan, Navigation3DActionDolly:
+			cw, ch := ed.CanvasSize()
+			if ed.beginViewport3DDragAction(float32(ev.Position.X), float32(ev.Position.Y), cw, ch, action, false) {
+				g.middle, g.middleLast = true, ev.Position
+			}
 		}
-		ed.BeginViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y), cw, ch, pan)
-		g.middle, g.middleLast = true, ev.Position
 	case core.MouseButtonRight:
-		if g.middle || !ed.BeginFly3D() {
+		if g.middle {
 			return
 		}
-		g.fly, g.flyLast = true, ev.Position
-		if cx.Env().CanLockPointer() {
-			g.unlock = frame.LockPointer()
+		g.rightDollyMoved = false
+		action := ed.Navigation3D().Resolve(Navigation3DInputRightDrag, mods)
+		switch action {
+		case Navigation3DActionFly:
+			if !ed.BeginFly3D() {
+				return
+			}
+			g.fly, g.flyLast = true, ev.Position
+			if cx != nil && cx.Env().CanLockPointer() {
+				g.unlock = frame.LockPointer()
+			}
+		case Navigation3DActionOrbit, Navigation3DActionPan, Navigation3DActionDolly:
+			if ed.PickingConnectionTarget() {
+				return
+			}
+			cw, ch := ed.CanvasSize()
+			if ed.beginViewport3DDragAction(float32(ev.Position.X), float32(ev.Position.Y), cw, ch, action, false) {
+				g.rightDolly, g.rightLast = true, ev.Position
+			}
 		}
 	}
 }
 
-// mouseMove follows a middle-button pan, and turns a flight by the pointer's movement where the pointer is not locked.
+// mouseMove follows a middle-button camera drag, a right-button dolly drag, and turns a flight by the pointer's movement where the pointer is not locked.
 func (g *viewport3DGestures) mouseMove(ed *Editor, ev core.MouseEvent) {
 	if g.middle {
 		if ev.PressedButton != core.MouseButtonMiddle {
@@ -100,6 +168,17 @@ func (g *viewport3DGestures) mouseMove(ed *Editor, ev core.MouseEvent) {
 		} else {
 			ed.UpdateViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y))
 			g.middleLast = ev.Position
+		}
+	}
+	if g.rightDolly {
+		if ev.PressedButton != core.MouseButtonRight {
+			g.endRightDolly(ed)
+		} else {
+			if ev.Position != g.rightLast {
+				g.rightDollyMoved = true
+			}
+			ed.UpdateViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y))
+			g.rightLast = ev.Position
 		}
 	}
 	if g.fly {
@@ -114,21 +193,38 @@ func (g *viewport3DGestures) mouseMove(ed *Editor, ev core.MouseEvent) {
 	}
 }
 
-// mouseUp ends the pan or flight of the button that came up.
+// mouseUp ends the camera drag or flight of the button that came up.
 func (g *viewport3DGestures) mouseUp(ed *Editor, ev core.MouseButtonEvent) {
 	switch ev.Button {
+	case core.MouseButtonLeft:
+		g.hasLeftMods = false
 	case core.MouseButtonMiddle:
 		if g.middle {
 			ed.UpdateViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y))
 			g.endMiddle(ed)
 		}
 	case core.MouseButtonRight:
+		if g.rightDolly {
+			if ev.Position != g.rightLast {
+				g.rightDollyMoved = true
+			}
+			ed.UpdateViewport3DDrag(float32(ev.Position.X), float32(ev.Position.Y))
+			g.endRightDolly(ed)
+		}
 		g.endFly(ed)
 	}
 }
 
 func (g *viewport3DGestures) endMiddle(ed *Editor) {
 	g.middle = false
+	ed.EndViewport3DDrag()
+}
+
+func (g *viewport3DGestures) endRightDolly(ed *Editor) {
+	if !g.rightDolly {
+		return
+	}
+	g.rightDolly = false
 	ed.EndViewport3DDrag()
 }
 
@@ -169,6 +265,7 @@ func (g *viewport3DGestures) touch(ed *Editor, ev core.TouchEvent) {
 	case core.TouchEnd, core.TouchCancel:
 		g.hasPress = false
 		if ev.Phase == core.TouchCancel {
+			g.hasLeftMods = false
 			ed.CancelGizmoDrag3D()
 			ed.CancelComponentGizmoDrag3D()
 			ed.CancelPluginDrag3D()
@@ -184,6 +281,7 @@ func (g *viewport3DGestures) touch(ed *Editor, ev core.TouchEvent) {
 	if !g.multi {
 		g.multi = true
 		g.hasPress = false
+		g.hasLeftMods = false
 		ed.CancelGizmoDrag3D()
 		ed.CancelComponentGizmoDrag3D()
 		ed.CancelPluginDrag3D()
@@ -204,18 +302,29 @@ func (g *viewport3DGestures) touch(ed *Editor, ev core.TouchEvent) {
 	g.touchLast = c
 }
 
-// pan follows a one-finger or primary-button drag: one that starts on a gizmo handle drags it, one with Shift held pans the view, and any other orbits it.
-func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() bool) {
+// pan follows a primary-button or one-finger drag according to Navigation3D.Resolve:
+// when tools/gizmos are allowed (plain drag or Navigation3DActionNone), a hit on a terrain brush,
+// 3D plugin tool, light/camera handle, or gizmo handle drags that target; otherwise it runs the
+// resolved camera action (or does nothing for Navigation3DActionNone).
+func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld, altHeld func() bool) {
 	cw, ch := ed.CanvasSize()
 	switch ev.Phase {
 	case core.GestureBegan:
 		g.lastPan = ev.Translation
-		if g.middle || g.fly || g.multi || ed.Flying3D() {
+		g.panAction = Navigation3DActionNone
+		if g.middle || g.rightDolly || g.fly || g.multi || ed.Flying3D() {
 			g.began = false
 			return
 		}
-		g.began = g.hasPress && !ed.PickingConnectionTarget()
-		if !g.began && !ed.PickingConnectionTarget() && ((ed.TerrainOpen() && ed.TerrainBrush().Mode != TerrainBrushNone) || (ed.Tool == ToolPlugin && ed.activePluginToolSupports3D())) {
+		if ed.PickingConnectionTarget() {
+			g.began = false
+			return
+		}
+		mods := g.primaryModifiers(shiftHeld, altHeld)
+		action := ed.Navigation3D().Resolve(Navigation3DInputPrimaryDrag, mods)
+		allowTools := action == Navigation3DActionNone || (!mods.Shift && !mods.Alt)
+		g.began = g.hasPress
+		if !g.began && allowTools && ((ed.TerrainOpen() && ed.TerrainBrush().Mode != TerrainBrushNone) || (ed.Tool == ToolPlugin && ed.activePluginToolSupports3D())) {
 			g.pressPos = core.Point{
 				X: ev.Position.X - ev.Translation.X,
 				Y: ev.Position.Y - ev.Translation.Y,
@@ -224,14 +333,17 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			g.began = true
 		}
 		if g.began {
-			// A press that turns into a pan first picks a terrain brush hit, 3D plugin tool drag, component gizmo handle, or transform gizmo handle under the press point, and orbits otherwise, or pans with Shift held.
 			invert := g.snapInvert != nil && g.snapInvert()
+			var started bool
 			ed.withSnapInvert(invert, func() {
-				ed.BeginViewport3DDrag(float32(g.pressPos.X), float32(g.pressPos.Y), cw, ch, shiftHeld())
+				started = ed.beginViewport3DDragAction(float32(g.pressPos.X), float32(g.pressPos.Y), cw, ch, action, allowTools)
 			})
+			g.began = started
+			return
 		}
+		g.panAction = action
 	case core.GestureChanged:
-		if g.middle || g.fly || g.multi || ed.Flying3D() {
+		if g.middle || g.rightDolly || g.fly || g.multi || ed.Flying3D() {
 			g.lastPan = ev.Translation
 			return
 		}
@@ -248,11 +360,16 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 		dx := float32(ev.Translation.X - g.lastPan.X)
 		dy := float32(ev.Translation.Y - g.lastPan.Y)
 		g.lastPan = ev.Translation
-		if shiftHeld() {
+		switch g.panAction {
+		case Navigation3DActionPan:
 			ed.PanView3D(dx, dy, ch)
-			return
+		case Navigation3DActionOrbit:
+			ed.OrbitView3D(-dx*0.01, dy*0.01)
+		case Navigation3DActionDolly:
+			if delta := dx + dy; delta != 0 && isFiniteFloat32(delta) {
+				ed.ZoomView3D(float32(math.Exp(float64(delta) * 0.005)))
+			}
 		}
-		ed.OrbitView3D(-dx*0.01, dy*0.01)
 	case core.GestureEnded:
 		if g.began {
 			if ed.PluginDragging3D() || ed.DraggingComponentGizmo3D() || ed.DraggingGizmo3D() || ed.ActiveHandle3D() != Handle3DNone {
@@ -264,12 +381,16 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			})
 			g.began = false
 		}
+		g.panAction = Navigation3DActionNone
+		g.hasLeftMods = false
 		g.lastPan = core.Point{}
 	case core.GestureCancelled:
 		if g.began {
 			ed.CancelViewport3DDrag()
 			g.began = false
 		}
+		g.panAction = Navigation3DActionNone
+		g.hasLeftMods = false
 		g.lastPan = core.Point{}
 	}
 }
@@ -668,12 +789,14 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 	type focusKeyState struct {
 		dark     bool
 		focusKey string
+		nav      Navigation3D
 	}
 	focusKeyMemo := core.NewMemo(cx, func() focusKeyState {
 		_ = rev.Get()
 		return focusKeyState{
 			dark:     cx.Dark(),
 			focusKey: shortcutLabel(CmdFrameSelection),
+			nav:      ed.Navigation3D(),
 		}
 	})
 
@@ -752,7 +875,19 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					fk := focusKeyMemo.Get()
 					hp := SpecPaletteFor(fk.dark)
+					orbitKeys := []string{"Drag"}
+					panKeys := []string{"Middle"}
 					helpLabel := "Drag orbit · Middle pan · Right WASD fly"
+					switch fk.nav {
+					case Navigation3DBlender:
+						orbitKeys = []string{"Middle"}
+						panKeys = []string{"Shift", "Middle"}
+						helpLabel = "Middle orbit · Shift+Middle pan · Right WASD fly"
+					case Navigation3DMaya:
+						orbitKeys = []string{"Alt", "Drag"}
+						panKeys = []string{"Middle"}
+						helpLabel = "Alt+Drag orbit · Middle pan · Right WASD fly"
+					}
 					if fk.focusKey != "" {
 						helpLabel += " · " + fk.focusKey + " focus"
 					}
@@ -771,8 +906,8 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 							BorderColor:  hp.LineRaised,
 						},
 						Children: []core.Node{
-							helpGroup3D(hp, []string{"Drag"}, "orbit"),
-							helpGroup3D(hp, []string{"Middle"}, "pan"),
+							helpGroup3D(hp, orbitKeys, "orbit"),
+							helpGroup3D(hp, panKeys, "pan"),
 							helpGroup3D(hp, []string{"Right", "WASD"}, "fly"),
 							helpGroup3D(hp, []string{fk.focusKey}, "focus"),
 						},

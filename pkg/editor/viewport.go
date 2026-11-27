@@ -1790,10 +1790,12 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						return
 					}
 					if ed.ViewMode == ViewMode3D {
-						if ed.fly3DMoved {
+						if ed.fly3DMoved || g3.rightDollyMoved {
+							g3.rightDollyMoved = false
 							return
 						}
 						g3.endFly(ed)
+						g3.endRightDolly(ed)
 					}
 					var hx, hy float32
 					if hasPointer && lastPointerMode == ed.ViewMode {
@@ -2117,7 +2119,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						if in3DGridMap() && !spaceHeld() {
 							return
 						}
-						g3.pan(ed, ev, shiftHeld)
+						g3.pan(ed, ev, shiftHeld, altHeld)
 					},
 					Children: []core.Node{
 						core.Show{

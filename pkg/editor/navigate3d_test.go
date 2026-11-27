@@ -1075,3 +1075,223 @@ func TestViewport3DSpecLightThemeMemoizedAxesDynamicShortcutsAndPlayGuard(t *tes
 	})
 	app.Settle()
 }
+
+// Maya and Blender 3D navigation mappings route primary, middle, right, and wheel mouse gestures
+// through Navigation3D.Resolve: plain left-drag never orbits in Maya or Blender mode (leaving it
+// for selection and gizmos), Maya orbits only on Alt+left-drag (and dollies on Alt+right-drag),
+// Blender orbits on middle-drag and pans on Shift+middle-drag, and touch/trackpad gestures stay unchanged.
+func TestViewport3DNavigationModesMayaAndBlender(t *testing.T) {
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{ID: "cube", Depth: 16})
+	ed.SetGizmoMode3D(editor.Gizmo3DTranslate)
+	app := start3DViewport(t, ed)
+	vw, vh := ed.CanvasSize()
+	cx, cy := vw/2, vh/2
+	empty := pt(cx-200, cy)
+
+	// --- Maya mode ---
+	app.Post(func() {
+		if err := ed.SetNavigation3D(editor.Navigation3DMaya); err != nil {
+			t.Errorf("SetNavigation3D(Maya): %v", err)
+		}
+	})
+	app.Settle()
+	if got := app.Find("id:view3d-help").Props.Label; !strings.Contains(got, "Alt+Drag orbit") {
+		t.Fatalf("Maya view3d-help label = %q, want Alt+Drag orbit", got)
+	}
+
+	// Plain left-drag on empty space does NOT orbit or pan.
+	camBefore := ed.Camera3D
+	app.DragAt(viewportFrame, empty, pt(60, 20))
+	if ed.Camera3D != camBefore {
+		t.Fatalf("Maya plain left-drag moved camera from %+v to %+v", camBefore, ed.Camera3D)
+	}
+
+	// Shift+left-drag on empty space also does NOT orbit or pan in Maya mode.
+	app.KeyDown("shift")
+	app.DragAt(viewportFrame, empty, pt(60, 20))
+	app.KeyUp("shift")
+	if ed.Camera3D != camBefore {
+		t.Fatalf("Maya Shift+left-drag moved camera from %+v to %+v", camBefore, ed.Camera3D)
+	}
+
+	// Alt+left-drag orbits in Maya mode.
+	app.KeyDown("alt")
+	app.DragAt(viewportFrame, empty, pt(60, 0))
+	app.KeyUp("alt")
+	if ed.Camera3D.Yaw == camBefore.Yaw {
+		t.Fatal("Maya Alt+left-drag did not orbit the camera")
+	}
+
+	// Plain left-drag still drags the transform gizmo in Maya mode without orbiting,
+	// while Alt+left-drag starting on the same gizmo handle orbits instead of moving the object.
+	ed.SetView3D(editor.View3DTop)
+	ed.SetOrthographic3D(true)
+	ed.SelectObject("cube")
+	app.Settle()
+	obj, _, _ := ed.FindObject("cube")
+	origin := [3]float32{obj.X, obj.Y, obj.PosZ}
+	gLen := ed.GizmoLength3D(origin)
+	gx0, gy0, _, _ := ed.Camera3D.Project([3]float32{origin[0] + gLen*0.6, origin[1], origin[2]}, vw, vh)
+	gx1, gy1, _, _ := ed.Camera3D.Project([3]float32{origin[0] + gLen*0.6 + 25, origin[1], origin[2]}, vw, vh)
+	if got := ed.PickGizmo3D(gx0, gy0, vw, vh); got != editor.Axis3DX {
+		t.Fatalf("PickGizmo3D on +X handle = %v, want Axis3DX", got)
+	}
+	camBefore = ed.Camera3D
+	app.DragAt(viewportFrame, pt(gx0, gy0), pt(gx1-gx0, gy1-gy0))
+	obj, _, _ = ed.FindObject("cube")
+	if math.Abs(float64(obj.X-(origin[0]+25))) > 0.5 {
+		t.Fatalf("Maya plain left-drag on +X gizmo moved X to %v, want %v", obj.X, origin[0]+25)
+	}
+	if ed.Camera3D != camBefore {
+		t.Fatalf("Maya plain left-drag on gizmo moved camera from %+v to %+v", camBefore, ed.Camera3D)
+	}
+
+	// Alt+left-drag starting over the +X gizmo handle orbits the camera instead of moving the object.
+	origin = [3]float32{obj.X, obj.Y, obj.PosZ}
+	gLen = ed.GizmoLength3D(origin)
+	gx0, gy0, _, _ = ed.Camera3D.Project([3]float32{origin[0] + gLen*0.6, origin[1], origin[2]}, vw, vh)
+	camBefore = ed.Camera3D
+	app.KeyDown("alt")
+	app.DragAt(viewportFrame, pt(gx0, gy0), pt(50, 0))
+	app.KeyUp("alt")
+	obj, _, _ = ed.FindObject("cube")
+	if obj.X != origin[0] {
+		t.Fatalf("Maya Alt+left-drag over gizmo moved object X from %v to %v", origin[0], obj.X)
+	}
+	if ed.Camera3D.Yaw == camBefore.Yaw {
+		t.Fatal("Maya Alt+left-drag over gizmo did not orbit the camera")
+	}
+
+	// Reset camera and check Maya middle-drag pan, Alt+middle-drag pan, plain right-drag fly, and Alt+right-drag dolly.
+	ed.ResetView3D()
+	ed.SetOrthographic3D(false)
+	app.Settle()
+
+	target := ed.Camera3D.Target
+	app.MouseDownAt(viewportFrame, pt(cx, cy), core.MouseButtonMiddle)
+	app.HoverAt(viewportFrame, pt(cx+30, cy-20))
+	app.MouseUpAt(viewportFrame, pt(cx+30, cy-20), core.MouseButtonMiddle)
+	assertAt(t, ed, "Maya middle-drag pan", target, cx+30, cy-20)
+
+	target = ed.Camera3D.Target
+	app.KeyDown("alt")
+	app.MouseDownAt(viewportFrame, pt(cx, cy), core.MouseButtonMiddle)
+	app.HoverAt(viewportFrame, pt(cx-25, cy+15))
+	app.MouseUpAt(viewportFrame, pt(cx-25, cy+15), core.MouseButtonMiddle)
+	app.KeyUp("alt")
+	assertAt(t, ed, "Maya Alt+middle-drag pan", target, cx-25, cy+15)
+
+	// Plain right-drag flies in Maya mode.
+	app.MouseDownAt(viewportFrame, pt(cx, cy), core.MouseButtonRight)
+	if !ed.Flying3D() {
+		t.Fatal("Maya plain right-button did not start fly mode")
+	}
+	app.MouseUpAt(viewportFrame, pt(cx, cy), core.MouseButtonRight)
+
+	// Alt+right-drag dollies in Maya mode without entering fly mode.
+	distBefore := ed.Camera3D.Distance
+	app.KeyDown("alt")
+	app.MouseDownAt(viewportFrame, pt(cx, cy), core.MouseButtonRight)
+	if ed.Flying3D() {
+		t.Fatal("Maya Alt+right-button entered fly mode instead of dolly")
+	}
+	app.HoverAt(viewportFrame, pt(cx+40, cy+20))
+	app.MouseUpAt(viewportFrame, pt(cx+40, cy+20), core.MouseButtonRight)
+	app.KeyUp("alt")
+	if ed.Camera3D.Distance >= distBefore {
+		t.Fatalf("Maya Alt+right-drag right/down distance = %v, want < %v (dolly in)", ed.Camera3D.Distance, distBefore)
+	}
+
+	// Touchpad scroll and pinch stay unchanged in Maya mode.
+	target = ed.Camera3D.Target
+	app.TouchpadScroll(viewportFrame, core.Point{}, core.Point{X: 16, Y: -10})
+	assertAt(t, ed, "Maya touchpad scroll pan", target, cx+16, cy-10)
+	distBefore = ed.Camera3D.Distance
+	app.Pinch(viewportFrame, 1, 1.5, 2)
+	assertNear32(t, "Maya pinch zoom", ed.Camera3D.Distance, distBefore/2, 0.01)
+
+	// --- Blender mode ---
+	app.Post(func() {
+		if err := ed.SetNavigation3D(editor.Navigation3DBlender); err != nil {
+			t.Errorf("SetNavigation3D(Blender): %v", err)
+		}
+	})
+	app.Settle()
+	if got := app.Find("id:view3d-help").Props.Label; !strings.Contains(got, "Middle orbit · Shift+Middle pan") {
+		t.Fatalf("Blender view3d-help label = %q, want Middle orbit · Shift+Middle pan", got)
+	}
+
+	// Plain left-drag and Alt+left-drag on empty space do NOT orbit or pan in Blender mode.
+	camBefore = ed.Camera3D
+	app.DragAt(viewportFrame, empty, pt(60, 20))
+	if ed.Camera3D != camBefore {
+		t.Fatalf("Blender plain left-drag moved camera from %+v to %+v", camBefore, ed.Camera3D)
+	}
+	app.KeyDown("alt")
+	app.DragAt(viewportFrame, empty, pt(60, 20))
+	app.KeyUp("alt")
+	if ed.Camera3D != camBefore {
+		t.Fatalf("Blender Alt+left-drag moved camera from %+v to %+v", camBefore, ed.Camera3D)
+	}
+
+	// Middle-drag orbits in Blender mode (and bypasses gizmo handles).
+	ed.SetView3D(editor.View3DTop)
+	ed.SetOrthographic3D(true)
+	ed.SelectObject("cube")
+	app.Settle()
+	obj, _, _ = ed.FindObject("cube")
+	origin = [3]float32{obj.X, obj.Y, obj.PosZ}
+	gLen = ed.GizmoLength3D(origin)
+	gx0, gy0, _, _ = ed.Camera3D.Project([3]float32{origin[0] + gLen*0.6, origin[1], origin[2]}, vw, vh)
+	camBefore = ed.Camera3D
+	app.MouseDownAt(viewportFrame, pt(gx0, gy0), core.MouseButtonMiddle)
+	app.HoverAt(viewportFrame, pt(gx0+40, gy0))
+	app.MouseUpAt(viewportFrame, pt(gx0+40, gy0), core.MouseButtonMiddle)
+	obj, _, _ = ed.FindObject("cube")
+	if obj.X != origin[0] {
+		t.Fatalf("Blender middle-drag over gizmo moved object X from %v to %v", origin[0], obj.X)
+	}
+	if ed.Camera3D.Yaw == camBefore.Yaw {
+		t.Fatal("Blender middle-drag did not orbit the camera")
+	}
+
+	// Plain left-drag still moves the gizmo in Blender mode.
+	ed.SetView3D(editor.View3DTop)
+	ed.SetOrthographic3D(true)
+	app.Settle()
+	gx0, gy0, _, _ = ed.Camera3D.Project([3]float32{origin[0] + gLen*0.6, origin[1], origin[2]}, vw, vh)
+	gx1, gy1, _, _ = ed.Camera3D.Project([3]float32{origin[0] + gLen*0.6 - 20, origin[1], origin[2]}, vw, vh)
+	camBefore = ed.Camera3D
+	app.DragAt(viewportFrame, pt(gx0, gy0), pt(gx1-gx0, gy1-gy0))
+	obj, _, _ = ed.FindObject("cube")
+	if math.Abs(float64(obj.X-(origin[0]-20))) > 0.5 {
+		t.Fatalf("Blender plain left-drag on +X gizmo moved X to %v, want %v", obj.X, origin[0]-20)
+	}
+	if ed.Camera3D != camBefore {
+		t.Fatalf("Blender plain left-drag on gizmo moved camera from %+v to %+v", camBefore, ed.Camera3D)
+	}
+
+	// Shift+middle-drag pans in Blender mode.
+	ed.ResetView3D()
+	ed.SetOrthographic3D(false)
+	app.Settle()
+	target = ed.Camera3D.Target
+	app.KeyDown("shift")
+	app.MouseDownAt(viewportFrame, pt(cx, cy), core.MouseButtonMiddle)
+	app.HoverAt(viewportFrame, pt(cx+35, cy+15))
+	app.MouseUpAt(viewportFrame, pt(cx+35, cy+15), core.MouseButtonMiddle)
+	app.KeyUp("shift")
+	assertAt(t, ed, "Blender Shift+middle-drag pan", target, cx+35, cy+15)
+
+	// Right-drag flies and wheel dollies in Blender mode.
+	app.MouseDownAt(viewportFrame, pt(cx, cy), core.MouseButtonRight)
+	if !ed.Flying3D() {
+		t.Fatal("Blender right-button did not start fly mode")
+	}
+	app.MouseUpAt(viewportFrame, pt(cx, cy), core.MouseButtonRight)
+	distBefore = ed.Camera3D.Distance
+	app.Wheel(viewportFrame, core.Point{Y: 40}, core.Modifiers{})
+	if ed.Camera3D.Distance == distBefore {
+		t.Fatal("Blender mouse wheel did not dolly")
+	}
+}
