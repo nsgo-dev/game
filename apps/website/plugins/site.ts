@@ -11,7 +11,7 @@ export const toTraditional: (text: string) => string = OpenCC.Converter({ from: 
 
 const MODULE = 'github.com/nsgo-dev/'
 
-// A row of the package table in docs/<lang>/stability.md: the package, its status, and the page that is its guide, if any. A test in the root module keeps the table complete and the Chinese one equal to it.
+// A row of the package table in docs/<lang>/stability.md: the package, its status, and the page that is its guide, if any. A test in internal/repocheck keeps the table complete and the Chinese one equal to it.
 const STABILITY_ROW = /^\| `([^`]+)` \| (Stable|Experimental) \| (?:\[[^\]]+\]\(([a-z0-9-]+)\.md\))? ?\|$/
 
 export interface StabilityRow {
