@@ -149,6 +149,16 @@ Face-to-face collisions generate persistent multi-point contact manifolds rather
 
 Contact impulses act at each contact point, so friction makes a sliding sphere roll, a flat box rests without rocking, and a box standing on an edge tips over onto a face.
 
+### Contact and trigger events
+
+`World.Step` tracks overlapping body pairs (per child for compound shapes) across steps and dispatches deterministic `ContactEnter`, `ContactStay`, and `ContactExit` transitions to `World.OnContact` (for solid contacts) and `World.OnTrigger` (for trigger bodies or trigger compound children). `World.ContactEvents()` returns the events from the most recent step — plus any `ContactExit` events emitted by `RemoveBody` — in the exact order callbacks observed them.
+
+Calling `World.RemoveBody` from inside `OnContact` or `OnTrigger` is supported:
+
+- Every pair involving the removed body that is currently active (its `ContactEnter` has already been delivered) emits `ContactExit` immediately in deterministic key order before `RemoveBody` returns.
+- Any remaining queued `ContactEnter`, `ContactStay`, or `ContactExit` events for the removed body in the same `Step` are suppressed, so no pair ever receives an event after its `ContactExit` or an orphan `ContactExit` without a prior `ContactEnter`.
+- `World.ContactEvents()` records the immediate `ContactExit` events at the point they fired and omits suppressed events, matching callback delivery order.
+
 ### Physics materials
 
 Attach a shared `*PhysicsMaterial` (`Friction`, `Restitution`, `LinearDamping`, `AngularDamping`) to `Body.Material`, or copy its values onto a body with `Body.ApplyMaterial(mat)`. When `Body.Material` is non-nil, contact resolution and velocity damping read the material's clamped surface properties directly (`Friction >= 0`, `Restitution` in `[0, 1]`, non-negative damping), so editing a shared material takes effect across every body referencing it. Shared `*.physics.yaml` files from [`game/resource`](resources.md#physicsmaterial) apply to 3D bodies with `mat.ApplyTo3D(body)`.

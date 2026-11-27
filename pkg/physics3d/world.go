@@ -379,10 +379,13 @@ type World struct {
 	// per Step; values <= 0 default to 8.
 	SolverIterations int
 	// OnContact is invoked deterministically for non-trigger ContactEvents
-	// (ContactEnter, ContactStay, ContactExit).
+	// (ContactEnter, ContactStay, ContactExit). Calling RemoveBody inside
+	// OnContact immediately emits ContactExit for active overlaps of the removed
+	// body and suppresses any remaining queued events for it in that step.
 	OnContact func(ContactEvent)
 	// OnTrigger is invoked deterministically for trigger ContactEvents
-	// (ContactEnter, ContactStay, ContactExit).
+	// (ContactEnter, ContactStay, ContactExit). Calling RemoveBody inside
+	// OnTrigger follows the same immediate-Exit and suppression rules as OnContact.
 	OnTrigger func(ContactEvent)
 	// OnJointBreak is invoked deterministically for each joint broken during
 	// World.Step in joint insertion order.
@@ -403,16 +406,19 @@ type World struct {
 	ignoredPairs       map[pairKey]struct{}
 	disableShock       bool
 
-	bp              broadphase3D
-	contactsBuf     []solverContact
-	manifoldBuf     []manifoldPoint
-	shockOrderBuf   []int
-	shockHeightsBuf []float32
-	shockStackAbove map[int]int
-	shockColBuf     map[int]bool
-	shockMaskBuf    []bool
-	curKeysBuf      []contactKey
-	exitKeysBuf     []contactKey
+	bp                    broadphase3D
+	contactsBuf           []solverContact
+	manifoldBuf           []manifoldPoint
+	shockOrderBuf         []int
+	shockHeightsBuf       []float32
+	shockStackAbove       map[int]int
+	shockColBuf           map[int]bool
+	shockMaskBuf          []bool
+	curKeysBuf            []contactKey
+	exitKeysBuf           []contactKey
+	pendingEventsBuf      []pendingContactEvent
+	dispatchingContacts   bool
+	removedDuringDispatch map[int]struct{}
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
@@ -565,7 +571,9 @@ func (w *World) bodyByID(id int) *Body {
 // RemoveBody removes the body with the given ID, preserving deterministic order
 // of the remaining bodies, emitting ContactExit events for any active overlaps,
 // removing joints attached to the body, and waking dynamic bodies so supported
-// stacks react.
+// stacks react. When called from inside OnContact or OnTrigger during World.Step,
+// active overlaps involving the removed body emit ContactExit immediately and
+// any remaining queued events for that body in the same step are suppressed.
 func (w *World) RemoveBody(id int) bool {
 	idx := -1
 	for i, b := range w.bodies {
@@ -592,6 +600,12 @@ func (w *World) RemoveBody(id int) bool {
 				delete(w.ignoredPairs, k)
 			}
 		}
+	}
+	if w.dispatchingContacts {
+		if w.removedDuringDispatch == nil {
+			w.removedDuringDispatch = make(map[int]struct{})
+		}
+		w.removedDuringDispatch[id] = struct{}{}
 	}
 	w.emitRemovedBodyExits(id)
 	w.wakeAllDynamic()

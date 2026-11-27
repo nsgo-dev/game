@@ -280,6 +280,371 @@ func TestTriggerAndContactEventsStrictlyOnce(t *testing.T) {
 	})
 }
 
+func TestRemoveBodyInsideContactAndTriggerCallbacks(t *testing.T) {
+	type evKey struct {
+		kind      physics3d.ContactEventKind
+		a, b      int
+		isTrigger bool
+	}
+	toKeys := func(evs []physics3d.ContactEvent) []evKey {
+		out := make([]evKey, len(evs))
+		for i, ev := range evs {
+			out[i] = evKey{kind: ev.Kind, a: ev.BodyA.ID, b: ev.BodyB.ID, isTrigger: ev.IsTrigger}
+		}
+		return out
+	}
+	assertEvents := func(t *testing.T, label string, got, want []evKey) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %+v, want %+v", label, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s[%d]: got %+v, want %+v\nfull got:  %+v\nfull want: %+v", label, i, got[i], want[i], got, want)
+			}
+		}
+	}
+
+	dt := time.Second / 60
+	unitBox := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}})
+
+	t.Run("OnContactStayRemoveMiddleBody", func(t *testing.T) {
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+
+		ground := w.AddBody(physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 0}))
+		boxX := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 0.9}, 1))
+		boxY := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 1.8}, 1))
+
+		// Step 1: establish (1,2) and (2,3).
+		w.Step(dt)
+		assertEvents(t, "step1 ContactEvents", toKeys(w.ContactEvents()), []evKey{
+			{physics3d.ContactEnter, ground.ID, boxX.ID, false},
+			{physics3d.ContactEnter, boxX.ID, boxY.ID, false},
+		})
+
+		// Keep overlaps alive for step 2.
+		boxX.Pos = physics3d.Vec3{Y: 0.9}
+		boxY.Pos = physics3d.Vec3{Y: 1.8}
+
+		var seen []evKey
+		removed := false
+		w.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if !removed && ev.Kind == physics3d.ContactStay && (ev.BodyA.ID == boxX.ID || ev.BodyB.ID == boxX.ID) {
+				removed = true
+				w.RemoveBody(boxX.ID)
+			}
+		}
+
+		w.Step(dt)
+		want := []evKey{
+			{physics3d.ContactStay, ground.ID, boxX.ID, false},
+			{physics3d.ContactExit, ground.ID, boxX.ID, false},
+			{physics3d.ContactExit, boxX.ID, boxY.ID, false},
+		}
+		assertEvents(t, "step2 callbacks", seen, want)
+		assertEvents(t, "step2 ContactEvents", toKeys(w.ContactEvents()), want)
+
+		// Step 3: no stale Stay or duplicate Exit for removed boxX.
+		seen = nil
+		w.Step(dt)
+		assertEvents(t, "step3 callbacks", seen, nil)
+		assertEvents(t, "step3 ContactEvents", toKeys(w.ContactEvents()), nil)
+	})
+
+	t.Run("OnContactStayRemoveBodyA", func(t *testing.T) {
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+
+		// Body 1 touches both body 2 and body 3, so body 1 is BodyA in both pairs.
+		ground := w.AddBody(physics3d.NewStaticBody(
+			physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 5, Y: 0.5, Z: 5}}),
+			physics3d.Vec3{Y: 0},
+		))
+		boxA := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{X: -2, Y: 0.9}, 1))
+		boxB := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{X: 2, Y: 0.9}, 1))
+
+		w.Step(dt)
+		boxA.Pos = physics3d.Vec3{X: -2, Y: 0.9}
+		boxB.Pos = physics3d.Vec3{X: 2, Y: 0.9}
+
+		var seen []evKey
+		removed := false
+		w.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if !removed && ev.Kind == physics3d.ContactStay && ev.BodyA.ID == ground.ID {
+				removed = true
+				w.RemoveBody(ground.ID)
+			}
+		}
+
+		w.Step(dt)
+		want := []evKey{
+			{physics3d.ContactStay, ground.ID, boxA.ID, false},
+			{physics3d.ContactExit, ground.ID, boxA.ID, false},
+			{physics3d.ContactExit, ground.ID, boxB.ID, false},
+		}
+		assertEvents(t, "callbacks", seen, want)
+		assertEvents(t, "ContactEvents", toKeys(w.ContactEvents()), want)
+	})
+
+	t.Run("OnContactEnterSuppressesUndeliveredEnterWithoutOrphanExit", func(t *testing.T) {
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+
+		ground := w.AddBody(physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 0}))
+		boxX := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 0.9}, 1))
+		boxY := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 1.8}, 1))
+
+		var seen []evKey
+		w.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if ev.Kind == physics3d.ContactEnter && ev.BodyA.ID == ground.ID && ev.BodyB.ID == boxX.ID {
+				w.RemoveBody(boxX.ID)
+			}
+		}
+
+		w.Step(dt)
+		// (boxX, boxY) never received ContactEnter, so it must receive neither Enter nor an orphan Exit.
+		want := []evKey{
+			{physics3d.ContactEnter, ground.ID, boxX.ID, false},
+			{physics3d.ContactExit, ground.ID, boxX.ID, false},
+		}
+		assertEvents(t, "callbacks", seen, want)
+		assertEvents(t, "ContactEvents", toKeys(w.ContactEvents()), want)
+
+		seen = nil
+		w.Step(dt)
+		assertEvents(t, "next step callbacks", seen, nil)
+		_ = boxY
+	})
+
+	t.Run("OnContactEnterWithPreexistingOverlap", func(t *testing.T) {
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+
+		// Body 1 starts far away; bodies 2 and 3 overlap first.
+		blocker := w.AddBody(physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 10}))
+		boxX := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 0.9}, 1))
+		boxY := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 1.8}, 1))
+
+		w.Step(dt)
+		assertEvents(t, "step1", toKeys(w.ContactEvents()), []evKey{
+			{physics3d.ContactEnter, boxX.ID, boxY.ID, false},
+		})
+
+		// Move blocker into contact with boxX so step 2 queues Enter(1,2) before Stay(2,3).
+		blocker.Pos = physics3d.Vec3{Y: 0}
+		boxX.Pos = physics3d.Vec3{Y: 0.9}
+		boxY.Pos = physics3d.Vec3{Y: 1.8}
+
+		var seen []evKey
+		w.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if ev.Kind == physics3d.ContactEnter && ev.BodyA.ID == blocker.ID && ev.BodyB.ID == boxX.ID {
+				w.RemoveBody(boxX.ID)
+			}
+		}
+
+		w.Step(dt)
+		want := []evKey{
+			{physics3d.ContactEnter, blocker.ID, boxX.ID, false},
+			{physics3d.ContactExit, blocker.ID, boxX.ID, false},
+			{physics3d.ContactExit, boxX.ID, boxY.ID, false},
+		}
+		assertEvents(t, "step2 callbacks", seen, want)
+		assertEvents(t, "step2 ContactEvents", toKeys(w.ContactEvents()), want)
+	})
+
+	t.Run("OnTriggerStayAndEnterRemoveBodyAAndB", func(t *testing.T) {
+		// Trigger 1 (X=-0.6) and Trigger 3 (X=0.6) do not touch each other;
+		// Mover 2 (X=0) overlaps both.
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+
+		t1Def := physics3d.NewStaticBody(unitBox, physics3d.Vec3{X: -0.6})
+		t1Def.IsTrigger = true
+		t1 := w.AddBody(t1Def)
+
+		mover := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{X: 0}, 1))
+
+		t2Def := physics3d.NewStaticBody(unitBox, physics3d.Vec3{X: 0.6})
+		t2Def.IsTrigger = true
+		t2 := w.AddBody(t2Def)
+
+		// Unrelated overlapping pair (4, 5) to verify removal of body 2 does
+		// not suppress remaining queued events for unaffected pairs.
+		t3Def := physics3d.NewStaticBody(unitBox, physics3d.Vec3{X: 10})
+		t3Def.IsTrigger = true
+		t3 := w.AddBody(t3Def)
+		other := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{X: 10}, 1))
+
+		// Step 1: Enter (t1, mover), (mover, t2), and (t3, other).
+		w.Step(dt)
+
+		var seen []evKey
+		removed := false
+		w.OnTrigger = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if !removed && ev.Kind == physics3d.ContactStay && ev.BodyB.ID == mover.ID {
+				removed = true
+				w.RemoveBody(mover.ID)
+			}
+		}
+
+		// Step 2: remove mover (BodyB of t1-mover, BodyA of mover-t2) inside Stay.
+		// (mover, t2) gets Exit and its queued Stay is suppressed; unrelated (t3, other) still gets Stay.
+		w.Step(dt)
+		want := []evKey{
+			{physics3d.ContactStay, t1.ID, mover.ID, true},
+			{physics3d.ContactExit, t1.ID, mover.ID, true},
+			{physics3d.ContactExit, mover.ID, t2.ID, true},
+			{physics3d.ContactStay, t3.ID, other.ID, true},
+		}
+		assertEvents(t, "trigger Stay remove B callbacks", seen, want)
+		assertEvents(t, "trigger Stay remove B ContactEvents", toKeys(w.ContactEvents()), want)
+
+		// Step 3: only unrelated (t3, other) stays; no further events for mover.
+		seen = nil
+		w.Step(dt)
+		wantStep3 := []evKey{
+			{physics3d.ContactStay, t3.ID, other.ID, true},
+		}
+		assertEvents(t, "trigger step3 callbacks", seen, wantStep3)
+		assertEvents(t, "trigger step3 ContactEvents", toKeys(w.ContactEvents()), wantStep3)
+
+		// Now test removing Trigger BodyA inside OnTrigger Enter when two disjoint movers overlap it.
+		w2 := physics3d.NewWorld()
+		w2.Gravity = physics3d.Vec3{}
+		wideBox := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 2, Y: 0.5, Z: 0.5}})
+		trigDef := physics3d.NewStaticBody(wideBox, physics3d.Vec3{})
+		trigDef.IsTrigger = true
+		trig := w2.AddBody(trigDef)
+		m1 := w2.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{X: -1}, 1))
+		m2 := w2.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{X: 1}, 1))
+
+		seen = nil
+		w2.OnTrigger = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if ev.Kind == physics3d.ContactEnter && ev.BodyA.ID == trig.ID {
+				w2.RemoveBody(trig.ID)
+			}
+		}
+
+		w2.Step(dt)
+		wantEnter := []evKey{
+			{physics3d.ContactEnter, trig.ID, m1.ID, true},
+			{physics3d.ContactExit, trig.ID, m1.ID, true},
+		}
+		assertEvents(t, "trigger Enter remove A callbacks", seen, wantEnter)
+		assertEvents(t, "trigger Enter remove A ContactEvents", toKeys(w2.ContactEvents()), wantEnter)
+		_ = m2
+	})
+
+	t.Run("MixedContactAndTriggerSuppressesQueuedTriggerStay", func(t *testing.T) {
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+
+		floor := w.AddBody(physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 0}))
+		box := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 0.9}, 1))
+		trigDef := physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 1.0})
+		trigDef.IsTrigger = true
+		trig := w.AddBody(trigDef)
+
+		w.Step(dt)
+		box.Pos = physics3d.Vec3{Y: 0.9}
+
+		var seen []evKey
+		removed := false
+		w.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if !removed && ev.Kind == physics3d.ContactStay && ev.BodyB.ID == box.ID {
+				removed = true
+				w.RemoveBody(box.ID)
+			}
+		}
+		w.OnTrigger = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+		}
+
+		w.Step(dt)
+		want := []evKey{
+			{physics3d.ContactStay, floor.ID, box.ID, false},
+			{physics3d.ContactExit, floor.ID, box.ID, false},
+			{physics3d.ContactExit, box.ID, trig.ID, true},
+		}
+		assertEvents(t, "mixed callbacks", seen, want)
+		assertEvents(t, "mixed ContactEvents", toKeys(w.ContactEvents()), want)
+	})
+
+	t.Run("SuppressesQueuedNaturalExitAndHandlesChainedRemoval", func(t *testing.T) {
+		// Part 1: queued natural Exit for (2,3) is not delivered twice if body 2 is removed during Stay(1,2).
+		w := physics3d.NewWorld()
+		w.Gravity = physics3d.Vec3{}
+		b1 := w.AddBody(physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 0}))
+		b2 := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 0.9}, 1))
+		b3 := w.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 1.8}, 1))
+		w.Step(dt)
+
+		b2.Pos = physics3d.Vec3{Y: 0.9}
+		b3.Pos = physics3d.Vec3{Y: 10} // separates (2,3) naturally this step
+
+		var seen []evKey
+		removed := false
+		w.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if !removed && ev.Kind == physics3d.ContactStay && ev.BodyB.ID == b2.ID {
+				removed = true
+				w.RemoveBody(b2.ID)
+			}
+		}
+		w.Step(dt)
+		want := []evKey{
+			{physics3d.ContactStay, b1.ID, b2.ID, false},
+			{physics3d.ContactExit, b1.ID, b2.ID, false},
+			{physics3d.ContactExit, b2.ID, b3.ID, false},
+		}
+		assertEvents(t, "natural exit dedup callbacks", seen, want)
+		assertEvents(t, "natural exit dedup ContactEvents", toKeys(w.ContactEvents()), want)
+
+		// Part 2: chained removal inside an Exit callback (1-2, 2-3, 3-4).
+		w2 := physics3d.NewWorld()
+		w2.Gravity = physics3d.Vec3{}
+		c1 := w2.AddBody(physics3d.NewStaticBody(unitBox, physics3d.Vec3{Y: 0}))
+		c2 := w2.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 0.9}, 1))
+		c3 := w2.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 1.8}, 1))
+		c4 := w2.AddBody(physics3d.NewDynamicBody(unitBox, physics3d.Vec3{Y: 2.7}, 1))
+		w2.Step(dt)
+
+		c2.Pos = physics3d.Vec3{Y: 0.9}
+		c3.Pos = physics3d.Vec3{Y: 1.8}
+		c4.Pos = physics3d.Vec3{Y: 2.7}
+
+		seen = nil
+		removed2, removed3 := false, false
+		w2.OnContact = func(ev physics3d.ContactEvent) {
+			seen = append(seen, evKey{ev.Kind, ev.BodyA.ID, ev.BodyB.ID, ev.IsTrigger})
+			if !removed2 && ev.Kind == physics3d.ContactStay && ev.BodyA.ID == c1.ID && ev.BodyB.ID == c2.ID {
+				removed2 = true
+				w2.RemoveBody(c2.ID)
+			} else if !removed3 && ev.Kind == physics3d.ContactExit && ev.BodyA.ID == c1.ID && ev.BodyB.ID == c2.ID {
+				removed3 = true
+				w2.RemoveBody(c3.ID)
+			}
+		}
+		w2.Step(dt)
+		wantChained := []evKey{
+			{physics3d.ContactStay, c1.ID, c2.ID, false},
+			{physics3d.ContactExit, c1.ID, c2.ID, false},
+			{physics3d.ContactExit, c2.ID, c3.ID, false},
+			{physics3d.ContactExit, c3.ID, c4.ID, false},
+		}
+		assertEvents(t, "chained removal callbacks", seen, wantChained)
+		assertEvents(t, "chained removal ContactEvents", toKeys(w2.ContactEvents()), wantChained)
+	})
+}
+
 func TestTriMeshColliderBVHRaycastAndCollisions(t *testing.T) {
 	// Build a 10x10 subdivided undulating floor mesh (200 triangles) plus a vertical wall (2 triangles).
 	const gridN = 10

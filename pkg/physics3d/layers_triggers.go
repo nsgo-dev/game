@@ -90,6 +90,12 @@ type contactKey struct {
 	childA, childB int
 }
 
+type pendingContactEvent struct {
+	key contactKey
+	rec activeContactRecord
+	ev  ContactEvent
+}
+
 func canonicalPairKey(idA, idB int) (pairKey, bool) {
 	if idA <= idB {
 		return pairKey{a: idA, b: idB}, false
@@ -464,7 +470,8 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 }
 
 // ContactEvents returns the deterministic slice of ContactEvents produced by
-// the most recent World.Step (and any subsequent RemoveBody exit events).
+// the most recent World.Step (and any subsequent RemoveBody exit events), in
+// the exact order delivered to OnContact and OnTrigger.
 func (w *World) ContactEvents() []ContactEvent {
 	return w.contactEvents
 }
@@ -512,6 +519,19 @@ func (w *World) emitContactEvent(ev ContactEvent) {
 	}
 }
 
+func (w *World) bodyRemovedDuringDispatch(key contactKey) bool {
+	if len(w.removedDuringDispatch) == 0 {
+		return false
+	}
+	if _, ok := w.removedDuringDispatch[key.a]; ok {
+		return true
+	}
+	if _, ok := w.removedDuringDispatch[key.b]; ok {
+		return true
+	}
+	return false
+}
+
 func (w *World) reconcileContactEvents(current map[contactKey]activeContactRecord) {
 	if w.activeContacts == nil {
 		w.activeContacts = make(map[contactKey]activeContactRecord)
@@ -533,24 +553,62 @@ func (w *World) reconcileContactEvents(current map[contactKey]activeContactRecor
 	slices.SortFunc(exitKeys, compareContactKeys)
 	w.exitKeysBuf = exitKeys
 
-	clear(w.contactEvents)
-	events := w.contactEvents[:0]
+	pending := w.pendingEventsBuf[:0]
 	for _, k := range curKeys {
 		cur := current[k]
 		if prev, existed := w.activeContacts[k]; existed {
 			if prev.isTrigger != cur.isTrigger {
-				events = append(events, ContactEvent{
-					Kind:        ContactExit,
-					BodyA:       prev.a,
-					BodyB:       prev.b,
-					ChildIndexA: prev.childA,
-					ChildIndexB: prev.childB,
-					Point:       prev.point,
-					Normal:      prev.normal,
-					Depth:       0,
-					IsTrigger:   prev.isTrigger,
+				pending = append(pending, pendingContactEvent{
+					key: k,
+					ev: ContactEvent{
+						Kind:        ContactExit,
+						BodyA:       prev.a,
+						BodyB:       prev.b,
+						ChildIndexA: prev.childA,
+						ChildIndexB: prev.childB,
+						Point:       prev.point,
+						Normal:      prev.normal,
+						Depth:       0,
+						IsTrigger:   prev.isTrigger,
+					},
 				})
-				events = append(events, ContactEvent{
+				pending = append(pending, pendingContactEvent{
+					key: k,
+					rec: cur,
+					ev: ContactEvent{
+						Kind:        ContactEnter,
+						BodyA:       cur.a,
+						BodyB:       cur.b,
+						ChildIndexA: cur.childA,
+						ChildIndexB: cur.childB,
+						Point:       cur.point,
+						Normal:      cur.normal,
+						Depth:       cur.depth,
+						IsTrigger:   cur.isTrigger,
+					},
+				})
+			} else {
+				pending = append(pending, pendingContactEvent{
+					key: k,
+					rec: cur,
+					ev: ContactEvent{
+						Kind:        ContactStay,
+						BodyA:       cur.a,
+						BodyB:       cur.b,
+						ChildIndexA: cur.childA,
+						ChildIndexB: cur.childB,
+						Point:       cur.point,
+						Normal:      cur.normal,
+						Depth:       cur.depth,
+						IsTrigger:   cur.isTrigger,
+					},
+				})
+			}
+		} else {
+			pending = append(pending, pendingContactEvent{
+				key: k,
+				rec: cur,
+				ev: ContactEvent{
 					Kind:        ContactEnter,
 					BodyA:       cur.a,
 					BodyB:       cur.b,
@@ -560,62 +618,61 @@ func (w *World) reconcileContactEvents(current map[contactKey]activeContactRecor
 					Normal:      cur.normal,
 					Depth:       cur.depth,
 					IsTrigger:   cur.isTrigger,
-				})
-			} else {
-				events = append(events, ContactEvent{
-					Kind:        ContactStay,
-					BodyA:       cur.a,
-					BodyB:       cur.b,
-					ChildIndexA: cur.childA,
-					ChildIndexB: cur.childB,
-					Point:       cur.point,
-					Normal:      cur.normal,
-					Depth:       cur.depth,
-					IsTrigger:   cur.isTrigger,
-				})
-			}
-		} else {
-			events = append(events, ContactEvent{
-				Kind:        ContactEnter,
-				BodyA:       cur.a,
-				BodyB:       cur.b,
-				ChildIndexA: cur.childA,
-				ChildIndexB: cur.childB,
-				Point:       cur.point,
-				Normal:      cur.normal,
-				Depth:       cur.depth,
-				IsTrigger:   cur.isTrigger,
+				},
 			})
 		}
 	}
 
 	for _, k := range exitKeys {
 		prev := w.activeContacts[k]
-		events = append(events, ContactEvent{
-			Kind:        ContactExit,
-			BodyA:       prev.a,
-			BodyB:       prev.b,
-			ChildIndexA: prev.childA,
-			ChildIndexB: prev.childB,
-			Point:       prev.point,
-			Normal:      prev.normal,
-			Depth:       0,
-			IsTrigger:   prev.isTrigger,
+		pending = append(pending, pendingContactEvent{
+			key: k,
+			ev: ContactEvent{
+				Kind:        ContactExit,
+				BodyA:       prev.a,
+				BodyB:       prev.b,
+				ChildIndexA: prev.childA,
+				ChildIndexB: prev.childB,
+				Point:       prev.point,
+				Normal:      prev.normal,
+				Depth:       0,
+				IsTrigger:   prev.isTrigger,
+			},
 		})
 	}
 
-	old := w.activeContacts
-	w.activeContacts = current
-	if old != nil {
-		clear(old)
-		w.nextActiveContacts = old
-	} else {
-		w.nextActiveContacts = nil
-	}
-	w.contactEvents = events
+	// current is w.nextActiveContacts; clear it now that pending holds this
+	// step's contact records so stale Body pointers are not retained.
+	clear(current)
 
-	for _, ev := range events {
-		w.emitContactEvent(ev)
+	clear(w.contactEvents)
+	w.contactEvents = w.contactEvents[:0]
+
+	w.dispatchingContacts = true
+	if len(w.removedDuringDispatch) > 0 {
+		clear(w.removedDuringDispatch)
+	}
+	defer func() {
+		w.dispatchingContacts = false
+		if len(w.removedDuringDispatch) > 0 {
+			clear(w.removedDuringDispatch)
+		}
+		clear(pending)
+		w.pendingEventsBuf = pending[:0]
+	}()
+
+	for _, item := range pending {
+		if w.bodyRemovedDuringDispatch(item.key) {
+			continue
+		}
+		switch item.ev.Kind {
+		case ContactEnter, ContactStay:
+			w.activeContacts[item.key] = item.rec
+		case ContactExit:
+			delete(w.activeContacts, item.key)
+		}
+		w.contactEvents = append(w.contactEvents, item.ev)
+		w.emitContactEvent(item.ev)
 	}
 }
 
@@ -634,11 +691,15 @@ func (w *World) emitRemovedBodyExits(removedID int) {
 	}
 	slices.SortFunc(exitKeys, compareContactKeys)
 
-	exits := make([]ContactEvent, 0, len(exitKeys))
 	for _, k := range exitKeys {
-		prev := w.activeContacts[k]
+		prev, ok := w.activeContacts[k]
+		if !ok {
+			// A nested RemoveBody inside an earlier Exit callback already
+			// emitted and removed this pair.
+			continue
+		}
 		delete(w.activeContacts, k)
-		exits = append(exits, ContactEvent{
+		ev := ContactEvent{
 			Kind:        ContactExit,
 			BodyA:       prev.a,
 			BodyB:       prev.b,
@@ -648,10 +709,8 @@ func (w *World) emitRemovedBodyExits(removedID int) {
 			Normal:      prev.normal,
 			Depth:       0,
 			IsTrigger:   prev.isTrigger,
-		})
-	}
-	w.contactEvents = append(w.contactEvents, exits...)
-	for _, ev := range exits {
+		}
+		w.contactEvents = append(w.contactEvents, ev)
 		w.emitContactEvent(ev)
 	}
 }

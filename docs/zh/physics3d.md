@@ -149,6 +149,16 @@ loop := &game.Loop{
 
 接触冲量作用在各个接触点上，因此摩擦会让滑动的球滚起来，平放的盒子稳固不晃动，立在棱上的盒子会倒向一个面。
 
+### 接触与触发器事件
+
+`World.Step` 会跨步追踪重叠的刚体对（复合形状按子碰撞体分别追踪），并按确定顺序向 `World.OnContact`（实体接触）与 `World.OnTrigger`（触发器刚体或触发器子碰撞体）派发 `ContactEnter`、`ContactStay` 和 `ContactExit` 事件。`World.ContactEvents()` 返回最近一次步进产生的事件（以及随后由 `RemoveBody` 触发的 `ContactExit` 事件），顺序与回调收到的完全一致。
+
+支持在 `OnContact` 或 `OnTrigger` 回调内部直接调用 `World.RemoveBody`：
+
+- 涉及该被移除刚体的所有当前活跃重叠对（已派发过 `ContactEnter`）会在 `RemoveBody` 返回前按确定键序立即派发 `ContactExit`。
+- 同一步中尚未派发的涉及该刚体的其余 `ContactEnter`、`ContactStay` 或 `ContactExit` 事件会被抑制，因此任何刚体对都不会在收到 `ContactExit` 后再次收到事件，也不会在未收到 `ContactEnter` 的情况下收到孤立的 `ContactExit`。
+- `World.ContactEvents()` 会在立即派发 `ContactExit` 的位置记录这些退出事件并省略被抑制的事件，与回调派发顺序保持一致。
+
 ### 物理材质
 
 可以将共享的 `*PhysicsMaterial`（`Friction`、`Restitution`、`LinearDamping`、`AngularDamping`）挂到 `Body.Material` 上，或调用 `Body.ApplyMaterial(mat)` 将其数值复制到刚体上。当 `Body.Material` 非空时，接触求解与速度阻尼直接读取材质经限幅后的表面属性（`Friction >= 0`、`Restitution` 在 `[0, 1]` 内、阻尼非负），因此修改共享材质会立即作用于所有引用它的刚体。来自 [`game/resource`](resources.md#physicsmaterial) 的共享 `*.physics.yaml` 文件可通过 `mat.ApplyTo3D(body)` 应用到 3D 刚体。
