@@ -957,3 +957,814 @@ func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
 		t.Fatalf("keychain secret retained %q after dialog close, want empty", got)
 	}
 }
+
+type fakePublishInvocation struct {
+	Args    []string          `json:"args"`
+	Cwd     string            `json:"cwd"`
+	Env     map[string]string `json:"env"`
+	Program string            `json:"program"`
+}
+
+// buildFakeCLI compiles a tiny standalone Go executable into binDir/name(.exe) that records each
+// invocation (program name, args, working directory, and publish credential env vars) as JSON lines
+// to FAKE_PUBLISH_LOG, emits simulated progress/status output, and optionally fails with FAKE_PUBLISH_FAIL.
+func buildFakeCLI(t *testing.T, binDir, name string) string {
+	t.Helper()
+	srcDir := t.TempDir()
+	src := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type record struct {
+	Args    []string          ` + "`json:\"args\"`" + `
+	Cwd     string            ` + "`json:\"cwd\"`" + `
+	Env     map[string]string ` + "`json:\"env\"`" + `
+	Program string            ` + "`json:\"program\"`" + `
+}
+
+func main() {
+	cwd, _ := os.Getwd()
+	env := map[string]string{}
+	for _, k := range []string{
+		"BUTLER_API_KEY",
+		"NSGO_PLAY_SERVICE_ACCOUNT",
+		"NSGO_APP_STORE_KEY",
+		"NSGO_APP_STORE_KEY_ID",
+		"NSGO_APP_STORE_ISSUER",
+	} {
+		if v := os.Getenv(k); v != "" {
+			env[k] = v
+		}
+	}
+	rec := record{
+		Program: filepath.Base(os.Args[0]),
+		Args:    os.Args[1:],
+		Cwd:     cwd,
+		Env:     env,
+	}
+	if logPath := os.Getenv("FAKE_PUBLISH_LOG"); logPath != "" {
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err == nil {
+			b, _ := json.Marshal(rec)
+			_, _ = f.Write(append(b, '\n'))
+			_ = f.Close()
+		}
+	}
+	if failMsg := os.Getenv("FAKE_PUBLISH_FAIL"); failMsg != "" {
+		// Echo credential if FAKE_PUBLISH_ECHO_SECRET is set to verify redaction.
+		if os.Getenv("FAKE_PUBLISH_ECHO_SECRET") == "1" {
+			fmt.Fprintf(os.Stderr, "%s (key=%s)\n", failMsg, os.Getenv("BUTLER_API_KEY"))
+		} else {
+			fmt.Fprintln(os.Stderr, failMsg)
+		}
+		os.Exit(1)
+	}
+
+	args := os.Args[1:]
+	// Strip leading "tool nsgo" if invoked as fake "go".
+	if len(args) >= 2 && args[0] == "tool" && args[1] == "nsgo" {
+		args = args[2:]
+	}
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.HasPrefix(joined, "publish itch "):
+		fmt.Fprintln(os.Stderr, "uploading studio/dungeon-run:channel to itch.io 50%")
+		fmt.Fprintln(os.Stdout, "uploaded studio/dungeon-run:channel")
+	case strings.HasPrefix(joined, "publish -target android"):
+		fmt.Fprintln(os.Stdout, "uploading App Bundle 45%")
+		fmt.Fprintln(os.Stdout, "committed dev.dungeonrun.game version code 4 to Google Play track internal")
+	case strings.HasPrefix(joined, "publish ios "):
+		fmt.Fprintln(os.Stderr, "uploading dev.dungeonrun.game 0.4.0 (4) to App Store Connect and waiting for processing")
+		fmt.Fprintln(os.Stderr, "Uploading 80%")
+		fmt.Fprintln(os.Stdout, "App Store Connect processed dev.dungeonrun.game 0.4.0 (4)")
+	default:
+		fmt.Fprintf(os.Stderr, "unexpected command: %v\n", os.Args)
+		os.Exit(2)
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outName := name
+	if filepath.Ext(os.Args[0]) == ".exe" {
+		outName += ".exe"
+	}
+	outPath := filepath.Join(binDir, outName)
+	cmd := exec.Command("go", "build", "-o", outPath, filepath.Join(srcDir, "main.go"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake %s: %v\n%s", name, err, out)
+	}
+	return outPath
+}
+
+func readFakePublishInvocations(t *testing.T, logPath string) []fakePublishInvocation {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read fake publish log: %v", err)
+	}
+	var out []fakePublishInvocation
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var rec fakePublishInvocation
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("unmarshal invocation %q: %v", line, err)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+// #1762 Acceptance 1:
+// Default uploader invokes nsgo publish for itch.io, Google Play internal, and TestFlight with
+// credentials passed ONLY in environment variables (never on the command line or in project files),
+// streams progress, and returns the printed store URL or processing state.
+func TestBuildReleaseDefaultUploaderRunsNSGoPublishWithFakeBinary(t *testing.T) {
+	binDir := t.TempDir()
+	buildFakeCLI(t, binDir, "nsgo")
+	logPath := filepath.Join(t.TempDir(), "invocations.jsonl")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_PUBLISH_LOG", logPath)
+	t.Setenv("FAKE_PUBLISH_FAIL", "")
+	// Ensure unrelated host env credentials are never leaked to another destination's upload.
+	t.Setenv("BUTLER_API_KEY", "host-stale-butler-key")
+	t.Setenv("NSGO_PLAY_SERVICE_ACCOUNT", "host-stale-play-key")
+	t.Setenv("NSGO_APP_STORE_KEY", "host-stale-apple-key")
+	t.Setenv("NSGO_APP_STORE_KEY_ID", "HOSTKEYID")
+	t.Setenv("NSGO_APP_STORE_ISSUER", "host-issuer")
+
+	dir := writeBuildReleaseProject(t, `export:
+  output: dist
+  presets:
+    - platform: web
+    - platform: macos
+      targets: [macos_arm64]
+    - platform: android
+      targets: [android_arm64]
+    - platform: ios
+`)
+	nsgoYAML := `name: dungeon-run
+id: dev.dungeonrun.game
+version: 0.4.0
+itch:
+  project: studio/dungeon-run
+  channels:
+    macos_arm64: osx-arm64-beta
+`
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte(nsgoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aabPath := filepath.Join(dir, "dist", "dungeon-run-0.4.0.aab")
+	ipaPath := filepath.Join(dir, "dist", "dungeon-run-0.4.0.ipa")
+	if err := os.WriteFile(aabPath, []byte("fake-aab"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ipaPath, []byte("fake-ipa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.Keychain = editor.NewMemoryKeychain()
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed.ReleaseReadinessInspector = func(string, string, *project.File) []editor.BuildReadinessItem {
+		return nil
+	}
+	ed.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+		return nil
+	}
+	ed.ReleaseMeasureRunner = func(_ context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		switch platform {
+		case "web":
+			return editor.BuildArtifactResult{
+				ArtifactPath: filepath.Join(plan.OutputDir, "dungeon-run-0.4.0-web.zip"),
+				ArtifactName: "dungeon-run-0.4.0-web.zip",
+				SizeBytes:    mbBytes(18.9),
+			}, nil
+		case "macos":
+			return editor.BuildArtifactResult{
+				ArtifactPath: filepath.Join(plan.OutputDir, "dungeon-run-0.4.0-macos.zip"),
+				ArtifactName: "dungeon-run-0.4.0-macos.zip",
+				SizeBytes:    mbBytes(32.1),
+			}, nil
+		case "android":
+			return editor.BuildArtifactResult{
+				ArtifactPath: aabPath,
+				ArtifactName: "dungeon-run-0.4.0.aab",
+				SizeBytes:    mbBytes(34.2),
+			}, nil
+		default:
+			return editor.BuildArtifactResult{
+				ArtifactPath: ipaPath,
+				ArtifactName: "dungeon-run-0.4.0.ipa",
+				SizeBytes:    mbBytes(38.6),
+			}, nil
+		}
+	}
+	// Leave ed.ReleaseUploader nil so the real defaultReleaseUploader runs!
+
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetReleaseVersion("0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	itchSecret := "itch-butler-secret-token-777"
+	playSecret := `{"client_email":"bot@play.example","private_key":"FAKE-PLAY-KEY-888"}`
+	appleKey := "-----BEGIN PRIVATE KEY-----\nFAKE-APPLE-KEY-999\n-----END PRIVATE KEY-----"
+	appleSecret := `{"key":"-----BEGIN PRIVATE KEY-----\nFAKE-APPLE-KEY-999\n-----END PRIVATE KEY-----","key_id":"KEYID12345","issuer":"11111111-2222-3333-4444-555555555555"}`
+
+	if err := ed.StorePublishCredential(editor.PublishDestItchIO, "studio", itchSecret); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StorePublishCredential(editor.PublishDestGooglePlay, "studio-play", playSecret); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StorePublishCredential(editor.PublishDestTestFlight, "studio-apple", appleSecret); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	rev := ed.BuildReleaseSnapshot().UploadReview
+	if len(rev.Items) != 4 {
+		t.Fatalf("Review uploads items = %d, want 4", len(rev.Items))
+	}
+	wantTracks := map[string]string{
+		"web":     "html5",
+		"macos":   "osx-arm64-beta",
+		"android": "internal track",
+		"ios":     "TestFlight beta",
+	}
+	for _, it := range rev.Items {
+		if it.Track != wantTracks[it.Platform] {
+			t.Fatalf("item %s Track = %q, want %q", it.Platform, it.Track, wantTracks[it.Platform])
+		}
+	}
+
+	if err := ed.ConfirmReleaseUploads(rev.SessionID); err != nil {
+		t.Fatalf("ConfirmReleaseUploads: %v", err)
+	}
+	if err := ed.WaitReleaseUpload(); err != nil {
+		t.Fatalf("WaitReleaseUpload: %v", err)
+	}
+
+	invocations := readFakePublishInvocations(t, logPath)
+	if len(invocations) != 4 {
+		t.Fatalf("fake nsgo invocations = %d, want 4: %+v", len(invocations), invocations)
+	}
+
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		realDir = dir
+	}
+
+	// Verify exact commands, working directory, and env-only credentials.
+	wantArgs := [][]string{
+		{"publish", "itch", "-target", "web", "-output", "dist", "-version", "0.4.0"},
+		{"publish", "itch", "-target", "macos_arm64", "-output", "dist", "-version", "0.4.0"},
+		{"publish", "-target", "android", "-track", "internal", filepath.FromSlash("dist/dungeon-run-0.4.0.aab")},
+		{"publish", "ios", filepath.FromSlash("dist/dungeon-run-0.4.0.ipa")},
+	}
+	allSecrets := []string{itchSecret, playSecret, appleSecret, appleKey, "FAKE-PLAY-KEY-888", "FAKE-APPLE-KEY-999"}
+	for i, inv := range invocations {
+		invCwd, _ := filepath.EvalSymlinks(inv.Cwd)
+		if invCwd != realDir {
+			t.Fatalf("invocation[%d] cwd = %q, want %q", i, invCwd, realDir)
+		}
+		if !slices.Equal(inv.Args, wantArgs[i]) {
+			t.Fatalf("invocation[%d] args = %q, want %q", i, inv.Args, wantArgs[i])
+		}
+		joinedArgs := strings.Join(inv.Args, " ")
+		for _, sec := range allSecrets {
+			if strings.Contains(joinedArgs, sec) {
+				t.Fatalf("invocation[%d] leaked credential onto command line: %q", i, joinedArgs)
+			}
+		}
+		switch i {
+		case 0, 1:
+			if inv.Env["BUTLER_API_KEY"] != itchSecret {
+				t.Fatalf("itch invocation[%d] BUTLER_API_KEY = %q, want %q", i, inv.Env["BUTLER_API_KEY"], itchSecret)
+			}
+			if inv.Env["NSGO_PLAY_SERVICE_ACCOUNT"] != "" || inv.Env["NSGO_APP_STORE_KEY"] != "" {
+				t.Fatalf("itch invocation[%d] received unrelated credentials: %+v", i, inv.Env)
+			}
+		case 2:
+			if inv.Env["NSGO_PLAY_SERVICE_ACCOUNT"] != playSecret {
+				t.Fatalf("android invocation NSGO_PLAY_SERVICE_ACCOUNT = %q, want %q", inv.Env["NSGO_PLAY_SERVICE_ACCOUNT"], playSecret)
+			}
+			if inv.Env["BUTLER_API_KEY"] != "" || inv.Env["NSGO_APP_STORE_KEY"] != "" {
+				t.Fatalf("android invocation received unrelated credentials: %+v", inv.Env)
+			}
+		case 3:
+			if inv.Env["NSGO_APP_STORE_KEY"] != appleKey || inv.Env["NSGO_APP_STORE_KEY_ID"] != "KEYID12345" || inv.Env["NSGO_APP_STORE_ISSUER"] != "11111111-2222-3333-4444-555555555555" {
+				t.Fatalf("ios invocation env = %+v", inv.Env)
+			}
+			if inv.Env["BUTLER_API_KEY"] != "" || inv.Env["NSGO_PLAY_SERVICE_ACCOUNT"] != "" {
+				t.Fatalf("ios invocation received unrelated credentials: %+v", inv.Env)
+			}
+		}
+	}
+
+	// Verify returned URLs and processing states on the Review uploads snapshot.
+	finalRev := ed.BuildReleaseSnapshot().UploadReview
+	if !finalRev.Completed || finalRev.LastErr != "" {
+		t.Fatalf("final UploadReview = %+v", finalRev)
+	}
+	for _, it := range finalRev.Items {
+		if it.Status != editor.UploadStatusDone || it.Progress != 1 {
+			t.Fatalf("item %s not Done: %+v", it.Platform, it)
+		}
+		switch it.Platform {
+		case "web", "macos":
+			if it.ResultURL != "https://studio.itch.io/dungeon-run" {
+				t.Fatalf("%s ResultURL = %q, want https://studio.itch.io/dungeon-run", it.Platform, it.ResultURL)
+			}
+			if !strings.Contains(it.StatusMessage, "uploaded studio/dungeon-run:channel") {
+				t.Fatalf("%s StatusMessage = %q", it.Platform, it.StatusMessage)
+			}
+		case "android":
+			if !strings.Contains(it.StatusMessage, "committed dev.dungeonrun.game version code 4 to Google Play track internal") {
+				t.Fatalf("android StatusMessage = %q", it.StatusMessage)
+			}
+		case "ios":
+			if !strings.Contains(it.StatusMessage, "App Store Connect processed dev.dungeonrun.game 0.4.0 (4)") {
+				t.Fatalf("ios StatusMessage = %q", it.StatusMessage)
+			}
+		}
+	}
+
+	// Ensure zero credentials were written into any file in the project directory.
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		for _, sec := range allSecrets {
+			if bytes.Contains(data, []byte(sec)) {
+				t.Fatalf("credential leaked into project file %s", p)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// #1762 Acceptance 1 (failure & redaction):
+// A failing nsgo publish command surfaces its message on the failed upload item and redacts any secret.
+func TestBuildReleaseDefaultUploaderSurfacesFailureAndRedactsSecrets(t *testing.T) {
+	binDir := t.TempDir()
+	buildFakeCLI(t, binDir, "nsgo")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_PUBLISH_FAIL", "publish itch: set itch.project in nsgo.yaml to owner/game")
+	t.Setenv("FAKE_PUBLISH_ECHO_SECRET", "1")
+
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: web
+`)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.Keychain = editor.NewMemoryKeychain()
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	secret := "SUPER-SECRET-ITCH-KEY-DO-NOT-LEAK"
+	if err := ed.StorePublishCredential(editor.PublishDestItchIO, "studio", secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	rev := ed.BuildReleaseSnapshot().UploadReview
+	if err := ed.ConfirmReleaseUploads(rev.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	waitErr := ed.WaitReleaseUpload()
+	if waitErr == nil {
+		t.Fatal("expected WaitReleaseUpload to return error on failing nsgo publish")
+	}
+	if !strings.Contains(waitErr.Error(), "set itch.project in nsgo.yaml") {
+		t.Fatalf("WaitReleaseUpload error = %q, want nsgo publish stderr message", waitErr.Error())
+	}
+	if strings.Contains(waitErr.Error(), secret) {
+		t.Fatalf("WaitReleaseUpload error leaked secret: %q", waitErr.Error())
+	}
+	finalRev := ed.BuildReleaseSnapshot().UploadReview
+	if len(finalRev.Items) != 1 || finalRev.Items[0].Status != editor.UploadStatusFailed {
+		t.Fatalf("expected failed web upload item: %+v", finalRev.Items)
+	}
+	if !strings.Contains(finalRev.Items[0].Err, "set itch.project in nsgo.yaml") || !strings.Contains(finalRev.Items[0].Err, "[redacted]") {
+		t.Fatalf("failed item Err = %q, want failure message with [redacted]", finalRev.Items[0].Err)
+	}
+	if strings.Contains(finalRev.Items[0].Err, secret) {
+		t.Fatalf("failed item Err leaked secret: %q", finalRev.Items[0].Err)
+	}
+}
+
+// #1762 Proposal:
+// In a Go module whose go.mod pins github.com/nsgo-dev/nsgo/cmd/nsgo as a tool,
+// defaultReleaseUploader invokes `go tool nsgo publish ...` in the project directory.
+func TestBuildReleaseDefaultUploaderUsesGoToolNSGoInModule(t *testing.T) {
+	binDir := t.TempDir()
+	buildFakeCLI(t, binDir, "go")
+	logPath := filepath.Join(t.TempDir(), "go-invocations.jsonl")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_PUBLISH_LOG", logPath)
+	t.Setenv("FAKE_PUBLISH_FAIL", "")
+	// Ensure unrelated host env credentials are never leaked to another destination's upload.
+	t.Setenv("BUTLER_API_KEY", "host-stale-butler-key")
+	t.Setenv("NSGO_PLAY_SERVICE_ACCOUNT", "host-stale-play-key")
+	t.Setenv("NSGO_APP_STORE_KEY", "host-stale-apple-key")
+	t.Setenv("NSGO_APP_STORE_KEY_ID", "HOSTKEYID")
+	t.Setenv("NSGO_APP_STORE_ISSUER", "host-issuer")
+
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: web
+`)
+	goMod := `module example.com/testgame
+
+go 1.27.3
+
+toolchain go1.27.3
+
+tool (
+	github.com/nsgo-dev/nsgo/cmd/nsgo
+)
+`
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.Keychain = editor.NewMemoryKeychain()
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetReleaseVersion("0.5.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StorePublishCredential(editor.PublishDestItchIO, "studio", "mod-itch-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConfirmReleaseUploads(ed.BuildReleaseSnapshot().UploadReview.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseUpload(); err != nil {
+		t.Fatalf("WaitReleaseUpload: %v", err)
+	}
+
+	invocations := readFakePublishInvocations(t, logPath)
+	if len(invocations) != 1 {
+		t.Fatalf("fake go invocations = %d, want 1", len(invocations))
+	}
+	want := []string{"tool", "nsgo", "publish", "itch", "-target", "web", "-output", "dist", "-version", "0.5.0"}
+	if !slices.Equal(invocations[0].Args, want) {
+		t.Fatalf("go args = %q, want %q", invocations[0].Args, want)
+	}
+	if invocations[0].Env["BUTLER_API_KEY"] != "mod-itch-secret" {
+		t.Fatalf("BUTLER_API_KEY = %q, want mod-itch-secret", invocations[0].Env["BUTLER_API_KEY"])
+	}
+}
+
+// #1762 Acceptance 2 & SteamPipe exclusion:
+// Review uploads shows exact itch.io channels (from nsgo.yaml itch.channels or NSGo defaults per built target),
+// and excludes Steam-channel desktop artifacts from itch.io, showing them as "upload with SteamPipe".
+func TestBuildReleaseReviewUploadsItchChannelsAndSteamPipe(t *testing.T) {
+	// 1. DefaultPublishDestinationForPlatform matches NSGo default itch.io channels.
+	for _, tc := range []struct {
+		platform string
+		dest     editor.PublishDestination
+		track    string
+	}{
+		{"web", editor.PublishDestItchIO, "html5"},
+		{"macos", editor.PublishDestItchIO, "osx-arm64, osx-x64"},
+		{"windows", editor.PublishDestItchIO, "windows-arm64, windows-x64"},
+		{"linux", editor.PublishDestItchIO, "linux-arm64, linux-x64"},
+		{"macos_arm64", editor.PublishDestItchIO, "osx-arm64"},
+		{"android", editor.PublishDestGooglePlay, "internal track"},
+		{"ios", editor.PublishDestTestFlight, "TestFlight beta"},
+	} {
+		dest, track := editor.DefaultPublishDestinationForPlatform(tc.platform)
+		if dest != tc.dest || track != tc.track {
+			t.Fatalf("DefaultPublishDestinationForPlatform(%q) = (%q, %q), want (%q, %q)", tc.platform, dest, track, tc.dest, tc.track)
+		}
+	}
+
+	// 2. Review uploads uses nsgo.yaml itch.channels overrides per built target and NSGo defaults otherwise.
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: macos
+    - platform: windows
+      targets: [windows_x64]
+    - platform: linux
+    - platform: web
+`)
+	nsgoYAML := `name: dungeon-run
+id: dev.dungeonrun.game
+version: 0.4.0
+itch:
+  project: studio/dungeon-run
+  channels:
+    macos_arm64: osx-arm64-beta
+    linux_x64: linux64-custom
+`
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte(nsgoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.Keychain = editor.NewMemoryKeychain()
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	rev := ed.BuildReleaseSnapshot().UploadReview
+	wantTracks := map[string]string{
+		"macos":   "osx-arm64-beta, osx-x64",
+		"windows": "windows-x64",
+		"linux":   "linux-arm64, linux64-custom",
+		"web":     "html5",
+	}
+	for _, it := range rev.Items {
+		if it.Destination != editor.PublishDestItchIO || it.DestinationLabel != "itch.io" {
+			t.Fatalf("%s unexpected dest: %+v", it.Platform, it)
+		}
+		if it.Track != wantTracks[it.Platform] {
+			t.Fatalf("%s Track = %q, want %q", it.Platform, it.Track, wantTracks[it.Platform])
+		}
+	}
+	ed.CloseReviewUploads()
+
+	// 3. Switching to steam channel removes desktop builds from itch.io and shows "upload with SteamPipe",
+	// while keeping web on itch.io.
+	if err := ed.SetExportChannel("steam"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	steamRev := ed.BuildReleaseSnapshot().UploadReview
+	for _, it := range steamRev.Items {
+		switch it.Platform {
+		case "macos", "windows", "linux":
+			if !it.ManualOnly || it.Destination != "" || it.DestinationLabel != "upload with SteamPipe" || it.Included {
+				t.Fatalf("steam desktop %s should be ManualOnly upload with SteamPipe and excluded: %+v", it.Platform, it)
+			}
+			if err := ed.SetReleaseUploadItemIncluded(it.Platform, true); err == nil {
+				t.Fatalf("SetReleaseUploadItemIncluded(%s, true) should refuse SteamPipe item", it.Platform)
+			}
+		case "web":
+			if it.ManualOnly || it.Destination != editor.PublishDestItchIO || it.Track != "html5" || !it.Included {
+				t.Fatalf("web should stay on itch.io even when steam channel is active: %+v", it)
+			}
+		}
+	}
+
+	// Render the Review uploads UI and verify SteamPipe badges appear for desktop rows (and no itch key button for them).
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+	for _, plat := range []string{"macos", "windows", "linux"} {
+		if !app.Exists("id:build-upload-manual-" + plat) {
+			t.Fatalf("expected SteamPipe manual badge for %s", plat)
+		}
+		if app.Exists("id:build-upload-key-" + plat) {
+			t.Fatalf("SteamPipe item %s must not show itch.io Add key button", plat)
+		}
+	}
+	if !app.Exists("id:build-upload-key-web") {
+		t.Fatal("expected itch.io Add key button for web")
+	}
+
+	// 4. Project whose nsgo.yaml sets updates.channel: steam and has ONLY desktop presets:
+	// none are included and ConfirmReleaseUploads returns ErrNoUploadsSelected.
+	steamDir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: macos
+    - platform: windows
+`)
+	if err := os.WriteFile(filepath.Join(steamDir, project.NSGoFileName), []byte("name: steam-game\nid: dev.steam.game\nversion: 1.0.0\nupdates:\n  channel: steam\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edSteam, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = edSteam.Close() })
+	edSteam.Keychain = editor.NewMemoryKeychain()
+	edSteam.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := edSteam.OpenProject(steamDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := edSteam.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edSteam.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	onlySteam := edSteam.BuildReleaseSnapshot().UploadReview
+	if len(onlySteam.Items) != 2 {
+		t.Fatalf("steam-only items = %d, want 2", len(onlySteam.Items))
+	}
+	for _, it := range onlySteam.Items {
+		if !it.ManualOnly || it.Included || it.DestinationLabel != "upload with SteamPipe" {
+			t.Fatalf("expected SteamPipe manual item: %+v", it)
+		}
+	}
+	if err := edSteam.ConfirmReleaseUploads(onlySteam.SessionID); !errors.Is(err, editor.ErrNoUploadsSelected) {
+		t.Fatalf("ConfirmReleaseUploads with only SteamPipe items = %v, want ErrNoUploadsSelected", err)
+	}
+
+	// 5. Building with explicit BuildReleaseOptions{Channel: "steam"} records the channel on desktop
+	// presets and shows them as "upload with SteamPipe" even when nsgo.yaml has no steam channel.
+	builtSteamDir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: macos
+    - platform: web
+`)
+	edBuiltSteam, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = edBuiltSteam.Close() })
+	edBuiltSteam.Keychain = editor.NewMemoryKeychain()
+	edBuiltSteam.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	edBuiltSteam.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+		return nil
+	}
+	if err := edBuiltSteam.OpenProject(builtSteamDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := edBuiltSteam.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edBuiltSteam.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true, Channel: "steam"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := edBuiltSteam.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edBuiltSteam.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	builtRev := edBuiltSteam.BuildReleaseSnapshot().UploadReview
+	for _, it := range builtRev.Items {
+		if it.Platform == "macos" && (!it.ManualOnly || it.DestinationLabel != "upload with SteamPipe" || it.Included) {
+			t.Fatalf("built steam macos preset should be SteamPipe manual only: %+v", it)
+		}
+		if it.Platform == "web" && (it.ManualOnly || it.Destination != editor.PublishDestItchIO || it.Track != "html5") {
+			t.Fatalf("built web preset should remain on itch.io html5: %+v", it)
+		}
+	}
+}
+
+// #1762: TestFlight keychain credentials also accept key_id:issuer in the account field paired with a raw .p8 key.
+func TestBuildReleaseDefaultUploaderTestFlightAccountMetadata(t *testing.T) {
+	binDir := t.TempDir()
+	buildFakeCLI(t, binDir, "nsgo")
+	logPath := filepath.Join(t.TempDir(), "tf-invocations.jsonl")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_PUBLISH_LOG", logPath)
+	t.Setenv("FAKE_PUBLISH_FAIL", "")
+
+	dir := writeBuildReleaseProject(t, `export:
+  output: dist
+  presets:
+    - platform: ios
+`)
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ipaPath := filepath.Join(dir, "dist", "dungeon-run-0.4.0.ipa")
+	if err := os.WriteFile(ipaPath, []byte("fake-ipa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.Keychain = editor.NewMemoryKeychain()
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed.ReleaseReadinessInspector = func(string, string, *project.File) []editor.BuildReadinessItem {
+		return nil
+	}
+	ed.ExportCommandRunner = func(context.Context, []string, io.Writer, io.Writer) error {
+		return nil
+	}
+	ed.ReleaseMeasureRunner = func(_ context.Context, _ string, _ *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		return editor.BuildArtifactResult{
+			ArtifactPath: ipaPath,
+			ArtifactName: "dungeon-run-0.4.0.ipa",
+			SizeBytes:    mbBytes(30),
+		}, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	rawP8 := "-----BEGIN PRIVATE KEY-----\nRAW-P8-CONTENT\n-----END PRIVATE KEY-----"
+	if err := ed.StorePublishCredential(editor.PublishDestTestFlight, "ABC1234567:99999999-8888-7777-6666-555555555555", rawP8); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConfirmReleaseUploads(ed.BuildReleaseSnapshot().UploadReview.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseUpload(); err != nil {
+		t.Fatalf("WaitReleaseUpload: %v", err)
+	}
+	invocations := readFakePublishInvocations(t, logPath)
+	if len(invocations) != 1 {
+		t.Fatalf("invocations = %d, want 1", len(invocations))
+	}
+	env := invocations[0].Env
+	if env["NSGO_APP_STORE_KEY"] != rawP8 || env["NSGO_APP_STORE_KEY_ID"] != "ABC1234567" || env["NSGO_APP_STORE_ISSUER"] != "99999999-8888-7777-6666-555555555555" {
+		t.Fatalf("unexpected TestFlight env: %+v", env)
+	}
+}

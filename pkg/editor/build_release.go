@@ -233,6 +233,7 @@ type BuildPresetEntry struct {
 	File         string                   `json:"file"`
 	Summary      string                   `json:"summary"`
 	Targets      []string                 `json:"targets,omitempty"`
+	Channel      string                   `json:"channel,omitempty"`
 	Included     bool                     `json:"included"`
 	Status       BuildPresetStatus        `json:"status"`
 	StatusText   string                   `json:"statusText"`
@@ -1888,6 +1889,12 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 		dryRun: opt.DryRun,
 	}
 
+	nsgoCfg, _ := releaseplan.ReadNSGoSettings(dir)
+	effectiveChannel := strings.TrimSpace(opt.Channel)
+	if effectiveChannel == "" {
+		effectiveChannel = strings.TrimSpace(nsgoCfg.Channel)
+	}
+
 	e.buildRelease.mu.Lock()
 	e.buildRelease.run = run
 	e.buildRelease.stopped = false
@@ -1899,6 +1906,7 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 		if !slices.Contains(platforms, p.Platform) {
 			continue
 		}
+		p.Channel = effectiveChannel
 		p.PlanCommands = slices.Clone(planLines[p.Platform])
 		if resume && p.NextStepIdx > 0 && p.NextStepIdx < len(p.Steps) {
 			p.Status = BuildPresetQueued

@@ -153,7 +153,7 @@ func (e *ExperimentalTargetsError) Unwrap() error {
 	return ErrExperimentalTarget
 }
 
-// NSGoSettings are the parts of nsgo.yaml that game release reads.
+// NSGoSettings are the parts of nsgo.yaml that game release and the editor's publish flow read.
 type NSGoSettings struct {
 	// Name is nsgo.yaml's name, used by nsgo build to name package directories and desktop executables.
 	Name string
@@ -163,6 +163,10 @@ type NSGoSettings struct {
 	Channel string
 	// Output is build.output, the directory nsgo build writes to when neither -output nor game.yaml's export.output says, relative to the project unless absolute; empty is nsgo's default, dist.
 	Output string
+	// ItchProject is itch.project, the itch.io owner/game slug when configured.
+	ItchProject string
+	// ItchChannels is itch.channels, mapping NSGo build target names to custom itch.io channel names.
+	ItchChannels map[string]string
 }
 
 // ReadNSGoSettings reads dir's nsgo.yaml. The file is nsgo's, which validates it when it builds, so fields game release does not read are left alone rather than refused.
@@ -184,15 +188,35 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 		Build struct {
 			Output string `yaml:"output"`
 		} `yaml:"build"`
+		Itch struct {
+			Project  string            `yaml:"project"`
+			Channels map[string]string `yaml:"channels"`
+		} `yaml:"itch"`
 	}
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return NSGoSettings{}, fmt.Errorf("%s: %w", path, err)
 	}
+	var itchChannels map[string]string
+	if len(file.Itch.Channels) > 0 {
+		itchChannels = make(map[string]string, len(file.Itch.Channels))
+		for k, v := range file.Itch.Channels {
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			if k != "" && v != "" {
+				itchChannels[k] = v
+			}
+		}
+		if len(itchChannels) == 0 {
+			itchChannels = nil
+		}
+	}
 	return NSGoSettings{
-		Name:    file.Name,
-		Version: file.Version,
-		Channel: file.Updates.Channel,
-		Output:  file.Build.Output,
+		Name:         file.Name,
+		Version:      file.Version,
+		Channel:      strings.TrimSpace(file.Updates.Channel),
+		Output:       strings.TrimSpace(file.Build.Output),
+		ItchProject:  strings.TrimSpace(file.Itch.Project),
+		ItchChannels: itchChannels,
 	}, nil
 }
 

@@ -1,12 +1,16 @@
 package editor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/targets"
 )
 
 // DefaultReleaseNotesFile is the project-relative Markdown file written by the Build and Release screen's
@@ -145,6 +150,8 @@ func (d PublishDestination) DisplayName() string {
 }
 
 // DefaultPublishDestinationForPlatform returns the default store destination and track label for platform.
+// For itch.io targets, the track label matches the channel(s) `nsgo publish itch` uses by default
+// (html5, osx-<arch>, windows-<arch>, linux-<arch>).
 func DefaultPublishDestinationForPlatform(platform string) (PublishDestination, string) {
 	switch platform {
 	case "android":
@@ -153,15 +160,76 @@ func DefaultPublishDestinationForPlatform(platform string) (PublishDestination, 
 		return PublishDestTestFlight, "TestFlight beta"
 	case "web":
 		return PublishDestItchIO, "html5"
-	case "macos":
-		return PublishDestItchIO, "osx"
-	case "windows":
-		return PublishDestItchIO, "windows"
-	case "linux":
-		return PublishDestItchIO, "linux"
+	case "macos", "windows", "linux":
+		return PublishDestItchIO, itchChannelsLabel(platform, nil, nil)
 	default:
+		if system, _, ok := strings.Cut(platform, "_"); ok && (system == "macos" || system == "windows" || system == "linux") {
+			return PublishDestItchIO, itchChannelForTarget(platform, nil)
+		}
 		return PublishDestItchIO, platform
 	}
+}
+
+func expandPublishTargets(platform string, configured []string) []string {
+	var raw []string
+	for _, t := range configured {
+		if s := strings.TrimSpace(t); s != "" {
+			raw = append(raw, s)
+		}
+	}
+	if len(raw) == 0 && strings.TrimSpace(platform) != "" {
+		raw = []string{strings.TrimSpace(platform)}
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	if expanded, err := targets.Expand(raw); err == nil && len(expanded) > 0 {
+		return expanded
+	}
+	return raw
+}
+
+func itchChannelForTarget(target string, overrides map[string]string) string {
+	if custom := strings.TrimSpace(overrides[target]); custom != "" {
+		return custom
+	}
+	system, arch, _ := strings.Cut(target, "_")
+	switch system {
+	case "web":
+		return "html5"
+	case "macos":
+		if arch != "" {
+			return "osx-" + arch
+		}
+		return "osx"
+	case "windows":
+		if arch != "" {
+			return "windows-" + arch
+		}
+		return "windows"
+	case "linux":
+		if arch != "" {
+			return "linux-" + arch
+		}
+		return "linux"
+	default:
+		return target
+	}
+}
+
+func itchChannelsLabel(platform string, configured []string, overrides map[string]string) string {
+	expanded := expandPublishTargets(platform, configured)
+	if len(expanded) == 0 {
+		return itchChannelForTarget(platform, overrides)
+	}
+	var channels []string
+	for _, t := range expanded {
+		ch := itchChannelForTarget(t, overrides)
+		if ch != "" && !slices.Contains(channels, ch) {
+			channels = append(channels, ch)
+		}
+	}
+	return strings.Join(channels, ", ")
 }
 
 // ReleaseNotesDraftRequest holds the git history, kept reviews, and changelog entries passed to
@@ -199,9 +267,11 @@ const (
 type ReleaseUploadItem struct {
 	Platform          string              `json:"platform"`
 	PlatformName      string              `json:"platformName"`
+	Targets           []string            `json:"targets,omitempty"`
 	Destination       PublishDestination  `json:"destination"`
 	DestinationLabel  string              `json:"destinationLabel"`
 	Track             string              `json:"track,omitempty"`
+	ManualOnly        bool                `json:"manualOnly,omitempty"`
 	Version           string              `json:"version"`
 	ArtifactName      string              `json:"artifactName"`
 	ArtifactPath      string              `json:"artifactPath"`
@@ -234,7 +304,10 @@ type ReleaseUploadReviewSnapshot struct {
 
 // ReleaseUploadRequest describes one user-confirmed artifact upload passed to ReleaseUploader.
 type ReleaseUploadRequest struct {
+	ProjectDir       string
+	OutputDir        string
 	Platform         string
+	Targets          []string
 	Destination      PublishDestination
 	DestinationLabel string
 	Track            string
@@ -1029,6 +1102,11 @@ func (e *Editor) SetReleaseUploadItemIncluded(platform string, included bool) er
 	found := false
 	for i := range e.buildRelease.uploadReview.items {
 		if e.buildRelease.uploadReview.items[i].Platform == platform {
+			if included && (e.buildRelease.uploadReview.items[i].ManualOnly || !e.buildRelease.uploadReview.items[i].Destination.Valid()) {
+				label := e.buildRelease.uploadReview.items[i].DestinationLabel
+				e.buildRelease.mu.Unlock()
+				return fmt.Errorf("editor: %s cannot be uploaded automatically (%s)", platform, label)
+			}
 			e.buildRelease.uploadReview.items[i].Included = included
 			found = true
 			break
@@ -1065,6 +1143,7 @@ func (e *Editor) SetReleaseUploadDestination(platform string, dest PublishDestin
 		if e.buildRelease.uploadReview.items[i].Platform == platform {
 			e.buildRelease.uploadReview.items[i].Destination = dest
 			e.buildRelease.uploadReview.items[i].DestinationLabel = dest.DisplayName()
+			e.buildRelease.uploadReview.items[i].ManualOnly = false
 			e.buildRelease.uploadReview.items[i].HasCredential = hasCred
 			e.buildRelease.uploadReview.items[i].CredentialAccount = acc
 			found = true
@@ -1136,6 +1215,10 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 	if e.ProjectPath != "" {
 		dir = filepath.Dir(e.ProjectPath)
 	}
+	var nsgoCfg releaseplan.NSGoSettings
+	if dir != "" {
+		nsgoCfg, _ = releaseplan.ReadNSGoSettings(dir)
+	}
 	ver := "0.1.0"
 	slug := "game"
 	outDir := filepath.Join(dir, releaseplan.DefaultOutput)
@@ -1146,10 +1229,15 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 		if strings.TrimSpace(e.Project.Name) != "" {
 			slug = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(e.Project.Name), " ", "-"))
 		}
-		if e.Project.Export != nil && e.Project.Export.Output != "" && dir != "" {
-			outDir = filepath.Join(dir, filepath.FromSlash(e.Project.Export.Output))
+		if dir != "" {
+			if resolvedOut, err := releaseplan.OutputDir(dir, releaseplan.Options{}, releaseplan.SettingsFromProject(e.Project), nsgoCfg); err == nil {
+				outDir = resolvedOut
+			}
+		} else if e.Project.Export != nil && e.Project.Export.Output != "" {
+			outDir = filepath.FromSlash(e.Project.Export.Output)
 		}
 	}
+	exportChannel := strings.TrimSpace(e.ExportChannel())
 
 	e.buildRelease.mu.Lock()
 	presets := make([]BuildPresetEntry, len(e.buildRelease.presets))
@@ -1187,7 +1275,6 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 		if p.Result == nil && (!p.Included || p.Status == BuildPresetSetup || p.Status == BuildPresetFailed) {
 			continue
 		}
-		dest, track := DefaultPublishDestinationForPlatform(p.Platform)
 		artifactName := defaultArtifactName(slug, ver, p.Platform)
 		artifactPath := filepath.Join(outDir, artifactName)
 		var sizeBytes int64
@@ -1208,10 +1295,44 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 				relPath = filepath.ToSlash(rel)
 			}
 		}
+
+		channel := strings.TrimSpace(p.Channel)
+		if channel == "" {
+			channel = exportChannel
+		}
+		if channel == "" {
+			channel = strings.TrimSpace(nsgoCfg.Channel)
+		}
+		resolvedTargets := expandPublishTargets(p.Platform, p.Targets)
+
+		if channel == "steam" && slices.Contains(releaseplan.SteamPlatforms, p.Platform) {
+			items = append(items, ReleaseUploadItem{
+				Platform:         p.Platform,
+				PlatformName:     p.Name,
+				Targets:          resolvedTargets,
+				DestinationLabel: "upload with SteamPipe",
+				Track:            "Steam channel",
+				ManualOnly:       true,
+				Version:          ver,
+				ArtifactName:     artifactName,
+				ArtifactPath:     artifactPath,
+				ArtifactRelPath:  relPath,
+				SizeBytes:        sizeBytes,
+				Included:         false,
+				Status:           UploadStatusPending,
+			})
+			continue
+		}
+
+		dest, track := DefaultPublishDestinationForPlatform(p.Platform)
+		if dest == PublishDestItchIO {
+			track = itchChannelsLabel(p.Platform, p.Targets, nsgoCfg.ItchChannels)
+		}
 		cred := lookupCred(dest)
 		items = append(items, ReleaseUploadItem{
 			Platform:          p.Platform,
 			PlatformName:      p.Name,
+			Targets:           resolvedTargets,
 			Destination:       dest,
 			DestinationLabel:  dest.DisplayName(),
 			Track:             track,
@@ -1226,7 +1347,7 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 			Status:            UploadStatusPending,
 		})
 	}
-	// If no preset was built yet, include all checked items by default so the author can inspect them.
+	// If no preset was built yet, include all uploadable items by default so the author can inspect them.
 	anyIncluded := false
 	for _, it := range items {
 		if it.Included {
@@ -1236,7 +1357,9 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 	}
 	if !anyIncluded {
 		for i := range items {
-			items[i].Included = true
+			if !items[i].ManualOnly && items[i].Destination.Valid() {
+				items[i].Included = true
+			}
 		}
 	}
 	return items
@@ -1286,7 +1409,7 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 
 	var selected []ReleaseUploadItem
 	for i := range rev.items {
-		if rev.items[i].Included {
+		if rev.items[i].Included && !rev.items[i].ManualOnly && rev.items[i].Destination.Valid() {
 			selected = append(selected, rev.items[i])
 		}
 	}
@@ -1319,7 +1442,7 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	}
 
 	for i := range rev.items {
-		if rev.items[i].Included {
+		if rev.items[i].Included && !rev.items[i].ManualOnly && rev.items[i].Destination.Valid() {
 			rev.items[i].Status = UploadStatusPending
 			rev.items[i].Progress = 0
 			rev.items[i].Err = ""
@@ -1340,6 +1463,13 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
 
+	outDir := ""
+	if baseDir != "" {
+		nsgoCfg, _ := releaseplan.ReadNSGoSettings(baseDir)
+		if resolvedOut, err := releaseplan.OutputDir(baseDir, releaseplan.Options{}, releaseplan.SettingsFromProject(e.Project), nsgoCfg); err == nil {
+			outDir = resolvedOut
+		}
+	}
 	notesAbs, _ := e.ReleaseNotesAbsPath()
 	uploader := e.ReleaseUploader
 	if uploader == nil {
@@ -1351,7 +1481,7 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	e.Status = fmt.Sprintf("Uploading %d release artifact(s)…", len(jobs))
 	e.notify()
 
-	go e.executeConfirmedReleaseUploads(ctx, scope, run, jobs, notesAbs, kc, uploader)
+	go e.executeConfirmedReleaseUploads(ctx, scope, run, jobs, baseDir, outDir, notesAbs, kc, uploader)
 	return nil
 }
 
@@ -1360,6 +1490,8 @@ func (e *Editor) executeConfirmedReleaseUploads(
 	scope *core.Scope,
 	run *releaseUploadRun,
 	jobs []confirmedUploadJob,
+	projectDir string,
+	outputDir string,
 	notesAbs string,
 	kc Keychain,
 	uploader ReleaseUploader,
@@ -1419,7 +1551,10 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		}
 
 		req := ReleaseUploadRequest{
+			ProjectDir:       projectDir,
+			OutputDir:        outputDir,
 			Platform:         item.Platform,
+			Targets:          slices.Clone(item.Targets),
 			Destination:      item.Destination,
 			DestinationLabel: item.DestinationLabel,
 			Track:            item.Track,
@@ -1534,15 +1669,549 @@ func (e *Editor) updateUploadItemLocked(run *releaseUploadRun, platform string, 
 
 type defaultReleaseUploader struct{}
 
-func (defaultReleaseUploader) Upload(ctx context.Context, req ReleaseUploadRequest, _ func(ReleaseUploadProgress)) (ReleaseUploadResult, error) {
+func (defaultReleaseUploader) Upload(ctx context.Context, req ReleaseUploadRequest, progress func(ReleaseUploadProgress)) (ReleaseUploadResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ReleaseUploadResult{}, err
 	}
-	if strings.TrimSpace(req.ArtifactPath) == "" {
-		return ReleaseUploadResult{}, fmt.Errorf("editor: no artifact path built for %s", req.Platform)
+	if !req.Destination.Valid() {
+		return ReleaseUploadResult{}, fmt.Errorf("%w: %q", ErrInvalidPublishDestination, req.Destination)
 	}
-	if _, err := os.Stat(req.ArtifactPath); err != nil {
-		return ReleaseUploadResult{}, fmt.Errorf("editor: build %s before uploading (%s not found)", req.Platform, req.ArtifactName)
+	projectDir := strings.TrimSpace(req.ProjectDir)
+	if projectDir == "" && strings.TrimSpace(req.ArtifactPath) != "" {
+		projectDir = filepath.Dir(req.ArtifactPath)
 	}
-	return ReleaseUploadResult{}, fmt.Errorf("editor: no store uploader runner configured for %s (configure Editor.ReleaseUploader or use nsgo publish)", req.DestinationLabel)
+	if projectDir == "" {
+		return ReleaseUploadResult{}, errors.New("editor: project directory is required to run nsgo publish")
+	}
+	req.ProjectDir = projectDir
+
+	publishArgs, err := buildNSGoPublishArgs(req)
+	if err != nil {
+		return ReleaseUploadResult{}, err
+	}
+	env, secrets, err := buildNSGoPublishEnv(os.Environ(), req)
+	if err != nil {
+		return ReleaseUploadResult{}, err
+	}
+
+	bin, cmdArgs := resolveNSGoPublishCommand(projectDir, publishArgs)
+	cmd := exec.CommandContext(ctx, bin, cmdArgs...)
+	cmd.Dir = projectDir
+	cmd.Env = env
+	cmd.Stdin = nil
+
+	var (
+		mu          sync.Mutex
+		lines       []string
+		linesSeen   int
+		lastFrac    = 0.10
+		lastURL     string
+		lastMessage string
+	)
+	const maxBufferedLines = 64
+
+	onLine := func(raw string) {
+		cleaned := strings.TrimSpace(stripANSI(raw))
+		if cleaned == "" {
+			return
+		}
+		cleaned = redactSecrets(cleaned, secrets)
+		mu.Lock()
+		linesSeen++
+		if len(lines) >= maxBufferedLines {
+			copy(lines, lines[1:])
+			lines[len(lines)-1] = cleaned
+		} else {
+			lines = append(lines, cleaned)
+		}
+		if u := extractPublishURL(cleaned); u != "" {
+			lastURL = u
+		}
+		lastMessage = cleaned
+		frac := lastFrac
+		if parsed, ok := parseExportProgressPercent(cleaned); ok {
+			mapped := 0.10 + float64(parsed)*0.85
+			if mapped > frac {
+				frac = mapped
+			}
+		} else {
+			estimated := 0.10 + 0.80*(1.0-math.Pow(0.78, float64(linesSeen)))
+			if estimated > 0.90 {
+				estimated = 0.90
+			}
+			if estimated > frac {
+				frac = estimated
+			}
+		}
+		lastFrac = frac
+		mu.Unlock()
+		if progress != nil {
+			progress(ReleaseUploadProgress{
+				Fraction: frac,
+				Message:  cleaned,
+			})
+		}
+	}
+
+	if progress != nil {
+		progress(ReleaseUploadProgress{
+			Fraction: 0.10,
+			Message:  fmt.Sprintf("Running nsgo publish for %s…", req.DestinationLabel),
+		})
+	}
+
+	stream := newPublishLineWriter(onLine)
+	cmd.Stdout = stream
+	cmd.Stderr = stream
+
+	runErr := cmd.Run()
+	stream.Flush()
+
+	mu.Lock()
+	capturedLines := slices.Clone(lines)
+	resultURL := lastURL
+	resultMsg := lastMessage
+	mu.Unlock()
+
+	if runErr != nil {
+		if ctx.Err() != nil {
+			return ReleaseUploadResult{}, ctx.Err()
+		}
+		detail := formatPublishFailureMessage(capturedLines, runErr, secrets)
+		return ReleaseUploadResult{}, fmt.Errorf("nsgo publish (%s): %s", req.DestinationLabel, detail)
+	}
+
+	if resultURL == "" && req.Destination == PublishDestItchIO {
+		resultURL = deriveItchURL(projectDir, capturedLines)
+	}
+	if resultMsg == "" {
+		resultMsg = "Uploaded to " + req.DestinationLabel
+	}
+	if progress != nil {
+		progress(ReleaseUploadProgress{
+			Fraction: 1,
+			Message:  resultMsg,
+		})
+	}
+	return ReleaseUploadResult{
+		Destination: req.Destination,
+		Platform:    req.Platform,
+		Version:     req.Version,
+		URL:         resultURL,
+		Message:     resultMsg,
+	}, nil
+}
+
+func resolveNSGoPublishCommand(projectDir string, publishArgs []string) (string, []string) {
+	if hasNSGoGoModTool(projectDir) {
+		return "go", append([]string{"tool", "nsgo"}, publishArgs...)
+	}
+	if nsgoPath, err := exec.LookPath("nsgo"); err == nil {
+		return nsgoPath, publishArgs
+	}
+	return "go", append([]string{"tool", "nsgo"}, publishArgs...)
+}
+
+func hasNSGoGoModTool(dir string) bool {
+	cur, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	for {
+		goModPath := filepath.Join(cur, "go.mod")
+		if info, statErr := os.Stat(goModPath); statErr == nil && info.Mode().IsRegular() {
+			data, readErr := readBoundedTextFile(goModPath, 1<<20)
+			if readErr != nil {
+				return false
+			}
+			return goModDeclaresNSGoTool(string(data))
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return false
+		}
+		cur = parent
+	}
+}
+
+func goModDeclaresNSGoTool(content string) bool {
+	const nsgoToolPkg = "github.com/nsgo-dev/nsgo/cmd/nsgo"
+	inToolBlock := false
+	for _, line := range strings.Split(content, "\n") {
+		if idx := strings.Index(line, "//"); idx >= 0 {
+			line = line[:idx]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if inToolBlock {
+			if line == ")" {
+				inToolBlock = false
+				continue
+			}
+			if strings.Trim(line, `"`) == nsgoToolPkg {
+				return true
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "tool") && len(line) > len("tool") {
+			next := line[len("tool")]
+			if next != ' ' && next != '\t' && next != '(' {
+				continue
+			}
+			rest := strings.TrimSpace(line[len("tool"):])
+			if rest == "(" {
+				inToolBlock = true
+				continue
+			}
+			if strings.Trim(rest, `"`) == nsgoToolPkg {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildNSGoPublishArgs(req ReleaseUploadRequest) ([]string, error) {
+	switch req.Destination {
+	case PublishDestItchIO:
+		publishTargets := expandPublishTargets(req.Platform, req.Targets)
+		if len(publishTargets) == 0 {
+			return nil, fmt.Errorf("editor: no itch.io targets resolved for %s", req.Platform)
+		}
+		for _, t := range publishTargets {
+			if t == "" || strings.HasPrefix(t, "-") {
+				return nil, fmt.Errorf("editor: invalid publish target %q", t)
+			}
+		}
+		args := []string{"publish", "itch", "-target", strings.Join(publishTargets, ",")}
+		if strings.TrimSpace(req.OutputDir) != "" {
+			outArg := projectRelativeArg(req.ProjectDir, req.OutputDir)
+			if strings.HasPrefix(outArg, "-") {
+				outArg = "./" + outArg
+			}
+			args = append(args, "-output", outArg)
+		}
+		if ver := strings.TrimSpace(req.Version); ver != "" {
+			if strings.HasPrefix(ver, "-") {
+				return nil, fmt.Errorf("editor: invalid release version %q", ver)
+			}
+			args = append(args, "-version", ver)
+		}
+		return args, nil
+
+	case PublishDestGooglePlay:
+		playTrack := normalizeGooglePlayTrack(req.Track)
+		if playTrack == "" || strings.HasPrefix(playTrack, "-") {
+			return nil, fmt.Errorf("editor: invalid Google Play track %q", req.Track)
+		}
+		args := []string{"publish", "-target", "android", "-track", playTrack}
+		if aabPath, ok := resolveExistingUploadArtifact(req, ".aab"); ok {
+			args = append(args, safePositionalArg(projectRelativeArg(req.ProjectDir, aabPath)))
+		}
+		return args, nil
+
+	case PublishDestTestFlight:
+		ipaPath, ok := resolveExistingUploadArtifact(req, ".ipa")
+		if !ok {
+			name := req.ArtifactName
+			if name == "" {
+				name = req.Platform + ".ipa"
+			}
+			return nil, fmt.Errorf("editor: build %s before uploading (%s not found)", req.Platform, name)
+		}
+		return []string{"publish", "ios", safePositionalArg(projectRelativeArg(req.ProjectDir, ipaPath))}, nil
+
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrInvalidPublishDestination, req.Destination)
+	}
+}
+
+func normalizeGooglePlayTrack(track string) string {
+	t := strings.TrimSpace(track)
+	if t == "" || strings.EqualFold(t, "internal track") {
+		return "internal"
+	}
+	if strings.HasSuffix(strings.ToLower(t), " track") {
+		t = strings.TrimSpace(t[:len(t)-len(" track")])
+	}
+	if t == "" {
+		return "internal"
+	}
+	return t
+}
+
+func resolveExistingUploadArtifact(req ReleaseUploadRequest, ext string) (string, bool) {
+	if p := strings.TrimSpace(req.ArtifactPath); p != "" && strings.EqualFold(filepath.Ext(p), ext) {
+		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+			return p, true
+		}
+	}
+	searchDirs := []string{}
+	if outDir := strings.TrimSpace(req.OutputDir); outDir != "" {
+		searchDirs = append(searchDirs, filepath.Join(outDir, "releases"), outDir)
+	}
+	if req.ProjectDir != "" {
+		defaultOut := filepath.Join(req.ProjectDir, releaseplan.DefaultOutput)
+		if !slices.Contains(searchDirs, filepath.Join(defaultOut, "releases")) {
+			searchDirs = append(searchDirs, filepath.Join(defaultOut, "releases"))
+		}
+		if !slices.Contains(searchDirs, defaultOut) {
+			searchDirs = append(searchDirs, defaultOut)
+		}
+	}
+	for _, dir := range searchDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		var matches []string
+		for _, ent := range entries {
+			if ent.IsDir() || !strings.EqualFold(filepath.Ext(ent.Name()), ext) {
+				continue
+			}
+			matches = append(matches, filepath.Join(dir, ent.Name()))
+		}
+		if len(matches) == 1 {
+			return matches[0], true
+		}
+	}
+	return "", false
+}
+
+func projectRelativeArg(projectDir, targetPath string) string {
+	if projectDir == "" {
+		return filepath.Clean(targetPath)
+	}
+	if rel, err := filepath.Rel(projectDir, targetPath); err == nil && rel != "" && rel != "." && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return filepath.Clean(targetPath)
+}
+
+func safePositionalArg(arg string) string {
+	if strings.HasPrefix(arg, "-") {
+		return "./" + arg
+	}
+	return arg
+}
+
+func unsetEnvVars(env []string, keys ...string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, ok := strings.Cut(kv, "=")
+		if ok && slices.Contains(keys, name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func buildNSGoPublishEnv(baseEnv []string, req ReleaseUploadRequest) ([]string, []string, error) {
+	secret := strings.TrimSpace(req.Credential.Secret)
+	if secret == "" {
+		return nil, nil, fmt.Errorf("editor: missing %s credential in system keychain", req.DestinationLabel)
+	}
+	env := slices.Clone(baseEnv)
+	secrets := []string{secret}
+	switch req.Destination {
+	case PublishDestItchIO:
+		env = unsetEnvVars(env, "BUTLER_API_KEY", "NSGO_PLAY_SERVICE_ACCOUNT", "NSGO_APP_STORE_KEY", "NSGO_APP_STORE_KEY_ID", "NSGO_APP_STORE_ISSUER")
+		env = setEnvVar(env, "BUTLER_API_KEY", secret)
+	case PublishDestGooglePlay:
+		env = unsetEnvVars(env, "BUTLER_API_KEY", "NSGO_PLAY_SERVICE_ACCOUNT", "NSGO_APP_STORE_KEY", "NSGO_APP_STORE_KEY_ID", "NSGO_APP_STORE_ISSUER")
+		env = setEnvVar(env, "NSGO_PLAY_SERVICE_ACCOUNT", secret)
+	case PublishDestTestFlight:
+		env = unsetEnvVars(env, "BUTLER_API_KEY", "NSGO_PLAY_SERVICE_ACCOUNT", "NSGO_APP_STORE_KEY")
+		key, keyID, issuer := parseAppStoreConnectCredential(req.Credential.Account, secret)
+		env = setEnvVar(env, "NSGO_APP_STORE_KEY", key)
+		if keyID != "" {
+			env = unsetEnvVars(env, "NSGO_APP_STORE_KEY_ID")
+			env = setEnvVar(env, "NSGO_APP_STORE_KEY_ID", keyID)
+		}
+		if issuer != "" {
+			env = unsetEnvVars(env, "NSGO_APP_STORE_ISSUER")
+			env = setEnvVar(env, "NSGO_APP_STORE_ISSUER", issuer)
+		}
+		if key != "" && key != secret {
+			secrets = append(secrets, key)
+		}
+	default:
+		return nil, nil, fmt.Errorf("%w: %q", ErrInvalidPublishDestination, req.Destination)
+	}
+	return env, secrets, nil
+}
+
+func parseAppStoreConnectCredential(account, secret string) (key, keyID, issuer string) {
+	key = secret
+	if strings.HasPrefix(secret, "{") {
+		var payload struct {
+			Key       string `json:"key"`
+			Private   string `json:"private_key"`
+			EnvKey    string `json:"NSGO_APP_STORE_KEY"`
+			KeyID     string `json:"key_id"`
+			KeyIDAlt  string `json:"keyId"`
+			EnvKeyID  string `json:"NSGO_APP_STORE_KEY_ID"`
+			Issuer    string `json:"issuer"`
+			IssuerID  string `json:"issuer_id"`
+			IssuerAlt string `json:"issuerId"`
+			EnvIssuer string `json:"NSGO_APP_STORE_ISSUER"`
+		}
+		if err := json.Unmarshal([]byte(secret), &payload); err == nil {
+			if v := strings.TrimSpace(firstNonEmpty(payload.Key, payload.Private, payload.EnvKey)); v != "" {
+				key = v
+			}
+			keyID = strings.TrimSpace(firstNonEmpty(payload.KeyID, payload.KeyIDAlt, payload.EnvKeyID))
+			issuer = strings.TrimSpace(firstNonEmpty(payload.Issuer, payload.IssuerID, payload.IssuerAlt, payload.EnvIssuer))
+		}
+	}
+	if (keyID == "" || issuer == "") && account != "" {
+		acc := strings.TrimSpace(account)
+		for _, sep := range []string{":", "/"} {
+			if left, right, ok := strings.Cut(acc, sep); ok {
+				left = strings.TrimSpace(left)
+				right = strings.TrimSpace(right)
+				if left != "" && right != "" && !strings.ContainsAny(left+right, " \t\r\n") {
+					if keyID == "" {
+						keyID = left
+					}
+					if issuer == "" {
+						issuer = right
+					}
+					break
+				}
+			}
+		}
+	}
+	return key, keyID, issuer
+}
+
+func redactSecrets(text string, secrets []string) string {
+	for _, sec := range secrets {
+		if sec != "" {
+			text = strings.ReplaceAll(text, sec, "[redacted]")
+		}
+	}
+	return text
+}
+
+func stripANSI(s string) string {
+	if !strings.ContainsRune(s, '\x1b') {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && (s[i] < 0x40 || s[i] > 0x7e) {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func extractPublishURL(line string) string {
+	for _, field := range strings.Fields(line) {
+		cand := strings.Trim(field, `"'()[]{}<>.,;:`)
+		if !strings.HasPrefix(cand, "https://") && !strings.HasPrefix(cand, "http://") {
+			continue
+		}
+		u, err := url.Parse(cand)
+		if err == nil && u.Host != "" {
+			return u.String()
+		}
+	}
+	return ""
+}
+
+func deriveItchURL(projectDir string, lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		for _, field := range strings.Fields(lines[i]) {
+			cand := strings.Trim(field, `"'()[]{}<>.,;:`)
+			if slug, _, ok := strings.Cut(cand, ":"); ok {
+				if owner, game, ok2 := strings.Cut(slug, "/"); ok2 && isSimpleSlug(owner) && isSimpleSlug(game) {
+					return "https://" + owner + ".itch.io/" + game
+				}
+			}
+		}
+	}
+	if nsgoCfg, err := releaseplan.ReadNSGoSettings(projectDir); err == nil {
+		if owner, game, ok := strings.Cut(nsgoCfg.ItchProject, "/"); ok && isSimpleSlug(owner) && isSimpleSlug(game) {
+			return "https://" + owner + ".itch.io/" + game
+		}
+	}
+	return ""
+}
+
+func isSimpleSlug(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func formatPublishFailureMessage(lines []string, runErr error, secrets []string) string {
+	if len(lines) > 0 {
+		start := 0
+		if len(lines) > 4 {
+			start = len(lines) - 4
+		}
+		msg := strings.Join(lines[start:], " | ")
+		if len(msg) > 512 {
+			msg = msg[len(msg)-512:]
+		}
+		return redactSecrets(msg, secrets)
+	}
+	return redactSecrets(runErr.Error(), secrets)
+}
+
+type publishLineWriter struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	onLine func(string)
+}
+
+func newPublishLineWriter(onLine func(string)) *publishLineWriter {
+	return &publishLineWriter{onLine: onLine}
+}
+
+func (w *publishLineWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	var lines []string
+	for _, b := range p {
+		if b == '\n' || b == '\r' {
+			if w.buf.Len() > 0 {
+				lines = append(lines, w.buf.String())
+				w.buf.Reset()
+			}
+			continue
+		}
+		w.buf.WriteByte(b)
+	}
+	w.mu.Unlock()
+	for _, line := range lines {
+		w.onLine(line)
+	}
+	return len(p), nil
+}
+
+func (w *publishLineWriter) Flush() {
+	w.mu.Lock()
+	rem := w.buf.String()
+	w.buf.Reset()
+	w.mu.Unlock()
+	if rem != "" {
+		w.onLine(rem)
+	}
 }
