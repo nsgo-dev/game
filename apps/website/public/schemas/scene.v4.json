@@ -925,6 +925,14 @@
                   "$ref": "#/definitions/NavRegion2DComponent"
                 }
               ]
+            },
+            "timer": {
+              "description": "Emits timeout on the game clock after a number of seconds, once or repeating.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TimerComponent"
+                }
+              ]
             }
           },
           "additionalProperties": {}
@@ -1452,6 +1460,29 @@
           "items": {
             "$ref": "#/definitions/TileLayerDoc"
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TimerComponent": {
+      "description": "Emits timeout on the game clock after a number of seconds, once or repeating.",
+      "type": "object",
+      "properties": {
+        "seconds": {
+          "description": "Seconds of game time between timeout events (>= 0); 0 fires on every update step.",
+          "type": "number",
+          "default": 1,
+          "minimum": 0
+        },
+        "oneShot": {
+          "description": "When true, the timer stops after the first timeout.",
+          "type": "boolean",
+          "default": false
+        },
+        "autostart": {
+          "description": "When true, the timer starts running as soon as the scene is connected.",
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false

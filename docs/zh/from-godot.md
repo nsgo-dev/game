@@ -19,8 +19,8 @@
 | 把场景当模板实例化 | `entities.Prefab`，或场景对象的 `prefab` 字段 | [实体](entities.md) |
 | `Resource`、`.tres`、`ResourceLoader` | 放进 `resource.Library` 的 YAML 资源文件；`resources/` 下的图像和声音；数据通过带 `WithFS` 的 `assets.Manager` 读取 | [resource](resources.md)、[assets](assets.md) |
 | 信号、`connect`、`emit` | `flow.Bus` 的 `Subscribe` 与 `Publish`；界面状态用 `core.Signal` | [flow](flow.md) |
-| `.tscn` 里的 `[connection]` | 场景文件的 `connections`，由 `sceneformat.Connect` 与 `Signals.Emit` 运行，或者像 `CONNECT_DEFERRED` 那样用 `Signals.Enqueue` 与 `Flush` 延后运行；`SpawnConnected` 把它们绑定到实体 | [编辑器与场景格式](editor.md#连接490) |
-| `Timer` 节点、`await` 信号 | `flow.Timers`、`flow.Seq` 与 `flow.Wait` | [flow](flow.md) |
+| `.tscn` 里的 `[connection]` | 场景文件的 `connections`，由 `sceneformat.Connect` 与 `Signals.Emit` 运行，或者像 `CONNECT_DEFERRED` 那样用 `Signals.Enqueue` 与 `Flush` 延后运行；`SpawnConnected` 把它们绑定到实体，`Signals.Listen` 则像 `Signal.connect` 那样在运行时从 Go 订阅 | [编辑器与场景格式](editor.md#连接490) |
+| `Timer` 节点、`await` 信号 | Go 里的 `flow.Timers`、`flow.Seq` 与 `flow.Wait`；场景中内置的 `timer` 组件，在 `Signals.Update` 上把 `timeout` 发给场景的连接 | [flow](flow.md)、[编辑器与场景格式](editor.md#内置计时器组件1362) |
 | `Tween` | `tween.Tween`、`tween.Timeline` | [tween](tween.md) |
 | `RandomNumberGenerator`（`randf`、`randi_range`、`randfn`、`rand_weighted`） | 按用途播种和派生的 `random.Stream`（`Float64`、`IntRange`、`Normal`、`WeightedIndex`） | [确定性](determinism.md) |
 | 输入映射、`Input.is_action_just_pressed` | `input.Actions`、`JustPressed` | [input](input.md) |
@@ -68,9 +68,10 @@ Godot 的 `.tres` 资源对应 [resource](resources.md) 文件：每个文件是
 Godot 的信号在这里承担的两件事，各有各的工具：
 
 - **系统之间的游戏事件**走类型化的 `flow.Bus`。一个结构体类型就是一个信号；`flow.Subscribe` 相当于连接，`flow.Publish` 立即发出，`flow.Enqueue` 配合 `Bus.Flush` 延后发出（Godot 的延迟连接），`flow.SubscribeOnce` 是一次性连接。没有任何东西以字符串为键，拼错的事件编译不过。见 [flow](flow.md)。
+- **场景对象的事件**，例如门的 `opened`，就是场景文件的 `connections` 所连接的事件；`Signals.Listen` 在运行时从 Go 订阅它们，可以监听单个对象或所有声明该事件的对象，并像 `Object.connect` 一样提供一次性与延后选项。见[编辑器与场景格式](editor.md#在-go-中监听事件)。
 - **视图显示的状态**，例如 HUD 里的分数，是一个 [`core.Signal`](https://pkg.go.dev/github.com/nsgo-dev/nsgo/core#Signal)。读取它的视图会在它变化时重新渲染，不需要手动接处理函数。
 
-用 `await` 等待变成步进序列：`flow.Seq(flow.Wait(d), flow.Do(fn))` 由 `flow.Runner` 在每个固定步推进，不用 goroutine。`Timer` 节点变成 `flow.Timers.After` 和 `Every`。`body_entered` 之类区域回调见下面的物理一节。
+用 `await` 等待变成步进序列：`flow.Seq(flow.Wait(d), flow.Do(fn))` 由 `flow.Runner` 在每个固定步推进，不用 goroutine。`Timer` 节点在 Go 里变成 `flow.Timers.After` 和 `Every`，或者场景对象内置的 `timer` 组件（`seconds`、`oneShot`、`autostart`），它的 `timeout` 由场景的连接接线，完全不用写代码。`body_entered` 之类区域回调见下面的物理一节。
 
 ## 输入映射
 

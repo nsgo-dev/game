@@ -96,6 +96,11 @@ func withPhysicsComponents(reg *sceneformat.ComponentRegistry) (*sceneformat.Com
 			return nil, err
 		}
 	}
+	if _, ok := out.Lookup(sceneformat.TimerComponentName); !ok {
+		if err := sceneformat.RegisterTimerComponent(out); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 

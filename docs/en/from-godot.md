@@ -19,8 +19,8 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | Instantiating a scene as a template | `entities.Prefab`, or a scene object's `prefab` field | [Entities](entities.md) |
 | `Resource`, `.tres`, `ResourceLoader` | YAML resource files in a `resource.Library`; images and sounds under `resources/`; data through `assets.Manager` with `WithFS` | [resource](resources.md), [assets](assets.md) |
 | Signals, `connect`, `emit` | `flow.Bus` with `Subscribe` and `Publish`; `core.Signal` for UI state | [flow](flow.md) |
-| `[connection]` in a `.tscn` | A scene file's `connections`, run by `sceneformat.Connect` and `Signals.Emit`, or deferred, as `CONNECT_DEFERRED` does, with `Signals.Enqueue` and `Flush`; `SpawnConnected` binds them to entities | [Editor & Scene Format](editor.md#connections-490) |
-| `Timer` node, `await` on a signal | `flow.Timers`, `flow.Seq` and `flow.Wait` | [flow](flow.md) |
+| `[connection]` in a `.tscn` | A scene file's `connections`, run by `sceneformat.Connect` and `Signals.Emit`, or deferred, as `CONNECT_DEFERRED` does, with `Signals.Enqueue` and `Flush`; `SpawnConnected` binds them to entities, and `Signals.Listen` subscribes from Go at run time, as `Signal.connect` does | [Editor & Scene Format](editor.md#connections-490) |
+| `Timer` node, `await` on a signal | `flow.Timers`, `flow.Seq` and `flow.Wait` in Go; the built-in `timer` component in a scene, emitting `timeout` into its connections on `Signals.Update` | [flow](flow.md), [Editor & Scene Format](editor.md#built-in-timer-component-1362) |
 | `Tween` | `tween.Tween`, `tween.Timeline` | [tween](tween.md) |
 | `RandomNumberGenerator` (`randf`, `randi_range`, `randfn`, `rand_weighted`) | `random.Stream` (`Float64`, `IntRange`, `Normal`, `WeightedIndex`), seeded and forked per purpose | [Determinism](determinism.md) |
 | Input Map, `Input.is_action_just_pressed` | `input.Actions`, `JustPressed` | [input](input.md) |
@@ -68,9 +68,10 @@ Saved games take the place of `ConfigFile` and `FileAccess` writes: [save](save.
 Godot's signals do two jobs here, each with its own tool:
 
 - **Gameplay events** between systems go through a typed `flow.Bus`. A struct type is the signal; `flow.Subscribe` connects, `flow.Publish` emits at once, `flow.Enqueue` with `Bus.Flush` emits later (Godot's deferred connection) and `flow.SubscribeOnce` is a one-shot connection. Nothing is keyed by a string, so a misspelt event does not compile. See [flow](flow.md).
+- **Events of a scene's objects**, such as a door's `opened`, are the events a scene file's `connections` wire; `Signals.Listen` subscribes a Go function to them at run time, on one object or on every object that declares the event, with once and deferred options as `Object.connect` has. See [Editor & Scene Format](editor.md#listening-to-events-from-go).
 - **State a view shows**, such as a score in the HUD, is a [`core.Signal`](https://pkg.go.dev/github.com/nsgo-dev/nsgo/core#Signal). A view that reads it re-renders when it changes, without a handler wired by hand.
 
-Waiting with `await` becomes a step sequence: `flow.Seq(flow.Wait(d), flow.Do(fn))` run by a `flow.Runner` each fixed step, with no goroutines. The `Timer` node becomes `flow.Timers.After` and `Every`. Area callbacks such as `body_entered` are covered under physics below.
+Waiting with `await` becomes a step sequence: `flow.Seq(flow.Wait(d), flow.Do(fn))` run by a `flow.Runner` each fixed step, with no goroutines. The `Timer` node becomes `flow.Timers.After` and `Every` in Go, or a scene object's built-in `timer` component (`seconds`, `oneShot`, `autostart`), whose `timeout` the scene's connections wire with no code at all. Area callbacks such as `body_entered` are covered under physics below.
 
 ## Input map
 

@@ -492,6 +492,14 @@ func generate(root string) ([]schemaFile, error) {
 							AllOf:       []*jsonschema.Schema{{Ref: "#/definitions/NavRegion2DComponent"}},
 						},
 					})
+					s.Definitions["TimerComponent"] = sceneformat.ComponentTypeSchema(sceneformat.TimerComponent())
+					comps.Properties = append(comps.Properties, jsonschema.Property{
+						Name: sceneformat.TimerComponentName,
+						Schema: &jsonschema.Schema{
+							Description: sceneformat.TimerComponent().Doc,
+							AllOf:       []*jsonschema.Schema{{Ref: "#/definitions/TimerComponent"}},
+						},
+					})
 				}
 			}
 		}

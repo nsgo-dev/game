@@ -1,0 +1,29 @@
+# Agent Note: Scene signals: run-time listeners on Signals, and a built-in timer component
+
+Status: implemented
+
+## Problem
+
+A scene's events reached Go code only through connections written in the file: every event had to name a target object whose component's handler called back into the game. Systems that no scene file should name — audio, analytics, achievements, UI — needed a boilerplate target object and a connection line in every scene. And no built-in component emitted an event on its own, so the most common event source in a Godot scene, the `Timer` node, had no counterpart: each game wrote its own component type, handler wiring and a `flow.Timers` call per scene (issue #1362, part of the Godot-gap tracking issue #1354).
+
+## Decision
+
+`Signals` grows a run-time subscription side, in `pkg/sceneformat/listen.go`: `Listen(from, event, fn, opts)` validates `from` and `event` with the same resolution as `Emit` and refuses an unknown object or event at the call. A listener's entry is keyed by the event's `component.event` and carries its source object; an empty `from` expands at `Listen` time to one entry per object that declares the event (skipping ambiguous bare names, which `Emit` from those objects also refuses), which is sound because a `Signals` is a fixed snapshot of the scene's objects. All entries of one subscription share a `listener`, so `Once` (a `spent` flag) and the idempotent `stop` (a `done` flag) act on every entry at once; the two flags are separate so a deferred once run already queued still fires at the `Flush` while a stop after scheduling drops it. Listeners run in `dispatch` after the file's connections, in `Listen` call order; deferred listeners append to the same `Flush` queue as enqueued events (`queued.listen`), keeping one deterministic order and one panic-recovery path. A listener's `Call` leaves `Target`, `Component`, `Handler` and `Args` unset, since it is not a connection. Destroyed entities need no listener bookkeeping: an entity that is gone emits nothing and `Flush` drops what it queued, so listeners on it can never run again.
+
+The built-in `timer` component lives in `pkg/sceneformat/timer.go`: fields `seconds`, `oneShot`, `autostart`, the event `timeout` and the handlers `start` and `stop`, registered with `RegisterTimerComponent` like the other built-ins, listed by the editor (both the built-in inspector registry and `editorcmd`'s merge) and embedded in the four scene JSON schemas by `tools/gameschema` like `navregion2d`. `Connect` builds the run-time state of every object whose `timer` component resolves against the built-in schema, in document order, and `Signals.Update(dt time.Duration)` advances it on the game clock — the same clock `flow.Timers` uses — enqueuing each `timeout` for the next `Flush`. A repeating timer carries the overshoot into the next period so it does not drift, matching `flow.Timers.Every`; `seconds: 0` fires once per update step. `Update` from inside a handler is refused, as `Flush` is, so timers advance only from the game's update.
+
+## Alternatives considered
+
+- **A separate dispatcher type for listeners instead of methods on `Signals`** — it would keep `Signals` small, but listeners must interleave with the file's connections in one deterministic order, share the destroyed-entity rules, the `Flush` queue and the panic-recovery path, and see the same resolved event names; duplicating all of that in a second type costs more than the two maps `Signals` gains.
+- **Resolving wildcard events per emission instead of expanding at `Listen`** — it would track the emitter's components exactly, but a `Signals` is a snapshot with no new objects or components, so per-emission resolution can only repeat the same result slower and with string work on the hot path.
+- **Driving timers from `flow.Timers` inside the game loop** — it reuses a scheduler that already exists, but every scene would name its timers in Go again, the events would bypass the scene's `Flush` queue and its ordering with the step's other events, and `start`/`stop` connections could not reach them.
+- **Versioning the timer component like the physics components (`version` field)** — the physics components carry one because their field sets already changed once; the issue specifies the timer's three fields and no version, and the component declares no on-disk schema of its own to migrate. A `version` field can still be added later without breaking existing files, which are read with unknown-field checks against the registered type.
+
+## Consequences
+
+- **Benefits**: game code hears any scene event without touching scene files; a misspelt event name fails at the `Listen` call, not silently at run time; timers are declared, wired and inspected entirely in the scene file and the editor; one `Flush` queue keeps connections, deferred listeners and timer timeouts in a single deterministic order.
+- **Costs and known limits**: a wildcard `Listen` sees only the objects the `Signals` snapshot holds, so a scene rebuilt with `Connect` needs its listeners re-added; an object with a `timer` component that does not match the built-in schema (a game's own type of that name) silently gets no timer, which is the price of the component name being a convention rather than a reserved key; deferred once listeners are spent at schedule time, so two emissions before one `Flush` run them once, matching Godot.
+
+## Verification
+
+`pkg/sceneformat/listen_test.go` covers wildcard sources, once, deferred ordering among enqueued events, stop inside a handler, destroyed entities, ambiguous bare names and the refused cases; `pkg/sceneformat/timer_test.go` covers one-shot, repeating without drift, `seconds: 0`, `start`/`stop` connections, destroyed entities, `Update` from a handler, and `testdata/timer.scene.yaml` end to end (also added to the format conformance fixtures). `go run ./tools/gameschema -check` passes with the regenerated schemas.
