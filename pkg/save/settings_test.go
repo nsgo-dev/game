@@ -181,13 +181,14 @@ func TestStartupLoadAndApplyAllTargets(t *testing.T) {
 		}
 		want.Locale = "ja"
 		want.Accessibility = save.AccessibilitySettings{
-			Captions:       true,
-			CaptionScale:   1.5,
-			ColorBlindMode: "deuteranopia",
-			ReduceMotion:   true,
-			HighContrast:   true,
-			ScreenShake:    0.25,
-			GameSpeed:      0.75,
+			Captions:           true,
+			CaptionScale:       1.5,
+			ColorBlindMode:     "deuteranopia",
+			ColorBlindSeverity: 0.8,
+			ReduceMotion:       true,
+			HighContrast:       true,
+			ScreenShake:        0.25,
+			GameSpeed:          0.75,
 		}
 		want.Custom = map[string]json.RawMessage{
 			"tutorial_seen": json.RawMessage(`true`),

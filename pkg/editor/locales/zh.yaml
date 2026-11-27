@@ -2810,6 +2810,13 @@ strings:
   overlays.button: 叠加层
   overlays.cameraBounds: 相机边界
   overlays.collisionShapes: 碰撞形状
+  overlays.colorVision.deuteranopia: 绿色盲
+  overlays.colorVision.normal: 正常
+  overlays.colorVision.protanopia: 红色盲
+  overlays.colorVision.tritanopia: 蓝色盲
+  overlays.colorVisionBadge: 色觉预览：{mode}
+  overlays.colorVisionReset: 关闭色觉预览
+  overlays.colorVisionTitle: 色觉预览
   overlays.connections: 连接线
   overlays.fit: 适应画面
   overlays.fitLabel: 在 2D 视口中适应显示全部可见对象

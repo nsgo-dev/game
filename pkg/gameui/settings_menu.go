@@ -155,18 +155,19 @@ type SettingsText struct {
 	LanguageHint  string
 	SystemDefault string
 
-	Subtitles     string
-	SFXCaptions   string
-	TextScale     string
-	HighContrast  string
-	ReduceMotion  string
-	ScreenShake   string
-	ReduceFlashes string
-	ColorBlind    string
-	GameSpeed     string
-	Invincibility string
-	AutoAim       string
-	HoldToToggle  string
+	Subtitles          string
+	SFXCaptions        string
+	TextScale          string
+	HighContrast       string
+	ReduceMotion       string
+	ScreenShake        string
+	ReduceFlashes      string
+	ColorBlind         string
+	ColorBlindSeverity string
+	GameSpeed          string
+	Invincibility      string
+	AutoAim            string
+	HoldToToggle       string
 
 	Apply string
 	Save  string
@@ -223,18 +224,19 @@ func DefaultSettingsText() SettingsText {
 		LanguageHint:  "Choose display language",
 		SystemDefault: "System Default",
 
-		Subtitles:     "Subtitles / Captions",
-		SFXCaptions:   "SFX Captions",
-		TextScale:     "Text Scale",
-		HighContrast:  "High Contrast",
-		ReduceMotion:  "Reduced Motion",
-		ScreenShake:   "Screen Shake",
-		ReduceFlashes: "Reduce Flashes",
-		ColorBlind:    "Color-Blind Mode",
-		GameSpeed:     "Game Speed",
-		Invincibility: "Invincibility",
-		AutoAim:       "Auto-Aim",
-		HoldToToggle:  "Hold to Toggle",
+		Subtitles:          "Subtitles / Captions",
+		SFXCaptions:        "SFX Captions",
+		TextScale:          "Text Scale",
+		HighContrast:       "High Contrast",
+		ReduceMotion:       "Reduced Motion",
+		ScreenShake:        "Screen Shake",
+		ReduceFlashes:      "Reduce Flashes",
+		ColorBlind:         "Color-Blind Mode",
+		ColorBlindSeverity: "Color-Blind Strength",
+		GameSpeed:          "Game Speed",
+		Invincibility:      "Invincibility",
+		AutoAim:            "Auto-Aim",
+		HoldToToggle:       "Hold to Toggle",
 
 		Apply: "Apply",
 		Save:  "Save",
@@ -298,6 +300,7 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.ScreenShake, def.ScreenShake)
 	fill(&in.ReduceFlashes, def.ReduceFlashes)
 	fill(&in.ColorBlind, def.ColorBlind)
+	fill(&in.ColorBlindSeverity, def.ColorBlindSeverity)
 	fill(&in.GameSpeed, def.GameSpeed)
 	fill(&in.Invincibility, def.Invincibility)
 	fill(&in.AutoAim, def.AutoAim)
@@ -592,18 +595,19 @@ type SettingsMenu struct {
 	localeButtons     []*Button
 
 	// Accessibility widgets
-	captionsToggle      *Toggle
-	sfxCaptionsToggle   *Toggle
-	textScaleSlider     *Slider
-	highContrastToggle  *Toggle
-	reduceMotionToggle  *Toggle
-	screenShakeSlider   *Slider
-	reduceFlashesToggle *Toggle
-	colorBlindBtn       *Button
-	gameSpeedSlider     *Slider
-	invincibilityToggle *Toggle
-	autoAimToggle       *Toggle
-	holdToToggleToggle  *Toggle
+	captionsToggle           *Toggle
+	sfxCaptionsToggle        *Toggle
+	textScaleSlider          *Slider
+	highContrastToggle       *Toggle
+	reduceMotionToggle       *Toggle
+	screenShakeSlider        *Slider
+	reduceFlashesToggle      *Toggle
+	colorBlindBtn            *Button
+	colorBlindSeveritySlider *Slider
+	gameSpeedSlider          *Slider
+	invincibilityToggle      *Toggle
+	autoAimToggle            *Toggle
+	holdToToggleToggle       *Toggle
 
 	// Footer widgets
 	applyBtn *Button
@@ -1691,6 +1695,20 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	}
 	m.cycleHandlers[m.colorBlindBtn] = stepColorBlind
 
+	m.colorBlindSeveritySlider = &Slider{
+		Min:    0,
+		Max:    1,
+		Step:   0.1,
+		Height: rowH,
+		OnChange: func(v float32) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.SetColorBlindSeverity(roundStep(float64(v), 0.01))
+			m.onSettingMutated()
+		},
+	}
+
 	m.gameSpeedSlider = &Slider{
 		Min:    float32(save.MinGameSpeed),
 		Max:    float32(save.MaxGameSpeed),
@@ -1750,6 +1768,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		m.screenShakeSlider,
 		m.reduceFlashesToggle,
 		m.colorBlindBtn,
+		m.colorBlindSeveritySlider,
 		m.gameSpeedSlider,
 		m.invincibilityToggle,
 		m.autoAimToggle,
@@ -2005,6 +2024,9 @@ func (m *SettingsMenu) syncWidgets() {
 	m.reduceFlashesToggle.Label = m.text.ReduceFlashes
 	m.reduceFlashesToggle.Checked = m.settings.Accessibility.ReduceFlashes
 	m.colorBlindBtn.Text = fmt.Sprintf("%s: < %s >", m.text.ColorBlind, colorBlindOptionLabel(m.colorBlindModes, m.settings.Accessibility.ColorBlindMode))
+	effCBSev := m.settings.Accessibility.EffectiveColorBlindSeverity()
+	m.colorBlindSeveritySlider.Label = fmt.Sprintf("%s: %d%%", m.text.ColorBlindSeverity, pctInt(effCBSev))
+	m.colorBlindSeveritySlider.Value = float32(effCBSev)
 	m.gameSpeedSlider.Label = fmt.Sprintf("%s: %d%%", m.text.GameSpeed, pctInt(m.settings.Accessibility.GameSpeed))
 	m.gameSpeedSlider.Value = float32(m.settings.Accessibility.GameSpeed)
 	m.invincibilityToggle.Label = m.text.Invincibility

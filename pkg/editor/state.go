@@ -22,6 +22,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/a11y"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/editor/internal/profiler"
@@ -944,6 +945,8 @@ type Editor struct {
 	agentMutating int
 	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
 	hud hudLayoutState
+	// colorVisionPreview selects the active color-vision deficiency simulation mode for the scene viewport and HUD layout preview.
+	colorVisionPreview a11y.ColorVision
 	// lookThroughCamera3D makes the 3D viewport render and project through the scene's active 3D camera (LookThroughCamera3D) instead of Camera3D.
 	lookThroughCamera3D bool
 	// envPanelOpen controls whether the Scene Environment panel is shown.

@@ -250,7 +250,7 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	pressGamepadButton(menu, gamepad.ButtonSouth)
 
 	// --- 5. ACCESSIBILITY TAB (switch with RB) ---
-	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] GameSpeed, [9] Invincibility, [10] AutoAim, [11] HoldToToggle
+	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] ColorBlindSeverity, [9] GameSpeed, [10] Invincibility, [11] AutoAim, [12] HoldToToggle
 	pressGamepadButton(menu, gamepad.ButtonRB)
 	if menu.Tab() != gameui.SettingsTabAccessibility {
 		t.Fatalf("tab after RB = %v, want accessibility", menu.Tab())
@@ -282,6 +282,10 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	// ColorBlindSeverity -> 0.8 (Left twice from 1.0 by 0.1)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
+	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
 	// GameSpeed -> 0.75 (Left once from 1.0 by 0.25)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
@@ -862,15 +866,19 @@ func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
 			// [7] Color-Blind = protanopia
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavRight)
-			// [8] Game Speed = skip
+			// [8] Color-Blind Strength = 0.8 (two steps left from 1.0)
 			menu.HandleAction(gameui.NavDown)
-			// [9] Invincibility = true
+			menu.HandleAction(gameui.NavLeft)
+			menu.HandleAction(gameui.NavLeft)
+			// [9] Game Speed = skip
+			menu.HandleAction(gameui.NavDown)
+			// [10] Invincibility = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
-			// [10] Auto-Aim = true
+			// [11] Auto-Aim = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
-			// [11] Hold to Toggle = true
+			// [12] Hold to Toggle = true
 			menu.HandleAction(gameui.NavDown)
 			menu.HandleAction(gameui.NavConfirm)
 
@@ -884,8 +892,12 @@ func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
 		if !assist.CaptionsEnabled() || !assist.SFXCaptionsEnabled() ||
 			assist.TextScale() != 1.5 || !assist.ReduceMotion() ||
 			!assist.ReduceFlashes() || assist.ColorVision() != a11y.VisionProtanopia ||
+			math.Abs(assist.ColorBlindSeverity()-0.8) > 1e-4 ||
 			!assist.Invincibility() || !assist.AutoAim() || !assist.HoldToToggle() {
-			t.Fatalf("Assist did not observe SettingsMenu.Save: %+v", assist.Snapshot())
+			t.Fatalf("Assist did not observe SettingsMenu.Save: %+v severity=%v", assist.Snapshot(), assist.ColorBlindSeverity())
+		}
+		if _, ok := assist.ColorVisionFilter(); !ok {
+			t.Fatal("expected Assist.ColorVisionFilter to be active after saving protanopia")
 		}
 
 		// CaptionsView reactively renders both dialogue (at 1.5x = 24pt) and SFX captions.

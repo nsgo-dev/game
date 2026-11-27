@@ -900,7 +900,21 @@ func hudCenterViewportView(cx *core.Scope, p theme.Palette, ed *Editor, rev *cor
 							},
 						}
 					}),
-					hudTextWidthTableView(cx, ed, stableTick),
+					core.View{
+						TestID:        "hud-floating-tables",
+						PointerEvents: core.PointerEventsBoxNone,
+						Style: core.Style{
+							Position:   core.Absolute,
+							Right:      core.Pt(24),
+							Bottom:     core.Pt(24),
+							AlignItems: core.AlignEnd,
+							Gap:        8,
+						},
+						Children: []core.Node{
+							hudColorVisionPanelView(cx, ed, rev, stableTick),
+							hudTextWidthTableView(cx, ed, stableTick),
+						},
+					},
 				},
 			},
 		},
@@ -1136,9 +1150,6 @@ func hudTextWidthTableView(cx *core.Scope, ed *Editor, stableTick func()) core.N
 			Role:   core.RoleRegion,
 			Label:  ed.T("hudLayout.textWidthRegionLabel"),
 			Style: core.Style{
-				Position:     core.Absolute,
-				Right:        core.Pt(24),
-				Bottom:       core.Pt(24),
 				Width:        core.Pt(cardW),
 				Padding:      core.Edges{Bottom: 8},
 				CornerRadius: 12,
@@ -2238,7 +2249,7 @@ func drawHUDMultiSizeCanvas(d *core.Drawing, size core.Size, ed *Editor, p theme
 		// Clipped screen region with game backdrop.
 		d.Save()
 		d.BeginPath().RoundRect(fr.X, fr.Y, fr.W, fr.H, screenRadius).Clip()
-		drawHUDGameBackdrop(d, p, fr.X, fr.Y, fr.W, fr.H, fr.Scale)
+		drawHUDGameBackdrop(d, p, ed, fr.X, fr.Y, fr.W, fr.H, fr.Scale)
 
 		// Safe area overlay (under widgets).
 		if ov.SafeAreas && (fr.Device.SafeArea.Left > 0 || fr.Device.SafeArea.Right > 0 || fr.Device.SafeArea.Top > 0 || fr.Device.SafeArea.Bottom > 0) {
@@ -2401,13 +2412,13 @@ func drawHUDMultiSizeCanvas(d *core.Drawing, size core.Size, ed *Editor, p theme
 	d.Restore()
 }
 
-func drawHUDGameBackdrop(d *core.Drawing, p theme.Palette, x, y, w, h, sc float32) {
+func drawHUDGameBackdrop(d *core.Drawing, p theme.Palette, ed *Editor, x, y, w, h, sc float32) {
 	// Subtle dark room + dungeon floor tiles + knight silhouette using Spec tokens.
-	d.SetFillColor(p.Raised).FillRect(x, y, w, h)
+	d.SetFillColor(ed.previewColor(p.Raised)).FillRect(x, y, w, h)
 	floorH := 48 * sc
 	fy := y + h - floorH
-	d.SetFillColor(p.LineRaised).FillRect(x, fy, w, floorH)
-	d.SetStrokeColor(p.Line).SetLineWidth(1)
+	d.SetFillColor(ed.previewColor(p.LineRaised)).FillRect(x, fy, w, floorH)
+	d.SetStrokeColor(ed.previewColor(p.Line)).SetLineWidth(1)
 	step := max(float32(8), 32*sc)
 	for gx := x; gx < x+w; gx += step {
 		d.BeginPath().MoveTo(gx, fy).LineTo(gx, y+h).Stroke()
@@ -2422,20 +2433,20 @@ func drawHUDGameBackdrop(d *core.Drawing, p theme.Palette, x, y, w, h, sc float3
 	kw := 18 * sc
 	kh := 28 * sc
 	ky := fy - kh
-	d.SetFillColor(p.TextMuted).BeginPath().RoundRect(kx, ky+4*sc, kw, kh-4*sc, 3*sc).Fill()
-	d.SetFillColor(p.Changed.Fg).BeginPath().RoundRect(kx+4*sc, ky, kw-8*sc, 5*sc, 2*sc).Fill()
-	d.SetFillColor(p.Bg).FillRect(kx+kw*0.45, ky+8*sc, kw*0.42, 4*sc)
+	d.SetFillColor(ed.previewColor(p.TextMuted)).BeginPath().RoundRect(kx, ky+4*sc, kw, kh-4*sc, 3*sc).Fill()
+	d.SetFillColor(ed.previewColor(p.Changed.Fg)).BeginPath().RoundRect(kx+4*sc, ky, kw-8*sc, 5*sc, 2*sc).Fill()
+	d.SetFillColor(ed.previewColor(p.Bg)).FillRect(kx+kw*0.45, ky+8*sc, kw*0.42, 4*sc)
 }
 
 func drawHUDNodeVisual(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.ScreenNodeDoc, loc string, x, y, w, h, sc float32, overflow bool) {
 	radius := n.CornerRadius * sc
-	bg := parseHUDColor(n.Background)
-	fg := parseHUDColor(n.TextColor)
+	bg := ed.previewColor(parseHUDColor(n.Background))
+	fg := ed.previewColor(parseHUDColor(n.TextColor))
 
 	switch n.Type {
 	case gameui.NodeColorRect:
 		if bg == 0 {
-			bg = ui.Alpha(p.Bg, 0.62)
+			bg = ed.previewColor(ui.Alpha(p.Bg, 0.62))
 		}
 		d.SetFillColor(bg).BeginPath().RoundRect(x, y, w, h, radius).Fill()
 
@@ -2445,7 +2456,7 @@ func drawHUDNodeVisual(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.S
 				radius = 8 * sc
 			}
 			d.SetFillColor(bg).BeginPath().RoundRect(x, y, w, h, radius).Fill()
-			d.SetStrokeColor(p.LineRaised).SetLineWidth(1).BeginPath().RoundRect(x, y, w, h, radius).Stroke()
+			d.SetStrokeColor(ed.previewColor(p.LineRaised)).SetLineWidth(1).BeginPath().RoundRect(x, y, w, h, radius).Stroke()
 		}
 
 	case gameui.NodeSpriteRow:
@@ -2458,7 +2469,7 @@ func drawHUDNodeVisual(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.S
 		iconS := min(h, availW/float32(count))
 		col := bg
 		if col == 0 {
-			col = p.Removed.Fg
+			col = ed.previewColor(p.Removed.Fg)
 		}
 		iy := y + (h-iconS)/2
 		for i := range count {
@@ -2471,14 +2482,14 @@ func drawHUDNodeVisual(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.S
 		r := min(w, h) / 2
 		base := bg
 		if base == 0 {
-			base = ui.Alpha(p.TextPrimary, 0.08)
+			base = ed.previewColor(ui.Alpha(p.TextPrimary, 0.08))
 		}
 		knob := fg
 		if knob == 0 {
-			knob = ui.Alpha(p.TextPrimary, 0.28)
+			knob = ed.previewColor(ui.Alpha(p.TextPrimary, 0.28))
 		}
 		d.SetFillColor(base).BeginPath().Arc(cxp, cyp, r, 0, 2*math.Pi, false).Fill()
-		d.SetStrokeColor(ui.Alpha(p.TextPrimary, 0.30)).SetLineWidth(1).BeginPath().Arc(cxp, cyp, r, 0, 2*math.Pi, false).Stroke()
+		d.SetStrokeColor(ed.previewColor(ui.Alpha(p.TextPrimary, 0.30))).SetLineWidth(1).BeginPath().Arc(cxp, cyp, r, 0, 2*math.Pi, false).Stroke()
 		d.SetFillColor(knob).BeginPath().Arc(cxp, cyp, r*0.32, 0, 2*math.Pi, false).Fill()
 
 	case gameui.NodeTouchButton:
@@ -2486,36 +2497,36 @@ func drawHUDNodeVisual(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.S
 		r := min(w, h) / 2
 		fill := bg
 		if fill == 0 {
-			fill = ui.Alpha(p.TextPrimary, 0.14)
+			fill = ed.previewColor(ui.Alpha(p.TextPrimary, 0.14))
 		}
 		d.SetFillColor(fill).BeginPath().Arc(cxp, cyp, r, 0, 2*math.Pi, false).Fill()
-		d.SetStrokeColor(ui.Alpha(p.TextPrimary, 0.30)).SetLineWidth(1).BeginPath().Arc(cxp, cyp, r, 0, 2*math.Pi, false).Stroke()
+		d.SetStrokeColor(ed.previewColor(ui.Alpha(p.TextPrimary, 0.30))).SetLineWidth(1).BeginPath().Arc(cxp, cyp, r, 0, 2*math.Pi, false).Stroke()
 
 	case gameui.NodeButton:
 		fill := bg
 		if fill == 0 {
-			fill = ui.Alpha(p.TextPrimary, 0.08)
+			fill = ed.previewColor(ui.Alpha(p.TextPrimary, 0.08))
 		}
 		if radius == 0 {
 			radius = 4 * sc
 		}
 		d.SetFillColor(fill).BeginPath().RoundRect(x, y, w, h, radius).Fill()
 		if n.FocusOrder == 1 {
-			d.SetStrokeColor(p.Warning.Fg).SetLineWidth(max(float32(1), 1.5*sc)).BeginPath().RoundRect(x, y, w, h, radius).Stroke()
+			d.SetStrokeColor(ed.previewColor(p.Warning.Fg)).SetLineWidth(max(float32(1), 1.5*sc)).BeginPath().RoundRect(x, y, w, h, radius).Stroke()
 		}
 		if n.TextKey == "" {
 			// Pause icon bars for icon-only button.
 			bw := max(float32(1.5), w*0.12)
 			bh := h * 0.45
 			by := y + (h-bh)/2
-			d.SetFillColor(p.TextPrimary).FillRect(x+w*0.32, by, bw, bh)
-			d.SetFillColor(p.TextPrimary).FillRect(x+w*0.56, by, bw, bh)
+			d.SetFillColor(ed.previewColor(p.TextPrimary)).FillRect(x+w*0.32, by, bw, bh)
+			d.SetFillColor(ed.previewColor(p.TextPrimary)).FillRect(x+w*0.56, by, bw, bh)
 		} else {
 			txt, ok := ed.hudLookupText(loc, n.TextKey)
 			if !ok {
 				txt = n.TextKey
 			}
-			drawHUDNodeText(d, p, n, txt, fg, x, y, w, h, sc, overflow)
+			drawHUDNodeText(d, p, ed, n, txt, fg, x, y, w, h, sc, overflow)
 		}
 
 	case gameui.NodeLabel:
@@ -2530,14 +2541,14 @@ func drawHUDNodeVisual(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.S
 			if !ok {
 				txt = n.TextKey
 			}
-			drawHUDNodeText(d, p, n, txt, fg, x, y, w, h, sc, overflow)
+			drawHUDNodeText(d, p, ed, n, txt, fg, x, y, w, h, sc, overflow)
 		}
 	}
 }
 
-func drawHUDNodeText(d *core.Drawing, p theme.Palette, n *gameui.ScreenNodeDoc, txt string, fg core.Color, x, y, w, h, sc float32, overflow bool) {
+func drawHUDNodeText(d *core.Drawing, p theme.Palette, ed *Editor, n *gameui.ScreenNodeDoc, txt string, fg core.Color, x, y, w, h, sc float32, overflow bool) {
 	if fg == 0 {
-		fg = p.TextPrimary
+		fg = ed.previewColor(p.TextPrimary)
 	}
 	fs := n.FontSize
 	if fs <= 0 {

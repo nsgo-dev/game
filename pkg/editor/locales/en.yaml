@@ -2810,6 +2810,13 @@ strings:
   overlays.button: Overlays
   overlays.cameraBounds: Camera bounds
   overlays.collisionShapes: Collision shapes
+  overlays.colorVision.deuteranopia: Deuteranopia
+  overlays.colorVision.normal: Normal
+  overlays.colorVision.protanopia: Protanopia
+  overlays.colorVision.tritanopia: Tritanopia
+  overlays.colorVisionBadge: 'Color vision: {mode}'
+  overlays.colorVisionReset: Turn off color-vision preview
+  overlays.colorVisionTitle: COLOR VISION PREVIEW
   overlays.connections: Connections
   overlays.fit: Fit
   overlays.fitLabel: Fit all visible objects in the 2D viewport
