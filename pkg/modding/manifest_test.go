@@ -196,6 +196,14 @@ func TestParseManifestRefusesInvalidDocuments(t *testing.T) {
 		"bad dependency":          {base + "dependencies:\n  b: not-a-version\n", "constraint"},
 		"bad version":             {strings.Replace(base, "1.0.0", "1.0", 1), "version"},
 		"escaping entry":          {strings.Replace(base, "mod.js", "../mod.js", 1), "escapes"},
+		"host cap uppercase":      {base + "capabilities: [Inventory.read]\n", `invalid host capability "Inventory.read"`},
+		"host cap segment upper":  {base + "capabilities: [inventory.Read]\n", `invalid host capability "inventory.Read"`},
+		"host cap snake_case":     {base + "capabilities: [inventory.read_all]\n", `invalid host capability "inventory.read_all"`},
+		"host cap kebab-case":     {base + "capabilities: [inventory.read-all]\n", `invalid host capability "inventory.read-all"`},
+		"host cap trailing dot":   {base + "capabilities: [inventory.]\n", `invalid host capability "inventory."`},
+		"host cap leading dot":    {base + "capabilities: [.read]\n", `invalid host capability ".read"`},
+		"host cap double dot":     {base + "capabilities: [inventory..read]\n", `invalid host capability "inventory..read"`},
+		"host cap repeated":       {base + "capabilities: [inventory.read, inventory.read]\n", `capability "inventory.read" listed twice`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -215,8 +223,83 @@ func TestCapabilityYAMLAcceptsEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}
-	if m.Capabilities != modding.CapNone {
-		t.Fatalf("Capabilities = %v, want none", m.Capabilities)
+	if m.Capabilities != modding.CapNone || len(m.HostCapabilities) != 0 {
+		t.Fatalf("Capabilities = %v / %v, want none", m.Capabilities, m.HostCapabilities)
+	}
+}
+
+func TestManifestHostCapabilitiesParseEncodeAndRoundTrip(t *testing.T) {
+	// Built-in capabilities stay in canonical table order; host capabilities come after, sorted in byte order.
+	input := `manifestVersion: 1
+id: com.example.inv
+name: Inventory Helper
+version: 1.0.0
+entry: mod.tsx
+capabilities: [scene.edit, ui, inventory.read, readState, editor.contextAction]
+`
+	m, err := modding.ParseManifest([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if m.Capabilities != modding.CapReadState|modding.CapUI {
+		t.Fatalf("Capabilities = %v, want readState,ui", m.Capabilities)
+	}
+	wantHost := []string{"editor.contextAction", "inventory.read", "scene.edit"}
+	if !reflect.DeepEqual(m.HostCapabilities, wantHost) {
+		t.Fatalf("HostCapabilities = %v, want %v", m.HostCapabilities, wantHost)
+	}
+
+	out, err := modding.EncodeManifest(m)
+	if err != nil {
+		t.Fatalf("EncodeManifest: %v", err)
+	}
+	wantYAML := `manifestVersion: 1
+id: com.example.inv
+name: Inventory Helper
+version: 1.0.0
+entry: mod.tsx
+capabilities: [readState, ui, editor.contextAction, inventory.read, scene.edit]
+`
+	if string(out) != wantYAML {
+		t.Fatalf("EncodeManifest =\n%s\nwant:\n%s", out, wantYAML)
+	}
+	back, err := modding.ParseManifest(out)
+	if err != nil {
+		t.Fatalf("ParseManifest(EncodeManifest): %v", err)
+	}
+	if !reflect.DeepEqual(back, m) {
+		t.Fatalf("round trip = %+v, want %+v", back, m)
+	}
+
+	// Host-only capabilities (no built-in bits) must not be omitted.
+	hostOnly := modding.ModManifest{
+		ID:               "host.only",
+		Name:             "Host Only",
+		Version:          "1.0.0",
+		Entry:            "mod.ts",
+		HostCapabilities: []string{"z.beta", "a.alpha"},
+	}
+	encoded, err := modding.EncodeManifest(hostOnly)
+	if err != nil {
+		t.Fatalf("EncodeManifest(hostOnly): %v", err)
+	}
+	wantHostOnly := "manifestVersion: 1\nid: host.only\nname: Host Only\nversion: 1.0.0\nentry: mod.ts\ncapabilities: [a.alpha, z.beta]\n"
+	if string(encoded) != wantHostOnly {
+		t.Fatalf("EncodeManifest(hostOnly) =\n%s\nwant:\n%s", encoded, wantHostOnly)
+	}
+
+	// Validate refuses invalid or duplicate HostCapabilities built in code.
+	for name, bad := range map[string][]string{
+		"no dot":    {"readState"},
+		"uppercase": {"Inv.read"},
+		"duplicate": {"inventory.read", "inventory.read"},
+	} {
+		t.Run("validate/"+name, func(t *testing.T) {
+			bm := modding.ModManifest{ID: "bad", Name: "Bad", Version: "1.0.0", Entry: "mod.ts", HostCapabilities: bad}
+			if err := bm.Validate(); !errors.Is(err, modding.ErrInvalidManifest) {
+				t.Fatalf("Validate(%v) = %v, want ErrInvalidManifest", bad, err)
+			}
+		})
 	}
 }
 
@@ -305,12 +388,12 @@ func TestSampleModLoads(t *testing.T) {
 				OnEmit: func(ev modding.Event) { events = append(events, ev) },
 			},
 		})
-		got, err := mgr.Discover("testdata/mods")
+		got, err := mgr.Install("testdata/mods/boss-rush")
 		if err != nil {
-			t.Fatalf("Discover: %v", err)
+			t.Fatalf("Install: %v", err)
 		}
-		if len(got) != 1 || !reflect.DeepEqual(got[0], manifest) {
-			t.Fatalf("discovered = %+v, want [%+v]", got, manifest)
+		if !reflect.DeepEqual(got, manifest) {
+			t.Fatalf("installed = %+v, want %+v", got, manifest)
 		}
 		if err := mgr.LoadAll(); err != nil {
 			t.Fatalf("LoadAll: %v", err)
@@ -344,6 +427,7 @@ func TestSampleModLoads(t *testing.T) {
 func FuzzParseManifest(f *testing.F) {
 	f.Add([]byte(fullManifest))
 	f.Add([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\n"))
+	f.Add([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\ncapabilities: [readState, inventory.read, scene.edit]\n"))
 	f.Add([]byte("manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\ncapabilities: [ui, ui]\n"))
 	f.Add([]byte(`{"id":"a","name":"A","version":"1.0.0","entry":"mod.js"}`))
 	f.Fuzz(func(t *testing.T, data []byte) {

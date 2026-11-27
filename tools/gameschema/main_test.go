@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/modding"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -1046,6 +1047,53 @@ func TestPermissionsSchemaShapeAndValidation(t *testing.T) {
 	} {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("permissions schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestModManifestSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, modding.SchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != modding.SchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if mv := s.Property("manifestVersion"); mv == nil || mv.Const != int64(modding.ManifestVersion) {
+		t.Fatalf("manifestVersion property = %+v", mv)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("mod manifest schema accepts unknown top-level keys")
+	}
+	if s.Property("hostCapabilities") != nil {
+		t.Fatal("mod manifest schema should not expose Go-only hostCapabilities key")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("ModManifest.%s has no description", p.Name)
+		}
+	}
+	caps := s.Property("capabilities")
+	if caps == nil || len(caps.Types) != 1 || caps.Types[0] != jsonschema.TypeArray || caps.Items == nil || len(caps.Items.Types) != 1 || caps.Items.Types[0] != jsonschema.TypeString {
+		t.Fatalf("capabilities property = %+v, want array of string", caps)
+	}
+	for _, sample := range []string{
+		filepath.Join(root, "pkg", "modding", "testdata", "mods", "boss-rush", "mod.yaml"),
+		filepath.Join(root, "pkg", "modding", "testdata", "mods", "loot-tracker", "mod.yaml"),
+	} {
+		data, err := os.ReadFile(sample)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ValidateYAML(data); err != nil {
+			t.Fatalf("mod manifest schema refused %s: %v", sample, err)
+		}
+	}
+	for _, bad := range []string{
+		"manifestVersion: 2\nid: a\nname: A\nversion: 1.0.0\nentry: mod.ts\n",
+		"manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.ts\nunknownKey: true\n",
+		"manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.ts\ncapabilities: readState\n",
+		"manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.ts\ncapabilities: [123]\n",
+	} {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("mod manifest schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

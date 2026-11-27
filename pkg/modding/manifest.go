@@ -205,34 +205,140 @@ const legacyManifestFile = "mod.json"
 // ManifestVersion is the mod manifest schema version this package reads and writes.
 const ManifestVersion = 1
 
+// SchemaURL is the published JSON Schema URI for version 1 mod.yaml manifests.
+const SchemaURL = "https://game.nsgo.dev/schemas/mod.v1.json"
+
 // Fixes the manifest's errors give.
 const (
 	fixManifestVersion = "set manifestVersion: 1"
-	fixCapabilities    = "list capability names such as [readState, audio]; see Capability for the names"
+	fixCapabilities    = "list built-in capability names such as [readState, audio] or dotted host names such as [inventory.read]"
 )
+
+// ValidHostCapability reports whether name is a valid host capability name:
+// two or more dot-separated lower camel case ASCII segments (such as "inventory.read" or "editor.contextAction").
+func ValidHostCapability(name string) bool {
+	if len(name) == 0 || len(name) > 128 || !strings.Contains(name, ".") {
+		return false
+	}
+	for seg := range strings.SplitSeq(name, ".") {
+		if len(seg) == 0 {
+			return false
+		}
+		if seg[0] < 'a' || seg[0] > 'z' {
+			return false
+		}
+		for i := 1; i < len(seg); i++ {
+			c := seg[i]
+			isLower := c >= 'a' && c <= 'z'
+			isUpper := c >= 'A' && c <= 'Z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLower && !isUpper && !isDigit {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // ModManifest describes a mod. Mod authors write it as YAML in a [ManifestFile] (mod.yaml) in the mod's directory; [ParseManifest] reads it and [EncodeManifest] writes it.
 type ModManifest struct {
 	// ManifestVersion is the schema version of the manifest file. A mod.yaml must state [ManifestVersion]; a manifest built in code may leave it 0, and [EncodeManifest] writes [ManifestVersion].
-	ManifestVersion int `yaml:"manifestVersion" json:"manifestVersion"`
+	ManifestVersion int `yaml:"manifestVersion" json:"manifestVersion" schema:"required,const=1"`
 	// ID uniquely identifies the mod, such as com.example.boss-rush.
-	ID string `yaml:"id" json:"id"`
+	ID string `yaml:"id" json:"id" schema:"required,minLength=1"`
 	// Name is the mod's human-readable name.
-	Name string `yaml:"name" json:"name"`
+	Name string `yaml:"name" json:"name" schema:"required,minLength=1"`
 	// Version is the mod's own semantic version, which dependency constraints are checked against.
-	Version string `yaml:"version" json:"version"`
+	Version string `yaml:"version" json:"version" schema:"required,minLength=1"`
 	// Author optionally names the mod's author.
 	Author string `yaml:"author,omitempty" json:"author,omitempty"`
 	// Description optionally describes the mod.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	// Entry is the entry script's slash-separated path relative to the mod's directory.
-	Entry string `yaml:"entry" json:"entry"`
+	Entry string `yaml:"entry" json:"entry" schema:"required,minLength=1"`
 	// GameVersion optionally constrains the host game versions the mod runs on, such as ">=0.2.0".
 	GameVersion string `yaml:"gameVersion,omitempty" json:"gameVersion,omitempty"`
-	// Capabilities lists the game API capabilities the mod requests.
+	// Capabilities lists the built-in game API capabilities the mod requests. In mod.yaml, the capabilities sequence may also contain dotted host capability names (<namespace>.<name>), which [ParseManifest] decodes into [ModManifest.HostCapabilities] and [EncodeManifest] writes after the built-in names in sorted order.
 	Capabilities Capability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	// HostCapabilities lists the dotted host capability names (such as "inventory.read") requested in mod.yaml's capabilities sequence, sorted in byte order.
+	HostCapabilities []string `yaml:"-" json:"hostCapabilities,omitempty"`
 	// Dependencies maps the IDs of mods this mod requires to version constraints.
 	Dependencies map[string]string `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+}
+
+type manifestCaps struct {
+	caps Capability
+	host []string
+}
+
+func (c manifestCaps) IsZero() bool {
+	return c.caps == CapNone && len(c.host) == 0
+}
+
+func (c manifestCaps) MarshalYAML() (any, error) {
+	node := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+	for _, name := range c.caps.Names() {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
+	}
+	host := slices.Clone(c.host)
+	slices.Sort(host)
+	for _, name := range host {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
+	}
+	return node, nil
+}
+
+func (c *manifestCaps) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.SequenceNode {
+		return capabilityError(value, "%w: line %d: capabilities must be a sequence of names", ErrInvalidManifest, value.Line)
+	}
+	var mask Capability
+	var host []string
+	var seenHost map[string]struct{}
+	for _, item := range value.Content {
+		if item.Kind != yaml.ScalarNode || item.ShortTag() != "!!str" {
+			return capabilityError(item, "%w: line %d: capability must be a name", ErrInvalidManifest, item.Line)
+		}
+		if strings.Contains(item.Value, ".") {
+			if !ValidHostCapability(item.Value) {
+				return capabilityError(item, "%w: line %d: invalid host capability %q", ErrInvalidManifest, item.Line, item.Value)
+			}
+			if seenHost == nil {
+				seenHost = map[string]struct{}{}
+			}
+			if _, dup := seenHost[item.Value]; dup {
+				return capabilityError(item, "%w: line %d: capability %q listed twice", ErrInvalidManifest, item.Line, item.Value)
+			}
+			seenHost[item.Value] = struct{}{}
+			host = append(host, item.Value)
+			continue
+		}
+		flag, ok := capabilityByName(item.Value)
+		if !ok {
+			return capabilityError(item, "%w: line %d: unknown capability %q", ErrInvalidManifest, item.Line, item.Value)
+		}
+		if mask&flag != 0 {
+			return capabilityError(item, "%w: line %d: capability %q listed twice", ErrInvalidManifest, item.Line, item.Value)
+		}
+		mask |= flag
+	}
+	slices.Sort(host)
+	c.caps = mask
+	c.host = host
+	return nil
+}
+
+type manifestWire struct {
+	ManifestVersion int               `yaml:"manifestVersion"`
+	ID              string            `yaml:"id"`
+	Name            string            `yaml:"name"`
+	Version         string            `yaml:"version"`
+	Author          string            `yaml:"author,omitempty"`
+	Description     string            `yaml:"description,omitempty"`
+	Entry           string            `yaml:"entry"`
+	GameVersion     string            `yaml:"gameVersion,omitempty"`
+	Capabilities    manifestCaps      `yaml:"capabilities,omitempty"`
+	Dependencies    map[string]string `yaml:"dependencies,omitempty"`
 }
 
 // ParseManifest parses and validates a mod.yaml manifest. Unknown fields, duplicate keys, trailing YAML documents and a missing or unsupported manifestVersion are refused.
@@ -252,10 +358,10 @@ func parseManifest(data []byte) (ModManifest, error) {
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
-	var m ModManifest
-	if err := dec.Decode(&m); err != nil {
+	var wire manifestWire
+	if err := dec.Decode(&wire); err != nil {
 		if errors.Is(err, ErrInvalidManifest) {
-			// Capability.UnmarshalYAML refused the list and its *loaderr.Error gives the line.
+			// manifestCaps.UnmarshalYAML refused the list and its *loaderr.Error gives the line.
 			return ModManifest{}, err
 		}
 		// Locate finds the decode error in the chain for its line, and keeps the chain, so errors.Is still sees ErrInvalidManifest.
@@ -267,6 +373,19 @@ func parseManifest(data []byte) (ModManifest, error) {
 			return ModManifest{}, loaderr.Errorf("", "keep one YAML document in mod.yaml; remove the --- and what follows it", "%w: unexpected trailing YAML document", ErrInvalidManifest)
 		}
 		return ModManifest{}, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
+	}
+	m := ModManifest{
+		ManifestVersion:  wire.ManifestVersion,
+		ID:               wire.ID,
+		Name:             wire.Name,
+		Version:          wire.Version,
+		Author:           wire.Author,
+		Description:      wire.Description,
+		Entry:            wire.Entry,
+		GameVersion:      wire.GameVersion,
+		Capabilities:     wire.Capabilities.caps,
+		HostCapabilities: wire.Capabilities.host,
+		Dependencies:     wire.Dependencies,
 	}
 	if m.ManifestVersion != ManifestVersion {
 		return ModManifest{}, loaderr.Errorf("manifestVersion", fixManifestVersion, "%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
@@ -302,7 +421,7 @@ func checkManifestVersionLiteral(data []byte) error {
 	return nil
 }
 
-// EncodeManifest validates m and writes it as deterministic 2-space YAML: fields in a fixed order, capabilities in canonical order and dependencies sorted by ID in byte order. A ManifestVersion of 0 (a manifest built in code) is written as [ManifestVersion]. [ParseManifest] reads the output back as an equal manifest, and encoding that again gives the same bytes.
+// EncodeManifest validates m and writes it as deterministic 2-space YAML: fields in a fixed order, built-in capabilities in canonical order followed by host capabilities sorted in byte order, and dependencies sorted by ID in byte order. A ManifestVersion of 0 (a manifest built in code) is written as [ManifestVersion]. [ParseManifest] reads the output back as an equal manifest, and encoding that again gives the same bytes.
 func EncodeManifest(m ModManifest) ([]byte, error) {
 	if m.ManifestVersion == 0 {
 		m.ManifestVersion = ManifestVersion
@@ -310,8 +429,23 @@ func EncodeManifest(m ModManifest) ([]byte, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
+	wire := manifestWire{
+		ManifestVersion: m.ManifestVersion,
+		ID:              m.ID,
+		Name:            m.Name,
+		Version:         m.Version,
+		Author:          m.Author,
+		Description:     m.Description,
+		Entry:           m.Entry,
+		GameVersion:     m.GameVersion,
+		Capabilities: manifestCaps{
+			caps: m.Capabilities,
+			host: m.HostCapabilities,
+		},
+		Dependencies: m.Dependencies,
+	}
 	var node yaml.Node
-	if err := node.Encode(m); err != nil {
+	if err := node.Encode(wire); err != nil {
 		return nil, fmt.Errorf("modding: encode manifest: %w", err)
 	}
 	sortDependencyKeys(&node)
@@ -377,6 +511,18 @@ func (m ModManifest) Validate() error {
 	}
 	if m.Capabilities&^CapAll != 0 {
 		return loaderr.Errorf("capabilities", fixCapabilities, "%w: mod %q has undefined capability bits %#x", ErrInvalidManifest, m.ID, uint32(m.Capabilities&^CapAll))
+	}
+	if len(m.HostCapabilities) > 0 {
+		seen := make(map[string]struct{}, len(m.HostCapabilities))
+		for _, hc := range m.HostCapabilities {
+			if !ValidHostCapability(hc) {
+				return loaderr.Errorf("capabilities", fixCapabilities, "%w: mod %q has invalid host capability %q", ErrInvalidManifest, m.ID, hc)
+			}
+			if _, dup := seen[hc]; dup {
+				return loaderr.Errorf("capabilities", fixCapabilities, "%w: mod %q lists host capability %q twice", ErrInvalidManifest, m.ID, hc)
+			}
+			seen[hc] = struct{}{}
+		}
 	}
 	if m.GameVersion != "" {
 		if err := ValidateConstraint(m.GameVersion); err != nil {

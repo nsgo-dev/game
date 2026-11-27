@@ -402,7 +402,7 @@ plurals:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `mod.yaml` at the root of a mod's directory | `manifestVersion: 1` | `modding.ParseManifest`, `modding.EncodeManifest` | [modding](modding.md) |
+| `mod.yaml` at the root of a mod's directory | `manifestVersion: 1` | `modding.ParseManifest`, `modding.EncodeManifest` | [modding](modding.md); schema `https://game.nsgo.dev/schemas/mod.v1.json` |
 
 ```yaml
 manifestVersion: 1

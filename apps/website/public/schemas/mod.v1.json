@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/mod.v1.json",
+  "title": "NSGo game mod manifest (version 1)",
+  "description": "ModManifest describes a mod. Mod authors write it as YAML in a [ManifestFile] (mod.yaml) in the mod's directory; [ParseManifest] reads it and [EncodeManifest] writes it.",
+  "type": "object",
+  "properties": {
+    "manifestVersion": {
+      "description": "ManifestVersion is the schema version of the manifest file. A mod.yaml must state [ManifestVersion]; a manifest built in code may leave it 0, and [EncodeManifest] writes [ManifestVersion].",
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "description": "ID uniquely identifies the mod, such as com.example.boss-rush.",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "Name is the mod's human-readable name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "Version is the mod's own semantic version, which dependency constraints are checked against.",
+      "type": "string",
+      "minLength": 1
+    },
+    "author": {
+      "description": "Author optionally names the mod's author.",
+      "type": "string"
+    },
+    "description": {
+      "description": "Description optionally describes the mod.",
+      "type": "string"
+    },
+    "entry": {
+      "description": "Entry is the entry script's slash-separated path relative to the mod's directory.",
+      "type": "string",
+      "minLength": 1
+    },
+    "gameVersion": {
+      "description": "GameVersion optionally constrains the host game versions the mod runs on, such as \">=0.2.0\".",
+      "type": "string"
+    },
+    "capabilities": {
+      "description": "Capabilities lists the built-in game API capabilities the mod requests. In mod.yaml, the capabilities sequence may also contain dotted host capability names (<namespace>.<name>), which [ParseManifest] decodes into [ModManifest.HostCapabilities] and [EncodeManifest] writes after the built-in names in sorted order.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dependencies": {
+      "description": "Dependencies maps the IDs of mods this mod requires to version constraints.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "manifestVersion",
+    "id",
+    "name",
+    "version",
+    "entry"
+  ],
+  "additionalProperties": false
+}

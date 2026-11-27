@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -39,19 +40,29 @@ var (
 	ErrModFailed = errors.New("modding: mod failed")
 	// ErrWebUnisolated is returned when a mod would load on the web, where its capabilities cannot be enforced, without ManagerOptions.WebUnisolated.
 	ErrWebUnisolated = errors.New("modding: the web cannot isolate mods from the page; set ManagerOptions.WebUnisolated to run them with the page's authority")
+	// ErrUnknownCapability is returned when a mod manifest requests a host capability the manager does not define.
+	ErrUnknownCapability = errors.New("modding: unknown host capability")
 )
 
 // PermissionError reports a blocked capability check. It unwraps to both [ErrPermission]
 // and a [*core.Error] with [core.CodeAccessDenied], so TSX catches receive error.code,
 // error.permission, and error.resource.
 type PermissionError struct {
-	ModID      string
-	Capability Capability
-	Action     string
+	ModID          string
+	Capability     Capability
+	HostCapability string
+	Action         string
+}
+
+func (e *PermissionError) capName() string {
+	if e.HostCapability != "" {
+		return e.HostCapability
+	}
+	return e.Capability.String()
 }
 
 func (e *PermissionError) Error() string {
-	return fmt.Sprintf("modding: mod %q lacks capability %q for %s", e.ModID, e.Capability.String(), e.Action)
+	return fmt.Sprintf("modding: mod %q lacks capability %q for %s", e.ModID, e.capName(), e.Action)
 }
 
 // Unwrap exposes ErrPermission and a structured core.Error with CodeAccessDenied.
@@ -61,7 +72,7 @@ func (e *PermissionError) Unwrap() []error {
 		&core.Error{
 			Code:       core.CodeAccessDenied,
 			Message:    e.Error(),
-			Permission: e.Capability.String(),
+			Permission: e.capName(),
 			Resource:   e.Action,
 		},
 	}
@@ -157,6 +168,8 @@ type mountedPanel struct {
 type ModAPI struct {
 	manifest ModManifest
 	caps     Capability
+	hostMu   sync.RWMutex
+	hostCaps []string
 	manager  *Manager
 	scope    *core.Scope // mod's parent scope where sessionKey is provided
 	vmScope  *core.Scope // inner tsx runtime scope captured on first module call
@@ -192,6 +205,11 @@ func init() {
 	})
 }
 
+// Caller returns the [*ModAPI] of the mod whose code is running in cx, for host module functions.
+func Caller(cx *core.Scope) (*ModAPI, error) {
+	return currentAPI(cx)
+}
+
 func currentAPI(cx *core.Scope) (*ModAPI, error) {
 	if cx == nil {
 		return nil, errors.New("modding: game API called outside a mod scope")
@@ -212,8 +230,55 @@ func currentAPI(cx *core.Scope) (*ModAPI, error) {
 // Manifest returns the mod's manifest.
 func (a *ModAPI) Manifest() ModManifest { return a.manifest }
 
-// Capabilities returns the effective capabilities granted to this mod.
+// Capabilities returns the effective built-in capabilities granted to this mod.
 func (a *ModAPI) Capabilities() Capability { return a.caps }
+
+// HostCapabilities returns a copy of the effective host capability names granted to this mod, sorted in byte order.
+func (a *ModAPI) HostCapabilities() []string {
+	a.hostMu.RLock()
+	defer a.hostMu.RUnlock()
+	return slices.Clone(a.hostCaps)
+}
+
+// HasHostCapability reports whether this mod is currently granted the named host capability.
+func (a *ModAPI) HasHostCapability(capability string) bool {
+	a.hostMu.RLock()
+	defer a.hostMu.RUnlock()
+	return slices.Contains(a.hostCaps, capability)
+}
+
+func (a *ModAPI) hasAnyHostCapability(capabilities []string) bool {
+	a.hostMu.RLock()
+	defer a.hostMu.RUnlock()
+	for _, cap := range capabilities {
+		if slices.Contains(a.hostCaps, cap) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *ModAPI) setHostCapabilities(caps []string) {
+	a.hostMu.Lock()
+	a.hostCaps = slices.Clone(caps)
+	a.hostMu.Unlock()
+}
+
+// RequireHost verifies that this mod is active and currently holds the named host capability.
+// When denied, it returns a [*PermissionError] wrapping [ErrPermission] and a [*core.Error] with [core.CodeAccessDenied].
+func (a *ModAPI) RequireHost(capability, action string) error {
+	if a.closed {
+		return fmt.Errorf("modding: mod %q has been unloaded", a.manifest.ID)
+	}
+	if !a.HasHostCapability(capability) {
+		return &PermissionError{
+			ModID:          a.manifest.ID,
+			HostCapability: capability,
+			Action:         action,
+		}
+	}
+	return nil
+}
 
 // Logs returns a copy of the log entries captured for this mod.
 func (a *ModAPI) Logs() []LogEntry {
@@ -641,13 +706,14 @@ func jsModInfo(cx *core.Scope) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	caps := append(api.caps.Names(), api.HostCapabilities()...)
 	return map[string]any{
 		"id":           api.manifest.ID,
 		"name":         api.manifest.Name,
 		"version":      api.manifest.Version,
 		"author":       api.manifest.Author,
 		"description":  api.manifest.Description,
-		"capabilities": api.caps.Names(),
+		"capabilities": caps,
 	}, nil
 }
 
@@ -690,7 +756,7 @@ declare module "game" {
     readonly version: string;
     readonly author: string;
     readonly description: string;
-    readonly capabilities: CapabilityName[];
+    readonly capabilities: (CapabilityName | (string & {}))[];
   }
 
   export interface SoundOptions {

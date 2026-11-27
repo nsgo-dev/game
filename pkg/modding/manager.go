@@ -57,13 +57,14 @@ func (s ModState) String() string {
 
 // ModInfo is a snapshot of a managed mod's manifest, state, effective capabilities, error, and logs.
 type ModInfo struct {
-	Manifest     ModManifest
-	State        ModState
-	Enabled      bool
-	Capabilities Capability
-	Error        error
-	Logs         []LogEntry
-	Order        int
+	Manifest         ModManifest
+	State            ModState
+	Enabled          bool
+	Capabilities     Capability
+	HostCapabilities []string
+	Error            error
+	Logs             []LogEntry
+	Order            int
 }
 
 // ManagerOptions configures a [Manager].
@@ -78,6 +79,14 @@ type ManagerOptions struct {
 	GameVersion string
 	// Grant, when non-nil, narrows every mod's manifest capabilities to (manifest.Capabilities & *Grant).
 	Grant *Capability
+	// GrantHost, when non-nil, narrows every mod's manifest host capabilities to those listed here.
+	// A nil slice applies no host-level narrowing; a non-nil empty slice ([]string{}) denies all host capabilities.
+	GrantHost []string
+	// Modules registers host TSX modules that mods can import when granted the module's capability.
+	// Each module's functions are registered with [tsx.RegisterFunctions] (or attached to an earlier [RegisterModule] registration with matching signatures).
+	Modules []ModModule
+	// Capabilities declares the host-defined capabilities that mods may request in mod.yaml.
+	Capabilities []HostCapability
 	// Limits overrides tsx.DefaultLimits for each mod's sandbox.
 	Limits *tsx.Limits
 	// MaxLogs caps the number of retained log entries per mod (256 when <= 0).
@@ -90,14 +99,16 @@ type ManagerOptions struct {
 var pageAuthorityTarget = runtime.GOOS == "js"
 
 type managedMod struct {
-	manifest ModManifest
-	fsys     fs.FS
-	dir      string // the mod's directory in the mods file system, which names its mod.yaml in errors
-	order    int
-	enabled  bool
-	state    ModState
-	err      error
-	grant    *Capability // optional per-mod grant override
+	manifest     ModManifest
+	fsys         fs.FS
+	dir          string // the mod's directory in the mods file system, which names its mod.yaml in errors
+	order        int
+	enabled      bool
+	state        ModState
+	err          error
+	grant        *Capability // optional per-mod grant override
+	hostGrantSet bool
+	hostGrant    []string // optional per-mod host capability grant override
 
 	scope  *core.Scope
 	plugin *tsx.Plugin
@@ -108,17 +119,21 @@ type managedMod struct {
 // Manager discovers, validates, loads, isolates, and steps TSX/JS game mods under a [*core.Scope].
 // All methods should be called on the engine's goroutine, as NSGo scopes and game.Loop are.
 type Manager struct {
-	cx           *core.Scope
-	opts         ManagerOptions
-	mods         map[string]*managedMod
-	order        []string
-	state        map[string]any
-	memStorage   map[string]string
-	spawnSeq     uint64
-	eventDepth   int
-	panelSeq     int
-	panelVersion *core.Signal[int]
-	closed       bool
+	cx               *core.Scope
+	opts             ManagerOptions
+	mods             map[string]*managedMod
+	order            []string
+	state            map[string]any
+	memStorage       map[string]string
+	spawnSeq         uint64
+	eventDepth       int
+	panelSeq         int
+	panelVersion     *core.Signal[int]
+	closed           bool
+	declaredHostCaps map[string]HostCapability
+	hostCapsOrder    []HostCapability
+	hostModules      map[string]*boundHostModule
+	hostModuleOrder  []string
 
 	// Ephemeral package signing state for feeding compiled mod bundles to tsx.Load.
 	trust    *pkg.Trust
@@ -128,17 +143,40 @@ type Manager struct {
 }
 
 // NewManager creates a mod manager scoped to cx. Disposing cx automatically unloads all mods.
+//
+// Any host modules in opts.Modules are validated against opts.Capabilities and registered with [tsx.RegisterFunctions] (or attached to a prior [RegisterModule] registration). NewManager panics if opts.Capabilities or opts.Modules contain invalid names, duplicates, a name colliding with "game" or "nsgo", or a module without a declared capability.
 func NewManager(cx *core.Scope, opts ManagerOptions) *Manager {
+	declaredCaps, orderedCaps, modules, moduleOrder, err := validateHostConfig(opts)
+	if err != nil {
+		panic(err)
+	}
+	for _, name := range moduleOrder {
+		if err := ensureHostModuleRegistered(modules[name]); err != nil {
+			panic(err)
+		}
+	}
+	if opts.GrantHost != nil {
+		opts.GrantHost = slices.Clone(opts.GrantHost)
+	}
 	m := &Manager{
-		cx:           cx,
-		opts:         opts,
-		mods:         map[string]*managedMod{},
-		state:        map[string]any{},
-		memStorage:   map[string]string{},
-		panelVersion: core.NewSignal(cx, 0),
+		cx:               cx,
+		opts:             opts,
+		mods:             map[string]*managedMod{},
+		state:            map[string]any{},
+		memStorage:       map[string]string{},
+		panelVersion:     core.NewSignal(cx, 0),
+		declaredHostCaps: declaredCaps,
+		hostCapsOrder:    orderedCaps,
+		hostModules:      modules,
+		hostModuleOrder:  moduleOrder,
 	}
 	cx.Cleanup(m.Close)
 	return m
+}
+
+// HostCapabilities returns a copy of the host capabilities declared in ManagerOptions.Capabilities.
+func (m *Manager) HostCapabilities() []HostCapability {
+	return slices.Clone(m.hostCapsOrder)
 }
 
 // Discover scans immediate subdirectories of dir for mod.yaml manifests, validates them, resolves dependency order, and registers them with the manager.
@@ -461,6 +499,24 @@ func (m *Manager) SetGrant(id string, caps Capability) error {
 // sandboxCapabilities are the capabilities the tsx sandbox enforces itself, which loadSingle bakes into a mod's sandbox: changing them needs a new sandbox.
 const sandboxCapabilities = CapAudio | CapStorage
 
+// SetHostGrant sets a per-mod host capability grant for id, further narrowing its manifest host capabilities (and ManagerOptions.GrantHost if non-nil).
+// Passing nil or an empty slice revokes all host capabilities for id.
+//
+// On a loaded mod it takes effect at once: host module trampolines and [ModAPI.RequireHost] enforce the narrowed host capabilities from the next call. On subsequent loads or reloads, the mod's sandbox module import allowlist also reflects the grant.
+func (m *Manager) SetHostGrant(id string, caps []string) error {
+	mod, ok := m.mods[id]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrNotFound, id)
+	}
+	mod.hostGrantSet = true
+	mod.hostGrant = slices.Clone(caps)
+	if mod.state != StateLoaded || mod.api == nil {
+		return nil
+	}
+	mod.api.setHostCapabilities(m.effectiveHostCapabilities(mod))
+	return nil
+}
+
 // Enable marks mod id as enabled and persists the preference when StorageKey is configured.
 func (m *Manager) Enable(id string) error {
 	mod, ok := m.mods[id]
@@ -582,6 +638,16 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 		return err
 	}
 
+	// Fail only this mod if its manifest requests a host capability not declared on this manager.
+	for _, hc := range mod.manifest.HostCapabilities {
+		if _, declared := m.declaredHostCaps[hc]; !declared {
+			err := fmt.Errorf("modding: load mod %q: %w: %q", mod.manifest.ID, ErrUnknownCapability, hc)
+			mod.state = StateFailed
+			mod.err = err
+			return err
+		}
+	}
+
 	// Compile the mod bundle from its directory FS (handles TSX, TS, JSX, JS, and relative imports).
 	code, err := bundler.Compile(mod.fsys, path.Clean(mod.manifest.Entry))
 	if err != nil {
@@ -592,6 +658,7 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	}
 
 	effCaps := m.effectiveCapabilities(mod)
+	effHostCaps := m.effectiveHostCapabilities(mod)
 	verifiedPkg, err := m.buildPackage(mod.manifest, code, effCaps)
 	if err != nil {
 		err = fmt.Errorf("modding: package mod %q: %w", mod.manifest.ID, err)
@@ -607,6 +674,7 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	api := &ModAPI{
 		manifest:   mod.manifest,
 		caps:       effCaps,
+		hostCaps:   effHostCaps,
 		manager:    m,
 		scope:      modScope,
 		eventHooks: map[string][]*eventHook{},
@@ -618,7 +686,7 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	}
 	sandbox := tsx.Sandbox{
 		Limits:         &limits,
-		Modules:        []string{GameModule},
+		Modules:        m.sandboxModules(effHostCaps),
 		Storage:        m.sandboxStoragePartition(mod.manifest.ID),
 		DisableStorage: !effCaps.Has(CapStorage),
 		WebUnisolated:  m.opts.WebUnisolated,
@@ -861,13 +929,14 @@ func (m *Manager) Info(id string) (ModInfo, bool) {
 		logs = slices.Clone(mod.logs)
 	}
 	return ModInfo{
-		Manifest:     mod.manifest,
-		State:        mod.state,
-		Enabled:      mod.enabled,
-		Capabilities: m.effectiveCapabilities(mod),
-		Error:        mod.err,
-		Logs:         logs,
-		Order:        mod.order,
+		Manifest:         mod.manifest,
+		State:            mod.state,
+		Enabled:          mod.enabled,
+		Capabilities:     m.effectiveCapabilities(mod),
+		HostCapabilities: m.effectiveHostCapabilities(mod),
+		Error:            mod.err,
+		Logs:             logs,
+		Order:            mod.order,
 	}, true
 }
 
@@ -1083,6 +1152,38 @@ func (m *Manager) effectiveCapabilities(mod *managedMod) Capability {
 		caps &= *mod.grant
 	}
 	return caps
+}
+
+func (m *Manager) effectiveHostCapabilities(mod *managedMod) []string {
+	if len(mod.manifest.HostCapabilities) == 0 {
+		return nil
+	}
+	var out []string
+	for _, hc := range mod.manifest.HostCapabilities {
+		if _, declared := m.declaredHostCaps[hc]; !declared {
+			continue
+		}
+		if m.opts.GrantHost != nil && !slices.Contains(m.opts.GrantHost, hc) {
+			continue
+		}
+		if mod.hostGrantSet && !slices.Contains(mod.hostGrant, hc) {
+			continue
+		}
+		out = append(out, hc)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func (m *Manager) sandboxModules(effHostCaps []string) []string {
+	modules := make([]string, 1, 1+len(m.hostModuleOrder))
+	modules[0] = GameModule
+	for _, name := range m.hostModuleOrder {
+		if hm := m.hostModules[name]; hm != nil && hm.allowedBy(effHostCaps) {
+			modules = append(modules, name)
+		}
+	}
+	return modules
 }
 
 func (m *Manager) maxLogs() int {

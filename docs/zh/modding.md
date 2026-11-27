@@ -63,6 +63,8 @@ capabilities: [readState, spawnEntity, emitEvent, ui]
 
 权限由 `Capability` 位标志控制：`CapReadState`（`readState`）、`CapWriteState`（`writeState`）、`CapSpawnEntity`（`spawnEntity`）、`CapEmitEvent`（`emitEvent`）、`CapUI`（`ui`）、`CapAudio`（`audio`）和 `CapStorage`（`storage`）。超出授权范围的调用会返回 `*PermissionError`，不会导致宿主游戏崩溃。
 
+`mod.yaml` 的 `capabilities` 同样接受带点号的宿主自定义能力名称（`<namespace>.<name>`，由点号分隔的小驼峰分段，例如 `inventory.read` 或 `editor.contextAction`）。内置能力名称解码到 `ModManifest.Capabilities`，带点号的宿主能力名称解码到 `ModManifest.HostCapabilities`，编码时排在内置能力之后并按字节序排序，保证读写往返一致。若模组申请了未在 `ManagerOptions.Capabilities` 中声明的宿主能力，只有该模组会在加载时以 `ErrUnknownCapability` 失败，其余模组仍会正常加载。
+
 没有 `CapStorage` 的模组在启用 `tsx.Sandbox.DisableStorage` 的沙箱中运行，因此 `"nsgo"` 模块的 `Storage` 上的所有方法（`getItem`、`setItem`、`removeItem`、`clear`、`keys`）都会以 `tsx: Storage is disabled for this sandbox` 拒绝，同时 `"game"` 模块的 `storageGet`、`storageSet` 和 `storageRemove` 也会返回 `*PermissionError`。禁用存储不会删除该模组分区中已有的数据，再次授予 `CapStorage` 后仍可读取。
 
 ## `"game"` TSX 模块
@@ -96,6 +98,44 @@ mountPanel("boss-timer", () => (
   </View>
 ), "hud");
 ```
+
+## 宿主注册的 TSX 模块与自定义能力
+
+游戏和运行时插件可以在 `"game"` 之外暴露自定义类型化 TSX 模块，每个模块由 `ManagerOptions.Capabilities`（`HostCapability`）声明的宿主能力与 `ManagerOptions.Modules`（`ModModule`）门控。[`pkg/modding/testdata/mods/loot-tracker/`](../../pkg/modding/testdata/mods/loot-tracker/) 中的示例模组展示了申请 `inventory.read` 并导入宿主 `"mygame/inventory"` 模块的完整写法。
+
+```go
+mgr := modding.NewManager(cx, modding.ManagerOptions{
+	Capabilities: []modding.HostCapability{
+		{Name: "inventory.read", Doc: "Read items in the player's inventory"},
+		{Name: "inventory.write", Doc: "Add or remove items in the player's inventory"},
+	},
+	Modules: []modding.ModModule{
+		{
+			Name:       "mygame/inventory",
+			Capability: "inventory.read",
+			Doc:        "Read-only inventory queries.",
+			Funcs: map[string]any{
+				"countItem": func(cx *core.Scope, item string) (int, error) {
+					api, err := modding.Caller(cx)
+					if err != nil {
+						return 0, err
+					}
+					if err := api.RequireHost("inventory.read", "inventory.countItem"); err != nil {
+						return 0, err
+					}
+					return inventory.Count(item), nil
+				},
+			},
+		},
+	},
+})
+```
+
+- `NewManager` 会校验 `Capabilities` 和 `Modules`，拒绝重复的模块名、与 `"game"` 或 NSGo 保留 `"nsgo"` 前缀冲突的模块名、非法的能力名称，以及未声明所需能力的模块。如果在调用 `NewManager` 之前进程中可能已经启动过 TSX 运行时（例如多局会话或测试环境），可在 `init()` 中先调用 `modding.RegisterModule` 向 NSGo 的 TSX 注册表预注册模块签名；之后的每个 `NewManager` 都会独立绑定各自的闭包实现，不会在不同管理器间串扰状态。
+- 每个模组的沙箱 `Modules` 白名单包含 `"game"` 以及所有该模组既在 `mod.yaml` 中申请、又获得授权的宿主模块（匹配 `Capability`，或在多权限模块中匹配 `Capabilities` 的任意一项）。因此未授权的 `import` 会在加载阶段立即以清晰错误失败，而不是等到首次调用才报错。
+- 宿主模块函数以 `*core.Scope` 作为首个参数（异步函数紧跟在 `context.Context` 之后），通过 `modding.Caller(cx)` 获取调用方模组的 `*ModAPI`，并用 `api.RequireHost(capability, action)` 执行细粒度权限检查；拒绝时返回包装了 `ErrPermission` 与 `core.CodeAccessDenied` 的 `*PermissionError`。
+- 可通过 `ManagerOptions.GrantHost` 在全局范围内收窄宿主能力（保持 `nil` 表示不收窄，传入空切片 `[]string{}` 表示拒绝全部宿主能力），并在运行时通过 `Manager.SetHostGrant(id, caps)` 针对单个模组动态收窄。对已加载模组调用 `SetHostGrant` 会从下一次宿主模块调用起立即生效；可通过 `Manager.HostCapabilities()` 读取宿主声明的能力文档、通过 `ModInfo.HostCapabilities` 读取模组当前实际获得的宿主能力。
+- 使用 `modding.WriteModAPIDTS(dir, opts)` 可向目录同时写出 `game.d.ts` 与每个宿主模块对应的 `<module>.d.ts`（来自 `tsx.Declarations()`）；仅需 `"game"` 声明时仍可继续使用 `WriteGameAPIDTS`。
 
 ## 在 Go 中管理模组生命周期（`Manager`）
 

@@ -1,0 +1,9 @@
+manifestVersion: 1
+id: com.example.loot-tracker
+name: Loot Tracker
+version: 1.0.0
+author: Example Studio
+description: Tracks rare loot counts through a host-registered inventory module.
+entry: mod.tsx
+gameVersion: '>=0.2.0'
+capabilities: [readState, emitEvent, inventory.read]
