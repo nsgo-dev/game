@@ -139,7 +139,7 @@ menu.Draw(d, bounds)
 ```
 
 - 使用 `SettingsResolutionFrom` / `SetSettingsResolution`、`ParseSettingsResolution` 和 `ApplySettingsResolution` 读写并应用保存在 `save.Settings.Custom` 中的分辨率选项。减弱闪烁现已迁入 `save.AccessibilitySettings.ReduceFlashes`（加载旧文件时自动从 `Custom["reduce_flashes"]` 迁移；`SettingsReduceFlashesFrom` 与 `SetSettingsReduceFlashes` 保留为已弃用的兼容封装）。传入 `Env: cx.Env()` 可在手机、平板和 Web 上自动隐藏分辨率项（或通过 `HideResolution: true` 手动隐藏），仅在游戏将 `save.DisplaySettings.VSync` 接到真实的底层开关时才设置 `ShowVSync: true`。
-- 传入 `Env: cx.Env()` 后，未手动修改过的“减少动态效果”、“高对比度”和“文本缩放”会跟随系统无障碍设置（`Env.ReduceMotion()`、`Env.IncreaseContrast()`、`Env.FontScale()`），点击重置后再次恢复跟随系统。
+- 传入 `Env: cx.Env()` 后，未手动修改过的“减少动态效果”、“高对比度”和“文本缩放”会跟随系统无障碍设置（`Env.ReduceMotion()`、`Env.IncreaseContrast()`、`Env.FontScale()`），点击重置后再次恢复跟随系统。关于无障碍设置的完整端到端串联（包括 `effects.Flash`/`Shake`、字幕、触控热区与发布前核查清单），见[无障碍指南](accessibility-guide.md)。
 - 使用 `FormatBindingToken`、`ParseBindingToken`、`FormatBindingLabel`、`GamepadButtonToken` 与 `ApplyBindingsToActions` 在 `save.Settings.Bindings` 和 `input.Actions` 之间双向转换。
 - 在玩家切换语言后调用 `SetText` 传入翻译后的 `SettingsText`；未自定义 `Theme` 时（或调用 `HighContrastTheme()`），有效高对比度开启时会自动切换到高对比度配色。
 - 打开菜单时调用 `SyncGamepad`，避免用于打开设置界面的按键按住状态在菜单内立即触发。

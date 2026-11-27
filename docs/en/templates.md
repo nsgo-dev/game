@@ -1,6 +1,6 @@
 # Templates
 
-A new project starts from a template: a small, complete game that builds, runs and passes its tests before you change a line. `game new` writes one into a new directory, and NSGo's `nsgo init -template` writes the same files from the template's Go module.
+A new project starts from a template: a small, complete game that builds, runs and passes its tests before you change a line. `game new` writes one into a new directory, and NSGo's `nsgo init -template` writes the same files from the template's Go module. When growing a template into a shippable game, follow the [Accessibility Guide](accessibility-guide.md) to wire `gameui.SettingsMenu`, `a11y.Assist`, captions, and effects end to end (shipping a ready Accessibility settings screen in every template is tracked in [#1783](https://github.com/nsgo-dev/game/issues/1783)).
 
 ## The templates
 
