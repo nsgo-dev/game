@@ -179,6 +179,7 @@ func (w *RigidWorld) AddTrigger(triggers ...*Trigger) {
 	}
 	for _, tr := range triggers {
 		if tr != nil {
+			w.ensureTriggerID(tr)
 			w.Triggers = append(w.Triggers, tr)
 		}
 	}

@@ -26,6 +26,11 @@ type breakableJoint interface {
 	checkBreak() (JointBreakEvent, bool)
 }
 
+type identifiableJoint interface {
+	jointInternalID() uint64
+	setJointInternalID(uint64)
+}
+
 // JointBreakEvent reports a joint that broke during RigidWorld.Step because its
 // reaction force or torque exceeded its BreakForce or BreakTorque threshold.
 type JointBreakEvent struct {
@@ -45,7 +50,12 @@ type jointReaction struct {
 	stepAngImpulse float64
 	lastDt         float64
 	broken         bool
+	// internalID is assigned by RigidWorld so Restore matches joint pointers by identity without falling back to slice index.
+	internalID uint64
 }
+
+func (r *jointReaction) jointInternalID() uint64      { return r.internalID }
+func (r *jointReaction) setJointInternalID(id uint64) { r.internalID = id }
 
 func (r *jointReaction) resetStepReaction(dt float64) {
 	r.stepImpulseX = 0

@@ -8,8 +8,8 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; Restore still reads version 1 snapshots, which have none of them, and refuses any other version, so a build that only knows version 1 refuses a version 2 snapshot instead of dropping what it cannot read.
-const SnapshotVersion = 2
+// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; version 3 added InternalID on bodies, triggers and joints so Restore matches handles strictly by identity instead of slice index. Restore still reads version 1 and 2 snapshots and refuses any other version, so an older build refuses a newer snapshot instead of dropping what it cannot read.
+const SnapshotVersion = 3
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
 const oldestSnapshotVersion = 1
@@ -17,6 +17,7 @@ const oldestSnapshotVersion = 1
 // BodySnapshot is a JSON-serializable snapshot of one physics.Body.
 type BodySnapshot struct {
 	ID          int       `json:"id"`
+	InternalID  uint64    `json:"internalID,omitempty"`
 	Tag         string    `json:"tag,omitempty"`
 	Shape       Shape     `json:"shape"`
 	VX          float32   `json:"vx"`
@@ -33,12 +34,13 @@ type BodySnapshot struct {
 
 // TriggerSnapshot is a JSON-serializable snapshot of one physics.Trigger (excluding callbacks and UserData).
 type TriggerSnapshot struct {
-	ID    int          `json:"id"`
-	Tag   string       `json:"tag,omitempty"`
-	Shape Shape        `json:"shape"`
-	Layer LayerMask    `json:"layer"`
-	Mask  LayerMask    `json:"mask"`
-	Area  AreaSettings `json:"area"`
+	ID         int          `json:"id"`
+	InternalID uint64       `json:"internalID,omitempty"`
+	Tag        string       `json:"tag,omitempty"`
+	Shape      Shape        `json:"shape"`
+	Layer      LayerMask    `json:"layer"`
+	Mask       LayerMask    `json:"mask"`
+	Area       AreaSettings `json:"area"`
 }
 
 // WorldTriggerActiveSnapshot records the active overlapping bodies tracked for one trigger in World.
@@ -115,6 +117,7 @@ type WorldSnapshot struct {
 // RigidBodySnapshot captures the complete public and private simulation state of one RigidBody.
 type RigidBodySnapshot struct {
 	ID              int       `json:"id"`
+	InternalID      uint64    `json:"internalID,omitempty"`
 	Tag             string    `json:"tag,omitempty"`
 	Shape           Shape     `json:"shape"`
 	X               float32   `json:"x"`
@@ -208,6 +211,7 @@ type RigidSenseSnapshot struct {
 
 // RigidJointSnapshot captures the complete public and private solver state of one RigidWorld Joint.
 type RigidJointSnapshot struct {
+	InternalID       uint64             `json:"internalID,omitempty"`
 	Kind             string             `json:"kind"` // "distance", "spring", "revolute", "prismatic", "weld", "wheel", "mouse"
 	BodyAIndex       int                `json:"bodyAIndex"`
 	BodyBIndex       int                `json:"bodyBIndex"`
@@ -344,8 +348,13 @@ type RigidWorldSnapshot struct {
 }
 
 func snapshotBody(b *Body) BodySnapshot {
+	var internalID uint64
+	if b.ID == 0 {
+		internalID = b.internalID
+	}
 	return BodySnapshot{
 		ID:          b.ID,
+		InternalID:  internalID,
 		Tag:         b.Tag,
 		Shape:       cloneShape(b.Shape),
 		VX:          b.VX,
@@ -363,6 +372,10 @@ func snapshotBody(b *Body) BodySnapshot {
 
 func applyBodySnapshot(dst *Body, src BodySnapshot) {
 	ud := dst.UserData
+	var internalID uint64
+	if src.ID == 0 {
+		internalID = src.InternalID
+	}
 	*dst = Body{
 		ID:          src.ID,
 		Tag:         src.Tag,
@@ -378,33 +391,44 @@ func applyBodySnapshot(dst *Body, src BodySnapshot) {
 		OneWay:      src.OneWay,
 		OneWayDrop:  src.OneWayDrop,
 		UserData:    ud,
+		internalID:  internalID,
 	}
 }
 
 func snapshotTrigger(tr *Trigger) TriggerSnapshot {
+	var internalID uint64
+	if tr.ID == 0 {
+		internalID = tr.internalID
+	}
 	return TriggerSnapshot{
-		ID:    tr.ID,
-		Tag:   tr.Tag,
-		Shape: cloneShape(tr.Shape),
-		Layer: tr.Layer,
-		Mask:  tr.Mask,
-		Area:  tr.Area,
+		ID:         tr.ID,
+		InternalID: internalID,
+		Tag:        tr.Tag,
+		Shape:      cloneShape(tr.Shape),
+		Layer:      tr.Layer,
+		Mask:       tr.Mask,
+		Area:       tr.Area,
 	}
 }
 
 func applyTriggerSnapshot(dst *Trigger, src TriggerSnapshot) {
 	onEnter, onStay, onExit, ud := dst.OnEnter, dst.OnStay, dst.OnExit, dst.UserData
+	var internalID uint64
+	if src.ID == 0 {
+		internalID = src.InternalID
+	}
 	*dst = Trigger{
-		ID:       src.ID,
-		Tag:      src.Tag,
-		Shape:    cloneShape(src.Shape),
-		Layer:    src.Layer,
-		Mask:     src.Mask,
-		OnEnter:  onEnter,
-		OnStay:   onStay,
-		OnExit:   onExit,
-		Area:     src.Area,
-		UserData: ud,
+		ID:         src.ID,
+		Tag:        src.Tag,
+		Shape:      cloneShape(src.Shape),
+		Layer:      src.Layer,
+		Mask:       src.Mask,
+		OnEnter:    onEnter,
+		OnStay:     onStay,
+		OnExit:     onExit,
+		Area:       src.Area,
+		UserData:   ud,
+		internalID: internalID,
 	}
 }
 
@@ -424,6 +448,7 @@ func (w *World) Save() WorldSnapshot {
 		if b == nil {
 			continue
 		}
+		w.ensureBodyID(b)
 		idx := len(snap.Bodies)
 		bodyIdx[b] = idx
 		snap.Bodies = append(snap.Bodies, snapshotBody(b))
@@ -434,6 +459,7 @@ func (w *World) Save() WorldSnapshot {
 		if tr == nil {
 			continue
 		}
+		w.ensureTriggerID(tr)
 		trigPtrs = append(trigPtrs, tr)
 		snap.Triggers = append(snap.Triggers, snapshotTrigger(tr))
 	}
@@ -455,6 +481,7 @@ func (w *World) Save() WorldSnapshot {
 				if bi, ok := bodyIdx[b]; ok {
 					entry.BodyIndices = append(entry.BodyIndices, bi)
 				} else {
+					w.ensureBodyID(b)
 					detIdx := len(entry.Detached)
 					entry.Detached = append(entry.Detached, snapshotBody(b))
 					entry.BodyIndices = append(entry.BodyIndices, -1-detIdx)
@@ -471,8 +498,12 @@ func (w *World) Save() WorldSnapshot {
 }
 
 // Restore replaces w's state from snap. Existing *Body and *Trigger pointers
-// are reused in place (matching by non-zero ID first, then by slot index) so
-// caller references, UserData, and Trigger callbacks remain intact.
+// are reused in place only when their identity matches (non-zero ID, or the
+// world-assigned internal ID when ID is 0), never by slice index, so surviving
+// caller references, UserData, and Trigger callbacks stay bound to their own
+// entity across Add/Remove and rollback restores. Live pointers absent from
+// snap are detached, and snap entries with no matching live pointer allocate a
+// fresh Body or Trigger.
 func (w *World) Restore(snap WorldSnapshot) error {
 	if w == nil {
 		return errors.New("physics: cannot restore nil World")
@@ -491,13 +522,22 @@ func (w *World) Restore(snap WorldSnapshot) error {
 		}
 	}
 
-	// Build pools of existing *Body pointers for in-place reuse.
+	// Build pools of existing *Body pointers for identity-only in-place reuse.
 	existingBodiesByID := make(map[int]*Body, len(w.Bodies))
+	existingBodiesByInternalID := make(map[uint64]*Body, len(w.Bodies))
 	existingBodiesUsed := make(map[*Body]bool, len(w.Bodies))
 	for _, b := range w.Bodies {
-		if b != nil && b.ID != 0 {
+		if b == nil {
+			continue
+		}
+		if b.ID != 0 {
 			if _, dup := existingBodiesByID[b.ID]; !dup {
 				existingBodiesByID[b.ID] = b
+			}
+		}
+		if b.internalID != 0 {
+			if _, dup := existingBodiesByInternalID[b.internalID]; !dup {
+				existingBodiesByInternalID[b.internalID] = b
 			}
 		}
 	}
@@ -509,25 +549,36 @@ func (w *World) Restore(snap WorldSnapshot) error {
 			if cand, ok := existingBodiesByID[bs.ID]; ok && !existingBodiesUsed[cand] {
 				dst = cand
 			}
-		}
-		if dst == nil && i < len(w.Bodies) && w.Bodies[i] != nil && !existingBodiesUsed[w.Bodies[i]] {
-			dst = w.Bodies[i]
+		} else if bs.InternalID != 0 {
+			if cand, ok := existingBodiesByInternalID[bs.InternalID]; ok && !existingBodiesUsed[cand] {
+				dst = cand
+			}
 		}
 		if dst == nil {
 			dst = new(Body)
 		}
 		existingBodiesUsed[dst] = true
 		applyBodySnapshot(dst, bs)
+		w.ensureBodyID(dst)
 		restoredBodies[i] = dst
 	}
 
-	// Build pools of existing *Trigger pointers so callbacks stay attached.
+	// Build pools of existing *Trigger pointers so callbacks stay attached to their own trigger.
 	existingTriggersByID := make(map[int]*Trigger, len(w.Triggers))
+	existingTriggersByInternalID := make(map[uint64]*Trigger, len(w.Triggers))
 	existingTriggersUsed := make(map[*Trigger]bool, len(w.Triggers))
 	for _, tr := range w.Triggers {
-		if tr != nil && tr.ID != 0 {
+		if tr == nil {
+			continue
+		}
+		if tr.ID != 0 {
 			if _, dup := existingTriggersByID[tr.ID]; !dup {
 				existingTriggersByID[tr.ID] = tr
+			}
+		}
+		if tr.internalID != 0 {
+			if _, dup := existingTriggersByInternalID[tr.internalID]; !dup {
+				existingTriggersByInternalID[tr.internalID] = tr
 			}
 		}
 	}
@@ -539,15 +590,17 @@ func (w *World) Restore(snap WorldSnapshot) error {
 			if cand, ok := existingTriggersByID[ts.ID]; ok && !existingTriggersUsed[cand] {
 				dst = cand
 			}
-		}
-		if dst == nil && i < len(w.Triggers) && w.Triggers[i] != nil && !existingTriggersUsed[w.Triggers[i]] {
-			dst = w.Triggers[i]
+		} else if ts.InternalID != 0 {
+			if cand, ok := existingTriggersByInternalID[ts.InternalID]; ok && !existingTriggersUsed[cand] {
+				dst = cand
+			}
 		}
 		if dst == nil {
 			dst = new(Trigger)
 		}
 		existingTriggersUsed[dst] = true
 		applyTriggerSnapshot(dst, ts)
+		w.ensureTriggerID(dst)
 		restoredTriggers[i] = dst
 	}
 
@@ -563,6 +616,9 @@ func (w *World) Restore(snap WorldSnapshot) error {
 				} else {
 					b := new(Body)
 					applyBodySnapshot(b, ta.Detached[-1-bi])
+					if b.ID == 0 && b.internalID > w.nextBodyID {
+						w.nextBodyID = b.internalID
+					}
 					list[j] = b
 				}
 			}
@@ -656,8 +712,13 @@ func (w *World) Checksum() uint64 {
 }
 
 func snapshotRigidBody(b *RigidBody) RigidBodySnapshot {
+	var internalID uint64
+	if b.ID == 0 {
+		internalID = b.internalID
+	}
 	s := RigidBodySnapshot{
 		ID:              b.ID,
+		InternalID:      internalID,
 		Tag:             b.Tag,
 		Shape:           cloneShape(b.Shape),
 		X:               b.X,
@@ -718,6 +779,10 @@ func snapshotRigidBody(b *RigidBody) RigidBodySnapshot {
 
 func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
 	ud := dst.UserData
+	var internalID uint64
+	if src.ID == 0 {
+		internalID = src.InternalID
+	}
 	*dst = RigidBody{
 		ID:              src.ID,
 		Tag:             src.Tag,
@@ -757,6 +822,7 @@ func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
 		Sensor:          src.Sensor,
 		targetPending:   src.TargetPending,
 		targetDriven:    src.TargetDriven,
+		internalID:      internalID,
 	}
 	if src.TargetPending {
 		dst.target = rigidPose{x: src.TargetX, y: src.TargetY, angle: src.TargetAngle}
@@ -810,6 +876,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		if b == nil {
 			continue
 		}
+		w.ensureBodyID(b)
 		bodyIdx[b] = len(snap.Bodies)
 		snap.Bodies = append(snap.Bodies, snapshotRigidBody(b))
 	}
@@ -821,6 +888,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		if idx, ok := bodyIdx[b]; ok {
 			return idx, nil
 		}
+		w.ensureBodyID(b)
 		s := snapshotRigidBody(b)
 		return -1, &s
 	}
@@ -829,6 +897,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		if j == nil {
 			continue
 		}
+		w.ensureJointID(j)
 		if js, ok := snapshotRigidJoint(j, resolveBodyRef); ok {
 			snap.Joints = append(snap.Joints, js)
 		}
@@ -839,6 +908,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		for i, ev := range w.jointBreakEvents {
 			var jsPtr *RigidJointSnapshot
 			if ev.Joint != nil {
+				w.ensureJointID(ev.Joint)
 				if js, ok := snapshotRigidJoint(ev.Joint, resolveBodyRef); ok {
 					jsPtr = &js
 				}
@@ -860,6 +930,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 
 	for _, tr := range w.Triggers {
 		if tr != nil {
+			w.ensureTriggerID(tr)
 			snap.Triggers = append(snap.Triggers, snapshotTrigger(tr))
 		}
 	}
@@ -912,6 +983,7 @@ func (w *RigidWorld) pairIndices(bodyIdx map[*RigidBody]int, a, b *RigidBody) (i
 }
 
 func snapshotJointReaction(r jointReaction, js *RigidJointSnapshot) {
+	js.InternalID = r.internalID
 	js.StepImpulseX = r.stepImpulseX
 	js.StepImpulseY = r.stepImpulseY
 	js.StepAngImpulse = r.stepAngImpulse
@@ -926,6 +998,7 @@ func restoreJointReaction(js RigidJointSnapshot) jointReaction {
 		stepAngImpulse: js.StepAngImpulse,
 		lastDt:         js.LastDt,
 		broken:         js.Broken,
+		internalID:     js.InternalID,
 	}
 }
 
@@ -1495,8 +1568,13 @@ func restoreRigidJoint(js RigidJointSnapshot, existing Joint, resolveRestoredBod
 }
 
 // Restore replaces w's state from snap. Existing *RigidBody, Joint, and
-// *Trigger pointers are reused in place when possible so caller handles,
-// UserData, and callbacks stay valid across rollback restores.
+// *Trigger pointers are reused in place only when their identity matches
+// (non-zero ID, or the world-assigned internal ID when ID is 0; joints match
+// by their world-assigned internal ID), never by slice index, so surviving
+// caller handles, UserData, and callbacks stay bound to their own entity
+// across AddBody/RemoveBody and rollback restores. Live pointers absent from
+// snap are detached, and snap entries with no matching live pointer allocate a
+// fresh instance.
 func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	if w == nil {
 		return errors.New("physics: cannot restore nil RigidWorld")
@@ -1554,11 +1632,20 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	}
 
 	existingBodiesByID := make(map[int]*RigidBody, len(w.Bodies))
+	existingBodiesByInternalID := make(map[uint64]*RigidBody, len(w.Bodies))
 	existingBodiesUsed := make(map[*RigidBody]bool, len(w.Bodies))
 	for _, b := range w.Bodies {
-		if b != nil && b.ID != 0 {
+		if b == nil {
+			continue
+		}
+		if b.ID != 0 {
 			if _, dup := existingBodiesByID[b.ID]; !dup {
 				existingBodiesByID[b.ID] = b
+			}
+		}
+		if b.internalID != 0 {
+			if _, dup := existingBodiesByInternalID[b.internalID]; !dup {
+				existingBodiesByInternalID[b.internalID] = b
 			}
 		}
 	}
@@ -1570,15 +1657,17 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 			if cand, ok := existingBodiesByID[bs.ID]; ok && !existingBodiesUsed[cand] {
 				dst = cand
 			}
-		}
-		if dst == nil && i < len(w.Bodies) && w.Bodies[i] != nil && !existingBodiesUsed[w.Bodies[i]] {
-			dst = w.Bodies[i]
+		} else if bs.InternalID != 0 {
+			if cand, ok := existingBodiesByInternalID[bs.InternalID]; ok && !existingBodiesUsed[cand] {
+				dst = cand
+			}
 		}
 		if dst == nil {
 			dst = new(RigidBody)
 		}
 		existingBodiesUsed[dst] = true
 		applyRigidBodySnapshot(dst, bs)
+		w.ensureBodyID(dst)
 		restoredBodies[i] = dst
 	}
 
@@ -1589,18 +1678,40 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 		if det != nil {
 			b := new(RigidBody)
 			applyRigidBodySnapshot(b, *det)
+			if b.ID == 0 && b.internalID > w.nextBodyID {
+				w.nextBodyID = b.internalID
+			}
 			return b
 		}
 		return nil
 	}
 
+	existingJointsByID := make(map[uint64]Joint, len(w.Joints))
+	existingJointsUsed := make(map[Joint]bool, len(w.Joints))
+	for _, j := range w.Joints {
+		if ij, ok := j.(identifiableJoint); ok {
+			if id := ij.jointInternalID(); id != 0 {
+				if _, dup := existingJointsByID[id]; !dup {
+					existingJointsByID[id] = j
+				}
+			}
+		}
+	}
+
 	restoredJoints := make([]Joint, len(snap.Joints))
 	for i, js := range snap.Joints {
 		var existing Joint
-		if i < len(w.Joints) {
-			existing = w.Joints[i]
+		if js.InternalID != 0 {
+			if cand, ok := existingJointsByID[js.InternalID]; ok && !existingJointsUsed[cand] {
+				existing = cand
+			}
 		}
-		restoredJoints[i] = restoreRigidJoint(js, existing, resolveRestoredBody)
+		dst := restoreRigidJoint(js, existing, resolveRestoredBody)
+		if existing != nil && dst == existing {
+			existingJointsUsed[existing] = true
+		}
+		w.ensureJointID(dst)
+		restoredJoints[i] = dst
 	}
 
 	var restoredBreakEvents []JointBreakEvent
@@ -1610,6 +1721,9 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 			var j Joint
 			if ev.Joint != nil {
 				j = restoreRigidJoint(*ev.Joint, nil, resolveRestoredBody)
+				if ev.Joint.InternalID > w.nextJointID {
+					w.nextJointID = ev.Joint.InternalID
+				}
 			}
 			restoredBreakEvents[i] = JointBreakEvent{
 				Joint:  j,
@@ -1623,11 +1737,20 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	}
 
 	existingTriggersByID := make(map[int]*Trigger, len(w.Triggers))
+	existingTriggersByInternalID := make(map[uint64]*Trigger, len(w.Triggers))
 	existingTriggersUsed := make(map[*Trigger]bool, len(w.Triggers))
 	for _, tr := range w.Triggers {
-		if tr != nil && tr.ID != 0 {
+		if tr == nil {
+			continue
+		}
+		if tr.ID != 0 {
 			if _, dup := existingTriggersByID[tr.ID]; !dup {
 				existingTriggersByID[tr.ID] = tr
+			}
+		}
+		if tr.internalID != 0 {
+			if _, dup := existingTriggersByInternalID[tr.internalID]; !dup {
+				existingTriggersByInternalID[tr.internalID] = tr
 			}
 		}
 	}
@@ -1639,15 +1762,17 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 			if cand, ok := existingTriggersByID[ts.ID]; ok && !existingTriggersUsed[cand] {
 				dst = cand
 			}
-		}
-		if dst == nil && i < len(w.Triggers) && w.Triggers[i] != nil && !existingTriggersUsed[w.Triggers[i]] {
-			dst = w.Triggers[i]
+		} else if ts.InternalID != 0 {
+			if cand, ok := existingTriggersByInternalID[ts.InternalID]; ok && !existingTriggersUsed[cand] {
+				dst = cand
+			}
 		}
 		if dst == nil {
 			dst = new(Trigger)
 		}
 		existingTriggersUsed[dst] = true
 		applyTriggerSnapshot(dst, ts)
+		w.ensureTriggerID(dst)
 		restoredTriggers[i] = dst
 	}
 

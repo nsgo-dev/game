@@ -137,6 +137,9 @@ type Body struct {
 	// OneWayDrop lets the body fall through TileOneWay platforms, OneWay bodies and OneWay moving platforms during movement.
 	OneWayDrop bool
 	UserData   any
+
+	// internalID is assigned by World when ID is 0 so Restore matches pointers by identity without falling back to slice index.
+	internalID uint64
 }
 
 // NewBoxBody returns a Body whose Shape is a Box at (x, y) with size (w, h).
