@@ -5,6 +5,9 @@ package netplay
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"io"
 	stdnet "net"
@@ -360,7 +363,7 @@ func TestUDPServerRejectsAnInvalidToken(t *testing.T) {
 	srv := listenUDPServer(t, tokenAuth(clock, 0, nil))
 	addr := srv.Addr().String()
 
-	_, err := DialUDP(addr, []byte("forged"))
+	_, err := DialUDP(addr, srv.PublicKey(), []byte("forged"))
 	var rej *RejectError
 	if !errors.As(err, &rej) || rej.Reason != "bad token" {
 		t.Fatalf("dial with a bad token = %v, want a rejection with the reason", err)
@@ -372,12 +375,12 @@ func TestUDPServerRejectsAnInvalidToken(t *testing.T) {
 		t.Fatalf("dial raw: %v", err)
 	}
 	defer func() { _ = raw.Close() }()
-	var key [hsKeySize]byte
-	if _, err := raw.Write(sealUDP(&key, udpData, 2, 1, ChannelUnreliable, []byte("sneak"))); err != nil {
+	c := newUDPCipher([32]byte{1})
+	if _, err := raw.Write(c.seal(nil, udpDirClientToServer, udpData, 2, 1, ChannelUnreliable, []byte("sneak"))); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	good, err := DialUDP(addr, []byte("good"))
+	good, err := DialUDP(addr, srv.PublicKey(), []byte("good"))
 	if err != nil {
 		t.Fatalf("dial with a good token: %v", err)
 	}
@@ -405,10 +408,14 @@ func TestUDPServerIgnoresShortHellos(t *testing.T) {
 	if _, err := raw.Write(encodeHello(hello{}, 0)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// A padded one is answered; its reply proves the short one was processed first and ignored.
+	// A padded v2 hello is answered; its reply proves the short one was processed first and ignored.
 	h := hello{}
 	h.nonce[0] = 7
-	if _, err := raw.Write(encodeHello(h, udpMinHello)); err != nil {
+	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
+	if err != nil {
+		t.Fatalf("encodeUDPHelloV2: %v", err)
+	}
+	if _, err := raw.Write(dgram); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	_ = raw.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -417,7 +424,7 @@ func TestUDPServerIgnoresShortHellos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	w, err := decodeServerHandshake(buf[:n])
+	w, _, _, err := acceptUDPServerHandshakeV2(init, h.nonce, buf[:n])
 	if err != nil || w.nonce != h.nonce || w.peer != 2 {
 		t.Fatalf("reply = %+v, %v; want the padded hello's welcome as the only session", w, err)
 	}
@@ -426,7 +433,7 @@ func TestUDPServerIgnoresShortHellos(t *testing.T) {
 func TestUDPPacketsAreBoundToTheAuthenticatedPeer(t *testing.T) {
 	clock := newFakeClock()
 	srv := listenUDPServer(t, tokenAuth(clock, time.Minute, nil))
-	cli, err := DialUDP(srv.Addr().String(), []byte("good"))
+	cli, err := DialUDP(srv.Addr().String(), srv.PublicKey(), []byte("good"))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -440,22 +447,20 @@ func TestUDPPacketsAreBoundToTheAuthenticatedPeer(t *testing.T) {
 	defer func() { _ = attacker.Close() }()
 
 	cli.mu.Lock()
-	key := cli.key
-	cli.mu.Unlock()
-	var zero [hsKeySize]byte
-	// From another address: a forged tag, then a correctly sealed datagram as if the key had leaked.
-	_, _ = attacker.Write(sealUDP(&zero, udpData, id, 1000, ChannelUnreliable, []byte("forged")))
-	_, _ = attacker.Write(sealUDP(&key, udpData, id, 1001, ChannelUnreliable, []byte("moved")))
-
-	// From the client's own address: a forged tag, and a replay of a datagram already delivered.
-	cli.mu.Lock()
+	sendCipher := cli.sendCipher
 	conn := cli.conn
 	cli.mu.Unlock()
-	_, _ = conn.Write(sealUDP(&zero, udpData, id, 2000, ChannelUnreliable, []byte("forged")))
-	legit := sealUDP(&key, udpData, id, 2001, ChannelUnreliable, []byte("legit"))
+	wrong := newUDPCipher([32]byte{9})
+	// From another address: a forged tag, then a correctly sealed datagram as if the key had leaked.
+	_, _ = attacker.Write(wrong.seal(nil, udpDirClientToServer, udpData, id, 1000, ChannelUnreliable, []byte("forged")))
+	_, _ = attacker.Write(sendCipher.seal(nil, udpDirClientToServer, udpData, id, 1001, ChannelUnreliable, []byte("moved")))
+
+	// From the client's own address: a forged tag, and a replay of a datagram already delivered.
+	_, _ = conn.Write(wrong.seal(nil, udpDirClientToServer, udpData, id, 2000, ChannelUnreliable, []byte("forged")))
+	legit := sendCipher.seal(nil, udpDirClientToServer, udpData, id, 2001, ChannelUnreliable, []byte("legit"))
 	_, _ = conn.Write(legit)
 	_, _ = conn.Write(legit)
-	_, _ = conn.Write(sealUDP(&key, udpData, id, 2002, ChannelUnreliable, []byte("last")))
+	_, _ = conn.Write(sendCipher.seal(nil, udpDirClientToServer, udpData, id, 2002, ChannelUnreliable, []byte("last")))
 
 	var got []string
 	awaitChange(t, srv.changed, "the client's packets", func() bool {
@@ -485,7 +490,7 @@ func TestUDPClientResumesWithinTheGracePeriod(t *testing.T) {
 	auth := tokenAuth(clock, 5*time.Second, nil)
 	auth.IdleTimeout = 3 * time.Second
 	srv := listenUDPServer(t, auth)
-	cli, err := DialUDP(srv.Addr().String(), []byte("good"))
+	cli, err := DialUDP(srv.Addr().String(), srv.PublicKey(), []byte("good"))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -543,7 +548,7 @@ func TestUDPClientResumesWithinTheGracePeriod(t *testing.T) {
 func TestUDPClientCloseLeavesAtOnce(t *testing.T) {
 	clock := newFakeClock()
 	srv := listenUDPServer(t, tokenAuth(clock, time.Minute, nil))
-	cli, err := DialUDP(srv.Addr().String(), []byte("good"))
+	cli, err := DialUDP(srv.Addr().String(), srv.PublicKey(), []byte("good"))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -625,16 +630,55 @@ func TestReplayWindow(t *testing.T) {
 	}
 }
 
+// BenchmarkSealUDP compares the ChaCha20-Poly1305 AEAD seal+open path against the previous truncated HMAC-SHA256 path.
 func BenchmarkSealUDP(b *testing.B) {
-	var key [hsKeySize]byte
+	key := [32]byte{1, 2, 3, 4}
 	payload := make([]byte, 256)
-	b.SetBytes(int64(len(payload)))
-	for b.Loop() {
-		dgram := sealUDP(&key, udpData, 2, 1, ChannelUnreliable, payload)
-		if !openUDP(&key, dgram) {
-			b.Fatal("tag mismatch")
+	b.Run("AEAD", func(b *testing.B) {
+		sealer := newUDPCipher(key)
+		opener := newUDPCipher(key)
+		dgram := make([]byte, 0, udpSealedHeader+len(payload))
+		plain := make([]byte, 0, len(payload))
+		b.SetBytes(int64(len(payload)))
+		b.ReportAllocs()
+		var seq uint32
+		for b.Loop() {
+			seq++
+			dgram = sealer.seal(dgram[:0], udpDirClientToServer, udpData, 2, seq, ChannelUnreliable, payload)
+			var ok bool
+			plain, ok = opener.open(plain[:0], udpDirClientToServer, dgram)
+			if !ok {
+				b.Fatal("tag mismatch")
+			}
 		}
-	}
+	})
+	b.Run("HMAC-SHA256-legacy", func(b *testing.B) {
+		const legacyHeader = 18
+		dgram := make([]byte, legacyHeader+len(payload))
+		var sum [sha256.Size]byte
+		b.SetBytes(int64(len(payload)))
+		b.ReportAllocs()
+		var seq uint32
+		for b.Loop() {
+			seq++
+			dgram[0] = udpData
+			binary.BigEndian.PutUint32(dgram[1:5], 2)
+			binary.BigEndian.PutUint32(dgram[5:9], seq)
+			dgram[9] = byte(ChannelUnreliable)
+			copy(dgram[legacyHeader:], payload)
+			m := hmac.New(sha256.New, key[:])
+			m.Write(dgram[:10])
+			m.Write(dgram[legacyHeader:])
+			copy(dgram[10:18], m.Sum(sum[:0])[:8])
+
+			v := hmac.New(sha256.New, key[:])
+			v.Write(dgram[:10])
+			v.Write(dgram[legacyHeader:])
+			if !hmac.Equal(dgram[10:18], v.Sum(sum[:0])[:8]) {
+				b.Fatal("tag mismatch")
+			}
+		}
+	})
 }
 
 // rawWSHello upgrades a raw connection to srv, sends h and returns the server's reply.
@@ -813,7 +857,10 @@ func TestUDPServerResendsTheWelcomeForARetransmittedHello(t *testing.T) {
 	srv := listenUDPServer(t, Auth{})
 	raw := dialRawUDP(t, srv)
 	h, _ := newHello(nil, resumeState{})
-	dgram := encodeHello(h, udpMinHello)
+	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
+	if err != nil {
+		t.Fatalf("encodeUDPHelloV2: %v", err)
+	}
 
 	// The first welcome is lost on the way, so the client sends the same hello again.
 	first := udpExchange(t, raw, dgram)
@@ -821,7 +868,7 @@ func TestUDPServerResendsTheWelcomeForARetransmittedHello(t *testing.T) {
 	if !bytes.Equal(first, again) {
 		t.Fatal("a retransmitted hello got a different welcome")
 	}
-	w, err := acceptServerHandshake(again, h.nonce)
+	w, _, _, err := acceptUDPServerHandshakeV2(init, h.nonce, again)
 	if err != nil {
 		t.Fatalf("welcome: %v", err)
 	}
@@ -837,14 +884,17 @@ func TestUDPServerResendsTheWelcomeForARetransmittedHello(t *testing.T) {
 func TestUDPServerRejectsAnotherHandshakeVersion(t *testing.T) {
 	srv := listenUDPServer(t, Auth{})
 	raw := dialRawUDP(t, srv)
-	h := encodeHello(hello{}, udpMinHello)
-	h[1] = hsVersion + 1
-	reply := udpExchange(t, raw, h)
-	if len(reply) > len(h) {
-		t.Fatalf("reply of %d bytes to a %d-byte hello", len(reply), len(h))
-	}
-	if _, err := decodeServerHandshake(reply); !strings.Contains(errString(err), hsReasonVersion) {
-		t.Fatalf("reply = %v, want a version rejection", err)
+	// Version-1 hellos (and future versions) receive the existing version reject.
+	for _, ver := range []byte{hsVersion, udpHandshakeVersion + 1} {
+		h := encodeHello(hello{}, udpMinHello)
+		h[1] = ver
+		reply := udpExchange(t, raw, h)
+		if len(reply) > len(h) {
+			t.Fatalf("ver %d: reply of %d bytes to a %d-byte hello", ver, len(reply), len(h))
+		}
+		if _, err := decodeServerHandshake(reply); !strings.Contains(errString(err), hsReasonVersion) {
+			t.Fatalf("ver %d: reply = %v, want a version rejection", ver, err)
+		}
 	}
 	expectNoEvent(t, srv)
 }
@@ -852,7 +902,7 @@ func TestUDPServerRejectsAnotherHandshakeVersion(t *testing.T) {
 func TestUDPResumeMovesALiveSession(t *testing.T) {
 	clock := newFakeClock()
 	srv := listenUDPServer(t, tokenAuth(clock, time.Minute, nil))
-	cli, err := DialUDP(srv.Addr().String(), []byte("good"))
+	cli, err := DialUDP(srv.Addr().String(), srv.PublicKey(), []byte("good"))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -866,7 +916,11 @@ func TestUDPResumeMovesALiveSession(t *testing.T) {
 	cli.mu.Unlock()
 	raw := dialRawUDP(t, srv)
 	h, _ := newHello([]byte("good"), res)
-	w, err := acceptServerHandshake(udpExchange(t, raw, encodeHello(h, udpMinHello)), h.nonce)
+	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
+	if err != nil {
+		t.Fatalf("encodeUDPHelloV2: %v", err)
+	}
+	w, _, s2cKey, err := acceptUDPServerHandshakeV2(init, h.nonce, udpExchange(t, raw, dgram))
 	if err != nil || w.peer != id || !w.resumed {
 		t.Fatalf("resume of a live session = %+v, %v", w, err)
 	}
@@ -881,8 +935,11 @@ func TestUDPResumeMovesALiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if hdr, ok := parseSealed(buf[:n]); !ok || hdr.peer != id || !openUDP(&w.key, buf[:n]) || string(buf[udpSealedHeader:n]) != "moved" {
-		t.Fatalf("new address got %x, want the packet sealed with the new key", buf[:n])
+	opener := newUDPCipher(s2cKey)
+	hdr, ok := parseSealed(buf[:n])
+	pt, valid := opener.open(nil, udpDirServerToClient, buf[:n])
+	if !ok || hdr.peer != id || !valid || string(pt) != "moved" {
+		t.Fatalf("new address got %x (hdr=%+v valid=%v pt=%q), want the packet sealed with the new key", buf[:n], hdr, valid, pt)
 	}
 }
 
@@ -892,12 +949,15 @@ func TestUDPServerRejectsAHelloFloodPastMaxPeers(t *testing.T) {
 	var welcomed, full int
 	for range 8 {
 		h, _ := newHello(nil, resumeState{})
-		dgram := encodeHello(h, udpMinHello)
+		dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
+		if err != nil {
+			t.Fatalf("encodeUDPHelloV2: %v", err)
+		}
 		reply := udpExchange(t, raw, dgram)
 		if len(reply) > len(dgram) {
 			t.Fatalf("reply of %d bytes to a %d-byte hello", len(reply), len(dgram))
 		}
-		_, err := acceptServerHandshake(reply, h.nonce)
+		_, _, _, err = acceptUDPServerHandshakeV2(init, h.nonce, reply)
 		var rej *RejectError
 		switch {
 		case err == nil:

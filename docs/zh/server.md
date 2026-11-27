@@ -126,7 +126,7 @@ go relay.Serve(ctx, srv)
 ```
 
 ```go
-cli, err := netplay.DialWebSocket("wss://relay.example.com/", token) // 或 netplay.DialUDP(addr, token)
+cli, err := netplay.DialWebSocket("wss://relay.example.com/", token) // 或 netplay.DialUDP(addr, serverPubKey, token)
 peerTx := netplay.NewRelayTransport(cli, netplay.RelayTransportConfig{})
 // 等 peerTx.Peers() 列出对手之后：
 session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, Sim: sim})
@@ -141,7 +141,7 @@ session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, 
 - 确认与重发在 `Recv` 内进行，会话每个 tick 都会通过 `Poll` 调用它。
 - 中继从不读取负载。它为每个成员在独立的 goroutine 上写出，经由容量为 `QueueSize`（默认 256）帧的队列，因此慢速玩家只拖慢自己；超出队列的帧会被丢弃，其中的可靠消息由发送方重发。
 - 一个中继在其整个生命周期内只服务一个服务端，因此 WebSocket 玩家与 UDP 玩家不能同处一个会话；每种协议各运行一个中继。`Serve` 返回后可以在同一个服务端上再次调用，仍然连接着的玩家保留各自的会话。负载最多 `MaxRelayPayload` 字节。
-- 除非连接使用 `wss://`，中继能看到明文负载；[netplay 指南](netplay.md#连接握手与重连)中关于 UDP 握手的注意事项同样适用。
+- 客户端到中继的 UDP 链路通过 Noise NK 与 ChaCha20-Poly1305 认证加密（见 [netplay 指南](netplay.md#连接握手与重连)）；WebSocket 链路请使用 `wss://`。中继本身仍能看到转发的负载，中继对等端之间的端到端加密不在范围内。
 
 ### 中继延迟
 

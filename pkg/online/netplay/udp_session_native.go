@@ -3,9 +3,9 @@
 package netplay
 
 import (
-	"crypto/hmac"
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	stdnet "net"
@@ -14,120 +14,34 @@ import (
 	"time"
 )
 
-// After the handshake every UDP datagram is sealed with the session's key:
-//
-//	type(1) peer(4) seq(4) channel(1) tag(8) payload
-//
-// tag is the first 8 bytes of HMAC-SHA256(key, header without tag || payload). type also fixes the direction, so a datagram cannot be reflected back to its sender.
 const (
-	udpData       = 0xB1 // client to server
-	udpServerData = 0xB2 // server to client
-	udpPing       = 0xB3 // client to server keepalive
-	udpPong       = 0xB4 // server to client keepalive reply
-	udpBye        = 0xB5 // client to server goodbye
-
-	udpSealedHeader = 18
-	udpTagSize      = 8
-
 	udpHandshakeTimeout = 10 * time.Second
 	udpHelloRetry       = 250 * time.Millisecond
 	udpKeepAlive        = time.Second
 	udpClientIdle       = 10 * time.Second
 )
 
-// sealUDP builds a sealed datagram.
-func sealUDP(key *[hsKeySize]byte, typ byte, peer PeerID, seq uint32, ch Channel, payload []byte) []byte {
-	b := make([]byte, udpSealedHeader+len(payload))
-	b[0] = typ
-	binary.BigEndian.PutUint32(b[1:5], uint32(peer))
-	binary.BigEndian.PutUint32(b[5:9], seq)
-	b[9] = byte(ch)
-	copy(b[udpSealedHeader:], payload)
-	copy(b[10:18], udpTag(key, b))
-	return b
-}
-
-func udpTag(key *[hsKeySize]byte, b []byte) []byte {
-	m := hmac.New(sha256.New, key[:])
-	m.Write(b[:10])
-	m.Write(b[udpSealedHeader:])
-	return m.Sum(nil)[:udpTagSize]
-}
-
-// sealedHeader is a parsed, not yet verified, sealed datagram.
-type sealedHeader struct {
-	typ  byte
-	peer PeerID
-	seq  uint32
-	ch   Channel
-}
-
-func parseSealed(b []byte) (sealedHeader, bool) {
-	if len(b) < udpSealedHeader {
-		return sealedHeader{}, false
-	}
-	return sealedHeader{
-		typ:  b[0],
-		peer: PeerID(binary.BigEndian.Uint32(b[1:5])),
-		seq:  binary.BigEndian.Uint32(b[5:9]),
-		ch:   Channel(b[9]),
-	}, true
-}
-
-// openUDP reports whether b carries a valid tag for key.
-func openUDP(key *[hsKeySize]byte, b []byte) bool {
-	return len(b) >= udpSealedHeader && hmac.Equal(b[10:18], udpTag(key, b))
-}
-
-// replayWindow refuses a sequence number seen before or older than the last 64, so a captured datagram cannot be played again.
-type replayWindow struct {
-	top  uint32
-	seen uint64
-}
-
-func (w *replayWindow) accept(seq uint32) bool {
-	switch {
-	case seq == 0:
-		return false
-	case seq > w.top:
-		shift := seq - w.top
-		if shift >= 64 {
-			w.seen = 0
-		} else {
-			w.seen <<= shift
-		}
-		w.seen |= 1
-		w.top = seq
-		return true
-	case w.top-seq >= 64:
-		return false
-	default:
-		bit := uint64(1) << (w.top - seq)
-		if w.seen&bit != 0 {
-			return false
-		}
-		w.seen |= bit
-		return true
-	}
-}
-
-// udpLink binds a UDP session to the address that completed its handshake.
+// udpLink binds a UDP session to the address and directional AEAD ciphers established by its Noise NK handshake.
 type udpLink struct {
-	addr    stdnet.Addr
-	nonce   [hsNonceSize]byte
-	welcome []byte
-	sendSeq uint32
-	recv    replayWindow
+	addr       stdnet.Addr
+	nonce      [hsNonceSize]byte
+	helloHash  [sha256.Size]byte
+	welcome    []byte
+	sendSeq    uint32
+	sendCipher udpCipher
+	recvCipher udpCipher
+	recv       replayWindow
 }
 
-// UDPServer is a native UDP Transport for a server whose clients connect with DialUDP. Each client runs the connection handshake before its packets reach Recv: Auth.Verify checks its token and the server assigns its ID. After that the client is bound to the address it shook hands from and to a per-session key, so a datagram from another address, or without the key, is dropped instead of reaching Recv or moving the peer.
+// UDPServer is a native UDP Transport for a server whose clients connect with DialUDP. Each client runs a Noise NK key exchange (handshake version 2) against the server's static X25519 key before its packets reach Recv: the token and resume secret travel encrypted, Auth.Verify checks the token, and the server assigns the client's ID in an encrypted welcome.
 //
-// UDP has no connection, so a client that stays silent for Auth.IdleTimeout counts as dropped; DialUDP clients ping every second while idle. Datagrams are authenticated, not encrypted.
+// After the handshake every datagram is encrypted and authenticated with ChaCha20-Poly1305 using directional keys from the Noise split, a 10-byte cleartext header authenticated as associated data, an implicit direction||peer||seq nonce, and a 64-entry replay window that also refuses wrapped sequence numbers. A datagram from another address, with a bad tag, reflected from the opposite direction, or replayed is dropped.
 //
-// The binding stops attackers who cannot see the traffic. The handshake itself travels in the clear: the hello carries the token, and the welcome carries the session key and resume secret. Anyone who can observe it, on shared Wi-Fi or any hop on the path, can forge datagrams for the session and resume it from their own address, taking it over. Issue UDP tokens that are short-lived and single-use, and use WebSocket over wss:// where an on-path observer is a concern.
+// UDP has no connection, so a client that stays silent for Auth.IdleTimeout counts as dropped; DialUDP clients ping every second while idle.
 type UDPServer struct {
-	conn     stdnet.PacketConn
-	serverID PeerID
+	conn      stdnet.PacketConn
+	serverID  PeerID
+	staticKey *ecdh.PrivateKey
 
 	mu      sync.Mutex
 	table   *sessionTable
@@ -138,25 +52,48 @@ type UDPServer struct {
 	changed chan struct{}
 }
 
-// ListenUDPServer binds a UDP socket on addr for a server with ID serverID (1 when zero) and starts accepting DialUDP clients under auth.
+// ListenUDPServer binds a UDP socket on addr for a server with ID serverID (1 when zero) and starts accepting DialUDP clients under auth. If auth.StaticKey is nil, ListenUDPServer generates a fresh X25519 key pair whose public key clients obtain from PublicKey; otherwise auth.StaticKey must use X25519 or ListenUDPServer returns ErrInvalidKey.
 func ListenUDPServer(addr string, serverID PeerID, auth Auth) (*UDPServer, error) {
 	if serverID == 0 {
 		serverID = 1
+	}
+	staticKey, err := resolveUDPServerKey(auth.StaticKey)
+	if err != nil {
+		return nil, err
 	}
 	conn, err := stdnet.ListenPacket("udp", addr)
 	if err != nil {
 		return nil, err
 	}
-	return newUDPServer(conn, serverID, auth), nil
+	return newUDPServerWithKey(conn, serverID, auth, staticKey), nil
+}
+
+func resolveUDPServerKey(k *ecdh.PrivateKey) (*ecdh.PrivateKey, error) {
+	if k == nil {
+		return ecdh.X25519().GenerateKey(rand.Reader)
+	}
+	if err := validateX25519PrivateKey(k); err != nil {
+		return nil, err
+	}
+	return k, nil
 }
 
 func newUDPServer(conn stdnet.PacketConn, serverID PeerID, auth Auth) *UDPServer {
+	staticKey, err := resolveUDPServerKey(auth.StaticKey)
+	if err != nil {
+		panic(err)
+	}
+	return newUDPServerWithKey(conn, serverID, auth, staticKey)
+}
+
+func newUDPServerWithKey(conn stdnet.PacketConn, serverID PeerID, auth Auth, staticKey *ecdh.PrivateKey) *UDPServer {
 	s := &UDPServer{
-		conn:     conn,
-		serverID: serverID,
-		table:    newSessionTable(auth, serverID, true),
-		byNonce:  make(map[[hsNonceSize]byte]PeerID),
-		changed:  make(chan struct{}, 1),
+		conn:      conn,
+		serverID:  serverID,
+		staticKey: staticKey,
+		table:     newSessionTable(auth, serverID, true),
+		byNonce:   make(map[[hsNonceSize]byte]PeerID),
+		changed:   make(chan struct{}, 1),
 	}
 	go s.readLoop()
 	return s
@@ -167,8 +104,14 @@ func (s *UDPServer) Addr() stdnet.Addr {
 	return s.conn.LocalAddr()
 }
 
+// PublicKey returns the server's static X25519 public key that clients pass to DialUDP.
+func (s *UDPServer) PublicKey() *ecdh.PublicKey {
+	return s.staticKey.PublicKey()
+}
+
 func (s *UDPServer) readLoop() {
 	buf := make([]byte, 65535)
+	plainBuf := make([]byte, 0, 65535)
 	for {
 		n, from, err := s.conn.ReadFrom(buf)
 		if err != nil {
@@ -191,7 +134,7 @@ func (s *UDPServer) readLoop() {
 		case hsHello:
 			s.handleHello(b, from)
 		case udpData, udpPing, udpBye:
-			s.handleSealed(b, from)
+			s.handleSealed(b, from, plainBuf)
 		}
 	}
 }
@@ -200,20 +143,45 @@ func (s *UDPServer) handleHello(b []byte, from stdnet.Addr) {
 	if len(b) < udpMinHello {
 		return
 	}
-	h, err := decodeHello(b)
-	if err != nil {
-		if errors.Is(err, errHandshakeVersion) {
-			_, _ = s.conn.WriteTo(encodeReject(h.nonce, hsReasonVersion, len(b)), from)
-		}
+	if b[1] != udpHandshakeVersion {
+		var nonce [hsNonceSize]byte
+		copy(nonce[:], b[2:udpHelloPrefixSize])
+		_, _ = s.conn.WriteTo(encodeReject(nonce, hsReasonVersion, len(b)), from)
 		return
 	}
-	if reply := s.admit(h, from, len(b)); reply != nil {
+	var nonce [hsNonceSize]byte
+	copy(nonce[:], b[2:udpHelloPrefixSize])
+	helloHash := sha256.Sum256(b)
+
+	// A retransmitted hello whose welcome was lost gets the same encrypted welcome again without repeating the DH or creating a second session.
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	if id, ok := s.byNonce[nonce]; ok {
+		if sess := s.table.sessions[id]; sess != nil {
+			if link, ok := sess.link.(*udpLink); ok && link.nonce == nonce && link.helloHash == helloHash && sameUDPAddr(link.addr, from) {
+				reply := link.welcome
+				s.mu.Unlock()
+				_, _ = s.conn.WriteTo(reply, from)
+				return
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	resp, h, err := decodeUDPHelloV2(s.staticKey, b)
+	if err != nil {
+		return
+	}
+	if reply := s.admit(resp, h, helloHash, from, len(b)); reply != nil {
 		_, _ = s.conn.WriteTo(reply, from)
 	}
 }
 
-// admit runs the session side of the handshake and returns the reply.
-func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
+// admit runs the session side of the handshake and returns the encrypted Noise message 2 reply.
+func (s *UDPServer) admit(resp *noiseNKResponder, h hello, helloHash [sha256.Size]byte, from stdnet.Addr, limit int) []byte {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -222,10 +190,9 @@ func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
 	now := s.table.now()
 	s.table.expire(now)
 
-	// A retransmitted hello whose welcome was lost gets the same welcome again rather than a second session.
 	if id, ok := s.byNonce[h.nonce]; ok {
 		if sess := s.table.sessions[id]; sess != nil {
-			if link, ok := sess.link.(*udpLink); ok && link.nonce == h.nonce && sameUDPAddr(link.addr, from) {
+			if link, ok := sess.link.(*udpLink); ok && link.nonce == h.nonce && link.helloHash == helloHash && sameUDPAddr(link.addr, from) {
 				s.mu.Unlock()
 				return link.welcome
 			}
@@ -234,7 +201,7 @@ func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
 	}
 
 	if sess := s.table.resume(h, now); sess != nil {
-		reply := s.bindLocked(sess, h.nonce, from, true)
+		reply := s.bindLocked(resp, sess, h.nonce, helloHash, from, true)
 		s.mu.Unlock()
 		s.notify()
 		return reply
@@ -242,7 +209,8 @@ func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
 	id, ok := s.table.reserve()
 	s.mu.Unlock()
 	if !ok {
-		return encodeReject(h.nonce, reasonServerFull, limit)
+		reply, _ := encodeUDPRejectV2(resp, h.nonce, reasonServerFull, limit)
+		return reply
 	}
 
 	reason, ok := s.table.verify(id, h.token)
@@ -252,24 +220,39 @@ func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
 		s.table.release(id)
 		s.mu.Unlock()
 		if !ok {
-			return encodeReject(h.nonce, reason, limit)
+			reply, _ := encodeUDPRejectV2(resp, h.nonce, reason, limit)
+			return reply
 		}
 		return nil
 	}
 	sess := s.table.commit(id, s.table.now())
-	reply := s.bindLocked(sess, h.nonce, from, false)
+	reply := s.bindLocked(resp, sess, h.nonce, helloHash, from, false)
 	s.mu.Unlock()
 	s.notify()
 	return reply
 }
 
-// bindLocked binds sess to from with a fresh replay window and records its welcome for retransmits.
-func (s *UDPServer) bindLocked(sess *session, nonce [hsNonceSize]byte, from stdnet.Addr, resumed bool) []byte {
+// bindLocked completes the Noise NK handshake for sess, binds it to from with fresh directional AEAD ciphers and a fresh replay window, and records its welcome for retransmits.
+func (s *UDPServer) bindLocked(resp *noiseNKResponder, sess *session, nonce [hsNonceSize]byte, helloHash [sha256.Size]byte, from stdnet.Addr, resumed bool) []byte {
 	if old, ok := sess.link.(*udpLink); ok {
 		delete(s.byNonce, old.nonce)
 	}
-	reply := encodeWelcome(s.table.welcomeFor(sess, nonce, resumed))
-	sess.link = &udpLink{addr: from, nonce: nonce, welcome: reply}
+	reply, c2sKey, s2cKey, err := encodeUDPWelcomeV2(resp, s.table.welcomeFor(sess, nonce, resumed))
+	if err != nil {
+		return nil
+	}
+	sendCipher := newUDPCipher(s2cKey)
+	recvCipher := newUDPCipher(c2sKey)
+	clear(c2sKey[:])
+	clear(s2cKey[:])
+	sess.link = &udpLink{
+		addr:       from,
+		nonce:      nonce,
+		helloHash:  helloHash,
+		welcome:    reply,
+		sendCipher: sendCipher,
+		recvCipher: recvCipher,
+	}
 	s.byNonce[nonce] = sess.id
 	s.pruneNoncesLocked()
 	return reply
@@ -296,7 +279,7 @@ func linkOf(sess *session) (*udpLink, bool) {
 	return link, ok
 }
 
-func (s *UDPServer) handleSealed(b []byte, from stdnet.Addr) {
+func (s *UDPServer) handleSealed(b []byte, from stdnet.Addr, plainBuf []byte) {
 	hdr, ok := parseSealed(b)
 	if !ok {
 		return
@@ -304,10 +287,16 @@ func (s *UDPServer) handleSealed(b []byte, from stdnet.Addr) {
 	s.mu.Lock()
 	sess := s.table.sessions[hdr.peer]
 	link, linked := linkOf(sess)
-	if s.closed || !linked || !sess.connected || !sameUDPAddr(link.addr, from) || !openUDP(&sess.key, b) || !link.recv.accept(hdr.seq) {
+	if s.closed || !linked || !sess.connected || !sameUDPAddr(link.addr, from) || !link.recv.wouldAccept(hdr.seq) {
 		s.mu.Unlock()
 		return
 	}
+	pt, valid := link.recvCipher.open(plainBuf, udpDirClientToServer, b)
+	if !valid {
+		s.mu.Unlock()
+		return
+	}
+	link.recv.accept(hdr.seq)
 	sess.lastSeen = s.table.now()
 	var reply []byte
 	switch hdr.typ {
@@ -316,13 +305,14 @@ func (s *UDPServer) handleSealed(b []byte, from stdnet.Addr) {
 			s.inbox.push(Packet{
 				From:    hdr.peer,
 				Channel: hdr.ch,
-				Payload: slices.Clone(b[udpSealedHeader:]),
+				Payload: slices.Clone(pt),
 				Seq:     hdr.seq,
 			})
 		}
 	case udpPing:
-		link.sendSeq++
-		reply = sealUDP(&sess.key, udpPong, sess.id, link.sendSeq, ChannelUnreliable, nil)
+		if seq, ok := nextSeq(&link.sendSeq); ok {
+			reply = link.sendCipher.seal(nil, udpDirServerToClient, udpPong, sess.id, seq, ChannelUnreliable, nil)
+		}
 	case udpBye:
 		delete(s.byNonce, link.nonce)
 		s.table.leave(sess)
@@ -342,7 +332,7 @@ func (s *UDPServer) notify() {
 	}
 }
 
-// Send seals payload with the client's session key and sends it in one datagram to the client (or all connected clients when to == PeerBroadcast). It refuses ChannelReliableOrdered with ErrUnsupportedChannel, returns ErrDisconnected for a client inside its grace period and ErrUnknownPeer for an ID with no session.
+// Send encrypts and authenticates payload with the client's server-to-client ChaCha20-Poly1305 key and sends it in one datagram to the client (or all connected clients when to == PeerBroadcast). It refuses ChannelReliableOrdered with ErrUnsupportedChannel, returns ErrDisconnected for a client inside its grace period, ErrUnknownPeer for an ID with no session, and ErrSequenceExhausted if the session's 32-bit sequence counter would wrap.
 func (s *UDPServer) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch == ChannelReliableOrdered {
 		return ErrUnsupportedChannel
@@ -377,16 +367,26 @@ func (s *UDPServer) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 		ids = []PeerID{to}
 	}
+	var firstErr error
 	targets := make([]target, 0, len(ids))
 	for _, id := range ids {
 		sess := s.table.sessions[id]
 		link := sess.link.(*udpLink)
-		link.sendSeq++
-		targets = append(targets, target{addr: link.addr, dgram: sealUDP(&sess.key, udpServerData, id, link.sendSeq, ch, payload)})
+		seq, ok := nextSeq(&link.sendSeq)
+		if !ok {
+			if to != PeerBroadcast {
+				s.mu.Unlock()
+				return ErrSequenceExhausted
+			}
+			if firstErr == nil {
+				firstErr = ErrSequenceExhausted
+			}
+			continue
+		}
+		targets = append(targets, target{addr: link.addr, dgram: link.sendCipher.seal(nil, udpDirServerToClient, udpServerData, id, seq, ch, payload)})
 	}
 	s.mu.Unlock()
 
-	var firstErr error
 	for _, t := range targets {
 		if _, err := s.conn.WriteTo(t.dgram, t.addr); err != nil && firstErr == nil {
 			firstErr = err
@@ -409,7 +409,7 @@ func (s *UDPServer) InboxStats() InboxStats {
 	return s.inbox.stats()
 }
 
-// Recv pops the next authenticated packet without blocking.
+// Recv pops the next authenticated and decrypted packet without blocking.
 func (s *UDPServer) Recv() (Packet, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -457,47 +457,66 @@ func (s *UDPServer) Close() error {
 	return s.conn.Close()
 }
 
-// UDPClient is a native UDP Transport connected to a UDPServer. DialUDP runs the connection handshake, after which every datagram is sealed with the session's key. The client pings the server while idle and reports itself disconnected when the server stays silent for 10 seconds; Reconnect resumes the session with the same ID within the server's grace period.
+// UDPClient is a native UDP Transport connected to a UDPServer. DialUDP authenticates the server and derives directional ChaCha20-Poly1305 session keys using a Noise NK handshake against the server's static X25519 public key. The client pings the server while idle and reports itself disconnected when the server stays silent for 10 seconds; Reconnect runs a fresh Noise NK handshake to rekey the session and resume with the same ID within the server's grace period.
 type UDPClient struct {
-	addr  string
-	token []byte
+	addr             string
+	serverKey        *ecdh.PublicKey
+	token            []byte
+	handshakeTimeout time.Duration
 
 	dialMu sync.Mutex // serializes Reconnect
 
-	mu       sync.Mutex
-	conn     stdnet.Conn
-	stop     chan struct{}
-	localID  PeerID
-	serverID PeerID
-	key      [hsKeySize]byte
-	sendSeq  uint32
-	recv     replayWindow
-	lastSend time.Time
-	lastRecv time.Time
-	state    ConnState
-	err      error
-	resume   resumeState
-	resumed  bool
-	inbox    packetQueue
-	changed  chan struct{}
+	mu         sync.Mutex
+	conn       stdnet.Conn
+	stop       chan struct{}
+	localID    PeerID
+	serverID   PeerID
+	sendCipher udpCipher
+	recvCipher udpCipher
+	sendSeq    uint32
+	recv       replayWindow
+	lastSend   time.Time
+	lastRecv   time.Time
+	state      ConnState
+	err        error
+	resume     resumeState
+	resumed    bool
+	inbox      packetQueue
+	changed    chan struct{}
 
 	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
 	admissions uint64
 }
 
-// DialUDP connects to the UDPServer at addr, presents token in the connection handshake and returns once the server accepts it. The server assigns the client's ID, which LocalID reports. A refusal returns a *RejectError that matches ErrRejected.
-func DialUDP(addr string, token []byte) (*UDPClient, error) {
+// DialUDP connects to the UDPServer at addr, authenticates it with its static X25519 public key serverKey using Noise NK, presents token encrypted in the handshake, and returns once the server accepts it. The server assigns the client's ID, which LocalID reports. A missing or non-X25519 serverKey returns ErrInvalidKey; a refusal returns a *RejectError that matches ErrRejected.
+func DialUDP(addr string, serverKey *ecdh.PublicKey, token []byte) (*UDPClient, error) {
+	return dialUDP(addr, serverKey, token, udpHandshakeTimeout)
+}
+
+func dialUDP(addr string, serverKey *ecdh.PublicKey, token []byte, timeout time.Duration) (*UDPClient, error) {
+	if err := validateX25519PublicKey(serverKey); err != nil {
+		return nil, err
+	}
 	if len(token) > MaxTokenSize {
 		return nil, ErrTokenTooLarge
 	}
-	c := &UDPClient{addr: addr, token: slices.Clone(token), changed: make(chan struct{}, 1)}
+	if timeout <= 0 {
+		timeout = udpHandshakeTimeout
+	}
+	c := &UDPClient{
+		addr:             addr,
+		serverKey:        serverKey,
+		token:            slices.Clone(token),
+		handshakeTimeout: timeout,
+		changed:          make(chan struct{}, 1),
+	}
 	if err := c.connect(); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-// Reconnect drops the current socket without a goodbye, opens a new one and resumes the session: within the server's grace period the client keeps its ID, and Resumed reports true. Past it, the server admits the client as a new peer when its token is still valid, and LocalID changes.
+// Reconnect drops the current socket without a goodbye, opens a new one and runs a fresh Noise NK handshake to rekey the session and reset sequence numbers: within the server's grace period the client keeps its ID, and Resumed reports true. Past it, the server admits the client as a new peer when its token is still valid, and LocalID changes.
 func (c *UDPClient) Reconnect() error {
 	c.dialMu.Lock()
 	defer c.dialMu.Unlock()
@@ -539,12 +558,17 @@ func (c *UDPClient) connect() error {
 	if err != nil {
 		return c.fail(err)
 	}
-	w, err := udpHandshake(conn, c.token, res)
+	w, c2sKey, s2cKey, err := udpHandshake(conn, c.serverKey, c.token, res, c.handshakeTimeout)
 	if err != nil {
 		_ = conn.Close()
 		return c.fail(err)
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+
+	sendCipher := newUDPCipher(c2sKey)
+	recvCipher := newUDPCipher(s2cKey)
+	clear(c2sKey[:])
+	clear(s2cKey[:])
 
 	c.mu.Lock()
 	if c.state == ConnClosed {
@@ -555,7 +579,8 @@ func (c *UDPClient) connect() error {
 	now := time.Now()
 	stop := make(chan struct{})
 	c.conn, c.stop = conn, stop
-	c.localID, c.serverID, c.key = w.peer, w.server, w.key
+	c.localID, c.serverID = w.peer, w.server
+	c.sendCipher, c.recvCipher = sendCipher, recvCipher
 	c.sendSeq, c.recv = 0, replayWindow{}
 	c.lastSend, c.lastRecv = now, now
 	c.resume = resumeState{peer: w.peer, secret: w.secret}
@@ -570,19 +595,25 @@ func (c *UDPClient) connect() error {
 	return nil
 }
 
-// udpHandshake sends the hello, resending it until the server answers or the handshake times out.
-func udpHandshake(conn stdnet.Conn, token []byte, res resumeState) (welcome, error) {
+// udpHandshake sends the Noise NK hello, resending the identical datagram until the server answers with a valid welcome or reject or the handshake times out.
+func udpHandshake(conn stdnet.Conn, serverKey *ecdh.PublicKey, token []byte, res resumeState, timeout time.Duration) (w welcome, c2sKey, s2cKey [32]byte, err error) {
 	h, err := newHello(token, res)
 	if err != nil {
-		return welcome{}, err
+		return w, c2sKey, s2cKey, err
 	}
-	dgram := encodeHello(h, udpMinHello)
-	deadline := time.Now().Add(udpHandshakeTimeout)
+	dgram, init, err := encodeUDPHelloV2(serverKey, h)
+	if err != nil {
+		return w, c2sKey, s2cKey, err
+	}
+	if timeout <= 0 {
+		timeout = udpHandshakeTimeout
+	}
+	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 2048)
-	retry := udpHelloRetry
+	retry := min(udpHelloRetry, timeout)
 	for {
 		if _, err := conn.Write(dgram); err != nil {
-			return welcome{}, err
+			return w, c2sKey, s2cKey, err
 		}
 		wait := time.Now().Add(retry)
 		if wait.After(deadline) {
@@ -596,19 +627,19 @@ func udpHandshake(conn stdnet.Conn, token []byte, res resumeState) (welcome, err
 				if errors.As(err, &ne) && ne.Timeout() {
 					break
 				}
-				return welcome{}, err
+				return w, c2sKey, s2cKey, err
 			}
 			if n == 0 || (buf[0] != hsWelcome && buf[0] != hsReject) {
 				continue
 			}
-			w, err := decodeServerHandshake(buf[:n])
-			if w.nonce != h.nonce || errors.Is(err, ErrInvalidPacket) {
-				continue // a late reply to an earlier dial, or noise
+			w, c2sKey, s2cKey, err = acceptUDPServerHandshakeV2(init, h.nonce, buf[:n])
+			if errors.Is(err, ErrInvalidPacket) {
+				continue // a late reply to an earlier dial, or an unauthenticated/forged datagram
 			}
-			return w, err
+			return w, c2sKey, s2cKey, err
 		}
 		if !time.Now().Before(deadline) {
-			return welcome{}, fmt.Errorf("net: udp handshake with %s timed out", conn.RemoteAddr())
+			return w, c2sKey, s2cKey, fmt.Errorf("net: udp handshake with %s timed out", conn.RemoteAddr())
 		}
 		retry = min(2*retry, time.Second)
 	}
@@ -625,6 +656,7 @@ func (c *UDPClient) fail(err error) error {
 
 func (c *UDPClient) readLoop(conn stdnet.Conn) {
 	buf := make([]byte, 65535)
+	plainBuf := make([]byte, 0, 65535)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -641,16 +673,22 @@ func (c *UDPClient) readLoop(conn stdnet.Conn) {
 			continue
 		}
 		c.mu.Lock()
-		if c.conn != conn || c.state != ConnOpen || hdr.peer != c.localID || !openUDP(&c.key, b) || !c.recv.accept(hdr.seq) {
+		if c.conn != conn || c.state != ConnOpen || hdr.peer != c.localID || !c.recv.wouldAccept(hdr.seq) {
 			c.mu.Unlock()
 			continue
 		}
+		pt, valid := c.recvCipher.open(plainBuf, udpDirServerToClient, b)
+		if !valid {
+			c.mu.Unlock()
+			continue
+		}
+		c.recv.accept(hdr.seq)
 		c.lastRecv = time.Now()
 		if hdr.typ == udpServerData && hdr.ch == ChannelUnreliable {
 			c.inbox.push(Packet{
 				From:    c.serverID,
 				Channel: hdr.ch,
-				Payload: slices.Clone(b[udpSealedHeader:]),
+				Payload: slices.Clone(pt),
 				Seq:     hdr.seq,
 			})
 		}
@@ -697,9 +735,10 @@ func (c *UDPClient) keepAlive(conn stdnet.Conn, stop chan struct{}) {
 			}
 			var ping []byte
 			if now.Sub(c.lastSend) >= udpKeepAlive {
-				c.sendSeq++
-				c.lastSend = now
-				ping = sealUDP(&c.key, udpPing, c.localID, c.sendSeq, ChannelUnreliable, nil)
+				if seq, ok := nextSeq(&c.sendSeq); ok {
+					c.lastSend = now
+					ping = c.sendCipher.seal(nil, udpDirClientToServer, udpPing, c.localID, seq, ChannelUnreliable, nil)
+				}
 			}
 			c.mu.Unlock()
 			if ping != nil {
@@ -717,7 +756,7 @@ func (c *UDPClient) notify() {
 	}
 }
 
-// Send seals payload with the session key and sends it to the server in one datagram. It refuses ChannelReliableOrdered with ErrUnsupportedChannel and returns ErrDisconnected while the connection is down.
+// Send encrypts and authenticates payload with the client-to-server ChaCha20-Poly1305 key and sends it to the server in one datagram. It refuses ChannelReliableOrdered with ErrUnsupportedChannel, returns ErrDisconnected while the connection is down, and returns ErrSequenceExhausted once the 32-bit sequence counter would wrap (call Reconnect to rekey).
 func (c *UDPClient) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch == ChannelReliableOrdered {
 		return ErrUnsupportedChannel
@@ -740,9 +779,13 @@ func (c *UDPClient) Send(to PeerID, ch Channel, payload []byte) error {
 		c.mu.Unlock()
 		return ErrUnknownPeer
 	}
-	c.sendSeq++
+	seq, ok := nextSeq(&c.sendSeq)
+	if !ok {
+		c.mu.Unlock()
+		return ErrSequenceExhausted
+	}
 	c.lastSend = time.Now()
-	dgram := sealUDP(&c.key, udpData, c.localID, c.sendSeq, ch, payload)
+	dgram := c.sendCipher.seal(nil, udpDirClientToServer, udpData, c.localID, seq, ch, payload)
 	conn := c.conn
 	c.mu.Unlock()
 	_, err := conn.Write(dgram)
@@ -763,7 +806,7 @@ func (c *UDPClient) InboxStats() InboxStats {
 	return c.inbox.stats()
 }
 
-// Recv pops the next authenticated packet from the server without blocking.
+// Recv pops the next authenticated and decrypted packet from the server without blocking.
 func (c *UDPClient) Recv() (Packet, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -815,7 +858,7 @@ func (c *UDPClient) relayAdmissions() uint64 {
 	return c.admissions
 }
 
-// Close sends the server a goodbye, so it reports PeerLeft at once rather than holding the session for a reconnect, and closes the socket.
+// Close sends the server an authenticated goodbye, so it reports PeerLeft at once rather than holding the session for a reconnect, and closes the socket.
 func (c *UDPClient) Close() error {
 	c.mu.Lock()
 	if c.state == ConnClosed {
@@ -826,8 +869,9 @@ func (c *UDPClient) Close() error {
 	c.state = ConnClosed
 	var bye []byte
 	if open && c.conn != nil {
-		c.sendSeq++
-		bye = sealUDP(&c.key, udpBye, c.localID, c.sendSeq, ChannelUnreliable, nil)
+		if seq, ok := nextSeq(&c.sendSeq); ok {
+			bye = c.sendCipher.seal(nil, udpDirClientToServer, udpBye, c.localID, seq, ChannelUnreliable, nil)
+		}
 	}
 	conn := c.detachLocked()
 	c.mu.Unlock()

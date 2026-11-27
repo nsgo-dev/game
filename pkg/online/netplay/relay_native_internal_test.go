@@ -4,6 +4,8 @@ package netplay
 
 import (
 	"context"
+	"crypto/ecdh"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"math"
@@ -31,8 +33,8 @@ type relayClient struct {
 	changed <-chan struct{}
 }
 
-// listenRelay listens on addr ("127.0.0.1:0" for any port) for a relay over proto ("websocket" or "udp") and returns the server and the address clients dial.
-func listenRelay(t testing.TB, proto, addr string, auth Auth) (RelayServer, string) {
+// listenRelay listens on addr ("127.0.0.1:0" for any port) for a relay over proto ("websocket" or "udp") and returns the server, the address clients dial, and (for UDP) the server's static X25519 public key.
+func listenRelay(t testing.TB, proto, addr string, auth Auth) (RelayServer, string, *ecdh.PublicKey) {
 	t.Helper()
 	switch proto {
 	case "websocket":
@@ -40,20 +42,20 @@ func listenRelay(t testing.TB, proto, addr string, auth Auth) (RelayServer, stri
 		if err != nil {
 			t.Fatalf("ListenWebSocket: %v", err)
 		}
-		return ws, "ws://" + ws.Addr().String() + "/relay"
+		return ws, "ws://" + ws.Addr().String() + "/relay", nil
 	case "udp":
 		us, err := ListenUDPServer(addr, 1, auth)
 		if err != nil {
 			t.Fatalf("ListenUDPServer: %v", err)
 		}
-		return us, us.Addr().String()
+		return us, us.Addr().String(), us.PublicKey()
 	}
 	t.Fatalf("unknown protocol %q", proto)
-	return nil, ""
+	return nil, "", nil
 }
 
 // dialRelay connects a RelayTransport over proto to the relay at addr.
-func dialRelay(proto, addr, token string, now func() time.Time) (*relayClient, error) {
+func dialRelay(proto, addr string, serverKey *ecdh.PublicKey, token string, now func() time.Time) (*relayClient, error) {
 	var inner Transport
 	var changed <-chan struct{}
 	switch proto {
@@ -64,7 +66,7 @@ func dialRelay(proto, addr, token string, now func() time.Time) (*relayClient, e
 		}
 		inner, changed = ws, ws.changed
 	default:
-		uc, err := DialUDP(addr, []byte(token))
+		uc, err := DialUDP(addr, serverKey, []byte(token))
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +96,7 @@ func startRelay(t testing.TB, proto string, cfg RelayConfig, base Auth) (*Relay,
 	if err != nil {
 		t.Fatalf("NewRelay: %v", err)
 	}
-	srv, addr := listenRelay(t, proto, "127.0.0.1:0", relay.Auth(base))
+	srv, addr, serverKey := listenRelay(t, proto, "127.0.0.1:0", relay.Auth(base))
 	stop := serveRelay(relay, srv)
 
 	var mu sync.Mutex
@@ -112,7 +114,7 @@ func startRelay(t testing.TB, proto string, cfg RelayConfig, base Auth) (*Relay,
 	})
 
 	dial := func(token string, now func() time.Time) (*relayClient, error) {
-		c, err := dialRelay(proto, addr, token, now)
+		c, err := dialRelay(proto, addr, serverKey, token, now)
 		if err != nil {
 			return nil, err
 		}
@@ -400,16 +402,20 @@ func TestRelayResendsAcrossAReconnect(t *testing.T) {
 	}
 }
 
-// TestRelayRestartStartsANewSession restarts the relay on the same address. The clients reconnect as new peers and get their old IDs back, and must still take the new relay's membership and number their messages from 1.
+// TestRelayRestartStartsANewSession restarts the relay on the same address (with the same persistent static key on UDP). The clients reconnect as new peers and get their old IDs back, and must still take the new relay's membership and number their messages from 1.
 func TestRelayRestartStartsANewSession(t *testing.T) {
 	for _, proto := range []string{"websocket", "udp"} {
 		t.Run(proto, func(t *testing.T) {
-			auth := Auth{GracePeriod: time.Minute}
+			staticKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatalf("GenerateKey: %v", err)
+			}
+			auth := Auth{GracePeriod: time.Minute, StaticKey: staticKey}
 			old, err := NewRelay(RelayConfig{Join: relayJoin})
 			if err != nil {
 				t.Fatalf("NewRelay: %v", err)
 			}
-			srv, addr := listenRelay(t, proto, "127.0.0.1:0", old.Auth(auth))
+			srv, addr, serverKey := listenRelay(t, proto, "127.0.0.1:0", old.Auth(auth))
 			listenAddr := srv.(interface{ Addr() stdnet.Addr }).Addr().String()
 			stop := serveRelay(old, srv)
 			var clients []*relayClient
@@ -419,7 +425,7 @@ func TestRelayRestartStartsANewSession(t *testing.T) {
 				}
 			}()
 			for _, token := range []string{"room/a", "room/b", "room/c"} {
-				c, err := dialRelay(proto, addr, token, nil)
+				c, err := dialRelay(proto, addr, serverKey, token, nil)
 				if err != nil {
 					t.Fatalf("dial %q: %v", token, err)
 				}
@@ -443,7 +449,7 @@ func TestRelayRestartStartsANewSession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewRelay: %v", err)
 			}
-			srv2, _ := listenRelay(t, proto, listenAddr, relay.Auth(auth))
+			srv2, _, _ := listenRelay(t, proto, listenAddr, relay.Auth(auth))
 			stop2 := serveRelay(relay, srv2)
 			defer func() {
 				_ = stop2()
@@ -479,7 +485,7 @@ func TestRelayServesAgainOnTheSameServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRelay: %v", err)
 	}
-	srv, addr := listenRelay(t, "udp", "127.0.0.1:0", relay.Auth(Auth{}))
+	srv, addr, serverKey := listenRelay(t, "udp", "127.0.0.1:0", relay.Auth(Auth{}))
 	defer func() { _ = srv.Close() }()
 	stop := serveRelay(relay, srv)
 	var clients []*relayClient
@@ -489,7 +495,7 @@ func TestRelayServesAgainOnTheSameServer(t *testing.T) {
 		}
 	}()
 	for _, token := range []string{"s/a", "s/b"} {
-		c, err := dialRelay("udp", addr, token, nil)
+		c, err := dialRelay("udp", addr, serverKey, token, nil)
 		if err != nil {
 			t.Fatalf("dial %q: %v", token, err)
 		}
@@ -502,7 +508,7 @@ func TestRelayServesAgainOnTheSameServer(t *testing.T) {
 		t.Fatalf("Serve returned %v", err)
 	}
 
-	other, _ := listenRelay(t, "udp", "127.0.0.1:0", relay.Auth(Auth{}))
+	other, _, _ := listenRelay(t, "udp", "127.0.0.1:0", relay.Auth(Auth{}))
 	defer func() { _ = other.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -586,7 +592,7 @@ func BenchmarkRelayRoundTrip(b *testing.B) {
 			b.Fatal(err)
 		}
 		defer func() { _ = srv.Close() }()
-		cli, err := DialUDP(srv.Addr().String(), nil)
+		cli, err := DialUDP(srv.Addr().String(), srv.PublicKey(), nil)
 		if err != nil {
 			b.Fatal(err)
 		}

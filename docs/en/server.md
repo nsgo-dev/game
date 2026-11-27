@@ -126,7 +126,7 @@ go relay.Serve(ctx, srv)
 ```
 
 ```go
-cli, err := netplay.DialWebSocket("wss://relay.example.com/", token) // or netplay.DialUDP(addr, token)
+cli, err := netplay.DialWebSocket("wss://relay.example.com/", token) // or netplay.DialUDP(addr, serverPubKey, token)
 peerTx := netplay.NewRelayTransport(cli, netplay.RelayTransportConfig{})
 // Once peerTx.Peers() lists the opponent:
 session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, Sim: sim})
@@ -141,7 +141,7 @@ session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, 
 - Acknowledgements and resends happen inside `Recv`, which the sessions call every tick through `Poll`.
 - The relay never reads payloads. It writes to each member on that member's own goroutine through a queue of `QueueSize` frames (256 by default), so a slow player delays only itself; frames past the queue are dropped, and reliable ones are resent by their sender.
 - A relay serves one server for its lifetime, so WebSocket and UDP players cannot share a session; run one relay per protocol. `Serve` may be called again on the same server after it returns, and the players still connected keep their sessions. A payload is at most `MaxRelayPayload` bytes.
-- The relay sees payloads in the clear unless the connection is `wss://`; the handshake caveats for UDP in [the netplay guide](netplay.md#connection-handshake-and-reconnect) apply.
+- Client-to-relay UDP links are encrypted and authenticated with Noise NK and ChaCha20-Poly1305 (see [the netplay guide](netplay.md#connection-handshake-and-reconnect)); use `wss://` for WebSocket links. The relay itself still sees forwarded payloads, as end-to-end encryption between relay peers is out of scope.
 
 ### Relay latency
 
