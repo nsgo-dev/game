@@ -6,7 +6,7 @@
 //   - "flip": the same with Flip set.
 //   - "act", for an effect a character acts out: the performance (pixelfx.EachActFrame, 60 fps), at the first frame whose time reaches 25%, 50% and 75% of the way from the first pose to the end (two loops for a loop).
 //
-// A reference is <case>-<frame>.png in the effect's testdata/ref/<name> directory, frame the 0-based frame index in three digits.
+// A reference is <case>-<frame>.png in pkg/pixelfx/testdata/ref/<category>/<name>, the effect's ID under the references, frame the 0-based frame index in three digits. The references are a module of their own (pkg/pixelfx/testdata/go.mod), so a downloaded copy of github.com/nsgo-dev/game lacks them and the parity tests skip there; Ref finds them from this file's path, whatever the test's working directory.
 package pixelfxtest
 
 import (
@@ -17,6 +17,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -171,10 +172,35 @@ func ReadPNG(path string) (w, h int, pix []byte, err error) {
 	return w, h, pix, nil
 }
 
-// CheckEffect renders e and compares every frame with its reference in refDir (testdata/ref/<name>), failing t when a reference is missing, the wrong size, or differs beyond the tolerance, or when refDir holds a reference no case renders. Set PIXELFXTEST_OUT to a directory to have the frames that differ written there.
-func CheckEffect(t *testing.T, e *pixelfx.Effect, refDir string) {
+// root is the pkg/pixelfx directory, found from this file's path (pkg/pixelfx/internal/pixelfxtest) so that it does not depend on the test's working directory.
+var root = func() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("pixelfxtest: cannot locate pkg/pixelfx")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..")
+}()
+
+// Ref returns the path of elems under pkg/pixelfx/testdata/ref. It skips t when the references are not there, as in a downloaded copy of the module, which leaves out the nested module pkg/pixelfx/testdata; a single reference missing from a checkout still fails the test that reads it.
+func Ref(t testing.TB, elems ...string) string {
 	t.Helper()
+	if _, err := os.Stat(filepath.Join(root, "testdata", "go.mod")); err != nil {
+		t.Skipf("pixelfx references are not in this copy of the module (%v)", err)
+	}
+	return filepath.Join(append([]string{root, "testdata", "ref"}, elems...)...)
+}
+
+// CheckEffect renders e and compares every frame with its reference in Ref(t, e.ID), failing t when a reference is missing, the wrong size, or differs beyond the tolerance, when that directory holds a reference no case renders, or when e renders no frame to compare. Set PIXELFXTEST_OUT to a directory to have the frames that differ written there.
+func CheckEffect(t *testing.T, e *pixelfx.Effect) {
+	t.Helper()
+	if e.ID == "" {
+		t.Fatalf("%s is not registered, so it has no references", e.Meta.Name)
+	}
+	refDir := Ref(t, filepath.FromSlash(e.ID))
 	frames := Render(e)
+	if len(frames) == 0 {
+		t.Errorf("%s: rendered no frame to compare with the references", e.ID)
+	}
 	seen := map[string]bool{}
 	for _, f := range frames {
 		seen[f.Name()] = true

@@ -5,7 +5,7 @@
 //   node tools/pixelfxref/render.mjs --pixelfx <pixelfx clone> fire            every effect of a category
 //   node tools/pixelfxref/render.mjs --pixelfx <pixelfx clone> rig core        the core's own references: the rig, the painter and the simulation
 //
-// It writes pkg/pixelfx/<category>/testdata/ref/<name>/<case>-<frame>.png, and for rig and core pkg/pixelfx/testdata/ref/rig and testdata/ref/core (or under --out <dir>). The cases and frames are the ones pkg/pixelfx/internal/pixelfxtest renders: keep the two in step.
+// It writes pkg/pixelfx/testdata/ref/<category>/<name>/<case>-<frame>.png, and for rig and core pkg/pixelfx/testdata/ref/rig and testdata/ref/core (or under --out <dir>). The cases and frames are the ones pkg/pixelfx/internal/pixelfxtest renders: keep the two in step.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -188,7 +188,7 @@ async function renderOne(dir, out, id, kase) {
   const { encodePNG } = await import(pathToFileURL(join(dir, "tools", "lib", "png.mjs")).href);
   const fx = await lib.loadEffect(id);
   const [cat, name] = id.split("/");
-  const dest = join(out, cat, "testdata", "ref", name);
+  const dest = join(out, "testdata", "ref", cat, name);
   mkdirSync(dest, { recursive: true });
   const save = (frame, rgba, w, h) => writeFileSync(join(dest, `${kase}-${String(frame).padStart(3, "0")}.png`), encodePNG(w, h, rgba));
   const options = kase === "flip" ? { flip: true } : {};
@@ -243,7 +243,7 @@ async function renderOne(dir, out, id, kase) {
 const args = parseArgs(process.argv.slice(2));
 if (!args.pixelfx) usage("--pixelfx is required");
 const dir = resolve(args.pixelfx);
-const out = resolve(args.out ?? join(here, "..", "..", "packages", "game", "pixelfx"));
+const out = resolve(args.out ?? join(here, "..", "..", "pkg", "pixelfx"));
 
 if (args.one) {
   await renderOne(dir, out, args.one.id, args.one.kase);
@@ -262,7 +262,7 @@ if (args.one) {
   }
   for (const id of args.ids.filter((a) => a !== "rig" && a !== "core").flatMap((a) => idsOf(dir, a))) {
     const [cat, name] = id.split("/");
-    const dest = join(out, cat, "testdata", "ref", name);
+    const dest = join(out, "testdata", "ref", cat, name);
     rmSync(dest, { recursive: true, force: true });
     const mod = await import(pathToFileURL(join(dir, "src", "fx", id + ".js")).href);
     const cases = ["default", "flip", ...(mod.act ? ["act"] : [])];

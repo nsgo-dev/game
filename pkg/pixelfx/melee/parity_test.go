@@ -3,7 +3,6 @@ package melee_test
 import (
 	"hash/fnv"
 	"math"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,7 +35,7 @@ func TestMeleeMatchesPixelfx(t *testing.T) {
 	for _, tc := range allEffects {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			pixelfxtest.CheckEffect(t, tc.effect, filepath.Join("testdata", "ref", tc.name))
+			pixelfxtest.CheckEffect(t, tc.effect)
 		})
 	}
 }
