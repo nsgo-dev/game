@@ -5,7 +5,7 @@
 It pairs two managed scenes through `scene.Manager.View`:
 
 - **3D Lantern Shrine (`gpu.View`)**: builds its level from a scene file, [`assets/shrine.scene.yaml`](assets/shrine.scene.yaml), with `scenemodel.Build`. The scene file names an embedded binary glTF 2.0 diorama (`assets/lantern_shrine.glb`), which `Build` turns into `scene3d` nodes carrying their meshes, materials and bounds; the wisp and shrine core are animated through those nodes. The diorama holds a stepped stone courtyard, a tiered lantern shrine with a glowing crystal core, four corner lantern bollards, a cedar crate, an azure crystal cluster, an orbiting light wisp, and two embedded PNG textures. Its lights are a `render3d.LightRig` (a directional moonlight key, an orbiting warm point light, the shrine's glow and ambient) uploaded through `render3d.GPULightBuffer`, and each glTF material's base color, metallic, roughness and emissive factors go through `render3d.PBRDrawBuffer` to render3d's metallic-roughness PBR shading, with the base-color textures sampled as sRGB.
-- **2D Courtyard Map (`scene.Scene` / `core.Canvas`)**: a top-down 2D overworld view of the same twilight courtyard with a `sprite.Batch` (traveler, corner lanterns, cedar crate, azure crystal cluster) and a glowing central shrine portal. Walking onto the portal and pressing **`E`** (or pressing **`Tab` / `M`** or clicking the HUD switch button anywhere) fades smoothly into the 3D Lantern Shrine and back via `scene.Fade`.
+- **2D Courtyard Map (`scene.Scene` / `core.Canvas`)**: a top-down 2D overworld view of the same twilight courtyard with a `sprite.Batch` (traveler, corner lanterns, cedar crate, azure crystal cluster), a glowing central shrine portal, and on-screen `input.TouchControls` built from [`controls.touch.yaml`](controls.touch.yaml) (a floating stick in the left half and a contextual **`USE`** button on the right when near the portal). Walking onto the portal and pressing **`E`** or tapping **`USE`** (or pressing **`Tab` / `M`** or clicking the HUD switch button anywhere) fades smoothly into the 3D Lantern Shrine and back via `scene.Fade`.
 - **Transparent 2D Pause Overlay (`Manager.Push` / `Manager.Pop`)**: pressing **`P`** or **`Escape`** pushes a translucent 2D pause overlay on top of either scene without tearing down or rebuilding the 3D `gpu.View` pipelines underneath.
 - **Shared input & shared audio**: a single `*input.Actions` (`Manager.Actions`) drives both 3D camera orbit and 2D traveler movement (resetting held keys cleanly on switch), while a single `*sound.Mixer` on the Manager's parent scope keeps the synthesized twilight ambient music playing uninterrupted across every 2D ↔ 3D transition and plays a temple chime SFX on each switch.
 
@@ -21,8 +21,8 @@ It pairs two managed scenes through `scene.Manager.View`:
   - **`L`** (or **Lights** button): toggle the orbiting point light and crystal motion.
   - **`R`** (or **Reset** button): reset the camera to its default vantage point.
 - **In 2D Courtyard Map**:
-  - **Arrow keys** or **WASD**: walk the traveler across the courtyard.
-  - **`E` / `Enter`** (at the glowing central shrine portal): enter the 3D Lantern Shrine.
+  - **Arrow keys**, **WASD**, or the **on-screen floating stick** in the left half (shown on touch devices, and on desktop once touched): walk the traveler across the courtyard in all eight directions.
+  - **`E` / `Enter`**, or the on-screen **`USE`** button on the right (shown while standing at the glowing central shrine portal): enter the 3D Lantern Shrine.
   - **`R`** (or **Reset** button): return the traveler to the courtyard entrance.
 - **`H`**: show or hide the native HUD overlay.
 - **Audio** button: mute or unmute the shared audio mixer across both scenes.

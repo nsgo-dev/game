@@ -68,6 +68,10 @@ type Controller struct {
 	map2D        *scene.Controller
 	pauseOverlay *scene.Controller
 	stageRef     *core.Ref
+	env          *core.Env
+	viewport     screen.Viewport
+	moveTouch    *input.TouchControls
+	useTouch     *input.TouchControls
 
 	alpha       float32
 	lastFrameAt time.Time
@@ -117,6 +121,18 @@ func newView(cx *core.Scope, initialMode SceneMode) (*Controller, core.Node) {
 	mgr := scene.NewManager(cx)
 	mgr.Actions = actions
 
+	moveTouch, err := input.NewTouchControls(cx, filterTouchLayout(touchLayout, "move"))
+	if err != nil {
+		panic(err)
+	}
+	useTouch, err := input.NewTouchControls(cx, filterTouchLayout(touchLayout, "use"))
+	if err != nil {
+		panic(err)
+	}
+	haptics := input.NewHaptics(cx)
+	moveTouch.Haptics = haptics
+	useTouch.Haptics = haptics
+
 	c := &Controller{
 		Manager:       mgr,
 		Actions:       actions,
@@ -127,6 +143,10 @@ func newView(cx *core.Scope, initialMode SceneMode) (*Controller, core.Node) {
 		HUD:           scene.NewHUD3D(cx),
 		SwitchFade:    switchFadeDuration,
 		stageRef:      &core.Ref{},
+		env:           cx.Env(),
+		viewport:      screen.Viewport{Width: mapWidth, Height: mapHeight, Mode: screen.ModeFit},
+		moveTouch:     moveTouch,
+		useTouch:      useTouch,
 		modeSig:       core.NewSignal(cx, initialMode),
 		pausedSig:     core.NewSignal(cx, false),
 		nearPortalSig: core.NewSignal(cx, false),
@@ -173,7 +193,8 @@ func newSharedActions(cx *core.Scope) *input.Actions {
 	a.Bind("move_up", input.Key("up"), input.Key("w"))
 	a.Bind("move_down", input.Key("down"), input.Key("s"))
 	a.BindAxis("move_x", "move_left", "move_right")
-	a.BindAxis("move_y", "move_up", "move_down")
+	// move_y is positive upward so keyboard W/Up and TouchControls sticks agree on one axis.
+	a.BindAxis("move_y", "move_down", "move_up")
 
 	a.Bind("zoom_in", input.Key("="), input.Key("+"), input.KeyCode("Equal"))
 	a.Bind("zoom_out", input.Key("-"), input.KeyCode("Minus"))
@@ -194,6 +215,7 @@ func (c *Controller) initScenes() {
 			c.Shrine3DEnters++
 			c.modeSig.Set(Mode3D)
 			c.nearPortalSig.Set(false)
+			c.deactivateTouchControls()
 		},
 		Exit: func() {
 			c.Shrine3DExits++
@@ -215,14 +237,20 @@ func (c *Controller) initScenes() {
 			c.Map2DEnters++
 			c.modeSig.Set(Mode2D)
 			c.nearPortalSig.Set(c.Map.NearPortal())
+			c.activateTouchControls()
 		},
 		Exit: func() {
 			c.Map2DExits++
+			c.deactivateTouchControls()
+		},
+		Pause: func() {
+			c.deactivateTouchControls()
+		},
+		Resume: func() {
+			c.activateTouchControls()
 		},
 		Update: c.update2D,
-		Draw: func(d *core.Drawing, alpha float64) {
-			c.Map.Draw(d, alpha)
-		},
+		View:   c.build2DSceneView,
 	}
 
 	c.pauseOverlay = &scene.Controller{
@@ -244,6 +272,65 @@ func (c *Controller) initScenes() {
 		},
 		Draw: drawPauseOverlay,
 	}
+}
+
+func filterTouchLayout(l input.TouchLayout, id string) input.TouchLayout {
+	out := l
+	out.Controls = nil
+	for _, spec := range l.Controls {
+		if spec.ID == id {
+			out.Controls = append(out.Controls, spec)
+		}
+	}
+	return out
+}
+
+func (c *Controller) activateTouchControls() {
+	if c.moveTouch == nil || c.useTouch == nil {
+		return
+	}
+	c.moveTouch.BindActions(c.Actions)
+	c.moveTouch.Wake()
+	c.syncUseTouch(c.Map.NearPortal())
+}
+
+func (c *Controller) deactivateTouchControls() {
+	if c.moveTouch != nil {
+		c.moveTouch.Reset()
+		c.moveTouch.BindActions(nil)
+	}
+	if c.useTouch != nil {
+		c.useTouch.Reset()
+		c.useTouch.BindActions(nil)
+	}
+}
+
+func (c *Controller) syncUseTouch(near bool) {
+	if c.useTouch == nil {
+		return
+	}
+	if near && c.Mode() == Mode2D && !c.Paused() {
+		c.useTouch.BindActions(c.Actions)
+		c.useTouch.Wake()
+		if c.moveTouch != nil {
+			c.useTouch.SetVisible(c.moveTouch.Visible())
+		}
+		return
+	}
+	c.useTouch.Reset()
+	c.useTouch.BindActions(nil)
+}
+
+func (c *Controller) updateTouchControls(dt time.Duration) {
+	if c.moveTouch == nil || c.useTouch == nil {
+		return
+	}
+	c.moveTouch.Update(dt)
+	if stick := c.moveTouch.Stick("move"); stick != nil && stick.Active() {
+		c.useTouch.Wake()
+	}
+	c.useTouch.Update(dt)
+	c.useTouch.SetVisible(c.moveTouch.Visible())
 }
 
 func (c *Controller) clearPointerDrag() {
@@ -309,6 +396,8 @@ func (c *Controller) update3D(dt time.Duration) {
 }
 
 func (c *Controller) update2D(dt time.Duration) {
+	c.updateTouchControls(dt)
+
 	if c.Actions.JustPressed("switch_scene") {
 		c.SwitchTo3D()
 		return
@@ -324,11 +413,13 @@ func (c *Controller) update2D(dt time.Duration) {
 	if c.Scene.AnimateLights {
 		c.Scene.LightPhase += lightOrbitRate * dt.Seconds()
 	}
-	c.Map.Step(dt, c.Actions.Axis("move_x"), c.Actions.Axis("move_y"), c.Scene.LightPhase)
+	// Map2D Y points downward on screen while move_y is positive upward.
+	c.Map.Step(dt, c.Actions.Axis("move_x"), -c.Actions.Axis("move_y"), c.Scene.LightPhase)
 
 	near := c.Map.NearPortal()
 	if near != c.nearPortalSig.GetUntracked() {
 		c.nearPortalSig.Set(near)
+		c.syncUseTouch(near)
 	}
 	if near && c.Actions.JustPressed("interact") {
 		c.SwitchTo3D()
@@ -411,7 +502,9 @@ func (c *Controller) ResetCamera() {
 func (c *Controller) ResetCurrentView() {
 	if c.Mode() == Mode2D {
 		c.Map.Reset()
-		c.nearPortalSig.Set(c.Map.NearPortal())
+		near := c.Map.NearPortal()
+		c.nearPortalSig.Set(near)
+		c.syncUseTouch(near)
 		c.Audio.PlayAction()
 		return
 	}
@@ -564,7 +657,7 @@ func (c *Controller) buildHUD() {
 				ContentFunc: func() string {
 					if c.modeSig.Get() == Mode2D {
 						if c.nearPortalSig.Get() {
-							return "2D Map · Shrine portal ready (Press E)"
+							return "2D Map · Shrine portal ready (E / USE)"
 						}
 						return "2D Map · Walk north to the shrine"
 					}
@@ -647,7 +740,7 @@ func (c *Controller) buildHUD() {
 				TestID: "hud-hint",
 				ContentFunc: func() string {
 					if c.modeSig.Get() == Mode2D {
-						return "WASD / Arrows: move · E: enter shrine · Tab: 3D · P: pause · H: HUD"
+						return "WASD / Stick: move · E / USE: enter shrine · Tab: 3D · P: pause · H: HUD"
 					}
 					return "Drag: orbit · Scroll: zoom · Tab: 2D Map · P: pause · Space/L/R/H"
 				},
@@ -882,6 +975,40 @@ func (c *Controller) build3DSceneView(scx *core.Scope) core.Node {
 	}
 }
 
+func (c *Controller) build2DSceneView(*core.Scope) core.Node {
+	view := core.View{
+		TestID: "lantern-map2d",
+		Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+		Children: []core.Node{
+			core.Canvas{
+				TestID: "lantern-map2d-canvas",
+				Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+				Draw: func(d *core.Drawing, size core.Size) {
+					_ = c.frameTick.Get()
+					mode := c.modeSig.Get()
+					near := c.nearPortalSig.Get()
+					paused := c.pausedSig.Get()
+					c.viewport.Draw(d, size, func(dst *core.Drawing, _ core.Size) {
+						c.Map.Draw(dst, float64(c.alpha))
+					})
+					safe := c.env.SafeArea()
+					c.moveTouch.Resize(size, safe)
+					c.useTouch.Resize(size, safe)
+					if mode == Mode2D && !paused {
+						c.moveTouch.Draw(d)
+						if near {
+							c.useTouch.Draw(d)
+						}
+					}
+				},
+			},
+		},
+	}
+	c.moveTouch.Attach(&view)
+	c.useTouch.Attach(&view)
+	return view
+}
+
 func (c *Controller) view(cx *core.Scope) core.Node {
 	c.buildHUD()
 
@@ -900,11 +1027,7 @@ func (c *Controller) view(cx *core.Scope) core.Node {
 			_ = c.frameTick.Get()
 			return float64(c.alpha)
 		},
-		Viewport: &screen.Viewport{
-			Width:  mapWidth,
-			Height: mapHeight,
-			Mode:   screen.ModeFit,
-		},
+		Viewport: &c.viewport,
 		Children: []core.Node{
 			c.HUD.Layer(cx),
 		},
