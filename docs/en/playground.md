@@ -9,6 +9,14 @@ Each example has a page of its own, such as `/playground/caverun/`, so its addre
 - **The game**, which loads when you press **Run**: its WebAssembly is about 15 MB, so nothing is downloaded before then. Click the game to give it the keyboard. **Restart** loads it again from the start, and **Open in a new tab** runs the build on a page of its own.
 - **The source**, a tab per file: the example's main package without its tests, then its `nsgo.yaml`. The tab shown is the address's fragment, so `/playground/caverun/#level.go` opens on `level.go`. Each file links to it on GitHub.
 
+### On a phone
+
+On touch screens (`pointer: coarse`), the stage shows **Play fullscreen** and a touch hint instead of the keyboard hint:
+
+- **Fullscreen and overlay**: Pressing **Play fullscreen** requests native element fullscreen on the stage (Android Chrome and other supporting browsers) and locks the screen orientation to the example's preferred orientation when allowed. Where element fullscreen is unavailable, such as iPhone Safari, the stage opens as a fixed full-viewport (`100dvh`) overlay with an **Exit** button.
+- **No accidental scrolling**: While mobile play mode is active, page scroll is locked (`overflow: hidden` and `overscroll-behavior: none`) and the stage sets `touch-action: none` so thumb drags on virtual controls or the board neither scroll the page nor cancel the touch.
+- **Orientation prompt**: Each playground entry declares its preferred orientation (`landscape`, `portrait`, or `any`) in `apps/website/src/content/playground.ts`. When the screen does not match and orientation lock is unavailable, a prompt asks you to rotate your phone (with an option to continue anyway).
+
 The site is static, hosted on GitHub Pages, so it compiles nothing: a page runs the build the site was deployed with, from the same commit as the source it shows.
 
 ## Edit on your machine
@@ -32,5 +40,5 @@ The website's workflow sets up Go and runs it before building the site, on every
 ## Add an example
 
 1. Put the example under `examples/<id>/` with an `nsgo.yaml`, a main package that builds for the web target, and an entry for it in `go.work`.
-2. Add `<id>` to `PLAYGROUND_IDS` in `apps/website/src/content/playground.ts`.
+2. Add `<id>` to `PLAYGROUND_IDS` and its preferred phone `orientation` to `PLAYGROUND_ENTRIES` in `apps/website/src/content/playground.ts`.
 3. Give it an entry in `apps/website/src/content/showcase.ts`, whose title and description the playground shows, in English and Chinese.

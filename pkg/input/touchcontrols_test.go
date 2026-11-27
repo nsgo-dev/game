@@ -971,3 +971,89 @@ controls:
 		t.Fatal("a cancel left the plugin button held")
 	}
 }
+
+func TestTouchControlsAttachClaimsResponderWithoutLetNative(t *testing.T) {
+	tc := newTestControls(t, `version: 1
+reference: {width: 400, height: 200}
+controls:
+  - {id: move, kind: dpad, anchor: bottomLeft, offset: {x: 20, y: 20}, size: {width: 100, height: 100}, left: left, right: right}
+  - {id: jump, kind: button, anchor: bottomRight, offset: {x: 20, y: 20}, size: {width: 60, height: 60}, action: jump}
+`)
+	tc.Resize(core.Size{Width: 400, Height: 200}, core.Edges{})
+	a := input.NewActions()
+	tc.BindActions(a)
+
+	v := core.View{}
+	a.Attach(&v)
+	tc.Attach(&v)
+
+	if v.Responder == nil || len(v.Responder.Claims) == 0 {
+		t.Fatal("Attach did not install a core.Responder with claims")
+	}
+	for i, c := range v.Responder.Claims {
+		if c.LetNative {
+			t.Fatalf("claim %d sets LetNative=true, want false so native page drags are blocked", i)
+		}
+	}
+
+	// Touch outside any control does not claim the responder.
+	outside := core.Point{X: 200, Y: 20}
+	v.OnTouch(touchAt(core.TouchStart, 1, outside.X, outside.Y))
+	if v.Responder.Claims[0].Ask(core.ResponderEvent{Position: outside}) {
+		t.Fatal("responder claimed a touch outside all controls")
+	}
+	v.OnTouch(touchAt(core.TouchEnd, 1, outside.X, outside.Y))
+
+	// Touch on the dpad claims the responder and refuses termination while held.
+	onDPad := core.Point{X: 70, Y: 130}
+	v.OnTouch(touchAt(core.TouchStart, 2, onDPad.X, onDPad.Y))
+	if !v.Responder.Claims[0].Ask(core.ResponderEvent{Position: onDPad}) {
+		t.Fatal("responder did not claim a touch on the dpad")
+	}
+	if v.Responder.OnTerminationRequest(core.ResponderEvent{Position: onDPad}) {
+		t.Fatal("responder yielded termination while a finger held the dpad")
+	}
+
+	// Releasing the finger allows termination again.
+	v.OnTouch(touchAt(core.TouchEnd, 2, onDPad.X, onDPad.Y))
+	if !v.Responder.OnTerminationRequest(core.ResponderEvent{Position: onDPad}) {
+		t.Fatal("responder still refused termination after finger lifted")
+	}
+}
+
+func TestTouchControlsAttachChainsExistingResponder(t *testing.T) {
+	tc := newTestControls(t, `version: 1
+reference: {width: 200, height: 200}
+controls:
+  - {id: jump, kind: button, anchor: topLeft, size: {width: 60, height: 60}, action: jump, shape: rect}
+`)
+	tc.Resize(core.Size{Width: 200, Height: 200}, core.Edges{})
+	var granted bool
+	orig := &core.Responder{
+		Claims:  []core.TouchClaim{{Ask: func(core.ResponderEvent) bool { return false }}},
+		OnGrant: func(core.ResponderEvent) { granted = true },
+	}
+	v := core.View{Responder: orig}
+	tc.Attach(&v)
+
+	if v.Responder == orig {
+		t.Fatal("Attach mutated caller Responder in place instead of cloning")
+	}
+	if len(v.Responder.Claims) < 2 {
+		t.Fatalf("chained claims len = %d, want >= 2", len(v.Responder.Claims))
+	}
+	if v.Responder.OnGrant == nil {
+		t.Fatal("existing OnGrant was dropped")
+	}
+	v.Responder.OnGrant(core.ResponderEvent{})
+	if !granted {
+		t.Fatal("existing OnGrant was not preserved")
+	}
+	// Without BindActions, claims fall back to placed control frames.
+	if !v.Responder.Claims[1].Ask(core.ResponderEvent{Position: core.Point{X: 30, Y: 30}}) {
+		t.Fatal("fallback frame claim missed point inside control")
+	}
+	if v.Responder.Claims[1].Ask(core.ResponderEvent{Position: core.Point{X: 180, Y: 180}}) {
+		t.Fatal("fallback frame claim matched point outside control")
+	}
+}

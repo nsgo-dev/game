@@ -9,6 +9,14 @@
 - **游戏**：按下 **运行** 后才加载。它的 WebAssembly 约 15 MB，在此之前不会下载任何内容。点击游戏画面后即可用键盘操作。**重新开始** 会从头再加载一次，**在新标签页中打开** 会在单独的页面上运行这个构建。
 - **源码**：每个文件一个标签页，先是示例的 main 包（不含测试），然后是它的 `nsgo.yaml`。显示哪个标签页由地址的片段决定，因此 `/zh/playground/caverun/#level.go` 会直接打开 `level.go`。每个文件都链接到它在 GitHub 上的位置。
 
+### 在手机上游玩
+
+在触屏设备（`pointer: coarse`）上，舞台会显示 **全屏游玩** 按钮，并将操作提示替换为触控提示：
+
+- **全屏与全视口覆盖层**：按下 **全屏游玩** 会优先对舞台调用原生元素全屏（Android Chrome 等支持的浏览器），并在允许时将屏幕锁定到示例期望的方向。在不支持元素全屏的浏览器（例如 iPhone Safari）上，舞台会以固定全视口（`100dvh`）覆盖层打开，并附带 **退出** 按钮。
+- **防止误滚动**：在移动游玩模式下，页面滚动会被锁定（`overflow: hidden` 与 `overscroll-behavior: none`），舞台也会启用 `touch-action: none`，确保在虚拟按键或棋盘上拖动拇指时既不会滚动页面，也不会取消触控。
+- **旋转提示**：每个试玩示例都在 `apps/website/src/content/playground.ts` 中声明期望的屏幕方向（`landscape`、`portrait` 或 `any`）。当屏幕方向不匹配且无法锁定方向时，界面会提示旋转手机（也提供继续游玩的选项）。
+
 站点是托管在 GitHub Pages 上的静态站点，不会编译任何代码：页面运行的是站点部署时的构建，与它显示的源码来自同一个提交。
 
 ## 在本机修改
@@ -32,5 +40,5 @@ go tool nsgo dev -target web
 ## 添加示例
 
 1. 把示例放在 `examples/<id>/` 下，包含 `nsgo.yaml` 和能为 Web 目标构建的 main 包，并在 `go.work` 中加入它。
-2. 在 `apps/website/src/content/playground.ts` 的 `PLAYGROUND_IDS` 中加入 `<id>`。
+2. 在 `apps/website/src/content/playground.ts` 的 `PLAYGROUND_IDS` 中加入 `<id>`，并在 `PLAYGROUND_ENTRIES` 中声明它期望的手机方向 `orientation`。
 3. 在 `apps/website/src/content/showcase.ts` 中为它添加一个条目，在线试玩页面会显示其中的中英文标题和描述。
