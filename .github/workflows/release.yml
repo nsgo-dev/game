@@ -190,8 +190,9 @@ jobs:
           set -euo pipefail
 
           version="${TAG#packages/game/}"
+          title="NSGo Game ${version#v}"
           if [[ "$version" == *-* ]]; then
-            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --prerelease
+            gh release create "$TAG" --title "$title" --notes-file release-notes.md --prerelease
           else
-            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
+            gh release create "$TAG" --title "$title" --notes-file release-notes.md
           fi
