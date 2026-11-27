@@ -1,9 +1,9 @@
-# effects
+# postfx
 
-`game/effects` 让游戏画面依次经过一串着色器通道（pass）绘制，uniform 可随平台帧时钟播放动画。画面通常是游戏每帧写入的像素缓冲（`core.ImageSource.Pixels`），自 [nsgo#1052](https://github.com/nsgo-dev/nsgo/issues/1052) 起 NSGo 着色器可以读取它。
+`game/postfx` 让游戏画面依次经过一串着色器通道（pass）绘制，uniform 可随平台帧时钟播放动画。画面通常是游戏每帧写入的像素缓冲（`core.ImageSource.Pixels`），自 [nsgo#1052](https://github.com/nsgo-dev/nsgo/issues/1052) 起 NSGo 着色器可以读取它。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/effects"
+import "github.com/nsgo-dev/game/pkg/postfx"
 ```
 
 ## 编写效果
@@ -42,9 +42,9 @@ func Effect(pos vec2) vec4 {
 `Compile` 把多个效果融合成一个程序：第一个效果画在画面上，之后每个效果画在前一个之上。每个效果的 `Input` 调用前一个效果，因此所有通道在一次绘制中完成，中间不经过纹理。每段源码会先单独编译，所以报错会指明是哪个效果，并给出其源码中的行号和列号。
 
 ```go
-var post = effects.MustCompile(
-	effects.Effect{Name: "invert", Source: invert},
-	effects.Effect{Name: "smear", Source: smear},
+var post = postfx.MustCompile(
+	postfx.Effect{Name: "invert", Source: invert},
+	postfx.Effect{Name: "smear", Source: smear},
 )
 ```
 
@@ -54,14 +54,14 @@ var post = effects.MustCompile(
 
 ## 绘制游戏视图
 
-`effects.View` 是一个以画面为图像、拉伸填满自身方框的 `core.Shader`。要得到方形像素，让方框与画面宽高比一致，就像 `screen.Viewport` 摆放虚拟画布那样。`Uniforms` 按效果链顺序存放每个效果的取值；`FrameFunc` 与 `UniformsFunc` 跟随信号变化。
+`postfx.View` 是一个以画面为图像、拉伸填满自身方框的 `core.Shader`。要得到方形像素，让方框与画面宽高比一致，就像 `screen.Viewport` 摆放虚拟画布那样。`Uniforms` 按效果链顺序存放每个效果的取值；`FrameFunc` 与 `UniformsFunc` 跟随信号变化。
 
 ```go
 frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
 version := core.NewSignal(cx, uint64(0))
 // 每帧：先画进 frame，再 version.Set(version.GetUntracked() + 1)。
 
-return effects.View{
+return postfx.View{
 	Chain:     post,
 	FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
 	Uniforms:  []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}},
@@ -76,8 +76,8 @@ return effects.View{
 设为 `core.AnimatedNode` 的 uniform 会跟随平台帧时钟变化，每帧无需提交。`Clock(cx, period)` 返回一个以秒计数的值，从 0 增长到 `period` 后再从 0 开始；由于值会跳回 0，请选择让效果恢复初始外观的周期。
 
 ```go
-pulse := effects.Clock(cx, 2*time.Second)
-effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse}, {"Offset": 1}}}
+pulse := postfx.Clock(cx, 2*time.Second)
+postfx.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse}, {"Offset": 1}}}
 ```
 
 其他节点同样可用，例如玩家受击时启动的 `core.Timing`。偶尔才变化的值可以来自 `UniformsFunc`，代价是每次变化一次提交。
@@ -87,8 +87,8 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse
 `Bloom()` 返回一个现成的效果，在一个通道内让画面的高光发光，通道之间不经过纹理：它在每个点上叠加该点及其周围 16 个点处输入的高亮部分，这 16 个点分布在半径一半处的内环和半径处的外环上。它的 uniform 有：`Threshold`，0 到 1 的亮度，高于它的像素才发光，超出这个范围时取范围内最接近的值；`Intensity`，叠加多少光晕，0 或更小（默认 0）时原样输出输入，1 到 2 是很强的泛光，大于 1000 时按 1000 处理；`Radius`，光晕以画面像素计能扩散多远。
 
 ```go
-post := effects.MustCompile(effects.Bloom(), effects.Effect{Name: "invert", Source: invert})
-effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}}}
+post := postfx.MustCompile(postfx.Bloom(), postfx.Effect{Name: "invert", Source: invert})
+postfx.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}}}
 ```
 
 - 光晕是叠加的光：颜色保持预乘，高光附近的半透明像素会变得更不透明。
@@ -102,8 +102,8 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 `CRT()` 返回一个现成的效果，在一个通道内将画面弯曲到显像管曲面上，并沿曲面绘制水平扫描线。它的 uniform 有：`Curvature`，桶形畸变强度，0 或更小（默认 0）或 NaN 保持画面平直，0.1 到 0.3 是常见的 CRT 弯曲度，大于 4 时按 4 处理；`Scanlines`，0 到 1，扫描线之间暗带的变暗程度，0 不改变亮度，1 使暗带全黑，超出 0 到 1 时取范围内最接近的值；`Lines`，画面高度上的扫描线条数，0 或更小（默认 0）时按画面的像素行数每行画一条扫描线，大于 16384 时按 16384 处理。
 
 ```go
-post := effects.MustCompile(effects.Bloom(), effects.CRT(), effects.VignetteEffect())
-effects.View{
+post := postfx.MustCompile(postfx.Bloom(), postfx.CRT(), postfx.VignetteEffect())
+postfx.View{
 	Chain:    post,
 	Frame:    src,
 	Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.2, "Radius": 3}, {"Curvature": 0.25, "Scanlines": 0.35}},
@@ -130,7 +130,7 @@ effects.View{
 未给出的 uniform 为 0，因此每个效果在设置前都按原样绘制画面。把震屏放在最前面，让后面的通道画在移动后的画面上，闪屏放在最后：
 
 ```go
-post := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
+post := postfx.MustCompile(postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect())
 ```
 
 `NewFlash` 和 `NewShake` 让闪屏和震屏的 uniform 随帧时钟变化，每帧无需提交。`Trigger` 启动一次效果，并替换仍在进行的那次；`Stop` 立即结束它：
@@ -140,8 +140,8 @@ post := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), eff
 
 ```go
 assist := a11y.NewAssist(cx, "")
-flash := effects.NewFlash(cx, effects.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion})
-shake := effects.NewShake(cx, effects.ShakeConfig{Seed: 42, ReduceMotion: assist.ReduceMotion})
+flash := postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion})
+shake := postfx.NewShake(cx, postfx.ShakeConfig{Seed: 42, ReduceMotion: assist.ReduceMotion})
 vignette := core.Uniforms{"Strength": 0.8, "Radius": 0.4, "Softness": 0.6}
 
 onHit := func() {
@@ -149,7 +149,7 @@ onHit := func() {
 	shake.Trigger(6, 400*time.Millisecond)
 }
 
-return effects.View{
+return postfx.View{
 	Chain:     post,
 	FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
 	Uniforms:  []core.Uniforms{shake.Uniforms(), vignette, flash.Uniforms()},
@@ -169,14 +169,14 @@ return effects.View{
 `PaletteImage(rows...)` 可用多行 `core.Color` 构造预乘 `*image.RGBA` 调色板纹理：
 
 ```go
-pal := effects.PaletteImage(
+pal := postfx.PaletteImage(
 	[]core.Color{core.RGB(0xd03030), core.RGB(0xf0c030), core.RGB(0x3060d0)}, // 第 0 行：源颜色键
 	[]core.Color{core.RGB(0x40c8f0), core.RGB(0xe0f8ff), core.RGB(0x205090)}, // 第 1 行：冰霜配色
 	[]core.Color{core.RGB(0x8838c8), core.RGB(0xb8f040), core.RGB(0x386030)}, // 第 2 行：剧毒配色
 )
-post := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+post := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
 
-return effects.View{
+return postfx.View{
 	Chain:    post,
 	Frame:    src,
 	Uniforms: []core.Uniforms{{"Amount": 1, "Row": 1}},
@@ -192,14 +192,14 @@ return effects.View{
 无头测试没有 GPU，因此 `Chain.Reference(frame, width, height, uniforms)` 用各效果的 `Reference` 函数在 CPU 上绘制效果链，使用 `View` 会设置的各效果 uniform，并像 GPU 一样把每个输出像素的中心映射到画面上。`Float` 读取数值 uniform，未给出的 uniform 为 0，与 GPU 一致。将结果与 `gametest` 的 golden PNG 比较：
 
 ```go
-invertRef := func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
-	c, amount := in.At(x, y), effects.Float(u, "Amount")
+invertRef := func(in postfx.Input, u core.Uniforms, x, y float64) [4]float64 {
+	c, amount := in.At(x, y), postfx.Float(u, "Amount")
 	for k := range 3 {
 		c[k] += (c[3] - 2*c[k]) * amount
 	}
 	return c
 }
-chain := effects.MustCompile(effects.Effect{Source: invert, Reference: invertRef}, ...)
+chain := postfx.MustCompile(postfx.Effect{Source: invert, Reference: invertRef}, ...)
 got, err := chain.Reference(frame, 640, 360, []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 ```
 

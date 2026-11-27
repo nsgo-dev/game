@@ -1,4 +1,4 @@
-package effects
+package postfx
 
 import (
 	"bytes"
@@ -49,22 +49,22 @@ func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core
 func (c *Chain) ReferenceWithTextures(frame *image.RGBA, width, height int, perEffect []core.Uniforms, textures []core.ImageSource) (*image.RGBA, error) {
 	for i, e := range c.effects {
 		if e.Reference == nil {
-			return nil, fmt.Errorf("effects: %s has no Reference", e.label(i))
+			return nil, fmt.Errorf("postfx: %s has no Reference", e.label(i))
 		}
 	}
 	if len(perEffect) > len(c.effects) {
-		return nil, fmt.Errorf("effects: uniforms for %d effects, but the chain has %d", len(perEffect), len(c.effects))
+		return nil, fmt.Errorf("postfx: uniforms for %d effects, but the chain has %d", len(perEffect), len(c.effects))
 	}
 	if len(textures) > len(c.effects) {
-		return nil, fmt.Errorf("effects: textures for %d effects, but the chain has %d", len(textures), len(c.effects))
+		return nil, fmt.Errorf("postfx: textures for %d effects, but the chain has %d", len(textures), len(c.effects))
 	}
 	for i, u := range perEffect {
 		for _, name := range slices.Sorted(maps.Keys(u)) {
 			if !c.uniforms[i][name] {
-				return nil, fmt.Errorf("effects: %s has no uniform %s", c.effects[i].label(i), name)
+				return nil, fmt.Errorf("postfx: %s has no uniform %s", c.effects[i].label(i), name)
 			}
 			if animated(u[name]) {
-				return nil, fmt.Errorf("effects: %s: uniform %s follows an animated node, whose value only the platform knows", c.effects[i].label(i), name)
+				return nil, fmt.Errorf("postfx: %s: uniform %s follows an animated node, whose value only the platform knows", c.effects[i].label(i), name)
 			}
 		}
 	}
@@ -75,7 +75,7 @@ func (c *Chain) ReferenceWithTextures(frame *image.RGBA, width, height int, perE
 			override = textures[i]
 		}
 		if !isZeroImageSource(override) && c.texSlots[i] == 0 {
-			return nil, fmt.Errorf("effects: %s reads no texture", e.label(i))
+			return nil, fmt.Errorf("postfx: %s reads no texture", e.label(i))
 		}
 		if c.texSlots[i] == 0 {
 			continue
@@ -86,7 +86,7 @@ func (c *Chain) ReferenceWithTextures(frame *image.RGBA, width, height int, perE
 		}
 		tex, err := resolveTexture(src)
 		if err != nil {
-			return nil, fmt.Errorf("effects: %s: %w", e.label(i), err)
+			return nil, fmt.Errorf("postfx: %s: %w", e.label(i), err)
 		}
 		resolvedTex[i] = tex
 	}

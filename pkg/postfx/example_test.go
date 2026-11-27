@@ -1,9 +1,9 @@
-package effects_test
+package postfx_test
 
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/pkg/effects"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -33,9 +33,9 @@ func Effect(pos vec2) vec4 {
 )
 
 func ExampleCompile() {
-	post := effects.MustCompile(
-		effects.Effect{Name: "invert", Source: guideInvert},
-		effects.Effect{Name: "smear", Source: guideSmear},
+	post := postfx.MustCompile(
+		postfx.Effect{Name: "invert", Source: guideInvert},
+		postfx.Effect{Name: "smear", Source: guideSmear},
 	)
 	u := post.Uniforms([]core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 	fmt.Println(post.Len(), len(u))
@@ -43,24 +43,24 @@ func ExampleCompile() {
 }
 
 func ExampleBloom() {
-	post := effects.MustCompile(effects.Bloom())
+	post := postfx.MustCompile(postfx.Bloom())
 	u := post.Uniforms([]core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}})
 	fmt.Println(len(u), post.HasUniform(0, "Radius"))
 	// Output: 3 true
 }
 func ExampleCRT() {
-	post := effects.MustCompile(effects.CRT())
+	post := postfx.MustCompile(postfx.CRT())
 	u := post.Uniforms([]core.Uniforms{{"Curvature": 0.25, "Scanlines": 0.35}})
 	fmt.Println(len(u), post.HasUniform(0, "Curvature"))
 	// Output: 2 true
 }
 
 func ExamplePaletteSwap() {
-	pal := effects.PaletteImage(
+	pal := postfx.PaletteImage(
 		[]core.Color{core.RGB(0xd03030), core.RGB(0x3060d0)},
 		[]core.Color{core.RGB(0x40c8f0), core.RGB(0x8838c8)},
 	)
-	post := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+	post := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
 	u := post.Uniforms([]core.Uniforms{{"Amount": 1, "Row": 1}})
 	fmt.Println(len(u), post.HasTexture(0))
 	// Output: 2 true

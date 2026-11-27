@@ -180,7 +180,7 @@ On the web, a cross-origin atlas image must allow anonymous CORS requests for NS
 
 ## Per-sprite effects
 
-`Sprite.Tint` multiplies existing channels (so dark pixels stay dark under a white tint) and `game/effects` runs fragment passes over the whole game view. For per-sprite hit flashes, silhouettes, outlines, dissolves and palette swaps that never touch neighboring sprites or the backdrop drawn beneath the sprite, set `Sprite.Effect`:
+`Sprite.Tint` multiplies existing channels (so dark pixels stay dark under a white tint) and `game/postfx` runs fragment passes over the whole game view. For per-sprite hit flashes, silhouettes, outlines, dissolves and palette swaps that never touch neighboring sprites or the backdrop drawn beneath the sprite, set `Sprite.Effect`:
 
 ```go
 fx := &sprite.Effect{

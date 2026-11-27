@@ -1,4 +1,4 @@
-package effects
+package postfx
 
 import (
 	"math"

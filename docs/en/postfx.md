@@ -1,9 +1,9 @@
-# effects
+# postfx
 
-`game/effects` draws a game's frame through a chain of shader passes, in order, with uniforms animated on the platform's frame clock. The frame is usually a pixel buffer the game writes each frame (`core.ImageSource.Pixels`), which NSGo shaders read since [nsgo#1052](https://github.com/nsgo-dev/nsgo/issues/1052).
+`game/postfx` draws a game's frame through a chain of shader passes, in order, with uniforms animated on the platform's frame clock. The frame is usually a pixel buffer the game writes each frame (`core.ImageSource.Pixels`), which NSGo shaders read since [nsgo#1052](https://github.com/nsgo-dev/nsgo/issues/1052).
 
 ```go
-import "github.com/nsgo-dev/game/pkg/effects"
+import "github.com/nsgo-dev/game/pkg/postfx"
 ```
 
 ## Write an effect
@@ -42,9 +42,9 @@ An effect does not declare `Input`, `InputSize`, `Texture`, `TextureSize` or `Fr
 `Compile` fuses effects into one program, the first drawn over the frame and each next over the one before it. Each effect's `Input` calls the effect before it, so the passes run in one draw with no texture between them. Each source is compiled on its own first, so an error names the effect and gives the line and column in its source.
 
 ```go
-var post = effects.MustCompile(
-	effects.Effect{Name: "invert", Source: invert},
-	effects.Effect{Name: "smear", Source: smear},
+var post = postfx.MustCompile(
+	postfx.Effect{Name: "invert", Source: invert},
+	postfx.Effect{Name: "smear", Source: smear},
 )
 ```
 
@@ -54,14 +54,14 @@ var post = effects.MustCompile(
 
 ## Draw the game view
 
-`effects.View` is a `core.Shader` whose image is the frame, stretched over its box. Give the box the frame's aspect ratio for square pixels, as `screen.Viewport` places a virtual canvas. `Uniforms` holds each effect's values in the chain's order; `FrameFunc` and `UniformsFunc` follow signals.
+`postfx.View` is a `core.Shader` whose image is the frame, stretched over its box. Give the box the frame's aspect ratio for square pixels, as `screen.Viewport` places a virtual canvas. `Uniforms` holds each effect's values in the chain's order; `FrameFunc` and `UniformsFunc` follow signals.
 
 ```go
 frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
 version := core.NewSignal(cx, uint64(0))
 // Each frame: draw into frame, then version.Set(version.GetUntracked() + 1).
 
-return effects.View{
+return postfx.View{
 	Chain:     post,
 	FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
 	Uniforms:  []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}},
@@ -76,8 +76,8 @@ A nil `Chain` draws the frame as it is. `Chain.Uniforms` maps per-effect uniform
 A uniform set to a `core.AnimatedNode` follows the platform's frame clock with no commit per frame. `Clock(cx, period)` returns a value counting seconds from 0 up to `period` and from 0 again; pick a period after which the effect looks as it started, as the value jumps back to 0.
 
 ```go
-pulse := effects.Clock(cx, 2*time.Second)
-effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse}, {"Offset": 1}}}
+pulse := postfx.Clock(cx, 2*time.Second)
+postfx.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse}, {"Offset": 1}}}
 ```
 
 Any other node works too, such as a `core.Timing` a game starts when the player is hit. Values that change only now and then can come from `UniformsFunc`, at the cost of a commit each change.
@@ -87,8 +87,8 @@ Any other node works too, such as a `core.Timing` a game starts when the player 
 `Bloom()` returns a ready effect that makes the frame's highlights glow in one pass, with no texture between passes: over each point it adds the bright part of its input at the point and at 16 points around it, on an inner ring at half the radius and an outer ring at the radius. Its uniforms are `Threshold`, the luminance from 0 to 1 above which a pixel glows, clamped to that range; `Intensity`, how much glow is added, where 0 or less, the default, passes its input through unchanged, 1 to 2 is a strong bloom and values above 1000 act as 1000; and `Radius`, how far in the frame's pixels the glow reaches.
 
 ```go
-post := effects.MustCompile(effects.Bloom(), effects.Effect{Name: "invert", Source: invert})
-effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}}}
+post := postfx.MustCompile(postfx.Bloom(), postfx.Effect{Name: "invert", Source: invert})
+postfx.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}}}
 ```
 
 - The glow adds light: colors stay premultiplied, and a translucent pixel near a highlight becomes more opaque.
@@ -102,8 +102,8 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 `CRT()` returns a ready effect that bends the frame onto a curved cathode-ray tube and draws horizontal scanlines along the curve in one pass. Its uniforms are `Curvature`, the barrel distortion strength, where 0 or less, the default, or NaN leaves the frame flat, 0.1 to 0.3 is a typical CRT curve and values above 4 act as 4; `Scanlines`, from 0 to 1, how dark the gaps between scanlines turn, where 0 leaves the brightness unchanged, 1 turns the troughs black and values outside 0 to 1 are clamped; and `Lines`, how many scanlines span the frame's height, where 0 or less, the default, draws one scanline per pixel row of the frame and values above 16384 act as 16384.
 
 ```go
-post := effects.MustCompile(effects.Bloom(), effects.CRT(), effects.VignetteEffect())
-effects.View{
+post := postfx.MustCompile(postfx.Bloom(), postfx.CRT(), postfx.VignetteEffect())
+postfx.View{
 	Chain:    post,
 	Frame:    src,
 	Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.2, "Radius": 3}, {"Curvature": 0.25, "Scanlines": 0.35}},
@@ -130,7 +130,7 @@ The package ships three effects with their `Reference` functions, so a chain of 
 A uniform left out is 0, so each draws the frame as it is until it is set. Put the shake first, so the passes after it draw over the moved frame, and the flash last:
 
 ```go
-post := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
+post := postfx.MustCompile(postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect())
 ```
 
 `NewFlash` and `NewShake` animate the flash's and the shake's uniforms on the frame clock, with no commit per frame. `Trigger` starts one, in place of one still running, and `Stop` ends it at once:
@@ -140,8 +140,8 @@ post := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), eff
 
 ```go
 assist := a11y.NewAssist(cx, "")
-flash := effects.NewFlash(cx, effects.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion})
-shake := effects.NewShake(cx, effects.ShakeConfig{Seed: 42, ReduceMotion: assist.ReduceMotion})
+flash := postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion})
+shake := postfx.NewShake(cx, postfx.ShakeConfig{Seed: 42, ReduceMotion: assist.ReduceMotion})
 vignette := core.Uniforms{"Strength": 0.8, "Radius": 0.4, "Softness": 0.6}
 
 onHit := func() {
@@ -149,7 +149,7 @@ onHit := func() {
 	shake.Trigger(6, 400*time.Millisecond)
 }
 
-return effects.View{
+return postfx.View{
 	Chain:     post,
 	FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
 	Uniforms:  []core.Uniforms{shake.Uniforms(), vignette, flash.Uniforms()},
@@ -169,14 +169,14 @@ Two ready effects map colors through a palette texture, bound to `Effect.Texture
 `PaletteImage(rows...)` builds a premultiplied `*image.RGBA` palette texture from rows of `core.Color` values:
 
 ```go
-pal := effects.PaletteImage(
+pal := postfx.PaletteImage(
 	[]core.Color{core.RGB(0xd03030), core.RGB(0xf0c030), core.RGB(0x3060d0)}, // row 0: keys
 	[]core.Color{core.RGB(0x40c8f0), core.RGB(0xe0f8ff), core.RGB(0x205090)}, // row 1: ice theme
 	[]core.Color{core.RGB(0x8838c8), core.RGB(0xb8f040), core.RGB(0x386030)}, // row 2: poison theme
 )
-post := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+post := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
 
-return effects.View{
+return postfx.View{
 	Chain:    post,
 	Frame:    src,
 	Uniforms: []core.Uniforms{{"Amount": 1, "Row": 1}},
@@ -192,14 +192,14 @@ return effects.View{
 Headless tests have no GPU, so `Chain.Reference(frame, width, height, uniforms)` draws the chain on the CPU with each effect's `Reference` function, at the per-effect uniforms a `View` would set, mapping each output pixel's center onto the frame as the GPU does. `Float` reads a number uniform, and a uniform left out is 0, as on the GPU. Compare the result with a golden PNG from `gametest`:
 
 ```go
-invertRef := func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
-	c, amount := in.At(x, y), effects.Float(u, "Amount")
+invertRef := func(in postfx.Input, u core.Uniforms, x, y float64) [4]float64 {
+	c, amount := in.At(x, y), postfx.Float(u, "Amount")
 	for k := range 3 {
 		c[k] += (c[3] - 2*c[k]) * amount
 	}
 	return c
 }
-chain := effects.MustCompile(effects.Effect{Source: invert, Reference: invertRef}, ...)
+chain := postfx.MustCompile(postfx.Effect{Source: invert, Reference: invertRef}, ...)
 got, err := chain.Reference(frame, 640, 360, []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 ```
 

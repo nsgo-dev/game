@@ -70,7 +70,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `gameui` | `github.com/nsgo-dev/game/pkg/gameui` | [gameui](gameui.md) | In-canvas box-layout menus, virtual-resolution scaling, spatial focus nav and world-anchored views |
 | `lights2d` | `github.com/nsgo-dev/game/pkg/lights2d` | [lights2d](lights2d.md) | 2D ambient darkness, point/cone lights, visibility-polygon shadows and normal-mapped sprites |
 | `tilemap/tileshape` | `github.com/nsgo-dev/game/pkg/tilemap/tileshape` | [tileshape](tileshape.md) | Tilemap collision and lighting geometry: a physics `TileGrid` view, slopes from per-tile shapes, merged outlines and `lights2d` occluders |
-| `effects` | `github.com/nsgo-dev/game/pkg/effects` | [effects](effects.md) | Kage shader passes chained over the game's frame in one draw, uniforms on the frame clock and CPU reference pictures |
+| `postfx` | `github.com/nsgo-dev/game/pkg/postfx` | [postfx](postfx.md) | Kage shader passes chained over the game's frame in one draw, uniforms on the frame clock and CPU reference pictures |
 | `worldmap` | `github.com/nsgo-dev/game/pkg/worldmap` | [worldmap](worldmap.md) | YAML room maps, saved room discovery and markers, a minimap of the current area and a world map |
 | `fog` | `github.com/nsgo-dev/game/pkg/fog` | [fog](fog.md) | Per-team fog of war: shadowcast vision sources, explored versus visible cells, map overlay and JSON saves |
 | `quality` | `github.com/nsgo-dev/game/pkg/quality` | [quality](quality.md) | Low, medium and high presets picked from the device class and measured frame times, overridable in settings |

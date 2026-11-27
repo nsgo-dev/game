@@ -1,4 +1,4 @@
-// Package effects draws a game's frame through a chain of shader passes, in order, with uniforms animated on the platform's frame clock.
+// Package postfx draws a game's frame through a chain of shader passes, in order, with uniforms animated on the platform's frame clock.
 //
 // An Effect is a fragment program in Kage, Go's syntax for shaders (core.CompileShader), that defines
 //
@@ -7,7 +7,7 @@
 // the premultiplied color of the frame's point pos, in the frame's pixels from its top left corner, and reads the pass before it with Input(pos) and the frame's size in pixels with InputSize(). The first effect's Input reads the frame itself: the pixel under pos, transparent outside the frame. An effect that reads an extra texture, such as a palette, calls Texture(pos) and TextureSize(), bound to image1 through image3 in the chain's order (at most 3 textured effects per chain). Exported variables at the package level are the effect's uniforms.
 //
 // Compile fuses a chain's effects into one program, in which each effect's Input calls the effect before it, so the passes run in one draw with no texture between them: a pass that reads its input at several points runs the passes before it at each of them. View draws a frame, usually a pixel buffer the game writes (core.ImageSource.Pixels), through a chain.
-package effects
+package postfx
 
 import (
 	"errors"
@@ -80,13 +80,13 @@ func Compile(effects ...Effect) (*Chain, error) {
 	for i, e := range effects {
 		f, err := parseEffect(e.Source)
 		if err != nil {
-			return nil, fmt.Errorf("effects: %s: %w", e.label(i), err)
+			return nil, fmt.Errorf("postfx: %s: %w", e.label(i), err)
 		}
 		slot := 0
 		if usesTexture(f) {
 			c.texCount++
 			if c.texCount > maxEffectImages {
-				return nil, fmt.Errorf("effects: %s: a chain reads at most %d effect textures besides the frame", e.label(i), maxEffectImages)
+				return nil, fmt.Errorf("postfx: %s: a chain reads at most %d effect textures besides the frame", e.label(i), maxEffectImages)
 			}
 			slot = c.texCount
 			c.texSlots[i] = slot
@@ -97,7 +97,7 @@ func Compile(effects ...Effect) (*Chain, error) {
 			suffix = aloneWithTexture
 		}
 		if _, err := core.CompileShader(e.Source + suffix); err != nil {
-			return nil, fmt.Errorf("effects: %s: %w", e.label(i), err)
+			return nil, fmt.Errorf("postfx: %s: %w", e.label(i), err)
 		}
 		c.uniforms[i] = uniformsOf(f)
 		fmt.Fprintf(&fused, "\n// Effect %d.\n%s\n", i, rename(f, e.Source, i, slot))
@@ -112,7 +112,7 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	c.source = fused.String()
 	p, err := core.CompileShader(c.source)
 	if err != nil {
-		return nil, fmt.Errorf("effects: chain: %w", err)
+		return nil, fmt.Errorf("postfx: chain: %w", err)
 	}
 	c.program = p
 	return c, nil
@@ -176,11 +176,11 @@ func (c *Chain) HasTexture(i int) bool {
 // Images returns the shader's Images slice for frame (image0) and each textured effect's image (image1 through image3 in chain order). A non-zero entry in perEffect[i] replaces effect i's own Texture. It panics when perEffect has more entries than the chain has effects, or when a non-zero entry targets an effect that reads no texture.
 func (c *Chain) Images(frame core.ImageSource, perEffect []core.ImageSource) []core.ImageSource {
 	if len(perEffect) > len(c.effects) {
-		panic(fmt.Sprintf("effects: textures for %d effects, but the chain has %d", len(perEffect), len(c.effects)))
+		panic(fmt.Sprintf("postfx: textures for %d effects, but the chain has %d", len(perEffect), len(c.effects)))
 	}
 	for i, src := range perEffect {
 		if !isZeroImageSource(src) && c.texSlots[i] == 0 {
-			panic(fmt.Sprintf("effects: %s reads no texture", c.effects[i].label(i)))
+			panic(fmt.Sprintf("postfx: %s reads no texture", c.effects[i].label(i)))
 		}
 	}
 	out := make([]core.ImageSource, 1+c.texCount)
@@ -206,7 +206,7 @@ func isZeroImageSource(s core.ImageSource) bool {
 // Uniforms returns the program's uniforms from each effect's own, in the chain's order: perEffect[i] sets effect i's uniforms by the names its source declares. A value is what core.Uniforms takes, an AnimatedNode among them, which follows the platform's frame clock. It panics when an effect has no uniform of a name, or when perEffect has more entries than the chain has effects.
 func (c *Chain) Uniforms(perEffect []core.Uniforms) core.Uniforms {
 	if len(perEffect) > len(c.effects) {
-		panic(fmt.Sprintf("effects: uniforms for %d effects, but the chain has %d", len(perEffect), len(c.effects)))
+		panic(fmt.Sprintf("postfx: uniforms for %d effects, but the chain has %d", len(perEffect), len(c.effects)))
 	}
 	n := 0
 	for _, u := range perEffect {
@@ -219,7 +219,7 @@ func (c *Chain) Uniforms(perEffect []core.Uniforms) core.Uniforms {
 	for i, u := range perEffect {
 		for name, v := range u {
 			if !c.uniforms[i][name] {
-				panic(fmt.Sprintf("effects: %s has no uniform %s", c.effects[i].label(i), name))
+				panic(fmt.Sprintf("postfx: %s has no uniform %s", c.effects[i].label(i), name))
 			}
 			out[uniformPrefix(i)+name] = v
 		}

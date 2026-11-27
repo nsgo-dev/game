@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"image"
@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -45,9 +45,9 @@ func straight(img *image.RGBA) *image.NRGBA {
 }
 
 // reference draws sceneFrame through effs at twice its size with uniforms.
-func reference(t *testing.T, effs []effects.Effect, uniforms []core.Uniforms) *image.RGBA {
+func reference(t *testing.T, effs []postfx.Effect, uniforms []core.Uniforms) *image.RGBA {
 	t.Helper()
-	got, err := effects.MustCompile(effs...).Reference(sceneFrame(), 64, 36, uniforms)
+	got, err := postfx.MustCompile(effs...).Reference(sceneFrame(), 64, 36, uniforms)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,13 +63,13 @@ var (
 func TestEachEffectDrawsItsReferencePicture(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		effs     []effects.Effect
+		effs     []postfx.Effect
 		uniforms []core.Uniforms
 	}{
-		{"vignette", []effects.Effect{effects.VignetteEffect()}, []core.Uniforms{vignetteUniforms}},
-		{"flash", []effects.Effect{effects.FlashEffect()}, []core.Uniforms{flashUniforms}},
-		{"shake", []effects.Effect{effects.ShakeEffect()}, []core.Uniforms{shakeUniforms}},
-		{"shake-vignette-flash", []effects.Effect{effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect()}, []core.Uniforms{shakeUniforms, vignetteUniforms, flashUniforms}},
+		{"vignette", []postfx.Effect{postfx.VignetteEffect()}, []core.Uniforms{vignetteUniforms}},
+		{"flash", []postfx.Effect{postfx.FlashEffect()}, []core.Uniforms{flashUniforms}},
+		{"shake", []postfx.Effect{postfx.ShakeEffect()}, []core.Uniforms{shakeUniforms}},
+		{"shake-vignette-flash", []postfx.Effect{postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect()}, []core.Uniforms{shakeUniforms, vignetteUniforms, flashUniforms}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gametest.AssertGolden(t, tc.name, straight(reference(t, tc.effs, tc.uniforms)))
@@ -78,8 +78,8 @@ func TestEachEffectDrawsItsReferencePicture(t *testing.T) {
 }
 
 func TestTheEffectsCompileAloneAndChained(t *testing.T) {
-	all := []effects.Effect{effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect()}
-	chain, err := effects.Compile(all...)
+	all := []postfx.Effect{postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect()}
+	chain, err := postfx.Compile(all...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestTheEffectsCompileAloneAndChained(t *testing.T) {
 		}
 	}
 	for _, e := range all {
-		if _, err := effects.Compile(e); err != nil {
+		if _, err := postfx.Compile(e); err != nil {
 			t.Errorf("%s alone: %v", e.Name, err)
 		}
 		if e.Reference == nil {
@@ -117,7 +117,7 @@ func near(a, b [4]float64, tolerance float64) bool {
 
 func TestTheVignetteTurnsTheCornersAndLeavesTheCenter(t *testing.T) {
 	frame := reference(t, nil, nil)
-	hard := reference(t, []effects.Effect{effects.VignetteEffect()}, []core.Uniforms{{"Strength": 1, "Radius": 0.5, "Color": core.RGB(0x204060)}})
+	hard := reference(t, []postfx.Effect{postfx.VignetteEffect()}, []core.Uniforms{{"Strength": 1, "Radius": 0.5, "Color": core.RGB(0x204060)}})
 	// Inside the radius the frame is as it was; past it, with no softness, the color all the way, at each pixel's alpha.
 	if got, want := px(hard, 32, 18), px(frame, 32, 18); got != want {
 		t.Fatalf("center %v, want the frame's %v", got, want)
@@ -126,12 +126,12 @@ func TestTheVignetteTurnsTheCornersAndLeavesTheCenter(t *testing.T) {
 		t.Fatalf("corner %v, want the color", got)
 	}
 	// Left out, the uniforms are 0: no strength draws the frame as it is.
-	if none := reference(t, []effects.Effect{effects.VignetteEffect()}, nil); !slices.Equal(none.Pix, frame.Pix) {
+	if none := reference(t, []postfx.Effect{postfx.VignetteEffect()}, nil); !slices.Equal(none.Pix, frame.Pix) {
 		t.Fatal("a vignette of no strength changed the frame")
 	}
 	// A soft vignette darkens toward the corner, and half the strength half as far.
-	soft := reference(t, []effects.Effect{effects.VignetteEffect()}, []core.Uniforms{{"Strength": 1, "Radius": 0.2, "Softness": 0.8}})
-	half := reference(t, []effects.Effect{effects.VignetteEffect()}, []core.Uniforms{{"Strength": 0.5, "Radius": 0.2, "Softness": 0.8}})
+	soft := reference(t, []postfx.Effect{postfx.VignetteEffect()}, []core.Uniforms{{"Strength": 1, "Radius": 0.2, "Softness": 0.8}})
+	half := reference(t, []postfx.Effect{postfx.VignetteEffect()}, []core.Uniforms{{"Strength": 0.5, "Radius": 0.2, "Softness": 0.8}})
 	if a, b, c := px(soft, 8, 4)[2], px(soft, 4, 2)[2], px(soft, 0, 0)[2]; !(a > b && b > c && c == 0) {
 		t.Fatalf("blue toward the corner %g, %g, %g: want falling to 0", a, b, c)
 	}
@@ -142,7 +142,7 @@ func TestTheVignetteTurnsTheCornersAndLeavesTheCenter(t *testing.T) {
 
 func TestTheFlashTurnsTheWholeFrameOpaque(t *testing.T) {
 	frame := reference(t, nil, nil)
-	full := reference(t, []effects.Effect{effects.FlashEffect()}, []core.Uniforms{{"Amount": 1, "Color": core.RGB(0xff8000)}})
+	full := reference(t, []postfx.Effect{postfx.FlashEffect()}, []core.Uniforms{{"Amount": 1, "Color": core.RGB(0xff8000)}})
 	for y := range 36 {
 		for x := range 64 {
 			if got := px(full, x, y); got != [4]float64{255, 128, 0, 255} {
@@ -151,7 +151,7 @@ func TestTheFlashTurnsTheWholeFrameOpaque(t *testing.T) {
 		}
 	}
 	// Half a white flash over the translucent square lifts it halfway to opaque white.
-	half := reference(t, []effects.Effect{effects.FlashEffect()}, []core.Uniforms{{"Amount": 0.5, "Color": core.RGB(0xffffff)}})
+	half := reference(t, []postfx.Effect{postfx.FlashEffect()}, []core.Uniforms{{"Amount": 0.5, "Color": core.RGB(0xffffff)}})
 	under := px(frame, 32, 18)
 	want := [4]float64{}
 	for k := range want {
@@ -161,10 +161,10 @@ func TestTheFlashTurnsTheWholeFrameOpaque(t *testing.T) {
 		t.Fatalf("half a flash over the square %v, want %v", got, want)
 	}
 	// Past 1 the amount is 1, and below 0 it is 0.
-	if over := reference(t, []effects.Effect{effects.FlashEffect()}, []core.Uniforms{{"Amount": 3, "Color": core.RGB(0xff8000)}}); !slices.Equal(over.Pix, full.Pix) {
+	if over := reference(t, []postfx.Effect{postfx.FlashEffect()}, []core.Uniforms{{"Amount": 3, "Color": core.RGB(0xff8000)}}); !slices.Equal(over.Pix, full.Pix) {
 		t.Fatal("an amount past 1 drew other than 1")
 	}
-	if under := reference(t, []effects.Effect{effects.FlashEffect()}, []core.Uniforms{{"Amount": -2, "Color": core.RGB(0xff8000)}}); !slices.Equal(under.Pix, frame.Pix) {
+	if under := reference(t, []postfx.Effect{postfx.FlashEffect()}, []core.Uniforms{{"Amount": -2, "Color": core.RGB(0xff8000)}}); !slices.Equal(under.Pix, frame.Pix) {
 		t.Fatal("an amount below 0 drew other than the frame")
 	}
 }
@@ -173,11 +173,11 @@ func TestTheShakeMovesTheFrameByItsOffset(t *testing.T) {
 	frame := sceneFrame()
 	// At Time 0 with phases a quarter turn on, the frame moves by Amplitude along both directions.
 	phase := []float64{math.Pi / 2, math.Pi / 2, math.Pi / 2, math.Pi / 2}
-	x, y := effects.ShakeOffset(4, 0, 12, [4]float64(phase))
+	x, y := postfx.ShakeOffset(4, 0, 12, [4]float64(phase))
 	if math.Abs(x-4) > 1e-9 || math.Abs(y-4) > 1e-9 {
 		t.Fatalf("offset (%g, %g), want (4, 4)", x, y)
 	}
-	got, err := effects.MustCompile(effects.ShakeEffect()).Reference(frame, 32, 18, []core.Uniforms{{"Amplitude": 4, "Frequency": 12, "Phase": phase}})
+	got, err := postfx.MustCompile(postfx.ShakeEffect()).Reference(frame, 32, 18, []core.Uniforms{{"Amplitude": 4, "Frequency": 12, "Phase": phase}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,14 +191,14 @@ func TestTheShakeMovesTheFrameByItsOffset(t *testing.T) {
 		}
 	}
 	// No amplitude draws the frame as it is.
-	still, _ := effects.MustCompile(effects.ShakeEffect()).Reference(frame, 32, 18, []core.Uniforms{{"Time": 0.3, "Frequency": 12, "Phase": phase}})
+	still, _ := postfx.MustCompile(postfx.ShakeEffect()).Reference(frame, 32, 18, []core.Uniforms{{"Time": 0.3, "Frequency": 12, "Phase": phase}})
 	if !slices.Equal(still.Pix, frame.Pix) {
 		t.Fatal("a shake of no amplitude moved the frame")
 	}
 	// The frame sways over time.
 	a, b := []float64{}, []float64{}
 	for i := range 8 {
-		x, y := effects.ShakeOffset(1, float64(i)/48, 12, [4]float64{0.3, 1.7, 2.9, 4.1})
+		x, y := postfx.ShakeOffset(1, float64(i)/48, 12, [4]float64{0.3, 1.7, 2.9, 4.1})
 		a, b = append(a, x), append(b, y)
 	}
 	if slices.Min(a) > -0.2 || slices.Max(a) < 0.2 || slices.Min(b) > -0.2 || slices.Max(b) < 0.2 {
@@ -207,7 +207,7 @@ func TestTheShakeMovesTheFrameByItsOffset(t *testing.T) {
 }
 
 func TestTheReferenceReadsVectorUniformsAsTheGPUFillsLanes(t *testing.T) {
-	flash := effects.MustCompile(effects.FlashEffect())
+	flash := postfx.MustCompile(postfx.FlashEffect())
 	want, err := flash.Reference(sceneFrame(), 8, 4, []core.Uniforms{{"Amount": 1, "Color": core.RGB(0x336699)}})
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +235,7 @@ func TestTheReferenceReadsVectorUniformsAsTheGPUFillsLanes(t *testing.T) {
 		t.Fatalf("a color of one lane drew %v, want red", c)
 	}
 	// A core.Color in a []any fills a vec3's three lanes, as on the GPU.
-	vignette := effects.MustCompile(effects.VignetteEffect())
+	vignette := postfx.MustCompile(postfx.VignetteEffect())
 	full := core.Uniforms{"Strength": 1, "Radius": 0, "Softness": 1}
 	wantV, _ := vignette.Reference(sceneFrame(), 8, 4, []core.Uniforms{{"Strength": 1, "Radius": 0, "Softness": 1, "Color": []float64{1, 0, 0}}})
 	full["Color"] = []any{core.RGB(0xff0000)}
@@ -264,16 +264,16 @@ func TestTheReferenceReadsVectorUniformsAsTheGPUFillsLanes(t *testing.T) {
 }
 
 // screen mounts a view of sceneFrame through shake, vignette and flash, with a button that triggers both, and returns the app and the flash and shake.
-func screen(t *testing.T, seed uint64, reduce func() bool, opts ...nsgotest.Option) (*nsgotest.App, *effects.Flash, *effects.Shake) {
+func screen(t *testing.T, seed uint64, reduce func() bool, opts ...nsgotest.Option) (*nsgotest.App, *postfx.Flash, *postfx.Shake) {
 	t.Helper()
-	chain := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
-	var flash *effects.Flash
-	var shake *effects.Shake
+	chain := postfx.MustCompile(postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect())
+	var flash *postfx.Flash
+	var shake *postfx.Shake
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		flash = effects.NewFlash(cx, effects.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: reduce})
-		shake = effects.NewShake(cx, effects.ShakeConfig{Seed: seed, ReduceMotion: reduce})
+		flash = postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: reduce})
+		shake = postfx.NewShake(cx, postfx.ShakeConfig{Seed: seed, ReduceMotion: reduce})
 		return core.View{Children: []core.Node{
-			effects.View{
+			postfx.View{
 				Chain:    chain,
 				Frame:    core.ImageSource{Pixels: sceneFrame(), Version: 1},
 				Uniforms: []core.Uniforms{shake.Uniforms(), vignetteUniforms, flash.Uniforms()},
@@ -298,7 +298,7 @@ func value(app *nsgotest.App, n core.AnimatedNode) float64 {
 	return app.AnimatedValue(n.AnimatedNodeID())
 }
 
-func phases(app *nsgotest.App, s *effects.Shake) [4]float64 {
+func phases(app *nsgotest.App, s *postfx.Shake) [4]float64 {
 	var out [4]float64
 	for i, n := range s.Uniforms()["Phase"].([]core.AnimatedNode) {
 		out[i] = value(app, n)
@@ -347,12 +347,12 @@ func TestTheFlashAndShakeFadeOnTheFrameClock(t *testing.T) {
 }
 
 func TestATriggerRestartsAFadingFlashAndShake(t *testing.T) {
-	var flash *effects.Flash
-	var shake *effects.Shake
+	var flash *postfx.Flash
+	var shake *postfx.Shake
 	reduce := false
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		flash = effects.NewFlash(cx, effects.FlashConfig{ReduceMotion: func() bool { return reduce }})
-		shake = effects.NewShake(cx, effects.ShakeConfig{Seed: 3, ReduceMotion: func() bool { return reduce }})
+		flash = postfx.NewFlash(cx, postfx.FlashConfig{ReduceMotion: func() bool { return reduce }})
+		shake = postfx.NewShake(cx, postfx.ShakeConfig{Seed: 3, ReduceMotion: func() bool { return reduce }})
 		button := func(id string, peak, amplitude float64) core.Node {
 			return core.View{TestID: id, Style: core.Style{Width: core.Pt(40), Height: core.Pt(40)}, OnPress: func(core.PressEvent) {
 				flash.Trigger(peak, 400*time.Millisecond)
@@ -445,12 +445,12 @@ func TestReducedMotionKeepsTheFlashAndShakeStill(t *testing.T) {
 }
 
 func TestTriggerRefusesWhatCannotShake(t *testing.T) {
-	var flash *effects.Flash
-	var shake *effects.Shake
+	var flash *postfx.Flash
+	var shake *postfx.Shake
 	got := map[string]bool{}
 	nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		flash = effects.NewFlash(cx, effects.FlashConfig{})
-		shake = effects.NewShake(cx, effects.ShakeConfig{Frequency: math.NaN()})
+		flash = postfx.NewFlash(cx, postfx.FlashConfig{})
+		shake = postfx.NewShake(cx, postfx.ShakeConfig{Frequency: math.NaN()})
 		got["flash 0"] = flash.Trigger(0, time.Second)
 		got["flash NaN"] = flash.Trigger(math.NaN(), time.Second)
 		got["flash no fade"] = flash.Trigger(1, 0)
@@ -464,14 +464,14 @@ func TestTriggerRefusesWhatCannotShake(t *testing.T) {
 			t.Errorf("%s ran", name)
 		}
 	}
-	if f := shake.Uniforms()["Frequency"]; f != float64(effects.DefaultShakeFrequency) {
+	if f := shake.Uniforms()["Frequency"]; f != float64(postfx.DefaultShakeFrequency) {
 		t.Fatalf("a NaN frequency became %v, want the default", f)
 	}
 }
 
 func BenchmarkEffectReferences(b *testing.B) {
 	frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
-	chain := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
+	chain := postfx.MustCompile(postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect())
 	u := []core.Uniforms{shakeUniforms, vignetteUniforms, flashUniforms}
 	b.ReportAllocs()
 	for b.Loop() {

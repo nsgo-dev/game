@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -38,7 +38,7 @@ func paletteSpriteFrame() *image.RGBA {
 
 // swapPaletteTexture has row 0 = source keys (with a transparent slot at column 4), row 1 = ice theme, row 2 = poison theme.
 func swapPaletteTexture() core.ImageSource {
-	img := effects.PaletteImage(
+	img := postfx.PaletteImage(
 		[]core.Color{core.RGB(0xd03030), core.RGB(0xf0c030), core.RGB(0x3060d0), core.RGB(0x201830), core.Transparent},
 		[]core.Color{core.RGB(0x40c8f0), core.RGB(0xe0f8ff), core.RGB(0x205090), core.RGB(0x102038), core.RGB(0xff00ff)},
 		[]core.Color{core.RGB(0x8838c8), core.RGB(0xb8f040), core.RGB(0x386030), core.RGB(0x181020), core.RGB(0x00ffff)},
@@ -48,7 +48,7 @@ func swapPaletteTexture() core.ImageSource {
 
 // gbRampTexture has row 0 = Game Boy greens, row 1 = warm sepia.
 func gbRampTexture() core.ImageSource {
-	img := effects.PaletteImage(
+	img := postfx.PaletteImage(
 		[]core.Color{core.RGB(0x0f380f), core.RGB(0x306230), core.RGB(0x8bac0f), core.RGB(0x9bbc0f)},
 		[]core.Color{core.RGB(0x2b1d14), core.RGB(0x6b4c35), core.RGB(0xb88b5a), core.RGB(0xf2d9b1)},
 	)
@@ -56,7 +56,7 @@ func gbRampTexture() core.ImageSource {
 }
 
 func TestPaletteSwapReplacesKeyColorsAndMatchesReferencePicture(t *testing.T) {
-	chain := effects.MustCompile(effects.PaletteSwap(swapPaletteTexture()))
+	chain := postfx.MustCompile(postfx.PaletteSwap(swapPaletteTexture()))
 	frame := paletteSpriteFrame()
 
 	got, err := chain.Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}})
@@ -97,7 +97,7 @@ func TestPaletteSwapReplacesKeyColorsAndMatchesReferencePicture(t *testing.T) {
 }
 
 func TestPaletteSwapBlendsRowsAndAmount(t *testing.T) {
-	chain := effects.MustCompile(effects.PaletteSwap(swapPaletteTexture()))
+	chain := postfx.MustCompile(postfx.PaletteSwap(swapPaletteTexture()))
 	frame := paletteSpriteFrame()
 
 	// Row 1.5 blends halfway between row 1 (0x40, 0xc8, 0xf0) and row 2 (0x88, 0x38, 0xc8).
@@ -139,11 +139,11 @@ func TestPaletteSwapBlendsRowsAndAmount(t *testing.T) {
 }
 
 func TestPaletteSwapToleranceMatchesExactNearestAndQuantized(t *testing.T) {
-	pal := effects.PaletteImage(
+	pal := postfx.PaletteImage(
 		[]core.Color{core.RGB(0xff0000), core.RGB(0x00ff00), core.RGB(0x0000ff)},
 		[]core.Color{core.RGB(0x00ffff), core.RGB(0xff00ff), core.RGB(0xffff00)},
 	)
-	chain := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+	chain := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
 	frame := image.NewRGBA(image.Rect(0, 0, 3, 1))
 	frame.SetRGBA(0, 0, color.RGBA{255, 0, 0, 255})   // exact red
 	frame.SetRGBA(1, 0, color.RGBA{254, 0, 0, 255})   // 1/255 off red
@@ -186,8 +186,8 @@ func TestPaletteSwapToleranceMatchesExactNearestAndQuantized(t *testing.T) {
 	}
 
 	// Single-row palette with Tolerance 1 quantizes every pixel to the closest palette entry.
-	quantPal := effects.PaletteImage([]core.Color{core.RGB(0x101010), core.RGB(0xf0e020)})
-	quantChain := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: quantPal, Version: 1}))
+	quantPal := postfx.PaletteImage([]core.Color{core.RGB(0x101010), core.RGB(0xf0e020)})
+	quantChain := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{Pixels: quantPal, Version: 1}))
 	q, err := quantChain.Reference(frame, 3, 1, []core.Uniforms{{"Amount": 1, "Tolerance": 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -198,11 +198,11 @@ func TestPaletteSwapToleranceMatchesExactNearestAndQuantized(t *testing.T) {
 }
 
 func TestPaletteSwapTranslucentReplacementPreservesPremultipliedAlpha(t *testing.T) {
-	pal := effects.PaletteImage(
+	pal := postfx.PaletteImage(
 		[]core.Color{core.RGB(0xff0000), core.RGB(0x00ff00)},
 		[]core.Color{core.Transparent, core.RGBA(0x0000ff, 0.5)},
 	)
-	chain := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+	chain := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
 	frame := image.NewRGBA(image.Rect(0, 0, 2, 1))
 	frame.SetRGBA(0, 0, color.RGBA{255, 0, 0, 255})
 	frame.SetRGBA(1, 0, color.RGBA{0, 255, 0, 255})
@@ -220,7 +220,7 @@ func TestPaletteSwapTranslucentReplacementPreservesPremultipliedAlpha(t *testing
 }
 
 func TestPaletteRampMapsLuminanceAndMatchesReferencePicture(t *testing.T) {
-	chain := effects.MustCompile(effects.PaletteRamp(gbRampTexture()))
+	chain := postfx.MustCompile(postfx.PaletteRamp(gbRampTexture()))
 	got, err := chain.Reference(sceneFrame(), 32, 18, []core.Uniforms{{"Amount": 1, "Row": 0}})
 	if err != nil {
 		t.Fatal(err)
@@ -266,8 +266,8 @@ func TestPaletteRamp256MapsEveryGrayscaleStepExactly(t *testing.T) {
 	for i := range 256 {
 		row[i] = core.RGB(uint32(255-i)<<16 | uint32(i)<<8 | uint32(i/2))
 	}
-	pal := effects.PaletteImage(row)
-	chain := effects.MustCompile(effects.PaletteRamp(core.ImageSource{Pixels: pal, Version: 1}))
+	pal := postfx.PaletteImage(row)
+	chain := postfx.MustCompile(postfx.PaletteRamp(core.ImageSource{Pixels: pal, Version: 1}))
 
 	frame := image.NewRGBA(image.Rect(0, 0, 256, 1))
 	for i := range 256 {
@@ -288,15 +288,15 @@ func TestPaletteRamp256MapsEveryGrayscaleStepExactly(t *testing.T) {
 
 func TestPaletteEffectsPassThroughAtZeroAmountInAChain(t *testing.T) {
 	frame := paletteSpriteFrame()
-	without, err := effects.MustCompile(scale, scale).Reference(frame, 24, 16, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
+	without, err := postfx.MustCompile(scale, scale).Reference(frame, 24, 16, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, eff := range map[string]effects.Effect{
-		"swap": effects.PaletteSwap(swapPaletteTexture()),
-		"ramp": effects.PaletteRamp(gbRampTexture()),
+	for name, eff := range map[string]postfx.Effect{
+		"swap": postfx.PaletteSwap(swapPaletteTexture()),
+		"ramp": postfx.PaletteRamp(gbRampTexture()),
 	} {
-		chain := effects.MustCompile(scale, eff, scale)
+		chain := postfx.MustCompile(scale, eff, scale)
 		for _, amt := range []float64{0, -1, math.NaN()} {
 			got, err := chain.Reference(frame, 24, 16, []core.Uniforms{{"Gain": 3}, {"Amount": amt, "Row": 1}, {"Gain": 1.0 / 3}})
 			if err != nil {
@@ -310,9 +310,9 @@ func TestPaletteEffectsPassThroughAtZeroAmountInAChain(t *testing.T) {
 }
 
 func TestPaletteCompilesChainedAssignsImageSlotsAndEnforcesLimit(t *testing.T) {
-	swap := effects.PaletteSwap(swapPaletteTexture())
-	ramp := effects.PaletteRamp(gbRampTexture())
-	chain, err := effects.Compile(effects.Bloom(), swap, ramp)
+	swap := postfx.PaletteSwap(swapPaletteTexture())
+	ramp := postfx.PaletteRamp(gbRampTexture())
+	chain, err := postfx.Compile(postfx.Bloom(), swap, ramp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,10 +331,10 @@ func TestPaletteCompilesChainedAssignsImageSlotsAndEnforcesLimit(t *testing.T) {
 	}
 
 	// Up to 3 textured effects compile; a 4th is refused.
-	if _, err := effects.Compile(swap, ramp, swap); err != nil {
+	if _, err := postfx.Compile(swap, ramp, swap); err != nil {
 		t.Fatalf("3 textured effects failed: %v", err)
 	}
-	if _, err := effects.Compile(swap, ramp, swap, ramp); err == nil || !strings.Contains(err.Error(), "at most 3 effect textures") {
+	if _, err := postfx.Compile(swap, ramp, swap, ramp); err == nil || !strings.Contains(err.Error(), "at most 3 effect textures") {
 		t.Fatalf("4 textured effects err = %v, want max texture error", err)
 	}
 
@@ -343,7 +343,7 @@ func TestPaletteCompilesChainedAssignsImageSlotsAndEnforcesLimit(t *testing.T) {
 		"package main\n\nfunc Texture(pos vec2) vec4 {\n\treturn vec4(0)\n}\n\nfunc Effect(pos vec2) vec4 {\n\treturn Input(pos)\n}\n",
 		"package main\n\nfunc TextureSize() vec2 {\n\treturn vec2(0)\n}\n\nfunc Effect(pos vec2) vec4 {\n\treturn Input(pos)\n}\n",
 	} {
-		if _, err := effects.Compile(effects.Effect{Name: "bad", Source: decl}); err == nil || !strings.Contains(err.Error(), "is the chain's") {
+		if _, err := postfx.Compile(postfx.Effect{Name: "bad", Source: decl}); err == nil || !strings.Contains(err.Error(), "is the chain's") {
 			t.Fatalf("err = %v, want chain reserved error", err)
 		}
 	}
@@ -358,11 +358,11 @@ func TestPaletteDecodesPNGDataAndOverridesTexturesOnViewAndReference(t *testing.
 	pngSrc := core.ImageSource{Data: buf.Bytes()}
 	frame := paletteSpriteFrame()
 
-	fromPixels, err := effects.MustCompile(effects.PaletteSwap(swapPaletteTexture())).Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}})
+	fromPixels, err := postfx.MustCompile(postfx.PaletteSwap(swapPaletteTexture())).Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fromPNG, err := effects.MustCompile(effects.PaletteSwap(pngSrc)).Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}})
+	fromPNG, err := postfx.MustCompile(postfx.PaletteSwap(pngSrc)).Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestPaletteDecodesPNGDataAndOverridesTexturesOnViewAndReference(t *testing.
 	}
 
 	// ReferenceWithTextures overrides an effect's texture without recompiling.
-	unbound := effects.MustCompile(effects.PaletteSwap(core.ImageSource{}))
+	unbound := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{}))
 	unchanged, err := unbound.Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -388,13 +388,13 @@ func TestPaletteDecodesPNGDataAndOverridesTexturesOnViewAndReference(t *testing.
 	}
 
 	// A URI-only texture returns a clear error in Reference.
-	uriChain := effects.MustCompile(effects.PaletteSwap(core.ImageSource{URI: "asset:palette.png"}))
+	uriChain := postfx.MustCompile(postfx.PaletteSwap(core.ImageSource{URI: "asset:palette.png"}))
 	if _, err := uriChain.Reference(frame, 24, 16, []core.Uniforms{{"Amount": 1, "Row": 1}}); err == nil || !strings.Contains(err.Error(), "has no Pixels or Data") {
 		t.Fatalf("URI texture err = %v, want missing pixels error", err)
 	}
 
 	// ReferenceWithTextures rejects extra entries and non-textured targets.
-	bloomChain := effects.MustCompile(effects.Bloom())
+	bloomChain := postfx.MustCompile(postfx.Bloom())
 	if _, err := bloomChain.ReferenceWithTextures(frame, 24, 16, nil, []core.ImageSource{pngSrc}); err == nil || !strings.Contains(err.Error(), "reads no texture") {
 		t.Fatalf("non-textured override err = %v", err)
 	}
@@ -406,11 +406,11 @@ func TestPaletteDecodesPNGDataAndOverridesTexturesOnViewAndReference(t *testing.
 func TestViewBindsPaletteTextureAndReactsToTexturesFunc(t *testing.T) {
 	palA := swapPaletteTexture()
 	palB := gbRampTexture()
-	chain := effects.MustCompile(effects.Bloom(), effects.PaletteSwap(palA))
+	chain := postfx.MustCompile(postfx.Bloom(), postfx.PaletteSwap(palA))
 	frame := paletteSpriteFrame()
 
 	// Static View binds [frame, palA].
-	sh := (effects.View{
+	sh := (postfx.View{
 		Chain:    chain,
 		Frame:    core.ImageSource{Pixels: frame, Version: 1},
 		Uniforms: []core.Uniforms{nil, {"Amount": 1, "Row": 1}},
@@ -420,7 +420,7 @@ func TestViewBindsPaletteTextureAndReactsToTexturesFunc(t *testing.T) {
 	}
 
 	// View.Textures overrides effect 1's palette.
-	shOver := (effects.View{
+	shOver := (postfx.View{
 		Chain:    chain,
 		Frame:    core.ImageSource{Pixels: frame, Version: 1},
 		Textures: []core.ImageSource{{}, palB},
@@ -432,9 +432,9 @@ func TestViewBindsPaletteTextureAndReactsToTexturesFunc(t *testing.T) {
 	// View.TexturesFunc follows a signal and mounts cleanly under nsgotest with animated uniforms.
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		useB := core.NewSignal(cx, false)
-		clock := effects.Clock(cx, time.Second)
+		clock := postfx.Clock(cx, time.Second)
 		return core.View{Children: []core.Node{
-			effects.View{
+			postfx.View{
 				Chain: chain,
 				Frame: core.ImageSource{Pixels: frame, Version: 1},
 				TexturesFunc: func() []core.ImageSource {
@@ -463,7 +463,7 @@ func TestViewBindsPaletteTextureAndReactsToTexturesFunc(t *testing.T) {
 }
 
 func TestChainImagesPanicsOnInvalidTextureTargets(t *testing.T) {
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := core.ImageSource{Pixels: paletteSpriteFrame()}
 	for name, per := range map[string][]core.ImageSource{
 		"extra":       {{}, {}},
@@ -481,10 +481,10 @@ func TestChainImagesPanicsOnInvalidTextureTargets(t *testing.T) {
 }
 
 func TestPaletteImageHandlesEmptyAndRaggedRows(t *testing.T) {
-	if empty := effects.PaletteImage(); empty.Rect.Dx() != 0 || empty.Rect.Dy() != 0 {
+	if empty := postfx.PaletteImage(); empty.Rect.Dx() != 0 || empty.Rect.Dy() != 0 {
 		t.Fatalf("empty PaletteImage = %v, want 0x0", empty.Rect)
 	}
-	img := effects.PaletteImage(
+	img := postfx.PaletteImage(
 		[]core.Color{core.RGB(0xff0000)},
 		[]core.Color{core.RGB(0x00ff00), core.RGB(0x0000ff)},
 	)
@@ -508,8 +508,8 @@ func FuzzPaletteReference(f *testing.F) {
 	f.Add(1e9, 1e9, 1e9)
 	f.Add(math.NaN(), math.NaN(), math.NaN())
 	f.Add(math.Inf(1), math.Inf(-1), math.Inf(1))
-	swapChain := effects.MustCompile(effects.PaletteSwap(swapPaletteTexture()))
-	rampChain := effects.MustCompile(effects.PaletteRamp(gbRampTexture()))
+	swapChain := postfx.MustCompile(postfx.PaletteSwap(swapPaletteTexture()))
+	rampChain := postfx.MustCompile(postfx.PaletteRamp(gbRampTexture()))
 	frame := paletteSpriteFrame()
 	f.Fuzz(func(t *testing.T, amount, row, tol float64) {
 		for name, got := range map[string]*image.RGBA{
@@ -543,7 +543,7 @@ func FuzzPaletteReference(f *testing.F) {
 }
 
 func BenchmarkPaletteSwapReference(b *testing.B) {
-	chain := effects.MustCompile(effects.PaletteSwap(swapPaletteTexture()))
+	chain := postfx.MustCompile(postfx.PaletteSwap(swapPaletteTexture()))
 	frame := image.NewRGBA(image.Rect(0, 0, 160, 90))
 	u := []core.Uniforms{{"Amount": 1, "Row": 1}}
 	b.ReportAllocs()
@@ -555,7 +555,7 @@ func BenchmarkPaletteSwapReference(b *testing.B) {
 }
 
 func BenchmarkPaletteRampReference(b *testing.B) {
-	chain := effects.MustCompile(effects.PaletteRamp(gbRampTexture()))
+	chain := postfx.MustCompile(postfx.PaletteRamp(gbRampTexture()))
 	frame := image.NewRGBA(image.Rect(0, 0, 160, 90))
 	u := []core.Uniforms{{"Amount": 1, "Row": 0}}
 	b.ReportAllocs()

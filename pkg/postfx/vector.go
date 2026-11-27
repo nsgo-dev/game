@@ -1,4 +1,4 @@
-package effects
+package postfx
 
 import (
 	"fmt"
@@ -23,7 +23,7 @@ type laneFiller struct {
 
 func (w *laneFiller) lane(x float64) {
 	if w.at >= w.n {
-		panic(fmt.Sprintf("effects: the shader's uniform %s has fewer lanes than its value", w.name))
+		panic(fmt.Sprintf("postfx: the shader's uniform %s has fewer lanes than its value", w.name))
 	}
 	w.lanes[w.at] = x
 	w.at++
@@ -63,6 +63,6 @@ func (w *laneFiller) put(v any) {
 			w.put(e)
 		}
 	default:
-		panic(fmt.Sprintf("effects: the shader's uniform %s is set to a %T, not numbers, constants or a Color", w.name, v))
+		panic(fmt.Sprintf("postfx: the shader's uniform %s is set to a %T, not numbers, constants or a Color", w.name, v))
 	}
 }

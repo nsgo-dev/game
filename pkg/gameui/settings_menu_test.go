@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/game/pkg/sound"
@@ -794,14 +794,14 @@ func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
 		var store *save.DefaultSettingsStore
 		var assist *a11y.Assist
 		var track *a11y.CaptionTrack
-		var flash *effects.Flash
+		var flash *postfx.Flash
 		var menu *gameui.SettingsMenu
 
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			store = makeStore(cx)
 			assist = a11y.NewAssistFromSettings(cx, store)
 			track = a11y.NewCaptionTrack(cx)
-			flash = effects.NewFlash(cx, effects.FlashConfig{
+			flash = postfx.NewFlash(cx, postfx.FlashConfig{
 				Color:        core.RGB(0xffffff),
 				ReduceMotion: assist.ReduceMotion,
 			})
@@ -895,14 +895,14 @@ func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
 		}
 		app.Find("text:[Thunder]")
 
-		// effects.Flash respects Assist.ReduceMotion and refuses to trigger.
+		// postfx.Flash respects Assist.ReduceMotion and refuses to trigger.
 		var triggeredAfter bool
 		app.Post(func() {
 			triggeredAfter = flash.Trigger(0.8, 200*time.Millisecond)
 		})
 		app.Settle()
 		if triggeredAfter {
-			t.Fatal("effects.Flash triggered despite Reduced Motion saved in SettingsMenu")
+			t.Fatal("postfx.Flash triggered despite Reduced Motion saved in SettingsMenu")
 		}
 	}
 

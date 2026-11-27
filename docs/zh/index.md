@@ -70,7 +70,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `gameui` | `github.com/nsgo-dev/game/pkg/gameui` | [gameui](gameui.md) | 画布内盒式布局菜单、虚拟分辨率缩放、空间焦点导航与世界坐标锚定原生视图 |
 | `lights2d` | `github.com/nsgo-dev/game/pkg/lights2d` | [lights2d](lights2d.md) | 2D 环境暗场、点光源与聚光灯、可见性多边形阴影及法线贴图精灵 |
 | `tilemap/tileshape` | `github.com/nsgo-dev/game/pkg/tilemap/tileshape` | [tileshape](tileshape.md) | 瓦片地图的碰撞与光照几何：物理 `TileGrid` 视图、由逐瓦片形状生成的斜坡、合并轮廓与 `lights2d` 遮挡体 |
-| `effects` | `github.com/nsgo-dev/game/pkg/effects` | [effects](effects.md) | 在一次绘制中串联作用于游戏画面的 Kage 着色器通道、随帧时钟变化的 uniform 及 CPU 参考图 |
+| `postfx` | `github.com/nsgo-dev/game/pkg/postfx` | [postfx](postfx.md) | 在一次绘制中串联作用于游戏画面的 Kage 着色器通道、随帧时钟变化的 uniform 及 CPU 参考图 |
 | `worldmap` | `github.com/nsgo-dev/game/pkg/worldmap` | [worldmap](worldmap.md) | YAML 房间地图、随存档保存的房间发现与标记、当前区域小地图及世界地图 |
 | `fog` | `github.com/nsgo-dev/game/pkg/fog` | [fog](fog.md) | 按队伍划分的战争迷雾：阴影投射视野源、已探索与可见格子、地图叠加层与 JSON 存档 |
 | `quality` | `github.com/nsgo-dev/game/pkg/quality` | [quality](quality.md) | 按设备类型与实测帧时间选择低、中、高画质预设，可在设置中覆盖 |
