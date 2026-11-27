@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
 // maxRequestBytes bounds a request body; a Friends request with MaxFriends of the longest account IDs fits.
@@ -34,6 +36,8 @@ const (
 // A board is {"name", "order", "reset", "validation", "current", "previous"}; a period is {"id", "start", "end"}, start and end in RFC 3339 and absent for an all-time board; a page is {"board", "period", "total", "entries"}; an entry is {"rank", "account", "score", "achieved"}. period is "current" (the default), "previous" or an earlier period's ID; limit defaults to DefaultLimit and radius to DefaultRadius.
 //
 // Errors are {"error": code} with the status the code implies: invalid_token 401; proof_required, invalid_proof and proof_expired 403; unknown_board, unknown_period and not_ranked 404; bad_request, invalid_account and score_out_of_range 400; request_too_large 413; unavailable 503 when the request was cancelled or timed out; internal 500.
+//
+// Browsers may call the handler from Config.AllowedOrigins: it answers their CORS preflight requests and allows Authorization and Content-Type.
 //
 // The handler does not limit request rates; put it behind a rate limiter, and behind TLS. It panics when the service has no Options.Tokens.
 func (s *Service) Handler() http.Handler {
@@ -115,7 +119,11 @@ func (s *Service) Handler() http.Handler {
 			return s.Friends(r.Context(), r.PathValue("board"), r.URL.Query().Get("period"), req.Accounts)
 		})
 	})
-	return mux
+	return cors.Wrap(mux, cors.Policy{
+		Origins: s.cfg.AllowedOrigins,
+		Methods: []string{http.MethodGet, http.MethodPost},
+		Headers: []string{"Authorization", "Content-Type"},
+	})
 }
 
 type scoreRequest struct {

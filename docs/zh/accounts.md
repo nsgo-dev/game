@@ -112,6 +112,8 @@ password:
     time: 2
     memoryKiB: 19456
     threads: 1
+allowedOrigins:
+  - https://play.example.com
 ```
 
 | 字段 | 含义 |
@@ -122,8 +124,9 @@ password:
 | `disableGuests` | 拒绝 `CreateGuest`，每个账号都必须从邮箱或身份开始 |
 | `password.minLength` | 密码最少字符数，至少 8；密码最长 1024 字节 |
 | `password.argon2id` | argon2id 成本：迭代次数、以 KiB 计的内存和并行度 |
+| `allowedOrigins` | 允许其页面调用服务的网页 origin；为空时省略 |
 
-`ParseConfig` 拒绝未知字段、多余的文档和越界的值。`Config.Marshal` 写出规范形式：按上表顺序写出字段，时长用最短写法（`15m` 而不是 `15m0s`），`disableGuests` 只在为 true 时写出。规范形式的文件（例如 `Marshal` 或 `accountsd init` 写出的文件）读入再写出不会变化；手写的文件若顺序或写法不同，会被规范化。`DefaultConfig` 返回上面展示的设置。
+`ParseConfig` 拒绝未知字段、多余的文档、越界的值，以及重复或带路径、查询、片段、用户信息、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：按上表顺序写出字段，时长用最短写法（`15m` 而不是 `15m0s`），`disableGuests` 只在为 true 时写出，`allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `accountsd init` 写出的文件）读入再写出不会变化；手写的文件若顺序或写法不同，会被规范化。`DefaultConfig` 返回上面展示的设置，不含 origin。
 
 ## 密码与密钥
 
@@ -169,7 +172,7 @@ func TestContract(t *testing.T) {
 | `GET /v1/me` | bearer 令牌 | 账号资料 |
 | `GET /v1/keys` | | YAML 格式的密钥集 |
 
-凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password` 和 `unknown_provider` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
+凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password` 和 `unknown_provider` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。对 `allowedOrigins` 中的 origin，处理器会应答 CORS 预检请求并允许 `Authorization` 和 `Content-Type`；其他 origin 不会收到 CORS 响应头。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
 
 ## accountsd
 
@@ -182,4 +185,4 @@ accountsd serve  -config accounts.yaml -key key.pem -keyset keys.yaml -sqlite ac
 ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -keyset keys.yaml -postgres
 ```
 
-`init` 从不覆盖已有配置，`genkey` 从不覆盖已有密钥。`genkey` 把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。
+`init` 从不覆盖已有配置，且不写入 `allowedOrigins`；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `accounts.yaml` 的 `allowedOrigins`。`genkey` 从不覆盖已有密钥，并把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。

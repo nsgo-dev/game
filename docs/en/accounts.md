@@ -112,6 +112,8 @@ password:
     time: 2
     memoryKiB: 19456
     threads: 1
+allowedOrigins:
+  - https://play.example.com
 ```
 
 | Field | Meaning |
@@ -122,8 +124,9 @@ password:
 | `disableGuests` | Refuses `CreateGuest`, so every account starts with an email address or an identity |
 | `password.minLength` | Fewest characters in a password, at least 8; passwords are at most 1024 bytes |
 | `password.argon2id` | The argon2id cost: passes, memory in KiB and lanes |
+| `allowedOrigins` | Web origins whose pages may call the service; omitted when empty |
 
-`ParseConfig` refuses unknown fields, trailing documents and out-of-range values. `Config.Marshal` writes the canonical form: the fields in the order above, durations in their shortest text (`15m`, not `15m0s`) and `disableGuests` only when it is true. A file in that form, such as one `Marshal` or `accountsd init` wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized. `DefaultConfig` returns the settings shown.
+`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin that is duplicated or has a path, query, fragment, user, wildcard, port outside 1 to 65535 or scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above, durations in their shortest text (`15m`, not `15m0s`), `disableGuests` only when it is true and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `accountsd init` wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized. `DefaultConfig` returns the settings shown, without origins.
 
 ## Passwords and secrets
 
@@ -169,7 +172,7 @@ func TestContract(t *testing.T) {
 | `GET /v1/me` | bearer token | profile |
 | `GET /v1/keys` | | the key set as YAML |
 
-Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password` and `unknown_provider` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. The handler does not limit request rates: run it behind TLS and a rate limiter.
+Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password` and `unknown_provider` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. For `allowedOrigins` the handler answers CORS preflight requests and allows `Authorization` and `Content-Type`; other origins receive no CORS headers. The handler does not limit request rates: run it behind TLS and a rate limiter.
 
 ## accountsd
 
@@ -182,4 +185,4 @@ accountsd serve  -config accounts.yaml -key key.pem -keyset keys.yaml -sqlite ac
 ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -keyset keys.yaml -postgres
 ```
 
-`init` never overwrites a configuration and `genkey` never overwrites a key. `genkey` adds the new public key to the key set file, the first step of a rotation; it replaces the file through a temporary file and a rename, so a game server reading it never sees half of it, and it removes the new key again when the key set cannot be written. `serve -keyset` accepts and serves every key in the key set, so tokens signed with an old key keep working on the service after a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.
+`init` never overwrites a configuration and writes no `allowedOrigins`; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `accounts.yaml` before `serve`. `genkey` never overwrites a key and adds the new public key to the key set file, the first step of a rotation; it replaces the file through a temporary file and a rename, so a game server reading it never sees half of it, and it removes the new key again when the key set cannot be written. `serve -keyset` accepts and serves every key in the key set, so tokens signed with an old key keep working on the service after a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.

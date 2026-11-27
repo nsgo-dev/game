@@ -59,6 +59,8 @@ func TestConfigRefusesInvalid(t *testing.T) {
 		"origin bare wildcard host": "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['https://*']\n",
 		"origin port out of range":  "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://a.example:99999']\n",
 		"origin port zero":          "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://a.example:0']\n",
+		"origin trailing colon":     "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://a.example:']\n",
+		"origin empty host":         "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://:8080']\n",
 		"origin twice":              "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [https://a.example, https://a.example]\n",
 		"trailing doc":              "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n---\nversion: 1\n",
 	}

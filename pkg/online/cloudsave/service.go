@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts/token"
@@ -29,7 +30,6 @@ type Service struct {
 	tokens *token.Verifier
 	log    *slog.Logger
 	now    func() time.Time
-	cors   map[string]bool
 }
 
 // New returns a service with the configuration and options.
@@ -40,21 +40,23 @@ func New(cfg Config, opts Options) (*Service, error) {
 	if opts.Store == nil || opts.Tokens == nil {
 		return nil, errors.New("cloudsave: need a Store and a token verifier")
 	}
-	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, log: opts.Logger, now: opts.Now, cors: map[string]bool{}}
+	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
+	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, log: opts.Logger, now: opts.Now}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
 	if s.now == nil {
 		s.now = time.Now
 	}
-	for _, o := range cfg.AllowedOrigins {
-		s.cors[o] = true
-	}
 	return s, nil
 }
 
 // Config returns the service's configuration.
-func (s *Service) Config() Config { return s.cfg }
+func (s *Service) Config() Config {
+	c := s.cfg
+	c.AllowedOrigins = slices.Clone(s.cfg.AllowedOrigins)
+	return c
+}
 
 // Load returns the current version of the account's slot with its data, or ErrNotFound when the slot was never written or is deleted.
 func (s *Service) Load(ctx context.Context, account, slot string) (Version, error) {

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
 // Headers of the HTTP protocol besides the standard ones.
@@ -124,7 +126,12 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/saves/{slot}/versions", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		writeDone(w, s.Purge(r.Context(), account, r.PathValue("slot")), s.cfg.MaxSlotBytes)
 	}))
-	return s.withCORS(mux)
+	return cors.Wrap(mux, cors.Policy{
+		Origins:       s.cfg.AllowedOrigins,
+		Methods:       []string{http.MethodGet, http.MethodPut, http.MethodDelete},
+		Headers:       []string{"Authorization", "Content-Type", "If-Match", "If-None-Match"},
+		ExposeHeaders: []string{"ETag", HeaderVersion},
+	})
 }
 
 type versionResponse struct {
@@ -202,39 +209,6 @@ func (s *Service) authed(h func(http.ResponseWriter, *http.Request, string)) htt
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "invalid_token"})
 	}
-}
-
-// withCORS answers preflight requests from Config.AllowedOrigins and lets those origins read the responses.
-func (s *Service) withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		w.Header().Add("Vary", "Origin")
-		allowed := s.cors[origin]
-		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
-			w.Header().Add("Vary", "Access-Control-Request-Method")
-			w.Header().Add("Vary", "Access-Control-Request-Headers")
-			w.Header().Set("Cache-Control", "no-store")
-			if !allowed {
-				w.WriteHeader(http.StatusForbidden)
-				return
-			}
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, DELETE")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, If-None-Match")
-			w.Header().Set("Access-Control-Max-Age", "600")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if allowed {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Expose-Headers", "ETag, "+HeaderVersion)
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func writePayload(w http.ResponseWriter, v Version) {

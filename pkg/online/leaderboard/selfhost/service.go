@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -155,6 +156,7 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 	if opts.Leeway < 0 {
 		return nil, errors.New("selfhost: negative leeway")
 	}
+	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, keys: map[string]ed25519.PublicKey{}, boards: map[string]*board{}, log: opts.Logger, now: opts.Now, leeway: opts.Leeway}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
@@ -233,7 +235,11 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 }
 
 // Config returns the service's configuration.
-func (s *Service) Config() Config { return s.cfg }
+func (s *Service) Config() Config {
+	c := s.cfg
+	c.AllowedOrigins = slices.Clone(s.cfg.AllowedOrigins)
+	return c
+}
 
 // board returns the named board, first moving it to the period the clock is in when that period has started since.
 func (s *Service) board(ctx context.Context, name string) (*board, error) {

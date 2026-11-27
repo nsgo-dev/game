@@ -35,6 +35,8 @@ boards:
 serverKeys:
   - id: 2317febd373fcbcd
     key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
+allowedOrigins:
+  - https://play.example.com
 ```
 
 | Field | Meaning |
@@ -50,8 +52,9 @@ serverKeys:
 | `validation` | `signed` accepts a score only with a game server's proof; absent trusts the player's client |
 | `min`, `max` | The scores the board accepts; at most 2^53-1 either way, so every score survives a JSON number in JavaScript |
 | `serverKeys` | The Ed25519 public keys game servers sign proofs with; a `signed` board needs at least one |
+| `allowedOrigins` | Web origins whose pages may call the service; omitted when empty |
 
-`ParseConfig` refuses unknown fields, duplicate keys, other versions and a second YAML document. Optional fields keep what the file says, and `Config.Marshal` writes the fields in the order above, so a file in that form parses and marshals back byte for byte.
+`ParseConfig` refuses unknown fields, duplicate keys, other versions, a second YAML document and an origin that is duplicated or has a path, query, fragment, user, wildcard, port outside 1 to 65535 or scheme other than `http` and `https`. Optional fields keep what the file says, and `Config.Marshal` writes the fields in the order above, omitting `allowedOrigins` when empty, so a file in that form parses and marshals back byte for byte.
 
 ## Ranking
 
@@ -114,7 +117,7 @@ A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over t
 
 A page is `{"board", "period", "total", "entries"}`, a period `{"id", "start", "end"}` (no `start` or `end` for an all-time board) and an entry `{"rank", "account", "score", "achieved"}`. Errors are `{"error": code}`: `invalid_token` 401; `proof_required`, `invalid_proof` and `proof_expired` 403; `unknown_board`, `unknown_period` and `not_ranked` 404; `bad_request`, `invalid_account` and `score_out_of_range` 400; `request_too_large` 413; `unavailable` 503; `internal` 500.
 
-Entries carry account IDs; a game that shows names looks them up in its own profiles. Put the handler behind TLS and a rate limiter.
+Entries carry account IDs; a game that shows names looks them up in its own profiles. For `allowedOrigins` the handler answers CORS preflight requests and allows `Authorization` and `Content-Type`; other origins receive no CORS headers. Put the handler behind TLS and a rate limiter.
 
 ## Storage
 
@@ -134,4 +137,4 @@ leaderboardd genkey -key server.pem
 leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 ```
 
-`init` writes a configuration with one all-time `high-score` board to edit. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.
+`init` writes a configuration with one all-time `high-score` board and no `allowedOrigins` to edit; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `leaderboards.yaml` before `serve`. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.

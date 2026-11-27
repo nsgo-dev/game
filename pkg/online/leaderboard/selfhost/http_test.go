@@ -319,3 +319,127 @@ func TestHandlerNeedsATokenVerifier(t *testing.T) {
 	}()
 	svc.Handler()
 }
+
+func TestHTTPCORS(t *testing.T) {
+	newWithOrigins := func(origins []string) (*fixture, string) {
+		t.Helper()
+		f := newFixture(t)
+		cfg := f.boards.Config()
+		cfg.AllowedOrigins = origins
+		ksYAML, err := f.accounts.KeySet().Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ks, err := token.ParseKeySet(ksYAML)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := token.NewVerifier(ks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v.Now = f.clock.Now
+		boards, err := selfhost.New(context.Background(), cfg, selfhost.Options{Store: selfhost.NewMemoryStore(), Tokens: v, Now: f.clock.Now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.boards = boards
+		f.h = boards.Handler()
+		ada, err := f.accounts.CreateGuest(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f, ada.Token.Reveal()
+	}
+
+	f, tok := newWithOrigins([]string{"https://play.example.com", "http://localhost:8080"})
+
+	preflight := func(h http.Handler, path, origin, method, headers string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", method)
+		if headers != "" {
+			req.Header.Set("Access-Control-Request-Headers", headers)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Preflight from listed origins succeeds on both POST and GET endpoints.
+	for _, tc := range []struct{ path, origin, method string }{
+		{"/v1/boards/high-score/scores", "https://play.example.com", http.MethodPost},
+		{"/v1/boards/high-score/top", "http://localhost:8080", http.MethodGet},
+	} {
+		rec := preflight(f.h, tc.path, tc.origin, tc.method, "authorization, content-type")
+		hdr := rec.Header()
+		if rec.Code != http.StatusNoContent ||
+			hdr.Get("Access-Control-Allow-Origin") != tc.origin ||
+			hdr.Get("Access-Control-Allow-Methods") != "GET, POST" ||
+			hdr.Get("Access-Control-Allow-Headers") != "Authorization, Content-Type" ||
+			hdr.Get("Access-Control-Max-Age") != "600" ||
+			hdr.Get("Cache-Control") != "no-store" ||
+			!slices.Equal(hdr.Values("Vary"), []string{"Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"}) {
+			t.Fatalf("preflight %s from %s = %d %v", tc.path, tc.origin, rec.Code, hdr)
+		}
+	}
+
+	// Preflight from an unlisted origin is refused with no CORS allow headers.
+	if rec := preflight(f.h, "/v1/boards/high-score/scores", "https://evil.example.com", http.MethodPost, "authorization, content-type"); rec.Code != http.StatusForbidden || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "Origin" {
+		t.Fatalf("foreign preflight = %d %v", rec.Code, rec.Header())
+	}
+
+	// Empty allowedOrigins refuses cross-origin preflights.
+	noCORS, _ := newWithOrigins(nil)
+	if rec := preflight(noCORS.h, "/v1/boards/high-score/scores", "https://play.example.com", http.MethodPost, "authorization"); rec.Code != http.StatusForbidden || rec.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("empty allowedOrigins preflight = %d %v", rec.Code, rec.Header())
+	}
+
+	// Real POST score submission and GET top from a listed origin carry Access-Control-Allow-Origin and Vary: Origin.
+	req := httptest.NewRequest(http.MethodPost, "/v1/boards/high-score/scores", strings.NewReader(`{"score":420}`))
+	req.Header.Set("Origin", "https://play.example.com")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "https://play.example.com" || rec.Header().Get("Vary") != "Origin" {
+		t.Fatalf("POST score = %d %v", rec.Code, rec.Header())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/boards/high-score/top", nil)
+	req.Header.Set("Origin", "https://play.example.com")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec = httptest.NewRecorder()
+	f.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "https://play.example.com" || rec.Header().Get("Vary") != "Origin" {
+		t.Fatalf("GET top = %d %v", rec.Code, rec.Header())
+	}
+
+	// Error response to a listed origin still carries Access-Control-Allow-Origin.
+	req = httptest.NewRequest(http.MethodGet, "/v1/boards/high-score/top", nil)
+	req.Header.Set("Origin", "https://play.example.com")
+	rec = httptest.NewRecorder()
+	f.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("Access-Control-Allow-Origin") != "https://play.example.com" || rec.Header().Get("Vary") != "Origin" {
+		t.Fatalf("unauthed GET top = %d %v", rec.Code, rec.Header())
+	}
+
+	// Real request from an unlisted origin gets Vary: Origin and no Access-Control-Allow-Origin.
+	req = httptest.NewRequest(http.MethodGet, "/v1/boards/high-score/top", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec = httptest.NewRecorder()
+	f.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "Origin" {
+		t.Fatalf("foreign GET top = %d %v", rec.Code, rec.Header())
+	}
+
+	// Native request without Origin gets no CORS or Vary headers.
+	req = httptest.NewRequest(http.MethodGet, "/v1/boards/high-score/top", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec = httptest.NewRecorder()
+	f.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "" {
+		t.Fatalf("native GET top = %d %v", rec.Code, rec.Header())
+	}
+}

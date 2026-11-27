@@ -14,3 +14,5 @@ boards:
   - name: daily
     order: descending
     reset: daily
+allowedOrigins:
+  - https://play.example.com
