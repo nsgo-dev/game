@@ -1,4 +1,4 @@
-package perf
+package spatial
 
 import (
 	"math"
@@ -26,14 +26,14 @@ type spatialEntry[ID comparable] struct {
 	alive      bool
 }
 
-// SpatialHash is a uniform 2D grid broad-phase index for fast area queries,
+// Hash is a uniform 2D grid broad-phase index for fast area queries,
 // point queries, and collision pair generation.
 //
 // Clear retains all bucket slices and map tables so per-frame rebuilds
 // (Clear + Insert + Query) run with 0 allocations in steady state. Query and
 // QueryPairs iterate cells in deterministic row-major order without iterating
 // over Go maps, deduplicating multi-cell entries via generation counters.
-type SpatialHash[ID comparable] struct {
+type Hash[ID comparable] struct {
 	cellSize     float32
 	cellSize64   float64
 	cellToBucket map[cellKey]int32
@@ -49,15 +49,15 @@ type SpatialHash[ID comparable] struct {
 	pairGen  uint64
 }
 
-// NewSpatialHash returns a SpatialHash with uniform square cells of cellSize
+// NewHash returns a Hash with uniform square cells of cellSize
 // points. If cellSize <= 0 or non-finite, it defaults to 64.
-func NewSpatialHash[ID comparable](cellSize float32) *SpatialHash[ID] {
+func NewHash[ID comparable](cellSize float32) *Hash[ID] {
 	cs := float64(cellSize)
 	if !(cs > 0) || math.IsInf(cs, 0) {
 		cellSize = defaultSpatialCellSize
 		cs = defaultSpatialCellSize
 	}
-	return &SpatialHash[ID]{
+	return &Hash[ID]{
 		cellSize:     cellSize,
 		cellSize64:   cs,
 		cellToBucket: make(map[cellKey]int32),
@@ -66,15 +66,15 @@ func NewSpatialHash[ID comparable](cellSize float32) *SpatialHash[ID] {
 }
 
 // CellSize returns the grid cell width and height in points.
-func (sh *SpatialHash[ID]) CellSize() float32 { return sh.cellSize }
+func (sh *Hash[ID]) CellSize() float32 { return sh.cellSize }
 
 // Len returns the number of items currently stored in the spatial hash.
-func (sh *SpatialHash[ID]) Len() int { return sh.count }
+func (sh *Hash[ID]) Len() int { return sh.count }
 
 // Clear removes all items from the spatial hash while keeping all bucket slice
 // capacities and internal map tables for zero-allocation reuse on subsequent
 // frames.
-func (sh *SpatialHash[ID]) Clear() {
+func (sh *Hash[ID]) Clear() {
 	for i := 0; i < sh.usedBuckets; i++ {
 		sh.buckets[i] = sh.buckets[i][:0]
 	}
@@ -89,7 +89,7 @@ func (sh *SpatialHash[ID]) Clear() {
 
 // Insert adds id with bounds to the spatial hash. If id is already present,
 // its bounds are updated in place.
-func (sh *SpatialHash[ID]) Insert(id ID, bounds core.Bounds) {
+func (sh *Hash[ID]) Insert(id ID, bounds core.Bounds) {
 	if _, exists := sh.idToIndex[id]; exists {
 		sh.Update(id, bounds)
 		return
@@ -124,7 +124,7 @@ func (sh *SpatialHash[ID]) Insert(id ID, bounds core.Bounds) {
 }
 
 // Remove deletes id from the spatial hash. Removing an absent id is a no-op.
-func (sh *SpatialHash[ID]) Remove(id ID) {
+func (sh *Hash[ID]) Remove(id ID) {
 	eIdx, exists := sh.idToIndex[id]
 	if !exists {
 		return
@@ -143,7 +143,7 @@ func (sh *SpatialHash[ID]) Remove(id ID) {
 // Update changes the bounds associated with id. If id is not yet in the
 // spatial hash, Update inserts it. When the item stays within the same grid
 // cells, Update completes in O(1) without touching any buckets.
-func (sh *SpatialHash[ID]) Update(id ID, bounds core.Bounds) {
+func (sh *Hash[ID]) Update(id ID, bounds core.Bounds) {
 	eIdx, exists := sh.idToIndex[id]
 	if !exists {
 		sh.Insert(id, bounds)
@@ -170,7 +170,7 @@ func (sh *SpatialHash[ID]) Update(id ID, bounds core.Bounds) {
 // Query appends all IDs whose bounds intersect area to out and returns the
 // extended slice. Multi-cell entries are reported once in deterministic order.
 // Pass out[:0] to reuse a buffer across frames with 0 allocations.
-func (sh *SpatialHash[ID]) Query(area core.Bounds, out []ID) []ID {
+func (sh *Hash[ID]) Query(area core.Bounds, out []ID) []ID {
 	if sh.count == 0 {
 		return out
 	}
@@ -202,7 +202,7 @@ func (sh *SpatialHash[ID]) Query(area core.Bounds, out []ID) []ID {
 
 // QueryPoint appends all IDs whose bounds contain p to out and returns the
 // extended slice.
-func (sh *SpatialHash[ID]) QueryPoint(p core.Point, out []ID) []ID {
+func (sh *Hash[ID]) QueryPoint(p core.Point, out []ID) []ID {
 	if sh.count == 0 || !isFinitePoint(p) {
 		return out
 	}
@@ -224,7 +224,7 @@ func (sh *SpatialHash[ID]) QueryPoint(p core.Point, out []ID) []ID {
 // QueryPairs invokes fn once for every unordered pair (a, b) of distinct
 // intersecting items in the spatial hash, without duplicates and with zero
 // allocations. Callers must not mutate the spatial hash during fn.
-func (sh *SpatialHash[ID]) QueryPairs(fn func(a, b ID)) {
+func (sh *Hash[ID]) QueryPairs(fn func(a, b ID)) {
 	if fn == nil || sh.count < 2 {
 		return
 	}
@@ -259,7 +259,7 @@ func (sh *SpatialHash[ID]) QueryPairs(fn func(a, b ID)) {
 	}
 }
 
-func (sh *SpatialHash[ID]) addToCells(eIdx int32, minX, maxX, minY, maxY int32) {
+func (sh *Hash[ID]) addToCells(eIdx int32, minX, maxX, minY, maxY int32) {
 	for cy := minY; cy <= maxY; cy++ {
 		for cx := minX; cx <= maxX; cx++ {
 			key := cellKey{cx, cy}
@@ -277,7 +277,7 @@ func (sh *SpatialHash[ID]) addToCells(eIdx int32, minX, maxX, minY, maxY int32) 
 	}
 }
 
-func (sh *SpatialHash[ID]) removeFromCells(eIdx int32, minX, maxX, minY, maxY int32) {
+func (sh *Hash[ID]) removeFromCells(eIdx int32, minX, maxX, minY, maxY int32) {
 	for cy := minY; cy <= maxY; cy++ {
 		for cx := minX; cx <= maxX; cx++ {
 			bIdx, exists := sh.cellToBucket[cellKey{cx, cy}]
@@ -297,7 +297,7 @@ func (sh *SpatialHash[ID]) removeFromCells(eIdx int32, minX, maxX, minY, maxY in
 	}
 }
 
-func (sh *SpatialHash[ID]) boundsCells(b core.Bounds) (minX, maxX, minY, maxY int32, ok bool) {
+func (sh *Hash[ID]) boundsCells(b core.Bounds) (minX, maxX, minY, maxY int32, ok bool) {
 	if !validNonEmptyBounds(b) {
 		return 0, 0, 0, 0, false
 	}
@@ -308,7 +308,7 @@ func (sh *SpatialHash[ID]) boundsCells(b core.Bounds) (minX, maxX, minY, maxY in
 	return minX, maxX, minY, maxY, true
 }
 
-func (sh *SpatialHash[ID]) nextQueryVisit() uint64 {
+func (sh *Hash[ID]) nextQueryVisit() uint64 {
 	sh.queryGen++
 	if sh.queryGen == 0 {
 		for i := range sh.entries {
@@ -319,7 +319,7 @@ func (sh *SpatialHash[ID]) nextQueryVisit() uint64 {
 	return sh.queryGen
 }
 
-func (sh *SpatialHash[ID]) nextPairVisit() uint64 {
+func (sh *Hash[ID]) nextPairVisit() uint64 {
 	sh.pairGen++
 	if sh.pairGen == 0 {
 		for i := range sh.entries {

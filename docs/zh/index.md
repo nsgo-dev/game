@@ -76,7 +76,8 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `quality` | `github.com/nsgo-dev/game/pkg/quality` | [quality](quality.md) | 按设备类型与实测帧时间选择低、中、高画质预设，可在设置中覆盖 |
 | `a11y` | `github.com/nsgo-dev/game/pkg/a11y` | [a11y](a11y.md) | 实时字幕、色盲调色板与 CVD 模拟、持久化辅助选项及屏幕阅读器菜单 |
 | `l10n` | `github.com/nsgo-dev/game/pkg/l10n` | [l10n](l10n.md) | 支持 CLDR 复数的 JSON 字符串表、脚本 `FontSet`、RTL 视觉排序与多语言资源目录 |
-| `perf` | `github.com/nsgo-dev/game/pkg/perf` | [perf](perf.md) | 零分配 `Pool`/`Arena`/`SlicePool`、`SpatialHash`、`Quadtree` 与 `CullBatch` |
+| `mempool` | `github.com/nsgo-dev/game/pkg/mempool` | [mempool](mempool.md) | 零分配对象池：`Pool`、带代际 `Handle` 的 `Arena` 与 `SlicePool` |
+| `spatial` | `github.com/nsgo-dev/game/pkg/spatial` | [spatial](spatial.md) | 以 `Hash` 与 `Quadtree` 做 2D 宽相检测，以 `Cull` 与 `CullBatch` 做视口裁剪 |
 | `idle` | `github.com/nsgo-dev/game/pkg/idle` | [idle](idle.md) | 超出 float64 范围的 `Number`、带上限的离线收益，以及大数字的缩写、科学计数法与本地化格式 |
 | `netplay` | `github.com/nsgo-dev/game/pkg/online/netplay` | [netplay](netplay.md) | 跨平台 WebSocket/UDP/回环传输、服务端权威增量复制与锁步/回滚同步 |
 | `wsclient` | `github.com/nsgo-dev/game/pkg/online/wsclient` | [wsclient](wsclient.md) | 连接第三方服务器的朴素 WebSocket 客户端，原生与 Web 平台同一套 API |

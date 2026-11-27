@@ -76,7 +76,8 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `quality` | `github.com/nsgo-dev/game/pkg/quality` | [quality](quality.md) | Low, medium and high presets picked from the device class and measured frame times, overridable in settings |
 | `a11y` | `github.com/nsgo-dev/game/pkg/a11y` | [a11y](a11y.md) | Live captions, color-blind palettes and CVD simulation, persisted assist options and accessible menus |
 | `l10n` | `github.com/nsgo-dev/game/pkg/l10n` | [l10n](l10n.md) | JSON string tables with CLDR plurals, script `FontSet`, RTL visual ordering and per-language asset catalogs |
-| `perf` | `github.com/nsgo-dev/game/pkg/perf` | [perf](perf.md) | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
+| `mempool` | `github.com/nsgo-dev/game/pkg/mempool` | [mempool](mempool.md) | Zero-alloc object pools: `Pool`, `Arena` with generational `Handle`s and `SlicePool` |
+| `spatial` | `github.com/nsgo-dev/game/pkg/spatial` | [spatial](spatial.md) | 2D broad phase with `Hash` and `Quadtree`, and viewport culling with `Cull` and `CullBatch` |
 | `idle` | `github.com/nsgo-dev/game/pkg/idle` | [idle](idle.md) | `Number` past float64's range, capped offline progress and short/scientific/locale formatting of large numbers |
 | `netplay` | `github.com/nsgo-dev/game/pkg/online/netplay` | [netplay](netplay.md) | Cross-target WebSocket/UDP/loopback transports, delta replication and lockstep/rollback netcode |
 | `wsclient` | `github.com/nsgo-dev/game/pkg/online/wsclient` | [wsclient](wsclient.md) | Plain WebSocket client for third-party servers, with the same API on native and web targets |

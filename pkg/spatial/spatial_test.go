@@ -1,4 +1,4 @@
-package perf_test
+package spatial_test
 
 import (
 	"math"
@@ -8,274 +8,13 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/gametest"
-	"github.com/nsgo-dev/game/pkg/perf"
+	"github.com/nsgo-dev/game/pkg/spatial"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
-
-// --- #223 Object Pools ---
-
-type testBullet struct {
-	X, Y   float32
-	VX, VY float32
-	Life   int
-	Trail  []float32
-}
-
-func TestPoolLifecycleAndResetHook(t *testing.T) {
-	resetCalls := 0
-	p := perf.NewPool(4, func(b *testBullet) {
-		resetCalls++
-		b.X, b.Y, b.VX, b.VY, b.Life = 0, 0, 0, 0, 0
-		b.Trail = b.Trail[:0]
-	})
-
-	if p.Cap() != 4 || p.Free() != 4 || p.Active() != 0 {
-		t.Fatalf("initial state: cap=%d free=%d active=%d, want 4/4/0", p.Cap(), p.Free(), p.Active())
-	}
-
-	b1 := p.Acquire()
-	b1.X = 10
-	b1.Trail = append(b1.Trail, 1, 2, 3)
-	origTrailCap := cap(b1.Trail)
-
-	b2 := p.Acquire()
-	b2.Life = 99
-	if p.Active() != 2 || p.Free() != 2 {
-		t.Fatalf("after 2 acquires: active=%d free=%d, want 2/2", p.Active(), p.Free())
-	}
-
-	// Nil release is a safe no-op.
-	p.Release(nil)
-	if p.Active() != 2 || p.Free() != 2 {
-		t.Fatalf("after Release(nil): active=%d free=%d, want 2/2", p.Active(), p.Free())
-	}
-
-	// Release invokes reset hook and preserves slice capacity.
-	p.Release(b1)
-	if resetCalls != 1 || p.Active() != 1 || p.Free() != 3 {
-		t.Fatalf("after release: resets=%d active=%d free=%d", resetCalls, p.Active(), p.Free())
-	}
-	reused := p.Acquire()
-	if reused != b1 {
-		t.Fatalf("expected LIFO reuse of b1, got different pointer")
-	}
-	if reused.X != 0 || len(reused.Trail) != 0 || cap(reused.Trail) != origTrailCap {
-		t.Fatalf("reset hook did not reset fields while preserving Trail cap: %+v cap=%d", reused, cap(reused.Trail))
-	}
-
-	// Growth preserves pointer stability for active items.
-	ptrs := []*testBullet{reused, b2}
-	for range 20 {
-		ptrs = append(ptrs, p.Acquire())
-	}
-	if p.Active() != 22 || p.Cap() < 22 {
-		t.Fatalf("after growth: active=%d cap=%d", p.Active(), p.Cap())
-	}
-	if b2.Life != 99 {
-		t.Fatalf("pointer stability broken after pool growth: b2.Life=%d", b2.Life)
-	}
-
-	// Prewarm ensures at least N free slots.
-	p.Prewarm(50)
-	if p.Free() < 50 {
-		t.Fatalf("after Prewarm(50): free=%d, want >= 50", p.Free())
-	}
-
-	// Reset reclaims everything without dropping capacity.
-	prevCap := p.Cap()
-	p.Reset()
-	if p.Active() != 0 || p.Free() != prevCap || p.Cap() != prevCap {
-		t.Fatalf("after Reset: active=%d free=%d cap=%d, want 0/%d/%d", p.Active(), p.Free(), p.Cap(), prevCap, prevCap)
-	}
-
-	// Nil reset hook zeroes elements on Release and Reset.
-	zeroPool := perf.NewPool[testBullet](2, nil)
-	z := zeroPool.Acquire()
-	z.X, z.Life = 42, 7
-	zeroPool.Release(z)
-	z2 := zeroPool.Acquire()
-	if z2.X != 0 || z2.Life != 0 {
-		t.Fatalf("nil reset did not zero element: %+v", z2)
-	}
-	z2.X = 55
-	zeroPool.Reset()
-	z3 := zeroPool.Acquire()
-	if z3.X != 0 {
-		t.Fatalf("Reset with nil hook did not zero element: %+v", z3)
-	}
-}
-
-func TestPoolZeroAllocSteadyState(t *testing.T) {
-	p := perf.NewPool(128, func(b *testBullet) {
-		b.X, b.Y, b.VX, b.VY, b.Life = 0, 0, 0, 0, 0
-	})
-
-	// 100k acquire/release cycles in steady state must do 0 allocations.
-	allocs := testing.AllocsPerRun(5, func() {
-		for range 100_000 {
-			b := p.Acquire()
-			b.X = 1
-			b.Life = 2
-			p.Release(b)
-		}
-	})
-	if allocs != 0 {
-		t.Fatalf("Pool 100k acquire/release allocated %.1f times/run, want 0", allocs)
-	}
-
-	// Wave acquire + Reset in steady state must also do 0 allocations.
-	p.Prewarm(1024)
-	waveAllocs := testing.AllocsPerRun(20, func() {
-		for i := range 1024 {
-			b := p.Acquire()
-			b.Life = i
-		}
-		p.Reset()
-	})
-	if waveAllocs != 0 {
-		t.Fatalf("Pool wave+Reset allocated %.1f times/run, want 0", waveAllocs)
-	}
-}
-
-func TestArenaHandlesSwapRemoveAndZeroAlloc(t *testing.T) {
-	a := perf.NewArena[testBullet](16, nil)
-
-	var zeroH perf.Handle
-	if !zeroH.IsZero() || a.Has(zeroH) || a.Remove(zeroH) {
-		t.Fatal("zero handle must be invalid")
-	}
-	if v, ok := a.Get(zeroH); ok || v != nil {
-		t.Fatal("Get(zero) must return (nil, false)")
-	}
-
-	h1 := a.Add(testBullet{X: 1, Life: 10})
-	h2 := a.Add(testBullet{X: 2, Life: 20})
-	h3, p3 := a.Alloc()
-	p3.X, p3.Life = 3, 30
-
-	if a.Len() != 3 {
-		t.Fatalf("Len=%d, want 3", a.Len())
-	}
-
-	// Remove middle element (h2); h3 swaps into its dense slot while keeping its handle valid.
-	if !a.Remove(h2) {
-		t.Fatal("Remove(h2) returned false")
-	}
-	if a.Remove(h2) {
-		t.Fatal("second Remove(h2) must return false")
-	}
-	if a.Has(h2) {
-		t.Fatal("removed handle must not be valid")
-	}
-	if v, ok := a.Get(h3); !ok || v.X != 3 || v.Life != 30 {
-		t.Fatalf("h3 after swap-remove = (%+v, %v), want X=3 Life=30", v, ok)
-	}
-
-	// Reusing h2's slot bumps generation so stale h2 stays invalid.
-	h4 := a.Add(testBullet{X: 4, Life: 40})
-	if h4 == h2 {
-		t.Fatal("reused handle must have a new generation")
-	}
-	if a.Has(h2) {
-		t.Fatal("stale handle h2 became valid after slot reuse")
-	}
-	if v, ok := a.Get(h4); !ok || v.X != 4 {
-		t.Fatalf("Get(h4) = (%+v, %v), want X=4", v, ok)
-	}
-
-	// ForEach and Slice visit all live elements.
-	seen := make(map[perf.Handle]float32)
-	a.ForEach(func(h perf.Handle, v *testBullet) {
-		seen[h] = v.X
-	})
-	if len(seen) != 3 || seen[h1] != 1 || seen[h3] != 3 || seen[h4] != 4 {
-		t.Fatalf("ForEach saw %v", seen)
-	}
-	if len(a.Slice()) != 3 {
-		t.Fatalf("Slice len=%d, want 3", len(a.Slice()))
-	}
-
-	// All() supports early break.
-	count := 0
-	for range a.All() {
-		count++
-		if count == 2 {
-			break
-		}
-	}
-	if count != 2 {
-		t.Fatalf("All() break stopped at %d, want 2", count)
-	}
-
-	// Reset invalidates all live handles and keeps capacity.
-	a.Reset()
-	if a.Len() != 0 || a.Has(h1) || a.Has(h3) || a.Has(h4) {
-		t.Fatal("Reset did not invalidate all handles")
-	}
-
-	// Steady-state Add/Get/ForEach/Remove/Reset = 0 allocs.
-	handles := make([]perf.Handle, 0, 128)
-	for i := range 128 {
-		handles = append(handles, a.Add(testBullet{Life: i}))
-	}
-	a.Reset()
-
-	allocs := testing.AllocsPerRun(50, func() {
-		handles = handles[:0]
-		for i := range 128 {
-			handles = append(handles, a.Add(testBullet{Life: i}))
-		}
-		sum := 0
-		a.ForEach(func(_ perf.Handle, b *testBullet) {
-			sum += b.Life
-		})
-		for _, h := range handles {
-			a.Remove(h)
-		}
-		_ = sum
-	})
-	if allocs != 0 {
-		t.Fatalf("Arena steady-state loop allocated %.1f times/run, want 0", allocs)
-	}
-}
-
-func TestSlicePoolReuseAndZeroAlloc(t *testing.T) {
-	sp := perf.NewSlicePool[int](4)
-	s1 := sp.Acquire(16)
-	s2 := sp.Acquire(64)
-	s1 = append(s1, 1, 2, 3)
-	s2 = append(s2, 10, 20)
-	sp.Release(s1)
-	sp.Release(s2)
-
-	if sp.Free() != 2 {
-		t.Fatalf("Free=%d, want 2", sp.Free())
-	}
-	// Best-fit should pick cap=16 for minCap=10 rather than cap=64.
-	got := sp.Acquire(10)
-	if len(got) != 0 || cap(got) != 16 {
-		t.Fatalf("best-fit got len=%d cap=%d, want 0/16", len(got), cap(got))
-	}
-	sp.Release(got)
-
-	allocs := testing.AllocsPerRun(100, func() {
-		buf := sp.Acquire(16)
-		buf = append(buf, 1, 2, 3, 4)
-		sp.Release(buf)
-	})
-	if allocs != 0 {
-		t.Fatalf("SlicePool steady state allocated %.1f times/run, want 0", allocs)
-	}
-
-	sp.Reset()
-	if sp.Free() != 0 {
-		t.Fatalf("after Reset Free=%d, want 0", sp.Free())
-	}
-}
 
 // --- #224 Spatial Hash & Quadtree ---
 
@@ -287,7 +26,7 @@ type rectItem struct {
 func bruteQuery(items []rectItem, area core.Bounds) []int {
 	var out []int
 	for _, it := range items {
-		if perf.Intersects(it.bounds, area) {
+		if spatial.Intersects(it.bounds, area) {
 			out = append(out, it.id)
 		}
 	}
@@ -306,7 +45,7 @@ func bruteQueryPoint(items []rectItem, p core.Point) []int {
 	return out
 }
 
-func TestSpatialHashAndQuadtreeEquivalence1000(t *testing.T) {
+func TestHashAndQuadtreeEquivalence1000(t *testing.T) {
 	rng := rand.New(rand.NewPCG(224, 99991))
 	world := core.Bounds{
 		Origin: core.Point{X: -500, Y: -500},
@@ -344,8 +83,8 @@ func TestSpatialHashAndQuadtreeEquivalence1000(t *testing.T) {
 		})
 	}
 
-	sh := perf.NewSpatialHash[int](64)
-	qt := perf.NewQuadtree[int](world, 8, 8)
+	sh := spatial.NewHash[int](64)
+	qt := spatial.NewQuadtree[int](world, 8, 8)
 	for _, it := range items {
 		sh.Insert(it.id, it.bounds)
 		qt.Insert(it.id, it.bounds)
@@ -379,14 +118,14 @@ func TestSpatialHashAndQuadtreeEquivalence1000(t *testing.T) {
 		shOut = sh.Query(area, shOut[:0])
 		shOut2 = sh.Query(area, shOut2[:0])
 		if !slices.Equal(shOut, shOut2) {
-			t.Fatalf("query %d: SpatialHash order not deterministic: %v vs %v", qi, shOut, shOut2)
+			t.Fatalf("query %d: Hash order not deterministic: %v vs %v", qi, shOut, shOut2)
 		}
 		qtOut = qt.Query(area, qtOut[:0])
 
 		slices.Sort(shOut)
 		slices.Sort(qtOut)
 		if !slices.Equal(shOut, want) {
-			t.Fatalf("query %d (%+v): SpatialHash got %d items, want %d\ngot:  %v\nwant: %v", qi, area, len(shOut), len(want), shOut, want)
+			t.Fatalf("query %d (%+v): Hash got %d items, want %d\ngot:  %v\nwant: %v", qi, area, len(shOut), len(want), shOut, want)
 		}
 		if !slices.Equal(qtOut, want) {
 			t.Fatalf("query %d (%+v): Quadtree got %d items, want %d\ngot:  %v\nwant: %v", qi, area, len(qtOut), len(want), qtOut, want)
@@ -415,7 +154,7 @@ func TestSpatialHashAndQuadtreeEquivalence1000(t *testing.T) {
 		slices.Sort(shOut)
 		slices.Sort(qtOut)
 		if !slices.Equal(shOut, want) {
-			t.Fatalf("point %d (%+v): SpatialHash got %v, want %v", pi, pt, shOut, want)
+			t.Fatalf("point %d (%+v): Hash got %v, want %v", pi, pt, shOut, want)
 		}
 		if !slices.Equal(qtOut, want) {
 			t.Fatalf("point %d (%+v): Quadtree got %v, want %v", pi, pt, qtOut, want)
@@ -423,9 +162,9 @@ func TestSpatialHashAndQuadtreeEquivalence1000(t *testing.T) {
 	}
 }
 
-func TestSpatialHashUpdateRemoveAndQueryPairs(t *testing.T) {
+func TestHashUpdateRemoveAndQueryPairs(t *testing.T) {
 	rng := rand.New(rand.NewPCG(77, 88))
-	sh := perf.NewSpatialHash[int](32)
+	sh := spatial.NewHash[int](32)
 
 	active := make(map[int]core.Bounds)
 	for i := range 250 {
@@ -477,7 +216,7 @@ func TestSpatialHashUpdateRemoveAndQueryPairs(t *testing.T) {
 	wantPairs := make(map[pair]struct{})
 	for i := range ids {
 		for j := i + 1; j < len(ids); j++ {
-			if perf.Intersects(active[ids[i]], active[ids[j]]) {
+			if spatial.Intersects(active[ids[i]], active[ids[j]]) {
 				wantPairs[pair{ids[i], ids[j]}] = struct{}{}
 			}
 		}
@@ -518,7 +257,7 @@ func TestQuadtreeRemoveUpdateAndDeepCluster(t *testing.T) {
 		Origin: core.Point{X: 0, Y: 0},
 		Size:   core.Size{Width: 512, Height: 512},
 	}
-	qt := perf.NewQuadtree[int](world, 4, 6)
+	qt := spatial.NewQuadtree[int](world, 4, 6)
 
 	// 30 identical rects at the same spot must hit maxDepth cleanly without infinite recursion.
 	same := core.Bounds{Origin: core.Point{X: 10, Y: 10}, Size: core.Size{Width: 2, Height: 2}}
@@ -585,8 +324,8 @@ func TestSpatialAndQuadtreeZeroAllocPerFrame(t *testing.T) {
 		Size:   core.Size{Width: 300, Height: 300},
 	}
 
-	sh := perf.NewSpatialHash[int](64)
-	qt := perf.NewQuadtree[int](world, 8, 8)
+	sh := spatial.NewHash[int](64)
+	qt := spatial.NewQuadtree[int](world, 8, 8)
 	out := make([]int, 0, 1024)
 
 	// Warm up backing buffers and node/bucket pools.
@@ -609,7 +348,7 @@ func TestSpatialAndQuadtreeZeroAllocPerFrame(t *testing.T) {
 		out = sh.Query(queryArea, out[:0])
 	})
 	if shAllocs != 0 {
-		t.Fatalf("SpatialHash Clear+Insert(1000)+Query allocated %.1f times/run, want 0", shAllocs)
+		t.Fatalf("Hash Clear+Insert(1000)+Query allocated %.1f times/run, want 0", shAllocs)
 	}
 
 	qtAllocs := testing.AllocsPerRun(20, func() {
@@ -644,10 +383,10 @@ func TestIntersectsEdgeCases(t *testing.T) {
 		{"nan", core.Bounds{Origin: core.Point{X: core.Points(math.NaN()), Y: 0}, Size: core.Size{Width: 5, Height: 5}}, false},
 	}
 	for _, tc := range cases {
-		if got := perf.Intersects(a, tc.b); got != tc.want {
+		if got := spatial.Intersects(a, tc.b); got != tc.want {
 			t.Errorf("%s: Intersects=%v, want %v", tc.name, got, tc.want)
 		}
-		if got := perf.Intersects(tc.b, a); got != tc.want {
+		if got := spatial.Intersects(tc.b, a); got != tc.want {
 			t.Errorf("%s (swapped): Intersects=%v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -728,7 +467,7 @@ func TestSpriteBoundsExactTransform(t *testing.T) {
 	for _, tc := range cases {
 		s := sprite.NewSprite(tc.f)
 		tc.edit(&s)
-		got := perf.SpriteBounds(&s)
+		got := spatial.SpriteBounds(&s)
 		want := refBounds(&s)
 		if !near(got.Origin.X, want.Origin.X) || !near(got.Origin.Y, want.Origin.Y) ||
 			!near(got.Size.Width, want.Size.Width) || !near(got.Size.Height, want.Size.Height) {
@@ -737,11 +476,11 @@ func TestSpriteBoundsExactTransform(t *testing.T) {
 	}
 
 	// Degenerate / nil inputs return zero bounds.
-	if b := perf.SpriteBounds(nil); b != (core.Bounds{}) {
+	if b := spatial.SpriteBounds(nil); b != (core.Bounds{}) {
 		t.Fatalf("SpriteBounds(nil) = %+v, want zero", b)
 	}
 	zero := sprite.Sprite{}
-	if b := perf.SpriteBounds(&zero); b != (core.Bounds{}) {
+	if b := spatial.SpriteBounds(&zero); b != (core.Bounds{}) {
 		t.Fatalf("SpriteBounds(zero) = %+v, want zero", b)
 	}
 }
@@ -785,7 +524,7 @@ func TestCullSpritesEdgeCasesAndZeroAlloc(t *testing.T) {
 	})
 
 	src := []*sprite.Sprite{rotEdgeIn, rotEdgeOut, scaledIn, flippedIn, flippedOut, invisibleAlpha, nil}
-	got := perf.CullSprites(view, src, nil)
+	got := spatial.CullSprites(view, src, nil)
 	want := []*sprite.Sprite{rotEdgeIn, scaledIn, flippedIn}
 	if !slices.Equal(got, want) {
 		t.Fatalf("CullSprites got %d items, want %d", len(got), len(want))
@@ -803,7 +542,7 @@ func TestCullSpritesEdgeCasesAndZeroAlloc(t *testing.T) {
 	}
 	entBuf := make([]entity, 0, len(ents))
 	entAllocs := testing.AllocsPerRun(50, func() {
-		entBuf = perf.Cull(view, ents, func(e entity) core.Bounds { return e.b }, entBuf[:0])
+		entBuf = spatial.Cull(view, ents, func(e entity) core.Bounds { return e.b }, entBuf[:0])
 	})
 	if len(entBuf) != 2 || entBuf[0].id != 1 || entBuf[1].id != 3 {
 		t.Fatalf("Cull got %+v", entBuf)
@@ -825,7 +564,7 @@ func TestCullSpritesEdgeCasesAndZeroAlloc(t *testing.T) {
 	}
 	dst := make([]*sprite.Sprite, 0, 64)
 	allocs := testing.AllocsPerRun(50, func() {
-		dst = perf.CullSprites(view, many, dst[:0])
+		dst = spatial.CullSprites(view, many, dst[:0])
 	})
 	if len(dst) != 20 {
 		t.Fatalf("CullSprites(1000) returned %d visible, want 20", len(dst))
@@ -899,12 +638,12 @@ func TestCullBatchDrawsOnlyVisible20Of1000(t *testing.T) {
 	origSnapshot := slices.Clone(all)
 	fullBatch := &sprite.Batch{Atlas: sheet, Sprites: all}
 	refBatch := &sprite.Batch{Atlas: sheet, Sprites: expectedVisible}
-	var culler perf.BatchCuller
+	var culler spatial.BatchCuller
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return core.View{Children: []core.Node{
 			core.Canvas{TestID: "culled", Style: core.Style{Width: core.Pt(200), Height: core.Pt(200)}, Draw: func(d *core.Drawing, _ core.Size) {
-				perf.CullBatch(fullBatch, view, d)
+				spatial.CullBatch(fullBatch, view, d)
 			}},
 			core.Canvas{TestID: "culler", Style: core.Style{Width: core.Pt(200), Height: core.Pt(200)}, Draw: func(d *core.Drawing, _ core.Size) {
 				culler.Draw(fullBatch, view, d)
@@ -936,43 +675,7 @@ func TestCullBatchDrawsOnlyVisible20Of1000(t *testing.T) {
 
 // --- Benchmarks ---
 
-func BenchmarkPoolAcquireRelease100k(b *testing.B) {
-	p := perf.NewPool(64, func(t *testBullet) {
-		t.X, t.Y, t.VX, t.VY, t.Life = 0, 0, 0, 0, 0
-	})
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		for range 100_000 {
-			obj := p.Acquire()
-			obj.X = 1
-			p.Release(obj)
-		}
-	}
-}
-
-func BenchmarkArenaAddRemove(b *testing.B) {
-	a := perf.NewArena[testBullet](1024, nil)
-	handles := make([]perf.Handle, 0, 1024)
-	for i := range 1024 {
-		handles = append(handles, a.Add(testBullet{Life: i}))
-	}
-	a.Reset()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		handles = handles[:0]
-		for i := range 1024 {
-			handles = append(handles, a.Add(testBullet{Life: i}))
-		}
-		for _, h := range handles {
-			a.Remove(h)
-		}
-	}
-}
-
-func BenchmarkSpatialHashFrame1000(b *testing.B) {
+func BenchmarkHashFrame1000(b *testing.B) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	items := make([]rectItem, 1000)
 	for i := range items {
@@ -985,7 +688,7 @@ func BenchmarkSpatialHashFrame1000(b *testing.B) {
 		}
 	}
 	area := core.Bounds{Origin: core.Point{X: 800, Y: 800}, Size: core.Size{Width: 200, Height: 200}}
-	sh := perf.NewSpatialHash[int](64)
+	sh := spatial.NewHash[int](64)
 	out := make([]int, 0, 256)
 
 	// Warm up.
@@ -1006,9 +709,9 @@ func BenchmarkSpatialHashFrame1000(b *testing.B) {
 	_ = out
 }
 
-func BenchmarkSpatialHashQuery1000(b *testing.B) {
+func BenchmarkHashQuery1000(b *testing.B) {
 	rng := rand.New(rand.NewPCG(1, 2))
-	sh := perf.NewSpatialHash[int](64)
+	sh := spatial.NewHash[int](64)
 	for i := range 1000 {
 		sh.Insert(i, core.Bounds{
 			Origin: core.Point{X: core.Points(rng.Float64() * 2000), Y: core.Points(rng.Float64() * 2000)},
@@ -1040,7 +743,7 @@ func BenchmarkQuadtreeFrame1000(b *testing.B) {
 		}
 	}
 	area := core.Bounds{Origin: core.Point{X: 800, Y: 800}, Size: core.Size{Width: 200, Height: 200}}
-	qt := perf.NewQuadtree[int](world, 8, 8)
+	qt := spatial.NewQuadtree[int](world, 8, 8)
 	out := make([]int, 0, 256)
 
 	// Warm up.
@@ -1064,7 +767,7 @@ func BenchmarkQuadtreeFrame1000(b *testing.B) {
 func BenchmarkQuadtreeQuery1000(b *testing.B) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	world := core.Bounds{Origin: core.Point{X: 0, Y: 0}, Size: core.Size{Width: 2048, Height: 2048}}
-	qt := perf.NewQuadtree[int](world, 8, 8)
+	qt := spatial.NewQuadtree[int](world, 8, 8)
 	for i := range 1000 {
 		qt.Insert(i, core.Bounds{
 			Origin: core.Point{X: core.Points(rng.Float64() * 2000), Y: core.Points(rng.Float64() * 2000)},
@@ -1102,7 +805,7 @@ func BenchmarkBruteForceQuery1000(b *testing.B) {
 	for range b.N {
 		out = out[:0]
 		for _, it := range items {
-			if perf.Intersects(it.bounds, area) {
+			if spatial.Intersects(it.bounds, area) {
 				out = append(out, it.id)
 			}
 		}
@@ -1128,7 +831,7 @@ func BenchmarkCullSprites1000(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		dst = perf.CullSprites(view, sprites, dst[:0])
+		dst = spatial.CullSprites(view, sprites, dst[:0])
 	}
 	_ = dst
 }

@@ -107,6 +107,7 @@
 | `game/pkg/math2d` | 稳定 | [math2d](math2d.md) |
 | `game/pkg/math3d` | 实验性 | [math3d](math3d.md) |
 | `game/pkg/mcp` | 实验性 | [mcp](mcp.md) |
+| `game/pkg/mempool` | 实验性 | [mempool](mempool.md) |
 | `game/pkg/modding` | 实验性 | [modding](modding.md) |
 | `game/pkg/online/accounts` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/authtoken` | 实验性 | [accounts](accounts.md) |
@@ -131,7 +132,6 @@
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
 | `game/pkg/online/wsclient` | 实验性 | [wsclient](wsclient.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |
-| `game/pkg/perf` | 实验性 | [perf](perf.md) |
 | `game/pkg/physics` | 稳定 | [physics](physics.md) |
 | `game/pkg/physics3d` | 实验性 | [physics3d](physics3d.md) |
 | `game/pkg/pixelfx` | 实验性 | [pixelfx](pixelfx.md) |
@@ -181,6 +181,7 @@
 | `game/pkg/screen` | 稳定 | [screen](screen.md) |
 | `game/pkg/skeletal` | 实验性 | [skeletal](skeletal.md) |
 | `game/pkg/sound` | 稳定 | [sound](sound.md) |
+| `game/pkg/spatial` | 实验性 | [spatial](spatial.md) |
 | `game/pkg/sprite` | 稳定 | [sprite](sprite.md) |
 | `game/pkg/statedump` | 实验性 | [statedump](statedump.md) |
 | `game/pkg/stats` | 实验性 | [stats](stats.md) |

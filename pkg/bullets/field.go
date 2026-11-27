@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/math2d"
-	"github.com/nsgo-dev/game/pkg/perf"
+	"github.com/nsgo-dev/game/pkg/mempool"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -86,7 +86,7 @@ type Field struct {
 	// Limit, when above 0, is the most bullets the field holds: a shot spawns none past it.
 	Limit int
 
-	pool  *perf.Pool[Bullet]
+	pool  *mempool.Pool[Bullet]
 	live  []*Bullet
 	batch sprite.Batch
 }
@@ -96,7 +96,7 @@ func NewField(atlas *sprite.Atlas, capacity int) *Field {
 	capacity = max(capacity, 0)
 	return &Field{
 		Atlas: atlas,
-		pool:  perf.NewPool[Bullet](capacity, nil),
+		pool:  mempool.NewPool[Bullet](capacity, nil),
 		live:  make([]*Bullet, 0, capacity),
 		batch: sprite.Batch{Sprites: make([]*sprite.Sprite, 0, capacity)},
 	}

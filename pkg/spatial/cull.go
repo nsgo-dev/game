@@ -1,4 +1,4 @@
-package perf
+package spatial
 
 import (
 	"math"

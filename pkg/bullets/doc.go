@@ -21,7 +21,7 @@
 //
 // # Fields and Emitters
 //
-// A Field owns the live bullets: it takes them from a perf.Pool, moves them in Update, removes those that outlive their lifetime or leave its Bounds, and draws them through one sprite.Batch. An Emitter fires one pattern's shots into a field at the pattern's times, drawing any jitter from its own seeded random.Stream, so an emitter with the same pattern, seed and steps spawns the same bullets.
+// A Field owns the live bullets: it takes them from a mempool.Pool, moves them in Update, removes those that outlive their lifetime or leave its Bounds, and draws them through one sprite.Batch. An Emitter fires one pattern's shots into a field at the pattern's times, drawing any jitter from its own seeded random.Stream, so an emitter with the same pattern, seed and steps spawns the same bullets.
 //
 // Each fixed step, update the field first and then its emitters: an emitter places the bullets of a shot fired partway through the step where they are at the step's end.
 package bullets
