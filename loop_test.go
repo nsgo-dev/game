@@ -196,6 +196,201 @@ func TestALongFrameRunsAtMostMaxStepsAndDropsTheRest(t *testing.T) {
 	}
 }
 
+func TestChangingRateOrMaxStepsInUpdateEnforcesCapMidFrame(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		initRate       int
+		initMaxSteps   int
+		hitch          time.Duration
+		changeAtStep   int
+		mutate         func(l *game.Loop)
+		wantHitchSteps int
+		wantNextSec    int
+	}{
+		{
+			name:           "lower MaxSteps below steps already run",
+			initRate:       60,
+			initMaxSteps:   10,
+			hitch:          500 * time.Millisecond,
+			changeAtStep:   5,
+			mutate:         func(l *game.Loop) { l.MaxSteps = 3 },
+			wantHitchSteps: 5,
+			wantNextSec:    60,
+		},
+		{
+			name:           "lower MaxSteps to equal steps already run",
+			initRate:       60,
+			initMaxSteps:   10,
+			hitch:          500 * time.Millisecond,
+			changeAtStep:   4,
+			mutate:         func(l *game.Loop) { l.MaxSteps = 4 },
+			wantHitchSteps: 4,
+			wantNextSec:    60,
+		},
+		{
+			name:           "lower MaxSteps above steps already run",
+			initRate:       60,
+			initMaxSteps:   10,
+			hitch:          500 * time.Millisecond,
+			changeAtStep:   2,
+			mutate:         func(l *game.Loop) { l.MaxSteps = 5 },
+			wantHitchSteps: 5,
+			wantNextSec:    60,
+		},
+		{
+			name:           "reset MaxSteps to zero below steps already run",
+			initRate:       60,
+			initMaxSteps:   20,
+			hitch:          2 * time.Second,
+			changeAtStep:   8,
+			mutate:         func(l *game.Loop) { l.MaxSteps = 0 },
+			wantHitchSteps: 8,
+			wantNextSec:    60,
+		},
+		{
+			name:           "set MaxSteps negative below steps already run",
+			initRate:       60,
+			initMaxSteps:   20,
+			hitch:          2 * time.Second,
+			changeAtStep:   8,
+			mutate:         func(l *game.Loop) { l.MaxSteps = -3 },
+			wantHitchSteps: 8,
+			wantNextSec:    60,
+		},
+		{
+			name:           "lower Rate with default MaxSteps below steps already run",
+			initRate:       120,
+			initMaxSteps:   0,
+			hitch:          2 * time.Second,
+			changeAtStep:   7,
+			mutate:         func(l *game.Loop) { l.Rate = 60 },
+			wantHitchSteps: 7,
+			wantNextSec:    60,
+		},
+		{
+			name:           "lower Rate to very low value with default MaxSteps",
+			initRate:       120,
+			initMaxSteps:   0,
+			hitch:          2 * time.Second,
+			changeAtStep:   3,
+			mutate:         func(l *game.Loop) { l.Rate = 5 },
+			wantHitchSteps: 3,
+			wantNextSec:    5,
+		},
+		{
+			name:           "reset Rate to zero with default MaxSteps",
+			initRate:       120,
+			initMaxSteps:   0,
+			hitch:          2 * time.Second,
+			changeAtStep:   7,
+			mutate:         func(l *game.Loop) { l.Rate = 0 },
+			wantHitchSteps: 7,
+			wantNextSec:    60,
+		},
+		{
+			name:           "set Rate negative with default MaxSteps",
+			initRate:       120,
+			initMaxSteps:   0,
+			hitch:          2 * time.Second,
+			changeAtStep:   7,
+			mutate:         func(l *game.Loop) { l.Rate = -10 },
+			wantHitchSteps: 7,
+			wantNextSec:    60,
+		},
+		{
+			name:           "raise MaxSteps mid-frame",
+			initRate:       60,
+			initMaxSteps:   3,
+			hitch:          500 * time.Millisecond,
+			changeAtStep:   2,
+			mutate:         func(l *game.Loop) { l.MaxSteps = 6 },
+			wantHitchSteps: 6,
+			wantNextSec:    60,
+		},
+		{
+			name:           "raise Rate with default MaxSteps mid-frame",
+			initRate:       60,
+			initMaxSteps:   0,
+			hitch:          500 * time.Millisecond,
+			changeAtStep:   3,
+			mutate:         func(l *game.Loop) { l.Rate = 120 },
+			wantHitchSteps: 12,
+			wantNextSec:    120,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var updates, draws int
+			var l *game.Loop
+			l = &game.Loop{
+				Rate:     tc.initRate,
+				MaxSteps: tc.initMaxSteps,
+				Update: func(time.Duration) {
+					updates++
+					if updates == tc.changeAtStep {
+						tc.mutate(l)
+					}
+				},
+				Draw: func(alpha float64) {
+					draws++
+					if alpha < 0 || alpha >= 1 {
+						t.Errorf("draw %d: alpha %v, want it in [0, 1)", draws, alpha)
+					}
+				},
+			}
+			app := start(t, l)
+			app.FastForward(tc.hitch)
+			if updates != tc.wantHitchSteps || draws != 1 {
+				t.Fatalf("after hitch: %d updates and %d draws, want %d and 1", updates, draws, tc.wantHitchSteps)
+			}
+			// Dropped whole steps must not leak into subsequent frames.
+			app.Advance(time.Second)
+			if updates != tc.wantHitchSteps+tc.wantNextSec || draws != 61 {
+				t.Fatalf("after next second: %d updates and %d draws, want %d and 61", updates, draws, tc.wantHitchSteps+tc.wantNextSec)
+			}
+		})
+	}
+}
+
+func TestMidFrameCapDropKeepsSubStepRemainder(t *testing.T) {
+	var updates int
+	var alphas []float64
+	var dts []time.Duration
+	var l *game.Loop
+	l = &game.Loop{
+		Rate: 100, // 10 ms step, default MaxSteps 10
+		Update: func(dt time.Duration) {
+			updates++
+			dts = append(dts, dt)
+			if updates == 6 {
+				// Default cap drops to 5 (< 6); loop stops after step 6 and keeps the 4 ms sub-step remainder.
+				l.Rate = 50
+			}
+		},
+		Draw: func(alpha float64) {
+			alphas = append(alphas, alpha)
+		},
+	}
+	app := start(t, l)
+	// 50 whole 10 ms steps plus 4 ms remainder.
+	app.FastForward(504 * time.Millisecond)
+	if updates != 6 || len(alphas) != 1 || math.Abs(alphas[0]-0.4) > 1e-9 {
+		t.Fatalf("after hitch: updates=%d alphas=%v, want 6 and [0.4]", updates, alphas)
+	}
+	for i, dt := range dts {
+		if dt != 10*time.Millisecond {
+			t.Fatalf("hitch step %d dt=%v, want 10ms", i, dt)
+		}
+	}
+	// Next frame at the new 50 Hz (20 ms step): 4 ms carried remainder + 16 ms = 1 exact step, alpha 0.
+	app.FastForward(16 * time.Millisecond)
+	if updates != 7 || len(alphas) != 2 || math.Abs(alphas[1]) > 1e-9 {
+		t.Fatalf("after 16 ms at 50 Hz: updates=%d alphas=%v, want 7 and [0.4 0]", updates, alphas)
+	}
+	if dts[6] != 20*time.Millisecond {
+		t.Fatalf("next frame dt=%v, want 20ms", dts[6])
+	}
+}
+
 func TestTheBackgroundPausesTheLoopWithoutACatchUp(t *testing.T) {
 	c := count(game.Loop{})
 	app := start(t, &c.Loop)
