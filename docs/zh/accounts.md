@@ -12,7 +12,7 @@
 | `accounts/pgstore` | 存于 Postgres 的 `Store`，可供多个服务进程共享 |
 | `accounts/sqlstore` | 两种存储共用的 SQL 表结构与查询 |
 | `accounts/storetest` | `Store` 契约测试，用于自己实现的存储 |
-| `accounts/cmd/accountsd` | 支持游客与邮箱账号的独立 HTTP 服务器 |
+| `cmd/accountsd` | 支持游客与邮箱账号的独立 HTTP 服务器 |
 
 ## 账号、会话与令牌
 
@@ -173,7 +173,7 @@ func TestContract(t *testing.T) {
 
 ## accountsd
 
-`accounts/cmd/accountsd` 为游客和邮箱账号运行该服务：
+`cmd/accountsd` 为游客和邮箱账号运行该服务：
 
 ```sh
 accountsd init   -config accounts.yaml -issuer https://accounts.example.com -audience my-game

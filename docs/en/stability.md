@@ -62,18 +62,20 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | Package | Status | Guide |
 | --- | --- | --- |
 | `game` | Stable | [Loop](loop.md) |
+| `game/cmd/accountsd` | Experimental | [accounts](accounts.md) |
+| `game/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | Experimental | [Scene Editor](editor.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
 | `game/cmd/gameschema` | Experimental | [Schemas for YAML files](schemas.md) |
+| `game/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
 | `game/pkg/accounts` | Experimental | [accounts](accounts.md) |
-| `game/pkg/accounts/cmd/accountsd` | Experimental | [accounts](accounts.md) |
 | `game/pkg/accounts/pgstore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
@@ -88,7 +90,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/bullets` | Experimental | [bullets](bullets.md) |
 | `game/pkg/cards` | Experimental | [cards](cards.md) |
 | `game/pkg/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
-| `game/pkg/cloudsave/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |
@@ -111,7 +112,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/l10n` | Experimental | [l10n](l10n.md) |
 | `game/pkg/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
 | `game/pkg/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
-| `game/pkg/leaderboard/selfhost/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/lights2d` | Experimental | [lights2d](lights2d.md) |
 | `game/pkg/liveops` | Experimental | [liveops](liveops.md) |
 | `game/pkg/loaderr` | Stable | [Errors](errors.md) |

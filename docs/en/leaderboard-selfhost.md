@@ -11,7 +11,7 @@ It is server-side code. It needs only the standard library, the YAML package and
 | Package | What it holds |
 | --- | --- |
 | `leaderboard/selfhost` | `Service`, `Config`, the `Store` interface with `MemoryStore` and `FileStore`, `ProofSigner` and the HTTP `Handler` |
-| `leaderboard/selfhost/cmd/leaderboardd` | A standalone HTTP server with its scores in a directory |
+| `cmd/leaderboardd` | A standalone HTTP server with its scores in a directory |
 
 ## Declaring boards
 

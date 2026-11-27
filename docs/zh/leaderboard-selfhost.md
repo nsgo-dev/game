@@ -11,7 +11,7 @@ import "github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
 | 包 | 内容 |
 | --- | --- |
 | `leaderboard/selfhost` | `Service`、`Config`、`Store` 接口及 `MemoryStore` 与 `FileStore`、`ProofSigner` 和 HTTP `Handler` |
-| `leaderboard/selfhost/cmd/leaderboardd` | 把成绩存在一个目录里的独立 HTTP 服务器 |
+| `cmd/leaderboardd` | 把成绩存在一个目录里的独立 HTTP 服务器 |
 
 ## 声明排行榜
 

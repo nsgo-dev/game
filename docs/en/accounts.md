@@ -12,7 +12,7 @@ The service is server-side code in its own packages. A game client or game serve
 | `accounts/pgstore` | A `Store` in Postgres, shared by several service processes |
 | `accounts/sqlstore` | The SQL schema and queries both stores share |
 | `accounts/storetest` | The `Store` contract tests, for a store of your own |
-| `accounts/cmd/accountsd` | A standalone HTTP server for guests and email accounts |
+| `cmd/accountsd` | A standalone HTTP server for guests and email accounts |
 
 ## Accounts, sessions and tokens
 
@@ -173,7 +173,7 @@ Credentials are `{"account", "session", "token", "expires", "created"}`, with st
 
 ## accountsd
 
-`accounts/cmd/accountsd` runs the service for guests and email accounts:
+`cmd/accountsd` runs the service for guests and email accounts:
 
 ```sh
 accountsd init   -config accounts.yaml -issuer https://accounts.example.com -audience my-game

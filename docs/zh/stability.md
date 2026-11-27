@@ -62,18 +62,20 @@
 | 包 | 状态 | 指南 |
 | --- | --- | --- |
 | `game` | 稳定 | [Loop](loop.md) |
+| `game/cmd/accountsd` | 实验性 | [accounts](accounts.md) |
+| `game/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | 实验性 | [场景编辑器](editor.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
 | `game/cmd/gameschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
+| `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
 | `game/pkg/ability` | 实验性 | [ability](ability.md) |
 | `game/pkg/accounts` | 实验性 | [accounts](accounts.md) |
-| `game/pkg/accounts/cmd/accountsd` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/accounts/pgstore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/accounts/sqlitestore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/accounts/sqlstore` | 实验性 | [accounts](accounts.md) |
@@ -88,7 +90,6 @@
 | `game/pkg/bullets` | 实验性 | [bullets](bullets.md) |
 | `game/pkg/cards` | 实验性 | [cards](cards.md) |
 | `game/pkg/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |
-| `game/pkg/cloudsave/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
@@ -111,7 +112,6 @@
 | `game/pkg/l10n` | 实验性 | [l10n](l10n.md) |
 | `game/pkg/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
 | `game/pkg/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
-| `game/pkg/leaderboard/selfhost/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/lights2d` | 实验性 | [lights2d](lights2d.md) |
 | `game/pkg/liveops` | 实验性 | [liveops](liveops.md) |
 | `game/pkg/loaderr` | 稳定 | [可据以行动的错误](errors.md) |

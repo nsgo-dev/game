@@ -123,20 +123,20 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/server/cmd/dedicatedserver` | Experimental | Example dedicated server binary built on `game/server` |
 | `game/pkg/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
 | `game/pkg/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
-| `game/pkg/accounts/cmd/accountsd` | Experimental | Self-hosted accounts daemon |
+| `game/cmd/accountsd` | Experimental | Self-hosted accounts daemon |
 | `game/pkg/accounts/pgstore` | Experimental | PostgreSQL store backend for `game/accounts` |
 | `game/pkg/accounts/sqlitestore` | Experimental | SQLite store backend for `game/accounts` |
 | `game/pkg/accounts/sqlstore` | Experimental | Shared SQL helpers for `game/accounts` stores |
 | `game/pkg/accounts/storetest` | Experimental | Conformance test suite for `game/accounts` stores |
 | `game/pkg/accounts/token` | Experimental | Ed25519 account tokens verified offline by game servers |
 | `game/pkg/cloudsave` | Experimental | Self-hosted HTTPS cloud save service behind `liveops.CloudSync` |
-| `game/pkg/cloudsave/cmd/cloudsaved` | Experimental | Self-hosted cloud save daemon |
+| `game/cmd/cloudsaved` | Experimental | Self-hosted cloud save daemon |
 | `game/pkg/cloudsave/sqlstore` | Experimental | SQL store backend for `game/cloudsave` |
 | `game/pkg/cloudsave/storetest` | Experimental | Conformance test suite for `game/cloudsave` stores |
 | `game/pkg/achievements` | Experimental | YAML achievement definitions, monotonic `core.Storage` progress, Game Center / Play Games |
 | `game/pkg/leaderboard` | Experimental | YAML leaderboards for Game Center and Play Games |
 | `game/pkg/leaderboard/selfhost` | Experimental | Self-hosted cross-platform leaderboards (all-time/daily/weekly, signed scores) |
-| `game/pkg/leaderboard/selfhost/cmd/leaderboardd` | Experimental | Self-hosted leaderboard daemon |
+| `game/cmd/leaderboardd` | Experimental | Self-hosted leaderboard daemon |
 | `game/pkg/presence` | Experimental | Provider-neutral rich presence (`Activity`, `Manager`) on Steam and Discord |
 | `game/pkg/modding` | Experimental | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` lifecycle manager |
 

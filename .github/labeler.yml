@@ -16,6 +16,7 @@ pkg/accounts:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/accounts/**
+          - cmd/accountsd/**
 
 pkg/achievements:
   - changed-files:
@@ -106,6 +107,7 @@ pkg/leaderboard:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/leaderboard/**
+          - cmd/leaderboardd/**
 
 pkg/lights2d:
   - changed-files:
