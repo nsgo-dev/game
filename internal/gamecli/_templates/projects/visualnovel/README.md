@@ -57,3 +57,11 @@ The keys and buttons are the input map in `game.yaml`; change them there. Saving
 - Add an ending to `endings` in `story.go`, with `ending.<name>` and `ending.<name>.text` strings.
 - Add a language: a string table under `strings/`, its embed in `story.go`, and its locale in `languages`.
 - Add voice lines with `vn.EffectVoices` and `#voice:` tags, as the `vn` package's documentation describes.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

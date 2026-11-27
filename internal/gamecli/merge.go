@@ -8,27 +8,29 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/scenemerge"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
 const (
 	// sceneMergeDriverName is the gitattributes merge driver identifier for NSGo scene files.
-	sceneMergeDriverName = "nsgo-scene"
+	sceneMergeDriverName = scenemerge.DriverName
 	// sceneMergeDriverTitle is the human-readable description written to git config.
-	sceneMergeDriverTitle = "NSGo scene merge driver"
+	sceneMergeDriverTitle = scenemerge.DriverTitle
 	// sceneMergeDriverCmd is the command Git invokes with ancestor (%O), current (%A), other (%B) and path (%P).
-	sceneMergeDriverCmd = "go tool game merge %O %A %B %P"
+	sceneMergeDriverCmd = scenemerge.DriverCommand
 	// sceneGitAttributesContent is the default .gitattributes written by templates and game merge -setup.
-	sceneGitAttributesContent = "# Merge NSGo scene files object by object instead of line by line.\n# Enable the driver once per clone with: go tool game merge -setup\n*.scene.yaml merge=nsgo-scene\n*.scene.yml merge=nsgo-scene\n"
+	sceneGitAttributesContent = scenemerge.GitAttributesContent
 )
 
-// mergeCommand runs the object-by-object scene Git merge driver or registers it in a project's Git config and .gitattributes.
+// mergeCommand runs the object-by-object scene Git merge driver or registers and checks it in a project's Git config and .gitattributes.
 var mergeCommand = &command{
 	name:    "merge",
-	args:    "<base> <ours> <theirs> [path] | -setup [dir]",
-	summary: "Merge scene YAML files object by object for Git, or set up the Git merge driver in a project",
+	args:    "<base> <ours> <theirs> [path] | -setup [dir] | -check [dir]",
+	summary: "Merge scene YAML files object by object for Git, or set up and check the Git merge driver in a project",
 	define:  defineMerge,
 	complete: map[string]completion{
 		"conflict-out": filePaths,
@@ -48,8 +50,12 @@ func defineMerge(a *app, fs *flag.FlagSet) func() error {
 	out := outFlag(fs, "", "file to write the merged scene or conflict report to (default: overwrite <ours> in place, as Git expects)")
 	conflictOut := fs.String("conflict-out", "", "file to write the YAML conflict report to instead of overwriting the output file on conflict")
 	setup := fs.Bool("setup", false, "register the nsgo-scene merge driver in local Git config and .gitattributes")
+	check := fs.Bool("check", false, "verify that merge.nsgo-scene.driver is configured when .gitattributes names nsgo-scene")
 
 	return func() error {
+		if *setup && *check {
+			return usagef("-setup and -check cannot be combined")
+		}
 		if *setup {
 			if *out != "" || *conflictOut != "" {
 				return usagef("-setup cannot be combined with -out or -conflict-out")
@@ -62,6 +68,19 @@ func defineMerge(a *app, fs *flag.FlagSet) func() error {
 				dir = fs.Arg(0)
 			}
 			return setupSceneMergeDriver(dir, a.stdout)
+		}
+		if *check {
+			if *out != "" || *conflictOut != "" {
+				return usagef("-check cannot be combined with -out or -conflict-out")
+			}
+			if fs.NArg() > 1 {
+				return usagef("-check takes at most one directory")
+			}
+			dir := "."
+			if fs.NArg() == 1 {
+				dir = fs.Arg(0)
+			}
+			return checkSceneMergeDriver(dir, a.stdout)
 		}
 
 		if fs.NArg() < 3 || fs.NArg() > 4 {
@@ -157,6 +176,42 @@ func writeMergeOutput(path string, data []byte) error {
 	return os.WriteFile(path, data, mode)
 }
 
+// checkSceneMergeDriver verifies that merge.nsgo-scene.driver is configured in Git
+// whenever .gitattributes routes scene files to merge=nsgo-scene.
+func checkSceneMergeDriver(dir string, stdout io.Writer) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	status, err := scenemerge.Check(dir, runGit)
+	if err != nil {
+		return err
+	}
+	if !status.InRepo {
+		return fmt.Errorf("%s is not inside a Git repository; run git init and go tool game merge -setup", dir)
+	}
+	if status.NeedsSetup() {
+		fixCmd := "go tool game merge -setup"
+		if dir != "." && dir != "" {
+			fixCmd += " " + shellWord(dir, runtime.GOOS)
+		}
+		source := ".gitattributes"
+		if status.AttributesPath != "" {
+			source = status.AttributesPath
+		}
+		return fmt.Errorf("%s names merge=%s, but git config merge.%s.driver is not set; run: %s", source, sceneMergeDriverName, sceneMergeDriverName, fixCmd)
+	}
+	if status.DriverConfigured {
+		fmt.Fprintf(stdout, "git merge.%s.driver is configured: %s\n", sceneMergeDriverName, status.DriverCommand)
+		return nil
+	}
+	fmt.Fprintf(stdout, "no .gitattributes rule names merge=%s\n", sceneMergeDriverName)
+	return nil
+}
+
 // setupSceneMergeDriver registers merge.nsgo-scene in the Git repository at dir
 // and ensures .gitattributes routes *.scene.yaml and *.scene.yml to it.
 func setupSceneMergeDriver(dir string, stdout io.Writer) error {
@@ -178,74 +233,11 @@ func setupSceneMergeDriver(dir string, stdout io.Writer) error {
 // configureGitMergeDriver writes merge.nsgo-scene.name and
 // merge.nsgo-scene.driver into the local Git repository containing dir.
 func configureGitMergeDriver(dir string) error {
-	if out, err := runGit(dir, "rev-parse", "--show-toplevel"); err != nil {
-		if out != "" {
-			return fmt.Errorf("git rev-parse in %s: %w (%s); run git init first", dir, err, out)
-		}
-		return fmt.Errorf("git rev-parse in %s: %w; run git init first", dir, err)
-	}
-	for _, kv := range [][2]string{
-		{"merge." + sceneMergeDriverName + ".name", sceneMergeDriverTitle},
-		{"merge." + sceneMergeDriverName + ".driver", sceneMergeDriverCmd},
-	} {
-		if out, err := runGit(dir, "config", kv[0], kv[1]); err != nil {
-			if out != "" {
-				return fmt.Errorf("git config %s: %w (%s)", kv[0], err, out)
-			}
-			return fmt.Errorf("git config %s: %w", kv[0], err)
-		}
-	}
-	return nil
+	return scenemerge.ConfigureDriver(dir, runGit)
 }
 
 // ensureSceneGitAttributes ensures path contains merge=nsgo-scene rules for
 // *.scene.yaml and *.scene.yml without duplicating existing entries.
 func ensureSceneGitAttributes(path string) (bool, error) {
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if err := os.WriteFile(path, []byte(sceneGitAttributesContent), 0o644); err != nil {
-				return false, err
-			}
-			return true, nil
-		}
-		return false, err
-	}
-
-	haveYAML, haveYML := false, false
-	for _, line := range strings.Split(string(existing), "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") {
-			continue
-		}
-		for _, attr := range fields[1:] {
-			if attr == "merge="+sceneMergeDriverName {
-				switch fields[0] {
-				case "*.scene.yaml":
-					haveYAML = true
-				case "*.scene.yml":
-					haveYML = true
-				}
-			}
-		}
-	}
-	if haveYAML && haveYML {
-		return false, nil
-	}
-
-	var buf bytes.Buffer
-	buf.Write(existing)
-	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
-		buf.WriteByte('\n')
-	}
-	if !haveYAML {
-		buf.WriteString("*.scene.yaml merge=" + sceneMergeDriverName + "\n")
-	}
-	if !haveYML {
-		buf.WriteString("*.scene.yml merge=" + sceneMergeDriverName + "\n")
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		return false, err
-	}
-	return true, nil
+	return scenemerge.EnsureGitAttributes(path)
 }

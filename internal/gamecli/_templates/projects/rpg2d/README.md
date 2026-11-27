@@ -63,3 +63,11 @@ The game's settings live in `game.yaml`. Edit its name and identifier before shi
 go run github.com/nsgo-dev/game/cmd/gameproject sync
 go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

@@ -71,3 +71,11 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 - Art: replace `draw.go`'s shapes with sprites, keyed by the move and frame each fighter plays.
 
 The sounds are the placeholder pack's, dedicated to the public domain (CC0 1.0); its `CREDITS.md` lists them.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

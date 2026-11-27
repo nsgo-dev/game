@@ -70,3 +70,11 @@ The bindings are the `input` section of `game.yaml`: add a key or a button to an
 - **Rules**: `world.go` holds them all, so a new kind of tower behavior is a new stat read in `World.hit` or `World.fire`.
 
 After changing a data file, run `go tool nsgo test ./...`: `TestDataFilesAreCanonical` checks the files load and are in the form the game writes, and the playthrough tests show whether `winningPlan` in `plan_test.go` still wins. Run `go run github.com/nsgo-dev/game/cmd/game index` to update `game.index.yaml`.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

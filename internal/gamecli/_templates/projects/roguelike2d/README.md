@@ -71,3 +71,11 @@ go tool nsgo check -target macos,windows,linux,android,web
 - `records.go`: the run and records save slots and the run summary.
 - `game.go`, `draw.go`: the root component, input, the HUD, the end-of-run panel and drawing.
 - `*_test.go`: the playthroughs, the rules, floor generation over many seeds, and the data files.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

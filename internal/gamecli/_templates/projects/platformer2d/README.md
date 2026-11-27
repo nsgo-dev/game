@@ -63,3 +63,11 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 - Rebind a control: the `input` section of `game.yaml`; the touch regions are in virtual screen points.
 - Replace the art: load an atlas with `sprite.LoadAtlas` in `newPlayerAtlas` and a tileset image in `newTilemap`, or load the whole level from a Tiled map with `tilemap.LoadTiled`.
 - Add sound with `sound.Mixer`, configured from an `audio` section in `game.yaml`.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

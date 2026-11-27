@@ -63,3 +63,11 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 - Cars that collide with each other: add `layerCar` to the chassis mask in `newRace`, in `race.go`. They pass through each other by default so a crowded corner never wrecks the race.
 - Other controls: change the bindings in `game.yaml`; the game reads only action and axis names.
 - Your own models: load a glTF file with `gltf.LoadFS` in `sceneMeshes` and add its primitives as parts, as the crates are.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

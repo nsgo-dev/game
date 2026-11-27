@@ -61,3 +61,11 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 After moving or adding files, `go run github.com/nsgo-dev/game/cmd/game index` keeps `game.index.yaml`, the project's index of stable file IDs, up to date.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

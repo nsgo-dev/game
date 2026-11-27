@@ -55,3 +55,11 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
 
 Builds go to `dist/`.
+
+## Git setup
+
+Each clone enables the object-by-object scene merge driver once (`.gitattributes` names it, while Git keeps driver config local to `.git/config`):
+
+```sh
+go tool game merge -setup
+```

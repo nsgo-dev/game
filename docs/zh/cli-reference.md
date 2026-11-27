@@ -327,14 +327,15 @@ nsgo game navmesh [flags] <scene.yaml>
 
 ## game merge
 
-Merge scene YAML files object by object for Git, or set up the Git merge driver in a project.
+Merge scene YAML files object by object for Git, or set up and check the Git merge driver in a project.
 
 ```sh
-nsgo game merge [flags] <base> <ours> <theirs> [path] | -setup [dir]
+nsgo game merge [flags] <base> <ours> <theirs> [path] | -setup [dir] | -check [dir]
 ```
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
+| `-check` |  | verify that merge.nsgo-scene.driver is configured when .gitattributes names nsgo-scene |
 | `-conflict-out string` |  | file to write the YAML conflict report to instead of overwriting the output file on conflict |
 | `-out string` |  | file to write the merged scene or conflict report to (default: overwrite \<ours> in place, as Git expects) |
 | `-setup` |  | register the nsgo-scene merge driver in local Git config and .gitattributes |

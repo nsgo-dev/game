@@ -891,6 +891,10 @@ strings:
   menu.view2d: 2D 视图
   menu.view3d: 3D 视图
   menu.view3dCamera: 从场景相机查看
+  mergeDriver.bannerMessage: 此 Git 克隆尚未配置场景合并驱动——Git 将按行合并 .scene.yaml 文件。
+  mergeDriver.configuredStatus: 已配置 Git 场景合并驱动（nsgo-scene）
+  mergeDriver.dismissButton: 忽略
+  mergeDriver.setupButton: 启用合并驱动
   models.askForOne: 或让智能体生成一个
   models.askForOneHint: 描述一个模型… 例如一个 1 × 0.5 米的矮石花盆，与围墙材质相同
   models.dragIn: 拖入视口

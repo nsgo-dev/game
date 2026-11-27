@@ -361,7 +361,7 @@ built.Draw(d)
 
 `sceneformat.Merge(base, ours, theirs)` 对场景文档执行基于身份的三路合并：图层按 `name` 匹配，对象在整个场景树中按 `id` 匹配（包括跨父节点和跨图层移动），瓦片地图与覆盖按主键匹配，连接按 `(from, event, to, handler)` 匹配。各个字段（包括嵌套的 `components`、`properties`、`overrides`、`camera` 和 `args` 映射）逐一合并。模式 `version` 会单调合并为 `base`、`ours` 与 `theirs` 中的最高版本（不低于 `base`），避免两个分支各自提升场景版本时产生冲突；无冲突的结果会经过 `Validate` 校验并通过 `Encode` 以规范格式写出。
 
-当双方把同一字段改成不同值、一方删除而另一方修改、双方以相同 ID 新增不同对象、重设父节点冲突或形成环，或合并结果无法通过 `Validate` 时，`MergeResult.ConflictDoc(path)` 会生成带版本号、确定性的 YAML 冲突文档 `ConflictDoc`（`version: 1`，由 `ParseConflict` / `EncodeConflict` 读写），记录每个冲突的对象、字段与 `base`/`ours`/`theirs` 三个值，以及已自动合并的条目。项目通过 `.gitattributes`（`*.scene.yaml merge=nsgo-scene`）和 `go tool game merge -setup` 将其接入 Git（参见 [`game merge`](cli.md#merge) 与[场景合并冲突报告](formats.md#场景合并冲突报告)）。
+当双方把同一字段改成不同值、一方删除而另一方修改、双方以相同 ID 新增不同对象、重设父节点冲突或形成环，或合并结果无法通过 `Validate` 时，`MergeResult.ConflictDoc(path)` 会生成带版本号、确定性的 YAML 冲突文档 `ConflictDoc`（`version: 1`，由 `ParseConflict` / `EncodeConflict` 读写），记录每个冲突的对象、字段与 `base`/`ours`/`theirs` 三个值，以及已自动合并的条目。项目通过 `.gitattributes`（`*.scene.yaml merge=nsgo-scene`）和 `go tool game merge -setup` 将其接入 Git（每个克隆运行一次，可用 `go tool game merge -check` 检查；编辑器打开 Git 仓库中的项目时也会自动检查并在横幅中提供一键配置，参见 [`game merge`](cli.md#merge) 与[场景合并冲突报告](formats.md#场景合并冲突报告)）。
 
 ### 组件类型
 
