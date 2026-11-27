@@ -33,6 +33,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'cli',
       'cli-reference',
       'library',
+      'plugins',
       'placeholder',
       'agent-skill',
       'agent-eval',

@@ -31,6 +31,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
+	pluginmanifest "github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -57,6 +58,8 @@ type format struct {
 	pkg string
 	// version, when non-zero, is the only value the schema allows for the root's version property.
 	version int
+	// versionField names the root property that holds version; empty defaults to "version".
+	versionField string
 	// fieldName maps a struct field to its key, or skips it; nil uses jsonschema.YAMLField.
 	fieldName func(reflect.StructField) jsonschema.Field
 	// types overrides the schemas of Go types; nil uses durationTypes.
@@ -343,6 +346,14 @@ var formats = []format{
 		pkg:   "modding",
 		types: modManifestTypes,
 	},
+	{
+		url:          pluginmanifest.SchemaURL,
+		title:        "NSGo game plugin manifest (version 1)",
+		typ:          reflect.TypeFor[pluginmanifest.Manifest](),
+		pkg:          "plugin/manifest",
+		version:      pluginmanifest.ManifestVersion,
+		versionField: "manifestVersion",
+	},
 }
 
 // modManifestTypes maps modding.Capability (a Go bitmask) to its YAML sequence form of built-in and dotted host capability names.
@@ -388,9 +399,13 @@ func generate(root string) ([]schemaFile, error) {
 			return nil, fmt.Errorf("%s: %w", f.url, err)
 		}
 		if f.version != 0 {
-			v := s.Property("version")
+			vf := f.versionField
+			if vf == "" {
+				vf = "version"
+			}
+			v := s.Property(vf)
 			if v == nil {
-				return nil, fmt.Errorf("%s: no version property", f.url)
+				return nil, fmt.Errorf("%s: no %s property", f.url, vf)
 			}
 			// The one allowed value lies within the Go type's range, so the type's bounds would only repeat it, as Reflect leaves them out for a const tag.
 			v.Const = int64(f.version)
@@ -521,6 +536,15 @@ func generate(root string) ([]schemaFile, error) {
 						Description: def.Description,
 						Types:       []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber},
 					}
+				}
+			}
+		}
+		if f.url == pluginmanifest.SchemaURL {
+			if p := s.Property("platforms"); p != nil && p.Items != nil {
+				p.Items.Enum = make([]any, 0, len(pluginmanifest.Platforms)+1)
+				p.Items.Enum = append(p.Items.Enum, pluginmanifest.PlatformAll)
+				for _, plat := range pluginmanifest.Platforms {
+					p.Items.Enum = append(p.Items.Enum, plat)
 				}
 			}
 		}

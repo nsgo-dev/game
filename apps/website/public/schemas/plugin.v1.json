@@ -1,0 +1,211 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/plugin.v1.json",
+  "title": "NSGo game plugin manifest (version 1)",
+  "description": "Manifest describes a Go plugin module. Plugin authors write it as YAML in [FileName] (plugin.yaml) at the root of the plugin's Go module; [Parse] and [ParseFS] read it and [Encode] writes it.",
+  "type": "object",
+  "properties": {
+    "manifestVersion": {
+      "description": "ManifestVersion is the schema version of plugin.yaml. A file must state [ManifestVersion] (1); a manifest built in code may leave it 0, and [Encode] writes [ManifestVersion].",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name uniquely identifies the plugin: 1 to 64 lower-case ASCII letters, digits and '-', starting with a letter or digit.",
+      "type": "string",
+      "minLength": 1
+    },
+    "module": {
+      "description": "Module is the Go module path of the plugin, which must equal the module line of its go.mod.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "Description summarizes what the plugin provides on a single line.",
+      "type": "string"
+    },
+    "license": {
+      "description": "License is the plugin's license identifier, such as \"MIT\" or \"Apache-2.0\".",
+      "type": "string"
+    },
+    "authors": {
+      "description": "Authors names the people or organizations who maintain the plugin.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repository": {
+      "description": "Repository is the HTTP or HTTPS URL of the plugin's source repository.",
+      "type": "string"
+    },
+    "engine": {
+      "description": "Engine is a semantic version constraint on github.com/nsgo-dev/game, such as \">=0.4.0 <0.5.0\".",
+      "type": "string",
+      "minLength": 1
+    },
+    "api": {
+      "description": "API is the plugin API version (plugin.APIVersion) the plugin targets; it must be a positive integer.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854776000
+    },
+    "platforms": {
+      "description": "Platforms lists the target platforms the plugin supports: either [\"all\"] or a subset of macos, windows, linux, ios, android and web. When omitted, all platforms are supported.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "all",
+          "macos",
+          "windows",
+          "linux",
+          "ios",
+          "android",
+          "web"
+        ]
+      }
+    },
+    "entries": {
+      "description": "Entries names the Go packages inside Module that provide the plugin's runtime, editor and CLI integrations.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Entries"
+        }
+      ]
+    },
+    "requires": {
+      "description": "Requires maps Go module paths of plugins this plugin depends on to semantic version constraints.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "conflicts": {
+      "description": "Conflicts lists Go module paths of plugins that cannot be installed alongside this plugin.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contributes": {
+      "description": "Contributes summarizes the components, editor extensions and agent tools the plugin registers, for indexing and comparison by game plugin check.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Contributes"
+        }
+      ]
+    }
+  },
+  "required": [
+    "manifestVersion",
+    "name",
+    "module",
+    "engine",
+    "api",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "CLIEntry": {
+      "description": "CLIEntry names one command package a plugin contributes to the game CLI.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the subcommand name invoked as \"game <name>\": 1 to 64 lower-case ASCII letters, digits and '-', starting with a letter or digit.",
+          "type": "string",
+          "minLength": 1
+        },
+        "package": {
+          "description": "Package is the Go import path of the main package implementing the command, inside the plugin's module.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name",
+        "package"
+      ],
+      "additionalProperties": false
+    },
+    "Contributes": {
+      "description": "Contributes indexes the components, editor extensions and agent tools a plugin registers. Tools such as game plugin check compare it against the plugin's code.",
+      "type": "object",
+      "properties": {
+        "components": {
+          "description": "Components lists the names of scene components the plugin registers.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "editor": {
+          "description": "Editor lists the panels, tools and commands the plugin adds to the scene editor.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/EditorContributes"
+            }
+          ]
+        },
+        "agentTools": {
+          "description": "AgentTools lists the MCP agent tool names the plugin exposes, such as \"plugin.healthkit.heal_all\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "EditorContributes": {
+      "description": "EditorContributes lists the editor extension IDs a plugin registers.",
+      "type": "object",
+      "properties": {
+        "panels": {
+          "description": "Panels lists the IDs of editor panels the plugin adds.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "description": "Tools lists the IDs of viewport tools the plugin adds.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commands": {
+          "description": "Commands lists the IDs of editor commands the plugin adds.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Entries": {
+      "description": "Entries names the Go packages inside a plugin's module that integrate with the game runtime, the scene editor and the game CLI. At least one of Runtime, Editor or CLI must be set.",
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "description": "Runtime is the import path of the Go package that provides the plugin's runtime entry (func Plugin() plugin.Plugin).",
+          "type": "string"
+        },
+        "editor": {
+          "description": "Editor is the import path of the Go package that provides the plugin's editor entry (func Plugin() editor.Plugin).",
+          "type": "string"
+        },
+        "cli": {
+          "description": "CLI lists command packages that extend the game CLI via go.mod tool directives.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CLIEntry"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
