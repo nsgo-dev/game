@@ -275,6 +275,9 @@ export function Home() {
             <LocaleLink page="doc" slug="from-unity" lang={lang}>
               Unity
             </LocaleLink>
+            <LocaleLink page="doc" slug="from-unreal" lang={lang}>
+              Unreal Engine
+            </LocaleLink>
             <LocaleLink page="doc" slug="from-godot" lang={lang}>
               Godot
             </LocaleLink>
