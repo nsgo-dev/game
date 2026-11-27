@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
+	"github.com/nsgo-dev/game/pkg/datatable"
 )
 
 type weapon struct {

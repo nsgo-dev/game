@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
+	"github.com/nsgo-dev/game/pkg/datatable"
 )
 
 func diffLines(before, after string) (changed int, diffs []string) {

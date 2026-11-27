@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 const maxSourceSidecarBytes = 1 << 20 // 1 MiB

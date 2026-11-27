@@ -6,7 +6,7 @@ import (
 	"image"
 	"image/color"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // TileColumns and TileRows are the tileset's size in tiles.

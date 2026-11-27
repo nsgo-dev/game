@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/loaderrtest"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
+	"github.com/nsgo-dev/game/pkg/datatable"
 )
 
 func TestLoadErrorsNameFileLineAndFix(t *testing.T) {

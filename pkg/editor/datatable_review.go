@@ -11,9 +11,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

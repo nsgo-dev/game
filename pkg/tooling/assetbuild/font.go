@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 	"github.com/nsgo-dev/game/pkg/tooling/pack"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"

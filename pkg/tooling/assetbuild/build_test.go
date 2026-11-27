@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
 )
 
 // sampleProject declares two atlases, a texture, an audio file and the manifest of the folder they are written to.

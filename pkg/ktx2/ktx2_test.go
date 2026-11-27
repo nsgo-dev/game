@@ -7,7 +7,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 )
 
 func makeGradientImage(w, h int, withAlpha bool) *image.NRGBA {

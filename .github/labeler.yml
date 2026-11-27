@@ -37,6 +37,11 @@ pkg/cutscene:
       - any-glob-to-any-file:
           - pkg/cutscene/**
 
+pkg/datatable:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/datatable/**
+
 pkg/debug:
   - changed-files:
       - any-glob-to-any-file:
@@ -77,6 +82,11 @@ pkg/gltf:
       - any-glob-to-any-file:
           - pkg/gltf/**
 
+pkg/importsettings:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/importsettings/**
+
 pkg/input:
   - changed-files:
       - any-glob-to-any-file:
@@ -86,6 +96,16 @@ pkg/internal:
   - changed-files:
       - any-glob-to-any-file:
           - internal/**
+
+pkg/jsonschema:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/jsonschema/**
+
+pkg/ktx2:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/ktx2/**
 
 pkg/l10n:
   - changed-files:

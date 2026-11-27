@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"

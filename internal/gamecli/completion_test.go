@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
 )
 
 // completionScript returns what game completion writes for shell, failing the test unless it succeeds.

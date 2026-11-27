@@ -1,9 +1,9 @@
 # datatable
 
-`game/tooling/datatable` loads typed game data, such as enemies, items, levels and quests, into slices of your own Go struct, and reloads it while the game runs when a designer saves the file. Tables are YAML, so designers and AI tools edit them directly and every change reads as a line in review; CSV and JSON exports from spreadsheets and other tools load too.
+`game/datatable` loads typed game data, such as enemies, items, levels and quests, into slices of your own Go struct, and reloads it while the game runs when a designer saves the file. Tables are YAML, so designers and AI tools edit them directly and every change reads as a line in review; CSV and JSON exports from spreadsheets and other tools load too.
 
 ```go
-import "github.com/nsgo-dev/game/pkg/tooling/datatable"
+import "github.com/nsgo-dev/game/pkg/datatable"
 ```
 
 ## A table and its type

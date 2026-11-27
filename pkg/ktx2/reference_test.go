@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 )
 
 func loadRefPNG(t *testing.T, name string) *image.NRGBA {

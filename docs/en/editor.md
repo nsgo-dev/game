@@ -576,7 +576,7 @@ While a project is open, the file browser below the asset browser (`FilesView`) 
 
 ## Data Table editor (#918)
 
-The Data Table panel (`DataTablePanelView`) opens versioned YAML data tables ([`tooling/datatable`](datatable.md)) from the file browser as a spreadsheet-style grid below the viewport:
+The Data Table panel (`DataTablePanelView`) opens versioned YAML data tables ([`datatable`](datatable.md)) from the file browser as a spreadsheet-style grid below the viewport:
 
 - **Columns and kinds**: columns are the union of every row's keys in deterministic first-appearance order (plus any fields declared by a registered Go row type that no row currently sets). Each column's value kind (`string`, `number`, `bool`, `duration`, or `list`) is inferred from its cell values or taken from the registered Go row type; boolean cells render as toggle buttons and scalar/list cells commit on Enter or blur.
 - **Row operations and view controls**: add (`AddDataTableRow`), delete (`DeleteDataTableRow`), and reorder (`MoveDataTableRow`) rows, sort by clicking any column header (`SetDataTableSort`), and filter visible rows by case-insensitive substring match (`SetDataTableFilter`). Sorting and filtering affect only the view and never reorder or modify the underlying YAML document.

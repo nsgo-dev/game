@@ -3,7 +3,7 @@
 游戏作者编写的每个文件都是 YAML 文本，每种格式都有一份 JSON Schema，编辑器和 AI 工具可借此在编写文件时补全键名、悬停显示字段说明并标出错误，而不必等到游戏加载时才发现。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+import "github.com/nsgo-dev/game/pkg/jsonschema"
 ```
 
 ## 已发布的 Schema

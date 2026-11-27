@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/render3d"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 )
@@ -346,7 +346,7 @@ func TestLoadKTX2ForceRGBA8OddSizeAndZLIB(t *testing.T) {
 
 func readRefFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "tooling", "ktx2", "testdata", "ref", name))
+	data, err := os.ReadFile(filepath.Join("..", "ktx2", "testdata", "ref", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func FuzzLoadKTX2(f *testing.F) {
 		f.Add(data)
 	}
 	for _, name := range []string{"etc1s_quad_linear.ktx2", "astc4x4_opaque_linear.ktx2"} {
-		if raw, err := os.ReadFile(filepath.Join("..", "tooling", "ktx2", "testdata", "ref", name)); err == nil {
+		if raw, err := os.ReadFile(filepath.Join("..", "ktx2", "testdata", "ref", name)); err == nil {
 			f.Add(raw)
 		}
 	}

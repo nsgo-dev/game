@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // readSidecar reads the import settings sidecar beside the file at asset, a path on disk, and refuses one that holds settings for another kind of asset than want ("image" or "audio"). It returns nil, and no error, when the asset has no sidecar or one holding only a credit, which changes no output.

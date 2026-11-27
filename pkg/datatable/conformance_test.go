@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/formattest"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
+	"github.com/nsgo-dev/game/pkg/datatable"
 )
 
 func TestFormatConformance(t *testing.T) {
@@ -12,6 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: func(data []byte) ([]weapon, error) { return datatable.LoadYAML[weapon]("weapons.yaml", data) },
 		Encode: datatable.MarshalYAML[weapon],
 		Files:  []string{"testdata/weapons.yaml"},
-		Doc:    "tooling/datatable",
+		Doc:    "datatable",
 	})
 }

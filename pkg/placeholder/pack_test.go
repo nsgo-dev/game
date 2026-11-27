@@ -14,13 +14,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/placeholder"
 	"github.com/nsgo-dev/game/pkg/placeholder/internal/gen"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 var update = flag.Bool("update", false, "rewrite the committed pack from the generator")

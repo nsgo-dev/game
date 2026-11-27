@@ -15,8 +15,8 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/gltf"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // modelSettings is what a model target's key covers: the settings it packs with, after its model's import settings are applied.

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 )
 
 func makeTestImage(w, h int) *image.NRGBA {

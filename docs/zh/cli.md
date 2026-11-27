@@ -327,7 +327,7 @@ assets:
 
 #### 资源旁的导入设置
 
-资源可以带一个附属文件（sidecar）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它（与 Godot 的 `.import` 文件相同），以及它由谁制作、以什么许可证提供。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/pkg/tooling/importsettings` 包读写；它含有 `image`、`audio`、`font` 或 `model` 部分之一、一个 `credit` 部分，或者署名加上前四者之一，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
+资源可以带一个附属文件（sidecar）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它（与 Godot 的 `.import` 文件相同），以及它由谁制作、以什么许可证提供。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/pkg/importsettings` 包读写；它含有 `image`、`audio`、`font` 或 `model` 部分之一、一个 `credit` 部分，或者署名加上前四者之一，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
 
 ```yaml
 # art/albedo.png.import.yaml，由纹理目标读取

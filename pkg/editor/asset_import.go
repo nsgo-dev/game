@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // AssetImportKind identifies which importsettings section applies to an asset file.

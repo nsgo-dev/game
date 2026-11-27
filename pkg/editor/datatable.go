@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/refs"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
 )
 
 // ErrNoDataTable is returned by data table edits when no data table is open.

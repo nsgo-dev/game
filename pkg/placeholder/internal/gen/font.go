@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // The font's glyphs are drawn on a 5 by 8 grid: rows 0 to 6 hold capitals and digits, row 6 is the baseline's row, and row 7 holds descenders. Each glyph sits in a cell of the page with a pixel of space to its right and below, so glyphs never bleed into each other.

@@ -6,7 +6,7 @@ import (
 	"image"
 	"image/color"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 )
 
 // Cell is the size in pixels of a sprite frame and of a tile.

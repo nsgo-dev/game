@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/jsonschema"
 )
 
 // TestImportSchemaAcceptsWhatEncodeWrites checks that every sidecar Encode writes validates against the published import settings schema.

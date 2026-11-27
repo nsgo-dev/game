@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // audioCommand normalizes, resamples and converts WAV game audio to WAV, AAC or MP3, taking the settings of the import settings sidecar beside the input under the flags given.

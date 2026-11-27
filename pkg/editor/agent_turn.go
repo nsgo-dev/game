@@ -15,10 +15,10 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
 )
 
 const (

@@ -17,10 +17,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/ktx2"
 	"github.com/nsgo-dev/game/pkg/tooling/manifest"
 	"github.com/nsgo-dev/game/pkg/tooling/pack"
 )

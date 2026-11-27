@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/editor"
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
 )
 
 const (

@@ -22,11 +22,11 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

@@ -19,9 +19,9 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )

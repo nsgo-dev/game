@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/tooling/datatable"
-	"github.com/nsgo-dev/game/pkg/tooling/jsonschema"
+	"github.com/nsgo-dev/game/pkg/datatable"
+	"github.com/nsgo-dev/game/pkg/jsonschema"
 )
 
 type Stats struct {

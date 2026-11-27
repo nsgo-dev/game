@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/placeholder"
-	"github.com/nsgo-dev/game/pkg/tooling/importsettings"
 )
 
 // repoRoot is the repository's root, from this package's folder.

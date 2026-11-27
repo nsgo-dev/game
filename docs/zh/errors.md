@@ -62,7 +62,7 @@ if err != nil {
 | `gltf` | `Load`、`LoadFS` | 出错的顶层条目，例如 `nodes[3]` |
 | `text` | `LoadBMFont`、`LoadBMFontImage` | 出错的记录，文本和 XML 字体均可 |
 | `flow` | `ParseYarn` | 出错的脚本行 |
-| `tooling/datatable` | `LoadCSV`、`LoadJSON`、`LoadYAML`、`LoadFile` | 出错的单元格；`CellError` 仍在错误链中 |
+| `datatable` | `LoadCSV`、`LoadJSON`、`LoadYAML`、`LoadFile` | 出错的单元格；`CellError` 仍在错误链中 |
 | `tooling/devstate` | `Store.LoadSnapshot` | 快照文件中的解码错误 |
 | `debug` | `Console.LoadTunables` | 出错的调试参数，以存储键为文件名 |
 | `tooling/bench`、`cmd/sizecheck` | `bench.LoadFile`、`LoadBudget`、`LoadMobileBudget` | 解码错误 |

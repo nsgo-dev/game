@@ -38,7 +38,7 @@ type Format[T any] struct {
 	VersionField string
 	// MaxVersion is the newest schema version the format supports; when set, the future-version check tests max(document version, MaxVersion) + 1 instead of the document's version + 1, so a multi-version format can check older fixtures against an unsupported future version.
 	MaxVersion int
-	// Doc names the format's entry on the reference pages docs/en/formats.md and docs/zh/formats.md: the package's path relative to the module root, such as "quest" or "tooling/importsettings", followed by "#" and a name of the format when the package defines more than one, such as "achievements#progress". Each page marks the entry with the line "<!-- format: Doc -->" before its heading, and every YAML code block in the entry must load and save to the same bytes, so the page never shows an example the format refuses or would rewrite. Run requires it.
+	// Doc names the format's entry on the reference pages docs/en/formats.md and docs/zh/formats.md: the package's path relative to the module root, such as "quest" or "importsettings", followed by "#" and a name of the format when the package defines more than one, such as "achievements#progress". Each page marks the entry with the line "<!-- format: Doc -->" before its heading, and every YAML code block in the entry must load and save to the same bytes, so the page never shows an example the format refuses or would rewrite. Run requires it.
 	Doc string
 }
 

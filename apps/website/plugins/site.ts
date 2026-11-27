@@ -75,11 +75,11 @@ export function firstSentence(markdown: string): string {
   return ''
 }
 
-const CORE = new Set('game sprite sound input tilemap scene physics screen project refs assets resource text placeholder math2d save random entities sceneformat loaderr'.split(' '))
+const CORE = new Set('game sprite sound input tilemap scene physics screen project refs assets resource text placeholder math2d save random entities sceneformat loaderr datatable'.split(' '))
 const UI = new Set('gameui lights2d effects worldmap fog quality a11y l10n pixelfx'.split(' '))
-const TOOLS = new Set('cmd tooling debug mcp replay statedump perf modding editor gametest'.split(' '))
+const TOOLS = new Set('cmd tooling debug mcp replay statedump perf modding editor gametest importsettings jsonschema'.split(' '))
 const ONLINE_CMDS = new Set(['accountsd', 'cloudsaved', 'leaderboardd'])
-const THREE_D = new Set('math3d scene3d anim3d world3d voxel render3d vehicle physics3d gltf scenemodel'.split(' '))
+const THREE_D = new Set('math3d scene3d anim3d world3d voxel render3d vehicle physics3d gltf scenemodel ktx2'.split(' '))
 
 // category sorts a package into the catalog's groups by its path: 3D, tooling, online services, graphics and UI, the core, and gameplay for the rest.
 export function category(pkgPath: string): PackageCategory {

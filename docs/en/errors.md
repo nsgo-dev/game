@@ -62,7 +62,7 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 | `gltf` | `Load`, `LoadFS` | The top-level item at fault, such as `nodes[3]` |
 | `text` | `LoadBMFont`, `LoadBMFontImage` | The record at fault, in text and XML fonts |
 | `flow` | `ParseYarn` | The script line at fault |
-| `tooling/datatable` | `LoadCSV`, `LoadJSON`, `LoadYAML`, `LoadFile` | The cell at fault; `CellError` stays in the chain |
+| `datatable` | `LoadCSV`, `LoadJSON`, `LoadYAML`, `LoadFile` | The cell at fault; `CellError` stays in the chain |
 | `tooling/devstate` | `Store.LoadSnapshot` | Decode errors in the snapshot file |
 | `debug` | `Console.LoadTunables` | The tunable at fault, under the storage key |
 | `tooling/bench`, `cmd/sizecheck` | `bench.LoadFile`, `LoadBudget`, `LoadMobileBudget` | Decode errors |

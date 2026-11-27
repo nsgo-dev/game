@@ -378,7 +378,7 @@ mesh.Draw(pass)
   samp, err := render3d.NewGPUSampler(cx, dev, opts)
   ```
 
-- **Basis Universal（UASTC 与 BasisLZ/ETC1S）**：`LoadKTX2` 同时接受 UASTC 4x4（高质量模式）和 BasisLZ/ETC1S（`basisu` 的默认模式，含 alpha 切片）的 KTX2 文件，并把它们转码为设备支持的最佳块格式：依次为 BC7、不透明纹理用的 BC1、BC3、ETC2 RGB8 或 RGBA8（仅线性，因为 NSGo 没有 sRGB ETC2），然后是 ASTC 4x4。设备一种都不支持、基础层级的宽或高不是 4 的倍数，或设置了 `KTX2Upload.ForceRGBA8` 时，解码为 RGBA8。转码会在调用 `LoadKTX2` 的 goroutine 上把每个块解码后再编码：在桌面 CPU（Ryzen 9 3900X）上，一个 1024×1024 层级转为 BC7 约需 0.5 秒，转为 ETC2 约 0.8 秒，转为 ASTC 约 0.16 秒，2048×2048 约为四倍（见 `tooling/ktx2` 的 `BenchmarkTranscodeUASTC`），因此大的通用压缩纹理应在加载画面中加载。不带 alpha 的 BC1（`VK_FORMAT_BC1_RGB_*`）仍会被拒绝，因为以 RGBA BC1 上传会把它的穿透纹素画成透明。
+- **Basis Universal（UASTC 与 BasisLZ/ETC1S）**：`LoadKTX2` 同时接受 UASTC 4x4（高质量模式）和 BasisLZ/ETC1S（`basisu` 的默认模式，含 alpha 切片）的 KTX2 文件，并把它们转码为设备支持的最佳块格式：依次为 BC7、不透明纹理用的 BC1、BC3、ETC2 RGB8 或 RGBA8（仅线性，因为 NSGo 没有 sRGB ETC2），然后是 ASTC 4x4。设备一种都不支持、基础层级的宽或高不是 4 的倍数，或设置了 `KTX2Upload.ForceRGBA8` 时，解码为 RGBA8。转码会在调用 `LoadKTX2` 的 goroutine 上把每个块解码后再编码：在桌面 CPU（Ryzen 9 3900X）上，一个 1024×1024 层级转为 BC7 约需 0.5 秒，转为 ETC2 约 0.8 秒，转为 ASTC 约 0.16 秒，2048×2048 约为四倍（见 `ktx2` 的 `BenchmarkTranscodeUASTC`），因此大的通用压缩纹理应在加载画面中加载。不带 alpha 的 BC1（`VK_FORMAT_BC1_RGB_*`）仍会被拒绝，因为以 RGBA BC1 上传会把它的穿透纹素画成透明。
 
 - **动态更新**：`GPUTexture.UpdateImage` 与 `GPUTexture.UpdatePixels` 原地更新同尺寸、同格式的纹素，若纹理启用了 mipmap 会同时重算并重传各级 mip。
 - **采样器预设与校验**：`SamplerLinearRepeat()`、`SamplerLinearClamp()`、`SamplerLinearMirror()`、`SamplerNearestRepeat()` 与 `SamplerNearestClamp()` 返回可修改的 `SamplerOptions`。`SamplerOptions.Validate` 拒绝非法滤波/寻址模式、非有限或倒置的 LOD 范围，以及在非全线性滤波下设置 `MaxAnisotropy > 1`（遵循 WebGPU 校验规则），错误均包装 `ErrInvalidSampler`。
