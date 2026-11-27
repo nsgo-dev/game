@@ -1,6 +1,7 @@
 package lights2d_test
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"math"
@@ -67,8 +68,8 @@ func TestSceneDrawAmbientAndLightsOps(t *testing.T) {
 		t.Fatal("Scene.Draw recorded no operations")
 	}
 
-	var saves, restores, ambientFills, gradientOps, lighterComposites, arcs int
-	var foundPointGrad, foundSpotGrad, foundSpotArc bool
+	var saves, restores, ambientFills, pointGradOps, spotGradOps, lighterComposites, pointArcs, spotArcs int
+	var prevSpotHalf float64 = math.Inf(1)
 	for _, op := range ops {
 		switch op.Kind {
 		case core.DrawSave:
@@ -83,8 +84,9 @@ func TestSceneDrawAmbientAndLightsOps(t *testing.T) {
 			if op.Composite == core.CompositeLighter {
 				lighterComposites++
 			}
+		case core.DrawAlpha:
+			t.Errorf("Scene.Draw must not override caller global alpha (found DrawAlpha %v)", op.A)
 		case core.DrawFillGradient:
-			gradientOps++
 			g := op.Gradient
 			if g == nil || !g.Radial {
 				t.Fatalf("expected radial gradient, got %+v", g)
@@ -92,35 +94,51 @@ func TestSceneDrawAmbientAndLightsOps(t *testing.T) {
 			if len(g.Stops) < 2 {
 				t.Fatalf("expected at least 2 gradient stops, got %d", len(g.Stops))
 			}
-			// Verify radial gradient fades smoothly to 0 alpha at outer edge.
+			// Verify radial gradient fades to 0 alpha at outer edge.
 			_, _, _, firstA := g.Stops[0].Color.Components()
 			_, _, _, lastA := g.Stops[len(g.Stops)-1].Color.Components()
-			if firstA <= 0 {
-				t.Errorf("expected positive center alpha, got %v", firstA)
-			}
 			if lastA != 0 {
 				t.Errorf("expected outer stop alpha 0, got %v", lastA)
 			}
-			for i := 1; i < len(g.Stops); i++ {
-				_, _, _, prevA := g.Stops[i-1].Color.Components()
-				_, _, _, currA := g.Stops[i].Color.Components()
-				if currA > prevA+1e-6 {
-					t.Errorf("stop %d alpha %v increased over stop %d alpha %v", i, currA, i-1, prevA)
-				}
-			}
 			if g.X1 == pointLight.X && g.Y1 == pointLight.Y && g.R2 == pointLight.Radius {
-				foundPointGrad = true
-			}
-			if g.X1 == spotLight.X && g.Y1 == spotLight.Y && g.R2 == spotLight.Radius {
-				foundSpotGrad = true
+				pointGradOps++
+				if firstA <= 0 {
+					t.Errorf("expected positive point-light center alpha, got %v", firstA)
+				}
+				for i := 1; i < len(g.Stops); i++ {
+					_, _, _, prevA := g.Stops[i-1].Color.Components()
+					_, _, _, currA := g.Stops[i].Color.Components()
+					if currA > prevA+1e-6 {
+						t.Errorf("point light stop %d alpha %v increased over stop %d alpha %v", i, currA, i-1, prevA)
+					}
+				}
+			} else if g.X1 == spotLight.X && g.Y1 == spotLight.Y && g.R2 == spotLight.Radius {
+				spotGradOps++
+				if firstA <= 0 {
+					t.Errorf("expected positive spotlight wedge center alpha, got %v", firstA)
+				}
+			} else {
+				t.Errorf("unexpected gradient center/radius: (%v,%v) r=%v", g.X1, g.Y1, g.R2)
 			}
 		case core.DrawArc:
-			arcs++
-			half := spotLight.ConeSpread * 0.5
-			if math.Abs(float64(op.X-spotLight.X)) < 1e-4 &&
-				math.Abs(float64(op.A0-(spotLight.ConeAngle-half))) < 1e-4 &&
-				math.Abs(float64(op.A1-(spotLight.ConeAngle+half))) < 1e-4 {
-				foundSpotArc = true
+			if math.Abs(float64(op.X-pointLight.X)) < 1e-4 && math.Abs(float64(op.Y-pointLight.Y)) < 1e-4 {
+				pointArcs++
+			} else if math.Abs(float64(op.X-spotLight.X)) < 1e-4 && math.Abs(float64(op.Y-spotLight.Y)) < 1e-4 {
+				spotArcs++
+				half := float64(spotLight.ConeSpread) * 0.5
+				center := float64(spotLight.ConeAngle)
+				wedgeHalf := float64(op.A1-op.A0) * 0.5
+				wedgeCenter := float64(op.A0+op.A1) * 0.5
+				if math.Abs(wedgeCenter-center) > 1e-4 {
+					t.Errorf("spotlight wedge center = %v, want %v", wedgeCenter, center)
+				}
+				if wedgeHalf <= 0 || wedgeHalf >= half {
+					t.Errorf("spotlight wedge half-angle %v outside (0, %v)", wedgeHalf, half)
+				}
+				if wedgeHalf >= prevSpotHalf {
+					t.Errorf("spotlight wedges not nested strictly outside-in: %v after %v", wedgeHalf, prevSpotHalf)
+				}
+				prevSpotHalf = wedgeHalf
 			}
 		}
 	}
@@ -131,17 +149,14 @@ func TestSceneDrawAmbientAndLightsOps(t *testing.T) {
 	if ambientFills != 1 {
 		t.Errorf("expected 1 ambient fill color op, got %d", ambientFills)
 	}
-	if gradientOps != 2 {
-		t.Errorf("expected 2 radial light gradients (point + spot; disabled/culled skipped), got %d", gradientOps)
+	if pointGradOps != 1 || pointArcs != 1 {
+		t.Errorf("expected 1 point light gradient and 1 arc, got grads=%d arcs=%d", pointGradOps, pointArcs)
+	}
+	if spotGradOps < 4 || spotArcs != spotGradOps {
+		t.Errorf("expected multiple concentric spotlight wedges, got grads=%d arcs=%d", spotGradOps, spotArcs)
 	}
 	if lighterComposites != 2 {
-		t.Errorf("expected 2 CompositeLighter ops, got %d", lighterComposites)
-	}
-	if arcs != 2 {
-		t.Errorf("expected 2 DrawArc ops, got %d", arcs)
-	}
-	if !foundPointGrad || !foundSpotGrad || !foundSpotArc {
-		t.Errorf("missing expected ops: pointGrad=%v spotGrad=%v spotArc=%v", foundPointGrad, foundSpotGrad, foundSpotArc)
+		t.Errorf("expected 2 CompositeLighter ops (point + spot; disabled/culled skipped), got %d", lighterComposites)
 	}
 
 	// Verify CompositeScreen mode override.
@@ -804,5 +819,451 @@ func TestNormalSpriteHonorsDisableShadows(t *testing.T) {
 	}
 	if got := again.Pixels.RGBAAt(5, 8).R; got != 0x20 {
 		t.Errorf("after clearing DisableShadows, pixel R = 0x%02x, want pure ambient 0x20", got)
+	}
+}
+
+// evalRecordedAdditiveOps evaluates the recorded Scene.Draw ops (ambient rect +
+// additive radial-gradient wedges) at world point (x, y) in premultiplied sRGB
+// [0, 1], giving platform-independent verification alongside nsgotest.Render.
+func evalRecordedAdditiveOps(ops []core.DrawOp, x, y float64) (r, g, b float64) {
+	var grad *core.CanvasGradient
+	var fill core.Color
+	comp := core.CompositeSourceOver
+	type state struct {
+		grad *core.CanvasGradient
+		fill core.Color
+		comp core.CompositeOp
+	}
+	var stack []state
+	var hasArc bool
+	var arcX, arcY, arcR, arcA0, arcA1 float64
+	var hasRect bool
+	var rx, ry, rw, rh float64
+
+	pointInArcWedge := func(px, py float64) bool {
+		dx, dy := px-arcX, py-arcY
+		if dx*dx+dy*dy > arcR*arcR {
+			return false
+		}
+		sweep := arcA1 - arcA0
+		if sweep >= 2*math.Pi-1e-6 {
+			return true
+		}
+		ang := math.Atan2(dy, dx)
+		rel := math.Mod(ang-arcA0, 2*math.Pi)
+		if rel < 0 {
+			rel += 2 * math.Pi
+		}
+		return rel <= sweep
+	}
+
+	for _, op := range ops {
+		switch op.Kind {
+		case core.DrawSave:
+			stack = append(stack, state{grad: grad, fill: fill, comp: comp})
+		case core.DrawRestore:
+			if n := len(stack); n > 0 {
+				s := stack[n-1]
+				stack = stack[:n-1]
+				grad, fill, comp = s.grad, s.fill, s.comp
+			}
+		case core.DrawComposite:
+			comp = op.Composite
+		case core.DrawFillColor:
+			fill, grad = op.Color, nil
+		case core.DrawFillGradient:
+			grad = op.Gradient
+		case core.DrawBeginPath:
+			hasArc, hasRect = false, false
+		case core.DrawRect:
+			hasRect = true
+			rx, ry, rw, rh = float64(op.X), float64(op.Y), float64(op.W), float64(op.H)
+		case core.DrawArc:
+			hasArc = true
+			arcX, arcY, arcR = float64(op.X), float64(op.Y), float64(op.R)
+			arcA0, arcA1 = float64(op.A0), float64(op.A1)
+		case core.DrawFill:
+			if hasRect && grad == nil && x >= rx && x <= rx+rw && y >= ry && y <= ry+rh {
+				fr, fg, fb, fa := fill.Components()
+				if comp == core.CompositeSourceOver {
+					r = r*(1-fa) + fr*fa
+					g = g*(1-fa) + fg*fa
+					b = b*(1-fa) + fb*fa
+				}
+			}
+			if hasArc && grad != nil && grad.Radial && pointInArcWedge(x, y) {
+				dist := math.Hypot(x-float64(grad.X1), y-float64(grad.Y1))
+				t := dist / float64(grad.R2)
+				c := grad.At(t)
+				cr, cg, cb, ca := c.Components()
+				switch comp {
+				case core.CompositeLighter:
+					r = min(1, r+cr*ca)
+					g = min(1, g+cg*ca)
+					b = min(1, b+cb*ca)
+				case core.CompositeScreen:
+					sr, sg, sb := cr*ca, cg*ca, cb*ca
+					r = 1 - (1-r)*(1-sr)
+					g = 1 - (1-g)*(1-sg)
+					b = 1 - (1-b)*(1-sb)
+				default:
+					r = r*(1-ca) + cr*ca
+					g = g*(1-ca) + cg*ca
+					b = b*(1-ca) + cb*ca
+				}
+			}
+		}
+	}
+	return r, g, b
+}
+
+func TestSceneDrawSpotlightSmoothstepMatchesEvaluateAt(t *testing.T) {
+	const W, H = 360, 360
+	bounds := core.Bounds{Size: core.Size{Width: W, Height: H}}
+	cx, cy := float32(180), float32(180)
+
+	cases := []struct {
+		name      string
+		light     lights2d.Light
+		ambient   core.Color
+		radiiFrac []float64
+		degStep   float64
+		tol       float64
+	}{
+		{
+			name: "issue1584_90deg_east",
+			light: lights2d.Light{
+				X: cx, Y: cy, Radius: 150,
+				Color: core.RGB(0xffdd99), Intensity: 1.0, Falloff: 2.0,
+				ConeAngle: 0, ConeSpread: math.Pi / 2, Enabled: true,
+			},
+			ambient:   core.RGBA(0x050814, 0.90),
+			radiiFrac: []float64{0.25, 0.5, 0.75},
+			degStep:   5,
+			tol:       0.045,
+		},
+		{
+			name: "wrap_around_west_pi",
+			light: lights2d.Light{
+				X: cx, Y: cy, Radius: 140,
+				Color: core.RGB(0x88ccff), Intensity: 1.0, Falloff: 2.0,
+				ConeAngle: math.Pi, ConeSpread: math.Pi / 2, Enabled: true,
+			},
+			ambient:   core.RGBA(0x080c18, 0.85),
+			radiiFrac: []float64{0.3, 0.55},
+			degStep:   5,
+			tol:       0.045,
+		},
+		{
+			name: "narrow_cone",
+			light: lights2d.Light{
+				X: cx, Y: cy, Radius: 150,
+				Color: core.RGB(0xffffff), Intensity: 1.0, Falloff: 2.0,
+				ConeAngle: -math.Pi / 4, ConeSpread: math.Pi / 8, Enabled: true,
+			},
+			ambient:   core.RGBA(0x000000, 1.0),
+			radiiFrac: []float64{0.4, 0.65},
+			degStep:   2,
+			tol:       0.05,
+		},
+		{
+			name: "wide_cone_270deg",
+			light: lights2d.Light{
+				X: cx, Y: cy, Radius: 140,
+				Color: core.RGB(0xffaa66), Intensity: 0.9, Falloff: 2.0,
+				ConeAngle: math.Pi / 3, ConeSpread: 1.5 * math.Pi, Enabled: true,
+			},
+			ambient:   core.RGBA(0x04060c, 0.90),
+			radiiFrac: []float64{0.35, 0.6},
+			degStep:   15,
+			tol:       0.045,
+		},
+		{
+			name: "default_zero_falloff_and_high_intensity",
+			light: lights2d.Light{
+				X: cx, Y: cy, Radius: 140,
+				Color: core.RGB(0xffeeaa), Intensity: 2.0, Falloff: 0, // 0 defaults to quadratic 2
+				ConeAngle: 0, ConeSpread: math.Pi / 2, Enabled: true,
+			},
+			ambient:   core.RGBA(0x000000, 1.0),
+			radiiFrac: []float64{0.35, 0.6},
+			degStep:   5,
+			tol:       0.05,
+		},
+		{
+			name: "linear_falloff",
+			light: lights2d.Light{
+				X: cx, Y: cy, Radius: 140,
+				Color: core.RGB(0x66ffaa), Intensity: 1.0, Falloff: 1.0,
+				ConeAngle: math.Pi / 2, ConeSpread: math.Pi / 3, Enabled: true,
+			},
+			ambient:   core.RGBA(0x000000, 1.0),
+			radiiFrac: []float64{0.3, 0.5, 0.7},
+			degStep:   5,
+			tol:       0.05,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := tc.light
+			scene := &lights2d.Scene{
+				Ambient: tc.ambient,
+				Lights:  []*lights2d.Light{&l},
+			}
+			d := &core.Drawing{}
+			scene.Draw(d, bounds)
+
+			img, renderErr := nsgotest.Render(d, bounds.Size, 1)
+			hasNative := true
+			if errors.Is(renderErr, nsgotest.ErrNoPlayer) {
+				hasNative = false
+			} else if renderErr != nil {
+				t.Fatalf("nsgotest.Render: %v", renderErr)
+			}
+
+			halfDeg := float64(l.ConeSpread) * 0.5 * 180 / math.Pi
+			spanDeg := min(180.0, halfDeg+15)
+
+			for _, frac := range tc.radiiFrac {
+				dist := float64(l.Radius) * frac
+				for offDeg := -spanDeg; offDeg <= spanDeg; offDeg += tc.degStep {
+					ang := float64(l.ConeAngle) + offDeg*math.Pi/180
+					ix := int(math.Round(float64(l.X) + dist*math.Cos(ang)))
+					iy := int(math.Round(float64(l.Y) + dist*math.Sin(ang)))
+					if ix < 1 || ix >= W-1 || iy < 1 || iy >= H-1 {
+						continue
+					}
+					px, py := float32(ix)+0.5, float32(iy)+0.5
+					er, eg, eb := scene.EvaluateAt(px, py)
+					wantR := min(1, float64(er))
+					wantG := min(1, float64(eg))
+					wantB := min(1, float64(eb))
+
+					// Platform-independent op evaluation check.
+					opR, opG, opB := evalRecordedAdditiveOps(d.Ops, float64(px), float64(py))
+					if err := max(math.Abs(opR-wantR), max(math.Abs(opG-wantG), math.Abs(opB-wantB))); err > tc.tol {
+						t.Errorf("ops at r=%.2fR offDeg=%.1f (%d,%d): got (%.3f,%.3f,%.3f), EvaluateAt (%.3f,%.3f,%.3f), diff=%.4f > %.4f",
+							frac, offDeg, ix, iy, opR, opG, opB, wantR, wantG, wantB, err, tc.tol)
+					}
+
+					// Native offscreen canvas pixel check (macOS).
+					if hasNative {
+						c := img.RGBAAt(ix, iy)
+						gotR, gotG, gotB := float64(c.R)/255, float64(c.G)/255, float64(c.B)/255
+						if err := max(math.Abs(gotR-wantR), max(math.Abs(gotG-wantG), math.Abs(gotB-wantB))); err > tc.tol {
+							t.Errorf("rendered pixel at r=%.2fR offDeg=%.1f (%d,%d): got (%.3f,%.3f,%.3f), EvaluateAt (%.3f,%.3f,%.3f), diff=%.4f > %.4f",
+								frac, offDeg, ix, iy, gotR, gotG, gotB, wantR, wantG, wantB, err, tc.tol)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSceneDrawSpotlightReproIssue1584AndSymmetry(t *testing.T) {
+	const W, H = 320, 240
+	bounds := core.Bounds{Size: core.Size{Width: W, Height: H}}
+	spot := &lights2d.Light{
+		X:          60,
+		Y:          120,
+		Radius:     200,
+		Color:      core.RGB(0xffffff),
+		Intensity:  1.0,
+		Falloff:    2.0,
+		ConeAngle:  0,
+		ConeSpread: math.Pi / 2,
+		Enabled:    true,
+	}
+	scene := &lights2d.Scene{
+		Ambient: core.RGBA(0x000000, 1.0),
+		Lights:  []*lights2d.Light{spot},
+	}
+	d := &core.Drawing{}
+	scene.Draw(d, bounds)
+
+	sample := func(deg float64) (evalR, gotR float64) {
+		rad := deg * math.Pi / 180
+		ix := int(math.Round(60 + 100*math.Cos(rad)))
+		iy := int(math.Round(120 + 100*math.Sin(rad)))
+		px, py := float32(ix)+0.5, float32(iy)+0.5
+		er, _, _ := scene.EvaluateAt(px, py)
+		opR, _, _ := evalRecordedAdditiveOps(d.Ops, float64(px), float64(py))
+		return float64(er), opR
+	}
+
+	// Regression for issue #1584: at 40 deg off-axis (u = 40/45), brightness must
+	// drop dramatically below the on-axis value rather than staying equal to it.
+	eval0, op0 := sample(0)
+	eval22, op22 := sample(22.5)
+	eval40, op40 := sample(40)
+	eval50, op50 := sample(50)
+	if eval50 != 0 {
+		t.Fatalf("expected EvaluateAt at 50deg outside 90deg cone to be 0, got %v", eval50)
+	}
+	if !(op0 > op22 && op22 > op40 && op40 >= op50 && op50 == 0) {
+		t.Fatalf("expected monotonic smoothstep drop (0 > 22.5 > 40 >= 50 == 0), got %.3f, %.3f, %.3f, %.3f", op0, op22, op40, op50)
+	}
+	if op40 > op0*0.20 {
+		t.Fatalf("40deg off-axis brightness %.3f is too high relative to on-axis %.3f (eval=%.3f vs %.3f)", op40, op0, eval40, eval0)
+	}
+	if math.Abs(op22-eval22) > 0.03 {
+		t.Errorf("22.5deg off-axis op=%.3f vs eval=%.3f", op22, eval22)
+	}
+
+	// Native pixel check when windowless canvas player is available.
+	img, err := nsgotest.Render(d, bounds.Size, 1)
+	if errors.Is(err, nsgotest.ErrNoPlayer) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("nsgotest.Render: %v", err)
+	}
+	pixAt := func(deg float64) float64 {
+		rad := deg * math.Pi / 180
+		ix := int(math.Round(60 + 100*math.Cos(rad)))
+		iy := int(math.Round(120 + 100*math.Sin(rad)))
+		return float64(img.RGBAAt(ix, iy).R) / 255.0
+	}
+	p0, p22, p40, p50 := pixAt(0), pixAt(22.5), pixAt(40), pixAt(50)
+	if !(p0 > p22 && p22 > p40 && p40 >= p50 && p50 == 0) {
+		t.Fatalf("rendered pixels not monotonically decreasing: 0=%.3f 22.5=%.3f 40=%.3f 50=%.3f", p0, p22, p40, p50)
+	}
+	if p40 > p0*0.20 {
+		t.Fatalf("rendered 40deg pixel %.3f is too bright relative to on-axis %.3f", p40, p0)
+	}
+	// Symmetry between +deg and -deg across the beam axis.
+	for _, deg := range []float64{10, 20, 30, 40} {
+		pos, neg := pixAt(deg), pixAt(-deg)
+		if math.Abs(pos-neg) > 0.02 {
+			t.Errorf("asymmetric spotlight at ±%.0f deg: +%.3f vs -%.3f", deg, pos, neg)
+		}
+	}
+}
+
+func TestSceneDrawSpotlightCompositeModesAndOmnidirectionalEdgeCases(t *testing.T) {
+	const W, H = 240, 240
+	bounds := core.Bounds{Size: core.Size{Width: W, Height: H}}
+	ambient := core.RGBA(0x101830, 0.90)
+	ar, ag, ab, aa := ambient.Components()
+	dstR, dstG, dstB := ar*aa, ag*aa, ab*aa
+
+	spot := func() *lights2d.Light {
+		return &lights2d.Light{
+			X: 40, Y: 120, Radius: 160,
+			Color: core.RGB(0xffcc88), Intensity: 1.0, Falloff: 2.0,
+			ConeAngle: 0, ConeSpread: math.Pi / 2, Enabled: true,
+		}
+	}
+
+	// Verify CompositeScreen and CompositeSourceOver preserve full on-axis peak
+	// brightness and smoothly attenuate off-axis without multi-pass darkening.
+	for _, tc := range []struct {
+		name string
+		set  func(*lights2d.Scene)
+		want func(lr, lg, lb, atten float64) (float64, float64, float64)
+	}{
+		{
+			name: "screen",
+			set:  func(s *lights2d.Scene) { s.LightComposite = core.CompositeScreen },
+			want: func(lr, lg, lb, atten float64) (float64, float64, float64) {
+				return 1 - (1-dstR)*(1-lr*atten), 1 - (1-dstG)*(1-lg*atten), 1 - (1-dstB)*(1-lb*atten)
+			},
+		},
+		{
+			name: "source_over",
+			set:  func(s *lights2d.Scene) { s.SetLightComposite(core.CompositeSourceOver) },
+			want: func(lr, lg, lb, atten float64) (float64, float64, float64) {
+				return dstR*(1-atten) + lr*atten, dstG*(1-atten) + lg*atten, dstB*(1-atten) + lb*atten
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := spot()
+			scene := &lights2d.Scene{Ambient: ambient, Lights: []*lights2d.Light{l}}
+			tc.set(scene)
+			d := &core.Drawing{}
+			scene.Draw(d, bounds)
+
+			img, err := nsgotest.Render(d, bounds.Size, 1)
+			hasNative := true
+			if errors.Is(err, nsgotest.ErrNoPlayer) {
+				hasNative = false
+			} else if err != nil {
+				t.Fatalf("nsgotest.Render: %v", err)
+			}
+
+			lr, lg, lb, _ := l.Color.Components()
+			for _, deg := range []float64{0, 15, 25, 35, 40, 55} {
+				rad := deg * math.Pi / 180
+				ix := int(math.Round(40 + 60*math.Cos(rad)))
+				iy := int(math.Round(120 + 60*math.Sin(rad)))
+				px, py := float32(ix)+0.5, float32(iy)+0.5
+				atten := float64(l.AttenuationAt(px, py))
+				wr, wg, wb := tc.want(lr, lg, lb, atten)
+
+				opR, opG, opB := evalRecordedAdditiveOps(d.Ops, float64(px), float64(py))
+				if diff := max(math.Abs(opR-wr), max(math.Abs(opG-wg), math.Abs(opB-wb))); diff > 0.05 {
+					t.Errorf("%s ops at deg=%.0f: got (%.3f,%.3f,%.3f), want (%.3f,%.3f,%.3f)", tc.name, deg, opR, opG, opB, wr, wg, wb)
+				}
+				if hasNative {
+					c := img.RGBAAt(ix, iy)
+					gr, gg, gb := float64(c.R)/255, float64(c.G)/255, float64(c.B)/255
+					if diff := max(math.Abs(gr-wr), max(math.Abs(gg-wg), math.Abs(gb-wb))); diff > 0.05 {
+						t.Errorf("%s pixel at deg=%.0f: got (%.3f,%.3f,%.3f), want (%.3f,%.3f,%.3f)", tc.name, deg, gr, gg, gb, wr, wg, wb)
+					}
+				}
+			}
+		})
+	}
+
+	// ConeSpread <= 0 and ConeSpread >= 2*pi must remain omnidirectional single-arc draws.
+	for _, spread := range []float32{0, -1, 2 * math.Pi, 3 * math.Pi} {
+		l := &lights2d.Light{
+			X: 120, Y: 120, Radius: 80,
+			Color: core.RGB(0xffffff), Intensity: 1.0, Falloff: 2.0,
+			ConeSpread: spread, Enabled: true,
+		}
+		scene := &lights2d.Scene{Lights: []*lights2d.Light{l}}
+		d := &core.Drawing{}
+		scene.Draw(d, bounds)
+		arcs := 0
+		for _, op := range d.Ops {
+			if op.Kind == core.DrawArc {
+				arcs++
+			}
+		}
+		if arcs != 1 {
+			t.Errorf("ConeSpread=%v drew %d arcs, want 1 omnidirectional circle", spread, arcs)
+		}
+	}
+
+	// Spotlight with CastShadows clips cleanly against occluders while preserving smoothstep on the lit side.
+	l := spot()
+	l.CastShadows = true
+	wall := lights2d.RectOccluder(core.Bounds{
+		Origin: core.Point{X: 90, Y: 125},
+		Size:   core.Size{Width: 12, Height: 60},
+	})
+	shadowScene := &lights2d.Scene{
+		Ambient:   core.RGBA(0x000000, 1.0),
+		Lights:    []*lights2d.Light{l},
+		Occluders: []lights2d.Occluder{wall},
+	}
+	d := &core.Drawing{}
+	shadowScene.Draw(d, bounds)
+	if img, err := nsgotest.Render(d, bounds.Size, 1); err == nil {
+		// Lower half (y=150, behind wall at x=130) must stay dark; upper mirror (y=90, x=130) must be lit.
+		litPix := img.RGBAAt(130, 90)
+		shadPix := img.RGBAAt(130, 150)
+		if shadPix.R > 2 {
+			t.Errorf("shadowed spotlight pixel behind wall = %+v, want dark ambient", shadPix)
+		}
+		if litPix.R < 20 {
+			t.Errorf("unblocked spotlight pixel = %+v, want brightly lit", litPix)
+		}
+	} else if !errors.Is(err, nsgotest.ErrNoPlayer) {
+		t.Fatalf("nsgotest.Render shadow spotlight: %v", err)
 	}
 }
