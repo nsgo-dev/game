@@ -105,11 +105,18 @@ func (a *Actions) BindPointerAxis(name string, axis PointerAxis, opts PointerAxi
 		a.pointerAxes = make(map[string]pointerAxisBinding)
 	}
 	a.pointerAxes[name] = pointerAxisBinding{axis: axis, opts: opts}
+	delete(a.unboundPointerAxes, name)
 }
 
-// UnbindPointerAxis removes the pointer axis binding for name.
+// UnbindPointerAxis removes the pointer axis binding for name. Save records the unbinding so a later Load keeps name unbound rather than restoring a default.
 func (a *Actions) UnbindPointerAxis(name string) {
 	delete(a.pointerAxes, name)
+	if name != "" {
+		if a.unboundPointerAxes == nil {
+			a.unboundPointerAxes = make(map[string]bool)
+		}
+		a.unboundPointerAxes[name] = true
+	}
 }
 
 // PointerAxisBinding returns the pointer axis and options bound to name.

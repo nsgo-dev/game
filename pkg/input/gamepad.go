@@ -92,13 +92,20 @@ func (a *Actions) BindGamepadAxis(name string, axis gamepad.Axis, opts GamepadAx
 		a.gpAxes = make(map[string]gamepadAxisBinding)
 	}
 	a.gpAxes[name] = gamepadAxisBinding{axis: axis, opts: finiteGamepadAxisOptions(opts)}
+	delete(a.unboundGpAxes, name)
 	delete(a.gpSnap, name)
 }
 
-// UnbindGamepadAxis removes the gamepad axis binding for name.
+// UnbindGamepadAxis removes the gamepad axis binding for name. Save records the unbinding so a later Load keeps name unbound rather than restoring a default.
 func (a *Actions) UnbindGamepadAxis(name string) {
 	delete(a.gpAxes, name)
 	delete(a.gpSnap, name)
+	if name != "" {
+		if a.unboundGpAxes == nil {
+			a.unboundGpAxes = make(map[string]bool)
+		}
+		a.unboundGpAxes[name] = true
+	}
 }
 
 // GamepadAxisBinding returns the stick axis and options bound to name with BindGamepadAxis.

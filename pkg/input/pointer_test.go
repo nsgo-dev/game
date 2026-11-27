@@ -288,8 +288,8 @@ func TestPointerAxesPersist(t *testing.T) {
 	if ok, err := b.Load(store, "controls"); !ok || err != nil {
 		t.Fatalf("Load = %v, %v", ok, err)
 	}
-	if _, _, ok := b.PointerAxisBinding("roll"); ok {
-		t.Fatal("Load kept a pointer axis the save did not have")
+	if ax, _, ok := b.PointerAxisBinding("roll"); !ok || ax != input.PointerX {
+		t.Fatalf("Load dropped a pointer axis absent from the save: %v, %v", ax, ok)
 	}
 	for _, name := range []string{"yaw", "pitch"} {
 		wantAx, wantOpts, _ := a.PointerAxisBinding(name)
@@ -297,6 +297,12 @@ func TestPointerAxesPersist(t *testing.T) {
 		if !ok || ax != wantAx || opts != wantOpts {
 			t.Fatalf("%s after Load = %v %+v %v, want %v %+v", name, ax, opts, ok, wantAx, wantOpts)
 		}
+	}
+	if ok, err := b.LoadReplace(store, "controls"); !ok || err != nil {
+		t.Fatalf("LoadReplace = %v, %v", ok, err)
+	}
+	if _, _, ok := b.PointerAxisBinding("roll"); ok {
+		t.Fatal("LoadReplace kept a pointer axis the save did not have")
 	}
 	if err := b.Save(store, "again"); err != nil {
 		t.Fatal(err)

@@ -69,7 +69,7 @@ An `input.Actions` value is an action map: names bound to inputs, read once per 
 | `action.WasReleasedThisFrame()` | `actions.JustReleased("jump")` |
 | A 1D axis composite | `actions.BindAxis("move_x", "left", "right")`, then `actions.Axis("move_x")` |
 | On-Screen Stick and Button | `input.VirtualPad` |
-| Saving rebinding overrides | `actions.Save` and `actions.Load` in `core.Storage` |
+| Saving rebinding overrides | `actions.Save` and `actions.Load` in `core.Storage` (`Load` merges per name so defaults added later stay bound; `LoadReplace` replaces all) |
 
 Call `actions.Step()` at the start of each update. Bindings today are touch regions, mouse buttons and device motion. Key and gamepad bindings are tracked in [#3](https://github.com/nsgo-dev/game/issues/3); until they land, a key bound with NSGo's `cx.OnKey` can call `actions.Trigger(name)`, which registers the action for one step. See [input](input.md).
 

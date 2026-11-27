@@ -403,7 +403,7 @@ if err := actions.Save(cx.Storage(), "controls.v1"); err != nil {
 	log.Println("save controls:", err)
 }
 
-// Restore on startup (leaves defaults untouched when key is absent)
+// Bind defaults first, then merge the player's saved bindings on startup
 found, err := actions.Load(cx.Storage(), "controls.v1")
 if err != nil {
 	log.Println("corrupt saved controls, keeping defaults:", err)
@@ -411,4 +411,8 @@ if err != nil {
 _ = found
 ```
 
-When `key` is absent, `Load` returns `(false, nil)` and leaves existing default bindings intact. If the stored JSON is invalid, has a field `Load` does not know or uses an unknown format, `Load` leaves bindings untouched and returns `(false, err)`.
+`Load` merges per name across actions, opposite-action axes, motion axes, pointer axes and gamepad axes: any name present in the saved value replaces that name's binding, while names absent from the saved value keep their current (default) bindings. That way, controls added in a newer build stay bound for players loading an older save.
+
+Explicit unbindings made with `Unbind`, `UnbindAxis`, `UnbindMotionAxis`, `UnbindPointerAxis` or `UnbindGamepadAxis` (or `Bind` with no inputs) are written by `Save` (`[{"kind":"none"}]` for an action, `{}` for an opposite-action axis, and `{"axis":"none"}` for a motion, pointer or gamepad axis), so `Load` keeps them unbound rather than restoring the default. Call `LoadReplace` instead when you want to replace all bindings wholesale with the saved snapshot and drop any binding absent from it.
+
+When `key` is absent, both `Load` and `LoadReplace` return `(false, nil)` and leave existing default bindings intact. If the stored JSON is invalid, has a field they do not know or uses an unknown format, they leave bindings untouched and return `(false, err)`.
