@@ -254,6 +254,7 @@ func (l *Loop) Run(cx *core.Scope) (stop func()) {
 	l.syncPause()
 	r := &loopRun{loop: l, cx: cx, env: cx.Env()}
 	l.activeRun = r
+	r.unregisterWeb = l.attachWebBridge(cx)
 	stopEffect := cx.Effect(func() {
 		if cx.Env().Lifecycle() == core.LifecycleBackground {
 			r.pause()
@@ -299,6 +300,8 @@ type loopRun struct {
 	drawn   bool
 	// immersive says the run counts in immersiveRuns as wanting the system bars hidden; ended says stop ran or cx was disposed.
 	immersive, ended bool
+	// unregisterWeb detaches the web Play-mode MCP bridge registration (no-op outside js/wasm).
+	unregisterWeb func()
 }
 
 // syncImmersive counts the run as wanting the system bars hidden while the game plays with Immersive set, hiding them when it is the first such run in its window and showing them again when the last one stops wanting them hidden.
@@ -353,6 +356,10 @@ func (r *loopRun) end() {
 	r.ended = true
 	r.cancel = nil
 	r.releaseAwake = nil
+	if r.unregisterWeb != nil {
+		r.unregisterWeb()
+		r.unregisterWeb = nil
+	}
 	if r.loop.activeRun == r {
 		r.loop.activeRun = nil
 	}

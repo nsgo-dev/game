@@ -192,6 +192,9 @@ type Config struct {
 
 	// ScreenshotBackground optionally fills the screenshot canvas before drawing the game frame when CaptureFrame is nil. Zero leaves the background transparent.
 	ScreenshotBackground core.Color
+
+	// StateValues optionally returns game-wide key-value state included by game_state_dump alongside the entity world and scene stack.
+	StateValues func() map[string]any
 }
 
 type compTypeKey any
@@ -281,9 +284,11 @@ func (b *Bridge) Attach(cx *core.Scope) error {
 			return err
 		}
 	}
+	unregisterWeb := b.attachWebBridge(sub)
 	b.sub = sub
 	sub.Run(func() {
 		sub.Cleanup(func() {
+			unregisterWeb()
 			if b.sub == sub {
 				b.sub = nil
 			}
@@ -362,6 +367,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	}
 	var out []automation.Tool
 	out = append(out, b.inspectTools()...)
+	out = append(out, b.stateDumpTools()...)
 	out = append(out, b.loopTools()...)
 	out = append(out, b.inputTools()...)
 	out = append(out, b.consoleTools()...)
@@ -371,6 +377,33 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.assetTools()...)
 	out = append(out, b.screenshotTools()...)
 	return out
+}
+
+// CallTool invokes one tool registered on b by name with JSON object arguments
+// and returns its JSON-encoded result. Call it on the engine goroutine.
+func (b *Bridge) CallTool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
+	if b == nil {
+		return nil, ErrNilBridge
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(bytes.TrimSpace(args)) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+	for _, tool := range b.Tools() {
+		if tool.Name == name {
+			if tool.Handler == nil {
+				return nil, fmt.Errorf("mcp: tool %q has no handler", name)
+			}
+			val, err := tool.Handler(ctx, args)
+			if err != nil {
+				return nil, err
+			}
+			return encodeValue(val)
+		}
+	}
+	return nil, fmt.Errorf("mcp: unknown tool %q", name)
 }
 
 // RegisterComponent registers a typed component inspector for component type T under name on b.

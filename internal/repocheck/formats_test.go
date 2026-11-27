@@ -45,6 +45,7 @@ const jsonImport = "encoding/json"
 
 // notJSONFormats are the packages that decode JSON without defining a file format of their own, each with the reason, so the File Formats page need not list them. Every other package that decodes JSON must have an entry there.
 var notJSONFormats = map[string]string{
+	".":                     "decodes JSON arguments of live web Play-mode MCP bridge tool calls in loop_web_js.go, which are RPC payloads on the wire",
 	"online/accounts":       "decodes the JSON bodies of its HTTP API, which is data on the wire",
 	"online/accounts/token": "decodes the JSON payload of a signed token, which is data on the wire",
 	"editor":                "reads meta.image from packed sprite atlas JSON files and decodes JSON RPC payloads of remote MCP profiler tool calls",

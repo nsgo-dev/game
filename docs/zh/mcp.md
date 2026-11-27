@@ -101,6 +101,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_entities_list` | `component`、`layer`、`name`（子串）、`tag`、`parent`（引用或 `"root"`）、`include_components`（默认 `false`）、`offset`、`limit` | 按槽位升序排列的存活实体列表，包含 `total`、`returned`、稳定引用 `ref`、`index`、`generation`、元数据、`parent`、`child_count`、排序后的 `components` 名称列表，以及可选内联 `values`。 |
 | `game_entity_inspect` | `ref`（必填） | 单个存活实体的完整信息：`ref`、`index`、`generation`、元数据、`parent`、`children` 引用，以及按组件名映射的全部可读组件值。 |
 | `game_component_get` | `ref`（必填）、`component`（必填） | 单个存活实体上指定组件的序列化 `value`。 |
+| `game_state_dump` | `{}` | 确定性状态转储（`version`、`rate`、`steps`、`game_time_seconds`、`scene`、`entities`、来自 `Config.StateValues` 的 `values` 以及规范 `statedump` `yaml`）。 |
 | `game_loop_status` | `{}` | 当前循环状态：`paused`、实际生效的 `time_scale`、`step_seconds`、`step_hz`、累计 `steps`、`game_time_seconds` 以及 `seed_configured`。 |
 | `game_loop_pause` | `{}` | 暂停主循环（`Loop.SetPaused(true)`），不累积追赶时间，并返回更新后的循环状态。 |
 | `game_loop_resume` | `{}` | 恢复主循环（`Loop.SetPaused(false)`），并返回更新后的循环状态。 |
@@ -357,6 +358,8 @@ claude mcp add game-editor -- go tool game mcp
 | `sketch_reading` | edit | `summary`、`items`、`assumptions` | 向编辑器提交智能体对已发送草图的复述卡片（`"I read your sketch as: …"`）与假设说明；在草图等待确认期间，`scene_edit` 及其他变更场景的工具会被拦住，直到用户点击 **Go ahead**、**Correct a mark** 或以文字回复。 |
 | `plan_propose` | read | `title`、`steps`（必填）；`id`、`turnId`、`prompt`、`summary`、`estimate`、`reason`、`files`、`questions`、`wait`（可选） | 在修改任何场景或文件前提出包含澄清问题（支持预览与虚影/标题联动）、可编辑编号步骤、规划场景树节点与视口紫色虚影的结构化计划；默认等待用户批准（批准执行或直接执行）或停止后返回结构化的 `AgentPlanDecision`（含回答、调整后的数量与备注、移除步骤）。 |
 | `plan_step_update` | read | `step`、`status`、`complete`（可选） | 更新已批准计划步骤的执行状态（`pending`、`running`、`done`、`failed`、`skipped`）或结束计划并将步骤完成清单附加到回合审查，同时回报用户是否已按下停止。 |
+| `phone_sessions_list` | read | `{}` | 列出连接到编辑器局域网二维码 MCP 桥接的 Play 模式 Web 构建会话，包含服务状态、局域网 URL 与每个已连接手机/浏览器会话的信息。 |
+| `phone_call_tool` | run | `tool`（必填）；`session_id`、`arguments`、`timeout_ms`（可选） | 经由 `Editor.CallWebBridgeTool` 向已连接的手机/浏览器会话转发游戏 MCP 工具调用（如 `game_state_dump`、`game_scenes_list`、`game_entities_list`、`game_loop_step`、`game_input_action`、`game_screenshot`），遵循 `permissions.yaml`（`playtests: phone/<tool>`）权限规则与隐私策略。 |
 
 编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`。
 

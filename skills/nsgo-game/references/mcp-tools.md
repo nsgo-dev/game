@@ -93,6 +93,7 @@ All MCP tools strictly refuse unknown JSON argument fields.
 | `game_entities_list` | `component`, `layer`, `name` (substring), `tag`, `parent` (ref or `"root"`), `include_components` (default `false`), `offset`, `limit` | Live entities in ascending slot order with `total`, `returned`, stable generational `ref` (`"entity:<index>:<generation>"`), metadata, `parent`, `child_count`, `components` names and optional `values` |
 | `game_entity_inspect` | `ref` (req) | One live entity's `ref`, `index`, `generation`, `name`, `layer`, `tags`, `parent`, `children` refs and all readable `components` values |
 | `game_component_get` | `ref` (req), `component` (req) | Serialized `value` of one component on a live entity |
+| `game_state_dump` | `{}` | Deterministic state dump (`version`, `rate`, `steps`, `game_time_seconds`, `scene`, `entities`, `values` from `Config.StateValues`, and canonical `statedump` `yaml`) |
 
 Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityRef` / `mcp.ParseEntityRef`). Stale references to destroyed or recycled slots return a `"not alive"` error.
 

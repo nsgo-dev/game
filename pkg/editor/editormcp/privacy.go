@@ -354,6 +354,17 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		if !policy.GoSource {
 			return editor.PrivacyRefusalError(editor.PrivacyGoSource, t.Name)
 		}
+	case ToolPhoneCallTool:
+		var a struct {
+			Tool string `json:"tool"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if strings.TrimSpace(a.Tool) == "game_screenshot" && !policy.ViewportImages {
+			return editor.PrivacyRefusalError(editor.PrivacyViewportImages, t.Name)
+		}
+		if !policy.SceneAndData {
+			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, t.Name)
+		}
 	case ToolSelectionGet,
 		ToolSceneEdit,
 		ToolDataTableReviewChecks,

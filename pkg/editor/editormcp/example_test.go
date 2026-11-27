@@ -116,6 +116,8 @@ func ExampleServer_AddTool() {
 	// object_set_field edit
 	// object_visibility edit
 	// permissions_draft read
+	// phone_call_tool run
+	// phone_sessions_list read
 	// plan_propose read
 	// plan_step_update read
 	// play_frozen_context read

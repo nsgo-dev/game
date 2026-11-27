@@ -543,12 +543,16 @@ func (e *Editor) resolveWebServeTarget(explicit string) (string, error) {
 		projDir := filepath.Dir(e.ProjectPath)
 		if e.Project != nil && e.Project.Export != nil && e.Project.Export.Output != "" {
 			outDir := filepath.Join(projDir, filepath.FromSlash(e.Project.Export.Output))
-			candidates = append(candidates, filepath.Join(outDir, "web"), outDir)
+			candidates = append(candidates, filepath.Join(outDir, "web"))
+			candidates = append(candidates, findNamedWebBuildDirs(outDir)...)
+			candidates = append(candidates, outDir)
 		}
 		candidates = append(candidates,
 			filepath.Join(projDir, "dist", "web"),
 			filepath.Join(projDir, "build", "web"),
 		)
+		candidates = append(candidates, findNamedWebBuildDirs(filepath.Join(projDir, "dist"))...)
+		candidates = append(candidates, findNamedWebBuildDirs(filepath.Join(projDir, "build"))...)
 	}
 
 	for _, c := range candidates {
@@ -851,6 +855,8 @@ func webAssetContentType(name string) string {
 		return "text/css; charset=utf-8"
 	case ".json":
 		return "application/json"
+	case ".webmanifest":
+		return "application/manifest+json"
 	case ".png":
 		return "image/png"
 	case ".jpg", ".jpeg":
@@ -1172,9 +1178,11 @@ func (e *Editor) handleWebBridgeRPC(srv *activeWebServer, projectName string, w 
 	case "tools/list":
 		replyOK(map[string]any{
 			"tools": []map[string]string{
+				{"name": "game_state_dump", "description": "Capture a deterministic state dump from the phone web build"},
 				{"name": "game_scenes_list", "description": "List scenes running in the phone web build"},
 				{"name": "game_entities_list", "description": "List live entities in the phone web build"},
 				{"name": "game_entity_inspect", "description": "Inspect one live entity in the phone web build"},
+				{"name": "game_loop_status", "description": "Inspect fixed-step loop status in the phone web build"},
 				{"name": "game_console_exec", "description": "Execute a debug console command in the phone web build"},
 				{"name": "game_screenshot", "description": "Capture a screenshot from the phone web build"},
 			},
@@ -1621,6 +1629,7 @@ func (e *Editor) autoServeWebBuildIfReady(
 	}
 	if plan != nil && plan.OutputDir != "" {
 		candidates = append(candidates, filepath.Join(plan.OutputDir, "web"))
+		candidates = append(candidates, findNamedWebBuildDirs(plan.OutputDir)...)
 	}
 	if measured.ArtifactPath != "" {
 		candidates = append(candidates, measured.ArtifactPath)
@@ -1646,6 +1655,23 @@ func (e *Editor) autoServeWebBuildIfReady(
 			return
 		}
 	}
+}
+
+func findNamedWebBuildDirs(parent string) []string {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), "-web") {
+			out = append(out, filepath.Join(parent, entry.Name()))
+		}
+	}
+	return out
 }
 
 func localBrowserDeviceName() string {
@@ -1722,6 +1748,7 @@ func parseADBDevicesOutput(out string) []ConnectedDevice {
 
 const webBridgeBootstrapJS = `// NSGo Game Editor LAN MCP Bridge bootstrap for served web builds in Play mode.
 (function () {
+  if (window.__nsgoMCPBridge && window.__nsgoMCPBridge.active) return;
   async function connect() {
     const infoRes = await fetch('/__nsgo_mcp/info', { cache: 'no-store' });
     if (!infoRes.ok) return;
@@ -1736,13 +1763,25 @@ const webBridgeBootstrapJS = `// NSGo Game Editor LAN MCP Bridge bootstrap for s
         token: info.token,
         device: device,
         playMode: true,
-        capabilities: ['inspect', 'input', 'screenshot', 'console']
+        capabilities: ['inspect', 'state_dump', 'input', 'screenshot', 'console', 'loop']
       })
     });
     if (!sessRes.ok) return;
     const sess = await sessRes.json();
-    window.__nsgoMCPBridge = { info: info, session: sess };
-    while (true) {
+    let closed = false;
+    const disconnect = function () {
+      if (closed) return;
+      closed = true;
+      try {
+        fetch(
+          info.sessionEndpoint + '?id=' + encodeURIComponent(sess.sessionId) + '&token=' + encodeURIComponent(info.token),
+          { method: 'DELETE', keepalive: true, headers: { 'X-NSGo-MCP-Token': info.token } }
+        ).catch(function () {});
+      } catch (_) {}
+    };
+    window.addEventListener('pagehide', disconnect, { once: true });
+    window.__nsgoMCPBridge = { active: true, info: info, session: sess, disconnect: disconnect };
+    while (!closed) {
       try {
         const pollRes = await fetch(
           info.pollEndpoint + '?id=' + encodeURIComponent(sess.sessionId) + '&token=' + encodeURIComponent(info.token),
@@ -1760,7 +1799,7 @@ const webBridgeBootstrapJS = `// NSGo Game Editor LAN MCP Bridge bootstrap for s
             errText = 'window.__nsgoMCP.callTool is not registered';
           }
         } catch (err) {
-          errText = String(err);
+          errText = err && err.message ? String(err.message) : String(err);
         }
         await fetch(info.replyEndpoint, {
           method: 'POST',
@@ -1777,6 +1816,7 @@ const webBridgeBootstrapJS = `// NSGo Game Editor LAN MCP Bridge bootstrap for s
         break;
       }
     }
+    window.__nsgoMCPBridge.active = false;
   }
   connect();
 })();

@@ -40,6 +40,7 @@ func ExampleNew() {
 	// game_entities_list
 	// game_entity_inspect
 	// game_component_get
+	// game_state_dump
 	// game_loop_status
 	// game_loop_pause
 	// game_loop_resume
