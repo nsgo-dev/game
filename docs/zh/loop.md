@@ -14,13 +14,28 @@ import "github.com/nsgo-dev/game"
 
 ```go
 type Loop struct {
-	Rate     int                    // 每秒更新次数，0 表示 60
-	MaxSteps int                    // 单帧最多运行的更新次数，0 表示 max(1, Rate/10)
-	Update   func(dt time.Duration) // 按固定步长 dt（始终为 1/Rate 秒）推进游戏状态
-	Draw     func(alpha float64)    // 绘制这一帧，alpha 在 [0, 1) 之间
+	Rate        int                    // 每秒更新次数，0 表示 60
+	MaxSteps    int                    // 单帧最多运行的更新次数，0 表示 max(1, Rate/10)
+	Paused      bool                   // 停止 Update 随显示时间推进
+	PausedAwake time.Duration          // 暂停或 OnDemand 空闲后保持屏幕常亮的宽限期
+	TimeScale   float64                // 模拟时间倍率，<= 0 或非有限数时取 1
+	DrawRate    int                    // 限制每秒最多调用 Draw 的次数，<= 0 表示不限制
+	OnDemand    bool                   // 未运行 Update 的帧跳过 Draw，除非调用了 MarkDirty
+	Idle        func() bool            // 配合 OnDemand 使用，返回 true 时同时跳过 Update 和 Draw
+	Immersive   bool                   // 未暂停时隐藏手机系统栏
+	Update      func(dt time.Duration) // 按固定步长 dt（始终为 1/Rate 秒）推进游戏状态
+	Draw        func(alpha float64)    // 绘制这一帧，alpha 在 [0, 1) 之间
+	FrameTime   func(dt time.Duration) // 在本帧更新前接收帧长
+	OnPause     func(paused bool)      // Paused 状态变化时回调
 }
 
 func (l *Loop) Run(cx *core.Scope) (stop func())
+func (l *Loop) SetPaused(paused bool)
+func (l *Loop) SetTimeScale(scale float64)
+func (l *Loop) Step(n int)
+func (l *Loop) StepOnce()
+func (l *Loop) StepNow(n int) int
+func (l *Loop) MarkDirty()
 ```
 
 在 NSGo 的 `RequestAnimationFrame` 触发每个显示帧时：
@@ -120,6 +135,60 @@ loop.Run(cx)
 - 如果调用 `Run` 时 `Paused` 已经为 `true`，`Run` 会先调用一次 `OnPause(true)`。
 - 应用切入后台不会触发 `OnPause`；`Loop.Run` 和 `sound.NewMixer` 都直接监听 `core.Env.Lifecycle`，因此在切入后台和切回前台时两者同步暂停和恢复，且不会清除仍然打开的暂停菜单状态。
 
+## 缩放模拟时间（`TimeScale`）
+
+`TimeScale`（或 `SetTimeScale`）用于慢动作或快进，同时保持传给 `Update` 的固定步长 `dt` 不变：
+
+- `0.5` 使每秒执行的 `Update` 次数减半；`2.0` 使每秒执行的次数翻倍（仍受单帧 `MaxSteps` 限制）。
+- 小于等于 `0` 的值（以及 `NaN` 和 `±Inf`）默认按 `1` 处理。
+
+```go
+loop.SetTimeScale(0.25) // 子弹时间慢动作；Update 仍接收固定 dt == 1/Rate
+```
+
+## 暂停时单步推进（`Step`、`StepOnce`、`StepNow`）
+
+在 `Paused` 为 `true` 时，可以在不取消暂停的情况下按精确的固定步数推进模拟：
+
+- `Step(n)` 排入 `n` 次固定步长 `Update`，在下一显示帧执行并随后调用 `Draw(0)`（非正数不做任何事）。
+- `StepOnce()` 等价于 `Step(1)`。
+- `StepNow(n)` 立即同步执行 `n` 次固定步长 `Update` 和一次 `Draw`（无论 `Paused` 是 `true` 还是 `false`），并返回实际执行的步数，适合确定性测试与编辑器回放工具。
+
+## 限制绘制帧率（`DrawRate`）
+
+设置 `DrawRate` 可以限制每秒最多调用 `Draw` 的次数，同时保持 `Update` 按 `Rate` 运行（例如低电量模式下保持 60 Hz 物理更新但以 30 fps 渲染）。小于等于 `0` 时不限制绘制频率，跟随显示器刷新率。
+
+同时启用 `OnDemand` 与 `DrawRate` 时，若 `MarkDirty` 在下一次绘制间隔到来前触发，脏标记会保留并在间隔到达后执行绘制。
+
+## 按需绘制与空闲休眠（`OnDemand`、`Idle`、`MarkDirty`）
+
+菜单密集型、回合制和叙事类游戏经常需要静止等待玩家点击或按键。同时设置 `OnDemand: true` 与 `Idle`，即可在没有动画进行时完全跳过更新和绘制：
+
+- **不设置 `Idle`**：`OnDemand: true` 会在未执行 `Update` 的帧上跳过 `Draw`，除非调用过 `MarkDirty()`（例如 30 Hz 模拟在 60 Hz 显示器上每秒绘制 30 次，`Paused: true` 的循环仅在 `Step` 或 `MarkDirty` 时绘制）。
+- **设置 `Idle`**：当 `OnDemand` 为 `true`、`Paused` 为 `false` 且 `Idle()` 返回 `true` 时，循环在显示帧上同时跳过 `Update` 和 `Draw`，且不累加经过的时间（因此之后唤醒时不会出现补帧积压）。
+- **输入唤醒（`MarkDirty`）**：调用 `MarkDirty()` 请求在下一帧执行 `Draw`；当未暂停的 `OnDemand` 循环处于空闲状态时，`MarkDirty()` 还会为下一帧排入一次固定步长 `Update`，以便采样输入并推进状态。两帧之间多次调用 `MarkDirty()` 会合并为单次唤醒步。如果该次 `Update` 启动了持续工作（使 `Idle()` 返回 `false`），固定步长循环会恢复连续运行，直到 `Idle()` 再次返回 `true`。
+- **接入输入**：将 [`input.Actions`](input.md#唤醒空闲的-ondemand-循环) 的 `actions.Wake` 设为 `loop.MarkDirty`（未绑定 `Actions` 时则设置 `TouchControls.OnWake` 或 `GestureRecognizer.Wake`），并在 `Update` 之外修改状态的视图回调（如按钮 `OnPress`）中调用 `loop.MarkDirty()`。
+
+```go
+loop := &game.Loop{
+	Rate:     60,
+	OnDemand: true,
+	Idle: func() bool {
+		return fadeLeft == 0 && typewriter.Done() && !autoMode
+	},
+	Update: func(dt time.Duration) {
+		actions.Step()
+		handleInput()
+		stepAnimations(dt)
+	},
+	Draw: func(float64) {
+		frame.Update(func(v uint64) uint64 { return v + 1 })
+	},
+}
+actions.Wake = loop.MarkDirty
+loop.Run(cx)
+```
+
 ## 后台暂停与停止
 
 `Loop.Run` 会监听 `cx.Env().Lifecycle()`：
@@ -151,12 +220,12 @@ stop = loop.Run(cx)
 
 ## 保持屏幕常亮
 
-当循环在前台运行且未处于 `Paused` 时，`Loop.Run` 会持有显示常亮锁（`core.Scope.KeepAwake`，`Display: true`），防止游玩中途屏幕变暗或自动锁屏：
+当循环在前台运行且处于活动状态（未处于 `Paused`，且未处于 `OnDemand` + `Idle` 空闲状态）时，`Loop.Run` 会持有显示常亮锁（`core.Scope.KeepAwake`，`Display: true`），防止游玩中途屏幕变暗或自动锁屏：
 
 - **进入后台、`stop` 或作用域销毁**：立即释放常亮锁。
-- **暂停或空闲的 `OnDemand` 循环**：当循环处于 `Paused`（且没有待执行的 `Step` 更新；若开启了 `OnDemand`，且没有 `MarkDirty` 重绘请求）时，在经过 `PausedAwake` 后释放常亮锁。默认值 `0`（或任意非正值）会立即释放，使暂停菜单、标题界面和结算界面下系统自动锁屏正常工作。
-- **宽限期（`PausedAwake`）**：可设置 `PausedAwake`（例如 `30 * time.Second`），在暂停或最后一次 `Step` / `MarkDirty` 之后短暂保持亮屏，超时后再释放。
-- **恢复与单步推进**：调用 `SetPaused(false)` 会立即重新获取常亮锁（直接将 `Paused` 设为 `false` 则在下一帧生效）。暂停期间调用 `Step` 推进更新，或在暂停的 `OnDemand` 循环上调用 `MarkDirty`，都会在对应更新或绘制期间保持亮屏并重置 `PausedAwake` 计时器。
+- **暂停或空闲的 `OnDemand` 循环**：当循环处于 `Paused` 或 `OnDemand` 空闲状态（`Idle()` 返回 `true`，且没有待执行的 `Step` 更新或 `MarkDirty` 唤醒/重绘请求）时，在经过 `PausedAwake` 后释放常亮锁。默认值 `0`（或任意非正值）会立即释放，使暂停菜单、标题界面、等待点击的对话界面和结算界面下系统自动锁屏正常工作。
+- **宽限期（`PausedAwake`）**：可设置 `PausedAwake`（例如 `30 * time.Second`），在暂停、进入空闲或最后一次 `Step` / `MarkDirty` 之后短暂保持亮屏，超时后再释放。
+- **恢复与单步推进**：调用 `SetPaused(false)` 会立即重新获取常亮锁（直接将 `Paused` 设为 `false` 或让 `Idle()` 返回 `false` 则在下一帧生效）。暂停期间调用 `Step` 推进更新，或在暂停/空闲的 `OnDemand` 循环上调用 `MarkDirty`，都会在对应更新或绘制期间保持亮屏并重置 `PausedAwake` 计时器。
 - **过场动画**：[`cutscene.Player`](cutscene.md) 在播放期间持有自己的显示常亮锁，因此播放过场时暂停底层游戏循环不会导致熄屏。
 
 ```go

@@ -165,6 +165,9 @@ func (a *Actions) OnPointerDelta(dx, dy float64) {
 		return
 	}
 	a.pendingDX, a.pendingDY = x, y
+	if dx != 0 || dy != 0 {
+		a.wake()
+	}
 }
 
 // PointerDelta returns the relative mouse motion, right and down, heard between the previous Step and the current one, unscaled.

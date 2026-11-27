@@ -72,6 +72,8 @@ type axisBinding struct {
 type Actions struct {
 	// MapPoint, when set, transforms a touch or mouse position from the view's coordinates before testing TouchRegion and MouseRegion bounds, such as mapping a view to a letterboxed virtual canvas. Returning false ignores the point for region tests.
 	MapPoint func(core.Point) (core.Point, bool)
+	// Wake, when set (for example to loop.MarkDirty on an OnDemand game.Loop), is called whenever input arrives so an idle loop wakes to run a Step and draw the result.
+	Wake func()
 
 	bindings          map[string][]Input
 	unboundActions    map[string]bool
@@ -96,6 +98,9 @@ type Actions struct {
 
 	// Game controllers: the scope polled on each Step, the last state read, the selected controller and the stick axes bound with BindGamepadAxis.
 	gpScope       *core.Scope
+	gpWatchGen    uint64
+	gpWatchStop   func()
+	gpWakeCancel  func()
 	gpPads        []gamepad.Pad
 	gpID          int
 	gpOne         bool
@@ -121,11 +126,12 @@ type Actions struct {
 	ignoredCodes []string
 
 	// Per-action rising-edge latches and step snapshots.
-	rawActive map[string]bool
-	latched   map[string]bool
-	curr      map[string]bool
-	prev      map[string]bool
-	padAxes   map[string]float64
+	rawActive   map[string]bool
+	latched     map[string]bool
+	stepLatched map[string]bool
+	curr        map[string]bool
+	prev        map[string]bool
+	padAxes     map[string]float64
 
 	// Programmatically injected holds and axis contributions (e.g. tests, cutscenes, MCP automation).
 	injectedHeld     map[string]bool
@@ -221,6 +227,7 @@ func (a *Actions) Trigger(name string) {
 		a.latched = make(map[string]bool)
 	}
 	a.latched[name] = true
+	a.wake()
 }
 
 // Press holds action name pressed across subsequent Step calls until Release or Reset is called, even if name has no physical Input bindings.
@@ -244,6 +251,7 @@ func (a *Actions) Press(name string) {
 		a.rawActive = make(map[string]bool)
 	}
 	a.rawActive[name] = true
+	a.wake()
 }
 
 // Release ends an injected hold started by Press for action name.
@@ -251,9 +259,13 @@ func (a *Actions) Release(name string) {
 	if name == "" {
 		return
 	}
+	wasHeld := a.injectedHeld[name]
 	delete(a.injectedHeld, name)
 	if a.rawActive != nil {
 		a.rawActive[name] = a.activeNow(name)
+	}
+	if wasHeld {
+		a.wake()
 	}
 }
 
@@ -267,11 +279,15 @@ func (a *Actions) SetAxis(name string, value float64) {
 		a.injectedAxes = make(map[string]float64)
 	}
 	a.injectedAxes[name] = clampAxis(value)
+	a.wake()
 }
 
 // ClearAxis removes an injected analog contribution previously set with SetAxis for axis name.
 func (a *Actions) ClearAxis(name string) {
-	delete(a.injectedAxes, name)
+	if _, ok := a.injectedAxes[name]; ok {
+		delete(a.injectedAxes, name)
+		a.wake()
+	}
 }
 
 // ActionNames returns the sorted names of all actions bound, referenced by axes or virtual pads, or currently active or injected on a.
@@ -395,6 +411,7 @@ func (a *Actions) Step() {
 	a.pollGamepads()
 	a.prev, a.curr = a.curr, a.prev
 	clear(a.curr)
+	clear(a.stepLatched)
 	clear(a.padAxes)
 	clear(a.injectedAxisSnap)
 	if (len(a.bindings) > 0 || len(a.latched) > 0 || len(a.pads) > 0 || len(a.injectedHeld) > 0) && a.curr == nil {
@@ -436,12 +453,18 @@ func (a *Actions) Step() {
 			a.curr[name] = true
 		}
 	}
-	for name, ok := range a.latched {
-		if ok {
-			a.curr[name] = true
+	if len(a.latched) > 0 {
+		if a.stepLatched == nil {
+			a.stepLatched = make(map[string]bool, len(a.latched))
 		}
+		for name, ok := range a.latched {
+			if ok {
+				a.curr[name] = true
+				a.stepLatched[name] = true
+			}
+		}
+		clear(a.latched)
 	}
-	clear(a.latched)
 	if len(a.injectedAxes) > 0 {
 		if a.injectedAxisSnap == nil {
 			a.injectedAxisSnap = make(map[string]float64, len(a.injectedAxes))
@@ -477,6 +500,7 @@ func (a *Actions) Reset() {
 	a.ignoreWatchedKeys()
 	clear(a.rawActive)
 	clear(a.latched)
+	clear(a.stepLatched)
 	clear(a.curr)
 	clear(a.prev)
 	a.resetMotion()
@@ -498,9 +522,9 @@ func (a *Actions) Pressed(name string) bool {
 	return a.curr[name]
 }
 
-// JustPressed reports whether name became pressed on the current step and was not pressed on the previous step.
+// JustPressed reports whether name became pressed on the current step (either rising from released on the previous step, or latched by a fresh press since the previous step such as consecutive taps across an idle gap).
 func (a *Actions) JustPressed(name string) bool {
-	return a.curr[name] && !a.prev[name]
+	return (a.curr[name] && !a.prev[name]) || a.stepLatched[name]
 }
 
 // JustReleased reports whether name was pressed on the previous step and is no longer pressed on the current step.
@@ -596,7 +620,10 @@ func (a *Actions) OnTouch(ev core.TouchEvent) {
 	for _, pad := range a.pads {
 		pad.handleTouch(ev, a.MapPoint)
 	}
-	a.syncRaw()
+	changed := a.syncRaw()
+	if changed || len(ev.Touches) > 0 || ev.Phase == core.TouchCancel {
+		a.wake()
+	}
 }
 
 // OnPressDown records a primary pointer press from a view's OnPressDown callback. Keyboard presses and presses synthesized while a touch finger is active are ignored so touches only trigger TouchRegion bindings.
@@ -608,6 +635,7 @@ func (a *Actions) OnPressDown(ev core.PressEvent) {
 	a.hasMousePos = true
 	a.pressDown = true
 	a.syncRaw()
+	a.wake()
 }
 
 // OnPressUp records a primary pointer release from a view's OnPressUp callback.
@@ -616,32 +644,41 @@ func (a *Actions) OnPressUp(ev core.PressEvent) {
 		a.mousePos = ev.Position
 		a.hasMousePos = true
 	}
+	hadDown := a.pressDown || a.moveButton == core.MouseButtonLeft
 	a.pressDown = false
 	if a.moveButton == core.MouseButtonLeft {
 		a.moveButton = core.MouseButtonNone
 	}
-	a.syncRaw()
+	if a.syncRaw() || hadDown {
+		a.wake()
+	}
 }
 
 // OnMouseMove records mouse movement and any held button from a view's OnMouseMove callback.
 func (a *Actions) OnMouseMove(ev core.MouseEvent) {
 	a.mousePos = ev.Position
 	a.hasMousePos = true
+	hadBtn := a.pressDown || a.moveButton != core.MouseButtonNone
 	prev := a.moveButton
 	a.moveButton = ev.PressedButton
 	if prev == core.MouseButtonLeft && ev.PressedButton != core.MouseButtonLeft {
 		a.pressDown = false
 	}
-	a.syncRaw()
+	if a.syncRaw() || hadBtn || ev.PressedButton != core.MouseButtonNone {
+		a.wake()
+	}
 }
 
 // OnMouseLeave clears held mouse buttons when the pointer leaves the view.
 func (a *Actions) OnMouseLeave(ev core.MouseEvent) {
 	a.mousePos = ev.Position
 	a.hasMousePos = false
+	hadBtn := a.pressDown || a.moveButton != core.MouseButtonNone
 	a.pressDown = false
 	a.moveButton = core.MouseButtonNone
-	a.syncRaw()
+	if a.syncRaw() || hadBtn {
+		a.wake()
+	}
 }
 
 // OnContextMenu records a secondary (right) click from a view's OnContextMenu callback as a single-step pulse of core.MouseButtonRight at ev.Position.
@@ -652,6 +689,7 @@ func (a *Actions) OnContextMenu(ev core.ContextMenuEvent) {
 	a.syncRaw()
 	a.rightPulse = false
 	a.syncRaw()
+	a.wake()
 }
 
 // Attach wires a's touch, press, mouse, context-menu, pointer-lock motion and key handlers onto v, chaining any callbacks already set on v. v hears keys only while it has the keyboard focus; WatchKeys hears them anywhere on the window. A key held as v leaves the tree stays held until Reset, as OnKeyUp says.
@@ -706,17 +744,28 @@ func (a *Actions) Attach(v *core.View) {
 	}
 }
 
-// syncRaw updates rawActive for every bound action and latches any rising edge so a tap between two Step calls is not lost.
-func (a *Actions) syncRaw() {
+func (a *Actions) wake() {
+	if a.Wake != nil {
+		a.Wake()
+	}
+}
+
+// syncRaw updates rawActive for every bound action, latches any rising edge so a tap between two Step calls is not lost, and reports whether any action state changed.
+func (a *Actions) syncRaw() bool {
 	if len(a.bindings) == 0 && len(a.pads) == 0 {
-		return
+		return false
 	}
 	if a.rawActive == nil {
 		a.rawActive = make(map[string]bool, len(a.bindings))
 	}
+	changed := false
 	for name := range a.bindings {
 		now := a.activeNow(name)
-		if now && !a.rawActive[name] {
+		was := a.rawActive[name]
+		if now != was {
+			changed = true
+		}
+		if now && !was {
 			if a.latched == nil {
 				a.latched = make(map[string]bool)
 			}
@@ -733,7 +782,11 @@ func (a *Actions) syncRaw() {
 				return
 			}
 			now := a.padPressed(name)
-			if now && !a.rawActive[name] {
+			was := a.rawActive[name]
+			if now != was {
+				changed = true
+			}
+			if now && !was {
 				if a.latched == nil {
 					a.latched = make(map[string]bool)
 				}
@@ -742,6 +795,7 @@ func (a *Actions) syncRaw() {
 			a.rawActive[name] = now
 		})
 	}
+	return changed
 }
 
 func (a *Actions) activeNow(name string) bool {

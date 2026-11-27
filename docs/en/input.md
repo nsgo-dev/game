@@ -360,6 +360,10 @@ loop := &game.Loop{
 - **`Axis(name)`**: returns `-1` when only the negative action is pressed, `+1` when only the positive action is pressed, and `0` when neither or both are pressed. For an unbound axis name, it falls back to `1` if an action of that name is pressed, else `0`.
 - **`Reset()`**: clears active touches, held buttons, held keys, the last controller state read, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. A controller button held across `Reset` stays inactive until it is released, as a held mouse button does. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
 
+### Waking an idle `OnDemand` loop
+
+When driving a menu-heavy, turn-based or narrative game with an idle [`game.Loop`](loop.md#on-demand-drawing-and-idling-ondemand-idle-markdirty) (`OnDemand: true` and `Idle`), set `actions.Wake = loop.MarkDirty` so touches, mouse presses, keys, connected game controller changes and injected triggers wake the loop for a `Step` and redraw without waking on idle pointer hovers or stick jitter inside the dead zone. `TouchControls` and `GestureRecognizer` wake through a bound `Actions` automatically, or through `TouchControls.OnWake` and `GestureRecognizer.Wake` when used standalone.
+
 ## Mouselook through pointer lock
 
 For a first-person camera, bind pointer axes to relative mouse motion, lock the pointer from a press on the game view, and read each step's motion with `Delta`:

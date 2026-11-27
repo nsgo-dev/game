@@ -1444,3 +1444,186 @@ func TestOnDemandIdleReleasesDisplayKeepAwake(t *testing.T) {
 		}
 	})
 }
+
+func TestOnDemandIdleSkipsUpdatesAndDrawsAndWakesOnMarkDirty(t *testing.T) {
+	t.Run("idle_draws_zero_and_wakes_for_one_step", func(t *testing.T) {
+		idle := true
+		updates, draws := 0, 0
+		var lastAlpha float64
+		var l *game.Loop
+		l = &game.Loop{
+			Rate:     60,
+			OnDemand: true,
+			Idle:     func() bool { return idle },
+			Update: func(dt time.Duration) {
+				updates++
+				if dt != time.Second/60 {
+					t.Errorf("update %d: dt = %v, want %v", updates, dt, time.Second/60)
+				}
+				// Calling MarkDirty from a shared helper inside Update must not trigger a spurious extra wake frame.
+				l.MarkDirty()
+			},
+			Draw: func(alpha float64) {
+				draws++
+				lastAlpha = alpha
+			},
+		}
+		app := start(t, l)
+		if len(app.Awake) != 0 {
+			t.Fatalf("starting idle OnDemand: awake = %+v, want none", app.Awake)
+		}
+
+		// One full second at 60 Hz with no input runs 0 updates and 0 draws.
+		app.Advance(time.Second)
+		if updates != 0 || draws != 0 {
+			t.Fatalf("after 1s idle: %d updates, %d draws; want 0, 0", updates, draws)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after 1s idle: awake = %+v, want none", app.Awake)
+		}
+
+		// Multiple MarkDirty calls between frames (such as touch down + touch up) coalesce into 1 Update and 1 Draw.
+		app.Post(func() {
+			l.MarkDirty()
+			l.MarkDirty()
+		})
+		app.Settle()
+		if len(app.Awake) != 1 {
+			t.Fatalf("after MarkDirty while idle: awake = %+v, want 1", app.Awake)
+		}
+		app.Advance(17 * time.Millisecond)
+		if updates != 1 || draws != 1 || lastAlpha != 0 {
+			t.Fatalf("after wake frame: %d updates, %d draws, alpha %v; want 1, 1, 0", updates, draws, lastAlpha)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after wake frame settled idle: awake = %+v, want none", app.Awake)
+		}
+
+		// No extra frames follow and a long idle accumulates no catch-up backlog.
+		app.Advance(time.Second)
+		app.FastForward(5 * time.Second)
+		if updates != 1 || draws != 1 {
+			t.Fatalf("after 6s more idle: %d updates, %d draws; want 1, 1", updates, draws)
+		}
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if updates != 2 || draws != 2 {
+			t.Fatalf("after wake post-long-idle: %d updates, %d draws; want 2, 2", updates, draws)
+		}
+	})
+
+	t.Run("active_work_resumes_and_returns_to_idle_mid_frame", func(t *testing.T) {
+		remaining := 0
+		updates, draws := 0, 0
+		l := &game.Loop{
+			Rate:     60,
+			OnDemand: true,
+			Idle:     func() bool { return remaining <= 0 },
+			Update: func(time.Duration) {
+				updates++
+				if remaining > 0 {
+					remaining--
+				}
+			},
+			Draw: func(float64) { draws++ },
+		}
+		app := start(t, l)
+		app.Advance(time.Second)
+		if updates != 0 || draws != 0 {
+			t.Fatalf("initial idle: %d updates, %d draws; want 0, 0", updates, draws)
+		}
+
+		// Waking starts 2 steps of work; a 50ms frame (3 steps worth) must stop after 2 steps once Idle becomes true.
+		app.Post(func() {
+			remaining = 2
+		})
+		app.Settle()
+		app.FastForward(50 * time.Millisecond)
+		if updates != 2 || draws != 1 {
+			t.Fatalf("after 2-step animation in 50ms frame: %d updates, %d draws; want 2, 1", updates, draws)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after returning to idle: awake = %+v, want none", app.Awake)
+		}
+
+		// Stays idle afterwards.
+		app.Advance(time.Second)
+		if updates != 2 || draws != 1 {
+			t.Fatalf("after settling idle: %d updates, %d draws; want 2, 1", updates, draws)
+		}
+
+		// Continuous work keeps the display awake until it finishes.
+		app.Post(func() { remaining = 60 })
+		app.Settle()
+		app.Advance(500 * time.Millisecond)
+		if len(app.Awake) != 1 {
+			t.Fatalf("during active animation: awake = %+v, want 1", app.Awake)
+		}
+		app.Advance(time.Second)
+		if updates != 62 || draws != 61 {
+			t.Fatalf("after 60-step animation + idle tail: %d updates, %d draws; want 62, 61", updates, draws)
+		}
+		if len(app.Awake) != 0 {
+			t.Fatalf("after 60-step animation finished: awake = %+v, want none", app.Awake)
+		}
+	})
+
+	t.Run("draw_rate_defers_draw_without_rerunning_wake_update", func(t *testing.T) {
+		updates, draws := 0, 0
+		l := &game.Loop{
+			Rate:     60,
+			DrawRate: 30,
+			OnDemand: true,
+			Idle:     func() bool { return true },
+			Update:   func(time.Duration) { updates++ },
+			Draw:     func(float64) { draws++ },
+		}
+		app := start(t, l)
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if updates != 1 || draws != 1 {
+			t.Fatalf("first wake: %d updates, %d draws; want 1, 1", updates, draws)
+		}
+
+		// Second MarkDirty right away runs Update on the next frame, defers Draw for DrawRate, and draws on the following frame without a third Update.
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		app.Advance(17 * time.Millisecond)
+		if updates != 2 || draws != 1 {
+			t.Fatalf("deferred draw frame: %d updates, %d draws; want 2, 1", updates, draws)
+		}
+		app.Advance(17 * time.Millisecond)
+		if updates != 2 || draws != 2 {
+			t.Fatalf("after deferred draw ran: %d updates, %d draws; want 2, 2", updates, draws)
+		}
+	})
+
+	t.Run("idle_grace_period_respects_paused_awake", func(t *testing.T) {
+		l := &game.Loop{
+			Rate:        60,
+			OnDemand:    true,
+			PausedAwake: 5 * time.Second,
+			Idle:        func() bool { return true },
+		}
+		app := start(t, l)
+		if len(app.Awake) != 1 {
+			t.Fatalf("idle start with 5s grace: awake = %+v, want 1", app.Awake)
+		}
+		app.Advance(4 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("4s idle with 5s grace: awake = %+v, want 1", app.Awake)
+		}
+		app.Post(func() { l.MarkDirty() })
+		app.Settle()
+		app.Advance(4 * time.Second)
+		if len(app.Awake) != 1 {
+			t.Fatalf("4s after MarkDirty reset: awake = %+v, want 1", app.Awake)
+		}
+		app.Advance(2 * time.Second)
+		if len(app.Awake) != 0 {
+			t.Fatalf("6s after MarkDirty: awake = %+v, want none", app.Awake)
+		}
+	})
+}
