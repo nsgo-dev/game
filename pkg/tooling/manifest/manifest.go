@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
 )
@@ -89,6 +90,7 @@ func DefaultOptions() Options {
 }
 
 // Scan walks dir deterministically, skipping dot-prefixed entries, Go source files and import settings sidecars (files named *.import.yaml, as package importsettings names them), and returns the discovered asset entries sorted by Path with unique Go identifiers.
+// When opts.Embed is true, Scan also rejects any asset path (or opts.EmbedDir) that Go's //go:embed cannot embed.
 func Scan(dir string, opts Options) ([]Entry, error) {
 	cfg, err := normalizeOptions(opts)
 	if err != nil {
@@ -131,6 +133,11 @@ func Scan(dir string, opts Options) ([]Entry, error) {
 
 	entries := make([]Entry, len(relPaths))
 	for i, rel := range relPaths {
+		if cfg.Embed {
+			if err := validateEmbedPath(rel); err != nil {
+				return nil, fmt.Errorf("manifest: cannot embed %q: %w", rel, err)
+			}
+		}
 		kind := classifyExt(path.Ext(rel))
 		entries[i] = Entry{
 			Path: rel,
@@ -232,6 +239,11 @@ func normalizeOptions(opts Options) (Options, error) {
 			return Options{}, fmt.Errorf("manifest: invalid embed dir %q", opts.EmbedDir)
 		} else {
 			opts.EmbedDir = clean
+		}
+	}
+	if opts.Embed && opts.EmbedDir != "" {
+		if err := validateEmbedPath(opts.EmbedDir); err != nil {
+			return Options{}, fmt.Errorf("manifest: invalid embed dir %q: %w", opts.EmbedDir, err)
 		}
 	}
 	return opts, nil
@@ -336,11 +348,98 @@ func unexportedDataVar(ident string) string {
 	return string(runes) + "Data"
 }
 
+// validateEmbedPath reports whether p is a slash-separated relative path accepted by Go's //go:embed on every platform.
+// It mirrors cmd/go's resolveEmbed and isBadEmbedName checks (fs.ValidPath and module.CheckFilePath) so Scan fails fast instead of emitting code that cannot compile.
+func validateEmbedPath(p string) error {
+	if p == "" || p == "." || !fs.ValidPath(p) {
+		return fmt.Errorf("invalid embed path")
+	}
+	if !utf8.ValidString(p) {
+		return fmt.Errorf("invalid UTF-8")
+	}
+	for elem := range strings.SplitSeq(p, "/") {
+		if err := validateEmbedElem(elem); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEmbedElem(elem string) error {
+	if elem == "" {
+		return fmt.Errorf("empty path element")
+	}
+	if strings.Count(elem, ".") == len(elem) {
+		return fmt.Errorf("invalid path element %q", elem)
+	}
+	if elem[len(elem)-1] == '.' {
+		return fmt.Errorf("trailing dot in %q", elem)
+	}
+	switch elem {
+	case ".bzr", ".hg", ".git", ".svn":
+		return fmt.Errorf("reserved directory name %q", elem)
+	}
+	for _, r := range elem {
+		if !embedFileRuneOK(r) {
+			return fmt.Errorf("disallowed character %q for //go:embed", r)
+		}
+	}
+	short, _, _ := strings.Cut(elem, ".")
+	if isBadWindowsEmbedName(short) {
+		return fmt.Errorf("reserved Windows device name %q", short)
+	}
+	return nil
+}
+
+func embedFileRuneOK(r rune) bool {
+	if r < utf8.RuneSelf {
+		if '0' <= r && r <= '9' || 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' {
+			return true
+		}
+		// Matches golang.org/x/mod/module.CheckFilePath: ASCII space (U+0020) and safe punctuation, excluding " ' * / : ; < > ? \ ` | and control characters.
+		return strings.ContainsRune("!#$%&()+,-.=@[]^_{}~ ", r)
+	}
+	return unicode.IsLetter(r)
+}
+
+func isBadWindowsEmbedName(short string) bool {
+	switch strings.ToUpper(short) {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return true
+	}
+	return false
+}
+
+// escapeEmbedGlob escapes path.Match glob metacharacters using single-character classes so //go:embed matches p literally on both Unix and Windows (where backslash is a path separator rather than an escape).
+func escapeEmbedGlob(p string) string {
+	if !strings.ContainsAny(p, "[*?") {
+		return p
+	}
+	var b strings.Builder
+	b.Grow(len(p) + 4)
+	for i := 0; i < len(p); i++ {
+		switch p[i] {
+		case '[':
+			b.WriteString("[[]")
+		case '*':
+			b.WriteString("[*]")
+		case '?':
+			b.WriteString("[?]")
+		default:
+			b.WriteByte(p[i])
+		}
+	}
+	return b.String()
+}
+
 func formatEmbedPattern(embedDir, rel string) string {
 	p := rel
 	if embedDir != "" {
 		p = path.Join(embedDir, rel)
 	}
+	p = escapeEmbedGlob(p)
 	for _, r := range p {
 		if unicode.IsSpace(r) || r == '"' || r == '`' || r == '\\' {
 			return strconv.Quote(p)

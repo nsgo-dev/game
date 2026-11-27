@@ -2,13 +2,16 @@ package manifest_test
 
 import (
 	"bytes"
+	"fmt"
 	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,7 +168,8 @@ func TestGenerateParsesAndIsFormatted(t *testing.T) {
 	}
 }
 
-func TestGeneratedManifestCompilesAndFailsWhenAssetRemoved(t *testing.T) {
+func prepareTestModule(t *testing.T) string {
+	t.Helper()
 	goMod, err := os.ReadFile(filepath.Join("..", "..", "..", "go.mod"))
 	if err != nil {
 		t.Fatalf("read go.mod: %v", err)
@@ -175,39 +179,43 @@ func TestGeneratedManifestCompilesAndFailsWhenAssetRemoved(t *testing.T) {
 		t.Fatalf("read go.sum: %v", err)
 	}
 
-	prepareModule := func(t *testing.T) string {
-		t.Helper()
-		root := t.TempDir()
-		var lines []string
-		inToolBlock := false
-		for _, line := range strings.Split(string(goMod), "\n") {
-			trimmed := strings.TrimSpace(line)
-			// The tool directives, single lines or a block, can name packages of the module being renamed, so they are left out.
-			switch {
-			case inToolBlock:
-				inToolBlock = trimmed != ")"
-				continue
-			case trimmed == "tool (":
-				inToolBlock = true
-				continue
-			case strings.HasPrefix(trimmed, "tool "):
-				continue
-			case strings.HasPrefix(trimmed, "module "):
-				lines = append(lines, "module example.com/manifestcheck")
-				continue
-			}
-			lines = append(lines, line)
+	root := t.TempDir()
+	var lines []string
+	inToolBlock := false
+	for _, line := range strings.Split(string(goMod), "\n") {
+		trimmed := strings.TrimSpace(line)
+		// The tool directives, single lines or a block, can name packages of the module being renamed, so they are left out.
+		switch {
+		case inToolBlock:
+			inToolBlock = trimmed != ")"
+			continue
+		case trimmed == "tool (":
+			inToolBlock = true
+			continue
+		case strings.HasPrefix(trimmed, "tool "):
+			continue
+		case strings.HasPrefix(trimmed, "module "):
+			lines = append(lines, "module example.com/manifestcheck")
+			continue
 		}
-		writeTestFile(t, filepath.Join(root, "go.mod"), strings.Join(lines, "\n"))
-		writeTestFile(t, filepath.Join(root, "go.sum"), string(goSum))
-		return root
+		lines = append(lines, line)
 	}
+	writeTestFile(t, filepath.Join(root, "go.mod"), strings.Join(lines, "\n"))
+	writeTestFile(t, filepath.Join(root, "go.sum"), string(goSum))
+	return root
+}
 
+func runGoCmd(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	cmd.Env = append(slices.Clone(os.Environ()), "GOWORK=off", "GOPROXY=off")
+	return cmd.CombinedOutput()
+}
+
+func TestGeneratedManifestCompilesAndFailsWhenAssetRemoved(t *testing.T) {
+	prepareModule := prepareTestModule
 	goBuild := func(dir string) ([]byte, error) {
-		cmd := exec.Command("go", "build", "./...")
-		cmd.Dir = dir
-		cmd.Env = append(slices.Clone(os.Environ()), "GOWORK=off", "GOPROXY=off")
-		return cmd.CombinedOutput()
+		return runGoCmd(dir, "build", "./...")
 	}
 
 	t.Run("uri mode compile check and removal failure", func(t *testing.T) {
@@ -361,4 +369,195 @@ func TestManifestErrors(t *testing.T) {
 	if _, err := manifest.Scan(filepath.Join(dir, "nonexistent"), manifest.DefaultOptions()); err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
+}
+
+func TestEmbedGlobMetacharactersCompileAndMatchExactBytes(t *testing.T) {
+	t.Run("brackets beside plain siblings", func(t *testing.T) {
+		root := prepareTestModule(t)
+		assetsDir := filepath.Join(root, "assets")
+		files := map[string]string{
+			"hero[1].txt":        "bracket-1",
+			"hero1.txt":          "plain-1",
+			"hero[a-z].txt":      "range-az",
+			"heroa.txt":          "plain-a",
+			"only[1].txt":        "only-bracket",
+			"open[.txt":          "open-bracket",
+			"close].txt":         "close-bracket",
+			"empty[].txt":        "empty-brackets",
+			"neg[^1].txt":        "negated-bracket",
+			"dir[0]/tile[1].txt": "nested-bracket",
+			"dir0/tile1.txt":     "nested-plain",
+			"space [1].txt":      "space-bracket",
+			"space 1.txt":        "space-plain",
+			"hero[1].png":        "png-bracket",
+			"hero1.png":          "png-plain",
+		}
+		for rel, content := range files {
+			writeTestFile(t, filepath.Join(assetsDir, filepath.FromSlash(rel)), content)
+		}
+
+		opts := manifest.Options{Package: "assets", Embed: true}
+		entries, err := manifest.Scan(assetsDir, opts)
+		if err != nil {
+			t.Fatalf("Scan: %v", err)
+		}
+		if len(entries) != len(files) {
+			t.Fatalf("got %d entries, want %d", len(entries), len(files))
+		}
+		outFile := filepath.Join(assetsDir, "manifest_gen.go")
+		if err := manifest.WriteFile(assetsDir, outFile, opts); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		var checks strings.Builder
+		for _, e := range entries {
+			want, ok := files[e.Path]
+			if !ok {
+				t.Fatalf("unexpected entry %q", e.Path)
+			}
+			expr := "assets." + e.Ident
+			if e.Kind == manifest.KindImage || e.Kind == manifest.KindAudio {
+				expr += ".Data"
+			}
+			fmt.Fprintf(&checks, "\tcheck(%q, %s, %q)\n", e.Path, expr, want)
+		}
+
+		consumer := fmt.Sprintf(`package main
+
+import (
+	"fmt"
+	"os"
+
+	"example.com/manifestcheck/assets"
+)
+
+func check(name string, got []byte, want string) {
+	if string(got) != want {
+		fmt.Fprintf(os.Stderr, "%%s: got %%q, want %%q\n", name, string(got), want)
+		os.Exit(1)
+	}
+}
+
+func main() {
+%s}
+`, checks.String())
+		writeTestFile(t, filepath.Join(root, "main.go"), consumer)
+
+		if out, err := runGoCmd(root, "run", "."); err != nil {
+			t.Fatalf("go run failed: %v\n%s", err, out)
+		}
+	})
+
+	t.Run("embed dir with brackets beside plain dir", func(t *testing.T) {
+		root := prepareTestModule(t)
+		writeTestFile(t, filepath.Join(root, "pkg", "files1", "hero2.txt"), "wrong-dir-plain")
+		writeTestFile(t, filepath.Join(root, "pkg", "files[1]", "hero[2].txt"), "right-dir-bracket")
+		writeTestFile(t, filepath.Join(root, "pkg", "files[1]", "hero2.txt"), "right-dir-plain")
+
+		assetsDir := filepath.Join(root, "pkg", "files[1]")
+		opts := manifest.Options{Package: "pkg", Embed: true, EmbedDir: "files[1]"}
+		entries, err := manifest.Scan(assetsDir, opts)
+		if err != nil {
+			t.Fatalf("Scan: %v", err)
+		}
+		outFile := filepath.Join(root, "pkg", "manifest_gen.go")
+		if err := manifest.WriteFile(assetsDir, outFile, opts); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		wantByPath := map[string]string{
+			"hero[2].txt": "right-dir-bracket",
+			"hero2.txt":   "right-dir-plain",
+		}
+		var checks strings.Builder
+		for _, e := range entries {
+			fmt.Fprintf(&checks, "\tcheck(%q, pkg.%s, %q)\n", e.Path, e.Ident, wantByPath[e.Path])
+		}
+
+		consumer := fmt.Sprintf(`package main
+
+import (
+	"fmt"
+	"os"
+
+	"example.com/manifestcheck/pkg"
+)
+
+func check(name string, got []byte, want string) {
+	if string(got) != want {
+		fmt.Fprintf(os.Stderr, "%%s: got %%q, want %%q\n", name, string(got), want)
+		os.Exit(1)
+	}
+}
+
+func main() {
+%s}
+`, checks.String())
+		writeTestFile(t, filepath.Join(root, "main.go"), consumer)
+
+		if out, err := runGoCmd(root, "run", "."); err != nil {
+			t.Fatalf("go run with EmbedDir failed: %v\n%s", err, out)
+		}
+	})
+}
+
+func TestScanEmbedRejectsUnembeddableNames(t *testing.T) {
+	cases := []struct {
+		name     string
+		rel      string
+		unixOnly bool
+	}{
+		{name: "star wildcard", rel: "c*d.txt", unixOnly: true},
+		{name: "question wildcard", rel: "a?b.txt", unixOnly: true},
+		{name: "nested star wildcard", rel: "sub/c*d.txt", unixOnly: true},
+		{name: "colon", rel: "a:b.txt", unixOnly: true},
+		{name: "double quote", rel: `a"b.txt`, unixOnly: true},
+		{name: "single quote", rel: "a'b.txt"},
+		{name: "semicolon", rel: "a;b.txt"},
+		{name: "trailing dot", rel: "trailing.", unixOnly: true},
+		{name: "windows reserved device", rel: "CON.txt", unixOnly: true},
+		{name: "non-letter unicode emoji", rel: "icon🎮.png"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.unixOnly && runtime.GOOS == "windows" {
+				t.Skip("filesystem disallows filename on Windows")
+			}
+			dir := t.TempDir()
+			writeTestFile(t, filepath.Join(dir, filepath.FromSlash(tc.rel)), "data")
+
+			// URI mode still accepts the asset without error.
+			if _, err := manifest.Scan(dir, manifest.DefaultOptions()); err != nil {
+				t.Fatalf("Scan in URI mode failed for %q: %v", tc.rel, err)
+			}
+
+			// Embed mode must fail with an error naming the asset.
+			embedOpts := manifest.Options{Package: "assets", Embed: true}
+			wantQuoted := strconv.Quote(tc.rel)
+			if _, err := manifest.Scan(dir, embedOpts); err == nil {
+				t.Fatalf("Scan in Embed mode succeeded for %q, want error", tc.rel)
+			} else if !strings.Contains(err.Error(), wantQuoted) {
+				t.Errorf("Scan error = %q, want it to name %s", err.Error(), wantQuoted)
+			}
+			if _, err := manifest.Generate(dir, embedOpts); err == nil {
+				t.Fatalf("Generate in Embed mode succeeded for %q, want error", tc.rel)
+			} else if !strings.Contains(err.Error(), wantQuoted) {
+				t.Errorf("Generate error = %q, want it to name %s", err.Error(), wantQuoted)
+			}
+		})
+	}
+
+	t.Run("invalid EmbedDir in Embed mode", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestFile(t, filepath.Join(dir, "hero.png"), "png")
+		for _, badDir := range []string{"bad*dir", "a?b", "CON", ".git", "dir;1"} {
+			opts := manifest.Options{Package: "assets", Embed: true, EmbedDir: badDir}
+			if _, err := manifest.Scan(dir, opts); err == nil {
+				t.Errorf("Scan with EmbedDir=%q succeeded, want error", badDir)
+			} else if !strings.Contains(err.Error(), badDir) {
+				t.Errorf("Scan error = %q, want it to name %q", err.Error(), badDir)
+			}
+		}
+	})
 }
