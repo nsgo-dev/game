@@ -1,0 +1,3 @@
+### Added
+
+- `flow`: versioned `vars.yaml` declarations (`ParseVars`, `LoadVarsFS`, `EncodeVars`), shared runtime variable and switch store `flow.Vars` with typed getters/setters, range enforcement, `OnChange` notifications, scoped per-object `Self` variables, `Snapshot`/`Restore`, `dialogue.Options.Vars` so a `dialogue.Runner` reads and writes the shared store (`flow.Vars.SetFromExpr`, `dialogue.Script.VarRefs`), `go tool game check` validation of `.yarn` variable references, and live `game_vars_list`/`game_var_get`/`game_var_set` inspection in `mcp` and the editor's Remote Inspector (#1754).

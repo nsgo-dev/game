@@ -89,6 +89,10 @@ type Report struct {
 	States int
 	// Sounds counts the sound YAML files (*.sound.yaml / *.sound.yml) that were checked.
 	Sounds int
+	// Vars counts the flow variable declaration files (vars.yaml / *.vars.yaml) that were checked.
+	Vars int
+	// Dialogues counts the Yarn Spinner dialogue scripts (*.yarn) that were checked.
+	Dialogues int
 	// Connections counts the scene connections encountered in checked scenes.
 	Connections int
 	// Problems are the problems found, sorted by file, then line, then message.
@@ -131,8 +135,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		roots:       make(map[string]string),
 		sceneObjs:   make(map[string]map[string]bool),
 		l10nByRoot:  make(map[string]*l10nIndex),
+		varsByRoot:  make(map[string]*projectVars),
 	}
-	var scenes, cutscenes, screens, statesFiles, soundFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
+	var scenes, cutscenes, screens, statesFiles, soundFiles, varsFiles, yarnFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -161,6 +166,10 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			statesFiles = append(statesFiles, p)
 		case strings.HasSuffix(name, ".sound.yaml"), strings.HasSuffix(name, ".sound.yml"):
 			soundFiles = append(soundFiles, p)
+		case name == "vars.yaml", name == "vars.yml", strings.HasSuffix(name, ".vars.yaml"), strings.HasSuffix(name, ".vars.yml"):
+			varsFiles = append(varsFiles, p)
+		case strings.HasSuffix(name, ".yarn"):
+			yarnFiles = append(yarnFiles, p)
 		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
 			gridMaps = append(gridMaps, p)
 		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
@@ -236,6 +245,12 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	for _, p := range foliages {
 		c.checkFoliage(p)
 	}
+	for _, p := range varsFiles {
+		c.checkVars(p)
+	}
+	for _, p := range yarnFiles {
+		c.checkYarn(p)
+	}
 	c.checkRefs()
 	return c.finish(), nil
 }
@@ -289,6 +304,8 @@ type checker struct {
 	l10nByRoot map[string]*l10nIndex
 	// audioByRoot caches declared audio concurrency groups from game.yaml per project root.
 	audioByRoot map[string]*soundProjectAudio
+	// varsByRoot caches declared flow variables per project root for validating dialogue scripts.
+	varsByRoot map[string]*projectVars
 	// localeTables holds the parsed l10n YAML string tables discovered in each project root.
 	localeTables map[string]*projectLocales
 	// curObjectFile and curObject tag scene-object problems recorded against curObjectFile with Object.
@@ -554,6 +571,12 @@ func (r *Report) Summary() string {
 	}
 	if r.States > 0 {
 		counts += ", " + plural(r.States, "state machine", "state machines")
+	}
+	if r.Vars > 0 {
+		counts += ", " + plural(r.Vars, "vars file", "vars files")
+	}
+	if r.Dialogues > 0 {
+		counts += ", " + plural(r.Dialogues, "dialogue", "dialogues")
 	}
 	if r.OK() {
 		return counts + ": no problems"

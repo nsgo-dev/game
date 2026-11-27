@@ -3122,6 +3122,27 @@ These are read as the tools that make them write them, never converted into a fo
 | --- | --- | --- |
 | Chrome's trace event JSON, opened in Perfetto or `chrome://tracing` | `gamedebug.Profiler.WriteChromeTrace` | `gamedebug.Profiler` |
 
+<!-- format: flow#vars -->
+### Game variables and switches
+
+| Files | Version | Read / written by | Guide |
+| --- | --- | --- | --- |
+| `vars.yaml` or `*.vars.yaml` declaring project-wide switches (`bool`) and variables (`int`, `float`, `string`), defaults, optional ranges and docs | `1` (`flow.VarsFormatVersion`) | `flow.ParseVars`, `flow.LoadVarsFS`, `flow.EncodeVars` | [flow](flow.md) |
+
+```yaml
+version: 1
+vars:
+  - name: bridge_repaired
+    kind: bool
+    doc: True once the east bridge has been repaired.
+  - name: gold
+    kind: int
+    default: 50
+    min: 0
+    max: 9999
+    doc: Player gold coins.
+```
+
 <!-- format: dialogue -->
 ### Yarn dialogue script
 

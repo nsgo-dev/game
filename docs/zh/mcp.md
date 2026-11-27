@@ -120,6 +120,9 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_tunables_list` | `prefix`（可选） | 按名称排序的已注册 `gamedebug.Console` 可调参数列表，包含 `type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
 | `game_tunable_get` | `name`（必填） | 单个已注册可调参数的 `name`、`type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
 | `game_tunable_set` | `name`（必填）、`value`（必填）、`clamp`（可选，默认 `false`） | 按严格类型检查与范围校验（或 `clamp: true` 时钳位）更新已注册的可调参数（`float`、`int`、`bool` 或 `string`），返回 `old_value`、生效后的 `value`、元数据与 `clamped` 标记。 |
+| `game_vars_list` | `prefix`（可选）、`include_self`（可选，默认 `true`） | 已声明的 `flow.Vars` 全局变量列表（`name`、`kind`、`value`、`default`、`min`、`max`、`doc`）与当前活跃的对象独立变量 `self`。 |
+| `game_var_get` | `name`（必填） | 单个已声明 `flow.Vars` 变量的 `name`、`kind`、当前 `value`、`default`、数值型 `min`/`max` 范围与 `doc`。 |
+| `game_var_set` | `name`（必填）、`value`（必填）、`clamp`（可选，默认 `false`） | 按严格类型与范围校验（或 `clamp: true` 时钳位）更新已声明的 `flow.Vars` 变量（`bool`、`int`、`float` 或 `string`），返回 `old_value`、生效后的 `value`、元数据与 `clamped` 标记。 |
 | `game_console_commands_list` | `include_builtin`（可选，默认 `true`） | 按名称排序的 `gamedebug.Console` 内置命令与自定义命令列表，包含 `help` 说明与 `builtin` 标记。 |
 | `game_console_exec` | `command`（必填） | 通过 `gamedebug.Console` 执行一条命令行，返回 `command`、`ok`、`output`、`lines` 以及命令失败时的 `error`。 |
 | `game_prefabs_list` | `{}` | 已注册预制体的排序列表（`name` 与 `kind`：`"custom"`、`"entity_prefab"` 或 `"scene"`）。 |

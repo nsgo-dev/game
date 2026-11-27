@@ -150,6 +150,9 @@ Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityR
 | `game_tunable_set` | `name` (req), `value` (req), `clamp` (opt bool, default `false`) | Validates type/bounds (or clamps), updates tunable and returns `old_value`, `value`, `clamped` |
 | `game_console_commands_list` | `include_builtin` (opt, default `true`) | Built-in (`clear`, `get`, `help`, `list`, `set`) and custom debug console commands |
 | `game_console_exec` | `command` (req) | Executes a console command line; returns `ok`, `output`, `lines`, `error` |
+| `game_vars_list` | `prefix` (opt), `include_self` (opt bool, default `true`) | Declared `flow.Vars` entries (`name`, `kind`, `value`, `default`, `min`, `max`, `doc`) and active per-object `self` variables |
+| `game_var_get` | `name` (req) | One declared `flow.Vars` entry's current value, kind, default, bounds, and doc |
+| `game_var_set` | `name` (req), `value` (req), `clamp` (opt bool, default `false`) | Validates kind/bounds (or clamps), updates the `flow.Vars` variable, and returns `old_value`, `value`, `clamped` |
 
 ### 7. Input recording and deterministic replay
 

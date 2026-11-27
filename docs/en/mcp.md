@@ -120,6 +120,9 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_tunables_list` | `prefix` (optional) | Registered `gamedebug.Console` tunables sorted by name with `type`, current `value`, registration `default`, and numeric `min`/`max` bounds. |
 | `game_tunable_get` | `name` (required) | One registered tunable's `name`, `type`, current `value`, registration `default`, and numeric `min`/`max` bounds. |
 | `game_tunable_set` | `name` (required), `value` (required), `clamp` (optional, default `false`) | Updates a registered tunable (`float`, `int`, `bool` or `string`) with strict type checking and range validation (or clamping when `clamp: true`), returning `old_value`, applied `value`, metadata and `clamped`. |
+| `game_vars_list` | `prefix` (optional), `include_self` (optional, default `true`) | Declared `flow.Vars` entries (`name`, `kind`, `value`, `default`, `min`, `max`, `doc`) and active per-object `self` variables. |
+| `game_var_get` | `name` (required) | One declared `flow.Vars` entry's `name`, `kind`, current `value`, `default`, numeric `min`/`max` bounds, and `doc`. |
+| `game_var_set` | `name` (required), `value` (required), `clamp` (optional, default `false`) | Updates a declared `flow.Vars` variable (`bool`, `int`, `float` or `string`) with strict kind and range validation (or clamping when `clamp: true`), returning `old_value`, applied `value`, metadata and `clamped`. |
 | `game_console_commands_list` | `include_builtin` (optional, default `true`) | Built-in and custom `gamedebug.Console` commands sorted by name with `help` text and `builtin` flag. |
 | `game_console_exec` | `command` (required) | Runs one command line through `gamedebug.Console`, returning `command`, `ok`, `output`, `lines`, and `error` (when the console command fails). |
 | `game_prefabs_list` | `{}` | Sorted list of registered prefabs (`name` and `kind`: `"custom"`, `"entity_prefab"`, or `"scene"`). |

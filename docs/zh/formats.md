@@ -3122,6 +3122,27 @@ entries:
 | --- | --- | --- |
 | Chrome 的跟踪事件 JSON，可在 Perfetto 或 `chrome://tracing` 中打开 | `gamedebug.Profiler.WriteChromeTrace` | `gamedebug.Profiler` |
 
+<!-- format: flow#vars -->
+### 游戏变量与开关
+
+| 文件 | 版本 | 读写函数 | 指南 |
+| --- | --- | --- | --- |
+| `vars.yaml` 或 `*.vars.yaml`，声明项目全局开关（`bool`）与变量（`int`、`float`、`string`）、默认值、可选范围与说明 | `1`（`flow.VarsFormatVersion`） | `flow.ParseVars`、`flow.LoadVarsFS`、`flow.EncodeVars` | [flow](flow.md) |
+
+```yaml
+version: 1
+vars:
+  - name: bridge_repaired
+    kind: bool
+    doc: True once the east bridge has been repaired.
+  - name: gold
+    kind: int
+    default: 50
+    min: 0
+    max: 9999
+    doc: Player gold coins.
+```
+
 <!-- format: dialogue -->
 ### Yarn 对话脚本
 

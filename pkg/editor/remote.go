@@ -99,6 +99,9 @@ type RemoteSnapshot struct {
 	HasFPS       bool
 	Tunables     []gamemcp.TunableResult
 	HasConsole   bool
+	Vars         []gamemcp.VarResult
+	SelfVars     map[string]map[string]any
+	HasVars      bool
 	Taken        []RemoteTakenEntity
 	RefreshCount uint64
 }
@@ -415,6 +418,31 @@ func cloneRemoteSnapshot(s RemoteSnapshot) RemoteSnapshot {
 	if len(s.Tunables) > 0 {
 		out.Tunables = slices.Clone(s.Tunables)
 	}
+	if len(s.Vars) > 0 {
+		out.Vars = make([]gamemcp.VarResult, len(s.Vars))
+		for i, v := range s.Vars {
+			cp := v
+			if v.Min != nil {
+				m := *v.Min
+				cp.Min = &m
+			}
+			if v.Max != nil {
+				m := *v.Max
+				cp.Max = &m
+			}
+			out.Vars[i] = cp
+		}
+	}
+	if len(s.SelfVars) > 0 {
+		out.SelfVars = make(map[string]map[string]any, len(s.SelfVars))
+		for objID, m := range s.SelfVars {
+			cp := make(map[string]any, len(m))
+			for k, val := range m {
+				cp[k] = val
+			}
+			out.SelfVars[objID] = cp
+		}
+	}
 	if len(s.Taken) > 0 {
 		out.Taken = slices.Clone(s.Taken)
 	}
@@ -684,6 +712,9 @@ func (e *Editor) disconnectRemote(fromBG bool) error {
 	e.remote.snap.HasFPS = false
 	e.remote.snap.Tunables = nil
 	e.remote.snap.HasConsole = false
+	e.remote.snap.Vars = nil
+	e.remote.snap.SelfVars = nil
+	e.remote.snap.HasVars = false
 	e.remote.snap.Taken = nil
 	e.remote.seenObjects = nil
 	e.remote.takenByID = nil
@@ -1145,6 +1176,12 @@ func (e *Editor) refreshRemoteForSession(ctx context.Context, cs *sdkmcp.ClientS
 		hasConsole = true
 	}
 
+	var varsRes gamemcp.VarsListResult
+	hasVars := false
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolVarsList, nil, &varsRes); err == nil {
+		hasVars = true
+	}
+
 	var fps float64
 	hasFPS := false
 	var perfRes gamemcp.PerfReadoutResult
@@ -1227,6 +1264,9 @@ func (e *Editor) refreshRemoteForSession(ctx context.Context, cs *sdkmcp.ClientS
 		HasFPS:       hasFPS,
 		Tunables:     tunablesRes.Tunables,
 		HasConsole:   hasConsole,
+		Vars:         varsRes.Vars,
+		SelfVars:     varsRes.Self,
+		HasVars:      hasVars,
 		Taken:        taken,
 		RefreshCount: e.remote.snap.RefreshCount + 1,
 	}
@@ -1301,6 +1341,15 @@ func remoteSnapshotsEqual(a, b RemoteSnapshot) bool {
 		return false
 	}
 	if len(a.Tunables) > 0 && !reflect.DeepEqual(a.Tunables, b.Tunables) {
+		return false
+	}
+	if a.HasVars != b.HasVars || len(a.Vars) != len(b.Vars) || len(a.SelfVars) != len(b.SelfVars) {
+		return false
+	}
+	if len(a.Vars) > 0 && !reflect.DeepEqual(a.Vars, b.Vars) {
+		return false
+	}
+	if len(a.SelfVars) > 0 && !reflect.DeepEqual(a.SelfVars, b.SelfVars) {
 		return false
 	}
 	return true
@@ -2031,6 +2080,37 @@ func (e *Editor) RemoteSetTunable(name string, value any, clamp bool) (gamemcp.T
 	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteStatus(fmt.Sprintf("Tunable %s = %v", name, res.Value))
+	return res, nil
+}
+
+// RemoteSetVar updates a declared project game variable on the running game via game_var_set.
+func (e *Editor) RemoteSetVar(name string, value any, clamp bool) (gamemcp.VarSetResult, error) {
+	cs, ctx, err := e.remoteSession()
+	if err != nil {
+		return gamemcp.VarSetResult{}, err
+	}
+	var res gamemcp.VarSetResult
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolVarSet, map[string]any{
+		"name":  name,
+		"value": value,
+		"clamp": clamp,
+	}, &res); err != nil {
+		return gamemcp.VarSetResult{}, err
+	}
+	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return gamemcp.VarSetResult{}, ErrRemoteNotConnected
+	}
+	for i := range e.remote.snap.Vars {
+		if e.remote.snap.Vars[i].Name == res.Name {
+			e.remote.snap.Vars[i].Value = res.Value
+			break
+		}
+	}
+	e.publishSnapLocked()
+	e.remote.mu.Unlock()
+	e.postRemoteStatus(fmt.Sprintf("Var $%s = %v", name, res.Value))
 	return res, nil
 }
 
