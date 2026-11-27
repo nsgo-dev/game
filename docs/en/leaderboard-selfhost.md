@@ -105,10 +105,11 @@ A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over t
 
 ## HTTP
 
-`Service.Handler` serves the service as JSON. Every request carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens`, and its subject is the account a score is submitted for, so a player can only submit their own scores.
+`Service.Handler` serves the service as JSON. Every request except `GET /v1/openapi.yaml` carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens`, and its subject is the account a score is submitted for, so a player can only submit their own scores. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
 
 | Request | Response |
 | --- | --- |
+| `GET /v1/openapi.yaml` | the OpenAPI 3.1 description in YAML (unauthenticated) |
 | `GET /v1/boards` | `{"boards": [{"name", "order", "reset", "validation", "current", "previous"}]}` |
 | `POST /v1/boards/{board}/scores` `{"score", "proof"}` | `{"period", "entry", "total", "improved"}` |
 | `GET /v1/boards/{board}/top?period=&offset=&limit=` | a page; `limit` 25 when absent |

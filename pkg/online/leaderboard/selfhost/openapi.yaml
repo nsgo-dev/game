@@ -1,0 +1,691 @@
+openapi: 3.1.0
+info:
+  title: NSGo Self-Hosted Leaderboard API
+  version: 1.0.0
+  summary: Cross-platform leaderboards with periodic resets and optional server-signed score proofs.
+  description: >-
+    HTTP API served by github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost.
+    Every endpoint except GET /v1/openapi.yaml requires a bearer token issued by
+    the account service (pkg/online/accounts), verified offline with Options.Tokens.
+    JSON request bodies refuse unknown fields and trailing data, and are bounded
+    to 64 KiB. Every response carries Cache-Control: no-store.
+  license:
+    name: MIT
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/openapi.yaml:
+    get:
+      operationId: getOpenAPI
+      summary: Download this OpenAPI 3.1 description
+      description: >-
+        Returns the OpenAPI 3.1 YAML description of the self-hosted leaderboard
+        service without requiring authentication.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.1 document in YAML.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /v1/boards:
+    get:
+      operationId: listBoards
+      summary: List configured leaderboards
+      description: >-
+        Returns every declared board in configuration order, along with its
+        current period and readable earlier periods.
+      responses:
+        "200":
+          description: Configured boards and their active periods.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BoardsResponse"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+
+  /v1/boards/{board}/scores:
+    parameters:
+      - $ref: "#/components/parameters/Board"
+    post:
+      operationId: submitScore
+      summary: Submit a score for the authenticated account
+      description: >-
+        Records a score for the bearer token's subject in the board's current
+        period. A score replaces the account's best only when it improves on the
+        current best according to the board's order. Boards with validation: signed
+        require a valid game server proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScoreRequest"
+      responses:
+        "200":
+          description: The account's resulting rank and whether the score improved its best.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitResult"
+        "400":
+          description: Invalid request body, invalid account ID, or score outside board bounds.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - bad_request
+                      - invalid_account
+                      - score_out_of_range
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "403":
+          description: Missing, invalid or expired game server score proof.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - proof_required
+                      - invalid_proof
+                      - proof_expired
+        "404":
+          description: No board with that name is configured.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - unknown_board
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/boards/{board}/top:
+    parameters:
+      - $ref: "#/components/parameters/Board"
+      - $ref: "#/components/parameters/Period"
+      - $ref: "#/components/parameters/Offset"
+      - $ref: "#/components/parameters/Limit"
+    get:
+      operationId: getTop
+      summary: Fetch top-ranked entries of a board
+      description: >-
+        Returns up to limit entries starting from 1-based rank offset + 1 in the
+        selected period.
+      responses:
+        "200":
+          description: A ranked page of entries.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "404":
+          description: Board or period does not exist or is no longer kept.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - unknown_board
+                      - unknown_period
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/boards/{board}/around:
+    parameters:
+      - $ref: "#/components/parameters/Board"
+      - $ref: "#/components/parameters/Period"
+      - $ref: "#/components/parameters/Radius"
+    get:
+      operationId: getAround
+      summary: Fetch entries around the authenticated account
+      description: >-
+        Returns the authenticated account's entry with up to radius entries on
+        each side (shifted near either end to keep the window size when possible).
+        Returns 404 not_ranked if the account has no score in the period.
+      responses:
+        "200":
+          description: A ranked page centered around the authenticated account.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page"
+        "400":
+          description: Invalid radius query parameter or account ID.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - bad_request
+                      - invalid_account
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "404":
+          description: Board or period does not exist, or the account has no score in the period.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - unknown_board
+                      - unknown_period
+                      - not_ranked
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/boards/{board}/friends:
+    parameters:
+      - $ref: "#/components/parameters/Board"
+      - $ref: "#/components/parameters/Period"
+    post:
+      operationId: getFriends
+      summary: Fetch ranked entries for a list of accounts
+      description: >-
+        Looks up up to 200 accounts in the selected period and returns those with
+        scores in rank order, each carrying its overall rank on the board.
+        Duplicate account IDs are ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FriendsRequest"
+      responses:
+        "200":
+          description: Ranked entries for the requested accounts that have a score.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page"
+        "400":
+          description: Malformed JSON, unknown fields, more than 200 accounts, or an invalid account ID.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - bad_request
+                      - invalid_account
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "404":
+          description: Board or period does not exist or is no longer kept.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - unknown_board
+                      - unknown_period
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Account token
+      description: >-
+        Signed bearer token from the account service (pkg/online/accounts),
+        verified offline with Options.Tokens. The token's subject is the account
+        ID.
+
+  parameters:
+    Board:
+      name: board
+      in: path
+      required: true
+      description: Board name declared in the service configuration.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: "^[a-z0-9][a-z0-9._-]{0,63}$"
+
+    Period:
+      name: period
+      in: query
+      required: false
+      description: >-
+        Period selector: "current" (default when omitted or empty), "previous",
+        "all" (for all-time boards), or a kept period ID (UTC date YYYY-MM-DD).
+      schema:
+        type: string
+        default: current
+
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Zero-based rank offset (non-negative decimal integer).
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of entries to return (1 to 100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+
+    Radius:
+      name: radius
+      in: query
+      required: false
+      description: Number of entries above and below the authenticated account (0 to 50).
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 50
+        default: 5
+
+  headers:
+    CacheControl:
+      description: Every response disables HTTP caching.
+      required: true
+      schema:
+        type: string
+        enum:
+          - no-store
+
+    WWWAuthenticate:
+      description: Bearer challenge returned when authentication fails.
+      required: true
+      schema:
+        type: string
+        enum:
+          - Bearer error="invalid_token"
+
+  schemas:
+    ScoreRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - score
+      properties:
+        score:
+          type: integer
+          format: int64
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: Score value within the board's configured bounds (at most ±(2^53 - 1)).
+        proof:
+          type: string
+          description: >-
+            Game server proof ("v1.<key id>.<unix seconds>.<signature>").
+            Required on boards with validation: signed; ignored on others.
+
+    FriendsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - accounts
+      properties:
+        accounts:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+          description: Account IDs to look up (up to 200).
+
+    Period:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: Period ID ("all" for all-time boards, otherwise UTC start date YYYY-MM-DD).
+        start:
+          type: string
+          format: date-time
+          description: UTC start instant in RFC 3339. Omitted for all-time boards.
+        end:
+          type: string
+          format: date-time
+          description: UTC end instant (start of the next period) in RFC 3339. Omitted for all-time boards.
+
+    Entry:
+      type: object
+      additionalProperties: false
+      required:
+        - rank
+        - account
+        - score
+        - achieved
+      properties:
+        rank:
+          type: integer
+          minimum: 1
+          description: 1-based overall rank in the period.
+        account:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Account ID.
+        score:
+          type: integer
+          format: int64
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: Account's best score in the period.
+        achieved:
+          type: string
+          format: date-time
+          description: UTC timestamp when the score was achieved, in RFC 3339 (up to nanosecond precision).
+
+    Board:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - order
+        - reset
+        - current
+        - previous
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9._-]{0,63}$"
+          description: Board name.
+        order:
+          type: string
+          enum:
+            - descending
+            - ascending
+          description: Sort direction ("descending" ranks highest first, "ascending" ranks lowest first).
+        reset:
+          type: string
+          enum:
+            - allTime
+            - daily
+            - weekly
+          description: Reset cadence in UTC.
+        validation:
+          type: string
+          enum:
+            - signed
+          description: Present as "signed" when submissions require a game server proof; omitted otherwise.
+        current:
+          $ref: "#/components/schemas/Period"
+        previous:
+          type: array
+          items:
+            $ref: "#/components/schemas/Period"
+          description: Readable earlier periods, newest first.
+
+    BoardsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - boards
+      properties:
+        boards:
+          type: array
+          items:
+            $ref: "#/components/schemas/Board"
+
+    SubmitResult:
+      type: object
+      additionalProperties: false
+      required:
+        - period
+        - entry
+        - total
+        - improved
+      properties:
+        period:
+          $ref: "#/components/schemas/Period"
+        entry:
+          $ref: "#/components/schemas/Entry"
+        total:
+          type: integer
+          minimum: 1
+          description: Number of ranked accounts in the period.
+        improved:
+          type: boolean
+          description: True when this submission became the account's new best in the period.
+
+    Page:
+      type: object
+      additionalProperties: false
+      required:
+        - board
+        - period
+        - total
+        - entries
+      properties:
+        board:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9._-]{0,63}$"
+          description: Board name.
+        period:
+          $ref: "#/components/schemas/Period"
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of ranked accounts in the period.
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/Entry"
+
+  responses:
+    BadRequest:
+      description: Malformed or out-of-range request parameter.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                enum:
+                  - bad_request
+
+    InvalidToken:
+      description: Missing, expired or invalid bearer token.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        WWW-Authenticate:
+          $ref: "#/components/headers/WWWAuthenticate"
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                enum:
+                  - invalid_token
+
+    RequestTooLarge:
+      description: Request body exceeds 64 KiB.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                enum:
+                  - request_too_large
+
+    Unavailable:
+      description: Request was cancelled or timed out.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                enum:
+                  - unavailable
+
+    InternalError:
+      description: Unexpected server error.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                enum:
+                  - internal

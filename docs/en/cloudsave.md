@@ -128,10 +128,11 @@ The SQL store keeps two tables, `cloudsave_slots` (each slot's newest version) a
 
 ## HTTP
 
-`Service.Handler` serves the service. Every request carries `Authorization: Bearer <token>` with a token from the account service, and every response `Cache-Control: no-store`. Payloads are `application/octet-stream`; a version is `{"slot", "version", "deleted", "hash", "size", "created"}`, `created` in RFC 3339 with milliseconds and `deleted` and `hash` only when set.
+`Service.Handler` serves the service. Every request except `GET /v1/openapi.yaml` carries `Authorization: Bearer <token>` with a token from the account service, and every response carries `Cache-Control: no-store`. Payloads are `application/octet-stream`; a version is `{"slot", "version", "deleted", "hash", "size", "created"}`, `created` in RFC 3339 with milliseconds and `deleted` and `hash` only when set. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/cloudsave-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
 
 | Request | Answer |
 | --- | --- |
+| `GET /v1/openapi.yaml` | the OpenAPI 3.1 description in YAML (unauthenticated; CORS allowed for `allowedOrigins`) |
 | `GET /v1/saves` | `{"slots": [version]}`, the live slots by name |
 | `GET /v1/saves/{slot}` | the payload, with `ETag` (its hash in quotes) and `Save-Version` |
 | `PUT /v1/saves/{slot}` | version; `If-Match: "<hash>"` or `If-None-Match: *` make it conditional |
