@@ -12,11 +12,14 @@ leaderboards:
   - name: high-score
     gameCenter: com.example.game.high_score
     playGames: CgkIxxxxxxxxxxEAIQAQ
+    miniGame:
+      key: best
+      order: desc
   - name: daily
     playGames: CgkIxxxxxxxxxxEAIQAw
 `
 
-// A Catalog maps each board's name in the game to its ID in every platform game service; Encode writes a parsed catalog back byte for byte.
+// A Catalog maps each board's name in the game to its entry in every platform game service; Encode writes a parsed catalog back byte for byte.
 func ExampleParse() {
 	c, err := leaderboard.Parse([]byte(exampleCatalog))
 	if err != nil {
@@ -24,7 +27,7 @@ func ExampleParse() {
 		return
 	}
 	b, _ := c.Board("high-score")
-	fmt.Println(b.ID(leaderboard.ProviderGameCenter), b.ID(leaderboard.ProviderPlayGames))
+	fmt.Println(b.ID(leaderboard.ProviderGameCenter), b.ID(leaderboard.ProviderPlayGames), b.ID(leaderboard.ProviderMiniGame))
 	daily, _ := c.Board("daily")
 	fmt.Printf("%q\n", daily.ID(leaderboard.ProviderGameCenter))
 	out, _ := c.Encode()
@@ -32,7 +35,7 @@ func ExampleParse() {
 	_, err = leaderboard.Parse([]byte(exampleCatalog + "sort: descending\n"))
 	fmt.Println(err != nil)
 	// Output:
-	// com.example.game.high_score CgkIxxxxxxxxxxEAIQAQ
+	// com.example.game.high_score CgkIxxxxxxxxxxEAIQAQ best
 	// ""
 	// true
 	// true
@@ -58,14 +61,9 @@ func ExampleService() {
 	// false 2
 }
 
-// ProviderFor names the game service a platform's leaderboards go through.
+// ProviderFor returns ProviderNone for a nil environment or when the OS is simulated without a mini-program host.
 func ExampleProviderFor() {
-	for _, os := range []core.OS{core.OSIOS, core.OSMacOS, core.OSAndroid, core.OSWindows} {
-		fmt.Println(leaderboard.ProviderFor(os))
-	}
+	fmt.Println(leaderboard.ProviderFor(nil))
 	// Output:
-	// gameCenter
-	// gameCenter
-	// playGames
 	// none
 }

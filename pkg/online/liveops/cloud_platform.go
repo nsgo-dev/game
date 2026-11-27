@@ -46,9 +46,12 @@ func (p CloudProvider) String() string {
 	}
 }
 
-// CloudProviderFor returns the built-in OS cloud-save service NSGo's cloud package reaches on os: CloudProviderICloud on macOS and iOS, CloudProviderPlayGames on Android, and CloudProviderNone elsewhere.
-func CloudProviderFor(os core.OS) CloudProvider {
-	switch os {
+// CloudProviderFor returns the built-in OS cloud-save service NSGo's cloud package reaches in env: CloudProviderNone when env is nil or Simulated (such as a mini program or a web build with --nsgo-os), CloudProviderICloud on native macOS and iOS, CloudProviderPlayGames on native Android, and CloudProviderNone elsewhere.
+func CloudProviderFor(env *core.Env) CloudProvider {
+	if env == nil || env.Simulated() {
+		return CloudProviderNone
+	}
+	switch env.OS() {
 	case core.OSMacOS, core.OSIOS:
 		return CloudProviderICloud
 	case core.OSAndroid:
@@ -116,7 +119,7 @@ func NewPlatformCloud(cx *core.Scope, opts PlatformCloudOptions) (*PlatformCloud
 	return &PlatformCloud{
 		cx:       cx,
 		scopeCtx: cx.Context(),
-		provider: CloudProviderFor(core.Untracked(cx, cx.Env().OS)),
+		provider: core.Untracked(cx, func() CloudProvider { return CloudProviderFor(cx.Env()) }),
 		prefix:   prefix,
 	}, nil
 }
@@ -144,12 +147,13 @@ func validateCloudPrefix(prefix string) error {
 
 // Provider returns the built-in OS cloud-save service of the platform cx runs on (CloudProviderICloud, CloudProviderPlayGames, or CloudProviderNone), whether or not the player is signed in.
 func (c *PlatformCloud) Provider() CloudProvider {
-	return CloudProviderFor(core.Untracked(c.cx, c.cx.Env().OS))
+	return core.Untracked(c.cx, func() CloudProvider { return CloudProviderFor(c.cx.Env()) })
 }
 
-// Available reports whether platform cloud storage is reachable right now (cx.Env().CanUseCloudStorage()). Read in a reactive computation on the engine goroutine, it updates when availability changes.
+// Available reports whether platform cloud storage is reachable right now (cx.Env().CanUseCloudStorage() on a non-simulated host). Read in a reactive computation on the engine goroutine, it updates when availability changes.
 func (c *PlatformCloud) Available() bool {
-	return c.cx.Env().CanUseCloudStorage()
+	env := c.cx.Env()
+	return !env.Simulated() && env.CanUseCloudStorage()
 }
 
 // Prefix returns the file-name prefix prepended to each slot name.

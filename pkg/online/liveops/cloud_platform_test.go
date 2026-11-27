@@ -18,27 +18,72 @@ import (
 )
 
 func TestPlatformCloudProviderForAndStrings(t *testing.T) {
+	if got := liveops.CloudProviderFor(nil); got != liveops.CloudProviderNone {
+		t.Fatalf("CloudProviderFor(nil) = %v, want none", got)
+	}
 	cases := []struct {
-		os   core.OS
+		name string
+		env  core.Environment
 		want liveops.CloudProvider
 		str  string
 	}{
-		{core.OSMacOS, liveops.CloudProviderICloud, "icloud"},
-		{core.OSIOS, liveops.CloudProviderICloud, "icloud"},
-		{core.OSAndroid, liveops.CloudProviderPlayGames, "play-games"},
-		{core.OSWindows, liveops.CloudProviderNone, "none"},
-		{core.OSLinux, liveops.CloudProviderNone, "none"},
-		{core.OSWeb, liveops.CloudProviderNone, "none"},
-		{core.OS(""), liveops.CloudProviderNone, "none"},
+		{"macos", core.Environment{OS: core.OSMacOS}, liveops.CloudProviderICloud, "icloud"},
+		{"ios", core.Environment{OS: core.OSIOS}, liveops.CloudProviderICloud, "icloud"},
+		{"android", core.Environment{OS: core.OSAndroid}, liveops.CloudProviderPlayGames, "play-games"},
+		{"windows", core.Environment{OS: core.OSWindows}, liveops.CloudProviderNone, "none"},
+		{"linux", core.Environment{OS: core.OSLinux}, liveops.CloudProviderNone, "none"},
+		{"web", core.Environment{OS: core.OSWeb}, liveops.CloudProviderNone, "none"},
+		{"empty", core.Environment{}, liveops.CloudProviderNone, "none"},
+		{"simulated ios (--nsgo-os ios)", core.Environment{OS: core.OSIOS, Simulated: true}, liveops.CloudProviderNone, "none"},
+		{"simulated macos", core.Environment{OS: core.OSMacOS, Simulated: true}, liveops.CloudProviderNone, "none"},
+		{"simulated android", core.Environment{OS: core.OSAndroid, Simulated: true}, liveops.CloudProviderNone, "none"},
+		{"mini program on ios", core.Environment{OS: core.OSIOS, Simulated: true, MiniProgramSignIn: true}, liveops.CloudProviderNone, "none"},
+		{"mini program on android", core.Environment{OS: core.OSAndroid, Simulated: true, MiniProgramSignIn: true}, liveops.CloudProviderNone, "none"},
 	}
 	for _, tc := range cases {
-		got := liveops.CloudProviderFor(tc.os)
-		if got != tc.want || got.String() != tc.str {
-			t.Errorf("CloudProviderFor(%v) = %v (%q), want %v (%q)", tc.os, got, got.String(), tc.want, tc.str)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			var got liveops.CloudProvider
+			var pc *liveops.PlatformCloud
+			nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				got = liveops.CloudProviderFor(cx.Env())
+				var err error
+				pc, err = liveops.NewPlatformCloud(cx, liveops.PlatformCloudOptions{})
+				if err != nil {
+					t.Fatalf("NewPlatformCloud: %v", err)
+				}
+				return core.View{}
+			}, nsgotest.Environment(tc.env))
+			if got != tc.want || got.String() != tc.str {
+				t.Errorf("CloudProviderFor(%+v) = %v (%q), want %v (%q)", tc.env, got, got.String(), tc.want, tc.str)
+			}
+			if pc.Provider() != tc.want {
+				t.Errorf("PlatformCloud.Provider() = %v, want %v", pc.Provider(), tc.want)
+			}
+			if tc.env.Simulated && pc.Available() {
+				t.Errorf("Simulated environment %+v reported PlatformCloud.Available() == true", tc.env)
+			}
+		})
 	}
 	if got := liveops.CloudProviderSteam.String(); got != "steam" {
 		t.Errorf("CloudProviderSteam.String() = %q, want %q", got, "steam")
+	}
+}
+
+func TestPlatformCloudMiniProgramIOSNoICloud(t *testing.T) {
+	var pc *liveops.PlatformCloud
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		var err error
+		pc, err = liveops.NewPlatformCloud(cx, liveops.PlatformCloudOptions{})
+		if err != nil {
+			t.Fatalf("NewPlatformCloud: %v", err)
+		}
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{OS: core.OSIOS, Simulated: true, MiniProgramSignIn: true, CloudStorage: true}))
+	if pc.Provider() != liveops.CloudProviderNone {
+		t.Fatalf("mini program on iOS Provider = %v, want none", pc.Provider())
+	}
+	if pc.Available() {
+		t.Fatal("mini program on iOS reported iCloud Available() == true")
 	}
 }
 

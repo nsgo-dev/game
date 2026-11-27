@@ -19,4 +19,10 @@ func TestParseLoadErrors(t *testing.T) {
 		_, err := leaderboard.Parse(data)
 		loaderrtest.ExpectField(t, err, "", data, "leaderboards[1].name")
 	})
+
+	t.Run("invalid miniGame order", func(t *testing.T) {
+		data := []byte("version: 1\nleaderboards:\n  - name: high-score\n    miniGame:\n      key: best\n      order: highest\n")
+		_, err := leaderboard.Parse(data)
+		loaderrtest.ExpectField(t, err, "", data, "leaderboards[0].miniGame.order")
+	})
 }

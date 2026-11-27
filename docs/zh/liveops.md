@@ -121,7 +121,7 @@ pc.OnConflict(func(c liveops.PlatformConflict) {
 })
 ```
 
-- `CloudProviderFor(os)` 与 `pc.Provider()` 报告目标平台内置的云存档服务（`CloudProviderICloud`、`CloudProviderPlayGames`、`CloudProviderNone`；`CloudProviderSteam` 表示 Steam Auto-Cloud）。`pc.Available()` 以响应式方式读取 `cx.Env().CanUseCloudStorage()`，便于界面随 iCloud 或 Play Games 可用性变化而更新。
+- `CloudProviderFor(env)` 与 `pc.Provider()` 报告目标平台内置的云存档服务（`CloudProviderICloud`、`CloudProviderPlayGames`、`CloudProviderNone`；`CloudProviderSteam` 表示 Steam Auto-Cloud）；当 `env` 为 nil 或 `env.Simulated()` 为 true（例如运行在 iOS/Android 上的小程序，或带 `--nsgo-os` 的 Web 构建）时返回 `CloudProviderNone`，不会报告 iCloud 或 Play Games。`pc.Available()` 以响应式方式读取 `cx.Env().CanUseCloudStorage()`（且在 `Simulated()` 为 true 时返回 false），便于界面随 iCloud 或 Play Games 可用性变化而更新。
 - 在真实的 Apple 和 Android 设备上，NSGo `cloud` 会通过 `cx.Post` 在引擎 goroutine 上派发回调，因此请通过 `CloudSyncer.SyncAsync` 运行 `PlatformCloud` 同步（或在引擎 goroutine 之外调用 `PlatformCloud`），避免同步 `Sync` 阻塞引擎 goroutine。`SyncAsync`、`SyncSlotAsync` 和 `ResolveAsync` 在工作 goroutine 上执行云端 I/O，同时把 `Local`、`State`、`Summarize`、`Now` 和 `Ask` 调度回 `cx` 的引擎 goroutine，按顺序串行化并发调用，并在云端读取期间本地有新存档写入时拒绝覆盖（`ErrConflictChanged`）。
 - 在 macOS 和 iOS 上，需在 `nsgo.yaml` 的 `cloud:` 下声明 iCloud 权限（`kv_store` / `containers: [iCloud.com.example.myapp]`）；Mac App Store 构建需要带对应权限的描述文件，否则 iCloud 会返回 `ErrCloudUnavailable`。
 - 当 iCloud（`NSFileVersion`）或 Google Play Games（`SnapshotsClient`）对某槽位存在未解决的原生冲突时，`PlatformCloud.Load` 会返回包装了 `ErrCloudConflict`、`cloud.ErrConflict` 和 `*cloud.ConflictError` 的错误；`CloudSyncer` 会跳过该槽位并继续同步其他槽位，直到通过 `PlatformConflict.Resolve`（或重新写入）解决冲突。

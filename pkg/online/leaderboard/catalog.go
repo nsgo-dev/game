@@ -19,13 +19,51 @@ const CurrentVersion = 1
 // MaxIDLength is the longest platform leaderboard ID a catalog accepts, matching Game Center's limit of 100 characters.
 const MaxIDLength = 100
 
-// Catalog is the YAML file that declares a game's leaderboards once: each board's name in the game and its ID in every platform game service it is registered with.
+// MaxMiniGameKeys is the most mini-game cloud storage keys a catalog may declare, matching WeChat's limit of 128 KV pairs per player.
+const MaxMiniGameKeys = 128
+
+// MaxMiniGameKeyLength is the longest mini-game cloud storage key in bytes, matching WeChat's 128-byte key limit.
+const MaxMiniGameKeyLength = 128
+
+// MaxMiniGameValueBytes is the maximum byte length of one serialized key-value pair (len(key) + len(value)) in mini-game user cloud storage (1 KiB).
+const MaxMiniGameValueBytes = 1024
+
+// Order chooses whether higher or lower scores rank first on a mini-game board.
+type Order string
+
+const (
+	// OrderDesc ranks higher scores first (for example, points). It is the default when MiniGameBoard.Order is omitted.
+	OrderDesc Order = "desc"
+	// OrderAsc ranks lower scores first (for example, race times).
+	OrderAsc Order = "asc"
+)
+
+// MiniGameBoard configures a leaderboard on WeChat and Douyin mini games through the host's user cloud storage and open data context.
+type MiniGameBoard struct {
+	// Key is the host user cloud storage key (at most MaxMiniGameKeyLength bytes, unique across boards in the catalog).
+	Key string `yaml:"key"`
+	// Order is the sort order ("desc" or "asc"); empty defaults to OrderDesc.
+	Order Order `yaml:"order,omitempty"`
+}
+
+// EffectiveOrder returns m.Order, defaulting to OrderDesc when omitted.
+func (m MiniGameBoard) EffectiveOrder() Order {
+	if m.Order == "" {
+		return OrderDesc
+	}
+	return m.Order
+}
+
+// Catalog is the YAML file that declares a game's leaderboards once: each board's name in the game and its ID or storage entry in every platform game service it is registered with.
 //
 //	version: 1
 //	leaderboards:
 //	  - name: high-score
 //	    gameCenter: com.example.game.high_score
 //	    playGames: CgkIxxxxxxxxxxEAIQAQ
+//	    miniGame:
+//	      key: best
+//	      order: desc
 type Catalog struct {
 	// Version is the schema version; it must equal CurrentVersion.
 	Version int `yaml:"version"`
@@ -33,7 +71,7 @@ type Catalog struct {
 	Leaderboards []Board `yaml:"leaderboards"`
 }
 
-// Board declares one leaderboard: the name the game's code uses and the ID it has in each platform game service. A board needs at least one ID; on a platform whose ID it lacks, Service reports ErrNoPlatformID.
+// Board declares one leaderboard: the name the game's code uses and its ID or storage config in each platform game service. A board needs at least one platform entry; on a platform whose entry it lacks, Service reports ErrNoPlatformID.
 type Board struct {
 	// Name is the game's own key for the board, such as "high-score". It is unique within the catalog.
 	Name string `yaml:"name"`
@@ -41,27 +79,52 @@ type Board struct {
 	GameCenter string `yaml:"gameCenter,omitempty"`
 	// PlayGames is the leaderboard ID the Google Play Console generated, used on Android.
 	PlayGames string `yaml:"playGames,omitempty"`
+	// MiniGame configures friend rankings on WeChat and Douyin mini games through the host's cloud storage and open data context.
+	MiniGame *MiniGameBoard `yaml:"miniGame,omitempty"`
 }
 
-// ID returns the board's ID for provider, or "" when the board declares none for it.
+// ID returns the board's platform ID (or mini-game cloud storage key) for provider, or "" when the board declares none for it.
 func (b Board) ID(provider Provider) string {
 	switch provider {
 	case ProviderGameCenter:
 		return b.GameCenter
 	case ProviderPlayGames:
 		return b.PlayGames
+	case ProviderMiniGame:
+		if b.MiniGame != nil {
+			return b.MiniGame.Key
+		}
 	}
 	return ""
 }
 
-// Board returns the board declared under name and whether it exists.
+func cloneBoard(b Board) Board {
+	if b.MiniGame != nil {
+		mg := *b.MiniGame
+		b.MiniGame = &mg
+	}
+	return b
+}
+
+func cloneBoards(src []Board) []Board {
+	if src == nil {
+		return nil
+	}
+	out := make([]Board, len(src))
+	for i, b := range src {
+		out[i] = cloneBoard(b)
+	}
+	return out
+}
+
+// Board returns a copy of the board declared under name and whether it exists.
 func (c *Catalog) Board(name string) (Board, bool) {
 	if c == nil {
 		return Board{}, false
 	}
 	for _, b := range c.Leaderboards {
 		if b.Name == name {
-			return b, true
+			return cloneBoard(b), true
 		}
 	}
 	return Board{}, false
@@ -91,7 +154,7 @@ func Parse(data []byte) (*Catalog, error) {
 	return &c, nil
 }
 
-// Encode validates c and writes it as deterministic two-space YAML: fields in schema order, boards in declaration order, and absent IDs left out, so Parse followed by Encode reproduces a file Encode wrote byte for byte.
+// Encode validates c and writes it as deterministic two-space YAML: fields in schema order, boards in declaration order, and absent entries left out, so Parse followed by Encode reproduces a file Encode wrote byte for byte.
 func (c *Catalog) Encode() ([]byte, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -109,7 +172,7 @@ func (c *Catalog) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks c against the version 1 schema: a supported version, at least one board, unique non-empty names without control characters or surrounding whitespace, at least one well-formed platform ID per board, and no two boards sharing a Game Center or Play Games ID.
+// Validate checks c against the version 1 schema: a supported version, at least one board, unique non-empty names without control characters or surrounding whitespace, at least one well-formed platform entry per board, no two boards sharing a Game Center, Play Games or mini-game key, and at most MaxMiniGameKeys (128) mini-game keys of at most MaxMiniGameKeyLength (128) bytes each.
 func (c *Catalog) Validate() error {
 	if c == nil {
 		return loaderr.Errorf("", "pass a non-nil *leaderboard.Catalog to Validate", "leaderboard: nil catalog")
@@ -123,6 +186,7 @@ func (c *Catalog) Validate() error {
 	seen := make(map[string]struct{}, len(c.Leaderboards))
 	seenGC := make(map[string]string, len(c.Leaderboards))
 	seenPG := make(map[string]string, len(c.Leaderboards))
+	seenMG := make(map[string]string, len(c.Leaderboards))
 	for i, b := range c.Leaderboards {
 		bPath := fmt.Sprintf("leaderboards[%d]", i)
 		if err := validateName(b.Name); err != nil {
@@ -132,8 +196,8 @@ func (c *Catalog) Validate() error {
 			return loaderr.Errorf(bPath+".name", "give each leaderboard a unique name", "leaderboard: duplicate board name %q", b.Name)
 		}
 		seen[b.Name] = struct{}{}
-		if b.GameCenter == "" && b.PlayGames == "" {
-			return loaderr.Errorf(bPath, "set gameCenter, playGames, or both on the leaderboard entry", "leaderboard: board %q declares no platform ID (set gameCenter, playGames or both)", b.Name)
+		if b.GameCenter == "" && b.PlayGames == "" && b.MiniGame == nil {
+			return loaderr.Errorf(bPath, "set gameCenter, playGames, miniGame, or a combination on the leaderboard entry", "leaderboard: board %q declares no platform ID (set gameCenter, playGames or miniGame)", b.Name)
 		}
 		if err := validateID(b.GameCenter); err != nil {
 			return loaderr.Errorf(bPath+".gameCenter", fmt.Sprintf("set gameCenter to up to %d ASCII letters, digits, '.', '_' or '-'", MaxIDLength), "leaderboard: board %q gameCenter: %w", b.Name, err)
@@ -141,21 +205,38 @@ func (c *Catalog) Validate() error {
 		if err := validateID(b.PlayGames); err != nil {
 			return loaderr.Errorf(bPath+".playGames", fmt.Sprintf("set playGames to up to %d ASCII letters, digits, '.', '_' or '-'", MaxIDLength), "leaderboard: board %q playGames: %w", b.Name, err)
 		}
-		checkID := func(provider string, ids map[string]string, id string) error {
+		checkID := func(provider, fieldPath string, ids map[string]string, id string) error {
 			if id == "" {
 				return nil
 			}
 			if other, dup := ids[id]; dup {
-				return loaderr.Errorf(bPath+"."+provider, fmt.Sprintf("assign a unique %s ID to each leaderboard", provider), "leaderboard: board %q reuses the %s ID %q of board %q", b.Name, provider, id, other)
+				return loaderr.Errorf(fieldPath, fmt.Sprintf("assign a unique %s ID to each leaderboard", provider), "leaderboard: board %q reuses the %s ID %q of board %q", b.Name, provider, id, other)
 			}
 			ids[id] = b.Name
 			return nil
 		}
-		if err := checkID("gameCenter", seenGC, b.GameCenter); err != nil {
+		if err := checkID("gameCenter", bPath+".gameCenter", seenGC, b.GameCenter); err != nil {
 			return err
 		}
-		if err := checkID("playGames", seenPG, b.PlayGames); err != nil {
+		if err := checkID("playGames", bPath+".playGames", seenPG, b.PlayGames); err != nil {
 			return err
+		}
+		if b.MiniGame != nil {
+			if err := validateMiniGameKey(b.MiniGame.Key); err != nil {
+				return loaderr.Errorf(bPath+".miniGame.key", fmt.Sprintf("set miniGame.key to a non-empty UTF-8 string of at most %d bytes without control characters or surrounding spaces", MaxMiniGameKeyLength), "leaderboard: board %q miniGame.key: %w", b.Name, err)
+			}
+			switch b.MiniGame.Order {
+			case "", OrderDesc, OrderAsc:
+			default:
+				return loaderr.Errorf(bPath+".miniGame.order", `set miniGame.order to "desc" or "asc" (or omit it for "desc")`, "leaderboard: board %q miniGame.order %q is invalid (want %q or %q)", b.Name, b.MiniGame.Order, OrderDesc, OrderAsc)
+			}
+			if other, dup := seenMG[b.MiniGame.Key]; dup {
+				return loaderr.Errorf(bPath+".miniGame.key", "assign a unique miniGame.key to each leaderboard", "leaderboard: board %q reuses the miniGame key %q of board %q", b.Name, b.MiniGame.Key, other)
+			}
+			seenMG[b.MiniGame.Key] = b.Name
+			if len(seenMG) > MaxMiniGameKeys {
+				return loaderr.Errorf(bPath+".miniGame", fmt.Sprintf("declare at most %d miniGame keys across the catalog", MaxMiniGameKeys), "leaderboard: catalog declares more than %d miniGame keys", MaxMiniGameKeys)
+			}
 		}
 	}
 	return nil
@@ -176,6 +257,28 @@ func validateName(name string) error {
 	}
 	if strings.TrimSpace(name) != name {
 		return fmt.Errorf("name %q has leading or trailing whitespace", name)
+	}
+	return nil
+}
+
+// validateMiniGameKey accepts a non-empty UTF-8 cloud storage key of at most MaxMiniGameKeyLength bytes without control characters or surrounding whitespace.
+func validateMiniGameKey(key string) error {
+	if key == "" {
+		return errors.New("empty key")
+	}
+	if !utf8.ValidString(key) {
+		return fmt.Errorf("key %q is not valid UTF-8", key)
+	}
+	for _, r := range key {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("key %q contains a control character", key)
+		}
+	}
+	if strings.TrimSpace(key) != key {
+		return fmt.Errorf("key %q has leading or trailing whitespace", key)
+	}
+	if len(key) > MaxMiniGameKeyLength {
+		return fmt.Errorf("key is %d bytes (at most %d)", len(key), MaxMiniGameKeyLength)
 	}
 	return nil
 }
