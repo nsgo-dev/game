@@ -3,7 +3,7 @@
 `game/voxel` 为沙盒游戏提供分块 3D 体素世界：致密立方体区块、跨区块逐体素天空光与方块光传播（`0..15`）、直接输出到 [render3d](render3d.md) 缓冲的贪婪网格合并（greedy meshing）、跨区块邻接面剔除与环境光遮蔽（AO）、编辑时的最小脏区块追踪、3D DDA 体素射线拾取、面向 [physics3d](physics3d.md) 刚体与角色的直接实体方块碰撞（以及分轴 AABB 移动滑行角色控制器），以及确定性的带版本号 YAML 存档格式。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/voxel"
+import "github.com/nsgo-dev/game/pkg/voxel"
 ```
 
 ## 方块定义与注册表

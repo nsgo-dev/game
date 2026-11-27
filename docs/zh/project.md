@@ -1,6 +1,6 @@
 # 项目文件
 
-`github.com/nsgo-dev/game/packages/game/project` 负责读取、检查、写入并应用 `game.yaml`。它是游戏根目录下唯一保存项目设置的文件：游戏名称、标识与版本，窗口与虚拟分辨率，输入映射，音频总线，启动时加载的场景与资源，各平台的导出预设，它启用的编辑器插件、`game assets` 构建的资源目标，以及安装到项目中的库包。游戏在启动时读取它，`gameproject` 命令检查并应用它，编辑器打开、编辑并保存它，`game release` 读取其中的导出预设，`game assets` 读取其中的资源目标。
+`github.com/nsgo-dev/game/pkg/project` 负责读取、检查、写入并应用 `game.yaml`。它是游戏根目录下唯一保存项目设置的文件：游戏名称、标识与版本，窗口与虚拟分辨率，输入映射，音频总线，启动时加载的场景与资源，各平台的导出预设，它启用的编辑器插件、`game assets` 构建的资源目标，以及安装到项目中的库包。游戏在启动时读取它，`gameproject` 命令检查并应用它，编辑器打开、编辑并保存它，`game release` 读取其中的导出预设，`game assets` 读取其中的资源目标。
 
 ## 文件内容
 
@@ -195,10 +195,10 @@ NSGo 自己的 `nsgo.yaml` 与 `game.yaml` 放在同一目录，其中部分设�
 ## gameproject 命令
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check [dir]
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject fmt [-check] [dir]
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync [-check] [dir]
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject check [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject fmt [-check] [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject sync [-check] [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
 ```
 
 - `check` 一次报告项目的全部问题（`project.Check`）：无法解析的 `game.yaml`、与它不一致的 `nsgo.yaml`、缺失或无效的自动加载文件，以及已安装包写入但已缺失的文件。
@@ -248,4 +248,4 @@ scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; 
 
 ## 起手模板与示例
 
-起手模板和四个示例游戏（`caverun`、`cryptquest`、`slidegem`、`starburst`）都把设置放在 `game.yaml` 中：每个项目都有窗口设置，用到时还包括虚拟分辨率、输入映射、音频总线和导出预设。Cave Run 还通过它自动加载关卡。每个项目都有一个测试，检查 `game.yaml` 是规范形式，并且 `nsgo.yaml` 与它一致。它们也都建立了索引：Cave Run 的 `game.yaml` 和地图引用了文件，因此带有 `game.index.yaml`；`game/refs` 中的一个测试会在 `game index` 要对示例或起手模板做任何修改时失败，所以移动或编辑它们引用的文件后，请在 `packages/game` 下运行 `go run ./cmd/game index <dir>`。其余示例和起手模板没有场景文件或资源文件，也不引用任何文件，因此在游戏加入这类文件之前没有需要索引的内容。
+起手模板和四个示例游戏（`caverun`、`cryptquest`、`slidegem`、`starburst`）都把设置放在 `game.yaml` 中：每个项目都有窗口设置，用到时还包括虚拟分辨率、输入映射、音频总线和导出预设。Cave Run 还通过它自动加载关卡。每个项目都有一个测试，检查 `game.yaml` 是规范形式，并且 `nsgo.yaml` 与它一致。它们也都建立了索引：Cave Run 的 `game.yaml` 和地图引用了文件，因此带有 `game.index.yaml`；`game/refs` 中的一个测试会在 `game index` 要对示例或起手模板做任何修改时失败，所以移动或编辑它们引用的文件后，请在仓库根目录运行 `go run ./cmd/game index <dir>`。其余示例和起手模板没有场景文件或资源文件，也不引用任何文件，因此在游戏加入这类文件之前没有需要索引的内容。

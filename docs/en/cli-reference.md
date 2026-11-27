@@ -1,6 +1,6 @@
 # Command Reference
 
-<!-- Code generated from the game command's definitions by `go tool nsgo test ./internal/gamecli -run TestReference -update` in packages/game. DO NOT EDIT. -->
+<!-- Code generated from the game command's definitions by `go tool nsgo test ./internal/gamecli -- -run TestReference -update` from the repository root. DO NOT EDIT. -->
 
 Every subcommand of `nsgo game`, which `go tool game` runs alike, with its usage line and flags, generated from the commands' definitions so it always matches `game help`. [Command Line](cli.md) shows how to install the command, what each subcommand is for and how to set up shell completion.
 
@@ -180,7 +180,7 @@ nsgo game new [flags] <dir>
 | `-module string` |  | the module path in go.mod (default: the name in lower case with its words joined by -) |
 | `-name string` |  | the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and \_ (default: the directory's name) |
 | `-template string` | `starter` | the template to start from: starter, action3d, cards2d, fighting2d, fps3d, idle, platformer2d, puzzle2d, racing3d, rhythm, roguelike2d, rpg2d, rts2d, shmup2d, towerdefense2d, visualnovel; -list describes each |
-| `-version string` |  | the version of github.com/nsgo-dev/game/packages/game to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build) |
+| `-version string` |  | the version of github.com/nsgo-dev/game to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build) |
 
 ## game dev
 

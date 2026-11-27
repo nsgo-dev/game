@@ -3,7 +3,7 @@
 `game.Loop` drives fixed-step updates and interpolated frame draws on an NSGo scope's display frames, pausing automatically while the app is in the background.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game"
+import "github.com/nsgo-dev/game"
 ```
 
 ## How the fixed step works
@@ -182,7 +182,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

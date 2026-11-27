@@ -9,7 +9,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/idle"
+	"github.com/nsgo-dev/game/pkg/idle"
 	"go.yaml.in/yaml/v3"
 )
 

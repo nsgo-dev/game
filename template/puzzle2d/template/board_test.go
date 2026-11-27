@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/undo"
+	"github.com/nsgo-dev/game/pkg/undo"
 )
 
 // testLevel returns a level for the rules' tests:

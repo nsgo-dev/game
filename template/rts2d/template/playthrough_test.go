@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/math2d"
-	"github.com/nsgo-dev/game/packages/game/screen"
+	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

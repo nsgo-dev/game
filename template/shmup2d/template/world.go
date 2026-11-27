@@ -5,10 +5,10 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/bullets"
-	"github.com/nsgo-dev/game/packages/game/math2d"
-	"github.com/nsgo-dev/game/packages/game/particles"
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/pkg/bullets"
+	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/particles"
+	"github.com/nsgo-dev/game/pkg/sprite"
 )
 
 // controls is what the player asks of the ship in one fixed step, gathered from every device by the game's input code, so the world never reads a device.

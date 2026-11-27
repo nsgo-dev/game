@@ -1,0 +1,1548 @@
+package editor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"unicode"
+
+	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+// DefaultReleaseNotesFile is the project-relative Markdown file written by the Build and Release screen's
+// RELEASE NOTES editor when no explicit -release-notes path has been configured in the Export panel.
+const DefaultReleaseNotesFile = "release-notes.md"
+
+const (
+	// maxReleaseNotesBytes caps release notes Markdown reads and writes (256 KiB).
+	maxReleaseNotesBytes = 256 << 10
+	// maxChangelogFragmentBytes caps each changelog.d fragment read when drafting release notes.
+	maxChangelogFragmentBytes = 64 << 10
+)
+
+func validateReleaseNotesContent(notes string) error {
+	if strings.IndexByte(notes, 0) >= 0 {
+		return errors.New("editor: release notes must not contain NUL bytes")
+	}
+	if len(notes) > maxReleaseNotesBytes {
+		return fmt.Errorf("editor: release notes exceed maximum size (%d bytes)", maxReleaseNotesBytes)
+	}
+	return nil
+}
+
+// ValidateReleaseNotes reports whether notes is safe and within the size budget for release notes Markdown.
+func ValidateReleaseNotes(notes string) error {
+	return validateReleaseNotesContent(notes)
+}
+
+func readBoundedTextFile(absPath string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds maximum size (%d bytes)", filepath.Base(absPath), maxBytes)
+	}
+	return data, nil
+}
+
+func isSafeGitRef(ref string) bool {
+	if ref == "" || strings.HasPrefix(ref, "-") || strings.Contains(ref, "..") {
+		return false
+	}
+	for _, r := range ref {
+		if r <= 0x20 || r == 0x7f || strings.ContainsRune("~^:?*[\\", r) {
+			return false
+		}
+	}
+	return true
+}
+
+// ErrUploadRequiresConfirmation is returned whenever code attempts to start a store upload without an
+// active, user-confirmed Review uploads session.
+var ErrUploadRequiresConfirmation = errors.New("editor: store uploads always require confirmation in Review uploads")
+
+// ErrUploadRequiresPersonConfirmation is returned when an agent attempts to confirm or trigger a store upload.
+// Store uploads always require explicit human confirmation, whatever the permission profile.
+var ErrUploadRequiresPersonConfirmation = errors.New("editor: store uploads require the person's confirmation in Review uploads, whatever the permission profile")
+
+// ErrNoUploadsSelected is returned when confirming Review uploads with no included artifacts.
+var ErrNoUploadsSelected = errors.New("editor: no artifacts are selected to upload")
+
+// ErrReleaseUploadRunning is returned when starting or mutating upload selections while an upload batch is running.
+var ErrReleaseUploadRunning = errors.New("editor: a store upload is already running")
+
+// ErrInvalidPublishDestination is returned when an unknown store destination is supplied.
+var ErrInvalidPublishDestination = errors.New("editor: unknown publish destination")
+
+// AgentPermissionProfile aliases PermissionProfile from Settings -> Permissions.
+// Store uploads ALWAYS ask first in Review uploads regardless of profile (including Autonomous).
+type AgentPermissionProfile = PermissionProfile
+
+// StoreUploadRequiresConfirmation reports whether store publishing requires explicit confirmation
+// in Review uploads for the given permission profile. It always returns true.
+func StoreUploadRequiresConfirmation(AgentPermissionProfile) bool {
+	return true
+}
+
+// PublishDestination identifies a supported store upload destination on the Build and Release screen.
+type PublishDestination string
+
+const (
+	// PublishDestItchIO publishes desktop or web packages to itch.io.
+	PublishDestItchIO PublishDestination = "itch.io"
+	// PublishDestGooglePlay publishes Android App Bundles (.aab) to Google Play internal testing.
+	PublishDestGooglePlay PublishDestination = "google_play_internal"
+	// PublishDestTestFlight publishes iOS builds (.ipa) to Apple TestFlight.
+	PublishDestTestFlight PublishDestination = "testflight"
+)
+
+// AllPublishDestinations returns every supported store upload destination in display order.
+func AllPublishDestinations() []PublishDestination {
+	return []PublishDestination{
+		PublishDestItchIO,
+		PublishDestGooglePlay,
+		PublishDestTestFlight,
+	}
+}
+
+// Valid reports whether d is a recognized PublishDestination.
+func (d PublishDestination) Valid() bool {
+	switch d {
+	case PublishDestItchIO, PublishDestGooglePlay, PublishDestTestFlight:
+		return true
+	default:
+		return false
+	}
+}
+
+// DisplayName returns the user-facing store destination label shown in Review uploads.
+func (d PublishDestination) DisplayName() string {
+	switch d {
+	case PublishDestItchIO:
+		return "itch.io"
+	case PublishDestGooglePlay:
+		return "Google Play · internal testing"
+	case PublishDestTestFlight:
+		return "TestFlight"
+	default:
+		return string(d)
+	}
+}
+
+// DefaultPublishDestinationForPlatform returns the default store destination and track label for platform.
+func DefaultPublishDestinationForPlatform(platform string) (PublishDestination, string) {
+	switch platform {
+	case "android":
+		return PublishDestGooglePlay, "internal track"
+	case "ios":
+		return PublishDestTestFlight, "TestFlight beta"
+	case "web":
+		return PublishDestItchIO, "html5"
+	case "macos":
+		return PublishDestItchIO, "osx"
+	case "windows":
+		return PublishDestItchIO, "windows"
+	case "linux":
+		return PublishDestItchIO, "linux"
+	default:
+		return PublishDestItchIO, platform
+	}
+}
+
+// ReleaseNotesDraftRequest holds the git history, kept reviews, and changelog entries passed to
+// Editor.ReleaseNotesDrafter or DefaultReleaseNotesDraft.
+type ReleaseNotesDraftRequest struct {
+	ProjectName      string   `json:"projectName"`
+	Version          string   `json:"version"`
+	LastReleaseTag   string   `json:"lastReleaseTag,omitempty"`
+	SinceRef         string   `json:"sinceRef"`
+	CommitCount      int      `json:"commitCount"`
+	CommitSubjects   []string `json:"commitSubjects,omitempty"`
+	KeptReviews      []string `json:"keptReviews,omitempty"`
+	ChangelogEntries []string `json:"changelogEntries,omitempty"`
+}
+
+// ReleaseNotesDraft is the player-facing Markdown and provenance badge produced for RELEASE NOTES.
+type ReleaseNotesDraft struct {
+	Markdown   string `json:"markdown"`
+	Provenance string `json:"provenance"`
+}
+
+// ReleaseUploadStatus reports the lifecycle state of one upload item in Review uploads.
+type ReleaseUploadStatus string
+
+const (
+	UploadStatusPending   ReleaseUploadStatus = "pending"
+	UploadStatusUploading ReleaseUploadStatus = "uploading"
+	UploadStatusDone      ReleaseUploadStatus = "done"
+	UploadStatusFailed    ReleaseUploadStatus = "failed"
+	UploadStatusCancelled ReleaseUploadStatus = "cancelled"
+)
+
+// ReleaseUploadItem describes one artifact queued for user confirmation in Review uploads.
+// It never stores credential secrets.
+type ReleaseUploadItem struct {
+	Platform          string              `json:"platform"`
+	PlatformName      string              `json:"platformName"`
+	Destination       PublishDestination  `json:"destination"`
+	DestinationLabel  string              `json:"destinationLabel"`
+	Track             string              `json:"track,omitempty"`
+	Version           string              `json:"version"`
+	ArtifactName      string              `json:"artifactName"`
+	ArtifactPath      string              `json:"artifactPath"`
+	ArtifactRelPath   string              `json:"artifactRelPath"`
+	SizeBytes         int64               `json:"sizeBytes"`
+	Included          bool                `json:"included"`
+	HasCredential     bool                `json:"hasCredential"`
+	CredentialAccount string              `json:"credentialAccount,omitempty"`
+	Status            ReleaseUploadStatus `json:"status"`
+	Progress          float64             `json:"progress"`
+	StatusMessage     string              `json:"statusMessage,omitempty"`
+	ResultURL         string              `json:"resultUrl,omitempty"`
+	Err               string              `json:"err,omitempty"`
+}
+
+// ReleaseUploadReviewSnapshot is a thread-safe value copy of the Review uploads confirmation dialog state.
+type ReleaseUploadReviewSnapshot struct {
+	Open                bool                   `json:"open"`
+	SessionID           uint64                 `json:"sessionId"`
+	PermissionProfile   AgentPermissionProfile `json:"permissionProfile"`
+	ReleaseNotesFile    string                 `json:"releaseNotesFile"`
+	ReleaseNotesPreview string                 `json:"releaseNotesPreview,omitempty"`
+	Items               []ReleaseUploadItem    `json:"items"`
+	Running             bool                   `json:"running"`
+	Completed           bool                   `json:"completed"`
+	KeychainEditorOpen  bool                   `json:"keychainEditorOpen"`
+	KeychainDest        PublishDestination     `json:"keychainDest,omitempty"`
+	LastErr             string                 `json:"lastErr,omitempty"`
+}
+
+// ReleaseUploadRequest describes one user-confirmed artifact upload passed to ReleaseUploader.
+type ReleaseUploadRequest struct {
+	Platform         string
+	Destination      PublishDestination
+	DestinationLabel string
+	Track            string
+	Version          string
+	ArtifactPath     string
+	ArtifactName     string
+	SizeBytes        int64
+	ReleaseNotesPath string
+	Credential       KeychainCredential
+}
+
+// ReleaseUploadProgress reports incremental upload progress for one artifact.
+type ReleaseUploadProgress struct {
+	Fraction float64
+	Message  string
+}
+
+// ReleaseUploadResult describes the outcome of uploading one artifact to a store destination.
+type ReleaseUploadResult struct {
+	Destination PublishDestination
+	Platform    string
+	Version     string
+	URL         string
+	Message     string
+}
+
+// ReleaseUploader uploads a single user-confirmed release artifact to a store destination.
+type ReleaseUploader interface {
+	Upload(ctx context.Context, req ReleaseUploadRequest, progress func(ReleaseUploadProgress)) (ReleaseUploadResult, error)
+}
+
+// ReleaseUploaderFunc adapts a plain function to ReleaseUploader.
+type ReleaseUploaderFunc func(ctx context.Context, req ReleaseUploadRequest, progress func(ReleaseUploadProgress)) (ReleaseUploadResult, error)
+
+// Upload calls f(ctx, req, progress).
+func (f ReleaseUploaderFunc) Upload(ctx context.Context, req ReleaseUploadRequest, progress func(ReleaseUploadProgress)) (ReleaseUploadResult, error) {
+	return f(ctx, req, progress)
+}
+
+type releaseUploadRun struct {
+	cancel   context.CancelFunc
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+func (r *releaseUploadRun) finish() {
+	r.doneOnce.Do(func() {
+		close(r.done)
+	})
+}
+
+type releaseUploadReviewState struct {
+	open               bool
+	sessionID          uint64
+	nextSessionID      uint64
+	items              []ReleaseUploadItem
+	completed          bool
+	keychainEditorOpen bool
+	keychainDest       PublishDestination
+	lastErr            error
+	run                *releaseUploadRun
+}
+
+// AgentPermissionProfile returns the active agent permission profile (defaulting to PermissionProfileBalanced).
+func (e *Editor) AgentPermissionProfile() AgentPermissionProfile {
+	if e == nil {
+		return PermissionProfileBalanced
+	}
+	e.buildRelease.mu.Lock()
+	defer e.buildRelease.mu.Unlock()
+	if !e.buildRelease.permissionProfile.Valid() {
+		return PermissionProfileBalanced
+	}
+	return e.buildRelease.permissionProfile
+}
+
+// SetAgentPermissionProfile sets the editor's agent permission profile in Settings -> Permissions (permissions.yaml).
+// Store uploads always ask first in Review uploads regardless of profile.
+func (e *Editor) SetAgentPermissionProfile(profile AgentPermissionProfile) error {
+	if e == nil {
+		return ErrNoProject
+	}
+	if !profile.Valid() {
+		return fmt.Errorf("editor: unknown agent permission profile %q", profile)
+	}
+	return e.SelectPermissionProfile(profile)
+}
+
+// WithAgentActor runs fn marked as an agent actor so strict human-only boundaries
+// (such as confirming store uploads in Review uploads) are enforced regardless of permission profile.
+func (e *Editor) WithAgentActor(fn func() error) error {
+	if e == nil {
+		return fn()
+	}
+	e.agentActorDepth.Add(1)
+	defer e.agentActorDepth.Add(-1)
+	return fn()
+}
+
+// AgentActorActive reports whether the current call is executing on behalf of an agent.
+func (e *Editor) AgentActorActive() bool {
+	return e != nil && e.agentActorDepth.Load() > 0
+}
+
+// ReleaseNotesFile returns the project-relative Markdown file path used for RELEASE NOTES
+// and read by `game release -release-notes`. It uses ExportReleaseNotes() when set, otherwise DefaultReleaseNotesFile.
+func (e *Editor) ReleaseNotesFile() string {
+	if e == nil {
+		return DefaultReleaseNotesFile
+	}
+	if configured := strings.TrimSpace(e.ExportReleaseNotes()); configured != "" {
+		return filepath.ToSlash(configured)
+	}
+	e.buildRelease.mu.Lock()
+	defer e.buildRelease.mu.Unlock()
+	if p := strings.TrimSpace(e.buildRelease.notesFile); p != "" {
+		return p
+	}
+	return DefaultReleaseNotesFile
+}
+
+// ReleaseNotesAbsPath resolves and validates the absolute path of the release notes Markdown file inside the open project.
+func (e *Editor) ReleaseNotesAbsPath() (string, error) {
+	if e == nil || e.Project == nil || e.ProjectPath == "" {
+		return "", ErrNoProject
+	}
+	baseDir := filepath.Dir(e.ProjectPath)
+	return resolveBuildReleasePath(baseDir, e.ReleaseNotesFile(), true)
+}
+
+// SetReleaseNotesFile sets the project-relative Markdown file path for RELEASE NOTES (syncing ExportReleaseNotes).
+// Paths escaping the project directory or pointing through symlinks are refused.
+func (e *Editor) SetReleaseNotesFile(relPath string) error {
+	if e == nil || e.Project == nil {
+		return ErrNoProject
+	}
+	relPath = strings.TrimSpace(strings.ReplaceAll(relPath, `\`, "/"))
+	if relPath == "" {
+		relPath = DefaultReleaseNotesFile
+	}
+	relPath = path.Clean(relPath)
+	if relPath == "." || relPath == ".." || strings.HasPrefix(relPath, "../") || strings.HasPrefix(relPath, "/") || strings.Contains(relPath, ":") {
+		return fmt.Errorf("editor: release notes path %q must be inside the project directory", relPath)
+	}
+	var loadedText string
+	loadedFromDisk := false
+	if e.ProjectPath != "" {
+		abs, err := resolveBuildReleasePath(filepath.Dir(e.ProjectPath), relPath, true)
+		if err != nil {
+			return err
+		}
+		if data, rerr := readBoundedTextFile(abs, maxReleaseNotesBytes); rerr == nil && strings.TrimSpace(string(data)) != "" {
+			loadedText = string(data)
+			loadedFromDisk = true
+		}
+	}
+	e.SetExportReleaseNotes(relPath)
+	e.buildRelease.mu.Lock()
+	e.buildRelease.notesFile = relPath
+	if loadedFromDisk {
+		e.buildRelease.releaseNotes = loadedText
+		e.buildRelease.notesInitialized = true
+	}
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+	return nil
+}
+
+// SetReleaseKeptReviews sets the kept review summaries included when drafting player-facing release notes.
+func (e *Editor) SetReleaseKeptReviews(reviews []string) {
+	if e == nil {
+		return
+	}
+	var cleaned []string
+	for _, r := range reviews {
+		if s := strings.TrimSpace(r); s != "" {
+			cleaned = append(cleaned, s)
+		}
+	}
+	e.buildRelease.mu.Lock()
+	e.buildRelease.keptReviews = cleaned
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+}
+
+// AddReleaseKeptReview appends one kept review summary to the inputs used when drafting release notes.
+func (e *Editor) AddReleaseKeptReview(summary string) {
+	if e == nil {
+		return
+	}
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return
+	}
+	e.buildRelease.mu.Lock()
+	if !slices.Contains(e.buildRelease.keptReviews, summary) {
+		e.buildRelease.keptReviews = append(e.buildRelease.keptReviews, summary)
+		e.buildRelease.rev++
+	}
+	e.buildRelease.mu.Unlock()
+	e.notify()
+}
+
+// SaveReleaseNotes writes the current RELEASE NOTES text atomically to the exact Markdown file
+// read by `game release -release-notes`, modifying ONLY that file.
+func (e *Editor) SaveReleaseNotes() error {
+	if e == nil || e.Project == nil {
+		return ErrNoProject
+	}
+	e.buildRelease.mu.Lock()
+	notes := e.buildRelease.releaseNotes
+	e.buildRelease.mu.Unlock()
+	return e.writeReleaseNotesFile(notes)
+}
+
+func (e *Editor) writeReleaseNotesFile(notes string) error {
+	if err := validateReleaseNotesContent(notes); err != nil {
+		return err
+	}
+	if e == nil || e.ProjectPath == "" {
+		return nil
+	}
+	abs, err := e.ReleaseNotesAbsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return fmt.Errorf("editor: create release notes directory: %w", err)
+	}
+	data := notes
+	if data != "" && !strings.HasSuffix(data, "\n") {
+		data += "\n"
+	}
+	if err := writeFileAtomic(abs, []byte(data)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DraftReleaseNotes reads git commits since the last release tag (or initial commit), kept reviews,
+// and changelog fragments, drafts player-facing Markdown via Editor.ReleaseNotesDrafter or DefaultReleaseNotesDraft,
+// and writes the result directly to the release notes Markdown file read by `game release -release-notes`.
+func (e *Editor) DraftReleaseNotes() (ReleaseNotesDraft, error) {
+	if e == nil || e.Project == nil {
+		return ReleaseNotesDraft{}, ErrNoProject
+	}
+	req := e.collectReleaseNotesDraftRequest()
+	var draft ReleaseNotesDraft
+	var err error
+	if e.ReleaseNotesDrafter != nil {
+		draft, err = e.ReleaseNotesDrafter(context.Background(), req)
+		if err != nil {
+			return ReleaseNotesDraft{}, err
+		}
+	} else {
+		draft = DefaultReleaseNotesDraft(req)
+	}
+	if strings.TrimSpace(draft.Provenance) == "" {
+		draft.Provenance = formatReleaseNotesProvenance(req.CommitCount, req.SinceRef, len(req.KeptReviews))
+	}
+	if err := e.writeReleaseNotesFile(draft.Markdown); err != nil {
+		return ReleaseNotesDraft{}, err
+	}
+	e.buildRelease.mu.Lock()
+	e.buildRelease.commitsSinceRelease = req.CommitCount
+	if req.LastReleaseTag != "" {
+		e.buildRelease.lastReleaseVersion = req.LastReleaseTag
+	}
+	e.buildRelease.notesSinceRef = req.SinceRef
+	e.buildRelease.notesProvenance = draft.Provenance
+	e.buildRelease.releaseNotes = draft.Markdown
+	e.buildRelease.notesInitialized = true
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+	return draft, nil
+}
+
+// RedraftReleaseNotes regenerates the release notes from git commits and kept reviews,
+// overwriting the release notes Markdown file on disk.
+func (e *Editor) RedraftReleaseNotes() (ReleaseNotesDraft, error) {
+	return e.DraftReleaseNotes()
+}
+
+func (e *Editor) collectReleaseNotesDraftRequest() ReleaseNotesDraftRequest {
+	dir := ""
+	if e.ProjectPath != "" {
+		dir = filepath.Dir(e.ProjectPath)
+	}
+	lastTag, sinceRef, count, subjects := e.readReleaseGitHistory(dir)
+
+	e.buildRelease.mu.Lock()
+	kept := slices.Clone(e.buildRelease.keptReviews)
+	baselineVer := e.buildRelease.baseline.Version
+	e.buildRelease.mu.Unlock()
+
+	if lastTag == "" && baselineVer != "" {
+		lastTag = baselineVer
+		if sinceRef == "" || sinceRef == "initial commit" {
+			sinceRef = baselineVer
+		}
+	}
+	if sinceRef == "" {
+		if lastTag != "" {
+			sinceRef = lastTag
+		} else {
+			sinceRef = "initial commit"
+		}
+	}
+
+	changelogEntries := readProjectChangelogFragments(dir)
+
+	projName := ""
+	ver := ""
+	if e.Project != nil {
+		projName = e.Project.Name
+		ver = e.Project.AppVersion
+	}
+
+	return ReleaseNotesDraftRequest{
+		ProjectName:      projName,
+		Version:          ver,
+		LastReleaseTag:   lastTag,
+		SinceRef:         sinceRef,
+		CommitCount:      count,
+		CommitSubjects:   subjects,
+		KeptReviews:      kept,
+		ChangelogEntries: changelogEntries,
+	}
+}
+
+func (e *Editor) readReleaseGitHistory(dir string) (lastTag, sinceRef string, count int, subjects []string) {
+	if dir == "" {
+		return "", "", 0, nil
+	}
+	if out, err := e.runBuildGit(dir, "describe", "--tags", "--abbrev=0"); err == nil {
+		if rawTag := strings.TrimSpace(out); isSafeGitRef(rawTag) {
+			lastTag = strings.TrimPrefix(rawTag, "v")
+			sinceRef = lastTag
+			if cnt, cerr := e.runBuildGit(dir, "rev-list", "--count", rawTag+"..HEAD"); cerr == nil {
+				_, _ = fmt.Sscanf(strings.TrimSpace(cnt), "%d", &count)
+			}
+			// Try up to 32 commits first; fall back to -n 8 for test runners mocking the original command.
+			if logOut, lerr := e.runBuildGit(dir, "log", "--pretty=format:%s", "-n", "32", rawTag+"..HEAD"); lerr == nil && strings.TrimSpace(logOut) != "" {
+				subjects = splitNonEmptyLines(logOut)
+			} else if logOut, lerr := e.runBuildGit(dir, "log", "--pretty=format:%s", "-n", "8", rawTag+"..HEAD"); lerr == nil {
+				subjects = splitNonEmptyLines(logOut)
+			}
+			return lastTag, sinceRef, count, subjects
+		}
+	}
+
+	// No release tag exists yet: read commits since the initial commit.
+	if cnt, cerr := e.runBuildGit(dir, "rev-list", "--count", "HEAD"); cerr == nil {
+		_, _ = fmt.Sscanf(strings.TrimSpace(cnt), "%d", &count)
+	}
+	if logOut, lerr := e.runBuildGit(dir, "log", "--pretty=format:%s", "-n", "32", "HEAD"); lerr == nil && strings.TrimSpace(logOut) != "" {
+		subjects = splitNonEmptyLines(logOut)
+	}
+	if count > 0 || len(subjects) > 0 {
+		if count == 0 {
+			count = len(subjects)
+		}
+		sinceRef = "initial commit"
+	}
+	return "", sinceRef, count, subjects
+}
+
+// DefaultReleaseNotesDraft builds clean, deterministic, player-facing Markdown release notes
+// from git commits since the last release tag (or initial commit), kept reviews, and changelog entries.
+func DefaultReleaseNotesDraft(req ReleaseNotesDraftRequest) ReleaseNotesDraft {
+	provenance := formatReleaseNotesProvenance(req.CommitCount, req.SinceRef, len(req.KeptReviews))
+
+	var lead string
+	var playerBullets []string
+	var fallbackBullets []string
+	seen := make(map[string]bool)
+
+	addUnique := func(dst *[]string, item string) {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return
+		}
+		key := strings.ToLower(item)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		*dst = append(*dst, item)
+	}
+
+	// Kept reviews are already written in human/player terms; lead with the first if concise, and include the rest as bullets.
+	for i, rev := range req.KeptReviews {
+		text := strings.TrimSpace(rev)
+		if text == "" {
+			continue
+		}
+		if i == 0 && !strings.HasPrefix(text, "-") && !strings.HasPrefix(text, "*") {
+			lead = ensureSentence(text)
+			seen[strings.ToLower(strings.TrimSuffix(lead, "."))] = true
+			continue
+		}
+		text = strings.TrimSpace(strings.TrimLeft(text, "-* "))
+		addUnique(&playerBullets, text)
+	}
+
+	// Changelog fragments under changelog.d/ provide curated user-visible notes.
+	for _, entry := range req.ChangelogEntries {
+		cleaned := cleanChangelogBullet(entry)
+		if cleaned != "" {
+			addUnique(&playerBullets, cleaned)
+		}
+	}
+
+	// Convert commit subjects into player-facing bullets, separating internal plumbing from player changes.
+	for _, raw := range req.CommitSubjects {
+		bullet, internal := humanizeCommitSubject(raw)
+		if bullet == "" {
+			continue
+		}
+		if internal {
+			addUnique(&fallbackBullets, bullet)
+		} else {
+			addUnique(&playerBullets, bullet)
+		}
+	}
+
+	bullets := playerBullets
+	if len(bullets) == 0 {
+		bullets = fallbackBullets
+	}
+
+	var b strings.Builder
+	if lead != "" {
+		b.WriteString(lead)
+		if len(bullets) > 0 {
+			b.WriteString("\n\n")
+		}
+	}
+	for i, item := range bullets {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("- ")
+		b.WriteString(item)
+	}
+	md := strings.TrimSpace(b.String())
+	if md == "" {
+		ver := strings.TrimSpace(req.Version)
+		if ver == "" {
+			ver = "0.1.0"
+		}
+		md = fmt.Sprintf("Release %s.", ver)
+	}
+	return ReleaseNotesDraft{
+		Markdown:   md,
+		Provenance: provenance,
+	}
+}
+
+func formatReleaseNotesProvenance(commits int, sinceRef string, keptReviews int) string {
+	ref := strings.TrimSpace(sinceRef)
+	if ref == "" {
+		ref = "initial commit"
+	}
+	switch {
+	case commits > 0 && keptReviews > 0:
+		cUnit := "commits"
+		if commits == 1 {
+			cUnit = "commit"
+		}
+		rUnit := "kept reviews"
+		if keptReviews == 1 {
+			rUnit = "kept review"
+		}
+		return fmt.Sprintf("Drafted from %d %s and %d %s since %s", commits, cUnit, keptReviews, rUnit, ref)
+	case commits > 0:
+		cUnit := "commits"
+		if commits == 1 {
+			cUnit = "commit"
+		}
+		return fmt.Sprintf("Drafted from %d %s since %s", commits, cUnit, ref)
+	case keptReviews > 0:
+		rUnit := "kept reviews"
+		if keptReviews == 1 {
+			rUnit = "kept review"
+		}
+		return fmt.Sprintf("Drafted from %d %s", keptReviews, rUnit)
+	default:
+		return ""
+	}
+}
+
+func humanizeCommitSubject(raw string) (bullet string, internal bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", true
+	}
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "merge ") || strings.HasPrefix(lower, "revert \"merge ") {
+		return "", true
+	}
+
+	// Parse conventional commit prefix: `type(scope)!: description`
+	if colon := strings.IndexByte(s, ':'); colon > 0 && colon < 32 {
+		head := s[:colon]
+		rest := strings.TrimSpace(s[colon+1:])
+		if rest != "" {
+			kind := strings.ToLower(head)
+			if paren := strings.IndexByte(kind, '('); paren > 0 && strings.HasSuffix(strings.TrimSuffix(kind, "!"), ")") {
+				kind = kind[:paren]
+			} else {
+				kind = strings.TrimSuffix(kind, "!")
+			}
+			switch kind {
+			case "fix", "bugfix":
+				return "Fixed: " + rest, false
+			case "feat", "feature", "perf", "balance", "art", "audio", "level", "ui", "gameplay":
+				return capitalizeSentence(rest), false
+			case "chore", "ci", "test", "tests", "build", "docs", "refactor", "style":
+				return capitalizeSentence(rest), true
+			}
+		}
+	}
+	return capitalizeSentence(s), false
+}
+
+func cleanChangelogBullet(entry string) string {
+	s := strings.TrimSpace(entry)
+	s = strings.TrimSpace(strings.TrimLeft(s, "-* "))
+	if s == "" {
+		return ""
+	}
+	// Strip leading backtick-wrapped package prefix like "`game/editor`: ..."
+	if strings.HasPrefix(s, "`") {
+		if end := strings.Index(s[1:], "`:"); end > 0 {
+			rest := strings.TrimSpace(s[end+3:])
+			if rest != "" {
+				s = rest
+			}
+		}
+	}
+	return capitalizeSentence(s)
+}
+
+func capitalizeSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	runes := []rune(s)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
+func ensureSentence(s string) string {
+	s = capitalizeSentence(s)
+	if s == "" {
+		return ""
+	}
+	last := s[len(s)-1]
+	if last != '.' && last != '!' && last != '?' {
+		s += "."
+	}
+	return s
+}
+
+func readProjectChangelogFragments(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	chDir, err := resolveBuildReleasePath(dir, "changelog.d", false)
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(chDir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		name := ent.Name()
+		if !strings.HasSuffix(strings.ToLower(name), ".md") || strings.EqualFold(name, "README.md") {
+			continue
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	var bullets []string
+	for _, name := range names {
+		p, perr := resolveBuildReleasePath(dir, path.Join("changelog.d", name), false)
+		if perr != nil {
+			continue
+		}
+		data, rerr := readBoundedTextFile(p, maxChangelogFragmentBytes)
+		if rerr != nil {
+			continue
+		}
+		for _, line := range splitNonEmptyLines(string(data)) {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
+				bullets = append(bullets, strings.TrimSpace(trimmed[2:]))
+			}
+		}
+	}
+	return bullets
+}
+
+// --- Keychain credential management ---
+
+func (e *Editor) activeKeychain() Keychain {
+	if e != nil && e.Keychain != nil {
+		return e.Keychain
+	}
+	return DefaultKeychain()
+}
+
+func (e *Editor) publishKeychainAccount(dest PublishDestination) string {
+	scope := "project"
+	if e != nil && e.Project != nil {
+		if id := strings.TrimSpace(e.Project.ID); id != "" {
+			scope = id
+		} else if name := strings.TrimSpace(e.Project.Name); name != "" {
+			scope = strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+		}
+	}
+	return scope + ":" + string(dest)
+}
+
+// StorePublishCredential stores a store upload token/key in the system keychain (never in project files).
+func (e *Editor) StorePublishCredential(dest PublishDestination, account, secret string) error {
+	if e == nil {
+		return ErrNoProject
+	}
+	if !dest.Valid() {
+		return fmt.Errorf("%w: %q", ErrInvalidPublishDestination, dest)
+	}
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return errors.New("editor: credential secret must not be empty")
+	}
+	kcAccount := e.publishKeychainAccount(dest)
+	if err := e.activeKeychain().Set(KeychainServiceName, kcAccount, secret); err != nil {
+		return err
+	}
+	displayAccount := strings.TrimSpace(account)
+	if displayAccount == "" {
+		displayAccount = "stored in system keychain"
+	}
+	e.buildRelease.mu.Lock()
+	if e.buildRelease.keychainAccounts == nil {
+		e.buildRelease.keychainAccounts = make(map[PublishDestination]string)
+	}
+	e.buildRelease.keychainAccounts[dest] = displayAccount
+	for i := range e.buildRelease.uploadReview.items {
+		if e.buildRelease.uploadReview.items[i].Destination == dest {
+			e.buildRelease.uploadReview.items[i].HasCredential = true
+			e.buildRelease.uploadReview.items[i].CredentialAccount = displayAccount
+		}
+	}
+	e.buildRelease.uploadReview.keychainEditorOpen = false
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.Status = fmt.Sprintf("Saved %s credential to system keychain", dest.DisplayName())
+	e.notify()
+	return nil
+}
+
+// HasPublishCredential reports whether a credential for dest is stored in the system keychain.
+func (e *Editor) HasPublishCredential(dest PublishDestination) bool {
+	if e == nil || !dest.Valid() {
+		return false
+	}
+	val, err := e.activeKeychain().Get(KeychainServiceName, e.publishKeychainAccount(dest))
+	return err == nil && val != ""
+}
+
+// PublishCredentialAccount returns the non-secret display label for dest's keychain entry.
+func (e *Editor) PublishCredentialAccount(dest PublishDestination) string {
+	if e == nil || !dest.Valid() {
+		return ""
+	}
+	e.buildRelease.mu.Lock()
+	acc := e.buildRelease.keychainAccounts[dest]
+	e.buildRelease.mu.Unlock()
+	if acc != "" {
+		return acc
+	}
+	if e.HasPublishCredential(dest) {
+		return "stored in system keychain"
+	}
+	return ""
+}
+
+// DeletePublishCredential removes the stored credential for dest from the system keychain.
+func (e *Editor) DeletePublishCredential(dest PublishDestination) error {
+	if e == nil {
+		return ErrNoProject
+	}
+	if !dest.Valid() {
+		return fmt.Errorf("%w: %q", ErrInvalidPublishDestination, dest)
+	}
+	if err := e.activeKeychain().Delete(KeychainServiceName, e.publishKeychainAccount(dest)); err != nil {
+		return err
+	}
+	e.buildRelease.mu.Lock()
+	delete(e.buildRelease.keychainAccounts, dest)
+	for i := range e.buildRelease.uploadReview.items {
+		if e.buildRelease.uploadReview.items[i].Destination == dest {
+			e.buildRelease.uploadReview.items[i].HasCredential = false
+			e.buildRelease.uploadReview.items[i].CredentialAccount = ""
+		}
+	}
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+	return nil
+}
+
+// --- Review uploads & confirmation-gated store publishing ---
+
+// OpenReviewUploads opens the Review uploads confirmation dialog listing every artifact,
+// its destination, size, and version before anything is sent. It never starts an upload.
+func (e *Editor) OpenReviewUploads() error {
+	return e.ReviewReleaseUploads()
+}
+
+// CloseReviewUploads closes the Review uploads confirmation dialog without starting any upload.
+func (e *Editor) CloseReviewUploads() {
+	if e == nil {
+		return
+	}
+	e.buildRelease.mu.Lock()
+	if !e.buildRelease.uploadReview.open {
+		e.buildRelease.mu.Unlock()
+		return
+	}
+	// Invalidate the current session ID so nothing can confirm a closed dialog.
+	e.buildRelease.uploadReview.open = false
+	e.buildRelease.uploadReview.sessionID = 0
+	e.buildRelease.uploadReview.keychainEditorOpen = false
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+}
+
+// OpenKeychainCredentialEditor opens the inline keychain credential form inside Review uploads for dest.
+func (e *Editor) OpenKeychainCredentialEditor(dest PublishDestination) {
+	if e == nil || !dest.Valid() {
+		return
+	}
+	e.buildRelease.mu.Lock()
+	e.buildRelease.uploadReview.keychainEditorOpen = true
+	e.buildRelease.uploadReview.keychainDest = dest
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+}
+
+// CloseKeychainCredentialEditor closes the inline keychain credential form inside Review uploads.
+func (e *Editor) CloseKeychainCredentialEditor() {
+	if e == nil {
+		return
+	}
+	e.buildRelease.mu.Lock()
+	if !e.buildRelease.uploadReview.keychainEditorOpen {
+		e.buildRelease.mu.Unlock()
+		return
+	}
+	e.buildRelease.uploadReview.keychainEditorOpen = false
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+}
+
+// SetReleaseUploadItemIncluded toggles whether platform's artifact is included in the Review uploads batch.
+func (e *Editor) SetReleaseUploadItemIncluded(platform string, included bool) error {
+	if e == nil {
+		return ErrNoProject
+	}
+	e.buildRelease.mu.Lock()
+	if e.buildRelease.uploadReview.run != nil {
+		e.buildRelease.mu.Unlock()
+		return ErrReleaseUploadRunning
+	}
+	found := false
+	for i := range e.buildRelease.uploadReview.items {
+		if e.buildRelease.uploadReview.items[i].Platform == platform {
+			e.buildRelease.uploadReview.items[i].Included = included
+			found = true
+			break
+		}
+	}
+	if !found {
+		e.buildRelease.mu.Unlock()
+		return fmt.Errorf("editor: upload item for platform %q not found", platform)
+	}
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+	return nil
+}
+
+// SetReleaseUploadDestination changes the target store destination for platform inside Review uploads.
+func (e *Editor) SetReleaseUploadDestination(platform string, dest PublishDestination) error {
+	if e == nil {
+		return ErrNoProject
+	}
+	if !dest.Valid() {
+		return fmt.Errorf("%w: %q", ErrInvalidPublishDestination, dest)
+	}
+	hasCred := e.HasPublishCredential(dest)
+	acc := e.PublishCredentialAccount(dest)
+
+	e.buildRelease.mu.Lock()
+	if e.buildRelease.uploadReview.run != nil {
+		e.buildRelease.mu.Unlock()
+		return ErrReleaseUploadRunning
+	}
+	found := false
+	for i := range e.buildRelease.uploadReview.items {
+		if e.buildRelease.uploadReview.items[i].Platform == platform {
+			e.buildRelease.uploadReview.items[i].Destination = dest
+			e.buildRelease.uploadReview.items[i].DestinationLabel = dest.DisplayName()
+			e.buildRelease.uploadReview.items[i].HasCredential = hasCred
+			e.buildRelease.uploadReview.items[i].CredentialAccount = acc
+			found = true
+			break
+		}
+	}
+	if !found {
+		e.buildRelease.mu.Unlock()
+		return fmt.Errorf("editor: upload item for platform %q not found", platform)
+	}
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+	e.notify()
+	return nil
+}
+
+// StartReleaseUpload unconditionally refuses to upload directly without confirmation in Review uploads.
+// Callers must open Review uploads (ReviewReleaseUploads) and have the person confirm via ConfirmReleaseUploads.
+func (e *Editor) StartReleaseUpload() error {
+	return ErrUploadRequiresConfirmation
+}
+
+// ReleaseUploadRunning reports whether a user-confirmed store upload batch is currently running.
+func (e *Editor) ReleaseUploadRunning() bool {
+	if e == nil {
+		return false
+	}
+	e.buildRelease.mu.Lock()
+	defer e.buildRelease.mu.Unlock()
+	return e.buildRelease.uploadReview.run != nil
+}
+
+// CancelReleaseUpload cancels any in-flight store upload batch.
+func (e *Editor) CancelReleaseUpload() {
+	if e == nil {
+		return
+	}
+	e.buildRelease.mu.Lock()
+	run := e.buildRelease.uploadReview.run
+	e.buildRelease.mu.Unlock()
+	if run != nil {
+		run.cancel()
+	}
+}
+
+// WaitReleaseUpload blocks until any in-flight store upload batch finishes and returns its first error, if any.
+func (e *Editor) WaitReleaseUpload() error {
+	if e == nil {
+		return nil
+	}
+	e.buildRelease.mu.Lock()
+	run := e.buildRelease.uploadReview.run
+	e.buildRelease.mu.Unlock()
+	if run != nil {
+		<-run.done
+	}
+	if e.flushBuildReleaseStatus() {
+		e.notify()
+	}
+	e.buildRelease.mu.Lock()
+	err := e.buildRelease.uploadReview.lastErr
+	e.buildRelease.mu.Unlock()
+	return err
+}
+
+// buildReviewUploadItems constructs the list of artifacts ready for Review uploads from the current presets.
+func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
+	dir := ""
+	if e.ProjectPath != "" {
+		dir = filepath.Dir(e.ProjectPath)
+	}
+	ver := "0.1.0"
+	slug := "game"
+	outDir := filepath.Join(dir, releaseplan.DefaultOutput)
+	if e.Project != nil {
+		if strings.TrimSpace(e.Project.AppVersion) != "" {
+			ver = strings.TrimSpace(e.Project.AppVersion)
+		}
+		if strings.TrimSpace(e.Project.Name) != "" {
+			slug = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(e.Project.Name), " ", "-"))
+		}
+		if e.Project.Export != nil && e.Project.Export.Output != "" && dir != "" {
+			outDir = filepath.Join(dir, filepath.FromSlash(e.Project.Export.Output))
+		}
+	}
+
+	e.buildRelease.mu.Lock()
+	presets := make([]BuildPresetEntry, len(e.buildRelease.presets))
+	for i, p := range e.buildRelease.presets {
+		presets[i] = cloneBuildPresetEntry(p)
+	}
+	cachedAccounts := make(map[PublishDestination]string, len(e.buildRelease.keychainAccounts))
+	for k, v := range e.buildRelease.keychainAccounts {
+		cachedAccounts[k] = v
+	}
+	e.buildRelease.mu.Unlock()
+
+	type credLookup struct {
+		hasCred bool
+		account string
+	}
+	credCache := make(map[PublishDestination]credLookup, 3)
+	lookupCred := func(dest PublishDestination) credLookup {
+		if c, ok := credCache[dest]; ok {
+			return c
+		}
+		has := e.HasPublishCredential(dest)
+		acc := cachedAccounts[dest]
+		if acc == "" && has {
+			acc = "stored in system keychain"
+		}
+		c := credLookup{hasCred: has, account: acc}
+		credCache[dest] = c
+		return c
+	}
+
+	var items []ReleaseUploadItem
+	for _, p := range presets {
+		// Include presets that have finished building (Result != nil) or are checked & ready.
+		if p.Result == nil && (!p.Included || p.Status == BuildPresetSetup || p.Status == BuildPresetFailed) {
+			continue
+		}
+		dest, track := DefaultPublishDestinationForPlatform(p.Platform)
+		artifactName := defaultArtifactName(slug, ver, p.Platform)
+		artifactPath := filepath.Join(outDir, artifactName)
+		var sizeBytes int64
+		if p.Result != nil {
+			if p.Result.ArtifactName != "" {
+				artifactName = p.Result.ArtifactName
+			}
+			if p.Result.ArtifactPath != "" {
+				artifactPath = p.Result.ArtifactPath
+			}
+			sizeBytes = p.Result.SizeBytes
+		} else if st, err := os.Stat(artifactPath); err == nil && !st.IsDir() {
+			sizeBytes = st.Size()
+		}
+		relPath := artifactName
+		if dir != "" && artifactPath != "" {
+			if rel, err := filepath.Rel(dir, artifactPath); err == nil && !strings.HasPrefix(rel, "..") {
+				relPath = filepath.ToSlash(rel)
+			}
+		}
+		cred := lookupCred(dest)
+		items = append(items, ReleaseUploadItem{
+			Platform:          p.Platform,
+			PlatformName:      p.Name,
+			Destination:       dest,
+			DestinationLabel:  dest.DisplayName(),
+			Track:             track,
+			Version:           ver,
+			ArtifactName:      artifactName,
+			ArtifactPath:      artifactPath,
+			ArtifactRelPath:   relPath,
+			SizeBytes:         sizeBytes,
+			Included:          p.Status == BuildPresetDone || p.Result != nil,
+			HasCredential:     cred.hasCred,
+			CredentialAccount: cred.account,
+			Status:            UploadStatusPending,
+		})
+	}
+	// If no preset was built yet, include all checked items by default so the author can inspect them.
+	anyIncluded := false
+	for _, it := range items {
+		if it.Included {
+			anyIncluded = true
+			break
+		}
+	}
+	if !anyIncluded {
+		for i := range items {
+			items[i].Included = true
+		}
+	}
+	return items
+}
+
+type confirmedUploadJob struct {
+	item      ReleaseUploadItem
+	kcAccount string
+}
+
+// ConfirmReleaseUploads starts uploading the selected artifacts from the open Review uploads dialog.
+// Strict trust boundary:
+//   - Always refuses when called by an agent actor (AgentActorActive() == true), whatever the permission profile.
+//   - Always refuses while playing or while Start Screen / Merge Conflict screens are active.
+//   - Always refuses unless Review uploads is currently open and sessionID matches the active review session.
+//   - Validates every selected artifact path stays within the open project directory.
+//   - Consumes sessionID immediately so confirmation can never be replayed.
+func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
+	if e == nil || e.Project == nil {
+		return ErrNoProject
+	}
+	if e.AgentActorActive() {
+		return ErrUploadRequiresPersonConfirmation
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.StartScreenOpen() || e.MergeConflictOpen() {
+		return ErrUploadRequiresConfirmation
+	}
+
+	baseDir := ""
+	if e.ProjectPath != "" {
+		baseDir = filepath.Dir(e.ProjectPath)
+	}
+
+	e.buildRelease.mu.Lock()
+	rev := &e.buildRelease.uploadReview
+	if rev.run != nil {
+		e.buildRelease.mu.Unlock()
+		return ErrReleaseUploadRunning
+	}
+	if !rev.open || sessionID == 0 || rev.sessionID != sessionID {
+		e.buildRelease.mu.Unlock()
+		return ErrUploadRequiresConfirmation
+	}
+
+	var selected []ReleaseUploadItem
+	for i := range rev.items {
+		if rev.items[i].Included {
+			selected = append(selected, rev.items[i])
+		}
+	}
+	if len(selected) == 0 {
+		e.buildRelease.mu.Unlock()
+		return ErrNoUploadsSelected
+	}
+
+	// Validate every selected artifact path stays within the project directory before consuming the session.
+	if baseDir != "" {
+		for i := range selected {
+			if strings.TrimSpace(selected[i].ArtifactPath) != "" {
+				resolved, err := resolveBuildReleasePath(baseDir, selected[i].ArtifactPath, false)
+				if err != nil {
+					e.buildRelease.mu.Unlock()
+					return err
+				}
+				selected[i].ArtifactPath = resolved
+			}
+		}
+	}
+
+	// Precompute keychain accounts on the UI goroutine so the background upload worker never reads e.Project.
+	jobs := make([]confirmedUploadJob, len(selected))
+	for i, it := range selected {
+		jobs[i] = confirmedUploadJob{
+			item:      it,
+			kcAccount: e.publishKeychainAccount(it.Destination),
+		}
+	}
+
+	for i := range rev.items {
+		if rev.items[i].Included {
+			rev.items[i].Status = UploadStatusPending
+			rev.items[i].Progress = 0
+			rev.items[i].Err = ""
+			rev.items[i].StatusMessage = "Queued"
+		}
+	}
+
+	// Consume the confirmation session immediately so it cannot be replayed.
+	rev.sessionID = 0
+	rev.completed = false
+	rev.lastErr = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	run := &releaseUploadRun{
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
+	rev.run = run
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+
+	notesAbs, _ := e.ReleaseNotesAbsPath()
+	uploader := e.ReleaseUploader
+	if uploader == nil {
+		uploader = defaultReleaseUploader{}
+	}
+	kc := e.activeKeychain()
+	scope := e.scope
+
+	e.Status = fmt.Sprintf("Uploading %d release artifact(s)…", len(jobs))
+	e.notify()
+
+	go e.executeConfirmedReleaseUploads(ctx, scope, run, jobs, notesAbs, kc, uploader)
+	return nil
+}
+
+func (e *Editor) executeConfirmedReleaseUploads(
+	ctx context.Context,
+	scope *core.Scope,
+	run *releaseUploadRun,
+	jobs []confirmedUploadJob,
+	notesAbs string,
+	kc Keychain,
+	uploader ReleaseUploader,
+) {
+	defer run.finish()
+	defer run.cancel()
+
+	notifyUI := func() {
+		if scope == nil {
+			return
+		}
+		scope.Post(func() {
+			e.flushBuildReleaseStatus()
+			e.notify()
+		})
+	}
+
+	var firstErr error
+	uploadedCount := 0
+
+	for _, job := range jobs {
+		item := job.item
+		if ctx.Err() != nil {
+			e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+				it.Status = UploadStatusCancelled
+				it.StatusMessage = "Cancelled"
+			})
+			notifyUI()
+			continue
+		}
+
+		e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+			it.Status = UploadStatusUploading
+			it.Progress = 0.05
+			it.StatusMessage = "Loading credential from keychain…"
+			it.Err = ""
+		})
+		notifyUI()
+
+		secret, kerr := kc.Get(KeychainServiceName, job.kcAccount)
+		if kerr != nil {
+			errMsg := fmt.Sprintf("missing %s credential in system keychain", item.DestinationLabel)
+			if !errors.Is(kerr, ErrCredentialNotFound) {
+				errMsg = kerr.Error()
+			}
+			if firstErr == nil {
+				firstErr = errors.New(errMsg)
+			}
+			e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+				it.Status = UploadStatusFailed
+				it.HasCredential = false
+				it.Err = errMsg
+				it.StatusMessage = "Failed"
+			})
+			notifyUI()
+			continue
+		}
+
+		req := ReleaseUploadRequest{
+			Platform:         item.Platform,
+			Destination:      item.Destination,
+			DestinationLabel: item.DestinationLabel,
+			Track:            item.Track,
+			Version:          item.Version,
+			ArtifactPath:     item.ArtifactPath,
+			ArtifactName:     item.ArtifactName,
+			SizeBytes:        item.SizeBytes,
+			ReleaseNotesPath: notesAbs,
+			Credential: KeychainCredential{
+				Destination: item.Destination,
+				Account:     item.CredentialAccount,
+				Secret:      secret,
+			},
+		}
+
+		res, uerr := uploader.Upload(ctx, req, func(p ReleaseUploadProgress) {
+			frac := clampUploadFraction(p.Fraction)
+			e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+				it.Progress = frac
+				if p.Message != "" {
+					it.StatusMessage = p.Message
+				}
+			})
+			notifyUI()
+		})
+
+		if uerr != nil {
+			if ctx.Err() != nil {
+				e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+					it.Status = UploadStatusCancelled
+					it.StatusMessage = "Cancelled"
+				})
+			} else {
+				if firstErr == nil {
+					firstErr = uerr
+				}
+				e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+					it.Status = UploadStatusFailed
+					it.Err = uerr.Error()
+					it.StatusMessage = "Failed"
+				})
+			}
+			notifyUI()
+			continue
+		}
+
+		uploadedCount++
+		msg := res.Message
+		if msg == "" {
+			msg = "Uploaded"
+		}
+		e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+			it.Status = UploadStatusDone
+			it.Progress = 1
+			it.StatusMessage = msg
+			it.ResultURL = res.URL
+			it.Err = ""
+		})
+		notifyUI()
+	}
+
+	e.buildRelease.mu.Lock()
+	if e.buildRelease.uploadReview.run == run {
+		e.buildRelease.uploadReview.run = nil
+		e.buildRelease.uploadReview.completed = true
+		e.buildRelease.uploadReview.lastErr = firstErr
+		switch {
+		case ctx.Err() != nil:
+			e.buildRelease.pendingStatus = "Store upload cancelled"
+		case firstErr != nil:
+			e.buildRelease.pendingStatus = fmt.Sprintf("Uploaded %d of %d artifacts (with errors)", uploadedCount, len(jobs))
+		default:
+			e.buildRelease.pendingStatus = fmt.Sprintf("Uploaded %d release artifact(s)", uploadedCount)
+		}
+		e.buildRelease.hasPendingStatus = true
+		e.buildRelease.rev++
+	}
+	e.buildRelease.mu.Unlock()
+	notifyUI()
+}
+
+func clampUploadFraction(frac float64) float64 {
+	if math.IsNaN(frac) {
+		return 0
+	}
+	if math.IsInf(frac, 1) {
+		return 1
+	}
+	if math.IsInf(frac, -1) || frac < 0 {
+		return 0
+	}
+	if frac > 1 {
+		return 1
+	}
+	return frac
+}
+
+func (e *Editor) updateUploadItemLocked(run *releaseUploadRun, platform string, fn func(*ReleaseUploadItem)) {
+	e.buildRelease.mu.Lock()
+	defer e.buildRelease.mu.Unlock()
+	if e.buildRelease.uploadReview.run != run {
+		return
+	}
+	for i := range e.buildRelease.uploadReview.items {
+		if e.buildRelease.uploadReview.items[i].Platform == platform {
+			fn(&e.buildRelease.uploadReview.items[i])
+			e.buildRelease.rev++
+			return
+		}
+	}
+}
+
+type defaultReleaseUploader struct{}
+
+func (defaultReleaseUploader) Upload(ctx context.Context, req ReleaseUploadRequest, _ func(ReleaseUploadProgress)) (ReleaseUploadResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ReleaseUploadResult{}, err
+	}
+	if strings.TrimSpace(req.ArtifactPath) == "" {
+		return ReleaseUploadResult{}, fmt.Errorf("editor: no artifact path built for %s", req.Platform)
+	}
+	if _, err := os.Stat(req.ArtifactPath); err != nil {
+		return ReleaseUploadResult{}, fmt.Errorf("editor: build %s before uploading (%s not found)", req.Platform, req.ArtifactName)
+	}
+	return ReleaseUploadResult{}, fmt.Errorf("editor: no store uploader runner configured for %s (configure Editor.ReleaseUploader or use nsgo publish)", req.DestinationLabel)
+}

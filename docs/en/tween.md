@@ -3,7 +3,7 @@
 `game/tween` animates numbers, points, colors, custom types, timelines, and `tilemap.Camera` moves deterministically on `game.Loop`'s fixed steps using NSGo's `core.Curve` easing functions.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tween"
+import "github.com/nsgo-dev/game/pkg/tween"
 ```
 
 ## Creating and stepping a Tween

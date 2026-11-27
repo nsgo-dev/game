@@ -3,7 +3,7 @@
 `game/idle` holds what idle and incremental games need: a `Number` that reaches far past float64's 1.8e308, progress earned while the game was closed, and formatting of very large numbers as 1.23K, 1.23e45 or 1.23万.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/idle"
+import "github.com/nsgo-dev/game/pkg/idle"
 ```
 
 ## Numbers past float64

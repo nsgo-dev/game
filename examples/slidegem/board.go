@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/pkg/random"
 )
 
 const (

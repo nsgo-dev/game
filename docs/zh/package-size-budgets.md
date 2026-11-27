@@ -14,7 +14,7 @@
 
 ## 默认移动端预算
 
-`packages/game/cmd/sizecheck` 内置了面向典型 2D NSGo 游戏的默认预算，也可通过 `-budget`、`-budget-mb` 或 `-abi-budget-mb` 覆盖：
+`cmd/sizecheck` 内置了面向典型 2D NSGo 游戏的默认预算，也可通过 `-budget`、`-budget-mb` 或 `-abi-budget-mb` 覆盖：
 
 | 目标格式 | 默认函数 | 总归档上限 | 单 ABI 原生库上限 | 默认分类上限（压缩后） |
 | --- | --- | ---: | ---: | --- |
@@ -55,7 +55,7 @@
 
 ## CLI 用法
 
-在 `packages/game` 目录运行 `sizecheck`：
+在仓库根目录运行 `sizecheck`：
 
 ```sh
 # 使用内置默认预算检查 Android App Bundle

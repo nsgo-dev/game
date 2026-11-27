@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
 func readGameFile(t testing.TB, name string) []byte {

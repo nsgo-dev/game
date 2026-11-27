@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/bullets"
+	"github.com/nsgo-dev/game/pkg/bullets"
 )
 
 // newTestWorld starts a run of the stage the game ships, on the playfield game.yaml sets.

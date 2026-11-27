@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/bullets"
+	"github.com/nsgo-dev/game/pkg/bullets"
 )
 
 // step is the fixed step the tests run the world at, the game loop's.

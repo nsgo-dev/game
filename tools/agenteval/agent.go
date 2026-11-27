@@ -319,7 +319,7 @@ type agentEnv struct {
 	cmdTimeout    time.Duration
 }
 
-const agentSystemPrompt = `You are a coding agent solving a Go game-development task on NSGo (` + "`github.com/nsgo-dev/game/packages/game`" + `) inside an isolated workspace.
+const agentSystemPrompt = `You are a coding agent solving a Go game-development task on NSGo (` + "`github.com/nsgo-dev/game`" + `) inside an isolated workspace.
 
 Workflow:
 1. Read the staged Agent Skill (` + "`skills/nsgo-game/SKILL.md`" + ` and relevant files in ` + "`skills/nsgo-game/references/`" + `) and the required docs in scope="context".

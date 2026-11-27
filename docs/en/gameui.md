@@ -3,7 +3,7 @@
 `game/gameui` builds stylized in-canvas menus and HUD widgets drawn directly into `core.Drawing`, with box layout, virtual-resolution scaling, 2D spatial action focus navigation, and world-anchored native NSGo overlays.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/gameui"
+import "github.com/nsgo-dev/game/pkg/gameui"
 ```
 
 ## Layout containers, widgets, and `Root`

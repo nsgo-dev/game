@@ -3,7 +3,7 @@
 `game/cutscene` plays both pre-rendered video cutscenes and in-engine timeline cutscenes in a game, in a scene or between scenes. Video cutscenes play in NSGo's own video view (`core.Video`) over the game's view while pausing `Loop` and `Mixer`. Timeline cutscenes run deterministically on `game.Loop` fixed steps against a `sceneformat.BuiltScene` or `sceneformat.SceneDoc`, driving camera, actor, localized dialogue, sound effect and music tracks. Both kinds are skippable and call the game back when they end.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/cutscene"
+import "github.com/nsgo-dev/game/pkg/cutscene"
 ```
 
 ## Cutscene files

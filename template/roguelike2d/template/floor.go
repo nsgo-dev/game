@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/entities"
-	"github.com/nsgo-dev/game/packages/game/loot"
-	"github.com/nsgo-dev/game/packages/game/procgen"
-	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/loot"
+	"github.com/nsgo-dev/game/pkg/procgen"
+	"github.com/nsgo-dev/game/pkg/random"
 )
 
 // cell is a position on a floor: X is the column and Y the row, from 0 at the top left.

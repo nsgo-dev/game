@@ -1,9 +1,9 @@
 # ability
 
-`github.com/nsgo-dev/game/packages/game/ability` 运行玩法技能：消耗、冷却、充能、施法与引导时间以及条件，由 [input](input.md) 动作触发，并按 [`game.Loop`](loop.md) 的固定步长逐步推进。
+`github.com/nsgo-dev/game/pkg/ability` 运行玩法技能：消耗、冷却、充能、施法与引导时间以及条件，由 [input](input.md) 动作触发，并按 [`game.Loop`](loop.md) 的固定步长逐步推进。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/ability"
+import "github.com/nsgo-dev/game/pkg/ability"
 ```
 
 ## 技能集

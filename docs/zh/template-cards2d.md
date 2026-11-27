@@ -3,7 +3,7 @@
 `cards2d` 是 Suit Ladders，一个原创设计的单人纸牌游戏。每种花色有一座从 1 爬到 9 的梯子。玩家手里有五张牌，从抽牌堆抽牌，把正好是某座梯子下一级的牌放上它所属花色的梯子，其余的牌丢到弃牌堆；每局可以把弃牌堆翻过来当作新的抽牌堆两次。所有梯子都到 9 时获胜；抽牌堆空了、不能再翻牌，且手里没有能放上梯子的牌时失败。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template cards2d mycards
+go run github.com/nsgo-dev/game/cmd/game@latest new -template cards2d mycards
 cd mycards
 go tool nsgo dev
 ```
@@ -49,7 +49,7 @@ go tool nsgo dev
 - 牌组和难度在 `rules.yaml`。当测试所用的谨慎玩法在 200 局中赢下不到十分之一或超过十分之九时，`TestSomeDealsAreWon` 会失败；`table_test.go` 中的 `winDeal` 和 `loseDeal` 是完整对局测试赢下和输掉的牌局，改动规则后要重新挑选。
 - 牌桌布局在 `board.yaml`，使用显示区域的坐标。缺少规则所需槽位的牌桌会被 `newTable` 拒绝。
 - 走法在 `table.go`：`allows` 决定哪张牌可以去哪里，`canDraw` 决定何时可以摸牌或把弃牌堆翻成新的摸牌堆，`judge` 决定牌局何时胜负已分。
-- 操作在 `game.yaml` 的输入映射中，用 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` 校验。
+- 操作在 `game.yaml` 的输入映射中，用 `go run github.com/nsgo-dev/game/cmd/gameproject check` 校验。
 - 卡牌图案是 `render.go` 中的 `drawCard` 和 `drawSuit`。
 
 ## 局限

@@ -1,6 +1,6 @@
 # loot
 
-`github.com/nsgo-dev/game/packages/game/loot` 掷取可嵌套的加权掉落表，支持保底掉落与保底计数（pity）。每次掷取都从 [`random.Stream`](determinism.md) 取随机数，所以同一个种子和同样的掷取顺序在所有平台、回放和专用服务器上都得到相同的掉落。
+`github.com/nsgo-dev/game/pkg/loot` 掷取可嵌套的加权掉落表，支持保底掉落与保底计数（pity）。每次掷取都从 [`random.Stream`](determinism.md) 取随机数，所以同一个种子和同样的掷取顺序在所有平台、回放和专用服务器上都得到相同的掉落。
 
 ## 用 YAML 编写掉落表
 

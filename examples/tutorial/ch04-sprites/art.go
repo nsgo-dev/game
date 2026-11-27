@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

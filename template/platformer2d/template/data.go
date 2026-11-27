@@ -4,8 +4,8 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/platformer"
-	"github.com/nsgo-dev/game/packages/game/rooms"
+	"github.com/nsgo-dev/game/pkg/platformer"
+	"github.com/nsgo-dev/game/pkg/rooms"
 )
 
 // The game's data files, embedded so the game runs the same on every target without reading files at run time. Edit them and rebuild; the tests check that each one is valid and canonical.

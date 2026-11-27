@@ -21,13 +21,13 @@ cd game/examples/caverun
 go tool nsgo dev -target web
 ```
 
-It opens the game in your browser, Chrome and Safari alike, and rebuilds and reloads it each time you save a file of the example or of `packages/game`, which the examples use through the checkout's `go.work`. A failed build shows its errors over the game until the next save builds. Without `-target web` the example runs as a native app, which reloads in the same way.
+It opens the game in your browser, Chrome and Safari alike, and rebuilds and reloads it each time you save a file of the example or of the root module (`pkg/`), which the examples use through the checkout's `go.work`. A failed build shows its errors over the game until the next save builds. Without `-target web` the example runs as a native app, which reloads in the same way.
 
 ## How the builds are made
 
 `bun run playground`, from the repository's root, builds each example with `go tool nsgo build -target web` into the example's `dist/playground/`, then copies the site it writes into `apps/website/public/play/<id>/`, which Git ignores. The website serves that directory at `/play/<id>/` and each example's page shows it in a frame. `bun run playground caverun` builds one example.
 
-The website's workflow sets up Go and runs it before building the site, on every push to `main` and every pull request that touches the site, the examples or `packages/game`. In CI a missing build fails the site's build, so a deploy never publishes a page with no game; a local `bun run build` without the builds warns, and the example's page shows the command that makes its build.
+The website's workflow sets up Go and runs it before building the site, on every push to `main` and every pull request that touches the site, the examples, `pkg/`, `cmd/`, or root `.go` files. In CI a missing build fails the site's build, so a deploy never publishes a page with no game; a local `bun run build` without the builds warns, and the example's page shows the command that makes its build.
 
 ## Add an example
 

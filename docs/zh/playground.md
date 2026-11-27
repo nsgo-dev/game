@@ -21,13 +21,13 @@ cd game/examples/caverun
 go tool nsgo dev -target web
 ```
 
-它会在浏览器（Chrome 和 Safari 均可）中打开游戏，每次保存示例或 `packages/game` 中的文件时都会重新构建并重新加载；示例通过仓库中的 `go.work` 使用 `packages/game`。构建失败时，错误会显示在游戏上方，直到下次保存构建成功。去掉 `-target web`，示例会作为原生应用运行，同样会重新加载。
+它会在浏览器（Chrome 和 Safari 均可）中打开游戏，每次保存示例或根模块（`pkg/`）中的文件时都会重新构建并重新加载；示例通过仓库中的 `go.work` 使用本仓库模块。构建失败时，错误会显示在游戏上方，直到下次保存构建成功。去掉 `-target web`，示例会作为原生应用运行，同样会重新加载。
 
 ## 构建是怎样生成的
 
 在仓库根目录运行 `bun run playground`，它会用 `go tool nsgo build -target web` 把每个示例构建到示例自己的 `dist/playground/` 中，再把生成的站点复制到 `apps/website/public/play/<id>/`（该目录被 Git 忽略）。网站在 `/play/<id>/` 提供这个目录，每个示例的页面在框架中显示它。`bun run playground caverun` 只构建一个示例。
 
-网站的工作流会先安装 Go 并运行它，再构建站点；推送到 `main`，以及修改站点、示例或 `packages/game` 的拉取请求都会触发。在 CI 中缺少构建会让站点构建失败，因此部署不会发布没有游戏的页面；在本地没有构建时运行 `bun run build` 只会给出警告，示例页面会显示生成其构建的命令。
+网站的工作流会先安装 Go 并运行它，再构建站点；推送到 `main`，以及修改站点、示例或引擎包的拉取请求都会触发。在 CI 中缺少构建会让站点构建失败，因此部署不会发布没有游戏的页面；在本地没有构建时运行 `bun run build` 只会给出警告，示例页面会显示生成其构建的命令。
 
 ## 添加示例
 

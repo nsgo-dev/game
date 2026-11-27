@@ -1,9 +1,9 @@
 # tileshape
 
-`github.com/nsgo-dev/game/packages/game/tileshape` derives collision and lighting geometry from a [`tilemap.Tilemap`](tilemap.md): a `View` that [physics](physics.md) and the [platformer](platformer.md) controller take as their `TileGrid`, slopes from slanted and partial tiles, the merged outline of solid cells and tile shapes, static boxes, and [lights2d](lights2d.md) occluders. It plays the part of the physics and occlusion polygons of Godot's TileSet.
+`github.com/nsgo-dev/game/pkg/tileshape` derives collision and lighting geometry from a [`tilemap.Tilemap`](tilemap.md): a `View` that [physics](physics.md) and the [platformer](platformer.md) controller take as their `TileGrid`, slopes from slanted and partial tiles, the merged outline of solid cells and tile shapes, static boxes, and [lights2d](lights2d.md) occluders. It plays the part of the physics and occlusion polygons of Godot's TileSet.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tileshape"
+import "github.com/nsgo-dev/game/pkg/tileshape"
 ```
 
 ## Tile shapes

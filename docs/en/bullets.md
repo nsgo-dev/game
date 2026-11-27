@@ -3,7 +3,7 @@
 `game/bullets` spawns, moves and draws the bullet patterns of shooters: rings, spirals and aimed bursts defined in YAML, taken from a `perf.Pool` and drawn through one `sprite.Batch`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/bullets"
+import "github.com/nsgo-dev/game/pkg/bullets"
 ```
 
 ## Pattern files

@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/physics3d"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
 // Collision layers: walls and crates, enemies and the player. Hitscan shots and rounds test walls and enemies, enemy sight tests walls alone, and enemy bolts test walls and the player.

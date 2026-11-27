@@ -25,7 +25,7 @@ claude mcp add nsgo -- go tool nsgo mcp
 ## What the skill covers
 
 - **[`SKILL.md`](../../skills/nsgo-game/SKILL.md)**: project rules (Go only, plain-text versioned YAML formats, `go tool nsgo check`/`test`, stability tiers), quick-start CLI workflow, minimal `game.Loop` + `mcp.Attach` wiring, and the deterministic MCP verification loop.
-- **[`references/packages.md`](../../skills/nsgo-game/references/packages.md)**: complete grouped catalog of every package in `github.com/nsgo-dev/game/packages/game`, with import paths and stability status matching [API Stability](stability.md).
+- **[`references/packages.md`](../../skills/nsgo-game/references/packages.md)**: complete grouped catalog of every package in `github.com/nsgo-dev/game`, with import paths and stability status matching [API Stability](stability.md).
 - **[`references/cli-and-formats.md`](../../skills/nsgo-game/references/cli-and-formats.md)**: all `nsgo game` subcommands ([Command Reference](cli-reference.md)), companion module tools, the YAML format contract ([File Formats](formats.md)), JSON Schemas ([Schemas](schemas.md)) and native external formats (Tiled, LDtk, Aseprite, TexturePacker, BMFont, glTF, Yarn).
 - **[`references/mcp-tools.md`](../../skills/nsgo-game/references/mcp-tools.md)**: `mcp.Bridge` setup ([mcp](mcp.md)) and the full tool catalog covering scene/entity inspection, fixed-step loop control, game-coordinate input, live spawning and component editing, screenshots with diagnostic overlays, debug console tunables, input recording/replay, performance telemetry and live asset hot reload.
 

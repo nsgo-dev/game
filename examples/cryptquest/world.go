@@ -6,11 +6,11 @@ import (
 	"image/color"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/navbake"
-	"github.com/nsgo-dev/game/packages/game/physics"
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/navbake"
+	"github.com/nsgo-dev/game/pkg/physics"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

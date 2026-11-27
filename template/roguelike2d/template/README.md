@@ -1,6 +1,6 @@
 # Roguelike Game
 
-A turn-based 2D roguelike built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): a delver descends the five floors of the Glimmerdeep, each generated from the run's seed, fights what lives there, gathers gear, draughts, tonics and shards, and lifts the Heart Ember from the last floor, where the Vault Warden stands on it. Death is permanent: the run's save is deleted the moment it ends, and a summary and the records of every run are kept.
+A turn-based 2D roguelike built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): a delver descends the five floors of the Glimmerdeep, each generated from the run's seed, fights what lives there, gathers gear, draughts, tonics and shards, and lifts the Heart Ember from the last floor, where the Vault Warden stands on it. Death is permanent: the run's save is deleted the moment it ends, and a summary and the records of every run are kept.
 
 It demonstrates:
 
@@ -15,8 +15,8 @@ It demonstrates:
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Controls

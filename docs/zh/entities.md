@@ -3,7 +3,7 @@
 面向 NSGo 游戏的小型、零反射实体组件系统（ECS）：代际实体句柄、强类型稀疏集合组件、零分配查询、拓扑排序系统调度、预制体，以及与 `game/save` 集成的 JSON 世界快照。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/entities"
+import "github.com/nsgo-dev/game/pkg/entities"
 ```
 
 `nsgo game generate component <name>`、`system <name>` 和 `prefab <name>` 向游戏写入新的组件、系统或预制体，连同其注册和测试；见[命令行](cli.md#generate)。

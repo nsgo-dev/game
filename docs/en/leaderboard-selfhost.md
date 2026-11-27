@@ -1,7 +1,7 @@
 # leaderboard/selfhost
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/leaderboard/selfhost"
+import "github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
 ```
 
 `leaderboard/selfhost` is a self-hostable leaderboard service for games that run on several platforms or on platforms without a game service (the web, Windows, Linux). Where [`leaderboard`](leaderboard.md) shows Game Center's and Play Games' own boards, this service keeps one board for every platform, keyed by the account the [account service](accounts.md) signs players in to, so a score from a browser and a score from a phone land on the same board.

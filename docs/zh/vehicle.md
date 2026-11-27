@@ -1,7 +1,7 @@
 # vehicle
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/vehicle"
+import "github.com/nsgo-dev/game/pkg/vehicle"
 ```
 
 基于 [`physics3d`](physics3d.md) 世界的射线车辆：车轮碰撞、弹簧阻尼悬挂、纵向与横向轮胎摩擦和车辆控制器，以及竞速用的检查点、圈速与幽灵回放。

@@ -5,7 +5,7 @@
 NSGo's built-in `nsgo mcp` server sees native views only; a game draws into one `Canvas` or GPU view. Attaching an `mcp.Bridge` to a `core.Scope` registers game-specific tools on the engine's reactive graph so `nsgo mcp` serves them alongside the built-in tools whenever the app runs under `go tool nsgo dev -automation` or `go tool nsgo test`. In ordinary and release builds, `automation.Register` is a no-op and adds no runtime protocol.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/mcp"
+import "github.com/nsgo-dev/game/pkg/mcp"
 ```
 
 ## Attaching a bridge
@@ -265,7 +265,7 @@ app.Settle()
 The tools above reach a running game. The NSGo Game Editor has an MCP server of its own, package `game/editor/editormcp`, through which an agent reads and edits the project open in the editor: every edit goes through the same `Editor` methods the inspector, scene tree and viewport use, so it shows at once in the tree and the viewport, and the person takes it back with one Undo.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/editor/editormcp"
+import "github.com/nsgo-dev/game/pkg/editor/editormcp"
 ```
 
 ### Connecting an agent
@@ -423,7 +423,7 @@ NSGo's `automation` registers app tools only in `nsgo dev -automation` and test 
 
 ## Editor MCP You-only rule and proposed deletions (#1015)
 
-In `packages/game/editor/editormcp`, the editor's MCP server enforces two non-bypassable trust boundaries regardless of the active permission profile (`Cautious`, `Balanced`, or `Autonomous`):
+In `pkg/editor/editormcp`, the editor's MCP server enforces two non-bypassable trust boundaries regardless of the active permission profile (`Cautious`, `Balanced`, or `Autonomous`):
 
 - **You-only refusal (`*editormcp.YouOnlyError`)**: Every non-read tool call (built-in or registered via `Server.AddTool`) is checked before its handler runs across explicit argument paths, derived targets (including bare-stem `refactor_rename` and `release_notes_draft`), and open document paths, and refused if any target resolves to `permissions.yaml`, `.nsgo/permissions.yaml`, `tools.yaml`, `mcp.yaml`, `models.yaml`, `usage.yaml`, or `Editor.SettingsPath`.
 - **`permissions_draft`**: Submits a You-only draft card (`Editor.SubmitPermissionsDraft`) with zero rules ticked by default. It never modifies `permissions.yaml` directly; only explicit person ticks + **Apply** can persist changes.

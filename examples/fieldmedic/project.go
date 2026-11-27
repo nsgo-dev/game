@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/pkg/project"
 )
 
 // gameYAML is Field Medic's project file: its window, its main scene and the editor plugins its scenes are edited with.

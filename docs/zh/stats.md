@@ -3,7 +3,7 @@
 `game/stats` 保存实体的玩法属性：带名字的基础值，由来自装备、增益等来源的加法、乘法和覆盖修饰符改变。任何改动都会立即重新计算数值；定时修饰符按固定步数计时，持续 300 步的增益恰好在第 300 步结束。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/stats"
+import "github.com/nsgo-dev/game/pkg/stats"
 ```
 
 ## 属性表

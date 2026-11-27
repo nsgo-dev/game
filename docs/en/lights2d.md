@@ -3,7 +3,7 @@
 `game/lights2d` adds 2D lighting to NSGo canvases: an ambient darkness layer, point and directional cone lights, exact 2D visibility-polygon shadows from occluders, and CPU tangent-space normal-mapped sprite shading.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/lights2d"
+import "github.com/nsgo-dev/game/pkg/lights2d"
 ```
 
 ## Ambient layer, point lights, and spotlights

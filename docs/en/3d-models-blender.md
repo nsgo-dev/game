@@ -292,11 +292,11 @@ Suffix matching is case-insensitive and strips Blender's trailing duplicate numb
 
 ## Round-trip sample models
 
-The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/), generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.
+The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`pkg/placeholder/pack/models/`](../../pkg/placeholder/pack/models/), generated and round-trip verified in Go by [`internal/samplegltf/`](../../internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.
 
 ### 1. Static binary crate (`crate.glb`)
 
-File: [`models/crate.glb`](../../packages/game/placeholder/pack/models/crate.glb) (1,920 bytes, GLB 2.0)
+File: [`models/crate.glb`](../../pkg/placeholder/pack/models/crate.glb) (1,920 bytes, GLB 2.0)
 
 - **Geometry**: `1 m × 1 m × 1 m` cube with pivot at bottom center (`X ∈ [-0.5, 0.5]`, `Y ∈ [0, 1]`, `Z ∈ [-0.5, 0.5]`), right-handed `+Y` up, `-Z` forward.
 - **Mesh data**: 24 vertices (4 per face for crisp hard normals), 12 triangles (36 `UNSIGNED_SHORT` indices), strict CCW outward winding, `POSITION` (with exact `min`/`max`), unit `NORMAL`, and per-face `TEXCOORD_0`.
@@ -305,7 +305,7 @@ File: [`models/crate.glb`](../../packages/game/placeholder/pack/models/crate.glb
 
 ### 2. Skinned & animated 2-bone arm (`robot_arm.gltf`)
 
-File: [`models/robot_arm.gltf`](../../packages/game/placeholder/pack/models/robot_arm.gltf) (embedded base64 buffer, human-readable JSON)
+File: [`models/robot_arm.gltf`](../../pkg/placeholder/pack/models/robot_arm.gltf) (embedded base64 buffer, human-readable JSON)
 
 - **Hierarchy**:
   ```text
@@ -320,7 +320,7 @@ File: [`models/robot_arm.gltf`](../../packages/game/placeholder/pack/models/robo
 
 ### 3. Flat-shaded gem (`gem.glb`)
 
-File: [`models/gem.glb`](../../packages/game/placeholder/pack/models/gem.glb) (1,924 bytes, GLB 2.0)
+File: [`models/gem.glb`](../../pkg/placeholder/pack/models/gem.glb) (1,924 bytes, GLB 2.0)
 
 - **Geometry**: a hexagonal bipyramid `0.8 m` across and `1 m` tall with its pivot at its bottom point (`Y ∈ [0, 1]`), its girdle at `y = 0.6`, right-handed `+Y` up.
 - **Mesh data**: 36 vertices and 12 triangles, three vertices per face so each face has its own unit `NORMAL`, with CCW outward winding.
@@ -329,7 +329,7 @@ File: [`models/gem.glb`](../../packages/game/placeholder/pack/models/gem.glb) (1
 
 ### Running the round-trip verifier
 
-The Go test suite in [`packages/game/internal/samplegltf/samplegltf_test.go`](../../packages/game/internal/samplegltf/samplegltf_test.go) unpacks the committed models and verifies:
+The Go test suite in [`internal/samplegltf/samplegltf_test.go`](../../internal/samplegltf/samplegltf_test.go) unpacks the committed models and verifies:
 
 - GLB magic, version `2`, 4-byte alignment, JSON/BIN chunk bounds, and zero-byte BIN padding
 - Embedded data URI base64 decoding and exact buffer byte lengths
@@ -339,7 +339,7 @@ The Go test suite in [`packages/game/internal/samplegltf/samplegltf_test.go`](..
 - Strictly increasing animation timestamps, unit rotation quaternions, and in-range `extras.events`
 - Byte-for-byte reproducibility against the deterministic Go generator
 
-Run the tests from `packages/game/`:
+Run the tests from the repository root:
 
 ```sh
 go tool nsgo test ./internal/samplegltf

@@ -3,7 +3,7 @@
 `game/input` turns touch regions, mouse buttons, relative mouse motion under a pointer lock, keyboard keys and game controllers into named actions and axes, sampled once per `game.Loop` step and persisted across launches in `core.Storage`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/input"
+import "github.com/nsgo-dev/game/pkg/input"
 ```
 
 All `Actions` methods run on the engine's goroutine, alongside `core.View` callbacks and `game.Loop.Update`.

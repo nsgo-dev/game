@@ -6,8 +6,8 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

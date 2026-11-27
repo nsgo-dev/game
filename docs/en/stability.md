@@ -57,32 +57,11 @@ The releases themselves, their tags, changelog sections and the NSGo version eac
 
 ## Packages
 
-Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked by a test in the module, so every package has exactly one row.
+Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in the module, so every package has exactly one row.
 
 | Package | Status | Guide |
 | --- | --- | --- |
 | `game` | Stable | [Loop](loop.md) |
-| `game/a11y` | Experimental | [a11y](a11y.md) |
-| `game/ability` | Experimental | [ability](ability.md) |
-| `game/accounts` | Experimental | [accounts](accounts.md) |
-| `game/accounts/cmd/accountsd` | Experimental | [accounts](accounts.md) |
-| `game/accounts/pgstore` | Experimental | [accounts](accounts.md) |
-| `game/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
-| `game/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
-| `game/accounts/storetest` | Experimental | [accounts](accounts.md) |
-| `game/accounts/token` | Experimental | [accounts](accounts.md) |
-| `game/achievements` | Experimental | [achievements](achievements.md) |
-| `game/ai` | Stable | [ai](ai.md) |
-| `game/ai/perception3d` | Experimental | [ai](ai.md) |
-| `game/anim3d` | Experimental | [anim3d](anim3d.md) |
-| `game/animclip` | Experimental | [animclip](animclip.md) |
-| `game/assets` | Experimental | [assets](assets.md) |
-| `game/bullets` | Experimental | [bullets](bullets.md) |
-| `game/cards` | Experimental | [cards](cards.md) |
-| `game/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
-| `game/cloudsave/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
-| `game/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
-| `game/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
@@ -90,116 +69,137 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | Experimental | [Package Size Budgets](package-size-budgets.md) |
-| `game/cutscene` | Experimental | [cutscene](cutscene.md) |
-| `game/debug` | Experimental | [debug](debug.md) |
-| `game/editor` | Experimental | [editor](editor.md) |
-| `game/editor/editorcmd` | Experimental | [editor](editor.md) |
-| `game/editor/editormcp` | Experimental | [mcp](mcp.md) |
-| `game/effects` | Experimental | [effects](effects.md) |
-| `game/entities` | Experimental | [entities](entities.md) |
-| `game/fighting` | Experimental | [fighting](fighting.md) |
-| `game/flow` | Stable | [flow](flow.md) |
-| `game/fog` | Experimental | [fog](fog.md) |
-| `game/framedata` | Experimental | [framedata](framedata.md) |
-| `game/gametest` | Experimental | |
-| `game/gameui` | Experimental | [gameui](gameui.md) |
-| `game/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
-| `game/idle` | Experimental | [idle](idle.md) |
-| `game/input` | Stable | [input](input.md) |
-| `game/inventory` | Experimental | [inventory](inventory.md) |
-| `game/l10n` | Experimental | [l10n](l10n.md) |
-| `game/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
-| `game/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
-| `game/leaderboard/selfhost/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
-| `game/lights2d` | Experimental | [lights2d](lights2d.md) |
-| `game/liveops` | Experimental | [liveops](liveops.md) |
-| `game/loaderr` | Stable | [Errors](errors.md) |
-| `game/loot` | Experimental | [loot](loot.md) |
-| `game/math2d` | Stable | [math2d](math2d.md) |
-| `game/math3d` | Experimental | [math3d](math3d.md) |
-| `game/mcp` | Experimental | [mcp](mcp.md) |
-| `game/modding` | Experimental | [modding](modding.md) |
-| `game/navbake` | Experimental | [navbake](navbake.md) |
-| `game/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
-| `game/net` | Experimental | [net](net.md) |
-| `game/particles` | Experimental | [particles](particles.md) |
-| `game/perf` | Experimental | [perf](perf.md) |
-| `game/physics` | Stable | [physics](physics.md) |
-| `game/physics3d` | Experimental | [physics3d](physics3d.md) |
-| `game/pixelfx` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/arcane` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/critters` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/explosions` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/fire` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/holy` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/ice` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/impacts` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/lightning` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/melee` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/moves` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/nature` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/pickups` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/projectiles` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/scifi` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/shadow` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/spawn` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/status` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/transitions` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/ui` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/water` | Experimental | [pixelfx](pixelfx.md) |
-| `game/pixelfx/weather` | Experimental | [pixelfx](pixelfx.md) |
-| `game/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
-| `game/platformer` | Experimental | [platformer](platformer.md) |
-| `game/playtest` | Experimental | [playtest](playtest.md) |
-| `game/presence` | Experimental | [presence](presence.md) |
-| `game/procgen` | Experimental | [procgen](procgen.md) |
-| `game/project` | Experimental | [Project File](project.md) |
-| `game/quality` | Experimental | [quality](quality.md) |
-| `game/quest` | Experimental | [quest](quest.md) |
-| `game/random` | Stable | [Determinism](determinism.md) |
-| `game/refs` | Experimental | [Project File](project.md) |
-| `game/render3d` | Experimental | [render3d](render3d.md) |
-| `game/replay` | Experimental | [replay](replay.md) |
-| `game/resource` | Experimental | [resources](resources.md) |
-| `game/rhythm` | Experimental | [rhythm](rhythm.md) |
-| `game/rooms` | Experimental | [rooms](rooms.md) |
-| `game/rts` | Experimental | [rts](rts.md) |
-| `game/save` | Stable | [save](save.md) |
-| `game/scene` | Stable | [scene](scene.md) |
-| `game/scene3d` | Experimental | [scene3d](scene3d.md) |
-| `game/sceneformat` | Experimental | [editor](editor.md) |
-| `game/scenemodel` | Experimental | [scenemodel](scenemodel.md) |
-| `game/screen` | Stable | [screen](screen.md) |
-| `game/server` | Experimental | [server](server.md) |
-| `game/server/cmd/dedicatedserver` | Experimental | [server](server.md) |
-| `game/skeletal` | Experimental | [skeletal](skeletal.md) |
-| `game/sound` | Stable | [sound](sound.md) |
-| `game/sprite` | Stable | [sprite](sprite.md) |
-| `game/statedump` | Experimental | [statedump](statedump.md) |
-| `game/stats` | Experimental | [stats](stats.md) |
-| `game/text` | Experimental | [text](text.md) |
-| `game/tilemap` | Stable | [tilemap](tilemap.md) |
-| `game/tileshape` | Experimental | [tileshape](tileshape.md) |
-| `game/tooling/apiref` | Experimental | |
-| `game/tooling/assetbuild` | Experimental | [Command Line](cli.md) |
-| `game/tooling/assetcheck` | Experimental | [Command Line](cli.md) |
-| `game/tooling/audioconv` | Experimental | |
-| `game/tooling/bench` | Experimental | [Command Line](cli.md) |
-| `game/tooling/credits` | Experimental | [Command Line](cli.md) |
-| `game/tooling/datatable` | Experimental | |
-| `game/tooling/devstate` | Experimental | |
-| `game/tooling/hotreload` | Experimental | |
-| `game/tooling/importsettings` | Experimental | [Command Line](cli.md) |
-| `game/tooling/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
-| `game/tooling/ktx2` | Experimental | |
-| `game/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
-| `game/tooling/manifest` | Experimental | |
-| `game/tooling/pack` | Experimental | |
-| `game/tween` | Stable | [tween](tween.md) |
-| `game/undo` | Experimental | [undo](undo.md) |
-| `game/vehicle` | Experimental | [vehicle](vehicle.md) |
-| `game/vn` | Experimental | [vn](vn.md) |
-| `game/vn/cmd/vnsample` | Experimental | [vn](vn.md) |
-| `game/voxel` | Experimental | [voxel](voxel.md) |
-| `game/world3d` | Experimental | [world3d](world3d.md) |
-| `game/worldmap` | Experimental | [worldmap](worldmap.md) |
+| `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
+| `game/pkg/ability` | Experimental | [ability](ability.md) |
+| `game/pkg/accounts` | Experimental | [accounts](accounts.md) |
+| `game/pkg/accounts/cmd/accountsd` | Experimental | [accounts](accounts.md) |
+| `game/pkg/accounts/pgstore` | Experimental | [accounts](accounts.md) |
+| `game/pkg/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
+| `game/pkg/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
+| `game/pkg/accounts/storetest` | Experimental | [accounts](accounts.md) |
+| `game/pkg/accounts/token` | Experimental | [accounts](accounts.md) |
+| `game/pkg/achievements` | Experimental | [achievements](achievements.md) |
+| `game/pkg/ai` | Stable | [ai](ai.md) |
+| `game/pkg/ai/perception3d` | Experimental | [ai](ai.md) |
+| `game/pkg/anim3d` | Experimental | [anim3d](anim3d.md) |
+| `game/pkg/animclip` | Experimental | [animclip](animclip.md) |
+| `game/pkg/assets` | Experimental | [assets](assets.md) |
+| `game/pkg/bullets` | Experimental | [bullets](bullets.md) |
+| `game/pkg/cards` | Experimental | [cards](cards.md) |
+| `game/pkg/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/cloudsave/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |
+| `game/pkg/debug` | Experimental | [debug](debug.md) |
+| `game/pkg/editor` | Experimental | [editor](editor.md) |
+| `game/pkg/editor/editorcmd` | Experimental | [editor](editor.md) |
+| `game/pkg/editor/editormcp` | Experimental | [mcp](mcp.md) |
+| `game/pkg/effects` | Experimental | [effects](effects.md) |
+| `game/pkg/entities` | Experimental | [entities](entities.md) |
+| `game/pkg/fighting` | Experimental | [fighting](fighting.md) |
+| `game/pkg/flow` | Stable | [flow](flow.md) |
+| `game/pkg/fog` | Experimental | [fog](fog.md) |
+| `game/pkg/framedata` | Experimental | [framedata](framedata.md) |
+| `game/pkg/gametest` | Experimental | |
+| `game/pkg/gameui` | Experimental | [gameui](gameui.md) |
+| `game/pkg/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
+| `game/pkg/idle` | Experimental | [idle](idle.md) |
+| `game/pkg/input` | Stable | [input](input.md) |
+| `game/pkg/inventory` | Experimental | [inventory](inventory.md) |
+| `game/pkg/l10n` | Experimental | [l10n](l10n.md) |
+| `game/pkg/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
+| `game/pkg/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/pkg/leaderboard/selfhost/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/pkg/lights2d` | Experimental | [lights2d](lights2d.md) |
+| `game/pkg/liveops` | Experimental | [liveops](liveops.md) |
+| `game/pkg/loaderr` | Stable | [Errors](errors.md) |
+| `game/pkg/loot` | Experimental | [loot](loot.md) |
+| `game/pkg/math2d` | Stable | [math2d](math2d.md) |
+| `game/pkg/math3d` | Experimental | [math3d](math3d.md) |
+| `game/pkg/mcp` | Experimental | [mcp](mcp.md) |
+| `game/pkg/modding` | Experimental | [modding](modding.md) |
+| `game/pkg/navbake` | Experimental | [navbake](navbake.md) |
+| `game/pkg/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
+| `game/pkg/net` | Experimental | [net](net.md) |
+| `game/pkg/particles` | Experimental | [particles](particles.md) |
+| `game/pkg/perf` | Experimental | [perf](perf.md) |
+| `game/pkg/physics` | Stable | [physics](physics.md) |
+| `game/pkg/physics3d` | Experimental | [physics3d](physics3d.md) |
+| `game/pkg/pixelfx` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/arcane` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/critters` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/explosions` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/fire` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/holy` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/ice` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/impacts` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/lightning` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/melee` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/moves` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/nature` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/pickups` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/projectiles` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/scifi` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/shadow` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/spawn` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/status` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/transitions` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/ui` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/water` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/weather` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pkg/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
+| `game/pkg/platformer` | Experimental | [platformer](platformer.md) |
+| `game/pkg/playtest` | Experimental | [playtest](playtest.md) |
+| `game/pkg/presence` | Experimental | [presence](presence.md) |
+| `game/pkg/procgen` | Experimental | [procgen](procgen.md) |
+| `game/pkg/project` | Experimental | [Project File](project.md) |
+| `game/pkg/quality` | Experimental | [quality](quality.md) |
+| `game/pkg/quest` | Experimental | [quest](quest.md) |
+| `game/pkg/random` | Stable | [Determinism](determinism.md) |
+| `game/pkg/refs` | Experimental | [Project File](project.md) |
+| `game/pkg/render3d` | Experimental | [render3d](render3d.md) |
+| `game/pkg/replay` | Experimental | [replay](replay.md) |
+| `game/pkg/resource` | Experimental | [resources](resources.md) |
+| `game/pkg/rhythm` | Experimental | [rhythm](rhythm.md) |
+| `game/pkg/rooms` | Experimental | [rooms](rooms.md) |
+| `game/pkg/rts` | Experimental | [rts](rts.md) |
+| `game/pkg/save` | Stable | [save](save.md) |
+| `game/pkg/scene` | Stable | [scene](scene.md) |
+| `game/pkg/scene3d` | Experimental | [scene3d](scene3d.md) |
+| `game/pkg/sceneformat` | Experimental | [editor](editor.md) |
+| `game/pkg/scenemodel` | Experimental | [scenemodel](scenemodel.md) |
+| `game/pkg/screen` | Stable | [screen](screen.md) |
+| `game/pkg/server` | Experimental | [server](server.md) |
+| `game/pkg/server/cmd/dedicatedserver` | Experimental | [server](server.md) |
+| `game/pkg/skeletal` | Experimental | [skeletal](skeletal.md) |
+| `game/pkg/sound` | Stable | [sound](sound.md) |
+| `game/pkg/sprite` | Stable | [sprite](sprite.md) |
+| `game/pkg/statedump` | Experimental | [statedump](statedump.md) |
+| `game/pkg/stats` | Experimental | [stats](stats.md) |
+| `game/pkg/text` | Experimental | [text](text.md) |
+| `game/pkg/tilemap` | Stable | [tilemap](tilemap.md) |
+| `game/pkg/tileshape` | Experimental | [tileshape](tileshape.md) |
+| `game/pkg/tooling/apiref` | Experimental | |
+| `game/pkg/tooling/assetbuild` | Experimental | [Command Line](cli.md) |
+| `game/pkg/tooling/assetcheck` | Experimental | [Command Line](cli.md) |
+| `game/pkg/tooling/audioconv` | Experimental | |
+| `game/pkg/tooling/bench` | Experimental | [Command Line](cli.md) |
+| `game/pkg/tooling/credits` | Experimental | [Command Line](cli.md) |
+| `game/pkg/tooling/datatable` | Experimental | |
+| `game/pkg/tooling/devstate` | Experimental | |
+| `game/pkg/tooling/hotreload` | Experimental | |
+| `game/pkg/tooling/importsettings` | Experimental | [Command Line](cli.md) |
+| `game/pkg/tooling/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
+| `game/pkg/tooling/ktx2` | Experimental | |
+| `game/pkg/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
+| `game/pkg/tooling/manifest` | Experimental | |
+| `game/pkg/tooling/pack` | Experimental | |
+| `game/pkg/tween` | Stable | [tween](tween.md) |
+| `game/pkg/undo` | Experimental | [undo](undo.md) |
+| `game/pkg/vehicle` | Experimental | [vehicle](vehicle.md) |
+| `game/pkg/vn` | Experimental | [vn](vn.md) |
+| `game/pkg/vn/cmd/vnsample` | Experimental | [vn](vn.md) |
+| `game/pkg/voxel` | Experimental | [voxel](voxel.md) |
+| `game/pkg/world3d` | Experimental | [world3d](world3d.md) |
+| `game/pkg/worldmap` | Experimental | [worldmap](worldmap.md) |

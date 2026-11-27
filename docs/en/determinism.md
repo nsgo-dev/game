@@ -2,7 +2,7 @@
 
 A deterministic simulation produces the exact same state from the same starting seed and inputs on every run, across macOS, iOS, Windows, Linux, Android and the web. Determinism makes replays, seeded daily runs, save/load continuity and automated gameplay tests under `nsgotest` reliable instead of flaky.
 
-This guide describes the rules that keep an NSGo game deterministic and how to verify them with `packages/game/random`.
+This guide describes the rules that keep an NSGo game deterministic and how to verify them with `pkg/random`.
 
 ## 1. Advance time only with `game.Loop`'s fixed `dt`
 
@@ -29,10 +29,10 @@ loop := &game.Loop{
 
 Never call Go's global `math/rand` or `math/rand/v2` inside simulation code. Global generators share hidden mutable state across subsystems, and standard library helpers can change algorithms across Go releases.
 
-Import `github.com/nsgo-dev/game/packages/game/random` instead:
+Import `github.com/nsgo-dev/game/pkg/random` instead:
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/random"
+import "github.com/nsgo-dev/game/pkg/random"
 
 streams := random.NewStreams(masterSeed)
 ai := streams.Stream("ai")
@@ -71,7 +71,7 @@ IEEE-754 floating-point addition and multiplication are not associative: `(a + b
 
 - Accumulate forces, velocities and scores in a fixed, deterministic entity order.
 - In custom simulation code that must match bit-for-bit across amd64 and arm64, wrap multiply-add products in an explicit conversion (`float32(a*b) + c` or `float64(a*b) + c`), which the Go specification guarantees forbids FMA contraction, and avoid standard library transcendentals (`math.Sin`, `math.Cos`, `math.Atan2`, `math.Hypot`) whose arm64 implementations emit FMA, and `math.Pow`, `math.Exp` and `math.Log`, which take different code on each architecture (`math.Exp` has its own assembly on amd64 and on arm64, `math.Log` is assembly on amd64 only) and round differently.
-- `packages/game/physics`, `packages/game/physics3d`, and `packages/game/vehicle` already eliminate arm64 FMA instructions across their stepped simulation paths and verify cross-architecture golden trajectory hashes in CI on both Ubuntu amd64 and macOS arm64. In `packages/game/physics` that covers the rigid world, the XPBD `SoftWorld`, the character controller and tile collision, and on arm64 its tests also disassemble the package with `go tool objdump` and fail on any `FMADD`, `FMSUB`, `FNMADD` or `FNMSUB` outside the debug drawing code.
+- `pkg/physics`, `pkg/physics3d`, and `pkg/vehicle` already eliminate arm64 FMA instructions across their stepped simulation paths and verify cross-architecture golden trajectory hashes in CI on both Ubuntu amd64 and macOS arm64. In `pkg/physics` that covers the rigid world, the XPBD `SoftWorld`, the character controller and tile collision, and on arm64 its tests also disassemble the package with `go tool objdump` and fail on any `FMADD`, `FMSUB`, `FNMADD` or `FNMSUB` outside the debug drawing code.
 - Avoid mixing `float32` and `float64` inconsistently across code paths.
 - Use integer ticks or fixed-point values for exact counters, timers, grids and resource totals.
 

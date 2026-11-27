@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/text"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/text"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 )

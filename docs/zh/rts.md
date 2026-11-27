@@ -3,7 +3,7 @@
 `game/rts` 是即时战略游戏的单位操控层：在 `ai.Grid` 上把大量单位引向目标的流场（flow field）、带推开分离或 ORCA 局部避障与贴墙滑动的单位群 `Crowd`、以带版本号的 YAML 定义的阵型、框选与点选，以及数字编队。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/rts"
+import "github.com/nsgo-dev/game/pkg/rts"
 ```
 
 一切都是确定性的，在 `game.Loop` 的固定步长上推进，没有后台 goroutine：同一张网格上的同一组命令，在同一种 CPU 架构上每次运行都把同样的单位送到同样的位置。位置是 `float32`，而 Go 在 arm64 上可能把一次乘法和一次加法融合成一条指令、在 x64 上则不会，所以同样的命令在不同架构上的结果可能相差几个 ulp；跨架构的帧同步多人游戏应由权威主机下发状态，而不是让每个对端各自推进自己的 `Crowd`。

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/packages/game/bullets"
+	"github.com/nsgo-dev/game/pkg/bullets"
 )
 
 // TestDataFilesAreCanonical checks that the data files load, refer to each other correctly and are in the form their encoders write, so saving one after loading it changes nothing.

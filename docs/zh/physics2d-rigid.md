@@ -1,10 +1,10 @@
 # 2D 刚体与关节架构说明
 
-本文档记录 `github.com/nsgo-dev/game/packages/game/physics` 中 2D 刚体动力学的架构决策（[#320](https://github.com/nsgo-dev/game/issues/320)、[#321](https://github.com/nsgo-dev/game/issues/321)、[#322](https://github.com/nsgo-dev/game/issues/322)、[#804](https://github.com/nsgo-dev/game/issues/804)、[#805](https://github.com/nsgo-dev/game/issues/805)）。
+本文档记录 `github.com/nsgo-dev/game/pkg/physics` 中 2D 刚体动力学的架构决策（[#320](https://github.com/nsgo-dev/game/issues/320)、[#321](https://github.com/nsgo-dev/game/issues/321)、[#322](https://github.com/nsgo-dev/game/issues/322)、[#804](https://github.com/nsgo-dev/game/issues/804)、[#805](https://github.com/nsgo-dev/game/issues/805)）。
 
 ## 决策
 
-直接在 `packages/game/physics` 内实现轻量级、纯 Go、确定性的 2D 刚体与约束求解器（`RigidWorld`、`RigidBody` 与 `Joint` 类型），而不是通过 cgo 绑定 C/C++ 物理引擎（如 Box2D、Chipmunk2D）或引入第三方 Go 依赖。
+直接在 `pkg/physics` 内实现轻量级、纯 Go、确定性的 2D 刚体与约束求解器（`RigidWorld`、`RigidBody` 与 `Joint` 类型），而不是通过 cgo 绑定 C/C++ 物理引擎（如 Box2D、Chipmunk2D）或引入第三方 Go 依赖。
 
 ## 原因
 
@@ -37,7 +37,7 @@
 - **支持的形状**：动态刚体可用旋转 `Box` 与 `Circle`、凸 `Polygon`（最多 8 个顶点，可带圆角）和 `Capsule`；静态刚体还可用 `Segment` 与 `Chain`。凹地形用 `Chain`（或多个凸多边形）表示；凹形动态刚体不在内置求解器范围内。
 - **连续碰撞**：高速刚体只对静态刚体和瓦片做扫掠，因此仍可能穿过很薄的动态或运动学刚体；碰撞会结束刚体在这一步的运动，而不会把剩余时间用于沿表面滑动。对绝不能在一步结束时陷入静态刚体的刚体设置 `Bullet`。
 - **休眠**：岛作为整体休眠，因此只要有一个刚体一直在动（例如角色推着一堆箱子，或持续 `ApplyForce` 的刚体），它接触到的所有刚体都会保持清醒。通过直接修改字段移动的刚体会在下一步被唤醒；修改休眠刚体的形状不会唤醒它，修改后请调用 `Wake`。
-- **规模**：宽相与休眠让每一步的开销与醒着的刚体及其接触成正比。在性能场景（`BenchmarkRigidWorld500Bodies` 与 `BenchmarkRigidWorld500BodiesPacked`）中，500 个箱子、圆、多边形和胶囊体落入容器，在运行 Linux 的 Ryzen 9 3900X 单核上下落时每步约 2 ms，堆积密实但仍醒着时每步 5 到 6 ms，均在 60 fps 一帧的 16.7 ms 之内。若游戏需要数千刚体的大规模物理模拟，可在 `packages/game` 之外按需集成专用引擎。
+- **规模**：宽相与休眠让每一步的开销与醒着的刚体及其接触成正比。在性能场景（`BenchmarkRigidWorld500Bodies` 与 `BenchmarkRigidWorld500BodiesPacked`）中，500 个箱子、圆、多边形和胶囊体落入容器，在运行 Linux 的 Ryzen 9 3900X 单核上下落时每步约 2 ms，堆积密实但仍醒着时每步 5 到 6 ms，均在 60 fps 一帧的 16.7 ms 之内。若游戏需要数千刚体的大规模物理模拟，可在 `github.com/nsgo-dev/game` 之外按需集成专用引擎。
 
 ## 运动学刚体、传感器、瓦片与接触事件
 

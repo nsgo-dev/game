@@ -4,8 +4,8 @@
 
 ```go
 import (
-	"github.com/nsgo-dev/game/packages/game/pixelfx"
-	_ "github.com/nsgo-dev/game/packages/game/pixelfx/fire" // 注册 fire/torch 及该类别的其余特效
+	"github.com/nsgo-dev/game/pkg/pixelfx"
+	_ "github.com/nsgo-dev/game/pkg/pixelfx/fire" // 注册 fire/torch 及该类别的其余特效
 )
 ```
 
@@ -139,13 +139,13 @@ for !pf.Done() {
 每个类别对应它的 issue 做一次改动。移植步骤：
 
 1. 克隆 pixelfx 并切到固定的提交：`git clone https://github.com/patch-gg/pixelfx`，然后 `git -C pixelfx switch --detach 5294518ce7c72e48b6100a744596e0acf57f2826`。不要运行它的 npm 安装脚本；参考工具只需要 Node 18 或更新版本，pixelfx 的渲染代码没有任何依赖。
-2. 把类别的 `_lib.js` 移植到 `packages/game/pixelfx/<category>` 的 `lib.go`（核心那次改动可能已经在子包里放了其中几个函数），每个特效各放一个以它命名的文件（`fire-ring.js` 对应 `fire_ring.go`），文件开头写明上游文件和提交、MIT 许可，以及原文件带有的 Sprite Fusion 声明。保持 pixelfx 的运算、浮点运算的顺序和调用随机数生成器的顺序：Go 与 JavaScript 一样从左到右求值参数和调用，但 JavaScript 循环条件里抽取的随机数每一轮都会重新抽取，而 `Math.PI + 0.07` 这样的常量表达式必须用变量表示 π（Go 在编译时精确折叠常量，JavaScript 每一步都会舍入）。
+2. 把类别的 `_lib.js` 移植到 `pkg/pixelfx/<category>` 的 `lib.go`（核心那次改动可能已经在子包里放了其中几个函数），每个特效各放一个以它命名的文件（`fire-ring.js` 对应 `fire_ring.go`），文件开头写明上游文件和提交、MIT 许可，以及原文件带有的 Sprite Fusion 声明。保持 pixelfx 的运算、浮点运算的顺序和调用随机数生成器的顺序：Go 与 JavaScript 一样从左到右求值参数和调用，但 JavaScript 循环条件里抽取的随机数每一轮都会重新抽取，而 `Math.PI + 0.07` 这样的常量表达式必须用变量表示 π（Go 在编译时精确折叠常量，JavaScript 每一步都会舍入）。
 3. 把每个特效导出为包级变量（`var FireRing = &pixelfx.Effect{...}`），并在 `init` 中注册为 `"<category>/<name>"`。JavaScript 中作为函数的颜色或透明度对应画笔的 `...Fn` 方法；选项对应 `Meta.Options` 及其默认值；`act` 对应 `Act`，命中中那些省略时由 pixelfx 取默认值的数值用 `Opt` 表示。
 4. 渲染参考图：`node tools/pixelfxref/render.mjs --pixelfx <克隆目录> <category>`，并添加类别的 `parity_test.go`，为每个特效调用 `pixelfxtest.CheckEffect` 和 `pixelfxtest.CheckDeterministic`，再加一个 `pixelfxtest.BenchmarkFrames` 基准测试，参照 `pixelfx/fire`。
-5. 在 `packages/game/cmd/game/pixelfx.go` 中导入该类别，让 `game pixelfx` 能渲染它；保留它在稳定性表中的行和它的 `example_test.go`，更新上面的表格及其英文版，并添加一个更新日志片段。
+5. 在 `cmd/game/pixelfx.go` 中导入该类别，让 `game pixelfx` 能渲染它；保留它在稳定性表中的行和它的 `example_test.go`，更新上面的表格及其英文版，并添加一个更新日志片段。
 
 某一帧超出容差时，用 `PIXELFXTEST_OUT` 把它写出来与参考图对比：形状错位是移植错误（通常是随机数抽取顺序不对），零星的一级差异则来自浮点运算。
 
 ## 许可
 
-移植版遵循 pixelfx 的 MIT 许可：`packages/game/pixelfx/LICENSE` 保存其许可文本，`NOTICE.md` 保存其声明，包括 Sprite Fusion 对模拟及改编自其 VFX 的特效的声明，以及 Hollow Crown 对表演系统的声明。pixelfx 画廊中的 Patch Pixel 字体不在 MIT 许可之下，没有移植；代码里绘制的两种像素字体已移植。
+移植版遵循 pixelfx 的 MIT 许可：`pkg/pixelfx/LICENSE` 保存其许可文本，`NOTICE.md` 保存其声明，包括 Sprite Fusion 对模拟及改编自其 VFX 的特效的声明，以及 Hollow Crown 对表演系统的声明。pixelfx 画廊中的 Patch Pixel 字体不在 MIT 许可之下，没有移植；代码里绘制的两种像素字体已移植。

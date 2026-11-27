@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/idle"
-	"github.com/nsgo-dev/game/packages/game/save"
+	"github.com/nsgo-dev/game/pkg/idle"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

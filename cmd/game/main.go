@@ -1,0 +1,8 @@
+// Command game is the game layer's command-line tool, run as `nsgo game` (via NSGo's extension mechanism) or `go tool game` from a module that adds it as a tool, or directly with `go run github.com/nsgo-dev/game/cmd/game@latest`. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor), build release packages for every platform (release), play input recordings headless (replay), run bot playtests headless with replays and YAML reports (playtest), check benchmarks against a stored baseline (bench), create a game project from a template (new), run the game with asset hot reload (dev), check scenes, maps and atlases and the references between them (check), serve the editor's MCP tools to an agent (mcp), build all of a project's assets from game.yaml, rebuilding only what changed (assets), write a new component, system, scene or prefab into a project (generate), move a file and rewrite the references to it (mv), keep the project index of stable file IDs (index), install asset, editor plugin and template packs from a library into a project (library), list every asset's author and license as a credits file (credits), render pixelfx effects to sprite sheets (pixelfx), bake a scene's navigation meshes (navmesh), merge scene YAML files object by object for Git (merge) and write shell completion scripts (completion); `game help` lists them and `game help <command>` shows one command's flags.
+package main
+
+import "github.com/nsgo-dev/game/internal/gamecli"
+
+func main() {
+	gamecli.Main()
+}

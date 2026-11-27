@@ -3,7 +3,7 @@
 `game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, `HPA` hierarchical pathfinding, `JPS` Jump Point Search, generic `GraphSearch` (A*, Dijkstra, and budgeted movement ranges with paths over hex tilemaps, waypoint graphs, or custom graphs), 2D `NavMesh` navigation with funnel smoothing, steering behaviors, velocity-based local avoidance (ORCA) in 2D and 3D XZ, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/ai"
+import "github.com/nsgo-dev/game/pkg/ai"
 ```
 
 Nothing in `ai` uses background goroutines or hidden global randomness.
@@ -1198,7 +1198,7 @@ With hundreds of agents, casting a ray for every agent and target on every step 
 The experimental package `game/ai/perception3d` runs the same engine on `math3d.Vec3`, so its senses, memory, events, teams and budget behave exactly as above. Its `Perception` points the cone along `Forward` (zero faces -Z), with angles measured in 3D, and `EyeOffset` is typically head height on +Y; `System`, `Target`, `Noise`, `Memory`, `Event` and `LineOfSight` mirror the 2D types, and it reuses `ai.SightConfig`, `ai.HearingConfig`, `ai.StimulusID`, `ai.Team` and the event kinds:
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/ai/perception3d"
+import "github.com/nsgo-dev/game/pkg/ai/perception3d"
 
 guard := &perception3d.Perception{
 	Team:        teamGuards,

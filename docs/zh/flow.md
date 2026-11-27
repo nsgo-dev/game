@@ -3,7 +3,7 @@
 `game/flow` 提供完全由 `game.Loop` 固定步长 `dt` 驱动的玩法流程原语：游戏时钟计时器 `Timers`、泛型有限状态机 `Machine[S]`、层次状态机 `HSM[S]`、可组合步进序列（`Seq`、`Parallel`、`Race`）以及零全局状态的类型化事件总线 `Bus`。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/flow"
+import "github.com/nsgo-dev/game/pkg/flow"
 ```
 
 `flow` 中没有任何代码读取系统墙钟、启动 goroutine 或保存包级全局状态——所有原语都随循环暂停、保持确定性回放，并在场景间干净隔离。

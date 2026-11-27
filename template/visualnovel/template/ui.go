@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

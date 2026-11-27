@@ -3,7 +3,7 @@
 游戏作者编写的每个文件都是 YAML 文本，每种格式都有一份 JSON Schema，编辑器和 AI 工具可借此在编写文件时补全键名、悬停显示字段说明并标出错误，而不必等到游戏加载时才发现。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
+import "github.com/nsgo-dev/game/pkg/tooling/jsonschema"
 ```
 
 ## 已发布的 Schema
@@ -76,7 +76,7 @@ Schema 一次只看一个文件，因此跨越整个文档的规则仍由 `Parse
 
 ## 在 CI 中检查 Schema
 
-`cmd/gameschema` 把已发布的 Schema 写入 `apps/website/public/schemas`，网站在 `https://game.nsgo.dev/schemas/` 提供这些文件。修改某种格式的 Go 类型或文档注释后，在 `packages/game` 下重新生成：
+`cmd/gameschema` 把已发布的 Schema 写入 `apps/website/public/schemas`，网站在 `https://game.nsgo.dev/schemas/` 提供这些文件。修改某种格式的 Go 类型或文档注释后，在仓库根目录重新生成：
 
 ```sh
 go run ./cmd/gameschema
@@ -105,9 +105,9 @@ func TestFormatConformance(t *testing.T) {
 - 再次保存同一个值、保存对该文件的第二次加载、保存对已保存输出的加载，得到的字节都相同，因此输出不依赖 map 顺序、时间或随机数；
 - 加载时拒绝多出一个顶层键、缺少 `version`、`version: 0`，以及比格式能读取的最新版本还新一版的文件，且错误信息中写出该键名。
 
-`Doc` 指明该格式在[文件格式](formats.md)页中的条目，即 `docs/en/formats.md` 和 `docs/zh/formats.md` 中条目标题前的 `<!-- format: quest -->` 一行；任一页缺少该条目，或条目中的 YAML 示例加载再保存后字节改变时，`Run` 都会失败，并打印格式为该示例保存出的内容。可选的 `#名称` 之前的路径必须是该包的路径，有两种格式的包为第二种命名，如 `achievements#progress`。`packages/game` 中的 `TestFormatsPage` 检查该页的其余部分：两种语言列出相同的条目且顺序一致；不是任何 `Doc` 的条目都登记在它的 `codeFormats` 列表中，并写明读取该格式的声明，该包必须仍声明它，且条目中的 JSON 或 Yarn 示例能被这个读取函数加载；每个解码 JSON 的包都有条目，除非 `notJSONFormats` 写明了理由；每个名称以 `Version` 结尾的导出整数常量都在它的 `formatVersions` 列表中对应一个条目。`Doc` 可以是字符串字面量或字符串常量，以便该测试读取。
+`Doc` 指明该格式在[文件格式](formats.md)页中的条目，即 `docs/en/formats.md` 和 `docs/zh/formats.md` 中条目标题前的 `<!-- format: quest -->` 一行；任一页缺少该条目，或条目中的 YAML 示例加载再保存后字节改变时，`Run` 都会失败，并打印格式为该示例保存出的内容。可选的 `#名称` 之前的路径必须是该包的路径，有两种格式的包为第二种命名，如 `achievements#progress`。仓库根目录的 `TestFormatsPage` 检查该页的其余部分：两种语言列出相同的条目且顺序一致；不是任何 `Doc` 的条目都登记在它的 `codeFormats` 列表中，并写明读取该格式的声明，该包必须仍声明它，且条目中的 JSON 或 Yarn 示例能被这个读取函数加载；每个解码 JSON 的包都有条目，除非 `notJSONFormats` 写明了理由；每个名称以 `Version` 结尾的导出整数常量都在它的 `formatVersions` 列表中对应一个条目。`Doc` 可以是字符串字面量或字符串常量，以便该测试读取。
 
-`packages/game` 中的 `TestFormatPackagesRunConformance` 会在某个包用 `go.yaml.in/yaml/v3` 解码 YAML（无论是否宽松）、却没有任何测试调用 `formattest.Run` 时失败，因此跳过检查的新格式会让 CI 中的 `go tool nsgo test` 失败。解码 YAML 但不定义自己格式的包（例如 `loaderr`）列在该测试的 `notFormats` 中并写明理由。该测试以包为单位检查，调用一次即可满足，所以包含第二种格式的包必须自己为它也运行这些检查。其他测试依赖其注释或排版的手写 fixture 保持原样，它的规范形式另存为单独的文件（例如放在 `testdata/canonical/` 下）供这些检查使用。版本号放在其他键下的格式（例如 mod 清单的 `manifestVersion`）设置 `VersionField`，能读取多个版本的格式设置 `MaxVersion`。新增 testdata 文件时，先写好文档，再用 `FORMATTEST_UPDATE=1` 运行一次测试：它会在检查前用格式为每个文件保存出的内容重写该文件，编码器不会写出的注释会被丢弃。
+仓库根目录的 `TestFormatPackagesRunConformance` 会在某个包用 `go.yaml.in/yaml/v3` 解码 YAML（无论是否宽松）、却没有任何测试调用 `formattest.Run` 时失败，因此跳过检查的新格式会让 CI 中的 `go tool nsgo test` 失败。解码 YAML 但不定义自己格式的包（例如 `loaderr`）列在该测试的 `notFormats` 中并写明理由。该测试以包为单位检查，调用一次即可满足，所以包含第二种格式的包必须自己为它也运行这些检查。其他测试依赖其注释或排版的手写 fixture 保持原样，它的规范形式另存为单独的文件（例如放在 `testdata/canonical/` 下）供这些检查使用。版本号放在其他键下的格式（例如 mod 清单的 `manifestVersion`）设置 `VersionField`，能读取多个版本的格式设置 `MaxVersion`。新增 testdata 文件时，先写好文档，再用 `FORMATTEST_UPDATE=1` 运行一次测试：它会在检查前用格式为每个文件保存出的内容重写该文件，编码器不会写出的注释会被丢弃。
 
 ## 数据表的 Schema
 

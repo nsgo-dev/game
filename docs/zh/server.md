@@ -1,6 +1,6 @@
 # server
 
-`github.com/nsgo-dev/game/packages/game/server` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
+`github.com/nsgo-dev/game/pkg/server` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
 
 游戏传给 [`game.Loop`](loop.md) 的 `Update` 函数在服务器上原样运行：两边都用相同的固定 `1/Rate` 步长，所以专用服务器与客户端共享同一套模拟。
 
@@ -204,7 +204,7 @@ http.ListenAndServe(":8080", health)
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/server ./packages/game/server/cmd/dedicatedserver
+RUN CGO_ENABLED=0 go build -o /out/server ./pkg/server/cmd/dedicatedserver
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/server /server

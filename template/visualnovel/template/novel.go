@@ -9,12 +9,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/flow"
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/l10n"
-	"github.com/nsgo-dev/game/packages/game/save"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/vn"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )

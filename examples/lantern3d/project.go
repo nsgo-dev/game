@@ -3,7 +3,7 @@ package main
 import (
 	"embed"
 
-	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/pkg/project"
 )
 
 // gameYAML is Lantern 3D's project file, holding its window size, appearance and export presets.

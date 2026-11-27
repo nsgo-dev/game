@@ -21,6 +21,9 @@ export const docsLang = (lang: Lang): DocsLang => (lang === 'zh' || lang === 'zh
 // The API reference's pages, when this build could read the Go packages.
 const API_PAGES = new Set(api.status === 'ok' ? api.packages.map((p) => p.page) : [])
 
+// apiPageOf maps a catalog package path (game or game/pkg/sprite) to its API reference page splat (game or pkg/sprite).
+const apiPageOf = (pkg: CatalogPackage) => (pkg.path === 'game' ? 'game' : pkg.path.slice('game/'.length))
+
 // PackageLink goes to a package's guide, or to its API reference when no page of the docs is its guide.
 export function PackageLink({ pkg, lang, children, className }: { pkg: CatalogPackage; lang: Lang; children: ReactNode; className?: string }) {
   if (pkg.guide)
@@ -29,9 +32,10 @@ export function PackageLink({ pkg, lang, children, className }: { pkg: CatalogPa
         {children}
       </LocaleLink>
     )
-  if (API_PAGES.has(pkg.name))
+  const page = apiPageOf(pkg)
+  if (API_PAGES.has(page))
     return (
-      <LocaleLink page="apiPackage" splat={pkg.name} lang={lang} className={className}>
+      <LocaleLink page="apiPackage" splat={page} lang={lang} className={className}>
         {children}
       </LocaleLink>
     )
@@ -131,8 +135,8 @@ function PackageCard({ pkg, lang }: { pkg: CatalogPackage; lang: Lang }) {
               {copy.packages.guide} <Icon name="arrow" size={12} className="inline-icon" />
             </LocaleLink>
           )}
-          {API_PAGES.has(pkg.name) && (
-            <LocaleLink page="apiPackage" splat={pkg.name} lang={lang}>
+          {API_PAGES.has(apiPageOf(pkg)) && (
+            <LocaleLink page="apiPackage" splat={apiPageOf(pkg)} lang={lang}>
               API
             </LocaleLink>
           )}

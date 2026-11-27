@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/flow"
-	"github.com/nsgo-dev/game/packages/game/l10n"
-	"github.com/nsgo-dev/game/packages/game/loaderr"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/loaderr"
+	"github.com/nsgo-dev/game/pkg/vn"
 )
 
 // The story's files: the Yarn script, the cast and a string table per language. Edit them to write another story; story_test.go checks that they agree with each other.

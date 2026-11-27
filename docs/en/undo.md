@@ -3,7 +3,7 @@
 `game/undo` records the reversible moves of puzzle and turn-based games, with unlimited undo and redo.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/undo"
+import "github.com/nsgo-dev/game/pkg/undo"
 ```
 
 Nothing in `undo` reads the clock, spawns goroutines or keeps package-level state.

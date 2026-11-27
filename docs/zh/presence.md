@@ -1,7 +1,7 @@
 # presence
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/presence"
+import "github.com/nsgo-dev/game/pkg/presence"
 ```
 
 `presence` 通过一套与平台无关的 API，把玩家当前正在做什么（关卡、游戏模式、队伍人数、计时器、图标资源和自定义本地化键）同步到 Steam 和 Discord 的好友列表。两个内置提供者均使用纯 Go 实现，不含 cgo 或手写 C：`Discord` 直接通过 Unix 域套接字或 Windows 命名管道实现 Discord 本地 IPC v1 协议；`Steam` 在桌面端通过 `purego` 动态加载 Steamworks 共享库，调用 `ISteamFriends::SetRichPresence` 和 `ClearRichPresence`。

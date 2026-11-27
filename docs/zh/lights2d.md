@@ -3,7 +3,7 @@
 `game/lights2d` 为 NSGo 画布提供 2D 光照能力：环境暗场层、点光源与聚光灯、基于遮挡体的精确 2D 可见性多边形阴影，以及 CPU 切线空间法线贴图精灵着色。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/lights2d"
+import "github.com/nsgo-dev/game/pkg/lights2d"
 ```
 
 ## 环境暗场、点光源与聚光灯

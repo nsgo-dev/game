@@ -4,9 +4,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

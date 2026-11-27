@@ -1,6 +1,6 @@
 # accounts
 
-`github.com/nsgo-dev/game/packages/game/accounts` is a self-hostable player account service. A player starts as a guest, upgrades to an email address or links an OAuth or platform identity (Game Center, Play Games, Steam) without losing their data, and every device gets short-lived tokens a game server verifies offline.
+`github.com/nsgo-dev/game/pkg/accounts` is a self-hostable player account service. A player starts as a guest, upgrades to an email address or links an OAuth or platform identity (Game Center, Play Games, Steam) without losing their data, and every device gets short-lived tokens a game server verifies offline.
 
 The service is server-side code in its own packages. A game client or game server that does not import them links none of their dependencies (argon2id from `golang.org/x/crypto`, the SQLite and Postgres drivers); a game server that verifies tokens imports only `accounts/token`, which needs the standard library and the YAML package.
 

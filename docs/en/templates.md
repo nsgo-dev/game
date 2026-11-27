@@ -72,7 +72,7 @@ nsgo game new -list
 nsgo game new -template starter mygame
 ```
 
-Outside a project, install `nsgo-game` once (`go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`) for `nsgo game` ([Command Line](cli.md#install)), or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new` directly with nothing to install.
+Outside a project, install `nsgo-game` once (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) for `nsgo game` ([Command Line](cli.md#install)), or run `go run github.com/nsgo-dev/game/cmd/game@latest new` directly with nothing to install.
 
 Without `-template`, `game new` uses `starter`. A name that is not in the list is refused with the names that are. Shell completion for `game` ([Command Line](cli.md#completion)) completes `-template` with the same names. [Command Line](cli.md#new) describes the other flags.
 
@@ -103,7 +103,7 @@ template/
       ├─ …_test.go
       ├─ README.md
       └─ .gitignore
-packages/game/internal/gamecli/
+internal/gamecli/
 ├─ templates.go               the registry: one entry per template
 └─ _templates/projects/
    ├─ starter/                a copy of template/template
@@ -118,18 +118,18 @@ A template is added in one pull request of its own:
 
 1. Create the module: `template/<name>/go.mod` declaring `module github.com/nsgo-dev/game/template/<name>` with the `go` line of `template/go.mod`, and the project in `template/<name>/template/`. Its name is lower-case letters, digits and `-`, starting with a letter, and not `template`.
 2. Add `./template/<name>` to the `use` list of `go.work`.
-3. Copy the project into the `game` CLI package, from `packages/game/internal/gamecli`: `cp -R ../../../../template/<name>/template _templates/projects/<name>`.
-4. Add one entry to `projectTemplates` in `packages/game/internal/gamecli/templates.go`: `newProjectTemplate("<name>", templateModuleRoot+"/<name>", "<one line saying what the game is>")`.
+3. Copy the project into the `game` CLI package, from `internal/gamecli`: `cp -R ../../template/<name>/template _templates/projects/<name>`.
+4. Add one entry to `projectTemplates` in `internal/gamecli/templates.go`: `newProjectTemplate("<name>", templateModuleRoot+"/<name>", "<one line saying what the game is>")`.
 5. Add a row for the template to the table above, in `docs/en/templates.md` and `docs/zh/templates.md`, and a fragment under `changelog.d/`.
 
 The project in `template/<name>/template/` follows these rules, which the tests check where they can:
 
-- `go.mod.tmpl` starts with `module {{.Module}}`, requires a published version of `github.com/nsgo-dev/game/packages/game` that has every package the template uses, and has `tool github.com/nsgo-dev/nsgo/cmd/nsgo`. It is the only file with a template action: `game new` and `nsgo init` render `nsgo.yaml`, `main.go` and any other `.tmpl` file too, but CI renders only `go.mod.tmpl` and the template must also build as it is in the workspace, so each of those must render to itself, and `main.go` cannot hold `{{`, as a composite literal such as `[]T{{...}}` does; put such code in another Go file. Other files are copied as they are and may hold any bytes. A file named `go.mod` would make the directory a module of its own, which neither `go:embed` nor the workspace can include.
+- `go.mod.tmpl` starts with `module {{.Module}}`, requires a published version of `github.com/nsgo-dev/game` that has every package the template uses, and has `tool github.com/nsgo-dev/nsgo/cmd/nsgo`. It is the only file with a template action: `game new` and `nsgo init` render `nsgo.yaml`, `main.go` and any other `.tmpl` file too, but CI renders only `go.mod.tmpl` and the template must also build as it is in the workspace, so each of those must render to itself, and `main.go` cannot hold `{{`, as a composite literal such as `[]T{{...}}` does; put such code in another Go file. Other files are copied as they are and may hold any bytes. A file named `go.mod` would make the directory a module of its own, which neither `go:embed` nor the workspace can include.
 - `go.sum` holds the sums of the pinned modules. Write it by turning `go.mod.tmpl` into a `go.mod` in a copy of the template outside the repository and running `GOWORK=off go mod tidy` there.
-- `game.yaml` is canonical, as `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` reports, and `nsgo.yaml` agrees with it; `game new` replaces the `name` and `id` of both.
-- `main.go`, `README.md`, `.gitignore` and tests are there, and `go run ./cmd/game index ../../template` from `packages/game` has nothing left to do.
+- `game.yaml` is canonical, as `go run github.com/nsgo-dev/game/cmd/gameproject check` reports, and `nsgo.yaml` agrees with it; `game new` replaces the `name` and `id` of both.
+- `main.go`, `README.md`, `.gitignore` and tests are there, and `go run ./cmd/game index template` from the repository root has nothing left to do.
 - Every file the template's author writes is text, as for any project in this repository.
 
-The tests of `packages/game/internal/gamecli` fail when any of these steps is missing: when the copy under `_templates/projects` differs from the module's `template` directory by a byte, when a `template/*/template` directory has no registry entry, when a registry entry has no copy, module or `go.work` entry, and when this page or its Chinese counterpart has no row naming a template and its module. They also create a project from every template, build it against the local game layer and run its tests.
+The tests of `internal/gamecli` fail when any of these steps is missing: when the copy under `_templates/projects` differs from the module's `template` directory by a byte, when a `template/*/template` directory has no registry entry, when a registry entry has no copy, module or `go.work` entry, and when this page or its Chinese counterpart has no row naming a template and its module. They also create a project from every template, build it against the local game layer and run its tests.
 
 CI's `templates` job needs no edit for a new template: it lists `template/template` and every `template/*/template` directory and tests each template the way a developer's project gets it: it copies the template out of the workspace, renders `go.mod` for `example.com/<name>game`, and runs `go tool nsgo test ./...` with `GOWORK=off`, so the project builds against the game layer version `go.mod.tmpl` pins rather than this checkout. A template that needs a package not yet published bumps that pin once the package is on `main`.

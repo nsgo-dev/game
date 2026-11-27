@@ -3,7 +3,7 @@
 `game/tween` 使用 NSGo 的 `core.Curve` 缓动曲线，在 `game.Loop` 固定步长上确定性地驱动数值、坐标、颜色、自定义类型、时间轴以及 `tilemap.Camera` 运镜补间。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tween"
+import "github.com/nsgo-dev/game/pkg/tween"
 ```
 
 ## 创建与推进 Tween

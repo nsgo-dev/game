@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/flow"
+	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"

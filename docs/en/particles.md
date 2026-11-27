@@ -3,7 +3,7 @@
 `game/particles` provides deterministic, seeded particle emitters for both 2D (`Emitter`, drawn through `sprite.Batch`) and 3D (`Emitter3D` + `GPUParticles3D`, drawn in a single instanced `gpu.View` draw call).
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/particles"
+import "github.com/nsgo-dev/game/pkg/particles"
 ```
 
 Two emitters configured with the same fields and `Seed` and stepped with identical `dt` produce bit-for-bit identical particles and draw operations.
@@ -202,7 +202,7 @@ Two benchmarks track the CPU side of a frame, one for each way a particle is dra
 
 ```sh
 # One Update and one Draw of 5000 tinted particles, one image draw each
-cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./particles
+go tool nsgo test ./pkg/particles -- -run '^$' -bench Emitter5000UpdateDraw
 # One step and one draw of the fountain scene's 5000 untinted particles, in DrawAtlas runs
 cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
@@ -300,7 +300,7 @@ gpuParticles.Draw(pass) // 1 DrawIndexedInstanced call for all live particles
 `Emitter3D` stores particles in dense structure-of-arrays slices with swap-remove expiration and reusable radix-sort scratch buffers:
 
 ```sh
-cd packages/game && go tool nsgo test -run '^$' -bench BenchmarkEmitter3D10k ./particles
+go tool nsgo test ./pkg/particles -- -run '^$' -bench BenchmarkEmitter3D10k
 ```
 
 On Apple Silicon (10,000 active particles with gravity, exponential drag, spin, and size/alpha/color/rotation curves):

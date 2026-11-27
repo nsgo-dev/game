@@ -1,6 +1,6 @@
 # fighting
 
-`github.com/nsgo-dev/game/packages/game/fighting` 按固定步长逐步缓冲格斗游戏输入，并识别 YAML 招式表中描述的指令输入（四分之一圈、升龙、蓄力、双击）、按键、同时按键与连招。
+`github.com/nsgo-dev/game/pkg/fighting` 按固定步长逐步缓冲格斗游戏输入，并识别 YAML 招式表中描述的指令输入（四分之一圈、升龙、蓄力、双击）、按键、同时按键与连招。
 
 ## 小键盘记法
 

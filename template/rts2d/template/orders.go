@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/math2d"
-	"github.com/nsgo-dev/game/packages/game/rts"
+	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/rts"
 )
 
 // The orders both sides give: the player's through the controls and the computer player's through its choices, so the two play by the same rules. The computer sees through its own side's fog of war like the player, but knows the map, so it knows where the player's headquarters stands.

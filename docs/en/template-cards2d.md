@@ -3,7 +3,7 @@
 `cards2d` is Suit Ladders, a single-player card game of an original design. Each suit has a ladder that climbs from 1 to 9. The player holds a hand of five cards, draws from a draw pile, climbs a ladder with a card that is the next rank there and throws the others on a discard pile, which can be turned over into a new draw pile twice a game. The game is won when every ladder reaches 9 and lost when the draw pile is empty, cannot be dealt again, and no card in the hand fits a ladder.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template cards2d mycards
+go run github.com/nsgo-dev/game/cmd/game@latest new -template cards2d mycards
 cd mycards
 go tool nsgo dev
 ```
@@ -49,7 +49,7 @@ Starting a new deal before a game is over counts as a loss.
 - The deck and the difficulty are in `rules.yaml`. `TestSomeDealsAreWon` fails when a careful player, as the tests play, wins fewer than a tenth or more than nine tenths of 200 deals, and `winDeal` and `loseDeal` in `table_test.go` are the deals the playthroughs win and lose; after changing the rules, pick them again.
 - The table's layout is in `board.yaml`, in the display's coordinates. `newTable` refuses a board that lacks a slot the rules need.
 - The moves are in `table.go`: `allows` says which card may go where, `canDraw` when a card may be drawn or the discard pile turned over, and `judge` when a game is won or lost.
-- The controls are in `game.yaml`'s input map, which `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` validates.
+- The controls are in `game.yaml`'s input map, which `go run github.com/nsgo-dev/game/cmd/gameproject check` validates.
 - The card art is `drawCard` and `drawSuit` in `render.go`.
 
 ## Limits

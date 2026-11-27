@@ -3,7 +3,7 @@
 `game/replay` records fixed-step game inputs into delta-encoded YAML text files and replays them deterministically for bug reproduction, ghost runs, and automated regression tests.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/replay"
+import "github.com/nsgo-dev/game/pkg/replay"
 ```
 
 ## ActionSource abstraction

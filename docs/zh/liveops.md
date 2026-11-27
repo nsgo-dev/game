@@ -1,10 +1,10 @@
 # 线上运营（Live operations）
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/liveops"
+import "github.com/nsgo-dev/game/pkg/liveops"
 ```
 
-`liveops` 为 NSGo 游戏提供与具体服务商无关的线上运营基础能力。它只依赖 Go 标准库、`packages/game` 和 NSGo 的公开 `core`、`cloud` API，不内置任何第三方崩溃上报、埋点分析、广告或支付 SDK。
+`liveops` 为 NSGo 游戏提供与具体服务商无关的线上运营基础能力。它只依赖 Go 标准库、`github.com/nsgo-dev/game` 和 NSGo 的公开 `core`、`cloud` API，不内置任何第三方崩溃上报、埋点分析、广告或支付 SDK。
 
 ## 范围决策（[#194](https://github.com/nsgo-dev/game/issues/194)）
 

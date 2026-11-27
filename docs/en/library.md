@@ -1,6 +1,6 @@
 # Asset and Plugin Library
 
-`github.com/nsgo-dev/game/packages/game/tooling/library` finds shared asset packs, editor plugin packs and templates in a library and installs them into a game project. A library is a text index anyone can add a pack to with a pull request; installing a pack writes its files into the project and records them, and the references they add, in `game.yaml`. `nsgo game library` runs it from the command line and the scene editor's library panel runs it from the editor.
+`github.com/nsgo-dev/game/pkg/tooling/library` finds shared asset packs, editor plugin packs and templates in a library and installs them into a game project. A library is a text index anyone can add a pack to with a pull request; installing a pack writes its files into the project and records them, and the references they add, in `game.yaml`. `nsgo game library` runs it from the command line and the scene editor's library panel runs it from the editor.
 
 ## Finding and installing packs
 
@@ -120,7 +120,7 @@ A pack's digest is the SHA-256 of the listing `sha256sum` prints for its files, 
 ## Adding a pack to the shared library
 
 1. Add the pack's directory under `library/packs/<name>` with its `pack.yaml` and files. Every file must be yours to share under the license the manifest names.
-2. From `packages/game`, run `go run ./cmd/game library digest ../../library/packs/<name>` and add an entry with that `sha256` to `library/index.yaml`.
+2. From the repository root, run `go run ./cmd/game library digest library/packs/<name>` and add an entry with that `sha256` to `library/index.yaml`.
 3. Open a pull request. The library's tests fetch every pack of the index, so a digest or a manifest that does not match its entry fails CI.
 
 A team can keep a library of its own anywhere it can serve files over https, or in a directory of its repository, and point `-index` at it. Plain http is accepted only for a loopback host, such as a local test server, for the index and for a pack's `source` alike, and every file is limited to 64 MiB. A server that does not connect within 30 seconds or answer within a minute, or a file that takes longer than 10 minutes, is given up on.

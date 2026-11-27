@@ -3,7 +3,7 @@
 The `racing3d` template is a small 3D racing game: two laps of a closed circuit against two computer-driven rivals, from the back of the grid, with a countdown, checkpoints, a ghost of your best lap and a results screen. It plays with a keyboard, a gamepad or touch, on the desktop, phones and the web.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template racing3d myracer
+go run github.com/nsgo-dev/game/cmd/game@latest new -template racing3d myracer
 cd myracer
 go tool nsgo dev
 ```

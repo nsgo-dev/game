@@ -3,7 +3,7 @@
 `game/sprite` 负责加载打包好的精灵图集、按固定步长播放帧动画，并按 Z 顺序将精灵批次绘制到 NSGo 的 `core.Canvas` 中。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sprite"
+import "github.com/nsgo-dev/game/pkg/sprite"
 ```
 
 ## 从 TexturePacker 和 Aseprite 加载图集
@@ -252,8 +252,7 @@ batch.Draw(d)
 `BenchmarkBatchRecord` 记录一帧 1,000 个和 5,000 个移动中的精灵（其中五分之一带旋转和缩放），分别用每个精灵一次 `DrawImageFrom`（`per-sprite`）和 `DrawAtlas`（`atlas`）。它只计算 CPU 上的记录时间，不包括平台的绘制。`sprites/60Hz` 是 16.7 ms 除以每个精灵的记录时间，是任何一帧都达不到的上限，而不是实测的每秒 60 帧下的精灵数：
 
 ```sh
-cd packages/game
-go tool nsgo test ./sprite -- -run '^$' -bench BatchRecord -benchmem -cpu 1 -benchtime 2s
+go tool nsgo test ./pkg/sprite -- -run '^$' -bench BatchRecord -benchmem -cpu 1 -benchtime 2s
 ```
 
 2026-11-23 在一台共用的 24 核 x86-64 Linux 机器上的读数；耗时随机器负载变化，分配次数不变：

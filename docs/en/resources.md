@@ -3,7 +3,7 @@
 `game/resource` reads and writes shared resource files: data that several scenes and pieces of code use, kept in a YAML file of its own and referenced by path instead of being repeated, as Godot's `.tres` files are. Materials, curves, gradients, animation clips, UI themes, sound bus layouts and physics materials are resource files.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/resource"
+import "github.com/nsgo-dev/game/pkg/resource"
 ```
 
 ## The common header

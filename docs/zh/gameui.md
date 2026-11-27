@@ -3,7 +3,7 @@
 `game/gameui` 用于在 `core.Drawing` 中直接绘制风格化的游戏内菜单与 HUD 控件，支持盒式布局、虚拟分辨率缩放、基于动作的 2D 空间焦点导航，以及锚定到 2D 世界坐标的原生 NSGo 叠加视图。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/gameui"
+import "github.com/nsgo-dev/game/pkg/gameui"
 ```
 
 ## 布局容器、控件与 `Root`

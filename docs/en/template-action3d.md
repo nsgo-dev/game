@@ -3,7 +3,7 @@
 `action3d` is a third-person 3D action adventure: a knight crosses a walled courtyard, fights the guards, jumps onto a ledge for the key, and the key opens the gate to the shrine. Reaching the shrine wins the run; losing all health loses it. Create a project from it with:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template action3d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template action3d mygame
 cd mygame
 go tool nsgo dev
 ```
@@ -48,10 +48,10 @@ or, without the `game` tool, `nsgo init -template github.com/nsgo-dev/game/templ
 
 ## Where to change it
 
-- **The level.** Move walls, add enemies or lamps, or draw a new level in `scenes/keep.scene.yaml`, by hand or in the scene editor (`go run github.com/nsgo-dev/game/packages/game/cmd/game editor .`). Every object sits at the top of its layer, and only the spawn is rotated (by `rotY`): the level refuses an object nested inside another or a rotated block, since it reads positions as world values and blocks as boxes aligned with the axes. The tests check that it still loads; the bot's route in `game_test.go` says how a run is won, so a new layout needs a new route.
+- **The level.** Move walls, add enemies or lamps, or draw a new level in `scenes/keep.scene.yaml`, by hand or in the scene editor (`go run github.com/nsgo-dev/game/cmd/game editor .`). Every object sits at the top of its layer, and only the spawn is rotated (by `rotY`): the level refuses an object nested inside another or a rotated block, since it reads positions as world values and blocks as boxes aligned with the axes. The tests check that it still loads; the bot's route in `game_test.go` says how a run is won, so a new layout needs a new route.
 - **The fight.** `data/actors.yaml` holds every number: an enemy's `attackSpeed` below 1 slows its swing, and `health`, `reach`, `damage`, `cooldown` and `knockback` change the difficulty without touching code.
 - **Animation.** Edit the clips' keys in `data/actors.yaml`, or add a clip and a state for it in `newAnimator` in `rig.go`.
 - **New objects.** Register a component type in `levelComponents` in `level.go`, such as a moving platform or a lever, read it in `buildLevel`, and connect its events to handlers in the scene.
 - **Models.** Replace the boxes with glTF models: load them with package `gltf` ([3D models from Blender](3d-models-blender.md)), upload their meshes with `render3d.UploadMesh` and draw them in `renderer.draw`.
 
-After editing `game.yaml`, `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` writes what `nsgo.yaml` shares with it, and after moving or adding files `go run github.com/nsgo-dev/game/packages/game/cmd/game index` keeps `game.index.yaml`, the project's index of stable file IDs, up to date.
+After editing `game.yaml`, `go run github.com/nsgo-dev/game/cmd/gameproject sync` writes what `nsgo.yaml` shares with it, and after moving or adding files `go run github.com/nsgo-dev/game/cmd/game index` keeps `game.index.yaml`, the project's index of stable file IDs, up to date.

@@ -3,7 +3,7 @@
 `game/rooms` 像银河恶魔城类平台游戏那样，把 2D 世界划分为各自带相机边界的房间。玩家从一个房间走进下一个房间时，`Director` 把 `tilemap.Camera` 限制在新房间内，并播放该房间的过渡效果：切换（cut）、滑动（slide）或淡入淡出（fade）。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/rooms"
+import "github.com/nsgo-dev/game/pkg/rooms"
 ```
 
 ## 房间地图

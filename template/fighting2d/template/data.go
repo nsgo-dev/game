@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/fighting"
-	"github.com/nsgo-dev/game/packages/game/framedata"
+	"github.com/nsgo-dev/game/pkg/fighting"
+	"github.com/nsgo-dev/game/pkg/framedata"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )

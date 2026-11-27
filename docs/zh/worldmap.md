@@ -3,7 +3,7 @@
 `game/worldmap` 记录玩家已发现的游戏世界房间，并把它们绘制成当前区域的小地图和带标记的世界地图。已发现的内容写入存档槽，读档后原样恢复。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/worldmap"
+import "github.com/nsgo-dev/game/pkg/worldmap"
 ```
 
 ## 地图定义

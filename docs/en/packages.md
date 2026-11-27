@@ -4,9 +4,9 @@ What each package holds and how its parts behave, from the packages' doc comment
 
 ## API reference
 
-The [API reference](https://game.nsgo.dev/docs/api/) has a page for each package of `packages/game`, rendered from the doc comments in its source at every build of the site, as `go doc` shows them: the package's doc, an index, then its constants, variables, functions and types, each type with its values, constructors and methods. Every exported identifier has an anchor named as pkg.go.dev names it, `Name` for a constant, variable, function or type and `Type.Name` for a method, a struct field or an interface method, so `https://game.nsgo.dev/docs/api/game/#Loop.Update` is `Loop.Update`. A declaration that only some targets build lists them.
+The [API reference](https://game.nsgo.dev/docs/api/) has a page for each package of `github.com/nsgo-dev/game`, rendered from the doc comments in its source at every build of the site, as `go doc` shows them: the package's doc, an index, then its constants, variables, functions and types, each type with its values, constructors and methods. Every exported identifier has an anchor named as pkg.go.dev names it, `Name` for a constant, variable, function or type and `Type.Name` for a method, a struct field or an interface method, so `https://game.nsgo.dev/docs/api/game/#Loop.Update` is `Loop.Update`. A declaration that only some targets build lists them.
 
-Agents read the same reference as JSON at [`/api.json`](https://game.nsgo.dev/api.json): every package with its synopsis and doc, and every declaration with its anchor, its gofmt-formatted source, its doc comment, its file and line below `packages/game`, and the targets that build it when not all of them do. Its `version` field is 1 and changes when a field is removed or changes meaning. To write it from a checkout, run in `packages/game`:
+Agents read the same reference as JSON at [`/api.json`](https://game.nsgo.dev/api.json): every package with its synopsis and doc, and every declaration with its anchor, its gofmt-formatted source, its doc comment, its file and line below the repository root, and the targets that build it when not all of them do. Its `version` field is 1 and changes when a field is removed or changes meaning. To write it from a checkout, run at the repository root:
 
 ```sh
 go run ./cmd/gameapi -out api.json
@@ -19,7 +19,7 @@ Every library package also has runnable examples: `Example` functions in its `ex
 ## Loop
 
 ```go
-import "github.com/nsgo-dev/game/packages/game"
+import "github.com/nsgo-dev/game"
 ```
 
 `Loop` runs a game's updates at a fixed rate on a scope's display frames, and draws once a frame in between.
@@ -44,7 +44,7 @@ func (l *Loop) Run(cx *core.Scope) (stop func())
 ## sprite
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sprite"
+import "github.com/nsgo-dev/game/pkg/sprite"
 ```
 
 Atlases, frames, animations, sprites and batches drawn into a `Canvas`.
@@ -95,7 +95,7 @@ batch.Draw(d)
 ## sound
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sound"
+import "github.com/nsgo-dev/game/pkg/sound"
 ```
 
 The `Mixer`, its effects and music, on top of NSGo's `audio` package. Its methods are called on the engine's goroutine, as `audio`'s are.

@@ -1,6 +1,6 @@
 # fighting
 
-`github.com/nsgo-dev/game/packages/game/fighting` buffers fighting-game input one fixed step at a time and recognizes motion inputs (quarter circles, dragon punches, charges, double taps), button presses, chords and combos described in a YAML move set.
+`github.com/nsgo-dev/game/pkg/fighting` buffers fighting-game input one fixed step at a time and recognizes motion inputs (quarter circles, dragon punches, charges, double taps), button presses, chords and combos described in a YAML move set.
 
 ## Numpad notation
 

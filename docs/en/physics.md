@@ -3,7 +3,7 @@
 `game/physics` provides 2D collision shapes (`Box`, `Circle`, convex `Polygon`, `Capsule`, `Segment` and `Chain`), exact overlap contacts, anti-tunneling tile resolution with `MoveAndSlide`, and deterministic spatial queries and raycasts on `World`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/physics"
+import "github.com/nsgo-dev/game/pkg/physics"
 ```
 
 Coordinates follow NSGo's screen space: X increases to the right and Y increases downward.

@@ -4,7 +4,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/nsgo-dev/game/packages/game/cards"
+	"github.com/nsgo-dev/game/pkg/cards"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

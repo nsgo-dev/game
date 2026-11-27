@@ -6,4 +6,4 @@ Star Catcher draws its sprites and synthesizes its sounds in code (each chapter'
 | --- | --- | --- | --- |
 | `ch09-ship/assets/Icon.png` | 1024×1024 app icon | NSGo Game Contributors (`ch09-ship/tools/genicon`) | [Apache-2.0](../../LICENSE) |
 
-A game built from the tutorial that wants real art can start from the CC0 placeholder pack in `packages/game/placeholder`.
+A game built from the tutorial that wants real art can start from the CC0 placeholder pack in `pkg/placeholder`.

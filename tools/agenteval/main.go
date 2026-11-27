@@ -146,13 +146,13 @@ func findRepoRoot() (string, error) {
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "packages", "game", "go.mod")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 				return dir, nil
 			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", errors.New("agenteval: could not locate repository root containing go.work and packages/game/go.mod")
+			return "", errors.New("agenteval: could not locate repository root containing go.work and go.mod")
 		}
 		dir = parent
 	}

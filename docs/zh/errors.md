@@ -1,6 +1,6 @@
 # 可据以行动的错误
 
-本模块中每个加载器和校验器在文件无法使用时，都返回同一种错误类型：`github.com/nsgo-dev/game/packages/game/loaderr` 中的 `*loaderr.Error`。它给出文件、行号与列号、字段、出了什么问题、期望的是什么以及如何修复，这样人或读测试、构建日志的 Agent 不必阅读加载器的源码，就能打开文件跳到那一行改正它。
+本模块中每个加载器和校验器在文件无法使用时，都返回同一种错误类型：`github.com/nsgo-dev/game/pkg/loaderr` 中的 `*loaderr.Error`。它给出文件、行号与列号、字段、出了什么问题、期望的是什么以及如何修复，这样人或读测试、构建日志的 Agent 不必阅读加载器的源码，就能打开文件跳到那一行改正它。
 
 ```text
 levels/cave.scene.yaml:14:7: layers[1].space: layer "hud" has invalid space "iso"; expected "world" or "screen"; fix: set space to world or screen, or remove it for world

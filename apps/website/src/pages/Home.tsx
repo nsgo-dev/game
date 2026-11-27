@@ -15,7 +15,7 @@ import { CATEGORY_ORDER, PackageLink } from './Packages'
 export const homeHead = (lang: Lang) => pageHead(lang, '', copies[lang].site.title, copies[lang].site.description)
 
 // The command that makes a new game, as docs/en/getting-started.md gives it.
-const NEW_GAME = 'go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame'
+const NEW_GAME = 'go run github.com/nsgo-dev/game/cmd/game@latest new mygame'
 
 const PLATFORMS = ['macOS', 'iOS', 'Windows', 'Linux', 'Android', 'Web']
 

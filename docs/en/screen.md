@@ -3,7 +3,7 @@
 `game/screen` maps a fixed virtual canvas onto any window size and aspect ratio, converts pointer input between view and virtual coordinates, snaps pixel-art coordinates, computes safe-area rectangles for HUD layers, and applies the player's video settings.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/screen"
+import "github.com/nsgo-dev/game/pkg/screen"
 ```
 
 ## Viewport and scaling modes

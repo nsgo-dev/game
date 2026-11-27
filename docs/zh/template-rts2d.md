@@ -3,7 +3,7 @@
 `rts2d` 是一场 2D 即时战略遭遇战，名为 Shardfront：一张地图上的两座基地、可采的水晶、可建的兵营、三种单位、战争迷雾、框选、编队，以及一个电脑对手。总部先被摧毁的一方落败；双方总部在同一步内被摧毁则为平局。它小到一个下午就能读完，结构也按策略游戏的成长方式组织：规则、地图和对手的优先级都是 YAML 数据文件，模拟层对视图和输入一无所知，玩家和对手通过同一组函数下达命令。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template rts2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template rts2d mygame
 cd mygame
 go tool nsgo dev
 ```

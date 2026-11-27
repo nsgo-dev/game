@@ -3,7 +3,7 @@
 `racing3d` 模板是一个小型 3D 赛车游戏：从发车格最后一位出发，在封闭赛道上与两名电脑对手比赛两圈，包含倒计时、检查点、最佳圈幽灵车和结算画面。它可以用键盘、手柄或触屏操作，运行在桌面、手机和网页上。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template racing3d myracer
+go run github.com/nsgo-dev/game/cmd/game@latest new -template racing3d myracer
 cd myracer
 go tool nsgo dev
 ```

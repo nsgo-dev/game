@@ -127,7 +127,7 @@ export function buildLlms(pages: readonly LlmsPage[], site: string): { index: st
   const index = `${[
     '# NSGo Game',
     `> ${copy.site.description}`,
-    `NSGo Game v0.1.0 ships both stable and experimental packages (see API Stability). Read the packages' source, \`go list -m -f '{{.Dir}}' github.com/nsgo-dev/game/packages/game\`, before relying on a signature. Each page below is a page of the site; ${site}${LLMS_FULL} holds their Markdown in full.`,
+    `NSGo Game v0.1.0 ships both stable and experimental packages (see API Stability). Read the packages' source, \`go list -m -f '{{.Dir}}' github.com/nsgo-dev/game\`, before relying on a signature. Each page below is a page of the site; ${site}${LLMS_FULL} holds their Markdown in full.`,
     ...sections,
     [
       '## Optional',

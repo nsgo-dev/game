@@ -3,7 +3,7 @@
 `game/particles` 提供由固定种子驱动的确定性 2D 与 3D 粒子发射器：2D `Emitter` 通过可复用的 `sprite.Batch` 绘制，3D `Emitter3D` 与 `GPUParticles3D` 通过单次实例化 `gpu.View` 调用高效绘制。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/particles"
+import "github.com/nsgo-dev/game/pkg/particles"
 ```
 
 两个配置和 `Seed` 完全相同、且按相同 `dt` 步进的发射器，会生成逐比特完全一致的粒子状态与绘制指令。
@@ -202,7 +202,7 @@ go tool nsgo dev -fps
 
 ```sh
 # 5000 个着色粒子执行一次 Update 和一次 Draw，每个粒子单独绘制一次图像
-cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./particles
+go tool nsgo test ./pkg/particles -- -run '^$' -bench Emitter5000UpdateDraw
 # 喷泉场景的 5000 个未着色粒子执行一个固定步和一次绘制，按 DrawAtlas 分段绘制
 cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
@@ -300,7 +300,7 @@ gpuParticles.Draw(pass) // 单次 DrawIndexedInstanced 绘制全部存活粒子
 `Emitter3D` 采用紧凑的数组结构体（SoA）存储、交换删除（swap-remove）过期回收与可复用基数排序缓冲：
 
 ```sh
-cd packages/game && go tool nsgo test -run '^$' -bench BenchmarkEmitter3D10k ./particles
+go tool nsgo test ./pkg/particles -- -run '^$' -bench BenchmarkEmitter3D10k
 ```
 
 在 Apple Silicon 上对 10,000 个启用重力、指数阻力、自旋以及尺寸/透明度/颜色/旋转曲线的活跃粒子测得：

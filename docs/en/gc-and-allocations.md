@@ -32,7 +32,7 @@ Keep `Loop.Update`, `Loop.Draw`, and `Canvas.Draw` callbacks free of steady-stat
 3. **Avoid per-frame closure captures and interface boxing.** Prefer methods on pre-allocated structs and typed value tokens (such as `debug.ScopeToken`) over allocating closures or `any` wrappers per frame.
 4. **Reuse `sprite.Batch` and fixed-size ring buffers.** Keep particle, bullet, and telemetry buffers fixed-capacity rather than growing/shrinking every tick.
 5. **Load and decode assets between gameplay states.** Track per-group footprints with `debug.MemoryTracker` and call `ReleaseGroup` on level transitions; run an explicit `runtime.GC()` during loading screens rather than mid-frame.
-6. **Build releases with `-tags release`.** All `packages/game/debug` tooling compiles to zero-cost no-op stubs in release builds.
+6. **Build releases with `-tags release`.** All `pkg/debug` tooling compiles to zero-cost no-op stubs in release builds.
 
 ## Detecting GC Hitches and Testing in CI
 

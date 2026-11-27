@@ -3,7 +3,7 @@
 `roguelike2d` is a small turn-based roguelike: a delver descends the five floors of the Glimmerdeep, fights the monsters that live there, gathers weapons, armor, draughts, tonics and shards, and lifts the Heart Ember from the last floor, where the Vault Warden stands on it. Every floor is generated from the run's seed, and death is permanent: the run's save is deleted the moment the run ends, and a summary and the records of every run are kept. It is built on [`procgen`](procgen.md), [`entities`](entities.md), [`loot`](loot.md), [`stats`](stats.md), [`ability`](ability.md), [`save`](save.md), `random`, [`input`](input.md) and [`screen`](screen.md), and its art is drawn by code.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template roguelike2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template roguelike2d mygame
 cd mygame
 go tool nsgo dev
 ```

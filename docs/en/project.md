@@ -1,6 +1,6 @@
 # Project File
 
-`github.com/nsgo-dev/game/packages/game/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, the editor plugins it turns on, its asset pipeline and the library packs installed into it. The game reads it at startup, the `gameproject` command checks and applies it, `game release` reads its export presets, `game assets` builds its asset targets, and the editor opens, edits and saves it.
+`github.com/nsgo-dev/game/pkg/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, the editor plugins it turns on, its asset pipeline and the library packs installed into it. The game reads it at startup, the `gameproject` command checks and applies it, `game release` reads its export presets, `game assets` builds its asset targets, and the editor opens, edits and saves it.
 
 ## The file
 
@@ -195,10 +195,10 @@ NSGo's own `nsgo.yaml` sits beside `game.yaml` and repeats some of its settings.
 ## The gameproject command
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check [dir]
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject fmt [-check] [dir]
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync [-check] [dir]
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject check [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject fmt [-check] [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject sync [-check] [dir]
+go run github.com/nsgo-dev/game/cmd/gameproject targets [dir]
 ```
 
 - `check` reports every problem of a project at once (`project.Check`): a `game.yaml` that does not parse, an `nsgo.yaml` that disagrees with it, an autoload that is missing or invalid, and a file an installed pack wrote that is missing.
@@ -248,4 +248,4 @@ A reference is rewritten in place: its quotes are kept, and the rest of the file
 
 ## The starter and the examples
 
-The starter template and the four example games (`caverun`, `cryptquest`, `slidegem`, `starburst`) keep their settings in `game.yaml`: each its window, and where it has them its virtual resolution, input map, audio buses and export presets. Cave Run also autoloads its level from it. Each has a test that its `game.yaml` is canonical and its `nsgo.yaml` agrees with it. They are indexed too: Cave Run, whose `game.yaml` and maps name files, carries a `game.index.yaml`, and a test in `game/refs` fails when `game index` would change anything in the examples or the starter, so run `go run ./cmd/game index <dir>` from `packages/game` after moving or editing a file they name. The others, and the starter, have no scene or resource file and name no file from one, so they have nothing to index until a game adds one.
+The starter template and the four example games (`caverun`, `cryptquest`, `slidegem`, `starburst`) keep their settings in `game.yaml`: each its window, and where it has them its virtual resolution, input map, audio buses and export presets. Cave Run also autoloads its level from it. Each has a test that its `game.yaml` is canonical and its `nsgo.yaml` agrees with it. They are indexed too: Cave Run, whose `game.yaml` and maps name files, carries a `game.index.yaml`, and a test in `game/refs` fails when `game index` would change anything in the examples or the starter, so run `go run ./cmd/game index <dir>` from the repository root after moving or editing a file they name. The others, and the starter, have no scene or resource file and name no file from one, so they have nothing to index until a game adds one.

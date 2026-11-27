@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/ability"
-	"github.com/nsgo-dev/game/packages/game/loot"
-	"github.com/nsgo-dev/game/packages/game/stats"
+	"github.com/nsgo-dev/game/pkg/ability"
+	"github.com/nsgo-dev/game/pkg/loot"
+	"github.com/nsgo-dev/game/pkg/stats"
 )
 
 // TestDataFilesAreCanonical checks that each data file parses and is in the form its encoder writes, so a load and save changes nothing and a review shows only real edits.

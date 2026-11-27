@@ -3,7 +3,7 @@
 `game/text` 通过 `sprite.Batch` 绘制 AngelCode BMFont 位图字体（支持字距调整、自动换行和对齐），绘制在屏幕上或 3D 世界空间中任何尺寸都保持清晰的有向距离场字体，并通过 `core.Drawing.FillText` 绘制平台矢量文本。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/text"
+import "github.com/nsgo-dev/game/pkg/text"
 ```
 
 ## 位图字体（AngelCode BMFont）

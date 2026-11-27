@@ -10,9 +10,6 @@ import { LocaleLink } from './LocaleLink'
 const NARROW = '(max-width: 820px)'
 const FOLD_SCRIPT = `if (matchMedia('${NARROW}').matches) document.querySelector('.docs__nav').open = false;`
 
-// The Go module's directory in the repository, which a declaration's file is relative to.
-const MODULE_DIR = 'packages/game'
-
 // The ids of a package page's sections, as pkg.go.dev names them; an exported identifier starts with a capital letter, so none is one of these.
 const SECTION = { overview: 'pkg-overview', index: 'pkg-index', consts: 'pkg-constants', vars: 'pkg-variables', funcs: 'pkg-functions', types: 'pkg-types' } as const
 
@@ -29,12 +26,16 @@ export function apiPackageHead(lang: Lang, pkg: ApiPackage | undefined) {
 // apiPage is a package page's path from a splat, which may end in the slash every page's address does.
 export const apiPage = (splat: string | undefined) => (splat ?? '').replace(/\/+$/, '')
 
-// groupPackages puts the packages at the module's top level first, then those below each directory, such as tooling/, under it.
+// displayPage strips the leading pkg/ directory from a package's page path so the sidebar and index show sprite and tooling/pack rather than grouping every library package under pkg.
+const displayPage = (page: string) => (page.startsWith('pkg/') ? page.slice('pkg/'.length) : page)
+
+// groupPackages puts the packages at the top level first, then those below each directory, such as tooling/, under it.
 function groupPackages(packages: ApiSummary[]): { dir: string; items: ApiSummary[] }[] {
   const groups = new Map<string, ApiSummary[]>()
   for (const pkg of packages) {
-    const slash = pkg.page.indexOf('/')
-    const dir = slash < 0 ? '' : pkg.page.slice(0, slash)
+    const shown = displayPage(pkg.page)
+    const slash = shown.indexOf('/')
+    const dir = slash < 0 ? '' : shown.slice(0, slash)
     groups.set(dir, [...(groups.get(dir) ?? []), pkg])
   }
   return [...groups].map(([dir, items]) => ({ dir, items })).sort((a, b) => (a.dir === '' ? -1 : b.dir === '' ? 1 : a.dir.localeCompare(b.dir)))
@@ -91,13 +92,16 @@ function ApiLayout({ children, toc, page }: { children: ReactNode; toc?: { id: s
               <div key={group.dir} className="docs__group">
                 <p className="docs__group-title">{groupTitle(lang, group.dir)}</p>
                 <ul>
-                  {group.items.map((pkg) => (
-                    <li key={pkg.page}>
-                      <PackageLink lang={lang} page={pkg.page} className="api__nav-link">
-                        {group.dir === '' ? pkg.page : pkg.page.slice(group.dir.length + 1)}
-                      </PackageLink>
-                    </li>
-                  ))}
+                  {group.items.map((pkg) => {
+                    const shown = displayPage(pkg.page)
+                    return (
+                      <li key={pkg.page}>
+                        <PackageLink lang={lang} page={pkg.page} className="api__nav-link">
+                          {group.dir === '' ? shown : shown.slice(group.dir.length + 1)}
+                        </PackageLink>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             ))}
@@ -147,7 +151,7 @@ export function ApiIndexView() {
                 <Fragment key={pkg.page}>
                   <dt>
                     <PackageLink lang={lang} page={pkg.page}>
-                      {pkg.page}
+                      {displayPage(pkg.page)}
                     </PackageLink>
                     <Platforms lang={lang} platforms={pkg.platforms} />
                   </dt>
@@ -292,7 +296,7 @@ function Platforms({ lang, platforms, block }: { lang: Lang; platforms: string[]
 function SourceLink({ lang, file, line }: { lang: Lang; file: string; line: number }) {
   const label = copies[lang].api.source
   return (
-    <a className="api__source" href={`${GITHUB_URL}/blob/main/${MODULE_DIR}/${file}#L${line}`} target="_blank" rel="noopener noreferrer" aria-label={`${label}: ${file}:${line}`} title={`${file}:${line}`}>
+    <a className="api__source" href={`${GITHUB_URL}/blob/main/${file}#L${line}`} target="_blank" rel="noopener noreferrer" aria-label={`${label}: ${file}:${line}`} title={`${file}:${line}`}>
       {label}
       <Icon name="external" size={12} />
     </a>

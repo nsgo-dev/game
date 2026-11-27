@@ -1,12 +1,10 @@
 name: Release
 
 # Runs the full test and cross-target check suite on release tags, then publishes a GitHub Release with notes extracted from CHANGELOG.md.
-# Supports both repository tags (v0.1.0) and Go submodule tags (packages/game/v0.1.0, used by Go for github.com/nsgo-dev/game/packages/game).
 on:
   push:
     tags:
       - "v*"
-      - "packages/game/v*"
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -34,11 +32,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Test
-        working-directory: packages/game
         run: go tool nsgo test ./...
 
   check:
@@ -53,9 +50,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Check Go formatting
         run: |
           unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l)
@@ -64,7 +61,6 @@ jobs:
             exit 1
           fi
       - name: Build and vet every target but iOS
-        working-directory: packages/game
         run: go tool nsgo check -target macos,windows,linux,android,web
 
   apple:
@@ -79,11 +75,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Build and vet iOS
-        working-directory: packages/game
         run: go tool nsgo check -target ios,ios_simulator
 
   release:
@@ -112,8 +107,7 @@ jobs:
             exit 1
           fi
 
-          # Strip the optional Go submodule prefix (packages/game/) to match the CHANGELOG.md heading.
-          version="${TAG#packages/game/}"
+          version="$TAG"
           version_no_v="${version#v}"
 
           status=0
@@ -189,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="${TAG#packages/game/}"
+          version="$TAG"
           title="NSGo Game ${version#v}"
           if [[ "$version" == *-* ]]; then
             gh release create "$TAG" --title "$title" --notes-file release-notes.md --prerelease

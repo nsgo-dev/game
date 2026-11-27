@@ -3,7 +3,7 @@
 `game/tilemap` draws orthogonal, isometric, staggered, and hexagonal tiled worlds with camera frustum culling, loads Tiled `.tmx`/`.tmj` maps (with embedded or external `.tsx`/`.tsj` tilesets and animated tiles) and YAML tilesets (`*.tileset.yaml`), queries tile collision flags and rays, and drives a 2D camera with smoothing, clamping, and screen shake.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tilemap"
+import "github.com/nsgo-dev/game/pkg/tilemap"
 ```
 
 ## Camera

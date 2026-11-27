@@ -1,6 +1,6 @@
 # nsgo-dev/game
 
-A game layer for NSGo apps, written in Go: packages under `packages/game`, the website under `apps/website`, examples under `examples`, docs under `docs/en` and `docs/zh`. The plan is nsgo-dev/nsgo#1047 and this repository's issues. NSGo's own rules (`AGENTS.md` in nsgo-dev/nsgo) apply here too: Go only, no hand-written C, purego or syscall for system APIs, the nsgo tool for vetting and tests.
+A game layer for NSGo apps, written in Go: the root module `github.com/nsgo-dev/game` (`loop.go`, `cmd/`, `internal/`, and library subpackages under `pkg/`), the website under `apps/website`, examples under `examples`, docs under `docs/en` and `docs/zh`. The plan is nsgo-dev/nsgo#1047 and this repository's issues. NSGo's own rules (`AGENTS.md` in nsgo-dev/nsgo) apply here too: Go only, no hand-written C, purego or syscall for system APIs, the nsgo tool for vetting and tests.
 
 ## Every file a person writes is text
 
@@ -15,7 +15,7 @@ As in Godot, whose scenes and resources are text files, and unlike engines that 
 ## Working here
 
 - Each task in its own Git worktree and branch, never the main checkout; conventional commits; a PR per issue.
-- Vet and test from `packages/game` with `go tool nsgo check` and `go tool nsgo test`, never `go vet` or `go test` directly.
+- Vet and test from the repository root with `go tool nsgo check` and `go tool nsgo test`, never `go vet` or `go test` directly.
 - Keep `docs/en` and `docs/zh` equivalent, and update them with the code.
 - Record a user-visible change in a fragment under `changelog.d/`, never in `CHANGELOG.md` directly (`changelog.d/README.md`).
 - Give a non-trivial change (behavior, architecture, a cross-file contract, process and tooling, testing strategy, or an on-disk, wire or configuration format) a note under `.agents/notes`, as the write-notes-like-deepseek skill (`.agents/skills/write-notes-like-deepseek/SKILL.md`) describes, and check it with `bun run verify-notes`.

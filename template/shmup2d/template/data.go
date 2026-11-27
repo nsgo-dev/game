@@ -4,9 +4,9 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/bullets"
-	"github.com/nsgo-dev/game/packages/game/particles"
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/pkg/bullets"
+	"github.com/nsgo-dev/game/pkg/particles"
+	"github.com/nsgo-dev/game/pkg/sprite"
 )
 
 // dataFS holds the game's data files, each YAML that a designer edits without touching Go: the stage (stage.yaml), the bullet patterns (patterns.yaml) and the explosion particles (explosion.yaml).

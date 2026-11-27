@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/entities"
-	"github.com/nsgo-dev/game/packages/game/loot"
-	"github.com/nsgo-dev/game/packages/game/procgen"
+	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/loot"
+	"github.com/nsgo-dev/game/pkg/procgen"
 )
 
 // testSeeds is how many seeds the generation and balance tests play.

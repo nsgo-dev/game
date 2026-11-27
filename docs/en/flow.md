@@ -3,7 +3,7 @@
 `game/flow` holds gameplay control-flow primitives driven exclusively by `game.Loop`'s fixed `dt`: game-clock `Timers`, typed finite state machines (`Machine[S]`), hierarchical state machines (`HSM[S]`), composable step sequences (`Seq`, `Parallel`, `Race`), and a zero-global-state typed event `Bus`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/flow"
+import "github.com/nsgo-dev/game/pkg/flow"
 ```
 
 Nothing in `flow` reads the wall clock, spawns goroutines, or holds package-level state — every primitive pauses with your loop, replays deterministically, and isolates cleanly per scene.

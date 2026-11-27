@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/packages/game/rhythm"
+	"github.com/nsgo-dev/game/pkg/rhythm"
 )
 
 // TestSongsFileIsCanonical keeps songs.yaml in the form EncodeSongs writes, so an edit by hand and one by a tool read the same in review.

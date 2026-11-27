@@ -1,6 +1,6 @@
 # procgen
 
-`github.com/nsgo-dev/game/packages/game/procgen` generates 2D levels on a tile grid with four generators: BSP rooms joined by corridors, cellular-automata caves, wave function collapse over a YAML rule file, and hand-made room templates placed on a dungeon layout graph.
+`github.com/nsgo-dev/game/pkg/procgen` generates 2D levels on a tile grid with four generators: BSP rooms joined by corridors, cellular-automata caves, wave function collapse over a YAML rule file, and hand-made room templates placed on a dungeon layout graph.
 
 Every generator takes a [`random.Stream`](determinism.md) and draws all of its randomness from it, so the same seed and configuration give the same level, cell for cell, on every operating system and architecture. BSP, Cave and GenerateRooms always leave their walkable cells as one 4-connected region, and so does WFC unless `AllowDisconnected` is set or its rules have no walkable tile.
 

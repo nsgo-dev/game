@@ -3,7 +3,7 @@
 `game/effects` 让游戏画面依次经过一串着色器通道（pass）绘制，uniform 可随平台帧时钟播放动画。画面通常是游戏每帧写入的像素缓冲（`core.ImageSource.Pixels`），自 [nsgo#1052](https://github.com/nsgo-dev/nsgo/issues/1052) 起 NSGo 着色器可以读取它。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/effects"
+import "github.com/nsgo-dev/game/pkg/effects"
 ```
 
 ## 编写效果

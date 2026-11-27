@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/flow"
-	"github.com/nsgo-dev/game/packages/game/l10n"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/vn"
 )
 
 // TestStoryFilesAreCanonical checks that cast.yaml and the string tables are in the form their encoders write, so that a tool that loads and saves them changes nothing.

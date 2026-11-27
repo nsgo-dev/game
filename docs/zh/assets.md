@@ -3,7 +3,7 @@
 `game/assets` 在后台 goroutine 异步加载精灵图集、音效、图片、原始字节与自定义游戏数据而不阻塞显示帧，按场景组织成带响应式进度的资源组，在场景结束时统一释放，并提供开箱即用的 `LoadingScreen` 组件。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/assets"
+import "github.com/nsgo-dev/game/pkg/assets"
 ```
 
 `Manager` 与 `Group` 的方法均在引擎 goroutine 上调用；文件读取与解析在后台执行，并通过 `core.Scope.Post` 回到引擎 goroutine，确保动画与 `game.Loop` 不会卡顿。

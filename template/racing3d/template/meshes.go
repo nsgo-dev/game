@@ -3,8 +3,8 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/render3d"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/render3d"
 )
 
 // The scene is drawn from a few meshes built in code: a unit cube and a unit wheel that the cars and the trackside props scale into place, and the ground, the road and its curbs built once from the course.

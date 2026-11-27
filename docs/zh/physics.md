@@ -3,7 +3,7 @@
 `game/physics` 提供 2D 碰撞形状（`Box`、`Circle`、凸多边形 `Polygon`、`Capsule`、`Segment` 与 `Chain`）、精确重叠接触计算、防穿墙瓦片滑动解析 `MoveAndSlide`，以及 `World` 上的确定性空间查询与射线检测。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/physics"
+import "github.com/nsgo-dev/game/pkg/physics"
 ```
 
 坐标系与 NSGo 屏幕空间一致：X 向右递增，Y 向下递增。

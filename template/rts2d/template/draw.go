@@ -3,8 +3,8 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/fog"
-	"github.com/nsgo-dev/game/packages/game/rts"
+	"github.com/nsgo-dev/game/pkg/fog"
+	"github.com/nsgo-dev/game/pkg/rts"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

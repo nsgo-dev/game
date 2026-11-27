@@ -4,9 +4,9 @@
 
 ## API 参考
 
-[API 参考](https://game.nsgo.dev/zh/docs/api/)为 `packages/game` 的每个包提供一页，每次构建网站时从源码中的文档注释生成，内容与 `go doc` 一致：先是包的文档和索引，再是常量、变量、函数和类型，每个类型下列出它的值、构造函数和方法。每个导出标识符都有锚点，命名方式与 pkg.go.dev 相同：常量、变量、函数和类型用 `Name`，方法、结构体字段和接口方法用 `Type.Name`，因此 `https://game.nsgo.dev/zh/docs/api/game/#Loop.Update` 指向 `Loop.Update`。只有部分目标构建的声明会列出这些目标。
+[API 参考](https://game.nsgo.dev/zh/docs/api/)为 `github.com/nsgo-dev/game` 的每个包提供一页，每次构建网站时从源码中的文档注释生成，内容与 `go doc` 一致：先是包的文档和索引，再是常量、变量、函数和类型，每个类型下列出它的值、构造函数和方法。每个导出标识符都有锚点，命名方式与 pkg.go.dev 相同：常量、变量、函数和类型用 `Name`，方法、结构体字段和接口方法用 `Type.Name`，因此 `https://game.nsgo.dev/zh/docs/api/game/#Loop.Update` 指向 `Loop.Update`。只有部分目标构建的声明会列出这些目标。
 
-智能体可以在 [`/api.json`](https://game.nsgo.dev/api.json) 读取同样内容的 JSON：每个包的概要和文档，以及每个声明的锚点、经 gofmt 格式化的源码、文档注释、在 `packages/game` 下的文件和行号，并在不是所有目标都构建它时列出构建它的目标。其中 `version` 字段为 1，删除字段或改变字段含义时才会变化。要在本地检出中生成它，在 `packages/game` 下运行：
+智能体可以在 [`/api.json`](https://game.nsgo.dev/api.json) 读取同样内容的 JSON：每个包的概要和文档，以及每个声明的锚点、经 gofmt 格式化的源码、文档注释、在仓库根目录下的文件和行号，并在不是所有目标都构建它时列出构建它的目标。其中 `version` 字段为 1，删除字段或改变字段含义时才会变化。要在本地检出中生成它，在仓库根目录运行：
 
 ```sh
 go run ./cmd/gameapi -out api.json
@@ -19,7 +19,7 @@ go run ./cmd/gameapi -out api.json
 ## Loop
 
 ```go
-import "github.com/nsgo-dev/game/packages/game"
+import "github.com/nsgo-dev/game"
 ```
 
 `Loop` 在作用域的显示帧上以固定频率运行游戏的更新，并在两次更新之间每帧绘制一次。
@@ -44,7 +44,7 @@ func (l *Loop) Run(cx *core.Scope) (stop func())
 ## sprite
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sprite"
+import "github.com/nsgo-dev/game/pkg/sprite"
 ```
 
 图集、帧、动画、精灵，以及绘制到 `Canvas` 中的批次。
@@ -95,7 +95,7 @@ batch.Draw(d)
 ## sound
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sound"
+import "github.com/nsgo-dev/game/pkg/sound"
 ```
 
 `Mixer` 及其音效和音乐，构建在 NSGo 的 `audio` 包之上。和 `audio` 一样，它的方法要在引擎的 goroutine 上调用。

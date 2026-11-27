@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/physics3d"
-	"github.com/nsgo-dev/game/packages/game/render3d"
-	"github.com/nsgo-dev/game/packages/game/scene3d"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/physics3d"
+	"github.com/nsgo-dev/game/pkg/render3d"
+	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 )

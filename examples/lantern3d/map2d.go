@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/math2d"
-	"github.com/nsgo-dev/game/packages/game/scene"
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/scene"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

@@ -72,7 +72,7 @@ export function siteContent(): Plugin {
         snippetsDir: path.resolve(config.root, 'snippets'),
         examplesDir: path.resolve(config.root, '../../examples'),
         publicDir: config.publicDir,
-        goModule: path.resolve(config.root, '../../packages/game'),
+        goModule: path.resolve(config.root, '../..'),
       }
     },
     configureServer(server) {
@@ -276,7 +276,7 @@ export async function loadDoc(lang, slug) {
 }`
 }
 
-// A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test in packages/game keeps the table complete and the Chinese one equal to it.
+// A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test at the repository root keeps the table complete and the Chinese one equal to it.
 const STABILITY_ROW = /^\| `([^`]+)` \| (Stable|Experimental) \| (?:\[[^\]]+\]\(([a-z0-9-]+)\.md\))? ?\|$/
 
 // readStability reads each package's status from docs/en/stability.md, by the slug of its guide.
@@ -450,7 +450,7 @@ export async function loadApiPackage(page) {
 // ---- The site's own pages ----
 
 async function loadSiteModule(ctx: Context): Promise<string> {
-  return `export const site = ${JSON.stringify(await loadSite({ docsDir: ctx.docsDir, examplesDir: ctx.examplesDir, packagesDir: path.dirname(ctx.goModule) }))}`
+  return `export const site = ${JSON.stringify(await loadSite({ docsDir: ctx.docsDir, examplesDir: ctx.examplesDir, repoDir: ctx.goModule }))}`
 }
 
 // ---- Snippets ----

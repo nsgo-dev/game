@@ -3,7 +3,7 @@
 `game/undo` 为解谜和回合制游戏记录可撤销的操作，支持无限次撤销与重做。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/undo"
+import "github.com/nsgo-dev/game/pkg/undo"
 ```
 
 `undo` 中没有任何代码读取时钟、启动 goroutine 或保存包级状态。

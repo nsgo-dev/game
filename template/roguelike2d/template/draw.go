@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/procgen"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/procgen"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

@@ -3,14 +3,14 @@
 A small, zero-reflection entity-component-system (ECS) for NSGo games: generational entities, typed sparse-set components, allocation-free queries, topologically ordered systems, prefabs and JSON world snapshots integrated with `game/save`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/entities"
+import "github.com/nsgo-dev/game/pkg/entities"
 ```
 
 `nsgo game generate component <name>`, `system <name>` and `prefab <name>` write a new component, system or prefab into a game with its registration and a test; see [Command Line](cli.md#generate).
 
 ## Architectural decision
 
-Before implementing `entities` ([#136](https://github.com/nsgo-dev/game/issues/136)), three designs were compared for representing game objects in `packages/game`:
+Before implementing `entities` ([#136](https://github.com/nsgo-dev/game/issues/136)), three designs were compared for representing game objects in `github.com/nsgo-dev/game`:
 
 1. **A small, zero-reflection, generational-index ECS with typed sparse-set storage** (chosen).
 2. **An object-oriented scene tree** of heap-allocated nodes with virtual update methods.

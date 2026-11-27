@@ -1,4 +1,4 @@
-import "github.com/nsgo-dev/game/packages/game/sprite"
+import "github.com/nsgo-dev/game/pkg/sprite"
 
 //go:embed hero.json
 var heroJSON []byte

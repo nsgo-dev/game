@@ -1,6 +1,6 @@
 # vn
 
-`github.com/nsgo-dev/game/packages/game/vn` plays a dialogue script as a visual novel: character portraits with expressions, a text box with name plates and a typewriter, choices, a backlog, auto and skip modes, and voice lines.
+`github.com/nsgo-dev/game/pkg/vn` plays a dialogue script as a visual novel: character portraits with expressions, a text box with name plates and a typewriter, choices, a backlog, auto and skip modes, and voice lines.
 
 A `Presenter` runs a Yarn Spinner script with [`flow`](flow.md)'s `DialogueRunner` and a cast read from a YAML cast file. `Update` moves it on by [`game.Loop`](loop.md)'s fixed step and `Draw` draws it into a `Canvas`, so a scene plays alike every time and under `nsgotest`.
 
@@ -154,9 +154,8 @@ if i, ok := p.ChoiceAt(size, style, ev.Position); ok {
 
 ## Sample
 
-`vn/cmd/vnsample` plays a short scene with two characters whose portraits and voices are drawn and synthesized in code. Tap to go on, pick a choice, and use Auto, Skip and Log; watch the scene again and Skip runs through the lines already read.
+`pkg/vn/cmd/vnsample` plays a short scene with two characters whose portraits and voices are drawn and synthesized in code. Tap to go on, pick a choice, and use Auto, Skip and Log; watch the scene again and Skip runs through the lines already read.
 
 ```sh
-cd packages/game
-go tool nsgo dev ./vn/cmd/vnsample
+go tool nsgo dev ./pkg/vn/cmd/vnsample
 ```

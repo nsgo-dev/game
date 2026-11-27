@@ -1,6 +1,6 @@
 # vn
 
-`github.com/nsgo-dev/game/packages/game/vn` 把对话脚本演成视觉小说：带表情的角色立绘、带名牌与打字机效果的文本框、选项、回看记录（backlog）、自动与快进模式，以及语音。
+`github.com/nsgo-dev/game/pkg/vn` 把对话脚本演成视觉小说：带表情的角色立绘、带名牌与打字机效果的文本框、选项、回看记录（backlog）、自动与快进模式，以及语音。
 
 `Presenter` 用 [`flow`](flow.md) 的 `DialogueRunner` 运行 Yarn Spinner 脚本，并配合从 YAML 角色表文件读入的角色表。`Update` 按 [`game.Loop`](loop.md) 的固定步长推进，`Draw` 绘制到 `Canvas` 中，所以每次播放结果一致，在 `nsgotest` 下也一样。
 
@@ -154,9 +154,8 @@ if i, ok := p.ChoiceAt(size, style, ev.Position); ok {
 
 ## 示例
 
-`vn/cmd/vnsample` 播放一段双角色的短场景，立绘与语音都由代码绘制和合成。点击继续、点选选项，并使用 Auto、Skip 与 Log；选择重看后，Skip 会快进过已读的台词。
+`pkg/vn/cmd/vnsample` 播放一段双角色的短场景，立绘与语音都由代码绘制和合成。点击继续、点选选项，并使用 Auto、Skip 与 Log；选择重看后，Skip 会快进过已读的台词。
 
 ```sh
-cd packages/game
-go tool nsgo dev ./vn/cmd/vnsample
+go tool nsgo dev ./pkg/vn/cmd/vnsample
 ```

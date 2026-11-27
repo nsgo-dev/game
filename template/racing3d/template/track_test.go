@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle"
 )
 
 // TestTrackFileIsCanonical checks data/track.yaml is in the form EncodeTrack writes, so a load and save changes nothing, and that data/car.yaml is in the form vehicle.EncodeConfig writes.

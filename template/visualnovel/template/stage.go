@@ -5,8 +5,8 @@ import (
 	"image/color"
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/vn"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

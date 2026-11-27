@@ -4,12 +4,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/cards"
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/math2d"
-	"github.com/nsgo-dev/game/packages/game/save"
-	"github.com/nsgo-dev/game/packages/game/screen"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/cards"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )

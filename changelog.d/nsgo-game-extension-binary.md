@@ -1,6 +1,6 @@
 ### Added
 
-- `game/cmd/nsgo-game`: add the `nsgo-game` extension binary entrypoint (`go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`) so `nsgo game` works outside a Go module through NSGo's generic extension mechanism.
+- `game/cmd/nsgo-game`: add the `nsgo-game` extension binary entrypoint (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) so `nsgo game` works outside a Go module through NSGo's generic extension mechanism.
 
 ### Changed
 

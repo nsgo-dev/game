@@ -3,7 +3,7 @@
 `game/scenemodel` 为[场景文件](editor.md)中的对象提供 3D 外观，让 3D 关卡和 2D 关卡一样，是一个人和 AI 都能编辑、能在代码审查中阅读的文本文件，而不必在 Go 代码里拼装。对象在 `mesh` 中指定一个内置基本形体，在 `model` 中指定一个 glTF 2.0 模型，或在 `gridMap` 中指定一个模块化 3D 网格地图，`scenemodel.Build` 把场景变成一棵 `scene3d` 节点树，节点上带着各自的几何体、材质和包围盒，可直接交给 `render3d.Queue` 或本包自己的 `Renderer`。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/scenemodel"
+import "github.com/nsgo-dev/game/pkg/scenemodel"
 ```
 
 ## 字段

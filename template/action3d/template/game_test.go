@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/pkg/math3d"
 )
 
 // step is one fixed step of the game's loop.

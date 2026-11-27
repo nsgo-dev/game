@@ -1,6 +1,6 @@
 # NSGo Vertical Shooter Template
 
-A vertical scrolling shooter built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): one stage of enemy waves, bullet patterns, power-ups, a boss with three phases, lives, bombs and a score, playable with the keyboard, the mouse, a game controller and touch, on desktop, mobile and the web.
+A vertical scrolling shooter built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): one stage of enemy waves, bullet patterns, power-ups, a boss with three phases, lives, bombs and a score, playable with the keyboard, the mouse, a game controller and touch, on desktop, mobile and the web.
 
 It shows:
 
@@ -48,7 +48,7 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 
 ## Layout
 
-- `game.yaml`: the project file, with the window, the 270×480 playfield, the input map, the audio buses and the export presets. `nsgo.yaml` follows it; run `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` after editing it.
+- `game.yaml`: the project file, with the window, the 270×480 playfield, the input map, the audio buses and the export presets. `nsgo.yaml` follows it; run `go run github.com/nsgo-dev/game/cmd/gameproject sync` after editing it.
 - `data/stage.yaml`: the stage. `stage.go` defines its format, which refuses unknown fields and checks every value.
 - `data/patterns.yaml`: the bullet patterns, in the `bullets` package's format.
 - `data/explosion.yaml`: the explosion particles, in the `particles` package's format.

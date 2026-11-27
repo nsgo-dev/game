@@ -11,7 +11,7 @@
 ```sh
 mkdir starcatcher && cd starcatcher
 go mod init example.com/starcatcher
-go get github.com/nsgo-dev/game/packages/game
+go get github.com/nsgo-dev/game
 go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.4
 ```
 

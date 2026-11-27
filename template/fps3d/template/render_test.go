@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/render3d"
+	"github.com/nsgo-dev/game/pkg/render3d"
 )
 
 func TestLevelMeshesCoverTheFloorWallsAndCrates(t *testing.T) {

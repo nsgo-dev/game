@@ -3,7 +3,7 @@
 `game/debug` 为 NSGo 游戏提供开发期调试浮层：快捷键开关的帧耗时柱状图、实时场景/图层检查器，以及世界空间碰撞体与精灵包围盒线框；使用 `-tags release` 构建时全部裁剪为零开销空操作。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/debug"
+import "github.com/nsgo-dev/game/pkg/debug"
 ```
 
 ## 接入调试浮层与帧耗时图

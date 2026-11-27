@@ -3,8 +3,8 @@ package main
 import (
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/placeholder"
-	"github.com/nsgo-dev/game/packages/game/sound"
+	"github.com/nsgo-dev/game/pkg/placeholder"
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 )

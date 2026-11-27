@@ -18,13 +18,13 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/project"
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
-	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
+	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"go.yaml.in/yaml/v3"
 )
 
-// GradeWorkspace evaluates workspaceDir against every rubric criterion defined in task, building it against this checkout's packages/game through a temporary go.work.
+// GradeWorkspace evaluates workspaceDir against every rubric criterion defined in task, building it against this checkout's root module through a temporary go.work.
 func GradeWorkspace(ctx context.Context, repoRoot, workspaceDir string, task *Task, minScore int) TaskReport {
 	if resolved, err := filepath.EvalSymlinks(workspaceDir); err == nil {
 		workspaceDir = resolved
@@ -613,9 +613,9 @@ func numericValue(v any) (float64, bool) {
 	}
 }
 
-// prepareGoWorkspace writes a temporary go.work that uses this checkout's packages/game and workspaceDir, and points the workspace's packages/game requirement at the checkout with `go mod edit -replace`, which also rewrites a replace the workspace already has. The cleanup restores go.mod and removes the go.work.
+// prepareGoWorkspace writes a temporary go.work that uses this checkout's root game module and workspaceDir, and points the workspace's game module requirement at the checkout with `go mod edit -replace`, which also rewrites a replace the workspace already has. The cleanup restores go.mod and removes the go.work.
 func prepareGoWorkspace(ctx context.Context, repoRoot, workspaceDir string) (string, func(), error) {
-	absGame, err := filepath.Abs(filepath.Join(repoRoot, "packages", "game"))
+	absGame, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return "", nil, err
 	}
@@ -662,16 +662,16 @@ func prepareGoWorkspace(ctx context.Context, repoRoot, workspaceDir string) (str
 	}, nil
 }
 
-// pinGamePackage points the packages/game requirement in workspaceDir's go.mod at this checkout with `go mod edit -replace`, which also rewrites a replace already there, in a parenthesized block or not.
+// pinGamePackage points the game module requirement in workspaceDir's go.mod at this checkout with `go mod edit -replace`, which also rewrites a replace already there, in a parenthesized block or not.
 func pinGamePackage(ctx context.Context, repoRoot, workspaceDir string) error {
-	absGame, err := filepath.Abs(filepath.Join(repoRoot, "packages", "game"))
+	absGame, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return err
 	}
 	if resolved, err := filepath.EvalSymlinks(absGame); err == nil {
 		absGame = resolved
 	}
-	edit := exec.CommandContext(ctx, "go", "mod", "edit", "-replace=github.com/nsgo-dev/game/packages/game="+absGame)
+	edit := exec.CommandContext(ctx, "go", "mod", "edit", "-replace=github.com/nsgo-dev/game="+absGame)
 	edit.Dir = workspaceDir
 	edit.Env = append(cleanGoEnv(""), "GOWORK=off")
 	if out, err := edit.CombinedOutput(); err != nil {
@@ -752,7 +752,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/mcp"
+	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/nsgo/automation"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"

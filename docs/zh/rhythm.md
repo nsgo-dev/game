@@ -4,7 +4,7 @@
 
 ```go
 import (
-	"github.com/nsgo-dev/game/packages/game/rhythm"
+	"github.com/nsgo-dev/game/pkg/rhythm"
 	"github.com/nsgo-dev/nsgo/audio"
 )
 ```

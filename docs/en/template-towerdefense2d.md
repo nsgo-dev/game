@@ -3,7 +3,7 @@
 The `towerdefense2d` [template](templates.md) is Bramble Gate, a small 2D tower defense game: enemies walk a road from a spawn to a gate, and the player builds towers on the grass beside it, upgrades them with the money the enemies drop and calls each wave when ready. Stopping all five waves wins; letting ten lives' worth of enemies through the gate loses. It plays with a keyboard, a gamepad or touches on desktop, mobile and the web, and all of its art is drawn in code.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template towerdefense2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template towerdefense2d mygame
 cd mygame
 go tool nsgo dev
 ```
@@ -62,4 +62,4 @@ A tower needs `damage`, `range` (game points) and `cooldown` (seconds) stats; `s
 - Replace the painted art in `art.go` with `sprite.LoadAtlas` and image files.
 - Rebind a control in the `input` section of `game.yaml`.
 
-After a change, `go tool nsgo test ./...` shows whether the files still load and whether `winningPlan` in `plan_test.go` still wins; after changing a data file, `go run github.com/nsgo-dev/game/packages/game/cmd/game index` updates `game.index.yaml`.
+After a change, `go tool nsgo test ./...` shows whether the files still load and whether `winningPlan` in `plan_test.go` still wins; after changing a data file, `go run github.com/nsgo-dev/game/cmd/game index` updates `game.index.yaml`.

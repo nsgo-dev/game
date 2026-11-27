@@ -19,7 +19,7 @@ Every task spreads 100 points across five criteria in `checks.weights`:
 1. **`yaml_valid`** (15 pts): every listed `game.yaml` and `*.scene.yaml` parses and round-trips deterministically through `project.Encode` or `sceneformat.Encode`.
 2. **`project_check_passes`** (15 pts): `assetcheck.Check` reports zero problems across scenes, maps and references.
 3. **Domain check** (`level_geometry_valid`, `enemy_definition_present` or `menu_scene_valid`, 25 pts): the task's scene geometry, enemy definition or menu buttons.
-4. **`builds_cleanly`** (15 pts): `go tool nsgo check` succeeds on the workspace against the checkout's `packages/game`.
+4. **`builds_cleanly`** (15 pts): `go tool nsgo check` succeeds on the workspace against the checkout's root module.
 5. **`mcp_verify_passes`** (30 pts): a generated test boots the game headless under `nsgotest.Start`, calls live `game/mcp` tools through `nsgo/automation.Call`, and must report a pass; a clean exit without it scores nothing.
 
 The documents a task lists in `context_docs` and the repository's [Agent Skill](agent-skill.md) (`skills/nsgo-game/SKILL.md` and `references/`) are not scored. They are copied next to the workspace for the agent, and a missing or empty doc or skill fails the run.
@@ -76,7 +76,7 @@ go run ./tools/agenteval \
   -agent-cmd='my-agent --prompt "$AGENTEVAL_PROMPT_FILE" --mcp-config "$AGENTEVAL_MCP_CONFIG"'
 ```
 
-The agent gets a temporary `go.work` (in `GOWORK`) that resolves `packages/game` to the checkout, so it can run `go tool nsgo check` and `go tool nsgo test ./...` while it works. It gets no path into the repository, whose fixtures hold the reference solutions. `-agent-timeout` (default 15 minutes) bounds the agent and `-timeout` (default 5 minutes) bounds grading, so a slow agent shows up as `agent_timed_out` in the report rather than as build failures.
+The agent gets a temporary `go.work` (in `GOWORK`) that resolves `github.com/nsgo-dev/game` to the checkout, so it can run `go tool nsgo check` and `go tool nsgo test ./...` while it works. It gets no path into the repository, whose fixtures hold the reference solutions. `-agent-timeout` (default 15 minutes) bounds the agent and `-timeout` (default 5 minutes) bounds grading, so a slow agent shows up as `agent_timed_out` in the report rather than as build failures.
 
 Environment variables passed to `-agent-cmd` (and `run_command` in `-mode=agent`):
 

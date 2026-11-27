@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/gltf"
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/placeholder"
-	"github.com/nsgo-dev/game/packages/game/render3d"
+	"github.com/nsgo-dev/game/pkg/gltf"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/placeholder"
+	"github.com/nsgo-dev/game/pkg/render3d"
 )
 
 // meshID names one of the meshes the scene draws.

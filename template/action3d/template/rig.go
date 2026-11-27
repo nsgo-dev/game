@@ -3,8 +3,8 @@ package main
 import (
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/anim3d"
-	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/pkg/anim3d"
+	"github.com/nsgo-dev/game/pkg/math3d"
 )
 
 // The animation states every actor's state machine has. stateMove blends idle into run by the actor's speed.

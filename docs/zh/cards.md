@@ -3,7 +3,7 @@
 `game/cards` 在游戏视图中把卡牌在牌桌的槽位之间拖放，并把它们排成扇形手牌、牌堆、叠放牌列和网格。卡牌放到接受它的槽位上时会吸附到位，放到其他任何地方时会飞回原处。每次移动都是在 `game.Loop` 固定步长上推进的 `game/tween` 补间，鼠标和触摸走同一条路径。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/cards"
+import "github.com/nsgo-dev/game/pkg/cards"
 ```
 
 ## 牌桌、槽位与卡牌

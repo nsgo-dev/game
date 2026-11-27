@@ -3,7 +3,7 @@
 `game/resource` 读写共享资源文件：多个场景和多处代码共用的数据各自保存在独立的 YAML 文件里，通过路径引用而不是重复书写，作用与 Godot 的 `.tres` 文件相同。材质、曲线、渐变、动画片段、UI 主题、音频总线布局和物理材质都是资源文件。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/resource"
+import "github.com/nsgo-dev/game/pkg/resource"
 ```
 
 ## 公共文件头

@@ -3,12 +3,12 @@
 `game/modding` 基于 NSGo 的 `tsx` 运行时加载并运行按能力沙箱隔离的 TSX/JS 游戏模组，提供 `mod.yaml` 清单校验、依赖拓扑排序、故障隔离、持久化启停状态以及 `"game"` 模块 API。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/modding"
+import "github.com/nsgo-dev/game/pkg/modding"
 ```
 
 ## 模组清单（`mod.yaml`）与权限能力
 
-每个模组位于独立目录中，包含 `mod.yaml`（`ModManifest`）和入口脚本（`mod.tsx` 或 `mod.js`）。[`packages/game/modding/testdata/mods/boss-rush/`](../../packages/game/modding/testdata/mods/boss-rush/) 中的示例模组就是本页展示的清单和脚本，包内测试会加载它：
+每个模组位于独立目录中，包含 `mod.yaml`（`ModManifest`）和入口脚本（`mod.tsx` 或 `mod.js`）。[`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) 中的示例模组就是本页展示的清单和脚本，包内测试会加载它：
 
 ```yaml
 manifestVersion: 1

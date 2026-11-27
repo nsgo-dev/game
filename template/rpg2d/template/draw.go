@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/text"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/text"
+	"github.com/nsgo-dev/game/pkg/tilemap"
+	"github.com/nsgo-dev/game/pkg/vn"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

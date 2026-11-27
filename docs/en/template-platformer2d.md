@@ -3,7 +3,7 @@
 `platformer2d` is a small side-scrolling platformer: a lantern bearer runs and jumps through the three rooms of Lantern Hills, collects sparks, lights a lamp that becomes the respawn point and reaches the beacon to win. Spikes and pits cost a life, and losing the last one loses the run. It is built on [`platformer`](platformer.md), [`physics`](physics.md), [`tilemap`](tilemap.md), [`rooms`](rooms.md), [`input`](input.md), [`sprite`](sprite.md) and [`screen`](screen.md), and its art is drawn by code.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template platformer2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template platformer2d mygame
 cd mygame
 go tool nsgo dev
 ```

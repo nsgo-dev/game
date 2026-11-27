@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/physics3d"
+	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
 const step = time.Second / 60

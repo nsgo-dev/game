@@ -3,7 +3,7 @@
 `game/scene3d` provides a 3D scene graph with dirty-propagated transforms, named sockets and typed attachments, a dynamic fat-AABB / SAH `BVH` for fast spatial queries, perspective/orthographic cameras with Orbit/FPS/ThirdPerson controllers, screen-space 3D picking, and box-projected 3D decals for the mobile forward path.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/scene3d"
+import "github.com/nsgo-dev/game/pkg/scene3d"
 ```
 
 All transforms, projections, frustums, and rays follow [math3d](math3d.md) conventions (right-handed Y-up, column-major, `[0, 1]` NDC depth).

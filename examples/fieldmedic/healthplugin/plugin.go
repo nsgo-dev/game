@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
-	"github.com/nsgo-dev/game/packages/game/editor"
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )

@@ -3,8 +3,8 @@ package main
 import (
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/fighting"
-	"github.com/nsgo-dev/game/packages/game/framedata"
+	"github.com/nsgo-dev/game/pkg/fighting"
+	"github.com/nsgo-dev/game/pkg/framedata"
 )
 
 // stepRate is the fixed steps per second the game runs at, which frame data is counted in.

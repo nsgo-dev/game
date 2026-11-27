@@ -3,7 +3,7 @@
 `game/idle` 提供放置类与增量类游戏所需的功能：远超 float64 上限 1.8e308 的 `Number`、游戏关闭期间的离线收益，以及把超大数字格式化为 1.23K、1.23e45 或 1.23万。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/idle"
+import "github.com/nsgo-dev/game/pkg/idle"
 ```
 
 ## 超出 float64 的数字

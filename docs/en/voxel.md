@@ -3,7 +3,7 @@
 `game/voxel` provides chunked 3D voxel worlds for sandbox games: dense cubic chunks, per-voxel sky and block light propagation (0..15) across chunk borders, greedy face meshing into [render3d](render3d.md) buffers, cross-chunk neighbor culling and ambient occlusion, minimal dirty-chunk tracking on edit, 3D DDA voxel raycasting, direct solid-block collision for [physics3d](physics3d.md) bodies and characters (plus an axis-separated AABB move-and-slide character mover), and deterministic versioned YAML saves.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/voxel"
+import "github.com/nsgo-dev/game/pkg/voxel"
 ```
 
 ## Blocks and registry

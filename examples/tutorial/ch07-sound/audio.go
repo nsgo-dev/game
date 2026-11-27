@@ -3,8 +3,8 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/random"
-	"github.com/nsgo-dev/game/packages/game/sound"
+	"github.com/nsgo-dev/game/pkg/random"
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/audio"
 )
 

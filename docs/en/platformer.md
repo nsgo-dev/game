@@ -1,9 +1,9 @@
 # platformer
 
-`github.com/nsgo-dev/game/packages/game/platformer` turns a [`physics.CharacterBody`](physics.md) into a platformer character with coyote time, jump buffering, variable jump height, wall slides and wall jumps. Each helper's timing is a tunable in a YAML config.
+`github.com/nsgo-dev/game/pkg/platformer` turns a [`physics.CharacterBody`](physics.md) into a platformer character with coyote time, jump buffering, variable jump height, wall slides and wall jumps. Each helper's timing is a tunable in a YAML config.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/platformer"
+import "github.com/nsgo-dev/game/pkg/platformer"
 ```
 
 Coordinates follow `physics`: X increases to the right and Y increases downward. Speeds are in points per second and are written as positive numbers; the controller applies the direction.

@@ -1,7 +1,7 @@
 # presence
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/presence"
+import "github.com/nsgo-dev/game/pkg/presence"
 ```
 
 `presence` publishes what the player is doing (level, game mode, party size, timestamps, artwork, and custom localization tokens) to Steam and Discord friend lists through a single provider-neutral API. Both built-in providers are pure Go with no cgo or hand-written C: `Discord` speaks Discord's local IPC v1 protocol directly over Unix domain sockets or Windows named pipes, and `Steam` dynamically loads the Steamworks shared library through `purego` to call `ISteamFriends::SetRichPresence` and `ClearRichPresence`.

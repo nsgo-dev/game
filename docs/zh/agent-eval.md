@@ -19,7 +19,7 @@
 1. **`yaml_valid`**（15 分）：列出的 `game.yaml` 与 `*.scene.yaml` 均可解析，并经 `project.Encode` 或 `sceneformat.Encode` 确定性往返。
 2. **`project_check_passes`**（15 分）：`assetcheck.Check` 在场景、地图与引用上报告零问题。
 3. **领域检查**（`level_geometry_valid`、`enemy_definition_present` 或 `menu_scene_valid`，25 分）：任务的场景几何、敌人定义或菜单按钮。
-4. **`builds_cleanly`**（15 分）：工作区针对本仓库检出的 `packages/game` 执行 `go tool nsgo check` 成功。
+4. **`builds_cleanly`**（15 分）：工作区针对本仓库检出的根模块 执行 `go tool nsgo check` 成功。
 5. **`mcp_verify_passes`**（30 分）：生成的测试在 `nsgotest.Start` 下无头启动游戏，通过 `nsgo/automation.Call` 调用实时 `game/mcp` 工具，并且必须报告通过；进程正常退出但没有通过记录不得分。
 
 任务在 `context_docs` 中列出的文档以及本仓库的[智能体技能](agent-skill.md)（`skills/nsgo-game/SKILL.md` 与 `references/`）不计分。它们会被复制到工作区旁供智能体阅读，缺失或为空时整次运行失败。
@@ -76,7 +76,7 @@ go run ./tools/agenteval \
   -agent-cmd='my-agent --prompt "$AGENTEVAL_PROMPT_FILE" --mcp-config "$AGENTEVAL_MCP_CONFIG"'
 ```
 
-智能体会拿到一个临时 `go.work`（在 `GOWORK` 中），它把 `packages/game` 解析到本仓库检出，因此智能体工作时可以运行 `go tool nsgo check` 与 `go tool nsgo test ./...`。智能体拿不到指向仓库的路径，因为仓库的 fixtures 里有参考解。`-agent-timeout`（默认 15 分钟）限制智能体，`-timeout`（默认 5 分钟）限制评分，因此智能体超时会在报告中显示为 `agent_timed_out`，而不是构建失败。
+智能体会拿到一个临时 `go.work`（在 `GOWORK` 中），它把 `github.com/nsgo-dev/game` 解析到本仓库检出，因此智能体工作时可以运行 `go tool nsgo check` 与 `go tool nsgo test ./...`。智能体拿不到指向仓库的路径，因为仓库的 fixtures 里有参考解。`-agent-timeout`（默认 15 分钟）限制智能体，`-timeout`（默认 5 分钟）限制评分，因此智能体超时会在报告中显示为 `agent_timed_out`，而不是构建失败。
 
 传给 `-agent-cmd`（以及 `-mode=agent` 中 `run_command`）的环境变量：
 

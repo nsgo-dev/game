@@ -5,10 +5,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/fog"
-	"github.com/nsgo-dev/game/packages/game/math2d"
-	"github.com/nsgo-dev/game/packages/game/rts"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/fog"
+	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/rts"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

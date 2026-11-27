@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/nsgo-dev/game/packages/game/cards"
-	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/pkg/cards"
+	"github.com/nsgo-dev/game/pkg/random"
 )
 
 // boardYAML lays the table out in the virtual resolution game.yaml's display sets: a ladder per suit along the top, the draw pile and the discard pile below them, and the hand fanned out at the bottom. Move, resize or restyle the piles here; the slot IDs are the ones table.go looks up.

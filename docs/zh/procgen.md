@@ -1,6 +1,6 @@
 # procgen
 
-`github.com/nsgo-dev/game/packages/game/procgen` 在瓦片网格上生成 2D 关卡，提供四种生成器：以走廊相连的 BSP 房间、元胞自动机洞穴、基于 YAML 规则文件的波函数坍缩，以及在地牢布局图上拼接手工房间模板。
+`github.com/nsgo-dev/game/pkg/procgen` 在瓦片网格上生成 2D 关卡，提供四种生成器：以走廊相连的 BSP 房间、元胞自动机洞穴、基于 YAML 规则文件的波函数坍缩，以及在地牢布局图上拼接手工房间模板。
 
 每个生成器都接收一个 [`random.Stream`](determinism.md)，所有随机数都取自它，所以相同的种子与配置在任何操作系统和架构上都生成逐格相同的关卡。BSP、Cave 与 GenerateRooms 的可行走格子总是构成一个 4 连通区域；WFC 也是如此，除非设置了 `AllowDisconnected` 或其规则没有可行走瓦片。
 

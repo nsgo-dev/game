@@ -6,9 +6,9 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/nsgo-dev/game/packages/game/flow"
-	"github.com/nsgo-dev/game/packages/game/inventory"
-	"github.com/nsgo-dev/game/packages/game/quest"
+	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/inventory"
+	"github.com/nsgo-dev/game/pkg/quest"
 )
 
 // saveVersion is the version of saveFile; raise it and register a save.Migration when saveFile changes so older saves still load.

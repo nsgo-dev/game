@@ -1,6 +1,6 @@
 # Hearthkeeper: an idle game template
 
-An idle game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game). You keep a fire alive: stoking it gathers embers, generators make embers every second, upgrades multiply them and automate the fuel, the hearth keeps earning while the game is closed, scattering the ashes restarts the run for a lasting bonus, and lighting the Everflame wins. A fire left without fuel goes out, which loses the run.
+An idle game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game). You keep a fire alive: stoking it gathers embers, generators make embers every second, upgrades multiply them and automate the fuel, the hearth keeps earning while the game is closed, scattering the ashes restarts the run for a lasting bonus, and lighting the Everflame wins. A fire left without fuel goes out, which loses the run.
 
 It shows:
 
@@ -14,8 +14,8 @@ It shows:
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Playing

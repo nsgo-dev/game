@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/placeholder"
-	"github.com/nsgo-dev/game/packages/game/rhythm"
+	"github.com/nsgo-dev/game/pkg/placeholder"
+	"github.com/nsgo-dev/game/pkg/rhythm"
 	"github.com/nsgo-dev/nsgo/audio"
 	"go.yaml.in/yaml/v3"
 )

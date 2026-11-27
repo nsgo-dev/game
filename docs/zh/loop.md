@@ -3,7 +3,7 @@
 `game.Loop` 在 NSGo 作用域的显示帧上驱动固定步长更新与插值绘制，并在应用进入后台时自动暂停。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game"
+import "github.com/nsgo-dev/game"
 ```
 
 ## 固定步长如何工作
@@ -182,7 +182,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

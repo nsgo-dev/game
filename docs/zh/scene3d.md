@@ -3,7 +3,7 @@
 `game/scene3d` 提供 3D 场景树（含脏标记传播）、命名插槽与类型化附件、用于大规模裁剪与查询的动态胖 AABB / SAH `BVH`、透视与正交相机及轨道/第一人称/第三人称控制器、屏幕空间 3D 拾取，以及面向移动端前向管线的盒投影 3D 贴花。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/scene3d"
+import "github.com/nsgo-dev/game/pkg/scene3d"
 ```
 
 所有变换、投影、视锥体与射线均遵循 [math3d](math3d.md) 约定（右手 Y 轴向上、列主序、`[0, 1]` NDC 深度）。

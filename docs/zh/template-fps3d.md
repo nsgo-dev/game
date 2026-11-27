@@ -3,7 +3,7 @@
 `fps3d` 是一个第一人称射击竞技场，名为 Relay Yard：玩家用一把即时命中的步枪和一具发射弹体的发射器，在一片围墙环绕的场地里抵挡三波无人机和守卫，在战斗间隙拾取生命和弹药。清掉最后一波即获胜，生命降到 0 即失败。它是 3D 射击游戏的起点，也是 3D 相关包协同工作的完整示例：`physics3d`、`render3d`、`ai` 和 `input`。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template fps3d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template fps3d mygame
 cd mygame
 go tool nsgo dev
 ```

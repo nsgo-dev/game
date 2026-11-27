@@ -1,6 +1,6 @@
 # Pulse Lanes
 
-A four-lane rhythm game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game), made from the `rhythm` template.
+A four-lane rhythm game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game), made from the `rhythm` template.
 
 Notes fall down four lanes to the beat of the song; hit each lane as its note reaches the line. A hit close to the note is Perfect, a little further Great or Good, and a note no hit reaches in time is a Miss. Hits build a combo and fill the energy bar, misses break the combo and drain it: reach the end of the song with energy left to clear the chart, and run out to fail it. The score counts every hit against a perfect one, out of 1,000,000, and earns a rank from S to D; the menu keeps the best clear of each chart. Calibrate the audio and video latency of each device from the menu, and charts are judged by what the player hears and sees there.
 
@@ -30,8 +30,8 @@ The keyboard and game controller bindings are the input map in `game.yaml`; edit
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Running and testing

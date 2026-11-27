@@ -3,7 +3,7 @@
 `platformer2d` 是一个小型横版平台跳跃游戏：提灯人在灯笼山的三个房间里奔跑跳跃，收集火花，点亮一盏灯作为重生点，抵达信标即获胜。尖刺和深坑会让玩家失去一条命，命用完这一局就输了。它基于 [`platformer`](platformer.md)、[`physics`](physics.md)、[`tilemap`](tilemap.md)、[`rooms`](rooms.md)、[`input`](input.md)、[`sprite`](sprite.md) 和 [`screen`](screen.md) 构建，美术由代码绘制。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template platformer2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template platformer2d mygame
 cd mygame
 go tool nsgo dev
 ```

@@ -5,7 +5,7 @@
 The files match byte for byte on the same CPU architecture. A game's own float math can differ between arm64 and amd64, because the Go compiler may fuse a multiply and an add into one FMA instruction on arm64; a golden dump shared across machines needs an explicit conversion on such products, as in `x += float64(v * speed * dt)`, which rounds the product and stops the fusion.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/statedump"
+import "github.com/nsgo-dev/game/pkg/statedump"
 ```
 
 ## Running headless
