@@ -176,7 +176,7 @@ loop := &game.Loop{
 
 落到高度场表面以下的形状会被向上推出，推出深度沿朝上的三角形法线测量，因此一次修正就能离开表面，而不是只推出到下方最近点的较浅距离。位于格子旁边的形状（例如站在台阶下、碰到台面边缘的形状）保留自身接触的深度，不会被抬到台面上。
 
-单步位移超过自身最小尺寸一半的动态刚体，会以子步对静态、运动学和休眠刚体以及三角网格、高度场、体素碰撞体做扫掠，在第一次出现新的重叠处停下，因此高速刚体不会穿过薄的几何体。本步开始时已经存在的接触（例如高速滑行或滚动的刚体身下的地面）不会让它停下，除非刚体陷入其中明显更深。高速动态刚体之间不做扫掠。
+单步内平移与旋转使形状核心上任意一点移动超过自身最小尺寸一半的动态刚体——以及设置了 `Body.Bullet = true` 的刚体在每一步——都会使用基于 GJK 的保守推进（conservative advancement）从起始位姿到结束位姿（同步插值旋转）对静态、运动学和休眠刚体以及三角网格、高度场、体素碰撞体做扫掠，不再受采样步数上限限制。设置了 `Body.Bullet = true` 的刚体还会同时对清醒动态刚体做扫掠，并在整步内同步插值两个刚体的位姿；非 `Bullet` 动态刚体之间不做扫掠。发生撞击时，刚体（以及被击中且发生移动的动态目标）会停在最早碰撞时刻减去微小间隙的位置，按恢复系数去掉相对法向接近速度，唤醒休眠目标所在岛屿，并为刚体间撞击记录 `ContactEnter` 事件。本步开始时刚体所依托的静态表面以及完全位于该表面背后的共面静态部件不会阻挡扫掠，因此高速刚体能够顺滑滑过拼接方块、三角网格、高度场与体素地面。
 
 ### 宽相加速
 
@@ -340,7 +340,7 @@ sw.Step(dt)
 
 `World` 支持完整的世界状态快照、确定性 64 位 FNV-1a 校验和，以及跨 amd64 与 arm64 CPU 架构的比特级确定性：
 
-- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion` 为 3；`Restore` 同时兼容读取版本 1 与版本 2 快照）中，包括重力、求解器迭代次数与休眠配置（`DisableSleep`、`SleepLinearThreshold`、`SleepAngularThreshold`、`TimeToSleep`）、去重的 `Materials` 材质表及 `BodySnapshot.MaterialIndex` 引用（使共享 `*PhysicsMaterial` 的身份跨序列化保留）、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`、自定义质心/惯量覆写标记、`AllowSleep`、私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的多点（最多 4 点，含特征 ID 与局部坐标偏移）热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion` 为 4；`Restore` 同时兼容读取版本 1 到版本 3 快照）中，包括重力、求解器迭代次数与休眠配置（`DisableSleep`、`SleepLinearThreshold`、`SleepAngularThreshold`、`TimeToSleep`）、去重的 `Materials` 材质表及 `BodySnapshot.MaterialIndex` 引用（使共享 `*PhysicsMaterial` 的身份跨序列化保留）、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`、自定义质心/惯量覆写标记、`AllowSleep`、`Bullet`、私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的多点（最多 4 点，含特征 ID 与局部坐标偏移）热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 支持直接使用 `encoding/json` 序列化与反序列化（不使用 `encoding/gob` 或自定义二进制布局）。
 - **原地保留指针、材质与回调**：`Restore` 尽可能按 `ID` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，确定性地重建宽相树，并在回滚期间保持游戏实体指针、`Body.UserData`（不写入快照也不参与 `Checksum()`，新分配刚体上为 `nil`）、数值仍与快照一致的共享 `*PhysicsMaterial` 指针（恢复到新 `World` 时同样保持共享材质的共享关系，且不会改写数值已偏离的调用方材质）以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
 - **跨架构确定性**：所有步进 3D 积分、宽相、窄相碰撞（GJK/EPA/SAT、OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。

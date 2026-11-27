@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Continuous collision. After positions are integrated, a dynamic body that is a Bullet, or any point of whose core moved farther than half its thickness this step, is swept from its start pose to its end pose against the static bodies its path crosses. Conservative advancement finds the time of impact with each: the body advances by the distance to the static shape divided by the fastest the two can approach, which never steps past the surface. The earliest impact moves the body back to that pose and removes its approach velocity at every point where its face meets the surface there, the tiles of a flat floor included, with restitution as the contact solver applies it, so it stops at the first surface instead of passing through and a box landing flat stays flat; the impact begins a contact that reports the speed it struck at. A static surface the body rests on at the start of the step, one its manifolds name or one within speculativeDistance that the step does not drive it more than half its thickness into, never stops the sweep, and neither does a static piece lying wholly behind such a surface, so a body sliding fast over a tiled floor or a flat chain does not catch on the seams. A body driven deep into a static body it touches but has no contact with yet, such as a shot fired point-blank at a wall, stops where it is. An impact that would leave a body that is not a Bullet only shallowly inside the shape is left to the regular contacts, which resolve it without losing the step's motion. Fast dynamic bodies are not swept against each other.
+// Continuous collision. After positions are integrated, a dynamic body that is a Bullet, or any point of whose core moved farther than half its thickness this step, is swept from its start pose to its end pose against the static bodies and tiles its path crosses; a Bullet is swept against dynamic and kinematic bodies too. Conservative advancement finds the time of impact with each: the body advances by the distance to the target shape divided by the fastest the two can approach, which never steps past the surface. The earliest impact moves the body (and a moved dynamic target it struck) back to that pose and removes their relative approach velocity at every point where its face meets the surface there, the tiles of a flat floor included, with restitution as the contact solver applies it, so it stops at the first surface instead of passing through and a box landing flat stays flat; the impact begins a contact that reports the speed it struck at. A static surface the body rests on at the start of the step, one its manifolds name or one within speculativeDistance that the step does not drive it more than half its thickness into, never stops the sweep, and neither does a static piece lying wholly behind such a surface, so a body sliding fast over a tiled floor or a flat chain does not catch on the seams. A body driven deep into a surface it touches but has no contact with yet, such as a shot fired point-blank at a wall, stops where it is. An impact that would leave a body that is not a Bullet only shallowly inside a static shape is left to the regular contacts, which resolve it without losing the step's motion. Non-bullet dynamic bodies are not swept against each other.
 
 const (
 	// ccdTargetSeparation is the gap the sweep leaves between a body and the surface it hits.
@@ -101,16 +101,27 @@ type ccdSupport struct {
 	d float64
 }
 
-// sweepFastBodies sweeps every awake dynamic body that needs it from its pose in starts to its integrated pose against the static bodies, and stops it at the first impact. manifolds are this step's contacts, which name the static surfaces each body rests on, and a body is not swept against a static body a joint in ignoredPairs keeps it from colliding with.
+// sweepFastBodies sweeps every awake dynamic body that needs it from its pose in starts to its integrated pose against the static bodies and tiles, and sweeps Bullet bodies against dynamic and kinematic bodies too, stopping each at its earliest impact. manifolds are this step's contacts, which name the static surfaces each body rests on, and a body is not swept against a body a joint in ignoredPairs keeps it from colliding with.
 func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifold, restitutionThresh float64, ignoredPairs map[[2]*RigidBody]struct{}) {
 	statics := w.scratch.statics[:0]
+	movers := w.scratch.movers[:0]
+	hasBullet := false
 	for i, b := range w.Bodies {
-		if b != nil && b.Static && !b.Sensor && !b.Shape.Empty() {
+		if b == nil || b.Sensor || b.Shape.Empty() {
+			continue
+		}
+		if b.Static {
 			statics = append(statics, i)
+		} else {
+			movers = append(movers, i)
+			if b.Bullet && b.awakeDynamic() {
+				hasBullet = true
+			}
 		}
 	}
 	w.scratch.statics = statics
-	if len(statics) == 0 && !w.tilesActive() {
+	w.scratch.movers = movers
+	if len(statics) == 0 && !w.tilesActive() && (!hasBullet || len(movers) < 2) {
 		return
 	}
 	contacts := w.scratch.ccdContacts[:0]
@@ -171,27 +182,26 @@ func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifo
 		}
 		candidates = w.appendTilePieces(b, &startHull, dy, minX, minY, maxX, maxY, candidates)
 		w.scratch.ccdCandidates = candidates
-		if len(candidates) == 0 {
-			continue
-		}
 		// A support is a static surface the body touches at the start of the step and does not drive more than half its thickness into: one its manifolds name, or one within speculativeDistance of it.
 		supports := w.scratch.ccdSupports[:0]
-		shallow := func(n vec2, sep float64) bool {
-			return float64(dx*n.x)+float64(dy*n.y)-max(0, sep) <= 0.5*half
-		}
-		for _, c := range contacts {
-			if c.body != b || !shallow(c.n, 0) {
-				continue
+		if len(candidates) > 0 {
+			shallow := func(n vec2, sep float64) bool {
+				return float64(dx*n.x)+float64(dy*n.y)-max(0, sep) <= 0.5*half
 			}
-			if h, ok := w.staticPiece(c.st, c.sub); ok {
-				supports = append(supports, ccdSupport{n: c.n, d: nearOffset(&h, c.n)})
+			for _, c := range contacts {
+				if c.body != b || !shallow(c.n, 0) {
+					continue
+				}
+				if h, ok := w.staticPiece(c.st, c.sub); ok {
+					supports = append(supports, ccdSupport{n: c.n, d: nearOffset(&h, c.n)})
+				}
 			}
-		}
-		for ci := range candidates {
-			c := &candidates[ci]
-			sep, n, _, _, ok := hullSeparation(&startHull, &c.h)
-			if ok && sep <= speculativeDistance && shallow(n, sep) {
-				supports = append(supports, ccdSupport{n: n, d: nearOffset(&c.h, n)})
+			for ci := range candidates {
+				c := &candidates[ci]
+				sep, n, _, _, ok := hullSeparation(&startHull, &c.h)
+				if ok && sep <= speculativeDistance && shallow(n, sep) {
+					supports = append(supports, ccdSupport{n: n, d: nearOffset(&c.h, n)})
+				}
 			}
 		}
 		w.scratch.ccdSupports = supports
@@ -203,13 +213,84 @@ func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifo
 			}
 			sweepHullAgainst(b, &c.h, c.st, c.sub, x0, y0, a0, dx, dy, da, reach, half, &best)
 		}
+		if b.Bullet {
+			for _, oi := range movers {
+				o := w.Bodies[oi]
+				if o == b || !CanCollideRigid(b, o) {
+					continue
+				}
+				if ignoredPairs != nil {
+					if _, skip := ignoredPairs[[2]*RigidBody{b, o}]; skip {
+						continue
+					}
+				}
+				os := starts[oi]
+				ox0, oy0, oa0 := float64(os.x), float64(os.y), float64(os.angle)
+				ox1, oy1, oa1 := float64(o.X), float64(o.Y), float64(o.Angle)
+				odx, ody, oda := ox1-ox0, oy1-oy0, oa1-oa0
+				if odx == 0 && ody == 0 && oda == 0 {
+					oMinX, oMinY, oMaxX, oMaxY := o.worldAABB()
+					if oMaxX < minX || maxX < oMinX || oMaxY < minY || maxY < oMinY {
+						continue
+					}
+					oh, ok := o.rigidHull()
+					if !ok || !oh.finite() {
+						continue
+					}
+					sweepHullAgainst(b, &oh, o, 0, x0, y0, a0, dx, dy, da, reach, half, &best)
+					continue
+				}
+				_, oReach, _, ok := o.sweepHull(ox1, oy1, oa1)
+				if !ok {
+					continue
+				}
+				if math.IsNaN(odx) || math.IsInf(odx, 0) || math.IsNaN(ody) || math.IsInf(ody, 0) || math.IsNaN(oda) || math.IsInf(oda, 0) {
+					continue
+				}
+				oBound := oReach + float64(o.boundingRadius())
+				oMinX, oMaxX := min(ox0, ox1)-oBound, max(ox0, ox1)+oBound
+				oMinY, oMaxY := min(oy0, oy1)-oBound, max(oy0, oy1)+oBound
+				if oMaxX < minX || maxX < oMinX || oMaxY < minY || maxY < oMinY {
+					continue
+				}
+				sweepHullAgainstMoving(b, o, x0, y0, a0, dx, dy, da, reach, half, ox0, oy0, oa0, odx, ody, oda, oReach, &best)
+			}
+		}
 		if best.target == nil {
 			continue
 		}
 		b.X = float32(x0 + float64(dx*best.t))
 		b.Y = float32(y0 + float64(dy*best.t))
 		b.Angle = float32(a0 + float64(da*best.t))
-		speed, point := w.resolveImpact(b, best, candidates, supports, restitutionThresh)
+		var targetPose rigidPose
+		var kinRemX, kinRemY float64
+		if !best.target.Static {
+			o := best.target
+			os := starts[o.index]
+			ox0, oy0, oa0 := float64(os.x), float64(os.y), float64(os.angle)
+			odx, ody, oda := float64(o.X)-ox0, float64(o.Y)-oy0, float64(o.Angle)-oa0
+			oxt := float32(ox0 + float64(odx*best.t))
+			oyt := float32(oy0 + float64(ody*best.t))
+			oat := float32(oa0 + float64(oda*best.t))
+			targetPose = rigidPose{x: oxt, y: oyt, angle: oat}
+			if !o.Kinematic {
+				if o.sleeping {
+					o.Wake()
+				}
+				if odx != 0 || ody != 0 || oda != 0 {
+					o.X, o.Y, o.Angle = oxt, oyt, oat
+				}
+			} else if float64(odx*best.n.x)+float64(ody*best.n.y) < 0 {
+				rem := 1 - best.t
+				kinRemX = float64(odx * rem)
+				kinRemY = float64(ody * rem)
+			}
+		}
+		speed, point := w.resolveImpact(b, best, targetPose, candidates, supports, restitutionThresh)
+		if kinRemX != 0 || kinRemY != 0 {
+			b.X = float32(float64(b.X) + kinRemX)
+			b.Y = float32(float64(b.Y) + kinRemY)
+		}
 		w.beginImpact(b, best, speed, point)
 	}
 }
@@ -310,6 +391,9 @@ func staticPiece(st *RigidBody, sub int) (hull, bool) {
 func sweepHullAgainst(b *RigidBody, target *hull, st *RigidBody, sub int, x0, y0, a0, dx, dy, da, reach, half float64, best *ccdHit) {
 	spin := float64(math.Abs(da) * reach)
 	t := 0.0
+	tPrev := 0.0
+	var lastN, lastPt vec2
+	havePrev := false
 	for iter := range ccdMaxIterations {
 		h, _, _, ok := b.sweepHull(x0+float64(dx*t), y0+float64(dy*t), a0+float64(da*t))
 		if !ok {
@@ -317,7 +401,11 @@ func sweepHullAgainst(b *RigidBody, target *hull, st *RigidBody, sub int, x0, y0
 		}
 		sep, n, pa, _, ok := hullSeparation(&h, target)
 		if !ok {
-			// Cores overlapping: the regular contacts own this pair.
+			// Cores overlapping at start: the regular contacts own this pair.
+			// If a numerical overshoot happened after a separated step, stop at the last separated pose.
+			if havePrev && tPrev < best.t {
+				*best = ccdHit{t: tPrev, n: lastN, point: lastPt, target: st, sub: sub}
+			}
 			return
 		}
 		if iter == 0 && sep <= ccdTargetSeparation {
@@ -344,6 +432,65 @@ func sweepHullAgainst(b *RigidBody, target *hull, st *RigidBody, sub int, x0, y0
 		if approach <= 0 {
 			return
 		}
+		tPrev = t
+		lastN = n
+		lastPt = vec2{pa.x + float64(n.x*h.r), pa.y + float64(n.y*h.r)}
+		havePrev = true
+		t += (sep - ccdTargetSeparation) / approach
+		if t >= 1 || t >= best.t {
+			return
+		}
+	}
+}
+
+// sweepHullAgainstMoving runs conservative advancement of Bullet b against a moving dynamic or kinematic body o, interpolating both bodies from their start poses to their end poses.
+func sweepHullAgainstMoving(b, o *RigidBody, x0, y0, a0, dx, dy, da, reach, half, ox0, oy0, oa0, odx, ody, oda, oReach float64, best *ccdHit) {
+	rdx, rdy := dx-odx, dy-ody
+	spin := float64(math.Abs(da)*reach) + float64(math.Abs(oda)*oReach)
+	t := 0.0
+	tPrev := 0.0
+	var lastN, lastPt vec2
+	havePrev := false
+	for iter := range ccdMaxIterations {
+		h, _, _, ok := b.sweepHull(x0+float64(dx*t), y0+float64(dy*t), a0+float64(da*t))
+		if !ok {
+			return
+		}
+		oh, _, _, ok := o.sweepHull(ox0+float64(odx*t), oy0+float64(ody*t), oa0+float64(oda*t))
+		if !ok {
+			return
+		}
+		sep, n, pa, _, ok := hullSeparation(&h, &oh)
+		if !ok {
+			if havePrev && tPrev < best.t {
+				*best = ccdHit{t: tPrev, n: lastN, point: lastPt, target: o}
+			}
+			return
+		}
+		relLin := float64(rdx*n.x) + float64(rdy*n.y)
+		if iter == 0 && sep <= ccdTargetSeparation {
+			if relLin+spin-max(0, sep) <= 0.5*half {
+				return
+			}
+			if t < best.t {
+				*best = ccdHit{t: t, n: n, point: vec2{pa.x + float64(n.x*h.r), pa.y + float64(n.y*h.r)}, target: o}
+			}
+			return
+		}
+		approach := relLin + spin
+		if sep <= ccdTargetSeparation+ccdTolerance || iter == ccdMaxIterations-1 {
+			if t < best.t {
+				*best = ccdHit{t: t, n: n, point: vec2{pa.x + float64(n.x*h.r), pa.y + float64(n.y*h.r)}, target: o}
+			}
+			return
+		}
+		if approach <= 0 {
+			return
+		}
+		tPrev = t
+		lastN = n
+		lastPt = vec2{pa.x + float64(n.x*h.r), pa.y + float64(n.y*h.r)}
+		havePrev = true
 		t += (sep - ccdTargetSeparation) / approach
 		if t >= 1 || t >= best.t {
 			return
@@ -360,16 +507,17 @@ const (
 	ccdImpactIterations = 16
 )
 
-// ccdImpactPoint is a point where a body stopped by continuous collision meets the surface, with the unit normal from the body toward the surface, its offset from the body's center, its normal mass, the velocity it must leave at and the impulse accumulated so far.
+// ccdImpactPoint is a point where a body stopped by continuous collision meets the surface, with the unit normal from the body toward the surface, its offset from each body's center, its normal mass, the velocity it must leave at and the impulse accumulated so far.
 type ccdImpactPoint struct {
-	p, n, r  vec2
-	k, bias  float64
-	pn       float64
-	approach float64
+	p, n, r, rb vec2
+	target      *RigidBody
+	k, bias     float64
+	pn          float64
+	approach    float64
 }
 
-// resolveImpact removes b's velocity into the surface it hit at every point where its face meets it, bouncing each by the pair's restitution when it struck faster than restitutionThresh, and returns the fastest a point was approaching the surface and that point. The points are those of every candidate piece no support hides, within ccdImpactGap of b and facing the impact's normal, so a box landing flat across the seam of two floor tiles is stopped at all of its bottom corners at once, without spinning about the one corner the sweep reached first.
-func (w *RigidWorld) resolveImpact(b *RigidBody, hit ccdHit, candidates []ccdCandidate, supports []ccdSupport, restitutionThresh float64) (float64, vec2) {
+// resolveImpact removes the relative velocity of b into the surface it hit at every point where its face meets it, bouncing each by the pair's restitution when it struck faster than restitutionThresh, and returns the fastest a point was approaching the surface and that point. When hitting a static surface, the points are those of every static candidate piece no support hides, within ccdImpactGap of b and facing the impact's normal, so a box landing flat across the seam of two floor tiles is stopped at all of its bottom corners at once, without spinning about the one corner the sweep reached first. When hitting a dynamic or kinematic body, the points are gathered against that body at targetPose and equal-and-opposite impulses transfer momentum to a dynamic target.
+func (w *RigidWorld) resolveImpact(b *RigidBody, hit ccdHit, targetPose rigidPose, candidates []ccdCandidate, supports []ccdSupport, restitutionThresh float64) (float64, vec2) {
 	pts := w.scratch.ccdPoints[:0]
 	kept := w.scratch.ccdManifolds[:0]
 	e := max(0, max(float64(b.Restitution), float64(hit.target.Restitution)))
@@ -380,28 +528,35 @@ func (w *RigidWorld) resolveImpact(b *RigidBody, hit ccdHit, candidates []ccdCan
 		for i := range moved.count {
 			moved.v[i] = vec2{moved.v[i].x + float64(hit.n.x*shift), moved.v[i].y + float64(hit.n.y*shift)}
 		}
-		for ci := range candidates {
-			c := &candidates[ci]
-			if behindSupport(&c.h, supports) {
-				continue
+		if hit.target.Static {
+			for ci := range candidates {
+				c := &candidates[ci]
+				if behindSupport(&c.h, supports) {
+					continue
+				}
+				sep, n, _, _, ok := hullSeparation(&bh, &c.h)
+				if !ok || sep > ccdImpactGap || dot2(n, hit.n) < 1-ccdImpactNormalTolerance {
+					continue
+				}
+				m := collideHullsWithin(&c.h, &moved, speculativeDistance)
+				if m = withoutReportedPoints(m, kept); m.count == 0 {
+					continue
+				}
+				kept = append(kept, m)
+				ce := max(0, max(float64(b.Restitution), float64(c.st.Restitution)))
+				for _, mp := range m.points[:m.count] {
+					pts = append(pts, ccdImpactPoint{p: vec2{mp.x - float64(hit.n.x*shift), mp.y - float64(hit.n.y*shift)}, n: vec2{-m.nx, -m.ny}, target: c.st, bias: ce})
+				}
 			}
-			sep, n, _, _, ok := hullSeparation(&bh, &c.h)
-			if !ok || sep > ccdImpactGap || dot2(n, hit.n) < 1-ccdImpactNormalTolerance {
-				continue
-			}
-			m := collideHullsWithin(&c.h, &moved, speculativeDistance)
-			if m = withoutReportedPoints(m, kept); m.count == 0 {
-				continue
-			}
-			kept = append(kept, m)
-			ce := max(0, max(float64(b.Restitution), float64(c.st.Restitution)))
+		} else if oh, _, _, ok := hit.target.sweepHull(float64(targetPose.x), float64(targetPose.y), float64(targetPose.angle)); ok {
+			m := collideHullsWithin(&oh, &moved, speculativeDistance)
 			for _, mp := range m.points[:m.count] {
-				pts = append(pts, ccdImpactPoint{p: vec2{mp.x - float64(hit.n.x*shift), mp.y - float64(hit.n.y*shift)}, n: vec2{-m.nx, -m.ny}, bias: ce})
+				pts = append(pts, ccdImpactPoint{p: vec2{mp.x - float64(hit.n.x*shift), mp.y - float64(hit.n.y*shift)}, n: vec2{-m.nx, -m.ny}, target: hit.target, bias: e})
 			}
 		}
 	}
 	if len(pts) == 0 {
-		pts = append(pts, ccdImpactPoint{p: hit.point, n: hit.n, bias: e})
+		pts = append(pts, ccdImpactPoint{p: hit.point, n: hit.n, target: hit.target, bias: e})
 	}
 	w.scratch.ccdManifolds = kept
 
@@ -411,7 +566,14 @@ func (w *RigidWorld) resolveImpact(b *RigidBody, hit ccdHit, candidates []ccdCan
 		ip.r = vec2{ip.p.x - float64(b.X), ip.p.y - float64(b.Y)}
 		rn := float64(ip.r.x*ip.n.y) - float64(ip.r.y*ip.n.x)
 		ip.k = float64(b.InvMass) + float64(float64(float64(b.InvInertia)*rn)*rn)
-		ip.approach = b.pointNormalVelocity(ip.r, ip.n)
+		if ip.target.Static {
+			ip.approach = b.pointNormalVelocity(ip.r, ip.n)
+		} else {
+			ip.rb = vec2{ip.p.x - float64(targetPose.x), ip.p.y - float64(targetPose.y)}
+			rnb := float64(ip.rb.x*ip.n.y) - float64(ip.rb.y*ip.n.x)
+			ip.k = ip.k + float64(ip.target.InvMass) + float64(float64(float64(ip.target.InvInertia)*rnb)*rnb)
+			ip.approach = b.pointNormalVelocity(ip.r, ip.n) - ip.target.pointNormalVelocity(ip.rb, ip.n)
+		}
 		if ip.approach > speed {
 			speed, at = ip.approach, ip.p
 		}
@@ -429,10 +591,17 @@ func (w *RigidWorld) resolveImpact(b *RigidBody, hit ccdHit, candidates []ccdCan
 				continue
 			}
 			vn := b.pointNormalVelocity(ip.r, ip.n)
+			if !ip.target.Static {
+				vn -= ip.target.pointNormalVelocity(ip.rb, ip.n)
+			}
 			pn := max(ip.pn+float64(vn+ip.bias)/ip.k, 0)
 			j := pn - ip.pn
 			ip.pn = pn
-			b.applyImpulseRaw(-float64(j*ip.n.x), -float64(j*ip.n.y), ip.r.x, ip.r.y)
+			jx, jy := float64(j*ip.n.x), float64(j*ip.n.y)
+			b.applyImpulseRaw(-jx, -jy, ip.r.x, ip.r.y)
+			if !ip.target.fixed() {
+				ip.target.applyImpulseRaw(jx, jy, ip.rb.x, ip.rb.y)
+			}
 		}
 	}
 	w.scratch.ccdPoints = pts

@@ -62,7 +62,7 @@ type RigidBody struct {
 	Sensor bool
 	Layer  LayerMask
 	Mask   LayerMask
-	// Bullet sweeps the body against static bodies on every step and stops it at the first surface it reaches, so it never passes into one, except that a surface it already touches at the start of a step and is driven into by no more than half its half thickness is left to the regular contacts. Without it the body is swept only on steps where a point of it moves farther than half its thickness, when it could otherwise pass through a thin wall, and a shallow overlap is left to the regular contacts.
+	// Bullet sweeps the body against static, kinematic and dynamic bodies and tiles on every step and stops it at the first surface it reaches, so it never passes into or through thin geometry, except that a surface it already touches at the start of a step and is driven into by no more than half its half thickness is left to the regular contacts. Without it the body is swept only on steps where a point of it moves farther than half its thickness, against static bodies and tiles only, and a shallow overlap is left to the regular contacts.
 	Bullet   bool
 	UserData any
 
@@ -721,7 +721,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	starts := w.scratch.starts[:0]
 	deltas := w.scratch.deltas[:0]
 	for _, b := range w.Bodies {
-		if b == nil || b.Static || b.sleeping {
+		if b == nil {
 			starts = append(starts, rigidPose{})
 		} else {
 			starts = append(starts, rigidPose{x: b.X, y: b.Y, angle: b.Angle})

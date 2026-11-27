@@ -804,6 +804,8 @@ type bpProxy struct {
 	cachedShape Shape
 	worldShape  Shape
 	worldBounds Box
+	prevPos     Vec3
+	prevRot     Quat
 }
 
 type bpBodyPair struct {
