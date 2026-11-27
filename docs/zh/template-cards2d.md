@@ -6,6 +6,7 @@
 go run github.com/nsgo-dev/game/cmd/game@latest new -template cards2d mycards
 cd mycards
 go tool nsgo dev
+go tool game playtest
 ```
 
 `nsgo init -template github.com/nsgo-dev/game/template/cards2d` 写出同样的项目，见[项目模板](templates.md)。
@@ -42,6 +43,7 @@ go tool nsgo dev
 | `save.go` | 存档槽 `records` 和 `table`，以及恢复存档前要通过的检查。 |
 | `game.go` | `Root`、循环和输入映射的动作。 |
 | `render.go`、`hud.go` | 卡牌图案和通过视口绘制的牌桌，以及叠在上面的原生视图。 |
+| `playtest.yaml`、`playtest_test.go` | [`card-ai`](playtest.md) 对局锦标赛自动化试玩配置与由 `go tool game playtest` 驱动的 `TestPlaytest` 适配器。 |
 | `*_test.go` | 用键盘、手柄和触摸打到一胜一负的完整对局，规则、存档和数据文件的测试，`rules.yaml` 的模糊测试，以及整局游戏的基准测试。 |
 
 ## 在哪里修改

@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json
+version: 1
+scope:
+  project: platformer-game
+  scene: lantern_hills
+  template: platformer2d
+runs:
+  count: 20
+  seedStart: 1
+  rate: 60
+  speed: 1
+  maxDuration: 1m30s
+bot:
+  profile: platformer-runner
+  strategy: Greedy route to the beacon, jumps at ledges, gaps and spikes, 60-140 ms reaction jitter
+  reactionMin: 60ms
+  reactionMax: 140ms
+  params:
+    jumpHoldMs: 260
+    moveAxis: move
+metrics:
+  - name: finished
+    label: Finished
+    measure:
+      kind: outcome
+      key: finished
+      aggregate: count
+    goal:
+      summary: most first-timers clear Lantern Hills
+      source: brief.yaml
+      min: 16
+  - name: median_time
+    label: Median time
+    unit: s
+    measure:
+      kind: timer
+      key: clear_time
+      aggregate: median
+    goal:
+      summary: brisk run to the beacon
+      source: brief.yaml
+      min: 8
+      max: 25
+  - name: frame_time
+    label: Frame time
+    unit: ms
+    measure:
+      kind: perf
+      key: frame_ms
+      aggregate: median
+    goal:
+      summary: 16.7 ms at 60 Hz
+      source: game.yaml
+      max: 16.7
+  - name: sparks_taken
+    label: Sparks taken
+    unit: '%'
+    measure:
+      kind: ratio
+      key: sparks_taken
+      denomKey: sparks_total
+      aggregate: mean
+    goal:
+      summary: most sparks along the route
+      source: playtest.yaml
+      min: 50
+  - name: deaths
+    label: Deaths
+    measure:
+      kind: event
+      key: death
+      aggregate: sum
+      heatMap: true

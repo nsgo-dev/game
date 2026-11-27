@@ -171,6 +171,20 @@ jobs:
           rm "$dir/go.mod.tmpl"
           cd "$dir"
           go tool nsgo test ./...
+      - name: Run game playtest on templates that ship playtest.yaml
+        env:
+          TEMPLATE: ${{ matrix.template }}
+        run: |
+          dir="$RUNNER_TEMP/${TEMPLATE}game"
+          if [ ! -f "$dir/playtest.yaml" ]; then
+            exit 0
+          fi
+          game_bin="$RUNNER_TEMP/game"
+          go build -o "$game_bin" ./cmd/game
+          cd "$dir"
+          GOWORK=off "$game_bin" playtest -out "$RUNNER_TEMP/playtest-1.report.yaml" -recordings "$RUNNER_TEMP/playtest-recordings"
+          GOWORK=off "$game_bin" playtest -out "$RUNNER_TEMP/playtest-2.report.yaml" -recordings "$RUNNER_TEMP/playtest-recordings"
+          diff -u "$RUNNER_TEMP/playtest-1.report.yaml" "$RUNNER_TEMP/playtest-2.report.yaml"
 
   # Verifies that a template's .gitattributes keeps canonical YAML files on LF when checked out on Windows with Git for Windows' default core.autocrlf=true.
   templates-windows:

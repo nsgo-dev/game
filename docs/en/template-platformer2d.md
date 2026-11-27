@@ -6,6 +6,7 @@
 go run github.com/nsgo-dev/game/cmd/game@latest new -template platformer2d mygame
 cd mygame
 go tool nsgo dev
+go tool game playtest
 ```
 
 `nsgo init -template github.com/nsgo-dev/game/template/platformer2d` writes the same project, as [Templates](templates.md) describes.
@@ -41,6 +42,7 @@ Holding the left mouse button over an on-screen control plays like touching it; 
 | `world.go` | One run of the level: the collision grid, the player, the sensors, the lives, the checkpoint, the goal and the rooms, stepped once per fixed step without knowing about devices or drawing. |
 | `game.go` | The root component, the fixed-step loop, input sampling, the HUD and the end-of-run panel. |
 | `draw.go`, `art.go` | Drawing a run, and the tileset and player frames drawn by code. |
+| `playtest.yaml`, `playtest_test.go` | The [`platformer-runner`](playtest.md) playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest`. |
 | `*_test.go` | The playthroughs, the rules, the controller's timing and the data files. |
 
 The level is plain text, one row per line:

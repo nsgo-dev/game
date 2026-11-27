@@ -12,13 +12,13 @@ runs:
   maxDuration: 3m0s
 bot:
   profile: shooter
-  strategy: Dodges the nearest bullet with 180 ms reaction, fires constantly, takes power-ups within 80 px
+  strategy: Dodges the nearest bullet with 180 ms reaction, fires constantly, takes power-ups within 160 px
   reactionMin: 180ms
   reactionMax: 180ms
   params:
     dangerRange: 36
     lookaheadMs: 400
-    powerUpRange: 80
+    powerUpRange: 160
 metrics:
   - name: cleared
     label: Cleared the stage

@@ -130,7 +130,13 @@ Every built-in profile is deterministic for a given seed and registers itself vi
 - **`puzzle-solver`** (`playtest.ProfilePuzzleSolver`, template `puzzle2d`): pairs `SolvePuzzleBFS` (exact breadth-first search for the shortest solution up to `stateLimit`, default 2,000,000 states) with a human-like player that undoes after `undoAfterBadMoves` (default `3`) consecutive bad moves. Use `EvaluatePuzzlePack` or `NewPuzzlePackSim` to report solvable levels, moves over par, difficulty order dips, and solutions shorter than intended.
 - **`card-ai`** (`playtest.ProfileCardAI`, template `cards2d`): two greedy 1-turn-lookahead players (`CardAI.ChooseAction`) play every unordered deck pair `matchesPerPair` times, alternating who goes first. Use `RunCardTournament` or `NewCardTournamentSim` to report first-player win rate, median match length, most lopsided pair, deterministic think time, and the `deck_win_rates` matrix.
 
-Register custom bot profiles with `playtest.RegisterBot(name, factory)`. The `rpg2d`, `shmup2d`, `puzzle2d`, and `cards2d` project templates each ship a canonical `playtest.yaml` configured for their matching profile.
+Register custom bot profiles with `playtest.RegisterBot(name, factory)`. The `platformer2d`, `rpg2d`, `shmup2d`, `puzzle2d`, and `cards2d` project templates each ship a canonical `playtest.yaml` configured for their matching profile alongside a `playtest_test.go` wired through `playtest.RunTest`, so running `go tool game playtest` inside a freshly created template writes a deterministic report right away:
+
+```sh
+go run github.com/nsgo-dev/game/cmd/game@latest new -template platformer2d mygame
+cd mygame
+go tool game playtest
+```
 
 ## Running headless and replaying runs
 

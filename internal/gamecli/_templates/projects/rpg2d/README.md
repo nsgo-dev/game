@@ -12,6 +12,7 @@ go tool nsgo dev -target web          # the browser
 go tool nsgo dev -target ios_simulator
 go tool nsgo dev -target android
 go tool nsgo test ./...               # the rules, the data files and full playthroughs
+go tool game playtest                 # automated bot playtest and report
 go tool nsgo check -target macos,windows,linux,android,web
 ```
 
@@ -46,6 +47,7 @@ The on-screen pad is drawn on phones and tablets, and on other devices once the 
 | `input.go` | Turns the input map's actions into what the player asked for in one step. |
 | `art.go`, `draw.go` | The pixel art, written as text and painted at start-up, and the drawing of each screen. |
 | `ui.go` | The app: the fixed-step loop, the scenes and the native HUD and menus. |
+| `playtest.yaml`, `playtest_test.go` | The `topdown-explorer` playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest`. |
 | `*_test.go` | Format and rules tests, and the playthroughs. |
 
 ## Where to change it

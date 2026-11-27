@@ -6,6 +6,7 @@
 go run github.com/nsgo-dev/game/cmd/game@latest new -template rpg2d mygame
 cd mygame
 go tool nsgo dev
+go tool game playtest
 ```
 
 `nsgo init -template github.com/nsgo-dev/game/template/rpg2d -module example.com/mygame mygame` writes the same project.
@@ -40,6 +41,7 @@ The tests play the game through the app: to the victory screen with the keyboard
 | `data.go` | Loads the data files and checks that they agree: that every item, foe, person, dialogue node, effect and picture they name exists |
 | `game.go`, `menu.go`, `save.go` | The rules, the menus and the save slots, with no drawing or input devices, so tests drive them directly |
 | `input.go`, `draw.go`, `art.go`, `ui.go` | The input map read into one step's intent, the drawing of each screen, the pixel art painted at start-up, and the app with its HUD |
+| `playtest.yaml`, `playtest_test.go` | The [`topdown-explorer`](playtest.md) playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest` |
 
 A data file that does not load shows its error in the window instead of the game, so it can be fixed under `go tool nsgo dev`.
 

@@ -36,6 +36,7 @@ func TestTemplatePlaytestConfigsCanonicalAndRegistered(t *testing.T) {
 		name    string
 		profile string
 	}{
+		{"platformer2d", playtest.ProfilePlatformerRunner},
 		{"rpg2d", playtest.ProfileTopDownExplorer},
 		{"shmup2d", playtest.ProfileShooter},
 		{"puzzle2d", playtest.ProfilePuzzleSolver},

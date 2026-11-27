@@ -40,6 +40,7 @@ Run the tests, vet across platforms and build:
 
 ```sh
 go tool nsgo test ./...
+go tool game playtest
 go tool nsgo check -target macos,windows,linux,android,web
 GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
@@ -58,6 +59,7 @@ GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x
 - `game.go`: the root component, the loop and the title, play and end screens; `hud.go`: the HUD, with the boss's health bar, and the menus.
 - `art.go`: the sprites, painted in code; `audio.go`: the sounds and music; `data.go`: loads the data files.
 - `world_test.go`, `game_test.go`: the tests, which play the stage with `pilot_test.go`'s pilot through a controller to the win, and leave the ship idle through the keyboard to the loss; `stage_test.go`: the data files' format and the fuzz test; `project_test.go`: `game.yaml` and `nsgo.yaml`.
+- `playtest.yaml`, `playtest_test.go`: the `shooter` playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest`.
 
 ## Where to change it
 
