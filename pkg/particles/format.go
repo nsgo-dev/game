@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
@@ -309,7 +310,7 @@ func MarshalConfigYAML(cfg Config) ([]byte, error) {
 		return nil, err
 	}
 	var root yaml.Node
-	if err := root.Encode(doc); err != nil {
+	if err := root.Encode(yamlzero.Clean(doc)); err != nil {
 		return nil, fmt.Errorf("particles: encode config YAML: %w", err)
 	}
 	plainYAMLKeys(&root)
@@ -334,6 +335,7 @@ func UnmarshalConfigYAML(data []byte) (Config, error) {
 	if err != nil {
 		return Config{}, loaderr.Locate(err, "", data, fixConfig)
 	}
+	yamlzero.Normalize(&cfg)
 	return cfg, nil
 }
 

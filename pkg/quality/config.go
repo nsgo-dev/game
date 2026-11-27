@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -208,6 +209,7 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}
+	yamlzero.Normalize(&c)
 	return c, nil
 }
 
@@ -219,7 +221,7 @@ func EncodeConfig(c Config) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(c); err != nil {
+	if err := enc.Encode(yamlzero.Clean(c)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("quality: encode: %w", err)
 	}

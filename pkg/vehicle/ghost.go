@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
@@ -150,6 +151,7 @@ func ParseGhost(data []byte) (*Ghost, error) {
 	if len(g.Frames) == 0 {
 		g.Frames = nil
 	}
+	yamlzero.Normalize(&g)
 	return &g, nil
 }
 

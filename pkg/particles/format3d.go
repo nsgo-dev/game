@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -108,7 +109,7 @@ func MarshalConfig3DYAML(cfg Emitter3DConfig) ([]byte, error) {
 		return nil, err
 	}
 	var root yaml.Node
-	if err := root.Encode(doc); err != nil {
+	if err := root.Encode(yamlzero.Clean(doc)); err != nil {
 		return nil, fmt.Errorf("particles: encode 3D config YAML: %w", err)
 	}
 	plainYAMLKeys(&root)
@@ -132,6 +133,7 @@ func UnmarshalConfig3DYAML(data []byte) (Emitter3DConfig, error) {
 	if err != nil {
 		return Emitter3DConfig{}, loaderr.Locate(err, "", data, fixConfig)
 	}
+	yamlzero.Normalize(&cfg)
 	return cfg, nil
 }
 

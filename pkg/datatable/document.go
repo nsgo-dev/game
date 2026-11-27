@@ -73,6 +73,9 @@ func UintValue(n uint64) Value { return Value{Kind: KindNumber, Text: strconv.Fo
 
 // FloatValue returns a KindNumber Value holding a float64.
 func FloatValue(f float64) Value {
+	if f == 0 {
+		f = 0
+	}
 	return Value{Kind: KindNumber, Text: strconv.FormatFloat(f, 'g', -1, 64)}
 }
 

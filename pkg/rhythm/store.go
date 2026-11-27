@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -118,6 +119,7 @@ func ParseCalibrations(data []byte) (*Calibrations, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&c)
 	return &c, nil
 }
 

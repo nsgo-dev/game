@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
@@ -170,6 +171,7 @@ func ParseCast(data []byte) (*Cast, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&c)
 	return &c, nil
 }
 
@@ -181,7 +183,7 @@ func EncodeCast(c *Cast) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(c); err != nil {
+	if err := enc.Encode(yamlzero.Clean(c)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("vn: encode cast: %w", err)
 	}

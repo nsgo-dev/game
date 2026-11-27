@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -25,6 +26,7 @@ func Encode(sd *SkeletonData) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	raw = yamlzero.Clean(raw)
 	var doc yaml.Node
 	if err := doc.Encode(raw); err != nil {
 		return nil, fmt.Errorf("skeletal: encode: %w", err)

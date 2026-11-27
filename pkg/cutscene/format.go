@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -321,6 +322,7 @@ func Parse(data []byte) (Cutscene, error) {
 	if err := Validate(c); err != nil {
 		return Cutscene{}, err
 	}
+	yamlzero.Normalize(&c)
 	return c, nil
 }
 
@@ -353,7 +355,7 @@ func Encode(c Cutscene) ([]byte, error) {
 	}
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(c); err != nil {
+	if err := enc.Encode(yamlzero.Clean(c)); err != nil {
 		return nil, fmt.Errorf("cutscene: encode: %w", err)
 	}
 	if err := enc.Close(); err != nil {

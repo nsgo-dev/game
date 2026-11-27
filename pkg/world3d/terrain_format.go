@@ -12,6 +12,7 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"go.yaml.in/yaml/v3"
@@ -554,6 +555,7 @@ func ParseTerrainWith(data []byte, file string) (*TerrainDoc, error) {
 	if err != nil {
 		return nil, loaderr.Locate(err, file, data, fixTerrainDoc)
 	}
+	yamlzero.Normalize(doc)
 	return doc, nil
 }
 
@@ -847,7 +849,7 @@ func EncodeTerrain(doc *TerrainDoc) ([]byte, error) {
 	buf.WriteString(TerrainSchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(yamlzero.Clean(doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("world3d: encode terrain: %w", err)
 	}

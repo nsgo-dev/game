@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"go.yaml.in/yaml/v3"
 )
@@ -137,6 +138,7 @@ func ParseStateMachine(data []byte) (*StateMachineDoc, error) {
 	if err := ValidateStateMachine(&doc); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&doc)
 	return &doc, nil
 }
 
@@ -268,7 +270,7 @@ func EncodeStateMachine(doc *StateMachineDoc) ([]byte, error) {
 	buf.WriteByte('\n')
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(yamlzero.Clean(doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("animclip: encode states: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"go.yaml.in/yaml/v3"
 )
@@ -138,6 +139,7 @@ func ParseBoardDoc(data []byte) (*BoardDoc, error) {
 	if err := doc.Validate(); err != nil {
 		return nil, err
 	}
+	yamlzero.Normalize(&doc)
 	return &doc, nil
 }
 
@@ -152,7 +154,7 @@ func EncodeBoardDoc(doc *BoardDoc) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(yamlzero.Clean(doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("cards: encode board: %w", err)
 	}

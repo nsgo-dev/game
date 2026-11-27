@@ -18,6 +18,7 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("version: 1\nname: G\nid: a.b\nappVersion: x\nwindow: {width: 1e9, height: 0.5}\ninput: {actions: [{name: a}], axes: [{name: x, positive: a}]}\n"))
 	f.Add([]byte("version: 1\nname: G\nid: a.b\nappVersion: x\nwindow: {width: 1, height: 1}\neditor: {plugins: [health, paths]}\n"))
 	f.Add([]byte("version: 1\nname: G\nid: a.b\nappVersion: x\nwindow: {width: 1, height: 1}\neditor: {plugins: [paths]}\nautoload: {resources: [{name: t, path: p/t/a.json}]}\npacks: [{name: t, kind: plugin, packVersion: 1.0.0, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, dir: p/t, files: [a.json, pack.yaml], resources: [t], plugins: [paths]}]\n"))
+	f.Add([]byte("version: 1\nname: G\nid: dev.example.g\nappVersion: '1'\nwindow: {width: 1, height: 1}\naudio: {master: -0.0, buses: [{name: m, volume: -0.0, effects: [{gain: {factor: -0.0}}]}]}\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doc, err := project.Parse(data)
 		if err != nil {

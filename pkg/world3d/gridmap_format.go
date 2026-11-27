@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"go.yaml.in/yaml/v3"
@@ -96,6 +97,7 @@ func ParseGridMapWith(data []byte, file string) (*GridMapDoc, error) {
 	if err != nil {
 		return nil, loaderr.Locate(err, file, data, fixGridMapDoc)
 	}
+	yamlzero.Normalize(doc)
 	return doc, nil
 }
 
@@ -335,7 +337,7 @@ func EncodeGridMap(doc *GridMapDoc) ([]byte, error) {
 	buf.WriteString(GridMapSchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(&canonical); err != nil {
+	if err := enc.Encode(yamlzero.Clean(&canonical)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("world3d: encode grid map: %w", err)
 	}
