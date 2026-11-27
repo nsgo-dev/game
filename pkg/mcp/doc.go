@@ -7,6 +7,7 @@
 //   - game_entities_list: list live entities with stable generational references ("entity:<index>:<generation>") across steps, hierarchy links and component names.
 //   - game_entity_inspect: inspect a single live entity by its stable reference, returning metadata, hierarchy links and all readable component values.
 //   - game_component_get: read one component's value on a live entity by reference and component name.
+//   - game_state_dump: capture a deterministic snapshot of entities, codec components, scene state, loop counters and StateValues as structured JSON and canonical statedump YAML.
 //   - game_loop_status: report the game loop's paused state, effective time scale, fixed step rate, total steps, simulated game time and whether random seeding is configured.
 //   - game_loop_pause: pause the game loop without accumulating a catch-up backlog.
 //   - game_loop_resume: resume a paused game loop.
