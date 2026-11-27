@@ -30,7 +30,7 @@ An `Entity` is a `uint64` carrying a 32-bit slot index and a 32-bit generation (
 
 - `NewWorld()` returns a fresh world (the zero value of `World` is also ready to use).
 - `Spawn()`, `Destroy(e)`, `Alive(e)` and `Count()` manage entity lifetimes with free-list recycling.
-- `Clear()` removes all entities and components while bumping generations and keeping slice capacities for zero-allocation reuse. `Reset()` releases backing storage.
+- `Clear()` removes all entities and components while bumping generations and keeping slice capacities for zero-allocation reuse. `Reset()` releases component and active entity backing storage while keeping bumped slot generations, so handles from before `Reset()` stay dead even after new entities are spawned.
 - `Attach(cx)` binds the world to an NSGo `*core.Scope` so `Dispose()` runs automatically when the scope is disposed.
 
 ```go
@@ -162,7 +162,7 @@ Worlds serialize to deterministic `WorldSnapshot` JSON values and integrate dire
 
 - `RegisterCodec[T](w, typeName)` registers a JSON codec for component type `T`. Unregistered components are omitted from snapshots.
 - `w.Snapshot()` emits live entities in ascending slot-index order and components in ascending codec-name order, preserving exact indices and generations so cross-entity `Entity` references stay valid after restore.
-- `w.Restore(snap)` decodes into a temporary world first and commits atomically, leaving `w` untouched if any codec is missing or decoding fails.
+- `w.Restore(snap)` decodes into a temporary world first and commits atomically, leaving `w` untouched if any codec is missing or decoding fails. Slots omitted from `snap` (including an empty snapshot) keep bumped generations so stale handles from before `Restore` stay dead even after new entities are spawned, and rolling a slot back to an earlier generation keeps a generation floor so destroying the restored entity never re-issues a generation already used before the restore.
 - `SaveWorld(store, slot, w)` and `LoadWorld(store, slot, w)` persist and restore worlds through `save.Store` (both `save.NewStorageStore` and `save.NewFileStore`, including schema versions and migrations). `LoadWorld` checks the snapshot while the slot decodes, so a snapshot it cannot restore (an unknown codec, a bad parent, a component that does not decode) falls back to the backup copy, and its error names the slot, the line and the field, such as `data.entities[2].parent`.
 
 ```go

@@ -55,7 +55,13 @@ type World struct {
 	gens  []uint32
 	alive []bool
 	free  []uint32
-	count int
+	// floorGens is lazily allocated only when Restore rolls a live slot back to
+	// a generation below the next unused generation this World already reached.
+	// A non-zero floorGens[i] requires slot i to advance to at least floorGens[i]
+	// the next time it dies, preventing handles from before the rollback from
+	// aliasing future spawns.
+	floorGens []uint32
+	count     int
 
 	stores []anyStore
 	byType map[typeKey]anyStore
@@ -82,6 +88,44 @@ func (w *World) Attach(cx *core.Scope) {
 	cx.Cleanup(w.Dispose)
 }
 
+func nextGen(gen uint32) uint32 {
+	gen++
+	if gen == 0 {
+		return 1
+	}
+	return gen
+}
+
+// advanceGen returns the next unused generation for a live slot idx that is
+// being destroyed, honoring any rollback floor recorded on idx.
+func (w *World) advanceGen(idx uint32) uint32 {
+	gen := nextGen(w.gens[idx])
+	if int(idx) < len(w.floorGens) {
+		if floor := w.floorGens[idx]; floor > gen {
+			gen = floor
+		}
+		w.floorGens[idx] = 0
+	}
+	return gen
+}
+
+// nextSlotGen returns the next unused generation for slot idx if that slot were dead.
+func (w *World) nextSlotGen(idx int) uint32 {
+	if idx >= len(w.gens) {
+		return 1
+	}
+	gen := w.gens[idx]
+	if idx < len(w.alive) && w.alive[idx] {
+		gen = nextGen(gen)
+	} else if gen == 0 {
+		gen = 1
+	}
+	if idx < len(w.floorGens) && w.floorGens[idx] > gen {
+		gen = w.floorGens[idx]
+	}
+	return gen
+}
+
 // Dispose releases all entities and component storage in w and marks w as disposed.
 // Calling Dispose more than once is a no-op.
 func (w *World) Dispose() {
@@ -89,6 +133,7 @@ func (w *World) Dispose() {
 		return
 	}
 	w.Reset()
+	w.gens = nil
 	w.disposed = true
 }
 
@@ -110,11 +155,20 @@ func (w *World) Spawn() Entity {
 		w.count++
 		return makeEntity(idx, w.gens[idx])
 	}
-	idx := uint32(len(w.gens))
-	w.gens = append(w.gens, 1)
+	idx := uint32(len(w.alive))
+	gen := uint32(1)
+	if int(idx) < len(w.gens) {
+		gen = w.gens[idx]
+		if gen == 0 {
+			gen = 1
+			w.gens[idx] = 1
+		}
+	} else {
+		w.gens = append(w.gens, 1)
+	}
 	w.alive = append(w.alive, true)
 	w.count++
-	return makeEntity(idx, 1)
+	return makeEntity(idx, gen)
 }
 
 // Destroy removes e and all of its components from w and returns its slot to the free list with an incremented generation.
@@ -128,11 +182,7 @@ func (w *World) Destroy(e Entity) {
 	}
 	idx := e.Index()
 	w.alive[idx] = false
-	gen := w.gens[idx] + 1
-	if gen == 0 {
-		gen = 1
-	}
-	w.gens[idx] = gen
+	w.gens[idx] = w.advanceGen(idx)
 	w.free = append(w.free, idx)
 	w.count--
 	for _, s := range w.stores {
@@ -204,27 +254,39 @@ func (w *World) Clear() {
 	for i := len(w.alive) - 1; i >= 0; i-- {
 		if w.alive[i] {
 			w.alive[i] = false
-			gen := w.gens[i] + 1
-			if gen == 0 {
-				gen = 1
-			}
-			w.gens[i] = gen
+			w.gens[i] = w.advanceGen(uint32(i))
 		}
 		w.free = append(w.free, uint32(i))
 	}
+	w.floorGens = nil
 	w.count = 0
 }
 
-// Reset removes all entities and releases entity and component backing storage while keeping registered codecs intact.
+// Reset removes all entities and releases component and active entity backing storage while keeping bumped slot generations (so stale handles never alias newly spawned entities) and registered codecs intact.
 func (w *World) Reset() {
+	if w.disposed {
+		return
+	}
 	if w.hierarchy != nil {
 		w.hierarchy.reset()
 	}
 	for _, s := range w.stores {
 		s.reset()
 	}
-	w.gens = nil
+	if len(w.gens) > 0 {
+		for i := 0; i < len(w.alive); i++ {
+			if w.alive[i] {
+				w.gens[i] = w.advanceGen(uint32(i))
+			}
+		}
+		if cap(w.gens) > len(w.gens) {
+			trimmed := make([]uint32, len(w.gens))
+			copy(trimmed, w.gens)
+			w.gens = trimmed
+		}
+	}
 	w.alive = nil
 	w.free = nil
+	w.floorGens = nil
 	w.count = 0
 }

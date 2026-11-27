@@ -320,7 +320,7 @@ func (w *World) Snapshot() (WorldSnapshot, error) {
 
 // Restore atomically replaces w's entities and components with snap using w's registered codecs.
 //
-// Entity indices and generations are preserved verbatim so cross-entity references stored inside components remain valid. If decoding fails (for example due to an unknown codec or invalid JSON), w is left completely unchanged.
+// Entity indices and generations are preserved verbatim so cross-entity references stored inside components remain valid, while slots omitted from snap keep bumped generations so stale handles from before Restore never alias newly spawned entities. If decoding fails (for example due to an unknown codec or invalid JSON), w is left completely unchanged.
 //
 // An error about the snapshot's contents is a *loaderr.Error that names the field at fault, such as "entities[2].parent", and how to fix it, and matches ErrInvalidSnapshot or ErrUnknownCodec with errors.Is.
 func (w *World) Restore(snap WorldSnapshot) error {
@@ -350,6 +350,7 @@ const fixSnapshot = "save the world again with SaveWorld from this build; a snap
 func (w *World) prepareRestore(snap WorldSnapshot) (*restored, error) {
 	tmp := &World{}
 	var links [][2]Entity
+	var aliveSize int
 	if len(snap.Entities) > 0 {
 		var maxIdx uint32
 		gens := make(map[uint32]uint32, len(snap.Entities))
@@ -416,24 +417,35 @@ func (w *World) prepareRestore(snap WorldSnapshot) (*restored, error) {
 				at = parent
 			}
 		}
-		size := int(maxIdx) + 1
-		tmp.gens = make([]uint32, size)
-		tmp.alive = make([]bool, size)
+		aliveSize = int(maxIdx) + 1
+	}
+
+	gensSize := max(aliveSize, len(w.gens))
+	if gensSize > 0 {
+		tmp.gens = make([]uint32, gensSize)
 		for i := range tmp.gens {
-			if i < len(w.gens) && w.gens[i] > 0 {
-				// A dead slot must not reuse a generation this world already
-				// issued, or a stale handle would alias after the load.
-				tmp.gens[i] = w.gens[i] + 1
-			} else {
-				tmp.gens[i] = 1
-			}
+			// A dead slot must not reuse a generation this world already
+			// issued, or a stale handle would alias after the load.
+			tmp.gens[i] = w.nextSlotGen(i)
 		}
+	}
+	if aliveSize > 0 {
+		tmp.alive = make([]bool, aliveSize)
 		for _, es := range snap.Entities {
+			// If this world already issued generations beyond es.Generation for
+			// es.Index, keep a floor so destroying this restored entity never
+			// re-issues a generation that an older handle still holds.
+			if prevNext := tmp.gens[es.Index]; prevNext > es.Generation && prevNext > nextGen(es.Generation) {
+				if tmp.floorGens == nil {
+					tmp.floorGens = make([]uint32, aliveSize)
+				}
+				tmp.floorGens[es.Index] = prevNext
+			}
 			tmp.gens[es.Index] = es.Generation
 			tmp.alive[es.Index] = true
 			tmp.count++
 		}
-		for i := size - 1; i >= 0; i-- {
+		for i := aliveSize - 1; i >= 0; i-- {
 			if !tmp.alive[i] {
 				tmp.free = append(tmp.free, uint32(i))
 			}
@@ -463,6 +475,7 @@ func (w *World) commitRestore(r *restored) error {
 	w.gens = tmp.gens
 	w.alive = tmp.alive
 	w.free = tmp.free
+	w.floorGens = tmp.floorGens
 	w.count = tmp.count
 
 	for _, existing := range w.stores {

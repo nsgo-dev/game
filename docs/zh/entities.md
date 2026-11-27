@@ -30,7 +30,7 @@ import "github.com/nsgo-dev/game/pkg/entities"
 
 - `NewWorld()` 返回一个新的空世界（`World` 的零值也立即可用）。
 - `Spawn()`、`Destroy(e)`、`Alive(e)` 和 `Count()` 管理实体生命周期并复用已释放槽位。
-- `Clear()` 清除所有实体和组件，递增代数使旧句柄失效，同时保留切片容量以实现零分配复用；`Reset()` 释放底层存储。
+- `Clear()` 清除所有实体和组件，递增代数使旧句柄失效，同时保留切片容量以实现零分配复用；`Reset()` 释放组件和活跃实体的底层存储，同时保留递增后的槽位代数，因此 `Reset()` 之前的旧句柄即便在重新生成实体后仍保持失效。
 - `Attach(cx)` 将世界绑定到 NSGo 的 `*core.Scope`，在作用域销毁时自动调用 `Dispose()`。
 
 ```go
@@ -162,7 +162,7 @@ spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptio
 
 - `RegisterCodec[T](w, typeName)` 为组件类型 `T` 注册 JSON 编解码器；未注册的组件不会写入快照。
 - `w.Snapshot()` 按槽位索引升序输出存活实体、按编解码器名称升序输出组件，完整保留索引与代数，使组件中保存的 `Entity` 引用在恢复后依然有效。
-- `w.Restore(snap)` 先解码到临时世界再原子提交；若缺少编解码器或数据损坏，原世界保持完好。
+- `w.Restore(snap)` 先解码到临时世界再原子提交；若缺少编解码器或数据损坏，原世界保持完好。快照未包含的槽位（包括空快照）会保留递增后的代数，使 `Restore` 之前的旧句柄即便在重新生成实体后仍保持失效；回滚到更早代数时也会保留代数下限，避免销毁恢复后的实体时复用到回滚前已发出的代数。
 - `SaveWorld(store, slot, w)` 与 `LoadWorld(store, slot, w)` 通过 `save.Store`（同时支持 `save.NewStorageStore` 和 `save.NewFileStore`，以及存档版本和迁移）保存和恢复世界。`LoadWorld` 在解码槽位时就检查快照，因此无法恢复的快照（未知的编解码器、错误的父实体、无法解码的组件）会回退到备份副本，其错误给出槽位名、行号和字段，例如 `data.entities[2].parent`。
 
 ```go

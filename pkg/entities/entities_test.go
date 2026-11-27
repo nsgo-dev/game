@@ -136,7 +136,7 @@ func TestEntityLifecycleAndStaleHandleSafety(t *testing.T) {
 		t.Fatalf("after Clear Spawn returned colliding or dead handle %v", e4)
 	}
 
-	// Reset releases storage and leaves World usable.
+	// Reset releases storage while keeping slot generations bumped so stale handles never alias.
 	w.Reset()
 	if w.Count() != 0 || w.Alive(e4) {
 		t.Fatalf("after Reset: count=%d alive(e4)=%v", w.Count(), w.Alive(e4))
@@ -144,6 +144,9 @@ func TestEntityLifecycleAndStaleHandleSafety(t *testing.T) {
 	e5 := w.Spawn()
 	if !w.Alive(e5) || w.Count() != 1 {
 		t.Fatalf("World unusable after Reset: e5=%v count=%d", e5, w.Count())
+	}
+	if e5 == e1 || e5 == e3 || e5 == e4 || w.Alive(e1) || w.Alive(e3) || w.Alive(e4) {
+		t.Fatalf("after Reset Spawn returned colliding handle %v (old: e1=%v e3=%v e4=%v)", e5, e1, e3, e4)
 	}
 }
 
