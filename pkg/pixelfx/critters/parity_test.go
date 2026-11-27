@@ -1,7 +1,6 @@
 package critters_test
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,7 +48,7 @@ func TestCrittersMatchPixelfx(t *testing.T) {
 	for _, tc := range allEffects {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			pixelfxtest.CheckEffect(t, tc.effect, filepath.Join("testdata", "ref", tc.name))
+			pixelfxtest.CheckEffect(t, tc.effect)
 		})
 	}
 }

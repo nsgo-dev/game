@@ -132,7 +132,7 @@ for !pf.Done() {
 - `flip`：同上，但镜像；
 - `act`，仅限由角色表演的特效：以 60 fps 渲染的表演，取时间首次到达从第一个姿势到结尾（循环特效为两个循环）的 25%、50% 和 75% 处的帧。
 
-参考图为特效所在类别包的 `testdata/ref/<name>` 下的 `<case>-<frame>.png`，核心包也有自己的参考图：`testdata/ref/rig` 下是骨架画出的一组姿势（每种武器、双手、转身、腾空），`testdata/ref/core` 下是画笔的每种形状（正常摆放、镜像和旋转）以及模拟中的每种粒子、碎片和光。一帧中与参考图在任一通道上相差超过 2 的像素不超过 0.5% 时视为一致；这个容差就是 `pixelfxtest.MaxChannelDelta` 和 `pixelfxtest.MaxDifferingShare`，只在一处说明，只有写明理由才放宽。在 amd64 上，已移植的特效除个别像素外逐位一致；在 arm64 上，除融合指令把个别像素推过边界外，相差都在一级之内。把 `PIXELFXTEST_OUT` 设为一个目录，不一致的帧会写到那里。
+参考图为 `pkg/pixelfx/testdata/ref/<category>/<name>`（即特效的 ID）下的 `<case>-<frame>.png`，核心包也有自己的参考图：`testdata/ref/rig` 下是骨架画出的一组姿势（每种武器、双手、转身、腾空），`testdata/ref/core` 下是画笔的每种形状（正常摆放、镜像和旋转）以及模拟中的每种粒子、碎片和光。`pkg/pixelfx/testdata` 是一个独立的模块，因此发布的 `github.com/nsgo-dev/game` 模块不含这些参考图：在下载的模块副本中一致性测试会跳过，而在仓库检出中缺少参考图会失败。一帧中与参考图在任一通道上相差超过 2 的像素不超过 0.5% 时视为一致；这个容差就是 `pixelfxtest.MaxChannelDelta` 和 `pixelfxtest.MaxDifferingShare`，只在一处说明，只有写明理由才放宽。在 amd64 上，已移植的特效除个别像素外逐位一致；在 arm64 上，除融合指令把个别像素推过边界外，相差都在一级之内。把 `PIXELFXTEST_OUT` 设为一个目录，不一致的帧会写到那里。
 
 ## 移植一个类别
 
@@ -141,7 +141,7 @@ for !pf.Done() {
 1. 克隆 pixelfx 并切到固定的提交：`git clone https://github.com/patch-gg/pixelfx`，然后 `git -C pixelfx switch --detach 5294518ce7c72e48b6100a744596e0acf57f2826`。不要运行它的 npm 安装脚本；参考工具只需要 Node 18 或更新版本，pixelfx 的渲染代码没有任何依赖。
 2. 把类别的 `_lib.js` 移植到 `pkg/pixelfx/<category>` 的 `lib.go`（核心那次改动可能已经在子包里放了其中几个函数），每个特效各放一个以它命名的文件（`fire-ring.js` 对应 `fire_ring.go`），文件开头写明上游文件和提交、MIT 许可，以及原文件带有的 Sprite Fusion 声明。保持 pixelfx 的运算、浮点运算的顺序和调用随机数生成器的顺序：Go 与 JavaScript 一样从左到右求值参数和调用，但 JavaScript 循环条件里抽取的随机数每一轮都会重新抽取，而 `Math.PI + 0.07` 这样的常量表达式必须用变量表示 π（Go 在编译时精确折叠常量，JavaScript 每一步都会舍入）。
 3. 把每个特效导出为包级变量（`var FireRing = &pixelfx.Effect{...}`），并在 `init` 中注册为 `"<category>/<name>"`。JavaScript 中作为函数的颜色或透明度对应画笔的 `...Fn` 方法；选项对应 `Meta.Options` 及其默认值；`act` 对应 `Act`，命中中那些省略时由 pixelfx 取默认值的数值用 `Opt` 表示。
-4. 渲染参考图：`node tools/pixelfxref/render.mjs --pixelfx <克隆目录> <category>`，并添加类别的 `parity_test.go`，为每个特效调用 `pixelfxtest.CheckEffect` 和 `pixelfxtest.CheckDeterministic`，再加一个 `pixelfxtest.BenchmarkFrames` 基准测试，参照 `pixelfx/fire`。
+4. 渲染参考图：`node tools/pixelfxref/render.mjs --pixelfx <克隆目录> <category>` 会把它们写到 `pkg/pixelfx/testdata/ref/<category>`。再添加类别的 `parity_test.go`，为每个特效调用 `pixelfxtest.CheckEffect` 和 `pixelfxtest.CheckDeterministic`，再加一个 `pixelfxtest.BenchmarkFrames` 基准测试，参照 `pixelfx/fire`。
 5. 在 `cmd/game/pixelfx.go` 中导入该类别，让 `game pixelfx` 能渲染它；保留它在稳定性表中的行和它的 `example_test.go`，更新上面的表格及其英文版，并添加一个更新日志片段。
 
 某一帧超出容差时，用 `PIXELFXTEST_OUT` 把它写出来与参考图对比：形状错位是移植错误（通常是随机数抽取顺序不对），零星的一级差异则来自浮点运算。

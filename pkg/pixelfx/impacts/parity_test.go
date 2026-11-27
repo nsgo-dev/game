@@ -1,7 +1,6 @@
 package impacts_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/pixelfx"
@@ -38,7 +37,7 @@ func TestImpactsEffectsAreRegistered(t *testing.T) {
 func TestImpactsEffectsMatchPixelfx(t *testing.T) {
 	for _, tc := range allEffects {
 		t.Run(tc.name, func(t *testing.T) {
-			pixelfxtest.CheckEffect(t, tc.effect, filepath.Join("testdata", "ref", tc.name))
+			pixelfxtest.CheckEffect(t, tc.effect)
 		})
 	}
 }

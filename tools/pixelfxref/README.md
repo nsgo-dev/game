@@ -15,7 +15,7 @@ node tools/pixelfxref/render.mjs --pixelfx ../pixelfx fire/torch moves/ground-po
 node tools/pixelfxref/render.mjs --pixelfx ../pixelfx rig core           # the core's own references
 ```
 
-It refuses a clone at any other commit. For each effect it deletes the effect's old references and writes new ones to `pkg/pixelfx/<category>/testdata/ref/<name>/` (or under `--out <dir>`), and `rig` and `core` write `pkg/pixelfx/testdata/ref/rig/` and `testdata/ref/core/`.
+It refuses a clone at any other commit. For each effect it deletes the effect's old references and writes new ones to `pkg/pixelfx/testdata/ref/<category>/<name>/` (or under `--out <dir>`), and `rig` and `core` write `pkg/pixelfx/testdata/ref/rig/` and `testdata/ref/core/`. `pkg/pixelfx/testdata` is a module of its own, so the published `github.com/nsgo-dev/game` module leaves the references out and the parity tests skip in a downloaded copy.
 
 ## What it renders
 

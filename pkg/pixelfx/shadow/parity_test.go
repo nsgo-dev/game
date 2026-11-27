@@ -1,7 +1,6 @@
 package shadow_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/pixelfx"
@@ -30,7 +29,7 @@ var effects = []struct {
 func TestShadowMatchesPixelfx(t *testing.T) {
 	for _, tc := range effects {
 		t.Run(tc.name, func(t *testing.T) {
-			pixelfxtest.CheckEffect(t, tc.fx, filepath.Join("testdata", "ref", tc.name))
+			pixelfxtest.CheckEffect(t, tc.fx)
 		})
 	}
 }

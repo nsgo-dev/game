@@ -2,7 +2,6 @@ package pixelfx_test
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/pixelfx"
@@ -53,7 +52,7 @@ func TestRigMatchesPixelfx(t *testing.T) {
 			file string
 			pix  []byte
 		}{{name + ".png", color}, {name + "-src.png", src}} {
-			w, h, want, err := pixelfxtest.ReadPNG(filepath.Join("testdata", "ref", "rig", img.file))
+			w, h, want, err := pixelfxtest.ReadPNG(pixelfxtest.Ref(t, "rig", img.file))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -3,7 +3,6 @@ package pixelfx_test
 import (
 	"fmt"
 	"math"
-	"path/filepath"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/pixelfx"
@@ -128,7 +127,7 @@ func (s *sim) draw(p *pixelfx.Painter) {
 
 func checkCore(t *testing.T, f *pixelfx.Frame, name string) {
 	t.Helper()
-	w, h, want, err := pixelfxtest.ReadPNG(filepath.Join("testdata", "ref", "core", name))
+	w, h, want, err := pixelfxtest.ReadPNG(pixelfxtest.Ref(t, "core", name))
 	if err != nil {
 		t.Fatal(err)
 	}

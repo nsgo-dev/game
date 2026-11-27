@@ -3,7 +3,6 @@ package arcane_test
 import (
 	"math"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -35,7 +34,7 @@ func TestArcaneMatchesPixelfx(t *testing.T) {
 	for _, tc := range allEffects {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			pixelfxtest.CheckEffect(t, tc.effect, filepath.Join("testdata", "ref", tc.name))
+			pixelfxtest.CheckEffect(t, tc.effect)
 		})
 	}
 }
@@ -67,7 +66,7 @@ func TestArcaneRegistersEveryEffect(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("registered %v, want %v", got, want)
 	}
-	entries, err := os.ReadDir(filepath.Join("testdata", "ref"))
+	entries, err := os.ReadDir(pixelfxtest.Ref(t, "arcane"))
 	if err != nil {
 		t.Fatal(err)
 	}
