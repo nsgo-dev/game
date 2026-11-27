@@ -528,6 +528,13 @@ func TestTitleShowsTheGameAndPadsOnlyOnTouchScreens(t *testing.T) {
 	}
 }
 
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(960, 540))
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}
+
 // onDesktop runs a test on a desktop, where nsgotest would otherwise use a phone.
 var onDesktop = nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop})
 

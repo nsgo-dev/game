@@ -16,7 +16,7 @@ go tool nsgo dev
 - [`game/random`](determinism.md)：第 *n* 局用以 *n* 为种子的 `random.Stream` 洗牌，所以每位玩家的第 *n* 局都是同一局，测试也能指明它们赢下和输掉的是哪几局。
 - [`game/save`](save.md)：进行中的牌局和胜负记录在每一步之后存进 `core.Storage`；读取时会检查，损坏的或不可能出现的存档会重新发一局，由更新版本的游戏写下的存档则原样保留。
 - [`game/project`](project.md) 和 [`game/input`](input.md)：`game.yaml` 的输入映射把按键和手柄按钮绑定到动作 `left`、`right`、`play`、`discard`、`draw` 和 `deal`，`Project.BindInput` 把它读进 `input.Actions`。
-- [`game/screen`](screen.md)：牌桌在 360×640 点的虚拟分辨率中布局，缩放到任意窗口，指针通过同一个视口映射回来。
+- [`game/screen`](screen.md)：牌桌在 360×640 点的虚拟分辨率中布局，缩放到任意窗口，在手机上请求竖屏方向（`cx.RequestOrientation(core.OrientationPortrait)`），指针通过同一个视口映射回来。
 - 固定步长的 `game.Loop`、在 `core.Canvas` 上用代码绘制的卡牌，以及显示计数和按钮的原生视图。
 
 ## 操作

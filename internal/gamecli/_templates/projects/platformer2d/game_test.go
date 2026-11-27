@@ -378,3 +378,10 @@ func TestEachJumpBindingJumps(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(960, 540), nsgotest.ManualFrames())
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}

@@ -16,7 +16,7 @@ go tool nsgo dev
 - A level drawn as text in `data/level.yaml`, built into a `physics.Grid` to collide with, a `tilemap.Tilemap` to draw and `physics.Trigger` sensors for the spikes, sparks, lamp and beacon.
 - Rooms with their own camera bounds from `data/rooms.yaml`: a [`rooms.Director`](rooms.md) slides the camera from one room to the next, and the player waits until it lands.
 - One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, bound with `Project.BindInput`, with on-screen controls drawn over the touch regions on phones and tablets, and anywhere once the game view has been touched or clicked.
-- A 320 by 180 virtual screen scaled by whole multiples, with a native HUD and an end-of-run panel over the canvas.
+- A 320 by 180 virtual screen scaled by whole multiples, with a native HUD and an end-of-run panel over the canvas, requesting landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`).
 - Tests that play the level through to a win with the keyboard, a controller and two-finger touch, run into the spikes until the run is lost, and check the rules, the controller's timing and that every data file is canonical.
 
 ## Controls

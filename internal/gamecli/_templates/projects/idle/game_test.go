@@ -406,3 +406,10 @@ func TestFormatDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(420, 720))
+	if app.Orientation != core.OrientationPortrait {
+		t.Fatalf("orientation = %v, want portrait (%v)", app.Orientation, core.OrientationPortrait)
+	}
+}

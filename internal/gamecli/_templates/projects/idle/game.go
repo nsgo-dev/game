@@ -82,6 +82,8 @@ func Root(cx *core.Scope) core.Node { return rootWith(cx, nil) }
 // rootWith is Root, handing the game to onReady when it is not nil, as the tests do to look inside it.
 func rootWith(cx *core.Scope, onReady func(*hearthGame)) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	// The 360x600 hearth and shop stack vertically: a phone stays upright while the game runs.
+	cx.RequestOrientation(core.OrientationPortrait)
 	g := newHearthGame(cx, mustParseData(hearthYAML))
 	if onReady != nil {
 		onReady(g)
