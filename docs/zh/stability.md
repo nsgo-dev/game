@@ -62,6 +62,7 @@
 | 包 | 状态 | 指南 |
 | --- | --- | --- |
 | `game` | 稳定 | [Loop](loop.md) |
+| `game/cmd/editor` | 实验性 | [场景编辑器](editor.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |

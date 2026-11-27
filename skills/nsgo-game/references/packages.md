@@ -161,6 +161,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | --- | --- | --- |
 | `game/pkg/project` | Experimental | `game.yaml` parser, canonical encoder and `nsgo.yaml` consistency checker |
 | `game/pkg/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
+| `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |
 | `game/cmd/game` | Experimental | The `nsgo game` CLI |
 | `game/cmd/gameapi` | Experimental | Generates API reference JSON from package doc comments |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |

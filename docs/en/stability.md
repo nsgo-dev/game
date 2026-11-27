@@ -62,6 +62,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | Package | Status | Guide |
 | --- | --- | --- |
 | `game` | Stable | [Loop](loop.md) |
+| `game/cmd/editor` | Experimental | [Scene Editor](editor.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |

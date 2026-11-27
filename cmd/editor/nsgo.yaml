@@ -1,0 +1,23 @@
+name: NSGo Game Editor
+id: dev.nsgo.game.editor
+version: 0.1.0
+build_number: 1
+copyright: "© 2026 NSGo authors"
+
+icon:
+  png: ../../apps/website/public/icon.png
+
+# Public key matching the organization's NSGO_UPDATES_KEY secret so releases write signed appcasts.
+updates:
+  key: 8+lMn9ixDn7sbqoWxwRKQDGiZ6wwtfjRXos/4GQNURk=
+
+dev:
+  target: native
+
+build:
+  output: dist
+  open: false
+  targets: [macos_arm64, macos_x64, linux_x64, linux_arm64, windows_x64, windows_arm64]
+
+release:
+  github: nsgo-dev/game
