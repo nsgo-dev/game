@@ -48,6 +48,7 @@ input:
       invert: true
 audio:
   master: 0.9
+  maxVoices: 28
   buses:
     - name: music
       volume: 0.8
@@ -61,6 +62,25 @@ audio:
         - gain: {factor: 0.9}
         - bitcrush: {bits: 8, downsample: 2}
     - name: ui
+  concurrency:
+    - name: impacts
+      max: 4
+      resolve: quietest
+      scope: global
+      retrigger: 40ms
+      stealFade: 30ms
+      duck: {amount: 0.25, attack: 20ms, release: 150ms}
+    - name: footsteps
+      max: 2
+      resolve: oldest
+      scope: owner
+      retrigger: 120ms
+  duck:
+    - bus: music
+      by: dialogue
+      amount: 0.4
+      attack: 100ms
+      release: 500ms
 physics:
   gravity2D: {"y": 980}
   gravity3D: {"y": -9.81}

@@ -90,6 +90,10 @@ overlay := gamedebug.New(gamedebug.Options{
 
 `overlay.DrawStats()` 返回当前数值，`overlay.HasDrawStats()` 表示两种来源是否设置了其一；都未设置时不显示这一行。[`game/mcp`](mcp.md) 的 `game_perf_readout` 报告的是同一组数值。
 
+## 音频发声与并发状态
+
+在 `gamedebug.Options` 中传入 `Sound: mixer` 后，浮层 HUD 会显示当前活跃/淡出中的发声数与全局发声预算、各并发分组的活跃数，以及正在闪避的总线增益。`overlay.Sound()` 返回挂载的 `*sound.Mixer`，[`game/mcp`](mcp.md) 的 `game_sound_readout` 读取的是同一份快照。
+
 ## 重置读数
 
 - `overlay.ResetStats()` 清空帧耗时环形缓冲区和已推送的绘制统计，并刷新 HUD。`Options.DrawStats` 回调会继续提供数值。

@@ -71,6 +71,43 @@ if hit != nil {
 }
 ```
 
+## 并发分组、优先级、重触发冷却与闪避
+
+除了单个音效的 `Effect.Limit` 之外，`Mixer` 还支持跨多个 `Effect` 与 `Cue` 共享的具名并发分组、带跨分组优先级抢占的全局发声预算、最小重触发冷却时间、抢占淡出、组内旧声闪避以及总线闪避：
+
+```go
+mixer.SetMaxVoices(28) // 默认：sound.DefaultMaxVoices（30，低于平台的 32 上限）
+mixer.SetConcurrencyGroup("impacts", sound.ConcurrencyGroup{
+	Max:       4,
+	Resolve:   sound.ResolveQuietest, // ResolveRefuse（默认）、ResolveOldest、ResolveFarthest、ResolveQuietest、ResolveLowestPriority
+	Scope:     sound.ScopeGlobal,     // ScopeGlobal（默认）或 ScopeOwner
+	Retrigger: 40 * time.Millisecond,
+	StealFade: 30 * time.Millisecond,
+	Duck:      sound.DuckEnvelope{Amount: 0.25, Attack: 20 * time.Millisecond, Release: 150 * time.Millisecond},
+})
+mixer.SetBusDucking(sound.BusDuckRule{
+	Bus:     "music",
+	By:      "dialogue",
+	Amount:  0.4, // 对白播放时把 music 降低 40%（0.6x 增益）
+	Attack:  100 * time.Millisecond,
+	Release: 500 * time.Millisecond,
+})
+
+hit.Concurrency = "impacts"
+hit.Priority = 10
+hit.PlayWith(audio.Voice{Volume: 0.9}, sound.PlayOptions{Owner: enemyID})
+```
+
+- **共享并发分组**：设置 `Effect.Concurrency`（或 `CueOptions.Concurrency` / `PlayOptions.Concurrency`）将多种不同音效归入同一分组。当组内活跃发声达到 `Max` 时，按 `Resolve` 决策：`ResolveRefuse` 拒绝新声音，`ResolveOldest` 停止最早的活跃声音，`ResolveFarthest` 停止最远的定位声音（若新声音更远则拒绝），`ResolveQuietest` 停止最轻的可听声音（若新声音更轻则拒绝），`ResolveLowestPriority` 停止优先级最低的声音（同优先级按最早打破平局；若新声音优先级严格更低则拒绝）。
+- **按归属者作用域**：将 `Scope` 设为 `sound.ScopeOwner` 后，`Max`、`Retrigger` 与 `Duck` 会按 `PlayOptions.Owner`（任意可比较值，如实体 ID、字符串或指针）独立生效，可通过 `Effect.PlayWith`、`PlayAtWith`、`PlayAt3DWith`、`Play3DWith` 及 `Cue` 对应方法传入。
+- **重触发冷却**：`Retrigger` 拒绝分组（或同一归属者）内距离上次成功起播未满冷却时间的新请求，同时不打断已在播放的声音。
+- **抢占淡出**：当 `StealFade > 0` 时，被并发分组抢占的声音会立即移出活跃发声计数，并在 `StealFade` 内平滑淡出至静音后停止。
+- **组内闪避**：`ConcurrencyGroup.Duck` 在同一并发作用域有新声音起播时压低较早的活跃声音（按 `(1 - Amount)^newer` 缩放），经 `Attack` 淡入压低并在新声音结束后自动经 `Release` 恢复。
+- **总线闪避**：`SetBusDucking` / `AddBusDucking` 在 `By` 总线（或并发分组）上有任意 `Effect` 或 `Music` 活跃时，将 `Bus` 的音量压低 `Amount`（范围 `[0, 1]`，`0.4` 对应 `0.6x` 增益，`1` 会静音但保持 `Music` 播放进度继续推进），并按 `Attack` 与 `Release` 平滑过渡。作用于同一总线的多条规则按乘法叠加。
+- **全局发声预算与优先级**：`Mixer` 将全局活跃发声数限制在 `MaxVoices()`（默认为 `DefaultMaxVoices` 即 `30`），超限时跨所有分组抢占优先级最低的活跃声音（同优先级抢占最早者），并拒绝优先级严格更低的新声音，避免大量次要音效打断重要对白或主角音效。
+- **项目配置与检查**：在 [`game.yaml`](project.md) 中声明 `audio.maxVoices`、`audio.concurrency` 与 `audio.duck`，并通过 `File.ConfigureMixer(mixer)` 安装。`go tool game check` 会校验 `*.sound.yaml` 文件引用的 `concurrency:` 分组名是否已在 `game.yaml` 中声明。
+- **调试读数**：调用 `mixer.DebugSnapshot()`，或将 `Sound: mixer` 传入 [`debug.Options`](debug.md) 与 [`mcp.Config`](mcp.md)（`game_sound_readout`），即可查看活跃与淡出中的发声数、全局预算、各并发分组计数与统计（`refused`、`stolen`、`retriggered`）以及总线实时闪避增益。
+
 ## 总线效果链
 
 `mixer.SetGroupEffects(group, ...)` 为分组配置一条按顺序执行的 DSP 总线效果链——`sound.LowPass`、`sound.HighPass`、`sound.Delay`、`sound.Reverb`、`sound.Gain` 和 `sound.Bitcrush`，`mixer.GroupEffects(group)` 可读回该链。项目 `game.yaml` 中 `audio.buses` 的 `effects` 通过 [`project.File.ConfigureMixer`](project.md) 安装同样的效果链。

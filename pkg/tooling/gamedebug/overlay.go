@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -264,6 +265,14 @@ func (o *Overlay) GC() *GCMonitor {
 	return o.opts.GC
 }
 
+// Sound returns the sound.Mixer attached to the overlay via Options.Sound, or nil.
+func (o *Overlay) Sound() *sound.Mixer {
+	if o == nil {
+		return nil
+	}
+	return o.opts.Sound
+}
+
 // SetDrawStats updates the overlay's pushed per-frame draw statistics and refreshes the visible overlay. It is used when Options.DrawStats is nil.
 func (o *Overlay) SetDrawStats(s DrawStats) {
 	if o == nil {
@@ -492,6 +501,9 @@ func (o *Overlay) View(cx *core.Scope) core.Node {
 			if o.opts.Memory != nil {
 				children = append(children, o.memorySummaryView())
 			}
+			if o.opts.Sound != nil {
+				children = append(children, o.soundSummaryView())
+			}
 			children = append(children, o.aiInspectorView())
 			children = append(children, o.netInspectorView())
 			children = append(children, o.sceneInspectorView())
@@ -699,6 +711,71 @@ func (o *Overlay) memorySummaryView() core.Node {
 							core.Text{Content: val, Style: valStyle},
 						},
 					})
+				}
+				return core.Group(nodes)
+			}),
+		},
+	}
+}
+
+func (o *Overlay) soundSummaryView() core.Node {
+	return core.View{
+		TestID: "debug-sound",
+		Style:  sectionDividerStyle,
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if o.frameSig != nil {
+					_ = o.frameSig.Get()
+				}
+				snap := o.opts.Sound.DebugSnapshot()
+				header := fmt.Sprintf("Sound: %d / %d voices", snap.ActiveVoices, snap.MaxVoices)
+				if snap.FadingVoices > 0 {
+					header += fmt.Sprintf(" (+%d fading)", snap.FadingVoices)
+				}
+				headerStyle := sectionHeaderStyle
+				if snap.MaxVoices > 0 && snap.ActiveVoices >= snap.MaxVoices {
+					headerStyle = alertTextStyle
+				}
+				nodes := []core.Node{
+					core.Text{Content: header, Style: headerStyle},
+				}
+				for _, g := range snap.Groups {
+					var val string
+					if g.Max > 0 {
+						val = fmt.Sprintf("%d / %d", g.Active, g.Max)
+					} else {
+						val = strconv.Itoa(g.Active)
+					}
+					valStyle := layerCountStyle
+					if g.Max > 0 && g.Active >= g.Max {
+						valStyle = alertTextStyle
+					}
+					nodes = append(nodes, core.View{
+						Style: core.Style{
+							Direction:      core.Row,
+							JustifyContent: core.JustifySpaceBetween,
+							Gap:            8,
+						},
+						Children: []core.Node{
+							core.Text{Content: g.Name, Style: layerLabelStyle},
+							core.Text{Content: val, Style: valStyle},
+						},
+					})
+				}
+				for _, b := range snap.Buses {
+					if b.DuckGain < 0.999 {
+						nodes = append(nodes, core.View{
+							Style: core.Style{
+								Direction:      core.Row,
+								JustifyContent: core.JustifySpaceBetween,
+								Gap:            8,
+							},
+							Children: []core.Node{
+								core.Text{Content: "duck:" + b.Name, Style: layerLabelStyle},
+								core.Text{Content: fmt.Sprintf("%.0f%%", b.DuckGain*100), Style: layerCountStyle},
+							},
+						})
+					}
 				}
 				return core.Group(nodes)
 			}),

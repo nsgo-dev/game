@@ -2,7 +2,6 @@ package sound
 
 import (
 	"errors"
-	"slices"
 	"strconv"
 	"time"
 
@@ -44,6 +43,18 @@ type Mixer struct {
 	systemMono bool
 	// balance offsets stereo voice panning in [-1, 1] when mono is off.
 	balance float32
+	// maxVoices is the global concurrent voice budget; <= 0 uses DefaultMaxVoices.
+	maxVoices int
+	// nextSeq assigns strictly increasing sequence numbers to started playbacks for deterministic oldest tie-breaking.
+	nextSeq uint64
+	// concurrency holds registered shared concurrency groups keyed by name.
+	concurrency map[string]*concurrencyState
+	// busDucks holds configured bus ducking rules and their live envelope states.
+	busDucks []*busDuckState
+	// fading holds stolen playbacks fading out over StealFade before stopping.
+	fading []*fadingPlayback
+	// syncingDuck guards syncBusDucking against re-entrant cycles.
+	syncingDuck bool
 }
 
 // NewMixer returns a mixer that keeps its volumes in cx's storage under keys starting with key, such as "sound", and lives as long as cx.
@@ -295,8 +306,8 @@ func (m *Mixer) Unblock() {
 	}
 }
 
-// gain is what group plays at: its volume times the master volume, 0 in the background, while suspended, or while paused unless group is exempt from game pause.
-func (m *Mixer) gain(group string) float32 {
+// baseGain is group's un-ducked gain: its volume times the master volume, 0 in the background, while suspended, or while paused unless group is exempt from game pause.
+func (m *Mixer) baseGain(group string) float32 {
 	if m.background || m.suspends > 0 {
 		return 0
 	}
@@ -304,6 +315,15 @@ func (m *Mixer) gain(group string) float32 {
 		return 0
 	}
 	return core.Untracked(m.cx, func() float32 { return m.Master() * m.Volume(group) })
+}
+
+// gain is what group plays at: its base gain times any active bus ducking multiplier.
+func (m *Mixer) gain(group string) float32 {
+	g := m.baseGain(group)
+	if g <= 0 {
+		return 0
+	}
+	return g * m.busDuckGain(group)
 }
 
 // apply sets the effects and the music playing to the volumes and updates pan where supported.
@@ -319,44 +339,84 @@ func (m *Mixer) apply() {
 			setPlaybackPan(p.playback, m.effectivePan(p.basePan()))
 		}
 	}
+	n := 0
+	for _, f := range m.fading {
+		if ended(m.cx, f.playback) {
+			f.cleanup()
+			continue
+		}
+		g := m.gain(f.effect.Group)
+		f.playback.SetVolume(f.effectiveVolume(g))
+		setPlaybackPan(f.playback, m.effectivePan(f.basePan()))
+		m.fading[n] = f
+		n++
+	}
+	clear(m.fading[n:])
+	m.fading = m.fading[:n]
 	for _, mu := range m.music {
 		mu.apply()
 	}
+	m.syncBusDucking()
 }
 
-// Effect is a short sound played through a mixer, in a group and with a limit of its own.
+// Effect is a short sound played through a mixer, in a group, optionally belonging to a shared concurrency group, with a priority and per-sound voice limit.
 type Effect struct {
-	// Group is the group whose volume the sound plays at.
+	// Group is the group (bus) whose volume the sound plays at.
 	Group string
-	// Limit is the most playbacks of the sound at once, so a burst of it does not take every voice; 0 for none but the platform's 32 for all sounds.
+	// Limit is the most playbacks of the sound at once, so a burst of it does not take every voice; 0 for no per-effect limit (still subject to any concurrency group and the mixer's global voice budget).
 	Limit int
-	m     *Mixer
-	sound *audio.Sound
-	// live are the playbacks that have not ended, oldest first.
-	live []playback
+	// Concurrency is the optional name of a shared ConcurrencyGroup registered on the mixer.
+	Concurrency string
+	// Priority ranks this sound during ResolveLowestPriority and global voice-budget stealing; higher wins.
+	Priority int
+	m        *Mixer
+	sound    *audio.Sound
+	// live are the active non-fading playbacks that have not ended, oldest first.
+	live []*playback
 }
 
-// playback is a playback of an effect and its voice's own volume and base pan, which the mixer's volumes, mono mode, and balance transform.
-// When spatial is non-nil, the playback is tracked in 3D and spatial.spatial provides its live Gain and base Pan.
+// playback is a playback of an effect and its voice's own volume, base pan, concurrency metadata, and duck envelope.
+// When spatial is non-nil, the playback is tracked in 3D and spatial.spatial provides its live Gain, Distance, and base Pan.
 type playback struct {
-	playback *audio.Playback
-	volume   float32
-	pan      float32
-	spatial  *Playback3D
+	playback    *audio.Playback
+	volume      float32
+	pan         float32
+	distance    float32
+	spatial     *Playback3D
+	seq         uint64
+	concurrency string
+	owner       any
+	priority    int
+	duckLevel   float32
+	duckTarget  float32
+	stopDuck    func()
+	stopWatch   func()
 }
 
-func (p playback) effectiveVolume(groupGain float32) float32 {
+func (p *playback) effectiveVolume(groupGain float32) float32 {
+	v := p.volume * groupGain * p.duckLevel
 	if p.spatial != nil {
-		return p.volume * p.spatial.spatial.Gain * groupGain
+		v *= p.spatial.spatial.Gain
 	}
-	return p.volume * groupGain
+	return v
 }
 
-func (p playback) basePan() float32 {
+func (p *playback) basePan() float32 {
 	if p.spatial != nil {
 		return p.spatial.spatial.Pan
 	}
 	return p.pan
+}
+
+func (p *playback) cleanup() {
+	if p.stopDuck != nil {
+		p.stopDuck()
+		p.stopDuck = nil
+	}
+	if p.stopWatch != nil {
+		p.stopWatch()
+		p.stopWatch = nil
+	}
 }
 
 // Effect returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.
@@ -377,54 +437,263 @@ func (m *Mixer) LoadEffect(src audio.Source, group string, limit int, done func(
 	})
 }
 
-// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. Its pan is centered to 0 when the mixer is in mono mode (SetMono) and otherwise offset by the mixer's balance (SetBalance) and clamped to [-1, 1]. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, suspended, or the effect's group is paused, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
+// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. Its pan is centered to 0 when the mixer is in mono mode (SetMono) and otherwise offset by the mixer's balance (SetBalance) and clamped to [-1, 1]. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, while the app is in the background, suspended, or the effect's group is paused, or when refused by a concurrency group, retrigger cooldown, or global voice budget, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
 func (s *Effect) Play(v audio.Voice) bool {
-	volume := voiceVolume(v.Volume)
-	if v.Muted {
-		volume = 0
-	}
-	g := s.m.gain(s.Group) * volume
-	if g <= 0 {
+	return s.PlayWith(v, PlayOptions{})
+}
+
+// PlayWith behaves like Play while applying per-call concurrency, owner, and priority overrides from opts.
+func (s *Effect) PlayWith(v audio.Voice, opts PlayOptions) bool {
+	if s == nil || s.m == nil || s.sound == nil {
 		return false
 	}
-	s.prune()
+	_, ok := s.playInternal(v, 0, nil, opts)
+	return ok
+}
+
+// playInternal runs the full concurrency, retrigger, per-effect Limit, global voice budget, ducking, and playback pipeline.
+// When spatial3D is non-nil, spatial3D.spatial supplies distance, gain, and base pan; otherwise v.Volume and v.Pan are used directly with dist.
+func (s *Effect) playInternal(v audio.Voice, dist float32, spatial3D *Playback3D, opts PlayOptions) (*playback, bool) {
+	baseVol := voiceVolume(v.Volume)
+	if v.Muted {
+		baseVol = 0
+	}
+	spatialGain := float32(1)
 	basePan := clampPan(v.Pan)
-	v.Volume = g
-	v.Pan = s.m.effectivePan(basePan)
-	p := s.sound.Play(v)
-	if ended(s.m.cx, p) {
-		// The playback never started, so it takes no place and the ones already playing keep it.
-		return true
+	if spatial3D != nil {
+		spatialGain = spatial3D.spatial.Gain
+		basePan = spatial3D.spatial.Pan
+		dist = spatial3D.spatial.Distance
 	}
-	s.live = append(s.live, playback{playback: p, volume: volume, pan: basePan})
-	// Only a playback that started makes room, so a backend that refuses one never costs an older sound.
-	if s.Limit > 0 && len(s.live) > s.Limit {
-		oldest := len(s.live) - s.Limit
-		for _, q := range s.live[:oldest] {
-			q.playback.Stop()
+	if dist != dist || dist < 0 {
+		dist = 0
+	}
+	baseBusGain := s.m.baseGain(s.Group)
+	if !(baseBusGain*baseVol*spatialGain > 0) {
+		return nil, false
+	}
+
+	m := s.m
+	m.pruneAll()
+
+	groupName := opts.Concurrency
+	if groupName == "" {
+		groupName = s.Concurrency
+	}
+	priority := s.Priority
+	if opts.HasPriority || opts.Priority != 0 {
+		priority = opts.Priority
+	}
+	ownerKey := normalizeOwner(opts.Owner)
+
+	var (
+		cState       *concurrencyState
+		hasGroup     bool
+		groupVictims []voiceRef
+		stealFade    time.Duration
+		now          time.Time
+	)
+	if groupName != "" && m.concurrency != nil {
+		cState, hasGroup = m.concurrency[groupName]
+	}
+
+	// 1. Retrigger cooldown check (before stealing any voices).
+	if hasGroup && cState.cfg.Retrigger > 0 {
+		now = m.now()
+		scopeOwner := any(nil)
+		if cState.cfg.Scope == ScopeOwner {
+			scopeOwner = ownerKey
 		}
-		s.live = slices.Delete(s.live, 0, oldest)
+		if last, ok := cState.lastTrigger[scopeOwner]; ok && now.Sub(last) < cState.cfg.Retrigger {
+			cState.retriggered++
+			cState.refused++
+			return nil, false
+		}
 	}
-	s.m.sounds[s] = struct{}{}
-	return true
+
+	audibleVol := baseBusGain * m.busDuckGain(s.Group) * baseVol * spatialGain
+	cand := candidateMetrics{
+		volume:   audibleVol,
+		distance: dist,
+		priority: priority,
+	}
+
+	// 2. Concurrency group cap & resolution rule check.
+	if hasGroup && cState.cfg.Max > 0 {
+		active := m.collectGroupActive(groupName, cState.cfg.Scope, ownerKey)
+		admit, victims := m.selectGroupVictims(cState.cfg, active, cand)
+		if !admit {
+			cState.refused++
+			return nil, false
+		}
+		groupVictims = victims
+		stealFade = cState.cfg.StealFade
+	}
+
+	excluded := make(map[*playback]struct{}, len(groupVictims)+2)
+	for _, gv := range groupVictims {
+		excluded[gv.pb] = struct{}{}
+	}
+
+	// 3. Per-effect Limit check (excluding voices already scheduled to be stolen by the concurrency group).
+	var effectVictims []voiceRef
+	if s.Limit > 0 {
+		var rem []*playback
+		for _, p := range s.live {
+			if _, skip := excluded[p]; !skip {
+				rem = append(rem, p)
+			}
+		}
+		if len(rem) >= s.Limit {
+			need := len(rem) - s.Limit + 1
+			for _, p := range rem[:need] {
+				effectVictims = append(effectVictims, voiceRef{effect: s, pb: p})
+				excluded[p] = struct{}{}
+			}
+		}
+	}
+
+	// 4. Global voice budget check (priority stealing across all groups).
+	remainingGlobal := m.collectAllActiveExcluding(excluded)
+	admitGlobal, globalVictims := m.selectGlobalVictims(remainingGlobal, priority)
+	if !admitGlobal {
+		if hasGroup {
+			cState.refused++
+		}
+		return nil, false
+	}
+
+	// Ensure hardware slot headroom below platformMaxVoices (32) before starting backend playback.
+	m.freeHardwareHeadroom(1)
+	if m.totalLiveHardwareVoices() >= platformMaxVoices {
+		// Hard-stop planned immediate victims first if we are right at the 32-voice platform ceiling.
+		for _, ev := range effectVictims {
+			m.stealVoice(ev, 0)
+		}
+		effectVictims = nil
+		for _, gv := range globalVictims {
+			m.stealVoice(gv, 0)
+		}
+		globalVictims = nil
+		if m.totalLiveHardwareVoices() >= platformMaxVoices && len(groupVictims) > 0 {
+			for _, gv := range groupVictims {
+				m.stealVoice(gv, 0)
+				if hasGroup {
+					cState.stolen++
+				}
+			}
+			groupVictims = nil
+		}
+	}
+
+	v.Volume = audibleVol
+	v.Pan = m.effectivePan(basePan)
+	p := s.sound.Play(v)
+	if spatial3D != nil {
+		spatial3D.playback = p
+	}
+	if ended(m.cx, p) {
+		// The playback never started, so it takes no place and the ones already playing keep it.
+		return nil, true
+	}
+
+	// Playback started: record retrigger timestamp and apply planned steals.
+	if hasGroup && cState.cfg.Retrigger > 0 {
+		if now.IsZero() {
+			now = m.now()
+		}
+		if cState.lastTrigger == nil {
+			cState.lastTrigger = map[any]time.Time{}
+		}
+		scopeOwner := any(nil)
+		if cState.cfg.Scope == ScopeOwner {
+			scopeOwner = ownerKey
+		}
+		cState.lastTrigger[scopeOwner] = now
+	}
+
+	for _, gv := range groupVictims {
+		m.stealVoice(gv, stealFade)
+		if hasGroup {
+			cState.stolen++
+		}
+	}
+	for _, ev := range effectVictims {
+		m.stealVoice(ev, 0)
+	}
+	for _, gv := range globalVictims {
+		m.stealVoice(gv, 0)
+	}
+
+	m.nextSeq++
+	entry := &playback{
+		playback:    p,
+		volume:      baseVol,
+		pan:         basePan,
+		distance:    dist,
+		spatial:     spatial3D,
+		seq:         m.nextSeq,
+		concurrency: groupName,
+		owner:       ownerKey,
+		priority:    priority,
+		duckLevel:   1,
+		duckTarget:  1,
+	}
+	if spatial3D != nil {
+		spatial3D.entry = entry
+	}
+	s.live = append(s.live, entry)
+	m.sounds[s] = struct{}{}
+
+	if m.needsWatcher(s.Group, groupName) {
+		m.attachWatcher(entry)
+	}
+	m.syncGroupDucking()
+	m.syncBusDucking()
+	// Re-apply effective volume in case bus ducking snapped immediately on start.
+	if finalVol := entry.effectiveVolume(m.gain(s.Group)); finalVol != audibleVol {
+		p.SetVolume(finalVol)
+	}
+	return entry, true
 }
 
 // Stop stops every playback of the sound, and of every other sound of the same source, as audio.Sound.Stop does.
 func (s *Effect) Stop() {
+	if s == nil || s.m == nil {
+		return
+	}
 	s.sound.Stop()
+	for _, p := range s.live {
+		p.cleanup()
+	}
 	clear(s.live)
 	s.live = s.live[:0]
 	delete(s.m.sounds, s)
+	n := 0
+	for _, f := range s.m.fading {
+		if f.effect == s {
+			f.cleanup()
+			continue
+		}
+		s.m.fading[n] = f
+		n++
+	}
+	clear(s.m.fading[n:])
+	s.m.fading = s.m.fading[:n]
+	s.m.syncGroupDucking()
+	s.m.syncBusDucking()
 }
 
 // prune drops the playbacks that ended from live and returns how many still play.
 func (s *Effect) prune() int {
 	n := 0
 	for _, p := range s.live {
-		if !ended(s.m.cx, p.playback) {
-			s.live[n] = p
-			n++
+		if ended(s.m.cx, p.playback) {
+			p.cleanup()
+			continue
 		}
+		s.live[n] = p
+		n++
 	}
 	clear(s.live[n:])
 	s.live = s.live[:n]
@@ -528,6 +797,7 @@ func (mu *Music) handleError(t *track, err error, isIntro bool) {
 		t.blocked = true
 		t.cancelHandoff()
 		mu.syncBlocked()
+		mu.m.syncBusDucking()
 		return
 	}
 	t.playing, t.blocked, t.done = false, false, true
@@ -536,6 +806,22 @@ func (mu *Music) handleError(t *track, err error, isIntro bool) {
 		mu.finishPrev(t)
 	}
 	mu.syncBlocked()
+	mu.m.syncBusDucking()
+}
+
+func (mu *Music) activeForDucking() bool {
+	if mu == nil {
+		return false
+	}
+	if mu.current != nil && mu.current.playing && !mu.current.done && !mu.current.blocked {
+		return true
+	}
+	for _, o := range mu.out {
+		if o.playing && !o.done && !o.blocked {
+			return true
+		}
+	}
+	return false
 }
 
 // Play plays src, fading it in over fade as the tracks playing fade out, by the display's frames (core.Scope.Animate), and closing them as they reach silence; it switches at once when fade is 0. A track that fails with audio.NotAllowed stays current and blocked until Mixer.Unblock retries it; any other failure, such as a track the platform cannot decode, ends the track and plays nothing.
@@ -603,22 +889,24 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 
 // apply sets each track's volume, pausing them all while the group cannot be heard and playing them otherwise.
 func (mu *Music) apply() {
-	g := mu.m.gain(mu.Group)
+	g := mu.m.baseGain(mu.Group)
+	duck := mu.m.busDuckGain(mu.Group)
 	if mu.current != nil {
-		resumed := mu.current.apply(g)
+		resumed := mu.current.apply(g, duck)
 		if resumed && mu.current.next != nil {
 			mu.scheduleHandoff(mu.current, mu.current.p.Position(), mu.current.p.Duration())
 		}
 	}
 	for _, o := range mu.out {
-		o.apply(g)
+		o.apply(g, duck)
 	}
+	mu.m.syncBusDucking()
 }
 
-// apply plays the track at gain times its level, muted at a level of 0, such as a track a crossfade starts, as an audio.Player takes a volume of 0 for 1; it pauses the track while gain is 0, so music in a group that cannot be heard waits for it to be.
-func (t *track) apply(gain float32) (started bool) {
+// apply plays the track at gain times its level times duck, muted at a level or duck of 0, such as a track a crossfade starts or a fully ducked bus, as an audio.Player takes a volume of 0 for 1; it pauses the track while base gain is 0, so music in a group that cannot be heard waits for it to be.
+func (t *track) apply(gain, duck float32) (started bool) {
 	if t.prev != nil {
-		t.prev.apply(gain)
+		t.prev.apply(gain, duck)
 	}
 	if t.done {
 		return false
@@ -631,7 +919,7 @@ func (t *track) apply(gain float32) (started bool) {
 		}
 		return false
 	}
-	v := gain * t.level
+	v := gain * t.level * duck
 	t.p.SetMuted(v <= 0)
 	if v > 0 {
 		t.p.SetVolume(v)

@@ -72,6 +72,7 @@ func ExampleNew() {
 	// game_perf_readout
 	// game_perf_zones
 	// game_perf_reset
+	// game_sound_readout
 	// game_assets_list
 	// game_asset_reload
 	// game_assets_reload_group

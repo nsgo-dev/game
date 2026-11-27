@@ -2,7 +2,6 @@ package sound
 
 import (
 	"math"
-	"slices"
 
 	"github.com/nsgo-dev/nsgo/audio"
 )
@@ -428,14 +427,23 @@ func offset3(dx, dy, dz float64) (dist float64, dir vec3f64, hasDir, isInf bool)
 // use Effect.Play3D with Mixer.SetListener3D for playbacks whose spatial gain tracks a moving camera
 // or moving source.
 func (s *Effect) PlayAt3D(l Listener3D, pos Vec3, v audio.Voice) bool {
-	if s == nil {
+	return s.PlayAt3DWith(l, pos, v, PlayOptions{})
+}
+
+// PlayAt3DWith behaves like PlayAt3D while applying per-call concurrency, owner, and priority overrides from opts.
+// Distance from l.Position to pos is recorded for ResolveFarthest concurrency groups.
+func (s *Effect) PlayAt3DWith(l Listener3D, pos Vec3, v audio.Voice, opts PlayOptions) bool {
+	if s == nil || s.m == nil || s.sound == nil {
 		return false
 	}
-	v = l.Voice(pos, v)
+	sp := l.Spatialize(pos, Spatial3DOptions{})
+	v.Volume = voiceVolume(v.Volume) * sp.Gain
 	if !(v.Volume > 0) {
 		return false
 	}
-	return s.Play(v)
+	v.Pan = sp.Pan
+	_, ok := s.playInternal(v, sp.Distance, nil, opts)
+	return ok
 }
 
 // PlayAt3D picks the cue's next variant, as Play does, and plays it at pos in the 3D world as l
@@ -443,6 +451,11 @@ func (s *Effect) PlayAt3D(l Listener3D, pos Vec3, v audio.Voice) bool {
 // the variant's pitch. It reports the pick and whether it played; beyond l's Far it plays nothing,
 // though the pick still counts towards the cue's repeat avoidance.
 func (c *Cue) PlayAt3D(l Listener3D, pos Vec3) (CuePick, bool) {
+	return c.PlayAt3DWith(l, pos, PlayOptions{})
+}
+
+// PlayAt3DWith behaves like PlayAt3D while applying per-call concurrency, owner, and priority overrides from opts.
+func (c *Cue) PlayAt3DWith(l Listener3D, pos Vec3, opts PlayOptions) (CuePick, bool) {
 	if c == nil {
 		return CuePick{Index: -1}, false
 	}
@@ -454,13 +467,13 @@ func (c *Cue) PlayAt3D(l Listener3D, pos Vec3) (CuePick, bool) {
 	if vol <= 0 {
 		return pick, false
 	}
-	return pick, pick.Clip.Effect.PlayAt3D(l, pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)})
+	return pick, pick.Clip.Effect.PlayAt3DWith(l, pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)}, c.mergePlayOptions(pick.Clip.Effect, opts))
 }
 
 // SetListener3D sets the mixer's active 3D listener and refreshes every live Playback3D started
 // through Effect.Play3D or Cue.Play3D: each playback recomputes its 3D spatialization against l
 // and updates its underlying audio.Playback volume immediately (respecting master/group volumes,
-// pause, suspend, and background muting).
+// ducking, pause, suspend, and background muting).
 //
 // Because NSGo's audio.Playback cannot change stereo pan after a playback starts, Pan() on a live
 // Playback3D reflects the latest computed pan while the backend's active pan stays at its initial
@@ -482,6 +495,15 @@ func (m *Mixer) SetListener3D(l Listener3D) {
 			setPlaybackPan(p.playback, m.effectivePan(p.spatial.spatial.Pan))
 		}
 	}
+	for _, f := range m.fading {
+		if f.spatial == nil || ended(m.cx, f.playback) {
+			continue
+		}
+		f.spatial.spatial = l.Spatialize(f.spatial.pos, f.spatial.opts)
+		g := m.gain(f.effect.Group)
+		f.playback.SetVolume(f.effectiveVolume(g))
+		setPlaybackPan(f.playback, m.effectivePan(f.spatial.spatial.Pan))
+	}
 }
 
 // Listener3D returns the mixer's active 3D listener.
@@ -490,13 +512,15 @@ func (m *Mixer) Listener3D() Listener3D { return m.listener3D }
 // Playback3D is a live 3D-positioned playback started by Effect.Play3D or Cue.Play3D.
 // Moving the source via SetPosition, updating its directional cone via SetOptions, or moving the
 // listener via Mixer.SetListener3D recomputes its spatialization and updates its underlying
-// audio.Playback volume live while honoring the mixer's group volume, master volume, pause,
+// audio.Playback volume live while honoring the mixer's group volume, master volume, ducking, pause,
 // suspend, and background states.
 //
 // All methods on a nil or ended Playback3D are safe no-ops.
 type Playback3D struct {
 	effect     *Effect
 	playback   *audio.Playback
+	entry      *playback
+	fading     *fadingPlayback
 	baseVolume float32
 	pos        Vec3
 	opts       Spatial3DOptions
@@ -506,9 +530,14 @@ type Playback3D struct {
 // Play3D starts a live 3D playback of s at pos using s's mixer's Listener3D and opts, returning a
 // Playback3D handle. Like Effect.Play, it starts nothing when the voice is muted, effective gain
 // is 0 (beyond Far, outside a zero-gain cone, zero group/master volume, paused, suspended, or in
-// the background), returning an ended Playback3D so silent sources never take voice slots or
-// count against s.Limit.
+// the background), or refused by a concurrency group, retrigger cooldown, or global voice budget,
+// returning an ended Playback3D so silent or refused sources never take voice slots or count against s.Limit.
 func (s *Effect) Play3D(pos Vec3, v audio.Voice, opts Spatial3DOptions) *Playback3D {
+	return s.Play3DWith(pos, v, opts, PlayOptions{})
+}
+
+// Play3DWith behaves like Play3D while applying per-call concurrency, owner, and priority overrides from playOpts.
+func (s *Effect) Play3DWith(pos Vec3, v audio.Voice, opts Spatial3DOptions, playOpts PlayOptions) *Playback3D {
 	if s == nil || s.m == nil || s.sound == nil {
 		return &Playback3D{pos: pos, opts: opts}
 	}
@@ -517,7 +546,6 @@ func (s *Effect) Play3D(pos Vec3, v audio.Voice, opts Spatial3DOptions) *Playbac
 		baseVol = 0
 	}
 	sp := s.m.listener3D.Spatialize(pos, opts)
-	g := s.m.gain(s.Group) * baseVol * sp.Gain
 	pb := &Playback3D{
 		effect:     s,
 		baseVolume: baseVol,
@@ -525,26 +553,7 @@ func (s *Effect) Play3D(pos Vec3, v audio.Voice, opts Spatial3DOptions) *Playbac
 		opts:       opts,
 		spatial:    sp,
 	}
-	if !(g > 0) {
-		return pb
-	}
-	s.prune()
-	v.Volume = g
-	v.Pan = s.m.effectivePan(sp.Pan)
-	p := s.sound.Play(v)
-	pb.playback = p
-	if ended(s.m.cx, p) {
-		return pb
-	}
-	s.live = append(s.live, playback{playback: p, volume: baseVol, spatial: pb})
-	if s.Limit > 0 && len(s.live) > s.Limit {
-		oldest := len(s.live) - s.Limit
-		for _, q := range s.live[:oldest] {
-			q.playback.Stop()
-		}
-		s.live = slices.Delete(s.live, 0, oldest)
-	}
-	s.m.sounds[s] = struct{}{}
+	s.playInternal(v, sp.Distance, pb, playOpts)
 	return pb
 }
 
@@ -552,6 +561,11 @@ func (s *Effect) Play3D(pos Vec3, v audio.Voice, opts Spatial3DOptions) *Playbac
 // at pos using that effect's mixer's Listener3D and opts. It returns the pick and the Playback3D
 // handle (whose Ended reports true when nothing played).
 func (c *Cue) Play3D(pos Vec3, opts Spatial3DOptions) (CuePick, *Playback3D) {
+	return c.Play3DWith(pos, opts, PlayOptions{})
+}
+
+// Play3DWith behaves like Play3D while applying per-call concurrency, owner, and priority overrides from playOpts.
+func (c *Cue) Play3DWith(pos Vec3, opts Spatial3DOptions, playOpts PlayOptions) (CuePick, *Playback3D) {
 	if c == nil {
 		return CuePick{Index: -1}, &Playback3D{pos: pos, opts: opts}
 	}
@@ -563,7 +577,7 @@ func (c *Cue) Play3D(pos Vec3, opts Spatial3DOptions) (CuePick, *Playback3D) {
 	if vol <= 0 {
 		return pick, &Playback3D{pos: pos, opts: opts}
 	}
-	return pick, pick.Clip.Effect.Play3D(pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)}, opts)
+	return pick, pick.Clip.Effect.Play3DWith(pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)}, opts, c.mergePlayOptions(pick.Clip.Effect, playOpts))
 }
 
 // Position returns the playback's current 3D world position.
@@ -640,6 +654,7 @@ func (p *Playback3D) Stop() {
 		return
 	}
 	p.playback.Stop()
+	p.effect.m.onPlaybackEnded()
 }
 
 // Ended reports whether the playback has finished, was stopped, or never started.
@@ -662,6 +677,15 @@ func (p *Playback3D) refresh() {
 		return
 	}
 	g := p.effect.m.gain(p.effect.Group)
-	p.playback.SetVolume(p.baseVolume * p.spatial.Gain * g)
+	var vol float32
+	switch {
+	case p.fading != nil:
+		vol = p.fading.effectiveVolume(g)
+	case p.entry != nil:
+		vol = p.entry.effectiveVolume(g)
+	default:
+		vol = p.baseVolume * p.spatial.Gain * g
+	}
+	p.playback.SetVolume(vol)
 	setPlaybackPan(p.playback, p.effect.m.effectivePan(p.spatial.Pan))
 }

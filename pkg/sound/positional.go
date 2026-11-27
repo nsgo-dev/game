@@ -155,15 +155,34 @@ func (l Listener2D) toView(pos math2d.Vec2) (x, y float64) {
 
 // PlayAt plays the effect at pos in the world as l hears it: panned by l.Pan (adjusted by the mixer's mono and balance settings) and at v's volume times l.Gain, then the group's and the master volume, as Play does, and reports whether it played. It plays nothing where the effect is silent, beyond l's Far, and replaces v's pan. The pan and volume hold for the playback's whole length, as audio's playbacks cannot change their pan once started.
 func (s *Effect) PlayAt(l Listener2D, pos math2d.Vec2, v audio.Voice) bool {
+	return s.PlayAtWith(l, pos, v, PlayOptions{})
+}
+
+// PlayAtWith behaves like PlayAt while applying per-call concurrency, owner, and priority overrides from opts.
+// Distance from l.Position to pos is recorded for ResolveFarthest concurrency groups.
+func (s *Effect) PlayAtWith(l Listener2D, pos math2d.Vec2, v audio.Voice, opts PlayOptions) bool {
+	if s == nil || s.m == nil || s.sound == nil {
+		return false
+	}
 	v = l.Voice(pos, v)
 	if !(v.Volume > 0) {
 		return false
 	}
-	return s.Play(v)
+	d := math.Hypot(float64(pos.X)-float64(l.Position.X), float64(pos.Y)-float64(l.Position.Y))
+	if math.IsNaN(d) || math.IsInf(d, 0) {
+		d = 0
+	}
+	_, ok := s.playInternal(v, float32(d), nil, opts)
+	return ok
 }
 
 // PlayAt picks the cue's next variant, as Play does, and plays it at pos in the world as l hears it, as Effect.PlayAt does: at the variant's volume times l.Gain, panned by l.Pan, at the variant's pitch. It reports the pick and whether it played; beyond l's Far it plays nothing, though the pick still counts towards the cue's repeat avoidance.
 func (c *Cue) PlayAt(l Listener2D, pos math2d.Vec2) (CuePick, bool) {
+	return c.PlayAtWith(l, pos, PlayOptions{})
+}
+
+// PlayAtWith behaves like PlayAt while applying per-call concurrency, owner, and priority overrides from opts.
+func (c *Cue) PlayAtWith(l Listener2D, pos math2d.Vec2, opts PlayOptions) (CuePick, bool) {
 	if c == nil {
 		return CuePick{Index: -1}, false
 	}
@@ -175,5 +194,5 @@ func (c *Cue) PlayAt(l Listener2D, pos math2d.Vec2) (CuePick, bool) {
 	if vol <= 0 {
 		return pick, false
 	}
-	return pick, pick.Clip.Effect.PlayAt(l, pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)})
+	return pick, pick.Clip.Effect.PlayAtWith(l, pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)}, c.mergePlayOptions(pick.Clip.Effect, opts))
 }

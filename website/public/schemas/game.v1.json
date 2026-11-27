@@ -276,7 +276,7 @@
       "additionalProperties": false
     },
     "Audio": {
-      "description": "Audio is the master volume and the buses (sound.Mixer groups) a game plays through.",
+      "description": "Audio is the master volume, global voice budget, buses (sound.Mixer groups), concurrency groups, and bus ducking rules a game plays through.",
       "type": "object",
       "properties": {
         "master": {
@@ -285,14 +285,64 @@
           "minimum": 0,
           "maximum": 1
         },
+        "maxVoices": {
+          "description": "MaxVoices is the mixer's global concurrent voice budget; 0 uses sound.DefaultMaxVoices.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
         "buses": {
           "description": "Buses are the mixer groups in declaration order.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Bus"
           }
+        },
+        "concurrency": {
+          "description": "Concurrency lists shared concurrency groups limiting and resolving overlapping voices across sounds.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConcurrencyGroup"
+          }
+        },
+        "duck": {
+          "description": "Duck lists bus ducking rules that lower one bus while another bus or concurrency group plays.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BusDuck"
+          }
         }
       },
+      "additionalProperties": false
+    },
+    "AudioDuck": {
+      "description": "AudioDuck configures ducking reduction and attack/release envelope timing for a concurrency group.",
+      "type": "object",
+      "properties": {
+        "amount": {
+          "description": "Amount is the volume reduction fraction in [0, 1] (0 disables ducking, 0.4 lowers by 40%, 1 silences).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "attack": {
+          "description": "Attack is how quickly ducking ramps in; 0 applies immediately.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "release": {
+          "description": "Release is how quickly volume recovers; 0 restores immediately.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "required": [
+        "amount"
+      ],
       "additionalProperties": false
     },
     "AudioTarget": {
@@ -492,6 +542,107 @@
           "items": {
             "$ref": "#/definitions/Effect"
           }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "BusDuck": {
+      "description": "BusDuck lowers one mixer bus while another bus or concurrency group has active sounds.",
+      "type": "object",
+      "properties": {
+        "bus": {
+          "description": "Bus is the mixer bus whose volume is lowered.",
+          "type": "string"
+        },
+        "by": {
+          "description": "By is the triggering mixer bus or concurrency group name.",
+          "type": "string"
+        },
+        "amount": {
+          "description": "Amount is the volume reduction fraction in [0, 1] (0 disables ducking, 0.4 lowers by 40%, 1 silences).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "attack": {
+          "description": "Attack is how quickly bus fades down when by starts playing; 0 applies immediately.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "release": {
+          "description": "Release is how quickly bus recovers once by finishes playing; 0 restores immediately.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "required": [
+        "bus",
+        "by",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "ConcurrencyGroup": {
+      "description": "ConcurrencyGroup defines a shared voice concurrency group under audio.concurrency.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the unique concurrency group name referenced by sounds.",
+          "type": "string"
+        },
+        "max": {
+          "description": "Max is the maximum simultaneous active voices in this group (or per owner when scope is owner); 0 imposes no group cap.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "resolve": {
+          "description": "Resolve chooses which voice is dropped when max is reached: refuse (default), oldest, farthest, quietest, or lowestPriority.",
+          "type": "string",
+          "enum": [
+            "refuse",
+            "oldest",
+            "farthest",
+            "quietest",
+            "lowestPriority"
+          ]
+        },
+        "scope": {
+          "description": "Scope chooses whether max, retrigger, and duck apply across the whole group (\"global\", default) or per sound owner (\"owner\").",
+          "type": "string",
+          "enum": [
+            "global",
+            "owner"
+          ]
+        },
+        "retrigger": {
+          "description": "Retrigger is the minimum duration between accepted voice starts in this group (or owner).",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "stealFade": {
+          "description": "StealFade is the fade-out duration applied to voices stolen by this group's resolution rule.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "duck": {
+          "description": "Duck lowers older active voices in the same concurrency scope while newer voices play.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AudioDuck"
+            }
+          ]
         }
       },
       "required": [

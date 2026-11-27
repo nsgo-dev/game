@@ -6,6 +6,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/online/netplay"
+	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -42,6 +43,8 @@ type Options struct {
 	// Net, when set, supplies live network traffic rates, InboxStats counters, and recent decoded message types shown in the network inspector panel.
 	// Callers can build NetSnapshot without per-frame allocations using NetMonitor.
 	Net func() NetSnapshot
+	// Sound, when set, displays live active voice counts, concurrency groups, and bus ducking inside the overlay and exposes them to MCP sound readouts.
+	Sound *sound.Mixer
 }
 
 // DrawStats captures per-frame draw submission counts for overlay display and MCP performance readouts.

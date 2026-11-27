@@ -67,6 +67,7 @@ input:
       deadZone: 0.15
 audio:
   master: 0.9
+  maxVoices: 28
   buses:
     - name: music
       volume: 0.8
@@ -76,6 +77,20 @@ audio:
     - name: sfx
       effects:
         - delay: {time: 250ms, feedback: 0.3, wet: 0.2}
+  concurrency:
+    - name: impacts
+      max: 4
+      resolve: quietest
+      scope: global
+      retrigger: 40ms
+      stealFade: 30ms
+      duck: {amount: 0.25, attack: 20ms, release: 150ms}
+  duck:
+    - bus: music
+      by: dialogue
+      amount: 0.4
+      attack: 100ms
+      release: 500ms
 physics:
   gravity2D:
     "y": 980
@@ -134,7 +149,7 @@ assets:
 | `window` | 主窗口内容区的初始尺寸（`width`、`height`，单位为点，必填），可调整的尺寸范围（`minWidth`、`minHeight`、`maxWidth`、`maxHeight`，0 表示不限制），`resizable`（省略时为 true），可选的 `title`，以及 `appearance`（`light` 或 `dark`，省略时跟随系统）。 |
 | `display` | `screen.Viewport` 映射到窗口上的虚拟分辨率：`width`、`height`、`mode`（省略时为 `fit`，也可为 `fill`、`stretch` 或 `expand`）、`integerScale`、`pixelSnap`，以及黑边的 CSS 颜色 `barColor`。省略时游戏按窗口尺寸绘制。 |
 | `input` | 具名的 `actions`，每个动作带有 `bindings`，类型为 `touchRegion`（需要 `region`）、`mouseButton`（需要鼠标 `button`）、`mouseRegion`（两者都要）、`key`（跟随键盘布局的键名 `key`，如 `space`、`left`）、`keyCode`（物理键位 `code`，如 `KeyW`、`ArrowLeft`）或 `gamepadButton`（W3C 标准手柄按键 `button`：`south`、`east`、`west`、`north`、`leftShoulder`、`rightShoulder`、`leftTrigger`、`rightTrigger`、`back`、`start`、`leftStick`、`rightStick`、`dpadUp`、`dpadDown`、`dpadLeft`、`dpadRight` 或 `home`），以及可选的 `assist` 配置（`toggle`、`mash`、每秒连打频率 `mashRate`，默认 10，设置 `mashRate` 时要求 `mash: true`），声明该动作允许哪些玩家运动辅助，防止菜单动作被意外锁存。鼠标 `button` 取 `left`、`right`、`middle`、`back` 或 `forward`，区域使用虚拟坐标。`axes` 在 `negative` 动作按下时读数为 -1，在 `positive` 动作按下时为 +1；`motionAxes` 读取 `tiltX`、`tiltY`、`tiltZ`、`gyroX`、`gyroY` 或 `gyroZ`，选项与 `input.MotionAxisOptions` 的字段相同；`gamepadAxes` 读取手柄摇杆（`leftX`、`leftY`、`rightX` 或 `rightY`），选项与 `input.GamepadAxisOptions` 的字段相同（`deadZone`、`axial`、`sensitivity`、`invert`）。运动轴或手柄摇杆轴都可以与某个动作轴同名，`Actions.Axis` 会把它们相加并限制在 `[-1, 1]` 内。没有绑定的动作只做声明，供代码绑定或供轴读取。 |
-| `audio` | 默认的 `master` 音量与各条 `buses`。每条总线是 `sound.Mixer` 的一个分组，带默认 `volume` 和按顺序应用的 DSP `effects`：`lowPass` 与 `highPass`（`cutoffHz`、`q`）、`delay`（`time`、`feedback`、`wet`）、`reverb`（`roomSize`、`damping`、`wet`）、`gain`（`factor`）和 `bitcrush`（`bits`、`downsample`）。 |
+| `audio` | 默认的 `master` 音量、可选的全局发声预算 `maxVoices`（0 使用 `sound.DefaultMaxVoices`）、各条 `buses`（每条总线是 `sound.Mixer` 的一个分组，带默认 `volume` 和按顺序应用的 DSP `effects`：`lowPass` 与 `highPass`（`cutoffHz`、`q`）、`delay`（`time`、`feedback`、`wet`）、`reverb`（`roomSize`、`damping`、`wet`）、`gain`（`factor`）和 `bitcrush`（`bits`、`downsample`））、共享并发分组 `concurrency`（`name`、`max`、`resolve` 取 `refuse`/`oldest`/`farthest`/`quietest`/`lowestPriority`、`scope` 取 `global`/`owner`、`retrigger`、`stealFade` 及组内旧声闪避 `duck` `{amount, attack, release}`），以及总线闪避规则 `duck`（`bus`、`by`、`amount`、`attack`、`release`）。 |
 | `physics` | 项目级 2D 与 3D 物理默认设置：`gravity2D`（`x`、`y`）、`gravity3D`（`x`、`y`、`z`）、`solverIterations2D`、`solverIterations3D`、具名碰撞层 `layers`（将人类可读的 `name` 如 `player`、`walls`、`coins` 映射到唯一的位索引 `0..31` / `LayerMask`），以及 `ldtkIntGrid` 规则（将 LDtk IntGrid 标识符/分组名称 `name` 或数值 `value` 映射到 `solid`、`oneWay` 与自定义 `flags` 位；通过 `File.LDtkOptions` 供 `tilemap.LoadLDtkWith` 使用，并由 `project.Resolver` 在 `sceneformat.Build` 加载 `.ldtk` 地图时自动应用）。 |
 | `autoload` | 启动时加载的 `scenes`（场景格式的 YAML 文件）和其他 `resources`，每项都有唯一的 `name` 和项目内以斜杠分隔的 `path`；`mainScene` 指定游戏启动时进入的场景。 |
 | `export` | 构建输出目录 `output`，以及每个平台一个预设：主要目标（`macos`、`windows`、`linux`、`ios`、`android`、`web`）和实验性目标（`tvos`、`watchos`、`harmonyos`、`miniprogram`；见[平台支持](platforms.md#实验性目标平台)），每个预设列出该平台要构建的 NSGo `targets`；不列目标的预设直接构建平台名，由 NSGo 展开为它的默认目标。`game release` 会为每个构建的实验性平台打印一次警告（`-strict` 将警告转为错误以供 CI 使用），场景编辑器也会为实验性预设显示“实验性”标记而不阻止构建。 |

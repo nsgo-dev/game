@@ -72,6 +72,7 @@ func (mu *Music) PlaySections(intro, loop audio.Source, fade time.Duration) {
 		endLoop := func() {
 			loopTrack.playing, loopTrack.blocked, loopTrack.done = false, false, true
 			mu.syncBlocked()
+			mu.m.syncBusDucking()
 		}
 		loopTrack.p = audio.NewPlayer(mu.m.cx, loop, audio.PlayerOptions{
 			OnEnd: endLoop,
@@ -104,6 +105,7 @@ func (mu *Music) PlaySections(intro, loop audio.Source, fade time.Duration) {
 				} else {
 					mu.finishPrev(introTrack)
 					mu.syncBlocked()
+					mu.m.syncBusDucking()
 				}
 			},
 			OnError: func(err error) {
@@ -123,6 +125,7 @@ func (mu *Music) playSingle(src audio.Source, loop bool, loopStart, fade time.Du
 		end := func() {
 			t.playing, t.blocked, t.done = false, false, true
 			mu.syncBlocked()
+			mu.m.syncBusDucking()
 		}
 		t.p = audio.NewPlayer(mu.m.cx, src, audio.PlayerOptions{
 			LoopStart: max(0, loopStart),

@@ -353,6 +353,9 @@ func TestCloneIsDeep(t *testing.T) {
 	*c.Audio.Master = 0
 	*c.Audio.Buses[0].Volume = 0
 	c.Audio.Buses[0].Effects[0].LowPass.CutoffHz = 1
+	c.Audio.Concurrency[0].Max = 99
+	c.Audio.Concurrency[0].Duck.Amount = 0.9
+	c.Audio.Duck[0].Amount = 0.9
 	c.Autoload.Scenes[0].Path = "x.yaml"
 	c.Export.Presets[1].Targets[0] = "windows_arm64"
 	c.Editor.Plugins[0] = "other"
@@ -632,6 +635,18 @@ func TestConfigureMixer(t *testing.T) {
 	}
 	if n := len(m.GroupEffects("ui")); n != 1 {
 		t.Fatalf("a bus without effects left %d effects of the chain set in code, want 1", n)
+	}
+	if got := m.MaxVoices(); got != 28 {
+		t.Fatalf("MaxVoices = %d, want 28", got)
+	}
+	if cg, ok := m.ConcurrencyGroup("impacts"); !ok || cg.Max != 4 || cg.Resolve != sound.ResolveQuietest || cg.Scope != sound.ScopeGlobal || cg.Retrigger != 40*time.Millisecond || cg.StealFade != 30*time.Millisecond || cg.Duck.Amount != 0.25 || cg.Duck.Attack != 20*time.Millisecond || cg.Duck.Release != 150*time.Millisecond {
+		t.Fatalf("impacts concurrency group = %+v, ok=%v", cg, ok)
+	}
+	if cg, ok := m.ConcurrencyGroup("footsteps"); !ok || cg.Max != 2 || cg.Resolve != sound.ResolveOldest || cg.Scope != sound.ScopeOwner || cg.Retrigger != 120*time.Millisecond {
+		t.Fatalf("footsteps concurrency group = %+v, ok=%v", cg, ok)
+	}
+	if ducks := m.BusDucking(); len(ducks) != 1 || ducks[0] != (sound.BusDuckRule{Bus: "music", By: "dialogue", Amount: 0.4, Attack: 100 * time.Millisecond, Release: 500 * time.Millisecond}) {
+		t.Fatalf("BusDucking = %+v", ducks)
 	}
 
 	// The configured chain is the sound package's: a gain of 0.5 halves a sample.
