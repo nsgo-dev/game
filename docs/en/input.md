@@ -392,6 +392,38 @@ camera.Pitch += actions.Delta("pitch")
 
 Pointer axes are saved and loaded with the other bindings.
 
+## Motion sensors (tilt and gyroscope)
+
+Bind accelerometer/gravity tilt (`TiltX`, `TiltY`, `TiltZ`) and gyroscope rotation rate (`GyroX`, `GyroY`, `GyroZ`) to named axes with `BindMotionAxis`, then subscribe to NSGo's motion stream with `WatchMotion`:
+
+```go
+actions.BindMotionAxis("steer", input.TiltX, input.MotionAxisOptions{DeadZone: 0.08, MaxRange: 0.6})
+actions.BindMotionAxis("pitch", input.TiltY, input.MotionAxisOptions{MaxRange: 0.5})
+actions.BindMotionAxis("yaw", input.GyroZ, input.MotionAxisOptions{MaxRange: math.Pi})
+
+motion, err := actions.WatchMotion(cx, input.MotionOptions{
+	Orientation: input.MotionOrientationLandscapeLeft,
+	Smoothing:   0.25,
+	Interval:    16 * time.Millisecond,
+})
+if err != nil {
+	return err
+}
+
+// Stop sensors while the game is paused and resume them with calibration intact.
+loop.OnPause = motion.SetPaused
+```
+
+- **Screen orientation**: NSGo delivers motion vectors in the device's right-handed natural frame (`+X` right, `+Y` up, `+Z` out of the screen in portrait). Set `MotionOptions.Orientation` to rotate both tilt and gyro vectors into screen axes before smoothing and calibration:
+  - `MotionOrientationPortrait` (zero value, default): natural portrait frame (`+X`, `+Y`, `+Z`).
+  - `MotionOrientationPortraitUpsideDown`: rotated 180° (`-X`, `-Y`, `+Z`).
+  - `MotionOrientationLandscapeLeft`: rotated 90° counter-clockwise, device top on the screen's left (`-Y`, `+X`, `+Z`), matching NSGo's `core.OrientationLandscapeLeft` on Android, HarmonyOS and Web.
+  - `MotionOrientationLandscapeRight`: rotated 90° clockwise, device top on the screen's right (`+Y`, `-X`, `+Z`).
+  - `MotionOrientationAuto`: infers portrait vs. landscape from `cx.Env().Window()`'s aspect ratio (or `SetWindowSize` when used without a scope). Because NSGo does not yet report which landscape side is active, a wider-than-tall window uses `MotionOptions.LandscapeSide` (defaulting to `MotionOrientationLandscapeLeft`, or set to `MotionOrientationLandscapeRight`). Call `SetOrientation` to change orientation at runtime and `Orientation()` to inspect the resolved orientation; changing the resolved orientation resets smoothing history cleanly.
+- **Calibration**: Call `motion.Calibrate()` (or `actions.CalibrateMotion()`) to record the player's current neutral hold angle in screen axes so `TiltX`, `TiltY`, and `TiltZ` read `0` at that hold. If no tilt sample has arrived yet, the next tilt sample calibrates automatically. `ResetCalibration` clears the neutral offset.
+- **Pausing and backgrounding**: NSGo pauses `WatchMotion` automatically while the app is in `core.LifecycleBackground` and stops it when `cx` is disposed. Wire `loop.OnPause = motion.SetPaused` so sensors also stop while a pause menu is open (clearing live and snapped readings while preserving calibration and options) and restart automatically when play resumes. Calling `Stop()` ends watching permanently until `Start(cx)` is called again.
+- **Combining and testing**: Motion axes sum with `BindAxis`, `BindGamepadAxis`, `BindPointerAxis`, and `VirtualPad` sticks sharing the same name (clamped to `[-1, 1]`), and persist through `Save` / `Load`. In unit tests or replays without live sensors, construct `NewMotionInput` (or call `actions.OnMotion`) and feed `core.MotionSample` values directly.
+
 ## Saving and loading bindings
 
 Persist remapped bindings, including controller buttons and stick axes, in `core.Storage` as JSON with `Save` and `Load`:

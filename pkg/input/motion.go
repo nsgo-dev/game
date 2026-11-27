@@ -21,19 +21,68 @@ type MotionAxis uint8
 const (
 	// MotionAxisNone is the zero MotionAxis, which always reads 0.
 	MotionAxisNone MotionAxis = iota
-	// TiltX is device tilt along the natural device X axis (right, in g units).
+	// TiltX is device tilt along the screen X axis (right, in g units),
+	// rotated from the natural device frame according to MotionOptions.Orientation.
 	TiltX
-	// TiltY is device tilt along the natural device Y axis (up, in g units).
+	// TiltY is device tilt along the screen Y axis (up, in g units),
+	// rotated from the natural device frame according to MotionOptions.Orientation.
 	TiltY
-	// TiltZ is device tilt along the natural device Z axis (out of the screen, in g units).
+	// TiltZ is device tilt along the screen Z axis (out of the screen, in g units).
 	TiltZ
-	// GyroX is angular velocity around the natural device X axis (rad/s).
+	// GyroX is angular velocity around the screen X axis (rad/s),
+	// rotated from the natural device frame according to MotionOptions.Orientation.
 	GyroX
-	// GyroY is angular velocity around the natural device Y axis (rad/s).
+	// GyroY is angular velocity around the screen Y axis (rad/s),
+	// rotated from the natural device frame according to MotionOptions.Orientation.
 	GyroY
-	// GyroZ is angular velocity around the natural device Z axis (rad/s).
+	// GyroZ is angular velocity around the screen Z axis (rad/s).
 	GyroZ
 )
+
+// MotionOrientation selects how device motion vectors are rotated from NSGo's
+// right-handed natural device frame (+X right, +Y up, +Z out of the screen)
+// into screen axes before smoothing and calibration.
+type MotionOrientation uint8
+
+const (
+	// MotionOrientationPortrait uses the natural device frame (device top at screen top).
+	// The zero value keeps portrait so callers that omit Orientation behave unchanged.
+	MotionOrientationPortrait MotionOrientation = iota
+	// MotionOrientationPortraitUpsideDown rotates 180° (device top at screen bottom):
+	// screen (+X, +Y, +Z) = device (-X, -Y, +Z).
+	MotionOrientationPortraitUpsideDown
+	// MotionOrientationLandscapeLeft rotates 90° counter-clockwise (device top at screen left,
+	// matching NSGo's core.OrientationLandscapeLeft on Android, HarmonyOS and Web):
+	// screen (+X, +Y, +Z) = device (-Y, +X, +Z).
+	MotionOrientationLandscapeLeft
+	// MotionOrientationLandscapeRight rotates 90° clockwise (device top at screen right,
+	// matching NSGo's core.OrientationLandscapeRight on Android, HarmonyOS and Web):
+	// screen (+X, +Y, +Z) = device (+Y, -X, +Z).
+	MotionOrientationLandscapeRight
+	// MotionOrientationAuto infers portrait or landscape from the window's aspect ratio
+	// (via cx.Env().Window() when started on a core.Scope, or SetWindowSize otherwise).
+	// When the window is wider than tall, it uses MotionOptions.LandscapeSide
+	// (defaulting to MotionOrientationLandscapeLeft); otherwise it uses MotionOrientationPortrait.
+	MotionOrientationAuto
+)
+
+// String returns a stable name for o.
+func (o MotionOrientation) String() string {
+	switch o {
+	case MotionOrientationPortrait:
+		return "portrait"
+	case MotionOrientationPortraitUpsideDown:
+		return "portrait_upside_down"
+	case MotionOrientationLandscapeLeft:
+		return "landscape_left"
+	case MotionOrientationLandscapeRight:
+		return "landscape_right"
+	case MotionOrientationAuto:
+		return "auto"
+	default:
+		return fmt.Sprintf("MotionOrientation(%d)", o)
+	}
+}
 
 // String returns a stable name for m.
 func (m MotionAxis) String() string {
@@ -108,6 +157,13 @@ type MotionOptions struct {
 	Sensors core.MotionSensors
 	// Interval is the requested sample interval, clamped by NSGo to 10ms..1s (0 defaults to 20ms).
 	Interval time.Duration
+	// Orientation rotates tilt and gyro vectors from the natural device frame into screen axes
+	// before smoothing and calibration. Zero defaults to MotionOrientationPortrait.
+	Orientation MotionOrientation
+	// LandscapeSide chooses which landscape side MotionOrientationAuto selects when the window is
+	// wider than tall. Setting MotionOrientationLandscapeRight selects landscape right; any other
+	// value (including zero) selects MotionOrientationLandscapeLeft.
+	LandscapeSide MotionOrientation
 	// DeadZone is the default magnitude in [0, 1) below which normalized axis readings snap to 0.
 	DeadZone float64
 	// Sensitivity multiplies calibrated axis values before clamping (1 when <= 0).
@@ -152,16 +208,22 @@ type motionAxisBinding struct {
 // MotionInput's methods are called on the engine's goroutine, as core.Scope.WatchMotion callbacks
 // and game.Loop.Update are.
 type MotionInput struct {
-	opts   MotionOptions
-	stream *core.SensorStream
+	opts       MotionOptions
+	cx         *core.Scope
+	stream     *core.SensorStream
+	stopEnv    func()
+	watching   bool
+	watchGen   uint64
+	paused     bool
+	windowSize core.Size
 
-	// Live smoothed sensor readings (tilt in g, gyro in rad/s).
+	// Live smoothed sensor readings in screen axes (tilt in g, gyro in rad/s).
 	tilt    core.SensorVector
 	hasTilt bool
 	gyro    core.SensorVector
 	hasGyro bool
 
-	// Neutral tilt reference captured by Calibrate (in g).
+	// Neutral tilt reference captured by Calibrate (in screen axes, g units).
 	zeroTilt      core.SensorVector
 	calibrated    bool
 	calibrateNext bool
@@ -172,7 +234,7 @@ type MotionInput struct {
 	snapGyro    core.SensorVector
 	hasSnapGyro bool
 
-	// Incremented whenever a provider gap or Reset invalidates smoothing history.
+	// Incremented whenever a provider gap, orientation change or Reset invalidates smoothing history.
 	gapSeq uint64
 }
 
@@ -184,7 +246,7 @@ func NewMotionInput(opts MotionOptions) *MotionInput {
 
 // WatchMotion creates a MotionInput with opts and immediately subscribes to device motion sensors
 // on cx via cx.WatchMotion. The sensor stream stops automatically when cx is disposed (or when Stop
-// is called) and pauses automatically while the app is in background.
+// is called), pauses while the app is in background, and can be paused with SetPaused (e.g. from game.Loop.OnPause).
 func WatchMotion(cx *core.Scope, opts MotionOptions) (*MotionInput, error) {
 	m := NewMotionInput(opts)
 	if err := m.Start(cx); err != nil {
@@ -194,17 +256,48 @@ func WatchMotion(cx *core.Scope, opts MotionOptions) (*MotionInput, error) {
 }
 
 // Start subscribes to live device motion sensors on cx using m's options.
-// Any previously active stream on m is stopped first.
+// Any previously active stream on m is stopped first. If m is currently paused via SetPaused(true),
+// Start records cx and waits to open the sensor stream until SetPaused(false) is called.
 func (m *MotionInput) Start(cx *core.Scope) error {
 	m.Stop()
-	if cx == nil {
+	if cx == nil || cx.Disposed() {
+		return core.SensorNotAvailable
+	}
+	m.watchGen++
+	gen := m.watchGen
+	m.cx = cx
+	m.watching = true
+	m.stopEnv = cx.Effect(func() {
+		m.applyWindowSize(cx.Env().Window())
+	})
+	cx.Cleanup(func() {
+		if m.watchGen != gen {
+			return
+		}
+		m.stream = nil
+		m.stopEnv = nil
+		m.cx = nil
+		m.watching = false
+	})
+	if m.paused {
+		return nil
+	}
+	if err := m.startStream(); err != nil {
+		m.Stop()
+		return err
+	}
+	return nil
+}
+
+func (m *MotionInput) startStream() error {
+	if m.cx == nil || m.cx.Disposed() {
 		return core.SensorNotAvailable
 	}
 	sensors := m.opts.Sensors
 	if sensors == 0 {
 		sensors = core.SensorAccelerometer | core.SensorGyroscope
 	}
-	stream, err := cx.WatchMotion(
+	stream, err := m.cx.WatchMotion(
 		core.MotionOptions{Sensors: sensors, Interval: m.opts.Interval},
 		m.OnMotion,
 		func(err error) {
@@ -220,12 +313,50 @@ func (m *MotionInput) Start(cx *core.Scope) error {
 	return nil
 }
 
-// Stop cancels the active sensor stream, if any.
+// Stop cancels the active sensor stream, if any, and stops watching the scope.
 func (m *MotionInput) Stop() {
+	m.watchGen++
 	if m.stream != nil {
 		m.stream.Stop()
 		m.stream = nil
 	}
+	if m.stopEnv != nil {
+		m.stopEnv()
+		m.stopEnv = nil
+	}
+	m.cx = nil
+	m.watching = false
+}
+
+// SetPaused stops the active motion sensor stream while paused and restarts it on resume,
+// preserving calibration and options. While paused, live and snapped readings are cleared and
+// incoming samples are ignored so no stale tilt or gyro values persist across a pause menu.
+//
+// Pair with game.Loop.OnPause (loop.OnPause = motion.SetPaused) so sensors stop while the game
+// is paused as well as when the app enters the background.
+func (m *MotionInput) SetPaused(paused bool) {
+	if m.paused == paused {
+		return
+	}
+	m.paused = paused
+	if paused {
+		if m.stream != nil {
+			m.stream.Stop()
+			m.stream = nil
+		}
+		m.Reset()
+		return
+	}
+	if m.watching && m.cx != nil && !m.cx.Disposed() {
+		if err := m.startStream(); err != nil && m.opts.OnError != nil {
+			m.opts.OnError(err)
+		}
+	}
+}
+
+// Paused reports whether m is currently paused via SetPaused.
+func (m *MotionInput) Paused() bool {
+	return m.paused
 }
 
 // Active reports whether m currently has a live, unstopped sensor stream.
@@ -233,10 +364,15 @@ func (m *MotionInput) Active() bool {
 	return m.stream != nil && !m.stream.Stopped()
 }
 
-// SetOptions updates DeadZone, Sensitivity, TiltRange, GyroRange, Smoothing and OnError at runtime.
-// Changing Sensors or Interval takes effect on the next Start call.
+// SetOptions updates Orientation, LandscapeSide, DeadZone, Sensitivity, TiltRange, GyroRange,
+// Smoothing and OnError at runtime. Changing Sensors or Interval takes effect on the next Start
+// or resume from SetPaused(false).
 func (m *MotionInput) SetOptions(opts MotionOptions) {
+	prev := m.effectiveOrientation()
 	m.opts = opts
+	if m.effectiveOrientation() != prev {
+		m.invalidateSmoothing()
+	}
 }
 
 // Options returns m's current MotionOptions.
@@ -244,24 +380,82 @@ func (m *MotionInput) Options() MotionOptions {
 	return m.opts
 }
 
+// SetOrientation sets m's orientation mode at runtime without replacing other MotionOptions.
+func (m *MotionInput) SetOrientation(orientation MotionOrientation) {
+	prev := m.effectiveOrientation()
+	m.opts.Orientation = orientation
+	if m.effectiveOrientation() != prev {
+		m.invalidateSmoothing()
+	}
+}
+
+// Orientation returns the resolved orientation currently applied to incoming motion vectors
+// (one of MotionOrientationPortrait, MotionOrientationPortraitUpsideDown,
+// MotionOrientationLandscapeLeft or MotionOrientationLandscapeRight).
+func (m *MotionInput) Orientation() MotionOrientation {
+	return m.effectiveOrientation()
+}
+
+// SetWindowSize supplies the active view or window size used to infer portrait vs. landscape
+// when MotionOptions.Orientation is MotionOrientationAuto. When Start or WatchMotion is active,
+// cx.Env().Window() updates this automatically.
+func (m *MotionInput) SetWindowSize(size core.Size) {
+	m.applyWindowSize(size)
+}
+
+func (m *MotionInput) applyWindowSize(size core.Size) {
+	prev := m.effectiveOrientation()
+	m.windowSize = size
+	if m.effectiveOrientation() != prev {
+		m.invalidateSmoothing()
+	}
+}
+
+func (m *MotionInput) effectiveOrientation() MotionOrientation {
+	switch m.opts.Orientation {
+	case MotionOrientationPortraitUpsideDown, MotionOrientationLandscapeLeft, MotionOrientationLandscapeRight:
+		return m.opts.Orientation
+	case MotionOrientationAuto:
+		if m.windowSize.Width > m.windowSize.Height {
+			if m.opts.LandscapeSide == MotionOrientationLandscapeRight {
+				return MotionOrientationLandscapeRight
+			}
+			return MotionOrientationLandscapeLeft
+		}
+		return MotionOrientationPortrait
+	default:
+		return MotionOrientationPortrait
+	}
+}
+
+func (m *MotionInput) invalidateSmoothing() {
+	m.hasTilt = false
+	m.hasGyro = false
+	m.gapSeq++
+}
+
 // OnMotion ingests one core.MotionSample (from WatchMotion, a unit test, or a replay).
-// Updated values are held until the next Step call so reads stay stable within a fixed game.Loop step.
+// Samples are rotated from the natural device frame into screen axes according to Orientation
+// before smoothing and calibration. Updated values are held until the next Step call so reads
+// stay stable within a fixed game.Loop step. Calls while paused are ignored.
 func (m *MotionInput) OnMotion(sample core.MotionSample) {
+	if m.paused {
+		return
+	}
 	if sample.Gap {
-		m.hasTilt = false
-		m.hasGyro = false
-		m.gapSeq++
+		m.invalidateSmoothing()
 	}
 	alpha := clampSmoothing(m.opts.Smoothing)
+	orient := m.effectiveOrientation()
 
 	switch sample.Sensor {
 	case core.SensorAccelerometer:
-		m.ingestTilt(scaleVector(sample.Vector, 1/standardGravity), alpha)
+		m.ingestTilt(rotateMotionVector(scaleVector(sample.Vector, 1/standardGravity), orient), alpha)
 	case core.SensorGyroscope:
-		m.ingestGyro(sample.Vector, alpha)
+		m.ingestGyro(rotateMotionVector(sample.Vector, orient), alpha)
 	case core.SensorDeviceMotion:
-		m.ingestTilt(scaleVector(sample.Gravity, 1/standardGravity), alpha)
-		m.ingestGyro(sample.RotationRate, alpha)
+		m.ingestTilt(rotateMotionVector(scaleVector(sample.Gravity, 1/standardGravity), orient), alpha)
+		m.ingestGyro(rotateMotionVector(sample.RotationRate, orient), alpha)
 	}
 }
 
@@ -617,6 +811,19 @@ func clampSmoothing(s float64) float64 {
 		return 0.999
 	}
 	return s
+}
+
+func rotateMotionVector(v core.SensorVector, orientation MotionOrientation) core.SensorVector {
+	switch orientation {
+	case MotionOrientationPortraitUpsideDown:
+		return core.SensorVector{X: -v.X, Y: -v.Y, Z: v.Z}
+	case MotionOrientationLandscapeLeft:
+		return core.SensorVector{X: -v.Y, Y: v.X, Z: v.Z}
+	case MotionOrientationLandscapeRight:
+		return core.SensorVector{X: v.Y, Y: -v.X, Z: v.Z}
+	default:
+		return v
+	}
 }
 
 func scaleVector(v core.SensorVector, k float64) core.SensorVector {
