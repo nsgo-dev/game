@@ -138,6 +138,7 @@ var formatVersions = map[string]string{
 	"idle.LocaleVersion":                        "idle",
 	"importsettings.AssetSourceVersion":         "importsettings#source",
 	"importsettings.CurrentVersion":             "importsettings",
+	"input.TouchLayoutVersion":                  "input#touch",
 	"internal/samplegltf.GLBVersion":            "",
 	"inventory.CurrentVersion":                  "inventory",
 	"l10n.AssetManifestVersion":                 "l10n",

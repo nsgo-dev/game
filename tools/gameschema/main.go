@@ -24,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/particles"
@@ -259,6 +260,15 @@ var formats = []format{
 		typ:     reflect.TypeFor[playtest.Config](),
 		pkg:     "playtest",
 		version: playtest.CurrentVersion,
+	},
+	{
+		url:     input.TouchLayoutSchemaURL,
+		title:   "NSGo game touch layout (version 1)",
+		typ:     reflect.TypeFor[input.TouchLayout](),
+		pkg:     "input",
+		version: input.TouchLayoutVersion,
+		// ParseTouchLayout decodes idleAfter straight into time.Duration, which go.yaml.in/yaml/v3 reads only from a string.
+		types: durationStringTypes,
 	},
 	{
 		url:     gameui.ScreenSchemaURL,

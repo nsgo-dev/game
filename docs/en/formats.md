@@ -698,6 +698,40 @@ nodes:
         touchHitSize: 64
 ```
 
+<!-- format: input#touch -->
+### Touch control layout
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.touch.yaml`, such as Cave Run's `controls.touch.yaml`, and a player's edited layout in a key of `core.Storage` | `version: 1` | `input.ParseTouchLayout`, `input.EncodeTouchLayout`, `input.TouchControls.Save`, `input.TouchControls.Load` | [input](input.md#on-screen-touch-controls); schema `https://game.nsgo.dev/schemas/touchlayout.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: dpad
+    anchor: bottomLeft
+    offset: {x: 28, "y": 24}
+    size: {width: 150, height: 150}
+    label: Move
+    ways: 8
+    left: left
+    right: right
+  - id: jump
+    kind: button
+    anchor: bottomRight
+    offset: {x: 36, "y": 32}
+    size: {width: 110, height: 110}
+    label: Jump
+    action: jump
+    text: JUMP
+```
+
 <!-- format: sceneformat#conflict -->
 ### Scene merge conflict report
 

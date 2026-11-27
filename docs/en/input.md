@@ -137,6 +137,145 @@ By default an `Actions` reads every connected controller: a button is pressed wh
 
 Controllers are polled once per step, so a press and release that both happen between two steps are not seen. Tests and replays can skip the live controllers and feed `[]gamepad.Pad` snapshots with `OnGamepads`, which latches presses between steps like touches; `Gamepads()` returns the state last read.
 
+## On-screen touch controls
+
+On a phone the player needs controls under their thumbs. `TouchControls` draws a layer of them from a `TouchLayout`, a YAML document, and drives the same named actions and axes the keyboard and game controllers do, so the game reads `Pressed("jump")` and `Axis("move")` whatever the player holds:
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: dpad
+    anchor: bottomLeft
+    offset: {x: 10, "y": 8}
+    size: {width: 120, height: 120}
+    label: Move
+    ways: 8
+    left: left
+    right: right
+  - id: jump
+    kind: button
+    anchor: bottomRight
+    offset: {x: 36, "y": 32}
+    size: {width: 110, height: 110}
+    label: Jump
+    action: jump
+    text: JUMP
+```
+
+```go
+//go:embed controls.touch.yaml
+var touchYAML []byte
+
+layout, err := input.ParseTouchLayout(touchYAML)
+if err != nil {
+	return err
+}
+touch, err := input.NewTouchControls(cx, layout)
+if err != nil {
+	return err
+}
+touch.BindActions(actions)
+touch.Haptics = input.NewHaptics(cx)
+
+actions.Attach(&gameView)
+touch.Attach(&gameView) // after Actions.Attach
+
+// In Loop.Update, after actions.Step():
+touch.Update(dt)
+
+// In the game Canvas's Draw, which covers the view:
+touch.Resize(size, cx.Env().SafeArea())
+touch.Draw(d)
+
+// When play starts or resumes after a menu the controls were not drawn under:
+touch.Wake()
+```
+
+What the layer does:
+
+- **Placement.** Each control sits against one of nine anchors of the safe area (`topLeft`, `top`, `topRight`, `left`, `center`, `right`, `bottomLeft`, `bottom`, `bottomRight`), moved inward by `offset`. Offsets and sizes are points on a screen of `reference` size and scale by the smaller of the safe area's width and height over the reference's, capped by `maxScale` when set, so the layout keeps its proportions on any screen. No control is ever smaller than `MinTouchTarget` (44 points), and none leaves the safe area. Pass `Env.SafeArea`, or `core.Insets` of the view's scope where a screen or modal keeps part of it clear, to `Resize`; the controls work in the view's points, so they ignore `Actions.MapPoint`.
+- **Visibility.** The controls start visible when `Env.Pointer` is `core.PointerCoarse` (phones and tablets) and hidden elsewhere. The first touch on the attached view, or a press on a control, shows them; a key or a game controller hides them again, heard through the view's key events and, on `Update`, the keys `WatchKeys` reads and the controllers `WatchGamepads` reads. `Tracker` returns the `DeviceTracker` behind this, and `SetVisible` overrides it; after either, the next key or controller still hides the controls and the next touch still shows them.
+- **Idle fade.** With `idleAfter` set, the controls fade to `idleAlpha` once no finger has touched them for that long, and return to full opacity on the next press. An `idleAlpha` of 0, the default, fades them out of sight while they still take touches and still name themselves for screen readers. The idle time runs whether or not the game draws the controls, so call `Wake` when they come back into view, such as when play resumes from a menu, or they first appear already faded.
+- **Left-handed play.** `mirrored: true`, or `SetMirrored(true)` at run time, swaps every control between the left and right of the screen; the directions keep their meaning.
+- **Haptics.** With `Haptics` set, each press plays a selection tick: a touch-down on a button, a finger sliding onto another button, or a d-pad rocking into a new direction.
+- **Accessibility.** `Draw` names each control as a canvas node with its `label`, the role of a button for buttons, and the test ID `touch-` followed by its `id`, so screen readers and `nsgotest` find them, at any opacity. `Controls` lists each control's ID, kind, label and frame.
+- **Player edits.** `Layout` returns the layout, `SetLayout` applies an edited one, and `Save` and `Load` keep it in `core.Storage` as the same YAML; `Load` leaves the layout as it is and returns a `*loaderr.Error` naming the key when the saved one does not parse.
+
+### Control kinds
+
+| Kind | Builds | Fields |
+| --- | --- | --- |
+| `button` | `VirtualButton` | `action` (required), `text` or `icon`, `mode` (`hold`, `toggle`, `tap`), `shape` (`circle`, `rect`) |
+| `dpad` | `VirtualDPad` | `up`, `down`, `left`, `right` actions, `axisX` and `axisY` axes, `ways` (4 or 8), `deadZone` |
+| `stick` | `VirtualStick` with `UpPositive` | `axisX` and `axisY` axes, `deadZone`, `floating`, `radius` |
+
+Every kind takes `id`, `kind`, `anchor`, `offset`, `size` and `label`; the three kinds above refuse a field they do not take. Button modes:
+
+- `hold` presses the action while a finger is on the button.
+- `toggle` flips it on each touch-down and keeps it after the finger lifts, until the next touch-down or `Reset`.
+- `tap` presses it for exactly one `Actions.Step` per touch-down, however long the finger stays.
+
+A d-pad belongs to one finger as a whole: the thumb rocks or slides between directions without lifting, and leaving the circle keeps steering. With `ways: 8` a diagonal presses both of its directions. `axisY` reads `+1` up, as a controller's d-pad does. Inside the layer a finger that slides off one button onto another presses the second one, so a thumb rocks between neighbouring buttons; a toggle button is never entered that way.
+
+### Plugin control kinds
+
+A package adds a kind of its own with `RegisterTouchControlKind`, from an `init` function. Its factory gets the control's `TouchControlSpec`, reads the common fields it uses and its own settings from `options`, and returns a `TouchControl`: a `VirtualControl` that `TouchControls` also places.
+
+```go
+func init() {
+	input.RegisterTouchControlKind("acme.wheel", func(spec input.TouchControlSpec) (input.TouchControl, error) {
+		steer := spec.Options["axis"]
+		if steer == "" {
+			return nil, loaderr.Errorf("options.axis", "name the axis the wheel drives", "a wheel needs options.axis")
+		}
+		return &wheel{axis: steer, action: spec.Action}, nil
+	})
+}
+```
+
+```yaml
+  - id: wheel
+    kind: acme.wheel
+    anchor: bottomLeft
+    size: {width: 160, height: 160}
+    label: Steering wheel
+    options: {axis: steer, gain: "1.5"}
+```
+
+`options` values are strings. Quote a value YAML would otherwise read as a number, a boolean or null, as `gain` above; `ParseTouchLayout` refuses an unquoted one at its line, since it would read back as a string and save quoted, changing the file.
+
+`VirtualControl` has `Claim` (take a finger that touches down at a point), `Move` and `Release` (follow it until it lifts), `Reset`, `ActionNames`, `ActionPressed` and `AxisValues` (what it drives), and `Draw`; `TouchControl` adds `Place`, which receives the frame and scale `TouchControls` computes. `ParseTouchLayout` accepts any kind, so a layout parses before the plugin that defines its kind is imported; `NewTouchControls` refuses a kind no one registered, and reports a factory's `*loaderr.Error` against the control's own field. `RegisterTouchIcon` adds an icon a button's `icon` can name, beside the built-in `arrowUp`, `arrowDown`, `arrowLeft` and `arrowRight`. Both panic on an empty or repeated name.
+
+Two optional interfaces give a plugin's control what the built-in kinds get:
+
+- `ButtonControl` adds `Button() *VirtualButton`, for a control that is a `VirtualButton` underneath, such as a custom-drawn or cooldown button. The pad then drives that button itself: a finger touching down on it is claimed before sticks and other controls, slides onto and off it with its neighbours, and a `ButtonTap` press ends after one step; `TouchControls.Button` returns it, and `Draw` names it as a button. The pad does not call the control's `Claim`, `Move` and `Release` for its fingers.
+- `AccessibleControl` adds `Accessibility() (core.Role, bool)`, the role and selected state `Draw` gives the control's canvas node in place of a button's or a group's, such as `core.RoleSwitch` and whether it is on.
+
+### Virtual controls without a layout
+
+The pieces `TouchControls` builds work alone on a `VirtualPad`, which hands each finger to the control it touched down on and keeps it there until it lifts:
+
+```go
+pad := input.NewVirtualPad()
+pad.SlideBetweenButtons = true
+pad.AddStick(&input.VirtualStick{AxisXName: "move_x", AxisYName: "move_y", UpPositive: true, Zone: leftHalf, Radius: 56, Floating: true})
+pad.AddControl(&input.VirtualDPad{Center: dpadCenter, Radius: 70, Ways: 8, Left: "left", Right: "right"})
+pad.AddButton(&input.VirtualButton{Center: jumpCenter, Radius: 48, Label: "JUMP", Action: "jump"})
+pad.AddButton(&input.VirtualButton{Center: crouchCenter, Radius: 36, Label: "C", Action: "crouch", Mode: input.ButtonToggle})
+pad.BindActions(actions)
+```
+
+- `VirtualStick` reads `AxisY` positive downward, in screen coordinates, unless `UpPositive` is set; set it so a touch stick and a game controller's inverted stick agree on one axis name.
+- `SlideBetweenButtons` is off by default on a plain `VirtualPad` and on in `TouchControls`.
+- `OnPress` is called on each press, for a haptic tick.
+- A `ButtonTap` button's press ends at the next `Actions.Step`, so it needs the pad bound to an `Actions`.
+
 ## Local multiplayer
 
 `Players` manages several player slots (`0` to `Len()-1`), each with its own `Actions`, routing every connected game controller to at most one player and forwarding keyboard or pointer events only to the players assigned to them:

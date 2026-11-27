@@ -29,6 +29,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | 过场动画，版本 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` 视频过场动画，由 `cutscene.Parse` 读取 |
 | 过场动画，版本 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` 视频或时间轴过场动画，由 `cutscene.Parse` 读取 |
 | 试玩配置，版本 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`，由 `playtest.ParseConfig`、`nsgo game playtest` 与 `game_playtest` 读取（见 [playtest](playtest.md)） |
+| 触屏控件布局，版本 1 | `https://game.nsgo.dev/schemas/touchlayout.v1.json` | `*.touch.yaml`，由 `input.ParseTouchLayout` 和 `input.TouchControls.Load` 读取（见 [input](input.md#屏幕触控控件)） |
 | 游戏界面屏幕，版本 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`，由 `gameui.ParseScreen` 和 `gameui.LoadScreenFS` 读取 |
 | 精灵状态机，版本 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`，由 `animclip.ParseStateMachine` 和 `animclip.FSStates` 读取 |
 | 粒子发射器（2D），版本 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`，由 `particles.UnmarshalConfigYAML` 和 `particles.LoadConfigFS` 读取 |

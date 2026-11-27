@@ -137,6 +137,145 @@ actions.WatchGamepads(cx)
 
 手柄每个步长轮询一次，因此在两个步长之间完成的按下和松开不会被察觉。测试和回放可以不读取实际手柄，改用 `OnGamepads` 传入 `[]gamepad.Pad` 快照，它会像触摸一样锁存步长之间的按下；`Gamepads()` 返回最近一次读取的状态。
 
+## 屏幕触控控件
+
+在手机上，玩家需要拇指底下的控件。`TouchControls` 按 YAML 文档 `TouchLayout` 绘制一层控件，驱动的命名动作和轴与键盘、手柄相同，所以无论玩家拿的是什么，游戏都读 `Pressed("jump")` 和 `Axis("move")`：
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: dpad
+    anchor: bottomLeft
+    offset: {x: 10, "y": 8}
+    size: {width: 120, height: 120}
+    label: Move
+    ways: 8
+    left: left
+    right: right
+  - id: jump
+    kind: button
+    anchor: bottomRight
+    offset: {x: 36, "y": 32}
+    size: {width: 110, height: 110}
+    label: Jump
+    action: jump
+    text: JUMP
+```
+
+```go
+//go:embed controls.touch.yaml
+var touchYAML []byte
+
+layout, err := input.ParseTouchLayout(touchYAML)
+if err != nil {
+	return err
+}
+touch, err := input.NewTouchControls(cx, layout)
+if err != nil {
+	return err
+}
+touch.BindActions(actions)
+touch.Haptics = input.NewHaptics(cx)
+
+actions.Attach(&gameView)
+touch.Attach(&gameView) // 在 Actions.Attach 之后
+
+// 在 Loop.Update 中，actions.Step() 之后：
+touch.Update(dt)
+
+// 在覆盖整个视图的游戏 Canvas 的 Draw 中：
+touch.Resize(size, cx.Env().SafeArea())
+touch.Draw(d)
+
+// 从没有绘制控件的菜单开始或回到游戏时：
+touch.Wake()
+```
+
+这一层负责：
+
+- **摆放。** 每个控件贴在安全区的九个锚点之一（`topLeft`、`top`、`topRight`、`left`、`center`、`right`、`bottomLeft`、`bottom`、`bottomRight`），再按 `offset` 向内移动。偏移和尺寸以 `reference` 大小的屏幕上的点为单位，按安全区宽、高与参考尺寸之比中较小的一个缩放，设置了 `maxScale` 时不超过它，因此布局在任何屏幕上都保持比例。控件不会小于 `MinTouchTarget`（44 点），也不会超出安全区。把 `Env.SafeArea`，或在屏幕、模态框占去一部分安全区时把视图作用域的 `core.Insets` 传给 `Resize`；控件使用视图的点坐标，因此不受 `Actions.MapPoint` 影响。
+- **显示与隐藏。** `Env.Pointer` 为 `core.PointerCoarse`（手机和平板）时控件一开始就显示，其他设备上先隐藏。在挂载的视图上第一次触摸，或按下某个控件，就显示控件；按键或手柄会再次隐藏它们，来源包括视图的按键事件，以及 `Update` 时 `WatchKeys` 读到的按键和 `WatchGamepads` 读到的手柄。`Tracker` 返回背后的 `DeviceTracker`，`SetVisible` 可直接覆盖；无论哪种方式改变显示状态，下一次按键或手柄操作仍会隐藏控件，下一次触摸仍会显示控件。
+- **闲置淡出。** 设置了 `idleAfter` 时，手指离开控件超过这段时间后控件淡到 `idleAlpha`，下次按下时恢复完全不透明。`idleAlpha` 为默认的 0 时控件会完全淡出视野，但仍接收触摸，也仍向读屏软件报告自己。无论游戏是否在绘制控件，闲置时间都在累计，所以控件重新出现时（例如从菜单回到游戏）要调用 `Wake`，否则它们一出现就已经是淡出状态。
+- **左手模式。** `mirrored: true`，或运行时调用 `SetMirrored(true)`，把每个控件在屏幕左右两侧互换；方向含义不变。
+- **触觉反馈。** 设置了 `Haptics` 时，每次按下都会轻触一下：在按钮上按下、手指滑到另一个按钮上，或方向键摇到新方向。
+- **无障碍。** `Draw` 把每个控件命名为画布节点，带上它的 `label`、按钮的按钮角色，以及测试 ID `touch-` 加上它的 `id`，读屏软件和 `nsgotest` 都能找到它们，与透明度无关。`Controls` 列出每个控件的 ID、种类、标签和位置。
+- **玩家编辑。** `Layout` 返回布局，`SetLayout` 应用编辑后的布局，`Save` 和 `Load` 以同样的 YAML 存进 `core.Storage`；保存的布局解析失败时，`Load` 保持现有布局不变，并返回指明该键的 `*loaderr.Error`。
+
+### 控件种类
+
+| 种类 | 构建出 | 字段 |
+| --- | --- | --- |
+| `button` | `VirtualButton` | `action`（必填）、`text` 或 `icon`、`mode`（`hold`、`toggle`、`tap`）、`shape`（`circle`、`rect`） |
+| `dpad` | `VirtualDPad` | `up`、`down`、`left`、`right` 动作，`axisX` 和 `axisY` 轴，`ways`（4 或 8），`deadZone` |
+| `stick` | 设置了 `UpPositive` 的 `VirtualStick` | `axisX` 和 `axisY` 轴，`deadZone`，`floating`，`radius` |
+
+所有种类都接受 `id`、`kind`、`anchor`、`offset`、`size` 和 `label`；上面三种会拒绝它们不接受的字段。按钮模式：
+
+- `hold`：手指按在按钮上时按下动作。
+- `toggle`：每次按下切换一次，手指抬起后保持，直到下次按下或 `Reset`。
+- `tap`：每次按下只让动作按下一个 `Actions.Step`，与手指停留多久无关。
+
+方向键整体归一根手指所有：拇指不抬起就能在方向间摇动、滑动，滑出圆形后仍继续控制。`ways: 8` 时斜向会同时按下两个方向。`axisY` 向上为 `+1`，与手柄方向键一致。在这一层里，手指从一个按钮滑到另一个按钮上会按下后者，拇指因此可以在相邻按钮间摇动；切换按钮不会以这种方式被按下。
+
+### 插件控件种类
+
+包可以在 `init` 函数中用 `RegisterTouchControlKind` 加入自己的种类。它的工厂函数拿到控件的 `TouchControlSpec`，读取用到的通用字段，并从 `options` 读取自己的设置，返回一个 `TouchControl`：也由 `TouchControls` 摆放的 `VirtualControl`。
+
+```go
+func init() {
+	input.RegisterTouchControlKind("acme.wheel", func(spec input.TouchControlSpec) (input.TouchControl, error) {
+		steer := spec.Options["axis"]
+		if steer == "" {
+			return nil, loaderr.Errorf("options.axis", "name the axis the wheel drives", "a wheel needs options.axis")
+		}
+		return &wheel{axis: steer, action: spec.Action}, nil
+	})
+}
+```
+
+```yaml
+  - id: wheel
+    kind: acme.wheel
+    anchor: bottomLeft
+    size: {width: 160, height: 160}
+    label: Steering wheel
+    options: {axis: steer, gain: "1.5"}
+```
+
+`options` 的值都是字符串。YAML 会读成数字、布尔值或 null 的值要加引号，如上面的 `gain`；`ParseTouchLayout` 会在所在行拒绝没加引号的值，因为它会被读成字符串、保存时又加上引号，从而改动文件。
+
+`VirtualControl` 包含 `Claim`（接管在某点按下的手指）、`Move` 和 `Release`（跟随手指直到抬起）、`Reset`、`ActionNames`、`ActionPressed` 和 `AxisValues`（它驱动的内容），以及 `Draw`；`TouchControl` 再加上 `Place`，接收 `TouchControls` 算出的位置和缩放。`ParseTouchLayout` 接受任何种类，所以布局可以在定义其种类的插件导入之前解析；`NewTouchControls` 拒绝没有注册的种类，并把工厂返回的 `*loaderr.Error` 报告到该控件自己的字段上。`RegisterTouchIcon` 加入按钮的 `icon` 可以引用的图标，内置的有 `arrowUp`、`arrowDown`、`arrowLeft` 和 `arrowRight`。两者遇到空名称或重复名称都会 panic。
+
+两个可选接口让插件控件得到内置种类拥有的能力：
+
+- `ButtonControl` 加上 `Button() *VirtualButton`，用于底层是一个 `VirtualButton` 的控件，例如自绘按钮或带冷却的按钮。`VirtualPad` 会直接驱动这个按钮：在它上面按下的手指优先于摇杆和其他控件被接管，可以和相邻按钮之间来回滑动，`ButtonTap` 的按下在一步之后结束；`TouchControls.Button` 返回它，`Draw` 把它命名为按钮。`VirtualPad` 不会为它的手指调用控件的 `Claim`、`Move` 和 `Release`。
+- `AccessibleControl` 加上 `Accessibility() (core.Role, bool)`，即 `Draw` 赋给该控件画布节点的角色和选中状态，取代按钮或分组的默认值，例如 `core.RoleSwitch` 以及它是否打开。
+
+### 不用布局的虚拟控件
+
+`TouchControls` 构建的部件也可以单独放在 `VirtualPad` 上使用；`VirtualPad` 把每根手指交给它按下时所在的控件，直到手指抬起：
+
+```go
+pad := input.NewVirtualPad()
+pad.SlideBetweenButtons = true
+pad.AddStick(&input.VirtualStick{AxisXName: "move_x", AxisYName: "move_y", UpPositive: true, Zone: leftHalf, Radius: 56, Floating: true})
+pad.AddControl(&input.VirtualDPad{Center: dpadCenter, Radius: 70, Ways: 8, Left: "left", Right: "right"})
+pad.AddButton(&input.VirtualButton{Center: jumpCenter, Radius: 48, Label: "JUMP", Action: "jump"})
+pad.AddButton(&input.VirtualButton{Center: crouchCenter, Radius: 36, Label: "C", Action: "crouch", Mode: input.ButtonToggle})
+pad.BindActions(actions)
+```
+
+- `VirtualStick` 的 `AxisY` 按屏幕坐标向下为正，除非设置了 `UpPositive`；设置它，触屏摇杆就能和手柄反转后的摇杆共用一个轴名。
+- 普通 `VirtualPad` 默认关闭 `SlideBetweenButtons`，`TouchControls` 中则默认开启。
+- 每次按下都会调用 `OnPress`，适合触觉反馈。
+- `ButtonTap` 按钮的按下在下一次 `Actions.Step` 结束，因此需要把 pad 绑定到某个 `Actions`。
+
 ## 本地多人
 
 `Players` 管理多个玩家槽位（`0` 到 `Len()-1`），每位玩家拥有各自的 `Actions`：每只已连接的手柄最多路由给一位玩家，键盘与指针事件也只转发给已分配对应设备的玩家：
