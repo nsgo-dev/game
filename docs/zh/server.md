@@ -36,10 +36,10 @@ defer stop()
 
 收到 SIGTERM/SIGINT 后 context 结束；runner 让当前 tick 完成，再调用 `OnStop`（例如通知对端、落盘状态）并返回。要让停止有界，`Update` 必须及时返回。
 
-可运行示例位于 `server/cmd/dedicatedserver`：
+可运行示例位于 `examples/dedicatedserver`：
 
 ```sh
-go build ./server/cmd/dedicatedserver
+go build ./examples/dedicatedserver
 ```
 
 它用普通 Go 工具链构建，不需要 NSGo 运行时。
@@ -204,7 +204,7 @@ http.ListenAndServe(":8080", health)
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/server ./pkg/server/cmd/dedicatedserver
+RUN CGO_ENABLED=0 go -C examples/dedicatedserver build -o /out/server .
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/server /server

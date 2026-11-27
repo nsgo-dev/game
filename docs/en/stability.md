@@ -172,7 +172,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/scenemodel` | Experimental | [scenemodel](scenemodel.md) |
 | `game/pkg/screen` | Stable | [screen](screen.md) |
 | `game/pkg/server` | Experimental | [server](server.md) |
-| `game/pkg/server/cmd/dedicatedserver` | Experimental | [server](server.md) |
 | `game/pkg/skeletal` | Experimental | [skeletal](skeletal.md) |
 | `game/pkg/sound` | Stable | [sound](sound.md) |
 | `game/pkg/sprite` | Stable | [sprite](sprite.md) |
@@ -200,7 +199,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/undo` | Experimental | [undo](undo.md) |
 | `game/pkg/vehicle` | Experimental | [vehicle](vehicle.md) |
 | `game/pkg/vn` | Experimental | [vn](vn.md) |
-| `game/pkg/vn/cmd/vnsample` | Experimental | [vn](vn.md) |
 | `game/pkg/voxel` | Experimental | [voxel](voxel.md) |
 | `game/pkg/world3d` | Experimental | [world3d](world3d.md) |
 | `game/pkg/worldmap` | Experimental | [worldmap](worldmap.md) |

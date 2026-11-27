@@ -172,7 +172,6 @@
 | `game/pkg/scenemodel` | 实验性 | [scenemodel](scenemodel.md) |
 | `game/pkg/screen` | 稳定 | [screen](screen.md) |
 | `game/pkg/server` | 实验性 | [server](server.md) |
-| `game/pkg/server/cmd/dedicatedserver` | 实验性 | [server](server.md) |
 | `game/pkg/skeletal` | 实验性 | [skeletal](skeletal.md) |
 | `game/pkg/sound` | 稳定 | [sound](sound.md) |
 | `game/pkg/sprite` | 稳定 | [sprite](sprite.md) |
@@ -200,7 +199,6 @@
 | `game/pkg/undo` | 实验性 | [undo](undo.md) |
 | `game/pkg/vehicle` | 实验性 | [vehicle](vehicle.md) |
 | `game/pkg/vn` | 实验性 | [vn](vn.md) |
-| `game/pkg/vn/cmd/vnsample` | 实验性 | [vn](vn.md) |
 | `game/pkg/voxel` | 实验性 | [voxel](voxel.md) |
 | `game/pkg/world3d` | 实验性 | [world3d](world3d.md) |
 | `game/pkg/worldmap` | 实验性 | [worldmap](worldmap.md) |

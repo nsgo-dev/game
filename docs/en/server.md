@@ -36,10 +36,10 @@ defer stop()
 
 On SIGTERM/SIGINT the context ends; the runner lets the current tick finish, then calls `OnStop` (for example to notify peers and flush state) and returns. `Update` must return promptly for the stop to stay bounded.
 
-The runnable example is `server/cmd/dedicatedserver`:
+The runnable example is `examples/dedicatedserver`:
 
 ```sh
-go build ./server/cmd/dedicatedserver
+go build ./examples/dedicatedserver
 ```
 
 It builds with the plain Go toolchain and no NSGo runtime.
@@ -204,7 +204,7 @@ Build the example as a static, cgo-free binary and run it as a small container:
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/server ./pkg/server/cmd/dedicatedserver
+RUN CGO_ENABLED=0 go -C examples/dedicatedserver build -o /out/server .
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/server /server

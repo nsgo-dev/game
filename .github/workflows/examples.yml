@@ -1,6 +1,6 @@
 name: Examples
 
-# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles; tests and cross-checks the Fountain particle stress scene; tests and cross-checks Field Medic, whose own editor command builds in an editor plugin; checks the scenes, maps and atlases of every sample game with game check.
+# Tests and cross-checks every example module under examples/ (one matrix entry per examples/<name>/go.mod); tests Cave Run and every chapter of the Star Catcher tutorial on macOS and checks their iOS targets; builds the web bundles of Cave Run and the tutorial; checks the scenes, maps and atlases of every sample game with game check.
 on:
   push:
     branches:
@@ -16,15 +16,36 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test Cave Run (${{ matrix.os }})
+  example-list:
+    name: List the examples
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: examples
+      - name: List the example modules
+        id: list
+        run: |
+          for mod in examples/*/go.mod; do
+            dir="${mod%/go.mod}"
+            jq -cn --arg example "${dir#examples/}" '{$example}'
+          done | jq -cs '{include: .}' > "$RUNNER_TEMP/matrix.json"
+          cat "$RUNNER_TEMP/matrix.json"
+          echo "matrix=$(cat "$RUNNER_TEMP/matrix.json")" >> "$GITHUB_OUTPUT"
+
+  # One entry per example module from example-list.
+  examples:
+    name: Test and check ${{ matrix.example }}
+    needs: example-list
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - depot-ubuntu-24.04-4
-          - depot-macos-15
-    runs-on: ${{ matrix.os }}
+      matrix: ${{ fromJSON(needs.example-list.outputs.matrix) }}
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -34,17 +55,50 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: examples/caverun/go.mod
+          go-version-file: examples/${{ matrix.example }}/go.mod
           cache: true
           cache-dependency-path: |
-            examples/caverun/go.sum
+            examples/${{ matrix.example }}/go.sum
             go.sum
-      - name: Test Cave Run
-        working-directory: examples/caverun
+      - name: Test
+        working-directory: examples/${{ matrix.example }}
         run: go tool nsgo test ./...
+      - name: Check targets
+        working-directory: examples/${{ matrix.example }}
+        run: go tool nsgo check -target macos,windows,linux,android,web
 
-  check:
-    name: Check and build web (Cave Run)
+  apple:
+    name: Test and check ${{ matrix.example }} (macOS, iOS)
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - caverun
+          - tutorial
+    runs-on: depot-macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/${{ matrix.example }}/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/${{ matrix.example }}/go.sum
+            go.sum
+      - name: Test on macOS
+        working-directory: examples/${{ matrix.example }}
+        run: go tool nsgo test ./...
+      - name: Check iOS targets
+        working-directory: examples/${{ matrix.example }}
+        run: go tool nsgo check -target ios,ios_simulator
+
+  caverun-release:
+    name: Check the examples and build web (Cave Run)
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
@@ -62,9 +116,6 @@ jobs:
             go.sum
       - name: Check the examples' scenes, maps and atlases
         run: go run ./cmd/game check examples
-      - name: Check Cave Run targets
-        working-directory: examples/caverun
-        run: go tool nsgo check -target macos,windows,linux,android,web
       # Built through game release, so that its go -C <dir> tool nsgo build runs against a real game module.
       - name: Build Cave Run web bundle with game release
         run: |
@@ -77,56 +128,8 @@ jobs:
           path: examples/caverun/dist
           if-no-files-found: error
 
-  apple:
-    name: Check Cave Run (iOS)
-    runs-on: depot-macos-15
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: examples/caverun/go.mod
-          cache: true
-          cache-dependency-path: |
-            examples/caverun/go.sum
-            go.sum
-      - name: Check Cave Run iOS targets
-        working-directory: examples/caverun
-        run: go tool nsgo check -target ios,ios_simulator
-
-  tutorial-test:
-    name: Test the tutorial (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - depot-ubuntu-24.04-4
-          - depot-macos-15
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: examples/tutorial/go.mod
-          cache: true
-          cache-dependency-path: |
-            examples/tutorial/go.sum
-            go.sum
-      - name: Test every chapter
-        working-directory: examples/tutorial
-        run: go tool nsgo test ./...
-
-  tutorial-check:
-    name: Check and build web (tutorial)
+  tutorial-web:
+    name: Build web (tutorial)
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
@@ -142,9 +145,6 @@ jobs:
           cache-dependency-path: |
             examples/tutorial/go.sum
             go.sum
-      - name: Check every chapter's targets
-        working-directory: examples/tutorial
-        run: go tool nsgo check -target macos,windows,linux,android,web
       - name: Build every chapter for the web
         working-directory: examples/tutorial
         run: |
@@ -157,97 +157,3 @@ jobs:
           name: starcatcher-web
           path: dist/tutorial/ch09-ship
           if-no-files-found: error
-
-  tutorial-apple:
-    name: Check the tutorial (iOS)
-    runs-on: depot-macos-15
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: examples/tutorial/go.mod
-          cache: true
-          cache-dependency-path: |
-            examples/tutorial/go.sum
-            go.sum
-      - name: Check every chapter's iOS targets
-        working-directory: examples/tutorial
-        run: go tool nsgo check -target ios,ios_simulator
-
-  fountain:
-    name: Test and check Fountain
-    runs-on: depot-ubuntu-24.04-4
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: examples/fountain/go.mod
-          cache: true
-          cache-dependency-path: |
-            examples/fountain/go.sum
-            go.sum
-      - name: Test Fountain
-        working-directory: examples/fountain
-        run: go tool nsgo test ./...
-      - name: Check Fountain targets
-        working-directory: examples/fountain
-        run: go tool nsgo check -target macos,windows,linux,android,web
-
-  fieldmedic:
-    name: Test and check Field Medic
-    runs-on: depot-ubuntu-24.04-4
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: examples/fieldmedic/go.mod
-          cache: true
-          cache-dependency-path: |
-            examples/fieldmedic/go.sum
-            go.sum
-      # The game, its health editor plugin in the scene editor, and the game's own editor command.
-      - name: Test Field Medic
-        working-directory: examples/fieldmedic
-        run: go tool nsgo test ./...
-      - name: Check Field Medic targets
-        working-directory: examples/fieldmedic
-        run: go tool nsgo check -target macos,windows,linux,android,web
-
-  lantern3d:
-    name: Test and check Lantern 3D
-    runs-on: depot-ubuntu-24.04-4
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: examples/lantern3d/go.mod
-          cache: true
-          cache-dependency-path: |
-            examples/lantern3d/go.sum
-            go.sum
-      - name: Test Lantern 3D
-        working-directory: examples/lantern3d
-        run: go tool nsgo test ./...
-      - name: Check Lantern 3D targets
-        working-directory: examples/lantern3d
-        run: go tool nsgo check -target macos,windows,linux,android,web
