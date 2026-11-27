@@ -24,6 +24,7 @@
 | `CharacterBody2D.move_and_slide()` | 针对物体、形状、瓦片与静态刚体的 `World.MoveAndSlide` / `MoveAndSlideWith`（纯瓦片可用 `physics.MoveAndSlide`，平台跳跃可用 `platformer.Controller.StepWorld`） | [physics](physics.md)、[platformer](platformer.md) |
 | `RigidBody2D`、关节 | `physics.RigidWorld`、`RigidBody`、关节 | [2D 刚体](physics2d-rigid.md) |
 | `CharacterBody3D`、`RigidBody3D` | `physics3d.CharacterController`、`physics3d.World` | [physics3d](physics3d.md) |
+| `UndoRedo`（`MergeMode`、`max_steps`、`get_version`、保存的版本） | `undo.History` 的 `DoMerge` 与 `EndMerge`、`Limit`、`Version`、`MarkSaved` 与 `Dirty` | [undo](undo.md) |
 | 导出预设、导出模板 | `nsgo.yaml` 与 `go tool nsgo build` | [构建与发布](shipping.md) |
 
 ## 场景

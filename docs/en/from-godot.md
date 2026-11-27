@@ -24,6 +24,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | `CharacterBody2D.move_and_slide()` | `World.MoveAndSlide` / `MoveAndSlideWith` against bodies, shapes, tiles and static rigid bodies (`physics.MoveAndSlide` for tiles alone; `platformer.Controller.StepWorld` for platformers) | [physics](physics.md), [platformer](platformer.md) |
 | `RigidBody2D`, joints | `physics.RigidWorld`, `RigidBody`, joints | [2D Rigid Bodies](physics2d-rigid.md) |
 | `CharacterBody3D`, `RigidBody3D` | `physics3d.CharacterController`, `physics3d.World` | [physics3d](physics3d.md) |
+| `UndoRedo` (`MergeMode`, `max_steps`, `get_version`, saved version) | `undo.History` with `DoMerge` and `EndMerge`, `Limit`, `Version`, `MarkSaved` and `Dirty` | [undo](undo.md) |
 | Export presets, export templates | `nsgo.yaml` and `go tool nsgo build` | [Building and Shipping](shipping.md) |
 
 ## Scenes

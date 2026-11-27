@@ -9,13 +9,14 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// LogVersion is the schema version of the Log YAML format this package reads and writes.
-const LogVersion = 1
+// LogVersion is the schema version of the Log YAML format this package reads and writes. Version 2 adds the forgotten key; version 1 logs, which predate History.Limit and so forgot nothing, are still read.
+const LogVersion = 2
 
-// Log is the saved form of a History: its moves in order and how many of them are applied. It does not hold the starting state, which is the state given to New or, after a Clear, the state at that Clear; a game saves that state with the log and passes it to Restore. It is written as YAML with its fields in the order below, all three required:
+// Log is the saved form of a History: its moves in order, how many of them are applied and how many a Limit forgot before them. It does not hold the starting state, which is the state given to New or, after a Clear, the state at that Clear; a game saves that state with the log and passes it to Restore. It is written as YAML with its fields in the order below, the first three and moves required:
 //
-//	version: 1
+//	version: 2
 //	applied: 2
+//	forgotten: 0
 //	moves:
 //	  - dir: left
 //	  - dir: up
@@ -23,20 +24,27 @@ const LogVersion = 1
 //
 // M must be a concrete type the YAML package encodes and decodes, keeping what a move records during Apply in unexported fields or fields tagged `yaml:"-"`, so a Log holds only what a player chose.
 type Log[M any] struct {
-	Version int `yaml:"version"` // LogVersion
-	Applied int `yaml:"applied"` // moves applied, in [0, len(Moves)]
-	Moves   []M `yaml:"moves"`   // every recorded move, applied first
+	Version   int `yaml:"version"`   // LogVersion; version 1 is read as 2 with no forgotten moves
+	Applied   int `yaml:"applied"`   // moves applied, in [0, len(Moves)]
+	Forgotten int `yaml:"forgotten"` // moves a History.Limit forgot before Moves; written since version 2
+	Moves     []M `yaml:"moves"`     // every recorded move, applied first
 }
 
 // Log returns the history's moves as a Log of the current version. The slice is a copy, but moves that are pointers are shared with the history.
 func (h *History[S, M]) Log() Log[M] {
-	return Log[M]{Version: LogVersion, Applied: h.applied, Moves: h.Moves()}
+	return Log[M]{Version: LogVersion, Applied: h.applied, Forgotten: h.forgotten, Moves: h.Moves()}
 }
 
-// Validate reports whether l has the current version and an applied count within its moves.
+// Validate reports whether l has a supported version, an applied count within its moves and no forgotten moves a version 1 log cannot hold.
 func (l Log[M]) Validate() error {
-	if l.Version != LogVersion {
+	if l.Version < 1 || l.Version > LogVersion {
 		return fmt.Errorf("undo: unsupported log version %d (want %d)", l.Version, LogVersion)
+	}
+	if l.Forgotten < 0 {
+		return fmt.Errorf("undo: log forgets %d moves", l.Forgotten)
+	}
+	if l.Version == 1 && l.Forgotten > 0 {
+		return fmt.Errorf("undo: log version 1 records %d forgotten moves, which version 2 introduced", l.Forgotten)
 	}
 	if l.Applied < 0 || l.Applied > len(l.Moves) {
 		return fmt.Errorf("undo: log applies %d of %d moves", l.Applied, len(l.Moves))
@@ -50,11 +58,16 @@ func (l Log[M]) Validate() error {
 }
 
 // Restore returns a History over state, the starting state the log was recorded from (the state given to New, or the state at the history's last Clear), with the log's moves: it applies the first log.Applied moves to state in order and keeps the rest for Redo. OnChange is not called.
+//
+// A log whose Limit forgot moves cannot be restored: the forgotten moves' effects are part of the history's state but not of the starting state the log was recorded from, and the log no longer holds the moves that would replay them. Clear the history and save the state at the Clear with the log, as after any Clear, so the next log forgets nothing.
 func Restore[S any, M Move[S]](state S, log Log[M]) (*History[S, M], error) {
 	if err := log.Validate(); err != nil {
 		return nil, err
 	}
-	h := &History[S, M]{state: state, moves: append([]M(nil), log.Moves...)}
+	if log.Forgotten > 0 {
+		return nil, fmt.Errorf("undo: log forgot %d moves the starting state lacks; Clear the history and save its state with the log", log.Forgotten)
+	}
+	h := &History[S, M]{state: state, moves: append([]M(nil), log.Moves...), noMerge: true}
 	for h.applied < log.Applied {
 		h.moves[h.applied].Apply(state)
 		h.applied++
@@ -62,11 +75,12 @@ func Restore[S any, M Move[S]](state S, log Log[M]) (*History[S, M], error) {
 	return h, nil
 }
 
-// EncodeLog validates log and writes it as deterministic 2-space YAML.
+// EncodeLog validates log and writes it as deterministic 2-space YAML of the current version: a log read from an older version is saved in the current form.
 func EncodeLog[M any](log Log[M]) ([]byte, error) {
 	if err := log.Validate(); err != nil {
 		return nil, err
 	}
+	log.Version = LogVersion
 	if log.Moves == nil {
 		log.Moves = []M{}
 	}

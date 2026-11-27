@@ -1,6 +1,6 @@
 # undo
 
-`game/undo` 为解谜和回合制游戏记录可撤销的操作，支持无限次撤销与重做。
+`game/undo` 为解谜和回合制游戏记录可撤销的操作，支持撤销与重做，并为游戏内编辑器提供操作上限、合并和保存标记。
 
 ```go
 import "github.com/nsgo-dev/game/pkg/undo"
@@ -63,27 +63,51 @@ h.Seek(0)                // 回到初始状态
 - `Clear` 忘掉所有操作并保留当前状态，当前状态成为新的初始状态。`Clear` 之后保存的日志只含之后的操作，所以要把 `Clear` 时的状态一起保存，并恢复到那个状态上。
 - 设置了 `OnChange` 时，每次应用、撤销或忘掉操作的调用之后都会调用它。
 
-历史没有上限：在 `Clear` 之前每个操作都会保留。由于每个操作都撤销自己的修改，撤销全部操作会让状态精确回到初始状态，重做全部操作则精确回到最新状态。包内测试在数百步的随机行走上验证这一点，并对任意的 `Do`、`Undo`、`Redo`、`Seek`、`Clear` 序列做模糊测试，与每一步之后状态的副本逐一比对。
+历史默认没有上限：在 `Clear` 之前每个操作都会保留。由于每个操作都撤销自己的修改，撤销全部操作会让状态精确回到初始状态，重做全部操作则精确回到最新状态。包内测试在数百步的随机行走上验证这一点，并对任意的 `Do`、`Undo`、`Redo`、`Seek`、`Clear` 序列做模糊测试，与每一步之后状态的副本逐一比对。
 
 操作的方法不能调用持有它的 `History`，`History` 也不能并发使用。
+
+## 游戏内编辑器
+
+关卡编辑器、基地建造或角色创建器会连续编辑很长时间，三件工具让这种编辑保持可用。
+
+`Limit` 为正数时限制保留的操作数：记录新操作超出上限时，最旧的已应用操作被遗忘。被遗忘操作的修改留在状态中，但它不能再被撤销，`Seek` 和保存的日志都从保留的最早操作开始计数。
+
+`DoMerge` 是面向一连串同类小修改的 `Do`，例如拖动滑块或物体的每一步：应用操作后，如果最近应用的操作是 `Merger` 且其 `Merge` 接受，就把它折叠进去，于是整次拖动只需撤销一次。`EndMerge` 结束这一轮合并，下一次拖动同一个滑块也会开始新操作：
+
+```go
+type Slide struct {
+	To  int `yaml:"to"`
+	old int // 由 Apply 记录
+}
+
+func (s *Slide) Apply(v *int)  { s.old = *v; *v = s.To }
+func (s *Slide) Revert(v *int) { *v = s.old }
+
+// Merge 把拖动的下一步折叠进这一步：保留旧值，采用新目标值。
+func (s *Slide) Merge(next *Slide) bool { s.To = next.To; return true }
+```
+
+`MarkSaved` 记录当前位置，`Dirty` 报告状态是否与保存时不同，用于"有未保存修改"的标记。`Dirty` 比较的是位置，所以撤销回保存点时报告干净；一旦 `Limit` 把保存点之前的操作遗忘，或新操作丢弃了保存点所在的分支，历史在下次 `MarkSaved` 之前一直保持脏。`MarkSaved` 同时结束合并，这样保存后的第一次 `DoMerge` 不会改写保存点所依赖的操作。`Version` 标识当前位置，每次 `Do`、`Undo`、`Redo`、`Seek` 和 `Clear` 都会改变；折叠进最近操作的 `DoMerge` 不改变它。
 
 ## 保存历史
 
 操作只有一种具体类型的历史可以保存为 `Log` 并恢复，这样玩家在关卡中途退出、重新载入后仍然可以撤销。日志是 YAML 文本：
 
 ```yaml
-version: 1
+version: 2
 applied: 2
+forgotten: 0
 moves:
   - dir: right
   - dir: down
   - dir: down
 ```
 
-- `version` 是 `LogVersion`（1）；`applied` 是 `moves` 中已应用的个数，其余是 `Redo` 可以恢复的操作。
+- `version` 是 `LogVersion`（2）；`applied` 是 `moves` 中已应用的个数，其余是 `Redo` 可以恢复的操作。`forgotten` 是 `Limit` 在保留的最早操作之前遗忘的操作数。`Limit` 出现之前的版本 1 日志仍可读取，再次保存时写成当前格式。
 - `h.Log()` 返回日志，`EncodeLog` 按上面的字段顺序以 2 空格缩进写出，同一份历史总是写出相同的文本。
-- `DecodeLog[M](data)` 读回日志，拒绝缺少 `version`、`applied` 或 `moves` 键、`moves` 为 null、未知字段（日志或操作中的）、其他版本、超出操作数的 `applied`、空操作以及多余的 YAML 文档。
-- `Restore(start, log)` 返回以日志记录时的初始状态为起点的 `History`，即传给 `New` 的状态，或在 `Clear` 之后为 `Clear` 时的状态：按顺序应用前 `applied` 个操作，其余留给 `Redo`。
+- `DecodeLog[M](data)` 读回日志，拒绝缺少 `version`、`applied` 或 `moves` 键、`moves` 为 null、未知字段（日志或操作中的）、更新的版本、超出操作数的 `applied`、负的 `forgotten`、空操作以及多余的 YAML 文档。
+- `Restore(start, log)` 返回以日志记录时的初始状态为起点的 `History`，即传给 `New` 的状态，或在 `Clear` 之后为 `Clear` 时的状态：按顺序应用前 `applied` 个操作，其余留给 `Redo`。它拒绝有遗忘操作的日志，因为初始状态缺少这些操作的修改：先 `Clear` 历史，把 `Clear` 时的状态和日志一起保存，下一份日志就没有遗忘的操作。
 
 操作在 `Apply` 时记录的内容要放在未导出字段或标记为 `yaml:"-"` 的字段里，这样日志只保存玩家的选择；`Restore` 会重新应用这些操作，重新记录它们。把日志和游戏存档放在一起，例如放进 [save](save.md) 存档槽或单独的文件。
 

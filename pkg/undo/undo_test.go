@@ -290,6 +290,260 @@ func TestOnChangeAndClear(t *testing.T) {
 	}
 }
 
+// stepBy adds D; it is not a Merger.
+type stepBy struct {
+	D int `yaml:"d"`
+}
+
+func (s *stepBy) Apply(v *int)  { *v += s.D }
+func (s *stepBy) Revert(v *int) { *v -= s.D }
+
+// slide sets *v to a value and records the old one; consecutive slides fold into one, so one drag of a slider is one move to undo. It refuses a negative target, for the refused-merge path.
+type slide struct {
+	to  int
+	old int
+}
+
+func (s *slide) Apply(v *int)  { s.old = *v; *v = s.to }
+func (s *slide) Revert(v *int) { *v = s.old }
+
+func (s *slide) Merge(next *slide) bool {
+	if next.to < 0 {
+		return false
+	}
+	s.to = next.to
+	return true
+}
+
+func TestDoMergeFoldsConsecutiveMoves(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *slide](&x)
+	h.DoMerge(&slide{to: 1})
+	h.DoMerge(&slide{to: 2})
+	h.DoMerge(&slide{to: 3})
+	if x != 3 || h.Len() != 1 {
+		t.Fatalf("three folded slides gave x=%d len=%d, want 3 1", x, h.Len())
+	}
+	if !h.Undo() || x != 0 {
+		t.Fatalf("undoing the folded drag gave x=%d, want 0", x)
+	}
+	if !h.Redo() || x != 3 {
+		t.Fatalf("redoing the folded drag gave x=%d, want 3", x)
+	}
+}
+
+func TestDoMergeRefusedRecordsANewMove(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *slide](&x)
+	h.DoMerge(&slide{to: 1})
+	h.DoMerge(&slide{to: -2}) // refused: negative target
+	if x != -2 || h.Len() != 2 {
+		t.Fatalf("a refused merge gave x=%d len=%d, want -2 2", x, h.Len())
+	}
+	h.Undo()
+	if x != 1 {
+		t.Fatalf("undoing the refused move gave x=%d, want 1", x)
+	}
+}
+
+func TestEndMergeStartsANewMove(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *slide](&x)
+	h.DoMerge(&slide{to: 1})
+	h.DoMerge(&slide{to: 2})
+	h.EndMerge()
+	h.DoMerge(&slide{to: 3})
+	if h.Len() != 2 || x != 3 {
+		t.Fatalf("DoMerge after EndMerge gave len=%d x=%d, want 2 3", h.Len(), x)
+	}
+	h.Undo()
+	if x != 2 {
+		t.Fatalf("undoing the second drag gave x=%d, want 2", x)
+	}
+	h.Redo()
+	h.DoMerge(&slide{to: 5}) // folds into the second drag again
+	if h.Len() != 2 || x != 5 {
+		t.Fatalf("DoMerge on the redone drag gave len=%d x=%d, want 2 5", h.Len(), x)
+	}
+	h.Seek(0)
+	if x != 0 {
+		t.Fatalf("undoing both drags gave x=%d, want 0", x)
+	}
+}
+
+func TestDoMergeAfterUndoStartsANewMove(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *slide](&x)
+	h.DoMerge(&slide{to: 1})
+	h.DoMerge(&slide{to: 2}) // folded into the first
+	h.Undo()
+	h.DoMerge(&slide{to: 3}) // nothing applied to fold into: a new move, the redo branch discarded
+	if h.Len() != 1 || h.Applied() != 1 || x != 3 || h.CanRedo() {
+		t.Fatalf("DoMerge after undo gave len=%d applied=%d x=%d canRedo=%v, want 1 1 3 false", h.Len(), h.Applied(), x, h.CanRedo())
+	}
+	h.Undo()
+	if x != 0 || h.CanUndo() {
+		t.Fatalf("undoing the new move gave x=%d canUndo=%v, want 0 false", x, h.CanUndo())
+	}
+}
+
+func TestLimitForgetsOldestAppliedMoves(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *stepBy](&x)
+	h.Limit = 3
+	calls := 0
+	h.OnChange = func() { calls++ }
+	for i := 1; i <= 5; i++ {
+		h.Do(&stepBy{D: i})
+	}
+	if x != 15 || h.Len() != 3 || h.Applied() != 3 || h.Version() != 5 || calls != 5 {
+		t.Fatalf("five moves with limit 3 gave x=%d len=%d applied=%d version=%d calls=%d, want 15 3 3 5 5", x, h.Len(), h.Applied(), h.Version(), calls)
+	}
+	h.Seek(0)
+	if x != 3 || h.CanUndo() { // the forgotten +1 and +2 stay in the state
+		t.Fatalf("undoing every kept move gave x=%d canUndo=%v, want 3 false", x, h.CanUndo())
+	}
+	h.Seek(3)
+	if x != 15 {
+		t.Fatalf("redoing every kept move gave x=%d, want 15", x)
+	}
+
+	// A new move on a redo branch discards the branch, and the limit keeps forgetting from the front.
+	h.Undo()
+	h.Undo()
+	h.Do(&stepBy{D: 100})
+	if h.Len() != 2 || x != 106 || h.CanRedo() {
+		t.Fatalf("branching gave len=%d x=%d canRedo=%v, want 2 106 false", h.Len(), x, h.CanRedo())
+	}
+	h.Do(&stepBy{D: 200})
+	h.Do(&stepBy{D: 300})
+	if h.Len() != 3 || x != 606 || h.Version() != 6 {
+		t.Fatalf("two more moves with limit 3 gave len=%d x=%d version=%d, want 3 606 6", h.Len(), x, h.Version())
+	}
+	h.Seek(0)
+	if x != 6 { // the forgotten +1, +2 and +3 stay; +100 is kept and undone
+		t.Fatalf("undoing every kept move on the new branch gave x=%d, want 6", x)
+	}
+}
+
+func TestVersion(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *slide](&x)
+	if h.Version() != 0 {
+		t.Fatalf("a new history is at version %d, want 0", h.Version())
+	}
+	h.Do(&slide{to: 1})
+	h.DoMerge(&slide{to: 2}) // folds into the Do: the version is unchanged
+	if h.Version() != 1 || h.Len() != 1 {
+		t.Fatalf("Do then a folded DoMerge gave version=%d len=%d, want 1 1", h.Version(), h.Len())
+	}
+	h.EndMerge()
+	h.DoMerge(&slide{to: 3})
+	if h.Version() != 2 {
+		t.Fatalf("DoMerge after EndMerge gave version %d, want 2", h.Version())
+	}
+	h.Undo()
+	if h.Version() != 1 {
+		t.Fatalf("Undo gave version %d, want 1", h.Version())
+	}
+	h.Redo()
+	if h.Version() != 2 {
+		t.Fatalf("Redo gave version %d, want 2", h.Version())
+	}
+	h.Seek(0)
+	if h.Version() != 0 {
+		t.Fatalf("Seek(0) gave version %d, want 0", h.Version())
+	}
+	h.Seek(2)
+	h.Clear()
+	if h.Version() != 0 {
+		t.Fatalf("Clear gave version %d, want 0", h.Version())
+	}
+}
+
+func TestDirtyAcrossUndoRedoAndSeek(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *stepBy](&x)
+	if !h.Dirty() {
+		t.Fatal("a history with no saved point is clean")
+	}
+	h.MarkSaved()
+	if h.Dirty() {
+		t.Fatal("dirty right after MarkSaved")
+	}
+	h.Do(&stepBy{D: 1})
+	h.Do(&stepBy{D: 2})
+	if !h.Dirty() {
+		t.Fatal("clean with moves past the saved point")
+	}
+	h.Undo()
+	h.Undo()
+	if h.Dirty() {
+		t.Fatal("undoing back to the saved point is still dirty")
+	}
+	h.Seek(2)
+	h.Seek(0)
+	if h.Dirty() {
+		t.Fatal("seeking back to the saved point is still dirty")
+	}
+	h.MarkSaved()
+	h.Do(&stepBy{D: 1})
+	h.Do(&stepBy{D: 2})
+	h.MarkSaved() // saved at position 2
+	h.Undo()
+	if !h.Dirty() {
+		t.Fatal("clean one move before the saved point")
+	}
+	h.Redo()
+	if h.Dirty() {
+		t.Fatal("redoing back to the saved point is still dirty")
+	}
+	h.Seek(1)
+	h.Do(&stepBy{D: 9}) // discards the branch the saved point was on
+	h.Seek(0)
+	h.Seek(2)
+	if !h.Dirty() {
+		t.Fatal("a different branch at the saved position reports clean")
+	}
+}
+
+func TestMarkSavedEndsTheMergeRun(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *slide](&x)
+	h.DoMerge(&slide{to: 1})
+	h.DoMerge(&slide{to: 2})
+	h.MarkSaved()
+	if h.Dirty() {
+		t.Fatal("dirty right after MarkSaved")
+	}
+	h.DoMerge(&slide{to: 3}) // a new move: folding it in would change the saved point's state behind its version
+	if h.Len() != 2 || !h.Dirty() {
+		t.Fatalf("DoMerge after MarkSaved gave len=%d dirty=%v, want 2 true", h.Len(), h.Dirty())
+	}
+	h.Undo()
+	if h.Dirty() || x != 2 {
+		t.Fatalf("undoing back to the saved point gave dirty=%v x=%d, want false 2", h.Dirty(), x)
+	}
+}
+
+func TestDirtyWhenLimitForgetsTheSavedPoint(t *testing.T) {
+	x := 0
+	h := undo.New[*int, *stepBy](&x)
+	h.Limit = 2
+	h.Do(&stepBy{D: 1})
+	h.MarkSaved() // saved at position 1
+	h.Do(&stepBy{D: 2})
+	h.Do(&stepBy{D: 3}) // forgets the first move
+	h.Do(&stepBy{D: 4}) // forgets the second: position 1 is no longer reachable
+	h.Seek(0)
+	if !h.Dirty() {
+		t.Fatal("clean at the oldest kept state, which is past the forgotten saved point")
+	}
+	if x != 3 { // the forgotten +1 and +2 stay
+		t.Fatalf("oldest kept state is x=%d, want 3", x)
+	}
+}
+
 func TestMovesIsACopy(t *testing.T) {
 	b := newBoard()
 	h := undo.New[*board, *push](b)

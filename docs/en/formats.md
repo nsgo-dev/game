@@ -2362,11 +2362,12 @@ frames:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| Wherever the game keeps it, such as a save slot; the moves are the game's own move type | `version: 1` | `undo.DecodeLog`, `undo.EncodeLog` | [undo](undo.md) |
+| Wherever the game keeps it, such as a save slot; the moves are the game's own move type | `version: 2` (1 is read) | `undo.DecodeLog`, `undo.EncodeLog` | [undo](undo.md) |
 
 ```yaml
-version: 1
+version: 2
 applied: 2
+forgotten: 0
 moves:
   - dir: right
   - dir: down

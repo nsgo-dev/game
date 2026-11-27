@@ -2362,11 +2362,12 @@ frames:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 游戏存放它的任何地方，如存档槽；其中的操作是游戏自己的操作类型 | `version: 1` | `undo.DecodeLog`、`undo.EncodeLog` | [undo](undo.md) |
+| 游戏存放它的任何地方，如存档槽；其中的操作是游戏自己的操作类型 | `version: 2`（可读取 1） | `undo.DecodeLog`、`undo.EncodeLog` | [undo](undo.md) |
 
 ```yaml
-version: 1
+version: 2
 applied: 2
+forgotten: 0
 moves:
   - dir: right
   - dir: down
