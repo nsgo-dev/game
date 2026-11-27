@@ -18,14 +18,16 @@ var setFullScreen = func(cx *core.Scope, on bool, displayID string) {
 	cx.SetFullScreen(on, displayID)
 }
 
-// Video applies a player's video settings (save.DisplaySettings) to a scope's window and a Loop: windowed or full screen on the chosen display, a cap on how many frames Loop draws a second, and, with AutoDropLowPower, a lower cap while the system is in low-power mode or under serious thermal pressure. It ships no UI: a settings screen edits save.Settings, saves it, and applies it, and the game applies the saved settings at start with save.DefaultSettingsStore.LoadAndApply and Video.Apply as save.SettingsTargets.ApplyDisplay.
+// Video applies a player's video settings (save.DisplaySettings) and windowed resolution to a scope's window and a Loop: windowed or full screen on the chosen display, desktop windowed resolution centered on the current display, a cap on how many frames Loop draws a second, and, with AutoDropLowPower, a lower cap while the system is in low-power mode or under serious thermal pressure. It ships no UI: a settings screen edits save.Settings, saves it, and applies it, and the game applies the saved settings at start with save.DefaultSettingsStore.LoadAndApply and Video.Apply as save.SettingsTargets.ApplyDisplay.
 //
-// Video asks the window to change full screen or display only when the settings change them, or on the first Apply when they differ from the window, so applying other settings does not undo a player leaving full screen with the system's own controls. On the web, a saved full-screen setting applied at start is deferred until the next user press (via Attach or ApplyPending) so the browser does not reject it outside a user gesture. While Run is active, Video also watches Env.FullScreen and updates its held settings (and calls OnWindowChanged) when the window enters or leaves full screen outside a Video request.
+// Video asks the window to change full screen, display, or windowed size only when the settings change them, or on the first Apply/ApplyResolution when they differ from the window, so applying other settings does not undo a player leaving full screen or resizing the window with the system's own controls. On the web, a saved full-screen setting applied at start is deferred until the next user press (via Attach or ApplyPending) so the browser does not reject it outside a user gesture. While Run is active, Video also watches Env.FullScreen and updates its held settings (and calls OnWindowChanged) when the window enters or leaves full screen outside a Video request. save.DisplaySettings.VSync is currently ignored because NSGo v0.3.4 exposes no swap-interval control.
 type Video struct {
 	// Loop receives the frame cap in effect as its DrawRate; nil caps nothing.
 	Loop *game.Loop
 	// LowPowerCap is the frame cap while the system is constrained and AutoDropLowPower is on, DefaultLowPowerCap when 0 or less. A lower FrameCap stays in effect.
 	LowPowerCap int
+	// NativeWindowSize is the windowed content size restored when ApplyResolution is called with a zero width or height ("native"), such as the project's window size from game.yaml. When zero, Video falls back to the window's initial size captured on Run.
+	NativeWindowSize core.Size
 	// OnWindowChanged, when set, is called when the window enters or leaves full screen outside a Video request (such as the player pressing Escape or using browser or system controls). Video updates the settings returned by Settings before calling it.
 	OnWindowChanged func(save.DisplaySettings)
 
@@ -44,11 +46,16 @@ type Video struct {
 	// awaitingFull says Video sent a full-screen request expecting desiredFull and has not yet seen Env.FullScreen reach it.
 	awaitingFull bool
 	desiredFull  bool
+	// resSet says ApplyResolution has been called; sizeSent says a windowed size has been requested or matched, lastSize holding it.
+	resWidth, resHeight core.Points
+	resSet, sizeSent    bool
+	lastSize            core.Size
+	initialWindow       core.Size
 	// constrained holds whether the system is constrained while Run is active; a signal so that Dropped and FrameCap subscribe the computations reading them. Nil before the first Run.
 	constrained *core.Signal[bool]
 }
 
-// Run starts applying v's settings on cx's window and watching the system's power and full-screen state, until the current owner is disposed or stop is called; either one releases the lowered cap and stops sending window requests. Settings applied before Run take effect when it starts. Calling Run again stops the earlier run first.
+// Run starts applying v's settings on cx's window and watching the system's power and full-screen state, until the current owner is disposed or stop is called; either one releases the lowered cap and stops sending window requests. Settings and resolutions applied before Run take effect when it starts. Calling Run again stops the earlier run first.
 func (v *Video) Run(cx *core.Scope) (stop func()) {
 	if v.stop != nil {
 		v.stop()
@@ -58,10 +65,20 @@ func (v *Video) Run(cx *core.Scope) (stop func()) {
 		v.constrained = core.NewSignal(cx, false)
 	}
 	cx.Untrack(func() {
-		v.windowFull = cx.Env().FullScreen()
+		env := cx.Env()
+		v.windowFull = env.FullScreen()
 		v.windowSeen = true
+		if v.initialWindow.Width <= 0 || v.initialWindow.Height <= 0 {
+			if wf := env.WindowFrame(); wf.Width > 0 && wf.Height > 0 {
+				v.initialWindow = core.Size{Width: wf.Width, Height: wf.Height}
+			} else if !v.windowFull {
+				if ws := env.Window(); ws.Width > 0 && ws.Height > 0 {
+					v.initialWindow = ws
+				}
+			}
+		}
 	})
-	if v.set {
+	if v.set || v.resSet {
 		v.applyWindow()
 	}
 	v.updateCap()
@@ -88,6 +105,7 @@ func (v *Video) Run(cx *core.Scope) (stop func()) {
 		v.pending = false
 		v.windowSeen = false
 		v.awaitingFull = false
+		v.sizeSent = false
 		v.constrained.Set(false)
 		v.updateCap()
 	}
@@ -96,7 +114,7 @@ func (v *Video) Run(cx *core.Scope) (stop func()) {
 	return v.stop
 }
 
-// Apply validates s and applies it: it moves the window into or out of full screen on the chosen display when that changed, and sets Loop's DrawRate to the frame cap in effect. On the web, entering full screen on the initial Apply is deferred to the next user press (Attach or ApplyPending). Its signature matches save.SettingsTargets.ApplyDisplay; it always returns nil.
+// Apply validates s and applies it: it moves the window into or out of full screen on the chosen display when that changed, applies any pending windowed resolution when windowed on desktop, and sets Loop's DrawRate to the frame cap in effect. On the web, entering full screen on the initial Apply is deferred to the next user press (Attach or ApplyPending). Its signature matches save.SettingsTargets.ApplyDisplay; it always returns nil.
 func (v *Video) Apply(s save.DisplaySettings) error {
 	full := save.Settings{Display: s}
 	full.Validate()
@@ -199,6 +217,24 @@ func (v *Video) Attach(view *core.View) {
 	}
 }
 
+// ApplyResolution sets the target windowed content size in points and, while windowed on desktop (SupportsWindowResolution), resizes the window centered on the current display. Passing a non-positive width or height selects NativeWindowSize (falling back to the window's initial size captured on Run). In full screen the choice is remembered and applied if the window returns to windowed mode; render-size scaling in full screen awaits canvas resolution scaling.
+func (v *Video) ApplyResolution(width, height core.Points) {
+	if width <= 0 || height <= 0 {
+		width, height = 0, 0
+	}
+	v.resWidth = width
+	v.resHeight = height
+	v.resSet = true
+	if v.cx != nil {
+		v.applyWindowSize()
+	}
+}
+
+// Resolution returns the resolution last passed to ApplyResolution, or the zero Size for native/unset.
+func (v *Video) Resolution() core.Size {
+	return core.Size{Width: v.resWidth, Height: v.resHeight}
+}
+
 // Settings returns the settings last applied, updated when the window enters or leaves full screen outside a Video request.
 func (v *Video) Settings() save.DisplaySettings { return v.settings }
 
@@ -261,8 +297,34 @@ func CanFullScreen(env *core.Env) bool {
 	}
 }
 
-// applyWindow requests the settings' full-screen state when it differs from the last one requested, or, before any request, from the window's. On the web, entering full screen on the initial apply is deferred to ApplyPending so the browser does not reject it outside a user gesture.
+// SupportsWindowResolution reports whether env runs in a resizable desktop window (macOS, Windows, or Linux, not simulated; or, in headless tests with an empty OS, IdiomDesktop or IdiomMac). Phones, tablets, and the web return false.
+func SupportsWindowResolution(env *core.Env) bool {
+	if env == nil || env.Simulated() {
+		return false
+	}
+	switch env.OS() {
+	case core.OSMacOS, core.OSWindows, core.OSLinux:
+		return true
+	case core.OSIOS, core.OSAndroid, core.OSWeb:
+		return false
+	default:
+		idiom := env.Idiom()
+		return idiom == core.IdiomDesktop || idiom == core.IdiomMac
+	}
+}
+
+// applyWindow applies the full-screen state and windowed resolution to the window. On the web, entering full screen on the initial apply is deferred to ApplyPending so the browser does not reject it outside a user gesture.
 func (v *Video) applyWindow() {
+	if v.set {
+		v.applyFullScreen()
+	}
+	if v.resSet {
+		v.applyWindowSize()
+	}
+}
+
+// applyFullScreen requests the settings' full-screen state when it differs from the last one requested, or, before any request, from the window's.
+func (v *Video) applyFullScreen() {
 	// Apply may run inside a component or effect; reading the window here must not make it rerun on display changes.
 	var displays []core.DisplayInfo
 	var windowFull bool
@@ -336,6 +398,103 @@ func (v *Video) syncWindow(full bool) {
 		snap := v.settings
 		v.cx.Untrack(func() { cb(snap) })
 	}
+}
+
+// applyWindowSize resizes the window while windowed on desktop when the target resolution differs from the last size requested (or, before any request, from the window's current size).
+func (v *Video) applyWindowSize() {
+	if !v.resSet || v.cx == nil {
+		return
+	}
+	var (
+		canResize  bool
+		windowFull bool
+		windowSize core.Size
+		current    core.DisplayInfo
+		displays   []core.DisplayInfo
+	)
+	v.cx.Untrack(func() {
+		env := v.cx.Env()
+		canResize = SupportsWindowResolution(env)
+		windowFull = env.FullScreen()
+		windowSize = env.Window()
+		current = env.Display()
+		displays = env.Displays()
+	})
+	if !canResize {
+		return
+	}
+	if v.set {
+		if v.settings.Fullscreen {
+			return
+		}
+	} else if windowFull {
+		return
+	}
+	target := core.Size{Width: v.resWidth, Height: v.resHeight}
+	if target.Width <= 0 || target.Height <= 0 {
+		target = v.nativeWindowSize()
+	}
+	if target.Width <= 0 || target.Height <= 0 {
+		return
+	}
+	if v.sizeSent {
+		if target == v.lastSize {
+			return
+		}
+	} else if target == windowSize {
+		v.lastSize, v.sizeSent = target, true
+		return
+	}
+	v.cx.SetWindowFrame(centeredWindowFrame(current, displays, target))
+	v.lastSize, v.sizeSent = target, true
+}
+
+func (v *Video) nativeWindowSize() core.Size {
+	if v.NativeWindowSize.Width > 0 && v.NativeWindowSize.Height > 0 {
+		return v.NativeWindowSize
+	}
+	return v.initialWindow
+}
+
+func centeredWindowFrame(current core.DisplayInfo, displays []core.DisplayInfo, size core.Size) core.WindowFrame {
+	f := core.WindowFrame{Width: size.Width, Height: size.Height}
+	area := displayWorkArea(current)
+	if area.Size.Width <= 0 || area.Size.Height <= 0 {
+		for _, d := range displays {
+			if d.Main {
+				area = displayWorkArea(d)
+				break
+			}
+		}
+		if (area.Size.Width <= 0 || area.Size.Height <= 0) && len(displays) > 0 {
+			area = displayWorkArea(displays[0])
+		}
+	}
+	if area.Size.Width <= 0 || area.Size.Height <= 0 {
+		return f
+	}
+	x := float64(area.Origin.X) + (float64(area.Size.Width)-float64(size.Width))/2
+	y := float64(area.Origin.Y) + (float64(area.Size.Height)-float64(size.Height))/2
+	if x < float64(area.Origin.X) {
+		x = float64(area.Origin.X)
+	}
+	if y < float64(area.Origin.Y) {
+		y = float64(area.Origin.Y)
+	}
+	f.X = core.Points(round(x))
+	f.Y = core.Points(round(y))
+	f.Move = true
+	return f
+}
+
+func displayWorkArea(d core.DisplayInfo) core.Bounds {
+	if d.VisibleFrame.Size.Width > 0 && d.VisibleFrame.Size.Height > 0 {
+		return d.VisibleFrame
+	}
+	if d.Frame.Size.Width > 0 && d.Frame.Size.Height > 0 {
+		return d.Frame
+	}
+	return core.Bounds{}
 }
 
 // updateCap sets Loop's DrawRate without subscribing the running computation, which may be Run's own effect writing the signal it would read.

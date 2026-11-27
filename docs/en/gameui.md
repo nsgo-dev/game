@@ -107,15 +107,16 @@ Customize focus outlines with `FocusRingStyle` on `Root.FocusRing`, `Theme.Focus
 
 ## Ready settings menu (`SettingsMenu`)
 
-`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, and configurable bus volumes), **Video** (window mode, resolution, scale mode, integer scale, quality preset, VSync, and frame cap), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, and game speed).
+`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, and configurable bus volumes), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, and game speed).
 
-It persists through `save.DefaultSettingsStore` and dispatches validated updates through `save.SettingsTargets` (`save.Apply`):
+It persists through `save.DefaultSettingsStore` and dispatches validated updates through `save.SettingsTargets` (`save.Apply`) and `SettingsMenuConfig.Video` (`screen.Video.ApplyResolution`):
 
 ```go
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
 menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 	Store: store,
-	Env:   cx.Env(),
+	Env:   cx.Env(), // hides unsupported Window Mode / Resolution rows and syncs FullScreen
+	Video: video,    // applies windowed Resolution via video.ApplyResolution on Apply/Save
 	Targets: save.SettingsTargets{
 		Sound:              mixer,
 		ApplyDisplay:       video.Apply,
@@ -136,7 +137,7 @@ menu.Draw(d, bounds)
 // - Gamepad:  menu.StepGamepad(gamepad.Pads(cx)) (D-pad / left stick, A confirm, B back, LB/RB tabs, button capture)
 ```
 
-- Use `SettingsResolutionFrom` / `SetSettingsResolution` and `SettingsReduceFlashesFrom` / `SetSettingsReduceFlashes` to read or write the resolution and flash-reduction entries stored in `save.Settings.Custom`.
+- Use `SettingsResolutionFrom` / `SetSettingsResolution`, `ParseSettingsResolution`, `ApplySettingsResolution`, and `SettingsReduceFlashesFrom` / `SetSettingsReduceFlashes` to read, write, and apply the resolution and flash-reduction entries stored in `save.Settings.Custom`. Pass `Env: cx.Env()` so Resolution is hidden automatically on phones, tablets, and the web (or set `HideResolution: true`), and set `ShowVSync: true` only when wiring `save.DisplaySettings.VSync` to a real backend control.
 - Use `FormatBindingToken`, `ParseBindingToken`, `FormatBindingLabel`, `GamepadButtonToken`, and `ApplyBindingsToActions` to bridge `save.Settings.Bindings` with `input.Actions`.
 - Call `SetText` with a translated `SettingsText` struct when the player switches language, and omit `Theme` (or call `HighContrastTheme()`) to automatically switch to high-contrast styling when `Accessibility.HighContrast` is enabled.
 - Call `SyncGamepad` when opening the menu so any button held to open it does not immediately trigger inside the screen.

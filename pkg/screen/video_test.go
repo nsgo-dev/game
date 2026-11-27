@@ -731,3 +731,212 @@ func TestCanFullScreen(t *testing.T) {
 		})
 	}
 }
+
+func frameRequests(app *nsgotest.App) []core.WindowFrame {
+	var out []core.WindowFrame
+	for _, r := range app.Window {
+		if r.Action == nsgotest.WindowSetFrame {
+			out = append(out, r.Frame)
+		}
+	}
+	return out
+}
+
+func TestSupportsWindowResolution(t *testing.T) {
+	if screen.SupportsWindowResolution(nil) {
+		t.Fatal("SupportsWindowResolution(nil) = true, want false")
+	}
+	cases := []struct {
+		name string
+		env  core.Environment
+		want bool
+	}{
+		{"macos desktop", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, true},
+		{"windows desktop", core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}, true},
+		{"linux desktop", core.Environment{OS: core.OSLinux, Idiom: core.IdiomDesktop}, true},
+		{"macos omitted idiom", core.Environment{OS: core.OSMacOS}, true},
+		{"ios phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, false},
+		{"ios tablet", core.Environment{OS: core.OSIOS, Idiom: core.IdiomTablet}, false},
+		{"android phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, false},
+		{"web desktop", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, false},
+		{"simulated macos on web", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Simulated: true}, false},
+		{"headless desktop idiom", core.Environment{Idiom: core.IdiomDesktop}, true},
+		{"headless mac idiom", core.Environment{Idiom: core.IdiomMac}, true},
+		{"headless phone idiom", core.Environment{Idiom: core.IdiomPhone}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				got = screen.SupportsWindowResolution(cx.Env())
+				return core.View{}
+			}, nsgotest.Environment(tc.env))
+			if got != tc.want {
+				t.Fatalf("SupportsWindowResolution(%+v) = %v, want %v", tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVideoAppliesWindowedResolutionCenteredOnCurrentDisplay(t *testing.T) {
+	desktopEnv := core.Environment{
+		OS:        core.OSMacOS,
+		Idiom:     core.IdiomDesktop,
+		DisplayID: "side",
+		Displays: []core.DisplayInfo{
+			{ID: "main", Main: true, Frame: core.Bounds{Size: core.Size{Width: 1920, Height: 1080}}},
+			{
+				ID:           "side",
+				Frame:        core.Bounds{Origin: core.Point{X: 1920}, Size: core.Size{Width: 2560, Height: 1440}},
+				VisibleFrame: core.Bounds{Origin: core.Point{X: 1920, Y: 25}, Size: core.Size{Width: 2560, Height: 1415}},
+			},
+		},
+	}
+
+	v := &screen.Video{NativeWindowSize: core.Size{Width: 960, Height: 540}}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		return core.View{}
+	}, nsgotest.Size(960, 540), nsgotest.Environment(desktopEnv))
+
+	// Applying the starting size (960x540) sends nothing.
+	app.Post(func() { v.ApplyResolution(960, 540) })
+	app.Settle()
+	if got := frameRequests(app); len(got) != 0 {
+		t.Fatalf("initial matching resolution sent %+v, want nothing", got)
+	}
+
+	// Picking 1280x720 centers on the current display's VisibleFrame.
+	app.Post(func() { v.ApplyResolution(1280, 720) })
+	app.Settle()
+	// Re-applying the same resolution is deduplicated.
+	app.Post(func() { v.ApplyResolution(1280, 720) })
+	app.Settle()
+	// Picking Native (0, 0) restores NativeWindowSize (960x540).
+	app.Post(func() { v.ApplyResolution(0, 0) })
+	app.Settle()
+	if v.Resolution() != (core.Size{}) {
+		t.Fatalf("Resolution() after native = %+v, want zero", v.Resolution())
+	}
+
+	want := []core.WindowFrame{
+		{X: 2560, Y: 373, Move: true, Width: 1280, Height: 720},
+		{X: 2720, Y: 463, Move: true, Width: 960, Height: 540},
+	}
+	if got := frameRequests(app); !slices.Equal(got, want) {
+		t.Fatalf("window frame requests = %+v, want %+v", got, want)
+	}
+}
+
+func TestVideoNativeRestoresInitialWindowSizeAndClampsOversizedOrigin(t *testing.T) {
+	desktopEnv := core.Environment{
+		OS:    core.OSWindows,
+		Idiom: core.IdiomDesktop,
+		Displays: []core.DisplayInfo{
+			{ID: "main", Main: true, Frame: core.Bounds{Origin: core.Point{X: 10, Y: 20}, Size: core.Size{Width: 1440, Height: 900}}},
+		},
+	}
+
+	v := &screen.Video{} // NativeWindowSize omitted -> captures initial 960x540 on Run.
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		return core.View{}
+	}, nsgotest.Size(960, 540), nsgotest.Environment(desktopEnv))
+
+	// 1920x1080 exceeds 1440x900: origin clamps to display origin (10, 20) instead of going negative.
+	app.Post(func() { v.ApplyResolution(1920, 1080) })
+	app.Settle()
+	app.Post(func() { v.ApplyResolution(0, 0) })
+	app.Settle()
+
+	want := []core.WindowFrame{
+		{X: 10, Y: 20, Move: true, Width: 1920, Height: 1080},
+		{X: 250, Y: 200, Move: true, Width: 960, Height: 540},
+	}
+	if got := frameRequests(app); !slices.Equal(got, want) {
+		t.Fatalf("window frame requests = %+v, want %+v", got, want)
+	}
+}
+
+func TestVideoDefersResolutionWhileFullscreenAndAppliesWhenWindowed(t *testing.T) {
+	gotFull := recordFullScreen(t)
+	desktopEnv := core.Environment{
+		OS:    core.OSLinux,
+		Idiom: core.IdiomDesktop,
+		Displays: []core.DisplayInfo{
+			{ID: "main", Main: true, Frame: core.Bounds{Size: core.Size{Width: 1920, Height: 1080}}},
+		},
+	}
+	v := &screen.Video{NativeWindowSize: core.Size{Width: 960, Height: 540}}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		return core.View{}
+	}, nsgotest.Size(960, 540), nsgotest.Environment(desktopEnv))
+
+	s := save.DefaultSettings().Display
+	s.Fullscreen = true
+	app.Post(func() {
+		_ = v.Apply(s)
+		v.ApplyResolution(1280, 720)
+	})
+	app.Settle()
+	if got := frameRequests(app); len(got) != 0 {
+		t.Fatalf("fullscreen ApplyResolution sent %+v, want nothing", got)
+	}
+
+	// Returning to windowed applies the remembered 1280x720 resolution.
+	s.Fullscreen = false
+	apply(app, v, s)
+	wantFull := []fullScreenRequest{{true, "main"}, {false, ""}}
+	if !slices.Equal(*gotFull, wantFull) {
+		t.Fatalf("fullscreen requests = %+v, want %+v", *gotFull, wantFull)
+	}
+	wantFrames := []core.WindowFrame{
+		{X: 320, Y: 180, Move: true, Width: 1280, Height: 720},
+	}
+	if got := frameRequests(app); !slices.Equal(got, wantFrames) {
+		t.Fatalf("window frame requests after leaving fullscreen = %+v, want %+v", got, wantFrames)
+	}
+}
+
+func TestVideoIgnoresWindowResolutionOnMobileAndWeb(t *testing.T) {
+	envs := []struct {
+		name string
+		env  core.Environment
+	}{
+		{"ios", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}},
+		{"android", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}},
+		{"web", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}},
+		{"simulated_macos", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Simulated: true}},
+	}
+	for _, tc := range envs {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &screen.Video{NativeWindowSize: core.Size{Width: 960, Height: 540}}
+			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				v.Run(cx)
+				return core.View{}
+			}, nsgotest.Size(960, 540), nsgotest.Environment(tc.env))
+			app.Post(func() { v.ApplyResolution(1280, 720) })
+			app.Settle()
+			if got := frameRequests(app); len(got) != 0 {
+				t.Fatalf("%s sent window frames %+v, want nothing", tc.name, got)
+			}
+		})
+	}
+}
+
+func TestVideoAppliesResolutionSetBeforeRun(t *testing.T) {
+	v := &screen.Video{NativeWindowSize: core.Size{Width: 960, Height: 540}}
+	v.ApplyResolution(1280, 720)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		return core.View{}
+	}, nsgotest.Size(960, 540), nsgotest.Environment(core.Environment{
+		OS:    core.OSMacOS,
+		Idiom: core.IdiomDesktop,
+	}))
+	want := []core.WindowFrame{{Width: 1280, Height: 720}}
+	if got := frameRequests(app); !slices.Equal(got, want) {
+		t.Fatalf("frames before Run = %+v, want %+v", got, want)
+	}
+}

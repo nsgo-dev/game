@@ -9,6 +9,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
@@ -177,10 +178,13 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	}
 
 	// --- 2. VIDEO TAB (switch with RB) ---
-	// Controls: [0] WindowMode, [1] Resolution, [2] ScaleMode, [3] IntegerScale, [4] Quality, [5] VSync, [6] FrameCap
+	// Default controls (VSync hidden by default): [0] WindowMode, [1] Resolution, [2] ScaleMode, [3] IntegerScale, [4] Quality, [5] FrameCap
 	pressGamepadButton(menu, gamepad.ButtonRB)
 	if menu.Tab() != gameui.SettingsTabVideo {
 		t.Fatalf("tab after RB = %v, want video", menu.Tab())
+	}
+	if got := len(menu.TabControls(gameui.SettingsTabVideo)); got != 6 {
+		t.Fatalf("default Video tab control count = %d, want 6 (VSync hidden by default)", got)
 	}
 	// WindowMode -> Fullscreen (via Right)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
@@ -198,10 +202,7 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
-	// VSync -> false (via South)
-	pressGamepadButton(menu, gamepad.ButtonDPadDown)
-	pressGamepadButton(menu, gamepad.ButtonSouth)
-	// FrameCap -> 30 -> 60 (via Right twice)
+	// FrameCap -> 30 -> 60 (via Right twice; VSync is absent by default)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
@@ -306,7 +307,7 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	}
 	if !reloaded.Display.Fullscreen || gameui.SettingsResolutionFrom(reloaded) != "1280x720" ||
 		reloaded.Display.ScaleMode != "fill" || !reloaded.Display.IntegerScale ||
-		reloaded.Display.Quality != "medium" || reloaded.Display.VSync || reloaded.Display.FrameCap != 60 {
+		reloaded.Display.Quality != "medium" || !reloaded.Display.VSync || reloaded.Display.FrameCap != 60 {
 		t.Fatalf("reloaded Display = %+v, resolution = %q", reloaded.Display, gameui.SettingsResolutionFrom(reloaded))
 	}
 	if appliedResolution.ID != "1280x720" {
@@ -484,12 +485,13 @@ func TestSettingsMenuHidesWindowModeWhenPlatformCannotFullScreen(t *testing.T) {
 		name           string
 		env            core.Environment
 		wantWindowMode bool
+		wantCount      int
 	}{
-		{"web phone", core.Environment{OS: core.OSWeb, Idiom: core.IdiomPhone}, false},
-		{"ios phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, false},
-		{"android phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, false},
-		{"web desktop", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, true},
-		{"macos desktop", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, true},
+		{"web phone", core.Environment{OS: core.OSWeb, Idiom: core.IdiomPhone}, false, 4},
+		{"ios phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, false, 4},
+		{"android phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, false, 4},
+		{"web desktop", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, true, 5},
+		{"macos desktop", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, true, 6},
 	}
 
 	bounds := core.Bounds{Size: core.Size{Width: 960, Height: 540}}
@@ -517,12 +519,8 @@ func TestSettingsMenuHidesWindowModeWhenPlatformCannotFullScreen(t *testing.T) {
 				t.Fatalf("%s: hasWindowMode = %v, want %v (controls=%d)", tc.name, hasWindowMode, tc.wantWindowMode, len(controls))
 			}
 
-			wantCount := 6
-			if tc.wantWindowMode {
-				wantCount = 7
-			}
-			if len(controls) != wantCount {
-				t.Fatalf("%s: Video tab control count = %d, want %d", tc.name, len(controls), wantCount)
+			if len(controls) != tc.wantCount {
+				t.Fatalf("%s: Video tab control count = %d, want %d", tc.name, len(controls), tc.wantCount)
 			}
 
 			// Verify layout bounds remain non-overlapping and inside bounds.
@@ -596,5 +594,161 @@ func TestSettingsMenuWebSyncsWindowModeWithEnvFullScreen(t *testing.T) {
 	}
 	if !strings.Contains(winBtn.Text, "Windowed") {
 		t.Fatalf("Window Mode text after Escape = %q, want Windowed", winBtn.Text)
+	}
+}
+
+func TestSettingsMenuVSyncHiddenByDefaultAndOptIn(t *testing.T) {
+	// Default config omits the VSync toggle.
+	defMenu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{})
+	defControls := defMenu.TabControls(gameui.SettingsTabVideo)
+	if len(defControls) != 6 {
+		t.Fatalf("default Video controls = %d, want 6", len(defControls))
+	}
+	for _, w := range defControls {
+		if tog, ok := w.(*gameui.Toggle); ok && tog.Label == gameui.DefaultSettingsText().VSync {
+			t.Fatalf("unexpected VSync toggle in default Video tab")
+		}
+	}
+
+	// Opt-in ShowVSync shows the toggle and updates Display.VSync.
+	optMenu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{ShowVSync: true})
+	optMenu.SetTab(gameui.SettingsTabVideo)
+	optMenu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+	optControls := optMenu.TabControls(gameui.SettingsTabVideo)
+	if len(optControls) != 7 {
+		t.Fatalf("ShowVSync Video controls = %d, want 7", len(optControls))
+	}
+	vsyncTog, ok := optControls[5].(*gameui.Toggle)
+	if !ok || vsyncTog.Label != gameui.DefaultSettingsText().VSync || !vsyncTog.Checked {
+		t.Fatalf("control[5] = %T (%+v), want checked VSync toggle", optControls[5], optControls[5])
+	}
+	optMenu.Navigator().SetFocus(vsyncTog)
+	optMenu.HandleAction(gameui.NavConfirm)
+	if optMenu.Settings().Display.VSync {
+		t.Fatal("expected ShowVSync toggle to flip Display.VSync to false")
+	}
+}
+
+func TestSettingsMenuHidesResolutionOnPhonesAndWeb(t *testing.T) {
+	cases := []struct {
+		name           string
+		env            core.Environment
+		hideResolution bool
+		wantCount      int
+	}{
+		{"macos_desktop", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, false, 6},
+		{"windows_desktop", core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}, false, 6},
+		{"linux_desktop", core.Environment{OS: core.OSLinux, Idiom: core.IdiomDesktop}, false, 6},
+		{"ios_phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, false, 4},
+		{"android_phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, false, 4},
+		{"web", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, false, 5},
+		{"simulated_macos", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Simulated: true}, false, 5},
+		{"explicit_hide_on_desktop", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, true, 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var menu *gameui.SettingsMenu
+			nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+					Env:            cx.Env(),
+					HideResolution: tc.hideResolution,
+				})
+				return core.View{}
+			}, nsgotest.Environment(tc.env))
+
+			menu.SetTab(gameui.SettingsTabVideo)
+			menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+			controls := menu.TabControls(gameui.SettingsTabVideo)
+			if len(controls) != tc.wantCount {
+				t.Fatalf("Video controls = %d, want %d", len(controls), tc.wantCount)
+			}
+			hasRes := false
+			for _, w := range controls {
+				if btn, ok := w.(*gameui.Button); ok && len(btn.Text) >= len("Resolution") && btn.Text[:len("Resolution")] == "Resolution" {
+					hasRes = true
+				}
+			}
+			if wantRes := tc.wantCount == 6; hasRes != wantRes {
+				t.Fatalf("hasResolution = %v, want %v", hasRes, wantRes)
+			}
+		})
+	}
+}
+
+func TestSettingsMenuAppliesResolutionToVideo(t *testing.T) {
+	v := &screen.Video{NativeWindowSize: core.Size{Width: 960, Height: 540}}
+	var menu *gameui.SettingsMenu
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+			Env:     cx.Env(),
+			Video:   v,
+			Targets: save.SettingsTargets{ApplyDisplay: v.Apply},
+		})
+		return core.View{}
+	}, nsgotest.Size(960, 540), nsgotest.Environment(core.Environment{
+		OS:    core.OSMacOS,
+		Idiom: core.IdiomDesktop,
+		Displays: []core.DisplayInfo{
+			{ID: "main", Main: true, Frame: core.Bounds{Size: core.Size{Width: 1920, Height: 1080}}},
+		},
+	}))
+
+	menu.SetTab(gameui.SettingsTabVideo)
+	menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+
+	// Move from WindowMode [0] to Resolution [1] (starts on "native"), step twice -> 960x540 -> 1280x720, then Apply.
+	app.Post(func() {
+		menu.HandleAction(gameui.NavDown)
+		menu.HandleAction(gameui.NavRight)
+		menu.HandleAction(gameui.NavRight)
+		_ = menu.Apply()
+	})
+	app.Settle()
+
+	// Step twice more -> 1920x1080 -> native, then Apply.
+	app.Post(func() {
+		menu.HandleAction(gameui.NavRight)
+		menu.HandleAction(gameui.NavRight)
+		_ = menu.Apply()
+	})
+	app.Settle()
+
+	var frames []core.WindowFrame
+	for _, r := range app.Window {
+		if r.Action == nsgotest.WindowSetFrame {
+			frames = append(frames, r.Frame)
+		}
+	}
+	want := []core.WindowFrame{
+		{X: 320, Y: 180, Move: true, Width: 1280, Height: 720},
+		{X: 480, Y: 270, Move: true, Width: 960, Height: 540},
+	}
+	if !slices.Equal(frames, want) {
+		t.Fatalf("WindowSetFrame requests = %+v, want %+v", frames, want)
+	}
+}
+
+func TestParseSettingsResolution(t *testing.T) {
+	cases := []struct {
+		id     string
+		w, h   int
+		wantOK bool
+	}{
+		{"", 0, 0, true},
+		{"native", 0, 0, true},
+		{" Native ", 0, 0, true},
+		{"1280x720", 1280, 720, true},
+		{"1920×1080", 1920, 1080, true},
+		{" 960 x 540 ", 960, 540, true},
+		{"0x720", 0, 0, false},
+		{"-1280x720", 0, 0, false},
+		{"custom", 0, 0, false},
+	}
+	for _, tc := range cases {
+		w, h, ok := gameui.ParseSettingsResolution(tc.id)
+		if ok != tc.wantOK || w != tc.w || h != tc.h {
+			t.Errorf("ParseSettingsResolution(%q) = (%d, %d, %v), want (%d, %d, %v)", tc.id, w, h, ok, tc.w, tc.h, tc.wantOK)
+		}
 	}
 }

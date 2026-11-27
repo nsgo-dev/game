@@ -16,7 +16,13 @@ import (
 )
 
 func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
-	app, g := startCaveRun(t)
+	app, g := startCaveRun(t, nsgotest.Environment(core.Environment{
+		OS:    core.OSMacOS,
+		Idiom: core.IdiomDesktop,
+		Displays: []core.DisplayInfo{
+			{ID: "main", Main: true, Frame: core.Bounds{Size: core.Size{Width: 1920, Height: 1080}}},
+		},
+	}))
 
 	// Connect a gamepad and open the Settings menu from the title screen using gamepad alone (ButtonWest / X).
 	app.ConnectGamepad(1, "Xbox Wireless Controller")
@@ -55,6 +61,9 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	if g.settingsMenu.Tab() != gameui.SettingsTabVideo {
 		t.Fatalf("tab = %v, want video", g.settingsMenu.Tab())
 	}
+	if got := len(g.settingsMenu.TabControls(gameui.SettingsTabVideo)); got != 6 {
+		t.Fatalf("Video tab controls = %d, want 6 (VSync absent by default)", got)
+	}
 	// WindowMode -> Fullscreen
 	pressPad(app, gamepad.ButtonDPadRight)
 	// Resolution -> 1280x720 (next from 960x540)
@@ -69,10 +78,7 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	// Quality -> low
 	pressPad(app, gamepad.ButtonDPadDown)
 	pressPad(app, gamepad.ButtonDPadRight)
-	// VSync -> false
-	pressPad(app, gamepad.ButtonDPadDown)
-	pressPad(app, gamepad.ButtonSouth)
-	// FrameCap -> 30
+	// FrameCap -> 30 (VSync is hidden by default)
 	pressPad(app, gamepad.ButtonDPadDown)
 	pressPad(app, gamepad.ButtonDPadRight)
 
@@ -251,7 +257,13 @@ func TestSavedSettingsRestoreOnStartup(t *testing.T) {
 			t.Fatal(err)
 		}
 		return rootWithHook(cx, func(c *caveRun) { g = c })
-	}, nsgotest.Size(960, 540), nsgotest.ManualFrames(), caveRunTestMediaOptions())
+	}, nsgotest.Size(960, 540), nsgotest.ManualFrames(), caveRunTestMediaOptions(), nsgotest.Environment(core.Environment{
+		OS:    core.OSMacOS,
+		Idiom: core.IdiomDesktop,
+		Displays: []core.DisplayInfo{
+			{ID: "main", Main: true, Frame: core.Bounds{Size: core.Size{Width: 2560, Height: 1440}}},
+		},
+	}))
 
 	if g == nil {
 		t.Fatal("caveRun did not initialize")
@@ -268,5 +280,113 @@ func TestSavedSettingsRestoreOnStartup(t *testing.T) {
 	}
 	if g.locale.Get() != "zh-Hans" || !g.a11y.HighContrast || g.level.shakeScale != 0 {
 		t.Fatalf("restored locale/a11y = locale:%q highContrast:%v shakeScale:%v", g.locale.Get(), g.a11y.HighContrast, g.level.shakeScale)
+	}
+	var frames []core.WindowFrame
+	for _, r := range app.Window {
+		if r.Action == nsgotest.WindowSetFrame {
+			frames = append(frames, r.Frame)
+		}
+	}
+	wantFrames := []core.WindowFrame{{X: 320, Y: 180, Move: true, Width: 1920, Height: 1080}}
+	if !slices.Equal(frames, wantFrames) {
+		t.Fatalf("startup WindowSetFrame requests = %+v, want %+v", frames, wantFrames)
+	}
+}
+
+func TestSettingsMenuVideoResolutionWindowFrame(t *testing.T) {
+	desktopEnv := core.Environment{
+		OS:        core.OSMacOS,
+		Idiom:     core.IdiomDesktop,
+		DisplayID: "main",
+		Displays: []core.DisplayInfo{
+			{
+				ID:           "main",
+				Main:         true,
+				Frame:        core.Bounds{Size: core.Size{Width: 1920, Height: 1080}},
+				VisibleFrame: core.Bounds{Origin: core.Point{Y: 25}, Size: core.Size{Width: 1920, Height: 1055}},
+			},
+		},
+	}
+	app, g := startCaveRun(t, nsgotest.Environment(desktopEnv))
+
+	app.Press("id:settings-btn")
+	app.Advance(testFrame)
+	if !g.settingsOpen.Get() {
+		t.Fatal("expected settings menu to open")
+	}
+
+	// Switch to Video tab (']' triggers NextTab from Audio -> Video).
+	app.Key("]")
+	app.Settle()
+	if g.settingsMenu.Tab() != gameui.SettingsTabVideo {
+		t.Fatalf("tab = %v, want video", g.settingsMenu.Tab())
+	}
+
+	// Verify VSync row is absent by default.
+	for _, w := range g.settingsMenu.TabControls(gameui.SettingsTabVideo) {
+		if tog, ok := w.(*gameui.Toggle); ok && tog.Label == gameui.DefaultSettingsText().VSync {
+			t.Fatal("VSync row should be absent by default")
+		}
+	}
+
+	// Move down from WindowMode [0] to Resolution [1] (starts at 960x540), pick 1280x720, and Apply.
+	app.Key("down")
+	app.Key("right")
+	app.Post(func() { _ = g.settingsMenu.Apply() })
+	app.Settle()
+
+	// Step twice more (1920x1080 -> Native) and Apply: restores Cave Run's project window size (960x540).
+	app.Key("right")
+	app.Key("right")
+	app.Post(func() { _ = g.settingsMenu.Apply() })
+	app.Settle()
+
+	var frames []core.WindowFrame
+	for _, r := range app.Window {
+		if r.Action == nsgotest.WindowSetFrame {
+			frames = append(frames, r.Frame)
+		}
+	}
+	wantW, wantH := gameProject.WindowSize()
+	want := []core.WindowFrame{
+		{X: 320, Y: 193, Move: true, Width: 1280, Height: 720},
+		{X: 480, Y: 283, Move: true, Width: wantW, Height: wantH},
+	}
+	if !slices.Equal(frames, want) {
+		t.Fatalf("WindowSetFrame requests = %+v, want %+v", frames, want)
+	}
+}
+
+func TestSettingsMenuHidesResolutionOnPhoneAndWeb(t *testing.T) {
+	cases := []struct {
+		name      string
+		env       core.Environment
+		wantCount int
+	}{
+		{"ios_phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, 4},
+		{"android_phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, 4},
+		{"web", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startCaveRun(t, nsgotest.Environment(tc.env))
+			controls := g.settingsMenu.TabControls(gameui.SettingsTabVideo)
+			if len(controls) != tc.wantCount {
+				t.Fatalf("%s Video tab controls = %d, want %d", tc.name, len(controls), tc.wantCount)
+			}
+			for _, w := range controls {
+				if btn, ok := w.(*gameui.Button); ok && len(btn.Text) >= len("Resolution") && btn.Text[:len("Resolution")] == "Resolution" {
+					t.Fatalf("%s unexpectedly showed Resolution row: %q", tc.name, btn.Text)
+				}
+			}
+			// Applying settings must not send any WindowSetFrame request on phones/web.
+			app.Post(func() { _ = g.settingsMenu.Apply() })
+			app.Settle()
+			for _, r := range app.Window {
+				if r.Action == nsgotest.WindowSetFrame {
+					t.Fatalf("%s unexpectedly sent WindowSetFrame: %+v", tc.name, r.Frame)
+				}
+			}
+		})
 	}
 }

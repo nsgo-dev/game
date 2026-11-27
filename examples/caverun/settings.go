@@ -137,11 +137,22 @@ func (g *caveRun) syncLevelAccessibility() {
 	}
 }
 
+func caveRunResolutions() []gameui.SettingsResolution {
+	return []gameui.SettingsResolution{
+		{ID: "960x540", Label: "960x540", Width: 960, Height: 540},
+		{ID: "1280x720", Label: "1280x720", Width: 1280, Height: 720},
+		{ID: "1920x1080", Label: "1920x1080", Width: 1920, Height: 1080},
+		{ID: "native", Label: "Native"},
+	}
+}
+
 func (g *caveRun) initSettings(cx *core.Scope) {
 	g.catalog = newCaveRunCatalog()
 	g.settingsStore = save.NewStorageSettingsStore(cx.Storage(), "caverun")
+	winW, winH := gameProject.WindowSize()
 	g.video = &screen.Video{
-		Loop: &g.loop,
+		Loop:             &g.loop,
+		NativeWindowSize: core.Size{Width: winW, Height: winH},
 		OnWindowChanged: func(d save.DisplaySettings) {
 			if g.settingsMenu == nil {
 				return
@@ -169,33 +180,27 @@ func (g *caveRun) initSettings(cx *core.Scope) {
 	g.a11y = initial.Accessibility
 	g.resolution = gameui.SettingsResolutionFrom(initial)
 
+	resolutions := caveRunResolutions()
 	g.settingsMenu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 		Store:    g.settingsStore,
 		Targets:  g.settingsTargets(),
+		Video:    g.video,
+		Env:      cx.Env(),
 		Initial:  &initial,
 		Defaults: &defaults,
-		Env:      cx.Env(),
 		AudioBuses: []gameui.SettingsAudioBus{
 			{Name: soundGroupMusic, Label: "Music"},
 			{Name: soundGroupSFX, Label: "SFX"},
 			{Name: "ui", Label: "UI"},
 		},
-		Resolutions: []gameui.SettingsResolution{
-			{ID: "960x540", Label: "960x540", Width: 960, Height: 540},
-			{ID: "1280x720", Label: "1280x720", Width: 1280, Height: 720},
-			{ID: "1920x1080", Label: "1920x1080", Width: 1920, Height: 1080},
-			{ID: "native", Label: "Native"},
-		},
-		Actions: caveRunControlActions(),
+		Resolutions: resolutions,
+		Actions:     caveRunControlActions(),
 		Locales: []gameui.SettingsLocale{
 			{Tag: "", Label: "System Default"},
 			{Tag: "en", Label: "English"},
 			{Tag: "zh-Hans", Label: "简体中文"},
 		},
 		Text: g.settingsTextFor(initial.Locale),
-		OnResolutionChange: func(res gameui.SettingsResolution) {
-			g.resolution = res.ID
-		},
 		OnApply: func(s save.Settings) error {
 			g.resolution = gameui.SettingsResolutionFrom(s)
 			g.reduceFlashes = gameui.SettingsReduceFlashesFrom(s)
@@ -208,6 +213,7 @@ func (g *caveRun) initSettings(cx *core.Scope) {
 
 	if g.settingsStore.Exists() {
 		_ = save.Apply(initial, g.settingsTargets())
+		gameui.ApplySettingsResolution(g.video, initial, resolutions...)
 		g.resolution = gameui.SettingsResolutionFrom(initial)
 		g.reduceFlashes = gameui.SettingsReduceFlashesFrom(initial)
 	}

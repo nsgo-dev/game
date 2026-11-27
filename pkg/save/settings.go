@@ -79,8 +79,9 @@ type DisplaySettings struct {
 	ScaleMode    string `json:"scale_mode,omitempty"`
 	IntegerScale bool   `json:"integer_scale"`
 	// FrameCap is the most frames drawn a second, uncapped when 0.
-	FrameCap int  `json:"frame_cap"`
-	VSync    bool `json:"vsync"`
+	FrameCap int `json:"frame_cap"`
+	// VSync requests vertical sync. NSGo v0.3.4 does not yet expose swap-interval control, so screen.Video does not apply this field and gameui.SettingsMenu hides the toggle by default.
+	VSync bool `json:"vsync"`
 	// AutoDropLowPower lowers the frame cap while the system is in low-power mode or under serious thermal pressure, and restores it once the condition clears.
 	AutoDropLowPower bool `json:"auto_drop_low_power"`
 	// Quality is the player's quality setting as quality.NormalizeSetting writes it: "auto" (the default) lets quality.Selector choose from the device and its frame times, and "low", "medium" or "high" holds that preset.

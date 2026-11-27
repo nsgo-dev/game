@@ -104,12 +104,13 @@ func Root(cx *core.Scope) core.Node {
 
 ## 视频设置
 
-`Video` 把玩家设置中的显示部分（`save.DisplaySettings`）应用到窗口和 `game.Loop`：窗口模式或在所选显示器上全屏，限制循环每秒绘制的帧数，并在开启 `AutoDropLowPower` 时，于系统处于低电量模式或严重、危急热压力期间改用更低的上限。它不附带 UI：设置界面编辑 `save.Settings`、保存并再次应用，游戏在启动时应用已保存的设置：
+`Video` 把玩家设置中的显示部分（`save.DisplaySettings`）与窗口分辨率应用到窗口和 `game.Loop`：窗口模式或在所选显示器上全屏，桌面端窗口模式按所选分辨率居中调整窗口，限制循环每秒绘制的帧数，并在开启 `AutoDropLowPower` 时，于系统处于低电量模式或严重、危急热压力期间改用更低的上限。它不附带 UI：设置界面编辑 `save.Settings`、保存并再次应用，游戏在启动时应用已保存的设置：
 
 ```go
 loop := &game.Loop{Update: update, Draw: draw}
 video := &screen.Video{
-	Loop: loop,
+	Loop:             loop,
+	NativeWindowSize: core.Size{Width: 960, Height: 540},
 	OnWindowChanged: func(d save.DisplaySettings) {
 		// 玩家按 Escape 或使用浏览器/系统控件切换全屏后，同步设置界面或已保存设置。
 	},
@@ -123,12 +124,13 @@ settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.App
 video.Attach(&gameView)
 ```
 
-| 字段 | 作用 |
+| 字段 / 方法 | 作用 |
 | --- | --- |
 | `Fullscreen` | 在所选显示器上全屏，或使用窗口模式。 |
 | `DisplayID` | 显示器在 `cx.Env().Displays()` 中的 ID；跨启动和显示器变化保持不变，因此提供显示器选项的 UI 应设置它。 |
 | `DisplayIndex` | 当 `DisplayID` 为空或该显示器未连接时，按 `Displays()` 中的位置选择显示器；超出范围则保留窗口当前所在的显示器。 |
 | `FrameCap` | 每秒最多绘制的帧数（即循环的 `DrawRate`），为 0 时不限制。更新仍按 `Loop.Rate` 进行。 |
 | `AutoDropLowPower` | 在 `cx.Env().LowPowerMode()` 开启或 `ThermalState()` 为严重、危急期间，把上限降到 `Video.LowPowerCap`（为 0 时取 30），更低的 `FrameCap` 保持不变；条件解除后恢复原上限。 |
+| `ApplyResolution(w, h)` | 在桌面端窗口模式下按所选尺寸（单位：点）调整窗口并在当前显示器工作区居中（`0, 0` 恢复 `Video.NativeWindowSize`，未设置时回退到 `Run` 启动时记录的初始窗口尺寸）。全屏期间记住该选择，退出全屏回到窗口模式时生效；全屏渲染分辨率缩放待画布分辨率缩放能力落地后接入。 |
 
-只有设置改变了全屏或显示器，或者首次 `Apply` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏的操作。在 `Run` 之前应用的设置会在 `Run` 启动时生效；释放调用 `Run` 的所有者与调用它返回的 `stop` 效果相同，都会恢复帧率上限并停止发送窗口请求。`Run` 生效期间，`Video` 会监听 `cx.Env().FullScreen()`：当窗口在 `Video` 请求之外进入或退出全屏（例如玩家按 Escape 或使用浏览器/系统控件）时，`Video` 会更新 `Video.Settings()` 返回的设置并调用 `Video.OnWindowChanged`。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低；在 `Run` 生效期间于组件或副作用中读取时，二者会随功耗状态变化而更新，设置的变化则通过设置界面自己调用的 `Apply` 传入；`screen.DisplayID`、`screen.Constrained` 与 `screen.CanFullScreen` 向设置界面提供显示器选择、功耗判定规则以及当前平台是否支持全屏。全屏在 macOS（以独立空间的原生全屏）、Windows 和 Linux 上生效。在 Web 上，浏览器只在用户手势期间允许进入全屏，因此启动时应用的已保存全屏设置不会立即请求，而是标记为待生效（`Video.PendingFullScreen()`），待 `Video.Attach` 挂载的视图收到首次按下（或在按下回调中调用 `Video.ApplyPending()`）时再发送请求；在设置按钮中交互切换全屏则会立即请求。Android、iOS 以及手机浏览器（如 iPhone Safari）无法进入全屏（`screen.CanFullScreen(cx.Env())` 返回 `false`）。帧率上限在所有平台生效。
+只有设置改变了全屏、显示器或窗口分辨率，或者首次 `Apply` / `ApplyResolution` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏或手动调整窗口大小的操作。在 `Run` 之前应用的设置与分辨率会在 `Run` 启动时生效；释放调用 `Run` 的所有者与调用它返回的 `stop` 效果相同，都会恢复帧率上限并停止发送窗口请求。`Run` 生效期间，`Video` 会监听 `cx.Env().FullScreen()`：当窗口在 `Video` 请求之外进入或退出全屏（例如玩家按 Escape 或使用浏览器/系统控件）时，`Video` 会更新 `Video.Settings()` 返回的设置并调用 `Video.OnWindowChanged`。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低，`Video.Resolution()` 返回最近传入 `ApplyResolution` 的分辨率（原生/未设置时为零值）；在 `Run` 生效期间于组件或副作用中读取时，`FrameCap` 与 `Dropped` 会随功耗状态变化而更新，设置的变化则通过设置界面自己调用的 `Apply` 传入；`screen.DisplayID`、`screen.Constrained`、`screen.CanFullScreen` 与 `screen.SupportsWindowResolution` 向设置界面提供显示器选择、功耗判定规则、当前平台是否支持全屏以及是否支持调整窗口分辨率的判断。全屏在 macOS（以独立空间的原生全屏）、Windows 和 Linux 上生效。在 Web 上，浏览器只在用户手势期间允许进入全屏，因此启动时应用的已保存全屏设置不会立即请求，而是标记为待生效（`Video.PendingFullScreen()`），待 `Video.Attach` 挂载的视图收到首次按下（或在按下回调中调用 `Video.ApplyPending()`）时再发送请求；在设置按钮中交互切换全屏则会立即请求。Android、iOS 以及手机浏览器（如 iPhone Safari）无法进入全屏（`screen.CanFullScreen(cx.Env())` 返回 `false`）。窗口分辨率在 macOS、Windows 和 Linux 上生效；手机、平板和 Web 会忽略它（`SupportsWindowResolution` 返回 `false`）。由于 NSGo v0.3.4 尚未提供交换间隔控制，`save.DisplaySettings.VSync` 当前不会被应用。帧率上限在所有平台生效。
