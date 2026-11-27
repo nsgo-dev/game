@@ -2749,6 +2749,19 @@ runs:
 {"account":"3f9a...","score":4200,"achieved":"2026-11-24T09:15:02.5Z"}
 ```
 
+<!-- format: online/netplay -->
+### 抓包日志
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.capture.jsonl` / `*.jsonl`，每次捕获的 `Send` 或 `Recv` 占一行 JSON 对象 | `version: 1` | `netplay.NewCaptureTransport`、`netplay.ReadCapture`、`netplay.ParseCaptureRecord`、`netplay.EncodeCaptureRecord` | [netplay](netplay.md#抓包与协议检查) |
+
+```json
+{"version":1,"t":16000000,"dir":"send","peer":2,"ch":1,"seq":1,"payload":"IwEAAAAB"}
+```
+
+每行记录一个明文传输层数据包（自开始抓包起经过的纳秒数 `t`、方向 `dir` 为 `"send"` 或 `"recv"`、对端 `peer`、通道 `ch`、序号 `seq` 以及 Base64 编码的 `payload`），供 `game net decode` 与 `game net stats` 离线解析。抓包文件包含玩家输入与游戏状态。
+
 <!-- format: l10n#catalog -->
 ### 字符串表
 

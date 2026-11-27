@@ -1,0 +1,116 @@
+- index: 0
+  t: 0
+  dir: recv
+  peer: 1
+  size: 20
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 1
+    - layer: relay
+      message: RelayFrame
+      fields:
+        version: 1
+        peer: 0
+    - layer: relay
+      message: RelayMembers
+      fields:
+        kind: 1
+        epoch: 1
+        peers:
+          - 2
+          - 3
+- index: 1
+  t: 10000000
+  dir: send
+  peer: 0
+  size: 31
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 1
+    - layer: relay
+      message: RelayFrame
+      fields:
+        version: 1
+        peer: 3
+    - layer: relay
+      union: RelayBody
+      case: reliable
+      tag: 2
+      message: RelayReliable
+      fields:
+        seq: 1
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 1
+          peer: 2
+          bits: 5
+          axes:
+            - 100
+            - -50
+- index: 2
+  t: 30000000
+  dir: recv
+  peer: 1
+  size: 18
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 2
+    - layer: relay
+      message: RelayFrame
+      fields:
+        version: 1
+        peer: 3
+    - layer: relay
+      union: RelayBody
+      case: ack
+      tag: 3
+      message: RelayAck
+      fields:
+        next: 2
+        mask: 0
+- index: 3
+  t: 50000000
+  dir: recv
+  peer: 1
+  size: 16
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: unreliable
+        seq: 3
+    - layer: relay
+      message: RelayFrame
+      fields:
+        version: 1
+        peer: 3
+    - layer: relay
+      union: RelayBody
+      case: unreliable
+      tag: 1
+      message: RelayUnreliable
+      fields:
+        seq: 1
+    - layer: replication
+      union: ReplicationMessage
+      version: 2
+      case: ack
+      tag: 3
+      message: SnapshotAck
+      fields:
+        epoch: 1
+        tick: 5

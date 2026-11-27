@@ -1,0 +1,3 @@
+### Added
+
+- `game/pkg/online/netplay`, `game/pkg/online/netplay/wire`, `game/pkg/debug`, `game/cmd/game`: add `netplay.NewCaptureTransport` (versioned JSON Lines packet capture with channel/peer filtering and sampling, capturing plaintext above UDP encryption), schema-driven layered packet decoder and lossless re-encoder in `pkg/online/netplay/wire` (`Registry`, `Inspector`), `game net decode` (YAML/JSON, `--schema` custom payloads such as `Props`, `--resolve-deltas`, and raw hex/base64 stdin frames) and `game net stats`, and the zero-allocation `debug.Options.Net` / `debug.NewNetMonitor` live network overlay panel (#1302).

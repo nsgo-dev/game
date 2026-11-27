@@ -2749,6 +2749,19 @@ It records the cloud revision and content hash both sides held after the last sy
 {"account":"3f9a...","score":4200,"achieved":"2026-11-24T09:15:02.5Z"}
 ```
 
+<!-- format: online/netplay -->
+### Packet capture
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.capture.jsonl` / `*.jsonl`, one JSON object per captured `Send` or `Recv` | `version: 1` | `netplay.NewCaptureTransport`, `netplay.ReadCapture`, `netplay.ParseCaptureRecord`, `netplay.EncodeCaptureRecord` | [netplay](netplay.md#packet-capture-and-inspection) |
+
+```json
+{"version":1,"t":16000000,"dir":"send","peer":2,"ch":1,"seq":1,"payload":"IwEAAAAB"}
+```
+
+Each line records one plaintext transport packet (`t` elapsed nanoseconds since capture start, `dir` `"send"` or `"recv"`, `peer`, `ch`, `seq`, and base64 `payload`) for inspection with `game net decode` and `game net stats`. Capture files contain player inputs and game state.
+
 <!-- format: l10n#catalog -->
 ### String table
 

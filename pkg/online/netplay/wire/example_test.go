@@ -59,3 +59,23 @@ messages:
 	// Output:
 	// true Ping
 }
+
+// NewInspector decodes a captured packet layer by layer using the built-in wire schemas and re-encodes it back to the exact original bytes.
+func ExampleNewInspector() {
+	ins, err := wire.NewInspector(nil, wire.InspectOptions{})
+	if err != nil {
+		panic(err)
+	}
+	payload := wire.AppendReplicationMessage(nil, &wire.ReplicationMessage{
+		Tag: wire.ReplicationMessageTagAck,
+		Ack: wire.SnapshotAck{Epoch: 1, Tick: 42},
+	})
+	frame := ins.InspectCaptureRecord(0, 0, "send", 1, uint8(wire.ChannelUnreliable), 1, payload)
+	reencoded, err := ins.ReencodePayload(frame)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(wire.FrameMessageType(frame), len(frame.Layers), len(reencoded) == len(payload))
+	// Output:
+	// replication.ack 2 true
+}

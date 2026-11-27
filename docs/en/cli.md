@@ -545,6 +545,19 @@ nsgo game schema -out schemas/scene.json path/to/project
 
 Writes the project's draft-07 scene JSON Schema to standard output or to `-out`, with deterministic sorted component names and property order (see [Schemas for YAML files](schemas.md#project-scene-schemas)). Because the `game` CLI cannot inspect a project's Go types directly, when the project has its own editor command (either a `main` package in `cmd/editor` importing `pkg/editor/editorcmd`, or a `main` built with `-tags gameeditor` as `game generate editor` writes), `game schema` runs that command with `-schema`, which prints the schema for `editorcmd.Options.Components` (including plugins and built-in physics and skeletal components) and exits without opening a window. A project without its own editor command gets the built-in scene schema, which types the built-in physics, skeletal and 2D navigation region components while keeping custom components free-form.
 
+### net
+
+```sh
+nsgo game net decode session.capture.jsonl
+nsgo game net decode --schema ./proto --format json --resolve-deltas session.capture.jsonl
+echo "230100000001" | nsgo game net decode -
+nsgo game net stats session.capture.jsonl
+```
+
+Inspects `pkg/online/netplay` packet capture logs (`*.capture.jsonl`) written by `netplay.NewCaptureTransport`, or standalone hex/base64 wire frames on standard input, driven by the `pkg/online/netplay/wire` schemas ([netplay](netplay.md#packet-capture-and-inspection), [netplay/wire](netplay-wire.md)).
+
+- `decode` prints each frame layer by layer as YAML (default) or JSON (`-format json`): transport header (`channel`, `seq`), optional relay frame and control body, and the inner replication, lockstep/rollback, membership, handshake, or custom game message selected by the wire discriminators. Pass `-schema <dir-or-file>` to decode game-defined `*.wire.yaml` messages (including `EntityState.Props`), and `-resolve-deltas` to track per-peer replication baselines so `SnapshotDelta` frames also display the full resulting entity state. Pass `-` to read a JSONL capture or a single hex or base64 frame from standard input.
+- `stats` reads a JSONL capture (file or `-`) and prints total packets, bytes, duration, mean `SnapshotDelta` size, and breakdowns per message type and per peer in aligned text (default), YAML, or JSON (`-format text|yaml|json`).
 ### completion
 
 ```sh

@@ -1,0 +1,184 @@
+- index: 0
+  t: 0
+  dir: send
+  peer: 2
+  size: 21
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 1
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 0
+          peer: 1
+          bits: 1
+          axes:
+            - 0
+            - -5
+- index: 1
+  t: 10000000
+  dir: recv
+  peer: 2
+  size: 21
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 1
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 0
+          peer: 2
+          bits: 2
+          axes:
+            - 0
+            - 10
+- index: 2
+  t: 20000000
+  dir: send
+  peer: 2
+  size: 21
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 2
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 1
+          peer: 1
+          bits: 2
+          axes:
+            - 10
+            - -5
+- index: 3
+  t: 30000000
+  dir: recv
+  peer: 2
+  size: 21
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 2
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 1
+          peer: 2
+          bits: 4
+          axes:
+            - -5
+            - 10
+- index: 4
+  t: 30000000
+  dir: send
+  peer: 2
+  size: 17
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 3
+    - layer: rollback
+      union: RollbackMessage
+      case: checksum
+      tag: 12
+      message: ChecksumMsg
+      fields:
+        tick: 1
+        peer: 1
+        checksum: 12143730111226774878
+- index: 5
+  t: 40000000
+  dir: recv
+  peer: 2
+  size: 17
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 3
+    - layer: rollback
+      union: RollbackMessage
+      case: checksum
+      tag: 12
+      message: ChecksumMsg
+      fields:
+        tick: 1
+        peer: 2
+        checksum: 12143730111226774878
+- index: 6
+  t: 40000000
+  dir: send
+  peer: 2
+  size: 21
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 4
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 2
+          peer: 1
+          bits: 4
+          axes:
+            - 20
+            - -5
+- index: 7
+  t: 50000000
+  dir: recv
+  peer: 2
+  size: 21
+  layers:
+    - layer: transport
+      message: TransportFrame
+      fields:
+        channel: reliable_ordered
+        seq: 4
+    - layer: rollback
+      union: RollbackMessage
+      case: single_input
+      tag: 10
+      message: SingleInput
+      fields:
+        input:
+          tick: 2
+          peer: 2
+          bits: 8
+          axes:
+            - -10
+            - 10

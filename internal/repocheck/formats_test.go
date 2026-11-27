@@ -29,6 +29,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 	"github.com/nsgo-dev/game/pkg/online/liveops"
+	"github.com/nsgo-dev/game/pkg/online/netplay"
 	"github.com/nsgo-dev/game/pkg/quest"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/tooling/apiref"
@@ -86,6 +87,7 @@ var codeFormats = map[string]codeFormat{
 	"online/liveops#sync":                 {decl: "syncState", lang: "json", checkedBy: "TestSyncStateExamplesOnFormatsPage"},
 	"quest#snapshot":                      {decl: "Snapshot", lang: "json", read: readQuestSnapshot},
 	"online/leaderboard/selfhost#records": {decl: "FileStore.Load", lang: "json", read: readLeaderboardRecords},
+	"online/netplay":                      {decl: "ReadCapture", lang: "json", read: readNetplayCapture},
 	"l10n#catalog":                        {decl: "Catalog.LoadJSON", lang: "json", read: readStringTable},
 	"anim3d":                              {decl: "LoadEventsSidecar", lang: "json", read: readClipEvents},
 	"assets":                              {decl: "ParsePackManifest", lang: "json", read: readPackManifest},
@@ -151,6 +153,7 @@ var formatVersions = map[string]string{
 	"modding.WorkshopMetadataVersion":               "modding#workshop",
 	"ai/navbake.FormatVersion":                      "ai/navbake",
 	"ai/navbake3d.FormatVersion":                    "ai/navbake3d",
+	"online/netplay.CaptureVersion":                 "online/netplay",
 	"online/netplay.ReplicationVersion":             "",
 	"online/netplay/wire.CurrentVersion":            "online/netplay/wire",
 	"online/netplay/wire.HandshakeHelloVersion":     "",
@@ -404,6 +407,14 @@ func readLeaderboardRecords(t *testing.T, data []byte) error {
 	err = store.Load(context.Background(), func(selfhost.Record) error { n++; return nil })
 	if err == nil && n == 0 {
 		err = errors.New("Load read no record")
+	}
+	return err
+}
+
+func readNetplayCapture(_ *testing.T, data []byte) error {
+	recs, err := netplay.ReadCapture(bytes.NewReader(data))
+	if err == nil && len(recs) == 0 {
+		err = errors.New("ReadCapture read no record")
 	}
 	return err
 }

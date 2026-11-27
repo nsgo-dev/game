@@ -351,6 +351,20 @@ nsgo game schema [flags] [project-dir | game.yaml]
 | --- | --- | --- |
 | `-out file` |  | write the JSON Schema to file instead of stdout |
 
+## game net
+
+Decode packet captures layer by layer using wire schemas, or print traffic statistics per message type and peer.
+
+```sh
+nsgo game net [flags] decode [flags] <capture.jsonl | -> | stats [flags] <capture.jsonl | ->
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-format string` |  | output format (decode: yaml or json, default yaml; stats: text, yaml, or json, default text) |
+| `-resolve-deltas` |  | track per-peer replication baselines so SnapshotDelta frames also print full resulting entity states (decode only) |
+| `-schema string` |  | directory or \*.wire.yaml file of game-defined wire schemas (for example, custom EntityState.Props) |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.
