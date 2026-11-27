@@ -316,6 +316,7 @@ go tool nsgo build -target android_arm64
   ```
   未配置密钥库时，`nsgo build` 会使用项目自带的调试密钥签名 APK（仅限侧载测试，无法上传 Google Play）。
 - **Google Play**：使用 `-channel store` 生成已签名的 `.aab`（Android App Bundle），再按下文[发布到商店](#发布到商店)用 `go tool nsgo publish -target android` 上传。每次上传需递增 `build_number`（`versionCode`），按 Google Play 当前要求设置 `android.target_sdk`（`minSdkVersion` 为 28），并在 `android.permissions` 下声明额外权限。
+- **中国大陆商店（无 Google Play 服务）与鸿蒙**：关于版号与 ISBN、工信部 APP 备案、首次启动隐私弹窗、华为/小米/OPPO/vivo/荣耀/TapTap 等渠道的已签名 `.apk` 分发、无 Google 服务时各在线包的替代方案，以及鸿蒙与小程序预览状态，详见[在中国大陆发布](shipping-china.md)。
 - **屏幕方向**：清单不固定屏幕方向；游戏在运行时通过 `cx.RequestOrientation` 请求游玩时的方向（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。
 
 ## 商店列表

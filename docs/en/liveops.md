@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```
 
-`liveops` holds provider-agnostic live operations primitives for NSGo games. It uses only Go's standard library, `github.com/nsgo-dev/game` and NSGo's public `core` and `cloud` APIs, and links no third-party crash, analytics, ad or payment SDKs.
+`liveops` holds provider-agnostic live operations primitives for NSGo games. It uses only Go's standard library, `github.com/nsgo-dev/game` and NSGo's public `core` and `cloud` APIs, and links no third-party crash, analytics, ad or payment SDKs. For mainland China releases—first-launch privacy consent gating, self-hosted fallbacks on Android devices without Google Play Services, and planned anti-addiction hooks—see [Releasing in Mainland China](shipping-china.md).
 
 ## Scope decision ([#194](https://github.com/nsgo-dev/game/issues/194))
 
