@@ -110,11 +110,14 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	pressPad(app, gamepad.ButtonSouth)    // select zh-Hans
 
 	// --- 5. Accessibility tab (switch with RB) ---
+	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] GameSpeed, [9] Invincibility, [10] AutoAim, [11] HoldToToggle
 	pressPad(app, gamepad.ButtonRB)
 	if g.settingsMenu.Tab() != gameui.SettingsTabAccessibility {
 		t.Fatalf("tab = %v, want accessibility", g.settingsMenu.Tab())
 	}
 	pressPad(app, gamepad.ButtonSouth)    // Captions = true
+	pressPad(app, gamepad.ButtonDPadDown) // SFXCaptions = true
+	pressPad(app, gamepad.ButtonSouth)
 	pressPad(app, gamepad.ButtonDPadDown) // TextScale
 	pressPad(app, gamepad.ButtonDPadRight)
 	pressPad(app, gamepad.ButtonDPadDown) // HighContrast = true
@@ -131,6 +134,12 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	pressPad(app, gamepad.ButtonDPadRight)
 	pressPad(app, gamepad.ButtonDPadDown) // GameSpeed -> 0.75
 	pressPad(app, gamepad.ButtonDPadLeft)
+	pressPad(app, gamepad.ButtonDPadDown) // Invincibility = true
+	pressPad(app, gamepad.ButtonSouth)
+	pressPad(app, gamepad.ButtonDPadDown) // AutoAim = true
+	pressPad(app, gamepad.ButtonSouth)
+	pressPad(app, gamepad.ButtonDPadDown) // HoldToToggle = true
+	pressPad(app, gamepad.ButtonSouth)
 
 	// --- Save via footer bar using gamepad alone ---
 	pressPad(app, gamepad.ButtonDPadDown)  // Apply
@@ -167,7 +176,8 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	if g.locale.Get() != "zh-Hans" {
 		t.Fatalf("live locale = %q, want zh-Hans", g.locale.Get())
 	}
-	if !g.a11y.Captions || !g.a11y.HighContrast || !g.a11y.ReduceMotion || !g.reduceFlashes ||
+	if !g.a11y.Captions || !g.a11y.SFXCaptions || !g.a11y.HighContrast || !g.a11y.ReduceMotion || !g.reduceFlashes ||
+		!g.a11y.ReduceFlashes || !g.a11y.Invincibility || !g.a11y.AutoAim || !g.a11y.HoldToToggle ||
 		g.a11y.ColorBlindMode != "protanopia" || math.Abs(g.a11y.GameSpeed-0.75) > 1e-4 {
 		t.Fatalf("live a11y = %+v, reduceFlashes=%v", g.a11y, g.reduceFlashes)
 	}
@@ -182,7 +192,9 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	}
 	if !loaded.Display.Fullscreen || loaded.Display.Quality != "low" || loaded.Display.FrameCap != 30 ||
 		gameui.SettingsResolutionFrom(loaded) != "1280x720" || loaded.Locale != "zh-Hans" ||
-		!loaded.Accessibility.HighContrast || !gameui.SettingsReduceFlashesFrom(loaded) {
+		!loaded.Accessibility.HighContrast || !loaded.Accessibility.ReduceFlashes ||
+		!loaded.Accessibility.SFXCaptions || !loaded.Accessibility.Invincibility ||
+		!loaded.Accessibility.AutoAim || !loaded.Accessibility.HoldToToggle {
 		t.Fatalf("persisted settings mismatch: %+v", loaded)
 	}
 	if !slices.Contains(loaded.Bindings[actionJump], "gamepad:right_shoulder") {

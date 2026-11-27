@@ -107,22 +107,23 @@ nav.StepActions(func(a gameui.NavAction) bool {
 
 ## 开箱即用的设置菜单（`SettingsMenu`）
 
-`SettingsMenu` 提供一套可直接接入的五标签设置界面，覆盖 **音频**（静音、主音量与可配置音频总线音量）、**视频**（窗口/全屏模式、桌面端窗口分辨率、缩放模式、整数缩放、画质预设与帧率上限；由于 NSGo 尚未提供交换间隔控制，垂直同步默认隐藏，可通过 `ShowVSync` 显式开启）、**控制**（支持按键与手柄按键捕获和重置的动作改键）、**语言**（地区/语言选择）以及 **无障碍**（字幕、文本缩放、高对比度、减少动态效果、屏幕震动、减弱闪烁、色盲模式与游戏速度）。
+`SettingsMenu` 提供一套可直接接入的五标签设置界面，覆盖 **音频**（静音、主音量与可配置音频总线音量）、**视频**（窗口/全屏模式、桌面端窗口分辨率、缩放模式、整数缩放、画质预设与帧率上限；由于 NSGo 尚未提供交换间隔控制，垂直同步默认隐藏，可通过 `ShowVSync` 显式开启）、**控制**（支持按键与手柄按键捕获和重置的动作改键）、**语言**（地区/语言选择）以及 **无障碍**（字幕、音效字幕、文本缩放、高对比度、减少动态效果、屏幕震动、减弱闪烁、色盲模式、游戏速度、无敌模式、自动瞄准与长按转切换）。
 
-菜单通过 `save.DefaultSettingsStore` 持久化玩家设置，并通过 `save.SettingsTargets`（`save.Apply`）与 `SettingsMenuConfig.Video`（`screen.Video.ApplyResolution`）将校验后的设置派发到各子系统：
+菜单通过 `save.DefaultSettingsStore` 持久化玩家设置（与 `a11y.NewAssistFromSettings(cx, store)` 直接共享同一份存储），并通过 `save.SettingsTargets`（`save.Apply`）与 `SettingsMenuConfig.Video`（`screen.Video.ApplyResolution`）将校验后的设置派发到各子系统：
 
 ```go
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
+assist := a11y.NewAssistFromSettings(cx, store)
 menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 	Store: store,
-	Env:   cx.Env(), // 自动隐藏当前平台不支持的窗口模式/分辨率项，并同步全屏状态
+	Env:   cx.Env(), // 自动隐藏当前平台不支持的窗口模式/分辨率项，并同步全屏状态与系统无障碍默认值
 	Video: video,    // 在 Apply/Save 时通过 video.ApplyResolution 应用窗口分辨率
 	Targets: save.SettingsTargets{
 		Sound:              mixer,
 		ApplyDisplay:       video.Apply,
 		ApplyBindings:      func(b map[string][]string) error { gameui.ApplyBindingsToActions(actions, b, true); return nil },
 		ApplyLocale:        setLocale,
-		ApplyAccessibility: setAccessibility,
+		ApplyAccessibility: assist.ApplySettings,
 	},
 	OnBack: closeSettings,
 })
@@ -137,9 +138,10 @@ menu.Draw(d, bounds)
 // - 手柄：menu.StepGamepad(gamepad.Pads(cx))（十字键/左摇杆导航，A 确认，B 返回，LB/RB 切换标签页，并支持按键改键捕获）
 ```
 
-- 使用 `SettingsResolutionFrom` / `SetSettingsResolution`、`ParseSettingsResolution`、`ApplySettingsResolution` 和 `SettingsReduceFlashesFrom` / `SetSettingsReduceFlashes` 读写并应用保存在 `save.Settings.Custom` 中的分辨率与减弱闪烁选项。传入 `Env: cx.Env()` 可在手机、平板和 Web 上自动隐藏分辨率项（或通过 `HideResolution: true` 手动隐藏），仅在游戏将 `save.DisplaySettings.VSync` 接到真实的底层开关时才设置 `ShowVSync: true`。
+- 使用 `SettingsResolutionFrom` / `SetSettingsResolution`、`ParseSettingsResolution` 和 `ApplySettingsResolution` 读写并应用保存在 `save.Settings.Custom` 中的分辨率选项。减弱闪烁现已迁入 `save.AccessibilitySettings.ReduceFlashes`（加载旧文件时自动从 `Custom["reduce_flashes"]` 迁移；`SettingsReduceFlashesFrom` 与 `SetSettingsReduceFlashes` 保留为已弃用的兼容封装）。传入 `Env: cx.Env()` 可在手机、平板和 Web 上自动隐藏分辨率项（或通过 `HideResolution: true` 手动隐藏），仅在游戏将 `save.DisplaySettings.VSync` 接到真实的底层开关时才设置 `ShowVSync: true`。
+- 传入 `Env: cx.Env()` 后，未手动修改过的“减少动态效果”、“高对比度”和“文本缩放”会跟随系统无障碍设置（`Env.ReduceMotion()`、`Env.IncreaseContrast()`、`Env.FontScale()`），点击重置后再次恢复跟随系统。
 - 使用 `FormatBindingToken`、`ParseBindingToken`、`FormatBindingLabel`、`GamepadButtonToken` 与 `ApplyBindingsToActions` 在 `save.Settings.Bindings` 和 `input.Actions` 之间双向转换。
-- 在玩家切换语言后调用 `SetText` 传入翻译后的 `SettingsText`；未自定义 `Theme` 时（或调用 `HighContrastTheme()`），开启 `Accessibility.HighContrast` 会自动切换到高对比度配色。
+- 在玩家切换语言后调用 `SetText` 传入翻译后的 `SettingsText`；未自定义 `Theme` 时（或调用 `HighContrastTheme()`），有效高对比度开启时会自动切换到高对比度配色。
 - 打开菜单时调用 `SyncGamepad`，避免用于打开设置界面的按键按住状态在菜单内立即触发。
 - 在 `SettingsMenuConfig` 中传入 `Env: cx.Env()`，可在无法进入全屏的平台（`screen.CanFullScreen`，如 iOS、Android 和手机浏览器）上隐藏“窗口模式”行，并在 Web 以及按 Escape 或系统控件切换全屏后使窗口模式与 `Env.FullScreen()` 保持一致。
 

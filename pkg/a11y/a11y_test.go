@@ -9,6 +9,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/a11y"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -351,26 +352,39 @@ func TestAssistPersistsAcrossRestartRespectsReduceMotionAndScalesDT(t *testing.T
 		t.Fatal("ReduceMotion did not follow updated environment while unset")
 	}
 
-	// Clamping + ScaleDT accuracy.
+	// Clamping + ScaleDT accuracy (unified with save.AccessibilitySettings ranges).
 	app1.Post(func() {
 		_ = a1.SetGameSpeed(0.1) // clamps to 0.25
-		_ = a1.SetTextScale(3.5) // clamps to 2.0
+		_ = a1.SetTextScale(3.5) // clamps to 3.0
 	})
 	app1.Settle()
 	if a1.GameSpeed() != 0.25 {
 		t.Fatalf("clamped GameSpeed = %v, want 0.25", a1.GameSpeed())
 	}
-	if a1.TextScale() != 2.0 {
-		t.Fatalf("clamped TextScale = %v, want 2.0", a1.TextScale())
+	if a1.TextScale() != a11y.MaxTextScale {
+		t.Fatalf("clamped TextScale = %v, want %v", a1.TextScale(), a11y.MaxTextScale)
 	}
 	if got := a1.ScaleDT(16 * time.Millisecond); got != 4*time.Millisecond {
 		t.Fatalf("ScaleDT(16ms) at 0.25 = %v, want 4ms", got)
+	}
+
+	app1.Post(func() {
+		_ = a1.SetGameSpeed(5.0) // clamps to 2.0
+		_ = a1.SetTextScale(0.1) // clamps to 0.5
+	})
+	app1.Settle()
+	if a1.GameSpeed() != a11y.MaxGameSpeed {
+		t.Fatalf("upper-clamped GameSpeed = %v, want %v", a1.GameSpeed(), a11y.MaxGameSpeed)
+	}
+	if a1.TextScale() != a11y.MinTextScale {
+		t.Fatalf("lower-clamped TextScale = %v, want %v", a1.TextScale(), a11y.MinTextScale)
 	}
 
 	// Set every option to a distinct non-default value and verify ScaleDT on a real game.Loop.
 	want := a11y.AssistOptions{
 		GameSpeed:          0.5,
 		ReduceMotion:       true,
+		ReduceFlashes:      true,
 		Invincibility:      true,
 		AutoAim:            true,
 		HoldToToggle:       true,
@@ -577,5 +591,164 @@ func TestAccessibleMenuRolesKeyboardNavigationActivationAndAnnouncements(t *test
 	lastAnn = app.Announced[len(app.Announced)-1]
 	if !strings.Contains(lastAnn, "closed") {
 		t.Fatalf("escape announcement = %q, want closed", lastAnn)
+	}
+}
+
+func TestAssistMigratesLegacyStorageKeysOnce(t *testing.T) {
+	// ParseColorVision accepts both "normal" and "none".
+	for _, alias := range []string{"normal", "none", "NONE"} {
+		mode, ok := a11y.ParseColorVision(alias)
+		if !ok || mode != a11y.VisionNormal {
+			t.Fatalf("ParseColorVision(%q) = (%v, %v), want (VisionNormal, true)", alias, mode, ok)
+		}
+	}
+
+	legacy := map[string]string{
+		"a11y.assist.gameSpeed":          "0.75",
+		"a11y.assist.reduceMotion":       "false",
+		"a11y.assist.invincibility":      "true",
+		"a11y.assist.autoAim":            "true",
+		"a11y.assist.holdToToggle":       "true",
+		"a11y.assist.highContrast":       "true",
+		"a11y.assist.captionsEnabled":    "true",
+		"a11y.assist.sfxCaptionsEnabled": "true",
+		"a11y.assist.colorVision":        "tritanopia",
+		"a11y.assist.textScale":          "1.75",
+	}
+
+	var store *save.DefaultSettingsStore
+	var assist *a11y.Assist
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		// Pre-populate unrelated settings in the shared store to verify migration preserves them.
+		store = save.NewStorageSettingsStore(cx.Storage(), "mygame")
+		initial := save.DefaultSettings()
+		initial.Locale = "ja"
+		initial.Audio.Master = 0.6
+		if err := store.Save(initial); err != nil {
+			t.Fatalf("seed store: %v", err)
+		}
+		assist = a11y.NewAssistFromSettings(cx, store)
+		return core.View{}
+	}, nsgotest.Storage(legacy), nsgotest.Environment(core.Environment{
+		ReduceMotion: true, // explicit legacy reduceMotion="false" must override this!
+	}))
+
+	// Every legacy key migrated into the shared store.
+	if assist.GameSpeed() != 0.75 ||
+		assist.ReduceMotion() != false ||
+		!assist.Invincibility() ||
+		!assist.AutoAim() ||
+		!assist.HoldToToggle() ||
+		!assist.HighContrast() ||
+		!assist.CaptionsEnabled() ||
+		!assist.SFXCaptionsEnabled() ||
+		assist.ColorVision() != a11y.VisionTritanopia ||
+		assist.TextScale() != 1.75 {
+		t.Fatalf("migrated assist snapshot = %+v", assist.Snapshot())
+	}
+
+	// Unrelated settings in the shared store were preserved.
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+	if reloaded.Locale != "ja" || math.Abs(reloaded.Audio.Master-0.6) > 1e-6 {
+		t.Fatalf("unrelated settings overwritten by migration: locale=%q master=%v", reloaded.Locale, reloaded.Audio.Master)
+	}
+	if !reloaded.Accessibility.ReduceMotionSet || reloaded.Accessibility.ReduceMotion {
+		t.Fatalf("legacy reduceMotion=false override not preserved: %+v", reloaded.Accessibility)
+	}
+
+	// Legacy keys were deleted so migration runs only once.
+	for k := range legacy {
+		if _, exists := app.Storage().GetItem(k); exists {
+			t.Fatalf("legacy key %q was not removed after migration", k)
+		}
+	}
+
+	// Subsequent user edits are never overwritten on reload.
+	app.Post(func() {
+		if err := assist.SetGameSpeed(1.5); err != nil {
+			t.Errorf("SetGameSpeed: %v", err)
+		}
+	})
+	app.Settle()
+	if assist.GameSpeed() != 1.5 {
+		t.Fatalf("GameSpeed after edit = %v, want 1.5", assist.GameSpeed())
+	}
+}
+
+func TestAssistFromSettingsReactsToStoreAndPreservesOtherSectionsOnReset(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	var assist *a11y.Assist
+	var track *a11y.CaptionTrack
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		assist = a11y.NewAssistFromSettings(cx, store)
+		track = a11y.NewCaptionTrack(cx)
+		return a11y.CaptionsView(cx, track, a11y.CaptionStyle{
+			FontSize: 16,
+			Assist:   assist,
+		})
+	}, nsgotest.Environment(core.Environment{
+		ReduceMotion:     true,
+		IncreaseContrast: true,
+		FontScale:        1.5,
+	}))
+
+	// Unset settings follow platform environment.
+	if !assist.ReduceMotion() || !assist.HighContrast() || assist.TextScale() != 1.5 {
+		t.Fatalf("platform fallback = (rm:%v hc:%v scale:%v), want (true, true, 1.5)",
+			assist.ReduceMotion(), assist.HighContrast(), assist.TextScale())
+	}
+
+	// Saving through the shared file store notifies Assist and updates CaptionsView reactively.
+	app.Post(func() {
+		track.ShowDialogue("Guide", "Bridge ahead", 5*time.Second)
+	})
+	app.Settle()
+	if app.Exists("text:Guide: Bridge ahead") {
+		t.Fatal("caption visible before Captions enabled")
+	}
+
+	app.Post(func() {
+		s := save.DefaultSettings()
+		s.Locale = "zh-Hans"
+		s.Audio.Master = 0.4
+		s.Accessibility.Captions = true
+		s.Accessibility.SetCaptionScale(2.0)
+		s.Accessibility.ReduceFlashes = true
+		s.Accessibility.ScreenShake = 0.25
+		if err := store.Save(s); err != nil {
+			t.Errorf("store.Save: %v", err)
+		}
+	})
+	app.Settle()
+
+	capText := app.Find("text:Guide: Bridge ahead")
+	if assist.TextScale() != 2.0 {
+		t.Fatalf("assist.TextScale() = %v, want 2.0", assist.TextScale())
+	}
+	// CaptionsView sets Style.FontSize = 16 * 2.0 = 32, and NSGo applies env.FontScale (1.5) -> 48.
+	if capText.TextStyle.Font.Size != 48 {
+		t.Fatalf("caption Font.Size = %v, want 48 (16 * 2.0 * env.FontScale 1.5)", capText.TextStyle.Font.Size)
+	}
+	if !assist.ReduceFlashes() || assist.ScreenShake() != 0.25 {
+		t.Fatalf("ReduceFlashes=%v ScreenShake=%v, want true, 0.25", assist.ReduceFlashes(), assist.ScreenShake())
+	}
+
+	// Assist.Reset restores Accessibility defaults (and OS fallback) without erasing Locale/Audio.
+	app.Post(func() { assist.Reset() })
+	app.Settle()
+	if assist.CaptionsEnabled() || assist.ReduceFlashes() || assist.TextScale() != 1.5 {
+		t.Fatalf("after Reset: captions=%v flashes=%v scale=%v", assist.CaptionsEnabled(), assist.ReduceFlashes(), assist.TextScale())
+	}
+	afterReset, err := store.Load()
+	if err != nil {
+		t.Fatalf("store.Load after Reset: %v", err)
+	}
+	if afterReset.Locale != "zh-Hans" || math.Abs(afterReset.Audio.Master-0.4) > 1e-6 {
+		t.Fatalf("Assist.Reset clobbered non-a11y settings: locale=%q master=%v", afterReset.Locale, afterReset.Audio.Master)
 	}
 }

@@ -42,10 +42,11 @@ func (v ColorVision) String() string {
 	}
 }
 
-// ParseColorVision parses a ColorVision name returned by String.
+// ParseColorVision parses a ColorVision name returned by String (and accepts
+// "none" as an alias for VisionNormal to match save.AccessibilitySettings).
 func ParseColorVision(s string) (ColorVision, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "normal":
+	case "normal", "none":
 		return VisionNormal, true
 	case "protanopia":
 		return VisionProtanopia, true

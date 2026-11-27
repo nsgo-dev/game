@@ -5,7 +5,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/nsgo-dev/game/pkg/a11y"
+	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/save"
@@ -239,12 +242,15 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	pressGamepadButton(menu, gamepad.ButtonSouth)
 
 	// --- 5. ACCESSIBILITY TAB (switch with RB) ---
-	// Controls: [0] Captions, [1] TextScale, [2] HighContrast, [3] ReduceMotion, [4] ScreenShake, [5] ReduceFlashes, [6] ColorBlind, [7] GameSpeed
+	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] GameSpeed, [9] Invincibility, [10] AutoAim, [11] HoldToToggle
 	pressGamepadButton(menu, gamepad.ButtonRB)
 	if menu.Tab() != gameui.SettingsTabAccessibility {
 		t.Fatalf("tab after RB = %v, want accessibility", menu.Tab())
 	}
 	// Captions -> true
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	// SFXCaptions -> true
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
 	// TextScale -> 1.5 (two steps up from 1.0 by 0.25)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
@@ -271,9 +277,18 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	// GameSpeed -> 0.75 (Left once from 1.0 by 0.25)
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadLeft)
+	// Invincibility -> true
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	// AutoAim -> true
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	// HoldToToggle -> true
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
 
 	// --- SAVE VIA FOOTER USING GAMEPAD ALONE ---
-	// From last control (GameSpeed), Down moves to footer Apply, Right moves to Save, South saves!
+	// From last control (HoldToToggle), Down moves to footer Apply, Right moves to Save, South saves!
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	pressGamepadButton(menu, gamepad.ButtonSouth)
@@ -320,14 +335,18 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 		t.Fatalf("Locale = %q, want zh-Hans", reloaded.Locale)
 	}
 	if !reloaded.Accessibility.Captions ||
+		!reloaded.Accessibility.SFXCaptions ||
 		math.Abs(reloaded.Accessibility.CaptionScale-1.5) > 1e-4 ||
 		!reloaded.Accessibility.HighContrast ||
 		!reloaded.Accessibility.ReduceMotion ||
 		math.Abs(reloaded.Accessibility.ScreenShake-0.5) > 1e-4 ||
-		!gameui.SettingsReduceFlashesFrom(reloaded) ||
+		!reloaded.Accessibility.ReduceFlashes ||
 		reloaded.Accessibility.ColorBlindMode != "deuteranopia" ||
-		math.Abs(reloaded.Accessibility.GameSpeed-0.75) > 1e-4 {
-		t.Fatalf("reloaded Accessibility = %+v, reduceFlashes=%v", reloaded.Accessibility, gameui.SettingsReduceFlashesFrom(reloaded))
+		math.Abs(reloaded.Accessibility.GameSpeed-0.75) > 1e-4 ||
+		!reloaded.Accessibility.Invincibility ||
+		!reloaded.Accessibility.AutoAim ||
+		!reloaded.Accessibility.HoldToToggle {
+		t.Fatalf("reloaded Accessibility = %+v", reloaded.Accessibility)
 	}
 
 	// Verify Targets were applied too!
@@ -750,5 +769,217 @@ func TestParseSettingsResolution(t *testing.T) {
 		if ok != tc.wantOK || w != tc.w || h != tc.h {
 			t.Errorf("ParseSettingsResolution(%q) = (%d, %d, %v), want (%d, %d, %v)", tc.id, w, h, ok, tc.w, tc.h, tc.wantOK)
 		}
+	}
+}
+
+func TestSettingsMenuSaveUpdatesAssistCaptionsViewAndFlash(t *testing.T) {
+	run := func(t *testing.T, makeStore func(cx *core.Scope) *save.DefaultSettingsStore) {
+		var store *save.DefaultSettingsStore
+		var assist *a11y.Assist
+		var track *a11y.CaptionTrack
+		var flash *effects.Flash
+		var menu *gameui.SettingsMenu
+
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			store = makeStore(cx)
+			assist = a11y.NewAssistFromSettings(cx, store)
+			track = a11y.NewCaptionTrack(cx)
+			flash = effects.NewFlash(cx, effects.FlashConfig{
+				Color:        core.RGB(0xffffff),
+				ReduceMotion: assist.ReduceMotion,
+			})
+			menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+				Store: store,
+				Env:   cx.Env(),
+			})
+			return a11y.CaptionsView(cx, track, a11y.CaptionStyle{
+				FontSize: 16,
+				Assist:   assist,
+			})
+		}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+		// Initially captions are off and flashes run normally.
+		app.Post(func() {
+			track.ShowDialogue("Guide", "Watch the bridge!", 5*time.Second)
+			track.ShowSFX("Thunder", 5*time.Second)
+		})
+		app.Settle()
+
+		if app.Exists("text:Guide: Watch the bridge!") || app.Exists("text:Thunder") {
+			t.Fatal("captions rendered before player enabled them in SettingsMenu")
+		}
+		var triggeredBefore bool
+		app.Post(func() {
+			triggeredBefore = flash.Trigger(0.8, 200*time.Millisecond)
+			flash.Stop()
+		})
+		app.Settle()
+		if !triggeredBefore {
+			t.Fatal("flash did not trigger while Reduced Motion was off")
+		}
+
+		// Player toggles Subtitles, SFX Captions, Text Scale (1.5x), Reduced Motion, Reduce Flashes,
+		// Invincibility, Auto-Aim, Hold to Toggle in SettingsMenu and clicks Save.
+		app.Post(func() {
+			menu.SetTab(gameui.SettingsTabAccessibility)
+			menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+			// [0] Captions = true
+			menu.HandleAction(gameui.NavConfirm)
+			// [1] SFX Captions = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [2] Text Scale = 1.5 (two steps up from 1.0)
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavRight)
+			menu.HandleAction(gameui.NavRight)
+			// [3] High Contrast = skip
+			menu.HandleAction(gameui.NavDown)
+			// [4] Reduced Motion = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [5] Screen Shake = skip
+			menu.HandleAction(gameui.NavDown)
+			// [6] Reduce Flashes = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [7] Color-Blind = protanopia
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavRight)
+			// [8] Game Speed = skip
+			menu.HandleAction(gameui.NavDown)
+			// [9] Invincibility = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [10] Auto-Aim = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+			// [11] Hold to Toggle = true
+			menu.HandleAction(gameui.NavDown)
+			menu.HandleAction(gameui.NavConfirm)
+
+			if err := menu.Save(); err != nil {
+				t.Errorf("menu.Save: %v", err)
+			}
+		})
+		app.Settle()
+
+		// Assist observes every saved change immediately.
+		if !assist.CaptionsEnabled() || !assist.SFXCaptionsEnabled() ||
+			assist.TextScale() != 1.5 || !assist.ReduceMotion() ||
+			!assist.ReduceFlashes() || assist.ColorVision() != a11y.VisionProtanopia ||
+			!assist.Invincibility() || !assist.AutoAim() || !assist.HoldToToggle() {
+			t.Fatalf("Assist did not observe SettingsMenu.Save: %+v", assist.Snapshot())
+		}
+
+		// CaptionsView reactively renders both dialogue (at 1.5x = 24pt) and SFX captions.
+		dlgText := app.Find("text:Guide: Watch the bridge!")
+		if dlgText.TextStyle.Font.Size != 24 {
+			t.Fatalf("scaled caption Font.Size = %v, want 24", dlgText.TextStyle.Font.Size)
+		}
+		app.Find("text:[Thunder]")
+
+		// effects.Flash respects Assist.ReduceMotion and refuses to trigger.
+		var triggeredAfter bool
+		app.Post(func() {
+			triggeredAfter = flash.Trigger(0.8, 200*time.Millisecond)
+		})
+		app.Settle()
+		if triggeredAfter {
+			t.Fatal("effects.Flash triggered despite Reduced Motion saved in SettingsMenu")
+		}
+	}
+
+	t.Run("StorageBackend", func(t *testing.T) {
+		run(t, func(cx *core.Scope) *save.DefaultSettingsStore {
+			return save.NewStorageSettingsStore(cx.Storage(), "mygame")
+		})
+	})
+
+	t.Run("FileBackend", func(t *testing.T) {
+		dir := t.TempDir()
+		run(t, func(*core.Scope) *save.DefaultSettingsStore {
+			return save.NewFileSettingsStore(dir)
+		})
+	})
+}
+
+func TestSettingsMenuAccessibilityFollowsPlatformAndOverrides(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	var menu *gameui.SettingsMenu
+	var assist *a11y.Assist
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		assist = a11y.NewAssistFromSettings(cx, store)
+		menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+			Store: store,
+			Env:   cx.Env(),
+		})
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{
+		OS:               core.OSMacOS,
+		Idiom:            core.IdiomDesktop,
+		ReduceMotion:     true,
+		IncreaseContrast: true,
+		FontScale:        1.5,
+	}))
+
+	menu.SetTab(gameui.SettingsTabAccessibility)
+	menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+	controls := menu.TabControls(gameui.SettingsTabAccessibility)
+
+	// Platform defaults are reflected in the Accessibility controls without locking overrides.
+	textScale := controls[2].(*gameui.Slider)
+	highContrast := controls[3].(*gameui.Toggle)
+	reduceMotion := controls[4].(*gameui.Toggle)
+	if math.Abs(float64(textScale.Value)-1.5) > 1e-4 || !highContrast.Checked || !reduceMotion.Checked {
+		t.Fatalf("controls did not reflect platform env: scale=%v hc=%v rm=%v", textScale.Value, highContrast.Checked, reduceMotion.Checked)
+	}
+
+	// Saving an unrelated Audio change preserves follow-platform behavior (no *Set flags).
+	app.Post(func() {
+		menu.SetTab(gameui.SettingsTabAudio)
+		menu.HandleAction(gameui.NavConfirm) // toggle mute
+		if err := menu.Save(); err != nil {
+			t.Errorf("Save audio: %v", err)
+		}
+	})
+	app.Settle()
+
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Accessibility.ReduceMotionSet || saved.Accessibility.HighContrastSet || saved.Accessibility.CaptionScaleSet {
+		t.Fatalf("unrelated save locked platform overrides: %+v", saved.Accessibility)
+	}
+	if !assist.ReduceMotion() || !assist.HighContrast() || assist.TextScale() != 1.5 {
+		t.Fatalf("Assist lost platform fallback after unrelated save: %+v", assist.Snapshot())
+	}
+
+	// Explicitly toggling Reduced Motion off overrides the OS setting.
+	app.Post(func() {
+		menu.SetTab(gameui.SettingsTabAccessibility)
+		menu.Navigator().SetFocus(reduceMotion)
+		menu.HandleAction(gameui.NavConfirm)
+		if err := menu.Save(); err != nil {
+			t.Errorf("Save override: %v", err)
+		}
+	})
+	app.Settle()
+	if assist.ReduceMotion() {
+		t.Fatal("explicit Reduced Motion off in SettingsMenu did not override OS ReduceMotion=true")
+	}
+
+	// Reset restores platform fallback.
+	app.Post(func() {
+		menu.Reset()
+		if err := menu.Save(); err != nil {
+			t.Errorf("Save reset: %v", err)
+		}
+	})
+	app.Settle()
+	if !assist.ReduceMotion() {
+		t.Fatal("Reset did not restore OS ReduceMotion=true fallback")
 	}
 }

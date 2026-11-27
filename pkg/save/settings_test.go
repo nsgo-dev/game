@@ -1106,3 +1106,180 @@ func TestSettingsStoreSeesThroughUnwrap(t *testing.T) {
 		t.Fatal("settings stored as a save slot")
 	}
 }
+
+func TestAccessibilityFieldsNormalizeMigrateAndPlatformFallback(t *testing.T) {
+	// NormalizeColorBlindMode accepts both "none" and "normal" as canonical "none".
+	normCases := []struct {
+		in   string
+		want string
+	}{
+		{"", "none"},
+		{"  ", "none"},
+		{"none", "none"},
+		{"Normal", "none"},
+		{"NORMAL", "none"},
+		{"Protanopia", "protanopia"},
+		{"deuteranopia", "deuteranopia"},
+		{"TRITANOPIA", "tritanopia"},
+		{"high-contrast", "high-contrast"},
+		{"highcontrast", "high-contrast"},
+		{"high_contrast", "high-contrast"},
+		{"custom-mode", "custom-mode"},
+	}
+	for _, tc := range normCases {
+		if got := save.NormalizeColorBlindMode(tc.in); got != tc.want {
+			t.Errorf("NormalizeColorBlindMode(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// Old settings.json with Custom["reduce_flashes"] and ColorBlindMode "normal" migrates on Load.
+	dir := t.TempDir()
+	primary := filepath.Join(dir, "settings.json")
+	legacyJSON := `{"version":1,"data":{"accessibility":{"captions":true,"caption_scale":1.5,"color_blind_mode":"normal","reduce_motion":false,"high_contrast":false,"screen_shake":0.5,"game_speed":0.75},"custom":{"reduce_flashes":true,"resolution":"1280x720"}}}`
+	if err := os.WriteFile(primary, []byte(legacyJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := save.NewFileSettingsStore(dir)
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load legacy settings: %v", err)
+	}
+	if !loaded.Accessibility.ReduceFlashes {
+		t.Fatal("legacy custom.reduce_flashes did not migrate to Accessibility.ReduceFlashes")
+	}
+	if loaded.Accessibility.ColorBlindMode != "none" {
+		t.Fatalf("ColorBlindMode = %q, want %q", loaded.Accessibility.ColorBlindMode, "none")
+	}
+	if _, ok := loaded.Custom["reduce_flashes"]; ok {
+		t.Fatal("legacy custom.reduce_flashes was not removed after migration")
+	}
+	if string(loaded.Custom["resolution"]) != `"1280x720"` {
+		t.Fatalf("unrelated custom.resolution = %q, want %q", string(loaded.Custom["resolution"]), `"1280x720"`)
+	}
+
+	// All new assist fields round-trip cleanly.
+	loaded.Accessibility.SFXCaptions = true
+	loaded.Accessibility.Invincibility = true
+	loaded.Accessibility.AutoAim = true
+	loaded.Accessibility.HoldToToggle = true
+	loaded.Accessibility.SetReduceMotion(false)
+	loaded.Accessibility.SetHighContrast(false)
+	loaded.Accessibility.SetCaptionScale(1.0)
+	if err := store.Save(loaded); err != nil {
+		t.Fatalf("Save expanded accessibility: %v", err)
+	}
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Reload expanded accessibility: %v", err)
+	}
+	if reloaded.Accessibility != loaded.Accessibility {
+		t.Fatalf("reloaded Accessibility = %+v, want %+v", reloaded.Accessibility, loaded.Accessibility)
+	}
+
+	// Platform fallback and explicit overrides via Effective* helpers.
+	var env *core.Env
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		env = cx.Env()
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{
+		ReduceMotion:     true,
+		IncreaseContrast: true,
+		FontScale:        1.75,
+	}))
+
+	def := save.DefaultSettings().Accessibility
+	if !def.EffectiveReduceMotion(env) {
+		t.Fatal("unset ReduceMotion did not follow env.ReduceMotion=true")
+	}
+	if !def.EffectiveHighContrast(env) {
+		t.Fatal("unset HighContrast did not follow env.IncreaseContrast=true")
+	}
+	if !near64(def.EffectiveCaptionScale(env), 1.75) {
+		t.Fatalf("unset CaptionScale = %v, want 1.75 from env.FontScale", def.EffectiveCaptionScale(env))
+	}
+
+	// Explicit false / 1.0 overrides override the platform environment.
+	if reloaded.Accessibility.EffectiveReduceMotion(env) {
+		t.Fatal("explicit SetReduceMotion(false) did not override env.ReduceMotion=true")
+	}
+	if reloaded.Accessibility.EffectiveHighContrast(env) {
+		t.Fatal("explicit SetHighContrast(false) did not override env.IncreaseContrast=true")
+	}
+	if !near64(reloaded.Accessibility.EffectiveCaptionScale(env), 1.0) {
+		t.Fatalf("explicit SetCaptionScale(1.0) = %v, want 1.0 overriding env.FontScale", reloaded.Accessibility.EffectiveCaptionScale(env))
+	}
+
+	// Clearing overrides restores live platform tracking.
+	reloaded.Accessibility.ClearReduceMotion()
+	reloaded.Accessibility.ClearHighContrast()
+	reloaded.Accessibility.ClearCaptionScale()
+	if !reloaded.Accessibility.EffectiveReduceMotion(env) ||
+		!reloaded.Accessibility.EffectiveHighContrast(env) ||
+		!near64(reloaded.Accessibility.EffectiveCaptionScale(env), 1.75) {
+		t.Fatalf("Clear* did not restore env fallback: rm=%v hc=%v scale=%v",
+			reloaded.Accessibility.EffectiveReduceMotion(env),
+			reloaded.Accessibility.EffectiveHighContrast(env),
+			reloaded.Accessibility.EffectiveCaptionScale(env))
+	}
+
+	app.SetEnvironment(core.Environment{ReduceMotion: false, IncreaseContrast: false, FontScale: 0})
+	if reloaded.Accessibility.EffectiveReduceMotion(env) ||
+		reloaded.Accessibility.EffectiveHighContrast(env) ||
+		!near64(reloaded.Accessibility.EffectiveCaptionScale(env), 1.0) {
+		t.Fatalf("updated env fallback failed: rm=%v hc=%v scale=%v",
+			reloaded.Accessibility.EffectiveReduceMotion(env),
+			reloaded.Accessibility.EffectiveHighContrast(env),
+			reloaded.Accessibility.EffectiveCaptionScale(env))
+	}
+}
+
+func TestSettingsStoreSubscribe(t *testing.T) {
+	store := save.NewFileSettingsStore(t.TempDir())
+	var events []string
+	unsub1 := store.Subscribe(func() {
+		// Calling Load inside callback must not deadlock.
+		s, err := store.Load()
+		if err != nil {
+			t.Errorf("Load inside Subscribe callback: %v", err)
+		}
+		events = append(events, "sub1:"+s.Locale)
+	})
+	unsub2 := store.Subscribe(func() {
+		events = append(events, "sub2")
+	})
+
+	s := save.DefaultSettings()
+	s.Locale = "en"
+	if err := store.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(events, []string{"sub1:en", "sub2"}) {
+		t.Fatalf("events after Save = %v, want [sub1:en sub2]", events)
+	}
+
+	unsub2()
+	events = nil
+	if err := store.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(events, []string{"sub1:"}) {
+		t.Fatalf("events after Reset = %v, want [sub1:]", events)
+	}
+
+	events = nil
+	if err := store.Delete(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(events, []string{"sub1:"}) {
+		t.Fatalf("events after Delete = %v, want [sub1:]", events)
+	}
+
+	unsub1()
+	events = nil
+	if err := store.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events after unsubscribe = %v, want none", events)
+	}
+}

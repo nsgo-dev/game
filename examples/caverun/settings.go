@@ -120,6 +120,7 @@ func (g *caveRun) settingsTargets() save.SettingsTargets {
 		},
 		ApplyAccessibility: func(a save.AccessibilitySettings) error {
 			g.a11y = a
+			g.reduceFlashes = a.ReduceFlashes
 			g.syncLevelAccessibility()
 			return nil
 		},
@@ -178,6 +179,7 @@ func (g *caveRun) initSettings(cx *core.Scope) {
 		}
 	}
 	g.a11y = initial.Accessibility
+	g.reduceFlashes = initial.Accessibility.ReduceFlashes
 	g.resolution = gameui.SettingsResolutionFrom(initial)
 
 	resolutions := caveRunResolutions()
@@ -203,7 +205,7 @@ func (g *caveRun) initSettings(cx *core.Scope) {
 		Text: g.settingsTextFor(initial.Locale),
 		OnApply: func(s save.Settings) error {
 			g.resolution = gameui.SettingsResolutionFrom(s)
-			g.reduceFlashes = gameui.SettingsReduceFlashesFrom(s)
+			g.reduceFlashes = s.Accessibility.ReduceFlashes
 			return nil
 		},
 		OnBack: func() {
@@ -215,7 +217,7 @@ func (g *caveRun) initSettings(cx *core.Scope) {
 		_ = save.Apply(initial, g.settingsTargets())
 		gameui.ApplySettingsResolution(g.video, initial, resolutions...)
 		g.resolution = gameui.SettingsResolutionFrom(initial)
-		g.reduceFlashes = gameui.SettingsReduceFlashesFrom(initial)
+		g.reduceFlashes = initial.Accessibility.ReduceFlashes
 	}
 }
 

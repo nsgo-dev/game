@@ -21,7 +21,9 @@ import (
 const (
 	// SettingsCustomResolution is the key inside save.Settings.Custom storing the selected resolution ID.
 	SettingsCustomResolution = "resolution"
-	// SettingsCustomReduceFlashes is the key inside save.Settings.Custom storing the flash-reduction toggle.
+	// SettingsCustomReduceFlashes is the legacy key inside save.Settings.Custom that stored the flash-reduction toggle before save.AccessibilitySettings.ReduceFlashes existed.
+	//
+	// Deprecated: Use save.AccessibilitySettings.ReduceFlashes directly.
 	SettingsCustomReduceFlashes = "reduce_flashes"
 )
 
@@ -37,7 +39,7 @@ const (
 	SettingsTabControls
 	// SettingsTabLanguage selects the active locale.
 	SettingsTabLanguage
-	// SettingsTabAccessibility edits captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, and game speed.
+	// SettingsTabAccessibility edits captions, SFX captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, game speed, invincibility, auto-aim, and hold-to-toggle.
 	SettingsTabAccessibility
 )
 
@@ -138,6 +140,7 @@ type SettingsText struct {
 	SystemDefault string
 
 	Subtitles     string
+	SFXCaptions   string
 	TextScale     string
 	HighContrast  string
 	ReduceMotion  string
@@ -145,6 +148,9 @@ type SettingsText struct {
 	ReduceFlashes string
 	ColorBlind    string
 	GameSpeed     string
+	Invincibility string
+	AutoAim       string
+	HoldToToggle  string
 
 	Apply string
 	Save  string
@@ -190,6 +196,7 @@ func DefaultSettingsText() SettingsText {
 		SystemDefault: "System Default",
 
 		Subtitles:     "Subtitles / Captions",
+		SFXCaptions:   "SFX Captions",
 		TextScale:     "Text Scale",
 		HighContrast:  "High Contrast",
 		ReduceMotion:  "Reduced Motion",
@@ -197,6 +204,9 @@ func DefaultSettingsText() SettingsText {
 		ReduceFlashes: "Reduce Flashes",
 		ColorBlind:    "Color-Blind Mode",
 		GameSpeed:     "Game Speed",
+		Invincibility: "Invincibility",
+		AutoAim:       "Auto-Aim",
+		HoldToToggle:  "Hold to Toggle",
 
 		Apply: "Apply",
 		Save:  "Save",
@@ -241,6 +251,7 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.LanguageHint, def.LanguageHint)
 	fill(&in.SystemDefault, def.SystemDefault)
 	fill(&in.Subtitles, def.Subtitles)
+	fill(&in.SFXCaptions, def.SFXCaptions)
 	fill(&in.TextScale, def.TextScale)
 	fill(&in.HighContrast, def.HighContrast)
 	fill(&in.ReduceMotion, def.ReduceMotion)
@@ -248,6 +259,9 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.ReduceFlashes, def.ReduceFlashes)
 	fill(&in.ColorBlind, def.ColorBlind)
 	fill(&in.GameSpeed, def.GameSpeed)
+	fill(&in.Invincibility, def.Invincibility)
+	fill(&in.AutoAim, def.AutoAim)
+	fill(&in.HoldToToggle, def.HoldToToggle)
 	fill(&in.Apply, def.Apply)
 	fill(&in.Save, def.Save)
 	fill(&in.Reset, def.Reset)
@@ -353,8 +367,14 @@ func ApplySettingsResolution(v *screen.Video, s save.Settings, resolutions ...Se
 	}
 }
 
-// SettingsReduceFlashesFrom reads the flash-reduction flag from s.Custom["reduce_flashes"].
+// SettingsReduceFlashesFrom reports whether flash reduction is enabled in s,
+// reading s.Accessibility.ReduceFlashes and falling back to legacy s.Custom["reduce_flashes"].
+//
+// Deprecated: Read save.AccessibilitySettings.ReduceFlashes directly.
 func SettingsReduceFlashesFrom(s save.Settings) bool {
+	if s.Accessibility.ReduceFlashes {
+		return true
+	}
 	if len(s.Custom) == 0 {
 		return false
 	}
@@ -369,16 +389,19 @@ func SettingsReduceFlashesFrom(s save.Settings) bool {
 	return v
 }
 
-// SetSettingsReduceFlashes writes reduce into s.Custom["reduce_flashes"].
+// SetSettingsReduceFlashes sets s.Accessibility.ReduceFlashes and clears any legacy
+// s.Custom["reduce_flashes"] entry.
+//
+// Deprecated: Set save.AccessibilitySettings.ReduceFlashes directly.
 func SetSettingsReduceFlashes(s *save.Settings, reduce bool) {
 	if s == nil {
 		return
 	}
-	if s.Custom == nil {
-		s.Custom = make(map[string]json.RawMessage)
+	s.Accessibility.ReduceFlashes = reduce
+	delete(s.Custom, SettingsCustomReduceFlashes)
+	if len(s.Custom) == 0 {
+		s.Custom = nil
 	}
-	raw, _ := json.Marshal(reduce)
-	s.Custom[SettingsCustomReduceFlashes] = raw
 }
 
 // SettingsMenuConfig configures a ready-to-use SettingsMenu. Every field is optional.
@@ -474,9 +497,12 @@ type SettingsMenu struct {
 	autoApply bool
 	autoSave  bool
 
-	env           *core.Env
-	canFullScreen bool
-	lastEnvFull   bool
+	env                 *core.Env
+	canFullScreen       bool
+	lastEnvFull         bool
+	lastEnvReduceMotion bool
+	lastEnvHighContrast bool
+	lastEnvFontScale    float32
 
 	onChange           func(save.Settings)
 	onApply            func(save.Settings) error
@@ -521,6 +547,7 @@ type SettingsMenu struct {
 
 	// Accessibility widgets
 	captionsToggle      *Toggle
+	sfxCaptionsToggle   *Toggle
 	textScaleSlider     *Slider
 	highContrastToggle  *Toggle
 	reduceMotionToggle  *Toggle
@@ -528,6 +555,9 @@ type SettingsMenu struct {
 	reduceFlashesToggle *Toggle
 	colorBlindBtn       *Button
 	gameSpeedSlider     *Slider
+	invincibilityToggle *Toggle
+	autoAimToggle       *Toggle
+	holdToToggleToggle  *Toggle
 
 	// Footer widgets
 	applyBtn *Button
@@ -628,6 +658,9 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 
 	if m.env != nil {
 		m.lastEnvFull = m.env.FullScreen()
+		m.lastEnvReduceMotion = m.env.ReduceMotion()
+		m.lastEnvHighContrast = m.env.IncreaseContrast()
+		m.lastEnvFontScale = m.env.FontScale()
 		if m.canFullScreen && m.env.OS() == core.OSWeb {
 			// On the web, startup full-screen requests are deferred until a user gesture, so show the page's actual state rather than a stale saved true.
 			initial.Display.Fullscreen = m.lastEnvFull
@@ -1319,10 +1352,12 @@ func (m *SettingsMenu) buildLanguageTab() {
 }
 
 func (m *SettingsMenu) buildAccessibilityTab() {
+	const rowH float32 = 26
+
 	m.captionsToggle = &Toggle{
 		Label:  m.text.Subtitles,
 		Style:  ToggleSwitch,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1331,40 +1366,52 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 			m.onSettingMutated()
 		},
 	}
+	m.sfxCaptionsToggle = &Toggle{
+		Label:  m.text.SFXCaptions,
+		Style:  ToggleSwitch,
+		Height: rowH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.SFXCaptions = v
+			m.onSettingMutated()
+		},
+	}
 	m.textScaleSlider = &Slider{
-		Min:    0.5,
-		Max:    3.0,
+		Min:    float32(save.MinCaptionScale),
+		Max:    float32(save.MaxCaptionScale),
 		Step:   0.25,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
 			}
-			m.settings.Accessibility.CaptionScale = roundStep(float64(v), 0.05)
+			m.settings.Accessibility.SetCaptionScale(roundStep(float64(v), 0.05))
 			m.onSettingMutated()
 		},
 	}
 	m.highContrastToggle = &Toggle{
 		Label:  m.text.HighContrast,
 		Style:  ToggleSwitch,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
 			}
-			m.settings.Accessibility.HighContrast = v
+			m.settings.Accessibility.SetHighContrast(v)
 			m.onSettingMutated()
 		},
 	}
 	m.reduceMotionToggle = &Toggle{
 		Label:  m.text.ReduceMotion,
 		Style:  ToggleSwitch,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
 			}
-			m.settings.Accessibility.ReduceMotion = v
+			m.settings.Accessibility.SetReduceMotion(v)
 			m.onSettingMutated()
 		},
 	}
@@ -1372,7 +1419,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		Min:    0,
 		Max:    1,
 		Step:   0.1,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
@@ -1384,12 +1431,12 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.reduceFlashesToggle = &Toggle{
 		Label:  m.text.ReduceFlashes,
 		Style:  ToggleSwitch,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
 			}
-			SetSettingsReduceFlashes(&m.settings, v)
+			m.settings.Accessibility.ReduceFlashes = v
 			m.onSettingMutated()
 		},
 	}
@@ -1397,22 +1444,22 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		if len(m.colorBlindModes) == 0 {
 			return
 		}
-		idx := optionIndex(m.colorBlindModes, m.settings.Accessibility.ColorBlindMode)
+		idx := colorBlindOptionIndex(m.colorBlindModes, m.settings.Accessibility.ColorBlindMode)
 		next := (idx + delta + len(m.colorBlindModes)) % len(m.colorBlindModes)
-		m.settings.Accessibility.ColorBlindMode = m.colorBlindModes[next].Value
+		m.settings.Accessibility.ColorBlindMode = save.NormalizeColorBlindMode(m.colorBlindModes[next].Value)
 		m.onSettingMutated()
 	}
 	m.colorBlindBtn = &Button{
-		Height:  28,
+		Height:  rowH,
 		OnClick: func() { stepColorBlind(1) },
 	}
 	m.cycleHandlers[m.colorBlindBtn] = stepColorBlind
 
 	m.gameSpeedSlider = &Slider{
-		Min:    0.25,
-		Max:    2.0,
+		Min:    float32(save.MinGameSpeed),
+		Max:    float32(save.MaxGameSpeed),
 		Step:   0.25,
-		Height: 28,
+		Height: rowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
@@ -1421,9 +1468,46 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 			m.onSettingMutated()
 		},
 	}
+	m.invincibilityToggle = &Toggle{
+		Label:  m.text.Invincibility,
+		Style:  ToggleSwitch,
+		Height: rowH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.Invincibility = v
+			m.onSettingMutated()
+		},
+	}
+	m.autoAimToggle = &Toggle{
+		Label:  m.text.AutoAim,
+		Style:  ToggleSwitch,
+		Height: rowH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.AutoAim = v
+			m.onSettingMutated()
+		},
+	}
+	m.holdToToggleToggle = &Toggle{
+		Label:  m.text.HoldToToggle,
+		Style:  ToggleSwitch,
+		Height: rowH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.HoldToToggle = v
+			m.onSettingMutated()
+		},
+	}
 
 	controls := []Widget{
 		m.captionsToggle,
+		m.sfxCaptionsToggle,
 		m.textScaleSlider,
 		m.highContrastToggle,
 		m.reduceMotionToggle,
@@ -1431,9 +1515,12 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		m.reduceFlashesToggle,
 		m.colorBlindBtn,
 		m.gameSpeedSlider,
+		m.invincibilityToggle,
+		m.autoAimToggle,
+		m.holdToToggleToggle,
 	}
 	m.tabPanels[SettingsTabAccessibility] = &VBox{
-		Spacing:  5,
+		Spacing:  4,
 		Align:    AlignStretch,
 		Flex:     1,
 		Hidden:   true,
@@ -1505,12 +1592,12 @@ func (m *SettingsMenu) applyTheme() {
 		return
 	}
 	var th Theme
-	if m.settings.Accessibility.HighContrast {
+	if m.settings.Accessibility.EffectiveHighContrast(m.env) {
 		th = HighContrastTheme()
 	} else {
 		th = DefaultTheme()
 	}
-	scale := clampf(float32(m.settings.Accessibility.CaptionScale), 0.85, 1.35)
+	scale := clampf(float32(m.settings.Accessibility.EffectiveCaptionScale(m.env)), 0.85, 1.35)
 	if scale <= 0 {
 		scale = 1
 	}
@@ -1623,21 +1710,30 @@ func (m *SettingsMenu) syncWidgets() {
 	}
 
 	// Accessibility
+	effScale := m.settings.Accessibility.EffectiveCaptionScale(m.env)
 	m.captionsToggle.Label = m.text.Subtitles
 	m.captionsToggle.Checked = m.settings.Accessibility.Captions
-	m.textScaleSlider.Label = fmt.Sprintf("%s: %d%%", m.text.TextScale, pctInt(m.settings.Accessibility.CaptionScale))
-	m.textScaleSlider.Value = float32(m.settings.Accessibility.CaptionScale)
+	m.sfxCaptionsToggle.Label = m.text.SFXCaptions
+	m.sfxCaptionsToggle.Checked = m.settings.Accessibility.SFXCaptions
+	m.textScaleSlider.Label = fmt.Sprintf("%s: %d%%", m.text.TextScale, pctInt(effScale))
+	m.textScaleSlider.Value = float32(effScale)
 	m.highContrastToggle.Label = m.text.HighContrast
-	m.highContrastToggle.Checked = m.settings.Accessibility.HighContrast
+	m.highContrastToggle.Checked = m.settings.Accessibility.EffectiveHighContrast(m.env)
 	m.reduceMotionToggle.Label = m.text.ReduceMotion
-	m.reduceMotionToggle.Checked = m.settings.Accessibility.ReduceMotion
+	m.reduceMotionToggle.Checked = m.settings.Accessibility.EffectiveReduceMotion(m.env)
 	m.screenShakeSlider.Label = fmt.Sprintf("%s: %d%%", m.text.ScreenShake, pctInt(m.settings.Accessibility.ScreenShake))
 	m.screenShakeSlider.Value = float32(m.settings.Accessibility.ScreenShake)
 	m.reduceFlashesToggle.Label = m.text.ReduceFlashes
-	m.reduceFlashesToggle.Checked = SettingsReduceFlashesFrom(m.settings)
-	m.colorBlindBtn.Text = fmt.Sprintf("%s: < %s >", m.text.ColorBlind, optionLabel(m.colorBlindModes, m.settings.Accessibility.ColorBlindMode))
+	m.reduceFlashesToggle.Checked = m.settings.Accessibility.ReduceFlashes
+	m.colorBlindBtn.Text = fmt.Sprintf("%s: < %s >", m.text.ColorBlind, colorBlindOptionLabel(m.colorBlindModes, m.settings.Accessibility.ColorBlindMode))
 	m.gameSpeedSlider.Label = fmt.Sprintf("%s: %d%%", m.text.GameSpeed, pctInt(m.settings.Accessibility.GameSpeed))
 	m.gameSpeedSlider.Value = float32(m.settings.Accessibility.GameSpeed)
+	m.invincibilityToggle.Label = m.text.Invincibility
+	m.invincibilityToggle.Checked = m.settings.Accessibility.Invincibility
+	m.autoAimToggle.Label = m.text.AutoAim
+	m.autoAimToggle.Checked = m.settings.Accessibility.AutoAim
+	m.holdToToggleToggle.Label = m.text.HoldToToggle
+	m.holdToToggleToggle.Checked = m.settings.Accessibility.HoldToToggle
 
 	// Footer
 	m.applyBtn.Text = m.text.Apply
@@ -1737,18 +1833,43 @@ func (m *SettingsMenu) FooterButtons() (apply, saveBtn, reset, back *Button) {
 	return m.applyBtn, m.saveBtn, m.resetBtn, m.backBtn
 }
 
-// syncEnvFullScreen reflects transitions of Env.FullScreen into the working Display.Fullscreen without clobbering unapplied edits while Env.FullScreen has not changed.
+// syncEnvFullScreen reflects transitions of Env.FullScreen into the working Display.Fullscreen
+// without clobbering unapplied edits while Env.FullScreen has not changed, and refreshes
+// platform-following Accessibility controls when OS accessibility settings change.
 func (m *SettingsMenu) syncEnvFullScreen() {
-	if m.env == nil || !m.canFullScreen {
+	if m.env == nil {
 		return
 	}
-	cur := m.env.FullScreen()
-	if cur == m.lastEnvFull {
-		return
+	widgetsDirty := false
+	themeDirty := false
+	if m.canFullScreen {
+		cur := m.env.FullScreen()
+		if cur != m.lastEnvFull {
+			m.lastEnvFull = cur
+			if m.settings.Display.Fullscreen != cur {
+				m.settings.Display.Fullscreen = cur
+				widgetsDirty = true
+			}
+		}
 	}
-	m.lastEnvFull = cur
-	if m.settings.Display.Fullscreen != cur {
-		m.settings.Display.Fullscreen = cur
+	if rm := m.env.ReduceMotion(); rm != m.lastEnvReduceMotion {
+		m.lastEnvReduceMotion = rm
+		widgetsDirty = true
+	}
+	if hc := m.env.IncreaseContrast(); hc != m.lastEnvHighContrast {
+		m.lastEnvHighContrast = hc
+		themeDirty = true
+		widgetsDirty = true
+	}
+	if fs := m.env.FontScale(); fs != m.lastEnvFontScale {
+		m.lastEnvFontScale = fs
+		themeDirty = true
+		widgetsDirty = true
+	}
+	if themeDirty {
+		m.applyTheme()
+	}
+	if widgetsDirty {
 		m.syncWidgets()
 	}
 }
@@ -1771,6 +1892,9 @@ func (m *SettingsMenu) SetSettings(s save.Settings) {
 	m.settings = cp
 	if m.env != nil {
 		m.lastEnvFull = m.env.FullScreen()
+		m.lastEnvReduceMotion = m.env.ReduceMotion()
+		m.lastEnvHighContrast = m.env.IncreaseContrast()
+		m.lastEnvFontScale = m.env.FontScale()
 	}
 	m.capturingAction = ""
 	m.applyTheme()
@@ -2375,6 +2499,29 @@ func optionIndex(items []SettingsOptionItem, value string) int {
 func optionLabel(items []SettingsOptionItem, value string) string {
 	for _, it := range items {
 		if strings.EqualFold(strings.TrimSpace(it.Value), strings.TrimSpace(value)) {
+			return it.Label
+		}
+	}
+	if len(items) > 0 {
+		return items[0].Label
+	}
+	return value
+}
+
+func colorBlindOptionIndex(items []SettingsOptionItem, value string) int {
+	norm := save.NormalizeColorBlindMode(value)
+	for i, it := range items {
+		if save.NormalizeColorBlindMode(it.Value) == norm {
+			return i
+		}
+	}
+	return 0
+}
+
+func colorBlindOptionLabel(items []SettingsOptionItem, value string) string {
+	norm := save.NormalizeColorBlindMode(value)
+	for _, it := range items {
+		if save.NormalizeColorBlindMode(it.Value) == norm {
 			return it.Label
 		}
 	}
