@@ -110,6 +110,32 @@ type BuiltScene struct {
 	materialed []*BuiltObject
 	// notifierByObject indexes Notifiers by their object, for the paused lookups of Update.
 	notifierByObject map[*BuiltObject]*ScreenNotifier
+	// animators indexes runtime AnimatorControllers attached to objects in this built scene.
+	animators map[string]AnimatorController
+}
+
+// SetAnimator attaches ctrl as the runtime AnimatorController for objectID on this built scene (passing nil removes it).
+// BuiltScene implements AnimatorProvider, so passing a BuiltScene as Call.Context to Connect lets the built-in "animator" component's setState and trigger handlers drive any animator registered here.
+func (s *BuiltScene) SetAnimator(objectID string, ctrl AnimatorController) {
+	if s == nil || objectID == "" {
+		return
+	}
+	if ctrl == nil {
+		delete(s.animators, objectID)
+		return
+	}
+	if s.animators == nil {
+		s.animators = make(map[string]AnimatorController)
+	}
+	s.animators[objectID] = ctrl
+}
+
+// Animator returns the AnimatorController attached to objectID on this built scene, or nil when none is set.
+func (s *BuiltScene) Animator(objectID string) AnimatorController {
+	if s == nil || s.animators == nil {
+		return nil
+	}
+	return s.animators[objectID]
 }
 
 // BuiltLayer is one resolved layer of a BuiltScene.

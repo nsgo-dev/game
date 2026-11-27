@@ -93,6 +93,8 @@ type compiledTransition struct {
 	cond *Condition
 }
 
+var _ sceneformat.AnimatorController = (*StateMachine)(nil)
+
 // StateMachine plays a *.states.yaml sprite animation graph on deterministic game.Loop fixed steps.
 // The game (or editor preview) sets named float, bool and trigger parameters and calls Update(dt).
 type StateMachine struct {
@@ -114,6 +116,11 @@ type StateMachine struct {
 	previous  string
 	playing   bool
 	speedMult float64
+
+	signals         *sceneformat.Signals
+	objectID        string
+	updating        bool
+	pendingTriggers map[string]bool
 }
 
 // NewStateMachine validates doc, resolves every state's clip through clips, builds a Player for each state bound via bind, and starts at doc.Entry (playing and posed at time 0).
@@ -155,9 +162,7 @@ func NewStateMachine(doc *StateMachineDoc, clips ClipResolver, reg *sceneformat.
 		}
 		stateName := st.Name
 		player.OnEvent = func(ev string) {
-			if sm.OnEvent != nil {
-				sm.OnEvent(stateName, ev)
-			}
+			sm.emitClipEvent(stateName, ev)
 		}
 		spd := float64(st.Speed)
 		if spd <= 0 {
@@ -235,7 +240,37 @@ func NewAnimator(built *sceneformat.BuiltScene, objectID string, states StatesRe
 	if !cfg.AutoPlay {
 		sm.Pause()
 	}
+	built.SetAnimator(objectID, sm)
 	return sm, nil
+}
+
+// Connect wires sm to signals for objectID:
+//   - registers sm on signals (signals.BindAnimator) so the built-in "animator" component's setState and trigger handlers drive sm;
+//   - emits "animator.stateChanged" with sceneformat.AnimatorStateChangedEvent{ObjectID, From, To} on every state transition;
+//   - emits "animator.clipEvent" with sceneformat.AnimatorClipEvent{ObjectID, State, Name} whenever the active clip crosses a named cue event.
+//
+// Connect does not overwrite sm.OnTransition or sm.OnEvent; both Go callbacks and scene signals fire together.
+func Connect(sm *StateMachine, signals *sceneformat.Signals, objectID string) error {
+	if sm == nil {
+		return errors.New("animclip: nil state machine")
+	}
+	if signals == nil {
+		return errors.New("animclip: nil signals")
+	}
+	if objectID == "" {
+		return errors.New("animclip: empty object ID")
+	}
+	if err := signals.BindAnimator(objectID, sm); err != nil {
+		return err
+	}
+	if sm.signals != nil && (sm.signals != signals || sm.objectID != objectID) {
+		if sm.signals.Animator(sm.objectID) == sm {
+			_ = sm.signals.BindAnimator(sm.objectID, nil)
+		}
+	}
+	sm.signals = signals
+	sm.objectID = objectID
+	return nil
 }
 
 // Doc returns a copy of the StateMachineDoc this player runs.
@@ -314,6 +349,7 @@ func (sm *StateMachine) Reset() {
 	clear(sm.floats)
 	clear(sm.bools)
 	clear(sm.triggers)
+	clear(sm.pendingTriggers)
 	for _, p := range sm.doc.Parameters {
 		switch p.Type {
 		case ParamFloat:
@@ -343,19 +379,25 @@ func (sm *StateMachine) Reset() {
 }
 
 // SetState switches immediately to state name, restarting its clip from time 0 and posing frame 0.
+// When switching to a different state, OnTransition and any connected "animator.stateChanged" signal fire.
 // Returns false when name is not a state in the machine.
 func (sm *StateMachine) SetState(name string) bool {
 	cs, ok := sm.states[name]
 	if !ok {
 		return false
 	}
-	if name != sm.current {
-		sm.previous = sm.current
+	prev := sm.current
+	changed := name != prev
+	if changed {
+		sm.previous = prev
 	}
 	sm.current = name
 	cs.player.Restart()
 	if !sm.playing {
 		cs.player.Pause()
+	}
+	if changed {
+		sm.emitTransition(prev, name)
 	}
 	return true
 }
@@ -393,6 +435,12 @@ func (sm *StateMachine) Trigger(name string) {
 		return
 	}
 	sm.triggers[name] = true
+	if sm.updating {
+		if sm.pendingTriggers == nil {
+			sm.pendingTriggers = make(map[string]bool)
+		}
+		sm.pendingTriggers[name] = true
+	}
 }
 
 // ResetTrigger clears a latched trigger parameter before Update consumes it.
@@ -401,6 +449,7 @@ func (sm *StateMachine) ResetTrigger(name string) {
 		return
 	}
 	sm.triggers[name] = false
+	delete(sm.pendingTriggers, name)
 }
 
 // Params returns a snapshot map of all declared parameters and their current values.
@@ -424,7 +473,15 @@ func (sm *StateMachine) Update(dt time.Duration) {
 	if !sm.playing || dt <= 0 {
 		return
 	}
-	defer sm.clearTriggers()
+	sm.updating = true
+	defer func() {
+		sm.updating = false
+		sm.clearTriggers()
+		for k := range sm.pendingTriggers {
+			sm.triggers[k] = true
+		}
+		clear(sm.pendingTriggers)
+	}()
 
 	cs := sm.states[sm.current]
 	if cs == nil {
@@ -448,8 +505,8 @@ func (sm *StateMachine) Update(dt time.Duration) {
 		cs.player.Update(scaled)
 	}
 
-	// If a non-looping clip reached its end during this step and no transition already fired, take a matching onEnd transition immediately so there is no one-step stall.
-	if !transitioned && cs.player.Done() {
+	// If a non-looping clip reached its end during this step and no transition already fired (and no cue handler already switched state), take a matching onEnd transition immediately so there is no one-step stall.
+	if !transitioned && sm.states[sm.current] == cs && cs.player.Done() {
 		sm.evalTransitions(true)
 	}
 }
@@ -480,12 +537,37 @@ func (sm *StateMachine) evalTransitions(onlyOnEnd bool) bool {
 		if next := sm.states[sm.current]; next != nil {
 			next.player.Restart()
 		}
-		if sm.OnTransition != nil {
-			sm.OnTransition(from, sm.current)
-		}
+		clear(sm.pendingTriggers)
+		sm.emitTransition(from, sm.current)
 		return true
 	}
 	return false
+}
+
+func (sm *StateMachine) emitTransition(from, to string) {
+	if sm.OnTransition != nil {
+		sm.OnTransition(from, to)
+	}
+	if sm.signals != nil && sm.objectID != "" {
+		_ = sm.signals.Emit(sm.objectID, sceneformat.AnimatorComponentName+"."+sceneformat.AnimatorEventStateChanged, sceneformat.AnimatorStateChangedEvent{
+			ObjectID: sm.objectID,
+			From:     from,
+			To:       to,
+		})
+	}
+}
+
+func (sm *StateMachine) emitClipEvent(state, event string) {
+	if sm.OnEvent != nil {
+		sm.OnEvent(state, event)
+	}
+	if sm.signals != nil && sm.objectID != "" {
+		_ = sm.signals.Emit(sm.objectID, sceneformat.AnimatorComponentName+"."+sceneformat.AnimatorEventClipEvent, sceneformat.AnimatorClipEvent{
+			ObjectID: sm.objectID,
+			State:    state,
+			Name:     event,
+		})
+	}
 }
 
 func (sm *StateMachine) getFloat(name string) float64 { return sm.floats[name] }

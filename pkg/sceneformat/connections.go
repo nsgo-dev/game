@@ -149,6 +149,8 @@ type Signals struct {
 	world    *entities.World
 	entityOf map[string]entities.Entity
 	objectOf map[entities.Entity]string
+	// animators binds object IDs to their runtime AnimatorController for the built-in "animator" component's setState and trigger handlers.
+	animators map[string]AnimatorController
 }
 
 // queued is an event Enqueue added: the object's ID and event as written, for errors, the binding key they name and the payload.
@@ -351,6 +353,33 @@ func (s *Signals) Entity(id string) (entities.Entity, bool) {
 	}
 	e, ok := s.entityOf[id]
 	return e, ok
+}
+
+// BindAnimator attaches ctrl as the runtime AnimatorController for objectID so the built-in "animator" component's setState and trigger handlers drive it. Passing a nil ctrl unbinds objectID. It returns an error when s is nil or the scene has no object with ID objectID.
+func (s *Signals) BindAnimator(objectID string, ctrl AnimatorController) error {
+	if s == nil {
+		return errors.New("sceneformat: bind animator on nil Signals")
+	}
+	if _, ok := s.names[objectID]; !ok {
+		return fmt.Errorf("sceneformat: bind animator: the scene has no object %q", objectID)
+	}
+	if ctrl == nil {
+		delete(s.animators, objectID)
+		return nil
+	}
+	if s.animators == nil {
+		s.animators = make(map[string]AnimatorController)
+	}
+	s.animators[objectID] = ctrl
+	return nil
+}
+
+// Animator returns the AnimatorController bound to objectID on s, or nil when none is bound.
+func (s *Signals) Animator(objectID string) AnimatorController {
+	if s == nil || s.animators == nil {
+		return nil
+	}
+	return s.animators[objectID]
 }
 
 // EmitEntity is Emit for the object that SpawnConnected spawned as e. It returns an error when e is not one of those entities or is no longer alive.

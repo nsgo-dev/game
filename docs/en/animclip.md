@@ -123,3 +123,28 @@ sm.Update(dt)
 - **Triggers**: `Trigger(name)` arms a trigger parameter; it is automatically consumed when a transition referencing it fires or cleared at the end of the fixed step (`Update`).
 - **Scripted input and testing**: `InputDriver` maps project `input.Actions` (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) into locomotion parameters (`move.x`, `velocity.y`, `on_floor`, `jump`, `attack`, `hurt`), and `SimulateStateMachine` drives a state machine deterministically across fixed steps to report visited states, transition trace, and stuck states.
 - **Validation and references**: `game check` (`tooling/assetcheck`) validates every `*.states.yaml` file and `animator` component, refusing transitions to missing states, unknown clip files, and parameters no transition reads, with exact file and line numbers. `refs` follows both `animator.states` and `states[].clip` paths when moving files.
+
+### Scene connections
+
+The built-in `animator` component (`sceneformat.RegisterAnimatorComponent` / `sceneformat.AnimatorComponentRegistry`) declares two events and two handlers backed at run time:
+
+| Member | Kind | Arguments / Payload | Description |
+| --- | --- | --- | --- |
+| `animator.stateChanged` | Event | `sceneformat.AnimatorStateChangedEvent{ObjectID, From, To}` | Emitted once each time the state machine switches to a different state (by transition or `SetState`). |
+| `animator.clipEvent` | Event | `sceneformat.AnimatorClipEvent{ObjectID, State, Name}` | Emitted once each time the active state's clip crosses a named cue event during `Update`. |
+| `animator.setState` | Handler | `state` (`string`) | Switches the target object's state machine directly to `state` via `SetState`. |
+| `animator.trigger` | Handler | `name` (`string`) | Pulses the named trigger parameter on the target object's state machine via `Trigger`. |
+
+Connect a state machine to a scene's `sceneformat.Signals` with `animclip.Connect`:
+
+```go
+sig, err := sceneformat.Connect(built.Doc, components, built)
+if err != nil {
+	return err
+}
+if err := animclip.Connect(sm, sig, "knight"); err != nil {
+	return err
+}
+```
+
+`animclip.Connect` binds `sm` on `sig` (`sig.BindAnimator`) so `animator.setState` and `animator.trigger` handlers drive it, and emits `animator.stateChanged` and `animator.clipEvent` through `sig` alongside any `OnTransition` / `OnEvent` callbacks. `NewAnimator` also registers `sm` on `built` (`BuiltScene.SetAnimator`, implementing `sceneformat.AnimatorProvider`), so passing `built` as the context to `sceneformat.Connect` lets `animator.setState` and `animator.trigger` drive it even before calling `animclip.Connect`.
