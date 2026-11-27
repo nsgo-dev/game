@@ -275,6 +275,45 @@ func (r *ComponentRegistry) MustRegister(t ComponentType) {
 	}
 }
 
+// Merge registers every type of other into r, refusing a name r already has. Merge is all-or-nothing: when any name collides, r is left unchanged and the error names the colliding type and describes both the existing and incoming definitions. Names are checked in ascending order so the error is deterministic, and r keeps its own copies of other's types. Merging a nil or empty other is a no-op.
+func (r *ComponentRegistry) Merge(other *ComponentRegistry) error {
+	if r == nil {
+		return errors.New("sceneformat: merge into nil component registry")
+	}
+	if other == nil || len(other.types) == 0 {
+		return nil
+	}
+	names := other.Names()
+	for _, name := range names {
+		if existing, dup := r.types[name]; dup {
+			incoming := other.types[name]
+			return fmt.Errorf("sceneformat: merge component type %q: already registered (existing: %s; incoming: %s)", name, describeComponentType(existing), describeComponentType(incoming))
+		}
+	}
+	if r.types == nil {
+		r.types = make(map[string]*ComponentType, len(names))
+	}
+	for _, name := range names {
+		cp := cloneComponentType(other.types[name])
+		r.types[name] = &cp
+	}
+	return nil
+}
+
+// describeComponentType returns a short human-readable summary of t's doc and field names for collision diagnostics.
+func describeComponentType(t *ComponentType) string {
+	var parts []string
+	if t.Doc != "" {
+		parts = append(parts, strconv.Quote(t.Doc))
+	}
+	if names := t.FieldNames(); len(names) > 0 {
+		parts = append(parts, "fields: "+strings.Join(names, ", "))
+	} else {
+		parts = append(parts, "no fields")
+	}
+	return strings.Join(parts, "; ")
+}
+
 // Lookup returns a copy of the component type named name and whether it is registered.
 func (r *ComponentRegistry) Lookup(name string) (ComponentType, bool) {
 	t := r.lookup(name)

@@ -50,7 +50,7 @@ type command struct {
 }
 
 // commands are game's subcommands in the order game help lists them, help itself last.
-var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, mcpCommand, releaseCommand, replayCommand, playtestCommand, benchCommand, newCommand, devCommand, checkCommand, assetsCommand, generateCommand, mvCommand, indexCommand, libraryCommand, creditsCommand, pixelfxCommand, navmeshCommand, mergeCommand}
+var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, mcpCommand, releaseCommand, replayCommand, playtestCommand, benchCommand, newCommand, devCommand, checkCommand, assetsCommand, generateCommand, mvCommand, indexCommand, libraryCommand, creditsCommand, pixelfxCommand, navmeshCommand, mergeCommand, schemaCommand}
 
 // helpSummary is the help subcommand's line in the listing.
 const helpSummary = "Show the commands, or one command's flags"
