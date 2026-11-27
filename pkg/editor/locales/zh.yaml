@@ -1391,7 +1391,7 @@ strings:
   cmd.toolLineTile.label: 工具：直线瓦片
   cmd.toolMove.desc: 切换为移动视口工具
   cmd.toolMove.label: 工具：移动
-  cmd.toolNavTestPath.desc: 在 2D 视口中依次点选起点与终点，预览 ai.NavMesh 计算出的路径
+  cmd.toolNavTestPath.desc: 在 2D 视口中依次点选起点与终点，预览 pathfind.NavMesh 计算出的路径
   cmd.toolNavTestPath.label: 工具：测试导航路径
   cmd.toolPaintTile.desc: 切换为绘制瓦片画笔
   cmd.toolPaintTile.label: 工具：绘制瓦片

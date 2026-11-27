@@ -3,8 +3,8 @@ package rts
 import (
 	"slices"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // DefaultFieldCacheSize is the number of flow fields a FieldCache keeps when NewFieldCache is given a capacity of 0 or less.
@@ -14,7 +14,7 @@ const DefaultFieldCacheSize = 16
 //
 // Fields are keyed by their goal set, compared as a sorted set of distinct cells, so the same goals given in another order or with repeats find the same field. When the cache is full the least recently used field is dropped; a unit still holding it keeps following it, Crowd.Rebuild still rebuilds it after a grid change, and the cache builds a fresh one the next time those goals are asked for. A FieldCache is not safe for concurrent use.
 type FieldCache struct {
-	grid     ai.Grid
+	grid     pathfind.Grid
 	origin   math2d.Vec2
 	cellSize float32
 	capacity int
@@ -23,17 +23,17 @@ type FieldCache struct {
 	entries []*cacheEntry
 	clock   uint64
 	builds  uint64
-	scratch []ai.Cell
+	scratch []pathfind.Cell
 }
 
 type cacheEntry struct {
-	key   []ai.Cell
+	key   []pathfind.Cell
 	field *FlowField
 	used  uint64
 }
 
 // NewFieldCache returns a cache of up to capacity 8-way flow fields over grid, whose cells are cellSize world units wide starting at origin.
-func NewFieldCache(grid ai.Grid, origin math2d.Vec2, cellSize float32, capacity int) *FieldCache {
+func NewFieldCache(grid pathfind.Grid, origin math2d.Vec2, cellSize float32, capacity int) *FieldCache {
 	if capacity <= 0 {
 		capacity = DefaultFieldCacheSize
 	}
@@ -41,7 +41,7 @@ func NewFieldCache(grid ai.Grid, origin math2d.Vec2, cellSize float32, capacity 
 }
 
 // Grid returns the grid the cache builds fields over.
-func (fc *FieldCache) Grid() ai.Grid { return fc.grid }
+func (fc *FieldCache) Grid() pathfind.Grid { return fc.grid }
 
 // Origin returns the world position of the top-left corner of cell (0, 0).
 func (fc *FieldCache) Origin() math2d.Vec2 { return fc.origin }
@@ -56,7 +56,7 @@ func (fc *FieldCache) Len() int { return len(fc.entries) }
 func (fc *FieldCache) Builds() uint64 { return fc.builds }
 
 // Field returns the flow field toward goals, building it on first use, or nil and false when no goal is an in-bounds walkable cell.
-func (fc *FieldCache) Field(goals ...ai.Cell) (*FlowField, bool) {
+func (fc *FieldCache) Field(goals ...pathfind.Cell) (*FlowField, bool) {
 	key := normalizeGoals(fc.scratch[:0], goals)
 	fc.scratch = key
 	fc.clock++
@@ -107,9 +107,9 @@ func (fc *FieldCache) Clear() {
 }
 
 // normalizeGoals writes the distinct cells of goals into dst in row-major order.
-func normalizeGoals(dst, goals []ai.Cell) []ai.Cell {
+func normalizeGoals(dst, goals []pathfind.Cell) []pathfind.Cell {
 	dst = append(dst, goals...)
-	slices.SortFunc(dst, func(a, b ai.Cell) int {
+	slices.SortFunc(dst, func(a, b pathfind.Cell) int {
 		if a.Row != b.Row {
 			return a.Row - b.Row
 		}

@@ -108,7 +108,7 @@ nav.AddOffMeshLink(world3d.NavOffMeshLink{
 	UserData:      "drop",
 })
 
-res := nav.FindPathWithOptions(startPos, goalPos, ai.PathOptions{})
+res := nav.FindPathWithOptions(startPos, goalPos, pathfind.PathOptions{})
 if res.Found {
 	for i := 0; i+1 < len(res.Path); i++ {
 		if link, ok := res.LinkAt(i); ok {
@@ -125,7 +125,7 @@ if res.Found {
 
 ### 多边形区域代价、运行时标志与查询过滤器
 
-使用 `BuildNavMeshWithAreas` 和 `NavPolygonInput{Vertices, Area, Flags}` 在构建时为 3D 多边形设置区域与通行标志。`world3d.NavArea`、`world3d.NavFlags` 和 `world3d.NavFilter` 直接作为 [ai](ai.md) 中对应类型的别名，因此同一套区域常量、标志位和过滤器可在 2D 与 3D 导航网格间无缝复用：
+使用 `BuildNavMeshWithAreas` 和 `NavPolygonInput{Vertices, Area, Flags}` 在构建时为 3D 多边形设置区域与通行标志。`world3d.NavArea`、`world3d.NavFlags` 和 `world3d.NavFilter` 直接作为 [pathfind](pathfind.md) 中对应类型的别名，因此同一套区域常量、标志位和过滤器可在 2D 与 3D 导航网格间无缝复用：
 
 ```go
 nav := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
@@ -184,15 +184,15 @@ _, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
 - **跨平台确定性 3D 表面积采样**：`RandomPoint` / `RandomPointWithFilter` 按真实三维表面积（而非仅 XZ 投影面积）加权采样；`RandomPointAround` / `RandomPointAroundWithFilter` 仅在从起点连通可达且位于三维欧氏 `radius` 内的多边形上采样，绝不会采到头顶未连通的楼层。相同 `*random.Stream` 种子下跨运行与跨平台按位一致。
 - **零堆分配路径复用与并发查询**：`nav.FindPathInto`、`nav.FindPathWithFilterInto`、`nav.FindPathWithFilterAndOptionsInto` 与 `nav.FindCorridorInto` 使用带代数戳的复用缓冲区，预热后重复调用均为 `0` 堆分配；多线程并发只读查询同一 `NavMesh` 时，请为每个工作协程创建独立的 `NewNavMeshQuery(nav)`。
 
-面对不可达目标或需要按帧预算分摊多智能体寻路时，可向 `nav.FindPathWithOptions(startPos, goalPos, opts)` 传入 `ai.PathOptions{MaxExpansions, AllowPartial}`（返回包含 `Partial`、`Exhausted` 与 `Expansions` 的 `NavPathResult`），或通过 `nav.StartSearch(startPos, goalPos, opts)` 创建可跨帧步进的 `*world3d.NavMeshSearch`：
+面对不可达目标或需要按帧预算分摊多智能体寻路时，可向 `nav.FindPathWithOptions(startPos, goalPos, opts)` 传入 `pathfind.PathOptions{MaxExpansions, AllowPartial}`（返回包含 `Partial`、`Exhausted` 与 `Expansions` 的 `NavPathResult`），或通过 `nav.StartSearch(startPos, goalPos, opts)` 创建可跨帧步进的 `*world3d.NavMeshSearch`：
 
 ```go
-search := nav.StartSearch(startPos, goalPos, ai.PathOptions{
+search := nav.StartSearch(startPos, goalPos, pathfind.PathOptions{
 	MaxExpansions: 128,
 	AllowPartial:  true,
 })
-// 可直接手动 Step，也可与 2D 寻路一起提交到 ai.PathQueue 统一限额调度：
-queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
+// 可直接手动 Step，也可与 2D 寻路一起提交到 pathfind.PathQueue 统一限额调度：
+queue.Submit(search, 0, func(_ pathfind.PathRequestID, _ pathfind.SearchStatus) {
 	res := search.Result()
 	if res.Found {
 		follow3DWaypoints(res.Path) // 目标不可达或预算耗尽时 res.Partial 为 true

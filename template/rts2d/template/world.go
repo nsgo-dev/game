@@ -5,9 +5,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/fog"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/rts"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -81,7 +81,7 @@ type entity struct {
 	returning bool
 
 	// A building's top-left cell, construction time left (0 once built), production queue and time left on its first item.
-	cell      ai.Cell
+	cell      pathfind.Cell
 	buildLeft int
 	queue     []*unitRules
 	trainLeft int
@@ -115,7 +115,7 @@ func (e *entity) fights() bool { return e.unit != nil && e.unit.Damage > 0 }
 
 // crystalNode is a crystal cell of the map.
 type crystalNode struct {
-	cell ai.Cell
+	cell pathfind.Cell
 	left int
 }
 
@@ -124,7 +124,7 @@ type side struct {
 	crystals int
 	hq       *entity
 	// pads are the top-left cells of the side's build pads, and padUsed whether a barracks stands on each.
-	pads    []ai.Cell
+	pads    []pathfind.Cell
 	padUsed []bool
 }
 
@@ -136,7 +136,7 @@ type world struct {
 	cols int
 	rows int
 
-	grid  *ai.BoolGrid
+	grid  *pathfind.BoolGrid
 	crowd *rts.Crowd
 	fog   *fog.Fog
 
@@ -166,7 +166,7 @@ func newWorld(data *gameData) *world {
 		cell:   m.CellSize,
 		cols:   m.cols,
 		rows:   m.rows,
-		grid:   ai.NewBoolGrid(m.cols, m.rows),
+		grid:   pathfind.NewBoolGrid(m.cols, m.rows),
 		fog:    fog.New(m.cols, m.rows, m.CellSize, m.CellSize),
 		byID:   map[int]*entity{},
 		byBody: map[rts.UnitID]*entity{},
@@ -180,7 +180,7 @@ func newWorld(data *gameData) *world {
 				w.fog.SetOpaque(col, row, true)
 			case tileCrystal:
 				w.grid.SetWalkable(col, row, false)
-				w.nodes = append(w.nodes, crystalNode{cell: ai.Cell{Col: col, Row: row}, left: w.r.CrystalsPerNode})
+				w.nodes = append(w.nodes, crystalNode{cell: pathfind.Cell{Col: col, Row: row}, left: w.r.CrystalsPerNode})
 			}
 		}
 	}
@@ -215,7 +215,7 @@ func newWorld(data *gameData) *world {
 }
 
 // block marks the size by size cells from top-left cell c walkable or not.
-func (w *world) block(c ai.Cell, size int, walkable bool) {
+func (w *world) block(c pathfind.Cell, size int, walkable bool) {
 	for row := c.Row; row < c.Row+size; row++ {
 		for col := c.Col; col < c.Col+size; col++ {
 			w.grid.SetWalkable(col, row, walkable)
@@ -224,7 +224,7 @@ func (w *world) block(c ai.Cell, size int, walkable bool) {
 }
 
 // addBuilding places a building of type b for t with its top-left cell at c, finished or under construction.
-func (w *world) addBuilding(t team, b *buildingRules, c ai.Cell, finished bool) *entity {
+func (w *world) addBuilding(t team, b *buildingRules, c pathfind.Cell, finished bool) *entity {
 	w.nextID++
 	e := &entity{id: w.nextID, team: t, building: b, maxHP: b.HP, hp: b.HP, cell: c, node: -1}
 	if !finished {
@@ -265,7 +265,7 @@ func (w *world) spawn(t team, u *unitRules, from *entity) *entity {
 // doorOf returns the center of the walkable cell nearest the middle of b's bottom edge, where its units come out.
 func (w *world) doorOf(b *entity) math2d.Vec2 {
 	size := b.building.Size
-	start := ai.Cell{Col: b.cell.Col + size/2, Row: b.cell.Row + size}
+	start := pathfind.Cell{Col: b.cell.Col + size/2, Row: b.cell.Row + size}
 	if c, ok := w.nearestWalkable(start); ok {
 		return w.cellCenter(c)
 	}
@@ -273,9 +273,9 @@ func (w *world) doorOf(b *entity) math2d.Vec2 {
 }
 
 // nearestWalkable returns the walkable cell nearest c in rings of growing size, scanning each ring row by row.
-func (w *world) nearestWalkable(c ai.Cell) (ai.Cell, bool) {
+func (w *world) nearestWalkable(c pathfind.Cell) (pathfind.Cell, bool) {
 	for r := 0; r < max(w.cols, w.rows); r++ {
-		best, bestD, found := ai.Cell{}, 0, false
+		best, bestD, found := pathfind.Cell{}, 0, false
 		for row := c.Row - r; row <= c.Row+r; row++ {
 			for col := c.Col - r; col <= c.Col+r; col++ {
 				if max(abs(col-c.Col), abs(row-c.Row)) != r || !w.grid.Walkable(col, row) {
@@ -283,7 +283,7 @@ func (w *world) nearestWalkable(c ai.Cell) (ai.Cell, bool) {
 				}
 				d := (col-c.Col)*(col-c.Col) + (row-c.Row)*(row-c.Row)
 				if !found || d < bestD {
-					best, bestD, found = ai.Cell{Col: col, Row: row}, d, true
+					best, bestD, found = pathfind.Cell{Col: col, Row: row}, d, true
 				}
 			}
 		}
@@ -291,7 +291,7 @@ func (w *world) nearestWalkable(c ai.Cell) (ai.Cell, bool) {
 			return best, true
 		}
 	}
-	return ai.Cell{}, false
+	return pathfind.Cell{}, false
 }
 
 // step advances the skirmish by one fixed step.
@@ -636,11 +636,11 @@ func (w *world) rectDist(p math2d.Vec2, r math2d.Rect) float32 {
 	return p.Dist(r.ClampPoint(p))
 }
 
-func (w *world) cellCenter(c ai.Cell) math2d.Vec2 {
+func (w *world) cellCenter(c pathfind.Cell) math2d.Vec2 {
 	return math2d.V2((float32(c.Col)+0.5)*w.cell, (float32(c.Row)+0.5)*w.cell)
 }
 
-func (w *world) cellRect(c ai.Cell) math2d.Rect {
+func (w *world) cellRect(c pathfind.Cell) math2d.Rect {
 	return math2d.Rect{X: float32(c.Col) * w.cell, Y: float32(c.Row) * w.cell, W: w.cell, H: w.cell}
 }
 

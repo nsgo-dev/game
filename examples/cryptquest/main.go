@@ -1,5 +1,5 @@
 // Command cryptquest is a top-down tile-based dungeon adventure built with the
-// NSGo 2D game SDK. It demonstrates ai.AStar obstacle-avoiding enemy
+// NSGo 2D game SDK. It demonstrates pathfind.AStar obstacle-avoiding enemy
 // pathfinding driven by flow.Machine, multi-page typewriter dialogue boxes
 // rendered with text.DrawPlatform plus native NSGo controls, and versioned
 // save/load persistence via save.NewStorageStore.

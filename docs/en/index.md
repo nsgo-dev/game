@@ -53,9 +53,10 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `skeletal` | `github.com/nsgo-dev/game/pkg/skeletal` | [skeletal](skeletal.md) | 2D skeletal rigs in versioned YAML, loaded, saved, animated and drawn through `sprite.Batch` |
 | `cards` | `github.com/nsgo-dev/game/pkg/cards` | [cards](cards.md) | Drag and drop between board slots with snap and return, fanned hands, decks, piles and grids, and YAML board files |
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | Room maps with per-room camera bounds and cut, slide or fade transitions between them |
-| `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception |
+| `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | Steering behaviors, ORCA avoidance, behavior trees, utility AI, GOAP, tactical queries and perception |
 | `ai/perception3d` | `github.com/nsgo-dev/game/pkg/ai/perception3d` | [ai](ai.md#3d) | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
-| `ai/navbake` | `github.com/nsgo-dev/game/pkg/ai/navbake` | [navbake](navbake.md) | Bakes `ai.NavMesh` polygons from concave obstacles or a tilemap's solid cells for each agent radius, saved as versioned YAML, with a debug overlay |
+| `pathfind` | `github.com/nsgo-dev/game/pkg/pathfind` | [pathfind](pathfind.md) | Grid `AStar`, HPA*, JPS, graph and waypoint search, 2D `NavMesh` with `NavAgent`, tiled meshes and budgeted path queues |
+| `pathfind/navbake` | `github.com/nsgo-dev/game/pkg/pathfind/navbake` | [navbake](navbake.md) | Bakes `pathfind.NavMesh` polygons from concave obstacles or a tilemap's solid cells for each agent radius, saved as versioned YAML, with a debug overlay |
 | `rts` | `github.com/nsgo-dev/game/pkg/rts` | [rts](rts.md) | Flow fields, a `Crowd` of many units with separation, YAML formations, box/click selection and control groups |
 | `procgen` | `github.com/nsgo-dev/game/pkg/procgen` | [procgen](procgen.md) | Seeded BSP rooms, cellular-automata caves and wave function collapse from YAML rules, with connectivity checks and tilemap painting |
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | Input `Recorder`/`Player` with editable YAML recordings and deterministic test assertions |

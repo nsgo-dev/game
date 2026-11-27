@@ -7,14 +7,15 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
 // These tests pin the exact output of NavMeshGenerator and of PathDistanceTest's NavMesh branch, bit for bit, so that moving the navigation code into its own package (and the sampling and path-length primitives behind a new API) is provably behavior-preserving. The expectations were recorded from the implementation in pkg/ai/tactical.go before that move, on darwin/arm64 and linux/amd64.
 
 // navPinMeshU is the U-shaped corridor from TestGeneratorsAndTests: left room, top bridge, right room.
-func navPinMeshU() *ai.NavMesh {
-	return ai.BuildNavMesh([][]core.Point{
+func navPinMeshU() *pathfind.NavMesh {
+	return pathfind.BuildNavMesh([][]core.Point{
 		{{X: 0, Y: 0}, {X: 60, Y: 0}, {X: 60, Y: 100}, {X: 0, Y: 100}},
 		{{X: 60, Y: 0}, {X: 180, Y: 0}, {X: 180, Y: 30}, {X: 60, Y: 30}},
 		{{X: 180, Y: 0}, {X: 240, Y: 0}, {X: 240, Y: 100}, {X: 180, Y: 100}},
@@ -22,16 +23,16 @@ func navPinMeshU() *ai.NavMesh {
 }
 
 // navPinMeshRooms is the two-room mesh from TestZeroAllocAfterWarmup.
-func navPinMeshRooms() *ai.NavMesh {
-	return ai.BuildNavMesh([][]core.Point{
+func navPinMeshRooms() *pathfind.NavMesh {
+	return pathfind.BuildNavMesh([][]core.Point{
 		{{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 100}, {X: 0, Y: 100}},
 		{{X: 100, Y: 20}, {X: 200, Y: 20}, {X: 200, Y: 80}, {X: 100, Y: 80}},
 	})
 }
 
 // navPinMeshSkew has fractional, non-axis-aligned vertices so centroids and containment tests exercise rounding.
-func navPinMeshSkew() *ai.NavMesh {
-	return ai.BuildNavMesh([][]core.Point{
+func navPinMeshSkew() *pathfind.NavMesh {
+	return pathfind.BuildNavMesh([][]core.Point{
 		{{X: 0, Y: 0}, {X: 37.5, Y: -5}, {X: 52.25, Y: 41}, {X: 3, Y: 30}},
 		{{X: 37.5, Y: -5}, {X: 90, Y: 10}, {X: 52.25, Y: 41}},
 	})

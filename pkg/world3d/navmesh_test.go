@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -54,10 +54,10 @@ func TestNavMesh3DAreaCostsPreferRoadOverGrass(t *testing.T) {
 	}
 	assertPath3D(t, defaultPath, []math3d.Vec3{start, goal}, 1e-3)
 
-	// Shared ai.NavFilter works directly with world3d.NavMesh (type alias).
-	filter := ai.DefaultNavFilter()
-	filter.SetAreaCost(ai.NavAreaRoad, 0.5)
-	filter.SetAreaCost(ai.NavAreaGrass, 1.0)
+	// Shared pathfind.NavFilter works directly with world3d.NavMesh (type alias).
+	filter := pathfind.DefaultNavFilter()
+	filter.SetAreaCost(pathfind.NavAreaRoad, 0.5)
+	filter.SetAreaCost(pathfind.NavAreaGrass, 1.0)
 
 	roadPath, ok := nm.FindPathWithFilter(start, goal, filter)
 	if !ok {

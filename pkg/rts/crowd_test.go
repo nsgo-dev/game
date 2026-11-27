@@ -9,6 +9,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/rts"
 )
 
@@ -27,7 +28,7 @@ func allArrived(c *rts.Crowd) bool {
 }
 
 // blocked reports whether a body of radius r at p overlaps a blocked cell or leaves the grid, allowing eps of penetration.
-func blocked(g ai.Grid, p math2d.Vec2, r, eps float32) bool {
+func blocked(g pathfind.Grid, p math2d.Vec2, r, eps float32) bool {
 	cols, rows := g.GridSize()
 	if p.X < r-eps || p.Y < r-eps || p.X > float32(cols)-r+eps || p.Y > float32(rows)-r+eps {
 		return true
@@ -126,7 +127,7 @@ func TestCrowdIsDeterministic(t *testing.T) {
 }
 
 func TestCrowdSeparatesStackedUnits(t *testing.T) {
-	c := rts.NewCrowd(ai.NewBoolGrid(20, 20), rts.CrowdOptions{})
+	c := rts.NewCrowd(pathfind.NewBoolGrid(20, 20), rts.CrowdOptions{})
 	var ids []rts.UnitID
 	for range 10 {
 		ids = append(ids, c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 10, Y: 10}, Radius: 0.4}))
@@ -149,7 +150,7 @@ func TestCrowdSeparatesStackedUnits(t *testing.T) {
 }
 
 func TestCrowdSlidesAlongWalls(t *testing.T) {
-	g := ai.NewBoolGrid(10, 10)
+	g := pathfind.NewBoolGrid(10, 10)
 	for r := range 10 {
 		g.SetWalkable(5, r, false)
 	}
@@ -173,7 +174,7 @@ func TestCrowdSlidesAlongWalls(t *testing.T) {
 }
 
 func TestMoveMovesSlotsOffWalls(t *testing.T) {
-	g := ai.NewBoolGrid(30, 30)
+	g := pathfind.NewBoolGrid(30, 30)
 	for c := 10; c < 20; c++ {
 		for r := 10; r < 20; r++ {
 			g.SetWalkable(c, r, false)
@@ -184,9 +185,9 @@ func TestMoveMovesSlotsOffWalls(t *testing.T) {
 	if n := c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 15, Y: 15}}); n != 25 {
 		t.Fatalf("Move into a solid block ordered %d units", n)
 	}
-	cells := map[ai.Cell]int{}
+	cells := map[pathfind.Cell]int{}
 	for _, u := range c.Units() {
-		cell := ai.Cell{Col: int(u.Target.X), Row: int(u.Target.Y)}
+		cell := pathfind.Cell{Col: int(u.Target.X), Row: int(u.Target.Y)}
 		if !g.Walkable(cell.Col, cell.Row) || blocked(g, u.Target, u.Radius, 1e-3) {
 			t.Fatalf("slot %v is in a wall", u.Target)
 		}
@@ -207,7 +208,7 @@ func TestMoveMovesSlotsOffWalls(t *testing.T) {
 
 func TestMoveFollowsOwnFieldAcrossSplitFormation(t *testing.T) {
 	// A wall splits the formation's area; units whose slots lie beyond it must go around rather than stop at the nearest slot cell.
-	g := ai.NewBoolGrid(40, 30)
+	g := pathfind.NewBoolGrid(40, 30)
 	for r := range 25 {
 		g.SetWalkable(20, r, false)
 	}
@@ -225,7 +226,7 @@ func TestMoveFollowsOwnFieldAcrossSplitFormation(t *testing.T) {
 }
 
 func TestCrowdAddRemoveStopAndQueries(t *testing.T) {
-	c := rts.NewCrowd(ai.NewBoolGrid(20, 20), rts.CrowdOptions{CellSize: 2})
+	c := rts.NewCrowd(pathfind.NewBoolGrid(20, 20), rts.CrowdOptions{CellSize: 2})
 	a := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 5, Y: 5}, Kind: 1})
 	b := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 9, Y: 5}, Kind: 2})
 	d := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 30, Y: 30}, Kind: 1})
@@ -366,7 +367,7 @@ func BenchmarkMove1000(b *testing.B) {
 
 func TestCrowdRebuildReroutesUnitsOnEvictedFields(t *testing.T) {
 	// A wall down the middle with two gaps, one near the top and one near the bottom.
-	g := ai.NewBoolGrid(40, 20)
+	g := pathfind.NewBoolGrid(40, 20)
 	for r := range 20 {
 		if r != 2 && r != 3 && r != 16 && r != 17 {
 			g.SetWalkable(20, r, false)
@@ -398,7 +399,7 @@ func TestCrowdRebuildReroutesUnitsOnEvictedFields(t *testing.T) {
 }
 
 func TestCrowdRebuildStopsUnitsWhoseGoalsAreBlocked(t *testing.T) {
-	g := ai.NewBoolGrid(10, 10)
+	g := pathfind.NewBoolGrid(10, 10)
 	c := rts.NewCrowd(g, rts.CrowdOptions{})
 	id := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 1.5, Y: 1.5}, Radius: 0.35})
 	c.Move([]rts.UnitID{id}, rts.MoveOrder{Target: math2d.Vec2{X: 8.5, Y: 8.5}})
@@ -412,7 +413,7 @@ func TestCrowdRebuildStopsUnitsWhoseGoalsAreBlocked(t *testing.T) {
 	if u, _ := c.Unit(id); u.State != rts.Idle {
 		t.Fatalf("unit ordered into a cell now blocked is %v, want idle", u.State)
 	}
-	if _, ok := c.Fields().Field(ai.Cell{Col: 8, Row: 8}); ok {
+	if _, ok := c.Fields().Field(pathfind.Cell{Col: 8, Row: 8}); ok {
 		t.Fatal("the cache still serves a field whose only goal is blocked")
 	}
 }
@@ -452,7 +453,7 @@ func TestCrowdSanitizesNonFiniteOptions(t *testing.T) {
 		{Origin: math2d.Vec2{X: nan, Y: inf}, CellSize: nan, Separation: nan, Gap: nan, ArriveRadius: nan, DirectRange: nan, Responsiveness: nan},
 		{CellSize: inf, Separation: inf, Gap: inf, ArriveRadius: inf, DirectRange: inf, Responsiveness: inf},
 	} {
-		c := rts.NewCrowd(ai.NewBoolGrid(20, 20), opts)
+		c := rts.NewCrowd(pathfind.NewBoolGrid(20, 20), opts)
 		ids := spawnBlock(c, 9, 3, math2d.Vec2{X: 2.5, Y: 2.5})
 		c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 15, Y: 15}})
 		for range 60 * 10 {
@@ -467,7 +468,7 @@ func TestCrowdSanitizesNonFiniteOptions(t *testing.T) {
 }
 
 func TestCrowdStepsHugeUnits(t *testing.T) {
-	c := rts.NewCrowd(ai.NewBoolGrid(20, 20), rts.CrowdOptions{})
+	c := rts.NewCrowd(pathfind.NewBoolGrid(20, 20), rts.CrowdOptions{})
 	c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 5, Y: 5}, Radius: 1e6})
 	c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 6, Y: 5}, Radius: 0.4})
 	// A body wider than the map costs no more than the map to keep inside it.
@@ -478,7 +479,7 @@ func TestCrowdStepsHugeUnits(t *testing.T) {
 
 func TestCrowdORCAHeadOnAndMazeNavigation(t *testing.T) {
 	t.Run("head-on opposing units pass without overlapping", func(t *testing.T) {
-		g := ai.NewBoolGrid(30, 20)
+		g := pathfind.NewBoolGrid(30, 20)
 		c := rts.NewCrowd(g, rts.CrowdOptions{
 			Avoidance: rts.AvoidanceORCA,
 			ORCA:      ai.ORCAConfig{TimeHorizon: 2.0},

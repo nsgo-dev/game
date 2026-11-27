@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // UnitID identifies a unit in a Crowd. IDs start at 1 and are never reused, so 0 is never a valid ID.
@@ -66,7 +67,7 @@ type Unit struct {
 	Target math2d.Vec2
 
 	field    *FlowField
-	path     []ai.Cell // the detour's path from where it was planned to the unit's slot
+	path     []pathfind.Cell // the detour's path from where it was planned to the unit's slot
 	pathIdx  int
 	speedCap float32
 	direct   bool
@@ -119,11 +120,11 @@ type CrowdOptions struct {
 	ORCA ai.ORCAConfig
 }
 
-// Crowd moves many units over an ai.Grid. Units follow shared flow fields to their targets, keep apart from each other, and slide along blocked cells and the grid's edge.
+// Crowd moves many units over a pathfind.Grid. Units follow shared flow fields to their targets, keep apart from each other, and slide along blocked cells and the grid's edge.
 //
 // Step advances every unit by one fixed step in O(n + b) time for n units, where b is the number of neighbor buckets, each as wide as the largest unit's reach or a cell, covering the units' bounding box: neighbors are found through that bucket grid, rebuilt each step without allocating once its buffers have grown, and each unit reads its flow field in constant time. Forces are computed from the positions at the start of the step for every unit before any unit moves, so the result does not depend on the order units move in within a step. It does depend on the order units were added in, which sets their IDs and the order their pushes are summed, so a replay must add the same units in the same order. A Crowd is not safe for concurrent use.
 type Crowd struct {
-	grid   ai.Grid
+	grid   pathfind.Grid
 	opts   CrowdOptions
 	fields *FieldCache
 
@@ -134,14 +135,14 @@ type Crowd struct {
 
 	accel      []math2d.Vec2
 	buckets    bucketGrid
-	astar      *ai.AStar
+	astar      *pathfind.AStar
 	orcaSolver *ai.ORCASolver
 	orcaAgents []ai.ORCAAgent
 	orcaVels   []math2d.Vec2
 }
 
 // NewCrowd returns an empty crowd moving units over grid.
-func NewCrowd(grid ai.Grid, opts CrowdOptions) *Crowd {
+func NewCrowd(grid pathfind.Grid, opts CrowdOptions) *Crowd {
 	opts.CellSize = validCellSize(opts.CellSize)
 	if !finite(opts.Origin.X) {
 		opts.Origin.X = 0
@@ -182,7 +183,7 @@ func NewCrowd(grid ai.Grid, opts CrowdOptions) *Crowd {
 }
 
 // Grid returns the grid the crowd moves over.
-func (c *Crowd) Grid() ai.Grid { return c.grid }
+func (c *Crowd) Grid() pathfind.Grid { return c.grid }
 
 // Fields returns the crowd's flow field cache. After changing the grid, call the Crowd's Rebuild rather than the cache's, so fields the cache has since dropped but units still follow are rebuilt too.
 func (c *Crowd) Fields() *FieldCache { return c.fields }
@@ -525,7 +526,7 @@ func (c *Crowd) desired(u *Unit) math2d.Vec2 {
 	return arrive(toTarget, dist, u.speedCap, 2*u.Radius)
 }
 
-// planDetour replaces u's path with an ai.AStar path from its cell to its target's cell and reports whether one was found.
+// planDetour replaces u's path with a pathfind.AStar path from its cell to its target's cell and reports whether one was found.
 func (c *Crowd) planDetour(u *Unit) bool {
 	u.path, u.pathIdx = u.path[:0], 0
 	from, in1 := c.cellAt(u.Pos)
@@ -534,7 +535,7 @@ func (c *Crowd) planDetour(u *Unit) bool {
 		return false
 	}
 	if c.astar == nil {
-		c.astar = ai.NewAStar()
+		c.astar = pathfind.NewAStar()
 		c.astar.Diagonal = true
 	}
 	path, _, found := c.astar.FindInto(u.path[:0], c.grid, from, to)
@@ -624,12 +625,12 @@ func (c *Crowd) gridSize() (cols, rows int) {
 	return c.grid.GridSize()
 }
 
-func (c *Crowd) cellAt(p math2d.Vec2) (ai.Cell, bool) {
+func (c *Crowd) cellAt(p math2d.Vec2) (pathfind.Cell, bool) {
 	cols, rows := c.gridSize()
 	return cellAt(p, c.opts.Origin, c.opts.CellSize, cols, rows)
 }
 
-// walkable reports whether (col, row) is inside the grid and walkable. It checks the bounds itself because ai.Grid leaves out-of-bounds cells to each implementation, and a game's own grid may index a slice with them.
+// walkable reports whether (col, row) is inside the grid and walkable. It checks the bounds itself because pathfind.Grid leaves out-of-bounds cells to each implementation, and a game's own grid may index a slice with them.
 func (c *Crowd) walkable(col, row int) bool {
 	if c.grid == nil || col < 0 || row < 0 {
 		return false
@@ -690,7 +691,7 @@ func (c *Crowd) pushOut(p math2d.Vec2, r float32, vel *math2d.Vec2) math2d.Vec2 
 }
 
 // escape returns the point nearest p, at least radius inside a walkable cell next to the blocked cell holding p.
-func (c *Crowd) escape(p math2d.Vec2, cell ai.Cell, radius float32) (math2d.Vec2, bool) {
+func (c *Crowd) escape(p math2d.Vec2, cell pathfind.Cell, radius float32) (math2d.Vec2, bool) {
 	cs := c.opts.CellSize
 	o := c.opts.Origin
 	best := math2d.Vec2{}

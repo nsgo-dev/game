@@ -6,8 +6,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -57,8 +57,8 @@ layers:
 		!l.End.ApproxEqual(math3d.Vec3{X: 13, Y: 0, Z: 5}, 1e-5) {
 		t.Fatalf("endpoints = %v -> %v, want (9,4,5)->(13,0,5)", l.Start, l.End)
 	}
-	if l.Radius != 0.5 || l.Bidirectional || l.Cost != 2.5 || l.Area != ai.NavAreaJump ||
-		l.Flags != uint32(ai.NavFlagJump) || l.ID != 101 || l.UserData != "drop" {
+	if l.Radius != 0.5 || l.Bidirectional || l.Cost != 2.5 || l.Area != pathfind.NavAreaJump ||
+		l.Flags != uint32(pathfind.NavFlagJump) || l.ID != 101 || l.UserData != "drop" {
 		t.Fatalf("extracted link mismatch: %+v", l)
 	}
 
@@ -82,7 +82,7 @@ layers:
 }
 
 func TestExtractNavLinks2DAnd3DWithHierarchyAndInstancing(t *testing.T) {
-	// 2D rotated parent + child nav_link, wired into an ai.NavMesh.
+	// 2D rotated parent + child nav_link, wired into a pathfind.NavMesh.
 	halfPi := float32(math.Pi / 2)
 	doc2D := &sceneformat.SceneDoc{
 		Version: 2,
@@ -104,7 +104,7 @@ func TestExtractNavLinks2DAnd3DWithHierarchyAndInstancing(t *testing.T) {
 										"startY":   1.0, // rotated -> (-1, 0) => world (9, 5)
 										"endX":     0.0,
 										"endY":     -11.0, // rotated -> (+11, 0) => world (21, 5)
-										"area":     int(ai.NavAreaJump),
+										"area":     int(pathfind.NavAreaJump),
 										"linkID":   9,
 										"userData": "jump",
 									},
@@ -129,7 +129,7 @@ func TestExtractNavLinks2DAnd3DWithHierarchyAndInstancing(t *testing.T) {
 		t.Fatalf("2D transformed endpoints = %v -> %v, want (9,5)->(21,5)", links2D[0].Start, links2D[0].End)
 	}
 
-	nav2D := ai.BuildNavMesh([][]core.Point{
+	nav2D := pathfind.BuildNavMesh([][]core.Point{
 		{{X: 0, Y: 0}, {X: 10, Y: 0}, {X: 10, Y: 10}, {X: 0, Y: 10}},
 		{{X: 20, Y: 0}, {X: 30, Y: 0}, {X: 30, Y: 10}, {X: 20, Y: 10}},
 	})
@@ -138,7 +138,7 @@ func TestExtractNavLinks2DAnd3DWithHierarchyAndInstancing(t *testing.T) {
 			t.Fatalf("AddOffMeshLink(%+v) returned false", l)
 		}
 	}
-	res2D := nav2D.FindPathWithOptions(core.Point{X: 2, Y: 5}, core.Point{X: 28, Y: 5}, ai.PathOptions{})
+	res2D := nav2D.FindPathWithOptions(core.Point{X: 2, Y: 5}, core.Point{X: 28, Y: 5}, pathfind.PathOptions{})
 	if !res2D.Found || len(res2D.Links) != 1 || res2D.Links[0].UserData != "jump" {
 		t.Fatalf("2D path via scene nav_link failed: %+v", res2D)
 	}
@@ -202,7 +202,7 @@ layers:
 			t.Fatalf("3D AddOffMeshLink(%+v) returned false", l)
 		}
 	}
-	res3D := nav3D.FindPathWithOptions(math3d.Vec3{X: 1, Y: 0, Z: 1}, math3d.Vec3{X: 9, Y: 4, Z: 9}, ai.PathOptions{})
+	res3D := nav3D.FindPathWithOptions(math3d.Vec3{X: 1, Y: 0, Z: 1}, math3d.Vec3{X: 9, Y: 4, Z: 9}, pathfind.PathOptions{})
 	if !res3D.Found || len(res3D.Links) != 1 || res3D.Links[0].UserData != "ladder" || res3D.Links[0].LinkID != 33 {
 		t.Fatalf("3D path via instanced scene ladder failed: %+v", res3D)
 	}

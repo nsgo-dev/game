@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/rts"
 	"go.yaml.in/yaml/v3"
 )
@@ -427,7 +428,7 @@ func (m *battleMap) validate() error {
 
 // fits checks that every headquarters and pad of m has room for its building under r, and that no two footprints share a cell.
 func (m *battleMap) fits(r *rules) error {
-	claimed := map[ai.Cell]bool{}
+	claimed := map[pathfind.Cell]bool{}
 	for _, site := range []struct {
 		marker byte
 		name   string
@@ -437,7 +438,7 @@ func (m *battleMap) fits(r *rules) error {
 		for _, c := range m.find(site.marker) {
 			for row := c.Row; row < c.Row+size; row++ {
 				for col := c.Col; col < c.Col+size; col++ {
-					cell := ai.Cell{Col: col, Row: row}
+					cell := pathfind.Cell{Col: col, Row: row}
 					if claimed[cell] {
 						return fmt.Errorf("tiles: the %s at column %d row %d overlaps another headquarters or pad at column %d row %d", name, c.Col, c.Row, col, row)
 					}
@@ -464,11 +465,11 @@ func (m *battleMap) tile(col, row int) (byte, bool) {
 }
 
 // find returns every cell holding tile t, row by row.
-func (m *battleMap) find(t byte) []ai.Cell {
-	var out []ai.Cell
+func (m *battleMap) find(t byte) []pathfind.Cell {
+	var out []pathfind.Cell
 	for i, c := range m.cells {
 		if c == t {
-			out = append(out, ai.Cell{Col: i % m.cols, Row: i / m.cols})
+			out = append(out, pathfind.Cell{Col: i % m.cols, Row: i / m.cols})
 		}
 	}
 	return out

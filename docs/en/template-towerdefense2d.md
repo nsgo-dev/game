@@ -13,7 +13,7 @@ go tool nsgo dev
 ## What it shows
 
 - The level, its waves and enemies, the towers with their upgrades, and the projectiles are three YAML files that `game.yaml` [autoloads](project.md), checked against each other when the game starts.
-- The road is the shortest path over the map's road tiles, found with `ai.AStar` ([ai](ai.md)); the map is a [tilemap](tilemap.md) whose cells are flagged road, buildable or solid.
+- The road is the shortest path over the map's road tiles, found with `pathfind.AStar` ([pathfind](pathfind.md)); the map is a [tilemap](tilemap.md) whose cells are flagged road, buildable or solid.
 - Towers and enemies keep their numbers on [stats](stats.md) sheets: an upgrade is a permanent stat effect, and a frost tower's slow is a timed modifier on the enemy's speed.
 - Towers fire [bullets](bullets.md) patterns at the enemy furthest along the road, leading it by the projectile's flight time; a mortar's hit splashes, a frost bolt slows.
 - A fixed-step [loop](loop.md) runs the world at 60 steps a second, up to three steps an update at the fastest speed, and a [screen](screen.md) viewport fits the 480 by 320 map to any window under a native HUD, requesting landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`).

@@ -4,50 +4,50 @@ import (
 	"math"
 	"slices"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // NavArea identifies the surface or terrain category of a 3D navigation polygon.
-// It aliases ai.NavArea so the same area IDs and NavFilters work seamlessly across 2D and 3D meshes.
-type NavArea = ai.NavArea
+// It aliases pathfind.NavArea so the same area IDs and NavFilters work seamlessly across 2D and 3D meshes.
+type NavArea = pathfind.NavArea
 
 // NavFlags is a bitmask of runtime traversal capabilities and states on a 3D navigation polygon.
-// It aliases ai.NavFlags so the same flags and NavFilters work seamlessly across 2D and 3D meshes.
-type NavFlags = ai.NavFlags
+// It aliases pathfind.NavFlags so the same flags and NavFilters work seamlessly across 2D and 3D meshes.
+type NavFlags = pathfind.NavFlags
 
 // NavFilter controls which 3D navigation polygons a query may traverse and how
 // each polygon's area scales traversal cost.
-type NavFilter = ai.NavFilter
+type NavFilter = pathfind.NavFilter
 
 const (
-	NavAreaDefault  = ai.NavAreaDefault
-	NavAreaRoad     = ai.NavAreaRoad
-	NavAreaGrass    = ai.NavAreaGrass
-	NavAreaMud      = ai.NavAreaMud
-	NavAreaWater    = ai.NavAreaWater
-	NavAreaDoor     = ai.NavAreaDoor
-	NavAreaHazard   = ai.NavAreaHazard
-	NavAreaJump     = ai.NavAreaJump
-	NavAreaClimb    = ai.NavAreaClimb
-	NavAreaTeleport = ai.NavAreaTeleport
+	NavAreaDefault  = pathfind.NavAreaDefault
+	NavAreaRoad     = pathfind.NavAreaRoad
+	NavAreaGrass    = pathfind.NavAreaGrass
+	NavAreaMud      = pathfind.NavAreaMud
+	NavAreaWater    = pathfind.NavAreaWater
+	NavAreaDoor     = pathfind.NavAreaDoor
+	NavAreaHazard   = pathfind.NavAreaHazard
+	NavAreaJump     = pathfind.NavAreaJump
+	NavAreaClimb    = pathfind.NavAreaClimb
+	NavAreaTeleport = pathfind.NavAreaTeleport
 )
 
 const (
-	NavFlagWalk     = ai.NavFlagWalk
-	NavFlagSwim     = ai.NavFlagSwim
-	NavFlagDoor     = ai.NavFlagDoor
-	NavFlagJump     = ai.NavFlagJump
-	NavFlagClimb    = ai.NavFlagClimb
-	NavFlagTeleport = ai.NavFlagTeleport
-	NavFlagDisabled = ai.NavFlagDisabled
-	NavFlagAll      = ai.NavFlagAll
+	NavFlagWalk     = pathfind.NavFlagWalk
+	NavFlagSwim     = pathfind.NavFlagSwim
+	NavFlagDoor     = pathfind.NavFlagDoor
+	NavFlagJump     = pathfind.NavFlagJump
+	NavFlagClimb    = pathfind.NavFlagClimb
+	NavFlagTeleport = pathfind.NavFlagTeleport
+	NavFlagDisabled = pathfind.NavFlagDisabled
+	NavFlagAll      = pathfind.NavFlagAll
 )
 
 // DefaultNavFilter returns the default query filter matching BuildNavMesh defaults:
 // every non-zero, non-disabled polygon is traversable at unit cost (1.0).
 func DefaultNavFilter() NavFilter {
-	return ai.DefaultNavFilter()
+	return pathfind.DefaultNavFilter()
 }
 
 // NavPolygonInput describes a single convex 3D polygon together with its
@@ -807,9 +807,9 @@ func (nm *NavMesh) FindCorridorWithFilter(start, goal math3d.Vec3, filter NavFil
 }
 
 func (nm *NavMesh) findCorridorWithFilter(start, goal math3d.Vec3, filter NavFilter) ([]int, []NavLink, bool) {
-	s := NewNavMeshSearchWithFilter(nm, start, goal, filter, ai.PathOptions{})
+	s := NewNavMeshSearchWithFilter(nm, start, goal, filter, pathfind.PathOptions{})
 	s.step(-1)
-	if s.status != ai.SearchComplete {
+	if s.status != pathfind.SearchComplete {
 		return nil, nil, false
 	}
 	if s.samePoly || s.parent[s.goalNode] == -1 {
@@ -845,7 +845,7 @@ func (nm *NavMesh) FindPath(start, goal math3d.Vec3) ([]math3d.Vec3, bool) {
 // Returns (nil, false) if either endpoint is off the traversable NavMesh or no
 // connected corridor exists between them.
 func (nm *NavMesh) FindPathWithFilter(start, goal math3d.Vec3, filter NavFilter) ([]math3d.Vec3, bool) {
-	res := nm.FindPathWithFilterAndOptions(start, goal, filter, ai.PathOptions{})
+	res := nm.FindPathWithFilterAndOptions(start, goal, filter, pathfind.PathOptions{})
 	if !res.Found || res.Partial {
 		return nil, false
 	}
@@ -855,30 +855,30 @@ func (nm *NavMesh) FindPathWithFilter(start, goal math3d.Vec3, filter NavFilter)
 // FindPathWithOptions computes a 3D path from start to goal under DefaultNavFilter and opts,
 // supporting an expansion budget and optional partial paths ending at the closest reachable
 // 3D point on the NavMesh when goal is off-mesh, disconnected, or beyond MaxExpansions.
-func (nm *NavMesh) FindPathWithOptions(start, goal math3d.Vec3, opts ai.PathOptions) NavPathResult {
+func (nm *NavMesh) FindPathWithOptions(start, goal math3d.Vec3, opts pathfind.PathOptions) NavPathResult {
 	return nm.FindPathWithFilterAndOptions(start, goal, DefaultNavFilter(), opts)
 }
 
 // FindPathWithFilterAndOptions computes a minimum-cost 3D path from start to goal
 // restricted to polygons allowed by filter under opts, supporting an expansion budget
 // and optional partial paths.
-func (nm *NavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) NavPathResult {
+func (nm *NavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) NavPathResult {
 	s := NewNavMeshSearchWithFilter(nm, start, goal, filter, opts)
 	s.step(-1)
 	return s.Result()
 }
 
 // StartSearch begins an incremental 3D NavMesh search from start to goal under DefaultNavFilter and opts.
-func (nm *NavMesh) StartSearch(start, goal math3d.Vec3, opts ai.PathOptions) *NavMeshSearch {
+func (nm *NavMesh) StartSearch(start, goal math3d.Vec3, opts pathfind.PathOptions) *NavMeshSearch {
 	return NewNavMeshSearchWithFilter(nm, start, goal, DefaultNavFilter(), opts)
 }
 
 // StartSearchWithFilter begins an incremental 3D NavMesh search from start to goal under filter and opts.
-func (nm *NavMesh) StartSearchWithFilter(start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) *NavMeshSearch {
+func (nm *NavMesh) StartSearchWithFilter(start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) *NavMeshSearch {
 	return NewNavMeshSearchWithFilter(nm, start, goal, filter, opts)
 }
 
-var _ ai.IncrementalSearch = (*NavMeshSearch)(nil)
+var _ pathfind.IncrementalSearch = (*NavMeshSearch)(nil)
 
 type navShortcut3D struct {
 	start  math3d.Vec3
@@ -988,13 +988,13 @@ func heuristic3D(pt, goal math3d.Vec3, minCost float64, shortcuts []navShortcut3
 //
 // Stepping a search with any positive per-step expansion budget produces the exact same path,
 // links, partial flag, and expansion count as NavMesh.FindPathWithOptions / FindPathWithFilterAndOptions.
-// *NavMeshSearch implements ai.IncrementalSearch so it can be scheduled directly on ai.PathQueue.
+// *NavMeshSearch implements pathfind.IncrementalSearch so it can be scheduled directly on pathfind.PathQueue.
 type NavMeshSearch struct {
 	nm         *NavMesh
 	start      math3d.Vec3
 	goal       math3d.Vec3
 	filter     NavFilter
-	opts       ai.PathOptions
+	opts       pathfind.PathOptions
 	allowed    []bool
 	polyCost   []float64
 	minCost    float64
@@ -1013,7 +1013,7 @@ type NavMeshSearch struct {
 	heapPos []int
 	open    []navAStarNode
 
-	status       ai.SearchStatus
+	status       pathfind.SearchStatus
 	exhausted    bool
 	expansions   int
 	samePoly     bool
@@ -1026,19 +1026,19 @@ type NavMeshSearch struct {
 }
 
 // NewNavMeshSearch initializes an incremental 3D NavMesh search from start to goal under DefaultNavFilter and opts.
-func NewNavMeshSearch(nm *NavMesh, start, goal math3d.Vec3, opts ai.PathOptions) *NavMeshSearch {
+func NewNavMeshSearch(nm *NavMesh, start, goal math3d.Vec3, opts pathfind.PathOptions) *NavMeshSearch {
 	return NewNavMeshSearchWithFilter(nm, start, goal, DefaultNavFilter(), opts)
 }
 
 // NewNavMeshSearchWithFilter initializes an incremental 3D NavMesh search from start to goal under filter and opts.
-func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) *NavMeshSearch {
+func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) *NavMeshSearch {
 	s := &NavMeshSearch{
 		nm:           nm,
 		start:        start,
 		goal:         goal,
 		filter:       filter,
 		opts:         opts,
-		status:       ai.SearchFailed,
+		status:       pathfind.SearchFailed,
 		directPoly:   -1,
 		bestPortalID: -1,
 	}
@@ -1146,7 +1146,7 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 				if start.ApproxEqual(goal, 1e-5) {
 					s.samePoly = true
 					s.directPoly = sp
-					s.status = ai.SearchComplete
+					s.status = pathfind.SearchComplete
 					return s
 				}
 				dc := dist3D(start, goal) * polyCost[sp]
@@ -1159,7 +1159,7 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 		}
 		if directPossible && directCost <= heuristic3D(start, goal, minCost, s.shortcuts, s.zeroH)+1e-9 {
 			s.samePoly = true
-			s.status = ai.SearchComplete
+			s.status = pathfind.SearchComplete
 			return s
 		}
 	}
@@ -1258,14 +1258,14 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 
 	if len(s.open) == 0 {
 		if opts.AllowPartial && s.hasBest {
-			s.status = ai.SearchPartial
+			s.status = pathfind.SearchPartial
 		} else {
-			s.status = ai.SearchFailed
+			s.status = pathfind.SearchFailed
 		}
 		return s
 	}
 
-	s.status = ai.SearchInProgress
+	s.status = pathfind.SearchInProgress
 	return s
 }
 
@@ -1285,9 +1285,9 @@ func (s *NavMeshSearch) pushOrUpdate(id int, f, h float64) {
 // Step advances the search by at most maxExpansions portal node expansions and returns
 // the updated status and exact number of expansions performed.
 // When maxExpansions <= 0 or the search is already finished, Step performs 0 expansions.
-func (s *NavMeshSearch) Step(maxExpansions int) (status ai.SearchStatus, expansions int) {
+func (s *NavMeshSearch) Step(maxExpansions int) (status pathfind.SearchStatus, expansions int) {
 	if s == nil {
-		return ai.SearchFailed, 0
+		return pathfind.SearchFailed, 0
 	}
 	if maxExpansions <= 0 || s.status.Done() {
 		return s.status, 0
@@ -1295,7 +1295,7 @@ func (s *NavMeshSearch) Step(maxExpansions int) (status ai.SearchStatus, expansi
 	return s.step(maxExpansions)
 }
 
-func (s *NavMeshSearch) step(stepLimit int) (ai.SearchStatus, int) {
+func (s *NavMeshSearch) step(stepLimit int) (pathfind.SearchStatus, int) {
 	if s.status.Done() {
 		return s.status, 0
 	}
@@ -1322,7 +1322,7 @@ func (s *NavMeshSearch) step(stepLimit int) (ai.SearchStatus, int) {
 		s.expansions++
 
 		if cur.id == s.goalNode {
-			s.status = ai.SearchComplete
+			s.status = pathfind.SearchComplete
 			return s.status, done
 		}
 		s.closed[cur.id] = true
@@ -1391,9 +1391,9 @@ func (s *NavMeshSearch) step(stepLimit int) (ai.SearchStatus, int) {
 	if len(s.open) == 0 {
 		s.exhausted = false
 		if s.opts.AllowPartial && s.hasBest {
-			s.status = ai.SearchPartial
+			s.status = pathfind.SearchPartial
 		} else {
-			s.status = ai.SearchFailed
+			s.status = pathfind.SearchFailed
 		}
 	} else if s.opts.MaxExpansions > 0 && s.expansions >= s.opts.MaxExpansions {
 		s.finishExhausted()
@@ -1405,16 +1405,16 @@ func (s *NavMeshSearch) step(stepLimit int) (ai.SearchStatus, int) {
 func (s *NavMeshSearch) finishExhausted() {
 	s.exhausted = true
 	if s.opts.AllowPartial && s.hasBest {
-		s.status = ai.SearchPartial
+		s.status = pathfind.SearchPartial
 	} else {
-		s.status = ai.SearchFailed
+		s.status = pathfind.SearchFailed
 	}
 }
 
 // Status returns the search's current status.
-func (s *NavMeshSearch) Status() ai.SearchStatus {
+func (s *NavMeshSearch) Status() pathfind.SearchStatus {
 	if s == nil {
-		return ai.SearchFailed
+		return pathfind.SearchFailed
 	}
 	return s.status
 }
@@ -1437,7 +1437,7 @@ func (s *NavMeshSearch) Result() NavPathResult {
 		Expansions: s.expansions,
 	}
 	switch s.status {
-	case ai.SearchComplete:
+	case pathfind.SearchComplete:
 		res.Found = true
 		if s.samePoly || s.parent[s.goalNode] == -1 {
 			if s.start.ApproxEqual(s.goal, 1e-5) {
@@ -1451,7 +1451,7 @@ func (s *NavMeshSearch) Result() NavPathResult {
 		res.Path, res.Links = s.nm.smoothCorridorWithLinks(corridor, portals, s.start, s.goal)
 		return res
 
-	case ai.SearchPartial:
+	case pathfind.SearchPartial:
 		res.Found = true
 		res.Partial = true
 		if s.bestPortalID < 0 {

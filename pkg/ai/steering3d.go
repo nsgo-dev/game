@@ -3,15 +3,14 @@ package ai
 import (
 	"math"
 	"time"
+
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
-// Vec3 is a 3-component float32 vector in right-handed Y-up space (+X right,
-// +Y up, -Z forward). Its field layout matches math3d.Vec3 so callers can
-// convert values with a zero-cost ai.Vec3(v) cast without importing the
-// experimental game/math3d package from stable game/ai.
-type Vec3 struct {
-	X, Y, Z float32
-}
+// Vec3 is a 3-component float32 vector in right-handed Y-up space (+X right, +Y up, -Z forward). Its field layout matches math3d.Vec3 so callers can convert values with a zero-cost ai.Vec3(v) cast.
+//
+// It is an alias of pathfind.Vec3 so the 3D steering API keeps its ai.Vec3 name while ai and pathfind, both stable, share one vector type without importing the experimental game/math3d package.
+type Vec3 = pathfind.Vec3
 
 // Agent3D is a 3D steering agent with position, velocity, and movement limits.
 //

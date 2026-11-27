@@ -1,8 +1,8 @@
 package rts
 
 import (
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -24,7 +24,7 @@ func DrawFlowField(d *core.Drawing, f *FlowField, col core.Color, lineWidth floa
 			if cost == Unreachable {
 				continue
 			}
-			center := cellCenter(ai.Cell{Col: c, Row: row}, f.Origin, size)
+			center := cellCenter(pathfind.Cell{Col: c, Row: row}, f.Origin, size)
 			if cost == 0 {
 				k := size * 0.2
 				d.MoveTo(center.X-k, center.Y-k).LineTo(center.X+k, center.Y+k)

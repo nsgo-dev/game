@@ -283,7 +283,7 @@ if hit, ok := m.Raycast(enemyEye, playerPos, tilemap.TileSolid); ok {
 
 - `TileOrigin(col, row)` 与 `TileToWorld(col, row)` 返回格子在世界空间中的包围盒原点与中心点，`WorldToTile(p)` 将格内任意世界坐标还原回 `(col, row)`。
 - `HexNeighbors(col, row)` 与 `HexDistance(c1, r1, c2, r2)` 针对两种交错轴与奇偶偏移计算精确的 6 邻格与立方距离。
-- 需要在这类投影地图上做寻路或战术移动范围查询时，可将 `ai.TopologyFromTilemap(m)` 传入 [`game/ai`](ai.md#六边形与交错等距拓扑)（`AStar.Topology`、`AStar.MovementRange`、`ReachableCells`），或用 `ai.NewHexGrid(m)` 直接包装六边形地图供 [`ai.GraphSearch`](ai.md#通用图搜索六边形适配器与航点图) 使用（含范围内每格的最短路径重建）。
+- 需要在这类投影地图上做寻路或战术移动范围查询时，可将 `pathfind.TopologyFromTilemap(m)` 传入 [`game/pathfind`](pathfind.md#六边形与交错等距拓扑)（`AStar.Topology`、`AStar.MovementRange`、`ReachableCells`），或用 `pathfind.NewHexGrid(m)` 直接包装六边形地图供 [`pathfind.GraphSearch`](pathfind.md#通用图搜索六边形适配器与航点图) 使用（含范围内每格的最短路径重建）。
 - 需要在等距、交错等距与六边形地图上做视线计算与对齐瓦片轮廓的战争迷雾绘制时，可用 `fog.NewFromTilemap(m, tilemap.TileSolid)` 构建 [`game/fog`](fog.md)。
 
 ## 稀疏分块图层与流式加载

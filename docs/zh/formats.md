@@ -1901,7 +1901,7 @@ root:
         home: home_pos
 ```
 
-<!-- format: ai/navbake -->
+<!-- format: pathfind/navbake -->
 ### 导航网格
 
 | 文件 | 版本 | 读写函数 | 字段 |

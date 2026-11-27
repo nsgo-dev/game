@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/random"
 )
 
@@ -412,7 +412,7 @@ func TestNavMesh3DFindPathIntoCorridorIntoAndZeroAllocs(t *testing.T) {
 		t.Fatalf("3D area-weighted FindPathWithFilterInto should detour via road, got %v", areaDst)
 	}
 
-	partRes := aq.FindPathWithFilterAndOptionsInto(areaDst, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 45, Y: 2, Z: 5}, filter, ai.PathOptions{AllowPartial: true})
+	partRes := aq.FindPathWithFilterAndOptionsInto(areaDst, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 45, Y: 2, Z: 5}, filter, pathfind.PathOptions{AllowPartial: true})
 	if !partRes.Found || !partRes.Partial || len(partRes.Path) < 2 {
 		t.Fatalf("3D partial FindPathWithFilterAndOptionsInto = %+v, want Found=true Partial=true", partRes)
 	}

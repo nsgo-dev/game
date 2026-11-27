@@ -3,8 +3,8 @@ package rts
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // MoveOrder sends a group of units to a target in formation.
@@ -21,7 +21,7 @@ type MoveOrder struct {
 
 // Move orders the units in ids that exist to take up o's formation around o.Target and returns how many were ordered.
 //
-// The slots are placed around the target facing o.Facing, and any slot that falls on a blocked cell, or on a cell the group cannot reach, moves to the nearest free cell that can be reached. Units are matched to slots with Assign, and the whole group shares one flow field whose goals are the slots' cells, built once (or found in the crowd's FieldCache) however many units there are. Each unit follows that field until it can see its own slot within the crowd's DirectRange, then walks straight to it; a unit that reaches the formation's area with a wall between it and its slot follows its own ai.AStar path there for the rest of the order, planning it afresh whenever the crowd pushes it off it.
+// The slots are placed around the target facing o.Facing, and any slot that falls on a blocked cell, or on a cell the group cannot reach, moves to the nearest free cell that can be reached. Units are matched to slots with Assign, and the whole group shares one flow field whose goals are the slots' cells, built once (or found in the crowd's FieldCache) however many units there are. Each unit follows that field until it can see its own slot within the crowd's DirectRange, then walks straight to it; a unit that reaches the formation's area with a wall between it and its slot follows its own pathfind.AStar path there for the rest of the order, planning it afresh whenever the crowd pushes it off it.
 //
 // When the units cannot reach o.Target, as when it lies on an island, the formation centers on the nearest cell they can reach instead. When o.Target is outside the grid, or the units stand nowhere they could walk from, Move orders nobody and returns 0.
 func (c *Crowd) Move(ids []UnitID, o MoveOrder) int {
@@ -94,7 +94,7 @@ func (c *Crowd) Move(ids []UnitID, o MoveOrder) int {
 	assigned := Assign(nil, positions, slots, facing)
 
 	// Move slots off blocked or unreachable cells, one slot per cell where the map allows.
-	taken := make(map[ai.Cell]bool, n)
+	taken := make(map[pathfind.Cell]bool, n)
 	for _, t := range targets {
 		if cell, in := c.cellAt(t); in && reach.Reachable(cell.Col, cell.Row) {
 			taken[cell] = true
@@ -118,7 +118,7 @@ func (c *Crowd) Move(ids []UnitID, o MoveOrder) int {
 		targets[k] = c.pushOut(t, maxRadius, nil)
 	}
 
-	goals := make([]ai.Cell, 0, n)
+	goals := make([]pathfind.Cell, 0, n)
 	for _, t := range targets {
 		if cell, in := c.cellAt(t); in {
 			goals = append(goals, cell)
@@ -153,8 +153,8 @@ func (c *Crowd) anyReachable(f *FlowField, idx []int) bool {
 }
 
 // nearestToUnits returns the cell, among those the units at indices idx can reach, whose center is nearest p.
-func (c *Crowd) nearestToUnits(idx []int, p math2d.Vec2) (ai.Cell, bool) {
-	goals := make([]ai.Cell, 0, len(idx))
+func (c *Crowd) nearestToUnits(idx []int, p math2d.Vec2) (pathfind.Cell, bool) {
+	goals := make([]pathfind.Cell, 0, len(idx))
 	for _, i := range idx {
 		if cell, in := c.cellAt(c.units[i].Pos); in {
 			goals = append(goals, cell)
@@ -163,13 +163,13 @@ func (c *Crowd) nearestToUnits(idx []int, p math2d.Vec2) (ai.Cell, bool) {
 	// Walkability is symmetric, so the cells reachable from the units are those a field toward them reaches. The field is one-off and stays out of the cache.
 	f := NewFlowField(c.opts.Origin, c.opts.CellSize)
 	if !f.Build(c.grid, goals...) {
-		return ai.Cell{}, false
+		return pathfind.Cell{}, false
 	}
 	return c.nearestReachable(f, p, nil)
 }
 
 // nearestWalkable returns the walkable cell nearest c, searching outward ring by ring.
-func (c *Crowd) nearestWalkable(cell ai.Cell) (ai.Cell, bool) {
+func (c *Crowd) nearestWalkable(cell pathfind.Cell) (pathfind.Cell, bool) {
 	cols, rows := c.gridSize()
 	for r := 1; r < max(cols, rows); r++ {
 		for _, cand := range ring(cell, r) {
@@ -178,17 +178,17 @@ func (c *Crowd) nearestWalkable(cell ai.Cell) (ai.Cell, bool) {
 			}
 		}
 	}
-	return ai.Cell{}, false
+	return pathfind.Cell{}, false
 }
 
 // nearestReachable returns the cell reachable in f, not in taken, whose center is nearest p, searching outward ring by ring from p's cell; when every reachable cell is taken it returns the nearest reachable one.
-func (c *Crowd) nearestReachable(f *FlowField, p math2d.Vec2, taken map[ai.Cell]bool) (ai.Cell, bool) {
+func (c *Crowd) nearestReachable(f *FlowField, p math2d.Vec2, taken map[pathfind.Cell]bool) (pathfind.Cell, bool) {
 	cols, rows := c.gridSize()
 	start, _ := c.cellAt(p)
-	var fallback ai.Cell
+	var fallback pathfind.Cell
 	haveFallback := false
 	for r := 0; r <= max(cols, rows); r++ {
-		best := ai.Cell{}
+		best := pathfind.Cell{}
 		bestDist := float32(math.Inf(1))
 		for _, cand := range ring(start, r) {
 			if !f.Reachable(cand.Col, cand.Row) {
@@ -213,22 +213,22 @@ func (c *Crowd) nearestReachable(f *FlowField, p math2d.Vec2, taken map[ai.Cell]
 }
 
 // ring returns the cells at Chebyshev distance r from c, in a fixed clockwise order starting at the top-left corner.
-func ring(c ai.Cell, r int) []ai.Cell {
+func ring(c pathfind.Cell, r int) []pathfind.Cell {
 	if r == 0 {
-		return []ai.Cell{c}
+		return []pathfind.Cell{c}
 	}
-	out := make([]ai.Cell, 0, 8*r)
+	out := make([]pathfind.Cell, 0, 8*r)
 	for x := -r; x <= r; x++ {
-		out = append(out, ai.Cell{Col: c.Col + x, Row: c.Row - r})
+		out = append(out, pathfind.Cell{Col: c.Col + x, Row: c.Row - r})
 	}
 	for y := -r + 1; y <= r; y++ {
-		out = append(out, ai.Cell{Col: c.Col + r, Row: c.Row + y})
+		out = append(out, pathfind.Cell{Col: c.Col + r, Row: c.Row + y})
 	}
 	for x := r - 1; x >= -r; x-- {
-		out = append(out, ai.Cell{Col: c.Col + x, Row: c.Row + r})
+		out = append(out, pathfind.Cell{Col: c.Col + x, Row: c.Row + r})
 	}
 	for y := r - 1; y > -r; y-- {
-		out = append(out, ai.Cell{Col: c.Col - r, Row: c.Row + y})
+		out = append(out, pathfind.Cell{Col: c.Col - r, Row: c.Row + y})
 	}
 	return out
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/procgen"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/tilemap"
@@ -42,22 +42,22 @@ func gridFromText(t *testing.T, text string) *procgen.Grid {
 	return g
 }
 
-// assertReachable checks with ai.AStar, independently of Regions, that every passable cell is reachable from the first one.
+// assertReachable checks with pathfind.AStar, independently of Regions, that every passable cell is reachable from the first one.
 func assertReachable(t *testing.T, g *procgen.Grid, passable func(uint32) bool) {
 	t.Helper()
-	grid := ai.GridFunc{Cols: g.Width, Rows: g.Height, Walk: func(c, r int) bool { return passable(g.At(c, r)) }}
-	astar := ai.NewAStar()
-	start := ai.Cell{Col: -1}
+	grid := pathfind.GridFunc{Cols: g.Width, Rows: g.Height, Walk: func(c, r int) bool { return passable(g.At(c, r)) }}
+	astar := pathfind.NewAStar()
+	start := pathfind.Cell{Col: -1}
 	for y := range g.Height {
 		for x := range g.Width {
 			if !passable(g.At(x, y)) {
 				continue
 			}
 			if start.Col < 0 {
-				start = ai.Cell{Col: x, Row: y}
+				start = pathfind.Cell{Col: x, Row: y}
 				continue
 			}
-			if _, _, ok := astar.Find(grid, start, ai.Cell{Col: x, Row: y}); !ok {
+			if _, _, ok := astar.Find(grid, start, pathfind.Cell{Col: x, Row: y}); !ok {
 				t.Fatalf("cell (%d,%d) unreachable from (%d,%d):\n%s", x, y, start.Col, start.Row, g)
 			}
 		}

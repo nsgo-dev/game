@@ -13,7 +13,7 @@ go tool nsgo dev
 ## 它展示了什么
 
 - 关卡及其波次和敌人、防御塔及其升级、以及投射物，是 `game.yaml` [自动加载](project.md)的三个 YAML 文件，游戏启动时会互相校验。
-- 道路是在地图的道路格上用 `ai.AStar`（[ai](ai.md)）找到的最短路径；地图是一个 [tilemap](tilemap.md)，每个格子被标记为道路、可建造或实心。
+- 道路是在地图的道路格上用 `pathfind.AStar`（[pathfind](pathfind.md)）找到的最短路径；地图是一个 [tilemap](tilemap.md)，每个格子被标记为道路、可建造或实心。
 - 防御塔和敌人的数值保存在 [stats](stats.md) 属性表上：升级是永久的属性效果，冰霜塔的减速是作用在敌人速度上的定时修饰符。
 - 防御塔向沿道路走得最远的敌人发射 [bullets](bullets.md) 弹幕模式，并按投射物的飞行时间提前瞄准；迫击炮的命中会溅射，冰霜弹会减速。
 - 固定步长[循环](loop.md)以每秒 60 步运行世界，最快速度下每次更新最多三步；[screen](screen.md) 视口把 480×320 的地图适配到任意窗口，上面是原生 HUD，并在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。

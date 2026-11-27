@@ -1,6 +1,6 @@
 # rts
 
-`game/rts` is the unit-control layer of a real-time strategy game: flow fields that steer many units toward a goal over an `ai.Grid`, a `Crowd` that moves those units with push-apart separation or ORCA local avoidance and wall sliding, formations kept in versioned YAML, box and click selection, and numbered control groups.
+`game/rts` is the unit-control layer of a real-time strategy game: flow fields that steer many units toward a goal over a `pathfind.Grid`, a `Crowd` that moves those units with push-apart separation or ORCA local avoidance and wall sliding, formations kept in versioned YAML, box and click selection, and numbered control groups.
 
 ```go
 import "github.com/nsgo-dev/game/pkg/rts"
@@ -13,14 +13,14 @@ Everything is deterministic and steps on `game.Loop`'s fixed steps with no backg
 A `FlowField` holds, for every cell of a grid, the cost of the cheapest path to the nearest of its goal cells (the integration field) and the direction a unit in that cell moves to follow it (the direction field). Building it is one Dijkstra search over the grid; after that, any number of units read their direction in constant time, so a thousand units heading for the same place cost one search instead of a thousand.
 
 ```go
-grid := ai.NewCostMap(160, 128) // or any ai.Grid / ai.CostGrid, such as an ai.GridFunc over a tilemap
+grid := pathfind.NewCostMap(160, 128) // or any pathfind.Grid / pathfind.CostGrid, such as a pathfind.GridFunc over a tilemap
 field := rts.NewFlowField(math2d.Vec2{}, 16) // cells 16 world units wide, cell (0, 0) at the origin
-field.Build(grid, ai.Cell{Col: 140, Row: 64})
+field.Build(grid, pathfind.Cell{Col: 140, Row: 64})
 
 dir, ok := field.Sample(unitPos) // unit vector, blended from the four cells around unitPos
 ```
 
-- Movement is 8-way by default (`Diagonal`), with diagonal steps costing sqrt(2) and never cutting the corner of a blocked cell. Stepping into a cell costs its `ai.CostGrid` `MoveCost`, so a cell's `Cost` equals the cost `ai.AStar` finds from it to the nearest goal.
+- Movement is 8-way by default (`Diagonal`), with diagonal steps costing sqrt(2) and never cutting the corner of a blocked cell. Stepping into a cell costs its `pathfind.CostGrid` `MoveCost`, so a cell's `Cost` equals the cost `pathfind.AStar` finds from it to the nearest goal.
 - `Build` takes several goals at once; each cell then leads to the nearest of them. Blocked and out-of-bounds goals are ignored, and `Build` reports whether any goal was valid.
 - `Sample` blends the directions of the reachable cells around a point, so units turn smoothly instead of in 45-degree steps and are never pulled into a wall. `Cost`, `Reachable`, `Direction`, `CellAt` and `CellCenter` read the field cell by cell.
 - Rebuilding a field of the same size allocates nothing.
@@ -29,17 +29,17 @@ dir, ok := field.Sample(unitPos) // unit vector, blended from the four cells aro
 
 ### Sector-limited flow fields (`SectorFlowField`)
 
-On very large maps (such as 1024×1024), integrating a whole-grid `FlowField` scans every tile even when a squad only crosses a narrow corridor. `SectorFlowField` restricts Dijkstra integration and direction computation to an active subset of fixed-size square sectors—typically the cluster corridor returned by `ai.HPA.FindClusters`:
+On very large maps (such as 1024×1024), integrating a whole-grid `FlowField` scans every tile even when a squad only crosses a narrow corridor. `SectorFlowField` restricts Dijkstra integration and direction computation to an active subset of fixed-size square sectors—typically the cluster corridor returned by `pathfind.HPA.FindClusters`:
 
 ```go
-hpa := ai.NewHPA(grid, ai.HPAOptions{ClusterSize: 32, Diagonal: true})
+hpa := pathfind.NewHPA(grid, pathfind.HPAOptions{ClusterSize: 32, Diagonal: true})
 sf := rts.NewSectorFlowField(math2d.Vec2{}, 16)
 sf.BuildAlongHPA(hpa, startCell, goalCell, 1) // padding=1 adds a 1-cluster border around the corridor
 
 dir, ok := sf.Sample(unitPos) // same Cost, Reachable, Direction, Sample API as FlowField
 ```
 
-- Use `BuildSectors(grid, sectorSize, sectors, goals...)` to supply an explicit set of `ai.ClusterID` sectors and multiple goals.
+- Use `BuildSectors(grid, sectorSize, sectors, goals...)` to supply an explicit set of `pathfind.ClusterID` sectors and multiple goals.
 - Cells outside active sectors report `Unreachable`, and `Sample` ignores inactive sectors so units are never steered out of the corridor.
 - Internal buffers are reused across builds with zero allocations once grown.
 
@@ -60,7 +60,7 @@ crowd.Move(selection.IDs(), rts.MoveOrder{
 loop.Update = func(dt time.Duration) { crowd.Step(dt) }
 ```
 
-`Move` lays the formation out around the target, facing from the group toward it unless `Facing` is set, and moves any slot that falls on a blocked cell or on a cell the group cannot reach to the nearest free cell that can be reached. When the units cannot reach the target at all, as when it lies on an island, the formation centers on the nearest cell they can reach. Units are matched to slots so their paths do not cross, and the whole group shares one flow field whose goals are the slots' cells. Each unit follows that field until it can see its own slot within `DirectRange`, then walks straight to it; a unit that reaches the formation with a wall between it and its slot follows its own `ai.AStar` path there for the rest of the order, planning it again whenever the crowd pushes it off it. Path searches run on one step in eight for each unit, staggered by ID, so their cost stays bounded when many units need one.
+`Move` lays the formation out around the target, facing from the group toward it unless `Facing` is set, and moves any slot that falls on a blocked cell or on a cell the group cannot reach to the nearest free cell that can be reached. When the units cannot reach the target at all, as when it lies on an island, the formation centers on the nearest cell they can reach. Units are matched to slots so their paths do not cross, and the whole group shares one flow field whose goals are the slots' cells. Each unit follows that field until it can see its own slot within `DirectRange`, then walks straight to it; a unit that reaches the formation with a wall between it and its slot follows its own `pathfind.AStar` path there for the rest of the order, planning it again whenever the crowd pushes it off it. Path searches run on one step in eight for each unit, staggered by ID, so their cost stays bounded when many units need one.
 
 `Step` runs in time linear in the number of units plus the number of neighbor buckets covering the units' bounding box, so its cost follows the units rather than the size of the map: neighbors come from that bucket grid, rebuilt each step without allocating once its buffers have grown, units push apart where their bodies overlap (`Separation`, `Gap`), and bodies slide along blocked cells and the grid's edge. Every unit's force is computed from the positions at the start of the step before any unit moves, so the result does not depend on the order units move in within a step. It does depend on the order units were added in, which sets their IDs and the order their pushes are summed, so a replay adds the same units in the same order.
 

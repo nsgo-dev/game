@@ -69,7 +69,7 @@ const (
 	ToolStampTile
 	// ToolRandomTile paints a deterministic weighted random pick from selected tiles.
 	ToolRandomTile
-	// ToolNavTestPath sets start and end world points on click to preview the path ai.NavMesh.FindPath finds on the built 2D navigation mesh.
+	// ToolNavTestPath sets start and end world points on click to preview the path pathfind.NavMesh.FindPath finds on the built 2D navigation mesh.
 	ToolNavTestPath
 	// ToolRotate rotates the selected object in 2D (and sets 3D Gizmo3DRotate).
 	ToolRotate

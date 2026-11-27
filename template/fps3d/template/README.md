@@ -5,7 +5,7 @@ A first-person shooter arena built with [NSGo](https://github.com/nsgo-dev/nsgo)
 It shows:
 
 - A capsule `physics3d.CharacterController` for the player and for every enemy, walls and crates as static boxes, and hitscan shots, rounds and enemy sight as layered raycasts through one `physics3d.World`.
-- Enemies driven by an `ai` behavior tree (attack the player in sight, else hunt the last place it was seen or heard, else patrol), walking A* paths over an `ai.BoolGrid` smoothed with `ai.SmoothGridPath`.
+- Enemies driven by an `ai` behavior tree (attack the player in sight, else hunt the last place it was seen or heard, else patrol), walking A* paths over a `pathfind.BoolGrid` smoothed with `pathfind.SmoothGridPath`.
 - A `render3d` lit PBR pipeline drawing the level as three baked meshes (floor, walls and crates) and every moving thing as one unit cube, under a `render3d.LightRig`, in a `gpu.View`, with a native HUD and an overlay `core.Canvas` above it.
 - One `input.Actions` fed by the keyboard, mouselook under pointer lock, game controllers and an `input.VirtualPad` of touch sticks and buttons.
 - Headless `nsgotest` playthroughs that win with the keyboard and mouse and with a game controller, and lose by standing still.

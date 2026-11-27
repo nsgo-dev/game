@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -33,7 +34,7 @@ func assertLayerBitIdentical(t *testing.T, got, want *ai.InfluenceLayer) {
 
 func TestInfluenceStampFalloffsAndDeterminism(t *testing.T) {
 	// 9x7 grid with a blocked cell inside a source's footprint.
-	grid := ai.NewBoolGrid(9, 7)
+	grid := pathfind.NewBoolGrid(9, 7)
 	grid.SetWalkable(3, 3, false)
 
 	custom := func(dist, radius float32) float32 {
@@ -51,14 +52,14 @@ func TestInfluenceStampFalloffsAndDeterminism(t *testing.T) {
 		layer := ai.NewInfluenceLayerForGrid(grid, math2d.V2(16, 32), 8)
 		// Linear source at (2, 3), strength 10, radius 2.
 		layer.Stamp(grid, ai.InfluenceSource{
-			Cell:     ai.Cell{Col: 2, Row: 3},
+			Cell:     pathfind.Cell{Col: 2, Row: 3},
 			Strength: 10,
 			Radius:   2,
 			Falloff:  ai.FalloffLinear,
 		})
 		// Exponential source at (6, 3), strength 8, radius 2, rate 0.5.
 		layer.Stamp(grid, ai.InfluenceSource{
-			Cell:        ai.Cell{Col: 6, Row: 3},
+			Cell:        pathfind.Cell{Col: 6, Row: 3},
 			Strength:    8,
 			Radius:      2,
 			Falloff:     ai.FalloffExponential,
@@ -66,7 +67,7 @@ func TestInfluenceStampFalloffsAndDeterminism(t *testing.T) {
 		})
 		// Custom quadratic source at (4, 5), strength -4, radius 2.
 		layer.Stamp(grid, ai.InfluenceSource{
-			Cell:          ai.Cell{Col: 4, Row: 5},
+			Cell:          pathfind.Cell{Col: 4, Row: 5},
 			Strength:      -4,
 			Radius:        2,
 			Falloff:       ai.FalloffCustom,
@@ -74,7 +75,7 @@ func TestInfluenceStampFalloffsAndDeterminism(t *testing.T) {
 		})
 		// Radius 0 source stamps only its own cell.
 		layer.Stamp(grid, ai.InfluenceSource{
-			Cell:     ai.Cell{Col: 0, Row: 0},
+			Cell:     pathfind.Cell{Col: 0, Row: 0},
 			Strength: 3.5,
 			Radius:   0,
 		})
@@ -134,8 +135,8 @@ func TestInfluenceStampFalloffsAndDeterminism(t *testing.T) {
 	}
 
 	// NaN / Inf values must never poison the grid.
-	l1.Stamp(grid, ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 6}, Strength: float32(math.NaN()), Radius: 2})
-	l1.Stamp(grid, ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 6}, Strength: 5, Radius: float32(math.NaN()), Falloff: ai.FalloffCustom, CustomFalloff: func(float32, float32) float32 { return float32(math.Inf(1)) }})
+	l1.Stamp(grid, ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 6}, Strength: float32(math.NaN()), Radius: 2})
+	l1.Stamp(grid, ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 6}, Strength: 5, Radius: float32(math.NaN()), Falloff: ai.FalloffCustom, CustomFalloff: func(float32, float32) float32 { return float32(math.Inf(1)) }})
 	if got := l1.At(0, 6); got != 0 {
 		t.Errorf("sanitized cell (0,6) = %v, want 0", got)
 	}
@@ -148,7 +149,7 @@ func TestInfluenceSpreadAroundBlockedCellsAndDeterminism(t *testing.T) {
 	// . . # . . .
 	// . . # . . .
 	// . . . . . .
-	grid := ai.NewBoolGrid(6, 5)
+	grid := pathfind.NewBoolGrid(6, 5)
 	for r := range 4 {
 		grid.SetWalkable(2, r, false)
 	}
@@ -156,7 +157,7 @@ func TestInfluenceSpreadAroundBlockedCellsAndDeterminism(t *testing.T) {
 	run := func() *ai.InfluenceLayer {
 		l := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 1)
 		l.Stamp(grid, ai.InfluenceSource{
-			Cell:     ai.Cell{Col: 1, Row: 1},
+			Cell:     pathfind.Cell{Col: 1, Row: 1},
 			Strength: 10,
 			Radius:   0,
 		})
@@ -202,12 +203,12 @@ func TestInfluenceSpreadDiagonalNoCornerCutting(t *testing.T) {
 	// S # .
 	// # . .
 	// . . .
-	grid := ai.NewBoolGrid(3, 3)
+	grid := pathfind.NewBoolGrid(3, 3)
 	grid.SetWalkable(1, 0, false)
 	grid.SetWalkable(0, 1, false)
 
 	l := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 1)
-	l.Stamp(grid, ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 0}, Strength: 10})
+	l.Stamp(grid, ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 0}, Strength: 10})
 	l.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0, Iterations: 3, Diagonal: true})
 
 	// (1,1) must NOT receive influence diagonally across the (1,0)/(0,1) wall corner.
@@ -218,7 +219,7 @@ func TestInfluenceSpreadDiagonalNoCornerCutting(t *testing.T) {
 	// Unblock (1,0) and confirm diagonal spread uses (1 - decay)^sqrt(2).
 	grid.SetWalkable(1, 0, true)
 	l.Clear()
-	l.Stamp(grid, ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 0}, Strength: 10})
+	l.Stamp(grid, ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 0}, Strength: 10})
 	l.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0, Iterations: 1, Diagonal: true})
 	// (0,1) is still blocked, so (1,1) still cannot be reached directly in 1 diagonal step.
 	if got := l.At(1, 1); got != 0 {
@@ -227,7 +228,7 @@ func TestInfluenceSpreadDiagonalNoCornerCutting(t *testing.T) {
 
 	grid.SetWalkable(0, 1, true)
 	l.Clear()
-	l.Stamp(grid, ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 0}, Strength: 10})
+	l.Stamp(grid, ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 0}, Strength: 10})
 	l.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0, Iterations: 1, Diagonal: true})
 	wantDiag := float32(10 * math.Pow(0.8, math.Sqrt2))
 	if got := l.At(1, 1); !almostEqual32(got, wantDiag, 1e-5) {
@@ -236,9 +237,9 @@ func TestInfluenceSpreadDiagonalNoCornerCutting(t *testing.T) {
 }
 
 func TestInfluenceSpreadMomentumWithTrackedSources(t *testing.T) {
-	grid := ai.NewBoolGrid(6, 1)
+	grid := pathfind.NewBoolGrid(6, 1)
 	l := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 1)
-	id := l.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 0}, Strength: 10})
+	id := l.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 0}, Strength: 10})
 	l.Update(grid) // seed (0,0) = 10
 
 	// Spread 1 step with momentum 0.5, decay 0.2:
@@ -255,7 +256,7 @@ func TestInfluenceSpreadMomentumWithTrackedSources(t *testing.T) {
 	// Move source to (5,0) and run Spread with momentum 0.5:
 	// Old cell (0,0) now has base=0, neighbor (1,0)=4 -> target=4*0.8=3.2 -> next=10*0.5 + 3.2*0.5 = 6.6.
 	// New cell (5,0) now has base=10, prev=0 -> next=0*0.5 + 10*0.5 = 5.0.
-	l.MoveSource(id, ai.Cell{Col: 5, Row: 0})
+	l.MoveSource(id, pathfind.Cell{Col: 5, Row: 0})
 	l.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0.5, Iterations: 1})
 	if got := l.At(0, 0); !almostEqual32(got, 6.6, 1e-5) {
 		t.Fatalf("after move+spread, old cell (0,0) = %v, want 6.6", got)
@@ -283,7 +284,7 @@ func TestInfluenceSpreadMomentumWithTrackedSources(t *testing.T) {
 }
 
 func TestInfluenceIncrementalMatchesRebuildBitIdentical(t *testing.T) {
-	grid := ai.NewBoolGrid(32, 24)
+	grid := pathfind.NewBoolGrid(32, 24)
 	for r := 4; r < 20; r++ {
 		grid.SetWalkable(15, r, false)
 	}
@@ -296,7 +297,7 @@ func TestInfluenceIncrementalMatchesRebuildBitIdentical(t *testing.T) {
 	idsRef := make([]ai.InfluenceSourceID, 12)
 	for i := range 12 {
 		src := ai.InfluenceSource{
-			Cell:        ai.Cell{Col: (i*5 + 2) % 32, Row: (i*3 + 1) % 24},
+			Cell:        pathfind.Cell{Col: (i*5 + 2) % 32, Row: (i*3 + 1) % 24},
 			Strength:    float32(5 + i%7),
 			Radius:      float32(2 + i%4),
 			Falloff:     ai.FalloffKind(i % 2),
@@ -325,13 +326,13 @@ func TestInfluenceIncrementalMatchesRebuildBitIdentical(t *testing.T) {
 		switch step % 5 {
 		case 0:
 			// Move one source.
-			c := ai.Cell{Col: nextInt(32), Row: nextInt(24)}
+			c := pathfind.Cell{Col: nextInt(32), Row: nextInt(24)}
 			inc.MoveSource(idsInc[idx], c)
 			ref.MoveSource(idsRef[idx], c)
 		case 1:
 			// Move one source multiple times before Update.
-			c1 := ai.Cell{Col: nextInt(32), Row: nextInt(24)}
-			c2 := ai.Cell{Col: nextInt(32), Row: nextInt(24)}
+			c1 := pathfind.Cell{Col: nextInt(32), Row: nextInt(24)}
+			c2 := pathfind.Cell{Col: nextInt(32), Row: nextInt(24)}
 			inc.MoveSource(idsInc[idx], c1)
 			inc.MoveSource(idsInc[idx], c2)
 			ref.MoveSource(idsRef[idx], c2)
@@ -351,12 +352,12 @@ func TestInfluenceIncrementalMatchesRebuildBitIdentical(t *testing.T) {
 			if !inc.RemoveSource(oldID) {
 				t.Fatalf("step %d: RemoveSource failed", step)
 			}
-			if inc.MoveSource(oldID, ai.Cell{Col: 1, Row: 1}) {
+			if inc.MoveSource(oldID, pathfind.Cell{Col: 1, Row: 1}) {
 				t.Fatalf("step %d: MoveSource accepted removed ID", step)
 			}
 			ref.RemoveSource(idsRef[idx])
 			ns := ai.InfluenceSource{
-				Cell:     ai.Cell{Col: nextInt(36) - 2, Row: nextInt(28) - 2}, // includes off-grid coords
+				Cell:     pathfind.Cell{Col: nextInt(36) - 2, Row: nextInt(28) - 2}, // includes off-grid coords
 				Strength: float32(1 + nextInt(10)),
 				Radius:   float32(nextInt(5)),
 				Falloff:  ai.FalloffLinear,
@@ -365,7 +366,7 @@ func TestInfluenceIncrementalMatchesRebuildBitIdentical(t *testing.T) {
 			idsRef[idx] = ref.AddSource(ns)
 		case 4:
 			// Toggle a grid cell walkability and mark it dirty incrementally.
-			tc := ai.Cell{Col: nextInt(32), Row: nextInt(24)}
+			tc := pathfind.Cell{Col: nextInt(32), Row: nextInt(24)}
 			grid.SetWalkable(tc.Col, tc.Row, !grid.Walkable(tc.Col, tc.Row))
 			inc.MarkDirtyCell(tc)
 		}
@@ -386,7 +387,7 @@ func TestInfluenceIncrementalMatchesRebuildBitIdentical(t *testing.T) {
 func TestInfluenceLayerCombinationsAndTacticalMaps(t *testing.T) {
 	// 10x6 tactical arena with friendly squad on the left and enemy squad on the right.
 	// A vertical wall at col 4 with a gap at rows 2..3 splits the arena.
-	grid := ai.NewBoolGrid(10, 6)
+	grid := pathfind.NewBoolGrid(10, 6)
 	for _, r := range []int{0, 1, 4, 5} {
 		grid.SetWalkable(4, r, false)
 	}
@@ -394,8 +395,8 @@ func TestInfluenceLayerCombinationsAndTacticalMaps(t *testing.T) {
 	friendly := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
 	enemy := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
 
-	friendly.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 1, Row: 2}, Strength: 10, Radius: 5, Falloff: ai.FalloffLinear})
-	enemy.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 8, Row: 2}, Strength: 12, Radius: 6, Falloff: ai.FalloffLinear})
+	friendly.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 1, Row: 2}, Strength: 10, Radius: 5, Falloff: ai.FalloffLinear})
+	enemy.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 8, Row: 2}, Strength: 12, Radius: 6, Falloff: ai.FalloffLinear})
 	friendly.Update(grid)
 	enemy.Update(grid)
 
@@ -497,17 +498,17 @@ func TestInfluenceLeastThreatenedReachableCell(t *testing.T) {
 	//   - (3, 4) is at dist 2 from unit, dist sqrt(5)≈2.236 from enemy -> threat ≈ 4.41
 	//   - (1, 4) is at dist sqrt(8) from unit, dist sqrt(5) from enemy -> threat ≈ 4.41
 	// Wait: let's add a second threat at (3, 4) so (3, 0) is uniquely the least-threatened reachable cell!
-	grid := ai.NewBoolGrid(8, 5)
+	grid := pathfind.NewBoolGrid(8, 5)
 	for r := range 5 {
 		grid.SetWalkable(4, r, false)
 	}
 
 	threat := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
-	threat.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 2, Row: 2}, Strength: 10, Radius: 4, Falloff: ai.FalloffLinear})
-	threat.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 2, Row: 4}, Strength: 6, Radius: 3, Falloff: ai.FalloffLinear})
+	threat.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 2, Row: 2}, Strength: 10, Radius: 4, Falloff: ai.FalloffLinear})
+	threat.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 2, Row: 4}, Strength: 6, Radius: 3, Falloff: ai.FalloffLinear})
 	threat.Update(grid)
 
-	unitCell := ai.Cell{Col: 3, Row: 2}
+	unitCell := pathfind.Cell{Col: 3, Row: 2}
 
 	// Without Reachable, the query picks (5, 2) across the wall because its threat is 0.
 	unreachCell, unreachVal, ok := threat.LowestInRadius(unitCell, 3, ai.InfluenceQuery{
@@ -534,14 +535,14 @@ func TestInfluenceLeastThreatenedReachableCell(t *testing.T) {
 	if !ok {
 		t.Fatal("LowestInRadius(Reachable=true) returned ok=false")
 	}
-	wantCell := ai.Cell{Col: 3, Row: 0}
+	wantCell := pathfind.Cell{Col: 3, Row: 0}
 	wantVal := threat.At(wantCell.Col, wantCell.Row)
 	if safeCell != wantCell || !almostEqual32(safeVal, wantVal, 1e-6) {
 		t.Fatalf("LowestInRadius(Reachable=true) = (%v, %v), want (%v, %v)", safeCell, safeVal, wantCell, wantVal)
 	}
 
 	// Confirm the cell is genuinely reachable by A*.
-	if _, _, reachable := ai.NewAStar().Find(grid, unitCell, safeCell); !reachable {
+	if _, _, reachable := pathfind.NewAStar().Find(grid, unitCell, safeCell); !reachable {
 		t.Fatalf("returned safe cell %v is not reachable from %v", safeCell, unitCell)
 	}
 
@@ -550,22 +551,22 @@ func TestInfluenceLeastThreatenedReachableCell(t *testing.T) {
 		Grid:      grid,
 		Reachable: true,
 	})
-	if !ok || peakCell != (ai.Cell{Col: 2, Row: 2}) || peakVal <= 10 {
+	if !ok || peakCell != (pathfind.Cell{Col: 2, Row: 2}) || peakVal <= 10 {
 		t.Fatalf("HighestInRadius = (%v, %v, %v), want ({2 2}, >10, true)", peakCell, peakVal, ok)
 	}
 
 	// ExcludeCenter omits the center cell even when it is the extremum.
-	exCell, _, ok := threat.HighestInRadius(ai.Cell{Col: 2, Row: 2}, 1, ai.InfluenceQuery{
+	exCell, _, ok := threat.HighestInRadius(pathfind.Cell{Col: 2, Row: 2}, 1, ai.InfluenceQuery{
 		Grid:          grid,
 		Reachable:     true,
 		ExcludeCenter: true,
 	})
-	if !ok || exCell == (ai.Cell{Col: 2, Row: 2}) {
+	if !ok || exCell == (pathfind.Cell{Col: 2, Row: 2}) {
 		t.Fatalf("ExcludeCenter returned (%v, %v), want non-center cell", exCell, ok)
 	}
 
 	// Blocked center with Reachable=true returns false.
-	if _, _, ok := threat.LowestInRadius(ai.Cell{Col: 4, Row: 2}, 3, ai.InfluenceQuery{Grid: grid, Reachable: true}); ok {
+	if _, _, ok := threat.LowestInRadius(pathfind.Cell{Col: 4, Row: 2}, 3, ai.InfluenceQuery{Grid: grid, Reachable: true}); ok {
 		t.Fatal("LowestInRadius from blocked cell returned ok=true, want false")
 	}
 }
@@ -585,9 +586,9 @@ func TestInfluenceSampleAndGradient(t *testing.T) {
 	// Exact values at cell centers and exact agreement between Gradient and GradientAtCell.
 	for r := range 5 {
 		for c := range 6 {
-			center := l.CellCenter(ai.Cell{Col: c, Row: r})
+			center := l.CellCenter(pathfind.Cell{Col: c, Row: r})
 			cell, in := l.CellAt(center)
-			if !in || cell != (ai.Cell{Col: c, Row: r}) {
+			if !in || cell != (pathfind.Cell{Col: c, Row: r}) {
 				t.Fatalf("CellAt(CellCenter(%d,%d)) = (%v, %v)", c, r, cell, in)
 			}
 			v, ok := l.Sample(center)
@@ -618,12 +619,12 @@ func TestInfluenceSampleAndGradient(t *testing.T) {
 
 	// Symmetric peak has zero gradient at its center, and gradient points toward peak from neighbors.
 	peak := ai.NewInfluenceLayer(5, 5)
-	peak.Stamp(nil, ai.InfluenceSource{Cell: ai.Cell{Col: 2, Row: 2}, Strength: 10, Radius: 3, Falloff: ai.FalloffLinear})
-	if g := peak.Gradient(peak.CellCenter(ai.Cell{Col: 2, Row: 2})); !g.ApproxEqual(math2d.Zero(), 1e-6) {
+	peak.Stamp(nil, ai.InfluenceSource{Cell: pathfind.Cell{Col: 2, Row: 2}, Strength: 10, Radius: 3, Falloff: ai.FalloffLinear})
+	if g := peak.Gradient(peak.CellCenter(pathfind.Cell{Col: 2, Row: 2})); !g.ApproxEqual(math2d.Zero(), 1e-6) {
 		t.Fatalf("Gradient at symmetric peak = %v, want (0, 0)", g)
 	}
 	// From left of peak (1, 2), uphill gradient must point +X.
-	if g := peak.Gradient(peak.CellCenter(ai.Cell{Col: 1, Row: 2})); !(g.X > 0 && almostEqual32(g.Y, 0, 1e-6)) {
+	if g := peak.Gradient(peak.CellCenter(pathfind.Cell{Col: 1, Row: 2})); !(g.X > 0 && almostEqual32(g.Y, 0, 1e-6)) {
 		t.Fatalf("Gradient left of peak = %v, want (+X, 0)", g)
 	}
 
@@ -637,7 +638,7 @@ func TestInfluenceSampleAndGradient(t *testing.T) {
 }
 
 func TestInfluenceZeroAllocsAfterWarmup(t *testing.T) {
-	grid := ai.NewBoolGrid(32, 32)
+	grid := pathfind.NewBoolGrid(32, 32)
 	grid.SetWalkable(16, 16, false)
 
 	friendly := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
@@ -648,7 +649,7 @@ func TestInfluenceZeroAllocsAfterWarmup(t *testing.T) {
 	var movingID ai.InfluenceSourceID
 	for i := range 20 {
 		id := friendly.AddSource(ai.InfluenceSource{
-			Cell:     ai.Cell{Col: (i * 3) % 30, Row: (i * 5) % 30},
+			Cell:     pathfind.Cell{Col: (i * 3) % 30, Row: (i * 5) % 30},
 			Strength: 10,
 			Radius:   4,
 			Falloff:  ai.FalloffLinear,
@@ -657,7 +658,7 @@ func TestInfluenceZeroAllocsAfterWarmup(t *testing.T) {
 			movingID = id
 		}
 	}
-	enemy.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 24, Row: 24}, Strength: 12, Radius: 5, Falloff: ai.FalloffExponential, FalloffRate: 0.5})
+	enemy.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 24, Row: 24}, Strength: 12, Radius: 5, Falloff: ai.FalloffExponential, FalloffRate: 0.5})
 
 	// Warm up internal buffers.
 	friendly.Update(grid)
@@ -665,10 +666,10 @@ func TestInfluenceZeroAllocsAfterWarmup(t *testing.T) {
 	enemy.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0.5, Iterations: 2, Diagonal: true})
 	control.Subtract(friendly, enemy)
 	tension.Add(friendly, enemy)
-	_, _, _ = enemy.LowestInRadius(ai.Cell{Col: 10, Row: 10}, 5, ai.InfluenceQuery{Grid: grid, Reachable: true})
+	_, _, _ = enemy.LowestInRadius(pathfind.Cell{Col: 10, Row: 10}, 5, ai.InfluenceQuery{Grid: grid, Reachable: true})
 
-	posA := ai.Cell{Col: 4, Row: 4}
-	posB := ai.Cell{Col: 5, Row: 4}
+	posA := pathfind.Cell{Col: 4, Row: 4}
+	posB := pathfind.Cell{Col: 5, Row: 4}
 	toggle := false
 
 	allocsUpdate := testing.AllocsPerRun(50, func() {
@@ -705,8 +706,8 @@ func TestInfluenceZeroAllocsAfterWarmup(t *testing.T) {
 	}
 
 	allocsQuery := testing.AllocsPerRun(50, func() {
-		_, _, _ = enemy.LowestInRadius(ai.Cell{Col: 10, Row: 10}, 5, ai.InfluenceQuery{Grid: grid, Reachable: true})
-		_, _, _ = enemy.HighestInRadius(ai.Cell{Col: 10, Row: 10}, 5, ai.InfluenceQuery{Grid: grid, Reachable: false})
+		_, _, _ = enemy.LowestInRadius(pathfind.Cell{Col: 10, Row: 10}, 5, ai.InfluenceQuery{Grid: grid, Reachable: true})
+		_, _, _ = enemy.HighestInRadius(pathfind.Cell{Col: 10, Row: 10}, 5, ai.InfluenceQuery{Grid: grid, Reachable: false})
 		_, _ = enemy.Sample(math2d.V2(168, 168))
 		_ = enemy.Gradient(math2d.V2(168, 168))
 	})
@@ -788,44 +789,44 @@ func TestInfluenceHeatmapDraw(t *testing.T) {
 }
 
 func TestInfluenceGlobalExtremaAndPostSpreadUpdate(t *testing.T) {
-	grid := ai.NewBoolGrid(6, 5)
+	grid := pathfind.NewBoolGrid(6, 5)
 	grid.SetWalkable(3, 2, false)
 
 	inc := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 1)
 	ref := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 1)
 
-	idA := inc.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 1, Row: 1}, Strength: 8, Radius: 2})
-	idB := inc.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 4, Row: 3}, Strength: -5, Radius: 2})
-	ref.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 1, Row: 1}, Strength: 8, Radius: 2})
-	refB := ref.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 4, Row: 3}, Strength: -5, Radius: 2})
+	idA := inc.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 1, Row: 1}, Strength: 8, Radius: 2})
+	idB := inc.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 4, Row: 3}, Strength: -5, Radius: 2})
+	ref.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 1, Row: 1}, Strength: 8, Radius: 2})
+	refB := ref.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 4, Row: 3}, Strength: -5, Radius: 2})
 
 	inc.Update(grid)
 	inc.Spread(grid, ai.SpreadOptions{Decay: 0.25, Momentum: 0.3, Iterations: 2, Diagonal: true})
 
 	// Calling Update after Spread (with or without a source move) must restore exact unspread Rebuild parity.
-	inc.MoveSource(idB, ai.Cell{Col: 5, Row: 3})
-	ref.MoveSource(refB, ai.Cell{Col: 5, Row: 3})
+	inc.MoveSource(idB, pathfind.Cell{Col: 5, Row: 3})
+	ref.MoveSource(refB, pathfind.Cell{Col: 5, Row: 3})
 	inc.Update(grid)
 	ref.Rebuild(grid)
 	assertLayerBitIdentical(t, inc, ref)
 
 	// Calling Update after Fill + MoveSource must also match Rebuild bit-for-bit.
 	inc.Fill(99)
-	inc.MoveSource(idA, ai.Cell{Col: 0, Row: 0})
+	inc.MoveSource(idA, pathfind.Cell{Col: 0, Row: 0})
 	inc.Update(grid)
 	ref.ClearSources()
-	ref.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 0, Row: 0}, Strength: 8, Radius: 2})
-	ref.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 5, Row: 3}, Strength: -5, Radius: 2})
+	ref.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 0, Row: 0}, Strength: 8, Radius: 2})
+	ref.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 5, Row: 3}, Strength: -5, Radius: 2})
 	ref.Rebuild(grid)
 	assertLayerBitIdentical(t, inc, ref)
 
 	// Global Highest / Lowest respect walkability and return exact extrema.
 	hiCell, hiVal, ok := inc.Highest(grid)
-	if !ok || hiCell != (ai.Cell{Col: 0, Row: 0}) || hiVal != 8 {
+	if !ok || hiCell != (pathfind.Cell{Col: 0, Row: 0}) || hiVal != 8 {
 		t.Fatalf("Highest = (%v, %v, %v), want ({0 0}, 8, true)", hiCell, hiVal, ok)
 	}
 	loCell, loVal, ok := inc.Lowest(grid)
-	if !ok || loCell != (ai.Cell{Col: 5, Row: 3}) || loVal != -5 {
+	if !ok || loCell != (pathfind.Cell{Col: 5, Row: 3}) || loVal != -5 {
 		t.Fatalf("Lowest = (%v, %v, %v), want ({5 3}, -5, true)", loCell, loVal, ok)
 	}
 
@@ -845,12 +846,12 @@ func TestInfluenceGlobalExtremaAndPostSpreadUpdate(t *testing.T) {
 }
 
 func BenchmarkInfluenceIncrementalMove(b *testing.B) {
-	grid := ai.NewBoolGrid(64, 64)
+	grid := pathfind.NewBoolGrid(64, 64)
 	l := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
 	var id ai.InfluenceSourceID
 	for i := range 40 {
 		sid := l.AddSource(ai.InfluenceSource{
-			Cell:     ai.Cell{Col: (i * 7) % 64, Row: (i * 11) % 64},
+			Cell:     pathfind.Cell{Col: (i * 7) % 64, Row: (i * 11) % 64},
 			Strength: 10,
 			Radius:   5,
 			Falloff:  ai.FalloffLinear,
@@ -864,17 +865,17 @@ func BenchmarkInfluenceIncrementalMove(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
-		l.MoveSource(id, ai.Cell{Col: 10 + (i % 4), Row: 10})
+		l.MoveSource(id, pathfind.Cell{Col: 10 + (i % 4), Row: 10})
 		l.Update(grid)
 	}
 }
 
 func BenchmarkInfluenceRebuild(b *testing.B) {
-	grid := ai.NewBoolGrid(64, 64)
+	grid := pathfind.NewBoolGrid(64, 64)
 	l := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
 	for i := range 40 {
 		l.AddSource(ai.InfluenceSource{
-			Cell:     ai.Cell{Col: (i * 7) % 64, Row: (i * 11) % 64},
+			Cell:     pathfind.Cell{Col: (i * 7) % 64, Row: (i * 11) % 64},
 			Strength: 10,
 			Radius:   5,
 			Falloff:  ai.FalloffLinear,
@@ -890,9 +891,9 @@ func BenchmarkInfluenceRebuild(b *testing.B) {
 }
 
 func BenchmarkInfluenceSpread(b *testing.B) {
-	grid := ai.NewBoolGrid(64, 64)
+	grid := pathfind.NewBoolGrid(64, 64)
 	l := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
-	l.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 10, Row: 10}, Strength: 10, Radius: 4})
+	l.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 10, Row: 10}, Strength: 10, Radius: 4})
 	l.Update(grid)
 	opts := ai.SpreadOptions{Decay: 0.2, Momentum: 0.5, Iterations: 1, Diagonal: true}
 	l.Spread(grid, opts)

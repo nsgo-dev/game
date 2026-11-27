@@ -4,12 +4,12 @@ import (
 	"math"
 	"slices"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // SectorFlowField is a flow field integrated only across an active subset of square sectors (clusters),
-// such as the cluster corridor produced by ai.HPA.FindClusters.
+// such as the cluster corridor produced by pathfind.HPA.FindClusters.
 //
 // On large maps, integrating only the corridor of traversed clusters avoids scanning the entire grid
 // while providing the same constant-time Cost, Reachable, Direction, and smooth bilinear Sample queries
@@ -30,14 +30,14 @@ type SectorFlowField struct {
 	sectorCols      int
 	sectorRows      int
 	sectorIndex     []int32 // sectorCols*sectorRows -> index in activeSectors, or -1 if inactive
-	activeSectors   []ai.ClusterID
-	goals           []ai.Cell
+	activeSectors   []pathfind.ClusterID
+	goals           []pathfind.Cell
 	cost            []float32
 	enter           []float32
 	vec             []math2d.Vec2
 	open            []fieldNode
-	clusterScratch  []ai.ClusterID
-	expandedScratch []ai.ClusterID
+	clusterScratch  []pathfind.ClusterID
+	expandedScratch []pathfind.ClusterID
 }
 
 // NewSectorFlowField returns an empty 8-way sector-limited flow field whose cells are cellSize world units wide, starting at origin.
@@ -50,7 +50,7 @@ func NewSectorFlowField(origin math2d.Vec2, cellSize float32) *SectorFlowField {
 //
 // Because every step along the HPA* path stays inside the returned cluster corridor, start is guaranteed to be reachable from goal
 // whenever hpa finds a path (provided f.Diagonal is compatible with hpa's movement rules).
-func (f *SectorFlowField) BuildAlongHPA(hpa *ai.HPA, start, goal ai.Cell, padding int) bool {
+func (f *SectorFlowField) BuildAlongHPA(hpa *pathfind.HPA, start, goal pathfind.Cell, padding int) bool {
 	if hpa == nil || hpa.Grid() == nil {
 		f.clearActive()
 		return false
@@ -73,7 +73,7 @@ func (f *SectorFlowField) BuildAlongHPA(hpa *ai.HPA, start, goal ai.Cell, paddin
 		maxR := min(cl.Row+padding, cr-1)
 		for r := minR; r <= maxR; r++ {
 			for c := minC; c <= maxC; c++ {
-				exp = append(exp, ai.ClusterID{Col: c, Row: r})
+				exp = append(exp, pathfind.ClusterID{Col: c, Row: r})
 			}
 		}
 	}
@@ -85,7 +85,7 @@ func (f *SectorFlowField) BuildAlongHPA(hpa *ai.HPA, start, goal ai.Cell, paddin
 //
 // Duplicate and out-of-bounds sectors are ignored. Goals that are out of bounds, blocked, or outside active sectors are ignored.
 // It reports whether at least one valid goal was seeded inside an active sector.
-func (f *SectorFlowField) BuildSectors(g ai.Grid, sectorSize int, sectors []ai.ClusterID, goals ...ai.Cell) bool {
+func (f *SectorFlowField) BuildSectors(g pathfind.Grid, sectorSize int, sectors []pathfind.ClusterID, goals ...pathfind.Cell) bool {
 	f.clearActive()
 	f.goals = f.goals[:0]
 	if g == nil || sectorSize <= 0 {
@@ -119,7 +119,7 @@ func (f *SectorFlowField) BuildSectors(g ai.Grid, sectorSize int, sectors []ai.C
 		f.activeSectors = active
 		return false
 	}
-	slices.SortFunc(active, func(a, b ai.ClusterID) int {
+	slices.SortFunc(active, func(a, b pathfind.ClusterID) int {
 		if a.Row != b.Row {
 			return a.Row - b.Row
 		}
@@ -142,7 +142,7 @@ func (f *SectorFlowField) BuildSectors(g ai.Grid, sectorSize int, sectors []ai.C
 	f.vec = f.vec[:totalSlots]
 
 	// Read grid walkability and costs ONLY for cells inside active sectors.
-	cg, hasCost := g.(ai.CostGrid)
+	cg, hasCost := g.(pathfind.CostGrid)
 	for si, s := range active {
 		base := si * area
 		minC := s.Col * sectorSize
@@ -324,7 +324,7 @@ func (f *SectorFlowField) SectorActive(col, row int) bool {
 }
 
 // Goals returns the in-bounds walkable goal cells inside active sectors from the last build.
-func (f *SectorFlowField) Goals() []ai.Cell { return f.goals }
+func (f *SectorFlowField) Goals() []pathfind.Cell { return f.goals }
 
 // Cost returns the integration cost from (col, row) to the nearest goal, 0 on a goal,
 // and Unreachable for blocked cells, cells outside active sectors, or cells outside the grid.
@@ -349,12 +349,12 @@ func (f *SectorFlowField) Direction(col, row int) math2d.Vec2 {
 }
 
 // CellAt returns the cell holding world position p and whether it is inside the grid.
-func (f *SectorFlowField) CellAt(p math2d.Vec2) (ai.Cell, bool) {
+func (f *SectorFlowField) CellAt(p math2d.Vec2) (pathfind.Cell, bool) {
 	return cellAt(p, f.Origin, validCellSize(f.CellSize), f.cols, f.rows)
 }
 
 // CellCenter returns the world position of the center of cell c.
-func (f *SectorFlowField) CellCenter(c ai.Cell) math2d.Vec2 {
+func (f *SectorFlowField) CellCenter(c pathfind.Cell) math2d.Vec2 {
 	return cellCenter(c, f.Origin, validCellSize(f.CellSize))
 }
 

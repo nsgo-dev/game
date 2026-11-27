@@ -11,8 +11,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/bullets"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/stats"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
@@ -358,7 +358,7 @@ func (l *Level) Enemy(name string) (*EnemyDef, bool) {
 }
 
 // route checks the map and returns the shortest road from the spawn to the gate, found with A* over the road tiles.
-func (l *Level) route() ([]ai.Cell, error) {
+func (l *Level) route() ([]pathfind.Cell, error) {
 	if len(l.Map) == 0 {
 		return nil, errors.New("level: empty map")
 	}
@@ -366,7 +366,7 @@ func (l *Level) route() ([]ai.Cell, error) {
 	if cols == 0 {
 		return nil, errors.New("level: empty map row")
 	}
-	var spawn, gate []ai.Cell
+	var spawn, gate []pathfind.Cell
 	for row, line := range l.Map {
 		if len(line) != cols {
 			return nil, fmt.Errorf("level: map row %d has %d tiles, want %d", row+1, len(line), cols)
@@ -374,9 +374,9 @@ func (l *Level) route() ([]ai.Cell, error) {
 		for col := range len(line) {
 			switch line[col] {
 			case TileSpawn:
-				spawn = append(spawn, ai.Cell{Col: col, Row: row})
+				spawn = append(spawn, pathfind.Cell{Col: col, Row: row})
 			case TileGate:
-				gate = append(gate, ai.Cell{Col: col, Row: row})
+				gate = append(gate, pathfind.Cell{Col: col, Row: row})
 			case TileGrass, TileRoad, TileRock, TileWater:
 			default:
 				return nil, fmt.Errorf("level: map row %d column %d: unknown tile %q", row+1, col+1, line[col])
@@ -386,8 +386,8 @@ func (l *Level) route() ([]ai.Cell, error) {
 	if len(spawn) != 1 || len(gate) != 1 {
 		return nil, fmt.Errorf("level: the map has %d spawn (S) and %d gate (G) tiles, want one of each", len(spawn), len(gate))
 	}
-	grid := ai.GridFunc{Cols: cols, Rows: len(l.Map), Walk: l.Walkable}
-	path, _, ok := ai.NewAStar().Find(grid, spawn[0], gate[0])
+	grid := pathfind.GridFunc{Cols: cols, Rows: len(l.Map), Walk: l.Walkable}
+	path, _, ok := pathfind.NewAStar().Find(grid, spawn[0], gate[0])
 	if !ok {
 		return nil, errors.New("level: no road joins the spawn (S) to the gate (G)")
 	}

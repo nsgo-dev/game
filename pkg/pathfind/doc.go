@@ -1,0 +1,4 @@
+// Package pathfind provides deterministic 2D pathfinding: grid A* (with line-of-sight smoothing, bounded expansion budgets, partial paths, incremental searches, and budgeted request queues), HPA* hierarchical pathfinding with incremental cluster updates, Jump Point Search (JPS) for uniform-cost grids, generic graph A*/Dijkstra/range search with hex tilemap adapters and 2D/3D waypoint graphs, square, hexagonal and staggered grid topologies read from tilemaps, and 2D navigation meshes (single or tiled, with dynamic obstacles) with funnel smoothing, polygon areas/filters, off-mesh links, reusable zero-allocation queries, and path-corridor navigation agents.
+//
+// Everything runs cleanly on game.Loop's fixed steps with no background goroutines and no hidden global randomness.
+package pathfind

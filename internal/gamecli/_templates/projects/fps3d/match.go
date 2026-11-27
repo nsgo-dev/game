@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
@@ -47,8 +47,8 @@ type controls struct {
 type match struct {
 	arena *Arena
 	world *physics3d.World
-	nav   *ai.BoolGrid
-	astar *ai.AStar
+	nav   *pathfind.BoolGrid
+	astar *pathfind.AStar
 	route []physics3d.Vec3
 
 	player  player
@@ -133,8 +133,8 @@ func newMatch(a *Arena) *match {
 	m := &match{
 		arena: a,
 		world: physics3d.NewWorld(),
-		nav:   ai.NewBoolGrid(len(a.Layout[0]), len(a.Layout)),
-		astar: ai.NewAStar(),
+		nav:   pathfind.NewBoolGrid(len(a.Layout[0]), len(a.Layout)),
+		astar: pathfind.NewAStar(),
 		phase: phaseCountdown,
 		timer: a.Countdown,
 	}
@@ -203,9 +203,9 @@ func (m *match) cellCenter(cell gridCell) physics3d.Vec3 {
 }
 
 // cellAt returns the cell under p.
-func (m *match) cellAt(p physics3d.Vec3) ai.Cell {
+func (m *match) cellAt(p physics3d.Vec3) pathfind.Cell {
 	s := m.arena.CellSize
-	return ai.Cell{Col: int(p.X / s), Row: int(p.Z / s)}
+	return pathfind.Cell{Col: int(p.X / s), Row: int(p.Z / s)}
 }
 
 // over reports whether the match has been won or lost.

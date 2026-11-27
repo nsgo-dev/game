@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -44,7 +45,7 @@ type enemy struct {
 	// path is the smoothed route to pathGoal, followed from pathAt; repath counts down to the next search.
 	path     []core.Point
 	pathAt   int
-	pathGoal ai.Cell
+	pathGoal pathfind.Cell
 	partial  bool // the path ends short of pathGoal, which the grid cannot reach
 	repath   float32
 	wish     physics3d.Vec3
@@ -186,9 +187,9 @@ func (e *enemy) walkTo(m *match, target physics3d.Vec3) bool {
 		e.pathGoal, e.repath, e.pathAt = goal, repathInterval, 0
 		e.path = e.path[:0]
 		e.partial = false
-		if r := m.astar.FindWithOptions(m.nav, m.cellAt(e.ctrl.Pos), goal, ai.PathOptions{AllowPartial: true}); r.Found {
+		if r := m.astar.FindWithOptions(m.nav, m.cellAt(e.ctrl.Pos), goal, pathfind.PathOptions{AllowPartial: true}); r.Found {
 			e.partial = r.Partial
-			e.path = ai.SmoothGridPathInto(e.path, m.nav, r.Path, ai.GridPathOptions{CellSize: m.arena.CellSize, Radius: e.kind.Radius})
+			e.path = pathfind.SmoothGridPathInto(e.path, m.nav, r.Path, pathfind.GridPathOptions{CellSize: m.arena.CellSize, Radius: e.kind.Radius})
 			// The first point is e's own cell; head for the next one.
 			if len(e.path) > 1 {
 				e.pathAt = 1
