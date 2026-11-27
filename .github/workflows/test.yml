@@ -128,7 +128,7 @@ jobs:
           go-version-file: go.mod
           cache: true
           cache-dependency-path: ${{ matrix.dir }}/go.sum
-      # A game made with nsgo init -template builds against the game module version go.mod.tmpl pins, not this checkout. During the root-module migration PR (before v0.1.0 is tagged at the root), replace github.com/nsgo-dev/game with the checked-out root module; a follow-up PR removes the replace once v0.1.0 is tagged and pinned.
+      # A game made with nsgo init -template builds against the game module version go.mod.tmpl pins, not this checkout.
       - name: Test a game made from the template
         env:
           GOWORK: "off"
@@ -140,5 +140,4 @@ jobs:
           sed "s|{{.Module}}|example.com/${TEMPLATE}game|" "$dir/go.mod.tmpl" > "$dir/go.mod"
           rm "$dir/go.mod.tmpl"
           cd "$dir"
-          go mod edit -replace="github.com/nsgo-dev/game=$GITHUB_WORKSPACE"
           go tool nsgo test ./...
