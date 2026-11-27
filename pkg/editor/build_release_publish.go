@@ -19,6 +19,7 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/targets"
 )
@@ -316,7 +317,7 @@ type ReleaseUploadRequest struct {
 	ArtifactName     string
 	SizeBytes        int64
 	ReleaseNotesPath string
-	Credential       KeychainCredential
+	Credential       PublishCredential
 }
 
 // ReleaseUploadProgress reports incremental upload progress for one artifact.
@@ -924,11 +925,31 @@ func readProjectChangelogFragments(dir string) []string {
 
 // --- Keychain credential management ---
 
-func (e *Editor) activeKeychain() Keychain {
+// PublishKeychainService is the system keychain service identifier used to store release upload credentials outside any game project directory.
+const PublishKeychainService = "dev.nsgo.game.publish"
+
+// PublishCredential holds a store upload credential retrieved from the system keychain just before upload. Its fields carry `yaml:"-" json:"-"` and redacted String/GoString methods so secrets are never serialized into project files, snapshots, or logs.
+type PublishCredential struct {
+	Destination PublishDestination `yaml:"-" json:"-"`
+	Account     string             `yaml:"-" json:"-"`
+	Secret      string             `yaml:"-" json:"-"`
+}
+
+// String redacts the credential secret for safe logging.
+func (c PublishCredential) String() string {
+	return fmt.Sprintf("PublishCredential{Destination:%q, Account:%q, Secret:[REDACTED]}", c.Destination, c.Account)
+}
+
+// GoString redacts the credential secret for %#v formatting.
+func (c PublishCredential) GoString() string {
+	return c.String()
+}
+
+func (e *Editor) activeKeychain() keychain.Store {
 	if e != nil && e.Keychain != nil {
 		return e.Keychain
 	}
-	return DefaultKeychain()
+	return keychain.Default()
 }
 
 func (e *Editor) publishKeychainAccount(dest PublishDestination) string {
@@ -956,7 +977,7 @@ func (e *Editor) StorePublishCredential(dest PublishDestination, account, secret
 		return errors.New("editor: credential secret must not be empty")
 	}
 	kcAccount := e.publishKeychainAccount(dest)
-	if err := e.activeKeychain().Set(KeychainServiceName, kcAccount, secret); err != nil {
+	if err := e.activeKeychain().Set(PublishKeychainService, kcAccount, secret); err != nil {
 		return err
 	}
 	displayAccount := strings.TrimSpace(account)
@@ -987,7 +1008,7 @@ func (e *Editor) HasPublishCredential(dest PublishDestination) bool {
 	if e == nil || !dest.Valid() {
 		return false
 	}
-	val, err := e.activeKeychain().Get(KeychainServiceName, e.publishKeychainAccount(dest))
+	val, err := e.activeKeychain().Get(PublishKeychainService, e.publishKeychainAccount(dest))
 	return err == nil && val != ""
 }
 
@@ -1016,7 +1037,7 @@ func (e *Editor) DeletePublishCredential(dest PublishDestination) error {
 	if !dest.Valid() {
 		return fmt.Errorf("%w: %q", ErrInvalidPublishDestination, dest)
 	}
-	if err := e.activeKeychain().Delete(KeychainServiceName, e.publishKeychainAccount(dest)); err != nil {
+	if err := e.activeKeychain().Delete(PublishKeychainService, e.publishKeychainAccount(dest)); err != nil {
 		return err
 	}
 	e.buildRelease.mu.Lock()
@@ -1493,7 +1514,7 @@ func (e *Editor) executeConfirmedReleaseUploads(
 	projectDir string,
 	outputDir string,
 	notesAbs string,
-	kc Keychain,
+	kc keychain.Store,
 	uploader ReleaseUploader,
 ) {
 	defer run.finish()
@@ -1531,10 +1552,10 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		})
 		notifyUI()
 
-		secret, kerr := kc.Get(KeychainServiceName, job.kcAccount)
+		secret, kerr := kc.Get(PublishKeychainService, job.kcAccount)
 		if kerr != nil {
 			errMsg := fmt.Sprintf("missing %s credential in system keychain", item.DestinationLabel)
-			if !errors.Is(kerr, ErrCredentialNotFound) {
+			if !errors.Is(kerr, keychain.ErrNotFound) {
 				errMsg = kerr.Error()
 			}
 			if firstErr == nil {
@@ -1563,7 +1584,7 @@ func (e *Editor) executeConfirmedReleaseUploads(
 			ArtifactName:     item.ArtifactName,
 			SizeBytes:        item.SizeBytes,
 			ReleaseNotesPath: notesAbs,
-			Credential: KeychainCredential{
+			Credential: PublishCredential{
 				Destination: item.Destination,
 				Account:     item.CredentialAccount,
 				Secret:      secret,

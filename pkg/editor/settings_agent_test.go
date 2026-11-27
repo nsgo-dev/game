@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -119,7 +120,7 @@ func TestAgentAPIKeyStoredOnlyInKeychainNeverInFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kc := editor.NewMemoryKeychain()
+	kc := keychain.NewMemory()
 	ed.Keychain = kc
 	if err := ed.OpenProject(projDir); err != nil {
 		t.Fatal(err)
@@ -198,7 +199,7 @@ func TestAgentSettingsYouOnlyRefusesAgentActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 
 	err = ed.WithAgentActor(func() error {
 		checks := []struct {
@@ -244,7 +245,7 @@ func TestSettingsAgentPagesUIAndTabReachability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.Now = func() time.Time { return time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC) }
 	if err := ed.OpenProject(projDir); err != nil {
 		t.Fatal(err)

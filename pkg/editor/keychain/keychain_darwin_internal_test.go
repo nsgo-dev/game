@@ -1,6 +1,6 @@
 //go:build darwin && !ios
 
-package editor
+package keychain
 
 import "testing"
 

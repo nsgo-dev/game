@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -603,7 +604,7 @@ func TestAgentReconnectAsyncNonBlockingWithStalledProbe(t *testing.T) {
 
 func TestAgentLifecycleResetAPIKeyClearingAndPlayGuard(t *testing.T) {
 	ed := newTestEditor(t)
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.AgentScheduleAfter = func(_ time.Duration, _ func()) func() { return func() {} }
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)

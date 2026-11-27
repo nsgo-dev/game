@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -660,7 +661,7 @@ func TestFirstRunReviewPlanDeviationsBeforeHoldBTipsPersistenceAndHelpReplay(t *
 func TestFirstRunSecurityFocusConcurrencySpecLightAndIntegrations(t *testing.T) {
 	t.Run("api_key_input_typing_focus_and_keychain_sync", func(t *testing.T) {
 		parentDir := t.TempDir()
-		kc := editor.NewMemoryKeychain()
+		kc := keychain.NewMemory()
 		ed, err := editor.NewDemo()
 		if err != nil {
 			t.Fatal(err)

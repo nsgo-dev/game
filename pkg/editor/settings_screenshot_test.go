@@ -8,6 +8,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/editor/editormcp"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -170,7 +171,7 @@ func TestSettingsAgentPagesMacOSScreenshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.Now = func() time.Time { return time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC) }
 	_ = ed.SetLanguage(editor.LanguageEnglish)
 	_ = ed.SetAppearance(editor.AppearanceDark)

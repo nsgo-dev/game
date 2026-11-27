@@ -1,6 +1,6 @@
 //go:build darwin && !ios
 
-package editor
+package keychain
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 
 type darwinKeychain struct{}
 
-func platformKeychain() Keychain {
+func platformKeychain() Store {
 	return darwinKeychain{}
 }
 
@@ -40,9 +40,9 @@ func (darwinKeychain) Set(service, account, secret string) error {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return fmt.Errorf("editor: macOS keychain set failed: %s", msg)
+			return fmt.Errorf("keychain: macOS keychain set failed: %s", msg)
 		}
-		return fmt.Errorf("editor: macOS keychain set failed: %w", err)
+		return fmt.Errorf("keychain: macOS keychain set failed: %w", err)
 	}
 	return nil
 }
@@ -52,7 +52,7 @@ func (darwinKeychain) Get(service, account string) (string, error) {
 	var err error
 	service, account, err = validateKeychainKey(service, account)
 	if err != nil {
-		return "", ErrCredentialNotFound
+		return "", ErrNotFound
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
 	defer cancel()
@@ -64,12 +64,12 @@ func (darwinKeychain) Get(service, account string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if strings.Contains(msg, "could not be found") || strings.Contains(msg, "SecKeychainSearchCopyNext") {
-			return "", ErrCredentialNotFound
+			return "", ErrNotFound
 		}
 		if msg != "" {
-			return "", fmt.Errorf("editor: macOS keychain get failed: %s", msg)
+			return "", fmt.Errorf("keychain: macOS keychain get failed: %s", msg)
 		}
-		return "", fmt.Errorf("editor: macOS keychain get failed: %w", err)
+		return "", fmt.Errorf("keychain: macOS keychain get failed: %w", err)
 	}
 	raw := strings.TrimSuffix(stdout.String(), "\n")
 	return decodeDarwinKeychainPayload(raw), nil
@@ -94,9 +94,9 @@ func (darwinKeychain) Delete(service, account string) error {
 			return nil
 		}
 		if msg != "" {
-			return fmt.Errorf("editor: macOS keychain delete failed: %s", msg)
+			return fmt.Errorf("keychain: macOS keychain delete failed: %s", msg)
 		}
-		return fmt.Errorf("editor: macOS keychain delete failed: %w", err)
+		return fmt.Errorf("keychain: macOS keychain delete failed: %w", err)
 	}
 	return nil
 }

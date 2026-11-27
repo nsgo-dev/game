@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
@@ -623,7 +624,7 @@ func (e *Editor) readAgentSecret(account string) (string, error) {
 			return "", err
 		}
 		if !ok || strings.TrimSpace(val) == "" {
-			return "", ErrCredentialNotFound
+			return "", keychain.ErrNotFound
 		}
 		return val, nil
 	}
@@ -634,7 +635,7 @@ func (e *Editor) deleteAgentSecret(account string) error {
 	if store := e.agentSecretsStore(); store != nil {
 		return store.Delete(agentSecretStoreAccount(account))
 	}
-	if err := e.activeKeychain().Delete(AgentKeychainServiceName, agentAPIKeyAccount(account)); err != nil && !errors.Is(err, ErrCredentialNotFound) {
+	if err := e.activeKeychain().Delete(AgentKeychainServiceName, agentAPIKeyAccount(account)); err != nil && !errors.Is(err, keychain.ErrNotFound) {
 		return err
 	}
 	return nil
@@ -724,7 +725,7 @@ func (e *Editor) DeleteAgentAPIKey(account string) error {
 // Refused when invoked by an agent actor so secrets can never leak through MCP tools.
 func (e *Editor) AgentAPIKey(account string) (string, error) {
 	if e == nil {
-		return "", ErrKeychainUnavailable
+		return "", keychain.ErrUnavailable
 	}
 	if e.AgentActorActive() {
 		return "", ErrAgentSettingsYouOnly
