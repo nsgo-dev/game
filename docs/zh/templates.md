@@ -1,6 +1,6 @@
 # 项目模板
 
-新项目从一个模板开始：模板是一个小而完整的游戏，在你改动任何一行之前就能构建、运行并通过测试。`game new` 把模板写入一个新目录，NSGo 自带的 `nsgo init -template` 则从模板的 Go 模块写出同样的文件。
+新项目从一个模板开始：模板是一个小而完整的游戏，在你改动任何一行之前就能构建、运行并通过测试。`game new` 把模板写入一个新目录，NSGo 自带的 `nsgo init -template` 则从模板的 Go 模块写出同样的文件。将模板发展为可发布游戏时，可按[无障碍指南](accessibility-guide.md)端到端接入 `gameui.SettingsMenu`、`a11y.Assist`、字幕与特效控制（在每个模板中内置无障碍设置界面跟踪于 [#1783](https://github.com/nsgo-dev/game/issues/1783)）。
 
 ## 现有模板
 
