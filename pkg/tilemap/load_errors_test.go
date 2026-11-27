@@ -59,6 +59,14 @@ func TestLoadLDtkErrorsNameFileLineAndFix(t *testing.T) {
 		{"grid size", `{"levels": [{` + level + `}]}`, "", "levels[0]"},
 		{"level field", `{"defaultGridSize": 16, "levels": [{` + level + `, "fieldInstances": [{"__identifier": "hp", "__type": "Int", "__value": "lots"}]}]}`, "", "levels[0].fieldInstances[0].__value"},
 		{"entity field", `{"defaultGridSize": 16, "levels": [{` + level + `, "layerInstances": [{"__type": "Entities", "__gridSize": 16, "entityInstances": [{"fieldInstances": [{"__identifier": "on", "__type": "Bool", "__value": 2}]}]}]}]}`, "", "levels[0].layerInstances[0].entityInstances[0].fieldInstances[0].__value"},
+		{"intgrid zero width", `{"defaultGridSize": 16, "levels": [{"identifier": "L", "pxWid": 0, "pxHei": 0, "layerInstances": [{"__identifier": "G", "__type": "IntGrid", "__cWid": 0, "__cHei": 0, "__gridSize": 16, "intGridCsv": [1]}]}]}`, "", "levels[0].layerInstances[0].__cWid"},
+		{"tiles zero height", `{"defaultGridSize": 16, "levels": [{"identifier": "L", "pxWid": 32, "pxHei": 0, "layerInstances": [{"__identifier": "T", "__type": "Tiles", "__cWid": 2, "__cHei": 0, "__gridSize": 16}]}]}`, "", "levels[0].layerInstances[0].__cHei"},
+		{"tiles negative width", `{"defaultGridSize": 16, "levels": [{` + level + `, "layerInstances": [{"__identifier": "T", "__type": "Tiles", "__cWid": -1, "__cHei": 1, "__gridSize": 16}]}]}`, "", "levels[0].layerInstances[0].__cWid"},
+		{"tiles oversized", `{"defaultGridSize": 16, "levels": [{` + level + `, "layerInstances": [{"__identifier": "T", "__type": "Tiles", "__cWid": 20000, "__cHei": 20000, "__gridSize": 16}]}]}`, "", "levels[0].layerInstances[0].__cWid"},
+		{"tiles overflow", `{"defaultGridSize": 16, "levels": [{` + level + `, "layerInstances": [{"__identifier": "T", "__type": "Tiles", "__cWid": 4294967296, "__cHei": 4294967297, "__gridSize": 16}]}]}`, "", "levels[0].layerInstances[0].__cWid"},
+		{"intGridCsv too long", `{"defaultGridSize": 16, "levels": [{` + level + `, "layerInstances": [{"__identifier": "G", "__type": "IntGrid", "__cWid": 2, "__cHei": 1, "__gridSize": 16, "intGridCsv": [1, 0, 1]}]}]}`, "", "levels[0].layerInstances[0].intGridCsv"},
+		{"negative level pxWid", `{"defaultGridSize": 16, "levels": [{"identifier": "L", "pxWid": -16, "pxHei": 16}]}`, "", "levels[0].pxWid"},
+		{"negative level pxHei", `{"defaultGridSize": 16, "levels": [{"identifier": "L", "pxWid": 16, "pxHei": -16}]}`, "", "levels[0].pxHei"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

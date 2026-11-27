@@ -3,10 +3,18 @@ package tilemap
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
+)
+
+const (
+	// maxLDtkLayerTiles caps a single LDtk layer grid at 16,777,216 cells (64 MiB of uint32 GIDs), matching Tiled's maxTiledLayerTiles.
+	maxLDtkLayerTiles = maxTiledLayerTiles
+	// maxLDtkTotalTiles caps the total dense tile cells allocated across one LoadLDtk or LoadLDtkAll call (64 Mi cells, 256 MiB of uint32 GIDs).
+	maxLDtkTotalTiles = 64 << 20
 )
 
 // LevelNeighbour describes one adjacent or overlapping level in a multi-level world (such as an LDtk project).
@@ -76,14 +84,16 @@ func loadLDtk(data []byte, levelIdentifier string, opts LDtkOptions) (*Tilemap, 
 				return nil, loaderr.Errorf("levels", "pass the identifier of a level in the project, or an empty one for the first level", "level %q not found", levelIdentifier)
 			}
 		}
-		return buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", index, opts)
+		var totalTiles int
+		return buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", index, opts, &totalTiles)
 	}
 	if len(proj.Worlds) > 0 {
 		for wi := range proj.Worlds {
 			w := &proj.Worlds[wi]
 			for li := range w.Levels {
 				if levelIdentifier == "" || w.Levels[li].Identifier == levelIdentifier {
-					return buildLDtkLevel(&proj, w.Levels, w.WorldLayout, loaderr.Path("worlds", wi, "levels"), li, opts)
+					var totalTiles int
+					return buildLDtkLevel(&proj, w.Levels, w.WorldLayout, loaderr.Path("worlds", wi, "levels"), li, opts, &totalTiles)
 				}
 			}
 		}
@@ -112,10 +122,11 @@ func loadLDtkAll(data []byte, opts LDtkOptions) (map[string]*Tilemap, error) {
 	if err := json.Unmarshal(data, &proj); err != nil {
 		return nil, err
 	}
+	var totalTiles int
 	if len(proj.Levels) > 0 {
 		out := make(map[string]*Tilemap, len(proj.Levels))
 		for i := range proj.Levels {
-			m, err := buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", i, opts)
+			m, err := buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", i, opts, &totalTiles)
 			if err != nil {
 				return nil, err
 			}
@@ -128,7 +139,7 @@ func loadLDtkAll(data []byte, opts LDtkOptions) (map[string]*Tilemap, error) {
 		w := &proj.Worlds[wi]
 		levelsPath := loaderr.Path("worlds", wi, "levels")
 		for li := range w.Levels {
-			m, err := buildLDtkLevel(&proj, w.Levels, w.WorldLayout, levelsPath, li, opts)
+			m, err := buildLDtkLevel(&proj, w.Levels, w.WorldLayout, levelsPath, li, opts, &totalTiles)
 			if err != nil {
 				return nil, err
 			}
@@ -228,6 +239,12 @@ func loadLDtkWorld(data []byte, worldIdentifier string, opts LDtkOptions) (*Leve
 	}
 	for i := range levels {
 		lvl := &levels[i]
+		if lvl.PxWid < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(levelsPath, i, "pxWid"), "set the level's pixel width to 0 or more in LDtk", "level %q pixel width %d must be non-negative", lvl.Identifier, lvl.PxWid)
+		}
+		if lvl.PxHei < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(levelsPath, i, "pxHei"), "set the level's pixel height to 0 or more in LDtk", "level %q pixel height %d must be non-negative", lvl.Identifier, lvl.PxHei)
+		}
 		origin := core.Point{X: core.Points(lvl.WorldX), Y: core.Points(lvl.WorldY)}
 		neighbours := resolveLDtkNeighbours(levels, lvl)
 		idx := i
@@ -240,7 +257,8 @@ func loadLDtkWorld(data []byte, worldIdentifier string, opts LDtkOptions) (*Leve
 			WorldDepth: lvl.WorldDepth,
 			Neighbours: neighbours,
 			Load: func() (*Tilemap, error) {
-				m, err := buildLDtkLevel(&proj, levels, layout, levelsPath, idx, opts)
+				var totalTiles int
+				m, err := buildLDtkLevel(&proj, levels, layout, levelsPath, idx, opts, &totalTiles)
 				return m, loaderr.LocateJSON(err, "", rawCopy, fixLDtk)
 			},
 		}
@@ -298,8 +316,12 @@ func resolveLDtkNeighbours(levels []ldtkLevel, lvl *ldtkLevel) []LevelNeighbour 
 	return out
 }
 
+func isLDtkGridLayer(typ string) bool {
+	return typ == "Tiles" || typ == "AutoLayer" || typ == "IntGrid"
+}
+
 // buildLDtkLevel builds levels[index].
-func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, levelsPath string, index int, opts LDtkOptions) (*Tilemap, error) {
+func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, levelsPath string, index int, opts LDtkOptions, totalTiles *int) (*Tilemap, error) {
 	resolveImage := opts.ResolveImage
 	lvl := &levels[index]
 	at := loaderr.Join(levelsPath, index)
@@ -315,16 +337,83 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 	if gridSize <= 0 {
 		return nil, loaderr.Errorf(at, "set the project's default grid size, or a layer's grid size, above 0 in LDtk", "level %q has no positive grid size", lvl.Identifier)
 	}
+	if lvl.PxWid < 0 {
+		return nil, loaderr.Errorf(loaderr.Join(at, "pxWid"), "set the level's pixel width to 0 or more in LDtk", "level %q pixel width %d must be non-negative", lvl.Identifier, lvl.PxWid)
+	}
+	if lvl.PxHei < 0 {
+		return nil, loaderr.Errorf(loaderr.Join(at, "pxHei"), "set the level's pixel height to 0 or more in LDtk", "level %q pixel height %d must be non-negative", lvl.Identifier, lvl.PxHei)
+	}
 
 	mapW := lvl.PxWid / gridSize
 	mapH := lvl.PxHei / gridSize
-	for _, li := range lvl.LayerInstances {
+	if mapW > 0 && mapH > 0 && mapW > math.MaxInt/mapH {
+		return nil, loaderr.Errorf(loaderr.Join(at, "pxWid"), "reduce the level dimensions or increase the grid size in LDtk", "level %q grid size %dx%d overflows", lvl.Identifier, mapW, mapH)
+	}
+
+	// Validate explicit layer dimensions before merging them into the level grid size.
+	for i, li := range lvl.LayerInstances {
+		layerAt := loaderr.Join(at, "layerInstances", i)
+		if li.CWid < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "set the layer's grid width to 0 or more in LDtk", "layer %q width %d must be non-negative", li.Identifier, li.CWid)
+		}
+		if li.CHei < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cHei"), "set the layer's grid height to 0 or more in LDtk", "layer %q height %d must be non-negative", li.Identifier, li.CHei)
+		}
+		if isLDtkGridLayer(li.Type) && li.CWid > 0 && li.CHei > 0 {
+			if li.CWid > math.MaxInt/li.CHei {
+				return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce the layer dimensions in LDtk", "layer %q size %dx%d overflows", li.Identifier, li.CWid, li.CHei)
+			}
+			if cells := li.CWid * li.CHei; cells > maxLDtkLayerTiles {
+				return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce the layer dimensions in LDtk", "layer %q size %dx%d (%d cells) exceeds maximum allowed layer size (%d cells)", li.Identifier, li.CWid, li.CHei, cells, maxLDtkLayerTiles)
+			}
+		}
 		if li.CWid > mapW {
 			mapW = li.CWid
 		}
 		if li.CHei > mapH {
 			mapH = li.CHei
 		}
+	}
+
+	// Validate each grid layer's effective dimensions, intGridCsv length, and dense allocation budget before allocating any tile buffers.
+	for i, li := range lvl.LayerInstances {
+		if !isLDtkGridLayer(li.Type) {
+			continue
+		}
+		layerAt := loaderr.Join(at, "layerInstances", i)
+		lw, lh := li.CWid, li.CHei
+		if lw == 0 {
+			lw = mapW
+		}
+		if lh == 0 {
+			lh = mapH
+		}
+		if lw <= 0 {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "give the layer or level a positive grid width in LDtk", "layer %q effective width %d must be positive", li.Identifier, lw)
+		}
+		if lh <= 0 {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cHei"), "give the layer or level a positive grid height in LDtk", "layer %q effective height %d must be positive", li.Identifier, lh)
+		}
+		if lw > math.MaxInt/lh {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce the layer or level dimensions in LDtk", "layer %q size %dx%d overflows", li.Identifier, lw, lh)
+		}
+		cells := lw * lh
+		if cells > maxLDtkLayerTiles {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce the layer or level dimensions in LDtk", "layer %q size %dx%d (%d cells) exceeds maximum allowed layer size (%d cells)", li.Identifier, lw, lh, cells, maxLDtkLayerTiles)
+		}
+		if li.Type == "IntGrid" && len(li.IntGridCSV) > cells {
+			return nil, loaderr.Errorf(loaderr.Join(layerAt, "intGridCsv"), "re-save the project in LDtk so intGridCsv has at most __cWid * __cHei cells", "layer %q intGridCsv has %d cells, more than %dx%d (%d)", li.Identifier, len(li.IntGridCSV), lw, lh, cells)
+		}
+		allocatesTiles := li.Type == "Tiles" || li.Type == "AutoLayer" || (li.Type == "IntGrid" && len(li.AutoLayerTiles) > 0)
+		if allocatesTiles && totalTiles != nil {
+			if cells > maxLDtkTotalTiles-*totalTiles {
+				return nil, loaderr.Errorf(loaderr.Join(layerAt, "__cWid"), "reduce layer dimensions or load levels lazily with LoadLDtkWorld", "layer %q size %dx%d exceeds maximum total tile allocation (%d cells)", li.Identifier, lw, lh, maxLDtkTotalTiles)
+			}
+			*totalTiles += cells
+		}
+	}
+	if mapW > 0 && mapH > 0 && mapW > math.MaxInt/mapH {
+		return nil, loaderr.Errorf(at, "reduce the level or layer dimensions in LDtk", "level %q size %dx%d overflows", lvl.Identifier, mapW, mapH)
 	}
 
 	props, err := parseLDtkFields(lvl.FieldInstances, loaderr.Join(at, "fieldInstances"))
@@ -349,22 +438,41 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 	// Build tilesets from defs.tilesets with sequential non-overlapping FirstGIDs.
 	tilesetsByUID := make(map[int]*Tileset, len(proj.Defs.Tilesets))
 	tilesetDefsByUID := make(map[int]ldtkTilesetDef, len(proj.Defs.Tilesets))
-	var nextGID uint32 = 1
-	for _, def := range proj.Defs.Tilesets {
+	var nextGID uint64 = 1
+	for ti, def := range proj.Defs.Tilesets {
 		tw := def.TileGridSize
 		if tw <= 0 {
 			tw = gridSize
 		}
 		cols := def.CWid
 		rows := def.CHei
-		step := tw + def.Spacing
-		if cols <= 0 && def.PxWid > 0 && step > 0 {
-			cols = (def.PxWid - 2*def.Padding + def.Spacing) / step
+		if cols < 0 {
+			cols = 0
 		}
-		if rows <= 0 && def.PxHei > 0 && step > 0 {
-			rows = (def.PxHei - 2*def.Padding + def.Spacing) / step
+		if rows < 0 {
+			rows = 0
 		}
-		tileCount := max(1, cols*rows)
+		step := int64(tw) + int64(def.Spacing)
+		if cols == 0 && def.PxWid > 0 && step > 0 {
+			if n := (int64(def.PxWid) - 2*int64(def.Padding) + int64(def.Spacing)) / step; n > 0 && n <= math.MaxInt {
+				cols = int(n)
+			}
+		}
+		if rows == 0 && def.PxHei > 0 && step > 0 {
+			if n := (int64(def.PxHei) - 2*int64(def.Padding) + int64(def.Spacing)) / step; n > 0 && n <= math.MaxInt {
+				rows = int(n)
+			}
+		}
+		tileCount := 1
+		if cols > 0 && rows > 0 {
+			if cols > int(TileIDMask)/rows {
+				return nil, loaderr.Errorf(loaderr.Path("defs", "tilesets", ti, "__cWid"), "reduce the tileset grid dimensions in LDtk", "tileset %q size %dx%d exceeds maximum tile ID range", def.Identifier, cols, rows)
+			}
+			tileCount = cols * rows
+		}
+		if nextGID > uint64(TileIDMask) || uint64(tileCount) > uint64(TileIDMask)-nextGID+1 {
+			return nil, loaderr.Errorf(loaderr.Path("defs", "tilesets", ti), "reduce tileset tile counts in LDtk", "tileset %q firstgid overflows tile ID range", def.Identifier)
+		}
 
 		var img core.ImageSource
 		if def.RelPath != "" {
@@ -377,7 +485,7 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 
 		ts := &Tileset{
 			Name:       def.Identifier,
-			FirstGID:   nextGID,
+			FirstGID:   uint32(nextGID),
 			Image:      img,
 			TileWidth:  float32(tw),
 			TileHeight: float32(tw),
@@ -389,7 +497,7 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 		m.Tilesets = append(m.Tilesets, ts)
 		tilesetsByUID[def.UID] = ts
 		tilesetDefsByUID[def.UID] = def
-		nextGID += uint32(tileCount)
+		nextGID += uint64(tileCount)
 	}
 
 	// Index IntGrid value definitions (and their group names) from defs.layers by layer UID and identifier.
@@ -444,10 +552,10 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 			layerGrid = gridSize
 		}
 		lw, lh := li.CWid, li.CHei
-		if lw <= 0 {
+		if lw == 0 {
 			lw = m.Width
 		}
-		if lh <= 0 {
+		if lh == 0 {
 			lh = m.Height
 		}
 
@@ -582,7 +690,7 @@ func resolveLDtkLayerTileset(li ldtkLayerInstance, byUID map[int]*Tileset) *Tile
 }
 
 func buildLDtkTileData(tiles []ldtkTileInstance, lw, lh, gridSize int, ts *Tileset, def ldtkTilesetDef) []uint32 {
-	if lw <= 0 || lh <= 0 {
+	if lw <= 0 || lh <= 0 || lw > math.MaxInt/lh || lw*lh > maxLDtkLayerTiles {
 		return nil
 	}
 	data := make([]uint32, lw*lh)
@@ -608,14 +716,14 @@ func buildLDtkTileData(tiles []ldtkTileInstance, lw, lh, gridSize int, ts *Tiles
 		if tile.T != nil && *tile.T >= 0 {
 			localID = uint32(*tile.T)
 		} else if len(tile.Src) >= 2 && cols > 0 {
-			tc := (tile.Src[0] - padding) / tileStep
-			tr := (tile.Src[1] - padding) / tileStep
+			tc := (int64(tile.Src[0]) - int64(padding)) / int64(tileStep)
+			tr := (int64(tile.Src[1]) - int64(padding)) / int64(tileStep)
 			if tc < 0 || tr < 0 {
 				continue
 			}
-			localID = uint32(tr*cols + tc)
+			localID = uint32(tr*int64(cols) + tc)
 		}
-		gid := ts.FirstGID + localID
+		gid := (ts.FirstGID + localID) & TileIDMask
 		if tile.F&1 != 0 {
 			gid |= FlipHorizontal
 		}

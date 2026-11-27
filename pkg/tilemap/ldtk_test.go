@@ -1,8 +1,12 @@
 package tilemap_test
 
 import (
+	"fmt"
+	"runtime"
+	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -287,52 +291,52 @@ func TestLoadLDtkTilesAutoLayerIntGridAndEntities(t *testing.T) {
 	}
 }
 
-func TestLoadLDtkWithCustomIntGridMappingAndGroups(t *testing.T) {
-	const groupedLDtk = `{
-		"defaultGridSize": 16,
-		"defs": {
-			"layers": [
-				{
-					"uid": 10,
-					"identifier": "Terrain",
-					"type": "IntGrid",
-					"gridSize": 16,
-					"intGridValuesGroups": [
-						{"uid": 100, "identifier": "Solid", "color": "#FFFFFF"},
-						{"uid": 200, "identifier": "Hazards", "color": "#FF0000"}
-					],
-					"intGridValues": [
-						{"value": 1, "identifier": "Stone", "color": "#888888", "groupUid": 100},
-						{"value": 2, "identifier": "Bridge", "color": "#AA8844", "groupUid": 0},
-						{"value": 3, "identifier": "Lava", "color": "#FF3300", "groupUid": 200},
-						{"value": 4, "identifier": "Decor", "color": "#00AA00", "groupUid": 0}
-					]
-				}
-			]
-		},
-		"levels": [
+const groupedLDtkJSON = `{
+	"defaultGridSize": 16,
+	"defs": {
+		"layers": [
 			{
-				"identifier": "L0",
-				"uid": 0,
-				"pxWid": 64,
-				"pxHei": 16,
-				"layerInstances": [
-					{
-						"__identifier": "Terrain",
-						"__type": "IntGrid",
-						"__cWid": 4,
-						"__cHei": 1,
-						"__gridSize": 16,
-						"layerDefUid": 10,
-						"intGridCsv": [1, 2, 3, 4]
-					}
+				"uid": 10,
+				"identifier": "Terrain",
+				"type": "IntGrid",
+				"gridSize": 16,
+				"intGridValuesGroups": [
+					{"uid": 100, "identifier": "Solid", "color": "#FFFFFF"},
+					{"uid": 200, "identifier": "Hazards", "color": "#FF0000"}
+				],
+				"intGridValues": [
+					{"value": 1, "identifier": "Stone", "color": "#888888", "groupUid": 100},
+					{"value": 2, "identifier": "Bridge", "color": "#AA8844", "groupUid": 0},
+					{"value": 3, "identifier": "Lava", "color": "#FF3300", "groupUid": 200},
+					{"value": 4, "identifier": "Decor", "color": "#00AA00", "groupUid": 0}
 				]
 			}
 		]
-	}`
+	},
+	"levels": [
+		{
+			"identifier": "L0",
+			"uid": 0,
+			"pxWid": 64,
+			"pxHei": 16,
+			"layerInstances": [
+				{
+					"__identifier": "Terrain",
+					"__type": "IntGrid",
+					"__cWid": 4,
+					"__cHei": 1,
+					"__gridSize": 16,
+					"layerDefUid": 10,
+					"intGridCsv": [1, 2, 3, 4]
+				}
+			]
+		}
+	]
+}`
 
+func TestLoadLDtkWithCustomIntGridMappingAndGroups(t *testing.T) {
 	// Default heuristic honors intGridValuesGroups ("Stone" in group "Solid" -> TileSolid).
-	defMap, err := tilemap.LoadLDtk([]byte(groupedLDtk), "L0", nil)
+	defMap, err := tilemap.LoadLDtk([]byte(groupedLDtkJSON), "L0", nil)
 	if err != nil {
 		t.Fatalf("LoadLDtk: %v", err)
 	}
@@ -353,7 +357,7 @@ func TestLoadLDtkWithCustomIntGridMappingAndGroups(t *testing.T) {
 			1: tilemap.TileSolid | tilemap.TileFlags(1<<3), // numeric rule overrides group
 		},
 	}
-	m, err := tilemap.LoadLDtkWith([]byte(groupedLDtk), "L0", opts)
+	m, err := tilemap.LoadLDtkWith([]byte(groupedLDtkJSON), "L0", opts)
 	if err != nil {
 		t.Fatalf("LoadLDtkWith: %v", err)
 	}
@@ -371,11 +375,11 @@ func TestLoadLDtkWithCustomIntGridMappingAndGroups(t *testing.T) {
 	}
 
 	// LoadLDtkAllWith and LoadLDtkWorldWith apply the same options.
-	all, err := tilemap.LoadLDtkAllWith([]byte(groupedLDtk), opts)
+	all, err := tilemap.LoadLDtkAllWith([]byte(groupedLDtkJSON), opts)
 	if err != nil || all["L0"].FlagsAt(2, 0) != flagHazard || all["L0"].FlagsAt(3, 0) != 0 {
 		t.Fatalf("LoadLDtkAllWith = (%v, %v)", all, err)
 	}
-	w, err := tilemap.LoadLDtkWorldWith([]byte(groupedLDtk), "", opts)
+	w, err := tilemap.LoadLDtkWorldWith([]byte(groupedLDtkJSON), "", opts)
 	if err != nil {
 		t.Fatalf("LoadLDtkWorldWith: %v", err)
 	}
@@ -383,4 +387,196 @@ func TestLoadLDtkWithCustomIntGridMappingAndGroups(t *testing.T) {
 	if err != nil || lm.FlagsAt(1, 0) != (tilemap.TileOneWay|flagBridgeExtra) || lm.FlagsAt(3, 0) != 0 {
 		t.Fatalf("LoadLDtkWorldWith level = (%v, %v)", lm, err)
 	}
+}
+
+func TestLoadLDtkMalformedLayerBoundsAndOverflow(t *testing.T) {
+	cases := []struct {
+		name      string
+		json      string
+		wantField string
+		wantSub   string
+	}{
+		{
+			name:      "intgrid zero width divide by zero (#1551)",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":0,"pxHei":0,"layerInstances":[{"__identifier":"G","__type":"IntGrid","__cWid":0,"__cHei":0,"__gridSize":16,"intGridCsv":[1]}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "positive",
+		},
+		{
+			name:      "intgrid mixed-case missing width (#1551 fuzz)",
+			json:      `{"defAultGridSiZe":1,"levels":[{"lAYerInstAnCes":[{"__tYpe":"IntGrid","intGridCsv":[1]}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "positive",
+		},
+		{
+			name:      "tiles zero height after fallback",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":8,"layerInstances":[{"__identifier":"T","__type":"Tiles","__cWid":0,"__cHei":0,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cHei",
+			wantSub:   "positive",
+		},
+		{
+			name:      "autolayer zero width after fallback",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":0,"pxHei":64,"layerInstances":[{"__identifier":"A","__type":"AutoLayer","__cWid":0,"__cHei":0,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "positive",
+		},
+		{
+			name:      "negative layer width",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":48,"layerInstances":[{"__identifier":"T","__type":"Tiles","__cWid":-1,"__cHei":3,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "non-negative",
+		},
+		{
+			name:      "negative layer height",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":48,"layerInstances":[{"__identifier":"A","__type":"AutoLayer","__cWid":4,"__cHei":-2,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cHei",
+			wantSub:   "non-negative",
+		},
+		{
+			name:      "unbounded allocation 20000x20000 (#1551)",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":64,"layerInstances":[{"__identifier":"T","__type":"Tiles","__cWid":20000,"__cHei":20000,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "exceeds maximum",
+		},
+		{
+			name:      "autolayer exceeds cell limit via level fallback",
+			json:      `{"defaultGridSize":1,"levels":[{"identifier":"L","pxWid":5000,"pxHei":5000,"layerInstances":[{"__identifier":"A","__type":"AutoLayer","__gridSize":1}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "exceeds maximum",
+		},
+		{
+			name:      "int64 overflow 4294967296x4294967297 (#1551)",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":64,"layerInstances":[{"__identifier":"T","__type":"Tiles","__cWid":4294967296,"__cHei":4294967297,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "overflow",
+		},
+		{
+			name:      "32-bit overflow 65536x65537",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":64,"layerInstances":[{"__identifier":"T","__type":"Tiles","__cWid":65536,"__cHei":65537,"__gridSize":16}]}]}`,
+			wantField: "levels[0].layerInstances[0].__cWid",
+			wantSub:   "exceeds maximum",
+		},
+		{
+			name:      "intGridCsv longer than layer dimensions",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":32,"pxHei":16,"layerInstances":[{"__identifier":"G","__type":"IntGrid","__cWid":2,"__cHei":1,"__gridSize":16,"intGridCsv":[1,0,1]}]}]}`,
+			wantField: "levels[0].layerInstances[0].intGridCsv",
+			wantSub:   "intGridCsv",
+		},
+		{
+			name:      "cumulative multi-layer tile budget exceeded",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":64,"pxHei":64,"layerInstances":[{"__identifier":"L0","__type":"Tiles","__cWid":4096,"__cHei":4096},{"__identifier":"L1","__type":"Tiles","__cWid":4096,"__cHei":4096},{"__identifier":"L2","__type":"Tiles","__cWid":4096,"__cHei":4096},{"__identifier":"L3","__type":"Tiles","__cWid":4096,"__cHei":4096},{"__identifier":"L4","__type":"Tiles","__cWid":4096,"__cHei":4096}]}]}`,
+			wantField: "levels[0].layerInstances[4].__cWid",
+			wantSub:   "total tile allocation",
+		},
+		{
+			name:      "negative level pxWid",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":-16,"pxHei":32,"layerInstances":[]}]}`,
+			wantField: "levels[0].pxWid",
+			wantSub:   "non-negative",
+		},
+		{
+			name:      "negative level pxHei",
+			json:      `{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":32,"pxHei":-16,"layerInstances":[]}]}`,
+			wantField: "levels[0].pxHei",
+			wantSub:   "non-negative",
+		},
+		{
+			name:      "tileset grid exceeds tile ID range",
+			json:      `{"defaultGridSize":16,"defs":{"tilesets":[{"uid":1,"identifier":"Huge","__cWid":100000,"__cHei":100000}]},"levels":[{"identifier":"L","pxWid":16,"pxHei":16,"layerInstances":[]}]}`,
+			wantField: "defs.tilesets[0].__cWid",
+			wantSub:   "tile ID range",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := []byte(tc.json)
+
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			_, errAll := tilemap.LoadLDtkAllWith(raw, tilemap.LDtkOptions{})
+			runtime.ReadMemStats(&after)
+			if errAll == nil {
+				t.Fatalf("LoadLDtkAllWith(%s) succeeded, want error on %s", tc.name, tc.wantField)
+			}
+			// Guard against accidental giant allocations before failing.
+			if after.TotalAlloc-before.TotalAlloc > 4<<20 {
+				t.Fatalf("LoadLDtkAllWith(%s) allocated %d bytes before failing", tc.name, after.TotalAlloc-before.TotalAlloc)
+			}
+			le, ok := loaderr.As(errAll)
+			if !ok {
+				t.Fatalf("LoadLDtkAllWith error = %T (%v), want *loaderr.Error", errAll, errAll)
+			}
+			if le.Field != tc.wantField {
+				t.Errorf("LoadLDtkAllWith Field = %q, want %q (err: %v)", le.Field, tc.wantField, errAll)
+			}
+			if le.Fix == "" {
+				t.Errorf("LoadLDtkAllWith Fix is empty (err: %v)", errAll)
+			}
+			if tc.wantSub != "" && !strings.Contains(strings.ToLower(errAll.Error()), strings.ToLower(tc.wantSub)) {
+				t.Errorf("LoadLDtkAllWith error %q does not mention %q", errAll.Error(), tc.wantSub)
+			}
+
+			_, errOne := tilemap.LoadLDtkWith(raw, "", tilemap.LDtkOptions{})
+			if errOne == nil {
+				t.Fatalf("LoadLDtkWith(%s) succeeded, want error on %s", tc.name, tc.wantField)
+			}
+			if leOne, ok := loaderr.As(errOne); !ok || leOne.Field != tc.wantField {
+				t.Errorf("LoadLDtkWith error = %v (field %v), want field %q", errOne, leOne, tc.wantField)
+			}
+
+			w, errWorld := tilemap.LoadLDtkWorldWith(raw, "", tilemap.LDtkOptions{})
+			if errWorld == nil {
+				if len(w.Levels) == 0 {
+					t.Fatalf("LoadLDtkWorldWith(%s) returned 0 levels", tc.name)
+				}
+				_, errLazy := w.Levels[0].Load()
+				if errLazy == nil {
+					t.Fatalf("LoadLDtkWorldWith(%s).Levels[0].Load() succeeded, want error on %s", tc.name, tc.wantField)
+				}
+				if leLazy, ok := loaderr.As(errLazy); !ok || leLazy.Field != tc.wantField {
+					t.Errorf("LoadLDtkWorldWith lazy Load error = %v, want field %q", errLazy, tc.wantField)
+				}
+			} else if leW, ok := loaderr.As(errWorld); !ok || leW.Field != tc.wantField {
+				t.Errorf("LoadLDtkWorldWith error = %v, want field %q", errWorld, tc.wantField)
+			}
+		})
+	}
+
+	// Valid fallback: layer with __cWid=0, __cHei=0 inherits positive level dimensions and sparse IntGrid loads cleanly.
+	t.Run("valid level dimension fallback and entities-only zero-size level", func(t *testing.T) {
+		fallback := []byte(`{"defaultGridSize":16,"levels":[{"identifier":"L","pxWid":32,"pxHei":16,"layerInstances":[{"__identifier":"G","__type":"IntGrid","__cWid":0,"__cHei":0,"intGridCsv":[1]},{"__identifier":"T","__type":"Tiles","__cWid":0,"__cHei":0}]}]}`)
+		m, err := tilemap.LoadLDtk(fallback, "L", nil)
+		if err != nil {
+			t.Fatalf("LoadLDtk(fallback): %v", err)
+		}
+		if m.Width != 2 || m.Height != 1 || m.FlagsAt(0, 0) != tilemap.TileSolid || len(m.Layers) != 1 || len(m.Layers[0].Data) != 2 {
+			t.Fatalf("fallback map = %+v", m)
+		}
+
+		entitiesOnly := []byte(`{"defaultGridSize":16,"levels":[{"identifier":"E","pxWid":0,"pxHei":0,"layerInstances":[{"__identifier":"Objects","__type":"Entities","entityInstances":[{"__identifier":"Spawn","px":[8,8],"width":0,"height":0}]}]}]}`)
+		me, err := tilemap.LoadLDtk(entitiesOnly, "E", nil)
+		if err != nil {
+			t.Fatalf("LoadLDtk(entitiesOnly): %v", err)
+		}
+		if obj := me.ObjectLayer("Objects"); obj == nil || len(obj.Objects) != 1 {
+			t.Fatalf("entitiesOnly Objects = %+v", obj)
+		}
+	})
+
+	// Multi-level LoadLDtkAll cumulative budget refuses loading 5 levels of 4096x4096 layers without allocating > 256 MiB.
+	t.Run("LoadLDtkAll multi-level cumulative budget", func(t *testing.T) {
+		var levels []string
+		for i := range 5 {
+			levels = append(levels, fmt.Sprintf(`{"identifier":"L%d","pxWid":64,"pxHei":64,"layerInstances":[{"__identifier":"T","__type":"Tiles","__cWid":4096,"__cHei":4096}]}`, i))
+		}
+		raw := []byte(`{"defaultGridSize":16,"levels":[` + strings.Join(levels, ",") + `]}`)
+		_, err := tilemap.LoadLDtkAll(raw, nil)
+		if err == nil {
+			t.Fatal("LoadLDtkAll succeeded for 5x 4096x4096 levels, want budget error")
+		}
+		if le, ok := loaderr.As(err); !ok || le.Field != "levels[4].layerInstances[0].__cWid" {
+			t.Fatalf("LoadLDtkAll budget error = %v, want field levels[4].layerInstances[0].__cWid", err)
+		}
+	})
 }
