@@ -2,8 +2,12 @@ package editormcp_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,7 +16,14 @@ import (
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/editor/editormcp"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func holdTaskUntilCanceled(ctx context.Context, _ editor.AgentTask) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
 
 func connectTaskClient(t *testing.T, s *editormcp.Server, taskID string) *mcp.ClientSession {
 	t.Helper()
@@ -64,6 +75,8 @@ func newSlimesEditor(t *testing.T) *editor.Editor {
 	if err := ed.SetComponentRegistry(reg); err != nil {
 		t.Fatalf("SetComponentRegistry: %v", err)
 	}
+	t.Cleanup(func() { _ = ed.Close() })
+	ed.AgentTaskRunner = holdTaskUntilCanceled
 	return ed
 }
 
@@ -505,5 +518,368 @@ func TestParallelRevertTaskPreservesOtherTasksKeptEditsOverMCP(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// #1507: Built-in agent tasks run through the default AgentTaskRunner (AgentTaskRunner == nil)
+// with editormcp per-object holds, Needs you permission prompts, and separate TaskReviews/AgentTurns.
+func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *testing.T) {
+	const secretKey = "sk-ant-test-task-runner-secret"
+
+	ed := newSlimesEditor(t)
+	ed.AgentTaskRunner = nil // Use Editor's default AgentTaskRunner!
+
+	task1Held := make(chan struct{})
+	releaseTask1 := make(chan struct{})
+	task2Blocked := make(chan struct{}, 1)
+
+	var mu sync.Mutex
+	callsByTask := map[string]int{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		firstMsg := string(payload.Messages[0].Content)
+		taskKey := "task-other"
+		switch {
+		case strings.Contains(firstMsg, "PROMPT_TASK_1"):
+			taskKey = "task-1"
+		case strings.Contains(firstMsg, "PROMPT_TASK_2"):
+			taskKey = "task-2"
+		case strings.Contains(firstMsg, "PROMPT_TASK_PERM"):
+			taskKey = "task-perm"
+		}
+		mu.Lock()
+		callsByTask[taskKey]++
+		callNum := callsByTask[taskKey]
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		switch taskKey {
+		case "task-1":
+			if callNum == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": "m1-1", "model": payload.Model, "stop_reason": "tool_use",
+					"content": []map[string]any{{
+						"type": "tool_use", "id": "tu-1", "name": editormcp.ToolSceneEdit,
+						"input": map[string]any{
+							"edits": []map[string]any{{
+								"op": "set", "id": "slime_02", "component": "patrol",
+								"fields": map[string]any{"jump": true},
+							}},
+						},
+					}},
+				})
+				return
+			}
+			// After scene_edit succeeds, hold the turn open until task-2 blocks on slime_02.
+			close(task1Held)
+			<-releaseTask1
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "m1-2", "model": payload.Model, "stop_reason": "end_turn",
+				"content": []map[string]any{{"type": "text", "text": "Enabled jump on slime_02."}},
+			})
+			return
+
+		case "task-2":
+			if callNum == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": "m2-1", "model": payload.Model, "stop_reason": "tool_use",
+					"content": []map[string]any{{
+						"type": "tool_use", "id": "tu-2", "name": editormcp.ToolSceneEdit,
+						"input": map[string]any{
+							"edits": []map[string]any{{
+								"op": "set", "id": "slime_02", "component": "patrol",
+								"fields": map[string]any{"speed": 48.0},
+							}},
+						},
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "m2-2", "model": payload.Model, "stop_reason": "end_turn",
+				"content": []map[string]any{{"type": "text", "text": "Raised slime_02 speed to 48."}},
+			})
+			return
+
+		case "task-perm":
+			if callNum == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": "mp-1", "model": payload.Model, "stop_reason": "tool_use",
+					"content": []map[string]any{{
+						"type": "tool_use", "id": "tu-p", "name": editormcp.ToolSceneEdit,
+						"input": map[string]any{
+							"edits": []map[string]any{{
+								"op": "set", "id": "slime_01", "component": "patrol",
+								"fields": map[string]any{"speed": 60.0},
+							}},
+						},
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "mp-2", "model": payload.Model, "stop_reason": "end_turn",
+				"content": []map[string]any{{"type": "text", "text": "Updated slime_01 after approval."}},
+			})
+			return
+		}
+		http.Error(w, "unexpected task", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	ed.BuiltInAgentEndpoint = srv.URL
+	ed.BuiltInHTTPClient = srv.Client()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800), nsgotest.Secrets(map[string]string{
+		editor.AgentAPIKeySecretAccount: secretKey,
+	}))
+	s := editormcp.New(ed, editormcp.Options{Run: app.Post})
+	t.Cleanup(func() { _ = s.Close() })
+
+	s.SetHoldBlockedHook(func(taskID, objectID, holderTaskID string) {
+		if taskID == "b2" && objectID == "slime_02" && holderTaskID == "b1" {
+			select {
+			case task2Blocked <- struct{}{}:
+			default:
+			}
+		}
+	})
+
+	// Configure built-in API key mode via Connect dialog.
+	app.Post(func() {
+		ed.OpenConnectDialogForMode(editor.AgentModeAPIKey)
+		ed.CompleteConnectDialog()
+	})
+	app.Settle()
+
+	// Submit parallel task 1; wait until it holds slime_02.
+	var submitErr error
+	app.Post(func() {
+		_, submitErr = ed.SubmitTask(editor.TaskRequest{
+			ID:        "b1",
+			Title:     "Task 1 jump",
+			Prompt:    "PROMPT_TASK_1",
+			StartMode: editor.TaskStartParallel,
+		})
+	})
+	app.Settle()
+	if submitErr != nil {
+		t.Fatalf("SubmitTask b1: %v", submitErr)
+	}
+	select {
+	case <-task1Held:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for b1 to acquire slime_02")
+	}
+
+	// Submit parallel task 2; it must hold waiting on slime_02 held by b1.
+	app.Post(func() {
+		_, submitErr = ed.SubmitTask(editor.TaskRequest{
+			ID:        "b2",
+			Title:     "Task 2 speed",
+			Prompt:    "PROMPT_TASK_2",
+			StartMode: editor.TaskStartParallel,
+		})
+	})
+	app.Settle()
+	if submitErr != nil {
+		t.Fatalf("SubmitTask b2: %v", submitErr)
+	}
+	select {
+	case <-task2Blocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for b2 to block on slime_02")
+	}
+
+	// Release task 1 -> both finish as separate Ready to review tasks with distinct reviews and turns.
+	close(releaseTask1)
+	app.WaitUntil(5*time.Second, func() bool {
+		t1, _ := ed.Task("b1")
+		t2, _ := ed.Task("b2")
+		return t1.State == editor.TaskReadyToReview && t2.State == editor.TaskReadyToReview
+	})
+
+	var b1, b2 editor.AgentTask
+	app.Post(func() {
+		b1, _ = ed.Task("b1")
+		b2, _ = ed.Task("b2")
+	})
+	app.Settle()
+	if b1.Review == nil || b2.Review == nil || b1.Review.EffectiveChangeCount() != 1 || b2.Review.EffectiveChangeCount() != 1 {
+		t.Fatalf("expected separate 1-change reviews: b1=%+v b2=%+v", b1.Review, b2.Review)
+	}
+	if b1.TurnID == "" || b2.TurnID == "" || b1.TurnID == b2.TurnID {
+		t.Fatalf("expected distinct TurnIDs: %q vs %q", b1.TurnID, b2.TurnID)
+	}
+
+	// Verify Needs you permission flow through editormcp Cautious profile (asks before scene edits).
+	app.Post(func() {
+		_ = ed.SelectPermissionProfile(editor.PermissionProfileCautious)
+		_, submitErr = ed.SubmitTask(editor.TaskRequest{
+			ID:        "b-perm",
+			Title:     "Task needing permission",
+			Prompt:    "PROMPT_TASK_PERM",
+			StartMode: editor.TaskStartParallel,
+		})
+	})
+	app.Settle()
+	if submitErr != nil {
+		t.Fatalf("SubmitTask b-perm: %v", submitErr)
+	}
+	app.WaitUntil(5*time.Second, func() bool {
+		tp, _ := ed.Task("b-perm")
+		return tp.State == editor.TaskNeedsYou
+	})
+	app.Post(func() {
+		_ = ed.ResolveTaskPermission("b-perm", true)
+	})
+	app.WaitUntil(5*time.Second, func() bool {
+		tp, _ := ed.Task("b-perm")
+		return tp.State == editor.TaskReadyToReview
+	})
+}
+
+// #1507: tasks_submit runs through the default AgentTaskRunner (no injected AgentTaskRunner)
+// and queued tasks start after keeping the first via tasks_control.
+func TestMCPTasksSubmitRunsDefaultRunnerAndAdvancesQueue(t *testing.T) {
+	ed := newSlimesEditor(t)
+	ed.AgentTaskRunner = nil // Use Editor's default AgentTaskRunner!
+
+	releaseFirst := make(chan struct{})
+	started := make(chan string, 4)
+	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		started <- req.TaskID
+		if strings.Contains(req.Prompt, "FIRST") {
+			select {
+			case <-releaseFirst:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "Done: " + req.Prompt})
+		emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+		return nil
+	})
+
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	res1 := call(t, cs, editormcp.ToolTasksSubmit, map[string]any{
+		"title":  "First task",
+		"prompt": "FIRST task",
+		"mode":   "queue",
+	})
+	mustOK(t, res1)
+	var t1 editor.AgentTask
+	structured(t, res1, &t1)
+	if got := <-started; got != t1.ID {
+		t.Fatalf("first started = %q, want %q", got, t1.ID)
+	}
+
+	res2 := call(t, cs, editormcp.ToolTasksSubmit, map[string]any{
+		"title":  "Second task",
+		"prompt": "SECOND task",
+		"mode":   "queue",
+	})
+	mustOK(t, res2)
+	var t2 editor.AgentTask
+	structured(t, res2, &t2)
+	if t2.State != editor.TaskQueued {
+		t.Fatalf("t2.State = %s, want queued", t2.State)
+	}
+
+	close(releaseFirst)
+	deadline := time.After(3 * time.Second)
+	for {
+		cur, _ := ed.Task(t1.ID)
+		if cur.State == editor.TaskReadyToReview {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("t1 did not reach ready_to_review, state=%s", cur.State)
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Keep t1 via tasks_control -> starts t2 automatically through the default runner!
+	mustOK(t, call(t, cs, editormcp.ToolTasksControl, map[string]any{
+		"action":  "keep",
+		"task_id": t1.ID,
+	}))
+	select {
+	case got := <-started:
+		if got != t2.ID {
+			t.Fatalf("second started = %q, want %q", got, t2.ID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("t2 did not start after tasks_control keep")
+	}
+	deadline = time.After(3 * time.Second)
+	for {
+		cur, _ := ed.Task(t2.ID)
+		if cur.State == editor.TaskReadyToReview {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("t2 did not reach ready_to_review, state=%s", cur.State)
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+// #1507: Proxy forwards NSGO_EDITOR_TASK_ID so a spawned CLI MCP client automatically binds to
+// its background task session for holds and per-task TaskReview snapshots.
+func TestProxyBindsSessionToTaskIDFromEnv(t *testing.T) {
+	endpointDir(t)
+	f := openFixture(t)
+	root := mustRoot(t, f.dir)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Open(); err != nil {
+		t.Fatalf("Server.Open: %v", err)
+	}
+
+	f.ed.AgentTaskRunner = holdTaskUntilCanceled
+	task, err := f.ed.SubmitTask(editor.TaskRequest{
+		ID:        "proxy-task-1",
+		Title:     "Proxy task",
+		StartMode: editor.TaskStartParallel,
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask: %v", err)
+	}
+
+	t.Setenv("NSGO_EDITOR_TASK_ID", task.ID)
+	cs := startProxy(t, root, nil, "")
+
+	mustOK(t, call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "move", "id": "hero", "x": 150, "y": 80}},
+	}))
+
+	held := s.HeldObjects()
+	if held["hero"] != task.ID {
+		t.Fatalf("HeldObjects[hero] = %q, want %q (all=%+v)", held["hero"], task.ID, held)
+	}
+	beforeYAML, changes, ok := s.TaskReviewSnapshot(task.ID)
+	if !ok || beforeYAML == "" || len(changes) != 1 || changes[0].ObjectID != "hero" {
+		t.Fatalf("TaskReviewSnapshot = (ok=%v, beforeLen=%d, changes=%+v)", ok, len(beforeYAML), changes)
 	}
 }

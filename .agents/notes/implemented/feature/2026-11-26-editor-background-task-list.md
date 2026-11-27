@@ -10,20 +10,21 @@ The editor previously had no background task model or Agent Tasks UI to track mu
 
 Implement a background task model, plain-text thread persistence, Spec-token UI, numbered viewport/tree overlays, and FIFO per-object holds in `editormcp`:
 
-### Task lifecycle, scheduling, and thread YAML persistence (`packages/game/editor/tasks.go`)
+### Task lifecycle, scheduling, and thread YAML persistence (`pkg/editor/tasks.go`)
 - Model tasks across five visible groups (`TaskNeedsYou`, `TaskRunning`, `TaskReadyToReview`, `TaskQueued`, `TaskFailed`) plus terminal states (`TaskDone`, `TaskStopped`), unified across `TaskSourceUser`, `TaskSourcePlan`, and `TaskSourceAutomation`.
 - Persist the task list in plain-text YAML under `<project>/.nsgo/threads/default.thread.yaml` (`AgentThreadVersion = 1`) via `EncodeAgentThread` / `ParseAgentThread`, refusing unknown fields (`KnownFields(true)`), duplicate keys, aliases, anchors, and merge keys, with deterministic round-trip output.
 - Enforce queue semantics strictly: `CompleteTaskTurn` transitions a running task to `TaskReadyToReview` **without** starting queued tasks. Queued tasks (`TaskStartQueue`) advance only when the blocking turn is explicitly kept (`KeepTask`), reverted (`RevertTask`), stopped (`StopTask`), or dismissed (`DismissTasks`).
+- Run tasks through `Editor`'s default `AgentTaskRunner` when `Editor.AgentTaskRunner` is nil (routing through `resolveRouteAndRunner` in a fresh session and `AgentTurn`, refusing disconnected submissions with the Connect dialog); see [default AgentTaskRunner](../../implemented/bug-fix/2026-11-28-editor-default-agent-task-runner.md).
 - Keep bulk dismissal non-destructive: `DismissTasks` / `DismissSelectedTasks` marks selected `TaskReadyToReview` or `TaskFailed` entries `Dismissed = true` without modifying `Editor.Doc` or `Editor.History`, guaranteeing nothing that was kept is ever reverted.
 - Compute `TaskSummary` and `TaskDockBadgeCount` (`NeedsYou + ReadyToReview + Failed`, never counting `Running` or `Queued`) and `TaskStatusParts` (`No tasks`, single-task elapsed `1 running · M:SS` using injectable `Editor.Now`, or urgent-first mixed counts with zero counts dropped).
 
-### Per-object MCP holds and separate reviews (`packages/game/editor/editormcp/holds.go`, `tasks.go`, `server.go`, `edit.go`, `inspector.go`)
-- Bind each parallel agent session to its task ID via `Server.ConnectTask(ctx, transport, taskID)` (or `BindSessionTask`), releasing holds automatically if the session disconnects or when `Editor.StopTask` / `CompleteTaskTurn` fires the registered hold-release hook.
+### Per-object MCP holds and separate reviews (`pkg/editor/editormcp/holds.go`, `tasks.go`, `server.go`, `edit.go`, `inspector.go`)
+- Bind each parallel agent session to its task ID via `Server.ConnectTask(ctx, transport, taskID)` (or `BindSessionTask`, automatically via `NSGO_EDITOR_TASK_ID` through `Proxy` or `WithTaskToolContext` for the built-in runner), releasing holds automatically if the session disconnects or when `Editor.StopTask` / `CompleteTaskTurn` fires the registered hold-release hook.
 - Acquire target object holds in sorted, all-or-nothing FIFO order before invoking `c.Editor(...)` in `scene_edit` and `object_set_field` so the editor's UI goroutine is never blocked while a second parallel task waits.
 - While waiting on a held object, update the editor task with `SetTaskHoldState` (`HoldingObjects`, `BlockedOn`, `BlockedByTaskID`, `BlockedByTaskNumber`, step `"waiting on <object>"`). When the holding task completes its turn (`Server.CompleteTaskTurn`), it attaches its own distinct `TaskReview` (with recorded edits and scene snapshots) and releases holds, waking the waiting task to finish with its own separate `TaskReview`.
 - Register `tasks_list`, `tasks_submit`, and `tasks_control` MCP tools so every task action is reachable over MCP as required by `Spec.dc.html`.
 
-### Spec-token UI and numbered overlays (`packages/game/editor/tasks_ui.go`, `viewport.go`, `scenetree.go`, `ui.go`, `commands.go`, `menubar.go`)
+### Spec-token UI and numbered overlays (`pkg/editor/tasks_ui.go`, `viewport.go`, `scenetree.go`, `ui.go`, `commands.go`, `menubar.go`)
 - Mount `TasksPanelView` in the right column (matching `docs/design/editor/Tasks.dc.html` and using exclusively `SpecPalette` tokens in Dark and Light appearances) and toggle it from the right-side status bar button (`status-tasks`), `View > Background Tasks`, and `CmdToggleTasks` (`mod+shift+t`), adding zero buttons to `editor-toolbar` so the 2D toolbar stays `<= 2` rows at `1440×900`.
 - Draw solid violet (`SpecPalette.Agent`) outlines + numbered pills (`1 placing the jump arc`) for editing objects and 45%-opacity dashed violet outlines + clock glyph + `"2 waiting on slime_02"` pills for holding objects in `drawAgentTaskOverlays`, plus a bottom-left legend (`viewport-task-legend`) and `"1 · editing"` / `"2 · holding"` badges on scene tree rows (`scene-tree-task-<id>`).
 

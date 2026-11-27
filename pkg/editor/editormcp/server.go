@@ -272,6 +272,7 @@ func New(ed *editor.Editor, opts Options) *Server {
 		ed.AgentReconnectProbe = s.probeClient
 	}
 	ed.SetTaskHoldReleaseHook(s.ReleaseTaskHolds)
+	ed.SetTaskReviewSnapshotHook(s.TaskReviewSnapshot)
 	if ed.SyncMCPConfig == nil {
 		ed.SyncMCPConfig = func(root string, servers []editor.AgentMCPServer, removed []string) error {
 			_, err := InstallWithServers(root, servers, removed...)
@@ -585,10 +586,19 @@ func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport
 	if transport == "" {
 		transport = "stdio"
 	}
-	// Proxy encodes its downstream stdio transport in ClientInfo.Title ("stdio") when connecting over the local Unix socket.
-	if title == proxyStdioMarker || version == proxyStdioMarker {
+	// Proxy encodes its downstream stdio transport (and optional background task ID) in ClientInfo.Version when connecting over the local Unix socket.
+	var boundTaskID string
+	if strings.HasPrefix(version, proxyTaskVersionPrefix) {
+		if candidate := strings.TrimSpace(strings.TrimPrefix(version, proxyTaskVersionPrefix)); validProxyTaskID(candidate) {
+			boundTaskID = candidate
+		}
+		transport = "stdio"
+	} else if title == proxyStdioMarker || version == proxyStdioMarker {
 		transport = "stdio"
 		title = ""
+	}
+	if boundTaskID != "" {
+		s.BindSessionTask(ss, boundTaskID)
 	}
 	display := title
 	if display == "" {
@@ -605,7 +615,7 @@ func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport
 		if defaultTransport != "" && existing.info.Transport == "" {
 			existing.info.Transport = defaultTransport
 		}
-		if title == "" && (version == proxyStdioMarker) {
+		if title == "" && (version == proxyStdioMarker || strings.HasPrefix(version, proxyTaskVersionPrefix)) {
 			existing.info.Transport = "stdio"
 		}
 		if fromEndpoint {
@@ -849,6 +859,7 @@ func (s *Server) Close() error {
 	}
 	if s.ed != nil {
 		s.ed.SetTaskHoldReleaseHook(nil)
+		s.ed.SetTaskReviewSnapshotHook(nil)
 		s.ed.CancelAgentReconnect()
 		s.ed.AgentReconnectProbe = nil
 		if exec, ok := s.ed.AgentTools.(*serverToolExecutor); ok && exec.s == s {

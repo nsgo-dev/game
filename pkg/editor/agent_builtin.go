@@ -869,6 +869,7 @@ type builtInAgentRunner struct {
 	readKey  func() (string, error)
 	runID    uint64
 	turnID   string
+	taskID   string
 	retryNow chan struct{}
 }
 
@@ -1258,7 +1259,11 @@ func (r *builtInAgentRunner) Run(ctx context.Context, req AgentRequest, emit fun
 				StepStatus: AgentStepRunning,
 			})
 
-			res := r.executeToolWithPrivacy(ctx, tu.Name, tu.Input)
+			toolCtx := ctx
+			if req.TaskID != "" {
+				toolCtx = WithTaskToolContext(ctx, req.TaskID)
+			}
+			res := r.executeToolWithPrivacy(toolCtx, tu.Name, tu.Input)
 			stepStatus := AgentStepDone
 			if res.IsError {
 				stepStatus = AgentStepFailed
@@ -1474,6 +1479,31 @@ func (r *builtInAgentRunner) postModelError(ctx context.Context, state AgentMode
 	done := make(chan struct{})
 	r.ed.postOrRun(func() {
 		defer close(done)
+		if r.taskID != "" {
+			turn := r.ed.findAgentTurn(r.turnID)
+			if turn == nil || turn.Done {
+				return
+			}
+			altName, altRoute := r.ed.alternativeAgentForRoute(turn.Route)
+			state.AlternativeAgent = altName
+			state.AlternativeRoute = altRoute
+			cp := state
+			turn.ModelError = &cp
+			r.ed.agent.turnChangeSeq++
+			if state.Headline != "" {
+				_ = r.ed.UpdateTaskStep(r.taskID, 0, 0, state.Headline)
+			}
+			if state.Retrying && timerCh != nil {
+				r.ed.scheduleAgentAfter(delay, func() {
+					select {
+					case timerCh <- struct{}{}:
+					default:
+					}
+				})
+			}
+			r.ed.notify()
+			return
+		}
 		if r.ed.agent.activeRunID != r.runID {
 			return
 		}

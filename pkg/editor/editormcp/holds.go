@@ -575,6 +575,22 @@ func (s *Server) recordTaskObjectChange(taskID, sceneFile, objID, kind, summary 
 	s.holds.mu.Unlock()
 }
 
+// TaskReviewSnapshot returns the captured pre-turn scene YAML and recorded per-object changes
+// for taskID on this server, or ok == false when no edits were recorded for taskID.
+func (s *Server) TaskReviewSnapshot(taskID string) (beforeYAML string, changes []editor.TaskReviewChange, ok bool) {
+	if s == nil || taskID == "" {
+		return "", nil, false
+	}
+	s.holds.mu.Lock()
+	beforeYAML = s.holds.beforeYAML[taskID]
+	changes = slices.Clone(s.holds.changes[taskID])
+	s.holds.mu.Unlock()
+	if beforeYAML == "" && len(changes) == 0 {
+		return "", nil, false
+	}
+	return beforeYAML, changes, true
+}
+
 // CompleteTaskTurn finishes taskID's active turn, produces its own separate editor.TaskReview
 // from the edits recorded on its session, releases all object holds held by taskID (waking
 // any parallel task waiting on those objects), and transitions the task to TaskReadyToReview.

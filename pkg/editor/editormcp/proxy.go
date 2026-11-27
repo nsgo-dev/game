@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,6 +35,26 @@ type Proxy struct {
 
 // proxyStdioMarker identifies a connection forwarded from go tool game mcp over stdio so the editor shows "<Agent> over stdio".
 const proxyStdioMarker = "nsgo-mcp-stdio"
+
+// proxyTaskEnvVar carries the background task ID from CLIAgentRunner to a spawned `go tool game mcp` proxy.
+const proxyTaskEnvVar = "NSGO_EDITOR_TASK_ID"
+
+// proxyTaskVersionPrefix encodes a background task ID alongside proxyStdioMarker in the proxy's MCP Implementation.Version.
+const proxyTaskVersionPrefix = proxyStdioMarker + "|task="
+
+func validProxyTaskID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 // editorProtocol is the MCP version the proxy speaks to the editor. Under 2026-07-28 the SDK's ClientSession.Subscribe holds a subscriptions/listen request open until the subscription ends instead of returning, so the proxy, which subscribes for its client as it connects, keeps to the version before, where a subscription is a request that returns and updates arrive as notifications. Its own client may speak either.
 const editorProtocol = "2025-11-25"
@@ -142,9 +164,13 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 }
 
 func (p *Proxy) forwardImpl() *mcp.Implementation {
+	version := proxyStdioMarker
+	if taskID := strings.TrimSpace(os.Getenv(proxyTaskEnvVar)); validProxyTaskID(taskID) {
+		version = proxyTaskVersionPrefix + taskID
+	}
 	impl := &mcp.Implementation{
 		Name:    "go tool game mcp",
-		Version: proxyStdioMarker,
+		Version: version,
 	}
 	if p.clientInfo == nil && p.sdk != nil {
 		for ss := range p.sdk.Sessions() {
