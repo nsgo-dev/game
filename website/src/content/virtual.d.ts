@@ -20,7 +20,7 @@ declare module 'virtual:playground' {
 declare module 'virtual:api' {
   // The packages of the API reference, by import path.
   export const api: import('./types').ApiIndex
-  // loadApiPackage is the package whose page is page, such as tooling/pack, or undefined when there is none.
+  // loadApiPackage is the package whose page is page, such as tooling/atlaspack, or undefined when there is none.
   export function loadApiPackage(page: string): Promise<import('./types').ApiPackage | undefined>
 }
 

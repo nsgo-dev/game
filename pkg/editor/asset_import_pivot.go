@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -52,7 +52,7 @@ type imageCollisionPreviewCache struct {
 	modTime time.Time
 	size    int64
 	specKey string
-	cells   map[int][]pack.Polygon
+	cells   map[int][]atlaspack.Polygon
 }
 
 type imagePivotDragState struct {
@@ -305,7 +305,7 @@ func (e *Editor) ImageImportPreviewPointPos(relPath string, cell int, pt imports
 }
 
 // PreviewImageCollisionPolygons returns the traced convex collision polygons for relPath at cell (-1 for unsliced image, 0..n-1 for a sliced cell), cached across redraws.
-func (e *Editor) PreviewImageCollisionPolygons(relPath string, cell int) ([]pack.Polygon, error) {
+func (e *Editor) PreviewImageCollisionPolygons(relPath string, cell int) ([]atlaspack.Polygon, error) {
 	if e == nil || e.Project == nil || e.ProjectPath == "" {
 		return nil, ErrNoProject
 	}
@@ -320,7 +320,7 @@ func (e *Editor) PreviewImageCollisionPolygons(relPath string, cell int) ([]pack
 	return e.cachedCellCollision(rgba, imgW, imgH, info, cell), nil
 }
 
-func (e *Editor) cachedCellCollision(rgba *image.RGBA, imgW, imgH int, info AssetImportInfo, cell int) []pack.Polygon {
+func (e *Editor) cachedCellCollision(rgba *image.RGBA, imgW, imgH int, info AssetImportInfo, cell int) []atlaspack.Polygon {
 	if rgba == nil || info.Sidecar == nil || info.Sidecar.Image == nil || info.Sidecar.Image.Collision == nil {
 		return nil
 	}
@@ -335,7 +335,7 @@ func (e *Editor) cachedCellCollision(rgba *image.RGBA, imgW, imgH int, info Asse
 			modTime: p.cachedModTime,
 			size:    p.cachedSize,
 			specKey: specKey,
-			cells:   make(map[int][]pack.Polygon),
+			cells:   make(map[int][]atlaspack.Polygon),
 		}
 	}
 	if polys, ok := p.collisionCache.cells[cell]; ok {
@@ -366,18 +366,18 @@ func (e *Editor) cachedCellCollision(rgba *image.RGBA, imgW, imgH int, info Asse
 		}
 		target = rgba.SubImage(r)
 	}
-	opts := pack.CollisionOptions{
-		Mode:        pack.CollisionMode(spec.Mode),
+	opts := atlaspack.CollisionOptions{
+		Mode:        atlaspack.CollisionMode(spec.Mode),
 		Tolerance:   spec.Tolerance,
 		MaxVertices: spec.MaxVertices,
 	}
 	if len(spec.Points) > 0 {
-		opts.Points = make([]pack.Point, len(spec.Points))
+		opts.Points = make([]atlaspack.Point, len(spec.Points))
 		for i, pt := range spec.Points {
-			opts.Points[i] = pack.Point{X: pt[0], Y: pt[1]}
+			opts.Points[i] = atlaspack.Point{X: pt[0], Y: pt[1]}
 		}
 	}
-	polys, err := pack.TraceCollision(target, opts)
+	polys, err := atlaspack.TraceCollision(target, opts)
 	if err != nil {
 		p.collisionCache.cells[cell] = nil
 		return nil
@@ -911,7 +911,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 	drawCellImagePoints(d, spec, ox, oy, scale, bounds, info, -1, true, dragForThis, drag)
 }
 
-func drawCollisionPolygons(d *core.Drawing, spec SpecPalette, ox, oy, scale float32, cell image.Rectangle, polys []pack.Polygon) {
+func drawCollisionPolygons(d *core.Drawing, spec SpecPalette, ox, oy, scale float32, cell image.Rectangle, polys []atlaspack.Polygon) {
 	if len(polys) == 0 {
 		return
 	}

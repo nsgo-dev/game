@@ -1,5 +1,5 @@
-// Package pack packs a folder of PNG images into sprite atlas pages and TexturePacker JSON-hash metadata that sprite.LoadAtlas reads directly.
-package pack
+// Package atlaspack packs a folder of PNG images into sprite atlas pages and TexturePacker JSON-hash metadata that sprite.LoadAtlas reads directly.
+package atlaspack
 
 import (
 	"cmp"
@@ -121,19 +121,19 @@ type Result struct {
 // Write writes every page's PNG image and JSON metadata into dir, creating dir if needed, and returns the paths written.
 func (r *Result) Write(dir string) ([]string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("pack: create output dir: %w", err)
+		return nil, fmt.Errorf("atlaspack: create output dir: %w", err)
 	}
 	var written []string
 	for _, p := range r.Pages {
 		imgPath := filepath.Join(dir, p.ImageName)
 		if err := writePNG(imgPath, p.Image); err != nil {
-			return nil, fmt.Errorf("pack: write %s: %w", imgPath, err)
+			return nil, fmt.Errorf("atlaspack: write %s: %w", imgPath, err)
 		}
 		written = append(written, imgPath)
 
 		jsonPath := filepath.Join(dir, p.JSONName)
 		if err := os.WriteFile(jsonPath, p.JSON, 0o644); err != nil {
-			return nil, fmt.Errorf("pack: write %s: %w", jsonPath, err)
+			return nil, fmt.Errorf("atlaspack: write %s: %w", jsonPath, err)
 		}
 		written = append(written, jsonPath)
 	}
@@ -151,7 +151,7 @@ func PackDir(dir string, opts Options) (*Result, error) {
 		full := filepath.Join(dir, filepath.FromSlash(rel))
 		img, err := readPNG(full)
 		if err != nil {
-			return nil, fmt.Errorf("pack: decode %q: %w", rel, err)
+			return nil, fmt.Errorf("atlaspack: decode %q: %w", rel, err)
 		}
 		inputs = append(inputs, Input{Name: rel, Image: img})
 	}
@@ -162,10 +162,10 @@ func PackDir(dir string, opts Options) (*Result, error) {
 func ScanDir(dir string) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
-		return nil, fmt.Errorf("pack: %w", err)
+		return nil, fmt.Errorf("atlaspack: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("pack: %q is not a directory", dir)
+		return nil, fmt.Errorf("atlaspack: %q is not a directory", dir)
 	}
 
 	var relPaths []string
@@ -193,11 +193,11 @@ func ScanDir(dir string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("pack: walk %q: %w", dir, err)
+		return nil, fmt.Errorf("atlaspack: walk %q: %w", dir, err)
 	}
 	slices.Sort(relPaths)
 	if len(relPaths) == 0 {
-		return nil, fmt.Errorf("pack: no PNG files found in %q", dir)
+		return nil, fmt.Errorf("atlaspack: no PNG files found in %q", dir)
 	}
 	return relPaths, nil
 }
@@ -209,33 +209,33 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 		return nil, err
 	}
 	if len(inputs) == 0 {
-		return nil, errors.New("pack: no input images")
+		return nil, errors.New("atlaspack: no input images")
 	}
 
 	prepared := make([]preparedInput, 0, len(inputs))
 	seen := make(map[string]struct{}, len(inputs))
 	for i, in := range inputs {
 		if in.Name == "" {
-			return nil, fmt.Errorf("pack: input %d has an empty name", i)
+			return nil, fmt.Errorf("atlaspack: input %d has an empty name", i)
 		}
 		if _, dup := seen[in.Name]; dup {
-			return nil, fmt.Errorf("pack: duplicate input name %q", in.Name)
+			return nil, fmt.Errorf("atlaspack: duplicate input name %q", in.Name)
 		}
 		seen[in.Name] = struct{}{}
 		if in.Image == nil {
-			return nil, fmt.Errorf("pack: input %q has a nil image", in.Name)
+			return nil, fmt.Errorf("atlaspack: input %q has a nil image", in.Name)
 		}
 
 		b := in.Image.Bounds()
 		srcSize := b.Size()
 		if srcSize.X <= 0 || srcSize.Y <= 0 {
-			return nil, fmt.Errorf("pack: input %q has empty bounds %v", in.Name, b)
+			return nil, fmt.Errorf("atlaspack: input %q has empty bounds %v", in.Name, b)
 		}
 
 		var pivot *Pivot
 		if in.Pivot != nil {
 			if math.IsNaN(in.Pivot.X) || math.IsInf(in.Pivot.X, 0) || math.IsNaN(in.Pivot.Y) || math.IsInf(in.Pivot.Y, 0) {
-				return nil, fmt.Errorf("pack: input %q has non-finite pivot (%v, %v)", in.Name, in.Pivot.X, in.Pivot.Y)
+				return nil, fmt.Errorf("atlaspack: input %q has non-finite pivot (%v, %v)", in.Name, in.Pivot.X, in.Pivot.Y)
 			}
 			px, py := in.Pivot.X, in.Pivot.Y
 			if px == 0 {
@@ -252,12 +252,12 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 			shapes = make([]Polygon, len(in.Shapes))
 			for si, poly := range in.Shapes {
 				if len(poly) < minCollisionVertices {
-					return nil, fmt.Errorf("pack: input %q shape %d has %d vertices, want at least %d", in.Name, si, len(poly), minCollisionVertices)
+					return nil, fmt.Errorf("atlaspack: input %q shape %d has %d vertices, want at least %d", in.Name, si, len(poly), minCollisionVertices)
 				}
 				cp := make(Polygon, len(poly))
 				for vi, pt := range poly {
 					if math.IsNaN(pt.X) || math.IsInf(pt.X, 0) || math.IsNaN(pt.Y) || math.IsInf(pt.Y, 0) {
-						return nil, fmt.Errorf("pack: input %q shape %d vertex %d (%v, %v) must be finite", in.Name, si, vi, pt.X, pt.Y)
+						return nil, fmt.Errorf("atlaspack: input %q shape %d vertex %d (%v, %v) must be finite", in.Name, si, vi, pt.X, pt.Y)
 					}
 					cp[vi] = Point{X: roundCoord4(pt.X), Y: roundCoord4(pt.Y)}
 				}
@@ -270,10 +270,10 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 			points = make(map[string]Point, len(in.Points))
 			for name, pt := range in.Points {
 				if strings.TrimSpace(name) == "" {
-					return nil, fmt.Errorf("pack: input %q has an empty point name", in.Name)
+					return nil, fmt.Errorf("atlaspack: input %q has an empty point name", in.Name)
 				}
 				if math.IsNaN(pt.X) || math.IsInf(pt.X, 0) || math.IsNaN(pt.Y) || math.IsInf(pt.Y, 0) {
-					return nil, fmt.Errorf("pack: input %q point %q (%v, %v) must be finite", in.Name, name, pt.X, pt.Y)
+					return nil, fmt.Errorf("atlaspack: input %q point %q (%v, %v) must be finite", in.Name, name, pt.X, pt.Y)
 				}
 				points[name] = Point{X: roundCoord4(pt.X), Y: roundCoord4(pt.Y)}
 			}
@@ -304,7 +304,7 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 			needW := item.trim.Dx() + 2*cfg.Extrude
 			needH := item.trim.Dy() + 2*cfg.Extrude
 			if needW > cfg.MaxWidth || needH > cfg.MaxHeight {
-				return nil, fmt.Errorf("pack: image %q (%dx%d with %dpx extrusion) exceeds max page size %dx%d",
+				return nil, fmt.Errorf("atlaspack: image %q (%dx%d with %dpx extrusion) exceeds max page size %dx%d",
 					in.Name, item.trim.Dx(), item.trim.Dy(), cfg.Extrude, cfg.MaxWidth, cfg.MaxHeight)
 			}
 		}
@@ -364,7 +364,7 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 			var ok bool
 			pos, ok = chosen.bin.insert(reqW, reqH)
 			if !ok {
-				return nil, fmt.Errorf("pack: image %q could not fit in an empty %dx%d page", item.name, cfg.MaxWidth, cfg.MaxHeight)
+				return nil, fmt.Errorf("atlaspack: image %q could not fit in an empty %dx%d page", item.name, cfg.MaxWidth, cfg.MaxHeight)
 			}
 		}
 		chosen.placed = append(chosen.placed, placedItem{item: item, blockPos: pos})
@@ -419,7 +419,7 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 
 		data, err := encodeAtlasJSON(imgName, image.Pt(pageW, pageH), cfg.Scale, frames)
 		if err != nil {
-			return nil, fmt.Errorf("pack: encode metadata for %s: %w", jsonName, err)
+			return nil, fmt.Errorf("atlaspack: encode metadata for %s: %w", jsonName, err)
 		}
 		res.Pages[i] = &Page{
 			Index:     i,
@@ -452,19 +452,19 @@ type placedItem struct {
 
 func normalizeOptions(opts Options) (Options, error) {
 	if opts.Padding < 0 {
-		return Options{}, fmt.Errorf("pack: padding %d must be non-negative", opts.Padding)
+		return Options{}, fmt.Errorf("atlaspack: padding %d must be non-negative", opts.Padding)
 	}
 	if opts.Extrude < 0 {
-		return Options{}, fmt.Errorf("pack: extrude %d must be non-negative", opts.Extrude)
+		return Options{}, fmt.Errorf("atlaspack: extrude %d must be non-negative", opts.Extrude)
 	}
 	if opts.MaxWidth < 0 {
-		return Options{}, fmt.Errorf("pack: max width %d must be positive", opts.MaxWidth)
+		return Options{}, fmt.Errorf("atlaspack: max width %d must be positive", opts.MaxWidth)
 	}
 	if opts.MaxHeight < 0 {
-		return Options{}, fmt.Errorf("pack: max height %d must be positive", opts.MaxHeight)
+		return Options{}, fmt.Errorf("atlaspack: max height %d must be positive", opts.MaxHeight)
 	}
 	if opts.Scale < 0 {
-		return Options{}, fmt.Errorf("pack: scale %d must be positive", opts.Scale)
+		return Options{}, fmt.Errorf("atlaspack: scale %d must be positive", opts.Scale)
 	}
 	if opts.Name == "" {
 		opts.Name = defaultName

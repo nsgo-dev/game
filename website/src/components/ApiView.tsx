@@ -26,7 +26,7 @@ export function apiPackageHead(lang: Lang, pkg: ApiPackage | undefined) {
 // apiPage is a package page's path from a splat, which may end in the slash every page's address does.
 export const apiPage = (splat: string | undefined) => (splat ?? '').replace(/\/+$/, '')
 
-// displayPage strips the leading pkg/ directory from a package's page path so the sidebar and index show sprite and tooling/pack rather than grouping every library package under pkg.
+// displayPage strips the leading pkg/ directory from a package's page path so the sidebar and index show sprite and tooling/atlaspack rather than grouping every library package under pkg.
 const displayPage = (page: string) => (page.startsWith('pkg/') ? page.slice('pkg/'.length) : page)
 
 // groupPackages puts the packages at the top level first, then those below each directory, such as tooling/, under it.

@@ -18,7 +18,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/font/sfnt"
@@ -315,7 +315,7 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 	}
 
 	var glyphs []fontGlyph
-	var inputs []pack.Input
+	var inputs []atlaspack.Input
 	for _, r := range runes {
 		gi, err := f.GlyphIndex(&buf, r)
 		if err != nil || gi == 0 {
@@ -336,7 +336,7 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 				}
 			}
 			g.img = img
-			inputs = append(inputs, pack.Input{Name: frameName(r), Image: img})
+			inputs = append(inputs, atlaspack.Input{Name: frameName(r), Image: img})
 		}
 		glyphs = append(glyphs, g)
 	}
@@ -344,7 +344,7 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 		return nil, fmt.Errorf("the font has a glyph for none of the %d characters to bake", len(runes))
 	}
 
-	frames := map[string]pack.Frame{}
+	frames := map[string]atlaspack.Frame{}
 	var pageImages []*image.NRGBA
 	var pageNames []string
 	if len(inputs) == 0 {
@@ -352,7 +352,7 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 		pageImages = []*image.NRGBA{image.NewNRGBA(image.Rect(0, 0, 1, 1))}
 		pageNames = []string{name + ".png"}
 	} else {
-		res, err := pack.PackImages(inputs, pack.Options{Name: name, Padding: s.Padding, MaxWidth: maxFontPage, MaxHeight: maxFontPage, Scale: 1})
+		res, err := atlaspack.PackImages(inputs, atlaspack.Options{Name: name, Padding: s.Padding, MaxWidth: maxFontPage, MaxHeight: maxFontPage, Scale: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -449,7 +449,7 @@ func bmfontFaceName(family string) string {
 func bakeGlyphFont(glyphs []glyphImage, name string, s glyphFontSettings) (*bakedFont, error) {
 	// The characters come out sorted by code point, as bakeFont writes them.
 	slices.SortFunc(glyphs, func(a, b glyphImage) int { return cmp.Compare(a.r, b.r) })
-	inputs := make([]pack.Input, 0, len(glyphs))
+	inputs := make([]atlaspack.Input, 0, len(glyphs))
 	sizes := make([]image.Point, len(glyphs))
 	for i, g := range glyphs {
 		img, err := png.Decode(bytes.NewReader(g.data))
@@ -461,13 +461,13 @@ func bakeGlyphFont(glyphs []glyphImage, name string, s glyphFontSettings) (*bake
 			return nil, fmt.Errorf("%s is empty, a glyph image needs pixels to draw", g.name)
 		}
 		sizes[i] = b.Size()
-		inputs = append(inputs, pack.Input{Name: frameName(g.r), Image: img})
+		inputs = append(inputs, atlaspack.Input{Name: frameName(g.r), Image: img})
 	}
-	res, err := pack.PackImages(inputs, pack.Options{Name: name, Padding: s.Padding, MaxWidth: maxFontPage, MaxHeight: maxFontPage, Scale: 1})
+	res, err := atlaspack.PackImages(inputs, atlaspack.Options{Name: name, Padding: s.Padding, MaxWidth: maxFontPage, MaxHeight: maxFontPage, Scale: 1})
 	if err != nil {
 		return nil, err
 	}
-	frames := map[string]pack.Frame{}
+	frames := map[string]atlaspack.Frame{}
 	var pageImages []*image.NRGBA
 	var pageNames []string
 	for _, p := range res.Pages {

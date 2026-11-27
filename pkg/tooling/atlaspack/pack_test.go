@@ -1,4 +1,4 @@
-package pack_test
+package atlaspack_test
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/sprite"
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -108,11 +108,11 @@ func TestPackedFolderLoadsWithSpriteLoadAtlasAndMatchesPixels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := pack.DefaultOptions()
+	opts := atlaspack.DefaultOptions()
 	opts.Name = "sprites"
 	opts.Padding = 2
 
-	res, err := pack.PackDir(inDir, opts)
+	res, err := atlaspack.PackDir(inDir, opts)
 	if err != nil {
 		t.Fatalf("PackDir: %v", err)
 	}
@@ -197,9 +197,9 @@ func TestPackedAtlasDrawsExpectedBatchOps(t *testing.T) {
 	writeTestPNG(t, filepath.Join(inDir, "coin.png"), patternImage(16, 16, image.Rect(4, 3, 12, 13), 11, false))
 	writeTestPNG(t, filepath.Join(inDir, "blank.png"), image.NewNRGBA(image.Rect(0, 0, 16, 16)))
 
-	opts := pack.DefaultOptions()
+	opts := atlaspack.DefaultOptions()
 	opts.Padding = 1
-	res, err := pack.PackDir(inDir, opts)
+	res, err := atlaspack.PackDir(inDir, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,13 +251,13 @@ func TestPackedAtlasDrawsExpectedBatchOps(t *testing.T) {
 
 func TestUntrimmedAndScaledPacking(t *testing.T) {
 	orig := patternImage(20, 16, image.Rect(4, 2, 16, 14), 7, false)
-	opts := pack.Options{
+	opts := atlaspack.Options{
 		Name:    "sheet@2x",
 		Padding: 2,
 		Scale:   2,
 		Trim:    false,
 	}
-	res, err := pack.PackImages([]pack.Input{{Name: "icon.png", Image: orig}}, opts)
+	res, err := atlaspack.PackImages([]atlaspack.Input{{Name: "icon.png", Image: orig}}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,11 +287,11 @@ func TestUntrimmedAndScaledPacking(t *testing.T) {
 
 func TestExtrudeCopiesBorderAndCornerPixels(t *testing.T) {
 	orig := patternImage(6, 5, image.Rect(1, 1, 5, 4), 9, false) // trimmed to 4x3
-	opts := pack.DefaultOptions()
+	opts := atlaspack.DefaultOptions()
 	opts.Extrude = 2
 	opts.Padding = 2
 
-	res, err := pack.PackImages([]pack.Input{
+	res, err := atlaspack.PackImages([]atlaspack.Input{
 		{Name: "a.png", Image: orig},
 		{Name: "b.png", Image: patternImage(4, 4, image.Rect(0, 0, 4, 4), 12, false)},
 	}, opts)
@@ -305,7 +305,7 @@ func TestExtrudeCopiesBorderAndCornerPixels(t *testing.T) {
 	}
 	assertFrameMatchesOriginal(t, "a.png", page.Image, atlas.Frames["a.png"], orig)
 
-	var aFrame pack.Frame
+	var aFrame atlaspack.Frame
 	for _, f := range page.Frames {
 		if f.Name == "a.png" {
 			aFrame = f
@@ -361,17 +361,17 @@ func TestMultiPagePackingAndDeterminism(t *testing.T) {
 		writeTestPNG(t, filepath.Join(inDir, name), img)
 	}
 
-	opts := pack.DefaultOptions()
+	opts := atlaspack.DefaultOptions()
 	opts.Name = "tiles"
 	opts.MaxWidth = 90
 	opts.MaxHeight = 90
 	opts.Padding = 2
 
-	res1, err := pack.PackDir(inDir, opts)
+	res1, err := atlaspack.PackDir(inDir, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res2, err := pack.PackDir(inDir, opts)
+	res2, err := atlaspack.PackDir(inDir, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestAllTransparentFolderProducesValidPNGAndAtlas(t *testing.T) {
 	outDir := t.TempDir()
 	writeTestPNG(t, filepath.Join(inDir, "empty.png"), image.NewNRGBA(image.Rect(0, 0, 8, 8)))
 
-	res, err := pack.PackDir(inDir, pack.DefaultOptions())
+	res, err := atlaspack.PackDir(inDir, atlaspack.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,62 +440,62 @@ func TestPackErrors(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		inputs []pack.Input
-		opts   pack.Options
+		inputs []atlaspack.Input
+		opts   atlaspack.Options
 		want   string
 	}{
 		{
 			name:   "exceeds max width",
-			inputs: []pack.Input{{Name: "big.png", Image: big}},
-			opts:   pack.Options{MaxWidth: 64, MaxHeight: 64, Trim: true},
+			inputs: []atlaspack.Input{{Name: "big.png", Image: big}},
+			opts:   atlaspack.Options{MaxWidth: 64, MaxHeight: 64, Trim: true},
 			want:   "exceeds max page size",
 		},
 		{
 			name:   "exceeds max width with extrude",
-			inputs: []pack.Input{{Name: "edge.png", Image: patternImage(63, 10, image.Rect(0, 0, 63, 10), 1, false)}},
-			opts:   pack.Options{MaxWidth: 64, MaxHeight: 64, Extrude: 1, Trim: true},
+			inputs: []atlaspack.Input{{Name: "edge.png", Image: patternImage(63, 10, image.Rect(0, 0, 63, 10), 1, false)}},
+			opts:   atlaspack.Options{MaxWidth: 64, MaxHeight: 64, Extrude: 1, Trim: true},
 			want:   "exceeds max page size",
 		},
 		{
 			name:   "empty inputs",
 			inputs: nil,
-			opts:   pack.DefaultOptions(),
+			opts:   atlaspack.DefaultOptions(),
 			want:   "no input images",
 		},
 		{
 			name:   "duplicate names",
-			inputs: []pack.Input{{Name: "a.png", Image: small}, {Name: "a.png", Image: small}},
-			opts:   pack.DefaultOptions(),
+			inputs: []atlaspack.Input{{Name: "a.png", Image: small}, {Name: "a.png", Image: small}},
+			opts:   atlaspack.DefaultOptions(),
 			want:   "duplicate",
 		},
 		{
 			name:   "nil image",
-			inputs: []pack.Input{{Name: "a.png", Image: nil}},
-			opts:   pack.DefaultOptions(),
+			inputs: []atlaspack.Input{{Name: "a.png", Image: nil}},
+			opts:   atlaspack.DefaultOptions(),
 			want:   "nil image",
 		},
 		{
 			name:   "negative padding",
-			inputs: []pack.Input{{Name: "a.png", Image: small}},
-			opts:   pack.Options{Padding: -1},
+			inputs: []atlaspack.Input{{Name: "a.png", Image: small}},
+			opts:   atlaspack.Options{Padding: -1},
 			want:   "padding",
 		},
 		{
 			name:   "negative extrude",
-			inputs: []pack.Input{{Name: "a.png", Image: small}},
-			opts:   pack.Options{Extrude: -1},
+			inputs: []atlaspack.Input{{Name: "a.png", Image: small}},
+			opts:   atlaspack.Options{Extrude: -1},
 			want:   "extrude",
 		},
 		{
 			name:   "negative scale",
-			inputs: []pack.Input{{Name: "a.png", Image: small}},
-			opts:   pack.Options{Scale: -2},
+			inputs: []atlaspack.Input{{Name: "a.png", Image: small}},
+			opts:   atlaspack.Options{Scale: -2},
 			want:   "scale",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := pack.PackImages(tc.inputs, tc.opts)
+			_, err := atlaspack.PackImages(tc.inputs, tc.opts)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want substring %q", err, tc.want)
 			}
@@ -503,7 +503,7 @@ func TestPackErrors(t *testing.T) {
 	}
 
 	t.Run("empty dir", func(t *testing.T) {
-		_, err := pack.PackDir(t.TempDir(), pack.DefaultOptions())
+		_, err := atlaspack.PackDir(t.TempDir(), atlaspack.DefaultOptions())
 		if err == nil || !strings.Contains(err.Error(), "no PNG files") {
 			t.Fatalf("err = %v, want no PNG files", err)
 		}
@@ -514,18 +514,18 @@ func TestPackErrors(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "bad.png"), []byte("not a png"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		_, err := pack.PackDir(dir, pack.DefaultOptions())
+		_, err := atlaspack.PackDir(dir, atlaspack.DefaultOptions())
 		if err == nil || !strings.Contains(err.Error(), "decode") {
 			t.Fatalf("err = %v, want decode error", err)
 		}
 	})
 
 	t.Run("non-finite pivot", func(t *testing.T) {
-		_, err := pack.PackImages([]pack.Input{{
+		_, err := atlaspack.PackImages([]atlaspack.Input{{
 			Name:  "a.png",
 			Image: patternImage(8, 8, image.Rect(0, 0, 8, 8), 1, false),
-			Pivot: &pack.Pivot{X: math.NaN(), Y: 0.5},
-		}}, pack.DefaultOptions())
+			Pivot: &atlaspack.Pivot{X: math.NaN(), Y: 0.5},
+		}}, atlaspack.DefaultOptions())
 		if err == nil || !strings.Contains(err.Error(), "non-finite pivot") {
 			t.Fatalf("err = %v, want non-finite pivot error", err)
 		}
@@ -533,25 +533,25 @@ func TestPackErrors(t *testing.T) {
 }
 
 func TestPackImagesWritesPivotForSpriteLoadAtlas(t *testing.T) {
-	inputs := []pack.Input{
+	inputs := []atlaspack.Input{
 		{
 			Name:  "hero.png",
 			Image: patternImage(20, 16, image.Rect(4, 2, 16, 14), 1, false),
-			Pivot: &pack.Pivot{X: 0.5, Y: 1},
+			Pivot: &atlaspack.Pivot{X: 0.5, Y: 1},
 		},
 		{
 			Name:  "sword.png",
 			Image: patternImage(16, 8, image.Rect(0, 0, 16, 8), 2, false),
-			Pivot: &pack.Pivot{X: 0.25, Y: 0.75},
+			Pivot: &atlaspack.Pivot{X: 0.25, Y: 0.75},
 		},
 		{
 			Name:  "default.png",
 			Image: patternImage(10, 10, image.Rect(0, 0, 10, 10), 3, false),
 		},
 	}
-	opts := pack.DefaultOptions()
+	opts := atlaspack.DefaultOptions()
 	opts.Scale = 2
-	res, err := pack.PackImages(inputs, opts)
+	res, err := atlaspack.PackImages(inputs, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package pack_test
+package atlaspack_test
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/sprite"
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -53,7 +53,7 @@ func lShapeImage() *image.NRGBA {
 	return img
 }
 
-func polyContains(poly pack.Polygon, px, py float64) bool {
+func polyContains(poly atlaspack.Polygon, px, py float64) bool {
 	pts := make([]core.Point, len(poly))
 	for i, p := range poly {
 		pts[i] = core.Point{X: core.Points(p.X), Y: core.Points(p.Y)}
@@ -65,7 +65,7 @@ func polyContains(poly pack.Polygon, px, py float64) bool {
 	return pp.Contains(float32(px), float32(py))
 }
 
-func assertValidConvexPolygons(t *testing.T, polys []pack.Polygon, maxVerts int) {
+func assertValidConvexPolygons(t *testing.T, polys []atlaspack.Polygon, maxVerts int) {
 	t.Helper()
 	for i, poly := range polys {
 		if len(poly) < 3 || len(poly) > maxVerts {
@@ -84,7 +84,7 @@ func assertValidConvexPolygons(t *testing.T, polys []pack.Polygon, maxVerts int)
 func TestTraceCollisionKnownShapes(t *testing.T) {
 	t.Run("square", func(t *testing.T) {
 		img := filledRectImage(20, 20, image.Rect(4, 3, 16, 15), 255)
-		polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, MaxVertices: 8})
+		polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, MaxVertices: 8})
 		if err != nil {
 			t.Fatalf("TraceCollision: %v", err)
 		}
@@ -92,7 +92,7 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 		if len(polys) != 1 || len(polys[0]) != 4 {
 			t.Fatalf("square produced %d polygons (%+v), want 1 rectangle", len(polys), polys)
 		}
-		want := pack.Polygon{{X: 4, Y: 3}, {X: 16, Y: 3}, {X: 16, Y: 15}, {X: 4, Y: 15}}
+		want := atlaspack.Polygon{{X: 4, Y: 3}, {X: 16, Y: 3}, {X: 16, Y: 15}, {X: 4, Y: 15}}
 		if !reflect.DeepEqual(polys[0], want) {
 			t.Fatalf("square polygon = %+v, want %+v", polys[0], want)
 		}
@@ -102,7 +102,7 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 		const size = 32
 		const cx, cy, r = 16.0, 16.0, 12.0
 		img := circleImage(size, cx, cy, r)
-		polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, MaxVertices: 8})
+		polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, MaxVertices: 8})
 		if err != nil {
 			t.Fatalf("TraceCollision: %v", err)
 		}
@@ -128,7 +128,7 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 
 	t.Run("L-shape splits into convex parts", func(t *testing.T) {
 		img := lShapeImage()
-		polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, MaxVertices: 8})
+		polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, MaxVertices: 8})
 		if err != nil {
 			t.Fatalf("TraceCollision: %v", err)
 		}
@@ -159,8 +159,8 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 
 	t.Run("transparent frame returns nil", func(t *testing.T) {
 		img := image.NewNRGBA(image.Rect(0, 0, 16, 16))
-		for _, mode := range []pack.CollisionMode{pack.CollisionAlpha, pack.CollisionBox, pack.CollisionEllipse} {
-			polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: mode})
+		for _, mode := range []atlaspack.CollisionMode{atlaspack.CollisionAlpha, atlaspack.CollisionBox, atlaspack.CollisionEllipse} {
+			polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: mode})
 			if err != nil {
 				t.Fatalf("mode %s: %v", mode, err)
 			}
@@ -177,11 +177,11 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 				img.SetNRGBA(x, y, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
 			}
 		}
-		polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, Tolerance: 128})
+		polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, Tolerance: 128})
 		if err != nil {
 			t.Fatalf("TraceCollision: %v", err)
 		}
-		want := pack.Polygon{{X: 4, Y: 4}, {X: 12, Y: 4}, {X: 12, Y: 12}, {X: 4, Y: 12}}
+		want := atlaspack.Polygon{{X: 4, Y: 4}, {X: 12, Y: 4}, {X: 12, Y: 12}, {X: 4, Y: 12}}
 		if len(polys) != 1 || !reflect.DeepEqual(polys[0], want) {
 			t.Fatalf("tolerance=128 got %+v, want %+v", polys, want)
 		}
@@ -190,7 +190,7 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 	t.Run("maxVertices cap", func(t *testing.T) {
 		img := circleImage(40, 20, 20, 16)
 		for _, capV := range []int{4, 6, 8} {
-			polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, MaxVertices: capV})
+			polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, MaxVertices: capV})
 			if err != nil {
 				t.Fatalf("cap %d: %v", capV, err)
 			}
@@ -217,7 +217,7 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 				img.SetNRGBA(x, y, color.NRGBA{A: 255})
 			}
 		}
-		polys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha})
+		polys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha})
 		if err != nil {
 			t.Fatalf("TraceCollision: %v", err)
 		}
@@ -229,19 +229,19 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 
 	t.Run("box, ellipse, and explicit concave polygon", func(t *testing.T) {
 		img := filledRectImage(16, 16, image.Rect(2, 4, 14, 12), 255)
-		boxPolys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionBox})
+		boxPolys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionBox})
 		if err != nil || len(boxPolys) != 1 || len(boxPolys[0]) != 4 {
 			t.Fatalf("box mode = %+v, %v", boxPolys, err)
 		}
-		ellPolys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionEllipse, MaxVertices: 6})
+		ellPolys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionEllipse, MaxVertices: 6})
 		if err != nil || len(ellPolys) != 1 || len(ellPolys[0]) != 6 {
 			t.Fatalf("ellipse mode = %+v, %v", ellPolys, err)
 		}
 		assertValidConvexPolygons(t, ellPolys, 6)
 
 		// Concave L-shape supplied in CCW order should be normalized and split into 2 convex parts.
-		lCCW := []pack.Point{{0, 0}, {0, 16}, {6, 16}, {6, 6}, {16, 6}, {16, 0}}
-		polyParts, err := pack.TraceCollision(nil, pack.CollisionOptions{Mode: pack.CollisionPolygon, Points: lCCW, MaxVertices: 8})
+		lCCW := []atlaspack.Point{{0, 0}, {0, 16}, {6, 16}, {6, 6}, {16, 6}, {16, 0}}
+		polyParts, err := atlaspack.TraceCollision(nil, atlaspack.CollisionOptions{Mode: atlaspack.CollisionPolygon, Points: lCCW, MaxVertices: 8})
 		if err != nil {
 			t.Fatalf("polygon mode: %v", err)
 		}
@@ -254,27 +254,27 @@ func TestTraceCollisionKnownShapes(t *testing.T) {
 
 func TestTraceAndPackDeterminismAndLoadAtlasRoundTrip(t *testing.T) {
 	img := lShapeImage()
-	firstPolys, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, MaxVertices: 8})
+	firstPolys, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, MaxVertices: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pts := map[string]pack.Point{
+	pts := map[string]atlaspack.Point{
 		"muzzle": {X: 16, Y: 14},
 		"feet":   {X: 5, Y: 18},
 	}
-	res1, err := pack.PackImages([]pack.Input{{Name: "hero.png", Image: img, Shapes: firstPolys, Points: pts}}, pack.Options{Name: "hero", Scale: 2, Trim: true})
+	res1, err := atlaspack.PackImages([]atlaspack.Input{{Name: "hero.png", Image: img, Shapes: firstPolys, Points: pts}}, atlaspack.Options{Name: "hero", Scale: 2, Trim: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for range 10 {
-		p, err := pack.TraceCollision(img, pack.CollisionOptions{Mode: pack.CollisionAlpha, MaxVertices: 8})
+		p, err := atlaspack.TraceCollision(img, atlaspack.CollisionOptions{Mode: atlaspack.CollisionAlpha, MaxVertices: 8})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(p, firstPolys) {
 			t.Fatalf("non-deterministic trace: %+v != %+v", p, firstPolys)
 		}
-		res2, err := pack.PackImages([]pack.Input{{Name: "hero.png", Image: img, Shapes: p, Points: pts}}, pack.Options{Name: "hero", Scale: 2, Trim: true})
+		res2, err := atlaspack.PackImages([]atlaspack.Input{{Name: "hero.png", Image: img, Shapes: p, Points: pts}}, atlaspack.Options{Name: "hero", Scale: 2, Trim: true})
 		if err != nil {
 			t.Fatal(err)
 		}

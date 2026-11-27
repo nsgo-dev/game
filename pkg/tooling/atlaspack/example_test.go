@@ -1,11 +1,11 @@
-package pack_test
+package atlaspack_test
 
 import (
 	"fmt"
 	"image"
 	"image/color"
 
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 )
 
 func filled(w, h int) image.Image {
@@ -20,11 +20,11 @@ func filled(w, h int) image.Image {
 
 // PackImages packs sprites onto atlas pages and writes the TexturePacker JSON that sprite.LoadAtlas reads.
 func ExamplePackImages() {
-	res, err := pack.PackImages([]pack.Input{
+	res, err := atlaspack.PackImages([]atlaspack.Input{
 		{Name: "hero.png", Image: filled(32, 32)},
 		{Name: "coin.png", Image: filled(8, 8)},
 		{Name: "door.png", Image: filled(16, 32)},
-	}, pack.Options{Name: "sprites", Padding: 1, MaxWidth: 64, MaxHeight: 64})
+	}, atlaspack.Options{Name: "sprites", Padding: 1, MaxWidth: 64, MaxHeight: 64})
 	if err != nil {
 		fmt.Println(err)
 		return

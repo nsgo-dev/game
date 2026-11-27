@@ -21,9 +21,9 @@ import (
 	"github.com/nsgo-dev/game/pkg/ktx2"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
 	"github.com/nsgo-dev/game/pkg/tooling/manifest"
-	"github.com/nsgo-dev/game/pkg/tooling/pack"
 )
 
 // Kind is the sort of work a target does.
@@ -390,7 +390,7 @@ func sum(data []byte) string {
 }
 
 func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
-	opts := pack.DefaultOptions()
+	opts := atlaspack.DefaultOptions()
 	opts.Name = a.Name
 	if a.Padding != nil {
 		opts.Padding = *a.Padding
@@ -413,7 +413,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		return prepared{}, err
 	}
 	inDir := b.abs(a.In)
-	names, err := pack.ScanDir(inDir)
+	names, err := atlaspack.ScanDir(inDir)
 	if err != nil {
 		return prepared{}, err
 	}
@@ -442,7 +442,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		}
 	}
 	return prepared{key: k.key(), build: func(root string) ([]string, error) {
-		inputs := make([]pack.Input, 0, len(names))
+		inputs := make([]atlaspack.Input, 0, len(names))
 		for i, name := range names {
 			img, err := png.Decode(bytes.NewReader(files[i]))
 			if err != nil {
@@ -450,22 +450,22 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 			}
 			im := images[i]
 			if im == nil || im.Slice == nil {
-				var pv *pack.Pivot
-				var shapes []pack.Polygon
-				var pts map[string]pack.Point
+				var pv *atlaspack.Pivot
+				var shapes []atlaspack.Polygon
+				var pts map[string]atlaspack.Point
 				if im != nil {
 					if pt, ok := im.Pivot.ForImage(); ok {
-						pv = &pack.Pivot{X: pt[0], Y: pt[1]}
+						pv = &atlaspack.Pivot{X: pt[0], Y: pt[1]}
 					}
 					if spec, ok := im.Collision.ForImage(); ok {
-						shapes, err = pack.TraceCollision(img, packCollisionOptions(spec))
+						shapes, err = atlaspack.TraceCollision(img, packCollisionOptions(spec))
 						if err != nil {
 							return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
 						}
 					}
 					pts = packPointsMap(im.PointsForImage())
 				}
-				inputs = append(inputs, pack.Input{Name: name, Image: img, Pivot: pv, Shapes: shapes, Points: pts})
+				inputs = append(inputs, atlaspack.Input{Name: name, Image: img, Pivot: pv, Shapes: shapes, Points: pts})
 				continue
 			}
 			frames, err := sliceFrames(name, img, im)
@@ -482,7 +482,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 			}
 			seen[in.Name] = true
 		}
-		res, err := pack.PackImages(inputs, opts)
+		res, err := atlaspack.PackImages(inputs, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -712,7 +712,7 @@ func (b *Builder) sidecar(rel string) (*importsettings.File, []byte, error) {
 func (b *Builder) inputs(a *project.Assets) map[string]reader {
 	m := map[string]reader{}
 	for _, at := range a.Atlases {
-		names, err := pack.ScanDir(b.abs(at.In))
+		names, err := atlaspack.ScanDir(b.abs(at.In))
 		if err != nil {
 			continue
 		}
@@ -878,7 +878,7 @@ func are(n int) string {
 }
 
 // sliceFrames cuts img into the frames im.Slice describes, row by row from the top left, naming frame i of name.png name_i.png and attaching any default or per-cell pivot, collision shapes, and named image points from im.
-func sliceFrames(name string, img image.Image, im *importsettings.Image) ([]pack.Input, error) {
+func sliceFrames(name string, img image.Image, im *importsettings.Image) ([]atlaspack.Input, error) {
 	sub, ok := img.(interface {
 		SubImage(image.Rectangle) image.Image
 	})
@@ -911,48 +911,48 @@ func sliceFrames(name string, img image.Image, im *importsettings.Image) ([]pack
 	}
 	ext := path.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
-	frames := make([]pack.Input, len(rects))
+	frames := make([]atlaspack.Input, len(rects))
 	for i, r := range rects {
 		cellImg := sub.SubImage(r)
-		var pv *pack.Pivot
+		var pv *atlaspack.Pivot
 		if pt, ok := im.Pivot.ForCell(i); ok {
-			pv = &pack.Pivot{X: pt[0], Y: pt[1]}
+			pv = &atlaspack.Pivot{X: pt[0], Y: pt[1]}
 		}
-		var shapes []pack.Polygon
+		var shapes []atlaspack.Polygon
 		if spec, ok := im.Collision.ForCell(i); ok {
-			shapes, err = pack.TraceCollision(cellImg, packCollisionOptions(spec))
+			shapes, err = atlaspack.TraceCollision(cellImg, packCollisionOptions(spec))
 			if err != nil {
 				return nil, fmt.Errorf("cell %d: %w", i, err)
 			}
 		}
 		pts := packPointsMap(im.PointsForCell(i))
-		frames[i] = pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: cellImg, Pivot: pv, Shapes: shapes, Points: pts}
+		frames[i] = atlaspack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: cellImg, Pivot: pv, Shapes: shapes, Points: pts}
 	}
 	return frames, nil
 }
 
-func packCollisionOptions(spec importsettings.CollisionSpec) pack.CollisionOptions {
-	opts := pack.CollisionOptions{
-		Mode:        pack.CollisionMode(spec.Mode),
+func packCollisionOptions(spec importsettings.CollisionSpec) atlaspack.CollisionOptions {
+	opts := atlaspack.CollisionOptions{
+		Mode:        atlaspack.CollisionMode(spec.Mode),
 		Tolerance:   spec.Tolerance,
 		MaxVertices: spec.MaxVertices,
 	}
 	if len(spec.Points) > 0 {
-		opts.Points = make([]pack.Point, len(spec.Points))
+		opts.Points = make([]atlaspack.Point, len(spec.Points))
 		for i, p := range spec.Points {
-			opts.Points[i] = pack.Point{X: p[0], Y: p[1]}
+			opts.Points[i] = atlaspack.Point{X: p[0], Y: p[1]}
 		}
 	}
 	return opts
 }
 
-func packPointsMap(pts map[string]importsettings.Point2D) map[string]pack.Point {
+func packPointsMap(pts map[string]importsettings.Point2D) map[string]atlaspack.Point {
 	if len(pts) == 0 {
 		return nil
 	}
-	out := make(map[string]pack.Point, len(pts))
+	out := make(map[string]atlaspack.Point, len(pts))
 	for name, p := range pts {
-		out[name] = pack.Point{X: p[0], Y: p[1]}
+		out[name] = atlaspack.Point{X: p[0], Y: p[1]}
 	}
 	return out
 }

@@ -189,6 +189,7 @@
 | `game/pkg/tilemap/tileshape` | 实验性 | [tileshape](tileshape.md) |
 | `game/pkg/tooling/assetbuild` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/assetcheck` | 实验性 | [命令行](cli.md) |
+| `game/pkg/tooling/atlaspack` | 实验性 | |
 | `game/pkg/tooling/audioconv` | 实验性 | |
 | `game/pkg/tooling/bench` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/credits` | 实验性 | [命令行](cli.md) |
@@ -197,7 +198,6 @@
 | `game/pkg/tooling/hotreload` | 实验性 | |
 | `game/pkg/tooling/library` | 实验性 | [资源与插件库](library.md) |
 | `game/pkg/tooling/manifest` | 实验性 | |
-| `game/pkg/tooling/pack` | 实验性 | |
 | `game/pkg/tooling/playtest` | 实验性 | [playtest](playtest.md) |
 | `game/pkg/tooling/refs` | 实验性 | [项目文件](project.md) |
 | `game/pkg/tween` | 稳定 | [tween](tween.md) |
