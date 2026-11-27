@@ -670,7 +670,7 @@ _ = pathBuf
 - **Read-only pre-order snapshots**: `WalkInto(dst)` (or one-shot `Walk()` / `InspectBehaviorTree(root)`) fills `BTNodeTrace` records (`Path`, `Depth`, `Name`, `Kind`, `LastStatus`, `Ticked`, `Active`, `StatusString()`) without mutating execution state or allocating per tick once `dst` has capacity `inspector.Len()`.
 - **Running path**: `Active` is `true` for every node along the currently running branch; extract that path with `RunningPathInto(dst, nodes)` or `inspector.RunningPath()`.
 - **Deterministic text for `statedump`**: `inspector.Format()` (or `FormatBTTrace(nodes)`) renders a canonical indented tree prefixed with `* ` on active nodes so a game can store it in [`statedump`](statedump.md) `Values` (`dump.SetValue("guard_bt", inspector.Format())`) and diff AI decisions across runs.
-- **Live overlay & steering guides**: pass `debug.BehaviorTreeSnapshot("guard", inspector)` to [`game/debug`](debug.md) to show the tree with its running path highlighted, and call `overlay.DrawSteering` to draw velocity, desired velocity, target, and path guides (all stripped under `-tags release`).
+- **Live overlay & steering guides**: pass `gamedebug.BehaviorTreeSnapshot("guard", inspector)` to [`game/pkg/tooling/gamedebug`](gamedebug.md) to show the tree with its running path highlighted, and call `overlay.DrawSteering` to draw velocity, desired velocity, target, and path guides (all stripped under `-tags release`).
 ## Utility AI
 
 When agents weigh continuous factors (distance, health, ammo, threat) instead of fixed boolean priorities, score candidate `UtilityAction`s with a `Reasoner[C]` using Dave Mark's Infinite Axis Utility System (IAUS):

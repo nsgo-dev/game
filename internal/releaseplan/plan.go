@@ -20,7 +20,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
 )
 
-// ReleaseTag is the Go build tag passed to nsgo build so development-only code (pkg/debug, pkg/tooling/hotreload, pkg/tooling/devstate, and physics/AI debug drawing) compiles its release stubs.
+// ReleaseTag is the Go build tag passed to nsgo build so development-only code (pkg/tooling/gamedebug, pkg/tooling/hotreload, pkg/tooling/devstate, and physics/AI debug drawing) compiles its release stubs.
 // Native release-only build tags in nsgo.yaml are tracked upstream in https://github.com/nsgo-dev/nsgo/issues/2695.
 const ReleaseTag = "release"
 

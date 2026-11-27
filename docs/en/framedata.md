@@ -133,7 +133,7 @@ func (s *sim) Load(data []byte) error {
 
 ## Debug overlay
 
-The [debug](debug.md) overlay draws a fighter's active boxes as wireframes, hurtboxes first and hitboxes on top, mirrored as the fighter faces:
+The [gamedebug](gamedebug.md) overlay draws a fighter's active boxes as wireframes, hurtboxes first and hitboxes on top, mirrored as the fighter faces:
 
 ```go
 overlay.DrawFighterBoxes(d, p1, core.RGB(0x38bdf8), core.RGB(0xef4444))

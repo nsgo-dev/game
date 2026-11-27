@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/mcp"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -25,23 +25,23 @@ func TestEditorProfilerScreenshots(t *testing.T) {
 	t.Cleanup(func() { _ = ed.Close() })
 
 	now := time.Unix(40000, 0)
-	prof := debug.NewProfiler(180)
+	prof := gamedebug.NewProfiler(180)
 	prof.SetNow(func() time.Time { return now })
 
-	gcMon := debug.NewGCMonitor(debug.FrameHistory)
-	mem := debug.NewMemoryTracker()
+	gcMon := gamedebug.NewGCMonitor(gamedebug.FrameHistory)
+	mem := gamedebug.NewMemoryTracker()
 	mem.SetTotalBudget(2 << 20)
 	mem.SetBudget("level_01", 1<<20)
-	mem.Track("level_01", "dungeon_tiles.png", debug.AssetImage, 420<<10)
-	mem.Track("level_01", "knight_atlas.png", debug.AssetAtlas, 210<<10)
-	mem.Track("audio", "dungeon_bgm.pcm", debug.AssetAudio, 540<<10)
+	mem.Track("level_01", "dungeon_tiles.png", gamedebug.AssetImage, 420<<10)
+	mem.Track("level_01", "knight_atlas.png", gamedebug.AssetAtlas, 210<<10)
+	mem.Track("audio", "dungeon_bgm.pcm", gamedebug.AssetAudio, 540<<10)
 
-	overlay := debug.New(debug.Options{
+	overlay := gamedebug.New(gamedebug.Options{
 		Profiler: prof,
 		GC:       gcMon,
 		Memory:   mem,
-		DrawStats: func() debug.DrawStats {
-			return debug.DrawStats{DrawCalls: 22, Sprites: 340, Batches: 6}
+		DrawStats: func() gamedebug.DrawStats {
+			return gamedebug.DrawStats{DrawCalls: 22, Sprites: 340, Batches: 6}
 		},
 	})
 

@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 func TestQFloatGolden(t *testing.T) {
@@ -204,7 +204,7 @@ func TestQuantizeZeroAllocs(t *testing.T) {
 	var sinkF32 float32
 	var sinkI64 int64
 	var sinkF64 float64
-	debug.AssertZeroAllocs(t, 100, func() {
+	gamedebug.AssertZeroAllocs(t, 100, func() {
 		q := wire.QuantizeFloat(12.345, -1024, 1024, 16)
 		sinkU32 = q
 		sinkF32 = wire.DequantizeFloat(q, -1024, 1024, 16)

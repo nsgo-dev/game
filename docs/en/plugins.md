@@ -39,7 +39,7 @@ A `plugin.Host` groups the registries a game wants plugins to populate; any `nil
 - `Host.Components` (`*sceneformat.ComponentRegistry`): merges each plugin's `Components` (preserving `ComponentType.Spawn`) in plugin and slice order.
 - `Host.Scheduler` (`*entities.Scheduler`): ensures the four standard stage anchor pairs exist once per scheduler, then registers each plugin's `Systems` in plugin and slice order.
 - `Host.DataTables` (`*datatable.Registry`): registers each plugin's `RowTypes` in sorted file-pattern order.
-- `Host.Console` (`*debug.Console`): registers each plugin's `Console` commands in slice order, refusing collisions with built-in or previously registered commands.
+- `Host.Console` (`*gamedebug.Console`): registers each plugin's `Console` commands in slice order, refusing collisions with built-in or previously registered commands.
 - `Host.OnWorld(w)` runs every installed plugin's `Codecs` callback on `w` in installation order. Call `OnWorld` on every `entities.World` the game creates (including fresh worlds restored from save snapshots).
 - `Host.Plugins()` returns installed plugin metadata (`Name`, `Module`, and `Version` resolved from `runtime/debug.ReadBuildInfo`, returning `"(devel)"` for local builds or replace directives without a version). `Host.Has(name)` reports whether a plugin is installed.
 
@@ -48,7 +48,7 @@ host := &plugin.Host{
 	Components: sceneformat.NewComponentRegistry(),
 	Scheduler:  entities.NewScheduler(),
 	DataTables: datatable.NewRegistry(),
-	Console:    debug.NewConsole(),
+	Console:    gamedebug.NewConsole(),
 }
 if err := plugin.Install(host, health.Plugin()); err != nil {
 	return err

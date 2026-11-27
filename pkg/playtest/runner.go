@@ -9,9 +9,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 // Sim is one seeded headless simulation driven by Run.
@@ -21,10 +21,10 @@ type Sim struct {
 	Step func(dt time.Duration)
 	// Observe returns the current state observation for the Bot before each step (such as a PlatformerObservation).
 	Observe func() any
-	// FrameStats is an optional debug.FrameStats whose perf readout is captured at the end of the run.
-	FrameStats *debug.FrameStats
-	// GC is an optional debug.GCMonitor whose allocation readout is captured at the end of the run.
-	GC *debug.GCMonitor
+	// FrameStats is an optional gamedebug.FrameStats whose perf readout is captured at the end of the run.
+	FrameStats *gamedebug.FrameStats
+	// GC is an optional gamedebug.GCMonitor whose allocation readout is captured at the end of the run.
+	GC *gamedebug.GCMonitor
 	// Perf is an optional callback returning a PerfSummary at the end of the run; when non-nil it overrides FrameStats and GC.
 	Perf func() *PerfSummary
 }
@@ -46,7 +46,7 @@ type RunOptions struct {
 	Axes []string
 	// RecordingsDir, when non-empty, writes each run's replay.Recording as <RecordingsDir>/run_<NNN>_seed_<seed>.replay.yaml and records the relative/slash path in RunReport.Recording.
 	RecordingsDir string
-	// MeasurePerf, when true and the simulation provides no perf readout of its own, measures each Step call with debug.FrameStats.
+	// MeasurePerf, when true and the simulation provides no perf readout of its own, measures each Step call with gamedebug.FrameStats.
 	// Off by default so repeated headless runs produce byte-identical reports.
 	MeasurePerf bool
 }
@@ -127,9 +127,9 @@ func Run(cfg *Config, makeSim SimFactory, opts RunOptions) (*RunResult, error) {
 		}
 		obsFn = sim.Observe
 
-		var measuredStats *debug.FrameStats
+		var measuredStats *gamedebug.FrameStats
 		if opts.MeasurePerf && sim.Perf == nil && sim.FrameStats == nil {
-			measuredStats = &debug.FrameStats{}
+			measuredStats = &gamedebug.FrameStats{}
 		}
 
 		stepsRun := 0

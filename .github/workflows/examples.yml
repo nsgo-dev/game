@@ -204,7 +204,7 @@ jobs:
           cache-dependency-path: |
             examples/fieldmedic/go.sum
             go.sum
-      # Builds an example that imports pkg/debug for the host desktop target via game release, verifying both GOFLAGS=-tags=release propagation and pkg/debug's release stub.
+      # Builds an example that imports pkg/tooling/gamedebug for the host desktop target via game release, verifying both GOFLAGS=-tags=release propagation and pkg/tooling/gamedebug's release stub.
       - name: Build Field Medic for the host desktop target with game release
         run: |
           set -euo pipefail
@@ -219,10 +219,10 @@ jobs:
           bin="$out/Field Medic-0.1.0-$target/Field Medic"
           test -f "$bin"
           go version -m "$bin" | grep -E '^\s*build\s+-tags=(.*,)?release(,|$)'
-      - name: Verify pkg/debug and tooling release stubs under -tags release
+      - name: Verify pkg/tooling/gamedebug and tooling release stubs under -tags release
         run: |
           set -euo pipefail
-          for pkg in ./pkg/debug ./pkg/tooling/hotreload ./pkg/tooling/devstate; do
+          for pkg in ./pkg/tooling/gamedebug ./pkg/tooling/hotreload ./pkg/tooling/devstate; do
             GOFLAGS=-tags=release go tool nsgo test "$pkg"
           done
           for pkg in ./pkg/physics ./pkg/physics3d; do

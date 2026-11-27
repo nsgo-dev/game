@@ -85,7 +85,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |
 | `game/pkg/datatable` | Experimental | |
 | `game/pkg/datatable/datatablewatch` | Experimental | |
-| `game/pkg/debug` | Experimental | [debug](debug.md) |
 | `game/pkg/editor` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | Experimental | [mcp](mcp.md) |
@@ -196,6 +195,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tooling/bench` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/credits` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/devstate` | Experimental | |
+| `game/pkg/tooling/gamedebug` | Experimental | [gamedebug](gamedebug.md) |
 | `game/pkg/tooling/hotreload` | Experimental | |
 | `game/pkg/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
 | `game/pkg/tooling/manifest` | Experimental | |

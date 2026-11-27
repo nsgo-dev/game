@@ -29,20 +29,20 @@ func configureGC() {
 
 1. **预分配并复用切片与对象池。** 将切片保存在结构体字段中，每帧通过 `s = s[:0]` 清空复用，避免重复 `make`。在物理移动循环中，请保留可复用的结果结构体并调用 `physics.MoveAndSlideInto(body, grid, dt, &moveRes)`（或 `World.MoveAndSlideInto` / `CharacterBody.MoveInto`），不要在每帧热路径中调用每次碰到瓦片都会分配新 `Contacts` 切片的 `physics.MoveAndSlide`。
 2. **避免在热循环中调用 `fmt.Sprintf` 或拼接字符串。** 仅在数值变化时格式化 HUD 文本，或在受状态变化驱动的响应式文本回调中格式化。
-3. **避免每帧创建捕获变量的闭包和接口装箱。** 优先使用预分配结构体的方法及值类型令牌（例如 `debug.ScopeToken`），避免每帧分配闭包或装箱为 `any`。
+3. **避免每帧创建捕获变量的闭包和接口装箱。** 优先使用预分配结构体的方法及值类型令牌（例如 `gamedebug.ScopeToken`），避免每帧分配闭包或装箱为 `any`。
 4. **复用 `sprite.Batch` 与定长环形缓冲区。** 粒子、弹幕与采样数据应使用固定容量缓冲区，而非每帧动态扩容缩容。
-5. **在场景切换间隙加载与释放资源。** 使用 `debug.MemoryTracker` 按分组统计资源占用，切换关卡时调用 `ReleaseGroup`，并在加载界面显式调用 `runtime.GC()`，避免在游玩帧中集中回收。
-6. **发布构建使用 `-tags release`。** `pkg/debug` 中的全部调试功能在发布构建下都会编译为零开销空桩。
+5. **在场景切换间隙加载与释放资源。** 使用 `gamedebug.MemoryTracker` 按分组统计资源占用，切换关卡时调用 `ReleaseGroup`，并在加载界面显式调用 `runtime.GC()`，避免在游玩帧中集中回收。
+6. **发布构建使用 `-tags release`。** `pkg/tooling/gamedebug` 中的全部调试功能在发布构建下都会编译为零开销空桩。
 
 ## 检测 GC 卡顿与 CI 回归检查
 
 ### 运行时覆盖层（`GCMonitor`）
 
-将 `debug.NewGCMonitor` 传入 `debug.Options.GC`，每帧以零稳态分配采样 `runtime/metrics`（`/gc/pauses:seconds`、`/gc/cycles/total:gc-cycles`、`/memory/classes/heap/objects:bytes`、`/gc/heap/allocs:objects`、`/gc/heap/allocs:bytes`）：
+将 `gamedebug.NewGCMonitor` 传入 `gamedebug.Options.GC`，每帧以零稳态分配采样 `runtime/metrics`（`/gc/pauses:seconds`、`/gc/cycles/total:gc-cycles`、`/memory/classes/heap/objects:bytes`、`/gc/heap/allocs:objects`、`/gc/heap/allocs:bytes`）：
 
 ```go
-gcMon := debug.NewGCMonitor(debug.FrameHistory)
-overlay := debug.New(debug.Options{
+gcMon := gamedebug.NewGCMonitor(gamedebug.FrameHistory)
+overlay := gamedebug.New(gamedebug.Options{
 	GC: gcMon,
 })
 ```
@@ -53,7 +53,7 @@ overlay := debug.New(debug.Options{
 
 ### CI 分配回归检查（`AssertZeroAllocs`）
 
-在单元测试中使用 `debug.AssertZeroAllocs`（封装 `testing.AllocsPerRun`），防止后续改动在热路径引入意外的堆分配：
+在单元测试中使用 `gamedebug.AssertZeroAllocs`（封装 `testing.AllocsPerRun`），防止后续改动在热路径引入意外的堆分配：
 
 ```go
 func TestPhysicsStepZeroAllocs(t *testing.T) {
@@ -61,13 +61,13 @@ func TestPhysicsStepZeroAllocs(t *testing.T) {
 	// 先预热一帧，完成一次性缓存初始化。
 	world.Step(16 * time.Millisecond)
 
-	debug.AssertZeroAllocs(t, 100, func() {
+	gamedebug.AssertZeroAllocs(t, 100, func() {
 		world.Step(16 * time.Millisecond)
 	})
 }
 ```
 
-需要记录具体分配次数或断言非零上限时，可使用 `debug.MeasureAllocs`。
+需要记录具体分配次数或断言非零上限时，可使用 `gamedebug.MeasureAllocs`。
 
 ## 各平台注意事项
 

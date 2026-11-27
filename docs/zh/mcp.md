@@ -43,7 +43,7 @@ if err != nil {
 }
 ```
 
-- 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World`、`*game.Loop`、`*debug.Console` 或 `*physics.World`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`）。
+- 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World`、`*game.Loop`、`*gamedebug.Console` 或 `*physics.World`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`）。
 - 若要启用 `game_loop_seed`，可配置 `Random`（`*random.Stream`）、`RandomStreams`（`*random.Streams`）和/或自定义 `SetSeed` 回调；若都未配置，调用 `game_loop_seed` 会返回明确的可操作错误。
 - 如果 `scene.Manager` 的控制器通过自定义 `Controller.Draw` 绘制而没有设置 `Controller.Scene`，`SceneFunc` / `Scene` 会自动作为当前场景的图层来源。
 - 未提供 `EntityName` 或 `EntityLayer`（或其返回 `""`）时，若实体带有 [`sceneformat.ObjectRef`](editor.md)，`game/mcp` 会自动回退到其中的 `ID` 和 `Layer`。
@@ -112,11 +112,11 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_input_axis` | `name` + `value`、`axes` 映射（`{name: value}`）和/或 `clear`（`bool`） | 在 `input.Actions` 上设置或清除单个或多个 `[-1, 1]` 模拟量轴值。 |
 | `game_input_pointer` | `x`、`y`（必填）、`action`（`"press"`、`"release"`、`"move"`、`"click"`，默认 `"click"`）、`space`（`"game"` 或 `"world"`，默认 `"game"`）、`button`（`"left"`、`"right"`、`"middle"`） | 将坐标经当前场景 `Camera`（当 `space="world"`）和 `screen.Viewport` 映射到视图坐标，转发到 `input.Actions`，执行 `Scene.HitTest` / `Scene.DispatchPress`，调用 `Config.OnPointer`，并返回游戏/视图坐标、`in_viewport` 与命中信息（`hit`、`hit_layer`、`hit_kind`、`hit_frame`、`hit_batch_index`、`hit_sprite_index`、`hit_drawable_index`、`dispatched`）。 |
 | `game_input_actions_list` | `{}` | 列出 `input.Actions` 上已配置的动作和轴名称及其当前步状态（`pressed`、`just_pressed`、`just_released`、`binding_count`、`value`、`negative`、`positive`）。 |
-| `game_tunables_list` | `prefix`（可选） | 按名称排序的已注册 `debug.Console` 可调参数列表，包含 `type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
+| `game_tunables_list` | `prefix`（可选） | 按名称排序的已注册 `gamedebug.Console` 可调参数列表，包含 `type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
 | `game_tunable_get` | `name`（必填） | 单个已注册可调参数的 `name`、`type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
 | `game_tunable_set` | `name`（必填）、`value`（必填）、`clamp`（可选，默认 `false`） | 按严格类型检查与范围校验（或 `clamp: true` 时钳位）更新已注册的可调参数（`float`、`int`、`bool` 或 `string`），返回 `old_value`、生效后的 `value`、元数据与 `clamped` 标记。 |
-| `game_console_commands_list` | `include_builtin`（可选，默认 `true`） | 按名称排序的 `debug.Console` 内置命令与自定义命令列表，包含 `help` 说明与 `builtin` 标记。 |
-| `game_console_exec` | `command`（必填） | 通过 `debug.Console` 执行一条命令行，返回 `command`、`ok`、`output`、`lines` 以及命令失败时的 `error`。 |
+| `game_console_commands_list` | `include_builtin`（可选，默认 `true`） | 按名称排序的 `gamedebug.Console` 内置命令与自定义命令列表，包含 `help` 说明与 `builtin` 标记。 |
+| `game_console_exec` | `command`（必填） | 通过 `gamedebug.Console` 执行一条命令行，返回 `command`、`ok`、`output`、`lines` 以及命令失败时的 `error`。 |
 | `game_prefabs_list` | `{}` | 已注册预制体的排序列表（`name` 与 `kind`：`"custom"`、`"entity_prefab"` 或 `"scene"`）。 |
 | `game_entity_spawn` | `prefab`、`overrides`、`parent`、`x`、`y`、`components`（均为可选） | 新生成存活实体的稳定引用 `ref`、`index`、`generation`、`prefab`、元数据、`parent`、`children` 及初始 `components` 快照。 |
 | `game_entity_destroy` | `ref`（必填）、`policy`（可选：`"cascade"`、`"orphan"`、`"keep_world"` 或 `"reparent"`） | 销毁结果，包含 `ref`、应用于子实体的 `policy`（省略时为层级的默认策略，通常是 `"orphan"`；省略且实体没有子实体时为 `"none"`）与实际销毁实体数 `destroyed`。`"reparent"` 会保持子实体的世界变换。 |
@@ -129,8 +129,8 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_replay_stop` | `{}` | 安全停止当前正在进行的回放，并报告已回放的帧数。 |
 | `game_replay_list` | `{}` | 按名称排序列出已存储的录制及其 `frames`、`seed`、`step_rate`、`events`、`actions`、`axes` 与 `metadata`。 |
 | `game_perf_readout` | `include_history`（可选，默认 `false`）、`history_limit`（可选）、`include_zones`（可选，默认 `false`）、`zones_limit`（可选） | 与调试浮层数值一致的实时性能读数：`fps`、滑动平均与最近一帧的 `frame_ms`/`update_ms`/`draw_ms`、最小/最大及 p50/p95/p99 帧时间、绘制统计（`draw_calls`、`sprites`、`batches`、`triangles`、`vertices`）、每帧堆分配（`allocs_per_frame`、`alloc_bytes_per_frame`、`last_frame_allocs`、`last_frame_alloc_bytes`）、`heap_bytes`、`gc_count`、GC 停顿与卡顿统计、可选的 `render3d` 与 `asset_memory` 明细，以及可选的时间序 `history` 与分析器 `zones`。 |
-| `game_perf_zones` | `limit`（可选） | 按最近帧耗时降序排列的 `debug.Profiler` 命名计时区间列表（`name`、`last_ms`、`avg_ms`、`max_ms`、`calls`），以及 `recording`、`recorded_frames` 和 `total`。 |
-| `game_perf_reset` | `{}` | 重置累积的 `debug.Overlay` 帧耗时与推送绘制统计、`debug.Profiler` 区间耗时以及 `debug.GCMonitor` 历史记录。通过 `StartRecording` 开始的分析器追踪录制会继续进行，已录制的事件也会保留。 |
+| `game_perf_zones` | `limit`（可选） | 按最近帧耗时降序排列的 `gamedebug.Profiler` 命名计时区间列表（`name`、`last_ms`、`avg_ms`、`max_ms`、`calls`），以及 `recording`、`recorded_frames` 和 `total`。 |
+| `game_perf_reset` | `{}` | 重置累积的 `gamedebug.Overlay` 帧耗时与推送绘制统计、`gamedebug.Profiler` 区间耗时以及 `gamedebug.GCMonitor` 历史记录。通过 `StartRecording` 开始的分析器追踪录制会继续进行，已录制的事件也会保留。 |
 | `game_assets_list` | `group`（可选）、`state`（`loaded`/`loading`/`unloaded`/`failed`）、`kind`（可选） | 按确定顺序排列的资源组列表（涵盖 `assets.Manager`、`resource.Library`、`hotreload.ShaderReloader`、`hotreload.MaterialReloader` 与自定义注册资源），包含加载状态、资源键/类型/URI、图集帧数、各组估算内存字节数及 `total_bytes`。 |
 | `game_asset_reload` | `key`（资源名、URI 或相对路径）、`group`（可选）、`all`（布尔值，可选） | 就地重载匹配的单个资源（或在 `all: true` 时重载全部已加载资源），返回 `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`；未报错但保持不变的条目会带有 `skipped`。解析或编译错误会以结构化结果返回，同时保留原先正常的资源不变。`all: true` 需要配置资源管理器、重载器或已注册资源；`Config.ReloadAsset` 只用于重载单个 key。 |
 | `game_assets_reload_group` | `group`（必填） | 就地重载指定资源组内的所有已加载资源，返回逐项结果、重载数 `count`、失败数 `failed`、跳过数 `skipped`、内存字节数、耗时及错误详情，不会导致运行中的游戏崩溃。 |
@@ -156,10 +156,10 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 
 ## 可调参数与调试控制台
 
-通过 `Config.Console`、`Config.ConsoleFunc` 或 `bridge.SetConsole` 传入 [`*debug.Console`](debug.md)，即可让智能体检查和调整运行中的游戏参数并执行自定义调试命令：
+通过 `Config.Console`、`Config.ConsoleFunc` 或 `bridge.SetConsole` 传入 [`*gamedebug.Console`](gamedebug.md)，即可让智能体检查和调整运行中的游戏参数并执行自定义调试命令：
 
 ```go
-console := debug.NewConsole()
+console := gamedebug.NewConsole()
 console.RegisterFloat("physics.gravity", 0, 2000, &g.gravity)
 console.RegisterInt("player.max_jumps", 1, 5, &g.maxJumps)
 console.RegisterBool("player.god_mode", &g.godMode)
@@ -169,7 +169,7 @@ console.RegisterCommand("spawn", "spawn <kind> [count]", g.handleSpawn)
 
 - `game_tunables_list` 与 `game_tunable_get` 直接读取实时值，不会向控制台交互历史或输出日志中写入多余记录。
 - `game_tunable_set` 默认严格校验参数注册类型（`float`、`int`、`bool` 或 `string`）及数值 `[min, max]` 范围，校验失败时不修改变量。传入 `"clamp": true` 时会将越界数值钳位到 `[min, max]` 并在响应中标记 `"clamped": true`。
-- `game_console_exec` 通过 `debug.Console.Exec` 运行内置命令（`help`、`list`、`get`、`set`、`clear`）与游戏自定义命令，返回 `{command, ok, output, lines, error}`。无效的 MCP 参数或未配置 `Console` 会返回工具级错误；命令本身的执行失败（例如未知命令名或参数无效）则返回 `ok: false` 与对应的 `error` 信息。
+- `game_console_exec` 通过 `gamedebug.Console.Exec` 运行内置命令（`help`、`list`、`get`、`set`、`clear`）与游戏自定义命令，返回 `{command, ok, output, lines, error}`。无效的 MCP 参数或未配置 `Console` 会返回工具级错误；命令本身的执行失败（例如未知命令名或参数无效）则返回 `ok: false` 与对应的 `error` 信息。
 ## 录制与回放输入
 
 使用 `mcp.NewReplayController` 创建 `*mcp.ReplayController`，将其作为游戏的 [`replay.ActionSource`](replay.md) 传入更新循环，并挂到 `mcp.Config.Replay`：
@@ -207,7 +207,7 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 
 ## 性能读数
 
-通过 `Config.Overlay` 传入 [`debug.Overlay`](debug.md)，即可把调试 HUD 显示的帧耗时、绘制统计（`debug.Options.DrawStats` 或 `Overlay.SetDrawStats`）、GC 与每帧分配计数（`debug.GCMonitor`）、资源内存（`debug.MemoryTracker`）以及命名计时区间（`debug.Profiler`）以完全一致的数值暴露给智能体。
+通过 `Config.Overlay` 传入 [`gamedebug.Overlay`](gamedebug.md)，即可把调试 HUD 显示的帧耗时、绘制统计（`gamedebug.Options.DrawStats` 或 `Overlay.SetDrawStats`）、GC 与每帧分配计数（`gamedebug.GCMonitor`）、资源内存（`gamedebug.MemoryTracker`）以及命名计时区间（`gamedebug.Profiler`）以完全一致的数值暴露给智能体。
 
 - `Config.Profiler`、`Config.GC`、`Config.Memory` 与 `Config.DrawStatsFunc` 既可覆盖 `Config.Overlay` 上的对应组件，也可在不启用浮层时单独使用。
 - `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。`mcp.PerfRender3DStats` 与 `render3d.RenderStats` 字段相同，可直接用 `mcp.PerfRender3DStats(stats)` 转换；`game/mcp` 不导入 `game/render3d`，因此挂接桥接器的 2D 游戏不会链接 3D 渲染器。

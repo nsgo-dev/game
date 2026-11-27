@@ -2772,12 +2772,12 @@ runs:
 {"version":1,"actions":{"fire":[{"kind":"mouse_button","button":"left"}],"jump":[{"kind":"key","key":"space"},{"kind":"gamepad_button","button":"south"}]},"axes":{"move_x":{"negative":"left","positive":"right"}}}
 ```
 
-<!-- format: debug -->
+<!-- format: tooling/gamedebug -->
 ### 控制台可调参数
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `core.Storage` 中的一个键，默认为 `debug.console.tunables` | 无 | `debug.Console.SaveTunables`、`debug.Console.LoadTunables` | 以各参数名为键、参数值为值的对象 |
+| `core.Storage` 中的一个键，默认为 `gamedebug.console.tunables` | 无 | `gamedebug.Console.SaveTunables`、`gamedebug.Console.LoadTunables` | 以各参数名为键、参数值为值的对象 |
 
 ```json
 {"cheat.god":false,"level.name":"cave_1","player.lives":3,"player.speed":1.5}
@@ -3070,12 +3070,12 @@ runs:
 | --- | --- | --- |
 | glTF 2.0 JSON 文档，其中带网格的节点成为库中的图块，包围盒取自 `POSITION` 访问器 | `world3d.LoadMeshLibraryFromGLTF` | [world3d](world3d.md) |
 
-<!-- format: debug#trace -->
+<!-- format: tooling/gamedebug#trace -->
 ### 性能分析器跟踪
 
 | 文件 | 写出函数 | 指南 |
 | --- | --- | --- |
-| Chrome 的跟踪事件 JSON，可在 Perfetto 或 `chrome://tracing` 中打开 | `debug.Profiler.WriteChromeTrace` | `debug.Profiler` |
+| Chrome 的跟踪事件 JSON，可在 Perfetto 或 `chrome://tracing` 中打开 | `gamedebug.Profiler.WriteChromeTrace` | `gamedebug.Profiler` |
 
 <!-- format: flow -->
 ### Yarn 对话脚本

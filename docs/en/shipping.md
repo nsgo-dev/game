@@ -76,7 +76,7 @@ Run headless tests with `go tool nsgo test`, or run tests on a real platform wit
 
 ## Build release packages
 
-`go tool game release` (and the scene editor's Export / Build and Release screens) runs `nsgo build` with `GOFLAGS=-tags=release`, compiling out development-only packages (`pkg/debug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifying built desktop binaries against leaked debug symbols, and writing `CREDITS.md` beside the packages:
+`go tool game release` (and the scene editor's Export / Build and Release screens) runs `nsgo build` with `GOFLAGS=-tags=release`, compiling out development-only packages (`pkg/tooling/gamedebug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifying built desktop binaries against leaked debug symbols, and writing `CREDITS.md` beside the packages:
 
 ```sh
 # Build every export preset in game.yaml (or all six primary targets by default)

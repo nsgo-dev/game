@@ -50,7 +50,7 @@ func TestVerifyBinaryDetectsMissingReleaseTagAndDebugSymbols(t *testing.T) {
 		t.Skip("requires a desktop host Go toolchain")
 	}
 
-	// Build a minimal real main package that references pkg/debug's overlay and console,
+	// Build a minimal real main package that references pkg/tooling/gamedebug's overlay and console,
 	// once without -tags=release and once with GOFLAGS=-tags=release (both stripped with
 	// -ldflags "-s -w", matching nsgo build).
 	srcDir := t.TempDir()
@@ -58,15 +58,15 @@ func TestVerifyBinaryDetectsMissingReleaseTagAndDebugSymbols(t *testing.T) {
 
 import (
 	"fmt"
-	"github.com/nsgo-dev/game/pkg/debug"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
 func main() {
-	ov := debug.New(debug.Options{ToggleKey: "F3"})
+	ov := gamedebug.New(gamedebug.Options{ToggleKey: "F3"})
 	_ = ov.View((*core.Scope)(nil))
 	_, _ = ov.Console().Exec("help")
-	fmt.Println(debug.Enabled())
+	fmt.Println(gamedebug.Enabled())
 }
 `
 	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte(mainGo), 0o644); err != nil {

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
-	gamedebug "github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/replay"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

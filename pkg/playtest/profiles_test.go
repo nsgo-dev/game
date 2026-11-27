@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 func TestAllBuiltInBotProfilesRegistered(t *testing.T) {
@@ -94,7 +94,7 @@ type fixtureExplorerWorld struct {
 	dialogueStep int
 	hasGoalKey   bool
 	stepCount    int
-	stats        *debug.FrameStats
+	stats        *gamedebug.FrameStats
 }
 
 func newFixtureExplorerWorld() *fixtureExplorerWorld {
@@ -128,7 +128,7 @@ func newFixtureExplorerWorld() *fixtureExplorerWorld {
 			{ID: "chest_potion", Cell: playtest.GridCell{X: 1, Y: 7}, Solid: false},
 			{ID: "chest_key", Cell: playtest.GridCell{X: 11, Y: 7}, Solid: true},
 		},
-		stats: &debug.FrameStats{},
+		stats: &gamedebug.FrameStats{},
 	}
 	for _, row := range rows {
 		for x := range len(row) {
@@ -428,7 +428,7 @@ type fixtureShooter struct {
 	enemies     []playtest.ShooterTarget
 	powerUps    []playtest.ShooterPowerUp
 	rng         *random.Stream
-	stats       *debug.FrameStats
+	stats       *gamedebug.FrameStats
 }
 
 func newFixtureShooter(seed uint64) *fixtureShooter {
@@ -442,7 +442,7 @@ func newFixtureShooter(seed uint64) *fixtureShooter {
 		lives:      6,
 		wave:       1,
 		rng:        random.NewStreams(seed).Stream("shmup"),
-		stats:      &debug.FrameStats{},
+		stats:      &gamedebug.FrameStats{},
 	}
 }
 

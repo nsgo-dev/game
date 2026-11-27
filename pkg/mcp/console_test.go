@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/mcp"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -31,7 +31,7 @@ func TestTunablesChangeAffectsLiveSimulation(t *testing.T) {
 	godMode := false
 	levelName := "cave_1"
 
-	console := debug.NewConsole()
+	console := gamedebug.NewConsole()
 	console.RegisterFloat("player.jump_speed", 100, 1200, &jumpSpeed)
 	console.RegisterFloat("physics.gravity", 0, 2000, &gravity)
 	console.RegisterInt("player.max_jumps", 1, 5, &maxJumps)
@@ -232,7 +232,7 @@ func TestConsoleCommandsListAndExec(t *testing.T) {
 	gravity := 980.0
 	spawned := make([]string, 0)
 
-	console := debug.NewConsole()
+	console := gamedebug.NewConsole()
 	console.RegisterFloat("gravity", 0, 5000, &gravity)
 	console.RegisterCommand("spawn", "spawn <kind> [count] - spawn enemies into the room", func(args []string) (string, error) {
 		if len(args) < 1 || len(args) > 2 {
@@ -381,7 +381,7 @@ func TestConsoleDynamicResolutionAndErrors(t *testing.T) {
 	}
 
 	// 2. Attach a console via SetConsole and test validation & error handling.
-	c1 := debug.NewConsole()
+	c1 := gamedebug.NewConsole()
 	speed := 10.0
 	lives := 3
 	debugDraw := false
@@ -498,7 +498,7 @@ func TestConsoleDynamicResolutionAndErrors(t *testing.T) {
 	}
 
 	// 3. ConsoleFunc dynamically switches active console on each call.
-	c2 := debug.NewConsole()
+	c2 := gamedebug.NewConsole()
 	volume := 0.5
 	c2.RegisterFloat("volume", 0, 1, &volume)
 
@@ -507,7 +507,7 @@ func TestConsoleDynamicResolutionAndErrors(t *testing.T) {
 		bridge.Detach()
 		var err error
 		bridge, err = mcp.Attach(cx, mcp.Config{
-			ConsoleFunc: func() *debug.Console { return active },
+			ConsoleFunc: func() *gamedebug.Console { return active },
 		})
 		if err != nil {
 			t.Fatal(err)

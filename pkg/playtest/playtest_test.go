@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/platformer"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 // fixturePlatformer is a deterministic side-scrolling platformer built on physics.Grid and platformer.Controller.
@@ -26,7 +26,7 @@ type fixturePlatformer struct {
 	body     *physics.Body
 	charBody *physics.CharacterBody
 	ctrl     *platformer.Controller
-	stats    *debug.FrameStats
+	stats    *gamedebug.FrameStats
 
 	tileSize float32
 	cols     int
@@ -107,7 +107,7 @@ func newFixturePlatformer(seed uint64) (*fixturePlatformer, error) {
 		body:       body,
 		charBody:   cb,
 		ctrl:       ctrl,
-		stats:      &debug.FrameStats{},
+		stats:      &gamedebug.FrameStats{},
 		tileSize:   tile,
 		cols:       cols,
 		rows:       rows,
@@ -188,7 +188,7 @@ func (f *fixturePlatformer) step(src replay.ActionSource, metrics *playtest.Coll
 		JumpHeld:    src.Pressed("jump"),
 	}
 	f.ctrl.Step(in, f.grid, nil, nil, dt)
-	// Deterministic simulated frame-time sample via debug.FrameStats so perf readout is exercised without wall-clock flake.
+	// Deterministic simulated frame-time sample via gamedebug.FrameStats so perf readout is exercised without wall-clock flake.
 	f.stats.Record(4100*time.Microsecond, 3200*time.Microsecond, 900*time.Microsecond)
 
 	pb := f.body.Bounds()
@@ -616,7 +616,7 @@ func TestCollectorAndPerfReadout(t *testing.T) {
 		t.Fatalf("counters = (%v, %v)", c.Counter("coins_taken"), c.Counter("coins_total"))
 	}
 
-	var stats debug.FrameStats
+	var stats gamedebug.FrameStats
 	stats.Record(3*time.Millisecond, 2*time.Millisecond, 1*time.Millisecond)
 	stats.Record(5*time.Millisecond, 3*time.Millisecond, 2*time.Millisecond)
 	stats.Record(7*time.Millisecond, 4*time.Millisecond, 3*time.Millisecond)

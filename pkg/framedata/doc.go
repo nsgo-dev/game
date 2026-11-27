@@ -12,5 +12,5 @@
 //
 // A move instance hits each opponent at most once per hit Group (a multi-hit move gives its hits different groups) and at most once per step. A hit puts the opponent in hitstun, or blockstun when it is Blocking, interrupts its move with its Neutral move, and lets the attacker's cancel windows that wait for contact open.
 //
-// The debug package's ShapeOverlay.DrawFighterBoxes draws a fighter's active boxes as wireframes.
+// The gamedebug package's ShapeOverlay.DrawFighterBoxes draws a fighter's active boxes as wireframes.
 package framedata

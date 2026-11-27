@@ -13,12 +13,12 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/entities"
 	gamemcp "github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/scene"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -41,7 +41,7 @@ type fixtureRemoteGame struct {
 	altScene    *scene.Scene
 	world       *entities.World
 	loop        *game.Loop
-	console     *debug.Console
+	console     *gamedebug.Console
 	bridge      *gamemcp.Bridge
 	knight      entities.Entity
 	sword       entities.Entity
@@ -140,7 +140,7 @@ layers:
 		levelTag:    "level_01",
 	}
 
-	g.console = debug.NewConsole()
+	g.console = gamedebug.NewConsole()
 	g.console.RegisterFloat("physics.gravity", 0, 3000, &g.gravity)
 	g.console.RegisterBool("player.god_mode", &g.godMode)
 	g.console.RegisterInt("player.max_jumps", 1, 5, &g.maxJumps)

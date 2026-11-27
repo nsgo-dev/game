@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/platformer"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 func makePlatformerPlaytestSim(_ uint64, src replay.ActionSource, metrics *playtest.Collector) (playtest.Sim, error) {
@@ -32,7 +32,7 @@ func makePlatformerPlaytestSim(_ uint64, src replay.ActionSource, metrics *playt
 	}
 	exitX := (float32(w.goal[0]) + 0.5) * w.tile
 	exitY := (float32(w.goal[1]) + 0.5) * w.tile
-	stats := &debug.FrameStats{}
+	stats := &gamedebug.FrameStats{}
 	started := false
 
 	observe := func() any {

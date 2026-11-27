@@ -39,7 +39,7 @@ func Plugin() plugin.Plugin {
 - `Host.Components`（`*sceneformat.ComponentRegistry`）：按插件参数顺序与切片顺序合并每个插件的 `Components`（保留 `ComponentType.Spawn`）。
 - `Host.Scheduler`（`*entities.Scheduler`）：为每个调度器一次性添加四组标准阶段锚点，随后按插件与切片顺序注册各插件的 `Systems`。
 - `Host.DataTables`（`*datatable.Registry`）：按文件路径模式排序依次注册每个插件的 `RowTypes`。
-- `Host.Console`（`*debug.Console`）：按切片顺序注册每个插件的 `Console` 命令，拒绝与内置命令或已有命令重名。
+- `Host.Console`（`*gamedebug.Console`）：按切片顺序注册每个插件的 `Console` 命令，拒绝与内置命令或已有命令重名。
 - `Host.OnWorld(w)` 按安装顺序在 `w` 上执行每个已安装插件的 `Codecs` 回调。每次游戏创建新的 `entities.World`（包括从存档恢复的新世界）时都应调用 `OnWorld`。
 - `Host.Plugins()` 返回已安装插件的元数据（`Name`、`Module` 以及通过 `runtime/debug.ReadBuildInfo` 读取的 `Version`；本地构建或无版本号的 `replace` 指令返回 `"(devel)"`）。`Host.Has(name)` 报告插件是否已安装。
 
@@ -48,7 +48,7 @@ host := &plugin.Host{
 	Components: sceneformat.NewComponentRegistry(),
 	Scheduler:  entities.NewScheduler(),
 	DataTables: datatable.NewRegistry(),
-	Console:    debug.NewConsole(),
+	Console:    gamedebug.NewConsole(),
 }
 if err := plugin.Install(host, health.Plugin()); err != nil {
 	return err

@@ -26,7 +26,7 @@ Both are Go, so most of your game logic moves over unchanged. What changes is th
 
 Ebitengine calls `Update` 60 times a second by default and `Draw` once per display frame. `game.Loop` keeps the same split: `Update` gets a fixed `dt` of `1/Rate` seconds (60 updates a second by default), and `Draw` runs once per display frame with `alpha`, how far the frame falls into the next update. Pass `alpha` to the canvas through a `core.Signal` and interpolate between the last two states, so motion stays smooth on 120 Hz displays without changing the update rate. `Loop` also pauses while the app is in the background and caps the updates one frame may run after a hitch. See [Loop](loop.md).
 
-`ebiten.ActualTPS` and `ActualFPS` have no direct counterpart; the [debug](debug.md) overlay draws a frame-time graph, and `nsgo dev -fps` shows NSGo's monitor.
+`ebiten.ActualTPS` and `ActualFPS` have no direct counterpart; the [gamedebug](gamedebug.md) overlay draws a frame-time graph, and `nsgo dev -fps` shows NSGo's monitor.
 
 ## Drawing
 

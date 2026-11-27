@@ -43,7 +43,7 @@ if err != nil {
 }
 ```
 
-- When a game replaces its `*scene.Scene`, `*entities.World`, `*game.Loop`, `*debug.Console` or `*physics.World` across level restarts, supply `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc` (or call `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`).
+- When a game replaces its `*scene.Scene`, `*entities.World`, `*game.Loop`, `*gamedebug.Console` or `*physics.World` across level restarts, supply `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc` (or call `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`).
 - To support `game_loop_seed`, configure `Random` (`*random.Stream`), `RandomStreams` (`*random.Streams`) and/or a custom `SetSeed` callback; if none is set, `game_loop_seed` returns an actionable error.
 - When a `scene.Manager` controller draws via a custom `Controller.Draw` without setting `Controller.Scene`, `SceneFunc` / `Scene` provides the current scene's layers automatically.
 - When `EntityName` or `EntityLayer` is omitted (or returns `""`), `game/mcp` falls back to [`sceneformat.ObjectRef`](editor.md) if the entity carries one.
@@ -112,11 +112,11 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_input_axis` | `name` + `value`, `axes` map (`{name: value}`), and/or `clear` (`bool`) | Sets or clears 1D or multi-axis analog values in `[-1, 1]` on `input.Actions`. |
 | `game_input_pointer` | `x`, `y` (required), `action` (`"press"`, `"release"`, `"move"`, `"click"`, default `"click"`), `space` (`"game"` or `"world"`, default `"game"`), `button` (`"left"`, `"right"`, `"middle"`) | Maps coordinates through the active scene's `Camera` (when `space="world"`) and `screen.Viewport` into view space, forwards to `input.Actions`, runs `Scene.HitTest` / `Scene.DispatchPress`, invokes `Config.OnPointer`, and returns both game/view coordinates, `in_viewport`, and hit metadata (`hit`, `hit_layer`, `hit_kind`, `hit_frame`, `hit_batch_index`, `hit_sprite_index`, `hit_drawable_index`, `dispatched`). |
 | `game_input_actions_list` | `{}` | Lists configured action and axis names on `input.Actions` with their current step state (`pressed`, `just_pressed`, `just_released`, `binding_count`, `value`, `negative`, `positive`). |
-| `game_tunables_list` | `prefix` (optional) | Registered `debug.Console` tunables sorted by name with `type`, current `value`, registration `default`, and numeric `min`/`max` bounds. |
+| `game_tunables_list` | `prefix` (optional) | Registered `gamedebug.Console` tunables sorted by name with `type`, current `value`, registration `default`, and numeric `min`/`max` bounds. |
 | `game_tunable_get` | `name` (required) | One registered tunable's `name`, `type`, current `value`, registration `default`, and numeric `min`/`max` bounds. |
 | `game_tunable_set` | `name` (required), `value` (required), `clamp` (optional, default `false`) | Updates a registered tunable (`float`, `int`, `bool` or `string`) with strict type checking and range validation (or clamping when `clamp: true`), returning `old_value`, applied `value`, metadata and `clamped`. |
-| `game_console_commands_list` | `include_builtin` (optional, default `true`) | Built-in and custom `debug.Console` commands sorted by name with `help` text and `builtin` flag. |
-| `game_console_exec` | `command` (required) | Runs one command line through `debug.Console`, returning `command`, `ok`, `output`, `lines`, and `error` (when the console command fails). |
+| `game_console_commands_list` | `include_builtin` (optional, default `true`) | Built-in and custom `gamedebug.Console` commands sorted by name with `help` text and `builtin` flag. |
+| `game_console_exec` | `command` (required) | Runs one command line through `gamedebug.Console`, returning `command`, `ok`, `output`, `lines`, and `error` (when the console command fails). |
 | `game_prefabs_list` | `{}` | Sorted list of registered prefabs (`name` and `kind`: `"custom"`, `"entity_prefab"`, or `"scene"`). |
 | `game_entity_spawn` | `prefab`, `overrides`, `parent`, `x`, `y`, `components` (all optional) | Newly spawned live entity's stable `ref`, `index`, `generation`, `prefab`, metadata, `parent`, `children`, and initial `components` snapshot. |
 | `game_entity_destroy` | `ref` (required), `policy` (optional: `"cascade"`, `"orphan"`, `"keep_world"`, or `"reparent"`) | Confirmation of destruction with `ref`, the `policy` applied to children (the hierarchy's default, usually `"orphan"`, when omitted; `"none"` when omitted and the entity had no children), and count of `destroyed` entities. `"reparent"` keeps the children's world transforms. |
@@ -129,8 +129,8 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_replay_stop` | `{}` | Stops an active replay playback cleanly and reports how many frames were played. |
 | `game_replay_list` | `{}` | Lists stored recordings in sorted name order with `frames`, `seed`, `step_rate`, `events`, `actions`, `axes` and `metadata`. |
 | `game_perf_readout` | `include_history` (optional, default `false`), `history_limit` (optional), `include_zones` (optional, default `false`), `zones_limit` (optional) | Live performance readout matching the debug overlay: `fps`, rolling average and latest `frame_ms`/`update_ms`/`draw_ms`, min/max/p50/p95/p99 frame times, draw stats (`draw_calls`, `sprites`, `batches`, `triangles`, `vertices`), per-frame heap allocations (`allocs_per_frame`, `alloc_bytes_per_frame`, `last_frame_allocs`, `last_frame_alloc_bytes`), `heap_bytes`, `gc_count`, GC pause/hitch metrics, optional `render3d` and `asset_memory` breakdowns, and optional chronological `history` and profiler `zones`. |
-| `game_perf_zones` | `limit` (optional) | Named timing zones from `debug.Profiler` sorted by recent frame cost (`name`, `last_ms`, `avg_ms`, `max_ms`, `calls`), plus `recording`, `recorded_frames` and `total`. |
-| `game_perf_reset` | `{}` | Resets accumulated `debug.Overlay` frame timings and pushed draw stats, `debug.Profiler` zone timings, and `debug.GCMonitor` history. A profiler trace recording started with `StartRecording` keeps running and keeps its events. |
+| `game_perf_zones` | `limit` (optional) | Named timing zones from `gamedebug.Profiler` sorted by recent frame cost (`name`, `last_ms`, `avg_ms`, `max_ms`, `calls`), plus `recording`, `recorded_frames` and `total`. |
+| `game_perf_reset` | `{}` | Resets accumulated `gamedebug.Overlay` frame timings and pushed draw stats, `gamedebug.Profiler` zone timings, and `gamedebug.GCMonitor` history. A profiler trace recording started with `StartRecording` keeps running and keeps its events. |
 | `game_assets_list` | `group` (optional), `state` (`loaded`/`loading`/`unloaded`/`failed`), `kind` (optional) | Deterministically sorted asset groups (`assets.Manager` groups, `resource.Library`, `hotreload.ShaderReloader`, `hotreload.MaterialReloader`, and custom registered assets) with load states, asset keys/kinds/URIs, frame counts, per-group estimated bytes, and `total_bytes`. |
 | `game_asset_reload` | `key` (name, URI or relative path), `group` (optional), `all` (boolean, optional) | Reloads a matching asset in place (or all loaded assets when `all: true`), returning `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`; each item carries `skipped` when it was left unchanged without an error. Parse and compile errors are returned in the structured result while keeping the previously loaded working asset intact. `all: true` needs an asset manager, reloader or registered asset; `Config.ReloadAsset` only reloads a single key. |
 | `game_assets_reload_group` | `group` (required) | Reloads every loaded asset in the named group in place, reporting per-item results, `count` reloaded, `failed`, `skipped`, memory bytes, duration, and any item errors without crashing the running game. |
@@ -156,10 +156,10 @@ When `Actions`, `Viewport` / `ViewportFunc`, `ViewSizeFunc`, or `OnPointer` are 
 
 ## Tunables and debug console
 
-Pass a [`*debug.Console`](debug.md) via `Config.Console`, `Config.ConsoleFunc`, or `bridge.SetConsole` so agents can inspect and adjust live game variables and run custom debug commands:
+Pass a [`*gamedebug.Console`](gamedebug.md) via `Config.Console`, `Config.ConsoleFunc`, or `bridge.SetConsole` so agents can inspect and adjust live game variables and run custom debug commands:
 
 ```go
-console := debug.NewConsole()
+console := gamedebug.NewConsole()
 console.RegisterFloat("physics.gravity", 0, 2000, &g.gravity)
 console.RegisterInt("player.max_jumps", 1, 5, &g.maxJumps)
 console.RegisterBool("player.god_mode", &g.godMode)
@@ -169,7 +169,7 @@ console.RegisterCommand("spawn", "spawn <kind> [count]", g.handleSpawn)
 
 - `game_tunables_list` and `game_tunable_get` read live values directly without adding entries to the console's interactive command history or output log.
 - `game_tunable_set` enforces each tunable's registered type (`float`, `int`, `bool` or `string`) and numeric `[min, max]` bounds by default without mutating the variable on error. Passing `"clamp": true` clamps out-of-range numeric values into `[min, max]` and sets `"clamped": true` in the response.
-- `game_console_exec` executes built-in commands (`help`, `list`, `get`, `set`, `clear`) and game-registered commands through `debug.Console.Exec`, returning `{command, ok, output, lines, error}`. Invalid MCP arguments or a missing `Console` return a tool error, while command execution failures (such as an unknown command name or invalid command arguments) return `ok: false` with the command's `error` message.
+- `game_console_exec` executes built-in commands (`help`, `list`, `get`, `set`, `clear`) and game-registered commands through `gamedebug.Console.Exec`, returning `{command, ok, output, lines, error}`. Invalid MCP arguments or a missing `Console` return a tool error, while command execution failures (such as an unknown command name or invalid command arguments) return `ok: false` with the command's `error` message.
 ## Recording and replaying inputs
 
 Create a `*mcp.ReplayController` with `mcp.NewReplayController`, pass it to your simulation as its [`replay.ActionSource`](replay.md), and attach it on `mcp.Config.Replay`:
@@ -207,7 +207,7 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 
 ## Performance readouts
 
-Pass your [`debug.Overlay`](debug.md) via `Config.Overlay` to expose the exact same frame timings, draw statistics (`debug.Options.DrawStats` or `Overlay.SetDrawStats`), GC/allocation counters (`debug.GCMonitor`), asset memory (`debug.MemoryTracker`) and timing scopes (`debug.Profiler`) shown by the on-screen debug HUD.
+Pass your [`gamedebug.Overlay`](gamedebug.md) via `Config.Overlay` to expose the exact same frame timings, draw statistics (`gamedebug.Options.DrawStats` or `Overlay.SetDrawStats`), GC/allocation counters (`gamedebug.GCMonitor`), asset memory (`gamedebug.MemoryTracker`) and timing scopes (`gamedebug.Profiler`) shown by the on-screen debug HUD.
 
 - `Config.Profiler`, `Config.GC`, `Config.Memory` and `Config.DrawStatsFunc` override (or work standalone without) `Config.Overlay`.
 - `Config.RenderStatsFunc` attaches detailed 3D culling, batching, state-switch and GPU memory metrics from [`render3d.RenderStats`](render3d.md) under `render3d`, and populates top-level `draw_calls`, `batches`, `triangles` and `vertices` automatically when no 2D draw-stats provider is set. `mcp.PerfRender3DStats` has the same fields as `render3d.RenderStats`, so `mcp.PerfRender3DStats(stats)` converts one; `game/mcp` does not import `game/render3d`, so a 2D game that attaches the bridge does not link the 3D renderer.
