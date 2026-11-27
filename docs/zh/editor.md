@@ -986,7 +986,7 @@ func main() {
 
 - **主音量与总线**：调节带分贝读数的主音量滑块（`SetAudioMasterVolume`），新增总线（`AddAudioBus`）、重命名（`RenameAudioBus`）、删除（`DeleteAudioBus`）、调整顺序（`MoveAudioBus`），查看并调节每条总线的路由（`Into Master`）与音量滑块（`SetAudioBusVolume`）。在未设置主音量时删除最后一条总线会一并移除空的 `audio` 小节，撤销可将其恢复。
 - **单总线 DSP 效果链**：为每条总线添加（`AddAudioBusEffect` / `AddAudioBusEffectKind`）、移除（`RemoveAudioBusEffect`）、重排（`MoveAudioBusEffect`）和编辑（`SetAudioBusEffect`）`project.Effect` 支持的全部六种效果（`lowPass`、`highPass`、`delay`、`reverb`、`gain`、`bitcrush`）。数值控件将参数约束在 `project.Validate` 允许的范围内（配合 `ClampAudioEffect`），Go API 则会拒绝越界值且不改动项目或历史。
-- **实时试听**：从当前项目中选择音频文件（`ProjectAudioFiles`、`SelectAudioFile`），点击 **Audition**（`AuditionAudioBus`、`StopAudition`、`SetAuditionLoop`）即可经由 `project.File.ConfigureMixer` 配置好的编辑器 `sound.Mixer` 通过选中总线播放。调节主音量或总线音量会立即作用于正在播放的音频而不中断播放；修改效果链或撤销/重做会立即通过 `sound.Mixer.ProcessSource` 重新处理并播放，使听感与游戏运行时完全一致。
+- **实时试听**：从当前项目中选择音频文件（`ProjectAudioFiles`、`SelectAudioFile`），点击 **Audition**（`AuditionAudioBus`、`StopAudition`、`SetAuditionLoop`）即可经由 `project.File.ConfigureMixer` 配置好的编辑器 `sound.Mixer` 通过选中总线播放。调节主音量或总线音量会立即作用于正在播放的音频而不中断播放；修改效果链或撤销/重做会立即通过与运行时 `Music.Play`、`Mixer.LoadEffect` 相同的 `sound.Mixer` 总线效果链重新处理。该效果链只处理内存中的 16-bit PCM WAV 来源：发布的游戏对其他格式不加效果播放（并按分组输出一条日志），而在配置了效果的总线上试听这类文件时会直接报告 WAV 解码错误。
 
 ### 输入映射页（#908、#1060）
 

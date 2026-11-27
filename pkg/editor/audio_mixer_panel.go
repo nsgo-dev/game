@@ -667,7 +667,8 @@ func (e *Editor) AuditionAudioBus(bus, relPath string) error {
 	}
 	e.audioMixer.music.Group = bus
 	e.audioMixer.music.Loop = e.audioMixer.loop
-	e.audioMixer.music.Play(processed, 0)
+	// Play applies the bus's chain itself; passing raw keeps it from processing twice.
+	e.audioMixer.music.Play(audio.Source{Data: raw}, 0)
 
 	e.audioMixer.auditioning = true
 	e.audioMixer.auditionBus = bus
@@ -812,7 +813,8 @@ func (e *Editor) syncAudioMixer() {
 	e.audioMixer.auditionSource = processed
 	e.audioMixer.music.Group = b.Name
 	e.audioMixer.music.Loop = e.audioMixer.loop
-	e.audioMixer.music.Play(processed, 0)
+	// Play applies the bus's chain itself; passing the raw bytes keeps it from processing twice.
+	e.audioMixer.music.Play(audio.Source{Data: e.audioMixer.auditionRaw}, 0)
 }
 
 func (e *Editor) findAudioBusIndex(name string) int {

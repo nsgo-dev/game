@@ -71,6 +71,18 @@ if hit != nil {
 }
 ```
 
+## Bus effect chains
+
+`mixer.SetGroupEffects(group, ...)` gives a group a DSP chain of bus effects — `sound.LowPass`, `sound.HighPass`, `sound.Delay`, `sound.Reverb`, `sound.Gain` and `sound.Bitcrush` — run in order, and `mixer.GroupEffects(group)` reads it back. A project's `game.yaml` `audio.buses` `effects` install the same chains through [`project.File.ConfigureMixer`](project.md).
+
+The chain applies where a source is still in memory before it reaches the player:
+
+- `Music.Play(src, fade)` (and `PlaySections` / `PlayWithIntro`) runs src through the music's group chain when src holds in-memory 16-bit PCM WAV data, and plays the result.
+- `mixer.LoadEffect(src, group, limit, done)` loads src through its group chain the same way, then wraps it as `mixer.Effect` does.
+- `mixer.ProcessSource(group, src)` exposes the same processing on its own; the editor's bus audition uses it.
+
+Any other source — a URI, or in-memory MP3, AAC, Ogg or non-PCM WAV data — cannot be processed this way and plays without the chain, with one log line per group saying its effects were skipped for it. `mixer.Effect(s, group, limit)` on an already decoded `*audio.Sound` plays without the chain too: it applies at load time, so load through `LoadEffect` to hear it. Processing whole buffers as they load is the interim pipeline; live effects on every playing voice, covering every format, are a planned follow-up.
+
 ## Positional effects in 2D
 
 A `Listener2D` hears effects placed in the world from where the 2D camera looks: an effect to the left of the camera plays panned left, one to the right panned right, and both play quieter the further they are.
@@ -139,6 +151,7 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 - `Loop`: when `true`, tracks started by subsequent `Play` calls loop at their end.
 - `Play(src, fade)`: starts the new track at once, muted, and fades it in over `fade` while fading all currently playing tracks out on display frames (`core.Scope.Animate`), closing faded-out players once they reach silence. When `fade <= 0`, it switches immediately. Starting another `Play` mid-crossfade smoothly fades out the incoming track from its current level.
 - `Stop(fade)`: fades active music out over `fade` and closes its players (`fade <= 0` stops immediately).
+- A `src` holding in-memory 16-bit PCM WAV data is processed through the group's [bus effect chain](#bus-effect-chains) before playing; any other source plays as it is.
 
 On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAllowed`) until the user interacts with the page; start music from a button press or first tap/click.
 

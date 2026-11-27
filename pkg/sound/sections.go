@@ -20,7 +20,11 @@ func (mu *Music) PlayWithIntro(track SectionedTrack, fade time.Duration) {
 // PlaySections plays intro once without looping, pre-arms loop with looping enabled, and hands off to loop as soon as intro ends, fading in over fade as any previous music fades out. Stopping or starting another track before intro ends cancels loop so it never plays.
 //
 // If intro is empty, loop plays directly with looping enabled; if loop is empty, intro plays once without looping; if both are empty, PlaySections stops the music over fade.
+//
+// Each source is processed through the music's group bus effect chain (SetGroupEffects) before playing, as Play does.
 func (mu *Music) PlaySections(intro, loop audio.Source, fade time.Duration) {
+	intro = mu.m.process(mu.Group, intro)
+	loop = mu.m.process(mu.Group, loop)
 	hasIntro := !sourceEmpty(intro)
 	hasLoop := !sourceEmpty(loop)
 	if !hasIntro && !hasLoop {
