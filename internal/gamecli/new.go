@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -17,6 +16,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/project"
 	"go.yaml.in/yaml/v3"
 )
@@ -42,18 +42,18 @@ const (
 
 // runGo runs the go command with args in dir, writing its output to stdout and stderr. A test replaces it to keep go from reaching the network.
 var runGo = func(dir string, stdout, stderr io.Writer, args ...string) error {
-	cmd := exec.Command("go", args...)
+	cmd := gotoolchain.Command(args...)
 	// The project is a module of its own, even when created inside a workspace that does not use it.
-	cmd.Dir, cmd.Env = dir, append(os.Environ(), "GOWORK=off")
+	cmd.Dir, cmd.Env = dir, gotoolchain.EnvWith(os.Environ(), "GOWORK=off")
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	return cmd.Run()
 }
 
 // isStdPackage reports whether path is a standard-library package of the go command that game new runs. A test can replace it.
 var isStdPackage = func(path string) (bool, error) {
-	cmd := exec.Command("go", "list", "-e", "-f", "{{.Standard}}", "--", path)
+	cmd := gotoolchain.Command("list", "-e", "-f", "{{.Standard}}", "--", path)
 	// Outside any module and workspace, so only the standard library can provide path.
-	cmd.Dir, cmd.Env = os.TempDir(), append(os.Environ(), "GOWORK=off", "GO111MODULE=on")
+	cmd.Dir, cmd.Env = os.TempDir(), gotoolchain.EnvWith(os.Environ(), "GOWORK=off", "GO111MODULE=on")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

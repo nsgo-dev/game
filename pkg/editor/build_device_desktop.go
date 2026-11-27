@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 )
 
 func defaultOpenBrowserURL(rawURL string) error {
@@ -52,7 +54,7 @@ func defaultDiscoverConnectedDevices(ctx context.Context, _ string) ([]Connected
 }
 
 func defaultDeviceCommandRunner(ctx context.Context, req DeviceCommandRequest, stdout, stderr interface{ Write([]byte) (int, error) }) error {
-	cmd := exec.CommandContext(ctx, "go", req.Args...)
+	cmd := gotoolchain.CommandContext(ctx, req.Args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()

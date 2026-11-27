@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -779,6 +779,13 @@ func (e *Editor) StartCreateProject(req CreateProjectRequest) error {
 		return errors.New("editor: nil editor")
 	}
 	e.ensureStartScreenInit()
+	if err := e.goToolchainError(); err != nil {
+		e.startScreen.mu.Lock()
+		e.startScreen.createErr = err
+		e.startScreen.mu.Unlock()
+		e.reportStatusError(err.Error())
+		return err
+	}
 
 	e.startScreen.mu.Lock()
 	if e.startScreen.creating {
@@ -950,7 +957,7 @@ func defaultCreateProject(ctx context.Context, req CreateProjectRequest, stdout,
 		args = append(args, "-module", req.Module)
 	}
 	args = append(args, "--", req.TargetDir())
-	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd := gotoolchain.CommandContext(ctx, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()
@@ -1045,6 +1052,13 @@ func (e *Editor) RequestOpenDemo() error {
 func (e *Editor) RequestCreateProject(req CreateProjectRequest) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if err := e.goToolchainError(); err != nil {
+		e.startScreen.mu.Lock()
+		e.startScreen.createErr = err
+		e.startScreen.mu.Unlock()
+		e.reportStatusError(err.Error())
+		return err
 	}
 	if req.Dir == "" {
 		v := ValidateNewProjectInputs(req.Name, req.ParentDir, req.Module)

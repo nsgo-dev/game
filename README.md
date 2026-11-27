@@ -48,7 +48,7 @@ go tool nsgo dev
 go tool nsgo dev -target web
 ```
 
-Or download the standalone desktop **NSGo Game Editor** from [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) (macOS `.dmg`, Windows `-setup.exe`, Linux `.AppImage`/`.deb`/`.pkg.tar.gz`), launch it from Go, or install the coding-agent skill:
+Or download the standalone desktop **NSGo Game Editor** from [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) (macOS `.dmg`, Windows `-setup.exe`, Linux `.AppImage`/`.deb`/`.pkg.tar.gz`; requires **Go 1.27+** from [go.dev/dl](https://go.dev/dl/) to create projects, play games, and build exports), launch it from Go, or install the coding-agent skill:
 
 ```sh
 # Install the standalone NSGo Game Editor (macOS / Linux)

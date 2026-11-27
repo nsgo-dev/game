@@ -2,7 +2,7 @@
 
 本文档记录 NSGo 游戏编辑器的范围决策（[#159](https://github.com/nsgo-dev/game/issues/159)），并说明 `github.com/nsgo-dev/game/pkg/sceneformat` 实现的第 1 版 YAML 场景格式（[#160](https://github.com/nsgo-dev/game/issues/160)）。
 
-独立桌面版 **NSGo Game Editor**（`cmd/editor`）安装包已在 [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) 自动发布——包含经组织 Developer ID 签名与 Apple 公证的 macOS `.dmg`（`arm64` / `x64`）、Windows `-setup.exe`（`x64` / `arm64`）与 Linux `.deb` / `.pkg.tar.gz` / `.AppImage`（`x64` / `arm64`），并附带一键安装脚本（`install.sh` / `install.ps1`）。也可通过 `go tool game editor` 或 `go run ./cmd/editor` 直接启动。
+独立桌面版 **NSGo Game Editor**（`cmd/editor`）安装包已在 [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) 自动发布——包含经组织 Developer ID 签名与 Apple 公证的 macOS `.dmg`（`arm64` / `x64`）、Windows `-setup.exe`（`x64` / `arm64`）与 Linux `.deb` / `.pkg.tar.gz` / `.AppImage`（`x64` / `arm64`），并附带一键安装脚本（`install.sh` / `install.ps1`）。独立版编辑器需要 **Go 1.27 或更高版本**（[go.dev/dl](https://go.dev/dl/)）以创建项目、运行游戏、执行检查和导出构建；从访达（Finder）、程序坞（Dock）、聚焦搜索（Spotlight）或桌面启动器打开时，编辑器会自动在 `PATH`、标准安装路径（`/usr/local/go/bin`、`C:\Program Files\Go\bin`）、Homebrew、版本管理器 shim 以及登录 Shell 的 `PATH` 中查找 `go`。也可通过 `go tool game editor` 或 `go run ./cmd/editor` 直接启动。
 
 ## 编辑器范围决策（#159）
 

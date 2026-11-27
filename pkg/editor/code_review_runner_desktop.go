@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 )
 
 const (
@@ -243,7 +245,7 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 		ExpectedTotal: req.PreviousTotal,
 	}
 
-	env := withOverlayGOFLAGS(os.Environ(), req.OverlayPath)
+	env := gotoolchain.Env(withOverlayGOFLAGS(os.Environ(), req.OverlayPath))
 
 	// 1. Run `go tool nsgo check <pkg>` for each affected package using the Go build overlay.
 	checkOutBuf := &codeReviewBoundedBuf{limit: maxCodeReviewCheckOutputBytes}
@@ -256,7 +258,7 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 			res.Phase = CodeReviewChecksFailed
 			return res, err
 		}
-		cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "check", pkg)
+		cmd := gotoolchain.CommandContext(ctx, "tool", "nsgo", "check", pkg)
 		cmd.Dir = req.ProjectDir
 		cmd.Env = env
 		configureCodeReviewCmd(cmd)
@@ -300,7 +302,7 @@ func runDefaultCodeReviewChecks(ctx context.Context, req CodeReviewCheckRequest,
 			res.Phase = CodeReviewChecksFailed
 			return res, err
 		}
-		cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "test", "-json", pkg, "-count=1")
+		cmd := gotoolchain.CommandContext(ctx, "tool", "nsgo", "test", "-json", pkg, "-count=1")
 		cmd.Dir = req.ProjectDir
 		cmd.Env = env
 		configureCodeReviewCmd(cmd)

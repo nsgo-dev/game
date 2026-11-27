@@ -1219,10 +1219,17 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 					base.Button{
 						Ref:    playBtnRef,
 						TestID: "toolbar-play",
+						Disabled: func() bool {
+							_ = rev.Get()
+							return !ed.Playing() && !ed.GoToolchainOK()
+						},
 						LabelFunc: func() string {
 							_ = rev.Get()
 							if ed.Playing() {
 								return ed.T("toolbar.stop")
+							}
+							if !ed.GoToolchainOK() {
+								return ed.T("toolbar.playNeedsGo", l10n.Param("version", ed.MinGoVersion()))
 							}
 							return ed.T("toolbar.play")
 						},
@@ -1242,6 +1249,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 								Background:     cur.TextPrimary,
 								Cursor:         core.CursorPointer,
 								Hover:          &core.Style{Background: specPrimaryHover(cur)},
+								Disabled:       &core.Style{Opacity: core.Alpha(0.45), Cursor: core.CursorDefault},
 								FocusVisible:   cur.FocusRing(2),
 							}
 						},

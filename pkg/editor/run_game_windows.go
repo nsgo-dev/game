@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 )
 
 const canRunGameDesktop = true
@@ -20,7 +22,8 @@ type windowsGameProcess struct {
 }
 
 func startGameProcess(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error) {
-	cmd := exec.Command(spec.Name, spec.Args...)
+	bin := gotoolchain.BinaryForEnv(spec.Name, spec.Env)
+	cmd := exec.Command(bin, spec.Args...)
 	cmd.Dir = spec.Dir
 	cmd.Env = spec.Env
 	cmd.Stdout = stdout

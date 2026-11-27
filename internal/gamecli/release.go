@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -18,6 +17,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
@@ -68,8 +68,8 @@ var exportTargets = []string{
 
 // runNSGo runs the go command with args and env overrides, writing its output to stdout and stderr; tests replace it.
 var runNSGo = func(args, env []string, stdout, stderr io.Writer) error {
-	cmd := exec.Command("go", args...)
-	cmd.Env = releaseplan.ApplyEnv(os.Environ(), env)
+	cmd := gotoolchain.Command(args...)
+	cmd.Env = releaseplan.ApplyEnv(cmd.Env, env)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	return cmd.Run()
 }

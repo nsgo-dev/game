@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
 	"go.yaml.in/yaml/v3"
 )
@@ -167,10 +167,10 @@ func projectDevTarget(dir string) string {
 
 // runNSGoDev runs go with run's arguments in this terminal until it exits. An interrupt, Control+C, reaches nsgo dev from the terminal, which stops the app and exits, so game dev waits for it instead of exiting first.
 func runNSGoDev(ctx context.Context, run devRun) error {
-	cmd := exec.CommandContext(ctx, "go", run.args...)
+	cmd := gotoolchain.CommandContext(ctx, run.args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout, cmd.Stderr = run.stdout, run.stderr
-	cmd.Env = append(os.Environ(), run.env...)
+	cmd.Env = gotoolchain.EnvWith(os.Environ(), run.env...)
 
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)

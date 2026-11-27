@@ -1561,6 +1561,14 @@ strings:
   snap.scaleStep: Scale step
   snap.showGrid: Show 2D grid overlay
   snap.title: Snapping
+  start.goToolchain.download: go.dev/dl
+  start.goToolchain.downloadLabel: Open go.dev/dl to download Go
+  start.goToolchain.errorDetail: 'Found go at {path}, but checking its version failed: {err}.'
+  start.goToolchain.missingDetail: Install Go to create projects, play games, and build exports.
+  start.goToolchain.retry: Retry
+  start.goToolchain.retryLabel: Check for Go again
+  start.goToolchain.title: NSGo Game Editor needs Go {version} or later
+  start.goToolchain.tooOldDetail: Found Go {found} at {path}. Update Go to create projects and play games.
   status.activeLayerLabel: 'Active layer: {layer}'
   status.buildError: 'Build error: {error}'
   status.changes: Changes
@@ -1718,6 +1726,7 @@ strings:
   toolbar.pick: Pick
   toolbar.place: Place
   toolbar.play: Play
+  toolbar.playNeedsGo: Requires Go {version} or later
   toolbar.projectSettings: Settings
   toolbar.projectSettingsLabel: Toggle the Project Settings panel
   toolbar.redo: Redo

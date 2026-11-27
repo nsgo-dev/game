@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 )
 
 // projectsFS holds the project templates game new offers, each under _templates/projects/<name> as a byte-for-byte copy of the template directory of its module in this repository, which TestTemplatesMatchTemplateModules keeps identical.
@@ -92,4 +94,26 @@ func mustSub(fsys fs.FS, dir string) fs.FS {
 		panic(err)
 	}
 	return sub
+}
+
+// templateMinGoVersion returns the highest `go` directive version required across all
+// embedded project templates' go.mod.tmpl (or go.mod) files, falling back to gotoolchain.DefaultMinVersion.
+func templateMinGoVersion() string {
+	var versions []string
+	for _, t := range projectTemplates {
+		for _, name := range []string{"go.mod.tmpl", "go.mod"} {
+			data, err := fs.ReadFile(t.files, name)
+			if err != nil {
+				continue
+			}
+			if v, ok := gotoolchain.ParseGoModMinVersion(data); ok {
+				versions = append(versions, v)
+			}
+			break
+		}
+	}
+	if maxV := gotoolchain.MaxGoVersion(versions...); maxV != "" {
+		return maxV
+	}
+	return gotoolchain.DefaultMinVersion
 }

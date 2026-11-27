@@ -878,6 +878,10 @@ func (e *Editor) StartWithAI() error {
 		return errors.New("editor: nil editor")
 	}
 	e.ensureStartScreenInit()
+	if err := e.goToolchainError(); err != nil {
+		e.reportStatusError(err.Error())
+		return err
+	}
 
 	name := e.StartProjectName()
 	parentDir := e.StartProjectParentDir()

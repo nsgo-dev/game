@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -356,7 +357,12 @@ func (e *Editor) postAssetBuildUI(fn func()) {
 }
 
 func defaultAssetsCommandRunner(ctx context.Context, spec AssetsBuildSpec, stdout, stderr io.Writer) error {
-	cmd := exec.CommandContext(ctx, spec.Name, spec.Args...)
+	var cmd *exec.Cmd
+	if spec.Name == "go" {
+		cmd = gotoolchain.CommandContext(ctx, spec.Args...)
+	} else {
+		cmd = exec.CommandContext(ctx, spec.Name, spec.Args...)
+	}
 	cmd.Dir = spec.Dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

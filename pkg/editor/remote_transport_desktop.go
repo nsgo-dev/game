@@ -3,16 +3,15 @@
 package editor
 
 import (
-	"os/exec"
-
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 )
 
 const canConnectRemoteCommand = true
 
 func newRemoteCommandTransport(dir string, extraArgs ...string) (sdkmcp.Transport, error) {
 	args := append([]string{"tool", "nsgo", "mcp"}, extraArgs...)
-	cmd := exec.Command("go", args...)
+	cmd := gotoolchain.Command(args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}

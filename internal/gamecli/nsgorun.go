@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 )
 
 // runGoToolNSGo runs `go tool nsgo` with args in the current directory, the NSGo command of the module game is run from, so tests and benchmarks build as nsgo test builds them, with the app's linker flags and NSGo's check tags.
@@ -18,9 +19,9 @@ func runGoToolNSGo(args []string, stdout, stderr io.Writer) error {
 
 // runGoToolNSGoEnv runs `go tool nsgo` with extra KEY=VALUE environment entries appended to the current environment.
 func runGoToolNSGoEnv(env []string, args []string, stdout, stderr io.Writer) error {
-	cmd := exec.Command("go", append([]string{"tool", "nsgo"}, args...)...)
+	cmd := gotoolchain.Command(append([]string{"tool", "nsgo"}, args...)...)
 	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = gotoolchain.EnvWith(os.Environ(), env...)
 	}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {

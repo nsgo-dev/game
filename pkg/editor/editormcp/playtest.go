@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/playtest"
 )
@@ -406,9 +406,9 @@ func defaultRunPlaytest(ctx context.Context, req PlaytestRunRequest) (*playtest.
 		env = append(env, fmt.Sprintf("%s=%d", playtest.EnvCount, req.Config.Runs.Count))
 	}
 
-	cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "test", "-run", req.Pattern, "./...", "-count=1")
+	cmd := gotoolchain.CommandContext(ctx, "tool", "nsgo", "test", "-run", req.Pattern, "./...", "-count=1")
 	cmd.Dir = req.ProjectRoot
-	cmd.Env = env
+	cmd.Env = gotoolchain.Env(env)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
