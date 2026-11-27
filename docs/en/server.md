@@ -44,6 +44,8 @@ go build ./examples/dedicatedserver
 
 It builds with the plain Go toolchain and no NSGo runtime.
 
+Data tables load headlessly too: [`pkg/datatable`](datatable.md) imports no NSGo package, so the server reads item and enemy tables with `datatable.LoadFile` or `datatable.NewTable` exactly as the client does. Hot reload (`pkg/datatable/datatablewatch`) is dev-time tooling only the client links.
+
 
 ## Matchmaking
 
