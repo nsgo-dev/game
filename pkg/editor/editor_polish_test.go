@@ -1,6 +1,8 @@
 package editor_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -258,7 +260,12 @@ func TestFirstRunConnectStepWrapsInsideCard(t *testing.T) {
 	ed.SetStartScreenOpen(true)
 	ed.SetStartProjectIdea("A short dungeon platformer")
 	ed.SetStartProjectName("dungeon-run")
-	ed.SetStartProjectParentDir("/var/folders/rk/nnwp390s41b72k1vbxqbfyvw0000gn/T/VeryLongTestDirectoryNameForWrappingCheck/001")
+	// A long, writable parent directory makes the connect step's path text long enough to need wrapping on every host.
+	parent := filepath.Join(t.TempDir(), "VeryLongTestDirectoryNameForWrappingCheck", "AnotherLongSegmentSoThePathWrapsInsideTheCard")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetStartProjectParentDir(parent)
 	if err := ed.StartWithAI(); err != nil {
 		t.Fatalf("StartWithAI: %v", err)
 	}
