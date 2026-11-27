@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/platformer"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 const step = 10 * time.Millisecond
@@ -705,7 +705,7 @@ func TestControllerStepZeroAllocs(t *testing.T) {
 		if !c.Body.Grounded {
 			t.Fatal("expected grounded after warm-up step")
 		}
-		debug.AssertZeroAllocs(t, 100, run)
+		gamedebug.AssertZeroAllocs(t, 100, run)
 	})
 
 	t.Run("StepWorld", func(t *testing.T) {
@@ -722,6 +722,6 @@ func TestControllerStepZeroAllocs(t *testing.T) {
 		if !c.Body.Grounded || !c.Body.Body.OnRightWall {
 			t.Fatalf("expected grounded and right wall after warm-up, got grounded=%v wall=%v", c.Body.Grounded, c.Body.Body.OnRightWall)
 		}
-		debug.AssertZeroAllocs(t, 100, run)
+		gamedebug.AssertZeroAllocs(t, 100, run)
 	})
 }

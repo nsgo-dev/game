@@ -52,16 +52,16 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	ScreenshotBackground: core.RGB(0x0f172a),
 
 	// Debug tunables & console (#466)
-	Console: g.console, // or ConsoleFunc: func() *debug.Console
+	Console: g.console, // or ConsoleFunc: func() *gamedebug.Console
 
 	// Input recording & replay (#467)
 	Replay: g.replayCtrl, // *mcp.ReplayController (implements replay.ActionSource)
 
 	// Performance telemetry (#468)
-	Overlay:         g.overlay,  // *debug.Overlay
-	Profiler:        g.profiler, // *debug.Profiler
-	GC:              g.gcMon,    // *debug.GCMonitor
-	Memory:          g.memTrack, // *debug.MemoryTracker
+	Overlay:         g.overlay,  // *gamedebug.Overlay
+	Profiler:        g.profiler, // *gamedebug.Profiler
+	GC:              g.gcMon,    // *gamedebug.GCMonitor
+	Memory:          g.memTrack, // *gamedebug.MemoryTracker
 	DrawStatsFunc:   g.drawStats,
 	RenderStatsFunc: g.render3DStats,
 
@@ -159,7 +159,7 @@ Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityR
 | Tool | Arguments | Returns |
 | --- | --- | --- |
 | `game_perf_readout` | `include_history` (opt), `history_limit` (opt), `include_zones` (opt), `zones_limit` (opt) | `fps`, `frame_ms`/`update_ms`/`draw_ms`, percentiles (`p50`/`p95`/`p99`), `draw_calls`/`sprites`/`batches`/`triangles`, `allocs_per_frame`, heap/GC stats, `render3d`, `asset_memory`, optional `history` and `zones` |
-| `game_perf_zones` | `limit` (opt) | Named `debug.Profiler` zones sorted by recent cost (`last_ms`, `avg_ms`, `max_ms`, `calls`) |
+| `game_perf_zones` | `limit` (opt) | Named `gamedebug.Profiler` zones sorted by recent cost (`last_ms`, `avg_ms`, `max_ms`, `calls`) |
 | `game_perf_reset` | `{}` | Resets overlay frame stats, draw stats, profiler zones and GC monitor history |
 
 ### 9. Assets and live hot reload

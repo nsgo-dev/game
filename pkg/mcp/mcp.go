@@ -17,7 +17,6 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/assets"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/physics"
@@ -25,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/game/pkg/scene"
 	"github.com/nsgo-dev/game/pkg/screen"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
 	"github.com/nsgo-dev/nsgo/automation"
 	"github.com/nsgo-dev/nsgo/core"
@@ -122,10 +122,10 @@ type Config struct {
 	OnPointer func(PointerEvent)
 
 	// Console is the game's debug console for tunable inspection/mutation and command execution tools.
-	Console *debug.Console
+	Console *gamedebug.Console
 
 	// ConsoleFunc dynamically resolves the active debug console on each tool call. When non-nil and returning a non-nil console, it overrides Console.
-	ConsoleFunc func() *debug.Console
+	ConsoleFunc func() *gamedebug.Console
 
 	// Prefabs registers named prefab spawners available to game_prefabs_list and game_entity_spawn. Additional prefabs (including *entities.Prefab and *sceneformat.SceneDoc templates) can also be registered on the Bridge via RegisterPrefab, RegisterEntityPrefab and RegisterScenePrefab.
 	Prefabs map[string]PrefabSpawner
@@ -134,19 +134,19 @@ type Config struct {
 	Replay *ReplayController
 
 	// Overlay is the game's development debug overlay for frame timing, draw statistics, GC/allocation and asset memory readouts.
-	Overlay *debug.Overlay
+	Overlay *gamedebug.Overlay
 
 	// Profiler is a named-scope timing profiler. When nil, performance tools fall back to Overlay.Profiler().
-	Profiler *debug.Profiler
+	Profiler *gamedebug.Profiler
 
 	// GC is a per-frame GC and allocation monitor. When nil, performance tools fall back to Overlay.GC().
-	GC *debug.GCMonitor
+	GC *gamedebug.GCMonitor
 
 	// Memory is an asset memory tracker. When nil, performance tools fall back to Overlay.Memory().
-	Memory *debug.MemoryTracker
+	Memory *gamedebug.MemoryTracker
 
 	// DrawStatsFunc dynamically supplies per-frame draw statistics (draw calls, sprites, batches, triangles, vertices). When nil, performance tools fall back to Overlay.DrawStats() or RenderStatsFunc.
-	DrawStatsFunc func() debug.DrawStats
+	DrawStatsFunc func() gamedebug.DrawStats
 
 	// RenderStatsFunc supplies 3D per-frame render statistics (culling, batching, state switches, geometry and GPU memory). A game using game/render3d returns mcp.PerfRender3DStats(stats) for its latest render3d.RenderStats.
 	RenderStatsFunc func() PerfRender3DStats
@@ -353,7 +353,7 @@ func (b *Bridge) SetViewport(vp *screen.Viewport) {
 }
 
 // SetConsole replaces the static debug Console configured on b. If Config.ConsoleFunc is set and returns a non-nil console, ConsoleFunc continues to take precedence.
-func (b *Bridge) SetConsole(c *debug.Console) {
+func (b *Bridge) SetConsole(c *gamedebug.Console) {
 	if b == nil {
 		return
 	}

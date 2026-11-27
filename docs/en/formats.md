@@ -2772,12 +2772,12 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 {"version":1,"actions":{"fire":[{"kind":"mouse_button","button":"left"}],"jump":[{"kind":"key","key":"space"},{"kind":"gamepad_button","button":"south"}]},"axes":{"move_x":{"negative":"left","positive":"right"}}}
 ```
 
-<!-- format: debug -->
+<!-- format: tooling/gamedebug -->
 ### Console tunables
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| A key in `core.Storage`, `debug.console.tunables` by default | none | `debug.Console.SaveTunables`, `debug.Console.LoadTunables` | An object of each tunable's name and value |
+| A key in `core.Storage`, `gamedebug.console.tunables` by default | none | `gamedebug.Console.SaveTunables`, `gamedebug.Console.LoadTunables` | An object of each tunable's name and value |
 
 ```json
 {"cheat.god":false,"level.name":"cave_1","player.lives":3,"player.speed":1.5}
@@ -3070,12 +3070,12 @@ These are read as the tools that make them write them, never converted into a fo
 | --- | --- | --- |
 | A glTF 2.0 JSON document whose nodes with a mesh become the library's tiles, bounded by their `POSITION` accessors | `world3d.LoadMeshLibraryFromGLTF` | [world3d](world3d.md) |
 
-<!-- format: debug#trace -->
+<!-- format: tooling/gamedebug#trace -->
 ### Profiler trace
 
 | Files | Written by | Guide |
 | --- | --- | --- |
-| Chrome's trace event JSON, opened in Perfetto or `chrome://tracing` | `debug.Profiler.WriteChromeTrace` | `debug.Profiler` |
+| Chrome's trace event JSON, opened in Perfetto or `chrome://tracing` | `gamedebug.Profiler.WriteChromeTrace` | `gamedebug.Profiler` |
 
 <!-- format: flow -->
 ### Yarn dialogue script

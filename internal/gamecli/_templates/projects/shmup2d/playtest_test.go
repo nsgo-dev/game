@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 func makeShooterPlaytestSim(seed uint64, src replay.ActionSource, metrics *playtest.Collector) (playtest.Sim, error) {
@@ -25,7 +25,7 @@ func makeShooterPlaytestSim(seed uint64, src replay.ActionSource, metrics *playt
 		return playtest.Sim{}, err
 	}
 
-	stats := &debug.FrameStats{}
+	stats := &gamedebug.FrameStats{}
 	started := false
 	seenItems := make(map[*item]string)
 	itemSeq := 0

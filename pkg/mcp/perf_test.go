@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/render3d"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -24,21 +24,21 @@ func approxEqual(a, b, tol float64) bool {
 	return math.Abs(a-b) <= tol
 }
 
-// TestPerfReadoutMatchesDebugOverlay verifies that game_perf_readout returns values matching debug.Overlay's frame timing, draw statistics, GC/allocation counters, asset memory, and profiler scopes, including the rendered overlay HUD.
+// TestPerfReadoutMatchesDebugOverlay verifies that game_perf_readout returns values matching gamedebug.Overlay's frame timing, draw statistics, GC/allocation counters, asset memory, and profiler scopes, including the rendered overlay HUD.
 func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 	now := time.Unix(5000, 0)
-	prof := debug.NewProfiler(60)
+	prof := gamedebug.NewProfiler(60)
 	prof.SetNow(func() time.Time { return now })
 
-	gcMon := debug.NewGCMonitor(debug.FrameHistory)
-	mem := debug.NewMemoryTracker()
+	gcMon := gamedebug.NewGCMonitor(gamedebug.FrameHistory)
+	mem := gamedebug.NewMemoryTracker()
 	mem.SetTotalBudget(2 << 20)
 	mem.SetBudget("level1", 1<<20)
-	mem.Track("level1", "tiles.png", debug.AssetImage, 256<<10)
-	mem.Track("level1", "sprites.atlas", debug.AssetAtlas, 128<<10)
-	mem.Track("audio", "bgm.pcm", debug.AssetAudio, 512<<10)
+	mem.Track("level1", "tiles.png", gamedebug.AssetImage, 256<<10)
+	mem.Track("level1", "sprites.atlas", gamedebug.AssetAtlas, 128<<10)
+	mem.Track("audio", "bgm.pcm", gamedebug.AssetAudio, 512<<10)
 
-	drawStats := debug.DrawStats{
+	drawStats := gamedebug.DrawStats{
 		DrawCalls: 14,
 		Sprites:   320,
 		Batches:   4,
@@ -46,12 +46,12 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 		Vertices:  1280,
 	}
 
-	overlay := debug.New(debug.Options{
+	overlay := gamedebug.New(gamedebug.Options{
 		Visible:   true,
 		Profiler:  prof,
 		GC:        gcMon,
 		Memory:    mem,
-		DrawStats: func() debug.DrawStats { return drawStats },
+		DrawStats: func() gamedebug.DrawStats { return drawStats },
 	})
 
 	var cx *core.Scope
@@ -152,7 +152,7 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 		t.Fatalf("overlay HUD text = %q, MCP formatted = %q", gotHUD, wantHUD)
 	}
 
-	// Draw statistics match debug.Overlay.DrawStats().
+	// Draw statistics match gamedebug.Overlay.DrawStats().
 	wantDraw := overlay.DrawStats()
 	if res.DrawCalls != wantDraw.DrawCalls || res.Sprites != wantDraw.Sprites || res.Batches != wantDraw.Batches || res.Triangles != wantDraw.Triangles || res.Vertices != wantDraw.Vertices {
 		t.Fatalf("draw stats = (%d,%d,%d,%d,%d), want %+v",
@@ -162,7 +162,7 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 		t.Fatal("expected debug-draw-stats section in visible overlay")
 	}
 
-	// GC & allocation readouts match debug.GCMonitor exactly.
+	// GC & allocation readouts match gamedebug.GCMonitor exactly.
 	if res.AllocsPerFrame != gcMon.AllocsPerFrame() || res.AllocBytesPerFrame != gcMon.AllocBytesPerFrame() {
 		t.Fatalf("allocs/frame = (%v, %v), want (%v, %v)",
 			res.AllocsPerFrame, res.AllocBytesPerFrame, gcMon.AllocsPerFrame(), gcMon.AllocBytesPerFrame())
@@ -186,7 +186,7 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 			res.GCLastPauseMs, res.GCMaxPauseMs, res.GCRecentHitches, ms(gcMon.LastPause()), ms(gcMon.MaxPause()), gcMon.RecentHitches())
 	}
 
-	// Asset memory matches debug.MemoryTracker exactly.
+	// Asset memory matches gamedebug.MemoryTracker exactly.
 	if res.AssetMemory == nil || res.AssetMemory.TotalBytes != mem.TotalBytes() || res.AssetMemory.TotalBudget != mem.TotalBudget() || res.AssetMemory.OverBudget {
 		t.Fatalf("asset_memory = %+v, want total=%d budget=%d", res.AssetMemory, mem.TotalBytes(), mem.TotalBudget())
 	}
@@ -230,10 +230,10 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 
 func TestPerfZonesAndReset(t *testing.T) {
 	now := time.Unix(6000, 0)
-	prof := debug.NewProfiler(30)
+	prof := gamedebug.NewProfiler(30)
 	prof.SetNow(func() time.Time { return now })
-	gcMon := debug.NewGCMonitor(16)
-	overlay := debug.New(debug.Options{
+	gcMon := gamedebug.NewGCMonitor(16)
+	overlay := gamedebug.New(gamedebug.Options{
 		Visible:  true,
 		Profiler: prof,
 		GC:       gcMon,
@@ -267,7 +267,7 @@ func TestPerfZonesAndReset(t *testing.T) {
 			prof.EndFrame()
 			overlay.RecordFrame(16*time.Millisecond, physMs, 3*time.Millisecond)
 		}
-		overlay.SetDrawStats(debug.DrawStats{DrawCalls: 9, Sprites: 50, Batches: 2})
+		overlay.SetDrawStats(gamedebug.DrawStats{DrawCalls: 9, Sprites: 50, Batches: 2})
 	})
 	app.Settle()
 
@@ -365,8 +365,8 @@ func TestPerfRender3DAndStandaloneProviders(t *testing.T) {
 		app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
 			cx = scope
 			if _, err := mcp.Attach(cx, mcp.Config{
-				DrawStatsFunc: func() debug.DrawStats {
-					return debug.DrawStats{DrawCalls: 5, Sprites: 80, Batches: 2, Triangles: 160, Vertices: 320}
+				DrawStatsFunc: func() gamedebug.DrawStats {
+					return gamedebug.DrawStats{DrawCalls: 5, Sprites: 80, Batches: 2, Triangles: 160, Vertices: 320}
 				},
 				RenderStatsFunc: func() mcp.PerfRender3DStats { return mcp.PerfRender3DStats(r3d) },
 			}); err != nil {
@@ -390,7 +390,7 @@ func TestPerfRender3DAndStandaloneProviders(t *testing.T) {
 
 	t.Run("StandaloneProfilerWithoutOverlay", func(t *testing.T) {
 		now := time.Unix(7000, 0)
-		prof := debug.NewProfiler(10)
+		prof := gamedebug.NewProfiler(10)
 		prof.SetNow(func() time.Time { return now })
 		prof.BeginFrame()
 		tok := prof.Begin("sim")
@@ -458,7 +458,7 @@ func TestPerfErrorsAndStrictArguments(t *testing.T) {
 	})
 
 	t.Run("OverlayWithoutProfilerGraceful", func(t *testing.T) {
-		overlay := debug.New(debug.Options{})
+		overlay := gamedebug.New(gamedebug.Options{})
 		overlay.RecordFrame(16*time.Millisecond, 3*time.Millisecond, 2*time.Millisecond)
 
 		var cx *core.Scope

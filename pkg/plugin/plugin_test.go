@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/pixelfx"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 type testItemRow struct {
@@ -53,7 +53,7 @@ func newFullHost() *Host {
 		Components: sceneformat.NewComponentRegistry(),
 		Scheduler:  entities.NewScheduler(),
 		DataTables: datatable.NewRegistry(),
-		Console:    debug.NewConsole(),
+		Console:    gamedebug.NewConsole(),
 	}
 }
 

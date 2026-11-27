@@ -29,20 +29,20 @@ Keep `Loop.Update`, `Loop.Draw`, and `Canvas.Draw` callbacks free of steady-stat
 
 1. **Pre-allocate and reuse slices and pools.** Keep slice backing arrays on structs and reset with `s = s[:0]` instead of allocating fresh slices each frame. In physics movement loops, call `physics.MoveAndSlideInto(body, grid, dt, &moveRes)` (or `World.MoveAndSlideInto` / `CharacterBody.MoveInto`) with a reused result struct instead of `physics.MoveAndSlide`, which allocates a new `Contacts` slice whenever a tile is hit.
 2. **Avoid `fmt.Sprintf` and string concatenation in hot loops.** Format HUD strings only when the underlying value changes, or inside reactive text callbacks gated on changed state.
-3. **Avoid per-frame closure captures and interface boxing.** Prefer methods on pre-allocated structs and typed value tokens (such as `debug.ScopeToken`) over allocating closures or `any` wrappers per frame.
+3. **Avoid per-frame closure captures and interface boxing.** Prefer methods on pre-allocated structs and typed value tokens (such as `gamedebug.ScopeToken`) over allocating closures or `any` wrappers per frame.
 4. **Reuse `sprite.Batch` and fixed-size ring buffers.** Keep particle, bullet, and telemetry buffers fixed-capacity rather than growing/shrinking every tick.
-5. **Load and decode assets between gameplay states.** Track per-group footprints with `debug.MemoryTracker` and call `ReleaseGroup` on level transitions; run an explicit `runtime.GC()` during loading screens rather than mid-frame.
-6. **Build releases with `-tags release`.** All `pkg/debug` tooling compiles to zero-cost no-op stubs in release builds.
+5. **Load and decode assets between gameplay states.** Track per-group footprints with `gamedebug.MemoryTracker` and call `ReleaseGroup` on level transitions; run an explicit `runtime.GC()` during loading screens rather than mid-frame.
+6. **Build releases with `-tags release`.** All `pkg/tooling/gamedebug` tooling compiles to zero-cost no-op stubs in release builds.
 
 ## Detecting GC Hitches and Testing in CI
 
 ### Runtime Overlay (`GCMonitor`)
 
-Wire `debug.NewGCMonitor` into `debug.Options.GC` to sample `runtime/metrics` (`/gc/pauses:seconds`, `/gc/cycles/total:gc-cycles`, `/memory/classes/heap/objects:bytes`, `/gc/heap/allocs:objects`, `/gc/heap/allocs:bytes`) once per frame with zero steady-state allocations:
+Wire `gamedebug.NewGCMonitor` into `gamedebug.Options.GC` to sample `runtime/metrics` (`/gc/pauses:seconds`, `/gc/cycles/total:gc-cycles`, `/memory/classes/heap/objects:bytes`, `/gc/heap/allocs:objects`, `/gc/heap/allocs:bytes`) once per frame with zero steady-state allocations:
 
 ```go
-gcMon := debug.NewGCMonitor(debug.FrameHistory)
-overlay := debug.New(debug.Options{
+gcMon := gamedebug.NewGCMonitor(gamedebug.FrameHistory)
+overlay := gamedebug.New(gamedebug.Options{
 	GC: gcMon,
 })
 ```
@@ -53,7 +53,7 @@ Each `GCFrameSample` also carries the heap objects and bytes allocated during th
 
 ### CI Regression Checks (`AssertZeroAllocs`)
 
-Use `debug.AssertZeroAllocs` (wrapping `testing.AllocsPerRun`) in unit tests to guard hot paths from accidental allocations in pull requests:
+Use `gamedebug.AssertZeroAllocs` (wrapping `testing.AllocsPerRun`) in unit tests to guard hot paths from accidental allocations in pull requests:
 
 ```go
 func TestPhysicsStepZeroAllocs(t *testing.T) {
@@ -61,13 +61,13 @@ func TestPhysicsStepZeroAllocs(t *testing.T) {
 	// Warm up one frame so any one-time caches are initialized.
 	world.Step(16 * time.Millisecond)
 
-	debug.AssertZeroAllocs(t, 100, func() {
+	gamedebug.AssertZeroAllocs(t, 100, func() {
 		world.Step(16 * time.Millisecond)
 	})
 }
 ```
 
-Use `debug.MeasureAllocs` when you want to assert an explicit upper bound or log allocation counts during optimization.
+Use `gamedebug.MeasureAllocs` when you want to assert an explicit upper bound or log allocation counts during optimization.
 
 ## Platform Notes
 

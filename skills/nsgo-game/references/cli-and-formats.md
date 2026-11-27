@@ -82,7 +82,7 @@ Every file authored by a human or coding agent is plain-text YAML:
 ### Program-written text formats (YAML / JSON)
 
 - **YAML**: asset build cache (`tooling/assetbuild`), benchmark baselines (`tooling/bench`), achievement progress (`online/achievements`), latency calibrations (`rhythm`), ghost laps (`vehicle`), undo logs (`undo`), headless state dumps (`statedump`), project index (`refs`).
-- **JSON**: versioned save slots & player settings (`save`), world map discovery (`worldmap`), quest snapshots (`quest`), fog state (`fog`), ECS world snapshots (`entities`), persisted input bindings (`input`), debug console tunables (`debug`), dev session state (`tooling/devstate`), cloud sync (`online/liveops`), string tables (`l10n`).
+- **JSON**: versioned save slots & player settings (`save`), world map discovery (`worldmap`), quest snapshots (`quest`), fog state (`fog`), ECS world snapshots (`entities`), persisted input bindings (`input`), debug console tunables (`tooling/gamedebug`), dev session state (`tooling/devstate`), cloud sync (`online/liveops`), string tables (`l10n`).
 
 ### External tool exports read directly
 
@@ -91,6 +91,6 @@ Every file authored by a human or coding agent is plain-text YAML:
 - **AngelCode BMFont** and **MSDF** fonts (`text`)
 - **glTF 2.0** `.gltf` / `.glb` 3D models (`gltf`)
 - **Yarn Spinner** `.yarn` dialogue scripts (`flow`)
-- **Chrome trace** JSON profiler exports (`debug`)
+- **Chrome trace** JSON profiler exports (`tooling/gamedebug#trace`)
 
 Binary files are used only for inherently binary media (PNG/KTX2 images, WAV/AAC/MP3 audio, fonts, glTF buffers) and network packets (`online/netplay`).

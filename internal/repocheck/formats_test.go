@@ -22,7 +22,6 @@ import (
 	"github.com/nsgo-dev/game/internal/formattest"
 	"github.com/nsgo-dev/game/pkg/anim3d"
 	"github.com/nsgo-dev/game/pkg/assets"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/fog"
@@ -35,6 +34,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/quest"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/tooling/devstate"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/game/pkg/worldmap"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -83,7 +83,7 @@ var codeFormats = map[string]codeFormat{
 	"fog":                                 {decl: "Fog.UnmarshalJSON", lang: "json", read: readStrict[fog.Fog]},
 	"entities":                            {decl: "World.Restore", lang: "json", read: readWorldSnapshot},
 	"input":                               {decl: "Actions.Load", lang: "json", read: readInputBindings},
-	"debug":                               {decl: "Console.LoadTunables", lang: "json", read: readTunables},
+	"tooling/gamedebug":                   {decl: "Console.LoadTunables", lang: "json", read: readTunables},
 	"tooling/devstate":                    {decl: "Store.LoadSnapshot", lang: "json", read: readDevSnapshot},
 	"online/liveops":                      {decl: "DecodeCloudSave", lang: "json", read: readCloudSave},
 	"online/liveops#sync":                 {decl: "syncState", lang: "json", checkedBy: "TestSyncStateExamplesOnFormatsPage"},
@@ -106,7 +106,7 @@ var codeFormats = map[string]codeFormat{
 	"text":                                {decl: "LoadBMFont"},
 	"gltf":                                {decl: "Load"},
 	"world3d":                             {decl: "LoadMeshLibraryFromGLTF"},
-	"debug#trace":                         {decl: "Profiler.WriteChromeTrace"},
+	"tooling/gamedebug#trace":             {decl: "Profiler.WriteChromeTrace"},
 }
 
 // formatVersions maps each exported constant whose name ends in "Version" and that holds an integer, as "<package>.<name>", to the entry of the File Formats page for the format whose version it is, or to "" for one notFormatVersions explains. A versioned format the page lacks is found this way even when its package already has an entry for another format.
@@ -337,7 +337,7 @@ func readInputBindings(t *testing.T, data []byte) error {
 	return err
 }
 
-// exampleTunables are the tunables the debug example sets, registered as a game registers its own, since LoadTunables skips a name nothing registered.
+// exampleTunables are the tunables the tooling/gamedebug example sets, registered as a game registers its own, since LoadTunables skips a name nothing registered.
 var exampleTunables = []string{"cheat.god", "level.name", "player.lives", "player.speed"}
 
 func readTunables(t *testing.T, data []byte) error {
@@ -351,10 +351,10 @@ func readTunables(t *testing.T, data []byte) error {
 		}
 	}
 	st := storage(t)
-	if err := st.SetItem("debug.console.tunables", string(data)); err != nil {
+	if err := st.SetItem("gamedebug.console.tunables", string(data)); err != nil {
 		t.Fatal(err)
 	}
-	c := debug.NewConsole()
+	c := gamedebug.NewConsole()
 	var speed float64
 	var lives int
 	var god bool

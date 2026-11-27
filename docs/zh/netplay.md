@@ -370,4 +370,4 @@ go tool game net stats session.capture.jsonl
 
 ### 实时网络调试浮层
 
-如需在游戏运行时以零每帧分配的方式查看实时流量，可用 `debug.NewNetMonitor` 包装传输并将 `mon.Snapshot` 传入 `debug.Options.Net`。浮层面板会借助复用的 `wire` 编解码缓冲区展示各通道与各对等端的字节率与包率、`InboxStats` 计数器以及最近解码的若干消息类型。详见 [debug](debug.md#网络检查面板)。
+如需在游戏运行时以零每帧分配的方式查看实时流量，可用 `gamedebug.NewNetMonitor` 包装传输并将 `mon.Snapshot` 传入 `gamedebug.Options.Net`。浮层面板会借助复用的 `wire` 编解码缓冲区展示各通道与各对等端的字节率与包率、`InboxStats` 计数器以及最近解码的若干消息类型。详见 [gamedebug](gamedebug.md#网络检查面板)。

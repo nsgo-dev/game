@@ -76,7 +76,7 @@ Import only what you need from `github.com/nsgo-dev/game`. Browse the full inter
 | **Gameplay & Genre Kits** | `flow`, `entities`, `platformer`, `rooms`, `worldmap`, `fog`, `procgen`, `stats`, `inventory`, `ability`, `quest`, `loot`, `cards`, `bullets`, `fighting`, `framedata`, `rts`, `rhythm`, `idle`, `vn`, `undo` |
 | **UI, L10n & Accessibility** | `gameui`, `l10n`, `a11y`, `perf` |
 | **Multiplayer & Online** | `online/netplay`, `online/server`, `online/accounts`, `online/cloudsave`, `online/leaderboard`, `online/leaderboard/selfhost`, `online/achievements`, `online/presence`, `online/liveops`, `online/audit`, `online/wsclient`, `modding`, `plugin` |
-| **Editor, Tooling & Testing** | `editor`, `project`, `refs`, `debug`, `mcp`, `replay`, `statedump`, `playtest`, `gametest`, `placeholder`, `datatable`, `jsonschema`, `importsettings`, `tooling/library` |
+| **Editor, Tooling & Testing** | `editor`, `project`, `refs`, `tooling/gamedebug`, `mcp`, `replay`, `statedump`, `playtest`, `gametest`, `placeholder`, `datatable`, `jsonschema`, `importsettings`, `tooling/library` |
 
 ## Starter Templates
 

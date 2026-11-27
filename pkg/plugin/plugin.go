@@ -12,11 +12,11 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/pixelfx"
 	"github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 // APIVersion is the runtime plugin API contract version supported by this engine build.
@@ -205,7 +205,7 @@ type Host struct {
 	// DataTables receives plugin data-table row types when non-nil.
 	DataTables *datatable.Registry
 	// Console receives plugin console commands when non-nil.
-	Console *debug.Console
+	Console *gamedebug.Console
 
 	installed    []Installed
 	installedSet map[string]struct{}

@@ -26,7 +26,7 @@
 
 Ebitengine 默认每秒调用 60 次 `Update`，每个显示帧调用一次 `Draw`。`game.Loop` 保持同样的分工：`Update` 得到固定的 `dt`，即 `1/Rate` 秒（默认每秒 60 次更新），`Draw` 每个显示帧运行一次，并带上 `alpha`，表示这一帧落在下一次更新之前的多远处。通过 `core.Signal` 把 `alpha` 传给画布，在最近两个状态之间插值，这样在 120 Hz 显示器上运动依然平滑，而更新频率不变。`Loop` 还会在应用进入后台时暂停，并在卡顿后限制单帧补跑的更新次数。见 [Loop](loop.md)。
 
-`ebiten.ActualTPS` 和 `ActualFPS` 没有直接对应物；[debug](debug.md) 叠加层会绘制帧时间曲线，`nsgo dev -fps` 会显示 NSGo 的性能监视器。
+`ebiten.ActualTPS` 和 `ActualFPS` 没有直接对应物；[gamedebug](gamedebug.md) 叠加层会绘制帧时间曲线，`nsgo dev -fps` 会显示 NSGo 的性能监视器。
 
 ## 绘制
 

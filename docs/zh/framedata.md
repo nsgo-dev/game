@@ -133,7 +133,7 @@ func (s *sim) Load(data []byte) error {
 
 ## 调试叠加层
 
-[debug](debug.md) 叠加层把角色生效的框绘制为线框，先画受击框，攻击框画在上面，并按角色朝向镜像：
+[gamedebug](gamedebug.md) 叠加层把角色生效的框绘制为线框，先画受击框，攻击框画在上面，并按角色朝向镜像：
 
 ```go
 overlay.DrawFighterBoxes(d, p1, core.RGB(0x38bdf8), core.RGB(0xef4444))

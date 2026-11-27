@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/physics"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -99,7 +99,7 @@ func TestMoveAndSlideIntoZeroAllocs(t *testing.T) {
 		if !res.Grounded || len(res.Contacts) == 0 {
 			t.Fatalf("expected grounded contact, got %+v", res)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("wall-sliding", func(t *testing.T) {
@@ -116,7 +116,7 @@ func TestMoveAndSlideIntoZeroAllocs(t *testing.T) {
 		if !res.OnRightWall || !res.OnWall || len(res.Contacts) == 0 {
 			t.Fatalf("expected right-wall contact, got %+v", res)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("airborne", func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestMoveAndSlideIntoZeroAllocs(t *testing.T) {
 		if res.Grounded || res.OnWall || len(res.Contacts) != 0 {
 			t.Fatalf("expected airborne step with no contacts, got %+v", res)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("nil-result", func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestMoveAndSlideIntoZeroAllocs(t *testing.T) {
 		if !body.Grounded || !body.OnRightWall {
 			t.Fatalf("expected grounded and wall flags, got grounded=%v wall=%v", body.Grounded, body.OnRightWall)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 }
 
@@ -174,7 +174,7 @@ func TestWorldMoveAndSlideZeroAllocs(t *testing.T) {
 		if !player.Grounded || !player.OnRightWall {
 			t.Fatalf("expected grounded and right wall, got grounded=%v wall=%v", player.Grounded, player.OnRightWall)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("World.MoveAndSlideInto", func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestWorldMoveAndSlideZeroAllocs(t *testing.T) {
 		if !res.OnFloor || !res.OnRightWall || len(res.Collisions) < 2 {
 			t.Fatalf("expected floor and wall collisions, got %+v", res)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 
 		// Verify caller-owned SlideResult is not overwritten by a subsequent World.MoveAndSlide call.
 		saved := append([]physics.SlideCollision(nil), res.Collisions...)
@@ -221,7 +221,7 @@ func TestCharacterBodyZeroAllocs(t *testing.T) {
 		if !last.Grounded || len(last.Contacts) == 0 {
 			t.Fatalf("expected grounded contact, got %+v", last)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("tiles-wall-slide-into", func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestCharacterBodyZeroAllocs(t *testing.T) {
 		if !res.OnRightWall || len(res.Contacts) == 0 {
 			t.Fatalf("expected wall contact, got %+v", res)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("world-bodies", func(t *testing.T) {
@@ -258,7 +258,7 @@ func TestCharacterBodyZeroAllocs(t *testing.T) {
 		if !last.Grounded || !last.OnRightWall || len(last.Collisions) == 0 {
 			t.Fatalf("expected world floor + door collisions, got %+v", last)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 
 	t.Run("world-with-slopes-and-platforms", func(t *testing.T) {
@@ -286,7 +286,7 @@ func TestCharacterBodyZeroAllocs(t *testing.T) {
 		if !last.Grounded {
 			t.Fatalf("expected grounded on platform, got %+v", last)
 		}
-		debug.AssertZeroAllocs(t, 100, step)
+		gamedebug.AssertZeroAllocs(t, 100, step)
 	})
 }
 

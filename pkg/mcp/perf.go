@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/automation"
 )
 
@@ -41,7 +41,7 @@ type PerfFrameSample struct {
 	Cause    string  `json:"cause,omitempty"`
 }
 
-// PerfZoneInfo summarizes one named timing scope from debug.Profiler.
+// PerfZoneInfo summarizes one named timing scope from gamedebug.Profiler.
 type PerfZoneInfo struct {
 	Name   string  `json:"name"`
 	LastMs float64 `json:"last_ms"`
@@ -68,7 +68,7 @@ type PerfRender3DStats struct {
 	BufferBytes      uint64 `json:"buffer_bytes"`
 }
 
-// PerfMemoryGroup summarizes tracked asset memory for one debug.MemoryTracker group.
+// PerfMemoryGroup summarizes tracked asset memory for one gamedebug.MemoryTracker group.
 type PerfMemoryGroup struct {
 	Group      string           `json:"group"`
 	TotalBytes int64            `json:"total_bytes"`
@@ -78,7 +78,7 @@ type PerfMemoryGroup struct {
 	ByKind     map[string]int64 `json:"by_kind,omitempty"`
 }
 
-// PerfMemorySummary summarizes tracked asset memory from a debug.MemoryTracker.
+// PerfMemorySummary summarizes tracked asset memory from a gamedebug.MemoryTracker.
 type PerfMemorySummary struct {
 	TotalBytes  int64             `json:"total_bytes"`
 	TotalBudget int64             `json:"total_budget,omitempty"`
@@ -209,7 +209,7 @@ func (b *Bridge) perfTools() []automation.Tool {
 	}
 }
 
-func (b *Bridge) activeProfiler() *debug.Profiler {
+func (b *Bridge) activeProfiler() *gamedebug.Profiler {
 	if b == nil {
 		return nil
 	}
@@ -222,7 +222,7 @@ func (b *Bridge) activeProfiler() *debug.Profiler {
 	return nil
 }
 
-func (b *Bridge) activeGC() *debug.GCMonitor {
+func (b *Bridge) activeGC() *gamedebug.GCMonitor {
 	if b == nil {
 		return nil
 	}
@@ -235,7 +235,7 @@ func (b *Bridge) activeGC() *debug.GCMonitor {
 	return nil
 }
 
-func (b *Bridge) activeMemory() *debug.MemoryTracker {
+func (b *Bridge) activeMemory() *gamedebug.MemoryTracker {
 	if b == nil {
 		return nil
 	}
@@ -302,7 +302,7 @@ func (b *Bridge) handlePerfReadout(_ context.Context, raw json.RawMessage) (any,
 			res.LatestDrawMs = durationMs(latest.Draw)
 
 			if n > 0 {
-				samples := stats.Samples(make([]debug.FrameSample, 0, n))
+				samples := stats.Samples(make([]gamedebug.FrameSample, 0, n))
 				totals := make([]time.Duration, len(samples))
 				for i, s := range samples {
 					totals[i] = s.Total
@@ -447,7 +447,7 @@ func (b *Bridge) handlePerfReset(_ context.Context, raw json.RawMessage) (any, e
 	return res, nil
 }
 
-func collectZones(p *debug.Profiler, limit int) ([]PerfZoneInfo, int) {
+func collectZones(p *gamedebug.Profiler, limit int) ([]PerfZoneInfo, int) {
 	all := p.TopScopes(0)
 	total := len(all)
 	if limit > 0 && len(all) > limit {
@@ -466,7 +466,7 @@ func collectZones(p *debug.Profiler, limit int) ([]PerfZoneInfo, int) {
 	return zones, total
 }
 
-func memorySummaryFrom(mem *debug.MemoryTracker) *PerfMemorySummary {
+func memorySummaryFrom(mem *gamedebug.MemoryTracker) *PerfMemorySummary {
 	total := mem.TotalBytes()
 	budget := mem.TotalBudget()
 	rawGroups := mem.Groups()

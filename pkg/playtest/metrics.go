@@ -4,7 +4,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/debug"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 // Run outcome values reported by Collector and RunReport.Outcome.
@@ -30,7 +30,7 @@ type Event struct {
 	Tag string `yaml:"tag,omitempty"`
 }
 
-// PerfSummary holds frame timing and allocation telemetry captured from the perf readout (debug.FrameStats and debug.GCMonitor).
+// PerfSummary holds frame timing and allocation telemetry captured from the perf readout (gamedebug.FrameStats and gamedebug.GCMonitor).
 type PerfSummary struct {
 	// SampleCount is the number of frames sampled.
 	SampleCount int `yaml:"sampleCount,omitempty"`
@@ -450,8 +450,8 @@ func (c *Collector) RecordMatchup(name, row, col string, wins, total float64) {
 	m.tallies[key] = t
 }
 
-// RecordPerf captures frame timing and allocation telemetry from debug.FrameStats and debug.GCMonitor, matching the calculations of game_perf_readout.
-func (c *Collector) RecordPerf(stats *debug.FrameStats, gc *debug.GCMonitor) {
+// RecordPerf captures frame timing and allocation telemetry from gamedebug.FrameStats and gamedebug.GCMonitor, matching the calculations of game_perf_readout.
+func (c *Collector) RecordPerf(stats *gamedebug.FrameStats, gc *gamedebug.GCMonitor) {
 	if c == nil {
 		return
 	}
@@ -480,9 +480,9 @@ func (c *Collector) Perf() *PerfSummary {
 	return &cp
 }
 
-// PerfFromStats builds a PerfSummary from debug.FrameStats and debug.GCMonitor using the same averaging and percentile definitions as game/mcp's game_perf_readout.
+// PerfFromStats builds a PerfSummary from gamedebug.FrameStats and gamedebug.GCMonitor using the same averaging and percentile definitions as game/mcp's game_perf_readout.
 // It returns false when neither stats nor gc holds any samples.
-func PerfFromStats(stats *debug.FrameStats, gc *debug.GCMonitor) (PerfSummary, bool) {
+func PerfFromStats(stats *gamedebug.FrameStats, gc *gamedebug.GCMonitor) (PerfSummary, bool) {
 	var out PerfSummary
 	hasAny := false
 	if stats != nil && stats.Len() > 0 {
@@ -494,7 +494,7 @@ func PerfFromStats(stats *debug.FrameStats, gc *debug.GCMonitor) (PerfSummary, b
 		out.UpdateMs = durationMs(avg.Update)
 		out.DrawMs = durationMs(avg.Draw)
 
-		samples := stats.Samples(make([]debug.FrameSample, 0, n))
+		samples := stats.Samples(make([]gamedebug.FrameSample, 0, n))
 		totals := make([]time.Duration, len(samples))
 		for i, s := range samples {
 			totals[i] = s.Total

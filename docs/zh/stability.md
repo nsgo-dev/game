@@ -85,7 +85,6 @@
 | `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
 | `game/pkg/datatable` | 实验性 | |
 | `game/pkg/datatable/datatablewatch` | 实验性 | |
-| `game/pkg/debug` | 实验性 | [debug](debug.md) |
 | `game/pkg/editor` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | 实验性 | [mcp](mcp.md) |
@@ -196,6 +195,7 @@
 | `game/pkg/tooling/bench` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/credits` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/devstate` | 实验性 | |
+| `game/pkg/tooling/gamedebug` | 实验性 | [gamedebug](gamedebug.md) |
 | `game/pkg/tooling/hotreload` | 实验性 | |
 | `game/pkg/tooling/library` | 实验性 | [资源与插件库](library.md) |
 | `game/pkg/tooling/manifest` | 实验性 | |

@@ -62,11 +62,6 @@ pkg/datatable:
       - any-glob-to-any-file:
           - pkg/datatable/**
 
-pkg/debug:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/debug/**
-
 pkg/editor:
   - changed-files:
       - any-glob-to-any-file:

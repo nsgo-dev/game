@@ -3,8 +3,8 @@ package wire_test
 import (
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
 
 func TestGeneratedCodecsZeroAllocs(t *testing.T) {
@@ -24,7 +24,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendTransportFrame(buf[:0], &in)
 			if _, err := wire.DecodeTransportFrame(buf, &out); err != nil {
 				t.Fatal(err)
@@ -47,7 +47,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 		if _, err := wire.DecodeUDPPeerFrame(buf, &out); err != nil {
 			t.Fatal(err)
 		}
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendUDPPeerFrame(buf[:0], &in)
 			if _, err := wire.DecodeUDPPeerFrame(buf, &out); err != nil {
 				t.Fatal(err)
@@ -71,7 +71,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 		if _, err := wire.DecodeUDPSealedDatagram(buf, &out); err != nil {
 			t.Fatal(err)
 		}
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendUDPSealedDatagram(buf[:0], &in)
 			if _, err := wire.DecodeUDPSealedDatagram(buf, &out); err != nil {
 				t.Fatal(err)
@@ -119,7 +119,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 			}
 		}
 
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendHandshakeMessage(buf[:0], &hello)
 			if _, err := wire.DecodeHandshakeMessage(buf, &out); err != nil {
 				t.Fatal(err)
@@ -170,7 +170,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendRelayFrame(buf[:0], &frame)
 			if _, err := wire.DecodeRelayFrame(buf, &outFrame); err != nil {
 				t.Fatal(err)
@@ -254,7 +254,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 		}
 		wire.ApplyEntityRecord(&applied, &out.Delta.Updates[0])
 
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendReplicationMessage(buf[:0], &full)
 			if _, err := wire.DecodeReplicationMessage(buf, &out); err != nil {
 				t.Fatal(err)
@@ -317,7 +317,7 @@ func TestGeneratedCodecsZeroAllocs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		debug.AssertZeroAllocs(t, 100, func() {
+		gamedebug.AssertZeroAllocs(t, 100, func() {
 			buf = wire.AppendRollbackMessage(buf[:0], &rb)
 			if _, err := wire.DecodeRollbackMessage(buf, &outRB); err != nil {
 				t.Fatal(err)

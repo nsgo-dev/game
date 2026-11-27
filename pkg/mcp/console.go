@@ -10,7 +10,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/debug"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/automation"
 )
 
@@ -28,7 +28,7 @@ const (
 	ToolConsoleExec = "game_console_exec"
 )
 
-// TunableResult describes one registered tunable variable, as game_tunables_list and game_tunable_get return it. It is debug.TunableInfo in JSON form, with a non-finite float bound written as "NaN", "+Inf" or "-Inf".
+// TunableResult describes one registered tunable variable, as game_tunables_list and game_tunable_get return it. It is gamedebug.TunableInfo in JSON form, with a non-finite float bound written as "NaN", "+Inf" or "-Inf".
 type TunableResult struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
@@ -180,7 +180,7 @@ func (b *Bridge) consoleTools() []automation.Tool {
 	}
 }
 
-func (b *Bridge) activeConsole() *debug.Console {
+func (b *Bridge) activeConsole() *gamedebug.Console {
 	if b == nil {
 		return nil
 	}
@@ -192,7 +192,7 @@ func (b *Bridge) activeConsole() *debug.Console {
 	return b.cfg.Console
 }
 
-func (b *Bridge) requireConsole() (*debug.Console, error) {
+func (b *Bridge) requireConsole() (*gamedebug.Console, error) {
 	c := b.activeConsole()
 	if c == nil {
 		return nil, errors.New("mcp: no debug console configured")
@@ -225,7 +225,7 @@ func sanitizeJSONNumber(v any) any {
 	return v
 }
 
-func tunableResultFrom(t debug.TunableInfo) TunableResult {
+func tunableResultFrom(t gamedebug.TunableInfo) TunableResult {
 	return TunableResult{
 		Name:    t.Name,
 		Type:    t.Type,
@@ -236,7 +236,7 @@ func tunableResultFrom(t debug.TunableInfo) TunableResult {
 	}
 }
 
-func missingTunableError(c *debug.Console, name string) error {
+func missingTunableError(c *gamedebug.Console, name string) error {
 	all := c.Tunables()
 	if len(all) == 0 {
 		return fmt.Errorf("mcp: tunable %q not found (no tunables registered)", name)

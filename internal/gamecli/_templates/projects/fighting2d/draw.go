@@ -3,10 +3,10 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/framedata"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -24,7 +24,7 @@ var (
 )
 
 // shapes draws the hitbox overlay F1 toggles; release builds compile it out.
-var shapes debug.ShapeOverlay
+var shapes gamedebug.ShapeOverlay
 
 // draw paints the arena into the Canvas, scaled into the virtual resolution game.yaml's display sets.
 func (g *fightingGame) draw(d *core.Drawing, size core.Size) {

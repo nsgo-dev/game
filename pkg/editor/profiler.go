@@ -17,8 +17,8 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nsgo-dev/game/internal/gotoolchain"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/mcp"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/automation"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -470,7 +470,7 @@ func (e *Editor) attachProfilerClient(client ProfilerClient, inEditorPlay bool, 
 	}
 
 	// Play-in-editor drives PollProfiler on the UI goroutine inside game.Loop.Draw so local
-	// debug.Overlay and debug.GCMonitor are never accessed concurrently from a background goroutine.
+	// gamedebug.Overlay and gamedebug.GCMonitor are never accessed concurrently from a background goroutine.
 	if hasScope && !inEditorPlay {
 		e.startProfilerPoller()
 	}
@@ -792,7 +792,7 @@ func profilerHistoryDelta(prev []mcp.PerfFrameSample, prevCount int, cur []mcp.P
 	if len(prev) == 0 || prevCount == 0 || curCount < prevCount {
 		return len(cur)
 	}
-	if curCount > prevCount && curCount < debug.FrameHistory {
+	if curCount > prevCount && curCount < gamedebug.FrameHistory {
 		delta := curCount - prevCount
 		if delta > len(cur) {
 			return len(cur)
@@ -1057,7 +1057,7 @@ func spikeCauseFor(f ProfilerFrame) string {
 	return ""
 }
 
-// ExportProfilerTrace exports all recorded frames (and their zones) as Chrome/Perfetto Trace Event Format JSON through debug.Profiler.WriteChromeTrace.
+// ExportProfilerTrace exports all recorded frames (and their zones) as Chrome/Perfetto Trace Event Format JSON through gamedebug.Profiler.WriteChromeTrace.
 func (e *Editor) ExportProfilerTrace(w io.Writer) error {
 	if e == nil {
 		return ErrNoProfilerFrames
@@ -1071,7 +1071,7 @@ func (e *Editor) ExportProfilerTrace(w io.Writer) error {
 		return ErrNoProfilerFrames
 	}
 
-	prof := debug.NewProfiler(len(snap.Frames))
+	prof := gamedebug.NewProfiler(len(snap.Frames))
 	clock := time.Unix(0, 0).UTC()
 	prof.SetNow(func() time.Time { return clock })
 	prof.StartRecording(len(snap.Frames))

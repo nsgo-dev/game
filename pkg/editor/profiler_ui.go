@@ -299,7 +299,7 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 }
 
 // ProfilerPanelView renders the full docked Profiler panel below the viewport when Editor.ProfilerOpen reports true.
-// It charts frame, update and draw time, FPS, allocations per frame, GC and asset memory over time, lists profiler zones from game_perf_zones sorted by cost, and provides Reset (game_perf_reset) and Chrome/Perfetto trace export through debug.Profiler.WriteChromeTrace.
+// It charts frame, update and draw time, FPS, allocations per frame, GC and asset memory over time, lists profiler zones from game_perf_zones sorted by cost, and provides Reset (game_perf_reset) and Chrome/Perfetto trace export through gamedebug.Profiler.WriteChromeTrace.
 func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	open := core.NewMemo(cx, func() bool {
 		_ = rev.Get()

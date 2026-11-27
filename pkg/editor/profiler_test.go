@@ -13,10 +13,10 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -77,22 +77,22 @@ func startFixturePerfMCPServer(t *testing.T, b *mcp.Bridge) sdkmcp.Transport {
 // and resets via game_perf_reset.
 func TestProfilerConnectsToFixtureGameOverMCPChartsFramesAndZones(t *testing.T) {
 	now := time.Unix(10000, 0)
-	prof := debug.NewProfiler(120)
+	prof := gamedebug.NewProfiler(120)
 	prof.SetNow(func() time.Time { return now })
 
-	gcMon := debug.NewGCMonitor(debug.FrameHistory)
-	mem := debug.NewMemoryTracker()
+	gcMon := gamedebug.NewGCMonitor(gamedebug.FrameHistory)
+	mem := gamedebug.NewMemoryTracker()
 	mem.SetTotalBudget(2 << 20)
 	mem.SetBudget("level_01", 1<<20)
-	mem.Track("level_01", "tiles.png", debug.AssetImage, 384<<10)
-	mem.Track("audio", "dungeon.pcm", debug.AssetAudio, 512<<10)
+	mem.Track("level_01", "tiles.png", gamedebug.AssetImage, 384<<10)
+	mem.Track("audio", "dungeon.pcm", gamedebug.AssetAudio, 512<<10)
 
-	overlay := debug.New(debug.Options{
+	overlay := gamedebug.New(gamedebug.Options{
 		Profiler: prof,
 		GC:       gcMon,
 		Memory:   mem,
-		DrawStats: func() debug.DrawStats {
-			return debug.DrawStats{DrawCalls: 18, Sprites: 240, Batches: 5}
+		DrawStats: func() gamedebug.DrawStats {
+			return gamedebug.DrawStats{DrawCalls: 18, Sprites: 240, Batches: 5}
 		},
 	})
 
@@ -265,13 +265,13 @@ func TestProfilerConnectsToFixtureGameOverMCPChartsFramesAndZones(t *testing.T) 
 	}
 }
 
-// #912 Acceptance 2: exporting recorded frames through the debug package's exporter
+// #912 Acceptance 2: exporting recorded frames through the gamedebug package's exporter
 // produces valid Chrome/Perfetto Trace Event Format JSON with metadata and complete events.
 func TestProfilerExportChromeTraceValidJSON(t *testing.T) {
 	now := time.Unix(20000, 0)
-	prof := debug.NewProfiler(60)
+	prof := gamedebug.NewProfiler(60)
 	prof.SetNow(func() time.Time { return now })
-	overlay := debug.New(debug.Options{Profiler: prof})
+	overlay := gamedebug.New(gamedebug.Options{Profiler: prof})
 
 	for i := range 5 {
 		prof.BeginFrame()
@@ -401,9 +401,9 @@ func TestProfilerExportChromeTraceValidJSON(t *testing.T) {
 func TestProfilerScopeClientAndPlayModeStrip(t *testing.T) {
 	// 1. Test ConnectProfilerScope against an in-process scope with mcp.Attach.
 	now := time.Unix(30000, 0)
-	prof := debug.NewProfiler(30)
+	prof := gamedebug.NewProfiler(30)
 	prof.SetNow(func() time.Time { return now })
-	overlay := debug.New(debug.Options{Profiler: prof})
+	overlay := gamedebug.New(gamedebug.Options{Profiler: prof})
 
 	var gameScope *core.Scope
 	gameApp := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -478,23 +478,23 @@ func TestProfilerScopeClientAndPlayModeStrip(t *testing.T) {
 // `go tool nsgo test -target macos -run TestProfilerScreenshots ./editor` captures real macOS screenshots.
 func TestProfilerScreenshots(t *testing.T) {
 	now := time.Unix(40000, 0)
-	prof := debug.NewProfiler(180)
+	prof := gamedebug.NewProfiler(180)
 	prof.SetNow(func() time.Time { return now })
 
-	gcMon := debug.NewGCMonitor(debug.FrameHistory)
-	mem := debug.NewMemoryTracker()
+	gcMon := gamedebug.NewGCMonitor(gamedebug.FrameHistory)
+	mem := gamedebug.NewMemoryTracker()
 	mem.SetTotalBudget(2 << 20)
 	mem.SetBudget("level_01", 1<<20)
-	mem.Track("level_01", "dungeon_tiles.png", debug.AssetImage, 420<<10)
-	mem.Track("level_01", "knight_atlas.png", debug.AssetAtlas, 210<<10)
-	mem.Track("audio", "dungeon_bgm.pcm", debug.AssetAudio, 540<<10)
+	mem.Track("level_01", "dungeon_tiles.png", gamedebug.AssetImage, 420<<10)
+	mem.Track("level_01", "knight_atlas.png", gamedebug.AssetAtlas, 210<<10)
+	mem.Track("audio", "dungeon_bgm.pcm", gamedebug.AssetAudio, 540<<10)
 
-	overlay := debug.New(debug.Options{
+	overlay := gamedebug.New(gamedebug.Options{
 		Profiler: prof,
 		GC:       gcMon,
 		Memory:   mem,
-		DrawStats: func() debug.DrawStats {
-			return debug.DrawStats{DrawCalls: 22, Sprites: 340, Batches: 6}
+		DrawStats: func() gamedebug.DrawStats {
+			return gamedebug.DrawStats{DrawCalls: 22, Sprites: 340, Batches: 6}
 		},
 	})
 
@@ -515,7 +515,7 @@ func TestProfilerScreenshots(t *testing.T) {
 
 	ed.ConnectProfiler(client)
 
-	// Feed 150 frames in two batches (> debug.FrameHistory=120) mirroring PlayMode.dc.html.
+	// Feed 150 frames in two batches (> gamedebug.FrameHistory=120) mirroring PlayMode.dc.html.
 	seed := 7
 	rnd := func() float64 {
 		seed = (seed*9301 + 49297) % 233280

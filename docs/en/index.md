@@ -42,7 +42,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `save` | `github.com/nsgo-dev/game/pkg/save` | [save](save.md) | Versioned JSON save slots, schema migrations and atomic backup recovery |
 | `achievements` | `github.com/nsgo-dev/game/pkg/online/achievements` | [achievements](achievements.md) | Achievements declared in versioned YAML, monotonic progress persisted in `core.Storage`, and reporting to Game Center and Play Games |
 | `datatable` | `github.com/nsgo-dev/game/pkg/datatable` | [datatable](datatable.md) | Typed data tables in versioned YAML (and CSV/JSON) with cell-level errors, deterministic saves and hot reload |
-| `debug` | `github.com/nsgo-dev/game/pkg/debug` | [debug](debug.md) | Frame-time graph, wireframe shapes, scene inspector and `-tags release` stripping |
+| `tooling/gamedebug` | `github.com/nsgo-dev/game/pkg/tooling/gamedebug` | [gamedebug](gamedebug.md) | Frame-time graph, wireframe shapes, scene inspector and `-tags release` stripping |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | MCP tools registered through `nsgo/automation` to inspect running scenes, layers, entities and components |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race` and typed event `Bus` |
 | `entities` | `github.com/nsgo-dev/game/pkg/entities` | [entities](entities.md) | Zero-reflection ECS: generational entities, typed sparse-set components, allocation-free queries, ordered systems, prefabs and JSON snapshots |
