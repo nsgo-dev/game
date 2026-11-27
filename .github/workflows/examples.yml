@@ -1,6 +1,6 @@
 name: Examples
 
-# Tests and cross-checks every example module under examples/ (one matrix entry per examples/<name>/go.mod); tests Cave Run and every chapter of the Star Catcher tutorial on macOS and checks their iOS targets; builds the web bundles of Cave Run and the tutorial; checks the scenes, maps and atlases of every sample game with game check.
+# Tests and cross-checks every example module under examples/ (one matrix entry per examples/<name>/go.mod); tests Cave Run and every chapter of the Star Catcher tutorial on macOS and checks their iOS targets; checks every other example's iOS targets on macOS; builds the web bundles of Cave Run and the tutorial; checks the scenes, maps and atlases of every sample game with game check.
 on:
   push:
     branches:
@@ -96,6 +96,35 @@ jobs:
       - name: Check iOS targets
         working-directory: examples/${{ matrix.example }}
         run: go tool nsgo check -target ios,ios_simulator
+
+  examples-ios:
+    name: Check the other examples (iOS)
+    runs-on: depot-macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/*/go.sum
+            go.sum
+      - name: Check iOS targets
+        run: |
+          for mod in examples/*/go.mod; do
+            dir="${mod%/go.mod}"
+            case "${dir#examples/}" in
+              caverun|tutorial) continue ;;
+            esac
+            echo "::group::${dir}"
+            (cd "$dir" && go tool nsgo check -target ios,ios_simulator)
+            echo "::endgroup::"
+          done
 
   caverun-release:
     name: Check the examples and build web (Cave Run)
