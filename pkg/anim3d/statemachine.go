@@ -333,14 +333,37 @@ func NewStateMachine(initialState string) *StateMachine {
 }
 
 // AddState registers or replaces a named state. If the machine has no active
-// state yet, state.Name becomes the current state.
+// state yet, state.Name becomes the current state. When registering the active
+// state for the first time, playback starts at Duration for a non-looping clip
+// with negative Speed and at 0 otherwise. When replacing the active state, if a
+// non-looping clip's effective speed changes sign while parked at a clamped end,
+// playback jumps to the opposite end so it plays instead of staying clamped.
 func (sm *StateMachine) AddState(state State) {
 	if sm.states == nil {
 		sm.states = make(map[string]State)
 	}
+	prev, existed := sm.states[state.Name]
 	sm.states[state.Name] = state
 	if sm.current == "" {
 		sm.current = state.Name
+		sm.currentTime = initialStateTime(state)
+		return
+	}
+	if state.Name != sm.current {
+		return
+	}
+	if !existed {
+		sm.currentTime = initialStateTime(state)
+		return
+	}
+	if clip := stateNonLoopingClip(state); clip != nil {
+		prevNeg := prev.Speed < 0
+		nextNeg := state.Speed < 0
+		if !prevNeg && nextNeg && sm.currentTime <= 0 {
+			sm.currentTime = clip.Duration
+		} else if prevNeg && !nextNeg && sm.currentTime >= clip.Duration {
+			sm.currentTime = 0
+		}
 	}
 }
 
@@ -538,9 +561,10 @@ func (sm *StateMachine) Pose() Pose {
 }
 
 func (sm *StateMachine) beginTransition(to string, blendDuration time.Duration) {
+	startTime := initialStateTime(sm.states[to])
 	if blendDuration <= 0 {
 		sm.current = to
-		sm.currentTime = 0
+		sm.currentTime = startTime
 		sm.blending = false
 		sm.blendElapsed = 0
 		sm.blendDuration = 0
@@ -563,11 +587,33 @@ func (sm *StateMachine) beginTransition(to string, blendDuration time.Duration) 
 	sm.prevState = sm.current
 	sm.prevTime = sm.currentTime
 	sm.current = to
-	sm.currentTime = 0
+	sm.currentTime = startTime
 	sm.blending = true
 	sm.blendElapsed = 0
 	sm.blendDuration = blendDuration
 	sm.resetState(to)
+}
+
+// stateNonLoopingClip returns st's Clip when st resolves to a non-looping clip
+// with positive Duration (respecting Blend1D > Blend2D > Sampler > Clip priority),
+// or nil otherwise.
+func stateNonLoopingClip(st State) *Clip {
+	if st.Blend1D != nil || st.Blend2D != nil || st.Sampler != nil || st.Clip == nil {
+		return nil
+	}
+	if st.Clip.Loop || st.Clip.Duration <= 0 {
+		return nil
+	}
+	return st.Clip
+}
+
+// initialStateTime returns the starting playback time when entering st:
+// Duration for a non-looping clip state with negative Speed, and 0 otherwise.
+func initialStateTime(st State) time.Duration {
+	if clip := stateNonLoopingClip(st); clip != nil && st.Speed < 0 {
+		return clip.Duration
+	}
+	return 0
 }
 
 func (sm *StateMachine) resetState(name string) {

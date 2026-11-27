@@ -345,10 +345,12 @@ func NewPlayer(doc *gltf.Document) (*Player, error) {
 
 // Play starts or resumes playback of doc.Animations[animIndex].
 //
-// Switching to a different animation resets Time to 0 and cancels any active
+// Switching to a different animation resets Time to 0 (or to the animation's
+// Duration when Loop is false and Speed is negative) and cancels any active
 // crossfade. Calling Play with the already-selected animation resumes from the
-// current Time if paused, or replays from the start if a non-looping clip has
-// already finished. The pose and world transforms are evaluated immediately.
+// current Time if paused, or replays from the start (Duration when reversing a
+// non-looping clip) if a non-looping clip has already finished. The pose and
+// world transforms are evaluated immediately.
 func (p *Player) Play(animIndex int) error {
 	if p == nil || p.doc == nil {
 		return ErrNilDocument
@@ -359,7 +361,7 @@ func (p *Player) Play(animIndex int) error {
 
 	if animIndex != p.animIndex {
 		p.animIndex = animIndex
-		p.time = 0
+		p.time = p.startTime(animIndex)
 		p.clearCrossfade()
 	} else if !p.playing && !p.loop {
 		dur := p.animDurations[animIndex]
@@ -389,9 +391,10 @@ func (p *Player) PlayByName(name string) error {
 // over duration.
 //
 // If duration <= 0, no animation is active yet, or animIndex is already the
-// active animation, Crossfade switches immediately and resets Time to 0.
-// Interrupting an in-progress crossfade snapshots the current blended pose so
-// transitions never pop.
+// active animation, Crossfade switches immediately and resets Time to 0 (or
+// Duration when Loop is false and Speed is negative). Interrupting an
+// in-progress crossfade snapshots the current blended pose so transitions never
+// pop.
 func (p *Player) Crossfade(animIndex int, duration time.Duration) error {
 	if p == nil || p.doc == nil {
 		return ErrNilDocument
@@ -402,7 +405,7 @@ func (p *Player) Crossfade(animIndex int, duration time.Duration) error {
 
 	if duration <= 0 || p.animIndex < 0 || (animIndex == p.animIndex && p.playing) {
 		p.animIndex = animIndex
-		p.time = 0
+		p.time = p.startTime(animIndex)
 		p.clearCrossfade()
 		p.playing = true
 		p.evaluate()
@@ -422,7 +425,7 @@ func (p *Player) Crossfade(animIndex int, duration time.Duration) error {
 	p.prevAnim = p.animIndex
 	p.prevTime = p.time
 	p.animIndex = animIndex
-	p.time = 0
+	p.time = p.startTime(animIndex)
 	p.blending = true
 	p.blendElapsed = 0
 	p.blendDuration = duration
@@ -556,12 +559,36 @@ func (p *Player) Loop() bool {
 
 // SetSpeed sets the playback speed multiplier. Negative values play in reverse;
 // 0 freezes animation time while leaving crossfades able to finish. Non-finite
-// values are ignored.
+// values are ignored. When playing a non-looping animation parked at a clamped
+// end (0 when flipping negative, or Duration when flipping positive), Time
+// jumps to the opposite end and the pose is re-evaluated.
 func (p *Player) SetSpeed(speed float32) {
 	if p == nil || math.IsNaN(float64(speed)) || math.IsInf(float64(speed), 0) {
 		return
 	}
+	prev := p.speed
 	p.speed = speed
+	if p.playing && !p.loop && p.animIndex >= 0 && p.animIndex < len(p.animDurations) {
+		dur := p.animDurations[p.animIndex]
+		if dur > 0 {
+			if prev >= 0 && speed < 0 && p.time <= 0 {
+				p.time = dur
+				p.evaluate()
+			} else if prev <= 0 && speed > 0 && p.time >= dur {
+				p.time = 0
+				p.evaluate()
+			}
+		}
+	}
+}
+
+// startTime returns the starting playback timestamp for animIndex: Duration
+// when playing a non-looping animation in reverse, and 0 otherwise.
+func (p *Player) startTime(animIndex int) time.Duration {
+	if !p.loop && p.speed < 0 && animIndex >= 0 && animIndex < len(p.animDurations) {
+		return p.animDurations[animIndex]
+	}
+	return 0
 }
 
 // Speed returns the current playback speed multiplier.

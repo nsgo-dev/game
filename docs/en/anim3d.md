@@ -28,7 +28,7 @@ joints, err := player.SkinMatrices(0) // joint matrices for skinned rendering
 _ = joints
 ```
 
-`Player` evaluates `STEP`, `LINEAR` (with shortest-path quaternion Slerp), and `CUBICSPLINE` (Hermite spline with normalized rotations) interpolation modes directly from the glTF channels, preserving matrix-authored non-animated nodes (such as COLLADA `Z_UP` roots). It provides `Play`, `PlayByName`, `Crossfade`, `CrossfadeByName`, `Pause`, `Stop`, `Seek`, `SetLoop`, `SetSpeed` (including negative values for reverse playback), `Time`, `Duration`, `Playing`, `LocalTransforms`, `WorldTransforms`, `MorphWeights`, `SkinMatrices`, `SkinMatricesForNode`, `ApplyToScene`, and `ApplyToNodes`. `Player` also implements `PoseSampler` via `Update` and `Pose`.
+`Player` evaluates `STEP`, `LINEAR` (with shortest-path quaternion Slerp), and `CUBICSPLINE` (Hermite spline with normalized rotations) interpolation modes directly from the glTF channels, preserving matrix-authored non-animated nodes (such as COLLADA `Z_UP` roots). It provides `Play`, `PlayByName`, `Crossfade`, `CrossfadeByName`, `Pause`, `Stop`, `Seek`, `SetLoop`, `SetSpeed` (including negative values for reverse playback; with `Loop` false, `Play` and `Crossfade` start a reversed clip at its `Duration` and play back to `0`, and flipping `Speed`'s sign while playing at a clamped end jumps to the opposite end), `Time`, `Duration`, `Playing`, `LocalTransforms`, `WorldTransforms`, `MorphWeights`, `SkinMatrices`, `SkinMatricesForNode`, `ApplyToScene`, and `ApplyToNodes`. `Player` also implements `PoseSampler` via `Update` and `Pose`.
 
 `SkinMatrices(skinIndex)` computes glTF 2.0 joint matrices normalized by the skinned mesh node's inverse world transform (`inverse(worldMatrix[meshNode]) * worldMatrix[joint] * inverseBindMatrix[i]`), so bind-pose joints evaluate to identity matrices even under rotated root nodes.
 
@@ -69,7 +69,7 @@ _ = pose
 
 A sample whose clip has `Loop: true` wraps with the shared phase; a clip with `Loop: false` plays once from the blend space's last `Reset` and holds its final frame, and fires each of its events once. Samples placed at the same parameter (or the same 2D point) split that position's weight equally, so none of them is shadowed.
 
-`StateMachine.Update(0)` is a paused step: it returns the current pose without advancing time or starting conditional transitions. A state with a negative `Speed` plays backward and fires the events it crosses in reverse order. When the two states of a crossfade share one blend space or sampler, it advances once per step.
+`StateMachine.Update(0)` is a paused step: it returns the current pose without advancing time or starting conditional transitions. A state with a negative `Speed` plays backward and fires the events it crosses in reverse order: entering a non-looping clip state (`Loop: false`) with negative `Speed` starts at `Duration` and plays back to `0` (looping clips start at `0` and wrap backward), and replacing the active non-looping clip state with an opposite-sign `Speed` while parked at a clamped end jumps to the opposite end. When the two states of a crossfade share one blend space or sampler, it advances once per step.
 
 ## Bone-masked layers and additive clips
 
