@@ -304,6 +304,13 @@ assets:
       size: 24            # pixels; 32 when omitted
       chars: " 0123456789:" # printable ASCII when omitted
       padding: 1          # 1 when omitted
+    - in: art/fonts/score # a folder of glyph images: 0.png ... 9.png, plus.png, times.png
+      out: assets/fonts/score.fnt
+      glyphs:             # maps a name that is not one character to its character
+        plus.png: "+"
+        times.png: "×"
+      spacing: 2          # extra advance in pixels; 0 when omitted
+      align: bottom       # top, center or bottom; bottom when omitted
   models:
     - in: models/ship.gltf  # .gltf or .glb, with the buffers and images it names beside it
       out: assets/ship.glb
@@ -321,6 +328,8 @@ assets:
 Every list and the manifest are optional, and each setting means what the flag of the same name means for the single command. Two targets may not write the same file: an atlas named `ui` writes `ui.png` and `ui.json`, or `ui-0.png`, `ui-1.png` and so on with their `.json` files when it needs several pages, so no other target in its folder may write those names, nor another atlas there be named `ui` or `ui-1`. No target, and not the cache, may write over `game.yaml` or a file a target reads, since the next run would then read its own output. An atlas may not write its pages into a folder an atlas reads images from, nor may another target or the cache write a `.png` file there, since the atlas would then pack it on the next run, and the cache may not be inside the manifest's folder, since the manifest would then list it; a folder whose name starts with a dot is skipped by both scans, so any of them may go there. A font's pages are named after its `.fnt` file as an atlas's are after its name, `hud.png` or `hud-0.png`, `hud-1.png` and so on beside `hud.fnt`, and follow the same rules. No target may read a font's page either: fonts are built after textures and models, so a texture made from one would encode the page of the run before.
 
 A font target bakes a TrueType or OpenType font into an [AngelCode BMFont](text.md) that `text.LoadBMFont` reads: each character of `chars` the font has a glyph for is drawn at `size` pixels, at most 2048, in white with its coverage as alpha, the glyphs are packed onto PNG pages up to 2048 pixels a side, `padding` pixels apart, and the `.fnt` text file records each glyph's place, offsets and advance, the line height and baseline, and the font's kerning between the baked characters. A character the font has no glyph for is left out; a font with none of them is an error.
+
+An `in` that is a folder of PNG glyph images, such as score digits or damage numbers, bakes the same `.fnt` and pages from the images themselves: a file whose base name's stem is one character, such as `7.png`, draws that character, and `glyphs` maps every other name to its character, such as `plus.png` to `+`; an unmapped name, two images for one character, a `glyphs` entry for a file the folder does not hold and a file that is not a PNG image are refused, as are `size` and `chars`, which pick the glyphs of a font file. Each glyph is drawn at its image's pixels, so `lineHeight` and `base` are the tallest image's height, its advance is the image's width plus `spacing`, and `align` places it at the top, center or bottom of the line; hand-drawn images carry no kerning, so the `.fnt` has none. A folder's own sidecar may set `padding` only.
 
 A model target packs a glTF model into one binary glTF file that [gltf](3d-models-blender.md) loads with nothing to resolve: the buffers the model holds or names, a `.glb` file's binary chunk among them, are merged into the GLB's binary chunk, and each image it names by file or data URI is embedded there with its media type. Every other property is kept, extensions and extras included, and the result is checked by loading it. `scale` puts each root node of the model's scenes under a new node scaled by it, one per root even when several scenes list it, such as `0.01` for a model exported in centimeters, and `animations: false` leaves the animations out. The buffers and images the model names must be relative paths inside the project; they are inputs of the target, so editing a texture beside a `.gltf` file repacks it.
 

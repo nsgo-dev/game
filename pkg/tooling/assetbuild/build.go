@@ -35,7 +35,7 @@ const (
 	KindTexture Kind = "texture"
 	// KindAudio converts a WAV file.
 	KindAudio Kind = "audio"
-	// KindFont bakes a TrueType or OpenType font into a bitmap font.
+	// KindFont bakes a TrueType or OpenType font, or a folder of PNG glyph images, into a bitmap font.
 	KindFont Kind = "font"
 	// KindModel packs a glTF model into one GLB file.
 	KindModel Kind = "model"
@@ -724,6 +724,10 @@ func (b *Builder) checkSidecars(a *project.Assets) error {
 	}
 	for _, f := range a.Fonts {
 		folders = append(folders, folder{path.Dir(path.Clean(f.In)), false})
+		if f.GlyphFolder() {
+			// A sidecar inside a glyph folder, beside an image the font bakes, is refused when no target reads its asset, as one in an atlas's folder is.
+			folders = append(folders, folder{path.Clean(f.In), true})
+		}
 	}
 	for _, m := range a.Models {
 		folders = append(folders, folder{path.Dir(path.Clean(m.In)), false})

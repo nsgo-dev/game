@@ -40,7 +40,7 @@ type Assets struct {
 	Textures []TextureTarget `yaml:"textures,omitempty"`
 	// Audio are the WAV files to normalize, resample and convert.
 	Audio []AudioTarget `yaml:"audio,omitempty"`
-	// Fonts are the TrueType and OpenType fonts to bake into bitmap fonts.
+	// Fonts are the TrueType and OpenType fonts, and the folders of PNG glyph images, to bake into bitmap fonts.
 	Fonts []FontTarget `yaml:"fonts,omitempty"`
 	// Models are the glTF models to pack into single GLB files.
 	Models []ModelTarget `yaml:"models,omitempty"`
@@ -104,18 +104,24 @@ type AudioTarget struct {
 	Bitrate int `yaml:"bitrate,omitempty"`
 }
 
-// FontTarget is one TrueType or OpenType font baked into an AngelCode BMFont, which text.LoadBMFont reads: a text .fnt file and the PNG pages its glyphs are packed on, named after it, such as hud.png beside hud.fnt, or hud-0.png, hud-1.png and so on when the glyphs need several pages.
+// FontTarget is one TrueType or OpenType font, or one folder of PNG glyph images, baked into an AngelCode BMFont, which text.LoadBMFont reads: a text .fnt file and the PNG pages its glyphs are packed on, named after it, such as hud.png beside hud.fnt, or hud-0.png, hud-1.png and so on when the glyphs need several pages.
 type FontTarget struct {
-	// In is the .ttf or .otf font file.
+	// In is the .ttf or .otf font file, or a folder of PNG glyph images when the path has no .ttf or .otf extension.
 	In string `yaml:"in"`
 	// Out is the .fnt file written; the pages are written beside it.
 	Out string `yaml:"out"`
-	// Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize.
+	// Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize. A folder of glyph images keeps its images' pixels instead.
 	Size int `yaml:"size,omitempty"`
-	// Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out.
+	// Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out. A folder of glyph images bakes every image it holds instead.
 	Chars string `yaml:"chars,omitempty"`
 	// Padding is the transparent gap around each glyph on the pages in pixels; nil is 1.
 	Padding *int `yaml:"padding,omitempty"`
+	// Glyphs maps a glyph image's slash-separated path relative to In to the character it draws, for images whose base name's stem is not one character, such as "plus.png": "+". A folder input only takes it.
+	Glyphs map[string]string `yaml:"glyphs,omitempty"`
+	// Spacing is the extra advance in pixels after each glyph of a folder input.
+	Spacing int `yaml:"spacing,omitempty"`
+	// Align is where each glyph of a folder input sits in the line: "top", "center" or "bottom"; empty is "bottom".
+	Align string `yaml:"align,omitempty"`
 }
 
 // ModelTarget is one glTF model packed into a single binary glTF (.glb) file: its buffers merged into the file's binary chunk and the images it references by file embedded, so the game loads one file.
@@ -133,6 +139,12 @@ type ModelTarget struct {
 // FontPages returns the slash-separated folder a font target writes its pages to and the name they are named after: Out's folder and its base name without the .fnt extension.
 func (t FontTarget) FontPages() (dir, name string) {
 	return path.Dir(t.Out), strings.TrimSuffix(path.Base(t.Out), path.Ext(t.Out))
+}
+
+// GlyphFolder reports whether the font target bakes from a folder of PNG glyph images rather than a TrueType or OpenType font file: In has no .ttf or .otf extension.
+func (t FontTarget) GlyphFolder() bool {
+	ext := strings.ToLower(path.Ext(t.In))
+	return ext != ".ttf" && ext != ".otf"
 }
 
 // ValidateFontSize checks the size of a font target or a font's import settings: 0, which keeps the default, up to MaxFontSize.
@@ -574,22 +586,75 @@ func validateFontTarget(f FontTarget) error {
 	if err := validateAssetIO(f.In, f.Out, false); err != nil {
 		return err
 	}
-	if ext := strings.ToLower(path.Ext(f.In)); ext != ".ttf" && ext != ".otf" {
-		return fmt.Errorf("in %q must be a .ttf or .otf font", f.In)
-	}
 	if path.Ext(f.Out) != ".fnt" {
 		return fmt.Errorf("out %q must be a .fnt file", f.Out)
 	}
 	if _, name := f.FontPages(); name == "" || strings.HasPrefix(name, ".") || strings.Contains(name, `"`) {
 		return fmt.Errorf("out %q must have a name before .fnt that does not start with a dot or hold a double quote, which its pages are named after", f.Out)
 	}
-	if err := ValidateFontSize(f.Size); err != nil {
-		return err
-	}
 	if f.Padding != nil && *f.Padding < 0 {
 		return fmt.Errorf("padding %d must not be negative", *f.Padding)
 	}
+	if f.GlyphFolder() {
+		if f.Size != 0 {
+			return fmt.Errorf("size %d is the pixel size a TTF or OTF font's glyphs are drawn at, and %s is a folder of glyph images, whose pixels it keeps", f.Size, f.In)
+		}
+		if f.Chars != "" {
+			return fmt.Errorf("chars picks the glyphs of a TTF or OTF font, and %s is a folder of glyph images, which bakes every image it holds", f.In)
+		}
+		if f.Spacing < 0 {
+			return fmt.Errorf("spacing %d must not be negative", f.Spacing)
+		}
+		switch f.Align {
+		case "", "top", "center", "bottom":
+		default:
+			return fmt.Errorf("align %q must be top, center or bottom", f.Align)
+		}
+		return validateFontGlyphs(f.Glyphs)
+	}
+	if len(f.Glyphs) > 0 {
+		return fmt.Errorf("glyphs maps a folder's glyph images to characters, and %s is a TTF or OTF font, whose glyphs it draws itself", f.In)
+	}
+	if f.Spacing != 0 {
+		return fmt.Errorf("spacing adds advance to the glyphs of a folder of glyph images, and %s is a TTF or OTF font", f.In)
+	}
+	if f.Align != "" {
+		return fmt.Errorf("align places the glyphs of a folder of glyph images in the line, and %s is a TTF or OTF font", f.In)
+	}
+	if err := ValidateFontSize(f.Size); err != nil {
+		return err
+	}
 	return ValidateFontChars(f.Chars)
+}
+
+// validateFontGlyphs checks the glyphs mapping of a font target that bakes a folder of glyph images: each key the slash-separated relative path of a PNG image whose base name's stem is not one character, each value exactly one character that is not a control character, and no two images mapped to one character.
+func validateFontGlyphs(glyphs map[string]string) error {
+	byChar := make(map[rune]string, len(glyphs))
+	for name, chars := range glyphs {
+		if err := validateAssetPath(name); err != nil {
+			return fmt.Errorf("glyphs: %w", err)
+		}
+		if !strings.EqualFold(path.Ext(name), ".png") {
+			return fmt.Errorf("glyphs: %q must be a PNG image", name)
+		}
+		base := path.Base(name)
+		stem := strings.TrimSuffix(base, path.Ext(base))
+		if rs := []rune(stem); len(rs) == 1 {
+			return fmt.Errorf("glyphs: %q needs no mapping; its stem %q is one character and maps to it", name, stem)
+		}
+		rs := []rune(chars)
+		if len(rs) != 1 {
+			return fmt.Errorf("glyphs: %q must map to exactly one character, not %q", name, chars)
+		}
+		if unicode.IsControl(rs[0]) {
+			return fmt.Errorf("glyphs: %q maps to the control character %q; map it to a character to draw", name, chars)
+		}
+		if prev, dup := byChar[rs[0]]; dup {
+			return fmt.Errorf("glyphs: %q and %q both map to %q; remove one", prev, name, chars)
+		}
+		byChar[rs[0]] = name
+	}
+	return nil
 }
 
 func validateModelTarget(m ModelTarget) error {

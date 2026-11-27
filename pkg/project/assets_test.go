@@ -70,7 +70,18 @@ func TestAssetsRefused(t *testing.T) {
 		{"audio png in atlas images", atlas + "  audio:\n    - in: a.wav\n      out: art/ui/sub/j.png\n", "audio[0] writes art/ui/sub/j.png, inside atlases[0]'s images in art/ui"},
 		{"cache png in atlas images", atlas + "  cache: art/ui/cache.png\n", "the cache writes art/ui/cache.png, inside atlases[0]'s images in art/ui"},
 		{"manifest not go", assetsHead + "assets:\n  manifest:\n    in: assets\n    out: assets/manifest.txt\n", ".go file"},
-		{"font in not a font", assetsHead + "assets:\n  fonts:\n    - in: a.woff\n      out: a.fnt\n", ".ttf or .otf"},
+		{"glyph font with size", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      size: 24\n", "is a folder of glyph images"},
+		{"glyph font with chars", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      chars: \"0123\"\n", "is a folder of glyph images"},
+		{"glyph font negative spacing", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      spacing: -1\n", "spacing -1"},
+		{"glyph font align", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      align: baseline\n", "top, center or bottom"},
+		{"glyph font glyphs not png", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      glyphs:\n        plus.txt: \"+\"\n", "must be a PNG image"},
+		{"glyph font glyphs one character stem", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      glyphs:\n        \"7.png\": \"8\"\n", "needs no mapping"},
+		{"glyph font glyphs two characters", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      glyphs:\n        plus.png: \"++\"\n", "exactly one character"},
+		{"glyph font glyphs duplicate character", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      glyphs:\n        plus.png: \"+\"\n        add.png: \"+\"\n", "both map to \"+\""},
+		{"glyph font glyphs control character", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      glyphs:\n        \"ctrl.png\": \"\\t\"\n", "control character"},
+		{"glyphs on a font file", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      glyphs:\n        plus.png: \"+\"\n", "is a TTF or OTF font"},
+		{"spacing on a font file", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      spacing: 2\n", "is a TTF or OTF font"},
+		{"align on a font file", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      align: top\n", "is a TTF or OTF font"},
 		{"font out not fnt", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.txt\n", ".fnt file"},
 		{"font out without a name", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: fonts/.fnt\n", "does not start with a dot"},
 		{"font out with a quote", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: 'fonts/a\"b.fnt'\n", "double quote"},
@@ -111,6 +122,7 @@ func TestAssetsAccepted(t *testing.T) {
 		{"texture of a JSON-named neighbor of a font page", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: assets/hud.fnt\n  textures:\n    - in: assets/hud-x.png\n      out: assets/hud.ktx2\n"},
 		{"largest font size", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      size: 2048\n"},
 		{"font beside an atlas", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  fonts:\n    - in: a.otf\n      out: assets/ui-x.fnt\n"},
+		{"glyph image font", assetsHead + "assets:\n  fonts:\n    - in: art/fonts/score\n      out: assets/fonts/score.fnt\n      glyphs:\n        plus.png: \"+\"\n      spacing: 2\n      align: bottom\n      padding: 0\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := project.Parse([]byte(tc.src)); err != nil {

@@ -170,7 +170,7 @@
           }
         },
         "fonts": {
-          "description": "Fonts are the TrueType and OpenType fonts to bake into bitmap fonts.",
+          "description": "Fonts are the TrueType and OpenType fonts, and the folders of PNG glyph images, to bake into bitmap fonts.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/FontTarget"
@@ -682,11 +682,11 @@
       "additionalProperties": false
     },
     "FontTarget": {
-      "description": "FontTarget is one TrueType or OpenType font baked into an AngelCode BMFont, which text.LoadBMFont reads: a text .fnt file and the PNG pages its glyphs are packed on, named after it, such as hud.png beside hud.fnt, or hud-0.png, hud-1.png and so on when the glyphs need several pages.",
+      "description": "FontTarget is one TrueType or OpenType font, or one folder of PNG glyph images, baked into an AngelCode BMFont, which text.LoadBMFont reads: a text .fnt file and the PNG pages its glyphs are packed on, named after it, such as hud.png beside hud.fnt, or hud-0.png, hud-1.png and so on when the glyphs need several pages.",
       "type": "object",
       "properties": {
         "in": {
-          "description": "In is the .ttf or .otf font file.",
+          "description": "In is the .ttf or .otf font file, or a folder of PNG glyph images when the path has no .ttf or .otf extension.",
           "type": "string"
         },
         "out": {
@@ -694,13 +694,13 @@
           "type": "string"
         },
         "size": {
-          "description": "Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize.",
+          "description": "Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize. A folder of glyph images keeps its images' pixels instead.",
           "type": "integer",
           "minimum": -9223372036854776000,
           "maximum": 9223372036854776000
         },
         "chars": {
-          "description": "Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out.",
+          "description": "Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out. A folder of glyph images bakes every image it holds instead.",
           "type": "string"
         },
         "padding": {
@@ -708,6 +708,23 @@
           "type": "integer",
           "minimum": -9223372036854776000,
           "maximum": 9223372036854776000
+        },
+        "glyphs": {
+          "description": "Glyphs maps a glyph image's slash-separated path relative to In to the character it draws, for images whose base name's stem is not one character, such as \"plus.png\": \"+\". A folder input only takes it.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "spacing": {
+          "description": "Spacing is the extra advance in pixels after each glyph of a folder input.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "align": {
+          "description": "Align is where each glyph of a folder input sits in the line: \"top\", \"center\" or \"bottom\"; empty is \"bottom\".",
+          "type": "string"
         }
       },
       "additionalProperties": false
