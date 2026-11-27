@@ -138,3 +138,13 @@ decalRenderer.DrawWithCamera(pass, camBuf.BindGroup())
 ```
 
 Create `GPUDecalRenderer` once in `gpu.View`'s `OnReady` with `NewGPUDecalRenderer(cx, dev, opts)`. Pass `render3d.CameraBuffer.Layout()` as `CameraLayout` to share the frame's camera bind group (`DrawWithCamera`), or leave `CameraLayout` nil to use the renderer's own camera buffer (`WriteCamera` + `Draw`). Bind custom textures per `Decal.TextureID` with `SetTexture` or `UploadTextureRGBA`; consecutive batches sharing a texture merge into a single `DrawIndexed` call.
+
+## Scene lighting limits per target
+
+When a 3D scene file is built and rendered through [`scenemodel.Renderer`](scenemodel.md#light-limits-per-target), its visible directional lights (up to 4) and first shadow-casting point and spot lights stay in the `render3d.LightRig` uniform block, while every other visible point and spot light is shaded through `render3d.ClusteredLightSystem`:
+
+- **Storage-buffer targets** (macOS/iOS Metal, WebGPU, Vulkan, Direct3D 11, and headless software tests): up to **512** visible unshadowed local lights (point + spot) per frame (`64` per frustum cluster cell), plus `4` directional lights and `1` shadow-casting point + `1` shadow-casting spot light.
+- **Fallback targets without storage buffers** (WebGL 2, OpenGL ES 3.0, Linux GtkGLArea, `nsgotest.NoGPUCompute`): up to **16** prioritized visible unshadowed local lights per frame (frustum-culled and ranked by luminous power, range, and camera distance), plus `4` directional lights and `1` shadow-casting point + `1` shadow-casting spot light.
+- **Direct `render3d.LightRig` without clustering** (`Built.LightRig()` / `Built.LightRigNear`): up to `4` directional, `16` point, and `8` spot lights, keeping slot 0's shadow caster and picking the nearest lights to the camera when truncating.
+
+Run `game check` to flag scenes whose unshadowed local light count exceeds the 16-light fallback cap (with file, line, and dropped count).

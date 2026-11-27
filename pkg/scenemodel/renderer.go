@@ -21,8 +21,9 @@ import (
 const BaseColorGroup = render3d.PBRDrawGroup + 1
 
 const (
-	sceneEnvUniformSize = 32
-	skyboxUniformSize   = 80
+	sceneEnvUniformSize     = 32
+	skyboxUniformSize       = 80
+	sceneClusterBaseBinding = 12
 )
 
 func rebindGroup1(src string, b0, b1, b2 int) string {
@@ -155,14 +156,19 @@ struct SceneEnvUniform {
 @group(1) @binding(2) var<uniform> scene_env: SceneEnvUniform;
 `
 
-func buildShaderPreludeWGSL() string {
+func buildShaderPreludeWGSL(fallback bool) string {
 	probeIBLWGSL := rebindProbeIBLDrawGroup(render3d.ProbeIBLWGSLForGroup(render3d.PBRDrawGroup))
 	dirShadowWGSL := rebindGroup1(render3d.ShadowWGSLForGroup(render3d.LightGroup), 3, 4, 5)
 	spotShadowWGSL := rebindGroup1(render3d.SpotShadowWGSLForGroup(render3d.LightGroup), 6, 7, 8)
 	pointShadowWGSL := rebindGroup1(render3d.PointShadowWGSLForGroup(render3d.LightGroup), 9, 10, 11)
+	localLightsWGSL := render3d.ClusteredLocalBindingsWGSL(render3d.LightGroup, sceneClusterBaseBinding)
+	if fallback {
+		localLightsWGSL = render3d.ClusteredFallbackLocalBindingsWGSL(render3d.LightGroup, sceneClusterBaseBinding)
+	}
 
 	return render3d.CameraWGSL +
 		render3d.LightWGSL + "\n" +
+		localLightsWGSL + "\n" +
 		render3d.FogWGSL + "\n" +
 		render3d.FogCameraWGSL + "\n" +
 		sceneEnvDeclWGSL + "\n" +
@@ -235,15 +241,15 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
 	if (scene_env.extra.x > 0.5) {
 		spot_vis = sample_spot_shadow(in.world_pos, n);
 	}
-	var lit = shade_pbr_visibility(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, dir_vis, pt_vis, spot_vis) + pbr_draw.emissive.rgb;
+	var lit = shade_pbr_clustered_visibility(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, dir_vis, pt_vis, spot_vis, in.clip) + pbr_draw.emissive.rgb;
 	if (probe_ibl.params.x > 0.0) {
 		lit = lit + evaluate_probe_ibl(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, 1.0);
 	}
 	let fogged = apply_fog(lit, fog_camera_pos(in.world_pos), in.world_pos, fog);
 `
 
-// ShaderWGSL is the shader module Renderer draws with in ShadingLit: render3d metallic-roughness PBR lighting with directional/point/spot lights, optional directional/point/spot shadows, per-object reflection probes and light probe SH irradiance (falling back to scene sky IBL), distance and height fog, exposure, tone mapping, and a base color texture.
-var ShaderWGSL = buildShaderPreludeWGSL() + litFragmentBodyWGSL + `	let display = scene_tonemap_srgb(fogged, scene_env.params.x, scene_env.params.y);
+const (
+	litFragmentTailWGSL = `	let display = scene_tonemap_srgb(fogged, scene_env.params.x, scene_env.params.y);
 	var alpha = 1.0;
 	if (pbr_draw.emissive.w > 0.5) {
 		alpha = base.a;
@@ -251,18 +257,14 @@ var ShaderWGSL = buildShaderPreludeWGSL() + litFragmentBodyWGSL + `	let display 
 	return vec4<f32>(display, alpha);
 }
 `
-
-// linearShaderWGSL is ShaderWGSL writing unclamped linear HDR radiance without tone mapping or sRGB encoding, used when RendererOptions.LinearOutput is set (for example when baking reflection and light probes into an HDR target).
-var linearShaderWGSL = buildShaderPreludeWGSL() + litFragmentBodyWGSL + `	var alpha = 1.0;
+	linearFragmentTailWGSL = `	var alpha = 1.0;
 	if (pbr_draw.emissive.w > 0.5) {
 		alpha = base.a;
 	}
 	return vec4<f32>(fogged, alpha);
 }
 `
-
-// unlitShaderWGSL is ShaderWGSL with a fragment stage that writes the textured base color plus the emissive color and ignores the lights, which ShadingUnlit draws with.
-var unlitShaderWGSL = buildShaderPreludeWGSL() + `
+	unlitFragmentBodyWGSL = `
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 	// Sample in uniform control flow, before the cutout's discard.
@@ -278,6 +280,23 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 	return vec4<f32>(linear_to_srgb(base.rgb + pbr_draw.emissive.rgb), alpha);
 }
 `
+)
+
+// ShaderWGSL is the clustered-lighting shader module Renderer draws with in ShadingLit on devices with storage buffers: render3d metallic-roughness PBR lighting with directional/point/spot lights, clustered local lights, optional directional/point/spot shadows, per-object reflection probes and light probe SH irradiance (falling back to scene sky IBL), distance and height fog, exposure, tone mapping, and a base color texture.
+var ShaderWGSL = buildShaderPreludeWGSL(false) + litFragmentBodyWGSL + litFragmentTailWGSL
+
+// linearShaderWGSL is ShaderWGSL writing unclamped linear HDR radiance without tone mapping or sRGB encoding, used when RendererOptions.LinearOutput is set (for example when baking reflection and light probes into an HDR target).
+var linearShaderWGSL = buildShaderPreludeWGSL(false) + litFragmentBodyWGSL + linearFragmentTailWGSL
+
+// unlitShaderWGSL is ShaderWGSL with a fragment stage that writes the textured base color plus the emissive color and ignores the lights, which ShadingUnlit draws with.
+var unlitShaderWGSL = buildShaderPreludeWGSL(false) + unlitFragmentBodyWGSL
+
+// fallbackShaderWGSL, fallbackLinearShaderWGSL and fallbackUnlitShaderWGSL are the uniform-buffer fallback variants of ShaderWGSL, linearShaderWGSL and unlitShaderWGSL for targets without storage buffers (WebGL 2, OpenGL ES 3.0, Linux GtkGLArea, nsgotest.NoGPUCompute).
+var (
+	fallbackShaderWGSL       = buildShaderPreludeWGSL(true) + litFragmentBodyWGSL + litFragmentTailWGSL
+	fallbackLinearShaderWGSL = buildShaderPreludeWGSL(true) + litFragmentBodyWGSL + linearFragmentTailWGSL
+	fallbackUnlitShaderWGSL  = buildShaderPreludeWGSL(true) + unlitFragmentBodyWGSL
+)
 
 // sceneSkyboxWGSL draws the scene's HDR/gradient skybox cubemap through the exact same exposure and tone mapping curve as ShaderWGSL.
 const sceneSkyboxHeadWGSL = `struct SkyboxParams {
@@ -367,6 +386,8 @@ type RendererOptions struct {
 	LinearOutput bool
 	// DisableProbes excludes baked local reflection probes and light probe grids from shading (still keeping direct lights, shadows, sky and emissives), used when baking or rebaking probes.
 	DisableProbes bool
+	// ClusterConfig configures the internal render3d.ClusteredLightSystem used for unshadowed point and spot lights; the zero value uses render3d.DefaultClusterConfig() (and falls back automatically to the uniform-buffer fallback path if the device's MaxStorageBufferBindingSize cannot fit the default storage buffers).
+	ClusterConfig render3d.ClusterConfig
 }
 
 // Shading says how Renderer shades the parts it draws (Renderer.SetShading).
@@ -405,9 +426,9 @@ type Renderer struct {
 	dev   *gpu.Device
 
 	cam           *render3d.CameraBuffer
+	clustered     *render3d.ClusteredLightSystem
 	sceneLayout   *gpu.BindGroupLayout
 	sceneGroup    *gpu.BindGroup
-	lightsBuf     *gpu.Buffer
 	fogBuf        *gpu.Buffer
 	envBuf        *gpu.Buffer
 	dirShadowBuf  *gpu.Buffer
@@ -451,13 +472,15 @@ type Renderer struct {
 	// draws holds the per-draw uniform and probe IBL bind group of each part, by drawable and part.
 	draws [][]partDraw
 
-	queue     render3d.Queue
-	occ       *render3d.OcclusionBuffer
-	occluders []render3d.Occluder
-	items     []render3d.DrawItem
-	plan      render3d.RenderPlan
+	queue         render3d.Queue
+	occ           *render3d.OcclusionBuffer
+	occluders     []render3d.Occluder
+	items         []render3d.DrawItem
+	plan          render3d.RenderPlan
+	clusterLights []render3d.ClusterLight
+	viewportW     float32
+	viewportH     float32
 
-	lightScratch      []byte
 	fogScratch        []byte
 	envScratch        [sceneEnvUniformSize]byte
 	drawScratch       [render3d.PBRDrawUniformSize]byte
@@ -589,8 +612,22 @@ func (r *Renderer) setupSceneResources(cx *core.Scope, label string, opts Render
 			Retained: retained,
 		})
 	}
-	if r.lightsBuf, err = newBuf("lights", render3d.LightUniformSize); err != nil {
-		return fmt.Errorf("scenemodel: light buffer: %w", err)
+	clusterCfg := opts.ClusterConfig
+	defaultClusterCfg := clusterCfg == (render3d.ClusterConfig{})
+	if clusterCfg.Label == "" {
+		clusterCfg.Label = label + ".clustered"
+	}
+	if retained {
+		clusterCfg.Retained = true
+	}
+	if r.clustered, err = render3d.NewClusteredLightSystem(cx, dev, clusterCfg); err != nil {
+		if defaultClusterCfg && errors.Is(err, render3d.ErrInvalidClusterConfig) && !clusterCfg.ForceFallback {
+			clusterCfg.ForceFallback = true
+			r.clustered, err = render3d.NewClusteredLightSystem(cx, dev, clusterCfg)
+		}
+		if err != nil {
+			return fmt.Errorf("scenemodel: clustered lights: %w", err)
+		}
 	}
 	if r.fogBuf, err = newBuf("fog", render3d.FogUniformSize); err != nil {
 		return fmt.Errorf("scenemodel: fog buffer: %w", err)
@@ -721,42 +758,46 @@ func (r *Renderer) setupSceneResources(cx *core.Scope, label string, opts Render
 		ptTex, ptSamp = r.pointShadow.DepthTexture(), r.pointShadow.Sampler()
 	}
 
+	sceneLayoutEntries := []gpu.BindGroupLayoutEntry{
+		{Binding: 0, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 2, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 3, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 4, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+		{Binding: 5, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
+		{Binding: 6, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 7, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+		{Binding: 8, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
+		{Binding: 9, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 10, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+		{Binding: 11, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
+	}
+	sceneLayoutEntries = r.clustered.AppendLocalLayoutEntries(sceneLayoutEntries, sceneClusterBaseBinding)
 	if r.sceneLayout, err = dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: label + ".scene",
-		Entries: []gpu.BindGroupLayoutEntry{
-			{Binding: 0, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 2, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 3, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 4, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
-			{Binding: 5, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
-			{Binding: 6, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 7, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
-			{Binding: 8, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
-			{Binding: 9, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 10, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
-			{Binding: 11, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
-		},
+		Label:   label + ".scene",
+		Entries: sceneLayoutEntries,
 	}); err != nil {
 		return fmt.Errorf("scenemodel: scene layout: %w", err)
 	}
+	sceneGroupEntries := []gpu.BindGroupEntry{
+		{Binding: 0, Buffer: r.clustered.RigBuffer(), Size: render3d.LightUniformSize},
+		{Binding: 1, Buffer: r.fogBuf, Size: render3d.FogUniformSize},
+		{Binding: 2, Buffer: r.envBuf, Size: sceneEnvUniformSize},
+		{Binding: 3, Buffer: r.dirShadowBuf, Size: render3d.ShadowUniformSize},
+		{Binding: 4, Texture: dirTex},
+		{Binding: 5, Sampler: r.shadowSampler},
+		{Binding: 6, Buffer: r.spotShadowBuf, Size: render3d.SpotShadowUniformSize},
+		{Binding: 7, Texture: spotTex},
+		{Binding: 8, Sampler: spotSamp},
+		{Binding: 9, Buffer: r.ptShadowBuf, Size: render3d.PointShadowUniformSize},
+		{Binding: 10, Texture: ptTex},
+		{Binding: 11, Sampler: ptSamp},
+	}
+	sceneGroupEntries = r.clustered.AppendLocalBindGroupEntries(sceneGroupEntries, sceneClusterBaseBinding)
 	if r.sceneGroup, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-		Label:  label + ".scene",
-		Layout: r.sceneLayout,
-		Entries: []gpu.BindGroupEntry{
-			{Binding: 0, Buffer: r.lightsBuf, Size: render3d.LightUniformSize},
-			{Binding: 1, Buffer: r.fogBuf, Size: render3d.FogUniformSize},
-			{Binding: 2, Buffer: r.envBuf, Size: sceneEnvUniformSize},
-			{Binding: 3, Buffer: r.dirShadowBuf, Size: render3d.ShadowUniformSize},
-			{Binding: 4, Texture: dirTex},
-			{Binding: 5, Sampler: r.shadowSampler},
-			{Binding: 6, Buffer: r.spotShadowBuf, Size: render3d.SpotShadowUniformSize},
-			{Binding: 7, Texture: spotTex},
-			{Binding: 8, Sampler: spotSamp},
-			{Binding: 9, Buffer: r.ptShadowBuf, Size: render3d.PointShadowUniformSize},
-			{Binding: 10, Texture: ptTex},
-			{Binding: 11, Sampler: ptSamp},
-		},
+		Label:   label + ".scene",
+		Layout:  r.sceneLayout,
+		Entries: sceneGroupEntries,
 	}); err != nil {
 		return fmt.Errorf("scenemodel: scene bind group: %w", err)
 	}
@@ -1020,11 +1061,23 @@ func (r *Renderer) uploadMeshes(cx *core.Scope, label string, retained bool) err
 // createPipelines creates the pipeline of each DrawPipeline ID for shading s.
 func (r *Renderer) createPipelines(s Shading) error {
 	cx, label, opts := r.cx, r.label, r.opts
+	fallback := r.clustered != nil && r.clustered.IsFallback()
 	src, suffix := ShaderWGSL, ""
+	if fallback {
+		src, suffix = fallbackShaderWGSL, ".fallback"
+	}
 	if opts.LinearOutput && s == ShadingLit {
-		src, suffix = linearShaderWGSL, ".linear"
+		if fallback {
+			src, suffix = fallbackLinearShaderWGSL, ".fallback.linear"
+		} else {
+			src, suffix = linearShaderWGSL, ".linear"
+		}
 	} else if s == ShadingUnlit {
-		src, suffix = unlitShaderWGSL, ".unlit"
+		if fallback {
+			src, suffix = fallbackUnlitShaderWGSL, ".fallback.unlit"
+		} else {
+			src, suffix = unlitShaderWGSL, ".unlit"
+		}
 	}
 	mod, err := gpu.CompileWGSL(src)
 	if err != nil {
@@ -1139,31 +1192,67 @@ func drawUniform(d *Drawable, p *Part) render3d.PBRDrawUniform {
 	return u
 }
 
-// Prepare writes cam and lights to their buffers and each visible part's world transform to its draw buffer, and plans the frame with the renderer's render3d.Queue: frustum culling and draw order. Call it once a frame before the render pass that Draw records into. It returns the plan's statistics, and an error when lights fails render3d's validation or the renderer is closed.
-func (r *Renderer) Prepare(cam *scene3d.Camera, lights render3d.LightRig) (render3d.RenderStats, error) {
-	return r.prepare(cam, lights, false)
+// SetViewport sets the render target size in pixels used to map fragment coordinates to clustered light tiles. Call it before PrepareScene when rendering into a target whose dimensions differ from dev.SurfaceSize(); non-positive or non-finite values reset to using dev.SurfaceSize().
+func (r *Renderer) SetViewport(width, height float32) {
+	if r == nil {
+		return
+	}
+	if width > 0 && height > 0 && !math.IsNaN(float64(width)) && !math.IsNaN(float64(height)) && !math.IsInf(float64(width), 0) && !math.IsInf(float64(height), 0) {
+		r.viewportW, r.viewportH = width, height
+		return
+	}
+	r.viewportW, r.viewportH = 0, 0
 }
 
-// PrepareScene prepares the frame using the built scene's own 3D lights (Built.LightRig), shadow-casting lights (Built.ShadowLights) and environment (sky, IBL, fog, tone mapping, exposure). Call RecordShadows before the main render pass when any light casts shadows, then DrawSky and Draw inside the pass.
+// ClusteredLights returns the underlying render3d.ClusteredLightSystem owned by r, for inspecting whether the clustered or fallback path is active and reading per-frame cluster stats.
+func (r *Renderer) ClusteredLights() *render3d.ClusteredLightSystem {
+	if r == nil {
+		return nil
+	}
+	return r.clustered
+}
+
+func (r *Renderer) effectiveViewport() (float32, float32) {
+	if r.viewportW > 0 && r.viewportH > 0 {
+		return r.viewportW, r.viewportH
+	}
+	if r.dev != nil {
+		if w, h := r.dev.SurfaceSize(); w > 0 && h > 0 {
+			return float32(w), float32(h)
+		}
+	}
+	return 1280, 720
+}
+
+// Prepare writes cam and lights to their buffers and each visible part's world transform to its draw buffer, and plans the frame with the renderer's render3d.Queue: frustum culling and draw order. Call it once a frame before the render pass that Draw records into. It returns the plan's statistics, and an error when lights fails render3d's validation or the renderer is closed.
+func (r *Renderer) Prepare(cam *scene3d.Camera, lights render3d.LightRig) (render3d.RenderStats, error) {
+	return r.prepare(cam, lights, nil, false)
+}
+
+// PrepareScene prepares the frame using the built scene's own 3D lights (Built.SceneLights, lighting unshadowed point and spot lights through render3d.ClusteredLightSystem), shadow-casting lights (Built.ShadowLights) and environment (sky, IBL, fog, tone mapping, exposure). Call RecordShadows before the main render pass when any light casts shadows, then DrawSky and Draw inside the pass.
 func (r *Renderer) PrepareScene(cam *scene3d.Camera) (render3d.RenderStats, error) {
 	if r == nil || r.built == nil {
 		return render3d.RenderStats{}, errors.New("scenemodel: PrepareScene on a nil renderer")
 	}
-	return r.prepare(cam, r.built.LightRig(), true)
+	rig, local, err := r.built.appendSceneLights(r.clusterLights[:0])
+	r.clusterLights = local
+	if err != nil {
+		return render3d.RenderStats{}, fmt.Errorf("scenemodel: lights: %w", err)
+	}
+	return r.prepare(cam, rig, local, true)
 }
 
-func (r *Renderer) prepare(cam *scene3d.Camera, lights render3d.LightRig, useSceneShadows bool) (render3d.RenderStats, error) {
+func (r *Renderer) prepare(cam *scene3d.Camera, lights render3d.LightRig, localLights []render3d.ClusterLight, useSceneShadows bool) (render3d.RenderStats, error) {
 	if r == nil || cam == nil {
 		return render3d.RenderStats{}, errors.New("scenemodel: Prepare needs a renderer and a camera")
 	}
-	if r.cam == nil {
+	if r.cam == nil || r.clustered == nil {
 		return render3d.RenderStats{}, errors.New("scenemodel: Prepare on a closed renderer")
 	}
-	if err := lights.Validate(); err != nil {
+	vpW, vpH := r.effectiveViewport()
+	if _, err := r.clustered.UpdateCamera(r.dev, cam, vpW, vpH, lights, localLights); err != nil {
 		return render3d.RenderStats{}, fmt.Errorf("scenemodel: lights: %w", err)
 	}
-	r.lightScratch = lights.AppendUniformData(r.lightScratch[:0])
-	r.dev.WriteBuffer(r.lightsBuf, 0, r.lightScratch)
 	r.cam.WriteCamera(cam)
 	r.writeSkyUniform(cam)
 
@@ -1425,10 +1514,13 @@ func (r *Renderer) Close() error {
 			err = errors.Join(err, l.Close())
 		}
 	}
-	for _, b := range []*gpu.Buffer{r.lightsBuf, r.fogBuf, r.envBuf, r.dirShadowBuf, r.spotShadowBuf, r.ptShadowBuf, r.skyUniform} {
+	for _, b := range []*gpu.Buffer{r.fogBuf, r.envBuf, r.dirShadowBuf, r.spotShadowBuf, r.ptShadowBuf, r.skyUniform} {
 		if b != nil {
 			err = errors.Join(err, b.Close())
 		}
+	}
+	if r.clustered != nil {
+		err = errors.Join(err, r.clustered.Close())
 	}
 	for _, c := range r.probeCubes {
 		if c != nil {
