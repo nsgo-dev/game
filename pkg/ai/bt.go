@@ -70,6 +70,218 @@ type Node interface {
 	Reset()
 }
 
+const maxBTDuration = time.Duration(1<<63 - 1)
+
+func addDurationClamped(base, delta time.Duration) time.Duration {
+	if delta <= 0 {
+		return base
+	}
+	if delta > maxBTDuration-base {
+		return maxBTDuration
+	}
+	return base + delta
+}
+
+// btClock tracks monotonic elapsed game time for a behavior tree so Cooldown
+// decorators advance even on ticks where their branch is not visited.
+type btClock struct {
+	now time.Duration
+}
+
+type btClockState struct {
+	clock     *btClock
+	hasParent bool
+}
+
+func (s *btClockState) advanceIfRoot(dt time.Duration) {
+	if !s.hasParent && s.clock != nil && dt > 0 {
+		s.clock.now = addDurationClamped(s.clock.now, dt)
+	}
+}
+
+func (s *btClockState) adopt(children ...Node) {
+	target := s.clock
+	if target == nil {
+		for _, ch := range children {
+			if clk := findBTClock(ch, nil); clk != nil {
+				target = clk
+				break
+			}
+		}
+	}
+	if target == nil {
+		return
+	}
+	s.clock = target
+	var visited map[uintptr]bool
+	for _, ch := range children {
+		bindBTClock(ch, target, &visited)
+	}
+}
+
+// btClockOwner is implemented internally by built-in composite, decorator, and
+// wrapper nodes so tree construction binds every descendant Cooldown to a single
+// root-owned btClock.
+type btClockOwner interface {
+	btClockRef() *btClockState
+}
+
+func findBTClock(n Node, visited map[uintptr]bool) *btClock {
+	if isNilNode(n) {
+		return nil
+	}
+	if owner, ok := n.(btClockOwner); ok {
+		return owner.btClockRef().clock
+	}
+	if cn, ok := n.(ChildNodes); ok {
+		if ptr, ok := nodePtrKey(n); ok {
+			if visited == nil {
+				visited = make(map[uintptr]bool)
+			}
+			if visited[ptr] {
+				return nil
+			}
+			visited[ptr] = true
+		}
+		for _, ch := range cn.Children() {
+			if clk := findBTClock(ch, visited); clk != nil {
+				return clk
+			}
+		}
+	}
+	return nil
+}
+
+func bindBTClock(n Node, target *btClock, visited *map[uintptr]bool) {
+	if isNilNode(n) {
+		return
+	}
+	if owner, ok := n.(btClockOwner); ok {
+		ref := owner.btClockRef()
+		if ref.clock == nil {
+			// Built-in subtree contains no Cooldown descendants.
+			return
+		}
+		ref.hasParent = true
+		if ref.clock == target {
+			// Already bound to target along with its built-in descendants.
+			return
+		}
+		old := ref.clock
+		if cd, isCD := n.(*cooldownNode); isCD && cd.cooling {
+			rem := cd.readyAt - old.now
+			if rem <= 0 {
+				cd.cooling = false
+				cd.readyAt = 0
+			} else {
+				cd.readyAt = addDurationClamped(target.now, rem)
+			}
+		}
+		ref.clock = target
+		if ptr, ok := nodePtrKey(n); ok {
+			if *visited == nil {
+				*visited = make(map[uintptr]bool)
+			}
+			if (*visited)[ptr] {
+				return
+			}
+			(*visited)[ptr] = true
+		}
+		visitBTChildren(n, func(ch Node) {
+			bindBTClock(ch, target, visited)
+		})
+		return
+	}
+	if cn, ok := n.(ChildNodes); ok {
+		if ptr, ok := nodePtrKey(n); ok {
+			if *visited == nil {
+				*visited = make(map[uintptr]bool)
+			}
+			if (*visited)[ptr] {
+				return
+			}
+			(*visited)[ptr] = true
+		}
+		for _, ch := range cn.Children() {
+			bindBTClock(ch, target, visited)
+		}
+	}
+}
+
+func visitBTChildren(n Node, fn func(Node)) {
+	switch v := n.(type) {
+	case *namedNode:
+		if v.child != nil {
+			fn(v.child)
+		}
+	case *BehaviorTree:
+		if v.root != nil {
+			fn(v.root)
+		}
+	case btUtilityNode:
+		for _, ch := range v.btUtilityChildren() {
+			if ch != nil {
+				fn(ch)
+			}
+		}
+	case *PlanRunner:
+		for _, ch := range v.nodes {
+			if ch != nil {
+				fn(ch)
+			}
+		}
+	case btInspectable:
+		for i := range v.btChildCount() {
+			if ch := v.btChildAt(i); ch != nil {
+				fn(ch)
+			}
+		}
+	default:
+		if cn, ok := n.(ChildNodes); ok {
+			for _, ch := range cn.Children() {
+				if ch != nil {
+					fn(ch)
+				}
+			}
+		}
+	}
+}
+
+// ResetCooldowns clears every active [Cooldown] timer in the behavior tree rooted
+// at root without interrupting running branches.
+//
+// Unlike [Node.Reset], which preserves active cooldowns across branch interruptions
+// such as [Guard], [Selector] preemption, and [TimeLimit], ResetCooldowns performs
+// an explicit cooldown reset (for example when respawning an agent).
+func ResetCooldowns(root Node) {
+	if isNilNode(root) {
+		return
+	}
+	var visited map[uintptr]bool
+	resetCooldowns(root, &visited)
+}
+
+func resetCooldowns(n Node, visited *map[uintptr]bool) {
+	if isNilNode(n) {
+		return
+	}
+	if ptr, ok := nodePtrKey(n); ok {
+		if *visited == nil {
+			*visited = make(map[uintptr]bool)
+		}
+		if (*visited)[ptr] {
+			return
+		}
+		(*visited)[ptr] = true
+	}
+	if cd, ok := n.(*cooldownNode); ok {
+		cd.resetCooldown()
+	}
+	visitBTChildren(n, func(ch Node) {
+		resetCooldowns(ch, visited)
+	})
+}
+
 // ParallelPolicy chooses when a Parallel composite finishes.
 type ParallelPolicy uint8
 
@@ -92,17 +304,23 @@ func Sequence(children ...Node) Node {
 			break
 		}
 	}
-	return &sequenceNode{children: cloned, hasObserver: hasObs}
+	n := &sequenceNode{children: cloned, hasObserver: hasObs}
+	n.clockState.adopt(cloned...)
+	return n
 }
 
 type sequenceNode struct {
 	children    []Node
 	cur         int
 	hasObserver bool
+	clockState  btClockState
 	trace       btTraceState
 }
 
+func (s *sequenceNode) btClockRef() *btClockState { return &s.clockState }
+
 func (s *sequenceNode) Tick(dt time.Duration) Status {
+	s.clockState.advanceIfRoot(dt)
 	if s.hasObserver && s.cur > 0 {
 		for i := 0; i < s.cur; i++ {
 			if sa, ok := s.children[i].(btSelfAbortable); ok && sa.bbSelfAborted() {
@@ -165,17 +383,23 @@ func Selector(children ...Node) Node {
 			break
 		}
 	}
-	return &selectorNode{children: cloned, running: -1, hasObserver: hasObs}
+	n := &selectorNode{children: cloned, running: -1, hasObserver: hasObs}
+	n.clockState.adopt(cloned...)
+	return n
 }
 
 type selectorNode struct {
 	children    []Node
 	running     int
 	hasObserver bool
+	clockState  btClockState
 	trace       btTraceState
 }
 
+func (s *selectorNode) btClockRef() *btClockState { return &s.clockState }
+
 func (s *selectorNode) Tick(dt time.Duration) Status {
+	s.clockState.advanceIfRoot(dt)
 	start := 0
 	if s.hasObserver && s.running >= 0 {
 		preempted := false
@@ -263,22 +487,28 @@ func (s *selectorNode) btChildActive(i int) bool {
 // Parallel ticks all still-running children each tick and finishes according to policy, resetting any remaining running children on completion.
 func Parallel(policy ParallelPolicy, children ...Node) Node {
 	cloned := slices.Clone(children)
-	return &parallelNode{
+	n := &parallelNode{
 		policy:   policy,
 		children: cloned,
 		status:   make([]Status, len(cloned)),
 	}
+	n.clockState.adopt(cloned...)
+	return n
 }
 
 type parallelNode struct {
-	policy   ParallelPolicy
-	children []Node
-	status   []Status
-	active   bool
-	trace    btTraceState
+	policy     ParallelPolicy
+	children   []Node
+	status     []Status
+	active     bool
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (p *parallelNode) btClockRef() *btClockState { return &p.clockState }
+
 func (p *parallelNode) Tick(dt time.Duration) Status {
+	p.clockState.advanceIfRoot(dt)
 	if len(p.children) == 0 {
 		if p.policy == RequireOne {
 			return p.trace.record(StatusFailure)
@@ -361,14 +591,22 @@ func (p *parallelNode) btChildActive(i int) bool {
 }
 
 // Inverter flips StatusSuccess and StatusFailure from child while passing StatusRunning through unchanged.
-func Inverter(child Node) Node { return &inverterNode{child: child} }
-
-type inverterNode struct {
-	child Node
-	trace btTraceState
+func Inverter(child Node) Node {
+	n := &inverterNode{child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
+type inverterNode struct {
+	child      Node
+	clockState btClockState
+	trace      btTraceState
+}
+
+func (n *inverterNode) btClockRef() *btClockState { return &n.clockState }
+
 func (n *inverterNode) Tick(dt time.Duration) Status {
+	n.clockState.advanceIfRoot(dt)
 	if n.child == nil {
 		return n.trace.record(StatusFailure)
 	}
@@ -403,14 +641,22 @@ func (n *inverterNode) btChildActive(i int) bool {
 }
 
 // Succeeder turns both StatusSuccess and StatusFailure from child into StatusSuccess while passing StatusRunning through.
-func Succeeder(child Node) Node { return &succeederNode{child: child} }
-
-type succeederNode struct {
-	child Node
-	trace btTraceState
+func Succeeder(child Node) Node {
+	n := &succeederNode{child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
+type succeederNode struct {
+	child      Node
+	clockState btClockState
+	trace      btTraceState
+}
+
+func (n *succeederNode) btClockRef() *btClockState { return &n.clockState }
+
 func (n *succeederNode) Tick(dt time.Duration) Status {
+	n.clockState.advanceIfRoot(dt)
 	if n.child == nil {
 		return n.trace.record(StatusSuccess)
 	}
@@ -441,14 +687,22 @@ func (n *succeederNode) btChildActive(i int) bool {
 }
 
 // Failer turns both StatusSuccess and StatusFailure from child into StatusFailure while passing StatusRunning through.
-func Failer(child Node) Node { return &failerNode{child: child} }
-
-type failerNode struct {
-	child Node
-	trace btTraceState
+func Failer(child Node) Node {
+	n := &failerNode{child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
+type failerNode struct {
+	child      Node
+	clockState btClockState
+	trace      btTraceState
+}
+
+func (n *failerNode) btClockRef() *btClockState { return &n.clockState }
+
 func (n *failerNode) Tick(dt time.Duration) Status {
+	n.clockState.advanceIfRoot(dt)
 	if n.child == nil {
 		return n.trace.record(StatusFailure)
 	}
@@ -482,17 +736,23 @@ func (n *failerNode) btChildActive(i int) bool {
 //
 // When count is less than or equal to 0, Repeater repeats indefinitely until child fails.
 func Repeater(count int, child Node) Node {
-	return &repeaterNode{count: count, child: child}
+	n := &repeaterNode{count: count, child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
 type repeaterNode struct {
-	count int
-	done  int
-	child Node
-	trace btTraceState
+	count      int
+	done       int
+	child      Node
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (r *repeaterNode) btClockRef() *btClockState { return &r.clockState }
+
 func (r *repeaterNode) Tick(dt time.Duration) Status {
+	r.clockState.advanceIfRoot(dt)
 	if r.child == nil {
 		return r.trace.record(StatusFailure)
 	}
@@ -536,14 +796,22 @@ func (r *repeaterNode) btChildActive(i int) bool {
 }
 
 // UntilFail ticks child once per tick, returning StatusRunning until child returns StatusFailure, at which point UntilFail returns StatusSuccess.
-func UntilFail(child Node) Node { return &untilFailNode{child: child} }
-
-type untilFailNode struct {
-	child Node
-	trace btTraceState
+func UntilFail(child Node) Node {
+	n := &untilFailNode{child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
+type untilFailNode struct {
+	child      Node
+	clockState btClockState
+	trace      btTraceState
+}
+
+func (u *untilFailNode) btClockRef() *btClockState { return &u.clockState }
+
 func (u *untilFailNode) Tick(dt time.Duration) Status {
+	u.clockState.advanceIfRoot(dt)
 	if u.child == nil {
 		return u.trace.record(StatusSuccess)
 	}
@@ -574,30 +842,68 @@ func (u *untilFailNode) btChildActive(i int) bool {
 }
 
 // Cooldown prevents child from starting again for duration d after it succeeds, returning StatusFailure while cooling down.
+//
+// Cooldown measures elapsed time against the enclosing tree's monotonic clock, so
+// cooldowns continue counting down even on ticks when this branch is not visited.
+// Calling [Node.Reset] cancels an in-progress child run without clearing an active
+// cooldown; use [ResetCooldowns] or [BehaviorTree.ResetCooldowns] to clear active
+// cooldowns explicitly (for example when respawning an agent).
 func Cooldown(d time.Duration, child Node) Node {
-	return &cooldownNode{duration: d, child: child}
+	n := &cooldownNode{
+		duration:   d,
+		child:      child,
+		clockState: btClockState{clock: &btClock{}},
+	}
+	n.clockState.adopt(child)
+	return n
 }
 
 type cooldownNode struct {
-	duration  time.Duration
-	remaining time.Duration
-	running   bool
-	child     Node
-	trace     btTraceState
+	duration   time.Duration
+	readyAt    time.Duration
+	cooling    bool
+	running    bool
+	child      Node
+	clockState btClockState
+	trace      btTraceState
+}
+
+func (c *cooldownNode) btClockRef() *btClockState { return &c.clockState }
+
+func (c *cooldownNode) clockNow() time.Duration {
+	if c.clockState.clock == nil {
+		return 0
+	}
+	return c.clockState.clock.now
+}
+
+func (c *cooldownNode) remainingDuration() time.Duration {
+	if !c.cooling || c.clockState.clock == nil {
+		return 0
+	}
+	rem := c.readyAt - c.clockState.clock.now
+	if rem <= 0 {
+		return 0
+	}
+	return rem
+}
+
+func (c *cooldownNode) resetCooldown() {
+	c.cooling = false
+	c.readyAt = 0
 }
 
 func (c *cooldownNode) Tick(dt time.Duration) Status {
+	c.clockState.advanceIfRoot(dt)
 	if c.child == nil {
 		return c.trace.record(StatusFailure)
 	}
-	if !c.running && c.remaining > 0 {
-		if dt > 0 {
-			c.remaining -= dt
-		}
-		if c.remaining > 0 {
+	if !c.running && c.cooling {
+		if c.remainingDuration() > 0 {
 			return c.trace.record(StatusFailure)
 		}
-		c.remaining = 0
+		c.cooling = false
+		c.readyAt = 0
 	}
 	st := c.child.Tick(dt)
 	switch st {
@@ -607,7 +913,8 @@ func (c *cooldownNode) Tick(dt time.Duration) Status {
 	case StatusSuccess:
 		c.running = false
 		if c.duration > 0 {
-			c.remaining = c.duration
+			c.cooling = true
+			c.readyAt = addDurationClamped(c.clockNow(), c.duration)
 		}
 		return c.trace.record(StatusSuccess)
 	default:
@@ -617,7 +924,6 @@ func (c *cooldownNode) Tick(dt time.Duration) Status {
 }
 
 func (c *cooldownNode) Reset() {
-	c.remaining = 0
 	c.running = false
 	c.trace.resetTrace()
 	if c.child != nil {
@@ -640,17 +946,23 @@ func (c *cooldownNode) btChildActive(i int) bool {
 
 // Guard ticks child only while cond returns true; if cond becomes false while child is running, Guard resets child and returns StatusFailure.
 func Guard(cond func() bool, child Node) Node {
-	return &guardNode{cond: cond, child: child}
+	n := &guardNode{cond: cond, child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
 type guardNode struct {
-	cond    func() bool
-	child   Node
-	running bool
-	trace   btTraceState
+	cond       func() bool
+	child      Node
+	running    bool
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (g *guardNode) btClockRef() *btClockState { return &g.clockState }
+
 func (g *guardNode) Tick(dt time.Duration) Status {
+	g.clockState.advanceIfRoot(dt)
 	if g.cond == nil || !g.cond() {
 		if g.running && g.child != nil {
 			g.child.Reset()

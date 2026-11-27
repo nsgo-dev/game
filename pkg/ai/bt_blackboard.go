@@ -113,7 +113,7 @@ func BlackboardCondition(bb *Blackboard, key string, op BlackboardOp, value Blac
 	if abort == "" {
 		abort = AbortNone
 	}
-	return &blackboardConditionNode{
+	n := &blackboardConditionNode{
 		bb:            bb,
 		key:           key,
 		op:            op,
@@ -122,6 +122,8 @@ func BlackboardCondition(bb *Blackboard, key string, op BlackboardOp, value Blac
 		child:         child,
 		childObserver: nodeHasBBObserver(child),
 	}
+	n.clockState.adopt(child)
+	return n
 }
 
 type blackboardConditionNode struct {
@@ -137,8 +139,11 @@ type blackboardConditionNode struct {
 	seenRev    bool
 	lastRev    uint64
 	lastResult bool
+	clockState btClockState
 	trace      btTraceState
 }
+
+func (n *blackboardConditionNode) btClockRef() *btClockState { return &n.clockState }
 
 func (n *blackboardConditionNode) keyRev() uint64 {
 	if n.bb == nil {
@@ -162,6 +167,7 @@ func (n *blackboardConditionNode) refresh() bool {
 }
 
 func (n *blackboardConditionNode) Tick(dt time.Duration) Status {
+	n.clockState.advanceIfRoot(dt)
 	if n.running && n.child != nil {
 		if n.abort.abortsSelf() {
 			if !n.refresh() {
@@ -459,7 +465,7 @@ func (u *untilFailNode) bbWantsPreempt() bool { return nodeWantsPreempt(u.child)
 
 func (c *cooldownNode) hasBBObserver() bool { return nodeHasBBObserver(c.child) }
 func (c *cooldownNode) bbWantsPreempt() bool {
-	if !c.running && c.remaining > 0 {
+	if !c.running && c.remainingDuration() > 0 {
 		return false
 	}
 	return nodeWantsPreempt(c.child)

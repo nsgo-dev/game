@@ -269,7 +269,7 @@ func TestBehaviorTreeDecoratorsAndLeaves(t *testing.T) {
 		t.Fatalf("guard did not reset interrupted child: resets = %d", work.resets)
 	}
 
-	// Cooldown: failures do not trigger cooldown; Reset clears cooldown.
+	// Cooldown: failures do not trigger cooldown; Reset preserves cooldown; ResetCooldowns clears it.
 	succeed := false
 	calls := 0
 	cd := ai.Cooldown(50*time.Millisecond, ai.Action(func(time.Duration) ai.Status {
@@ -292,10 +292,14 @@ func TestBehaviorTreeDecoratorsAndLeaves(t *testing.T) {
 	if cd.Tick(dt) != ai.StatusSuccess {
 		t.Fatal("child should run again once 50ms cooldown elapses")
 	}
-	// Reset clears active cooldown immediately.
+	// Reset preserves active cooldown; ResetCooldowns clears it immediately.
 	cd.Reset()
+	if cd.Tick(dt) != ai.StatusFailure {
+		t.Fatal("active cooldown should survive Cooldown.Reset()")
+	}
+	ai.ResetCooldowns(cd)
 	if cd.Tick(dt) != ai.StatusSuccess {
-		t.Fatal("child should run immediately after Cooldown.Reset()")
+		t.Fatal("child should run immediately after ai.ResetCooldowns(cd)")
 	}
 	if calls != 4 {
 		t.Fatalf("cooldown child calls = %d, want 4", calls)
@@ -315,5 +319,247 @@ func TestBehaviorTreeDecoratorsAndLeaves(t *testing.T) {
 	}
 	if w.Tick(35*time.Millisecond) != ai.StatusSuccess {
 		t.Fatal("wait at 60ms should Succeed")
+	}
+}
+
+func TestBehaviorTreeCooldownDocsExampleSurvivesResetAndAdvancesOffTick(t *testing.T) {
+	// Exact behavior tree from docs/en/ai.md (#1586):
+	//   Selector(
+	//     Guard(playerInRange, Sequence(
+	//       Cooldown(1500ms, Action(attackPlayer)),
+	//       Wait(300ms),
+	//     )),
+	//     Sequence(Condition(hasPatrolPath), Action(patrolStep)),
+	//   )
+	inRange := true
+	attacks := 0
+	patrols := 0
+
+	tree := ai.Selector(
+		ai.Guard(func() bool { return inRange }, ai.Sequence(
+			ai.Cooldown(1500*time.Millisecond, ai.Action(func(time.Duration) ai.Status {
+				attacks++
+				return ai.StatusSuccess
+			})),
+			ai.Wait(300*time.Millisecond),
+		)),
+		ai.Sequence(
+			ai.Condition(func() bool { return true }),
+			ai.Action(func(time.Duration) ai.Status {
+				patrols++
+				return ai.StatusSuccess
+			}),
+		),
+	)
+
+	const dt = 20 * time.Millisecond
+
+	// Path A: rapid guard interruption must NOT erase the 1.5s cooldown.
+	// Tick 1 (20ms): attacks once and enters Wait(300ms).
+	if st := tree.Tick(dt); st != ai.StatusRunning {
+		t.Fatalf("tick 1 = %v, want Running", st)
+	}
+	if attacks != 1 {
+		t.Fatalf("after tick 1 attacks = %d, want 1", attacks)
+	}
+	// Tick 2 (40ms): still waiting.
+	if st := tree.Tick(dt); st != ai.StatusRunning {
+		t.Fatalf("tick 2 = %v, want Running", st)
+	}
+	// Tick 3 (60ms): player leaves range -> Guard resets Sequence and Cooldown; falls back to patrol.
+	inRange = false
+	if st := tree.Tick(dt); st != ai.StatusSuccess {
+		t.Fatalf("tick 3 (patrol fallback) = %v, want Success", st)
+	}
+	if patrols != 1 {
+		t.Fatalf("after tick 3 patrols = %d, want 1", patrols)
+	}
+	// Tick 4 (80ms, only 60ms after attack): player returns -> Cooldown must still block attack!
+	inRange = true
+	if st := tree.Tick(dt); st != ai.StatusSuccess {
+		t.Fatalf("tick 4 (cooldown blocked, patrol fallback) = %v, want Success", st)
+	}
+	if attacks != 1 {
+		t.Fatalf("after tick 4 (within 1.5s cooldown) attacks = %d, want 1", attacks)
+	}
+
+	// Path B: cooldown must continue counting down while branch is NOT ticked.
+	// Stay out of range until 1480ms after attack (tick 74 -> 1480ms total elapsed since attack at t=20ms:
+	// currently at t=80ms, need 70 more ticks of 20ms to reach t=1480ms -> 1460ms elapsed, then tick at t=1500ms -> 1480ms elapsed).
+	inRange = false
+	for range 70 {
+		tree.Tick(dt)
+	}
+	// Now t=1480ms (1460ms since attack). Bring player in range at t=1500ms (1480ms since attack): still blocked!
+	inRange = true
+	tree.Tick(dt)
+	if attacks != 1 {
+		t.Fatalf("at 1480ms after attack, attacks = %d, want 1", attacks)
+	}
+	// Next tick is t=1520ms (1500ms since attack): cooldown expires and attack fires!
+	if st := tree.Tick(dt); st != ai.StatusRunning {
+		t.Fatalf("at 1500ms after attack, status = %v, want Running (attack + Wait)", st)
+	}
+	if attacks != 2 {
+		t.Fatalf("at 1500ms after attack, attacks = %d, want 2", attacks)
+	}
+
+	// Path B (long absence): player leaves for 5 full seconds without ticking the attack branch;
+	// on return, the 1.5s cooldown has long since elapsed so the attack fires immediately.
+	inRange = false
+	for range 250 { // 250 * 20ms = 5s
+		tree.Tick(dt)
+	}
+	inRange = true
+	if st := tree.Tick(dt); st != ai.StatusRunning {
+		t.Fatalf("after 5s out of range, status = %v, want Running", st)
+	}
+	if attacks != 3 {
+		t.Fatalf("after 5s out of range, attacks = %d, want 3", attacks)
+	}
+}
+
+func TestBehaviorTreeCooldownSurvivesPreemptionTimeLimitAndAbort(t *testing.T) {
+	const dt = 25 * time.Millisecond
+
+	// 1. Selector preemption resets lower-priority branch, preserving its cooldown and ticking off-branch.
+	urgent := false
+	lowAttacks := 0
+	selTree := ai.Selector(
+		ai.Guard(func() bool { return urgent }, ai.Action(func(time.Duration) ai.Status { return ai.StatusRunning })),
+		ai.Sequence(
+			ai.Cooldown(200*time.Millisecond, ai.Action(func(time.Duration) ai.Status {
+				lowAttacks++
+				return ai.StatusSuccess
+			})),
+			ai.Wait(100*time.Millisecond),
+		),
+	)
+	if st := selTree.Tick(dt); st != ai.StatusRunning || lowAttacks != 1 {
+		t.Fatalf("sel tick 1: st=%v attacks=%d, want Running, 1", st, lowAttacks)
+	}
+	urgent = true
+	selTree.Tick(dt) // preempts & resets lower branch (25ms elapsed)
+	urgent = false
+	if st := selTree.Tick(dt); st != ai.StatusFailure || lowAttacks != 1 {
+		t.Fatalf("sel after preemption (50ms/200ms): st=%v attacks=%d, want Failure, 1", st, lowAttacks)
+	}
+	// Advance 150ms while urgent branch runs (cooldown never ticked).
+	urgent = true
+	for range 6 {
+		selTree.Tick(dt)
+	}
+	urgent = false
+	if st := selTree.Tick(dt); st != ai.StatusRunning || lowAttacks != 2 {
+		t.Fatalf("sel after 225ms off-branch: st=%v attacks=%d, want Running, 2", st, lowAttacks)
+	}
+
+	// 2. TimeLimit timeout resets child without clearing its cooldown.
+	tlAttacks := 0
+	tlTree := ai.TimeLimit(50*time.Millisecond, ai.Sequence(
+		ai.Cooldown(150*time.Millisecond, ai.Action(func(time.Duration) ai.Status {
+			tlAttacks++
+			return ai.StatusSuccess
+		})),
+		ai.Wait(200*time.Millisecond),
+	))
+	if st := tlTree.Tick(dt); st != ai.StatusRunning || tlAttacks != 1 {
+		t.Fatalf("tl tick 1: st=%v attacks=%d, want Running, 1", st, tlAttacks)
+	}
+	if st := tlTree.Tick(dt); st != ai.StatusFailure { // hits 50ms limit, calls child.Reset()
+		t.Fatalf("tl tick 2 (timeout) = %v, want Failure", st)
+	}
+	if st := tlTree.Tick(dt); st != ai.StatusFailure || tlAttacks != 1 {
+		t.Fatalf("tl tick 3 (cooling down) = %v, attacks=%d, want Failure, 1", st, tlAttacks)
+	}
+
+	// 3. Cooldown wrapping BlackboardCondition(AbortLower) resumes preempting once off-tick cooldown expires.
+	bb := ai.NewBlackboard()
+	bb.SetBool("alert", true)
+	alertHits := 0
+	obsTree := ai.Selector(
+		ai.Cooldown(100*time.Millisecond, ai.BlackboardCondition(bb, "alert", ai.BBOpEq, ai.BBBool(true), ai.AbortLower,
+			ai.Action(func(time.Duration) ai.Status {
+				alertHits++
+				return ai.StatusSuccess
+			}),
+		)),
+		ai.Action(func(time.Duration) ai.Status { return ai.StatusRunning }),
+	)
+	if st := obsTree.Tick(dt); st != ai.StatusSuccess || alertHits != 1 {
+		t.Fatalf("obs tick 1: st=%v hits=%d, want Success, 1", st, alertHits)
+	}
+	// Next 3 ticks (25, 50, 75ms): cooling down -> falls through to running lower branch.
+	for i := 2; i <= 4; i++ {
+		if st := obsTree.Tick(dt); st != ai.StatusRunning || alertHits != 1 {
+			t.Fatalf("obs tick %d: st=%v hits=%d, want Running, 1", i, st, alertHits)
+		}
+	}
+	// Flip key while cooling down has expired on tick 5 (100ms elapsed): AbortLower preempts and fires!
+	bb.SetBool("alert", false)
+	bb.SetBool("alert", true)
+	if st := obsTree.Tick(dt); st != ai.StatusSuccess || alertHits != 2 {
+		t.Fatalf("obs tick 5 (cooldown expired): st=%v hits=%d, want Success, 2", st, alertHits)
+	}
+}
+
+func TestBehaviorTreeResetCooldownsAndZeroAllocs(t *testing.T) {
+	const dt = 20 * time.Millisecond
+	hitsA, hitsB := 0, 0
+	allowA := true
+	wait := ai.Wait(100 * time.Millisecond)
+
+	root := ai.Named("root", ai.Selector(
+		ai.Guard(func() bool { return allowA }, ai.Cooldown(1*time.Second, ai.Action(func(time.Duration) ai.Status {
+			hitsA++
+			return ai.StatusSuccess
+		}))),
+		ai.Sequence(
+			ai.Succeeder(ai.Cooldown(1*time.Second, ai.Action(func(time.Duration) ai.Status {
+				hitsB++
+				return ai.StatusSuccess
+			}))),
+			wait,
+		),
+	))
+	bt := ai.NewBehaviorTree(root)
+
+	// Trigger both cooldowns and start Wait(100ms).
+	if st := bt.Tick(dt); st != ai.StatusSuccess || hitsA != 1 {
+		t.Fatalf("tick 1: st=%v hitsA=%d", st, hitsA)
+	}
+	allowA = false
+	if st := bt.Tick(dt); st != ai.StatusRunning || hitsB != 1 {
+		t.Fatalf("tick 2: st=%v hitsB=%d", st, hitsB)
+	}
+	// Advance Wait to 40ms/100ms.
+	if st := bt.Tick(dt); st != ai.StatusRunning {
+		t.Fatalf("tick 3: st=%v, want Running", st)
+	}
+
+	// ResetCooldowns clears active cooldowns without resetting the running Wait.
+	bt.ResetCooldowns()
+	// Wait should still only need 60ms (3 ticks), not 100ms.
+	if bt.Tick(dt) != ai.StatusRunning || bt.Tick(dt) != ai.StatusRunning || bt.Tick(dt) != ai.StatusSuccess {
+		t.Fatal("ResetCooldowns should not have reset the running Wait branch")
+	}
+
+	// Re-enable A: because ResetCooldowns cleared A's 1s cooldown, A fires immediately.
+	allowA = true
+	if st := bt.Tick(dt); st != ai.StatusSuccess || hitsA != 2 {
+		t.Fatalf("after ResetCooldowns: st=%v hitsA=%d, want Success, 2", st, hitsA)
+	}
+
+	// Nil safety.
+	ai.ResetCooldowns(nil)
+	var nilBT *ai.BehaviorTree
+	nilBT.ResetCooldowns()
+
+	// Zero heap allocations per Tick on a tree with Cooldown.
+	allocs := testing.AllocsPerRun(100, func() {
+		bt.Tick(dt)
+	})
+	if allocs != 0 {
+		t.Fatalf("bt.Tick with Cooldown allocated %.2f times/tick, want 0", allocs)
 	}
 }

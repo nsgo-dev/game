@@ -484,7 +484,7 @@ func UtilitySelector[C any](reasoner *Reasoner[C], ctx func() C, rng *random.Str
 			resolved[i] = subtrees[reasoner.actions[i].Name]
 		}
 	}
-	return &utilitySelectorNode[C]{
+	n := &utilitySelectorNode[C]{
 		reasoner: reasoner,
 		ctx:      ctx,
 		rng:      rng,
@@ -492,19 +492,25 @@ func UtilitySelector[C any](reasoner *Reasoner[C], ctx func() C, rng *random.Str
 		active:   -1,
 		running:  -1,
 	}
+	n.clockState.adopt(resolved...)
+	return n
 }
 
 type utilitySelectorNode[C any] struct {
-	reasoner *Reasoner[C]
-	ctx      func() C
-	rng      *random.Stream
-	subtrees []Node
-	active   int
-	running  int
-	trace    btTraceState
+	reasoner   *Reasoner[C]
+	ctx        func() C
+	rng        *random.Stream
+	subtrees   []Node
+	active     int
+	running    int
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (u *utilitySelectorNode[C]) btClockRef() *btClockState { return &u.clockState }
+
 func (u *utilitySelectorNode[C]) Tick(dt time.Duration) Status {
+	u.clockState.advanceIfRoot(dt)
 	if u.reasoner == nil || u.ctx == nil || len(u.subtrees) == 0 {
 		return u.trace.record(StatusFailure)
 	}

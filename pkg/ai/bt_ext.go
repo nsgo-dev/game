@@ -12,17 +12,23 @@ import (
 //
 // If child is still returning StatusRunning once accumulated dt reaches d (or immediately when d <= 0), TimeLimit calls child.Reset(), clears its timer, and returns StatusFailure. Completing with StatusSuccess or StatusFailure, or calling Reset, clears the elapsed timer.
 func TimeLimit(d time.Duration, child Node) Node {
-	return &timeLimitNode{limit: d, child: child}
+	n := &timeLimitNode{limit: d, child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
 type timeLimitNode struct {
-	limit   time.Duration
-	elapsed time.Duration
-	child   Node
-	trace   btTraceState
+	limit      time.Duration
+	elapsed    time.Duration
+	child      Node
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (t *timeLimitNode) btClockRef() *btClockState { return &t.clockState }
+
 func (t *timeLimitNode) Tick(dt time.Duration) Status {
+	t.clockState.advanceIfRoot(dt)
 	if t.child == nil {
 		t.elapsed = 0
 		return t.trace.record(StatusFailure)
@@ -68,17 +74,23 @@ func (t *timeLimitNode) btChildActive(i int) bool {
 //
 // Like Repeater, Retry ticks child at most once per Tick, returning StatusRunning between failed attempts and StatusSuccess as soon as child succeeds. When n <= 0, no retries are performed and a child failure returns StatusFailure immediately.
 func Retry(n int, child Node) Node {
-	return &retryNode{retries: n, child: child}
+	node := &retryNode{retries: n, child: child}
+	node.clockState.adopt(child)
+	return node
 }
 
 type retryNode struct {
-	retries  int
-	failures int
-	child    Node
-	trace    btTraceState
+	retries    int
+	failures   int
+	child      Node
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (r *retryNode) btClockRef() *btClockState { return &r.clockState }
+
 func (r *retryNode) Tick(dt time.Duration) Status {
+	r.clockState.advanceIfRoot(dt)
 	if r.child == nil {
 		r.failures = 0
 		return r.trace.record(StatusFailure)
@@ -125,23 +137,29 @@ func (r *retryNode) btChildActive(i int) bool {
 // When a child returns StatusRunning, RandomSelector keeps the chosen order and resumes that child on subsequent ticks; if that child later fails, evaluation continues with the remaining untried children in the shuffled order. A nil stream falls back to declaration order.
 func RandomSelector(stream *random.Stream, children ...Node) Node {
 	cloned := slices.Clone(children)
-	return &randomSelectorNode{
+	n := &randomSelectorNode{
 		children: cloned,
 		stream:   stream,
 		order:    make([]int, len(cloned)),
 	}
+	n.clockState.adopt(cloned...)
+	return n
 }
 
 type randomSelectorNode struct {
-	children []Node
-	stream   *random.Stream
-	order    []int
-	cur      int
-	active   bool
-	trace    btTraceState
+	children   []Node
+	stream     *random.Stream
+	order      []int
+	cur        int
+	active     bool
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (s *randomSelectorNode) btClockRef() *btClockState { return &s.clockState }
+
 func (s *randomSelectorNode) Tick(dt time.Duration) Status {
+	s.clockState.advanceIfRoot(dt)
 	if len(s.children) == 0 {
 		return s.trace.record(StatusFailure)
 	}
@@ -201,23 +219,29 @@ func (s *randomSelectorNode) btChildActive(i int) bool {
 // When a child returns StatusRunning, RandomSequence keeps the chosen order and resumes at that child on subsequent ticks until completion or Reset. A nil stream falls back to declaration order.
 func RandomSequence(stream *random.Stream, children ...Node) Node {
 	cloned := slices.Clone(children)
-	return &randomSequenceNode{
+	n := &randomSequenceNode{
 		children: cloned,
 		stream:   stream,
 		order:    make([]int, len(cloned)),
 	}
+	n.clockState.adopt(cloned...)
+	return n
 }
 
 type randomSequenceNode struct {
-	children []Node
-	stream   *random.Stream
-	order    []int
-	cur      int
-	active   bool
-	trace    btTraceState
+	children   []Node
+	stream     *random.Stream
+	order      []int
+	cur        int
+	active     bool
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (s *randomSequenceNode) btClockRef() *btClockState { return &s.clockState }
+
 func (s *randomSequenceNode) Tick(dt time.Duration) Status {
+	s.clockState.advanceIfRoot(dt)
 	if len(s.children) == 0 {
 		return s.trace.record(StatusSuccess)
 	}
@@ -292,13 +316,17 @@ func WeightedSelector(stream *random.Stream, options ...WeightedNode) Node {
 			base[i] = opt.Weight
 		}
 	}
-	return &weightedSelectorNode{
+	n := &weightedSelectorNode{
 		options:     cloned,
 		baseWeights: base,
 		remWeights:  make([]float64, len(cloned)),
 		stream:      stream,
 		running:     -1,
 	}
+	for _, opt := range cloned {
+		n.clockState.adopt(opt.Node)
+	}
+	return n
 }
 
 type weightedSelectorNode struct {
@@ -308,8 +336,11 @@ type weightedSelectorNode struct {
 	stream      *random.Stream
 	running     int
 	active      bool
+	clockState  btClockState
 	trace       btTraceState
 }
+
+func (w *weightedSelectorNode) btClockRef() *btClockState { return &w.clockState }
 
 func (w *weightedSelectorNode) pickNext() int {
 	var maxW float64
@@ -354,6 +385,7 @@ func (w *weightedSelectorNode) pickNext() int {
 }
 
 func (w *weightedSelectorNode) Tick(dt time.Duration) Status {
+	w.clockState.advanceIfRoot(dt)
 	if len(w.options) == 0 {
 		return w.trace.record(StatusFailure)
 	}
@@ -419,24 +451,30 @@ func (w *weightedSelectorNode) btChildActive(i int) bool {
 //
 // On entry, fn receives the tick's dt; on subsequent periodic ticks, fn receives the elapsed game time since fn last ran (preserving phase across non-divisor steps and firing at most once per Tick). When interval <= 0, fn runs on every tick while active. Finishing (StatusSuccess or StatusFailure) or calling Reset stops the service so the next activation runs fn on entry again.
 func Service(interval time.Duration, fn func(dt time.Duration), child Node) Node {
-	return &serviceNode{
+	n := &serviceNode{
 		interval: interval,
 		fn:       fn,
 		child:    child,
 	}
+	n.clockState.adopt(child)
+	return n
 }
 
 type serviceNode struct {
-	interval  time.Duration
-	fn        func(dt time.Duration)
-	child     Node
-	active    bool
-	phase     time.Duration
-	sinceLast time.Duration
-	trace     btTraceState
+	interval   time.Duration
+	fn         func(dt time.Duration)
+	child      Node
+	active     bool
+	phase      time.Duration
+	sinceLast  time.Duration
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (s *serviceNode) btClockRef() *btClockState { return &s.clockState }
+
 func (s *serviceNode) Tick(dt time.Duration) Status {
+	s.clockState.advanceIfRoot(dt)
 	if s.child == nil {
 		s.active = false
 		s.phase = 0

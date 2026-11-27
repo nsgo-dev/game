@@ -1348,7 +1348,10 @@ type PlanRunner struct {
 	failed     []bool
 	plans      int
 	lastErr    error
+	clockState btClockState
 }
+
+func (r *PlanRunner) btClockRef() *btClockState { return &r.clockState }
 
 // NewPlanRunner creates a PlanRunner that plans using planner and snapshots from world,
 // selects goals in descending Priority order, and executes each action using executors[action.Name].
@@ -1362,7 +1365,7 @@ func NewPlanRunner(planner *GOAPPlanner, world func() WorldState, goals []GOAPGo
 			resolved[i] = executors[planner.actions[i].Name]
 		}
 	}
-	return &PlanRunner{
+	r := &PlanRunner{
 		planner:    planner,
 		world:      world,
 		goals:      slices.Clone(goals),
@@ -1370,6 +1373,8 @@ func NewPlanRunner(planner *GOAPPlanner, world func() WorldState, goals []GOAPGo
 		activeGoal: -1,
 		failed:     failed,
 	}
+	r.clockState.adopt(resolved...)
+	return r
 }
 
 // ActiveGoal returns the index into the runner's goals slice currently being pursued, or -1 if none.
@@ -1441,6 +1446,7 @@ func (r *PlanRunner) Tick(dt time.Duration) Status {
 	if r == nil || r.planner == nil || r.world == nil || len(r.goals) == 0 {
 		return StatusFailure
 	}
+	r.clockState.advanceIfRoot(dt)
 
 	maxReplans := len(r.planner.actions) + 2
 	replans := 0

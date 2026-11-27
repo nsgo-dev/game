@@ -540,7 +540,7 @@ tree.Tick(dt)
 Available nodes:
 
 - **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`), `RandomSelector(stream, ...)`, `RandomSequence(stream, ...)`, `WeightedSelector(stream, options...)` (using `WeightedNode{Node, Weight}`), `UtilitySelector(reasoner, ctx, rng, subtrees)`.
-- **Decorators**: `Guard(cond, child)`, `BlackboardCondition(bb, key, op, value, abort, child)`, `Cooldown(d, child)`, `TimeLimit(d, child)`, `Retry(n, child)`, `Service(interval, fn, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
+- **Decorators**: `Guard(cond, child)`, `BlackboardCondition(bb, key, op, value, abort, child)`, `Cooldown(d, child)` (tracks elapsed tree time even while its branch is not ticked and survives `Reset()` from interruptions; call `ResetCooldowns(root)` or `bt.ResetCooldowns()` to clear active cooldowns explicitly, such as on respawn), `TimeLimit(d, child)`, `Retry(n, child)`, `Service(interval, fn, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
 - **Leaves**: `Action(fn)`, `Condition(fn)`, `Wait(d)`, `HasAttackToken(pool, agentID)`, `SquadHasOrder(squad, kind)`, `SquadHasRole(squad, agentID, role)`, `SquadStateBool(squad, key)`, `SquadOrderAction(squad, fn)`.
 
 ### Blackboard and observer aborts

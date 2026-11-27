@@ -47,16 +47,22 @@ func Named(name string, child Node) Node {
 	if name == "" {
 		return child
 	}
-	return &namedNode{name: name, child: child}
+	n := &namedNode{name: name, child: child}
+	n.clockState.adopt(child)
+	return n
 }
 
 type namedNode struct {
-	name  string
-	child Node
-	trace btTraceState
+	name       string
+	child      Node
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (n *namedNode) btClockRef() *btClockState { return &n.clockState }
+
 func (n *namedNode) Tick(dt time.Duration) Status {
+	n.clockState.advanceIfRoot(dt)
 	if n.child == nil {
 		return n.trace.record(StatusFailure)
 	}
