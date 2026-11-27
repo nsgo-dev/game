@@ -35,7 +35,7 @@ layers:
 
 // TestAgentTurnMacOSScreenshots renders the Agent panel pending summary card (Dark & Light)
 // and the Kept state with its Spec Undo toast on the real native macOS host for visual
-// verification beside docs/design/editor/Main.dc.html and Spec.dc.html.
+// verification beside design/editor/Main.dc.html and Spec.dc.html.
 func TestAgentTurnMacOSScreenshots(t *testing.T) {
 	doc, err := sceneformat.Parse([]byte(macosAgentTurnScene))
 	if err != nil {

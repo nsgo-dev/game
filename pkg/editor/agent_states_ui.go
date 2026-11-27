@@ -113,7 +113,7 @@ func agentQuietButton(testID, label string, p SpecPalette, onPress func()) core.
 }
 
 // agentPartialSection renders the Partial outcome card, pointing prompt, kept confirmation,
-// and review strip matching docs/design/editor/AgentStates.dc.html (Partial column).
+// and review strip matching design/editor/AgentStates.dc.html (Partial column).
 func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
 	ps := turn.Partial
 	if ps == nil {
@@ -376,7 +376,7 @@ func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTur
 }
 
 // agentStuckSection renders the Stuck warning card with the 3 refused calls & errors,
-// Hint input, Continue with hint, and Stop here matching docs/design/editor/AgentStates.dc.html.
+// Hint input, Continue with hint, and Stop here matching design/editor/AgentStates.dc.html.
 func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
 	st := turn.Stuck
 	if st == nil {
@@ -735,7 +735,7 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 }
 
 // agentStoppedSection renders the Stopped card with DONE and NOT DONE sections,
-// Resume (skips done steps), Review N changes, and caption matching docs/design/editor/AgentStates.dc.html.
+// Resume (skips done steps), Review N changes, and caption matching design/editor/AgentStates.dc.html.
 func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
 	st := turn.StoppedState
 	if st == nil {
@@ -900,7 +900,7 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 }
 
 // agentMismatchSection renders the Mismatch warning card with the WHAT / SUMMARY / REVIEW table,
-// known reason, Ask why, Open review, and trust-the-review caption matching docs/design/editor/AgentStates.dc.html.
+// known reason, Ask why, Open review, and trust-the-review caption matching design/editor/AgentStates.dc.html.
 func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
 	mm := turn.Mismatch
 	if mm == nil {

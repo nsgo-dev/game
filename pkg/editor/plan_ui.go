@@ -12,7 +12,7 @@ import (
 )
 
 // planHeaderPillView renders the centered agent-violet status pill in the top toolbar
-// whenever an agent plan is active (Draft, Running, or Stopped), matching docs/design/editor/Plan.dc.html
+// whenever an agent plan is active (Draft, Running, or Stopped), matching design/editor/Plan.dc.html
 // using exclusively SpecPalette tokens.
 func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type pillKey struct {
@@ -368,7 +368,7 @@ func planFilesFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 }
 
 // sceneTreePlannedNodesView renders the planned nodes section inside SceneTreeView for non-removed steps,
-// showing dashed violet square markers and circular step badges matching docs/design/editor/Plan.dc.html.
+// showing dashed violet square markers and circular step badges matching design/editor/Plan.dc.html.
 func sceneTreePlannedNodesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type nodesKey struct {
 		dark   bool
@@ -473,7 +473,7 @@ func planStepSmallBadge(p SpecPalette, step int) core.Node {
 	}
 }
 
-// agentPlanCardView renders the interactive Plan card inside AgentPanelView matching docs/design/editor/Plan.dc.html
+// agentPlanCardView renders the interactive Plan card inside AgentPanelView matching design/editor/Plan.dc.html
 // using exclusively SpecPalette tokens (Dark + Light) and memoized keys so the inline step note input never remounts on unrelated rev ticks.
 func agentPlanCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
 	type planCardKey struct {

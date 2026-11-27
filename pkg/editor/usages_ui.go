@@ -15,7 +15,7 @@ import (
 const specRefMonoFamily = "JetBrains Mono, Menlo, monospace"
 
 // ReferencesScreenView renders the full-window Find Usages and Safe Rename review screen
-// matching docs/design/editor/References.dc.html using only Spec.dc.html tokens.
+// matching design/editor/References.dc.html using only Spec.dc.html tokens.
 func ReferencesScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	keyOpt := core.KeyOptions{When: core.KeyNotEditing}
 	cx.OnKeyWith("escape", keyOpt, func() {

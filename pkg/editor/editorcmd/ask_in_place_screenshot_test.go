@@ -16,7 +16,7 @@ import (
 
 // TestAskInPlaceMacOSScreenshots renders the anchored ⌘L in-place composer with two selected
 // slimes (slime_01, slime_02), contextual suggestions, and the Agent panel thread on macOS
-// for visual verification beside docs/design/editor/AskInPlace.dc.html and Spec.dc.html.
+// for visual verification beside design/editor/AskInPlace.dc.html and Spec.dc.html.
 func TestAskInPlaceMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {

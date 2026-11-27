@@ -56,7 +56,7 @@ var (
 )
 
 // AgentModelRetryDelays is the exponential backoff schedule used when a model endpoint returns a retryable error (429, 5xx, 529 overloaded):
-// try 1 = 4 s, try 2 = 8 s, try 3 = 16 s, try 4 = 32 s (matching docs/design/editor/AgentStates.dc.html: "Retrying in 8 s · try 2 of 4").
+// try 1 = 4 s, try 2 = 8 s, try 3 = 16 s, try 4 = 32 s (matching design/editor/AgentStates.dc.html: "Retrying in 8 s · try 2 of 4").
 var AgentModelRetryDelays = []time.Duration{
 	4 * time.Second,
 	8 * time.Second,
@@ -175,7 +175,7 @@ const (
 	AgentTaskArtSound AgentTaskKind = "art_and_sound"
 )
 
-// AllAgentTaskKinds lists the WHO DOES WHAT rows in the canonical order of docs/design/editor/Settings.dc.html.
+// AllAgentTaskKinds lists the WHO DOES WHAT rows in the canonical order of design/editor/Settings.dc.html.
 var AllAgentTaskKinds = []AgentTaskKind{
 	AgentTaskSceneEdit,
 	AgentTaskPlaytest,
@@ -265,7 +265,7 @@ type AgentModelErrorState struct {
 	AlternativeRoute AgentModelRoute
 }
 
-// Body formats the model error card body text matching docs/design/editor/AgentStates.dc.html,
+// Body formats the model error card body text matching design/editor/AgentStates.dc.html,
 // for example "Retrying in 8 s · try 2 of 4. Playtest analysis can switch to Claude Code for now."
 func (m AgentModelErrorState) Body() string {
 	var parts []string

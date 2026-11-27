@@ -52,7 +52,7 @@ layers:
 // TestPlayModeMacOSScreenshots renders Play mode marks, the frozen-frame Ask dialog,
 // the viewport agent stepping pill + step log, and the Output panel panic card on the
 // real native macOS host (linking github.com/nsgo-dev/nsgo through editorcmd) for
-// visual review beside docs/design/editor/PlayMode.dc.html.
+// visual review beside design/editor/PlayMode.dc.html.
 func TestPlayModeMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	sceneDir := filepath.Join(dir, "scenes")

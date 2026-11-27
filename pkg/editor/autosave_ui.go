@@ -8,7 +8,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// saveStatusBarView renders the status bar's save status item matching docs/design/editor/Checkpoints.dc.html
+// saveStatusBarView renders the status bar's save status item matching design/editor/Checkpoints.dc.html
 // ("Save status · status bar") using theme-aware SpecPalette tokens (Dark & Light):
 //   - Saved: muted Spec styling with a green check icon; hovering shows the last save time.
 //   - Saving…: appears only after SavingIndicatorDelay (300 ms) so quick saves do not flicker.

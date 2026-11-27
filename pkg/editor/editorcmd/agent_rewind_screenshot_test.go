@@ -16,7 +16,7 @@ import (
 
 // TestAgentRewindMacOSScreenshots renders the Agent panel's Rewind popover ("Rewind to before this message")
 // and post-rewind state (banner with Redo + rewound prompt returned to composer) on native macOS
-// in both Dark and Light Spec themes for visual inspection beside docs/design/editor/Checkpoints.dc.html.
+// in both Dark and Light Spec themes for visual inspection beside design/editor/Checkpoints.dc.html.
 func TestAgentRewindMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	proj := &project.File{

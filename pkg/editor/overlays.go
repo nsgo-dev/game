@@ -836,7 +836,7 @@ func drawConnectionsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 			dir = end.Sub(c2)
 		} else {
 			dist := vecLen(end.Sub(start))
-			// Arch upward cleanly like docs/design/editor/Inspector.dc.html.
+			// Arch upward cleanly like design/editor/Inspector.dc.html.
 			lift := min(max(dist*0.32, 36), 120) + float32(stackIdx*24)
 			dx := end.X - start.X
 			dy := end.Y - start.Y

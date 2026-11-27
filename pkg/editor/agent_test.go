@@ -493,7 +493,7 @@ func TestParseClaudeAndCodexStreamLines(t *testing.T) {
 
 // TestAgentConnectAndStatesScreenshots captures real macOS screenshots of the Connect dialog
 // and the Agent panel across all status chip states for side-by-side inspection against
-// docs/design/editor/Connect.dc.html and docs/design/editor/AgentStates.dc.html.
+// design/editor/Connect.dc.html and design/editor/AgentStates.dc.html.
 func TestAgentConnectAndStatesScreenshots(t *testing.T) {
 	ed := newTestEditor(t)
 	now := time.Date(2026, 11, 26, 14, 0, 0, 0, time.UTC)

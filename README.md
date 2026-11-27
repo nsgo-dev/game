@@ -138,6 +138,7 @@ game/
 ├─ library/             shared asset, plugin and template library index
 ├─ skills/              Agent Skills package (bunx skills add nsgo-dev/game)
 ├─ docs/                bilingual site documentation (en/ and zh/)
+├─ design/editor/       editor design artboards that pkg/editor implements
 ├─ apps/website/        official site at https://game.nsgo.dev (TanStack Start + React)
 ├─ benchmarks/          bench baseline and package size budgets
 ├─ tools/               contributor tooling module (changelog, agenteval, gameschema, gameapi)

@@ -11,7 +11,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// CodeReviewView renders the full-window Go code review screen matching docs/design/editor/ReviewCode.dc.html
+// CodeReviewView renders the full-window Go code review screen matching design/editor/ReviewCode.dc.html
 // using exclusively SpecPalette tokens (Dark & Light).
 func CodeReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	keyOpt := core.KeyOptions{When: core.KeyNotEditing}
@@ -1760,7 +1760,7 @@ func codeReviewConfirmFooterView(ed *Editor, sess *CodeReviewSession, f *CodeRev
 }
 
 // agentCodeReviewWaitingCard renders the Agent panel card for unconfirmed Go files left waiting after Keep
-// (or a paused review after Esc), matching docs/design/editor/Review.dc.html.
+// (or a paused review after Esc), matching design/editor/Review.dc.html.
 func agentCodeReviewWaitingCard(ed *Editor, p SpecPalette) core.Node {
 	sess := ed.CodeReviewSession()
 	if sess == nil || sess.Open {

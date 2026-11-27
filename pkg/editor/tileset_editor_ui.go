@@ -1372,7 +1372,7 @@ func parseTypedTileProperty(kind, raw string) (any, error) {
 }
 
 // tileInspectorView renders the right-side Inspector panel for a picked tile when a tile tool is active,
-// matching docs/design/editor/Tiles.dc.html with Spec tokens: tile swatch, name and source,
+// matching design/editor/Tiles.dc.html with Spec tokens: tile swatch, name and source,
 // COLLISION segmented control (Solid, One-way, None), RULES card (terrain set, collision, variant weight),
 // the inference note, and a button to open the full Tileset Editor.
 func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {

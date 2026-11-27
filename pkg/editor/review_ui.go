@@ -32,7 +32,7 @@ var reviewRegionOrder = []string{
 }
 
 // ReviewScreenView renders the full-window change-by-change agent turn Review screen
-// matching docs/design/editor/Review.dc.html and docs/design/editor/Spec.dc.html
+// matching design/editor/Review.dc.html and design/editor/Spec.dc.html
 // using exclusively SpecPalette tokens (supporting both Dark and Light appearances).
 func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewRev := core.NewMemo(cx, func() uint64 {
@@ -3548,7 +3548,7 @@ func reviewYAMLDiffLinesView(p SpecPalette, lines []ReviewYAMLLine) core.Node {
 
 // agentReviewPanelCards renders the agent turn review card (Review waiting + Resume review,
 // or the Kept / Reverted outcome summary) inside AgentPanelView's thread list
-// (matching docs/design/editor/Review.dc.html).
+// (matching design/editor/Review.dc.html).
 func agentReviewPanelCards(ed *Editor, p SpecPalette, turns []AgentTurn) []core.Node {
 	snap := ed.ReviewStatus()
 	var cards []core.Node

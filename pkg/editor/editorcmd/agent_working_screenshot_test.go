@@ -34,7 +34,7 @@ func agentScreenshotScene() *sceneformat.SceneDoc {
 }
 
 // TestAgentWorkingScreenshots captures real macOS native screenshots of the Agent panel
-// matching docs/design/editor/Working.dc.html and Permissions.dc.html (Dark and Light themes).
+// matching design/editor/Working.dc.html and Permissions.dc.html (Dark and Light themes).
 func TestAgentWorkingScreenshots(t *testing.T) {
 	ed, err := editor.New(agentScreenshotScene(), nil)
 	if err != nil {

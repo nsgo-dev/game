@@ -17,7 +17,7 @@ func RightPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 // agentTurnSection renders the active, pending, stopped, kept, or reverted multi-file agent turn
 // (prompt bubble, progress steps + Stop control, completion message, summary card, and post-decision note)
-// matching docs/design/editor/Main.dc.html using exclusively SpecPalette tokens.
+// matching design/editor/Main.dc.html using exclusively SpecPalette tokens.
 func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnSnapshot) core.Node {
 	var thread []core.Node
 

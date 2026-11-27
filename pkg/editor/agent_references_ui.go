@@ -289,7 +289,7 @@ func agentBriefPreviewPopover(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-// agentPinNoticeCardView renders the "Pin to brief" confirmation card matching docs/design/editor/Sketch.dc.html:
+// agentPinNoticeCardView renders the "Pin to brief" confirmation card matching design/editor/Sketch.dc.html:
 // green check, "Pinned <name>", Undo button, monospace YAML diff with added lines highlighted, and caption.
 func agentPinNoticeCardView(ed *Editor, p SpecPalette) core.Node {
 	notice := ed.AgentLastPinNotice()

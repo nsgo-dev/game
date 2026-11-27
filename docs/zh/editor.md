@@ -955,7 +955,7 @@ func main() {
 
 ## 统一设置页面：智能体、项目、输入映射、音频总线、导出、通用偏好与快捷键（#907、#908、#909、#916、#1028、#1060、#1061）
 
-所有每台电脑的智能体控制、项目级 `game.yaml` 配置与编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `docs/design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `SpecPalette` 令牌。左侧导航将 **`AGENT`**（**Models and connections**、**Tools**、**Usage and privacy**，全部保存在此计算机且为**仅限用户**）、**`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
+所有每台电脑的智能体控制、项目级 `game.yaml` 配置与编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `SpecPalette` 令牌。左侧导航将 **`AGENT`**（**Models and connections**、**Tools**、**Usage and privacy**，全部保存在此计算机且为**仅限用户**）、**`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
 
 ### 智能体设置页：模型与连接、工具、用量与隐私（#1028、#1030）
 
@@ -1086,7 +1086,7 @@ func main() {
 
 ## 性能分析器面板与帧耗时条（#912）
 
-在编辑器内运行游戏或通过 MCP 连接正在运行的游戏（`game_perf_readout`、`game_perf_zones`、`game_perf_reset`）时，编辑器会在游戏视口下方显示实时帧耗时条，并可展开严格遵循编辑器设计规范令牌（`docs/design/editor/PlayMode.dc.html` 与 `Spec.dc.html`）的完整性能分析器面板：
+在编辑器内运行游戏或通过 MCP 连接正在运行的游戏（`game_perf_readout`、`game_perf_zones`、`game_perf_reset`）时，编辑器会在游戏视口下方显示实时帧耗时条，并可展开严格遵循编辑器设计规范令牌（`design/editor/PlayMode.dc.html` 与 `Spec.dc.html`）的完整性能分析器面板：
 
 - **运行模式 `FRAME TIME · LAST 60 S` 帧耗时条（`ProfilerStripView`）**：在编辑器内 Play 模式或已连接远程游戏（`ConnectProfiler`）期间始终显示在游戏视口下方。显示来自 `game_perf_readout` 的 `avg`、`p99` 与 `allocs/frame`，绘制 `8.3 ms`（`over 8.3 ms`）与 `16.7 ms`（`missed 16.7 ms`）阈值线及图例、`−60 s` / `−30 s` / `now` 时间轴，并在游戏通过 `debug.Overlay.NoteFrameCause` 标注了原因（或发生 GC 卡顿标记为 `"GC pause"`）时以徽章标出尖峰及其原因。点击耗时条上的 **Profiler** 按钮即可打开完整性能分析器面板。
 - **连接运行中的游戏**：可通过 `ConnectProfilerMCP`（基于官方 MCP Go SDK 的任意 `mcp.Transport`）、`ConnectProfilerCommand`（启动 `go tool nsgo mcp`）、`ConnectProfilerScope`（已挂载 `mcp.Bridge` 的进程内 `*core.Scope`）或 `NewBridgeProfilerClient` 创建客户端并传给 `Editor.ConnectProfiler`。挂载作用域后，编辑器会按 `Editor.ProfilerPollInterval`（默认 `250 ms`）轮询 `game_perf_readout` 和 `game_perf_zones`，也可通过 `Editor.PollProfiler` 按需轮询。未连接外部客户端时，内置 Play 模式（`Play` / `PlayIn`）也会自动使用 `debug.Overlay`、`debug.Profiler` 和 `debug.GCMonitor` 采集帧耗时与区间数据。
@@ -1094,13 +1094,13 @@ func main() {
 - **重置与 Chrome/Perfetto Trace 导出**：点击 **Reset**（`Editor.ResetProfiler`）会向已连接的游戏调用 `game_perf_reset` 并清空编辑器已记录的历史帧与区间表。点击 **Export Trace**（或调用 `Editor.ExportProfilerTrace` / `Editor.ExportProfilerTraceFile`，或通过 `Editor.OnExportProfilerTrace` 接管输出）会通过 `debug.Profiler.WriteChromeTrace` 将已记录的帧与区间导出为合法的 Chrome/Perfetto Trace Event Format JSON。
 ## 开始界面（#922）
 
-不带参数运行 `go tool game editor` 时会打开开始界面（`StartScreenView`，可通过 `SetStartScreenOpen` 切换），视觉与交互遵循 `docs/design/editor/Start.dc.html`、`FirstRun.dc.html` 第 1 步以及 `Spec.dc.html` 设计 Token：
+不带参数运行 `go tool game editor` 时会打开开始界面（`StartScreenView`，可通过 `SetStartScreenOpen` 切换），视觉与交互遵循 `design/editor/Start.dc.html`、`FirstRun.dc.html` 第 1 步以及 `Spec.dc.html` 设计 Token：
 
 - **最近项目（`RecentProjects`、`ParseRecentProjects`、`EncodeRecentProjects`）**：打开项目时会把名称、目录路径和 UTC RFC3339 `lastOpened` 时间戳写入位于所有项目之外的每用户严格版本化 YAML 文件（默认通过 `DefaultRecentProjectsPath` 存在 `<UserConfigDir>/nsgo-game/recent-projects.yaml`，或由 `Editor.RecentProjectsPath` 指定）。左侧栏的 **RECENT** 列表仅在存在最近项目后出现，显示相对时间，并对磁盘上已不存在目录或 `game.yaml` 的条目（`Missing`）打上缺失标记并提供移除按钮（`RemoveRecentProject`），重启编辑器后仍然保留。
 - **打开目录（`BrowseAndOpenProject`）**：通过 NSGo 原生目录选择器（`core.Scope.PickDirectories`）或可注入的 `Editor.PickProjectFolder` 钩子选择项目目录并打开。
 - **从模板新建项目（`ProjectTemplates`、`StartCreateProject`）**：模板卡片与 `All` / `2D` / `3D` 筛选标签直接从 `game new` 的模板注册表动态填充，因此新增模板无需修改编辑器代码即可自动出现。项目名称、父目录（默认 `~/games`）和可选模块路径会在输入时实时校验（`ValidateNewProjectInputs`）：检查是否仅含 `a–z`、`0–9` 和 `-`、检查父目录写入权限，以及目标目录是否已存在（已存在时提供 **Open it** 和如 `dungeon-run-2` 的可用名称建议）。点击 **Create** 会在 UI 协程之外运行 `game new`（含 `go get` 和 `go mod tidy`），将标准输出与错误实时展示在界面中，成功后自动打开生成的 `game.yaml`。
 - **打开演示（`OpenDemo`、`NewDemo`）**：无需在磁盘上创建或打开项目，直接进入内置的演示房间场景。
-- **使用 AI 开始：从一句话到首次审查（#1051）**：点击 **Start with AI**（`StartWithAI`）完整实现 `docs/design/editor/FirstRun.dc.html` 中的五步流程并严格使用 Spec 令牌：
+- **使用 AI 开始：从一句话到首次审查（#1051）**：点击 **Start with AI**（`StartWithAI`）完整实现 `design/editor/FirstRun.dc.html` 中的五步流程并严格使用 Spec 令牌：
   - **后续步骤与原地连接**：开始界面列出三步（**Connect an agent**、**Approve its plan**、**Review the first scene**）。当尚未连接智能体时，**Start with AI** 会在开始界面原地展开 **Connect an agent**（`FirstRunStageConnect`），同时保留已输入的创意与项目名称（点击 **Edit** 或 **Later** 可完整返回第一步）。它会检测 `PATH` 上的 `claude` 与 `codex`（或通过 `Editor.FirstRunDetectAgents` 注入），等待握手（`Editor.FirstRunConnectAgent`，超时后显示排障清单与原地确认的 **Copy diagnostics**），或立即在内存中校验粘贴的 API 密钥（`Editor.FirstRunValidateAPIKey`，绝不写入 YAML）。
   - **首个计划（`FirstRunStagePlan`、`OpenFirstRunPlan`）**：打开只读模板预览视口并绘制紫色虚线计划幽灵（`FirstRunGhost`），右侧 Agent 面板展示 **PLAN** 卡片（`Editor.FirstRunPlanner` / `DefaultFirstRunPlan`）、带推荐项的澄清问题、**Just do it**（`JustDoItFirstRunPlan`）以及 **Approve ⌘↵**（`ApproveFirstRunPlan`）。在点击 **Approve** 之前不会在磁盘上创建项目目录。
   - **构建中（`FirstRunStageBuilding`）**：点击 **Approve** 创建全新项目目录后，编辑器切换至工作布局，顶部显示五阶段进度条（`Template`、`Project`、`First scene`、`Check`、`Playtest`），右侧 Agent 面板实时显示对象计数（如 `19 of 31 objects`，不使用空白转圈）。按 **Cancel** 或 `Esc` 会先暂停并确认（**Keep building**、**Stop, keep the files**，以及仅当目录系本次流程刚刚新建时才提供的 **Stop and delete the folder**，绝不删除同级或已有目录）。若 `Check` 阶段失败，会在进入审查前停住并展示智能体给出的修复方案（**Fix it** / **Review as is**）。
@@ -1200,7 +1200,7 @@ func main() {
 
 ## HUD 与菜单布局界面（#1047）
 
-可通过工具栏 **HUD** 按钮、`Project > HUD & Menu Layout`、命令面板（`mod+shift+u` / `CmdHUDLayout`）、在文件浏览器中双击或打开任意 `*.screen.yaml` 文件，或点击问题面板中的界面诊断条目打开 HUD 与菜单布局界面（`HUDLayoutView`、`OpenHUDScreen` / `OpenHUDScreenFile` / `OpenHUDScreenDoc`）。界面严格遵循编辑器设计规范令牌（`docs/design/editor/HUDLayout.dc.html` 与 `Spec.dc.html`），在所选语言下同时呈现所有屏幕尺寸，并将手动编辑聚焦在高频微调上：
+可通过工具栏 **HUD** 按钮、`Project > HUD & Menu Layout`、命令面板（`mod+shift+u` / `CmdHUDLayout`）、在文件浏览器中双击或打开任意 `*.screen.yaml` 文件，或点击问题面板中的界面诊断条目打开 HUD 与菜单布局界面（`HUDLayoutView`、`OpenHUDScreen` / `OpenHUDScreenFile` / `OpenHUDScreenDoc`）。界面严格遵循编辑器设计规范令牌（`design/editor/HUDLayout.dc.html` 与 `Spec.dc.html`），在所选语言下同时呈现所有屏幕尺寸，并将手动编辑聚焦在高频微调上：
 
 - **顶栏与语言切换**：左侧展示 `<项目名> / screens / <文件名>` 面包屑（点击可返回场景编辑器），中间为读取自 `locales/*.yaml`（并叠加未保存的 `Editor.l10n` 编辑）的 **Language** 分段语言切换器（`SetHUDLocale`），右侧为 **Search ⌘K** 与 **Play**。切换语言会立即重绘全部四个设备尺寸、更新文本宽度表、检查器多语言文本与溢出放大预览以及 **GAME CHECK** 诊断。
 - **左侧栏（`SCREENS` 与 `NODES`）**：列出项目中所有 `*.screen.yaml` 文件（`HUDScreens`）及其节点数与当前语言的问题数；下方展示当前界面的层级节点树（`HUDTree`），附带等宽锚点标记（`TL`、`TC`、`TR`、`CL`、`C`、`CR`、`BL`、`BC`、`BR`、`FILL`）与红色问题圆点。
@@ -1210,7 +1210,7 @@ func main() {
 
 ## 过场动画时间轴与智能体审查（#1056）
 
-打开任意 `*.cutscene.yaml` / `*.cutscene.yml` 文件（通过文件浏览器、命令面板、`OpenCutsceneProjectFile`、`OpenCutsceneFile`、`OpenCutsceneYAML` 或智能体的 `cutscene_write` MCP 工具），都会进入占满工作区的过场动画时间轴编辑器（`CutscenePanelView`），完全采用 `Spec.dc.html` 设计 Token 与 `docs/design/editor/Animation.dc.html` 第 2 屏布局：
+打开任意 `*.cutscene.yaml` / `*.cutscene.yml` 文件（通过文件浏览器、命令面板、`OpenCutsceneProjectFile`、`OpenCutsceneFile`、`OpenCutsceneYAML` 或智能体的 `cutscene_write` MCP 工具），都会进入占满工作区的过场动画时间轴编辑器（`CutscenePanelView`），完全采用 `Spec.dc.html` 设计 Token 与 `design/editor/Animation.dc.html` 第 2 屏布局：
 
 - **左侧栏（`CUTSCENES` 与 `LINES`）**：列出项目中的所有过场文件（`ProjectCutscenes`），显示时长并标出 `video` 视频类型；下方列出从 `loc/en.yaml` 与 `loc/zh.yaml`（或 `Editor.CutsceneCatalog` / 已打开的本地化工作区）解析出的本地化对白条目（`CutsceneLines`），展示行 ID、英文和中文译文。
 - **实时预览舞台与缩略图拖动条**：使用真实的 `cutscene.TimelinePlayer` 驱动隔离的场景副本（`CutscenePreviewScene`、`SeekCutscene`、`PlayCutscene`、`PauseCutscene`、`StepCutscene`），拖动到任意时间点都与运行时播放器摆出的角色位置、相机与字幕完全一致。界面展示当前相机标签（`CutsceneCameraLabel`）、本地化字幕叠加层（`CutsceneActiveDialogue`）、Play / Pause 播放控制、时间读数以及 24 帧可点击缩略图拖动条（`CutsceneThumbs`）。
@@ -1219,7 +1219,7 @@ func main() {
 
 ## 变更与提交面板（#1057）
 
-点击状态栏中的 **变更** 入口（实时显示工作区已改动文件数量）、执行 `项目 > 变更与提交` 或通过命令面板（`CmdChanges` / `OpenChangesPanel` / `CloseChangesPanel`）即可打开全窗口的**变更与提交**界面（`ChangesPanelView`），布局对应 `docs/design/editor/VersionControl.dc.html` 第 1 屏并严格采用 `Spec.dc.html` 设计令牌：
+点击状态栏中的 **变更** 入口（实时显示工作区已改动文件数量）、执行 `项目 > 变更与提交` 或通过命令面板（`CmdChanges` / `OpenChangesPanel` / `CloseChangesPanel`）即可打开全窗口的**变更与提交**界面（`ChangesPanelView`），布局对应 `design/editor/VersionControl.dc.html` 第 1 屏并严格采用 `Spec.dc.html` 设计令牌：
 
 - **分支切换、领先/落后计数与 Pull**：顶部栏显示 `<项目名> / <场景名>`、分支切换下拉菜单（`GitSwitchBranch`，同时显示当前分支与 `ahead N` / `behind M` 计数）、**Refresh**（`RefreshChanges`）、**Pull**（`GitPull`，仅快进拉取）与 **Play**。
 - **按类别分组的 CHANGES 列表**：将相对于 `HEAD` 的工作区改动（`git status --porcelain=v1 -uall`）按 **SCENES**、**DATA**、**CODE** 与 **ASSETS**（`ChangesCategory`）分组展示，每行提供纳入提交勾选框（`SetChangeIncluded`、`ToggleChangeIncluded`）、状态徽章（`M`、`A`、`D`、`R`）以及简明摘要（如 `4 added · 3 changed objects`、`+7 -4 lines` 或音频时长与大小）。
@@ -1232,7 +1232,7 @@ func main() {
 
 ## 逐对象场景合并冲突解决（#1059）
 
-当 Git 存在未合并的场景文件（通常由 #1058 的逐对象合并驱动 `go tool game merge` 产生）时，打开项目（`OpenProject`）、点击状态栏中的冲突徽章或执行 `Project > Resolve Scene Merge Conflicts`（`CmdMergeConflicts` / `OpenMergeConflict`）会进入全窗口的**场景合并冲突**界面（`MergeConflictView`，严格采用 `docs/design/editor/Spec.dc.html` 令牌并对应 `VersionControl.dc.html` 第 2 屏）：
+当 Git 存在未合并的场景文件（通常由 #1058 的逐对象合并驱动 `go tool game merge` 产生）时，打开项目（`OpenProject`）、点击状态栏中的冲突徽章或执行 `Project > Resolve Scene Merge Conflicts`（`CmdMergeConflicts` / `OpenMergeConflict`）会进入全窗口的**场景合并冲突**界面（`MergeConflictView`，严格采用 `design/editor/Spec.dc.html` 令牌并对应 `VersionControl.dc.html` 第 2 屏）：
 
 - **顶部栏与进度**：居中显示 `Merging <theirs> into <mine> · N of M objects need you`（全部解决后变为 `ready to finish`），右侧提供 **Abort merge**（`AbortMerge`，执行 `git merge --abort` 将分支与工作区恢复原状）和 **Finish merge**（`FinishMerge`，全部冲突解决后可用）。
 - **CONFLICTS 与 MERGED BY ID**：按对象 ID 将 `sceneformat.MergeResult.Conflicts` 分组列在 **CONFLICTS** 下，每行显示状态点、对象名、`Unresolved` / `Agent` / `Mine` / `Theirs` / `Custom` 标签及直观摘要（如 `Both moved it: x 560 here, x 600 on main` 或 `Your speed change; main deleted it`）。自动按 ID 合并成功且无冲突的对象列在 **MERGED BY ID** 中并标明来源分支。底部提供一键 **Take the agent's suggestion for all N**（`TakeAllAgentMergeSuggestions`）。
@@ -1243,7 +1243,7 @@ func main() {
 
 ## 查找用法与安全重命名（#1041）
 
-按下 `Shift+F12`（`CmdFindUsages`）、从菜单栏或命令面板执行 **Project > 查找用法**、在文件浏览器右键文件（**查找用法** / **安全重命名…**）、在场景树右键实例化场景或预制体对象（**查找用法**），或调用 `OpenUsagesScreen(path)`，即可打开全窗口的**查找用法与安全重命名**界面（`ReferencesScreenView`，严格采用 `docs/design/editor/Spec.dc.html` 令牌并对应 `References.dc.html`）：
+按下 `Shift+F12`（`CmdFindUsages`）、从菜单栏或命令面板执行 **Project > 查找用法**、在文件浏览器右键文件（**查找用法** / **安全重命名…**）、在场景树右键实例化场景或预制体对象（**查找用法**），或调用 `OpenUsagesScreen(path)`，即可打开全窗口的**查找用法与安全重命名**界面（`ReferencesScreenView`，严格采用 `design/editor/Spec.dc.html` 令牌并对应 `References.dc.html`）：
 
 - **分组用法列表（`FindUsages`）**：顶部栏显示返回编辑器按钮（`Esc`）、`"Usages of <file>"` 与 `"N usages in M files"`，左侧按 **SCENES**（每个场景实例的坐标与覆盖数）、**PREFAB VARIANTS**（`inherits:` 继承目标的文件）、**DATA TABLES**（引用该路径的数据表行）与 **GO CODE**（通过 `go/parser` + `go/ast` 解析项目 `*.go` 文件找到的字符串常量/字面量，标注 `not rewritten`）四类分组。支持 `↑`/`↓` 遍历用法、点击场景卡片在缩略图网格上聚焦该场景实例，以及按 `Enter` 打开场景并选中、聚焦对应对象。
 - **安全重命名预览与审查（`PreviewSafeRename` / `StartSafeRename` / `SetSafeRenameInput`）**：点击 **Rename…**（`F2`）后在固定的目录前缀与复合后缀之间显示 **NEW NAME** 输入框，按 `game mv` / `MoveFile` 路径规则实时校验（非空、合法相对路径、目标空闲），在不写入任何磁盘文件的前提下计算干跑计划。审查界面展示被移动的文件（`"content unchanged"`）、每个会被改写的 YAML 文件精确的 `−`（旧行）与 `+`（新行）差异并显示实例覆盖保持不变，同时将未改写的 Go 引用列为问题（`"<file> loads the old path and is not rewritten"`），提供 **Ask the agent to update it**（`AskAgentToUpdateUsage`，触发 `Editor.OnAskAgentUpdateRef`）与 **Open `<file>`**（`Editor.OnOpenSourceFile`）。
@@ -1260,7 +1260,7 @@ func main() {
 - **撤销/重做与确定性保存**：所有材质编辑均记录在 `Editor.History`（`EditMaterial`）中，纳入未保存检测（`MaterialDirty`、`HasUnsavedChanges`）与文件移动跟踪（`MoveFile`）；点击 **Save Material**（`SaveMaterial`、`SaveMaterialFile`、`Save`、`SaveAll` 或 `Editor.OnSaveMaterial`）按 `resource.Encode` 写出确定性的规范 YAML。
 ## 试玩报告界面（#1044）
 
-通过 `Project > 试玩报告`、命令面板（`mod+shift+y` / `CmdPlaytestReport`）、状态栏试玩徽章、在文件浏览器中双击任意 `*.report.yaml` 文件、调用 `OpenPlaytestReport` / `OpenPlaytestReportFile` 或代理调用 `playtest_report`，可打开全窗口的**试玩报告**界面（`PlaytestReportView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 颜色与对比度令牌（包括 `#3B7BFF` 主强调按钮上的 `#101216` 文字）并对应 `docs/design/editor/Playtest.dc.html`：
+通过 `Project > 试玩报告`、命令面板（`mod+shift+y` / `CmdPlaytestReport`）、状态栏试玩徽章、在文件浏览器中双击任意 `*.report.yaml` 文件、调用 `OpenPlaytestReport` / `OpenPlaytestReportFile` 或代理调用 `playtest_report`，可打开全窗口的**试玩报告**界面（`PlaytestReportView`）。界面严格遵循 `design/editor/Spec.dc.html` 颜色与对比度令牌（包括 `#3B7BFF` 主强调按钮上的 `#101216` 文字）并对应 `design/editor/Playtest.dc.html`：
 
 - **顶部栏与回放联动**：展示 `"Playtest · <scope>"`、项目名与运行摘要（如 `"20 headless runs by the agent · 1 m 40 s"`）、**Watch run N**（`WatchPlaytestRun` / `WatchPlaytestRunIn`，通过 `replay.LoadFile` 加载该轮次的 `.replay.yaml` 录制并经 `PlayReplayIn` 在播放模式中以 `*replay.Player` 回放，同时提供 **Back to Playtest** 返回条）以及 **Ask the agent to tune it**（`AskAgentToTunePlaytest` / `Editor.OnPlaytestPrompt`）。
 - **BOT PROFILE 卡片与 `playtest_define` 审查**：展示机器人配置名称/切换组（`BotProfileDisplayName`）、带 **Open** 按钮的 `"playtest.yaml from template <id>"`（`OpenPlaytestConfigPreview` / `Editor.OnOpenPlaytestConfig`）以及一句话策略。当代理通过 `playtest_define` 提议新指标时，界面展示带 **Review** 按钮的紫色横幅，点击后展开统一 diff 审查抽屉，确认 **Apply** 前不会改动磁盘上的 `playtest.yaml`（`ApplyPlaytestProposal`、`DismissPlaytestProposal`）。
@@ -1274,7 +1274,7 @@ func main() {
 - **MCP 集成（`editormcp`）**：`game_playtest` 会将生成的报告同步载入编辑器，`playtest_define` 会将待审查指标直接推送到试玩报告横幅并与 Apply/Dismiss 双向同步，新增的 `playtest_report` 工具支持代理打开、检查、写入解读与建议或回放指定轮次。
 ## 资源抽屉（#1052）
 
-在左侧栏顶部可在 **Scene**（`LeftRailScene`）与 **Assets**（`LeftRailAssets`，也可通过命令面板 `CmdToggleAssetsMode` 切换）之间切换，在视口下方统一浏览、筛选、预览并将各类项目资源直接拖入场景；界面严格使用 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Assets.dc.html`（第 1 屏）布局：
+在左侧栏顶部可在 **Scene**（`LeftRailScene`）与 **Assets**（`LeftRailAssets`，也可通过命令面板 `CmdToggleAssetsMode` 切换）之间切换，在视口下方统一浏览、筛选、预览并将各类项目资源直接拖入场景；界面严格使用 `design/editor/Spec.dc.html` 设计 Token 并对应 `design/editor/Assets.dc.html`（第 1 屏）布局：
 
 - **左侧栏（`AssetsLeftRailView`）**：顶部提供 **Scene / Assets** 分段开关（`LeftRailSwitchView`），下方列出带资源计数的项目 **FOLDERS**（包含如 `audio/music` 等空资源目录）、带计数的 **SHOW ONLY** 过滤器（**Unused**、**Missing files**、**Generated**、**Proposed**）以及底部文件拖放导入区（`"Drop files anywhere to import"`）。其中 **Unused** 与 **Missing files** 直接由 `refs.Project.UnreferencedAssets` 和 `refs.Project.MissingAssets` 计算得出。
 - **视口下方的资源抽屉（`AssetDrawerView`）**：提供类型标签页（**All**、**Sprites**、**Tiles**、**Audio**、**Fonts**）、按名称或路径筛选输入框（`SetAssetDrawerQuery`）、默认按最近修改排序的排序切换（`SetAssetDrawerSort`）以及 **Import**（`TriggerAssetImport` / `ImportAssetFiles`）和 **Generate**（`TriggerAssetGenerate`）按钮。每张卡片显示透明棋盘格预览、状态徽章（`new`、`Missing`、`Generated`、`Not used`）、文件名和元信息行（如 `"6 frames · used 31×"`）。底栏显示 `"N assets · M shown"` 及缺失文件提示（如 `"1 problem · door_open.png missing"`）；空目录显示 `"audio/music is empty · Drop .ogg or .wav files here, or ask the agent."`，筛选无结果时显示 `"Clear a filter to see more assets."`。
@@ -1283,7 +1283,7 @@ func main() {
 
 ## 视口叠加层菜单与智能体视口截图（#1040）
 
-在 2D 编辑模式（`ViewMode2D`）下，视口底部居中的悬浮栏（对应 `docs/design/editor/Inspector.dc.html`，严格采用 `Spec.dc.html` 令牌）将缩放（`−` / `%` / `+`）、**吸附（Snap）**、**适应画面（Fit）** 与显示当前已开启数量的 **叠加层 N（Overlays N）** 按钮组合在一起：
+在 2D 编辑模式（`ViewMode2D`）下，视口底部居中的悬浮栏（对应 `design/editor/Inspector.dc.html`，严格采用 `Spec.dc.html` 令牌）将缩放（`−` / `%` / `+`）、**吸附（Snap）**、**适应画面（Fit）** 与显示当前已开启数量的 **叠加层 N（Overlays N）** 按钮组合在一起：
 
 - **`SHOW IN VIEWPORT` / `在视口中显示` 弹出层（`ui.Popover`）**：点击 **Overlays N** 在上方弹出（也可经由 `View > Overlays` 或 `CmdViewportOverlays` 访问），每项叠加层均显示图例色标、本地化名称、当前场景实时数量与 `ui.Switch` 开关，并在底部注明 *“智能体的视口截图使用同一组设置：`viewport_overlays`”*：
   - **碰撞形状**（`collision_shapes`）：已注册的非触发器组件形状字段（#882）与非触发器 2D 物理碰撞体。
@@ -1299,7 +1299,7 @@ func main() {
 
 ## 分节检查器、字段筛选、拖拽微调、打开 YAML 与请智能体添加（#1038）
 
-对象检查器（`InspectorView`）采用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `Inspector.dc.html`、`Main.dc.html` 与 `Viewport3D.dc.html`，将对象属性组织为紧凑的可折叠标题分区，同时保持每个控件都对应一个 `Editor` 方法与匹配的 `editormcp` 工具：
+对象检查器（`InspectorView`）采用 `design/editor/Spec.dc.html` 设计令牌并对应 `Inspector.dc.html`、`Main.dc.html` 与 `Viewport3D.dc.html`，将对象属性组织为紧凑的可折叠标题分区，同时保持每个控件都对应一个 `Editor` 方法与匹配的 `editormcp` 工具：
 
 - **头部与打开 YAML（Open YAML）**：展示按对象类型着色的色块、对象 ID、类型与图层副标题（如 `Sprite · layer actors`）以及 **Open YAML** 按钮（`FindObjectYAMLLine` / `OpenSelectedObjectYAML`），精确定位对象在场景 YAML 中的 1-based 行号（场景无未保存改动时直接读取磁盘文件以匹配注释与行号，存在未保存改动时匹配 `SaveYAML`），若设置了 `Editor.OnOpenFileAtLine(path, line)` 则直接调用并在状态栏报告 `Opened <path>:<line>`。
 - **字段筛选（`InspectorFilter` / `SetInspectorFilter`）**：顶部的 **Filter fields** 输入框按不区分大小写的子串匹配筛选字段标签、组件名与分区标题（例如输入 `speed` 仅保留匹配 `speed` 的字段与所在分区），筛选期间自动展开匹配分区并隐藏无关分区。
@@ -1311,7 +1311,7 @@ func main() {
 
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
-通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 令牌并对应 `docs/design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
+通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `design/editor/Spec.dc.html` 令牌并对应 `design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
 
 - **MCP 生成器服务器（`GENERATORS · MCP`）**：在 **设置 › 工具**（`EditorSettingsDialogView`）中配置服务器（`GeneratorServerConfig`、`SetGeneratorServerConfigs`），通过 `ConnectAssetGenerator`（任意 `mcp.Transport`，与 `ConnectRemote` 一致）或 `ConnectAssetGeneratorCommand`（桌面端 stdio 进程）连接。`AssetGenerators` 列出所有已连接或已配置的 `images` / `sound` 服务器及实时连接状态。
 - **不信任输出仅在内存中解码**：`GenerateAsset` 严格在内存中将图像负载解码为光栅像素（重新编码为干净的 PNG 字节、限制尺寸并拒绝 SVG/HTML/非图像负载），并在内存中校验 WAV（`audioconv.DecodeWAV`）或 OGG 音频。在用户执行 **Pick** 之前不会向磁盘写入任何内容。
@@ -1320,7 +1320,7 @@ func main() {
 - **导出许可证门禁（`LICENSES · CHECKED AT EXPORT`）**：`credits.ScanGeneratedLicenses`、`credits.CheckGeneratedLicenses`、`credits.Collect`、`releaseplan.Build`、`game release` 以及编辑器的导出面板（`CheckExportCredits`）会扫描项目中的所有 `*.source.yaml` 文件。任何许可证为空或未知（`license: ""` 或 `license: unknown`）的生成资源都会以 `*credits.UnknownLicenseError` 阻止发布构建并在错误信息中列出其路径，直到通过 `SetGeneratedAssetLicense` / **Set license** 设置合法许可证为止。
 ## 焦点环与 F6 键盘区域（#1003）
 
-编辑器中的每个交互控件都遵循 `docs/design/editor/Spec.dc.html` 规范，在键盘聚焦时绘制焦点环，并可通过 `Tab`、`F6` 或方向键访问：
+编辑器中的每个交互控件都遵循 `design/editor/Spec.dc.html` 规范，在键盘聚焦时绘制焦点环，并可通过 `Tab`、`F6` 或方向键访问：
 
 - **仅键盘焦点环（`:focus-visible`）**：`EditorView` 安装 `SpecTheme()`（`FocusTheme()` 亦返回同一主题），将 `info`、`focus` 与 `ring` 映射为规范强调色（深色 `#3B7BFF`、浅色 `#1D5CE6`）并保持深浅两套外观表面。按钮、切换按钮、下拉选择、复选框以及 `SpecIconButton` / `SpecSwitch` 仅在键盘聚焦时绘制 2 px、`+2 px` 偏移的强调色焦点环，鼠标点击不会绘制焦点环。
 - **内嵌焦点环与 `:focus-within`**：树节点行（`SceneTreeView`、`LayersView`）、列表行（`AssetBrowserView`、`FilesView`）、文本与数值输入框（`ui.Input`、`ui.NumberInput`）以及通过 `F6` 聚焦的整个区域均通过 `SpecPalette.FocusRing(-2)` 绘制 `-2 px` 内嵌偏移的强调色焦点环，确保滚动父容器不会裁剪它。同时被选中和聚焦的行会同时显示选中背景填充与内嵌焦点环；输入框/卡片容器（`SpecFocusWithinCard`、`hud-composer-card`）则通过 `:focus-within` 在卡片外圈绘制 `+2 px` 焦点环。
@@ -1330,7 +1330,7 @@ func main() {
 - **焦点稳定性**：在拖拽或检查器数值微调进行中（`Editor.IsDragging`）或用户正在文本字段中输入时（`Editor.IsTyping`），编辑器不会自动抢占焦点；弹出 Toast 不会抢走焦点；`Editor.ShouldFocusAgentPrompt` 仅在未拖拽、未输入且焦点原本就位于智能体面板内（`Editor.SetAgentPanelRef`）时才返回 `true`。
 ## 连接智能体与状态胶囊（#1009）
 
-在编辑器内或通过 `go tool game mcp install` 连接本机的外部编程智能体（Claude Code、Codex 或任意 MCP 客户端），界面严格遵循 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Connect.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Settings.dc.html`：
+在编辑器内或通过 `go tool game mcp install` 连接本机的外部编程智能体（Claude Code、Codex 或任意 MCP 客户端），界面严格遵循 `design/editor/Spec.dc.html` 设计 Token 并对应 `design/editor/Connect.dc.html`、`design/editor/AgentStates.dc.html` 与 `design/editor/Settings.dc.html`：
 
 - **一次性项目安装（`go tool game mcp install`）**：在项目根目录幂等地写入 `.mcp.json`（Claude Code）和 `.codex/config.toml`（Codex），保留文件中已有的其他 MCP 服务器与设置，并打印每个文件是写入还是未变更。
 - **连接智能体对话框（`ConnectAgentDialogView`）**：可通过 `项目 > 连接智能体…`、命令面板（`CmdConnectAgent`）、`编辑器设置 > 模型与连接`（`+ 连接其他智能体或模型`）或智能体面板顶部栏打开。提供三个选项（**本机上的智能体** / 推荐、**内置，使用你的 API 密钥**、**不使用智能体**），展示带 **Copy** 按钮的 `go tool game mcp install` 命令与等待连接状态（首个 MCP 客户端接入后立即切换为绿色已连接状态），提供四项起始权限复选框（编辑场景与数据、运行 `game check`、运行无头试玩、编辑 Go 代码 -> `AgentPermissionRules`），选择 **不使用智能体** 时保持智能体面板关闭，并提供 **Later** 与 **Done** 按钮。
@@ -1345,7 +1345,7 @@ func main() {
 
 ## 运行模式标记、滚动回放与冻结帧智能体提问（#1042）
 
-在运行模式（`Play`、`PlayIn`、`StepPlay`、`PlayTick`）或连接运行中游戏期间，编辑器会持续保留最近 60 秒的滚动输入回放，支持在不中断运行的情况下打标记、冻结任意帧向智能体提问，并在输出面板提供崩溃堆栈卡片与一键回放到崩溃前一帧（对应 `docs/design/editor/PlayMode.dc.html`，严格采用 `Spec.dc.html` 设计令牌）：
+在运行模式（`Play`、`PlayIn`、`StepPlay`、`PlayTick`）或连接运行中游戏期间，编辑器会持续保留最近 60 秒的滚动输入回放，支持在不中断运行的情况下打标记、冻结任意帧向智能体提问，并在输出面板提供崩溃堆栈卡片与一键回放到崩溃前一帧（对应 `design/editor/PlayMode.dc.html`，严格采用 `Spec.dc.html` 设计令牌）：
 
 - **最近 60 秒滚动输入录制**：每次固定步长更新都会将 `Editor.PlayInputSource`（监听 `Editor.PlayInputActions` / `Editor.PlayInputAxes`，默认读取 `game.yaml` 中的输入动作）采样到上限 60 秒的滑动窗口（`60 × PlayRateHz()`，60 Hz 下为 3,600 帧；`PlayRollingFrameCount`、`PlayRollingSummary` 显示 `"Last 60 s kept · N frames"`）。打标记、提问或捕获 panic 时，编辑器会原子写入 `replays/<场景>-<帧号>.replay.yaml` 版本 2 `replay` YAML 文件（`SavePlayRollingReplay`、`PlayLastReplayPath`），并在超过 60 秒窗口时平滑重基准帧号且保留进入窗口时的按住状态与轴值。
 - **运行控制栏与标记（`alt+f` / `CmdPlayMark`）**：本地运行模式在主工具栏下方展示 Spec 风格的运行控制栏（`playModeBarView`，不增加 2D 工具栏按钮），包含运行/暂停状态徽章、暂停/继续（`mod+shift+p`、`SetPlayPaused`）、单帧步进（暂停时按 `.`、`StepPlay`）、时间倍率（`0.25×`–`2×`、`SetPlayTimeScale`）、**Mark `⌥F`**（`AddPlayMark`）、**Something looks wrong `⌘L`** 与 **Stop**。按下 `alt+f` 不会停止运行，会保存对应的 `.replay.yaml`、在 60 秒帧耗时条上标注旗标，并在右侧 **Agent** 标签页的 **MARKS · N** 列表中展示时间、帧号与 `"replay attached"`（`PlayInspectorTab`、`PlayMarks`）。停止运行（`Stop`）或提前点击 **Send marks now**（`SendPlayMarks`）会将全部未发送标记打包为**同一条线程**派发给 `Editor.OnPlayMarksThread`（并保存在 `LastPlayMarksThread` 中）。
@@ -1366,7 +1366,7 @@ func main() {
 - **仅作用于编辑器 MCP**：规则仅约束编辑器的 MCP 服务器工具；外部智能体直接写入磁盘的文件仍通过磁盘监视器提示。
 ## 使用 `⌘L` 就地向智能体提问与智能体面板（#1037）
 
-在任意文本输入框之外按 `⌘L`（Windows/Linux 为 `Ctrl+L`，在 `ScopeGlobal` 中注册为 `CmdAskAgent` 并受 `core.KeyNotEditing` 保护）会在视口选中对象旁打开锚定就地提问框（`AskInPlaceComposerView`，严格遵循 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html`）：
+在任意文本输入框之外按 `⌘L`（Windows/Linux 为 `Ctrl+L`，在 `ScopeGlobal` 中注册为 `CmdAskAgent` 并受 `core.KeyNotEditing` 保护）会在视口选中对象旁打开锚定就地提问框（`AskInPlaceComposerView`，严格遵循 `design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html`）：
 
 - **锚定定位与边界约束（`OpenAskInPlace`、`AskInPlacePlacement`、`ComputeAskInPlacePlacement`）**：默认锚定在选区视口包围盒下方（靠近底部时自动翻转到选区上方），并严格约束在视口容器内部，确保始终位于屏幕内且绝不遮挡右侧面板（检查器 / 智能体面板）。未选中任何对象时锚定在视口内询问当前打开的场景。按 `Esc`（`CloseAskInPlace`）会直接关闭而不发送，并将键盘焦点还原回打开前的控件。在检查器或任何文本框中输入时按 `⌘L` 不会误触发提问框。
 - **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
@@ -1374,7 +1374,7 @@ func main() {
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
 ## 后台任务列表：排队与并行智能体请求（#1022）
 
-请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `docs/design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
+请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
 
 - **任务模型与纯文本线程持久化（`AgentTask`、`AgentThreadDoc`）**：任务在五个可见分组之间流转——**需要确认**（`TaskNeedsYou`）、**运行中**（`TaskRunning`）、**待审查**（`TaskReadyToReview`）、**排队中**（`TaskQueued`）与**失败**（`TaskFailed`），并记录已完成（`TaskDone`）与已停止/已还原（`TaskStopped`）状态。项目将任务列表以纯文本 YAML 持久化在 `.nsgo/threads/<id>.thread.yaml`（`AgentThreadVersion = 1`，确定性键序输出，`ParseAgentThread` / `EncodeAgentThread` 拒绝未知字段与重复键，读写往返逐字节无损）。
 - **排队（Queue）与并行运行（Run in parallel，`SubmitTask`）**：
@@ -1386,7 +1386,7 @@ func main() {
 - **配套 MCP 工具（`editormcp`）**：提供 `tasks_list`（查询任务、对象持有锁与摘要计数）、`tasks_submit`（排队或并行提交任务）与 `tasks_control`（执行 `keep`、`revert`、`dismiss`、`stop`、`retry`、`open`、`focus`、`allow`、`deny`）。
 ## 游戏简报与项目规则（#1026）
 
-设置界面（`EditorSettingsDialogView`，对应 `docs/design/editor/Settings.dc.html` 并严格使用 `Spec.dc.html` 设计令牌）在 **智能体（AGENT）** 分组下新增两个智能体每次请求前都会读取的共享项目页面：
+设置界面（`EditorSettingsDialogView`，对应 `design/editor/Settings.dc.html` 并严格使用 `Spec.dc.html` 设计令牌）在 **智能体（AGENT）** 分组下新增两个智能体每次请求前都会读取的共享项目页面：
 
 - **游戏简报（`brief.yaml`，`OpenBriefSettings`）**：以带标签的表单编辑项目根目录的版本化 `brief.yaml`（`project.Brief`、`project.ParseBrief`、`project.EncodeBrief`，JSON Schema 为 `https://game.nsgo.dev/schemas/brief.v1.json`），包含 **核心简介（Pitch）**、**类型（Genre）**、**标签（Tags）**、**平台（Platforms）**、**美术方向（Art direction）**、**手感与难度（Feel and difficulty）**（含可供 `playtest.TargetsFromBrief` / `playtest.ApplyBriefTargets` / `Editor.BriefPlaytestTargets` 直接读取的结构化试玩目标）以及 **氛围与音频（Tone and audio）**。缺少 `brief.yaml` 的项目显示空状态；填写保存后写出可按字节无损往返的规范 `brief.yaml`，未知字段会连同 1-based 行号被拒绝（`loaderr`），缺失栏目在侧栏显示 `"1 gap"` / `"N gaps"`（中文为 `"1 项缺口"` / `"{count} 项缺口"`），且每次编辑均为 `Editor.History` 中的可撤销步骤（`EditBrief`）。
 - **项目规则（`AGENTS.md`，`OpenRulesSettings`）**：在等宽代码输入框中以纯 Markdown 编辑项目根目录的 `AGENTS.md`（Claude Code、Codex 与内置智能体共同读取的同一份文件），所有编辑均为可撤销步骤（`SetProjectRules`），并在侧栏显示规则条数（`ProjectRulesCount`）。根据近期审查中被反复撤销的模式（`RecordReviewOutcome` / `SuggestedProjectRules`）生成规则建议（例如 `"Suggested from your last 30 reviews: you reverted every change that moved the camera bounds."`）；点击 **添加为规则（Add as a rule）**（`ProposeSuggestedRule`）会以可审查差异卡片（**保留** / **撤销**）呈现，在确认保留前不会改写磁盘上的 `AGENTS.md`。
@@ -1395,7 +1395,7 @@ func main() {
 
 ## 历史面板：你的编辑与智能体回合共用一条时间线（#1017）
 
-历史面板（`HistoryPanelView`）仅使用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html` 与 `Checkpoints.dc.html`，将手动编辑、保留的智能体回合、外部 Git 重载以及保存点统一呈现于同一条时间线上：
+历史面板（`HistoryPanelView`）仅使用 `design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html` 与 `Checkpoints.dc.html`，将手动编辑、保留的智能体回合、外部 Git 重载以及保存点统一呈现于同一条时间线上：
 
 - **丰富的历史条目（`History.Entries`、`Editor.HistoryEntries`）**：每条 `HistoryEntry` 记录操作来源（`HistoryAuthorYou`、`HistoryAuthorAgent` 或 `HistoryAuthorGit`）、摘要与详情（例如 `You · moved Knight` / `x 416 → 452`，或 `Agent · slimes and coins` / `6 changes · kept 5`）、涉及的文件列表、变更与保留计数以及由可注入时钟（`Editor.SetHistoryClock` / `History.SetClock`）提供的时间戳，便于确定性测试。保存操作会写入一条带快照的 `HistoryEntrySaved` 标记（`Saved · level_01.scene.yaml`）。
 - **统一的多文件智能体回合（`Editor.RecordAgentTurn`）**：将场景、项目与额外改动的项目文件打包为单个可撤销的 `HistoryAuthorAgent` 步骤；同时 `editormcp` 工具调用（`EnterAgentContext` / `LeaveAgentContext`）、`KeepTileReview` 与 `KeepCutsceneReview` 都会自动归属为智能体条目。
@@ -1416,7 +1416,7 @@ func main() {
 
 ## 仅限用户信任边界与提议删除（#1015）
 
-控制 AI 智能体行为边界的四项设置——**权限**（`permissions.yaml`）、**工具**（`tools.yaml` / `mcp.yaml`）、**模型**（`models.yaml`）与**用量**（`usage.yaml`）——严格遵循**仅限用户（You only）规则**（对应 `docs/design/editor/Permissions.dc.html`、`Settings.dc.html`）：
+控制 AI 智能体行为边界的四项设置——**权限**（`permissions.yaml`）、**工具**（`tools.yaml` / `mcp.yaml`）、**模型**（`models.yaml`）与**用量**（`usage.yaml`）——严格遵循**仅限用户（You only）规则**（对应 `design/editor/Permissions.dc.html`、`Settings.dc.html`）：
 
 - **MCP 服务器硬拒绝（`editormcp`）**：编辑器 MCP 服务器上的所有非只读工具都会拒绝任何写入、重命名（含无扩展名短名称的 `refactor_rename`）或删除仅限用户文件（`permissions.yaml`、`.nsgo/permissions.yaml`、`tools.yaml`、`models.yaml`、`usage.yaml` 及用户级 `editor.yaml`，含符号链接与大小写不敏感路径别名）的调用，并返回结构化的 `*editormcp.YouOnlyError`；即使处于 `Autonomous` 配置档也不例外。
 - **权限草案卡片（`permissions_draft` / `PermissionsDraftCardView`）**：智能体只能通过 `permissions_draft`（`Editor.SubmitPermissionsDraft`）提交草案。草案以带焦点限制与关闭恢复的独立模态 `ui.Dialog` 打开，展示每条规则的 `NOW → DRAFT` 决策、实时 `permissions.yaml · if applied` YAML 差异预览、**默认全部不勾选**的逐条复选框、**丢弃草案**与**应用 n 条规则**按钮。`⌘↵`、**全部保留**、自动化流程及任意配置档（含 `Autonomous`）都无法应用该草案；已应用的规则在历史记录（`History`）中归属于用户本人（`HistoryActorPerson`），且可用 `⌘Z` 逐字节撤销。
@@ -1424,7 +1424,7 @@ func main() {
 - **“全部保留”永不自动执行的提议删除（`game_delete_file` / `AgentReviewPanelView`）**：`game_delete_file` 默认关闭（`Editor.ToolEnabled("game_delete_file") == false`），调用后始终只在**审查更改**面板中提议删除（`Editor.ProposeFileDeletion`），展示文件精确行数（或二进制摘要）、红色差异预览以及是否有场景引用该文件（基于 `Editor.FindUsages`），并拒绝符号链接、`.git/**`、`game.yaml`、已打开的场景标签页及大于 1 MiB 的文件。执行**全部保留**（`Editor.KeepAllReviewChanges` / `⌘↵`）会保留其他改动并将待确认删除的文件原样留在磁盘上；用户就地点击**删除此文件**（`Editor.ConfirmProposedDeletion`）后会通过带检查点的可逆命令（`deleteFileCmd`）删除文件，按 **`⌘Z`（`Editor.Undo`）** 可从检查点逐字节恢复原文件。
 ## 轻提示 Toast 与反馈通道（#1004）
 
-编辑器中的瞬时反馈统一使用同一个符合 Spec 规范的 Toast 组件（`ToastView`、`WindowToastView` 与 `SpecToastCard`，对应 `docs/design/editor/Toasts.dc.html` 与 `Spec.dc.html`，严格仅使用 `SpecPalette` 令牌）。需要用户做决定的事项绝不放入 Toast：权限请求与提问留在智能体面板卡片中，检查失败进入 Problems 面板，完成的智能体回合打开审查流。
+编辑器中的瞬时反馈统一使用同一个符合 Spec 规范的 Toast 组件（`ToastView`、`WindowToastView` 与 `SpecToastCard`，对应 `design/editor/Toasts.dc.html` 与 `Spec.dc.html`，严格仅使用 `SpecPalette` 令牌）。需要用户做决定的事项绝不放入 Toast：权限请求与提问留在智能体面板卡片中，检查失败进入 Problems 面板，完成的智能体回合打开审查流。
 
 - **五种语义类型，统一 40 px 高、12 圆角、单行胶囊**：
   - `ToastSuccess`（圆圈对勾图标，`Added.Fg`）、`ToastInfo`（圆圈 `i` 图标，`TextMuted`）、`ToastWarning`（三角感叹图标，`Warning.Fg`，置于 `Warning.Fill` 与 `Warning.Edge` 表面上）、`ToastError`（带竖杠圆圈图标，`Removed.Fg`）以及 `ToastProgress`（进度环 + 底部 2 px 进度条 + 实时百分比）。
@@ -1454,7 +1454,7 @@ func main() {
 | 编辑器在后台时智能体提问、完成或停止 | + System notification | 与编辑器内通道配合 |
 ## 智能体自动化（#1029）
 
-项目自动化（位于 `game.yaml` 旁的 `automations.yaml`，JSON Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json`）允许智能体在更改发生后自动执行后续检查与任务，同时确保每项结果均经过人工审查（对应 `docs/design/editor/Settings.dc.html`、`Tasks.dc.html`、`Checkpoints.dc.html`）：
+项目自动化（位于 `game.yaml` 旁的 `automations.yaml`，JSON Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json`）允许智能体在更改发生后自动执行后续检查与任务，同时确保每项结果均经过人工审查（对应 `design/editor/Settings.dc.html`、`Tasks.dc.html`、`Checkpoints.dc.html`）：
 
 - **带版本的 YAML 格式（`AutomationsFile`、`ParseAutomations`、`EncodeAutomations`）**：`version: 1` 及有序的 `automations` 列表（每项包含 `id`、`name`、`enabled`、`trigger`、`instruction`）。拒绝未知字段、多余 YAML 文档、重复键、YAML 锚点/别名、重复 ID 与无效触发器参数，并返回带行号与列号的 `*loaderr.Error`；编码输出确定且无损往返。
 - **五种触发器**：
@@ -1467,7 +1467,7 @@ func main() {
 - **设置 › 自动化页面（`SettingsPageAutomations`）**：以 `WHEN → THE AGENT` 卡片展示每项自动化、本周运行次数（`AutomationWeeklyRuns`，保存在被 git 忽略的 `.nsgo/automations-state.yaml` 中）及 `SpecSwitch`（`core.RoleSwitch`）开关，支持 **+ 用一句话新建自动化**（`DraftAutomationFromWords` 生成草稿卡片并由用户点击 `KeepAutomationDraft` 保留）、**今天暂停全部自动化**（`PauseAutomationsForToday` / `ResumeAutomations`，暂停所有触发直至次日自动恢复）以及 **本页智能体** 卡片，深浅色外观均严格使用 `SpecPalette` 令牌。
 ## 逐项审核智能体回合改动（#1014）
 
-当智能体完成一轮编辑（`Editor.StartTurnReview`）后，全窗口的**审核**界面（`ReviewScreenView`，对应 `docs/design/editor/Review.dc.html`，严格遵循 `Spec.dc.html` 深浅双主题令牌）允许作者按文件和改动类型逐条检查场景、预制体、数据表与 Go 文件的改动，最后一步保留或整体撤回：
+当智能体完成一轮编辑（`Editor.StartTurnReview`）后，全窗口的**审核**界面（`ReviewScreenView`，对应 `design/editor/Review.dc.html`，严格遵循 `Spec.dc.html` 深浅双主题令牌）允许作者按文件和改动类型逐条检查场景、预制体、数据表与 Go 文件的改动，最后一步保留或整体撤回：
 
 - **顶栏与阻塞项**：展示 **← Editor**（`Esc`）、引用的用户请求、阻塞提示胶囊（当存在冲突、YAML 错误等阻塞项时）、**Revert all**（`⌘⌫` / `Ctrl+Backspace`）与 **Keep N of M**（`⌘↵` / `Ctrl+Enter`）。存在阻塞项时，点击 **Keep** 不会提交，而是直接跳转聚焦到首个阻塞改动（`JumpToReviewBlocker`）。
 - **左侧分组列表与筛选**：包含按名称、字段或文件路径实时过滤的搜索框（`SetReviewSearch`）、带进度条的 `"N of M seen"` 计数及上/下一项按钮，以及 6 个带计数的过滤标签（**All**、**Added**、**Changed**、**Removed**、**Unseen**、**Notes**，`SetReviewFilter`）。改动先按**文件**分组（路径、`+n ~n −n` 计数、折叠、**Revert file** / **Restore file**），再按**类型**分组（**ADDED**、**CHANGED**、**REMOVED**，支持折叠及 **Revert n** / **Restore n**），每条改动卡片显示已读标记、语义类型徽章、标题、详情与 **Revert** / **Restore**（`X`）；聚焦某条改动即自动标为已读。
@@ -1483,7 +1483,7 @@ func main() {
 
 ### 审核批注与第二轮局部重做（#1031）
 
-当审核中只需微调一两处改动而不想全部撤回或手改 YAML 时，作者可以在当前回合的任意改动上添加批注并交由智能体在同一审核内仅重做带批注的改动作为 **Round 2**（`docs/design/editor/Review.dc.html`）：
+当审核中只需微调一两处改动而不想全部撤回或手改 YAML 时，作者可以在当前回合的任意改动上添加批注并交由智能体在同一审核内仅重做带批注的改动作为 **Round 2**（`design/editor/Review.dc.html`）：
 
 - **行内批注编辑器（`C` / `CmdReviewNote`）与视口图钉**：在聚焦改动上按 `C`（或点击批注图标按钮）会在卡片下方展开行内批注框（`"Note for the agent · not sent"`），提供 **Add note**（`CommitReviewNote`）、**Revert and redo with this note**（`RevertAndRedoReviewChange`）与 **Cancel**（`CancelReviewNoteComposer` 或 `Esc`）。已保存的批注会显示在卡片上（支持 **Edit** 与 **Remove** / `RemoveReviewNote`），并在审核视口与挂起后的 2D 主视口中以规范配色图钉标注在对应对象旁（`ReviewViewportPins`）。批注仅保存在当前回合的内存状态中（且限制长度与数量），绝不写入任何场景、预制体或数据文件；发送前被移除的批注绝不会到达智能体。
 - **发送批注与仅重做批注项（`SendReviewNotes`、`ApplyReviewRedo`、`editormcp`）**：点击顶栏的 **Send N notes**（存在未发送批注时切换为主强调色按钮）会通过 MCP（`review_notes_get`）将所有未发送批注连同每项改动的 `change_id`、`file`、`object`、`field`、`kind` 与 `note` 发给智能体。智能体在同一回合内调用 `review_redo` 仅重做带有批注的改动（未加批注的改动以及同一文件中被夹带修改的未批注对象均会被原子拒绝，同时强制执行 You-only、权限规则与隐私边界）；重做后的改动在 Round 2+ 中重新标为未读，并在 **WHY** 中显示 `"Redone from your note: …"`、在卡片下方显示 `"Revised in round N. Your note: …"`。
@@ -1500,7 +1500,7 @@ func main() {
 
 ## 智能体任务的系统通知、Dock 角标与播放模式提示点（#1023）
 
-编辑器通过 NSGo 原生通知与角标 API（`core.Scope.ShowNotification`、`core.Scope.RequestNotificationPermission`、`core.Scope.OnNotificationPress` 与 `core.Scope.SetBadge`）为后台任务（`tasks.go` / #1022）与智能体面板回合提供编辑器外提醒，界面严格遵循 `docs/design/editor/Tasks.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Spec.dc.html` 令牌规范：
+编辑器通过 NSGo 原生通知与角标 API（`core.Scope.ShowNotification`、`core.Scope.RequestNotificationPermission`、`core.Scope.OnNotificationPress` 与 `core.Scope.SetBadge`）为后台任务（`tasks.go` / #1022）与智能体面板回合提供编辑器外提醒，界面严格遵循 `design/editor/Tasks.dc.html`、`design/editor/AgentStates.dc.html` 与 `design/editor/Spec.dc.html` 令牌规范：
 
 - **仅三类事件发送系统通知**：**等待权限**（`TaskNeedsYou`）、**待审查**（`TaskReadyToReview`）与**任务失败**（`TaskFailed`），标题与正文包含 `"NSGo Editor · <项目名>"`、任务名称、详情与主要操作（`Allow once`、`Review` 或 `Open`），并对控制字符进行净化与长度限制。已完成的步骤、排队启动、从磁盘恢复的历史任务以及普通智能体回复绝不发送系统通知。
 - **按需请求通知权限与 30 秒规则**：仅在首次真正需要发送通知时调用 `cx.RequestNotificationPermission`（在未检查通知权限前保持 macOS Dock 角标可用）。当编辑器窗口处于后台（`cx.Env().Lifecycle() != core.LifecycleActive`）时，三类事件立即通知；在前台时，未答复的等待权限请求会在 `AgentWaitingNotifyDelay`（`30 s`）后发送系统通知，若提前处理则取消。
@@ -1509,7 +1509,7 @@ func main() {
 - **播放模式角落提示点与延后通知（`PlayTaskDotView`）**：在播放模式（`Editor.Playing()`）期间，运行中的游戏上方不会弹出任何智能体任务通知，系统通知会暂存（`Editor.HeldAgentNotifications`）直至 `Editor.Stop()` 停止播放后才对仍需处理的任务发出。视口右上角稳定挂载一个带 3 pt 光晕的 8 pt 圆点，颜色取当前最紧急状态的 Spec 令牌色（**失败** `Removed.Fg` > **等待处理** `Warning.Fg` > **待审查** `Accent.Fg`），仅在悬停或键盘聚焦时显示提示胶囊（例如 `"1 task needs you · stop Play to open"`）。
 ## 在视口与场景树中实时显示智能体编辑（#1013）
 
-当智能体通过 `editormcp` 或待定智能体回合（`Editor.BeginAgentTurn` / `Editor.RunAsAgent`）编辑场景时，编辑器会在视口与场景树中实时呈现其未确认改动（对应 `docs/design/editor/Working.dc.html`、`Main.dc.html` 与 `Spec.dc.html`），且绝不会替智能体移动 2D 或 3D 视口相机：
+当智能体通过 `editormcp` 或待定智能体回合（`Editor.BeginAgentTurn` / `Editor.RunAsAgent`）编辑场景时，编辑器会在视口与场景树中实时呈现其未确认改动（对应 `design/editor/Working.dc.html`、`Main.dc.html` 与 `Spec.dc.html`），且绝不会替智能体移动 2D 或 3D 视口相机：
 
 - **实时视口叠加层（`ViewportLiveOverlays` / `VisibleViewportLiveOverlays`）**：
   - **新增（Added）**：1.5 px 绿色虚线框（`SpecPalette.Added`）与 `"+ <name>"` 等宽胶囊标签。
@@ -1525,7 +1525,7 @@ func main() {
 
 ## 按工作线与场景分组的智能体线程（#1019）
 
-右侧栏（`RightRailView`）可在**智能体**（`AgentPanelView` / `AgentThreadsView`）、**检查器**（`InspectorView`，默认标签）与**历史记录**（`AgentHistoryView`）之间切换，全部使用 `docs/design/editor/Spec.dc.html` 的深浅双主题规范令牌并对应 `Threads.dc.html`：
+右侧栏（`RightRailView`）可在**智能体**（`AgentPanelView` / `AgentThreadsView`）、**检查器**（`InspectorView`，默认标签）与**历史记录**（`AgentHistoryView`）之间切换，全部使用 `design/editor/Spec.dc.html` 的深浅双主题规范令牌并对应 `Threads.dc.html`：
 
 - **`.nsgo/threads/` 下每条线程一个 YAML 文件（`AgentThread`、`AgentThreadFileVersion = 1`）**：每条线程以严格版本化的 YAML 文档保存在 `.nsgo/threads/<id>.yaml`（同时自动写出 `.nsgo/.gitignore` 使其被 git 忽略），记录 `id`、`title`（自动取自首条请求）、`scenePath`、外部智能体会话 `sessionId`（`SetAgentThreadSessionID`）、时间戳以及按顺序排列的 `requests`（包含 `steps`、审查结果 `outcome`（`pending`、`kept`、`reverted`）、修改计数、受影响的 `objects` 与 `historyStep` 链接）。通过 `ParseAgentThreadYAML` 严格解析并以 `EncodeAgentThreadYAML` 写出规范形式（JSON Schema：`https://game.nsgo.dev/schemas/agent-thread.v1.json`）。
 - **分组线程切换器、搜索与 `⌘N`（`AgentThreadGroups`、`CmdNewAgentThread`）**：切换器按`<当前场景> · 当前场景`、其他场景以及`项目 · 无场景`分组展示线程，每行附带相对时间与状态（如“刚刚 · 3 项待审查修改”、“1 小时前 · 已保留 5/6 项”、“昨天 · 已还原”或涉及文件）。打开或切换场景会自动进入该场景最近使用的线程（或新的空白草稿），绝不把上一场景的线程带到新场景；在智能体作用域（`ScopeAgent`）中按 `⌘N` 可新建空白线程。
@@ -1534,7 +1534,7 @@ func main() {
 - **检查器页脚来源链接（`LastAgentChangeForObject`、`OpenAgentRequest`）**：当选中对象曾被未还原的智能体请求修改（无论是通过 `SendAgentRequestWith`、`RecordAgentStep` 还是 `editormcp` 的 `scene_edit`），检查器页脚会显示“修改自“<请求标题>” · <时间>”，点击即可打开对应线程并定位/展开该请求。
 ## 面向智能体的视口草图层（#1025）
 
-在 2D 视口上直接绘制会话级编号草图，指向关卡中尚不存在对象的区域再交给智能体构建（对应 `docs/design/editor/Sketch.dc.html`，严格使用 `docs/design/editor/Spec.dc.html` 令牌）：
+在 2D 视口上直接绘制会话级编号草图，指向关卡中尚不存在对象的区域再交给智能体构建（对应 `design/editor/Sketch.dc.html`，严格使用 `design/editor/Spec.dc.html` 令牌）：
 
 - **场景坐标下的四种草图工具**：按 `D`（`CmdSketchToggle` 或 `视图 > 草图`）开启/关闭草图模式，不向紧凑的 2D `editor-toolbar` 额外增加按钮。在 `ScopeSketch` 作用域下可切换 **画笔（Pen，`P`，自由折线）**、**箭头（Arrow，`A`，起点 → 终点）**、**方框（Box，`B`，矩形区域）** 与 **文本（Text，`T`，锚点 + 标签）**，也可按 `I`（`CmdSketchAddMarkAtCursor`）在光标处用键盘放置标记。每个标记自动分配连续编号徽章（`1`、`2`、`3`…）和可选标签（例如 `"3 spikes"`、`"platform, back and forth"`、`"locked until the lever"`）。所有几何坐标均通过 `CanvasToWorld` 严格保存在场景坐标中，跨缩放与平移保持精准，且**绝不**写入 `SceneDoc`、`*.scene.yaml` 或场景撤销 `History`。
 - **悬浮草图栏、场景树行与状态栏**：顶部悬浮草图栏提供四种工具、**撤销上一个标记**（`ScopeSketch` 下的 `⌘Z`）、**隐藏 / 显示标记**（`H`）、`"N marks not saved"` 计数、**Clear** 与 **Done**。按 `Esc` 结束草图绘制模式并保留已绘标记，直到发送、清空或审查保留。场景树底部展示紧凑的 `SKETCH LAYER` 行（`N marks · not saved`），状态栏实时显示场景坐标与当前草图工具。
@@ -1543,7 +1543,7 @@ func main() {
 - **审查叠加层与保留 / 撤销行为**：确认后智能体的场景修改会打开审查卡片（`SketchReviewOpen`），内置 **Sketch overlay** 开关（`O`、`ToggleSketchReviewOverlay`，瓦片审查 `TileReview` 中同样支持）将草图以半透明点线叠加在结果之上。**Keep**（`KeepSketchReview` / `KeepTileReview`）保留修改并清空草图层；**Revert**（`RevertSketchReview` / `RevertAllTileReview`）撤销修改但保留草图标记以便再次发送。
 ## 智能体输入框中的参考图与固定到简报（#1027）
 
-在智能体输入框中为单次请求附加 PNG、JPEG 或 WebP 参考图，或将其固定到项目的游戏简报，界面严格遵循 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `docs/design/editor/Sketch.dc.html`（*Paste or drop an image*、*Pin to brief*）：
+在智能体输入框中为单次请求附加 PNG、JPEG 或 WebP 参考图，或将其固定到项目的游戏简报，界面严格遵循 `design/editor/Spec.dc.html` 设计令牌并对应 `design/editor/Sketch.dc.html`（*Paste or drop an image*、*Pin to brief*）：
 
 - **拖放、粘贴或选取 PNG、JPEG 与 WebP**：将文件拖到智能体输入框上方时会显示符合 Spec 规范的 **“Drop to attach”** 拖放层（`SetAgentComposerDragOver`、`DropAgentReferenceFiles`）；向输入框粘贴图片或图片文件（通过 `core.Input.OnPaste` 调用 `HandleAgentComposerPaste`，或调用 `PasteAgentReferenceImage`），或点击 **附加参考图** 按钮（`PickAndAttachAgentReferenceImages` / `CmdAttachReferenceImage`）会在内存中校验真实的 PNG、JPEG 或 WebP 文件头与像素（`DecodeAgentReferenceImage`）。不支持的文件类型（如 GIF、SVG、BMP、文本或损坏的图片）会被拒绝并在无障碍提示横幅中说明具体原因（`AgentAttachError`）。
 - **带悬停预览的单次请求标签**：每张附加的图片都会显示为包含缩略图、文件名、**Pin to brief** 按钮与 **×** 移除按钮的标签（`RemoveAgentReferenceImage`）。悬停或聚焦标签会在输入框上方弹出预览卡片，展示解码后的图片、格式、尺寸及作用范围（仅随本次请求发送）。发送请求（`SubmitAgentPrompt`）会将附加图片随 `AgentRequest.AttachedImages` 与 `AgentRequest.Images` 传入（并在 `AgentTurn.Images` 中记录缩略图），随后立即清空单次附加标签，确保下一次请求不再携带。
@@ -1565,7 +1565,7 @@ func main() {
 - **MCP 工具（`editormcp`）**：提供 `turn_start`、`turn_end`、`turn_status`（只读，如实报告已还原的变更）和 `file_edit`（在内存中校验并编辑 `game.yaml`、数据表、动画片段、预制体与场景），并为 `scene_edit` 与 `object_set_field` 增加 `why` 参数；按设计不提供可由智能体调用的保留或还原回合工具。
 ## 智能体面板的失败、恢复与离线状态（#1024）
 
-当智能体请求未能直接成功完成时，`AgentPanelView` 会严格使用 `SpecPalette` 设计 Token（支持深浅外观）渲染 `docs/design/editor/AgentStates.dc.html` 定义的六种状态卡片，并且在所有状态下保持选择、移动、检视器、`CheckProblems` 与 Play 等手动编辑工具正常工作：
+当智能体请求未能直接成功完成时，`AgentPanelView` 会严格使用 `SpecPalette` 设计 Token（支持深浅外观）渲染 `design/editor/AgentStates.dc.html` 定义的六种状态卡片，并且在所有状态下保持选择、移动、检视器、`CheckProblems` 与 Play 等手动编辑工具正常工作：
 
 - **部分完成（`AgentPartialState`）**：展示 `Done N of M · couldn't place <target>` 与原因说明，提供 **Keep these**（以可撤销修改保留已完成部分）、**Let me point**（`ToggleAgentPointing`，在 2D 视口点击通过 `PickAgentPointWorld` 选取世界坐标，按 `Esc` 取消）与 **Try another way**（`TryAnotherWayAgentTurn`），并在下方展示变更统计条（`N changes · 1 file | +X −Y | Review`）。
 - **卡住暂停（`AgentStuckState`）**：当同一 MCP 工具（如 `scene_edit`）连续失败三次（`AgentStuckFailureThreshold = 3`）时，编辑器会立即暂停并取消当前请求而不再盲目重试，将状态胶囊切换为 `Waiting for you`，以等宽日志列出三次被拒绝的调用及其错误，并提供 **Hint for the agent** 输入框与 **Continue with hint**（`ContinueAgentWithHint`）或 **Stop here**（`StopStuckAgentTurn`，被拒编辑未触碰场景或磁盘文件）。
@@ -1575,7 +1575,7 @@ func main() {
 - **离线队列（`AgentStatusOffline`、`SetAgentOffline`）**：展示 `"You're offline"`，并在保持选择、移动、检视器、游戏检查与 Play 全部可用的同时，将提交的请求连同时间戳加入队列（`AgentQueuedRequests`、`QueueAgentRequest`、`RemoveQueuedAgentRequest`）。恢复联网后队列中的请求不会自动执行，而是逐条等待用户手动点击 **Send**（`SendQueuedAgentRequest`）发送。
 ## 规范视口叠加层与可切换图例（#1006）
 
-2D 与 3D 视口中的所有语义叠加层都通过统一绘制辅助函数 `DrawObjectOverlay` 绘制，完全使用 `SpecPalette` 令牌（对应 `docs/design/editor/Spec.dc.html` 中的 “Overlay legend”），且每一种类型都配备非颜色的第二视觉线索（角点手柄、胶囊图标/前缀、灰色幽灵填充、删除线或实心警告徽章），在灰度下依然彼此可辨：
+2D 与 3D 视口中的所有语义叠加层都通过统一绘制辅助函数 `DrawObjectOverlay` 绘制，完全使用 `SpecPalette` 令牌（对应 `design/editor/Spec.dc.html` 中的 “Overlay legend”），且每一种类型都配备非颜色的第二视觉线索（角点手柄、胶囊图标/前缀、灰色幽灵填充、删除线或实心警告徽章），在灰度下依然彼此可辨：
 
 | 类型（`OverlayKind`） | 令牌与线型 | 第二视觉线索 |
 | --- | --- | --- |
@@ -1593,7 +1593,7 @@ func main() {
 - **中性视口参考线**：相机取景框、相机边界、相机连线、瓦片网格与对齐网格统一迁移到中性 `SpecPalette` 令牌（`TextMuted` / `TextFaint` 1 px 细线与 `2, 4` 点线），与所有语义图例线型完全区分。
 ## 智能体输入框：@-提及、上下文标签与上下文计量环（#1020）
 
-在统一右侧栏的 **智能体** 标签页（`RightRailView` / `AgentPanelView`，可通过 `⌘1` / `⌘2` 经 `CmdAgentTab` / `CmdInspectorTab` 切换）中，`AgentComposerView`（对应 `docs/design/editor/Threads.dc.html`，严格遵循 `Spec.dc.html` 令牌）提供 `@`-提及、显式上下文标签、精确悬停预览与实时上下文计量环：
+在统一右侧栏的 **智能体** 标签页（`RightRailView` / `AgentPanelView`，可通过 `⌘1` / `⌘2` 经 `CmdAgentTab` / `CmdInspectorTab` 切换）中，`AgentComposerView`（对应 `design/editor/Threads.dc.html`，严格遵循 `Spec.dc.html` 令牌）提供 `@`-提及、显式上下文标签、精确悬停预览与实时上下文计量环：
 
 - **基于项目搜索索引的 `@`-提及选择器**：在输入框中输入 `@` 会打开实时选择器，底层复用 `search.go`（`ensureProjectIndex`）、`Editor.Problems`、`PlaytestSession` / `AddComposerPlaytestRun` 与 `Editor.History`，显示匹配数量与 8 个分组（**对象**、**文件**、**预制体**、**资源**、**问题**、**试玩运行**、**历史步骤**、**规则**）及 9 个标签页（**全部**及各分组）。支持 `↑` / `↓` 移动（`MoveMentionSelection`）、`↵` 添加（`AcceptActiveMention`）、`Tab` / `Shift+Tab` 切换分组（`CycleMentionPickerGroup`）以及 `Esc` 关闭（`CloseMentionPicker`），已附加的项目会自动从候选列表中排除。
 - **上下文标签与精确悬停预览**：输入框上方依次展示已附加标签（点击 `×` 通过 `RemoveComposerChip` 移除，或在空输入框中按 `⌫` 通过 `RemoveLastComposerChip` 移除）、**始终附加**标签（项目根目录中的 `brief.yaml` 与 `AGENTS.md`）以及可开关的 **视口图像** 标签（`SetViewportImageIncluded` / `ToggleViewportImage`）。在视口或场景树中选中对象只会显示虚线建议标签 `+ <名称> · 已选中`（`SuggestedChip`），除非主动添加（`AcceptSuggestedChip`），否则绝不会随请求发送；`TriggerAskAgentShortcut` 会在选中对象时附加该对象，未选中任何对象时附加整个打开的场景（`AttachWholeSceneChip`）并聚焦输入框。悬停任意标签（`SetHoveredChip` / `HoveredChipPayload`）都会通过 `ResolveChipPayload` 显示实际发送的精确头部（如 `# level_01.scene.yaml · lines 72–78`）及对应的 YAML 文本或图像。
@@ -1601,7 +1601,7 @@ func main() {
 - **上下文计量环、明细、压缩与新开线程**：20×20 环形进度指示器根据智能体回报的 token 用量（`SetAgentTokenUsage` 或 `AgentResponse.Usage`）呈现三种规范状态（正常 `≤ 70%`、超过 70% 警告 `71–89%`、以及 `≥ 90%` 的“立即压缩”状态）。点击计量环可展开 6 项明细（**Conversation**、**Open scene**、**Attached**、**Always**、**Tools and instructions**、**Viewport image**），并提供 **压缩线程**（`CompactAgentThread`，将较早请求折叠为摘要并完整保留最后一条请求，同时降低计量环占比）与 **使用摘要新开**（`StartFreshAgentThread`，以该摘要启动新线程）。
 ## AI 优先的主界面布局（#1007）
 
-编辑器主窗口（`main_layout_ui.go`、`ui.go`、`agent_ui.go`、`overlays_ui.go`、`scenetree.go`）按 `docs/design/editor/Main.dc.html` 实现 AI 优先工作区，并严格使用 `docs/design/editor/Spec.dc.html` 的颜色令牌、尺寸比例与无障碍控件：
+编辑器主窗口（`main_layout_ui.go`、`ui.go`、`agent_ui.go`、`overlays_ui.go`、`scenetree.go`）按 `design/editor/Main.dc.html` 实现 AI 优先工作区，并严格使用 `design/editor/Spec.dc.html` 的颜色令牌、尺寸比例与无障碍控件：
 
 - **44 px 顶部栏（`mainHeaderView`）**：左侧展示 `<项目> / <场景>` 面包屑（`ProjectDisplayName`、`SceneBreadcrumbName`）、场景文件菜单及未保存圆点（`aria-label` 为 `"unsaved changes"` / `"save failed"`）；居中放置工具单选组（`Select V`、`Move W`、`Rotate E`、`Scale R`、`Pan Space`，纯图标 1.8 px@15 px `currentColor` Lucide 图标，悬停提示 `"名称 · 快捷键"`）与 `2D / 3D` 分段单选组；右侧为 `History (⌘Y)` 图标按钮、`Search ⌘K` 命令面板按钮，以及唯一主按钮 `Play (⌘P)`。
 - **232 px 左侧栏（`leftRailSceneView`）**：包含 `Scene / Assets` 切换与 `SCENE · N nodes`（`SceneNodeCount`）标题、场景树快捷筛选开关（`SceneTreeFilter` / `SetSceneTreeFilter` / `SetSceneTreeFilterOpen`，按名称、ID 或类型即时筛选并自动展开祖先节点）、快捷添加 `+` 菜单（`AddSceneRailObject` 添加空对象、触发器或光源，以及 `AddSceneRailLayer` 添加图层，全部可经由 `History` 撤销）、带类型色点（`ObjectKindColor`）、类型标签（`SceneRailObjectKind`、`LayerKindLabel`）以及待审查新增对象 `NEW` 标记（`IsObjectProposedNew`、`SetProposedNewObjectIDs`）且支持省略截断不裁剪显隐/锁定按钮的场景树行；底部 `FILES` 区域列出当前打开的场景、场景引用的预制体/实例场景（`SceneUsedPrefabs`）以及 `game.yaml`。选中场景树中的节点会自动将右侧栏切换至**检视器（Inspector）**。
@@ -1613,7 +1613,7 @@ func main() {
 - **规范控件与键盘可达性**：遵循 Spec 尺寸（行与工具按钮 `28 px`、按钮 `30–32 px`、顶部栏 `44 px`、状态栏 `32 px`，无小于 `28 × 28` 的交互热区）、间距（`4 / 8 / 12 / 16 / 24`）、圆角（`6 / 8`）、`base.RadioGroup` / `base.Radio` 与 `base.Switch` 语义、2 px Spec 焦点环、完整无障碍名称，以及覆盖全部五个区域的 `F6` 循环导航（顶部栏、场景树、视口、智能体/检视器、状态栏）。
 ## 智能体面板实时步骤、权限确认卡与停止（#1012）
 
-**智能体**面板（`RightRailView` 中的 `AgentPanelView`，`⌘1` / `⌘2` 切换）基于项目的 `permissions.yaml` 规则与“仅限你操作”边界，使用 `docs/design/editor/Spec.dc.html` 令牌（`Working.dc.html`、`Permissions.dc.html`、`Main.dc.html`、`AgentStates.dc.html`）实时展示步骤进度、交互式权限确认卡、补充指令与全局停止控制：
+**智能体**面板（`RightRailView` 中的 `AgentPanelView`，`⌘1` / `⌘2` 切换）基于项目的 `permissions.yaml` 规则与“仅限你操作”边界，使用 `design/editor/Spec.dc.html` 令牌（`Working.dc.html`、`Permissions.dc.html`、`Main.dc.html`、`AgentStates.dc.html`）实时展示步骤进度、交互式权限确认卡、补充指令与全局停止控制：
 
 - **实时步骤流与 `agent_report_step`**：发起请求（`Editor.StartAgentRequest` 或 `Editor.SubmitAgentPrompt`）后会立即显示灰色占位步骤（保证 300 ms 内可见）。当 `editormcp.Server` 执行工具调用时，每一步都会以平实语言实时流式呈现：当前唯一进行中的步骤显示紫色旋转图标，完成后切换为绿色对勾。智能体也可以调用 `agent_report_step`（`text`、可选 `objects`、可选 `status`）用自己的话汇报步骤、列出涉及的场景对象 ID，并接收用户通过「补充到此请求」排队的追加指令。
 - **基于 `permissions.yaml` 的交互式权限确认卡**：在先通过“仅限你操作”边界检查后，当工具调用按 `permissions.yaml` 规则求值为 `ask` 时，`editormcp.Server` 会在其自身 goroutine 上暂停该调用而不阻塞编辑器 UI，并在智能体面板中渲染 `alertdialog`（`LiveRegionPolite`）权限确认卡，展示标题、请求原因、影响说明（例如 *“不会保存任何内容。”*）、规则预览与命中规则来源，以及**仅允许一次**、**始终允许**与**拒绝**按钮。
@@ -1631,7 +1631,7 @@ func main() {
 
 ## 逐文件审查智能体的 Go 代码更改（#1034）
 
-当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `docs/design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `SpecPalette` 令牌）：
+当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `SpecPalette` 令牌）：
 
 - **待确认 Go 代码隔离与 Go 构建覆盖层检查**：回合中提交的 Go 文件（`ProposeCodeReviewFiles` 或 `editormcp` 的 `code_review_propose`）在确认并保留之前仅暂存于内存中，磁盘上的项目文件与运行模式（Play）仍继续执行旧代码。`RunCodeReviewChecks` / `RunCodeReviewChecksAsync` 会生成临时 Go 构建覆盖层 JSON（`BuildGoOverlay`，同时映射规范路径与符号链接解析后的路径，兼容 macOS `/var` → `/private/var`），并通过 `GOFLAGS=-overlay=<overlay.json>` 在不触碰磁盘项目文件的前提下执行 `go tool nsgo check <pkg>` 与 `go tool nsgo test -json <pkg> -count=1`（可通过 `Editor.CodeReviewCheckRunner` 注入替换）。
 - **分组文件列表与统一 / 分栏差异视图**：左侧栏拆分为 **PREFABS · IN KEEP**（随保留一同应用的 YAML/预制体文件）和 **GO · CONFIRM EACH FILE**（每个 Go 文件显示 `+n −n` 行数变化与 **Needs OK** / **OK** 徽章），底部附带说明卡片（*“为什么 Go 代码需要单独确认”*）。Go 差异支持 **Unified（统一）**（`u`）与 **Split（分栏）**（`s`）切换，展示旧/新行号、右侧行标签（`fails test`、`failed here`、`agent edited`、`round 2`）以及在外部 IDE 打开按钮（`Editor.ExternalEditorName`、`OpenCodeReviewInExternalEditor`，依次调用 `Editor.OnOpenSourceFile`、`Editor.OnOpenFileAtLine` 或系统默认打开器）。
@@ -1640,7 +1640,7 @@ func main() {
 - **命令与 MCP 工具**：命令 `CmdReviewCode`（`agent.reviewCode`）用于打开或恢复进行中的 Go 审查。`editormcp` 提供 `code_review_propose`、`code_review_status` 与 `code_review_run_checks`，使智能体可在不阻塞 UI goroutine 的情况下提交待审 Go 代码、读取失败详情、在同一回合提交 Round 2 修复并重新运行覆盖层检查。
 ## 回退智能体对话线程（#1021）
 
-可将智能体对话回退到任意已发送消息之前（对应 `docs/design/editor/Checkpoints.dc.html`，全部界面仅使用 `docs/design/editor/Spec.dc.html` 设计 Token）：
+可将智能体对话回退到任意已发送消息之前（对应 `design/editor/Checkpoints.dc.html`，全部界面仅使用 `design/editor/Spec.dc.html` 设计 Token）：
 
 - **每轮文件与场景检查点**：每次通过输入框发送请求（`SubmitAgentPrompt`）前，编辑器会为项目磁盘文件（跳过 `.git`、`.nsgo`、`node_modules`、符号链接以及仅限用户配置文件）以及当前打开的场景与 `game.yaml` 拍摄前快照，并在回合结束或停止时压缩为差异检查点（`AgentTurn.ChangedFiles`、`AgentTurn.SessionIDBefore`、`AgentTurn.SessionIDAfter`）。
 - **悬停或聚焦显示“回退到此处”与三种选项**：在 `AgentPanelView` 中悬停或键盘聚焦任意已发送的用户消息即可显示 **Rewind to here** / **回退到此处**（`OpenAgentRewindPopover` / `ToggleAgentRewindPopover`），打开“回退到此消息之前”弹层（`AgentRewindPreview`），提供三个选项（`AgentRewindMode`）、**Cancel** / **取消**（或按 `Esc`）与 **Rewind** / **回退**（`ConfirmAgentRewind` / `RewindAgentTurn`）：
@@ -1650,7 +1650,7 @@ func main() {
 - **回退横幅、重做与消息回到输入框**：回退完成后，被回退的消息会重新填入输入框并以规范强调色边框高亮（`AgentComposerRewound`），方便修改后重新发送；输入框上方会显示状态横幅（`AgentRewindBanner`）说明已回退的范围，并提供 **Redo** / **重做** 按钮（`RedoAgentRewind` / `CanRedoAgentRewind`）一键恢复文件、对话回合、会话 ID 与原有输入框草稿。
 ## 智能体执行前提出计划、澄清问题与规划虚影（#1035）
 
-对于较大规模的修改（例如依据项目 `permissions.yaml` 规则会修改 Go 代码、新建文件或跨多个文件的操作，`EvaluatePlanPermissions`、`PlanNeededForEdit`），智能体会在修改任何场景或文件前先提出结构化计划（对应 `docs/design/editor/Plan.dc.html`，严格遵循 `Spec.dc.html` 深色与浅色令牌）：
+对于较大规模的修改（例如依据项目 `permissions.yaml` 规则会修改 Go 代码、新建文件或跨多个文件的操作，`EvaluatePlanPermissions`、`PlanNeededForEdit`），智能体会在修改任何场景或文件前先提出结构化计划（对应 `design/editor/Plan.dc.html`，严格遵循 `Spec.dc.html` 深色与浅色令牌）：
 
 - **MCP 计划提案与进度工具（`plan_propose` 与 `plan_step_update`）**：调用 `editormcp` 的 `plan_propose`（`ActionRead`，批准前绝不修改任何文件）会在编辑器中以草稿态（`PlanPhaseDraft`）展示 `AgentPlan`，包含标题、动态摘要（如 `"5 steps · 3 files · 10 objects · about 2 min · ~35k tokens"`）、带可视化预览（房间草图 `room` 或时序条 `strip`）的澄清问题、带文件清单/新增说明/带上下限步进器（`PlanStepField`）/权限徽章（如 `Edit Go`、`Run the game`）/规划场景树节点与视口虚影的编号步骤，并等待用户决定后返回结构化的 `AgentPlanDecision`（包含回答、修改后的数量、步骤备注与移除步骤）。`plan_step_update` 用于更新执行进度并在完成时将计划步骤清单（`AgentPlanReview`）写入该回合的审查视图。
 - **智能体面板中的交互式计划卡片（`agentPlanCardView`）**：
@@ -1667,7 +1667,7 @@ func main() {
 
 ## 设计令牌（#1002）
 
-编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`pkg/editor/spec_theme.yaml` 与 `pkg/editor/spec_theme.go`），与 `docs/design/editor/Spec.dc.html` 及 `docs/design/editor/Viewport3D.dc.html` 保持一致：
+编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`pkg/editor/spec_theme.yaml` 与 `pkg/editor/spec_theme.go`），与 `design/editor/Spec.dc.html` 及 `design/editor/Viewport3D.dc.html` 保持一致：
 
 - **嵌入 YAML 主题（`spec_theme.yaml`、`SpecTheme`、`SpecPalette`）**：通过 `core.ParseTheme` 解析并在 `EditorView` 根作用域通过 `cx.SetTheme(SpecTheme())` 生效。NSGo 的所有 `core.Palette` 与 `ui.ColorsOf` 角色（`Background`、`Surface`、`Raised`、`Line`、`Border`、`Text`、`TextMuted`、`Accent`、`AccentText`、`Success`、`Warning`、`Danger`、`Focus`）均在深色与浅色外观下直接映射到规范调色板；`Editor.SpecPalette(cx)`（以及 `DarkSpecPalette()`、`LightSpecPalette()`、`SpecPaletteFor(dark)`）同时提供 NSGo 未命名的规范角色（`TextPrimary` / 强文本、`TextSecondary` / 正文、`TextMuted` / 次级文本、`TextFaint` / 弱化文本、`OnTextPrimary`、`Viewport`、`ViewportDot`、`PillBg`、`HoverOverlay`、`ActiveOverlay`、`PrimaryHover`、`AccentHover`、`AccentPressed`、`Viewport3DGround`、`Viewport3DGrid`、`Accent`、`Agent`、`Added`、`Changed`、`Removed`/`Problem`、含专用 `Fill` 与 `Edge` 的 `Warning`，以及 3D 坐标轴令牌 `AxisX`、`AxisY`、`AxisZ`）。
 - **深色模式色彩令牌（`Spec.dc.html` 与 `Viewport3D.dc.html`）**：

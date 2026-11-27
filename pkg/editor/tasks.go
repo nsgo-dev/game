@@ -2614,7 +2614,7 @@ func (e *Editor) TaskElapsedString(t AgentTask) string {
 	return fmt.Sprintf("%d:%02d", secs/60, secs%60)
 }
 
-// TaskStatusParts builds the exact status bar indicator segments defined in docs/design/editor/Tasks.dc.html:
+// TaskStatusParts builds the exact status bar indicator segments defined in design/editor/Tasks.dc.html:
 //   - Idle: "No tasks"
 //   - Single running task (and nothing else active): "1 running · M:SS"
 //   - Mixed: non-zero counts in urgency order (Failed, Needs you, Running, Ready to review, Queued); zero counts drop out.

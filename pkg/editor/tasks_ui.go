@@ -10,7 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// tasksStatusIndicatorView renders the Tasks status bar button matching docs/design/editor/Tasks.dc.html:
+// tasksStatusIndicatorView renders the Tasks status bar button matching design/editor/Tasks.dc.html:
 // idle ("No tasks"), single running ("1 running · 0:38"), or mixed counts most urgent first
 // (Failed, Needs you, Running, Ready to review, Queued) with zero counts omitted.
 // The outer button stays stably mounted across task updates so keyboard focus is never dropped.
@@ -143,7 +143,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 // TasksPanelView renders the Agent right panel with its collapsible Tasks list (grouped under
 // Needs you, Running, Ready to review, Queued, and Failed), bulk Dismiss for Ready to review,
 // focused task detail with live steps & review actions, and Queue / Run in parallel composer,
-// matching docs/design/editor/Tasks.dc.html using exclusively SpecPalette tokens.
+// matching design/editor/Tasks.dc.html using exclusively SpecPalette tokens.
 // The panel container, ScrollViews, and composer input remain stably mounted across task updates
 // so background progress never steals typing focus or resets scroll position.
 func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -1133,7 +1133,7 @@ func taskDetailView(ed *Editor, p SpecPalette, focused AgentTask, hasFocused boo
 
 // viewportTaskLegendOverlay renders the compact bottom-left task overlay legend in the viewport
 // whenever one or more running tasks have active numbered overlays on the open scene, matching
-// docs/design/editor/Tasks.dc.html.
+// design/editor/Tasks.dc.html.
 func viewportTaskLegendOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	legendKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()

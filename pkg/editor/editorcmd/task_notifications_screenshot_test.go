@@ -17,7 +17,7 @@ import (
 //  1. Live EditorView in Play mode with the corner dot hovered ("1 task needs you · stop Play to open")
 //     and upgraded to red on failure ("1 task failed · stop Play to open").
 //  2. The Spec-token Notifications, Dock Badge (4), and During Play gallery matching
-//     docs/design/editor/Tasks.dc.html.
+//     design/editor/Tasks.dc.html.
 func TestTaskNotificationsAndPlayDotScreenshots(t *testing.T) {
 	doc := &sceneformat.SceneDoc{
 		Version:         sceneformat.CurrentVersion,
@@ -111,7 +111,7 @@ func TestTaskNotificationsAndPlayDotScreenshots(t *testing.T) {
 	})
 	app.Settle()
 
-	// 3. Spec-token gallery beside docs/design/editor/Tasks.dc.html:
+	// 3. Spec-token gallery beside design/editor/Tasks.dc.html:
 	//    left column = 3 system notifications, right column = Dock badge (4) + During Play corner dot.
 	nWait, _ := ed.BuildAgentTaskNotification(editor.AgentTask{
 		ID:               "t3",

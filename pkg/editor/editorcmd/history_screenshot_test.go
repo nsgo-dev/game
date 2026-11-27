@@ -16,7 +16,7 @@ import (
 // TestHistoryPanelMacOSScreenshots renders the History panel on the real native macOS host
 // across All (day-grouped with Now, agent turns, manual edits, and Saved marker), Agent filter,
 // and point-in-time read-only Preview (Dark and Light appearances) for visual inspection beside
-// docs/design/editor/AskInPlace.dc.html, Checkpoints.dc.html, and Spec.dc.html.
+// design/editor/AskInPlace.dc.html, Checkpoints.dc.html, and Spec.dc.html.
 func TestHistoryPanelMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	projYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 1.0.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"

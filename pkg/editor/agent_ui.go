@@ -129,7 +129,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 }
 
-// rightRailTabBar renders the 44 pt Agent / Inspector header bar matching docs/design/editor/Main.dc.html and AgentStates.dc.html.
+// rightRailTabBar renders the 44 pt Agent / Inspector header bar matching design/editor/Main.dc.html and AgentStates.dc.html.
 func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, showFullChip bool) core.Node {
 	agentTabRef := &core.Ref{}
 	inspectorTabRef := &core.Ref{}
@@ -436,7 +436,7 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 	}
 }
 
-// AgentStatusChipView renders the status chip for the Agent panel header matching docs/design/editor/AgentStates.dc.html
+// AgentStatusChipView renders the status chip for the Agent panel header matching design/editor/AgentStates.dc.html
 // using exclusively Spec.dc.html tokens and announcing state transitions through LiveRegionPolite.
 func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	// 1.2 s pulse for the Working dot (600 ms half-period), disabled under ReduceMotion.
@@ -2872,7 +2872,7 @@ func agentRewindBannerView(ed *Editor, rev *core.Signal[uint64], p SpecPalette) 
 	}
 }
 
-// ConnectAgentDialogView renders the "Connect an agent" modal dialog matching docs/design/editor/Connect.dc.html
+// ConnectAgentDialogView renders the "Connect an agent" modal dialog matching design/editor/Connect.dc.html
 // using exclusively Spec.dc.html tokens: three choices, the one-time `go tool game mcp install` command with Copy,
 // a live waiting state that turns to connected when the first MCP client attaches, four starting permission checkboxes,
 // Later, Done, and targeted step troubleshooting when reopened from Disconnected.

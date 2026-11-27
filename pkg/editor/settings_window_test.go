@@ -605,7 +605,7 @@ func TestSettingsKeyboardNavigationSwitchesAriaAndTabReachability(t *testing.T) 
 }
 
 // #1005 Acceptance 4: Real nsgotest screenshots on macOS of Settings › General, Viewport (Dark & Light),
-// and search narrowing at 1440x900 beside docs/design/editor/Settings.dc.html, verifying Spec tokens only.
+// and search narrowing at 1440x900 beside design/editor/Settings.dc.html, verifying Spec tokens only.
 func TestSettingsWindowScreenshots(t *testing.T) {
 	dir := writeProjectSettingsFixture(t)
 	ed, err := editor.New(nil, testResolver())

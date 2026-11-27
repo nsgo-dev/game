@@ -163,7 +163,7 @@ type AutomationsFile struct {
 	Automations []AutomationRule `yaml:"automations,omitempty"`
 }
 
-// DefaultAutomations returns the five starter automations shown in docs/design/editor/Settings.dc.html.
+// DefaultAutomations returns the five starter automations shown in design/editor/Settings.dc.html.
 func DefaultAutomations() *AutomationsFile {
 	return &AutomationsFile{
 		Version: AutomationsVersion,

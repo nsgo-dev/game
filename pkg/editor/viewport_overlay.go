@@ -15,7 +15,7 @@ import (
 )
 
 // OverlayKind identifies one of the seven Spec viewport overlay styles defined in
-// docs/design/editor/Spec.dc.html ("Overlay legend").
+// design/editor/Spec.dc.html ("Overlay legend").
 type OverlayKind string
 
 const (
@@ -39,7 +39,7 @@ const (
 	OverlayKindFocusedChange OverlayKind = "focused"
 )
 
-// Spec viewport overlay timing and geometry constants (docs/design/editor/Spec.dc.html).
+// Spec viewport overlay timing and geometry constants (design/editor/Spec.dc.html).
 const (
 	// OverlayChangeFadeDuration is the fade-in duration for Added, Changed, and Removed overlays.
 	OverlayChangeFadeDuration = 240 * time.Millisecond

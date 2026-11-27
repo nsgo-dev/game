@@ -38,7 +38,7 @@ layers:
 
 // TestSpecLightAndDarkThemeMacOSScreenshots renders the scene editor, the Spec overlay legend,
 // and the Spec toast variants on the real native macOS host in both Dark and Light themes
-// for side-by-side visual review against docs/design/editor/Spec.dc.html and Toasts.dc.html.
+// for side-by-side visual review against design/editor/Spec.dc.html and Toasts.dc.html.
 func TestSpecLightAndDarkThemeMacOSScreenshots(t *testing.T) {
 	doc, err := sceneformat.Parse([]byte(macosThemePreviewScene))
 	if err != nil {

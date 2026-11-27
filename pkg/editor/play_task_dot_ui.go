@@ -7,7 +7,7 @@ import (
 
 // PlayTaskDotView renders the single corner dot shown over the viewport during Play mode
 // when one or more agent tasks need attention (failed, waiting for permission, or ready to review),
-// matching docs/design/editor/Tasks.dc.html ("DURING PLAY") using exclusively Spec.dc.html tokens.
+// matching design/editor/Tasks.dc.html ("DURING PLAY") using exclusively Spec.dc.html tokens.
 //
 // Nothing pops over the running game: only the 8 pt dot with its subtle 3 pt halo is drawn,
 // colored for the most urgent state (TaskFailed > TaskNeedsYou > TaskReadyToReview). The label pill
@@ -177,7 +177,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 // AgentTaskNotificationCard renders one Spec-styled preview card for an AgentTaskNotification
-// matching docs/design/editor/Tasks.dc.html ("SYSTEM NOTIFICATIONS · ONLY THESE THREE") using
+// matching design/editor/Tasks.dc.html ("SYSTEM NOTIFICATIONS · ONLY THESE THREE") using
 // exclusively tokens from p.
 func AgentTaskNotificationCard(p SpecPalette, n AgentTaskNotification, when string) core.Node {
 	titleColor := p.TextPrimary

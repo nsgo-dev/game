@@ -464,7 +464,7 @@ func TestSketchUIKeyboardReadingCorrectMarkAndReviewKeepRevert(t *testing.T) {
 	}
 }
 
-// #1025 Acceptance 4: Real nsgotest screenshots on macOS beside docs/design/editor/Sketch.dc.html.
+// #1025 Acceptance 4: Real nsgotest screenshots on macOS beside design/editor/Sketch.dc.html.
 func TestSketchUIAndScreenshots(t *testing.T) {
 	ed := newSketchTestEditor(t)
 	_ = ed.SetAppearance(editor.AppearanceDark)

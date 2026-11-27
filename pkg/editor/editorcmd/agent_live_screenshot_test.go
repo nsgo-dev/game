@@ -42,7 +42,7 @@ layers:
 
 // TestAgentLiveEditsMacOSScreenshots renders the live agent edit indicators in the viewport,
 // scene tree, inspector, overlay legend, and header pill on native macOS in both Dark and Light
-// Spec themes for visual inspection beside docs/design/editor/Working.dc.html, Main.dc.html, and Spec.dc.html.
+// Spec themes for visual inspection beside design/editor/Working.dc.html, Main.dc.html, and Spec.dc.html.
 func TestAgentLiveEditsMacOSScreenshots(t *testing.T) {
 	doc, err := sceneformat.Parse([]byte(macosAgentLiveScene))
 	if err != nil {

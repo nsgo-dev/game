@@ -11,7 +11,7 @@ import (
 )
 
 // ChangesPanelView renders the full-window Changes & Commit screen matching
-// docs/design/editor/VersionControl.dc.html (screen 1) using only Spec.dc.html tokens.
+// design/editor/VersionControl.dc.html (screen 1) using only Spec.dc.html tokens.
 func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	keyOpt := core.KeyOptions{When: core.KeyNotEditing}
 	cx.OnKeyWith("escape", keyOpt, func() {

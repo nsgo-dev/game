@@ -567,8 +567,8 @@ func (e *Editor) activeHeaderTool() Tool {
 	return e.Tool
 }
 
-// mainHeaderView renders the 44 px AI-first header matching docs/design/editor/Main.dc.html
-// and docs/design/editor/Spec.dc.html.
+// mainHeaderView renders the 44 px AI-first header matching design/editor/Main.dc.html
+// and design/editor/Spec.dc.html.
 func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], mode *core.Signal[pathMode], target *core.Signal[string]) core.Node {
 	p := ed.SpecPalette(cx)
 	notPlaying := func() bool {
@@ -1798,7 +1798,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 }
 
 // viewportCameraCaptionView renders the "Camera · W × H" caption positioned above the
-// 2D camera frame matching docs/design/editor/Main.dc.html.
+// 2D camera frame matching design/editor/Main.dc.html.
 func viewportCameraCaptionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	canvasSizeRev := core.NewSignal(cx, ed.CanvasSizeRevision())
 	unsubCanvas := ed.SubscribeCanvasSize(func() {

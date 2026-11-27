@@ -21,7 +21,7 @@ Fixes #
 
 ## Acceptance for every editor PR
 
-<!-- Complete this checklist for any PR touching `pkg/editor` (from `docs/design/editor/Spec.dc.html`). -->
+<!-- Complete this checklist for any PR touching `pkg/editor` (from `design/editor/Spec.dc.html`). -->
 
 - [ ] Real screenshots from `nsgotest` on macOS, before and after, beside the matching artboard.
 - [ ] Uses only the tokens in `pkg/editor/spec_theme.yaml` (`SpecPalette`), and every text pair is in the WCAG 2.2 contrast table.

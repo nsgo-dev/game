@@ -24,7 +24,7 @@ var ErrAgentTouchingObject = errors.New("editor: object is currently being edite
 var ErrNoAgentTurn = errors.New("editor: no pending agent turn")
 
 // OverlayLegendKind identifies one toggleable row of the Spec viewport overlay legend
-// (docs/design/editor/Spec.dc.html): Selection, Agent working, Added, Changed, Removed, Problem.
+// (design/editor/Spec.dc.html): Selection, Agent working, Added, Changed, Removed, Problem.
 type OverlayLegendKind string
 
 const (
@@ -56,7 +56,7 @@ func (k OverlayLegendKind) Valid() bool {
 }
 
 // AgentState describes the agent's live state reflected in the editor header pill
-// (docs/design/editor/Working.dc.html).
+// (design/editor/Working.dc.html).
 type AgentState string
 
 const (

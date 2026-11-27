@@ -72,7 +72,7 @@ func renderFixtureWAV(t *testing.T, durSec, rmsDB float64) []byte {
 }
 
 // TestAssetGeneratorMacOSScreenshots renders the full-window Generated Assets screen
-// on the real macOS host beside docs/design/editor/Assets.dc.html Screen 2 and Spec.dc.html.
+// on the real macOS host beside design/editor/Assets.dc.html Screen 2 and Spec.dc.html.
 func TestAssetGeneratorMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: dungeon-run\nid: dev.example.dungeon\nversion: 0.1.0\n"), 0o644); err != nil {

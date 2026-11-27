@@ -35,7 +35,7 @@ type HUDOverlays struct {
 	FocusOrder bool
 }
 
-// DefaultHUDOverlays returns the default overlay set with all four overlays enabled, matching docs/design/editor/HUDLayout.dc.html.
+// DefaultHUDOverlays returns the default overlay set with all four overlays enabled, matching design/editor/HUDLayout.dc.html.
 func DefaultHUDOverlays() HUDOverlays {
 	return HUDOverlays{
 		SafeAreas:  true,
@@ -1441,7 +1441,7 @@ func (e *Editor) HUDLayoutFrames(canvasW, canvasH float32) []HUDFrameLayout {
 		return nil
 	}
 
-	// Base artboard coordinate space matching docs/design/editor/HUDLayout.dc.html (800×600 content inside 848×812 viewport),
+	// Base artboard coordinate space matching design/editor/HUDLayout.dc.html (800×600 content inside 848×812 viewport),
 	// uniformly scaled to fit canvasW × canvasH while keeping the bottom-right slot open for the TEXT WIDTH, PX table.
 	const (
 		padLeft  float32 = 24

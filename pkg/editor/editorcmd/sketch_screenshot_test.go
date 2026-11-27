@@ -42,7 +42,7 @@ layers:
 // (active numbered marks + floating bar + Scene Tree SKETCH LAYER + Composer preview),
 // the agent reading card (with Go ahead / Correct a mark + warning assumptions),
 // and the post-sketch review card (with Sketch overlay toggle + Keep / Revert)
-// for visual verification beside docs/design/editor/Sketch.dc.html and Spec.dc.html (#1025).
+// for visual verification beside design/editor/Sketch.dc.html and Spec.dc.html (#1025).
 func TestSketchMacOSScreenshots(t *testing.T) {
 	doc, err := sceneformat.Parse([]byte(macosSketchPreviewScene))
 	if err != nil {

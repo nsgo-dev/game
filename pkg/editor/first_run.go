@@ -20,7 +20,7 @@ import (
 )
 
 // FirstRunStage identifies the active stage of the Start with AI first-run journey
-// (docs/design/editor/FirstRun.dc.html).
+// (design/editor/FirstRun.dc.html).
 type FirstRunStage int
 
 const (
@@ -1353,7 +1353,7 @@ func (e *Editor) OpenFirstRunPlan() error {
 }
 
 // DefaultFirstRunPlan picks the closest template for req.Idea and returns a deterministic,
-// reviewable first plan matching docs/design/editor/FirstRun.dc.html.
+// reviewable first plan matching design/editor/FirstRun.dc.html.
 func DefaultFirstRunPlan(req FirstRunPlanRequest) *FirstRunPlan {
 	tmplName, tmplTitle := pickTemplateForIdea(req.Idea, req.Templates, req.Selected)
 	verb := "stomp"

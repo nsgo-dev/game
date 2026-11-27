@@ -14,7 +14,7 @@ import (
 )
 
 // TestEditorProfilerScreenshots mounts the real NSGo Game Editor on macOS with fixture
-// performance telemetry mirroring docs/design/editor/PlayMode.dc.html and captures
+// performance telemetry mirroring design/editor/PlayMode.dc.html and captures
 // screenshots of the Play-mode frame time strip and the full Profiler panel.
 func TestEditorProfilerScreenshots(t *testing.T) {
 	ed, err := newDemoEditor()

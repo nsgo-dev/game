@@ -12,8 +12,8 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// PlaytestReportView renders the full-window Playtest Report screen matching docs/design/editor/Playtest.dc.html
-// and strictly using docs/design/editor/Spec.dc.html color, spacing, radius, type, and WCAG contrast tokens
+// PlaytestReportView renders the full-window Playtest Report screen matching design/editor/Playtest.dc.html
+// and strictly using design/editor/Spec.dc.html color, spacing, radius, type, and WCAG contrast tokens
 // (including Spec Accent.OnFill on solid Accent.Fg primary buttons).
 func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {

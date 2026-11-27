@@ -467,7 +467,7 @@ func mcpViewText(t *testing.T, app *nsgotest.App, sel string) string {
 
 // TestEditorAgentConnectScreenshots mounts the real NSGo Game Editor on macOS and captures
 // screenshots of the Connect an agent dialog and the Agent panel across its status chip states
-// for side-by-side visual review against docs/design/editor/Connect.dc.html and AgentStates.dc.html.
+// for side-by-side visual review against design/editor/Connect.dc.html and AgentStates.dc.html.
 func TestEditorAgentConnectScreenshots(t *testing.T) {
 	ed, err := newDemoEditor()
 	if err != nil {

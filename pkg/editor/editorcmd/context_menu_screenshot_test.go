@@ -17,7 +17,7 @@ import (
 // TestObjectContextMenuMacOSScreenshots renders the unified object context menu,
 // its Move under submenu, and the Copy as YAML toast on the real native macOS host
 // (linking github.com/nsgo-dev/nsgo through editorcmd) for visual verification
-// beside docs/design/editor/Inspector.dc.html.
+// beside design/editor/Inspector.dc.html.
 func TestObjectContextMenuMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {

@@ -12,7 +12,7 @@ import (
 )
 
 // TestViewport3DScreenshots renders a 3D courtyard scene on the real native macOS host
-// matching docs/design/editor/Viewport3D.dc.html and Spec.dc.html across Perspective,
+// matching design/editor/Viewport3D.dc.html and Spec.dc.html across Perspective,
 // Top · ortho, and User · ortho views.
 func TestViewport3DScreenshots(t *testing.T) {
 	doc := &sceneformat.SceneDoc{

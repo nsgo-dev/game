@@ -55,7 +55,7 @@ connections:
 // TestProblemAndProposedFixMacOSScreenshots renders the live broken-connection
 // problem state (scene tree badge, viewport Problem overlay, status bar pill,
 // and Agent proposed-fix card) in both Dark and Light Spec appearances beside
-// docs/design/editor/Problem.dc.html.
+// design/editor/Problem.dc.html.
 func TestProblemAndProposedFixMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{

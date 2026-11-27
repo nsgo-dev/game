@@ -985,7 +985,7 @@ func (e *Editor) SaveSettings() error {
 	return SaveEditorSettings(path, &s)
 }
 
-// SettingsPage identifies a page in the unified Settings view (docs/design/editor/Settings.dc.html).
+// SettingsPage identifies a page in the unified Settings view (design/editor/Settings.dc.html).
 type SettingsPage string
 
 const (

@@ -15,7 +15,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// AssetGeneratorView renders the full-window Generated Assets screen matching docs/design/editor/Assets.dc.html
+// AssetGeneratorView renders the full-window Generated Assets screen matching design/editor/Assets.dc.html
 // Screen 2 ("generate, pick, check style and license") using strictly Spec.dc.html color, spacing, radius, and type tokens.
 func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {

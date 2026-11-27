@@ -13,7 +13,7 @@ import (
 // TestReviewMacOSScreenshots renders the full-window change-by-change agent turn Review screen
 // on the real native macOS host (linking github.com/nsgo-dev/nsgo through editorcmd) and captures
 // scene, prefab-impact, data-table, revert-all dialog, paused-editor, and light-theme screenshots
-// for visual inspection beside docs/design/editor/Review.dc.html and Spec.dc.html (#1014).
+// for visual inspection beside design/editor/Review.dc.html and Spec.dc.html (#1014).
 func TestReviewMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	writeFile := func(rel, content string) []byte {

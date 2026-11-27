@@ -16,7 +16,7 @@ import (
 
 func float32Ptr(v float32) *float32 { return &v }
 
-// sampleRoom2Plan builds the 5-step, 2-question Room 2 plan matching docs/design/editor/Plan.dc.html.
+// sampleRoom2Plan builds the 5-step, 2-question Room 2 plan matching design/editor/Plan.dc.html.
 func sampleRoom2Plan() editor.AgentPlan {
 	return editor.AgentPlan{
 		Prompt: "Build a second room behind the door: a lever that opens a gate, a few slimes and a coin reward.",

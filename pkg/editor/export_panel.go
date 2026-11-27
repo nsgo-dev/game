@@ -114,7 +114,7 @@ func (e *Editor) SetExportPanelOpen(open bool) {
 	}
 }
 
-// ExportPresetReadiness reports whether a platform export preset is ready to build ("Ready") or needs setup ("Set up"), along with a concise detail string matching docs/design/editor/Settings.dc.html.
+// ExportPresetReadiness reports whether a platform export preset is ready to build ("Ready") or needs setup ("Set up"), along with a concise detail string matching design/editor/Settings.dc.html.
 func (e *Editor) ExportPresetReadiness(platform string) (ready bool, detail string) {
 	switch platform {
 	case "ios", "tvos", "watchos":

@@ -11,7 +11,7 @@ import (
 
 // TestInspectorMacOSScreenshots renders the redesigned Inspector on the real native macOS host
 // across 2D, filtered ("speed"), and 3D modes for visual verification beside
-// docs/design/editor/Inspector.dc.html, Main.dc.html, Viewport3D.dc.html, and Spec.dc.html.
+// design/editor/Inspector.dc.html, Main.dc.html, Viewport3D.dc.html, and Spec.dc.html.
 func TestInspectorMacOSScreenshots(t *testing.T) {
 	reg := sceneformat.NewComponentRegistry()
 	for _, ct := range []sceneformat.ComponentType{

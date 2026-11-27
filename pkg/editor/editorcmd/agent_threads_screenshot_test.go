@@ -16,7 +16,7 @@ import (
 // TestAgentThreadsMacOSScreenshots renders the Agent Threads UI on the real native macOS host
 // across folded/expanded thread view, grouped thread switcher popover, empty-thread view,
 // Inspector footer attribution, and Spec Light theme for visual verification beside
-// docs/design/editor/Threads.dc.html and Spec.dc.html.
+// design/editor/Threads.dc.html and Spec.dc.html.
 func TestAgentThreadsMacOSScreenshots(t *testing.T) {
 	dir := t.TempDir()
 	scenesDir := filepath.Join(dir, "scenes")
@@ -127,7 +127,7 @@ func TestAgentThreadsMacOSScreenshots(t *testing.T) {
 	}
 	ed.SetAgentMCPConnected(true, "MCP")
 
-	// Seed threads matching docs/design/editor/Threads.dc.html.
+	// Seed threads matching design/editor/Threads.dc.html.
 	now = time.Date(2026, 11, 25, 13, 0, 0, 0, time.UTC)
 	_, _ = ed.SendAgentRequestWith(editor.AgentSendRequest{
 		Title:        "Spikes under the plank",

@@ -15,6 +15,7 @@ game/
 ├─ docs/
 │  ├─ en/            site documentation in English
 │  └─ zh/            the same pages in Simplified Chinese
+├─ design/editor/    the editor's design artboards (Spec.dc.html and the per-panel .dc.html files) that pkg/editor implements
 ├─ apps/website/     the site at https://game.nsgo.dev
 ├─ changelog.d/      changelog fragments, folded into CHANGELOG.md at release
 └─ tools/            one Go module of contributor tooling: changelog/ checks and folds the fragments, agenteval/ is the agent evaluation suite, gameschema/ writes and checks the published JSON Schemas, gameapi/ generates the API reference
