@@ -208,7 +208,7 @@ session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, 
 本地中继让往返时间增加约 55 到 145 µs，远低于一毫秒，也不到 60 Hz 一个 tick 的十分之一。在互联网上，中继的代价是绕行带来的额外网络距离，因此请把中继部署在玩家所在的地区。用以下命令复现这些数字：
 
 ```sh
-go tool nsgo test ./net -run '^$' -bench BenchmarkRelayRoundTrip
+go tool nsgo test ./pkg/online/netplay -run '^$' -bench BenchmarkRelayRoundTrip
 ```
 
 ### WebRTC 数据通道
@@ -271,11 +271,10 @@ RUN CGO_ENABLED=0 go -C examples/dedicatedserver build -o /out/server .
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/server /server
-EXPOSE 8080
 ENTRYPOINT ["/server"]
 ```
 
-使用 `SIGTERM` 作为停止信号（`docker stop` 默认发送 SIGTERM）。示例用 `signal.NotifyContext`；`Runner.Run` 会等当前 tick 完成、调用每场比赛的 `OnStop` 通知对端并落盘后退出，因此容器可以优雅排空而不是丢掉一个 tick。
+使用 `SIGTERM` 作为停止信号（`docker stop` 默认发送 SIGTERM）。示例用 `signal.NotifyContext`；`Runner.Run` 会等当前 tick 完成、调用每场比赛的 `OnStop` 通知对端并落盘后退出，因此容器可以优雅排空而不是丢掉一个 tick。示例不打开网络监听端口，因此镜像不声明端口；若要暴露健康检查端口或配置容器健康检查，请在你自己的服务器里按上文在 `:8080` 上挂载 `server.NewHealth`。
 
 ## 玩家令牌
 

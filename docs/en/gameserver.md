@@ -208,7 +208,7 @@ session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, 
 A local relay adds roughly 55 to 145 µs to a round trip, well under a millisecond and under a tenth of a 60 Hz tick. Over the internet the relay's cost is the extra network distance of the detour, so run relays in the regions where players are. Reproduce the numbers with:
 
 ```sh
-go tool nsgo test ./net -run '^$' -bench BenchmarkRelayRoundTrip
+go tool nsgo test ./pkg/online/netplay -run '^$' -bench BenchmarkRelayRoundTrip
 ```
 
 ### WebRTC data channels
@@ -271,11 +271,10 @@ RUN CGO_ENABLED=0 go -C examples/dedicatedserver build -o /out/server .
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/server /server
-EXPOSE 8080
 ENTRYPOINT ["/server"]
 ```
 
-Run it with `SIGTERM` as the stop signal (`docker stop` sends SIGTERM by default). The example uses `signal.NotifyContext`; `Runner.Run` lets the current tick finish, runs each match's `OnStop` to notify peers and flush state, then exits, so the container drains instead of losing a tick.
+Run it with `SIGTERM` as the stop signal (`docker stop` sends SIGTERM by default). The example uses `signal.NotifyContext`; `Runner.Run` lets the current tick finish, runs each match's `OnStop` to notify peers and flush state, then exits, so the container drains instead of losing a tick. The example opens no network listener, so the image declares no port; to expose a health port or add a container health check, mount `server.NewHealth` on `:8080` in your own server (see above).
 
 ## Player tokens
 
