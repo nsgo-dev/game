@@ -2,7 +2,7 @@
 
 本文档记录 NSGo 游戏编辑器的范围决策（[#159](https://github.com/nsgo-dev/game/issues/159)），并说明 `github.com/nsgo-dev/game/pkg/sceneformat` 实现的第 1 版 YAML 场景格式（[#160](https://github.com/nsgo-dev/game/issues/160)）。
 
-独立桌面版 **NSGo Game Editor**（`cmd/editor`）安装包已在 [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) 自动发布——包含经组织 Developer ID 签名与 Apple 公证的 macOS `.dmg`（`arm64` / `x64`）、Windows `-setup.exe`（`x64` / `arm64`）与 Linux `.deb` / `.pkg.tar.gz` / `.AppImage`（`x64` / `arm64`），并附带一键安装脚本（`install.sh` / `install.ps1`）与预编译 `nsgo-game` 命令行工具。也可通过 `nsgo game editor` 或 `go run ./cmd/editor` 直接启动。
+独立桌面版 **NSGo Game Editor**（`cmd/editor`）安装包已在 [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) 自动发布——包含经组织 Developer ID 签名与 Apple 公证的 macOS `.dmg`（`arm64` / `x64`）、Windows `-setup.exe`（`x64` / `arm64`）与 Linux `.deb` / `.pkg.tar.gz` / `.AppImage`（`x64` / `arm64`），并附带一键安装脚本（`install.sh` / `install.ps1`）。也可通过 `nsgo game editor` 或 `go run ./cmd/editor` 直接启动。
 
 ## 编辑器范围决策（#159）
 
