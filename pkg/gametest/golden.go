@@ -415,11 +415,50 @@ func ReadPNG(path string) (image.Image, error) {
 	return png.Decode(f)
 }
 
+// roundTripPNG encodes img with PNG's pixel conversion and decodes it back so
+// comparisons happen in the color space stored on disk (for example,
+// premultiplied *image.RGBA pixels with partial alpha match a freshly written
+// non-premultiplied PNG). Empty images are returned unchanged so DiffImage can
+// report the dimension mismatch.
+func roundTripPNG(img image.Image) (image.Image, error) {
+	if img.Bounds().Empty() {
+		return img, nil
+	}
+	var buf bytes.Buffer
+	enc := png.Encoder{CompressionLevel: png.NoCompression}
+	if err := enc.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return png.Decode(&buf)
+}
+
+// goldenFailurePaths returns the paths where AssertGoldenAt writes the actual
+// (<name>.got.png) and visual diff (<name>.diff.png) images on mismatch.
+//
+// When GOLDEN_DIFF_DIR is set, artifacts are placed under that directory
+// (preserving subdirectories below DefaultGoldenDir when applicable). Otherwise
+// they are written beside goldenPath so they outlive the test.
+func goldenFailurePaths(goldenPath string) (gotPath, diffPath string) {
+	base := strings.TrimSuffix(filepath.Base(goldenPath), ".png")
+	outDir := filepath.Dir(goldenPath)
+	if envDir := strings.TrimSpace(os.Getenv("GOLDEN_DIFF_DIR")); envDir != "" {
+		outDir = envDir
+		if !filepath.IsAbs(goldenPath) {
+			clean := filepath.Clean(goldenPath)
+			if rel, err := filepath.Rel(DefaultGoldenDir, filepath.Dir(clean)); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				outDir = filepath.Join(envDir, rel)
+			}
+		}
+	}
+	return filepath.Join(outDir, base+".got.png"), filepath.Join(outDir, base+".diff.png")
+}
+
 // CompareGolden compares got against the PNG stored at goldenPath.
 //
 // When update is true, got is written to goldenPath and CompareGolden returns
-// (nil, 0, nil). When update is false, CompareGolden decodes goldenPath and
-// returns DiffImage(got, want).
+// (nil, 0, nil). When update is false, CompareGolden decodes goldenPath,
+// round-trips got through PNG encoding and decoding so comparison runs in the
+// space stored on disk, and returns DiffImage(gotPNG, want).
 func CompareGolden(got image.Image, goldenPath string, update bool) (*image.RGBA, int, error) {
 	if got == nil {
 		return nil, 0, errors.New("gametest: got image is nil")
@@ -437,33 +476,49 @@ func CompareGolden(got image.Image, goldenPath string, update bool) (*image.RGBA
 		}
 		return nil, 0, fmt.Errorf("gametest: read golden %s: %w", goldenPath, err)
 	}
-	diff, mismatched := DiffImage(got, want)
+	gotPNG, err := roundTripPNG(got)
+	if err != nil {
+		return nil, 0, fmt.Errorf("gametest: encode got image for %s: %w", goldenPath, err)
+	}
+	diff, mismatched := DiffImage(gotPNG, want)
 	return diff, mismatched, nil
 }
 
-// AssertGolden compares got against testdata/golden/<name>.png and fails t on mismatch,
-// writing the actual and diff PNGs into a test temporary directory for inspection.
+// AssertGolden compares got against testdata/golden/<name>.png and fails t on
+// mismatch, writing <name>.got.png and <name>.diff.png beside the golden (or
+// under GOLDEN_DIFF_DIR when set) so they outlive the test for inspection.
 func AssertGolden(t testing.TB, name string, got image.Image) {
 	t.Helper()
 	AssertGoldenAt(t, GoldenPath(DefaultGoldenDir, name), got)
 }
 
-// AssertGoldenAt compares got against goldenPath and fails t on mismatch.
+// AssertGoldenAt compares got against goldenPath and fails t on mismatch,
+// writing <name>.got.png and <name>.diff.png beside goldenPath (or under
+// GOLDEN_DIFF_DIR when set) so they remain on disk after the test ends. On a
+// passing or updating run, any stale failure images at those paths are removed.
 func AssertGoldenAt(t testing.TB, goldenPath string, got image.Image) {
 	t.Helper()
 	diff, mismatched, err := CompareGolden(got, goldenPath, ShouldUpdateGolden())
 	if err != nil {
 		t.Fatal(err)
 	}
+	gotPath, diffPath := goldenFailurePaths(goldenPath)
 	if mismatched == 0 {
+		_ = os.Remove(gotPath)
+		_ = os.Remove(diffPath)
 		return
 	}
-	outDir := t.TempDir()
-	base := strings.TrimSuffix(filepath.Base(goldenPath), ".png")
-	gotPath := filepath.Join(outDir, base+".got.png")
-	diffPath := filepath.Join(outDir, base+".diff.png")
-	_ = WritePNG(gotPath, got)
-	_ = WritePNG(diffPath, diff)
+	var writeErrs []string
+	if err := WritePNG(gotPath, got); err != nil {
+		writeErrs = append(writeErrs, fmt.Sprintf("write %s: %v", gotPath, err))
+	}
+	if err := WritePNG(diffPath, diff); err != nil {
+		writeErrs = append(writeErrs, fmt.Sprintf("write %s: %v", diffPath, err))
+	}
+	if len(writeErrs) > 0 {
+		t.Fatalf("golden mismatch for %s: %d mismatched pixel(s) (got=%s diff=%s; artifact write error: %s; re-run with -update-golden or UPDATE_GOLDEN=1 if intentional)",
+			goldenPath, mismatched, gotPath, diffPath, strings.Join(writeErrs, "; "))
+	}
 	t.Fatalf("golden mismatch for %s: %d mismatched pixel(s) (got=%s diff=%s; re-run with -update-golden or UPDATE_GOLDEN=1 if intentional)",
 		goldenPath, mismatched, gotPath, diffPath)
 }

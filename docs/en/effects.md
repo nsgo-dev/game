@@ -203,4 +203,4 @@ chain := effects.MustCompile(effects.Effect{Source: invert, Reference: invertRef
 got, err := chain.Reference(frame, 640, 360, []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 ```
 
-`Reference` returns an error when an effect has no `Reference`, for a uniform an effect does not declare, and for one set to an animated node such as `Clock`'s, whose value only the platform knows: pass the number to draw it at instead. A PNG stores straight colors, so convert the premultiplied picture to `*image.NRGBA` before `gametest.AssertGolden` when it has translucent pixels.
+`Reference` returns an error when an effect has no `Reference`, for a uniform an effect does not declare, and for one set to an animated node such as `Clock`'s, whose value only the platform knows: pass the number to draw it at instead.

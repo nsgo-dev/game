@@ -1,9 +1,13 @@
 package gametest_test
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/gametest"
@@ -241,4 +245,341 @@ func TestRenderOpsZeroTintSkipsDrawing(t *testing.T) {
 	if px := out.RGBAAt(2, 2); px != bg {
 		t.Fatalf("zero-tint pixel = %+v, want unchanged background %+v", px, bg)
 	}
+}
+
+func TestCompareGoldenPartialAlphaRoundTrip(t *testing.T) {
+	t.Run("premultiplied RGBA partial alpha pixels", func(t *testing.T) {
+		// Include the exact reproducer ({R:1, A:200}) plus a full 0..255 alpha ramp
+		// of valid premultiplied colors.
+		img := image.NewRGBA(image.Rect(0, 0, 256, 2))
+		img.SetRGBA(0, 0, color.RGBA{R: 1, G: 0, B: 0, A: 200})
+		img.SetRGBA(1, 0, color.RGBA{R: 50, G: 100, B: 120, A: 128})
+		img.SetRGBA(2, 0, color.RGBA{R: 1, G: 1, B: 1, A: 1})
+		img.SetRGBA(3, 0, color.RGBA{R: 0, G: 0, B: 0, A: 0})
+		for a := range 256 {
+			r := uint8((a * 3) / 4)
+			g := uint8(a / 2)
+			b := uint8(a / 5)
+			img.SetRGBA(a, 1, color.RGBA{R: r, G: g, B: b, A: uint8(a)})
+		}
+
+		path := filepath.Join(t.TempDir(), "partial_alpha.png")
+		if _, _, err := gametest.CompareGolden(img, path, true); err != nil {
+			t.Fatalf("CompareGolden(update=true): %v", err)
+		}
+		_, mismatched, err := gametest.CompareGolden(img, path, false)
+		if err != nil {
+			t.Fatalf("CompareGolden(update=false): %v", err)
+		}
+		if mismatched != 0 {
+			t.Fatalf("partial-alpha RGBA round-trip had %d mismatched pixel(s), want 0", mismatched)
+		}
+	})
+
+	t.Run("RenderOps translucent drawing on transparent background", func(t *testing.T) {
+		var d core.Drawing
+		d.SetAlpha(0.5)
+		d.SetFillColor(core.RGB(0xe63946)).FillRect(2, 2, 12, 12)
+		d.SetAlpha(0.35)
+		d.SetStrokeColor(core.RGB(0x457b9d)).SetLineWidth(2).StrokeRect(4, 4, 8, 8)
+		img := gametest.RenderOps(16, 16, d.Ops)
+
+		path := filepath.Join(t.TempDir(), "translucent_ops.png")
+		if _, _, err := gametest.CompareGolden(img, path, true); err != nil {
+			t.Fatalf("CompareGolden(update=true): %v", err)
+		}
+		_, mismatched, err := gametest.CompareGolden(img, path, false)
+		if err != nil {
+			t.Fatalf("CompareGolden(update=false): %v", err)
+		}
+		if mismatched != 0 {
+			t.Fatalf("translucent RenderOps round-trip had %d mismatched pixel(s), want 0", mismatched)
+		}
+	})
+
+	t.Run("straight NRGBA partial alpha", func(t *testing.T) {
+		img := image.NewNRGBA(image.Rect(0, 0, 4, 1))
+		img.SetNRGBA(0, 0, color.NRGBA{R: 1, G: 0, B: 0, A: 200})
+		img.SetNRGBA(1, 0, color.NRGBA{R: 255, G: 128, B: 64, A: 127})
+		img.SetNRGBA(2, 0, color.NRGBA{R: 10, G: 20, B: 30, A: 1})
+		img.SetNRGBA(3, 0, color.NRGBA{R: 0, G: 0, B: 0, A: 0})
+
+		path := filepath.Join(t.TempDir(), "nrgba_alpha.png")
+		if _, _, err := gametest.CompareGolden(img, path, true); err != nil {
+			t.Fatalf("CompareGolden(update=true): %v", err)
+		}
+		_, mismatched, err := gametest.CompareGolden(img, path, false)
+		if err != nil || mismatched != 0 {
+			t.Fatalf("NRGBA partial-alpha round-trip got mismatched=%d err=%v, want 0, nil", mismatched, err)
+		}
+	})
+
+	t.Run("empty got reports dimension mismatch", func(t *testing.T) {
+		want := image.NewRGBA(image.Rect(0, 0, 2, 2))
+		want.SetRGBA(0, 0, color.RGBA{R: 100, G: 50, B: 25, A: 200})
+		path := filepath.Join(t.TempDir(), "nonempty.png")
+		if _, _, err := gametest.CompareGolden(want, path, true); err != nil {
+			t.Fatalf("CompareGolden(update=true): %v", err)
+		}
+		_, mismatched, err := gametest.CompareGolden(image.NewRGBA(image.Rectangle{}), path, false)
+		if err != nil {
+			t.Fatalf("CompareGolden(empty got): %v", err)
+		}
+		if mismatched != 4 {
+			t.Fatalf("mismatched = %d, want 4", mismatched)
+		}
+	})
+}
+
+func TestCompareGoldenPartialAlphaDetectsChanges(t *testing.T) {
+	base := image.NewRGBA(image.Rect(0, 0, 4, 1))
+	base.SetRGBA(0, 0, color.RGBA{R: 1, G: 0, B: 0, A: 200})
+	base.SetRGBA(1, 0, color.RGBA{R: 50, G: 100, B: 120, A: 128})
+	base.SetRGBA(2, 0, color.RGBA{R: 10, G: 20, B: 30, A: 64})
+	base.SetRGBA(3, 0, color.RGBA{R: 0, G: 0, B: 0, A: 0})
+
+	path := filepath.Join(t.TempDir(), "alpha_diff.png")
+	if _, _, err := gametest.CompareGolden(base, path, true); err != nil {
+		t.Fatalf("CompareGolden(update=true): %v", err)
+	}
+
+	magenta := color.RGBA{R: 255, G: 0, B: 255, A: 255}
+
+	cloneBase := func() *image.RGBA {
+		c := image.NewRGBA(base.Rect)
+		copy(c.Pix, base.Pix)
+		return c
+	}
+
+	// Single-step color change on a partial-alpha pixel.
+	colorChanged := cloneBase()
+	colorChanged.SetRGBA(0, 0, color.RGBA{R: 2, G: 0, B: 0, A: 200})
+	diff, mismatched, err := gametest.CompareGolden(colorChanged, path, false)
+	if err != nil {
+		t.Fatalf("CompareGolden(colorChanged): %v", err)
+	}
+	if mismatched != 1 {
+		t.Fatalf("color change mismatched = %d, want 1", mismatched)
+	}
+	if diff.RGBAAt(0, 0) != magenta || diff.RGBAAt(1, 0) == magenta {
+		t.Fatalf("unexpected diff pixels for color change: (0,0)=%+v (1,0)=%+v", diff.RGBAAt(0, 0), diff.RGBAAt(1, 0))
+	}
+
+	// Single-step alpha change on a partial-alpha pixel.
+	alphaChanged := cloneBase()
+	alphaChanged.SetRGBA(1, 0, color.RGBA{R: 50, G: 100, B: 120, A: 129})
+	diff, mismatched, err = gametest.CompareGolden(alphaChanged, path, false)
+	if err != nil {
+		t.Fatalf("CompareGolden(alphaChanged): %v", err)
+	}
+	if mismatched != 1 {
+		t.Fatalf("alpha change mismatched = %d, want 1", mismatched)
+	}
+	if diff.RGBAAt(1, 0) != magenta || diff.RGBAAt(0, 0) == magenta {
+		t.Fatalf("unexpected diff pixels for alpha change: (0,0)=%+v (1,0)=%+v", diff.RGBAAt(0, 0), diff.RGBAAt(1, 0))
+	}
+}
+
+// subtestTB mimics *testing.T's Fatalf/TempDir/Cleanup lifecycle so a test can
+// run a failing AssertGoldenAt in an isolated sub-test and inspect disk state
+// after the sub-test's cleanups (including any t.TempDir removals) have run.
+type subtestTB struct {
+	testing.TB
+	failed   bool
+	fatalMsg string
+	cleanups []func()
+}
+
+func (s *subtestTB) Helper() {}
+
+func (s *subtestTB) Cleanup(fn func()) {
+	s.cleanups = append(s.cleanups, fn)
+}
+
+func (s *subtestTB) TempDir() string {
+	dir, err := os.MkdirTemp("", "gametest-subtest-*")
+	if err != nil {
+		panic(err)
+	}
+	s.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func (s *subtestTB) Fatal(args ...any) {
+	s.failed = true
+	s.fatalMsg = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (s *subtestTB) Fatalf(format string, args ...any) {
+	s.failed = true
+	s.fatalMsg = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+func runFailingSubtest(t *testing.T, fn func(tb testing.TB)) (failed bool, msg string) {
+	t.Helper()
+	tb := &subtestTB{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer func() {
+			for i := len(tb.cleanups) - 1; i >= 0; i-- {
+				tb.cleanups[i]()
+			}
+		}()
+		fn(tb)
+	}()
+	<-done
+	return tb.failed, tb.fatalMsg
+}
+
+var failurePathsRe = regexp.MustCompile(`got=(\S+) diff=([^\s;]+)`)
+
+func TestAssertGoldenAtPersistsFailureImages(t *testing.T) {
+	t.Setenv("UPDATE_GOLDEN", "")
+
+	wantImg := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	wantImg.SetRGBA(1, 1, color.RGBA{R: 40, G: 80, B: 120, A: 200})
+
+	gotImg := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	gotImg.SetRGBA(1, 1, color.RGBA{R: 120, G: 40, B: 80, A: 200})
+
+	magenta := color.RGBA{R: 255, G: 0, B: 255, A: 255}
+
+	t.Run("default beside golden and cleaned up on pass", func(t *testing.T) {
+		t.Setenv("GOLDEN_DIFF_DIR", "")
+		dir := t.TempDir()
+		goldenPath := filepath.Join(dir, "frame.png")
+		if err := gametest.WritePNG(goldenPath, wantImg); err != nil {
+			t.Fatalf("WritePNG: %v", err)
+		}
+
+		failed, msg := runFailingSubtest(t, func(tb testing.TB) {
+			gametest.AssertGoldenAt(tb, goldenPath, gotImg)
+		})
+		if !failed {
+			t.Fatal("expected AssertGoldenAt to fail on mismatch")
+		}
+		m := failurePathsRe.FindStringSubmatch(msg)
+		if len(m) != 3 {
+			t.Fatalf("failure message missing got/diff paths: %q", msg)
+		}
+		gotPath, diffPath := m[1], m[2]
+		wantGotPath := filepath.Join(dir, "frame.got.png")
+		wantDiffPath := filepath.Join(dir, "frame.diff.png")
+		if gotPath != wantGotPath || diffPath != wantDiffPath {
+			t.Fatalf("reported paths = (%q, %q), want (%q, %q)", gotPath, diffPath, wantGotPath, wantDiffPath)
+		}
+
+		if _, err := os.Stat(gotPath); err != nil {
+			t.Fatalf("reported got PNG does not exist after sub-test ended: %v", err)
+		}
+		if _, err := os.Stat(diffPath); err != nil {
+			t.Fatalf("reported diff PNG does not exist after sub-test ended: %v", err)
+		}
+		decodedGot, err := gametest.ReadPNG(gotPath)
+		if err != nil {
+			t.Fatalf("ReadPNG(%s): %v", gotPath, err)
+		}
+		if decodedGot.Bounds().Dx() != 4 || decodedGot.Bounds().Dy() != 4 {
+			t.Fatalf("decoded got bounds = %v, want 4x4", decodedGot.Bounds())
+		}
+		decodedDiff, err := gametest.ReadPNG(diffPath)
+		if err != nil {
+			t.Fatalf("ReadPNG(%s): %v", diffPath, err)
+		}
+		if color.RGBAModel.Convert(decodedDiff.At(1, 1)) != magenta {
+			t.Fatalf("diff pixel (1,1) = %v, want magenta", decodedDiff.At(1, 1))
+		}
+
+		// A subsequent passing assertion cleans up the stale failure images.
+		gametest.AssertGoldenAt(t, goldenPath, wantImg)
+		if _, err := os.Stat(gotPath); !os.IsNotExist(err) {
+			t.Fatalf("stale got PNG still exists after passing assertion: err=%v", err)
+		}
+		if _, err := os.Stat(diffPath); !os.IsNotExist(err) {
+			t.Fatalf("stale diff PNG still exists after passing assertion: err=%v", err)
+		}
+	})
+
+	t.Run("GOLDEN_DIFF_DIR override", func(t *testing.T) {
+		diffDir := t.TempDir()
+		t.Setenv("GOLDEN_DIFF_DIR", diffDir)
+
+		goldenDir := t.TempDir()
+		goldenPath := filepath.Join(goldenDir, "hud.png")
+		if err := gametest.WritePNG(goldenPath, wantImg); err != nil {
+			t.Fatalf("WritePNG: %v", err)
+		}
+
+		failed, msg := runFailingSubtest(t, func(tb testing.TB) {
+			gametest.AssertGoldenAt(tb, goldenPath, gotImg)
+		})
+		if !failed {
+			t.Fatal("expected AssertGoldenAt to fail on mismatch")
+		}
+		m := failurePathsRe.FindStringSubmatch(msg)
+		if len(m) != 3 {
+			t.Fatalf("failure message missing got/diff paths: %q", msg)
+		}
+		gotPath, diffPath := m[1], m[2]
+		wantGotPath := filepath.Join(diffDir, "hud.got.png")
+		wantDiffPath := filepath.Join(diffDir, "hud.diff.png")
+		if gotPath != wantGotPath || diffPath != wantDiffPath {
+			t.Fatalf("reported paths = (%q, %q), want (%q, %q)", gotPath, diffPath, wantGotPath, wantDiffPath)
+		}
+		if _, err := gametest.ReadPNG(gotPath); err != nil {
+			t.Fatalf("ReadPNG(%s): %v", gotPath, err)
+		}
+		if _, err := gametest.ReadPNG(diffPath); err != nil {
+			t.Fatalf("ReadPNG(%s): %v", diffPath, err)
+		}
+		// Nothing written beside goldenPath when GOLDEN_DIFF_DIR is set.
+		if _, err := os.Stat(filepath.Join(goldenDir, "hud.got.png")); !os.IsNotExist(err) {
+			t.Fatalf("unexpected artifact beside golden when GOLDEN_DIFF_DIR is set")
+		}
+	})
+
+	t.Run("GOLDEN_DIFF_DIR preserves subdirs under DefaultGoldenDir", func(t *testing.T) {
+		workDir := t.TempDir()
+		origWD, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir(workDir); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+		diffDir := t.TempDir()
+		t.Setenv("GOLDEN_DIFF_DIR", diffDir)
+
+		goldenPath := gametest.GoldenPath(gametest.DefaultGoldenDir, "menus/title")
+		if err := gametest.WritePNG(goldenPath, wantImg); err != nil {
+			t.Fatalf("WritePNG: %v", err)
+		}
+
+		failed, msg := runFailingSubtest(t, func(tb testing.TB) {
+			gametest.AssertGoldenAt(tb, goldenPath, gotImg)
+		})
+		if !failed {
+			t.Fatal("expected AssertGoldenAt to fail on mismatch")
+		}
+		m := failurePathsRe.FindStringSubmatch(msg)
+		if len(m) != 3 {
+			t.Fatalf("failure message missing got/diff paths: %q", msg)
+		}
+		wantGotPath := filepath.Join(diffDir, "menus", "title.got.png")
+		wantDiffPath := filepath.Join(diffDir, "menus", "title.diff.png")
+		if m[1] != wantGotPath || m[2] != wantDiffPath {
+			t.Fatalf("reported paths = (%q, %q), want (%q, %q)", m[1], m[2], wantGotPath, wantDiffPath)
+		}
+		if _, err := gametest.ReadPNG(m[1]); err != nil {
+			t.Fatalf("ReadPNG(%s): %v", m[1], err)
+		}
+		if _, err := gametest.ReadPNG(m[2]); err != nil {
+			t.Fatalf("ReadPNG(%s): %v", m[2], err)
+		}
+	})
 }

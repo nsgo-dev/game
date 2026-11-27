@@ -20,3 +20,7 @@ node_modules/
 *.test
 .tmp/
 .hvigor/
+
+# Golden test failure artifacts (actual and diff PNGs)
+*.got.png
+*.diff.png

@@ -95,7 +95,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/flow` | Stable | [flow](flow.md) |
 | `game/pkg/fog` | Experimental | [fog](fog.md) |
 | `game/pkg/framedata` | Experimental | [framedata](framedata.md) |
-| `game/pkg/gametest` | Experimental | |
+| `game/pkg/gametest` | Experimental | [gametest](gametest.md) |
 | `game/pkg/gameui` | Experimental | [gameui](gameui.md) |
 | `game/pkg/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
 | `game/pkg/idle` | Experimental | [idle](idle.md) |
