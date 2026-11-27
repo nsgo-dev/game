@@ -4,14 +4,173 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+// SceneTreeFilter returns the current left-rail Scene Tree search query.
+func (e *Editor) SceneTreeFilter() string {
+	if e == nil {
+		return ""
+	}
+	return e.sceneTreeFilter
+}
+
+// SetSceneTreeFilter updates the left-rail Scene Tree search query.
+func (e *Editor) SetSceneTreeFilter(query string) {
+	if e == nil || e.sceneTreeFilter == query {
+		return
+	}
+	e.sceneTreeFilter = query
+	e.notify()
+}
+
+// SceneTreeFilterOpen reports whether the left-rail Scene Tree filter bar is visible.
+func (e *Editor) SceneTreeFilterOpen() bool {
+	return e != nil && e.sceneTreeFilterOpen
+}
+
+// SetSceneTreeFilterOpen shows or hides the left-rail Scene Tree filter bar.
+// Closing the filter bar clears any active filter so hidden nodes are not left obscured.
+func (e *Editor) SetSceneTreeFilterOpen(open bool) {
+	if e == nil {
+		return
+	}
+	changed := e.sceneTreeFilterOpen != open
+	e.sceneTreeFilterOpen = open
+	if !open && e.sceneTreeFilter != "" {
+		e.sceneTreeFilter = ""
+		changed = true
+	}
+	if changed {
+		e.notify()
+	}
+}
+
+// AddSceneRailObject creates a new object of kind ("empty", "trigger", or "light") on the active layer
+// at the current 2D view center (or world origin in 3D), selects it, and switches the right rail to Inspector.
+func (e *Editor) AddSceneRailObject(kind string) (string, error) {
+	if e == nil {
+		return "", fmt.Errorf("editor: nil editor")
+	}
+	if e.playing {
+		return "", ErrPlaying
+	}
+	if err := e.lockedLayerErr(); err != nil {
+		return "", err
+	}
+	layerName := e.ActiveLayer
+	if layerName == "" && e.Doc != nil && len(e.Doc.Layers) > 0 {
+		layerName = e.Doc.Layers[0].Name
+	}
+	var px, py float32
+	if e.ViewMode == ViewMode2D {
+		v := e.View2D()
+		sx, sy := e.SnapPosition2D(float64(v.X), float64(v.Y))
+		px, py = float32(sx), float32(sy)
+	}
+	obj := sceneformat.ObjectDoc{X: px, Y: py}
+	switch kind {
+	case "trigger":
+		obj.Name = "Trigger"
+		obj.Components = map[string]any{
+			"trigger": map[string]any{},
+		}
+	case "light":
+		obj.Name = "Light"
+		if e.ViewMode == ViewMode3D {
+			obj.Light = &sceneformat.LightDoc{
+				Kind:  sceneformat.LightPoint,
+				Range: 12,
+			}
+		} else {
+			obj.Components = map[string]any{
+				"light2d": map[string]any{
+					"radius":    float64(96),
+					"intensity": float64(1),
+				},
+			}
+		}
+	default:
+		obj.Name = "Object"
+	}
+	id, err := e.PlaceObject(layerName, obj)
+	if err != nil {
+		return "", err
+	}
+	e.SelectObject(id)
+	e.SetRightRailTab(RightTabInspector)
+	return id, nil
+}
+
+// AddSceneRailLayer creates a uniquely named world-space layer through History and makes it active.
+func (e *Editor) AddSceneRailLayer() (string, error) {
+	if e == nil {
+		return "", fmt.Errorf("editor: nil editor")
+	}
+	if e.playing {
+		return "", ErrPlaying
+	}
+	existing := make(map[string]bool)
+	if doc := e.resolvedDoc(); doc != nil {
+		for i := range doc.Layers {
+			existing[doc.Layers[i].Name] = true
+		}
+	}
+	name := ""
+	for n := 1; ; n++ {
+		cand := fmt.Sprintf("layer_%d", n)
+		if !existing[cand] {
+			name = cand
+			break
+		}
+	}
+	if err := e.AddLayer(name, sceneformat.SpaceWorld); err != nil {
+		return "", err
+	}
+	e.SetActiveLayer(name)
+	return name, nil
+}
+
+func (e *Editor) sceneTreeFilterMatchesObject(o *sceneformat.ObjectDoc, q string) bool {
+	if q == "" || o == nil {
+		return true
+	}
+	if strings.Contains(strings.ToLower(o.ID), q) ||
+		strings.Contains(strings.ToLower(o.Name), q) ||
+		strings.Contains(strings.ToLower(e.SceneRailObjectKind(o.ID)), q) {
+		return true
+	}
+	for i := range o.Children {
+		if e.sceneTreeFilterMatchesObject(&o.Children[i], q) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Editor) sceneTreeFilterMatchesLayer(l *sceneformat.LayerDoc, q string) bool {
+	if q == "" || l == nil {
+		return true
+	}
+	if strings.Contains(strings.ToLower(l.Name), q) ||
+		strings.Contains(strings.ToLower(e.LayerKindLabel(l.Name)), q) {
+		return true
+	}
+	for i := range l.Objects {
+		if e.sceneTreeFilterMatchesObject(&l.Objects[i], q) {
+			return true
+		}
+	}
+	return false
+}
 
 // sceneTreeKey is a row of the scene tree: a layer when id is empty, else the object id
 // (with removed set for objects deleted during a pending agent turn).
@@ -65,6 +224,10 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 	expanded := func(k sceneTreeKey) bool {
 		_ = openRev.Get()
+		_ = rev.Get()
+		if strings.TrimSpace(ed.SceneTreeFilter()) != "" {
+			return true
+		}
 		if v, ok := open[openKey(k)]; ok {
 			return v
 		}
@@ -94,17 +257,25 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		if doc == nil {
 			return nil
 		}
+		q := strings.ToLower(strings.TrimSpace(ed.SceneTreeFilter()))
 		if k.id == "" {
 			for i := range doc.Layers {
 				if doc.Layers[i].Name == k.layer {
 					objs := doc.Layers[i].Objects
+					layerSelfMatches := q == "" ||
+						strings.Contains(strings.ToLower(doc.Layers[i].Name), q) ||
+						strings.Contains(strings.ToLower(ed.LayerKindLabel(doc.Layers[i].Name)), q)
 					rem := ed.AgentRemovedNodes(k.layer, "")
 					out := make([]any, 0, len(objs)+len(rem))
 					for j := range objs {
-						out = append(out, sceneTreeKey{layer: k.layer, id: objs[j].ID})
+						if layerSelfMatches || ed.sceneTreeFilterMatchesObject(&objs[j], q) {
+							out = append(out, sceneTreeKey{layer: k.layer, id: objs[j].ID})
+						}
 					}
 					for _, r := range rem {
-						out = append(out, sceneTreeKey{layer: k.layer, id: r.ObjectID, removed: true})
+						if q == "" || strings.Contains(strings.ToLower(r.ObjectID), q) || strings.Contains(strings.ToLower(r.Name), q) {
+							out = append(out, sceneTreeKey{layer: k.layer, id: r.ObjectID, removed: true})
+						}
 					}
 					return out
 				}
@@ -119,10 +290,14 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		rem := ed.AgentRemovedNodes(layerName, k.id)
 		out := make([]any, 0, len(loc.obj.Children)+len(rem))
 		for i := range loc.obj.Children {
-			out = append(out, sceneTreeKey{layer: layerName, id: loc.obj.Children[i].ID})
+			if ed.sceneTreeFilterMatchesObject(&loc.obj.Children[i], q) {
+				out = append(out, sceneTreeKey{layer: layerName, id: loc.obj.Children[i].ID})
+			}
 		}
 		for _, r := range rem {
-			out = append(out, sceneTreeKey{layer: layerName, id: r.ObjectID, removed: true})
+			if q == "" || strings.Contains(strings.ToLower(r.ObjectID), q) || strings.Contains(strings.ToLower(r.Name), q) {
+				out = append(out, sceneTreeKey{layer: layerName, id: r.ObjectID, removed: true})
+			}
 		}
 		return out
 	}
@@ -132,9 +307,12 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		if doc == nil {
 			return nil
 		}
-		out := make([]any, len(doc.Layers))
+		q := strings.ToLower(strings.TrimSpace(ed.SceneTreeFilter()))
+		out := make([]any, 0, len(doc.Layers))
 		for i := range doc.Layers {
-			out[i] = sceneTreeKey{layer: doc.Layers[i].Name}
+			if ed.sceneTreeFilterMatchesLayer(&doc.Layers[i], q) {
+				out = append(out, sceneTreeKey{layer: doc.Layers[i].Name})
+			}
 		}
 		return out
 	}
@@ -468,6 +646,32 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					return core.View{
 						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0), Gap: 4},
 						Children: []core.Node{
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return strings.TrimSpace(ed.SceneTreeFilter()) != "" && len(roots()) == 0
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return core.View{
+										TestID: "scene-tree-filter-empty",
+										Style: core.Style{
+											Padding:    core.Symmetric(specSpace16, specSpace8),
+											AlignItems: core.AlignCenter,
+										},
+										Children: []core.Node{
+											core.Text{
+												Content: ed.T("sceneTree.noMatches"),
+												StyleFunc: func() core.Style {
+													return core.Style{
+														FontSize: 12,
+														Color:    ed.SpecPalette(cx).TextFaint,
+													}
+												},
+											},
+										},
+									}
+								},
+							},
 							dragdrop.Area{Children: []core.Node{ui.Tree{
 								TestID:   "scene-tree",
 								Label:    ed.T("sceneTree.label"),
@@ -612,7 +816,7 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 							col = cur.TextPrimary
 							weight = core.FontWeightSemibold
 						}
-						return core.Style{FontSize: 12.5, FontWeight: weight, Color: col, FlexGrow: 1, FlexShrink: 1}
+						return core.Style{FontSize: 12.5, FontWeight: weight, Color: col, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)}
 					},
 				},
 				core.Text{
@@ -758,7 +962,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		},
 		Else: func(cx *core.Scope) core.Node {
 			return core.View{
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8, FlexGrow: 1, MinWidth: core.Pt(0)},
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace4, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 				Children: []core.Node{
 					core.View{
 						TestID: "scene-tree-dot-" + id,
@@ -802,7 +1006,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						},
 						MaxLines:      1,
 						EllipsizeMode: core.EllipsizeTail,
-						Style:         core.Style{FontSize: 12.5, FlexGrow: 1, FlexShrink: 1},
+						Style:         core.Style{FontSize: 12.5, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
 							cur := ed.SpecPalette(cx)
@@ -977,8 +1181,8 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 	toggle := func(testID string, on func() bool, set func(bool) error, onIcon, offIcon func() *core.SVG, onLabel, offLabel string) core.Node {
 		return ui.IconButton{
 			TestID:   testID,
-			Size:     20,
-			IconSize: 13,
+			Size:     18,
+			IconSize: 12,
 			Icon: func() *core.SVG {
 				_ = rev.Get()
 				if on() {
@@ -1002,7 +1206,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 
 	content := core.View{
 		TestID: "scene-tree-row-" + id,
-		Style:  core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2, CornerRadius: 6},
+		Style:  core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 2, CornerRadius: 6},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
 			st := dropStyle(cx, hint, k)
@@ -1088,7 +1292,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 
 	return ui.ContextMenu{
 		TestID: "scene-tree-menu-" + id,
-		Style:  core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+		Style:  core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 		Open:   menuOpen.Get,
 		OnOpenChange: func(open bool, _ base.Reason) {
 			if open {
@@ -1102,10 +1306,10 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		Trigger: dragdrop.Target{
 			View: core.View{
 				Ref:   rowRef,
-				Style: core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0)},
+				Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 				Children: []core.Node{dragdrop.Source{
 					View: core.View{
-						Style:    core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0)},
+						Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 						Children: []core.Node{content},
 					},
 					Data: func() any {

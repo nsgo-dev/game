@@ -10,15 +10,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for diff lines and status badges from spec_theme.yaml.
-var (
-	specDiffAddBg  = specAlpha(darkSpecPalette.Added.Fg, 0.08)
-	specDiffDelBg  = specAlpha(darkSpecPalette.Removed.Fg, 0.08)
-	specBadgeAddBg = specAlpha(darkSpecPalette.Added.Fg, 0.14)
-	specBadgeModBg = specAlpha(darkSpecPalette.Changed.Fg, 0.16)
-	specBadgeDelBg = specAlpha(darkSpecPalette.Removed.Fg, 0.14)
-)
-
 // ChangesPanelView renders the full-window Changes & Commit screen matching
 // docs/design/editor/VersionControl.dc.html (screen 1) using only Spec.dc.html tokens.
 func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -38,38 +29,42 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		return ed.changesDraftRev()
 	})
 
-	return core.View{
-		TestID: "changes-panel",
-		Role:   core.RoleRegion,
-		Label:  "Changes and commit",
-		Style: core.Style{
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			changesHeaderView(cx, ed, changesRev),
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					changesSidebarView(cx, ed, changesRev),
-					changesCenterView(cx, ed, rev, changesRev),
-					changesCommitPaneView(cx, ed, changesRev, draftRev),
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "changes-panel",
+			Role:   core.RoleRegion,
+			Label:  "Changes and commit",
+			Style: core.Style{
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				changesHeaderView(cx, ed, changesRev),
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						changesSidebarView(cx, ed, changesRev),
+						changesCenterView(cx, ed, rev, changesRev),
+						changesCommitPaneView(cx, ed, changesRev, draftRev),
+					},
 				},
 			},
-		},
-	}
+		}
+	})
 }
 
 func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
+		p := ed.SpecPalette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -113,7 +108,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 				Style: core.Style{
 					Width:  core.Pt(14),
 					Height: core.Pt(14),
-					Color:  specText,
+					Color:  p.TextSecondary,
 				},
 			},
 			core.Text{
@@ -122,7 +117,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 				Style: core.Style{
 					FontFamily: "monospace",
 					FontSize:   11.5,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 			},
 		}
@@ -133,7 +128,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 				Style: core.Style{
 					FontFamily: "monospace",
 					FontSize:   11,
-					Color:      specTextMuted,
+					Color:      p.TextFaint,
 				},
 			})
 		}
@@ -142,7 +137,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 			Style: core.Style{
 				Width:  core.Pt(12),
 				Height: core.Pt(12),
-				Color:  specTextMuted,
+				Color:  p.TextFaint,
 			},
 		})
 
@@ -154,9 +149,9 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 				Padding:      core.Symmetric(0, 10),
 				Gap:          8,
 				CornerRadius: 8,
-				Background:   specRaised,
+				Background:   p.Raised,
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 			},
 			Children: branchChildren,
 		}
@@ -171,9 +166,9 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 				FlexShrink:     0,
 				Padding:        core.Symmetric(0, 12),
 				Gap:            12,
-				Background:     specBg,
+				Background:     p.Bg,
 				Borders:        core.Edges{Bottom: 1},
-				BorderColor:    specLine,
+				BorderColor:    p.Line,
 			},
 			Children: []core.Node{
 				core.View{
@@ -189,7 +184,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 							Label:   "Back to scene editor",
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Tint:    func() core.Color { return specTextSecondary },
+							Tint:    func() core.Color { return p.TextMuted },
 							Style: core.Style{
 								Height:       core.Pt(28),
 								CornerRadius: 6,
@@ -204,7 +199,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 								Width:        core.Pt(22),
 								Height:       core.Pt(22),
 								CornerRadius: 6,
-								Background:   specAccent,
+								Background:   p.Accent.Fg,
 							},
 						},
 						core.Text{
@@ -212,21 +207,21 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 							Style: core.Style{
 								FontSize:   12.5,
 								FontWeight: 600,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.Text{
 							Content: "/",
 							Style: core.Style{
 								FontSize: 12.5,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 						core.Text{
 							Content: sess.SceneName,
 							Style: core.Style{
 								FontSize: 12.5,
-								Color:    specTextSecondary,
+								Color:    p.TextMuted,
 							},
 						},
 						core.View{Style: core.Style{Width: core.Pt(8)}},
@@ -251,14 +246,14 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 							Label:   "Refresh changes",
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specRaised },
-							Tint:    func() core.Color { return specTextSecondary },
+							Color:   func() core.Color { return p.Raised },
+							Tint:    func() core.Color { return p.TextMuted },
 							Style: core.Style{
 								Height:       core.Pt(30),
 								CornerRadius: 8,
 								Padding:      core.Symmetric(0, 8),
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 							},
 							OnPress: func() {
 								ed.report(ed.RefreshChanges())
@@ -273,12 +268,12 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 							Disabled: func() bool {
 								return ed.ChangesBusy()
 							},
-							Color: func() core.Color { return specLineRaised },
-							Tint:  func() core.Color { return specText },
+							Color: func() core.Color { return p.LineRaised },
+							Tint:  func() core.Color { return p.TextSecondary },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 500,
-								Color:      specText,
+								Color:      p.TextSecondary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(30),
@@ -295,12 +290,12 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 							Icon:    lucide.Play,
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specTextStrong },
-							Tint:    func() core.Color { return specBg },
+							Color:   func() core.Color { return p.TextPrimary },
+							Tint:    func() core.Color { return p.OnTextPrimary },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 600,
-								Color:      specBg,
+								Color:      p.OnTextPrimary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(30),
@@ -322,6 +317,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
+		p := ed.SpecPalette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -357,7 +353,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 							FontSize:      11,
 							FontWeight:    600,
 							LetterSpacing: 0.7,
-							Color:         specTextMuted,
+							Color:         p.TextFaint,
 						},
 					},
 				},
@@ -372,17 +368,17 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 				var rowBg core.Color
 				var leftBorder core.Points
 				if selected {
-					rowBg = specAccentTint
+					rowBg = p.Accent.Fill
 					leftBorder = 2
 				}
 
 				var boxBg core.Color
-				boxBorder := specTextMuted
+				boxBorder := p.TextFaint
 				var boxBorderW core.Points = 1.5
 				var checkChildren []core.Node
 				included := f.Included
 				if included {
-					boxBg = specAccent
+					boxBg = p.Accent.Fg
 					boxBorderW = 0
 					checkChildren = []core.Node{
 						core.Icon{
@@ -390,21 +386,21 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 							Style: core.Style{
 								Width:  core.Pt(10),
 								Height: core.Pt(10),
-								Color:  specTextStrong,
+								Color:  p.Accent.OnFill,
 							},
 						},
 					}
 				}
 
-				badgeBg := specBadgeModBg
-				badgeFg := specChanged
+				badgeBg := specAlpha(p.Changed.Fg, 0.16)
+				badgeFg := p.Changed.Fg
 				switch f.StatusCode {
 				case "A":
-					badgeBg = specBadgeAddBg
-					badgeFg = specAdded
+					badgeBg = specAlpha(p.Added.Fg, 0.14)
+					badgeFg = p.Added.Fg
 				case "D":
-					badgeBg = specBadgeDelBg
-					badgeFg = specProblem
+					badgeBg = specAlpha(p.Removed.Fg, 0.14)
+					badgeFg = p.Removed.Fg
 				}
 
 				listNodes = append(listNodes, core.View{
@@ -417,7 +413,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 						CornerRadius: 6,
 						Background:   rowBg,
 						Borders:      core.Edges{Left: leftBorder},
-						BorderColor:  specAccent,
+						BorderColor:  p.Accent.Fg,
 					},
 					Children: []core.Node{
 						core.View{
@@ -435,7 +431,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 								Background:     boxBg,
 								BorderWidth:    boxBorderW,
 								BorderColor:    boxBorder,
-								FocusVisible:   specFocusRingStyle,
+								FocusVisible:   p.FocusRing(2),
 							},
 							OnPress: func(core.PressEvent) {
 								ed.report(ed.ToggleChangeIncluded(filePath))
@@ -451,7 +447,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 								FlexBasis:    core.Pt(0),
 								Padding:      core.Symmetric(5, 0),
 								Gap:          2,
-								FocusVisible: specRowFocusRingStyle,
+								FocusVisible: p.FocusRing(-2),
 							},
 							OnPress: func(core.PressEvent) {
 								ed.report(ed.SelectChangedFile(filePath))
@@ -471,7 +467,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 												FlexBasis:  core.Pt(0),
 												FontFamily: "monospace",
 												FontSize:   11.5,
-												Color:      specTextStrong,
+												Color:      p.TextPrimary,
 											},
 										},
 										core.View{
@@ -502,7 +498,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 									Content: f.Detail,
 									Style: core.Style{
 										FontSize: 11.5,
-										Color:    specTextMuted,
+										Color:    p.TextFaint,
 									},
 								},
 							},
@@ -521,7 +517,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 						Content: "Working tree clean — no changes since " + sess.HeadSHA,
 						Style: core.Style{
 							FontSize: 12,
-							Color:    specTextMuted,
+							Color:    p.TextFaint,
 						},
 					},
 				},
@@ -534,9 +530,9 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 				Width:       core.Pt(300),
 				FlexShrink:  0,
 				Height:      core.Pct(100),
-				Background:  specBg,
+				Background:  p.Bg,
 				Borders:     core.Edges{Right: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				Padding:     core.All(8),
 				Gap:         2,
 			},
@@ -556,7 +552,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 								FontSize:      11,
 								FontWeight:    600,
 								LetterSpacing: 0.7,
-								Color:         specTextMuted,
+								Color:         p.TextFaint,
 							},
 						},
 						core.Text{
@@ -566,7 +562,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 								FontFamily: "monospace",
 								FontSize:   11,
 								FontWeight: 500,
-								Color:      specTextMuted,
+								Color:      p.TextFaint,
 							},
 						},
 					},
@@ -575,7 +571,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 					TestID:       "changes-file-list",
 					Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
 					ContentStyle: core.Style{Gap: 2},
-					EdgeColor:    func() core.Color { return specBg },
+					EdgeColor:    func() core.Color { return p.Bg },
 					Children:     listNodes,
 				},
 			},
@@ -586,6 +582,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], changesRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
+		p := ed.SpecPalette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -603,14 +600,14 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 					Style: core.Style{
 						FontFamily: "monospace",
 						FontSize:   11.5,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 					},
 				},
 				core.Text{
 					Content: "compared with HEAD",
 					Style: core.Style{
 						FontSize: 12,
-						Color:    specTextMuted,
+						Color:    p.TextFaint,
 					},
 				},
 			)
@@ -618,10 +615,10 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 				segBtn := func(testID, label string, mode ChangesSceneViewMode) core.Node {
 					active := sess.SceneView == mode
 					var bg core.Color
-					fg := specTextMuted
+					fg := p.TextFaint
 					if active {
-						bg = specLineRaised
-						fg = specTextStrong
+						bg = p.LineRaised
+						fg = p.TextPrimary
 					}
 					return ui.Button{
 						TestID:  testID,
@@ -650,9 +647,9 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 						Gap:          2,
 						Padding:      core.All(3),
 						CornerRadius: 9,
-						Background:   specRaised,
+						Background:   p.Raised,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
 						segBtn("changes-scene-mode-side", "Side by side", ChangesSceneViewSideBySide),
@@ -668,11 +665,11 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 					Text:    "Open in editor",
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specLineRaised },
+					Color:   func() core.Color { return p.LineRaised },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
-						Color:      specText,
+						Color:      p.TextSecondary,
 					},
 					Style: core.Style{
 						Height:       core.Pt(30),
@@ -689,7 +686,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 				Content: "No file selected",
 				Style: core.Style{
 					FontSize: 12,
-					Color:    specTextMuted,
+					Color:    p.TextFaint,
 				},
 			})
 		}
@@ -704,23 +701,23 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 					FlexBasis:      core.Pt(0),
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
-					Background:     specPanel,
+					Background:     p.Panel,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "All changes are committed.",
-						Style:   core.Style{FontSize: 13, Color: specTextMuted},
+						Style:   core.Style{FontSize: 13, Color: p.TextFaint},
 					},
 				},
 			}
 		case cur.Category == ChangesCategoryScenes && cur.Scene != nil:
-			body = changesSceneCompareView(sess, cur)
+			body = changesSceneCompareView(p, sess, cur)
 		case cur.Category == ChangesCategoryAssets && cur.Audio != nil:
-			body = changesAudioCompareView(ed, cur)
+			body = changesAudioCompareView(p, ed, cur)
 		case cur.Category == ChangesCategoryAssets:
-			body = changesGenericAssetView(cur)
+			body = changesGenericAssetView(p, cur)
 		default:
-			body = changesTextDiffView(cx, ed, sess, cur)
+			body = changesTextDiffView(cx, p, ed, sess, cur)
 		}
 
 		// Bottom bar inside Changes screen matching VersionControl.dc.html.
@@ -738,9 +735,9 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 				FlexShrink:     0,
 				Padding:        core.Symmetric(0, 14),
 				Gap:            16,
-				Background:     specBg,
+				Background:     p.Bg,
 				Borders:        core.Edges{Top: 1},
-				BorderColor:    specLine,
+				BorderColor:    p.Line,
 			},
 			Children: []core.Node{
 				core.View{
@@ -748,11 +745,11 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 					Children: []core.Node{
 						core.Text{
 							Content: "Layer " + ed.activeLayerReadout(),
-							Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 						core.Text{
 							Content: ed.Tool.String(),
-							Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 					},
 				},
@@ -767,7 +764,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 										Width:        core.Pt(6),
 										Height:       core.Pt(6),
 										CornerRadius: 3,
-										Background:   specAdded,
+										Background:   p.Added.Fg,
 									},
 								},
 								core.Text{
@@ -778,7 +775,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 										}
 										return ed.problemsStatusText()
 									},
-									Style: core.Style{FontSize: 11.5, Color: specTextMuted},
+									Style: core.Style{FontSize: 11.5, Color: p.TextFaint},
 								},
 							},
 						},
@@ -788,19 +785,19 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 							Icon:    lucide.GitBranch,
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specAccentTint },
-							Tint:    func() core.Color { return specTextStrong },
+							Color:   func() core.Color { return p.Accent.Fill },
+							Tint:    func() core.Color { return p.TextPrimary },
 							TextStyle: core.Style{
 								FontSize:   11.5,
 								FontWeight: 500,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(24),
 								CornerRadius: 6,
 								Padding:      core.Symmetric(0, 8),
 								BorderWidth:  1,
-								BorderColor:  specAccentEdge,
+								BorderColor:  p.Accent.Edge,
 							},
 							OnPress: func() {
 								ed.CloseChangesPanel()
@@ -817,7 +814,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 				FlexGrow:   1,
 				FlexBasis:  core.Pt(0),
 				Height:     core.Pct(100),
-				Background: specBg,
+				Background: p.Bg,
 				Overflow:   core.Hidden,
 			},
 			Children: []core.Node{
@@ -832,7 +829,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 						Padding:        core.Symmetric(0, 16),
 						Gap:            12,
 						Borders:        core.Edges{Bottom: 1},
-						BorderColor:    specLine,
+						BorderColor:    p.Line,
 					},
 					Children: []core.Node{
 						core.View{
@@ -852,7 +849,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 	})
 }
 
-func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
+func changesSceneCompareView(p SpecPalette, sess *ChangesSession, f *ChangedFile) core.Node {
 	sc := f.Scene
 
 	sceneCard := func(testID, title, badge string, doc *sceneformat.SceneDoc, built *sceneformat.BuiltScene, isHead bool) core.Node {
@@ -864,9 +861,9 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 				Padding:      core.All(12),
 				Gap:          8,
 				CornerRadius: 12,
-				Background:   specPanel,
+				Background:   p.Panel,
 				BorderWidth:  1,
-				BorderColor:  specLine,
+				BorderColor:  p.Line,
 			},
 			Children: []core.Node{
 				core.View{
@@ -883,7 +880,7 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 								FontSize:      11,
 								FontWeight:    600,
 								LetterSpacing: 0.7,
-								Color:         specTextStrong,
+								Color:         p.TextPrimary,
 							},
 						},
 						core.Text{
@@ -891,7 +888,7 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 							Style: core.Style{
 								FontFamily: "monospace",
 								FontSize:   11,
-								Color:      specTextMuted,
+								Color:      p.TextFaint,
 							},
 						},
 					},
@@ -903,8 +900,8 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 						Width:        core.Pct(100),
 						CornerRadius: 6,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
-						Background:   specBg,
+						BorderColor:  p.LineRaised,
+						Background:   p.Bg,
 						Overflow:     core.Hidden,
 					},
 					Children: []core.Node{
@@ -913,7 +910,7 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 							Label:  title + " scene preview",
 							Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 							Draw: func(d *core.Drawing, size core.Size) {
-								drawChangesScenePreview(d, size, sc, doc, built, isHead)
+								drawChangesScenePreview(d, size, p, sc, doc, built, isHead)
 							},
 						},
 					},
@@ -945,35 +942,35 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 
 	legendItems := make([]core.Node, 0, 3)
 	if len(sc.Added) > 0 {
-		legendItems = append(legendItems, changesLegendChip("changes-legend-added", specAdded, "added · "+joinObjectNames(sc.Added, 5)))
+		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-added", p.Added.Fg, "added · "+joinObjectNames(sc.Added, 5)))
 	}
 	if len(sc.Changed) > 0 {
-		legendItems = append(legendItems, changesLegendChip("changes-legend-changed", specChanged, "changed · "+joinObjectNames(sc.Changed, 5)))
+		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-changed", p.Changed.Fg, "changed · "+joinObjectNames(sc.Changed, 5)))
 	}
 	if len(sc.Removed) > 0 {
-		legendItems = append(legendItems, changesLegendChip("changes-legend-removed", specProblem, "removed · "+joinObjectNames(sc.Removed, 5)))
+		legendItems = append(legendItems, changesLegendChip(p, "changes-legend-removed", p.Removed.Fg, "removed · "+joinObjectNames(sc.Removed, 5)))
 	}
 	if len(legendItems) == 0 {
 		legendItems = append(legendItems, core.Text{
 			Content: "No object-level differences against HEAD",
-			Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 		})
 	}
 
 	// Per-object detail chips for changed/added/removed objects.
 	badgeNodes := make([]core.Node, 0, len(sc.Added)+len(sc.Changed)+len(sc.Removed))
 	for _, o := range sc.Added {
-		badgeNodes = append(badgeNodes, changesObjectBadge("added · "+o.Name, specAddedFill, specAddedEdge, specAdded))
+		badgeNodes = append(badgeNodes, changesObjectBadge("added · "+o.Name, p.Added.Fill, p.Added.Edge, p.Added.Fg))
 	}
 	for _, o := range sc.Changed {
 		label := "changed · " + o.Name
 		if o.Summary != "" && o.Summary != "changed" {
 			label += " (" + o.Summary + ")"
 		}
-		badgeNodes = append(badgeNodes, changesObjectBadge(label, specBadgeModBg, specChanged, specChanged))
+		badgeNodes = append(badgeNodes, changesObjectBadge(label, p.Changed.Fill, p.Changed.Edge, p.Changed.Fg))
 	}
 	for _, o := range sc.Removed {
-		badgeNodes = append(badgeNodes, changesObjectBadge("removed · "+o.Name, specBadgeDelBg, specProblemEdge, specProblem))
+		badgeNodes = append(badgeNodes, changesObjectBadge("removed · "+o.Name, p.Removed.Fill, p.Removed.Edge, p.Removed.Fg))
 	}
 
 	children := []core.Node{
@@ -1010,14 +1007,14 @@ func changesSceneCompareView(sess *ChangesSession, f *ChangedFile) core.Node {
 			FlexBasis:  core.Pt(0),
 			Padding:    core.All(16),
 			Gap:        12,
-			Background: specBg,
+			Background: p.Bg,
 			Overflow:   core.Hidden,
 		},
 		Children: children,
 	}
 }
 
-func changesLegendChip(testID string, color core.Color, text string) core.Node {
+func changesLegendChip(p SpecPalette, testID string, color core.Color, text string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Direction:  core.Row,
@@ -1039,7 +1036,7 @@ func changesLegendChip(testID string, color core.Color, text string) core.Node {
 				Content: text,
 				Style: core.Style{
 					FontSize: 11.5,
-					Color:    specTextSecondary,
+					Color:    p.TextMuted,
 				},
 			},
 		},
@@ -1071,23 +1068,23 @@ func changesObjectBadge(label string, bg, border, fg core.Color) core.Node {
 	}
 }
 
-func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
+func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
 	// Check status bar (nsgo check & nsgo test + timestamp).
-	checkIconColor := specTextMuted
+	checkIconColor := p.TextFaint
 	checkText := "nsgo check · not run"
-	testIconColor := specTextMuted
+	testIconColor := p.TextFaint
 	testText := "nsgo test · not run"
 	timeText := ""
 	if sess.Checks.Ran {
 		if sess.Checks.CheckPassed {
-			checkIconColor = specAdded
+			checkIconColor = p.Added.Fg
 			checkText = nonEmpty(sess.Checks.CheckSummary, "nsgo check")
 		} else {
-			checkIconColor = specProblem
+			checkIconColor = p.Removed.Fg
 			checkText = nonEmpty(sess.Checks.CheckSummary, "nsgo check failed")
 		}
 		if sess.Checks.TestPassed {
-			testIconColor = specAdded
+			testIconColor = p.Added.Fg
 			if sess.Checks.TestSummary != "" {
 				testText = sess.Checks.TestSummary
 			} else if sess.Checks.TestCount > 0 {
@@ -1096,7 +1093,7 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 				testText = "nsgo test · passed"
 			}
 		} else {
-			testIconColor = specProblem
+			testIconColor = p.Removed.Fg
 			testText = nonEmpty(sess.Checks.TestSummary, "nsgo test · failed")
 		}
 		timeText = "ran " + formatCheckRelativeTime(sess.Checks.RanAt, ed.now())
@@ -1112,9 +1109,9 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 			FlexShrink:     0,
 			Padding:        core.Symmetric(0, 16),
 			Gap:            12,
-			Background:     specPanel,
+			Background:     p.Panel,
 			Borders:        core.Edges{Bottom: 1},
-			BorderColor:    specLine,
+			BorderColor:    p.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -1130,7 +1127,7 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 							core.Text{
 								TestID:  "changes-check-status",
 								Content: checkText,
-								Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+								Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 							},
 						},
 					},
@@ -1144,14 +1141,14 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 							core.Text{
 								TestID:  "changes-test-status",
 								Content: testText,
-								Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+								Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 							},
 						},
 					},
 					core.Text{
 						TestID:  "changes-checks-time",
 						Content: timeText,
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
 			},
@@ -1163,17 +1160,17 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 				Disabled: func() bool {
 					return ed.ChangesBusy()
 				},
-				Color: func() core.Color { return specRaised },
+				Color: func() core.Color { return p.Raised },
 				TextStyle: core.Style{
 					FontSize: 11.5,
-					Color:    specText,
+					Color:    p.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(24),
 					CornerRadius: 6,
 					Padding:      core.Symmetric(0, 10),
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				OnPress: func() {
 					ed.report(ed.RunChangesChecksAsync(cx))
@@ -1185,25 +1182,25 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 	diffRows := make([]core.Node, 0, len(f.Diff))
 	for i, l := range f.Diff {
 		var rowBg core.Color
-		fg := specTextSecondary
+		fg := p.TextMuted
 		lineNo := ""
 		switch l.Kind {
 		case DiffLineAdd:
-			rowBg = specDiffAddBg
-			fg = specAdded
+			rowBg = specAlpha(p.Added.Fg, 0.08)
+			fg = p.Added.Fg
 			if l.NewLine > 0 {
 				lineNo = fmt.Sprintf("%d", l.NewLine)
 			}
 		case DiffLineDel:
-			rowBg = specDiffDelBg
-			fg = specProblem
+			rowBg = specAlpha(p.Removed.Fg, 0.08)
+			fg = p.Removed.Fg
 			if l.OldLine > 0 {
 				lineNo = fmt.Sprintf("%d", l.OldLine)
 			}
 		case DiffLineHunk:
-			fg = specAccent
+			fg = p.Accent.Fg
 		case DiffLineMeta:
-			fg = specTextMuted
+			fg = p.TextFaint
 		default:
 			if l.NewLine > 0 {
 				lineNo = fmt.Sprintf("%d", l.NewLine)
@@ -1229,7 +1226,7 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 						FlexShrink: 0,
 						FontFamily: "monospace",
 						FontSize:   11.5,
-						Color:      specTextMuted,
+						Color:      p.TextFaint,
 					},
 				},
 				core.Text{
@@ -1261,7 +1258,7 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 			Children: []core.Node{
 				core.Text{
 					Content: "No line-by-line differences to display.",
-					Style:   core.Style{FontSize: 12, Color: specTextMuted},
+					Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 				},
 			},
 		})
@@ -1272,7 +1269,7 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 		Style: core.Style{
 			FlexGrow:   1,
 			FlexBasis:  core.Pt(0),
-			Background: specPanel,
+			Background: p.Panel,
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
@@ -1281,14 +1278,14 @@ func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *Ch
 				TestID:       "changes-diff-scroll",
 				Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
 				ContentStyle: core.Style{Padding: core.Symmetric(12, 0)},
-				EdgeColor:    func() core.Color { return specPanel },
+				EdgeColor:    func() core.Color { return p.Panel },
 				Children:     diffRows,
 			},
 		},
 	}
 }
 
-func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
+func changesAudioCompareView(p SpecPalette, ed *Editor, f *ChangedFile) core.Node {
 	info := f.Audio
 	playing := ed.ChangesAuditioningPath() == f.Path
 	filePath := f.Path
@@ -1323,7 +1320,7 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 		refNodes = append(refNodes, core.Text{
 			TestID:  "changes-audio-refs",
 			Content: "Not referenced by any scene or asset",
-			Style:   core.Style{FontSize: 12, Color: specTextMuted},
+			Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 		})
 	} else {
 		for i, u := range info.UsedBy {
@@ -1334,7 +1331,7 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 			refNodes = append(refNodes, core.Text{
 				TestID:  tid,
 				Content: u,
-				Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+				Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 			})
 		}
 	}
@@ -1347,7 +1344,7 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 			FlexBasis:      core.Pt(0),
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifyCenter,
-			Background:     specPanel,
+			Background:     p.Panel,
 			Padding:        core.All(24),
 		},
 		Children: []core.Node{
@@ -1358,9 +1355,9 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 					Padding:      core.All(16),
 					Gap:          12,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: append([]core.Node{
 					core.View{
@@ -1372,8 +1369,8 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 								Label:   playLabel,
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specTextStrong },
-								Tint:    func() core.Color { return specBg },
+								Color:   func() core.Color { return p.TextPrimary },
+								Tint:    func() core.Color { return p.OnTextPrimary },
 								Style: core.Style{
 									Width:          core.Pt(32),
 									Height:         core.Pt(32),
@@ -1396,7 +1393,7 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 										Style: core.Style{
 											FontSize:   13,
 											FontWeight: 500,
-											Color:      specTextStrong,
+											Color:      p.TextPrimary,
 										},
 									},
 									core.Text{
@@ -1404,7 +1401,7 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 										Content: strings.Join(metaParts, " · "),
 										Style: core.Style{
 											FontSize: 11.5,
-											Color:    specTextMuted,
+											Color:    p.TextFaint,
 										},
 									},
 								},
@@ -1416,7 +1413,7 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 						Label:  "Audio waveform for " + f.DisplayName,
 						Style:  core.Style{Width: core.Pct(100), Height: core.Pt(56)},
 						Draw: func(d *core.Drawing, size core.Size) {
-							drawAudioWaveform(d, size, bars, playing)
+							drawAudioWaveform(d, size, p, bars, playing)
 						},
 					},
 				}, refNodes...),
@@ -1425,14 +1422,14 @@ func changesAudioCompareView(ed *Editor, f *ChangedFile) core.Node {
 	}
 }
 
-func changesGenericAssetView(f *ChangedFile) core.Node {
+func changesGenericAssetView(p SpecPalette, f *ChangedFile) core.Node {
 	return core.View{
 		Style: core.Style{
 			FlexGrow:       1,
 			FlexBasis:      core.Pt(0),
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifyCenter,
-			Background:     specPanel,
+			Background:     p.Panel,
 			Padding:        core.All(24),
 		},
 		Children: []core.Node{
@@ -1442,18 +1439,18 @@ func changesGenericAssetView(f *ChangedFile) core.Node {
 					Padding:      core.All(16),
 					Gap:          6,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: f.DisplayName,
-						Style:   core.Style{FontFamily: "monospace", FontSize: 12.5, FontWeight: 500, Color: specTextStrong},
+						Style:   core.Style{FontFamily: "monospace", FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: f.Detail,
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
 			},
@@ -1464,6 +1461,7 @@ func changesGenericAssetView(f *ChangedFile) core.Node {
 func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64], draftRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
+		p := ed.SpecPalette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -1501,19 +1499,19 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 								Padding:      core.Symmetric(0, 10),
 								Gap:          6,
 								CornerRadius: 12,
-								Background:   specAgentTint,
+								Background:   p.Agent.Fill,
 								BorderWidth:  1,
-								BorderColor:  specAgentEdge,
+								BorderColor:  p.Agent.Edge,
 							},
 							Children: []core.Node{
 								core.Icon{
 									SVG:   lucide.Sparkles(),
-									Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: specAgent},
+									Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.Agent.Fg},
 								},
 								core.Text{
 									TestID:  "changes-draft-provenance",
 									Content: provenance,
-									Style:   core.Style{FontSize: 11.5, Color: specText},
+									Style:   core.Style{FontSize: 11.5, Color: p.TextSecondary},
 								},
 							},
 						},
@@ -1524,7 +1522,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 							Size:    ui.SizeSmall,
 							TextStyle: core.Style{
 								FontSize: 12,
-								Color:    specTextSecondary,
+								Color:    p.TextMuted,
 							},
 							Style: core.Style{
 								Height:       core.Pt(28),
@@ -1542,7 +1540,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Children: []core.Node{
 						core.Text{
 							Content: "Summary",
-							Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+							Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 						},
 						ui.Input{
 							TestID:      "changes-commit-summary",
@@ -1561,11 +1559,11 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 							Style: core.Style{
 								Width:        core.Pct(100),
 								Height:       core.Pt(32),
-								Background:   specRaised,
+								Background:   p.Raised,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 								CornerRadius: 8,
-								Color:        specTextStrong,
+								Color:        p.TextPrimary,
 								FontSize:     12,
 							},
 						},
@@ -1576,7 +1574,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Children: []core.Node{
 						core.Text{
 							Content: "Description",
-							Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+							Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 						},
 						ui.Input{
 							TestID:      "changes-commit-description",
@@ -1596,11 +1594,11 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 							Style: core.Style{
 								Width:        core.Pct(100),
 								Height:       core.Pt(164),
-								Background:   specRaised,
+								Background:   p.Raised,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 								CornerRadius: 8,
-								Color:        specText,
+								Color:        p.TextSecondary,
 								FontFamily:   "monospace",
 								FontSize:     11.5,
 							},
@@ -1613,7 +1611,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				bodyChildren = append(bodyChildren, core.Text{
 					TestID:  "changes-draft-attribution",
 					Content: sess.DraftAttribution,
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				})
 			}
 
@@ -1631,18 +1629,18 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				Children: []core.Node{
 					core.Text{
 						Content: includedLabel,
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 					core.View{
 						Style: core.Style{Direction: core.Row, Gap: 6},
 						Children: []core.Node{
 							core.Text{
 								Content: fmt.Sprintf("+%d", plus),
-								Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: specAdded},
+								Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: p.Added.Fg},
 							},
 							core.Text{
 								Content: fmt.Sprintf("-%d", minus),
-								Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: specProblem},
+								Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: p.Removed.Fg},
 							},
 						},
 					},
@@ -1666,14 +1664,14 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						},
 						Color: func() core.Color {
 							if canCommitNow() {
-								return specAccent
+								return p.Accent.Fg
 							}
-							return specLine
+							return p.Line
 						},
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 600,
-							Color:      specBg, // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
+							Color:      p.Accent.OnFill,
 						},
 						Style: core.Style{
 							FlexGrow:       1,
@@ -1695,11 +1693,11 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						Disabled: func() bool {
 							return !canCommitNow()
 						},
-						Color: func() core.Color { return specLineRaised },
+						Color: func() core.Color { return p.LineRaised },
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 500,
-							Color:      specText,
+							Color:      p.TextSecondary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(32),
@@ -1727,12 +1725,12 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Disabled: func() bool {
 						return busy
 					},
-					Color: func() core.Color { return specRaised },
-					Tint:  func() core.Color { return specAccent },
+					Color: func() core.Color { return p.Raised },
+					Tint:  func() core.Color { return p.Accent.Fg },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 					},
 					Style: core.Style{
 						AlignSelf:    core.AlignStart,
@@ -1740,7 +1738,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						CornerRadius: 8,
 						Padding:      core.Symmetric(0, 12),
 						BorderWidth:  1,
-						BorderColor:  specAccentEdge,
+						BorderColor:  p.Accent.Edge,
 					},
 					OnPress: func() {
 						ed.report(ed.PushCommitsAsync(cx))
@@ -1748,7 +1746,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				})
 			}
 
-			bodyChildren = append(bodyChildren, changesShareSection(cx, ed, sess))
+			bodyChildren = append(bodyChildren, changesShareSection(cx, p, ed, sess))
 		} else {
 			// Post-commit confirmation card, SHARE, and HISTORY matching VersionControl.dc.html.
 			sha := sess.HeadSHA
@@ -1770,29 +1768,29 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 								CornerRadius:   9,
 								AlignItems:     core.AlignCenter,
 								JustifyContent: core.JustifyCenter,
-								Background:     specAddedFill,
+								Background:     p.Added.Fill,
 							},
 							Children: []core.Node{
 								core.Icon{
 									SVG:   lucide.Check(),
-									Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specAdded},
+									Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: p.Added.Fg},
 								},
 							},
 						},
 						core.Text{
 							TestID:  "changes-committed-title",
 							Content: "Committed as " + sha,
-							Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: specTextStrong},
+							Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 						},
 					},
 				},
 				core.Text{
 					Content: summary,
-					Style:   core.Style{FontSize: 12.5, Color: specText},
+					Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 				},
 				core.Text{
 					Content: "A milestone in History. Restore to it any time, or compare any later step with it.",
-					Style:   core.Style{FontSize: 12, Color: specTextMuted},
+					Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 				},
 			}
 			if !pushed {
@@ -1810,12 +1808,12 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Disabled: func() bool {
 						return busy
 					},
-					Color: func() core.Color { return specAccent },
-					Tint:  func() core.Color { return specBg },
+					Color: func() core.Color { return p.Accent.Fg },
+					Tint:  func() core.Color { return p.Accent.OnFill },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 600,
-						Color:      specBg,
+						Color:      p.Accent.OnFill,
 					},
 					Style: core.Style{
 						AlignSelf:    core.AlignStart,
@@ -1836,14 +1834,14 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						Padding:      core.All(14),
 						Gap:          8,
 						CornerRadius: 12,
-						Background:   specRaised,
+						Background:   p.Raised,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					Children: cardChildren,
 				},
-				changesShareSection(cx, ed, sess),
-				changesHistorySection(ed, sess),
+				changesShareSection(cx, p, ed, sess),
+				changesHistorySection(p, ed, sess),
 				ui.Button{
 					TestID:  "changes-back-to-draft",
 					Text:    "Back to the draft",
@@ -1851,7 +1849,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Size:    ui.SizeSmall,
 					TextStyle: core.Style{
 						FontSize: 12,
-						Color:    specTextSecondary,
+						Color:    p.TextMuted,
 					},
 					Style: core.Style{
 						AlignSelf:    core.AlignStart,
@@ -1872,14 +1870,14 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				Style: core.Style{
 					Padding:      core.All(10),
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specAccentEdge,
+					BorderColor:  p.Accent.Edge,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: busyLabel,
-						Style:   core.Style{FontSize: 11.5, Color: specText},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextSecondary},
 					},
 				},
 			})
@@ -1889,14 +1887,14 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				Style: core.Style{
 					Padding:      core.All(10),
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specProblemEdge,
+					BorderColor:  p.Removed.Edge,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: sess.LastErr,
-						Style:   core.Style{FontSize: 11.5, Color: specProblem},
+						Style:   core.Style{FontSize: 11.5, Color: p.Removed.Fg},
 					},
 				},
 			})
@@ -1906,14 +1904,14 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				Style: core.Style{
 					Padding:      core.All(10),
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specAddedEdge,
+					BorderColor:  p.Added.Edge,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: sess.LastNotice,
-						Style:   core.Style{FontSize: 11.5, Color: specAdded},
+						Style:   core.Style{FontSize: 11.5, Color: p.Added.Fg},
 					},
 				},
 			})
@@ -1925,9 +1923,9 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				Width:       core.Pt(400),
 				FlexShrink:  0,
 				Height:      core.Pct(100),
-				Background:  specPanel,
+				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				Overflow:    core.Hidden,
 			},
 			Children: []core.Node{
@@ -1940,16 +1938,16 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						FlexShrink:     0,
 						Padding:        core.Symmetric(0, 16),
 						Borders:        core.Edges{Bottom: 1},
-						BorderColor:    specLine,
+						BorderColor:    p.Line,
 					},
 					Children: []core.Node{
 						core.Text{
 							Content: "Commit",
-							Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+							Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 						},
 						core.Text{
 							Content: sess.Branch,
-							Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: specTextMuted},
+							Style:   core.Style{FontFamily: "monospace", FontSize: 11, Color: p.TextFaint},
 						},
 					},
 				},
@@ -1957,7 +1955,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					TestID:       "changes-commit-scroll",
 					Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
 					ContentStyle: core.Style{Padding: core.All(16), Gap: 12},
-					EdgeColor:    func() core.Color { return specPanel },
+					EdgeColor:    func() core.Color { return p.Panel },
 					Children:     bodyChildren,
 				},
 			},
@@ -1965,7 +1963,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 	})
 }
 
-func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.Node {
+func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *ChangesSession) core.Node {
 	ghAvailable := ed.ChangesGHAvailable()
 	busy := ed.ChangesBusy()
 	base := nonEmpty(sess.BaseBranch, "main")
@@ -1975,10 +1973,10 @@ func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.
 	}
 
 	shareCard := func(testID, title, subtitle string, icon func() *core.SVG, disabled bool, onPress func()) core.Node {
-		fg := specTextStrong
-		subFg := specTextMuted
+		fg := p.TextPrimary
+		subFg := p.TextFaint
 		if disabled {
-			fg = specTextMuted
+			fg = p.TextFaint
 		}
 		return core.View{
 			TestID:   testID,
@@ -1991,10 +1989,10 @@ func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.
 				Padding:      core.Symmetric(10, 12),
 				Gap:          10,
 				CornerRadius: 8,
-				Background:   specRaised,
+				Background:   p.Raised,
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
-				FocusVisible: specFocusRingStyle,
+				BorderColor:  p.LineRaised,
+				FocusVisible: p.FocusRing(2),
 			},
 			OnPress: func(core.PressEvent) {
 				if !disabled {
@@ -2004,7 +2002,7 @@ func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.
 			Children: []core.Node{
 				core.Icon{
 					SVG:   icon(),
-					Style: core.Style{Width: core.Pt(15), Height: core.Pt(15), Color: specTextSecondary},
+					Style: core.Style{Width: core.Pt(15), Height: core.Pt(15), Color: p.TextMuted},
 				},
 				core.View{
 					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
@@ -2033,7 +2031,7 @@ func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.
 					FontSize:      11,
 					FontWeight:    600,
 					LetterSpacing: 0.7,
-					Color:         specTextMuted,
+					Color:         p.TextFaint,
 					Padding:       core.Edges{Left: 4, Bottom: 2},
 				},
 			},
@@ -2062,7 +2060,7 @@ func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.
 	}
 }
 
-func changesHistorySection(ed *Editor, sess *ChangesSession) core.Node {
+func changesHistorySection(p SpecPalette, ed *Editor, sess *ChangesSession) core.Node {
 	now := ed.now()
 	rows := []core.Node{
 		core.Text{
@@ -2071,7 +2069,7 @@ func changesHistorySection(ed *Editor, sess *ChangesSession) core.Node {
 				FontSize:      11,
 				FontWeight:    600,
 				LetterSpacing: 0.7,
-				Color:         specTextMuted,
+				Color:         p.TextFaint,
 				Padding:       core.Edges{Left: 4, Bottom: 2},
 			},
 		},
@@ -2082,10 +2080,10 @@ func changesHistorySection(ed *Editor, sess *ChangesSession) core.Node {
 			break
 		}
 		var bg core.Color
-		fg := specTextSecondary
+		fg := p.TextMuted
 		if i == 0 {
-			bg = specAccentTint
-			fg = specTextStrong
+			bg = p.Accent.Fill
+			fg = p.TextPrimary
 		}
 		rows = append(rows, core.View{
 			TestID: fmt.Sprintf("changes-milestone-%d", i),
@@ -2105,7 +2103,7 @@ func changesHistorySection(ed *Editor, sess *ChangesSession) core.Node {
 						Height:       core.Pt(8),
 						FlexShrink:   0,
 						CornerRadius: 2,
-						Background:   specAccent,
+						Background:   p.Accent.Fg,
 					},
 				},
 				core.Text{
@@ -2114,7 +2112,7 @@ func changesHistorySection(ed *Editor, sess *ChangesSession) core.Node {
 				},
 				core.Text{
 					Content: formatCheckRelativeTime(m.Timestamp, now),
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 			},
 		})
@@ -2132,6 +2130,7 @@ func changesHistorySection(ed *Editor, sess *ChangesSession) core.Node {
 func drawChangesScenePreview(
 	d *core.Drawing,
 	size core.Size,
+	p SpecPalette,
 	sc *SceneComparison,
 	doc *sceneformat.SceneDoc,
 	built *sceneformat.BuiltScene,
@@ -2143,9 +2142,9 @@ func drawChangesScenePreview(
 	}
 
 	// Dot-grid viewport surround using only Spec tokens.
-	d.SetFillColor(specBg)
+	d.SetFillColor(p.Bg)
 	d.BeginPath().Rect(0, 0, w, h).Fill()
-	d.SetFillColor(specLineRaised)
+	d.SetFillColor(p.LineRaised)
 	const gridStep float32 = 16
 	for gx := gridStep; gx < w; gx += gridStep {
 		for gy := gridStep; gy < h; gy += gridStep {
@@ -2172,7 +2171,7 @@ func drawChangesScenePreview(
 	oy := (h - frameH) / 2
 
 	d.Save()
-	d.SetFillColor(specPanel)
+	d.SetFillColor(p.Panel)
 	d.BeginPath().RoundRect(ox, oy, frameW, frameH, 4).Fill()
 
 	d.Save()
@@ -2215,18 +2214,18 @@ func drawChangesScenePreview(
 					wx, wy := px+o.X, py+o.Y
 					hasSprite := built != nil && built.Objects[o.ID] != nil && built.Objects[o.ID].Sprite != nil
 					if !hasSprite {
-						drawMergeObjectBlock(d, o, wx, wy, false)
+						drawMergeObjectBlock(d, p, o, wx, wy, false)
 					}
 					rx, ry, rw, rh := mergeObjectRect(o, wx, wy)
 					if isHead {
 						if removedIDs[o.ID] {
-							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, specProblem, 1.5/scale)
+							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, p.Removed.Fg, 1.5/scale)
 						}
 					} else {
 						if addedIDs[o.ID] {
-							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, specAdded, 1.5/scale)
+							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, p.Added.Fg, 1.5/scale)
 						} else if changedIDs[o.ID] {
-							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, specChanged, 1.5/scale)
+							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, p.Changed.Fg, 1.5/scale)
 						}
 					}
 					walk(o.Children, wx, wy)
@@ -2238,12 +2237,12 @@ func drawChangesScenePreview(
 
 	d.Restore()
 
-	d.SetStrokeColor(specLineRaised).SetLineWidth(1)
+	d.SetStrokeColor(p.LineRaised).SetLineWidth(1)
 	d.BeginPath().RoundRect(ox, oy, frameW, frameH, 4).Stroke()
 	d.Restore()
 }
 
-func drawAudioWaveform(d *core.Drawing, size core.Size, bars []float32, playing bool) {
+func drawAudioWaveform(d *core.Drawing, size core.Size, p SpecPalette, bars []float32, playing bool) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 || len(bars) == 0 {
 		return
@@ -2263,9 +2262,9 @@ func drawAudioWaveform(d *core.Drawing, size core.Size, bars []float32, playing 
 		bx := float32(i) * (barW + gap)
 		by := (h - bh) / 2
 		if i < activeCount {
-			d.SetFillColor(specTextSecondary)
+			d.SetFillColor(p.TextMuted)
 		} else {
-			d.SetFillColor(specLineRaised)
+			d.SetFillColor(p.LineRaised)
 		}
 		d.BeginPath().RoundRect(bx, by, barW, bh, 2).Fill()
 	}

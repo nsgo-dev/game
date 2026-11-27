@@ -11,33 +11,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec color tokens from docs/design/editor/Spec.dc.html and docs/design/editor/PlayMode.dc.html.
-// Every color used by the Play-mode frame time strip and the full Profiler panel comes exclusively from spec_theme.yaml.
-var (
-	specBg            = darkSpecPalette.Bg
-	specBgOverlay     = specAlpha(darkSpecPalette.Bg, 0.92)
-	specPanel         = darkSpecPalette.Panel
-	specRaised        = darkSpecPalette.Raised
-	specLine          = darkSpecPalette.Line
-	specLineRaised    = darkSpecPalette.LineRaised
-	specTextStrong    = darkSpecPalette.TextPrimary
-	specText          = darkSpecPalette.TextSecondary
-	specTextSecondary = darkSpecPalette.TextMuted
-	specTextMuted     = darkSpecPalette.TextFaint
-	specBarNormal     = specAlpha(darkSpecPalette.TextFaint, 0.45)
-	specAccent        = darkSpecPalette.Accent.Fg
-	specAgent         = darkSpecPalette.Agent.Fg
-	specAdded         = darkSpecPalette.Added.Fg
-	specAddedFill     = specAlpha(darkSpecPalette.Added.Fg, 0.12)
-	specAddedEdge     = specAlpha(darkSpecPalette.Added.Fg, 0.45)
-	specChanged       = darkSpecPalette.Changed.Fg
-	specProblem       = darkSpecPalette.Removed.Fg
-	specProblemEdge   = specAlpha(darkSpecPalette.Removed.Fg, 0.50)
-	specWarning       = darkSpecPalette.Warning.Fg
-	specWarningFill   = darkSpecPalette.Warning.Fill
-	specWarningEdge   = darkSpecPalette.Warning.Edge
-)
-
 // ProfilerStripView renders the Play-mode "FRAME TIME · LAST 60 S" strip directly below the game view while Play mode is active or a running game is connected to the profiler, matching docs/design/editor/PlayMode.dc.html. Pressing the strip's Profiler button opens the full Profiler panel.
 func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	visible := core.NewMemo(cx, func() bool {
@@ -57,216 +30,219 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	return core.Show{
 		When: visible.Get,
 		Then: func(cx *core.Scope) core.Node {
-			return core.View{
-				TestID: "profiler-strip",
-				Role:   core.RoleRegion,
-				Label:  "Frame time last 60 seconds",
-				Style: core.Style{
-					Height:      core.Pt(176),
-					FlexShrink:  0,
-					Background:  specPanel,
-					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
-					Padding:     core.Symmetric(12, 16),
-					Gap:         8,
-				},
-				Children: []core.Node{
-					// Header row: title, avg, p99, allocs/frame, legend, and button to open the full Profiler panel.
-					core.View{
-						Style: core.Style{
-							Direction:  core.Row,
-							AlignItems: core.AlignCenter,
-							Height:     core.Pt(28),
-							Gap:        12,
-						},
-						Children: []core.Node{
-							core.Text{
-								TestID:  "profiler-strip-title",
-								Content: "FRAME TIME · LAST 60 S",
-								Style: core.Style{
-									FontSize:   11,
-									FontWeight: core.FontWeightSemibold,
-									Color:      specTextMuted,
-								},
-							},
-							core.Text{
-								TestID: "profiler-strip-avg",
-								ContentFunc: func() string {
-									s := snap.Get()
-									avg := profilerAvgMs(s)
-									if !s.HasReadout && len(s.Frames) == 0 {
-										return "avg — ms"
-									}
-									return fmt.Sprintf("avg %.1f ms", avg)
-								},
-								Style: core.Style{
-									FontSize:    12.5,
-									FontVariant: core.FontTabularNums,
-									Color:       specText,
-								},
-							},
-							core.Text{
-								TestID: "profiler-strip-p99",
-								ContentFunc: func() string {
-									s := snap.Get()
-									if !s.HasReadout && len(s.Frames) == 0 {
-										return "p99 — ms"
-									}
-									return fmt.Sprintf("p99 %.1f ms", profilerP99Ms(s))
-								},
-								Style: core.Style{
-									FontSize:    12.5,
-									FontVariant: core.FontTabularNums,
-									Color:       specTextSecondary,
-								},
-							},
-							core.Text{
-								TestID: "profiler-strip-allocs",
-								ContentFunc: func() string {
-									s := snap.Get()
-									if !s.HasReadout && len(s.Frames) == 0 {
-										return "0 allocs/frame"
-									}
-									return fmt.Sprintf("%.0f allocs/frame", s.Readout.AllocsPerFrame)
-								},
-								Style: core.Style{
-									FontSize:    12.5,
-									FontVariant: core.FontTabularNums,
-									Color:       specTextSecondary,
-								},
-							},
-							core.View{Style: core.Style{FlexGrow: 1}},
-							profilerLegendItem(specWarning, "over 8.3 ms"),
-							profilerLegendItem(specProblem, "missed 16.7 ms"),
-							specActionButton(
-								"profiler-strip-open",
-								func() string {
-									if snap.Get().Open {
-										return "Hide Profiler"
-									}
-									return "Profiler"
-								},
-								"Open full Profiler panel",
-								false,
-								func() {
-									ed.SetProfilerOpen(!ed.ProfilerOpen())
-								},
-							),
-						},
+			type markPin struct {
+				idx int
+				pct int
+			}
+			pinsMemo := core.NewMemoFunc(cx, func() []markPin {
+				_ = rev.Get()
+				marks := ed.PlayMarks()
+				if len(marks) == 0 {
+					return nil
+				}
+				curFrame, rate := ed.currentPlayFrameAndRate()
+				window := float64(rollingReplayWindowSeconds * max(1, rate))
+				var out []markPin
+				for i, m := range marks {
+					age := float64(curFrame - m.Frame)
+					if age < 0 || age >= window {
+						continue
+					}
+					pct := int(math.Round(math.Max(1, math.Min(98, 100-(age/window)*100))))
+					out = append(out, markPin{idx: i, pct: pct})
+				}
+				return out
+			}, func(a, b []markPin) bool {
+				if len(a) != len(b) {
+					return false
+				}
+				for i := range a {
+					if a[i] != b[i] {
+						return false
+					}
+				}
+				return true
+			})
+
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				p := ed.SpecPalette(cx)
+				return core.View{
+					TestID: "profiler-strip",
+					Role:   core.RoleRegion,
+					Label:  "Frame time last 60 seconds",
+					Style: core.Style{
+						Height:      core.Pt(176),
+						FlexShrink:  0,
+						Background:  p.Panel,
+						Borders:     core.Edges{Top: 1},
+						BorderColor: p.Line,
+						Padding:     core.Symmetric(12, 16),
+						Gap:         8,
 					},
-					// Bar chart with 8.3 ms / 16.7 ms lines, playhead bar, and spike callout pill.
-					core.View{
-						Style: core.Style{
-							Height:   core.Pt(96),
-							Position: core.Relative,
-							Overflow: core.Hidden,
-						},
-						Children: []core.Node{
-							core.Canvas{
-								TestID: "profiler-strip-chart",
-								Label:  "Frame time chart over the last 60 seconds",
-								Style: core.Style{
-									Width:  core.Pct(100),
-									Height: core.Pct(100),
-								},
-								Draw: func(d *core.Drawing, size core.Size) {
-									drawProfilerStripChart(d, size, snap.Get())
-								},
+					Children: []core.Node{
+						// Header row: title, avg, p99, allocs/frame, legend, and button to open the full Profiler panel.
+						core.View{
+							Style: core.Style{
+								Direction:  core.Row,
+								AlignItems: core.AlignCenter,
+								Height:     core.Pt(28),
+								Gap:        12,
 							},
-							core.Dynamic(func(cx *core.Scope) core.Node {
-								s := snap.Get()
-								if s.Spike == nil {
-									return nil
-								}
-								// Anchor the pill near the spike's horizontal slot, clamped inside the strip width so it never clips.
-								leftPct := float32(math.Max(12, math.Min(54, s.Spike.PositionFrac*100-6)))
-								return core.View{
-									TestID:        "profiler-strip-spike",
-									PointerEvents: core.PointerEventsNone,
+							Children: []core.Node{
+								core.Text{
+									TestID:  "profiler-strip-title",
+									Content: "FRAME TIME · LAST 60 S",
 									Style: core.Style{
-										Position:     core.Absolute,
-										Left:         core.Pct(leftPct),
-										Top:          core.Pt(2),
-										Height:       core.Pt(20),
-										Direction:    core.Row,
-										AlignItems:   core.AlignCenter,
-										Padding:      core.Symmetric(0, 8),
-										CornerRadius: 10,
-										Background:   specBgOverlay,
-										BorderWidth:  1,
-										BorderColor:  specProblemEdge,
+										FontSize:   11,
+										FontWeight: core.FontWeightSemibold,
+										Color:      p.TextFaint,
 									},
-									Children: []core.Node{
-										core.Text{
-											Content: s.Spike.Label,
-											Style: core.Style{
-												FontSize:    11,
-												FontVariant: core.FontTabularNums,
-												Color:       specProblem,
-											},
-										},
+								},
+								core.Text{
+									TestID: "profiler-strip-avg",
+									ContentFunc: func() string {
+										s := snap.Get()
+										avg := profilerAvgMs(s)
+										if !s.HasReadout && len(s.Frames) == 0 {
+											return "avg — ms"
+										}
+										return fmt.Sprintf("avg %.1f ms", avg)
 									},
-								}
-							}),
-							func() core.Node {
-								type markPin struct {
-									idx int
-									pct int
-								}
-								pinsMemo := core.NewMemoFunc(cx, func() []markPin {
-									_ = rev.Get()
-									marks := ed.PlayMarks()
-									if len(marks) == 0 {
+									Style: core.Style{
+										FontSize:    12.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextSecondary,
+									},
+								},
+								core.Text{
+									TestID: "profiler-strip-p99",
+									ContentFunc: func() string {
+										s := snap.Get()
+										if !s.HasReadout && len(s.Frames) == 0 {
+											return "p99 — ms"
+										}
+										return fmt.Sprintf("p99 %.1f ms", profilerP99Ms(s))
+									},
+									Style: core.Style{
+										FontSize:    12.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextMuted,
+									},
+								},
+								core.Text{
+									TestID: "profiler-strip-allocs",
+									ContentFunc: func() string {
+										s := snap.Get()
+										if !s.HasReadout && len(s.Frames) == 0 {
+											return "0 allocs/frame"
+										}
+										return fmt.Sprintf("%.0f allocs/frame", s.Readout.AllocsPerFrame)
+									},
+									Style: core.Style{
+										FontSize:    12.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextMuted,
+									},
+								},
+								core.View{Style: core.Style{FlexGrow: 1}},
+								profilerLegendItem(p, p.Warning.Fg, "over 8.3 ms"),
+								profilerLegendItem(p, p.Removed.Fg, "missed 16.7 ms"),
+								specActionButton(
+									p,
+									"profiler-strip-open",
+									func() string {
+										if snap.Get().Open {
+											return "Hide Profiler"
+										}
+										return "Profiler"
+									},
+									"Open full Profiler panel",
+									false,
+									func() {
+										ed.SetProfilerOpen(!ed.ProfilerOpen())
+									},
+								),
+							},
+						},
+						// Bar chart with 8.3 ms / 16.7 ms lines, playhead bar, and spike callout pill.
+						core.View{
+							Style: core.Style{
+								Height:   core.Pt(96),
+								Position: core.Relative,
+								Overflow: core.Hidden,
+							},
+							Children: []core.Node{
+								core.Canvas{
+									TestID: "profiler-strip-chart",
+									Label:  "Frame time chart over the last 60 seconds",
+									Style: core.Style{
+										Width:  core.Pct(100),
+										Height: core.Pct(100),
+									},
+									Draw: func(d *core.Drawing, size core.Size) {
+										drawProfilerStripChart(d, size, p, snap.Get())
+									},
+								},
+								core.Dynamic(func(cx *core.Scope) core.Node {
+									s := snap.Get()
+									if s.Spike == nil {
 										return nil
 									}
-									curFrame, rate := ed.currentPlayFrameAndRate()
-									window := float64(rollingReplayWindowSeconds * max(1, rate))
-									var out []markPin
-									for i, m := range marks {
-										age := float64(curFrame - m.Frame)
-										if age < 0 || age >= window {
-											continue
-										}
-										pct := int(math.Round(math.Max(1, math.Min(98, 100-(age/window)*100))))
-										out = append(out, markPin{idx: i, pct: pct})
+									// Anchor the pill near the spike's horizontal slot, clamped inside the strip width so it never clips.
+									leftPct := float32(math.Max(12, math.Min(54, s.Spike.PositionFrac*100-6)))
+									return core.View{
+										TestID:        "profiler-strip-spike",
+										PointerEvents: core.PointerEventsNone,
+										Style: core.Style{
+											Position:     core.Absolute,
+											Left:         core.Pct(leftPct),
+											Top:          core.Pt(2),
+											Height:       core.Pt(20),
+											Direction:    core.Row,
+											AlignItems:   core.AlignCenter,
+											Padding:      core.Symmetric(0, 8),
+											CornerRadius: 10,
+											Background:   specAlpha(p.Bg, 0.92),
+											BorderWidth:  1,
+											BorderColor:  specAlpha(p.Removed.Fg, 0.50),
+										},
+										Children: []core.Node{
+											core.Text{
+												Content: s.Spike.Label,
+												Style: core.Style{
+													FontSize:    11,
+													FontVariant: core.FontTabularNums,
+													Color:       p.Removed.Fg,
+												},
+											},
+										},
 									}
-									return out
-								}, func(a, b []markPin) bool {
-									if len(a) != len(b) {
-										return false
-									}
-									for i := range a {
-										if a[i] != b[i] {
-											return false
-										}
-									}
-									return true
-								})
-								return core.Dynamic(func(cx *core.Scope) core.Node {
+								}),
+								core.Dynamic(func(cx *core.Scope) core.Node {
 									pinData := pinsMemo.Get()
 									if len(pinData) == 0 {
 										return nil
 									}
 									pins := make([]core.Node, 0, len(pinData))
-									for _, p := range pinData {
+									for _, pin := range pinData {
 										pins = append(pins, core.View{
-											TestID:        fmt.Sprintf("profiler-strip-mark-pin-%d", p.idx),
+											TestID:        fmt.Sprintf("profiler-strip-mark-pin-%d", pin.idx),
 											PointerEvents: core.PointerEventsNone,
 											Style: core.Style{
 												Position:       core.Absolute,
-												Left:           core.Pct(float32(p.pct)),
+												Left:           core.Pct(float32(pin.pct)),
 												Top:            core.Pt(0),
 												Width:          core.Pt(16),
 												Height:         core.Pt(16),
 												AlignItems:     core.AlignCenter,
 												JustifyContent: core.JustifyCenter,
 												CornerRadius:   4,
-												Background:     specLineRaised,
+												Background:     p.LineRaised,
 											},
 											Children: []core.Node{
 												core.Icon{
 													SVG:   lucide.Flag(),
-													Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specTextStrong},
+													Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: p.TextPrimary},
 												},
 											},
 										})
@@ -282,41 +258,41 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 										},
 										Children: pins,
 									}
-								})
-							}(),
-						},
-					},
-					// Axis row: −60 s, −30 s, now (or paused).
-					core.View{
-						TestID: "profiler-strip-axis",
-						Style: core.Style{
-							Direction:      core.Row,
-							JustifyContent: core.JustifySpaceBetween,
-							AlignItems:     core.AlignCenter,
-						},
-						Children: []core.Node{
-							core.Text{
-								Content: "−60 s",
-								Style:   core.Style{FontSize: 11, Color: specTextMuted},
+								}),
 							},
-							core.Text{
-								Content: "−30 s",
-								Style:   core.Style{FontSize: 11, Color: specTextMuted},
+						},
+						// Axis row: −60 s, −30 s, now (or paused).
+						core.View{
+							TestID: "profiler-strip-axis",
+							Style: core.Style{
+								Direction:      core.Row,
+								JustifyContent: core.JustifySpaceBetween,
+								AlignItems:     core.AlignCenter,
 							},
-							core.Text{
-								TestID: "profiler-strip-now",
-								ContentFunc: func() string {
-									if snap.Get().Connected {
-										return "now"
-									}
-									return "paused"
+							Children: []core.Node{
+								core.Text{
+									Content: "−60 s",
+									Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 								},
-								Style: core.Style{FontSize: 11, Color: specTextMuted},
+								core.Text{
+									Content: "−30 s",
+									Style:   core.Style{FontSize: 11, Color: p.TextFaint},
+								},
+								core.Text{
+									TestID: "profiler-strip-now",
+									ContentFunc: func() string {
+										if snap.Get().Connected {
+											return "now"
+										}
+										return "paused"
+									},
+									Style: core.Style{FontSize: 11, Color: p.TextFaint},
+								},
 							},
 						},
 					},
-				},
-			}
+				}
+			})
 		},
 	}
 }
@@ -337,544 +313,551 @@ func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		return ed.ProfilerSnapshot()
 	}, profilerSnapshotsEqual)
 
-	metricTab := func(testID string, metric ProfilerMetric) core.Node {
-		return core.View{
-			TestID: testID,
-			Role:   core.RoleButton,
-			Label:  "Chart " + metric.String(),
-			StyleFunc: func() core.Style {
-				active := snap.Get().Metric == metric
-				bg := specPanel
-				border := specLine
-				if active {
-					bg = specLineRaised
-					border = specLineRaised
-				}
-				return core.Style{
-					Height:         core.Pt(28),
-					MinWidth:       core.Pt(28),
-					Direction:      core.Row,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-					Padding:        core.Symmetric(0, 12),
-					CornerRadius:   6,
-					Background:     bg,
-					BorderWidth:    1,
-					BorderColor:    border,
-					Hover:          &core.Style{Background: specRaised},
-					FocusVisible:   specFocusRingStyle,
-				}
-			},
-			OnPress: func(core.PressEvent) {
-				ed.SetProfilerMetric(metric)
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: metric.String(),
-					StyleFunc: func() core.Style {
-						fg := specTextSecondary
-						if snap.Get().Metric == metric {
-							fg = specTextStrong
-						}
-						return core.Style{
-							FontSize:   12,
-							FontWeight: core.FontWeightMedium,
-							Color:      fg,
-						}
-					},
-				},
-			},
-		}
-	}
-
-	zonesList := core.Dynamic(func(cx *core.Scope) core.Node {
-		s := snap.Get()
-		if len(s.Zones) == 0 {
-			msg := "No profiler zones recorded"
-			if !s.Connected {
-				msg = "Connect a running game or press Play to inspect zones"
-			}
-			return core.Text{
-				TestID:  "profiler-zones-empty",
-				Content: msg,
-				Style:   core.Style{FontSize: 11.5, Color: specTextMuted, Padding: core.Symmetric(8, 0)},
-			}
-		}
-
-		maxCost := 0.0
-		for _, z := range s.Zones {
-			if z.LastMs > maxCost {
-				maxCost = z.LastMs
-			}
-			if z.AvgMs > maxCost {
-				maxCost = z.AvgMs
-			}
-		}
-		if maxCost <= 0 {
-			maxCost = 1
-		}
-
-		rows := make([]core.Node, 0, len(s.Zones))
-		for i, z := range s.Zones {
-			barColor := specAccent
-			if z.LastMs > profilerMissedThresholdMs {
-				barColor = specProblem
-			} else if z.LastMs > profilerOverThresholdMs {
-				barColor = specWarning
-			}
-			pct := float32(math.Min(100, math.Max(4, (z.LastMs/maxCost)*100)))
-			rows = append(rows, core.View{
-				TestID: fmt.Sprintf("profiler-zone-%d", i),
-				Style: core.Style{
-					Height:       core.Pt(28),
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Gap:          8,
-					Padding:      core.Symmetric(0, 8),
-					CornerRadius: 6,
-					Background:   specPanel,
-					FocusVisible: specRowFocusRingStyle,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: z.Name,
-						Style: core.Style{
-							FontFamily: core.FontMonospace,
-							FontSize:   11.5,
-							Color:      specText,
-							FlexGrow:   1,
-							FlexShrink: 1,
-							MinWidth:   core.Pt(0),
-							Overflow:   core.Hidden,
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Width:        core.Pt(48),
-							FlexShrink:   0,
-							Height:       core.Pt(6),
-							CornerRadius: 3,
-							Background:   specLineRaised,
-							Overflow:     core.Hidden,
-						},
-						Children: []core.Node{
-							core.View{
-								Style: core.Style{
-									Width:        core.Pct(pct),
-									Height:       core.Pct(100),
-									CornerRadius: 3,
-									Background:   barColor,
-								},
-							},
-						},
-					},
-					core.Text{
-						Content: fmt.Sprintf("%.2f ms", z.LastMs),
-						Style: core.Style{
-							FontFamily:  core.FontMonospace,
-							FontSize:    11.5,
-							FontVariant: core.FontTabularNums,
-							Color:       specTextStrong,
-							Width:       core.Pt(62),
-							FlexShrink:  0,
-							TextAlign:   core.TextAlignRight,
-						},
-					},
-					core.Text{
-						Content: fmt.Sprintf("%.2f", z.AvgMs),
-						Style: core.Style{
-							FontFamily:  core.FontMonospace,
-							FontSize:    11.5,
-							FontVariant: core.FontTabularNums,
-							Color:       specTextSecondary,
-							Width:       core.Pt(48),
-							FlexShrink:  0,
-							TextAlign:   core.TextAlignRight,
-						},
-					},
-					core.Text{
-						Content: fmt.Sprintf("%.2f", z.MaxMs),
-						Style: core.Style{
-							FontFamily:  core.FontMonospace,
-							FontSize:    11.5,
-							FontVariant: core.FontTabularNums,
-							Color:       specTextMuted,
-							Width:       core.Pt(48),
-							FlexShrink:  0,
-							TextAlign:   core.TextAlignRight,
-						},
-					},
-					core.Text{
-						Content: fmt.Sprintf("×%d", z.Calls),
-						Style: core.Style{
-							FontFamily:  core.FontMonospace,
-							FontSize:    11.5,
-							FontVariant: core.FontTabularNums,
-							Color:       specTextMuted,
-							Width:       core.Pt(44),
-							FlexShrink:  0,
-							TextAlign:   core.TextAlignRight,
-						},
-					},
-				},
-			})
-		}
-		return core.View{Style: core.Style{Gap: 4}, Children: rows}
-	})
-
 	return core.Show{
 		When: open.Get,
 		Then: func(cx *core.Scope) core.Node {
-			return core.View{
-				TestID: "profiler-panel",
-				Role:   core.RoleRegion,
-				Label:  "Profiler",
-				Style: dockedStyle(cx, core.Style{
-					Height:      core.Pt(300),
-					FlexShrink:  0,
-					Background:  specPanel,
-					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
-					Padding:     core.Symmetric(12, 16),
-					Gap:         12,
-				}),
-				Children: []core.Node{
-					// Top bar: title, connection pill, metric tabs, Reset, Export Trace, Close.
-					core.View{
-						Style: core.Style{
-							Direction:  core.Row,
-							AlignItems: core.AlignCenter,
-							Height:     core.Pt(28),
-							Gap:        8,
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				p := ed.SpecPalette(cx)
+
+				metricTab := func(testID string, metric ProfilerMetric) core.Node {
+					return core.View{
+						TestID: testID,
+						Role:   core.RoleButton,
+						Label:  "Chart " + metric.String(),
+						StyleFunc: func() core.Style {
+							active := snap.Get().Metric == metric
+							bg := p.Panel
+							border := p.Line
+							if active {
+								bg = p.LineRaised
+								border = p.LineRaised
+							}
+							return core.Style{
+								Height:         core.Pt(28),
+								MinWidth:       core.Pt(28),
+								Direction:      core.Row,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+								Padding:        core.Symmetric(0, 12),
+								CornerRadius:   6,
+								Background:     bg,
+								BorderWidth:    1,
+								BorderColor:    border,
+								Hover:          &core.Style{Background: p.Raised},
+								FocusVisible:   p.FocusRing(2),
+							}
+						},
+						OnPress: func(core.PressEvent) {
+							ed.SetProfilerMetric(metric)
 						},
 						Children: []core.Node{
 							core.Text{
-								TestID:  "profiler-panel-title",
-								Content: "PROFILER",
-								Style: core.Style{
-									FontSize:   11,
-									FontWeight: core.FontWeightSemibold,
-									Color:      specTextMuted,
-								},
-							},
-							core.View{
-								TestID: "profiler-status-pill",
+								Content: metric.String(),
 								StyleFunc: func() core.Style {
-									s := snap.Get()
-									bg := specRaised
-									border := specLineRaised
-									if s.Connected {
-										bg = specAddedFill
-										border = specAddedEdge
+									fg := p.TextMuted
+									if snap.Get().Metric == metric {
+										fg = p.TextPrimary
 									}
 									return core.Style{
-										Height:       core.Pt(24),
-										Direction:    core.Row,
-										AlignItems:   core.AlignCenter,
-										Gap:          8,
-										Padding:      core.Symmetric(0, 12),
-										CornerRadius: 12,
-										Background:   bg,
-										BorderWidth:  1,
-										BorderColor:  border,
+										FontSize:   12,
+										FontWeight: core.FontWeightMedium,
+										Color:      fg,
 									}
 								},
-								Children: []core.Node{
-									core.View{
-										StyleFunc: func() core.Style {
-											dot := specTextMuted
-											if snap.Get().Connected {
-												dot = specAdded
-											}
-											return core.Style{
-												Width:        core.Pt(6),
-												Height:       core.Pt(6),
+							},
+						},
+					}
+				}
+
+				zonesList := core.Dynamic(func(cx *core.Scope) core.Node {
+					s := snap.Get()
+					if len(s.Zones) == 0 {
+						msg := "No profiler zones recorded"
+						if !s.Connected {
+							msg = "Connect a running game or press Play to inspect zones"
+						}
+						return core.Text{
+							TestID:  "profiler-zones-empty",
+							Content: msg,
+							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, Padding: core.Symmetric(8, 0)},
+						}
+					}
+
+					maxCost := 0.0
+					for _, z := range s.Zones {
+						if z.LastMs > maxCost {
+							maxCost = z.LastMs
+						}
+						if z.AvgMs > maxCost {
+							maxCost = z.AvgMs
+						}
+					}
+					if maxCost <= 0 {
+						maxCost = 1
+					}
+
+					rows := make([]core.Node, 0, len(s.Zones))
+					for i, z := range s.Zones {
+						barColor := p.Accent.Fg
+						if z.LastMs > profilerMissedThresholdMs {
+							barColor = p.Removed.Fg
+						} else if z.LastMs > profilerOverThresholdMs {
+							barColor = p.Warning.Fg
+						}
+						pct := float32(math.Min(100, math.Max(4, (z.LastMs/maxCost)*100)))
+						rows = append(rows, core.View{
+							TestID: fmt.Sprintf("profiler-zone-%d", i),
+							Style: core.Style{
+								Height:       core.Pt(28),
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          8,
+								Padding:      core.Symmetric(0, 8),
+								CornerRadius: 6,
+								Background:   p.Panel,
+								FocusVisible: p.FocusRing(-2),
+							},
+							Children: []core.Node{
+								core.Text{
+									Content: z.Name,
+									Style: core.Style{
+										FontFamily: core.FontMonospace,
+										FontSize:   11.5,
+										Color:      p.TextSecondary,
+										FlexGrow:   1,
+										FlexShrink: 1,
+										MinWidth:   core.Pt(0),
+										Overflow:   core.Hidden,
+									},
+								},
+								core.View{
+									Style: core.Style{
+										Width:        core.Pt(48),
+										FlexShrink:   0,
+										Height:       core.Pt(6),
+										CornerRadius: 3,
+										Background:   p.LineRaised,
+										Overflow:     core.Hidden,
+									},
+									Children: []core.Node{
+										core.View{
+											Style: core.Style{
+												Width:        core.Pct(pct),
+												Height:       core.Pct(100),
 												CornerRadius: 3,
-												Background:   dot,
-											}
+												Background:   barColor,
+											},
 										},
 									},
-									core.Text{
-										ContentFunc: func() string {
-											return snap.Get().SourceLabel
-										},
-										Style: core.Style{
-											FontSize:   11.5,
-											FontWeight: core.FontWeightMedium,
-											Color:      specText,
-										},
+								},
+								core.Text{
+									Content: fmt.Sprintf("%.2f ms", z.LastMs),
+									Style: core.Style{
+										FontFamily:  core.FontMonospace,
+										FontSize:    11.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextPrimary,
+										Width:       core.Pt(62),
+										FlexShrink:  0,
+										TextAlign:   core.TextAlignRight,
+									},
+								},
+								core.Text{
+									Content: fmt.Sprintf("%.2f", z.AvgMs),
+									Style: core.Style{
+										FontFamily:  core.FontMonospace,
+										FontSize:    11.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextMuted,
+										Width:       core.Pt(48),
+										FlexShrink:  0,
+										TextAlign:   core.TextAlignRight,
+									},
+								},
+								core.Text{
+									Content: fmt.Sprintf("%.2f", z.MaxMs),
+									Style: core.Style{
+										FontFamily:  core.FontMonospace,
+										FontSize:    11.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextFaint,
+										Width:       core.Pt(48),
+										FlexShrink:  0,
+										TextAlign:   core.TextAlignRight,
+									},
+								},
+								core.Text{
+									Content: fmt.Sprintf("×%d", z.Calls),
+									Style: core.Style{
+										FontFamily:  core.FontMonospace,
+										FontSize:    11.5,
+										FontVariant: core.FontTabularNums,
+										Color:       p.TextFaint,
+										Width:       core.Pt(44),
+										FlexShrink:  0,
+										TextAlign:   core.TextAlignRight,
 									},
 								},
 							},
-							core.View{Style: core.Style{Width: core.Pt(8)}},
-							metricTab("profiler-tab-frame", ProfilerMetricFrame),
-							metricTab("profiler-tab-fps", ProfilerMetricFPS),
-							metricTab("profiler-tab-gc", ProfilerMetricAllocsGC),
-							metricTab("profiler-tab-memory", ProfilerMetricMemory),
-							core.View{Style: core.Style{FlexGrow: 1}},
-							specActionButton(
-								"profiler-reset",
-								func() string { return "Reset" },
-								"Reset profiler timings, zones and GC history",
-								false,
-								func() {
-									ed.resetProfilerFromUI()
-								},
-							),
-							specActionButton(
-								"profiler-export",
-								func() string { return "Export Trace" },
-								"Export recorded frames as Chrome/Perfetto trace JSON",
-								true,
-								func() {
-									ed.exportProfilerTraceFromUI()
-								},
-							),
-							specActionButton(
-								"profiler-close",
-								func() string { return "Close" },
-								"Close Profiler panel",
-								false,
-								func() {
-									ed.SetProfilerOpen(false)
-								},
-							),
-						},
-					},
-					// Main split body: left charts + KPIs, right sorted profiler zones table.
-					core.View{
-						Style: core.Style{
-							Direction: core.Row,
-							FlexGrow:  1,
-							FlexBasis: core.Pt(0),
-							Gap:       16,
-							Overflow:  core.Hidden,
-						},
-						Children: []core.Node{
-							// Left column: 4 KPI cards + main time-series chart.
-							core.View{
-								Style: core.Style{
-									FlexGrow:  1,
-									FlexBasis: core.Pt(0),
-									Gap:       8,
-									Overflow:  core.Hidden,
-								},
-								Children: []core.Node{
-									core.View{
-										Style: core.Style{
-											Direction: core.Row,
-											Gap:       8,
-										},
-										Children: []core.Node{
-											profilerKPICard("profiler-kpi-frame", "FRAME", func() string {
-												s := snap.Get()
-												if !s.HasReadout && len(s.Frames) == 0 {
-													return "— ms"
-												}
-												return fmt.Sprintf("%.2f ms", profilerAvgMs(s))
-											}, func() string {
-												s := snap.Get()
-												if !s.HasReadout && len(s.Frames) == 0 {
-													return "upd — · drw — · p99 —"
-												}
-												return fmt.Sprintf("upd %.1f · drw %.1f · p99 %.1f", s.Readout.UpdateMs, s.Readout.DrawMs, profilerP99Ms(s))
-											}, func() core.Color {
-												avg := profilerAvgMs(snap.Get())
-												if avg > profilerMissedThresholdMs {
-													return specProblem
-												}
-												if avg > profilerOverThresholdMs {
-													return specWarning
-												}
-												return specTextStrong
-											}, func() bool { return snap.Get().Metric == ProfilerMetricFrame }, func() { ed.SetProfilerMetric(ProfilerMetricFrame) }),
+						})
+					}
+					return core.View{Style: core.Style{Gap: 4}, Children: rows}
+				})
 
-											profilerKPICard("profiler-kpi-fps", "FPS", func() string {
-												s := snap.Get()
-												if !s.HasReadout && len(s.Frames) == 0 {
-													return "— fps"
-												}
-												return fmt.Sprintf("%.1f fps", s.Readout.FPS)
-											}, func() string {
-												s := snap.Get()
-												if !s.Readout.Sources.DrawStats && !s.Readout.Sources.Render3D {
-													return fmt.Sprintf("%d frames", len(s.Frames))
-												}
-												return fmt.Sprintf("%d calls · %d sprites", s.Readout.DrawCalls, s.Readout.Sprites)
-											}, func() core.Color {
-												s := snap.Get()
-												if !s.HasReadout {
-													return specTextStrong
-												}
-												if s.Readout.FPS > 0 && s.Readout.FPS < 30 {
-													return specProblem
-												}
-												if s.Readout.FPS > 0 && s.Readout.FPS < 55 {
-													return specWarning
-												}
-												return specAdded
-											}, func() bool { return snap.Get().Metric == ProfilerMetricFPS }, func() { ed.SetProfilerMetric(ProfilerMetricFPS) }),
-
-											profilerKPICard("profiler-kpi-gc", "ALLOCS & GC", func() string {
-												s := snap.Get()
-												if !s.HasReadout {
-													return "0 /f"
-												}
-												return fmt.Sprintf("%.1f /f", s.Readout.AllocsPerFrame)
-											}, func() string {
-												s := snap.Get()
-												if !s.HasReadout {
-													return "heap — · 0 GC"
-												}
-												return fmt.Sprintf("heap %s · %d GC · %d hitches", formatProfilerUintBytes(s.Readout.HeapBytes), s.Readout.GCCount, s.Readout.GCRecentHitches)
-											}, func() core.Color {
-												if snap.Get().Readout.GCRecentHitches > 0 {
-													return specWarning
-												}
-												return specTextStrong
-											}, func() bool { return snap.Get().Metric == ProfilerMetricAllocsGC }, func() { ed.SetProfilerMetric(ProfilerMetricAllocsGC) }),
-
-											profilerKPICard("profiler-kpi-memory", "ASSET MEMORY", func() string {
-												s := snap.Get()
-												if s.Readout.AssetMemory == nil {
-													return "—"
-												}
-												return formatProfilerBytes(s.Readout.AssetMemory.TotalBytes)
-											}, func() string {
-												s := snap.Get()
-												if s.Readout.AssetMemory == nil {
-													return "untracked"
-												}
-												am := s.Readout.AssetMemory
-												if am.TotalBudget > 0 {
-													return fmt.Sprintf("budget %s · %d groups", formatProfilerBytes(am.TotalBudget), len(am.Groups))
-												}
-												return fmt.Sprintf("%d groups", len(am.Groups))
-											}, func() core.Color {
-												if am := snap.Get().Readout.AssetMemory; am != nil && am.OverBudget {
-													return specProblem
-												}
-												return specTextStrong
-											}, func() bool { return snap.Get().Metric == ProfilerMetricMemory }, func() { ed.SetProfilerMetric(ProfilerMetricMemory) }),
-										},
+				return core.View{
+					TestID: "profiler-panel",
+					Role:   core.RoleRegion,
+					Label:  "Profiler",
+					Style: dockedStyle(cx, core.Style{
+						Height:      core.Pt(300),
+						FlexShrink:  0,
+						Background:  p.Panel,
+						Borders:     core.Edges{Top: 1},
+						BorderColor: p.Line,
+						Padding:     core.Symmetric(12, 16),
+						Gap:         12,
+					}),
+					Children: []core.Node{
+						// Top bar: title, connection pill, metric tabs, Reset, Export Trace, Close.
+						core.View{
+							Style: core.Style{
+								Direction:  core.Row,
+								AlignItems: core.AlignCenter,
+								Height:     core.Pt(28),
+								Gap:        8,
+							},
+							Children: []core.Node{
+								core.Text{
+									TestID:  "profiler-panel-title",
+									Content: "PROFILER",
+									Style: core.Style{
+										FontSize:   11,
+										FontWeight: core.FontWeightSemibold,
+										Color:      p.TextFaint,
 									},
-									core.View{
-										Style: core.Style{
-											FlexGrow:     1,
-											FlexBasis:    core.Pt(0),
-											Background:   specBg,
-											CornerRadius: 8,
+								},
+								core.View{
+									TestID: "profiler-status-pill",
+									StyleFunc: func() core.Style {
+										s := snap.Get()
+										bg := p.Raised
+										border := p.LineRaised
+										if s.Connected {
+											bg = specAlpha(p.Added.Fg, 0.12)
+											border = specAlpha(p.Added.Fg, 0.45)
+										}
+										return core.Style{
+											Height:       core.Pt(24),
+											Direction:    core.Row,
+											AlignItems:   core.AlignCenter,
+											Gap:          8,
+											Padding:      core.Symmetric(0, 12),
+											CornerRadius: 12,
+											Background:   bg,
 											BorderWidth:  1,
-											BorderColor:  specLineRaised,
-											Padding:      core.All(8),
-											Overflow:     core.Hidden,
+											BorderColor:  border,
+										}
+									},
+									Children: []core.Node{
+										core.View{
+											StyleFunc: func() core.Style {
+												dot := p.TextFaint
+												if snap.Get().Connected {
+													dot = p.Added.Fg
+												}
+												return core.Style{
+													Width:        core.Pt(6),
+													Height:       core.Pt(6),
+													CornerRadius: 3,
+													Background:   dot,
+												}
+											},
 										},
-										Children: []core.Node{
-											core.Canvas{
-												TestID: "profiler-chart",
-												Label:  "Profiler time-series chart",
-												Style: core.Style{
-													Width:  core.Pct(100),
-													Height: core.Pct(100),
-												},
-												Draw: func(d *core.Drawing, size core.Size) {
-													drawProfilerMainChart(d, size, snap.Get())
-												},
+										core.Text{
+											ContentFunc: func() string {
+												return snap.Get().SourceLabel
+											},
+											Style: core.Style{
+												FontSize:   11.5,
+												FontWeight: core.FontWeightMedium,
+												Color:      p.TextSecondary,
 											},
 										},
 									},
 								},
+								core.View{Style: core.Style{Width: core.Pt(8)}},
+								metricTab("profiler-tab-frame", ProfilerMetricFrame),
+								metricTab("profiler-tab-fps", ProfilerMetricFPS),
+								metricTab("profiler-tab-gc", ProfilerMetricAllocsGC),
+								metricTab("profiler-tab-memory", ProfilerMetricMemory),
+								core.View{Style: core.Style{FlexGrow: 1}},
+								specActionButton(
+									p,
+									"profiler-reset",
+									func() string { return "Reset" },
+									"Reset profiler timings, zones and GC history",
+									false,
+									func() {
+										ed.resetProfilerFromUI()
+									},
+								),
+								specActionButton(
+									p,
+									"profiler-export",
+									func() string { return "Export Trace" },
+									"Export recorded frames as Chrome/Perfetto trace JSON",
+									true,
+									func() {
+										ed.exportProfilerTraceFromUI()
+									},
+								),
+								specActionButton(
+									p,
+									"profiler-close",
+									func() string { return "Close" },
+									"Close Profiler panel",
+									false,
+									func() {
+										ed.SetProfilerOpen(false)
+									},
+								),
 							},
-							// Right column: Profiler zones table sorted by cost (from game_perf_zones).
-							core.View{
-								TestID: "profiler-zones-panel",
-								Style: core.Style{
-									Width:        core.Pt(440),
-									FlexShrink:   0,
-									Background:   specRaised,
-									CornerRadius: 8,
-									BorderWidth:  1,
-									BorderColor:  specLineRaised,
-									Padding:      core.Symmetric(8, 12),
-									Gap:          8,
-									Overflow:     core.Hidden,
+						},
+						// Main split body: left charts + KPIs, right sorted profiler zones table.
+						core.View{
+							Style: core.Style{
+								Direction: core.Row,
+								FlexGrow:  1,
+								FlexBasis: core.Pt(0),
+								Gap:       16,
+								Overflow:  core.Hidden,
+							},
+							Children: []core.Node{
+								// Left column: 4 KPI cards + main time-series chart.
+								core.View{
+									Style: core.Style{
+										FlexGrow:  1,
+										FlexBasis: core.Pt(0),
+										Gap:       8,
+										Overflow:  core.Hidden,
+									},
+									Children: []core.Node{
+										core.View{
+											Style: core.Style{
+												Direction: core.Row,
+												Gap:       8,
+											},
+											Children: []core.Node{
+												profilerKPICard(p, "profiler-kpi-frame", "FRAME", func() string {
+													s := snap.Get()
+													if !s.HasReadout && len(s.Frames) == 0 {
+														return "— ms"
+													}
+													return fmt.Sprintf("%.2f ms", profilerAvgMs(s))
+												}, func() string {
+													s := snap.Get()
+													if !s.HasReadout && len(s.Frames) == 0 {
+														return "upd — · drw — · p99 —"
+													}
+													return fmt.Sprintf("upd %.1f · drw %.1f · p99 %.1f", s.Readout.UpdateMs, s.Readout.DrawMs, profilerP99Ms(s))
+												}, func() core.Color {
+													avg := profilerAvgMs(snap.Get())
+													if avg > profilerMissedThresholdMs {
+														return p.Removed.Fg
+													}
+													if avg > profilerOverThresholdMs {
+														return p.Warning.Fg
+													}
+													return p.TextPrimary
+												}, func() bool { return snap.Get().Metric == ProfilerMetricFrame }, func() { ed.SetProfilerMetric(ProfilerMetricFrame) }),
+
+												profilerKPICard(p, "profiler-kpi-fps", "FPS", func() string {
+													s := snap.Get()
+													if !s.HasReadout && len(s.Frames) == 0 {
+														return "— fps"
+													}
+													return fmt.Sprintf("%.1f fps", s.Readout.FPS)
+												}, func() string {
+													s := snap.Get()
+													if !s.Readout.Sources.DrawStats && !s.Readout.Sources.Render3D {
+														return fmt.Sprintf("%d frames", len(s.Frames))
+													}
+													return fmt.Sprintf("%d calls · %d sprites", s.Readout.DrawCalls, s.Readout.Sprites)
+												}, func() core.Color {
+													s := snap.Get()
+													if !s.HasReadout {
+														return p.TextPrimary
+													}
+													if s.Readout.FPS > 0 && s.Readout.FPS < 30 {
+														return p.Removed.Fg
+													}
+													if s.Readout.FPS > 0 && s.Readout.FPS < 55 {
+														return p.Warning.Fg
+													}
+													return p.Added.Fg
+												}, func() bool { return snap.Get().Metric == ProfilerMetricFPS }, func() { ed.SetProfilerMetric(ProfilerMetricFPS) }),
+
+												profilerKPICard(p, "profiler-kpi-gc", "ALLOCS & GC", func() string {
+													s := snap.Get()
+													if !s.HasReadout {
+														return "0 /f"
+													}
+													return fmt.Sprintf("%.1f /f", s.Readout.AllocsPerFrame)
+												}, func() string {
+													s := snap.Get()
+													if !s.HasReadout {
+														return "heap — · 0 GC"
+													}
+													return fmt.Sprintf("heap %s · %d GC · %d hitches", formatProfilerUintBytes(s.Readout.HeapBytes), s.Readout.GCCount, s.Readout.GCRecentHitches)
+												}, func() core.Color {
+													if snap.Get().Readout.GCRecentHitches > 0 {
+														return p.Warning.Fg
+													}
+													return p.TextPrimary
+												}, func() bool { return snap.Get().Metric == ProfilerMetricAllocsGC }, func() { ed.SetProfilerMetric(ProfilerMetricAllocsGC) }),
+
+												profilerKPICard(p, "profiler-kpi-memory", "ASSET MEMORY", func() string {
+													s := snap.Get()
+													if s.Readout.AssetMemory == nil {
+														return "—"
+													}
+													return formatProfilerBytes(s.Readout.AssetMemory.TotalBytes)
+												}, func() string {
+													s := snap.Get()
+													if s.Readout.AssetMemory == nil {
+														return "untracked"
+													}
+													am := s.Readout.AssetMemory
+													if am.TotalBudget > 0 {
+														return fmt.Sprintf("budget %s · %d groups", formatProfilerBytes(am.TotalBudget), len(am.Groups))
+													}
+													return fmt.Sprintf("%d groups", len(am.Groups))
+												}, func() core.Color {
+													if am := snap.Get().Readout.AssetMemory; am != nil && am.OverBudget {
+														return p.Removed.Fg
+													}
+													return p.TextPrimary
+												}, func() bool { return snap.Get().Metric == ProfilerMetricMemory }, func() { ed.SetProfilerMetric(ProfilerMetricMemory) }),
+											},
+										},
+										core.View{
+											Style: core.Style{
+												FlexGrow:     1,
+												FlexBasis:    core.Pt(0),
+												Background:   p.Bg,
+												CornerRadius: 8,
+												BorderWidth:  1,
+												BorderColor:  p.LineRaised,
+												Padding:      core.All(8),
+												Overflow:     core.Hidden,
+											},
+											Children: []core.Node{
+												core.Canvas{
+													TestID: "profiler-chart",
+													Label:  "Profiler time-series chart",
+													Style: core.Style{
+														Width:  core.Pct(100),
+														Height: core.Pct(100),
+													},
+													Draw: func(d *core.Drawing, size core.Size) {
+														drawProfilerMainChart(d, size, p, snap.Get())
+													},
+												},
+											},
+										},
+									},
 								},
-								Children: []core.Node{
-									core.View{
-										Style: core.Style{
-											Direction:      core.Row,
-											AlignItems:     core.AlignCenter,
-											JustifyContent: core.JustifySpaceBetween,
-										},
-										Children: []core.Node{
-											core.Text{
-												TestID: "profiler-zones-title",
-												ContentFunc: func() string {
-													s := snap.Get()
-													return fmt.Sprintf("ZONES · %d", len(s.Zones))
+								// Right column: Profiler zones table sorted by cost (from game_perf_zones).
+								core.View{
+									TestID: "profiler-zones-panel",
+									Style: core.Style{
+										Width:        core.Pt(440),
+										FlexShrink:   0,
+										Background:   p.Raised,
+										CornerRadius: 8,
+										BorderWidth:  1,
+										BorderColor:  p.LineRaised,
+										Padding:      core.Symmetric(8, 12),
+										Gap:          8,
+										Overflow:     core.Hidden,
+									},
+									Children: []core.Node{
+										core.View{
+											Style: core.Style{
+												Direction:      core.Row,
+												AlignItems:     core.AlignCenter,
+												JustifyContent: core.JustifySpaceBetween,
+											},
+											Children: []core.Node{
+												core.Text{
+													TestID: "profiler-zones-title",
+													ContentFunc: func() string {
+														s := snap.Get()
+														return fmt.Sprintf("ZONES · %d", len(s.Zones))
+													},
+													Style: core.Style{
+														FontSize:   11,
+														FontWeight: core.FontWeightSemibold,
+														Color:      p.TextFaint,
+													},
 												},
-												Style: core.Style{
-													FontSize:   11,
-													FontWeight: core.FontWeightSemibold,
-													Color:      specTextMuted,
+												core.Text{
+													TestID: "profiler-frames-count",
+													ContentFunc: func() string {
+														s := snap.Get()
+														if s.LastError != "" {
+															return "err: " + s.LastError
+														}
+														return fmt.Sprintf("%d recorded frames", len(s.Frames))
+													},
+													StyleFunc: func() core.Style {
+														c := p.TextFaint
+														if snap.Get().LastError != "" {
+															c = p.Removed.Fg
+														}
+														return core.Style{
+															FontSize:    11,
+															FontVariant: core.FontTabularNums,
+															Color:       c,
+														}
+													},
 												},
 											},
-											core.Text{
-												TestID: "profiler-frames-count",
-												ContentFunc: func() string {
-													s := snap.Get()
-													if s.LastError != "" {
-														return "err: " + s.LastError
-													}
-													return fmt.Sprintf("%d recorded frames", len(s.Frames))
-												},
-												StyleFunc: func() core.Style {
-													c := specTextMuted
-													if snap.Get().LastError != "" {
-														c = specProblem
-													}
-													return core.Style{
-														FontSize:    11,
-														FontVariant: core.FontTabularNums,
-														Color:       c,
-													}
-												},
+										},
+										core.View{
+											Style: core.Style{
+												Direction:   core.Row,
+												AlignItems:  core.AlignCenter,
+												Gap:         8,
+												Padding:     core.Edges{Left: 8, Right: 8, Bottom: 4},
+												Borders:     core.Edges{Bottom: 1},
+												BorderColor: p.Line,
+											},
+											Children: []core.Node{
+												core.Text{Content: "ZONE", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: p.TextFaint, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}},
+												core.View{Style: core.Style{Width: core.Pt(48), FlexShrink: 0}},
+												core.Text{Content: "LAST", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: p.TextFaint, Width: core.Pt(62), FlexShrink: 0, TextAlign: core.TextAlignRight}},
+												core.Text{Content: "AVG", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: p.TextFaint, Width: core.Pt(48), FlexShrink: 0, TextAlign: core.TextAlignRight}},
+												core.Text{Content: "MAX", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: p.TextFaint, Width: core.Pt(48), FlexShrink: 0, TextAlign: core.TextAlignRight}},
+												core.Text{Content: "CALLS", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: p.TextFaint, Width: core.Pt(44), FlexShrink: 0, TextAlign: core.TextAlignRight}},
 											},
 										},
-									},
-									core.View{
-										Style: core.Style{
-											Direction:   core.Row,
-											AlignItems:  core.AlignCenter,
-											Gap:         8,
-											Padding:     core.Edges{Left: 8, Right: 8, Bottom: 4},
-											Borders:     core.Edges{Bottom: 1},
-											BorderColor: specLine,
+										ui.ScrollView{
+											Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+											Children: []core.Node{zonesList},
 										},
-										Children: []core.Node{
-											core.Text{Content: "ZONE", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: specTextMuted, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}},
-											core.View{Style: core.Style{Width: core.Pt(48), FlexShrink: 0}},
-											core.Text{Content: "LAST", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: specTextMuted, Width: core.Pt(62), FlexShrink: 0, TextAlign: core.TextAlignRight}},
-											core.Text{Content: "AVG", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: specTextMuted, Width: core.Pt(48), FlexShrink: 0, TextAlign: core.TextAlignRight}},
-											core.Text{Content: "MAX", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: specTextMuted, Width: core.Pt(48), FlexShrink: 0, TextAlign: core.TextAlignRight}},
-											core.Text{Content: "CALLS", Style: core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, Color: specTextMuted, Width: core.Pt(44), FlexShrink: 0, TextAlign: core.TextAlignRight}},
-										},
-									},
-									ui.ScrollView{
-										Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-										Children: []core.Node{zonesList},
 									},
 								},
 							},
 						},
 					},
-				},
-			}
+				}
+			})
 		},
 	}
 }
 
-func profilerLegendItem(swatch core.Color, label string) core.Node {
+func profilerLegendItem(p SpecPalette, swatch core.Color, label string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Direction:  core.Row,
@@ -894,23 +877,23 @@ func profilerLegendItem(swatch core.Color, label string) core.Node {
 				Content: label,
 				Style: core.Style{
 					FontSize: 11.5,
-					Color:    specTextMuted,
+					Color:    p.TextFaint,
 				},
 			},
 		},
 	}
 }
 
-func specActionButton(testID string, textFunc func() string, label string, primary bool, onPress func()) core.Node {
-	bg := specRaised
-	fg := specText
-	border := specLineRaised
+func specActionButton(p SpecPalette, testID string, textFunc func() string, label string, primary bool, onPress func()) core.Node {
+	bg := p.Raised
+	fg := p.TextSecondary
+	border := p.LineRaised
 	weight := core.FontWeightMedium
 	if primary {
-		// Spec contrast rule: dark text (#101216) on white primary fill (18.75:1 AAA) or accent (#3B7BFF, 4.88:1 AA).
-		bg = specAccent
-		fg = specBg
-		border = specAccent
+		// Spec contrast rule: OnFill ink on Accent fill (>= 4.5:1 AA in Dark and Light).
+		bg = p.Accent.Fg
+		fg = p.Accent.OnFill
+		border = p.Accent.Fg
 		weight = core.FontWeightSemibold
 	}
 	return core.View{
@@ -928,7 +911,7 @@ func specActionButton(testID string, textFunc func() string, label string, prima
 			Background:     bg,
 			BorderWidth:    1,
 			BorderColor:    border,
-			FocusVisible:   specFocusRingStyle,
+			FocusVisible:   p.FocusRing(2),
 		},
 		OnPress: func(core.PressEvent) {
 			onPress()
@@ -946,26 +929,26 @@ func specActionButton(testID string, textFunc func() string, label string, prima
 	}
 }
 
-func profilerKPICard(testID, title string, valueFunc, subFunc func() string, valueColor func() core.Color, active func() bool, onPress func()) core.Node {
+func profilerKPICard(p SpecPalette, testID, title string, valueFunc, subFunc func() string, valueColor func() core.Color, active func() bool, onPress func()) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleButton,
 		Label:  "Inspect " + title,
 		StyleFunc: func() core.Style {
-			border := specLineRaised
+			border := p.LineRaised
 			if active() {
-				border = specAccent
+				border = p.Accent.Fg
 			}
 			return core.Style{
 				FlexGrow:     1,
 				FlexBasis:    core.Pt(0),
-				Background:   specRaised,
+				Background:   p.Raised,
 				CornerRadius: 8,
 				BorderWidth:  1,
 				BorderColor:  border,
 				Padding:      core.Symmetric(8, 12),
 				Gap:          4,
-				FocusVisible: specFocusRingStyle,
+				FocusVisible: p.FocusRing(2),
 			}
 		},
 		OnPress: func(core.PressEvent) {
@@ -977,7 +960,7 @@ func profilerKPICard(testID, title string, valueFunc, subFunc func() string, val
 				Style: core.Style{
 					FontSize:   11,
 					FontWeight: core.FontWeightSemibold,
-					Color:      specTextMuted,
+					Color:      p.TextFaint,
 				},
 			},
 			core.Text{
@@ -998,7 +981,7 @@ func profilerKPICard(testID, title string, valueFunc, subFunc func() string, val
 					FontFamily:  core.FontMonospace,
 					FontSize:    11,
 					FontVariant: core.FontTabularNums,
-					Color:       specTextSecondary,
+					Color:       p.TextMuted,
 				},
 			},
 		},
@@ -1039,7 +1022,7 @@ func profilerP99Ms(s ProfilerSnapshot) float64 {
 }
 
 // drawProfilerStripChart renders the PlayMode.dc.html 60 s frame time bar strip with 8.3 ms & 16.7 ms lines and a right-edge playhead bar.
-func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot) {
+func drawProfilerStripChart(d *core.Drawing, size core.Size, p SpecPalette, s ProfilerSnapshot) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1064,7 +1047,7 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot)
 	}
 
 	d.Save()
-	d.SetFillColor(specPanel).FillRect(0, 0, w, h)
+	d.SetFillColor(p.Panel).FillRect(0, 0, w, h)
 
 	yForMs := func(ms float64) float32 {
 		ratio := float32(ms / maxMs)
@@ -1080,7 +1063,7 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot)
 	// 8.3 ms warning line (dashed) and 16.7 ms missed-frame line (solid), matching Spec tokens.
 	y8 := yForMs(profilerOverThresholdMs)
 	d.Save()
-	d.SetStrokeColor(specLineRaised).
+	d.SetStrokeColor(p.LineRaised).
 		SetLineWidth(1).
 		SetLineDash(3, 3).
 		BeginPath().
@@ -1091,7 +1074,7 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot)
 
 	y16 := yForMs(profilerMissedThresholdMs)
 	d.Save()
-	d.SetStrokeColor(specLineRaised).
+	d.SetStrokeColor(p.LineRaised).
 		SetLineWidth(1).
 		BeginPath().
 		MoveTo(0, y16).
@@ -1100,9 +1083,9 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot)
 	d.Restore()
 
 	labelFont := core.Font{Family: core.FontMonospace, Size: 10.5}
-	d.SetFillColor(specTextMuted).FillText("16.7 ms", 0, max(float32(11), y16-3), labelFont)
+	d.SetFillColor(p.TextFaint).FillText("16.7 ms", 0, max(float32(11), y16-3), labelFont)
 	if y8-y16 >= 14 {
-		d.SetFillColor(specTextMuted).FillText("8.3 ms", 0, y8-3, labelFont)
+		d.SetFillColor(p.TextFaint).FillText("8.3 ms", 0, y8-3, labelFont)
 	}
 
 	// Draw up to 150 bars right-aligned to the "now" cursor.
@@ -1113,6 +1096,7 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot)
 	}
 	barW := max(float32(1), slotW-gap)
 	startSlot := profilerStripBars - len(visible)
+	barNormal := specAlpha(p.TextFaint, 0.45)
 
 	for i, f := range visible {
 		x := float32(startSlot+i) * slotW
@@ -1123,22 +1107,22 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, s ProfilerSnapshot)
 		if bh > barAreaH {
 			bh = barAreaH
 		}
-		col := specBarNormal
+		col := barNormal
 		if f.FrameMs > profilerMissedThresholdMs {
-			col = specProblem
+			col = p.Removed.Fg
 		} else if f.FrameMs > profilerOverThresholdMs {
-			col = specWarning
+			col = p.Warning.Fg
 		}
 		d.SetFillColor(col).BeginPath().RoundRect(x, h-bh, barW, bh, 1).Fill()
 	}
 
-	// Right-edge 2 px "now" playhead bar in text strong (#FFFFFF).
-	d.SetFillColor(specTextStrong).BeginPath().RoundRect(max(float32(0), w-2), 0, 2, h, 1).Fill()
+	// Right-edge 2 px "now" playhead bar in text strong.
+	d.SetFillColor(p.TextPrimary).BeginPath().RoundRect(max(float32(0), w-2), 0, 2, h, 1).Fill()
 	d.Restore()
 }
 
 // drawProfilerMainChart renders the selected time-series chart in the full Profiler panel using only Spec tokens.
-func drawProfilerMainChart(d *core.Drawing, size core.Size, s ProfilerSnapshot) {
+func drawProfilerMainChart(d *core.Drawing, size core.Size, p SpecPalette, s ProfilerSnapshot) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1146,14 +1130,14 @@ func drawProfilerMainChart(d *core.Drawing, size core.Size, s ProfilerSnapshot) 
 	h := float32(size.Height)
 
 	d.Save()
-	d.SetFillColor(specBg).FillRect(0, 0, w, h)
+	d.SetFillColor(p.Bg).FillRect(0, 0, w, h)
 
 	if len(s.Frames) == 0 {
 		msg := "Waiting for frame samples…"
 		if !s.Connected {
 			msg = "Disconnected · connect a running game or press Play to chart live metrics"
 		}
-		d.SetFillColor(specTextMuted).FillText(msg, 12, h/2+4, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(msg, 12, h/2+4, core.Font{Size: 12})
 		d.Restore()
 		return
 	}
@@ -1166,18 +1150,18 @@ func drawProfilerMainChart(d *core.Drawing, size core.Size, s ProfilerSnapshot) 
 
 	switch s.Metric {
 	case ProfilerMetricFrame:
-		drawFrameBreakdownChart(d, w, h, frames)
+		drawFrameBreakdownChart(d, p, w, h, frames)
 	case ProfilerMetricFPS:
-		drawFPSChart(d, w, h, frames)
+		drawFPSChart(d, p, w, h, frames)
 	case ProfilerMetricAllocsGC:
-		drawAllocsGCChart(d, w, h, frames)
+		drawAllocsGCChart(d, p, w, h, frames)
 	case ProfilerMetricMemory:
-		drawMemoryChart(d, w, h, frames, s.Readout.AssetMemory)
+		drawMemoryChart(d, p, w, h, frames, s.Readout.AssetMemory)
 	}
 	d.Restore()
 }
 
-func drawFrameBreakdownChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
+func drawFrameBreakdownChart(d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	maxMs := 20.0
@@ -1206,13 +1190,13 @@ func drawFrameBreakdownChart(d *core.Drawing, w, h float32, frames []ProfilerFra
 	} {
 		y := yFor(th.ms)
 		d.Save()
-		d.SetStrokeColor(specLineRaised).SetLineWidth(1)
+		d.SetStrokeColor(p.LineRaised).SetLineWidth(1)
 		if th.dash {
 			d.SetLineDash(3, 3)
 		}
 		d.BeginPath().MoveTo(0, y).LineTo(w, y).Stroke()
 		d.Restore()
-		d.SetFillColor(specTextMuted).FillText(th.label, 4, max(topPad, y-3), core.Font{Family: core.FontMonospace, Size: 10})
+		d.SetFillColor(p.TextFaint).FillText(th.label, 4, max(topPad, y-3), core.Font{Family: core.FontMonospace, Size: 10})
 	}
 
 	slotW := (w - 4) / float32(profilerStripBars)
@@ -1222,6 +1206,7 @@ func drawFrameBreakdownChart(d *core.Drawing, w, h float32, frames []ProfilerFra
 	}
 	barW := max(float32(1), slotW-gap)
 	startSlot := profilerStripBars - len(frames)
+	barNormal := specAlpha(p.TextFaint, 0.45)
 
 	for i, f := range frames {
 		x := float32(startSlot+i) * slotW
@@ -1242,35 +1227,35 @@ func drawFrameBreakdownChart(d *core.Drawing, w, h float32, frames []ProfilerFra
 		}
 
 		// Remaining frame time (idle/overhead), colored warning/problem on spikes.
-		bgCol := specBarNormal
+		bgCol := barNormal
 		if f.FrameMs > profilerMissedThresholdMs {
-			bgCol = specProblem
+			bgCol = p.Removed.Fg
 		} else if f.FrameMs > profilerOverThresholdMs {
-			bgCol = specWarning
+			bgCol = p.Warning.Fg
 		}
 		d.SetFillColor(bgCol).FillRect(x, h-totH, barW, totH)
 		if updH > 0 {
-			d.SetFillColor(specAccent).FillRect(x, h-updH, barW, updH)
+			d.SetFillColor(p.Accent.Fg).FillRect(x, h-updH, barW, updH)
 		}
 		if drwH > 0 {
-			d.SetFillColor(specChanged).FillRect(x, h-updH-drwH, barW, drwH)
+			d.SetFillColor(p.Changed.Fg).FillRect(x, h-updH-drwH, barW, drwH)
 		}
 		if f.GCHitch {
-			d.SetFillColor(specAgent).FillRect(x, topPad, barW, 3)
+			d.SetFillColor(p.Agent.Fg).FillRect(x, topPad, barW, 3)
 		}
 	}
 
 	// Compact inline legend in top-right corner using Spec tokens.
 	font := core.Font{Family: core.FontMonospace, Size: 10}
-	d.SetFillColor(specAccent).FillRect(w-180, 4, 8, 8)
-	d.SetFillColor(specTextSecondary).FillText("Update", w-168, 12, font)
-	d.SetFillColor(specChanged).FillRect(w-116, 4, 8, 8)
-	d.SetFillColor(specTextSecondary).FillText("Draw", w-104, 12, font)
-	d.SetFillColor(specAgent).FillRect(w-64, 4, 8, 8)
-	d.SetFillColor(specTextSecondary).FillText("GC", w-52, 12, font)
+	d.SetFillColor(p.Accent.Fg).FillRect(w-180, 4, 8, 8)
+	d.SetFillColor(p.TextMuted).FillText("Update", w-168, 12, font)
+	d.SetFillColor(p.Changed.Fg).FillRect(w-116, 4, 8, 8)
+	d.SetFillColor(p.TextMuted).FillText("Draw", w-104, 12, font)
+	d.SetFillColor(p.Agent.Fg).FillRect(w-64, 4, 8, 8)
+	d.SetFillColor(p.TextMuted).FillText("GC", w-52, 12, font)
 }
 
-func drawFPSChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
+func drawFPSChart(d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	maxFPS := 75.0
@@ -1292,21 +1277,21 @@ func drawFPSChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
 
 	y60 := yFor(60)
 	d.Save()
-	d.SetStrokeColor(specLineRaised).SetLineWidth(1).BeginPath().MoveTo(0, y60).LineTo(w, y60).Stroke()
+	d.SetStrokeColor(p.LineRaised).SetLineWidth(1).BeginPath().MoveTo(0, y60).LineTo(w, y60).Stroke()
 	d.Restore()
-	d.SetFillColor(specTextMuted).FillText("60 fps", 4, max(topPad, y60-3), core.Font{Family: core.FontMonospace, Size: 10})
+	d.SetFillColor(p.TextFaint).FillText("60 fps", 4, max(topPad, y60-3), core.Font{Family: core.FontMonospace, Size: 10})
 
 	y30 := yFor(30)
 	d.Save()
-	d.SetStrokeColor(specWarningEdge).SetLineWidth(1).SetLineDash(3, 3).BeginPath().MoveTo(0, y30).LineTo(w, y30).Stroke()
+	d.SetStrokeColor(p.Warning.Edge).SetLineWidth(1).SetLineDash(3, 3).BeginPath().MoveTo(0, y30).LineTo(w, y30).Stroke()
 	d.Restore()
-	d.SetFillColor(specTextMuted).FillText("30 fps", 4, max(topPad, y30-3), core.Font{Family: core.FontMonospace, Size: 10})
+	d.SetFillColor(p.TextFaint).FillText("30 fps", 4, max(topPad, y30-3), core.Font{Family: core.FontMonospace, Size: 10})
 
 	slotW := (w - 4) / float32(profilerStripBars)
 	startSlot := profilerStripBars - len(frames)
 
 	d.Save()
-	d.SetStrokeColor(specAdded).SetLineWidth(2).BeginPath()
+	d.SetStrokeColor(p.Added.Fg).SetLineWidth(2).BeginPath()
 	for i, f := range frames {
 		x := float32(startSlot+i)*slotW + slotW/2
 		y := yFor(f.FPS)
@@ -1320,7 +1305,7 @@ func drawFPSChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
 	d.Restore()
 }
 
-func drawAllocsGCChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
+func drawAllocsGCChart(d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	maxAllocs := 10.0
@@ -1345,16 +1330,16 @@ func drawAllocsGCChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
 			if bh < 2 {
 				bh = 2
 			}
-			d.SetFillColor(specAgent).FillRect(x, h-bh, barW, bh)
+			d.SetFillColor(p.Agent.Fg).FillRect(x, h-bh, barW, bh)
 		}
 		if f.GCHitch {
-			d.SetFillColor(specProblem).FillRect(x, topPad, max(float32(2), barW), plotH)
+			d.SetFillColor(p.Removed.Fg).FillRect(x, topPad, max(float32(2), barW), plotH)
 		}
 	}
 
-	// Overlay live heap curve in accent (#3B7BFF).
+	// Overlay live heap curve in accent.
 	d.Save()
-	d.SetStrokeColor(specAccent).SetLineWidth(1.5).BeginPath()
+	d.SetStrokeColor(p.Accent.Fg).SetLineWidth(1.5).BeginPath()
 	for i, f := range frames {
 		x := float32(startSlot+i)*slotW + slotW/2
 		y := h - float32(float64(f.HeapBytes)/float64(maxHeap))*plotH
@@ -1368,16 +1353,16 @@ func drawAllocsGCChart(d *core.Drawing, w, h float32, frames []ProfilerFrame) {
 	d.Restore()
 
 	font := core.Font{Family: core.FontMonospace, Size: 10}
-	d.SetFillColor(specTextMuted).FillText(fmt.Sprintf("max %.0f allocs/f · heap %s", maxAllocs, formatProfilerUintBytes(maxHeap)), 4, 12, font)
-	d.SetFillColor(specAgent).FillRect(w-176, 4, 8, 8)
-	d.SetFillColor(specTextSecondary).FillText("Allocs", w-164, 12, font)
-	d.SetFillColor(specAccent).FillRect(w-112, 4, 8, 8)
-	d.SetFillColor(specTextSecondary).FillText("Heap", w-100, 12, font)
-	d.SetFillColor(specProblem).FillRect(w-56, 4, 8, 8)
-	d.SetFillColor(specTextSecondary).FillText("Hitch", w-44, 12, font)
+	d.SetFillColor(p.TextFaint).FillText(fmt.Sprintf("max %.0f allocs/f · heap %s", maxAllocs, formatProfilerUintBytes(maxHeap)), 4, 12, font)
+	d.SetFillColor(p.Agent.Fg).FillRect(w-176, 4, 8, 8)
+	d.SetFillColor(p.TextMuted).FillText("Allocs", w-164, 12, font)
+	d.SetFillColor(p.Accent.Fg).FillRect(w-112, 4, 8, 8)
+	d.SetFillColor(p.TextMuted).FillText("Heap", w-100, 12, font)
+	d.SetFillColor(p.Removed.Fg).FillRect(w-56, 4, 8, 8)
+	d.SetFillColor(p.TextMuted).FillText("Hitch", w-44, 12, font)
 }
 
-func drawMemoryChart(d *core.Drawing, w, h float32, frames []ProfilerFrame, summary *mcp.PerfMemorySummary) {
+func drawMemoryChart(d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame, summary *mcp.PerfMemorySummary) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	var maxBytes int64 = 1 << 20
@@ -1409,17 +1394,17 @@ func drawMemoryChart(d *core.Drawing, w, h float32, frames []ProfilerFrame, summ
 	if budget > 0 {
 		yb := yFor(budget)
 		d.Save()
-		d.SetStrokeColor(specProblemEdge).SetLineWidth(1).SetLineDash(4, 3).BeginPath().MoveTo(0, yb).LineTo(w, yb).Stroke()
+		d.SetStrokeColor(specAlpha(p.Removed.Fg, 0.50)).SetLineWidth(1).SetLineDash(4, 3).BeginPath().MoveTo(0, yb).LineTo(w, yb).Stroke()
 		d.Restore()
-		d.SetFillColor(specProblem).FillText("budget "+formatProfilerBytes(budget), 4, max(topPad, yb-3), core.Font{Family: core.FontMonospace, Size: 10})
+		d.SetFillColor(p.Removed.Fg).FillText("budget "+formatProfilerBytes(budget), 4, max(topPad, yb-3), core.Font{Family: core.FontMonospace, Size: 10})
 	}
 
 	slotW := (w - 4) / float32(profilerStripBars)
 	startSlot := profilerStripBars - len(frames)
 
-	lineColor := specChanged
+	lineColor := p.Changed.Fg
 	if summary != nil && summary.OverBudget {
-		lineColor = specProblem
+		lineColor = p.Removed.Fg
 	}
 	d.Save()
 	d.SetStrokeColor(lineColor).SetLineWidth(2).BeginPath()
@@ -1442,16 +1427,16 @@ func drawMemoryChart(d *core.Drawing, w, h float32, frames []ProfilerFrame, summ
 			if i >= 4 {
 				break
 			}
-			col := specTextSecondary
+			col := p.TextMuted
 			if g.OverBudget {
-				col = specProblem
+				col = p.Removed.Fg
 			}
 			txt := fmt.Sprintf("%s %s", g.Group, formatProfilerBytes(g.TotalBytes))
 			d.SetFillColor(col).FillText(txt, x, 12, font)
 			x += float32(len(txt)*6 + 16)
 		}
 	} else {
-		d.SetFillColor(specTextMuted).FillText("Asset memory over time", 4, 12, font)
+		d.SetFillColor(p.TextFaint).FillText("Asset memory over time", 4, 12, font)
 	}
 }
 

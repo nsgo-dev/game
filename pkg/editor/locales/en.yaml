@@ -796,14 +796,18 @@ strings:
   menu.changes: Changes & Commit
   menu.checkProblems: Check Problems
   menu.closeTab: Close Scene Tab
+  menu.collider: Collider
   menu.commandPalette: Command Palette...
   menu.connectAgent: Connect an Agent...
   menu.copy: Copy
+  menu.copyTileRegion: Copy Tile Region
   menu.cut: Cut
+  menu.cutTileRegion: Cut Tile Region
   menu.delete: Delete
   menu.duplicate: Duplicate
   menu.edit: Edit
   menu.editorSettings: Editor Settings...
+  menu.environmentPanel: Scene Environment
   menu.eraseTile: Erase Tile
   menu.export: Export & Release...
   menu.file: File
@@ -815,8 +819,10 @@ strings:
   menu.group: Group
   menu.help: Help
   menu.history: History
+  menu.hudLayout: HUD & Menu Layout
   menu.inspectorPanel: Inspector Panel
   menu.lightingPreview: 2D Lighting Preview
+  menu.lineTile: Line Tile
   menu.localization: Localization Strings
   menu.makeInstanceLocal: Make Instance Local
   menu.materialEditor: Material Editor
@@ -837,6 +843,7 @@ strings:
   menu.particleEditor: Particle Emitter Editor
   menu.paste: Paste
   menu.pasteInto: Paste as Child
+  menu.pasteTileRegion: Paste Tile Region
   menu.permissions: Permissions...
   menu.place: Place
   menu.play: Play
@@ -846,6 +853,8 @@ strings:
   menu.profiler: Profiler
   menu.project: Project
   menu.projectSettings: Project Settings
+  menu.randomTile: Random Tile
+  menu.rectTile: Rectangle Tile
   menu.redo: Redo
   menu.replayTips: Replay tips
   menu.resetLayout: Reset Layout
@@ -862,10 +871,12 @@ strings:
   menu.shortcutsSettings: Keyboard Shortcuts...
   menu.shortcutsSheet: Keyboard Shortcuts
   menu.sketch: Sketch
+  menu.stampTile: Stamp Tile
   menu.startScreen: Start Screen
   menu.stop: Stop
   menu.tasks: Background Tasks
   menu.terrain: Terrain
+  menu.terrainEditor: 3D Terrain Editor
   menu.toggleAllShapes: Show All Component Shapes
   menu.toggleShowGrid: Show Snap Grid
   menu.toggleSnapGrid: Snap to Grid
@@ -879,6 +890,7 @@ strings:
   menu.view: View
   menu.view2d: 2D View
   menu.view3d: 3D View
+  menu.view3dCamera: Look Through Scene Camera
   models.askForOne: Or ask for one
   models.askForOneHint: Describe a model… e.g. a low stone planter, 1 × 0.5 m, same stone as the walls
   models.dragIn: drag in
@@ -932,19 +944,28 @@ strings:
   overrides.overridesSource: Overrides source value {value}
   overrides.revertAll: Revert All
   overrides.revertField: Revert {field}
-  palette.empty: No matching commands or files
+  palette.askAgent: 'Ask the agent: {query}'
+  palette.askAgentDesc: Open in the Agent panel composer
+  palette.askAgentStaged: Prompt ready in Agent panel
+  palette.askAgentTitle: Ask the agent
+  palette.empty: No matching commands, nodes, or files
+  palette.group.agent: Agent
   palette.group.commands: Commands
   palette.group.files: Files
+  palette.group.nodes: Nodes
+  palette.group.nodesScene: Nodes · {scene}
   palette.group.pluginPanels: Plugin Panels
   palette.group.pluginTools: Plugin Tools
+  palette.group.recent: Recent
   palette.group.scenes: Scenes
+  palette.group.settings: Settings
   palette.label: Command Palette
   palette.openScene: Open scene
-  palette.placeholder: Type a command, tool, panel, or file...
+  palette.placeholder: Search or ask the agent… (> commands  @ nodes
   palette.pluginPanelDesc: Plugin panel ({plugin}, {dock})
   palette.pluginToolDesc: Plugin tool ({plugin})
   palette.projectFile: Project file
-  palette.searchLabel: Search commands
+  palette.searchLabel: Search commands, nodes, and files
   permissions.action.code: Code
   permissions.action.create: Create
   permissions.action.delete: Delete
@@ -1090,12 +1111,20 @@ strings:
   scene.untitled: Untitled
   scene.untitledScene: Untitled Scene
   sceneTree.active: active
+  sceneTree.addEmptyObject: Add Empty Object
+  sceneTree.addLayer: Add Layer
+  sceneTree.addLight: Add Light
+  sceneTree.addMenuLabel: Add object or layer
+  sceneTree.addTrigger: Add Trigger
   sceneTree.changeID: Change ID
   sceneTree.copy: Copy
   sceneTree.cut: Cut
   sceneTree.delete: Delete
   sceneTree.duplicate: Duplicate
   sceneTree.expand: Expand
+  sceneTree.filterClear: Clear scene filter
+  sceneTree.filterPlaceholder: Filter nodes…
+  sceneTree.filterToggle: Filter scene tree
   sceneTree.findUsages: Find Usages
   sceneTree.group: Group
   sceneTree.hide: Hide in Viewport
@@ -1111,6 +1140,7 @@ strings:
   sceneTree.moveDown: Move Down
   sceneTree.moveToLayer: Move to Layer {name}
   sceneTree.moveUp: Move Up
+  sceneTree.noMatches: No matching nodes
   sceneTree.nodeCount: '{count} nodes'
   sceneTree.nodeCountOne: 1 node
   sceneTree.objectID: Object ID

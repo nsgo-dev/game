@@ -1061,6 +1061,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 			Children: []core.Node{
 				ui.Checkbox{
 					TestID:   "inspector-layer-repeat-x",
+					Text:     "X",
 					Label:    "X",
 					Disabled: disabled,
 					Checked: func() bool {
@@ -1075,6 +1076,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				},
 				ui.Checkbox{
 					TestID:   "inspector-layer-repeat-y",
+					Text:     "Y",
 					Label:    "Y",
 					Disabled: disabled,
 					Checked: func() bool {

@@ -42,7 +42,43 @@ func (e *Editor) SetCanvasSize(w, h float32) {
 	if e == nil || !(w > 0 && h > 0) || !isFiniteFloat32(w) || !isFiniteFloat32(h) {
 		return
 	}
+	if e.canvasW == w && e.canvasH == h {
+		return
+	}
 	e.canvasW, e.canvasH = w, h
+	e.notifyCanvasSize()
+}
+
+// CanvasSizeRevision returns a counter incremented whenever the viewport canvas dimensions change.
+func (e *Editor) CanvasSizeRevision() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.canvasSizeRev
+}
+
+// SubscribeCanvasSize registers fn to run whenever SetCanvasSize records new viewport dimensions,
+// returning an unsubscribe function. Unlike Subscribe, it fires without bumping Editor.Revision.
+func (e *Editor) SubscribeCanvasSize(fn func()) func() {
+	if e == nil || fn == nil {
+		return func() {}
+	}
+	e.nextCanvasSizeListener++
+	id := e.nextCanvasSizeListener
+	if e.canvasSizeListeners == nil {
+		e.canvasSizeListeners = make(map[uint64]func())
+	}
+	e.canvasSizeListeners[id] = fn
+	return func() {
+		delete(e.canvasSizeListeners, id)
+	}
+}
+
+func (e *Editor) notifyCanvasSize() {
+	e.canvasSizeRev++
+	for _, fn := range e.canvasSizeListeners {
+		fn()
+	}
 }
 
 // View2D returns the 2D viewport's view. Until the author pans or zooms (or after ResetView2D) it is the scene camera's view: the scene's virtual screen centered on the canvas at the camera's zoom (clamped to [MinView2DZoom, MaxView2DZoom]) and rotation, following the camera as it is edited. While the scene plays it is the scene camera's view too, so Play shows the player's frame as the game does; the author's own view comes back on Stop.

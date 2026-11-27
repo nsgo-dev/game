@@ -58,37 +58,40 @@ func BuildReleaseScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		}
 	})
 
-	return core.View{
-		TestID: "build-release-screen",
-		Role:   core.RoleRegion,
-		Label:  "Build and release",
-		Style: core.Style{
-			Position:   core.Relative,
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			buildReleaseHeaderView(cx, ed, brRev, versionDraft),
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					buildReleaseLeftColumnView(cx, ed, brRev, notesDraft),
-					buildReleaseDetailPaneView(cx, ed, brRev),
-				},
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "build-release-screen",
+			Role:   core.RoleRegion,
+			Label:  "Build and release",
+			Style: core.Style{
+				Position:   core.Relative,
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
 			},
-			buildReleaseReviewUploadsOverlay(cx, ed, brRev),
-		},
-	}
+			Children: []core.Node{
+				buildReleaseHeaderView(cx, p, ed, brRev, versionDraft),
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						buildReleaseLeftColumnView(cx, p, ed, brRev, notesDraft),
+						buildReleaseDetailPaneView(cx, p, ed, brRev),
+					},
+				},
+				buildReleaseReviewUploadsOverlay(cx, ed, brRev),
+			},
+		}
+	})
 }
 
-func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64], versionDraft *core.Signal[string]) core.Node {
+func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *core.Memo[uint64], versionDraft *core.Signal[string]) core.Node {
 	projectNameMemo := core.NewMemo(cx, func() string {
 		_ = brRev.Get()
 		name := ed.BuildReleaseSnapshot().ProjectName
@@ -112,9 +115,9 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 			AlignItems:  core.AlignCenter,
 			Gap:         10,
 			Padding:     core.Symmetric(0, 12),
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -128,8 +131,8 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 					Gap:          8,
 					Padding:      core.Symmetric(0, 6),
 					CornerRadius: 6,
-					Hover:        &core.Style{Background: specRaised},
-					FocusVisible: specFocusRingStyle,
+					Hover:        &core.Style{Background: p.Raised},
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.CloseBuildReleaseScreen()
@@ -140,28 +143,29 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 							Width:        core.Pt(20),
 							Height:       core.Pt(20),
 							CornerRadius: 5,
-							Background:   specAccent,
+							Background:   p.Accent.Fg,
 						},
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
+						cur := ed.SpecPalette(cx)
 						return core.Text{
 							Content: projectNameMemo.Get(),
-							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: specTextStrong},
+							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: cur.TextPrimary},
 						}
 					}),
 					core.Text{
 						Content: "/",
-						Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 					core.Text{
 						Content: "Release",
-						Style:   core.Style{FontSize: 12.5, Color: specTextSecondary},
+						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
 				},
 			},
 			core.Text{
 				Content: "Version",
-				Style:   core.Style{FontSize: 12, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 			},
 			core.View{
 				Style: core.Style{Width: core.Pt(72)},
@@ -182,11 +186,11 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 						Style: core.Style{
 							Width:        core.Pct(100),
 							Height:       core.Pt(28),
-							Background:   specRaised,
+							Background:   p.Raised,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 							CornerRadius: 6,
-							Color:        specTextStrong,
+							Color:        p.TextPrimary,
 							FontSize:     11.5,
 						},
 					},
@@ -194,15 +198,16 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
+				p := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
 
 				includedCount := 0
 				doneCount := 0
 				failedCount := 0
-				for _, p := range snap.Presets {
-					if p.Included && p.Status != BuildPresetSetup {
+				for _, pr := range snap.Presets {
+					if pr.Included && pr.Status != BuildPresetSetup {
 						includedCount++
-						switch p.Status {
+						switch pr.Status {
 						case BuildPresetDone:
 							doneCount++
 						case BuildPresetFailed:
@@ -213,48 +218,48 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 
 				chipText := fmt.Sprintf("Ready · %d presets", includedCount)
 				var chipBg core.Color
-				chipBorder := specLineRaised
-				chipFg := specTextSecondary
-				dotColor := specTextMuted
+				chipBorder := p.LineRaised
+				chipFg := p.TextMuted
+				dotColor := p.TextFaint
 				switch {
 				case snap.Running:
 					chipText = fmt.Sprintf("Building · %d of %d done", doneCount, includedCount)
-					chipBg = specAgentTint
-					chipBorder = specAgentEdge
-					chipFg = specText
-					dotColor = specAgent
+					chipBg = p.Agent.Fill
+					chipBorder = p.Agent.Edge
+					chipFg = p.TextSecondary
+					dotColor = p.Agent.Fg
 				case snap.Stopped:
 					chipText = fmt.Sprintf("Stopped · %d of %d done", doneCount, includedCount)
-					chipBorder = specLineRaised
-					chipFg = specTextSecondary
-					dotColor = specTextMuted
+					chipBorder = p.LineRaised
+					chipFg = p.TextMuted
+					dotColor = p.TextFaint
 				case failedCount > 0:
 					chipText = fmt.Sprintf("%d of %d done · %d failed", doneCount, includedCount, failedCount)
-					chipBg = specProblemTint
-					chipBorder = specProblemEdge
-					chipFg = specText
-					dotColor = specProblem
+					chipBg = p.Removed.Fill
+					chipBorder = p.Removed.Edge
+					chipFg = p.TextSecondary
+					dotColor = p.Removed.Fg
 				case doneCount > 0 && doneCount == includedCount:
 					chipText = fmt.Sprintf("Done · %d of %d built", doneCount, includedCount)
-					chipBg = specAddedFill
-					chipBorder = specAddedEdge
-					chipFg = specText
-					dotColor = specAdded
+					chipBg = p.Added.Fill
+					chipBorder = p.Added.Edge
+					chipFg = p.TextSecondary
+					dotColor = p.Added.Fg
 				}
 
 				actionLabel := "Build"
-				actionBg := specAccent
-				actionFg := specBg
+				actionBg := p.Accent.Fg
+				actionFg := p.Accent.OnFill
 				actionIcon := lucide.Play
 				if snap.Running {
 					actionLabel = "Stop"
-					actionBg = specLineRaised
-					actionFg = specTextStrong
+					actionBg = p.LineRaised
+					actionFg = p.TextPrimary
 					actionIcon = lucide.Square
 				} else if snap.Stopped {
 					actionLabel = "Resume"
-					actionBg = specAccent
-					actionFg = specBg
+					actionBg = p.Accent.Fg
+					actionFg = p.Accent.OnFill
 					actionIcon = lucide.Play
 				}
 
@@ -280,10 +285,10 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 						core.Text{
 							TestID:  "build-release-meta",
 							Content: metaText,
-							Style:   core.Style{FontSize: 12, Color: specTextMuted, FontVariant: core.FontTabularNums},
+							Style:   core.Style{FontSize: 12, Color: p.TextFaint, FontVariant: core.FontTabularNums},
 						},
 						core.View{Style: core.Style{FlexGrow: 1}},
-						buildReleasePillButton("build-release-dry-run", "Dry Run", snap.DryRun, snap.Running, func() {
+						buildReleasePillButton(p, "build-release-dry-run", "Dry Run", snap.DryRun, snap.Running, func() {
 							ed.SetReleaseDryRun(!snap.DryRun)
 						}),
 						core.View{
@@ -326,7 +331,7 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 								Padding:      core.Symmetric(0, 12),
 								CornerRadius: 8,
 								Background:   actionBg,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: p.FocusRing(2),
 							},
 							OnPress: func(core.PressEvent) {
 								switch {
@@ -353,14 +358,14 @@ func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]
 	}
 }
 
-func buildReleasePillButton(testID, label string, active, disabled bool, onPress func()) core.Node {
-	bg := specRaised
-	border := specLineRaised
-	fg := specTextSecondary
+func buildReleasePillButton(p SpecPalette, testID, label string, active, disabled bool, onPress func()) core.Node {
+	bg := p.Raised
+	border := p.LineRaised
+	fg := p.TextMuted
 	if active {
-		bg = specAccentTint
-		border = specAccent
-		fg = specTextStrong
+		bg = p.Accent.Fill
+		border = p.Accent.Fg
+		fg = p.TextPrimary
 	}
 	return core.View{
 		TestID: testID,
@@ -375,7 +380,7 @@ func buildReleasePillButton(testID, label string, active, disabled bool, onPress
 			Background:   bg,
 			BorderWidth:  1,
 			BorderColor:  border,
-			FocusVisible: specFocusRingStyle,
+			FocusVisible: p.FocusRing(2),
 		},
 		OnPress: func(core.PressEvent) {
 			if !disabled {
@@ -391,38 +396,40 @@ func buildReleasePillButton(testID, label string, active, disabled bool, onPress
 	}
 }
 
-func buildReleaseLeftColumnView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
+func buildReleaseLeftColumnView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
 	return core.View{
 		TestID: "build-release-left-column",
 		Style: core.Style{
 			Width:       core.Pt(500),
 			Height:      core.Pct(100),
 			FlexShrink:  0,
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Overflow:    core.Hidden,
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
+				cur := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
-				return buildReleasePreflightSection(snap.Preflight)
+				return buildReleasePreflightSection(cur, snap.Preflight)
 			}),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
+				cur := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
-				return buildReleasePresetsSection(ed, snap)
+				return buildReleasePresetsSection(cur, ed, snap)
 			}),
-			buildReleaseNotesSection(ed, brRev, notesDraft),
-			buildReleasePublishFooter(ed),
+			buildReleaseNotesSection(p, ed, brRev, notesDraft),
+			buildReleasePublishFooter(p, ed),
 		},
 	}
 }
 
-func buildReleasePreflightSection(pf BuildPreflightSummary) core.Node {
+func buildReleasePreflightSection(p SpecPalette, pf BuildPreflightSummary) core.Node {
 	checkIcon := lucide.Check()
-	checkColor := specAdded
+	checkColor := p.Added.Fg
 	checkDetail := "not run yet"
 	if pf.CheckRan {
 		elapsed := formatBuildDuration(pf.CheckElapsed)
@@ -431,11 +438,11 @@ func buildReleasePreflightSection(pf BuildPreflightSummary) core.Node {
 		}
 		if pf.CheckErr != "" {
 			checkIcon = lucide.CircleAlert()
-			checkColor = specProblem
+			checkColor = p.Removed.Fg
 			checkDetail = "error · " + elapsed
 		} else if pf.CheckProblems > 0 {
 			checkIcon = lucide.CircleAlert()
-			checkColor = specProblem
+			checkColor = p.Removed.Fg
 			checkDetail = fmt.Sprintf("%d problems · %s", pf.CheckProblems, elapsed)
 		} else {
 			checkDetail = fmt.Sprintf("0 problems · %s", elapsed)
@@ -466,9 +473,9 @@ func buildReleasePreflightSection(pf BuildPreflightSummary) core.Node {
 		FlexBasis:    core.Pt(0),
 		Padding:      core.Symmetric(10, 12),
 		CornerRadius: 12,
-		Background:   specRaised,
+		Background:   p.Raised,
 		BorderWidth:  1,
-		BorderColor:  specLineRaised,
+		BorderColor:  p.LineRaised,
 		Gap:          4,
 	}
 
@@ -485,7 +492,7 @@ func buildReleasePreflightSection(pf BuildPreflightSummary) core.Node {
 					FontSize:      11,
 					FontWeight:    core.FontWeightSemibold,
 					LetterSpacing: 0.7,
-					Color:         specTextMuted,
+					Color:         p.TextFaint,
 				},
 			},
 			core.View{
@@ -499,26 +506,26 @@ func buildReleasePreflightSection(pf BuildPreflightSummary) core.Node {
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 								Children: []core.Node{
 									buildSpecIcon(checkIcon, 13, checkColor),
-									core.Text{Content: "nsgo check", Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
+									core.Text{Content: "nsgo check", Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
 								},
 							},
-							core.Text{Content: checkDetail, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+							core.Text{Content: checkDetail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
 					core.View{
 						TestID: "build-preflight-smoke",
 						Style:  cardStyle,
 						Children: []core.Node{
-							core.Text{Content: "Smoke playtest", Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
-							core.Text{Content: smokeDetail, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+							core.Text{Content: "Smoke playtest", Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+							core.Text{Content: smokeDetail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
 					core.View{
 						TestID: "build-preflight-budgets",
 						Style:  cardStyle,
 						Children: []core.Node{
-							core.Text{Content: fmt.Sprintf("Budgets · %s profile", profile), Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
-							core.Text{Content: budgetDetail, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+							core.Text{Content: fmt.Sprintf("Budgets · %s profile", profile), Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+							core.Text{Content: budgetDetail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
 				},
@@ -527,10 +534,10 @@ func buildReleasePreflightSection(pf BuildPreflightSummary) core.Node {
 	}
 }
 
-func buildReleasePresetsSection(ed *Editor, snap BuildReleaseSnapshot) core.Node {
+func buildReleasePresetsSection(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot) core.Node {
 	rows := make([]core.Node, 0, len(snap.Presets))
-	for _, p := range snap.Presets {
-		rows = append(rows, buildPresetRowView(ed, p, p.Platform == snap.SelectedPlatform, snap.Running))
+	for _, pr := range snap.Presets {
+		rows = append(rows, buildPresetRowView(p, ed, pr, pr.Platform == snap.SelectedPlatform, snap.Running))
 	}
 	return core.View{
 		TestID: "build-release-presets",
@@ -554,12 +561,12 @@ func buildReleasePresetsSection(ed *Editor, snap BuildReleaseSnapshot) core.Node
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
 							LetterSpacing: 0.7,
-							Color:         specTextMuted,
+							Color:         p.TextFaint,
 						},
 					},
 					core.Text{
 						Content: "size vs " + snap.LastReleaseVersion,
-						Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightMedium, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightMedium, Color: p.TextFaint},
 					},
 				},
 			},
@@ -571,54 +578,54 @@ func buildReleasePresetsSection(ed *Editor, snap BuildReleaseSnapshot) core.Node
 	}
 }
 
-func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) core.Node {
-	plat := p.Platform
+func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selected, running bool) core.Node {
+	plat := entry.Platform
 	var rowBg core.Color
 	var leftBarColor core.Color
 	if selected {
-		rowBg = specSelectedRowFill
-		leftBarColor = specAccent
+		rowBg = specAlpha(p.Accent.Fg, 0.14)
+		leftBarColor = p.Accent.Fg
 	}
 	var opacity core.Opacity
-	if !p.Included {
+	if !entry.Included {
 		opacity = core.Alpha(0.6)
 	}
 
 	var boxBg core.Color
-	boxBorder := specTextMuted
+	boxBorder := p.TextFaint
 	var boxBorderW core.Points = 1.5
 	var checkChildren []core.Node
-	if p.Included {
-		boxBg = specAccent
-		boxBorder = specAccent
+	if entry.Included {
+		boxBg = p.Accent.Fg
+		boxBorder = p.Accent.Fg
 		boxBorderW = 0
-		checkChildren = []core.Node{buildSpecIcon(lucide.Check(), 10, specTextStrong)}
+		checkChildren = []core.Node{buildSpecIcon(lucide.Check(), 10, p.Accent.OnFill)}
 	}
 
 	iconSVG := lucide.Monitor()
-	switch p.IconKind {
+	switch entry.IconKind {
 	case "web":
 		iconSVG = lucide.Globe()
 	case "phone":
 		iconSVG = lucide.Smartphone()
 	}
 
-	chipBg, chipBorder, chipFg, chipIcon, chipIconColor := presetStatusChipStyle(p.Status)
+	chipBg, chipBorder, chipFg, chipIcon, chipIconColor := presetStatusChipStyle(p, entry.Status)
 	var chipChildren []core.Node
 	if chipIcon != nil {
 		chipChildren = append(chipChildren, buildSpecIcon(chipIcon, 11, chipIconColor))
-	} else if p.Status == BuildPresetBuilding || p.Status == BuildPresetNotarizing {
+	} else if entry.Status == BuildPresetBuilding || entry.Status == BuildPresetNotarizing {
 		chipChildren = append(chipChildren, core.View{
 			Style: core.Style{
 				Width:        core.Pt(8),
 				Height:       core.Pt(8),
 				CornerRadius: 4,
-				Background:   specAgent,
+				Background:   p.Agent.Fg,
 			},
 		})
 	}
 	chipChildren = append(chipChildren, core.Text{
-		Content: p.StatusText,
+		Content: entry.StatusText,
 		Style:   core.Style{FontSize: 11.5, Color: chipFg},
 	})
 
@@ -635,13 +642,13 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 			Opacity:      opacity,
 			Borders:      core.Edges{Left: 2},
 			BorderColor:  leftBarColor,
-			Hover:        &core.Style{Background: specRaised},
+			Hover:        &core.Style{Background: p.Raised},
 		},
 		Children: []core.Node{
 			core.View{
 				TestID: "build-preset-check-" + plat,
 				Role:   core.RoleCheckbox,
-				Label:  "Include " + p.Name + " in this release",
+				Label:  "Include " + entry.Name + " in this release",
 				Style: core.Style{
 					Width:          core.Pt(16),
 					Height:         core.Pt(16),
@@ -652,11 +659,11 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 					BorderColor:    boxBorder,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
-					FocusVisible:   specFocusRingStyle,
+					FocusVisible:   p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					if !running {
-						ed.report(ed.SetBuildPresetIncluded(plat, !p.Included))
+						ed.report(ed.SetBuildPresetIncluded(plat, !entry.Included))
 					}
 				},
 				Children: checkChildren,
@@ -664,7 +671,7 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 			core.View{
 				TestID: "build-preset-pick-" + plat,
 				Role:   core.RoleButton,
-				Label:  "Select " + p.Name + " preset",
+				Label:  "Select " + entry.Name + " preset",
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
@@ -672,7 +679,7 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
 					Gap:          10,
-					FocusVisible: specRowFocusRingStyle,
+					FocusVisible: p.FocusRing(-2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.SelectBuildPreset(plat)
@@ -684,19 +691,19 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 							Height:         core.Pt(28),
 							FlexShrink:     0,
 							CornerRadius:   8,
-							Background:     specLine,
+							Background:     p.Line,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 						},
 						Children: []core.Node{
-							buildSpecIcon(iconSVG, 15, specTextSecondary),
+							buildSpecIcon(iconSVG, 15, p.TextMuted),
 						},
 					},
 					core.View{
 						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2, Overflow: core.Hidden},
 						Children: []core.Node{
-							core.Text{Content: p.Name, Style: core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: specTextStrong}},
-							core.Text{Content: p.Summary, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+							core.Text{Content: entry.Name, Style: core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: p.TextPrimary}},
+							core.Text{Content: entry.Summary, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 						},
 					},
 					core.View{
@@ -720,13 +727,13 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 						Children: []core.Node{
 							core.Text{
 								TestID:  "build-preset-size-" + plat,
-								Content: p.SizeText,
-								Style:   core.Style{FontSize: 11.5, Color: specText, FontVariant: core.FontTabularNums},
+								Content: entry.SizeText,
+								Style:   core.Style{FontSize: 11.5, Color: p.TextSecondary, FontVariant: core.FontTabularNums},
 							},
 							core.Text{
 								TestID:  "build-preset-delta-" + plat,
-								Content: p.DeltaText,
-								Style:   core.Style{FontSize: 11, Color: specTextMuted, FontVariant: core.FontTabularNums},
+								Content: entry.DeltaText,
+								Style:   core.Style{FontSize: 11, Color: p.TextFaint, FontVariant: core.FontTabularNums},
 							},
 						},
 					},
@@ -736,22 +743,22 @@ func buildPresetRowView(ed *Editor, p BuildPresetEntry, selected, running bool) 
 	}
 }
 
-func presetStatusChipStyle(st BuildPresetStatus) (bg, border, fg core.Color, icon *core.SVG, iconColor core.Color) {
+func presetStatusChipStyle(p SpecPalette, st BuildPresetStatus) (bg, border, fg core.Color, icon *core.SVG, iconColor core.Color) {
 	switch st {
 	case BuildPresetBuilding, BuildPresetNotarizing:
-		return specAgentTint, specAgentEdge, specText, nil, specAgent
+		return p.Agent.Fill, p.Agent.Edge, p.TextSecondary, nil, p.Agent.Fg
 	case BuildPresetDone:
-		return 0, specLineRaised, specText, lucide.Check(), specAdded
+		return 0, p.LineRaised, p.TextSecondary, lucide.Check(), p.Added.Fg
 	case BuildPresetFailed:
-		return specProblemTint, specProblemEdge, specProblem, lucide.X(), specProblem
+		return p.Removed.Fill, p.Removed.Edge, p.Removed.Fg, lucide.X(), p.Removed.Fg
 	case BuildPresetSetup:
-		return specWarningFill, specWarningEdge, specWarning, nil, specWarning
+		return p.Warning.Fill, p.Warning.Edge, p.Warning.Fg, nil, p.Warning.Fg
 	default:
-		return 0, specLineRaised, specTextSecondary, nil, specTextSecondary
+		return 0, p.LineRaised, p.TextMuted, nil, p.TextMuted
 	}
 }
 
-func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
+func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
 	return core.View{
 		TestID: "build-release-notes-section",
 		Style: core.Style{
@@ -764,6 +771,7 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
+				cur := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				headerChildren := []core.Node{
 					core.Text{
@@ -772,7 +780,7 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 							FontSize:      11,
 							FontWeight:    core.FontWeightSemibold,
 							LetterSpacing: 0.7,
-							Color:         specTextMuted,
+							Color:         cur.TextFaint,
 						},
 					},
 				}
@@ -798,15 +806,15 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 							Gap:          5,
 							Padding:      core.Symmetric(0, 8),
 							CornerRadius: 11,
-							Background:   specAgentTint,
+							Background:   cur.Agent.Fill,
 							BorderWidth:  1,
-							BorderColor:  specAgentEdge,
+							BorderColor:  cur.Agent.Edge,
 						},
 						Children: []core.Node{
-							buildSpecIcon(lucide.Sparkles(), 11, specAgent),
+							buildSpecIcon(lucide.Sparkles(), 11, cur.Agent.Fg),
 							core.Text{
 								Content: provenance,
-								Style:   core.Style{FontSize: 11, Color: specText},
+								Style:   core.Style{FontSize: 11, Color: cur.TextSecondary},
 							},
 						},
 					})
@@ -836,12 +844,12 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 						Style: core.Style{
 							Width:        core.Pct(100),
 							Height:       core.Pct(100),
-							Background:   specRaised,
+							Background:   p.Raised,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 							CornerRadius: 12,
 							Padding:      core.Symmetric(8, 10),
-							Color:        specText,
+							Color:        p.TextSecondary,
 							FontSize:     12.5,
 						},
 					},
@@ -901,7 +909,7 @@ func buildReleaseNotesSection(ed *Editor, brRev *core.Memo[uint64], notesDraft *
 	}
 }
 
-func buildReleasePublishFooter(ed *Editor) core.Node {
+func buildReleasePublishFooter(p SpecPalette, ed *Editor) core.Node {
 	reviewBtnRef := &core.Ref{}
 	return core.View{
 		TestID: "build-release-publish-footer",
@@ -913,14 +921,14 @@ func buildReleasePublishFooter(ed *Editor) core.Node {
 			Gap:         12,
 			Padding:     core.Symmetric(0, 16),
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			core.View{
 				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: "Publish to itch.io, Google Play internal, TestFlight", Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
-					core.Text{Content: "Each upload asks first, whatever the permission profile", Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+					core.Text{Content: "Publish to itch.io, Google Play internal, TestFlight", Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+					core.Text{Content: "Each upload asks first, whatever the permission profile", Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 				},
 			},
 			core.View{
@@ -933,11 +941,11 @@ func buildReleasePublishFooter(ed *Editor) core.Node {
 					FlexShrink:     0,
 					Padding:        core.Symmetric(0, 12),
 					CornerRadius:   8,
-					Background:     specLineRaised,
+					Background:     p.LineRaised,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
-					Hover:          &core.Style{Background: specLine},
-					FocusVisible:   specFocusRingStyle,
+					Hover:          &core.Style{Background: p.Line},
+					FocusVisible:   p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					if ed.focus.ctrl != nil {
@@ -948,7 +956,7 @@ func buildReleasePublishFooter(ed *Editor) core.Node {
 				Children: []core.Node{
 					core.Text{
 						Content: "Review uploads…",
-						Style:   core.Style{FontSize: 12, Color: specText},
+						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 					},
 				},
 			},
@@ -956,19 +964,20 @@ func buildReleasePublishFooter(ed *Editor) core.Node {
 	}
 }
 
-func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64]) core.Node {
+func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *core.Memo[uint64]) core.Node {
 	return core.View{
 		TestID: "build-release-detail-pane",
 		Style: core.Style{
 			FlexGrow:   1,
 			FlexBasis:  core.Pt(0),
 			Height:     core.Pct(100),
-			Background: specPanel,
+			Background: p.Panel,
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
+				p := ed.SpecPalette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				sel := snap.SelectedPreset()
 				if sel == nil {
@@ -982,7 +991,7 @@ func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uin
 						Children: []core.Node{
 							core.Text{
 								Content: "No export presets configured yet.",
-								Style:   core.Style{FontSize: 13, Color: specTextMuted},
+								Style:   core.Style{FontSize: 13, Color: p.TextFaint},
 							},
 						},
 					}
@@ -992,18 +1001,18 @@ func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uin
 					core.Text{
 						TestID:  "build-detail-title",
 						Content: sel.Name,
-						Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: specTextStrong},
+						Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
 					},
 					core.Text{
 						TestID:  "build-detail-file",
 						Content: sel.File,
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 					core.View{Style: core.Style{FlexGrow: 1}},
 				}
 				if sel.Status == BuildPresetDone {
 					plat := sel.Platform
-					headerChildren = append(headerChildren, buildReleaseSecondaryButton("build-detail-show-finder", "Show in Finder", func() {
+					headerChildren = append(headerChildren, buildReleaseSecondaryButtonSpec(p, "build-detail-show-finder", "Show in Finder", func() {
 						ed.report(ed.ShowBuildArtifactInFinder(plat))
 					}))
 				}
@@ -1011,22 +1020,22 @@ func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uin
 				if snap.EditingPreset {
 					editLabel = "Done editing"
 				}
-				headerChildren = append(headerChildren, buildReleaseSecondaryButton("build-detail-edit-preset", editLabel, func() {
+				headerChildren = append(headerChildren, buildReleaseSecondaryButtonSpec(p, "build-detail-edit-preset", editLabel, func() {
 					ed.SetReleaseEditingPreset(!snap.EditingPreset)
 				}))
 
 				var body core.Node
 				switch sel.Status {
 				case BuildPresetBuilding, BuildPresetNotarizing:
-					body = buildDetailRunningView(ed, *sel, snap.FollowLog)
+					body = buildDetailRunningView(p, ed, *sel, snap.FollowLog)
 				case BuildPresetFailed:
-					body = buildDetailFailedView(ed, *sel, snap.ShowWholeLog)
+					body = buildDetailFailedView(p, ed, *sel, snap.ShowWholeLog)
 				case BuildPresetDone:
 					body = buildDetailDoneView(cx, ed, snap, *sel)
 				case BuildPresetSetup:
-					body = buildDetailReadinessView(ed, *sel)
+					body = buildDetailReadinessView(p, ed, *sel)
 				default:
-					body = buildDetailQueuedView(ed, snap, *sel)
+					body = buildDetailQueuedView(p, ed, snap, *sel)
 				}
 
 				children := []core.Node{
@@ -1040,13 +1049,13 @@ func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uin
 							Gap:         12,
 							Padding:     core.Symmetric(0, 20),
 							Borders:     core.Edges{Bottom: 1},
-							BorderColor: specLine,
+							BorderColor: p.Line,
 						},
 						Children: headerChildren,
 					},
 				}
 				if snap.EditingPreset {
-					children = append(children, buildInlinePresetEditor(ed, *sel, snap.Running))
+					children = append(children, buildInlinePresetEditor(p, ed, *sel, snap.Running))
 				}
 				children = append(children, body)
 
@@ -1059,14 +1068,15 @@ func buildReleaseDetailPaneView(cx *core.Scope, ed *Editor, brRev *core.Memo[uin
 	}
 }
 
-func buildInlinePresetEditor(ed *Editor, p BuildPresetEntry, running bool) core.Node {
-	plat := p.Platform
+func buildInlinePresetEditor(p SpecPalette, ed *Editor, entry BuildPresetEntry, running bool) core.Node {
+	plat := entry.Platform
 	validTargets := project.TargetsOf(plat)
 	var targetPills []core.Node
 	for _, t := range validTargets {
 		target := t
-		on := slices.Contains(p.Targets, target)
+		on := slices.Contains(entry.Targets, target)
 		targetPills = append(targetPills, buildReleasePillButton(
+			p,
 			"build-edit-target-"+plat+"-"+target,
 			target,
 			on,
@@ -1088,14 +1098,14 @@ func buildInlinePresetEditor(ed *Editor, p BuildPresetEntry, running bool) core.
 		Style: core.Style{
 			Padding:     core.Symmetric(12, 20),
 			Gap:         8,
-			Background:  specRaised,
+			Background:  p.Raised,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "TARGETS FOR " + strings.ToUpper(p.Name),
-				Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted},
+				Content: "TARGETS FOR " + strings.ToUpper(entry.Name),
+				Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: p.TextFaint},
 			},
 			core.View{
 				Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6},
@@ -1105,13 +1115,13 @@ func buildInlinePresetEditor(ed *Editor, p BuildPresetEntry, running bool) core.
 	}
 }
 
-func buildDetailRunningView(ed *Editor, p BuildPresetEntry, followLog bool) core.Node {
-	stepRows := make([]core.Node, 0, len(p.Steps))
-	for _, st := range p.Steps {
-		stepRows = append(stepRows, buildStepRowView(st))
+func buildDetailRunningView(p SpecPalette, ed *Editor, entry BuildPresetEntry, followLog bool) core.Node {
+	stepRows := make([]core.Node, 0, len(entry.Steps))
+	for _, st := range entry.Steps {
+		stepRows = append(stepRows, buildStepRowView(p, st))
 	}
 
-	logContent := strings.Join(p.LogLines, "\n")
+	logContent := strings.Join(entry.LogLines, "\n")
 	if logContent == "" {
 		logContent = "Waiting for build output…"
 	}
@@ -1141,9 +1151,9 @@ func buildDetailRunningView(ed *Editor, p BuildPresetEntry, followLog bool) core
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
 					CornerRadius: 12,
-					Background:   specBg,
+					Background:   p.Bg,
 					BorderWidth:  1,
-					BorderColor:  specLine,
+					BorderColor:  p.Line,
 					Overflow:     core.Hidden,
 				},
 				Children: []core.Node{
@@ -1156,13 +1166,13 @@ func buildDetailRunningView(ed *Editor, p BuildPresetEntry, followLog bool) core
 							Gap:         8,
 							Padding:     core.Symmetric(0, 12),
 							Borders:     core.Edges{Bottom: 1},
-							BorderColor: specLine,
+							BorderColor: p.Line,
 						},
 						Children: []core.Node{
-							core.Text{Content: "Log", Style: core.Style{FontSize: 12, Color: specTextSecondary}},
-							core.Text{TestID: "build-log-file", Content: p.LogFile, Style: core.Style{FontSize: 11, Color: specTextMuted}},
+							core.Text{Content: "Log", Style: core.Style{FontSize: 12, Color: p.TextMuted}},
+							core.Text{TestID: "build-log-file", Content: entry.LogFile, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 							core.View{Style: core.Style{FlexGrow: 1}},
-							buildReleasePillButton("build-log-follow", followLabel, followLog, false, func() {
+							buildReleasePillButton(p, "build-log-follow", followLabel, followLog, false, func() {
 								ed.SetReleaseFollowLog(!followLog)
 							}),
 						},
@@ -1170,12 +1180,12 @@ func buildDetailRunningView(ed *Editor, p BuildPresetEntry, followLog bool) core
 					ui.ScrollView{
 						Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Padding: core.Symmetric(10, 12)},
 						ContentStyle: core.Style{Gap: 2},
-						EdgeColor:    func() core.Color { return specBg },
+						EdgeColor:    func() core.Color { return p.Bg },
 						Children: []core.Node{
 							core.Text{
 								TestID:  "build-log-lines",
 								Content: logContent,
-								Style:   core.Style{FontSize: 11.5, Color: specTextSecondary, FontVariant: core.FontTabularNums},
+								Style:   core.Style{FontSize: 11.5, Color: p.TextMuted, FontVariant: core.FontTabularNums},
 							},
 						},
 					},
@@ -1185,10 +1195,10 @@ func buildDetailRunningView(ed *Editor, p BuildPresetEntry, followLog bool) core
 	}
 }
 
-func buildStepRowView(st BuildStep) core.Node {
+func buildStepRowView(p SpecPalette, st BuildStep) core.Node {
 	var badge core.Node
 	var rowBg core.Color
-	labelColor := specTextStrong
+	labelColor := p.TextPrimary
 	switch st.Status {
 	case BuildStepDone:
 		badge = core.View{
@@ -1197,14 +1207,14 @@ func buildStepRowView(st BuildStep) core.Node {
 				Height:         core.Pt(16),
 				FlexShrink:     0,
 				CornerRadius:   8,
-				Background:     specAddedFill,
+				Background:     p.Added.Fill,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 			},
-			Children: []core.Node{buildSpecIcon(lucide.Check(), 10, specAdded)},
+			Children: []core.Node{buildSpecIcon(lucide.Check(), 10, p.Added.Fg)},
 		}
 	case BuildStepRunning:
-		rowBg = specAgentTint
+		rowBg = p.Agent.Fill
 		badge = core.View{
 			Style: core.Style{
 				Width:        core.Pt(16),
@@ -1212,25 +1222,25 @@ func buildStepRowView(st BuildStep) core.Node {
 				FlexShrink:   0,
 				CornerRadius: 8,
 				BorderWidth:  2,
-				BorderColor:  specAgent,
+				BorderColor:  p.Agent.Fg,
 			},
 		}
 	case BuildStepFailed:
-		rowBg = specProblemTint
+		rowBg = p.Removed.Fill
 		badge = core.View{
 			Style: core.Style{
 				Width:          core.Pt(16),
 				Height:         core.Pt(16),
 				FlexShrink:     0,
 				CornerRadius:   8,
-				Background:     specProblemTint,
+				Background:     p.Removed.Fill,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 			},
-			Children: []core.Node{buildSpecIcon(lucide.X(), 10, specProblem)},
+			Children: []core.Node{buildSpecIcon(lucide.X(), 10, p.Removed.Fg)},
 		}
 	default:
-		labelColor = specTextMuted
+		labelColor = p.TextFaint
 		badge = core.View{
 			Style: core.Style{
 				Width:        core.Pt(16),
@@ -1238,7 +1248,7 @@ func buildStepRowView(st BuildStep) core.Node {
 				FlexShrink:   0,
 				CornerRadius: 8,
 				BorderWidth:  1.5,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 			},
 		}
 	}
@@ -1257,24 +1267,24 @@ func buildStepRowView(st BuildStep) core.Node {
 		Children: []core.Node{
 			badge,
 			core.Text{Content: st.Label, Style: core.Style{FontSize: 12.5, Color: labelColor}},
-			core.Text{Content: st.Detail, Style: core.Style{FontSize: 12, Color: specTextMuted}},
+			core.Text{Content: st.Detail, Style: core.Style{FontSize: 12, Color: p.TextFaint}},
 			core.View{Style: core.Style{FlexGrow: 1}},
 			core.Text{
 				TestID:  "build-step-time-" + string(st.ID),
 				Content: formatBuildDuration(st.Elapsed),
-				Style:   core.Style{FontSize: 11, Color: specTextMuted, FontVariant: core.FontTabularNums},
+				Style:   core.Style{FontSize: 11, Color: p.TextFaint, FontVariant: core.FontTabularNums},
 			},
 		},
 	}
 }
 
-func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) core.Node {
-	f := p.Failure
+func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, showWholeLog bool) core.Node {
+	f := entry.Failure
 	if f == nil {
 		f = &BuildFailureInfo{
 			Headline:   "Build failed",
 			StepIndex:  1,
-			TotalSteps: len(p.Steps),
+			TotalSteps: len(entry.Steps),
 			StepLabel:  "Build",
 			Notice:     BuildFailureNotice,
 		}
@@ -1292,25 +1302,25 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 	for _, cmd := range f.Commands {
 		cmdNodes = append(cmdNodes, core.Text{
 			Content: cmd,
-			Style:   core.Style{FontSize: 11.5, Color: specTextSecondary},
+			Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 		})
 	}
 	if f.ErrorLine != "" {
 		cmdNodes = append(cmdNodes, core.View{
 			Style: core.Style{
-				Background:   specProblemTint,
+				Background:   p.Removed.Fill,
 				Padding:      core.Symmetric(2, 8),
 				CornerRadius: 4,
 			},
 			Children: []core.Node{
-				core.Text{Content: f.ErrorLine, Style: core.Style{FontSize: 11.5, Color: specProblem}},
+				core.Text{Content: f.ErrorLine, Style: core.Style{FontSize: 11.5, Color: p.Removed.Fg}},
 			},
 		})
 	}
 	if f.ExitLine != "" {
 		cmdNodes = append(cmdNodes, core.Text{
 			Content: f.ExitLine,
-			Style:   core.Style{FontSize: 11.5, Color: specTextSecondary},
+			Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 		})
 	}
 
@@ -1318,9 +1328,9 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 		TestID: "build-failure-card",
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specProblemEdge,
+			BorderColor:  p.Removed.Edge,
 			Borders:      core.Edges{Left: 3, Top: 1, Right: 1, Bottom: 1},
 			Padding:      core.Symmetric(14, 16),
 			Gap:          10,
@@ -1329,17 +1339,17 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
-					buildSpecIcon(lucide.CircleAlert(), 15, specProblem),
+					buildSpecIcon(lucide.CircleAlert(), 15, p.Removed.Fg),
 					core.Text{
 						TestID:  "build-failure-headline",
 						Content: f.Headline,
-						Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, Color: specTextStrong},
+						Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, Color: p.TextPrimary},
 					},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{
 						TestID:  "build-failure-step",
 						Content: stepMeta,
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
 			},
@@ -1347,7 +1357,7 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 				TestID: "build-failure-commands",
 				Style: core.Style{
 					CornerRadius: 8,
-					Background:   specBg,
+					Background:   p.Bg,
 					Padding:      core.Symmetric(8, 12),
 					Gap:          4,
 				},
@@ -1356,7 +1366,7 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 			core.Text{
 				TestID:  "build-failure-notice",
 				Content: notice,
-				Style:   core.Style{FontSize: 12, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 			},
 		},
 	}
@@ -1367,16 +1377,16 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 		diffNodes := make([]core.Node, 0, len(prop.Diff))
 		for _, dl := range prop.Diff {
 			var lineBg core.Color
-			lineFg := specTextSecondary
+			lineFg := p.TextMuted
 			prefix := " "
 			switch dl.Kind {
 			case "remove":
-				lineBg = specProblemTint
-				lineFg = specProblem
+				lineBg = p.Removed.Fill
+				lineFg = p.Removed.Fg
 				prefix = "-"
 			case "add":
-				lineBg = specAddedFill
-				lineFg = specAdded
+				lineBg = p.Added.Fill
+				lineFg = p.Added.Fg
 				prefix = "+"
 			}
 			lineNumStr := ""
@@ -1391,13 +1401,13 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 					Background: lineBg,
 				},
 				Children: []core.Node{
-					core.Text{Content: lineNumStr, Style: core.Style{Width: core.Pt(24), FontSize: 11.5, Color: specTextMuted, FontVariant: core.FontTabularNums}},
+					core.Text{Content: lineNumStr, Style: core.Style{Width: core.Pt(24), FontSize: 11.5, Color: p.TextFaint, FontVariant: core.FontTabularNums}},
 					core.Text{Content: prefix, Style: core.Style{Width: core.Pt(12), FontSize: 11.5, Color: lineFg}},
 					core.Text{Content: dl.Text, Style: core.Style{FontSize: 11.5, Color: lineFg}},
 				},
 			})
 		}
-		plat := p.Platform
+		plat := entry.Platform
 		footnote := prop.Footnote
 		if footnote == "" && prop.FilePath != "" {
 			footnote = "Edits " + prop.FilePath
@@ -1406,9 +1416,9 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 			TestID: "build-fix-card",
 			Style: core.Style{
 				CornerRadius: 12,
-				Background:   specAgentCardTint,
+				Background:   specAlpha(p.Agent.Fg, 0.06),
 				BorderWidth:  1,
-				BorderColor:  specAgentEdge,
+				BorderColor:  p.Agent.Edge,
 				Padding:      core.Symmetric(14, 16),
 				Gap:          12,
 			},
@@ -1416,23 +1426,23 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 				core.View{
 					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 					Children: []core.Node{
-						buildSpecIcon(lucide.Sparkles(), 14, specAgent),
+						buildSpecIcon(lucide.Sparkles(), 14, p.Agent.Fg),
 						core.Text{
 							TestID:  "build-fix-title",
 							Content: prop.Title,
-							Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, Color: specTextStrong},
+							Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, Color: p.TextPrimary},
 						},
 					},
 				},
 				core.Text{
 					Content: prop.Summary,
-					Style:   core.Style{FontSize: 12.5, Color: specText},
+					Style:   core.Style{FontSize: 12.5, Color: p.TextSecondary},
 				},
 				core.View{
 					TestID: "build-fix-diff",
 					Style: core.Style{
 						CornerRadius: 8,
-						Background:   specBg,
+						Background:   p.Bg,
 						Padding:      core.Symmetric(8, 0),
 						Gap:          1,
 					},
@@ -1444,33 +1454,33 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 						core.View{
 							TestID: "build-apply-fix",
 							Role:   core.RoleButton,
-							Label:  "Apply and rebuild " + p.Name,
+							Label:  "Apply and rebuild " + entry.Name,
 							Style: core.Style{
 								Height:         core.Pt(32),
 								Padding:        core.Symmetric(0, 14),
 								CornerRadius:   8,
-								Background:     specAccent,
+								Background:     p.Accent.Fg,
 								AlignItems:     core.AlignCenter,
 								JustifyContent: core.JustifyCenter,
-								FocusVisible:   specFocusRingStyle,
+								FocusVisible:   p.FocusRing(2),
 							},
 							OnPress: func(core.PressEvent) {
 								ed.report(ed.ApplyBuildPresetFixAndRebuild(plat))
 							},
 							Children: []core.Node{
 								core.Text{
-									Content: "Apply and rebuild " + p.Name,
-									Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: specBg},
+									Content: "Apply and rebuild " + entry.Name,
+									Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: p.Accent.OnFill},
 								},
 							},
 						},
-						buildReleaseSecondaryButton("build-whole-log", "Whole log", func() {
+						buildReleaseSecondaryButtonSpec(p, "build-whole-log", "Whole log", func() {
 							ed.SetReleaseShowWholeLog(!showWholeLog)
 						}),
 						core.View{Style: core.Style{FlexGrow: 1}},
 						core.Text{
 							Content: footnote,
-							Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 					},
 				},
@@ -1479,20 +1489,20 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 		children = append(children, fixCard)
 	}
 
-	if showWholeLog && len(p.LogLines) > 0 {
+	if showWholeLog && len(entry.LogLines) > 0 {
 		children = append(children, core.View{
 			TestID: "build-whole-log-view",
 			Style: core.Style{
 				CornerRadius: 12,
-				Background:   specBg,
+				Background:   p.Bg,
 				BorderWidth:  1,
-				BorderColor:  specLine,
+				BorderColor:  p.Line,
 				Padding:      core.All(12),
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: strings.Join(p.LogLines, "\n"),
-					Style:   core.Style{FontSize: 11.5, Color: specTextSecondary},
+					Content: strings.Join(entry.LogLines, "\n"),
+					Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 				},
 			},
 		})
@@ -1502,7 +1512,7 @@ func buildDetailFailedView(ed *Editor, p BuildPresetEntry, showWholeLog bool) co
 		TestID:       "build-detail-failed",
 		Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Padding: core.All(20)},
 		ContentStyle: core.Style{Gap: 16},
-		EdgeColor:    func() core.Color { return specPanel },
+		EdgeColor:    func() core.Color { return p.Panel },
 		Children:     children,
 	}
 }
@@ -1524,10 +1534,10 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		color core.Color
 	}
 	parts := []part{
-		{"Code", res.Breakdown.CodeBytes, specAccent},
-		{"Textures", res.Breakdown.TexturesBytes, specChanged},
-		{"Audio", res.Breakdown.AudioBytes, specAdded},
-		{"Other", res.Breakdown.OtherBytes, specTextMuted},
+		{"Code", res.Breakdown.CodeBytes, spec.Accent.Fg},
+		{"Textures", res.Breakdown.TexturesBytes, spec.Changed.Fg},
+		{"Audio", res.Breakdown.AudioBytes, spec.Added.Fg},
+		{"Other", res.Breakdown.OtherBytes, spec.TextFaint},
 	}
 
 	var barSegs []core.Node
@@ -1552,25 +1562,25 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 					Children: []core.Node{
 						core.View{Style: core.Style{Width: core.Pt(8), Height: core.Pt(8), CornerRadius: 2, Background: pt.color}},
-						core.Text{Content: pt.label, Style: core.Style{FontSize: 12, Color: specTextSecondary}},
+						core.Text{Content: pt.label, Style: core.Style{FontSize: 12, Color: spec.TextMuted}},
 					},
 				},
 				core.Text{
 					Content: formatSizeMB(pt.bytes),
-					Style:   core.Style{FontSize: 11.5, Color: specText, Padding: core.Edges{Left: 14}, FontVariant: core.FontTabularNums},
+					Style:   core.Style{FontSize: 11.5, Color: spec.TextSecondary, Padding: core.Edges{Left: 14}, FontVariant: core.FontTabularNums},
 				},
 			},
 		})
 	}
 
-	deltaColor := specTextMuted
+	deltaColor := spec.TextFaint
 	deltaText := "new"
 	if res.HasLastRelease {
 		deltaText = formatDeltaMB(res.DeltaBytes)
 		if res.DeltaBytes > 0 {
-			deltaColor = specChanged
+			deltaColor = spec.Changed.Fg
 		} else if res.DeltaBytes < 0 {
-			deltaColor = specAdded
+			deltaColor = spec.Added.Fg
 		}
 	}
 
@@ -1578,9 +1588,9 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		TestID: "build-result-artifact",
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   spec.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  spec.LineRaised,
 			Overflow:     core.Hidden,
 		},
 		Children: []core.Node{
@@ -1592,20 +1602,20 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 					Gap:         10,
 					Padding:     core.Symmetric(0, 14),
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
+					BorderColor: spec.Line,
 				},
 				Children: []core.Node{
-					buildSpecIcon(lucide.Package(), 15, specTextSecondary),
+					buildSpecIcon(lucide.Package(), 15, spec.TextMuted),
 					core.Text{
 						TestID:  "build-result-artifact-name",
 						Content: res.ArtifactName,
-						Style:   core.Style{FontSize: 12, Color: specTextStrong},
+						Style:   core.Style{FontSize: 12, Color: spec.TextPrimary},
 					},
 					core.View{Style: core.Style{FlexGrow: 1}},
 					core.Text{
 						TestID:  "build-result-size",
 						Content: formatSizeMB(res.SizeBytes),
-						Style:   core.Style{FontSize: 12, Color: specTextStrong, FontVariant: core.FontTabularNums},
+						Style:   core.Style{FontSize: 12, Color: spec.TextPrimary, FontVariant: core.FontTabularNums},
 					},
 					core.Text{
 						TestID:  "build-result-delta",
@@ -1628,7 +1638,7 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 					core.Text{
 						TestID:  "build-result-growth",
 						Content: res.Breakdown.GrowthSummary,
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: spec.TextFaint},
 					},
 				},
 			},
@@ -1650,10 +1660,10 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		TestID: "build-result-budgets",
 		Style:  core.Style{Direction: core.Row, Gap: 12},
 		Children: []core.Node{
-			buildBudgetCard("build-budget-download", "Download size",
+			buildBudgetCard(spec, "build-budget-download", "Download size",
 				fmt.Sprintf("%s / %.0f MB", formatSizeMB(res.SizeBytes), dlBudget),
 				res.DownloadBudgetMet, sizePct),
-			buildBudgetCard("build-budget-frame", "Frame time p95",
+			buildBudgetCard(spec, "build-budget-frame", "Frame time p95",
 				fmt.Sprintf("%.1f / %.1f ms", res.FrameTimeP95Ms, frameBudget),
 				res.FrameTimeBudgetMet, framePct),
 		},
@@ -1663,9 +1673,9 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		TestID: "build-result-playtest",
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   spec.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  spec.LineRaised,
 			Padding:      core.Symmetric(12, 14),
 			Gap:          8,
 		},
@@ -1673,15 +1683,15 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
-					buildSpecIcon(lucide.Check(), 13, specAdded),
-					core.Text{Content: "Smoke playtest · 60 s", Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
+					buildSpecIcon(lucide.Check(), 13, spec.Added.Fg),
+					core.Text{Content: "Smoke playtest · 60 s", Style: core.Style{FontSize: 12.5, Color: spec.TextPrimary}},
 					core.View{Style: core.Style{FlexGrow: 1}},
-					core.Text{Content: res.SmokePlaytestWhere, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+					core.Text{Content: res.SmokePlaytestWhere, Style: core.Style{FontSize: 11.5, Color: spec.TextFaint}},
 				},
 			},
 			core.Text{
 				Content: res.SmokePlaytestSummary,
-				Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+				Style:   core.Style{FontSize: 12, Color: spec.TextMuted},
 			},
 		},
 	}
@@ -1779,7 +1789,7 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 		TestID:       "build-detail-done",
 		Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Padding: core.All(20)},
 		ContentStyle: core.Style{Gap: 16},
-		EdgeColor:    func() core.Color { return specPanel },
+		EdgeColor:    func() core.Color { return spec.Panel },
 		Children: []core.Node{
 			core.View{
 				Style: core.Style{Direction: core.Row, Gap: 16},
@@ -1808,18 +1818,18 @@ func clampBudgetPct(v float64) float32 {
 	return float32(v)
 }
 
-func buildBudgetCard(testID, title, metric string, met bool, pct float32) core.Node {
+func buildBudgetCard(p SpecPalette, testID, title, metric string, met bool, pct float32) core.Node {
 	badgeText := "Met"
-	badgeBg := specAddedFill
-	badgeBorder := specAddedEdge
-	badgeFg := specAdded
-	barColor := specAdded
+	badgeBg := p.Added.Fill
+	badgeBorder := p.Added.Edge
+	badgeFg := p.Added.Fg
+	barColor := p.Added.Fg
 	if !met {
 		badgeText = "Missed"
-		badgeBg = specProblemTint
-		badgeBorder = specProblemEdge
-		badgeFg = specProblem
-		barColor = specProblem
+		badgeBg = p.Removed.Fill
+		badgeBorder = p.Removed.Edge
+		badgeFg = p.Removed.Fg
+		barColor = p.Removed.Fg
 	}
 	return core.View{
 		TestID: testID,
@@ -1827,9 +1837,9 @@ func buildBudgetCard(testID, title, metric string, met bool, pct float32) core.N
 			FlexGrow:     1,
 			FlexBasis:    core.Pt(0),
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 			Padding:      core.Symmetric(12, 14),
 			Gap:          8,
 		},
@@ -1837,7 +1847,7 @@ func buildBudgetCard(testID, title, metric string, met bool, pct float32) core.N
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifySpaceBetween, Gap: 6},
 				Children: []core.Node{
-					core.Text{Content: title, Style: core.Style{FontSize: 12, Color: specTextSecondary}},
+					core.Text{Content: title, Style: core.Style{FontSize: 12, Color: p.TextMuted}},
 					core.View{
 						Style: core.Style{
 							Height:         core.Pt(18),
@@ -1854,9 +1864,9 @@ func buildBudgetCard(testID, title, metric string, met bool, pct float32) core.N
 					},
 				},
 			},
-			core.Text{Content: metric, Style: core.Style{FontSize: 12, Color: specTextStrong, FontVariant: core.FontTabularNums}},
+			core.Text{Content: metric, Style: core.Style{FontSize: 12, Color: p.TextPrimary, FontVariant: core.FontTabularNums}},
 			core.View{
-				Style: core.Style{Height: core.Pt(6), CornerRadius: 3, Background: specLineRaised, Overflow: core.Hidden},
+				Style: core.Style{Height: core.Pt(6), CornerRadius: 3, Background: p.LineRaised, Overflow: core.Hidden},
 				Children: []core.Node{
 					core.View{Style: core.Style{Height: core.Pt(6), Width: core.Pct(pct), CornerRadius: 3, Background: barColor}},
 				},
@@ -1865,17 +1875,17 @@ func buildBudgetCard(testID, title, metric string, met bool, pct float32) core.N
 	}
 }
 
-func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
-	_, totalIssues := countReadinessIssues(p.Readiness)
-	heading := fmt.Sprintf("READINESS · %d to fix before %s can build", totalIssues, p.Name)
+func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry) core.Node {
+	_, totalIssues := countReadinessIssues(entry.Readiness)
+	heading := fmt.Sprintf("READINESS · %d to fix before %s can build", totalIssues, entry.Name)
 	if totalIssues == 0 {
-		heading = fmt.Sprintf("READINESS · %s is ready to build", p.Name)
+		heading = fmt.Sprintf("READINESS · %s is ready to build", entry.Name)
 	}
 
-	plat := p.Platform
+	plat := entry.Platform
 	var itemRows []core.Node
 	var agentItems, personItems []string
-	for i, item := range p.Readiness {
+	for i, item := range entry.Readiness {
 		it := item
 		if it.Status != BuildReadinessOK {
 			if it.AgentCanHandle {
@@ -1887,11 +1897,11 @@ func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
 		var icon core.Node
 		switch it.Status {
 		case BuildReadinessOK:
-			icon = buildSpecIcon(lucide.Check(), 14, specAdded)
+			icon = buildSpecIcon(lucide.Check(), 14, p.Added.Fg)
 		case BuildReadinessFail:
-			icon = buildSpecIcon(lucide.CircleAlert(), 14, specProblem)
+			icon = buildSpecIcon(lucide.CircleAlert(), 14, p.Removed.Fg)
 		default:
-			icon = buildSpecIcon(lucide.TriangleAlert(), 14, specWarning)
+			icon = buildSpecIcon(lucide.TriangleAlert(), 14, p.Warning.Fg)
 		}
 
 		rowChildren := []core.Node{
@@ -1899,14 +1909,15 @@ func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
 			core.View{
 				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: it.Label, Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
-					core.Text{Content: it.Detail, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+					core.Text{Content: it.Label, Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
+					core.Text{Content: it.Detail, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 				},
 			},
 		}
 		if it.ActionLabel != "" {
 			itemID := it.ID
-			rowChildren = append(rowChildren, buildReleaseSecondaryButton(
+			rowChildren = append(rowChildren, buildReleaseSecondaryButtonSpec(
+				p,
 				"build-readiness-action-"+itemID,
 				it.ActionLabel,
 				func() {
@@ -1915,7 +1926,7 @@ func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
 			))
 		}
 		borderBottom := core.Points(1)
-		if i == len(p.Readiness)-1 {
+		if i == len(entry.Readiness)-1 {
 			borderBottom = 0
 		}
 		itemRows = append(itemRows, core.View{
@@ -1927,40 +1938,40 @@ func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
 				Gap:         12,
 				Padding:     core.Symmetric(8, 14),
 				Borders:     core.Edges{Bottom: borderBottom},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 			},
 			Children: rowChildren,
 		})
 	}
 
-	guidance := fmt.Sprintf("The agent can handle project-side setup for %s; account sign-in and store credentials require you.", p.Name)
+	guidance := fmt.Sprintf("The agent can handle project-side setup for %s; account sign-in and store credentials require you.", entry.Name)
 	if len(agentItems) > 0 && len(personItems) > 0 {
 		guidance = fmt.Sprintf("The agent can write %s from what the game uses. %s needs your account, so you complete sign-in directly.",
 			strings.Join(agentItems, ", "), capitalizeProfile(strings.Join(personItems, ", ")))
 	} else if len(agentItems) > 0 {
 		guidance = fmt.Sprintf("The agent can complete %s automatically.", strings.Join(agentItems, ", "))
 	} else if len(personItems) > 0 {
-		guidance = fmt.Sprintf("%s requires your account sign-in before %s can build.", capitalizeProfile(strings.Join(personItems, ", ")), p.Name)
+		guidance = fmt.Sprintf("%s requires your account sign-in before %s can build.", capitalizeProfile(strings.Join(personItems, ", ")), entry.Name)
 	}
 
 	return ui.ScrollView{
 		TestID:       "build-detail-readiness",
 		Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Padding: core.All(20)},
 		ContentStyle: core.Style{Gap: 16},
-		EdgeColor:    func() core.Color { return specPanel },
+		EdgeColor:    func() core.Color { return p.Panel },
 		Children: []core.Node{
 			core.Text{
 				TestID:  "build-readiness-heading",
 				Content: heading,
-				Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: specTextMuted},
+				Style:   core.Style{FontSize: 11, FontWeight: core.FontWeightSemibold, LetterSpacing: 0.7, Color: p.TextFaint},
 			},
 			core.View{
 				TestID: "build-readiness-list",
 				Style: core.Style{
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					Overflow:     core.Hidden,
 				},
 				Children: itemRows,
@@ -1973,38 +1984,38 @@ func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
 					Gap:          12,
 					Padding:      core.Symmetric(12, 14),
 					CornerRadius: 12,
-					Background:   specAgentCardTint,
+					Background:   specAlpha(p.Agent.Fg, 0.06),
 					BorderWidth:  1,
-					BorderColor:  specAgentEdge,
+					BorderColor:  p.Agent.Edge,
 				},
 				Children: []core.Node{
-					buildSpecIcon(lucide.Sparkles(), 14, specAgent),
+					buildSpecIcon(lucide.Sparkles(), 14, p.Agent.Fg),
 					core.Text{
 						TestID:  "build-readiness-guidance",
 						Content: guidance,
-						Style:   core.Style{FontSize: 12, Color: specText, FlexGrow: 1, FlexBasis: core.Pt(0)},
+						Style:   core.Style{FontSize: 12, Color: p.TextSecondary, FlexGrow: 1, FlexBasis: core.Pt(0)},
 					},
 					core.View{
 						TestID: "build-readiness-agent-setup",
 						Role:   core.RoleButton,
-						Label:  "Set up " + p.Name + " with the agent",
+						Label:  "Set up " + entry.Name + " with the agent",
 						Style: core.Style{
 							Height:         core.Pt(32),
 							FlexShrink:     0,
 							Padding:        core.Symmetric(0, 14),
 							CornerRadius:   8,
-							Background:     specAccent,
+							Background:     p.Accent.Fg,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							FocusVisible:   specFocusRingStyle,
+							FocusVisible:   p.FocusRing(2),
 						},
 						OnPress: func(core.PressEvent) {
 							ed.report(ed.RunBuildReadinessAgentSetup(plat))
 						},
 						Children: []core.Node{
 							core.Text{
-								Content: "Set up " + p.Name + " with the agent",
-								Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: specBg},
+								Content: "Set up " + entry.Name + " with the agent",
+								Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: p.Accent.OnFill},
 							},
 						},
 					},
@@ -2014,21 +2025,21 @@ func buildDetailReadinessView(ed *Editor, p BuildPresetEntry) core.Node {
 	}
 }
 
-func buildDetailQueuedView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEntry) core.Node {
+func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot, entry BuildPresetEntry) core.Node {
 	title := "Queued"
-	if snap.ActivePlatform != "" && snap.ActivePlatform != p.Platform {
+	if snap.ActivePlatform != "" && snap.ActivePlatform != entry.Platform {
 		title = "Queued after " + platformDisplayName(snap.ActivePlatform)
 	}
 	subtitle := "Builds run one at a time so the editor stays responsive."
-	actionLabel := "Build " + p.Name + " next"
+	actionLabel := "Build " + entry.Name + " next"
 	actionID := "build-queued-next"
-	plat := p.Platform
+	plat := entry.Platform
 	onAct := func() {
 		ed.PrioritizeBuildPreset(plat)
 	}
 
-	if snap.Stopped || p.StoppedAt {
-		title = p.Name + " stopped"
+	if snap.Stopped || entry.StoppedAt {
+		title = entry.Name + " stopped"
 		subtitle = "Finished steps are kept; Resume continues from the step that was running."
 		actionLabel = "Resume"
 		actionID = "build-queued-resume"
@@ -2045,23 +2056,23 @@ func buildDetailQueuedView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetE
 				Padding:        core.Symmetric(28, 20),
 				Gap:            10,
 				CornerRadius:   12,
-				Background:     specRaised,
+				Background:     p.Raised,
 				BorderWidth:    1,
-				BorderColor:    specLineRaised,
+				BorderColor:    p.LineRaised,
 			},
 			Children: []core.Node{
-				core.Text{TestID: "build-queued-title", Content: title, Style: core.Style{FontSize: 13.5, FontWeight: core.FontWeightMedium, Color: specTextStrong}},
-				core.Text{TestID: "build-queued-subtitle", Content: subtitle, Style: core.Style{FontSize: 12, Color: specTextMuted}},
-				buildReleaseSecondaryButton(actionID, actionLabel, onAct),
+				core.Text{TestID: "build-queued-title", Content: title, Style: core.Style{FontSize: 13.5, FontWeight: core.FontWeightMedium, Color: p.TextPrimary}},
+				core.Text{TestID: "build-queued-subtitle", Content: subtitle, Style: core.Style{FontSize: 12, Color: p.TextFaint}},
+				buildReleaseSecondaryButtonSpec(p, actionID, actionLabel, onAct),
 			},
 		},
 	}
 
 	// Show ordered steps (highlighting completed steps when stopped mid-build).
-	if len(p.Steps) > 0 {
-		stepRows := make([]core.Node, 0, len(p.Steps))
-		for _, st := range p.Steps {
-			stepRows = append(stepRows, buildStepRowView(st))
+	if len(entry.Steps) > 0 {
+		stepRows := make([]core.Node, 0, len(entry.Steps))
+		for _, st := range entry.Steps {
+			stepRows = append(stepRows, buildStepRowView(p, st))
 		}
 		children = append(children, core.View{
 			TestID:   "build-queued-steps",
@@ -2074,7 +2085,7 @@ func buildDetailQueuedView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetE
 		TestID:       "build-detail-queued",
 		Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Padding: core.All(20)},
 		ContentStyle: core.Style{Gap: 16},
-		EdgeColor:    func() core.Color { return specPanel },
+		EdgeColor:    func() core.Color { return p.Panel },
 		Children:     children,
 	}
 }
@@ -2212,17 +2223,17 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 
 	var actions []core.Node
 	if !ws.StoppedByUser && qrURL != "" {
-		actions = append(actions, buildReleaseSecondaryButton("build-qr-copy-url", "Copy URL", func() {
+		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-copy-url", "Copy URL", func() {
 			_, err := ed.CopyWebBuildURL()
 			ed.report(err)
 		}))
 	}
 	if ws.Serving {
-		actions = append(actions, buildReleaseSecondaryButton("build-qr-toggle-serve", "Stop serving", func() {
+		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-toggle-serve", "Stop serving", func() {
 			ed.report(ed.StopWebBuildServer())
 		}))
 	} else if ws.ServeDir != "" {
-		actions = append(actions, buildReleaseSecondaryButton("build-qr-toggle-serve", "Start serving", func() {
+		actions = append(actions, buildReleaseSecondaryButtonSpec(spec, "build-qr-toggle-serve", "Start serving", func() {
 			_, err := ed.StartWebBuildServer("")
 			ed.report(err)
 		}))
@@ -2297,34 +2308,6 @@ func deviceStateDotColor(spec SpecPalette, st BuildDeviceState, available bool) 
 			return spec.Added.Fg
 		}
 		return spec.TextMuted
-	}
-}
-
-func buildReleaseSecondaryButton(testID, label string, onPress func()) core.Node {
-	return core.View{
-		TestID: testID,
-		Role:   core.RoleButton,
-		Label:  label,
-		Style: core.Style{
-			Height:         core.Pt(30),
-			FlexShrink:     0,
-			Padding:        core.Symmetric(0, 12),
-			CornerRadius:   8,
-			Background:     specLineRaised,
-			AlignItems:     core.AlignCenter,
-			JustifyContent: core.JustifyCenter,
-			Hover:          &core.Style{Background: specLine},
-			FocusVisible:   specFocusRingStyle,
-		},
-		OnPress: func(core.PressEvent) {
-			onPress()
-		},
-		Children: []core.Node{
-			core.Text{
-				Content: label,
-				Style:   core.Style{FontSize: 12, Color: specText},
-			},
-		},
 	}
 }
 

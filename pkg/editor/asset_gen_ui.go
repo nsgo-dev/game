@@ -15,21 +15,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints strictly from spec_theme.yaml color tokens.
-var (
-	specAssetGenSelectedBg  = specAlpha(darkSpecPalette.Accent.Fg, 0.14)
-	specAssetGenPillBg      = specAlpha(darkSpecPalette.Agent.Fg, 0.14)
-	specAssetGenPillBorder  = specAlpha(darkSpecPalette.Agent.Fg, 0.42)
-	specAssetGenBtnSec      = specAlpha(darkSpecPalette.TextSecondary, 0.08)
-	specAssetGenCheckerTile = specAlpha(darkSpecPalette.TextSecondary, 0.05)
-	specAssetGenFloorTile   = specAlpha(darkSpecPalette.TextSecondary, 0.09)
-	specAssetGenTorchGlow   = specAlpha(darkSpecPalette.Changed.Fg, 0.18)
-	specAssetGenWavePass    = specAlpha(darkSpecPalette.Accent.Fg, 0.72)
-	specAssetGenWaveFail    = specAlpha(darkSpecPalette.Removed.Fg, 0.85)
-	specAssetGenApprovedRow = specAlpha(darkSpecPalette.Added.Fg, 0.10)
-	specAssetGenProblemText = darkSpecPalette.Removed.Fg
-)
-
 // AssetGeneratorView renders the full-window Generated Assets screen matching docs/design/editor/Assets.dc.html
 // Screen 2 ("generate, pick, check style and license") using strictly Spec.dc.html color, spacing, radius, and type tokens.
 func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -75,115 +60,118 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		licCommSig.Set(comm)
 	}
 
-	return core.View{
-		TestID: "asset-gen-screen",
-		Role:   core.RoleRegion,
-		Label:  ed.T("assetGen.title"),
-		Style: core.Style{
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = genRev.Get()
-				return assetGenHeaderView(ed, ed.snapshotAssetGenView())
-			}),
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					MinHeight: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = genRev.Get()
-						return assetGenLeftRailView(ed, ed.snapshotAssetGenView())
-					}),
-					// Center column: ScrollView stays mounted across genRev updates; Refine input bar sits outside Dynamic so typing never drops focus.
-					core.View{
-						Style: core.Style{
-							FlexGrow:   1,
-							FlexBasis:  core.Pt(0),
-							MinWidth:   core.Pt(0),
-							MinHeight:  core.Pt(0),
-							Background: specBg,
-							Overflow:   core.Hidden,
-						},
-						Children: []core.Node{
-							ui.ScrollView{
-								TestID: "asset-gen-center",
-								Style: core.Style{
-									FlexGrow:   1,
-									FlexBasis:  core.Pt(0),
-									MinWidth:   core.Pt(0),
-									MinHeight:  core.Pt(0),
-									Background: specBg,
-								},
-								ContentStyle: core.Style{
-									Padding: core.All(20),
-									Gap:     16,
-								},
-								Children: []core.Node{
-									core.Dynamic(func(cx *core.Scope) core.Node {
-										_ = genRev.Get()
-										return assetGenCenterContentView(ed, ed.snapshotAssetGenView())
-									}),
-								},
-							},
-							core.Show{
-								When: hasImgReq.Get,
-								Then: func(cx *core.Scope) core.Node {
-									return assetGenRefineBarView(ed, genRev, activeImgReqID, refineDraftSig)
-								},
-							},
-						},
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "asset-gen-screen",
+			Role:   core.RoleRegion,
+			Label:  ed.T("assetGen.title"),
+			Style: core.Style{
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				core.Dynamic(func(cx *core.Scope) core.Node {
+					_ = genRev.Get()
+					return assetGenHeaderView(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+				}),
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						MinHeight: core.Pt(0),
+						Overflow:  core.Hidden,
 					},
-					// Right inspector column: ScrollView stays mounted; inline license editor bar sits outside Dynamic so typing never drops focus.
-					core.View{
-						TestID: "asset-gen-inspector",
-						Style: core.Style{
-							Width:       core.Pt(380),
-							FlexShrink:  0,
-							Background:  specPanel,
-							Borders:     core.Edges{Left: 1},
-							BorderColor: specLine,
-							MinHeight:   core.Pt(0),
-							Overflow:    core.Hidden,
-						},
-						Children: []core.Node{
-							core.Dynamic(func(cx *core.Scope) core.Node {
-								_ = genRev.Get()
-								return assetGenRightInspectorHeader(ed.snapshotAssetGenView())
-							}),
-							ui.ScrollView{
-								Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
-								ContentStyle: core.Style{
-									Padding: core.All(16),
-									Gap:     16,
+					Children: []core.Node{
+						core.Dynamic(func(cx *core.Scope) core.Node {
+							_ = genRev.Get()
+							return assetGenLeftRailView(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+						}),
+						// Center column: ScrollView stays mounted across genRev updates; Refine input bar sits outside Dynamic so typing never drops focus.
+						core.View{
+							Style: core.Style{
+								FlexGrow:   1,
+								FlexBasis:  core.Pt(0),
+								MinWidth:   core.Pt(0),
+								MinHeight:  core.Pt(0),
+								Background: p.Bg,
+								Overflow:   core.Hidden,
+							},
+							Children: []core.Node{
+								ui.ScrollView{
+									TestID: "asset-gen-center",
+									Style: core.Style{
+										FlexGrow:   1,
+										FlexBasis:  core.Pt(0),
+										MinWidth:   core.Pt(0),
+										MinHeight:  core.Pt(0),
+										Background: p.Bg,
+									},
+									ContentStyle: core.Style{
+										Padding: core.All(20),
+										Gap:     16,
+									},
+									Children: []core.Node{
+										core.Dynamic(func(cx *core.Scope) core.Node {
+											_ = genRev.Get()
+											return assetGenCenterContentView(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+										}),
+									},
 								},
-								Children: []core.Node{
-									core.Dynamic(func(cx *core.Scope) core.Node {
-										_ = genRev.Get()
-										return assetGenRightInspectorBody(ed, ed.snapshotAssetGenView(), onBeginEditLicense)
-									}),
+								core.Show{
+									When: hasImgReq.Get,
+									Then: func(cx *core.Scope) core.Node {
+										return assetGenRefineBarView(ed, genRev, activeImgReqID, refineDraftSig, ed.SpecPalette(cx))
+									},
 								},
 							},
-							core.Show{
-								When: hasLicEdit.Get,
-								Then: func(cx *core.Scope) core.Node {
-									return assetGenLicenseEditorBar(ed, licEditPath, licDraftSig, licCommSig)
+						},
+						// Right inspector column: ScrollView stays mounted; inline license editor bar sits outside Dynamic so typing never drops focus.
+						core.View{
+							TestID: "asset-gen-inspector",
+							Style: core.Style{
+								Width:       core.Pt(380),
+								FlexShrink:  0,
+								Background:  p.Panel,
+								Borders:     core.Edges{Left: 1},
+								BorderColor: p.Line,
+								MinHeight:   core.Pt(0),
+								Overflow:    core.Hidden,
+							},
+							Children: []core.Node{
+								core.Dynamic(func(cx *core.Scope) core.Node {
+									_ = genRev.Get()
+									return assetGenRightInspectorHeader(ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+								}),
+								ui.ScrollView{
+									Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
+									ContentStyle: core.Style{
+										Padding: core.All(16),
+										Gap:     16,
+									},
+									Children: []core.Node{
+										core.Dynamic(func(cx *core.Scope) core.Node {
+											_ = genRev.Get()
+											return assetGenRightInspectorBody(ed, ed.snapshotAssetGenView(), onBeginEditLicense, ed.SpecPalette(cx))
+										}),
+									},
+								},
+								core.Show{
+									When: hasLicEdit.Get,
+									Then: func(cx *core.Scope) core.Node {
+										return assetGenLicenseEditorBar(ed, licEditPath, licDraftSig, licCommSig, ed.SpecPalette(cx))
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
+	})
 }
 
 type assetGenViewSnapshot struct {
@@ -329,21 +317,21 @@ func filepathBase(p string) string {
 	return p[idx+1:]
 }
 
-func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
-	pillDot := specAgent
-	pillBg := specAssetGenPillBg
-	pillBorder := specAssetGenPillBorder
-	pillTextColor := specText
+func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+	pillDot := p.Agent.Fg
+	pillBg := specAlpha(p.Agent.Fg, 0.14)
+	pillBorder := specAlpha(p.Agent.Fg, 0.42)
+	pillTextColor := p.TextSecondary
 	pillText := "Connect an MCP generator server in Settings › Tools to generate candidates"
 
 	if snap.busy && snap.busyLabel != "" {
 		pillText = snap.busyLabel
 	} else if r := snap.selectedReq; r != nil {
 		if r.PickedCandidateID != "" {
-			pillDot = specAdded
-			pillBg = specRaised
-			pillBorder = specLineRaised
-			pillTextColor = specTextSecondary
+			pillDot = p.Added.Fg
+			pillBg = p.Raised
+			pillBorder = p.LineRaised
+			pillTextColor = p.TextMuted
 			pillText = fmt.Sprintf("Picked %s · %s and its source file written · ⌘Z undoes", r.PickedCandidateID, path.Base(r.TargetPath))
 		} else {
 			pillText = fmt.Sprintf("%s returned %d candidates · waiting for your pick", r.Generator, len(r.Candidates))
@@ -361,9 +349,9 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 			FlexShrink:  0,
 			Padding:     core.Symmetric(0, 12),
 			Gap:         12,
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			ui.Button{
@@ -372,15 +360,15 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 				Label:   ed.T("assetGen.back"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specRaised },
-				Tint:    func() core.Color { return specTextSecondary },
+				Color:   func() core.Color { return p.Raised },
+				Tint:    func() core.Color { return p.TextMuted },
 				Style: core.Style{
 					Width:        core.Pt(28),
 					Height:       core.Pt(28),
 					CornerRadius: 6,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.CloseAssetGenerator()
@@ -398,19 +386,19 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 							Width:          core.Pt(20),
 							Height:         core.Pt(20),
 							CornerRadius:   6,
-							Background:     specAccent,
+							Background:     p.Accent.Fg,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 						},
 						Children: []core.Node{
-							core.Icon{SVG: lucide.Sparkles(), Style: core.Style{FontSize: 12, Color: specTextStrong}},
+							core.Icon{SVG: lucide.Sparkles(), Style: core.Style{FontSize: 12, Color: p.Accent.OnFill}},
 						},
 					},
-					core.Text{Content: snap.projectName, Style: core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong}},
-					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
-					core.Text{Content: "Assets", Style: core.Style{FontSize: 12.5, Color: specTextSecondary}},
-					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
-					core.Text{Content: "Generated", Style: core.Style{FontSize: 12.5, Color: specTextSecondary}},
+					core.Text{Content: snap.projectName, Style: core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary}},
+					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
+					core.Text{Content: "Assets", Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
+					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
+					core.Text{Content: "Generated", Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
@@ -450,18 +438,18 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 				Icon:    lucide.Play,
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specTextStrong },
-				Tint:    func() core.Color { return specBg },
+				Color:   func() core.Color { return p.TextPrimary },
+				Tint:    func() core.Color { return p.OnTextPrimary },
 				TextStyle: core.Style{
 					FontSize:   12.5,
 					FontWeight: 600,
-					Color:      specBg,
+					Color:      p.OnTextPrimary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(30),
 					CornerRadius: 8,
 					Padding:      core.Symmetric(0, 14),
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.CloseAssetGenerator()
@@ -474,7 +462,10 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	}
 }
 
-func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
+func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+	selectedBg := specAlpha(p.Accent.Fg, 0.14)
+	wavePass := specAlpha(p.Accent.Fg, 0.72)
+
 	// Combine active generation requests with on-disk generated assets (from *.source.yaml) that don't have an active request row.
 	type railRow struct {
 		id         string
@@ -493,7 +484,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	for i := range snap.requests {
 		r := &snap.requests[i]
 		seenPaths[r.TargetPath] = true
-		stText, stCol := assetGenStatusDisplay(r)
+		stText, stCol := assetGenStatusDisplay(r, p)
 		var pix *image.RGBA
 		var wave []float32
 		if len(r.Candidates) > 0 {
@@ -526,10 +517,10 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 			continue
 		}
 		stText := "In use"
-		stCol := specTextMuted
+		stCol := p.TextFaint
 		if lic.UnknownLicense {
 			stText = "License unknown"
-			stCol = specAssetGenProblemText
+			stCol = p.Removed.Fg
 		}
 		isImg := inferAssetGenKind(lic.Asset, "") == AssetGenImages
 		rows = append(rows, railRow{
@@ -546,10 +537,10 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	for _, row := range rows {
 		r := row
 		var bg core.Color
-		nameCol := specText
+		nameCol := p.TextSecondary
 		if r.selected {
-			bg = specAssetGenSelectedBg
-			nameCol = specTextStrong
+			bg = selectedBg
+			nameCol = p.TextPrimary
 		}
 		thumb := core.Canvas{
 			Style: core.Style{
@@ -557,14 +548,14 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 				Height:       core.Pt(32),
 				FlexShrink:   0,
 				CornerRadius: 6,
-				Background:   specRaised,
+				Background:   p.Raised,
 			},
 			Draw: func(d *core.Drawing, sz core.Size) {
-				drawCheckerBackdrop(d, sz, 6)
+				drawCheckerBackdrop(d, sz, 6, p)
 				if r.isImage && r.pixels != nil {
 					drawCrispPixels(d, r.pixels, 4, 4, float32(sz.Width)-8, float32(sz.Height)-8)
 				} else {
-					drawWaveformBars(d, r.waveform, 4, 6, float32(sz.Width)-8, float32(sz.Height)-12, specAssetGenWavePass, -1)
+					drawWaveformBars(d, r.waveform, 4, 6, float32(sz.Width)-8, float32(sz.Height)-12, wavePass, -1, p)
 				}
 			},
 		}
@@ -611,15 +602,15 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	if len(snap.servers) == 0 {
 		serverNodes = append(serverNodes, core.Text{
 			Content: ed.T("assetGen.noServers"),
-			Style:   core.Style{FontSize: 12, Color: specTextMuted},
+			Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 		})
 	} else {
 		for _, srv := range snap.servers {
-			dotCol := specTextMuted
+			dotCol := p.TextFaint
 			if srv.Connected {
-				dotCol = specAdded
+				dotCol = p.Added.Fg
 			} else if srv.Error != "" {
-				dotCol = specProblem
+				dotCol = p.Removed.Fg
 			}
 			serverNodes = append(serverNodes, core.View{
 				TestID: "asset-gen-server-" + sanitizeAssetGenTestID(srv.Config.Name),
@@ -630,8 +621,8 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 				},
 				Children: []core.Node{
 					core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: dotCol}},
-					core.Text{Content: srv.Config.Name, Style: core.Style{FlexGrow: 1, FontSize: 12.5, Color: specText}},
-					core.Text{Content: string(srv.Config.Kind), Style: core.Style{FontSize: 12, Color: specTextMuted}},
+					core.Text{Content: srv.Config.Name, Style: core.Style{FlexGrow: 1, FontSize: 12.5, Color: p.TextSecondary}},
+					core.Text{Content: string(srv.Config.Kind), Style: core.Style{FontSize: 12, Color: p.TextFaint}},
 				},
 			})
 		}
@@ -642,9 +633,9 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 		Style: core.Style{
 			Width:       core.Pt(232),
 			FlexShrink:  0,
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			MinHeight:   core.Pt(0),
 		},
 		Children: []core.Node{
@@ -657,8 +648,8 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 					Padding:        core.Symmetric(0, 14),
 				},
 				Children: []core.Node{
-					core.Text{Content: "GENERATED", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-					core.Text{Content: fmt.Sprintf("%d assets", len(rows)), Style: core.Style{FontSize: 11, FontWeight: 500, Color: specTextMuted}},
+					core.Text{Content: "GENERATED", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+					core.Text{Content: fmt.Sprintf("%d assets", len(rows)), Style: core.Style{FontSize: 11, FontWeight: 500, Color: p.TextFaint}},
 				},
 			},
 			core.View{
@@ -668,7 +659,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 			core.View{
 				Style: core.Style{Padding: core.Edges{Top: 16, Left: 14, Right: 14, Bottom: 6}},
 				Children: []core.Node{
-					core.Text{Content: "GENERATORS · MCP", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+					core.Text{Content: "GENERATORS · MCP", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				},
 			},
 			core.View{
@@ -682,12 +673,12 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 					Padding:     core.Symmetric(12, 14),
 					Gap:         6,
 					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
+					BorderColor: p.Line,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "Each pick writes the file and its .source.yaml.",
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 					ui.Button{
 						TestID:  "asset-gen-settings-tools",
@@ -696,14 +687,14 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 						Size:    ui.SizeSmall,
 						TextStyle: core.Style{
 							FontSize: 11.5,
-							Color:    specAccent,
+							Color:    p.Accent.Fg,
 						},
 						Style: core.Style{
 							AlignSelf:    core.AlignStart,
 							Height:       core.Pt(24),
 							Padding:      core.Symmetric(0, 6),
 							CornerRadius: 6,
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: p.FocusRing(2),
 						},
 						OnPress: func() {
 							ed.SetEditorSettingsOpen(true)
@@ -715,33 +706,33 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	}
 }
 
-func assetGenStatusDisplay(r *AssetGenerationRequest) (string, core.Color) {
+func assetGenStatusDisplay(r *AssetGenerationRequest, p SpecPalette) (string, core.Color) {
 	switch r.Status {
 	case AssetGenLicenseUnknown:
-		return "License unknown", specAssetGenProblemText
+		return "License unknown", p.Removed.Fg
 	case AssetGenInUse:
 		if r.UsageCount > 0 {
-			return fmt.Sprintf("In use · %d refs", r.UsageCount), specTextMuted
+			return fmt.Sprintf("In use · %d refs", r.UsageCount), p.TextFaint
 		}
-		return "In use", specTextMuted
+		return "In use", p.TextFaint
 	case AssetGenPicked:
 		if r.PickedCandidateID != "" {
-			return fmt.Sprintf("Picked %s · written", r.PickedCandidateID), specAdded
+			return fmt.Sprintf("Picked %s · written", r.PickedCandidateID), p.Added.Fg
 		}
-		return "Picked · written", specAdded
+		return "Picked · written", p.Added.Fg
 	default:
-		return fmt.Sprintf("Pick 1 of %d", len(r.Candidates)), specAgent
+		return fmt.Sprintf("Pick 1 of %d", len(r.Candidates)), p.Agent.Fg
 	}
 }
 
-func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot) core.Node {
+func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
 	var sections []core.Node
 
 	if snap.activeImageReq != nil {
-		sections = append(sections, assetGenImageRequestSection(ed, snap.activeImageReq, snap))
+		sections = append(sections, assetGenImageRequestSection(ed, snap.activeImageReq, snap, p))
 	}
 	if snap.activeSoundReq != nil {
-		sections = append(sections, assetGenSoundRequestSection(ed, snap.activeSoundReq, snap))
+		sections = append(sections, assetGenSoundRequestSection(ed, snap.activeSoundReq, snap, p))
 	}
 	if len(sections) == 0 {
 		sections = append(sections, core.View{
@@ -756,11 +747,11 @@ func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot) core.Node 
 			Children: []core.Node{
 				core.Text{
 					Content: ed.T("assetGen.emptyTitle"),
-					Style:   core.Style{FontSize: 15, FontWeight: 600, Color: specTextStrong},
+					Style:   core.Style{FontSize: 15, FontWeight: 600, Color: p.TextPrimary},
 				},
 				core.Text{
 					Content: ed.T("assetGen.emptyBody"),
-					Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 				},
 			},
 		})
@@ -774,7 +765,7 @@ func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot) core.Node 
 
 // assetGenRefineBarView mounts outside the coarse assetGenRev Dynamic so typing in the Refine input
 // never remounts or drops keyboard focus during background updates or candidate picks.
-func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID *core.Memo[string], refineDraftSig *core.Signal[string]) core.Node {
+func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID *core.Memo[string], refineDraftSig *core.Signal[string], p SpecPalette) core.Node {
 	return core.View{
 		TestID: "asset-gen-refine-bar",
 		Style: core.Style{
@@ -782,9 +773,9 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 			AlignItems:  core.AlignCenter,
 			Gap:         8,
 			Padding:     core.Symmetric(10, 20),
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			FlexShrink:  0,
 		},
 		Children: []core.Node{
@@ -797,12 +788,12 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 					Padding:      core.Symmetric(0, 10),
 					Gap:          8,
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
-					core.Icon{SVG: lucide.Sparkles(), Style: core.Style{FontSize: 14, Color: specAgent}},
+					core.Icon{SVG: lucide.Sparkles(), Style: core.Style{FontSize: 14, Color: p.Agent.Fg}},
 					ui.Input{
 						TestID:      "asset-gen-refine-input",
 						Label:       ed.T("assetGen.refine"),
@@ -825,14 +816,16 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 							Background:       core.Transparent,
 							BorderWidth:      0,
 							FontSize:         12,
-							Color:            specText,
-							PlaceholderColor: specTextMuted,
+							Color:            p.TextSecondary,
+							PlaceholderColor: p.TextFaint,
 						},
 					},
 				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = genRev.Get()
+				cur := ed.SpecPalette(cx)
+				btnSec := specAlpha(cur.TextSecondary, 0.08)
 				snap := ed.snapshotAssetGenView()
 				reqID := ""
 				candCount := 4
@@ -851,17 +844,17 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 							Variant:  ui.ButtonGhost,
 							Size:     ui.SizeSmall,
 							Disabled: func() bool { return disabled },
-							Color:    func() core.Color { return specAssetGenBtnSec },
-							Tint:     func() core.Color { return specText },
+							Color:    func() core.Color { return btnSec },
+							Tint:     func() core.Color { return cur.TextSecondary },
 							TextStyle: core.Style{
 								FontSize: 12,
-								Color:    specText,
+								Color:    cur.TextSecondary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(32),
 								Padding:      core.Symmetric(0, 12),
 								CornerRadius: 8,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: cur.FocusRing(2),
 							},
 							OnPress: func() {
 								draft := ed.assetGenRefineDraft()
@@ -878,17 +871,17 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 							Variant:  ui.ButtonGhost,
 							Size:     ui.SizeSmall,
 							Disabled: func() bool { return disabled },
-							Color:    func() core.Color { return specAssetGenBtnSec },
-							Tint:     func() core.Color { return specText },
+							Color:    func() core.Color { return btnSec },
+							Tint:     func() core.Color { return cur.TextSecondary },
 							TextStyle: core.Style{
 								FontSize: 12,
-								Color:    specText,
+								Color:    cur.TextSecondary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(32),
 								Padding:      core.Symmetric(0, 12),
 								CornerRadius: 8,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: cur.FocusRing(2),
 							},
 							OnPress: func() {
 								if reqID == "" {
@@ -904,17 +897,17 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 	}
 }
 
-func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot) core.Node {
+func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot, p SpecPalette) core.Node {
 	// Background switcher ("PREVIEW ON")
 	bgButtons := make([]core.Node, 0, len(snap.brief.Backgrounds))
 	for _, b := range snap.brief.Backgrounds {
 		bg := b
 		on := snap.bg.ID == bg.ID
 		var btnBg core.Color
-		txtCol := specTextMuted
+		txtCol := p.TextFaint
 		if on {
-			btnBg = specLineRaised
-			txtCol = specTextStrong
+			btnBg = p.LineRaised
+			txtCol = p.TextPrimary
 		}
 		bgButtons = append(bgButtons, ui.Button{
 			TestID:  "asset-gen-bg-" + sanitizeAssetGenTestID(bg.ID),
@@ -931,7 +924,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 				Height:       core.Pt(26),
 				Padding:      core.Symmetric(0, 10),
 				CornerRadius: 6,
-				FocusVisible: specFocusRingStyle,
+				FocusVisible: p.FocusRing(2),
 			},
 			OnPress: func() {
 				ed.SetAssetGenPreviewBackground(bg.ID)
@@ -946,7 +939,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	candCards := make([]core.Node, 0, len(req.Candidates))
 	for i := range req.Candidates {
 		cand := req.Candidates[i]
-		candCards = append(candCards, assetGenCandidateCard(ed, req, cand, snap))
+		candCards = append(candCards, assetGenCandidateCard(ed, req, cand, snap, p))
 	}
 
 	children := []core.Node{
@@ -966,38 +959,38 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 								core.Text{
 									TestID:  "asset-gen-target-name",
 									Content: path.Base(req.TargetPath),
-									Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+									Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 								},
 								core.Text{
 									Content: fmt.Sprintf("· %d candidates", len(req.Candidates)),
-									Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+									Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 								},
 							},
 						},
 						core.Text{
 							Content: "“" + firstNonEmpty(req.UserPrompt, req.Prompt) + "”",
-							Style:   core.Style{FontSize: 12.5, Color: specTextSecondary},
+							Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 						},
 						core.Text{
 							TestID:  "asset-gen-meta",
 							Content: metaLine,
-							Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextFaint},
 						},
 					},
 				},
 				core.View{
 					Style: core.Style{AlignItems: core.AlignEnd, Gap: 4, FlexShrink: 0},
 					Children: []core.Node{
-						core.Text{Content: ed.T("assetGen.previewOn"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+						core.Text{Content: ed.T("assetGen.previewOn"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 						core.View{
 							Style: core.Style{
 								Direction:    core.Row,
 								Gap:          2,
 								Padding:      core.All(3),
 								CornerRadius: 8,
-								Background:   specRaised,
+								Background:   p.Raised,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 							},
 							Children: bgButtons,
 						},
@@ -1019,7 +1012,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 		children = append(children, core.Text{
 			TestID:  "asset-gen-note",
 			Content: req.LastNote,
-			Style:   core.Style{FontSize: 11.5, Color: specAgent},
+			Style:   core.Style{FontSize: 11.5, Color: p.Agent.Fg},
 		})
 	}
 
@@ -1029,16 +1022,20 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand GeneratedCandidate, snap assetGenViewSnapshot) core.Node {
+func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand GeneratedCandidate, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+	selectedBg := specAlpha(p.Accent.Fg, 0.14)
+	bgOverlay := specAlpha(p.Bg, 0.92)
+	btnSec := specAlpha(p.TextSecondary, 0.08)
+
 	bg := snap.bg
 	selected := req.SelectedCandidateID == cand.ID
 	picked := req.PickedCandidateID == cand.ID
-	cardBg := specRaised
-	cardBorder := specLineRaised
+	cardBg := p.Raised
+	cardBorder := p.LineRaised
 	borderW := core.Points(1)
 	if selected {
-		cardBg = specAssetGenSelectedBg
-		cardBorder = specAccent
+		cardBg = selectedBg
+		cardBorder = p.Accent.Fg
 		borderW = core.Points(1.5)
 	}
 	var opacity core.Opacity
@@ -1057,7 +1054,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 				Height: core.Pt(168),
 			},
 			Draw: func(d *core.Drawing, sz core.Size) {
-				drawCandidateStage(d, sz, bg, refPix, candPix)
+				drawCandidateStage(d, sz, bg, refPix, candPix, p)
 			},
 		},
 		core.View{
@@ -1068,12 +1065,12 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 				Width:          core.Pt(22),
 				Height:         core.Pt(22),
 				CornerRadius:   6,
-				Background:     specBgOverlay,
+				Background:     bgOverlay,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 			},
 			Children: []core.Node{
-				core.Text{Content: cand.ID, Style: core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong}},
+				core.Text{Content: cand.ID, Style: core.Style{FontSize: 12, FontWeight: 600, Color: p.TextPrimary}},
 			},
 		},
 	}
@@ -1086,12 +1083,12 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 				Height:         core.Pt(20),
 				Padding:        core.Symmetric(0, 8),
 				CornerRadius:   6,
-				Background:     specAccent,
+				Background:     p.Accent.Fg,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 			},
 			Children: []core.Node{
-				core.Text{Content: ed.T("assetGen.picked"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: specBg}},
+				core.Text{Content: ed.T("assetGen.picked"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.Accent.OnFill}},
 			},
 		})
 	}
@@ -1103,7 +1100,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 				Left:     core.Pt(10),
 				Bottom:   core.Pt(6),
 				FontSize: 11,
-				Color:    specTextMuted,
+				Color:    p.TextFaint,
 			},
 		})
 	}
@@ -1113,12 +1110,12 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 	for i := 0; i < len(cand.Checks) && i < 3; i++ {
 		chk := cand.Checks[i]
 		sym := lucide.Check
-		iconCol := specAdded
-		txtCol := specTextSecondary
+		iconCol := p.Added.Fg
+		txtCol := p.TextMuted
 		if !chk.Pass {
 			sym = lucide.X
-			iconCol = specProblem
-			txtCol = specAssetGenProblemText
+			iconCol = p.Removed.Fg
+			txtCol = p.Removed.Fg
 		}
 		checkNodes = append(checkNodes, core.View{
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Height: core.Pt(20)},
@@ -1137,11 +1134,11 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 	if picked {
 		pickText = ed.T("assetGen.undoPick")
 	}
-	pickBg := specAssetGenBtnSec
-	pickTxtCol := specText
+	pickBg := btnSec
+	pickTxtCol := p.TextSecondary
 	if selected && !picked {
-		pickBg = specAccent
-		pickTxtCol = specBg
+		pickBg = p.Accent.Fg
+		pickTxtCol = p.Accent.OnFill
 	}
 
 	reqID := req.ID
@@ -1197,7 +1194,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 							FlexGrow:     1,
 							Height:       core.Pt(30),
 							CornerRadius: 8,
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: p.FocusRing(2),
 						},
 						OnPress: func() {
 							if picked {
@@ -1213,16 +1210,16 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 						Variant:  ui.ButtonGhost,
 						Size:     ui.SizeSmall,
 						Disabled: func() bool { return actionDisabled || snap.busy },
-						Color:    func() core.Color { return specAssetGenBtnSec },
+						Color:    func() core.Color { return btnSec },
 						TextStyle: core.Style{
 							FontSize: 12,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(30),
 							Padding:      core.Symmetric(0, 10),
 							CornerRadius: 8,
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: p.FocusRing(2),
 						},
 						OnPress: func() {
 							ed.report(ed.startVaryGeneratedCandidateAsync(reqID, candID))
@@ -1234,41 +1231,46 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 	}
 }
 
-func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot) core.Node {
+func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+	selectedBg := specAlpha(p.Accent.Fg, 0.14)
+	btnSec := specAlpha(p.TextSecondary, 0.08)
+	wavePass := specAlpha(p.Accent.Fg, 0.72)
+	waveFail := specAlpha(p.Removed.Fg, 0.85)
+
 	actionDisabled := snap.playingGame || snap.mergeConflict
 	rows := make([]core.Node, 0, len(req.Candidates))
 	for i := range req.Candidates {
 		cand := req.Candidates[i]
 		playing := snap.playingReqID == req.ID && snap.playingCandID == cand.ID
 		picked := req.PickedCandidateID == cand.ID
-		rowBg := specRaised
-		rowBorder := specLineRaised
+		rowBg := p.Raised
+		rowBorder := p.LineRaised
 		rowBorderW := core.Points(1)
 		if picked {
-			rowBg = specAssetGenSelectedBg
-			rowBorder = specAccent
+			rowBg = selectedBg
+			rowBorder = p.Accent.Fg
 			rowBorderW = core.Points(1.5)
 		}
-		playBg := specAssetGenBtnSec
-		playTint := specTextStrong
+		playBg := btnSec
+		playTint := p.TextPrimary
 		playSym := lucide.Play
 		if playing {
-			playBg = specTextStrong
-			playTint = specBg
+			playBg = p.TextPrimary
+			playTint = p.OnTextPrimary
 			playSym = lucide.X
 		}
-		checkCol := specTextMuted
-		waveCol := specAssetGenWavePass
+		checkCol := p.TextFaint
+		waveCol := wavePass
 		if !cand.AudioCheckPass {
-			checkCol = specAssetGenProblemText
-			waveCol = specAssetGenWaveFail
+			checkCol = p.Removed.Fg
+			waveCol = waveFail
 		}
-		pickBg := specAssetGenBtnSec
-		pickTxtCol := specText
+		pickBg := btnSec
+		pickTxtCol := p.TextSecondary
 		pickTxt := ed.T("assetGen.pick")
 		if picked {
-			pickBg = specAccent
-			pickTxtCol = specBg
+			pickBg = p.Accent.Fg
+			pickTxtCol = p.Accent.OnFill
 			pickTxt = ed.T("assetGen.picked")
 		}
 		reqID := req.ID
@@ -1305,7 +1307,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 						Width:        core.Pt(30),
 						Height:       core.Pt(30),
 						CornerRadius: 8,
-						FocusVisible: specFocusRingStyle,
+						FocusVisible: p.FocusRing(2),
 					},
 					OnPress: func() {
 						ed.report(ed.PlayGeneratedSoundCandidate(reqID, candID))
@@ -1313,7 +1315,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 				},
 				core.Text{
 					Content: cand.ID,
-					Style:   core.Style{Width: core.Pt(16), FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+					Style:   core.Style{Width: core.Pt(16), FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary},
 				},
 				core.Canvas{
 					Style: core.Style{
@@ -1322,16 +1324,16 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 						Height:    core.Pt(28),
 					},
 					Draw: func(d *core.Drawing, sz core.Size) {
-						drawWaveformBars(d, wave, 0, 2, float32(sz.Width), float32(sz.Height)-4, waveCol, headFrac)
+						drawWaveformBars(d, wave, 0, 2, float32(sz.Width), float32(sz.Height)-4, waveCol, headFrac, p)
 					},
 				},
 				core.Text{
 					Content: fmt.Sprintf("%.2f s", cand.Duration.Seconds()),
-					Style:   core.Style{Width: core.Pt(48), FontSize: 11.5, FontFamily: core.FontMonospace, Color: specTextSecondary},
+					Style:   core.Style{Width: core.Pt(48), FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextMuted},
 				},
 				core.Text{
 					Content: formatLoudnessLabel(cand.LoudnessDBFS),
-					Style:   core.Style{Width: core.Pt(88), FontSize: 11.5, FontFamily: core.FontMonospace, Color: specTextSecondary},
+					Style:   core.Style{Width: core.Pt(88), FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextMuted},
 				},
 				core.Text{
 					Content:  cand.AudioCheckText,
@@ -1354,7 +1356,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 						Height:       core.Pt(28),
 						Padding:      core.Symmetric(0, 12),
 						CornerRadius: 8,
-						FocusVisible: specFocusRingStyle,
+						FocusVisible: p.FocusRing(2),
 					},
 					OnPress: func() {
 						if picked {
@@ -1373,7 +1375,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 		Style: core.Style{
 			Padding:     core.Edges{Top: 12},
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Gap:         8,
 		},
 		Children: append([]core.Node{
@@ -1382,16 +1384,16 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 				Children: []core.Node{
 					core.Text{
 						Content: path.Base(req.TargetPath),
-						Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+						Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content:  fmt.Sprintf("· %d candidates · “%s”", len(req.Candidates), firstNonEmpty(req.UserPrompt, req.Prompt)),
 						MaxLines: 1,
-						Style:    core.Style{FlexGrow: 1, FlexShrink: 1, FontSize: 12, Color: specTextMuted},
+						Style:    core.Style{FlexGrow: 1, FlexShrink: 1, FontSize: 12, Color: p.TextFaint},
 					},
 					core.Text{
 						Content: formatSeedRangeMeta(req),
-						Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextFaint},
 					},
 				},
 			},
@@ -1399,7 +1401,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenRightInspectorHeader(snap assetGenViewSnapshot) core.Node {
+func assetGenRightInspectorHeader(snap assetGenViewSnapshot, p SpecPalette) core.Node {
 	headerTitle := "Candidate"
 	headerSub := ""
 	if snap.selectedCand != nil {
@@ -1417,46 +1419,49 @@ func assetGenRightInspectorHeader(snap assetGenViewSnapshot) core.Node {
 			Padding:     core.Symmetric(0, 16),
 			Gap:         8,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
-			core.Text{Content: headerTitle, Style: core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong}},
-			core.Text{Content: headerSub, Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
+			core.Text{Content: headerTitle, Style: core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary}},
+			core.Text{Content: headerSub, Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
 		},
 	}
 }
 
-func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEditLicense func(assetPath string)) core.Node {
+func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEditLicense func(assetPath string), p SpecPalette) core.Node {
+	approvedRow := specAlpha(p.Added.Fg, 0.10)
+	btnSec := specAlpha(p.TextSecondary, 0.08)
+
 	// 1. Style against brief.yaml
 	var styleNodes []core.Node
 	styleNodes = append(styleNodes,
 		core.View{
 			Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween, AlignItems: core.AlignCenter},
 			Children: []core.Node{
-				core.Text{Content: "STYLE AGAINST THE BRIEF", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-				core.Text{Content: "brief.yaml", Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specTextMuted}},
+				core.Text{Content: "STYLE AGAINST THE BRIEF", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+				core.Text{Content: "brief.yaml", Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: p.TextFaint}},
 			},
 		},
 		core.View{
 			Style: core.Style{
 				Padding:     core.Symmetric(8, 12),
 				Borders:     core.Edges{Left: 2},
-				BorderColor: specLineRaised,
+				BorderColor: p.LineRaised,
 			},
 			Children: []core.Node{
-				core.Text{Content: snap.brief.Summary, Style: core.Style{FontSize: 12, Color: specTextSecondary}},
+				core.Text{Content: snap.brief.Summary, Style: core.Style{FontSize: 12, Color: p.TextMuted}},
 			},
 		},
 	)
 	if snap.selectedCand != nil {
 		for _, sc := range snap.selectedCand.Checks {
 			sym := lucide.Check
-			iconCol := specAdded
-			detCol := specTextMuted
+			iconCol := p.Added.Fg
+			detCol := p.TextFaint
 			if !sc.Pass {
 				sym = lucide.X
-				iconCol = specProblem
-				detCol = specAssetGenProblemText
+				iconCol = p.Removed.Fg
+				detCol = p.Removed.Fg
 			}
 			styleNodes = append(styleNodes, core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(2, 0)},
@@ -1468,7 +1473,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 					core.View{
 						Style: core.Style{FlexGrow: 1, Gap: 2},
 						Children: []core.Node{
-							core.Text{Content: sc.Title, Style: core.Style{FontSize: 12.5, Color: specTextStrong}},
+							core.Text{Content: sc.Title, Style: core.Style{FontSize: 12.5, Color: p.TextPrimary}},
 							core.Text{Content: sc.Detail, Style: core.Style{FontSize: 11.5, Color: detCol}},
 						},
 					},
@@ -1508,10 +1513,10 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 		}
 		for _, kv := range kvLines {
 			var rowBg core.Color
-			valCol := specText
+			valCol := p.TextSecondary
 			if kv[0] == "approvedBy:" && picked {
-				rowBg = specAssetGenApprovedRow
-				valCol = specAdded
+				rowBg = approvedRow
+				valCol = p.Added.Fg
 			}
 			sourceLineNodes = append(sourceLineNodes, core.View{
 				Style: core.Style{
@@ -1521,7 +1526,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 					Background: rowBg,
 				},
 				Children: []core.Node{
-					core.Text{Content: kv[0], Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specTextMuted}},
+					core.Text{Content: kv[0], Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextFaint}},
 					core.Text{Content: kv[1], MaxLines: 1, Style: core.Style{FlexGrow: 1, FlexShrink: 1, FontSize: 11.5, FontFamily: core.FontMonospace, Color: valCol}},
 				},
 			})
@@ -1536,14 +1541,14 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 			Style: core.Style{
 				Padding:      core.Symmetric(8, 10),
 				CornerRadius: 8,
-				Background:   specRaised,
+				Background:   p.Raised,
 				BorderWidth:  1.5,
-				BorderColor:  specProblem,
+				BorderColor:  p.Removed.Fg,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: snap.licenseScanErr,
-					Style:   core.Style{FontSize: 11.5, Color: specAssetGenProblemText},
+					Style:   core.Style{FontSize: 11.5, Color: p.Removed.Fg},
 				},
 			},
 		})
@@ -1558,19 +1563,19 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 		if lc.CommercialUse {
 			noteText += " · commercial use allowed"
 		}
-		noteCol := specTextMuted
+		noteCol := p.TextFaint
 		if lc.UnknownLicense {
-			rowBg = specRaised
-			rowBorder = specProblem
+			rowBg = p.Raised
+			rowBorder = p.Removed.Fg
 			rowBorderW = core.Points(1.5)
 			noteText = "License unknown · blocks export"
-			noteCol = specAssetGenProblemText
+			noteCol = p.Removed.Fg
 		}
 		rowChildren := []core.Node{
 			core.View{
 				Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2},
 				Children: []core.Node{
-					core.Text{Content: path.Base(lc.Asset), Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specTextStrong}},
+					core.Text{Content: path.Base(lc.Asset), Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextPrimary}},
 					core.Text{Content: noteText, Style: core.Style{FontSize: 11.5, Color: noteCol}},
 				},
 			},
@@ -1583,16 +1588,16 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 				Variant:  ui.ButtonGhost,
 				Size:     ui.SizeSmall,
 				Disabled: func() bool { return actionDisabled },
-				Color:    func() core.Color { return specAssetGenBtnSec },
+				Color:    func() core.Color { return btnSec },
 				TextStyle: core.Style{
 					FontSize: 11.5,
-					Color:    specText,
+					Color:    p.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(28),
 					Padding:      core.Symmetric(0, 10),
 					CornerRadius: 6,
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					onBeginEditLicense(assetPath)
@@ -1617,7 +1622,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 	if len(licenseRows) == 0 {
 		licenseRows = append(licenseRows, core.Text{
 			Content: ed.T("assetGen.noLicenses"),
-			Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 		})
 	}
 
@@ -1631,8 +1636,8 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 					core.View{
 						Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween, AlignItems: core.AlignCenter},
 						Children: []core.Node{
-							core.Text{Content: "SOURCE", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-							core.Text{Content: sourceFileName, Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specTextMuted}},
+							core.Text{Content: "SOURCE", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+							core.Text{Content: sourceFileName, Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: p.TextFaint}},
 						},
 					},
 					core.View{
@@ -1640,9 +1645,9 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 						Style: core.Style{
 							Padding:      core.Symmetric(8, 0),
 							CornerRadius: 12,
-							Background:   specRaised,
+							Background:   p.Raised,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 							Gap:          2,
 						},
 						Children: sourceLineNodes,
@@ -1650,7 +1655,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 					core.Text{
 						TestID:  "asset-gen-untrusted-notice",
 						Content: ed.T("assetGen.untrustedNotice"),
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
 			},
@@ -1658,7 +1663,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 				TestID: "asset-gen-licenses",
 				Style:  core.Style{Gap: 6},
 				Children: append([]core.Node{
-					core.Text{Content: ed.T("assetGen.licensesHeader"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+					core.Text{Content: ed.T("assetGen.licensesHeader"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				}, licenseRows...),
 			},
 		},
@@ -1667,23 +1672,24 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 
 // assetGenLicenseEditorBar mounts outside the coarse assetGenRev Dynamic so typing a license string
 // never remounts or loses focus, and never silently fabricates a license identifier.
-func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDraftSig *core.Signal[string], licCommSig *core.Signal[bool]) core.Node {
+func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDraftSig *core.Signal[string], licCommSig *core.Signal[bool], p SpecPalette) core.Node {
 	return core.View{
 		TestID: "asset-gen-license-editor",
 		Style: core.Style{
 			Padding:     core.All(12),
 			Gap:         8,
-			Background:  specRaised,
+			Background:  p.Raised,
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLineRaised,
+			BorderColor: p.LineRaised,
 			FlexShrink:  0,
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
+				cur := ed.SpecPalette(cx)
 				target := path.Base(licEditPath.Get())
 				return core.Text{
 					Content: fmt.Sprintf("%s · %s", ed.T("assetGen.licenseEditTitle"), target),
-					Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: specTextStrong},
+					Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: cur.TextPrimary},
 				}
 			}),
 			ui.Input{
@@ -1703,23 +1709,27 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 					Height:           core.Pt(30),
 					Padding:          core.Symmetric(0, 8),
 					CornerRadius:     6,
-					Background:       specBg,
+					Background:       p.Bg,
 					BorderWidth:      1,
-					BorderColor:      specLineRaised,
+					BorderColor:      p.LineRaised,
 					FontSize:         12,
-					Color:            specText,
-					PlaceholderColor: specTextMuted,
+					Color:            p.TextSecondary,
+					PlaceholderColor: p.TextFaint,
 				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
+				cur := ed.SpecPalette(cx)
+				btnSec := specAlpha(cur.TextSecondary, 0.08)
 				comm := licCommSig.Get()
-				boxBg := specBg
-				boxBorder := specLineRaised
+				boxBg := cur.Bg
+				boxBorder := cur.LineRaised
 				iconCol := core.Transparent
+				textCol := cur.TextSecondary
 				if comm {
-					boxBg = specAccent
-					boxBorder = specAccent
-					iconCol = specBg
+					boxBg = cur.Accent.Fg
+					boxBorder = cur.Accent.Fg
+					iconCol = cur.Accent.OnFill
+					textCol = cur.Accent.OnFill
 				}
 				return core.View{
 					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
@@ -1734,7 +1744,7 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 							Tint:    func() core.Color { return iconCol },
 							TextStyle: core.Style{
 								FontSize: 11.5,
-								Color:    specText,
+								Color:    textCol,
 							},
 							Style: core.Style{
 								Height:       core.Pt(26),
@@ -1742,7 +1752,7 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 								CornerRadius: 6,
 								BorderWidth:  1,
 								BorderColor:  boxBorder,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: cur.FocusRing(2),
 							},
 							OnPress: func() {
 								next := !licCommSig.Get()
@@ -1756,16 +1766,16 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 							Text:    ed.T("assetGen.cancel"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specAssetGenBtnSec },
+							Color:   func() core.Color { return btnSec },
 							TextStyle: core.Style{
 								FontSize: 11.5,
-								Color:    specText,
+								Color:    cur.TextSecondary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(26),
 								Padding:      core.Symmetric(0, 10),
 								CornerRadius: 6,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: cur.FocusRing(2),
 							},
 							OnPress: func() {
 								ed.CancelEditGeneratedLicense()
@@ -1776,17 +1786,17 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 							Text:    ed.T("assetGen.saveLicense"),
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specAccent },
+							Color:   func() core.Color { return cur.Accent.Fg },
 							TextStyle: core.Style{
 								FontSize:   11.5,
 								FontWeight: 600,
-								Color:      specBg,
+								Color:      cur.Accent.OnFill,
 							},
 							Style: core.Style{
 								Height:       core.Pt(26),
 								Padding:      core.Symmetric(0, 10),
 								CornerRadius: 6,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: cur.FocusRing(2),
 							},
 							OnPress: func() {
 								ed.report(ed.SaveEditedGeneratedLicense())
@@ -1887,13 +1897,13 @@ func sanitizeAssetGenTestID(s string) string {
 
 // --- Canvas drawing helpers (strictly Spec-derived colors, crisp pixel rendering) ---
 
-func drawCheckerBackdrop(d *core.Drawing, sz core.Size, tile float32) {
+func drawCheckerBackdrop(d *core.Drawing, sz core.Size, tile float32, p SpecPalette) {
 	w, h := float32(sz.Width), float32(sz.Height)
-	d.SetFillColor(specRaised).FillRect(0, 0, w, h)
+	d.SetFillColor(p.Raised).FillRect(0, 0, w, h)
 	if tile <= 0 {
 		tile = 12
 	}
-	d.SetFillColor(specAssetGenCheckerTile)
+	d.SetFillColor(specAlpha(p.TextSecondary, 0.05))
 	for y := float32(0); y < h; y += tile {
 		row := int(y / tile)
 		for x := float32(0); x < w; x += tile {
@@ -1905,24 +1915,24 @@ func drawCheckerBackdrop(d *core.Drawing, sz core.Size, tile float32) {
 	}
 }
 
-func drawCandidateStage(d *core.Drawing, sz core.Size, bg AssetPreviewBackground, refPix, candPix *image.RGBA) {
+func drawCandidateStage(d *core.Drawing, sz core.Size, bg AssetPreviewBackground, refPix, candPix *image.RGBA, p SpecPalette) {
 	w, h := float32(sz.Width), float32(sz.Height)
 	if bg.Checker {
-		drawCheckerBackdrop(d, sz, 12)
+		drawCheckerBackdrop(d, sz, 12, p)
 	} else {
 		d.SetFillColor(bg.Color).FillRect(0, 0, w, h)
 		// Subtle warm torch glow in upper right using Spec changed-amber alpha.
-		d.BeginPath().Arc(w-12, 16, 48, 0, 2*math.Pi, false).SetFillColor(specAssetGenTorchGlow).Fill()
+		d.BeginPath().Arc(w-12, 16, 48, 0, 2*math.Pi, false).SetFillColor(specAlpha(p.Changed.Fg, 0.18)).Fill()
 		// Floor tiles strip along bottom.
 		floorH := float32(34)
 		floorY := h - floorH
-		d.SetFillColor(specLineRaised).FillRect(0, floorY, w, floorH)
-		d.SetFillColor(specLine)
+		d.SetFillColor(p.LineRaised).FillRect(0, floorY, w, floorH)
+		d.SetFillColor(p.Line)
 		for x := float32(0); x < w; x += 32 {
 			d.FillRect(x, floorY, 1.5, floorH)
 		}
 		d.FillRect(0, floorY, w, 2)
-		d.SetFillColor(specAssetGenFloorTile).FillRect(0, floorY+16, w, 1.5)
+		d.SetFillColor(specAlpha(p.TextSecondary, 0.09)).FillRect(0, floorY+16, w, 1.5)
 	}
 
 	groundY := h - 34
@@ -1985,14 +1995,14 @@ func drawCrispPixels(d *core.Drawing, rgba *image.RGBA, x, y, maxW, maxH float32
 	d.DrawImageFrom(core.ImageSource{Pixels: rgba}, 0, 0, float32(iw), float32(ih), ox, oy, dw, dh)
 }
 
-func drawWaveformBars(d *core.Drawing, bars []float32, x, y, w, h float32, col core.Color, playheadFrac float32) {
+func drawWaveformBars(d *core.Drawing, bars []float32, x, y, w, h float32, col core.Color, playheadFrac float32, p SpecPalette) {
 	if w <= 0 || h <= 0 {
 		return
 	}
 	n := len(bars)
 	if n == 0 {
 		// Flat muted baseline when no samples decoded.
-		d.SetFillColor(specLineRaised).FillRect(x, y+h/2-1, w, 2)
+		d.SetFillColor(p.LineRaised).FillRect(x, y+h/2-1, w, 2)
 		return
 	}
 	step := w / float32(n)
@@ -2006,6 +2016,6 @@ func drawWaveformBars(d *core.Drawing, bars []float32, x, y, w, h float32, col c
 	}
 	if playheadFrac >= 0 && playheadFrac <= 1 {
 		px := x + w*playheadFrac
-		d.SetFillColor(specTextStrong).FillRect(px, y, 1.5, h)
+		d.SetFillColor(p.TextPrimary).FillRect(px, y, 1.5, h)
 	}
 }

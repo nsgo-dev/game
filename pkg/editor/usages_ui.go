@@ -12,15 +12,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for ReferencesScreenView from spec_theme.yaml.
-var (
-	specRefRowActiveBg = specAlpha(darkSpecPalette.Accent.Fg, 0.16)
-	specRefHitBg       = specAlpha(darkSpecPalette.Accent.Fg, 0.18)
-	specRefHitDimBg    = specAlpha(darkSpecPalette.Accent.Fg, 0.08)
-	specRefDelBg       = specAlpha(darkSpecPalette.Removed.Fg, 0.10)
-	specRefAddBg       = specAlpha(darkSpecPalette.Added.Fg, 0.10)
-	specRefMonoFamily  = "JetBrains Mono, Menlo, monospace"
-)
+const specRefMonoFamily = "JetBrains Mono, Menlo, monospace"
 
 // ReferencesScreenView renders the full-window Find Usages and Safe Rename review screen
 // matching docs/design/editor/References.dc.html using only Spec.dc.html tokens.
@@ -72,36 +64,39 @@ func ReferencesScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		return ed.usagesStateRev()
 	})
 
-	return core.View{
-		TestID: "references-screen",
-		Role:   core.RoleRegion,
-		Label:  "Find usages and safe rename",
-		Style: core.Style{
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			referencesHeaderView(cx, ed, refsRev),
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					referencesSidebarView(cx, ed, refsRev),
-					referencesCenterView(cx, ed, refsRev),
-					referencesCodeView(cx, ed, refsRev),
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "references-screen",
+			Role:   core.RoleRegion,
+			Label:  "Find usages and safe rename",
+			Style: core.Style{
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				referencesHeaderView(cx, p, ed, refsRev),
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						referencesSidebarView(cx, p, ed, refsRev),
+						referencesCenterView(cx, p, ed, refsRev),
+						referencesCodeView(cx, p, ed, refsRev),
+					},
 				},
 			},
-		},
-	}
+		}
+	})
 }
 
-func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = refsRev.Get()
 		st := ed.ReferencesScreen()
@@ -158,20 +153,20 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.ArrowLeft(),
-						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: specTextSecondary},
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted},
 					},
 					core.Text{
 						Content: "Editor",
-						Style:   core.Style{FontSize: 12.5, Color: specTextSecondary},
+						Style:   core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
-					refsKeyCap("Esc"),
+					refsKeyCap(p, "Esc"),
 				},
 			},
 			core.View{
 				Style: core.Style{
 					Width:      core.Pt(1),
 					Height:     core.Pt(20),
-					Background: specLine,
+					Background: p.Line,
 				},
 			},
 		}
@@ -182,16 +177,16 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 					Width:          core.Pt(18),
 					Height:         core.Pt(18),
 					CornerRadius:   9,
-					Background:     specAddedFill,
+					Background:     specAlpha(p.Added.Fg, 0.12),
 					BorderWidth:    1,
-					BorderColor:    specAddedEdge,
+					BorderColor:    specAlpha(p.Added.Fg, 0.45),
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 				},
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.Check(),
-						Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specAdded},
+						Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: p.Added.Fg},
 					},
 				},
 			})
@@ -201,12 +196,12 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 			core.Text{
 				TestID:  "refs-title",
 				Content: title,
-				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
 				TestID:  "refs-subtitle",
 				Content: subtitle,
-				Style:   core.Style{FontSize: 12, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 			},
 		)
 
@@ -224,9 +219,9 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 					Padding:      core.Symmetric(0, 12),
 					Gap:          8,
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				OnPress: func(core.PressEvent) {
 					ed.report(ed.StartSafeRename())
@@ -234,15 +229,15 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				Children: []core.Node{
 					core.Icon{
 						SVG:   lucide.Pencil(),
-						Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: specTextStrong},
+						Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: "Rename…",
-						Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: specTextStrong},
+						Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: "F2",
-						Style:   core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: p.TextFaint},
 					},
 				},
 			})
@@ -253,11 +248,11 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				fileCount = st.Plan.TotalTouchedFiles
 			}
 			applyLabel := fmt.Sprintf("Keep · Rename %d %s", fileCount, pluralWord(fileCount, "file", "files"))
-			applyBg := specLine
-			applyFg := specTextMuted
+			applyBg := p.Line
+			applyFg := p.TextFaint
 			if valid {
-				applyBg = specAccent
-				applyFg = specBg // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
+				applyBg = p.Accent.Fg
+				applyFg = p.Accent.OnFill
 			}
 			rightNodes = append(rightNodes,
 				ui.Button{
@@ -265,18 +260,18 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 					Text:    "Cancel",
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specRaised },
+					Color:   func() core.Color { return p.Raised },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
-						Color:      specText,
+						Color:      p.TextSecondary,
 					},
 					Style: core.Style{
 						Height:       core.Pt(30),
 						CornerRadius: 8,
 						Padding:      core.Symmetric(0, 14),
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					OnPress: func() {
 						ed.CancelSafeRename()
@@ -314,18 +309,18 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 					Text:    "Undo · ⌘Z",
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specRaised },
+					Color:   func() core.Color { return p.Raised },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
-						Color:      specText,
+						Color:      p.TextSecondary,
 					},
 					Style: core.Style{
 						Height:       core.Pt(30),
 						CornerRadius: 8,
 						Padding:      core.Symmetric(0, 14),
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					OnPress: func() {
 						ed.UndoSafeRename()
@@ -336,11 +331,11 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 					Text:    backLabel,
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specTextStrong },
+					Color:   func() core.Color { return p.TextPrimary },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 600,
-						Color:      specBg,
+						Color:      p.OnTextPrimary,
 					},
 					Style: core.Style{
 						Height:       core.Pt(30),
@@ -364,9 +359,9 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				FlexShrink:     0,
 				Padding:        core.Symmetric(0, 12),
 				Gap:            12,
-				Background:     specBg,
+				Background:     p.Bg,
 				Borders:        core.Edges{Bottom: 1},
-				BorderColor:    specLine,
+				BorderColor:    p.Line,
 			},
 			Children: []core.Node{
 				core.View{
@@ -393,7 +388,7 @@ func referencesHeaderView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 	})
 }
 
-func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	inRename := core.NewMemo(cx, func() bool {
 		_ = refsRev.Get()
 		return ed.usages.open && ed.usages.mode == ReferencesModeRename
@@ -429,13 +424,13 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 					Padding:     core.All(12),
 					Gap:         8,
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
+					BorderColor: p.Line,
 					FlexShrink:  0,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "NEW NAME",
-						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 					},
 					core.View{
 						Style: core.Style{
@@ -444,9 +439,9 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 							Padding:      core.Symmetric(2, 8),
 							Gap:          2,
 							CornerRadius: 8,
-							Background:   specRaised,
+							Background:   p.Raised,
 							BorderWidth:  1.5,
-							BorderColor:  specAccent,
+							BorderColor:  p.Accent.Fg,
 						},
 						Children: []core.Node{
 							core.Show{
@@ -455,7 +450,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 									return core.Dynamic(func(*core.Scope) core.Node {
 										return core.Text{
 											Content: renameFolder.Get(),
-											Style:   core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: specTextMuted, FlexShrink: 0},
+											Style:   core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: p.TextFaint, FlexShrink: 0},
 										}
 									})
 								},
@@ -478,9 +473,9 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 										Style: core.Style{
 											Width:       core.Pct(100),
 											Height:      core.Pt(26),
-											Background:  specRaised,
+											Background:  p.Raised,
 											BorderWidth: 0,
-											Color:       specTextStrong,
+											Color:       p.TextPrimary,
 											FontFamily:  specRefMonoFamily,
 											FontSize:    11.5,
 											Padding:     core.Symmetric(0, 4),
@@ -494,7 +489,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 									return core.Dynamic(func(*core.Scope) core.Node {
 										return core.Text{
 											Content: renameSuffix.Get(),
-											Style:   core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: specTextMuted, FlexShrink: 0},
+											Style:   core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: p.TextFaint, FlexShrink: 0},
 										}
 									})
 								},
@@ -505,7 +500,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 						_ = refsRev.Get()
 						st := ed.ReferencesScreen()
 						valid := st != nil && st.Plan != nil && st.Plan.Valid
-						valColor := specAdded
+						valColor := p.Added.Fg
 						valMsg := "Enter a new name"
 						if st != nil && st.Plan != nil && st.Plan.ValidationMsg != "" {
 							valMsg = st.Plan.ValidationMsg
@@ -515,7 +510,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 							Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: valColor},
 						}
 						if !valid {
-							valColor = specWarning
+							valColor = p.Warning.Fg
 							valBadge = core.Text{
 								Content: "!",
 								Style:   core.Style{FontSize: 12, FontWeight: 700, Color: valColor},
@@ -532,7 +527,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 								core.Text{
 									TestID:  "refs-validation-msg",
 									Content: valMsg,
-									Style:   core.Style{FontSize: 11.5, Color: specTextSecondary},
+									Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 								},
 							},
 						}
@@ -548,6 +543,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 		if st == nil {
 			return core.View{}
 		}
+		rowActiveBg := specAlpha(p.Accent.Fg, 0.16)
 
 		// Grouped usage list rows.
 		var rows []core.Node
@@ -561,8 +557,8 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 					Padding:        core.Edges{Top: 8, Left: 8, Right: 8},
 				},
 				Children: []core.Node{
-					core.Text{Content: label, Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-					core.Text{Content: meta, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+					core.Text{Content: label, Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+					core.Text{Content: meta, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 				},
 			})
 		}
@@ -571,10 +567,10 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 			addGroupHeader("MOVED", "")
 			isOpen := st.FocusedFile == movedFocusSentinel
 			var rowBg core.Color
-			rowText := specText
+			rowText := p.TextSecondary
 			if isOpen {
-				rowBg = specRefRowActiveBg
-				rowText = specTextStrong
+				rowBg = rowActiveBg
+				rowText = p.TextPrimary
 			}
 			rows = append(rows, core.View{
 				TestID: "refs-row-moved",
@@ -592,7 +588,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 					ed.FocusUsage(movedFocusSentinel, 0)
 				},
 				Children: []core.Node{
-					core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 2, Background: specAgent, FlexShrink: 0}},
+					core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 2, Background: p.Agent.Fg, FlexShrink: 0}},
 					core.Text{
 						Content:  st.Plan.From + " → " + st.Plan.NewStem,
 						MaxLines: 1,
@@ -600,7 +596,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 					},
 					core.Text{
 						Content: "moved",
-						Style:   core.Style{FontSize: 11, Color: specTextMuted, FlexShrink: 0},
+						Style:   core.Style{FontSize: 11, Color: p.TextFaint, FlexShrink: 0},
 					},
 				},
 			})
@@ -610,21 +606,21 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 			for _, fg := range files {
 				filePath := fg.File
 				open := st.FocusedFile == filePath
-				dotColor := specTextMuted
+				dotColor := p.TextFaint
 				switch fg.Group {
 				case UsageGroupScenes:
-					dotColor = specAccent
+					dotColor = p.Accent.Fg
 				case UsageGroupVariants:
-					dotColor = specAgent
+					dotColor = p.Agent.Fg
 				case UsageGroupGoCode:
-					dotColor = specWarning
+					dotColor = p.Warning.Fg
 				}
 
 				var rowBg core.Color
-				rowText := specText
+				rowText := p.TextSecondary
 				if open {
-					rowBg = specRefRowActiveBg
-					rowText = specTextStrong
+					rowBg = rowActiveBg
+					rowText = p.TextPrimary
 				}
 
 				var rightBadge core.Node
@@ -635,15 +631,15 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 							Height:       core.Pt(20),
 							Padding:      core.Symmetric(0, 6),
 							CornerRadius: 6,
-							Background:   specWarningFill,
+							Background:   p.Warning.Fill,
 							BorderWidth:  1,
-							BorderColor:  specWarningEdge,
+							BorderColor:  p.Warning.Edge,
 							AlignItems:   core.AlignCenter,
 							Direction:    core.Row,
 							FlexShrink:   0,
 						},
 						Children: []core.Node{
-							core.Text{Content: "not rewritten", Style: core.Style{FontSize: 10.5, Color: specWarning}},
+							core.Text{Content: "not rewritten", Style: core.Style{FontSize: 10.5, Color: p.Warning.Fg}},
 						},
 					}
 				case st.Mode == ReferencesModeRename && st.Plan != nil && st.Plan.Valid:
@@ -654,14 +650,14 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 					rightBadge = core.View{
 						Style: core.Style{Direction: core.Row, Gap: 4, FlexShrink: 0},
 						Children: []core.Node{
-							core.Text{Content: fmt.Sprintf("−%d", n), Style: core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: specProblem}},
-							core.Text{Content: fmt.Sprintf("+%d", n), Style: core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: specAdded}},
+							core.Text{Content: fmt.Sprintf("−%d", n), Style: core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: p.Removed.Fg}},
+							core.Text{Content: fmt.Sprintf("+%d", n), Style: core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: p.Added.Fg}},
 						},
 					}
 				default:
 					rightBadge = core.Text{
 						Content: strconv.Itoa(len(fg.Refs)),
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted, FlexShrink: 0},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexShrink: 0},
 					}
 				}
 
@@ -685,7 +681,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 						ed.FocusUsage(filePath, 0)
 					},
 					Children: []core.Node{
-						core.Icon{SVG: chevIcon, Style: core.Style{Width: core.Pt(11), Height: core.Pt(11), Color: specTextMuted, FlexShrink: 0}},
+						core.Icon{SVG: chevIcon, Style: core.Style{Width: core.Pt(11), Height: core.Pt(11), Color: p.TextFaint, FlexShrink: 0}},
 						core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 2, Background: dotColor, FlexShrink: 0}},
 						core.Text{
 							Content:  filePath,
@@ -702,18 +698,18 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 						uItem := item
 						active := idx == st.FocusedRefIdx
 						var itemBg core.Color
-						itemFg := specTextSecondary
+						itemFg := p.TextMuted
 						var leftBorder core.Edges
 						if active {
-							itemBg = specRaised
-							itemFg = specTextStrong
+							itemBg = p.Raised
+							itemFg = p.TextPrimary
 							leftBorder = core.Edges{Left: 2}
 						}
 						noteText := ""
-						noteColor := specTextMuted
+						noteColor := p.TextFaint
 						if uItem.OverrideCount > 0 {
 							noteText = fmt.Sprintf("%d %s", uItem.OverrideCount, pluralWord(uItem.OverrideCount, "override", "overrides"))
-							noteColor = specChanged
+							noteColor = p.Changed.Fg
 						} else if uItem.HasPos {
 							noteText = fmt.Sprintf("%.0f, %.0f", uItem.X, uItem.Y)
 						}
@@ -733,7 +729,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 								CornerRadius: 6,
 								Background:   itemBg,
 								Borders:      leftBorder,
-								BorderColor:  specAccent,
+								BorderColor:  p.Accent.Fg,
 							},
 							OnPress: func(ev core.PressEvent) {
 								ed.FocusUsage(filePath, idx)
@@ -744,7 +740,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 							Children: []core.Node{
 								core.Text{
 									Content: strconv.Itoa(uItem.Line),
-									Style:   core.Style{Width: core.Pt(30), FontSize: 11, FontFamily: specRefMonoFamily, Color: specTextMuted, FlexShrink: 0},
+									Style:   core.Style{Width: core.Pt(30), FontSize: 11, FontFamily: specRefMonoFamily, Color: p.TextFaint, FlexShrink: 0},
 								},
 								core.Text{
 									Content:  uItem.Label,
@@ -794,9 +790,9 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 		Style: core.Style{
 			Width:       core.Pt(360),
 			FlexShrink:  0,
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			renameBox,
@@ -808,13 +804,13 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 				Style: core.Style{
 					Padding:     core.Symmetric(10, 14),
 					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
+					BorderColor: p.Line,
 					FlexShrink:  0,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "↑↓ moves through usages · ↵ opens the scene with the object framed",
-						Style:   core.Style{FontSize: 11, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 					},
 				},
 			},
@@ -822,7 +818,7 @@ func referencesSidebarView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64
 	}
 }
 
-func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = refsRev.Get()
 		st := ed.ReferencesScreen()
@@ -834,12 +830,12 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 
 		// Rename plan summary card during Rename review mode.
 		if st.Mode == ReferencesModeRename && st.Plan != nil {
-			sections = append(sections, referencesRenamePlanCard(st.Plan))
+			sections = append(sections, referencesRenamePlanCard(p, st.Plan))
 		}
 
 		// Post-rename problems card in Done mode when non-rewritten Go references remain.
 		if st.Mode == ReferencesModeDone && len(st.CheckProblems) > 0 {
-			sections = append(sections, referencesDoneProblemsCard(ed, st.CheckProblems))
+			sections = append(sections, referencesDoneProblemsCard(p, ed, st.CheckProblems))
 		}
 
 		// Scene cards grid header.
@@ -855,10 +851,10 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				JustifyContent: core.JustifySpaceBetween,
 			},
 			Children: []core.Node{
-				core.Text{Content: "SCENES", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+				core.Text{Content: "SCENES", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
 				core.Text{
 					Content: fmt.Sprintf("%d %s in %d %s", sceneRefs, pluralWord(sceneRefs, "instance", "instances"), len(scenes), pluralWord(len(scenes), "scene", "scenes")),
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 			},
 		})
@@ -869,14 +865,14 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				Style: core.Style{
 					Padding:      core.All(16),
 					CornerRadius: 10,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "No scene files instance this target.",
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
 			})
@@ -885,7 +881,7 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 				end := min(i+3, len(scenes))
 				rowCards := make([]core.Node, 0, 3)
 				for j := i; j < end; j++ {
-					rowCards = append(rowCards, referencesSceneCard(ed, st, scenes[j]))
+					rowCards = append(rowCards, referencesSceneCard(p, ed, st, scenes[j]))
 				}
 				for pad := end - i; pad < 3; pad++ {
 					rowCards = append(rowCards, core.View{Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)}})
@@ -903,7 +899,7 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 		}
 		sections = append(sections, core.Text{
 			Content: gridNote,
-			Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 		})
 
 		return ui.ScrollView{
@@ -911,7 +907,7 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 			Style: core.Style{
 				FlexGrow:   1,
 				FlexBasis:  core.Pt(0),
-				Background: specBg,
+				Background: p.Bg,
 				Padding:    core.All(20),
 			},
 			Children: []core.Node{
@@ -921,7 +917,7 @@ func referencesCenterView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]
 	})
 }
 
-func referencesRenamePlanCard(plan *SafeRenamePlan) core.Node {
+func referencesRenamePlanCard(p SpecPalette, plan *SafeRenamePlan) core.Node {
 	type planRow struct {
 		kind string // "step", "ok", "warn"
 		text string
@@ -967,14 +963,14 @@ func referencesRenamePlanCard(plan *SafeRenamePlan) core.Node {
 		var iconNode core.Node
 		switch it.kind {
 		case "ok":
-			iconBg = specAddedFill
-			iconNode = core.Icon{SVG: lucide.Check(), Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specAdded}}
+			iconBg = specAlpha(p.Added.Fg, 0.12)
+			iconNode = core.Icon{SVG: lucide.Check(), Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: p.Added.Fg}}
 		case "warn":
-			iconBg = specWarningFill
-			iconNode = core.Text{Content: "!", Style: core.Style{FontSize: 11, FontWeight: 700, Color: specWarning}}
+			iconBg = p.Warning.Fill
+			iconNode = core.Text{Content: "!", Style: core.Style{FontSize: 11, FontWeight: 700, Color: p.Warning.Fg}}
 		default:
-			iconBg = specLineRaised
-			iconNode = core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: specTextMuted}}
+			iconBg = p.LineRaised
+			iconNode = core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: p.TextFaint}}
 		}
 		var border core.Edges
 		if i < len(items)-1 {
@@ -988,7 +984,7 @@ func referencesRenamePlanCard(plan *SafeRenamePlan) core.Node {
 				Gap:         10,
 				Padding:     core.Symmetric(4, 0),
 				Borders:     border,
-				BorderColor: specLine,
+				BorderColor: p.Line,
 			},
 			Children: []core.Node{
 				core.View{
@@ -1005,11 +1001,11 @@ func referencesRenamePlanCard(plan *SafeRenamePlan) core.Node {
 				},
 				core.Text{
 					Content: it.text,
-					Style:   core.Style{FontSize: 12, Color: specText, FlexGrow: 1, MinWidth: core.Pt(0)},
+					Style:   core.Style{FontSize: 12, Color: p.TextSecondary, FlexGrow: 1, MinWidth: core.Pt(0)},
 				},
 				core.Text{
 					Content: it.meta,
-					Style:   core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: specTextMuted, FlexShrink: 0},
+					Style:   core.Style{FontSize: 11, FontFamily: specRefMonoFamily, Color: p.TextFaint, FlexShrink: 0},
 				},
 			},
 		})
@@ -1020,18 +1016,18 @@ func referencesRenamePlanCard(plan *SafeRenamePlan) core.Node {
 		Style: core.Style{
 			Padding:      core.Symmetric(8, 16),
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 		},
 		Children: rowNodes,
 	}
 }
 
-func referencesDoneProblemsCard(ed *Editor, problems []SafeRenameProblem) core.Node {
+func referencesDoneProblemsCard(p SpecPalette, ed *Editor, problems []SafeRenameProblem) core.Node {
 	rows := make([]core.Node, 0, len(problems))
-	for _, p := range problems {
-		prob := p
+	for _, item := range problems {
+		prob := item
 		text := prob.Message
 		if prob.AskSent {
 			text = fmt.Sprintf("The agent is updating %s; it will ask before editing Go", prob.File)
@@ -1044,16 +1040,16 @@ func referencesDoneProblemsCard(ed *Editor, problems []SafeRenameProblem) core.N
 				Padding:    core.Symmetric(6, 0),
 			},
 			Children: []core.Node{
-				core.Text{Content: "!", Style: core.Style{FontSize: 12, FontWeight: 700, Color: specWarning, FlexShrink: 0}},
-				core.Text{Content: text, Style: core.Style{FontSize: 12, Color: specText, FlexGrow: 1, MinWidth: core.Pt(0)}},
+				core.Text{Content: "!", Style: core.Style{FontSize: 12, FontWeight: 700, Color: p.Warning.Fg, FlexShrink: 0}},
+				core.Text{Content: text, Style: core.Style{FontSize: 12, Color: p.TextSecondary, FlexGrow: 1, MinWidth: core.Pt(0)}},
 				ui.Button{
 					Text:    "Inspect",
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specLineRaised },
+					Color:   func() core.Color { return p.LineRaised },
 					TextStyle: core.Style{
 						FontSize: 11,
-						Color:    specText,
+						Color:    p.TextSecondary,
 					},
 					OnPress: func() {
 						ed.FocusUsage(prob.File, 0)
@@ -1067,21 +1063,21 @@ func referencesDoneProblemsCard(ed *Editor, problems []SafeRenameProblem) core.N
 		Style: core.Style{
 			Padding:      core.Symmetric(8, 14),
 			CornerRadius: 12,
-			Background:   specWarningFill,
+			Background:   p.Warning.Fill,
 			BorderWidth:  1,
-			BorderColor:  specWarningEdge,
+			BorderColor:  p.Warning.Edge,
 		},
 		Children: rows,
 	}
 }
 
-func referencesSceneCard(ed *Editor, st *ReferencesScreenState, fg UsageFileGroup) core.Node {
+func referencesSceneCard(p SpecPalette, ed *Editor, st *ReferencesScreenState, fg UsageFileGroup) core.Node {
 	filePath := fg.File
 	focused := st.FocusedFile == filePath
-	borderCol := specLineRaised
+	borderCol := p.LineRaised
 	borderW := core.Points(1)
 	if focused {
-		borderCol = specAccent
+		borderCol = p.Accent.Fg
 		borderW = 1.5
 	}
 	meta := fmt.Sprintf("%d %s", len(fg.Refs), pluralWord(len(fg.Refs), "instance", "instances"))
@@ -1113,7 +1109,7 @@ func referencesSceneCard(ed *Editor, st *ReferencesScreenState, fg UsageFileGrou
 			Padding:      core.All(8),
 			Gap:          8,
 			CornerRadius: 12,
-			Background:   specRaised,
+			Background:   p.Raised,
 			BorderWidth:  borderW,
 			BorderColor:  borderCol,
 		},
@@ -1132,15 +1128,15 @@ func referencesSceneCard(ed *Editor, st *ReferencesScreenState, fg UsageFileGrou
 					if w <= 0 || h <= 0 {
 						return
 					}
-					// Dark scene sky backdrop using Spec tokens.
-					d.SetFillColor(specPanel).FillRect(0, 0, w, h)
+					// Scene sky backdrop using Spec tokens.
+					d.SetFillColor(p.Panel).FillRect(0, 0, w, h)
 					// Ground silhouette at bottom.
 					groundH := h * 0.18
-					d.SetFillColor(specLineRaised).FillRect(0, h-groundH, w, groundH)
-					d.SetFillColor(specLine).FillRect(0, h-groundH, w, 1.5)
+					d.SetFillColor(p.LineRaised).FillRect(0, h-groundH, w, groundH)
+					d.SetFillColor(p.Line).FillRect(0, h-groundH, w, 1.5)
 
 					// Subtle platform bar.
-					d.SetFillColor(specLineRaised).BeginPath().RoundRect(w*0.42, h*0.56, w*0.28, h*0.05, 1.5).Fill()
+					d.SetFillColor(p.LineRaised).BeginPath().RoundRect(w*0.42, h*0.56, w*0.28, h*0.05, 1.5).Fill()
 
 					// Draw plotted markers for each instanced object.
 					for i, r := range refsCopy {
@@ -1164,11 +1160,11 @@ func referencesSceneCard(ed *Editor, st *ReferencesScreenState, fg UsageFileGrou
 						mx := nx*w - mw*0.5
 						my := ny*h - mh
 						if i == hotIdx {
-							d.SetStrokeColor(specAccent).SetLineWidth(2).BeginPath().RoundRect(mx-3, my-3, mw+6, mh+6, 4).Stroke()
+							d.SetStrokeColor(p.Accent.Fg).SetLineWidth(2).BeginPath().RoundRect(mx-3, my-3, mw+6, mh+6, 4).Stroke()
 						} else if focused {
-							d.SetStrokeColor(specAccent).SetLineWidth(1).BeginPath().RoundRect(mx-1.5, my-1.5, mw+3, mh+3, 3).Stroke()
+							d.SetStrokeColor(p.Accent.Fg).SetLineWidth(1).BeginPath().RoundRect(mx-1.5, my-1.5, mw+3, mh+3, 3).Stroke()
 						}
-						d.SetFillColor(specAdded).BeginPath().RoundRect(mx, my, mw, mh, 3).Fill()
+						d.SetFillColor(p.Added.Fg).BeginPath().RoundRect(mx, my, mw, mh, 3).Fill()
 					}
 				},
 			},
@@ -1181,15 +1177,15 @@ func referencesSceneCard(ed *Editor, st *ReferencesScreenState, fg UsageFileGrou
 					Gap:            8,
 				},
 				Children: []core.Node{
-					core.Text{Content: fg.Name, Style: core.Style{FontSize: 12, FontWeight: 500, Color: specTextStrong}},
-					core.Text{Content: meta, Style: core.Style{FontSize: 11.5, Color: specTextMuted}},
+					core.Text{Content: fg.Name, Style: core.Style{FontSize: 12, FontWeight: 500, Color: p.TextPrimary}},
+					core.Text{Content: meta, Style: core.Style{FontSize: 11.5, Color: p.TextFaint}},
 				},
 			},
 		},
 	}
 }
 
-func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = refsRev.Get()
 		st := ed.ReferencesScreen()
@@ -1197,30 +1193,34 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 			return core.View{}
 		}
 		codeTitle, codeMeta, lines := ed.buildUsagePreviewLines(st)
+		hitBg := specAlpha(p.Accent.Fg, 0.18)
+		hitDimBg := specAlpha(p.Accent.Fg, 0.08)
+		delBg := specAlpha(p.Removed.Fg, 0.10)
+		addBg := specAlpha(p.Added.Fg, 0.10)
 
 		codeNodes := make([]core.Node, 0, len(lines))
 		for _, l := range lines {
 			var bg core.Color
-			fg := specTextSecondary
+			fg := p.TextMuted
 			switch l.Kind {
 			case "del":
-				bg = specRefDelBg
-				fg = specProblem
+				bg = delBg
+				fg = p.Removed.Fg
 			case "add":
-				bg = specRefAddBg
-				fg = specAdded
+				bg = addBg
+				fg = p.Added.Fg
 			case "hit":
 				if l.Focused {
-					bg = specRefHitBg
+					bg = hitBg
 				} else {
-					bg = specRefHitDimBg
+					bg = hitDimBg
 				}
-				fg = specTextStrong
+				fg = p.TextPrimary
 			case "warn":
-				bg = specWarningFill
-				fg = specWarning
+				bg = p.Warning.Fill
+				fg = p.Warning.Fg
 			case "gap", "note":
-				fg = specTextMuted
+				fg = p.TextFaint
 			}
 			lineNo := ""
 			if l.LineNumber > 0 {
@@ -1237,7 +1237,7 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 				Children: []core.Node{
 					core.Text{
 						Content: lineNo,
-						Style:   core.Style{Width: core.Pt(30), FontSize: 11, FontFamily: specRefMonoFamily, Color: specTextMuted, FlexShrink: 0},
+						Style:   core.Style{Width: core.Pt(30), FontSize: 11, FontFamily: specRefMonoFamily, Color: p.TextFaint, FlexShrink: 0},
 					},
 					core.Text{
 						Content: l.Sign,
@@ -1262,19 +1262,19 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 					Padding:        core.Symmetric(0, 14),
 					Gap:            8,
 					Borders:        core.Edges{Bottom: 1},
-					BorderColor:    specLine,
+					BorderColor:    p.Line,
 					FlexShrink:     0,
 				},
 				Children: []core.Node{
 					core.Text{
 						TestID:  "refs-code-title",
 						Content: codeTitle,
-						Style:   core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: specTextStrong, FlexGrow: 1, MinWidth: core.Pt(0)},
+						Style:   core.Style{FontSize: 11.5, FontFamily: specRefMonoFamily, Color: p.TextPrimary, FlexGrow: 1, MinWidth: core.Pt(0)},
 					},
 					core.Text{
 						TestID:  "refs-code-meta",
 						Content: codeMeta,
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted, FlexShrink: 0},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint, FlexShrink: 0},
 					},
 				},
 			},
@@ -1309,19 +1309,19 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 					Padding:      core.All(12),
 					Gap:          8,
 					CornerRadius: 12,
-					Background:   specWarningFill,
+					Background:   p.Warning.Fill,
 					BorderWidth:  1,
-					BorderColor:  specWarningEdge,
+					BorderColor:  p.Warning.Edge,
 					FlexShrink:   0,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: "Go code is not rewritten",
-						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specWarning},
+						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.Warning.Fg},
 					},
 					core.Text{
 						Content: "The rename only rewrites YAML. This string constant keeps the old path and must be updated separately.",
-						Style:   core.Style{FontSize: 12, Color: specText},
+						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 					},
 					core.View{
 						Style: core.Style{Direction: core.Row, Gap: 8},
@@ -1336,14 +1336,14 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 									Padding:      core.Symmetric(0, 12),
 									Gap:          6,
 									CornerRadius: 8,
-									Background:   specTextStrong,
+									Background:   p.TextPrimary,
 								},
 								OnPress: func(core.PressEvent) {
 									ed.report(ed.AskAgentToUpdateUsage(goFile, focusLine))
 								},
 								Children: []core.Node{
-									core.Icon{SVG: lucide.Sparkles(), Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: specAgent}},
-									core.Text{Content: askLabel, Style: core.Style{FontSize: 12, FontWeight: 500, Color: specBg}},
+									core.Icon{SVG: lucide.Sparkles(), Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: p.OnTextPrimary}},
+									core.Text{Content: askLabel, Style: core.Style{FontSize: 12, FontWeight: 500, Color: p.OnTextPrimary}},
 								},
 							},
 							ui.Button{
@@ -1353,7 +1353,7 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 								Size:    ui.SizeSmall,
 								TextStyle: core.Style{
 									FontSize: 12,
-									Color:    specText,
+									Color:    p.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(30),
@@ -1374,13 +1374,13 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 			Style: core.Style{
 				Padding:     core.Symmetric(10, 14),
 				Borders:     core.Edges{Top: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				FlexShrink:  0,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: "The agent finds and renames through the same path, refs_find and refactor_rename, so its renames land here as the same review.",
-					Style:   core.Style{FontSize: 11, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 				},
 			},
 		})
@@ -1390,28 +1390,28 @@ func referencesCodeView(cx *core.Scope, ed *Editor, refsRev *core.Memo[uint64]) 
 			Style: core.Style{
 				Width:       core.Pt(420),
 				FlexShrink:  0,
-				Background:  specPanel,
+				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 			},
 			Children: children,
 		}
 	})
 }
 
-func refsKeyCap(text string) core.Node {
+func refsKeyCap(p SpecPalette, text string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Height:         core.Pt(18),
 			Padding:        core.Symmetric(0, 5),
 			CornerRadius:   4,
 			BorderWidth:    1,
-			BorderColor:    specLineRaised,
+			BorderColor:    p.LineRaised,
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifyCenter,
 		},
 		Children: []core.Node{
-			core.Text{Content: text, Style: core.Style{FontSize: 10.5, FontFamily: specRefMonoFamily, Color: specTextMuted}},
+			core.Text{Content: text, Style: core.Style{FontSize: 10.5, FontFamily: specRefMonoFamily, Color: p.TextFaint}},
 		},
 	}
 }

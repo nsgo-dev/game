@@ -3,10 +3,12 @@ package editor
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -17,7 +19,38 @@ const (
 	palettePrefixPluginTool  = "plugin-tool:"
 	palettePrefixPluginPanel = "plugin-panel:"
 	palettePrefixFile        = "file:"
+	palettePrefixNode        = "node:"
+	palettePrefixSetting     = "setting:"
+	palettePrefixAsk         = "ask:"
+
+	maxPaletteRecent = 6
 )
+
+// PaletteRecent returns a copy of the most recently executed Command Palette item IDs (newest first).
+func (e *Editor) PaletteRecent() []string {
+	if e == nil || len(e.paletteRecent) == 0 {
+		return nil
+	}
+	return slices.Clone(e.paletteRecent)
+}
+
+func (e *Editor) recordPaletteRecent(id string) {
+	if e == nil || id == "" || strings.HasPrefix(id, palettePrefixAsk) {
+		return
+	}
+	out := make([]string, 0, min(len(e.paletteRecent)+1, maxPaletteRecent))
+	out = append(out, id)
+	for _, existing := range e.paletteRecent {
+		if existing == id {
+			continue
+		}
+		out = append(out, existing)
+		if len(out) >= maxPaletteRecent {
+			break
+		}
+	}
+	e.paletteRecent = out
+}
 
 // CommandPaletteOpen reports whether the Command Palette dialog is currently open.
 func (e *Editor) CommandPaletteOpen() bool {
@@ -255,6 +288,85 @@ func (e *Editor) buildPaletteItems(files []ProjectFile) []base.CommandItem {
 		})
 	}
 
+	// Scene nodes in the currently open scene (@ scope in Palette.dc.html).
+	if doc := e.resolvedDoc(); doc != nil && e.WorkspaceState() == WorkspaceReady {
+		nodeGroup := e.T("palette.group.nodes")
+		if sceneName := e.SceneBreadcrumbName(); sceneName != "" {
+			nodeGroup = e.T("palette.group.nodesScene", l10n.Param("scene", sceneName))
+		}
+		var walkNodes func(layerName string, objs []sceneformat.ObjectDoc)
+		walkNodes = func(layerName string, objs []sceneformat.ObjectDoc) {
+			for i := range objs {
+				o := &objs[i]
+				kind := e.SceneRailObjectKind(o.ID)
+				label := o.Name
+				if label == "" {
+					label = o.ID
+				}
+				kws := []string{o.ID, kind, layerName, "node", "object"}
+				if o.Name != "" && o.Name != o.ID {
+					kws = append(kws, o.Name)
+				}
+				for cn := range o.Components {
+					kws = append(kws, cn)
+				}
+				items = append(items, base.CommandItem{
+					ID:          palettePrefixNode + o.ID,
+					Label:       label,
+					Description: fmt.Sprintf("%s · %s", kind, layerName),
+					Keywords:    kws,
+					Group:       nodeGroup,
+					Disabled:    e.Playing(),
+					Checked:     e.IsSelected(o.ID),
+				})
+				walkNodes(layerName, o.Children)
+			}
+		}
+		for i := range doc.Layers {
+			walkNodes(doc.Layers[i].Name, doc.Layers[i].Objects)
+		}
+	}
+
+	// Settings pages (matching Palette.dc.html SETTINGS group).
+	type paletteSettingDef struct {
+		page     SettingsPage
+		labelKey string
+		section  string
+		keywords []string
+	}
+	settingDefs := []paletteSettingDef{
+		{SettingsPageGeneral, "settings.nav.general", "Editor", []string{"language", "appearance", "theme", "dark", "light", "autosave"}},
+		{SettingsPageViewport, "settings.nav.viewport", "Editor", []string{"grid", "snap", "zoom", "camera", "2d", "3d"}},
+		{SettingsPageShortcuts, "settings.nav.shortcuts", "Editor", []string{"keys", "keybindings", "hotkeys"}},
+		{SettingsPageModels, "settings.nav.models", "Agent", []string{"ai", "llm", "provider", "api"}},
+		{SettingsPageTools, "settings.nav.tools", "Agent", []string{"mcp", "server"}},
+		{SettingsPagePermissions, "settings.nav.permissions", "Agent", []string{"allow", "ask", "deny", "rules"}},
+		{SettingsPageAutomations, "settings.nav.automations", "Agent", []string{"schedule", "cron", "tasks"}},
+		{SettingsPageUsage, "settings.nav.usage", "Agent", []string{"tokens", "budget", "cost"}},
+		{SettingsPageBrief, "settings.nav.brief", "Project", []string{"brief.yaml", "goals"}},
+		{SettingsPageRules, "settings.nav.rules", "Project", []string{"agents.md", "instructions"}},
+		{SettingsPageProject, "settings.nav.project", "Project", []string{"game.yaml", "window", "autoload"}},
+		{SettingsPageInput, "settings.nav.input", "Project", []string{"controls", "gamepad", "keys"}},
+		{SettingsPageAudio, "settings.nav.audio", "Project", []string{"mixer", "bus", "volume"}},
+		{SettingsPageExport, "settings.nav.export", "Project", []string{"build", "release", "presets"}},
+	}
+	settingsGroup := e.T("palette.group.settings")
+	for _, sd := range settingDefs {
+		pageLabel := e.T(sd.labelKey)
+		if pageLabel == "" || pageLabel == sd.labelKey {
+			pageLabel = string(sd.page)
+		}
+		kws := append([]string{"settings", "preferences", string(sd.page), sd.section}, sd.keywords...)
+		items = append(items, base.CommandItem{
+			ID:          palettePrefixSetting + string(sd.page),
+			Label:       pageLabel,
+			Description: fmt.Sprintf("%s › %s", sd.section, pageLabel),
+			Keywords:    kws,
+			Group:       settingsGroup,
+			Disabled:    e.Playing(),
+		})
+	}
+
 	return items
 }
 
@@ -263,7 +375,11 @@ func (e *Editor) ExecutePaletteItem(id string) error {
 	switch {
 	case strings.HasPrefix(id, palettePrefixCommand):
 		cmdID := strings.TrimPrefix(id, palettePrefixCommand)
-		return e.ExecuteCommand(cmdID)
+		err := e.ExecuteCommand(cmdID)
+		if err == nil {
+			e.recordPaletteRecent(id)
+		}
+		return err
 	case strings.HasPrefix(id, palettePrefixPluginTool):
 		rest := strings.TrimPrefix(id, palettePrefixPluginTool)
 		plugin, toolID, ok := strings.Cut(rest, "\x00")
@@ -277,6 +393,8 @@ func (e *Editor) ExecutePaletteItem(id string) error {
 		err := e.SetPluginTool(plugin, toolID)
 		if err != nil {
 			e.report(err)
+		} else {
+			e.recordPaletteRecent(id)
 		}
 		return err
 	case strings.HasPrefix(id, palettePrefixPluginPanel):
@@ -288,6 +406,8 @@ func (e *Editor) ExecutePaletteItem(id string) error {
 		err := e.FocusPluginPanel(plugin, panelID)
 		if err != nil {
 			e.report(err)
+		} else {
+			e.recordPaletteRecent(id)
 		}
 		return err
 	case strings.HasPrefix(id, palettePrefixFile):
@@ -295,11 +415,163 @@ func (e *Editor) ExecutePaletteItem(id string) error {
 		err := e.OpenProjectFile(relPath)
 		if err != nil {
 			e.report(err)
+		} else {
+			e.recordPaletteRecent(id)
 		}
 		return err
+	case strings.HasPrefix(id, palettePrefixNode):
+		objID := strings.TrimPrefix(id, palettePrefixNode)
+		if e.Playing() {
+			return ErrPlaying
+		}
+		if obj, _ := e.FindResolvedObject(objID); obj == nil {
+			return fmt.Errorf("editor: scene node %q not found", objID)
+		}
+		e.SelectObject(objID)
+		e.SetRightRailTab(RightTabInspector)
+		e.FrameSelection()
+		e.recordPaletteRecent(id)
+		return nil
+	case strings.HasPrefix(id, palettePrefixSetting):
+		page := SettingsPage(strings.TrimPrefix(id, palettePrefixSetting))
+		if e.Playing() {
+			return ErrPlaying
+		}
+		e.OpenSettingsPage(page)
+		e.recordPaletteRecent(id)
+		return nil
+	case strings.HasPrefix(id, palettePrefixAsk):
+		prompt := strings.TrimSpace(strings.TrimPrefix(id, palettePrefixAsk))
+		if prompt == "" {
+			return nil
+		}
+		e.SetRightRailTab(RightTabAgent)
+		e.SetComposerDraft(prompt)
+		e.Status = e.T("palette.askAgentStaged")
+		e.notify()
+		return nil
 	default:
 		return fmt.Errorf("editor: unknown palette item %q", id)
 	}
+}
+
+// filterPaletteItemsWithEditor applies prefix scopes (> commands, @ nodes, # files),
+// ranks exact/prefix/substring/fuzzy matches, hides the ask-agent item for empty or
+// scoped queries, and appends the ask-agent item at the end of non-scoped results.
+func (e *Editor) filterPaletteItemsWithEditor(items []base.CommandItem, query string) []base.CommandItem {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		out := make([]base.CommandItem, 0, len(items))
+		for _, it := range items {
+			if strings.HasPrefix(it.ID, palettePrefixAsk) {
+				continue
+			}
+			out = append(out, it)
+		}
+		return out
+	}
+
+	scopePrefix := byte(0)
+	searchTerm := trimmed
+	if trimmed[0] == '>' || trimmed[0] == '@' || trimmed[0] == '#' {
+		scopePrefix = trimmed[0]
+		searchTerm = strings.TrimSpace(trimmed[1:])
+	}
+
+	var askItems []base.CommandItem
+	scoped := make([]base.CommandItem, 0, len(items))
+	for _, it := range items {
+		if strings.HasPrefix(it.ID, palettePrefixAsk) {
+			if scopePrefix == 0 {
+				askItems = append(askItems, it)
+			}
+			continue
+		}
+		if scopePrefix == 0 {
+			scoped = append(scoped, it)
+			continue
+		}
+		switch scopePrefix {
+		case '>':
+			if strings.HasPrefix(it.ID, palettePrefixCommand) ||
+				strings.HasPrefix(it.ID, palettePrefixPluginTool) ||
+				strings.HasPrefix(it.ID, palettePrefixPluginPanel) ||
+				strings.HasPrefix(it.ID, palettePrefixSetting) {
+				scoped = append(scoped, it)
+			}
+		case '@':
+			if strings.HasPrefix(it.ID, palettePrefixNode) {
+				scoped = append(scoped, it)
+			}
+		case '#':
+			if strings.HasPrefix(it.ID, palettePrefixFile) {
+				scoped = append(scoped, it)
+			}
+		}
+	}
+
+	ranked := filterPaletteItems(scoped, searchTerm)
+	if len(askItems) > 0 {
+		ranked = append(ranked, askItems...)
+	}
+	return ranked
+}
+
+// buildPaletteItemsForUI returns the stable item slice indexed by ui.Command without
+// reading query.Get() so typing never invalidates base.Command's index. Recent items
+// are promoted into the Recent group, and a single stable "Ask the agent" entry reads
+// the live query inside its reactive Trailing node.
+func (e *Editor) buildPaletteItemsForUI(cx *core.Scope, files []ProjectFile, query *core.Signal[string]) []base.CommandItem {
+	items := e.buildPaletteItems(files)
+	if e != nil && len(e.paletteRecent) > 0 {
+		byID := make(map[string]base.CommandItem, len(items))
+		for _, it := range items {
+			byID[it.ID] = it
+		}
+		recentSet := make(map[string]struct{}, len(e.paletteRecent))
+		out := make([]base.CommandItem, 0, len(items)+1)
+		recentGroup := e.T("palette.group.recent")
+		for _, rid := range e.paletteRecent {
+			if it, ok := byID[rid]; ok {
+				it.Group = recentGroup
+				out = append(out, it)
+				recentSet[rid] = struct{}{}
+			}
+		}
+		for _, it := range items {
+			if _, ok := recentSet[it.ID]; ok {
+				continue
+			}
+			out = append(out, it)
+		}
+		items = out
+	}
+
+	if e != nil && e.AgentMode() != AgentModeNone {
+		var trailing core.Node
+		if query != nil {
+			trailing = core.Text{
+				ContentFunc: func() string {
+					return strings.TrimSpace(query.Get())
+				},
+				MaxLines:      1,
+				EllipsizeMode: core.EllipsizeTail,
+				Style:         core.Style{FontSize: 12, MaxWidth: core.Pt(240), FlexShrink: 1},
+				StyleFunc: func() core.Style {
+					return core.Style{Color: e.SpecPalette(cx).Agent.Fg}
+				},
+			}
+		}
+		items = append(items, base.CommandItem{
+			ID:          palettePrefixAsk,
+			Label:       e.T("palette.askAgentTitle"),
+			Description: e.T("palette.askAgentDesc"),
+			Group:       e.T("palette.group.agent"),
+			Trailing:    trailing,
+			Disabled:    e.Playing(),
+		})
+	}
+	return items
 }
 
 // filterPaletteItems ranks exact, prefix, and substring matches via base.FilterCommands
@@ -427,14 +699,24 @@ func CommandPaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			OnQueryChange: func(q string) {
 				query.Set(q)
 			},
-			Filter: filterPaletteItems,
+			Filter: func(items []base.CommandItem, q string) []base.CommandItem {
+				return ed.filterPaletteItemsWithEditor(items, q)
+			},
 			Items: func() []base.CommandItem {
 				_ = rev.Get()
-				return ed.buildPaletteItems(projectFiles.Get())
+				if !ed.CommandPaletteOpen() {
+					return nil
+				}
+				return ed.buildPaletteItemsForUI(cx, projectFiles.Get(), query)
 			},
 			OnSelect: func(id string) {
+				q := strings.TrimSpace(query.Get())
 				query.Set("")
 				ed.CloseCommandPalette()
+				if id == palettePrefixAsk {
+					_ = ed.ExecutePaletteItem(palettePrefixAsk + q)
+					return
+				}
 				_ = ed.ExecutePaletteItem(id)
 			},
 		},

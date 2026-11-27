@@ -2045,6 +2045,8 @@ func (e *Editor) drawAssetDragOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if !st.Active || !st.HoveringViewport || e.ViewMode != ViewMode2D {
 		return
 	}
+	p := e.activeSpecPalette()
+	addedFill := specAlpha(p.Added.Fg, 0.12)
 	d.Save()
 	defer d.Restore()
 
@@ -2052,8 +2054,8 @@ func (e *Editor) drawAssetDragOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 		// Highlight the target object whose sprite will be swapped.
 		if bo, layer := findBuiltObjectAndLayer(scene, st.TargetObjectID); bo != nil {
 			x, y, w, h := builtObjectCanvasBounds(e, bo, layer)
-			d.SetFillColor(specAddedFill).BeginPath().RoundRect(x-3, y-3, w+6, h+6, 4).Fill()
-			d.SetStrokeColor(specAdded).SetLineWidth(2).SetLineDash(5, 3)
+			d.SetFillColor(addedFill).BeginPath().RoundRect(x-3, y-3, w+6, h+6, 4).Fill()
+			d.SetStrokeColor(p.Added.Fg).SetLineWidth(2).SetLineDash(5, 3)
 			d.BeginPath().RoundRect(x-3, y-3, w+6, h+6, 4).Stroke()
 			d.SetLineDash()
 			return
@@ -2077,8 +2079,8 @@ func (e *Editor) drawAssetDragOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	boxH := max(gh, st.SnapPx*zoom)
 	bx := cx - boxW/2
 	by := cy - boxH/2
-	d.SetFillColor(specAddedFill).BeginPath().RoundRect(bx, by, boxW, boxH, 3).Fill()
-	d.SetStrokeColor(specAdded).SetLineWidth(1.5).SetLineDash(4, 3)
+	d.SetFillColor(addedFill).BeginPath().RoundRect(bx, by, boxW, boxH, 3).Fill()
+	d.SetStrokeColor(p.Added.Fg).SetLineWidth(1.5).SetLineDash(4, 3)
 	d.BeginPath().RoundRect(bx, by, boxW, boxH, 3).Stroke()
 	d.SetLineDash()
 

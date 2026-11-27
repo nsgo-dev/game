@@ -11,9 +11,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived checker tint using exclusively spec_theme.yaml base tokens.
-var specCheckerAlt = specAlpha(darkSpecPalette.LineRaised, 0.36)
-
 type versionedAssetSnap struct {
 	key  assetDrawerRailKey
 	snap AssetDrawerSnapshot
@@ -164,6 +161,8 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	snapMemo := newAssetSnapMemo(cx, ed, rev)
 
 	body := core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		selectedRowFill := specAlpha(p.Accent.Fg, 0.14)
 		snap := snapMemo.Get().snap
 		folderRows := make([]core.Node, 0, len(snap.Folders))
 		for _, f := range snap.Folders {
@@ -174,10 +173,10 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				id = "asset-folder-" + sanitizeAssetTestID(folder.Path)
 			}
 			var bg core.Color
-			fg := specTextSecondary
+			fg := p.TextMuted
 			if selected {
-				bg = specSelectedRowFill
-				fg = specTextStrong
+				bg = selectedRowFill
+				fg = p.TextPrimary
 			}
 			folderRows = append(folderRows, core.View{
 				TestID: id,
@@ -191,7 +190,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Padding:      core.Edges{Left: core.Points(8 + folder.Depth*14), Right: 8},
 					CornerRadius: 6,
 					Background:   bg,
-					FocusVisible: specRowFocusRingStyle,
+					FocusVisible: p.FocusRing(-2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.SetAssetDrawerFolder(folder.Path)
@@ -222,7 +221,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Content: fmt.Sprintf("%d", folder.Count),
 						Style: core.Style{
 							FontSize:   11,
-							Color:      specTextMuted,
+							Color:      p.TextFaint,
 							FlexShrink: 0,
 						},
 					},
@@ -238,20 +237,20 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			color core.Color
 		}
 		filters := []filterSpec{
-			{"asset-filter-unused", AssetFilterUnused, "Unused", snap.Counts.Unused, specTextMuted},
-			{"asset-filter-missing", AssetFilterMissing, "Missing files", snap.Counts.Missing, specProblem},
-			{"asset-filter-generated", AssetFilterGenerated, "Generated", snap.Counts.Generated, specAgent},
-			{"asset-filter-proposed", AssetFilterProposed, "Proposed", snap.Counts.Proposed, specAdded},
+			{"asset-filter-unused", AssetFilterUnused, "Unused", snap.Counts.Unused, p.TextFaint},
+			{"asset-filter-missing", AssetFilterMissing, "Missing files", snap.Counts.Missing, p.Removed.Fg},
+			{"asset-filter-generated", AssetFilterGenerated, "Generated", snap.Counts.Generated, p.Agent.Fg},
+			{"asset-filter-proposed", AssetFilterProposed, "Proposed", snap.Counts.Proposed, p.Added.Fg},
 		}
 		filterRows := make([]core.Node, 0, len(filters))
 		for _, fl := range filters {
 			f := fl
 			active := snap.ActiveStatus == f.key
 			var bg core.Color
-			fg := specTextSecondary
+			fg := p.TextMuted
 			if active {
-				bg = specSelectedRowFill
-				fg = specTextStrong
+				bg = selectedRowFill
+				fg = p.TextPrimary
 			}
 			filterRows = append(filterRows, core.View{
 				TestID: f.id,
@@ -265,7 +264,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Padding:      core.Symmetric(0, 8),
 					CornerRadius: 6,
 					Background:   bg,
-					FocusVisible: specRowFocusRingStyle,
+					FocusVisible: p.FocusRing(-2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.ToggleAssetDrawerStatusFilter(f.key)
@@ -297,7 +296,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Content: fmt.Sprintf("%d", f.count),
 						Style: core.Style{
 							FontSize:   11,
-							Color:      specTextMuted,
+							Color:      p.TextFaint,
 							FlexShrink: 0,
 						},
 					},
@@ -314,7 +313,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Padding:    core.Edges{Top: 12, Left: 14, Right: 14, Bottom: 4},
 						FontSize:   11,
 						FontWeight: 600,
-						Color:      specTextMuted,
+						Color:      p.TextFaint,
 					},
 				},
 				core.View{
@@ -327,7 +326,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Padding:    core.Edges{Top: 16, Left: 14, Right: 14, Bottom: 4},
 						FontSize:   11,
 						FontWeight: 600,
-						Color:      specTextMuted,
+						Color:      p.TextFaint,
 					},
 				},
 				core.View{
@@ -346,55 +345,61 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			_, err := ed.ImportAssetFiles(uris)
 			ed.report(err)
 		},
-		Style: core.Style{
-			Width:       core.Pt(232),
-			FlexShrink:  0,
-			Background:  specBg,
-			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
-			Overflow:    core.Hidden,
+		StyleFunc: func() core.Style {
+			p := ed.SpecPalette(cx)
+			return core.Style{
+				Width:       core.Pt(232),
+				FlexShrink:  0,
+				Background:  p.Bg,
+				Borders:     core.Edges{Right: 1},
+				BorderColor: p.Line,
+				Overflow:    core.Hidden,
+			}
 		},
 		Children: []core.Node{
 			LeftRailSwitchView(cx, ed, rev),
 			ui.ScrollView{
 				Style:     core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				EdgeColor: func() core.Color { return specBg },
+				EdgeColor: func() core.Color { return ed.SpecPalette(cx).Bg },
 				Children:  []core.Node{body},
 			},
-			core.View{
-				TestID: "assets-drop-zone",
-				Style: core.Style{
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Gap:          12,
-					Margin:       core.All(12),
-					Padding:      core.All(12),
-					CornerRadius: 12,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					Background:   specPanel,
-				},
-				Children: []core.Node{
-					core.SVGView{
-						SVG: lucide.Upload(),
-						Style: core.Style{
-							Width:      core.Pt(16),
-							Height:     core.Pt(16),
-							FlexShrink: 0,
-							Color:      specTextMuted,
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				p := ed.SpecPalette(cx)
+				return core.View{
+					TestID: "assets-drop-zone",
+					Style: core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          12,
+						Margin:       core.All(12),
+						Padding:      core.All(12),
+						CornerRadius: 12,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						Background:   p.Panel,
+					},
+					Children: []core.Node{
+						core.SVGView{
+							SVG: lucide.Upload(),
+							Style: core.Style{
+								Width:      core.Pt(16),
+								Height:     core.Pt(16),
+								FlexShrink: 0,
+								Color:      p.TextFaint,
+							},
+						},
+						core.Text{
+							Content: "Drop files anywhere to import",
+							Style: core.Style{
+								FlexGrow:   1,
+								FlexShrink: 1,
+								FontSize:   12,
+								Color:      p.TextFaint,
+							},
 						},
 					},
-					core.Text{
-						Content: "Drop files anywhere to import",
-						Style: core.Style{
-							FlexGrow:   1,
-							FlexShrink: 1,
-							FontSize:   12,
-							Color:      specTextMuted,
-						},
-					},
-				},
-			},
+				}
+			}),
 		},
 	}
 }
@@ -412,9 +417,10 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			Label:  label,
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
+				p := ed.SpecPalette(cx)
 				var bg core.Color
 				if ed.AssetDrawerKind() == kind {
-					bg = specLineRaised
+					bg = p.LineRaised
 				}
 				return core.Style{
 					Height:         core.Pt(24),
@@ -423,7 +429,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					Background:     bg,
-					FocusVisible:   specFocusRingStyle,
+					FocusVisible:   p.FocusRing(2),
 				}
 			},
 			OnPress: func(core.PressEvent) {
@@ -434,9 +440,10 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					Content: label,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						col := specTextMuted
+						p := ed.SpecPalette(cx)
+						col := p.TextFaint
 						if ed.AssetDrawerKind() == kind {
-							col = specTextStrong
+							col = p.TextPrimary
 						}
 						return core.Style{
 							FontSize:   12,
@@ -449,188 +456,192 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		}
 	}
 
-	header := core.View{
-		TestID: "asset-drawer-header",
-		Style: core.Style{
-			Height:      core.Pt(44),
-			FlexShrink:  0,
-			Direction:   core.Row,
-			AlignItems:  core.AlignCenter,
-			Gap:         8,
-			Padding:     core.Symmetric(0, 12),
-			Background:  specPanel,
-			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
-		},
-		Children: []core.Node{
-			core.Text{
-				Content: "ASSETS",
-				Style: core.Style{
-					FontSize:   11,
-					FontWeight: 600,
-					Color:      specTextMuted,
-					FlexShrink: 0,
-				},
+	header := core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "asset-drawer-header",
+			Style: core.Style{
+				Height:      core.Pt(44),
+				FlexShrink:  0,
+				Direction:   core.Row,
+				AlignItems:  core.AlignCenter,
+				Gap:         8,
+				Padding:     core.Symmetric(0, 12),
+				Background:  p.Panel,
+				Borders:     core.Edges{Bottom: 1},
+				BorderColor: p.Line,
 			},
-			core.View{
-				Style: core.Style{
-					Direction:    core.Row,
-					Gap:          2,
-					Padding:      core.All(3),
-					CornerRadius: 8,
-					Background:   specRaised,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FlexShrink:   0,
-				},
-				Children: []core.Node{
-					kindBtn("asset-kind-all", "All", AssetKindAll),
-					kindBtn("asset-kind-sprites", "Sprites", AssetKindSprites),
-					kindBtn("asset-kind-tiles", "Tiles", AssetKindTiles),
-					kindBtn("asset-kind-audio", "Audio", AssetKindAudio),
-					kindBtn("asset-kind-fonts", "Fonts", AssetKindFonts),
-				},
-			},
-			core.View{
-				Style: core.Style{
-					FlexGrow:     1,
-					FlexShrink:   1,
-					MinWidth:     core.Pt(96),
-					Height:       core.Pt(30),
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Gap:          6,
-					Padding:      core.Symmetric(0, 8),
-					CornerRadius: 8,
-					Background:   specRaised,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-				},
-				Children: []core.Node{
-					core.SVGView{
-						SVG: lucide.Search(),
-						Style: core.Style{
-							Width:      core.Pt(13),
-							Height:     core.Pt(13),
-							FlexShrink: 0,
-							Color:      specTextMuted,
-						},
-					},
-					ui.Input{
-						TestID:      "asset-drawer-search",
-						Label:       "Filter assets by name or path",
-						Placeholder: "Name or path",
-						Style: core.Style{
-							FlexGrow:    1,
-							FlexShrink:  1,
-							MinWidth:    core.Pt(0),
-							Height:      core.Pt(26),
-							BorderWidth: 0,
-							Background:  specRaised,
-							Color:       specText,
-							FontSize:    12,
-						},
-						Value: func() string {
-							_ = rev.Get()
-							return ed.AssetDrawerQuery()
-						},
-						OnChange: func(v string) {
-							ed.SetAssetDrawerQuery(v)
-						},
+			Children: []core.Node{
+				core.Text{
+					Content: "ASSETS",
+					Style: core.Style{
+						FontSize:   11,
+						FontWeight: 600,
+						Color:      p.TextFaint,
+						FlexShrink: 0,
 					},
 				},
+				core.View{
+					Style: core.Style{
+						Direction:    core.Row,
+						Gap:          2,
+						Padding:      core.All(3),
+						CornerRadius: 8,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						FlexShrink:   0,
+					},
+					Children: []core.Node{
+						kindBtn("asset-kind-all", "All", AssetKindAll),
+						kindBtn("asset-kind-sprites", "Sprites", AssetKindSprites),
+						kindBtn("asset-kind-tiles", "Tiles", AssetKindTiles),
+						kindBtn("asset-kind-audio", "Audio", AssetKindAudio),
+						kindBtn("asset-kind-fonts", "Fonts", AssetKindFonts),
+					},
+				},
+				core.View{
+					Style: core.Style{
+						FlexGrow:     1,
+						FlexShrink:   1,
+						MinWidth:     core.Pt(96),
+						Height:       core.Pt(30),
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          6,
+						Padding:      core.Symmetric(0, 8),
+						CornerRadius: 8,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+					},
+					Children: []core.Node{
+						core.SVGView{
+							SVG: lucide.Search(),
+							Style: core.Style{
+								Width:      core.Pt(13),
+								Height:     core.Pt(13),
+								FlexShrink: 0,
+								Color:      p.TextFaint,
+							},
+						},
+						ui.Input{
+							TestID:      "asset-drawer-search",
+							Label:       "Filter assets by name or path",
+							Placeholder: "Name or path",
+							Style: core.Style{
+								FlexGrow:    1,
+								FlexShrink:  1,
+								MinWidth:    core.Pt(0),
+								Height:      core.Pt(26),
+								BorderWidth: 0,
+								Background:  p.Raised,
+								Color:       p.TextSecondary,
+								FontSize:    12,
+							},
+							Value: func() string {
+								_ = rev.Get()
+								return ed.AssetDrawerQuery()
+							},
+							OnChange: func(v string) {
+								ed.SetAssetDrawerQuery(v)
+							},
+						},
+					},
+				},
+				ui.Button{
+					TestID:  "asset-drawer-sort",
+					Icon:    lucide.ArrowUpDown,
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					LabelFunc: func() string {
+						_ = rev.Get()
+						if ed.AssetDrawerSort() == AssetSortRecent {
+							return "Sort: recently changed"
+						}
+						return "Sort: name"
+					},
+					Color: func() core.Color { return p.Raised },
+					Tint:  func() core.Color { return p.TextMuted },
+					Style: core.Style{
+						Width:        core.Pt(30),
+						Height:       core.Pt(30),
+						CornerRadius: 8,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						FlexShrink:   0,
+					},
+					OnPress: func() {
+						if ed.AssetDrawerSort() == AssetSortRecent {
+							ed.SetAssetDrawerSort(AssetSortName)
+						} else {
+							ed.SetAssetDrawerSort(AssetSortRecent)
+						}
+					},
+				},
+				ui.Button{
+					TestID:  "asset-drawer-import",
+					Icon:    lucide.Upload,
+					Text:    "Import",
+					Label:   "Import asset files",
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					Color:   func() core.Color { return p.LineRaised },
+					Tint:    func() core.Color { return p.TextSecondary },
+					TextStyle: core.Style{
+						FontSize:   12,
+						FontWeight: 500,
+						Color:      p.TextSecondary,
+					},
+					Style: core.Style{
+						Height:       core.Pt(30),
+						CornerRadius: 8,
+						Padding:      core.Symmetric(0, 12),
+						FlexShrink:   0,
+					},
+					OnPress: func() {
+						ed.TriggerAssetImport()
+					},
+				},
+				ui.Button{
+					TestID:  "asset-drawer-generate",
+					Icon:    lucide.Sparkles,
+					Text:    "Generate",
+					Label:   "Generate asset with AI",
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					Color:   func() core.Color { return p.LineRaised },
+					Tint:    func() core.Color { return p.Agent.Fg },
+					TextStyle: core.Style{
+						FontSize:   12,
+						FontWeight: 500,
+						Color:      p.TextSecondary,
+					},
+					Style: core.Style{
+						Height:       core.Pt(30),
+						CornerRadius: 8,
+						Padding:      core.Symmetric(0, 12),
+						FlexShrink:   0,
+					},
+					OnPress: func() {
+						ed.TriggerAssetGenerate()
+					},
+				},
 			},
-			ui.Button{
-				TestID:  "asset-drawer-sort",
-				Icon:    lucide.ArrowUpDown,
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				LabelFunc: func() string {
-					_ = rev.Get()
-					if ed.AssetDrawerSort() == AssetSortRecent {
-						return "Sort: recently changed"
-					}
-					return "Sort: name"
-				},
-				Color: func() core.Color { return specRaised },
-				Tint:  func() core.Color { return specTextSecondary },
-				Style: core.Style{
-					Width:        core.Pt(30),
-					Height:       core.Pt(30),
-					CornerRadius: 8,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FlexShrink:   0,
-				},
-				OnPress: func() {
-					if ed.AssetDrawerSort() == AssetSortRecent {
-						ed.SetAssetDrawerSort(AssetSortName)
-					} else {
-						ed.SetAssetDrawerSort(AssetSortRecent)
-					}
-				},
-			},
-			ui.Button{
-				TestID:  "asset-drawer-import",
-				Icon:    lucide.Upload,
-				Text:    "Import",
-				Label:   "Import asset files",
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specLineRaised },
-				Tint:    func() core.Color { return specText },
-				TextStyle: core.Style{
-					FontSize:   12,
-					FontWeight: 500,
-					Color:      specText,
-				},
-				Style: core.Style{
-					Height:       core.Pt(30),
-					CornerRadius: 8,
-					Padding:      core.Symmetric(0, 12),
-					FlexShrink:   0,
-				},
-				OnPress: func() {
-					ed.TriggerAssetImport()
-				},
-			},
-			ui.Button{
-				TestID:  "asset-drawer-generate",
-				Icon:    lucide.Sparkles,
-				Text:    "Generate",
-				Label:   "Generate asset with AI",
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specLineRaised },
-				Tint:    func() core.Color { return specAgent },
-				TextStyle: core.Style{
-					FontSize:   12,
-					FontWeight: 500,
-					Color:      specText,
-				},
-				Style: core.Style{
-					Height:       core.Pt(30),
-					CornerRadius: 8,
-					Padding:      core.Symmetric(0, 12),
-					FlexShrink:   0,
-				},
-				OnPress: func() {
-					ed.TriggerAssetGenerate()
-				},
-			},
-		},
-	}
+		}
+	})
 
 	gridBody := core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
 		snap := snapMemo.Get().snap
 		var children []core.Node
 
 		if snap.ProposedCount > 0 {
-			children = append(children, proposedImportBanner(ed, snap.ProposedCount))
+			children = append(children, proposedImportBanner(ed, snap.ProposedCount, p))
 		}
 
 		if len(snap.VisibleItems) == 0 {
-			children = append(children, assetDrawerEmptyState(ed, snap))
+			children = append(children, assetDrawerEmptyState(ed, snap, p))
 			return core.View{
 				Style:    core.Style{FlexGrow: 1, Padding: core.All(12), Gap: 12},
 				Children: children,
@@ -643,7 +654,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		}
 		cards := make([]core.Node, 0, len(snap.VisibleItems))
 		for _, it := range snap.VisibleItems {
-			cards = append(cards, assetDrawerCard(ed, it, it.Path == selectedPath))
+			cards = append(cards, assetDrawerCard(ed, it, it.Path == selectedPath, p))
 		}
 		children = append(children, core.View{
 			TestID: "asset-drawer-grid",
@@ -661,6 +672,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	})
 
 	footer := core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
 		snap := snapMemo.Get().snap
 		countText := fmt.Sprintf("%d assets · %d shown", len(snap.AllItems), len(snap.VisibleItems))
 		rightNodes := []core.Node{}
@@ -682,19 +694,19 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 3,
-							Background:   specProblem,
+							Background:   p.Removed.Fg,
 						},
 					},
 					core.Text{
 						Content: probText,
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
 			})
 		}
 		rightNodes = append(rightNodes, core.Text{
 			Content: "Re-imports on save",
-			Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 		})
 		return core.View{
 			TestID: "asset-drawer-footer",
@@ -706,15 +718,15 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				JustifyContent: core.JustifySpaceBetween,
 				Gap:            16,
 				Padding:        core.Symmetric(0, 14),
-				Background:     specBg,
+				Background:     p.Bg,
 				Borders:        core.Edges{Top: 1},
-				BorderColor:    specLine,
+				BorderColor:    p.Line,
 			},
 			Children: []core.Node{
 				core.Text{
 					TestID:  "asset-drawer-footer-count",
 					Content: countText,
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 				core.View{
 					Style: core.Style{
@@ -736,19 +748,22 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			_, err := ed.ImportAssetFiles(uris)
 			ed.report(err)
 		},
-		Style: core.Style{
-			FlexGrow:    1,
-			FlexBasis:   core.Pt(0),
-			Background:  specPanel,
-			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
-			Overflow:    core.Hidden,
+		StyleFunc: func() core.Style {
+			p := ed.SpecPalette(cx)
+			return core.Style{
+				FlexGrow:    1,
+				FlexBasis:   core.Pt(0),
+				Background:  p.Panel,
+				Borders:     core.Edges{Top: 1},
+				BorderColor: p.Line,
+				Overflow:    core.Hidden,
+			}
 		},
 		Children: []core.Node{
 			header,
 			ui.ScrollView{
 				Style:     core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				EdgeColor: func() core.Color { return specPanel },
+				EdgeColor: func() core.Color { return ed.SpecPalette(cx).Panel },
 				Children:  []core.Node{gridBody},
 			},
 			footer,
@@ -756,7 +771,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}
 }
 
-func proposedImportBanner(ed *Editor, count int) core.Node {
+func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
 	title := fmt.Sprintf("Import %d proposed file", count)
 	if count != 1 {
 		title = fmt.Sprintf("Import %d proposed files", count)
@@ -770,24 +785,24 @@ func proposedImportBanner(ed *Editor, count int) core.Node {
 			Gap:            12,
 			Padding:        core.Symmetric(10, 14),
 			CornerRadius:   12,
-			Background:     specRaised,
+			Background:     p.Raised,
 			BorderWidth:    1,
-			BorderColor:    specAddedEdge,
+			BorderColor:    specAlpha(p.Added.Fg, 0.45),
 		},
 		Children: []core.Node{
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
 					core.View{
-						Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: specAdded},
+						Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: p.Added.Fg},
 					},
 					core.Text{
 						Content: title,
-						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: "· review import settings before keeping",
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
 			},
@@ -799,11 +814,11 @@ func proposedImportBanner(ed *Editor, count int) core.Node {
 						Text:    "Keep",
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specAccent },
+						Color:   func() core.Color { return p.Accent.Fg },
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 600,
-							Color:      specBg, // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
+							Color:      p.Accent.OnFill,
 						},
 						Style: core.Style{Height: core.Pt(28), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 						OnPress: func() {
@@ -815,11 +830,11 @@ func proposedImportBanner(ed *Editor, count int) core.Node {
 						Text:    "Revert",
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specLineRaised },
+						Color:   func() core.Color { return p.LineRaised },
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 500,
-							Color:      specText,
+							Color:      p.TextSecondary,
 						},
 						Style: core.Style{Height: core.Pt(28), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 						OnPress: func() {
@@ -832,7 +847,7 @@ func proposedImportBanner(ed *Editor, count int) core.Node {
 	}
 }
 
-func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot) core.Node {
+func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) core.Node {
 	if snap.EmptyFolder != "" {
 		isAudioFolder := strings.Contains(strings.ToLower(snap.EmptyFolder), "audio") ||
 			strings.Contains(strings.ToLower(snap.EmptyFolder), "music") ||
@@ -853,23 +868,23 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot) core.Node {
 				Gap:            12,
 				Padding:        core.All(24),
 				CornerRadius:   12,
-				Background:     specRaised,
+				Background:     p.Raised,
 				BorderWidth:    1,
-				BorderColor:    specLineRaised,
+				BorderColor:    p.LineRaised,
 			},
 			Children: []core.Node{
 				core.SVGView{
 					SVG:   icon,
-					Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), Color: specTextMuted},
+					Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), Color: p.TextFaint},
 				},
 				core.Text{
 					Content: snap.EmptyFolder + " is empty",
-					Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+					Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 				},
 				core.Text{
 					TestID:  "asset-drawer-empty-hint",
 					Content: hint,
-					Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 				},
 				core.View{
 					Style: core.Style{Direction: core.Row, Gap: 8},
@@ -879,11 +894,11 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot) core.Node {
 							Text:    "Import",
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specLineRaised },
+							Color:   func() core.Color { return p.LineRaised },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 500,
-								Color:      specText,
+								Color:      p.TextSecondary,
 							},
 							Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 							OnPress: func() {
@@ -896,12 +911,12 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot) core.Node {
 							Text:    "Ask the agent",
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specLineRaised },
-							Tint:    func() core.Color { return specAgent },
+							Color:   func() core.Color { return p.LineRaised },
+							Tint:    func() core.Color { return p.Agent.Fg },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 500,
-								Color:      specText,
+								Color:      p.TextSecondary,
 							},
 							Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 							OnPress: func() {
@@ -924,34 +939,34 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot) core.Node {
 			Gap:            12,
 			Padding:        core.All(24),
 			CornerRadius:   12,
-			Background:     specRaised,
+			Background:     p.Raised,
 			BorderWidth:    1,
-			BorderColor:    specLineRaised,
+			BorderColor:    p.LineRaised,
 		},
 		Children: []core.Node{
 			core.SVGView{
 				SVG:   lucide.Search(),
-				Style: core.Style{Width: core.Pt(24), Height: core.Pt(24), Color: specTextMuted},
+				Style: core.Style{Width: core.Pt(24), Height: core.Pt(24), Color: p.TextFaint},
 			},
 			core.Text{
 				Content: "Nothing matches",
-				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+				Style:   core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
 				TestID:  "asset-drawer-empty-hint",
 				Content: "Clear a filter to see more assets.",
-				Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 			},
 			ui.Button{
 				TestID:  "asset-drawer-clear-filters",
 				Text:    "Clear filters",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specLineRaised },
+				Color:   func() core.Color { return p.LineRaised },
 				TextStyle: core.Style{
 					FontSize:   12,
 					FontWeight: 500,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 				Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 				OnPress: func() {
@@ -962,46 +977,48 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot) core.Node {
 	}
 }
 
-func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
+func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool, p SpecPalette) core.Node {
 	cardID := "asset-card-" + sanitizeAssetTestID(it.Path)
+	selectedRowFill := specAlpha(p.Accent.Fg, 0.14)
+	bgOverlay := specAlpha(p.Bg, 0.92)
 
-	bg := specRaised
-	borderColor := specLineRaised
+	bg := p.Raised
+	borderColor := p.LineRaised
 	borderW := core.Points(1)
 	if it.Missing {
-		borderColor = specProblem
+		borderColor = p.Removed.Fg
 		borderW = 1.5
 	} else if it.Proposed {
-		borderColor = specAdded
+		borderColor = p.Added.Fg
 		borderW = 1.5
 	}
 	if selected {
-		bg = specSelectedRowFill
-		borderColor = specAccent
+		bg = selectedRowFill
+		borderColor = p.Accent.Fg
 		borderW = 1.5
 	}
 
-	nameCol := specText
+	nameCol := p.TextSecondary
 	if selected {
-		nameCol = specTextStrong
+		nameCol = p.TextPrimary
 	}
-	metaCol := specTextMuted
+	metaCol := p.TextFaint
 	if it.Missing {
-		metaCol = specProblem
+		metaCol = p.Removed.Fg
 	}
 
 	var badgeNode core.Node
 	if it.Badge != "" {
-		bc := specTextSecondary
+		bc := p.TextMuted
 		switch it.Badge {
 		case "Missing":
-			bc = specProblem
+			bc = p.Removed.Fg
 		case "new":
-			bc = specAdded
+			bc = p.Added.Fg
 		case "Generated":
-			bc = specAgent
+			bc = p.Agent.Fg
 		case "Not used":
-			bc = specTextSecondary
+			bc = p.TextMuted
 		}
 		badgeNode = core.View{
 			TestID: cardID + "-badge",
@@ -1012,7 +1029,7 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 				Height:         core.Pt(18),
 				Padding:        core.Symmetric(0, 6),
 				CornerRadius:   6,
-				Background:     specBgOverlay,
+				Background:     bgOverlay,
 				JustifyContent: core.JustifyCenter,
 			},
 			Children: []core.Node{
@@ -1029,7 +1046,7 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 	}
 
 	thumbChildren := []core.Node{
-		assetThumbnailCanvas(it, 112, 72, false),
+		assetThumbnailCanvas(it, 112, 72, false, p),
 	}
 	if it.Missing {
 		thumbChildren = append(thumbChildren, core.View{
@@ -1046,7 +1063,7 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 			Children: []core.Node{
 				core.SVGView{
 					SVG:   lucide.ImageOff(),
-					Style: core.Style{Width: core.Pt(24), Height: core.Pt(24), Color: specProblem},
+					Style: core.Style{Width: core.Pt(24), Height: core.Pt(24), Color: p.Removed.Fg},
 				},
 			},
 		})
@@ -1068,7 +1085,7 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 					Style: core.Style{
 						FontSize:   16,
 						FontWeight: 600,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 					},
 				},
 			},
@@ -1091,7 +1108,7 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 			BorderWidth:  borderW,
 			BorderColor:  borderColor,
 			Overflow:     core.Hidden,
-			FocusVisible: specFocusRingStyle,
+			FocusVisible: p.FocusRing(2),
 		},
 		OnPress: func(core.PressEvent) {
 			ed.SelectAssetPath(it.Path)
@@ -1157,13 +1174,13 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 						Gap:          6,
 						Padding:      core.Symmetric(4, 8),
 						CornerRadius: 6,
-						Background:   specBgOverlay,
+						Background:   bgOverlay,
 						BorderWidth:  1,
-						BorderColor:  specAdded,
+						BorderColor:  p.Added.Fg,
 					},
 					Children: []core.Node{
-						core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: specAdded}},
-						core.Text{Content: it.Name, Style: core.Style{FontSize: 11.5, FontWeight: 600, Color: specTextStrong}},
+						core.View{Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: p.Added.Fg}},
+						core.Text{Content: it.Name, Style: core.Style{FontSize: 11.5, FontWeight: 600, Color: p.TextPrimary}},
 					},
 				}
 			},
@@ -1186,6 +1203,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	})
 
 	content := core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
 		_ = inspectorKeyMemo.Get()
 		snap := snapMemo.Get().snap
 		if snap.Selected == nil {
@@ -1194,7 +1212,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				Children: []core.Node{
 					core.Text{
 						Content: "Select an asset to inspect its preview and references.",
-						Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 					},
 				},
 			}
@@ -1206,6 +1224,8 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		// Isolate preview box & clip/audio playback controls into a preview-keyed Dynamic so
 		// 8 Hz clip ticks only update preview nodes and 60 Hz drag moves trigger zero rebuilds.
 		previewSection := core.Dynamic(func(cx *core.Scope) core.Node {
+			cur := ed.SpecPalette(cx)
+			bgOverlay := specAlpha(cur.Bg, 0.92)
 			_ = previewKeyMemo.Get()
 			clip := activePreviewClip(&sel, ed.AssetPreviewClip())
 			frameIdx := ed.AssetPreviewFrame()
@@ -1223,7 +1243,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			audioPlaying := isAudio && ed.AssetAudioPlayingPath() == sel.Path
 
 			previewChildren := []core.Node{
-				assetThumbnailCanvas(previewItem, 348, 168, audioPlaying),
+				assetThumbnailCanvas(previewItem, 348, 168, audioPlaying, cur),
 			}
 			if sel.Missing {
 				previewChildren = append(previewChildren, core.View{
@@ -1240,7 +1260,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Children: []core.Node{
 						core.SVGView{
 							SVG:   lucide.ImageOff(),
-							Style: core.Style{Width: core.Pt(36), Height: core.Pt(36), Color: specProblem},
+							Style: core.Style{Width: core.Pt(36), Height: core.Pt(36), Color: cur.Removed.Fg},
 						},
 					},
 				})
@@ -1259,7 +1279,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Children: []core.Node{
 						core.Text{
 							Content: sel.FontSample,
-							Style:   core.Style{FontSize: 28, FontWeight: 500, Color: specTextStrong},
+							Style:   core.Style{FontSize: 28, FontWeight: 500, Color: cur.TextPrimary},
 						},
 					},
 				})
@@ -1273,7 +1293,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Left:     core.Pt(12),
 						Top:      core.Pt(8),
 						FontSize: 11,
-						Color:    specTextMuted,
+						Color:    cur.TextFaint,
 					},
 				})
 			}
@@ -1298,14 +1318,14 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Label:   playLabel,
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specBgOverlay },
-							Tint:    func() core.Color { return specTextStrong },
+							Color:   func() core.Color { return bgOverlay },
+							Tint:    func() core.Color { return cur.TextPrimary },
 							Style: core.Style{
 								Width:        core.Pt(28),
 								Height:       core.Pt(28),
 								CornerRadius: 6,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  cur.LineRaised,
 							},
 							OnPress: func() {
 								if isAudio {
@@ -1328,7 +1348,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						CornerRadius: 12,
 						Position:     core.Relative,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  cur.LineRaised,
 						Overflow:     core.Hidden,
 					},
 					Children: previewChildren,
@@ -1341,13 +1361,13 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				for _, cl := range sel.Clips {
 					cName := cl.Name
 					on := cName == clip.Name
-					bg := specRaised
-					fg := specTextSecondary
-					border := specLineRaised
+					bg := cur.Raised
+					fg := cur.TextMuted
+					border := cur.LineRaised
 					if on {
-						bg = specLineRaised
-						fg = specTextStrong
-						border = specLineRaised
+						bg = cur.LineRaised
+						fg = cur.TextPrimary
+						border = cur.LineRaised
 					}
 					clipChips = append(clipChips, core.View{
 						TestID: "asset-clip-" + sanitizeAssetTestID(cName),
@@ -1362,7 +1382,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Background:     bg,
 							BorderWidth:    1,
 							BorderColor:    border,
-							FocusVisible:   specFocusRingStyle,
+							FocusVisible:   cur.FocusRing(2),
 						},
 						OnPress: func(core.PressEvent) {
 							ed.SetAssetPreviewClip(cName)
@@ -1381,9 +1401,9 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Label:   "Previous frame",
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specRaised },
-					Tint:    func() core.Color { return specTextSecondary },
-					Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: specLineRaised},
+					Color:   func() core.Color { return cur.Raised },
+					Tint:    func() core.Color { return cur.TextMuted },
+					Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: cur.LineRaised},
 					OnPress: func() {
 						ed.SetAssetPreviewPlaying(false)
 						ed.StepAssetPreviewFrame(-1)
@@ -1393,10 +1413,10 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					idx := i
 					fr := clip.Frames[idx]
 					active := idx == frameIdx
-					bCol := specLineRaised
+					bCol := cur.LineRaised
 					bW := core.Points(1)
 					if active {
-						bCol = specAccent
+						bCol = cur.Accent.Fg
 						bW = 1.5
 					}
 					frItem := AssetDrawerItem{Kind: AssetKindSprites, Image: fr.Image, Rect: fr.Rect}
@@ -1411,13 +1431,13 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							BorderWidth:  bW,
 							BorderColor:  bCol,
 							Overflow:     core.Hidden,
-							FocusVisible: specFocusRingStyle,
+							FocusVisible: cur.FocusRing(2),
 						},
 						OnPress: func(core.PressEvent) {
 							ed.SetAssetPreviewFrame(idx)
 						},
 						Children: []core.Node{
-							assetThumbnailCanvas(frItem, 36, 40, false),
+							assetThumbnailCanvas(frItem, 36, 40, false, cur),
 						},
 					})
 				}
@@ -1427,9 +1447,9 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Label:   "Next frame",
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specRaised },
-					Tint:    func() core.Color { return specTextSecondary },
-					Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: specLineRaised},
+					Color:   func() core.Color { return cur.Raised },
+					Tint:    func() core.Color { return cur.TextMuted },
+					Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: cur.LineRaised},
 					OnPress: func() {
 						ed.SetAssetPreviewPlaying(false)
 						ed.StepAssetPreviewFrame(1)
@@ -1459,7 +1479,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								core.Text{
 									TestID:  "asset-frame-label",
 									Content: fmt.Sprintf("%d / %d · %d ms", frameIdx+1, len(clip.Frames), clip.FrameMS),
-									Style:   core.Style{FontSize: 11, Color: specTextMuted},
+									Style:   core.Style{FontSize: 11, Color: cur.TextFaint},
 								},
 							},
 						},
@@ -1489,14 +1509,14 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Gap:          12,
 					Padding:      core.All(12),
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1.5,
-					BorderColor:  specProblem,
+					BorderColor:  p.Removed.Fg,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: fmt.Sprintf("%s is not on disk. %s still reference it; the build fails until it is back or replaced.", sel.Name, refSummary),
-						Style:   core.Style{FontSize: 12, Color: specText},
+						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 					},
 					core.View{
 						Style: core.Style{Direction: core.Row, Gap: 8},
@@ -1506,11 +1526,11 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								Text:    "Replace with a file",
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specLineRaised },
+								Color:   func() core.Color { return p.LineRaised },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specText,
+									Color:      p.TextSecondary,
 								},
 								Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 								OnPress: func() {
@@ -1522,11 +1542,11 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								Text:    "Ask the agent",
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specPanel },
+								Color:   func() core.Color { return p.Panel },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specTextSecondary,
+									Color:      p.TextMuted,
 								},
 								Style: core.Style{Height: core.Pt(30), CornerRadius: 8, Padding: core.Symmetric(0, 12)},
 								OnPress: func() {
@@ -1542,7 +1562,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		// Compact IMPORT settings summary for existing assets in a project (cached by path, filesRev, importRev).
 		if !sel.Missing && ed.Project != nil {
 			if info, ok := ed.cachedAssetImportSummary(sel.Path); ok {
-				bodyNodes = append(bodyNodes, assetImportSummarySection(info))
+				bodyNodes = append(bodyNodes, assetImportSummarySection(info, p))
 			}
 		}
 
@@ -1554,7 +1574,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				Style: core.Style{
 					FontSize:   11,
 					FontWeight: 600,
-					Color:      specTextMuted,
+					Color:      p.TextFaint,
 					Padding:    core.Edges{Bottom: 4},
 				},
 			},
@@ -1566,7 +1586,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				Style: core.Style{
 					Padding:  core.Symmetric(4, 8),
 					FontSize: 12,
-					Color:    specTextMuted,
+					Color:    p.TextFaint,
 				},
 			})
 		} else {
@@ -1583,7 +1603,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Gap:          8,
 						Padding:      core.Symmetric(0, 8),
 						CornerRadius: 6,
-						FocusVisible: specRowFocusRingStyle,
+						FocusVisible: p.FocusRing(-2),
 					},
 					OnPress: func(core.PressEvent) {
 						ed.report(ed.OpenReference(refEntry.Ref))
@@ -1597,7 +1617,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								FlexShrink: 1,
 								MinWidth:   core.Pt(0),
 								FontSize:   11.5,
-								Color:      specTextSecondary,
+								Color:      p.TextMuted,
 							},
 						},
 						core.Text{
@@ -1605,7 +1625,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							MaxLines: 1,
 							Style: core.Style{
 								FontSize:   11.5,
-								Color:      specTextMuted,
+								Color:      p.TextFaint,
 								FlexShrink: 0,
 							},
 						},
@@ -1632,7 +1652,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Gap:         8,
 						Padding:     core.Symmetric(0, 16),
 						Borders:     core.Edges{Bottom: 1},
-						BorderColor: specLine,
+						BorderColor: p.Line,
 					},
 					Children: []core.Node{
 						core.Text{
@@ -1642,20 +1662,20 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Style: core.Style{
 								FontSize:   14,
 								FontWeight: 600,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 								FlexShrink: 1,
 							},
 						},
 						core.Text{
 							TestID:  "asset-inspector-kind",
 							Content: sel.KindLabel,
-							Style:   core.Style{FontSize: 12, Color: specTextMuted, FlexShrink: 0},
+							Style:   core.Style{FontSize: 12, Color: p.TextFaint, FlexShrink: 0},
 						},
 					},
 				},
 				ui.ScrollView{
 					Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-					EdgeColor:    func() core.Color { return specPanel },
+					EdgeColor:    func() core.Color { return p.Panel },
 					ContentStyle: core.Style{Padding: core.All(16), Gap: 16},
 					Children:     bodyNodes,
 				},
@@ -1667,12 +1687,12 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						AlignItems:  core.AlignCenter,
 						Padding:     core.Symmetric(0, 16),
 						Borders:     core.Edges{Top: 1},
-						BorderColor: specLine,
+						BorderColor: p.Line,
 					},
 					Children: []core.Node{
 						core.Text{
 							Content: "Re-imports by itself when the file changes on disk",
-							Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 						},
 					},
 				},
@@ -1684,19 +1704,22 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		TestID: "asset-inspector",
 		Role:   core.RoleRegion,
 		Label:  "Selected asset inspector",
-		Style: core.Style{
-			Width:       core.Pt(380),
-			FlexShrink:  0,
-			Background:  specPanel,
-			Borders:     core.Edges{Left: 1},
-			BorderColor: specLine,
-			Overflow:    core.Hidden,
+		StyleFunc: func() core.Style {
+			p := ed.SpecPalette(cx)
+			return core.Style{
+				Width:       core.Pt(380),
+				FlexShrink:  0,
+				Background:  p.Panel,
+				Borders:     core.Edges{Left: 1},
+				BorderColor: p.Line,
+				Overflow:    core.Hidden,
+			}
 		},
 		Children: []core.Node{content},
 	}
 }
 
-func assetImportSummarySection(info AssetImportInfo) core.Node {
+func assetImportSummarySection(info AssetImportInfo, p SpecPalette) core.Node {
 	row := func(label, val string) core.Node {
 		return core.View{
 			Style: core.Style{
@@ -1706,17 +1729,17 @@ func assetImportSummarySection(info AssetImportInfo) core.Node {
 				Padding:    core.Symmetric(4, 8),
 			},
 			Children: []core.Node{
-				core.Text{Content: label, Style: core.Style{Width: core.Pt(92), FontSize: 12, Color: specTextSecondary}},
+				core.Text{Content: label, Style: core.Style{Width: core.Pt(92), FontSize: 12, Color: p.TextMuted}},
 				core.View{
 					Style: core.Style{
 						Padding:      core.Symmetric(2, 8),
 						CornerRadius: 6,
-						Background:   specRaised,
+						Background:   p.Raised,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
-						core.Text{Content: val, Style: core.Style{FontSize: 12, Color: specText}},
+						core.Text{Content: val, Style: core.Style{FontSize: 12, Color: p.TextSecondary}},
 					},
 				},
 			},
@@ -1732,8 +1755,8 @@ func assetImportSummarySection(info AssetImportInfo) core.Node {
 				Padding:        core.Edges{Bottom: 4},
 			},
 			Children: []core.Node{
-				core.Text{Content: "IMPORT", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-				core.Text{Content: info.SidecarPath, MaxLines: 1, Style: core.Style{FontSize: 11, Color: specTextMuted}},
+				core.Text{Content: "IMPORT", Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint}},
+				core.Text{Content: info.SidecarPath, MaxLines: 1, Style: core.Style{FontSize: 11, Color: p.TextFaint}},
 			},
 		},
 	}
@@ -1761,7 +1784,8 @@ func assetImportSummarySection(info AssetImportInfo) core.Node {
 	}
 }
 
-func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool) core.Node {
+func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool, p SpecPalette) core.Node {
+	checkerAlt := specAlpha(p.LineRaised, 0.36)
 	return core.Canvas{
 		Style: core.Style{
 			Width:  core.Pct(100),
@@ -1773,9 +1797,9 @@ func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool) c
 				sw, sh = w, h
 			}
 			// Checkerboard background built strictly from Spec tokens.
-			d.SetFillColor(specRaised).FillRect(0, 0, sw, sh)
+			d.SetFillColor(p.Raised).FillRect(0, 0, sw, sh)
 			const cell float32 = 8
-			d.SetFillColor(specCheckerAlt)
+			d.SetFillColor(checkerAlt)
 			for y := float32(0); y < sh; y += cell {
 				row := int(y / cell)
 				for x := float32(0); x < sw; x += cell {
@@ -1798,9 +1822,9 @@ func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool) c
 				usableW := max(16, sw-padX*2)
 				usableH := sh * 0.62
 				midY := sh / 2
-				barCol := specAccent
+				barCol := p.Accent.Fg
 				if it.Proposed {
-					barCol = specAdded
+					barCol = p.Added.Fg
 				}
 				d.SetFillColor(barCol)
 				step := usableW / float32(len(wave))
@@ -1812,7 +1836,7 @@ func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool) c
 				}
 				if audioPlaying {
 					hx := padX + usableW*0.38
-					d.SetFillColor(specTextStrong).FillRect(hx, sh*0.14, 1.5, sh*0.72)
+					d.SetFillColor(p.TextPrimary).FillRect(hx, sh*0.14, 1.5, sh*0.72)
 				}
 				return
 			}
@@ -1834,8 +1858,8 @@ func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool) c
 				gw := min(sw*0.62, 160)
 				gh := min(sh*0.65, 112)
 				gx, gy := (sw-gw)/2, (sh-gh)/2
-				d.SetFillColor(specLineRaised).FillRect(gx, gy, gw, gh)
-				d.SetStrokeColor(specLine).SetLineWidth(1.5)
+				d.SetFillColor(p.LineRaised).FillRect(gx, gy, gw, gh)
+				d.SetStrokeColor(p.Line).SetLineWidth(1.5)
 				for x := gx; x <= gx+gw; x += 16 {
 					d.BeginPath().MoveTo(x, gy).LineTo(x, gy+gh).Stroke()
 				}
@@ -1852,6 +1876,8 @@ func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool) c
 func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
+		p := ed.SpecPalette(cx)
+		bgOverlay := specAlpha(p.Bg, 0.92)
 		inAssets := ed.LeftRailMode() == LeftRailAssets
 		st := ed.AssetDragState()
 		if !inAssets && !st.Active {
@@ -1870,7 +1896,7 @@ func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Left:     core.Pt(16),
 						Top:      core.Pt(8),
 						FontSize: 11,
-						Color:    specTextMuted,
+						Color:    p.TextFaint,
 					},
 				},
 				core.Text{
@@ -1881,7 +1907,7 @@ func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Right:    core.Pt(16),
 						Bottom:   core.Pt(6),
 						FontSize: 11,
-						Color:    specTextMuted,
+						Color:    p.TextFaint,
 					},
 				},
 			)
@@ -1902,9 +1928,9 @@ func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 					Gap:          8,
 					Padding:      core.Symmetric(0, 8),
 					CornerRadius: 6,
-					Background:   specBgOverlay,
+					Background:   bgOverlay,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					core.View{
@@ -1912,16 +1938,16 @@ func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 3,
-							Background:   specAdded,
+							Background:   p.Added.Fg,
 						},
 					},
 					core.Text{
 						Content: st.PillName,
-						Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: specTextStrong},
+						Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: st.PillDetail,
-						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
 			})

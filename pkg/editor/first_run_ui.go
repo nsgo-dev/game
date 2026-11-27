@@ -454,6 +454,10 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 											core.Text{
 												Content: s.Text,
 												Style: core.Style{
+													FlexGrow:   1,
+													FlexShrink: 1,
+													FlexBasis:  core.Pt(0),
+													MinWidth:   core.Pt(0),
 													FontSize:   12.5,
 													FontWeight: weight,
 													Color:      txtColor,

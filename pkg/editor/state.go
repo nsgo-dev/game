@@ -1027,6 +1027,10 @@ type Editor struct {
 	pointerRev          uint64
 	nextPointerListener uint64
 	pointerListeners    map[uint64]func()
+	// canvasSizeRev and canvasSizeListeners broadcast viewport canvas layout resizes (for overlays such as the camera frame caption) without bumping full Revision.
+	canvasSizeRev          uint64
+	nextCanvasSizeListener uint64
+	canvasSizeListeners    map[uint64]func()
 	// projectLoading tracks an in-progress project open so every workspace region shows its designed loading state.
 	projectLoading     bool
 	projectLoadingPath string
@@ -1037,6 +1041,11 @@ type Editor struct {
 	fileBrowserOpen  bool
 	assetBrowserOpen bool
 	libraryPanelOpen bool
+	// sceneTreeFilter and sceneTreeFilterOpen hold the left-rail scene tree quick-filter state.
+	sceneTreeFilter     string
+	sceneTreeFilterOpen bool
+	// paletteRecent holds the most recently executed Command Palette item IDs (newest first).
+	paletteRecent []string
 	// proposedNewObjects records object IDs proposed by a pending review for the left rail NEW badge.
 	proposedNewObjects map[string]bool
 	// plan holds the active agent-proposed plan, clarifying question answers, step edits, ghosts, and MCP waiters.

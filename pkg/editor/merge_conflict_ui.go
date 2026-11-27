@@ -11,16 +11,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for agent-accented cards and buttons from spec_theme.yaml.
-var (
-	specAgentTint     = specAlpha(darkSpecPalette.Agent.Fg, 0.12)
-	specAgentCardTint = specAlpha(darkSpecPalette.Agent.Fg, 0.06)
-	specAgentEdge     = specAlpha(darkSpecPalette.Agent.Fg, 0.45)
-	specAccentEdge    = specAlpha(darkSpecPalette.Accent.Fg, 0.55)
-	specChangedTint   = specAlpha(darkSpecPalette.Changed.Fg, 0.18)
-	specProblemTint   = specAlpha(darkSpecPalette.Removed.Fg, 0.14)
-)
-
 // MergeConflictView renders the full-window Scene Merge Conflict screen matching
 // docs/design/editor/VersionControl.dc.html (screen 2) and using only Spec.dc.html tokens.
 func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -83,36 +73,39 @@ func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		return ed.mergeStateRev()
 	})
 
-	return core.View{
-		TestID: "scene-merge-conflict",
-		Role:   core.RoleRegion,
-		Label:  "Scene merge conflict",
-		Style: core.Style{
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			mergeHeaderView(cx, ed, mergeRev),
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					mergeSidebarView(cx, ed, mergeRev),
-					mergeCenterView(cx, ed, mergeRev),
-					mergeInspectorView(cx, ed, mergeRev),
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		return core.View{
+			TestID: "scene-merge-conflict",
+			Role:   core.RoleRegion,
+			Label:  "Scene merge conflict",
+			Style: core.Style{
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				mergeHeaderView(cx, p, ed, mergeRev),
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						mergeSidebarView(cx, p, ed, mergeRev),
+						mergeCenterView(cx, p, ed, mergeRev),
+						mergeInspectorView(cx, p, ed, mergeRev),
+					},
 				},
 			},
-		},
-	}
+		}
+	})
 }
 
-func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -123,16 +116,16 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 		remaining := sess.RemainingCount()
 		allDone := sess.AllResolved()
 
-		pillBg := specWarningFill
-		pillBorder := specWarningEdge
-		pillFg := specWarning
+		pillBg := p.Warning.Fill
+		pillBorder := p.Warning.Edge
+		pillFg := p.Warning.Fg
 		pillIcon := lucide.GitMerge
 		progressText := fmt.Sprintf("Merging %s into %s · %d of %d objects need you",
 			sess.Theirs.Branch, sess.Mine.Branch, remaining, total)
 		if sess.Finished {
-			pillBg = specAddedFill
-			pillBorder = specAddedEdge
-			pillFg = specAdded
+			pillBg = specAlpha(p.Added.Fg, 0.12)
+			pillBorder = specAlpha(p.Added.Fg, 0.45)
+			pillFg = p.Added.Fg
 			pillIcon = lucide.Check
 			if sess.CommitSHA != "" {
 				progressText = fmt.Sprintf("Merged %s into %s · %s", sess.Theirs.Branch, sess.Mine.Branch, sess.CommitSHA)
@@ -144,20 +137,20 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 		}
 
 		finishLabel := fmt.Sprintf("Finish merge · %d left", remaining)
-		finishBg := specLine
-		finishFg := specTextMuted
+		finishBg := p.Line
+		finishFg := p.TextFaint
 		var finishBorder core.Color
 		var finishBorderW core.Points
 		if sess.Finished {
 			finishLabel = "Merged"
-			finishBg = specAddedFill
-			finishFg = specAdded
-			finishBorder = specAddedEdge
+			finishBg = specAlpha(p.Added.Fg, 0.12)
+			finishFg = p.Added.Fg
+			finishBorder = specAlpha(p.Added.Fg, 0.45)
 			finishBorderW = 1
 		} else if allDone {
 			finishLabel = "Finish merge"
-			finishBg = specAccent
-			finishFg = specBg // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
+			finishBg = p.Accent.Fg
+			finishFg = p.Accent.OnFill
 		}
 
 		rightActions := []core.Node{}
@@ -167,11 +160,11 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 				Text:    "Back to editor",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specLineRaised },
+				Color:   func() core.Color { return p.LineRaised },
 				TextStyle: core.Style{
 					FontSize:   12,
 					FontWeight: 500,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(30),
@@ -188,11 +181,11 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 				Text:    "Abort merge",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specLineRaised },
+				Color:   func() core.Color { return p.LineRaised },
 				TextStyle: core.Style{
 					FontSize:   12,
 					FontWeight: 500,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(30),
@@ -242,9 +235,9 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 				FlexShrink:     0,
 				Padding:        core.Symmetric(0, 12),
 				Gap:            12,
-				Background:     specBg,
+				Background:     p.Bg,
 				Borders:        core.Edges{Bottom: 1},
-				BorderColor:    specLine,
+				BorderColor:    p.Line,
 			},
 			Children: []core.Node{
 				core.View{
@@ -259,7 +252,7 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 								Width:        core.Pt(22),
 								Height:       core.Pt(22),
 								CornerRadius: 6,
-								Background:   specAccent,
+								Background:   p.Accent.Fg,
 							},
 						},
 						core.Text{
@@ -267,21 +260,21 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 							Style: core.Style{
 								FontSize:   12.5,
 								FontWeight: 600,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.Text{
 							Content: "/",
 							Style: core.Style{
 								FontSize: 12.5,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 						core.Text{
 							Content: sess.SceneName,
 							Style: core.Style{
 								FontSize: 12.5,
-								Color:    specTextSecondary,
+								Color:    p.TextMuted,
 							},
 						},
 					},
@@ -332,7 +325,7 @@ func mergeHeaderView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 	})
 }
 
-func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -341,22 +334,26 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 		}
 		total := len(sess.Conflicts)
 		resolved := sess.ResolvedCount()
+		accentTint := specAlpha(p.Accent.Fg, 0.18)
+		accentEdge := specAlpha(p.Accent.Fg, 0.55)
+		agentTint := specAlpha(p.Agent.Fg, 0.12)
+		agentEdge := specAlpha(p.Agent.Fg, 0.45)
 
 		conflictRows := make([]core.Node, 0, total)
 		for _, item := range sess.Conflicts {
 			id := item.ID
 			focused := sess.FocusedID == id
-			dotColor := specChanged
+			dotColor := p.Changed.Fg
 			chipText := "Unresolved"
-			chipBg := specWarningFill
-			chipBorder := specWarningEdge
+			chipBg := p.Warning.Fill
+			chipBorder := p.Warning.Edge
 			var chipBorderW core.Points = 1
-			chipFg := specWarning
+			chipFg := p.Warning.Fg
 			if item.Choice != MergeChoiceUnresolved {
-				dotColor = specTextMuted
-				chipBg = specLine
+				dotColor = p.TextFaint
+				chipBg = p.Line
 				chipBorderW = 0
-				chipFg = specText
+				chipFg = p.TextSecondary
 				switch item.Choice {
 				case MergeChoiceAgent:
 					chipText = "Agent"
@@ -373,8 +370,8 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 			var rowBorder core.Color
 			var rowBorderW core.Points
 			if focused {
-				rowBg = specAccentTint
-				rowBorder = specAccentEdge
+				rowBg = accentTint
+				rowBorder = accentEdge
 				rowBorderW = 1
 			}
 
@@ -390,7 +387,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 					Background:   rowBg,
 					BorderWidth:  rowBorderW,
 					BorderColor:  rowBorder,
-					FocusVisible: specRowFocusRingStyle,
+					FocusVisible: p.FocusRing(-2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.report(ed.FocusMergeConflict(id))
@@ -419,7 +416,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 									FlexBasis:  core.Pt(0),
 									FontSize:   12.5,
 									FontWeight: 500,
-									Color:      specTextStrong,
+									Color:      p.TextPrimary,
 								},
 							},
 							core.View{
@@ -451,7 +448,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 						Style: core.Style{
 							Padding:  core.Edges{Left: 15},
 							FontSize: 11.5,
-							Color:    specTextMuted,
+							Color:    p.TextFaint,
 						},
 					},
 				},
@@ -460,11 +457,11 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 
 		autoRows := make([]core.Node, 0, len(sess.AutoMerged))
 		for i, a := range sess.AutoMerged {
-			markColor := specChanged
+			markColor := p.Changed.Fg
 			if a.Action == "added" {
-				markColor = specAdded
+				markColor = p.Added.Fg
 			} else if a.Action == "deleted" {
-				markColor = specProblem
+				markColor = p.Removed.Fg
 			}
 			autoRows = append(autoRows, core.View{
 				TestID: fmt.Sprintf("merge-auto-%d", i),
@@ -492,14 +489,14 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 							FlexGrow:  1,
 							FlexBasis: core.Pt(0),
 							FontSize:  12.5,
-							Color:     specTextSecondary,
+							Color:     p.TextMuted,
 						},
 					},
 					core.Text{
 						Content: a.SideLabel,
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextMuted,
+							Color:    p.TextFaint,
 						},
 					},
 				},
@@ -517,9 +514,9 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 				Width:       core.Pt(300),
 				FlexShrink:  0,
 				Height:      core.Pct(100),
-				Background:  specBg,
+				Background:  p.Bg,
 				Borders:     core.Edges{Right: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				Padding:     core.All(8),
 				Gap:         4,
 			},
@@ -537,7 +534,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 							Style: core.Style{
 								FontFamily: "monospace",
 								FontSize:   11.5,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 					},
@@ -557,7 +554,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 								FontSize:      11,
 								FontWeight:    600,
 								LetterSpacing: 0.7,
-								Color:         specTextMuted,
+								Color:         p.TextFaint,
 							},
 						},
 						core.Text{
@@ -566,7 +563,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 							Style: core.Style{
 								FontSize:   11,
 								FontWeight: 500,
-								Color:      specTextMuted,
+								Color:      p.TextFaint,
 							},
 						},
 					},
@@ -575,7 +572,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 					TestID:       "merge-sidebar-scroll",
 					Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
 					ContentStyle: core.Style{Gap: 4},
-					EdgeColor:    func() core.Color { return specBg },
+					EdgeColor:    func() core.Color { return p.Bg },
 					Children: append(
 						conflictRows,
 						core.View{
@@ -593,7 +590,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 										FontSize:      11,
 										FontWeight:    600,
 										LetterSpacing: 0.7,
-										Color:         specTextMuted,
+										Color:         p.TextFaint,
 									},
 								},
 								core.Text{
@@ -602,7 +599,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 									Style: core.Style{
 										FontSize:   11,
 										FontWeight: 500,
-										Color:      specTextMuted,
+										Color:      p.TextFaint,
 									},
 								},
 							},
@@ -620,12 +617,12 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 					Icon:    lucide.Sparkles,
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specAgentTint },
-					Tint:    func() core.Color { return specAgent },
+					Color:   func() core.Color { return agentTint },
+					Tint:    func() core.Color { return p.Agent.Fg },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 					},
 					Style: core.Style{
 						Width:          core.Pct(100),
@@ -633,7 +630,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 						JustifyContent: core.JustifyCenter,
 						CornerRadius:   8,
 						BorderWidth:    1,
-						BorderColor:    specAgentEdge,
+						BorderColor:    agentEdge,
 					},
 					OnPress: func() {
 						ed.report(ed.TakeAllAgentMergeSuggestions())
@@ -644,7 +641,7 @@ func mergeSidebarView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) c
 	})
 }
 
-func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -660,12 +657,12 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 		}
 
 		sideCard := func(testID, canvasID, title string, meta MergeSideMeta, selected bool, doc *sceneformat.SceneDoc, built *sceneformat.BuiltScene, side string, onPick func()) core.Node {
-			bg := specPanel
-			border := specLine
+			bg := p.Panel
+			border := p.Line
 			var bw core.Points = 1
 			if selected {
-				bg = specRaised
-				border = specAccent
+				bg = p.Raised
+				border = p.Accent.Fg
 				bw = 1.5
 			}
 			authorMeta := strings.TrimSpace(meta.Author)
@@ -689,7 +686,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 					Background:   bg,
 					BorderWidth:  bw,
 					BorderColor:  border,
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					onPick()
@@ -708,7 +705,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 									FontSize:      11,
 									FontWeight:    600,
 									LetterSpacing: 0.7,
-									Color:         specTextStrong,
+									Color:         p.TextPrimary,
 								},
 							},
 							core.Text{
@@ -716,7 +713,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 								Style: core.Style{
 									FontFamily: "monospace",
 									FontSize:   11,
-									Color:      specTextSecondary,
+									Color:      p.TextMuted,
 								},
 							},
 							core.View{Style: core.Style{FlexGrow: 1}},
@@ -724,7 +721,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 								Content: authorMeta,
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specTextMuted,
+									Color:    p.TextFaint,
 								},
 							},
 						},
@@ -735,8 +732,8 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 							Height:       core.Pt(180),
 							CornerRadius: 6,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-							Background:   specBg,
+							BorderColor:  p.LineRaised,
+							Background:   p.Bg,
 							Overflow:     core.Hidden,
 						},
 						Children: []core.Node{
@@ -745,7 +742,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 								Label:  title + " scene preview",
 								Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 								Draw: func(d *core.Drawing, size core.Size) {
-									drawMergeScenePreview(d, size, sess, doc, built, side)
+									drawMergeScenePreview(d, size, p, sess, doc, built, side)
 								},
 							},
 						},
@@ -771,14 +768,14 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 								Height:       core.Pt(10),
 								CornerRadius: 2,
 								BorderWidth:  1.5,
-								BorderColor:  specChanged,
+								BorderColor:  p.Changed.Fg,
 							},
 						},
 						core.Text{
 							Content: "unresolved, both positions shown",
 							Style: core.Style{
 								FontSize: 11.5,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 					},
@@ -793,7 +790,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 				FlexBasis:  core.Pt(0),
 				Padding:    core.All(16),
 				Gap:        12,
-				Background: specBg,
+				Background: p.Bg,
 				Overflow:   core.Hidden,
 			},
 			Children: []core.Node{
@@ -838,14 +835,14 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 										FontSize:      11,
 										FontWeight:    600,
 										LetterSpacing: 0.7,
-										Color:         specTextStrong,
+										Color:         p.TextPrimary,
 									},
 								},
 								core.Text{
 									Content: fmt.Sprintf("what %s will be after the merge", sess.SceneName),
 									Style: core.Style{
 										FontSize: 12,
-										Color:    specTextMuted,
+										Color:    p.TextFaint,
 									},
 								},
 								core.View{Style: core.Style{FlexGrow: 1}},
@@ -858,8 +855,8 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 								FlexBasis:    core.Pt(0),
 								CornerRadius: 12,
 								BorderWidth:  1,
-								BorderColor:  specLine,
-								Background:   specBg,
+								BorderColor:  p.Line,
+								Background:   p.Bg,
 								Overflow:     core.Hidden,
 							},
 							Children: []core.Node{
@@ -869,7 +866,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 									Style:  core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 									Draw: func(d *core.Drawing, size core.Size) {
 										resDoc, _ := sess.ResultDoc()
-										drawMergeScenePreview(d, size, sess, resDoc, sess.resultBuilt, "result")
+										drawMergeScenePreview(d, size, p, sess, resDoc, sess.resultBuilt, "result")
 									},
 								},
 							},
@@ -881,7 +878,7 @@ func mergeCenterView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) co
 	})
 }
 
-func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -894,28 +891,29 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 				Style: core.Style{
 					Width:       core.Pt(400),
 					FlexShrink:  0,
-					Background:  specPanel,
+					Background:  p.Panel,
 					Borders:     core.Edges{Left: 1},
-					BorderColor: specLine,
+					BorderColor: p.Line,
 				},
 			}
 		}
+		agentEdge := specAlpha(p.Agent.Fg, 0.45)
 
 		optionCard := func(testID string, opt MergeOption, isAgent bool) core.Node {
 			selected := item.Choice == opt.Choice
-			bg := specRaised
-			border := specLineRaised
+			bg := p.Raised
+			border := p.LineRaised
 			var bw core.Points = 1
 			if selected {
-				border = specAccent
+				border = p.Accent.Fg
 				bw = 1.5
 			} else if isAgent {
-				bg = specRaised
-				border = specAgentEdge
+				bg = p.Raised
+				border = agentEdge
 			}
-			radioBorder := specTextMuted
+			radioBorder := p.TextFaint
 			if selected {
-				radioBorder = specAccent
+				radioBorder = p.Accent.Fg
 			}
 			var radioDot []core.Node
 			if selected {
@@ -925,7 +923,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Width:        core.Pt(8),
 							Height:       core.Pt(8),
 							CornerRadius: 4,
-							Background:   specAccent,
+							Background:   p.Accent.Fg,
 						},
 					},
 				}
@@ -957,7 +955,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Style: core.Style{
 								FontSize:   12.5,
 								FontWeight: 500,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.View{Style: core.Style{FlexGrow: 1}},
@@ -965,7 +963,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Content: opt.Meta,
 							Style: core.Style{
 								FontSize: 11.5,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 					},
@@ -975,7 +973,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Width:        core.Pct(100),
 						Padding:      core.Symmetric(8, 10),
 						CornerRadius: 6,
-						Background:   specBg,
+						Background:   p.Bg,
 					},
 					Children: []core.Node{
 						core.Text{
@@ -983,7 +981,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Style: core.Style{
 								FontFamily: "monospace",
 								FontSize:   11.5,
-								Color:      specText,
+								Color:      p.TextSecondary,
 							},
 						},
 					},
@@ -1004,7 +1002,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 								Height:     core.Pt(13),
 								FlexShrink: 0,
 								Margin:     core.Edges{Top: 2},
-								Color:      specAgent,
+								Color:      p.Agent.Fg,
 							},
 						},
 						core.Text{
@@ -1013,7 +1011,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 								FlexGrow:  1,
 								FlexBasis: core.Pt(0),
 								FontSize:  12,
-								Color:     specText,
+								Color:     p.TextSecondary,
 							},
 						},
 					},
@@ -1034,7 +1032,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 					Background:   bg,
 					BorderWidth:  bw,
 					BorderColor:  border,
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.report(ed.ResolveMergeConflict(itemID, choice))
@@ -1058,9 +1056,9 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 					Padding:      core.All(12),
 					Gap:          8,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1.5,
-					BorderColor:  specAccent,
+					BorderColor:  p.Accent.Fg,
 				},
 				Children: []core.Node{
 					core.View{
@@ -1075,14 +1073,14 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 								Style: core.Style{
 									FontSize:   12.5,
 									FontWeight: 500,
-									Color:      specTextStrong,
+									Color:      p.TextPrimary,
 								},
 							},
 							core.Text{
 								Content: "custom",
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specTextMuted,
+									Color:    p.TextFaint,
 								},
 							},
 						},
@@ -1092,7 +1090,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Width:        core.Pct(100),
 							Padding:      core.Symmetric(8, 10),
 							CornerRadius: 6,
-							Background:   specBg,
+							Background:   p.Bg,
 						},
 						Children: []core.Node{
 							core.Text{
@@ -1100,7 +1098,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 								Style: core.Style{
 									FontFamily: "monospace",
 									FontSize:   11.5,
-									Color:      specText,
+									Color:      p.TextSecondary,
 								},
 							},
 						},
@@ -1120,7 +1118,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 			Size:    ui.SizeSmall,
 			TextStyle: core.Style{
 				FontSize: 12,
-				Color:    specTextSecondary,
+				Color:    p.TextMuted,
 			},
 			Style: core.Style{
 				Height:       core.Pt(28),
@@ -1142,7 +1140,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Content: item.CustomErr,
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specProblem,
+							Color:    p.Removed.Fg,
 						},
 					},
 				}
@@ -1168,11 +1166,11 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 					Style: core.Style{
 						Width:        core.Pct(100),
 						Height:       core.Pt(120),
-						Background:   specBg,
+						Background:   p.Bg,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 						CornerRadius: 6,
-						Color:        specText,
+						Color:        p.TextSecondary,
 						FontFamily:   "monospace",
 						FontSize:     11.5,
 					},
@@ -1189,11 +1187,11 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Text:    "Apply YAML",
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specAccent },
+						Color:   func() core.Color { return p.Accent.Fg },
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 600,
-							Color:      specBg,
+							Color:      p.Accent.OnFill,
 						},
 						Style: core.Style{
 							Height:       core.Pt(28),
@@ -1213,10 +1211,10 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Text:    "Cancel",
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specLineRaised },
+						Color:   func() core.Color { return p.LineRaised },
 						TextStyle: core.Style{
 							FontSize: 12,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(28),
@@ -1237,9 +1235,9 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 					Padding:      core.All(12),
 					Gap:          8,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: editorChildren,
 			})
@@ -1253,9 +1251,9 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 					Padding:      core.All(12),
 					Gap:          4,
 					CornerRadius: 12,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specProblemEdge,
+					BorderColor:  specAlpha(p.Removed.Fg, 0.50),
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1263,14 +1261,14 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Style: core.Style{
 							FontSize:   12,
 							FontWeight: 600,
-							Color:      specProblem,
+							Color:      p.Removed.Fg,
 						},
 					},
 					core.Text{
 						Content: sess.VerifyErr,
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specText,
+							Color:    p.TextSecondary,
 						},
 					},
 				},
@@ -1291,9 +1289,9 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Padding:      core.Symmetric(12, 14),
 						Gap:          4,
 						CornerRadius: 12,
-						Background:   specRaised,
+						Background:   p.Raised,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 					},
 					Children: []core.Node{
 						core.Text{
@@ -1302,7 +1300,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Style: core.Style{
 								FontSize:   12.5,
 								FontWeight: 500,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.Text{
@@ -1310,7 +1308,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Content: sess.VerifySummary,
 							Style: core.Style{
 								FontSize: 12,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 					},
@@ -1324,9 +1322,9 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 				Width:       core.Pt(400),
 				FlexShrink:  0,
 				Height:      core.Pct(100),
-				Background:  specPanel,
+				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
-				BorderColor: specLine,
+				BorderColor: p.Line,
 				Overflow:    core.Hidden,
 			},
 			Children: append([]core.Node{
@@ -1339,7 +1337,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 						Padding:     core.Symmetric(0, 16),
 						Gap:         8,
 						Borders:     core.Edges{Bottom: 1},
-						BorderColor: specLine,
+						BorderColor: p.Line,
 					},
 					Children: []core.Node{
 						core.Text{
@@ -1348,7 +1346,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Style: core.Style{
 								FontSize:   14,
 								FontWeight: 600,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.Text{
@@ -1356,7 +1354,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 							Content: item.Kind,
 							Style: core.Style{
 								FontSize: 12.5,
-								Color:    specTextMuted,
+								Color:    p.TextFaint,
 							},
 						},
 					},
@@ -1365,7 +1363,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 					TestID:       "merge-inspector-scroll",
 					Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
 					ContentStyle: core.Style{Padding: core.All(16), Gap: 12},
-					EdgeColor:    func() core.Color { return specPanel },
+					EdgeColor:    func() core.Color { return p.Panel },
 					Children:     bodyChildren,
 				},
 			}, footer...),
@@ -1378,6 +1376,7 @@ func mergeInspectorView(cx *core.Scope, ed *Editor, mergeRev *core.Memo[uint64])
 func drawMergeScenePreview(
 	d *core.Drawing,
 	size core.Size,
+	p SpecPalette,
 	sess *MergeConflictSession,
 	doc *sceneformat.SceneDoc,
 	built *sceneformat.BuiltScene,
@@ -1389,9 +1388,9 @@ func drawMergeScenePreview(
 	}
 
 	// Dot-grid viewport surround using only Spec tokens.
-	d.SetFillColor(specBg)
+	d.SetFillColor(p.Bg)
 	d.BeginPath().Rect(0, 0, w, h).Fill()
-	d.SetFillColor(specLineRaised)
+	d.SetFillColor(p.LineRaised)
 	const gridStep float32 = 16
 	for gx := gridStep; gx < w; gx += gridStep {
 		for gy := gridStep; gy < h; gy += gridStep {
@@ -1423,7 +1422,7 @@ func drawMergeScenePreview(
 
 	// Scene frame backdrop.
 	d.Save()
-	d.SetFillColor(specPanel)
+	d.SetFillColor(p.Panel)
 	d.BeginPath().RoundRect(ox, oy, frameW, frameH, 4).Fill()
 
 	// Clip to scene frame and transform into virtual scene coordinates.
@@ -1473,15 +1472,15 @@ func drawMergeScenePreview(
 					// Only draw placeholder block when the built object has no loaded sprite image.
 					hasSprite := built != nil && built.Objects[o.ID] != nil && built.Objects[o.ID].Sprite != nil
 					if !hasSprite {
-						drawMergeObjectBlock(d, o, wx, wy, false)
+						drawMergeObjectBlock(d, p, o, wx, wy, false)
 					}
 					if isConflict {
 						rx, ry, rw, rh := mergeObjectRect(o, wx, wy)
 						if mode != "result" {
-							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, specChanged, 1.5/scale)
+							drawDashedRect(d, rx-2, ry-2, rw+4, rh+4, p.Changed.Fg, 1.5/scale)
 						}
 						if sess.FocusedID == item.ID {
-							drawFocusRing(d, rx, ry, rw, rh, scale)
+							drawFocusRing(d, p, rx, ry, rw, rh, scale)
 						}
 					}
 					walk(o.Children, wx, wy)
@@ -1490,6 +1489,9 @@ func drawMergeScenePreview(
 			walk(layer.Objects, 0, 0)
 		}
 	}
+
+	problemTint := specAlpha(p.Removed.Fg, 0.14)
+	changedTint := specAlpha(p.Changed.Fg, 0.18)
 
 	// Draw deleted-object markers in MINE/THEIRS and dual-position ghosts for unresolved conflicts in RESULT.
 	for _, item := range sess.Conflicts {
@@ -1501,26 +1503,26 @@ func drawMergeScenePreview(
 		case "mine":
 			if item.MineObj == nil && item.TheirsObj != nil {
 				rx, ry, rw, rh := mergeObjectRect(item.TheirsObj, item.TheirsObj.X, item.TheirsObj.Y)
-				drawMergeGhost(d, rx, ry, rw, rh, specProblemTint, specProblem, false, scale)
+				drawMergeGhost(d, rx, ry, rw, rh, problemTint, p.Removed.Fg, false, scale)
 				if isFocused {
-					drawFocusRing(d, rx, ry, rw, rh, scale)
+					drawFocusRing(d, p, rx, ry, rw, rh, scale)
 				}
 			}
 		case "theirs":
 			if item.TheirsObj == nil && item.MineObj != nil {
 				rx, ry, rw, rh := mergeObjectRect(item.MineObj, item.MineObj.X, item.MineObj.Y)
-				drawMergeGhost(d, rx, ry, rw, rh, specProblemTint, specProblem, false, scale)
+				drawMergeGhost(d, rx, ry, rw, rh, problemTint, p.Removed.Fg, false, scale)
 				if isFocused {
-					drawFocusRing(d, rx, ry, rw, rh, scale)
+					drawFocusRing(d, p, rx, ry, rw, rh, scale)
 				}
 			}
 		case "result":
 			if item.Choice == MergeChoiceUnresolved {
 				if item.MineObj != nil {
 					rx, ry, rw, rh := mergeObjectRect(item.MineObj, item.MineObj.X, item.MineObj.Y)
-					drawMergeGhost(d, rx, ry, rw, rh, specChangedTint, specChanged, true, scale)
+					drawMergeGhost(d, rx, ry, rw, rh, changedTint, p.Changed.Fg, true, scale)
 					if isFocused {
-						drawFocusRing(d, rx, ry, rw, rh, scale)
+						drawFocusRing(d, p, rx, ry, rw, rh, scale)
 					}
 				}
 				if item.TheirsObj != nil {
@@ -1529,7 +1531,7 @@ func drawMergeScenePreview(
 						math.Abs(float64(item.MineObj.Y-item.TheirsObj.Y)) < 1
 					if !samePos {
 						rx, ry, rw, rh := mergeObjectRect(item.TheirsObj, item.TheirsObj.X, item.TheirsObj.Y)
-						drawMergeGhost(d, rx, ry, rw, rh, specChangedTint, specChanged, true, scale)
+						drawMergeGhost(d, rx, ry, rw, rh, changedTint, p.Changed.Fg, true, scale)
 					}
 				}
 			} else if isFocused {
@@ -1544,8 +1546,8 @@ func drawMergeScenePreview(
 				}
 				if ref != nil {
 					rx, ry, rw, rh := mergeObjectRect(ref, ref.X, ref.Y)
-					drawMergeGhost(d, rx, ry, rw, rh, specProblemTint, specProblem, false, scale)
-					drawFocusRing(d, rx, ry, rw, rh, scale)
+					drawMergeGhost(d, rx, ry, rw, rh, problemTint, p.Removed.Fg, false, scale)
+					drawFocusRing(d, p, rx, ry, rw, rh, scale)
 				}
 			}
 		}
@@ -1554,7 +1556,7 @@ func drawMergeScenePreview(
 	d.Restore()
 
 	// Frame border.
-	d.SetStrokeColor(specLineRaised).SetLineWidth(1)
+	d.SetStrokeColor(p.LineRaised).SetLineWidth(1)
 	d.BeginPath().RoundRect(ox, oy, frameW, frameH, 4).Stroke()
 	d.Restore()
 }
@@ -1599,40 +1601,40 @@ func mergeObjectRect(o *sceneformat.ObjectDoc, wx, wy float32) (x, y, w, h float
 	return wx, wy, w, h
 }
 
-func drawMergeObjectBlock(d *core.Drawing, o *sceneformat.ObjectDoc, wx, wy float32, ghost bool) {
+func drawMergeObjectBlock(d *core.Drawing, p SpecPalette, o *sceneformat.ObjectDoc, wx, wy float32, ghost bool) {
 	rx, ry, rw, rh := mergeObjectRect(o, wx, wy)
 	lower := strings.ToLower(o.ID + " " + o.Name + " " + o.Prefab)
 
-	fill := specLineRaised
+	fill := p.LineRaised
 	radius := float32(3)
 	switch {
 	case strings.Contains(lower, "floor") || strings.Contains(lower, "ground") || strings.Contains(lower, "plank") || strings.Contains(lower, "platform"):
-		fill = specLineRaised
+		fill = p.LineRaised
 		radius = 2
 	case strings.Contains(lower, "knight") || strings.Contains(lower, "hero") || strings.Contains(lower, "player"):
-		fill = specChanged
+		fill = p.Changed.Fg
 		radius = 5
 	case strings.Contains(lower, "slime") || strings.Contains(lower, "enemy"):
-		fill = specAlpha(darkSpecPalette.Added.Fg, 0.55)
+		fill = specAlpha(p.Added.Fg, 0.55)
 		radius = 6
 	case strings.Contains(lower, "coin") || strings.Contains(lower, "pickup"):
-		fill = specAlpha(darkSpecPalette.Warning.Fg, 0.80)
+		fill = specAlpha(p.Warning.Fg, 0.80)
 		radius = 5
 	case strings.Contains(lower, "door"):
-		fill = specTextMuted
+		fill = p.TextFaint
 		radius = 4
 	case strings.Contains(lower, "lever") || strings.Contains(lower, "torch"):
-		fill = specTextSecondary
+		fill = p.TextMuted
 		radius = 2
 	}
 	if ghost {
-		fill = specAlpha(darkSpecPalette.TextFaint, 0.18)
+		fill = specAlpha(p.TextFaint, 0.18)
 	}
 	d.Save()
 	d.SetFillColor(fill)
 	d.BeginPath().RoundRect(rx, ry, rw, rh, radius).Fill()
 	if strings.Contains(lower, "floor") || strings.Contains(lower, "ground") {
-		d.SetFillColor(specTextMuted)
+		d.SetFillColor(p.TextFaint)
 		d.BeginPath().Rect(rx, ry, rw, 2).Fill()
 	}
 	d.Restore()
@@ -1659,10 +1661,10 @@ func drawDashedRect(d *core.Drawing, x, y, w, h float32, color core.Color, lineW
 	d.Restore()
 }
 
-func drawFocusRing(d *core.Drawing, x, y, w, h, scale float32) {
+func drawFocusRing(d *core.Drawing, p SpecPalette, x, y, w, h, scale float32) {
 	pad := 5 / scale
 	d.Save()
-	d.SetStrokeColor(specAccent).SetLineWidth(2 / scale)
+	d.SetStrokeColor(p.Accent.Fg).SetLineWidth(2 / scale)
 	d.BeginPath().RoundRect(x-pad, y-pad, w+pad*2, h+pad*2, 5/scale).Stroke()
 	d.Restore()
 }

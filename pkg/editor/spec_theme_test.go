@@ -1498,3 +1498,62 @@ func TestSpecViewport3DGridUsesActiveSpecPalette(t *testing.T) {
 		}
 	}
 }
+
+// TestSpecNoDarkOnlyPackageColorVarsInEditor enforces that no non-test file under pkg/editor
+// (outside spec_theme.go) declares package-level color variables initialized from darkSpecPalette
+// or lightSpecPalette, ensuring every editor panel and overlay reacts dynamically to Dark/Light
+// theme changes via Editor.SpecPalette(cx) or Editor.activeSpecPalette().
+func TestSpecNoDarkOnlyPackageColorVarsInEditor(t *testing.T) {
+	fset := token.NewFileSet()
+	var violations []string
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" || strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel := filepath.ToSlash(path)
+		if rel == "spec_theme.go" {
+			return nil
+		}
+		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			return parseErr
+		}
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, val := range vs.Values {
+					ast.Inspect(val, func(n ast.Node) bool {
+						if id, ok := n.(*ast.Ident); ok && (id.Name == "darkSpecPalette" || id.Name == "lightSpecPalette") {
+							pos := fset.Position(id.Pos())
+							violations = append(violations, pos.String()+": forbidden package-level var referencing "+id.Name+" outside spec_theme.go (use ed.SpecPalette(cx) instead)")
+						}
+						return true
+					})
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("found %d dark/light-only package-level color var(s):\n%s", len(violations), strings.Join(violations, "\n"))
+	}
+}

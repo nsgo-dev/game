@@ -11,16 +11,17 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Additional Spec color tokens for docs/design/editor/Animation.dc.html (shared specPanel/specRaised/etc. live in profiler_ui.go).
-var (
-	specBG          = darkSpecPalette.Bg
-	specActiveNode  = CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)
-	specViewportBG  = darkSpecPalette.Viewport
-	specViewportDot = darkSpecPalette.ViewportDot
-	specEdgeLine    = CompositeOver(specAlpha(darkSpecPalette.TextFaint, 0.45), darkSpecPalette.Viewport)
-	specAccentText  = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.62), darkSpecPalette.Accent.Fg)
-	specFloorFill   = darkSpecPalette.LineRaised
-)
+func statesActiveNodeBg(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
+}
+
+func statesEdgeLineColor(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.TextFaint, 0.45), p.Viewport)
+}
+
+func statesAccentTextColor(p SpecPalette) core.Color {
+	return CompositeOver(specAlpha(p.TextPrimary, 0.62), p.Accent.Fg)
+}
 
 const (
 	stateNodeW float32 = 148
@@ -62,344 +63,357 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		return b.String()
 	})
 
-	header := core.View{
-		TestID: "states-header",
-		Style: core.Style{
-			Height:         core.Pt(44),
-			Direction:      core.Row,
-			AlignItems:     core.AlignCenter,
-			JustifyContent: core.JustifySpaceBetween,
-			Padding:        core.Symmetric(0, 12),
-			Gap:            12,
-			Background:     specPanel,
-			Borders:        core.Edges{Bottom: 1},
-			BorderColor:    specLine,
-		},
-		Children: []core.Node{
-			ui.HStack{
-				Gap: 8,
-				Children: []core.Node{
-					core.Text{
-						TestID: "states-title",
-						ContentFunc: func() string {
-							_ = rev.Get()
-							if p := ed.StatesPath(); p != "" {
-								return path.Base(strings.ReplaceAll(p, `\`, "/"))
-							}
-							if ed.states.doc != nil && ed.states.doc.Name != "" {
-								return ed.states.doc.Name
-							}
-							return "states.yaml"
+	graphSize := core.NewSignal(cx, core.Size{})
+
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+
+		header := core.View{
+			TestID: "states-header",
+			Style: core.Style{
+				Height:         core.Pt(44),
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifySpaceBetween,
+				Padding:        core.Symmetric(0, 12),
+				Gap:            12,
+				Background:     p.Panel,
+				Borders:        core.Edges{Bottom: 1},
+				BorderColor:    p.Line,
+			},
+			Children: []core.Node{
+				ui.HStack{
+					Gap: 8,
+					Children: []core.Node{
+						core.Text{
+							TestID: "states-title",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								if sp := ed.StatesPath(); sp != "" {
+									return path.Base(strings.ReplaceAll(sp, `\`, "/"))
+								}
+								if ed.states.doc != nil && ed.states.doc.Name != "" {
+									return ed.states.doc.Name
+								}
+								return "states.yaml"
+							},
+							Style: core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 						},
-						Style: core.Style{FontSize: 13, FontWeight: 600, Color: specTextStrong},
-					},
-					core.Text{
-						TestID: "states-meta",
-						ContentFunc: func() string {
-							_ = rev.Get()
-							if ed.states.doc == nil {
-								return ""
-							}
-							return fmt.Sprintf("· %d states · %d transitions", len(ed.states.doc.States), len(ed.states.doc.Transitions))
+						core.Text{
+							TestID: "states-meta",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								if ed.states.doc == nil {
+									return ""
+								}
+								return fmt.Sprintf("· %d states · %d transitions", len(ed.states.doc.States), len(ed.states.doc.Transitions))
+							},
+							Style: core.Style{FontSize: 12, Color: p.TextFaint},
 						},
-						Style: core.Style{FontSize: 12, Color: specTextMuted},
-					},
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.StatesDirty()
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return core.View{
-								TestID: "states-dirty-dot",
-								Style: core.Style{
-									Width:        core.Pt(6),
-									Height:       core.Pt(6),
-									CornerRadius: 3,
-									Background:   specChanged,
-								},
-							}
+						core.Show{
+							When: func() bool {
+								_ = rev.Get()
+								return ed.StatesDirty()
+							},
+							Then: func(cx *core.Scope) core.Node {
+								curPal := ed.SpecPalette(cx)
+								return core.View{
+									TestID: "states-dirty-dot",
+									Style: core.Style{
+										Width:        core.Pt(6),
+										Height:       core.Pt(6),
+										CornerRadius: 3,
+										Background:   curPal.Changed.Fg,
+									},
+								}
+							},
 						},
 					},
 				},
-			},
-			ui.HStack{
-				Gap: 8,
-				Children: []core.Node{
-					// Interactive key pills visible while Drive with keys is active (Animation.dc.html lines 88-94).
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.StatesDriveWithKeys() && !ed.Playing()
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return ui.HStack{
-								Gap: 4,
-								Children: []core.Node{
-									driveKeyPill("states-key-move", "← →", "Hold left or right: run", func() bool {
-										_ = rev.Get()
-										return ed.StatesActionHeld("move_right") || ed.StatesActionHeld("move_left")
-									}, func() {
-										if ed.Playing() {
-											return
-										}
-										if ed.StatesActionHeld("move_right") {
-											ed.ReleaseStatesAction("move_right")
-										} else {
-											ed.PressStatesAction("move_right")
-										}
-									}),
-									driveKeyPill("states-key-jump", "Space", "Space: jump", func() bool { return false }, func() {
-										if ed.Playing() {
-											return
-										}
-										ed.TriggerStatesAction("jump")
-									}),
-									driveKeyPill("states-key-attack", "J", "J: attack", func() bool { return false }, func() {
-										if ed.Playing() {
-											return
-										}
-										ed.TriggerStatesAction("attack")
-									}),
-									driveKeyPill("states-key-hurt", "H", "H: hurt", func() bool { return false }, func() {
-										if ed.Playing() {
-											return
-										}
-										ed.TriggerStatesAction("hurt")
-									}),
-									driveKeyPill("states-key-release", "Release", "Release all keys: idle", func() bool { return false }, func() {
-										if ed.Playing() {
-											return
-										}
-										ed.ReleaseAllStatesActions()
-									}),
-								},
-							}
-						},
-					},
-					// Drive with keys switch (Animation.dc.html line 95).
-					core.View{
-						TestID: "states-drive-toggle",
-						Role:   core.RoleSwitch,
-						Label:  "Drive with keys",
-						OnPress: func(core.PressEvent) {
-							if ed.Playing() {
-								return
-							}
-							ed.SetStatesDriveWithKeys(!ed.StatesDriveWithKeys())
-						},
-						StyleFunc: func() core.Style {
-							_ = rev.Get()
-							var op core.Opacity
-							if ed.Playing() {
-								op = core.Alpha(0.45)
-							}
-							return core.Style{
-								Height:       core.Pt(28),
-								Direction:    core.Row,
-								AlignItems:   core.AlignCenter,
-								Gap:          8,
-								Padding:      core.Edges{Left: 6, Right: 10},
-								CornerRadius: 8,
-								Background:   specRaised,
-								BorderWidth:  1,
-								BorderColor:  specLineRaised,
-								Opacity:      op,
-							}
-						},
-						Children: []core.Node{
-							core.View{
-								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									bg := specLineRaised
-									if ed.StatesDriveWithKeys() {
-										bg = specAccent
-									}
-									return core.Style{
-										Width:        core.Pt(28),
-										Height:       core.Pt(16),
-										CornerRadius: 8,
-										Position:     core.Relative,
-										Background:   bg,
-									}
-								},
-								Children: []core.Node{
-									core.View{
-										StyleFunc: func() core.Style {
+				ui.HStack{
+					Gap: 8,
+					Children: []core.Node{
+						// Interactive key pills visible while Drive with keys is active (Animation.dc.html lines 88-94).
+						core.Show{
+							When: func() bool {
+								_ = rev.Get()
+								return ed.StatesDriveWithKeys() && !ed.Playing()
+							},
+							Then: func(cx *core.Scope) core.Node {
+								return ui.HStack{
+									Gap: 4,
+									Children: []core.Node{
+										driveKeyPill(cx, ed, "states-key-move", "← →", "Hold left or right: run", func() bool {
 											_ = rev.Get()
-											left := core.Pt(2)
-											if ed.StatesDriveWithKeys() {
-												left = core.Pt(14)
+											return ed.StatesActionHeld("move_right") || ed.StatesActionHeld("move_left")
+										}, func() {
+											if ed.Playing() {
+												return
 											}
-											return core.Style{
-												Position:     core.Absolute,
-												Top:          core.Pt(2),
-												Left:         left,
-												Width:        core.Pt(12),
-												Height:       core.Pt(12),
-												CornerRadius: 6,
-												Background:   specTextStrong,
+											if ed.StatesActionHeld("move_right") {
+												ed.ReleaseStatesAction("move_right")
+											} else {
+												ed.PressStatesAction("move_right")
 											}
+										}),
+										driveKeyPill(cx, ed, "states-key-jump", "Space", "Space: jump", func() bool { return false }, func() {
+											if ed.Playing() {
+												return
+											}
+											ed.TriggerStatesAction("jump")
+										}),
+										driveKeyPill(cx, ed, "states-key-attack", "J", "J: attack", func() bool { return false }, func() {
+											if ed.Playing() {
+												return
+											}
+											ed.TriggerStatesAction("attack")
+										}),
+										driveKeyPill(cx, ed, "states-key-hurt", "H", "H: hurt", func() bool { return false }, func() {
+											if ed.Playing() {
+												return
+											}
+											ed.TriggerStatesAction("hurt")
+										}),
+										driveKeyPill(cx, ed, "states-key-release", "Release", "Release all keys: idle", func() bool { return false }, func() {
+											if ed.Playing() {
+												return
+											}
+											ed.ReleaseAllStatesActions()
+										}),
+									},
+								}
+							},
+						},
+						// Drive with keys switch (Animation.dc.html line 95).
+						core.View{
+							TestID: "states-drive-toggle",
+							Role:   core.RoleSwitch,
+							Label:  "Drive with keys",
+							OnPress: func(core.PressEvent) {
+								if ed.Playing() {
+									return
+								}
+								ed.SetStatesDriveWithKeys(!ed.StatesDriveWithKeys())
+							},
+							StyleFunc: func() core.Style {
+								_ = rev.Get()
+								curPal := ed.SpecPalette(cx)
+								var op core.Opacity
+								if ed.Playing() {
+									op = core.Alpha(0.45)
+								}
+								return core.Style{
+									Height:       core.Pt(28),
+									Direction:    core.Row,
+									AlignItems:   core.AlignCenter,
+									Gap:          8,
+									Padding:      core.Edges{Left: 6, Right: 10},
+									CornerRadius: 8,
+									Background:   curPal.Raised,
+									BorderWidth:  1,
+									BorderColor:  curPal.LineRaised,
+									Opacity:      op,
+								}
+							},
+							Children: []core.Node{
+								core.View{
+									StyleFunc: func() core.Style {
+										_ = rev.Get()
+										curPal := ed.SpecPalette(cx)
+										bg := curPal.LineRaised
+										if ed.StatesDriveWithKeys() {
+											bg = curPal.Accent.Fg
+										}
+										return core.Style{
+											Width:        core.Pt(28),
+											Height:       core.Pt(16),
+											CornerRadius: 8,
+											Position:     core.Relative,
+											Background:   bg,
+										}
+									},
+									Children: []core.Node{
+										core.View{
+											StyleFunc: func() core.Style {
+												_ = rev.Get()
+												curPal := ed.SpecPalette(cx)
+												left := core.Pt(2)
+												knobBg := curPal.TextPrimary
+												if ed.StatesDriveWithKeys() {
+													left = core.Pt(14)
+													knobBg = curPal.Accent.OnFill
+												}
+												return core.Style{
+													Position:     core.Absolute,
+													Top:          core.Pt(2),
+													Left:         left,
+													Width:        core.Pt(12),
+													Height:       core.Pt(12),
+													CornerRadius: 6,
+													Background:   knobBg,
+												}
+											},
 										},
 									},
 								},
-							},
-							core.Text{
-								Content: "Drive with keys",
-								Style:   core.Style{FontSize: 12, Color: specText},
-							},
-						},
-					},
-					specButton("states-play", func() string {
-						_ = rev.Get()
-						if ed.StatesPlaying() {
-							return "Pause"
-						}
-						return "Play"
-					}, true, func() bool {
-						_ = rev.Get()
-						return ed.Playing()
-					}, func() {
-						if ed.StatesPlaying() {
-							ed.PauseStates()
-							return
-						}
-						ed.report(ed.PlayStates())
-					}),
-					specButton("states-save", func() string { return "Save" }, false, func() bool {
-						_ = rev.Get()
-						return ed.Playing()
-					}, func() {
-						ed.report(ed.saveStatesFromPanel())
-					}),
-					specButton("states-close", func() string { return "Close" }, false, func() bool {
-						_ = rev.Get()
-						return ed.Playing()
-					}, func() {
-						ed.report(ed.CloseStates())
-					}),
-				},
-			},
-		},
-	}
-
-	graphSize := core.NewSignal(cx, core.Size{})
-	graphArea := core.View{
-		TestID: "states-graph",
-		OnLayout: func(b core.Bounds) {
-			if b.Size != graphSize.GetUntracked() {
-				graphSize.Set(b.Size)
-			}
-		},
-		Style: core.Style{
-			FlexGrow:   1,
-			FlexBasis:  core.Pt(0),
-			Position:   core.Relative,
-			Background: specViewportBG,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			// Background dot grid + directed transition arrows canvas.
-			core.Canvas{
-				TestID: "states-graph-canvas",
-				Style: core.Style{
-					Position: core.Absolute,
-					Top:      core.Pt(0),
-					Left:     core.Pt(0),
-					Right:    core.Pt(0),
-					Bottom:   core.Pt(0),
-				},
-				Draw: func(d *core.Drawing, size core.Size) {
-					_ = rev.Get()
-					drawStatesGraphCanvas(d, size, ed)
-				},
-			},
-			// Interactive state node cards + transition edge label pills + Any state pill.
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				sz := graphSize.Get()
-				if structure.Get() == "" || ed.states.doc == nil {
-					return nil
-				}
-				return statesGraphOverlay(cx, ed, rev, sz)
-			}),
-		},
-	}
-
-	sidebar := statesSidebar(cx, ed, rev)
-
-	return core.View{
-		TestID: "states-panel",
-		OnKeyDown: func(ev core.KeyEvent) bool {
-			return ed.StatesHandleKeyEvent(ev, true)
-		},
-		OnKeyUp: func(ev core.KeyEvent) {
-			ed.StatesHandleKeyEvent(ev, false)
-		},
-		Style: dockedStyle(cx, core.Style{
-			Height:      core.Pt(380),
-			Background:  specBG,
-			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
-		}),
-		Children: []core.Node{
-			header,
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.states.err != nil
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return core.View{
-						Style: core.Style{
-							Padding:     core.Symmetric(6, 12),
-							Background:  specPanel,
-							Borders:     core.Edges{Bottom: 1},
-							BorderColor: specLine,
-						},
-						Children: []core.Node{
-							core.Text{
-								TestID: "states-error",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									if ed.states.err == nil {
-										return ""
-									}
-									return "Preview: " + ed.states.err.Error()
+								core.Text{
+									Content: "Drive with keys",
+									Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 								},
-								Style: core.Style{FontSize: 11.5, Color: specProblem},
 							},
 						},
+						specButton(p, "states-play", func() string {
+							_ = rev.Get()
+							if ed.StatesPlaying() {
+								return "Pause"
+							}
+							return "Play"
+						}, true, func() bool {
+							_ = rev.Get()
+							return ed.Playing()
+						}, func() {
+							if ed.StatesPlaying() {
+								ed.PauseStates()
+								return
+							}
+							ed.report(ed.PlayStates())
+						}),
+						specButton(p, "states-save", func() string { return "Save" }, false, func() bool {
+							_ = rev.Get()
+							return ed.Playing()
+						}, func() {
+							ed.report(ed.saveStatesFromPanel())
+						}),
+						specButton(p, "states-close", func() string { return "Close" }, false, func() bool {
+							_ = rev.Get()
+							return ed.Playing()
+						}, func() {
+							ed.report(ed.CloseStates())
+						}),
+					},
+				},
+			},
+		}
+
+		graphArea := core.View{
+			TestID: "states-graph",
+			OnLayout: func(b core.Bounds) {
+				if b.Size != graphSize.GetUntracked() {
+					graphSize.Set(b.Size)
+				}
+			},
+			Style: core.Style{
+				FlexGrow:   1,
+				FlexBasis:  core.Pt(0),
+				Position:   core.Relative,
+				Background: p.Viewport,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				// Background dot grid + directed transition arrows canvas.
+				core.Canvas{
+					TestID: "states-graph-canvas",
+					Style: core.Style{
+						Position: core.Absolute,
+						Top:      core.Pt(0),
+						Left:     core.Pt(0),
+						Right:    core.Pt(0),
+						Bottom:   core.Pt(0),
+					},
+					Draw: func(d *core.Drawing, size core.Size) {
+						_ = rev.Get()
+						drawStatesGraphCanvas(d, size, ed, ed.SpecPalette(cx))
+					},
+				},
+				// Interactive state node cards + transition edge label pills + Any state pill.
+				core.Dynamic(func(cx *core.Scope) core.Node {
+					sz := graphSize.Get()
+					if structure.Get() == "" || ed.states.doc == nil {
+						return nil
 					}
+					return statesGraphOverlay(cx, ed, rev, sz)
+				}),
+			},
+		}
+
+		sidebar := statesSidebar(cx, ed, rev, p)
+
+		return core.View{
+			TestID: "states-panel",
+			OnKeyDown: func(ev core.KeyEvent) bool {
+				return ed.StatesHandleKeyEvent(ev, true)
+			},
+			OnKeyUp: func(ev core.KeyEvent) {
+				ed.StatesHandleKeyEvent(ev, false)
+			},
+			Style: dockedStyle(cx, core.Style{
+				Height:      core.Pt(380),
+				Background:  p.Bg,
+				Borders:     core.Edges{Top: 1},
+				BorderColor: p.Line,
+			}),
+			Children: []core.Node{
+				header,
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.states.err != nil
+					},
+					Then: func(cx *core.Scope) core.Node {
+						curPal := ed.SpecPalette(cx)
+						return core.View{
+							Style: core.Style{
+								Padding:     core.Symmetric(6, 12),
+								Background:  curPal.Panel,
+								Borders:     core.Edges{Bottom: 1},
+								BorderColor: curPal.Line,
+							},
+							Children: []core.Node{
+								core.Text{
+									TestID: "states-error",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										if ed.states.err == nil {
+											return ""
+										}
+										return "Preview: " + ed.states.err.Error()
+									},
+									Style: core.Style{FontSize: 11.5, Color: curPal.Removed.Fg},
+								},
+							},
+						}
+					},
+				},
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						graphArea,
+						sidebar,
+					},
 				},
 			},
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					graphArea,
-					sidebar,
-				},
-			},
-		},
-	}
+		}
+	})
 }
 
-func driveKeyPill(testID, text, label string, active func() bool, onPress func()) core.Node {
+func driveKeyPill(cx *core.Scope, ed *Editor, testID, text, label string, active func() bool, onPress func()) core.Node {
 	return core.View{
 		TestID:  testID,
 		Role:    core.RoleButton,
 		Label:   label,
 		OnPress: func(core.PressEvent) { onPress() },
 		StyleFunc: func() core.Style {
-			border := specLineRaised
-			bg := specRaised
+			p := ed.SpecPalette(cx)
+			border := p.LineRaised
+			bg := p.Raised
 			if active() {
-				border = specAccent
-				bg = specActiveNode
+				border = p.Accent.Fg
+				bg = statesActiveNodeBg(p)
 			}
 			return core.Style{
 				Height:         core.Pt(28),
@@ -416,19 +430,22 @@ func driveKeyPill(testID, text, label string, active func() bool, onPress func()
 		Children: []core.Node{
 			core.Text{
 				Content: text,
-				Style:   core.Style{FontSize: 11.5, FontWeight: 500, Color: specTextStrong},
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{FontSize: 11.5, FontWeight: 500, Color: p.TextPrimary}
+				},
 			},
 		},
 	}
 }
 
-func specButton(testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
-	bg := specLineRaised
-	fg := specText
+func specButton(p SpecPalette, testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
+	bg := p.LineRaised
+	fg := p.TextSecondary
 	weight := core.FontWeight(500)
 	if primary {
-		bg = specAccent
-		fg = specTextStrong
+		bg = p.Accent.Fg
+		fg = p.Accent.OnFill
 		weight = 600
 	}
 	return core.View{
@@ -563,14 +580,14 @@ func anyNodeScreenPos(doc *animclip.StateMachineDoc, avail core.Size) (x, y floa
 	return maxRight + gap, y
 }
 
-func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor) {
+func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor, p SpecPalette) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	// Spec dot-grid background (.vp: #15181d with #2a2f38 1px dots every 16px).
-	d.SetFillColor(specViewportBG).FillRect(0, 0, w, h)
-	d.SetFillColor(specViewportDot)
+	// Spec dot-grid background (.vp: Viewport with ViewportDot 1px dots every 16px).
+	d.SetFillColor(p.Viewport).FillRect(0, 0, w, h)
+	d.SetFillColor(p.ViewportDot)
 	for gy := float32(8); gy < h; gy += 16 {
 		for gx := float32(8); gx < w; gx += 16 {
 			d.FillRect(gx, gy, 1.5, 1.5)
@@ -583,6 +600,7 @@ func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	}
 	cur := ed.StatesCurrentState()
 	prev := ed.StatesPreviousState()
+	edgeLine := statesEdgeLineColor(p)
 
 	// Draw directed edges between states.
 	for _, tr := range doc.Transitions {
@@ -618,10 +636,10 @@ func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 		p2x, p2y := clipRayToRect(x2, y2, x1, y1, tx, ty, tw, th)
 
 		hot := (tr.From == prev && tr.To == cur) || (tr.From == animclip.AnyState && tr.To == cur)
-		col := specEdgeLine
+		col := edgeLine
 		lw := float32(1.5)
 		if hot {
-			col = specAccent
+			col = p.Accent.Fg
 			lw = 2
 		}
 		d.SetStrokeColor(col).SetLineWidth(lw)
@@ -684,6 +702,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 	if doc == nil {
 		return nil
 	}
+	p := ed.SpecPalette(cx)
 	var children []core.Node
 
 	// Transition edge label pills.
@@ -744,19 +763,20 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 				CornerRadius:   6,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
-				Background:     specBG,
+				Background:     p.Bg,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: labelText,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
+						curPal := ed.SpecPalette(cx)
 						cur := ed.StatesCurrentState()
 						prev := ed.StatesPreviousState()
 						hot := (trCopy.From == prev && trCopy.To == cur) || (trCopy.From == animclip.AnyState && trCopy.To == cur)
-						col := specTextSecondary
+						col := curPal.TextMuted
 						if hot {
-							col = specAccentText
+							col = statesAccentTextColor(curPal)
 						}
 						return core.Style{FontSize: 11, Color: col}
 					},
@@ -786,14 +806,14 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 				CornerRadius:   14,
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
-				Background:     specBG,
+				Background:     p.Bg,
 				BorderWidth:    1,
-				BorderColor:    specEdgeLine,
+				BorderColor:    statesEdgeLineColor(p),
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: "Any state",
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 			},
 		})
@@ -816,7 +836,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 				Width:        core.Pt(40),
 				Height:       core.Pt(40),
 				CornerRadius: 8,
-				Background:   specRaised,
+				Background:   p.Raised,
 			},
 			Draw: func(d *core.Drawing, size core.Size) {
 				_ = rev.Get()
@@ -826,7 +846,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 						frameName = active
 					}
 				}
-				drawSpriteThumbnail(d, size, ed, ed.states.meta.target, frameName)
+				drawSpriteThumbnail(d, size, ed, ed.SpecPalette(cx), ed.states.meta.target, frameName)
 			},
 		}
 
@@ -839,13 +859,14 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
+				curPal := ed.SpecPalette(cx)
 				active := ed.StatesCurrentState() == stateName
-				bg := specRaised
-				border := specLineRaised
+				bg := curPal.Raised
+				border := curPal.LineRaised
 				bw := core.Points(1)
 				if active {
-					bg = specActiveNode
-					border = specAccent
+					bg = statesActiveNodeBg(curPal)
+					border = curPal.Accent.Fg
 					bw = 2
 				}
 				return core.Style{
@@ -876,9 +897,10 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 									Content: stateName,
 									StyleFunc: func() core.Style {
 										_ = rev.Get()
-										col := specText
+										curPal := ed.SpecPalette(cx)
+										col := curPal.TextSecondary
 										if ed.StatesCurrentState() == stateName {
-											col = specTextStrong
+											col = curPal.TextPrimary
 										}
 										return core.Style{FontSize: 12.5, FontWeight: 600, Color: col}
 									},
@@ -886,9 +908,10 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 								core.Show{
 									When: func() bool { return isEntry },
 									Then: func(cx *core.Scope) core.Node {
+										curPal := ed.SpecPalette(cx)
 										return core.Text{
 											Content: "ENTRY",
-											Style:   core.Style{FontSize: 9, FontWeight: 600, Color: specAdded},
+											Style:   core.Style{FontSize: 9, FontWeight: 600, Color: curPal.Added.Fg},
 										}
 									},
 								},
@@ -896,7 +919,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 						},
 						core.Text{
 							Content: metaSummary,
-							Style:   core.Style{FontSize: 11, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 						},
 					},
 				},
@@ -916,15 +939,15 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 	}
 }
 
-func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
 	// Live preview card (Animation.dc.html lines 134-144).
 	previewCard := core.View{
 		TestID: "states-preview-card",
 		Style: core.Style{
 			CornerRadius: 12,
-			Background:   specPanel,
+			Background:   p.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 			Overflow:     core.Hidden,
 		},
 		Children: []core.Node{
@@ -935,7 +958,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 				Draw: func(d *core.Drawing, size core.Size) {
 					_ = rev.Get()
-					drawStatesPreviewCard(d, size, ed)
+					drawStatesPreviewCard(d, size, ed, ed.SpecPalette(cx))
 				},
 			},
 			core.View{
@@ -945,9 +968,9 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					AlignItems:  core.AlignCenter,
 					Gap:         8,
 					Padding:     core.Symmetric(0, 12),
-					Background:  specRaised,
+					Background:  p.Raised,
 					Borders:     core.Edges{Top: 1},
-					BorderColor: specLine,
+					BorderColor: p.Line,
 				},
 				Children: []core.Node{
 					core.View{
@@ -955,7 +978,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 3,
-							Background:   specAccent,
+							Background:   p.Accent.Fg,
 						},
 					},
 					core.Text{
@@ -964,7 +987,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							_ = rev.Get()
 							return ed.StatesCurrentState()
 						},
-						Style: core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong, FlexGrow: 1},
+						Style: core.Style{FontSize: 12, FontWeight: 600, Color: p.TextPrimary, FlexGrow: 1},
 					},
 					core.Text{
 						TestID: "states-preview-target",
@@ -975,7 +998,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 							return "preview"
 						},
-						Style: core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style: core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
 			},
@@ -997,13 +1020,14 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 
 	leavingList := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = leavingKey.Get()
+		curPal := ed.SpecPalette(cx)
 		cur := ed.StatesCurrentState()
 		outs := ed.StatesOutgoingFor(cur)
 		if len(outs) == 0 {
 			return core.Text{
 				TestID:  "states-leaving-empty",
 				Content: "No outgoing transitions",
-				Style:   core.Style{FontSize: 12, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12, Color: curPal.TextFaint},
 			}
 		}
 		rows := make([]core.Node, 0, len(outs))
@@ -1023,12 +1047,12 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					Gap:          8,
 					Padding:      core.Symmetric(2, 6),
 					CornerRadius: 6,
-					Background:   specRaised,
+					Background:   curPal.Raised,
 				},
 				Children: []core.Node{
-					core.Text{Content: "→", Style: core.Style{FontSize: 12, Color: specTextMuted}},
-					core.Text{Content: o.To, Style: core.Style{Width: core.Pt(56), FontSize: 12, FontWeight: 600, Color: specTextStrong}},
-					core.Text{Content: o.Detail, Style: core.Style{FlexGrow: 1, FontSize: 11.5, Color: specTextSecondary}},
+					core.Text{Content: "→", Style: core.Style{FontSize: 12, Color: curPal.TextFaint}},
+					core.Text{Content: o.To, Style: core.Style{Width: core.Pt(56), FontSize: 12, FontWeight: 600, Color: curPal.TextPrimary}},
+					core.Text{Content: o.Detail, Style: core.Style{FlexGrow: 1, FontSize: 11.5, Color: curPal.TextMuted}},
 				},
 			})
 		}
@@ -1041,9 +1065,9 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			Width:       core.Pt(360),
 			Padding:     core.All(12),
 			Gap:         12,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Left: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			previewCard,
@@ -1053,7 +1077,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					_ = rev.Get()
 					return "LEAVING " + strings.ToUpper(ed.StatesCurrentState())
 				},
-				Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+				Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 			},
 			ui.ScrollView{
 				Style:    core.Style{FlexGrow: 1},
@@ -1063,14 +1087,14 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 }
 
-func drawSpriteThumbnail(d *core.Drawing, size core.Size, ed *Editor, target, frameName string) {
+func drawSpriteThumbnail(d *core.Drawing, size core.Size, ed *Editor, p SpecPalette, target, frameName string) {
 	sw, sh := float32(size.Width), float32(size.Height)
 	if sw <= 0 || sh <= 0 {
 		return
 	}
 	// Subtle checkerboard background matching .ck in Animation.dc.html.
-	d.SetFillColor(specRaised).FillRect(0, 0, sw, sh)
-	d.SetFillColor(specLine)
+	d.SetFillColor(p.Raised).FillRect(0, 0, sw, sh)
+	d.SetFillColor(p.Line)
 	for y := float32(0); y < sh; y += 8 {
 		for x := float32(0); x < sw; x += 8 {
 			if (int(x/8)+int(y/8))%2 == 0 {
@@ -1091,17 +1115,17 @@ func drawSpriteThumbnail(d *core.Drawing, size core.Size, ed *Editor, target, fr
 	d.DrawImageFrom(entry.Image, f.X, f.Y, f.W, f.H, (sw-dw)/2, (sh-dh)/2, dw, dh)
 }
 
-func drawStatesPreviewCard(d *core.Drawing, size core.Size, ed *Editor) {
+func drawStatesPreviewCard(d *core.Drawing, size core.Size, ed *Editor, p SpecPalette) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(specActiveNode).FillRect(0, 0, w, h)
+	d.SetFillColor(statesActiveNodeBg(p)).FillRect(0, 0, w, h)
 	// Floor strip (Animation.dc.html line 136).
 	floorH := float32(24)
 	floorY := h - floorH
-	d.SetFillColor(specFloorFill).FillRect(0, floorY, w, floorH)
-	d.SetStrokeColor(specLine).SetLineWidth(1.5)
+	d.SetFillColor(p.LineRaised).FillRect(0, floorY, w, floorH)
+	d.SetStrokeColor(p.Line).SetLineWidth(1.5)
 	strokeLine(d, 0, floorY, w, floorY)
 	for gx := float32(24); gx < w; gx += 24 {
 		strokeLine(d, gx, floorY, gx, h)

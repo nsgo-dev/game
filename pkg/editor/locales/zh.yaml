@@ -796,14 +796,18 @@ strings:
   menu.changes: 变更与提交
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页
+  menu.collider: 碰撞体
   menu.commandPalette: 命令面板…
   menu.connectAgent: 连接智能体…
   menu.copy: 拷贝
+  menu.copyTileRegion: 拷贝瓦片区域
   menu.cut: 剪切
+  menu.cutTileRegion: 剪切瓦片区域
   menu.delete: 删除
   menu.duplicate: 复制
   menu.edit: 编辑
   menu.editorSettings: 编辑器设置…
+  menu.environmentPanel: 场景环境
   menu.eraseTile: 擦除瓦片
   menu.export: 导出与发布…
   menu.file: 文件
@@ -815,8 +819,10 @@ strings:
   menu.group: 编组
   menu.help: 帮助
   menu.history: 历史
+  menu.hudLayout: HUD 与菜单布局
   menu.inspectorPanel: 检查器面板
   menu.lightingPreview: 2D 光照预览
+  menu.lineTile: 直线瓦片
   menu.localization: 本地化字符串
   menu.makeInstanceLocal: 使实例本地化
   menu.materialEditor: 材质编辑器
@@ -837,6 +843,7 @@ strings:
   menu.particleEditor: 粒子发射器编辑器
   menu.paste: 粘贴
   menu.pasteInto: 粘贴为子级
+  menu.pasteTileRegion: 粘贴瓦片区域
   menu.permissions: 权限…
   menu.place: 放置
   menu.play: 播放
@@ -846,6 +853,8 @@ strings:
   menu.profiler: 性能分析器
   menu.project: 项目
   menu.projectSettings: 项目设置
+  menu.randomTile: 随机瓦片
+  menu.rectTile: 矩形瓦片
   menu.redo: 重做
   menu.replayTips: 重播提示
   menu.resetLayout: 重置布局
@@ -862,10 +871,12 @@ strings:
   menu.shortcutsSettings: 键盘快捷键…
   menu.shortcutsSheet: 键盘快捷键
   menu.sketch: 草图
+  menu.stampTile: 图章瓦片
   menu.startScreen: 开始界面
   menu.stop: 停止
   menu.tasks: 后台任务
   menu.terrain: 地形
+  menu.terrainEditor: 3D 地形编辑器
   menu.toggleAllShapes: 显示全部组件形状
   menu.toggleShowGrid: 显示吸附网格
   menu.toggleSnapGrid: 吸附到网格
@@ -879,6 +890,7 @@ strings:
   menu.view: 视图
   menu.view2d: 2D 视图
   menu.view3d: 3D 视图
+  menu.view3dCamera: 从场景相机查看
   models.askForOne: 或让智能体生成一个
   models.askForOneHint: 描述一个模型… 例如一个 1 × 0.5 米的矮石花盆，与围墙材质相同
   models.dragIn: 拖入视口
@@ -932,19 +944,28 @@ strings:
   overrides.overridesSource: 覆盖源值 {value}
   overrides.revertAll: 全部还原
   overrides.revertField: 还原 {field}
-  palette.empty: 没有匹配的命令或文件
+  palette.askAgent: 询问智能体：{query}
+  palette.askAgentDesc: 在智能体面板输入框中打开
+  palette.askAgentStaged: 已将提示词填入智能体面板
+  palette.askAgentTitle: 询问智能体
+  palette.empty: 没有匹配的命令、节点或文件
+  palette.group.agent: 智能体
   palette.group.commands: 命令
   palette.group.files: 文件
+  palette.group.nodes: 节点
+  palette.group.nodesScene: 节点 · {scene}
   palette.group.pluginPanels: 插件面板
   palette.group.pluginTools: 插件工具
+  palette.group.recent: 最近使用
   palette.group.scenes: 场景
+  palette.group.settings: 设置
   palette.label: 命令面板
   palette.openScene: 打开场景
-  palette.placeholder: 输入命令、工具、面板或文件…
+  palette.placeholder: 搜索或询问智能体…（> 命令  @ 节点
   palette.pluginPanelDesc: 插件面板（{plugin}，{dock}）
   palette.pluginToolDesc: 插件工具（{plugin}）
   palette.projectFile: 项目文件
-  palette.searchLabel: 搜索命令
+  palette.searchLabel: 搜索命令、节点与文件
   permissions.action.code: 代码
   permissions.action.create: 创建
   permissions.action.delete: 删除
@@ -1090,12 +1111,20 @@ strings:
   scene.untitled: 未命名
   scene.untitledScene: 未命名场景
   sceneTree.active: 当前
+  sceneTree.addEmptyObject: 添加空对象
+  sceneTree.addLayer: 添加图层
+  sceneTree.addLight: 添加光源
+  sceneTree.addMenuLabel: 添加对象或图层
+  sceneTree.addTrigger: 添加触发器
   sceneTree.changeID: 修改 ID
   sceneTree.copy: 拷贝
   sceneTree.cut: 剪切
   sceneTree.delete: 删除
   sceneTree.duplicate: 复制
   sceneTree.expand: 展开
+  sceneTree.filterClear: 清空场景筛选
+  sceneTree.filterPlaceholder: 筛选节点…
+  sceneTree.filterToggle: 筛选场景树
   sceneTree.findUsages: 查找用法
   sceneTree.group: 编组
   sceneTree.hide: 在视口中隐藏
@@ -1111,6 +1140,7 @@ strings:
   sceneTree.moveDown: 下移
   sceneTree.moveToLayer: 移至图层 {name}
   sceneTree.moveUp: 上移
+  sceneTree.noMatches: 没有匹配的节点
   sceneTree.nodeCount: '{count} 个节点'
   sceneTree.nodeCountOne: 1 个节点
   sceneTree.objectID: 对象 ID

@@ -1353,7 +1353,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		Children: []core.Node{
 			LeftRailSwitchView(cx, ed, rev),
-			// SCENE · N nodes header
+			// SCENE · N nodes header with quick filter toggle and quick add (+) menu
 			core.View{
 				TestID: "scene-rail-header",
 				Style: core.Style{
@@ -1362,7 +1362,8 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Direction:      core.Row,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifySpaceBetween,
-					Padding:        core.Symmetric(0, specSpace12),
+					Gap:            specSpace4,
+					Padding:        core.Edges{Left: specSpace12, Right: specSpace8},
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1374,30 +1375,212 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								FontWeight:    core.FontWeightSemibold,
 								LetterSpacing: 0.66,
 								Color:         ed.SpecPalette(cx).TextFaint,
+								FlexShrink:    0,
 							}
 						},
 					},
-					core.Text{
-						TestID: "scene-rail-node-count",
-						ContentFunc: func() string {
-							_ = rev.Get()
-							if ed.WorkspaceState() != WorkspaceReady {
-								return ""
-							}
-							n := ed.SceneNodeCount()
-							if n == 1 {
-								return ed.T("sceneTree.nodeCountOne")
-							}
-							return ed.T("sceneTree.nodeCount", l10n.Param("count", n))
+					core.View{
+						Style: core.Style{
+							Direction:  core.Row,
+							AlignItems: core.AlignCenter,
+							Gap:        2,
+							FlexShrink: 0,
 						},
-						StyleFunc: func() core.Style {
-							return core.Style{
-								FontSize:   11,
-								FontWeight: core.FontWeightMedium,
-								Color:      ed.SpecPalette(cx).TextFaint,
-							}
+						Children: []core.Node{
+							core.Text{
+								TestID: "scene-rail-node-count",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if ed.WorkspaceState() != WorkspaceReady {
+										return ""
+									}
+									n := ed.SceneNodeCount()
+									if n == 1 {
+										return ed.T("sceneTree.nodeCountOne")
+									}
+									return ed.T("sceneTree.nodeCount", l10n.Param("count", n))
+								},
+								StyleFunc: func() core.Style {
+									return core.Style{
+										FontSize:   11,
+										FontWeight: core.FontWeightMedium,
+										Color:      ed.SpecPalette(cx).TextFaint,
+										Margin:     core.Edges{Right: specSpace4},
+									}
+								},
+							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.WorkspaceState() == WorkspaceReady && !ed.Playing()
+								},
+								Then: func(cx *core.Scope) core.Node {
+									p := ed.SpecPalette(cx)
+									return core.View{
+										Style: core.Style{
+											Direction:  core.Row,
+											AlignItems: core.AlignCenter,
+											Gap:        2,
+										},
+										Children: []core.Node{
+											base.Button{
+												TestID:  "scene-rail-filter-toggle",
+												Label:   ed.T("sceneTree.filterToggle"),
+												Tooltip: specTooltipNode(p, ed.T("sceneTree.filterToggle")),
+												StyleFunc: func() core.Style {
+													_ = rev.Get()
+													cur := ed.SpecPalette(cx)
+													bg := core.Transparent
+													if ed.SceneTreeFilterOpen() || ed.SceneTreeFilter() != "" {
+														bg = cur.Raised
+													}
+													return core.Style{
+														Width:          core.Pt(specRowHeight),
+														Height:         core.Pt(specRowHeight),
+														MinWidth:       core.Pt(specRowHeight),
+														MinHeight:      core.Pt(specRowHeight),
+														CornerRadius:   specRadiusControl,
+														AlignItems:     core.AlignCenter,
+														JustifyContent: core.JustifyCenter,
+														Background:     bg,
+														Cursor:         core.CursorPointer,
+														Hover:          &core.Style{Background: cur.Raised},
+														FocusVisible:   cur.FocusRing(-2),
+													}
+												},
+												OnPress: func(core.PressEvent) {
+													ed.SetSceneTreeFilterOpen(!ed.SceneTreeFilterOpen())
+												},
+												Children: []core.Node{
+													core.Icon{
+														SVG: lucide.Search(),
+														StyleFunc: func() core.Style {
+															_ = rev.Get()
+															cur := ed.SpecPalette(cx)
+															col := cur.TextFaint
+															if ed.SceneTreeFilterOpen() || ed.SceneTreeFilter() != "" {
+																col = cur.TextPrimary
+															}
+															return core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: col}
+														},
+													},
+												},
+											},
+											ui.Menu{
+												TestID: "scene-rail-add",
+												Label:  ed.T("sceneTree.addMenuLabel"),
+												Trigger: ui.Button{
+													Icon:     lucide.Plus,
+													Label:    ed.T("sceneTree.addMenuLabel"),
+													Size:     ui.SizeSmall,
+													Variant:  ui.ButtonGhost,
+													Side:     specRowHeight,
+													IconSize: 13,
+													Tint:     func() core.Color { return ed.SpecPalette(cx).TextFaint },
+													Style: core.Style{
+														CornerRadius: specRadiusControl,
+														FocusVisible: p.FocusRing(-2),
+													},
+												},
+												Children: []core.Node{
+													ui.MenuItem{
+														TestID: "scene-rail-add-object",
+														Text:   ed.T("sceneTree.addEmptyObject"),
+														OnSelect: func() {
+															_, err := ed.AddSceneRailObject("empty")
+															ed.report(err)
+														},
+													},
+													ui.MenuItem{
+														TestID: "scene-rail-add-trigger",
+														Text:   ed.T("sceneTree.addTrigger"),
+														OnSelect: func() {
+															_, err := ed.AddSceneRailObject("trigger")
+															ed.report(err)
+														},
+													},
+													ui.MenuItem{
+														TestID: "scene-rail-add-light",
+														Text:   ed.T("sceneTree.addLight"),
+														OnSelect: func() {
+															_, err := ed.AddSceneRailObject("light")
+															ed.report(err)
+														},
+													},
+													ui.MenuSeparator{},
+													ui.MenuItem{
+														TestID: "scene-rail-add-layer",
+														Text:   ed.T("sceneTree.addLayer"),
+														OnSelect: func() {
+															_, err := ed.AddSceneRailLayer()
+															ed.report(err)
+														},
+													},
+												},
+											},
+										},
+									}
+								},
+							},
 						},
 					},
+				},
+			},
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.WorkspaceState() == WorkspaceReady && !ed.Playing() && ed.SceneTreeFilterOpen()
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return core.View{
+						TestID: "scene-tree-filter-bar",
+						Style: core.Style{
+							Direction:  core.Row,
+							AlignItems: core.AlignCenter,
+							Gap:        specSpace4,
+							Padding:    core.Edges{Left: specSpace8, Right: specSpace8, Bottom: specSpace4},
+							FlexShrink: 0,
+						},
+						Children: []core.Node{
+							specInputField(cx, ed, ui.Input{
+								TestID:      "scene-tree-filter-input",
+								Label:       ed.T("sceneTree.filterPlaceholder"),
+								Placeholder: ed.T("sceneTree.filterPlaceholder"),
+								AutoFocus:   true,
+								Value: func() string {
+									_ = rev.Get()
+									return ed.SceneTreeFilter()
+								},
+								OnChange: func(s string) {
+									ed.SetSceneTreeFilter(s)
+								},
+								Style: core.Style{
+									FlexGrow:  1,
+									FlexBasis: core.Pt(0),
+									MinWidth:  core.Pt(0),
+									Height:    core.Pt(specRowHeight),
+								},
+							}),
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.SceneTreeFilter() != ""
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return ui.IconButton{
+										TestID:   "scene-tree-filter-clear",
+										Icon:     lucide.X,
+										Label:    ed.T("sceneTree.filterClear"),
+										Size:     specRowHeight,
+										IconSize: 12,
+										OnPress: func() {
+											ed.SetSceneTreeFilter("")
+										},
+									}
+								},
+							},
+						},
+					}
 				},
 			},
 			// Scene tree or designed empty/loading/error state.
@@ -1617,6 +1800,12 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 // viewportCameraCaptionView renders the "Camera · W × H" caption positioned above the
 // 2D camera frame matching docs/design/editor/Main.dc.html.
 func viewportCameraCaptionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	canvasSizeRev := core.NewSignal(cx, ed.CanvasSizeRevision())
+	unsubCanvas := ed.SubscribeCanvasSize(func() {
+		canvasSizeRev.Set(ed.CanvasSizeRevision())
+	})
+	cx.Cleanup(unsubCanvas)
+
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
@@ -1633,14 +1822,22 @@ func viewportCameraCaptionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				},
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
+					_ = canvasSizeRev.Get()
 					cur := ed.SpecPalette(cx)
 					cx0, cy0 := ed.ScreenToCanvas(0, 0)
 					cw, ch := ed.CanvasSize()
 					left := core.Points(cx0)
 					top := core.Points(cy0) - 20
-					if cw <= 0 || ch <= 0 || left < 12 || left > core.Points(cw)-140 || top < 8 || top > core.Points(ch)-56 {
+					minTop := core.Points(8)
+					if ed.OverlayLegendOpen() {
+						minTop = 48
+					}
+					if cw <= 0 || ch <= 0 || left < 12 || left > core.Points(cw)-140 || top < minTop || top > core.Points(ch)-56 {
 						left = 16
 						top = 12
+						if ed.OverlayLegendOpen() {
+							top = 52
+						}
 					}
 					return core.Style{
 						Position: core.Absolute,

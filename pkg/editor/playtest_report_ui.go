@@ -12,24 +12,9 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints strictly from spec_theme.yaml color tokens.
-var (
-	specPlaytestMissedFill   = specAlpha(darkSpecPalette.Removed.Fg, 0.08)
-	specPlaytestHeatRedHigh  = specAlpha(darkSpecPalette.Removed.Fg, 0.56)
-	specPlaytestHeatRedMid   = specAlpha(darkSpecPalette.Removed.Fg, 0.28)
-	specPlaytestHeatRedSoft  = specAlpha(darkSpecPalette.Removed.Fg, 0.12)
-	specPlaytestHeatAmberHi  = specAlpha(darkSpecPalette.Changed.Fg, 0.48)
-	specPlaytestHeatAmberMid = specAlpha(darkSpecPalette.Changed.Fg, 0.22)
-	specPlaytestHeatAmberLow = specAlpha(darkSpecPalette.Changed.Fg, 0.10)
-	specPlaytestLineArea     = specAlpha(darkSpecPalette.Accent.Fg, 0.14)
-	specPlaytestGridLine     = specAlpha(darkSpecPalette.TextFaint, 0.16)
-	specPlaytestAgentBanner  = specAlpha(darkSpecPalette.Agent.Fg, 0.10)
-	specPlaytestAgentBorder  = specAlpha(darkSpecPalette.Agent.Fg, 0.50)
-)
-
 // PlaytestReportView renders the full-window Playtest Report screen matching docs/design/editor/Playtest.dc.html
 // and strictly using docs/design/editor/Spec.dc.html color, spacing, radius, type, and WCAG contrast tokens
-// (including #101216 text on #3B7BFF primary accent buttons).
+// (including Spec Accent.OnFill on solid Accent.Fg primary buttons).
 func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if !ed.PlaytestReportOpen() {
@@ -48,28 +33,39 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		ed.ClosePlaytestReport()
 	})
 
-	ptRev := core.NewMemo(cx, func() uint64 {
+	type playtestViewKey struct {
+		rev  uint64
+		dark bool
+	}
+	ptRev := core.NewMemo(cx, func() playtestViewKey {
 		_ = rev.Get()
-		return ed.playtestStateRev()
+		return playtestViewKey{
+			rev:  ed.playtestStateRev(),
+			dark: cx.Dark(),
+		}
 	})
 
 	return core.View{
 		TestID: "playtest-report-screen",
 		Role:   core.RoleRegion,
 		Label:  "Playtest report",
-		Style: core.Style{
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: specBg,
-			Overflow:   core.Hidden,
+		StyleFunc: func() core.Style {
+			p := ed.SpecPalette(cx)
+			return core.Style{
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			}
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = ptRev.Get()
+				k := ptRev.Get()
+				p := SpecPaletteFor(k.dark)
 				sess := ed.PlaytestSession()
 				entry := sess.ActiveEntry()
 				if entry == nil || entry.Report == nil {
-					return playtestEmptyStateView(ed)
+					return playtestEmptyStateView(ed, p)
 				}
 				return core.View{
 					Style: core.Style{
@@ -80,10 +76,10 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Overflow:  core.Hidden,
 					},
 					Children: []core.Node{
-						playtestHeaderView(ed, sess, entry),
-						playtestBotProfileView(ed, sess, entry),
-						playtestDrawersView(ed, sess),
-						playtestBodyView(ed, sess, entry),
+						playtestHeaderView(ed, sess, entry, p),
+						playtestBotProfileView(ed, sess, entry, p),
+						playtestDrawersView(ed, sess, p),
+						playtestBodyView(ed, sess, entry, p),
 					},
 				}
 			}),
@@ -91,7 +87,7 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-func playtestEmptyStateView(ed *Editor) core.Node {
+func playtestEmptyStateView(ed *Editor, p SpecPalette) core.Node {
 	return core.View{
 		TestID: "playtest-empty-state",
 		Style: core.Style{
@@ -100,35 +96,35 @@ func playtestEmptyStateView(ed *Editor) core.Node {
 			JustifyContent: core.JustifyCenter,
 			Gap:            12,
 			Padding:        core.All(24),
-			Background:     specBg,
+			Background:     p.Bg,
 		},
 		Children: []core.Node{
 			core.Text{
 				Content: "No playtest report loaded",
-				Style:   core.Style{FontSize: 16, FontWeight: 600, Color: specTextStrong},
+				Style:   core.Style{FontSize: 16, FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
 				Content: "Run a headless playtest via game_playtest or open playtest.report.yaml from the project file browser.",
-				Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+				Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
 			},
 			ui.Button{
 				TestID:  "playtest-empty-back",
 				Text:    "Back to scene editor",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specRaised },
+				Color:   func() core.Color { return p.Raised },
 				TextStyle: core.Style{
 					FontSize:   12.5,
 					FontWeight: 500,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(32),
 					CornerRadius: 8,
 					Padding:      core.Symmetric(0, 14),
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.ClosePlaytestReport()
@@ -138,7 +134,7 @@ func playtestEmptyStateView(ed *Editor) core.Node {
 	}
 }
 
-func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry) core.Node {
+func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
 	rep := entry.Report
 	scope := rep.Scope.Scene
 	if scope == "" {
@@ -167,9 +163,9 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 			FlexShrink:  0,
 			Padding:     core.Symmetric(0, 16),
 			Gap:         12,
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			ui.Button{
@@ -178,15 +174,15 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 				Label:   "Back to scene editor",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specRaised },
-				Tint:    func() core.Color { return specTextSecondary },
+				Color:   func() core.Color { return p.Raised },
+				Tint:    func() core.Color { return p.TextMuted },
 				Style: core.Style{
 					Width:        core.Pt(30),
 					Height:       core.Pt(30),
 					CornerRadius: 8,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.ClosePlaytestReport()
@@ -198,7 +194,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 				Style: core.Style{
 					FontSize:   14,
 					FontWeight: 600,
-					Color:      specTextStrong,
+					Color:      p.TextPrimary,
 				},
 			},
 			core.Text{
@@ -206,7 +202,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 				Content: subtitle,
 				Style: core.Style{
 					FontSize: 12.5,
-					Color:    specTextMuted,
+					Color:    p.TextFaint,
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
@@ -217,19 +213,19 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 				Variant:  ui.ButtonGhost,
 				Size:     ui.SizeSmall,
 				Disabled: func() bool { return !hasRecording },
-				Color:    func() core.Color { return specRaised },
+				Color:    func() core.Color { return p.Raised },
 				TextStyle: core.Style{
 					FontSize:   12.5,
 					FontWeight: 500,
-					Color:      specText,
+					Color:      p.TextSecondary,
 				},
 				Style: core.Style{
 					Height:       core.Pt(32),
 					CornerRadius: 8,
 					Padding:      core.Symmetric(0, 12),
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
+					BorderColor:  p.LineRaised,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.report(ed.WatchPlaytestRun(entry.WatchRunIndex))
@@ -240,17 +236,17 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 				Text:    "Ask the agent to tune it",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specAccent },
+				Color:   func() core.Color { return p.Accent.Fg },
 				TextStyle: core.Style{
 					FontSize:   12.5,
 					FontWeight: 600,
-					Color:      specBg, // Spec.dc.html contrast table: #101216 on #3B7BFF (4.88:1 AA), never #FFFFFF on accent.
+					Color:      p.Accent.OnFill,
 				},
 				Style: core.Style{
 					Height:       core.Pt(32),
 					CornerRadius: 8,
 					Padding:      core.Symmetric(0, 16),
-					FocusVisible: specFocusRingStyle,
+					FocusVisible: p.FocusRing(2),
 				},
 				OnPress: func() {
 					ed.AskAgentToTunePlaytest()
@@ -260,7 +256,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 	}
 }
 
-func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry) core.Node {
+func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
 	rep := entry.Report
 	configFile := entry.ConfigPath
 	if configFile == "" {
@@ -279,10 +275,10 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 		active := i == sess.ActiveIndex
 		label := BotProfileDisplayName(ent.Report.Bot.Profile)
 		bg := core.Transparent
-		fg := specTextSecondary
+		fg := p.TextMuted
 		if active {
-			bg = specLineRaised
-			fg = specTextStrong
+			bg = p.LineRaised
+			fg = p.TextPrimary
 		}
 		profileButtons = append(profileButtons, ui.Button{
 			TestID:  fmt.Sprintf("playtest-profile-%d", idx),
@@ -300,7 +296,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 				Height:       core.Pt(28),
 				CornerRadius: 6,
 				Padding:      core.Symmetric(0, 12),
-				FocusVisible: specFocusRingStyle,
+				FocusVisible: p.FocusRing(2),
 			},
 			OnPress: func() {
 				ed.SelectPlaytestReportIndex(idx)
@@ -316,7 +312,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 				FontSize:      11,
 				FontWeight:    600,
 				LetterSpacing: 0.66,
-				Color:         specTextMuted,
+				Color:         p.TextFaint,
 			},
 		},
 		core.View{
@@ -329,9 +325,9 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 				Gap:          2,
 				Padding:      core.All(3),
 				CornerRadius: 8,
-				Background:   specRaised,
+				Background:   p.Raised,
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 			},
 			Children: profileButtons,
 		},
@@ -342,7 +338,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 			Style: core.Style{
 				FontFamily: core.FontMonospace,
 				FontSize:   11.5,
-				Color:      specTextSecondary,
+				Color:      p.TextMuted,
 			},
 		},
 	}
@@ -352,7 +348,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 			Content: templateText,
 			Style: core.Style{
 				FontSize: 12,
-				Color:    specTextMuted,
+				Color:    p.TextFaint,
 			},
 		})
 	}
@@ -362,19 +358,19 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 		Label:   "Open " + configFile,
 		Variant: ui.ButtonGhost,
 		Size:    ui.SizeSmall,
-		Color:   func() core.Color { return specRaised },
+		Color:   func() core.Color { return p.Raised },
 		TextStyle: core.Style{
 			FontSize:   12,
 			FontWeight: 500,
-			Color:      specAccent, // Spec contrast: #3B7BFF on #171A21 is 4.53:1 AA.
+			Color:      p.Accent.Fg,
 		},
 		Style: core.Style{
 			Height:       core.Pt(28),
 			CornerRadius: 6,
 			Padding:      core.Symmetric(0, 10),
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
-			FocusVisible: specFocusRingStyle,
+			BorderColor:  p.LineRaised,
+			FocusVisible: p.FocusRing(2),
 		},
 		OnPress: func() {
 			ed.report(ed.OpenPlaytestConfigPreview())
@@ -386,7 +382,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 			Content: "Strategy",
 			Style: core.Style{
 				FontSize: 12.5,
-				Color:    specTextMuted,
+				Color:    p.TextFaint,
 			},
 		},
 		core.Text{
@@ -395,7 +391,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 			MaxLines: 1,
 			Style: core.Style{
 				FontSize:   12.5,
-				Color:      specTextSecondary,
+				Color:      p.TextMuted,
 				FlexShrink: 1,
 			},
 		},
@@ -416,9 +412,9 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 				Gap:          8,
 				Padding:      core.Edges{Left: 12, Right: 4},
 				CornerRadius: 8,
-				Background:   specPlaytestAgentBanner,
+				Background:   specAlpha(p.Agent.Fg, 0.10),
 				BorderWidth:  1,
-				BorderColor:  specPlaytestAgentBorder,
+				BorderColor:  specAlpha(p.Agent.Fg, 0.50),
 			},
 			Children: []core.Node{
 				core.View{
@@ -426,7 +422,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 						Width:        core.Pt(6),
 						Height:       core.Pt(6),
 						CornerRadius: 3,
-						Background:   specAgent,
+						Background:   p.Agent.Fg,
 					},
 				},
 				core.Text{
@@ -434,7 +430,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 					Content: prop.BannerText(),
 					Style: core.Style{
 						FontSize: 12,
-						Color:    specText,
+						Color:    p.TextSecondary,
 					},
 				},
 				ui.Button{
@@ -443,11 +439,11 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 					Label:   "Review proposed metric " + prop.MetricName,
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specRaised },
+					Color:   func() core.Color { return p.Raised },
 					TextStyle: core.Style{
 						FontSize:   11.5,
 						FontWeight: 500,
-						Color:      specText,
+						Color:      p.TextSecondary,
 					},
 					Style: core.Style{
 						Height:       core.Pt(22),
@@ -455,8 +451,8 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 						CornerRadius: 6,
 						Padding:      core.Symmetric(0, 8),
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
-						FocusVisible: specFocusRingStyle,
+						BorderColor:  p.LineRaised,
+						FocusVisible: p.FocusRing(2),
 					},
 					OnPress: func() {
 						ed.OpenPlaytestProposalReview(propID)
@@ -474,9 +470,9 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 			FlexShrink:  0,
 			Padding:     core.Symmetric(12, 16),
 			Gap:         8,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -500,24 +496,24 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 	}
 }
 
-func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
+func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette) core.Node {
 	if sess.ReviewProposalID != "" {
 		if prop := sess.ProposalByID(sess.ReviewProposalID); prop != nil {
 			propID := prop.ID
 			diffLines := strings.Split(strings.TrimSuffix(prop.Diff, "\n"), "\n")
 			diffNodes := make([]core.Node, 0, len(diffLines))
 			for _, line := range diffLines {
-				col := specTextSecondary
+				col := p.TextMuted
 				bg := core.Transparent
 				switch {
 				case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-					col = specAdded
-					bg = specAddedFill
+					col = p.Added.Fg
+					bg = specAlpha(p.Added.Fg, 0.12)
 				case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
-					col = specProblem
-					bg = specPlaytestMissedFill
+					col = p.Removed.Fg
+					bg = specAlpha(p.Removed.Fg, 0.08)
 				case strings.HasPrefix(line, "@@") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
-					col = specTextMuted
+					col = p.TextFaint
 				}
 				diffNodes = append(diffNodes, core.View{
 					Style: core.Style{
@@ -544,9 +540,9 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 					FlexShrink:  0,
 					Padding:     core.Symmetric(12, 16),
 					Gap:         8,
-					Background:  specRaised,
+					Background:  p.Raised,
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specPlaytestAgentBorder,
+					BorderColor: specAlpha(p.Agent.Fg, 0.50),
 				},
 				Children: []core.Node{
 					core.View{
@@ -561,12 +557,12 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 									Width:        core.Pt(8),
 									Height:       core.Pt(8),
 									CornerRadius: 4,
-									Background:   specAgent,
+									Background:   p.Agent.Fg,
 								},
 							},
 							core.Text{
 								Content: fmt.Sprintf("Review playtest_define · %s (%s)", prop.MetricName, prop.File),
-								Style:   core.Style{FontSize: 13, FontWeight: 600, Color: specTextStrong},
+								Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 							},
 							core.View{Style: core.Style{FlexGrow: 1}},
 							ui.Button{
@@ -574,17 +570,17 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 								Text:    "Dismiss",
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specLineRaised },
+								Color:   func() core.Color { return p.LineRaised },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specText,
+									Color:      p.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
 									CornerRadius: 6,
 									Padding:      core.Symmetric(0, 10),
-									FocusVisible: specFocusRingStyle,
+									FocusVisible: p.FocusRing(2),
 								},
 								OnPress: func() {
 									ed.report(ed.DismissPlaytestProposal(propID))
@@ -595,17 +591,17 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 								Text:    "Apply to " + prop.File,
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specAccent },
+								Color:   func() core.Color { return p.Accent.Fg },
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 600,
-									Color:      specBg,
+									Color:      p.Accent.OnFill,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
 									CornerRadius: 6,
 									Padding:      core.Symmetric(0, 12),
-									FocusVisible: specFocusRingStyle,
+									FocusVisible: p.FocusRing(2),
 								},
 								OnPress: func() {
 									ed.report(ed.ApplyPlaytestProposal(propID))
@@ -617,15 +613,15 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 								Label:   "Close review",
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specPanel },
-								Tint:    func() core.Color { return specTextSecondary },
+								Color:   func() core.Color { return p.Panel },
+								Tint:    func() core.Color { return p.TextMuted },
 								Style: core.Style{
 									Width:        core.Pt(28),
 									Height:       core.Pt(28),
 									CornerRadius: 6,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
-									FocusVisible: specFocusRingStyle,
+									BorderColor:  p.LineRaised,
+									FocusVisible: p.FocusRing(2),
 								},
 								OnPress: func() {
 									ed.ClosePlaytestProposalReview()
@@ -637,9 +633,9 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 						Style: core.Style{
 							MaxHeight:    core.Pt(140),
 							CornerRadius: 8,
-							Background:   specBg,
+							Background:   p.Bg,
 							BorderWidth:  1,
-							BorderColor:  specLine,
+							BorderColor:  p.Line,
 							Padding:      core.Symmetric(6, 0),
 						},
 						Children: []core.Node{
@@ -656,10 +652,10 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 
 	if sess.ConfigPreviewOpen {
 		body := sess.ConfigPreviewText
-		col := specText
+		col := p.TextSecondary
 		if sess.ConfigPreviewErr != "" {
 			body = sess.ConfigPreviewErr
-			col = specProblem
+			col = p.Removed.Fg
 		}
 		return core.View{
 			TestID: "playtest-config-drawer",
@@ -669,9 +665,9 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 				FlexShrink:  0,
 				Padding:     core.Symmetric(12, 16),
 				Gap:         8,
-				Background:  specRaised,
+				Background:  p.Raised,
 				Borders:     core.Edges{Bottom: 1},
-				BorderColor: specLineRaised,
+				BorderColor: p.LineRaised,
 			},
 			Children: []core.Node{
 				core.View{
@@ -687,7 +683,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 								FontFamily: core.FontMonospace,
 								FontSize:   12,
 								FontWeight: 600,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.View{Style: core.Style{FlexGrow: 1}},
@@ -696,17 +692,17 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 							Text:    "Close",
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specLineRaised },
+							Color:   func() core.Color { return p.LineRaised },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 500,
-								Color:      specText,
+								Color:      p.TextSecondary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(28),
 								CornerRadius: 6,
 								Padding:      core.Symmetric(0, 10),
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: p.FocusRing(2),
 							},
 							OnPress: func() {
 								ed.ClosePlaytestConfigPreview()
@@ -718,9 +714,9 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 					Style: core.Style{
 						MaxHeight:    core.Pt(150),
 						CornerRadius: 8,
-						Background:   specBg,
+						Background:   p.Bg,
 						BorderWidth:  1,
-						BorderColor:  specLine,
+						BorderColor:  p.Line,
 						Padding:      core.All(10),
 					},
 					Children: []core.Node{
@@ -747,7 +743,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession) core.Node {
 	return core.View{Style: core.Style{Height: core.Pt(0)}}
 }
 
-func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry) core.Node {
+func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
 	return core.View{
 		Style: core.Style{
 			FlexGrow:  1,
@@ -757,7 +753,7 @@ func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestRe
 			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
-			playtestMetricCardsRowView(entry.Cards),
+			playtestMetricCardsRowView(entry.Cards, p),
 			core.View{
 				Style: core.Style{
 					Direction: core.Row,
@@ -767,22 +763,22 @@ func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestRe
 					Overflow:  core.Hidden,
 				},
 				Children: []core.Node{
-					playtestChartCardView(ed, entry.Chart),
-					playtestAgentReadCardView(ed, sess, entry),
+					playtestChartCardView(ed, entry.Chart, p),
+					playtestAgentReadCardView(ed, sess, entry, p),
 				},
 			},
 		},
 	}
 }
 
-func playtestMetricCardsRowView(cards []PlaytestMetricCard) core.Node {
+func playtestMetricCardsRowView(cards []PlaytestMetricCard, p SpecPalette) core.Node {
 	displayCards := cards
 	if len(displayCards) > 4 {
 		displayCards = displayCards[:4]
 	}
 	nodes := make([]core.Node, 0, len(displayCards))
 	for _, c := range displayCards {
-		nodes = append(nodes, playtestMetricCardView(c))
+		nodes = append(nodes, playtestMetricCardView(c, p))
 	}
 	return core.View{
 		TestID: "playtest-metric-cards",
@@ -798,19 +794,19 @@ func playtestMetricCardsRowView(cards []PlaytestMetricCard) core.Node {
 	}
 }
 
-func playtestMetricCardView(c PlaytestMetricCard) core.Node {
+func playtestMetricCardView(c PlaytestMetricCard, p SpecPalette) core.Node {
 	badgeBg := core.Transparent
-	badgeBorder := specLineRaised
-	badgeFg := specTextSecondary
+	badgeBorder := p.LineRaised
+	badgeFg := p.TextMuted
 	var badgeIcon *core.SVG
 	if c.Met {
-		badgeFg = specAdded
-		badgeBorder = specAddedEdge
+		badgeFg = p.Added.Fg
+		badgeBorder = specAlpha(p.Added.Fg, 0.45)
 		badgeIcon = lucide.Check()
 	} else if c.Missed {
-		badgeFg = specProblem
-		badgeBg = specPlaytestMissedFill
-		badgeBorder = specProblemEdge
+		badgeFg = p.Removed.Fg
+		badgeBg = specAlpha(p.Removed.Fg, 0.08)
+		badgeBorder = specAlpha(p.Removed.Fg, 0.50)
 		badgeIcon = lucide.X()
 	}
 
@@ -841,9 +837,9 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 			FlexGrow:     1,
 			FlexBasis:    core.Pt(0),
 			CornerRadius: 12,
-			Background:   specPanel,
+			Background:   p.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  p.Line,
 			Padding:      core.All(16),
 			Gap:          4,
 			Overflow:     core.Hidden,
@@ -862,7 +858,7 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 						Style: core.Style{
 							FlexGrow: 1,
 							FontSize: 12.5,
-							Color:    specTextMuted,
+							Color:    p.TextFaint,
 						},
 					},
 					core.View{
@@ -889,7 +885,7 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 				Style: core.Style{
 					FontSize:   28,
 					FontWeight: 600,
-					Color:      specTextStrong,
+					Color:      p.TextPrimary,
 				},
 			},
 			core.Text{
@@ -898,7 +894,7 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 				MaxLines: 1,
 				Style: core.Style{
 					FontSize: 12,
-					Color:    specTextMuted,
+					Color:    p.TextFaint,
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
@@ -917,7 +913,7 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 							FlexGrow:   1,
 							FlexShrink: 1,
 							FontSize:   11.5,
-							Color:      specTextSecondary,
+							Color:      p.TextMuted,
 						},
 					},
 					core.Text{
@@ -927,7 +923,7 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 							FontFamily: core.FontMonospace,
 							FontSize:   11.5,
 							FlexShrink: 0,
-							Color:      specTextMuted,
+							Color:      p.TextFaint,
 						},
 					},
 				},
@@ -936,7 +932,7 @@ func playtestMetricCardView(c PlaytestMetricCard) core.Node {
 	}
 }
 
-func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
+func playtestChartCardView(ed *Editor, spec PlaytestChartSpec, p SpecPalette) core.Node {
 	doc := ed.Doc
 	return core.View{
 		TestID: "playtest-chart-card",
@@ -946,9 +942,9 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
 			FlexGrow:     3,
 			FlexBasis:    core.Pt(0),
 			CornerRadius: 12,
-			Background:   specPanel,
+			Background:   p.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  p.Line,
 			Padding:      core.All(16),
 			Gap:          12,
 			Overflow:     core.Hidden,
@@ -969,7 +965,7 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
 						Style: core.Style{
 							FontSize:   13,
 							FontWeight: 600,
-							Color:      specTextStrong,
+							Color:      p.TextPrimary,
 						},
 					},
 					core.Text{
@@ -977,7 +973,7 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
 						Content: spec.Subtitle,
 						Style: core.Style{
 							FontSize: 12,
-							Color:    specTextMuted,
+							Color:    p.TextFaint,
 						},
 					},
 				},
@@ -987,9 +983,9 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
 					CornerRadius: 8,
-					Background:   specBg,
+					Background:   p.Bg,
 					BorderWidth:  1,
-					BorderColor:  specLine,
+					BorderColor:  p.Line,
 					Overflow:     core.Hidden,
 				},
 				Children: []core.Node{
@@ -1000,7 +996,7 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
 							Height: core.Pct(100),
 						},
 						Draw: func(d *core.Drawing, size core.Size) {
-							DrawPlaytestChart(d, size, spec, doc)
+							drawPlaytestChartWithPalette(d, size, spec, doc, p)
 						},
 					},
 				},
@@ -1009,19 +1005,19 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec) core.Node {
 	}
 }
 
-func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry) core.Node {
+func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
 	suggestionNodes := make([]core.Node, 0, len(entry.Suggestions))
 	for i, sg := range entry.Suggestions {
 		idx := i
-		borderCol := specLineRaised
-		bgCol := specRaised
+		borderCol := p.LineRaised
+		bgCol := p.Raised
 		statusText := "Ask agent"
-		statusCol := specTextMuted
+		statusCol := p.TextFaint
 		if sg.Requested {
-			borderCol = specPlaytestAgentBorder
-			bgCol = specPlaytestAgentBanner
+			borderCol = specAlpha(p.Agent.Fg, 0.50)
+			bgCol = specAlpha(p.Agent.Fg, 0.10)
 			statusText = "Review requested"
-			statusCol = specAgent
+			statusCol = p.Agent.Fg
 		}
 		suggestionNodes = append(suggestionNodes, core.View{
 			TestID: fmt.Sprintf("playtest-suggestion-%d", idx),
@@ -1034,8 +1030,8 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 				Background:   bgCol,
 				BorderWidth:  1,
 				BorderColor:  borderCol,
-				Hover:        &core.Style{BorderColor: specAccent},
-				FocusVisible: specFocusRingStyle,
+				Hover:        &core.Style{BorderColor: p.Accent.Fg},
+				FocusVisible: p.FocusRing(2),
 			},
 			OnPress: func(core.PressEvent) {
 				_, err := ed.RequestPlaytestSuggestion(idx)
@@ -1046,7 +1042,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 					Content: sg.Text,
 					Style: core.Style{
 						FontSize: 12.5,
-						Color:    specText,
+						Color:    p.TextSecondary,
 					},
 				},
 				core.Text{
@@ -1068,7 +1064,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 			Style: core.Style{
 				FontSize:   13,
 				FontWeight: 600,
-				Color:      specTextStrong,
+				Color:      p.TextPrimary,
 			},
 		},
 		core.Text{
@@ -1076,7 +1072,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 			Content: entry.AgentRead,
 			Style: core.Style{
 				FontSize: 12.5,
-				Color:    specText,
+				Color:    p.TextSecondary,
 			},
 		},
 		core.View{
@@ -1095,9 +1091,9 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 				Gap:          6,
 				Padding:      core.Symmetric(6, 10),
 				CornerRadius: 8,
-				Background:   specPlaytestAgentBanner,
+				Background:   specAlpha(p.Agent.Fg, 0.10),
 				BorderWidth:  1,
-				BorderColor:  specPlaytestAgentBorder,
+				BorderColor:  specAlpha(p.Agent.Fg, 0.50),
 			},
 			Children: []core.Node{
 				core.View{
@@ -1105,14 +1101,14 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 						Width:        core.Pt(6),
 						Height:       core.Pt(6),
 						CornerRadius: 3,
-						Background:   specAgent,
+						Background:   p.Agent.Fg,
 					},
 				},
 				core.Text{
 					Content: sess.Notice,
 					Style: core.Style{
 						FontSize:   11.5,
-						Color:      specText,
+						Color:      p.TextSecondary,
 						FlexShrink: 1,
 					},
 				},
@@ -1127,7 +1123,7 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 			Content: "Runs use the replay system, so any run can be watched frame by frame or turned into a test. Metrics and the bot come from playtest.yaml; the agent proposes new ones with playtest_define and they arrive as a review.",
 			Style: core.Style{
 				FontSize: 11.5,
-				Color:    specTextMuted,
+				Color:    p.TextFaint,
 			},
 		},
 	)
@@ -1140,9 +1136,9 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 			FlexGrow:     1,
 			FlexBasis:    core.Pt(0),
 			CornerRadius: 12,
-			Background:   specPanel,
+			Background:   p.Panel,
 			BorderWidth:  1,
-			BorderColor:  specLine,
+			BorderColor:  p.Line,
 			Padding:      core.All(16),
 			Gap:          12,
 			Overflow:     core.Hidden,
@@ -1154,6 +1150,10 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 // DrawPlaytestChart renders spec onto d using exclusively Spec.dc.html color tokens.
 // Exported so tests can verify all 4 chart kinds directly against core.Drawing as well as through EditorView.
 func DrawPlaytestChart(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc) {
+	drawPlaytestChartWithPalette(d, size, spec, scene, DarkSpecPalette())
+}
+
+func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc, p SpecPalette) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1161,28 +1161,38 @@ func DrawPlaytestChart(d *core.Drawing, size core.Size, spec PlaytestChartSpec, 
 	h := float32(size.Height)
 
 	d.Save()
-	d.SetFillColor(specBg).FillRect(0, 0, w, h)
+	d.SetFillColor(p.Bg).FillRect(0, 0, w, h)
 
 	switch spec.Kind {
 	case PlaytestChartHeatMap:
-		drawPlaytestHeatMapChart(d, w, h, spec.HeatMap, scene)
+		drawPlaytestHeatMapChart(d, w, h, spec.HeatMap, scene, p)
 	case PlaytestChartBars:
-		drawPlaytestBarChart(d, w, h, spec.Bars)
+		drawPlaytestBarChart(d, w, h, spec.Bars, p)
 	case PlaytestChartLine:
-		drawPlaytestLineChart(d, w, h, spec.Line)
+		drawPlaytestLineChart(d, w, h, spec.Line, p)
 	case PlaytestChartMatrix:
-		drawPlaytestMatrixChart(d, w, h, spec.Matrix)
+		drawPlaytestMatrixChart(d, w, h, spec.Matrix, p)
 	default:
-		d.SetFillColor(specTextMuted).FillText("No chart data available", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText("No chart data available", 16, h/2, core.Font{Size: 12})
 	}
 	d.Restore()
 }
 
-func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeatChart, scene *sceneformat.SceneDoc) {
+func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeatChart, scene *sceneformat.SceneDoc, p SpecPalette) {
 	if chart == nil || len(chart.Points) == 0 {
-		d.SetFillColor(specTextMuted).FillText("No positioned events recorded for heat map", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText("No positioned events recorded for heat map", 16, h/2, core.Font{Size: 12})
 		return
 	}
+
+	bgOverlay := specAlpha(p.Bg, 0.92)
+	gridLine := specAlpha(p.TextFaint, 0.16)
+	heatRedHigh := specAlpha(p.Removed.Fg, 0.56)
+	heatRedMid := specAlpha(p.Removed.Fg, 0.28)
+	heatRedSoft := specAlpha(p.Removed.Fg, 0.12)
+	heatAmberHi := specAlpha(p.Changed.Fg, 0.48)
+	heatAmberMid := specAlpha(p.Changed.Fg, 0.22)
+	heatAmberLow := specAlpha(p.Changed.Fg, 0.10)
+	problemEdge := specAlpha(p.Removed.Fg, 0.50)
 
 	pad := float32(16)
 	plotX := pad
@@ -1192,7 +1202,7 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 
 	// Subtle spatial grid lines in Spec tokens.
 	d.Save()
-	d.SetStrokeColor(specPlaytestGridLine).SetLineWidth(1)
+	d.SetStrokeColor(gridLine).SetLineWidth(1)
 	cols, rows := 12, 6
 	for i := 1; i < cols; i++ {
 		gx := plotX + plotW*float32(i)/float32(cols)
@@ -1225,17 +1235,17 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 	// Ground / level structural backdrop so spatial clusters read over the level silhouette.
 	if chart.IsTimePerTile {
 		// Top-down corridors and rooms silhouette using Spec raised/line tokens.
-		d.SetFillColor(specRaised).BeginPath().RoundRect(plotX+plotW*0.06, plotY+plotH*0.42, plotW*0.72, 16, 8).Fill()
-		d.SetFillColor(specRaised).BeginPath().RoundRect(plotX+plotW*0.38, plotY+plotH*0.14, 16, plotH*0.72, 8).Fill()
-		d.SetFillColor(specPanel).BeginPath().RoundRect(plotX+plotW*0.10, plotY+plotH*0.16, plotW*0.18, plotH*0.22, 6).Fill()
-		d.SetStrokeColor(specLineRaised).SetLineWidth(1).BeginPath().RoundRect(plotX+plotW*0.10, plotY+plotH*0.16, plotW*0.18, plotH*0.22, 6).Stroke()
+		d.SetFillColor(p.Raised).BeginPath().RoundRect(plotX+plotW*0.06, plotY+plotH*0.42, plotW*0.72, 16, 8).Fill()
+		d.SetFillColor(p.Raised).BeginPath().RoundRect(plotX+plotW*0.38, plotY+plotH*0.14, 16, plotH*0.72, 8).Fill()
+		d.SetFillColor(p.Panel).BeginPath().RoundRect(plotX+plotW*0.10, plotY+plotH*0.16, plotW*0.18, plotH*0.22, 6).Fill()
+		d.SetStrokeColor(p.LineRaised).SetLineWidth(1).BeginPath().RoundRect(plotX+plotW*0.10, plotY+plotH*0.16, plotW*0.18, plotH*0.22, 6).Stroke()
 	} else {
 		// Side-view ground floor + mid platform silhouette.
 		floorH := max(float32(28), plotH*0.18)
-		d.SetFillColor(specRaised).FillRect(plotX, plotY+plotH-floorH, plotW, floorH)
-		d.SetStrokeColor(specLineRaised).SetLineWidth(1.5).BeginPath().MoveTo(plotX, plotY+plotH-floorH).LineTo(plotX+plotW, plotY+plotH-floorH).Stroke()
+		d.SetFillColor(p.Raised).FillRect(plotX, plotY+plotH-floorH, plotW, floorH)
+		d.SetStrokeColor(p.LineRaised).SetLineWidth(1.5).BeginPath().MoveTo(plotX, plotY+plotH-floorH).LineTo(plotX+plotW, plotY+plotH-floorH).Stroke()
 		platY := plotY + plotH*0.58
-		d.SetFillColor(specLineRaised).BeginPath().RoundRect(plotX+plotW*0.50, platY, plotW*0.24, 12, 3).Fill()
+		d.SetFillColor(p.LineRaised).BeginPath().RoundRect(plotX+plotW*0.50, platY, plotW*0.24, 12, 3).Fill()
 	}
 
 	// Optional open-scene object markers when scene coordinates overlap the heat map bounds.
@@ -1245,7 +1255,7 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 				ox, oy := float64(obj.X), float64(obj.Y)
 				if ox >= chart.MinX && ox <= chart.MaxX && oy >= chart.MinY && oy <= chart.MaxY {
 					px, py := toX(ox), toY(oy)
-					d.SetFillColor(specLineRaised).BeginPath().RoundRect(px-8, py-6, 16, 12, 3).Fill()
+					d.SetFillColor(p.LineRaised).BeginPath().RoundRect(px-8, py-6, 16, 12, 3).Fill()
 				}
 			}
 		}
@@ -1266,9 +1276,9 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 		if baseR > 84 {
 			baseR = 84
 		}
-		outer, mid, coreCol := specPlaytestHeatAmberLow, specPlaytestHeatAmberMid, specPlaytestHeatAmberHi
+		outer, mid, coreCol := heatAmberLow, heatAmberMid, heatAmberHi
 		if cl.Problem {
-			outer, mid, coreCol = specPlaytestHeatRedSoft, specPlaytestHeatRedMid, specPlaytestHeatRedHigh
+			outer, mid, coreCol = heatRedSoft, heatRedMid, heatRedHigh
 		}
 		d.SetFillColor(outer).BeginPath().Arc(cx, cy, baseR, 0, float32(2*math.Pi), false).Fill()
 		d.SetFillColor(mid).BeginPath().Arc(cx, cy, baseR*0.64, 0, float32(2*math.Pi), false).Fill()
@@ -1281,7 +1291,7 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 			continue
 		}
 		px, py := toX(pt.X), toY(pt.Y)
-		d.SetFillColor(specTextStrong).BeginPath().Arc(px, py, 2.5, 0, float32(2*math.Pi), false).Fill()
+		d.SetFillColor(p.TextPrimary).BeginPath().Arc(px, py, 2.5, 0, float32(2*math.Pi), false).Fill()
 	}
 
 	// Draw hotspot callout chips above each top cluster.
@@ -1305,13 +1315,13 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 		if ry < plotY+6 {
 			ry = plotY + 6 + float32(i)*26
 		}
-		borderCol := specLineRaised
-		textCol := specText
+		borderCol := p.LineRaised
+		textCol := p.TextSecondary
 		if chip.Problem {
-			borderCol = specProblemEdge
-			textCol = specProblem
+			borderCol = problemEdge
+			textCol = p.Removed.Fg
 		}
-		d.SetFillColor(specBgOverlay).BeginPath().RoundRect(rx, ry, chipW, chipH, 11).Fill()
+		d.SetFillColor(bgOverlay).BeginPath().RoundRect(rx, ry, chipW, chipH, 11).Fill()
 		d.SetStrokeColor(borderCol).SetLineWidth(1).BeginPath().RoundRect(rx, ry, chipW, chipH, 11).Stroke()
 		d.SetFillColor(textCol).FillText(chip.Text, rx+10, ry+15, chipFont)
 	}
@@ -1323,19 +1333,22 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 	if legX < plotX+8 {
 		legX = plotX + 8
 	}
-	d.SetFillColor(specBgOverlay).BeginPath().RoundRect(legX-8, legY-13, 190, 20, 6).Fill()
-	d.SetStrokeColor(specLine).SetLineWidth(1).BeginPath().RoundRect(legX-8, legY-13, 190, 20, 6).Stroke()
-	d.SetFillColor(specChanged).BeginPath().Arc(legX+4, legY-3, 4, 0, float32(2*math.Pi), false).Fill()
-	d.SetFillColor(specTextSecondary).FillText("Moderate", legX+14, legY+1, legFont)
-	d.SetFillColor(specProblem).BeginPath().Arc(legX+82, legY-3, 4, 0, float32(2*math.Pi), false).Fill()
-	d.SetFillColor(specTextSecondary).FillText("Hotspot cluster", legX+92, legY+1, legFont)
+	d.SetFillColor(bgOverlay).BeginPath().RoundRect(legX-8, legY-13, 190, 20, 6).Fill()
+	d.SetStrokeColor(p.Line).SetLineWidth(1).BeginPath().RoundRect(legX-8, legY-13, 190, 20, 6).Stroke()
+	d.SetFillColor(p.Changed.Fg).BeginPath().Arc(legX+4, legY-3, 4, 0, float32(2*math.Pi), false).Fill()
+	d.SetFillColor(p.TextMuted).FillText("Moderate", legX+14, legY+1, legFont)
+	d.SetFillColor(p.Removed.Fg).BeginPath().Arc(legX+82, legY-3, 4, 0, float32(2*math.Pi), false).Fill()
+	d.SetFillColor(p.TextMuted).FillText("Hotspot cluster", legX+92, legY+1, legFont)
 }
 
-func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart) {
+func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette) {
 	if chart == nil || len(chart.Entries) == 0 {
-		d.SetFillColor(specTextMuted).FillText("No bar series entries to chart", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText("No bar series entries to chart", 16, h/2, core.Font{Size: 12})
 		return
 	}
+
+	gridLine := specAlpha(p.TextFaint, 0.16)
+	barNormal := specAlpha(p.TextFaint, 0.45)
 
 	padL, padR := float32(28), float32(28)
 	padT, padB := float32(28), float32(42)
@@ -1344,8 +1357,8 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 	baseY := padT + plotH
 
 	// Subtle baseline and top guide.
-	d.SetStrokeColor(specLine).SetLineWidth(1).BeginPath().MoveTo(padL, baseY).LineTo(padL+plotW, baseY).Stroke()
-	d.SetStrokeColor(specPlaytestGridLine).SetLineWidth(1).BeginPath().MoveTo(padL, padT+plotH*0.5).LineTo(padL+plotW, padT+plotH*0.5).Stroke()
+	d.SetStrokeColor(p.Line).SetLineWidth(1).BeginPath().MoveTo(padL, baseY).LineTo(padL+plotW, baseY).Stroke()
+	d.SetStrokeColor(gridLine).SetLineWidth(1).BeginPath().MoveTo(padL, padT+plotH*0.5).LineTo(padL+plotW, padT+plotH*0.5).Stroke()
 
 	maxVal := chart.MaxVal
 	if !isFinite64(maxVal) || maxVal <= 0 {
@@ -1363,7 +1376,7 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 		}
 		gy := baseY - ratio*plotH
 		d.Save()
-		d.SetStrokeColor(specTextMuted).SetLineWidth(1).SetLineDash(5, 4)
+		d.SetStrokeColor(p.TextFaint).SetLineWidth(1).SetLineDash(5, 4)
 		d.BeginPath().MoveTo(padL, gy).LineTo(padL+plotW, gy).Stroke()
 		d.Restore()
 		if chart.TargetText != "" {
@@ -1372,7 +1385,7 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 			if tx < padL {
 				tx = padL
 			}
-			d.SetFillColor(specTextSecondary).FillText(chart.TargetText, tx, max(padT, gy-6), core.Font{Size: 11})
+			d.SetFillColor(p.TextMuted).FillText(chart.TargetText, tx, max(padT, gy-6), core.Font{Size: 11})
 		}
 	}
 
@@ -1410,17 +1423,17 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 		flaggedProblem := e.Flag == playtest.FlagProblem || (chart.TargetMax != nil && isFinite64(*chart.TargetMax) && val > *chart.TargetMax)
 		flaggedWarn := !flaggedProblem && e.Flag == playtest.FlagWarning
 
-		barCol := specBarNormal
-		valCol := specTextSecondary
-		lblCol := specTextMuted
+		barCol := barNormal
+		valCol := p.TextMuted
+		lblCol := p.TextFaint
 		if flaggedProblem {
-			barCol = specProblem
-			valCol = specProblem
-			lblCol = specTextStrong
+			barCol = p.Removed.Fg
+			valCol = p.Removed.Fg
+			lblCol = p.TextPrimary
 		} else if flaggedWarn {
-			barCol = specChanged
-			valCol = specChanged
-			lblCol = specTextStrong
+			barCol = p.Changed.Fg
+			valCol = p.Changed.Fg
+			lblCol = p.TextPrimary
 		}
 
 		d.SetFillColor(barCol).BeginPath().RoundRect(barX, barY, barW, bh, 5).Fill()
@@ -1437,11 +1450,14 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 	}
 }
 
-func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart) {
+func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette) {
 	if chart == nil || len(chart.Entries) == 0 {
-		d.SetFillColor(specTextMuted).FillText("No level progression entries to chart", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText("No level progression entries to chart", 16, h/2, core.Font{Size: 12})
 		return
 	}
+
+	gridLine := specAlpha(p.TextFaint, 0.16)
+	lineArea := specAlpha(p.Accent.Fg, 0.14)
 
 	padL, padR := float32(44), float32(28)
 	padT, padB := float32(32), float32(44)
@@ -1459,13 +1475,13 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 	for step := 0; step <= 4; step++ {
 		frac := float32(step) / 4.0
 		y := baseY - frac*plotH
-		col := specPlaytestGridLine
+		col := gridLine
 		if step == 0 {
-			col = specLine
+			col = p.Line
 		}
 		d.SetStrokeColor(col).SetLineWidth(1).BeginPath().MoveTo(padL, y).LineTo(padL+plotW, y).Stroke()
 		val := maxVal * float64(frac)
-		d.SetFillColor(specTextMuted).FillText(formatCleanNumber(val, chart.Decimals), 8, y+4, axisFont)
+		d.SetFillColor(p.TextFaint).FillText(formatCleanNumber(val, chart.Decimals), 8, y+4, axisFont)
 	}
 
 	// Optional dashed target line.
@@ -1473,12 +1489,12 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 		ratio := float32(min(1.0, max(0.0, *chart.TargetMax/maxVal)))
 		gy := baseY - ratio*plotH
 		d.Save()
-		d.SetStrokeColor(specTextMuted).SetLineWidth(1).SetLineDash(5, 4)
+		d.SetStrokeColor(p.TextFaint).SetLineWidth(1).SetLineDash(5, 4)
 		d.BeginPath().MoveTo(padL, gy).LineTo(padL+plotW, gy).Stroke()
 		d.Restore()
 		if chart.TargetText != "" {
 			tw := float32(len(chart.TargetText)) * 6.0
-			d.SetFillColor(specTextSecondary).FillText(chart.TargetText, max(padL, padL+plotW-tw), max(padT, gy-6), core.Font{Size: 11})
+			d.SetFillColor(p.TextMuted).FillText(chart.TargetText, max(padL, padL+plotW-tw), max(padT, gy-6), core.Font{Size: 11})
 		}
 	}
 
@@ -1501,14 +1517,14 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 
 	// Subtle translucent area fill beneath the line.
 	if n >= 2 {
-		p := d.SetFillColor(specPlaytestLineArea).BeginPath().MoveTo(xs[0], baseY)
+		areaPath := d.SetFillColor(lineArea).BeginPath().MoveTo(xs[0], baseY)
 		for i := range n {
-			p.LineTo(xs[i], ys[i])
+			areaPath.LineTo(xs[i], ys[i])
 		}
-		p.LineTo(xs[n-1], baseY).ClosePath().Fill()
+		areaPath.LineTo(xs[n-1], baseY).ClosePath().Fill()
 
-		// Primary line stroke in Spec accent (#3B7BFF).
-		lp := d.SetStrokeColor(specAccent).SetLineWidth(2.2).BeginPath().MoveTo(xs[0], ys[0])
+		// Primary line stroke in Spec accent.
+		lp := d.SetStrokeColor(p.Accent.Fg).SetLineWidth(2.2).BeginPath().MoveTo(xs[0], ys[0])
 		for i := 1; i < n; i++ {
 			lp.LineTo(xs[i], ys[i])
 		}
@@ -1521,19 +1537,19 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 	// Draw data points, value labels, and problem/warning markers.
 	for i, e := range chart.Entries {
 		px, py := xs[i], ys[i]
-		dotCol := specAccent
-		valCol := specTextSecondary
-		lblCol := specTextMuted
+		dotCol := p.Accent.Fg
+		valCol := p.TextMuted
+		lblCol := p.TextFaint
 		r := float32(4.5)
 		if e.Flag == playtest.FlagProblem {
-			dotCol = specProblem
-			valCol = specProblem
-			lblCol = specTextStrong
+			dotCol = p.Removed.Fg
+			valCol = p.Removed.Fg
+			lblCol = p.TextPrimary
 			r = 6
 		} else if e.Flag == playtest.FlagWarning {
-			dotCol = specChanged
-			valCol = specChanged
-			lblCol = specTextStrong
+			dotCol = p.Changed.Fg
+			valCol = p.Changed.Fg
+			lblCol = p.TextPrimary
 			r = 5.5
 		}
 
@@ -1542,7 +1558,7 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 			d.SetStrokeColor(dotCol).SetLineWidth(1.5).BeginPath().Arc(px, py, r+4, 0, float32(2*math.Pi), false).Stroke()
 		}
 		d.SetFillColor(dotCol).BeginPath().Arc(px, py, r, 0, float32(2*math.Pi), false).Fill()
-		d.SetStrokeColor(specBg).SetLineWidth(1.5).BeginPath().Arc(px, py, r, 0, float32(2*math.Pi), false).Stroke()
+		d.SetStrokeColor(p.Bg).SetLineWidth(1.5).BeginPath().Arc(px, py, r, 0, float32(2*math.Pi), false).Stroke()
 
 		val := e.Value
 		if !isFinite64(val) {
@@ -1564,11 +1580,13 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 	}
 }
 
-func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatrixChart) {
+func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatrixChart, p SpecPalette) {
 	if chart == nil || len(chart.Labels) == 0 {
-		d.SetFillColor(specTextMuted).FillText("No win-rate matrix data to chart", 16, h/2, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText("No win-rate matrix data to chart", 16, h/2, core.Font{Size: 12})
 		return
 	}
+
+	problemTint := specAlpha(p.Removed.Fg, 0.14)
 
 	n := len(chart.Labels)
 	gap := float32(8)
@@ -1597,7 +1615,7 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 		cx := originX + rowHeaderW + gap + float32(c)*(cellW+gap)
 		text := "vs " + lbl
 		tw := float32(len(text)) * 6.4
-		d.SetFillColor(specTextMuted).FillText(text, cx+(cellW-tw)/2, originY+20, headFont)
+		d.SetFillColor(p.TextFaint).FillText(text, cx+(cellW-tw)/2, originY+20, headFont)
 	}
 
 	// Rows + cells.
@@ -1605,7 +1623,7 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 	for r, rowLbl := range chart.Labels {
 		ry := originY + colHeaderH + gap + float32(r)*(cellH+gap)
 		rw := float32(len(rowLbl)) * 7.0
-		d.SetFillColor(specTextStrong).FillText(rowLbl, originX+rowHeaderW-rw-8, ry+cellH/2+5, rowFont)
+		d.SetFillColor(p.TextPrimary).FillText(rowLbl, originX+rowHeaderW-rw-8, ry+cellH/2+5, rowFont)
 
 		for c := range n {
 			cx := originX + rowHeaderW + gap + float32(c)*(cellW+gap)
@@ -1614,13 +1632,13 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 				cell = chart.Cells[r][c]
 			}
 
-			fill := specRaised
-			border := specLineRaised
+			fill := p.Raised
+			border := p.LineRaised
 			borderW := float32(1)
 			valText := "—"
-			valCol := specTextMuted
+			valCol := p.TextFaint
 			noteText := "same deck"
-			noteCol := specTextMuted
+			noteCol := p.TextFaint
 
 			if cell != nil && !isFinite64(*cell) {
 				cell = nil
@@ -1628,24 +1646,24 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 			if cell != nil {
 				v := *cell
 				valText = formatCleanNumber(v, 0) + chart.Unit
-				valCol = specTextStrong
+				valCol = p.TextPrimary
 				switch {
 				case v > chart.FlagAbove:
-					fill = specProblemTint
-					border = specProblem
+					fill = problemTint
+					border = p.Removed.Fg
 					borderW = 1.5
 					noteText = flagThresholdText
-					noteCol = specProblem
+					noteCol = p.Removed.Fg
 				case v > chart.FlagAbove-5:
-					fill = specWarningFill
-					border = specWarningEdge
+					fill = p.Warning.Fill
+					border = p.Warning.Edge
 					noteText = "watch"
-					noteCol = specWarning
+					noteCol = p.Warning.Fg
 				default:
-					fill = specRaised
-					border = specLineRaised
+					fill = p.Raised
+					border = p.LineRaised
 					noteText = "balanced"
-					noteCol = specTextMuted
+					noteCol = p.TextFaint
 				}
 			}
 
@@ -1656,7 +1674,7 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 
 			// Draw a small flag mark on >60% cells so flagged cells are distinguished by shape + text + border width, not color alone.
 			if cell != nil && *cell > chart.FlagAbove {
-				d.SetFillColor(specProblem).BeginPath().Arc(cx+cellW-12, ry+12, 3.5, 0, float32(2*math.Pi), false).Fill()
+				d.SetFillColor(p.Removed.Fg).BeginPath().Arc(cx+cellW-12, ry+12, 3.5, 0, float32(2*math.Pi), false).Fill()
 			}
 
 			vw := float32(len(valText)) * 11.0
@@ -1671,6 +1689,6 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 	if chart.Caption != "" {
 		cw := float32(len(chart.Caption)) * 6.1
 		capY := originY + colHeaderH + gap + float32(n)*(cellH+gap) + 14
-		d.SetFillColor(specTextMuted).FillText(chart.Caption, max(pad, (w-cw)/2), capY, core.Font{Size: 12})
+		d.SetFillColor(p.TextFaint).FillText(chart.Caption, max(pad, (w-cw)/2), capY, core.Font{Size: 12})
 	}
 }

@@ -21,16 +21,6 @@ const (
 	cutscenePreviewH float32 = 324
 )
 
-// Spec-derived translucent fills from spec_theme.yaml.
-var (
-	specChangedFill  = specAlpha(darkSpecPalette.Changed.Fg, 0.14)
-	specRemovedFill  = specAlpha(darkSpecPalette.Removed.Fg, 0.14)
-	specAccentFill   = specAlpha(darkSpecPalette.Accent.Fg, 0.16)
-	specDialogueFill = specAlpha(darkSpecPalette.Accent.Fg, 0.10)
-	specAudioFill    = specAlpha(darkSpecPalette.Added.Fg, 0.10)
-	specSubtitleBg   = specAlpha(darkSpecPalette.Bg, 0.88)
-)
-
 // CutscenePanelView renders the full-workspace cutscene timeline and agent review screen (matching docs/design/editor/Animation.dc.html Screen 2 and Spec.dc.html tokens) whenever a cutscene is open and Play mode is not active.
 func CutscenePanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Show{
@@ -43,74 +33,77 @@ func CutscenePanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 }
 
 func cutscenePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	topBar := cutsceneTopBar(cx, ed, rev)
-	leftRail := cutsceneLeftRail(cx, ed, rev)
-	centerCol := cutsceneCenterColumn(cx, ed, rev)
-	rightRail := cutsceneRightRail(cx, ed, rev)
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		topBar := cutsceneTopBar(cx, p, ed, rev)
+		leftRail := cutsceneLeftRail(cx, p, ed, rev)
+		centerCol := cutsceneCenterColumn(cx, p, ed, rev)
+		rightRail := cutsceneRightRail(cx, p, ed, rev)
 
-	return core.View{
-		TestID: "cutscene-panel",
-		OnKeyDown: func(ev core.KeyEvent) bool {
-			return ed.CutsceneHandleKeyEvent(ev, true)
-		},
-		OnKeyUp: func(ev core.KeyEvent) {
-			ed.CutsceneHandleKeyEvent(ev, false)
-		},
-		Style: core.Style{
-			FlexGrow:   1,
-			FlexBasis:  core.Pt(0),
-			Background: specBg,
-			Overflow:   core.Hidden,
-		},
-		Children: []core.Node{
-			topBar,
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.CutsceneError() != nil
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return core.View{
-						Style: core.Style{
-							Padding:     core.Symmetric(6, 12),
-							Background:  specPanel,
-							Borders:     core.Edges{Bottom: 1},
-							BorderColor: specLine,
-						},
-						Children: []core.Node{
-							core.Text{
-								TestID: "cutscene-error",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									if err := ed.CutsceneError(); err != nil {
-										return "Preview: " + err.Error()
-									}
-									return ""
-								},
-								Style: core.Style{FontSize: 11.5, Color: specProblem},
+		return core.View{
+			TestID: "cutscene-panel",
+			OnKeyDown: func(ev core.KeyEvent) bool {
+				return ed.CutsceneHandleKeyEvent(ev, true)
+			},
+			OnKeyUp: func(ev core.KeyEvent) {
+				ed.CutsceneHandleKeyEvent(ev, false)
+			},
+			Style: core.Style{
+				FlexGrow:   1,
+				FlexBasis:  core.Pt(0),
+				Background: p.Bg,
+				Overflow:   core.Hidden,
+			},
+			Children: []core.Node{
+				topBar,
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.CutsceneError() != nil
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return core.View{
+							Style: core.Style{
+								Padding:     core.Symmetric(6, 12),
+								Background:  p.Panel,
+								Borders:     core.Edges{Bottom: 1},
+								BorderColor: p.Line,
 							},
-						},
-					}
+							Children: []core.Node{
+								core.Text{
+									TestID: "cutscene-error",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										if err := ed.CutsceneError(); err != nil {
+											return "Preview: " + err.Error()
+										}
+										return ""
+									},
+									Style: core.Style{FontSize: 11.5, Color: p.Removed.Fg},
+								},
+							},
+						}
+					},
+				},
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Overflow:  core.Hidden,
+					},
+					Children: []core.Node{
+						leftRail,
+						centerCol,
+						rightRail,
+					},
 				},
 			},
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
-				},
-				Children: []core.Node{
-					leftRail,
-					centerCol,
-					rightRail,
-				},
-			},
-		},
-	}
+		}
+	})
 }
 
-func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneTopBar(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "cutscene-topbar",
 		Style: core.Style{
@@ -120,9 +113,9 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			JustifyContent: core.JustifySpaceBetween,
 			Padding:        core.Symmetric(0, 12),
 			Gap:            12,
-			Background:     specBg,
+			Background:     p.Bg,
 			Borders:        core.Edges{Bottom: 1},
-			BorderColor:    specLine,
+			BorderColor:    p.Line,
 		},
 		Children: []core.Node{
 			// Left breadcrumb: project / cutscenes / file.cutscene.yaml
@@ -134,14 +127,14 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							Width:          core.Pt(22),
 							Height:         core.Pt(22),
 							CornerRadius:   6,
-							Background:     specAccent,
+							Background:     p.Accent.Fg,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
 						},
 						Children: []core.Node{
 							core.Text{
 								Content: "A",
-								Style:   core.Style{FontSize: 11, FontWeight: 700, Color: specBg},
+								Style:   core.Style{FontSize: 11, FontWeight: 700, Color: p.Accent.OnFill},
 							},
 						},
 					},
@@ -157,18 +150,18 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							}
 							return "project"
 						},
-						Style: core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+						Style: core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary},
 					},
-					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
-					core.Text{Content: "cutscenes", Style: core.Style{FontSize: 12.5, Color: specTextSecondary}},
-					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
+					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
+					core.Text{Content: "cutscenes", Style: core.Style{FontSize: 12.5, Color: p.TextMuted}},
+					core.Text{Content: "/", Style: core.Style{FontSize: 12.5, Color: p.TextFaint}},
 					core.Text{
 						TestID: "cutscene-breadcrumb-file",
 						ContentFunc: func() string {
 							_ = rev.Get()
 							return cutsceneFileBaseName(ed)
 						},
-						Style: core.Style{FontSize: 12.5, Color: specTextSecondary},
+						Style: core.Style{FontSize: 12.5, Color: p.TextMuted},
 					},
 					core.Show{
 						When: func() bool {
@@ -182,7 +175,7 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 									Width:        core.Pt(6),
 									Height:       core.Pt(6),
 									CornerRadius: 3,
-									Background:   specChanged,
+									Background:   p.Changed.Fg,
 								},
 							}
 						},
@@ -211,7 +204,7 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 											_ = rev.Get()
 											return "from “" + ed.CutsceneReviewPrompt() + "”"
 										},
-										Style: core.Style{FontSize: 12, Color: specTextMuted},
+										Style: core.Style{FontSize: 12, Color: p.TextFaint},
 									}
 								},
 							},
@@ -223,18 +216,18 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 									Gap:          2,
 									Padding:      core.All(3),
 									CornerRadius: 8,
-									Background:   specRaised,
+									Background:   p.Raised,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  p.LineRaised,
 								},
 								Children: []core.Node{
-									cutsceneSegButton("cutscene-review-before", "Before", func() bool {
+									cutsceneSegButton(p, "cutscene-review-before", "Before", func() bool {
 										_ = rev.Get()
 										return ed.CutsceneReviewShowingBefore()
 									}, func() {
 										ed.SetCutsceneReviewViewMode(CutsceneReviewBefore)
 									}),
-									cutsceneSegButton("cutscene-review-after", "After", func() bool {
+									cutsceneSegButton(p, "cutscene-review-after", "After", func() bool {
 										_ = rev.Get()
 										return !ed.CutsceneReviewShowingBefore()
 									}, func() {
@@ -245,22 +238,22 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							core.Text{
 								TestID:  "cutscene-peek-hint",
 								Content: "hold B to peek",
-								Style:   core.Style{FontSize: 11, Color: specTextMuted},
+								Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 							},
 							core.View{
 								Style: core.Style{
 									Width:      core.Pt(1),
 									Height:     core.Pt(22),
-									Background: specLineRaised,
+									Background: p.LineRaised,
 								},
 							},
-							cutsceneActionButton("cutscene-review-revert-all", func() string { return "Revert all" }, false, func() bool {
+							cutsceneActionButton(p, "cutscene-review-revert-all", func() string { return "Revert all" }, false, func() bool {
 								_ = rev.Get()
 								return ed.Playing()
 							}, func() {
 								ed.report(ed.RevertAllCutsceneReview())
 							}),
-							cutsceneActionButton("cutscene-review-keep", func() string {
+							cutsceneActionButton(p, "cutscene-review-keep", func() string {
 								_ = rev.Get()
 								kept, total := ed.CutsceneReviewKeptCount()
 								return fmt.Sprintf("Keep %d of %d", kept, total)
@@ -277,13 +270,13 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					return ui.HStack{
 						Gap: 8,
 						Children: []core.Node{
-							cutsceneActionButton("cutscene-save", func() string { return "Save" }, false, func() bool {
+							cutsceneActionButton(p, "cutscene-save", func() string { return "Save" }, false, func() bool {
 								_ = rev.Get()
 								return ed.Playing()
 							}, func() {
 								ed.report(ed.saveCutsceneFromPanel())
 							}),
-							cutsceneActionButton("cutscene-close", func() string { return "Close" }, false, func() bool {
+							cutsceneActionButton(p, "cutscene-close", func() string { return "Close" }, false, func() bool {
 								_ = rev.Get()
 								return ed.Playing()
 							}, func() {
@@ -297,7 +290,7 @@ func cutsceneTopBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	}
 }
 
-func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneLeftRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type railEpoch struct {
 		projectPath string
 		filesRev    uint64
@@ -319,15 +312,16 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		fmt.Fprintf(&b, "open:%s|before:%v", ed.CutscenePath(), ed.CutsceneReviewShowingBefore())
 		return b.String()
 	})
+	activeNodeBg := CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
 
 	return core.View{
 		TestID: "cutscene-left-rail",
 		Style: core.Style{
 			Width:       core.Pt(232),
 			FlexShrink:  0,
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Overflow:    core.Hidden,
 		},
 		Children: []core.Node{
@@ -354,10 +348,10 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								}
 							}
 							var bg core.Color
-							nameCol := specTextSecondary
+							nameCol := p.TextMuted
 							if active {
-								bg = specActiveNode
-								nameCol = specTextStrong
+								bg = activeNodeBg
+								nameCol = p.TextPrimary
 							}
 							cutRows = append(cutRows, core.View{
 								TestID: fmt.Sprintf("cutscene-list-%s", ent.Name),
@@ -377,7 +371,7 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									Gap:            8,
 									CornerRadius:   6,
 									Background:     bg,
-									FocusVisible:   specRowFocusRingStyle,
+									FocusVisible:   p.FocusRing(-2),
 								},
 								Children: []core.Node{
 									core.Text{
@@ -387,7 +381,7 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									core.Text{
 										TestID:  fmt.Sprintf("cutscene-list-meta-%d", i),
 										Content: meta,
-										Style:   core.Style{FontSize: 11, Color: specTextMuted},
+										Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 									},
 								},
 							})
@@ -395,9 +389,9 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 						lineNodes := make([]core.Node, 0, len(lines))
 						for _, ln := range lines {
-							idCol := specTextMuted
+							idCol := p.TextFaint
 							if ln.Added {
-								idCol = specAdded
+								idCol = p.Added.Fg
 							}
 							enText := ln.En
 							if enText == "" {
@@ -417,11 +411,11 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									},
 									core.Text{
 										Content: enText,
-										Style:   core.Style{FontSize: 12, Color: specText},
+										Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 									},
 									core.Text{
 										Content: zhText,
-										Style:   core.Style{FontSize: 12, Color: specTextMuted},
+										Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 									},
 								},
 							})
@@ -429,7 +423,7 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						if len(lineNodes) == 0 {
 							lineNodes = append(lineNodes, core.Text{
 								Content: "No dialogue lines in this cutscene",
-								Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+								Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 							})
 						}
 
@@ -445,7 +439,7 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									Children: []core.Node{
 										core.Text{
 											Content: "CUTSCENES",
-											Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+											Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 										},
 									},
 								},
@@ -459,7 +453,7 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 										core.Text{
 											TestID:  "cutscene-lines-header",
 											Content: "LINES · " + enPath,
-											Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+											Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 										},
 									},
 								},
@@ -476,7 +470,7 @@ func cutsceneLeftRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 }
 
-func cutsceneCenterColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneCenterColumn(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "cutscene-center",
 		Style: core.Style{
@@ -485,20 +479,20 @@ func cutsceneCenterColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
-			cutscenePreviewStage(cx, ed, rev),
-			cutsceneTimelineDrawer(cx, ed, rev),
+			cutscenePreviewStage(cx, p, ed, rev),
+			cutsceneTimelineDrawer(cx, p, ed, rev),
 		},
 	}
 }
 
-func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutscenePreviewStage(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "cutscene-preview-stage",
 		Style: core.Style{
 			FlexGrow:   1,
 			FlexBasis:  core.Pt(0),
 			Position:   core.Relative,
-			Background: specViewportBG,
+			Background: p.Viewport,
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
@@ -512,7 +506,7 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					Bottom:   core.Pt(0),
 				},
 				Draw: func(d *core.Drawing, size core.Size) {
-					drawDotGrid(d, size)
+					drawDotGrid(d, size, p)
 				},
 			},
 			// Foreground preview frame + camera label + subtitle + review legend
@@ -538,7 +532,7 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 									_ = rev.Get()
 									return ed.CutsceneCameraLabel()
 								},
-								Style: core.Style{FontSize: 11, Color: specTextMuted},
+								Style: core.Style{FontSize: 11, Color: p.TextFaint},
 							},
 							core.View{
 								TestID: "cutscene-preview-frame",
@@ -547,9 +541,9 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 									Height:       core.Pt(core.Points(cutscenePreviewH)),
 									Position:     core.Relative,
 									CornerRadius: 4,
-									Background:   specPanel,
+									Background:   p.Panel,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  p.LineRaised,
 									Overflow:     core.Hidden,
 								},
 								Children: []core.Node{
@@ -561,7 +555,7 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 										},
 										Draw: func(d *core.Drawing, size core.Size) {
 											_ = rev.Get()
-											drawCutscenePreview(d, size, ed)
+											drawCutscenePreview(d, size, p, ed)
 										},
 									},
 									// Before-mode indicator pill
@@ -582,14 +576,14 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 													CornerRadius:   13,
 													AlignItems:     core.AlignCenter,
 													JustifyContent: core.JustifyCenter,
-													Background:     specBgOverlay,
+													Background:     specAlpha(p.Bg, 0.92),
 													BorderWidth:    1,
-													BorderColor:    specLineRaised,
+													BorderColor:    p.LineRaised,
 												},
 												Children: []core.Node{
 													core.Text{
 														Content: "Showing the cutscene before this request",
-														Style:   core.Style{FontSize: 11.5, Color: specTextSecondary},
+														Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
 													},
 												},
 											}
@@ -617,7 +611,7 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 														Style: core.Style{
 															Padding:      core.Symmetric(8, 16),
 															CornerRadius: 8,
-															Background:   specSubtitleBg,
+															Background:   specAlpha(p.Bg, 0.88),
 														},
 														Children: []core.Node{
 															core.Text{
@@ -626,7 +620,7 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 																	_ = rev.Get()
 																	return ed.CutsceneActiveDialogue().Text
 																},
-																Style: core.Style{FontSize: 14, Color: specTextStrong},
+																Style: core.Style{FontSize: 14, Color: p.TextPrimary},
 															},
 														},
 													},
@@ -652,9 +646,9 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 									Gap:     8,
 								},
 								Children: []core.Node{
-									cutsceneLegendRow("added", specAdded, true),
-									cutsceneLegendRow("changed", specChanged, true),
-									cutsceneLegendRow("selected", specAccent, false),
+									cutsceneLegendRow(p, "added", p.Added.Fg, true),
+									cutsceneLegendRow(p, "changed", p.Changed.Fg, true),
+									cutsceneLegendRow(p, "selected", p.Accent.Fg, false),
 								},
 							}
 						},
@@ -665,7 +659,7 @@ func cutscenePreviewStage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 }
 
-func cutsceneLegendRow(label string, col core.Color, dashed bool) core.Node {
+func cutsceneLegendRow(p SpecPalette, label string, col core.Color, dashed bool) core.Node {
 	return ui.HStack{
 		Gap: 8,
 		Children: []core.Node{
@@ -683,13 +677,13 @@ func cutsceneLegendRow(label string, col core.Color, dashed bool) core.Node {
 			},
 			core.Text{
 				Content: label,
-				Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+				Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 			},
 		},
 	}
 }
 
-func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneTimelineDrawer(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	structEpoch := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
 		return ed.cutscene.structRev
@@ -720,9 +714,9 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			JustifyContent: core.JustifySpaceBetween,
 			Padding:        core.Symmetric(0, 12),
 			Gap:            12,
-			Background:     specPanel,
+			Background:     p.Panel,
 			Borders:        core.Edges{Bottom: 1},
-			BorderColor:    specLine,
+			BorderColor:    p.Line,
 		},
 		Children: []core.Node{
 			ui.HStack{
@@ -749,8 +743,8 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							CornerRadius:   8,
 							AlignItems:     core.AlignCenter,
 							JustifyContent: core.JustifyCenter,
-							Background:     specLineRaised,
-							FocusVisible:   specFocusRingStyle,
+							Background:     p.LineRaised,
+							FocusVisible:   p.FocusRing(2),
 						},
 						Children: []core.Node{
 							core.Text{
@@ -762,7 +756,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 									}
 									return "Play"
 								},
-								Style: core.Style{FontSize: 12, FontWeight: 500, Color: specTextStrong},
+								Style: core.Style{FontSize: 12, FontWeight: 500, Color: p.TextPrimary},
 							},
 						},
 					},
@@ -772,7 +766,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							_ = rev.Get()
 							return formatCutsceneSec(ed.CutsceneTime())
 						},
-						Style: core.Style{FontSize: 11.5, FontWeight: 500, Color: specTextStrong},
+						Style: core.Style{FontSize: 11.5, FontWeight: 500, Color: p.TextPrimary},
 					},
 					core.Text{
 						TestID: "cutscene-length",
@@ -780,13 +774,13 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							_ = rev.Get()
 							return "/ " + formatCutsceneSec(ed.CutsceneLength())
 						},
-						Style: core.Style{FontSize: 11.5, Color: specTextMuted},
+						Style: core.Style{FontSize: 11.5, Color: p.TextFaint},
 					},
 				},
 			},
 			core.Text{
 				Content: "Click the strip to scrub",
-				Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+				Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 			},
 		},
 	}
@@ -804,11 +798,11 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 				Children: []core.Node{
 					core.Text{
 						Content: "Video cutscene · " + doc.Source,
-						Style:   core.Style{FontSize: 13, FontWeight: 600, Color: specTextStrong},
+						Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 					},
 					core.Text{
 						Content: fmt.Sprintf("Fit: %s · Skippable: %v", effectiveFitLabel(doc.Fit), doc.Skippable),
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
 			}
@@ -846,28 +840,28 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					if diff < 0 {
 						diff = -diff
 					}
-					border := specLineRaised
+					border := p.LineRaised
 					bw := core.Points(1)
 					if diff <= step/2 {
-						border = specAccent
+						border = p.Accent.Fg
 						bw = 1.5
 					}
 					return core.Style{
 						Width:        core.Pt(core.Points(thumbW)),
 						Height:       core.Pt(38),
 						CornerRadius: 4,
-						Background:   specViewportBG,
+						Background:   p.Viewport,
 						BorderWidth:  bw,
 						BorderColor:  border,
 						Overflow:     core.Hidden,
-						FocusVisible: specFocusRingStyle,
+						FocusVisible: p.FocusRing(2),
 					}
 				},
 				Children: []core.Node{
 					core.Canvas{
 						Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 						Draw: func(d *core.Drawing, size core.Size) {
-							drawCutsceneThumb(d, size, sample)
+							drawCutsceneThumb(d, size, p, sample)
 						},
 					},
 				},
@@ -908,12 +902,12 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					Bottom:      core.Pt(2),
 					Padding:     core.Edges{Left: 4},
 					Borders:     core.Edges{Left: 1},
-					BorderColor: specLineRaised,
+					BorderColor: p.LineRaised,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: fmt.Sprintf("%d", s),
-						Style:   core.Style{FontSize: 10.5, Color: specTextMuted},
+						Style:   core.Style{FontSize: 10.5, Color: p.TextFaint},
 					},
 				},
 			})
@@ -970,7 +964,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						Height:       core.Pt(28),
 						CornerRadius: 6,
 						Overflow:     core.Hidden,
-						FocusVisible: specFocusRingStyle,
+						FocusVisible: p.FocusRing(2),
 					},
 					Children: []core.Node{
 						// Canvas background with dashed (added/changed) or solid (selected/normal) border per Spec legend.
@@ -987,7 +981,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 								selT, selC, _, _, hasSel := ed.SelectedCutsceneClip()
 								selected := hasSel && selT == trackIdx && selC == clipIdx
 								status := ed.CutsceneClipReviewStatus(trackIdx, clipIdx)
-								drawCutsceneClipBox(d, size, track.Kind, status, selected)
+								drawCutsceneClipBox(d, size, p, track.Kind, status, selected)
 							},
 						},
 						core.View{
@@ -1000,7 +994,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 							Children: []core.Node{
 								core.Text{
 									Content: clipLabel,
-									Style:   core.Style{FontSize: 11, Color: specText},
+									Style:   core.Style{FontSize: 11, Color: p.TextSecondary},
 								},
 							},
 						},
@@ -1015,7 +1009,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					Direction:   core.Row,
 					AlignItems:  core.AlignCenter,
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
+					BorderColor: p.Line,
 				},
 				Children: []core.Node{
 					core.View{
@@ -1026,7 +1020,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						Children: []core.Node{
 							core.Text{
 								Content: trackDisplayName(track),
-								Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+								Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 							},
 						},
 					},
@@ -1064,7 +1058,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					Top:        core.Pt(0),
 					Bottom:     core.Pt(0),
 					Width:      core.Pt(1.5),
-					Background: specAccent,
+					Background: p.Accent.Fg,
 				}
 			},
 		}
@@ -1088,9 +1082,9 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		Style: core.Style{
 			Height:      core.Pt(364),
 			FlexShrink:  0,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Overflow:    core.Hidden,
 		},
 		Children: []core.Node{
@@ -1103,7 +1097,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	}
 }
 
-func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneRightRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewEpoch := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
 		return ed.cutscene.structRev
@@ -1119,15 +1113,20 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		}
 		return b.String()
 	})
+	changedFill := specAlpha(p.Changed.Fg, 0.14)
+	addedFill := specAlpha(p.Added.Fg, 0.12)
+	removedFill := specAlpha(p.Removed.Fg, 0.14)
+	activeNodeBg := CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
+	accentText := CompositeOver(specAlpha(p.TextPrimary, 0.62), p.Accent.Fg)
 
 	return core.View{
 		TestID: "cutscene-right-rail",
 		Style: core.Style{
 			Width:       core.Pt(380),
 			FlexShrink:  0,
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Left: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Overflow:    core.Hidden,
 		},
 		Children: []core.Node{
@@ -1142,7 +1141,7 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						TestID: "cutscene-review-section",
 						Style: core.Style{
 							Borders:     core.Edges{Bottom: 1},
-							BorderColor: specLine,
+							BorderColor: p.Line,
 						},
 						Children: []core.Node{
 							core.View{
@@ -1151,7 +1150,7 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									Padding:        core.Symmetric(0, 16),
 									JustifyContent: core.JustifyCenter,
 									Borders:        core.Edges{Bottom: 1},
-									BorderColor:    specLine,
+									BorderColor:    p.Line,
 								},
 								Children: []core.Node{
 									core.Text{
@@ -1161,7 +1160,7 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											_, total := ed.CutsceneReviewKeptCount()
 											return fmt.Sprintf("%d CHANGES · %s", total, cutsceneFileBaseName(ed))
 										},
-										Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+										Style: core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 									},
 								},
 							},
@@ -1178,22 +1177,22 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											focused := ed.CutsceneChangeFocused(idx)
 											kept := !c.Reverted
 
-											markCol := specChanged
-											markBg := specChangedFill
+											markCol := p.Changed.Fg
+											markBg := changedFill
 											switch c.Kind {
 											case CutsceneChangeAdded:
-												markCol = specAdded
-												markBg = specAddedFill
+												markCol = p.Added.Fg
+												markBg = addedFill
 											case CutsceneChangeRemoved:
-												markCol = specProblem
-												markBg = specRemovedFill
+												markCol = p.Removed.Fg
+												markBg = removedFill
 											}
-											cardBg := specRaised
-											cardBorder := specLineRaised
+											cardBg := p.Raised
+											cardBorder := p.LineRaised
 											bw := core.Points(1)
 											if focused {
-												cardBg = specActiveNode
-												cardBorder = specAccent
+												cardBg = activeNodeBg
+												cardBorder = p.Accent.Fg
 												bw = 1.5
 											}
 											var cardOp core.Opacity
@@ -1201,10 +1200,10 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 												cardOp = core.Alpha(0.55)
 											}
 											toggleText := "Revert"
-											toggleCol := specText
+											toggleCol := p.TextSecondary
 											if !kept {
 												toggleText = "Restore"
-												toggleCol = specAccentText
+												toggleCol = accentText
 											}
 											cards = append(cards, core.View{
 												TestID: fmt.Sprintf("cutscene-change-%d", idx),
@@ -1233,7 +1232,7 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 															Direction:    core.Row,
 															AlignItems:   core.AlignCenter,
 															Gap:          10,
-															FocusVisible: specRowFocusRingStyle,
+															FocusVisible: p.FocusRing(-2),
 														},
 														Children: []core.Node{
 															core.View{
@@ -1258,11 +1257,11 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 																Children: []core.Node{
 																	core.Text{
 																		Content: c.Title,
-																		Style:   core.Style{FontSize: 12, FontWeight: 500, Color: specTextStrong},
+																		Style:   core.Style{FontSize: 12, FontWeight: 500, Color: p.TextPrimary},
 																	},
 																	core.Text{
 																		Content: c.Detail,
-																		Style:   core.Style{FontSize: 11, Color: specTextMuted},
+																		Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 																	},
 																},
 															},
@@ -1281,8 +1280,8 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 															CornerRadius:   6,
 															AlignItems:     core.AlignCenter,
 															JustifyContent: core.JustifyCenter,
-															Background:     specLineRaised,
-															FocusVisible:   specFocusRingStyle,
+															Background:     p.LineRaised,
+															FocusVisible:   p.FocusRing(2),
 														},
 														Children: []core.Node{
 															core.Text{
@@ -1305,13 +1304,13 @@ func cutsceneRightRail(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			// Bottom section: Selected Clip Inspector
 			ui.ScrollView{
 				Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				Children: []core.Node{cutsceneClipInspector(cx, ed, rev)},
+				Children: []core.Node{cutsceneClipInspector(cx, p, ed, rev)},
 			},
 		},
 	}
 }
 
-func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneClipInspector(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	easeOpts := []struct {
 		easing cutscene.Easing
 		label  string
@@ -1327,7 +1326,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 	for i, opt := range easeOpts {
 		eVal := opt.easing
 		eLbl := opt.label
-		easeButtons[i] = cutsceneSegButton("cutscene-ease-"+string(eVal), eLbl, func() bool {
+		easeButtons[i] = cutsceneSegButton(p, "cutscene-ease-"+string(eVal), eLbl, func() bool {
 			_ = rev.Get()
 			_, _, cl, _, ok := ed.SelectedCutsceneClip()
 			if !ok {
@@ -1371,7 +1370,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									}
 									return cutsceneClipDisplayLabel(tr.Kind, cl)
 								},
-								Style: core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong},
+								Style: core.Style{FontSize: 14, FontWeight: 600, Color: p.TextPrimary},
 							},
 							core.Text{
 								TestID: "cutscene-sel-track",
@@ -1383,12 +1382,12 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									}
 									return trackDisplayName(tr)
 								},
-								Style: core.Style{FontSize: 12, Color: specTextMuted},
+								Style: core.Style{FontSize: 12, Color: p.TextFaint},
 							},
 						},
 					},
 					// Start ±0.1 s row
-					cutsceneStepperRow("Start", "cutscene-start-down", "cutscene-start-value", "cutscene-start-up",
+					cutsceneStepperRow(p, "Start", "cutscene-start-down", "cutscene-start-value", "cutscene-start-up",
 						"Start 0.1 s earlier", "Start 0.1 s later",
 						func() string {
 							_ = rev.Get()
@@ -1402,7 +1401,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 						func() { ed.report(ed.AdjustCutsceneClipStart(100 * time.Millisecond)) },
 					),
 					// Duration ±0.1 s row
-					cutsceneStepperRow("Duration", "cutscene-dur-down", "cutscene-dur-value", "cutscene-dur-up",
+					cutsceneStepperRow(p, "Duration", "cutscene-dur-down", "cutscene-dur-value", "cutscene-dur-up",
 						"0.1 s shorter", "0.1 s longer",
 						func() string {
 							_ = rev.Get()
@@ -1433,7 +1432,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 								Children: []core.Node{
 									core.Text{
 										Content: "Easing",
-										Style:   core.Style{Width: core.Pt(72), FontSize: 12, Color: specTextSecondary},
+										Style:   core.Style{Width: core.Pt(72), FontSize: 12, Color: p.TextMuted},
 									},
 									core.View{
 										Style: core.Style{
@@ -1441,9 +1440,9 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 											Gap:          2,
 											Padding:      core.All(3),
 											CornerRadius: 8,
-											Background:   specRaised,
+											Background:   p.Raised,
 											BorderWidth:  1,
-											BorderColor:  specLineRaised,
+											BorderColor:  p.LineRaised,
 										},
 										Children: easeButtons,
 									},
@@ -1465,9 +1464,9 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									Padding:      core.All(12),
 									Gap:          6,
 									CornerRadius: 12,
-									Background:   specRaised,
+									Background:   p.Raised,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  p.LineRaised,
 								},
 								Children: []core.Node{
 									core.Text{
@@ -1477,7 +1476,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 											_, _, cl, _, _ := ed.SelectedCutsceneClip()
 											return cl.Line
 										},
-										Style: core.Style{FontSize: 11.5, Color: specTextMuted},
+										Style: core.Style{FontSize: 11.5, Color: p.TextFaint},
 									},
 									core.Text{
 										TestID: "cutscene-line-en",
@@ -1490,7 +1489,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 											}
 											return en
 										},
-										Style: core.Style{FontSize: 12.5, Color: specTextStrong},
+										Style: core.Style{FontSize: 12.5, Color: p.TextPrimary},
 									},
 									core.Text{
 										TestID: "cutscene-line-zh",
@@ -1503,7 +1502,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 											}
 											return zh
 										},
-										Style: core.Style{FontSize: 12.5, Color: specTextSecondary},
+										Style: core.Style{FontSize: 12.5, Color: p.TextMuted},
 									},
 									core.Text{
 										TestID: "cutscene-line-note",
@@ -1512,7 +1511,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 											enPath, zhPath := ed.CutsceneLocPaths()
 											return fmt.Sprintf("Text lives in %s and %s; the cutscene stores only the id.", enPath, zhPath)
 										},
-										Style: core.Style{FontSize: 11, Color: specTextMuted},
+										Style: core.Style{FontSize: 11, Color: p.TextFaint},
 									},
 								},
 							}
@@ -1532,7 +1531,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 							return core.Text{
 								TestID:  "cutscene-review-edited-hint",
 								Content: "Your edit joins this review · ⌘Z undoes it",
-								Style:   core.Style{FontSize: 11.5, Color: specChanged},
+								Style:   core.Style{FontSize: 11.5, Color: p.Changed.Fg},
 							}
 						},
 					},
@@ -1545,7 +1544,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 				Children: []core.Node{
 					core.Text{
 						Content: "Select a clip on the timeline to inspect its timing and easing.",
-						Style:   core.Style{FontSize: 12, Color: specTextMuted},
+						Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 					},
 				},
 			}
@@ -1553,7 +1552,7 @@ func cutsceneClipInspector(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 	}
 }
 
-func cutsceneStepperRow(label, downID, valID, upID, downLabel, upLabel string, valFunc func() string, onDown, onUp func()) core.Node {
+func cutsceneStepperRow(p SpecPalette, label, downID, valID, upID, downLabel, upLabel string, valFunc func() string, onDown, onUp func()) core.Node {
 	btn := func(id, sym, aria string, onPress func()) core.Node {
 		return core.View{
 			TestID:  id,
@@ -1565,12 +1564,12 @@ func cutsceneStepperRow(label, downID, valID, upID, downLabel, upLabel string, v
 				Height:         core.Pt(28),
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
-				FocusVisible:   specFocusRingStyle,
+				FocusVisible:   p.FocusRing(2),
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: sym,
-					Style:   core.Style{FontSize: 13, FontWeight: 600, Color: specText},
+					Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextSecondary},
 				},
 			},
 		}
@@ -1584,16 +1583,16 @@ func cutsceneStepperRow(label, downID, valID, upID, downLabel, upLabel string, v
 		Children: []core.Node{
 			core.Text{
 				Content: label,
-				Style:   core.Style{Width: core.Pt(72), FontSize: 12, Color: specTextSecondary},
+				Style:   core.Style{Width: core.Pt(72), FontSize: 12, Color: p.TextMuted},
 			},
 			core.View{
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					btn(downID, "−", downLabel, onDown),
@@ -1607,7 +1606,7 @@ func cutsceneStepperRow(label, downID, valID, upID, downLabel, upLabel string, v
 							core.Text{
 								TestID:      valID,
 								ContentFunc: valFunc,
-								Style:       core.Style{FontSize: 11.5, FontWeight: 500, Color: specTextStrong},
+								Style:       core.Style{FontSize: 11.5, FontWeight: 500, Color: p.TextPrimary},
 							},
 						},
 					},
@@ -1618,7 +1617,7 @@ func cutsceneStepperRow(label, downID, valID, upID, downLabel, upLabel string, v
 	}
 }
 
-func cutsceneSegButton(testID, label string, active func() bool, onPress func()) core.Node {
+func cutsceneSegButton(p SpecPalette, testID, label string, active func() bool, onPress func()) core.Node {
 	return core.View{
 		TestID:  testID,
 		Role:    core.RoleButton,
@@ -1627,7 +1626,7 @@ func cutsceneSegButton(testID, label string, active func() bool, onPress func())
 		StyleFunc: func() core.Style {
 			var bg core.Color
 			if active() {
-				bg = specLineRaised
+				bg = p.LineRaised
 			}
 			return core.Style{
 				Height:         core.Pt(24),
@@ -1636,16 +1635,16 @@ func cutsceneSegButton(testID, label string, active func() bool, onPress func())
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 				Background:     bg,
-				FocusVisible:   specFocusRingStyle,
+				FocusVisible:   p.FocusRing(2),
 			}
 		},
 		Children: []core.Node{
 			core.Text{
 				Content: label,
 				StyleFunc: func() core.Style {
-					col := specTextMuted
+					col := p.TextFaint
 					if active() {
-						col = specTextStrong
+						col = p.TextPrimary
 					}
 					return core.Style{FontSize: 11.5, FontWeight: 500, Color: col}
 				},
@@ -1654,14 +1653,14 @@ func cutsceneSegButton(testID, label string, active func() bool, onPress func())
 	}
 }
 
-// cutsceneActionButton uses Spec.dc.html AAA/AA contrast pairs: #101216 (specBg) on #3B7BFF (specAccent) for primary Keep buttons, and specText on specLineRaised for secondary buttons.
-func cutsceneActionButton(testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
-	bg := specLineRaised
-	fg := specText
+// cutsceneActionButton uses Spec.dc.html AAA/AA contrast pairs: Accent.OnFill on Accent.Fg for primary Keep buttons, and TextSecondary on LineRaised for secondary buttons.
+func cutsceneActionButton(p SpecPalette, testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
+	bg := p.LineRaised
+	fg := p.TextSecondary
 	weight := core.FontWeight(500)
 	if primary {
-		bg = specAccent
-		fg = specBg // Spec.dc.html contrast table: #101216 on accent (4.88:1 AA), never #FFFFFF on accent.
+		bg = p.Accent.Fg
+		fg = p.Accent.OnFill
 		weight = 600
 	}
 	return core.View{
@@ -1686,7 +1685,7 @@ func cutsceneActionButton(testID string, textFunc func() string, primary bool, d
 				JustifyContent: core.JustifyCenter,
 				Background:     bg,
 				Opacity:        op,
-				FocusVisible:   specFocusRingStyle,
+				FocusVisible:   p.FocusRing(2),
 			}
 		},
 		Children: []core.Node{
@@ -1699,13 +1698,13 @@ func cutsceneActionButton(testID string, textFunc func() string, primary bool, d
 	}
 }
 
-func drawDotGrid(d *core.Drawing, size core.Size) {
+func drawDotGrid(d *core.Drawing, size core.Size, p SpecPalette) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(specViewportBG).FillRect(0, 0, w, h)
-	d.SetFillColor(specViewportDot)
+	d.SetFillColor(p.Viewport).FillRect(0, 0, w, h)
+	d.SetFillColor(p.ViewportDot)
 	for gy := float32(8); gy < h; gy += 16 {
 		for gx := float32(8); gx < w; gx += 16 {
 			d.FillRect(gx, gy, 1.5, 1.5)
@@ -1713,16 +1712,16 @@ func drawDotGrid(d *core.Drawing, size core.Size) {
 	}
 }
 
-func drawCutscenePreview(d *core.Drawing, size core.Size, ed *Editor) {
+func drawCutscenePreview(d *core.Drawing, size core.Size, p SpecPalette, ed *Editor) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(specPanel).FillRect(0, 0, w, h)
+	d.SetFillColor(p.Panel).FillRect(0, 0, w, h)
 	scene := ed.CutscenePreviewScene()
 	if scene == nil {
 		// Subtle floor silhouette when no scene preview is built (e.g. video cutscene).
-		d.SetFillColor(specFloorFill).FillRect(0, h*0.82, w, h*0.18)
+		d.SetFillColor(p.LineRaised).FillRect(0, h*0.82, w, h*0.18)
 		return
 	}
 	vw, vh := float32(640), float32(360)
@@ -1737,7 +1736,7 @@ func drawCutscenePreview(d *core.Drawing, size core.Size, ed *Editor) {
 	d.Translate(offX, offY).Scale(scale, scale)
 	d.BeginPath().Rect(0, 0, vw, vh).Clip()
 	if !scene.HasBackground {
-		d.SetFillColor(specViewportBG).FillRect(0, 0, vw, vh)
+		d.SetFillColor(p.Viewport).FillRect(0, 0, vw, vh)
 	}
 	scene.Draw(d)
 
@@ -1757,43 +1756,43 @@ func drawCutscenePreview(d *core.Drawing, size core.Size, ed *Editor) {
 			continue
 		}
 		for _, bo := range layer.Objects {
-			drawCutsceneMarkerObject(d, bo)
+			drawCutsceneMarkerObject(d, p, bo)
 		}
 	}
 	d.Restore()
 	d.Restore()
 }
 
-func drawCutsceneMarkerObject(d *core.Drawing, bo *sceneformat.BuiltObject) {
+func drawCutsceneMarkerObject(d *core.Drawing, p SpecPalette, bo *sceneformat.BuiltObject) {
 	if bo == nil || bo.Doc == nil {
 		return
 	}
 	if bo.Sprite == nil {
-		col := specLineRaised
+		col := p.LineRaised
 		idLower := strings.ToLower(bo.Doc.ID)
 		switch {
 		case strings.Contains(idLower, "slime"):
-			col = specAdded
+			col = p.Added.Fg
 		case strings.Contains(idLower, "knight"), strings.Contains(idLower, "hero"), strings.Contains(idLower, "player"):
-			col = specAccent
+			col = p.Accent.Fg
 		case strings.Contains(idLower, "lever"), strings.Contains(idLower, "torch"):
-			col = specChanged
+			col = p.Changed.Fg
 		}
 		d.SetFillColor(col).BeginPath().RoundRect(bo.Doc.X-14, bo.Doc.Y-18, 28, 36, 4).Fill()
 	}
 	for _, child := range bo.Children {
-		drawCutsceneMarkerObject(d, child)
+		drawCutsceneMarkerObject(d, p, child)
 	}
 }
 
-func drawCutsceneThumb(d *core.Drawing, size core.Size, sample *CutsceneThumbSample) {
+func drawCutsceneThumb(d *core.Drawing, size core.Size, p SpecPalette, sample *CutsceneThumbSample) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(specViewportBG).FillRect(0, 0, w, h)
+	d.SetFillColor(p.Viewport).FillRect(0, 0, w, h)
 	floorY := h * 0.80
-	d.SetFillColor(specFloorFill).FillRect(0, floorY, w, h-floorY)
+	d.SetFillColor(p.LineRaised).FillRect(0, floorY, w, h-floorY)
 	if sample == nil {
 		return
 	}
@@ -1811,40 +1810,40 @@ func drawCutsceneThumb(d *core.Drawing, size core.Size, sample *CutsceneThumbSam
 		if ay > floorY-4 {
 			ay = floorY - 4
 		}
-		col := specText
+		col := p.TextSecondary
 		if strings.Contains(strings.ToLower(a.ID), "slime") {
-			col = specAdded
+			col = p.Added.Fg
 		}
 		d.SetFillColor(col).BeginPath().RoundRect(ax-2, ay-4, 4, 6, 1).Fill()
 	}
 }
 
-func drawCutsceneClipBox(d *core.Drawing, size core.Size, kind cutscene.TrackKind, status CutsceneChangeKind, selected bool) {
+func drawCutsceneClipBox(d *core.Drawing, size core.Size, p SpecPalette, kind cutscene.TrackKind, status CutsceneChangeKind, selected bool) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	fill := specRaised
+	fill := p.Raised
 	switch kind {
 	case cutscene.TrackDialogue:
-		fill = specDialogueFill
+		fill = specAlpha(p.Accent.Fg, 0.10)
 	case cutscene.TrackSound, cutscene.TrackMusic:
-		fill = specAudioFill
+		fill = specAlpha(p.Added.Fg, 0.10)
 	}
 	if status == CutsceneChangeAdded {
-		fill = specAddedFill
+		fill = specAlpha(p.Added.Fg, 0.12)
 	}
 	d.Save()
 	d.SetFillColor(fill).BeginPath().RoundRect(0, 0, w, h, 6).Fill()
 	switch {
 	case selected:
-		d.SetStrokeColor(specAccent).SetLineWidth(1.5).BeginPath().RoundRect(0.75, 0.75, w-1.5, h-1.5, 6).Stroke()
+		d.SetStrokeColor(p.Accent.Fg).SetLineWidth(1.5).BeginPath().RoundRect(0.75, 0.75, w-1.5, h-1.5, 6).Stroke()
 	case status == CutsceneChangeAdded:
-		d.SetStrokeColor(specAdded).SetLineWidth(1.5).SetLineDash(4, 3).BeginPath().RoundRect(0.75, 0.75, w-1.5, h-1.5, 6).Stroke()
+		d.SetStrokeColor(p.Added.Fg).SetLineWidth(1.5).SetLineDash(4, 3).BeginPath().RoundRect(0.75, 0.75, w-1.5, h-1.5, 6).Stroke()
 	case status == CutsceneChangeChanged:
-		d.SetStrokeColor(specChanged).SetLineWidth(1.5).SetLineDash(4, 3).BeginPath().RoundRect(0.75, 0.75, w-1.5, h-1.5, 6).Stroke()
+		d.SetStrokeColor(p.Changed.Fg).SetLineWidth(1.5).SetLineDash(4, 3).BeginPath().RoundRect(0.75, 0.75, w-1.5, h-1.5, 6).Stroke()
 	default:
-		d.SetStrokeColor(specLineRaised).SetLineWidth(1).BeginPath().RoundRect(0.5, 0.5, w-1, h-1, 6).Stroke()
+		d.SetStrokeColor(p.LineRaised).SetLineWidth(1).BeginPath().RoundRect(0.5, 0.5, w-1, h-1, 6).Stroke()
 	}
 	d.Restore()
 }
