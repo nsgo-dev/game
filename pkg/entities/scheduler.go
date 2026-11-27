@@ -59,6 +59,15 @@ func NewScheduler() *Scheduler {
 	return &Scheduler{}
 }
 
+// HasSystem reports whether a system named name has been registered on s.
+func (s *Scheduler) HasSystem(name string) bool {
+	if s == nil || name == "" {
+		return false
+	}
+	_, exists := s.byName[name]
+	return exists
+}
+
 // AddSystem registers a named system with optional Before/After constraints.
 //
 // Constraint targets may be registered later; missing targets and dependency cycles are reported by Build and Step. Immediate errors (empty name, duplicate name, nil function, empty target, or self-dependency) are returned right away without modifying s.

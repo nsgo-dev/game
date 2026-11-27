@@ -300,3 +300,27 @@ func TestTableHotReloadAndErrorRecovery(t *testing.T) {
 		t.Fatalf("updated rows = %+v, want 2 rows with goblin HP=65 and orc", got)
 	}
 }
+
+func TestRegistryLookup(t *testing.T) {
+	var nilReg *datatable.Registry
+	if _, ok := nilReg.Lookup("enemies.yaml"); ok {
+		t.Fatal("nil Registry.Lookup should return false")
+	}
+	reg := datatable.NewRegistry()
+	if _, ok := reg.Lookup(""); ok {
+		t.Fatal("empty pattern Lookup should return false")
+	}
+	rt, err := datatable.RowTypeFor[Enemy]()
+	if err != nil {
+		t.Fatalf("RowTypeFor: %v", err)
+	}
+	if err := reg.Register("data/enemies.yaml", rt); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if got, ok := reg.Lookup("./data/enemies.yaml"); !ok || got != rt {
+		t.Fatalf("Lookup normalized = %v, %v", got, ok)
+	}
+	if _, ok := reg.Lookup("data/other.yaml"); ok {
+		t.Fatal("Lookup of unregistered pattern returned true")
+	}
+}

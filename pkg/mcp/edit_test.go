@@ -782,6 +782,9 @@ func TestEditValidationAtomicityAndErrorCases(t *testing.T) {
 
 	// Registration validation errors.
 	var nilBridge *mcp.Bridge
+	if nilBridge.HasPrefab("crate") || b.HasPrefab("") || !b.HasPrefab("crate") || b.HasPrefab("missing") {
+		t.Fatal("Bridge.HasPrefab mismatch")
+	}
 	if err := nilBridge.RegisterPrefab("a", func(*entities.World, map[string]any) (entities.Entity, error) { return entities.Zero, nil }); !errors.Is(err, mcp.ErrNilBridge) {
 		t.Fatalf("nil bridge RegisterPrefab = %v", err)
 	}

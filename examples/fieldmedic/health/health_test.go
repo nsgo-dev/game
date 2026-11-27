@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/plugin"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
@@ -103,5 +104,53 @@ layers:
 	}
 	if entities.Has[health.Stats](w, spawned["rock"]) {
 		t.Fatal("rock unexpectedly got a health.Stats component")
+	}
+}
+
+func TestPluginInstallsComponentAndCodec(t *testing.T) {
+	host := &plugin.Host{
+		Components: sceneformat.NewComponentRegistry(),
+	}
+	if err := plugin.Install(host, health.Plugin()); err != nil {
+		t.Fatalf("plugin.Install: %v", err)
+	}
+	if !host.Has(health.Name) {
+		t.Fatal("host missing health plugin")
+	}
+	doc, err := sceneformat.ParseWith([]byte(`version: 1
+layers:
+  - name: patients
+    objects:
+      - id: ada
+        components:
+          health:
+            hp: 7
+            max: 10
+`), sceneformat.ParseOptions{Components: host.Components})
+	if err != nil {
+		t.Fatalf("ParseWith: %v", err)
+	}
+	w1 := entities.NewWorld()
+	if err := host.OnWorld(w1); err != nil {
+		t.Fatalf("OnWorld(w1): %v", err)
+	}
+	spawned, err := sceneformat.SpawnEntitiesWith(doc, w1, sceneformat.SpawnOptions{Components: host.Components})
+	if err != nil {
+		t.Fatalf("SpawnEntitiesWith: %v", err)
+	}
+	snap, err := w1.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	w2 := entities.NewWorld()
+	if err := host.OnWorld(w2); err != nil {
+		t.Fatalf("OnWorld(w2): %v", err)
+	}
+	if err := w2.Restore(snap); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	got, ok := entities.Get[health.Stats](w2, spawned["ada"])
+	if !ok || *got != (health.Stats{HP: 7, Max: 10}) {
+		t.Fatalf("restored stats = %+v, %v", got, ok)
 	}
 }

@@ -5,11 +5,15 @@ import (
 	"fmt"
 
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/plugin"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
-// Name is the component's key under an object's components in a scene file.
+// Name is the component's key under an object's components in a scene file and the runtime plugin's name.
 const Name = "health"
+
+// Module is the Go module path of the Field Medic health plugin.
+const Module = "github.com/nsgo-dev/game/examples/fieldmedic"
 
 // The component's field names: FieldHP holds the hit points a patient has, FieldMax the most it can be healed to.
 const (
@@ -48,6 +52,19 @@ func spawn(w *entities.World, e entities.Entity, fields map[string]any) error {
 	}
 	entities.Set(w, e, Stats{HP: min(hp, maxHP), Max: maxHP})
 	return nil
+}
+
+// Plugin returns the runtime plugin for the health component and its world snapshot codec, for plugin.Install.
+func Plugin() plugin.Plugin {
+	return plugin.Plugin{
+		Name:       Name,
+		Module:     Module,
+		API:        plugin.APIVersion,
+		Components: []sceneformat.ComponentType{Type()},
+		Codecs: func(w *entities.World) error {
+			return entities.RegisterCodec[Stats](w, Name)
+		},
+	}
 }
 
 // Components returns a registry holding the health component, the component types Field Medic's scenes use, for sceneformat.ParseWith and the editor's SetComponentRegistry.

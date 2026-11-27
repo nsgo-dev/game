@@ -7,7 +7,7 @@ It is a sample of the editor's plugin API rather than a showcase game, so it is 
 | Package | What it holds |
 | --- | --- |
 | `.` (`fieldmedic`) | the game: the ward (`ward.go`) on a fixed-step `game.Loop` drawing one `Canvas`, with a native HUD and game-over screen (`game.go`) |
-| `health` | the `health` component type (`hp`, `max`), which the game and the editor both register, its `Spawn` factory populating the typed `health.Stats` ECS store on `sceneformat.SpawnEntitiesWith`, and `Read` for inspecting a scene document in the editor |
+| `health` | the `health` component type (`hp`, `max`) and runtime plugin (`health.Plugin()`, installed by the game via `plugin.Install`), its `Spawn` factory populating the typed `health.Stats` ECS store on `sceneformat.SpawnEntitiesWith`, its world snapshot codec, and `Read` for inspecting a scene document in the editor |
 | `healthplugin` | the editor plugin: a **Ward** panel listing every patient's hit points with a **Heal All** button, an inspector for the `health` component with a bar of the hit points left, and an **Admit** tool that places a patient where the viewport is pressed |
 | `cmd/editor` | the game's own editor command, which registers the component and the plugin |
 

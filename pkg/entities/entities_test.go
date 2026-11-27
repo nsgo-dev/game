@@ -1151,3 +1151,20 @@ func TestInspectionHelpers(t *testing.T) {
 		t.Fatal("Resolve should reject destroyed entity")
 	}
 }
+
+func TestSchedulerHasSystem(t *testing.T) {
+	var nilSched *entities.Scheduler
+	if nilSched.HasSystem("a") {
+		t.Fatal("nil Scheduler.HasSystem should be false")
+	}
+	s := entities.NewScheduler()
+	if s.HasSystem("") || s.HasSystem("move") {
+		t.Fatal("empty Scheduler should report false")
+	}
+	if err := s.AddSystem("move", func(*entities.World, time.Duration) {}); err != nil {
+		t.Fatalf("AddSystem: %v", err)
+	}
+	if !s.HasSystem("move") || s.HasSystem("other") {
+		t.Fatal("HasSystem mismatch after AddSystem")
+	}
+}

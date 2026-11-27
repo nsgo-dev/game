@@ -155,6 +155,8 @@
 | `game/pkg/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/pkg/platformer` | 实验性 | [platformer](platformer.md) |
 | `game/pkg/playtest` | 实验性 | [playtest](playtest.md) |
+| `game/pkg/plugin` | 实验性 | [插件](plugins.md) |
+| `game/pkg/plugin/devtools` | 实验性 | [插件](plugins.md) |
 | `game/pkg/plugin/manifest` | 实验性 | [插件](plugins.md) |
 | `game/pkg/procgen` | 实验性 | [procgen](procgen.md) |
 | `game/pkg/project` | 实验性 | [项目文件](project.md) |
