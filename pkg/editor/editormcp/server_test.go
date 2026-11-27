@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -683,5 +684,55 @@ func TestSelectionGetReportsEditorLanguage(t *testing.T) {
 	structured(t, res, &sel)
 	if sel.Language != "zh" {
 		t.Fatalf("Chinese selection language = %q, want zh", sel.Language)
+	}
+}
+
+// #1547: With Options.Run == nil, Server.Editor and session notifications share the Editor's
+// single headless owner, so concurrent MCP calls serialize with Editor.RunHeadless and Close
+// inside RunHeadless never deadlocks.
+func TestHeadlessServerSerializesWithRunHeadlessAndClosesCleanly(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	cs := connect(t, s, nil)
+
+	errCh := make(chan error, 1)
+	go func() {
+		for i := 0; i < 15; i++ {
+			res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: editormcp.ToolSelectionGet})
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if res.IsError {
+				errCh <- errors.New(text(res))
+				return
+			}
+		}
+		errCh <- nil
+	}()
+
+	for i := 0; i < 15; i++ {
+		f.ed.RunHeadless(func() {
+			_ = f.ed.MoveObject("hero", float32(10+i), float32(20+i))
+		})
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("concurrent MCP calls: %v", err)
+	}
+
+	// Closing the server inside RunHeadless must cancel any waiting notifyEditor without deadlocking.
+	done := make(chan error, 1)
+	go func() {
+		f.ed.RunHeadless(func() {
+			done <- s.Close()
+		})
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close inside RunHeadless: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Server.Close inside RunHeadless deadlocked")
 	}
 }

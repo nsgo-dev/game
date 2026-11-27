@@ -290,10 +290,6 @@ type ObjectTaskOverlay struct {
 }
 
 type agentTasksState struct {
-	// inlineMu serializes headless (scope == nil) task mutations and notifications so concurrent
-	// worker goroutines never race on Editor.revision, listeners, or thread persistence.
-	// Always acquired before mu when both are needed.
-	inlineMu        sync.Mutex
 	mu              sync.Mutex
 	scope           *core.Scope
 	projectGen      uint64
@@ -317,27 +313,11 @@ func (s *agentTasksState) setScope(cx *core.Scope) {
 	s.mu.Unlock()
 }
 
-func (s *agentTasksState) hasScope() bool {
-	s.mu.Lock()
-	ok := s.scope != nil
-	s.mu.Unlock()
-	return ok
-}
-
 func (s *agentTasksState) currentGen() uint64 {
 	s.mu.Lock()
 	g := s.projectGen
 	s.mu.Unlock()
 	return g
-}
-
-// lockHeadless serializes task mutations when no core.Scope drives single-goroutine dispatch.
-func (e *Editor) lockHeadlessTaskOp() func() {
-	if e == nil || e.tasks.hasScope() {
-		return func() {}
-	}
-	e.tasks.inlineMu.Lock()
-	return e.tasks.inlineMu.Unlock
 }
 
 func (s *agentTasksState) ensureInitLocked() {
@@ -634,8 +614,6 @@ func (e *Editor) LoadAgentThread(filePath string) error {
 	if e == nil {
 		return nil
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	return e.loadAgentThreadUnlocked(filePath)
 }
 
@@ -679,8 +657,6 @@ func (e *Editor) resetTasksForProject() {
 	if e == nil {
 		return
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.stopAllTaskRunners()
 	e.tasks.mu.Lock()
 	oldIDs := make([]string, 0, len(e.tasks.tasks))
@@ -1145,8 +1121,6 @@ func (e *Editor) SubmitTask(req TaskRequest) (AgentTask, error) {
 	if e == nil {
 		return AgentTask{}, errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 
 	title := strings.TrimSpace(req.Title)
 	prompt := strings.TrimSpace(req.Prompt)
@@ -1471,23 +1445,15 @@ func (e *Editor) launchTaskRunner(taskID string) {
 	e.tasks.mu.Unlock()
 
 	post := func(fn func()) {
-		e.tasks.mu.Lock()
-		sc := e.tasks.scope
-		stale := e.tasks.projectGen != gen
-		e.tasks.mu.Unlock()
-		if stale {
+		if e.tasks.currentGen() != gen {
 			return
 		}
-		if sc != nil {
-			sc.Post(func() {
-				if e.tasks.currentGen() != gen {
-					return
-				}
-				fn()
-			})
-			return
-		}
-		fn()
+		e.postOrRun(func() {
+			if e.tasks.currentGen() != gen {
+				return
+			}
+			fn()
+		})
 	}
 
 	go func() {
@@ -1536,8 +1502,6 @@ func (e *Editor) UpdateTaskStep(id string, stepIndex, stepTotal int, summary str
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
@@ -1565,8 +1529,6 @@ func (e *Editor) AddTaskStep(id string, summary string, done bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
@@ -1600,8 +1562,6 @@ func (e *Editor) SetTaskHoldState(id string, editing []string, holding []string,
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
@@ -1657,7 +1617,6 @@ func (e *Editor) ClearTaskHoldState(id string) {
 	if e == nil {
 		return
 	}
-	unlock := e.lockHeadlessTaskOp()
 	changed := false
 	e.tasks.mu.Lock()
 	if idx := e.findTaskIndexLocked(id); idx >= 0 {
@@ -1674,7 +1633,6 @@ func (e *Editor) ClearTaskHoldState(id string) {
 		_ = e.SaveAgentThread()
 		e.notify()
 	}
-	unlock()
 	e.fireHoldRelease(id)
 }
 
@@ -1683,8 +1641,6 @@ func (e *Editor) RequestTaskPermission(id, prompt, detail string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
@@ -1714,19 +1670,16 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
 		e.tasks.mu.Unlock()
-		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
 	if t.State != TaskNeedsYou {
 		st := t.State
 		e.tasks.mu.Unlock()
-		unlock()
 		return fmt.Errorf("editor: task %q is not waiting for permission (state=%s)", id, st)
 	}
 	prevState := t.State
@@ -1745,7 +1698,6 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	e.syncDockBadgeIfAttached()
 	e.notify()
 	cb := e.OnTaskPermissionDecision
-	unlock()
 	if cb != nil {
 		cb(id, allow)
 	}
@@ -1759,13 +1711,11 @@ func (e *Editor) CompleteTaskTurn(id string, review TaskReview) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
 	now := e.nowTime()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
 		e.tasks.mu.Unlock()
-		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1814,7 +1764,6 @@ func (e *Editor) CompleteTaskTurn(id string, review TaskReview) error {
 	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
 	e.syncDockBadgeIfAttached()
 	e.notify()
-	unlock()
 	e.fireHoldRelease(id)
 	return nil
 }
@@ -1842,13 +1791,11 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
 	now := e.nowTime()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
 		e.tasks.mu.Unlock()
-		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
@@ -1867,7 +1814,6 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	e.onAgentTaskStateUpdated(taskCopy, prevState, time.Time{})
 	e.syncDockBadgeIfAttached()
 	e.notify()
-	unlock()
 	e.fireHoldRelease(id)
 	return nil
 }
@@ -1877,13 +1823,11 @@ func (e *Editor) StopTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
 	now := e.nowTime()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
 		e.tasks.mu.Unlock()
-		unlock()
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	cancel := e.tasks.cancels[id]
@@ -1911,7 +1855,6 @@ func (e *Editor) StopTask(id string) error {
 	e.notify()
 	e.fireHoldRelease(id)
 	e.advanceTaskQueue(id)
-	unlock()
 	return nil
 }
 
@@ -1920,8 +1863,6 @@ func (e *Editor) RetryTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	now := e.nowTime()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
@@ -1980,8 +1921,6 @@ func (e *Editor) KeepTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
@@ -2030,8 +1969,6 @@ func (e *Editor) RevertTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
 	if idx < 0 {
@@ -2378,8 +2315,6 @@ func (e *Editor) DismissTasks(ids []string) int {
 	if e == nil || len(ids) == 0 {
 		return 0
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	e.tasks.ensureInitLocked()
 	dismissed := 0
@@ -2492,8 +2427,6 @@ func (e *Editor) ReorderQueuedTask(id string, delta int) error {
 	if delta == 0 {
 		return nil
 	}
-	unlock := e.lockHeadlessTaskOp()
-	defer unlock()
 	e.tasks.mu.Lock()
 	var queuedIndices []int
 	pos := -1

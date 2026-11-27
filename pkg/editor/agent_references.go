@@ -691,7 +691,7 @@ func (e *Editor) PasteAgentReferenceImage() ([]AgentReferenceImage, bool, error)
 			return attached, true, err
 		}
 	}
-	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+	if cx := e.headless.getScope(); cx != nil && !cx.Disposed() {
 		startRoot := e.agentProjectRoot()
 		cx.ReadClipboardImage(func(img core.ClipboardImage, ok bool, err error) {
 			if cx.Disposed() || e.playing || e.agent.mode == AgentModeNone || e.agentProjectRoot() != startRoot {
@@ -735,7 +735,7 @@ func (e *Editor) PickAndAttachAgentReferenceImages() {
 		})
 		return
 	}
-	cx := e.agent.getScope()
+	cx := e.headless.getScope()
 	if cx == nil || cx.Disposed() {
 		return
 	}

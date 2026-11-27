@@ -415,7 +415,7 @@ _ = s.AddTool(editormcp.Tool{
 _ = s.Open()
 ```
 
-`Options.Run` hands functions to the editor's goroutine (`cx.Post` for an editor in a window); without it the server runs them on the caller's goroutine one at a time, for an editor no window drives. `Server.Connect` serves one session on any MCP transport, as a test does with `mcp.NewInMemoryTransports`.
+`Options.Run` hands functions to the editor's goroutine (`cx.Post` for an editor in a window); without it the server routes calls and session notifications through the editor's single headless executor (`Editor.PostOrRunHeadless`), serialized with `Editor.Post` and `Editor.RunHeadless` and drained by `Editor.AttachScope`, for an editor no window drives. Callers driving the same scope-less `Editor` directly from a test or script while the server is active must wrap their editor calls in `Editor.RunHeadless`. `Server.Connect` serves one session on any MCP transport, as a test does with `mcp.NewInMemoryTransports`.
 
 ### Why its own server
 

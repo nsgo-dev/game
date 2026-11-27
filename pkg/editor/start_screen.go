@@ -913,13 +913,8 @@ func (e *Editor) StartCreateProject(req CreateProjectRequest) error {
 
 		e.startScreen.mu.Lock()
 		run.pendingFinish = finishOnMain
-		scope := e.startScreen.scope
 		e.startScreen.mu.Unlock()
-		if scope != nil {
-			scope.Post(run.runPendingFinish)
-		} else {
-			run.runPendingFinish()
-		}
+		e.postOrRun(run.runPendingFinish)
 	}()
 
 	return nil

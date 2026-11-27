@@ -155,15 +155,6 @@ func (e *Editor) ensureAutomationsInit() {
 	e.automations.mu.Unlock()
 }
 
-// lockHeadlessAgentOp serializes agent turn mutations when no UI scope drives single-goroutine dispatch.
-func (e *Editor) lockHeadlessAgentOp() func() {
-	if e == nil || e.HasScope() {
-		return func() {}
-	}
-	e.agent.inlineMu.Lock()
-	return e.agent.inlineMu.Unlock
-}
-
 func (e *Editor) stopAutomationRunsAndScheduler() {
 	if e == nil {
 		return
@@ -1412,8 +1403,6 @@ func (e *Editor) ReadyToReviewTurns() []AgentTurn {
 	if e == nil {
 		return nil
 	}
-	unlock := e.lockHeadlessAgentOp()
-	defer unlock()
 	var out []AgentTurn
 	for _, t := range e.agent.turns {
 		if t.ReviewState == AgentReviewReady {
@@ -1434,21 +1423,16 @@ func (e *Editor) KeepAgentTurnReview(turnID string) error {
 	if e.AgentActorActive() {
 		return ErrAutomationYouOnly
 	}
-	unlock := e.lockHeadlessAgentOp()
 	turn := e.findAgentTurn(turnID)
 	if turn == nil {
-		unlock()
 		return fmt.Errorf("editor: agent turn %q not found", turnID)
 	}
 	if turn.ReviewState != AgentReviewReady {
-		st := turn.ReviewState
-		unlock()
-		return fmt.Errorf("editor: agent turn %q is not ready to review (state %q)", turnID, st)
+		return fmt.Errorf("editor: agent turn %q is not ready to review (state %q)", turnID, turn.ReviewState)
 	}
 	sourceAutoID := turn.AutomationID
 	turn.ReviewState = AgentReviewKept
 	e.notify()
-	unlock()
 
 	_ = e.KeepTask(turnID)
 	// Keeping a review may trigger review_kept automations, skipping the same automation ID to avoid recursion.
@@ -1465,20 +1449,15 @@ func (e *Editor) DismissAgentTurnReview(turnID string) error {
 	if e.AgentActorActive() {
 		return ErrAutomationYouOnly
 	}
-	unlock := e.lockHeadlessAgentOp()
 	turn := e.findAgentTurn(turnID)
 	if turn == nil {
-		unlock()
 		return fmt.Errorf("editor: agent turn %q not found", turnID)
 	}
 	if turn.ReviewState != AgentReviewReady && turn.ReviewState != AgentReviewFailed {
-		st := turn.ReviewState
-		unlock()
-		return fmt.Errorf("editor: agent turn %q cannot be dismissed in state %q", turnID, st)
+		return fmt.Errorf("editor: agent turn %q cannot be dismissed in state %q", turnID, turn.ReviewState)
 	}
 	turn.ReviewState = AgentReviewDismissed
 	e.notify()
-	unlock()
 
 	_ = e.DismissTasks([]string{turnID})
 	return nil
@@ -1760,7 +1739,6 @@ func (e *Editor) startAutomationTask(rule AutomationRule, triggerDetail string) 
 	now := e.nowTime()
 	e.recordAutomationRunTimestamp(rule.ID, now)
 
-	unlock := e.lockHeadlessAgentOp()
 	e.agent.turnSeq++
 	turnID := fmt.Sprintf("auto-turn-%d", e.agent.turnSeq)
 	clientName := ""
@@ -1793,7 +1771,6 @@ func (e *Editor) startAutomationTask(rule AutomationRule, triggerDetail string) 
 		turn.ReviewState = AgentReviewFailed
 		e.agent.turns = append(e.agent.turns, turn)
 		e.notify()
-		unlock()
 		return false
 	}
 
@@ -1824,7 +1801,6 @@ func (e *Editor) startAutomationTask(rule AutomationRule, triggerDetail string) 
 	e.automations.activeRunCount.Add(1)
 	e.automations.mu.Unlock()
 	e.notify()
-	unlock()
 
 	// Register matching background task in the shared Tasks list (Tasks.dc.html / #1022).
 	_, _ = e.SubmitTask(TaskRequest{

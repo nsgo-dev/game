@@ -133,9 +133,11 @@ func TestServerOpenFollowsTheProject(t *testing.T) {
 
 	second := t.TempDir()
 	writeProject(t, second)
-	if err := f.ed.OpenProject(second); err != nil {
-		t.Fatal(err)
-	}
+	f.ed.RunHeadless(func() {
+		if err := f.ed.OpenProject(second); err != nil {
+			t.Fatal(err)
+		}
+	})
 	f.ed.WaitForProblems()
 	now, err := s.Status()
 	if err != nil || now == first || now == "" {

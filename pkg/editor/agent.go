@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/sceneformat"
-	"github.com/nsgo-dev/nsgo/core"
 )
 
 const agentReconnectProbeTimeout = 2 * time.Second
@@ -436,10 +435,6 @@ func (f AgentRunnerFunc) Run(ctx context.Context, req AgentRequest, emit func(Ag
 }
 
 type agentState struct {
-	scopeMu  sync.RWMutex
-	scope    *core.Scope
-	inlineMu sync.Mutex
-
 	rightTab RightRailTab
 	mode     AgentMode
 	status   AgentStatus
@@ -540,25 +535,6 @@ type agentState struct {
 	composerHighlighted bool
 }
 
-func (a *agentState) setScope(cx *core.Scope) {
-	a.scopeMu.Lock()
-	a.scope = cx
-	a.scopeMu.Unlock()
-	if cx != nil {
-		// Drain any in-flight inline postOrRun callback that began before cx attached,
-		// so EditorView cannot subscribe UI signals while a background goroutine is still notifying inline.
-		a.inlineMu.Lock()
-		a.inlineMu.Unlock()
-	}
-}
-
-func (a *agentState) getScope() *core.Scope {
-	a.scopeMu.RLock()
-	cx := a.scope
-	a.scopeMu.RUnlock()
-	return cx
-}
-
 func (a *agentState) initDefaults() {
 	perms := DefaultAgentPermissions()
 	a.rightTab = RightTabInspector
@@ -582,42 +558,12 @@ func (e *Editor) nowTime() time.Time {
 	return time.Now()
 }
 
-// HasScope reports whether a UI core.Scope is currently attached to the editor.
-func (e *Editor) HasScope() bool {
-	if e == nil {
-		return false
-	}
-	cx := e.agent.getScope()
-	return cx != nil && !cx.Disposed()
-}
-
-// Post schedules fn onto the editor's UI scope when attached, or invokes fn inline otherwise.
-func (e *Editor) Post(fn func()) {
-	e.postOrRun(fn)
-}
-
 // CancelAgentReconnect stops any pending reconnect backoff timer without changing the current status.
 func (e *Editor) CancelAgentReconnect() {
 	if e == nil {
 		return
 	}
 	e.cancelAgentReconnect()
-}
-
-func (e *Editor) postOrRun(fn func()) {
-	if fn == nil {
-		return
-	}
-	if e != nil {
-		e.agent.inlineMu.Lock()
-		if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
-			e.agent.inlineMu.Unlock()
-			cx.Post(fn)
-			return
-		}
-		defer e.agent.inlineMu.Unlock()
-	}
-	fn()
 }
 
 func (e *Editor) scheduleAgentAfter(d time.Duration, fn func()) func() {

@@ -1254,7 +1254,7 @@ func (e *Editor) postExportUI(scope *core.Scope, fn func()) {
 		scope.Post(fn)
 		return
 	}
-	fn()
+	e.postOrRun(fn)
 }
 
 func newExportCommand(ctx context.Context, args, baseEnv []string) *exec.Cmd {

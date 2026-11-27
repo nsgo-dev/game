@@ -146,7 +146,7 @@ type Result struct {
 
 // Options configure a Server.
 type Options struct {
-	// Run hands fn to the editor's goroutine and returns at once, as core.Scope.Post does for an editor shown in a window; the server waits for fn to run. When nil, the server runs fn on the calling goroutine, one at a time, for an editor no UI drives, as in a test or a script.
+	// Run hands fn to the editor's goroutine and returns at once, as core.Scope.Post does for an editor shown in a window; the server waits for fn to run. When nil, the server routes tool calls and session notifications through the editor's single headless executor (Editor.PostOrRunHeadless), serialized with Editor.Post and Editor.RunHeadless and drained by Editor.AttachScope; callers driving a scope-less Editor directly while the server is active must wrap their editor calls in Editor.RunHeadless.
 	Run func(fn func())
 	// RunPlaytest optionally overrides how game_playtest executes a playtest request, for tests or in-process runners. When nil, game_playtest runs `go tool nsgo test` in the project root.
 	RunPlaytest func(ctx context.Context, req PlaytestRunRequest) (*playtest.Report, error)
@@ -164,9 +164,6 @@ type Server struct {
 	onPermAsk      func(ctx context.Context, eval editor.PermissionEvaluation) (PermissionPromptAnswer, error)
 	onPermDecision func(eval editor.PermissionEvaluation)
 	sdk            *mcp.Server
-
-	// inline serializes the calls run inline when Options.Run is nil.
-	inline sync.Mutex
 
 	mu              sync.Mutex
 	tools           map[string]Tool
@@ -189,6 +186,8 @@ type Server struct {
 	projectGen    uint64
 	closed        bool
 	done          chan struct{}
+	ctx           context.Context
+	cancel        context.CancelFunc
 	// wg tracks the goroutines serving connections and sending notifications.
 	wg sync.WaitGroup
 
@@ -215,8 +214,9 @@ type trackedSession struct {
 	gen          uint64
 }
 
-// New returns a server for ed with the built-in tools. Call it on the editor's goroutine, which is the one Options.Run hands functions to.
+// New returns a server for ed with the built-in tools. Call it on the editor's goroutine (the one Options.Run hands functions to, or inside Editor.RunHeadless when Options.Run is nil).
 func New(ed *editor.Editor, opts Options) *Server {
+	srvCtx, srvCancel := context.WithCancel(context.Background())
 	s := &Server{
 		ed:             ed,
 		run:            opts.Run,
@@ -230,6 +230,8 @@ func New(ed *editor.Editor, opts Options) *Server {
 		conns:          map[net.Conn]struct{}{},
 		sessions:       map[*mcp.ServerSession]trackedSession{},
 		done:           make(chan struct{}),
+		ctx:            srvCtx,
+		cancel:         srvCancel,
 		pending:        map[string]mcp.Meta{},
 		wake:           make(chan struct{}, 1),
 		holds:          newObjectHoldManager(),
@@ -409,11 +411,6 @@ func (s *Server) Tools() []Tool {
 
 // Editor runs fn on the editor's goroutine with the editor and returns fn's error, waiting until fn has run. Edits fn makes through the editor's methods count as the agent's in the change stream. When ctx ends before fn starts, fn does not run and Editor returns ctx's error; once fn has started, Editor waits for it. A panic in fn comes back as an error.
 func (s *Server) Editor(ctx context.Context, fn func(ed *editor.Editor) error) error {
-	if s.run == nil {
-		s.inline.Lock()
-		defer s.inline.Unlock()
-		return s.asAgent(fn)
-	}
 	const (
 		pending int32 = iota
 		started
@@ -421,6 +418,31 @@ func (s *Server) Editor(ctx context.Context, fn func(ed *editor.Editor) error) e
 	)
 	var state atomic.Int32
 	done := make(chan error, 1)
+	if s.run == nil {
+		if s.ed == nil {
+			return s.asAgent(fn)
+		}
+		if s.isClosed() {
+			return errors.New("editormcp: the editor's server is closed")
+		}
+		callCtx, cancelCall := context.WithCancel(ctx)
+		stopCancel := context.AfterFunc(s.ctx, cancelCall)
+		defer func() {
+			stopCancel()
+			cancelCall()
+		}()
+		var callErr error
+		err := s.ed.RunHeadlessContext(callCtx, func() {
+			callErr = s.asAgent(fn)
+		})
+		if err != nil {
+			if s.isClosed() && ctx.Err() == nil {
+				return errors.New("editormcp: the editor's server is closed")
+			}
+			return err
+		}
+		return callErr
+	}
 	s.run(func() {
 		if !state.CompareAndSwap(pending, started) {
 			return
@@ -665,21 +687,12 @@ func (s *Server) notifyEditor(fn func(ed *editor.Editor)) {
 		})
 		return
 	}
-	if s.ed.HasScope() {
-		s.ed.Post(func() {
-			if s.isClosed() {
-				return
-			}
-			fn(s.ed)
-		})
-		return
-	}
-	s.inline.Lock()
-	defer s.inline.Unlock()
-	if s.isClosed() {
-		return
-	}
-	fn(s.ed)
+	_ = s.ed.PostOrRunHeadless(s.ctx, func() {
+		if s.isClosed() {
+			return
+		}
+		fn(s.ed)
+	})
 }
 
 // Open starts serving on the endpoint of the project open in the editor (Endpoint) and moves to the new project's endpoint whenever the editor opens another, until Close. Call it on the editor's goroutine. Without a project it serves nothing until one opens. It returns the error opening the endpoint, such as ErrInUse when another editor has the same project open, which Status reports too.
@@ -818,6 +831,7 @@ func (s *Server) Close() error {
 	s.listener = nil
 	conns := slices.Collect(maps.Keys(s.conns))
 	close(s.done)
+	s.cancel()
 	s.mu.Unlock()
 	if l != nil {
 		closeListener(l)

@@ -352,14 +352,7 @@ func (e *Editor) appendAssetBuildOutput(source OutputSource, level OutputLevel, 
 }
 
 func (e *Editor) postAssetBuildUI(fn func()) {
-	e.assetBuild.mu.Lock()
-	scope := e.assetBuild.scope
-	e.assetBuild.mu.Unlock()
-	if scope != nil {
-		scope.Post(fn)
-		return
-	}
-	fn()
+	e.postOrRun(fn)
 }
 
 func defaultAssetsCommandRunner(ctx context.Context, spec AssetsBuildSpec, stdout, stderr io.Writer) error {

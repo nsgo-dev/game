@@ -395,9 +395,8 @@ const (
 )
 
 type firstRunState struct {
-	mu         sync.Mutex
-	headlessMu sync.Mutex
-	scope      *core.Scope
+	mu    sync.Mutex
+	scope *core.Scope
 
 	stage FirstRunStage
 
@@ -872,10 +871,10 @@ func (e *Editor) StartWithAI() error {
 	}
 
 	e.SetStartScreenOpen(true)
+	e.notify()
 	if selected != "apikey" {
 		e.startFirstRunConnectHandshake(selected, v.DisplayPath)
 	}
-	e.notify()
 	return nil
 }
 
@@ -999,8 +998,8 @@ func (e *Editor) SelectFirstRunAgent(kind string) error {
 	e.firstRun.connectStartedAt = e.now()
 	e.firstRun.mu.Unlock()
 
-	e.startFirstRunConnectHandshake(kind, e.StartNameStatus().DisplayPath)
 	e.notify()
+	e.startFirstRunConnectHandshake(kind, e.StartNameStatus().DisplayPath)
 	return nil
 }
 
@@ -1681,12 +1680,13 @@ func (e *Editor) ApproveFirstRunPlan() error {
 	}
 
 	go func() {
-		defer run.finish()
 		res, buildErr := builder(ctx, req, emit)
 		if ctx.Err() != nil {
+			run.finish()
 			return
 		}
 		e.firstRunPostOrRun(func() {
+			defer run.finish()
 			e.finishFirstRunBuild(run, plan, absDir, res, buildErr)
 		})
 	}()
@@ -2702,24 +2702,7 @@ func (e *Editor) cancelFirstRunOps() {
 }
 
 func (e *Editor) firstRunPostOrRun(fn func()) {
-	if fn == nil {
-		return
-	}
-	e.firstRun.mu.Lock()
-	scope := e.firstRun.scope
-	e.firstRun.mu.Unlock()
-	if scope == nil {
-		e.startScreen.mu.Lock()
-		scope = e.startScreen.scope
-		e.startScreen.mu.Unlock()
-	}
-	if scope != nil {
-		scope.Post(fn)
-		return
-	}
-	e.firstRun.headlessMu.Lock()
-	defer e.firstRun.headlessMu.Unlock()
-	fn()
+	e.postOrRun(fn)
 }
 
 func (e *Editor) writeClipboardText(text string) {
