@@ -3,8 +3,10 @@
 //	go run ./tools/changelog check
 //	go run ./tools/changelog collect
 //	go run ./tools/changelog release [-date YYYY-MM-DD] X.Y.Z
+//	go run ./tools/changelog verify-release X.Y.Z
+//	go run ./tools/changelog notes [-max N] [-link URL] X.Y.Z
 //
-// check validates the fragments; collect moves their bullets to the end of the matching "### Kind" subsections of Unreleased and deletes them; release collects them and turns Unreleased into the version's section above a fresh one. It works on the repository the current directory is in.
+// check validates the fragments; collect moves their bullets to the end of the matching "### Kind" subsections of Unreleased and deletes them; release collects them and turns Unreleased into the version's section above a fresh one. verify-release fails unless a tag of the version would ship everything it records: no fragment left in changelog.d, an empty Unreleased and a non-empty section for the version. notes prints the version's section, as release.yml publishes it, shortened to whole subsections and a link to the full section when it is longer than -max characters. It works on the repository the current directory is in.
 package main
 
 import (
@@ -17,6 +19,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -71,7 +75,7 @@ func repoRoot() (string, error) {
 }
 
 func usage() error {
-	return errors.New("usage: changelog check | collect | release [-date YYYY-MM-DD] X.Y.Z")
+	return errors.New("usage: changelog check | collect | release [-date YYYY-MM-DD] X.Y.Z | verify-release X.Y.Z | notes [-max N] [-link URL] X.Y.Z")
 }
 
 func run(root string, args []string, now time.Time) error {
@@ -109,6 +113,35 @@ func run(root string, args []string, now time.Time) error {
 			return usage()
 		}
 		return release(root, fs.Arg(0), *date)
+	case "verify-release":
+		if len(rest) != 1 {
+			return usage()
+		}
+		if err := verifyRelease(root, rest[0]); err != nil {
+			return err
+		}
+		fmt.Printf("%s is ready to release %s\n", changelogFile, rest[0])
+		return nil
+	case "notes":
+		fs := flag.NewFlagSet("notes", flag.ContinueOnError)
+		limit := fs.Int("max", 0, "the most characters to print, or 0 for no limit")
+		link := fs.String("link", "", "the URL of CHANGELOG.md that a shortened section links to")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return usage()
+		}
+		data, err := os.ReadFile(filepath.Join(root, changelogFile))
+		if err != nil {
+			return err
+		}
+		out, err := notes(string(data), fs.Arg(0), *limit, *link)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+		return nil
 	}
 	return usage()
 }
@@ -364,4 +397,178 @@ func release(root, version, date string) error {
 	}
 	fmt.Printf("collected %d fragments and wrote the %s section of %s; review it, then merge it and tag v%s\n", n, version, changelogFile, version)
 	return nil
+}
+
+// verifyRelease reports every reason a tag of version would ship notes that are not in its section: fragments still in changelog.d, lines in Unreleased, or no section for the version.
+func verifyRelease(root, version string) error {
+	version = strings.TrimPrefix(version, "v")
+	if !versionRE.MatchString(version) {
+		return fmt.Errorf("version %q is not X.Y.Z or X.Y.Z-suffix", version)
+	}
+	var errs []error
+	frags, err := readFragments(root)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if len(frags) > 0 {
+		names := make([]string, len(frags))
+		for i, f := range frags {
+			names[i] = f.name
+		}
+		errs = append(errs, fmt.Errorf("%s still holds %d fragments, which this release would not mention (%s); run go run ./tools/changelog release %s before tagging", fragmentDir, len(frags), strings.Join(names, ", "), version))
+	}
+	data, err := os.ReadFile(filepath.Join(root, changelogFile))
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	text := string(data)
+	if _, body, _, err := unreleased(text); err != nil {
+		errs = append(errs, err)
+	} else if slices.ContainsFunc(body, func(l string) bool {
+		return strings.TrimSpace(l) != "" && !strings.HasPrefix(l, "#")
+	}) {
+		errs = append(errs, fmt.Errorf("%s's Unreleased section is not empty, so this release would not mention what it lists", changelogFile))
+	}
+	if _, _, err := section(text, version); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// section finds the version's section, under a heading whose first word is X.Y.Z, vX.Y.Z or either in brackets, and returns its heading's text and its body without leading and trailing blank lines. The body ends at the next "## " heading or at the link reference definitions at the end of the file.
+func section(text, version string) (heading string, body []string, err error) {
+	version = strings.TrimPrefix(version, "v")
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	start := -1
+	for i, l := range lines {
+		title, ok := strings.CutPrefix(l, "## ")
+		if !ok {
+			continue
+		}
+		title = strings.TrimSpace(title)
+		token, _, _ := strings.Cut(title, " ")
+		if len(token) >= 2 && token[0] == '[' && token[len(token)-1] == ']' {
+			token = token[1 : len(token)-1]
+		}
+		if token == version || token == "v"+version {
+			heading, start = title, i
+			break
+		}
+	}
+	if start < 0 {
+		return "", nil, fmt.Errorf("%s has no section for %s (a heading such as \"## [%s] - YYYY-MM-DD\")", changelogFile, version, version)
+	}
+	for _, l := range lines[start+1:] {
+		if strings.HasPrefix(l, "## ") || linkDefinition.MatchString(l) {
+			break
+		}
+		body = append(body, l)
+	}
+	body = trimBlank(body)
+	if len(body) == 0 {
+		return "", nil, fmt.Errorf("%s's section for %s is empty", changelogFile, version)
+	}
+	return heading, body, nil
+}
+
+var linkDefinition = regexp.MustCompile(`^\[[^\]]+\]:\s+`)
+
+// shortenOrder is the order notes keeps a long section's subsections whole in: the ones an upgrading user must read first, then Fixed, then Added, which is the longest. A subsection under another name comes last.
+var shortenOrder = []string{"Deprecated", "Removed", "Changed", "Security", "Fixed", "Added"}
+
+// notes renders the version's section for a release body. A section longer than limit characters (a limit of 0 has none) keeps its lines before the first subsection and as many whole subsections as fit, in shortenOrder; each other subsection keeps its heading and a line that counts its entries and points to the full section at link, so nothing is cut partway through a list.
+func notes(text, version string, limit int, link string) (string, error) {
+	heading, body, err := section(text, version)
+	if err != nil {
+		return "", err
+	}
+	full := strings.Join(body, "\n") + "\n"
+	if limit <= 0 || utf8.RuneCountInString(full) <= limit {
+		return full, nil
+	}
+	if link == "" {
+		return "", fmt.Errorf("%s's section for %s is %d characters, over %d, and shortening it needs -link", changelogFile, version, utf8.RuneCountInString(full), limit)
+	}
+	target := link + "#" + anchor(heading)
+
+	// Split the body into what precedes the first subsection and the subsections, each a heading and its lines.
+	type sub struct {
+		title  string
+		lines  []string
+		whole  bool
+		cost   int
+		stub   string
+		amount int
+	}
+	var preamble []string
+	var subs []*sub
+	for _, l := range body {
+		if title, ok := strings.CutPrefix(l, "### "); ok {
+			subs = append(subs, &sub{title: strings.TrimSpace(title)})
+			continue
+		}
+		if len(subs) == 0 {
+			preamble = append(preamble, l)
+			continue
+		}
+		subs[len(subs)-1].lines = append(subs[len(subs)-1].lines, l)
+	}
+	render := func() string {
+		var b strings.Builder
+		if p := trimBlank(preamble); len(p) > 0 {
+			b.WriteString(strings.Join(p, "\n") + "\n\n")
+		}
+		for _, s := range subs {
+			b.WriteString("### " + s.title + "\n\n")
+			if s.whole {
+				b.WriteString(strings.Join(trimBlank(s.lines), "\n") + "\n\n")
+			} else {
+				b.WriteString(s.stub + "\n\n")
+			}
+		}
+		fmt.Fprintf(&b, "---\n\nThese notes leave out the entries of some subsections to fit GitHub's limit on a release body; the full notes are in [CHANGELOG.md](%s).\n", target)
+		return b.String()
+	}
+	for _, s := range subs {
+		for _, l := range s.lines {
+			if strings.HasPrefix(l, "- ") {
+				s.amount++
+			}
+		}
+		s.stub = fmt.Sprintf("_%d entries, listed in the [full notes](%s)._", s.amount, target)
+		s.cost = utf8.RuneCountInString(strings.Join(trimBlank(s.lines), "\n")) - utf8.RuneCountInString(s.stub)
+	}
+	rank := func(s *sub) int {
+		if i := slices.Index(shortenOrder, s.title); i >= 0 {
+			return i
+		}
+		return len(shortenOrder)
+	}
+	order := slices.Clone(subs)
+	slices.SortStableFunc(order, func(a, b *sub) int { return rank(a) - rank(b) })
+	used := utf8.RuneCountInString(render())
+	if used > limit {
+		return "", fmt.Errorf("%s's section for %s does not fit in %d characters even without its entries", changelogFile, version, limit)
+	}
+	for _, s := range order {
+		if used+s.cost <= limit {
+			s.whole = true
+			used += s.cost
+		}
+	}
+	return render(), nil
+}
+
+// anchor is the fragment GitHub links a Markdown heading to: lower case, spaces as hyphens, and every character but letters, digits, hyphens and underscores dropped.
+func anchor(heading string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(heading) {
+		switch {
+		case r == ' ':
+			b.WriteRune('-')
+		case r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
