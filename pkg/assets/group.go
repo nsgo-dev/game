@@ -362,7 +362,7 @@ func (g *Group) readAssetFunc() func(context.Context, string) ([]byte, error) {
 		return baseRead
 	}
 	return func(ctx context.Context, uri string) ([]byte, error) {
-		data, err := defaultReadAsset(fsys, ctx, uri)
+		data, err := fsReadAsset(fsys, ctx, uri)
 		if err == nil {
 			return data, nil
 		}

@@ -56,3 +56,43 @@ func TestManifestCheckNeedsOut(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }
+
+func TestManifestResourcesScansResourcesDirAndRefusesEmbed(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "resources")
+	if err := os.MkdirAll(resDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resDir, "hero.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resDir, "level1.tmj"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"manifest", "-resources", "-pkg", "main"}, a); code != 0 {
+		t.Fatalf("-resources exit %d (stderr: %s)", code, stderr)
+	}
+	got := stdout.String()
+	if strings.Contains(got, "//go:embed") {
+		t.Fatalf("-resources must not emit //go:embed:\n%s", got)
+	}
+	if !strings.Contains(got, `ImageHero = core.ImageSource{URI: "asset:hero.png"}`) || !strings.Contains(got, `MapLevel1 = "asset:level1.tmj"`) {
+		t.Fatalf("unexpected manifest output:\n%s", got)
+	}
+
+	for _, args := range [][]string{
+		{"manifest", "-resources", "-embed"},
+		{"manifest", "-resources", "-embed-dir", "assets"},
+	} {
+		a, _, stderr = newTestApp(t)
+		if code := run(args, a); code != 2 {
+			t.Fatalf("%v exit %d, want 2 (stderr: %s)", args, code, stderr)
+		}
+		if !strings.Contains(stderr.String(), "-resources cannot be used with -embed") {
+			t.Fatalf("%v stderr = %q", args, stderr)
+		}
+	}
+}

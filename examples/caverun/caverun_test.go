@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io/fs"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,26 +18,43 @@ func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 const testFrame = 16667 * time.Microsecond
 
+func caveRunTestMediaOptions() nsgotest.Option {
+	return func(a *nsgotest.App) {
+		a.ImageSizes = map[string]core.Size{
+			"asset:sprites.png": {Width: 128, Height: 64},
+			"asset:tileset.png": {Width: 64, Height: 32},
+		}
+		a.AudioDurations = map[string]time.Duration{
+			"asset:sfx_jump.wav":   180 * time.Millisecond,
+			"asset:sfx_gem.wav":    330 * time.Millisecond,
+			"asset:sfx_hurt.wav":   260 * time.Millisecond,
+			"asset:sfx_win.wav":    940 * time.Millisecond,
+			"asset:music_cave.wav": 6400 * time.Millisecond,
+		}
+	}
+}
+
 func startCaveRun(t *testing.T, opts ...nsgotest.Option) (*nsgotest.App, *caveRun) {
 	t.Helper()
 	var g *caveRun
+	baseOpts := []nsgotest.Option{nsgotest.Size(960, 540), nsgotest.ManualFrames(), caveRunTestMediaOptions()}
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return rootWithHook(cx, func(c *caveRun) { g = c })
-	}, append([]nsgotest.Option{nsgotest.Size(960, 540), nsgotest.ManualFrames()}, opts...)...)
-
-	// Populate test audio durations so audio.LoadSound succeeds cleanly in headless mode.
-	app.AudioDurations = map[string]time.Duration{
-		"asset:sfx_jump.wav":   180 * time.Millisecond,
-		"asset:sfx_gem.wav":    330 * time.Millisecond,
-		"asset:sfx_hurt.wav":   260 * time.Millisecond,
-		"asset:sfx_win.wav":    940 * time.Millisecond,
-		"asset:music_cave.wav": 6400 * time.Millisecond,
-	}
-	app.Advance(3 * testFrame)
+	}, append(baseOpts, opts...)...)
 
 	if g == nil {
 		t.Fatal("caveRun instance was not initialized")
 	}
+	app.WaitUntil(2*time.Second, func() bool {
+		return g.levelLoaded.Get() || g.levelErr.Get() != nil
+	})
+	if err := g.levelErr.Get(); err != nil {
+		t.Fatalf("level group failed to load from resources: %v", err)
+	}
+	if !g.levelLoaded.Get() {
+		t.Fatal("level group did not finish loading from resources")
+	}
+	app.Advance(3 * testFrame)
 	return app, g
 }
 
@@ -669,5 +688,64 @@ func TestLocksLandscape(t *testing.T) {
 	app.Advance(10 * testFrame)
 	if app.Orientation != core.OrientationLandscape {
 		t.Fatalf("orientation while playing = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}
+
+func TestLevelGroupLoadsFromResourcesWithoutEmbedding(t *testing.T) {
+	var embedded []string
+	if err := fs.WalkDir(titleAssets, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		embedded = append(embedded, p)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(embedded)
+	if want := []string{"assets/font.fnt", "assets/font.png"}; !slices.Equal(embedded, want) {
+		t.Fatalf("embedded title assets = %v, want only %v", embedded, want)
+	}
+
+	var g *caveRun
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return rootWithHook(cx, func(c *caveRun) { g = c })
+	}, nsgotest.Size(960, 540), caveRunTestMediaOptions())
+	if g == nil {
+		t.Fatal("caveRun instance was not initialized")
+	}
+	app.WaitUntil(5*time.Second, func() bool {
+		return g.levelLoaded.Get() || g.levelErr.Get() != nil
+	})
+	if err := g.levelErr.Get(); err != nil {
+		t.Fatalf("level group failed to load from resources: %v", err)
+	}
+	grp := g.assets.mgr.Group("level1")
+	if !grp.Done() || grp.Progress() != 1 {
+		t.Fatalf("level1 group: done=%v progress=%v err=%v", grp.Done(), grp.Progress(), grp.Err())
+	}
+	if g.assets.atlas == nil || g.assets.atlas.Image.URI != "asset:sprites.png" || len(g.assets.atlas.Image.Data) != 0 {
+		t.Fatalf("atlas image = %+v, want URI-backed asset:sprites.png with no embedded Data", g.assets.atlas)
+	}
+	if g.assets.tilesetImg.URI != "asset:tileset.png" || len(g.assets.tilesetImg.Data) != 0 {
+		t.Fatalf("tileset image = %+v, want URI-backed asset:tileset.png with no embedded Data", g.assets.tilesetImg)
+	}
+	if len(g.assets.levelJSON) == 0 {
+		t.Fatal("levelJSON was not loaded from resources/level1.tmj")
+	}
+	for _, s := range []struct {
+		name string
+		uri  string
+		data []byte
+	}{
+		{"sfxJump", g.assets.sfxJump.URI, g.assets.sfxJump.Data},
+		{"sfxGem", g.assets.sfxGem.URI, g.assets.sfxGem.Data},
+		{"sfxHurt", g.assets.sfxHurt.URI, g.assets.sfxHurt.Data},
+		{"sfxWin", g.assets.sfxWin.URI, g.assets.sfxWin.Data},
+		{"musicCave", g.assets.musicCave.URI, g.assets.musicCave.Data},
+	} {
+		if !strings.HasPrefix(s.uri, "asset:") || len(s.data) != 0 {
+			t.Fatalf("%s = uri:%q data:%d, want URI-backed asset with no embedded Data", s.name, s.uri, len(s.data))
+		}
 	}
 }

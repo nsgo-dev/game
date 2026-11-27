@@ -1,6 +1,7 @@
 // Command genassets deterministically generates all original art, tilemap,
-// bitmap font, and audio assets for the Cave Run sample game under
-// examples/caverun/assets/.
+// bitmap font, and audio assets for the Cave Run sample game: the embedded
+// title font under examples/caverun/assets/ and the streamed level group under
+// examples/caverun/resources/.
 //
 // All generated assets are original works dedicated to the public domain under
 // CC0-1.0 (see examples/caverun/CREDITS.md). This generator uses only the Go
@@ -28,12 +29,15 @@ import (
 )
 
 func main() {
-	defaultOut := defaultAssetsDir()
-	outDir := flag.String("out", defaultOut, "output directory for generated assets")
+	outDir := flag.String("out", defaultDir("resources"), "output directory for streamed level resources")
+	titleDir := flag.String("title-out", defaultDir("assets"), "output directory for embedded title assets")
 	flag.Parse()
 
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		fatalf("create output dir: %v", err)
+	}
+	if err := os.MkdirAll(*titleDir, 0o755); err != nil {
+		fatalf("create title output dir: %v", err)
 	}
 
 	if err := generateSprites(*outDir); err != nil {
@@ -45,21 +49,21 @@ func main() {
 	if err := generateLevel(*outDir); err != nil {
 		fatalf("generate level: %v", err)
 	}
-	if err := generateFont(*outDir); err != nil {
+	if err := generateFont(*titleDir); err != nil {
 		fatalf("generate font: %v", err)
 	}
 	if err := generateAudio(*outDir); err != nil {
 		fatalf("generate audio: %v", err)
 	}
 
-	fmt.Printf("generated Cave Run assets in %s\n", *outDir)
+	fmt.Printf("generated Cave Run assets in %s (title) and %s (resources)\n", *titleDir, *outDir)
 }
 
-func defaultAssetsDir() string {
+func defaultDir(sub string) string {
 	if _, file, _, ok := runtime.Caller(0); ok {
-		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "assets"))
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", sub))
 	}
-	return filepath.Join("examples", "caverun", "assets")
+	return filepath.Join("examples", "caverun", sub)
 }
 
 func fatalf(format string, args ...any) {

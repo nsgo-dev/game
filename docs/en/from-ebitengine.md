@@ -15,7 +15,7 @@ Both are Go, so most of your game logic moves over unchanged. What changes is th
 | `DrawImageOptions.GeoM`, `ColorScale` alpha | `sprite.Sprite` position, origin, rotation, scale, flip and `Alpha` | [sprite](sprite.md) |
 | A hand-written scene switcher | `scene.Manager` with transitions | [scene](scene.md) |
 | A slice of structs you update yourself | `entities.World`, components and systems | [Entities](entities.md) |
-| `//go:embed` plus `ebitenutil.NewImageFromFile` | `"asset:"` URIs for images and sounds, `//go:embed` with `assets.WithFS` for data | [assets](assets.md) |
+| `//go:embed` plus `ebitenutil.NewImageFromFile` | `"asset:"` URIs in `resources/` loaded via `assets.Manager` (optional `assets.WithFS` for `//go:embed`) | [assets](assets.md) |
 | Channels or callbacks between systems | `flow.Bus`; `core.Signal` for UI state | [flow](flow.md) |
 | `inpututil.IsKeyJustPressed`, touch IDs | `input.Actions` with `JustPressed` and touch regions | [input](input.md) |
 | Your own AABB checks | `physics` shapes, `MoveAndSlide`, `RigidWorld` | [physics](physics.md) |
@@ -48,7 +48,7 @@ For 3D, `scene3d.Node` is a transform hierarchy with sockets, tags and picking. 
 
 ## Resources
 
-Put images and sounds under `resources/`; NSGo packages them for every target, and `core.Src("asset:hero.png")` opens one anywhere, including the web, where Ebitengine needs files embedded or fetched. Data that `assets.Manager` reads itself, such as atlas JSON, raw bytes and level files, still comes from `//go:embed`: pass the embedded file system with `assets.NewManager(cx, assets.WithFS(fsys))`, or pass `WithReadAsset` for custom storage. `assets.Manager` loads atlases, sounds, images and your own parsed files in named groups off the engine goroutine, exposes progress for a loading screen and releases a group when its scene ends. See [assets](assets.md).
+Put images, sounds, atlas JSON, tilemaps, models and other runtime files under `resources/`; NSGo packages them for every target, and `"asset:..."` URIs open them everywhere — including the web, fetched on demand through `core.Scope.ReadAsset` without embedding them in the binary. `assets.Manager` reads `"asset:"` bytes from the app's resources by default (pass `assets.WithFS(fsys)` to override with `//go:embed` or `os.DirFS`, or `WithReadAsset` for custom storage), loads atlases, sounds, images and your own parsed files in named groups off the engine goroutine, exposes progress for a loading screen and releases a group when its scene ends. See [assets](assets.md).
 
 ## Signals
 

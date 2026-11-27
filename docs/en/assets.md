@@ -10,21 +10,20 @@ All `Manager` and `Group` methods run on the engine goroutine; file reading and 
 
 ## Creating a Manager and defining groups
 
-Create a `Manager` bound to a `*core.Scope` (typically your root game component's scope). Pass `WithFS` to serve `"asset:"` URIs from an `embed.FS` or `os.DirFS`, or `WithReadAsset` for custom storage:
+Create a `Manager` bound to a `*core.Scope` (typically your root game component's scope). With no options, `"asset:"` URIs resolve the same app `resources/` files that images (`core.Src("asset:...")`) and sounds (`audio.Source{URI: "asset:..."}`) resolve on every target, through `core.Scope.ReadAsset` (fetched on demand on the web without embedding them in the binary):
 
 ```go
-//go:embed assets/*
-var assetFS embed.FS
+mgr := assets.NewManager(cx)
 
-mgr := assets.NewManager(cx, assets.WithFS(assetFS))
-
-// Register a scene's assets as a named group
+// Register a scene's assets as a named group (all loaded from resources/)
 level1 := mgr.Group("level1").
 	AddAtlas("hero", "asset:hero.json", core.Src("asset:hero.png")).
 	AddSound("jump", audio.Source{URI: "asset:sounds/jump.wav"}).
 	AddImage("bg", core.Src("asset:bg.png")).
 	AddCustom("map", "asset:maps/level1.tmj", parseMap, nil)
 ```
+
+Pass `assets.WithFS(fsys)` to override `"asset:"` byte reads with an `embed.FS` or `os.DirFS` (for example small startup assets embedded in the binary, or `os.DirFS(hotreload.DevAssetsDir())` under `game dev`), or `assets.WithReadAsset(fn)` for custom storage.
 
 Chainable builders on `*Group`:
 
@@ -109,7 +108,7 @@ w.WatchAssets(mgr, func(path string, names []string, err error) {
 })
 ```
 
-The watcher and the manager must see the same files: a `Manager` without `WithFS` reads `"asset:"` URIs from `assets/` in the working directory, and `nsgo dev` starts the game in the directory `game dev` was run from, not the project's, so under `game dev` the manager reads from `hotreload.DevAssetsDir()`, the absolute path of the directory `game dev` passes, as above. `WatchAssets` passes each changed file under the directory to `Manager.Reload` as `"asset:<path>"` on the engine goroutine. An atlas whose JSON changed is parsed again, and one whose image changed draws the file's new bytes with the same frames; the `*sprite.Atlas` the group holds is updated in place, so code that kept the pointer draws the edit. JSON that no longer parses keeps the previous frames and reports the error. Images show the new bytes and raw bytes are replaced; sounds and custom assets load again only when their group does. An image that ships in several densities (`Scales`) reloads from the file the screen shows, such as `hero@2x.png` on a 2x screen; saving another density changes nothing until the screen shows it. A group mounted on a DLC pack with `SetFS` keeps the pack's copy of a file the pack has, so saving the base file does not change it. `Manager.Revision` counts the reloads that replaced something, so a `core.Canvas` that reads it in `Draw` draws again after each one; a game drawn every frame by `game.Loop` needs nothing more.
+The watcher and the manager must see the same files: a `Manager` without `WithFS` reads `"asset:"` URIs from the app's packaged `resources/` through `core.Scope.ReadAsset`, so under `game dev` pass `assets.WithFS(os.DirFS(hotreload.DevAssetsDir()))`, the absolute path of the directory `game dev` watches, as above (this also lets `ReloadAsset` and `ReloadGroup` re-read edited files synchronously). `WatchAssets` passes each changed file under the directory to `Manager.Reload` as `"asset:<path>"` on the engine goroutine. An atlas whose JSON changed is parsed again, and one whose image changed draws the file's new bytes with the same frames; the `*sprite.Atlas` the group holds is updated in place, so code that kept the pointer draws the edit. JSON that no longer parses keeps the previous frames and reports the error. Images show the new bytes and raw bytes are replaced; sounds and custom assets load again only when their group does. An image that ships in several densities (`Scales`) reloads from the file the screen shows, such as `hero@2x.png` on a 2x screen; saving another density changes nothing until the screen shows it. A group mounted on a DLC pack with `SetFS` keeps the pack's copy of a file the pack has, so saving the base file does not change it. `Manager.Revision` counts the reloads that replaced something, so a `core.Canvas` that reads it in `Draw` draws again after each one; a game drawn every frame by `game.Loop` needs nothing more.
 
 For an atlas the game loads itself, such as one embedded with `go:embed`, `w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` delivers the atlas parsed from the saved files. For WGSL/Kage shaders and 3D shader materials, attach `hotreload.ShaderReloader` and `hotreload.MaterialReloader` with `w.WatchShaders` and `w.WatchMaterials`; see [Hot-reloading shaders and materials](render3d.md#hot-reloading-shaders-and-materials). `NewDevWatcher` returns nil when the game is not running under `game dev`, and a nil watcher's methods do nothing, so the calls can stay in the game; in release builds (`-tags release`) they compile to nothing.
 

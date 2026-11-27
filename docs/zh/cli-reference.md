@@ -60,6 +60,7 @@ nsgo game manifest [flags]
 | `-out string` |  | output Go file path (writes to stdout when empty) |
 | `-pkg string` | `assets` | Go package name for the generated file |
 | `-prefix string` | `asset:` | URI prefix prepended to each asset path |
+| `-resources` |  | scan resources/ (unless -in is set) and emit "asset:" URI references for app resources instead of //go:embed |
 
 ## game tex
 
@@ -224,6 +225,7 @@ nsgo game assets [flags]
 | `-check` |  | list the targets that are out of date without building them, and fail if there are any |
 | `-force` |  | rebuild every target, even those the cache says are up to date |
 | `-in string` | `game.yaml` | project file whose assets section declares the targets |
+| `-resources` |  | write asset outputs into resources/ and emit "asset:" URIs in the manifest instead of //go:embed |
 
 ## game generate
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"os"
 	"testing"
 	"testing/fstest"
 
@@ -17,11 +18,11 @@ var nsgoYAML []byte
 // TestProjectFileIsValidAndCanonical checks that game.yaml is in the form gameproject fmt writes, that nsgo.yaml agrees with it and that its autoloads load, as gameproject check and sync -check do.
 func TestProjectFileIsValidAndCanonical(t *testing.T) {
 	fsys := fstest.MapFS{project.FileName: {Data: gameYAML}, project.NSGoFileName: {Data: nsgoYAML}}
-	level, err := embeddedAssets.ReadFile("assets/level1.tmj")
+	level, err := os.ReadFile("resources/level1.tmj")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fsys["assets/level1.tmj"] = &fstest.MapFile{Data: level}
+	fsys["resources/level1.tmj"] = &fstest.MapFile{Data: level}
 	if _, err := project.Check(fsys); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestTouchLayoutIsCanonical(t *testing.T) {
 }
 
 func TestRootTitlesTheWindowFromTheProject(t *testing.T) {
-	app := nsgotest.Start(t, Root)
+	app := nsgotest.Start(t, Root, caveRunTestMediaOptions())
 	if app.Title != gameProject.Title() {
 		t.Fatalf("window title = %q, want %q", app.Title, gameProject.Title())
 	}

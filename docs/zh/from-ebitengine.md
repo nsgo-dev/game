@@ -15,7 +15,7 @@
 | `DrawImageOptions.GeoM`、`ColorScale` 透明度 | `sprite.Sprite` 的位置、原点、旋转、缩放、翻转和 `Alpha` | [sprite](sprite.md) |
 | 自己写的场景切换器 | 带过渡效果的 `scene.Manager` | [scene](scene.md) |
 | 自己逐个更新的结构体切片 | `entities.World`、组件与系统 | [实体](entities.md) |
-| `//go:embed` 加 `ebitenutil.NewImageFromFile` | 图像和声音用 `"asset:"` URI，数据用 `//go:embed` 加 `assets.WithFS` | [assets](assets.md) |
+| `//go:embed` 加 `ebitenutil.NewImageFromFile` | 放在 `resources/` 下、由 `assets.Manager` 加载的 `"asset:"` URI（可选 `assets.WithFS` 用于 `//go:embed`） | [assets](assets.md) |
 | 系统之间的 channel 或回调 | `flow.Bus`；界面状态用 `core.Signal` | [flow](flow.md) |
 | `inpututil.IsKeyJustPressed`、触控 ID | 带 `JustPressed` 和触控区域的 `input.Actions` | [input](input.md) |
 | 自己写的 AABB 检测 | `physics` 形状、`MoveAndSlide`、`RigidWorld` | [physics](physics.md) |
@@ -48,7 +48,7 @@ Ebitengine 游戏常用 `[]*Enemy` 加循环来管理对象；`entities` 则把�
 
 ## 资源
 
-图像和声音放在 `resources/` 下；NSGo 会把它们打包到每个目标平台，`core.Src("asset:hero.png")` 在任何平台都能打开，包括 Web，而在 Ebitengine 中 Web 上的文件需要嵌入或自行获取。`assets.Manager` 自己读取的数据，例如图集 JSON、原始字节和关卡文件，仍然来自 `//go:embed`：用 `assets.NewManager(cx, assets.WithFS(fsys))` 传入嵌入的文件系统，或者用 `WithReadAsset` 接入自定义存储。`assets.Manager` 在引擎 goroutine 之外按命名资源组加载图集、声音、图像和你自己解析的文件，提供加载界面所需的进度，并在场景结束时释放资源组。见 [assets](assets.md)。
+将图像、声音、图集 JSON、瓦片地图、模型和其他运行时文件统一放在 `resources/` 下；NSGo 会把它们打包到每个目标平台，`"asset:..."` URI 在任何平台上都能直接打开——包括 Web 上通过 `core.Scope.ReadAsset` 按需获取，无需嵌入二进制。`assets.Manager` 默认从应用资源读取 `"asset:"` 字节（需要覆写时可用 `assets.WithFS(fsys)` 接入 `//go:embed` 或 `os.DirFS`，或用 `WithReadAsset` 接入自定义存储），在引擎 goroutine 之外按命名资源组加载图集、声音、图像和你自己解析的文件，提供加载界面所需的进度，并在场景结束时释放资源组。见 [assets](assets.md)。
 
 ## 信号
 

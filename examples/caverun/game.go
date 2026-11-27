@@ -78,13 +78,16 @@ type caveRun struct {
 	alpha float64
 
 	// Reactive signals consumed by the native HUD & menus.
-	phase     *core.Signal[gamePhase]
-	paused    *core.Signal[bool]
-	hearts    *core.Signal[int]
-	gems      *core.Signal[int]
-	totalGems *core.Signal[int]
-	score     *core.Signal[int]
-	frameTick *core.Signal[int]
+	phase       *core.Signal[gamePhase]
+	paused      *core.Signal[bool]
+	levelLoaded *core.Signal[bool]
+	levelErr    *core.Signal[error]
+	pendingPlay bool
+	hearts      *core.Signal[int]
+	gems        *core.Signal[int]
+	totalGems   *core.Signal[int]
+	score       *core.Signal[int]
+	frameTick   *core.Signal[int]
 	// swarm is whether the 1000-firefly stress swarm is on; it stays on across restarts. sprites is how many sprites the level draws.
 	swarm   *core.Signal[bool]
 	sprites *core.Signal[int]
@@ -105,7 +108,7 @@ type caveRun struct {
 }
 
 func newCaveRun(cx *core.Scope) (*caveRun, error) {
-	assets, err := loadGameAssets()
+	assets, err := loadTitleAssets(cx)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +124,8 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 		savedMaster:  1,
 		phase:        core.NewSignal(cx, phaseTitle),
 		paused:       core.NewSignal(cx, false),
+		levelLoaded:  core.NewSignal(cx, false),
+		levelErr:     core.NewSignalFunc[error](cx, nil, func(a, b error) bool { return a == nil && b == nil }),
 		hearts:       core.NewSignal(cx, maxHearts),
 		gems:         core.NewSignal(cx, 0),
 		totalGems:    core.NewSignal(cx, 0),
@@ -164,20 +169,33 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 
 	g.initSettings(cx)
 
-	// Build initial level for title backdrop.
-	if err := g.resetLevel(); err != nil {
-		return nil, err
-	}
+	// Show the title screen immediately using the embedded title font, and
+	// stream the level group from resources/ in the background.
 	g.scenes.Switch(g.titleController(), nil)
+	g.assets.loadLevelGroup(func(err error) {
+		if err != nil {
+			g.levelErr.Set(err)
+			return
+		}
+		if err := g.resetLevel(); err != nil {
+			g.levelErr.Set(err)
+			return
+		}
+		g.levelLoaded.Set(true)
+		if g.pendingPlay {
+			g.pendingPlay = false
+			g.startGame()
+		}
+	})
 
 	g.loop.Run(cx)
 
 	return g, nil
 }
 
-func (g *caveRun) loadAudio(cx *core.Scope) {
+func (g *caveRun) loadAudio(_ *core.Scope) {
 	loadFX := func(src audio.Source, dest **sound.Effect) {
-		audio.LoadSound(cx, src, func(s *audio.Sound, err error) {
+		g.assets.mgr.LoadSound(src, func(s *audio.Sound, err error) {
 			if err != nil || s == nil {
 				return
 			}
@@ -276,6 +294,10 @@ func (g *caveRun) clearHeldInputs() {
 }
 
 func (g *caveRun) startGame() {
+	if !g.levelLoaded.GetUntracked() {
+		g.pendingPlay = true
+		return
+	}
 	if err := g.resetLevel(); err != nil {
 		return
 	}

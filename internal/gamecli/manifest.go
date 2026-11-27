@@ -24,9 +24,24 @@ func defineManifest(a *app, fs *flag.FlagSet) func() error {
 	prefix := fs.String("prefix", defaults.Prefix, "URI prefix prepended to each asset path")
 	embed := fs.Bool("embed", false, "emit //go:embed directives instead of URI references")
 	embedDir := fs.String("embed-dir", "", "optional directory prefix prepended to //go:embed patterns")
+	resources := fs.Bool("resources", false, "scan resources/ (unless -in is set) and emit \"asset:\" URI references for app resources instead of //go:embed")
 	check := fs.Bool("check", false, "verify that -out is up to date without modifying it")
 
 	return func() error {
+		if *resources {
+			if *embed || *embedDir != "" {
+				return usagef("-resources cannot be used with -embed or -embed-dir")
+			}
+			inSet := false
+			fs.Visit(func(f *flag.Flag) {
+				if f.Name == "in" || f.Name == "i" {
+					inSet = true
+				}
+			})
+			if !inSet {
+				*inDir = "resources"
+			}
+		}
 		if *inDir == "" {
 			return usagef("-in directory is required")
 		}

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/nsgo-dev/game/internal/devimage"
@@ -140,7 +142,7 @@ const (
 	SkippedDensity = "file is at a density the screen does not show"
 )
 
-// ReloadAsset reloads the loaded assets that match key by asset name, URI or relative path, reading fresh bytes through each group's reader (the group's FS, Manager.ReadAsset, the Manager's FS or the local assets/ directory). When groupName is non-empty, only that group is searched. It returns an empty slice and a nil error when no loaded asset matches key, and an error when groupName names no group.
+// ReloadAsset reloads the loaded assets that match key by asset name, URI or relative path, reading fresh bytes through each group's reader (the group's FS, Manager.ReadAsset, or the Manager's FS). When groupName is non-empty, only that group is searched. It returns an empty slice and a nil error when no loaded asset matches key, and an error when groupName names no group.
 //
 // The reads, atlas parses and custom loaders run off the engine goroutine, as they do in Group.Load, while ReloadAsset waits for them, so a reader or loader must not wait on the engine goroutine. When ctx is done first, ReloadAsset returns ctx's error and changes nothing. The results are applied on the engine goroutine: an atlas is updated in place (*cur = *next), so the *sprite.Atlas pointers the game holds stay valid, and a failed read or parse leaves the previous asset in place and is reported both in the item's Err and in the joined error. Sounds, images with no file behind them and files at a density the screen does not show are reported in Skipped and left unchanged. Revision goes up by one when at least one asset was replaced.
 //
@@ -307,6 +309,44 @@ type reloadJob struct {
 	err     error
 }
 
+func (g *Group) reloadReadAssetFunc() func(context.Context, string) ([]byte, error) {
+	if g.m.ReadAsset != nil || g.m.fs != nil {
+		return g.readAssetFunc()
+	}
+	// ReloadAsset and ReloadGroup wait on the engine goroutine while fetch runs
+	// off-thread, so they cannot post back to core.Scope.ReadAsset without
+	// deadlocking. Read from g.fs when mounted, and refuse "asset:" reads that
+	// would require an async Scope.ReadAsset round trip.
+	baseRead := func(ctx context.Context, uri string) ([]byte, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if strings.HasPrefix(uri, "asset:") {
+			return nil, fmt.Errorf("assets: cannot reload %q from app resources without WithFS or WithReadAsset", uri)
+		}
+		if p, ok := strings.CutPrefix(uri, "file://"); ok {
+			return os.ReadFile(filepath.FromSlash(p))
+		}
+		return os.ReadFile(uri)
+	}
+	fsys := g.fs
+	if fsys == nil {
+		return baseRead
+	}
+	return func(ctx context.Context, uri string) ([]byte, error) {
+		data, err := fsReadAsset(fsys, ctx, uri)
+		if err == nil {
+			return data, nil
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			if fallbackData, fallbackErr := baseRead(ctx, uri); fallbackErr == nil {
+				return fallbackData, nil
+			}
+		}
+		return nil, err
+	}
+}
+
 func (g *Group) planReload(spec assetSpec, mode specMatchKind, matchedURI string, ratio float32, bulk bool) *reloadJob {
 	j := &reloadJob{
 		g:      g,
@@ -314,7 +354,7 @@ func (g *Group) planReload(spec assetSpec, mode specMatchKind, matchedURI string
 		spec:   spec,
 		bulk:   bulk,
 		ratio:  ratio,
-		readFn: g.readAssetFunc(),
+		readFn: g.reloadReadAssetFunc(),
 		res: ReloadedAsset{
 			Group: g.name,
 			Name:  spec.name,
@@ -493,7 +533,7 @@ func (j *reloadJob) apply(m *Manager) bool {
 		return false
 	}
 	if j.err != nil {
-		if j.bulk && spec.kind == kindImage && errors.Is(j.readErr, fs.ErrNotExist) {
+		if j.bulk && spec.kind == kindImage && (errors.Is(j.readErr, fs.ErrNotExist) || errors.Is(j.readErr, core.ErrAssetNotFound)) {
 			j.res.Skipped = SkippedNoFile
 			return false
 		}

@@ -95,6 +95,8 @@ type Builder struct {
 	Force bool
 	// Check reports which targets are out of date without writing anything under Root: their status is Stale instead of Built. A target whose cache entry does not match is built in a temporary folder and counts as up to date when Root already holds exactly the files it writes, so a check passes on a fresh checkout whose committed outputs are current even without the cache. AAC and MP3 targets are the exception: an external encoder writes them, and another encoder or encoder version writes different bytes for the same input, so with no cache entry for one, as in a fresh checkout, it counts as up to date when its output exists. An atlas also counts as stale when its output folder holds a page file of its name that it no longer writes.
 	Check bool
+	// ResourcesDir, when non-empty (such as "resources"), redirects every asset target's output path and the manifest's input directory into that directory (replacing a leading "assets" directory prefix when present) and turns off //go:embed on the manifest so outputs ship as app resources loaded by "asset:" URI rather than embedded in the binary.
+	ResourcesDir string
 
 	// tools memoizes Audio's Tool for each format during a build.
 	tools map[audioconv.Format]string
@@ -126,6 +128,16 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 	}
 	if err := a.Validate(); err != nil {
 		return nil, err
+	}
+	if b.ResourcesDir != "" {
+		rewritten, err := redirectAssets(a, b.ResourcesDir)
+		if err != nil {
+			return nil, err
+		}
+		if err := rewritten.Validate(); err != nil {
+			return nil, err
+		}
+		a = rewritten
 	}
 	b.tools = nil
 	b.readers = b.inputs(a)
@@ -1032,4 +1044,62 @@ func writeFile(name string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(name, data, 0o644)
+}
+
+// redirectAssets returns a copy of a with every asset target's output path and
+// the manifest's input directory rooted under dir, and with manifest embedding
+// disabled so the generated manifest references app resources via "asset:" URIs.
+func redirectAssets(a *project.Assets, dir string) (*project.Assets, error) {
+	if strings.Contains(dir, `\`) {
+		return nil, fmt.Errorf("assetbuild: resources dir %q must use forward slashes", dir)
+	}
+	dir = path.Clean(dir)
+	if !fs.ValidPath(dir) || dir == "." {
+		return nil, fmt.Errorf("assetbuild: resources dir %q must be a relative directory inside the project", dir)
+	}
+	out := &project.Assets{
+		Cache:    a.Cache,
+		Atlases:  slices.Clone(a.Atlases),
+		Textures: slices.Clone(a.Textures),
+		Audio:    slices.Clone(a.Audio),
+		Fonts:    slices.Clone(a.Fonts),
+		Models:   slices.Clone(a.Models),
+	}
+	for i := range out.Atlases {
+		out.Atlases[i].Out = redirectOutputPath(out.Atlases[i].Out, dir)
+	}
+	for i := range out.Textures {
+		out.Textures[i].Out = redirectOutputPath(out.Textures[i].Out, dir)
+	}
+	for i := range out.Audio {
+		out.Audio[i].Out = redirectOutputPath(out.Audio[i].Out, dir)
+	}
+	for i := range out.Fonts {
+		out.Fonts[i].Out = redirectOutputPath(out.Fonts[i].Out, dir)
+	}
+	for i := range out.Models {
+		out.Models[i].Out = redirectOutputPath(out.Models[i].Out, dir)
+	}
+	if a.Manifest != nil {
+		m := *a.Manifest
+		m.In = redirectOutputPath(m.In, dir)
+		m.Embed = false
+		m.EmbedDir = ""
+		out.Manifest = &m
+	}
+	return out, nil
+}
+
+func redirectOutputPath(p, dir string) string {
+	p = path.Clean(p)
+	if p == dir || strings.HasPrefix(p, dir+"/") {
+		return p
+	}
+	if p == "assets" {
+		return dir
+	}
+	if rest, ok := strings.CutPrefix(p, "assets/"); ok {
+		return path.Join(dir, rest)
+	}
+	return path.Join(dir, p)
 }

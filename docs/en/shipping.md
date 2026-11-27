@@ -35,7 +35,7 @@ build:
 - **`id`**: reverse-DNS bundle identifier / application ID (for example `com.example.mygame`). Keep it stable across releases; Apple App Store, Google Play and Microsoft Store key your app on it.
 - **`version`**: user-facing semantic version (`CFBundleShortVersionString`, Android `versionName`).
 - **`build_number`**: monotonically increasing integer for every store upload (`CFBundleVersion` on Apple platforms, `versionCode` on Android). When omitted, it derives from `version`.
-- **`resources/` vs `assets/`**: game files loaded at runtime (`"asset:..."`) live in `resources/` and ship inside every package; build-time inputs such as icons live in `assets/` and are compiled into platform icon formats. Use `mobile.exclude_resources` in `nsgo.yaml` to omit desktop-only files from iOS and Android packages.
+- **`resources/` vs `assets/`**: every runtime file loaded as `"asset:..."` — images, sounds, atlas JSON, tilemaps, models, data tables and raw bytes read by `assets.Manager` — lives in `resources/` and ships inside every package (fetched on demand on the web through `core.Scope.ReadAsset`). Build-time inputs such as app icons, or small startup files embedded with `//go:embed`, live in `assets/`. Use `mobile.exclude_resources` in `nsgo.yaml` to omit desktop-only files from iOS and Android packages.
 
 ## App icons
 

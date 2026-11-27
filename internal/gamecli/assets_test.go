@@ -326,3 +326,43 @@ func TestAssetsRereadsAnEditedSidecar(t *testing.T) {
 	}
 	runAssets("0 built, 2 up to date\n")
 }
+
+func TestAssetsResourcesWritesToResourcesDirAndEmitsURIs(t *testing.T) {
+	projectPath := newAssetsProject(t)
+	root := filepath.Dir(projectPath)
+	raw, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectPath, append(raw, "    embed: true\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"assets", "-in", projectPath, "-resources"}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if want := "built atlas resources/ui\nbuilt manifest gen/assets_gen.go\n2 built, 0 up to date\n"; stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	for _, p := range []string{"resources/ui.png", "resources/ui.json", "gen/assets_gen.go"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(p))); err != nil {
+			t.Fatalf("missing %s: %v", p, err)
+		}
+	}
+	manifestSrc, err := os.ReadFile(filepath.Join(root, "gen/assets_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifestSrc), "//go:embed") || !strings.Contains(string(manifestSrc), `"asset:ui.png"`) {
+		t.Fatalf("unexpected manifest:\n%s", manifestSrc)
+	}
+
+	a, stdout, stderr = newTestApp(t)
+	if code := run([]string{"assets", "-in", projectPath, "-resources", "-check"}, a); code != 0 {
+		t.Fatalf("-resources -check exit %d (stderr: %s)", code, stderr)
+	}
+	if want := "2 up to date\n"; stdout.String() != want {
+		t.Fatalf("-resources -check stdout = %q, want %q", stdout, want)
+	}
+}

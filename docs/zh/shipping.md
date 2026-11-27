@@ -35,7 +35,7 @@ build:
 - **`id`**：反向域名格式的 Bundle ID / Application ID（例如 `com.example.mygame`）。各版本间请保持不变，Apple App Store、Google Play 和 Microsoft Store 都以此识别你的应用。
 - **`version`**：面向用户的语义化版本号（Apple 的 `CFBundleShortVersionString`、Android 的 `versionName`）。
 - **`build_number`**：每次提交商店都必须递增的整数构建号（Apple 的 `CFBundleVersion`、Android 的 `versionCode`）。省略时会从 `version` 推导。
-- **`resources/` 与 `assets/`**：运行时加载的游戏资源（`"asset:..."`）放在 `resources/` 中，会原样打入每个安装包；图标等构建期输入放在 `assets/` 中，由工具转换成各平台图标格式。可以在 `nsgo.yaml` 里用 `mobile.exclude_resources` 从 iOS 和 Android 包中排除仅桌面端使用的资源。
+- **`resources/` 与 `assets/`**：所有在运行时通过 `"asset:..."` 加载的文件——包括图片、声音、图集 JSON、瓦片地图、模型、数据表以及由 `assets.Manager` 读取的原始字节——统一放在 `resources/` 中，会原样打入每个安装包（在 Web 上通过 `core.Scope.ReadAsset` 按需获取）。应用图标等构建期输入，以及少量通过 `//go:embed` 嵌入的首屏文件放在 `assets/` 中。可以在 `nsgo.yaml` 里用 `mobile.exclude_resources` 从 iOS 和 Android 包中排除仅桌面端使用的资源。
 
 ## 应用图标
 
