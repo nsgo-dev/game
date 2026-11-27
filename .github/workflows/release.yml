@@ -40,6 +40,8 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.resolve.outputs.ref }}
+      sha: ${{ steps.resolve.outputs.sha }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,9 +53,13 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag }}
+          SHA: ${{ github.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Every job that builds or tests checks out `ref` (empty means the event's own commit) and verifies HEAD is `sha`.
+          ref=""
+          sha="$SHA"
           if [ "$EVENT" = "push" ]; then
             mode="release"
             tag="$REF_NAME"
@@ -65,7 +71,18 @@ jobs:
               echo "::error::Invalid tag '$tag' (expected vX.Y.Z or vX.Y.Z-suffix)."
               exit 1
             fi
+            # Build the tag's commit, never the branch the run was dispatched from (#1555).
+            if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent 2>/dev/null; then
+              echo "::error::Tag '$tag' does not exist in $GITHUB_REPOSITORY; refusing to build release assets for it."
+              exit 1
+            fi
             gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
+            ref="refs/tags/$tag"
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref" --jq .sha)
+            if ! gh api "repos/$GITHUB_REPOSITORY/contents/cmd/editor/nsgo.yaml?ref=$sha" --silent 2>/dev/null; then
+              echo "::error::Tag '$tag' ($sha) has no cmd/editor, so the editor cannot be built from it. Release the editor with a later tag instead of building another commit under $tag's version."
+              exit 1
+            fi
             version="${tag#v}"
           else
             mode="check"
@@ -76,6 +93,8 @@ jobs:
             echo "mode=$mode"
             echo "tag=$tag"
             echo "version=$version"
+            echo "ref=$ref"
+            echo "sha=$sha"
           } >> "$GITHUB_OUTPUT"
       - name: Extract release notes from CHANGELOG.md
         env:
@@ -174,7 +193,8 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
-    if: github.event_name == 'push'
+    needs: meta
+    if: needs.meta.outputs.mode != 'check'
     strategy:
       fail-fast: false
       matrix:
@@ -187,7 +207,18 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.meta.outputs.ref }}
           persist-credentials: false
+      - name: Verify the checkout is the release commit
+        env:
+          EXPECTED: ${{ needs.meta.outputs.sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Checked out $actual, expected $EXPECTED."
+            exit 1
+          fi
+          echo "Checked out $actual"
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -199,14 +230,26 @@ jobs:
 
   check:
     name: Build and vet
-    if: github.event_name == 'push'
+    needs: meta
+    if: needs.meta.outputs.mode != 'check'
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.meta.outputs.ref }}
           persist-credentials: false
+      - name: Verify the checkout is the release commit
+        env:
+          EXPECTED: ${{ needs.meta.outputs.sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Checked out $actual, expected $EXPECTED."
+            exit 1
+          fi
+          echo "Checked out $actual"
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -225,14 +268,26 @@ jobs:
 
   apple:
     name: Build and vet (iOS)
-    if: github.event_name == 'push'
+    needs: meta
+    if: needs.meta.outputs.mode != 'check'
     runs-on: depot-macos-15
     timeout-minutes: 20
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.meta.outputs.ref }}
           persist-credentials: false
+      - name: Verify the checkout is the release commit
+        env:
+          EXPECTED: ${{ needs.meta.outputs.sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Checked out $actual, expected $EXPECTED."
+            exit 1
+          fi
+          echo "Checked out $actual"
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -270,7 +325,18 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.meta.outputs.ref }}
           persist-credentials: false
+      - name: Verify the checkout is the release commit
+        env:
+          EXPECTED: ${{ needs.meta.outputs.sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Checked out $actual, expected $EXPECTED."
+            exit 1
+          fi
+          echo "Checked out $actual"
       - name: Download release notes
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -449,9 +515,9 @@ jobs:
       always() &&
       needs.meta.result == 'success' &&
       needs.editor.result == 'success' &&
-      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      (needs.check.result == 'success' || needs.check.result == 'skipped') &&
-      (needs.apple.result == 'success' || needs.apple.result == 'skipped') &&
+      needs.test.result == 'success' &&
+      needs.check.result == 'success' &&
+      needs.apple.result == 'success' &&
       (needs.meta.outputs.mode == 'release' || needs.meta.outputs.mode == 'upload')
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 15
