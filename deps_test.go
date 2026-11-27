@@ -12,6 +12,7 @@ import (
 // package gets the same headless guarantee.
 var headlessPackages = []string{
 	"./pkg/online/server/...",
+	"./pkg/online/liveops/crashreport",
 	"./pkg/datatable",
 	"./pkg/jsonschema",
 }

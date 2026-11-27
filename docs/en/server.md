@@ -36,6 +36,20 @@ defer stop()
 
 On SIGTERM/SIGINT the context ends; the runner lets the current tick finish, then calls `OnStop` (for example to notify peers and flush state) and returns. `Update` must return promptly for the stop to stay bounded.
 
+A panic in one match's `Update` never takes down the process. The runner recovers it, reports it through `OnPanic`, and — with the default `StopMatch` action — ends only that match: it never ticks again (its state may be half-updated), its `OnStop` runs once, and every other match keeps ticking. Returning `Crash` instead stops every match, runs every `OnStop`, then re-panics from `Run` once they have all returned. A panic inside `OnStop` is recovered and reported the same way, with `Tick` 0.
+
+```go
+r := &server.Runner{
+	Matches: matches,
+	OnPanic: func(p server.Panic) server.PanicAction {
+		save(p.Report()) // crashreport.CrashReport: the client's crash schema
+		return server.StopMatch
+	},
+}
+```
+
+`Panic` carries the match, the recovered value, the goroutine stack, the 1-based tick and the time. `Panic.Report()` builds a [`crashreport.CrashReport`](liveops.md#crash-reports), so server panic files and client crash files share one JSON schema.
+
 The runnable example is `examples/dedicatedserver`:
 
 ```sh

@@ -27,6 +27,7 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 - `RunSafe(fn)` guards any callback and reports whether it panicked.
 - On panic, the reporter builds a JSON-marshalable `CrashReport` holding `Timestamp`, `Panic`, `Message`, `Stack` (`runtime/debug.Stack`), `Step`, chronological `LastSteps` (oldest to newest), optional `State` from `CaptureState`, and a copy of `Metadata`, then passes it to `Reporter`.
 - Set `Rethrow: true` when the process should still panic after `Reporter` finishes persisting or shipping the report.
+- `CrashReport` and `StepRecord` are aliases for the types in `pkg/online/liveops/crashreport`, a package that imports no NSGo or game package, so a headless dedicated server builds the same report schema (`server.Panic.Report`, see [the server guide](server.md#stopping)). Existing code keeps working unchanged.
 
 ```go
 reporter := liveops.NewCrashReporter(liveops.CrashOptions{

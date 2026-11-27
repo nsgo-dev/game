@@ -9,6 +9,7 @@ package server
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"time"
 )
 
@@ -38,6 +39,13 @@ type Runner struct {
 	// update returns, so a slow update slows the match instead of running a
 	// burst.
 	OnOverrun func(m *Match, lag time.Duration, missed int)
+	// OnPanic, when set, reports a panic recovered from a match's Update or
+	// OnStop and chooses the outcome. With StopMatch (the zero value, also
+	// the default when OnPanic is nil) only the panicking match ends: it
+	// never ticks again, its OnStop runs once, and the runner keeps going.
+	// With Crash every match stops, every OnStop runs, and Run re-panics
+	// with the recovered value.
+	OnPanic func(p Panic) PanicAction
 }
 
 // interval returns the match's fixed step, defaulting to 60 Hz.
@@ -66,29 +74,34 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ps := &panicState{}
 	done := make(chan struct{}, len(r.Matches))
 	for _, m := range r.Matches {
 		go func(m *Match) {
 			defer func() {
-				if m.OnStop != nil {
-					m.OnStop()
-				}
+				r.runOnStop(m, cancel, ps)
 				done <- struct{}{}
 			}()
-			r.runMatch(ctx, m)
+			r.runMatch(ctx, m, cancel, ps)
 		}(m)
 	}
 	for range r.Matches {
 		<-done
 	}
+	if v := ps.crashValue(); v != nil {
+		panic(v)
+	}
 	return nil
 }
 
-func (r *Runner) runMatch(ctx context.Context, m *Match) {
+func (r *Runner) runMatch(ctx context.Context, m *Match, cancel context.CancelFunc, ps *panicState) {
 	step := m.interval()
 	next := time.Now().Add(step)
 	timer := time.NewTimer(step)
 	defer timer.Stop()
+	var tick uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -98,7 +111,10 @@ func (r *Runner) runMatch(ctx context.Context, m *Match) {
 		if ctx.Err() != nil {
 			return
 		}
-		m.Update(step)
+		tick++
+		if !r.guardUpdate(m, step, tick, cancel, ps) {
+			return
+		}
 		now := time.Now()
 		next = next.Add(step)
 		if now.After(next) {
@@ -122,5 +138,46 @@ func (r *Runner) runMatch(ctx context.Context, m *Match) {
 			return
 		}
 		timer.Reset(next.Sub(now))
+	}
+}
+
+// guardUpdate runs one tick of m.Update, recovering a panic into handlePanic.
+// It reports whether the match may keep ticking.
+func (r *Runner) guardUpdate(m *Match, dt time.Duration, tick uint64, cancel context.CancelFunc, ps *panicState) (ok bool) {
+	defer func() {
+		if v := recover(); v != nil {
+			r.handlePanic(m, v, tick, cancel, ps)
+			ok = false
+		}
+	}()
+	m.Update(dt)
+	return true
+}
+
+// runOnStop runs m.OnStop once, recovering and reporting a panic the same way
+// a panicking Update is, so a failing OnStop never kills the process.
+func (r *Runner) runOnStop(m *Match, cancel context.CancelFunc, ps *panicState) {
+	if m.OnStop == nil {
+		return
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			r.handlePanic(m, v, 0, cancel, ps)
+		}
+	}()
+	m.OnStop()
+}
+
+// handlePanic reports a recovered panic through OnPanic and applies the chosen
+// action: StopMatch ends only this match, Crash stops every match and makes
+// Run re-panic once all OnStop callbacks have run.
+func (r *Runner) handlePanic(m *Match, v any, tick uint64, cancel context.CancelFunc, ps *panicState) {
+	action := StopMatch
+	if r.OnPanic != nil {
+		action = r.OnPanic(Panic{Match: m, Value: v, Stack: debug.Stack(), Tick: tick, Time: time.Now()})
+	}
+	if action == Crash {
+		ps.set(v)
+		cancel()
 	}
 }
