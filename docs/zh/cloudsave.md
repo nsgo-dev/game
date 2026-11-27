@@ -128,10 +128,11 @@ SQL 存储有两张表：`cloudsave_slots`（每个槽位的最新版本）和 `
 
 ## HTTP
 
-`Service.Handler` 提供该服务。每个请求都带有 `Authorization: Bearer <token>`，令牌来自账号服务；每个响应都带有 `Cache-Control: no-store`。负载为 `application/octet-stream`；版本是 `{"slot", "version", "deleted", "hash", "size", "created"}`，`created` 为带毫秒的 RFC 3339，`deleted` 和 `hash` 只在有值时出现。
+`Service.Handler` 提供该服务。除 `GET /v1/openapi.yaml` 外，每个请求都带有 `Authorization: Bearer <token>`，令牌来自账号服务；每个响应都带有 `Cache-Control: no-store`。负载为 `application/octet-stream`；版本是 `{"slot", "version", "deleted", "hash", "size", "created"}`，`created` 为带毫秒的 RFC 3339，`deleted` 和 `hash` 只在有值时出现。完整的机器可读契约以 [OpenAPI 3.1 描述文件](https://game.nsgo.dev/schemas/cloudsave-openapi.v1.yaml) 发布，也通过 `GET /v1/openapi.yaml` 在线提供。
 
 | 请求 | 应答 |
 | --- | --- |
+| `GET /v1/openapi.yaml` | YAML 格式的 OpenAPI 3.1 描述（无需认证；对 `allowedOrigins` 允许 CORS） |
 | `GET /v1/saves` | `{"slots": [version]}`，按名称排序的有效槽位 |
 | `GET /v1/saves/{slot}` | 负载，带 `ETag`（加引号的哈希）和 `Save-Version` |
 | `PUT /v1/saves/{slot}` | version；`If-Match: "<hash>"` 或 `If-None-Match: *` 使其成为条件写入 |

@@ -1,0 +1,621 @@
+openapi: 3.1.0
+info:
+  title: NSGo Cloud Save API
+  version: 1.0.0
+  summary: Versioned per-account save slots with optimistic concurrency over HTTP.
+  description: >-
+    HTTP API served by github.com/nsgo-dev/game/pkg/online/cloudsave.
+    Every endpoint except GET /v1/openapi.yaml requires a bearer token issued by
+    the account service (pkg/online/accounts); slots are scoped to the token's
+    subject (account ID). Every response carries Cache-Control: no-store.
+    When Config.AllowedOrigins is configured, browsers from those origins receive
+    CORS headers and Access-Control-Expose-Headers: ETag, Save-Version.
+  license:
+    name: MIT
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/openapi.yaml:
+    get:
+      operationId: getOpenAPI
+      summary: Download this OpenAPI 3.1 description
+      description: >-
+        Returns the OpenAPI 3.1 YAML description of the cloud save service
+        without requiring authentication. Allowed CORS origins may fetch it
+        from browser tools.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.1 document in YAML.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /v1/saves:
+    get:
+      operationId: listSlots
+      summary: List live save slots
+      description: >-
+        Returns the current version metadata of each live (non-deleted) slot for
+        the authenticated account, sorted by slot name.
+      responses:
+        "200":
+          description: The account's live save slots.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlotsResponse"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/saves/{slot}:
+    parameters:
+      - $ref: "#/components/parameters/Slot"
+    get:
+      operationId: loadSlot
+      summary: Download a slot's current payload
+      description: >-
+        Returns the raw bytes of the slot's current version. Returns 404 when
+        the slot has never been written or is currently deleted.
+      responses:
+        "200":
+          description: The slot's raw payload.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Save-Version:
+              $ref: "#/components/headers/SaveVersion"
+            Last-Modified:
+              $ref: "#/components/headers/LastModified"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                contentEncoding: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+    put:
+      operationId: saveSlot
+      summary: Write a new version of a slot
+      description: >-
+        Stores the request body as the slot's next version. Supply either
+        If-Match (a quoted payload hash) or If-None-Match: * (slot must not
+        exist or must be deleted) for an atomic conditional write, or neither
+        for an unconditional write. Supplying both or a malformed header returns
+        400 bad_request.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      requestBody:
+        description: Raw save payload, up to Config.MaxSlotBytes bytes.
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              contentEncoding: binary
+      responses:
+        "200":
+          description: Metadata of the newly written version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "409":
+          $ref: "#/components/responses/TooManySlots"
+        "412":
+          $ref: "#/components/responses/Changed"
+        "413":
+          $ref: "#/components/responses/SlotTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+    delete:
+      operationId: deleteSlot
+      summary: Soft-delete a slot
+      description: >-
+        Appends a deletion version to the slot so its kept versions can still be
+        listed and restored. Deleting a slot that does not exist succeeds when
+        the precondition allows it (unconditional or If-None-Match: *).
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "204":
+          description: The slot is deleted.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "412":
+          $ref: "#/components/responses/Changed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/saves/{slot}/versions:
+    parameters:
+      - $ref: "#/components/parameters/Slot"
+    get:
+      operationId: listVersions
+      summary: List kept versions of a slot
+      description: >-
+        Returns the kept versions of the slot (including deletion markers),
+        newest first. Returns 404 when the slot has no kept versions.
+      responses:
+        "200":
+          description: Kept versions of the slot, newest first.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+    delete:
+      operationId: purgeSlot
+      summary: Permanently purge a slot and its history
+      description: >-
+        Removes the slot and all of its kept versions permanently. Succeeds even
+        if the slot has no versions.
+      responses:
+        "204":
+          description: The slot and all its versions are purged.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/saves/{slot}/versions/{n}:
+    parameters:
+      - $ref: "#/components/parameters/Slot"
+      - $ref: "#/components/parameters/VersionNumber"
+    get:
+      operationId: loadVersion
+      summary: Download a specific kept version's payload
+      description: >-
+        Returns the raw bytes of kept version n of the slot. Returns 410 deleted
+        if version n is a deletion marker, or 404 not_found if version n is not
+        kept.
+      responses:
+        "200":
+          description: The version's raw payload.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Save-Version:
+              $ref: "#/components/headers/SaveVersion"
+            Last-Modified:
+              $ref: "#/components/headers/LastModified"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                contentEncoding: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/InvalidToken"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/VersionDeleted"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Account token
+      description: >-
+        Signed bearer token from the account service (pkg/online/accounts),
+        verified offline with accounts/token. The token's subject is the account
+        ID.
+
+  parameters:
+    Slot:
+      name: slot
+      in: path
+      required: true
+      description: >-
+        Slot name, percent-encoded as a single URL path segment (1 to 200 UTF-8
+        bytes, no control characters or '/', and not '.' or '..').
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+
+    VersionNumber:
+      name: n
+      in: path
+      required: true
+      description: Positive 1-based version number.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: >-
+        Quoted SHA-256 payload hash ("sha256:<64 lowercase hex digits>"). Mutually
+        exclusive with If-None-Match.
+      schema:
+        type: string
+        pattern: '^"sha256:[0-9a-f]{64}"$'
+
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: >-
+        Must be "*"; requires the slot not to exist (never written or deleted).
+        Mutually exclusive with If-Match.
+      schema:
+        type: string
+        enum:
+          - "*"
+
+  headers:
+    CacheControl:
+      description: Every response disables HTTP caching.
+      required: true
+      schema:
+        type: string
+        enum:
+          - no-store
+
+    ETag:
+      description: Quoted SHA-256 hash of the payload ("sha256:<64 hex digits>").
+      required: true
+      schema:
+        type: string
+        pattern: '^"sha256:[0-9a-f]{64}"$'
+
+    SaveVersion:
+      description: The 1-based version number of the slot.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    LastModified:
+      description: When the version was written, in HTTP-date format (UTC).
+      required: true
+      schema:
+        type: string
+
+    WWWAuthenticate:
+      description: Bearer challenge returned when authentication fails.
+      required: true
+      schema:
+        type: string
+        enum:
+          - Bearer error="invalid_token"
+
+  schemas:
+    Version:
+      type: object
+      additionalProperties: false
+      required:
+        - slot
+        - version
+        - size
+        - created
+      properties:
+        slot:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Slot name.
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 1-based version number.
+        deleted:
+          type: boolean
+          enum:
+            - true
+          description: Present and true when this version marks a deletion.
+        hash:
+          type: string
+          pattern: "^sha256:[0-9a-f]{64}$"
+          description: Payload hash ("sha256:" plus lowercase hex SHA-256). Omitted on deletion versions.
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Payload size in bytes (0 for deletion versions).
+        created:
+          type: string
+          format: date-time
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
+          description: UTC timestamp when the version was written, in RFC 3339 with milliseconds.
+
+    SlotsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - slots
+      properties:
+        slots:
+          type: array
+          items:
+            $ref: "#/components/schemas/Version"
+
+    VersionsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - versions
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Version"
+
+    BadRequestError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - bad_request
+
+    InvalidTokenError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_token
+
+    NotFoundError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - not_found
+
+    TooManySlotsError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - too_many_slots
+
+    DeletedError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - deleted
+
+    ChangedError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - changed
+
+    SlotTooLargeError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+        - limit
+      properties:
+        error:
+          type: string
+          enum:
+            - slot_too_large
+        limit:
+          type: integer
+          minimum: 1
+          description: Maximum payload size in bytes (Config.MaxSlotBytes).
+
+    UnavailableError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - unavailable
+
+    InternalError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - internal
+
+  responses:
+    BadRequest:
+      description: Invalid slot name, version number, precondition header or unreadable body.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BadRequestError"
+
+    InvalidToken:
+      description: Missing, expired or invalid bearer token.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        WWW-Authenticate:
+          $ref: "#/components/headers/WWWAuthenticate"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/InvalidTokenError"
+
+    NotFound:
+      description: Slot or requested version does not exist.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NotFoundError"
+
+    TooManySlots:
+      description: Writing this new slot would exceed Config.MaxSlots live slots.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TooManySlotsError"
+
+    VersionDeleted:
+      description: The requested version is a deletion marker and has no payload.
+      headers:
+        Save-Version:
+          $ref: "#/components/headers/SaveVersion"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/DeletedError"
+
+    Changed:
+      description: Conditional write or delete precondition failed because the slot changed.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ChangedError"
+
+    SlotTooLarge:
+      description: Payload exceeds Config.MaxSlotBytes.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SlotTooLargeError"
+
+    Unavailable:
+      description: Request was cancelled or timed out.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UnavailableError"
+
+    InternalError:
+      description: Unexpected server error.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/InternalError"

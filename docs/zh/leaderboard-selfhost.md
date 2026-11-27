@@ -105,10 +105,11 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 
 ## HTTP
 
-`Service.Handler` 以 JSON 提供服务。每个请求都在 `Authorization: Bearer <token>` 里携带玩家的账号令牌；处理器用 `Options.Tokens` 离线校验，令牌的主体就是提交成绩的账号，所以玩家只能提交自己的成绩。
+`Service.Handler` 以 JSON 提供服务。除 `GET /v1/openapi.yaml` 外，每个请求都在 `Authorization: Bearer <token>` 里携带玩家的账号令牌；处理器用 `Options.Tokens` 离线校验，令牌的主体就是提交成绩的账号，所以玩家只能提交自己的成绩。完整的机器可读契约以 [OpenAPI 3.1 描述文件](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) 发布，也通过 `GET /v1/openapi.yaml` 在线提供。
 
 | 请求 | 响应 |
 | --- | --- |
+| `GET /v1/openapi.yaml` | YAML 格式的 OpenAPI 3.1 描述（无需认证） |
 | `GET /v1/boards` | `{"boards": [{"name", "order", "reset", "validation", "current", "previous"}]}` |
 | `POST /v1/boards/{board}/scores` `{"score", "proof"}` | `{"period", "entry", "total", "improved"}` |
 | `GET /v1/boards/{board}/top?period=&offset=&limit=` | 一页条目；缺省 `limit` 为 25 |

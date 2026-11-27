@@ -3,6 +3,7 @@ package selfhost
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,9 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
+
+//go:embed openapi.yaml
+var openapiSpec []byte
 
 // maxRequestBytes bounds a request body; a Friends request with MaxFriends of the longest account IDs fits.
 const maxRequestBytes = 64 << 10
@@ -25,8 +29,9 @@ const (
 	DefaultRadius = 5
 )
 
-// Handler serves the service over HTTP. Every request carries the player's account token as "Authorization: Bearer <token>", verified offline with Options.Tokens, whose subject is the account the request is for. Requests and responses are JSON; every response carries Cache-Control: no-store.
+// Handler serves the service over HTTP. Every request except GET /v1/openapi.yaml carries the player's account token as "Authorization: Bearer <token>", verified offline with Options.Tokens, whose subject is the account the request is for. Requests and responses are JSON; every response carries Cache-Control: no-store. The machine-readable OpenAPI 3.1 description lives in openapi.yaml and is served at GET /v1/openapi.yaml.
 //
+//	GET  /v1/openapi.yaml                                        -> the OpenAPI 3.1 description (unauthenticated)
 //	GET  /v1/boards                                              -> {"boards": [board]}
 //	POST /v1/boards/{board}/scores   {"score", "proof"}          -> {"period", "entry", "total", "improved"}
 //	GET  /v1/boards/{board}/top?period=&offset=&limit=           -> page
@@ -44,8 +49,23 @@ func (s *Service) Handler() http.Handler {
 	if s.tokens == nil {
 		panic("selfhost: Handler needs Options.Tokens to verify account tokens")
 	}
+	mux, _ := s.newMux()
+	return cors.Wrap(mux, cors.Policy{
+		Origins: s.cfg.AllowedOrigins,
+		Methods: []string{http.MethodGet, http.MethodPost},
+		Headers: []string{"Authorization", "Content-Type"},
+	})
+}
+
+func (s *Service) newMux() (*http.ServeMux, []string) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/boards", func(w http.ResponseWriter, r *http.Request) {
+	var routes []string
+	handle := func(pattern string, h http.HandlerFunc) {
+		routes = append(routes, pattern)
+		mux.HandleFunc(pattern, h)
+	}
+	handle("GET /v1/openapi.yaml", writeOpenAPI)
+	handle("GET /v1/boards", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.bearer(w, r); !ok {
 			return
 		}
@@ -59,7 +79,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})
-	mux.HandleFunc("POST /v1/boards/{board}/scores", func(w http.ResponseWriter, r *http.Request) {
+	handle("POST /v1/boards/{board}/scores", func(w http.ResponseWriter, r *http.Request) {
 		account, ok := s.bearer(w, r)
 		if !ok {
 			return
@@ -79,7 +99,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, resultResponse{Period: periodJSON(res.Period), Entry: entryJSON(res.Entry), Total: res.Total, Improved: res.Improved})
 	})
-	mux.HandleFunc("GET /v1/boards/{board}/top", func(w http.ResponseWriter, r *http.Request) {
+	handle("GET /v1/boards/{board}/top", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.bearer(w, r); !ok {
 			return
 		}
@@ -92,7 +112,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writePage(w, func() (Page, error) { return s.Top(r.Context(), r.PathValue("board"), q.Get("period"), offset, limit) })
 	})
-	mux.HandleFunc("GET /v1/boards/{board}/around", func(w http.ResponseWriter, r *http.Request) {
+	handle("GET /v1/boards/{board}/around", func(w http.ResponseWriter, r *http.Request) {
 		account, ok := s.bearer(w, r)
 		if !ok {
 			return
@@ -107,7 +127,7 @@ func (s *Service) Handler() http.Handler {
 			return s.Around(r.Context(), r.PathValue("board"), q.Get("period"), account, radius)
 		})
 	})
-	mux.HandleFunc("POST /v1/boards/{board}/friends", func(w http.ResponseWriter, r *http.Request) {
+	handle("POST /v1/boards/{board}/friends", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.bearer(w, r); !ok {
 			return
 		}
@@ -119,11 +139,14 @@ func (s *Service) Handler() http.Handler {
 			return s.Friends(r.Context(), r.PathValue("board"), r.URL.Query().Get("period"), req.Accounts)
 		})
 	})
-	return cors.Wrap(mux, cors.Policy{
-		Origins: s.cfg.AllowedOrigins,
-		Methods: []string{http.MethodGet, http.MethodPost},
-		Headers: []string{"Authorization", "Content-Type"},
-	})
+	return mux, routes
+}
+
+func writeOpenAPI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(openapiSpec)
 }
 
 type scoreRequest struct {
@@ -257,26 +280,29 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+type errorMapping struct {
+	err    error
+	status int
+	code   string
+}
+
+var errorMappings = []errorMapping{
+	{ErrUnknownBoard, http.StatusNotFound, "unknown_board"},
+	{ErrUnknownPeriod, http.StatusNotFound, "unknown_period"},
+	{ErrNotRanked, http.StatusNotFound, "not_ranked"},
+	{ErrInvalidAccount, http.StatusBadRequest, "invalid_account"},
+	{ErrScoreOutOfRange, http.StatusBadRequest, "score_out_of_range"},
+	{ErrInvalidQuery, http.StatusBadRequest, "bad_request"},
+	{ErrProofRequired, http.StatusForbidden, "proof_required"},
+	{ErrInvalidProof, http.StatusForbidden, "invalid_proof"},
+	{ErrProofExpired, http.StatusForbidden, "proof_expired"},
+	{context.DeadlineExceeded, http.StatusServiceUnavailable, "unavailable"},
+	{context.Canceled, http.StatusServiceUnavailable, "unavailable"},
+}
+
 // writeError writes the response for err; an error outside the service's contract becomes a bare 500.
 func writeError(w http.ResponseWriter, err error) {
-	codes := []struct {
-		err    error
-		status int
-		code   string
-	}{
-		{ErrUnknownBoard, http.StatusNotFound, "unknown_board"},
-		{ErrUnknownPeriod, http.StatusNotFound, "unknown_period"},
-		{ErrNotRanked, http.StatusNotFound, "not_ranked"},
-		{ErrInvalidAccount, http.StatusBadRequest, "invalid_account"},
-		{ErrScoreOutOfRange, http.StatusBadRequest, "score_out_of_range"},
-		{ErrInvalidQuery, http.StatusBadRequest, "bad_request"},
-		{ErrProofRequired, http.StatusForbidden, "proof_required"},
-		{ErrInvalidProof, http.StatusForbidden, "invalid_proof"},
-		{ErrProofExpired, http.StatusForbidden, "proof_expired"},
-		{context.DeadlineExceeded, http.StatusServiceUnavailable, "unavailable"},
-		{context.Canceled, http.StatusServiceUnavailable, "unavailable"},
-	}
-	for _, c := range codes {
+	for _, c := range errorMappings {
 		if errors.Is(err, c.err) {
 			writeJSON(w, c.status, errorResponse{c.code})
 			return

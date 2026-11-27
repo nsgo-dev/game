@@ -2,6 +2,7 @@ package cloudsave
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,14 +13,18 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
+//go:embed openapi.yaml
+var openapiSpec []byte
+
 // Headers of the HTTP protocol besides the standard ones.
 const (
 	// HeaderVersion carries a slot version's number on GET responses.
 	HeaderVersion = "Save-Version"
 )
 
-// Handler serves the service over HTTP. Every request needs "Authorization: Bearer <token>" with a token from the account service; slots are those of the token's subject. Slot names are path segments, escaped as url.PathEscape does.
+// Handler serves the service over HTTP. Every request except GET /v1/openapi.yaml needs "Authorization: Bearer <token>" with a token from the account service; slots are those of the token's subject. Slot names are path segments, escaped as url.PathEscape does. The machine-readable OpenAPI 3.1 description lives in openapi.yaml and is served at GET /v1/openapi.yaml.
 //
+//	GET    /v1/openapi.yaml                -> the OpenAPI 3.1 description (unauthenticated)
 //	GET    /v1/saves                       -> {"slots": [version]}
 //	GET    /v1/saves/{slot}                -> the payload, with ETag and Save-Version
 //	PUT    /v1/saves/{slot}    payload     -> version; If-Match: "<hash>" or If-None-Match: * make it conditional
@@ -36,8 +41,24 @@ const (
 //
 // The handler does not limit request rates; put it behind a rate limiter, and behind TLS.
 func (s *Service) Handler() http.Handler {
+	mux, _ := s.newMux()
+	return cors.Wrap(mux, cors.Policy{
+		Origins:       s.cfg.AllowedOrigins,
+		Methods:       []string{http.MethodGet, http.MethodPut, http.MethodDelete},
+		Headers:       []string{"Authorization", "Content-Type", "If-Match", "If-None-Match"},
+		ExposeHeaders: []string{"ETag", HeaderVersion},
+	})
+}
+
+func (s *Service) newMux() (*http.ServeMux, []string) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/saves", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	var routes []string
+	handle := func(pattern string, h http.HandlerFunc) {
+		routes = append(routes, pattern)
+		mux.HandleFunc(pattern, h)
+	}
+	handle("GET /v1/openapi.yaml", writeOpenAPI)
+	handle("GET /v1/saves", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		heads, err := s.List(r.Context(), account)
 		if err != nil {
 			writeError(w, err, s.cfg.MaxSlotBytes)
@@ -49,7 +70,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}))
-	mux.HandleFunc("GET /v1/saves/{slot}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	handle("GET /v1/saves/{slot}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		v, err := s.Load(r.Context(), account, r.PathValue("slot"))
 		if err != nil {
 			writeError(w, err, s.cfg.MaxSlotBytes)
@@ -57,7 +78,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writePayload(w, v)
 	}))
-	mux.HandleFunc("PUT /v1/saves/{slot}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	handle("PUT /v1/saves/{slot}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		m, ok := precondition(r)
 		if !ok {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request"})
@@ -85,7 +106,7 @@ func (s *Service) Handler() http.Handler {
 		w.Header().Set("ETag", strconv.Quote(v.Hash))
 		writeJSON(w, http.StatusOK, versionJSON(v))
 	}))
-	mux.HandleFunc("DELETE /v1/saves/{slot}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	handle("DELETE /v1/saves/{slot}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		m, ok := precondition(r)
 		if !ok {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request"})
@@ -93,7 +114,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeDone(w, s.Delete(r.Context(), account, r.PathValue("slot"), m), s.cfg.MaxSlotBytes)
 	}))
-	mux.HandleFunc("GET /v1/saves/{slot}/versions", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	handle("GET /v1/saves/{slot}/versions", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		vs, err := s.Versions(r.Context(), account, r.PathValue("slot"))
 		if err != nil {
 			writeError(w, err, s.cfg.MaxSlotBytes)
@@ -105,7 +126,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}))
-	mux.HandleFunc("GET /v1/saves/{slot}/versions/{n}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	handle("GET /v1/saves/{slot}/versions/{n}", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		n, err := strconv.ParseInt(r.PathValue("n"), 10, 64)
 		if err != nil || n < 1 {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request"})
@@ -123,15 +144,17 @@ func (s *Service) Handler() http.Handler {
 		}
 		writePayload(w, v)
 	}))
-	mux.HandleFunc("DELETE /v1/saves/{slot}/versions", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
+	handle("DELETE /v1/saves/{slot}/versions", s.authed(func(w http.ResponseWriter, r *http.Request, account string) {
 		writeDone(w, s.Purge(r.Context(), account, r.PathValue("slot")), s.cfg.MaxSlotBytes)
 	}))
-	return cors.Wrap(mux, cors.Policy{
-		Origins:       s.cfg.AllowedOrigins,
-		Methods:       []string{http.MethodGet, http.MethodPut, http.MethodDelete},
-		Headers:       []string{"Authorization", "Content-Type", "If-Match", "If-None-Match"},
-		ExposeHeaders: []string{"ETag", HeaderVersion},
-	})
+	return mux, routes
+}
+
+func writeOpenAPI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(openapiSpec)
 }
 
 type versionResponse struct {
@@ -232,23 +255,26 @@ func writeDone(w http.ResponseWriter, err error, limit int) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type errorMapping struct {
+	err    error
+	status int
+	code   string
+}
+
+var errorMappings = []errorMapping{
+	{ErrInvalidSlot, http.StatusBadRequest, "bad_request"},
+	{ErrInvalidAccount, http.StatusUnauthorized, "invalid_token"},
+	{ErrNotFound, http.StatusNotFound, "not_found"},
+	{ErrTooManySlots, http.StatusConflict, "too_many_slots"},
+	{ErrChanged, http.StatusPreconditionFailed, "changed"},
+	{ErrSlotTooLarge, http.StatusRequestEntityTooLarge, "slot_too_large"},
+	{context.DeadlineExceeded, http.StatusServiceUnavailable, "unavailable"},
+	{context.Canceled, http.StatusServiceUnavailable, "unavailable"},
+}
+
 // writeError writes the response for err. A cancelled or timed-out request becomes 503 unavailable; any other error outside the service's contract becomes a bare 500, and the service has logged it.
 func writeError(w http.ResponseWriter, err error, limit int) {
-	codes := []struct {
-		err    error
-		status int
-		code   string
-	}{
-		{ErrInvalidSlot, http.StatusBadRequest, "bad_request"},
-		{ErrInvalidAccount, http.StatusUnauthorized, "invalid_token"},
-		{ErrNotFound, http.StatusNotFound, "not_found"},
-		{ErrTooManySlots, http.StatusConflict, "too_many_slots"},
-		{ErrChanged, http.StatusPreconditionFailed, "changed"},
-		{ErrSlotTooLarge, http.StatusRequestEntityTooLarge, "slot_too_large"},
-		{context.DeadlineExceeded, http.StatusServiceUnavailable, "unavailable"},
-		{context.Canceled, http.StatusServiceUnavailable, "unavailable"},
-	}
-	for _, c := range codes {
+	for _, c := range errorMappings {
 		if errors.Is(err, c.err) {
 			resp := errorResponse{Error: c.code}
 			if c.err == ErrSlotTooLarge {
