@@ -4,7 +4,99 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/nsgo-dev/nsgo/core"
 )
+
+// Navigation3DInput names a 3D viewport mouse gesture resolved by Navigation3D.Resolve.
+type Navigation3DInput int
+
+const (
+	// Navigation3DInputPrimaryDrag is a primary (left) mouse button drag on the 3D viewport.
+	Navigation3DInputPrimaryDrag Navigation3DInput = iota
+	// Navigation3DInputMiddleDrag is a middle mouse button drag on the 3D viewport.
+	Navigation3DInputMiddleDrag
+	// Navigation3DInputRightDrag is a secondary (right) mouse button drag on the 3D viewport.
+	Navigation3DInputRightDrag
+	// Navigation3DInputWheel is a mouse wheel turn (distinct from a touchpad scroll).
+	Navigation3DInputWheel
+)
+
+// Navigation3DAction is the camera action chosen for a 3D viewport mouse gesture.
+type Navigation3DAction int
+
+const (
+	// Navigation3DActionNone leaves the gesture to viewport selection, tools, and gizmos.
+	Navigation3DActionNone Navigation3DAction = iota
+	// Navigation3DActionOrbit orbits the 3D camera around its target.
+	Navigation3DActionOrbit
+	// Navigation3DActionPan pans the 3D camera parallel to the view plane.
+	Navigation3DActionPan
+	// Navigation3DActionFly enters first-person fly mode.
+	Navigation3DActionFly
+	// Navigation3DActionDolly zooms the 3D camera toward or away from its target.
+	Navigation3DActionDolly
+)
+
+// String returns the action's name.
+func (a Navigation3DAction) String() string {
+	switch a {
+	case Navigation3DActionNone:
+		return "none"
+	case Navigation3DActionOrbit:
+		return "orbit"
+	case Navigation3DActionPan:
+		return "pan"
+	case Navigation3DActionFly:
+		return "fly"
+	case Navigation3DActionDolly:
+		return "dolly"
+	default:
+		return "unknown"
+	}
+}
+
+// Resolve maps a 3D viewport mouse gesture and its held modifiers to the camera action
+// for navigation mode n (an empty or unrecognized value behaves as Navigation3DDefault):
+//   - Default: left-drag orbits, Shift+left-drag or middle-drag pans, right-drag flies, wheel dollies.
+//   - Blender: middle-drag orbits, Shift+middle-drag pans, right-drag flies, wheel dollies; left-drag returns Navigation3DActionNone (gizmo/select).
+//   - Maya: Alt+left-drag orbits, middle-drag (with or without Alt) pans, Alt+right-drag or wheel dollies, plain right-drag flies; plain left-drag returns Navigation3DActionNone (gizmo/select).
+func (n Navigation3D) Resolve(input Navigation3DInput, mods core.Modifiers) Navigation3DAction {
+	switch input {
+	case Navigation3DInputWheel:
+		return Navigation3DActionDolly
+	case Navigation3DInputRightDrag:
+		if n == Navigation3DMaya && mods.Alt {
+			return Navigation3DActionDolly
+		}
+		return Navigation3DActionFly
+	case Navigation3DInputMiddleDrag:
+		if n == Navigation3DBlender {
+			if mods.Shift {
+				return Navigation3DActionPan
+			}
+			return Navigation3DActionOrbit
+		}
+		return Navigation3DActionPan
+	case Navigation3DInputPrimaryDrag:
+		switch n {
+		case Navigation3DBlender:
+			return Navigation3DActionNone
+		case Navigation3DMaya:
+			if mods.Alt {
+				return Navigation3DActionOrbit
+			}
+			return Navigation3DActionNone
+		default:
+			if mods.Shift {
+				return Navigation3DActionPan
+			}
+			return Navigation3DActionOrbit
+		}
+	default:
+		return Navigation3DActionNone
+	}
+}
 
 // View3D names one of the six axis-aligned views of the 3D viewport, each looking at Target from one end of a world axis.
 type View3D int
