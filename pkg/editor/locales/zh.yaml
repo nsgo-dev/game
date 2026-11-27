@@ -225,10 +225,13 @@ strings:
   cmd.category.gizmo3d: 3D 操纵杆
   cmd.category.help: 帮助
   cmd.category.project: 项目
+  cmd.category.review: 审核
   cmd.category.tools: 工具
   cmd.category.view: 视图
   cmd.checkProblems.desc: 重新运行资源与项目校验检查
   cmd.checkProblems.label: 检查问题
+  cmd.closeTab.desc: 关闭当前场景标签页，若有未保存更改会先询问
+  cmd.closeTab.label: 关闭场景标签页
   cmd.commandPalette.desc: 搜索并运行编辑器命令、插件工具、面板与项目文件
   cmd.commandPalette.label: 命令面板
   cmd.connectAgent.desc: 将 Claude Code、Codex 或其他 MCP 客户端连接到当前项目
@@ -249,6 +252,8 @@ strings:
   cmd.findUsages.label: 查找用法
   cmd.frameSelection.desc: 将视口相机居中到选中对象或整个场景
   cmd.frameSelection.label: 聚焦选中
+  cmd.gizmoCollider.desc: 将 3D 操纵杆切换为碰撞体尺寸手柄
+  cmd.gizmoCollider.label: 3D 操纵杆：碰撞体
   cmd.gizmoRotate.desc: 将 3D 变换操纵杆切换为旋转模式
   cmd.gizmoRotate.label: 3D 操纵杆：旋转
   cmd.gizmoScale.desc: 将 3D 变换操纵杆切换为缩放模式
@@ -261,6 +266,8 @@ strings:
   cmd.group.label: 编组选中对象
   cmd.historyPanel.desc: 切换显示你的编辑、智能体回合与保存点的统一历史时间线面板
   cmd.historyPanel.label: 历史
+  cmd.hudLayout.desc: 切换多尺寸、多语言 HUD 与菜单布局界面
+  cmd.hudLayout.label: HUD 与菜单布局
   cmd.inspectorTab.desc: 将右侧面板切换为属性检查器
   cmd.inspectorTab.label: 检查器面板
   cmd.keepAgentTurn.desc: 将当前待确认智能体回合中剩余的更改合并保留为单个撤销步骤
@@ -295,6 +302,10 @@ strings:
   cmd.playMark.label: 标记运行瞬间
   cmd.playStop.desc: 切换编辑器内运行预览
   cmd.playStop.label: 播放 / 停止
+  cmd.playtestReport.desc: 打开包含目标达成情况、图表与智能体解读的试玩报告界面
+  cmd.playtestReport.label: 试玩报告
+  cmd.problemsPanel.desc: 切换右侧栏的智能体问题修复面板
+  cmd.problemsPanel.label: 智能体问题面板
   cmd.profiler.desc: 切换正在运行游戏的性能分析器面板
   cmd.profiler.label: 性能分析器
   cmd.projectSettings.desc: 切换项目设置面板
@@ -309,10 +320,26 @@ strings:
   cmd.revertAgentTurn.label: 还原智能体回合
   cmd.reviewCode.desc: 打开逐文件确认的 Go 代码审查（含 nsgo check 与 nsgo test）
   cmd.reviewCode.label: 审查智能体 Go 更改
+  cmd.reviewKeep.desc: 将当前打开审核中所有未撤回的更改合并保留为单个撤销步骤
+  cmd.reviewKeep.label: 审核：保留更改
+  cmd.reviewNext.desc: 移至当前打开的智能体审核中的下一项更改并聚焦
+  cmd.reviewNext.label: 审核：下一项更改
+  cmd.reviewNote.desc: 在审核中为当前聚焦的更改打开行内批注框
+  cmd.reviewNote.label: 审核：给智能体留言
+  cmd.reviewPeekBefore.desc: 按住 B 预览智能体请求之前的场景状态
+  cmd.reviewPeekBefore.label: 审核：预览请求前状态
+  cmd.reviewPrev.desc: 移至当前打开的智能体审核中的上一项更改并聚焦
+  cmd.reviewPrev.label: 审核：上一项更改
+  cmd.reviewRevertAll.desc: 打开确认框以撤回当前打开审核中的全部更改
+  cmd.reviewRevertAll.label: 审核：全部撤回
+  cmd.reviewToggleRevert.desc: 在审核中撤回或恢复当前聚焦的更改或文件分组
+  cmd.reviewToggleRevert.label: 审核：撤回或恢复
   cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
   cmd.runGame.label: 运行游戏
   cmd.save.desc: 保存当前打开的场景与项目更改
   cmd.save.label: 保存
+  cmd.searchPanel.desc: 切换项目搜索与查找引用面板
+  cmd.searchPanel.label: 项目搜索与引用
   cmd.shadingLit.desc: 使用场景光源照亮 3D 视口中的几何体
   cmd.shadingLit.label: 3D 着色：光照
   cmd.shadingUnlit.desc: 按基础颜色绘制 3D 视口几何体，不计算光照
@@ -365,16 +392,32 @@ strings:
   cmd.toolEraseTile.label: 工具：擦除瓦片
   cmd.toolFillTile.desc: 切换为区域填充瓦片工具
   cmd.toolFillTile.label: 工具：填充瓦片
+  cmd.toolLineTile.desc: 切换为直线瓦片画笔（Bresenham 直线；右键拖拽擦除）
+  cmd.toolLineTile.label: 工具：直线瓦片
   cmd.toolMove.desc: 切换为移动视口工具
   cmd.toolMove.label: 工具：移动
   cmd.toolNavTestPath.desc: 在 2D 视口中依次点选起点与终点，预览 ai.NavMesh 计算出的路径
   cmd.toolNavTestPath.label: 工具：测试导航路径
   cmd.toolPaintTile.desc: 切换为绘制瓦片画笔
   cmd.toolPaintTile.label: 工具：绘制瓦片
+  cmd.toolPan.desc: 切换为平移视口相机工具（或按住空格键）
+  cmd.toolPan.label: 工具：平移
   cmd.toolPlace.desc: 切换为放置对象视口工具
   cmd.toolPlace.label: 工具：放置
+  cmd.toolRandomTile.desc: 切换为随机瓦片画笔（确定性加权随机选取瓦片）
+  cmd.toolRandomTile.label: 工具：随机瓦片
+  cmd.toolRectTile.desc: 切换为矩形瓦片画笔（拖拽填充，右键拖拽擦除）
+  cmd.toolRectTile.label: 工具：矩形瓦片
+  cmd.toolRotate.desc: 切换为旋转视口工具
+  cmd.toolRotate.label: 工具：旋转
+  cmd.toolScale.desc: 切换为缩放视口工具
+  cmd.toolScale.label: 工具：缩放
   cmd.toolSelect.desc: 切换为选择视口工具
   cmd.toolSelect.label: 工具：选择
+  cmd.toolStampTile.desc: 切换为图章瓦片画笔（绘制图案，右键拖拽框选区域）
+  cmd.toolStampTile.label: 工具：图章瓦片
+  cmd.toolTerrain.desc: 切换为地形自动瓦片画笔
+  cmd.toolTerrain.label: 工具：地形
   cmd.undo.desc: 撤销上一次编辑
   cmd.undo.label: 撤销
   cmd.ungroup.desc: 将当前选中对象的子级移出并保持其世界变换
@@ -383,8 +426,22 @@ strings:
   cmd.view2d.label: 切换至 2D 视图
   cmd.view3d.desc: 显示 3D 轨道与操纵杆视口
   cmd.view3d.label: 切换至 3D 视图
+  cmd.view3dBack.desc: 从后方观察 3D 视口目标
+  cmd.view3dBack.label: 3D 视图：后视
+  cmd.view3dBottom.desc: 从下方观察 3D 视口目标
+  cmd.view3dBottom.label: 3D 视图：底视
+  cmd.view3dCamera.desc: 透过场景的活动 3D 相机观看
+  cmd.view3dCamera.label: 3D 视图：场景相机
+  cmd.view3dFront.desc: 从前方观察 3D 视口目标
+  cmd.view3dFront.label: 3D 视图：前视
+  cmd.view3dLeft.desc: 从左侧观察 3D 视口目标
+  cmd.view3dLeft.label: 3D 视图：左视
   cmd.view3dOrtho.desc: 在透视投影与正交投影之间切换 3D 视口
   cmd.view3dOrtho.label: 3D 视图：正交投影
+  cmd.view3dRight.desc: 从右侧观察 3D 视口目标
+  cmd.view3dRight.label: 3D 视图：右视
+  cmd.view3dTop.desc: 从上方观察 3D 视口目标
+  cmd.view3dTop.label: 3D 视图：顶视
   codeReview.allGoConfirmed: 全部 {count} 个 Go 文件已确认
   codeReview.askFix: 让智能体修复
   codeReview.backLabel: 返回编辑器，审查保持打开 (Esc)
