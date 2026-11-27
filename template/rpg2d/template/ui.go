@@ -16,6 +16,8 @@ import (
 // Root is the game's root component: the canvas the game draws on, scaled from game.yaml's display to the window, with a native HUD and menus over it.
 func Root(cx *core.Scope) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	// The 480x270 viewport is wide: a phone turns sideways while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	a, err := start(cx)
 	if err != nil {
 		// A data file that does not load is shown rather than crashing, so a designer editing it under go tool nsgo dev sees what to fix.

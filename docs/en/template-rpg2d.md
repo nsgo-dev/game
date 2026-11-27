@@ -25,7 +25,7 @@ The shrine lamp of Hollowbrook has gone out. Mira the healer needs three glowcap
 | Saves | Three slots in the app's storage holding the bag, equipment, quest, dialogue state and the map | [save](save.md) |
 | Screens | Title, map, battle, defeat and victory scenes with fades between them | [scene](scene.md) |
 
-Every control is bound in `game.yaml`'s input map: the arrows, WASD, Enter, Escape and Tab on a keyboard; the D-pad, left stick, South, East and Start on a gamepad; and an on-screen pad with A and B buttons for touch and the mouse, drawn on phones and tablets and, on other devices, once the map is touched or clicked. Menus are native buttons, so a tap or a click picks an entry, and the keyboard and gamepad move an outline through them.
+Every control is bound in `game.yaml`'s input map: the arrows, WASD, Enter, Escape and Tab on a keyboard; the D-pad, left stick, South, East and Start on a gamepad; and an on-screen pad with A and B buttons for touch and the mouse, drawn on phones and tablets and, on other devices, once the map is touched or clicked. Menus are native buttons, so a tap or a click picks an entry, and the keyboard and gamepad move an outline through them. Its root scope requests landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`) for the 480×270 virtual display.
 
 The tests play the game through the app: to the victory screen with the keyboard, and to the defeat screen with a gamepad and with the touch pad, saving and loading on the way.
 

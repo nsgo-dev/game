@@ -166,6 +166,8 @@ func Root(cx *core.Scope) core.Node {
 
 func newRhythmGame(cx *core.Scope) *rhythmGame {
 	desktop.SetTitle(cx, Project.Title())
+	// The four falling lanes and stacked menus are tall: a phone stays upright while the game runs.
+	cx.RequestOrientation(core.OrientationPortrait)
 	g := &rhythmGame{
 		cx:          cx,
 		lib:         Songs,

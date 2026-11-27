@@ -16,7 +16,7 @@ go tool nsgo dev
 - [fog](fog.md)：每一方从自己的单位和建筑看出去，岩石遮挡视线，对手的基地在侦察到之前是隐藏的，探索过的地面保持变暗显示。不在视野内的敌方建筑按最后一次看到时的样子显示，之后新建的建筑在被看到之前保持隐藏。
 - [ai](ai.md)：对手每秒用由 `data/opponent.yaml` 构建的效用推理器为各个行动（训练工人、建造兵营、训练士兵或游侠、进攻、防守）打分，并执行得分最高的一个。它和玩家一样只能看到己方战争迷雾之外的东西，但了解地图，因此知道玩家总部的位置。
 - [input](input.md) 与[项目文件](project.md)的输入映射：按键和手柄按钮是 `game.yaml` 中的具名动作，手柄摇杆和方向键驱动同一个光标，鼠标和手指则直接作用于战场视图。
-- 每秒 60 步的固定步长[游戏循环](loop.md)，通过 `game.yaml` 的 `display` 所设的 [screen](screen.md) 视口在 `core.Canvas` 上用代码绘制的战场，以及用于 HUD 和命令栏的原生 NSGo 按钮。
+- 每秒 60 步的固定步长[游戏循环](loop.md)，通过 `game.yaml` 的 `display` 所设的 [screen](screen.md) 视口在 `core.Canvas` 上用代码绘制的战场，在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`），以及用于 HUD 和命令栏的原生 NSGo 按钮。
 - 无头测试：通过键盘和鼠标把整场遭遇战打到胜利和失败，测试手柄和触屏操作，并检查每个数据文件都是规范形式。
 
 ## 操作

@@ -46,6 +46,8 @@ func Root(cx *core.Scope) core.Node {
 // newRoot builds the root component and passes the game to hook, which the tests use to watch the run.
 func newRoot(cx *core.Scope, hook func(*platformerGame)) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	// The 320x180 playfield is wide: a phone turns sideways while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	viewport, _ := Project.Viewport()
 	g := &platformerGame{
 		data:     mustLoadData(),

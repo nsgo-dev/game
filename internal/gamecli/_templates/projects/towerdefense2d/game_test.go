@@ -408,3 +408,10 @@ func TestKindButtonsAndKeysChooseTheTower(t *testing.T) {
 		t.Fatal("the chosen tower's button is not selected")
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(960, 800))
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}

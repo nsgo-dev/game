@@ -16,7 +16,7 @@ go tool nsgo dev
 - [`game/random`](determinism.md): deal *n* is shuffled by a `random.Stream` seeded with *n*, so every player's deal *n* is the same game and the tests can name the deals they win and lose.
 - [`game/save`](save.md): the game in progress and the record of wins and losses kept in `core.Storage` after every move, checked on load so a damaged or impossible save deals a new game, and left alone when a newer version of the game wrote it.
 - [`game/project`](project.md) and [`game/input`](input.md): `game.yaml`'s input map binds keys and gamepad buttons to the actions `left`, `right`, `play`, `discard`, `draw` and `deal`, and `Project.BindInput` reads it into `input.Actions`.
-- [`game/screen`](screen.md): the table is laid out in a virtual resolution of 360 by 640 points and scaled into any window, with the pointer mapped back through the same viewport.
+- [`game/screen`](screen.md): the table is laid out in a virtual resolution of 360 by 640 points and scaled into any window, requesting portrait orientation on phones (`cx.RequestOrientation(core.OrientationPortrait)`), with the pointer mapped back through the same viewport.
 - A fixed-step `game.Loop`, card art drawn by code on a `core.Canvas`, and native views for the counts and the buttons.
 
 ## Controls

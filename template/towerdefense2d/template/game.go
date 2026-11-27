@@ -106,6 +106,8 @@ func Root(cx *core.Scope) core.Node {
 // NewGameView returns a new game and the view that plays it, its loop running in cx.
 func NewGameView(cx *core.Scope) (*Game, core.Node) {
 	desktop.SetTitle(cx, Project.Title())
+	// The 480x320 map is wide: a phone turns sideways while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	g := NewGame(MustLoadData())
 	g.frame = core.NewSignal(cx, uint64(0))
 	g.hud = core.NewSignal(cx, g.HUD())

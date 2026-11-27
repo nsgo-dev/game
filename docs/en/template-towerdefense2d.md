@@ -16,7 +16,7 @@ go tool nsgo dev
 - The road is the shortest path over the map's road tiles, found with `ai.AStar` ([ai](ai.md)); the map is a [tilemap](tilemap.md) whose cells are flagged road, buildable or solid.
 - Towers and enemies keep their numbers on [stats](stats.md) sheets: an upgrade is a permanent stat effect, and a frost tower's slow is a timed modifier on the enemy's speed.
 - Towers fire [bullets](bullets.md) patterns at the enemy furthest along the road, leading it by the projectile's flight time; a mortar's hit splashes, a frost bolt slows.
-- A fixed-step [loop](loop.md) runs the world at 60 steps a second, up to three steps an update at the fastest speed, and a [screen](screen.md) viewport fits the 480 by 320 map to any window under a native HUD.
+- A fixed-step [loop](loop.md) runs the world at 60 steps a second, up to three steps an update at the fastest speed, and a [screen](screen.md) viewport fits the 480 by 320 map to any window under a native HUD, requesting landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`).
 - The [input](input.md) map in `game.yaml` binds every action to a key and all but the number-key tower shortcuts and a mid-game restart to a gamepad button too, and the cursor to the arrow keys, the d-pad and the left stick; a tap on the battlefield moves the cursor and a second tap builds.
 - Headless `nsgotest` playthroughs play one plan to a win and another to a loss with the keyboard, a gamepad and touches.
 

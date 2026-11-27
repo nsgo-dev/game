@@ -15,7 +15,7 @@ go run github.com/nsgo-dev/game/cmd/game@latest new -template idle mygame
 - **生产器、升级和转生。** 生产器的价格是 `Cost × Growth^已拥有数量`（`idle.Number.Pow`）；升级可以按倍数提高某一个生产器、全部生产器或一次添柴的收益，或者为火持续添加燃料；撒灰会重开本局，获得 `⌊√(本局累计 / 阈值)⌋` 灰烬，每份灰烬永久 +10%。
 - **胜负。** 买下 Everflame 即获胜，之后可以继续玩。燃料耗尽（无论在线还是离开期间）则本局失败；重新点火会开始新的一局，灰烬保留。卡片显示时火不会燃烧；卡片会随游戏状态变化，所以离开期间火熄灭时，胜利卡片会变成失败卡片。
 - **存档。** [`save.Store`](save.md) 在应用存储中保存带版本号的 JSON 存档和一份备份。生产器和升级按 id 保存，数值存为文本；游戏无法使用的存档会被拒绝，而不会被覆盖。
-- **一套商店适配所有输入。** 商店是画在画布上的 [`gameui`](gameui.md) 控件树：触摸和鼠标直接按按钮，键盘和手柄通过 [`game.yaml`](project.md) 绑定的动作，借助 `SpatialNavigator` 在按钮间移动焦点。
+- **一套商店适配所有输入。** 商店是画在画布上的 [`gameui`](gameui.md) 控件树：触摸和鼠标直接按按钮，键盘和手柄通过 [`game.yaml`](project.md) 绑定的动作，借助 `SpatialNavigator` 在按钮间移动焦点。360×600 的虚拟显示在手机上请求竖屏方向（`cx.RequestOrientation(core.OrientationPortrait)`）。
 
 | | 键盘 | 手柄 | 触摸和鼠标 |
 | --- | --- | --- | --- |

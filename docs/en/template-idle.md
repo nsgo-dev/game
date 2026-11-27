@@ -15,7 +15,7 @@ or with NSGo's own command, `nsgo init -template github.com/nsgo-dev/game/templa
 - **Generators, upgrades and prestige.** Generators cost `Cost × Growth^owned` (`idle.Number.Pow`), upgrades multiply one generator, all of them or a stoke, or feed the fire, and scattering the ashes restarts the run for `⌊√(earned / threshold)⌋` ash, each a lasting +10%.
 - **Win and loss.** Buying the Everflame wins, and play goes on after it. Letting the fuel gauge empty, online or away, loses the run; rekindling starts a new one and keeps the ash. The fire waits while a card is up, and a card changes with the game, so a win card turns into the loss when the fire went out during an absence.
 - **Saves.** [`save.Store`](save.md) keeps a versioned JSON save with a backup copy in the app's storage. Generators and upgrades are saved by id, numbers as text, and a save the game cannot use is refused rather than overwritten.
-- **One shop for every input.** The shop is a [`gameui`](gameui.md) tree on the canvas: touch and mouse press its buttons, and the keyboard and controllers move a focus over them with `SpatialNavigator`, through actions [`game.yaml`](project.md) binds.
+- **One shop for every input.** The shop is a [`gameui`](gameui.md) tree on the canvas: touch and mouse press its buttons, and the keyboard and controllers move a focus over them with `SpatialNavigator`, through actions [`game.yaml`](project.md) binds. Its 360 by 600 virtual display requests portrait orientation on phones (`cx.RequestOrientation(core.OrientationPortrait)`).
 
 | | Keyboard | Controller | Touch and mouse |
 | --- | --- | --- | --- |

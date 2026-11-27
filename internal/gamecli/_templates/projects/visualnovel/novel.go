@@ -172,6 +172,8 @@ func Root(cx *core.Scope) core.Node {
 // newNovel loads the story and the player's settings and starts the game loop on the title screen.
 func newNovel(cx *core.Scope) *novel {
 	desktop.SetTitle(cx, Project.Title())
+	// The stage places two portraits side by side over a wide text box: a phone turns sideways while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	st, err := loadStory()
 	if err != nil {
 		// The story is embedded in the binary, and story_test.go loads it, so this only fails in a build whose tests fail.

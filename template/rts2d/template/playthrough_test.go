@@ -160,3 +160,10 @@ func TestPlaythroughLoss(t *testing.T) {
 		t.Fatal("Enter on the result screen did not start a new skirmish")
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(960, 640))
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}

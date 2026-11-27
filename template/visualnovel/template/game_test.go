@@ -703,3 +703,10 @@ func TestTextBoxKeepsClearOfTheSafeArea(t *testing.T) {
 		t.Fatalf("text box %+v on a %+v stage reaches into the safe area", box, n.size)
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(960, 540))
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}

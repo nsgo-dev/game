@@ -356,6 +356,13 @@ func TestHoldingADirectionRepeats(t *testing.T) {
 	}
 }
 
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(960, 540), nsgotest.ManualFrames())
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}
+
 // openStep returns a direction the player can walk from where they stand.
 func openStep(r *run) cell {
 	for _, st := range steps {

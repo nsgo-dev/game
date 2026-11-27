@@ -17,6 +17,8 @@ func Root(cx *core.Scope) core.Node { return rootWith(cx, nil) }
 // rootWith is Root, handing the skirmish it starts to started when that is set, as the tests do.
 func rootWith(cx *core.Scope, started func(*rootSkirmish)) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	// The 480x264 battlefield is wide: a phone turns sideways while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	g := newRootSkirmish(cx)
 	if started != nil {
 		started(g)

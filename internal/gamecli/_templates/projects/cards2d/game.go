@@ -30,6 +30,8 @@ func Root(cx *core.Scope) core.Node { return root(cx, nil) }
 // root builds the game for Root, handing it to started when that is set, as the tests do to look at the table.
 func root(cx *core.Scope, started func(*cardGame)) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	// The 360x640 table is tall: a phone stays upright while the game runs.
+	cx.RequestOrientation(core.OrientationPortrait)
 	g, err := newCardGame(cx, cx.Storage())
 	if err != nil {
 		// rules.yaml and board.yaml are embedded, and the tests load them, so this only happens to a build whose data was edited without running them.

@@ -75,6 +75,8 @@ func Root(cx *core.Scope) core.Node {
 // newRoot builds the root component with opts.
 func newRoot(cx *core.Scope, opts options) core.Node {
 	desktop.SetTitle(cx, Project.Title())
+	// The 320x180 viewport is wide: a phone turns sideways while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	viewport, _ := Project.Viewport()
 	g := &roguelikeGame{
 		data:     mustLoadData(),

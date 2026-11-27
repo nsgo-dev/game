@@ -332,3 +332,10 @@ func TestDrawButtonRedeals(t *testing.T) {
 		t.Fatalf("piles = %q", got)
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(360, 640))
+	if app.Orientation != core.OrientationPortrait {
+		t.Fatalf("orientation = %v, want portrait (%v)", app.Orientation, core.OrientationPortrait)
+	}
+}

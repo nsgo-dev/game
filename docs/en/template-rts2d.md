@@ -16,7 +16,7 @@ Or, with NSGo's own command, `nsgo init -template github.com/nsgo-dev/game/templ
 - [fog](fog.md): each side sees from its units and buildings, rocks block sight, the opponent's base is hidden until scouted, and explored ground stays dimmed. An enemy building out of sight shows as it was when last seen, and one put up since stays hidden until it is seen.
 - [ai](ai.md): the opponent scores its actions (train a worker, build a barracks, train a soldier or a ranger, attack, defend) with a utility reasoner built from `data/opponent.yaml` once a second, and carries out the best one. It sees through its own side's fog of war, as the player does, and knows the map, so it knows where the player's headquarters stands.
 - [input](input.md) and the [project file](project.md)'s input map: keys and gamepad buttons are named actions in `game.yaml`, the gamepad's stick and the arrow keys drive one cursor, and the mouse and fingers act on the battlefield view directly.
-- A fixed-step [game loop](loop.md) at 60 steps a second, the battlefield drawn by code on a `core.Canvas` through the [screen](screen.md) viewport `game.yaml`'s `display` sets, and native NSGo buttons for the HUD and the command bar.
+- A fixed-step [game loop](loop.md) at 60 steps a second, the battlefield drawn by code on a `core.Canvas` through the [screen](screen.md) viewport `game.yaml`'s `display` sets, requesting landscape orientation on phones (`cx.RequestOrientation(core.OrientationLandscape)`), and native NSGo buttons for the HUD and the command bar.
 - Headless tests that play whole skirmishes to a win and a loss through the keyboard and mouse, test the gamepad and touch controls, and check that every data file is canonical.
 
 ## Controls

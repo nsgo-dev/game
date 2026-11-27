@@ -104,6 +104,8 @@ func Root(cx *core.Scope) core.Node {
 
 func newSparkGame(cx *core.Scope) *sparkGame {
 	desktop.SetTitle(cx, Project.Title())
+	// The HUD, board and bottom bar stack vertically: a phone stays upright while the game runs.
+	cx.RequestOrientation(core.OrientationPortrait)
 	g := &sparkGame{
 		levels:     Levels.Levels,
 		actions:    input.NewActions(),

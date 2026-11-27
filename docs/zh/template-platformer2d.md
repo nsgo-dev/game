@@ -16,7 +16,7 @@ go tool nsgo dev
 - 在 `data/level.yaml` 里用文本画出的关卡，构建为用于碰撞的 `physics.Grid`、用于绘制的 `tilemap.Tilemap`，以及尖刺、火花、灯和信标的 `physics.Trigger` 感应区。
 - 来自 `data/rooms.yaml`、各有相机边界的房间：[`rooms.Director`](rooms.md) 把相机从一个房间滑到下一个房间，玩家等相机停稳后再继续。
 - `game.yaml` 里的一份输入映射，同时覆盖键盘、手柄、触屏和鼠标，用 `Project.BindInput` 绑定；在手机和平板上，以及任何设备在游戏视图被触摸或点击过之后，触屏区域上会画出屏幕按键。
-- 按整数倍缩放的 320×180 虚拟屏幕，画布上方是原生 HUD 和一局结束时的面板。
+- 按整数倍缩放的 320×180 虚拟屏幕，画布上方是原生 HUD 和一局结束时的面板，在手机上请求横屏方向（`cx.RequestOrientation(core.OrientationLandscape)`）。
 - 测试分别用键盘、手柄和双指触屏把关卡玩到获胜，一直撞向尖刺直到输掉，并检查规则、控制器的时序以及每个数据文件都是规范格式。
 
 ## 操作

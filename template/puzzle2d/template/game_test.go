@@ -331,3 +331,10 @@ func TestSavedStarsOutOfRangeAreDropped(t *testing.T) {
 		t.Fatalf("starText(5) + starText(-1) = %q", got)
 	}
 }
+
+func TestRequestsOrientation(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(480, 720))
+	if app.Orientation != core.OrientationPortrait {
+		t.Fatalf("orientation = %v, want portrait (%v)", app.Orientation, core.OrientationPortrait)
+	}
+}
