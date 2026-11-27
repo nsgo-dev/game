@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -37,14 +38,24 @@ func DefaultArgon2Params() Argon2Params {
 
 // Validate checks that p is within argon2id's limits and this package's bounds.
 func (p Argon2Params) Validate() error {
+	return p.validateAt("")
+}
+
+func (p Argon2Params) validateAt(prefix string) error {
+	field := func(name string) string {
+		if prefix == "" {
+			return name
+		}
+		return prefix + "." + name
+	}
 	if p.Time < 1 || p.Time > maxArgon2Time {
-		return fmt.Errorf("accounts: argon2id time %d must be from 1 to %d", p.Time, maxArgon2Time)
+		return loaderr.Errorf(field("time"), fmt.Sprintf("set %s to an integer from 1 to %d", field("time"), maxArgon2Time), "accounts: argon2id time %d must be from 1 to %d", p.Time, maxArgon2Time)
 	}
 	if p.Threads < 1 || p.Threads > maxArgon2Threads {
-		return fmt.Errorf("accounts: argon2id threads %d must be from 1 to %d", p.Threads, maxArgon2Threads)
+		return loaderr.Errorf(field("threads"), fmt.Sprintf("set %s to an integer from 1 to %d", field("threads"), maxArgon2Threads), "accounts: argon2id threads %d must be from 1 to %d", p.Threads, maxArgon2Threads)
 	}
 	if p.MemoryKiB < 8*uint32(p.Threads) || p.MemoryKiB > maxArgon2MemoryKiB {
-		return fmt.Errorf("accounts: argon2id memoryKiB %d must be from %d to %d", p.MemoryKiB, 8*uint32(p.Threads), maxArgon2MemoryKiB)
+		return loaderr.Errorf(field("memoryKiB"), fmt.Sprintf("set %s to an integer from %d to %d", field("memoryKiB"), 8*uint32(p.Threads), maxArgon2MemoryKiB), "accounts: argon2id memoryKiB %d must be from %d to %d", p.MemoryKiB, 8*uint32(p.Threads), maxArgon2MemoryKiB)
 	}
 	return nil
 }

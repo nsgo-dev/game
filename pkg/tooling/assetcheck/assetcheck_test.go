@@ -692,7 +692,7 @@ files:
 				}
 				return
 			case "invalid game.yaml":
-				if len(got) != 1 || !strings.HasPrefix(got[0], "game.yaml: project: ") {
+				if len(got) != 1 || !strings.HasPrefix(got[0], "game.yaml:1: project: ") {
 					t.Fatalf("problems:\n%s", strings.Join(got, "\n"))
 				}
 				return

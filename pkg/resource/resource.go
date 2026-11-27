@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -56,13 +57,13 @@ func (h *Header) header() *Header { return h }
 
 func (h *Header) validate(want Kind) error {
 	if h.Type != want {
-		return fmt.Errorf("resource: type %q, want %q", h.Type, want)
+		return loaderr.Errorf("type", fmt.Sprintf("set type: %s at the top of the resource file", want), "resource: type %q, want %q", h.Type, want)
 	}
 	if h.Version != CurrentVersion {
-		return fmt.Errorf("resource: %s: unsupported version %d (want %d)", want, h.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the resource file", CurrentVersion), "resource: %s: unsupported version %d (want %d)", want, h.Version, CurrentVersion)
 	}
 	if h.UID != "" && !ValidUID(h.UID) {
-		return fmt.Errorf("resource: %s: uid %q must be %d characters of 0-9 and a-z without i, l, o and u", want, h.UID, UIDLength)
+		return loaderr.Errorf("uid", fmt.Sprintf("set uid to %d characters of 0-9 and a-z without i, l, o and u, or omit it", UIDLength), "resource: %s: uid %q must be %d characters of 0-9 and a-z without i, l, o and u", want, h.UID, UIDLength)
 	}
 	return nil
 }
@@ -101,38 +102,38 @@ func New(kind Kind) (Resource, error) {
 // Parse decodes one YAML resource file and validates it. It reads the header first, refuses an unknown type or unsupported version, then decodes the whole document into the matching type, refusing unknown fields and trailing documents.
 func Parse(data []byte) (Resource, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("resource: empty document")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a resource file starting with type and version: %d", CurrentVersion), "resource: empty document"), "", data, "")
 	}
 	var h Header
 	if err := yaml.Unmarshal(data, &h); err != nil {
-		return nil, fmt.Errorf("resource: decode header: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("resource: decode header: %w", err), "", data, "check the YAML syntax and header fields (type, version) in the resource file")
 	}
 	if h.Type == "" {
-		return nil, errors.New("resource: missing type")
+		return nil, loaderr.Locate(loaderr.Errorf("type", "set type to material, curve, gradient, animation, theme, busLayout, or physicsMaterial", "resource: missing type"), "", data, "")
 	}
 	r, err := New(h.Type)
 	if err != nil {
-		return nil, err
+		return nil, loaderr.Locate(loaderr.Errorf("type", "set type to material, curve, gradient, animation, theme, busLayout, or physicsMaterial", "%s", err.Error()), "", data, "")
 	}
 	if h.Version != CurrentVersion {
-		return nil, fmt.Errorf("resource: %s: unsupported version %d (want %d)", h.Type, h.Version, CurrentVersion)
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the resource file", CurrentVersion), "resource: %s: unsupported version %d (want %d)", h.Type, h.Version, CurrentVersion), "", data, "")
 	}
 	// Decode over a fresh value so the header fields come from the document itself.
 	*r.header() = Header{}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(r); err != nil {
-		return nil, fmt.Errorf("resource: decode %s: %w", h.Type, err)
+		return nil, loaderr.Locate(fmt.Errorf("resource: decode %s: %w", h.Type, err), "", data, fmt.Sprintf("check the YAML syntax and field names for a %s resource", h.Type))
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("resource: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the resource file and remove any --- separator", "resource: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("resource: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("resource: decode: %w", err), "", data, "remove trailing YAML content after the resource file")
 	}
 	if err := r.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	yamlzero.Normalize(r)
 	return r, nil
@@ -147,7 +148,7 @@ func ParseAs[T Resource](data []byte) (T, error) {
 	}
 	t, ok := r.(T)
 	if !ok {
-		return zero, fmt.Errorf("resource: file is a %s, want %s", r.Kind(), kindOf[T]())
+		return zero, loaderr.Locate(loaderr.Errorf("type", fmt.Sprintf("load a %s resource file instead of %s", kindOf[T](), r.Kind()), "resource: file is a %s, want %s", r.Kind(), kindOf[T]()), "", data, "")
 	}
 	return t, nil
 }
@@ -201,17 +202,17 @@ func isFinite(v float32) bool {
 }
 
 // checkUnit reports an error unless v is finite and in [0, 1].
-func checkUnit(where string, v float32) error {
+func checkUnit(field, where string, v float32) error {
 	if !isFinite(v) || v < 0 || v > 1 {
-		return fmt.Errorf("resource: %s %v must be in [0, 1]", where, v)
+		return loaderr.Errorf(field, fmt.Sprintf("set %s to a finite number in [0, 1]", field), "resource: %s %v must be in [0, 1]", where, v)
 	}
 	return nil
 }
 
 // checkNonNegative reports an error unless v is finite and not negative.
-func checkNonNegative(where string, v float32) error {
+func checkNonNegative(field, where string, v float32) error {
 	if !isFinite(v) || v < 0 {
-		return fmt.Errorf("resource: %s %v must be finite and non-negative", where, v)
+		return loaderr.Errorf(field, fmt.Sprintf("set %s to a finite number >= 0", field), "resource: %s %v must be finite and non-negative", where, v)
 	}
 	return nil
 }

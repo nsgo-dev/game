@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/online/accounts/token"
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
@@ -171,88 +171,91 @@ func (c Config) Board(name string) (Board, bool) {
 // Validate checks that c is a complete version 1 configuration.
 func (c Config) Validate() error {
 	if c.Version != ConfigVersion {
-		return fmt.Errorf("selfhost: unsupported config version %d (want %d)", c.Version, ConfigVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the leaderboard server config", ConfigVersion), "selfhost: unsupported config version %d (want %d)", c.Version, ConfigVersion)
 	}
 	if ttl := time.Duration(c.ProofTTL); ttl != 0 && (ttl < time.Second || ttl > 24*time.Hour || ttl%time.Second != 0) {
-		return fmt.Errorf("selfhost: proofTTL %v must be whole seconds from 1s to 24h", ttl)
+		return loaderr.Errorf("proofTTL", "set proofTTL to whole seconds from 1s to 24h such as 10m, or omit it for the default", "selfhost: proofTTL %v must be whole seconds from 1s to 24h", ttl)
 	}
 	if len(c.Boards) == 0 {
-		return errors.New("selfhost: config has no boards")
+		return loaderr.Errorf("boards", "declare at least one board under boards", "selfhost: config has no boards")
 	}
 	names := make(map[string]bool, len(c.Boards))
 	signed := false
-	for _, b := range c.Boards {
-		if err := b.validate(); err != nil {
+	for i, b := range c.Boards {
+		bPath := fmt.Sprintf("boards[%d]", i)
+		if err := b.validateAt(bPath); err != nil {
 			return err
 		}
 		if names[b.Name] {
-			return fmt.Errorf("selfhost: board %q declared twice", b.Name)
+			return loaderr.Errorf(bPath+".name", "give each board a unique name", "selfhost: board %q declared twice", b.Name)
 		}
 		names[b.Name] = true
 		signed = signed || b.Validation == SignedByServer
 	}
 	ids := make(map[string]bool, len(c.ServerKeys))
-	for _, k := range c.ServerKeys {
+	for i, k := range c.ServerKeys {
+		kPath := fmt.Sprintf("serverKeys[%d]", i)
 		pub, err := parsePublicKey(k)
 		if err != nil {
-			return err
+			return loaderr.Errorf(kPath+".key", "set key to a 32-byte Ed25519 public key encoded in standard base64", "%s", err.Error())
 		}
 		if id := token.KeyID(pub); k.ID != id {
-			return fmt.Errorf("selfhost: server key id %q does not match its key (want %q)", k.ID, id)
+			return loaderr.Errorf(kPath+".id", fmt.Sprintf("set id to %q to match the public key", id), "selfhost: server key id %q does not match its key (want %q)", k.ID, id)
 		}
 		if ids[k.ID] {
-			return fmt.Errorf("selfhost: server key %q listed twice", k.ID)
+			return loaderr.Errorf(kPath+".id", "remove the duplicate server key entry", "selfhost: server key %q listed twice", k.ID)
 		}
 		ids[k.ID] = true
 	}
 	if signed && len(c.ServerKeys) == 0 {
-		return errors.New("selfhost: a board validates signed scores but the config has no serverKeys")
+		return loaderr.Errorf("serverKeys", "add at least one Ed25519 public key under serverKeys or remove validation: signed from boards", "selfhost: a board validates signed scores but the config has no serverKeys")
 	}
 	if err := cors.ValidateOrigins(c.AllowedOrigins); err != nil {
-		return fmt.Errorf("selfhost: %w", err)
+		return loaderr.Errorf("allowedOrigins", "set each allowedOrigins entry to an origin such as https://play.example.com with no path, query or fragment", "selfhost: %w", err)
 	}
 	return nil
 }
 
-func (b Board) validate() error {
+func (b Board) validateAt(bPath string) error {
 	if !validName(b.Name) {
-		return fmt.Errorf("selfhost: invalid board name %q: want 1 to 64 characters of a-z, 0-9, '.', '_' and '-', starting with a letter or digit", b.Name)
+		return loaderr.Errorf(bPath+".name", "set name to 1..64 lowercase letters, digits, '.', '_' or '-', starting with a letter or digit", "selfhost: invalid board name %q: want 1 to 64 characters of a-z, 0-9, '.', '_' and '-', starting with a letter or digit", b.Name)
 	}
 	switch b.Order {
 	case Descending, Ascending:
 	default:
-		return fmt.Errorf("selfhost: board %q: order %q must be descending or ascending", b.Name, b.Order)
+		return loaderr.Errorf(bPath+".order", "set order to descending or ascending", "selfhost: board %q: order %q must be descending or ascending", b.Name, b.Order)
 	}
 	switch b.Reset {
 	case AllTime:
 		if b.Keep != 0 {
-			return fmt.Errorf("selfhost: board %q: an allTime board has no earlier periods to keep", b.Name)
+			return loaderr.Errorf(bPath+".keep", "remove keep on an allTime board or change reset to daily or weekly", "selfhost: board %q: an allTime board has no earlier periods to keep", b.Name)
 		}
 	case Daily, Weekly:
 		if b.Keep < 0 || b.Keep > MaxKeep {
-			return fmt.Errorf("selfhost: board %q: keep %d must be from 1 to %d", b.Name, b.Keep, MaxKeep)
+			return loaderr.Errorf(bPath+".keep", fmt.Sprintf("set keep to an integer from 1 to %d or omit it for the default (1)", MaxKeep), "selfhost: board %q: keep %d must be from 1 to %d", b.Name, b.Keep, MaxKeep)
 		}
 	default:
-		return fmt.Errorf("selfhost: board %q: reset %q must be allTime, daily or weekly", b.Name, b.Reset)
+		return loaderr.Errorf(bPath+".reset", "set reset to allTime, daily or weekly", "selfhost: board %q: reset %q must be allTime, daily or weekly", b.Name, b.Reset)
 	}
 	if b.WeekStart != "" {
 		if b.Reset != Weekly {
-			return fmt.Errorf("selfhost: board %q: only a weekly board has a weekStart", b.Name)
+			return loaderr.Errorf(bPath+".weekStart", "remove weekStart or set reset: weekly", "selfhost: board %q: only a weekly board has a weekStart", b.Name)
 		}
 		if _, ok := weekdays[b.WeekStart]; !ok {
-			return fmt.Errorf("selfhost: board %q: weekStart %q must be a lowercase English weekday such as monday", b.Name, b.WeekStart)
+			return loaderr.Errorf(bPath+".weekStart", "set weekStart to a lowercase English weekday such as monday", "selfhost: board %q: weekStart %q must be a lowercase English weekday such as monday", b.Name, b.WeekStart)
 		}
 	}
 	if b.Validation != "" && b.Validation != SignedByServer {
-		return fmt.Errorf("selfhost: board %q: validation %q must be signed or absent", b.Name, b.Validation)
+		return loaderr.Errorf(bPath+".validation", "set validation to signed or omit it", "selfhost: board %q: validation %q must be signed or absent", b.Name, b.Validation)
 	}
-	for _, v := range []*int64{b.Min, b.Max} {
-		if v != nil && (*v < -MaxSafeScore || *v > MaxSafeScore) {
-			return fmt.Errorf("selfhost: board %q: score bound %d is beyond ±%d", b.Name, *v, int64(MaxSafeScore))
-		}
+	if b.Min != nil && (*b.Min < -MaxSafeScore || *b.Min > MaxSafeScore) {
+		return loaderr.Errorf(bPath+".min", fmt.Sprintf("set min within [%d, %d]", -int64(MaxSafeScore), int64(MaxSafeScore)), "selfhost: board %q: score bound %d is beyond ±%d", b.Name, *b.Min, int64(MaxSafeScore))
+	}
+	if b.Max != nil && (*b.Max < -MaxSafeScore || *b.Max > MaxSafeScore) {
+		return loaderr.Errorf(bPath+".max", fmt.Sprintf("set max within [%d, %d]", -int64(MaxSafeScore), int64(MaxSafeScore)), "selfhost: board %q: score bound %d is beyond ±%d", b.Name, *b.Max, int64(MaxSafeScore))
 	}
 	if lo, hi := b.bounds(); lo > hi {
-		return fmt.Errorf("selfhost: board %q: min %d is above max %d", b.Name, lo, hi)
+		return loaderr.Errorf(bPath+".min", "set min less than or equal to max", "selfhost: board %q: min %d is above max %d", b.Name, lo, hi)
 	}
 	return nil
 }
@@ -285,26 +288,26 @@ func parsePublicKey(k token.PublicKey) (ed25519.PublicKey, error) {
 // ParseConfig decodes and validates a YAML configuration. Unknown fields, duplicate keys and trailing documents are refused.
 func ParseConfig(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return Config{}, errors.New("selfhost: empty config")
+		return Config{}, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a leaderboard server config starting with version: %d", ConfigVersion), "selfhost: empty config"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var c Config
 	if err := dec.Decode(&c); err != nil {
-		return Config{}, fmt.Errorf("selfhost: config: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("selfhost: config: %w", err), "", data, "check the YAML syntax and field names in the leaderboard server config")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Config{}, errors.New("selfhost: config: unexpected trailing YAML document")
+			return Config{}, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the leaderboard server config and remove any --- separator", "selfhost: config: unexpected trailing YAML document"), "", data, "")
 		}
-		return Config{}, fmt.Errorf("selfhost: config: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("selfhost: config: %w", err), "", data, "remove trailing YAML content after the leaderboard server config")
 	}
 	if len(c.AllowedOrigins) == 0 {
 		c.AllowedOrigins = nil
 	}
 	if err := c.Validate(); err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Locate(err, "", data, "")
 	}
 	return c, nil
 }
@@ -348,11 +351,22 @@ func (d Duration) MarshalYAML() (any, error) {
 // UnmarshalYAML reads Go duration text.
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.ScalarNode || n.ShortTag() != "!!str" {
-		return fmt.Errorf("line %d: want a duration such as 10m", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("line %d: want a duration such as 10m", n.Line),
+			Fix:     "write the duration as a Go duration string such as 10m or 1h",
+		}
 	}
 	v, err := time.ParseDuration(n.Value)
 	if err != nil {
-		return fmt.Errorf("line %d: %w", n.Line, err)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("line %d: %v", n.Line, err),
+			Fix:     "write a valid Go duration string such as 10m or 1h30m",
+			Err:     err,
+		}
 	}
 	*d = Duration(v)
 	return nil

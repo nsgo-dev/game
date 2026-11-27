@@ -2,16 +2,17 @@ package rhythm
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -70,21 +71,30 @@ func durationMs(d time.Duration) float64 { return float64(d) / 1e6 }
 // Validate reports the first way c breaks the version 1 schema: a wrong version, too many devices, an empty, overlong or invalid UTF-8 key, or an offset that is not a number within ±MaxOffsetMsAbs.
 func (c *Calibrations) Validate() error {
 	if c == nil {
-		return errors.New("rhythm: nil calibrations")
+		return loaderr.Errorf("", fixCalibrations, "rhythm: nil calibrations")
 	}
 	if c.Version != CalibrationsVersion {
-		return fmt.Errorf("rhythm: calibrations version %d, want %d", c.Version, CalibrationsVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", CalibrationsVersion), "rhythm: calibrations version %d, want %d", c.Version, CalibrationsVersion)
 	}
 	if len(c.Devices) > MaxDevices {
-		return fmt.Errorf("rhythm: %d devices, at most %d", len(c.Devices), MaxDevices)
+		return loaderr.Errorf("devices", fmt.Sprintf("keep at most %d devices", MaxDevices), "rhythm: %d devices, at most %d", len(c.Devices), MaxDevices)
 	}
-	for k, d := range c.Devices {
+	keys := make([]string, 0, len(c.Devices))
+	for k := range c.Devices {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		d := c.Devices[k]
 		if strings.TrimSpace(k) == "" || len(k) > MaxDeviceKey || !utf8.ValidString(k) {
-			return fmt.Errorf("rhythm: device key %q is empty, longer than %d bytes or not UTF-8", k, MaxDeviceKey)
+			return loaderr.Errorf(loaderr.Path("devices", k), fmt.Sprintf("use a non-empty UTF-8 device key of at most %d bytes", MaxDeviceKey), "rhythm: device key %q is empty, longer than %d bytes or not UTF-8", k, MaxDeviceKey)
 		}
-		for _, ms := range []float64{d.AudioMs, d.VideoMs} {
-			if !finite(ms) || math.Abs(ms) > MaxOffsetMsAbs {
-				return fmt.Errorf("rhythm: device %q: offset %v ms is not within ±%d", k, ms, MaxOffsetMsAbs)
+		for _, f := range []struct {
+			name string
+			ms   float64
+		}{{"audioMs", d.AudioMs}, {"videoMs", d.VideoMs}} {
+			if !finite(f.ms) || math.Abs(f.ms) > MaxOffsetMsAbs {
+				return loaderr.Errorf(loaderr.Path("devices", k, f.name), fmt.Sprintf("set %s to a finite number within ±%d", f.name, MaxOffsetMsAbs), "rhythm: device %q: offset %v ms is not within ±%d", k, f.ms, MaxOffsetMsAbs)
 			}
 		}
 	}
@@ -93,8 +103,16 @@ func (c *Calibrations) Validate() error {
 
 // ParseCalibrations decodes a YAML calibration file and validates it. Unknown fields, a second YAML document, anchors and aliases, and a fractional version are refused.
 func ParseCalibrations(data []byte) (*Calibrations, error) {
+	c, err := parseCalibrations(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixCalibrations)
+	}
+	return c, nil
+}
+
+func parseCalibrations(data []byte) (*Calibrations, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("rhythm: empty calibrations")
+		return nil, loaderr.Errorf("", fixCalibrations, "rhythm: empty calibrations")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -105,7 +123,7 @@ func ParseCalibrations(data []byte) (*Calibrations, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("rhythm: calibrations have a second YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in calibrations; remove the trailing --- document", "rhythm: calibrations have a second YAML document")
 		}
 		return nil, fmt.Errorf("rhythm: decode calibrations: %w", err)
 	}
@@ -171,7 +189,11 @@ func (s *OffsetStore) Load() (*Calibrations, error) {
 	if !ok {
 		return &Calibrations{Version: CalibrationsVersion}, nil
 	}
-	return ParseCalibrations([]byte(text))
+	c, err := ParseCalibrations([]byte(text))
+	if err != nil {
+		return nil, loaderr.WithFile(err, s.key)
+	}
+	return c, nil
 }
 
 // Get returns device's offsets and whether they are kept; a document that is not readable keeps none.

@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -120,11 +121,21 @@ func DefaultPreset(l Level) Preset {
 
 // Validate reports an error when a scale is not finite or lies outside (0, 1].
 func (p Preset) Validate() error {
+	return p.validateAt("")
+}
+
+func (p Preset) validateAt(prefix string) error {
+	field := func(name string) string {
+		if prefix == "" {
+			return name
+		}
+		return prefix + "." + name
+	}
 	if !unitScale(p.ResolutionScale) {
-		return fmt.Errorf("resolution_scale %v outside (0, 1]", p.ResolutionScale)
+		return loaderr.Errorf(field("resolution_scale"), "set resolution_scale to a number in (0, 1] such as 0.75 or 1", "quality: %s %v outside (0, 1]", field("resolution_scale"), p.ResolutionScale)
 	}
 	if !unitScale(p.ParticleScale) {
-		return fmt.Errorf("particle_scale %v outside (0, 1]", p.ParticleScale)
+		return loaderr.Errorf(field("particle_scale"), "set particle_scale to a number in (0, 1] such as 0.6 or 1", "quality: %s %v outside (0, 1]", field("particle_scale"), p.ParticleScale)
 	}
 	return nil
 }

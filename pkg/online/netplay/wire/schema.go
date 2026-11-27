@@ -211,33 +211,33 @@ type UnionCase struct {
 // Parse decodes and validates a *.wire.yaml document, refusing unknown fields, missing or unsupported versions, duplicate keys, and trailing YAML documents.
 func Parse(data []byte) (*Schema, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, loaderr.Errorf("", "write a versioned wire schema YAML document", "wire schema is empty")
+		return nil, loaderr.Locate(loaderr.Errorf("", "write a versioned wire schema YAML document", "wire schema is empty"), "", data, "")
 	}
 	var root yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf("wire: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("wire: decode: %w", err), "", data, "check the YAML syntax and field names in the wire schema")
 	}
 	var extra yaml.Node
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, loaderr.Errorf("", "keep one YAML document per wire schema file", "unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep one YAML document per wire schema file", "unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("wire: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("wire: decode: %w", err), "", data, "remove trailing YAML content after the wire schema")
 	}
 	if err := checkDuplicateKeys(&root, ""); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 
 	var s Schema
 	strict := yaml.NewDecoder(bytes.NewReader(data))
 	strict.KnownFields(true)
 	if err := strict.Decode(&s); err != nil {
-		return nil, fmt.Errorf("wire: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("wire: decode: %w", err), "", data, "check the YAML syntax and field names in the wire schema")
 	}
 	normalizeSchema(&s)
 	if err := Validate(&s); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &s, nil
 }
@@ -280,11 +280,11 @@ func checkDuplicateKeys(n *yaml.Node, prefix string) error {
 func LoadFile(filePath string) (*Schema, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, filePath, nil, "check that the wire schema file exists and is readable")
 	}
 	s, err := Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", filePath, err)
+		return nil, loaderr.WithFile(err, filePath)
 	}
 	return s, nil
 }
@@ -293,11 +293,11 @@ func LoadFile(filePath string) (*Schema, error) {
 func LoadFS(fsys fs.FS, name string) (*Schema, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, name, nil, "check that the wire schema file exists and is readable")
 	}
 	s, err := Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, loaderr.WithFile(err, name)
 	}
 	return s, nil
 }

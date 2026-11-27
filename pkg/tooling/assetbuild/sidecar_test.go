@@ -201,7 +201,7 @@ func TestSidecarRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name, file, sidecar, want string
 	}{
-		{"invalid", "art/albedo.png", "version: 1\nimage: {filter: cubic}\n", `art/albedo.png.import.yaml: importsettings: image: filter "cubic"`},
+		{"invalid", "art/albedo.png", "version: 1\nimage: {filter: cubic}\n", `art/albedo.png.import.yaml:2:9: image.filter: importsettings: image: filter "cubic"`},
 		{"audio settings on an image", "art/albedo.png", "version: 1\naudio: {rate: 8000}\n", "holds audio settings"},
 		{"image settings on a sound", "sfx/jump.wav", "version: 1\nimage: {}\n", "holds image settings"},
 		{"slice on a texture", "art/albedo.png", "version: 1\nimage: {slice: {width: 4, height: 4}}\n", "a texture target encodes the whole image"},
@@ -329,7 +329,7 @@ func TestCreditOnlySidecars(t *testing.T) {
 	root = newProject(t)
 	writeFile(t, filepath.Join(root, "art/ui/font.ttf"), []byte("not read"))
 	writeFile(t, filepath.Join(root, "art/ui/font.ttf.import.yaml"), []byte("version: 1\ncredit: {author: Ana, license: CC BY}\n"))
-	if _, err := tryBuild(root, assetbuild.Builder{}); err == nil || !strings.Contains(err.Error(), "art/ui/font.ttf.import.yaml: importsettings: credit: license") {
+	if _, err := tryBuild(root, assetbuild.Builder{}); err == nil || !strings.Contains(err.Error(), "art/ui/font.ttf.import.yaml:2:") || !strings.Contains(err.Error(), "importsettings: credit: license") {
 		t.Fatalf("Build error = %v, want the invalid credit refused", err)
 	}
 }

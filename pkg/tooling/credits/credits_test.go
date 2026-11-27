@@ -257,7 +257,7 @@ func TestCollect(t *testing.T) {
 func TestCollectInvalidSidecar(t *testing.T) {
 	root, a := newProject(t)
 	writeFile(t, root, "sfx/jump.wav.import.yaml", []byte("version: 1\ncredit: {author: Ana, license: CC BY}\n"))
-	if _, err := credits.Collect(root, a); err == nil || !strings.Contains(err.Error(), "sfx/jump.wav.import.yaml: importsettings: credit: license") {
+	if _, err := credits.Collect(root, a); err == nil || !strings.Contains(err.Error(), "sfx/jump.wav.import.yaml:2:") || !strings.Contains(err.Error(), "importsettings: credit: license") {
 		t.Fatalf("Collect error = %v, want the invalid sidecar named", err)
 	}
 }

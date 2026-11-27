@@ -176,7 +176,7 @@ func TestAssetsRefusesProjectsWithoutAssets(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"no assets section", assetsProjectHead, "has no assets section"},
 		{"invalid project file", "version: 1\nassets: {}\n", "project: "},
-		{"misspelt assets field", assetsProjectHead + "assets:\n  atlas: []\n", "field atlas not found"},
+		{"misspelt assets field", assetsProjectHead + "assets:\n  atlas: []\n", `unknown field "atlas"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "game.yaml")

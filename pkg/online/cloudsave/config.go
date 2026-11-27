@@ -2,12 +2,12 @@ package cloudsave
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
@@ -55,19 +55,19 @@ func DefaultConfig() Config {
 // Validate checks that c is a complete version 1 configuration.
 func (c Config) Validate() error {
 	if c.Version != ConfigVersion {
-		return fmt.Errorf("cloudsave: unsupported config version %d (want %d)", c.Version, ConfigVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the cloudsave config", ConfigVersion), "cloudsave: unsupported config version %d (want %d)", c.Version, ConfigVersion)
 	}
 	if c.MaxSlotBytes < 1 || c.MaxSlotBytes > MaxSlotBytesLimit {
-		return fmt.Errorf("cloudsave: maxSlotBytes %d must be from 1 to %d", c.MaxSlotBytes, MaxSlotBytesLimit)
+		return loaderr.Errorf("maxSlotBytes", fmt.Sprintf("set maxSlotBytes to an integer from 1 to %d", MaxSlotBytesLimit), "cloudsave: maxSlotBytes %d must be from 1 to %d", c.MaxSlotBytes, MaxSlotBytesLimit)
 	}
 	if c.MaxSlots < 1 || c.MaxSlots > MaxSlotsLimit {
-		return fmt.Errorf("cloudsave: maxSlots %d must be from 1 to %d", c.MaxSlots, MaxSlotsLimit)
+		return loaderr.Errorf("maxSlots", fmt.Sprintf("set maxSlots to an integer from 1 to %d", MaxSlotsLimit), "cloudsave: maxSlots %d must be from 1 to %d", c.MaxSlots, MaxSlotsLimit)
 	}
 	if c.KeepVersions < 1 || c.KeepVersions > MaxKeepVersions {
-		return fmt.Errorf("cloudsave: keepVersions %d must be from 1 to %d", c.KeepVersions, MaxKeepVersions)
+		return loaderr.Errorf("keepVersions", fmt.Sprintf("set keepVersions to an integer from 1 to %d", MaxKeepVersions), "cloudsave: keepVersions %d must be from 1 to %d", c.KeepVersions, MaxKeepVersions)
 	}
 	if err := cors.ValidateOrigins(c.AllowedOrigins); err != nil {
-		return fmt.Errorf("cloudsave: %w", err)
+		return loaderr.Errorf("allowedOrigins", "set each allowedOrigins entry to an origin such as https://play.example.com with no path, query or fragment", "cloudsave: %w", err)
 	}
 	return nil
 }
@@ -76,25 +76,25 @@ func (c Config) Validate() error {
 func ParseConfig(data []byte) (Config, error) {
 	var c Config
 	if len(bytes.TrimSpace(data)) == 0 {
-		return Config{}, errors.New("cloudsave: empty config")
+		return Config{}, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a cloudsave config starting with version: %d", ConfigVersion), "cloudsave: empty config"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil {
-		return Config{}, fmt.Errorf("cloudsave: config: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("cloudsave: config: %w", err), "", data, "check the YAML syntax and field names in the cloudsave config")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return Config{}, errors.New("cloudsave: config: unexpected trailing YAML document")
+			return Config{}, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the cloudsave config and remove any --- separator", "cloudsave: config: unexpected trailing YAML document"), "", data, "")
 		}
-		return Config{}, fmt.Errorf("cloudsave: config: %w", err)
+		return Config{}, loaderr.Locate(fmt.Errorf("cloudsave: config: %w", err), "", data, "remove trailing YAML content after the cloudsave config")
 	}
 	if len(c.AllowedOrigins) == 0 {
 		c.AllowedOrigins = nil
 	}
 	if err := c.Validate(); err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Locate(err, "", data, "")
 	}
 	return c, nil
 }

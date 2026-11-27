@@ -2,11 +2,11 @@ package procgen
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"go.yaml.in/yaml/v3"
 )
@@ -248,8 +248,16 @@ func (rt *RoomTemplates) ByID(id string) *RoomTemplate {
 
 // ParseRoomTemplates decodes and validates a YAML room template set. Unknown fields and trailing YAML documents are rejected.
 func ParseRoomTemplates(data []byte) (*RoomTemplates, error) {
+	rt, err := parseRoomTemplates(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixRoomTemplates)
+	}
+	return rt, nil
+}
+
+func parseRoomTemplates(data []byte) (*RoomTemplates, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("procgen: empty room templates document")
+		return nil, loaderr.Errorf("", fixRoomTemplates, "procgen: empty room templates document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -260,7 +268,7 @@ func ParseRoomTemplates(data []byte) (*RoomTemplates, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("procgen: unexpected trailing YAML document in room templates")
+			return nil, loaderr.Errorf("", "keep one YAML document in room templates; remove the trailing --- document", "procgen: unexpected trailing YAML document in room templates")
 		}
 		return nil, fmt.Errorf("procgen: decode room templates: %w", err)
 	}
@@ -273,7 +281,7 @@ func ParseRoomTemplates(data []byte) (*RoomTemplates, error) {
 // EncodeRoomTemplates validates rt and writes it as deterministic 2-space YAML with fields in fixed order, so ParseRoomTemplates followed by EncodeRoomTemplates reproduces the exact bytes.
 func EncodeRoomTemplates(rt *RoomTemplates) ([]byte, error) {
 	if rt == nil {
-		return nil, errors.New("procgen: nil room templates")
+		return nil, loaderr.Errorf("", fixRoomTemplates, "procgen: nil room templates")
 	}
 	if err := rt.Validate(); err != nil {
 		return nil, err
@@ -294,39 +302,40 @@ func EncodeRoomTemplates(rt *RoomTemplates) ([]byte, error) {
 // Validate checks rt against the version 1 schema: version, non-empty rooms, unique IDs, valid finite non-negative weights whose sum is finite, valid dimensions, mutually exclusive Tiles or Source, non-overlapping in-bounds door sockets, and valid inline tile characters.
 func (rt *RoomTemplates) Validate() error {
 	if rt == nil {
-		return errors.New("procgen: nil room templates")
+		return loaderr.Errorf("", fixRoomTemplates, "procgen: nil room templates")
 	}
 	if rt.Version != RoomTemplatesVersion {
-		return fmt.Errorf("procgen: unsupported room templates version %d (want %d)", rt.Version, RoomTemplatesVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", RoomTemplatesVersion), "procgen: unsupported room templates version %d (want %d)", rt.Version, RoomTemplatesVersion)
 	}
 	if len(rt.Rooms) == 0 {
-		return errors.New("procgen: room templates have no rooms")
+		return loaderr.Errorf("rooms", "add at least one room template under rooms", "procgen: room templates have no rooms")
 	}
 	seenID := make(map[string]bool, len(rt.Rooms))
 	totalWeight := 0.0
 	for i := range rt.Rooms {
 		r := &rt.Rooms[i]
+		rPath := loaderr.Path("rooms", i)
 		if r.ID == "" {
-			return fmt.Errorf("procgen: room %d has no id", i)
+			return loaderr.Errorf(loaderr.Join(rPath, "id"), "give the room template a non-empty id", "procgen: room %d has no id", i)
 		}
 		if seenID[r.ID] {
-			return fmt.Errorf("procgen: duplicate room id %q", r.ID)
+			return loaderr.Errorf(loaderr.Join(rPath, "id"), "give each room template a unique id", "procgen: duplicate room id %q", r.ID)
 		}
 		seenID[r.ID] = true
 		if r.Weight < 0 || math.IsNaN(r.Weight) || math.IsInf(r.Weight, 0) {
-			return fmt.Errorf("procgen: room %q weight %v must be non-negative and finite", r.ID, r.Weight)
+			return loaderr.Errorf(loaderr.Join(rPath, "weight"), "set weight to a non-negative finite number", "procgen: room %q weight %v must be non-negative and finite", r.ID, r.Weight)
 		}
 		totalWeight += r.EffectiveWeight()
 		if math.IsInf(totalWeight, 0) {
-			return errors.New("procgen: room weights sum to more than the largest float64")
+			return loaderr.Errorf("rooms", "scale room weights down so their sum fits in float64", "procgen: room weights sum to more than the largest float64")
 		}
 		seenTag := make(map[string]bool, len(r.Tags))
-		for _, tag := range r.Tags {
+		for ti, tag := range r.Tags {
 			if tag == "" {
-				return fmt.Errorf("procgen: room %q has empty tag", r.ID)
+				return loaderr.Errorf(loaderr.Join(rPath, "tags", ti), "give the tag a non-empty name or remove it", "procgen: room %q has empty tag", r.ID)
 			}
 			if seenTag[tag] {
-				return fmt.Errorf("procgen: room %q repeats tag %q", r.ID, tag)
+				return loaderr.Errorf(loaderr.Join(rPath, "tags", ti), "remove the duplicate tag", "procgen: room %q repeats tag %q", r.ID, tag)
 			}
 			seenTag[tag] = true
 		}
@@ -334,42 +343,46 @@ func (rt *RoomTemplates) Validate() error {
 		hasSource := r.Source != ""
 		switch {
 		case hasTiles && hasSource:
-			return fmt.Errorf("procgen: room %q sets both tiles and source", r.ID)
+			return loaderr.Errorf(loaderr.Join(rPath, "source"), "keep either tiles or source, not both", "procgen: room %q sets both tiles and source", r.ID)
 		case !hasTiles && !hasSource:
-			return fmt.Errorf("procgen: room %q must set either tiles or source", r.ID)
+			return loaderr.Errorf(rPath, "set either inline tiles or an external source", "procgen: room %q must set either tiles or source", r.ID)
 		}
 		var w, h int
 		if hasTiles {
 			h = len(r.Tiles)
 			w = len(r.Tiles[0])
 			if w == 0 {
-				return fmt.Errorf("procgen: room %q has empty tile row", r.ID)
+				return loaderr.Errorf(loaderr.Join(rPath, "tiles", 0), "write non-empty ASCII rows in tiles", "procgen: room %q has empty tile row", r.ID)
 			}
 			if r.Width != 0 && r.Width != w {
-				return fmt.Errorf("procgen: room %q width %d does not match tiles width %d", r.ID, r.Width, w)
+				return loaderr.Errorf(loaderr.Join(rPath, "width"), fmt.Sprintf("set width to %d to match tiles, or omit width", w), "procgen: room %q width %d does not match tiles width %d", r.ID, r.Width, w)
 			}
 			if r.Height != 0 && r.Height != h {
-				return fmt.Errorf("procgen: room %q height %d does not match tiles height %d", r.ID, r.Height, h)
+				return loaderr.Errorf(loaderr.Join(rPath, "height"), fmt.Sprintf("set height to %d to match tiles, or omit height", h), "procgen: room %q height %d does not match tiles height %d", r.ID, r.Height, h)
 			}
 		} else {
 			w, h = r.Width, r.Height
 			if w <= 0 || h <= 0 {
-				return fmt.Errorf("procgen: room %q with source must set positive width and height", r.ID)
+				field := "width"
+				if w > 0 {
+					field = "height"
+				}
+				return loaderr.Errorf(loaderr.Join(rPath, field), "set positive width and height for a source room template", "procgen: room %q with source must set positive width and height", r.ID)
 			}
 		}
 		if w > MaxSide || h > MaxSide || tooManyCells(w, h) {
-			return fmt.Errorf("procgen: room %q size %dx%d exceeds grid limits", r.ID, w, h)
+			return loaderr.Errorf(rPath, fmt.Sprintf("keep room dimensions within %dx%d and %d cells", MaxSide, MaxSide, MaxCells), "procgen: room %q size %dx%d exceeds grid limits", r.ID, w, h)
 		}
 		if len(r.Doors) == 0 {
-			return fmt.Errorf("procgen: room %q has no doors", r.ID)
+			return loaderr.Errorf(loaderr.Join(rPath, "doors"), "add at least one door socket under doors", "procgen: room %q has no doors", r.ID)
 		}
-		if err := validateDoors(r.ID, w, h, r.Doors); err != nil {
+		if err := validateDoors(rPath, r.ID, w, h, r.Doors); err != nil {
 			return err
 		}
 		if hasTiles {
 			g, err := r.ToGrid()
 			if err != nil {
-				return err
+				return loaderr.Errorf(loaderr.Join(rPath, "tiles"), "make every row the same width using '#', '.' or 'a'..'z'", "%v", err)
 			}
 			// Opening all doors must yield at least one floor cell and a single 4-connected region
 			// (using non-Wall passability when custom tiles exist, or IsFloor for standard rooms).
@@ -381,10 +394,10 @@ func (rt *RoomTemplates) Validate() error {
 				}
 			}
 			if g.Count(isNonWall) == 0 {
-				return fmt.Errorf("procgen: room %q has no walkable cells", r.ID)
+				return loaderr.Errorf(loaderr.Join(rPath, "tiles"), "add at least one walkable (non-'#') cell", "procgen: room %q has no walkable cells", r.ID)
 			}
 			if !g.Connected(isNonWall) {
-				return fmt.Errorf("procgen: room %q walkable cells and doors are not 4-connected", r.ID)
+				return loaderr.Errorf(loaderr.Join(rPath, "tiles"), "connect all walkable cells and doors into a single 4-connected region", "procgen: room %q walkable cells and doors are not 4-connected", r.ID)
 			}
 		}
 	}
@@ -393,16 +406,17 @@ func (rt *RoomTemplates) Validate() error {
 
 func isNonWall(v uint32) bool { return v != Wall }
 
-func validateDoors(roomID string, w, h int, doors []DoorSocket) error {
+func validateDoors(rPath, roomID string, w, h int, doors []DoorSocket) error {
 	// Track occupied spans per side to detect overlapping sockets.
 	type span struct{ lo, hi int }
 	occupied := map[Side][]span{}
 	for i, d := range doors {
+		dPath := loaderr.Join(rPath, "doors", i)
 		if !d.Side.Valid() {
-			return fmt.Errorf("procgen: room %q door %d has invalid side %q", roomID, i, d.Side)
+			return loaderr.Errorf(loaderr.Join(dPath, "side"), "set side to north, south, east or west", "procgen: room %q door %d has invalid side %q", roomID, i, d.Side)
 		}
 		if d.Width < 0 {
-			return fmt.Errorf("procgen: room %q door %d has negative width %d", roomID, i, d.Width)
+			return loaderr.Errorf(loaderr.Join(dPath, "width"), "set width to a positive integer, or omit it for 1", "procgen: room %q door %d has negative width %d", roomID, i, d.Width)
 		}
 		sideLen := w
 		if d.Side == SideEast || d.Side == SideWest {
@@ -410,12 +424,12 @@ func validateDoors(roomID string, w, h int, doors []DoorSocket) error {
 		}
 		sp := d.Span()
 		if d.Offset < 0 || d.Offset+sp > sideLen {
-			return fmt.Errorf("procgen: room %q door %d on %s (offset %d, width %d) lies outside side length %d", roomID, i, d.Side, d.Offset, sp, sideLen)
+			return loaderr.Errorf(loaderr.Join(dPath, "offset"), fmt.Sprintf("keep offset >= 0 and offset + width <= %d", sideLen), "procgen: room %q door %d on %s (offset %d, width %d) lies outside side length %d", roomID, i, d.Side, d.Offset, sp, sideLen)
 		}
 		lo, hi := d.Offset, d.Offset+sp
 		for _, prev := range occupied[d.Side] {
 			if lo < prev.hi && prev.lo < hi {
-				return fmt.Errorf("procgen: room %q door %d overlaps another door on %s", roomID, i, d.Side)
+				return loaderr.Errorf(dPath, "move or narrow the door so it does not overlap another door on the same side", "procgen: room %q door %d overlaps another door on %s", roomID, i, d.Side)
 			}
 		}
 		occupied[d.Side] = append(occupied[d.Side], span{lo: lo, hi: hi})

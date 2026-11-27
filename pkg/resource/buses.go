@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/sound"
 )
 
@@ -86,7 +87,7 @@ func (b *BusLayout) Kind() Kind { return KindBusLayout }
 // Validate checks the header, bus names and every effect's parameters.
 func (b *BusLayout) Validate() error {
 	if b == nil {
-		return fmt.Errorf("resource: nil bus layout")
+		return loaderr.Errorf("", "pass a non-nil *resource.BusLayout to Validate", "resource: nil bus layout")
 	}
 	if err := b.Header.validate(KindBusLayout); err != nil {
 		return err
@@ -94,16 +95,17 @@ func (b *BusLayout) Validate() error {
 	seen := make(map[string]struct{}, len(b.Buses))
 	for i := range b.Buses {
 		bus := &b.Buses[i]
+		bPath := fmt.Sprintf("buses[%d]", i)
 		if bus.Name == "" {
-			return fmt.Errorf("resource: bus %d has an empty name", i)
+			return loaderr.Errorf(bPath+".name", "set name to a non-empty mixer bus name such as music or effects", "resource: bus %d has an empty name", i)
 		}
 		if _, dup := seen[bus.Name]; dup {
-			return fmt.Errorf("resource: duplicate bus %q", bus.Name)
+			return loaderr.Errorf(bPath+".name", "give each sound bus a unique name", "resource: duplicate bus %q", bus.Name)
 		}
 		seen[bus.Name] = struct{}{}
 		for j := range bus.Effects {
-			if err := bus.Effects[j].validate(); err != nil {
-				return fmt.Errorf("resource: bus %q effect %d: %w", bus.Name, j, err)
+			if err := bus.Effects[j].validateAt(fmt.Sprintf("%s.effects[%d]", bPath, j), bus.Name, j); err != nil {
+				return err
 			}
 		}
 	}
@@ -114,7 +116,7 @@ func unit64(v float64) bool { return v >= 0 && v <= 1 }
 
 func finite64(v float64) bool { return v == v && v-v == 0 }
 
-func (e *BusEffect) validate() error {
+func (e *BusEffect) validateAt(ePath, busName string, idx int) error {
 	set := 0
 	for _, p := range []bool{e.LowPass != nil, e.HighPass != nil, e.Delay != nil, e.Reverb != nil, e.Gain != nil, e.Bitcrush != nil} {
 		if p {
@@ -122,50 +124,56 @@ func (e *BusEffect) validate() error {
 		}
 	}
 	if set != 1 {
-		return fmt.Errorf("exactly one of lowPass, highPass, delay, reverb, gain or bitcrush must be set, got %d", set)
+		return loaderr.Errorf(ePath, "set exactly one of lowPass, highPass, delay, reverb, gain, or bitcrush on each effect", "resource: bus %q effect %d: exactly one of lowPass, highPass, delay, reverb, gain or bitcrush must be set, got %d", busName, idx, set)
 	}
 	switch {
 	case e.LowPass != nil:
-		return e.LowPass.validate("lowPass")
+		return e.LowPass.validateAt(ePath+".lowPass", "lowPass", busName, idx)
 	case e.HighPass != nil:
-		return e.HighPass.validate("highPass")
+		return e.HighPass.validateAt(ePath+".highPass", "highPass", busName, idx)
 	case e.Delay != nil:
 		d := e.Delay
 		if !finite64(d.Seconds) || d.Seconds <= 0 || d.Seconds > 60 {
-			return fmt.Errorf("delay seconds %v must be in (0, 60]", d.Seconds)
+			return loaderr.Errorf(ePath+".delay.seconds", "set delay.seconds to a finite number in (0, 60]", "resource: bus %q effect %d: delay seconds %v must be in (0, 60]", busName, idx, d.Seconds)
 		}
 		if !finite64(d.Feedback) || d.Feedback < 0 || d.Feedback > 0.99 {
-			return fmt.Errorf("delay feedback %v must be in [0, 0.99]", d.Feedback)
+			return loaderr.Errorf(ePath+".delay.feedback", "set delay.feedback to a finite number in [0, 0.99]", "resource: bus %q effect %d: delay feedback %v must be in [0, 0.99]", busName, idx, d.Feedback)
 		}
 		if !unit64(d.Wet) {
-			return fmt.Errorf("delay wet %v must be in [0, 1]", d.Wet)
+			return loaderr.Errorf(ePath+".delay.wet", "set delay.wet to a finite number in [0, 1]", "resource: bus %q effect %d: delay wet %v must be in [0, 1]", busName, idx, d.Wet)
 		}
 	case e.Reverb != nil:
 		r := e.Reverb
 		if !unit64(r.RoomSize) || !unit64(r.Damping) || !unit64(r.Wet) {
-			return fmt.Errorf("reverb roomSize, damping and wet must be in [0, 1]")
+			field := ePath + ".reverb.roomSize"
+			if unit64(r.RoomSize) && !unit64(r.Damping) {
+				field = ePath + ".reverb.damping"
+			} else if unit64(r.RoomSize) && unit64(r.Damping) {
+				field = ePath + ".reverb.wet"
+			}
+			return loaderr.Errorf(field, "set reverb roomSize, damping, and wet to numbers in [0, 1]", "resource: bus %q effect %d: reverb roomSize, damping and wet must be in [0, 1]", busName, idx)
 		}
 	case e.Gain != nil:
 		if !finite64(e.Gain.Factor) || e.Gain.Factor < 0 {
-			return fmt.Errorf("gain factor %v must be finite and non-negative", e.Gain.Factor)
+			return loaderr.Errorf(ePath+".gain.factor", "set gain.factor to a finite non-negative number", "resource: bus %q effect %d: gain factor %v must be finite and non-negative", busName, idx, e.Gain.Factor)
 		}
 	case e.Bitcrush != nil:
 		if e.Bitcrush.Bits < 1 || e.Bitcrush.Bits > 15 {
-			return fmt.Errorf("bitcrush bits %d must be in [1, 15]", e.Bitcrush.Bits)
+			return loaderr.Errorf(ePath+".bitcrush.bits", "set bitcrush.bits to an integer in [1, 15]", "resource: bus %q effect %d: bitcrush bits %d must be in [1, 15]", busName, idx, e.Bitcrush.Bits)
 		}
 		if e.Bitcrush.Downsample < 0 {
-			return fmt.Errorf("bitcrush downsample %d must not be negative", e.Bitcrush.Downsample)
+			return loaderr.Errorf(ePath+".bitcrush.downsample", "set bitcrush.downsample to 0 or a positive integer", "resource: bus %q effect %d: bitcrush downsample %d must not be negative", busName, idx, e.Bitcrush.Downsample)
 		}
 	}
 	return nil
 }
 
-func (f *FilterEffect) validate(name string) error {
+func (f *FilterEffect) validateAt(fPath, name, busName string, idx int) error {
 	if !finite64(f.CutoffHz) || f.CutoffHz <= 0 {
-		return fmt.Errorf("%s cutoffHz %v must be finite and positive", name, f.CutoffHz)
+		return loaderr.Errorf(fPath+".cutoffHz", fmt.Sprintf("set %s.cutoffHz to a finite positive frequency in Hz", name), "resource: bus %q effect %d: %s cutoffHz %v must be finite and positive", busName, idx, name, f.CutoffHz)
 	}
 	if !finite64(f.Q) || f.Q < 0 {
-		return fmt.Errorf("%s q %v must be finite and non-negative", name, f.Q)
+		return loaderr.Errorf(fPath+".q", fmt.Sprintf("set %s.q to a finite non-negative resonance value", name), "resource: bus %q effect %d: %s q %v must be finite and non-negative", busName, idx, name, f.Q)
 	}
 	return nil
 }

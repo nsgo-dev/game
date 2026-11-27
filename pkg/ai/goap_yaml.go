@@ -2,11 +2,11 @@ package ai
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -119,23 +119,23 @@ type GOAPIntEffectDef struct {
 // Unknown fields, missing or unsupported versions, duplicate keys, unknown fact references, and trailing YAML documents are refused.
 func ParseGOAP(data []byte) (*GOAPConfig, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("ai: empty GOAP config")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add a GOAP config starting with version: %d", GOAPVersion), "ai: empty GOAP config"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var cfg GOAPConfig
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("ai: decode GOAP config: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("ai: decode GOAP config: %w", err), "", data, "check the YAML syntax and field names in the GOAP config")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("ai: unexpected trailing YAML document in GOAP config")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the GOAP config and remove any --- separator", "ai: unexpected trailing YAML document in GOAP config"), "", data, "")
 		}
-		return nil, fmt.Errorf("ai: decode GOAP config: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("ai: decode GOAP config: %w", err), "", data, "remove trailing YAML content after the GOAP config")
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	cfg.normalize()
 	return &cfg, nil
@@ -205,60 +205,63 @@ func (cfg *GOAPConfig) Validate() error {
 
 func (cfg *GOAPConfig) buildSchemaAndValidate() (*FactSchema, error) {
 	if cfg == nil {
-		return nil, errors.New("ai: nil GOAP config")
+		return nil, loaderr.Errorf("", "pass a non-nil *ai.GOAPConfig to Validate", "ai: nil GOAP config")
 	}
 	if cfg.Version != GOAPVersion {
-		return nil, fmt.Errorf("ai: unsupported GOAP config version %d (want %d)", cfg.Version, GOAPVersion)
+		return nil, loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the GOAP config", GOAPVersion), "ai: unsupported GOAP config version %d (want %d)", cfg.Version, GOAPVersion)
 	}
 	if cfg.NodeBudget < 0 {
-		return nil, fmt.Errorf("ai: GOAP config nodeBudget %d must be non-negative", cfg.NodeBudget)
+		return nil, loaderr.Errorf("nodeBudget", "set nodeBudget to 0 (default) or a positive integer", "ai: GOAP config nodeBudget %d must be non-negative", cfg.NodeBudget)
 	}
 
 	schema := NewFactSchema()
 	seenBools := make(map[string]bool, len(cfg.Facts.Bools))
 	for i, name := range cfg.Facts.Bools {
+		fPath := fmt.Sprintf("facts.bools[%d]", i)
 		if name == "" {
-			return nil, fmt.Errorf("ai: GOAP facts.bools[%d] has empty name", i)
+			return nil, loaderr.Errorf(fPath, "set each boolean fact name to a non-empty string", "ai: GOAP facts.bools[%d] has empty name", i)
 		}
 		if seenBools[name] {
-			return nil, fmt.Errorf("ai: GOAP boolean fact %q is declared twice", name)
+			return nil, loaderr.Errorf(fPath, "remove the duplicate boolean fact declaration", "ai: GOAP boolean fact %q is declared twice", name)
 		}
 		seenBools[name] = true
 		if _, err := schema.Bool(name); err != nil {
-			return nil, err
+			return nil, loaderr.Errorf(fPath, "reduce the number of boolean facts to fit the schema limit", "%s", err.Error())
 		}
 	}
 	seenInts := make(map[string]bool, len(cfg.Facts.Ints))
 	for i, name := range cfg.Facts.Ints {
+		fPath := fmt.Sprintf("facts.ints[%d]", i)
 		if name == "" {
-			return nil, fmt.Errorf("ai: GOAP facts.ints[%d] has empty name", i)
+			return nil, loaderr.Errorf(fPath, "set each integer fact name to a non-empty string", "ai: GOAP facts.ints[%d] has empty name", i)
 		}
 		if seenInts[name] {
-			return nil, fmt.Errorf("ai: GOAP integer fact %q is declared twice", name)
+			return nil, loaderr.Errorf(fPath, "remove the duplicate integer fact declaration", "ai: GOAP integer fact %q is declared twice", name)
 		}
 		seenInts[name] = true
 		if _, err := schema.Int(name); err != nil {
-			return nil, err
+			return nil, loaderr.Errorf(fPath, "reduce the number of integer facts to fit the schema limit", "%s", err.Error())
 		}
 	}
 
 	seenActions := make(map[string]bool, len(cfg.Actions))
 	for i := range cfg.Actions {
 		a := &cfg.Actions[i]
+		aPath := fmt.Sprintf("actions[%d]", i)
 		if a.Name == "" {
-			return nil, fmt.Errorf("ai: GOAP action %d has no name", i)
+			return nil, loaderr.Errorf(aPath+".name", "give each GOAP action a non-empty name", "ai: GOAP action %d has no name", i)
 		}
 		if seenActions[a.Name] {
-			return nil, fmt.Errorf("ai: GOAP action %q is defined twice", a.Name)
+			return nil, loaderr.Errorf(aPath+".name", "give each GOAP action a unique name", "ai: GOAP action %q is defined twice", a.Name)
 		}
 		seenActions[a.Name] = true
 		if !isFiniteFloat64(a.Cost) || a.Cost < 0 {
-			return nil, fmt.Errorf("ai: GOAP action %q cost %v must be finite and non-negative", a.Name, a.Cost)
+			return nil, loaderr.Errorf(aPath+".cost", "set cost to a finite non-negative number (0 defaults to 1)", "ai: GOAP action %q cost %v must be finite and non-negative", a.Name, a.Cost)
 		}
-		if _, err := compileConditions(schema, a.Preconditions, fmt.Sprintf("action %q preconditions", a.Name)); err != nil {
+		if _, err := compileConditions(schema, a.Preconditions, aPath+".preconditions", fmt.Sprintf("action %q preconditions", a.Name)); err != nil {
 			return nil, err
 		}
-		if _, err := compileEffects(schema, a.Effects, fmt.Sprintf("action %q effects", a.Name)); err != nil {
+		if _, err := compileEffects(schema, a.Effects, aPath+".effects", fmt.Sprintf("action %q effects", a.Name)); err != nil {
 			return nil, err
 		}
 	}
@@ -266,17 +269,18 @@ func (cfg *GOAPConfig) buildSchemaAndValidate() (*FactSchema, error) {
 	seenGoals := make(map[string]bool, len(cfg.Goals))
 	for i := range cfg.Goals {
 		g := &cfg.Goals[i]
+		gPath := fmt.Sprintf("goals[%d]", i)
 		if g.Name == "" {
-			return nil, fmt.Errorf("ai: GOAP goal %d has no name", i)
+			return nil, loaderr.Errorf(gPath+".name", "give each GOAP goal a non-empty name", "ai: GOAP goal %d has no name", i)
 		}
 		if seenGoals[g.Name] {
-			return nil, fmt.Errorf("ai: GOAP goal %q is defined twice", g.Name)
+			return nil, loaderr.Errorf(gPath+".name", "give each GOAP goal a unique name", "ai: GOAP goal %q is defined twice", g.Name)
 		}
 		seenGoals[g.Name] = true
 		if !isFiniteFloat64(g.Priority) {
-			return nil, fmt.Errorf("ai: GOAP goal %q priority %v must be finite", g.Name, g.Priority)
+			return nil, loaderr.Errorf(gPath+".priority", "set priority to a finite number", "ai: GOAP goal %q priority %v must be finite", g.Name, g.Priority)
 		}
-		if _, err := compileConditions(schema, g.Target, fmt.Sprintf("goal %q target", g.Name)); err != nil {
+		if _, err := compileConditions(schema, g.Target, gPath+".target", fmt.Sprintf("goal %q target", g.Name)); err != nil {
 			return nil, err
 		}
 	}
@@ -284,33 +288,35 @@ func (cfg *GOAPConfig) buildSchemaAndValidate() (*FactSchema, error) {
 	return schema, nil
 }
 
-func compileConditions(schema *FactSchema, def GOAPConditionsDef, where string) (Conditions, error) {
+func compileConditions(schema *FactSchema, def GOAPConditionsDef, fieldPrefix, where string) (Conditions, error) {
 	var c Conditions
 	seenBool := make(map[string]bool, len(def.Bools))
 	for i, bf := range def.Bools {
+		bPath := fmt.Sprintf("%s.bools[%d]", fieldPrefix, i)
 		if bf.Fact == "" {
-			return Conditions{}, fmt.Errorf("ai: GOAP %s bools[%d] has empty fact name", where, i)
+			return Conditions{}, loaderr.Errorf(bPath+".fact", "set fact to a boolean fact declared under facts.bools", "ai: GOAP %s bools[%d] has empty fact name", where, i)
 		}
 		if seenBool[bf.Fact] {
-			return Conditions{}, fmt.Errorf("ai: GOAP %s lists boolean fact %q twice", where, bf.Fact)
+			return Conditions{}, loaderr.Errorf(bPath+".fact", "list each boolean fact at most once in a condition block", "ai: GOAP %s lists boolean fact %q twice", where, bf.Fact)
 		}
 		seenBool[bf.Fact] = true
 		f, ok := schema.LookupBool(bf.Fact)
 		if !ok {
-			return Conditions{}, fmt.Errorf("ai: GOAP %s references unknown boolean fact %q", where, bf.Fact)
+			return Conditions{}, loaderr.Errorf(bPath+".fact", fmt.Sprintf("declare %q under facts.bools or fix the fact name", bf.Fact), "ai: GOAP %s references unknown boolean fact %q", where, bf.Fact)
 		}
 		c = c.RequireBool(f, bf.Value)
 	}
 	for i, ic := range def.Ints {
+		iPath := fmt.Sprintf("%s.ints[%d]", fieldPrefix, i)
 		if ic.Fact == "" {
-			return Conditions{}, fmt.Errorf("ai: GOAP %s ints[%d] has empty fact name", where, i)
+			return Conditions{}, loaderr.Errorf(iPath+".fact", "set fact to an integer fact declared under facts.ints", "ai: GOAP %s ints[%d] has empty fact name", where, i)
 		}
 		f, ok := schema.LookupInt(ic.Fact)
 		if !ok {
-			return Conditions{}, fmt.Errorf("ai: GOAP %s references unknown integer fact %q", where, ic.Fact)
+			return Conditions{}, loaderr.Errorf(iPath+".fact", fmt.Sprintf("declare %q under facts.ints or fix the fact name", ic.Fact), "ai: GOAP %s references unknown integer fact %q", where, ic.Fact)
 		}
 		if ic.Value < math.MinInt16 || ic.Value > math.MaxInt16 {
-			return Conditions{}, fmt.Errorf("ai: GOAP %s integer fact %q value %d out of int16 range [%d, %d]", where, ic.Fact, ic.Value, math.MinInt16, math.MaxInt16)
+			return Conditions{}, loaderr.Errorf(iPath+".value", fmt.Sprintf("set value within int16 range [%d, %d]", math.MinInt16, math.MaxInt16), "ai: GOAP %s integer fact %q value %d out of int16 range [%d, %d]", where, ic.Fact, ic.Value, math.MinInt16, math.MaxInt16)
 		}
 		switch ic.Op {
 		case GOAPOpEq:
@@ -324,58 +330,60 @@ func compileConditions(schema *FactSchema, def GOAPConditionsDef, where string) 
 		case GOAPOpLt:
 			c = c.RequireIntLt(f, ic.Value)
 		default:
-			return Conditions{}, fmt.Errorf("ai: GOAP %s integer fact %q has unknown op %q (want eq, gte, lte, gt or lt)", where, ic.Fact, ic.Op)
+			return Conditions{}, loaderr.Errorf(iPath+".op", "set op to eq, gte, lte, gt, or lt", "ai: GOAP %s integer fact %q has unknown op %q (want eq, gte, lte, gt or lt)", where, ic.Fact, ic.Op)
 		}
 	}
 	if c.isUnsatisfiable() {
-		return Conditions{}, fmt.Errorf("ai: GOAP %s has contradictory integer bounds", where)
+		return Conditions{}, loaderr.Errorf(fieldPrefix+".ints", "adjust the integer comparisons so their bounds overlap", "ai: GOAP %s has contradictory integer bounds", where)
 	}
 	return c, nil
 }
 
-func compileEffects(schema *FactSchema, def GOAPEffectsDef, where string) (Effects, error) {
+func compileEffects(schema *FactSchema, def GOAPEffectsDef, fieldPrefix, where string) (Effects, error) {
 	var e Effects
 	seenBool := make(map[string]bool, len(def.Bools))
 	for i, bf := range def.Bools {
+		bPath := fmt.Sprintf("%s.bools[%d]", fieldPrefix, i)
 		if bf.Fact == "" {
-			return Effects{}, fmt.Errorf("ai: GOAP %s bools[%d] has empty fact name", where, i)
+			return Effects{}, loaderr.Errorf(bPath+".fact", "set fact to a boolean fact declared under facts.bools", "ai: GOAP %s bools[%d] has empty fact name", where, i)
 		}
 		if seenBool[bf.Fact] {
-			return Effects{}, fmt.Errorf("ai: GOAP %s lists boolean fact %q twice", where, bf.Fact)
+			return Effects{}, loaderr.Errorf(bPath+".fact", "list each boolean fact at most once in an effects block", "ai: GOAP %s lists boolean fact %q twice", where, bf.Fact)
 		}
 		seenBool[bf.Fact] = true
 		f, ok := schema.LookupBool(bf.Fact)
 		if !ok {
-			return Effects{}, fmt.Errorf("ai: GOAP %s references unknown boolean fact %q", where, bf.Fact)
+			return Effects{}, loaderr.Errorf(bPath+".fact", fmt.Sprintf("declare %q under facts.bools or fix the fact name", bf.Fact), "ai: GOAP %s references unknown boolean fact %q", where, bf.Fact)
 		}
 		e = e.SetBool(f, bf.Value)
 	}
 	seenInt := make(map[string]bool, len(def.Ints))
 	for i, ie := range def.Ints {
+		iPath := fmt.Sprintf("%s.ints[%d]", fieldPrefix, i)
 		if ie.Fact == "" {
-			return Effects{}, fmt.Errorf("ai: GOAP %s ints[%d] has empty fact name", where, i)
+			return Effects{}, loaderr.Errorf(iPath+".fact", "set fact to an integer fact declared under facts.ints", "ai: GOAP %s ints[%d] has empty fact name", where, i)
 		}
 		if seenInt[ie.Fact] {
-			return Effects{}, fmt.Errorf("ai: GOAP %s lists integer fact %q twice", where, ie.Fact)
+			return Effects{}, loaderr.Errorf(iPath+".fact", "list each integer fact at most once in an effects block", "ai: GOAP %s lists integer fact %q twice", where, ie.Fact)
 		}
 		seenInt[ie.Fact] = true
 		f, ok := schema.LookupInt(ie.Fact)
 		if !ok {
-			return Effects{}, fmt.Errorf("ai: GOAP %s references unknown integer fact %q", where, ie.Fact)
+			return Effects{}, loaderr.Errorf(iPath+".fact", fmt.Sprintf("declare %q under facts.ints or fix the fact name", ie.Fact), "ai: GOAP %s references unknown integer fact %q", where, ie.Fact)
 		}
 		if ie.Value < math.MinInt16 || ie.Value > math.MaxInt16 {
-			return Effects{}, fmt.Errorf("ai: GOAP %s integer fact %q value %d out of int16 range [%d, %d]", where, ie.Fact, ie.Value, math.MinInt16, math.MaxInt16)
+			return Effects{}, loaderr.Errorf(iPath+".value", fmt.Sprintf("set value within int16 range [%d, %d]", math.MinInt16, math.MaxInt16), "ai: GOAP %s integer fact %q value %d out of int16 range [%d, %d]", where, ie.Fact, ie.Value, math.MinInt16, math.MaxInt16)
 		}
 		switch ie.Op {
 		case GOAPEffectSet:
 			e = e.SetInt(f, ie.Value)
 		case GOAPEffectAdd:
 			if ie.Value == 0 {
-				return Effects{}, fmt.Errorf("ai: GOAP %s integer fact %q add value must be non-zero", where, ie.Fact)
+				return Effects{}, loaderr.Errorf(iPath+".value", "set a non-zero delta for op: add or remove the no-op effect", "ai: GOAP %s integer fact %q add value must be non-zero", where, ie.Fact)
 			}
 			e = e.AddInt(f, ie.Value)
 		default:
-			return Effects{}, fmt.Errorf("ai: GOAP %s integer fact %q has unknown op %q (want set or add)", where, ie.Fact, ie.Op)
+			return Effects{}, loaderr.Errorf(iPath+".op", "set op to set or add", "ai: GOAP %s integer fact %q has unknown op %q (want set or add)", where, ie.Fact, ie.Op)
 		}
 	}
 	return e, nil
@@ -404,11 +412,12 @@ func BuildGOAP(cfg *GOAPConfig, bind GOAPBindings) (*GOAPSet, error) {
 	actions := make([]GOAPAction, len(cfg.Actions))
 	for i := range cfg.Actions {
 		ad := &cfg.Actions[i]
-		pre, err := compileConditions(schema, ad.Preconditions, fmt.Sprintf("action %q preconditions", ad.Name))
+		aPath := fmt.Sprintf("actions[%d]", i)
+		pre, err := compileConditions(schema, ad.Preconditions, aPath+".preconditions", fmt.Sprintf("action %q preconditions", ad.Name))
 		if err != nil {
 			return nil, err
 		}
-		eff, err := compileEffects(schema, ad.Effects, fmt.Sprintf("action %q effects", ad.Name))
+		eff, err := compileEffects(schema, ad.Effects, aPath+".effects", fmt.Sprintf("action %q effects", ad.Name))
 		if err != nil {
 			return nil, err
 		}
@@ -439,7 +448,7 @@ func BuildGOAP(cfg *GOAPConfig, bind GOAPBindings) (*GOAPSet, error) {
 	goals := make([]GOAPGoal, len(cfg.Goals))
 	for i := range cfg.Goals {
 		gd := &cfg.Goals[i]
-		target, err := compileConditions(schema, gd.Target, fmt.Sprintf("goal %q target", gd.Name))
+		target, err := compileConditions(schema, gd.Target, fmt.Sprintf("goals[%d].target", i), fmt.Sprintf("goal %q target", gd.Name))
 		if err != nil {
 			return nil, err
 		}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetbuild"
 )
@@ -41,7 +42,7 @@ func defineAssets(a *app, fs *flag.FlagSet) func() error {
 		}
 		f, err := project.Parse(data)
 		if err != nil {
-			return fmt.Errorf("%s: %w", *inPath, err)
+			return loaderr.WithFile(err, *inPath)
 		}
 		if f.Assets == nil {
 			return fmt.Errorf("%s has no assets section", *inPath)

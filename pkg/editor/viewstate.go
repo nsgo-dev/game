@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -71,45 +72,49 @@ func (s camera3DState) camera() OrbitCamera3D {
 
 // parseViewState decodes ViewStateFile, refusing unknown fields, trailing documents, a version other than viewStateVersion (with errViewStateNewer for a newer one, whatever fields it holds), a scene without a path or listed twice, and a camera value that is not finite.
 func parseViewState(data []byte) (*viewState, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("delete %s or write a view state starting with version: %d", ViewStateFile, viewStateVersion), "editor: view state: empty document"), "", data, "")
+	}
 	// The version is read first and leniently, so a newer file's new fields do not hide that it is newer.
 	var probe struct {
 		Version int `yaml:"version"`
 	}
 	if yaml.Unmarshal(data, &probe) == nil && probe.Version > viewStateVersion {
-		return nil, fmt.Errorf("editor: view state: version %d is %w (this editor writes %d)", probe.Version, errViewStateNewer, viewStateVersion)
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("open this project with a newer editor or remove %s", ViewStateFile), "editor: view state: version %d is %w (this editor writes %d)", probe.Version, errViewStateNewer, viewStateVersion), "", data, "")
 	}
 	var v viewState
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&v); err != nil {
-		return nil, fmt.Errorf("editor: view state: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: view state: %w", err), "", data, fmt.Sprintf("check the YAML syntax and field names in %s or delete it to reset defaults", ViewStateFile))
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			err = errors.New("unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the editor view state and remove any --- separator", "editor: view state: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("editor: view state: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: view state: %w", err), "", data, "remove trailing YAML content after the editor view state")
 	}
 	if v.Version != viewStateVersion {
-		return nil, fmt.Errorf("editor: view state: unsupported version %d (want %d)", v.Version, viewStateVersion)
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of %s", viewStateVersion, ViewStateFile), "editor: view state: unsupported version %d (want %d)", v.Version, viewStateVersion), "", data, "")
 	}
 	seen := map[string]bool{}
 	for i, sc := range v.Scenes {
+		sPath := fmt.Sprintf("scenes[%d]", i)
 		if !validScenePath(sc.Path) || strings.ContainsRune(sc.Path, '\\') {
-			return nil, fmt.Errorf("editor: view state: scenes[%d].path %q is not a slash-separated path inside the project", i, sc.Path)
+			return nil, loaderr.Locate(loaderr.Errorf(sPath+".path", "set path to a slash-separated scene path relative to the project root", "editor: view state: scenes[%d].path %q is not a slash-separated path inside the project", i, sc.Path), "", data, "")
 		}
 		if seen[sc.Path] {
-			return nil, fmt.Errorf("editor: view state: scenes[%d].path %q is listed twice", i, sc.Path)
+			return nil, loaderr.Locate(loaderr.Errorf(sPath+".path", "remove the duplicate scene entry from the view state", "editor: view state: scenes[%d].path %q is listed twice", i, sc.Path), "", data, "")
 		}
 		seen[sc.Path] = true
 		if !sc.Camera3D.finite() {
-			return nil, fmt.Errorf("editor: view state: scenes[%d].camera3D holds a value that is not finite", i)
+			return nil, loaderr.Locate(loaderr.Errorf(sPath+".camera3D", "replace NaN or Inf camera values with finite numbers", "editor: view state: scenes[%d].camera3D holds a value that is not finite", i), "", data, "")
 		}
 	}
 	if v.Snap != nil {
 		if err := v.Snap.valid(); err != nil {
-			return nil, fmt.Errorf("editor: view state: %w", err)
+			return nil, loaderr.Locate(loaderr.Errorf("snap", "set valid snap settings or remove the snap block to use defaults", "editor: view state: %w", err), "", data, "")
 		}
 	}
 	yamlzero.Normalize(&v)
@@ -162,7 +167,7 @@ func (e *Editor) loadViewState() (*viewState, error) {
 	}
 	v, err := parseViewState(data)
 	if err != nil {
-		return empty, fmt.Errorf("%s: %w", p, err)
+		return empty, loaderr.WithFile(err, p)
 	}
 	return v, nil
 }

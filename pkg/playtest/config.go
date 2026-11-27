@@ -466,24 +466,24 @@ func validateGoal(at string, g *Goal) error {
 // ParseConfig decodes and validates a playtest.yaml document, refusing unknown fields, missing or unsupported versions, duplicate keys and trailing YAML documents.
 func ParseConfig(data []byte) (*Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, loaderr.Errorf("", "write a versioned playtest.yaml document", "playtest config is empty")
+		return nil, loaderr.Locate(loaderr.Errorf("", "write a versioned playtest.yaml document", "playtest config is empty"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var cfg Config
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("playtest: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("playtest: decode: %w", err), "", data, "check the YAML syntax and field names in playtest.yaml")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, loaderr.Errorf("", "keep one YAML document per playtest.yaml file", "unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep one YAML document per playtest.yaml file", "unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("playtest: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("playtest: decode: %w", err), "", data, "remove trailing YAML content after playtest.yaml")
 	}
 	normalizeConfig(&cfg)
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &cfg, nil
 }
@@ -547,11 +547,11 @@ func EncodeConfig(c *Config) ([]byte, error) {
 func LoadConfigFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("playtest: read %q: %w", path, err)
+		return nil, loaderr.Locate(fmt.Errorf("playtest: read %q: %w", path, err), path, nil, "check that the playtest config file exists and is readable")
 	}
 	cfg, err := ParseConfig(data)
 	if err != nil {
-		return nil, fmt.Errorf("playtest: read %q: %w", path, err)
+		return nil, loaderr.WithFile(err, path)
 	}
 	return cfg, nil
 }

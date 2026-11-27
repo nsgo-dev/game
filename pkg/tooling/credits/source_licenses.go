@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
 const maxSourceSidecarBytes = 1 << 20 // 1 MiB
@@ -123,7 +124,7 @@ func ScanGeneratedLicenses(root string) ([]GeneratedAssetLicense, error) {
 		}
 		src, err := importsettings.ParseAssetSource(data)
 		if err != nil {
-			return fmt.Errorf("credits: %s: %w", relSlash, err)
+			return fmt.Errorf("credits: %w", loaderr.WithFile(err, relSlash))
 		}
 		assetPath := strings.TrimSuffix(relSlash, importsettings.AssetSourceSuffix)
 		out = append(out, GeneratedAssetLicense{

@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dock"
 	"github.com/nsgo-dev/nsgo/core"
@@ -225,23 +226,23 @@ func defaultDockBlueprint() dock.Layout {
 // refusing unknown fields, duplicate keys, trailing YAML documents, invalid nodes, and unsupported versions.
 func ParseLayout(data []byte) (*LayoutFile, error) {
 	if len(data) > maxLayoutFileBytes {
-		return nil, fmt.Errorf("editor: layout: document exceeds %d bytes", maxLayoutFileBytes)
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("keep layout.yaml under %d bytes", maxLayoutFileBytes), "editor: layout: document exceeds %d bytes", maxLayoutFileBytes), "", data, "")
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("editor: layout: empty document (missing version)")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("write a dock layout YAML document starting with version: %d and a center block", LayoutVersion), "editor: layout: empty document (missing version)"), "", data, "")
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("editor: layout: parse: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: layout: parse: %w", err), "", data, "check the YAML syntax in layout.yaml")
 	}
 	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("editor: layout: document must be a YAML mapping with version")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("write layout.yaml as a YAML mapping starting with version: %d", LayoutVersion), "editor: layout: document must be a YAML mapping with version"), "", data, "")
 	}
 	if err := checkDuplicateYAMLKeys(root.Content[0]); err != nil {
-		return nil, fmt.Errorf("editor: layout: %w", err)
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	if err := checkNoLayoutYAMLReferences(root.Content[0], 0); err != nil {
-		return nil, fmt.Errorf("editor: layout: %w", err)
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	hasVersion := false
 	for i := 0; i+1 < len(root.Content[0].Content); i += 2 {
@@ -251,24 +252,24 @@ func ParseLayout(data []byte) (*LayoutFile, error) {
 		}
 	}
 	if !hasVersion {
-		return nil, errors.New("editor: layout: missing required field version")
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("add version: %d at the top of layout.yaml", LayoutVersion), "editor: layout: missing required field version"), "", data, "")
 	}
 
 	var f LayoutFile
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("editor: layout: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: layout: decode: %w", err), "", data, "check the YAML syntax and field names in layout.yaml")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("editor: layout: unexpected trailing YAML document")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in layout.yaml and remove any --- separator", "editor: layout: unexpected trailing YAML document"), "", data, "")
 		}
-		return nil, fmt.Errorf("editor: layout: decode: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: layout: decode: %w", err), "", data, "remove trailing YAML content after layout.yaml")
 	}
 	if err := ValidateLayout(&f); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	yamlzero.Normalize(&f)
 	return &f, nil
@@ -277,10 +278,10 @@ func ParseLayout(data []byte) (*LayoutFile, error) {
 // ValidateLayout checks that f conforms to version 1 of the editor dock layout schema.
 func ValidateLayout(f *LayoutFile) error {
 	if f == nil {
-		return errors.New("editor: layout: nil document")
+		return loaderr.Errorf("", "pass a non-nil *editor.LayoutFile to ValidateLayout", "editor: layout: nil document")
 	}
 	if f.Version != LayoutVersion {
-		return fmt.Errorf("editor: layout: unsupported version %d (want %d)", f.Version, LayoutVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of layout.yaml", LayoutVersion), "editor: layout: unsupported version %d (want %d)", f.Version, LayoutVersion)
 	}
 	seenPanels := make(map[string]bool)
 	if err := validateLayoutNode("center", &f.Center, seenPanels, 0); err != nil {
@@ -306,14 +307,15 @@ func ValidateLayout(f *LayoutFile) error {
 	}
 	seenHidden := make(map[string]bool, len(f.Hidden))
 	for i, k := range f.Hidden {
-		if err := validateLayoutPanelKey(fmt.Sprintf("hidden[%d]", i), k); err != nil {
+		hPath := fmt.Sprintf("hidden[%d]", i)
+		if err := validateLayoutPanelKey(hPath, k); err != nil {
 			return err
 		}
 		if k == PanelViewport {
-			return fmt.Errorf("editor: layout: hidden[%d]: %q cannot be hidden", i, PanelViewport)
+			return loaderr.Errorf(hPath, fmt.Sprintf("remove %q from hidden; the viewport panel is always visible", PanelViewport), "editor: layout: hidden[%d]: %q cannot be hidden", i, PanelViewport)
 		}
 		if seenHidden[k] {
-			return fmt.Errorf("editor: layout: hidden[%d]: duplicate panel %q", i, k)
+			return loaderr.Errorf(hPath, "remove the duplicate panel key from hidden", "editor: layout: hidden[%d]: duplicate panel %q", i, k)
 		}
 		seenHidden[k] = true
 	}
@@ -322,41 +324,42 @@ func ValidateLayout(f *LayoutFile) error {
 
 func validateLayoutNode(path string, n *LayoutNode, seen map[string]bool, depth int) error {
 	if depth > maxLayoutDepth {
-		return fmt.Errorf("editor: layout: %s: nesting depth exceeds %d", path, maxLayoutDepth)
+		return loaderr.Errorf(path, fmt.Sprintf("reduce split nesting depth to at most %d levels", maxLayoutDepth), "editor: layout: %s: nesting depth exceeds %d", path, maxLayoutDepth)
 	}
 	hasTabs := len(n.Panels) > 0
 	hasSplit := n.Axis != "" || len(n.Children) > 0 || len(n.Sizes) > 0
 	switch {
 	case hasTabs && hasSplit:
-		return fmt.Errorf("editor: layout: %s: node cannot set both panels and split fields", path)
+		return loaderr.Errorf(path, "use either panels (tab group) or axis/children (split) on a layout node, not both", "editor: layout: %s: node cannot set both panels and split fields", path)
 	case !hasTabs && !hasSplit:
-		return fmt.Errorf("editor: layout: %s: node must have panels or children", path)
+		return loaderr.Errorf(path, "set panels or axis and children on the layout node", "editor: layout: %s: node must have panels or children", path)
 	case hasTabs:
 		if n.Active < 0 || n.Active >= len(n.Panels) {
-			return fmt.Errorf("editor: layout: %s: active index %d out of range [0, %d)", path, n.Active, len(n.Panels))
+			return loaderr.Errorf(path+".active", fmt.Sprintf("set active to an index in [0, %d)", len(n.Panels)), "editor: layout: %s: active index %d out of range [0, %d)", path, n.Active, len(n.Panels))
 		}
 		for i, k := range n.Panels {
-			if err := validateLayoutPanelKey(fmt.Sprintf("%s.panels[%d]", path, i), k); err != nil {
+			pPath := fmt.Sprintf("%s.panels[%d]", path, i)
+			if err := validateLayoutPanelKey(pPath, k); err != nil {
 				return err
 			}
 			if seen[k] {
-				return fmt.Errorf("editor: layout: %s.panels[%d]: duplicate panel %q", path, i, k)
+				return loaderr.Errorf(pPath, "list each panel key in at most one dock tab group", "editor: layout: %s.panels[%d]: duplicate panel %q", path, i, k)
 			}
 			seen[k] = true
 		}
 		return nil
 	default:
 		if n.Active != 0 {
-			return fmt.Errorf("editor: layout: %s.active: only valid on tab groups", path)
+			return loaderr.Errorf(path+".active", "remove active on a split node; active applies only to tab groups", "editor: layout: %s.active: only valid on tab groups", path)
 		}
 		if n.Axis != "horizontal" && n.Axis != "vertical" {
-			return fmt.Errorf("editor: layout: %s.axis: unsupported axis %q (want \"horizontal\" or \"vertical\")", path, n.Axis)
+			return loaderr.Errorf(path+".axis", "set axis to \"horizontal\" or \"vertical\"", "editor: layout: %s.axis: unsupported axis %q (want \"horizontal\" or \"vertical\")", path, n.Axis)
 		}
 		if len(n.Children) == 0 {
-			return fmt.Errorf("editor: layout: %s: split must have at least one child", path)
+			return loaderr.Errorf(path+".children", "add at least one child node under children", "editor: layout: %s: split must have at least one child", path)
 		}
 		if len(n.Sizes) > 0 && len(n.Sizes) != len(n.Children) {
-			return fmt.Errorf("editor: layout: %s.sizes: length %d does not match %d children", path, len(n.Sizes), len(n.Children))
+			return loaderr.Errorf(path+".sizes", fmt.Sprintf("provide %d sizes to match children, or omit sizes", len(n.Children)), "editor: layout: %s.sizes: length %d does not match %d children", path, len(n.Sizes), len(n.Children))
 		}
 		for i, sz := range n.Sizes {
 			if err := validateFiniteNonNegative(fmt.Sprintf("%s.sizes[%d]", path, i), sz); err != nil {
@@ -374,27 +377,47 @@ func validateLayoutNode(path string, n *LayoutNode, seen map[string]bool, depth 
 
 func validateLayoutPanelKey(field, k string) error {
 	if k == "" {
-		return fmt.Errorf("editor: layout: %s is required", field)
+		return loaderr.Errorf(field, "set the panel key to a non-empty built-in or plugin panel key", "editor: layout: %s is required", field)
 	}
 	if strings.TrimSpace(k) != k || strings.IndexFunc(k, unicode.IsControl) >= 0 {
-		return fmt.Errorf("editor: layout: %s %q must have no surrounding spaces or control characters", field, k)
+		return loaderr.Errorf(field, "remove surrounding spaces and control characters from the panel key", "editor: layout: %s %q must have no surrounding spaces or control characters", field, k)
 	}
 	return nil
 }
 
 func checkNoLayoutYAMLReferences(n *yaml.Node, depth int) error {
 	if depth > maxLayoutDepth*4 {
-		return fmt.Errorf("line %d: YAML nesting depth exceeds limit", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("editor: layout: line %d: YAML nesting depth exceeds limit", n.Line),
+			Fix:     "reduce YAML nesting depth in layout.yaml",
+		}
 	}
 	if n.Kind == yaml.AliasNode {
-		return fmt.Errorf("line %d: YAML aliases are not allowed", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("editor: layout: line %d: YAML aliases are not allowed", n.Line),
+			Fix:     "expand YAML aliases inline instead of using *",
+		}
 	}
 	if n.Anchor != "" {
-		return fmt.Errorf("line %d: YAML anchors are not allowed", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("editor: layout: line %d: YAML anchors are not allowed", n.Line),
+			Fix:     "remove YAML anchors (&name) and write values inline",
+		}
 	}
 	for i, c := range n.Content {
 		if n.Kind == yaml.MappingNode && i%2 == 0 && c.Tag == "!!merge" {
-			return fmt.Errorf("line %d: YAML merge keys are not allowed", c.Line)
+			return &loaderr.Error{
+				Line:    c.Line,
+				Column:  c.Column,
+				Problem: fmt.Sprintf("editor: layout: line %d: YAML merge keys are not allowed", c.Line),
+				Fix:     "remove YAML merge keys (<<) and list fields explicitly",
+			}
 		}
 		if err := checkNoLayoutYAMLReferences(c, depth+1); err != nil {
 			return err
@@ -406,7 +429,7 @@ func checkNoLayoutYAMLReferences(n *yaml.Node, depth int) error {
 func validateFiniteNonNegative(field string, v float32) error {
 	f := float64(v)
 	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f > maxLayoutSize {
-		return fmt.Errorf("editor: layout: %s must be finite and in [0, %d] (got %v)", field, maxLayoutSize, v)
+		return loaderr.Errorf(field, fmt.Sprintf("set %s to a finite number in [0, %d]", field, maxLayoutSize), "editor: layout: %s must be finite and in [0, %d] (got %v)", field, maxLayoutSize, v)
 	}
 	return nil
 }

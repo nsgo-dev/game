@@ -17,6 +17,8 @@ const (
 	yamlImport = "go.yaml.in/yaml/v3"
 	// formattestImport is the package of the shared conformance checks.
 	formattestImport = "github.com/nsgo-dev/game/internal/formattest"
+	// loaderrtestImport is the package of the shared *loaderr.Error assertions.
+	loaderrtestImport = "github.com/nsgo-dev/game/internal/loaderrtest"
 )
 
 // notFormats are the packages that decode YAML without defining a format of their own, each with the reason, so they need not run formattest.Run. Every other package that decodes YAML must.
@@ -122,6 +124,41 @@ func runsFormattest(t *testing.T, dir string) bool {
 	return false
 }
 
+// runsLoaderrtest reports whether a test file of the package in dir calls loaderrtest.Expect or loaderrtest.ExpectField.
+func runsLoaderrtest(t *testing.T, dir string) bool {
+	t.Helper()
+	tests, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, file := range tests {
+		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name, ok := importName(f, loaderrtestImport)
+		if !ok {
+			continue
+		}
+		runs := false
+		ast.Inspect(f, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Expect" || sel.Sel.Name == "ExpectField") {
+					if x, ok := sel.X.(*ast.Ident); ok && x.Name == name {
+						runs = true
+					}
+				}
+			}
+			return !runs
+		})
+		if runs {
+			return true
+		}
+	}
+	return false
+}
+
 // TestFormatPackagesRunConformance checks that every package decoding YAML runs the shared conformance checks of internal/formattest, unless notFormats lists it, so a format that accepts unknown fields or versions it does not support, writes different bytes for the same value or changes a file on a load and save fails CI.
 //
 // The check is per package: one formattest.Run call satisfies it, so a package that defines a second format must run the checks on that one as well without being told to.
@@ -141,6 +178,9 @@ func TestFormatPackagesRunConformance(t *testing.T) {
 		}
 		if !runsFormattest(t, pkgDir(pkg)) {
 			t.Errorf("%s decodes YAML but no test of it calls formattest.Run; add a conformance_test.go that runs it on a testdata file in the format's canonical form, or, if the package reads no format of its own, list it in notFormats with the reason", pkg)
+		}
+		if !runsLoaderrtest(t, pkgDir(pkg)) {
+			t.Errorf("%s decodes YAML but no test of it calls loaderrtest.Expect or loaderrtest.ExpectField; add a load_errors_test.go verifying *loaderr.Error line, field and fix reporting", pkg)
 		}
 	}
 }

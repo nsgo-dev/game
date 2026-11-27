@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"go.yaml.in/yaml/v3"
 )
@@ -54,10 +55,10 @@ type Entry struct {
 func ParseIndex(data []byte) (*Index, error) {
 	var idx Index
 	if err := decodeStrict(data, &idx); err != nil {
-		return nil, fmt.Errorf("library: index: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("library: index: %w", err), "", data, "check the YAML syntax and field names in the library index")
 	}
 	if err := ValidateIndex(&idx); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &idx, nil
 }
@@ -73,56 +74,58 @@ func EncodeIndex(idx *Index) ([]byte, error) {
 // ValidateIndex checks that idx conforms to the version 1 schema.
 func ValidateIndex(idx *Index) error {
 	if idx == nil {
-		return errors.New("library: nil index")
+		return loaderr.Errorf("", "pass a non-nil *library.Index to ValidateIndex", "library: nil index")
 	}
 	if idx.Version != IndexVersion {
-		return fmt.Errorf("library: index: unsupported version %d (want %d)", idx.Version, IndexVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the library index", IndexVersion), "library: index: unsupported version %d (want %d)", idx.Version, IndexVersion)
 	}
 	names := make(map[string]struct{}, len(idx.Packs))
 	for i := range idx.Packs {
 		e := &idx.Packs[i]
-		if err := validateEntry(e); err != nil {
-			return fmt.Errorf("library: index: pack %d: %w", i, err)
+		pPath := fmt.Sprintf("packs[%d]", i)
+		if err := validateEntry(pPath, i, e); err != nil {
+			return err
 		}
 		if _, dup := names[e.Name]; dup {
-			return fmt.Errorf("library: index: pack %q is listed twice", e.Name)
+			return loaderr.Errorf(pPath+".name", "give each pack in the index a unique name", "library: index: pack %q is listed twice", e.Name)
 		}
 		names[e.Name] = struct{}{}
 	}
 	return nil
 }
 
-func validateEntry(e *Entry) error {
+func validateEntry(pPath string, idx int, e *Entry) error {
 	if err := project.ValidatePackName(e.Name); err != nil {
-		return err
+		return loaderr.Errorf(pPath+".name", "set name to a valid lowercase pack name (letters, digits, hyphens)", "library: index: pack %d: %w", idx, err)
 	}
 	if err := validateKind(e.Kind); err != nil {
-		return fmt.Errorf("%s: %w", e.Name, err)
+		return loaderr.Errorf(pPath+".kind", fmt.Sprintf("set kind to one of %s", strings.Join(project.PackKinds, ", ")), "library: index: pack %d: %s: %w", idx, e.Name, err)
 	}
 	if err := project.ValidatePackVersion(e.PackVersion); err != nil {
-		return fmt.Errorf("%s: %w", e.Name, err)
+		return loaderr.Errorf(pPath+".packVersion", "set packVersion to a semantic version such as 1.0.0", "library: index: pack %d: %s: %w", idx, e.Name, err)
 	}
 	if err := validateLine("description", e.Description, true); err != nil {
-		return fmt.Errorf("%s: %w", e.Name, err)
+		return loaderr.Errorf(pPath+".description", "set description to a non-empty single-line summary without surrounding spaces", "library: index: pack %d: %s: %w", idx, e.Name, err)
 	}
 	if err := validateLicense(e.License); err != nil {
-		return fmt.Errorf("%s: %w", e.Name, err)
+		return loaderr.Errorf(pPath+".license", "set license to an SPDX license expression such as CC0-1.0 or MIT", "library: index: pack %d: %s: %w", idx, e.Name, err)
 	}
 	seen := make(map[string]struct{}, len(e.Tags))
-	for _, tag := range e.Tags {
+	for j, tag := range e.Tags {
+		tPath := fmt.Sprintf("%s.tags[%d]", pPath, j)
 		if tag == "" || strings.IndexFunc(tag, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.IsUpper(r) }) >= 0 {
-			return fmt.Errorf("%s: tag %q must be a lower-case word without spaces", e.Name, tag)
+			return loaderr.Errorf(tPath, "use a lowercase single word without spaces or control characters for each tag", "library: index: pack %d: %s: tag %q must be a lower-case word without spaces", idx, e.Name, tag)
 		}
 		if _, dup := seen[tag]; dup {
-			return fmt.Errorf("%s: tag %q is listed twice", e.Name, tag)
+			return loaderr.Errorf(tPath, "remove the duplicate tag", "library: index: pack %d: %s: tag %q is listed twice", idx, e.Name, tag)
 		}
 		seen[tag] = struct{}{}
 	}
 	if err := validateSource(e.Source); err != nil {
-		return fmt.Errorf("%s: %w", e.Name, err)
+		return loaderr.Errorf(pPath+".source", "set source to a relative slash-separated directory inside the library or an https URL without query or fragment", "library: index: pack %d: %s: %w", idx, e.Name, err)
 	}
 	if !project.IsSHA256(e.SHA256) {
-		return fmt.Errorf("%s: sha256 %q must be 64 lower-case hexadecimal digits", e.Name, e.SHA256)
+		return loaderr.Errorf(pPath+".sha256", "set sha256 to 64 lower-case hexadecimal digits (compute with game library digest)", "library: index: pack %d: %s: sha256 %q must be 64 lower-case hexadecimal digits", idx, e.Name, e.SHA256)
 	}
 	return nil
 }

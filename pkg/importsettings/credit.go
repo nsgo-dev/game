@@ -5,27 +5,29 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
 func (c *Credit) validate() error {
 	if err := checkLine("author", c.Author, true); err != nil {
-		return err
+		return loaderr.Errorf("credit.author", "set credit.author to a single non-empty line without surrounding spaces or control characters", "importsettings: credit: %w", err)
 	}
 	if err := checkLine("license", c.License, true); err != nil {
-		return err
+		return loaderr.Errorf("credit.license", "set credit.license to an SPDX license expression such as CC0-1.0 or CC-BY-4.0", "importsettings: credit: %w", err)
 	}
 	if err := ValidateLicense(c.License); err != nil {
-		return err
+		return loaderr.Errorf("credit.license", "set credit.license to a valid SPDX license expression such as CC0-1.0, CC-BY-4.0, or LicenseRef-custom", "importsettings: credit: %w", err)
 	}
 	if err := checkLine("source", c.Source, false); err != nil {
-		return err
+		return loaderr.Errorf("credit.source", "set credit.source to a single line without surrounding spaces or control characters", "importsettings: credit: %w", err)
 	}
 	if c.Notice != "" {
 		if strings.TrimSpace(c.Notice) != c.Notice {
-			return errors.New("notice must not start or end with spaces or blank lines")
+			return loaderr.Errorf("credit.notice", "trim leading and trailing spaces and blank lines from credit.notice", "importsettings: credit: notice must not start or end with spaces or blank lines")
 		}
 		if i := strings.IndexFunc(c.Notice, func(r rune) bool { return r != '\n' && r != '\t' && unicode.IsControl(r) }); i >= 0 {
-			return fmt.Errorf("notice holds the control character %q; only line breaks and tabs are allowed", c.Notice[i:i+1])
+			return loaderr.Errorf("credit.notice", "remove control characters other than line breaks and tabs from credit.notice", "importsettings: credit: notice holds the control character %q; only line breaks and tabs are allowed", c.Notice[i:i+1])
 		}
 	}
 	return nil

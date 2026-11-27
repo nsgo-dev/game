@@ -2,14 +2,16 @@ package framedata
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixFrameData = "write the frame data file as version: 1 YAML with valid moves, boxes and cancels"
 
 // CurrentVersion is the frame data schema version this package reads and writes.
 const CurrentVersion = 1
@@ -164,8 +166,16 @@ func (d *Doc) Move(name string) (*Move, bool) {
 
 // Parse decodes a YAML frame data document and validates it. Unknown fields and trailing YAML documents are refused.
 func Parse(data []byte) (*Doc, error) {
+	doc, err := parseDoc(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixFrameData)
+	}
+	return doc, nil
+}
+
+func parseDoc(data []byte) (*Doc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("framedata: empty document")
+		return nil, loaderr.Errorf("", fixFrameData, "framedata: empty document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -177,7 +187,7 @@ func Parse(data []byte) (*Doc, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("framedata: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the frame data file; remove the trailing --- document", "framedata: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("framedata: decode: %w", err)
 	}
@@ -222,60 +232,66 @@ func Encode(doc *Doc) ([]byte, error) {
 // Validate checks that doc follows the version 1 schema: unique move names, lengths from 1 to MaxLength, boxes and cancel windows inside their moves, positive finite box sizes, hit properties only on hitboxes, and cancels into moves that exist.
 func Validate(doc *Doc) error {
 	if doc == nil {
-		return errors.New("framedata: nil document")
+		return loaderr.Errorf("", fixFrameData, "framedata: nil document")
 	}
 	if doc.Version != CurrentVersion {
-		return fmt.Errorf("framedata: unsupported version %d (want %d)", doc.Version, CurrentVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", CurrentVersion), "framedata: unsupported version %d (want %d)", doc.Version, CurrentVersion)
 	}
 	names := make(map[string]struct{}, len(doc.Moves))
 	for i := range doc.Moves {
 		m := &doc.Moves[i]
 		if m.Name == "" {
-			return fmt.Errorf("framedata: move %d has an empty name", i)
+			return loaderr.Errorf(loaderr.Path("moves", i, "name"), "give the move a non-empty name", "framedata: move %d has an empty name", i)
 		}
 		if _, dup := names[m.Name]; dup {
-			return fmt.Errorf("framedata: duplicate move name %q", m.Name)
+			return loaderr.Errorf(loaderr.Path("moves", i, "name"), "give each move a unique name", "framedata: duplicate move name %q", m.Name)
 		}
 		names[m.Name] = struct{}{}
 	}
 	for i := range doc.Moves {
-		if err := validateMove(&doc.Moves[i], names); err != nil {
+		if err := validateMove(i, &doc.Moves[i], names); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateMove(m *Move, names map[string]struct{}) error {
+func validateMove(mi int, m *Move, names map[string]struct{}) error {
+	mPath := loaderr.Path("moves", mi)
 	if m.Length < 1 || m.Length > MaxLength {
-		return fmt.Errorf("framedata: move %q length %d must be from 1 to %d", m.Name, m.Length, MaxLength)
+		return loaderr.Errorf(loaderr.Join(mPath, "length"), fmt.Sprintf("set length to an integer from 1 to %d", MaxLength), "framedata: move %q length %d must be from 1 to %d", m.Name, m.Length, MaxLength)
 	}
 	for i := range m.Boxes {
-		if err := validateBox(m, i); err != nil {
+		if err := validateBox(mPath, m, i); err != nil {
 			return err
 		}
 	}
 	for i := range m.Cancels {
 		c := &m.Cancels[i]
+		cPath := loaderr.Join(mPath, "cancels", i)
 		where := fmt.Sprintf("framedata: move %q cancel %d", m.Name, i)
 		if c.Start < 1 || c.End < c.Start || c.End > m.Length {
-			return fmt.Errorf("%s frames %d to %d must satisfy 1 <= start <= end <= %d", where, c.Start, c.End, m.Length)
+			field := "start"
+			if c.Start >= 1 {
+				field = "end"
+			}
+			return loaderr.Errorf(loaderr.Join(cPath, field), fmt.Sprintf("set start and end so 1 <= start <= end <= %d", m.Length), "%s frames %d to %d must satisfy 1 <= start <= end <= %d", where, c.Start, c.End, m.Length)
 		}
 		switch c.When {
 		case OnAny, OnHit, OnBlock, OnContact:
 		default:
-			return fmt.Errorf("%s has unknown condition %q (want %q, %q or %q)", where, c.When, OnHit, OnBlock, OnContact)
+			return loaderr.Errorf(loaderr.Join(cPath, "when"), fmt.Sprintf("set when to %q, %q or %q, or omit it for any", OnHit, OnBlock, OnContact), "%s has unknown condition %q (want %q, %q or %q)", where, c.When, OnHit, OnBlock, OnContact)
 		}
 		if len(c.Into) == 0 {
-			return fmt.Errorf("%s names no moves to cancel into", where)
+			return loaderr.Errorf(loaderr.Join(cPath, "into"), "list at least one target move name under into", "%s names no moves to cancel into", where)
 		}
 		seen := make(map[string]struct{}, len(c.Into))
-		for _, name := range c.Into {
+		for j, name := range c.Into {
 			if _, ok := names[name]; !ok {
-				return fmt.Errorf("%s cancels into unknown move %q", where, name)
+				return loaderr.Errorf(loaderr.Join(cPath, "into", j), "name a move declared in this document", "%s cancels into unknown move %q", where, name)
 			}
 			if _, dup := seen[name]; dup {
-				return fmt.Errorf("%s names move %q twice", where, name)
+				return loaderr.Errorf(loaderr.Join(cPath, "into", j), "remove the duplicate target move name", "%s names move %q twice", where, name)
 			}
 			seen[name] = struct{}{}
 		}
@@ -283,40 +299,65 @@ func validateMove(m *Move, names map[string]struct{}) error {
 	return nil
 }
 
-func validateBox(m *Move, i int) error {
+func validateBox(mPath string, m *Move, i int) error {
 	b := &m.Boxes[i]
+	bPath := loaderr.Join(mPath, "boxes", i)
 	where := fmt.Sprintf("framedata: move %q box %d", m.Name, i)
 	switch b.Kind {
 	case KindHurt, KindHit:
 	default:
-		return fmt.Errorf("%s has unknown kind %q (want %q or %q)", where, b.Kind, KindHurt, KindHit)
+		return loaderr.Errorf(loaderr.Join(bPath, "kind"), fmt.Sprintf("set kind to %q or %q", KindHurt, KindHit), "%s has unknown kind %q (want %q or %q)", where, b.Kind, KindHurt, KindHit)
 	}
 	if b.Start < 1 || b.End < b.Start || b.End > m.Length {
-		return fmt.Errorf("%s frames %d to %d must satisfy 1 <= start <= end <= %d", where, b.Start, b.End, m.Length)
+		field := "start"
+		if b.Start >= 1 {
+			field = "end"
+		}
+		return loaderr.Errorf(loaderr.Join(bPath, field), fmt.Sprintf("set start and end so 1 <= start <= end <= %d", m.Length), "%s frames %d to %d must satisfy 1 <= start <= end <= %d", where, b.Start, b.End, m.Length)
 	}
 	if !finite(b.X) || !finite(b.Y) || !finite(b.Width) || !finite(b.Height) {
-		return fmt.Errorf("%s position and size must be finite", where)
+		return loaderr.Errorf(bPath, "set x, y, width and height to finite numbers", "%s position and size must be finite", where)
 	}
 	if b.Width <= 0 || b.Height <= 0 {
-		return fmt.Errorf("%s size (%v, %v) must be positive", where, b.Width, b.Height)
+		field := "width"
+		if b.Width > 0 {
+			field = "height"
+		}
+		return loaderr.Errorf(loaderr.Join(bPath, field), "set width and height to positive numbers", "%s size (%v, %v) must be positive", where, b.Width, b.Height)
 	}
 	if !finite(b.KnockbackX) || !finite(b.KnockbackY) {
-		return fmt.Errorf("%s knockback must be finite", where)
+		field := "knockbackX"
+		if finite(b.KnockbackX) {
+			field = "knockbackY"
+		}
+		return loaderr.Errorf(loaderr.Join(bPath, field), "set knockbackX and knockbackY to finite numbers", "%s knockback must be finite", where)
 	}
 	if b.Kind == KindHurt {
 		if b.Group != 0 || b.Damage != 0 || b.Hitstun != 0 || b.Blockstun != 0 || b.KnockbackX != 0 || b.KnockbackY != 0 {
-			return fmt.Errorf("%s is a hurtbox and cannot set group, damage, hitstun, blockstun or knockback", where)
+			return loaderr.Errorf(bPath, "remove group, damage, hitstun, blockstun and knockback from a hurtbox, or change kind to hit", "%s is a hurtbox and cannot set group, damage, hitstun, blockstun or knockback", where)
 		}
 		return nil
 	}
 	if b.Group < 0 || b.Group > MaxGroup {
-		return fmt.Errorf("%s group %d must be from 0 to %d", where, b.Group, MaxGroup)
+		return loaderr.Errorf(loaderr.Join(bPath, "group"), fmt.Sprintf("set group to an integer from 0 to %d", MaxGroup), "%s group %d must be from 0 to %d", where, b.Group, MaxGroup)
 	}
 	if b.Damage < 0 || b.Hitstun < 0 || b.Blockstun < 0 {
-		return fmt.Errorf("%s damage, hitstun and blockstun must not be negative", where)
+		field := "damage"
+		if b.Damage >= 0 {
+			if b.Hitstun < 0 {
+				field = "hitstun"
+			} else {
+				field = "blockstun"
+			}
+		}
+		return loaderr.Errorf(loaderr.Join(bPath, field), "set damage, hitstun and blockstun to non-negative integers", "%s damage, hitstun and blockstun must not be negative", where)
 	}
 	if b.Hitstun > MaxLength || b.Blockstun > MaxLength {
-		return fmt.Errorf("%s hitstun and blockstun must not exceed %d frames", where, MaxLength)
+		field := "hitstun"
+		if b.Hitstun <= MaxLength {
+			field = "blockstun"
+		}
+		return loaderr.Errorf(loaderr.Join(bPath, field), fmt.Sprintf("set hitstun and blockstun to at most %d", MaxLength), "%s hitstun and blockstun must not exceed %d frames", where, MaxLength)
 	}
 	return nil
 }

@@ -154,8 +154,8 @@ func TestParseRefusesBadFiles(t *testing.T) {
 	} {
 		if c, err := cutscene.Parse([]byte(text)); err == nil {
 			t.Errorf("%s: parsed %+v, want an error", name, c)
-		} else if !strings.HasPrefix(err.Error(), "cutscene: ") {
-			t.Errorf("%s: error %q does not name the package", name, err)
+		} else if !strings.Contains(err.Error(), "fix: ") {
+			t.Errorf("%s: error %q lacks fix guidance", name, err)
 		}
 	}
 }

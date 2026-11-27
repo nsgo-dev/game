@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -74,7 +75,7 @@ func IsUnknownLicense(license string) bool {
 // Unknown fields, duplicate keys, YAML anchors/aliases/merge keys, trailing YAML documents, and missing or unsupported versions are refused.
 func ParseAssetSource(data []byte) (*AssetSource, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("importsettings: empty asset source document")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add an asset source sidecar starting with version: %d, generator, and prompt", AssetSourceVersion), "importsettings: empty asset source document"), "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -82,26 +83,26 @@ func ParseAssetSource(data []byte) (*AssetSource, error) {
 	var s AssetSource
 	if err := dec.Decode(&s); err != nil {
 		if errors.Is(err, io.EOF) {
-			return nil, errors.New("importsettings: empty asset source document")
+			return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("add an asset source sidecar starting with version: %d, generator, and prompt", AssetSourceVersion), "importsettings: empty asset source document"), "", data, "")
 		}
-		return nil, fmt.Errorf("importsettings: decode asset source: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("importsettings: decode asset source: %w", err), "", data, "check the YAML syntax and field names in the asset source sidecar")
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("importsettings: unexpected trailing YAML document in asset source")
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the asset source sidecar and remove any --- separator", "importsettings: unexpected trailing YAML document in asset source"), "", data, "")
 		}
-		return nil, fmt.Errorf("importsettings: decode asset source: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("importsettings: decode asset source: %w", err), "", data, "remove trailing YAML content after the asset source sidecar")
 	}
 	if err := ValidateAssetSource(&s); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("importsettings: decode asset source: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("importsettings: decode asset source: %w", err), "", data, "check the YAML syntax in the asset source sidecar")
 	}
 	if err := checkPlainAssetSourceNode(&root, s.Version); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &s, nil
 }
@@ -118,13 +119,24 @@ func checkPlainAssetSourceNode(n *yaml.Node, version int) error {
 		doc = doc.Content[0]
 	}
 	if doc.Kind != yaml.MappingNode {
-		return errors.New("importsettings: asset source must be a YAML mapping")
+		return &loaderr.Error{
+			Line:    doc.Line,
+			Column:  doc.Column,
+			Problem: "importsettings: asset source must be a YAML mapping",
+			Fix:     fmt.Sprintf("write the asset source sidecar as a YAML mapping starting with version: %d", AssetSourceVersion),
+		}
 	}
 	for i := 0; i+1 < len(doc.Content); i += 2 {
 		if doc.Content[i].Value == "version" {
 			val := doc.Content[i+1]
 			if want := strconv.Itoa(version); val.Value != want {
-				return fmt.Errorf("importsettings: asset source version %q must be written as %s", val.Value, want)
+				return &loaderr.Error{
+					Line:    val.Line,
+					Column:  val.Column,
+					Field:   "version",
+					Problem: fmt.Sprintf("importsettings: asset source version %q must be written as %s", val.Value, want),
+					Fix:     fmt.Sprintf("write version: %s as a plain base-10 integer", want),
+				}
 			}
 		}
 	}
@@ -133,14 +145,29 @@ func checkPlainAssetSourceNode(n *yaml.Node, version int) error {
 
 func checkNoSourceYAMLRefs(n *yaml.Node) error {
 	if n.Kind == yaml.AliasNode {
-		return fmt.Errorf("importsettings: asset source line %d: YAML aliases are not allowed", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("importsettings: asset source line %d: YAML aliases are not allowed", n.Line),
+			Fix:     "expand YAML aliases inline instead of using *",
+		}
 	}
 	if n.Anchor != "" {
-		return fmt.Errorf("importsettings: asset source line %d: YAML anchors are not allowed", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("importsettings: asset source line %d: YAML anchors are not allowed", n.Line),
+			Fix:     "remove YAML anchors (&name) and write values inline",
+		}
 	}
 	for i, c := range n.Content {
 		if n.Kind == yaml.MappingNode && i%2 == 0 && c.Tag == "!!merge" {
-			return fmt.Errorf("importsettings: asset source line %d: YAML merge keys are not allowed", c.Line)
+			return &loaderr.Error{
+				Line:    c.Line,
+				Column:  c.Column,
+				Problem: fmt.Sprintf("importsettings: asset source line %d: YAML merge keys are not allowed", c.Line),
+				Fix:     "remove YAML merge keys (<<) and list fields explicitly",
+			}
 		}
 		if err := checkNoSourceYAMLRefs(c); err != nil {
 			return err
@@ -155,7 +182,13 @@ func checkDuplicateSourceYAMLKeys(n *yaml.Node) error {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i]
 			if prev, dup := seen[k.Value]; dup {
-				return fmt.Errorf("importsettings: asset source line %d: duplicate key %q (first seen on line %d)", k.Line, k.Value, prev)
+				return &loaderr.Error{
+					Line:    k.Line,
+					Column:  k.Column,
+					Field:   k.Value,
+					Problem: fmt.Sprintf("importsettings: asset source line %d: duplicate key %q (first seen on line %d)", k.Line, k.Value, prev),
+					Fix:     fmt.Sprintf("remove the duplicate %q key", k.Value),
+				}
 			}
 			seen[k.Value] = k.Line
 		}
@@ -172,40 +205,41 @@ func checkDuplicateSourceYAMLKeys(n *yaml.Node) error {
 // Unknown or empty License values are accepted so unresolved generated assets can be represented on disk and blocked by release/credits checks.
 func ValidateAssetSource(s *AssetSource) error {
 	if s == nil {
-		return errors.New("importsettings: nil asset source")
+		return loaderr.Errorf("", "pass a non-nil *importsettings.AssetSource to ValidateAssetSource", "importsettings: nil asset source")
 	}
 	switch s.Version {
 	case AssetSourceVersion:
 	case 0:
-		return fmt.Errorf("importsettings: asset source is missing version (want %d)", AssetSourceVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("add version: %d at the top of the asset source sidecar", AssetSourceVersion), "importsettings: asset source is missing version (want %d)", AssetSourceVersion)
 	default:
-		return fmt.Errorf("importsettings: unsupported asset source version %d (want %d)", s.Version, AssetSourceVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the asset source sidecar", AssetSourceVersion), "importsettings: unsupported asset source version %d (want %d)", s.Version, AssetSourceVersion)
 	}
 	if err := checkLine("generator", s.Generator, true); err != nil {
-		return fmt.Errorf("importsettings: asset source: %w", err)
+		return loaderr.Errorf("generator", "set generator to a non-empty single-line generator name without surrounding spaces", "importsettings: asset source: %w", err)
 	}
 	if err := checkLine("model", s.Model, false); err != nil {
-		return fmt.Errorf("importsettings: asset source: %w", err)
+		return loaderr.Errorf("model", "set model to a single-line model identifier without surrounding spaces", "importsettings: asset source: %w", err)
 	}
 	if strings.TrimSpace(s.Prompt) == "" {
-		return errors.New("importsettings: asset source: prompt is required")
+		return loaderr.Errorf("prompt", "set prompt to the non-empty text prompt sent to the generator", "importsettings: asset source: prompt is required")
 	}
 	if strings.TrimSpace(s.Prompt) != s.Prompt {
-		return errors.New("importsettings: asset source: prompt must not start or end with spaces or blank lines")
+		return loaderr.Errorf("prompt", "trim leading and trailing spaces and blank lines from prompt", "importsettings: asset source: prompt must not start or end with spaces or blank lines")
 	}
 	if i := strings.IndexFunc(s.Prompt, func(r rune) bool { return r != '\n' && r != '\t' && unicode.IsControl(r) }); i >= 0 {
-		return fmt.Errorf("importsettings: asset source: prompt holds control character %q", s.Prompt[i:i+1])
+		return loaderr.Errorf("prompt", "remove control characters other than line breaks and tabs from prompt", "importsettings: asset source: prompt holds control character %q", s.Prompt[i:i+1])
 	}
 	for idx, ref := range s.References {
-		if err := checkLine(fmt.Sprintf("references[%d]", idx), ref, true); err != nil {
-			return fmt.Errorf("importsettings: asset source: %w", err)
+		field := fmt.Sprintf("references[%d]", idx)
+		if err := checkLine(field, ref, true); err != nil {
+			return loaderr.Errorf(field, "set each reference to a non-empty single-line path without surrounding spaces", "importsettings: asset source: %w", err)
 		}
 	}
 	if err := checkLine("license", s.License, false); err != nil {
-		return fmt.Errorf("importsettings: asset source: %w", err)
+		return loaderr.Errorf("license", "set license to a single-line license identifier without surrounding spaces", "importsettings: asset source: %w", err)
 	}
 	if err := checkLine("approvedBy", s.ApprovedBy, false); err != nil {
-		return fmt.Errorf("importsettings: asset source: %w", err)
+		return loaderr.Errorf("approvedBy", "set approvedBy to a single-line approver name without surrounding spaces", "importsettings: asset source: %w", err)
 	}
 	return nil
 }

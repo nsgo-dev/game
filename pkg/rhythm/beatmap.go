@@ -11,7 +11,13 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixBeatMap      = "write the beat map as version: 1 YAML with tempos starting at beat 0"
+	fixCalibrations = "write calibrations as version: 1 YAML with valid device offsets"
 )
 
 // BeatMapVersion is the beat map schema version this package reads and writes.
@@ -79,8 +85,16 @@ type Meter struct {
 
 // ParseBeatMap decodes a YAML beat map and validates it. Unknown fields, a second YAML document, anchors and aliases, and a fraction where a whole number belongs are refused.
 func ParseBeatMap(data []byte) (*BeatMap, error) {
+	m, err := parseBeatMap(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixBeatMap)
+	}
+	return m, nil
+}
+
+func parseBeatMap(data []byte) (*BeatMap, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("rhythm: empty beat map")
+		return nil, loaderr.Errorf("", fixBeatMap, "rhythm: empty beat map")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -91,7 +105,7 @@ func ParseBeatMap(data []byte) (*BeatMap, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("rhythm: beat map has a second YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the beat map; remove the trailing --- document", "rhythm: beat map has a second YAML document")
 		}
 		return nil, fmt.Errorf("rhythm: decode beat map: %w", err)
 	}
@@ -121,9 +135,15 @@ func requireIntegers(data []byte, top []string, nested map[string][]string) erro
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil
 	}
-	check := func(key string, n *yaml.Node) error {
+	check := func(field, key string, n *yaml.Node) error {
 		if n.Kind == yaml.ScalarNode && n.Tag != "!!int" {
-			return fmt.Errorf("rhythm: line %d: %s %q is not a whole number", n.Line, key, n.Value)
+			return &loaderr.Error{
+				Line:    n.Line,
+				Column:  n.Column,
+				Field:   field,
+				Problem: fmt.Sprintf("rhythm: line %d: %s %q is not a whole number", n.Line, key, n.Value),
+				Fix:     fmt.Sprintf("write %s as a whole number", key),
+			}
 		}
 		return nil
 	}
@@ -131,7 +151,7 @@ func requireIntegers(data []byte, top []string, nested map[string][]string) erro
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		key, val := root.Content[i].Value, root.Content[i+1]
 		if slices.Contains(top, key) {
-			if err := check(key, val); err != nil {
+			if err := check(key, key, val); err != nil {
 				return err
 			}
 		}
@@ -139,13 +159,14 @@ func requireIntegers(data []byte, top []string, nested map[string][]string) erro
 		if !ok || val.Kind != yaml.SequenceNode {
 			continue
 		}
-		for _, item := range val.Content {
+		for idx, item := range val.Content {
 			if item.Kind != yaml.MappingNode {
 				continue
 			}
 			for j := 0; j+1 < len(item.Content); j += 2 {
 				if slices.Contains(fields, item.Content[j].Value) {
-					if err := check(item.Content[j].Value, item.Content[j+1]); err != nil {
+					k := item.Content[j].Value
+					if err := check(loaderr.Path(key, idx, k), k, item.Content[j+1]); err != nil {
 						return err
 					}
 				}
@@ -158,7 +179,12 @@ func requireIntegers(data []byte, top []string, nested map[string][]string) erro
 // refuseAliases reports the first anchor or alias in n and below it.
 func refuseAliases(n *yaml.Node) error {
 	if n.Kind == yaml.AliasNode || n.Anchor != "" {
-		return fmt.Errorf("rhythm: line %d: anchors and aliases are not allowed", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("rhythm: line %d: anchors and aliases are not allowed", n.Line),
+			Fix:     "write values directly without YAML anchors or aliases",
+		}
 	}
 	for _, c := range n.Content {
 		if err := refuseAliases(c); err != nil {
@@ -197,44 +223,47 @@ func encodeYAML(v any) ([]byte, error) {
 // Validate reports the first way m breaks the version 1 schema: a wrong version, no tempo, a change out of order or range, or a meter change off its bar line.
 func (m *BeatMap) Validate() error {
 	if m == nil {
-		return errors.New("rhythm: nil beat map")
+		return loaderr.Errorf("", fixBeatMap, "rhythm: nil beat map")
 	}
 	if m.Version != BeatMapVersion {
-		return fmt.Errorf("rhythm: beat map version %d, want %d", m.Version, BeatMapVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", BeatMapVersion), "rhythm: beat map version %d, want %d", m.Version, BeatMapVersion)
 	}
 	if !finite(m.OffsetMs) || math.Abs(m.OffsetMs) > MaxOffsetMs {
-		return fmt.Errorf("rhythm: offsetMs %v is not within ±%d", m.OffsetMs, MaxOffsetMs)
+		return loaderr.Errorf("offsetMs", fmt.Sprintf("set offsetMs to a finite number within ±%d", MaxOffsetMs), "rhythm: offsetMs %v is not within ±%d", m.OffsetMs, MaxOffsetMs)
 	}
 	if len(m.Tempos) == 0 {
-		return errors.New("rhythm: a beat map needs a tempo at beat 0")
+		return loaderr.Errorf("tempos", "add at least one tempo entry starting at beat 0", "rhythm: a beat map needs a tempo at beat 0")
 	}
-	if len(m.Tempos) > MaxChanges || len(m.Meters) > MaxChanges {
-		return fmt.Errorf("rhythm: more than %d tempo or meter changes", MaxChanges)
+	if len(m.Tempos) > MaxChanges {
+		return loaderr.Errorf("tempos", fmt.Sprintf("keep at most %d tempo changes", MaxChanges), "rhythm: more than %d tempo or meter changes", MaxChanges)
+	}
+	if len(m.Meters) > MaxChanges {
+		return loaderr.Errorf("meters", fmt.Sprintf("keep at most %d meter changes", MaxChanges), "rhythm: more than %d tempo or meter changes", MaxChanges)
 	}
 	for i, t := range m.Tempos {
 		switch {
 		case !finite(t.Beat) || t.Beat < 0 || t.Beat > MaxBeat:
-			return fmt.Errorf("rhythm: tempos[%d]: beat %v is not within 0 to %d", i, t.Beat, MaxBeat)
+			return loaderr.Errorf(loaderr.Path("tempos", i, "beat"), fmt.Sprintf("set beat to a finite number in [0, %d]", MaxBeat), "rhythm: tempos[%d]: beat %v is not within 0 to %d", i, t.Beat, MaxBeat)
 		case i == 0 && t.Beat != 0:
-			return fmt.Errorf("rhythm: tempos[0] starts at beat %v, want 0", t.Beat)
+			return loaderr.Errorf(loaderr.Path("tempos", 0, "beat"), "set the first tempo entry's beat to 0", "rhythm: tempos[0] starts at beat %v, want 0", t.Beat)
 		case i > 0 && t.Beat <= m.Tempos[i-1].Beat:
-			return fmt.Errorf("rhythm: tempos[%d]: beat %v is not after beat %v", i, t.Beat, m.Tempos[i-1].Beat)
+			return loaderr.Errorf(loaderr.Path("tempos", i, "beat"), "order tempo changes in strictly increasing beat order", "rhythm: tempos[%d]: beat %v is not after beat %v", i, t.Beat, m.Tempos[i-1].Beat)
 		case !finite(t.BPM) || t.BPM < MinBPM || t.BPM > MaxBPM:
-			return fmt.Errorf("rhythm: tempos[%d]: bpm %v is not within %d to %d", i, t.BPM, MinBPM, MaxBPM)
+			return loaderr.Errorf(loaderr.Path("tempos", i, "bpm"), fmt.Sprintf("set bpm to a finite number in [%d, %d]", MinBPM, MaxBPM), "rhythm: tempos[%d]: bpm %v is not within %d to %d", i, t.BPM, MinBPM, MaxBPM)
 		}
 	}
 	for i, me := range m.Meters {
 		switch {
 		case me.Beat < 0 || me.Beat > MaxBeat:
-			return fmt.Errorf("rhythm: meters[%d]: beat %d is not within 0 to %d", i, me.Beat, MaxBeat)
+			return loaderr.Errorf(loaderr.Path("meters", i, "beat"), fmt.Sprintf("set beat to an integer in [0, %d]", MaxBeat), "rhythm: meters[%d]: beat %d is not within 0 to %d", i, me.Beat, MaxBeat)
 		case i == 0 && me.Beat != 0:
-			return fmt.Errorf("rhythm: meters[0] starts at beat %d, want 0", me.Beat)
+			return loaderr.Errorf(loaderr.Path("meters", 0, "beat"), "set the first meter entry's beat to 0", "rhythm: meters[0] starts at beat %d, want 0", me.Beat)
 		case me.BeatsPerBar < 1 || me.BeatsPerBar > MaxBeatsPerBar:
-			return fmt.Errorf("rhythm: meters[%d]: beatsPerBar %d is not within 1 to %d", i, me.BeatsPerBar, MaxBeatsPerBar)
+			return loaderr.Errorf(loaderr.Path("meters", i, "beatsPerBar"), fmt.Sprintf("set beatsPerBar to an integer in [1, %d]", MaxBeatsPerBar), "rhythm: meters[%d]: beatsPerBar %d is not within 1 to %d", i, me.BeatsPerBar, MaxBeatsPerBar)
 		case i > 0 && me.Beat <= m.Meters[i-1].Beat:
-			return fmt.Errorf("rhythm: meters[%d]: beat %d is not after beat %d", i, me.Beat, m.Meters[i-1].Beat)
+			return loaderr.Errorf(loaderr.Path("meters", i, "beat"), "order meter changes in strictly increasing beat order", "rhythm: meters[%d]: beat %d is not after beat %d", i, me.Beat, m.Meters[i-1].Beat)
 		case i > 0 && (me.Beat-m.Meters[i-1].Beat)%m.Meters[i-1].BeatsPerBar != 0:
-			return fmt.Errorf("rhythm: meters[%d]: beat %d does not start a bar of %d beats from beat %d", i, me.Beat, m.Meters[i-1].BeatsPerBar, m.Meters[i-1].Beat)
+			return loaderr.Errorf(loaderr.Path("meters", i, "beat"), "align each meter change to a whole bar boundary of the previous meter", "rhythm: meters[%d]: beat %d does not start a bar of %d beats from beat %d", i, me.Beat, m.Meters[i-1].BeatsPerBar, m.Meters[i-1].Beat)
 		}
 	}
 	return nil

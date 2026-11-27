@@ -859,7 +859,7 @@ func TestIndexValidate(t *testing.T) {
 	for _, tc := range []struct{ name, data, msg string }{
 		{"empty", "", "empty index"},
 		{"version", "version: 2\n", "unsupported index version 2"},
-		{"unknown field", "version: 1\nextra: 1\n", "field extra not found"},
+		{"unknown field", "version: 1\nextra: 1\n", `unknown field "extra"`},
 		{"trailing", "version: 1\n---\nversion: 1\n", "trailing YAML document"},
 		{"bad path", "version: 1\nfiles:\n  - path: ../x\n    sha256: " + sha + "\n", "must be a slash-separated path"},
 		{"order", "version: 1\nfiles:\n  - path: b\n    sha256: " + sha + "\n  - path: a\n    sha256: " + sha + "\n", "must come after"},

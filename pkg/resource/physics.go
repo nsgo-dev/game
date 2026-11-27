@@ -1,8 +1,7 @@
 package resource
 
 import (
-	"fmt"
-
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
@@ -27,28 +26,28 @@ func (p *PhysicsMaterial) Kind() Kind { return KindPhysicsMaterial }
 // Validate checks the header and the ranges.
 func (p *PhysicsMaterial) Validate() error {
 	if p == nil {
-		return fmt.Errorf("resource: nil physics material")
+		return loaderr.Errorf("", "pass a non-nil *resource.PhysicsMaterial to Validate", "resource: nil physics material")
 	}
 	if err := p.Header.validate(KindPhysicsMaterial); err != nil {
 		return err
 	}
 	if p.Friction != nil {
-		if err := checkNonNegative("physics material friction", *p.Friction); err != nil {
+		if err := checkNonNegative("friction", "physics material friction", *p.Friction); err != nil {
 			return err
 		}
 	}
 	if p.Restitution != nil {
-		if err := checkUnit("physics material restitution", *p.Restitution); err != nil {
+		if err := checkUnit("restitution", "physics material restitution", *p.Restitution); err != nil {
 			return err
 		}
 	}
 	if p.LinearDamping != nil {
-		if err := checkNonNegative("physics material linearDamping", *p.LinearDamping); err != nil {
+		if err := checkNonNegative("linearDamping", "physics material linearDamping", *p.LinearDamping); err != nil {
 			return err
 		}
 	}
 	if p.AngularDamping != nil {
-		if err := checkNonNegative("physics material angularDamping", *p.AngularDamping); err != nil {
+		if err := checkNonNegative("angularDamping", "physics material angularDamping", *p.AngularDamping); err != nil {
 			return err
 		}
 	}

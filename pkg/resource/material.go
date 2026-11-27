@@ -1,10 +1,10 @@
 package resource
 
 import (
-	"fmt"
 	"io/fs"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -78,39 +78,39 @@ func (m *Material) Kind() Kind { return KindMaterial }
 // Validate checks the header, colors, ranges and blend mode.
 func (m *Material) Validate() error {
 	if m == nil {
-		return fmt.Errorf("resource: nil material")
+		return loaderr.Errorf("", "pass a non-nil *resource.Material to Validate", "resource: nil material")
 	}
 	if err := m.Header.validate(KindMaterial); err != nil {
 		return err
 	}
 	if m.BaseColor != "" {
 		if _, err := core.ParseColor(m.BaseColor); err != nil {
-			return fmt.Errorf("resource: material baseColor %q: %w", m.BaseColor, err)
+			return loaderr.Errorf("baseColor", "set baseColor to a valid CSS color such as #ffffff or rgba(255, 255, 255, 1)", "resource: material baseColor %q: %w", m.BaseColor, err)
 		}
 	}
 	if m.Emissive != "" {
 		if _, err := core.ParseColor(m.Emissive); err != nil {
-			return fmt.Errorf("resource: material emissive %q: %w", m.Emissive, err)
+			return loaderr.Errorf("emissive", "set emissive to a valid CSS color such as #ff4400", "resource: material emissive %q: %w", m.Emissive, err)
 		}
 	}
 	if m.Texture != "" && (!fs.ValidPath(m.Texture) || m.Texture == ".") {
-		return fmt.Errorf("resource: material texture %q must be a slash-separated path relative to the project root", m.Texture)
+		return loaderr.Errorf("texture", "set texture to a slash-separated path relative to the project root", "resource: material texture %q must be a slash-separated path relative to the project root", m.Texture)
 	}
 	if m.Opacity != nil {
-		if err := checkUnit("material opacity", *m.Opacity); err != nil {
+		if err := checkUnit("opacity", "material opacity", *m.Opacity); err != nil {
 			return err
 		}
 	}
 	if m.Blend != "" {
 		if _, ok := blendModes[m.Blend]; !ok {
-			return fmt.Errorf("resource: material blend %q is not one of %v", m.Blend, BlendModes())
+			return loaderr.Errorf("blend", "set blend to a known blend mode such as sourceOver, multiply, screen, or lighter", "resource: material blend %q is not one of %v", m.Blend, BlendModes())
 		}
 	}
-	if err := checkUnit("material metallic", m.Metallic); err != nil {
+	if err := checkUnit("metallic", "material metallic", m.Metallic); err != nil {
 		return err
 	}
 	if m.Roughness != nil {
-		if err := checkUnit("material roughness", *m.Roughness); err != nil {
+		if err := checkUnit("roughness", "material roughness", *m.Roughness); err != nil {
 			return err
 		}
 	}

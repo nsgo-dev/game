@@ -11,8 +11,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixMap      = "write the room map as version: 1 YAML with at least one valid room"
+	fixReadMap  = "check that the room map file exists and is readable"
+	fixDuration = `write a Go duration string with a unit, such as "400ms" or "1.5s"`
 )
 
 // FormatVersion is the room map schema version this package reads and writes.
@@ -92,11 +99,23 @@ func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(),
 // UnmarshalYAML reads a duration string with a unit; a bare number is refused so its unit is never guessed.
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.ScalarNode || n.ShortTag() != "!!str" {
-		return fmt.Errorf("line %d: duration must be a string with a unit, such as 400ms", n.Line)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("%v: duration must be a string with a unit, such as 400ms", ErrInvalidMap),
+			Fix:     fixDuration,
+			Err:     ErrInvalidMap,
+		}
 	}
 	v, err := time.ParseDuration(n.Value)
 	if err != nil {
-		return fmt.Errorf("line %d: %v", n.Line, err)
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: fmt.Sprintf("%v: %v", ErrInvalidMap, err),
+			Fix:     fixDuration,
+			Err:     ErrInvalidMap,
+		}
 	}
 	*d = Duration(v)
 	return nil
@@ -231,22 +250,35 @@ func (m *Map) TransitionInto(r *Room) Transition {
 }
 
 // Parse decodes a YAML room map and validates it. Unknown fields and trailing YAML documents are refused.
+//
+// Errors are *loaderr.Error values wrapping ErrInvalidMap with line, field and fix; callers that read from a file name it with loaderr.WithFile.
 func Parse(data []byte) (*Map, error) {
+	m, err := parseMap(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixMap)
+	}
+	return m, nil
+}
+
+func parseMap(data []byte) (*Map, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("%w: empty document", ErrInvalidMap)
+		return nil, loaderr.Errorf("", fixMap, "%w: empty document", ErrInvalidMap)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var m Map
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("%w: decode: %v", ErrInvalidMap, err)
+		if errors.Is(err, ErrInvalidMap) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidMap, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("%w: unexpected trailing YAML document", ErrInvalidMap)
+			return nil, loaderr.Errorf("", "keep one YAML document in the room map; remove the trailing --- document", "%w: unexpected trailing YAML document", ErrInvalidMap)
 		}
-		return nil, fmt.Errorf("%w: decode: %v", ErrInvalidMap, err)
+		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidMap, err)
 	}
 	if err := Validate(&m); err != nil {
 		return nil, err
@@ -261,11 +293,11 @@ func Parse(data []byte) (*Map, error) {
 func LoadFS(fsys fs.FS, name string) (*Map, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
-		return nil, fmt.Errorf("rooms: read %s: %w", name, err)
+		return nil, loaderr.Locate(fmt.Errorf("rooms: read %s: %w", name, err), name, nil, fixReadMap)
 	}
 	m, err := Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, loaderr.WithFile(err, name)
 	}
 	return m, nil
 }
@@ -297,35 +329,36 @@ func Encode(m *Map) ([]byte, error) {
 // Validate checks m against the schema: the version, at least one room, unique non-empty IDs, finite rectangles with positive sizes, and well-formed transitions. Errors wrap ErrInvalidMap.
 func Validate(m *Map) error {
 	if m == nil {
-		return fmt.Errorf("%w: nil map", ErrInvalidMap)
+		return loaderr.Errorf("", fixMap, "%w: nil map", ErrInvalidMap)
 	}
 	if m.Version != FormatVersion {
-		return fmt.Errorf("%w: unsupported version %d (want %d)", ErrInvalidMap, m.Version, FormatVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", FormatVersion), "%w: unsupported version %d (want %d)", ErrInvalidMap, m.Version, FormatVersion)
 	}
 	if m.Transition != nil {
-		if err := validTransition(*m.Transition); err != nil {
-			return fmt.Errorf("%w: map transition: %v", ErrInvalidMap, err)
+		if err := validTransition("transition", "map transition", *m.Transition); err != nil {
+			return err
 		}
 	}
 	if len(m.Rooms) == 0 {
-		return fmt.Errorf("%w: no rooms", ErrInvalidMap)
+		return loaderr.Errorf("rooms", "add at least one room under rooms", "%w: no rooms", ErrInvalidMap)
 	}
 	seen := make(map[string]struct{}, len(m.Rooms))
 	for i := range m.Rooms {
 		r := &m.Rooms[i]
+		rPath := loaderr.Path("rooms", i)
 		if err := validID(r.ID); err != nil {
-			return fmt.Errorf("%w: room %d id: %v", ErrInvalidMap, i, err)
+			return loaderr.Errorf(loaderr.Join(rPath, "id"), "give the room a non-empty id without leading or trailing spaces", "%w: room %d id: %v", ErrInvalidMap, i, err)
 		}
 		if _, dup := seen[r.ID]; dup {
-			return fmt.Errorf("%w: duplicate room id %q", ErrInvalidMap, r.ID)
+			return loaderr.Errorf(loaderr.Join(rPath, "id"), "give each room a unique id", "%w: duplicate room id %q", ErrInvalidMap, r.ID)
 		}
 		seen[r.ID] = struct{}{}
-		if err := validRect(r.X, r.Y, r.Width, r.Height); err != nil {
-			return fmt.Errorf("%w: room %q: %v", ErrInvalidMap, r.ID, err)
+		if err := validRectAt(rPath, r.ID, r.X, r.Y, r.Width, r.Height); err != nil {
+			return err
 		}
 		if r.Transition != nil {
-			if err := validTransition(*r.Transition); err != nil {
-				return fmt.Errorf("%w: room %q transition: %v", ErrInvalidMap, r.ID, err)
+			if err := validTransition(loaderr.Join(rPath, "transition"), fmt.Sprintf("room %q transition", r.ID), *r.Transition); err != nil {
+				return err
 			}
 		}
 	}
@@ -369,27 +402,56 @@ func validRect(x, y, w, h float32) error {
 	return nil
 }
 
-func validTransition(t Transition) error {
+func validRectAt(rPath, id string, x, y, w, h float32) error {
+	if !finite(x) {
+		return loaderr.Errorf(loaderr.Join(rPath, "x"), "set x to a finite number", "%w: room %q: non-finite rectangle (%v, %v, %v, %v)", ErrInvalidMap, id, x, y, w, h)
+	}
+	if !finite(y) {
+		return loaderr.Errorf(loaderr.Join(rPath, "y"), "set y to a finite number", "%w: room %q: non-finite rectangle (%v, %v, %v, %v)", ErrInvalidMap, id, x, y, w, h)
+	}
+	if !finite(w) {
+		return loaderr.Errorf(loaderr.Join(rPath, "width"), "set width to a positive finite number", "%w: room %q: non-finite rectangle (%v, %v, %v, %v)", ErrInvalidMap, id, x, y, w, h)
+	}
+	if !finite(h) {
+		return loaderr.Errorf(loaderr.Join(rPath, "height"), "set height to a positive finite number", "%w: room %q: non-finite rectangle (%v, %v, %v, %v)", ErrInvalidMap, id, x, y, w, h)
+	}
+	if w <= 0 {
+		return loaderr.Errorf(loaderr.Join(rPath, "width"), "set width to a positive number", "%w: room %q: size %vx%v must be positive", ErrInvalidMap, id, w, h)
+	}
+	if h <= 0 {
+		return loaderr.Errorf(loaderr.Join(rPath, "height"), "set height to a positive number", "%w: room %q: size %vx%v must be positive", ErrInvalidMap, id, w, h)
+	}
+	if !finite(x+w) || !finite(y+h) {
+		return loaderr.Errorf(rPath, "keep x + width and y + height within float32 range", "%w: room %q: rectangle (%v, %v, %v, %v) overflows", ErrInvalidMap, id, x, y, w, h)
+	}
+	return nil
+}
+
+func validTransition(tPath, where string, t Transition) error {
 	if !t.Kind.Valid() {
-		return fmt.Errorf("unknown kind %q (want cut, slide or fade)", t.Kind)
+		return loaderr.Errorf(loaderr.Join(tPath, "kind"), "set kind to cut, slide or fade", "%w: %s: unknown kind %q (want cut, slide or fade)", ErrInvalidMap, where, t.Kind)
 	}
 	if t.Duration < 0 {
-		return fmt.Errorf("negative duration %s", time.Duration(t.Duration))
+		return loaderr.Errorf(loaderr.Join(tPath, "duration"), "set duration to a non-negative duration such as 400ms", "%w: %s: negative duration %s", ErrInvalidMap, where, time.Duration(t.Duration))
 	}
 	if t.Easing != "" {
 		if _, ok := t.Easing.Curve(); !ok {
-			return fmt.Errorf("unknown easing %q (want linear, ease, easeIn, easeOut or easeInOut)", t.Easing)
+			return loaderr.Errorf(loaderr.Join(tPath, "easing"), "set easing to linear, ease, easeIn, easeOut or easeInOut", "%w: %s: unknown easing %q (want linear, ease, easeIn, easeOut or easeInOut)", ErrInvalidMap, where, t.Easing)
 		}
 	}
 	if t.Kind == KindCut && (t.Duration != 0 || t.Easing != "") {
-		return errors.New("a cut takes no duration or easing")
+		field := "duration"
+		if t.Duration == 0 {
+			field = "easing"
+		}
+		return loaderr.Errorf(loaderr.Join(tPath, field), "remove duration and easing from a cut transition, or change kind to slide or fade", "%w: %s: a cut takes no duration or easing", ErrInvalidMap, where)
 	}
 	if t.Color != "" {
 		if t.Kind != KindFade {
-			return fmt.Errorf("only a fade takes a color, not a %s", t.Kind)
+			return loaderr.Errorf(loaderr.Join(tPath, "color"), "remove color or change kind to fade", "%w: %s: only a fade takes a color, not a %s", ErrInvalidMap, where, t.Kind)
 		}
 		if _, err := core.ParseColor(t.Color); err != nil {
-			return fmt.Errorf("color %q: %v", t.Color, err)
+			return loaderr.Errorf(loaderr.Join(tPath, "color"), `set color to a CSS color such as "#000" or "rgb(20 10 40)"`, "%w: %s: color %q: %v", ErrInvalidMap, where, t.Color, err)
 		}
 	}
 	return nil

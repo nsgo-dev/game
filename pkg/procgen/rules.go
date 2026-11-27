@@ -2,12 +2,17 @@ package procgen
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	fixRules         = "write the WFC rules file as version: 1 YAML with valid tiles and neighbors"
+	fixRoomTemplates = "write the room templates file as version: 1 YAML with valid rooms and doors"
 )
 
 // RulesVersion is the WFC rule file schema version this package reads and writes.
@@ -61,8 +66,16 @@ type Neighbor struct {
 
 // ParseRules decodes and validates a YAML rule set. Unknown fields and trailing YAML documents are rejected.
 func ParseRules(data []byte) (*Rules, error) {
+	r, err := parseRules(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixRules)
+	}
+	return r, nil
+}
+
+func parseRules(data []byte) (*Rules, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("procgen: empty rules document")
+		return nil, loaderr.Errorf("", fixRules, "procgen: empty rules document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -73,7 +86,7 @@ func ParseRules(data []byte) (*Rules, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("procgen: unexpected trailing YAML document in rules")
+			return nil, loaderr.Errorf("", "keep one YAML document in the rules file; remove the trailing --- document", "procgen: unexpected trailing YAML document in rules")
 		}
 		return nil, fmt.Errorf("procgen: decode rules: %w", err)
 	}
@@ -104,50 +117,52 @@ func EncodeRules(r *Rules) ([]byte, error) {
 // Validate checks r against the version 1 schema: the version, at least one tile, unique non-empty names, positive finite weights whose sum is finite, and neighbor entries that name known tiles as exactly one horizontal or vertical pair, each listed once.
 func (r *Rules) Validate() error {
 	if r.Version != RulesVersion {
-		return fmt.Errorf("procgen: unsupported rules version %d (want %d)", r.Version, RulesVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", RulesVersion), "procgen: unsupported rules version %d (want %d)", r.Version, RulesVersion)
 	}
 	if len(r.Tiles) == 0 {
-		return errors.New("procgen: rules have no tiles")
+		return loaderr.Errorf("tiles", "add at least one tile under tiles", "procgen: rules have no tiles")
 	}
 	index := make(map[string]int, len(r.Tiles))
 	total := 0.0
 	for i, t := range r.Tiles {
+		tPath := loaderr.Path("tiles", i)
 		if t.Name == "" {
-			return fmt.Errorf("procgen: tile %d has no name", i)
+			return loaderr.Errorf(loaderr.Join(tPath, "name"), "give the tile a non-empty name", "procgen: tile %d has no name", i)
 		}
 		if _, dup := index[t.Name]; dup {
-			return fmt.Errorf("procgen: duplicate tile %q", t.Name)
+			return loaderr.Errorf(loaderr.Join(tPath, "name"), "give each tile a unique name", "procgen: duplicate tile %q", t.Name)
 		}
 		if !(t.Weight > 0) || math.IsInf(t.Weight, 0) {
-			return fmt.Errorf("procgen: tile %q weight %v must be positive and finite", t.Name, t.Weight)
+			return loaderr.Errorf(loaderr.Join(tPath, "weight"), "set weight to a positive finite number", "procgen: tile %q weight %v must be positive and finite", t.Name, t.Weight)
 		}
 		index[t.Name] = i
 		total += t.Weight
 	}
 	// WFC picks tiles with random.Stream.WeightedIndex, which panics when the weights overflow float64.
 	if math.IsInf(total, 0) {
-		return errors.New("procgen: tile weights sum to more than the largest float64")
+		return loaderr.Errorf("tiles", "scale tile weights down so their sum fits in float64", "procgen: tile weights sum to more than the largest float64")
 	}
 	seen := make(map[Neighbor]bool, len(r.Neighbors))
 	for i, n := range r.Neighbors {
+		nPath := loaderr.Path("neighbors", i)
 		horizontal := n.Left != "" || n.Right != ""
 		vertical := n.Up != "" || n.Down != ""
-		var a, b string
+		var a, b, fa, fb string
 		switch {
 		case horizontal && !vertical:
-			a, b = n.Left, n.Right
+			a, b, fa, fb = n.Left, n.Right, "left", "right"
 		case vertical && !horizontal:
-			a, b = n.Up, n.Down
+			a, b, fa, fb = n.Up, n.Down, "up", "down"
 		default:
-			return fmt.Errorf("procgen: neighbor %d must set either left and right or up and down", i)
+			return loaderr.Errorf(nPath, "set either left and right, or up and down (not both)", "procgen: neighbor %d must set either left and right or up and down", i)
 		}
-		for _, name := range [2]string{a, b} {
-			if _, ok := index[name]; !ok {
-				return fmt.Errorf("procgen: neighbor %d names unknown tile %q", i, name)
+		for _, pair := range [2]struct{ field, name string }{{fa, a}, {fb, b}} {
+			if _, ok := index[pair.name]; !ok {
+				return loaderr.Errorf(loaderr.Join(nPath, pair.field), "name a tile declared under tiles", "procgen: neighbor %d names unknown tile %q", i, pair.name)
 			}
 		}
 		if seen[n] {
-			return fmt.Errorf("procgen: neighbor %d repeats an earlier pair", i)
+			return loaderr.Errorf(nPath, "remove the duplicate neighbor pair", "procgen: neighbor %d repeats an earlier pair", i)
 		}
 		seen[n] = true
 	}

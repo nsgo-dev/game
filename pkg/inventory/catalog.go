@@ -2,7 +2,6 @@ package inventory
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -11,8 +10,11 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixCatalog = "write the item catalog as version: 1 YAML with valid items"
 
 // CurrentVersion is the item catalog schema version this package reads and writes.
 const CurrentVersion = 1
@@ -97,7 +99,7 @@ func newCatalog(items []ItemDef) (*Catalog, error) {
 			return nil, err
 		}
 		if _, dup := byID[d.ID]; dup {
-			return nil, fmt.Errorf("inventory: duplicate item id %q", d.ID)
+			return nil, loaderr.Errorf(loaderr.Path("items", i, "id"), "give each item in the catalog a unique id", "inventory: duplicate item id %q", d.ID)
 		}
 		byID[d.ID] = i
 	}
@@ -106,8 +108,16 @@ func newCatalog(items []ItemDef) (*Catalog, error) {
 
 // Parse decodes a version 1 YAML item catalog and validates it. Unknown fields, duplicate item IDs, invalid definitions and trailing YAML documents are refused.
 func Parse(data []byte) (*Catalog, error) {
+	c, err := parseCatalog(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixCatalog)
+	}
+	return c, nil
+}
+
+func parseCatalog(data []byte) (*Catalog, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("inventory: empty item catalog")
+		return nil, loaderr.Errorf("", fixCatalog, "inventory: empty item catalog")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -118,12 +128,12 @@ func Parse(data []byte) (*Catalog, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("inventory: unexpected trailing YAML document in item catalog")
+			return nil, loaderr.Errorf("", "keep one YAML document in the item catalog; remove the trailing --- document", "inventory: unexpected trailing YAML document in item catalog")
 		}
 		return nil, fmt.Errorf("inventory: decode item catalog: %w", err)
 	}
 	if doc.Version != CurrentVersion {
-		return nil, fmt.Errorf("inventory: unsupported item catalog version %d (want %d)", doc.Version, CurrentVersion)
+		return nil, loaderr.Errorf("version", fmt.Sprintf("set version to %d", CurrentVersion), "inventory: unsupported item catalog version %d (want %d)", doc.Version, CurrentVersion)
 	}
 	if err := refuseExplicitZeroStack(data); err != nil {
 		return nil, err
@@ -143,9 +153,9 @@ func refuseExplicitZeroStack(data []byte) error {
 	if err := yaml.Unmarshal(data, &stacks); err != nil {
 		return fmt.Errorf("inventory: decode item catalog: %w", err)
 	}
-	for _, it := range stacks.Items {
+	for i, it := range stacks.Items {
 		if it.MaxStack != nil && *it.MaxStack == 0 {
-			return fmt.Errorf("inventory: item %q maxStack 0 must be in [1, %d] or omitted", it.ID, MaxStackLimit)
+			return loaderr.Errorf(loaderr.Path("items", i, "maxStack"), fmt.Sprintf("set maxStack to an integer in [1, %d] or omit it for 1", MaxStackLimit), "inventory: item %q maxStack 0 must be in [1, %d] or omitted", it.ID, MaxStackLimit)
 		}
 	}
 	return nil
@@ -207,29 +217,36 @@ func (c *Catalog) def(id string) (*ItemDef, bool) {
 }
 
 func validateDef(index int, d *ItemDef) error {
+	base := loaderr.Path("items", index)
 	if !validName(d.ID) {
-		return fmt.Errorf("inventory: item %d has invalid id %q (want non-empty, no whitespace or control characters)", index, d.ID)
+		return loaderr.Errorf(loaderr.Join(base, "id"), "set id to a non-empty identifier without whitespace or control characters", "inventory: item %d has invalid id %q (want non-empty, no whitespace or control characters)", index, d.ID)
 	}
 	if d.MaxStack < 0 || d.MaxStack > MaxStackLimit {
-		return fmt.Errorf("inventory: item %q maxStack %d must be in [1, %d] or omitted", d.ID, d.MaxStack, MaxStackLimit)
+		return loaderr.Errorf(loaderr.Join(base, "maxStack"), fmt.Sprintf("set maxStack to an integer in [1, %d] or omit it for 1", MaxStackLimit), "inventory: item %q maxStack %d must be in [1, %d] or omitted", d.ID, d.MaxStack, MaxStackLimit)
 	}
 	if d.Equip != "" && !validName(d.Equip) {
-		return fmt.Errorf("inventory: item %q has invalid equip kind %q (want no whitespace or control characters)", d.ID, d.Equip)
+		return loaderr.Errorf(loaderr.Join(base, "equip"), "set equip to a slot kind without whitespace or control characters, or omit it", "inventory: item %q has invalid equip kind %q (want no whitespace or control characters)", d.ID, d.Equip)
 	}
 	for i, tag := range d.Tags {
 		if strings.TrimSpace(tag) == "" {
-			return fmt.Errorf("inventory: item %q tag %d is empty", d.ID, i)
+			return loaderr.Errorf(loaderr.Join(base, "tags", i), "give the tag a non-empty name or remove it", "inventory: item %q tag %d is empty", d.ID, i)
 		}
 		if slices.Contains(d.Tags[:i], tag) {
-			return fmt.Errorf("inventory: item %q has duplicate tag %q", d.ID, tag)
+			return loaderr.Errorf(loaderr.Join(base, "tags", i), "remove the duplicate tag", "inventory: item %q has duplicate tag %q", d.ID, tag)
 		}
 	}
-	for name, v := range d.Stats {
+	statNames := make([]string, 0, len(d.Stats))
+	for name := range d.Stats {
+		statNames = append(statNames, name)
+	}
+	slices.Sort(statNames)
+	for _, name := range statNames {
+		v := d.Stats[name]
 		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("inventory: item %q has an empty stat name", d.ID)
+			return loaderr.Errorf(loaderr.Join(base, "stats", name), "give the stat a non-empty name", "inventory: item %q has an empty stat name", d.ID)
 		}
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return fmt.Errorf("inventory: item %q stat %q is not finite", d.ID, name)
+			return loaderr.Errorf(loaderr.Join(base, "stats", name), "set the stat to a finite number", "inventory: item %q stat %q is not finite", d.ID, name)
 		}
 	}
 	return nil

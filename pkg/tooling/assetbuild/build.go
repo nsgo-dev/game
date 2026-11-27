@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/ktx2"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
 	"github.com/nsgo-dev/game/pkg/tooling/manifest"
@@ -671,7 +672,7 @@ func (b *Builder) sidecar(rel string) (*importsettings.File, []byte, error) {
 	}
 	f, err := importsettings.Parse(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", name, err)
+		return nil, nil, loaderr.WithFile(err, name)
 	}
 	if len(f.Sections()) == 0 {
 		return f, nil, nil
@@ -804,7 +805,7 @@ func (b *Builder) creditOnly(rel string) (bool, error) {
 	}
 	f, err := importsettings.Parse(data)
 	if err != nil {
-		return false, fmt.Errorf("assetbuild: %s: %w", rel, err)
+		return false, loaderr.WithFile(err, rel)
 	}
 	if len(f.Sections()) > 0 {
 		return false, nil

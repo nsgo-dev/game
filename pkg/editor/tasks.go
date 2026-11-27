@@ -18,6 +18,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -369,68 +370,79 @@ func validTaskScenePath(p string) bool {
 // ParseAgentThread decodes a *.thread.yaml document, refusing unknown fields, duplicate keys,
 // YAML aliases/merge keys, and invalid versions or enum values.
 func ParseAgentThread(data []byte) (*AgentThreadDoc, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("write a thread document starting with version: %d and id", AgentThreadVersion), "editor: thread yaml is empty"), "", data, "")
+	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("editor: parse thread yaml: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: parse thread yaml: %w", err), "", data, "check the YAML syntax in the thread file")
 	}
 	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("editor: thread yaml must be a mapping document")
+		return nil, loaderr.Locate(loaderr.Errorf("", fmt.Sprintf("write the thread file as a YAML mapping starting with version: %d", AgentThreadVersion), "editor: thread yaml must be a mapping document"), "", data, "")
 	}
 	if err := checkNoThreadYAMLReferences(&root); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	if err := checkDuplicateYAMLKeys(&root); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var doc AgentThreadDoc
 	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("editor: decode thread yaml: %w", err)
+		return nil, loaderr.Locate(fmt.Errorf("editor: decode thread yaml: %w", err), "", data, "check the YAML syntax and field names in the thread file")
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the thread file and remove any --- separator", "editor: thread yaml has unexpected trailing YAML document"), "", data, "")
+		}
+		return nil, loaderr.Locate(fmt.Errorf("editor: decode thread yaml: %w", err), "", data, "remove trailing YAML content after the thread file")
 	}
 	if doc.Version != AgentThreadVersion {
-		return nil, fmt.Errorf("editor: thread yaml version = %d, want %d", doc.Version, AgentThreadVersion)
+		return nil, loaderr.Locate(loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the thread file", AgentThreadVersion), "editor: thread yaml version = %d, want %d", doc.Version, AgentThreadVersion), "", data, "")
 	}
 	if !validAgentThreadID(doc.ID) {
-		return nil, fmt.Errorf("editor: thread yaml invalid id %q (must match ^[a-zA-Z0-9_-]{1,64}$)", doc.ID)
+		return nil, loaderr.Locate(loaderr.Errorf("id", "set id to 1..64 ASCII letters, digits, '-' or '_'", "editor: thread yaml invalid id %q (must match ^[a-zA-Z0-9_-]{1,64}$)", doc.ID), "", data, "")
 	}
 	if len(doc.Tasks) > maxTasksPerThread {
-		return nil, fmt.Errorf("editor: thread yaml has %d tasks, exceeds maximum %d", len(doc.Tasks), maxTasksPerThread)
+		return nil, loaderr.Locate(loaderr.Errorf("tasks", fmt.Sprintf("keep at most %d tasks in one thread file", maxTasksPerThread), "editor: thread yaml has %d tasks, exceeds maximum %d", len(doc.Tasks), maxTasksPerThread), "", data, "")
 	}
 	seenID := make(map[string]bool, len(doc.Tasks))
 	for i := range doc.Tasks {
 		t := &doc.Tasks[i]
+		tPath := fmt.Sprintf("tasks[%d]", i)
 		if strings.TrimSpace(t.ID) == "" {
-			return nil, fmt.Errorf("editor: thread yaml task[%d] missing id", i)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".id", "give each task a non-empty id", "editor: thread yaml task[%d] missing id", i), "", data, "")
 		}
 		if seenID[t.ID] {
-			return nil, fmt.Errorf("editor: thread yaml duplicate task id %q", t.ID)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".id", "give each task in the thread a unique id", "editor: thread yaml duplicate task id %q", t.ID), "", data, "")
 		}
 		seenID[t.ID] = true
 		if strings.TrimSpace(t.Title) == "" {
-			return nil, fmt.Errorf("editor: thread yaml task %q missing title", t.ID)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".title", "give each task a non-empty title", "editor: thread yaml task %q missing title", t.ID), "", data, "")
 		}
 		if !t.Source.Valid() {
-			return nil, fmt.Errorf("editor: thread yaml task %q has unknown source %q", t.ID, t.Source)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".source", "set source to a valid task source (chat, automation, or manual)", "editor: thread yaml task %q has unknown source %q", t.ID, t.Source), "", data, "")
 		}
 		if !t.StartMode.Valid() {
-			return nil, fmt.Errorf("editor: thread yaml task %q has unknown startMode %q", t.ID, t.StartMode)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".startMode", "set startMode to a valid task start mode", "editor: thread yaml task %q has unknown startMode %q", t.ID, t.StartMode), "", data, "")
 		}
 		if !t.State.Valid() {
-			return nil, fmt.Errorf("editor: thread yaml task %q has unknown state %q", t.ID, t.State)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".state", "set state to a valid task state", "editor: thread yaml task %q has unknown state %q", t.ID, t.State), "", data, "")
 		}
 		if t.Number < 0 || t.ElapsedSeconds < 0 || t.StepIndex < 0 || t.StepTotal < 0 || t.PlanStep < 0 || t.PlanTotal < 0 {
-			return nil, fmt.Errorf("editor: thread yaml task %q has negative numeric field", t.ID)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath, "set numeric task counters and timings to non-negative values", "editor: thread yaml task %q has negative numeric field", t.ID), "", data, "")
 		}
 		if !validTaskScenePath(t.ScenePath) {
-			return nil, fmt.Errorf("editor: thread yaml task %q has invalid scene path %q", t.ID, t.ScenePath)
+			return nil, loaderr.Locate(loaderr.Errorf(tPath+".scenePath", "set scenePath to a relative slash-separated path inside the project", "editor: thread yaml task %q has invalid scene path %q", t.ID, t.ScenePath), "", data, "")
 		}
 		if t.Review != nil {
 			for j, ch := range t.Review.Changes {
 				switch ch.Kind {
 				case "", "added", "changed", "removed":
 				default:
-					return nil, fmt.Errorf("editor: thread yaml task %q review change[%d] has unknown kind %q", t.ID, j, ch.Kind)
+					return nil, loaderr.Locate(loaderr.Errorf(fmt.Sprintf("%s.review.changes[%d].kind", tPath, j), "set kind to added, changed, or removed (or omit it)", "editor: thread yaml task %q review change[%d] has unknown kind %q", t.ID, j, ch.Kind), "", data, "")
 				}
 			}
 		}
@@ -443,15 +455,30 @@ func checkNoThreadYAMLReferences(n *yaml.Node) error {
 		return nil
 	}
 	if n.Kind == yaml.AliasNode {
-		return errors.New("editor: thread yaml must not use YAML aliases")
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: "editor: thread yaml must not use YAML aliases",
+			Fix:     "expand YAML aliases inline instead of using *",
+		}
 	}
 	if n.Anchor != "" {
-		return errors.New("editor: thread yaml must not use YAML anchors")
+		return &loaderr.Error{
+			Line:    n.Line,
+			Column:  n.Column,
+			Problem: "editor: thread yaml must not use YAML anchors",
+			Fix:     "remove YAML anchors (&name) and write values inline",
+		}
 	}
 	if n.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			if n.Content[i].Tag == "!!merge" {
-				return errors.New("editor: thread yaml must not use YAML merge keys")
+				return &loaderr.Error{
+					Line:    n.Content[i].Line,
+					Column:  n.Content[i].Column,
+					Problem: "editor: thread yaml must not use YAML merge keys",
+					Fix:     "remove YAML merge keys (<<) and list fields explicitly",
+				}
 			}
 		}
 	}

@@ -29,7 +29,7 @@ func TestAssetsRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, want string
 	}{
-		{"unknown nested field", atlas + "      colour: red\n", "field colour not found"},
+		{"unknown nested field", atlas + "      colour: red\n", `unknown field "colour"`},
 		{"atlas name missing", assetsHead + "assets:\n  atlases:\n    - in: a\n      out: b\n", "name is required"},
 		{"atlas name with slash", assetsHead + "assets:\n  atlases:\n    - name: a/b\n      in: a\n      out: b\n", "plain file name"},
 		{"atlas name with dot", assetsHead + "assets:\n  atlases:\n    - name: .ui\n      in: a\n      out: b\n", "plain file name"},

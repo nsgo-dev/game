@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
 // Interp is how a key's value moves to the next key's.
@@ -36,45 +38,50 @@ type FrameKey struct {
 	Frame string `yaml:"frame"`
 }
 
-func validateKeys(where string, keys []Key, minTime, maxTime float32) error {
+func validateKeys(fieldPrefix, where string, keys []Key, minTime, maxTime float32) error {
 	if len(keys) == 0 {
-		return fmt.Errorf("resource: %s needs at least one key", where)
+		return loaderr.Errorf(fieldPrefix, fmt.Sprintf("add at least one keyframe under %s", fieldPrefix), "resource: %s needs at least one key", where)
 	}
 	for i, k := range keys {
-		if !isFinite(k.Time) || !isFinite(k.Value) {
-			return fmt.Errorf("resource: %s key %d must have a finite time and value", where, i)
+		kPath := fmt.Sprintf("%s[%d]", fieldPrefix, i)
+		if !isFinite(k.Time) {
+			return loaderr.Errorf(kPath+".time", "set key time to a finite number", "resource: %s key %d must have a finite time and value", where, i)
+		}
+		if !isFinite(k.Value) {
+			return loaderr.Errorf(kPath+".value", "set key value to a finite number", "resource: %s key %d must have a finite time and value", where, i)
 		}
 		if k.Time < minTime || k.Time > maxTime {
-			return fmt.Errorf("resource: %s key %d time %v must be in [%v, %v]", where, i, k.Time, minTime, maxTime)
+			return loaderr.Errorf(kPath+".time", fmt.Sprintf("set key time within [%v, %v]", minTime, maxTime), "resource: %s key %d time %v must be in [%v, %v]", where, i, k.Time, minTime, maxTime)
 		}
 		if i > 0 && k.Time <= keys[i-1].Time {
-			return fmt.Errorf("resource: %s key %d time %v must be after the previous key's %v", where, i, k.Time, keys[i-1].Time)
+			return loaderr.Errorf(kPath+".time", fmt.Sprintf("order keys in strictly increasing time order (after %v)", keys[i-1].Time), "resource: %s key %d time %v must be after the previous key's %v", where, i, k.Time, keys[i-1].Time)
 		}
 		switch k.Interp {
 		case "", InterpLinear, InterpStep, InterpSmooth:
 		default:
-			return fmt.Errorf("resource: %s key %d interp %q must be %q, %q or %q", where, i, k.Interp, InterpLinear, InterpStep, InterpSmooth)
+			return loaderr.Errorf(kPath+".interp", fmt.Sprintf("set interp to %q, %q, or %q (or omit it for linear)", InterpLinear, InterpStep, InterpSmooth), "resource: %s key %d interp %q must be %q, %q or %q", where, i, k.Interp, InterpLinear, InterpStep, InterpSmooth)
 		}
 	}
 	return nil
 }
 
-func validateFrameKeys(where string, frames []FrameKey, minTime, maxTime float32) error {
+func validateFrameKeys(fieldPrefix, where string, frames []FrameKey, minTime, maxTime float32) error {
 	if len(frames) == 0 {
-		return fmt.Errorf("resource: %s needs at least one frame key", where)
+		return loaderr.Errorf(fieldPrefix, fmt.Sprintf("add at least one frame key under %s", fieldPrefix), "resource: %s needs at least one frame key", where)
 	}
 	for i, k := range frames {
+		fPath := fmt.Sprintf("%s[%d]", fieldPrefix, i)
 		if !isFinite(k.Time) {
-			return fmt.Errorf("resource: %s frame %d must have a finite time", where, i)
+			return loaderr.Errorf(fPath+".time", "set frame time to a finite number", "resource: %s frame %d must have a finite time", where, i)
 		}
 		if k.Time < minTime || k.Time > maxTime {
-			return fmt.Errorf("resource: %s frame %d time %v must be in [%v, %v]", where, i, k.Time, minTime, maxTime)
+			return loaderr.Errorf(fPath+".time", fmt.Sprintf("set frame time within [%v, %v]", minTime, maxTime), "resource: %s frame %d time %v must be in [%v, %v]", where, i, k.Time, minTime, maxTime)
 		}
 		if i > 0 && k.Time <= frames[i-1].Time {
-			return fmt.Errorf("resource: %s frame %d time %v must be after the previous frame's %v", where, i, k.Time, frames[i-1].Time)
+			return loaderr.Errorf(fPath+".time", fmt.Sprintf("order frames in strictly increasing time order (after %v)", frames[i-1].Time), "resource: %s frame %d time %v must be after the previous frame's %v", where, i, k.Time, frames[i-1].Time)
 		}
 		if k.Frame == "" {
-			return fmt.Errorf("resource: %s frame %d has an empty frame name", where, i)
+			return loaderr.Errorf(fPath+".frame", "set frame to a non-empty atlas frame name", "resource: %s frame %d has an empty frame name", where, i)
 		}
 	}
 	return nil
@@ -137,12 +144,12 @@ func (c *Curve) Kind() Kind { return KindCurve }
 // Validate checks the header and that the keys are finite, ordered and use a known interp.
 func (c *Curve) Validate() error {
 	if c == nil {
-		return fmt.Errorf("resource: nil curve")
+		return loaderr.Errorf("", "pass a non-nil *resource.Curve to Validate", "resource: nil curve")
 	}
 	if err := c.Header.validate(KindCurve); err != nil {
 		return err
 	}
-	return validateKeys("curve", c.Keys, -math.MaxFloat32, math.MaxFloat32)
+	return validateKeys("keys", "curve", c.Keys, -math.MaxFloat32, math.MaxFloat32)
 }
 
 // Eval returns the curve's value at t, holding the first and last keys' values before and after them. Its method value fits tween.EaseFunc.
@@ -199,49 +206,51 @@ func (a *Animation) Kind() Kind { return KindAnimation }
 // Validate checks the header, the length, every track and every event.
 func (a *Animation) Validate() error {
 	if a == nil {
-		return fmt.Errorf("resource: nil animation")
+		return loaderr.Errorf("", "pass a non-nil *resource.Animation to Validate", "resource: nil animation")
 	}
 	if err := a.Header.validate(KindAnimation); err != nil {
 		return err
 	}
 	if !isFinite(a.Length) || a.Length <= 0 {
-		return fmt.Errorf("resource: animation length %v must be finite and positive", a.Length)
+		return loaderr.Errorf("length", "set length to a finite positive duration in seconds", "resource: animation length %v must be finite and positive", a.Length)
 	}
 	type pair struct{ target, property string }
 	seen := make(map[pair]struct{}, len(a.Tracks))
 	for i := range a.Tracks {
 		tr := &a.Tracks[i]
+		tPath := fmt.Sprintf("tracks[%d]", i)
 		if tr.Property == "" {
-			return fmt.Errorf("resource: animation track %d has an empty property", i)
+			return loaderr.Errorf(tPath+".property", "set property to the animated property name such as x, rotation, or sprite.frame", "resource: animation track %d has an empty property", i)
 		}
 		p := pair{tr.Target, tr.Property}
 		if _, dup := seen[p]; dup {
-			return fmt.Errorf("resource: animation has two tracks for target %q property %q", tr.Target, tr.Property)
+			return loaderr.Errorf(tPath+".property", "merge or remove the duplicate track for this target and property", "resource: animation has two tracks for target %q property %q", tr.Target, tr.Property)
 		}
 		seen[p] = struct{}{}
 		where := fmt.Sprintf("animation track %q %q", tr.Target, tr.Property)
 		if len(tr.Keys) > 0 && len(tr.Frames) > 0 {
-			return fmt.Errorf("resource: %s cannot have both keys and frames", where)
+			return loaderr.Errorf(tPath, "use either keys (numeric track) or frames (sprite frame track) on a track, not both", "resource: %s cannot have both keys and frames", where)
 		}
 		if len(tr.Frames) > 0 {
-			if err := validateFrameKeys(where, tr.Frames, 0, a.Length); err != nil {
+			if err := validateFrameKeys(tPath+".frames", where, tr.Frames, 0, a.Length); err != nil {
 				return err
 			}
 		} else {
-			if err := validateKeys(where, tr.Keys, 0, a.Length); err != nil {
+			if err := validateKeys(tPath+".keys", where, tr.Keys, 0, a.Length); err != nil {
 				return err
 			}
 		}
 	}
 	for i, ev := range a.Events {
+		ePath := fmt.Sprintf("events[%d]", i)
 		if ev.Name == "" {
-			return fmt.Errorf("resource: animation event %d has an empty name", i)
+			return loaderr.Errorf(ePath+".name", "set name to a non-empty event cue name such as footstep", "resource: animation event %d has an empty name", i)
 		}
 		if !isFinite(ev.Time) || ev.Time < 0 || ev.Time > a.Length {
-			return fmt.Errorf("resource: animation event %d time %v must be in [0, %v]", i, ev.Time, a.Length)
+			return loaderr.Errorf(ePath+".time", fmt.Sprintf("set event time within [0, %v]", a.Length), "resource: animation event %d time %v must be in [0, %v]", i, ev.Time, a.Length)
 		}
 		if i > 0 && ev.Time < a.Events[i-1].Time {
-			return fmt.Errorf("resource: animation event %d time %v must not be before the previous event's %v", i, ev.Time, a.Events[i-1].Time)
+			return loaderr.Errorf(ePath+".time", fmt.Sprintf("order events in non-decreasing time order (at or after %v)", a.Events[i-1].Time), "resource: animation event %d time %v must not be before the previous event's %v", i, ev.Time, a.Events[i-1].Time)
 		}
 	}
 	return nil

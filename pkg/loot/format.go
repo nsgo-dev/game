@@ -2,14 +2,16 @@ package loot
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixLoot = "write the loot document as version: 1 YAML with valid tables, entries and pity rules"
 
 // CurrentVersion is the loot document schema version that Parse accepts and Encode writes.
 const CurrentVersion = 1
@@ -122,35 +124,43 @@ func (r *Range) UnmarshalYAML(value *yaml.Node) error {
 			switch key.Value {
 			case "min":
 				if seenMin {
-					return fmt.Errorf("line %d: duplicate range key min", key.Line)
+					return &loaderr.Error{Line: key.Line, Column: key.Column, Problem: "duplicate range key min", Fix: loaderr.FixDuplicateKey}
 				}
 				seenMin, dst = true, &out.Min
 			case "max":
 				if seenMax {
-					return fmt.Errorf("line %d: duplicate range key max", key.Line)
+					return &loaderr.Error{Line: key.Line, Column: key.Column, Problem: "duplicate range key max", Fix: loaderr.FixDuplicateKey}
 				}
 				seenMax, dst = true, &out.Max
 			default:
-				return fmt.Errorf("line %d: field %s not found in type loot.Range", key.Line, key.Value)
+				return &loaderr.Error{Line: key.Line, Column: key.Column, Problem: fmt.Sprintf("field %s not found in type loot.Range", key.Value), Fix: loaderr.FixUnknownField}
 			}
 			if err := val.Decode(dst); err != nil {
 				return err
 			}
 		}
 		if !seenMin || !seenMax {
-			return fmt.Errorf("line %d: a range needs both min and max", value.Line)
+			return &loaderr.Error{Line: value.Line, Column: value.Column, Problem: "a range needs both min and max", Fix: "set both min and max integers, or write a single integer"}
 		}
 		*r = out
 		return nil
 	default:
-		return fmt.Errorf("line %d: a range is an integer or a min/max mapping", value.Line)
+		return &loaderr.Error{Line: value.Line, Column: value.Column, Problem: "a range is an integer or a min/max mapping", Fix: "write an integer or a mapping with min and max"}
 	}
 }
 
 // Parse decodes a YAML loot document and validates it. Unknown fields, duplicate keys and trailing YAML documents are rejected. Empty lists decode as nil, so the result equals the Document that its Encode text parses to.
 func Parse(data []byte) (*Document, error) {
+	doc, err := parseDoc(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixLoot)
+	}
+	return doc, nil
+}
+
+func parseDoc(data []byte) (*Document, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("loot: empty document")
+		return nil, loaderr.Errorf("", fixLoot, "loot: empty document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -161,7 +171,7 @@ func Parse(data []byte) (*Document, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("loot: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the loot file; remove the trailing --- document", "loot: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("loot: decode: %w", err)
 	}
@@ -216,12 +226,12 @@ func validName(s string) bool {
 	return s != "" && strings.TrimSpace(s) == s
 }
 
-func validateRange(where string, r *Range, max int) error {
+func validateRange(field, where string, r *Range, max int) error {
 	if r == nil {
 		return nil
 	}
 	if r.Min < 0 || r.Max < r.Min || r.Max > max {
-		return fmt.Errorf("loot: %s: range [%d, %d] must satisfy 0 <= min <= max <= %d", where, r.Min, r.Max, max)
+		return loaderr.Errorf(field, fmt.Sprintf("set min and max so 0 <= min <= max <= %d", max), "loot: %s: range [%d, %d] must satisfy 0 <= min <= max <= %d", where, r.Min, r.Max, max)
 	}
 	return nil
 }
@@ -230,67 +240,67 @@ func validWeight(w float64) bool {
 	return w > 0 && w <= MaxWeight && !math.IsNaN(w)
 }
 
-func validateEntry(where string, e *Entry, guaranteed bool) error {
+func validateEntry(field, where string, e *Entry, guaranteed bool) error {
 	kinds := 0
 	if e.Item != "" {
 		kinds++
 		if !validName(e.Item) {
-			return fmt.Errorf("loot: %s: item name %q has surrounding spaces", where, e.Item)
+			return loaderr.Errorf(loaderr.Join(field, "item"), "remove leading and trailing spaces from item", "loot: %s: item name %q has surrounding spaces", where, e.Item)
 		}
 	}
 	if e.Table != "" {
 		kinds++
 		if !validName(e.Table) {
-			return fmt.Errorf("loot: %s: table name %q has surrounding spaces", where, e.Table)
+			return loaderr.Errorf(loaderr.Join(field, "table"), "remove leading and trailing spaces from table", "loot: %s: table name %q has surrounding spaces", where, e.Table)
 		}
 	}
 	if e.Nothing {
 		kinds++
 	}
 	if kinds != 1 {
-		return fmt.Errorf("loot: %s: exactly one of item, table and nothing must be set", where)
+		return loaderr.Errorf(field, "set exactly one of item, table or nothing: true", "loot: %s: exactly one of item, table and nothing must be set", where)
 	}
 	if guaranteed {
 		if e.Nothing {
-			return fmt.Errorf("loot: %s: a guaranteed entry cannot be nothing", where)
+			return loaderr.Errorf(loaderr.Join(field, "nothing"), "set item or table instead of nothing on a guaranteed entry", "loot: %s: a guaranteed entry cannot be nothing", where)
 		}
 		if e.Weight != 0 {
-			return fmt.Errorf("loot: %s: a guaranteed entry has no weight", where)
+			return loaderr.Errorf(loaderr.Join(field, "weight"), "remove weight from a guaranteed entry", "loot: %s: a guaranteed entry has no weight", where)
 		}
 	} else if !validWeight(e.Weight) {
-		return fmt.Errorf("loot: %s: weight %v must be in (0, %g]", where, e.Weight, MaxWeight)
+		return loaderr.Errorf(loaderr.Join(field, "weight"), fmt.Sprintf("set weight to a finite number in (0, %g]", MaxWeight), "loot: %s: weight %v must be in (0, %g]", where, e.Weight, MaxWeight)
 	}
 	if e.Nothing && e.Count != nil {
-		return fmt.Errorf("loot: %s: a nothing entry has no count", where)
+		return loaderr.Errorf(loaderr.Join(field, "count"), "remove count from a nothing entry", "loot: %s: a nothing entry has no count", where)
 	}
-	return validateRange(where+": count", e.Count, MaxCount)
+	return validateRange(loaderr.Join(field, "count"), where+": count", e.Count, MaxCount)
 }
 
-func validatePity(where string, p *Pity) error {
+func validatePity(field, where string, p *Pity) error {
 	if !validName(p.Name) {
-		return fmt.Errorf("loot: %s: name %q must be non-empty without surrounding spaces", where, p.Name)
+		return loaderr.Errorf(loaderr.Join(field, "name"), "give the pity rule a non-empty name without surrounding spaces", "loot: %s: name %q must be non-empty without surrounding spaces", where, p.Name)
 	}
 	if (p.Item == "") == (p.Table == "") {
-		return fmt.Errorf("loot: %s: exactly one of item and table must name the target", where)
+		return loaderr.Errorf(field, "set either item or table to name the target entry", "loot: %s: exactly one of item and table must name the target", where)
 	}
 	if p.GuaranteeAt < 0 || p.GuaranteeAt > MaxGuaranteeAt {
-		return fmt.Errorf("loot: %s: guaranteeAt %d must be in [0, %d]", where, p.GuaranteeAt, MaxGuaranteeAt)
+		return loaderr.Errorf(loaderr.Join(field, "guaranteeAt"), fmt.Sprintf("set guaranteeAt to an integer in [0, %d]", MaxGuaranteeAt), "loot: %s: guaranteeAt %d must be in [0, %d]", where, p.GuaranteeAt, MaxGuaranteeAt)
 	}
 	if p.SoftFrom < 0 || p.SoftFrom > MaxGuaranteeAt {
-		return fmt.Errorf("loot: %s: softFrom %d must be in [0, %d]", where, p.SoftFrom, MaxGuaranteeAt)
+		return loaderr.Errorf(loaderr.Join(field, "softFrom"), fmt.Sprintf("set softFrom to an integer in [0, %d]", MaxGuaranteeAt), "loot: %s: softFrom %d must be in [0, %d]", where, p.SoftFrom, MaxGuaranteeAt)
 	}
 	if p.GuaranteeAt == 0 && p.SoftFrom == 0 {
-		return fmt.Errorf("loot: %s: set guaranteeAt, softFrom or both", where)
+		return loaderr.Errorf(field, "set a positive guaranteeAt, softFrom, or both", "loot: %s: set guaranteeAt, softFrom or both", where)
 	}
 	if p.SoftFrom > 0 {
 		if !validWeight(p.SoftStep) {
-			return fmt.Errorf("loot: %s: softStep %v must be in (0, %g]", where, p.SoftStep, MaxWeight)
+			return loaderr.Errorf(loaderr.Join(field, "softStep"), fmt.Sprintf("set softStep to a finite number in (0, %g]", MaxWeight), "loot: %s: softStep %v must be in (0, %g]", where, p.SoftStep, MaxWeight)
 		}
 		if p.GuaranteeAt > 0 && p.SoftFrom >= p.GuaranteeAt {
-			return fmt.Errorf("loot: %s: softFrom %d must be below guaranteeAt %d", where, p.SoftFrom, p.GuaranteeAt)
+			return loaderr.Errorf(loaderr.Join(field, "softFrom"), fmt.Sprintf("set softFrom below guaranteeAt (%d)", p.GuaranteeAt), "loot: %s: softFrom %d must be below guaranteeAt %d", where, p.SoftFrom, p.GuaranteeAt)
 		}
 	} else if p.SoftStep != 0 {
-		return fmt.Errorf("loot: %s: softStep needs softFrom", where)
+		return loaderr.Errorf(loaderr.Join(field, "softStep"), "set softFrom alongside softStep, or remove softStep", "loot: %s: softStep needs softFrom", where)
 	}
 	return nil
 }

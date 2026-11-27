@@ -8,8 +8,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixLocale = "write the locale file as version: 1 YAML with name, decimal, exponent and ascending units"
 
 // LocaleVersion is the locale file schema version this package reads and writes.
 const LocaleVersion = 1
@@ -59,16 +62,16 @@ type Unit struct {
 // Validate reports whether l is a well-formed version 1 locale: separators and suffixes that are non-empty where required, valid UTF-8 and free of ASCII digits and signs, a decimal separator that differs from the group separator, an exponent marker that differs from both, unit suffixes that are neither separator and do not start with the exponent marker, and unit exponents from 1 to 1000000 in strictly ascending order with distinct suffixes.
 func (l *Locale) Validate() error {
 	if l == nil {
-		return errors.New("idle: nil locale")
+		return loaderr.Errorf("", fixLocale, "idle: nil locale")
 	}
 	if l.Version != LocaleVersion {
-		return fmt.Errorf("idle: locale: unsupported version %d (want %d)", l.Version, LocaleVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", LocaleVersion), "idle: locale: unsupported version %d (want %d)", l.Version, LocaleVersion)
 	}
 	if l.Name == "" {
-		return errors.New("idle: locale: name is required")
+		return loaderr.Errorf("name", `set name to a BCP 47 locale tag such as "en" or "de"`, "idle: locale: name is required")
 	}
 	if !utf8.ValidString(l.Name) {
-		return errors.New("idle: locale: name is not valid UTF-8")
+		return loaderr.Errorf("name", "write name as valid UTF-8", "idle: locale: name is not valid UTF-8")
 	}
 	for _, f := range []struct {
 		field, value string
@@ -79,31 +82,32 @@ func (l *Locale) Validate() error {
 		{"exponent", l.Exponent, true},
 	} {
 		if err := checkMarker(f.value, f.required); err != nil {
-			return fmt.Errorf("idle: locale %s: %s %w", l.Name, f.field, err)
+			return loaderr.Errorf(f.field, fmt.Sprintf("set %s to valid UTF-8 without ASCII digits or +/- signs", f.field), "idle: locale %s: %s %w", l.Name, f.field, err)
 		}
 	}
 	if l.Decimal == l.Group {
-		return fmt.Errorf("idle: locale %s: decimal and group separators are both %q", l.Name, l.Decimal)
+		return loaderr.Errorf("group", "use a group separator that differs from decimal, or leave group empty", "idle: locale %s: decimal and group separators are both %q", l.Name, l.Decimal)
 	}
 	if l.Exponent == l.Decimal || l.Exponent == l.Group {
-		return fmt.Errorf("idle: locale %s: exponent %q is also a separator", l.Name, l.Exponent)
+		return loaderr.Errorf("exponent", "use an exponent marker that differs from both decimal and group", "idle: locale %s: exponent %q is also a separator", l.Name, l.Exponent)
 	}
 	seen := make(map[string]bool, len(l.Units))
 	for i, u := range l.Units {
+		uPath := loaderr.Path("units", i)
 		if u.Exp < 1 || u.Exp > maxUnitExp {
-			return fmt.Errorf("idle: locale %s: units[%d].exp %d is outside 1..%d", l.Name, i, u.Exp, maxUnitExp)
+			return loaderr.Errorf(loaderr.Join(uPath, "exp"), fmt.Sprintf("set exp to an integer in 1..%d", maxUnitExp), "idle: locale %s: units[%d].exp %d is outside 1..%d", l.Name, i, u.Exp, maxUnitExp)
 		}
 		if i > 0 && u.Exp <= l.Units[i-1].Exp {
-			return fmt.Errorf("idle: locale %s: units[%d].exp %d is not above the previous unit's %d", l.Name, i, u.Exp, l.Units[i-1].Exp)
+			return loaderr.Errorf(loaderr.Join(uPath, "exp"), "list units in strictly ascending exp order", "idle: locale %s: units[%d].exp %d is not above the previous unit's %d", l.Name, i, u.Exp, l.Units[i-1].Exp)
 		}
 		if err := checkMarker(u.Suffix, true); err != nil {
-			return fmt.Errorf("idle: locale %s: units[%d].suffix %w", l.Name, i, err)
+			return loaderr.Errorf(loaderr.Join(uPath, "suffix"), "set suffix to a non-empty UTF-8 string without ASCII digits or +/- signs", "idle: locale %s: units[%d].suffix %w", l.Name, i, err)
 		}
 		if u.Suffix == l.Decimal || u.Suffix == l.Group || strings.HasPrefix(u.Suffix, l.Exponent) {
-			return fmt.Errorf("idle: locale %s: units[%d].suffix %q could be read as a separator or exponent", l.Name, i, u.Suffix)
+			return loaderr.Errorf(loaderr.Join(uPath, "suffix"), "choose a suffix that is not a separator and does not start with the exponent marker", "idle: locale %s: units[%d].suffix %q could be read as a separator or exponent", l.Name, i, u.Suffix)
 		}
 		if seen[u.Suffix] {
-			return fmt.Errorf("idle: locale %s: units[%d].suffix %q is repeated", l.Name, i, u.Suffix)
+			return loaderr.Errorf(loaderr.Join(uPath, "suffix"), "give each unit a distinct suffix", "idle: locale %s: units[%d].suffix %q is repeated", l.Name, i, u.Suffix)
 		}
 		seen[u.Suffix] = true
 	}
@@ -129,8 +133,16 @@ func checkMarker(s string, required bool) error {
 
 // ParseLocale decodes a YAML locale document and validates it. Unknown fields and trailing documents are refused.
 func ParseLocale(data []byte) (*Locale, error) {
+	l, err := parseLocale(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixLocale)
+	}
+	return l, nil
+}
+
+func parseLocale(data []byte) (*Locale, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("idle: empty locale document")
+		return nil, loaderr.Errorf("", fixLocale, "idle: empty locale document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -141,7 +153,7 @@ func ParseLocale(data []byte) (*Locale, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("idle: unexpected trailing YAML document in locale")
+			return nil, loaderr.Errorf("", "keep one YAML document in the locale file; remove the trailing --- document", "idle: unexpected trailing YAML document in locale")
 		}
 		return nil, fmt.Errorf("idle: decode locale: %w", err)
 	}

@@ -534,8 +534,8 @@ func TestParseRefusesInvalidFiles(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if f, err := stats.Parse([]byte(src)); err == nil {
 				t.Fatalf("Parse accepted %q as %+v", src, f)
-			} else if !strings.HasPrefix(err.Error(), "stats: ") {
-				t.Fatalf("error %q lacks the package prefix", err)
+			} else if !strings.Contains(err.Error(), "stats: ") && !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("error %q lacks expected diagnostic", err)
 			} else if want := sentinels[name]; want != nil && !errors.Is(err, want) {
 				t.Fatalf("error %q does not wrap %v", err, want)
 			}

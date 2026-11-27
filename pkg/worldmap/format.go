@@ -2,7 +2,6 @@ package worldmap
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -10,8 +9,11 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/internal/yamlzero"
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
+
+const fixWorldMap = "write the world map as version: 1 YAML with valid rooms and markers"
 
 // Version is the map definition schema version this package reads and writes.
 const Version = 1
@@ -61,8 +63,16 @@ type Marker struct {
 
 // Parse decodes a YAML map definition and validates it. Unknown fields and trailing YAML documents are refused.
 func Parse(data []byte) (*Doc, error) {
+	doc, err := parseDoc(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixWorldMap)
+	}
+	return doc, nil
+}
+
+func parseDoc(data []byte) (*Doc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("worldmap: empty map document")
+		return nil, loaderr.Errorf("", fixWorldMap, "worldmap: empty map document")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -73,7 +83,7 @@ func Parse(data []byte) (*Doc, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("worldmap: unexpected trailing YAML document")
+			return nil, loaderr.Errorf("", "keep one YAML document in the map file; remove the trailing --- document", "worldmap: unexpected trailing YAML document")
 		}
 		return nil, fmt.Errorf("worldmap: decode: %w", err)
 	}
@@ -105,37 +115,53 @@ func Encode(doc *Doc) ([]byte, error) {
 // Validate checks doc against the version 1 schema: a supported version, at least one room, unique non-empty IDs, finite coordinates, positive sizes that survive float32 rounding at the room's position, areas whose combined bounds fit in float32, links to other existing rooms with no pair listed twice, no overlapping rooms within an area, and fixed markers inside existing rooms.
 func Validate(doc *Doc) error {
 	if doc == nil {
-		return errors.New("worldmap: nil map document")
+		return loaderr.Errorf("", fixWorldMap, "worldmap: nil map document")
 	}
 	if doc.Version != Version {
-		return fmt.Errorf("worldmap: unsupported version %d (want %d)", doc.Version, Version)
+		return loaderr.Errorf("version", fmt.Sprintf("set version to %d", Version), "worldmap: unsupported version %d (want %d)", doc.Version, Version)
 	}
 	if len(doc.Rooms) == 0 {
-		return errors.New("worldmap: map has no rooms")
+		return loaderr.Errorf("rooms", "add at least one room under rooms", "worldmap: map has no rooms")
 	}
 	index := make(map[string]int, len(doc.Rooms))
 	for i := range doc.Rooms {
 		r := &doc.Rooms[i]
+		rPath := loaderr.Path("rooms", i)
 		if err := validateID("room", r.ID); err != nil {
-			return err
+			return loaderr.Errorf(loaderr.Join(rPath, "id"), "give the room a non-empty id without leading or trailing spaces", "%v", err)
 		}
 		if _, dup := index[r.ID]; dup {
-			return fmt.Errorf("worldmap: duplicate room ID %q", r.ID)
+			return loaderr.Errorf(loaderr.Join(rPath, "id"), "give each room a unique id", "worldmap: duplicate room ID %q", r.ID)
 		}
 		index[r.ID] = i
 		if !finite(r.X) || !finite(r.Y) || !finite(r.Width) || !finite(r.Height) {
-			return fmt.Errorf("worldmap: room %q has a non-finite position or size", r.ID)
+			field := "x"
+			switch {
+			case !finite(r.X):
+				field = "x"
+			case !finite(r.Y):
+				field = "y"
+			case !finite(r.Width):
+				field = "width"
+			default:
+				field = "height"
+			}
+			return loaderr.Errorf(loaderr.Join(rPath, field), fmt.Sprintf("set %s to a finite number", field), "worldmap: room %q has a non-finite position or size", r.ID)
 		}
 		if r.Width <= 0 || r.Height <= 0 {
-			return fmt.Errorf("worldmap: room %q needs a positive width and height", r.ID)
+			field := "width"
+			if r.Width > 0 {
+				field = "height"
+			}
+			return loaderr.Errorf(loaderr.Join(rPath, field), "set width and height to positive numbers", "worldmap: room %q needs a positive width and height", r.ID)
 		}
 		right, bottom := float32(r.X+r.Width), float32(r.Y+r.Height)
 		if !finite(right) || !finite(bottom) {
-			return fmt.Errorf("worldmap: room %q extends past the float32 range", r.ID)
+			return loaderr.Errorf(rPath, "keep x + width and y + height within float32 range", "worldmap: room %q extends past the float32 range", r.ID)
 		}
 		// A size far below the position's float32 precision rounds away, leaving a room no point is inside.
 		if right <= r.X || bottom <= r.Y {
-			return fmt.Errorf("worldmap: room %q is too small for float32 precision at its position", r.ID)
+			return loaderr.Errorf(rPath, "increase width/height or move the room closer to the origin", "worldmap: room %q is too small for float32 precision at its position", r.ID)
 		}
 	}
 	if err := checkAreaSpans(doc.Rooms); err != nil {
@@ -145,19 +171,20 @@ func Validate(doc *Doc) error {
 	links := make(map[pair]struct{})
 	for i := range doc.Rooms {
 		r := &doc.Rooms[i]
-		for _, to := range r.Links {
+		for li, to := range r.Links {
+			lPath := loaderr.Path("rooms", i, "links", li)
 			if to == r.ID {
-				return fmt.Errorf("worldmap: room %q links to itself", r.ID)
+				return loaderr.Errorf(lPath, "remove the self-link from links", "worldmap: room %q links to itself", r.ID)
 			}
 			if _, ok := index[to]; !ok {
-				return fmt.Errorf("worldmap: room %q links to unknown room %q", r.ID, to)
+				return loaderr.Errorf(lPath, "name a room id declared under rooms", "worldmap: room %q links to unknown room %q", r.ID, to)
 			}
 			p := pair{r.ID, to}
 			if p.b < p.a {
 				p.a, p.b = p.b, p.a
 			}
 			if _, dup := links[p]; dup {
-				return fmt.Errorf("worldmap: link between rooms %q and %q is listed twice", p.a, p.b)
+				return loaderr.Errorf(lPath, "list each undirected room link only once", "worldmap: link between rooms %q and %q is listed twice", p.a, p.b)
 			}
 			links[p] = struct{}{}
 		}
@@ -168,10 +195,11 @@ func Validate(doc *Doc) error {
 	ids := make(map[string]struct{}, len(doc.Markers))
 	for i := range doc.Markers {
 		mk := &doc.Markers[i]
+		mPath := loaderr.Path("markers", i)
 		if _, dup := ids[mk.ID]; dup {
-			return fmt.Errorf("worldmap: duplicate marker ID %q", mk.ID)
+			return loaderr.Errorf(loaderr.Join(mPath, "id"), "give each marker a unique id", "worldmap: duplicate marker ID %q", mk.ID)
 		}
-		if err := validateMarker(mk, func(id string) (*RoomDoc, bool) {
+		if err := validateMarkerAt(mPath, mk, func(id string) (*RoomDoc, bool) {
 			ri, ok := index[id]
 			if !ok {
 				return nil, false
@@ -206,7 +234,7 @@ func checkAreaSpans(rooms []RoomDoc) error {
 		}
 		delete(spans, area)
 		if !finite(float32(s.x1-s.x0)) || !finite(float32(s.y1-s.y0)) {
-			return fmt.Errorf("worldmap: area %q spans past the float32 range", area)
+			return loaderr.Errorf(loaderr.Path("rooms", i), "keep all rooms in the same area within float32 span", "worldmap: area %q spans past the float32 range", area)
 		}
 	}
 	return nil
@@ -239,13 +267,37 @@ func checkOverlaps(rooms []RoomDoc) error {
 				break
 			}
 			if b.Y < a.Y+a.Height && a.Y < b.Y+b.Height {
-				first, second := a, b
+				first, second, secondIdx := a, b, bi
 				if bi < ai {
-					first, second = b, a
+					first, second, secondIdx = b, a, ai
 				}
-				return fmt.Errorf("worldmap: rooms %q and %q overlap in area %q", first.ID, second.ID, a.Area)
+				return loaderr.Errorf(loaderr.Path("rooms", secondIdx), "move or resize the overlapping rooms so their interiors do not intersect, or place them in different areas", "worldmap: rooms %q and %q overlap in area %q", first.ID, second.ID, a.Area)
 			}
 		}
+	}
+	return nil
+}
+
+func validateMarkerAt(mPath string, mk *Marker, room func(string) (*RoomDoc, bool)) error {
+	if err := validateID("marker", mk.ID); err != nil {
+		return loaderr.Errorf(loaderr.Join(mPath, "id"), "give the marker a non-empty id without leading or trailing spaces", "%v", err)
+	}
+	if strings.TrimSpace(mk.Kind) == "" {
+		return loaderr.Errorf(loaderr.Join(mPath, "kind"), "set kind to a non-empty marker kind such as save or boss", "worldmap: marker %q has no kind", mk.ID)
+	}
+	r, ok := room(mk.Room)
+	if !ok {
+		return loaderr.Errorf(loaderr.Join(mPath, "room"), "set room to a room id declared under rooms", "worldmap: marker %q is in unknown room %q", mk.ID, mk.Room)
+	}
+	if !finite(mk.X) || !finite(mk.Y) {
+		field := "x"
+		if finite(mk.X) {
+			field = "y"
+		}
+		return loaderr.Errorf(loaderr.Join(mPath, field), "set x and y to finite numbers", "worldmap: marker %q has a non-finite position", mk.ID)
+	}
+	if mk.X < r.X || mk.Y < r.Y || mk.X > r.X+r.Width || mk.Y > r.Y+r.Height {
+		return loaderr.Errorf(mPath, fmt.Sprintf("place the marker inside room %q bounds [%g..%g, %g..%g]", mk.Room, r.X, r.X+r.Width, r.Y, r.Y+r.Height), "worldmap: marker %q at (%g, %g) is outside room %q", mk.ID, mk.X, mk.Y, mk.Room)
 	}
 	return nil
 }

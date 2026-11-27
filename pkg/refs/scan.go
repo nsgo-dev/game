@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"go.yaml.in/yaml/v3"
@@ -424,15 +425,17 @@ func (p *Project) readIndex(name string) {
 	}
 	ix, err := ParseIndex(data)
 	if err != nil {
-		msgs := []string{err.Error()}
 		if te, ok := errors.AsType[*yaml.TypeError](err); ok {
-			msgs = te.Errors
+			for _, m := range te.Errors {
+				line, msg := splitYAMLLine(m)
+				p.problem(name, line, "%s", msg)
+				p.indexProblems = append(p.indexProblems, p.Problems[len(p.Problems)-1])
+			}
+			return
 		}
-		for _, m := range msgs {
-			line, msg := splitYAMLLine(m)
-			p.problem(name, line, "%s", msg)
-			p.indexProblems = append(p.indexProblems, p.Problems[len(p.Problems)-1])
-		}
+		line, msg := problemFromError(err)
+		p.problem(name, line, "%s", msg)
+		p.indexProblems = append(p.indexProblems, p.Problems[len(p.Problems)-1])
 		return
 	}
 	p.indexes[path.Dir(name)] = ix
@@ -440,6 +443,18 @@ func (p *Project) readIndex(name string) {
 
 // yamlLineRE finds the "line N: " that yaml's errors carry.
 var yamlLineRE = regexp.MustCompile(`line (\d+): `)
+
+// problemFromError extracts a 1-based line number and message from a *loaderr.Error when available, falling back to splitYAMLLine.
+func problemFromError(err error) (int, string) {
+	if le, ok := loaderr.As(err); ok {
+		msg := le.Problem
+		if le.Fix != "" {
+			msg += "; fix: " + le.Fix
+		}
+		return le.Line, msg
+	}
+	return splitYAMLLine(err.Error())
+}
 
 // splitYAMLLine takes the first "line N: " out of a yaml message and returns N and the rest, or 0 and msg when it names no line.
 func splitYAMLLine(msg string) (int, string) {
@@ -566,7 +581,7 @@ func (p *Project) readProject(name string, data []byte) {
 	p.add(f)
 	paths, err := project.PathRefs(data)
 	if err != nil {
-		line, msg := splitYAMLLine(err.Error())
+		line, msg := problemFromError(err)
 		p.problem(name, line, "%s", msg)
 		p.indexProblems = append(p.indexProblems, p.Problems[len(p.Problems)-1])
 		return
