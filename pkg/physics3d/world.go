@@ -109,6 +109,10 @@ type Body struct {
 	// Area configures optional gravity, damping, and buoyancy/fluid drag overrides
 	// applied to overlapping dynamic bodies when IsTrigger is true.
 	Area AreaSettings
+	// UserData holds an arbitrary caller-owned value associated with this body.
+	// It is excluded from snapshots and checksums, and preserved across in-place
+	// World.Restore calls when the body is matched by ID.
+	UserData any
 
 	gravityScaleSet    bool
 	customCenterOfMass bool
