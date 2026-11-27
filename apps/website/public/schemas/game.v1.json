@@ -133,11 +133,39 @@
           "items": {
             "$ref": "#/definitions/Binding"
           }
+        },
+        "assist": {
+          "description": "Assist declares which player motor assists (hold-to-toggle, mash-to-hold) apply to this action; nil leaves the action ineligible so menu actions are never latched.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ActionAssist"
+            }
+          ]
         }
       },
       "required": [
         "name"
       ],
+      "additionalProperties": false
+    },
+    "ActionAssist": {
+      "description": "ActionAssist declares which player motor assists an action opts into.",
+      "type": "object",
+      "properties": {
+        "toggle": {
+          "description": "Toggle reports whether a player may latch this action on press and release it on the next press.",
+          "type": "boolean"
+        },
+        "mash": {
+          "description": "Mash reports whether a player may satisfy rapid-press mashing of this action by holding it.",
+          "type": "boolean"
+        },
+        "mashRate": {
+          "description": "MashRate is the synthetic press rate in presses per second used when MashToHold is active; 0 uses input.DefaultMashRate (10). Refused when Mash is false.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
       "additionalProperties": false
     },
     "Assets": {

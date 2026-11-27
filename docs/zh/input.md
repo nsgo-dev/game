@@ -359,7 +359,40 @@ loop := &game.Loop{
 
 - **轻点锁存（Tap latching）**：在两个固定步长之间完成按下并抬起的快速点击会被锁存，确保在下一个步长仍能触发一次 `Pressed` / `JustPressed`，并在再下一步触发 `JustReleased`。
 - **`Axis(name)`**：仅负向动作按下时返回 `-1`，仅正向动作按下时返回 `+1`，两者都不按或同时按下时返回 `0`。若 `name` 未绑定为轴，则回退为同名动作按下时返回 `1`、否则返回 `0`。
-- **`Reset()`**：清空活动触摸、按住的鼠标键与按键、最近一次手柄状态、待处理的锁存、鼠标相对移动与当前步长快照，同时保留所有绑定和指针锁定，因此切换场景后鼠标视角仍然有效。跨越 `Reset` 一直按住的手柄按键在松开之前保持未激活，与按住的鼠标键一致。请在失焦、切后台或切换场景时调用，防止按键卡死。
+- **`Reset()`**：清空活动触摸、按住的鼠标键与按键、最近一次手柄状态、待处理的锁存、鼠标相对移动、锁存的运动辅助切换状态与当前步长快照，同时保留所有绑定、辅助配置和指针锁定，因此切换场景后鼠标视角仍然有效。跨越 `Reset` 一直按住的手柄按键在松开之前保持未激活，与按住的鼠标键一致。请在失焦、切后台或切换场景时调用，防止按键卡死。
+
+## 玩家运动辅助
+
+通过 `SetAssists` 在 `Actions`（或本地多人中的每位 `Player`）上启用玩家可选的运动无障碍辅助：
+
+```go
+// 声明允许切换或连打辅助的动作（或在 game.yaml 中写 assist:）。
+actions.SetActionAssist("sprint", input.ActionAssist{Toggle: true})
+actions.SetActionAssist("struggle", input.ActionAssist{Toggle: true, Mash: true, MashRate: 12})
+actions.SetActionAssist("pause", input.ActionAssist{}) // 菜单动作永远不会被锁存
+
+actions.SetStepRate(loop.StepRate())
+actions.SetAssists(input.Assists{
+	Toggle:      []string{"sprint"},
+	MashToHold:  []string{"struggle"},
+	MinPress:    100 * time.Millisecond,
+	AcceptDelay: 500 * time.Millisecond,
+})
+
+// 游戏暂停时释放所有已锁存的切换状态。
+loop.OnPause = actions.SetPaused
+```
+
+| `Assists` 字段 | 行为 |
+| --- | --- |
+| `Toggle` | 首次有效按下时锁存为按住、下一次有效按下时释放的动作（长按改切换）。 |
+| `MashToHold` | 连打类动作：按住时按动作声明的 `MashRate`（未设时为 `DefaultMashRate`，每秒 10 次）持续输出单步按下脉冲；若同时列入 `Toggle`，单按一次即可持续连打直到再次按下或暂停。 |
+| `MinPress` | 按键生效前必须连续按住的最短时间（慢速键）；短于 `MinPress` 的误触会被忽略。 |
+| `AcceptDelay` | 动作被接受后的冷却时间，期间忽略同一动作的重复按下（防抖键），且不会打断已接受的长按。 |
+
+- **通过 `ActionAssist` 与 `game.yaml` 白名单保护菜单动作**：在 `game.yaml` 中为动作声明 `assist: {toggle: true, mash: true, mashRate: 12}`（由 `project.File.BindInput` 自动注册），或调用 `SetActionAssist`。一旦有任意动作声明了辅助元数据，`Toggle` 与 `MashToHold` 仅对显式允许的动作生效，确保菜单或暂停动作不会被意外锁存。可用 `ToggleableActions()` 与 `MashableActions()` 查询已声明的动作。
+- **固定步长求值与回放一致性**：四项辅助全部在 `Step()` 内按固定步长频率（`SetStepRate`，默认 `DefaultStepRate` 即 60 Hz）求值。`MashToHold` 的合成脉冲每次触发之间至少间隔一个释放步长，使 `JustPressed` 每次都触发，且 `replay.Recorder` 与 `replay.Player` 回放完全一致。
+- **暂停、重置与持久化**：将 `loop.OnPause = actions.SetPaused`（或 `players.SetPaused`）接上，或调用 `ReleaseToggles()`，即可在暂停时释放所有已锁存的切换；`Reset()` 在失焦或切换场景时清空所有切换状态与计时器。`ToggleActive(name)` 可查询某动作当前是否处于切换锁存状态。`Actions.Save` / `Actions.Load` 会随键位一并持久化 `Assists`，同时也可通过 `save.Settings.InputAssists` 与玩家设置统一保存（参见 [a11y](a11y.md#玩家运动辅助)）。
 
 ### 唤醒空闲的 `OnDemand` 循环
 

@@ -120,6 +120,18 @@ type Action struct {
 	Name string `yaml:"name" schema:"required"`
 	// Bindings are the inputs that press the action; an action without any is declared for code to bind, such as one an axis reads.
 	Bindings []Binding `yaml:"bindings,omitempty"`
+	// Assist declares which player motor assists (hold-to-toggle, mash-to-hold) apply to this action; nil leaves the action ineligible so menu actions are never latched.
+	Assist *ActionAssist `yaml:"assist,omitempty,flow"`
+}
+
+// ActionAssist declares which player motor assists an action opts into.
+type ActionAssist struct {
+	// Toggle reports whether a player may latch this action on press and release it on the next press.
+	Toggle bool `yaml:"toggle,omitempty"`
+	// Mash reports whether a player may satisfy rapid-press mashing of this action by holding it.
+	Mash bool `yaml:"mash,omitempty"`
+	// MashRate is the synthetic press rate in presses per second used when MashToHold is active; 0 uses input.DefaultMashRate (10). Refused when Mash is false.
+	MashRate float64 `yaml:"mashRate,omitempty" schema:"minimum=0"`
 }
 
 // Binding kinds name the input.Input constructors.
@@ -565,7 +577,7 @@ func (f *File) Clone() *File {
 		if f.Input.Actions != nil {
 			in.Actions = make([]Action, len(f.Input.Actions))
 			for i, a := range f.Input.Actions {
-				in.Actions[i] = Action{Name: a.Name}
+				in.Actions[i] = Action{Name: a.Name, Assist: clonePtr(a.Assist)}
 				if a.Bindings != nil {
 					in.Actions[i].Bindings = make([]Binding, len(a.Bindings))
 					for j, b := range a.Bindings {
@@ -866,6 +878,14 @@ func validateInput(in *Input) error {
 		for j, b := range a.Bindings {
 			if err := validateBindingAt(fmt.Sprintf("%s.bindings[%d]", prefix, j), a.Name, j, b); err != nil {
 				return err
+			}
+		}
+		if a.Assist != nil {
+			if !isFinite64(a.Assist.MashRate) || a.Assist.MashRate < 0 {
+				return loaderr.Errorf(prefix+".assist.mashRate", "set assist.mashRate to a finite number >= 0", "project: input action %q assist mashRate %v must be finite and non-negative", a.Name, a.Assist.MashRate)
+			}
+			if a.Assist.MashRate > 0 && !a.Assist.Mash {
+				return loaderr.Errorf(prefix+".assist.mashRate", "set assist.mash to true or omit mashRate", "project: input action %q assist mashRate requires mash: true", a.Name)
 			}
 		}
 	}

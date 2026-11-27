@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -976,5 +977,98 @@ navigation:
 	}
 	if !bytes.Equal(mFirst, mSecond) {
 		t.Fatalf("in-memory round trip changed bytes:\n--- first\n%s\n--- second\n%s", mFirst, mSecond)
+	}
+}
+
+func TestActionAssistParseEncodeValidateAndBindInput(t *testing.T) {
+	src := `version: 1
+name: Assist Game
+id: dev.example.assist
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+input:
+  actions:
+    - name: sprint
+      bindings:
+        - kind: key
+          key: shift
+      assist: {toggle: true}
+    - name: struggle
+      bindings:
+        - kind: key
+          key: e
+      assist: {toggle: true, mash: true, mashRate: 12}
+    - name: pause
+      bindings:
+        - kind: key
+          key: escape
+`
+	f, err := project.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse valid assist config: %v", err)
+	}
+	encoded, err := project.Encode(f)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if string(encoded) != src {
+		t.Fatalf("Encode round-trip mismatch:\n--- got\n%s\n--- want\n%s", encoded, src)
+	}
+
+	// Clone preserves Assist independently.
+	cp := f.Clone()
+	cp.Input.Actions[0].Assist.Toggle = false
+	if !f.Input.Actions[0].Assist.Toggle {
+		t.Fatal("Clone aliased Action.Assist")
+	}
+
+	// BindInput registers declared ActionAssist and prevents undeclared menu actions from latching.
+	a := input.NewActions()
+	f.BindInput(a)
+	if got := a.ActionAssist("sprint"); !got.Toggle || got.Mash {
+		t.Fatalf("ActionAssist(sprint) = %+v, want Toggle=true Mash=false", got)
+	}
+	if got := a.ActionAssist("struggle"); !got.Toggle || !got.Mash || got.MashRate != 12 {
+		t.Fatalf("ActionAssist(struggle) = %+v, want Toggle=true Mash=true MashRate=12", got)
+	}
+	if got := a.ActionAssist("pause"); got.Toggle || got.Mash {
+		t.Fatalf("ActionAssist(pause) = %+v, want zero", got)
+	}
+	if !slices.Equal(a.ToggleableActions(), []string{"sprint", "struggle"}) {
+		t.Fatalf("ToggleableActions = %v, want [sprint struggle]", a.ToggleableActions())
+	}
+	if !slices.Equal(a.MashableActions(), []string{"struggle"}) {
+		t.Fatalf("MashableActions = %v, want [struggle]", a.MashableActions())
+	}
+
+	// Validation refuses mashRate without mash: true and negative mashRate.
+	badNoMash := `version: 1
+name: Bad
+id: dev.example.bad
+appVersion: 0.1.0
+window: {width: 640, height: 360}
+input:
+  actions:
+    - name: struggle
+      assist: {mashRate: 12}
+`
+	if _, err := project.Parse([]byte(badNoMash)); err == nil || !strings.Contains(err.Error(), "requires mash: true") {
+		t.Fatalf("expected error for mashRate without mash: true, got %v", err)
+	}
+
+	badNegRate := `version: 1
+name: Bad
+id: dev.example.bad
+appVersion: 0.1.0
+window: {width: 640, height: 360}
+input:
+  actions:
+    - name: struggle
+      assist: {mash: true, mashRate: -5}
+`
+	if _, err := project.Parse([]byte(badNegRate)); err == nil || !strings.Contains(err.Error(), "mashRate") {
+		t.Fatalf("expected error for negative mashRate, got %v", err)
 	}
 }

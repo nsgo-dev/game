@@ -74,11 +74,16 @@ func (f *File) Viewport() (screen.Viewport, bool) {
 }
 
 // BindInput binds every action with bindings, axis, motion axis and gamepad axis of the input map into a, replacing a's bindings of the same names and leaving others, such as ones the game binds in code, as they are.
+// When any action declares an Assist block, BindInput also registers each declared action's input.ActionAssist on a so undeclared actions (such as menu controls) are never latched by player assists.
 func (f *File) BindInput(a *input.Actions) {
 	if f.Input == nil {
 		return
 	}
+	hasAssistDecls := false
 	for _, act := range f.Input.Actions {
+		if act.Assist != nil {
+			hasAssistDecls = true
+		}
 		if len(act.Bindings) == 0 {
 			continue
 		}
@@ -87,6 +92,19 @@ func (f *File) BindInput(a *input.Actions) {
 			inputs[i] = b.Input()
 		}
 		a.Bind(act.Name, inputs...)
+	}
+	if hasAssistDecls {
+		for _, act := range f.Input.Actions {
+			var spec input.ActionAssist
+			if act.Assist != nil {
+				spec = input.ActionAssist{
+					Toggle:   act.Assist.Toggle,
+					Mash:     act.Assist.Mash,
+					MashRate: act.Assist.MashRate,
+				}
+			}
+			a.SetActionAssist(act.Name, spec)
+		}
 	}
 	for _, ax := range f.Input.Axes {
 		a.BindAxis(ax.Name, ax.Negative, ax.Positive)
