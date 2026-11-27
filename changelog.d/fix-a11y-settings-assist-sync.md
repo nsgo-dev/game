@@ -1,3 +1,0 @@
-### Fixed
-
-- `game/a11y`, `game/gameui`, `game/save`: unified accessibility preferences onto `save.AccessibilitySettings` (`SFXCaptions`, `ReduceFlashes`, `Invincibility`, `AutoAim`, `HoldToToggle`, unified ranges `0.5`–`3.0` and `0.25`–`2.0`, canonical color-vision names accepting `"none"`/`"normal"`, and follow-platform defaults), added `a11y.NewAssistFromSettings` backed by `save.DefaultSettingsStore` with one-time migration from legacy `a11y.assist.*` keys and `Custom["reduce_flashes"]`, and added the missing assist rows to `gameui.SettingsMenu` so saved changes take effect in `Assist`, `CaptionsView`, `AccessibleMenu`, and `effects.Flash` (#1771).
