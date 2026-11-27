@@ -198,3 +198,64 @@ bus.Flush()
 ```
 
 Use `flow.SubscribeOnce(&bus, fn)` for one-shot listeners, and `bus.Clear()` when tearing down a scene. Subscribing or unsubscribing inside a handler never skips remaining listeners for the event in flight.
+
+## Shared variables and switches (`Vars` and `vars.yaml`)
+
+Declare project-wide switches (`bool`) and typed variables (`int`, `float`, `string`) once in a versioned `vars.yaml` (or `*.vars.yaml`) file so dialogue scripts, quests, scene rules, saves, and the editor's remote inspector share a single source of truth:
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/vars.v1.json
+version: 1
+vars:
+  - name: bridge_repaired
+    kind: bool
+    doc: True once the east bridge has been repaired.
+  - name: gold
+    kind: int
+    default: 50
+    min: 0
+    max: 9999
+    doc: Player gold coins.
+  - name: mira_affinity
+    kind: float
+    default: 0.5
+    min: 0
+    max: 1
+    doc: Relationship score with Mira.
+  - name: hero_name
+    kind: string
+    default: Aria
+    doc: Display name of the protagonist.
+```
+
+Load declarations with `flow.LoadVarsFS(fsys, "vars.yaml")` (or `flow.ParseVars(data)`) and construct a runtime store with `flow.NewVars(doc)`:
+
+```go
+doc, err := flow.LoadVarsFS(assetsFS, flow.VarsFileName)
+if err != nil {
+	return err
+}
+vars, err := flow.NewVars(doc)
+if err != nil {
+	return err
+}
+
+// Observe mutations synchronously in registration order (empty name observes all variables):
+unsub := vars.OnChange("bridge_repaired", func(ch flow.VarChange) {
+	unlockEastBridge(ch.New.(bool))
+})
+defer unsub()
+
+// Typed reads and writes enforce declared kinds and [min, max] bounds:
+_ = vars.SetInt("gold", 120)
+gold, _ := vars.Int("gold")
+
+// Scoped per-object self variables for instance state ("this chest was opened"):
+vars.Self("chest_01").SetBool("opened", true)
+opened := vars.Self("chest_01").Bool("opened")
+```
+
+- **Shared by dialogue**: pass `dialogue.Options{Vars: vars}` to `dialogue.NewRunner` ([dialogue](dialogue.md)) so `<<if>>`, choice guards, `{expr}` interpolations, and `<<set>>` read and write the shared store directly instead of a private map. When `Vars` is set, `<<declare>>` and `<<set>>` of an undeclared name return `flow.ErrUndeclaredVar`, and writes enforce declared kinds and bounds.
+- **Save and restore**: `snap := vars.Snapshot()` returns a plain `flow.VarsSnapshot` (`Version`, `Vars`, `Self`) that marshals cleanly to JSON or YAML for `save.Store`. `vars.Restore(snap)` validates versions, names, kinds, and bounds atomically without invoking `OnChange` listeners, leaving the store unchanged on error (`flow.ErrInvalidSnapshot`). Variables added to `vars.yaml` after an older save keep their declared defaults on restore, and a zero `VarsSnapshot` resets to defaults and clears self variables.
+- **Static validation**: `go tool game check` validates every `vars.yaml` / `*.vars.yaml` file and checks every `$name` and `{name}` variable reference in `.yarn` dialogue scripts against the project's declarations, reporting undeclared names with their exact file and line.
+- **Live remote inspection**: pass `Vars: vars` (or `VarsFunc`) to `mcp.Config` to expose `game_vars_list`, `game_var_get`, and `game_var_set`; the editor's Remote Inspector lists declared variables with live editable controls alongside active per-object self variables.

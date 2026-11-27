@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/cutscene"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/flow"
 	pluginmanifest "github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/importsettings"
@@ -386,6 +387,13 @@ var formats = []format{
 		version: liveops.RemindersVersion,
 		// ParseReminders decodes delay straight into time.Duration, which go.yaml.in/yaml/v3 reads only from a string.
 		types: durationStringTypes,
+	},
+	{
+		url:     flow.VarsSchemaURL,
+		title:   "NSGo game variables and switches (version 1)",
+		typ:     reflect.TypeFor[flow.VarsDoc](),
+		pkg:     "flow",
+		version: flow.VarsFormatVersion,
 	},
 }
 

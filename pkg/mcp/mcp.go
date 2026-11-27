@@ -18,6 +18,7 @@ import (
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/assets"
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/random"
@@ -127,6 +128,12 @@ type Config struct {
 
 	// ConsoleFunc dynamically resolves the active debug console on each tool call. When non-nil and returning a non-nil console, it overrides Console.
 	ConsoleFunc func() *gamedebug.Console
+
+	// Vars is the game's shared project variable and switch store exposed via game_vars_list, game_var_get, and game_var_set.
+	Vars *flow.Vars
+
+	// VarsFunc dynamically resolves the active flow.Vars store on each tool call. When non-nil and returning a non-nil store, it overrides Vars.
+	VarsFunc func() *flow.Vars
 
 	// Prefabs registers named prefab spawners available to game_prefabs_list and game_entity_spawn. Additional prefabs (including *entities.Prefab and *sceneformat.SceneDoc templates) can also be registered on the Bridge via RegisterPrefab, RegisterEntityPrefab and RegisterScenePrefab.
 	Prefabs map[string]PrefabSpawner
@@ -383,6 +390,14 @@ func (b *Bridge) SetConsole(c *gamedebug.Console) {
 	b.cfg.Console = c
 }
 
+// SetVars replaces the static flow.Vars store configured on b. If Config.VarsFunc is set and returns a non-nil store, VarsFunc continues to take precedence.
+func (b *Bridge) SetVars(v *flow.Vars) {
+	if b == nil {
+		return
+	}
+	b.cfg.Vars = v
+}
+
 // Tools returns the full set of automation.Tool definitions owned by b, assembled from each tool group.
 func (b *Bridge) Tools() []automation.Tool {
 	if b == nil {
@@ -394,6 +409,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.loopTools()...)
 	out = append(out, b.inputTools()...)
 	out = append(out, b.consoleTools()...)
+	out = append(out, b.varsTools()...)
 	out = append(out, b.editTools()...)
 	out = append(out, b.replayTools()...)
 	out = append(out, b.perfTools()...)

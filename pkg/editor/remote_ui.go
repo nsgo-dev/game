@@ -873,6 +873,32 @@ func remoteInspectorSchemaKey(ed *Editor, snap *RemoteSnapshot) string {
 			b.WriteByte(',')
 		}
 	}
+	if len(snap.Vars) > 0 {
+		b.WriteString("|V:")
+		for _, v := range snap.Vars {
+			b.WriteString(v.Name)
+			b.WriteByte('=')
+			b.WriteString(v.Kind)
+			b.WriteByte(',')
+		}
+	}
+	if len(snap.SelfVars) > 0 {
+		b.WriteString("|SV:")
+		objIDs := make([]string, 0, len(snap.SelfVars))
+		for id := range snap.SelfVars {
+			objIDs = append(objIDs, id)
+		}
+		slices.Sort(objIDs)
+		for _, id := range objIDs {
+			b.WriteString(id)
+			b.WriteByte('{')
+			for _, k := range sortedMapKeys(snap.SelfVars[id]) {
+				b.WriteString(k)
+				b.WriteByte(',')
+			}
+			b.WriteByte('}')
+		}
+	}
 	changes := ed.RemoteLiveChanges()
 	fmt.Fprintf(&b, "|L:%d", len(changes))
 	for _, c := range changes {
@@ -910,6 +936,7 @@ type remoteInspectorData struct {
 	changesByKey    map[remoteChangeKey]RemoteLiveChange
 	inspectedFields map[string]map[string]any
 	tunablesByName  map[string]any
+	varsByName      map[string]any
 }
 
 // remoteInspectorView renders the live Remote Inspector inside InspectorView:
@@ -942,6 +969,13 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				tuns[t.Name] = t.Value
 			}
 			d.tunablesByName = tuns
+		}
+		if len(snap.Vars) > 0 {
+			vars := make(map[string]any, len(snap.Vars))
+			for _, v := range snap.Vars {
+				vars[v.Name] = v.Value
+			}
+			d.varsByName = vars
 		}
 		return d
 	})
@@ -1207,6 +1241,11 @@ func remoteInspectorDynamicBody(
 	// TUNABLES section.
 	if snap.Connected && len(snap.Tunables) > 0 {
 		nodes = append(nodes, remoteTunablesSection(cx, ed, dataMemo, snap.Tunables))
+	}
+
+	// VARIABLES section (shared flow.Vars store).
+	if snap.Connected && (len(snap.Vars) > 0 || len(snap.SelfVars) > 0) {
+		nodes = append(nodes, remoteVarsSection(cx, ed, dataMemo, snap.Vars, snap.SelfVars))
 	}
 
 	return core.View{
@@ -1684,6 +1723,167 @@ func tunableBounds(t gamemcp.TunableResult) (lo, hi float64) {
 		return minV, maxV
 	}
 	return 0, 0
+}
+
+func varBounds(v gamemcp.VarResult) (lo, hi float64) {
+	if v.Min != nil && v.Max != nil && *v.Max > *v.Min {
+		return *v.Min, *v.Max
+	}
+	return 0, 0
+}
+
+func remoteVarsSection(cx *core.Scope, ed *Editor, dataMemo *core.Memo[*remoteInspectorData], vars []gamemcp.VarResult, selfVars map[string]map[string]any) core.Node {
+	colors := ui.ColorsOf(cx)
+	rows := []core.Node{
+		core.Text{
+			Content: fmt.Sprintf("VARIABLES (%d)", len(vars)),
+			Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()},
+		},
+	}
+
+	for _, entry := range vars {
+		v := entry
+		testID := "remote-var-" + v.Name
+		getVal := func() any {
+			if d := dataMemo.Get(); d.varsByName != nil {
+				if val, ok := d.varsByName[v.Name]; ok {
+					return val
+				}
+			}
+			return v.Value
+		}
+
+		var ctrl core.Node
+		switch v.Kind {
+		case "bool":
+			ctrl = ui.Checkbox{
+				TestID: testID,
+				Label:  v.Name,
+				Checked: func() bool {
+					b, _ := getVal().(bool)
+					return b
+				},
+				OnChange: func(checked bool) {
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetVar(v.Name, checked, false)
+						return err
+					})
+				},
+			}
+		case "int":
+			lo, hi := varBounds(v)
+			ctrl = ui.NumberInput{
+				TestID: testID,
+				Label:  v.Name,
+				Min:    lo,
+				Max:    hi,
+				Step:   1,
+				Value: func() float64 {
+					f, _ := asFloat64(getVal())
+					return f
+				},
+				OnChange: func(val float64) {
+					iv := int(math.Round(val))
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetVar(v.Name, iv, true)
+						return err
+					})
+				},
+			}
+		case "float":
+			lo, hi := varBounds(v)
+			ctrl = ui.NumberInput{
+				TestID: testID,
+				Label:  v.Name,
+				Min:    lo,
+				Max:    hi,
+				Step:   0.1,
+				Format: func(val float64) string { return strconv.FormatFloat(val, 'g', -1, 64) },
+				Value: func() float64 {
+					f, _ := asFloat64(getVal())
+					return f
+				},
+				OnChange: func(val float64) {
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetVar(v.Name, val, true)
+						return err
+					})
+				},
+			}
+		default:
+			ctrl = ui.Input{
+				TestID: testID,
+				Label:  v.Name,
+				Value: func() string {
+					if val := getVal(); val != nil {
+						return fmt.Sprint(val)
+					}
+					return ""
+				},
+				OnChange: func(text string) {
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetVar(v.Name, text, false)
+						return err
+					})
+				},
+			}
+		}
+
+		rows = append(rows, core.View{
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+			Children: []core.Node{
+				core.Text{
+					Content: "$" + v.Name,
+					Style:   core.Style{Width: core.Pt(92), FontSize: 11, Color: colors.Text()},
+				},
+				core.View{
+					Style:    core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+					Children: []core.Node{ctrl},
+				},
+			},
+		})
+	}
+
+	if len(selfVars) > 0 {
+		objIDs := make([]string, 0, len(selfVars))
+		for id := range selfVars {
+			objIDs = append(objIDs, id)
+		}
+		slices.Sort(objIDs)
+		rows = append(rows, core.Text{
+			Content: fmt.Sprintf("SELF VARIABLES (%d)", len(objIDs)),
+			Style:   core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
+		})
+		for _, id := range objIDs {
+			objID := id
+			for _, key := range sortedMapKeys(selfVars[objID]) {
+				k := key
+				rows = append(rows, core.Text{
+					TestID: "remote-selfvar-" + objID + "-" + k,
+					ContentFunc: func() string {
+						snap := dataMemo.Get().snap
+						var val any
+						if snap.SelfVars != nil && snap.SelfVars[objID] != nil {
+							val = snap.SelfVars[objID][k]
+						}
+						return fmt.Sprintf("%s.%s = %s", objID, k, formatRemoteValue(val))
+					},
+					Style: core.Style{FontSize: 11, Color: colors.Muted()},
+				})
+			}
+		}
+	}
+
+	return core.View{
+		TestID: "remote-vars-section",
+		Style: core.Style{
+			Gap:         6,
+			Padding:     core.Edges{Top: 8},
+			Borders:     core.Edges{Top: 1},
+			BorderColor: colors.Line(),
+		},
+		Children: rows,
+	}
 }
 
 func formatRemoteValue(v any) string {

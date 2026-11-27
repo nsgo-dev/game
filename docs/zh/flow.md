@@ -198,3 +198,64 @@ bus.Flush()
 ```
 
 一次性监听可使用 `flow.SubscribeOnce(&bus, fn)`，场景卸载时调用 `bus.Clear()` 清空。在回调内部增删订阅不会跳过当前事件尚未执行的其他订阅者。
+
+## 项目全局共享变量与开关（`Vars` 与 `vars.yaml`）
+
+在带版本号的 `vars.yaml`（或 `*.vars.yaml`）中统一声明项目全局开关（`bool`）与类型化变量（`int`、`float`、`string`），使对话脚本、任务、场景规则、存档和编辑器远程检查器共享同一份状态：
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/vars.v1.json
+version: 1
+vars:
+  - name: bridge_repaired
+    kind: bool
+    doc: True once the east bridge has been repaired.
+  - name: gold
+    kind: int
+    default: 50
+    min: 0
+    max: 9999
+    doc: Player gold coins.
+  - name: mira_affinity
+    kind: float
+    default: 0.5
+    min: 0
+    max: 1
+    doc: Relationship score with Mira.
+  - name: hero_name
+    kind: string
+    default: Aria
+    doc: Display name of the protagonist.
+```
+
+使用 `flow.LoadVarsFS(fsys, "vars.yaml")`（或 `flow.ParseVars(data)`）解析声明，再通过 `flow.NewVars(doc)` 创建运行时存储：
+
+```go
+doc, err := flow.LoadVarsFS(assetsFS, flow.VarsFileName)
+if err != nil {
+	return err
+}
+vars, err := flow.NewVars(doc)
+if err != nil {
+	return err
+}
+
+// 按注册顺序同步监听变更（空名称监听全部全局变量）：
+unsub := vars.OnChange("bridge_repaired", func(ch flow.VarChange) {
+	unlockEastBridge(ch.New.(bool))
+})
+defer unsub()
+
+// 类型化读写严格校验声明的类型与 [min, max] 范围：
+_ = vars.SetInt("gold", 120)
+gold, _ := vars.Int("gold")
+
+// 按场景对象作用域隔离的独立开关/变量（如“这个宝箱已打开”）：
+vars.Self("chest_01").SetBool("opened", true)
+opened := vars.Self("chest_01").Bool("opened")
+```
+
+- **与对话共享**：向 `dialogue.NewRunner`（[dialogue](dialogue.md)）传入 `dialogue.Options{Vars: vars}`，脚本中的 `<<if>>`、选项守卫、`{expr}` 插值和 `<<set>>` 将直接读写共享存储，而不再使用私有 map。配置 `Vars` 后，脚本中 `<<declare>>` 或 `<<set>>` 未声明的变量名会返回 `flow.ErrUndeclaredVar`，赋值同时受声明类型与范围约束。
+- **保存与恢复**：`snap := vars.Snapshot()` 返回可直接序列化为 JSON 或 YAML 的 `flow.VarsSnapshot`（`Version`、`Vars`、`Self`），可直接存入 `save.Store`。`vars.Restore(snap)` 会先原子校验版本号、变量名、类型和范围，校验失败时返回 `flow.ErrInvalidSnapshot` 且不改动原状态，并在恢复期间不触发 `OnChange` 回调。后续版本新增的变量在读取旧存档时自动保持声明默认值，零值 `VarsSnapshot` 会重置为默认值并清空对象独立变量。
+- **静态检查**：`go tool game check` 会校验每个 `vars.yaml` / `*.vars.yaml` 文件，并核对 `.yarn` 对话脚本中的每个 `$name` 和 `{name}` 变量引用，对未声明名称报告精确的文件路径与行号。
+- **实时远程检查**：将 `Vars: vars`（或 `VarsFunc`）配置到 `mcp.Config` 即可注册 `game_vars_list`、`game_var_get` 与 `game_var_set`；编辑器的远程检查器会实时列出并允许编辑所有已声明变量，同时展示当前活跃的对象独立变量。

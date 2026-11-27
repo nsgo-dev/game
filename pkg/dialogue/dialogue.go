@@ -146,9 +146,92 @@ type Step struct {
 	Choices []Choice
 }
 
+// VarRef describes one variable reference found in a parsed Script,
+// used by static checks (such as game check) to verify variable names against vars.yaml.
+type VarRef struct {
+	// Name is the variable name without any leading '$'.
+	Name string
+	// Line is the 1-based line number in the Yarn source where the reference appears.
+	Line int
+	// Node is the title of the dialogue node containing the reference.
+	Node string
+	// Write reports whether the reference assigns to the variable (<<set>> or <<declare>>).
+	Write bool
+	// Declare reports whether the reference is a <<declare>> statement.
+	Declare bool
+}
+
+// VarRefs returns all variable references in s in source order (by node declaration order
+// and statement order), including <<set>>, <<declare>>, <<if>>/<<elseif>>, choice guards,
+// {expr} interpolations, and $var command arguments.
+func (s *Script) VarRefs() []VarRef {
+	if s == nil {
+		return nil
+	}
+	var refs []VarRef
+	for _, title := range s.nodeOrder {
+		n := s.nodes[title]
+		collectStmtVarRefs(title, n.body, &refs)
+	}
+	return refs
+}
+
+func collectStmtVarRefs(node string, stmts []dialogueStmt, out *[]VarRef) {
+	var names []string
+	appendRead := func(line int) {
+		for _, name := range names {
+			*out = append(*out, VarRef{Name: name, Line: line, Node: node})
+		}
+		names = names[:0]
+	}
+	for _, stmt := range stmts {
+		switch st := stmt.(type) {
+		case lineStmt:
+			collectInterpolationVars(st.text, &names)
+			appendRead(st.line)
+		case choiceGroupStmt:
+			for _, opt := range st.choices {
+				collectExprVars(opt.cond, &names)
+				collectInterpolationVars(opt.text, &names)
+				appendRead(opt.line)
+				collectStmtVarRefs(node, opt.body, out)
+			}
+		case ifStmt:
+			for _, br := range st.branches {
+				collectExprVars(br.cond, &names)
+				appendRead(br.line)
+				collectStmtVarRefs(node, br.body, out)
+			}
+		case setStmt:
+			*out = append(*out, VarRef{
+				Name:    st.varName,
+				Line:    st.line,
+				Node:    node,
+				Write:   true,
+				Declare: st.onlyIfUnset,
+			})
+			collectExprVars(st.expr, &names)
+			appendRead(st.line)
+		case commandStmt:
+			for _, arg := range st.args {
+				if arg.isVar {
+					names = append(names, arg.raw)
+				} else {
+					collectInterpolationVars(arg.raw, &names)
+				}
+			}
+			appendRead(st.line)
+		}
+	}
+}
+
 // Options configures a Runner.
 type Options struct {
-	// Bus, if non-nil, receives an Event via flow.Publish for every game command.
+	// Vars, if non-nil, is the shared project variable store that this runner reads and writes
+	// instead of its private map. When Vars is set, <<declare>> and <<set>> of an undeclared
+	// variable return an error wrapping flow.ErrUndeclaredVar, and assignments enforce declared kinds and ranges.
+	Vars *flow.Vars
+	// Bus, if non-nil, receives a Event via flow.Publish for every game command.
 	Bus *flow.Bus
 	// OnCommand, if non-nil, is invoked for every game command after Bus delivery.
 	OnCommand func(Event)
@@ -178,6 +261,7 @@ type dialogueStmt interface {
 }
 
 type lineStmt struct {
+	line    int
 	speaker string
 	text    string
 	lineID  string
@@ -187,6 +271,7 @@ type lineStmt struct {
 func (lineStmt) isDialogueStmt() {}
 
 type choiceOption struct {
+	line   int
 	text   string
 	lineID string
 	tags   []string
@@ -201,6 +286,7 @@ type choiceGroupStmt struct {
 func (choiceGroupStmt) isDialogueStmt() {}
 
 type ifBranch struct {
+	line int
 	cond dialogueExpr // nil for <<else>>
 	body []dialogueStmt
 }
@@ -212,6 +298,7 @@ type ifStmt struct {
 func (ifStmt) isDialogueStmt() {}
 
 type setStmt struct {
+	line        int
 	varName     string
 	op          string // "=", "+=", "-=", "*=", "/="
 	expr        dialogueExpr
@@ -237,6 +324,7 @@ type commandArg struct {
 }
 
 type commandStmt struct {
+	line int
 	name string
 	args []commandArg
 }
@@ -581,7 +669,7 @@ func parseBlock(lines []bodyLine, idx *int, minIndent int, stopOnIfControl bool)
 					return nil, "", err
 				}
 				*idx++
-				stmts = append(stmts, commandStmt{name: kw, args: args})
+				stmts = append(stmts, commandStmt{line: ln.num, name: kw, args: args})
 			}
 			continue
 		}
@@ -640,7 +728,7 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 	if err != nil {
 		return ifStmt{}, err
 	}
-	res.branches = append(res.branches, ifBranch{cond: cond, body: body})
+	res.branches = append(res.branches, ifBranch{line: openLine.num, cond: cond, body: body})
 
 	for {
 		if closeKw == "" {
@@ -672,7 +760,7 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 			if err != nil {
 				return ifStmt{}, err
 			}
-			res.branches = append(res.branches, ifBranch{cond: ec, body: b})
+			res.branches = append(res.branches, ifBranch{line: ctrlLine.num, cond: ec, body: b})
 			closeKw = nextKw
 		case "else":
 			if seenElse {
@@ -686,7 +774,7 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 			if err != nil {
 				return ifStmt{}, err
 			}
-			res.branches = append(res.branches, ifBranch{cond: nil, body: b})
+			res.branches = append(res.branches, ifBranch{line: ctrlLine.num, cond: nil, body: b})
 			closeKw = nextKw
 		}
 	}
@@ -747,6 +835,7 @@ func parseSetCommand(rest string, onlyIfUnset bool, lineNum int) (setStmt, error
 		return setStmt{}, yarnError(lineNum, "invalid expression for $%s: %w", varName, err)
 	}
 	return setStmt{
+		line:        lineNum,
 		varName:     varName,
 		op:          op,
 		expr:        expr,
@@ -942,6 +1031,7 @@ func parseChoiceHeader(s string, lineNum int) (choiceOption, error) {
 		return choiceOption{}, yarnError(lineNum, "%w", err)
 	}
 	return choiceOption{
+		line:   lineNum,
 		text:   text,
 		lineID: lineID,
 		tags:   tags,
@@ -956,6 +1046,7 @@ func parseDialogueLine(s string, lineNum int) (lineStmt, error) {
 		return lineStmt{}, yarnError(lineNum, "%w", err)
 	}
 	return lineStmt{
+		line:    lineNum,
 		speaker: speaker,
 		text:    text,
 		lineID:  lineID,
@@ -1151,8 +1242,13 @@ func (r *Runner) CurrentNode() string {
 }
 
 // SetVar sets a dialogue variable. A leading '$' is optional and normalized away.
-// Numeric Go types are normalized to float64 to match Yarn expression semantics.
+// When Options.Vars is configured, SetVar writes through to that shared store;
+// otherwise numeric Go types are normalized to float64 in the runner's private map.
 func (r *Runner) SetVar(name string, val any) {
+	if r.opts.Vars != nil {
+		_ = r.opts.Vars.SetFromExpr(name, val)
+		return
+	}
 	if r.vars == nil {
 		r.vars = make(map[string]any)
 	}
@@ -1160,7 +1256,11 @@ func (r *Runner) SetVar(name string, val any) {
 }
 
 // Var returns the current value of name (leading '$' optional) and whether it is set.
+// When Options.Vars is configured, Var reads from that shared store.
 func (r *Runner) Var(name string) (any, bool) {
+	if r.opts.Vars != nil {
+		return r.opts.Vars.Get(name)
+	}
 	if r.vars == nil {
 		return nil, false
 	}
@@ -1169,7 +1269,11 @@ func (r *Runner) Var(name string) (any, bool) {
 }
 
 // Vars returns a shallow copy of all currently set dialogue variables (keys without leading '$').
+// When Options.Vars is configured, Vars returns a snapshot of that shared store.
 func (r *Runner) Vars() map[string]any {
+	if r.opts.Vars != nil {
+		return r.opts.Vars.Map()
+	}
 	out := make(map[string]any, len(r.vars))
 	maps.Copy(out, r.vars)
 	return out
@@ -1195,9 +1299,15 @@ func (r *Runner) State() State {
 
 // LoadState restores variables and visit counts from a previously saved State.
 func (r *Runner) LoadState(state State) {
-	r.vars = make(map[string]any, len(state.Vars))
-	for k, v := range state.Vars {
-		r.vars[normalizeVarName(k)] = normalizeDialogueValue(v)
+	if r.opts.Vars != nil {
+		for k, v := range state.Vars {
+			_ = r.opts.Vars.SetFromExpr(k, v)
+		}
+	} else {
+		r.vars = make(map[string]any, len(state.Vars))
+		for k, v := range state.Vars {
+			r.vars[normalizeVarName(k)] = normalizeDialogueValue(v)
+		}
 	}
 	r.visited = make(map[string]int, len(state.Visited))
 	maps.Copy(r.visited, state.Visited)
@@ -1209,6 +1319,7 @@ func normalizeVarName(name string) string {
 
 func (r *Runner) env() *exprEnv {
 	return &exprEnv{
+		store:   r.opts.Vars,
 		vars:    r.vars,
 		visited: r.visited,
 	}
@@ -1324,27 +1435,47 @@ func (r *Runner) advance() (Step, error) {
 			}
 
 		case setStmt:
-			if st.onlyIfUnset {
+			if r.opts.Vars != nil {
+				if !r.opts.Vars.Has(st.varName) {
+					return Step{}, fmt.Errorf("%w: $%s", flow.ErrUndeclaredVar, st.varName)
+				}
+				if st.onlyIfUnset {
+					// Declared in the shared store, which already holds its default or current value.
+					continue
+				}
+			} else if st.onlyIfUnset {
 				if _, exists := r.vars[st.varName]; exists {
 					continue
 				}
 			}
-			val, err := st.expr.eval(r.env())
+			env := r.env()
+			val, err := st.expr.eval(env)
 			if err != nil {
 				return Step{}, err
 			}
+			var next any
 			if st.op == "=" {
-				r.SetVar(st.varName, val)
-				continue
-			}
-			cur := r.vars[st.varName]
-			switch st.op {
-			case "+=":
-				_, lStr := cur.(string)
-				_, rStr := val.(string)
-				if lStr || rStr {
-					r.SetVar(st.varName, formatDialogueValue(cur)+formatDialogueValue(val))
-				} else {
+				next = val
+			} else {
+				cur := env.lookup(st.varName)
+				switch st.op {
+				case "+=":
+					_, lStr := cur.(string)
+					_, rStr := val.(string)
+					if lStr || rStr {
+						next = formatDialogueValue(cur) + formatDialogueValue(val)
+					} else {
+						ln, err := toDialogueNumber(cur)
+						if err != nil {
+							return Step{}, err
+						}
+						rn, err := toDialogueNumber(val)
+						if err != nil {
+							return Step{}, err
+						}
+						next = ln + rn
+					}
+				case "-=":
 					ln, err := toDialogueNumber(cur)
 					if err != nil {
 						return Step{}, err
@@ -1353,41 +1484,38 @@ func (r *Runner) advance() (Step, error) {
 					if err != nil {
 						return Step{}, err
 					}
-					r.SetVar(st.varName, ln+rn)
+					next = ln - rn
+				case "*=":
+					ln, err := toDialogueNumber(cur)
+					if err != nil {
+						return Step{}, err
+					}
+					rn, err := toDialogueNumber(val)
+					if err != nil {
+						return Step{}, err
+					}
+					next = ln * rn
+				case "/=":
+					ln, err := toDialogueNumber(cur)
+					if err != nil {
+						return Step{}, err
+					}
+					rn, err := toDialogueNumber(val)
+					if err != nil {
+						return Step{}, err
+					}
+					if rn == 0 {
+						return Step{}, fmt.Errorf("dialogue: division by zero in $%s /=", st.varName)
+					}
+					next = ln / rn
 				}
-			case "-=":
-				ln, err := toDialogueNumber(cur)
-				if err != nil {
+			}
+			if r.opts.Vars != nil {
+				if err := r.opts.Vars.SetFromExpr(st.varName, next); err != nil {
 					return Step{}, err
 				}
-				rn, err := toDialogueNumber(val)
-				if err != nil {
-					return Step{}, err
-				}
-				r.SetVar(st.varName, ln-rn)
-			case "*=":
-				ln, err := toDialogueNumber(cur)
-				if err != nil {
-					return Step{}, err
-				}
-				rn, err := toDialogueNumber(val)
-				if err != nil {
-					return Step{}, err
-				}
-				r.SetVar(st.varName, ln*rn)
-			case "/=":
-				ln, err := toDialogueNumber(cur)
-				if err != nil {
-					return Step{}, err
-				}
-				rn, err := toDialogueNumber(val)
-				if err != nil {
-					return Step{}, err
-				}
-				if rn == 0 {
-					return Step{}, fmt.Errorf("dialogue: division by zero in $%s /=", st.varName)
-				}
-				r.SetVar(st.varName, ln/rn)
+			} else {
+				r.SetVar(st.varName, next)
 			}
 
 		case jumpStmt:

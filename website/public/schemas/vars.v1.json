@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/vars.v1.json",
+  "title": "NSGo game variables and switches (version 1)",
+  "description": "VarsDoc is the root of a versioned vars.yaml declaration file.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal VarsFormatVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "vars": {
+      "description": "Vars declares the project's shared game variables and switches in declaration order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/VarDecl"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "VarDecl": {
+      "description": "VarDecl declares one project-wide game variable or switch.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the variable; it must start with a letter or '_' followed by letters, digits, or '_'.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is the variable's declared type: \"bool\", \"int\", \"float\", or \"string\".",
+          "type": "string",
+          "enum": [
+            "bool",
+            "int",
+            "float",
+            "string"
+          ]
+        },
+        "default": {
+          "description": "Default is the variable's initial value when omitted or reset; nil uses the zero value for Kind (false, 0, 0.0, or \"\")."
+        },
+        "min": {
+          "description": "Min is an optional inclusive lower bound for \"int\" and \"float\" variables.",
+          "type": "number"
+        },
+        "max": {
+          "description": "Max is an optional inclusive upper bound for \"int\" and \"float\" variables.",
+          "type": "number"
+        },
+        "doc": {
+          "description": "Doc is an optional description for editors, inspectors, and designers.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

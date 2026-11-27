@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/nsgo-dev/game/pkg/flow"
 )
 
 type exprTokKind int
@@ -50,11 +52,18 @@ type dialogueExpr interface {
 }
 
 type exprEnv struct {
+	store   *flow.Vars
 	vars    map[string]any
 	visited map[string]int
 }
 
 func (e *exprEnv) lookup(name string) any {
+	if e.store != nil {
+		if v, ok := e.store.Get(name); ok {
+			return normalizeDialogueValue(v)
+		}
+		return nil
+	}
 	if e.vars == nil {
 		return nil
 	}
@@ -872,4 +881,89 @@ func interpolateText(raw string, env *exprEnv) (string, error) {
 		i = j + 1
 	}
 	return sb.String(), nil
+}
+
+// collectExprVars appends every variable name referenced by e to out.
+// Bare identifiers inside visited(...) and visited_count(...) are node titles, not variables.
+func collectExprVars(e dialogueExpr, out *[]string) {
+	if e == nil {
+		return
+	}
+	switch x := e.(type) {
+	case varExpr:
+		*out = append(*out, x.name)
+	case identExpr:
+		*out = append(*out, x.name)
+	case unaryExpr:
+		collectExprVars(x.x, out)
+	case binaryExpr:
+		collectExprVars(x.left, out)
+		collectExprVars(x.right, out)
+	case callExpr:
+		for _, arg := range x.args {
+			if (x.name == "visited" || x.name == "visited_count") && isIdentExpr(arg) {
+				continue
+			}
+			collectExprVars(arg, out)
+		}
+	}
+}
+
+func isIdentExpr(e dialogueExpr) bool {
+	_, ok := e.(identExpr)
+	return ok
+}
+
+// collectInterpolationVars appends every variable name referenced inside unescaped {expr} placeholders in raw.
+func collectInterpolationVars(raw string, out *[]string) {
+	i := 0
+	n := len(raw)
+	for i < n {
+		if raw[i] == '\\' && i+1 < n {
+			next := raw[i+1]
+			if next == '{' || next == '}' || next == '\\' {
+				i += 2
+				continue
+			}
+		}
+		if raw[i] != '{' {
+			i++
+			continue
+		}
+		j := i + 1
+		inQuote := byte(0)
+		found := false
+		for j < n {
+			c := raw[j]
+			if inQuote != 0 {
+				if c == '\\' && j+1 < n {
+					j += 2
+					continue
+				}
+				if c == inQuote {
+					inQuote = 0
+				}
+				j++
+				continue
+			}
+			if c == '"' || c == '\'' {
+				inQuote = c
+				j++
+				continue
+			}
+			if c == '}' {
+				found = true
+				break
+			}
+			j++
+		}
+		if !found {
+			return
+		}
+		exprSrc := strings.TrimSpace(raw[i+1 : j])
+		if expr, err := parseDialogueExpr(exprSrc); err == nil {
+			collectExprVars(expr, out)
+		}
+		i = j + 1
+	}
 }

@@ -73,6 +73,7 @@ Every file authored by a human or coding agent is plain-text YAML:
 | `<name>.<type>.yaml`, such as `stone.material.yaml` | `resource` | Shared resources; `type` is `material`, `curve`, `gradient`, `animation`, `theme`, `busLayout` or `physicsMaterial` (`version: 1`) |
 | `*.replay.yaml` | `replay` | Editable deterministic input recordings (seed, step rate, per-step action/axis transitions; `version: 2`) |
 | `playtest.yaml` | `tooling/playtest` | Headless bot playtest configuration (scope, seeded runs, bot profile/parameters, metrics and sourced goals; `version: 1`, schema `playtest.v1.json`) |
+| `vars.yaml` / `*.vars.yaml` | `flow` | Project-wide game variables and switches (`bool`, `int`, `float`, `string`), defaults, ranges and docs (`version: 1`, schema `vars.v1.json`) |
 | Any `.yaml` or `.yml` file, such as `weapons.yaml` | `datatable` | Typed game data tables (`version: 1`); `.csv` and `.json` exports load too, without a version |
 | `mod.yaml` | `modding` | Mod metadata, capabilities and dependencies (`manifestVersion: 1`) |
 | Gameplay YAML configs | `particles`, `skeletal`, `cutscene`, `rooms`, `worldmap`, `cards`, `stats`, `ability`, `inventory`, `quest`, `loot`, `online/achievements`, `online/leaderboard`, `fighting`, `framedata`, `platformer`, `vehicle3d`, `bullets`, `rts`, `procgen`, `vn`, `rhythm`, `idle`, `quality`, `voxel` | Domain-specific versioned YAML assets validated by each package's `Parse`/`Encode` |
