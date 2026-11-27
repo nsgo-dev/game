@@ -107,7 +107,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_loop_step` | `count`（可选，默认 `1`，范围 `1..3600`） | 无论主循环是否暂停，立即同步推进 `count` 次固定步长更新（`Loop.StepNow`），返回 `steps_advanced`、`total_steps`、`game_time_seconds`、`delta_seconds` 与 `paused`。在 60 Hz 下步进 60 次会精确推进 `1.0` 秒游戏时间。 |
 | `game_loop_time_scale` | `time_scale`（必填，有限且 `>= 0`） | 设置 `Loop.TimeScale`（传 `0` 重置为默认 `1x` 倍速），并返回更新后的循环状态。 |
 | `game_loop_seed` | `seed`（必填，无符号 64 位整数） | 为 `Config.Random`、`Config.RandomStreams` 重新设种，并/或调用 `Config.SetSeed`，返回 `{seed}`。 |
-| `game_input_action` | `name`（必填）、`mode`（`"press"`、`"release"`、`"tap"`，默认 `"tap"`）、`value`（可选，`[-1, 1]` 浮点数） | 向 `input.Actions` 注入动作按住、松开、单步点按或模拟量轴值，并返回该动作当前步快照状态。 |
+| `game_input_action` | `name`（必填）、`mode`（`"press"`、`"release"`、`"tap"`、`"axis"`；省略 `value` 时默认 `"tap"`，仅提供 `value` 时默认 `"axis"`）、`value`（可选，`[-1, 1]` 浮点数，`mode` 为 `"axis"` 时必填） | 向 `input.Actions` 注入动作按住、松开、单步点按或模拟量轴值，并返回该动作当前步快照状态。 |
 | `game_input_axis` | `name` + `value`、`axes` 映射（`{name: value}`）和/或 `clear`（`bool`） | 在 `input.Actions` 上设置或清除单个或多个 `[-1, 1]` 模拟量轴值。 |
 | `game_input_pointer` | `x`、`y`（必填）、`action`（`"press"`、`"release"`、`"move"`、`"click"`，默认 `"click"`）、`space`（`"game"` 或 `"world"`，默认 `"game"`）、`button`（`"left"`、`"right"`、`"middle"`） | 将坐标经当前场景 `Camera`（当 `space="world"`）和 `screen.Viewport` 映射到视图坐标，转发到 `input.Actions`，执行 `Scene.HitTest` / `Scene.DispatchPress`，调用 `Config.OnPointer`，并返回游戏/视图坐标、`in_viewport` 与命中信息（`hit`、`hit_layer`、`hit_kind`、`hit_frame`、`hit_batch_index`、`hit_sprite_index`、`hit_drawable_index`、`dispatched`）。 |
 | `game_input_actions_list` | `{}` | 列出 `input.Actions` 上已配置的动作和轴名称及其当前步状态（`pressed`、`just_pressed`、`just_released`、`binding_count`、`value`、`negative`、`positive`）。 |
@@ -149,7 +149,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 
 在 `mcp.Config` 中配置 `Actions`、`Viewport` / `ViewportFunc`、`ViewSizeFunc` 或 `OnPointer`（或通过 `bridge.SetActions` / `bridge.SetViewport` 动态更新）后，智能体可以直接使用虚拟游戏坐标驱动游戏，而无需手动计算窗口黑边与缩放偏移：
 
-- **动作与轴注入**：`game_input_action` 驱动 `Actions.Press`、`Actions.Release`、`Actions.Trigger` 和 `Actions.SetAxis`；`game_input_axis` 一次设置或清除一个或多个 `[-1, 1]` 模拟量轴。所有注入输入与物理输入一样遵循 `Actions.Step()` 步快照语义，并会在 `Actions.Reset()` 时一并清除。
+- **动作与轴注入**：`game_input_action` 驱动 `Actions.Press`、`Actions.Release`、`Actions.Trigger` 和 `Actions.SetAxis`（省略 `value` 时 `mode` 默认 `"tap"`，提供 `value` 且省略 `mode` 时默认 `"axis"`，`"axis"` 模式必填 `value`）；`game_input_axis` 一次设置或清除一个或多个 `[-1, 1]` 模拟量轴。所有注入输入与物理输入一样遵循 `Actions.Step()` 步快照语义，并会在 `Actions.Reset()` 时一并清除。
 - **指针坐标管线**：`game_input_pointer` 接收 `"game"` 空间（虚拟画布坐标）或 `"world"` 空间（经当前场景 `Camera.WorldToView` 转换到游戏空间）的 `(x, y)`，随后结合 `ViewSizeFunc`（回退到挂载作用域的 `Env().Window()`，再回退到视口虚拟尺寸）通过 `screen.Viewport.GameToView` 映射到视图坐标。
 - **事件派发**：映射后的视图坐标会转发到 `input.Actions`（因此 `Actions.MapPoint = viewport.ViewToGame` 会准确还原游戏坐标并触发 `MouseRegion` 绑定）。当 `in_viewport` 为真时，会在游戏坐标下执行 `Scene.HitTest` 与主按钮 `Scene.DispatchPress`，确保在精灵游戏位置按下即可命中该精灵并触发其 `OnPress` 回调；`Config.OnPointer` 会收到每次注入的 `PointerEvent`（`"click"` 依次派发 `PointerPress` 和 `PointerRelease`）。
 

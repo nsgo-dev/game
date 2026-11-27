@@ -111,7 +111,7 @@ Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityR
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `game_input_action` | `name` (req), `mode` (`"press"` \| `"release"` \| `"tap"`, default `"tap"`), `value` (opt, `-1..1`) | Injects action hold/release/single-step tap or analog value into `input.Actions`; returns current step state (`pressed`, `just_pressed`, `just_released`, `axis`) |
+| `game_input_action` | `name` (req), `mode` (`"press"` \| `"release"` \| `"tap"` \| `"axis"`, default `"tap"` without `value` or `"axis"` with `value`), `value` (opt, `-1..1`; req when `mode` is `"axis"`) | Injects action hold/release/single-step tap or analog axis value into `input.Actions`; returns current step state (`pressed`, `just_pressed`, `just_released`, `axis`) |
 | `game_input_axis` | `name` (opt), `value` (`-1..1`), `axes` (map of name -> `-1..1`), `clear` (opt bool) | Sets or clears 1D/2D analog axes in `input.Actions`; returns `{axes, cleared}` |
 | `game_input_pointer` | `x` (req), `y` (req), `action` (`"press"` \| `"release"` \| `"move"` \| `"click"`, default `"click"`), `space` (`"game"` \| `"world"`, default `"game"`), `button` (`"left"` \| `"right"` \| `"middle"`, default `"left"`) | Maps coordinates through `screen.Viewport` and active camera, dispatches to `input.Actions`, `scene.Scene.HitTest`/`DispatchPress`, and `Config.OnPointer`; returns mapped coordinates and topmost hit details |
 | `game_input_actions_list` | `{}` | `configured`, all registered `actions` (with step states and binding counts) and `axes` |
