@@ -140,14 +140,14 @@ var (
 			},
 			"mode": {
 				"type": "string",
-				"enum": ["press", "release", "tap"],
-				"description": "Action injection mode: press (hold across steps until release), release (end hold), or tap (default, single-step trigger)."
+				"enum": ["press", "release", "tap", "axis"],
+				"description": "Action injection mode: press (hold across steps until release), release (end hold), tap (single-step trigger; default when value is omitted), or axis (analog axis value only, requires value; default when value is provided)."
 			},
 			"value": {
 				"type": "number",
 				"minimum": -1,
 				"maximum": 1,
-				"description": "Optional analog axis value in [-1, 1] to set for name."
+				"description": "Optional analog axis value in [-1, 1] to set for name (required when mode is \"axis\"; defaults mode to \"axis\" when mode is omitted)."
 			}
 		}
 	}`)
@@ -342,9 +342,13 @@ func (b *Bridge) handleInputAction(_ context.Context, raw json.RawMessage) (any,
 		}
 	}
 	switch mode {
-	case "press", "release", "tap", "axis":
+	case "press", "release", "tap":
+	case "axis":
+		if args.Value == nil {
+			return nil, errors.New(`mcp: value is required when mode is "axis"`)
+		}
 	default:
-		return nil, fmt.Errorf("mcp: invalid mode %q (want press, release, or tap)", args.Mode)
+		return nil, fmt.Errorf("mcp: invalid mode %q (want press, release, tap, or axis)", args.Mode)
 	}
 
 	actions, err := b.requireActions()

@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"encoding/json"
 	"math"
 	"slices"
 	"strings"
@@ -485,7 +486,9 @@ func TestInputValidationAndNilSubsystems(t *testing.T) {
 	}{
 		{"action unknown field", mcp.ToolInputAction, `{"name":"jump","bogus":1}`, "unknown field"},
 		{"action missing name", mcp.ToolInputAction, `{}`, "name is required"},
-		{"action bad mode", mcp.ToolInputAction, map[string]any{"name": "jump", "mode": "hold"}, "invalid mode"},
+		{"action bad mode", mcp.ToolInputAction, map[string]any{"name": "jump", "mode": "hold"}, "want press, release, tap, or axis"},
+		{"action axis missing value", mcp.ToolInputAction, map[string]any{"name": "jump", "mode": "axis"}, `value is required when mode is "axis"`},
+		{"action axis null value", mcp.ToolInputAction, `{"name":"jump","mode":"axis","value":null}`, `value is required when mode is "axis"`},
 		{"action value out of range", mcp.ToolInputAction, map[string]any{"name": "move_x", "value": 1.5}, "in [-1, 1]"},
 		{"axis unknown field", mcp.ToolInputAxis, `{"name":"move_x","value":0.5,"extra":true}`, "unknown field"},
 		{"axis empty args", mcp.ToolInputAxis, `{}`, "name or axes is required"},
@@ -505,5 +508,173 @@ func TestInputValidationAndNilSubsystems(t *testing.T) {
 		if _, err := callToolRaw(t, app, cx, tc.tool, tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %s(%v) = %v, want substring %q", tc.name, tc.tool, tc.args, err, tc.want)
 		}
+	}
+}
+
+func TestInputActionModesAndSchemaContract(t *testing.T) {
+	// 1. Verify schema enum and handler consistency for game_input_action.
+	b := mcp.New(mcp.Config{Actions: input.NewActions()})
+	var found bool
+	var directHandler func(json.RawMessage) (any, error)
+	for _, tool := range b.Tools() {
+		if tool.Name != mcp.ToolInputAction {
+			continue
+		}
+		found = true
+		directHandler = func(raw json.RawMessage) (any, error) {
+			return tool.Handler(t.Context(), raw)
+		}
+		var schema struct {
+			Properties struct {
+				Mode struct {
+					Enum        []string `json:"enum"`
+					Description string   `json:"description"`
+				} `json:"mode"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+			t.Fatalf("unmarshal schemaInputAction: %v", err)
+		}
+		wantEnum := []string{"press", "release", "tap", "axis"}
+		if !slices.Equal(schema.Properties.Mode.Enum, wantEnum) {
+			t.Fatalf("schema mode enum = %v, want %v", schema.Properties.Mode.Enum, wantEnum)
+		}
+		if !strings.Contains(schema.Properties.Mode.Description, "axis") {
+			t.Fatalf("schema mode description = %q, want mention of axis", schema.Properties.Mode.Description)
+		}
+	}
+	if !found {
+		t.Fatalf("%s not found in Bridge.Tools()", mcp.ToolInputAction)
+	}
+
+	// Direct handler call without automation panic recovery must return an error, never panic.
+	if _, err := directHandler(json.RawMessage(`{"name":"jump","mode":"axis"}`)); err == nil || !strings.Contains(err.Error(), `value is required when mode is "axis"`) {
+		t.Fatalf("direct axis without value = %v, want value-required error", err)
+	}
+
+	// 2. Verify every mode (default tap, explicit tap with value, press with value, release with/without value,
+	// value-only implicit axis, explicit axis with and without value, and invalid mode) across steps.
+	actions := input.NewActions()
+	actions.Bind("jump", input.Key("space"))
+	actions.Bind("throttle", input.Key("w"))
+	actions.Bind("brake", input.Key("s"))
+
+	var cx *core.Scope
+	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
+		cx = scope
+		if _, err := mcp.Attach(cx, mcp.Config{Actions: actions}); err != nil {
+			t.Fatal(err)
+		}
+		return core.View{}
+	})
+
+	// Value-only call defaults to "axis": sets analog axis only, does not press or trigger the action.
+	valOnly := callTool[mcp.InputActionResult](t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name":  "jump",
+		"value": 0.5,
+	})
+	if valOnly.Mode != "axis" || valOnly.Value == nil || *valOnly.Value != 0.5 {
+		t.Fatalf("value-only result = %+v, want mode=axis value=0.5", valOnly)
+	}
+	app.Post(actions.Step)
+	app.Settle()
+	if actions.Pressed("jump") || actions.JustPressed("jump") || actions.Axis("jump") != 0.5 {
+		t.Fatalf("after value-only step: pressed=%v jp=%v axis=%v, want false/false/0.5",
+			actions.Pressed("jump"), actions.JustPressed("jump"), actions.Axis("jump"))
+	}
+
+	// Explicit "axis" with value sets analog axis only without pressing/triggering.
+	explicitAxis := callTool[mcp.InputActionResult](t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name":  "throttle",
+		"mode":  "axis",
+		"value": -0.75,
+	})
+	if explicitAxis.Mode != "axis" || explicitAxis.Value == nil || *explicitAxis.Value != -0.75 {
+		t.Fatalf("explicit axis result = %+v, want mode=axis value=-0.75", explicitAxis)
+	}
+	app.Post(actions.Step)
+	app.Settle()
+	if actions.Pressed("throttle") || actions.JustPressed("throttle") || actions.Axis("throttle") != -0.75 {
+		t.Fatalf("after explicit axis step: pressed=%v jp=%v axis=%v, want false/false/-0.75",
+			actions.Pressed("throttle"), actions.JustPressed("throttle"), actions.Axis("throttle"))
+	}
+
+	// Explicit "axis" without value is rejected cleanly (never panics).
+	if _, err := callToolRaw(t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name": "throttle",
+		"mode": "axis",
+	}); err == nil || strings.Contains(err.Error(), "panicked") || !strings.Contains(err.Error(), `value is required when mode is "axis"`) {
+		t.Fatalf("explicit axis without value = %v, want clean value-required error", err)
+	}
+
+	// Explicit "tap" with value triggers the action for one step AND sets its analog axis.
+	tapWithVal := callTool[mcp.InputActionResult](t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name":  "jump",
+		"mode":  "tap",
+		"value": 0.8,
+	})
+	if tapWithVal.Mode != "tap" || tapWithVal.Value == nil || *tapWithVal.Value != 0.8 {
+		t.Fatalf("tap with value result = %+v, want mode=tap value=0.8", tapWithVal)
+	}
+	app.Post(actions.Step)
+	app.Settle()
+	if !actions.Pressed("jump") || !actions.JustPressed("jump") || actions.Axis("jump") != 0.8 {
+		t.Fatalf("after tap+value step 1: pressed=%v jp=%v axis=%v, want true/true/0.8",
+			actions.Pressed("jump"), actions.JustPressed("jump"), actions.Axis("jump"))
+	}
+	app.Post(actions.Step)
+	app.Settle()
+	if actions.Pressed("jump") || !actions.JustReleased("jump") {
+		t.Fatalf("after tap+value step 2: pressed=%v jr=%v, want false/true",
+			actions.Pressed("jump"), actions.JustReleased("jump"))
+	}
+
+	// Press with value holds across steps and sets analog axis; release with value releases and updates axis;
+	// release without value clears axis.
+	pressWithVal := callTool[mcp.InputActionResult](t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name":  "brake",
+		"mode":  "press",
+		"value": 0.6,
+	})
+	if pressWithVal.Mode != "press" || pressWithVal.Value == nil || *pressWithVal.Value != 0.6 {
+		t.Fatalf("press with value result = %+v", pressWithVal)
+	}
+	app.Post(actions.Step)
+	app.Settle()
+	if !actions.Pressed("brake") || actions.Axis("brake") != 0.6 {
+		t.Fatalf("after press+value: pressed=%v axis=%v, want true/0.6", actions.Pressed("brake"), actions.Axis("brake"))
+	}
+
+	relWithVal := callTool[mcp.InputActionResult](t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name":  "brake",
+		"mode":  "release",
+		"value": 0.1,
+	})
+	if relWithVal.Mode != "release" || relWithVal.Value == nil || *relWithVal.Value != 0.1 {
+		t.Fatalf("release with value result = %+v", relWithVal)
+	}
+	app.Post(actions.Step)
+	app.Settle()
+	if actions.Pressed("brake") || !actions.JustReleased("brake") || actions.Axis("brake") != 0.1 {
+		t.Fatalf("after release+value: pressed=%v jr=%v axis=%v, want false/true/0.1",
+			actions.Pressed("brake"), actions.JustReleased("brake"), actions.Axis("brake"))
+	}
+
+	_ = callTool[mcp.InputActionResult](t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name": "brake",
+		"mode": "release",
+	})
+	app.Post(actions.Step)
+	app.Settle()
+	if actions.Axis("brake") != 0 {
+		t.Fatalf("after release without value: axis=%v, want 0", actions.Axis("brake"))
+	}
+
+	// Invalid mode lists all four supported modes.
+	if _, err := callToolRaw(t, app, cx, mcp.ToolInputAction, map[string]any{
+		"name": "jump",
+		"mode": "bogus",
+	}); err == nil || !strings.Contains(err.Error(), "want press, release, tap, or axis") {
+		t.Fatalf("invalid mode error = %v, want four supported modes", err)
 	}
 }
