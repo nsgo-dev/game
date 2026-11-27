@@ -36,7 +36,7 @@ A Godot scene is a saved node tree you instance or switch to. Here the two jobs 
 
 `Controller.Enter` receives a child `*core.Scope` of its own. Loops, timers, sounds and signals made on it are disposed when the scene exits, which covers what `_ready`, `_exit_tree` and `queue_free` do for a scene's own objects.
 
-An autoload has no special form: make the value once in the root component and pass it to the scenes that need it.
+Autoloads have a place in `game.yaml`: its `autoload` section lists the scenes and resources to load at startup and names the main scene, and `LoadAutoloads` reads and validates them all before the first frame (see [Reading it in a game](project.md#reading-it-in-a-game)). Any other singleton is a plain Go value: make it once in the root component and pass it to the scenes that need it.
 
 ## Nodes
 
@@ -95,7 +95,7 @@ The 2D physics package works in the same screen space as the drawing and steps o
 - **`RigidBody2D` and joints**: `physics.RigidWorld` with `RigidBody` boxes and circles; `RevoluteJoint` is a `PinJoint2D`, `SpringJoint` a `DampedSpringJoint2D` and `DistanceJoint` a fixed rod. See [2D Rigid Bodies](physics2d-rigid.md).
 - **3D**: `physics3d.CharacterController` walks a capsule over slopes and stairs as `CharacterBody3D` does, and `physics3d.World` steps rigid boxes, spheres and capsules. See [physics3d](physics3d.md).
 
-2D shapes are boxes and circles; there are no concave polygon colliders in 2D. In 3D, bodies are boxes, spheres and capsules, and static level geometry can collide as a triangle mesh or a heightfield: `ConcavePolygonShape3D` maps to `physics3d.TriMeshCollider` added with `World.AddTriMesh`, and `HeightMapShape3D` to `physics3d.HeightfieldCollider` added with `World.AddHeightfield`.
+2D shapes are boxes, circles, convex polygons (up to 8 vertices, optionally rounded), capsules, segments and chains (see [physics](physics.md#polygons-capsules-segments-and-chains)); a concave outline is built from several convex polygons or, for static level edges, a chain. Scene files can place only box and circle colliders so far (#1379). In 3D, bodies are boxes, spheres and capsules, and static level geometry can collide as a triangle mesh or a heightfield: `ConcavePolygonShape3D` maps to `physics3d.TriMeshCollider` added with `World.AddTriMesh`, and `HeightMapShape3D` to `physics3d.HeightfieldCollider` added with `World.AddHeightfield`.
 
 ## Export
 
