@@ -31,7 +31,7 @@ const (
 type SettingsTab uint8
 
 const (
-	// SettingsTabAudio edits mute, master volume, and audio bus volumes.
+	// SettingsTabAudio edits mute, master volume, audio bus volumes, mono audio, and left/right balance.
 	SettingsTabAudio SettingsTab = iota
 	// SettingsTabVideo edits window mode, resolution (on desktop), scale mode, integer scale, quality preset, frame cap, and (when enabled via ShowVSync) VSync.
 	SettingsTabVideo
@@ -117,8 +117,15 @@ type SettingsText struct {
 	TabLanguage      string
 	TabAccessibility string
 
-	MuteAll      string
-	MasterVolume string
+	MuteAll       string
+	MasterVolume  string
+	MonoAudio     string
+	MonoOn        string
+	MonoOff       string
+	Balance       string
+	BalanceLeft   string
+	BalanceCenter string
+	BalanceRight  string
 
 	WindowMode    string
 	Windowed      string
@@ -173,8 +180,15 @@ func DefaultSettingsText() SettingsText {
 		TabLanguage:      "Language",
 		TabAccessibility: "Accessibility",
 
-		MuteAll:      "Mute All Audio",
-		MasterVolume: "Master",
+		MuteAll:       "Mute All Audio",
+		MasterVolume:  "Master",
+		MonoAudio:     "Mono Audio",
+		MonoOn:        "On",
+		MonoOff:       "Off",
+		Balance:       "Balance",
+		BalanceLeft:   "L",
+		BalanceCenter: "Center",
+		BalanceRight:  "R",
 
 		WindowMode:    "Window Mode",
 		Windowed:      "Windowed",
@@ -234,6 +248,13 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.TabAccessibility, def.TabAccessibility)
 	fill(&in.MuteAll, def.MuteAll)
 	fill(&in.MasterVolume, def.MasterVolume)
+	fill(&in.MonoAudio, def.MonoAudio)
+	fill(&in.MonoOn, def.MonoOn)
+	fill(&in.MonoOff, def.MonoOff)
+	fill(&in.Balance, def.Balance)
+	fill(&in.BalanceLeft, def.BalanceLeft)
+	fill(&in.BalanceCenter, def.BalanceCenter)
+	fill(&in.BalanceRight, def.BalanceRight)
 	fill(&in.WindowMode, def.WindowMode)
 	fill(&in.Windowed, def.Windowed)
 	fill(&in.Fullscreen, def.Fullscreen)
@@ -522,9 +543,11 @@ type SettingsMenu struct {
 	tabControls [settingsTabCount][]Widget
 
 	// Audio widgets
-	muteToggle   *Toggle
-	masterSlider *Slider
-	busSliders   []*Slider
+	muteToggle    *Toggle
+	masterSlider  *Slider
+	busSliders    []*Slider
+	monoBtn       *Button
+	balanceSlider *Slider
 
 	// Video widgets
 	windowModeBtn   *Button
@@ -910,6 +933,10 @@ func cloneSaveSettings(s save.Settings) save.Settings {
 	if s.Audio.Groups != nil {
 		out.Audio.Groups = maps.Clone(s.Audio.Groups)
 	}
+	if s.Audio.Mono != nil {
+		v := *s.Audio.Mono
+		out.Audio.Mono = &v
+	}
 	if s.Bindings != nil {
 		out.Bindings = make(map[string][]string, len(s.Bindings))
 		for k, v := range s.Bindings {
@@ -1122,6 +1149,56 @@ func (m *SettingsMenu) buildAudioTab() {
 		children = append(children, sld)
 		controls = append(controls, sld)
 	}
+
+	stepMono := func(delta int) {
+		idx := 0
+		if m.settings.Audio.Mono != nil {
+			if *m.settings.Audio.Mono {
+				idx = 1
+			} else {
+				idx = 2
+			}
+		}
+		next := (idx + delta + 3) % 3
+		switch next {
+		case 0:
+			m.settings.Audio.Mono = nil
+		case 1:
+			v := true
+			m.settings.Audio.Mono = &v
+		case 2:
+			v := false
+			m.settings.Audio.Mono = &v
+		}
+		m.onSettingMutated()
+	}
+	m.monoBtn = &Button{
+		Height:  32,
+		OnClick: func() { stepMono(1) },
+	}
+	m.cycleHandlers[m.monoBtn] = stepMono
+	children = append(children, m.monoBtn)
+	controls = append(controls, m.monoBtn)
+
+	m.balanceSlider = &Slider{
+		Min:    -1,
+		Max:    1,
+		Step:   0.1,
+		Height: 32,
+		OnChange: func(v float32) {
+			if m.suppressCallbacks {
+				return
+			}
+			b := roundStep(float64(v), 0.01)
+			if math.Abs(b) < 0.005 {
+				b = 0
+			}
+			m.settings.Audio.Balance = b
+			m.onSettingMutated()
+		},
+	}
+	children = append(children, m.balanceSlider)
+	controls = append(controls, m.balanceSlider)
 
 	m.tabPanels[SettingsTabAudio] = &VBox{
 		Spacing:  8,
@@ -1629,6 +1706,25 @@ func (m *SettingsMenu) syncWidgets() {
 		m.busSliders[i].Label = fmt.Sprintf("%s: %d%%", bus.Label, pctInt(vol))
 		m.busSliders[i].Value = float32(vol)
 	}
+	monoLabel := m.text.SystemDefault
+	if m.settings.Audio.Mono != nil {
+		if *m.settings.Audio.Mono {
+			monoLabel = m.text.MonoOn
+		} else {
+			monoLabel = m.text.MonoOff
+		}
+	}
+	m.monoBtn.Text = fmt.Sprintf("%s: < %s >", m.text.MonoAudio, monoLabel)
+	balPct := pctInt(m.settings.Audio.Balance)
+	switch {
+	case balPct < 0:
+		m.balanceSlider.Label = fmt.Sprintf("%s: %s %d%%", m.text.Balance, m.text.BalanceLeft, -balPct)
+	case balPct > 0:
+		m.balanceSlider.Label = fmt.Sprintf("%s: %s %d%%", m.text.Balance, m.text.BalanceRight, balPct)
+	default:
+		m.balanceSlider.Label = fmt.Sprintf("%s: %s", m.text.Balance, m.text.BalanceCenter)
+	}
+	m.balanceSlider.Value = float32(m.settings.Audio.Balance)
 
 	// Video
 	if m.windowModeBtn != nil {

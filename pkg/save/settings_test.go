@@ -1283,3 +1283,116 @@ func TestSettingsStoreSubscribe(t *testing.T) {
 		t.Fatalf("events after unsubscribe = %v, want none", events)
 	}
 }
+
+func TestAudioSettingsMonoAndBalancePersistValidateAndApply(t *testing.T) {
+	// Defaults: Mono is nil (follow system) and Balance is 0.
+	def := save.DefaultSettings()
+	if def.Audio.Mono != nil || def.Audio.Balance != 0 {
+		t.Fatalf("default audio mono/balance = (%v, %v), want (nil, 0)", def.Audio.Mono, def.Audio.Balance)
+	}
+	if !def.Audio.ResolveMono(true) || def.Audio.ResolveMono(false) {
+		t.Fatal("ResolveMono with nil Mono did not follow systemMono")
+	}
+
+	// Validation clamps Balance into [-1, 1] and resets NaN to 0.
+	for _, tc := range []struct {
+		in   float64
+		want float64
+	}{
+		{2.5, 1.0},
+		{-3.0, -1.0},
+		{math.Inf(1), 1.0},
+		{math.Inf(-1), -1.0},
+		{math.NaN(), 0},
+		{-0.35, -0.35},
+	} {
+		s := save.DefaultSettings()
+		s.Audio.Balance = tc.in
+		s.Validate()
+		if s.Audio.Balance != tc.want {
+			t.Errorf("Validate Balance(%v) = %v, want %v", tc.in, s.Audio.Balance, tc.want)
+		}
+	}
+
+	// JSON round-trip preserves nil, true, false, and Balance; caller pointer mutation does not alias.
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	var mixer *sound.Mixer
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mixer = sound.NewMixer(cx, "test-mono-balance")
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{Audio: true}))
+
+	monoOn := true
+	s := save.DefaultSettings()
+	s.Audio.Mono = &monoOn
+	s.Audio.Balance = 0.45
+	if err := store.Save(s); err != nil {
+		t.Fatalf("Save mono=true: %v", err)
+	}
+	monoOn = false // mutate caller's bool after Save
+	loaded, err := store.LoadAndApply(save.SettingsTargets{Sound: mixer})
+	if err != nil {
+		t.Fatalf("LoadAndApply mono=true: %v", err)
+	}
+	if loaded.Audio.Mono == nil || !*loaded.Audio.Mono || !near64(loaded.Audio.Balance, 0.45) {
+		t.Fatalf("loaded mono=true = %+v", loaded.Audio)
+	}
+	if !loaded.Audio.ResolveMono(false) {
+		t.Fatal("ResolveMono with explicit true returned false")
+	}
+	if !mixer.Mono() || !near32(mixer.Balance(), 0.45) {
+		t.Fatalf("mixer after Apply(mono=true, balance=0.45) = mono:%v balance:%v", mixer.Mono(), mixer.Balance())
+	}
+
+	// Explicit mono=false overrides systemMono=true and persists distinct from nil.
+	monoOff := false
+	s.Audio.Mono = &monoOff
+	s.Audio.Balance = -0.6
+	if err := store.Save(s); err != nil {
+		t.Fatalf("Save mono=false: %v", err)
+	}
+	loaded, err = store.LoadAndApply(save.SettingsTargets{Sound: mixer})
+	if err != nil {
+		t.Fatalf("LoadAndApply mono=false: %v", err)
+	}
+	if loaded.Audio.Mono == nil || *loaded.Audio.Mono || !near64(loaded.Audio.Balance, -0.6) {
+		t.Fatalf("loaded mono=false = %+v", loaded.Audio)
+	}
+	if loaded.Audio.ResolveMono(true) {
+		t.Fatal("ResolveMono with explicit false returned true")
+	}
+	if mixer.Mono() || !near32(mixer.Balance(), -0.6) {
+		t.Fatalf("mixer after Apply(mono=false, balance=-0.6) = mono:%v balance:%v", mixer.Mono(), mixer.Balance())
+	}
+
+	// Nil mono (follow system) clears explicit override on mixer; explicit JSON null also decodes to nil.
+	mixer.SetMono(true)
+	s.Audio.Mono = nil
+	s.Audio.Balance = 0
+	if err := store.Save(s); err != nil {
+		t.Fatalf("Save mono=nil: %v", err)
+	}
+	loaded, err = store.LoadAndApply(save.SettingsTargets{Sound: mixer})
+	if err != nil {
+		t.Fatalf("LoadAndApply mono=nil: %v", err)
+	}
+	if loaded.Audio.Mono != nil || loaded.Audio.Balance != 0 {
+		t.Fatalf("loaded mono=nil = %+v", loaded.Audio)
+	}
+	if mixer.Mono() || mixer.Balance() != 0 {
+		t.Fatalf("mixer after Apply(mono=nil, balance=0) = mono:%v balance:%v", mixer.Mono(), mixer.Balance())
+	}
+
+	// Partial JSON with explicit null mono clears a non-nil default cleanly.
+	var partial save.AudioSettings
+	v := true
+	partial.Mono = &v
+	if err := json.Unmarshal([]byte(`{"mono":null,"balance":-0.25}`), &partial); err != nil {
+		t.Fatalf("Unmarshal null mono: %v", err)
+	}
+	if partial.Mono != nil || !near64(partial.Balance, -0.25) {
+		t.Fatalf("partial unmarshal = %+v, want mono=nil balance=-0.25", partial)
+	}
+}

@@ -148,7 +148,7 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
 
 	// --- 1. AUDIO TAB (default tab) ---
-	// Controls: [0] Mute, [1] Master, [2] Music, [3] SFX, [4] UI
+	// Controls: [0] Mute, [1] Master, [2] Music, [3] SFX, [4] UI, [5] Mono Audio, [6] Balance
 	// Initial focus is Mute toggle. Toggle Mute on -> off (confirm twice) -> leave unmuted so mixer gets master volume.
 	pressGamepadButton(menu, gamepad.ButtonSouth) // Mute = true
 	if !menu.Settings().Audio.Muted {
@@ -178,6 +178,14 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	pressGamepadButton(menu, gamepad.ButtonDPadDown)
 	for range 10 {
 		pressGamepadButton(menu, gamepad.ButtonDPadLeft)
+	}
+	// Move down to Mono Audio button and step right once (System Default -> On)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	// Move down to Balance slider and step right 3 times (0 -> +0.30)
+	pressGamepadButton(menu, gamepad.ButtonDPadDown)
+	for range 3 {
+		pressGamepadButton(menu, gamepad.ButtonDPadRight)
 	}
 
 	// --- 2. VIDEO TAB (switch with RB) ---
@@ -320,6 +328,12 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	if math.Abs(reloaded.Audio.Groups["ui"]-0.50) > 1e-4 {
 		t.Fatalf("Audio.Groups[ui] = %v, want 0.50", reloaded.Audio.Groups["ui"])
 	}
+	if reloaded.Audio.Mono == nil || !*reloaded.Audio.Mono {
+		t.Fatalf("Audio.Mono = %v, want true", reloaded.Audio.Mono)
+	}
+	if math.Abs(reloaded.Audio.Balance-0.30) > 1e-4 {
+		t.Fatalf("Audio.Balance = %v, want 0.30", reloaded.Audio.Balance)
+	}
 	if !reloaded.Display.Fullscreen || gameui.SettingsResolutionFrom(reloaded) != "1280x720" ||
 		reloaded.Display.ScaleMode != "fill" || !reloaded.Display.IntegerScale ||
 		reloaded.Display.Quality != "medium" || !reloaded.Display.VSync || reloaded.Display.FrameCap != 60 {
@@ -352,6 +366,9 @@ func TestSettingsMenuGamepadAloneChangesAndSavesEverySetting(t *testing.T) {
 	// Verify Targets were applied too!
 	if math.Abs(float64(mixer.Master())-0.80) > 1e-3 || math.Abs(float64(mixer.Volume("music"))-0.70) > 1e-3 {
 		t.Fatalf("mixer master=%v music=%v, want 0.80, 0.70", mixer.Master(), mixer.Volume("music"))
+	}
+	if !mixer.Mono() || math.Abs(float64(mixer.Balance())-0.30) > 1e-3 {
+		t.Fatalf("mixer mono=%v balance=%v, want true, 0.30", mixer.Mono(), mixer.Balance())
 	}
 	if appliedDisplay.Quality != "medium" || appliedLocale != "zh-Hans" || !appliedA11y.HighContrast {
 		t.Fatalf("targets not applied: display=%+v locale=%q a11y=%+v", appliedDisplay, appliedLocale, appliedA11y)
@@ -981,5 +998,73 @@ func TestSettingsMenuAccessibilityFollowsPlatformAndOverrides(t *testing.T) {
 	app.Settle()
 	if !assist.ReduceMotion() {
 		t.Fatal("Reset did not restore OS ReduceMotion=true fallback")
+	}
+}
+
+func TestSettingsMenuAudioMonoAndBalanceControls(t *testing.T) {
+	var mixer *sound.Mixer
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mixer = sound.NewMixer(cx, "test-audio-tab")
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{Audio: true}))
+
+	menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+		Targets:   save.SettingsTargets{Sound: mixer},
+		AutoApply: true,
+	})
+	menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+
+	controls := menu.TabControls(gameui.SettingsTabAudio)
+	if len(controls) != 7 {
+		t.Fatalf("Audio tab controls = %d, want 7", len(controls))
+	}
+	monoBtn, ok := controls[5].(*gameui.Button)
+	if !ok {
+		t.Fatalf("control[5] = %T, want *gameui.Button", controls[5])
+	}
+	balSlider, ok := controls[6].(*gameui.Slider)
+	if !ok {
+		t.Fatalf("control[6] = %T, want *gameui.Slider", controls[6])
+	}
+	if monoBtn.Text != "Mono Audio: < System Default >" {
+		t.Fatalf("initial Mono Audio text = %q", monoBtn.Text)
+	}
+	if balSlider.Label != "Balance: Center" {
+		t.Fatalf("initial Balance label = %q", balSlider.Label)
+	}
+
+	// Cycle Mono Audio: System Default -> On -> Off -> System Default.
+	menu.Navigator().SetFocus(monoBtn)
+	menu.HandleAction(gameui.NavRight)
+	if s := menu.Settings().Audio.Mono; s == nil || !*s || monoBtn.Text != "Mono Audio: < On >" || !mixer.Mono() {
+		t.Fatalf("after 1st step: mono=%v text=%q mixer=%v", s, monoBtn.Text, mixer.Mono())
+	}
+	menu.HandleAction(gameui.NavRight)
+	if s := menu.Settings().Audio.Mono; s == nil || *s || monoBtn.Text != "Mono Audio: < Off >" || mixer.Mono() {
+		t.Fatalf("after 2nd step: mono=%v text=%q mixer=%v", s, monoBtn.Text, mixer.Mono())
+	}
+	menu.HandleAction(gameui.NavRight)
+	if s := menu.Settings().Audio.Mono; s != nil || monoBtn.Text != "Mono Audio: < System Default >" || mixer.Mono() {
+		t.Fatalf("after 3rd step: mono=%v text=%q mixer=%v", s, monoBtn.Text, mixer.Mono())
+	}
+
+	// Step Balance left and right and verify label formatting and live mixer balance.
+	menu.Navigator().SetFocus(balSlider)
+	menu.HandleAction(gameui.NavLeft)
+	menu.HandleAction(gameui.NavLeft)
+	if math.Abs(menu.Settings().Audio.Balance-(-0.2)) > 1e-4 || balSlider.Label != "Balance: L 20%" || math.Abs(float64(mixer.Balance())-(-0.2)) > 1e-3 {
+		t.Fatalf("after 2 left steps: bal=%v label=%q mixer=%v", menu.Settings().Audio.Balance, balSlider.Label, mixer.Balance())
+	}
+	for range 5 {
+		menu.HandleAction(gameui.NavRight)
+	}
+	if math.Abs(menu.Settings().Audio.Balance-0.3) > 1e-4 || balSlider.Label != "Balance: R 30%" || math.Abs(float64(mixer.Balance())-0.3) > 1e-3 {
+		t.Fatalf("after 5 right steps: bal=%v label=%q mixer=%v", menu.Settings().Audio.Balance, balSlider.Label, mixer.Balance())
+	}
+
+	// Reset restores System Default mono and centered balance.
+	menu.Reset()
+	if menu.Settings().Audio.Mono != nil || menu.Settings().Audio.Balance != 0 || mixer.Mono() || mixer.Balance() != 0 {
+		t.Fatalf("after Reset: mono=%v bal=%v mixer=(%v, %v)", menu.Settings().Audio.Mono, menu.Settings().Audio.Balance, mixer.Mono(), mixer.Balance())
 	}
 }

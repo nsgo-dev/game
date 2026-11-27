@@ -38,15 +38,32 @@ type AudioSettings struct {
 	Groups map[string]float64 `json:"groups,omitempty"`
 	// Muted silences all audio without discarding the stored Master level.
 	Muted bool `json:"muted"`
+	// Mono forces positional voices to play centered at pan 0. Nil (the default) follows the
+	// platform's mono audio switch (nsgo-dev/nsgo#2677); a non-nil pointer overrides it explicitly.
+	Mono *bool `json:"mono,omitempty"`
+	// Balance shifts stereo voice panning in [-1, 1] (-1 full left, 0 centered, +1 full right)
+	// when mono audio is off.
+	Balance float64 `json:"balance,omitempty"`
+}
+
+// ResolveMono returns the effective mono setting given the platform's mono audio switch:
+// *a.Mono when explicitly set, and systemMono when a.Mono is nil.
+func (a AudioSettings) ResolveMono(systemMono bool) bool {
+	if a.Mono != nil {
+		return *a.Mono
+	}
+	return systemMono
 }
 
 // UnmarshalJSON decodes AudioSettings while preserving defaults for omitted fields
 // and replacing Groups cleanly when "groups" is explicitly present in JSON.
 func (a *AudioSettings) UnmarshalJSON(data []byte) error {
 	type rawAudio struct {
-		Master *float64        `json:"master"`
-		Groups json.RawMessage `json:"groups"`
-		Muted  *bool           `json:"muted"`
+		Master  *float64        `json:"master"`
+		Groups  json.RawMessage `json:"groups"`
+		Muted   *bool           `json:"muted"`
+		Mono    json.RawMessage `json:"mono"`
+		Balance *float64        `json:"balance"`
 	}
 	var raw rawAudio
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -57,6 +74,21 @@ func (a *AudioSettings) UnmarshalJSON(data []byte) error {
 	}
 	if raw.Muted != nil {
 		a.Muted = *raw.Muted
+	}
+	if len(raw.Mono) > 0 {
+		trimmed := bytes.TrimSpace(raw.Mono)
+		if bytes.Equal(trimmed, []byte("null")) {
+			a.Mono = nil
+		} else {
+			var v bool
+			if err := json.Unmarshal(trimmed, &v); err != nil {
+				return err
+			}
+			a.Mono = &v
+		}
+	}
+	if raw.Balance != nil {
+		a.Balance = *raw.Balance
 	}
 	if len(raw.Groups) > 0 {
 		trimmed := bytes.TrimSpace(raw.Groups)
@@ -296,6 +328,7 @@ func (s *Settings) Validate() {
 	for group, vol := range s.Audio.Groups {
 		s.Audio.Groups[group] = clampUnit(vol, 1.0)
 	}
+	s.Audio.Balance = clampSignedUnit(s.Audio.Balance)
 
 	if s.Display.DisplayIndex < 0 {
 		s.Display.DisplayIndex = 0
@@ -355,6 +388,22 @@ func clampUnit(v, defaultVal float64) float64 {
 	return v
 }
 
+func clampSignedUnit(v float64) float64 {
+	if math.IsNaN(v) {
+		return 0
+	}
+	if v < -1 {
+		return -1
+	}
+	if v > 1 {
+		return 1
+	}
+	if v == 0 {
+		return 0
+	}
+	return v
+}
+
 func clampPositiveRange(v, minVal, maxVal, defaultVal float64) float64 {
 	if math.IsNaN(v) || v == 0 {
 		return defaultVal
@@ -372,6 +421,10 @@ func cloneSettings(s Settings) Settings {
 	out := s
 	if s.Audio.Groups != nil {
 		out.Audio.Groups = maps.Clone(s.Audio.Groups)
+	}
+	if s.Audio.Mono != nil {
+		v := *s.Audio.Mono
+		out.Audio.Mono = &v
 	}
 	if s.Bindings != nil {
 		out.Bindings = make(map[string][]string, len(s.Bindings))
@@ -823,7 +876,7 @@ func (s *DefaultSettingsStore) LoadAndApply(targets SettingsTargets) (Settings, 
 // SettingsTargets wires subsystems to receive loaded player settings at startup or when settings change.
 // Every field is optional; nil targets are skipped.
 type SettingsTargets struct {
-	// Sound receives master and group volumes from Settings.Audio.
+	// Sound receives master volume, group volumes, mono mode, and left/right balance from Settings.Audio.
 	// When Settings.Audio.Muted is true, the mixer's master volume is set to 0.
 	Sound *sound.Mixer
 
@@ -877,6 +930,12 @@ func Apply(s Settings, targets SettingsTargets) error {
 				errs = append(errs, fmt.Errorf("save: apply audio group %q: %w", name, err))
 			}
 		}
+		if s.Audio.Mono != nil {
+			targets.Sound.SetMono(*s.Audio.Mono)
+		} else {
+			targets.Sound.FollowSystemMono()
+		}
+		targets.Sound.SetBalance(float32(s.Audio.Balance))
 	}
 	if targets.SetMasterVolume != nil {
 		targets.SetMasterVolume(effectiveMaster)
