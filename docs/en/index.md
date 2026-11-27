@@ -46,7 +46,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | Room maps with per-room camera bounds and cut, slide or fade transitions between them |
 | `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception |
 | `ai/perception3d` | `github.com/nsgo-dev/game/pkg/ai/perception3d` | [ai](ai.md#3d) | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
-| `navbake` | `github.com/nsgo-dev/game/pkg/navbake` | [navbake](navbake.md) | Bakes `ai.NavMesh` polygons from concave obstacles or a tilemap's solid cells for each agent radius, saved as versioned YAML, with a debug overlay |
+| `ai/navbake` | `github.com/nsgo-dev/game/pkg/ai/navbake` | [navbake](navbake.md) | Bakes `ai.NavMesh` polygons from concave obstacles or a tilemap's solid cells for each agent radius, saved as versioned YAML, with a debug overlay |
 | `rts` | `github.com/nsgo-dev/game/pkg/rts` | [rts](rts.md) | Flow fields, a `Crowd` of many units with separation, YAML formations, box/click selection and control groups |
 | `procgen` | `github.com/nsgo-dev/game/pkg/procgen` | [procgen](procgen.md) | Seeded BSP rooms, cellular-automata caves and wave function collapse from YAML rules, with connectivity checks and tilemap painting |
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | Input `Recorder`/`Player` with editable YAML recordings and deterministic test assertions |
@@ -58,7 +58,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `math2d` | `github.com/nsgo-dev/game/pkg/math2d` | [math2d](math2d.md) | Shared 2D `Vec2`, `Rect`, `Circle` and `Affine` types with lossless `core` conversions |
 | `gameui` | `github.com/nsgo-dev/game/pkg/gameui` | [gameui](gameui.md) | In-canvas box-layout menus, virtual-resolution scaling, spatial focus nav and world-anchored views |
 | `lights2d` | `github.com/nsgo-dev/game/pkg/lights2d` | [lights2d](lights2d.md) | 2D ambient darkness, point/cone lights, visibility-polygon shadows and normal-mapped sprites |
-| `tileshape` | `github.com/nsgo-dev/game/pkg/tileshape` | [tileshape](tileshape.md) | Tilemap collision and lighting geometry: a physics `TileGrid` view, slopes from per-tile shapes, merged outlines and `lights2d` occluders |
+| `tilemap/tileshape` | `github.com/nsgo-dev/game/pkg/tilemap/tileshape` | [tileshape](tileshape.md) | Tilemap collision and lighting geometry: a physics `TileGrid` view, slopes from per-tile shapes, merged outlines and `lights2d` occluders |
 | `effects` | `github.com/nsgo-dev/game/pkg/effects` | [effects](effects.md) | Kage shader passes chained over the game's frame in one draw, uniforms on the frame clock and CPU reference pictures |
 | `worldmap` | `github.com/nsgo-dev/game/pkg/worldmap` | [worldmap](worldmap.md) | YAML room maps, saved room discovery and markers, a minimap of the current area and a world map |
 | `fog` | `github.com/nsgo-dev/game/pkg/fog` | [fog](fog.md) | Per-team fog of war: shadowcast vision sources, explored versus visible cells, map overlay and JSON saves |
@@ -84,7 +84,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D node tree, sockets/attachments, dynamic fat-AABB/SAH BVH, Orbit/FPS/ThirdPerson cameras and picking |
 | `anim3d` | `github.com/nsgo-dev/game/pkg/anim3d` | [anim3d](anim3d.md) | 3D pose state machines, 1D/2D blend spaces, bone-masked/additive layers, clip events, IK and root motion |
 | `world3d` | `github.com/nsgo-dev/game/pkg/world3d` | [world3d](world3d.md) | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, scattered foliage and floating-origin streaming |
-| `navbake3d` | `github.com/nsgo-dev/game/pkg/navbake3d` | [navbake3d](navbake3d.md) | Navigation meshes baked from glTF, terrain, `GridMap` and physics level geometry per agent type, saved as YAML a scene names, with debug drawing and `game navmesh` |
+| `ai/navbake3d` | `github.com/nsgo-dev/game/pkg/ai/navbake3d` | [navbake3d](navbake3d.md) | Navigation meshes baked from glTF, terrain, `GridMap` and physics level geometry per agent type, saved as YAML a scene names, with debug drawing and `game navmesh` |
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | Chunked 3D voxel worlds with greedy meshing, cross-chunk culling and AO, dirty-chunk editing, DDA raycasting and YAML saves |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU mesh buffers, textures and samplers, camera uniforms, CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos, billboards, 3D ribbon trails and GPU budgets |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | Scene file objects drawn in 3D: built-in primitives and glTF models with material overrides, built into a `scene3d` tree with bounds and drawn by a lit, textured renderer |

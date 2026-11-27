@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/navbake"
+	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )

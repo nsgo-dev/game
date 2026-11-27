@@ -241,4 +241,4 @@ YAML scenes can also set `ambientColor` and attach built-in `light2d` and `occlu
 
 ## 2D navigation regions in scene files
 
-YAML scenes can declare walkable and obstacle `navregion2d` polygons directly on objects, optionally subtracting solid tilemap collision geometry (`subtractTileCollision: true`). `sceneformat.Build` bakes them via [`game/navbake`](navbake.md) into `BuiltScene.NavBake2D` (`*navbake.Mesh`) and `BuiltScene.NavMesh2D` (`*ai.NavMesh`), so the editor's 2D NavMesh overlay and **Test Path** tool produce the exact same path as the game ([`game/editor`](editor.md#built-in-2d-navigation-region-components-888)).
+YAML scenes can declare walkable and obstacle `navregion2d` polygons directly on objects, optionally subtracting solid tilemap collision geometry (`subtractTileCollision: true`). `sceneformat.Build` bakes them via [`game/ai/navbake`](navbake.md) into `BuiltScene.NavBake2D` (`*navbake.Mesh`) and `BuiltScene.NavMesh2D` (`*ai.NavMesh`), so the editor's 2D NavMesh overlay and **Test Path** tool produce the exact same path as the game ([`game/editor`](editor.md#built-in-2d-navigation-region-components-888)).

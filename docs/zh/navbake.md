@@ -1,9 +1,9 @@
 # navbake
 
-`game/navbake` 烘焙 `ai.NavMesh` 所搜索的 2D 导航网格：输入可以是关卡的外轮廓加上凹障碍物与洞，也可以是 tilemap 的实心格；按每种代理的半径收缩后，划分为凸多边形。烘焙结果保存为与关卡放在一起的带版本 YAML 文件，`Draw` 可将其绘制为调试叠加层。
+`game/ai/navbake` 烘焙 `ai.NavMesh` 所搜索的 2D 导航网格：输入可以是关卡的外轮廓加上凹障碍物与洞，也可以是 tilemap 的实心格；按每种代理的半径收缩后，划分为凸多边形。烘焙结果保存为与关卡放在一起的带版本 YAML 文件，`Draw` 可将其绘制为调试叠加层。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/navbake"
+import "github.com/nsgo-dev/game/pkg/ai/navbake"
 ```
 
 `ai.BuildNavMesh` 接收游戏已经切好的凸多边形，路径紧贴多边形的角走。`navbake` 负责切分，并让路径与每面墙保持代理半径的距离，就像 Godot 烘焙导航多边形、Recast 烘焙 3D 网格那样。

@@ -1,9 +1,9 @@
 # tileshape
 
-`github.com/nsgo-dev/game/pkg/tileshape` 从 [`tilemap.Tilemap`](tilemap.md) 推导碰撞与光照几何：一个 `View`，可直接作为 [physics](physics.md) 与 [platformer](platformer.md) 控制器的 `TileGrid`；斜坡与非整格瓦片生成的斜坡线段；实心格子与瓦片形状合并后的轮廓；静态盒体；以及 [lights2d](lights2d.md) 遮挡体。它相当于 Godot TileSet 中每个瓦片的物理多边形与遮挡多边形。
+`github.com/nsgo-dev/game/pkg/tilemap/tileshape` 从 [`tilemap.Tilemap`](tilemap.md) 推导碰撞与光照几何：一个 `View`，可直接作为 [physics](physics.md) 与 [platformer](platformer.md) 控制器的 `TileGrid`；斜坡与非整格瓦片生成的斜坡线段；实心格子与瓦片形状合并后的轮廓；静态盒体；以及 [lights2d](lights2d.md) 遮挡体。它相当于 Godot TileSet 中每个瓦片的物理多边形与遮挡多边形。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/tileshape"
+import "github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 ```
 
 ## 瓦片形状

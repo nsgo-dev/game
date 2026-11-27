@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 )
 
 // navGameYAML declares two agent types for game navmesh.
@@ -53,7 +53,7 @@ layers:
 func newNavGame(t *testing.T, gameYAML, scene string) string {
 	t.Helper()
 	dir := newGameDir(t, gameYAML)
-	model, err := os.ReadFile(filepath.Join("..", "..", "pkg", "navbake3d", "testdata", "level", "box.gltf"))
+	model, err := os.ReadFile(filepath.Join("..", "..", "pkg", "ai", "navbake3d", "testdata", "level", "box.gltf"))
 	if err != nil {
 		t.Fatal(err)
 	}

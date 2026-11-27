@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 

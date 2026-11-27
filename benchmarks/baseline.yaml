@@ -1,5 +1,5 @@
 version: 1
-note: Performance baselines for game benchmarks. Update with go tool game bench -baseline benchmarks/baseline.yaml -update ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/navbake3d
+note: Performance baselines for game benchmarks. Update with go tool game bench -baseline benchmarks/baseline.yaml -update ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/ai/navbake3d
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
 benchmarks:
   BenchmarkBakeReferenceLevel: {ns_per_op: 10000000, bytes_per_op: 3100000, allocs_per_op: 860}

@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/input"
-	"github.com/nsgo-dev/game/pkg/navbake"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"

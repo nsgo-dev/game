@@ -73,6 +73,8 @@
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
 | `game/pkg/ability` | 实验性 | [ability](ability.md) |
 | `game/pkg/ai` | 稳定 | [ai](ai.md) |
+| `game/pkg/ai/navbake` | 实验性 | [navbake](navbake.md) |
+| `game/pkg/ai/navbake3d` | 实验性 | [navbake3d](navbake3d.md) |
 | `game/pkg/ai/perception3d` | 实验性 | [ai](ai.md) |
 | `game/pkg/anim3d` | 实验性 | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | 实验性 | [animclip](animclip.md) |
@@ -104,8 +106,6 @@
 | `game/pkg/math3d` | 实验性 | [math3d](math3d.md) |
 | `game/pkg/mcp` | 实验性 | [mcp](mcp.md) |
 | `game/pkg/modding` | 实验性 | [modding](modding.md) |
-| `game/pkg/navbake` | 实验性 | [navbake](navbake.md) |
-| `game/pkg/navbake3d` | 实验性 | [navbake3d](navbake3d.md) |
 | `game/pkg/online/accounts` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/pgstore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/sqlitestore` | 实验性 | [accounts](accounts.md) |
@@ -176,7 +176,7 @@
 | `game/pkg/stats` | 实验性 | [stats](stats.md) |
 | `game/pkg/text` | 实验性 | [text](text.md) |
 | `game/pkg/tilemap` | 稳定 | [tilemap](tilemap.md) |
-| `game/pkg/tileshape` | 实验性 | [tileshape](tileshape.md) |
+| `game/pkg/tilemap/tileshape` | 实验性 | [tileshape](tileshape.md) |
 | `game/pkg/tooling/apiref` | 实验性 | |
 | `game/pkg/tooling/assetbuild` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/assetcheck` | 实验性 | [命令行](cli.md) |

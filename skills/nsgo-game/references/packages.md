@@ -51,7 +51,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/pixelfx/water` | Experimental | pixelfx water effects (bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash, whirlpool) |
 | `game/pkg/pixelfx/weather` | Experimental | pixelfx weather loops (aurora, blizzard, cherry blossoms, clouds, falling leaves, fireflies, fog, god rays, rain, shooting stars, snow, storm) |
 | `game/pkg/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
-| `game/pkg/tileshape` | Experimental | Tilemap collision geometry: a physics `TileGrid` view, slopes from Tiled per-tile shapes, merged outlines, static boxes and `lights2d` occluders |
+| `game/pkg/tilemap/tileshape` | Experimental | Tilemap collision geometry: a physics `TileGrid` view, slopes from Tiled per-tile shapes, merged outlines, static boxes and `lights2d` occluders |
 | `game/pkg/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/pkg/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
 | `game/pkg/cutscene` | Experimental | Skippable video and YAML timeline cutscenes (camera, actor, dialogue, sound and music tracks) |
@@ -80,7 +80,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/anim3d` | Experimental | 3D pose state machines, 1D/2D blend spaces, bone masks, clip events, IK, root motion |
 | `game/pkg/physics3d` | Experimental | 3D rigid bodies, shapes, raycasts, sweeps and character movement |
 | `game/pkg/world3d` | Experimental | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, foliage, floating-origin streaming |
-| `game/pkg/navbake3d` | Experimental | Recast-style navigation mesh baking from glTF, scenes, terrain, GridMaps and static colliders, one mesh per agent type, versioned YAML output, debug draw |
+| `game/pkg/ai/navbake3d` | Experimental | Recast-style navigation mesh baking from glTF, scenes, terrain, GridMaps and static colliders, one mesh per agent type, versioned YAML output, debug draw |
 | `game/pkg/voxel` | Experimental | Chunked 3D voxel worlds, greedy meshing, cross-chunk AO, DDA raycasting, YAML saves |
 | `game/pkg/gltf` | Experimental | glTF 2.0 (`.gltf`/`.glb`) loader for meshes, materials, skins and animations |
 | `game/pkg/vehicle` | Experimental | Raycast cars on `physics3d`, suspension, tire friction, checkpoints, laps and YAML lap ghosts |
@@ -91,7 +91,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | --- | --- | --- |
 | `game/pkg/ai` | Stable | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception (sight, hearing, memory) |
 | `game/pkg/ai/perception3d` | Experimental | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
-| `game/pkg/navbake` | Experimental | Bakes 2D navmeshes from obstacles or tilemaps with an agent radius, versioned YAML meshes, debug drawing |
+| `game/pkg/ai/navbake` | Experimental | Bakes 2D navmeshes from obstacles or tilemaps with an agent radius, versioned YAML meshes, debug drawing |
 | `game/pkg/platformer` | Experimental | Platformer `Controller` (coyote time, jump buffer, variable jump, wall slide/jump) from YAML |
 | `game/pkg/bullets` | Experimental | Pooled shooter bullet patterns (rings, spirals, aimed bursts) from YAML |
 | `game/pkg/cards` | Experimental | Board slot drag-and-drop, fanned hands, decks, piles, grids and YAML boards |

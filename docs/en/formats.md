@@ -740,7 +740,7 @@ conflicts:
       "y": 280
     theirs: null
 ```
-<!-- format: navbake3d -->
+<!-- format: ai/navbake3d -->
 ### 3D navigation meshes
 
 | Files | Version | Read and written by | Fields |
@@ -1774,7 +1774,7 @@ root:
         home: home_pos
 ```
 
-<!-- format: navbake -->
+<!-- format: ai/navbake -->
 ### Navigation meshes
 
 | Files | Version | Read and written by | Fields |

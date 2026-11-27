@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/cutscene"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/l10n"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -567,7 +567,7 @@ func TestNavMeshSchemaShapeAndValidation(t *testing.T) {
 	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
 		t.Fatal("navmesh schema accepts unknown top-level keys")
 	}
-	data, err := os.ReadFile(filepath.Join(root, "pkg", "navbake3d", "testdata", "reference.navmesh.yaml"))
+	data, err := os.ReadFile(filepath.Join(root, "pkg", "ai", "navbake3d", "testdata", "reference.navmesh.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

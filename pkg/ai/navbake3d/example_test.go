@@ -3,8 +3,8 @@ package navbake3d_test
 import (
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 

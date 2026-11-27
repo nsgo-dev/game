@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/math2d"
-	"github.com/nsgo-dev/game/pkg/navbake"
 	"github.com/nsgo-dev/game/pkg/tilemap"
-	"github.com/nsgo-dev/game/pkg/tileshape"
+	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

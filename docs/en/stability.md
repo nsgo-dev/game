@@ -73,6 +73,8 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
 | `game/pkg/ai` | Stable | [ai](ai.md) |
+| `game/pkg/ai/navbake` | Experimental | [navbake](navbake.md) |
+| `game/pkg/ai/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
 | `game/pkg/ai/perception3d` | Experimental | [ai](ai.md) |
 | `game/pkg/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | Experimental | [animclip](animclip.md) |
@@ -104,8 +106,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/math3d` | Experimental | [math3d](math3d.md) |
 | `game/pkg/mcp` | Experimental | [mcp](mcp.md) |
 | `game/pkg/modding` | Experimental | [modding](modding.md) |
-| `game/pkg/navbake` | Experimental | [navbake](navbake.md) |
-| `game/pkg/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
 | `game/pkg/online/accounts` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/pgstore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
@@ -176,7 +176,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/stats` | Experimental | [stats](stats.md) |
 | `game/pkg/text` | Experimental | [text](text.md) |
 | `game/pkg/tilemap` | Stable | [tilemap](tilemap.md) |
-| `game/pkg/tileshape` | Experimental | [tileshape](tileshape.md) |
+| `game/pkg/tilemap/tileshape` | Experimental | [tileshape](tileshape.md) |
 | `game/pkg/tooling/apiref` | Experimental | |
 | `game/pkg/tooling/assetbuild` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/assetcheck` | Experimental | [Command Line](cli.md) |

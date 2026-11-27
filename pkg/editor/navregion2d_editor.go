@@ -6,9 +6,9 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/math2d"
-	"github.com/nsgo-dev/game/pkg/navbake"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )

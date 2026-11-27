@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/formattest"
-	"github.com/nsgo-dev/game/pkg/navbake3d"
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 )
 
 func TestFormatConformance(t *testing.T) {
@@ -12,6 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: navbake3d.Parse,
 		Encode: navbake3d.Encode,
 		Files:  []string{"testdata/*.navmesh.yaml"},
-		Doc:    "navbake3d",
+		Doc:    "ai/navbake3d",
 	})
 }

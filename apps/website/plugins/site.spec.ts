@@ -35,6 +35,8 @@ describe('parsing', () => {
     assert.equal(category('game'), 'core')
     assert.equal(category('game/pkg/sprite'), 'core')
     assert.equal(category('game/pkg/ai/perception3d'), '3d')
+    assert.equal(category('game/pkg/ai/navbake3d'), '3d')
+    assert.equal(category('game/pkg/tilemap/tileshape'), 'core')
     assert.equal(category('game/pkg/tooling/pack'), 'tools')
     assert.equal(category('game/pkg/online/leaderboard/selfhost'), 'online')
     assert.equal(category('game/pkg/online/netplay'), 'online')
