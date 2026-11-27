@@ -38,6 +38,7 @@ on:
       - main
     paths:
       - "tools/agenteval/**"
+      - "!tools/agenteval/README.md"
       - "tools/go.mod"
       - "tools/go.sum"
       - "skills/nsgo-game/**"
@@ -45,6 +46,7 @@ on:
   pull_request:
     paths:
       - "tools/agenteval/**"
+      - "!tools/agenteval/README.md"
       - "tools/go.mod"
       - "tools/go.sum"
       - "skills/nsgo-game/**"
