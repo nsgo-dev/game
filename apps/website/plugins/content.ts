@@ -276,7 +276,7 @@ export async function loadDoc(lang, slug) {
 }`
 }
 
-// A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test at the repository root keeps the table complete and the Chinese one equal to it.
+// A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test in internal/repocheck keeps the table complete and the Chinese one equal to it.
 const STABILITY_ROW = /^\| `([^`]+)` \| (Stable|Experimental) \| (?:\[[^\]]+\]\(([a-z0-9-]+)\.md\))? ?\|$/
 
 // readStability reads each package's status from docs/en/stability.md, by the slug of its guide.

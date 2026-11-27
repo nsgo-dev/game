@@ -1,6 +1,6 @@
 // Package formattest checks, in a format package's tests, that a YAML format this repository defines follows the rules in AGENTS.md: it refuses unknown fields and versions it does not support, writes the same bytes every time it saves the same value, and loads and saves each of its testdata files without changing a byte. It also checks that the format has an entry on the File Formats reference page, docs/en/formats.md and docs/zh/formats.md, whose examples load and save to the same bytes.
 //
-// Every package that defines such a format runs [Run] from a test, and TestFormatPackagesRunConformance in package game fails a package that decodes YAML and does not, unless it is listed there as one that reads no format of its own.
+// Every package that defines such a format runs [Run] from a test, and TestFormatPackagesRunConformance in internal/repocheck fails a package that decodes YAML and does not, unless it is listed there as one that reads no format of its own.
 package formattest
 
 import (
@@ -227,7 +227,7 @@ type Block struct {
 	Line int
 }
 
-// ParseEntries returns the entries a reference page marks, in page order. [Run] and the test of the page's entries in package game read the page with it, so both see the same entries and examples.
+// ParseEntries returns the entries a reference page marks, in page order. [Run] and the test of the page's entries in internal/repocheck read the page with it, so both see the same entries and examples.
 //
 // An entry starts at a line "<!-- format: ID -->", where ID has no spaces, and ends at the next such line or at a line that starts with "# " or "## ". Trailing spaces and a carriage return on a line are ignored. A fenced code block starts at a line of three backticks and a language, possibly indented, and ends at a line of three backticks; markers and headings inside one are its contents. ParseEntries fails on a marker that is indented, malformed or given twice, on a block whose language is "yml" (write "yaml", which the checks look for) and on a block that is not closed, naming the line.
 func ParseEntries(data []byte) ([]Entry, error) {
