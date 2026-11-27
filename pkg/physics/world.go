@@ -73,12 +73,39 @@ type World struct {
 	GravityY  float32
 
 	triggerActive map[*Trigger][]*Body
+	nextBodyID    uint64
+	nextTriggerID uint64
+}
+
+func (w *World) ensureBodyID(b *Body) {
+	if b == nil || b.ID != 0 {
+		return
+	}
+	if b.internalID == 0 {
+		w.nextBodyID++
+		b.internalID = w.nextBodyID
+	} else if b.internalID > w.nextBodyID {
+		w.nextBodyID = b.internalID
+	}
+}
+
+func (w *World) ensureTriggerID(tr *Trigger) {
+	if tr == nil || tr.ID != 0 {
+		return
+	}
+	if tr.internalID == 0 {
+		w.nextTriggerID++
+		tr.internalID = w.nextTriggerID
+	} else if tr.internalID > w.nextTriggerID {
+		w.nextTriggerID = tr.internalID
+	}
 }
 
 // Add appends non-nil bodies to w.Bodies.
 func (w *World) Add(bodies ...*Body) {
 	for _, b := range bodies {
 		if b != nil {
+			w.ensureBodyID(b)
 			w.Bodies = append(w.Bodies, b)
 		}
 	}

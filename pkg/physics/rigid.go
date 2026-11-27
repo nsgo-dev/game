@@ -86,6 +86,9 @@ type RigidBody struct {
 	// targetVX, targetVY and targetAV are the velocity the last target gave the body, when targetDriven: a Step with no new target stops a body still moving at it.
 	targetVX, targetVY, targetAV float32
 	targetDriven                 bool
+
+	// internalID is assigned by RigidWorld when ID is 0 so Restore matches pointers by identity without falling back to slice index.
+	internalID uint64
 }
 
 // NewRigidBody returns a RigidBody holding s, a shape in world coordinates, with its center of mass at s's Centroid and its inertia computed from s for mass spread evenly over its area. If mass <= 0, or s is a Segment or Chain, the body is static. A Box or Circle gives the same body as NewRigidBox or NewRigidCircle.
@@ -497,6 +500,47 @@ type RigidWorld struct {
 	// sensing lists the sensors and the bodies overlapping them after the last Step, in pair order; sensorEvents are the changes that Step found.
 	sensing      []rigidSense
 	sensorEvents []SensorEvent
+
+	nextBodyID    uint64
+	nextTriggerID uint64
+	nextJointID   uint64
+}
+
+func (w *RigidWorld) ensureBodyID(b *RigidBody) {
+	if b == nil || b.ID != 0 {
+		return
+	}
+	if b.internalID == 0 {
+		w.nextBodyID++
+		b.internalID = w.nextBodyID
+	} else if b.internalID > w.nextBodyID {
+		w.nextBodyID = b.internalID
+	}
+}
+
+func (w *RigidWorld) ensureTriggerID(tr *Trigger) {
+	if tr == nil || tr.ID != 0 {
+		return
+	}
+	if tr.internalID == 0 {
+		w.nextTriggerID++
+		tr.internalID = w.nextTriggerID
+	} else if tr.internalID > w.nextTriggerID {
+		w.nextTriggerID = tr.internalID
+	}
+}
+
+func (w *RigidWorld) ensureJointID(j Joint) {
+	ij, ok := j.(identifiableJoint)
+	if !ok {
+		return
+	}
+	if id := ij.jointInternalID(); id == 0 {
+		w.nextJointID++
+		ij.setJointInternalID(w.nextJointID)
+	} else if id > w.nextJointID {
+		w.nextJointID = id
+	}
 }
 
 // JointBreakEvents returns the deterministic slice of JointBreakEvents produced
@@ -516,6 +560,7 @@ func (w *RigidWorld) AddBody(bodies ...*RigidBody) {
 				b.GravityScale = 1
 			}
 			b.gravityScaleSet = true
+			w.ensureBodyID(b)
 			w.Bodies = append(w.Bodies, b)
 		}
 	}
@@ -539,6 +584,7 @@ func (w *RigidWorld) RemoveBody(b *RigidBody) bool {
 func (w *RigidWorld) AddJoint(joints ...Joint) {
 	for _, j := range joints {
 		if j != nil {
+			w.ensureJointID(j)
 			w.Joints = append(w.Joints, j)
 			a, b := jointPair(j)
 			a.wakeIfSleeping()

@@ -20,6 +20,9 @@ type Trigger struct {
 	OnExit   func(*Body)
 	Area     AreaSettings
 	UserData any
+
+	// internalID is assigned by World or RigidWorld when ID is 0 so Restore matches pointers by identity without falling back to slice index.
+	internalID uint64
 }
 
 type triggerEvent struct {
@@ -31,6 +34,7 @@ type triggerEvent struct {
 func (w *World) AddTrigger(triggers ...*Trigger) {
 	for _, tr := range triggers {
 		if tr != nil {
+			w.ensureTriggerID(tr)
 			w.Triggers = append(w.Triggers, tr)
 		}
 	}
