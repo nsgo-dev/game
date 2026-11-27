@@ -127,7 +127,7 @@ NSGo Game 面向六个主要构建目标——macOS、iOS、Windows、Linux、An
 
 游戏主机（Nintendo Switch、PlayStation 和 Xbox）不在支持范围内：它们的 SDK 受保密协议（NDA）约束，且需要 C 工具链，而 NSGo 和本仓库只用 Go，不包含手写的 C 代码。
 
-关于六个构建目标的图标、签名、公证、商店打包与 `nsgo check` 验证，见[构建与发布](shipping.md)；打包图集、转换音频、生成资源清单、编码纹理、打开场景编辑器，以及从 `game.yaml` 构建游戏全部资源且只重建有改动部分的 `nsgo game` 见[命令行](cli.md)。
+关于六个构建目标的图标、签名、公证、商店打包与 `nsgo check` 验证，见[构建与发布](shipping.md)；打包图集、转换音频、生成资源清单、编码纹理、打开场景编辑器，以及从 `game.yaml` 构建游戏全部资源且只重建有改动部分的 `go tool game` 见[命令行](cli.md)。
 
 ### VR 与 AR
 

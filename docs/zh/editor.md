@@ -2,7 +2,7 @@
 
 本文档记录 NSGo 游戏编辑器的范围决策（[#159](https://github.com/nsgo-dev/game/issues/159)），并说明 `github.com/nsgo-dev/game/pkg/sceneformat` 实现的第 1 版 YAML 场景格式（[#160](https://github.com/nsgo-dev/game/issues/160)）。
 
-独立桌面版 **NSGo Game Editor**（`cmd/editor`）安装包已在 [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) 自动发布——包含经组织 Developer ID 签名与 Apple 公证的 macOS `.dmg`（`arm64` / `x64`）、Windows `-setup.exe`（`x64` / `arm64`）与 Linux `.deb` / `.pkg.tar.gz` / `.AppImage`（`x64` / `arm64`），并附带一键安装脚本（`install.sh` / `install.ps1`）。也可通过 `nsgo game editor` 或 `go run ./cmd/editor` 直接启动。
+独立桌面版 **NSGo Game Editor**（`cmd/editor`）安装包已在 [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) 自动发布——包含经组织 Developer ID 签名与 Apple 公证的 macOS `.dmg`（`arm64` / `x64`）、Windows `-setup.exe`（`x64` / `arm64`）与 Linux `.deb` / `.pkg.tar.gz` / `.AppImage`（`x64` / `arm64`），并附带一键安装脚本（`install.sh` / `install.ps1`）。也可通过 `go tool game editor` 或 `go run ./cmd/editor` 直接启动。
 
 ## 编辑器范围决策（#159）
 
@@ -40,10 +40,10 @@ import "github.com/nsgo-dev/game/pkg/sceneformat"
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `version` | `int` | 必填的格式版本号：`4`（`CurrentVersion`），未使用版本 4 3D 光源/环境/相机的版本 3 视差/重复场景为 `3`，仅使用版本 2 字段的场景为 `2`，未使用版本 2–4 新增字段的场景为 `1`。`Encode` 原样写回。 |
-| `uid` | `string` | 可选的稳定 ID，文件改名或移动后保持不变，由 `nsgo game index` 写入（所有版本均可用，见[稳定引用](project.md#稳定引用)）。`Resolve` 保留场景自身的 uid，而不是基础场景的。 |
+| `uid` | `string` | 可选的稳定 ID，文件改名或移动后保持不变，由 `go tool game index` 写入（所有版本均可用，见[稳定引用](project.md#稳定引用)）。`Resolve` 保留场景自身的 uid，而不是基础场景的。 |
 | `inherits` | `string` | 可选，从项目根目录起、以斜杠分隔的基础场景路径，本场景继承该场景（版本 2 及以上，见下文“实例化与继承”）。 |
 | `name` | `string` | 可选的场景可读名称。 |
-| `navMesh` | `string` | 可选，从项目根目录起、以斜杠分隔的场景烘焙[导航网格文件](navbake3d.md)路径，由 `nsgo game navmesh` 写入（所有版本均可用）。继承其他场景时，它会替换基础场景的值。 |
+| `navMesh` | `string` | 可选，从项目根目录起、以斜杠分隔的场景烘焙[导航网格文件](navbake3d.md)路径，由 `go tool game navmesh` 写入（所有版本均可用）。继承其他场景时，它会替换基础场景的值。 |
 | `virtualWidth`、`virtualHeight` | `float32` | 虚拟视口尺寸（单位为点）。两者必须同时为 `0` 或同时为正数。 |
 | `backgroundColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"#141824"`）。在绘制各图层前填充 `(0, 0, virtualWidth, virtualHeight)`。 |
 | `ambientColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"rgba(12, 16, 30, 0.85)"`）。设置场景 2D 光照通道的环境暗场颜色（`lights2d.Scene.Ambient`，两个版本均可用）。 |
@@ -533,7 +533,7 @@ loop.Update = func(dt time.Duration) {
 
 #### 检查连接
 
-`nsgo game check` 会解析每个实例化或继承其他场景的场景。场景无法解析时（例如循环引用，或覆盖项指向不存在的对象）它会失败，并报告实例所在行或 `inherits` 行；连接的 `from` 或 `to` 指向解析后场景中不存在的对象时也会失败，并报告写有该名称的行。事件和处理函数在 Go 中声明，命令行无法加载它们，所以游戏在自己的测试中用 `assetcheck.CheckWith` 和自己的注册表检查它们。它会在文件和行上报告指向对象未声明的事件、处理函数或参数的连接，以及不符合类型的组件；对实例化或继承其他场景的场景，它还会检查覆盖项写入的组件和解析后场景的每个连接，所以覆盖项破坏了被实例化或被继承的场景带来的连接时（例如再加一个声明同名事件的组件），会在该覆盖项处失败：
+`go tool game check` 会解析每个实例化或继承其他场景的场景。场景无法解析时（例如循环引用，或覆盖项指向不存在的对象）它会失败，并报告实例所在行或 `inherits` 行；连接的 `from` 或 `to` 指向解析后场景中不存在的对象时也会失败，并报告写有该名称的行。事件和处理函数在 Go 中声明，命令行无法加载它们，所以游戏在自己的测试中用 `assetcheck.CheckWith` 和自己的注册表检查它们。它会在文件和行上报告指向对象未声明的事件、处理函数或参数的连接，以及不符合类型的组件；对实例化或继承其他场景的场景，它还会检查覆盖项写入的组件和解析后场景的每个连接，所以覆盖项破坏了被实例化或被继承的场景带来的连接时（例如再加一个声明同名事件的组件），会在该覆盖项处失败：
 
 ```go
 func TestScenesCheck(t *testing.T) {
@@ -570,7 +570,7 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 
 ### 项目
 
-编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `nsgo game editor <dir>` 即可打开一个项目目录。设置了 `ProjectAssets`（`editorcmd` 包的编辑器命令会设置它）时，打开项目会把 `Resolver` 换成项目目录上的 `project.Resolver`：场景用项目自己的精灵图集绘制，图集按名称从离当前场景最近处查找，方式与 `game check` 相同；资源浏览器列出这些图集，`PlaceScene` 实例化项目的场景文件，材质、物理材质、YAML 图块集以及 Tiled 和 LDtk 地图也从项目中加载，其中图块集和地图像 `FSAssets` 一样通过它的 `ReadFile` 读取。场景引用的图集从引用它的文件处就近查找，因此从其他目录实例化或继承的场景文件，会用 `game check` 为它找到的图集绘制。编辑器每次做出可能增加、删除或改写图集和材质文件的改动（例如安装或移除包、移动文件、`ReloadAssets` 或 `RefreshSearch`）后，都会重新读取它们；保存场景则保留已经读取的内容。`OpenProjectScene(path, scene)` 打开项目时用场景文件 `scene` 代替主场景，`nsgo game editor` 打开位于项目目录中的场景文件时就是这样做的，因此 `ScenePath` 会指向它，在它自身中放置它的实例会作为循环被拒绝。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `nsgo game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
+编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `go tool game editor <dir>` 即可打开一个项目目录。设置了 `ProjectAssets`（`editorcmd` 包的编辑器命令会设置它）时，打开项目会把 `Resolver` 换成项目目录上的 `project.Resolver`：场景用项目自己的精灵图集绘制，图集按名称从离当前场景最近处查找，方式与 `game check` 相同；资源浏览器列出这些图集，`PlaceScene` 实例化项目的场景文件，材质、物理材质、YAML 图块集以及 Tiled 和 LDtk 地图也从项目中加载，其中图块集和地图像 `FSAssets` 一样通过它的 `ReadFile` 读取。场景引用的图集从引用它的文件处就近查找，因此从其他目录实例化或继承的场景文件，会用 `game check` 为它找到的图集绘制。编辑器每次做出可能增加、删除或改写图集和材质文件的改动（例如安装或移除包、移动文件、`ReloadAssets` 或 `RefreshSearch`）后，都会重新读取它们；保存场景则保留已经读取的内容。`OpenProjectScene(path, scene)` 打开项目时用场景文件 `scene` 代替主场景，`go tool game editor` 打开位于项目目录中的场景文件时就是这样做的，因此 `ScenePath` 会指向它，在它自身中放置它的实例会作为循环被拒绝。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `go tool game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
 
 打开项目后，资源浏览器下方的文件浏览器（`FilesView`）列出项目中的文件和目录（`ProjectFiles`），不列出 `game index` 和 `game mv` 同样跳过的目录：名称以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。点击一项即可选中它，并把它的路径填入列表下方的输入框；改好路径后点击“Move”，就会通过 `MoveFile` 重命名或移动它；选中 `.yaml`/`.yml` 文件时也可以点击“Open Table”，在数据表编辑器中打开它（`OpenDataTableProjectFile`）；点击“Find Refs”则列出整个项目中指向该文件的所有引用（`ShowReferences`）。编辑器之外的操作改动了文件后，点击“Refresh”会重新列出文件并重新扫描项目搜索与引用索引（`RefreshSearch`）。
 
@@ -878,7 +878,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 编辑器的动画面板在时间轴上为任何已注册属性打关键帧，并把片段保存为 [`animation` 资源文件](resources.md#animation)，由 [animclip](animclip.md) 在游戏中播放（相当于 AnimationPlayer）。打开片段时，面板显示在视口下方。
 
-- **打开片段**：工具栏的 Animate 按钮为选中的对象新建一个一秒长的片段。在 Go 中，`NewClip(target, name, length)` 作用相同；`NewClipFromAsepriteTag(target, tag)` 根据目标对象图集中的 Aseprite 标签生成匹配帧序列、精确时长和循环设置的片段；`NewClipFromFrames(target, name, frames, fps, loop)` 按固定帧率从一组图集帧生成逐帧片段；`OpenClipFile(path, target)` 和 `OpenClipYAML(data, target)` 打开片段文件，并按组件注册表检查（拼错的属性会带着文件名打开失败）；`CloseClip` 关闭片段。当目标对象有精灵图集时，面板的 Flipbook 行也可以直接选择 Aseprite 标签（From Tag）或帧率（From Frames）创建片段。`nsgo game editor scene.yaml clip.animation.yaml [object-id]` 打开一个场景并选中对象 `object-id`（省略时为场景中的第一个对象），片段文件存在时在该对象上打开片段，面板的 Save Clip 按钮会写回该文件。
+- **打开片段**：工具栏的 Animate 按钮为选中的对象新建一个一秒长的片段。在 Go 中，`NewClip(target, name, length)` 作用相同；`NewClipFromAsepriteTag(target, tag)` 根据目标对象图集中的 Aseprite 标签生成匹配帧序列、精确时长和循环设置的片段；`NewClipFromFrames(target, name, frames, fps, loop)` 按固定帧率从一组图集帧生成逐帧片段；`OpenClipFile(path, target)` 和 `OpenClipYAML(data, target)` 打开片段文件，并按组件注册表检查（拼错的属性会带着文件名打开失败）；`CloseClip` 关闭片段。当目标对象有精灵图集时，面板的 Flipbook 行也可以直接选择 Aseprite 标签（From Tag）或帧率（From Frames）创建片段。`go tool game editor scene.yaml clip.animation.yaml [object-id]` 打开一个场景并选中对象 `object-id`（省略时为场景中的第一个对象），片段文件存在时在该对象上打开片段，面板的 Save Clip 按钮会写回该文件。
 - **打关键帧**：选择一个属性（对象字段，如 `x`、`alpha` 或 `sprite.frame`，或已注册的组件字段，如 `body.speed`），按 Key 在播放头处以该属性在场景中的当前值打关键帧；`KeyProperty(target, property, at)` 作用相同。选择 `sprite.frame` 时会出现帧选择器，列出目标对象图集中的帧（`ClipTargetFrames`），可直接为任意帧打关键帧（`KeySpriteFrame(target, frame, at)`）。选中的是其他对象时，关键帧会进入以该对象为目标的轨道。显式指定片段所属对象的轨道与目标为空的轨道视为同一条轨道，两条轨道驱动同一对象同一属性的片段会被拒绝。布尔关键帧保持其值直到下一个关键帧，`sprite.frame` 始终离散步进且不做插值。
 - **编辑关键帧**：每条轨道是一行显示其关键帧的通道；`sprite.frame` 轨道以跨越各自持续时间的帧缩略图格显示每个关键帧（`ClipFrameEntry`）。按下关键帧即选中它并把播放头移到该处，然后可以编辑数值轨道的时间、值和插值方式（`linear`、`smooth` 或 `step`），或编辑 `sprite.frame` 轨道的图集帧（`SetKeyFrame`）和帧时长（`-10ms` / `+10ms`，`FrameDuration`、`SetFrameDuration`），或删除它；在 Go 中对应 `SetKeyValue`、`MoveKey`、`SetKeyInterp`、`DeleteKey` 和 `RemoveClipTrack`。值会按属性检查：布尔为 0 或 1，整数为整数值，并且在字段范围内；`sprite.frame` 帧名必须存在于目标对象的图集中。
 - **片段设置与事件**：面板可编辑片段的名称、长度和循环（`SetClipName`、`SetClipLength`、`SetClipLoop`），并在播放头处添加具名事件（`AddClipEvent`、`DeleteClipEvent`）。
@@ -927,7 +927,7 @@ editor:
   plugins: [health]
 ```
 
-已注册但未被当前项目列出的插件保持关闭；`editor.plugins` 的顺序就是插件面板和工具出现的顺序。`OpenProject` 会在状态栏中列出项目要求、但本程序编译时没有包含的插件（`MissingPlugins`）。`nsgo game editor` 不注册任何插件，也不注册任何组件类型，因此有自己插件的游戏要构建自己的编辑器命令。`nsgo game generate editor` 会在游戏的 `main` 包中写出一个这样的命令，它带 `gameeditor` 标签构建、代替游戏本身，用游戏的 `Components` 和插件调用 `editorcmd.Main`，`nsgo game editor` 会在项目上运行它（[命令行](cli.md#generate)）。`editorcmd` 包是两者共用的命令行：`New(Options)` 用给定的组件类型、插件、名称和库构建编辑器并设置 `ProjectAssets`，按这些组件类型以及注册表本身没有注册的内置物理组件（`body2d`、`collider2d`、`trigger2d` 及其 3D 形式）检查场景，`Open(ed, args)` 像 `nsgo game editor` 一样打开项目、场景或剪辑，`Main` 和 `Run` 解析命令行，没有参数时打开工作目录中的项目，并显示窗口，窗口大小为 1120×680 点，除非 `Options.WindowWidth` 和 `Options.WindowHeight` 设置了其他大小。手写的编辑器命令也以同样的方式调用 `editorcmd.Main`：
+已注册但未被当前项目列出的插件保持关闭；`editor.plugins` 的顺序就是插件面板和工具出现的顺序。`OpenProject` 会在状态栏中列出项目要求、但本程序编译时没有包含的插件（`MissingPlugins`）。`go tool game editor` 不注册任何插件，也不注册任何组件类型，因此有自己插件的游戏要构建自己的编辑器命令。`go tool game generate editor` 会在游戏的 `main` 包中写出一个这样的命令，它带 `gameeditor` 标签构建、代替游戏本身，用游戏的 `Components` 和插件调用 `editorcmd.Main`，`go tool game editor` 会在项目上运行它（[命令行](cli.md#generate)）。`editorcmd` 包是两者共用的命令行：`New(Options)` 用给定的组件类型、插件、名称和库构建编辑器并设置 `ProjectAssets`，按这些组件类型以及注册表本身没有注册的内置物理组件（`body2d`、`collider2d`、`trigger2d` 及其 3D 形式）检查场景，`Open(ed, args)` 像 `go tool game editor` 一样打开项目、场景或剪辑，`Main` 和 `Run` 解析命令行，没有参数时打开工作目录中的项目，并显示窗口，窗口大小为 1120×680 点，除非 `Options.WindowWidth` 和 `Options.WindowHeight` 设置了其他大小。手写的编辑器命令也以同样的方式调用 `editorcmd.Main`：
 
 ```go
 // cmd/editor/main.go：游戏自己的编辑器命令。
@@ -968,13 +968,13 @@ func main() {
 | 游戏（`main`） | 组件包 | 用 `sceneformat.ParseWith` 和注册表加载场景 |
 | `cmd/editor` | `editor`、组件包和插件包 | 注册组件类型和插件，然后打开项目 |
 
-`game.yaml` 在 `editor.plugins` 下列出插件，因此游戏的编辑器打开项目时插件总是启用的。不应在缺少插件时启动的编辑器命令，设置 `editorcmd.Options.RequirePlugins`，或在 `OpenProject` 之后检查 `MissingPlugins`，不为空就失败退出。项目有 `cmd/editor` main 包时，`nsgo game editor` 会用 `go run ./cmd/editor` 运行该命令，就像运行 `game generate editor` 写出的命令一样，并把同样的命令行（`-library` 以及项目、场景文件、剪辑和对象 ID）传给它，所以 `cmd/editor` 应当用 `editorcmd.Main` 或 `editorcmd.Run` 解析命令行。没有导入 `editorcmd` 的 `cmd/editor` 不会被运行：`nsgo game editor` 会说明这一点，并自己打开项目。
+`game.yaml` 在 `editor.plugins` 下列出插件，因此游戏的编辑器打开项目时插件总是启用的。不应在缺少插件时启动的编辑器命令，设置 `editorcmd.Options.RequirePlugins`，或在 `OpenProject` 之后检查 `MissingPlugins`，不为空就失败退出。项目有 `cmd/editor` main 包时，`go tool game editor` 会用 `go run ./cmd/editor` 运行该命令，就像运行 `game generate editor` 写出的命令一样，并把同样的命令行（`-library` 以及项目、场景文件、剪辑和对象 ID）传给它，所以 `cmd/editor` 应当用 `editorcmd.Main` 或 `editorcmd.Run` 解析命令行。没有导入 `editorcmd` 的 `cmd/editor` 不会被运行：`go tool game editor` 会说明这一点，并自己打开项目。
 
 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic)（`examples/fieldmedic`）就是按这种方式组织的可运行游戏。它的病人带有 `health` 组件（`health` 包），它的 `cmd/editor` 注册了 `health` 插件（`healthplugin` 包）：一个停靠在检查器右侧的 Ward 面板，列出每个病人的生命值，其中的 Heal All 按钮在 `Editor.History` 上执行一个可撤销步骤，一次治好所有病人；一个 `health` 组件的检查器，带生命值和上限两个字段以及剩余生命值的条形图；以及一个 Admit 工具，在视口按下处放置一个病人，并在工具启用时为每个病人画出轮廓。它的测试在编辑器中打开游戏自己的项目，操作面板、检查器和工具。编辑器自身的测试中也有一个更小的 `health` 插件（`pkg/editor/plugin_test.go`）。
 
 ## 库面板（#493）
 
-当 `Editor.Library` 设为一个包库（`library.Open`）时（`nsgo game editor -library <索引>` 就会这样设置），资源浏览器旁会出现一个面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。面板上的 Install、Update 和 Remove 按钮调用 `InstallPack` 和 `RemovePack`：把包的文件写到 `game.yaml` 旁边，在项目中记录包及其新增的自动加载条目和插件，然后保存项目；插件包列出的已注册插件会立即启用。正在运行、没有打开项目或项目有未保存修改（`ErrProjectDirty`）时它们会拒绝执行；由于写入的文件无法撤销，它们会清空撤销历史。从 https 库获取包时不会阻塞事件循环，包到达之前按钮显示为忙碌状态（`FetchingPack`）。库的格式以及安装会写入什么，见[资源与插件库](library.md)。
+当 `Editor.Library` 设为一个包库（`library.Open`）时（`go tool game editor -library <索引>` 就会这样设置），资源浏览器旁会出现一个面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。面板上的 Install、Update 和 Remove 按钮调用 `InstallPack` 和 `RemovePack`：把包的文件写到 `game.yaml` 旁边，在项目中记录包及其新增的自动加载条目和插件，然后保存项目；插件包列出的已注册插件会立即启用。正在运行、没有打开项目或项目有未保存修改（`ErrProjectDirty`）时它们会拒绝执行；由于写入的文件无法撤销，它们会清空撤销历史。从 https 库获取包时不会阻塞事件循环，包到达之前按钮显示为忙碌状态（`FetchingPack`）。库的格式以及安装会写入什么，见[资源与插件库](library.md)。
 
 ## 统一设置页面：智能体、项目、输入映射、音频总线、导出、通用偏好与快捷键（#907、#908、#909、#916、#1028、#1060、#1061）
 
@@ -1034,7 +1034,7 @@ func main() {
 
 打开项目后，视口下方的问题面板（`ProblemsView`）会在 UI 协程之外对项目目录叠加所有已打开且未保存的编辑器文档运行 `assetcheck.CheckWith`（使用编辑器的组件注册表）和 `project.Check`，并在状态栏实时显示问题总数（`Problems: N`）。无论是用户还是智能体在编辑器中完成编辑，都会自动防抖重检（`ProblemCheckDebounce`，默认 80 毫秒），无需先保存即可立即发现问题；打开项目（`OpenProject`）、保存文件（`SaveFile`、`SaveProject`、`SaveClipFile`）、移动文件（`MoveFile`，包括撤销与重做）以及更换组件注册表（`SetComponentRegistry`）后也会自动重检。在编辑器之外修改了文件后，可点击面板上的 Check 按钮（`CheckProblems`）手动触发检查。
 
-每行显示一条问题的 `file:line:column` 位置（`assetcheck.Problem.Location`，场景或 YAML 格式能定位时附带从 1 开始的列号）、Spec 告警图标和错误信息，与在同一项目上运行 `nsgo game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，会在新标签页中打开对应场景而不会丢失其他标签页的未保存修改，或在文件浏览器中选中非场景文件（`SelectedFile`、`SelectFile`）。归属于当前打开场景对象的活动问题还会直接通过 Spec Problem 叠加层绘制在 2D 视口的活动对象上（2 px 实线问题外框加带告警图标和消息的实心胶囊，可通过 `SetProblemOverlayVisible` 切换），并在场景树对应行显示问题计数徽章（`ObjectProblems`、`ObjectProblemCount`）。
+每行显示一条问题的 `file:line:column` 位置（`assetcheck.Problem.Location`，场景或 YAML 格式能定位时附带从 1 开始的列号）、Spec 告警图标和错误信息，与在同一项目上运行 `go tool game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，会在新标签页中打开对应场景而不会丢失其他标签页的未保存修改，或在文件浏览器中选中非场景文件（`SelectedFile`、`SelectFile`）。归属于当前打开场景对象的活动问题还会直接通过 Spec Problem 叠加层绘制在 2D 视口的活动对象上（2 px 实线问题外框加带告警图标和消息的实心胶囊，可通过 `SetProblemOverlayVisible` 切换），并在场景树对应行显示问题计数徽章（`ObjectProblems`、`ObjectProblemCount`）。
 
 - **智能体修复建议（`ProposeProblemFix`、`ApplyProposedFix`、`ProblemAgentPanelView`）**：通过 MCP（`game_check`）看到实时问题的智能体，可以调用 `problem_propose_fix` 提交问题、说明与经校验的结构化编辑。提议修复时仅在克隆的场景文档上模拟校验并计算精确的 `-`/`+` YAML 差异，随后在右侧打开 **Agent** 面板展示问题卡片（`file:line:col`）、说明、差异、**Apply fix**、**Show me**、**Ignore** 与 **"Ask about this problem…"**，**绝不自动应用修改或改写任何文件**。只有用户点击 **Apply fix**（`ApplyProposedFix`）时，编辑器才会把修复作为单个可撤销的 `History` 步骤应用，并弹出带 **Undo** 按钮的 Spec Toast；执行一次撤销即可恢复原有 YAML 并让问题重新出现。
 - **定位查看、忽略与追问（`ShowProblem`、`IgnoreProblem`、`AskAboutProblem`）**：**Show me** 会打开问题所在场景、选中并框选对应对象，同时高亮精确的 YAML 代码行。**Ignore** 会从问题面板、状态栏、场景树徽章和视口叠加层中隐藏该问题，直到对应文件再次被修改（基于实时内容哈希追踪）；一旦对该文件进行新编辑且问题仍成立，该问题会自动重新显现。提交 **"Ask about this problem…"** 会将问题、归属对象及已提议的修复一并附带交给回调（`OnAskAboutProblem`）。
@@ -1047,7 +1047,7 @@ func main() {
 
 - **预设、就绪状态与输出目录**：带行内校验地编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。每个预设行都会显示就绪状态（`ExportPresetReadiness`：**Ready**，或在缺少签名/团队配置或资源鸣谢时显示 **Set up**）与权限徽章，左侧导航的 **Export** 条目在存在待配置预设时也会显示警告徽章（`ExportNavWarningMeta`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
-- **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `nsgo game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
+- **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `go tool game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
 
 ### 构建与发布界面（#1048、#1050）
 
@@ -1112,7 +1112,7 @@ func main() {
 - **交互式精灵表切分网格与帧枢轴预览（#880）**：选中图片时，导入面板会在透明棋盘格上渲染实时预览画布（`DrawImageImportPreview`），叠加显示切分网格（`width`、`height`、`margin`、`spacing`、`count`）以及每个切分格子（或未切分整图）的可拖拽枢轴标记。作者可以直接在预览画布上拖拽枢轴（`BeginImagePivotDrag` / `UpdateImagePivotDrag` / `EndImagePivotDrag` / `CancelImagePivotDrag`）、点击默认枢轴预设（`TL`、`Center`、`Bottom`），或按数值编辑/重置 `pivot.default` 与单格 `pivot.cells`（`SelectImportSliceCell`、`SetImageImportPivot`、`SetImageImportDefaultPivot`、`SetImageImportCellPivot`）。每次拖拽在松手时作为单个可撤销步骤写入确定性边车；点击 **Reimport** 或 **Build Assets** 后，打包出的 TexturePacker JSON 会写入对应枢轴并由 `sprite.LoadAtlas` 精确加载为 `Frame.PivotX` 与 `Frame.PivotY`。
 - **交互式 glTF/GLB 模型预览与动画播放（#897）**：在文件浏览器中选中 `.gltf` 或 `.glb` 模型时，导入面板会使用轨道相机渲染该模型（`DrawModelPreview`、`RenderModelPreview`、`OrbitModelPreview`、`PanModelPreview`、`ZoomModelPreview`、`ResetModelPreviewCamera`），实时反映当前生效的导入 `scale`，并展示模型的结构与统计信息（`InspectModelImport`）：原始与缩放后的包围盒、总三角形与顶点数，以及节点、网格、材质与动画列表。每个动画都可以选择、播放、暂停、停止、循环或拖动时间轴定位（`SelectModelPreviewAnimation`、`PlayModelPreviewAnimation`、`PauseModelPreviewAnimation`、`StopModelPreviewAnimation`、`SeekModelPreviewAnimation`、`StepModelPreviewAnimation`），同时支持节点 TRS 变换、骨骼蒙皮与变形目标动画。修改 `scale`、`animations`、`lodHysteresis` 或 `credit` 会通过 `importsettings.Encode` 写入确定性边车并显示读取该文件的 `game.yaml` 模型目标，使下一次 `game assets` 运行仅重建该模型。
 - **校验写入、撤销与单字段重置**：每次编辑都通过 `importsettings.Encode` 严格校验并原子写入边车文件，作为单个可撤销步骤进入 `Editor.History`（`EditAssetImportSettings`、`SetImageImport*` / `SetAudioImport*` / `SetFontImport*` / `SetModelImport*` 以及 `SetAssetImportCredit`）。**撤销（Undo）** 会逐字节恢复编辑前的边车内容（若此前无边车则删除新建文件）；**重置（Reset）**（`ResetAssetImportField`）将单个覆盖项恢复为 `game.yaml` 目标默认值，当不再有任何覆盖项或鸣谢时自动删除空边车文件。
-- **Reimport、Build Assets 与热重载**：检查器中的 **Reimport** 按钮（`ReimportAsset`）与工具栏中的 **Build Assets** 按钮（`BuildAssets` / `BuildAssetsWith`）会在 UI 协程之外运行 `nsgo game assets`，并将标准输出和标准错误实时流式写入停靠的 **Output** 面板（`OutputPanelView`）。构建完成后，`ReloadAssets` 会从磁盘重新加载发生变化的图集与纹理到 `Editor.Resolver`（就地更新 `sceneformat.AtlasMap` 或已有 `*sprite.Atlas`，并在实现或配置了 `AssetReloader` / `OnReloadAssets` 时回调通知），无需重启编辑器即可在资源浏览器和视口中立即生效，并自动重新运行问题检查。自定义工具与测试可注入 `Editor.AssetsCommandRunner`。
+- **Reimport、Build Assets 与热重载**：检查器中的 **Reimport** 按钮（`ReimportAsset`）与工具栏中的 **Build Assets** 按钮（`BuildAssets` / `BuildAssetsWith`）会在 UI 协程之外运行 `go tool game assets`，并将标准输出和标准错误实时流式写入停靠的 **Output** 面板（`OutputPanelView`）。构建完成后，`ReloadAssets` 会从磁盘重新加载发生变化的图集与纹理到 `Editor.Resolver`（就地更新 `sceneformat.AtlasMap` 或已有 `*sprite.Atlas`，并在实现或配置了 `AssetReloader` / `OnReloadAssets` 时回调通知），无需重启编辑器即可在资源浏览器和视口中立即生效，并自动重新运行问题检查。自定义工具与测试可注入 `Editor.AssetsCommandRunner`。
 
 ## 性能分析器面板与帧耗时条（#912）
 
@@ -1149,7 +1149,7 @@ func main() {
 
 当接入了 [`game/mcp`](mcp.md) 的游戏带着 `-automation` 运行时，编辑器会作为 MCP 客户端连接（桌面端通过 `github.com/modelcontextprotocol/go-sdk/mcp` 启动 `go tool nsgo mcp`，也可通过 `ConnectRemote` 或 `Editor.RemoteTransport` 传入任意 `mcp.Transport`），实时查看和调校运行中的游戏：
 
-- **连接运行中的游戏**：在 **Remote** 标签页开启 **Auto-connect on Run**（`SetRunWithAutomation`）或调用 `RunGameWith(RunGameOptions{Automation: true})`，即可向 `nsgo game dev` 传递 `-automation` 并在游戏启动后自动连接；也可直接调用 `ConnectRemote` / `ConnectRemoteCommand` 连接到已在运行的游戏。`NewRemoteBridgeServer(bridge, run)` 将 `*mcp.Bridge` 直接包装为 MCP 服务端，便于确定性的进程内或管道测试。
+- **连接运行中的游戏**：在 **Remote** 标签页开启 **Auto-connect on Run**（`SetRunWithAutomation`）或调用 `RunGameWith(RunGameOptions{Automation: true})`，即可向 `go tool game dev` 传递 `-automation` 并在游戏启动后自动连接；也可直接调用 `ConnectRemote` / `ConnectRemoteCommand` 连接到已在运行的游戏。`NewRemoteBridgeServer(bridge, run)` 将 `*mcp.Bridge` 直接包装为 MCP 服务端，便于确定性的进程内或管道测试。
 - **场景树旁的 Remote 标签页**：在 `SceneTreeView` 顶部可在 **Scene**（`SceneTreeLocal`）与 **Remote**（`SceneTreeRemote`）之间切换。Remote 标签页列出运行中的场景（`game_scenes_list`）、按绘制顺序排列的图层（`game_layers_list`）以及带父子层级的实时实体（`game_entities_list`），游戏未暂停时按 `Editor.RemoteRefreshInterval`（默认 250 ms）自动刷新，也可通过 `RefreshRemote` 手动刷新。不带场景 `ObjectRef` 的运行时生成实体归入 **SPAWNED AT RUNTIME** 分组；运行中被销毁的场景对象会变暗显示并标出消失时的步数。
 - **实时检查器与实时改动（Live Changes）**：在 Remote 标签页选中实时实体（`SelectRemoteEntity`）后，`InspectorView` 会通过 `game_entity_inspect` 展示其全部组件。派生的只读组件（`world_transform2d`、`object_ref`）以实时只读形式显示；可编辑组件渲染对应类型的控件，编辑后立即通过 `game_component_set` 写入运行中的游戏（`SetRemoteComponentField` / `SetRemoteComponentValue`），并在已修改字段旁标出 `"was X"`。每次实时修改都会记录在 **LIVE CHANGES** 列表（`RemoteLiveChanges`）中，断开连接或停止游戏后列表仍保留：可逐行撤回（`RevertRemoteLiveChange`）、全部丢弃（`DiscardRemoteLiveChanges`），或点击 **Keep in scene**（`KeepRemoteLiveChangesInScene`）将所有映射到当前场景对象的改动作为单个可撤销的 `History.Group` 步骤写回场景，一次撤销即可完整还原。
 - **实时控制栏、可调参数与控制台**：连接期间顶部会显示实时控制栏，提供 **Pause / Resume**（`mod+shift+p`、`RemotePause` / `RemoteResume`）、单步 **Step**（暂停时按 `.`）与 **Step N** 固定步进（`RemoteStep`）、时间倍率 **Time Scale**（`0.25×`、`0.5×`、`1×`、`2×`、`RemoteSetTimeScale`），并在状态栏显示实时帧数、模拟时间与实体数量。若游戏配置了 `debug.Console`，远程检查器还会展示实时 **Tunables**（`game_tunables_list` / `RemoteSetTunable`）与 **Console** 命令行（`RemoteExecConsole` / `game_console_exec`）。

@@ -1,6 +1,6 @@
 # 资源与插件库
 
-`github.com/nsgo-dev/game/pkg/tooling/library` 在库中查找共享的资源包、编辑器插件包和模板，并把它们安装到游戏项目里。库是一份任何人都能通过拉取请求添加包的文本索引；安装一个包会把它的文件写入项目，并把这些文件以及它们新增的引用记录在 `game.yaml` 中。`nsgo game library` 从命令行运行它，场景编辑器的库面板从编辑器里运行它。
+`github.com/nsgo-dev/game/pkg/tooling/library` 在库中查找共享的资源包、编辑器插件包和模板，并把它们安装到游戏项目里。库是一份任何人都能通过拉取请求添加包的文本索引；安装一个包会把它的文件写入项目，并把这些文件以及它们新增的引用记录在 `game.yaml` 中。`go tool game library` 从命令行运行它，场景编辑器的库面板从编辑器里运行它。
 
 ## 模组、插件与包（#1268）
 
@@ -28,11 +28,11 @@ Go 插件编译进程序而不是在运行时加载，是因为 Go 没有跨平�
 ## 查找与安装包
 
 ```sh
-nsgo game library list
-nsgo game library list tiles
-nsgo game library -kind plugin list
-nsgo game library install dungeon-tiles
-nsgo game library remove dungeon-tiles
+go tool game library list
+go tool game library list tiles
+go tool game library -kind plugin list
+go tool game library install dungeon-tiles
+go tool game library remove dungeon-tiles
 ```
 
 `list` 列出名称、描述或标签包含所有给定词的包，并显示当前目录（或 `-project` 指定目录）中的项目已安装的版本：
@@ -78,7 +78,7 @@ packs:
 
 ## 在编辑器中
 
-`nsgo game editor -library <索引> <项目>` 会在资源浏览器旁显示库面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。Install（安装）、Update（更新）和 Remove（移除）与命令行的作用相同，之后会保存 `game.yaml`，因此项目有未保存的修改时会被拒绝，请先保存或撤销这些修改。安装写入的文件无法通过撤销历史恢复，所以安装后会清空撤销历史，与打开项目时一样。从 https 库获取包时不会阻塞编辑器；包到达之前面板的按钮不可用，打开另一个项目会取消这次获取。在 Go 中，把 `Editor.Library` 设为 `*library.Library`，并调用 `Editor.InstallPack` 和 `Editor.RemovePack`。
+`go tool game editor -library <索引> <项目>` 会在资源浏览器旁显示库面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。Install（安装）、Update（更新）和 Remove（移除）与命令行的作用相同，之后会保存 `game.yaml`，因此项目有未保存的修改时会被拒绝，请先保存或撤销这些修改。安装写入的文件无法通过撤销历史恢复，所以安装后会清空撤销历史，与打开项目时一样。从 https 库获取包时不会阻塞编辑器；包到达之前面板的按钮不可用，打开另一个项目会取消这次获取。在 Go 中，把 `Editor.Library` 设为 `*library.Library`，并调用 `Editor.InstallPack` 和 `Editor.RemovePack`。
 
 ## 索引
 
@@ -138,7 +138,7 @@ autoload:
 | `autoload` | `files` 中安装时加入 `game.yaml` 自动加载部分的 `scenes`（`.yaml` 或 `.yml`）和 `resources`，每项带有自动加载时使用的 `name`。 |
 | `plugins` | 插件包启用的编辑器插件；插件包至少列出一个，其他类型的包不能列出。 |
 
-包的摘要是对其文件（包括 `pack.yaml`）按字节顺序排列后 `sha256sum` 输出的清单再取 SHA-256：每个文件一行，依次是小写十六进制的 SHA-256、两个空格和路径。`nsgo game library digest <包目录>` 会打印它。
+包的摘要是对其文件（包括 `pack.yaml`）按字节顺序排列后 `sha256sum` 输出的清单再取 SHA-256：每个文件一行，依次是小写十六进制的 SHA-256、两个空格和路径。`go tool game library digest <包目录>` 会打印它。
 
 ## 向共享库添加包
 

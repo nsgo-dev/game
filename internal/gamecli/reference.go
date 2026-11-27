@@ -25,7 +25,7 @@ var referenceTexts = []referenceText{
 	{
 		lang:        "en",
 		title:       "Command Reference",
-		intro:       "Every subcommand of `nsgo game`, which `go tool game` runs alike, with its usage line and flags, generated from the commands' definitions so it always matches `game help`. [Command Line](cli.md) shows how to install the command, what each subcommand is for and how to set up shell completion.",
+		intro:       "Every subcommand of `go tool game` (or `go run github.com/nsgo-dev/game/cmd/game@latest` outside a project), with its usage line and flags, generated from the commands' definitions so it always matches `game help`. [Command Line](cli.md) shows how to add the command as a tool, what each subcommand is for and how to set up shell completion.",
 		flag:        "Flag",
 		def:         "Default",
 		description: "Description",
@@ -34,7 +34,7 @@ var referenceTexts = []referenceText{
 	{
 		lang:        "zh",
 		title:       "命令参考",
-		intro:       "`nsgo game`（与 `go tool game` 等价）的每个子命令及其用法行和参数，由命令定义生成，因此始终与 `game help` 的输出一致；说明文字取自命令自身的英文帮助。如何安装命令、各子命令的用途以及如何设置 shell 补全，见[命令行](cli.md)。",
+		intro:       "`go tool game`（或在项目外运行 `go run github.com/nsgo-dev/game/cmd/game@latest`）的每个子命令及其用法行和参数，由命令定义生成，因此始终与 `game help` 的输出一致；说明文字取自命令自身的英文帮助。如何把命令添加为工具、各子命令的用途以及如何设置 shell 补全，见[命令行](cli.md)。",
 		flag:        "参数",
 		def:         "默认值",
 		description: "说明",
@@ -50,7 +50,7 @@ func writeReference(w io.Writer, t referenceText, specs []commandSpec) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n%s\n%s\n", t.title, referenceHeader, t.intro)
 	for _, s := range specs {
-		fmt.Fprintf(&b, "\n## game %s\n\n%s.\n\n```sh\nnsgo %s\n```\n\n", s.name, mdEscape(s.summary), s.usage)
+		fmt.Fprintf(&b, "\n## game %s\n\n%s.\n\n```sh\ngo tool %s\n```\n\n", s.name, mdEscape(s.summary), s.usage)
 		if len(s.flags) == 0 {
 			fmt.Fprintf(&b, "%s\n", t.noFlags)
 			continue

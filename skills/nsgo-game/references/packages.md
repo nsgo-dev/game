@@ -153,9 +153,9 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/statedump` | Experimental | Headless deterministic YAML state dumps and line diffs between runs |
 | `game/pkg/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
 | `game/pkg/perf` | Experimental | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
-| `game/pkg/editor` | Experimental | Visual scene and animation clip editor embedded behind `nsgo game editor` |
-| `game/pkg/editor/editorcmd` | Experimental | The scene editor's command line, shared by `nsgo game editor` and a game's own editor command from `game generate editor` |
-| `game/pkg/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define` on the open project, served on a per-project local endpoint that `nsgo game mcp` forwards to |
+| `game/pkg/editor` | Experimental | Visual scene and animation clip editor embedded behind `go tool game editor` |
+| `game/pkg/editor/editorcmd` | Experimental | The scene editor's command line, shared by `go tool game editor` and a game's own editor command from `game generate editor` |
+| `game/pkg/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define` on the open project, served on a per-project local endpoint that `go tool game mcp` forwards to |
 
 ## Project, CLI and asset tooling
 
@@ -167,10 +167,10 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/plugin/manifest` | Experimental | Strict `plugin.yaml` parser, validator and deterministic byte-ordered encoder for Go plugins |
 | `game/pkg/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
 | `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |
-| `game/cmd/game` | Experimental | The `nsgo game` CLI |
+| `game/cmd/game` | Experimental | The `game` CLI (`go tool game` / `go run github.com/nsgo-dev/game/cmd/game@latest`) |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
 | `game/cmd/gamewire` | Experimental | Generates and checks deterministic zero-allocation Go codecs from `*.wire.yaml` wire message schemas |
-| `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
+| `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for NSGo's generic extension mechanism (requires an NSGo release newer than v0.3.4) |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
 | `game/pkg/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |
 | `game/pkg/datatable/datatablewatch` | Experimental | Hot reload of `datatable.Table` through a `tooling/hotreload` watcher |

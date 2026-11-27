@@ -144,7 +144,7 @@ navbake3d.DrawDebug(d, viewProj, viewport, mesh, navbake3d.DefaultDebugStyle())
 ## From the command line
 
 ```sh
-nsgo game navmesh scenes/level1.scene.yaml
+go tool game navmesh scenes/level1.scene.yaml
 ```
 
 [`game navmesh`](cli.md#navmesh) bakes a scene's static 3D geometry (glTF models, built-in primitives, and static `collider3d` shapes) for every agent type in the `navigation` section of the [project file](project.md) and writes the file the scene's `navMesh` names.

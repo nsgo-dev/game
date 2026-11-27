@@ -1,8 +1,8 @@
 # CLI Commands and Text File Formats
 
-## `nsgo game` CLI
+## `go tool game` CLI
 
-Inside a module whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool through NSGo's extension mechanism (and `go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/cmd/game@latest` directly:
+Outside a module (such as scaffolding a new project), run `go run github.com/nsgo-dev/game/cmd/game@latest <command>`. Inside a module whose `go.mod` declares the `game` tool, run `go tool game <command>` to execute that module's pinned version:
 
 ```sh
 go get -tool github.com/nsgo-dev/game/cmd/game@latest

@@ -29,7 +29,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | 行为树，版本 1 | `https://game.nsgo.dev/schemas/bt.v1.json` | `*.bt.yaml`，由 `ai.ParseBehaviorTree` 和 `ai.LoadBehaviorTreeFS` 读取 |
 | 过场动画，版本 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` 视频过场动画，由 `cutscene.Parse` 读取 |
 | 过场动画，版本 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` 视频或时间轴过场动画，由 `cutscene.Parse` 读取 |
-| 试玩配置，版本 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`，由 `playtest.ParseConfig`、`nsgo game playtest` 与 `game_playtest` 读取（见 [playtest](playtest.md)） |
+| 试玩配置，版本 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`，由 `playtest.ParseConfig`、`go tool game playtest` 与 `game_playtest` 读取（见 [playtest](playtest.md)） |
 | 触屏控件布局，版本 1 | `https://game.nsgo.dev/schemas/touchlayout.v1.json` | `*.touch.yaml`，由 `input.ParseTouchLayout` 和 `input.TouchControls.Load` 读取（见 [input](input.md#屏幕触控控件)） |
 | 游戏界面屏幕，版本 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`，由 `gameui.ParseScreen` 和 `gameui.LoadScreenFS` 读取 |
 | 精灵状态机，版本 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`，由 `animclip.ParseStateMachine` 和 `animclip.FSStates` 读取 |
@@ -120,7 +120,7 @@ func TestFormatConformance(t *testing.T) {
 已发布的 `scene.v*.json` 只了解引擎固定的场景字段和 `navregion2d`，其余组件都保持自由格式。拥有自定义组件（及插件）的游戏可以生成项目专属的场景 Schema，校验每一个已注册的组件类型和字段：
 
 ```sh
-nsgo game schema -out schemas/scene.json
+go tool game schema -out schemas/scene.json
 ```
 
 当项目有自己的编辑器命令时（`cmd/editor` 中导入 `pkg/editor/editorcmd` 的命令，或 `game generate editor` 写出的 `-tags gameeditor` 入口），`game schema` 会以 `-schema` 运行它，直接输出 `editorcmd.Options.Components`（附加内置物理和骨骼组件后）的场景 JSON Schema 并退出，不打开窗口。没有自己编辑器命令的项目会获得内置场景 Schema。输出是完全确定的（组件名升序排列、字段保持声明顺序、无时间戳），可以提交进版本控制或在 CI 中检查。

@@ -29,7 +29,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | Behavior tree, version 1 | `https://game.nsgo.dev/schemas/bt.v1.json` | `*.bt.yaml`, read by `ai.ParseBehaviorTree` and `ai.LoadBehaviorTreeFS` |
 | Cutscene, version 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` video cutscenes, read by `cutscene.Parse` |
 | Cutscene, version 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` video or timeline cutscenes, read by `cutscene.Parse` |
-| Playtest configuration, version 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`, read by `playtest.ParseConfig`, `nsgo game playtest` and `game_playtest` ([playtest](playtest.md)) |
+| Playtest configuration, version 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`, read by `playtest.ParseConfig`, `go tool game playtest` and `game_playtest` ([playtest](playtest.md)) |
 | Touch control layout, version 1 | `https://game.nsgo.dev/schemas/touchlayout.v1.json` | `*.touch.yaml`, read by `input.ParseTouchLayout` and `input.TouchControls.Load` ([input](input.md#on-screen-touch-controls)) |
 | Game UI screen, version 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`, read by `gameui.ParseScreen` and `gameui.LoadScreenFS` |
 | Sprite state machine, version 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`, read by `animclip.ParseStateMachine` and `animclip.FSStates` |
@@ -120,7 +120,7 @@ For each file, the checks require that:
 The published `scene.v*.json` schemas know only the engine's fixed scene fields and `navregion2d`, leaving every other component free-form. A game with its own components (and plugins) can generate a per-project scene schema that validates every registered component type and field:
 
 ```sh
-nsgo game schema -out schemas/scene.json
+go tool game schema -out schemas/scene.json
 ```
 
 When the project has its own editor command (`cmd/editor` importing `pkg/editor/editorcmd`, or a `-tags gameeditor` entry point written by `game generate editor`), `game schema` runs it with `-schema`, which prints the JSON Schema for `editorcmd.Options.Components` (with built-in physics and skeletal components added) and exits without opening a window. A project without its own editor command gets the built-in scene schema. Output is deterministic (component names sorted, fields in declaration order, no timestamps), so the generated file can be checked into version control or regenerated in CI.

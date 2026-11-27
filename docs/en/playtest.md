@@ -134,7 +134,7 @@ Register custom bot profiles with `playtest.RegisterBot(name, factory)`. The `rp
 
 ## Running headless and replaying runs
 
-Call `playtest.Run(cfg, makeSim, opts)` directly or wire a test with `playtest.RunTest` so `nsgo game playtest` can execute it:
+Call `playtest.Run(cfg, makeSim, opts)` directly or wire a test with `playtest.RunTest` so `go tool game playtest` can execute it:
 
 ```go
 func TestLevel1Playtest(t *testing.T) {
@@ -145,16 +145,16 @@ func TestLevel1Playtest(t *testing.T) {
 Then run from the project directory:
 
 ```sh
-nsgo game playtest
-nsgo game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
-nsgo game playtest -check
+go tool game playtest
+go tool game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
+go tool game playtest -check
 ```
 
 Each seeded run wraps the bot in a `replay.Recorder` and writes `<recordings>/run_NNN_seed_<seed>.replay.yaml`, so any run can be replayed deterministically with `replay.NewPlayer` or turned into a `game replay` regression test. The YAML report (`playtest.report.yaml`, `version: 1`) records every run's outcome, metrics, goal statuses (`met`, `missed`, `info`), heat-map points and recording paths.
 
 ## Editor MCP tools
 
-The editor's MCP server (`game/editor/editormcp`, reached via `nsgo game mcp`) exposes two playtest tools:
+The editor's MCP server (`game/editor/editormcp`, reached via `go tool game mcp`) exposes two playtest tools:
 
 - `game_playtest` (`run`): validates `playtest.yaml`, runs the playtest headless with replays, writes the YAML report, and returns the structured report and summary.
 - `playtest_define` (`edit`): validates a proposed metric and returns a canonical `playtest.yaml` diff queued as a pending review (`Server.PlaytestReviews`, `Server.ApplyPlaytestReview`, `Server.DismissPlaytestReview`) without modifying `playtest.yaml` on disk until reviewed.

@@ -681,7 +681,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							ui.ToggleButton{
 								TestID: "remote-run-automation",
 								Text:   "Auto-connect on Run",
-								Label:  "Pass -automation to nsgo game dev and connect automatically",
+								Label:  "Pass -automation to go tool game dev and connect automatically",
 								Disabled: func() bool {
 									_ = rev.Get()
 									return ed.Project == nil || ed.GameRunning()

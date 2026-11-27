@@ -270,7 +270,7 @@ import "github.com/nsgo-dev/game/pkg/editor/editormcp"
 
 ### Connecting an agent
 
-`nsgo game editor .` serves the open project on a local endpoint of its own: a Unix domain socket that only the user can open, named after a hash of the project's path, in `nsgo-game/editor` under the user's cache directory (`$NSGO_GAME_EDITOR_ENDPOINTS` when set). It is never a network port. When the editor opens another project, the endpoint follows it; a second editor on the same project leaves the first serving and says so on stderr.
+`go tool game editor .` serves the open project on a local endpoint of its own: a Unix domain socket that only the user can open, named after a hash of the project's path, in `nsgo-game/editor` under the user's cache directory (`$NSGO_GAME_EDITOR_ENDPOINTS` when set). It is never a network port. When the editor opens another project, the endpoint follows it; a second editor on the same project leaves the first serving and says so on stderr.
 
 Run `go tool game mcp install` once in the project folder to write the project-level MCP configurations that both Claude Code (`.mcp.json`) and Codex (`.codex/config.toml`) read automatically:
 
@@ -278,13 +278,13 @@ Run `go tool game mcp install` once in the project folder to write the project-l
 go tool game mcp install
 ```
 
-`go tool game mcp install` is idempotent: running it again preserves unrelated MCP servers and Codex settings, leaves identical files untouched byte for byte, and prints what it wrote or left unchanged. You can also pass `-project <dir>` from outside the project directory, or register `nsgo game mcp` manually:
+`go tool game mcp install` is idempotent: running it again preserves unrelated MCP servers and Codex settings, leaves identical files untouched byte for byte, and prints what it wrote or left unchanged. You can also pass `-project <dir>` from outside the project directory, or register `go tool game mcp` manually:
 
 ```sh
-claude mcp add game-editor -- nsgo game mcp
+claude mcp add game-editor -- go tool game mcp
 ```
 
-`nsgo game mcp` is an MCP server on standard input and output that finds the editor with the project open and forwards every tool call, resource read and subscription to it, reporting the client's name and transport (such as `Claude Code over stdio`) to the editor's Connect dialog and status chip. It lists the editor's tools, including those other parts of the editor add, and connects again when the editor is closed and opened anew, so the agent's session outlives the editor's. While no editor has the project open, each call answers with an error that says so and how to open it: `no editor has the project open at /path/to/game: open it with nsgo game editor /path/to/game and try again`.
+`go tool game mcp` is an MCP server on standard input and output that finds the editor with the project open and forwards every tool call, resource read and subscription to it, reporting the client's name and transport (such as `Claude Code over stdio`) to the editor's Connect dialog and status chip. It lists the editor's tools, including those other parts of the editor add, and connects again when the editor is closed and opened anew, so the agent's session outlives the editor's. While no editor has the project open, each call answers with an error that says so and how to open it: `no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`.
 
 ### Tools
 
