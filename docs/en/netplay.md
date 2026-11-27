@@ -20,6 +20,8 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 
 UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport, or a `RelayTransport`, which retransmits end to end and so runs them over UDP too.
 
+`DialWebSocket` speaks netplay's own handshake and framing, so it connects only to a `WebSocketServer`. To talk to a WebSocket server that is not part of this repository — a third-party backend, a chat service, a custom protocol — use [wsclient](wsclient.md) instead.
+
 A transport has a single consumer. `Recv` hands each packet to one caller, and `ServerWorld`, `ClientWorld`, the lockstep and rollback sessions, `Relay` and `RelayTransport` all drain every waiting packet and discard the ones that are not theirs, so two of them on one transport steal each other's packets. Give each consumer its own transport, or put a demultiplexer in front of them that implements `Transport` for each. `Recv` costs the same however many packets are queued, so draining a burst stays linear.
 
 If the socket under a `UDPTransport` or `UDPServer` fails, `Err` returns `ErrReceiveFailed` wrapping the socket's error and `Send` returns it too; close the transport and listen again; after `Close`, `Err` returns nil. Errors about a single datagram, such as an ICMP port unreachable for an earlier send, do not stop it. A `UDPClient` likewise keeps reading after an ICMP error, for example while its server restarts, and leaves it to its idle timeout to decide whether the server is gone.

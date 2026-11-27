@@ -11,6 +11,8 @@ package netplay
 import (
 	"encoding/binary"
 	"errors"
+
+	"github.com/nsgo-dev/game/pkg/online/internal/wsproto"
 )
 
 // Channel selects delivery semantics for a packet.
@@ -70,9 +72,9 @@ var (
 	// ErrUnknownPeer is returned when sending to a peer that is not connected.
 	ErrUnknownPeer = errors.New("net: unknown peer")
 	// ErrInvalidPacket is returned when a wire frame is malformed or truncated.
-	ErrInvalidPacket = errors.New("net: invalid packet")
+	ErrInvalidPacket = wsproto.ErrInvalidPacket
 	// ErrPayloadTooLarge is returned when a payload exceeds transport limits.
-	ErrPayloadTooLarge = errors.New("net: payload too large")
+	ErrPayloadTooLarge = wsproto.ErrPayloadTooLarge
 	// ErrUnsupportedChannel is returned when a transport cannot provide the delivery guarantees the requested channel asks for.
 	ErrUnsupportedChannel = errors.New("net: channel not supported by transport")
 	// ErrReceiveFailed is returned, wrapping the socket's error, by a transport whose socket failed so that it can no longer receive.

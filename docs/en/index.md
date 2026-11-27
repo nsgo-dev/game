@@ -68,6 +68,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `perf` | `github.com/nsgo-dev/game/pkg/perf` | [perf](perf.md) | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
 | `idle` | `github.com/nsgo-dev/game/pkg/idle` | [idle](idle.md) | `Number` past float64's range, capped offline progress and short/scientific/locale formatting of large numbers |
 | `netplay` | `github.com/nsgo-dev/game/pkg/online/netplay` | [netplay](netplay.md) | Cross-target WebSocket/UDP/loopback transports, delta replication and lockstep/rollback netcode |
+| `wsclient` | `github.com/nsgo-dev/game/pkg/online/wsclient` | [wsclient](wsclient.md) | Plain WebSocket client for third-party servers, with the same API on native and web targets |
 | `server` | `github.com/nsgo-dev/game/pkg/online/server` | [server](server.md) | Headless fixed-step `Runner` for dedicated servers: several matches at their own rates, overrun reports and bounded signal shutdown |
 | `accounts` | `github.com/nsgo-dev/game/pkg/online/accounts` | [accounts](accounts.md) | Self-hosted player accounts: guests upgraded to email or a linked platform/OAuth identity, argon2id passwords, SQLite/Postgres stores and Ed25519 tokens game servers verify offline |
 | `cloudsave` | `github.com/nsgo-dev/game/pkg/online/cloudsave` | [cloudsave](cloudsave.md) | Self-hosted cloud saves behind `liveops.CloudSync`: per-account slots over HTTPS, conditional writes that turn concurrent saves into conflicts, size limits, kept versions with restore, SQLite/Postgres stores |
