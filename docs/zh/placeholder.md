@@ -102,7 +102,7 @@ assets:
 
 ## 重新生成
 
-`pkg/placeholder/internal/gen` 中的生成器（模型来自 `internal/samplegltf`）绘制除 `CREDITS.md` 以外的每个文件，并且在每次运行、每种架构上写出相同的字节。有一个测试会把提交的素材包与它比较；修改生成器后，在仓库根目录运行以下命令重写素材包：
+`pkg/placeholder/internal/gen` 中的生成器（模型来自 `pkg/placeholder/internal/samplegltf`）绘制除 `CREDITS.md` 以外的每个文件，并且在每次运行、每种架构上写出相同的字节。有一个测试会把提交的素材包与它比较；修改生成器后，在仓库根目录运行以下命令重写素材包：
 
 ```sh
 go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update

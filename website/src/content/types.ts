@@ -65,7 +65,7 @@ export interface PlaygroundExample {
   wasm: number
 }
 
-// The API reference: what tools/gameapi writes from the Go packages' source and doc comments (pkg/tooling/apiref's Reference, whose doc comments say more of each field), run with -html.
+// The API reference: what tools/gameapi writes from the Go packages' source and doc comments (internal/apiref's Reference, whose doc comments say more of each field), run with -html.
 
 export interface ApiReference {
   version: number

@@ -102,7 +102,7 @@ assets:
 
 ## Regenerating it
 
-The generator in `pkg/placeholder/internal/gen` (with the models from `internal/samplegltf`) draws every file but `CREDITS.md`, and writes the same bytes on every run and architecture. A test compares the committed pack with it; after changing the generator, rewrite the pack from the repository root with:
+The generator in `pkg/placeholder/internal/gen` (with the models from `pkg/placeholder/internal/samplegltf`) draws every file but `CREDITS.md`, and writes the same bytes on every run and architecture. A test compares the committed pack with it; after changing the generator, rewrite the pack from the repository root with:
 
 ```sh
 go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update

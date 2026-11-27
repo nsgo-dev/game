@@ -177,7 +177,6 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/importsettings` | Experimental | `<asset>.import.yaml` sidecar parser and encoder |
 | `game/pkg/jsonschema` | Experimental | JSON Schema builder and validator with JSON Pointer error paths |
 | `game/pkg/ktx2` | Experimental | KTX2 texture encoder (BC1, BC3, ETC2, RGBA8, mipmaps, sRGB) |
-| `game/pkg/tooling/apiref` | Experimental | Go doc parser powering `tools/gameapi` |
 | `game/pkg/tooling/assetbuild` | Experimental | Incremental asset pipeline driven by `game.yaml` |
 | `game/pkg/tooling/assetcheck` | Experimental | Validator for scenes, Tiled/LDtk maps, atlases and file references |
 | `game/pkg/tooling/audioconv` | Experimental | WAV normalization, resampling and WAV/AAC/MP3 conversion |

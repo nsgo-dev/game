@@ -190,7 +190,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/text` | Experimental | [text](text.md) |
 | `game/pkg/tilemap` | Stable | [tilemap](tilemap.md) |
 | `game/pkg/tilemap/tileshape` | Experimental | [tileshape](tileshape.md) |
-| `game/pkg/tooling/apiref` | Experimental | |
 | `game/pkg/tooling/assetbuild` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/assetcheck` | Experimental | [Command Line](cli.md) |
 | `game/pkg/tooling/audioconv` | Experimental | |

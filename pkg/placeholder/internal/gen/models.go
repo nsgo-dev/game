@@ -3,7 +3,7 @@ package gen
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/internal/samplegltf"
+	"github.com/nsgo-dev/game/pkg/placeholder/internal/samplegltf"
 )
 
 // addModels writes the three glTF models package samplegltf builds: a crate, a skinned and animated robot arm, and a gem.

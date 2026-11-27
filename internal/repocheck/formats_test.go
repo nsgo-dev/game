@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/internal/apiref"
 	"github.com/nsgo-dev/game/internal/formattest"
 	"github.com/nsgo-dev/game/pkg/anim3d"
 	"github.com/nsgo-dev/game/pkg/assets"
@@ -33,7 +34,6 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/netplay"
 	"github.com/nsgo-dev/game/pkg/quest"
 	"github.com/nsgo-dev/game/pkg/save"
-	"github.com/nsgo-dev/game/pkg/tooling/apiref"
 	"github.com/nsgo-dev/game/pkg/tooling/devstate"
 	"github.com/nsgo-dev/game/pkg/worldmap"
 	"github.com/nsgo-dev/nsgo/core"
@@ -45,22 +45,22 @@ const jsonImport = "encoding/json"
 
 // notJSONFormats are the packages that decode JSON without defining a file format of their own, each with the reason, so the File Formats page need not list them. Every other package that decodes JSON must have an entry there.
 var notJSONFormats = map[string]string{
-	".":                     "decodes JSON arguments of live web Play-mode MCP bridge tool calls in loop_web_js.go, which are RPC payloads on the wire",
-	"online/accounts":       "decodes the JSON bodies of its HTTP API, which is data on the wire",
-	"online/accounts/token": "decodes the JSON payload of a signed token, which is data on the wire",
-	"editor":                "reads meta.image from packed sprite atlas JSON files and decodes JSON RPC payloads of remote MCP profiler tool calls",
-	"editor/editormcp":      "decodes JSON arguments of the editor's MCP tool calls, which are RPC payloads on the wire",
-	"gameui":                "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
-	"idle":                  "decodes a Number from a JSON value inside another format",
-	"internal/jsonedit":     "strictly decodes component edits sent through mcp tool calls, which are RPC payloads on the wire",
-	"internal/samplegltf":   "validates the sample glTF models, glTF being the gltf entry's format",
-	"loaderr":               "decodes a document only to find a field's line and column for an error",
-	"mcp":                   "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
-	"physics3d":             "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
-	"online/presence":       "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
-	"refs":                  "scans other formats' JSON documents for file references",
-	"rooms":                 "reads LDtk projects, the format of the tilemap#ldtk entry",
-	"tooling/assetcheck":    "scans other formats' JSON documents for asset references",
+	".":                               "decodes JSON arguments of live web Play-mode MCP bridge tool calls in loop_web_js.go, which are RPC payloads on the wire",
+	"online/accounts":                 "decodes the JSON bodies of its HTTP API, which is data on the wire",
+	"online/accounts/token":           "decodes the JSON payload of a signed token, which is data on the wire",
+	"editor":                          "reads meta.image from packed sprite atlas JSON files and decodes JSON RPC payloads of remote MCP profiler tool calls",
+	"editor/editormcp":                "decodes JSON arguments of the editor's MCP tool calls, which are RPC payloads on the wire",
+	"gameui":                          "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
+	"idle":                            "decodes a Number from a JSON value inside another format",
+	"internal/jsonedit":               "strictly decodes component edits sent through mcp tool calls, which are RPC payloads on the wire",
+	"placeholder/internal/samplegltf": "validates the sample glTF models, glTF being the gltf entry's format",
+	"loaderr":                         "decodes a document only to find a field's line and column for an error",
+	"mcp":                             "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
+	"physics3d":                       "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
+	"online/presence":                 "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
+	"refs":                            "scans other formats' JSON documents for file references",
+	"rooms":                           "reads LDtk projects, the format of the tilemap#ldtk entry",
+	"tooling/assetcheck":              "scans other formats' JSON documents for asset references",
 }
 
 // codeFormat is an entry of the File Formats page for a format that is not a YAML format with conformance checks: a JSON format, a Yarn script or another tool's format.
@@ -97,7 +97,7 @@ var codeFormats = map[string]codeFormat{
 	"assets":                              {decl: "ParsePackManifest", lang: "json", read: readPackManifest},
 	"cmd/sizecheck":                       {decl: "LoadBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
 	"cmd/sizecheck#mobile":                {decl: "LoadMobileBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
-	"tooling/apiref":                      {decl: "Unmarshal", lang: "json", read: readAPIReference},
+	"internal/apiref":                     {decl: "Unmarshal", lang: "json", read: readAPIReference},
 	"flow":                                {decl: "ParseYarn", lang: "yarn", read: readYarn},
 	"tilemap":                             {decl: "LoadTiled"},
 	"tilemap#world":                       {decl: "ParseTiledWorld"},
@@ -147,7 +147,7 @@ var formatVersions = map[string]string{
 	"importsettings.AssetSourceVersion":             "importsettings#source",
 	"importsettings.CurrentVersion":                 "importsettings",
 	"input.TouchLayoutVersion":                      "input#touch",
-	"internal/samplegltf.GLBVersion":                "",
+	"placeholder/internal/samplegltf.GLBVersion":    "",
 	"inventory.CurrentVersion":                      "inventory",
 	"l10n.AssetManifestVersion":                     "l10n",
 	"l10n.StringTableVersion":                       "l10n#strings",
@@ -206,7 +206,7 @@ var formatVersions = map[string]string{
 	"stats.CurrentVersion":                          "stats",
 	"tilemap.ChunkFormatVersion":                    "tilemap#chunk",
 	"tilemap.TilesetFormatVersion":                  "tilemap#tileset",
-	"tooling/apiref.Version":                        "tooling/apiref",
+	"internal/apiref.Version":                       "internal/apiref",
 	"tooling/bench.FormatVersion":                   "tooling/bench",
 	"tooling/hotreload.MaterialVersion":             "tooling/hotreload",
 	"tooling/library.IndexVersion":                  "tooling/library#index",
@@ -230,7 +230,7 @@ var notFormatVersions = map[string]string{
 	"ai.BTSnapshotVersion":                          "the version of in-memory/JSON behavior tree snapshots saved inside game save slots rather than a standalone file format; docs/en/ai.md documents it",
 	"online/cloudsave/sqlstore.SchemaVersion":       "the version of a PostgreSQL schema, which lives in the database",
 	"flow.MachineSnapshotVersion":                   "the version of in-memory/JSON state machine snapshots saved inside game save slots rather than a standalone file format; docs/en/flow.md documents it",
-	"internal/samplegltf.GLBVersion":                "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
+	"placeholder/internal/samplegltf.GLBVersion":    "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
 	"online/netplay.ReplicationVersion":             "the version of the replication protocol on the wire between a ServerWorld and its ClientWorlds, which no file holds; docs/en/netplay.md documents it",
 	"online/netplay/wire.HandshakeHelloVersion":     "the version of the connection handshake hello message on the wire, generated from pkg/online/netplay/wire/handshake.wire.yaml; docs/en/netplay-wire.md documents it",
 	"online/netplay/wire.HandshakeRejectVersion":    "the version of the connection handshake reject message on the wire, generated from pkg/online/netplay/wire/handshake.wire.yaml; docs/en/netplay-wire.md documents it",

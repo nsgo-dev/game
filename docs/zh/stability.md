@@ -190,7 +190,6 @@
 | `game/pkg/text` | 实验性 | [text](text.md) |
 | `game/pkg/tilemap` | 稳定 | [tilemap](tilemap.md) |
 | `game/pkg/tilemap/tileshape` | 实验性 | [tileshape](tileshape.md) |
-| `game/pkg/tooling/apiref` | 实验性 | |
 | `game/pkg/tooling/assetbuild` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/assetcheck` | 实验性 | [命令行](cli.md) |
 | `game/pkg/tooling/audioconv` | 实验性 | |
