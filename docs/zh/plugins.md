@@ -11,7 +11,7 @@ import (
 
 ## 运行时插件（`pkg/plugin`）
 
-插件的运行时 Go 包导出一个返回 `plugin.Plugin` 的构造函数（约定为 `func Plugin() plugin.Plugin`），游戏通过 `plugin.Install` 将所有启用的插件安装到 `plugin.Host` 上。`pkg/plugin` 不导入 `pkg/editor`、`pkg/mcp` 或 `pkg/playtest`，确保发布的二进制只链接实际用到的运行时包。
+插件的运行时 Go 包导出一个返回 `plugin.Plugin` 的构造函数（约定为 `func Plugin() plugin.Plugin`），游戏通过 `plugin.Install` 将所有启用的插件安装到 `plugin.Host` 上。`pkg/plugin` 不导入 `pkg/editor`、`pkg/mcp` 或 `pkg/tooling/playtest`，确保发布的二进制只链接实际用到的运行时包。
 
 ```go
 func Plugin() plugin.Plugin {
@@ -80,7 +80,7 @@ if err := host.OnWorld(world); err != nil {
 
 ### 开发期贡献（`pkg/plugin/devtools`）
 
-MCP 桥接预制体（`pkg/mcp`）与自动试玩机器人（`pkg/playtest`）依赖较重的检查与回放包，发布版游戏二进制不应链接这些代码（见[包体积预算](package-size-budgets.md)）。这些贡献拆分在独立的 `github.com/nsgo-dev/game/pkg/plugin/devtools` 包中：
+MCP 桥接预制体（`pkg/mcp`）与自动试玩机器人（`pkg/tooling/playtest`）依赖较重的检查与回放包，发布版游戏二进制不应链接这些代码（见[包体积预算](package-size-budgets.md)）。这些贡献拆分在独立的 `github.com/nsgo-dev/game/pkg/plugin/devtools` 包中：
 
 ```go
 import "github.com/nsgo-dev/game/pkg/plugin/devtools"

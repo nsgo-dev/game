@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 // MoveFile moves or renames the file or directory from to to, both slash-separated paths from the root of the open project (the directory of ProjectPath), and rewrites every reference to what it moves across the project, as refs.PlanMove plans and `game mv` does: in the scenes, resource files, game.yaml, Tiled and LDtk files on disk, and in the open scene, project and clip, which keep their unsaved edits. When the open scene, or the open clip's file, is among the files moved, FilePath, ScenePath and ClipPath follow it.

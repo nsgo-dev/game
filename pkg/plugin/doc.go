@@ -8,5 +8,5 @@
 //
 // Process-global registries ([pixelfx]) are written once per process per owning plugin so repeated [Install] calls in tests or after an editor reload neither panic nor overwrite another plugin's entry.
 //
-// Development-time contributions that depend on heavier packages (MCP bridge prefabs and playtest bots) live in the separate [github.com/nsgo-dev/game/pkg/plugin/devtools] package so shipped games that import pkg/plugin do not link pkg/mcp, pkg/playtest, or pkg/editor.
+// Development-time contributions that depend on heavier packages (MCP bridge prefabs and playtest bots) live in the separate [github.com/nsgo-dev/game/pkg/plugin/devtools] package so shipped games that import pkg/plugin do not link pkg/mcp, pkg/tooling/playtest, or pkg/editor.
 package plugin

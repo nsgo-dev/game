@@ -4,7 +4,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 func TestScanReflectionAndLightProbeRefs(t *testing.T) {

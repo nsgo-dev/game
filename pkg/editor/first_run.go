@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

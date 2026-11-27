@@ -232,11 +232,6 @@ pkg/platformer:
       - any-glob-to-any-file:
           - pkg/platformer/**
 
-pkg/playtest:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/playtest/**
-
 pkg/plugin:
   - changed-files:
       - any-glob-to-any-file:
@@ -266,11 +261,6 @@ pkg/random:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/random/**
-
-pkg/refs:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/refs/**
 
 pkg/render3d:
   - changed-files:

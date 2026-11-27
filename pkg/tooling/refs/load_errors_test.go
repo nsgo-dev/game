@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/loaderrtest"
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 func TestParseIndexLoadErrors(t *testing.T) {

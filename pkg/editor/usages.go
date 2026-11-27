@@ -18,8 +18,8 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 	"go.yaml.in/yaml/v3"
 )
 

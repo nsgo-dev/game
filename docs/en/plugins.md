@@ -11,7 +11,7 @@ import (
 
 ## Runtime plugins (`pkg/plugin`)
 
-A plugin's runtime Go package exports a constructor returning a `plugin.Plugin` (conventionally `func Plugin() plugin.Plugin`), and the game installs every active plugin onto a `plugin.Host` with `plugin.Install`. `pkg/plugin` never imports `pkg/editor`, `pkg/mcp`, or `pkg/playtest`, so shipped binaries link only the runtime packages they use.
+A plugin's runtime Go package exports a constructor returning a `plugin.Plugin` (conventionally `func Plugin() plugin.Plugin`), and the game installs every active plugin onto a `plugin.Host` with `plugin.Install`. `pkg/plugin` never imports `pkg/editor`, `pkg/mcp`, or `pkg/tooling/playtest`, so shipped binaries link only the runtime packages they use.
 
 ```go
 func Plugin() plugin.Plugin {
@@ -80,7 +80,7 @@ Setting `System.Stage` constrains the system with `entities.After(stage.Start())
 
 ### Development-time contributions (`pkg/plugin/devtools`)
 
-MCP bridge prefabs (`pkg/mcp`) and playtest bots (`pkg/playtest`) depend on heavier inspection and replay packages that shipped game binaries should not link (see [Package Size Budgets](package-size-budgets.md)). Those contributions live in the separate `github.com/nsgo-dev/game/pkg/plugin/devtools` package:
+MCP bridge prefabs (`pkg/mcp`) and playtest bots (`pkg/tooling/playtest`) depend on heavier inspection and replay packages that shipped game binaries should not link (see [Package Size Budgets](package-size-budgets.md)). Those contributions live in the separate `github.com/nsgo-dev/game/pkg/plugin/devtools` package:
 
 ```go
 import "github.com/nsgo-dev/game/pkg/plugin/devtools"

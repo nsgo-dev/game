@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/cards"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // duelCard is one card from rules.yaml (suit index and rank 1..Rules.Ranks) in a two-player Suit Ladders duel.

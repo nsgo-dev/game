@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/editor"
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // PermissionPromptAnswer is the person's response when an MCP tool call matches an Ask permission rule.

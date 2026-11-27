@@ -727,14 +727,14 @@ func TestStagesMetadata(t *testing.T) {
 	}
 }
 
-// TestNoForbiddenImports verifies that pkg/plugin does not directly or transitively import pkg/editor, pkg/mcp, or pkg/playtest.
+// TestNoForbiddenImports verifies that pkg/plugin does not directly or transitively import pkg/editor, pkg/mcp, or pkg/tooling/playtest.
 func TestNoForbiddenImports(t *testing.T) {
 	root := filepath.Clean(filepath.Join("..", ".."))
 	const modPrefix = "github.com/nsgo-dev/game/"
 	forbidden := []string{
 		modPrefix + "pkg/editor",
 		modPrefix + "pkg/mcp",
-		modPrefix + "pkg/playtest",
+		modPrefix + "pkg/tooling/playtest",
 	}
 
 	visited := map[string]bool{}

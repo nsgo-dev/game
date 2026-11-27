@@ -13,11 +13,11 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/scenemodel"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 // SetObjectReflectionProbe sets or clears object id's reflection probe definition as an undoable

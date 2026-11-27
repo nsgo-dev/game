@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // sparkPuzzleState adapts Spark Slide's Board and slideMove to playtest.PuzzleState and playtest.PuzzleScorer.

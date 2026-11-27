@@ -179,7 +179,7 @@ player.Step(dt)
 
 Unlike video cutscenes, `PlayTimeline` leaves `Options.Loop` and `Options.Mixer` running so the scene continues drawing and playing cutscene audio while `Player.View()` captures skip input.
 
-## Validation with `game check` and `refs`
+## Validation with `game check` and `tooling/refs`
 
 `game check` (package `tooling/assetcheck`) validates every `*.cutscene.yaml` / `*.cutscene.yml` file in a project:
 
@@ -188,7 +188,7 @@ Unlike video cutscenes, `PlayTimeline` leaves `Options.Loop` and `Options.Mixer`
 - Verifies that every actor track `target` and camera clip `target` names an object in the referenced scene (including inherited and instanced scenes).
 - Verifies that every dialogue clip `line` ID exists in the project's YAML localization string tables (`l10n.ParseYAML`), reporting missing IDs with file and line.
 
-`refs` (`game mv` and `game index`) tracks `scene`, project-relative video `source` and timeline audio `source` paths in `*.cutscene.yaml` files so moving a scene or audio asset rewrites cutscene references in place.
+`tooling/refs` (`game mv` and `game index`) tracks `scene`, project-relative video `source` and timeline audio `source` paths in `*.cutscene.yaml` files so moving a scene or audio asset rewrites cutscene references in place.
 
 ## Playing a video cutscene
 

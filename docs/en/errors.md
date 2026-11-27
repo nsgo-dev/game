@@ -49,7 +49,7 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 | `project` | `Parse`, `ParseBrief`, `LoadFile` | Project and brief schema rules, by field |
 | `resource` | `Parse`, `ParseAs`, `Library.Load`, `Library.Reload`, `Library.ReloadFile` | Header, material, curve, gradient, animation, theme, bus layout and physics material rules, by field; `Library` names the resource path |
 | `importsettings` | `Parse`, `ParseAssetSource` | Sidecar sections, pivots, slices, credits and asset provenance fields, by field |
-| `refs` | `ParseIndex` | Project index paths, ordering, UIDs and SHA-256 digests, by field |
+| `tooling/refs` | `ParseIndex` | Project index paths, ordering, UIDs and SHA-256 digests, by field |
 | `particles` | `UnmarshalConfigYAML`, `UnmarshalConfigJSON`, `LoadConfigFile`, `LoadConfigFS`, `HotConfig` | Decode errors, durations, colors and enumerations, by field or at the value's line |
 | `skeletal` | `Load` | Bones, slots, skins and keyframes, by field |
 | `anim3d` | `LoadEventsSidecar`, `LoadEventsFromGLTFExtras` | Decode errors and sidecar schema rules, by field |
@@ -71,7 +71,7 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 | `ai`, `ai/navbake`, `ai/navbake3d` | `ParseGOAP`, `ParseUtility`, `navbake.Parse`, `navbake3d.Parse` | Facts, actions, goals, curves, polygons and off-mesh links, by field |
 | `quest`, `rooms`, `loot`, `inventory`, `ability`, `stats`, `cards`, `worldmap`, `cutscene`, `vn`, `bullets`, `framedata`, `fighting`, `platformer`, `vehicle`, `rts`, `rhythm`, `idle`, `procgen`, `quality` | Each package's YAML `Parse*` and `Load*` entry points | Decode errors, custom durations/ranges and every validation rule, by field; sentinels such as `quest.ErrInvalidBook`, `rooms.ErrInvalidMap` and `stats.Err*` stay in the chain |
 | `online/accounts`, `online/accounts/authtoken`, `online/achievements`, `online/cloudsave`, `online/leaderboard`, `online/leaderboard/selfhost`, `online/liveops`, `online/netplay/wire` | Each package's YAML `Parse*` and `Load*` entry points | Service configs, key sets, catalogs, reminders and wire schemas, by field |
-| `playtest` | `ParseConfig`, `LoadConfigFile`, `ParseReport`, `LoadReportFile` | Scope, runs, bot config, metrics, goals and report sections, by field |
+| `tooling/playtest` | `ParseConfig`, `LoadConfigFile`, `ParseReport`, `LoadReportFile` | Scope, runs, bot config, metrics, goals and report sections, by field |
 | `editor` | `OpenFile`, `ParseEditorSettings`, `ParsePermissions`, `ParseAutomations`, `ParseLayout`, `ParseRecentProjects`, `ParseCheckpointManifest`, `ParseAgentThread`, `ParseAgentThreadYAML`, `parseViewState` | Editor configs, layouts, checkpoints, threads and view state, by field |
 | `gltf` | `Load`, `LoadFS` | The top-level item at fault, such as `nodes[3]` |
 | `text` | `LoadBMFont`, `LoadBMFontImage` | The record at fault, in text and XML fonts |

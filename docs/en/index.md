@@ -28,7 +28,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `platformer` | `github.com/nsgo-dev/game/pkg/platformer` | [platformer](platformer.md) | Platformer `Controller` on `CharacterBody`: coyote time, jump buffer, variable jump height, wall slide and wall jump from a YAML config |
 | `screen` | `github.com/nsgo-dev/game/pkg/screen` | [screen](screen.md) | Virtual resolution `Viewport` scaling, pixel snapping, safe-area rectangles and video settings |
 | `project` | `github.com/nsgo-dev/game/pkg/project` | [Project File](project.md) | `game.yaml`, the one project file: window, virtual resolution, input map, audio buses, autoloads and export presets, kept in step with `nsgo.yaml` |
-| `refs` | `github.com/nsgo-dev/game/pkg/refs` | [Stable references](project.md#stable-references) | Stable file IDs, the project index and moves that rewrite every reference to a file, behind `game mv`, `game index` and `game check` |
+| `tooling/refs` | `github.com/nsgo-dev/game/pkg/tooling/refs` | [Stable references](project.md#stable-references) | Stable file IDs, the project index and moves that rewrite every reference to a file, behind `game mv`, `game index` and `game check` |
 | `assets` | `github.com/nsgo-dev/game/pkg/assets` | [assets](assets.md) | Async per-scene asset groups, reactive progress and `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/pkg/resource` | [resource](resources.md) | Shared YAML resource files (materials, curves, gradients, animation clips, UI themes, bus layouts, physics materials) and a `Library` that shares and reloads them |
 | `importsettings` | `github.com/nsgo-dev/game/pkg/importsettings` | [Import settings sidecar](formats.md#import-settings-sidecar) | `.import.yaml` sidecars beside an image, sound, font or model that say how `game assets` imports it, overriding the target's settings |
@@ -60,7 +60,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | Input `Recorder`/`Player` with editable YAML recordings and deterministic test assertions |
 | `statedump` | `github.com/nsgo-dev/game/pkg/statedump` | [statedump](statedump.md) | Headless runs dumped as deterministic YAML (entities, components, scene stack, values) and a line `Diff` between runs |
 | `gametest` | `github.com/nsgo-dev/game/pkg/gametest` | [gametest](gametest.md) | Deterministic software rasterizer for `core.DrawOp`, golden PNG assertions with persistent failure diffs, and `ImageDraws` structural checks |
-| `playtest` | `github.com/nsgo-dev/game/pkg/playtest` | [playtest](playtest.md) | `playtest.yaml` bots, seeded headless runs with replay recordings, metrics against goals and deterministic YAML reports |
+| `tooling/playtest` | `github.com/nsgo-dev/game/pkg/tooling/playtest` | [playtest](playtest.md) | `playtest.yaml` bots, seeded headless runs with replay recordings, metrics against goals and deterministic YAML reports |
 | `cutscene` | `github.com/nsgo-dev/game/pkg/cutscene` | [cutscene](cutscene.md) | Skippable video cutscenes over the game's view, in a scene or between scenes, from YAML files |
 | `rhythm` | `github.com/nsgo-dev/game/pkg/rhythm` | [rhythm](rhythm.md) | YAML beat maps with tempo and meter changes, a music clock on the audio clock, and per-device audio/video latency calibration |
 | `undo` | `github.com/nsgo-dev/game/pkg/undo` | [undo](undo.md) | Reversible moves with unlimited undo, redo and `Seek`, saved as a YAML `Log` |

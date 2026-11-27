@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 // mvCommand moves a file or directory of a project and rewrites every reference to it, as refs.PlanMove plans, or renames a localization text key with -text-key.

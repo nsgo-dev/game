@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

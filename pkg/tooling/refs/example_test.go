@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 // PlanMove rewrites every reference to the file it moves, in place, and records the move in the project index.

@@ -223,7 +223,7 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 
 在 `Canvas.Draw` 中调用 `screen.Draw(d, bounds)`，并可通过 `screen.ApplyCatalog(catalog, locale)` 动态切换语言、通过 `screen.SetSafeArea(insets)` 更新安全区边距、通过 `screen.SetDeviceClass(class)` 切换设备类别过滤。
 
-### 静态检查（`game check`）与安全重构（`refs`、`game mv`）
+### 静态检查（`game check`）与安全重构（`tooling/refs`、`game mv`）
 
 `game check`（及 `gameui.CheckScreen`）会检查项目中的所有 `*.screen.yaml` 文件，并按文件、行号和节点 ID 报告以下问题：
 
@@ -234,4 +234,4 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 - 引用的 `sprite` 图片或图集帧缺失；
 - `image_progress` 节点引用的 `under`、`progress` 或 `over` 图片缺失。
 
-`refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径、`image_progress` 图层路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。
+`tooling/refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径、`image_progress` 图层路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。

@@ -14,7 +14,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/editor/editormcp"
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // editorLoop serializes all Editor calls onto a single goroutine, matching how a live UI runs

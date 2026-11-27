@@ -25,9 +25,9 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/l10n"
 	gamemcp "github.com/nsgo-dev/game/pkg/mcp"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )

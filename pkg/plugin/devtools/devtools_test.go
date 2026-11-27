@@ -15,10 +15,10 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/mcp"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/plugin"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 type stubBot struct{ tag string }

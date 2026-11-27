@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // Run a deterministic headless playtest with platformer-runner, collect positioned events and timers, and evaluate goals.

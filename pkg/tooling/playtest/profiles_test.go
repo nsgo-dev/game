@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/replay"
 	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 func TestAllBuiltInBotProfilesRegistered(t *testing.T) {
@@ -44,7 +44,7 @@ func TestTemplatePlaytestConfigsCanonicalAndRegistered(t *testing.T) {
 	}
 	for _, tc := range templates {
 		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join("..", "..", "template", tc.name, "template", playtest.FileName)
+			path := filepath.Join("..", "..", "..", "template", tc.name, "template", playtest.FileName)
 			raw, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("read %s: %v", path, err)
@@ -310,7 +310,7 @@ func (w *fixtureExplorerWorld) step(src replay.ActionSource, metrics *playtest.C
 }
 
 func TestTopDownExplorerFixtureDeterminism(t *testing.T) {
-	cfgPath := filepath.Join("..", "..", "template", "rpg2d", "template", playtest.FileName)
+	cfgPath := filepath.Join("..", "..", "..", "template", "rpg2d", "template", playtest.FileName)
 	cfg, err := playtest.LoadConfigFile(cfgPath)
 	if err != nil {
 		t.Fatalf("LoadConfigFile: %v", err)
@@ -581,7 +581,7 @@ func (s *fixtureShooter) step(src replay.ActionSource, metrics *playtest.Collect
 }
 
 func TestShooterBotFixtureDeterminismAndReactionTime(t *testing.T) {
-	cfgPath := filepath.Join("..", "..", "template", "shmup2d", "template", playtest.FileName)
+	cfgPath := filepath.Join("..", "..", "..", "template", "shmup2d", "template", playtest.FileName)
 	cfg, err := playtest.LoadConfigFile(cfgPath)
 	if err != nil {
 		t.Fatalf("LoadConfigFile: %v", err)
@@ -857,7 +857,7 @@ func TestPuzzleSolverFindsKnownShorterSolutionAndIsDeterministic(t *testing.T) {
 	}
 
 	// Run full puzzle pack through playtest.Run using puzzle2d's playtest.yaml twice for determinism.
-	cfgPath := filepath.Join("..", "..", "template", "puzzle2d", "template", playtest.FileName)
+	cfgPath := filepath.Join("..", "..", "..", "template", "puzzle2d", "template", playtest.FileName)
 	cfg, err := playtest.LoadConfigFile(cfgPath)
 	if err != nil {
 		t.Fatalf("LoadConfigFile: %v", err)
@@ -1126,7 +1126,7 @@ func (s *fixtureCardState) Evaluate(player int) float64 {
 }
 
 func TestCardAIFixtureTournamentDeterminismAndMatrix(t *testing.T) {
-	cfgPath := filepath.Join("..", "..", "template", "cards2d", "template", playtest.FileName)
+	cfgPath := filepath.Join("..", "..", "..", "template", "cards2d", "template", playtest.FileName)
 	cfg, err := playtest.LoadConfigFile(cfgPath)
 	if err != nil {
 		t.Fatalf("LoadConfigFile: %v", err)
