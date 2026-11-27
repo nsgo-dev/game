@@ -2832,6 +2832,19 @@ The names are those the game registered with `RegisterFloat`, `RegisterInt`, `Re
 
 It records the cloud revision and content hash both sides held after the last sync, and when this device last wrote the local copy.
 
+<!-- format: online/liveops#review -->
+### Review prompt state
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| A key in `core.Storage`, `StorageKey` (default `liveops.review_prompt`) | `version: 1` | `liveops.ReviewPrompt`, which keeps it for itself | [liveops](liveops.md#review-prompts) |
+
+```json
+{"version":1,"appVersion":"1.2.0","firstLaunch":"2026-03-01T10:00:00Z","sessions":4,"positiveMoments":3,"lastPromptedAt":"2026-03-05T14:30:00Z","lastPromptedVersion":"1.2.0"}
+```
+
+It records the current app version, first-launch timestamp, lifetime session count, per-version positive moments, and the timestamp and version of the last store rating request. Any unrecognised field, invalid timestamp or unsupported version fails closed without overwriting the key.
+
 <!-- format: online/leaderboard/selfhost#records -->
 ### Leaderboard records
 

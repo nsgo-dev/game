@@ -2832,6 +2832,19 @@ runs:
 
 它记录上次同步后两端共有的云端修订号和内容哈希，以及本设备上次写入本地副本的时间。
 
+<!-- format: online/liveops#review -->
+### 商店评分提示状态
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `core.Storage` 中的一个键 `StorageKey`（默认 `liveops.review_prompt`） | `version: 1` | `liveops.ReviewPrompt`，仅供其自身使用 | [liveops](liveops.md#商店评分提示) |
+
+```json
+{"version":1,"appVersion":"1.2.0","firstLaunch":"2026-03-01T10:00:00Z","sessions":4,"positiveMoments":3,"lastPromptedAt":"2026-03-05T14:30:00Z","lastPromptedVersion":"1.2.0"}
+```
+
+它记录当前应用版本、首次启动时间、累计会话次数、当前版本的正向时刻数，以及上次请求商店评分的时间与版本。遇到任何未知字段、非法时间戳或不支持的版本号时一律默认关闭且不覆写该键。
+
 <!-- format: online/leaderboard/selfhost#records -->
 ### 排行榜记录
 

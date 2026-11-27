@@ -26,3 +26,17 @@ func TestSyncStateExamplesOnFormatsPage(t *testing.T) {
 		}
 	}
 }
+
+// TestReviewStateExamplesOnFormatsPage decodes each example of the review prompt state entry on the File Formats page as ReviewPrompt does, since the decoder is unexported.
+func TestReviewStateExamplesOnFormatsPage(t *testing.T) {
+	for _, ex := range formattest.Examples(t, "online/liveops#review", "json") {
+		st, err := decodeReviewState(string(ex.Data))
+		if err != nil {
+			t.Errorf("%s:%d: the example does not decode: %v", ex.Page, ex.Line, err)
+			continue
+		}
+		if st.raw.Version != ReviewPromptStateVersion || st.raw.AppVersion == "" {
+			t.Errorf("%s:%d: the example decodes as %+v, want version %d with appVersion", ex.Page, ex.Line, st.raw, ReviewPromptStateVersion)
+		}
+	}
+}

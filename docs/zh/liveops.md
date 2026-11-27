@@ -15,6 +15,7 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **云存档**（[#196](https://github.com/nsgo-dev/game/issues/196)） | 纳入范围 | 与服务商无关的 `CloudSync` 接口、基于 NSGo `cloud` 包的 `PlatformCloud`（macOS/iOS 上的 iCloud、Android 上的 Google Play Games 存档服务以及 `nsgotest` 内存存储）、面向 Steam Auto-Cloud 及其他目录同步商店的 `DirCloud`、访问自部署 [cloudsave](cloudsave.md) 服务的 `CloudClient`（[#557](https://github.com/nsgo-dev/game/issues/557)），以及 `CloudSyncer` 冲突解决（[#539](https://github.com/nsgo-dev/game/issues/539)）。 |
 | **应用内购买**（[#369](https://github.com/nsgo-dev/game/issues/369)） | 纳入范围 | 基于 NSGo 购买服务的 `Purchases`：消耗型商品恰好一次入账到存档，解锁项与订阅来自商店权益，支持恢复购买、“询问后购买”和可选的服务器校验。 |
 | **本地提醒**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 纳入范围 | 基于 NSGo `core.Scope.ShowNotification` 的 `Reminders`：带版本号的 YAML 声明（`RemindersConfig`）、仅在首次 `Schedule` 或显式 `RequestPermission` 时申请权限、持久化玩家开关、本地时间 `QuietHours` 免打扰时段，以及应用回到前台时的取消/重排/保留规则。 |
+| **商店评分提示**（[#1767](https://github.com/nsgo-dev/game/issues/1767)） | 纳入范围 | 基于 `core.Storage` 与 `core.Scope.RequestReview` 的 `ReviewPrompt`：按会话数、距首次启动天数、正向时刻、冷却期和每个版本最多一次的策略控制商店评分请求，负向时刻后在本会话内抑制提示，状态损坏或平台不支持时默认关闭。 |
 | **远程推送**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 等待上游 | 等待 NSGo 落地远程推送（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)）并确定开放设计决策（[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。在此之前，远程推送在所有平台上均不可用。 |
 | **广告**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要广告的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
 
@@ -261,3 +262,36 @@ _ = reminders.Schedule("daily_reward", func(scheduled bool) { /* 更新界面 */
 ### 远程推送（等待上游）
 
 远程推送通知（`liveops.Push`）目前在所有平台上均不可用，且有意暂不提供实现。游戏层封装——包括向游戏服务器上报设备令牌、把推送负载路由到线上活动处理器，以及将远程通知点击统一转为 `ReminderPress`——需等待 NSGo 实现远程推送（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)）并敲定其开放 API 设计决策（[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。
+
+## 商店评分提示
+
+`ReviewPrompt` 负责决定何时调用 NSGo 的 `core.Scope.RequestReview`，使游戏只在正向时刻之后请求商店评分、每个应用版本最多询问一次，且绝不在令玩家受挫的时机打扰玩家。
+
+### 商店规范摘要
+
+- **Apple App Store（StoreKit）**：每个应用在任意 365 天内最多展示三次系统评分弹窗（跨版本累计）。不要由按钮或玩家直接点击触发 `RequestReview`，也不要打断对局或弹窗流程；应在任务完成或正向里程碑后的自然停顿处请求。
+- **Google Play（In-App Review API）**：由商店自行施加配额且不会告知应用弹窗是否实际显示。应等玩家充分体验游戏、能够给出有效反馈后再请求，并且不要在调用商店 API 之前先弹出诱导性前置问卷（如“你喜欢这款游戏吗？”）。
+
+### 策略与持久化
+
+- **阈值与默认值**：`NewReviewPrompt(store, opts)` 在启动时递增会话次数，并在 `MaybeAsk(cx)` 中依次检查：`MinSessions`（默认 `DefaultReviewMinSessions` = 3，绝不在首次会话询问）、距首次启动的 `MinDays`（默认 `DefaultReviewMinDays` = 3 天）、当前 `AppVersion` 下的 `MinPositiveMoments`（默认 `DefaultReviewMinPositiveMoments` = 3）、跨版本的请求冷却期 `Cooldown`（默认 `DefaultReviewCooldown` = 122 天，确保任意 365 天窗口内不超过 Apple 的 3 次上限），以及每个 `AppVersion` 最多一次。
+- **正向/负向时刻与抑制**：在通关、刷新纪录等正向里程碑后调用 `Moment(MomentPositive)`，在失败或出错后调用 `Moment(MomentNegative)`。只要当前会话记录过 `MomentNegative`，本会话剩余时间将不再弹出评分请求；下次启动或调用 `RecordSession()` 会开启干净的新会话。可通过 `Suppress` 在购买页、广告流程或模态框打开期间临时抑制提示。
+- **带版本号的 JSON 状态与失败即关闭**：状态以确定性的带版本号 JSON 文本（`ReviewPromptStateVersion` = 1）持久化到 `core.Storage` 的 `StorageKey`（为空时使用 `DefaultReviewPromptKey`）。遇到未知字段、尾随数据、非法时间戳、负数计数或未知/更高版本号时一律默认关闭（`Eligible()` 与 `MaybeAsk(cx)` 返回 `false`，且不覆写已存数据）。`AppVersion` 变更时会重置当前版本的 `positiveMoments`，同时保留 `firstLaunch`、`sessions` 与 `lastPromptedAt`，确保热修版本仍受冷却期约束。`MaybeAsk` 会先持久化本次请求记录，写入成功后再调用 `cx.RequestReview()`，避免存储写入失败导致重复弹窗。
+- **不支持平台上的空操作**：在 `cx.Env().CanRequestReview()` 为 `false` 的平台（Windows、Linux、Web）上，`MaybeAsk(cx)` 为安全空操作，直接返回 `false` 且不记录已提示状态，游戏可无条件调用。
+
+```go
+review := liveops.NewReviewPrompt(cx.Storage(), liveops.ReviewPromptOptions{
+	AppVersion: Project.AppVersion,
+	Now:        cx.WallTime,
+	Suppress:   func() bool { return purchaseOpen },
+})
+
+// 通关后在自然停顿处（例如结算卡片出现时）：
+review.Moment(liveops.MomentPositive)
+review.MaybeAsk(cx)
+
+// 失败或出现受挫体验后：
+review.Moment(liveops.MomentNegative)
+```
+
+测试可通过 `nsgotest` 无头驱动评分策略：搭配 `nsgotest.Environment(core.Environment{OS: core.OSIOS, CanRequestReview: true})`、`nsgotest.WallTime(...)`、`app.FastForward(...)`、`nsgotest.Storage(...)` 与 `app.ReviewRequests`；`liveops/review_test.go` 覆盖了全部规则。
