@@ -186,7 +186,7 @@ Every existing `pkg/online/netplay` wire format is described verbatim under `pkg
 | Schema file | Byte order | Protocol and messages |
 | --- | --- | --- |
 | `transport.wire.yaml` | `be` | `Channel`, `TransportFrame` (`channel(1) seq(4) payload`), `UDPPeerFrame` (`from(4) channel(1) seq(4) payload`) |
-| `udp_sealed.wire.yaml` | `be` | `UDPDatagramType` (`0xB1`..`0xB5`), `UDPSealedDatagram` (`type(1) peer(4) seq(4) channel(1) tag(8) payload`) |
+| `udp_sealed.wire.yaml` | `be` | `UDPDatagramType` (`0xB1`..`0xB6`), `UDPSealedDatagram` (`type(1) peer(4) seq(4) channel(1) sealed`, ChaCha20-Poly1305 ciphertext + 16-byte tag) |
 | `handshake.wire.yaml` | `be` | `HandshakeMessage` (`0xA1` `HandshakeHello`, `0xA2` `HandshakeWelcome`, `0xA3` `HandshakeReject`, version 1) |
 | `relay.wire.yaml` | `be` | `RelayFrame` (version 1), `RelayMembers` (`0x01`), `RelayBody` (`0x01` `RelayUnreliable`, `0x02` `RelayReliable`, `0x03` `RelayAck`) |
 | `replication.wire.yaml` | `le` | `EntityRecord` (delta-masked fields), `ReplicationMessage` (nibble version 2 + types `1..5`: `SnapshotFull`, `SnapshotDelta`, `SnapshotAck`, `ResyncRequest`, `SnapshotFullPart`) |

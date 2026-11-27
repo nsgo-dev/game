@@ -14,8 +14,9 @@ func FuzzWireUDPSealedDatagram(f *testing.F) {
 	f.Add(uint8(0), uint32(2), uint32(1), uint8(ChannelUnreliable), []byte("udp-data"))
 	f.Add(uint8(1), uint32(1), uint32(55), uint8(ChannelUnreliable), []byte(nil))
 	f.Add(uint8(2), uint32(99), uint32(12345), uint8(ChannelUnreliable), []byte{0, 255})
+	f.Add(uint8(5), uint32(7), uint32(42), uint8(ChannelUnreliable), []byte("peer-data"))
 
-	types := []byte{udpData, udpServerData, udpPing, udpPong, udpBye}
+	types := []byte{udpData, udpServerData, udpPing, udpPong, udpBye, udpPeerData}
 
 	f.Fuzz(func(t *testing.T, typIdx uint8, peer, seq uint32, rawCh uint8, payload []byte) {
 		typ := types[int(typIdx)%len(types)]
@@ -24,17 +25,23 @@ func FuzzWireUDPSealedDatagram(f *testing.F) {
 		for i := range key {
 			key[i] = byte(i + int(peer))
 		}
-		want := sealUDP(&key, typ, PeerID(peer), seq, ch, payload)
-		var tag [8]uint8
-		copy(tag[:], want[10:18])
+		dir := udpDirClientToServer
+		switch typ {
+		case udpServerData, udpPong:
+			dir = udpDirServerToClient
+		case udpPeerData:
+			dir = peer + 1
+		}
+		c := newUDPCipher(key)
+		want := c.seal(nil, dir, typ, PeerID(peer), seq, ch, payload)
+		sealed := want[udpCleartextHeader:]
 
 		got := wire.AppendUDPSealedDatagram(nil, &wire.UDPSealedDatagram{
 			Type:    wire.UDPDatagramType(typ),
 			Peer:    peer,
 			Seq:     seq,
 			Channel: wire.Channel(ch),
-			Tag:     tag,
-			Payload: payload,
+			Sealed:  sealed,
 		})
 		if !bytes.Equal(got, want) {
 			t.Fatalf("UDPSealedDatagram encode mismatch: got %x, want %x", got, want)
@@ -46,8 +53,12 @@ func FuzzWireUDPSealedDatagram(f *testing.F) {
 		if !ok || err != nil || n != len(want) {
 			t.Fatalf("UDPSealedDatagram decode failed: ok=%v err=%v n=%d/%d", ok, err, n, len(want))
 		}
-		if byte(dec.Type) != sh.typ || PeerID(dec.Peer) != sh.peer || dec.Seq != sh.seq || Channel(dec.Channel) != sh.ch || dec.Tag != tag || !bytes.Equal(dec.Payload, payload) {
+		if byte(dec.Type) != sh.typ || PeerID(dec.Peer) != sh.peer || dec.Seq != sh.seq || Channel(dec.Channel) != sh.ch || !bytes.Equal(dec.Sealed, sealed) {
 			t.Fatalf("UDPSealedDatagram decode mismatch")
+		}
+		pt, opened := c.open(nil, dir, got)
+		if !opened || !bytes.Equal(pt, payload) {
+			t.Fatalf("UDPSealedDatagram AEAD open mismatch: opened=%v got %x, want %x", opened, pt, payload)
 		}
 
 		// Also verify UDPPeerFrame against udp_native.go's 9-byte header layout (from(4) + wireFrame).

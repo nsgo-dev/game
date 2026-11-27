@@ -24,9 +24,12 @@ enums:
       - name: bye
         value: 181
         doc: Client-to-server session goodbye (0xB5).
+      - name: peer_data
+        value: 182
+        doc: UDPTransport pre-shared key peer datagram (0xB6).
 messages:
   - name: UDPSealedDatagram
-    doc: UDPSealedDatagram is an authenticated UDP session datagram with an 18-byte header (type, peer, seq, channel, 8-byte truncated HMAC-SHA256 tag) and trailing payload.
+    doc: UDPSealedDatagram is a ChaCha20-Poly1305 AEAD UDP datagram with a 10-byte cleartext header (type, peer, seq, channel) authenticated as associated data followed by ciphertext and a 16-byte Poly1305 tag.
     fields:
       - name: type
         type: UDPDatagramType
@@ -36,11 +39,7 @@ messages:
         type: u32
       - name: channel
         type: Channel
-      - name: tag
-        type: array
-        array:
-          count: 8
-          of: u8
-      - name: payload
+      - name: sealed
+        doc: ChaCha20-Poly1305 ciphertext followed by the 16-byte Poly1305 authentication tag.
         type: bytes
         length: rest
