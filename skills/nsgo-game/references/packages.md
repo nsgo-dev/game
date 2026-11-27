@@ -117,25 +117,25 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `game/pkg/save` | Stable | Versioned JSON save slots, schema migrations, player settings and atomic backup recovery |
-| `game/pkg/net` | Experimental | Cross-target WebSocket/UDP/loopback transports, snapshot replication, lockstep/rollback |
-| `game/pkg/server` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
-| `game/pkg/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
-| `game/pkg/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
+| `game/pkg/online/netplay` | Experimental | Cross-target WebSocket/UDP/loopback transports, snapshot replication, lockstep/rollback |
+| `game/pkg/online/server` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
+| `game/pkg/online/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
+| `game/pkg/online/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
 | `game/cmd/accountsd` | Experimental | Self-hosted accounts daemon |
-| `game/pkg/accounts/pgstore` | Experimental | PostgreSQL store backend for `game/accounts` |
-| `game/pkg/accounts/sqlitestore` | Experimental | SQLite store backend for `game/accounts` |
-| `game/pkg/accounts/sqlstore` | Experimental | Shared SQL helpers for `game/accounts` stores |
-| `game/pkg/accounts/storetest` | Experimental | Conformance test suite for `game/accounts` stores |
-| `game/pkg/accounts/token` | Experimental | Ed25519 account tokens verified offline by game servers |
-| `game/pkg/cloudsave` | Experimental | Self-hosted HTTPS cloud save service behind `liveops.CloudSync` |
+| `game/pkg/online/accounts/pgstore` | Experimental | PostgreSQL store backend for `game/online/accounts` |
+| `game/pkg/online/accounts/sqlitestore` | Experimental | SQLite store backend for `game/online/accounts` |
+| `game/pkg/online/accounts/sqlstore` | Experimental | Shared SQL helpers for `game/online/accounts` stores |
+| `game/pkg/online/accounts/storetest` | Experimental | Conformance test suite for `game/online/accounts` stores |
+| `game/pkg/online/accounts/token` | Experimental | Ed25519 account tokens verified offline by game servers |
+| `game/pkg/online/cloudsave` | Experimental | Self-hosted HTTPS cloud save service behind `liveops.CloudSync` |
 | `game/cmd/cloudsaved` | Experimental | Self-hosted cloud save daemon |
-| `game/pkg/cloudsave/sqlstore` | Experimental | SQL store backend for `game/cloudsave` |
-| `game/pkg/cloudsave/storetest` | Experimental | Conformance test suite for `game/cloudsave` stores |
-| `game/pkg/achievements` | Experimental | YAML achievement definitions, monotonic `core.Storage` progress, Game Center / Play Games |
-| `game/pkg/leaderboard` | Experimental | YAML leaderboards for Game Center and Play Games |
-| `game/pkg/leaderboard/selfhost` | Experimental | Self-hosted cross-platform leaderboards (all-time/daily/weekly, signed scores) |
+| `game/pkg/online/cloudsave/sqlstore` | Experimental | SQL store backend for `game/online/cloudsave` |
+| `game/pkg/online/cloudsave/storetest` | Experimental | Conformance test suite for `game/online/cloudsave` stores |
+| `game/pkg/online/achievements` | Experimental | YAML achievement definitions, monotonic `core.Storage` progress, Game Center / Play Games |
+| `game/pkg/online/leaderboard` | Experimental | YAML leaderboards for Game Center and Play Games |
+| `game/pkg/online/leaderboard/selfhost` | Experimental | Self-hosted cross-platform leaderboards (all-time/daily/weekly, signed scores) |
 | `game/cmd/leaderboardd` | Experimental | Self-hosted leaderboard daemon |
-| `game/pkg/presence` | Experimental | Provider-neutral rich presence (`Activity`, `Manager`) on Steam and Discord |
+| `game/pkg/online/presence` | Experimental | Provider-neutral rich presence (`Activity`, `Manager`) on Steam and Discord |
 | `game/pkg/modding` | Experimental | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` lifecycle manager |
 
 ## Debugging, testing, MCP and editor

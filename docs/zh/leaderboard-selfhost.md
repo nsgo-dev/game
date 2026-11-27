@@ -1,7 +1,7 @@
 # leaderboard/selfhost
 
 ```go
-import "github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
+import "github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 ```
 
 `leaderboard/selfhost` 是可自行部署的排行榜服务，面向跨多个平台运行、或运行在没有游戏服务的平台（Web、Windows、Linux）上的游戏。[`leaderboard`](leaderboard.md) 显示的是 Game Center 和 Play 游戏服务自己的排行榜；这个服务则为所有平台维护同一张榜，以[账号服务](accounts.md)登录的账号为键，所以浏览器里的成绩和手机上的成绩落在同一张榜上。
@@ -85,7 +85,7 @@ pals, err := svc.Friends(ctx, "high-score", "", friendIDs)              // 这�
 
 错误有 `ErrUnknownBoard`、`ErrUnknownPeriod`（没有这个周期，或已不再保留）、`ErrNotRanked`、`ErrInvalidAccount`、`ErrScoreOutOfRange`、`ErrProofRequired`、`ErrInvalidProof`、`ErrProofExpired` 和 `ErrInvalidQuery`。
 
-每个周期在内存里是一个顺序统计跳表，所以每次查询的开销是 O(log n) 加上返回的条目数。在一百万个账号的排行榜上，基准测试取前 100 名约 7 µs，取榜单深处的 100 个条目约 60 µs，取账号附近的条目约 40 µs，提交约 10 µs（`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`）；任何查询超过 50 ms 时基准测试失败，CI 在每个拉取请求上运行这些查询基准测试。
+每个周期在内存里是一个顺序统计跳表，所以每次查询的开销是 O(log n) 加上返回的条目数。在一百万个账号的排行榜上，基准测试取前 100 名约 7 µs，取榜单深处的 100 个条目约 60 µs，取账号附近的条目约 40 µs，提交约 10 µs（`go tool nsgo test ./pkg/online/leaderboard/selfhost -run '^$' -bench .`）；任何查询超过 50 ms 时基准测试失败，CI 在每个拉取请求上运行这些查询基准测试。
 
 ## 服务器校验的成绩
 

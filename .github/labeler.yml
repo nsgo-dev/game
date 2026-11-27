@@ -12,17 +12,6 @@ pkg/a11y:
       - any-glob-to-any-file:
           - pkg/a11y/**
 
-pkg/accounts:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/accounts/**
-          - cmd/accountsd/**
-
-pkg/achievements:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/achievements/**
-
 pkg/ai:
   - changed-files:
       - any-glob-to-any-file:
@@ -103,21 +92,10 @@ pkg/l10n:
       - any-glob-to-any-file:
           - pkg/l10n/**
 
-pkg/leaderboard:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/leaderboard/**
-          - cmd/leaderboardd/**
-
 pkg/lights2d:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/lights2d/**
-
-pkg/liveops:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/liveops/**
 
 pkg/math2d:
   - changed-files:
@@ -134,10 +112,14 @@ pkg/modding:
       - any-glob-to-any-file:
           - pkg/modding/**
 
-pkg/net:
+pkg/online:
   - changed-files:
       - any-glob-to-any-file:
-          - pkg/net/**
+          - pkg/online/**
+          - cmd/accountsd/**
+          - cmd/cloudsaved/**
+          - cmd/leaderboardd/**
+          - examples/dedicatedserver/**
 
 pkg/particles:
   - changed-files:
@@ -213,11 +195,6 @@ pkg/screen:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/screen/**
-
-pkg/server:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/server/**
 
 pkg/skeletal:
   - changed-files:

@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/server"
+	"github.com/nsgo-dev/game/pkg/online/server"
 )
 
 func main() {

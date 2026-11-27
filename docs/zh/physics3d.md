@@ -332,7 +332,7 @@ sw.Step(dt)
 snap := world.Save()
 hash := world.Checksum()
 
-// 序列化为纯文本 JSON（或存入 net.SimState 回滚缓冲）：
+// 序列化为纯文本 JSON（或存入 netplay.SimState 回滚缓冲）：
 raw, _ := json.Marshal(snap)
 
 var restored physics3d.WorldSnapshot

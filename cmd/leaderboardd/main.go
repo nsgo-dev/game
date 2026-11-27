@@ -23,8 +23,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/accounts/token"
-	"github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
+	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 )
 
 func main() {

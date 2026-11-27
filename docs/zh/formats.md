@@ -1405,7 +1405,7 @@ tables:
         weight: 6.5
 ```
 
-<!-- format: achievements -->
+<!-- format: online/achievements -->
 ### 成就
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -1424,7 +1424,7 @@ achievements:
       playGames: CgkIabc123EAIQAg
 ```
 
-<!-- format: leaderboard -->
+<!-- format: online/leaderboard -->
 ### 排行榜
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -1976,7 +1976,7 @@ adapt:
 
 ## 服务器
 
-<!-- format: accounts -->
+<!-- format: online/accounts -->
 ### 账号服务
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -1997,7 +1997,7 @@ password:
     threads: 1
 ```
 
-<!-- format: accounts/token -->
+<!-- format: online/accounts/token -->
 ### 令牌密钥集
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2013,7 +2013,7 @@ keys:
     key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
 ```
 
-<!-- format: cloudsave -->
+<!-- format: online/cloudsave -->
 ### 云存档服务
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2029,7 +2029,7 @@ allowedOrigins:
   - https://play.example.com
 ```
 
-<!-- format: leaderboard/selfhost -->
+<!-- format: online/leaderboard/selfhost -->
 ### 排行榜服务
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2248,7 +2248,7 @@ benchmarks:
   BenchmarkRaycast: {ns_per_op: 420.5, bytes_per_op: 0, allocs_per_op: 0}
 ```
 
-<!-- format: achievements#progress -->
+<!-- format: online/achievements#progress -->
 ### 成就进度
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2599,7 +2599,7 @@ runs:
 
 `payload` 是 `encoding/json` 写出的游戏状态，以 base64 编码；`loop_elapsed` 的单位是纳秒。
 
-<!-- format: liveops -->
+<!-- format: online/liveops -->
 ### 云存档载荷
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2620,7 +2620,7 @@ runs:
 
 `hash` 是存档字节的 SHA-256；存档字节是 UTF-8 时以文本存放在 `data` 中，否则以 base64 存放在 `data_base64` 中。
 
-<!-- format: liveops#sync -->
+<!-- format: online/liveops#sync -->
 ### 云同步状态
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2633,7 +2633,7 @@ runs:
 
 它记录上次同步后两端共有的云端修订号和内容哈希，以及本设备上次写入本地副本的时间。
 
-<!-- format: leaderboard/selfhost#records -->
+<!-- format: online/leaderboard/selfhost#records -->
 ### 排行榜记录
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2864,7 +2864,7 @@ Ren: The sky is the same size. #line:obs_06
 
 ## 二进制文件
 
-本身就是二进制的媒体仍保持二进制：图片（PNG）、声音（WAV、AAC、MP3）、字体页、glTF 缓冲区和 `.glb` 文件，以及 `game assets` 编码的 KTX2 纹理。`net` 的网络包（传输中的数据）和格斗输入识别器的回滚状态（只存在于内存）也是二进制。它们需要设置时，都由上面的某个文本文件描述：导入设置旁注文件、`game.yaml` 或 glTF 文档。
+本身就是二进制的媒体仍保持二进制：图片（PNG）、声音（WAV、AAC、MP3）、字体页、glTF 缓冲区和 `.glb` 文件，以及 `game assets` 编码的 KTX2 纹理。`online/netplay` 的网络包（传输中的数据）和格斗输入识别器的回滚状态（只存在于内存）也是二进制。它们需要设置时，都由上面的某个文本文件描述：导入设置旁注文件、`game.yaml` 或 glTF 文档。
 
 ## 保持本页与代码一致
 

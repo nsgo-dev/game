@@ -92,10 +92,10 @@ if err := json.Unmarshal(data, &saved); err == nil {
 
 For a single stream, use `s.State()` and `s.SetState(state)`. Call `s.Reset()` or `streams.Reset()` to rewind to the start of a seed for replays or level restarts.
 
-For physics worlds, `physics.World`, `physics.RigidWorld`, `physics3d.World`, and `vehicle.Vehicle` all provide `Save()`, `Restore(snap)`, and `Checksum()` capturing every piece of private solver state (warm-start impulse caches, sleep timers, previous poses, active contact/trigger pair sets, and joint state). Snapshots marshal cleanly to plain-text JSON and pair directly with `net.RollbackSession` (`net.SimState`):
+For physics worlds, `physics.World`, `physics.RigidWorld`, `physics3d.World`, and `vehicle.Vehicle` all provide `Save()`, `Restore(snap)`, and `Checksum()` capturing every piece of private solver state (warm-start impulse caches, sleep timers, previous poses, active contact/trigger pair sets, and joint state). Snapshots marshal cleanly to plain-text JSON and pair directly with `netplay.RollbackSession` (`netplay.SimState`):
 
 ```go
-// Inside a net.SimState implementation:
+// Inside a netplay.SimState implementation:
 func (s *MatchSim) Save() []byte {
 	data, _ := json.Marshal(s.world.Save())
 	return data

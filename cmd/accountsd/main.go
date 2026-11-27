@@ -27,10 +27,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/accounts"
-	"github.com/nsgo-dev/game/pkg/accounts/pgstore"
-	"github.com/nsgo-dev/game/pkg/accounts/sqlitestore"
-	"github.com/nsgo-dev/game/pkg/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts"
+	"github.com/nsgo-dev/game/pkg/online/accounts/pgstore"
+	"github.com/nsgo-dev/game/pkg/online/accounts/sqlitestore"
+	"github.com/nsgo-dev/game/pkg/online/accounts/token"
 )
 
 // dsnEnv is the environment variable serve -postgres reads the database URL from, so the password stays off the command line.
